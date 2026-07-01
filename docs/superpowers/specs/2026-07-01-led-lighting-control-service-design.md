@@ -4,11 +4,11 @@
 
 ## 1. 목표
 
-주차장에 설치된 LED 조명에 ESP32-H2 기반 BLE Mesh 모듈을 부착하고, PC Web, Mobile App, Tablet 환경에서 클라우드 서버를 통해 조명을 제어하고 전력/조명 현황을 모니터링할 수 있는 서비스를 개발한다.
+주차장에 설치된 LED 조명에 ESP32-H2 기반 BLE Mesh 모듈을 부착하고, PC 웹, 모바일 앱, 태블릿 환경에서 클라우드 서버를 통해 조명을 제어하고 전력/조명 현황을 모니터링할 수 있는 서비스를 개발한다.
 
 개발 우선순위는 다음 순서로 진행한다.
 
-1. PC Web 중심의 관제 UI, 클라우드, 데이터 모델, mock gateway 기반 MVP
+1. PC 웹 중심의 관제 UI, 클라우드, 데이터 모델, Mock 게이트웨이 기반 MVP
 2. 라즈베리파이 게이트웨이와 ESP32-H2 BLE Mesh를 연결한 실제 장비 end-to-end MVP
 3. 특정 주차장 파일럿 현장 운영 MVP
 
@@ -16,13 +16,13 @@
 
 ### 2.1 클라이언트 전략
 
-PC Web을 1차 기준 제품으로 개발한다. React, React Query, Zustand, TypeScript를 사용하며, 관제 업무에 맞는 밀도 높은 UI를 제공한다.
+PC 웹을 1차 기준 제품으로 개발한다. React, React Query, Zustand, TypeScript를 사용하며, 관제 업무에 맞는 밀도 높은 UI를 제공한다.
 
-Mobile App과 Tablet App은 React Native 기반 shell을 두고 WebView로 웹 화면을 최대한 재사용한다. 앱 고유 기능은 로그인 세션, 푸시, WebView bridge, 앱 배포 설정 정도로 제한한다. 모바일 화면에서는 2D 맵을 그대로 축소하지 않고 간소화 맵과 리스트 전환을 제공한다.
+모바일 앱과 태블릿 앱은 React Native 기반 shell을 두고 WebView로 웹 화면을 최대한 재사용한다. 앱 고유 기능은 로그인 세션, 푸시, WebView bridge, 앱 배포 설정 정도로 제한한다. 모바일 화면에서는 2D 맵을 그대로 축소하지 않고 간소화 맵과 리스트 전환을 제공한다.
 
 ### 2.2 주요 메뉴
 
-모바일/태블릿에서는 하단 메뉴를 유지하고, PC Web에서는 좌측 또는 상단 내비게이션으로 변환한다.
+모바일/태블릿에서는 하단 메뉴를 유지하고, PC 웹에서는 좌측 또는 상단 내비게이션으로 변환한다.
 
 - 모니터링: 층별 2D 맵, 조명 위치, 점등/디밍 %, 장애 상태, 게이트웨이 연결 상태
 - 제어: 개별 조명, 그룹/구역 단위 밝기 제어, 스케줄 제어, 이벤트 제어
@@ -33,37 +33,37 @@ Mobile App과 Tablet App은 React Native 기반 shell을 두고 WebView로 웹 �
 
 초기에는 개발사 또는 운영자가 현장 도면을 받아 세팅한다. 이후 현장 관리자가 웹에서 층 도면을 업로드하고 조명 위치, 그룹, 구역을 직접 수정할 수 있게 한다.
 
-도면 데이터는 floor plan, 좌표계, 편집 버전, fixture position, group/zone, commissioning status를 분리해 관리한다.
+도면 데이터는 도면, 좌표계, 편집 버전, 조명 위치, 그룹/구역, 설치·시운전 상태를 분리해 관리한다.
 
 ## 3. 시스템 아키텍처
 
 ### 3.1 전체 구조
 
-- Clients: PC Web, React Native WebView App, Tablet WebView
-- Cloud: NestJS, PostgreSQL, Redis, MQTT broker
-- Field: Raspberry Pi gateway, ESP32-H2 BLE Mesh node, LED driver, sensor
+- 클라이언트: PC 웹, React Native WebView 앱, 태블릿 WebView
+- 클라우드: NestJS, PostgreSQL, Redis, MQTT broker
+- 현장 장비: Raspberry Pi 게이트웨이, ESP32-H2 BLE Mesh 노드, LED 드라이버, 센서
 
-Cloud는 인증, 현장/층/도면, 조명 제어, 실시간 상태, 전력 통계, OTA 관리를 담당한다.
+클라우드는 인증, 현장/층/도면, 조명 제어, 실시간 상태, 전력 통계, OTA 관리를 담당한다.
 
 게이트웨이는 클라우드와 MQTT 및 HTTP API를 함께 사용한다.
 
-- MQTT data plane: 조명 명령, 상태 보고, heartbeat, 이벤트, 명령 ACK
-- HTTP operation plane: 게이트웨이 등록, 설정 동기화, OTA manifest 조회, 패키지 다운로드, 도면/메타데이터 조회
+- MQTT 데이터 플레인: 조명 명령, 상태 보고, heartbeat, 이벤트, 명령 ACK
+- HTTP 운영 플레인: 게이트웨이 등록, 설정 동기화, OTA manifest 조회, 패키지 다운로드, 도면/메타데이터 조회
 
 클라우드 연결이 끊겨도 게이트웨이는 저장된 스케줄, 이벤트 정책, 기본 밝기 정책을 로컬에서 계속 실행한다.
 
 ### 3.2 핵심 상태 흐름
 
 ```text
-Web 제어 요청
-→ NestJS command 생성
-→ MQTT publish
-→ Gateway 명령 수신/검증
+웹 제어 요청
+→ NestJS 명령 생성
+→ MQTT 발행
+→ 게이트웨이 명령 수신/검증
 → BLE Mesh 명령
-→ Node 상태 보고
-→ Gateway MQTT publish
-→ Cloud 상태 갱신
-→ Web 실시간 반영
+→ 노드 상태 보고
+→ 게이트웨이 MQTT 발행
+→ 클라우드 상태 갱신
+→ 웹 실시간 반영
 ```
 
 실시간 상태는 Redis에 빠르게 반영하고, PostgreSQL에는 상태 snapshot, 명령 이력, 이벤트 이력, 통계 집계 데이터를 저장한다.
@@ -105,7 +105,7 @@ MVP에서는 추정치 기반으로 시작한다.
 
 ### 6.1 게이트웨이
 
-라즈베리파이 게이트웨이 언어는 Go를 추천한다. 단일 바이너리 배포, 장기 실행 안정성, MQTT/HTTP/systemd/로컬 큐 구현의 균형이 좋기 때문이다.
+라즈베리파이 게이트웨이 개발 언어는 Go를 추천한다. 단일 바이너리 배포, 장기 실행 안정성, MQTT/HTTP/systemd/로컬 큐 구현의 균형이 좋기 때문이다.
 
 게이트웨이 구성 요소:
 
@@ -141,24 +141,24 @@ OTA는 게이트웨이와 ESP32-H2 노드로 나누어 설계한다.
 
 ### 7.1 게이트웨이 OTA
 
-1. Cloud에서 OTA manifest 조회
+1. 클라우드에서 OTA manifest 조회
 2. 패키지 다운로드
 3. 서명 검증
-4. staged install
-5. service restart
-6. health check
+4. 단계적 설치
+5. 서비스 재시작
+6. 상태 점검
 7. 성공/실패 보고
 8. 실패 시 rollback
 
 ### 7.2 노드 OTA
 
-1. Cloud에서 펌웨어 배포 정책 생성
+1. 클라우드에서 펌웨어 배포 정책 생성
 2. Gateway가 펌웨어 다운로드
 3. 대상 노드별 순차 배포
 4. 노드별 성공/실패 수집
-5. Cloud에 배포 결과 보고
+5. 클라우드에 배포 결과 보고
 
-파일럿 단계에서는 staged rollout, 배포 중단, 재시도, 롤백 정책을 운영 화면에서 관리한다.
+파일럿 단계에서는 단계적 배포, 배포 중단, 재시도, 롤백 정책을 운영 화면에서 관리한다.
 
 ## 8. 통신 시뮬레이션과 음영 검증
 
@@ -196,7 +196,7 @@ Mesh 파라미터 연구가 필요할 때만 MathWorks Bluetooth Toolbox 또는 
 
 ## 9. 개발 로드맵
 
-### 9.1 MVP 1: Cloud + PC Web + Mock Gateway
+### 9.1 MVP 1: 클라우드 + PC 웹 + Mock 게이트웨이
 
 목표: 실제 장비 없이도 관제 화면에서 상태 변화와 명령 흐름을 데모할 수 있게 한다.
 
@@ -205,18 +205,18 @@ Mesh 파라미터 연구가 필요할 때만 MathWorks Bluetooth Toolbox 또는 
 - NestJS 백엔드 기본 구조
 - PostgreSQL schema
 - Redis 기반 실시간 상태 저장
-- React PC Web 관제 화면
+- React PC 웹 관제 화면
 - 현장/층/도면/조명 배치 관리
 - 2D 맵 모니터링
 - 개별/그룹 제어 UI
 - 스케줄/이벤트 정책 UI
 - 전력 사용량 추정 통계
 - React Native WebView shell
-- Mock gateway와 MQTT topic 흐름
+- Mock 게이트웨이와 MQTT topic 흐름
 - Hamina Planner 기반 사전 RF 검토 프로세스
 - 서비스 내 간이 연결성/음영 검토 화면
 
-### 9.2 MVP 2: Gateway + BLE Mesh End-to-End
+### 9.2 MVP 2: 게이트웨이 + BLE Mesh End-to-End
 
 목표: 웹 명령으로 실제 조명이 디밍되고, 장비 상태가 클라우드와 화면에 반영되게 한다.
 
@@ -233,7 +233,7 @@ Mesh 파라미터 연구가 필요할 때만 MathWorks Bluetooth Toolbox 또는 
 - RSSI, hop count, 명령 성공률, 응답 지연 수집
 - 통신 품질 heatmap
 
-### 9.3 MVP 3: Pilot Site Operation
+### 9.3 MVP 3: 파일럿 현장 운영
 
 목표: 파일럿 주차장에서 관리자가 일상 관제, 제어, 통계, 장애 대응을 사용할 수 있게 한다.
 
