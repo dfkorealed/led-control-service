@@ -103,6 +103,123 @@ select {
   cursor: not-allowed;
 }
 
+.screen-grid,
+.settings-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metric {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  border: 1px solid #dde6f3;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  color: #5a6b85;
+}
+
+.metric strong {
+  color: #172033;
+  font-size: 22px;
+}
+
+.metric span {
+  color: #1157c4;
+  font-size: 13px;
+}
+
+.floor-map {
+  position: relative;
+  overflow: hidden;
+  min-height: 360px;
+  border: 1px solid #cdd9e8;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(17, 87, 196, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(17, 87, 196, 0.08) 1px, transparent 1px),
+    #ffffff;
+  background-size: 48px 48px;
+}
+
+.floor-map::before {
+  position: absolute;
+  inset: 12px;
+  border: 2px solid #d8e2ef;
+  border-radius: 8px;
+  content: "";
+}
+
+.fixture-dot {
+  position: absolute;
+  display: grid;
+  min-width: 70px;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eaf2ff;
+  color: #174ea6;
+  padding: 6px 8px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.fixture-dot strong {
+  font-size: 13px;
+}
+
+.fixture-dot.offline {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.fixture-dot.fault {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.form-panel {
+  display: grid;
+  max-width: 520px;
+  gap: 14px;
+}
+
+.form-panel label {
+  display: grid;
+  gap: 8px;
+  color: #46566f;
+}
+
+.form-panel select,
+.form-panel input[type="range"] {
+  width: 100%;
+}
+
+.success-text {
+  margin: 0;
+  color: #0f766e;
+}
+
+.compact-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #46566f;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -133,5 +250,9 @@ select {
     min-height: 46px;
     padding: 6px 4px;
     font-size: 12px;
+  }
+
+  .summary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

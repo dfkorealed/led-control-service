@@ -1,4 +1,8 @@
 import { Activity, BarChart3, Settings, SlidersHorizontal } from "lucide-react";
+import { ControlView } from "./features/control/ControlView";
+import { MonitoringView } from "./features/monitoring/MonitoringView";
+import { SettingsView } from "./features/settings/SettingsView";
+import { StatisticsView } from "./features/statistics/StatisticsView";
 import { useNavigationStore } from "./state/navigation-store";
 import "./styles.css";
 
@@ -35,6 +39,10 @@ export function App() {
       </aside>
       <main className="content">
         <h1>{active.label}</h1>
+        {view === "monitoring" && <MonitoringView />}
+        {view === "control" && <ControlView />}
+        {view === "statistics" && <StatisticsView />}
+        {view === "settings" && <SettingsView />}
       </main>
     </div>
   );
