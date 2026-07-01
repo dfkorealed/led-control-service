@@ -70,6 +70,22 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  apps/mock-gateway:
+    dependencies:
+      '@led-control/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      mqtt:
+        specifier: ^5.10.3
+        version: 5.15.1
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(terser@5.48.0)
+
   packages/shared:
     dependencies:
       zod:
