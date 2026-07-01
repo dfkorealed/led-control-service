@@ -20,3 +20,10 @@ export const fixtureStateSchema = z.object({
   commandSuccessRate: z.number().min(0).max(1).nullable(),
   lastSeenAt: z.string().datetime()
 });
+
+export const commandAckSchema = z.object({
+  commandId: z.string().uuid(),
+  status: z.enum(["acknowledged", "failed"]),
+  acknowledgedAt: z.string().datetime().optional(),
+  errorMessage: z.string().optional()
+});

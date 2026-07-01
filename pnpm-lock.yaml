@@ -32,6 +32,9 @@ importers:
       '@prisma/client':
         specifier: ^6.1.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
       ioredis:
         specifier: ^5.4.2
         version: 5.11.1
@@ -112,6 +115,9 @@ importers:
       '@led-control/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
       mqtt:
         specifier: ^5.10.3
         version: 5.15.1

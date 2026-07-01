@@ -16,6 +16,9 @@ describe("CommandsService", () => {
     };
 
     const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: createdCommand.requestedBy })
+      },
       command: {
         create: jest.fn().mockResolvedValue(createdCommand)
       }
@@ -40,6 +43,7 @@ describe("CommandsService", () => {
     });
 
     expect(result.id).toBe(createdCommand.id);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: createdCommand.requestedBy } });
     expect(mqtt.publishDimmingCommand).toHaveBeenCalledWith({
       commandId: createdCommand.id,
       siteId: createdCommand.siteId,

@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { demoIds } from "@led-control/shared";
 
 const prisma = new PrismaClient();
 
@@ -17,11 +18,12 @@ async function main() {
   await prisma.organization.deleteMany();
 
   const organization = await prisma.organization.create({
-    data: { name: "Demo Parking Operator" }
+    data: { id: demoIds.organizationId, name: "Demo Parking Operator" }
   });
 
   const user = await prisma.user.create({
     data: {
+      id: demoIds.userId,
       organizationId: organization.id,
       email: "operator@example.com",
       name: "Demo Operator",
@@ -31,6 +33,7 @@ async function main() {
 
   const site = await prisma.site.create({
     data: {
+      id: demoIds.siteId,
       organizationId: organization.id,
       name: "Demo Underground Parking",
       address: "Seoul",
@@ -40,6 +43,7 @@ async function main() {
 
   const gateway = await prisma.gateway.create({
     data: {
+      id: demoIds.gatewayId,
       siteId: site.id,
       name: "Gateway B2",
       serialNumber: "GW-DEMO-001",
@@ -49,6 +53,7 @@ async function main() {
 
   const floor = await prisma.floor.create({
     data: {
+      id: demoIds.floorId,
       siteId: site.id,
       name: "B2",
       level: -2,
@@ -63,12 +68,13 @@ async function main() {
   });
 
   const group = await prisma.fixtureGroup.create({
-    data: { siteId: site.id, name: "B2 Entrance Zone" }
+    data: { id: demoIds.groupId, siteId: site.id, name: "B2 Entrance Zone" }
   });
 
   for (let index = 0; index < 12; index += 1) {
     const meshNode = await prisma.meshNode.create({
       data: {
+        id: demoIds.meshNodeIds[index],
         gatewayId: gateway.id,
         meshAddress: `0x${(index + 1).toString(16).padStart(4, "0")}`,
         firmwareVersion: "mock-node-1.0.0"
@@ -77,6 +83,7 @@ async function main() {
 
     const fixture = await prisma.fixture.create({
       data: {
+        id: demoIds.fixtureIds[index],
         floorId: floor.id,
         meshNodeId: meshNode.id,
         name: `B2-L${String(index + 1).padStart(2, "0")}`,

@@ -23,6 +23,11 @@ export class CommandsService {
       throw new BadRequestException("brightness must be an integer from 0 to 100");
     }
 
+    const user = await this.prisma.user.findUnique({ where: { id: input.requestedBy } });
+    if (!user) {
+      throw new BadRequestException("requestedBy must reference an existing user id");
+    }
+
     const command = await this.prisma.command.create({
       data: {
         siteId: input.siteId,
