@@ -54,4 +54,37 @@ describe("CommandsService", () => {
       requestedAt: "2026-07-01T00:00:00.000Z"
     });
   });
+
+  it("rejects commands when requestedBy does not match an existing user", async () => {
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(null)
+      },
+      command: {
+        create: jest.fn()
+      }
+    };
+    const mqtt = { publishDimmingCommand: jest.fn() };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        CommandsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: MqttService, useValue: mqtt }
+      ]
+    }).compile();
+
+    const service = moduleRef.get(CommandsService);
+    await expect(
+      service.createDimmingCommand({
+        siteId: "22222222-2222-4222-8222-222222222222",
+        targetType: "fixture",
+        targetId: "33333333-3333-4333-8333-333333333333",
+        brightness: 75,
+        requestedBy: "99999999-9999-4999-8999-999999999999"
+      })
+    ).rejects.toThrow("requestedBy must reference an existing user id");
+    expect(prisma.command.create).not.toHaveBeenCalled();
+    expect(mqtt.publishDimmingCommand).not.toHaveBeenCalled();
+  });
 });

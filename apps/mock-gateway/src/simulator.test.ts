@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { demoIds } from "@led-control/shared";
 import { applyDimmingCommand } from "./simulator";
 
 describe("applyDimmingCommand", () => {
@@ -22,7 +23,7 @@ describe("applyDimmingCommand", () => {
       targetType: "fixture",
       targetId: "33333333-3333-4333-8333-333333333333",
       brightness: 0,
-      requestedBy: "operator@example.com",
+      requestedBy: demoIds.userId,
       requestedAt: "2026-07-01T00:00:00.000Z"
     });
 
@@ -62,7 +63,7 @@ describe("applyDimmingCommand", () => {
         targetType: "group",
         targetId: "00000000-0000-4000-8000-000000000006",
         brightness: 35,
-        requestedBy: "operator@example.com",
+        requestedBy: demoIds.userId,
         requestedAt: "2026-07-01T00:00:00.000Z"
       },
       { "00000000-0000-4000-8000-000000000006": ["00000000-0000-4000-8000-000000002001"] }
