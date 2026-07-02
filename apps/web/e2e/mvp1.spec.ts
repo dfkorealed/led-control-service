@@ -1,6 +1,22 @@
 import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/auth/me", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        user: {
+          id: "00000000-0000-4000-8000-000000000002",
+          organizationId: "00000000-0000-4000-8000-000000000001",
+          email: "operator@example.com",
+          name: "Demo Operator",
+          role: "admin",
+          status: "active"
+        }
+      })
+    });
+  });
+
   await page.route("**/sites/default/dashboard", async (route) => {
     await route.fulfill({
       contentType: "application/json",

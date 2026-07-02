@@ -1,11 +1,26 @@
 import { PrismaClient } from "@prisma/client";
 import { demoIds } from "@led-control/shared";
+import { createHash, randomBytes, scrypt as scryptCallback } from "node:crypto";
+import { promisify } from "node:util";
 
 const prisma = new PrismaClient();
+const scrypt = promisify(scryptCallback);
+
+async function hashPassword(password: string) {
+  const salt = randomBytes(16).toString("hex");
+  const derivedKey = (await scrypt(password, salt, 64)) as Buffer;
+  return `scrypt$${salt}$${derivedKey.toString("hex")}`;
+}
+
+function hashToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 async function main() {
   await prisma.energyUsage.deleteMany();
   await prisma.command.deleteMany();
+  await prisma.session.deleteMany();
+  await prisma.invitation.deleteMany();
   await prisma.groupFixture.deleteMany();
   await prisma.fixtureGroup.deleteMany();
   await prisma.fixture.deleteMany();
@@ -27,7 +42,9 @@ async function main() {
       organizationId: organization.id,
       email: "operator@example.com",
       name: "Demo Operator",
-      role: "admin"
+      passwordHash: await hashPassword("demo-password-1234"),
+      role: "admin",
+      status: "active"
     }
   });
 
@@ -71,6 +88,17 @@ async function main() {
     data: { id: demoIds.groupId, siteId: site.id, name: "B2 Entrance Zone" }
   });
 
+  await prisma.invitation.create({
+    data: {
+      organizationId: organization.id,
+      siteId: site.id,
+      email: "new-admin@example.com",
+      role: "admin",
+      tokenHash: hashToken("demo-invite-token"),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    }
+  });
+
   for (let index = 0; index < 12; index += 1) {
     const meshNode = await prisma.meshNode.create({
       data: {
@@ -103,7 +131,14 @@ async function main() {
     }
   }
 
-  console.log({ organizationId: organization.id, siteId: site.id, userId: user.id });
+  console.log({
+    organizationId: organization.id,
+    siteId: site.id,
+    userId: user.id,
+    demoLoginEmail: user.email,
+    demoLoginPassword: "demo-password-1234",
+    demoInviteToken: "demo-invite-token"
+  });
 }
 
 main().finally(async () => {

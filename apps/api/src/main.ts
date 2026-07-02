@@ -11,7 +11,7 @@ async function bootstrap() {
   const webOrigin = process.env.WEB_PUBLIC_URL ?? "http://localhost:5173";
   app.enableCors({
     origin: Array.from(new Set([webOrigin, "http://localhost:5173", "http://127.0.0.1:5173"])),
-    credentials: false
+    credentials: true
   });
   await app.listen(Number(process.env.API_PORT ?? 4000));
 }

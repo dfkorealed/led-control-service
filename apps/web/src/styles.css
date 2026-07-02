@@ -207,6 +207,17 @@ button {
   cursor: pointer;
 }
 
+.logout-button,
+.link-button {
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
 .panel {
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -218,6 +229,89 @@ button {
 .panel.danger {
   border-color: #fecaca;
   color: #b91c1c;
+}
+
+.auth-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(180deg, rgba(232, 241, 255, 0.8), rgba(247, 250, 255, 0) 360px),
+    var(--surface);
+}
+
+.auth-panel {
+  width: min(100%, 440px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+.auth-brand {
+  margin-bottom: 28px;
+}
+
+.auth-heading {
+  margin-bottom: 20px;
+}
+
+.auth-heading h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1.18;
+  letter-spacing: 0;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-form label,
+.select-field {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.auth-form input,
+.select-field select {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--text);
+  padding: 0 12px;
+}
+
+.check-field {
+  display: flex !important;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.check-field input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.auth-submit {
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.danger-text {
+  margin: 12px 0 0;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .screen-grid,

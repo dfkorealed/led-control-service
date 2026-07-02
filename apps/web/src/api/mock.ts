@@ -1,5 +1,16 @@
 import type { Dashboard } from "./queries";
 
+export const mockUser = {
+  id: "00000000-0000-4000-8000-000000000002",
+  organizationId: "00000000-0000-4000-8000-000000000001",
+  email: "operator@example.com",
+  name: "Demo Operator",
+  role: "admin",
+  status: "active"
+};
+
+let isMockAuthenticated = false;
+
 export const mockDashboard: Dashboard = {
   site: { id: "00000000-0000-4000-8000-000000000003", name: "Demo Underground Parking" },
   summary: {
@@ -51,11 +62,23 @@ export const mockEnergyEstimate = {
 };
 
 export async function mockGet<T>(path: string): Promise<T> {
+  if (path === "/auth/me") {
+    if (isMockAuthenticated) return { user: mockUser } as T;
+    throw new Error("Mock session is not authenticated");
+  }
   if (path === "/sites/default/dashboard") return mockDashboard as T;
   if (path === "/energy/default/estimate") return mockEnergyEstimate as T;
   throw new Error(`No mock response for GET ${path}`);
 }
 
-export async function mockPost<T>(): Promise<T> {
+export async function mockPost<T>(path?: string): Promise<T> {
+  if (path === "/auth/login" || path === "/auth/signup") {
+    isMockAuthenticated = true;
+    return { user: mockUser } as T;
+  }
+  if (path === "/auth/logout") {
+    isMockAuthenticated = false;
+    return { ok: true } as T;
+  }
   return { status: "accepted" } as T;
 }

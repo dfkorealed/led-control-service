@@ -1,4 +1,7 @@
 import { Activity, BarChart3, Bell, MapPin, Settings, SlidersHorizontal } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCurrentUser, logout } from "./api/auth";
+import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
 import { MonitoringView } from "./features/monitoring/MonitoringView";
 import { SettingsView } from "./features/settings/SettingsView";
@@ -15,7 +18,22 @@ const items = [
 
 export function App() {
   const { view, setView } = useNavigationStore();
+  const queryClient = useQueryClient();
+  const { data: auth, isLoading: isAuthLoading, error: authError } = useCurrentUser();
   const active = items.find((item) => item.key === view) ?? items[0];
+
+  if (isAuthLoading) {
+    return <main className="auth-shell"><section className="auth-panel">인증 상태를 확인하는 중</section></main>;
+  }
+
+  if (authError || !auth?.user) {
+    return <AuthView onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ["auth", "me"] })} />;
+  }
+
+  async function handleLogout() {
+    await logout();
+    queryClient.clear();
+  }
 
   return (
     <div className="app-shell">
@@ -57,6 +75,9 @@ export function App() {
             <span className="status-pill online">게이트웨이 정상</span>
             <button className="icon-button" aria-label="알림">
               <Bell size={18} />
+            </button>
+            <button className="logout-button" onClick={handleLogout}>
+              로그아웃
             </button>
           </div>
         </header>

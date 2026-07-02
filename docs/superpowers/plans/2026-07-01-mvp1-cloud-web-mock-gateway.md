@@ -18,9 +18,11 @@
 
 - 로컬 개발용 monorepo 기반 구성
 - NestJS API 기본 구조
+- 초대 기반 회원가입, 로그인, 자동 로그인 session
 - PostgreSQL/Prisma 도메인 모델
 - Redis/MQTT 기반 실시간 상태·명령 흐름 준비
 - React PC 웹 관제 UI
+- 로그인/회원가입 화면과 인증 상태 기반 앱 진입
 - React Native WebView shell
 - Mock 게이트웨이 시뮬레이터
 - 추정 전력 사용량 API와 통계 화면
@@ -47,6 +49,32 @@
 - 생성: `apps/mock-gateway` - MQTT 명령을 받아 조명 상태를 시뮬레이션하는 프로세스
 - 생성: `apps/web` - PC 웹 관제 UI
 - 생성: `apps/mobile` - WebView로 웹 앱을 띄우는 React Native shell
+
+## 2.1 인증 확장 작업 구조
+
+MVP 1 인증은 기존 MVP 1 코드 위에 다음 단위로 확장한다.
+
+- 수정: `apps/api/prisma/schema.prisma` - `User` 인증 필드, `Invitation`, `Session` 모델 추가
+- 수정: `apps/api/prisma/seed.ts` - 데모 사용자의 비밀번호 hash와 관리자 초대 seed 추가
+- 생성: `apps/api/src/auth/*` - 로그인, 회원가입, 세션, 현재 사용자 조회, 로그아웃
+- 수정: `apps/api/src/main.ts` - 쿠키 기반 인증을 위한 CORS credentials 허용
+- 수정: `apps/api/src/commands/*` - 클라이언트가 보낸 `requestedBy` 대신 인증 session의 사용자 ID 사용
+- 생성: `apps/web/src/features/auth/*` - 로그인과 초대 기반 회원가입 화면
+- 생성/수정: `apps/web/src/api/auth.ts`, `apps/web/src/api/client.ts` - credentials 포함 요청과 인증 API client
+- 수정: `apps/web/src/App.tsx` - 인증 상태에 따라 로그인/회원가입 또는 관제 화면 표시
+
+인증 구현은 서버 저장 opaque session을 사용한다. 브라우저와 WebView에는 HttpOnly cookie만 저장하고, DB에는 session token hash만 저장한다. 자동 로그인은 같은 session 모델에서 만료 기간을 길게 부여하는 방식으로 처리한다.
+
+향후 SaaS 전환 시에는 `Invitation`을 `가입 코드`, `현장 claim 코드`, `게이트웨이 QR/시리얼 claim` 흐름으로 확장한다. MVP 1에서는 공개 가입을 열지 않고 초대 토큰이 있는 사용자만 가입 가능하게 한다.
+
+현재 구현 상태:
+
+- 완료: `User.passwordHash`, `User.status`, `UserRole`, `UserStatus`, `Invitation`, `Session` 스키마 추가
+- 완료: `POST /auth/signup`, `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`
+- 완료: HttpOnly cookie 기반 session 발급, session token hash 저장, 자동 로그인 만료 기간 확장
+- 완료: 웹 로그인/회원가입 화면, 앱 진입 시 `/auth/me` 확인, API credentials 포함 요청
+- 완료: 조명 제어 명령에서 인증 session 사용자 ID를 `requestedBy`로 사용
+- 후속: 운영 관리자용 초대 생성 화면, 세밀 권한 guard, SaaS형 현장 claim 플로우
 
 ## 3. 공통 도메인 계약
 

@@ -1,7 +1,11 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Post, UseGuards } from "@nestjs/common";
+import { CurrentUser } from "../auth/current-user.decorator";
+import { SessionAuthGuard } from "../auth/session-auth.guard";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { CommandsService } from "./commands.service";
 
 @Controller("commands")
+@UseGuards(SessionAuthGuard)
 export class CommandsController {
   constructor(private readonly commandsService: CommandsService) {}
 
@@ -13,9 +17,9 @@ export class CommandsController {
       targetType: "fixture" | "group";
       targetId: string;
       brightness: number;
-      requestedBy: string;
-    }
+    },
+    @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.commandsService.createDimmingCommand(body);
+    return this.commandsService.createDimmingCommand({ ...body, requestedBy: user.id });
   }
 }

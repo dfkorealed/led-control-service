@@ -2,8 +2,6 @@ import { useMemo, useState } from "react";
 import { apiPost } from "../../api/client";
 import { useDashboard } from "../../api/queries";
 
-const operatorId = import.meta.env.VITE_OPERATOR_ID ?? "00000000-0000-4000-8000-000000000002";
-
 export function ControlView() {
   const { data } = useDashboard();
   const [targetId, setTargetId] = useState("");
@@ -21,8 +19,7 @@ export function ControlView() {
       siteId: data.site.id,
       targetType: "fixture",
       targetId: commandTargetId,
-      brightness,
-      requestedBy: operatorId
+      brightness
     });
     setMessage("명령을 전송했습니다.");
   }

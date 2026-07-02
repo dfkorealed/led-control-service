@@ -37,6 +37,14 @@
    http://localhost:5173
    ```
 
+   데모 로그인 정보:
+
+   ```text
+   아이디: operator@example.com
+   비밀번호: demo-password-1234
+   초대 회원가입 코드: demo-invite-token
+   ```
+
 ## 검증 명령
 
 ```bash
@@ -48,6 +56,7 @@ pnpm --filter @led-control/web exec playwright test
 ## 현재 범위
 
 - PC 웹 관제 shell
+- 초대 기반 회원가입, 로그인, 자동 로그인 session
 - 층별 2D 맵 기반 조명 상태 표시
 - 개별 조명 밝기 제어 명령 API
 - MQTT 기반 Mock 게이트웨이

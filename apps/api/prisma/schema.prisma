@@ -19,11 +19,24 @@ enum CommandStatus {
   failed
 }
 
+enum UserRole {
+  owner
+  admin
+  operator
+  viewer
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
 model Organization {
   id        String   @id @default(uuid())
   name      String
   users     User[]
   sites     Site[]
+  invitations Invitation[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -33,9 +46,12 @@ model User {
   organizationId String
   email          String       @unique
   name           String
-  role           String
+  passwordHash   String
+  role           UserRole
+  status         UserStatus   @default(active)
   organization   Organization @relation(fields: [organizationId], references: [id])
   commands       Command[]
+  sessions       Session[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 }
@@ -51,6 +67,7 @@ model Site {
   gateways       Gateway[]
   groups         FixtureGroup[]
   commands       Command[]
+  invitations    Invitation[]
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 }
@@ -154,6 +171,35 @@ model Command {
   user         User          @relation(fields: [requestedBy], references: [id])
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+}
+
+model Invitation {
+  id             String       @id @default(uuid())
+  organizationId String
+  siteId         String?
+  email          String?
+  role           UserRole
+  tokenHash      String       @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  site           Site?        @relation(fields: [siteId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Session {
+  id          String    @id @default(uuid())
+  userId      String
+  tokenHash   String    @unique
+  rememberMe  Boolean   @default(false)
+  userAgent   String?
+  ipAddress   String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  user        User      @relation(fields: [userId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model EnergyUsage {
