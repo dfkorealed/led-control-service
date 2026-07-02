@@ -53,17 +53,19 @@ test("operator can view monitoring dashboard and navigate primary sections", asy
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "모니터링" })).toBeVisible();
   await expect(page.getByText("전체 조명")).toBeVisible();
-  await expect(page.getByText("B2-L01")).toBeVisible();
+  await expect(page.getByRole("button", { name: "B2-L01 online 70%" })).toBeVisible();
 
   await page.getByRole("button", { name: "제어" }).click();
   await expect(page.getByRole("heading", { name: "제어", exact: true })).toBeVisible();
-  await expect(page.getByText("개별 조명 제어")).toBeVisible();
+  await expect(page.getByText("빠른 밝기 제어")).toBeVisible();
 
   await page.getByRole("button", { name: "통계" }).click();
   await expect(page.getByRole("heading", { name: "통계", exact: true })).toBeVisible();
-  await expect(page.getByText("3.36 kWh")).toBeVisible();
+  await expect(page.getByText("에너지 리포트")).toBeVisible();
+  await expect(page.locator(".metric").filter({ hasText: "일 사용량" })).toBeVisible();
 
   await page.getByRole("button", { name: "설정" }).click();
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();
+  await expect(page.getByText("운영 설정")).toBeVisible();
   await expect(page.getByText("통신 음영 검토")).toBeVisible();
 });

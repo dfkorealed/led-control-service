@@ -29,5 +29,6 @@ describe("FloorMap", () => {
 
     expect(screen.getByText("B2-L01")).toBeInTheDocument();
     expect(screen.getByText("70%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "B2-L01 online 70%" })).toBeInTheDocument();
   });
 });
