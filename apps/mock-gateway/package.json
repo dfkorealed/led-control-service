@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
-    "test": "vitest run",
+    "dev": "pnpm --filter @led-control/shared build && tsx src/index.ts",
+    "test": "pnpm --filter @led-control/shared build && vitest run",
     "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "pnpm --filter @led-control/shared build && tsc --noEmit"
   },
   "dependencies": {
     "@led-control/shared": "workspace:*",

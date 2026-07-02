@@ -10,11 +10,24 @@
    pnpm install
    ```
 
-2. 로컬 인프라를 실행합니다.
+2. 로컬 인프라를 실행합니다. Docker가 없다면 macOS에서는 Homebrew로 실제 런타임을 설치해 사용할 수 있습니다.
 
    ```bash
    pnpm docker:up
    cp .env.example .env
+   ```
+
+   Docker 대신 Homebrew를 사용하는 경우:
+
+   ```bash
+   brew install postgresql@16 redis mosquitto
+   brew services start postgresql@16
+   brew services start redis
+   /opt/homebrew/opt/mosquitto/sbin/mosquitto -c infra/mosquitto.conf
+   cp .env.example .env
+   /opt/homebrew/opt/postgresql@16/bin/psql -d postgres -c 'DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '\''led'\'') THEN CREATE ROLE led LOGIN PASSWORD '\''led'\'' CREATEDB; ELSE ALTER ROLE led WITH LOGIN PASSWORD '\''led'\'' CREATEDB; END IF; END $$;'
+   /opt/homebrew/opt/postgresql@16/bin/createdb -O led led_control 2>/dev/null || true
+   /opt/homebrew/opt/postgresql@16/bin/psql -d postgres -c "ALTER DATABASE led_control OWNER TO led;"
    ```
 
 3. 데이터베이스를 준비합니다.
@@ -56,7 +69,7 @@ pnpm --filter @led-control/web exec playwright test
 ## 실제 백엔드 로그인 E2E
 
 아래 검증은 mock API가 아니라 실제 NestJS API, PostgreSQL, Redis, MQTT broker를 사용한다.
-로컬에 Docker Desktop 또는 호환 Docker CLI가 먼저 설치되어 있어야 한다.
+로컬에 Docker Desktop 또는 Homebrew 기반 PostgreSQL/Redis/Mosquitto가 먼저 준비되어 있어야 한다.
 
 ```bash
 pnpm docker:up

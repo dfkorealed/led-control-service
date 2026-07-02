@@ -4,14 +4,14 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "nest start --watch",
-    "build": "nest build",
-    "test": "jest",
+    "dev": "pnpm --filter @led-control/shared build && nest start --watch",
+    "build": "pnpm --filter @led-control/shared build && nest build",
+    "test": "pnpm --filter @led-control/shared build && jest",
     "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm --filter @led-control/shared build && tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "pnpm --filter @led-control/shared build && tsx prisma/seed.ts"
   },
   "dependencies": {
     "@led-control/shared": "workspace:*",
