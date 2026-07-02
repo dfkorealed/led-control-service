@@ -7,6 +7,7 @@
     "dev": "vite --host 0.0.0.0 --port ${WEB_PORT:-5173}",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "e2e:auth:real": "E2E_REAL_AUTH=true playwright test e2e/auth-real.spec.ts",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },

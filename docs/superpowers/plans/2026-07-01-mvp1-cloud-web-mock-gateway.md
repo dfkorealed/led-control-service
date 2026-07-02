@@ -74,6 +74,9 @@ MVP 1 인증은 기존 MVP 1 코드 위에 다음 단위로 확장한다.
 - 완료: HttpOnly cookie 기반 session 발급, session token hash 저장, 자동 로그인 만료 기간 확장
 - 완료: 웹 로그인/회원가입 화면, 앱 진입 시 `/auth/me` 확인, API credentials 포함 요청
 - 완료: 조명 제어 명령에서 인증 session 사용자 ID를 `requestedBy`로 사용
+- 완료: mock preview 로그인도 데모 계정만 허용하도록 제한
+- 완료: 실제 백엔드 로그인 E2E spec `apps/web/e2e/auth-real.spec.ts` 추가
+- 확인: 현재 로컬 환경에는 Docker/PostgreSQL 실행 도구가 없어 실제 API+DB E2E는 실행하지 못했다. Docker가 설치된 환경에서는 README의 "실제 백엔드 로그인 E2E" 절차로 검증한다.
 - 후속: 운영 관리자용 초대 생성 화면, 세밀 권한 guard, SaaS형 현장 claim 플로우
 
 ## 3. 공통 도메인 계약

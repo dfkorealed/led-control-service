@@ -10,6 +10,7 @@ export const mockUser = {
 };
 
 let isMockAuthenticated = false;
+const demoPassword = "demo-password-1234";
 
 export const mockDashboard: Dashboard = {
   site: { id: "00000000-0000-4000-8000-000000000003", name: "Demo Underground Parking" },
@@ -71,8 +72,20 @@ export async function mockGet<T>(path: string): Promise<T> {
   throw new Error(`No mock response for GET ${path}`);
 }
 
-export async function mockPost<T>(path?: string): Promise<T> {
-  if (path === "/auth/login" || path === "/auth/signup") {
+export async function mockPost<T>(path?: string, body?: unknown): Promise<T> {
+  if (path === "/auth/login") {
+    const input = body as { email?: string; password?: string } | undefined;
+    if (input?.email !== mockUser.email || input.password !== demoPassword) {
+      throw new Error("Invalid mock credentials");
+    }
+    isMockAuthenticated = true;
+    return { user: mockUser } as T;
+  }
+  if (path === "/auth/signup") {
+    const input = body as { token?: string; email?: string; name?: string; password?: string } | undefined;
+    if (input?.token !== "demo-invite-token" || !input.email || !input.name || input.password !== demoPassword) {
+      throw new Error("Invalid mock invitation");
+    }
     isMockAuthenticated = true;
     return { user: mockUser } as T;
   }

@@ -12,7 +12,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  if (USE_MOCK_API) return mockPost<T>(path);
+  if (USE_MOCK_API) return mockPost<T>(path, body);
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",

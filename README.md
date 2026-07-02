@@ -53,6 +53,34 @@ pnpm typecheck
 pnpm --filter @led-control/web exec playwright test
 ```
 
+## 실제 백엔드 로그인 E2E
+
+아래 검증은 mock API가 아니라 실제 NestJS API, PostgreSQL, Redis, MQTT broker를 사용한다.
+로컬에 Docker Desktop 또는 호환 Docker CLI가 먼저 설치되어 있어야 한다.
+
+```bash
+pnpm docker:up
+cp .env.example .env
+pnpm --filter @led-control/api prisma:generate
+pnpm --filter @led-control/api prisma:migrate --name auth
+pnpm --filter @led-control/api prisma:seed
+pnpm --filter @led-control/api dev
+```
+
+다른 터미널에서 웹과 실제 로그인 E2E를 실행한다.
+
+```bash
+VITE_USE_MOCK_API=false pnpm --filter @led-control/web dev
+pnpm --filter @led-control/web e2e:auth:real
+```
+
+데모 로그인 정보:
+
+```text
+아이디: operator@example.com
+비밀번호: demo-password-1234
+```
+
 ## 현재 범위
 
 - PC 웹 관제 shell
