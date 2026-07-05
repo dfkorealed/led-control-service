@@ -5,8 +5,9 @@ import { PrismaService } from "../prisma/prisma.service";
 export class SitesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getDefaultDashboard() {
-    const site = await this.prisma.site.findFirstOrThrow({
+  async getDefaultDashboard(organizationId: string) {
+    const site = await this.prisma.site.findFirst({
+      where: { organizationId },
       include: {
         floors: {
           orderBy: { level: "asc" },
@@ -18,11 +19,28 @@ export class SitesService {
         groups: {
           include: { groupFixtures: true },
           orderBy: { name: "asc" }
-        }
+        },
+        gateways: { orderBy: { name: "asc" } }
       }
     });
 
+    if (!site) {
+      return {
+        site: { id: "", name: "현장 미등록" },
+        summary: {
+          totalFixtures: 0,
+          onlineFixtures: 0,
+          faultFixtures: 0,
+          averageBrightness: 0
+        },
+        floors: [],
+        groups: [],
+        gateways: []
+      };
+    }
+
     const fixtures = site.floors.flatMap((floor) => floor.fixtures);
+    const now = Date.now();
 
     return {
       site: { id: site.id, name: site.name },
@@ -54,6 +72,9 @@ export class SitesService {
           ratedWatt: Number(fixture.ratedWatt),
           brightness: fixture.brightness,
           status: fixture.status,
+          rssi: fixture.rssi,
+          hopCount: fixture.hopCount,
+          commandSuccessRate: fixture.commandSuccessRate,
           lastSeenAt: fixture.lastSeenAt?.toISOString() ?? null
         }))
       })),
@@ -61,6 +82,15 @@ export class SitesService {
         id: group.id,
         name: group.name,
         fixtureIds: group.groupFixtures.map((item) => item.fixtureId)
+      })),
+      gateways: site.gateways.map((gateway) => ({
+        id: gateway.id,
+        name: gateway.name,
+        serialNumber: gateway.serialNumber,
+        firmwareVersion: gateway.firmwareVersion,
+        lastHeartbeatAt: gateway.lastHeartbeatAt?.toISOString() ?? null,
+        connectionStatus:
+          gateway.lastHeartbeatAt && now - gateway.lastHeartbeatAt.getTime() < 15_000 ? "online" : "offline"
       }))
     };
   }

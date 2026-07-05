@@ -1,11 +1,14 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { FloorMap } from "./FloorMap";
 
 describe("FloorMap", () => {
   it("renders fixtures with brightness labels", () => {
+    const onSelectFixture = vi.fn();
     render(
       <FloorMap
+        selectedFixtureId="fixture-1"
+        onSelectFixture={onSelectFixture}
         floor={{
           id: "floor-1",
           name: "B2",
@@ -20,6 +23,9 @@ describe("FloorMap", () => {
               ratedWatt: 40,
               brightness: 70,
               status: "online",
+              rssi: -58,
+              hopCount: 1,
+              commandSuccessRate: 0.98,
               lastSeenAt: "2026-07-01T00:00:00.000Z"
             }
           ]
@@ -30,5 +36,9 @@ describe("FloorMap", () => {
     expect(screen.getByText("B2-L01")).toBeInTheDocument();
     expect(screen.getByText("70%")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "B2-L01 online 70%" })).toBeInTheDocument();
+    expect(screen.getByAltText("B2 도면")).toHaveAttribute("src", "/demo.svg");
+
+    fireEvent.click(screen.getByRole("button", { name: "B2-L01 online 70%" }));
+    expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
   });
 });

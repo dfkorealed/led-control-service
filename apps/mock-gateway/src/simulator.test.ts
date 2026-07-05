@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { demoIds } from "@led-control/shared";
-import { applyDimmingCommand } from "./simulator";
+import { applyDimmingCommand, createMockDiscoveredNodes } from "./simulator";
 
 describe("applyDimmingCommand", () => {
   it("updates matching fixture brightness and power state", () => {
@@ -71,5 +71,26 @@ describe("applyDimmingCommand", () => {
 
     expect(next[0].brightness).toBe(35);
     expect(next[1].brightness).toBe(10);
+  });
+});
+
+describe("createMockDiscoveredNodes", () => {
+  it("returns deterministic unprovisioned nodes for a registration session", () => {
+    const nodes = createMockDiscoveredNodes({
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      floorName: "B2",
+      count: 3
+    });
+
+    expect(nodes).toHaveLength(3);
+    expect(nodes[0]).toMatchObject({
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      deviceUuid: "esp32h2-b2-001",
+      serialNumber: "LC-B2-001",
+      rssi: -54,
+      oobCapability: "static-oob",
+      firmwareVersion: "mock-node-0.1.0"
+    });
+    expect(nodes[2].deviceUuid).toBe("esp32h2-b2-003");
   });
 });

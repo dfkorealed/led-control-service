@@ -22,10 +22,21 @@ export interface Dashboard {
       ratedWatt: number;
       brightness: number;
       status: "online" | "offline" | "fault";
+      rssi: number | null;
+      hopCount: number | null;
+      commandSuccessRate: number | null;
       lastSeenAt: string | null;
     }>;
   }>;
   groups: Array<{ id: string; name: string; fixtureIds: string[] }>;
+  gateways: Array<{
+    id: string;
+    name: string;
+    serialNumber: string;
+    firmwareVersion: string;
+    lastHeartbeatAt: string | null;
+    connectionStatus: "online" | "offline";
+  }>;
 }
 
 export function useDashboard() {

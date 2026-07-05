@@ -79,6 +79,57 @@ MVP 1 인증은 기존 MVP 1 코드 위에 다음 단위로 확장한다.
 - 확인: 현재 로컬 환경에는 Docker/PostgreSQL 실행 도구가 없어 실제 API+DB E2E는 실행하지 못했다. Docker가 설치된 환경에서는 README의 "실제 백엔드 로그인 E2E" 절차로 검증한다.
 - 후속: 운영 관리자용 초대 생성 화면, 세밀 권한 guard, SaaS형 현장 claim 플로우
 
+## 2.2 조명 검색·등록 구현 방향
+
+최종 방향은 라즈베리파이 게이트웨이를 BLE Mesh Provisioner로 두고, 클라우드는 등록 세션과 장비 메타데이터의 원장 역할을 맡는 구조로 확정한다. ESP32-H2는 provisionee/node로 동작하며 클라우드와 직접 통신하지 않는다.
+
+MVP 1에서는 실제 BLE Mesh 통신과 펌웨어를 구현하지 않고, 다음 계약과 화면 흐름을 mock 기반으로 먼저 만든다.
+
+- 완료: 등록된 조명이 없는 최초 로그인 상태에서 `조명 검색 시작` 진입점 표시
+- 완료: 현장과 층 기준 등록 세션 생성 API
+- 완료: Mock 게이트웨이가 scan command를 받고 미등록 노드 후보를 MQTT event로 발행하는 계약
+- 완료: API가 미등록 노드 MQTT event를 `DiscoveredMeshNode`로 저장
+- 완료: QR/시리얼/OOB, RSSI, identify 점멸 상태를 표현하는 mock 데이터
+- 완료: 발견 노드별 점멸 확인, 단일 등록, `Fixture`와 `MeshNode` 매핑 화면
+- 완료: 등록 API 조직 소유권 검증, MQTT topic/session 검증, mesh address 중복 방지 제약
+- 완료: 층/도면이 없는 초기 현장에서는 조명 검색 전 선행 설정 안내 표시
+- 후속: 복수 노드 일괄 선택 등록, 실패 노드 재시도 UX, 등록 완료 후 2D 맵 위치 보정 UI
+
+MVP 2에서는 위 계약을 실제 Go 게이트웨이, ESP32-H2 ESP-IDF C 펌웨어, BLE Mesh provisioning, OTA, 공장초기화/재등록 플로우로 교체한다. MVP 3에서는 파일럿 현장에서 Hamina 예측과 실제 RSSI/hop count/명령 성공률을 비교해 설치 기준을 보정한다.
+
+## 2.3 모니터링 기능 연동 상태
+
+모니터링 화면에서 UI는 있으나 동작하지 않던 항목을 다음 기준으로 정리하고 구현한다.
+
+미구현으로 확인한 항목:
+
+- 층 선택 버튼이 실제 층 데이터와 연결되지 않고 고정 UI처럼 동작하던 문제
+- 2D 맵의 조명 점을 클릭해 상세 패널을 바꾸는 기능 부재
+- 업로드된 floor plan image가 지도 배경에 표시되지 않던 문제
+- RSSI, hop count, 명령 성공률 같은 통신 품질 지표가 MQTT fixture-state에서 DB/API/UI로 이어지지 않던 문제
+- mock 게이트웨이 heartbeat가 API의 gateway 상태와 연결되지 않던 문제
+- `GET /sites/default/dashboard`가 로그인 사용자의 조직 범위로 제한되지 않던 문제
+- command ACK 실패 사유와 재시도/이력 화면이 아직 운영 UI에 노출되지 않는 문제
+- last seen, offline 판단 기준이 화면과 운영 정책에서 충분히 정교하지 않은 문제
+
+현재 구현 상태:
+
+- 완료: `GET /sites/default/dashboard`를 session 인증 guard 뒤에 두고 사용자 조직의 site만 조회한다.
+- 완료: `Fixture`에 `rssi`, `hopCount`, `commandSuccessRate` 필드를 추가하고 fixture-state MQTT event 수신 시 저장한다.
+- 완료: mock 게이트웨이가 주기적으로 fixture-state와 gateway heartbeat를 발행한다.
+- 완료: API가 `sites/{siteId}/events/gateway-heartbeat`를 수신해 gateway `lastHeartbeatAt`을 갱신한다.
+- 완료: dashboard API가 gateway heartbeat 기준으로 `online`/`offline` 상태를 반환한다.
+- 완료: 웹 모니터링 화면의 층 선택, 층별 요약, 조명 선택, 상세 패널 갱신을 실제 dashboard 데이터와 연결한다.
+- 완료: FloorMap이 floor plan image를 지도 배경으로 렌더링하고 선택된 조명을 강조한다.
+- 완료: 상세 패널에 RSSI, hop count, 명령 성공률, 마지막 수신, gateway 상태를 표시한다.
+
+후속:
+
+- command ACK 실패 사유, 재시도 가능 여부, 최근 명령 이력을 조명 상세 패널 또는 별도 점검 패널에 표시한다.
+- offline 기준 시간을 site 또는 gateway 설정으로 분리하고, 마지막 수신/heartbeat freshness를 서버와 UI에서 동일하게 사용한다.
+- 통신 품질 heatmap과 Hamina 예측 결과 비교 화면은 MVP 2 실측 데이터 수집 후 구현한다.
+- Redis 또는 WebSocket/SSE 기반 push 반영은 polling 기반 MVP 검증 후 추가한다.
+
 ## 3. 공통 도메인 계약
 
 아래 타입명과 topic 이름은 모든 앱에서 동일하게 사용한다.
@@ -184,7 +235,9 @@ sites/{siteId}/events/gateway-heartbeat
 - [ ] 테스트는 site, floor, floor plan, fixtures, groups를 받아 `summary.totalFixtures`, `summary.onlineFixtures`, `summary.faultFixtures`, `summary.averageBrightness`가 계산되는지 검증한다.
 - [ ] `GET /sites/default/dashboard` endpoint를 만든다.
 - [ ] 반환값은 `site`, `summary`, `floors`, `groups`를 포함한다.
-- [ ] fixture에는 `id`, `name`, `x`, `y`, `ratedWatt`, `brightness`, `status`, `lastSeenAt`을 포함한다.
+- [ ] fixture에는 `id`, `name`, `x`, `y`, `ratedWatt`, `brightness`, `status`, `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`을 포함한다.
+- [ ] endpoint는 인증된 사용자의 `organizationId` 범위 안에서만 site를 조회한다.
+- [ ] 반환값에는 gateway heartbeat 기반 `connectionStatus`를 포함한다.
 - [ ] 실행: `pnpm --filter @led-control/api test -- sites.service.spec.ts`
 - [ ] 기대 결과: 사이트 대시보드 service 테스트가 통과한다.
 - [ ] 커밋: `feat(api): expose monitoring dashboard read model`
@@ -227,6 +280,7 @@ sites/{siteId}/events/gateway-heartbeat
 - [ ] Mock 게이트웨이는 dimming command topic을 subscribe한다.
 - [ ] 명령 수신 후 fixture state event와 command ack event를 publish한다.
 - [ ] 3초마다 gateway heartbeat를 publish한다.
+- [ ] fixture state event에는 RSSI, hop count, 명령 성공률을 포함한다.
 - [ ] 실행: `pnpm --filter @led-control/mock-gateway test`
 - [ ] 기대 결과: simulator 테스트가 통과한다.
 - [ ] 커밋: `feat(mock-gateway): simulate fixture dimming commands`
@@ -274,6 +328,9 @@ sites/{siteId}/events/gateway-heartbeat
 - [ ] `MonitoringView`는 총 조명 수, 온라인 수, 장애 수, 평균 밝기를 표시한다.
 - [ ] `FloorMap`은 도면 좌표계를 기준으로 fixture 위치를 표시한다.
 - [ ] fixture 상태에 따라 `online`, `offline`, `fault` class를 적용한다.
+- [ ] 층 선택 버튼은 API의 floors 배열을 기준으로 렌더링하고 선택 층의 요약/지도/상세 패널을 갱신한다.
+- [ ] 지도 위 fixture를 클릭하면 상세 패널의 현재 밝기, RSSI, hop count, 명령 성공률, 마지막 수신 값을 갱신한다.
+- [ ] floor plan image가 있으면 지도 배경으로 표시한다.
 - [ ] `ControlView`는 fixture 선택, 밝기 slider, 적용 버튼을 제공한다.
 - [ ] 적용 버튼은 `POST /commands/dimming`을 호출한다.
 - [ ] `StatisticsView`는 작업 8 전까지 정적 일/월/년 추정 데이터를 표시한다.

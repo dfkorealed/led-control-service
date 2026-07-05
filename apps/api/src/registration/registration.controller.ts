@@ -1,0 +1,62 @@
+import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { CurrentUser } from "../auth/current-user.decorator";
+import { SessionAuthGuard } from "../auth/session-auth.guard";
+import { AuthenticatedUser } from "../auth/auth.types";
+import { RegistrationService } from "./registration.service";
+
+interface CreateRegistrationSessionBody {
+  siteId: string;
+  floorId: string;
+}
+
+interface RegisterNodeBody {
+  fixtureName: string;
+  x: number;
+  y: number;
+  ratedWatt?: string;
+}
+
+@UseGuards(SessionAuthGuard)
+@Controller("registration-sessions")
+export class RegistrationController {
+  constructor(private readonly registrationService: RegistrationService) {}
+
+  @Post()
+  createSession(@Body() body: CreateRegistrationSessionBody, @CurrentUser() user: AuthenticatedUser) {
+    return this.registrationService.createSession({
+      siteId: body.siteId,
+      floorId: body.floorId,
+      requestedBy: user.id,
+      organizationId: user.organizationId
+    });
+  }
+
+  @Get(":sessionId")
+  getSession(@Param("sessionId") sessionId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.registrationService.getSession(sessionId, user.organizationId);
+  }
+
+  @Post(":sessionId/nodes/:nodeId/identify")
+  identifyNode(
+    @Param("sessionId") sessionId: string,
+    @Param("nodeId") nodeId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.registrationService.identifyNode(sessionId, nodeId, user.organizationId);
+  }
+
+  @Post(":sessionId/nodes/:nodeId/register")
+  registerNode(
+    @Param("sessionId") sessionId: string,
+    @Param("nodeId") nodeId: string,
+    @Body() body: RegisterNodeBody,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.registrationService.registerNode(sessionId, nodeId, body, user.organizationId);
+  }
+
+  @Post(":sessionId/complete")
+  completeSession(@Param("sessionId") sessionId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.registrationService.completeSession(sessionId, user.organizationId);
+  }
+}

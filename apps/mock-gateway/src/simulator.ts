@@ -1,4 +1,4 @@
-import { DimmingCommandPayload, FixtureState } from "@led-control/shared";
+import { DimmingCommandPayload, FixtureState, UnprovisionedDeviceFoundPayload } from "@led-control/shared";
 
 export function applyDimmingCommand(
   states: FixtureState[],
@@ -52,4 +52,30 @@ export function parseGroupFixtureMap(raw: string): Record<string, string[]> {
     }
     return map;
   }, {});
+}
+
+interface CreateMockDiscoveredNodesInput {
+  sessionId: string;
+  floorName: string;
+  count?: number;
+}
+
+export function createMockDiscoveredNodes(input: CreateMockDiscoveredNodesInput): UnprovisionedDeviceFoundPayload[] {
+  const floorCode = input.floorName.toLowerCase().replace(/[^a-z0-9]/g, "") || "floor";
+  const serialFloorCode = input.floorName.toUpperCase().replace(/[^A-Z0-9]/g, "") || "FLOOR";
+  const count = input.count ?? 4;
+  const discoveredAt = new Date("2026-07-01T00:00:01.000Z").toISOString();
+
+  return Array.from({ length: count }, (_, index) => {
+    const sequence = String(index + 1).padStart(3, "0");
+    return {
+      sessionId: input.sessionId,
+      deviceUuid: `esp32h2-${floorCode}-${sequence}`,
+      serialNumber: `LC-${serialFloorCode}-${sequence}`,
+      rssi: -54 - index * 3,
+      oobCapability: "static-oob",
+      firmwareVersion: "mock-node-0.1.0",
+      discoveredAt
+    };
+  });
 }

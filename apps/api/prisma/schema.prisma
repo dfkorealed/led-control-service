@@ -31,57 +31,75 @@ enum UserStatus {
   disabled
 }
 
+enum ProvisioningSessionStatus {
+  active
+  completed
+  failed
+  cancelled
+}
+
+enum DiscoveredNodeStatus {
+  discovered
+  identifying
+  provisioning
+  provisioned
+  failed
+}
+
 model Organization {
-  id        String   @id @default(uuid())
-  name      String
-  users     User[]
-  sites     Site[]
+  id          String       @id @default(uuid())
+  name        String
+  users       User[]
+  sites       Site[]
   invitations Invitation[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model User {
-  id             String       @id @default(uuid())
-  organizationId String
-  email          String       @unique
-  name           String
-  passwordHash   String
-  role           UserRole
-  status         UserStatus   @default(active)
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  commands       Command[]
-  sessions       Session[]
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                   String                @id @default(uuid())
+  organizationId       String
+  email                String                @unique
+  name                 String
+  passwordHash         String
+  role                 UserRole
+  status               UserStatus            @default(active)
+  organization         Organization          @relation(fields: [organizationId], references: [id])
+  commands             Command[]
+  sessions             Session[]
+  provisioningSessions ProvisioningSession[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 model Site {
-  id             String         @id @default(uuid())
-  organizationId String
-  name           String
-  address        String
-  tariffKwhRate  Decimal        @db.Decimal(10, 2)
-  organization   Organization   @relation(fields: [organizationId], references: [id])
-  floors         Floor[]
-  gateways       Gateway[]
-  groups         FixtureGroup[]
-  commands       Command[]
-  invitations    Invitation[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                   String                @id @default(uuid())
+  organizationId       String
+  name                 String
+  address              String
+  tariffKwhRate        Decimal               @db.Decimal(10, 2)
+  organization         Organization          @relation(fields: [organizationId], references: [id])
+  floors               Floor[]
+  gateways             Gateway[]
+  groups               FixtureGroup[]
+  commands             Command[]
+  invitations          Invitation[]
+  provisioningSessions ProvisioningSession[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 model Floor {
-  id        String     @id @default(uuid())
-  siteId    String
-  name      String
-  level     Int
-  site      Site       @relation(fields: [siteId], references: [id])
-  floorPlan FloorPlan?
-  fixtures  Fixture[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id                   String                @id @default(uuid())
+  siteId               String
+  name                 String
+  level                Int
+  site                 Site                  @relation(fields: [siteId], references: [id])
+  floorPlan            FloorPlan?
+  fixtures             Fixture[]
+  provisioningSessions ProvisioningSession[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 model FloorPlan {
@@ -97,22 +115,25 @@ model FloorPlan {
 }
 
 model Fixture {
-  id            String         @id @default(uuid())
-  floorId       String
-  meshNodeId    String?        @unique
-  name          String
-  ratedWatt     Decimal        @db.Decimal(8, 2)
-  x             Float
-  y             Float
-  status        FixtureStatus  @default(offline)
-  brightness    Int            @default(0)
-  lastSeenAt    DateTime?
-  floor         Floor          @relation(fields: [floorId], references: [id])
-  meshNode      MeshNode?      @relation(fields: [meshNodeId], references: [id])
-  groupFixtures GroupFixture[]
-  energyUsages  EnergyUsage[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id                 String         @id @default(uuid())
+  floorId            String
+  meshNodeId         String?        @unique
+  name               String
+  ratedWatt          Decimal        @db.Decimal(8, 2)
+  x                  Float
+  y                  Float
+  status             FixtureStatus  @default(offline)
+  brightness         Int            @default(0)
+  rssi               Int?
+  hopCount           Int?
+  commandSuccessRate Float?
+  lastSeenAt         DateTime?
+  floor              Floor          @relation(fields: [floorId], references: [id])
+  meshNode           MeshNode?      @relation(fields: [meshNodeId], references: [id])
+  groupFixtures      GroupFixture[]
+  energyUsages       EnergyUsage[]
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 }
 
 model FixtureGroup {
@@ -135,27 +156,32 @@ model GroupFixture {
 }
 
 model Gateway {
-  id              String     @id @default(uuid())
-  siteId          String
-  name            String
-  serialNumber    String     @unique
-  firmwareVersion String
-  lastHeartbeatAt DateTime?
-  site            Site       @relation(fields: [siteId], references: [id])
-  meshNodes       MeshNode[]
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id                   String                @id @default(uuid())
+  siteId               String
+  name                 String
+  serialNumber         String                @unique
+  firmwareVersion      String
+  lastHeartbeatAt      DateTime?
+  site                 Site                  @relation(fields: [siteId], references: [id])
+  meshNodes            MeshNode[]
+  provisioningSessions ProvisioningSession[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 model MeshNode {
-  id              String    @id @default(uuid())
+  id              String   @id @default(uuid())
   gatewayId       String
+  deviceUuid      String?  @unique
+  serialNumber    String?
   meshAddress     String
   firmwareVersion String
-  gateway         Gateway   @relation(fields: [gatewayId], references: [id])
+  gateway         Gateway  @relation(fields: [gatewayId], references: [id])
   fixture         Fixture?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([gatewayId, meshAddress])
 }
 
 model Command {
@@ -189,17 +215,55 @@ model Invitation {
 }
 
 model Session {
-  id          String    @id @default(uuid())
-  userId      String
-  tokenHash   String    @unique
-  rememberMe  Boolean   @default(false)
-  userAgent   String?
-  ipAddress   String?
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  user        User      @relation(fields: [userId], references: [id])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  rememberMe Boolean   @default(false)
+  userAgent  String?
+  ipAddress  String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  user       User      @relation(fields: [userId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model ProvisioningSession {
+  id              String                    @id @default(uuid())
+  siteId          String
+  floorId         String
+  gatewayId       String
+  requestedBy     String
+  status          ProvisioningSessionStatus @default(active)
+  site            Site                      @relation(fields: [siteId], references: [id])
+  floor           Floor                     @relation(fields: [floorId], references: [id])
+  gateway         Gateway                   @relation(fields: [gatewayId], references: [id])
+  user            User                      @relation(fields: [requestedBy], references: [id])
+  discoveredNodes DiscoveredMeshNode[]
+  startedAt       DateTime                  @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+}
+
+model DiscoveredMeshNode {
+  id              String               @id @default(uuid())
+  sessionId       String
+  deviceUuid      String
+  serialNumber    String
+  rssi            Int
+  oobCapability   String
+  firmwareVersion String
+  status          DiscoveredNodeStatus @default(discovered)
+  identifyState   String               @default("idle")
+  meshAddress     String?
+  errorMessage    String?
+  session         ProvisioningSession  @relation(fields: [sessionId], references: [id])
+  discoveredAt    DateTime             @default(now())
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@unique([sessionId, deviceUuid])
 }
 
 model EnergyUsage {

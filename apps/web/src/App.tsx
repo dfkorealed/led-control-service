@@ -1,6 +1,7 @@
 import { Activity, BarChart3, Bell, MapPin, Settings, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCurrentUser, logout } from "./api/auth";
+import { useDashboard } from "./api/queries";
 import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
 import { MonitoringView } from "./features/monitoring/MonitoringView";
@@ -17,10 +18,8 @@ const items = [
 ] as const;
 
 export function App() {
-  const { view, setView } = useNavigationStore();
   const queryClient = useQueryClient();
   const { data: auth, isLoading: isAuthLoading, error: authError } = useCurrentUser();
-  const active = items.find((item) => item.key === view) ?? items[0];
 
   if (isAuthLoading) {
     return <main className="auth-shell"><section className="auth-panel">인증 상태를 확인하는 중</section></main>;
@@ -29,6 +28,18 @@ export function App() {
   if (authError || !auth?.user) {
     return <AuthView onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ["auth", "me"] })} />;
   }
+
+  return <AuthenticatedShell />;
+}
+
+function AuthenticatedShell() {
+  const { view, setView } = useNavigationStore();
+  const queryClient = useQueryClient();
+  const { data: dashboard } = useDashboard();
+  const active = items.find((item) => item.key === view) ?? items[0];
+  const gateway = dashboard?.gateways[0];
+  const gatewayStatusLabel = gateway ? (gateway.connectionStatus === "online" ? "게이트웨이 정상" : "게이트웨이 오프라인") : "게이트웨이 미등록";
+  const gatewayStatusClass = gateway?.connectionStatus === "online" ? "online" : "offline";
 
   async function handleLogout() {
     await logout();
@@ -64,15 +75,17 @@ export function App() {
       <main className="content">
         <header className="topbar">
           <div>
-            <span className="eyebrow">Demo Underground Parking</span>
+            <span className="eyebrow">{dashboard?.site.name ?? "Demo Underground Parking"}</span>
             <h1>{active.label}</h1>
           </div>
           <div className="topbar-actions" aria-label="현장 상태">
             <span className="site-pill">
               <MapPin size={16} />
-              B2 주차장
+              {dashboard?.floors[0]?.name ?? "층 미등록"} 주차장
             </span>
-            <span className="status-pill online">게이트웨이 정상</span>
+            <span className={`status-pill ${gatewayStatusClass}`}>
+              {gatewayStatusLabel}
+            </span>
             <button className="icon-button" aria-label="알림">
               <Bell size={18} />
             </button>

@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import { config } from "dotenv";
-import { dimmingCommandSchema, FixtureState, mqttTopics } from "@led-control/shared";
+import { dimmingCommandSchema, FixtureState, mqttTopics, provisioningScanStartSchema } from "@led-control/shared";
 import mqtt from "mqtt";
-import { applyDimmingCommand, createInitialStates, parseGroupFixtureMap } from "./simulator";
+import { applyDimmingCommand, createInitialStates, createMockDiscoveredNodes, parseGroupFixtureMap } from "./simulator";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -24,6 +24,7 @@ const client = mqtt.connect(mqttUrl);
 
 client.on("connect", () => {
   client.subscribe(mqttTopics.dimmingCommand(siteId), { qos: 1 });
+  client.subscribe(`sites/${siteId}/gateways/+/commands/provisioning-scan-start`, { qos: 1 });
   setInterval(() => {
     for (const state of states) {
       client.publish(mqttTopics.fixtureState(siteId), JSON.stringify(state), { qos: 1 });
@@ -37,6 +38,21 @@ client.on("connect", () => {
 });
 
 client.on("message", (topic, payload) => {
+  if (topic.includes("/commands/provisioning-scan-start")) {
+    const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
+    const gatewayId = topic.split("/")[3];
+    const nodes = createMockDiscoveredNodes({
+      sessionId: command.sessionId,
+      floorName: process.env.MOCK_REGISTRATION_FLOOR_NAME ?? "B2",
+      count: Number(process.env.MOCK_DISCOVERED_NODE_COUNT ?? 4)
+    });
+
+    for (const node of nodes) {
+      client.publish(mqttTopics.unprovisionedDeviceFound(command.siteId, gatewayId), JSON.stringify(node), { qos: 1 });
+    }
+    return;
+  }
+
   if (topic !== mqttTopics.dimmingCommand(siteId)) return;
 
   const command = dimmingCommandSchema.parse(JSON.parse(payload.toString()));

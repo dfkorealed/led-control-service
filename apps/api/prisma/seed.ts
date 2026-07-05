@@ -24,6 +24,8 @@ async function main() {
   await prisma.groupFixture.deleteMany();
   await prisma.fixtureGroup.deleteMany();
   await prisma.fixture.deleteMany();
+  await prisma.discoveredMeshNode.deleteMany();
+  await prisma.provisioningSession.deleteMany();
   await prisma.meshNode.deleteMany();
   await prisma.gateway.deleteMany();
   await prisma.floorPlan.deleteMany();
@@ -104,6 +106,8 @@ async function main() {
       data: {
         id: demoIds.meshNodeIds[index],
         gatewayId: gateway.id,
+        deviceUuid: `esp32h2-installed-b2-${String(index + 1).padStart(3, "0")}`,
+        serialNumber: `LC-INST-B2-${String(index + 1).padStart(3, "0")}`,
         meshAddress: `0x${(index + 1).toString(16).padStart(4, "0")}`,
         firmwareVersion: "mock-node-1.0.0"
       }
@@ -120,6 +124,9 @@ async function main() {
         y: 140 + Math.floor(index / 4) * 180,
         status: "online",
         brightness: 60,
+        rssi: -58 - index,
+        hopCount: 1 + (index % 3),
+        commandSuccessRate: 0.98,
         lastSeenAt: new Date()
       }
     });
