@@ -35,6 +35,21 @@ vi.mock("./api/client", () => ({
       return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
     }
     if (path === "/sites/default/dashboard") return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    const floorEditorMatch = path.match(/^\/floors\/(.+)\/editor-state$/);
+    if (floorEditorMatch) {
+      const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
+      const floor = dashboard.floors.find((item) => item.id === floorEditorMatch[1]) ?? dashboard.floors[0];
+      return Promise.resolve({
+        floor: {
+          id: floor.id,
+          name: floor.name,
+          level: floor.level,
+          floorPlan: floor.floorPlan
+        },
+        fixtures: floor.fixtures,
+        objects: []
+      });
+    }
     if (path === "/energy/default/estimate") return Promise.resolve(mockEnergyEstimate);
     if (path === `/registration-sessions/${mockRegistrationSession.id}`) {
       return Promise.resolve(apiState.registrationSession ?? mockRegistrationSession);
@@ -230,12 +245,30 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "B1" }));
     expect(await screen.findByText("B1 운영 현황")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "B1-L01 online 50%" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "B1-L02 online 55%" }));
+    fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
     expect(await screen.findByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
     expect(screen.getByText("-56 dBm")).toBeInTheDocument();
     expect(screen.getByText("99%")).toBeInTheDocument();
+  });
+
+  it("opens the floor editor from monitoring and returns when cancelled", async () => {
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "도면 편집" }));
+
+    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+
+    expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
   });
 
   it("renders redesigned landmarks for control statistics and settings", async () => {

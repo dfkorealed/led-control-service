@@ -46,6 +46,12 @@ enum DiscoveredNodeStatus {
   failed
 }
 
+enum FloorPlanSourceType {
+  none
+  image
+  pdf
+}
+
 model Organization {
   id          String       @id @default(uuid())
   name        String
@@ -97,21 +103,25 @@ model Floor {
   site                 Site                  @relation(fields: [siteId], references: [id])
   floorPlan            FloorPlan?
   fixtures             Fixture[]
+  mapObjects           FloorMapObject[]
   provisioningSessions ProvisioningSession[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
 
 model FloorPlan {
-  id        String   @id @default(uuid())
-  floorId   String   @unique
-  imageUrl  String
-  width     Int
-  height    Int
-  version   Int      @default(1)
-  floor     Floor    @relation(fields: [floorId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String              @id @default(uuid())
+  floorId          String              @unique
+  imageUrl         String
+  sourceType       FloorPlanSourceType @default(image)
+  originalFileUrl  String?
+  renderedImageUrl String?
+  width            Int
+  height           Int
+  version          Int                 @default(1)
+  floor            Floor               @relation(fields: [floorId], references: [id])
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 }
 
 model Fixture {
@@ -134,6 +144,31 @@ model Fixture {
   energyUsages       EnergyUsage[]
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
+}
+
+model FloorMapObject {
+  id          String   @id @default(uuid())
+  floorId     String
+  type        String
+  x           Float
+  y           Float
+  width       Float?
+  height      Float?
+  rotation    Float    @default(0)
+  points      Json?
+  text        String?
+  strokeColor String   @default("#0b63e5")
+  fillColor   String?
+  strokeWidth Float    @default(2)
+  fontSize    Float?
+  zIndex      Int      @default(0)
+  locked      Boolean  @default(false)
+  visible     Boolean  @default(true)
+  floor       Floor    @relation(fields: [floorId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([floorId, zIndex])
 }
 
 model FixtureGroup {

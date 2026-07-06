@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-07-03
+작성일: 2026-07-06
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -9,7 +9,7 @@
 현재 DB는 다음 업무 영역으로 나뉜다.
 
 - 조직/사용자/인증: `Organization`, `User`, `Invitation`, `Session`
-- 현장/공간/도면: `Site`, `Floor`, `FloorPlan`
+- 현장/공간/도면: `Site`, `Floor`, `FloorPlan`, `FloorMapObject`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `MeshNode`
 - 제어/모니터링: `Command`, `EnergyUsage`
 - 조명 검색/등록: `ProvisioningSession`, `DiscoveredMeshNode`
@@ -21,7 +21,9 @@ Organization
   ├─ User ─ Session
   ├─ Invitation
   └─ Site
-      ├─ Floor ─ FloorPlan
+      ├─ Floor
+      │   ├─ FloorPlan
+      │   ├─ FloorMapObject
       │   └─ Fixture ─ MeshNode
       │       ├─ GroupFixture ─ FixtureGroup
       │       └─ EnergyUsage
@@ -94,6 +96,16 @@ Organization
 | `provisioning` | 등록 진행 중 |
 | `provisioned` | 등록 완료 |
 | `failed` | 등록 실패 |
+
+### FloorPlanSourceType
+
+층별 도면 에디터에서 도면 배경 원본의 종류를 구분하기 위한 enum이다.
+
+| 값 | 의미 |
+| --- | --- |
+| `none` | 배경 없이 격자 캔버스만 사용 |
+| `image` | JPG 또는 PNG 이미지 원본 사용 |
+| `pdf` | PDF 첫 페이지를 렌더링한 이미지 사용 |
 
 ## 3. 테이블 상세
 
@@ -178,12 +190,13 @@ Organization
 
 - `site`: `Site`
 - `floorPlan`: `FloorPlan?`
+- `mapObjects`: `FloorMapObject[]`
 - `fixtures`: `Fixture[]`
 - `provisioningSessions`: `ProvisioningSession[]`
 
 ### FloorPlan
 
-층 도면 이미지와 좌표계 정보를 저장한다. `Floor`와 1:1 관계다.
+층 도면 이미지와 좌표계 정보를 저장한다. `Floor`와 1:1 관계다. 층별 도면 에디터 작업에서 배경 없음, 이미지 원본, PDF 렌더링 결과를 표현한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
@@ -193,12 +206,60 @@ Organization
 | `width` | `Int` | 예 |  | 도면 기준 너비 |
 | `height` | `Int` | 예 |  | 도면 기준 높이 |
 | `version` | `Int` | 예 | `1` | 도면 버전 |
+| `sourceType` | `FloorPlanSourceType` | 예 | `image` | 배경 원본 종류. 기존 도면은 이미지로 간주 |
+| `originalFileUrl` | `String?` | 아니오 |  | 업로드한 원본 JPG/PNG/PDF 파일 URL |
+| `renderedImageUrl` | `String?` | 아니오 |  | PDF 첫 페이지 또는 후처리된 배경 이미지 URL |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
 관계:
 
 - `floor`: `Floor`
+
+운영 메모:
+
+- 현재 읽기 전용 모니터링 화면은 `imageUrl`, `width`, `height`를 사용한다.
+- 구현 중인 에디터에서는 `sourceType = none`이거나 `FloorPlan`이 없을 때 배경 없는 격자 캔버스를 표시한다.
+- PDF 업로드는 원본을 `originalFileUrl`에 보관하고, 첫 페이지 렌더링 결과를 `renderedImageUrl`로 표시하는 방향이다.
+
+### FloorMapObject
+
+층별 도면 에디터에서 사용자가 추가하는 도형과 텍스트 객체를 저장한다. 조명 위치는 기존 `Fixture.x`, `Fixture.y`를 계속 사용하고, 사각형/텍스트 같은 비조명 편집 객체만 이 테이블로 분리한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 도면 객체 ID |
+| `floorId` | `String` | 예 | FK -> `Floor.id` | 소속 층 |
+| `type` | `String` | 예 |  | `rectangle`, `text` 등 에디터 오브젝트 타입 |
+| `x` | `Float` | 예 |  | 도면 기준 X 좌표 |
+| `y` | `Float` | 예 |  | 도면 기준 Y 좌표 |
+| `width` | `Float?` | 아니오 |  | 사각형/삼각형 등 면 객체 너비 |
+| `height` | `Float?` | 아니오 |  | 사각형/삼각형 등 면 객체 높이 |
+| `rotation` | `Float` | 예 | `0` | 회전 각도 |
+| `points` | `Json?` | 아니오 |  | 선 또는 다각형 좌표 배열 |
+| `text` | `String?` | 아니오 |  | 텍스트 객체 내용 |
+| `strokeColor` | `String` | 예 | `#0b63e5` | 선 색상 |
+| `fillColor` | `String?` | 아니오 |  | 채움 색상 |
+| `strokeWidth` | `Float` | 예 | `2` | 선 두께 |
+| `fontSize` | `Float?` | 아니오 |  | 텍스트 크기 |
+| `zIndex` | `Int` | 예 | `0` | 같은 층 안의 렌더링 순서 |
+| `locked` | `Boolean` | 예 | `false` | 편집 잠금 여부 |
+| `visible` | `Boolean` | 예 | `true` | 화면 표시 여부 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
+
+제약:
+
+- Index: `floorId`, `zIndex`
+
+관계:
+
+- `floor`: `Floor`
+
+운영 메모:
+
+- 이 모델은 층별 도면 에디터 MVP1의 비조명 편집 객체를 저장한다.
+- 향후 구역/그룹 객체를 정식 도메인으로 승격할 경우 `type` 문자열 대신 전용 enum 또는 별도 테이블로 분리할 수 있다.
 
 ### Fixture
 
@@ -467,6 +528,7 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 | --- | --- | --- |
 | `User` | Unique `email` | 이메일 중복 가입 방지 |
 | `FloorPlan` | Unique `floorId` | 한 층에 하나의 현재 도면 |
+| `FloorMapObject` | Index `floorId`, `zIndex` | 한 층 안에서 편집 객체 렌더링 순서 조회 최적화 |
 | `Fixture` | Unique `meshNodeId` | 하나의 메시 노드는 하나의 조명에만 연결 |
 | `Gateway` | Unique `serialNumber` | 게이트웨이 시리얼 중복 방지 |
 | `MeshNode` | Unique `deviceUuid` | BLE Mesh device UUID 중복 방지 |
@@ -541,6 +603,20 @@ ProvisioningSession 생성
 ```
 
 현장·층 온보딩 MVP 1에서는 `Site`, `Floor`, `FloorPlan`, `Gateway` 기존 모델을 그대로 사용한다. 층별 게이트웨이 커버리지, 주차면 수, 층 설명은 실제 파일럿 요구가 확인된 뒤 별도 컬럼 또는 테이블로 분리한다.
+
+### 층별 도면 에디터
+
+```text
+GET /floors/{floorId}/editor-state
+→ Floor, FloorPlan, Fixture, FloorMapObject 조회
+→ 웹 에디터에서 도면 배경, 도형, 텍스트, 조명 위치 draft 편집
+→ PATCH /floors/{floorId}/floor-plan
+→ POST/PATCH/DELETE /floor-map-objects
+→ PATCH /fixtures/{fixtureId}
+→ dashboard query 갱신
+```
+
+모든 조회와 수정은 `Floor -> Site -> Organization`, `Fixture -> Floor -> Site -> Organization`, `FloorMapObject -> Floor -> Site -> Organization` 경로로 로그인 사용자의 조직 범위를 검증한다.
 
 ## 6. 운영상 아직 분리가 필요한 후보
 

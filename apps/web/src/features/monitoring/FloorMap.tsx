@@ -1,6 +1,12 @@
 import type { CSSProperties } from "react";
 import { Dashboard } from "../../api/queries";
 
+const fixtureStatusLabels = {
+  online: "정상",
+  offline: "오프라인",
+  fault: "장애"
+} as const;
+
 interface FloorMapProps {
   floor: Dashboard["floors"][number];
   selectedFixtureId: string | null;
@@ -20,20 +26,29 @@ export function FloorMap({ floor, selectedFixtureId, onSelectFixture }: FloorMap
         <span>{floor.name}</span>
         <strong>실시간 조명 배치</strong>
       </div>
-      {floor.fixtures.map((fixture) => (
-        <button
-          key={fixture.id}
-          className={`fixture-dot ${fixture.status}${fixture.id === selectedFixtureId ? " active" : ""}`}
-          style={{ left: `${(fixture.x / width) * 100}%`, top: `${(fixture.y / height) * 100}%` }}
-          title={`${fixture.name} ${fixture.status} ${fixture.brightness}%`}
-          aria-label={`${fixture.name} ${fixture.status} ${fixture.brightness}%`}
-          onClick={() => onSelectFixture(fixture.id)}
-        >
-          <span className="fixture-name">{fixture.name}</span>
-          <strong>{fixture.brightness}%</strong>
-          <span className="fixture-bar" style={{ "--brightness": `${fixture.brightness}%` } as CSSProperties} />
-        </button>
-      ))}
+      {floor.fixtures.map((fixture) => {
+        const statusLabel = fixtureStatusLabels[fixture.status];
+        const markerStyle = {
+          "--fixture-left": `${(fixture.x / width) * 100}%`,
+          "--fixture-top": `${(fixture.y / height) * 100}%`,
+          "--brightness": `${fixture.brightness}%`
+        } as CSSProperties;
+
+        return (
+          <button
+            key={fixture.id}
+            className={`fixture-dot ${fixture.status}${fixture.id === selectedFixtureId ? " active" : ""}`}
+            style={markerStyle}
+            title={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
+            aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
+            onClick={() => onSelectFixture(fixture.id)}
+          >
+            <span className="fixture-name">{fixture.name}</span>
+            <strong>{fixture.brightness}%</strong>
+            <span className="fixture-bar" />
+          </button>
+        );
+      })}
     </div>
   );
 }

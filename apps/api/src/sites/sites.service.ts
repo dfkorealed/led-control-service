@@ -59,6 +59,9 @@ export class SitesService {
         floorPlan: floor.floorPlan
           ? {
               imageUrl: floor.floorPlan.imageUrl,
+              sourceType: floor.floorPlan.sourceType,
+              originalFileUrl: floor.floorPlan.originalFileUrl,
+              renderedImageUrl: floor.floorPlan.renderedImageUrl,
               width: floor.floorPlan.width,
               height: floor.floorPlan.height,
               version: floor.floorPlan.version

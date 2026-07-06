@@ -43,12 +43,25 @@ test.beforeEach(async ({ page }) => {
                 ratedWatt: 40,
                 brightness: 70,
                 status: "online",
+                rssi: -58,
+                hopCount: 1,
+                commandSuccessRate: 0.98,
                 lastSeenAt: "2026-07-01T00:00:00.000Z"
               }
             ]
           }
         ],
-        groups: [{ id: "group-1", name: "B2 Entrance Zone", fixtureIds: ["fixture-1"] }]
+        groups: [{ id: "group-1", name: "B2 Entrance Zone", fixtureIds: ["fixture-1"] }],
+        gateways: [
+          {
+            id: "gateway-1",
+            name: "Gateway B2",
+            serialNumber: "GW-E2E-001",
+            firmwareVersion: "mock-1.0.0",
+            lastHeartbeatAt: "2026-07-01T00:00:00.000Z",
+            connectionStatus: "online"
+          }
+        ]
       })
     });
   });
@@ -69,7 +82,7 @@ test("operator can view monitoring dashboard and navigate primary sections", asy
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "모니터링" })).toBeVisible();
   await expect(page.getByText("전체 조명")).toBeVisible();
-  await expect(page.getByRole("button", { name: "B2-L01 online 70%" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "B2-L01 정상 70%" })).toBeVisible();
 
   await page.getByRole("button", { name: "제어" }).click();
   await expect(page.getByRole("heading", { name: "제어", exact: true })).toBeVisible();

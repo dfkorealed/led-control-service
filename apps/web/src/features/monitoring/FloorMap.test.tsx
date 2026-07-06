@@ -35,10 +35,12 @@ describe("FloorMap", () => {
 
     expect(screen.getByText("B2-L01")).toBeInTheDocument();
     expect(screen.getByText("70%")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "B2-L01 online 70%" })).toBeInTheDocument();
+    const fixtureButton = screen.getByRole("button", { name: "B2-L01 정상 70%" });
+    expect(fixtureButton).toBeInTheDocument();
+    expect(fixtureButton).toHaveStyle({ "--fixture-left": "8.333333333333332%", "--fixture-top": "15%", "--brightness": "70%" });
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("src", "/demo.svg");
 
-    fireEvent.click(screen.getByRole("button", { name: "B2-L01 online 70%" }));
+    fireEvent.click(fixtureButton);
     expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
   });
 });

@@ -22,3 +22,9 @@
 - **원인**: 조명 등록 UX는 층과 게이트웨이가 이미 있다고 가정했지만, 최초 가입 사용자가 직접 현장과 층을 만드는 온보딩 흐름이 없었다.
 - **해결 및 예방책**: 빈 현장 상태에서는 조명 등록 버튼보다 `초기 설치 설정` 마법사를 먼저 보여주고, 현장 생성, 층 일괄 등록, 게이트웨이 수동 등록을 완료한 뒤 조명 검색을 열어준다.
 - **반복 방지 체크**: 기능 진입점마다 필요한 선행 데이터가 무엇인지 문서와 empty state에 함께 표시한다.
+
+## 2026-07-06 / 인증 Guard가 있는 신규 API 모듈 부팅 실패
+- **발생했던 문제/실수**: `FloorEditorController`에 `SessionAuthGuard`를 적용했지만 `FloorEditorModule`이 `AuthModule`을 import하지 않아 Nest 앱 부팅 시 `AuthService` 의존성 해석이 실패했다.
+- **원인**: 서비스 단위 테스트와 타입체크는 통과했지만 실제 Nest module graph 부팅 검증이 빠져 있었다.
+- **해결 및 예방책**: `SessionAuthGuard`를 사용하는 신규 module은 `AuthModule`을 imports에 추가한다. API 기능 추가 후에는 관련 서비스 테스트뿐 아니라 로컬 API 서버 부팅 또는 module graph를 검증한다.
+- **반복 방지 체크**: `@UseGuards(SessionAuthGuard)`를 추가한 controller가 있으면 같은 module의 `imports`에 `AuthModule`이 있는지 확인한다.
