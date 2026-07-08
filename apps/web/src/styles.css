@@ -1139,6 +1139,14 @@ button {
   color: var(--primary);
 }
 
+.floor-editor-toolbar button[draggable="true"] {
+  cursor: grab;
+}
+
+.floor-editor-toolbar button[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 .floor-editor-side-panel {
   display: grid;
   align-content: start;
@@ -1232,12 +1240,44 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
   border-style: solid;
   color: var(--text);
   font-size: 12px;
   font-weight: 800;
-  cursor: pointer;
+  cursor: move;
+}
+
+.editor-object > span {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.editor-object.selected {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
+.editor-object.preview {
+  opacity: 0.64;
+  pointer-events: none;
+}
+
+.editor-resize-handle {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  z-index: 3;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff;
+  border-radius: 4px;
+  background: #2563eb;
+  box-shadow: 0 4px 10px rgba(15, 38, 70, 0.22);
+  cursor: nwse-resize;
 }
 
 .editor-line-object {

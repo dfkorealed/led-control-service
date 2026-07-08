@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Hand, Minus, MousePointer2, Save, Square, Triangle, Type, Undo2, ZoomIn, ZoomOut } from "lucide-react";
-import { useEffect } from "react";
+import { type DragEvent, useEffect } from "react";
 import { createFloorMapObject, updateEditorFixture, updateFloorMapObject, updateFloorPlan } from "../../api/floor-editor";
 import { EditorPropertiesPanel } from "./EditorPropertiesPanel";
 import { FloorAssetUploader } from "./FloorAssetUploader";
@@ -22,6 +22,7 @@ const tools: Array<{ key: EditorTool; label: string; icon: typeof MousePointer2 
   { key: "line", label: "선", icon: Minus },
   { key: "text", label: "텍스트", icon: Type }
 ];
+const TOOL_DRAG_DATA_TYPE = "application/x-floor-editor-tool";
 
 export function FloorEditorView({ initialState, onCancel, onSaved }: FloorEditorViewProps) {
   const queryClient = useQueryClient();
@@ -39,6 +40,13 @@ export function FloorEditorView({ initialState, onCancel, onSaved }: FloorEditor
       queryClient.invalidateQueries({ queryKey: ["floor-editor", state.floor.id] })
     ]);
     await onSaved(state);
+  }
+
+  function handleToolDragStart(event: DragEvent<HTMLButtonElement>, tool: EditorTool) {
+    if (tool === "select" || tool === "pan") return;
+    setActiveTool(tool);
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData(TOOL_DRAG_DATA_TYPE, tool);
   }
 
   return (
@@ -77,7 +85,9 @@ export function FloorEditorView({ initialState, onCancel, onSaved }: FloorEditor
                 className={activeTool === tool.key ? "active" : ""}
                 aria-label={tool.label}
                 title={tool.label}
+                draggable={tool.key !== "select" && tool.key !== "pan"}
                 onClick={() => setActiveTool(tool.key)}
+                onDragStart={(event) => handleToolDragStart(event, tool.key)}
               >
                 <Icon size={18} />
               </button>
@@ -123,12 +133,14 @@ async function persistEditorState(initialState: FloorEditorState, state: FloorEd
 }
 
 function toFixturePayload(fixture: EditorFixture) {
-  return {
+  const payload: Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size">> = {
     name: fixture.name,
     ratedWatt: fixture.ratedWatt,
     x: fixture.x,
     y: fixture.y
   };
+  if (fixture.size !== undefined) payload.size = fixture.size;
+  return payload;
 }
 
 function toObjectDraft(object: FloorMapObject): FloorMapObjectDraft {

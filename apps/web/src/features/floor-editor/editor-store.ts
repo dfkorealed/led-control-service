@@ -20,7 +20,7 @@ interface EditorStore {
   selectFixture: (fixtureId: string) => void;
   selectObject: (objectId: string) => void;
   clearSelection: () => void;
-  updateFixture: (fixtureId: string, patch: Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y">>) => void;
+  updateFixture: (fixtureId: string, patch: Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size">>) => void;
   updateFloorPlan: (floorPlan: FloorPlanDraft | null) => void;
   addObject: (floorId: string, draft: FloorMapObjectDraft) => void;
   updateObject: (objectId: string, patch: Partial<FloorMapObject>) => void;

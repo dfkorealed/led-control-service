@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPoint, createDefaultObject, moveByDelta, screenToWorld } from "./geometry";
+import { clampPoint, createDefaultObject, createObjectFromDrag, moveByDelta, screenToWorld } from "./geometry";
 
 describe("floor editor geometry", () => {
   it("converts screen coordinates into world coordinates using pan and zoom", () => {
@@ -23,7 +23,7 @@ describe("floor editor geometry", () => {
       width: 160,
       height: 96,
       strokeColor: "#2563eb",
-      fillColor: "rgba(37, 99, 235, 0.12)",
+      fillColor: "#dbeafe",
       strokeWidth: 2
     });
 
@@ -46,6 +46,27 @@ describe("floor editor geometry", () => {
       y: 32,
       text: "텍스트",
       fontSize: 16
+    });
+  });
+
+  it("creates map objects from drag coordinates with normalized bounds", () => {
+    expect(createObjectFromDrag("rectangle", { x: 320, y: 240 }, { x: 200, y: 160 })).toMatchObject({
+      type: "rectangle",
+      x: 200,
+      y: 160,
+      width: 120,
+      height: 80
+    });
+
+    expect(createObjectFromDrag("triangle", { x: 10, y: 20 }, { x: 12, y: 22 })).toMatchObject({
+      type: "triangle",
+      width: 24,
+      height: 24,
+      points: [
+        { x: 12, y: 0 },
+        { x: 24, y: 24 },
+        { x: 0, y: 24 }
+      ]
     });
   });
 });

@@ -1,11 +1,11 @@
 import type { EditorTool, FloorMapObjectDraft } from "./editor-types";
 
-interface Point {
+export interface Point {
   x: number;
   y: number;
 }
 
-interface Bounds {
+export interface Bounds {
   width: number;
   height: number;
 }
@@ -40,7 +40,7 @@ export function createDefaultObject(tool: EditorTool, point: Point): FloorMapObj
     y: point.y,
     rotation: 0,
     strokeColor: "#2563eb",
-    fillColor: "rgba(37, 99, 235, 0.12)",
+    fillColor: "#dbeafe",
     strokeWidth: 2,
     text: "",
     fontSize: 16,
@@ -71,4 +71,31 @@ export function createDefaultObject(tool: EditorTool, point: Point): FloorMapObj
   }
 
   return { ...base, type: "rectangle", width: 160, height: 96 };
+}
+
+export function createObjectFromDrag(tool: EditorTool, start: Point, end: Point): FloorMapObjectDraft {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  const width = Math.max(Math.abs(end.x - start.x), 24);
+  const height = Math.max(Math.abs(end.y - start.y), tool === "text" ? 32 : 24);
+  const object = createDefaultObject(tool, { x, y });
+
+  if (tool === "triangle") {
+    return {
+      ...object,
+      width,
+      height,
+      points: [
+        { x: width / 2, y: 0 },
+        { x: width, y: height },
+        { x: 0, y: height }
+      ]
+    };
+  }
+
+  if (tool === "line") {
+    return { ...object, width, height: 0 };
+  }
+
+  return { ...object, width, height };
 }

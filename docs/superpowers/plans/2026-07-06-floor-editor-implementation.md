@@ -12,6 +12,28 @@
 
 ## 진행 로그
 
+### 2026-07-07 09:30 Konva 에디터 전환
+
+- 완료된 작업: `FloorEditorCanvas`를 DOM 절대좌표 요소 기반에서 `react-konva` Stage/Layer/Transformer 기반으로 전환했다.
+- 완료된 작업: 좌측 툴바의 도형 도구를 도면 위로 HTML drag/drop할 때 Konva 좌표계로 변환해 기본 크기 객체가 생성되도록 수정했다.
+- 완료된 작업: 좌측 도구 선택 후 도면 내부를 드래그해 크기를 지정하는 생성 방식도 Konva 캔버스와 DOM fallback 이벤트에서 동작하도록 유지했다.
+- 완료된 작업: 도형/텍스트 객체는 Konva Transformer의 모서리/변 핸들로 리사이즈하고, 조명 객체도 동일하게 Transformer로 크기를 조절한다.
+- 완료된 작업: 조명 리사이즈 저장을 위해 `Fixture.size` DB 컬럼과 API/update payload를 추가했다.
+- 검증 완료:
+  - `PATH="/Users/kim-jh/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Users/kim-jh/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin:$PATH" pnpm --filter @led-control/web test -- FloorEditorView.test.tsx geometry.test.ts`
+
+### 2026-07-07 09:02 에디터 편집 UX 보강 완료
+
+- 완료된 작업: 좌측 도구에서 네모, 세모, 선, 텍스트 객체를 클릭 생성이 아니라 툴바 도구를 도면 위로 드래그 앤 드롭해 생성하도록 변경했다.
+- 완료된 작업: 좌측 도구 선택 후 캔버스 내부를 드래그해 크기를 지정하는 보조 생성 방식은 유지하되, 단순 클릭만으로 객체가 생성되지 않도록 변경했다.
+- 완료된 작업: 생성된 도형/텍스트 객체를 선택 모드에서 드래그 이동할 수 있게 했다. 드래그 시작 지점과 객체 좌상단 사이의 offset을 유지해 마우스 포인터를 자연스럽게 따라간다.
+- 완료된 작업: 선택된 도형/텍스트 객체에 우하단 리사이즈 핸들을 표시하고, 핸들 드래그로 `width/height`를 변경할 수 있게 했다.
+- 완료된 작업: 채우기 색상 입력을 선 색상과 동일한 color palette 입력으로 변경했다. 기본 도형 fill 색상은 팔레트 입력과 호환되는 hex 값으로 정리했다.
+- 검증 완료:
+  - `PATH="/Users/kim-jh/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Users/kim-jh/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin:$PATH" pnpm --filter @led-control/web test -- FloorEditorView.test.tsx geometry.test.ts`
+  - `PATH="/Users/kim-jh/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Users/kim-jh/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin:$PATH" pnpm --filter @led-control/web typecheck`
+- 남은 개선: 도형 다중 선택/일괄 이동, 삭제, 복사/붙여넣기, 4방향/8방향 리사이즈, 회전, grid snap, undo/redo는 후속 MVP 범위다.
+
 ### 2026-07-06 15:31 통합 구현 완료
 
 - 완료된 작업: Prisma schema와 migration에 `FloorPlanSourceType`, `FloorPlan` 확장 필드, `FloorMapObject`를 추가하고 로컬 PostgreSQL에 migration을 적용했다.

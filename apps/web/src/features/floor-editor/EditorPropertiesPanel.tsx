@@ -48,6 +48,10 @@ export function EditorPropertiesPanel() {
             Y
             <input type="number" value={Math.round(fixture.y)} onChange={(event) => updateFixture(fixture.id, { y: Number(event.target.value) })} />
           </label>
+          <label>
+            크기
+            <input type="number" value={Math.round(fixture.size ?? 20)} onChange={(event) => updateFixture(fixture.id, { size: Number(event.target.value) })} />
+          </label>
         </div>
       </aside>
     );
@@ -64,7 +68,7 @@ export function EditorPropertiesPanel() {
       </label>
       <label>
         채우기 색상
-        <input type="text" value={object.fillColor ?? ""} onChange={(event) => updateObject(object.id, { fillColor: event.target.value })} />
+        <input type="color" value={normalizeColorValue(object.fillColor ?? "")} onChange={(event) => updateObject(object.id, { fillColor: event.target.value })} />
       </label>
       <label>
         선 두께

@@ -29,6 +29,7 @@ export interface EditorFixture {
   name: string;
   x: number;
   y: number;
+  size?: number;
   ratedWatt: number;
   brightness: number;
   status: "online" | "offline" | "fault";

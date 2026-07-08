@@ -16,6 +16,7 @@ interface UpdateFixtureInput {
   ratedWatt?: number | string;
   x?: number;
   y?: number;
+  size?: number;
 }
 
 interface CreateObjectInput {
@@ -104,6 +105,7 @@ export class FloorEditorService {
         name: fixture.name,
         x: fixture.x,
         y: fixture.y,
+        size: fixture.size,
         ratedWatt: Number(fixture.ratedWatt),
         brightness: fixture.brightness,
         status: fixture.status
@@ -253,6 +255,7 @@ export class FloorEditorService {
     if (input.ratedWatt !== undefined) data.ratedWatt = this.decimalString(input.ratedWatt, "ratedWatt");
     if (input.x !== undefined) data.x = this.finiteNumber(input.x, "x");
     if (input.y !== undefined) data.y = this.finiteNumber(input.y, "y");
+    if (input.size !== undefined) data.size = this.finiteNumber(input.size, "size");
 
     return data;
   }

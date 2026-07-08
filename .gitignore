@@ -5,3 +5,4 @@ test-results/
 .env
 apps/api/dist/
 packages/shared/dist/
+.aider*

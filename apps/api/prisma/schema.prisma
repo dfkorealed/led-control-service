@@ -132,6 +132,7 @@ model Fixture {
   ratedWatt          Decimal        @db.Decimal(8, 2)
   x                  Float
   y                  Float
+  size               Float          @default(20)
   status             FixtureStatus  @default(offline)
   brightness         Int            @default(0)
   rssi               Int?

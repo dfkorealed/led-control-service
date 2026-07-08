@@ -20,7 +20,7 @@ export function updateFloorPlan(floorId: string, payload: FloorPlanPayload) {
   return request<FloorEditorState["floor"]["floorPlan"]>(`/floors/${floorId}/floor-plan`, "PATCH", payload);
 }
 
-export function updateEditorFixture(fixtureId: string, payload: Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y">>) {
+export function updateEditorFixture(fixtureId: string, payload: Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size">>) {
   return request<EditorFixture>(`/fixtures/${fixtureId}`, "PATCH", payload);
 }
 

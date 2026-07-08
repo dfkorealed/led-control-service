@@ -274,6 +274,7 @@ Organization
 | `ratedWatt` | `Decimal(8,2)` | 예 |  | 정격 전력 W |
 | `x` | `Float` | 예 |  | 도면 기준 X 좌표 |
 | `y` | `Float` | 예 |  | 도면 기준 Y 좌표 |
+| `size` | `Float` | 예 | `20` | 도면 에디터에서 표시되는 조명 노드 지름 |
 | `status` | `FixtureStatus` | 예 | `offline` | 현재 상태 |
 | `brightness` | `Int` | 예 | `0` | 현재 밝기 0-100 |
 | `rssi` | `Int?` | 아니오 |  | 최근 RSSI |

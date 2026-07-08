@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorEditorView } from "./FloorEditorView";
 import type { FloorEditorState } from "./editor-types";
@@ -97,7 +97,7 @@ describe("FloorEditorView", () => {
     const onSaved = vi.fn();
     renderEditor(editorState, { onSaved });
 
-    fireEvent.click(screen.getByRole("button", { name: "B2-L01 정상 70%" }));
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
     fireEvent.change(screen.getByLabelText("조명명"), { target: { value: "B2-L01 수정" } });
     fireEvent.change(screen.getByLabelText("정격 전력"), { target: { value: "45" } });
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
@@ -116,22 +116,103 @@ describe("FloorEditorView", () => {
     expect(onSaved.mock.calls[0][0].fixtures[0]).toMatchObject({ name: "B2-L01 수정", ratedWatt: 45 });
   });
 
-  it("creates a rectangle from the toolbar by clicking the canvas and posts draft object on save", async () => {
+  it("creates a rectangle after selecting the toolbar and dragging on the Konva canvas", async () => {
     renderEditor({ ...editorState, objects: [] });
 
     fireEvent.click(screen.getByRole("button", { name: "사각형" }));
-    fireEvent.click(screen.getByLabelText("B2 편집 캔버스"), { clientX: 200, clientY: 160 });
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+    fireEvent.mouseDown(canvas, { clientX: 200, clientY: 160 });
+    fireEvent.mouseMove(canvas, { clientX: 320, clientY: 240 });
+    fireEvent.mouseUp(canvas, { clientX: 320, clientY: 240 });
 
-    expect(screen.getAllByText("rectangle").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("선 색상")).toBeInTheDocument();
+    const objects = useFloorEditorStore.getState().state?.objects ?? [];
+    expect(objects[0]).toMatchObject({ type: "rectangle", x: 200, y: 160, width: 120, height: 80 });
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() => expect(floorEditorApi.createFloorMapObject).toHaveBeenCalledOnce());
     expect(floorEditorApi.createFloorMapObject).toHaveBeenCalledWith(
       "floor-b2",
-      expect.objectContaining({ type: "rectangle", locked: false, visible: true })
+      expect.objectContaining({ type: "rectangle", x: 200, y: 160, width: 120, height: 80, locked: false, visible: true })
     );
+  });
+
+  it("creates a rectangle by dragging the toolbar tool and dropping it on the canvas", async () => {
+    renderEditor({ ...editorState, objects: [] });
+
+    const dataTransfer = createDataTransfer();
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+    fireEvent.dragStart(screen.getByRole("button", { name: "사각형" }), { dataTransfer });
+    fireEvent.dragOver(canvas, { dataTransfer });
+    fireEvent(canvas, createDragEventWithPoint(canvas, "drop", dataTransfer, 240, 180));
+
+    expect(screen.getAllByText("rectangle").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.createFloorMapObject).toHaveBeenCalledOnce());
+    expect(floorEditorApi.createFloorMapObject).toHaveBeenCalledWith(
+      "floor-b2",
+      expect.objectContaining({ type: "rectangle", x: 240, y: 180, width: 160, height: 96 })
+    );
+  });
+
+  it("does not create an object when a tool is selected and the canvas is only clicked", () => {
+    renderEditor({ ...editorState, objects: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "사각형" }));
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+    fireEvent.mouseDown(canvas, { clientX: 200, clientY: 160 });
+    fireEvent.mouseUp(canvas, { clientX: 200, clientY: 160 });
+
+    expect(screen.queryByText("rectangle")).not.toBeInTheDocument();
+  });
+
+  it("creates a selected tool object when dragging on the Konva canvas", () => {
+    renderEditor({ ...editorState, objects: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "삼각형" }));
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+    fireEvent.mouseDown(canvas, { clientX: 240, clientY: 180 });
+    fireEvent.mouseMove(canvas, { clientX: 340, clientY: 260 });
+    fireEvent.mouseUp(canvas, { clientX: 340, clientY: 260 });
+
+    expect(useFloorEditorStore.getState().state?.objects[0]).toMatchObject({ type: "triangle", x: 240, y: 180, width: 100, height: 80 });
+  });
+
+  it("saves a moved map object from editor state", async () => {
+    renderEditor();
+
+    act(() => useFloorEditorStore.getState().updateObject("object-1", { x: 360, y: 230 }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.updateFloorMapObject).toHaveBeenCalledWith("object-1", expect.objectContaining({ x: 360, y: 230 })));
+  });
+
+  it("saves a resized map object from editor state", async () => {
+    renderEditor();
+
+    act(() => useFloorEditorStore.getState().updateObject("object-1", { width: 180, height: 80 }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.updateFloorMapObject).toHaveBeenCalledWith("object-1", expect.objectContaining({ width: 180, height: 80 })));
+  });
+
+  it("uses a color palette input for object fill color", () => {
+    renderEditor();
+
+    act(() => useFloorEditorStore.getState().selectObject("object-1"));
+
+    expect(screen.getByLabelText("채우기 색상")).toHaveAttribute("type", "color");
+  });
+
+  it("saves fixture size changes for Konva transformer resizing", async () => {
+    renderEditor();
+
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    fireEvent.change(screen.getByLabelText("크기"), { target: { value: "36" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.updateEditorFixture).toHaveBeenCalledWith("fixture-1", expect.objectContaining({ size: 36 })));
   });
 
   it("pans the canvas when the pan tool is dragged", () => {
@@ -141,6 +222,36 @@ describe("FloorEditorView", () => {
     fireEvent.mouseDown(screen.getByLabelText("B2 편집 캔버스"), { clientX: 100, clientY: 120 });
     fireEvent.mouseMove(screen.getByLabelText("B2 편집 캔버스"), { clientX: 130, clientY: 150 });
 
-    expect(document.querySelector(".floor-editor-world")).toHaveStyle("transform: translate(30px, 30px) scale(1)");
+    expect(useFloorEditorStore.getState().pan).toEqual({ x: 30, y: 30 });
   });
 });
+
+function createDataTransfer() {
+  const values = new Map<string, string>();
+  return {
+    effectAllowed: "",
+    dropEffect: "",
+    setData: vi.fn((type: string, value: string) => values.set(type, value)),
+    getData: vi.fn((type: string) => values.get(type) ?? ""),
+    clearData: vi.fn((type?: string) => {
+      if (type) {
+        values.delete(type);
+      } else {
+        values.clear();
+      }
+    })
+  };
+}
+
+function createDragEventWithPoint(
+  element: Element,
+  eventName: "drop",
+  dataTransfer: ReturnType<typeof createDataTransfer>,
+  clientX: number,
+  clientY: number
+) {
+  const event = createEvent[eventName](element, { dataTransfer });
+  Object.defineProperty(event, "clientX", { value: clientX });
+  Object.defineProperty(event, "clientY", { value: clientY });
+  return event;
+}

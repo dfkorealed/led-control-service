@@ -136,7 +136,7 @@ describe("FloorEditorService", () => {
     await expect(service.getEditorState(ids.floorId, ids.organizationId)).rejects.toThrow("floor not found");
   });
 
-  it("updates fixture name, ratedWatt, x, and y for the current organization", async () => {
+  it("updates fixture name, ratedWatt, x, y, and size for the current organization", async () => {
     const fixture = {
       id: ids.fixtureId,
       floor: { site: { organizationId: ids.organizationId } }
@@ -146,7 +146,8 @@ describe("FloorEditorService", () => {
       name: "B2-L01-updated",
       ratedWatt: "55.50",
       x: 321,
-      y: 654
+      y: 654,
+      size: 36
     };
     const { service, prisma } = await createService({
       fixture: {
@@ -157,14 +158,14 @@ describe("FloorEditorService", () => {
 
     const result = await service.updateFixture(
       ids.fixtureId,
-      { name: " B2-L01-updated ", ratedWatt: 55.5, x: 321, y: 654 },
+      { name: " B2-L01-updated ", ratedWatt: 55.5, x: 321, y: 654, size: 36 },
       ids.organizationId
     );
 
     expect(result).toBe(updatedFixture);
     expect(prisma.fixture.update).toHaveBeenCalledWith({
       where: { id: ids.fixtureId },
-      data: { name: "B2-L01-updated", ratedWatt: "55.50", x: 321, y: 654 }
+      data: { name: "B2-L01-updated", ratedWatt: "55.50", x: 321, y: 654, size: 36 }
     });
   });
 
