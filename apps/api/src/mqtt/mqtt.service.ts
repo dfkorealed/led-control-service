@@ -7,6 +7,10 @@ import {
   IdentifyDevicePayload,
   identifyDeviceSchema,
   mqttTopics,
+  ProvisionDevicePayload,
+  provisionDeviceSchema,
+  provisioningCompletedSchema,
+  provisioningFailedSchema,
   ProvisioningScanStartPayload,
   provisioningScanStartSchema,
   unprovisionedDeviceFoundSchema
@@ -26,7 +30,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       client.subscribe(["sites/+/events/fixture-state", "sites/+/events/command-ack", "sites/+/events/gateway-heartbeat"], {
         qos: 1
       });
-      client.subscribe("sites/+/gateways/+/events/unprovisioned-device-found", { qos: 1 });
+      client.subscribe(
+        [
+          "sites/+/gateways/+/events/unprovisioned-device-found",
+          "sites/+/gateways/+/events/provisioning-completed",
+          "sites/+/gateways/+/events/provisioning-failed"
+        ],
+        { qos: 1 }
+      );
     });
     client.on("message", (topic, payload) => {
       void this.handleMessage(topic, payload);
@@ -47,6 +58,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   async publishIdentifyDevice(input: IdentifyDevicePayload) {
     const payload = identifyDeviceSchema.parse(input);
     const topic = mqttTopics.identifyDevice(payload.siteId, payload.gatewayId);
+    await this.publishJson(topic, payload);
+  }
+
+  async publishProvisionDevice(input: ProvisionDevicePayload) {
+    const payload = provisionDeviceSchema.parse(input);
+    const topic = mqttTopics.provisionDevice(payload.siteId, payload.gatewayId);
     await this.publishJson(topic, payload);
   }
 
@@ -106,7 +123,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const heartbeat = gatewayHeartbeatSchema.parse(JSON.parse(payload.toString()));
       await this.prisma.gateway.updateMany({
         where: { serialNumber: heartbeat.gatewaySerial },
-        data: { lastHeartbeatAt: new Date(heartbeat.sentAt) }
+        data: {
+          lastHeartbeatAt: new Date(heartbeat.sentAt),
+          ...(heartbeat.firmwareVersion ? { firmwareVersion: heartbeat.firmwareVersion } : {})
+        }
       });
       return;
     }
@@ -150,7 +170,115 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           errorMessage: null
         }
       });
+      return;
     }
+
+    if (topic.endsWith("/events/provisioning-completed")) {
+      const event = provisioningCompletedSchema.parse(JSON.parse(payload.toString()));
+      const topicScope = parseGatewayScopedTopic(topic);
+      if (!topicScope) return;
+
+      await this.completeProvisioning(topicScope, event);
+      return;
+    }
+
+    if (topic.endsWith("/events/provisioning-failed")) {
+      const event = provisioningFailedSchema.parse(JSON.parse(payload.toString()));
+      const topicScope = parseGatewayScopedTopic(topic);
+      if (!topicScope) return;
+
+      await this.prisma.discoveredMeshNode.updateMany({
+        where: {
+          id: event.nodeId,
+          sessionId: event.sessionId,
+          deviceUuid: event.deviceUuid,
+          session: {
+            siteId: topicScope.siteId,
+            gatewayId: topicScope.gatewayId,
+            status: "active"
+          }
+        },
+        data: {
+          status: "failed",
+          errorMessage: event.errorMessage
+        }
+      });
+    }
+  }
+
+  private async completeProvisioning(
+    topicScope: { siteId: string; gatewayId: string },
+    event: {
+      sessionId: string;
+      nodeId: string;
+      deviceUuid: string;
+      meshAddress: string;
+      firmwareVersion?: string;
+      rssi?: number | null;
+      hopCount?: number | null;
+      completedAt: string;
+    }
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const node = await tx.discoveredMeshNode.findFirst({
+        where: {
+          id: event.nodeId,
+          sessionId: event.sessionId,
+          deviceUuid: event.deviceUuid,
+          session: {
+            siteId: topicScope.siteId,
+            gatewayId: topicScope.gatewayId,
+            status: "active"
+          }
+        },
+        include: { session: true }
+      });
+      if (!node || !node.pendingFixtureName || node.pendingFixtureX === null || node.pendingFixtureY === null) return;
+
+      const meshNode =
+        (await tx.meshNode.findUnique({ where: { deviceUuid: event.deviceUuid } })) ??
+        (await tx.meshNode.create({
+          data: {
+            gatewayId: node.session.gatewayId,
+            deviceUuid: event.deviceUuid,
+            serialNumber: node.serialNumber,
+            meshAddress: event.meshAddress,
+            firmwareVersion: event.firmwareVersion ?? node.firmwareVersion
+          }
+        }));
+
+      const existingFixture = await tx.fixture.findFirst({ where: { meshNodeId: meshNode.id } });
+      if (!existingFixture) {
+        await tx.fixture.create({
+          data: {
+            floorId: node.session.floorId,
+            meshNodeId: meshNode.id,
+            name: node.pendingFixtureName,
+            ratedWatt: node.pendingRatedWatt ?? "40.00",
+            x: node.pendingFixtureX,
+            y: node.pendingFixtureY,
+            status: "online",
+            brightness: 60,
+            rssi: event.rssi ?? node.rssi,
+            hopCount: event.hopCount ?? null,
+            commandSuccessRate: 1,
+            lastSeenAt: new Date(event.completedAt)
+          }
+        });
+      }
+
+      await tx.discoveredMeshNode.update({
+        where: { id: node.id },
+        data: {
+          status: "provisioned",
+          identifyState: "confirmed",
+          meshAddress: event.meshAddress,
+          firmwareVersion: event.firmwareVersion ?? node.firmwareVersion,
+          rssi: event.rssi ?? node.rssi,
+          errorMessage: null
+        }
+      });
+    });
   }
 }
 

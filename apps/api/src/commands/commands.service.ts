@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { dimmingCommandSchema } from "@led-control/shared";
 import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -27,6 +27,14 @@ export class CommandsService {
     if (!user) {
       throw new BadRequestException("requestedBy must reference an existing user id");
     }
+    if (user.role === "viewer") {
+      throw new ForbiddenException("viewer users cannot control lights");
+    }
+
+    const targetFixtureIds = await this.resolveTargetFixtureIds(input, user.organizationId);
+    if (targetFixtureIds.length === 0) {
+      throw new BadRequestException("control target not found in the user's site");
+    }
 
     const command = await this.prisma.command.create({
       data: {
@@ -43,6 +51,7 @@ export class CommandsService {
       siteId: command.siteId,
       targetType: command.targetType,
       targetId: command.targetId,
+      targetFixtureIds,
       brightness: command.brightness,
       requestedBy: command.requestedBy,
       requestedAt: command.createdAt.toISOString()
@@ -50,5 +59,27 @@ export class CommandsService {
 
     await this.mqttService.publishDimmingCommand(payload);
     return command;
+  }
+
+  private async resolveTargetFixtureIds(input: CreateDimmingCommandInput, organizationId: string) {
+    if (input.targetType === "fixture") {
+      const fixture = await this.prisma.fixture.findFirst({
+        where: {
+          id: input.targetId,
+          floor: { siteId: input.siteId, site: { organizationId } }
+        }
+      });
+      return fixture ? [fixture.id] : [];
+    }
+
+    const group = await this.prisma.fixtureGroup.findFirst({
+      where: {
+        id: input.targetId,
+        siteId: input.siteId,
+        site: { organizationId }
+      },
+      include: { groupFixtures: true }
+    });
+    return group?.groupFixtures.map((item) => item.fixtureId) ?? [];
   }
 }

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
 import { mockDashboard, mockEnergyEstimate, mockGet, mockPost, mockRegistrationSession, resetMockApiState } from "./api/mock";
 import type { RegistrationSession } from "./api/registration";
@@ -87,7 +88,7 @@ vi.mock("./api/client", () => ({
             id: "gateway-onboarded-1",
             name: input.gateway.name,
             serialNumber: input.gateway.serialNumber,
-            firmwareVersion: input.gateway.firmwareVersion ?? "manual-unknown",
+            firmwareVersion: "manual-unknown",
             lastHeartbeatAt: null,
             connectionStatus: "offline" as const
           }
@@ -130,6 +131,7 @@ describe("App", () => {
     apiState.registrationSession = null;
     useNavigationStore.setState({ view: "monitoring" });
     resetMockApiState();
+    vi.clearAllMocks();
     cleanup();
   });
 
@@ -287,6 +289,31 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "설정" }));
     expect(await screen.findByText("운영 설정")).toBeInTheDocument();
+  });
+
+  it("sends group dimming commands from the control screen", async () => {
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("button", { name: "그룹" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /B2 Entrance Zone/ })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    fireEvent.click(screen.getByRole("button", { name: "적용" }));
+
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/commands/dimming", {
+        siteId: mockDashboard.site.id,
+        targetType: "group",
+        targetId: mockDashboard.groups[0].id,
+        brightness: 30
+      })
+    );
+    expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
   });
 
   it("starts a lighting registration session from settings and shows discovered nodes", async () => {

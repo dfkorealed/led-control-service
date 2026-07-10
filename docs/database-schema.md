@@ -492,6 +492,10 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 | `status` | `DiscoveredNodeStatus` | 예 | `discovered` | 발견 노드 상태 |
 | `identifyState` | `String` | 예 | `idle` | 점멸 확인 상태 |
 | `meshAddress` | `String?` | 아니오 |  | 할당 예정 또는 할당된 mesh address |
+| `pendingFixtureName` | `String?` | 아니오 |  | provisioning 완료 후 생성할 fixture 이름 |
+| `pendingFixtureX` | `Float?` | 아니오 |  | provisioning 완료 후 생성할 fixture X 좌표 |
+| `pendingFixtureY` | `Float?` | 아니오 |  | provisioning 완료 후 생성할 fixture Y 좌표 |
+| `pendingRatedWatt` | `Decimal(8,2)?` | 아니오 |  | provisioning 완료 후 생성할 fixture 정격 전력 |
 | `errorMessage` | `String?` | 아니오 |  | 실패 사유 |
 | `discoveredAt` | `DateTime` | 예 | `now()` | 발견 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -588,8 +592,12 @@ ProvisioningSession 생성
 → unprovisioned-device-found event
 → DiscoveredMeshNode upsert
 → identify 확인
-→ MeshNode 생성
-→ Fixture 생성 또는 Fixture.meshNodeId 연결
+→ register 요청 시 DiscoveredMeshNode에 pending fixture 정보 저장
+→ gateway provision-device command 발행
+→ provisioning-completed event
+→ MeshNode 생성 또는 기존 MeshNode 재사용
+→ Fixture 생성 또는 기존 Fixture 유지
+→ provisioning-failed event 수신 시 DiscoveredMeshNode failed/errorMessage 갱신
 ```
 
 ### 현장·층 초기 설정

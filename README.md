@@ -99,10 +99,12 @@ pnpm --filter @led-control/web e2e:auth:real
 - PC 웹 관제 shell
 - 초대 기반 회원가입, 로그인, 자동 로그인 session
 - 층별 2D 맵 기반 조명 상태 표시
-- 개별 조명 밝기 제어 명령 API
+- 개별/그룹 조명 수동 밝기 제어 명령 API
 - MQTT 기반 Mock 게이트웨이
+- Raspberry Pi gateway MQTT 실행 골격
+- ESP32-H2 ESP-IDF 펌웨어 PWM 제어 및 BLE Mesh node 서버 모델 골격
 - 추정 전력 사용량과 예상 전기료 API
 - React Native WebView shell
 - Hamina Planner 기반 RF/음영 검토 패널
 
-실제 Go 게이트웨이, ESP32-H2 BLE Mesh 펌웨어, 실제 OTA, 파일럿 설치 플로우는 MVP 2와 MVP 3에서 별도로 구현합니다.
+실제 라즈베리파이 BLE Mesh provisioner/client adapter, 실기기 provisioning/model bind/group subscription 검증, 실제 OTA, 스케줄/이벤트 제어, 파일럿 설치 플로우는 MVP 2와 MVP 3에서 별도로 구현합니다.

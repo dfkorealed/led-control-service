@@ -24,7 +24,6 @@ interface InitialSiteSetupBody {
   gateway?: {
     name: string;
     serialNumber: string;
-    firmwareVersion?: string;
   };
 }
 

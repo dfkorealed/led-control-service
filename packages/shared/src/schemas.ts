@@ -5,6 +5,7 @@ export const dimmingCommandSchema = z.object({
   siteId: z.string().uuid(),
   targetType: z.enum(["fixture", "group"]),
   targetId: z.string().uuid(),
+  targetFixtureIds: z.array(z.string()).optional(),
   brightness: z.number().int().min(0).max(100),
   requestedBy: z.string().min(1),
   requestedAt: z.string().datetime()
@@ -31,6 +32,7 @@ export const commandAckSchema = z.object({
 export const gatewayHeartbeatSchema = z.object({
   siteId: z.string().uuid(),
   gatewaySerial: z.string().min(1),
+  firmwareVersion: z.string().min(1).optional(),
   sentAt: z.string().datetime()
 });
 
@@ -52,6 +54,16 @@ export const identifyDeviceSchema = z.object({
   requestedAt: z.string().datetime()
 });
 
+export const provisionDeviceSchema = z.object({
+  sessionId: z.string().uuid(),
+  siteId: z.string().uuid(),
+  gatewayId: z.string().uuid(),
+  nodeId: z.string().uuid(),
+  deviceUuid: z.string().min(1),
+  meshAddress: z.string().min(1),
+  requestedAt: z.string().datetime()
+});
+
 export const unprovisionedDeviceFoundSchema = z.object({
   sessionId: z.string().uuid(),
   deviceUuid: z.string().min(1),
@@ -60,4 +72,23 @@ export const unprovisionedDeviceFoundSchema = z.object({
   oobCapability: z.enum(["none", "static-oob", "output-oob", "input-oob"]),
   firmwareVersion: z.string().min(1),
   discoveredAt: z.string().datetime()
+});
+
+export const provisioningCompletedSchema = z.object({
+  sessionId: z.string().uuid(),
+  nodeId: z.string().uuid(),
+  deviceUuid: z.string().min(1),
+  meshAddress: z.string().min(1),
+  firmwareVersion: z.string().min(1).optional(),
+  rssi: z.number().max(0).nullable().optional(),
+  hopCount: z.number().int().nonnegative().nullable().optional(),
+  completedAt: z.string().datetime()
+});
+
+export const provisioningFailedSchema = z.object({
+  sessionId: z.string().uuid(),
+  nodeId: z.string().uuid(),
+  deviceUuid: z.string().min(1),
+  errorMessage: z.string().min(1),
+  failedAt: z.string().datetime()
 });

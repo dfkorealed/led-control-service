@@ -283,21 +283,25 @@ model ProvisioningSession {
 }
 
 model DiscoveredMeshNode {
-  id              String               @id @default(uuid())
-  sessionId       String
-  deviceUuid      String
-  serialNumber    String
-  rssi            Int
-  oobCapability   String
-  firmwareVersion String
-  status          DiscoveredNodeStatus @default(discovered)
-  identifyState   String               @default("idle")
-  meshAddress     String?
-  errorMessage    String?
-  session         ProvisioningSession  @relation(fields: [sessionId], references: [id])
-  discoveredAt    DateTime             @default(now())
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  id                 String               @id @default(uuid())
+  sessionId          String
+  deviceUuid         String
+  serialNumber       String
+  rssi               Int
+  oobCapability      String
+  firmwareVersion    String
+  status             DiscoveredNodeStatus @default(discovered)
+  identifyState      String               @default("idle")
+  meshAddress        String?
+  pendingFixtureName String?
+  pendingFixtureX    Float?
+  pendingFixtureY    Float?
+  pendingRatedWatt   Decimal?             @db.Decimal(8, 2)
+  errorMessage       String?
+  session            ProvisioningSession  @relation(fields: [sessionId], references: [id])
+  discoveredAt       DateTime             @default(now())
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   @@unique([sessionId, deviceUuid])
 }

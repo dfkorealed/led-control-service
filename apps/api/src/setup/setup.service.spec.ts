@@ -139,6 +139,24 @@ describe("SetupService", () => {
     expect(result).toBe(dashboard);
   });
 
+  it("ignores firmwareVersion during initial site setup because gateway heartbeat owns it", async () => {
+    const { service, prisma } = await createModule();
+
+    await service.createInitialSite({
+      ...initialSiteInput,
+      gateway: { ...initialSiteInput.gateway, firmwareVersion: "user-entered-1.0.0" }
+    } as any);
+
+    expect(prisma.gateway.create).toHaveBeenCalledWith({
+      data: {
+        siteId: "site-1",
+        name: "B2 게이트웨이",
+        serialNumber: "GW-001",
+        firmwareVersion: "manual-unknown"
+      }
+    });
+  });
+
   it("rejects initial setup when the organization already has a site", async () => {
     const { service, prisma } = await createModule({
       site: {

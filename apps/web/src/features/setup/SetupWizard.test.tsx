@@ -74,7 +74,7 @@ describe("SetupWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "층 자동 생성" }));
     fireEvent.change(screen.getByLabelText("게이트웨이 이름"), { target: { value: "메인 게이트웨이" } });
     fireEvent.change(screen.getByLabelText("게이트웨이 시리얼"), { target: { value: "GW-001" } });
-    fireEvent.change(screen.getByLabelText("펌웨어 버전"), { target: { value: "1.0.0" } });
+    expect(screen.queryByLabelText("펌웨어 버전")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
 
@@ -91,8 +91,7 @@ describe("SetupWizard", () => {
       ],
       gateway: {
         name: "메인 게이트웨이",
-        serialNumber: "GW-001",
-        firmwareVersion: "1.0.0"
+        serialNumber: "GW-001"
       }
     } satisfies InitialSiteSetupRequest);
   });

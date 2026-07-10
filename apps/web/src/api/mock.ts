@@ -194,7 +194,7 @@ function buildInitialSiteDashboard(input: InitialSiteSetupRequest): Dashboard {
     id: "mock-gateway-initial",
     name: input.gateway.name,
     serialNumber: input.gateway.serialNumber,
-    firmwareVersion: input.gateway.firmwareVersion || "manual-unknown",
+    firmwareVersion: "manual-unknown",
     lastHeartbeatAt: null,
     connectionStatus: "offline" as const
   };

@@ -927,6 +927,17 @@ button {
   box-shadow: 0 10px 24px rgba(15, 38, 70, 0.04);
 }
 
+button.group-card {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.group-card.active {
+  border-color: rgba(11, 99, 229, 0.5);
+  box-shadow: 0 14px 28px rgba(11, 99, 229, 0.12);
+}
+
 .group-card span,
 .setting-card span {
   color: var(--primary);

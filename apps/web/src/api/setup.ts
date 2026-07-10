@@ -19,7 +19,6 @@ export interface InitialSiteSetupRequest {
   gateway: {
     name: string;
     serialNumber: string;
-    firmwareVersion?: string;
   };
 }
 

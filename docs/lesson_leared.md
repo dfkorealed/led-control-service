@@ -40,3 +40,27 @@
 - **원인**: Konva는 실제 canvas context를 전제로 렌더링하며, 도형/조명은 DOM 노드가 아니라 canvas 픽셀로 그려진다.
 - **해결 및 예방책**: `apps/web/src/test/setup.ts`에 최소 canvas context mock을 두고, 단위 테스트는 DOM 도형 조회 대신 툴바, 속성 패널, Zustand editor state, 저장 payload를 기준으로 검증한다.
 - **반복 방지 체크**: Canvas 기반 라이브러리로 전환할 때는 테스트 setup의 브라우저 API mock과 기존 DOM selector 테스트의 전환 범위를 먼저 점검한다.
+
+## 2026-07-08 / 워크스페이스 스크립트 의존성 해석
+- **발생했던 문제/실수**: 루트 `scripts` 디렉터리에 둔 게이트웨이 smoke test가 `pnpm --filter @led-control/gateway exec`로 실행되어도 `mqtt` 패키지를 찾지 못했다.
+- **원인**: ESM import의 패키지 해석은 실행 명령의 작업 디렉터리가 아니라 스크립트 파일 위치를 기준으로 상위 `node_modules`를 탐색한다.
+- **해결 및 예방책**: 특정 워크스페이스 패키지 의존성을 사용하는 실행 스크립트는 해당 패키지 내부(`apps/gateway/scripts`)에 둔다.
+- **반복 방지 체크**: 루트 스크립트에 패키지별 dependency import를 추가할 때는 루트 의존성으로 승격할지, 패키지 내부 스크립트로 둘지 먼저 결정한다.
+
+## 2026-07-08 / ESP-IDF BLE Mesh 모델 옵션 누락
+- **발생했던 문제/실수**: ESP32-H2 펌웨어에 Generic OnOff Server와 Light Lightness Server 코드를 추가했지만 링크 단계에서 `esp_ble_mesh_register_generic_server_callback`, `esp_ble_mesh_register_lighting_server_callback` 심볼을 찾지 못했다.
+- **원인**: `CONFIG_BLE_MESH=y`와 `CONFIG_BLE_MESH_NODE=y`만으로는 SIG model server 구현이 링크되지 않고, `CONFIG_BLE_MESH_GENERIC_SERVER=y`, `CONFIG_BLE_MESH_LIGHTING_SERVER=y`가 별도로 필요했다.
+- **해결 및 예방책**: BLE Mesh model을 추가할 때는 ESP-IDF 예제의 `sdkconfig.defaults`를 같이 확인하고 model별 Kconfig 옵션을 명시한다.
+- **반복 방지 체크**: 펌웨어 기능 추가 후에는 반드시 `scripts/esp32-h2-build.sh`로 실제 target build를 돌려 컴파일뿐 아니라 링크까지 확인한다.
+
+## 2026-07-09 / ESP-IDF flash 스크립트 Python 버전 불일치
+- **발생했던 문제/실수**: `scripts/esp32-h2-flash.sh /dev/cu.usbmodem1301` 실행 시 Homebrew 기본 `python3` 3.14.6을 잡아 `idf5.5_py3.14_env`를 찾다가 실패했다.
+- **원인**: ESP-IDF v5.5.1 설치는 Python 3.12로 진행되어 실제 venv는 `idf5.5_py3.12_env`였지만, flash/build 스크립트가 Python 3.12 PATH를 직접 보정하지 않았다.
+- **해결 및 예방책**: `scripts/esp32-h2-build.sh`, `scripts/esp32-h2-flash.sh`에서 `/opt/homebrew/opt/python@3.12/libexec/bin`을 PATH 앞에 자동 추가한다.
+- **반복 방지 체크**: ESP-IDF 스크립트 실행 전 로그에서 `Checking "python3" ... Python 3.12.x`와 `idf5.5_py3.12_env` 사용 여부를 확인한다.
+
+## 2026-07-10 / 조명 검색 MQTT 이벤트 생산자 누락
+- **발생했던 문제/실수**: 웹에서 조명 검색 세션과 MQTT `provisioning-scan-start` 명령은 생성됐지만, 실제 gateway가 해당 명령을 구독해 `unprovisioned-device-found` 이벤트를 만들지 않아 검색 결과가 0개였다.
+- **원인**: API/UI의 등록 세션 구현과 gateway의 BLE Mesh scan/provisioning adapter 구현이 분리되어 있었고, mock gateway도 고정 `MOCK_SITE_ID`만 구독해 실제 DB 현장 ID와 맞지 않았다.
+- **해결 및 예방책**: gateway가 `provisioning-scan-start`, `identify-device`, `provision-device`를 구독하고 stub/command adapter를 통해 발견/완료/실패 이벤트를 발행하도록 했다.
+- **반복 방지 체크**: MQTT 기반 기능은 command 발행 테스트와 event 생산자 테스트를 같은 작업 범위에 포함하고, 실제 DB의 site/gateway ID와 gateway 환경변수가 일치하는지 확인한다.

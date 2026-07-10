@@ -20,7 +20,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [floors, setFloors] = useState<InitialFloorInput[]>(buildFloors(2, 0));
   const [gatewayName, setGatewayName] = useState("메인 게이트웨이");
   const [gatewaySerial, setGatewaySerial] = useState("");
-  const [firmwareVersion, setFirmwareVersion] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
   const validationMessage = useMemo(() => {
@@ -58,8 +57,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         floors: floors.map((floor) => ({ name: floor.name.trim(), level: floor.level })),
         gateway: {
           name: gatewayName.trim() || "메인 게이트웨이",
-          serialNumber: gatewaySerial.trim(),
-          ...(firmwareVersion.trim() ? { firmwareVersion: firmwareVersion.trim() } : {})
+          serialNumber: gatewaySerial.trim()
         }
       }),
     onSuccess: (dashboard) => {
@@ -201,14 +199,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           <label>
             게이트웨이 시리얼
             <input value={gatewaySerial} onChange={(event) => setGatewaySerial(event.target.value)} placeholder="GW-001" />
-          </label>
-          <label>
-            펌웨어 버전
-            <input
-              value={firmwareVersion}
-              onChange={(event) => setFirmwareVersion(event.target.value)}
-              placeholder="manual-unknown"
-            />
           </label>
         </div>
       </div>

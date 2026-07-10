@@ -72,6 +72,49 @@ describe("applyDimmingCommand", () => {
     expect(next[0].brightness).toBe(35);
     expect(next[1].brightness).toBe(10);
   });
+
+  it("uses targetFixtureIds from the command payload before environment group maps", () => {
+    const states = [
+      {
+        fixtureId: "00000000-0000-4000-8000-000000002001",
+        brightness: 10,
+        powerOn: true,
+        status: "online" as const,
+        rssi: -60,
+        hopCount: 1,
+        commandSuccessRate: 1,
+        lastSeenAt: "2026-07-01T00:00:00.000Z"
+      },
+      {
+        fixtureId: "00000000-0000-4000-8000-000000002002",
+        brightness: 10,
+        powerOn: true,
+        status: "online" as const,
+        rssi: -62,
+        hopCount: 1,
+        commandSuccessRate: 1,
+        lastSeenAt: "2026-07-01T00:00:00.000Z"
+      }
+    ];
+
+    const next = applyDimmingCommand(
+      states,
+      {
+        commandId: "11111111-1111-4111-8111-111111111111",
+        siteId: "22222222-2222-4222-8222-222222222222",
+        targetType: "group",
+        targetId: "00000000-0000-4000-8000-000000000006",
+        targetFixtureIds: ["00000000-0000-4000-8000-000000002002"],
+        brightness: 25,
+        requestedBy: demoIds.userId,
+        requestedAt: "2026-07-01T00:00:00.000Z"
+      },
+      { "00000000-0000-4000-8000-000000000006": ["00000000-0000-4000-8000-000000002001"] }
+    );
+
+    expect(next[0].brightness).toBe(10);
+    expect(next[1].brightness).toBe(25);
+  });
 });
 
 describe("createMockDiscoveredNodes", () => {

@@ -18,7 +18,6 @@ interface FloorInput {
 interface GatewayInput {
   name: string;
   serialNumber: string;
-  firmwareVersion?: string;
 }
 
 export interface CreateInitialSiteInput {
@@ -85,7 +84,7 @@ export class SetupService {
             siteId: createdSite.id,
             name: input.gateway.name.trim(),
             serialNumber: input.gateway.serialNumber.trim(),
-            firmwareVersion: input.gateway.firmwareVersion?.trim() || "manual-unknown"
+            firmwareVersion: "manual-unknown"
           }
         });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -162,9 +161,6 @@ export class SetupService {
     if (!this.isRecord(input.gateway)) throw new BadRequestException("gateway must be an object");
     this.requireString(input.gateway.name, "gateway name is required");
     this.requireString(input.gateway.serialNumber, "gateway serialNumber is required");
-    if (input.gateway.firmwareVersion !== undefined) {
-      this.requireString(input.gateway.firmwareVersion, "gateway firmwareVersion is required");
-    }
   }
 
   private validateFloors(floors: FloorInput[]) {

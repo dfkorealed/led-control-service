@@ -40,7 +40,7 @@ export function identifyRegistrationNode(sessionId: string, nodeId: string) {
 }
 
 export function registerRegistrationNode(sessionId: string, nodeId: string, fixtureName: string, x: number, y: number) {
-  return apiPost<{ fixture: { id: string; name: string }; discoveredNode: DiscoveredRegistrationNode }>(
+  return apiPost<{ fixture: { id: string; name: string } | null; discoveredNode: DiscoveredRegistrationNode }>(
     `/registration-sessions/${sessionId}/nodes/${nodeId}/register`,
     { fixtureName, x, y }
   );

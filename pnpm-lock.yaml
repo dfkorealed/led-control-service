@@ -73,6 +73,28 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  apps/gateway:
+    dependencies:
+      '@led-control/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
+      mqtt:
+        specifier: ^5.10.3
+        version: 5.15.1
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)(jsdom@25.0.1)(terser@5.48.0)
+
   apps/mobile:
     dependencies:
       react:

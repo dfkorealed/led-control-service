@@ -101,38 +101,30 @@ export class RegistrationService {
 
     const meshAddress = node.meshAddress ?? (await this.nextMeshAddress(node.session.gatewayId));
 
-    return this.prisma.$transaction(async (tx) => {
-      const meshNode = await tx.meshNode.create({
-        data: {
-          gatewayId: node.session.gatewayId,
-          deviceUuid: node.deviceUuid,
-          serialNumber: node.serialNumber,
-          meshAddress,
-          firmwareVersion: node.firmwareVersion
-        }
-      });
-
-      const fixture = await tx.fixture.create({
-        data: {
-          floorId: node.session.floorId,
-          meshNodeId: meshNode.id,
-          name: input.fixtureName.trim(),
-          ratedWatt: input.ratedWatt ?? "40.00",
-          x: input.x,
-          y: input.y,
-          status: "online",
-          brightness: 60,
-          lastSeenAt: new Date()
-        }
-      });
-
-      const discoveredNode = await tx.discoveredMeshNode.update({
-        where: { id: nodeId },
-        data: { status: "provisioned", identifyState: "confirmed", meshAddress }
-      });
-
-      return { meshNode, fixture, discoveredNode };
+    const discoveredNode = await this.prisma.discoveredMeshNode.update({
+      where: { id: nodeId },
+      data: {
+        status: "provisioning",
+        meshAddress,
+        pendingFixtureName: input.fixtureName.trim(),
+        pendingFixtureX: input.x,
+        pendingFixtureY: input.y,
+        pendingRatedWatt: input.ratedWatt ?? "40.00",
+        errorMessage: null
+      }
     });
+
+    await this.mqttService.publishProvisionDevice({
+      sessionId,
+      siteId: node.session.siteId,
+      gatewayId: node.session.gatewayId,
+      nodeId,
+      deviceUuid: node.deviceUuid,
+      meshAddress,
+      requestedAt: new Date().toISOString()
+    });
+
+    return { fixture: null, discoveredNode };
   }
 
   async completeSession(sessionId: string, organizationId: string) {

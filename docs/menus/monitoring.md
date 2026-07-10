@@ -1,12 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-07-07
+기준일: 2026-07-10
 
 ## 구현 완료
 
 - 로그인 사용자의 조직 기준 `GET /sites/default/dashboard` 데이터를 조회한다.
 - 현장이 없으면 `초기 설치 설정` 마법사를 먼저 표시한다.
 - 현장은 있으나 등록된 조명이 없으면 `조명 등록` 패널을 표시한다.
+- 조명 등록 패널은 gateway scan/provisioning MQTT 흐름과 연결되어, 등록 완료 이벤트 후 dashboard polling으로 새 fixture를 표시할 수 있다.
 - 층별 탭으로 지하/지상 층을 전환한다.
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
 - 조명 점은 기본 compact marker로 표시하고, 선택/hover/focus 시 상태, 밝기, 이름 카드로 확장하여 밀집 화면의 겹침을 줄인다.
@@ -41,6 +42,8 @@
 - 이벤트 타임라인
 - 게이트웨이별 커버리지 표시
 - 여러 게이트웨이가 같은 층을 담당할 때의 경로/coverage 시각화
+- 조명 등록 중 provisioning 진행률 표시
+- 조명 검색 실패 시 gateway offline, ESP32 provisioned 상태, BLE scan adapter 미설정 등 원인별 안내
 - 모니터링 화면 내 빠른 밝기 제어
 - AI 도면 해석 기반 에디터 객체 자동 생성
 
@@ -52,6 +55,7 @@
 - 도형/조명 리사이즈는 Konva Transformer의 모서리/변 핸들 중심으로 제공한다. 향후 회전, grid snap, 키보드 미세 조정이 필요하다.
 - CAD/DWG/DXF import와 AI 도면 해석은 후속 MVP 범위다.
 - 현재 실시간성은 3초 polling이므로 대규모 현장에서는 서버 부하와 반응성 조정이 필요하다.
+- 조명 등록 완료 후 dashboard 반영은 polling에 의존하므로, 실제 현장에서는 provisioning event 기반 push 업데이트가 필요하다.
 - gateway offline 기준이 서버 코드의 15초 고정값이므로 site/gateway 설정값으로 분리해야 한다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.

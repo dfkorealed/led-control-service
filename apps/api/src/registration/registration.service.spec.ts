@@ -53,7 +53,8 @@ describe("RegistrationService", () => {
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     const mqtt = {
       publishProvisioningScanStart: jest.fn().mockResolvedValue(undefined),
-      publishIdentifyDevice: jest.fn().mockResolvedValue(undefined)
+      publishIdentifyDevice: jest.fn().mockResolvedValue(undefined),
+      publishProvisionDevice: jest.fn().mockResolvedValue(undefined)
     };
 
     return Test.createTestingModule({
@@ -146,7 +147,7 @@ describe("RegistrationService", () => {
     });
   });
 
-  it("registers a discovered node by creating a mesh node and fixture mapping", async () => {
+  it("starts provisioning for a discovered node and publishes a provision command", async () => {
     const node = {
       id: ids.nodeId,
       sessionId: ids.sessionId,
@@ -168,20 +169,19 @@ describe("RegistrationService", () => {
         site: { organizationId: ids.organizationId }
       }
     };
-    const meshNode = { id: ids.meshNodeId, meshAddress: "0x0101", firmwareVersion: "mock-node-0.1.0" };
-    const fixture = { id: ids.fixtureId, name: "B2-L13", meshNodeId: ids.meshNodeId };
-    const { service, prisma } = await createModule({
+    const provisioningNode = { ...node, status: "provisioning", meshAddress: "0x0101" };
+    const { service, prisma, mqtt } = await createModule({
       discoveredMeshNode: {
         findUnique: jest.fn().mockResolvedValue(node),
         findFirst: jest.fn(),
-        update: jest.fn().mockResolvedValue({ ...node, status: "provisioned", meshAddress: "0x0101" })
+        update: jest.fn().mockResolvedValue(provisioningNode)
       },
       meshNode: {
         count: jest.fn().mockResolvedValue(256),
-        create: jest.fn().mockResolvedValue(meshNode)
+        create: jest.fn()
       },
       fixture: {
-        create: jest.fn().mockResolvedValue(fixture)
+        create: jest.fn()
       }
     });
 
@@ -196,28 +196,29 @@ describe("RegistrationService", () => {
       ids.organizationId
     );
 
-    expect(result.fixture.id).toBe(ids.fixtureId);
-    expect(prisma.meshNode.create).toHaveBeenCalledWith({
+    expect(result).toEqual({ fixture: null, discoveredNode: provisioningNode });
+    expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
+      where: { id: ids.nodeId },
       data: {
-        gatewayId: ids.gatewayId,
-        deviceUuid: "esp32h2-demo-001",
-        serialNumber: "LC-B2-001",
+        status: "provisioning",
         meshAddress: "0x0101",
-        firmwareVersion: "mock-node-0.1.0"
+        pendingFixtureName: "B2-L13",
+        pendingFixtureX: 420,
+        pendingFixtureY: 260,
+        pendingRatedWatt: "40.00",
+        errorMessage: null
       }
     });
-    expect(prisma.fixture.create).toHaveBeenCalledWith({
-      data: {
-        floorId: ids.floorId,
-        meshNodeId: ids.meshNodeId,
-        name: "B2-L13",
-        ratedWatt: "40.00",
-        x: 420,
-        y: 260,
-        status: "online",
-        brightness: 60,
-        lastSeenAt: expect.any(Date)
-      }
+    expect(prisma.meshNode.create).not.toHaveBeenCalled();
+    expect(prisma.fixture.create).not.toHaveBeenCalled();
+    expect(mqtt.publishProvisionDevice).toHaveBeenCalledWith({
+      sessionId: ids.sessionId,
+      siteId: ids.siteId,
+      gatewayId: ids.gatewayId,
+      nodeId: ids.nodeId,
+      deviceUuid: "esp32h2-demo-001",
+      meshAddress: "0x0101",
+      requestedAt: expect.any(String)
     });
   });
 

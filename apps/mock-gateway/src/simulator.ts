@@ -6,7 +6,7 @@ export function applyDimmingCommand(
   groupFixtureIdsByGroupId: Record<string, string[]> = {}
 ): FixtureState[] {
   const now = new Date().toISOString();
-  const groupFixtureIds = groupFixtureIdsByGroupId[command.targetId] ?? [];
+  const groupFixtureIds = command.targetFixtureIds ?? groupFixtureIdsByGroupId[command.targetId] ?? [];
 
   return states.map((state) => {
     const matchesTarget =

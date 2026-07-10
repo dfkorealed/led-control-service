@@ -5,6 +5,8 @@ export const mqttTopics = {
   gatewayHeartbeat: (siteId: string) => `sites/${siteId}/events/gateway-heartbeat`,
   provisioningScanStart: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/commands/provisioning-scan-start`,
+  provisionDevice: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/commands/provision-device`,
   identifyDevice: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/commands/identify-device`,
   unprovisionedDeviceFound: (siteId: string, gatewayId: string) =>

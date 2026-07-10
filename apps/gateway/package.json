@@ -1,0 +1,22 @@
+{
+  "name": "@led-control/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @led-control/shared build && tsx src/index.ts",
+    "test": "pnpm --filter @led-control/shared build && vitest run",
+    "lint": "tsc --noEmit",
+    "typecheck": "pnpm --filter @led-control/shared build && tsc --noEmit"
+  },
+  "dependencies": {
+    "@led-control/shared": "workspace:*",
+    "dotenv": "^16.4.7",
+    "mqtt": "^5.10.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

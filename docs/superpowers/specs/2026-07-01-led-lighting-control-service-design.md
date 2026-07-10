@@ -136,7 +136,9 @@ MVP에서는 추정치 기반으로 시작한다.
 
 ### 6.1 게이트웨이
 
-라즈베리파이 게이트웨이 개발 언어는 Go를 추천한다. 단일 바이너리 배포, 장기 실행 안정성, MQTT/HTTP/systemd/로컬 큐 구현의 균형이 좋기 때문이다.
+라즈베리파이 게이트웨이의 장기 양산 개발 언어는 Go를 추천한다. 단일 바이너리 배포, 장기 실행 안정성, MQTT/HTTP/systemd/로컬 큐 구현의 균형이 좋기 때문이다.
+
+다만 2026-07-08 수동 제어 MVP 구현에서는 기존 TypeScript monorepo, shared MQTT schema, mock gateway 테스트 자산을 재사용하기 위해 `apps/gateway`를 Node.js/TypeScript 실행 앱으로 먼저 만든다. 이 앱은 실제 라즈베리파이에서 MQTT 명령 수신, command ACK, fixture state, heartbeat 발행을 검증하는 골격이며, BLE Mesh 전송부는 `BleMeshAdapter` 인터페이스 뒤에 둔다. 하드웨어 확보 후 이 adapter를 BlueZ D-Bus 또는 검증된 BLE Mesh provisioner 스택으로 교체하고, 양산 단계에서 Go 단일 바이너리로 재작성할지 결정한다.
 
 게이트웨이 구성 요소:
 
@@ -169,7 +171,7 @@ MQTT는 실시간 명령/이벤트 플레인으로 사용하고, HTTP API는 게
 
 ### 6.2 ESP32-H2 펌웨어
 
-ESP32-H2는 ESP-IDF 기반 C 펌웨어로 개발한다.
+ESP32-H2는 ESP-IDF 기반 C 펌웨어로 개발한다. PlatformIO는 일반 개발 편의성은 좋지만, ESP32-H2 보드 지원과 BLE Mesh, OTA partition, 보안 설정 같은 상용화 필수 기능에서 공식 지원 추적이 늦을 수 있다. 실제 테스트에서도 PlatformIO가 ESP32-H2 보드를 찾지 못한 문제가 있었으므로, 상용화 기준의 기본 SDK는 Espressif 공식 ESP-IDF로 고정한다.
 
 펌웨어 구성 요소:
 
@@ -182,6 +184,8 @@ ESP32-H2는 ESP-IDF 기반 C 펌웨어로 개발한다.
 - OTA 수신과 결과 보고
 
 LED 드라이버 인터페이스는 실제 제품 사양에 따라 PWM, 0-10V, DALI 등으로 확정한다. MVP에서는 우선 개발 보드와 제어 가능한 드라이버 조합으로 PoC를 수행한다.
+
+2026-07-08 수동 제어 MVP에서는 `apps/esp32-h2-firmware`를 ESP-IDF 프로젝트 구조로 만들고, LEDC PWM 기반 `led_driver`, 밝기 상태 관리 `control_state`, 앱 부팅 진입점 `app_main`을 추가했다. 로컬에는 `idf.py`가 없어 전체 ESP-IDF 빌드는 수행하지 못했지만, 하드웨어 독립적인 `control_state`는 C 컴파일 테스트로 검증한다. 실제 보드에서는 `idf.py set-target esp32h2`, `idf.py build`, `idf.py flash monitor` 순서로 검증한다.
 
 펌웨어 상태는 다음 상태머신으로 관리한다.
 
