@@ -49,7 +49,7 @@
 - Produces: `BluezTransport.call<T>(service, path, iface, method, args): Promise<T>`
 - Produces: probe 결과 `{ daemon, adapter, scan, provision, modelRoundTrip, restartRecovery }`
 
-- [ ] **Step 1: 실패하는 fake transport 테스트 작성**
+- [x] **Step 1: 실패하는 fake transport 테스트 작성**
 
 ```ts
 it("keeps one D-Bus session and maps BlueZ errors", async () => {
@@ -62,12 +62,12 @@ it("keeps one D-Bus session and maps BlueZ errors", async () => {
 });
 ```
 
-- [ ] **Step 2: 테스트가 모듈 부재로 실패하는지 확인**
+- [x] **Step 2: 테스트가 모듈 부재로 실패하는지 확인**
 
 Run: `pnpm --filter @led-control/gateway test -- bluez-transport.test.ts`
 Expected: FAIL because `BluezTransport` does not exist.
 
-- [ ] **Step 3: `@homebridge/dbus-native`와 장기 세션 transport 구현**
+- [x] **Step 3: `@homebridge/dbus-native`와 장기 세션 transport 구현**
 
 ```ts
 export interface DbusBusFactory { (): MessageBus }
@@ -90,13 +90,15 @@ export class BluezTransport {
 
 - [ ] **Step 4: Raspberry Pi probe와 판정표 구현**
 
+코드와 Mac의 `hardware_required` 판정은 완료했다. Raspberry Pi에서 daemon, adapter, PB-ADV, provisioning, model 왕복, 재부팅 복구를 확인하는 실기 판정은 하드웨어 실행 대기 상태다.
+
 Probe는 `bluetooth-meshd` service, D-Bus service, Bluetooth adapter, PB-ADV scan을 순서대로 확인하고 JSON을 출력한다. Raspberry Pi에서만 `scan/provision/modelRoundTrip/restartRecovery`를 `passed`로 기록할 수 있다.
 
 Run: `pnpm --filter @led-control/gateway exec tsx scripts/bluez-capability-probe.ts`
 Expected on macOS: exit 2 with `hardware_required`.
 Expected on Raspberry Pi: JSON fields are all `passed` before Task 9 begins.
 
-- [ ] **Step 5: 테스트·문서·커밋**
+- [x] **Step 5: 테스트·문서·커밋**
 
 Run: `pnpm --filter @led-control/gateway test && pnpm --filter @led-control/gateway typecheck && git diff --check`
 Expected: PASS.
@@ -688,3 +690,4 @@ git commit -m "docs: complete production device foundation runbook"
 ## 진행 로그
 
 - 2026-07-11: 설계 승인 및 구현 계획 작성. 구현은 Task 1부터 순서대로 진행한다.
+- 2026-07-11: Task 1의 D-Bus transport, capability report, Mac/Raspberry Pi 판정 probe를 구현하고 gateway 테스트 11개와 typecheck를 통과했다. `dbus-next`는 선택 의존성 취약점 때문에 `@homebridge/dbus-native`로 교체했다. Raspberry Pi 실기 Phase 0은 미완료다.
