@@ -240,7 +240,7 @@ git commit -m "feat: add gateway identity and dispatch schema"
 - Produces: `POST /gateways/claim` for authenticated users
 - Produces: `POST /gateway-bootstrap` for verified device certificates
 
-- [ ] **Step 1: 일회성 claim과 인증서 불일치 실패 테스트 작성**
+- [x] **Step 1: 일회성 claim과 인증서 불일치 실패 테스트 작성**
 
 ```ts
 await expect(service.claimGateway(user, { siteId, serialNumber, claimCode: "once" })).resolves.toMatchObject({ siteId });
@@ -248,16 +248,16 @@ await expect(service.claimGateway(user, { siteId, serialNumber, claimCode: "once
 await expect(service.bootstrap({ serialNumber, fingerprint: "wrong" })).rejects.toThrow("device certificate mismatch");
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- gateway-onboarding.service.spec.ts --runInBand`
 Expected: FAIL because module does not exist.
 
-- [ ] **Step 3: scrypt claim 검증과 원자적 binding 구현**
+- [x] **Step 3: scrypt claim 검증과 원자적 binding 구현**
 
 Claim transaction은 inventory가 미claim·활성 상태인지, site가 사용자 조직 소속인지, `timingSafeEqual`로 hash가 일치하는지 확인하고 Gateway를 생성·연결한 뒤 `claimCodeHash=null`, `claimedAt`을 기록한다. 성공·실패를 `GatewayClaimAudit`에 남기고 serial/IP 단위 rate limit을 적용한다.
 
-- [ ] **Step 4: peer certificate fingerprint guard 구현**
+- [x] **Step 4: peer certificate fingerprint guard 구현**
 
 ```ts
 const cert = request.socket.getPeerCertificate?.();
@@ -267,7 +267,7 @@ if (!request.socket.authorized || !fingerprint) throw new UnauthorizedException(
 
 `NODE_ENV=test`에서만 `x-test-client-cert-fingerprint` 주입을 허용하고 production에서는 헤더를 무시한다. Bootstrap 응답은 assignment와 broker URL만 반환하며 claim code나 private key를 반환하지 않는다.
 
-- [ ] **Step 5: API 검증·문서·커밋**
+- [x] **Step 5: API 검증·문서·커밋**
 
 Run: `pnpm --filter @led-control/api test -- gateway-onboarding --runInBand && pnpm --filter @led-control/api typecheck`
 Expected: PASS.

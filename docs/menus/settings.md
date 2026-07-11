@@ -1,6 +1,6 @@
 # 설정 메뉴 기능 현황
 
-기준일: 2026-07-10
+기준일: 2026-07-11
 
 ## 구현 완료
 
@@ -19,6 +19,9 @@
 - 로컬 gateway stub adapter로 조명 검색과 등록 완료 이벤트를 end-to-end 테스트할 수 있다.
 - 등록 세션을 완료할 수 있다.
 - RF 계획 패널에서 Hamina Planner 기반 사전 검토 방향을 안내한다.
+- 백엔드에 제조 장비 원장 기반 `POST /gateways/claim` API를 구현했다. 조직의 owner/admin만 현장에 장비를 연결할 수 있고 일회성 claim code는 성공 시 폐기된다.
+- 백엔드에 장비 인증서 기반 `POST /gateway-bootstrap` API를 구현했다. 인증된 TLS peer certificate의 SHA-256 fingerprint와 제조 원장을 대조한 뒤 assignment만 반환한다.
+- claim 성공/실패 감사 로그와 15분 내 연속 실패 rate limit을 적용했다.
 
 ## 미구현
 
@@ -28,7 +31,7 @@
 - 조명 위치 편집
 - fixture group 생성/수정/삭제
 - gateway 추가 등록 UI
-- gateway claim 또는 QR 등록
+- gateway claim 또는 QR 등록 UI
 - gateway별 층/구역 coverage 설정
 - 실제 라즈베리파이 BLE Mesh provisioner command 구현체
 - ESP32-H2 factory reset UI/명령 연동
@@ -43,6 +46,8 @@
 - 설정 카드는 대부분 요약 표시이며 상세 편집 화면으로 연결되지 않는다.
 - 초기 설치 후 gateway를 누락할 수 없도록 막았지만, 추가 gateway 등록 UI는 아직 없다.
 - gateway firmware version은 heartbeat 기반 자동 갱신으로 바뀌었지만, 실제 라즈베리파이 배포 시 정확한 `GATEWAY_FIRMWARE_VERSION` 주입 정책이 필요하다.
+- 제조 단계에서 `GatewayInventory`에 serial, scrypt claim code hash, 인증서 fingerprint를 안전하게 적재하는 운영 도구가 필요하다.
+- 운영 mTLS에는 API server certificate/key, device CA 배포와 인증서 폐기·교체 절차가 필요하다. 이 값들은 Git이나 DB에 private key 형태로 저장하지 않는다.
 - 조명 등록은 첫 번째 floor와 첫 번째 gateway를 중심으로 동작하므로 층 선택/게이트웨이 선택 UI가 필요하다.
 - 등록된 조명 위치는 자동 좌표로 배치되며 실제 도면 위 위치 조정이 필요하다.
 - 로컬 등록 완료는 gateway stub 기준으로 가능하지만, 실제 하드웨어 등록은 `GATEWAY_PROVISIONING_ADAPTER=command`에 연결할 BLE Mesh provisioner 실행 파일이 필요하다.
