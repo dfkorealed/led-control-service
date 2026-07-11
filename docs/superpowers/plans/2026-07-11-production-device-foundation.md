@@ -707,12 +707,12 @@ git commit -m "docs: complete production device foundation runbook"
 - Produces: `createProductionAdapters(env): GatewayAdapters`
 - Produces: capability가 확인된 실제 adapter 외에는 시작 실패
 
-- [ ] **Step 1: gateway 본체에서 stub 선택이 불가능한 실패 테스트 작성**
-- [ ] **Step 2: 테스트가 현재 stub 생성 때문에 실패하는지 확인**
-- [ ] **Step 3: adapter factory를 추가하고 `index.ts`의 직접 stub 생성을 제거**
-- [ ] **Step 4: 실제 adapter 미구현 상태에서는 MQTT 연결 전 `PRODUCTION_ADAPTER_UNAVAILABLE`로 종료**
-- [ ] **Step 5: mock은 `apps/mock-gateway`와 test dependency injection에만 남았는지 정적 검사**
-- [ ] **Step 6: gateway 테스트/typecheck/문서 갱신/커밋**
+- [x] **Step 1: gateway 본체에서 stub 선택이 불가능한 실패 테스트 작성**
+- [x] **Step 2: 테스트가 현재 stub 생성 때문에 실패하는지 확인**
+- [x] **Step 3: adapter factory를 추가하고 `index.ts`의 직접 stub 생성을 제거**
+- [x] **Step 4: 실제 adapter 미구현 상태에서는 MQTT 연결 전 `PRODUCTION_ADAPTER_UNAVAILABLE`로 종료**
+- [x] **Step 5: mock은 `apps/mock-gateway`와 test dependency injection에만 남았는지 정적 검사**
+- [x] **Step 6: gateway 테스트/typecheck/문서 갱신/커밋**
 
 ### Task 14: 명령 timeout과 최신 snapshot journal
 

@@ -25,8 +25,8 @@
 - ESP32-H2 실제 보드 플래시 절차와 라즈베리파이 게이트웨이 로컬 실행 절차를 문서화했다.
 - ESP32-H2 펌웨어에 BLE Mesh node 초기화, provisioning advertisement, node identity, Health Server, Generic OnOff Server, Light Lightness Server, status publication 골격을 추가했고 ESP-IDF 빌드를 통과했다.
 - Gateway adapter 계약을 fixture별 장비 리포트 기반으로 확장해 일부 노드 실패 시 command ACK와 fixture state가 함께 동기화되도록 했다.
-- Raspberry Pi gateway가 `provisioning-scan-start`, `identify-device`, `provision-device` MQTT 명령을 수신하고, stub 또는 command adapter를 통해 발견/등록 완료/등록 실패 이벤트를 발행한다.
-- gateway command adapter는 실제 BLE Mesh provisioner 실행 파일의 JSON lines stdout을 읽어 `unprovisioned-device-found`, `provisioning-completed`, `provisioning-failed` 이벤트로 변환한다.
+- Raspberry Pi gateway의 MQTT 명령 수신 계약은 구현되어 있으며 실제 BlueZ Mesh adapter 연결 전에는 gateway 시작을 거부한다.
+- Mock 검색/등록은 별도 `apps/mock-gateway`에서만 실행하며 양산 gateway에 stub/command adapter를 포함하지 않는다.
 - 수동 개별/그룹 명령을 소유 gateway별 `CommandDispatch`로 분할하고 gateway마다 독립 sequence와 idempotency key를 발급한다.
 - Command, gateway별 dispatch, 조명별 pending 결과, MQTT outbox를 하나의 DB transaction에 저장한다.
 - MQTT outbox publisher가 broker 전송 실패를 재시도하고 성공 시 dispatch를 `published`로 갱신한다.
@@ -47,7 +47,7 @@
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
 - 실제 라즈베리파이 provisioner 실행 파일 구현
-- 실제 BLE Mesh provisioning, AppKey bind, group subscription 자동화 command adapter 연결
+- 실제 BLE Mesh provisioning, AppKey bind, group subscription BlueZ adapter 연결
 - ESP32-H2 factory reset, identify 점멸 패턴, 제품/진단 정보 report 구현
 - ESP32-H2 실제 보드 플래시 검증
 
@@ -57,7 +57,7 @@
 - 명령 메시지는 ACK 대기 상태를 표시하지만, command 이력 화면이 없어 ACK 완료/실패를 사용자가 한 곳에서 추적하기 어렵다.
 - 오프라인 또는 장애 조명에도 `전송 가능`으로 보일 수 있어 상태 기반 disabled 처리가 필요하다.
 - 제어 대상이 없을 때 empty state가 충분하지 않다.
-- Raspberry Pi gateway의 BLE Mesh adapter와 provisioning adapter는 현재 stub/command boundary까지 구현되어 있으며, 실제 하드웨어 연동 시 BlueZ D-Bus 또는 검증된 provisioner 스택을 command adapter 뒤에 연결해야 한다.
+- Raspberry Pi gateway는 현재 실제 BlueZ adapter 미구현으로 의도적으로 시작이 차단된다. Phase 0 통과 후 BlueZ D-Bus adapter를 연결해야 한다.
 - ESP32-H2 펌웨어는 BLE Mesh node 서버 모델까지 빌드되지만, 실제 RF/provisioning/model bind/group subscription은 보드와 라즈베리파이 확보 후 실기기 검증이 필요하다.
 - 로컬 게이트웨이 smoke test는 `StubBleMeshAdapter` 기준이므로 실제 BLE Mesh adapter 교체 후 라즈베리파이 실기기 재검증이 필요하다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.

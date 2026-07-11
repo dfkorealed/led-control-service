@@ -41,24 +41,18 @@ mosquitto -c infra/mosquitto.conf
 
 ### 2. 게이트웨이 환경 변수 확인
 
-개발 PC에서는 `apps/gateway/.env`를 사용한다. 새 환경에서 시작할 때는 아래처럼 복사한 뒤 현장 값으로 수정한다.
+Gateway 본체는 양산 설정만 허용한다. Mock 흐름은 `apps/mock-gateway`를 실행하며, `apps/gateway`에는 stub mode가 없다.
 
 ```bash
 cp apps/gateway/.env.example apps/gateway/.env
 ```
 
 ```env
-MQTT_URL=mqtt://localhost:1883
-GATEWAY_TEST_MODE=true
-GATEWAY_SITE_ID=00000000-0000-4000-8000-000000000003
-GATEWAY_ID=00000000-0000-4000-8000-000000000004
+MQTT_URL=mqtts://localhost:8883
 GATEWAY_SERIAL=GW-LOCAL-001
-GATEWAY_NAME=Local Gateway
 GATEWAY_FIRMWARE_VERSION=gateway-dev-local
 GATEWAY_HEARTBEAT_MS=5000
-GATEWAY_PROVISIONING_ADAPTER=stub
-GATEWAY_STUB_DISCOVERY_COUNT=4
-GATEWAY_STUB_FLOOR_NAME=B2
+GATEWAY_ADAPTER=bluez
 ```
 
 ### 3. 게이트웨이 실행
@@ -83,9 +77,7 @@ pnpm gateway:smoke
 
 ### 5. 조명 검색/등록 로컬 테스트
 
-기본 `GATEWAY_PROVISIONING_ADAPTER=stub` 모드에서는 웹에서 `조명 검색 시작`을 누르면 게이트웨이가 `provisioning-scan-start` 명령을 받고 `GATEWAY_STUB_DISCOVERY_COUNT`만큼의 `unprovisioned-device-found` 이벤트를 발행한다. 후보 노드에서 `등록`을 누르면 `provision-device` 명령을 받고 `provisioning-completed` 이벤트를 발행한다. API는 이 이벤트를 받아 `MeshNode`와 `Fixture`를 생성한다.
-
-이 모드는 실제 BLE RF 스캔이 아니라 웹/API/MQTT/DB 등록 파이프라인 검증용이다.
+웹/API/MQTT/DB 등록 파이프라인을 장비 없이 검증할 때는 별도 `apps/mock-gateway`를 사용한다. 양산 gateway process와 배포 산출물은 mock 코드를 import하지 않는다.
 
 ## 라즈베리파이 배포
 
@@ -100,13 +92,10 @@ GATEWAY_BOOTSTRAP_CA_PATH=/etc/led-control/api-ca.crt
 GATEWAY_ASSIGNMENT_PATH=/var/lib/led-control/assignment.json
 GATEWAY_FIRMWARE_VERSION=gateway-rpi-0.1.0
 GATEWAY_HEARTBEAT_MS=5000
-GATEWAY_PROVISIONING_ADAPTER=command
-GATEWAY_SCAN_COMMAND=/opt/led-control/bin/scan-unprovisioned
-GATEWAY_PROVISION_COMMAND=/opt/led-control/bin/provision-device
-GATEWAY_IDENTIFY_COMMAND=/opt/led-control/bin/identify-device
+GATEWAY_ADAPTER=bluez
 ```
 
-장비가 아직 claim되지 않았으면 2초부터 최대 60초까지 지수 backoff로 bootstrap을 재시도한다. 저장된 assignment가 있으면 네트워크 장애 중에도 이를 우선 사용한다. `GATEWAY_TEST_MODE=true`와 `GATEWAY_SITE_ID/GATEWAY_ID` 조합은 로컬 stub 전용이며 양산 환경에서는 사용하지 않는다. 장치 private key와 claim code 원문은 DB, assignment 파일, Git에 저장하지 않는다.
+장비가 아직 claim되지 않았으면 2초부터 최대 60초까지 지수 backoff로 bootstrap을 재시도한다. 저장된 assignment가 있으면 네트워크 장애 중에도 이를 우선 사용한다. 현장 ID를 환경변수로 직접 넣는 경로는 제거 대상이며 장치 private key와 claim code 원문은 DB, assignment 파일, Git에 저장하지 않는다.
 
 ## MQTT mTLS 개발 검증
 
@@ -169,9 +158,9 @@ interface BleMeshCommandReport {
 
 일부 fixture가 실패하면 gateway는 `command-ack`를 `failed`로 발행하되, 성공/실패 fixture의 `fixture-state`를 모두 발행한다. 이 계약은 실제 BLE Mesh Light Lightness Status, Generic OnOff Status, Health Fault Status를 수신하는 adapter로 교체해도 유지한다.
 
-## 실제 BLE Mesh provisioner command adapter
+## 폐기된 command adapter
 
-라즈베리파이에서 실제 스캔/등록을 테스트할 때는 `GATEWAY_PROVISIONING_ADAPTER=command`를 사용한다. gateway는 각 command adapter 프로세스의 stdin으로 MQTT payload JSON 한 줄을 전달하고, stdout의 JSON lines를 읽는다.
+범용 shell command adapter는 양산 gateway에서 사용하지 않는다. 실제 스캔/등록/identify/제어는 검증된 BlueZ Mesh adapter interface로만 연결한다. 아래 형식은 이전 MVP 경계 기록이며 실행 설정으로 사용하지 않는다.
 
 `GATEWAY_SCAN_COMMAND`는 발견 노드를 한 줄씩 출력한다.
 

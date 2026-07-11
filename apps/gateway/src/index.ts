@@ -19,18 +19,14 @@ import {
   applyManualDimmingCommand,
   applyProvisionDevice,
   applyProvisioningScan,
-  CommandProvisioningAdapter,
-  CommandProvisioningScannerAdapter,
-  createHeartbeatPayload,
-  StubBleMeshAdapter,
-  StubProvisioningAdapter,
-  StubProvisioningScannerAdapter
+  createHeartbeatPayload
 } from "./gateway";
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
 import { handleGatewayDimmingCommand } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
+import { createProductionAdapters } from "./adapters/adapter-factory";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -40,9 +36,10 @@ async function main() {
   const { siteId, gatewayId, serialNumber: gatewaySerial, mqttUrl } = assignment;
   const gatewayFirmwareVersion = process.env.GATEWAY_FIRMWARE_VERSION || "gateway-dev-local";
   const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS ?? 5000);
-  const adapter = new StubBleMeshAdapter();
-  const scannerAdapter = createScannerAdapter();
-  const provisioningAdapter = createProvisioningAdapter();
+  const adapters = await createProductionAdapters(process.env);
+  const adapter = adapters.dimming;
+  const scannerAdapter = adapters.scanner;
+  const provisioningAdapter = adapters.provisioning;
   const client = createMqttClient({ ...process.env, MQTT_URL: mqttUrl });
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
@@ -186,26 +183,6 @@ async function main() {
     });
     await publish(mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
   }
-}
-
-function requiredEnv(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
-
-function createScannerAdapter() {
-  const mode = process.env.GATEWAY_PROVISIONING_ADAPTER ?? "stub";
-  if (mode === "command") return new CommandProvisioningScannerAdapter(requiredEnv("GATEWAY_SCAN_COMMAND"));
-  return new StubProvisioningScannerAdapter();
-}
-
-function createProvisioningAdapter() {
-  const mode = process.env.GATEWAY_PROVISIONING_ADAPTER ?? "stub";
-  if (mode === "command") {
-    return new CommandProvisioningAdapter(requiredEnv("GATEWAY_PROVISION_COMMAND"), process.env.GATEWAY_IDENTIFY_COMMAND);
-  }
-  return new StubProvisioningAdapter();
 }
 
 void main().catch((error) => {
