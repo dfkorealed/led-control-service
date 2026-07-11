@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-07-10
+기준일: 2026-07-11
 
 ## 구현 완료
 
@@ -27,6 +27,12 @@
 - Gateway adapter 계약을 fixture별 장비 리포트 기반으로 확장해 일부 노드 실패 시 command ACK와 fixture state가 함께 동기화되도록 했다.
 - Raspberry Pi gateway가 `provisioning-scan-start`, `identify-device`, `provision-device` MQTT 명령을 수신하고, stub 또는 command adapter를 통해 발견/등록 완료/등록 실패 이벤트를 발행한다.
 - gateway command adapter는 실제 BLE Mesh provisioner 실행 파일의 JSON lines stdout을 읽어 `unprovisioned-device-found`, `provisioning-completed`, `provisioning-failed` 이벤트로 변환한다.
+- 수동 개별/그룹 명령을 소유 gateway별 `CommandDispatch`로 분할하고 gateway마다 독립 sequence와 idempotency key를 발급한다.
+- Command, gateway별 dispatch, 조명별 pending 결과, MQTT outbox를 하나의 DB transaction에 저장한다.
+- MQTT outbox publisher가 broker 전송 실패를 재시도하고 성공 시 dispatch를 `published`로 갱신한다.
+- gateway는 v2 dimming command를 로컬 `0600` journal에 먼저 기록한 뒤 acceptance ACK를 보내고, BLE Mesh adapter 결과 후 fixture별 device-status ACK를 보낸다.
+- 동일 idempotency key의 최종 결과가 journal에 있으면 실제 조명을 다시 제어하지 않고 기존 ACK를 재발행한다.
+- API는 gateway/site/command/dispatch identity가 모두 일치하는 ACK만 반영하고, 모든 gateway dispatch가 끝난 뒤 상위 Command 상태를 확정한다.
 
 ## 미구현
 
@@ -55,15 +61,20 @@
 - ESP32-H2 펌웨어는 BLE Mesh node 서버 모델까지 빌드되지만, 실제 RF/provisioning/model bind/group subscription은 보드와 라즈베리파이 확보 후 실기기 검증이 필요하다.
 - 로컬 게이트웨이 smoke test는 `StubBleMeshAdapter` 기준이므로 실제 BLE Mesh adapter 교체 후 라즈베리파이 실기기 재검증이 필요하다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
+- 현재 outbox publisher는 단일 API 프로세스 기준이다. 다중 API replica 운영 전에는 DB lease 또는 `SKIP LOCKED` 기반 publisher ownership을 추가해야 한다.
+- gateway가 acceptance journal 기록 직후 재시작해 최종 결과가 없는 경우 자동 재제어하지 않고 불확정 상태로 남긴다. 운영자 재시도/조회 정책은 명령 이력 기능과 함께 보완해야 한다.
 
 ## 관련 파일
 
 - `apps/web/src/features/control/ControlView.tsx`
 - `apps/api/src/commands/commands.controller.ts`
 - `apps/api/src/commands/commands.service.ts`
+- `apps/api/src/commands/command-dispatch.service.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
 - `apps/gateway/src/gateway.ts`
 - `apps/gateway/src/index.ts`
+- `apps/gateway/src/commands/command-journal.ts`
+- `apps/gateway/src/commands/gateway-command-handler.ts`
 - `apps/mock-gateway/src/simulator.ts`
 - `apps/esp32-h2-firmware/main/app_main.c`
 - `apps/esp32-h2-firmware/main/ble_mesh_node.c`

@@ -435,6 +435,8 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 
 `CommandDispatch`는 하나의 사용자 `Command`를 소유 gateway별로 분할한 전송 단위다. `idempotencyKey`는 전체 unique, `(gatewayId, sequence)`도 unique이며 acceptance/device status 진행 상태와 오류를 저장한다.
 
+`Gateway.nextCommandSequence`는 gateway별 dispatch sequence를 트랜잭션 안에서 원자 증가시키는 카운터다. 동시 제어 요청에서도 `(gatewayId, sequence)`가 충돌하지 않도록 `max(sequence)+1` 계산을 사용하지 않는다.
+
 `CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
 
 `MqttOutbox`는 dispatch와 1:1로 연결되며 topic, JSON payload, attempts, nextAttemptAt, publishedAt, lastError를 저장한다. Command와 outbox를 같은 DB transaction에서 생성해 MQTT publish 실패로 `pending` 명령이 유실되는 문제를 방지한다.

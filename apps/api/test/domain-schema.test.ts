@@ -40,6 +40,7 @@ describe("Prisma domain schema", () => {
       "claimCodeHash",
       "certificateFingerprint",
       "assignmentVersion",
+      "nextCommandSequence",
       "lastStateEventId",
       "lastStateSequence",
       "idempotencyKey"

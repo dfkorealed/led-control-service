@@ -1,6 +1,8 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import {
+  acceptanceAckV2Schema,
   commandAckSchema,
+  deviceStatusAckV2Schema,
   DimmingCommandPayload,
   fixtureStateSchema,
   gatewayHeartbeatSchema,
@@ -22,6 +24,7 @@ import { PrismaService } from "../prisma/prisma.service";
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
   private client: MqttClient | null = null;
+  private outboxTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -39,10 +42,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         ],
         { qos: 1 }
       );
+      client.subscribe(["sites/+/gateways/+/acks/acceptance", "sites/+/gateways/+/acks/device-status"], { qos: 1 });
+      void this.flushOutbox();
     });
     client.on("message", (topic, payload) => {
       void this.handleMessage(topic, payload);
     });
+    this.outboxTimer = setInterval(() => void this.flushOutbox(), Number(process.env.MQTT_OUTBOX_POLL_MS ?? 1000));
   }
 
   async publishDimmingCommand(payload: DimmingCommandPayload) {
@@ -81,7 +87,41 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
+    if (this.outboxTimer) clearInterval(this.outboxTimer);
     this.client?.end();
+  }
+
+  async flushOutbox(now = new Date()) {
+    const records = await this.prisma.mqttOutbox.findMany({
+      where: { publishedAt: null, nextAttemptAt: { lte: now } },
+      orderBy: { createdAt: "asc" },
+      take: 50
+    });
+
+    for (const record of records) {
+      try {
+        await this.publishJson(record.topic, record.payload);
+        await this.prisma.$transaction([
+          this.prisma.mqttOutbox.update({
+            where: { id: record.id },
+            data: { publishedAt: now, lastError: null }
+          }),
+          this.prisma.commandDispatch.update({
+            where: { id: record.dispatchId },
+            data: { status: "published", publishedAt: now }
+          })
+        ]);
+      } catch (error) {
+        await this.prisma.mqttOutbox.update({
+          where: { id: record.id },
+          data: {
+            attempts: { increment: 1 },
+            nextAttemptAt: new Date(now.getTime() + 5_000),
+            lastError: error instanceof Error ? error.message : "unknown MQTT publish error"
+          }
+        });
+      }
+    }
   }
 
   private getClient() {
@@ -93,6 +133,49 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   async handleMessage(topic: string, payload: Buffer) {
+    if (topic.endsWith("/acks/acceptance")) {
+      const scope = parseGatewayScopedTopic(topic);
+      const ack = acceptanceAckV2Schema.parse(JSON.parse(payload.toString()));
+      if (!scope || scope.siteId !== ack.siteId || scope.gatewayId !== ack.gatewayId) return;
+      await this.prisma.commandDispatch.updateMany({
+        where: {
+          id: ack.dispatchId,
+          commandId: ack.commandId,
+          gatewayId: ack.gatewayId,
+          idempotencyKey: ack.idempotencyKey,
+          sequence: BigInt(ack.sequence),
+          command: { siteId: ack.siteId }
+        },
+        data: {
+          status: ack.status === "accepted" ? "accepted" : "failed",
+          acceptedAt: new Date(ack.acceptedAt),
+          errorCode: ack.errorCode ?? null,
+          errorMessage: ack.errorMessage ?? null
+        }
+      });
+      return;
+    }
+
+    if (topic.endsWith("/acks/device-status")) {
+      const scope = parseGatewayScopedTopic(topic);
+      const ack = deviceStatusAckV2Schema.parse(JSON.parse(payload.toString()));
+      if (!scope || scope.siteId !== ack.siteId || scope.gatewayId !== ack.gatewayId) return;
+      const dispatch = await this.prisma.commandDispatch.findFirst({
+        where: {
+          id: ack.dispatchId,
+          commandId: ack.commandId,
+          gatewayId: ack.gatewayId,
+          idempotencyKey: ack.idempotencyKey,
+          sequence: BigInt(ack.sequence),
+          command: { siteId: ack.siteId }
+        },
+        select: { id: true, commandId: true }
+      });
+      if (!dispatch) return;
+      await this.storeDeviceStatusAck(dispatch, ack);
+      return;
+    }
+
     if (topic.endsWith("/events/fixture-state")) {
       const state = fixtureStateSchema.parse(JSON.parse(payload.toString()));
       await this.prisma.fixture.updateMany({
@@ -206,6 +289,49 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         }
       });
     }
+  }
+
+  private async storeDeviceStatusAck(
+    dispatch: { id: string; commandId: string },
+    ack: ReturnType<typeof deviceStatusAckV2Schema.parse>
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      for (const result of ack.results) {
+        const updated = await tx.commandFixtureResult.updateMany({
+          where: { dispatchId: dispatch.id, fixtureId: result.fixtureId },
+          data: {
+            status: result.status,
+            brightness: result.brightness ?? null,
+            faultCode: result.faultCode ?? null,
+            errorMessage: result.errorMessage ?? null,
+            rssi: result.rssi ?? null,
+            hopCount: result.hopCount ?? null,
+            occurredAt: new Date(ack.occurredAt)
+          }
+        });
+        if (updated.count !== 1) throw new Error(`fixture result is outside dispatch: ${result.fixtureId}`);
+      }
+
+      const dispatchStatus =
+        ack.status === "succeeded" ? "completed" : ack.status === "timed_out" ? "timed_out" : "failed";
+      await tx.commandDispatch.update({
+        where: { id: dispatch.id },
+        data: { status: dispatchStatus, completedAt: new Date(ack.occurredAt) }
+      });
+      const remaining = await tx.commandDispatch.count({
+        where: { commandId: dispatch.commandId, status: { notIn: ["completed", "failed", "timed_out"] } }
+      });
+      if (remaining === 0) {
+        const dispatches = await tx.commandDispatch.findMany({ where: { commandId: dispatch.commandId }, select: { status: true } });
+        await tx.command.update({
+          where: { id: dispatch.commandId },
+          data: {
+            status: dispatches.every((item) => item.status === "completed") ? "acknowledged" : "failed",
+            errorMessage: dispatches.every((item) => item.status === "completed") ? null : "one or more gateway dispatches failed"
+          }
+        });
+      }
+    });
   }
 
   private async completeProvisioning(

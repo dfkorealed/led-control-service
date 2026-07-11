@@ -7,6 +7,124 @@ describe("MqttService", () => {
     );
   });
 
+  it("publishes pending outbox records and marks their dispatch published", async () => {
+    const prisma: any = {
+      mqttOutbox: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: "outbox-1", dispatchId: "dispatch-1", topic: "sites/s/gateways/g/commands/dimming", payload: { ok: true } }
+        ]),
+        update: jest.fn().mockResolvedValue(undefined)
+      },
+      commandDispatch: { update: jest.fn().mockResolvedValue(undefined) }
+    };
+    prisma.$transaction = jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations));
+    const publish = jest.fn((_topic, _payload, _options, callback) => callback());
+    const service = new MqttService(prisma);
+    (service as any).client = { publish };
+
+    await service.flushOutbox(new Date("2026-07-11T00:00:00.000Z"));
+
+    expect(publish).toHaveBeenCalledWith(
+      "sites/s/gateways/g/commands/dimming",
+      JSON.stringify({ ok: true }),
+      { qos: 1 },
+      expect.any(Function)
+    );
+    expect(prisma.mqttOutbox.update).toHaveBeenCalledWith({
+      where: { id: "outbox-1" },
+      data: { publishedAt: new Date("2026-07-11T00:00:00.000Z"), lastError: null }
+    });
+    expect(prisma.commandDispatch.update).toHaveBeenCalledWith({
+      where: { id: "dispatch-1" },
+      data: { status: "published", publishedAt: new Date("2026-07-11T00:00:00.000Z") }
+    });
+  });
+
+  it("marks a gateway dispatch accepted from a scoped acceptance ACK", async () => {
+    const prisma: any = {
+      commandDispatch: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      }
+    };
+    const service = new MqttService(prisma);
+    await service.handleMessage(
+      "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/acceptance",
+      Buffer.from(
+        JSON.stringify({
+          commandId: "11111111-1111-4111-8111-111111111111",
+          dispatchId: "66666666-6666-4666-8666-666666666666",
+          idempotencyKey: "33333333-3333-4333-8333-333333333333",
+          sequence: 1,
+          siteId: "22222222-2222-4222-8222-222222222222",
+          gatewayId: "55555555-5555-4555-8555-555555555555",
+          eventId: "77777777-7777-4777-8777-777777777777",
+          status: "accepted",
+          acceptedAt: "2026-07-11T00:00:01.000Z"
+        })
+      )
+    );
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "66666666-6666-4666-8666-666666666666",
+        commandId: "11111111-1111-4111-8111-111111111111",
+        gatewayId: "55555555-5555-4555-8555-555555555555",
+        idempotencyKey: "33333333-3333-4333-8333-333333333333",
+        sequence: 1n,
+        command: { siteId: "22222222-2222-4222-8222-222222222222" }
+      },
+      data: { status: "accepted", acceptedAt: new Date("2026-07-11T00:00:01.000Z"), errorCode: null, errorMessage: null }
+    });
+  });
+
+  it("stores fixture results from a device status ACK", async () => {
+    const prisma: any = {
+      commandDispatch: {
+        findFirst: jest.fn().mockResolvedValue({ id: "66666666-6666-4666-8666-666666666666", commandId: "11111111-1111-4111-8111-111111111111" }),
+        update: jest.fn().mockResolvedValue(undefined),
+        count: jest.fn().mockResolvedValue(1),
+        findMany: jest.fn()
+      },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      command: { update: jest.fn() },
+      $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma))
+    };
+    const service = new MqttService(prisma);
+    await service.handleMessage(
+      "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/device-status",
+      Buffer.from(
+        JSON.stringify({
+          commandId: "11111111-1111-4111-8111-111111111111",
+          dispatchId: "66666666-6666-4666-8666-666666666666",
+          idempotencyKey: "33333333-3333-4333-8333-333333333333",
+          sequence: 1,
+          siteId: "22222222-2222-4222-8222-222222222222",
+          gatewayId: "55555555-5555-4555-8555-555555555555",
+          eventId: "88888888-8888-4888-8888-888888888888",
+          status: "succeeded",
+          occurredAt: "2026-07-11T00:00:02.000Z",
+          results: [
+            { fixtureId: "99999999-9999-4999-8999-999999999999", status: "succeeded", brightness: 70, rssi: -60, hopCount: 1 }
+          ]
+        })
+      )
+    );
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledWith({
+      where: {
+        dispatchId: "66666666-6666-4666-8666-666666666666",
+        fixtureId: "99999999-9999-4999-8999-999999999999"
+      },
+      data: {
+        status: "succeeded",
+        brightness: 70,
+        faultCode: null,
+        errorMessage: null,
+        rssi: -60,
+        hopCount: 1,
+        occurredAt: new Date("2026-07-11T00:00:02.000Z")
+      }
+    });
+  });
+
   it("updates fixture state from MQTT fixture-state events", async () => {
     const prisma = {
       fixture: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },

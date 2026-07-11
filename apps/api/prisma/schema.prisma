@@ -229,6 +229,7 @@ model Gateway {
   lastHeartbeatAt         DateTime?
   certificateFingerprint  String?                 @unique
   assignmentVersion       Int                     @default(0)
+  nextCommandSequence     BigInt                  @default(0)
   claimedAt               DateTime?
   lastHeartbeatEventId    String?                 @unique
   lastHeartbeatSequence   BigInt?

@@ -1,6 +1,14 @@
 import { resolve } from "node:path";
 import { config } from "dotenv";
-import { dimmingCommandSchema, identifyDeviceSchema, mqttTopics, provisionDeviceSchema, provisioningScanStartSchema } from "@led-control/shared";
+import {
+  dimmingCommandSchema,
+  gatewayDimmingCommandV2Schema,
+  identifyDeviceSchema,
+  mqttTopics,
+  mqttTopicsV2,
+  provisionDeviceSchema,
+  provisioningScanStartSchema
+} from "@led-control/shared";
 import {
   applyIdentifyDevice,
   applyManualDimmingCommand,
@@ -15,6 +23,8 @@ import {
 } from "./gateway";
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
+import { CommandJournal } from "./commands/command-journal";
+import { handleGatewayDimmingCommand } from "./commands/gateway-command-handler";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -28,11 +38,13 @@ async function main() {
   const scannerAdapter = createScannerAdapter();
   const provisioningAdapter = createProvisioningAdapter();
   const client = createMqttClient({ ...process.env, MQTT_URL: mqttUrl });
+  const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
 
   client.on("connect", () => {
     client.subscribe(
       [
         mqttTopics.dimmingCommand(siteId),
+        mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
         mqttTopics.provisioningScanStart(siteId, gatewayId),
         mqttTopics.identifyDevice(siteId, gatewayId),
         mqttTopics.provisionDevice(siteId, gatewayId)
@@ -46,6 +58,10 @@ async function main() {
   client.on("message", (topic, payload) => {
     if (topic === mqttTopics.dimmingCommand(siteId)) {
       void handleDimmingPayload(payload);
+      return;
+    }
+    if (topic === mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")) {
+      void handleDimmingPayloadV2(payload);
       return;
     }
     if (topic === mqttTopics.provisioningScanStart(siteId, gatewayId)) {
@@ -66,6 +82,23 @@ async function main() {
     for (const state of result.fixtureStates) {
       client.publish(mqttTopics.fixtureState(siteId), JSON.stringify(state), { qos: 1 });
     }
+  }
+
+  async function handleDimmingPayloadV2(payload: Buffer) {
+    const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
+    let acceptancePublished = false;
+    const result = await handleGatewayDimmingCommand(adapter, commandJournal, command, async (acceptance) => {
+      await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), acceptance);
+      acceptancePublished = true;
+    });
+    if (!acceptancePublished) await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
+    await publish(mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
+  }
+
+  function publish(topic: string, payload: unknown) {
+    return new Promise<void>((resolve, reject) => {
+      client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => (error ? reject(error) : resolve()));
+    });
   }
 
   async function handleProvisioningScanPayload(payload: Buffer) {

@@ -1,0 +1,2 @@
+ALTER TABLE "Gateway"
+ADD COLUMN "nextCommandSequence" BIGINT NOT NULL DEFAULT 0;

@@ -407,7 +407,7 @@ git commit -m "feat: secure MQTT with mutual TLS"
 - Produces: one `CommandDispatch` per gateway
 - Consumes: acceptance/device-status ACK v2
 
-- [ ] **Step 1: 두 gateway 그룹 분할 실패 테스트 작성**
+- [x] **Step 1: 두 gateway 그룹 분할 실패 테스트 작성**
 
 ```ts
 const dispatches = await service.createDispatches(command, [
@@ -417,15 +417,15 @@ expect(dispatches).toHaveLength(2);
 expect(dispatches.map((item) => item.gatewayId)).toEqual(["g1", "g2"]);
 ```
 
-- [ ] **Step 2: transactional outbox 구현**
+- [x] **Step 2: transactional outbox 구현**
 
 Command와 dispatch/outbox를 같은 DB transaction에서 생성한다. Publisher는 미발행 outbox를 재시도하고 `idempotencyKey`와 gateway sequence를 payload에 포함한다.
 
-- [ ] **Step 3: gateway 멱등성 저장과 두 단계 ACK 구현**
+- [x] **Step 3: gateway 멱등성 저장과 두 단계 ACK 구현**
 
 Gateway는 명령을 로컬 저장한 뒤 acceptance ACK를 보내고, 실제 adapter 결과 후 fixture별 device-status ACK를 보낸다. 중복 key에는 저장된 terminal result를 재발행하며 다시 제어하지 않는다.
 
-- [ ] **Step 4: 검증·문서·커밋**
+- [x] **Step 4: 검증·문서·커밋**
 
 Run: `pnpm --filter @led-control/api test -- commands command-dispatch mqtt --runInBand`
 Run: `pnpm --filter @led-control/gateway test`
