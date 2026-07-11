@@ -294,7 +294,7 @@ git commit -m "feat: add secure gateway claim and bootstrap"
 - Produces: `GatewayAssignment { siteId, gatewayId, serialNumber, mqttUrl, configVersion }`
 - Produces: `AssignmentStore.read()` and `writeAtomic(assignment)`
 
-- [ ] **Step 1: 권한·원자성 실패 테스트 작성**
+- [x] **Step 1: 권한·원자성 실패 테스트 작성**
 
 ```ts
 await store.writeAtomic(assignment);
@@ -303,18 +303,18 @@ expect(await store.read()).toEqual(assignment);
 expect(await readdir(dirname(path))).not.toContain("assignment.json.tmp");
 ```
 
-- [ ] **Step 2: 실패 확인 후 구현**
+- [x] **Step 2: 실패 확인 후 구현**
 
 Run: `pnpm --filter @led-control/gateway test -- assignment-store.test.ts bootstrap-client.test.ts`
 Expected before implementation: FAIL.
 
 구현은 같은 디렉터리 임시 파일에 `mode: 0o600`으로 기록하고 `fsync` 후 rename한다. Bootstrap은 serial, client cert/key, CA만 환경변수로 받고 assignment가 없으면 지수 backoff로 대기한다.
 
-- [ ] **Step 3: `siteId/gatewayId` env 의존 제거**
+- [x] **Step 3: `siteId/gatewayId` env 의존 제거**
 
 `GATEWAY_SITE_ID`, `GATEWAY_ID`는 test mode에서만 허용한다. Production 시작 시 assignment 또는 제조 credential이 없으면 명확한 오류로 종료한다.
 
-- [ ] **Step 4: 검증과 커밋**
+- [x] **Step 4: 검증과 커밋**
 
 Run: `pnpm --filter @led-control/gateway test && pnpm --filter @led-control/gateway typecheck`
 Expected: PASS.

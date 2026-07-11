@@ -49,6 +49,7 @@ cp apps/gateway/.env.example apps/gateway/.env
 
 ```env
 MQTT_URL=mqtt://localhost:1883
+GATEWAY_TEST_MODE=true
 GATEWAY_SITE_ID=00000000-0000-4000-8000-000000000003
 GATEWAY_ID=00000000-0000-4000-8000-000000000004
 GATEWAY_SERIAL=GW-LOCAL-001
@@ -88,14 +89,15 @@ pnpm gateway:smoke
 
 ## 라즈베리파이 배포
 
-라즈베리파이에 배포할 때는 저장소를 복사한 뒤 `apps/gateway/.env`를 현장 값으로 수정한다.
+라즈베리파이 양산 이미지에는 현장 `siteId`와 DB의 `gatewayId`를 미리 넣지 않는다. 제조 시 주입한 serial과 장치별 인증서로 mTLS bootstrap을 호출하고, 사용자가 웹에서 claim을 완료하면 서버가 assignment를 반환한다. 게이트웨이는 이를 기본 `/var/lib/led-control/assignment.json`에 원자적으로 저장하며 파일 권한은 `0600`이다.
 
 ```env
-MQTT_URL=mqtt://<broker-host>:1883
-GATEWAY_SITE_ID=<site uuid>
-GATEWAY_ID=<gateway uuid>
 GATEWAY_SERIAL=GW-RPI-001
-GATEWAY_NAME=Main Gateway
+GATEWAY_BOOTSTRAP_URL=https://api.example.com/gateway-bootstrap
+GATEWAY_DEVICE_CERT_PATH=/etc/led-control/device.crt
+GATEWAY_DEVICE_KEY_PATH=/etc/led-control/device.key
+GATEWAY_BOOTSTRAP_CA_PATH=/etc/led-control/api-ca.crt
+GATEWAY_ASSIGNMENT_PATH=/var/lib/led-control/assignment.json
 GATEWAY_FIRMWARE_VERSION=gateway-rpi-0.1.0
 GATEWAY_HEARTBEAT_MS=5000
 GATEWAY_PROVISIONING_ADAPTER=command
@@ -103,6 +105,8 @@ GATEWAY_SCAN_COMMAND=/opt/led-control/bin/scan-unprovisioned
 GATEWAY_PROVISION_COMMAND=/opt/led-control/bin/provision-device
 GATEWAY_IDENTIFY_COMMAND=/opt/led-control/bin/identify-device
 ```
+
+장비가 아직 claim되지 않았으면 2초부터 최대 60초까지 지수 backoff로 bootstrap을 재시도한다. 저장된 assignment가 있으면 네트워크 장애 중에도 이를 우선 사용한다. `GATEWAY_TEST_MODE=true`와 `GATEWAY_SITE_ID/GATEWAY_ID` 조합은 로컬 stub 전용이며 양산 환경에서는 사용하지 않는다. 장치 private key와 claim code 원문은 DB, assignment 파일, Git에 저장하지 않는다.
 
 `GATEWAY_FIRMWARE_VERSION`은 사용자가 현장 등록 화면에서 입력하지 않는다. 게이트웨이가 heartbeat를 발행할 때 이 값을 함께 보내고, API가 `Gateway.firmwareVersion`을 자동 갱신한다. 값이 없으면 서버는 기존 `manual-unknown` 값을 유지한다.
 
