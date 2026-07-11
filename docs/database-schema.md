@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-07-06
+작성일: 2026-07-11
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -10,8 +10,9 @@
 
 - 조직/사용자/인증: `Organization`, `User`, `Invitation`, `Session`
 - 현장/공간/도면: `Site`, `Floor`, `FloorPlan`, `FloorMapObject`
-- 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `MeshNode`
-- 제어/모니터링: `Command`, `EnergyUsage`
+- 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`
+- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
+- 게이트웨이 claim 감사: `GatewayClaimAudit`
 - 조명 검색/등록: `ProvisioningSession`, `DiscoveredMeshNode`
 
 간단한 관계 흐름은 다음과 같다.
@@ -28,7 +29,9 @@ Organization
       │       ├─ GroupFixture ─ FixtureGroup
       │       └─ EnergyUsage
       ├─ Gateway ─ MeshNode
-      ├─ Command
+      │   ├─ GatewayInventory
+      │   └─ CommandDispatch ─ CommandFixtureResult
+      ├─ Command ─ CommandDispatch ─ MqttOutbox
       └─ ProvisioningSession ─ DiscoveredMeshNode
 ```
 
@@ -53,6 +56,10 @@ Organization
 | `pending` | 명령 생성 후 ACK 대기 |
 | `acknowledged` | 게이트웨이/장비에서 명령 수신 확인 |
 | `failed` | 명령 실패 |
+
+### CommandDispatchStatus / CommandFixtureResultStatus
+
+`CommandDispatchStatus`는 gateway별 전송 상태를 `pending`, `published`, `accepted`, `completed`, `failed`, `timed_out`으로 구분한다. `CommandFixtureResultStatus`는 실제 조명별 결과를 `pending`, `succeeded`, `failed`, `timed_out`으로 구분한다. Gateway acceptance와 실제 장비 status ACK를 같은 의미로 취급하지 않는다.
 
 ### UserRole
 
@@ -281,6 +288,10 @@ Organization
 | `hopCount` | `Int?` | 아니오 |  | 최근 BLE Mesh hop 수 |
 | `commandSuccessRate` | `Float?` | 아니오 |  | 최근 명령 성공률 |
 | `lastSeenAt` | `DateTime?` | 아니오 |  | 마지막 상태 수신 시각 |
+| `lastStateEventId` | `String?` | 아니오 | Unique | 마지막 적용 MQTT v2 이벤트 ID |
+| `lastStateSequence` | `BigInt?` | 아니오 |  | 마지막 적용 gateway sequence |
+| `lastStateOccurredAt` | `DateTime?` | 아니오 |  | 장치 상태 발생 시각 |
+| `statusReason` | `String?` | 아니오 |  | reported, fixture_stale, gateway_offline 등 상태 근거 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -343,6 +354,12 @@ Organization
 | `serialNumber` | `String` | 예 | Unique | 게이트웨이 시리얼 |
 | `firmwareVersion` | `String` | 예 |  | 펌웨어 버전 |
 | `lastHeartbeatAt` | `DateTime?` | 아니오 |  | 마지막 heartbeat 수신 시각 |
+| `certificateFingerprint` | `String?` | 아니오 | Unique | claim된 장치 인증서 SHA-256 fingerprint |
+| `assignmentVersion` | `Int` | 예 | `0` | gateway bootstrap 설정 버전 |
+| `claimedAt` | `DateTime?` | 아니오 |  | 현장 claim 완료 시각 |
+| `lastHeartbeatEventId` | `String?` | 아니오 | Unique | 마지막 heartbeat 이벤트 ID |
+| `lastHeartbeatSequence` | `BigInt?` | 아니오 |  | 마지막 heartbeat sequence |
+| `lastHeartbeatOccurredAt` | `DateTime?` | 아니오 |  | heartbeat 발생 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -355,6 +372,12 @@ Organization
 운영 메모:
 
 - `connectionStatus`는 DB 컬럼이 아니라 `lastHeartbeatAt` 기준으로 API에서 계산한다.
+
+### GatewayInventory / GatewayClaimAudit
+
+`GatewayInventory`는 제조 또는 출고 시 등록된 장비 identity 원장이다. `serialNumber`, 일회성 `claimCodeHash`, 장치 인증서 `certificateFingerprint`, claim 결과인 `claimedGatewayId/claimedAt`, 폐기 상태 `disabledAt`을 저장한다. claim code 원문과 인증서 private key는 DB와 Git에 저장하지 않는다.
+
+`GatewayClaimAudit`는 성공·실패 claim 시도의 inventory/site/user, serial, outcome, reason, IP, 시각을 기록한다. Claim 성공 transaction은 `GatewayInventory.claimCodeHash`를 `null`로 폐기해 재사용을 차단한다.
 
 ### MeshNode
 
@@ -407,6 +430,18 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 
 - `targetType`, `targetId`는 다형 대상 구조라 DB FK로 직접 강제하지 않는다.
 - MQTT command ACK 수신 시 `status`, `errorMessage`가 갱신된다.
+
+### CommandDispatch / CommandFixtureResult / MqttOutbox
+
+`CommandDispatch`는 하나의 사용자 `Command`를 소유 gateway별로 분할한 전송 단위다. `idempotencyKey`는 전체 unique, `(gatewayId, sequence)`도 unique이며 acceptance/device status 진행 상태와 오류를 저장한다.
+
+`CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
+
+`MqttOutbox`는 dispatch와 1:1로 연결되며 topic, JSON payload, attempts, nextAttemptAt, publishedAt, lastError를 저장한다. Command와 outbox를 같은 DB transaction에서 생성해 MQTT publish 실패로 `pending` 명령이 유실되는 문제를 방지한다.
+
+### ProcessedGatewayEvent
+
+MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eventId`를 PK로 사용하고 `(gatewayId, sequence, eventType)`을 unique로 둔다. 이벤트를 Fixture/Gateway snapshot에 반영하기 전에 이 테이블과 마지막 sequence를 확인한다.
 
 ### Invitation
 
@@ -536,6 +571,10 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 | `FloorMapObject` | Index `floorId`, `zIndex` | 한 층 안에서 편집 객체 렌더링 순서 조회 최적화 |
 | `Fixture` | Unique `meshNodeId` | 하나의 메시 노드는 하나의 조명에만 연결 |
 | `Gateway` | Unique `serialNumber` | 게이트웨이 시리얼 중복 방지 |
+| `GatewayInventory` | Unique `serialNumber`, `certificateFingerprint`, `claimedGatewayId` | 제조 identity 및 일회성 claim 보장 |
+| `CommandDispatch` | Unique `idempotencyKey`, `gatewayId + sequence` | 중복 명령과 순서 충돌 방지 |
+| `CommandFixtureResult` | PK `dispatchId + fixtureId` | dispatch별 조명 결과 중복 방지 |
+| `ProcessedGatewayEvent` | PK `eventId`, Unique `gatewayId + sequence + eventType` | QoS 중복·stale 이벤트 방지 |
 | `MeshNode` | Unique `deviceUuid` | BLE Mesh device UUID 중복 방지 |
 | `MeshNode` | Unique `gatewayId`, `meshAddress` | 같은 게이트웨이 내 mesh address 중복 방지 |
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
@@ -629,7 +668,7 @@ GET /floors/{floorId}/editor-state
 
 ## 6. 운영상 아직 분리가 필요한 후보
 
-현재 MVP 구조에서는 최신 상태 snapshot을 `Fixture`, `Gateway`에 직접 저장한다. 파일럿/양산 단계에서는 다음 테이블을 추가로 분리하는 것이 좋다.
+최신 상태 snapshot은 `Fixture`, `Gateway`에 저장하고, command fan-out·outbox·중복 이벤트 원장은 별도 테이블로 분리했다. 다음 시계열/정책 테이블은 후속 범위다.
 
 - `FixtureMetric`: RSSI, hop count, latency, command success rate의 시계열 이력
 - `GatewayMetric`: heartbeat, CPU/memory/disk, MQTT 연결 상태 이력

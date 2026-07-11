@@ -173,7 +173,7 @@ git commit -m "feat: define gateway scoped MQTT contracts"
 - Produces: `GatewayInventory`, `GatewayClaimAudit`, `CommandDispatch`, `CommandFixtureResult`
 - Extends: `Gateway.certificateFingerprint`, `Gateway.assignmentVersion`, `Fixture.lastStateSequence`
 
-- [ ] **Step 1: schema 실패 테스트 작성**
+- [x] **Step 1: schema 실패 테스트 작성**
 
 ```ts
 expect(schema).toContain("model GatewayInventory");
@@ -182,12 +182,12 @@ expect(schema).toContain("model CommandDispatch");
 expect(schema).toContain("lastStateSequence");
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- domain-schema.test.ts --runInBand`
 Expected: FAIL on missing models.
 
-- [ ] **Step 3: Prisma 모델과 유니크 제약 구현**
+- [x] **Step 3: Prisma 모델과 유니크 제약 구현**
 
 ```prisma
 model GatewayInventory {
@@ -205,7 +205,7 @@ model GatewayInventory {
 
 `CommandDispatch`는 command/gateway별 sequence와 idempotencyKey를 unique로 저장하고, `CommandFixtureResult`는 fixture별 terminal result를 저장한다. 조회 경로에 `Site.organizationId`, `Floor.siteId`, `Fixture.floorId`, `Gateway.siteId` 인덱스를 추가한다.
 
-- [ ] **Step 4: format·generate·migration 검증**
+- [x] **Step 4: format·generate·migration 검증**
 
 Run: `pnpm --filter @led-control/api exec prisma format && pnpm --filter @led-control/api prisma:generate`
 Expected: PASS.
@@ -213,7 +213,7 @@ Expected: PASS.
 Run: `DATABASE_URL=postgresql://led:led@localhost:5432/led_control?schema=public pnpm --filter @led-control/api exec prisma migrate deploy`
 Expected: migration applied once.
 
-- [ ] **Step 5: DB 문서와 커밋**
+- [x] **Step 5: DB 문서와 커밋**
 
 `docs/database-schema.md`에 claim code 원문과 private key를 저장하지 않는다고 명시한다.
 
@@ -692,3 +692,4 @@ git commit -m "docs: complete production device foundation runbook"
 - 2026-07-11: 설계 승인 및 구현 계획 작성. 구현은 Task 1부터 순서대로 진행한다.
 - 2026-07-11: Task 1의 D-Bus transport, capability report, Mac/Raspberry Pi 판정 probe를 구현하고 gateway 테스트 11개와 typecheck를 통과했다. `dbus-next`는 선택 의존성 취약점 때문에 `@homebridge/dbus-native`로 교체했다. Raspberry Pi 실기 Phase 0은 미완료다.
 - 2026-07-11: Task 2의 gateway-scoped MQTT v2 topic과 dimming, acceptance ACK, device status ACK, fixture state, heartbeat schema를 추가했다. legacy MVP1 topic은 기존 소비자를 깨지 않도록 유지했으며 shared 테스트 8개와 build를 통과했다.
+- 2026-07-11: Task 3의 제조 gateway inventory, claim audit, gateway별 command dispatch, fixture 결과, MQTT outbox, 처리 이벤트 원장과 sequence/freshness 필드를 추가했다. migration을 로컬 PostgreSQL에 적용하고 DB 문서를 갱신했다.
