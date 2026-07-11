@@ -536,9 +536,9 @@ MVP 1과 병행해 다음 리스크를 별도 PoC로 확인한다.
 
 2단계 전에는 실제 장비 제어 완료, 3단계 전에는 양산 준비 완료로 표시하지 않는다.
 
-### 12.2 Gateway 실행 모드와 adapter 선택
+### 12.2 Gateway adapter 선택
 
-Gateway는 `GATEWAY_MODE=test|production`과 명시적 adapter 설정을 사용한다. test mode에서만 `StubBleMeshAdapter`, stub scan/provisioning을 허용한다. production mode는 검증된 `BlueZMeshAdapter` 또는 Phase 0 실패 후 선정한 `EspProvisionerBridgeAdapter`만 허용하며, stub이나 범용 shell command adapter가 선택되면 MQTT 연결 전에 종료한다.
+Gateway 본체에는 test mode, stub adapter, 범용 shell command adapter를 포함하지 않는다. 실행 가능한 adapter는 검증된 `BlueZMeshAdapter` 또는 Phase 0 실패 후 선정한 `EspProvisionerBridgeAdapter`뿐이며, 실제 adapter 초기화와 capability 검증이 끝나지 않으면 MQTT 연결 전에 종료한다. Mock 동작은 별도 `apps/mock-gateway` 애플리케이션과 단위 테스트 dependency injection에서만 제공하며 gateway 배포 산출물에 포함하지 않는다.
 
 adapter interface는 dimming, scan, provision, identify를 분리하되 production adapter가 다음 결과를 반환해야 한다.
 
@@ -590,7 +590,7 @@ Dashboard fixture 응답에 `gatewayId`, `gatewayName`, `gatewayConnectionStatus
 
 1,000개 조명 현장은 전체 dashboard를 3초마다 다시 전송하지 않는다. 현장·층·그룹 metadata와 fixture snapshot 조회를 분리하고, 층 선택 시 해당 층 fixture를 cursor/page 단위로 조회한다. 상태 변경은 SSE 또는 WebSocket delta event로 반영하며 연결이 끊기면 증가형 sync cursor로 누락분을 복구한다. 지도는 viewport 안의 marker만 상세 렌더링하고 zoom level에 따라 cluster 또는 compact marker를 사용한다.
 
-도면 원본과 렌더 이미지는 S3 호환 Object Storage에 저장한다. DB에는 object key, content type, size, checksum, version만 저장하고 data URL 입력은 test mode에서만 허용한다. 업로드 크기, MIME, 확장자, 이미지 decode, PDF page 제한을 서버에서 검증한다.
+도면 원본과 렌더 이미지는 S3 호환 Object Storage에 저장한다. DB에는 object key, content type, size, checksum, version만 저장하고 data URL은 운영 API에서 허용하지 않는다. 테스트는 실제 S3 API와 호환되는 로컬 object storage를 사용한다. 업로드 크기, MIME, 확장자, 이미지 decode, PDF page 제한을 서버에서 검증한다.
 
 ### 12.6 제어 UI와 운영자 결과 확인
 
@@ -620,3 +620,9 @@ offline, gateway offline, provisioning 중, mesh mapping 없음 상태는 기본
 6. Object Storage 도면 업로드
 7. Raspberry Pi Phase 0 후 실제 adapter
 8. 2-node HIL 3회와 72시간 soak
+
+### 12.9 양산 단일 기준 원칙
+
+설계와 구현에는 테스트 전용 런타임 분기를 두지 않는다. 자동 테스트는 양산 코드의 interface에 fake dependency를 주입하거나 PostgreSQL, Redis, Mosquitto, S3 호환 storage의 실제 프로토콜을 로컬에서 실행해 검증한다. `NODE_ENV=test` 헤더 우회, production에서만 활성화되는 보안 검사, 현장 ID를 직접 넣는 test assignment 같은 분기는 제거한다.
+
+개발 편의를 위한 mock은 별도 process와 별도 package로 격리하고 양산 gateway/API/Web build에 import되지 않아야 한다. 모든 필수 credential, TLS, adapter capability, storage endpoint 검사는 환경에 관계없이 동일하게 적용한다. 로컬 개발도 개발용 CA와 인증서를 사용하며 평문 MQTT fallback을 제공하지 않는다.
