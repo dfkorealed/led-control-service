@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { StubBleMeshAdapter } from "../gateway";
-import { handleGatewayDimmingCommand } from "./gateway-command-handler";
+import { handleGatewayDimmingCommand, parseCommandTimeout } from "./gateway-command-handler";
 
 const command = {
   commandId: "11111111-1111-4111-8111-111111111111",
@@ -18,6 +18,11 @@ const command = {
 };
 
 describe("handleGatewayDimmingCommand", () => {
+  it("validates the production BLE status timeout at startup", () => {
+    expect(parseCommandTimeout(undefined)).toBe(8000);
+    expect(() => parseCommandTimeout("999")).toThrow("1000-300000ms");
+    expect(() => parseCommandTimeout("invalid")).toThrow("1000-300000ms");
+  });
   it("returns acceptance then device status and reuses terminal result for duplicates", async () => {
     const records = new Map<string, any>();
     const journal = {
@@ -40,4 +45,61 @@ describe("handleGatewayDimmingCommand", () => {
     expect(duplicate).toEqual(first);
     expect(adapter.commands).toHaveLength(1);
   });
+
+  it("times out a BLE adapter that never returns", async () => {
+    vi.useFakeTimers();
+    const records = new Map<string, any>();
+    const journal = memoryJournal(records);
+    const pendingAdapter = { setBrightness: vi.fn(() => new Promise<never>(() => undefined)) };
+
+    const resultPromise = handleGatewayDimmingCommand(pendingAdapter, journal, command, undefined, { timeoutMs: 8000 });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(8000);
+    const result = await resultPromise;
+
+    expect(result.deviceStatus).toMatchObject({
+      status: "timed_out",
+      results: [{ fixtureId: command.targetFixtureIds[0], status: "timed_out", errorMessage: "BLE Mesh status timeout after 8000ms" }]
+    });
+    vi.useRealTimers();
+  });
+
+  it("closes an accepted-only restart as indeterminate without controlling again", async () => {
+    const acceptance = {
+      commandId: command.commandId,
+      dispatchId: command.dispatchId,
+      idempotencyKey: command.idempotencyKey,
+      sequence: command.sequence,
+      siteId: command.siteId,
+      gatewayId: command.gatewayId,
+      eventId: "88888888-8888-4888-8888-888888888888",
+      status: "accepted" as const,
+      acceptedAt: "2026-07-11T00:00:01.000Z"
+    };
+    const records = new Map<string, any>([
+      [command.idempotencyKey, { state: "accepted", command: { command, acceptance } }]
+    ]);
+    const journal = memoryJournal(records);
+    const adapter = new StubBleMeshAdapter();
+
+    const result = await handleGatewayDimmingCommand(adapter, journal, command);
+
+    expect(result.deviceStatus.status).toBe("timed_out");
+    expect(result.deviceStatus.results[0]).toMatchObject({ status: "timed_out", errorMessage: "indeterminate after gateway restart" });
+    expect(adapter.commands).toHaveLength(0);
+  });
 });
+
+function memoryJournal(records: Map<string, any>) {
+  return {
+    get: async (key: string) => records.get(key) ?? null,
+    accept: async (key: string, value: unknown) => {
+      if (records.has(key)) return false;
+      records.set(key, { state: "accepted", command: value });
+      return true;
+    },
+    complete: async (key: string, result: unknown) => {
+      records.set(key, { ...records.get(key), state: "completed", result });
+    }
+  };
+}

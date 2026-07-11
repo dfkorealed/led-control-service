@@ -23,12 +23,16 @@ export async function handleGatewayDimmingCommand(
   adapter: BleMeshAdapter,
   journal: JournalLike,
   command: GatewayDimmingCommandV2,
-  onAccepted?: (acceptance: AcceptanceAckV2) => Promise<void>
+  onAccepted?: (acceptance: AcceptanceAckV2) => Promise<void>,
+  options: { timeoutMs?: number } = {}
 ): Promise<GatewayCommandResult> {
   const existing = await journal.get(command.idempotencyKey);
   if (existing?.state === "completed") return existing.result as GatewayCommandResult;
   if (existing?.state === "accepted") {
-    throw new Error("duplicate command has an indeterminate accepted result");
+    const stored = existing.command as { acceptance?: AcceptanceAckV2 };
+    const result = createIndeterminateResult(command, stored.acceptance);
+    await journal.complete(command.idempotencyKey, result);
+    return result;
   }
 
   const identity = {
@@ -55,7 +59,8 @@ export async function handleGatewayDimmingCommand(
 
   let deviceStatus: DeviceStatusAckV2;
   try {
-    const reports = await adapter.setBrightness(command.targetFixtureIds, command.brightness);
+    const timeoutMs = validateTimeout(options.timeoutMs ?? 8000);
+    const reports = await withTimeout(adapter.setBrightness(command.targetFixtureIds, command.brightness), timeoutMs);
     const results = reports.map((report) => ({
       fixtureId: report.fixtureId,
       status: report.acknowledged ? ("succeeded" as const) : ("failed" as const),
@@ -73,14 +78,15 @@ export async function handleGatewayDimmingCommand(
       results
     });
   } catch (error) {
+    const timedOut = error instanceof MeshStatusTimeoutError;
     deviceStatus = deviceStatusAckV2Schema.parse({
       ...identity,
       eventId: randomUUID(),
-      status: "failed",
+      status: timedOut ? "timed_out" : "failed",
       occurredAt: new Date().toISOString(),
       results: command.targetFixtureIds.map((fixtureId) => ({
         fixtureId,
-        status: "failed",
+        status: timedOut ? "timed_out" : "failed",
         errorMessage: error instanceof Error ? error.message : "unknown BLE Mesh command error"
       }))
     });
@@ -89,4 +95,57 @@ export async function handleGatewayDimmingCommand(
   const result = { acceptance, deviceStatus };
   await journal.complete(command.idempotencyKey, result);
   return result;
+}
+
+class MeshStatusTimeoutError extends Error {}
+
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new MeshStatusTimeoutError(`BLE Mesh status timeout after ${timeoutMs}ms`)), timeoutMs);
+    operation.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
+
+function validateTimeout(value: number) {
+  if (!Number.isInteger(value) || value < 1000 || value > 300_000) throw new Error("BLE Mesh timeout must be 1000-300000ms");
+  return value;
+}
+
+export function parseCommandTimeout(value: string | undefined) {
+  return validateTimeout(value === undefined ? 8000 : Number(value));
+}
+
+function createIndeterminateResult(command: GatewayDimmingCommandV2, acceptance?: AcceptanceAckV2): GatewayCommandResult {
+  const identity = {
+    commandId: command.commandId,
+    dispatchId: command.dispatchId,
+    idempotencyKey: command.idempotencyKey,
+    sequence: command.sequence,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId
+  };
+  const accepted =
+    acceptance ??
+    acceptanceAckV2Schema.parse({ ...identity, eventId: randomUUID(), status: "accepted", acceptedAt: new Date().toISOString() });
+  const deviceStatus = deviceStatusAckV2Schema.parse({
+    ...identity,
+    eventId: randomUUID(),
+    status: "timed_out",
+    occurredAt: new Date().toISOString(),
+    results: command.targetFixtureIds.map((fixtureId) => ({
+      fixtureId,
+      status: "timed_out",
+      errorMessage: "indeterminate after gateway restart"
+    }))
+  });
+  return { acceptance: accepted, deviceStatus };
 }

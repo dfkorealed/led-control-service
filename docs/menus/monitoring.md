@@ -35,6 +35,7 @@
 - gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어가며, 시작 시 heartbeat와 journal의 마지막 fixture 결과 snapshot을 재발행한다.
 - heartbeat가 90초 이상 없으면 연결된 조명을 `gateway_offline`, fixture state가 120초 이상 없으면 해당 조명을 `fixture_stale` 사유로 offline 처리한다.
 - dashboard gateway 연결 상태 기준을 서버 TTL과 동일한 90초로 통일하고 fixture의 `statusReason`을 API 응답에 포함한다.
+- Gateway startup resync는 전체 command 이력이 아니라 fixture별 최신 snapshot만 현재 발생 시각과 새 sequence로 발행한다.
 
 ## 미구현
 

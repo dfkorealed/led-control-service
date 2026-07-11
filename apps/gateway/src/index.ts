@@ -2,7 +2,6 @@ import { resolve } from "node:path";
 import { config } from "dotenv";
 import {
   dimmingCommandSchema,
-  deviceStatusAckV2Schema,
   type DeviceStatusAckV2,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
@@ -24,7 +23,7 @@ import {
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
-import { handleGatewayDimmingCommand } from "./commands/gateway-command-handler";
+import { handleGatewayDimmingCommand, parseCommandTimeout } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { createProductionAdapters } from "./adapters/adapter-factory";
 
@@ -36,6 +35,7 @@ async function main() {
   const { siteId, gatewayId, serialNumber: gatewaySerial, mqttUrl } = assignment;
   const gatewayFirmwareVersion = process.env.GATEWAY_FIRMWARE_VERSION || "gateway-dev-local";
   const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS ?? 5000);
+  const commandTimeoutMs = parseCommandTimeout(process.env.GATEWAY_BLE_STATUS_TIMEOUT_MS);
   const adapters = await createProductionAdapters(process.env);
   const adapter = adapters.dimming;
   const scannerAdapter = adapters.scanner;
@@ -92,10 +92,16 @@ async function main() {
   async function handleDimmingPayloadV2(payload: Buffer) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
     let acceptancePublished = false;
-    const result = await handleGatewayDimmingCommand(adapter, commandJournal, command, async (acceptance) => {
-      await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), acceptance);
-      acceptancePublished = true;
-    });
+    const result = await handleGatewayDimmingCommand(
+      adapter,
+      commandJournal,
+      command,
+      async (acceptance) => {
+        await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), acceptance);
+        acceptancePublished = true;
+      },
+      { timeoutMs: commandTimeoutMs }
+    );
     if (!acceptancePublished) await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
     await publish(mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
     await publishDeviceStates(result.deviceStatus, command.brightness);
@@ -126,10 +132,24 @@ async function main() {
   }
 
   async function publishJournalSnapshot() {
-    for (const stored of await commandJournal.completedResults()) {
-      if (!stored || typeof stored !== "object" || !("deviceStatus" in stored)) continue;
-      const deviceStatus = deviceStatusAckV2Schema.parse((stored as { deviceStatus: unknown }).deviceStatus);
-      await publishDeviceStates(deviceStatus, 0);
+    for (const snapshot of await commandJournal.latestFixtureSnapshots()) {
+      const succeeded = snapshot.status === "succeeded";
+      const state = fixtureStateV2Schema.parse({
+        siteId,
+        gatewayId,
+        eventId: randomUUID(),
+        sequence: await eventSequence.next(),
+        occurredAt: new Date().toISOString(),
+        fixtureId: snapshot.fixtureId,
+        brightness: succeeded ? snapshot.brightness ?? 0 : 0,
+        powerOn: succeeded && (snapshot.brightness ?? 0) > 0,
+        status: succeeded ? "online" : snapshot.status === "timed_out" ? "offline" : "fault",
+        statusReason: "startup_resync",
+        ...(snapshot.faultCode ? { faultCode: snapshot.faultCode } : {}),
+        rssi: snapshot.rssi ?? null,
+        hopCount: snapshot.hopCount ?? null
+      });
+      await publish(mqttTopicsV2.fixtureState(siteId, gatewayId), state);
     }
   }
 

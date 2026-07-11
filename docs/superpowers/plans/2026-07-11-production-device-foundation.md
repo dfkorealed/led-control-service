@@ -729,12 +729,12 @@ git commit -m "docs: complete production device foundation runbook"
 - Produces: `indeterminate` recovery result
 - Produces: idempotency TTL 24시간/최대 10,000건과 fixture latest snapshot 1건
 
-- [ ] **Step 1: adapter가 영원히 대기할 때 8초 후 timed-out 결과가 생성되는 fake-clock 테스트**
-- [ ] **Step 2: accepted-only 재시작 명령이 재제어되지 않고 indeterminate로 닫히는 테스트**
-- [ ] **Step 3: journal prune와 fixture별 latest snapshot 테스트**
-- [ ] **Step 4: timeout/recovery/prune 구현**
-- [ ] **Step 5: startup resync가 최신 snapshot만 현재 시각·새 sequence로 발행하도록 변경**
-- [ ] **Step 6: gateway/shared 검증과 커밋**
+- [x] **Step 1: adapter가 영원히 대기할 때 8초 후 timed-out 결과가 생성되는 fake-clock 테스트**
+- [x] **Step 2: accepted-only 재시작 명령이 재제어되지 않고 indeterminate로 닫히는 테스트**
+- [x] **Step 3: journal prune와 fixture별 latest snapshot 테스트**
+- [x] **Step 4: timeout/recovery/prune 구현**
+- [x] **Step 5: startup resync가 최신 snapshot만 현재 시각·새 sequence로 발행하도록 변경**
+- [x] **Step 6: gateway/shared 검증과 커밋**
 
 ### Task 15: Outbox lease, backoff, dead-letter와 dispatch timeout
 

@@ -33,6 +33,9 @@
 - gateway는 v2 dimming command를 로컬 `0600` journal에 먼저 기록한 뒤 acceptance ACK를 보내고, BLE Mesh adapter 결과 후 fixture별 device-status ACK를 보낸다.
 - 동일 idempotency key의 최종 결과가 journal에 있으면 실제 조명을 다시 제어하지 않고 기존 ACK를 재발행한다.
 - API는 gateway/site/command/dispatch identity가 모두 일치하는 ACK만 반영하고, 모든 gateway dispatch가 끝난 뒤 상위 Command 상태를 확정한다.
+- BLE Mesh fixture status는 기본 8초 timeout을 적용하고 adapter가 반환하지 않아도 fixture별 `timed_out` 결과로 명령을 종료한다.
+- Gateway 재시작 후 accepted-only 명령은 실제 조명을 다시 제어하지 않고 `indeterminate after gateway restart` timeout 결과로 닫는다.
+- Gateway journal은 idempotency 결과를 24시간·최대 10,000건만 유지하고 fixture별 최신 snapshot 한 건만 startup resync에 사용한다.
 
 ## 미구현
 
@@ -62,7 +65,7 @@
 - 로컬 게이트웨이 smoke test는 `StubBleMeshAdapter` 기준이므로 실제 BLE Mesh adapter 교체 후 라즈베리파이 실기기 재검증이 필요하다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - 현재 outbox publisher는 단일 API 프로세스 기준이다. 다중 API replica 운영 전에는 DB lease 또는 `SKIP LOCKED` 기반 publisher ownership을 추가해야 한다.
-- gateway가 acceptance journal 기록 직후 재시작해 최종 결과가 없는 경우 자동 재제어하지 않고 불확정 상태로 남긴다. 운영자 재시도/조회 정책은 명령 이력 기능과 함께 보완해야 한다.
+- gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
 
 ## 관련 파일
 
