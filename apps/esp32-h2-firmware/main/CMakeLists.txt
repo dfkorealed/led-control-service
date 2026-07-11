@@ -4,8 +4,11 @@ idf_component_register(
     "ble_mesh_node.c"
     "ble_mesh_platform.c"
     "control_state.c"
+    "factory_reset.c"
+    "identify.c"
     "led_driver.c"
     "mesh_state.c"
+    "persistent_state.c"
   INCLUDE_DIRS "."
-  REQUIRES bt driver nvs_flash
+  REQUIRES bt driver nvs_flash esp_timer esp_system
 )

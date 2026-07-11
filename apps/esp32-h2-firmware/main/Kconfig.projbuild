@@ -1,0 +1,16 @@
+menu "LED Control Node"
+
+config LED_CONTROL_PWM_GPIO
+    int "LED driver PWM GPIO"
+    default 8
+
+config LED_CONTROL_FACTORY_RESET_GPIO
+    int "Factory reset active-low GPIO"
+    default 9
+
+config LED_CONTROL_FACTORY_RESET_HOLD_MS
+    int "Factory reset hold duration (ms)"
+    default 8000
+    range 3000 30000
+
+endmenu

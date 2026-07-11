@@ -1,9 +1,13 @@
 #include "ble_mesh_node.h"
 #include "ble_mesh_platform.h"
 #include "control_state.h"
+#include "factory_reset.h"
+#include "identify.h"
 #include "led_driver.h"
+#include "persistent_state.h"
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 
 static const char *TAG = "led_control_node";
@@ -17,13 +21,24 @@ void app_main(void) {
   ESP_ERROR_CHECK(error);
 
   ESP_ERROR_CHECK(led_driver_init());
+  ESP_ERROR_CHECK(persistent_state_init());
+  ESP_ERROR_CHECK(identify_init());
 
   control_state_t state = control_state_create();
-  control_state_apply_brightness(&state, 30);
+  bool restored = false;
+  ESP_ERROR_CHECK(persistent_state_load(&state, &restored));
+  if (!restored) {
+    control_state_apply_brightness(&state, 30);
+  }
   ESP_ERROR_CHECK(led_driver_set_brightness(state.brightness_percent));
 
   ESP_ERROR_CHECK(ble_mesh_platform_bluetooth_init());
   ESP_ERROR_CHECK(ble_mesh_node_init());
+  ESP_ERROR_CHECK(factory_reset_init());
 
-  ESP_LOGI(TAG, "ESP32-H2 LED node started, brightness=%u%% power_on=%s", state.brightness_percent, state.power_on ? "true" : "false");
+  ESP_LOGI(TAG, "ESP32-H2 LED node started, brightness=%u%% power_on=%s restored=%s reset_reason=%d",
+           state.brightness_percent,
+           state.power_on ? "true" : "false",
+           restored ? "true" : "false",
+           esp_reset_reason());
 }

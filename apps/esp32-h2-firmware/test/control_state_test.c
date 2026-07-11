@@ -11,6 +11,7 @@ int main(void) {
   control_state_apply_brightness(&state, 45);
   assert(state.brightness_percent == 45);
   assert(state.power_on == true);
+  assert(state.previous_brightness_percent == 45);
 
   control_state_apply_brightness(&state, 0);
   assert(state.brightness_percent == 0);
@@ -37,13 +38,21 @@ int main(void) {
   assert(state.brightness_percent == 75);
   assert(state.power_on == true);
 
-  mesh_state_apply_onoff(&state, 0);
+  control_state_apply_brightness(&state, 30);
+  assert(mesh_state_apply_onoff(&state, 0) == 0);
   assert(state.brightness_percent == 0);
   assert(state.power_on == false);
+  assert(state.previous_brightness_percent == 30);
 
-  mesh_state_apply_onoff(&state, 1);
-  assert(state.brightness_percent == 100);
+  assert(mesh_state_apply_onoff(&state, 1) == 30);
+  assert(state.brightness_percent == 30);
   assert(state.power_on == true);
+
+  assert(command_sequence_accept(&state, 10));
+  assert(state.last_command_sequence == 10);
+  assert(!command_sequence_accept(&state, 9));
+  assert(!command_sequence_accept(&state, 10));
+  assert(command_sequence_accept(&state, 11));
 
   return 0;
 }

@@ -15,8 +15,12 @@
 #include "esp_ble_mesh_networking_api.h"
 #include "esp_ble_mesh_provisioning_api.h"
 #include "esp_log.h"
+#include "esp_check.h"
+#include "esp_system.h"
+#include "identify.h"
 #include "led_driver.h"
 #include "mesh_state.h"
+#include "persistent_state.h"
 
 #define LED_CONTROL_COMPANY_ID 0x02E5
 #define LED_CONTROL_UNPROV_NAME "DFK-LED-H2"
@@ -140,6 +144,7 @@ static void update_bound_mesh_state(void) {
 
 static void apply_control_state_and_publish(esp_ble_mesh_model_t *model) {
   ESP_ERROR_CHECK_WITHOUT_ABORT(led_driver_set_brightness(mesh_control_state.brightness_percent));
+  ESP_ERROR_CHECK_WITHOUT_ABORT(persistent_state_schedule_save(&mesh_control_state));
   update_bound_mesh_state();
 
   uint8_t onoff = onoff_server.state.onoff;
@@ -297,10 +302,12 @@ static void health_server_cb(esp_ble_mesh_health_server_cb_event_t event, esp_bl
     esp_ble_mesh_health_server_fault_update(&elements[0]);
     break;
   case ESP_BLE_MESH_HEALTH_SERVER_ATTENTION_ON_EVT:
-    ESP_LOGI(TAG, "Health attention on");
+    ESP_LOGI(TAG, "Health attention on, seconds=%u", param->attention_on.time);
+    ESP_ERROR_CHECK_WITHOUT_ABORT(identify_start(param->attention_on.time, mesh_control_state.brightness_percent));
     break;
   case ESP_BLE_MESH_HEALTH_SERVER_ATTENTION_OFF_EVT:
     ESP_LOGI(TAG, "Health attention off");
+    ESP_ERROR_CHECK_WITHOUT_ABORT(identify_stop());
     break;
   case ESP_BLE_MESH_HEALTH_SERVER_FAULT_UPDATE_COMP_EVT:
     ESP_LOGI(TAG, "Health fault update complete, err=%d", param->fault_update_comp.error_code);
@@ -312,7 +319,11 @@ static void health_server_cb(esp_ble_mesh_health_server_cb_event_t event, esp_bl
 
 esp_err_t ble_mesh_node_init(void) {
   mesh_control_state = control_state_create();
-  control_state_apply_brightness(&mesh_control_state, 30);
+  bool restored = false;
+  ESP_RETURN_ON_ERROR(persistent_state_load(&mesh_control_state, &restored), TAG, "load persisted state");
+  if (!restored) {
+    control_state_apply_brightness(&mesh_control_state, 30);
+  }
   update_bound_mesh_state();
 
   ble_mesh_platform_get_device_uuid(dev_uuid);
@@ -338,6 +349,13 @@ esp_err_t ble_mesh_node_init(void) {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to enable provisioning, err=%d", err);
     return err;
+  }
+
+  esp_reset_reason_t reset_reason = esp_reset_reason();
+  if (reset_reason == ESP_RST_PANIC || reset_reason == ESP_RST_TASK_WDT || reset_reason == ESP_RST_WDT) {
+    health_server.health_test.current_faults[0] = 0x01;
+    health_server.health_test.registered_faults[0] = 0x01;
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_health_server_fault_update(&elements[0]));
   }
 
   ESP_LOGI(TAG, "BLE Mesh node initialized name=%s uuid=%02x%02x:%02x%02x%02x%02x%02x%02x",

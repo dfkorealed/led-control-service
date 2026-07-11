@@ -7,8 +7,8 @@
 - 2026-07-08 기준 macOS 개발 환경에 ESP-IDF `v5.5.1`을 설치했다.
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
-- 현재 펌웨어는 부팅 시 LEDC PWM 기본 밝기를 적용하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령을 받아 PWM 밝기에 반영하는 골격까지 빌드 검증했다.
-- BLE Mesh 포함 후 `led_control_node.bin` 크기는 약 `0xe1610` 바이트이며, 1MB OTA app partition 기준 약 12% 여유가 남는다. OTA 기능을 추가할 때는 파티션 크기 재검토가 필요하다.
+- 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령을 받아 PWM 밝기에 반영하는 단계까지 빌드 검증했다.
+- BLE Mesh와 양산 기반 보강 포함 후 `led_control_node.bin` 크기는 약 `0xe4d10` 바이트이며, 1MB OTA app partition 기준 약 11% 여유가 남는다. OTA 기능을 추가할 때는 파티션 크기 재검토가 필요하다.
 
 ## ESP-IDF 설치
 
@@ -91,16 +91,36 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 - Light Lightness Set/Get 수신 후 0~65535 lightness 값을 0~100% 밝기로 변환해 PWM 반영
 - OnOff/Lightness status publication
 - Health fault clear/test callback과 fault update publication 진입점
+- 마지막 밝기, 이전 밝기, command sequence를 NVS blob으로 저장하고 2초 debounce commit으로 flash write를 제한
+- Off 후 On 시 직전 0% 초과 밝기를 복원
+- Health Attention에 연결된 250ms identify 점멸과 종료 시 원래 밝기 복원
+- GPIO active-low 8초 길게 누르기를 통한 앱 NVS 및 BLE Mesh credential factory reset
+- panic/watchdog reset reason을 Health fault `0x01`로 기록
+- ESP-IDF task watchdog 10초 설정
 
 ## 후속 구현
 
 - 실제 ESP32-H2 보드에서 PB-ADV/PB-GATT provisioning 검증
 - provisioner에서 AppKey bind, Light Lightness/OnOff model bind, group subscription 자동화
 - 라즈베리파이 gateway의 실제 BLE Mesh provisioner/client adapter 구현
-- 현장용 factory reset 입력 방식. 현재는 `erase-flash` 또는 BLE Mesh node reset 이벤트에 의존한다.
-- gateway `identify-device` 명령과 연결되는 attention/점멸 패턴
+- 양산 PCB 확정 후 PWM GPIO와 factory reset GPIO 확정 및 전기적 debounce/ESD 검증
+- gateway `identify-device` 명령을 Health Attention Set으로 보내는 실제 BlueZ adapter 연결
 - gateway가 Light Lightness Status, Generic OnOff Status, Health Fault Status를 수신해 서버 fixture state로 동기화
 - OTA 이미지 수신, 검증, rollback 정책
+- BLE Mesh optional transition time을 LEDC fade 완료 후 Status publication으로 연결
+- 표준 BLE Mesh TID와 cloud gateway command sequence의 매핑 정책. 현재 영속 sequence 필드는 준비되어 있지만 Generic OnOff/Lightness 표준 메시지의 8-bit TID를 cloud sequence로 간주하지 않는다.
+
+## 양산 GPIO 설정
+
+기본값은 PWM `GPIO 8`, factory reset active-low 입력 `GPIO 9`, 길게 누르기 `8000ms`다. PCB pinout이 확정되면 `menuconfig` 또는 `sdkconfig.defaults`의 다음 값을 변경한다.
+
+```text
+CONFIG_LED_CONTROL_PWM_GPIO=8
+CONFIG_LED_CONTROL_FACTORY_RESET_GPIO=9
+CONFIG_LED_CONTROL_FACTORY_RESET_HOLD_MS=8000
+```
+
+factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 외부 pull-up, switch debounce, ESD와 부팅 strap 충돌 여부를 반드시 검토한다. 8초가 충족되면 앱 상태 NVS와 BLE Mesh provisioning 정보를 삭제하고 재부팅해 unprovisioned beacon 상태로 돌아간다.
 
 ## BLE Mesh 동작 흐름
 

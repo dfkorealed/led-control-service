@@ -19,6 +19,11 @@ void mesh_state_apply_lightness(control_state_t *state, uint16_t lightness) {
   control_state_apply_brightness(state, mesh_state_lightness_to_percent(lightness));
 }
 
-void mesh_state_apply_onoff(control_state_t *state, uint8_t onoff) {
-  control_state_apply_brightness(state, onoff ? 100 : 0);
+uint8_t mesh_state_apply_onoff(control_state_t *state, uint8_t onoff) {
+  uint8_t brightness = onoff ? state->previous_brightness_percent : 0;
+  if (onoff && brightness == 0) {
+    brightness = 100;
+  }
+  control_state_apply_brightness(state, brightness);
+  return state->brightness_percent;
 }

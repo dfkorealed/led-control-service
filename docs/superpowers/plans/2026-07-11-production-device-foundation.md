@@ -554,7 +554,7 @@ git commit -m "feat: connect gateway to BlueZ Mesh"
 - Produces: persisted `{ brightness, previousBrightness, lastCommandSequence }`
 - Produces: identify pattern, physical factory reset, reset reason and Health fault report
 
-- [ ] **Step 1: host C 실패 테스트 작성**
+- [x] **Step 1: host C 실패 테스트 작성**
 
 ```c
 assert(mesh_state_apply_onoff(&state, 0) == 0);
@@ -568,11 +568,11 @@ assert(!command_sequence_accept(&state, 9));
 
 NVS write는 밝기 변경마다 하지 않고 debounce된 commit으로 flash wear를 제한한다. Transition 완료 후 Status를 발행하고 중복·낮은 sequence를 적용하지 않는다.
 
-- [ ] **Step 3: identify·Health·factory reset·watchdog 구현**
+- [x] **Step 3: identify·Health·factory reset·watchdog 구현**
 
 Health Attention callback은 실제 PWM 점멸을 시작/종료한다. Factory reset 물리 입력은 길게 누르기 8초로 고정하고 mesh credential과 앱 NVS를 삭제한다. Task watchdog과 reset reason을 초기 상태 report에 포함한다.
 
-- [ ] **Step 4: host·ESP-IDF 빌드 검증**
+- [x] **Step 4: host·ESP-IDF 빌드 검증**
 
 Run: `scripts/esp32-h2-build.sh`
 Expected: ESP-IDF v5.5.1 `esp32h2` build PASS and partition free space reported.
