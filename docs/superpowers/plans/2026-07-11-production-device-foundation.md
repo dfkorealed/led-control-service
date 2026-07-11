@@ -122,7 +122,7 @@ git commit -m "feat: add BlueZ capability probe"
 - Produces: `mqttTopicsV2.gatewayCommand(siteId, gatewayId, kind)`
 - Produces: `gatewayCommandSchema`, `acceptanceAckSchema`, `deviceStatusAckSchema`, `fixtureStateV2Schema`
 
-- [ ] **Step 1: gateway 범위와 이벤트 순서를 검증하는 실패 테스트 작성**
+- [x] **Step 1: gateway 범위와 이벤트 순서를 검증하는 실패 테스트 작성**
 
 ```ts
 expect(mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"))
@@ -130,12 +130,12 @@ expect(mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"))
 expect(() => fixtureStateV2Schema.parse({ ...validState, eventId: "", sequence: -1 })).toThrow();
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/shared test -- gateway-contracts.test.ts`
 Expected: FAIL because v2 exports do not exist.
 
-- [ ] **Step 3: 실제 payload 타입과 schema 구현**
+- [x] **Step 3: 실제 payload 타입과 schema 구현**
 
 ```ts
 export const fixtureStateV2Schema = z.object({
@@ -149,7 +149,7 @@ export const fixtureStateV2Schema = z.object({
 
 `acceptance ACK`는 수신·검증·로컬 저장 결과만, `device status ACK`는 fixture별 `succeeded|failed|timed_out`와 실제 밝기를 포함한다. legacy topic은 mock 전용 compatibility 함수로 표시하고 운영 설정에서는 거부한다.
 
-- [ ] **Step 4: 전체 shared 검증과 커밋**
+- [x] **Step 4: 전체 shared 검증과 커밋**
 
 Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/shared build`
 Expected: PASS.
@@ -691,3 +691,4 @@ git commit -m "docs: complete production device foundation runbook"
 
 - 2026-07-11: 설계 승인 및 구현 계획 작성. 구현은 Task 1부터 순서대로 진행한다.
 - 2026-07-11: Task 1의 D-Bus transport, capability report, Mac/Raspberry Pi 판정 probe를 구현하고 gateway 테스트 11개와 typecheck를 통과했다. `dbus-next`는 선택 의존성 취약점 때문에 `@homebridge/dbus-native`로 교체했다. Raspberry Pi 실기 Phase 0은 미완료다.
+- 2026-07-11: Task 2의 gateway-scoped MQTT v2 topic과 dimming, acceptance ACK, device status ACK, fixture state, heartbeat schema를 추가했다. legacy MVP1 topic은 기존 소비자를 깨지 않도록 유지했으며 shared 테스트 8개와 build를 통과했다.
