@@ -64,3 +64,27 @@
 - **원인**: API/UI의 등록 세션 구현과 gateway의 BLE Mesh scan/provisioning adapter 구현이 분리되어 있었고, mock gateway도 고정 `MOCK_SITE_ID`만 구독해 실제 DB 현장 ID와 맞지 않았다.
 - **해결 및 예방책**: gateway가 `provisioning-scan-start`, `identify-device`, `provision-device`를 구독하고 stub/command adapter를 통해 발견/완료/실패 이벤트를 발행하도록 했다.
 - **반복 방지 체크**: MQTT 기반 기능은 command 발행 테스트와 event 생산자 테스트를 같은 작업 범위에 포함하고, 실제 DB의 site/gateway ID와 gateway 환경변수가 일치하는지 확인한다.
+
+## 2026-07-11 / MQTT topic과 tenant 범위 검증
+- **발생했던 문제/실수**: 기존 상태 이벤트는 topic의 site ID보다 payload의 fixture ID를 중심으로 갱신해, 인증된 gateway라도 다른 현장 식별자를 섞은 이벤트를 보낼 여지가 있었다.
+- **원인**: broker ACL과 topic 문자열을 애플리케이션의 최종 권한 검증으로 간주했다.
+- **해결 및 예방책**: topic의 site/gateway, payload의 site/gateway, DB의 Site-Gateway-MeshNode-Fixture 관계가 모두 일치할 때만 이벤트를 반영한다. `eventId`와 영속 sequence로 QoS 1 중복 및 역전도 차단한다.
+- **반복 방지 체크**: 모든 장비 이벤트 테스트에 정상 범위, 다른 tenant 위조, 중복 event ID, 낮은 sequence를 포함한다.
+
+## 2026-07-11 / 제조 credential 원문 저장 금지
+- **발생했던 문제/실수**: 기존 수동 gateway 등록은 serial만 알면 DB Gateway를 만들 수 있어 제조 identity 소유권과 실제 장비를 연결하지 못했다.
+- **원인**: 개발용 환경변수의 site/gateway ID 입력 방식을 양산 흐름에도 확장하려 했다.
+- **해결 및 예방책**: 제조 원장에는 serial, scrypt claim code hash, certificate fingerprint만 저장한다. claim 성공 시 hash를 폐기하고 private key와 claim code 원문은 DB, Git, assignment에 저장하지 않는다.
+- **반복 방지 체크**: credential 기능 리뷰 시 원문 저장 위치, 로그 노출, 재사용 차단, rate limit, 감사 로그를 함께 검사한다.
+
+## 2026-07-11 / ACK 의미 분리와 transactional outbox
+- **발생했던 문제/실수**: gateway가 MQTT 메시지를 받았다는 ACK를 실제 조명이 밝기를 적용했다는 성공으로 표시할 수 있었다.
+- **원인**: Command 하나에 전송 접수와 fixture별 장비 결과를 함께 저장했다.
+- **해결 및 예방책**: 사용자 Command를 gateway별 Dispatch로 분할하고 acceptance ACK와 device-status ACK를 별도 계약으로 관리한다. Command, Dispatch, fixture result, MQTT outbox는 같은 DB transaction에 생성한다.
+- **반복 방지 체크**: 그룹 제어 테스트에 여러 gateway, 부분 실패, timeout, 중복 idempotency key를 포함하고 상위 Command는 모든 dispatch 종료 후 확정한다.
+
+## 2026-07-11 / 하드웨어 검증 수준 구분
+- **발생했던 문제/실수**: Mac stub 테스트나 ESP-IDF build 성공을 Raspberry Pi BlueZ Mesh 및 실제 RF 성공과 혼동할 가능성이 있었다.
+- **원인**: 코드 완료, target build 완료, 단일 보드 검증, 2-node 현장 검증의 완료 용어가 분리되지 않았다.
+- **해결 및 예방책**: 상태를 `자동 검증 완료`, `Raspberry Pi Phase 0 완료`, `2-node HIL 3회 완료`로 분리한다. 상위 수준의 로그가 없으면 양산 준비 완료로 기록하지 않는다.
+- **반복 방지 체크**: 하드웨어 기능 문서에는 사용 장비, firmware hash, 실행 명령, 반복 횟수, 실제 status와 journald 로그 경로를 남긴다.

@@ -647,15 +647,15 @@ git commit -m "test: add two node production HIL flow"
 **Interfaces:**
 - Produces: 실제 구현/테스트 전용/미구현 상태가 코드와 일치하는 최종 문서
 
-- [ ] **Step 1: 기능 상태 문서 갱신**
+- [x] **Step 1: 기능 상태 문서 갱신**
 
 BlueZ 실기 검증 전 항목은 `구현 완료`가 아니라 `코드 완료·실기 미검증`으로 기록한다. Stub, command adapter, 개발 인증서는 테스트 전용으로 명시한다.
 
-- [ ] **Step 2: 반복 가능한 교훈 기록**
+- [x] **Step 2: 반복 가능한 교훈 기록**
 
 `docs/lesson_leared.md`에 topic scope 검증, claim 원문 금지, ACK 의미 분리, hardware validation level을 기록한다.
 
-- [ ] **Step 3: 전체 자동 검증**
+- [x] **Step 3: 전체 자동 검증**
 
 Run:
 
@@ -673,7 +673,7 @@ Expected: all automated checks PASS.
 
 `pnpm gateway:hil:2node -- --repeat 3`의 3회 결과와 Raspberry Pi systemd/journald 로그가 없으면 양산형 장비 기반을 완료로 표시하지 않는다.
 
-- [ ] **Step 5: 최종 커밋**
+- [x] **Step 5: 최종 커밋**
 
 ```bash
 git add README.md docs
@@ -695,3 +695,8 @@ git commit -m "docs: complete production device foundation runbook"
 - 2026-07-11: Task 1의 D-Bus transport, capability report, Mac/Raspberry Pi 판정 probe를 구현하고 gateway 테스트 11개와 typecheck를 통과했다. `dbus-next`는 선택 의존성 취약점 때문에 `@homebridge/dbus-native`로 교체했다. Raspberry Pi 실기 Phase 0은 미완료다.
 - 2026-07-11: Task 2의 gateway-scoped MQTT v2 topic과 dimming, acceptance ACK, device status ACK, fixture state, heartbeat schema를 추가했다. legacy MVP1 topic은 기존 소비자를 깨지 않도록 유지했으며 shared 테스트 8개와 build를 통과했다.
 - 2026-07-11: Task 3의 제조 gateway inventory, claim audit, gateway별 command dispatch, fixture 결과, MQTT outbox, 처리 이벤트 원장과 sequence/freshness 필드를 추가했다. migration을 로컬 PostgreSQL에 적용하고 DB 문서를 갱신했다.
+- 2026-07-11: Task 4~8의 secure claim/bootstrap, assignment 저장, MQTT mTLS/ACL/CRL, gateway별 outbox dispatch, 두 단계 ACK, tenant scope와 offline TTL을 구현하고 자동 테스트를 통과했다.
+- 2026-07-11: Task 9는 Raspberry Pi BlueZ Phase 0 미완료로 보류했다. 하드웨어 결과 없이 실제 adapter 완료로 표시하지 않는다.
+- 2026-07-11: Task 10의 host 상태 테스트, NVS debounce 복원, identify, reset fault, watchdog, 8초 factory reset을 구현해 ESP-IDF build를 통과했다. transition과 두 보드 실기는 미완료다.
+- 2026-07-11: Task 11의 deterministic HIL runner와 한글 runbook을 추가했다. 실제 장애 명령과 3회 연속 HIL은 Raspberry Pi/두 node에서 실행해야 한다.
+- 2026-07-11: Task 12 자동 검증에서 전체 workspace 테스트, typecheck, Chromium MVP E2E, ESP32-H2 clean build가 통과했다. Raspberry Pi Phase 0과 2-node HIL 3회 증거는 아직 없어 양산 준비 완료로 표시하지 않는다.

@@ -107,4 +107,15 @@ pnpm --filter @led-control/web e2e:auth:real
 - React Native WebView shell
 - Hamina Planner 기반 RF/음영 검토 패널
 
-실제 라즈베리파이 BLE Mesh provisioner/client adapter, 실기기 provisioning/model bind/group subscription 검증, 실제 OTA, 스케줄/이벤트 제어, 파일럿 설치 플로우는 MVP 2와 MVP 3에서 별도로 구현합니다.
+## 양산 장비 기반 진행 상태
+
+- 완료: gateway scoped MQTT v2 계약, 제조 gateway claim/bootstrap API, assignment `0600` 원자 저장
+- 완료: 개발 PKI, MQTT mTLS/ACL/CRL 부정 시험, gateway별 command dispatch와 transactional outbox
+- 완료: acceptance/device-status 2단계 ACK, 상태 event sequence, tenant scope 검증, gateway/fixture offline TTL
+- 코드 및 build 완료·실기 미검증: ESP32-H2 NVS 밝기 복원, Health Attention identify, watchdog fault, 8초 물리 factory reset
+- 테스트 도구 완료·실기 미검증: 2-node HIL runner와 실험실 runbook
+- 미완료: Raspberry Pi BlueZ Phase 0, 실제 provision/bind/Lightness Status adapter, 2-node HIL 3회 연속 시험
+
+현재 상태는 자동 검증 단계이며 양산 준비 완료가 아니다. 실제 장비 판정 절차는 `docs/runbooks/production-device-lab.md`, 상세 구현 계획과 체크 상태는 `docs/superpowers/plans/2026-07-11-production-device-foundation.md`를 기준으로 한다.
+
+실제 라즈베리파이 BLE Mesh provisioner/client adapter, 실기기 provisioning/model bind/group subscription 검증, 실제 OTA, 스케줄/이벤트 제어, 파일럿 설치 플로우는 후속 하드웨어 검증과 MVP 2/MVP 3 범위입니다.
