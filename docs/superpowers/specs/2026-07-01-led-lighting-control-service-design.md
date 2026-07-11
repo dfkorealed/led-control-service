@@ -521,3 +521,102 @@ MVP 1과 병행해 다음 리스크를 별도 PoC로 확인한다.
 - Bluetooth Mesh Provisioning: https://www.bluetooth.com/blog/provisioning-a-bluetooth-mesh-network-part-1/
 - Espressif ESP-BLE-MESH: https://docs.espressif.com/projects/esp-idf/en/stable/esp32h2/api-guides/esp-ble-mesh/ble-mesh-index.html
 - ESP-IDF BLE Mesh Examples: https://github.com/espressif/esp-idf/tree/master/examples/bluetooth/esp_ble_mesh
+
+## 12. 모니터링·제어 양산 보완 설계
+
+### 12.1 목표와 완료 판정
+
+모니터링·제어 양산 보완의 목표는 mock/stub 성공을 실제 장비 성공으로 오인하지 않고, 단일 프로세스 장애와 gateway 재시작, MQTT 중복, 장비 timeout, 1,000개 조명 규모에서도 상태와 명령 결과가 일관되게 유지되도록 하는 것이다.
+
+완료 수준은 다음 세 단계로 분리한다.
+
+1. `자동 검증 완료`: unit/contract/E2E/typecheck, ESP-IDF build, 1,000 fixture 성능 시험이 통과한다.
+2. `실험실 장비 완료`: Raspberry Pi BlueZ Phase 0과 ESP32-H2 2-node HIL이 3회 연속 통과한다.
+3. `파일럿 완료`: 실제 주차장 RF walk test, 72시간 soak, 장애 복구와 운영자 workflow가 통과한다.
+
+2단계 전에는 실제 장비 제어 완료, 3단계 전에는 양산 준비 완료로 표시하지 않는다.
+
+### 12.2 Gateway 실행 모드와 adapter 선택
+
+Gateway는 `GATEWAY_MODE=test|production`과 명시적 adapter 설정을 사용한다. test mode에서만 `StubBleMeshAdapter`, stub scan/provisioning을 허용한다. production mode는 검증된 `BlueZMeshAdapter` 또는 Phase 0 실패 후 선정한 `EspProvisionerBridgeAdapter`만 허용하며, stub이나 범용 shell command adapter가 선택되면 MQTT 연결 전에 종료한다.
+
+adapter interface는 dimming, scan, provision, identify를 분리하되 production adapter가 다음 결과를 반환해야 한다.
+
+- fixture별 실제 Light Lightness Status
+- timeout/fault code
+- RSSI와 hop count 또는 수집 불가 사유
+- provisioning 단계별 진행 상태
+- startup 시 전체 등록 node의 현재 상태 snapshot
+
+Raspberry Pi Phase 0 전에는 실제 BlueZ 구현을 완료로 간주하지 않는다. 다만 production mode 차단, timeout, 상태 snapshot과 adapter factory는 하드웨어 없이 먼저 구현한다.
+
+### 12.3 명령 timeout과 gateway journal
+
+Cloud dispatch와 BLE Mesh 실행 timeout은 분리한다.
+
+- MQTT acceptance 제한: 기본 10초
+- BLE Mesh fixture status 제한: 기본 8초, fixture별 결과 기록
+- dispatch 전체 제한: 기본 30초
+- 값은 환경변수로 조정할 수 있지만 1~300초 범위만 허용한다.
+
+Gateway는 idempotency key를 journal에 기록한 후 acceptance ACK를 보낸다. accepted 상태에서 재시작해 terminal result가 없는 명령은 자동 재실행하지 않고 `indeterminate` 결과로 보고한다. 운영자가 새 command ID로 명시적으로 다시 실행해야 한다.
+
+Journal은 모든 command 이력을 영구 보관하지 않는다. 다음 두 저장 영역으로 분리한다.
+
+- 최근 idempotency terminal result: TTL 24시간, 최대 10,000건
+- fixture latest snapshot: fixture별 정확히 1건
+
+startup resync는 fixture latest snapshot만 새 event sequence로 발행하고, 원래 command의 오래된 `occurredAt`을 재사용하지 않는다. resync 발생 시각과 `statusReason=startup_resync`를 사용한다. 실제 adapter가 전체 node status를 조회할 수 있으면 저장 snapshot보다 실제 조회 결과를 우선한다.
+
+### 12.4 Outbox 다중 인스턴스와 dead-letter
+
+API outbox publisher는 row lease를 사용한다. `lockedBy`, `lockedAt`, `leaseExpiresAt`을 원자적으로 갱신하거나 PostgreSQL `FOR UPDATE SKIP LOCKED`로 한 publisher만 batch를 소유한다. MQTT publish 성공 후 동일 lease owner만 `publishedAt`을 기록한다.
+
+재시도는 지수 backoff와 jitter를 사용하고 최대 10회 또는 15분을 초과하면 dead-letter 상태로 전환한다. dead-letter dispatch는 `failed`와 명확한 error code를 기록하고 상위 Command 집계를 갱신한다. acceptance/device ACK가 제한 시간을 넘으면 dispatch와 pending fixture result를 `timed_out`으로 닫는다.
+
+API replica 2개를 동시에 실행해 같은 outbox가 한 번만 소유되는 통합 테스트를 필수로 한다. MQTT QoS 1 재전송은 gateway idempotency journal이 최종 방어선이지만 publisher 중복을 정상 동작으로 의존하지 않는다.
+
+### 12.5 모니터링 데이터 모델과 UI
+
+Dashboard fixture 응답에 `gatewayId`, `gatewayName`, `gatewayConnectionStatus`, `statusReason`, `lastStateOccurredAt`을 포함한다. 상세 패널은 첫 gateway가 아니라 선택 fixture가 실제 연결된 gateway를 표시한다.
+
+상태 사유는 다음 한국어 문구로 구분한다.
+
+- `reported`: 정상 보고
+- `startup_resync`: 재시작 동기화
+- `fixture_stale`: 조명 상태 수신 지연
+- `gateway_offline`: 게이트웨이 연결 끊김
+- `command_failed`: 최근 명령 실패
+
+1,000개 조명 현장은 전체 dashboard를 3초마다 다시 전송하지 않는다. 현장·층·그룹 metadata와 fixture snapshot 조회를 분리하고, 층 선택 시 해당 층 fixture를 cursor/page 단위로 조회한다. 상태 변경은 SSE 또는 WebSocket delta event로 반영하며 연결이 끊기면 증가형 sync cursor로 누락분을 복구한다. 지도는 viewport 안의 marker만 상세 렌더링하고 zoom level에 따라 cluster 또는 compact marker를 사용한다.
+
+도면 원본과 렌더 이미지는 S3 호환 Object Storage에 저장한다. DB에는 object key, content type, size, checksum, version만 저장하고 data URL 입력은 test mode에서만 허용한다. 업로드 크기, MIME, 확장자, 이미지 decode, PDF page 제한을 서버에서 검증한다.
+
+### 12.6 제어 UI와 운영자 결과 확인
+
+offline, gateway offline, provisioning 중, mesh mapping 없음 상태는 기본적으로 제어 버튼을 비활성화한다. 그룹에 제어 불가능한 fixture가 포함되면 전송 전 대상 수와 제외/실패 정책을 표시한다. 이번 범위에서는 하나라도 제어 불가능하면 명령 전체를 거부해 부분 대상 오인을 막는다.
+
+`POST /commands/dimming` 응답은 command ID와 dispatch 수를 반환한다. 제어 화면은 command status endpoint를 polling하거나 push event로 구독해 `접수`, `gateway 수신`, `장비 적용`, `부분 실패`, `timeout`을 구분한다. fixture별 실패 사유를 표시하고 사용자가 새 command로 재시도할 수 있게 한다. 이전 idempotency key를 재사용하는 retry는 허용하지 않는다.
+
+### 12.7 테스트 전략
+
+자동 테스트는 다음 계층으로 운영한다.
+
+1. Unit: adapter factory, timeout, journal prune/latest snapshot, outbox lease/backoff/dead-letter, UI 상태 제한.
+2. Integration: PostgreSQL replica 2개 publisher 경쟁, Mosquitto 중복/단절, API ACK timeout 집계, Object Storage upload 검증.
+3. Browser E2E: fixture 1,000개 층 전환, viewport marker, offline 제어 차단, command 단계별 결과.
+4. HIL: Raspberry Pi 1대와 ESP32-H2 2대의 scan/provision/bind/individual/group/timeout/restart/ACL 시나리오 3회.
+5. Soak: 72시간 heartbeat, 10초 간격 상태 event, 주기적 명령, MQTT/API/gateway 재시작에서 memory, journal, DB 증가량과 누락을 측정한다.
+
+자동 성능 기준은 개발 장비에서 1,000 fixture 층 조회 API p95 1초 이하, 상태 delta 반영 p95 2초 이하, 지도 pan/zoom 중 장시간 30fps 미만 구간이 없고 브라우저 메모리가 30분 동안 지속 증가하지 않는 것이다. HIL 기준은 명령 100회에서 중복 실제 제어 0회, 최종 결과 누락 0회, 재부팅 후 수동 DB 수정·재provision 0회다.
+
+### 12.8 구현 순서
+
+1. production adapter factory와 stub 차단
+2. BLE timeout, indeterminate recovery, journal snapshot/TTL/prune
+3. outbox lease, backoff, dead-letter, dispatch timeout worker
+4. fixture별 gateway 응답과 offline 제어 차단, command status UI
+5. metadata/snapshot 분리 API와 1,000 fixture 성능 시험
+6. Object Storage 도면 업로드
+7. Raspberry Pi Phase 0 후 실제 adapter
+8. 2-node HIL 3회와 72시간 soak
