@@ -753,12 +753,12 @@ git commit -m "docs: complete production device foundation runbook"
 - Produces: 최대 10회/15분 dead-letter
 - Produces: acceptance 10초, dispatch 30초 timeout 집계
 
-- [ ] **Step 1: publisher 두 개가 같은 row를 동시에 소유하지 않는 DB 계약 테스트**
-- [ ] **Step 2: 지수 backoff, lease 만료 회수, 최대 시도 dead-letter 실패 테스트**
-- [ ] **Step 3: schema/migration과 atomic claim 구현**
-- [ ] **Step 4: publish 성공/실패와 lease owner 조건부 update 구현**
-- [ ] **Step 5: pending/published/accepted dispatch timeout worker 구현**
-- [ ] **Step 6: migration 적용, API 전체 검증, DB 문서 갱신, 커밋**
+- [x] **Step 1: publisher 두 개가 같은 row를 동시에 소유하지 않는 DB 계약 테스트**
+- [x] **Step 2: 지수 backoff, lease 만료 회수, 최대 시도 dead-letter 실패 테스트**
+- [x] **Step 3: schema/migration과 atomic claim 구현**
+- [x] **Step 4: publish 성공/실패와 lease owner 조건부 update 구현**
+- [x] **Step 5: pending/published/accepted dispatch timeout worker 구현**
+- [x] **Step 6: migration 적용, API 전체 검증, DB 문서 갱신, 커밋**
 
 ### Task 16: Fixture gateway 범위와 제어 가능 상태 API
 

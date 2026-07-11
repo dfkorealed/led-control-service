@@ -27,7 +27,6 @@ import { parseGatewayTopic } from "./topic-scope";
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
   private client: MqttClient | null = null;
-  private outboxTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -47,38 +46,36 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       );
       client.subscribe(["sites/+/gateways/+/acks/acceptance", "sites/+/gateways/+/acks/device-status"], { qos: 1 });
       client.subscribe(["sites/+/gateways/+/state/fixtures", "sites/+/gateways/+/state/heartbeat"], { qos: 1 });
-      void this.flushOutbox();
     });
     client.on("message", (topic, payload) => {
       void this.handleMessage(topic, payload);
     });
-    this.outboxTimer = setInterval(() => void this.flushOutbox(), Number(process.env.MQTT_OUTBOX_POLL_MS ?? 1000));
   }
 
   async publishDimmingCommand(payload: DimmingCommandPayload) {
     const topic = mqttTopics.dimmingCommand(payload.siteId);
-    await this.publishJson(topic, payload);
+    await this.publishTopic(topic, payload);
   }
 
   async publishProvisioningScanStart(input: ProvisioningScanStartPayload) {
     const payload = provisioningScanStartSchema.parse(input);
     const topic = mqttTopics.provisioningScanStart(payload.siteId, payload.gatewayId);
-    await this.publishJson(topic, payload);
+    await this.publishTopic(topic, payload);
   }
 
   async publishIdentifyDevice(input: IdentifyDevicePayload) {
     const payload = identifyDeviceSchema.parse(input);
     const topic = mqttTopics.identifyDevice(payload.siteId, payload.gatewayId);
-    await this.publishJson(topic, payload);
+    await this.publishTopic(topic, payload);
   }
 
   async publishProvisionDevice(input: ProvisionDevicePayload) {
     const payload = provisionDeviceSchema.parse(input);
     const topic = mqttTopics.provisionDevice(payload.siteId, payload.gatewayId);
-    await this.publishJson(topic, payload);
+    await this.publishTopic(topic, payload);
   }
 
-  private async publishJson(topic: string, payload: unknown) {
+  async publishTopic(topic: string, payload: unknown) {
     await new Promise<void>((resolve, reject) => {
       this.getClient().publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => {
         if (error) {
@@ -91,41 +88,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy() {
-    if (this.outboxTimer) clearInterval(this.outboxTimer);
     this.client?.end();
-  }
-
-  async flushOutbox(now = new Date()) {
-    const records = await this.prisma.mqttOutbox.findMany({
-      where: { publishedAt: null, nextAttemptAt: { lte: now } },
-      orderBy: { createdAt: "asc" },
-      take: 50
-    });
-
-    for (const record of records) {
-      try {
-        await this.publishJson(record.topic, record.payload);
-        await this.prisma.$transaction([
-          this.prisma.mqttOutbox.update({
-            where: { id: record.id },
-            data: { publishedAt: now, lastError: null }
-          }),
-          this.prisma.commandDispatch.update({
-            where: { id: record.dispatchId },
-            data: { status: "published", publishedAt: now }
-          })
-        ]);
-      } catch (error) {
-        await this.prisma.mqttOutbox.update({
-          where: { id: record.id },
-          data: {
-            attempts: { increment: 1 },
-            nextAttemptAt: new Date(now.getTime() + 5_000),
-            lastError: error instanceof Error ? error.message : "unknown MQTT publish error"
-          }
-        });
-      }
-    }
   }
 
   private getClient() {

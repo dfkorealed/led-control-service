@@ -7,22 +7,13 @@ describe("MqttService", () => {
     );
   });
 
-  it("publishes pending outbox records and marks their dispatch published", async () => {
-    const prisma: any = {
-      mqttOutbox: {
-        findMany: jest.fn().mockResolvedValue([
-          { id: "outbox-1", dispatchId: "dispatch-1", topic: "sites/s/gateways/g/commands/dimming", payload: { ok: true } }
-        ]),
-        update: jest.fn().mockResolvedValue(undefined)
-      },
-      commandDispatch: { update: jest.fn().mockResolvedValue(undefined) }
-    };
-    prisma.$transaction = jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations));
+  it("publishes a QoS 1 JSON payload", async () => {
+    const prisma: any = {};
     const publish = jest.fn((_topic, _payload, _options, callback) => callback());
     const service = new MqttService(prisma);
     (service as any).client = { publish };
 
-    await service.flushOutbox(new Date("2026-07-11T00:00:00.000Z"));
+    await service.publishTopic("sites/s/gateways/g/commands/dimming", { ok: true });
 
     expect(publish).toHaveBeenCalledWith(
       "sites/s/gateways/g/commands/dimming",
@@ -30,14 +21,6 @@ describe("MqttService", () => {
       { qos: 1 },
       expect.any(Function)
     );
-    expect(prisma.mqttOutbox.update).toHaveBeenCalledWith({
-      where: { id: "outbox-1" },
-      data: { publishedAt: new Date("2026-07-11T00:00:00.000Z"), lastError: null }
-    });
-    expect(prisma.commandDispatch.update).toHaveBeenCalledWith({
-      where: { id: "dispatch-1" },
-      data: { status: "published", publishedAt: new Date("2026-07-11T00:00:00.000Z") }
-    });
   });
 
   it("marks a gateway dispatch accepted from a scoped acceptance ACK", async () => {
