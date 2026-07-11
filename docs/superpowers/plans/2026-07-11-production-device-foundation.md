@@ -67,7 +67,7 @@ it("keeps one D-Bus session and maps BlueZ errors", async () => {
 Run: `pnpm --filter @led-control/gateway test -- bluez-transport.test.ts`
 Expected: FAIL because `BluezTransport` does not exist.
 
-- [ ] **Step 3: `dbus-next`와 장기 세션 transport 구현**
+- [ ] **Step 3: `@homebridge/dbus-native`와 장기 세션 transport 구현**
 
 ```ts
 export interface DbusBusFactory { (): MessageBus }

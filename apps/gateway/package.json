@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @led-control/shared build && tsx src/index.ts",
+    "bluez:probe": "tsx scripts/bluez-capability-probe.ts",
     "test": "pnpm --filter @led-control/shared build && vitest run",
     "lint": "tsc --noEmit",
     "typecheck": "pnpm --filter @led-control/shared build && tsc --noEmit"
   },
   "dependencies": {
+    "@homebridge/dbus-native": "^0.7.7",
     "@led-control/shared": "workspace:*",
     "dotenv": "^16.4.7",
     "mqtt": "^5.10.3"

@@ -2,6 +2,30 @@
 
 이 앱은 라즈베리파이에서 실행되는 현장 게이트웨이 프로세스다. 클라우드 MQTT 명령을 받아 BLE Mesh adapter 인터페이스로 전달하고, 명령 ACK, 조명 상태, heartbeat, 조명 검색/등록 이벤트를 MQTT로 발행한다.
 
+## BlueZ Phase 0 타당성 검사
+
+양산형 실제 장비 경로는 Raspberry Pi의 `bluetooth-meshd`와 BlueZ Mesh D-Bus를 사용한다. 개발 PC의 stub 성공을 실제 BLE Mesh 성공으로 간주하지 않으며, 아래 여섯 항목이 Raspberry Pi 1대와 ESP32-H2 1~2대에서 모두 확인되어야 실제 BlueZ adapter 구현을 운영 경로로 선택한다.
+
+1. `org.bluez.mesh` daemon 확인
+2. `org.bluez.Adapter1` Bluetooth adapter 확인
+3. ESP32-H2 PB-ADV unprovisioned beacon scan
+4. 고정 unicast address를 사용한 provisioning과 AppKey/model bind
+5. Generic OnOff/Light Lightness 명령과 Status 왕복
+6. Raspberry Pi, `bluetooth-meshd`, ESP32-H2 재부팅 후 복구
+
+우선 Raspberry Pi OS에서 BlueZ Mesh daemon을 설치하고 system D-Bus에 `org.bluez.mesh`가 노출되는지 확인한다. 배포판 패키지에 `bluetooth-meshd`가 없다면 해당 Raspberry Pi OS가 제공하는 BlueZ source package와 동일한 버전으로 빌드한다.
+
+```bash
+sudo systemctl enable --now bluetooth
+sudo systemctl enable --now bluetooth-meshd
+busctl --system list | rg 'org\.bluez(\.mesh)?'
+pnpm --filter @led-control/gateway bluez:probe
+```
+
+Mac이나 일반 개발 PC에서는 probe가 종료 코드 `2`와 `hardware_required`를 반환한다. Raspberry Pi에서 daemon과 adapter만 확인되고 RF 검사가 끝나지 않았으면 종료 코드 `3`과 `incomplete`를 반환한다. 이 상태는 실패가 아니라 실기 검증 미완료이며, scan/provision/model/restart 항목을 실제 장비로 확인하기 전에는 문서에 BlueZ 검증 완료로 기록하지 않는다.
+
+Phase 0의 네 실기 항목은 Task 9의 장기 실행 BlueZ provisioner application과 `--full` probe에서 자동화한다. 그 전에 BlueZ 공식 예제 application으로 수동 검증할 수 있지만, 실행 로그에 두 ESP32-H2의 device UUID, unicast address, bind 결과, Lightness Status, 재부팅 후 재연결 결과가 모두 남아야 한다. 여섯 항목 중 하나라도 반복해서 실패하면 gateway의 MQTT/HTTP 계약은 유지하고 전용 ESP32-H2 provisioner USB/UART bridge adapter로 전환한다.
+
 ## 로컬 실행
 
 로컬 테스트는 `mosquitto` MQTT 브로커와 게이트웨이 프로세스를 각각 실행한 뒤 smoke test 명령을 발행하는 방식으로 검증한다.
