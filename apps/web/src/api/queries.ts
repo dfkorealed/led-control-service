@@ -27,6 +27,9 @@ export interface Dashboard {
       hopCount: number | null;
       commandSuccessRate: number | null;
       lastSeenAt: string | null;
+      gateway: { id: string; name: string; connectionStatus: "online" | "offline" } | null;
+      controllable: boolean;
+      controlBlockReason: "fixture_unmapped" | "gateway_offline" | "fixture_fault" | "fixture_offline" | null;
     }>;
   }>;
   groups: Array<{ id: string; name: string; fixtureIds: string[] }>;

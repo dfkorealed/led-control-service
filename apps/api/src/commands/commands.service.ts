@@ -14,7 +14,10 @@ interface CreateDimmingCommandInput {
 
 interface FixtureGatewayMapping {
   fixtureId: string;
+  fixtureName: string;
+  status: "online" | "offline" | "fault";
   gatewayId: string | null;
+  gatewayLastHeartbeatAt: Date | null;
 }
 
 @Injectable()
@@ -35,6 +38,7 @@ export class CommandsService {
 
     const mappings = await this.resolveTargetMappings(input, user.organizationId);
     if (mappings.length === 0) throw new BadRequestException("control target not found in the user's site");
+    for (const mapping of mappings) this.assertControllable(mapping, input.targetType);
     const dispatchGroups = this.dispatchService.groupByGateway(mappings);
 
     return this.prisma.$transaction(async (tx) => {
@@ -96,22 +100,48 @@ export class CommandsService {
         where: {
           id: input.targetId,
           floor: { siteId: input.siteId, site: { organizationId } },
-          meshNode: { gateway: { siteId: input.siteId } }
         },
-        include: { meshNode: true }
+        include: { meshNode: { include: { gateway: true } } }
       });
-      return fixture ? [{ fixtureId: fixture.id, gatewayId: fixture.meshNode?.gatewayId ?? null }] : [];
+      return fixture
+        ? [{
+            fixtureId: fixture.id,
+            fixtureName: fixture.name,
+            status: fixture.status,
+            gatewayId: fixture.meshNode?.gatewayId ?? null,
+            gatewayLastHeartbeatAt: fixture.meshNode?.gateway.lastHeartbeatAt ?? null
+          }]
+        : [];
     }
 
     const group = await this.prisma.fixtureGroup.findFirst({
       where: { id: input.targetId, siteId: input.siteId, site: { organizationId } },
-      include: { groupFixtures: { include: { fixture: { include: { meshNode: true } } } } }
+      include: { groupFixtures: { include: { fixture: { include: { meshNode: { include: { gateway: true } } } } } } }
     });
     return (
       group?.groupFixtures.map((item) => ({
         fixtureId: item.fixtureId,
-        gatewayId: item.fixture.meshNode?.gatewayId ?? null
+        fixtureName: item.fixture.name,
+        status: item.fixture.status,
+        gatewayId: item.fixture.meshNode?.gatewayId ?? null,
+        gatewayLastHeartbeatAt: item.fixture.meshNode?.gateway.lastHeartbeatAt ?? null
       })) ?? []
     );
+  }
+
+  private assertControllable(mapping: FixtureGatewayMapping, targetType: "fixture" | "group") {
+    const prefix = targetType === "group" ? `group contains uncontrollable fixture: ${mapping.fixtureName}` : null;
+    if (!mapping.gatewayId) {
+      throw new BadRequestException(prefix ?? "fixture is not mapped to a gateway");
+    }
+    if (!mapping.gatewayLastHeartbeatAt || Date.now() - mapping.gatewayLastHeartbeatAt.getTime() >= 90_000) {
+      throw new BadRequestException(prefix ?? "gateway is offline");
+    }
+    if (mapping.status === "fault") {
+      throw new BadRequestException(prefix ?? "fixture is in fault state");
+    }
+    if (mapping.status === "offline") {
+      throw new BadRequestException(prefix ?? "fixture is offline");
+    }
   }
 }

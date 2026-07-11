@@ -44,7 +44,8 @@ describe("SitesService", () => {
               rssi: -58,
               hopCount: 1,
               commandSuccessRate: 0.98,
-              lastSeenAt: new Date("2026-07-01T00:00:00.000Z")
+              lastSeenAt: new Date("2026-07-01T00:00:00.000Z"),
+              meshNode: { gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: new Date() } }
             },
             {
               id: "fixture-2",
@@ -57,7 +58,8 @@ describe("SitesService", () => {
               rssi: null,
               hopCount: null,
               commandSuccessRate: null,
-              lastSeenAt: null
+              lastSeenAt: null,
+              meshNode: null
             }
           ]
         }
@@ -80,6 +82,16 @@ describe("SitesService", () => {
     expect(dashboard.summary.faultFixtures).toBe(1);
     expect(dashboard.floors[0].fixtures[0].brightness).toBe(70);
     expect(dashboard.floors[0].fixtures[0].rssi).toBe(-58);
+    expect(dashboard.floors[0].fixtures[0]).toMatchObject({
+      gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
+      controllable: true,
+      controlBlockReason: null
+    });
+    expect(dashboard.floors[0].fixtures[1]).toMatchObject({
+      gateway: null,
+      controllable: false,
+      controlBlockReason: "fixture_unmapped"
+    });
     expect(dashboard.gateways[0]).toMatchObject({
       id: "gateway-1",
       serialNumber: "GW-DEMO-001",

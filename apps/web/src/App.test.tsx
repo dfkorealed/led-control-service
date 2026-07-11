@@ -177,6 +177,77 @@ describe("App", () => {
     expect(await screen.findByText("상세 패널")).toBeInTheDocument();
   });
 
+  it("shows the selected fixture's assigned gateway in monitoring details", async () => {
+    apiState.dashboard = {
+      ...mockDashboard,
+      floors: mockDashboard.floors.map((floor, floorIndex) => ({
+        ...floor,
+        fixtures: floor.fixtures.map((fixture, fixtureIndex) =>
+          floorIndex === 0 && fixtureIndex === 10
+            ? { ...fixture, gateway: { id: "gateway-fixture-a", name: "조명 전용 게이트웨이 A", connectionStatus: "online" as const } }
+            : fixture
+        )
+      }))
+    };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("조명 전용 게이트웨이 A (정상)")).toBeInTheDocument();
+  });
+
+  it("disables control and explains the server-provided block reason", async () => {
+    apiState.dashboard = {
+      ...mockDashboard,
+      floors: mockDashboard.floors.map((floor, floorIndex) => ({
+        ...floor,
+        fixtures: floor.fixtures.map((fixture, fixtureIndex) =>
+          floorIndex === 0 && fixtureIndex === 0
+            ? { ...fixture, controllable: false, controlBlockReason: "gateway_offline" as const }
+            : fixture
+        )
+      }))
+    };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    expect(await screen.findByText("게이트웨이가 오프라인입니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "적용" })).toBeDisabled();
+  });
+
+  it("blocks a group when one of its fixtures is uncontrollable", async () => {
+    apiState.dashboard = {
+      ...mockDashboard,
+      floors: mockDashboard.floors.map((floor, floorIndex) => ({
+        ...floor,
+        fixtures: floor.fixtures.map((fixture, fixtureIndex) =>
+          floorIndex === 0 && fixtureIndex === 1
+            ? { ...fixture, controllable: false, controlBlockReason: "fixture_offline" as const }
+            : fixture
+        )
+      }))
+    };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    fireEvent.click(screen.getByRole("button", { name: "그룹" }));
+    expect(await screen.findByText("B2-L02: 조명이 오프라인입니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "적용" })).toBeDisabled();
+  });
+
   it("shows unregistered gateway status when the dashboard has no gateways", async () => {
     apiState.dashboard = {
       ...mockDashboard,

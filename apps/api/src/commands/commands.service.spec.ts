@@ -24,7 +24,11 @@ describe("CommandsService", () => {
     const prisma: any = {
       user: { findUnique: jest.fn().mockResolvedValue({ id: ids.user, organizationId: "org-1", role: "operator" }) },
       fixture: {
-        findFirst: jest.fn().mockResolvedValue({ id: ids.target, meshNode: { gatewayId: ids.gateway } })
+        findFirst: jest.fn().mockResolvedValue({
+          id: ids.target,
+          status: "online",
+          meshNode: { gatewayId: ids.gateway, gateway: { lastHeartbeatAt: new Date() } }
+        })
       },
       command: { create: jest.fn().mockResolvedValue(command) },
       gateway: {
@@ -82,6 +86,72 @@ describe("CommandsService", () => {
         requestedBy: ids.user
       })
     ).rejects.toThrow("viewer users cannot control lights");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["unmapped", { id: ids.target, status: "online", meshNode: null }, "fixture is not mapped to a gateway"],
+    [
+      "gateway offline",
+      { id: ids.target, status: "online", meshNode: { gatewayId: ids.gateway, gateway: { lastHeartbeatAt: null } } },
+      "gateway is offline"
+    ],
+    [
+      "fixture fault",
+      { id: ids.target, status: "fault", meshNode: { gatewayId: ids.gateway, gateway: { lastHeartbeatAt: new Date() } } },
+      "fixture is in fault state"
+    ]
+  ])("rejects an %s fixture before creating a command", async (_case, fixture, message) => {
+    const prisma: any = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: ids.user, organizationId: "org-1", role: "operator" }) },
+      fixture: { findFirst: jest.fn().mockResolvedValue(fixture) },
+      $transaction: jest.fn()
+    };
+    const service = new CommandsService(prisma, new CommandDispatchService());
+
+    await expect(
+      service.createDimmingCommand({
+        siteId: ids.site,
+        targetType: "fixture",
+        targetId: ids.target,
+        brightness: 75,
+        requestedBy: ids.user
+      })
+    ).rejects.toThrow(message);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a group when any fixture cannot be controlled", async () => {
+    const prisma: any = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: ids.user, organizationId: "org-1", role: "operator" }) },
+      fixtureGroup: {
+        findFirst: jest.fn().mockResolvedValue({
+          groupFixtures: [
+            {
+              fixtureId: "fixture-online",
+              fixture: {
+                name: "L1",
+                status: "online",
+                meshNode: { gatewayId: ids.gateway, gateway: { lastHeartbeatAt: new Date() } }
+              }
+            },
+            { fixtureId: "fixture-unmapped", fixture: { name: "L2", status: "online", meshNode: null } }
+          ]
+        })
+      },
+      $transaction: jest.fn()
+    };
+    const service = new CommandsService(prisma, new CommandDispatchService());
+
+    await expect(
+      service.createDimmingCommand({
+        siteId: ids.site,
+        targetType: "group",
+        targetId: ids.target,
+        brightness: 75,
+        requestedBy: ids.user
+      })
+    ).rejects.toThrow("group contains uncontrollable fixture: L2");
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

@@ -20,7 +20,11 @@ export function ControlView() {
   const selectedGroup = groups.find((group) => group.id === groupId) ?? groups[0];
   const selectedGroupFixtures = selectedGroup ? fixtures.filter((fixture) => selectedGroup.fixtureIds.includes(fixture.id)) : [];
   const selectedTargetName = mode === "fixture" ? selectedFixture?.name : selectedGroup?.name;
-  const canSubmit = Boolean(data && selectedTargetName && !isSubmitting);
+  const blockedFixture = mode === "fixture" ? selectedFixture : selectedGroupFixtures.find((fixture) => !fixture.controllable);
+  const blockMessage = blockedFixture && !blockedFixture.controllable
+    ? formatControlBlockReason(blockedFixture.controlBlockReason, mode === "group" ? blockedFixture.name : undefined)
+    : null;
+  const canSubmit = Boolean(data && selectedTargetName && !blockMessage && !isSubmitting);
 
   async function submitCommand() {
     const commandTargetId = mode === "fixture" ? targetId || selectedFixture?.id : groupId || selectedGroup?.id;
@@ -104,7 +108,9 @@ export function ControlView() {
               <span className="eyebrow">{mode === "fixture" ? "선택 조명" : "선택 그룹"}</span>
               <h3>{selectedTargetName ?? "대상 선택"}</h3>
             </div>
-            <span className={`status-pill ${canSubmit ? "online" : "offline"}`}>{canSubmit ? "전송 가능" : "대상 없음"}</span>
+            <span className={`status-pill ${canSubmit ? "online" : "offline"}`}>
+              {canSubmit ? "전송 가능" : blockMessage ? "제어 불가" : "대상 없음"}
+            </span>
           </div>
 
           <div className="dial-card">
@@ -170,6 +176,7 @@ export function ControlView() {
           <button className="primary-button" onClick={submitCommand} disabled={!canSubmit}>
             {isSubmitting ? "전송 중" : "적용"}
           </button>
+          {blockMessage && <p className="danger-text" role="alert">{blockMessage}</p>}
           {message && <p className="success-text">{message}</p>}
         </aside>
       </div>
@@ -193,4 +200,21 @@ export function ControlView() {
       </div>
     </section>
   );
+}
+
+function formatControlBlockReason(
+  reason: "fixture_unmapped" | "gateway_offline" | "fixture_fault" | "fixture_offline" | null,
+  fixtureName?: string
+) {
+  const prefix = fixtureName ? `${fixtureName}: ` : "";
+  const detail = reason === "fixture_unmapped"
+    ? "게이트웨이에 매핑되지 않았습니다."
+    : reason === "gateway_offline"
+      ? "게이트웨이가 오프라인입니다."
+      : reason === "fixture_fault"
+        ? "조명 장애를 먼저 점검해야 합니다."
+        : reason === "fixture_offline"
+          ? "조명이 오프라인입니다."
+          : "현재 제어할 수 없습니다.";
+  return `${prefix}${detail}`;
 }

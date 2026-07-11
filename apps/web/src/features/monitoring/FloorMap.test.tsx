@@ -26,7 +26,10 @@ describe("FloorMap", () => {
               rssi: -58,
               hopCount: 1,
               commandSuccessRate: 0.98,
-              lastSeenAt: "2026-07-01T00:00:00.000Z"
+              lastSeenAt: "2026-07-01T00:00:00.000Z",
+              gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
+              controllable: true,
+              controlBlockReason: null
             }
           ]
         }}

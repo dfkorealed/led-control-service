@@ -776,11 +776,11 @@ git commit -m "docs: complete production device foundation runbook"
 - Produces: fixture별 gateway ID/name/connection status
 - Produces: `controllable`과 `controlBlockReason`
 
-- [ ] **Step 1: 다중 gateway에서 선택 fixture의 gateway가 표시되는 실패 테스트**
-- [ ] **Step 2: offline/fault/mapping 없음/group 일부 불가가 명령 생성 전에 거부되는 API 테스트**
-- [ ] **Step 3: dashboard query와 command validation 구현**
-- [ ] **Step 4: UI 비활성화와 한국어 차단 사유 표시**
-- [ ] **Step 5: API/Web 테스트, 메뉴 문서 갱신, 커밋**
+- [x] **Step 1: 다중 gateway에서 선택 fixture의 gateway가 표시되는 실패 테스트**
+- [x] **Step 2: offline/fault/mapping 없음/group 일부 불가가 명령 생성 전에 거부되는 API 테스트**
+- [x] **Step 3: dashboard query와 command validation 구현**
+- [x] **Step 4: UI 비활성화와 한국어 차단 사유 표시**
+- [x] **Step 5: API/Web 테스트, 메뉴 문서 갱신, 커밋**
 
 ### Task 17: Command 진행 상태 API와 제어 결과 UI
 

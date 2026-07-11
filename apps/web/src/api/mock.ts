@@ -42,7 +42,14 @@ export const mockDashboard: Dashboard = {
           rssi: status === "offline" ? null : -58 - index,
           hopCount: status === "offline" ? null : 1 + (index % 3),
           commandSuccessRate: status === "fault" ? 0.72 : status === "offline" ? null : 0.98,
-          lastSeenAt: "2026-07-01T00:00:00.000Z"
+          lastSeenAt: "2026-07-01T00:00:00.000Z",
+          gateway: {
+            id: "00000000-0000-4000-8000-000000000004",
+            name: "Gateway B2",
+            connectionStatus: "online" as const
+          },
+          controllable: status === "online",
+          controlBlockReason: status === "fault" ? "fixture_fault" as const : status === "offline" ? "fixture_offline" as const : null
         };
       })
     },
@@ -62,7 +69,14 @@ export const mockDashboard: Dashboard = {
         rssi: -55 - index,
         hopCount: 1,
         commandSuccessRate: 0.99,
-        lastSeenAt: "2026-07-01T00:00:00.000Z"
+        lastSeenAt: "2026-07-01T00:00:00.000Z",
+        gateway: {
+          id: "00000000-0000-4000-8000-000000000004",
+          name: "Gateway B2",
+          connectionStatus: "online" as const
+        },
+        controllable: true,
+        controlBlockReason: null
       }))
     }
   ],

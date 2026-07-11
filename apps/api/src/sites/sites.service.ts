@@ -13,7 +13,10 @@ export class SitesService {
           orderBy: { level: "asc" },
           include: {
             floorPlan: true,
-            fixtures: { orderBy: { name: "asc" } }
+            fixtures: {
+              orderBy: { name: "asc" },
+              include: { meshNode: { include: { gateway: true } } }
+            }
           }
         },
         groups: {
@@ -67,7 +70,21 @@ export class SitesService {
               version: floor.floorPlan.version
             }
           : null,
-        fixtures: floor.fixtures.map((fixture) => ({
+        fixtures: floor.fixtures.map((fixture) => {
+          const gatewayOnline = Boolean(
+            fixture.meshNode?.gateway.lastHeartbeatAt &&
+              now - fixture.meshNode.gateway.lastHeartbeatAt.getTime() < 90_000
+          );
+          const controlBlockReason = !fixture.meshNode
+            ? "fixture_unmapped"
+            : !gatewayOnline
+              ? "gateway_offline"
+              : fixture.status === "fault"
+                ? "fixture_fault"
+                : fixture.status === "offline"
+                  ? "fixture_offline"
+                  : null;
+          return {
           id: fixture.id,
           name: fixture.name,
           x: fixture.x,
@@ -79,8 +96,18 @@ export class SitesService {
           rssi: fixture.rssi,
           hopCount: fixture.hopCount,
           commandSuccessRate: fixture.commandSuccessRate,
-          lastSeenAt: fixture.lastSeenAt?.toISOString() ?? null
-        }))
+          lastSeenAt: fixture.lastSeenAt?.toISOString() ?? null,
+          gateway: fixture.meshNode
+            ? {
+                id: fixture.meshNode.gateway.id,
+                name: fixture.meshNode.gateway.name,
+                connectionStatus: gatewayOnline ? "online" : "offline"
+              }
+            : null,
+          controllable: controlBlockReason === null,
+          controlBlockReason
+          };
+        })
       })),
       groups: site.groups.map((group) => ({
         id: group.id,

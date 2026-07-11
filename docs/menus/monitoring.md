@@ -12,7 +12,7 @@
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
 - 조명 점은 기본 compact marker로 표시하고, 선택/hover/focus 시 상태, 밝기, 이름 카드로 확장하여 밀집 화면의 겹침을 줄인다.
 - 조명 점의 접근성 라벨과 tooltip은 한국어 상태명(정상/오프라인/장애)을 사용한다.
-- 선택 조명 상세 패널에 현재 밝기, 정격 전력, 마지막 수신, 게이트웨이 상태, RSSI, hop count, 명령 성공률을 표시한다.
+- 선택 조명 상세 패널에 현재 밝기, 정격 전력, 마지막 수신, 해당 조명에 실제 매핑된 게이트웨이 이름/상태, RSSI, hop count, 명령 성공률을 표시한다.
 - 선택 층 기준 전체 조명 수, 온라인 수, 장애 수, 평균 밝기를 표시한다.
 - 장애 조명과 오프라인 조명을 점검 큐에서 바로 선택할 수 있다.
 - 층 탭은 좁은 화면에서 가로 스크롤되고, 모바일 하단 내비게이션은 safe area 여백을 반영한다.
@@ -35,6 +35,7 @@
 - gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어가며, 시작 시 heartbeat와 journal의 마지막 fixture 결과 snapshot을 재발행한다.
 - heartbeat가 90초 이상 없으면 연결된 조명을 `gateway_offline`, fixture state가 120초 이상 없으면 해당 조명을 `fixture_stale` 사유로 offline 처리한다.
 - dashboard gateway 연결 상태 기준을 서버 TTL과 동일한 90초로 통일하고 fixture의 `statusReason`을 API 응답에 포함한다.
+- dashboard fixture 응답에 소유 gateway ID/이름/연결 상태와 `controllable`, `controlBlockReason`을 포함한다.
 - Gateway startup resync는 전체 command 이력이 아니라 fixture별 최신 snapshot만 현재 발생 시각과 새 sequence로 발행한다.
 
 ## 미구현

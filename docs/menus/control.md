@@ -15,6 +15,8 @@
 - 그룹 선택 후 `POST /commands/dimming`에 `targetType: "group"`으로 밝기 명령을 전송한다.
 - 백엔드는 로그인 사용자의 조직/현장에 속한 fixture 또는 group만 제어 대상으로 허용한다.
 - `viewer` 권한 사용자는 조명 제어 명령을 생성할 수 없다.
+- 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
+- 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 개별/그룹 적용 버튼을 비활성화하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
 - 그룹 제어 명령은 MQTT payload에 `targetFixtureIds`를 포함해 게이트웨이가 실제 대상 조명 목록을 바로 처리할 수 있게 한다.
 - MQTT `command-ack` 이벤트가 command 상태를 갱신한다.
 - Mock gateway가 개별/그룹 dimming command를 받아 fixture state와 command ack를 발행한다.
@@ -60,7 +62,6 @@
 
 - `스케줄` 버튼은 추후 구현 범위라 비활성 상태다.
 - 명령 메시지는 ACK 대기 상태를 표시하지만, command 이력 화면이 없어 ACK 완료/실패를 사용자가 한 곳에서 추적하기 어렵다.
-- 오프라인 또는 장애 조명에도 `전송 가능`으로 보일 수 있어 상태 기반 disabled 처리가 필요하다.
 - 제어 대상이 없을 때 empty state가 충분하지 않다.
 - Raspberry Pi gateway는 현재 실제 BlueZ adapter 미구현으로 의도적으로 시작이 차단된다. Phase 0 통과 후 BlueZ D-Bus adapter를 연결해야 한다.
 - ESP32-H2 펌웨어는 BLE Mesh node 서버 모델까지 빌드되지만, 실제 RF/provisioning/model bind/group subscription은 보드와 라즈베리파이 확보 후 실기기 검증이 필요하다.

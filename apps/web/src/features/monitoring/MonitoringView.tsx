@@ -32,8 +32,6 @@ function MonitoringDashboard({ data }: { data: Dashboard }) {
   const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");
   const firstOfflineFixture = fixtures.find((fixture) => fixture.status === "offline");
   const offlineCount = fixtures.filter((fixture) => fixture.status === "offline").length;
-  const gateway = data.gateways[0];
-  const gatewayState = gateway?.connectionStatus === "online" ? "정상" : "오프라인";
   const floorSummary = useMemo(
     () => ({
       totalFixtures: fixtures.length,
@@ -188,7 +186,11 @@ function MonitoringDashboard({ data }: { data: Dashboard }) {
                 </div>
                 <div>
                   <dt>게이트웨이</dt>
-                  <dd>{gatewayState}</dd>
+                  <dd>
+                    {selectedFixture.gateway
+                      ? `${selectedFixture.gateway.name} (${selectedFixture.gateway.connectionStatus === "online" ? "정상" : "오프라인"})`
+                      : "미매핑"}
+                  </dd>
                 </div>
                 <div>
                   <dt>RSSI</dt>
