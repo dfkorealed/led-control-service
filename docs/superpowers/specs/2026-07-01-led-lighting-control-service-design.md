@@ -47,7 +47,7 @@ MVP 1의 인증은 고객사별 설치형 운영과 향후 SaaS 전환을 모두
 
 초기 설치형에서는 개발사 또는 운영자가 고객사 조직, 현장, 초기 관리자 초대를 생성한다. 고객사 사용자는 전달받은 초대 토큰으로 회원가입 화면에 진입하고, 본인이 직접 이메일, 이름, 비밀번호를 설정한다. 개발사가 고객사 비밀번호를 직접 생성해 전달하는 방식은 계정 공유, 초기 비밀번호 유출, 감사 로그 불명확성 문제가 있으므로 기본 방식으로 사용하지 않는다.
 
-회원가입은 공개 가입이 아니라 초대 토큰 또는 현장 가입 코드가 있어야 가능하게 한다. 이를 통해 초기 B2B 환경에서는 승인된 사용자만 조직에 들어오고, SaaS 전환 시에는 사용자가 직접 가입한 뒤 게이트웨이 시리얼, QR 코드, 현장 claim 코드로 현장을 연결하는 구조로 확장한다.
+회원가입은 공개 가입이 아니라 초대 토큰 또는 현장 가입 코드가 있어야 가능하게 한다. 이를 통해 초기 B2B 환경에서는 승인된 사용자만 조직에 들어오고, SaaS 전환 시에는 사용자가 직접 가입한 뒤 gateway QR 또는 serial과 제조 시 발급된 일회성 claim code로 현장을 연결하는 구조로 확장한다.
 
 로그인은 이메일과 비밀번호를 사용한다. 비밀번호는 서버에 평문으로 저장하지 않고 salt가 포함된 단방향 hash로 저장한다. 로그인 성공 시 서버가 무작위 session token을 발급하고, token 원문은 HttpOnly cookie에만 저장한다. DB에는 session token hash만 저장한다.
 
@@ -68,9 +68,9 @@ MVP 1의 인증은 고객사별 설치형 운영과 향후 SaaS 전환을 모두
 게이트웨이는 클라우드와 MQTT 및 HTTP API를 함께 사용한다.
 
 - MQTT 데이터 플레인: 조명 명령, 상태 보고, heartbeat, 이벤트, 명령 ACK
-- HTTP 운영 플레인: 게이트웨이 등록, 설정 동기화, OTA manifest 조회, 패키지 다운로드, 도면/메타데이터 조회
+- HTTPS 운영 플레인: 게이트웨이 bootstrap/claim, 설정 동기화, OTA manifest 조회, 패키지 다운로드, 도면/메타데이터 조회
 
-클라우드 연결이 끊겨도 게이트웨이는 저장된 스케줄, 이벤트 정책, 기본 밝기 정책을 로컬에서 계속 실행한다.
+클라우드 연결이 끊겨도 게이트웨이가 저장된 스케줄, 이벤트 정책, 기본 밝기 정책을 로컬에서 실행할 수 있는 계약과 저장 구조는 유지한다. 다만 MVP 2 첫 실기 단계에서는 수동 디밍과 상태 동기화의 신뢰성 검증에 집중하며, 스케줄/이벤트 정책의 실제 실행 엔진은 범위에서 제외한다.
 
 ### 3.2 핵심 상태 흐름
 
@@ -104,7 +104,7 @@ MVP 1의 인증은 고객사별 설치형 운영과 향후 SaaS 전환을 모두
 - DiscoveredMeshNode: 검색된 미등록 노드, device UUID, 시리얼/QR, RSSI, OOB capability, 후보 층/구역
 - MeshKeySet: 현장별 NetKey/AppKey 버전, key index, 회전 상태, 활성/폐기 상태
 - Schedule / EventPolicy: 시간 기반 제어, 차량 감지 등 이벤트 기반 제어
-- Command / CommandLog: 제어 명령, ACK, 실패, 재시도
+- Command / CommandLog: 제어 명령, gateway acceptance ACK, 조명별 device status ACK, sequence, 멱등성 키, 실패, 재시도
 - EnergyUsage: 추정 전력 사용량, 향후 실측값 보정
 - Tariff / BillingEstimate: 전기요금 계산 설정
 - OtaPackage / OtaDeployment: 게이트웨이 및 노드 OTA 패키지와 배포 이력
@@ -136,38 +136,56 @@ MVP에서는 추정치 기반으로 시작한다.
 
 ### 6.1 게이트웨이
 
-라즈베리파이 게이트웨이의 장기 양산 개발 언어는 Go를 추천한다. 단일 바이너리 배포, 장기 실행 안정성, MQTT/HTTP/systemd/로컬 큐 구현의 균형이 좋기 때문이다.
+라즈베리파이 게이트웨이의 장기 양산 개발 언어는 단일 바이너리 배포, 장기 실행 안정성, MQTT/HTTP/systemd/로컬 큐 구현의 균형을 고려해 Go를 추천한다. 이 권장은 장기 후보에 대한 것이며 MVP 2 첫 실기 단계의 구현 언어를 뜻하지 않는다.
 
-다만 2026-07-08 수동 제어 MVP 구현에서는 기존 TypeScript monorepo, shared MQTT schema, mock gateway 테스트 자산을 재사용하기 위해 `apps/gateway`를 Node.js/TypeScript 실행 앱으로 먼저 만든다. 이 앱은 실제 라즈베리파이에서 MQTT 명령 수신, command ACK, fixture state, heartbeat 발행을 검증하는 골격이며, BLE Mesh 전송부는 `BleMeshAdapter` 인터페이스 뒤에 둔다. 하드웨어 확보 후 이 adapter를 BlueZ D-Bus 또는 검증된 BLE Mesh provisioner 스택으로 교체하고, 양산 단계에서 Go 단일 바이너리로 재작성할지 결정한다.
+MVP 2 첫 실기 단계는 기존 TypeScript monorepo, shared MQTT schema, mock gateway 테스트 자산을 재사용하는 `apps/gateway` Node.js/TypeScript 앱으로 고정한다. 실제 BLE Mesh 전송부는 Raspberry Pi에서 장기 실행되는 `bluetooth-meshd`/BlueZ Mesh D-Bus 기반 `BleMeshAdapter`로 구현한다. 기존 per-command JSON-lines adapter는 계약 테스트, 장애 주입, mock 실행을 위한 시험 경계로만 유지하며 실제 장비의 운영 경로로 사용하지 않는다. Phase 0과 2-node lab 검증이 끝난 뒤 운영 프로파일링, 배포 및 장애 복구 결과를 근거로 Go 재작성 여부를 별도 결정한다. 따라서 검증 전 Go 재작성은 MVP 2 완료 조건이 아니다.
+
+실제 장비 개발에 앞서 다음 Phase 0 타당성 게이트를 통과해야 한다.
+
+1. Raspberry Pi 내장 BLE와 `bluetooth-meshd`/BlueZ Mesh D-Bus로 ESP32-H2 1~2대의 PB-ADV beacon을 스캔하고 provisioning한다.
+2. unicast address 할당, AppKey 추가, Generic OnOff Server 및 Light Lightness Server model bind를 완료한다.
+3. Generic OnOff와 Light Lightness 명령 및 상태를 양방향으로 왕복하고 실제 LED 출력과 보고 상태가 일치하는지 확인한다.
+4. Raspberry Pi, `bluetooth-meshd`, gateway 앱, ESP32-H2를 재부팅한 뒤 mesh key, 주소, bind 정보와 상태 왕복이 복구되는지 확인한다.
+
+네 항목 중 하나라도 재현 가능하게 통과하지 못하면 Raspberry Pi 내장 BLE provisioner 경로를 중단하고, 전용 ESP32-H2 provisioner를 USB/UART bridge로 연결하는 구조로 전환한다. 이 경우 TypeScript gateway와 MQTT/HTTP 계약은 유지하고 `BleMeshAdapter` 구현만 bridge protocol 기반으로 교체한다.
 
 게이트웨이 구성 요소:
 
 - MQTT client
 - HTTP 설정 동기화 client
 - BLE Mesh Provisioner
-- 로컬 스케줄러
-- 이벤트 정책 엔진
+- 로컬 스케줄러 계약과 저장 구조, 실행 엔진은 MVP 2 첫 실기 이후 구현
+- 이벤트 정책 엔진 계약과 저장 구조, 실행 엔진은 MVP 2 첫 실기 이후 구현
 - 명령 큐와 재시도
 - 로컬 저장소 SQLite
-- OTA agent
+- OTA manifest/version/partition 계약, 실제 agent는 MVP 2 첫 실기 이후 구현
 - journald 기반 로그와 cloud upload
 - systemd 기반 실행/복구
 
 최종 구현 방향은 라즈베리파이 게이트웨이를 BLE Mesh Provisioner로 두는 것이다. 클라우드는 현장, 층, 구역, 조명, 권한, 정책, 이력을 관리하는 원장 역할을 하고, 실제 BLE Mesh 네트워크 생성과 노드 등록은 현장 게이트웨이가 수행한다. 모바일 앱이나 태블릿은 기본 provisioner가 아니라 클라우드 UI를 표시하는 조작 단말로 본다.
 
-게이트웨이의 provisioning 책임:
+BlueZ 기반 실제 `BleMeshAdapter`의 책임:
 
-- unprovisioned beacon 스캔
+- PB-ADV unprovisioned beacon scan과 중지
 - device UUID, 시리얼/QR, RSSI, OOB capability 수집
-- NetKey/AppKey 기반 provisioning 수행
-- unicast address 할당
-- model binding, group subscription, publication 설정
+- NetKey 기반 provisioning과 충돌 없는 unicast address 할당
+- AppKey 추가와 Generic OnOff, Light Lightness, Health model bind
+- group subscription과 상태 publication 설정
+- Generic OnOff 및 Light Lightness get/set/status 왕복, Health status 조회
+- 개별 및 group address 제어
 - identify 명령으로 현장 점멸 확인
+- D-Bus 요청 timeout, 취소, 오류 매핑, `bluetooth-meshd` 재연결과 재부팅 복구
 - 등록 진행률, 실패 원인, 통신 품질 지표 보고
 - 로컬 SQLite에 mesh mapping과 마지막 설정 버전 캐시
 - 클라우드 재연결 시 미보고 결과와 상태 재동기화
 
-MQTT는 실시간 명령/이벤트 플레인으로 사용하고, HTTP API는 게이트웨이 claim, 설정 동기화, OTA manifest, 등록 세션 생성 같은 운영 플레인으로 분리한다. 게이트웨이와 클라우드 인증은 장치별 credential, mTLS 또는 이에 준하는 장치 인증을 사용한다.
+클라우드는 대상 fixture를 소유 gateway별로 분할해 gateway마다 독립된 command를 발행하고, gateway는 자신에게 매핑된 fixture만 실행한다. 명령 수신, schema/권한/sequence 검증 및 로컬 큐 저장이 끝나면 `acceptance ACK`를 발행하고, BLE Mesh status 응답 또는 timeout이 확정되면 각 fixture의 `device status ACK`를 별도로 발행한다. 그룹 명령도 fixture별 결과를 `succeeded`, `failed`, `timed_out`으로 반환한다. 모든 명령은 `commandId`, 클라우드가 발급한 idempotency key와 gateway 단위 단조 증가 sequence를 포함하며, 두 ACK는 같은 식별자를 돌려준다. 게이트웨이는 마지막 처리 결과를 저장해 중복 명령에는 같은 결과를 반환하고 오래된 sequence는 실행하지 않는다.
+
+모든 fixture state event는 중복 제거용 `eventId`, gateway별 단조 증가 `sequence`, 장치에서 상태가 발생한 시각 `occurredAt`을 포함한다. consumer는 이미 처리한 `eventId`를 중복 저장하지 않고, 저장된 값보다 낮은 `sequence`의 이벤트를 폐기한다. `sequence`가 같으면 더 오래된 `occurredAt`의 이벤트를 폐기하며, 이 규칙으로 지연 도착한 오래된 상태가 최신 snapshot을 덮어쓰지 못하게 한다. 기본 heartbeat 주기는 30초, gateway offline TTL은 90초, fixture offline TTL은 마지막 유효 상태 보고 후 120초로 두며 site 설정으로 조정할 수 있다. gateway heartbeat TTL이 지나 gateway가 offline이 되면 그 gateway에 속한 모든 fixture에 gateway-offline 원인을 전파하고, 개별 fixture TTL 만료는 해당 fixture만 offline 처리한다. gateway 앱 또는 `bluetooth-meshd` 시작 시 로컬 mapping을 복구하고 모든 알려진 노드에 Generic OnOff, Light Lightness, Health status를 조회한 뒤 startup resync 결과를 같은 fixture state event 계약으로 발행한다.
+
+MQTT는 실시간 명령/이벤트 플레인으로 사용하고, HTTPS API는 게이트웨이 bootstrap/claim, 설정 동기화, OTA manifest, 등록 세션 생성 같은 운영 플레인으로 분리한다. MQTT anonymous 접속은 허용하지 않으며 TLS를 필수로 하고, 양산 장치에는 mTLS 장치 인증서와 장치별 ACL을 적용한다. 각 gateway identity는 자신에게 할당된 `siteId/gatewayId` prefix만 publish/subscribe할 수 있다.
+
+제조 시 각 gateway에 고유 serial, 일회성 claim code, 장치별 인증서와 private key를 주입한다. 서버는 claim code 원문을 저장하지 않고 salt가 포함된 단방향 hash만 저장하며, private key는 장치 밖으로 내보내지 않는다. gateway 이미지의 `.env`에는 `siteId`와 `gatewayId`를 미리 넣지 않는다. 최초 부팅 시 제조 credential로 HTTPS mTLS bootstrap을 호출해 장치 identity를 증명하고, 아직 claim되지 않았으면 대기 상태로 남는다. 사용자가 QR 또는 serial과 일회성 claim code를 입력해 gateway를 site에 binding하면 bootstrap 응답으로 `siteId`, `gatewayId`, MQTT endpoint, ACL에 필요한 assignment와 설정 버전을 받는다. gateway는 이 assignment를 소유자만 읽고 쓸 수 있는 권한 `0600`의 로컬 파일에 원자적으로 저장한다. claim 성공 트랜잭션에서 claim code hash를 폐기해 재사용을 차단하고, 실패한 code는 rate limit과 감사 로그를 적용한다.
 
 ### 6.2 ESP32-H2 펌웨어
 
@@ -181,11 +199,22 @@ ESP32-H2는 ESP-IDF 기반 C 펌웨어로 개발한다. PlatformIO는 일반 개
 - 상태 보고
 - 센서/차량 감지 이벤트 입력
 - 펌웨어 버전 보고
-- OTA 수신과 결과 보고
+- OTA partition/version/결과 보고 계약, 실제 수신·적용은 MVP 2 첫 실기 이후 구현
+
+MVP 2 실제 장비 펌웨어는 다음 동작을 포함한다.
+
+- provisioning 전후 identify 명령에 대한 구분 가능한 짧은 점멸
+- NVS에 마지막 유효 brightness 저장 및 재부팅 복구
+- OnOff off 이전 brightness 보존과 on 시 이전 brightness 복원
+- transition time을 적용한 점진적 Light Lightness 변경과 완료 상태 보고
+- LED driver 또는 내부 오류의 Health fault 등록, 조회, clear
+- 물리 입력에 의한 factory reset과 mesh/NVS 자격 정보 삭제
+- main task 및 통신 task watchdog과 비정상 재부팅 원인 보고
+- device UUID/serial, product/model, hardware revision, firmware version, mesh address, 마지막 적용 command sequence 보고
 
 LED 드라이버 인터페이스는 실제 제품 사양에 따라 PWM, 0-10V, DALI 등으로 확정한다. MVP에서는 우선 개발 보드와 제어 가능한 드라이버 조합으로 PoC를 수행한다.
 
-2026-07-08 수동 제어 MVP에서는 `apps/esp32-h2-firmware`를 ESP-IDF 프로젝트 구조로 만들고, LEDC PWM 기반 `led_driver`, 밝기 상태 관리 `control_state`, 앱 부팅 진입점 `app_main`을 추가했다. 로컬에는 `idf.py`가 없어 전체 ESP-IDF 빌드는 수행하지 못했지만, 하드웨어 독립적인 `control_state`는 C 컴파일 테스트로 검증한다. 실제 보드에서는 `idf.py set-target esp32h2`, `idf.py build`, `idf.py flash monitor` 순서로 검증한다.
+2026-07-08 수동 제어 MVP에서는 `apps/esp32-h2-firmware`를 ESP-IDF 프로젝트 구조로 만들고, LEDC PWM 기반 `led_driver`, 밝기 상태 관리 `control_state`, 앱 부팅 진입점 `app_main`을 추가했다. ESP-IDF v5.5의 ESP32-H2 target으로 전체 펌웨어 빌드와 링크를 통과했고, 하드웨어 독립적인 `control_state`도 C 컴파일 테스트로 검증했다. 다만 실제 보드에서 PB-ADV provisioning, AppKey/model bind, Generic OnOff/Light Lightness status 왕복 E2E는 아직 검증하지 않았으며 `6.1`의 Phase 0에서 수행한다.
 
 펌웨어 상태는 다음 상태머신으로 관리한다.
 
@@ -211,7 +240,9 @@ ESP32-H2 노드는 최소한 device UUID, product/model, hardware revision, firm
 
 ### 6.2.1 상태 보고와 통신 품질 지표
 
-ESP32-H2 노드는 실제 펌웨어 단계에서 디밍 상태, 장애 상태, 마지막 명령 sequence, 펌웨어 버전을 게이트웨이에 보고한다. 게이트웨이는 BLE Mesh 통신 결과를 취합해 클라우드에 다음 지표를 MQTT로 전송한다.
+ESP32-H2 노드는 실제 펌웨어 단계에서 디밍 상태, 장애 상태, 마지막 명령 sequence, 펌웨어 버전을 게이트웨이에 보고한다. 게이트웨이는 BLE Mesh 통신 결과를 취합해 클라우드에 다음 지표를 MQTT로 전송하며, startup resync와 일반 상태 보고에 동일한 fixture-state schema를 사용한다.
+
+fixture-state schema에는 `eventId`, gateway별 단조 증가 `sequence`, `occurredAt`이 필수이며, gateway는 재부팅 후에도 sequence가 역행하지 않도록 마지막 발급 값을 로컬 저장소에서 복구한다.
 
 - 조명별 brightness, powerOn, status, lastSeenAt
 - 조명별 RSSI, hop count, 명령 성공률
@@ -224,16 +255,18 @@ MVP 1에서는 mock 게이트웨이가 같은 MQTT 계약으로 fixture-state와
 
 최종 등록 방식은 게이트웨이 중심의 층/구역 단위 일괄 등록으로 결정한다. 지하주차장은 콘크리트, 철근, 차량, 금속 배관, 층간 구조 때문에 한 장소에서 모든 층의 조명을 안정적으로 등록하는 방식을 기본값으로 두지 않는다. 설치자는 각 층 또는 구역 단위로 이동하며 등록 세션을 열고, 현장 게이트웨이가 가까운 미등록 조명을 스캔해 등록한다.
 
-조명 검색 전에는 현장, 층, 게이트웨이가 먼저 등록되어 있어야 한다. 최초 가입 또는 빈 DB 상태에서는 조명 등록 화면보다 `초기 설치 설정` 마법사를 먼저 제공한다. 이 마법사는 현장명, 주소, 전기요금 단가, 층 이름, 층 level, 필수 게이트웨이 시리얼을 받아 `Site`, `Floor`, `Gateway`를 생성한다.
+조명 검색 전에는 현장, 층, 게이트웨이가 먼저 등록되어 있어야 한다. 최초 가입 또는 빈 DB 상태에서는 조명 등록 화면보다 `초기 설치 설정` 마법사를 먼저 제공한다. 이 마법사는 현장명, 주소, 전기요금 단가, 층 이름, 층 level을 받아 `Site`와 `Floor`를 생성하고, gateway QR 또는 serial과 일회성 claim code를 받아 제조 장치 레코드를 해당 site의 `Gateway`에 binding한다. 입력된 serial만으로 임의의 `Gateway`를 새로 생성하지 않는다.
 
 층은 게이트웨이 검색 결과로 자동 생성하지 않는다. 게이트웨이는 물리 장비라서 층 정보를 스스로 정확히 알기 어렵고, 지하주차장에서는 위층/아래층 신호가 섞일 수 있다. 따라서 사용자가 층 구조를 먼저 정의하고, 게이트웨이 검색 또는 시리얼 입력은 등록된 현장에 장비를 연결하는 보조 단계로 사용한다.
 
 등록 흐름:
 
 ```text
-현장 생성 또는 SaaS 현장 claim
+현장 생성
 → 층 등록
-→ 게이트웨이 QR/시리얼 claim
+→ 게이트웨이 QR 또는 serial + 일회성 claim code 입력
+→ 제조 장치 인증 정보 확인 및 site binding
+→ 게이트웨이 HTTPS mTLS bootstrap과 assignment 저장
 → 층/구역 선택
 → 게이트웨이 unprovisioned scan 시작
 → 발견 노드 목록 표시
@@ -260,24 +293,34 @@ MVP 1에서는 mock 게이트웨이가 같은 MQTT 계약으로 fixture-state와
 - 일괄 등록 중 일부 노드가 실패해도 전체 세션을 중단하지 않고, 실패 노드와 원인을 분리해 재시도할 수 있게 한다.
 - 등록 완료 후 통신 품질 검증 결과를 2D 맵에 표시하고 음영 후보를 남긴다.
 
-MQTT topic 초안:
+MVP 2 목표 MQTT topic 계약:
+
+다음 topic은 TLS/mTLS와 장치별 ACL을 적용하는 MVP 2의 gateway-scoped 목표 계약이다. MVP 1 mock gateway가 사용하는 기존 topic과 혼동하지 않으며, MVP 2 전환 시 producer와 consumer를 함께 변경한다.
 
 ```text
-sites/{siteId}/gateways/{gatewayId}/commands/provisioning-scan-start
-sites/{siteId}/gateways/{gatewayId}/commands/provisioning-scan-stop
-sites/{siteId}/gateways/{gatewayId}/commands/provision-device
-sites/{siteId}/gateways/{gatewayId}/commands/identify-device
-sites/{siteId}/gateways/{gatewayId}/events/unprovisioned-device-found
-sites/{siteId}/gateways/{gatewayId}/events/provisioning-progress
-sites/{siteId}/gateways/{gatewayId}/events/provisioning-completed
-sites/{siteId}/gateways/{gatewayId}/events/provisioning-failed
+sites/{siteId}/gateways/{gatewayId}/commands/dimming
+sites/{siteId}/gateways/{gatewayId}/commands/provisioning/scan-start
+sites/{siteId}/gateways/{gatewayId}/commands/provisioning/scan-stop
+sites/{siteId}/gateways/{gatewayId}/commands/provisioning/provision-device
+sites/{siteId}/gateways/{gatewayId}/commands/provisioning/identify-device
+sites/{siteId}/gateways/{gatewayId}/acks/acceptance
+sites/{siteId}/gateways/{gatewayId}/acks/device-status
+sites/{siteId}/gateways/{gatewayId}/state/fixtures
+sites/{siteId}/gateways/{gatewayId}/state/heartbeat
+sites/{siteId}/gateways/{gatewayId}/events/provisioning/unprovisioned-device-found
+sites/{siteId}/gateways/{gatewayId}/events/provisioning/progress
+sites/{siteId}/gateways/{gatewayId}/events/provisioning/completed
+sites/{siteId}/gateways/{gatewayId}/events/provisioning/failed
 sites/{siteId}/gateways/{gatewayId}/events/mesh-node-metrics
 ```
+
+Broker ACL은 장치 인증서의 gateway identity와 topic의 `gatewayId`를 일치시키고, API와 MQTT consumer는 topic의 `siteId/gatewayId`가 DB의 `Gateway.siteId` 관계와 일치하는지 다시 검증한다. dimming payload의 fixture 또는 group은 모두 해당 gateway에 매핑되어 있어야 하며, 다른 gateway나 site의 식별자가 하나라도 포함되면 명령 전체를 거부한다. state, ACK, heartbeat를 저장할 때도 payload의 fixture, command, gateway 관계를 같은 기준으로 검증해 topic 문자열만으로 권한을 신뢰하지 않는다.
 
 HTTP API 초안:
 
 ```text
 POST /gateways/claim
+POST /gateways/bootstrap
 GET  /gateways/{gatewayId}/config
 POST /gateways/{gatewayId}/sync-result
 POST /sites/{siteId}/registration-sessions
@@ -288,15 +331,16 @@ POST /mesh-nodes/{meshNodeId}/factory-reset
 GET  /ota/manifest?target=gateway|node
 ```
 
-SaaS 전환 시에는 사용자가 직접 가입한 뒤 현장 생성, 게이트웨이 claim, 조명 검색/등록 순서로 진행한다. 초기 B2B 구축형에서는 운영자가 조직과 초대 계정을 만들고, 현장 설치자가 동일한 등록 플로우를 사용한다. 즉 계정 생성 방식은 달라도 게이트웨이 claim과 provisioning 플로우는 동일하게 유지한다.
+SaaS 전환 시에는 사용자가 직접 가입한 뒤 현장 생성, gateway QR 또는 serial과 일회성 claim code 입력, site binding, 조명 검색/등록 순서로 진행한다. 초기 B2B 구축형에서는 운영자가 조직과 초대 계정을 만들고, 현장 설치자가 동일한 등록 플로우를 사용한다. 즉 계정 생성 방식은 달라도 mTLS bootstrap, gateway claim과 provisioning 플로우는 동일하게 유지한다.
 
 MVP 1 구현 상태:
 
 - `ProvisioningSession`과 `DiscoveredMeshNode`를 Prisma 모델과 migration에 반영했다.
 - `POST /registration-sessions`로 등록 세션을 만들고 gateway scan MQTT command를 발행한다.
-- `sites/{siteId}/gateways/{gatewayId}/events/unprovisioned-device-found` 이벤트를 수신해 발견 노드를 저장한다.
+- 현재 코드가 사용하는 `sites/{siteId}/gateways/{gatewayId}/events/unprovisioned-device-found` 이벤트를 수신해 발견 노드를 저장한다.
 - `POST /registration-sessions/{sessionId}/nodes/{nodeId}/identify`로 점멸 확인 상태를 관리한다.
-- `POST /registration-sessions/{sessionId}/nodes/{nodeId}/register`로 `MeshNode`와 `Fixture`를 생성해 매핑한다.
+- `POST /registration-sessions/{sessionId}/nodes/{nodeId}/register` 요청은 pending fixture 정보를 저장하고 gateway에 `provision-device` 명령을 발행한다.
+- `provisioning-completed` 이벤트를 수신하면 pending fixture 정보와 provisioning 결과를 결합해 `MeshNode`와 `Fixture`를 생성하고 매핑한다.
 - 등록 API는 session/site/floor/gateway를 사용자 조직 범위 안에서만 조회한다.
 - MQTT 발견 이벤트는 topic의 siteId/gatewayId와 활성 등록 세션을 대조한 뒤 저장한다.
 - 같은 게이트웨이 안에서 mesh address가 중복되지 않도록 DB 유니크 제약을 둔다.
@@ -307,26 +351,30 @@ MVP 1 구현 상태:
 - fixture-state MQTT event의 RSSI, hop count, 명령 성공률을 DB에 저장하고 상세 패널에 표시한다.
 - gateway heartbeat MQTT event를 DB에 저장하고 gateway online/offline 상태로 표시한다.
 - dashboard API는 로그인 사용자의 조직 범위 안에서만 site를 조회한다.
-- 실제 ESP32-H2 provisioning, AppKey bind, group subscription, OTA, 공장초기화는 MVP 2 범위다.
+- 실제 ESP32-H2 provisioning, AppKey/model bind, group subscription, 공장초기화는 MVP 2 범위다. OTA는 partition/version 계약과 보고 필드만 유지하고 실제 배포 구현은 MVP 2 첫 실기 범위에서 제외한다.
 
-### 6.4 하드웨어 입수 후 PoC 순서
+### 6.4 실제 장비 검증 계획과 완료 기준
 
-1. ESP32-H2 2대 이상으로 BLE Mesh node와 provisioning 기본 예제를 검증한다.
-2. 라즈베리파이에서 provisioner 역할을 수행할 스택을 검증한다.
-3. 단일 노드 QR/시리얼 매핑, identify 점멸, 디밍 명령 end-to-end를 확인한다.
-4. 5-10개 노드로 group address, 구역 제어, 상태 보고, ACK/재시도를 확인한다.
-5. 층/구역 등록 세션을 클라우드 API/MQTT 계약과 연결한다.
-6. 공장초기화 후 재등록, 중복 등록, 교체 등록을 테스트한다.
-7. NetKey/AppKey 저장, 백업, 회전, 게이트웨이 재설치 시나리오를 검증한다.
-8. 실제 LED 드라이버 PWM/0-10V/DALI 중 확정 후 전기적 제어 안정성을 테스트한다.
-9. 지하주차장 유사 환경에서 RSSI, hop count, 명령 성공률, 지연시간을 측정한다.
-10. OTA, 전원 차단, 네트워크 단절, 게이트웨이 재부팅 복구를 테스트한다.
+하드웨어 입수 직후 `6.1`의 Phase 0을 먼저 수행하고 통과한 adapter 경로만 MVP 2 구현에 사용한다. 이어서 Raspberry Pi 1대와 ESP32-H2 2대로 고정한 2-node lab test를 수행한다.
+
+1. 제조 credential을 가진 초기화 gateway가 mTLS bootstrap 대기 상태에 진입하고, 사용자 claim 후 올바른 assignment를 `0600`으로 저장한다.
+2. 두 노드를 PB-ADV로 발견해 각각 provisioning하고 unicast address, AppKey, Generic OnOff/Light Lightness/Health bind와 동일 group subscription을 설정한다.
+3. 웹에서 개별 및 group 디밍을 실행해 gateway acceptance ACK와 두 fixture의 device status ACK가 분리되고, 밝기/OnOff/transition 결과가 실제 LED와 화면에 일치하는지 확인한다.
+4. 중복 idempotency key와 `eventId`, 역전된 command/state sequence, 오래된 `occurredAt`, 한 노드 timeout을 주입해 중복 실행·저장 방지, stale event 무시, fixture별 부분 실패가 계약대로 보고되는지 확인한다.
+5. gateway heartbeat 중단 시 두 fixture에 offline을 전파하고, 노드 하나의 TTL 만료는 해당 fixture만 offline 처리하는지 확인한다.
+6. Raspberry Pi, gateway 앱, `bluetooth-meshd`, 두 노드를 순차 및 동시 재부팅해 mapping/NVS brightness 복구와 startup resync를 확인한다.
+7. identify, Health fault, watchdog reset report, factory reset 후 재등록을 각 노드에서 확인한다.
+8. MQTT anonymous 접속과 다른 gateway prefix 접근이 거부되고, topic의 site/gateway/fixture 관계가 DB와 다르면 consumer가 저장하지 않는지 확인한다.
+
+실제 장비 E2E 완료 기준은 위 2-node lab test 전체를 초기화 상태부터 3회 연속 통과하고, 웹 명령부터 실제 LED 변화와 상태 화면 반영까지 추적 가능한 command/fixture 결과가 남으며, 재부팅 후 수동 복구 없이 제어가 재개되는 것이다. 이 단계에서는 스케줄/event 엔진, OTA 실제 배포, 5~10대 이상 확장 및 대규모 RF/지하주차장 음영 검증을 수행하지 않는다. 다만 gateway와 node 모두 OTA partition layout, firmware version, manifest target, 적용 결과/rollback 상태 계약은 유지해 후속 구현과 데이터 호환성을 보장한다.
 
 ## 7. OTA
 
 OTA는 게이트웨이와 ESP32-H2 노드로 나누어 설계한다.
 
 ### 7.1 게이트웨이 OTA
+
+MVP 2 첫 실기 단계에서는 아래 상태와 manifest/version 계약, rollback 가능한 partition/설치 구조만 확정하고 실제 배포 agent 구현은 후속 단계로 둔다.
 
 1. 클라우드에서 OTA manifest 조회
 2. 패키지 다운로드
@@ -338,6 +386,8 @@ OTA는 게이트웨이와 ESP32-H2 노드로 나누어 설계한다.
 8. 실패 시 rollback
 
 ### 7.2 노드 OTA
+
+MVP 2 첫 실기 단계에서는 ESP-IDF OTA partition layout과 firmware version/report schema를 확정하고 실제 BLE Mesh firmware distribution 구현은 후속 단계로 둔다.
 
 1. 클라우드에서 펌웨어 배포 정책 생성
 2. Gateway가 펌웨어 다운로드
@@ -364,7 +414,7 @@ OTA는 게이트웨이와 ESP32-H2 노드로 나누어 설계한다.
 
 MVP 1에서는 Hamina Planner로 주차장 도면 기반 통신 음영 후보를 사전 검토하고, 서비스 내에는 간이 연결성/음영 검토 화면을 추가한다.
 
-MVP 2에서는 실제 ESP32-H2 노드와 게이트웨이에서 다음 지표를 수집한다.
+MVP 2 첫 실기 단계에서는 실제 ESP32-H2 노드와 게이트웨이에서 다음 지표를 수집한다.
 
 - RSSI
 - hop count
@@ -373,7 +423,7 @@ MVP 2에서는 실제 ESP32-H2 노드와 게이트웨이에서 다음 지표를 
 - 재전송률
 - last seen
 
-수집한 지표는 2D 맵에 통신 품질 heatmap으로 표시한다.
+2-node lab E2E 완료 후 수집한 지표를 2D 맵의 통신 품질 heatmap과 조명 위치 보정/자동 배치 보조에 연결한다. 이 후속 화면 작업은 첫 실기 완료 게이트에는 포함하지 않는다.
 
 MVP 1에서는 heatmap 이전 단계로 조명 상세 패널에 RSSI, hop count, 명령 성공률을 표시한다. 이 값은 mock 게이트웨이 fixture-state event로 먼저 검증하고, 하드웨어 입수 후 실제 게이트웨이와 ESP32-H2 펌웨어의 상태 보고 계약으로 교체한다.
 
@@ -412,20 +462,22 @@ Mesh 파라미터 연구가 필요할 때만 MathWorks Bluetooth Toolbox 또는 
 
 범위:
 
-- Go 기반 라즈베리파이 게이트웨이
-- MQTT/HTTP 클라우드 연동
+- TypeScript 기반 라즈베리파이 게이트웨이와 장기 실행 `bluetooth-meshd`/BlueZ Mesh D-Bus adapter
+- Phase 0 내장 BLE 타당성 게이트와 실패 시 ESP32-H2 provisioner USB/UART bridge 전환
+- HTTPS mTLS bootstrap, 일회성 claim, MQTT TLS/mTLS 및 장치별 ACL
 - 게이트웨이 중심 BLE Mesh provisioning
 - 층/구역 단위 조명 검색·등록 API와 UI
 - ESP32-H2 BLE Mesh 펌웨어
-- 실제 조명 디밍 제어
-- 상태 보고, heartbeat, fault 보고
-- 로컬 스케줄/이벤트 실행
-- 게이트웨이 OTA 기본 구조
-- 노드 OTA 기본 구조
+- 실제 조명 개별/group 디밍과 transition 제어
+- acceptance/device status ACK 분리, fixture별 결과, 멱등성/sequence 처리
+- 상태 TTL/offline 전파, heartbeat, Health fault, startup resync
+- gateway/node OTA partition, version, manifest 및 결과 계약
 - RSSI, hop count, 명령 성공률, 응답 지연 수집
-- 통신 품질 heatmap
-- provisioning 결과와 통신 품질 지표를 활용한 조명 위치 보정 및 자동 배치 보조
 - 공장초기화, 재등록, 교체 등록 기본 플로우
+- Raspberry Pi 1대와 ESP32-H2 2대의 실제 장비 E2E lab test
+- E2E 완료 후 통신 품질 heatmap과 조명 위치 보정/자동 배치 보조
+
+MVP 2 첫 실기 단계에서는 스케줄/event 본 구현, OTA 실제 배포, 통신 품질 heatmap/자동 배치 보조, 5~10대 이상 확장 및 대규모 RF 검증을 제외한다. heatmap과 자동 배치 보조는 2-node E2E 완료 뒤 같은 MVP 2의 후속 작업으로 진행한다. 장기 양산 언어로서 Go 권장은 유지하되, 위 실제 장비 완료 기준을 통과한 후 TypeScript 운영 결과를 평가해 Go 재작성 여부를 별도 결정한다.
 
 ### 9.3 MVP 3: 파일럿 현장 운영
 
