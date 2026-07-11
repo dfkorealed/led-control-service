@@ -600,7 +600,7 @@ git commit -m "feat: harden ESP32-H2 mesh firmware"
 - Produces: `pnpm gateway:hil:2node`
 - Produces: machine-readable result JSON with each security and recovery gate
 
-- [ ] **Step 1: deterministic scenario runner 실패 테스트 작성**
+- [x] **Step 1: deterministic scenario runner 실패 테스트 작성**
 
 ```ts
 expect(result.steps.map((step) => step.name)).toEqual([
@@ -609,11 +609,13 @@ expect(result.steps.map((step) => step.name)).toEqual([
 ]);
 ```
 
-- [ ] **Step 2: HIL runner 구현**
+- [x] **Step 2: HIL runner 구현**
 
 Runner는 serial/port/certificate 경로를 환경변수로 받고 secret은 출력하지 않는다. 각 단계의 commandId, fixtureId, 실제 Status, 지연시간을 JSON으로 남긴다.
 
 - [ ] **Step 3: 장애·보안 부정 시나리오 구현**
+
+Runner의 단계·timeout·JSON 판정 계약은 구현했다. 실제 MQTT 단절, node timeout, daemon/node 재부팅을 수행하는 Raspberry Pi용 단계 실행 파일은 BlueZ Phase 0 이후 구현한다.
 
 중복 command, 역전 sequence, 한 노드 timeout, MQTT 단절, gateway/mesh daemon/노드 재부팅, 무인증 접속, 다른 gateway topic 접근을 실행한다.
 

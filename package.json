@@ -8,6 +8,7 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm --filter @led-control/shared build && pnpm -r typecheck",
     "gateway:smoke": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec node scripts/local-smoke-test.mjs",
+    "gateway:hil:2node": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec tsx scripts/hil-2node-test.ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
   },
