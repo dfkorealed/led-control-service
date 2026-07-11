@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-07-10
+기준일: 2026-07-11
 
 ## 구현 완료
 
@@ -30,6 +30,11 @@
 - 에디터에서 생성된 도형/텍스트를 단일 선택한 뒤 드래그 이동과 모서리/변 Transformer 핸들 리사이즈를 수행한다.
 - 에디터에서 조명 단일 선택, 마우스 포인터 위치를 기준으로 한 드래그 이동, Transformer 리사이즈, 조명명, 정격 전력, X/Y 좌표, 표시 크기 수정을 수행한다.
 - 에디터 저장 시 `FloorPlan`, `FloorMapObject`, `Fixture` 변경 사항을 백엔드 API에 반영하고 dashboard query를 갱신한다.
+- gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
+- v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
+- gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어가며, 시작 시 heartbeat와 journal의 마지막 fixture 결과 snapshot을 재발행한다.
+- heartbeat가 90초 이상 없으면 연결된 조명을 `gateway_offline`, fixture state가 120초 이상 없으면 해당 조명을 `fixture_stale` 사유로 offline 처리한다.
+- dashboard gateway 연결 상태 기준을 서버 TTL과 동일한 90초로 통일하고 fixture의 `statusReason`을 API 응답에 포함한다.
 
 ## 미구현
 
@@ -56,7 +61,7 @@
 - CAD/DWG/DXF import와 AI 도면 해석은 후속 MVP 범위다.
 - 현재 실시간성은 3초 polling이므로 대규모 현장에서는 서버 부하와 반응성 조정이 필요하다.
 - 조명 등록 완료 후 dashboard 반영은 polling에 의존하므로, 실제 현장에서는 provisioning event 기반 push 업데이트가 필요하다.
-- gateway offline 기준이 서버 코드의 15초 고정값이므로 site/gateway 설정값으로 분리해야 한다.
+- gateway offline 기준은 현재 90초, fixture stale 기준은 120초 고정값이다. 대규모 현장 검증 후 site/gateway별 정책 설정으로 분리해야 한다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
 - 조명 수가 많을 때 기본 겹침은 compact marker로 완화했지만, 대규모 현장에는 클러스터링, 검색, 확대/축소가 필요하다.
@@ -73,6 +78,9 @@
 - `apps/api/src/sites/sites.controller.ts`
 - `apps/api/src/sites/sites.service.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
+- `apps/api/src/mqtt/topic-scope.ts`
+- `apps/api/src/fixtures/fixture-freshness.service.ts`
+- `apps/gateway/src/state/event-sequence-store.ts`
 - `apps/mock-gateway/src/index.ts`
 - `packages/shared/src/schemas.ts`
 - `packages/shared/src/mqtt.ts`

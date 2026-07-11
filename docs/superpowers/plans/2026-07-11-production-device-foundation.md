@@ -453,7 +453,7 @@ git commit -m "feat: dispatch commands per gateway"
 - Produces: `parseGatewayTopic(topic)` and `assertGatewayScope(scope, payload)`
 - Produces: `markStaleFixtures(now)` with gateway TTL 90s, fixture TTL 120s
 
-- [ ] **Step 1: tenant 위조·중복·역전 테스트 작성**
+- [x] **Step 1: tenant 위조·중복·역전 테스트 작성**
 
 ```ts
 await service.handleMessage(topicForSiteA, stateForSiteB);
@@ -463,15 +463,15 @@ await service.handleMessage(validTopic, { ...state, sequence: 8 });
 expect(lastStoredSequence).toBe(9);
 ```
 
-- [ ] **Step 2: topic와 DB 관계 검증 구현**
+- [x] **Step 2: topic와 DB 관계 검증 구현**
 
 Fixture, command, gateway가 topic의 site/gateway에 모두 속할 때만 update한다. `eventId` unique 충돌은 성공한 중복 처리로 간주하고 낮은 sequence는 폐기한다.
 
-- [ ] **Step 3: TTL와 startup resync 처리**
+- [x] **Step 3: TTL와 startup resync 처리**
 
 90초 heartbeat 만료 시 gateway와 연결된 fixture를 `offline`+`gateway_offline`으로 표시한다. 120초 fixture state 만료는 해당 fixture만 `offline`+`fixture_stale`로 표시한다. Startup resync 이벤트는 같은 sequence 검증을 통과해야 한다.
 
-- [ ] **Step 4: 검증·문서·커밋**
+- [x] **Step 4: 검증·문서·커밋**
 
 Run: `pnpm --filter @led-control/api test -- mqtt fixture-freshness sites --runInBand && pnpm --filter @led-control/api typecheck`
 Expected: PASS.

@@ -5,7 +5,9 @@ import {
   deviceStatusAckV2Schema,
   DimmingCommandPayload,
   fixtureStateSchema,
+  fixtureStateV2Schema,
   gatewayHeartbeatSchema,
+  gatewayHeartbeatV2Schema,
   IdentifyDevicePayload,
   identifyDeviceSchema,
   mqttTopics,
@@ -20,6 +22,7 @@ import {
 import mqtt, { MqttClient } from "mqtt";
 import { readFileSync } from "node:fs";
 import { PrismaService } from "../prisma/prisma.service";
+import { parseGatewayTopic } from "./topic-scope";
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -43,6 +46,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         { qos: 1 }
       );
       client.subscribe(["sites/+/gateways/+/acks/acceptance", "sites/+/gateways/+/acks/device-status"], { qos: 1 });
+      client.subscribe(["sites/+/gateways/+/state/fixtures", "sites/+/gateways/+/state/heartbeat"], { qos: 1 });
       void this.flushOutbox();
     });
     client.on("message", (topic, payload) => {
@@ -133,6 +137,36 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   async handleMessage(topic: string, payload: Buffer) {
+    if (topic.endsWith("/state/fixtures")) {
+      const scope = parseGatewayTopic(topic);
+      const state = fixtureStateV2Schema.parse(JSON.parse(payload.toString()));
+      if (!scope || scope.siteId !== state.siteId || scope.gatewayId !== state.gatewayId) return;
+      const fixture = await this.prisma.fixture.findFirst({
+        where: {
+          id: state.fixtureId,
+          floor: { siteId: scope.siteId },
+          meshNode: { gatewayId: scope.gatewayId }
+        },
+        select: { lastStateSequence: true }
+      });
+      if (!fixture || (fixture.lastStateSequence !== null && fixture.lastStateSequence >= BigInt(state.sequence))) return;
+      await this.storeFixtureStateV2(scope.gatewayId, state);
+      return;
+    }
+
+    if (topic.endsWith("/state/heartbeat")) {
+      const scope = parseGatewayTopic(topic);
+      const heartbeat = gatewayHeartbeatV2Schema.parse(JSON.parse(payload.toString()));
+      if (!scope || scope.siteId !== heartbeat.siteId || scope.gatewayId !== heartbeat.gatewayId) return;
+      const gateway = await this.prisma.gateway.findFirst({
+        where: { id: scope.gatewayId, siteId: scope.siteId, serialNumber: heartbeat.gatewaySerial },
+        select: { lastHeartbeatSequence: true }
+      });
+      if (!gateway || (gateway.lastHeartbeatSequence !== null && gateway.lastHeartbeatSequence >= BigInt(heartbeat.sequence))) return;
+      await this.storeHeartbeatV2(heartbeat);
+      return;
+    }
+
     if (topic.endsWith("/acks/acceptance")) {
       const scope = parseGatewayScopedTopic(topic);
       const ack = acceptanceAckV2Schema.parse(JSON.parse(payload.toString()));
@@ -291,6 +325,80 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async storeFixtureStateV2(gatewayId: string, state: ReturnType<typeof fixtureStateV2Schema.parse>) {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.processedGatewayEvent.create({
+          data: {
+            eventId: state.eventId,
+            gatewayId,
+            sequence: BigInt(state.sequence),
+            eventType: "fixture_state",
+            occurredAt: new Date(state.occurredAt)
+          }
+        });
+        const updated = await tx.fixture.updateMany({
+          where: {
+            id: state.fixtureId,
+            floor: { siteId: state.siteId },
+            meshNode: { gatewayId: state.gatewayId },
+            OR: [{ lastStateSequence: null }, { lastStateSequence: { lt: BigInt(state.sequence) } }]
+          },
+          data: {
+            brightness: state.brightness,
+            status: state.status,
+            statusReason: state.statusReason ?? "reported",
+            rssi: state.rssi,
+            hopCount: state.hopCount,
+            lastSeenAt: new Date(state.occurredAt),
+            lastStateEventId: state.eventId,
+            lastStateSequence: BigInt(state.sequence),
+            lastStateOccurredAt: new Date(state.occurredAt)
+          }
+        });
+        if (updated.count !== 1) throw new Error("fixture state scope or sequence rejected");
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) return;
+      throw error;
+    }
+  }
+
+  private async storeHeartbeatV2(heartbeat: ReturnType<typeof gatewayHeartbeatV2Schema.parse>) {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.processedGatewayEvent.create({
+          data: {
+            eventId: heartbeat.eventId,
+            gatewayId: heartbeat.gatewayId,
+            sequence: BigInt(heartbeat.sequence),
+            eventType: "gateway_heartbeat",
+            occurredAt: new Date(heartbeat.occurredAt)
+          }
+        });
+        const updated = await tx.gateway.updateMany({
+          where: {
+            id: heartbeat.gatewayId,
+            siteId: heartbeat.siteId,
+            serialNumber: heartbeat.gatewaySerial,
+            OR: [{ lastHeartbeatSequence: null }, { lastHeartbeatSequence: { lt: BigInt(heartbeat.sequence) } }]
+          },
+          data: {
+            lastHeartbeatAt: new Date(heartbeat.occurredAt),
+            lastHeartbeatEventId: heartbeat.eventId,
+            lastHeartbeatSequence: BigInt(heartbeat.sequence),
+            lastHeartbeatOccurredAt: new Date(heartbeat.occurredAt),
+            firmwareVersion: heartbeat.firmwareVersion
+          }
+        });
+        if (updated.count !== 1) throw new Error("gateway heartbeat scope or sequence rejected");
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) return;
+      throw error;
+    }
+  }
+
   private async storeDeviceStatusAck(
     dispatch: { id: string; commandId: string },
     ack: ReturnType<typeof deviceStatusAckV2Schema.parse>
@@ -434,6 +542,10 @@ function requiredMqttPath(env: NodeJS.ProcessEnv, name: string) {
   const value = env[name];
   if (!value) throw new Error(`${name} is required for MQTT mTLS`);
   return value;
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
 }
 
 function parseGatewayScopedTopic(topic: string) {

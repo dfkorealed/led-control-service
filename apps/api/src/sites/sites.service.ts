@@ -75,6 +75,7 @@ export class SitesService {
           ratedWatt: Number(fixture.ratedWatt),
           brightness: fixture.brightness,
           status: fixture.status,
+          statusReason: fixture.statusReason,
           rssi: fixture.rssi,
           hopCount: fixture.hopCount,
           commandSuccessRate: fixture.commandSuccessRate,
@@ -93,7 +94,7 @@ export class SitesService {
         firmwareVersion: gateway.firmwareVersion,
         lastHeartbeatAt: gateway.lastHeartbeatAt?.toISOString() ?? null,
         connectionStatus:
-          gateway.lastHeartbeatAt && now - gateway.lastHeartbeatAt.getTime() < 15_000 ? "online" : "offline"
+          gateway.lastHeartbeatAt && now - gateway.lastHeartbeatAt.getTime() < 90_000 ? "online" : "offline"
       }))
     };
   }

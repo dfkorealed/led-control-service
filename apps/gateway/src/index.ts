@@ -2,13 +2,18 @@ import { resolve } from "node:path";
 import { config } from "dotenv";
 import {
   dimmingCommandSchema,
+  deviceStatusAckV2Schema,
+  type DeviceStatusAckV2,
   gatewayDimmingCommandV2Schema,
+  gatewayHeartbeatV2Schema,
   identifyDeviceSchema,
   mqttTopics,
   mqttTopicsV2,
+  fixtureStateV2Schema,
   provisionDeviceSchema,
   provisioningScanStartSchema
 } from "@led-control/shared";
+import { randomUUID } from "node:crypto";
 import {
   applyIdentifyDevice,
   applyManualDimmingCommand,
@@ -25,6 +30,7 @@ import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolv
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
 import { handleGatewayDimmingCommand } from "./commands/gateway-command-handler";
+import { EventSequenceStore } from "./state/event-sequence-store";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -39,6 +45,7 @@ async function main() {
   const provisioningAdapter = createProvisioningAdapter();
   const client = createMqttClient({ ...process.env, MQTT_URL: mqttUrl });
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
+  const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
 
   client.on("connect", () => {
     client.subscribe(
@@ -51,8 +58,9 @@ async function main() {
       ],
       { qos: 1 }
     );
-    publishHeartbeat();
-    setInterval(publishHeartbeat, heartbeatMs);
+    void publishHeartbeat();
+    void publishJournalSnapshot();
+    setInterval(() => void publishHeartbeat(), heartbeatMs);
   });
 
   client.on("message", (topic, payload) => {
@@ -93,6 +101,39 @@ async function main() {
     });
     if (!acceptancePublished) await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
     await publish(mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
+    await publishDeviceStates(result.deviceStatus, command.brightness);
+  }
+
+  async function publishDeviceStates(
+    deviceStatus: DeviceStatusAckV2,
+    fallbackBrightness: number
+  ) {
+    for (const fixture of deviceStatus.results) {
+      const state = fixtureStateV2Schema.parse({
+        siteId,
+        gatewayId,
+        eventId: randomUUID(),
+        sequence: await eventSequence.next(),
+        occurredAt: deviceStatus.occurredAt,
+        fixtureId: fixture.fixtureId,
+        brightness: fixture.status === "succeeded" ? fixture.brightness ?? fallbackBrightness : 0,
+        powerOn: fixture.status === "succeeded" && (fixture.brightness ?? fallbackBrightness) > 0,
+        status: fixture.status === "succeeded" ? "online" : "fault",
+        statusReason: fixture.status === "succeeded" ? "reported" : "command_failed",
+        ...(fixture.faultCode ? { faultCode: fixture.faultCode } : {}),
+        rssi: fixture.rssi ?? null,
+        hopCount: fixture.hopCount ?? null
+      });
+      await publish(mqttTopicsV2.fixtureState(siteId, gatewayId), state);
+    }
+  }
+
+  async function publishJournalSnapshot() {
+    for (const stored of await commandJournal.completedResults()) {
+      if (!stored || typeof stored !== "object" || !("deviceStatus" in stored)) continue;
+      const deviceStatus = deviceStatusAckV2Schema.parse((stored as { deviceStatus: unknown }).deviceStatus);
+      await publishDeviceStates(deviceStatus, 0);
+    }
   }
 
   function publish(topic: string, payload: unknown) {
@@ -126,12 +167,24 @@ async function main() {
     }
   }
 
-  function publishHeartbeat() {
+  async function publishHeartbeat() {
     client.publish(
       mqttTopics.gatewayHeartbeat(siteId),
       JSON.stringify(createHeartbeatPayload(siteId, gatewaySerial, new Date(), gatewayFirmwareVersion)),
       { qos: 1 }
     );
+    const occurredAt = new Date().toISOString();
+    const heartbeat = gatewayHeartbeatV2Schema.parse({
+      siteId,
+      gatewayId,
+      eventId: randomUUID(),
+      sequence: await eventSequence.next(),
+      occurredAt,
+      gatewaySerial,
+      firmwareVersion: gatewayFirmwareVersion,
+      configVersion: assignment.configVersion
+    });
+    await publish(mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
   }
 }
 

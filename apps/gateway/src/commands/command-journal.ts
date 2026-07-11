@@ -17,6 +17,12 @@ export class CommandJournal {
     return records[idempotencyKey] ?? null;
   }
 
+  async completedResults() {
+    return Object.values(await this.readAll())
+      .filter((record) => record.state === "completed" && record.result)
+      .map((record) => record.result);
+  }
+
   async accept(idempotencyKey: string, command: unknown) {
     return this.enqueue(async () => {
       const records = await this.readAll();
