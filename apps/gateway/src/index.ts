@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import { config } from "dotenv";
 import { dimmingCommandSchema, identifyDeviceSchema, mqttTopics, provisionDeviceSchema, provisioningScanStartSchema } from "@led-control/shared";
-import mqtt from "mqtt";
 import {
   applyIdentifyDevice,
   applyManualDimmingCommand,
@@ -15,6 +14,7 @@ import {
   StubProvisioningScannerAdapter
 } from "./gateway";
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
+import { createMqttClient } from "./mqtt/create-mqtt-client";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -27,7 +27,7 @@ async function main() {
   const adapter = new StubBleMeshAdapter();
   const scannerAdapter = createScannerAdapter();
   const provisioningAdapter = createProvisioningAdapter();
-  const client = mqtt.connect(mqttUrl);
+  const client = createMqttClient({ ...process.env, MQTT_URL: mqttUrl });
 
   client.on("connect", () => {
     client.subscribe(

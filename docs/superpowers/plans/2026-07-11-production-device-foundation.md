@@ -345,7 +345,7 @@ git commit -m "feat: bootstrap gateway assignment securely"
 - Produces: TLS listener 8883 with `require_certificate true`
 - Produces: certificate CN/fingerprint to gateway-scoped ACL mapping
 
-- [ ] **Step 1: 보안 설정 정적 테스트 작성**
+- [x] **Step 1: 보안 설정 정적 테스트 작성**
 
 ```ts
 expect(mosquittoConfig).toContain("allow_anonymous false");
@@ -353,7 +353,7 @@ expect(mosquittoConfig).toContain("require_certificate true");
 expect(gitignore).toContain(".local/pki/");
 ```
 
-- [ ] **Step 2: 개발 PKI와 Mosquitto profile 구현**
+- [x] **Step 2: 개발 PKI와 Mosquitto profile 구현**
 
 인증서 출력은 `.local/pki`로 고정하고 스크립트는 `umask 077`을 설정한다. 저장소에는 config와 예시 ACL만 남긴다.
 
@@ -368,11 +368,11 @@ use_identity_as_username true
 acl_file /mosquitto/config/mosquitto.acl
 ```
 
-- [ ] **Step 3: API/gateway TLS option 구현**
+- [x] **Step 3: API/gateway TLS option 구현**
 
 Production에서 `mqtt://`, CA 누락, client cert/key 누락은 시작 실패한다. Test와 명시적 local profile에서만 평문 broker를 허용한다.
 
-- [ ] **Step 4: 인증 부정 시험**
+- [x] **Step 4: 인증 부정 시험**
 
 Run: `mosquitto_pub -h localhost -p 8883 -t test -m denied`
 Expected: TLS/authentication failure.
@@ -380,7 +380,7 @@ Expected: TLS/authentication failure.
 Run with gateway certificate and another gateway topic.
 Expected: ACL authorization failure.
 
-- [ ] **Step 5: 검증·커밋**
+- [x] **Step 5: 검증·커밋**
 
 Run: `pnpm --filter @led-control/gateway test && pnpm --filter @led-control/api test -- mqtt.service.spec.ts --runInBand && git diff --check`
 Expected: PASS.

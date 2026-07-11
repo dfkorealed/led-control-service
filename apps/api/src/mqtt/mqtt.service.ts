@@ -16,6 +16,7 @@ import {
   unprovisionedDeviceFoundSchema
 } from "@led-control/shared";
 import mqtt, { MqttClient } from "mqtt";
+import { readFileSync } from "node:fs";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
@@ -85,7 +86,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   private getClient() {
     if (!this.client) {
-      this.client = mqtt.connect(process.env.MQTT_URL ?? "mqtt://localhost:1883");
+      const connection = createMqttConnectionOptions(process.env);
+      this.client = mqtt.connect(connection.url, connection.options);
     }
     return this.client;
   }
@@ -280,6 +282,32 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
     });
   }
+}
+
+export function createMqttConnectionOptions(env: NodeJS.ProcessEnv) {
+  const url = env.MQTT_URL ?? "mqtt://localhost:1883";
+  if (!url.startsWith("mqtts://")) {
+    if (env.MQTT_ALLOW_INSECURE_LOCAL !== "true") {
+      throw new Error("MQTT_URL must use mqtts:// unless MQTT_ALLOW_INSECURE_LOCAL=true");
+    }
+    return { url, options: {} };
+  }
+
+  return {
+    url,
+    options: {
+      ca: readFileSync(requiredMqttPath(env, "MQTT_CA_PATH")),
+      cert: readFileSync(requiredMqttPath(env, "MQTT_CLIENT_CERT_PATH")),
+      key: readFileSync(requiredMqttPath(env, "MQTT_CLIENT_KEY_PATH")),
+      rejectUnauthorized: true
+    }
+  };
+}
+
+function requiredMqttPath(env: NodeJS.ProcessEnv, name: string) {
+  const value = env[name];
+  if (!value) throw new Error(`${name} is required for MQTT mTLS`);
+  return value;
 }
 
 function parseGatewayScopedTopic(topic: string) {

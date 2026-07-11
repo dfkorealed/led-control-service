@@ -1,0 +1,9 @@
+# API client certificate CN
+user api-service
+topic readwrite sites/#
+
+# Gateway client certificate CN must equal Gateway.id.
+pattern read sites/+/gateways/%u/commands/#
+pattern write sites/+/gateways/%u/acks/#
+pattern write sites/+/gateways/%u/state/#
+pattern write sites/+/gateways/%u/events/#

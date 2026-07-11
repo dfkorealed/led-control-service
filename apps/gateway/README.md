@@ -108,6 +108,26 @@ GATEWAY_IDENTIFY_COMMAND=/opt/led-control/bin/identify-device
 
 장비가 아직 claim되지 않았으면 2초부터 최대 60초까지 지수 backoff로 bootstrap을 재시도한다. 저장된 assignment가 있으면 네트워크 장애 중에도 이를 우선 사용한다. `GATEWAY_TEST_MODE=true`와 `GATEWAY_SITE_ID/GATEWAY_ID` 조합은 로컬 stub 전용이며 양산 환경에서는 사용하지 않는다. 장치 private key와 claim code 원문은 DB, assignment 파일, Git에 저장하지 않는다.
 
+## MQTT mTLS 개발 검증
+
+개발용 TLS broker와 인증서는 다음 순서로 준비한다. `.local/pki`는 Git에서 제외되며 private key 권한은 `0600`으로 생성된다.
+
+```bash
+scripts/dev-pki/create-ca.sh
+scripts/dev-pki/issue-gateway-cert.sh <claim 후 발급된 gatewayId>
+docker compose --profile secure-mqtt up mqtt-tls
+```
+
+API는 `.local/pki/api.crt`, gateway는 발급된 `gateway-<gatewayId>.crt`를 사용한다. 운영 모드의 API와 gateway는 `mqtts://` URL 및 `MQTT_CA_PATH`, `MQTT_CLIENT_CERT_PATH`, `MQTT_CLIENT_KEY_PATH`가 모두 필요하다. 로컬 평문 broker는 `MQTT_ALLOW_INSECURE_LOCAL=true`가 명시된 경우에만 허용한다.
+
+제조 시 주입하는 bootstrap 인증서는 serial 기반 장치 identity를 증명한다. MQTT 인증서는 claim이 끝나 `gatewayId`가 정해진 뒤 장치가 생성한 CSR에 대해 별도로 발급하고 CN을 `gatewayId`로 사용한다. 따라서 양산 이미지에 site/gateway ID나 MQTT private key를 미리 넣지 않는다. 현재 개발 스크립트는 이 claim 후 MQTT 인증서 발급을 수동으로 재현하며, 자동 CSR enrollment와 갱신은 후속 운영 PKI 작업으로 남아 있다.
+
+인증서 폐기 후에는 CRL을 갱신하고 broker를 재시작한다.
+
+```bash
+scripts/dev-pki/revoke-gateway-cert.sh .local/pki/gateway-<gatewayId>.crt
+```
+
 `GATEWAY_FIRMWARE_VERSION`은 사용자가 현장 등록 화면에서 입력하지 않는다. 게이트웨이가 heartbeat를 발행할 때 이 값을 함께 보내고, API가 `Gateway.firmwareVersion`을 자동 갱신한다. 값이 없으면 서버는 기존 `manual-unknown` 값을 유지한다.
 
 ## systemd 예시

@@ -1,6 +1,12 @@
-import { MqttService } from "./mqtt.service";
+import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 
 describe("MqttService", () => {
+  it("rejects insecure production broker configuration", () => {
+    expect(() => createMqttConnectionOptions({ NODE_ENV: "production", MQTT_URL: "mqtt://broker:1883" })).toThrow(
+      "mqtts://"
+    );
+  });
+
   it("updates fixture state from MQTT fixture-state events", async () => {
     const prisma = {
       fixture: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
