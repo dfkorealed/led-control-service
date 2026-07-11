@@ -689,6 +689,181 @@ git commit -m "docs: complete production device foundation runbook"
 - `2-node 실기 완료`: HIL 전체 시나리오가 수동 DB 수정 없이 3회 연속 통과했다.
 - 세 등급 중 하나라도 빠지면 프로젝트 문서에 `양산 준비 완료`라고 기록하지 않는다.
 
+---
+
+## 양산 단일 기준 후속 구현
+
+### Task 13: Gateway 양산 adapter 경계와 실행 차단
+
+**Files:**
+- Create: `apps/gateway/src/adapters/adapter-factory.ts`
+- Create: `apps/gateway/src/adapters/adapter-factory.test.ts`
+- Modify: `apps/gateway/src/index.ts`
+- Modify: `apps/gateway/src/gateway.ts`
+- Modify: `apps/gateway/.env.example`
+- Modify: `apps/gateway/README.md`
+
+**Interfaces:**
+- Produces: `createProductionAdapters(env): GatewayAdapters`
+- Produces: capability가 확인된 실제 adapter 외에는 시작 실패
+
+- [ ] **Step 1: gateway 본체에서 stub 선택이 불가능한 실패 테스트 작성**
+- [ ] **Step 2: 테스트가 현재 stub 생성 때문에 실패하는지 확인**
+- [ ] **Step 3: adapter factory를 추가하고 `index.ts`의 직접 stub 생성을 제거**
+- [ ] **Step 4: 실제 adapter 미구현 상태에서는 MQTT 연결 전 `PRODUCTION_ADAPTER_UNAVAILABLE`로 종료**
+- [ ] **Step 5: mock은 `apps/mock-gateway`와 test dependency injection에만 남았는지 정적 검사**
+- [ ] **Step 6: gateway 테스트/typecheck/문서 갱신/커밋**
+
+### Task 14: 명령 timeout과 최신 snapshot journal
+
+**Files:**
+- Modify: `apps/gateway/src/commands/gateway-command-handler.ts`
+- Modify: `apps/gateway/src/commands/gateway-command-handler.test.ts`
+- Replace: `apps/gateway/src/commands/command-journal.ts`
+- Modify: `apps/gateway/src/commands/command-journal.test.ts`
+- Modify: `apps/gateway/src/index.ts`
+- Modify: `packages/shared/src/gateway-contracts.ts`
+
+**Interfaces:**
+- Produces: fixture status 제한 기본 8초
+- Produces: `indeterminate` recovery result
+- Produces: idempotency TTL 24시간/최대 10,000건과 fixture latest snapshot 1건
+
+- [ ] **Step 1: adapter가 영원히 대기할 때 8초 후 timed-out 결과가 생성되는 fake-clock 테스트**
+- [ ] **Step 2: accepted-only 재시작 명령이 재제어되지 않고 indeterminate로 닫히는 테스트**
+- [ ] **Step 3: journal prune와 fixture별 latest snapshot 테스트**
+- [ ] **Step 4: timeout/recovery/prune 구현**
+- [ ] **Step 5: startup resync가 최신 snapshot만 현재 시각·새 sequence로 발행하도록 변경**
+- [ ] **Step 6: gateway/shared 검증과 커밋**
+
+### Task 15: Outbox lease, backoff, dead-letter와 dispatch timeout
+
+**Files:**
+- Modify: `apps/api/prisma/schema.prisma`
+- Create: `apps/api/prisma/migrations/*_harden_mqtt_outbox/migration.sql`
+- Create: `apps/api/src/mqtt/outbox-publisher.service.ts`
+- Create: `apps/api/src/mqtt/outbox-publisher.service.spec.ts`
+- Create: `apps/api/src/commands/command-timeout.service.ts`
+- Create: `apps/api/src/commands/command-timeout.service.spec.ts`
+- Modify: `apps/api/src/mqtt/mqtt.module.ts`
+- Modify: `apps/api/src/mqtt/mqtt.service.ts`
+
+**Interfaces:**
+- Produces: `claimBatch(workerId, now)` lease ownership
+- Produces: 최대 10회/15분 dead-letter
+- Produces: acceptance 10초, dispatch 30초 timeout 집계
+
+- [ ] **Step 1: publisher 두 개가 같은 row를 동시에 소유하지 않는 DB 계약 테스트**
+- [ ] **Step 2: 지수 backoff, lease 만료 회수, 최대 시도 dead-letter 실패 테스트**
+- [ ] **Step 3: schema/migration과 atomic claim 구현**
+- [ ] **Step 4: publish 성공/실패와 lease owner 조건부 update 구현**
+- [ ] **Step 5: pending/published/accepted dispatch timeout worker 구현**
+- [ ] **Step 6: migration 적용, API 전체 검증, DB 문서 갱신, 커밋**
+
+### Task 16: Fixture gateway 범위와 제어 가능 상태 API
+
+**Files:**
+- Modify: `apps/api/src/sites/sites.service.ts`
+- Modify: `apps/api/src/sites/sites.service.spec.ts`
+- Modify: `apps/api/src/commands/commands.service.ts`
+- Modify: `apps/api/src/commands/commands.service.spec.ts`
+- Modify: `apps/web/src/api/queries.ts`
+- Modify: `apps/web/src/features/monitoring/MonitoringView.tsx`
+- Modify: `apps/web/src/features/control/ControlView.tsx`
+- Modify: `apps/web/src/App.test.tsx`
+
+**Interfaces:**
+- Produces: fixture별 gateway ID/name/connection status
+- Produces: `controllable`과 `controlBlockReason`
+
+- [ ] **Step 1: 다중 gateway에서 선택 fixture의 gateway가 표시되는 실패 테스트**
+- [ ] **Step 2: offline/fault/mapping 없음/group 일부 불가가 명령 생성 전에 거부되는 API 테스트**
+- [ ] **Step 3: dashboard query와 command validation 구현**
+- [ ] **Step 4: UI 비활성화와 한국어 차단 사유 표시**
+- [ ] **Step 5: API/Web 테스트, 메뉴 문서 갱신, 커밋**
+
+### Task 17: Command 진행 상태 API와 제어 결과 UI
+
+**Files:**
+- Modify: `apps/api/src/commands/commands.controller.ts`
+- Modify: `apps/api/src/commands/commands.service.ts`
+- Create: `apps/api/src/commands/command-status.service.ts`
+- Create: `apps/api/src/commands/command-status.service.spec.ts`
+- Create: `apps/web/src/api/commands.ts`
+- Modify: `apps/web/src/features/control/ControlView.tsx`
+- Modify: `apps/web/src/App.test.tsx`
+
+**Interfaces:**
+- Produces: `GET /commands/:commandId`
+- Produces: command/dispatch/fixture result 단계 표시
+
+- [ ] **Step 1: 다른 조직 command 조회 거부와 fixture별 결과 응답 테스트**
+- [ ] **Step 2: status service/controller 구현**
+- [ ] **Step 3: command 생성 응답에 dispatch 수 포함**
+- [ ] **Step 4: UI에서 접수/수신/적용/부분 실패/timeout polling 표시**
+- [ ] **Step 5: API/Web/E2E 검증과 커밋**
+
+### Task 18: 1,000 fixture 조회와 렌더링 성능 기반
+
+**Files:**
+- Create: `apps/api/src/fixtures/fixtures.controller.ts`
+- Create: `apps/api/src/fixtures/fixtures.service.ts`
+- Create: `apps/api/src/fixtures/fixtures.service.spec.ts`
+- Modify: `apps/api/src/app.module.ts`
+- Modify: `apps/web/src/api/queries.ts`
+- Modify: `apps/web/src/features/monitoring/FloorMap.tsx`
+- Create: `apps/web/e2e/monitoring-1000.spec.ts`
+
+**Interfaces:**
+- Produces: 층 metadata와 cursor 기반 fixture snapshot 분리 조회
+- Produces: 1,000 fixture deterministic seed/performance test
+
+- [ ] **Step 1: cursor/tenant 범위 fixture API 실패 테스트**
+- [ ] **Step 2: paginated snapshot API 구현**
+- [ ] **Step 3: Web query를 층 선택 기반 조회로 분리**
+- [ ] **Step 4: viewport marker 렌더링과 1,000 fixture E2E 작성**
+- [ ] **Step 5: API p95 1초와 브라우저 메모리/렌더 기준 측정 스크립트 추가**
+- [ ] **Step 6: 전체 검증, 모니터링 문서 갱신, 커밋**
+
+### Task 19: Object Storage 도면 업로드
+
+**Files:**
+- Create: `apps/api/src/storage/object-storage.service.ts`
+- Create: `apps/api/src/storage/object-storage.service.spec.ts`
+- Create: `apps/api/src/floor-editor/floor-assets.controller.ts`
+- Modify: `apps/api/src/floor-editor/floor-editor.module.ts`
+- Modify: `apps/api/src/floor-editor/floor-editor.service.ts`
+- Modify: `apps/web/src/features/floor-editor/FloorAssetUploader.tsx`
+- Modify: `docker-compose.yml`
+- Modify: `.env.example`
+
+**Interfaces:**
+- Produces: S3-compatible signed upload/complete flow
+- Removes: data URL floor plan persistence
+
+- [ ] **Step 1: data URL 거부, MIME/size/checksum 검증 실패 테스트**
+- [ ] **Step 2: S3-compatible storage와 signed upload 구현**
+- [ ] **Step 3: DB에 object metadata만 저장하도록 editor API 변경**
+- [ ] **Step 4: Web direct upload와 PDF render object upload 구현**
+- [ ] **Step 5: 로컬 S3 호환 integration/E2E, 문서, 커밋**
+
+### Task 20: 실제 adapter·HIL·soak 완료 게이트
+
+**Files:**
+- Modify: `apps/gateway/src/mesh/*`
+- Modify: `apps/gateway/scripts/hil-2node-test.ts`
+- Create: `apps/gateway/scripts/soak-test.ts`
+- Modify: `docs/runbooks/production-device-lab.md`
+- Modify: `docs/menus/monitoring.md`
+- Modify: `docs/menus/control.md`
+
+- [ ] **Step 1: Raspberry Pi Phase 0 여섯 항목 통과 증거 기록**
+- [ ] **Step 2: 선택된 실제 adapter의 scan/provision/bind/status 구현**
+- [ ] **Step 3: 실장비 HIL step executor 구현**
+- [ ] **Step 4: 2-node 전체 시나리오 3회 연속 실행**
+- [ ] **Step 5: 72시간 soak와 주차장 RF walk test 실행**
+- [ ] **Step 6: 완료 수준 문서 갱신과 최종 커밋**
+
 ## 진행 로그
 
 - 2026-07-11: 설계 승인 및 구현 계획 작성. 구현은 Task 1부터 순서대로 진행한다.
