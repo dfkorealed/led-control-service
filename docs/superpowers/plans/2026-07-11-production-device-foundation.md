@@ -312,7 +312,7 @@ Expected before implementation: FAIL.
 
 - [x] **Step 3: `siteId/gatewayId` env 의존 제거**
 
-`GATEWAY_SITE_ID`, `GATEWAY_ID`는 test mode에서만 허용한다. Production 시작 시 assignment 또는 제조 credential이 없으면 명확한 오류로 종료한다.
+`GATEWAY_SITE_ID`, `GATEWAY_ID`, `GATEWAY_TEST_MODE` 직접 assignment 우회는 모든 환경에서 금지한다. 시작 시 저장 assignment 또는 제조 credential이 없으면 명확한 오류로 종료한다.
 
 - [x] **Step 4: 검증과 커밋**
 
@@ -370,7 +370,7 @@ acl_file /mosquitto/config/mosquitto.acl
 
 - [x] **Step 3: API/gateway TLS option 구현**
 
-Production에서 `mqtt://`, CA 누락, client cert/key 누락은 시작 실패한다. Test와 명시적 local profile에서만 평문 broker를 허용한다.
+환경과 관계없이 `mqtt://`, CA 누락, client cert/key 누락은 시작 실패한다. 로컬도 개발용 CA와 client certificate를 사용한다.
 
 - [x] **Step 4: 인증 부정 시험**
 
@@ -863,6 +863,14 @@ git commit -m "docs: complete production device foundation runbook"
 - [ ] **Step 4: 2-node 전체 시나리오 3회 연속 실행**
 - [ ] **Step 5: 72시간 soak와 주차장 RF walk test 실행**
 - [ ] **Step 6: 완료 수준 문서 갱신과 최종 커밋**
+
+### Task 21: 양산 보안 우회 제거
+
+- [x] `NODE_ENV=test` client certificate header 우회 제거
+- [x] API/gateway의 `MQTT_ALLOW_INSECURE_LOCAL` 평문 MQTT 우회 제거
+- [x] `GATEWAY_TEST_MODE`, 직접 site/gateway ID assignment 우회 제거
+- [x] gateway runtime stub를 `apps/gateway/test` 전용 helper로 이동
+- [x] gateway smoke test를 mTLS 및 gateway-scoped v2 ACK 계약으로 변경
 
 ## 진행 로그
 

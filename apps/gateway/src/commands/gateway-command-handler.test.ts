@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { StubBleMeshAdapter } from "../gateway";
+import { StubBleMeshAdapter } from "../../test/stub-adapters";
 import { handleGatewayDimmingCommand, parseCommandTimeout } from "./gateway-command-handler";
 
 const command = {

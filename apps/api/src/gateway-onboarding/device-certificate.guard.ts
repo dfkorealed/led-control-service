@@ -13,19 +13,12 @@ export interface DeviceCertificateRequest {
 export class DeviceCertificateGuard implements CanActivate {
   canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<DeviceCertificateRequest>();
-    const testFingerprint = this.readTestFingerprint(request);
     const peer = request.socket?.getPeerCertificate?.();
-    const fingerprint = testFingerprint ?? (request.socket?.authorized ? peer?.fingerprint256 : undefined);
+    const fingerprint = request.socket?.authorized ? peer?.fingerprint256 : undefined;
 
     if (!fingerprint) throw new UnauthorizedException("mTLS device certificate required");
     request.deviceCertificateFingerprint = this.normalizeFingerprint(fingerprint);
     return true;
-  }
-
-  private readTestFingerprint(request: DeviceCertificateRequest) {
-    if (process.env.NODE_ENV !== "test") return undefined;
-    const value = request.headers["x-test-client-cert-fingerprint"];
-    return Array.isArray(value) ? value[0] : value;
   }
 
   private normalizeFingerprint(value: string) {

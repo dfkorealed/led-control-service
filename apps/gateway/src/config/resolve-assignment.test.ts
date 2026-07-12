@@ -16,7 +16,7 @@ describe("resolveGatewayAssignment", () => {
     expect(store.writeAtomic).not.toHaveBeenCalled();
   });
 
-  it("allows legacy identifiers only in explicit test mode", async () => {
+  it("rejects legacy direct identifiers even when the old test flag is set", async () => {
     const store = { read: vi.fn().mockResolvedValue(null), writeAtomic: vi.fn() };
     await expect(
       resolveGatewayAssignment({
@@ -29,7 +29,7 @@ describe("resolveGatewayAssignment", () => {
         },
         store
       })
-    ).resolves.toMatchObject({ siteId: "site-test", gatewayId: "gateway-test" });
+    ).rejects.toThrow("manufacturing credential");
   });
 
   it("rejects legacy identifiers in production without manufacturing credentials", async () => {

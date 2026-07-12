@@ -482,13 +482,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 }
 
 export function createMqttConnectionOptions(env: NodeJS.ProcessEnv) {
-  const url = env.MQTT_URL ?? "mqtt://localhost:1883";
-  if (!url.startsWith("mqtts://")) {
-    if (env.MQTT_ALLOW_INSECURE_LOCAL !== "true") {
-      throw new Error("MQTT_URL must use mqtts:// unless MQTT_ALLOW_INSECURE_LOCAL=true");
-    }
-    return { url, options: {} };
-  }
+  const url = env.MQTT_URL;
+  if (!url?.startsWith("mqtts://")) throw new Error("MQTT_URL is required and must use mqtts://");
 
   return {
     url,

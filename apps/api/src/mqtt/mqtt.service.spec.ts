@@ -7,6 +7,12 @@ describe("MqttService", () => {
     );
   });
 
+  it("rejects plaintext MQTT even when a legacy local override is set", () => {
+    expect(() =>
+      createMqttConnectionOptions({ MQTT_URL: "mqtt://localhost:1883", MQTT_ALLOW_INSECURE_LOCAL: "true" })
+    ).toThrow("mqtts://");
+  });
+
   it("publishes a QoS 1 JSON payload", async () => {
     const prisma: any = {};
     const publish = jest.fn((_topic, _payload, _options, callback) => callback());

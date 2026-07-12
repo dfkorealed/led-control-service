@@ -107,7 +107,7 @@ scripts/dev-pki/issue-gateway-cert.sh <claim 후 발급된 gatewayId>
 docker compose --profile secure-mqtt up mqtt-tls
 ```
 
-API는 `.local/pki/api.crt`, gateway는 발급된 `gateway-<gatewayId>.crt`를 사용한다. 운영 모드의 API와 gateway는 `mqtts://` URL 및 `MQTT_CA_PATH`, `MQTT_CLIENT_CERT_PATH`, `MQTT_CLIENT_KEY_PATH`가 모두 필요하다. 로컬 평문 broker는 `MQTT_ALLOW_INSECURE_LOCAL=true`가 명시된 경우에만 허용한다.
+API는 `.local/pki/api.crt`, gateway는 발급된 `gateway-<gatewayId>.crt`를 사용한다. API와 gateway는 환경에 관계없이 `mqtts://` URL 및 `MQTT_CA_PATH`, `MQTT_CLIENT_CERT_PATH`, `MQTT_CLIENT_KEY_PATH`가 모두 필요하며 평문 broker는 허용하지 않는다.
 
 제조 시 주입하는 bootstrap 인증서는 serial 기반 장치 identity를 증명한다. MQTT 인증서는 claim이 끝나 `gatewayId`가 정해진 뒤 장치가 생성한 CSR에 대해 별도로 발급하고 CN을 `gatewayId`로 사용한다. 따라서 양산 이미지에 site/gateway ID나 MQTT private key를 미리 넣지 않는다. 현재 개발 스크립트는 이 claim 후 MQTT 인증서 발급을 수동으로 재현하며, 자동 CSR enrollment와 갱신은 후속 운영 PKI 작업으로 남아 있다.
 
@@ -141,7 +141,7 @@ WantedBy=multi-user.target
 
 ## 하드웨어 연동 메모
 
-현재 `StubBleMeshAdapter`, `StubProvisioningScannerAdapter`, `StubProvisioningAdapter`는 실제 BLE Mesh 전송 대신 로컬 테스트 이벤트를 만든다. 하드웨어 확보 후 수동 제어는 `BleMeshAdapter`, 조명 검색은 `ProvisioningScannerAdapter`, 조명 등록은 `ProvisioningAdapter` 구현체를 BlueZ D-Bus 또는 검증된 BLE Mesh provisioner/client 스택으로 교체한다.
+양산 gateway runtime에는 stub adapter가 없다. 자동 테스트용 adapter는 `apps/gateway/test`에만 존재하고 배포 진입점에서 import하지 않는다. 수동 제어, 검색, 등록은 검증된 BlueZ D-Bus adapter가 없으면 시작 단계에서 실패한다.
 
 `BleMeshAdapter.setBrightness()`는 fixture별 결과를 반환해야 한다.
 

@@ -1,33 +1,43 @@
 #!/usr/bin/env node
 import mqtt from "mqtt";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
-const siteId = process.env.GATEWAY_SITE_ID ?? "00000000-0000-4000-8000-000000000003";
-const mqttUrl = process.env.MQTT_URL ?? "mqtt://localhost:1883";
-const fixtureId = process.env.GATEWAY_TEST_FIXTURE_ID ?? "44444444-4444-4444-8444-444444444444";
-const commandId = process.env.GATEWAY_TEST_COMMAND_ID ?? randomUUID();
+const siteId = required("GATEWAY_SITE_ID");
+const gatewayId = required("GATEWAY_ID");
+const mqttUrl = required("MQTT_URL");
+if (!mqttUrl.startsWith("mqtts://")) throw new Error("MQTT_URL must use mqtts://");
+const fixtureId = required("GATEWAY_TEST_FIXTURE_ID");
+const commandId = randomUUID();
+const dispatchId = randomUUID();
+const idempotencyKey = randomUUID();
 const brightness = Number(process.env.GATEWAY_TEST_BRIGHTNESS ?? 55);
 const timeoutMs = Number(process.env.GATEWAY_TEST_TIMEOUT_MS ?? 8000);
 
 const topics = {
-  command: `sites/${siteId}/commands/dimming`,
-  ack: `sites/${siteId}/events/command-ack`,
-  fixtureState: `sites/${siteId}/events/fixture-state`
+  command: `sites/${siteId}/gateways/${gatewayId}/commands/dimming`,
+  acceptance: `sites/${siteId}/gateways/${gatewayId}/acks/acceptance`,
+  deviceStatus: `sites/${siteId}/gateways/${gatewayId}/acks/device-status`
 };
 
-const client = mqtt.connect(mqttUrl);
+const client = mqtt.connect(mqttUrl, {
+  ca: readFileSync(required("MQTT_CA_PATH")),
+  cert: readFileSync(required("MQTT_CLIENT_CERT_PATH")),
+  key: readFileSync(required("MQTT_CLIENT_KEY_PATH")),
+  rejectUnauthorized: true
+});
 const received = {
-  ack: undefined,
-  fixtureState: undefined
+  acceptance: undefined,
+  deviceStatus: undefined
 };
 let completed = false;
 
 const timeout = setTimeout(() => {
-  fail(`게이트웨이 응답 대기 시간이 초과되었습니다. ack=${Boolean(received.ack)} fixtureState=${Boolean(received.fixtureState)}`);
+  fail(`게이트웨이 응답 대기 시간이 초과되었습니다. acceptance=${Boolean(received.acceptance)} deviceStatus=${Boolean(received.deviceStatus)}`);
 }, timeoutMs);
 
 client.on("connect", () => {
-  client.subscribe([topics.ack, topics.fixtureState], { qos: 1 }, (error) => {
+  client.subscribe([topics.acceptance, topics.deviceStatus], { qos: 1 }, (error) => {
     if (error) {
       fail(`MQTT subscribe 실패: ${error.message}`);
       return;
@@ -35,7 +45,11 @@ client.on("connect", () => {
 
     const command = {
       commandId,
+      dispatchId,
+      idempotencyKey,
+      sequence: Number(process.env.GATEWAY_TEST_SEQUENCE ?? 1),
       siteId,
+      gatewayId,
       targetType: "fixture",
       targetId: fixtureId,
       targetFixtureIds: [fixtureId],
@@ -54,15 +68,15 @@ client.on("message", (topic, payload) => {
   if (completed) return;
 
   const message = parseMessage(payload);
-  if (topic === topics.ack && message.commandId === commandId) {
-    received.ack = message;
+  if (topic === topics.acceptance && message.dispatchId === dispatchId) {
+    received.acceptance = message;
   }
 
-  if (topic === topics.fixtureState && message.fixtureId === fixtureId && message.brightness === brightness) {
-    received.fixtureState = message;
+  if (topic === topics.deviceStatus && message.dispatchId === dispatchId) {
+    received.deviceStatus = message;
   }
 
-  if (received.ack?.status === "acknowledged" && received.fixtureState) {
+  if (received.acceptance?.status === "accepted" && received.deviceStatus?.status === "succeeded") {
     completed = true;
     clearTimeout(timeout);
     console.log("게이트웨이 로컬 smoke test 성공");
@@ -81,6 +95,12 @@ function parseMessage(payload) {
   } catch {
     return {};
   }
+}
+
+function required(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required`);
+  return value;
 }
 
 function fail(message) {

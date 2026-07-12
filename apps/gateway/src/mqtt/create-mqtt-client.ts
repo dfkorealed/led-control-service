@@ -2,12 +2,8 @@ import { readFileSync } from "node:fs";
 import mqtt, { IClientOptions } from "mqtt";
 
 export function createMqttConnectionOptions(env: NodeJS.ProcessEnv): { url: string; options: IClientOptions } {
-  const url = env.MQTT_URL ?? "mqtt://localhost:1883";
-  const insecureLocal = env.MQTT_ALLOW_INSECURE_LOCAL === "true";
-  if (!url.startsWith("mqtts://")) {
-    if (!insecureLocal) throw new Error("MQTT_URL must use mqtts:// unless MQTT_ALLOW_INSECURE_LOCAL=true");
-    return { url, options: {} };
-  }
+  const url = env.MQTT_URL;
+  if (!url?.startsWith("mqtts://")) throw new Error("MQTT_URL is required and must use mqtts://");
 
   return {
     url,

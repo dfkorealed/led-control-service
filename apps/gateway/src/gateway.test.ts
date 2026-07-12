@@ -4,10 +4,8 @@ import {
   applyProvisionDevice,
   applyProvisioningScan,
   createHeartbeatPayload,
-  StubBleMeshAdapter,
-  StubProvisioningAdapter,
-  StubProvisioningScannerAdapter
 } from "./gateway";
+import { StubBleMeshAdapter, StubProvisioningAdapter, StubProvisioningScannerAdapter } from "../test/stub-adapters";
 
 describe("gateway manual dimming", () => {
   it("passes fixture targets to the BLE adapter and returns acknowledged state events", async () => {

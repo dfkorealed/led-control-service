@@ -20,8 +20,6 @@ export async function resolveGatewayAssignment(options: {
   const stored = await options.store.read();
   if (stored) return stored;
 
-  if (options.env.GATEWAY_TEST_MODE === "true") return testAssignment(options.env);
-
   const serialNumber = requireManufacturingEnv(options.env, "GATEWAY_SERIAL");
   const client =
     options.bootstrapClient ??
@@ -51,24 +49,8 @@ export function createAssignmentStore(env: NodeJS.ProcessEnv) {
   return new AssignmentStore(env.GATEWAY_ASSIGNMENT_PATH ?? "/var/lib/led-control/assignment.json");
 }
 
-function testAssignment(env: NodeJS.ProcessEnv): GatewayAssignment {
-  return {
-    siteId: required(env, "GATEWAY_SITE_ID"),
-    gatewayId: required(env, "GATEWAY_ID"),
-    serialNumber: required(env, "GATEWAY_SERIAL"),
-    mqttUrl: env.MQTT_URL ?? "mqtt://localhost:1883",
-    configVersion: 1
-  };
-}
-
 function requireManufacturingEnv(env: NodeJS.ProcessEnv, name: string) {
   const value = env[name];
   if (!value) throw new Error(`${name} manufacturing credential is required when no gateway assignment exists`);
-  return value;
-}
-
-function required(env: NodeJS.ProcessEnv, name: string) {
-  const value = env[name];
-  if (!value) throw new Error(`${name} is required in gateway test mode`);
   return value;
 }

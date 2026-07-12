@@ -25,7 +25,7 @@
 - Raspberry Pi gateway 앱 골격이 `sites/{siteId}/commands/dimming` MQTT 명령을 수신하고 ACK, fixture state, heartbeat를 발행한다.
 - ESP32-H2 펌웨어는 PlatformIO 대신 ESP-IDF 구조로 작성하며, LEDC PWM 기반 밝기 적용 골격을 제공한다.
 - ESP-IDF `v5.5.1` + `esp32h2` 환경을 로컬에 구성했고 `scripts/esp32-h2-build.sh`로 실제 펌웨어 빌드를 통과했다.
-- 로컬 게이트웨이 smoke test 스크립트(`pnpm gateway:smoke`)로 MQTT 명령, ACK, fixture state 흐름을 검증할 수 있다.
+- 게이트웨이 smoke test 스크립트(`pnpm gateway:smoke`)는 mTLS와 gateway-scoped v2 명령, acceptance/device-status ACK 흐름만 검증한다.
 - ESP32-H2 실제 보드 플래시 절차와 라즈베리파이 게이트웨이 로컬 실행 절차를 문서화했다.
 - ESP32-H2 펌웨어에 BLE Mesh node 초기화, provisioning advertisement, node identity, Health Server, Generic OnOff Server, Light Lightness Server, status publication 골격을 추가했고 ESP-IDF 빌드를 통과했다.
 - Gateway adapter 계약을 fixture별 장비 리포트 기반으로 확장해 일부 노드 실패 시 command ACK와 fixture state가 함께 동기화되도록 했다.
@@ -66,7 +66,7 @@
 - 제어 대상이 없을 때 empty state가 충분하지 않다.
 - Raspberry Pi gateway는 현재 실제 BlueZ adapter 미구현으로 의도적으로 시작이 차단된다. Phase 0 통과 후 BlueZ D-Bus adapter를 연결해야 한다.
 - ESP32-H2 펌웨어는 BLE Mesh node 서버 모델까지 빌드되지만, 실제 RF/provisioning/model bind/group subscription은 보드와 라즈베리파이 확보 후 실기기 검증이 필요하다.
-- 로컬 게이트웨이 smoke test는 `StubBleMeshAdapter` 기준이므로 실제 BLE Mesh adapter 교체 후 라즈베리파이 실기기 재검증이 필요하다.
+- 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
 

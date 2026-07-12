@@ -8,10 +8,10 @@ describe("createMqttConnectionOptions", () => {
     );
   });
 
-  it("allows plaintext only for an explicit local profile", () => {
-    expect(
+  it("rejects plaintext even when a legacy local override is set", () => {
+    expect(() =>
       createMqttConnectionOptions({ MQTT_URL: "mqtt://localhost:1883", MQTT_ALLOW_INSECURE_LOCAL: "true" })
-    ).toEqual({ url: "mqtt://localhost:1883", options: {} });
+    ).toThrow("mqtts://");
   });
 
   it("requires the CA and device certificate paths for TLS", () => {
