@@ -152,6 +152,17 @@ export async function mockGet<T>(path: string): Promise<T> {
     throw new Error("Mock session is not authenticated");
   }
   if (path === "/sites/default/dashboard") return mockDashboardState as T;
+  if (path === "/sites/default/dashboard?includeFixtures=true") return mockDashboardState as T;
+  const fixturePageMatch = path.match(/^\/floors\/([^/]+)\/fixtures\?/);
+  if (fixturePageMatch) {
+    const url = new URL(path, "http://mock.local");
+    const fixtures = mockDashboardState.floors.find((floor) => floor.id === fixturePageMatch[1])?.fixtures ?? [];
+    const limit = Number(url.searchParams.get("limit") ?? 200);
+    const cursor = url.searchParams.get("cursor");
+    const start = cursor ? fixtures.findIndex((fixture) => fixture.id === cursor) + 1 : 0;
+    const items = fixtures.slice(start, start + limit);
+    return { items, nextCursor: start + limit < fixtures.length ? items.at(-1)?.id ?? null : null } as T;
+  }
   if (path === "/energy/default/estimate") return mockEnergyEstimate as T;
   if (path === `/registration-sessions/${mockRegistrationSessionState.id}`) return mockRegistrationSessionState as T;
   if (mockCommandStatusState && path === `/commands/${mockCommandStatusState.id}`) return mockCommandStatusState as T;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getFloorEditorState } from "../../api/floor-editor";
-import { useDashboard, type Dashboard } from "../../api/queries";
+import { useDashboard, useFloorFixtures, type Dashboard } from "../../api/queries";
 import { FloorEditorView } from "../floor-editor/FloorEditorView";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { SetupWizard } from "../setup/SetupWizard";
@@ -27,7 +27,8 @@ function MonitoringDashboard({ data }: { data: Dashboard }) {
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
-  const fixtures = floor?.fixtures ?? [];
+  const fixtureQuery = useFloorFixtures(floor?.id);
+  const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");
   const firstOfflineFixture = fixtures.find((fixture) => fixture.status === "offline");
@@ -48,6 +49,10 @@ function MonitoringDashboard({ data }: { data: Dashboard }) {
     queryFn: () => getFloorEditorState(editingFloorId ?? ""),
     enabled: Boolean(editingFloorId)
   });
+
+  useEffect(() => {
+    if (fixtureQuery.hasNextPage && !fixtureQuery.isFetchingNextPage) void fixtureQuery.fetchNextPage();
+  }, [fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
 
   useEffect(() => {
     if (!floor) return;
@@ -150,7 +155,7 @@ function MonitoringDashboard({ data }: { data: Dashboard }) {
       <div className="operations-layout">
         <div className="map-panel">
           {floor ? (
-            <FloorMap floor={floor} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
+            <FloorMap floor={{ ...floor, fixtures }} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
           ) : (
             <div className="panel">등록된 층이 없습니다.</div>
           )}

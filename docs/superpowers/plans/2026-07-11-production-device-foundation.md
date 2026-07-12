@@ -818,12 +818,12 @@ git commit -m "docs: complete production device foundation runbook"
 - Produces: 층 metadata와 cursor 기반 fixture snapshot 분리 조회
 - Produces: 1,000 fixture deterministic seed/performance test
 
-- [ ] **Step 1: cursor/tenant 범위 fixture API 실패 테스트**
-- [ ] **Step 2: paginated snapshot API 구현**
-- [ ] **Step 3: Web query를 층 선택 기반 조회로 분리**
-- [ ] **Step 4: viewport marker 렌더링과 1,000 fixture E2E 작성**
-- [ ] **Step 5: API p95 1초와 브라우저 메모리/렌더 기준 측정 스크립트 추가**
-- [ ] **Step 6: 전체 검증, 모니터링 문서 갱신, 커밋**
+- [x] **Step 1: cursor/tenant 범위 fixture API 실패 테스트**
+- [x] **Step 2: paginated snapshot API 구현**
+- [x] **Step 3: Web query를 층 선택 기반 조회로 분리**
+- [x] **Step 4: viewport marker 렌더링과 1,000 fixture E2E 작성**
+- [x] **Step 5: API p95 1초와 브라우저 메모리/렌더 기준 측정 스크립트 추가**
+- [x] **Step 6: 전체 검증, 모니터링 문서 갱신, 커밋**
 
 ### Task 19: Object Storage 도면 업로드
 

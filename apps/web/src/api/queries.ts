@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { apiGet } from "./client";
 
 export interface Dashboard {
@@ -48,5 +48,31 @@ export function useDashboard() {
     queryKey: ["dashboard"],
     queryFn: () => apiGet<Dashboard>("/sites/default/dashboard"),
     refetchInterval: 3000
+  });
+}
+
+export function useControlDashboard() {
+  return useQuery({
+    queryKey: ["dashboard", "with-fixtures"],
+    queryFn: () => apiGet<Dashboard>("/sites/default/dashboard?includeFixtures=true"),
+    refetchInterval: 3000
+  });
+}
+
+export type FixtureSnapshot = Dashboard["floors"][number]["fixtures"][number];
+
+export function useFloorFixtures(floorId: string | undefined) {
+  return useInfiniteQuery({
+    queryKey: ["floor-fixtures", floorId],
+    queryFn: ({ pageParam }) => {
+      const search = new URLSearchParams({ limit: "200" });
+      if (pageParam) search.set("cursor", pageParam);
+      return apiGet<{ items: FixtureSnapshot[]; nextCursor: string | null }>(
+        `/floors/${floorId}/fixtures?${search.toString()}`
+      );
+    },
+    initialPageParam: "" as string,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled: Boolean(floorId)
   });
 }

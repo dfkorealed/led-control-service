@@ -6,7 +6,8 @@ describe("SitesService", () => {
   const prisma = {
     site: {
       findFirst: jest.fn()
-    }
+    },
+    fixture: { findMany: jest.fn() }
   };
 
   beforeEach(() => {
@@ -66,6 +67,18 @@ describe("SitesService", () => {
       ],
       groups: [{ id: "group-1", name: "Entrance", groupFixtures: [{ fixtureId: "fixture-1" }] }]
     });
+    prisma.fixture.findMany.mockResolvedValue([
+      {
+        id: "fixture-1", floorId: "floor-1", name: "L1", x: 10, y: 20, brightness: 70, status: "online",
+        ratedWatt: "40", rssi: -58, hopCount: 1, commandSuccessRate: 0.98,
+        lastSeenAt: new Date("2026-07-01T00:00:00.000Z"),
+        meshNode: { gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: new Date() } }
+      },
+      {
+        id: "fixture-2", floorId: "floor-1", name: "L2", x: 30, y: 40, brightness: 0, status: "fault",
+        ratedWatt: "40", rssi: null, hopCount: null, commandSuccessRate: null, lastSeenAt: null, meshNode: null
+      }
+    ]);
 
     const moduleRef = await Test.createTestingModule({
       providers: [SitesService, { provide: PrismaService, useValue: prisma }]

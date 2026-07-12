@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-07-11
+기준일: 2026-07-12
 
 ## 구현 완료
 
@@ -20,6 +20,11 @@
 - MQTT `gateway-heartbeat` 이벤트가 gateway online/offline 상태 판단에 반영된다.
 - Mock gateway가 fixture 상태와 gateway heartbeat를 발행한다.
 - dashboard query는 React Query로 3초마다 polling한다.
+- 기본 dashboard는 fixture 본문을 제외한 현장/층/gateway metadata와 DB aggregate summary만 반환한다. 제어 화면만 `includeFixtures=true`를 명시한다.
+- 모니터링 fixture snapshot은 `GET /floors/:floorId/fixtures`에서 조직 범위를 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다.
+- `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
+- Playwright deterministic 1,000 fixture/5-page 시나리오가 Chromium에서 1,000개 marker 렌더링을 검증한다.
+- `pnpm benchmark:fixtures`는 실제 인증 cookie와 floor ID로 100회 측정해 API p95가 1초를 넘으면 실패한다.
 - 모니터링 화면에서 `도면 편집` 버튼으로 선택 층의 전체 화면 에디터에 진입한다.
 - 에디터에서 배경 없음, JPG/PNG 이미지, PDF 첫 페이지 렌더링 배경을 선택 등록한다.
 - 에디터에서 지도 확대, 축소, 100% 복귀, 패닝을 수행한다.
@@ -66,7 +71,7 @@
 - gateway offline 기준은 현재 90초, fixture stale 기준은 120초 고정값이다. 대규모 현장 검증 후 site/gateway별 정책 설정으로 분리해야 한다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
-- 조명 수가 많을 때 기본 겹침은 compact marker로 완화했지만, 대규모 현장에는 클러스터링, 검색, 확대/축소가 필요하다.
+- 1,000개 marker 조회/렌더링 기준은 자동 검증하지만, 더 큰 현장에는 공간 클러스터링과 검색이 추가로 필요하다.
 - 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
 
 ## 관련 파일

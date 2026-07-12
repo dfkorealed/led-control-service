@@ -3,6 +3,7 @@ import { AuthModule } from "./auth/auth.module";
 import { CommandsModule } from "./commands/commands.module";
 import { EnergyModule } from "./energy/energy.module";
 import { FloorEditorModule } from "./floor-editor/floor-editor.module";
+import { FixturesModule } from "./fixtures/fixtures.module";
 import { GatewayOnboardingModule } from "./gateway-onboarding/gateway-onboarding.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RegistrationModule } from "./registration/registration.module";
@@ -19,7 +20,8 @@ import { SitesModule } from "./sites/sites.module";
     RegistrationModule,
     SetupModule,
     FloorEditorModule,
-    GatewayOnboardingModule
+    GatewayOnboardingModule,
+    FixturesModule
   ]
 })
 export class AppModule {}

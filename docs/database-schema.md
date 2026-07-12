@@ -306,6 +306,7 @@ Organization
 
 - `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`은 장기 이력 테이블이 아니라 최신 모니터링 snapshot이다.
 - 현재 MQTT `fixture-state` event 수신 시 이 값들이 갱신된다.
+- `(floorId, id)` 복합 인덱스는 층별 fixture snapshot의 ID cursor 페이지 조회에 사용한다.
 
 ### FixtureGroup
 

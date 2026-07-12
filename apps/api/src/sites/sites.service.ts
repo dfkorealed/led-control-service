@@ -5,18 +5,14 @@ import { PrismaService } from "../prisma/prisma.service";
 export class SitesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getDefaultDashboard(organizationId: string) {
+  async getDefaultDashboard(organizationId: string, includeFixtures = true) {
     const site = await this.prisma.site.findFirst({
       where: { organizationId },
       include: {
         floors: {
           orderBy: { level: "asc" },
           include: {
-            floorPlan: true,
-            fixtures: {
-              orderBy: { name: "asc" },
-              include: { meshNode: { include: { gateway: true } } }
-            }
+            floorPlan: true
           }
         },
         groups: {
@@ -42,19 +38,29 @@ export class SitesService {
       };
     }
 
-    const fixtures = site.floors.flatMap((floor) => floor.fixtures);
+    const fixtures = includeFixtures
+      ? await this.prisma.fixture.findMany({
+          where: { floor: { siteId: site.id } },
+          orderBy: { name: "asc" },
+          include: { meshNode: { include: { gateway: true } } }
+        })
+      : [];
+    const fixturesByFloor = new Map(site.floors.map((floor) => [floor.id, fixtures.filter((fixture) => fixture.floorId === floor.id)]));
     const now = Date.now();
+    const summary = includeFixtures
+      ? {
+          totalFixtures: fixtures.length,
+          onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
+          faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
+          averageBrightness: fixtures.length
+            ? Math.round(fixtures.reduce((sum, fixture) => sum + fixture.brightness, 0) / fixtures.length)
+            : 0
+        }
+      : await this.getFixtureSummary(site.id);
 
     return {
       site: { id: site.id, name: site.name },
-      summary: {
-        totalFixtures: fixtures.length,
-        onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
-        faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
-        averageBrightness: fixtures.length
-          ? Math.round(fixtures.reduce((sum, fixture) => sum + fixture.brightness, 0) / fixtures.length)
-          : 0
-      },
+      summary,
       floors: site.floors.map((floor) => ({
         id: floor.id,
         name: floor.name,
@@ -70,7 +76,7 @@ export class SitesService {
               version: floor.floorPlan.version
             }
           : null,
-        fixtures: floor.fixtures.map((fixture) => {
+        fixtures: (fixturesByFloor.get(floor.id) ?? []).map((fixture) => {
           const gatewayOnline = Boolean(
             fixture.meshNode?.gateway.lastHeartbeatAt &&
               now - fixture.meshNode.gateway.lastHeartbeatAt.getTime() < 90_000
@@ -123,6 +129,21 @@ export class SitesService {
         connectionStatus:
           gateway.lastHeartbeatAt && now - gateway.lastHeartbeatAt.getTime() < 90_000 ? "online" : "offline"
       }))
+    };
+  }
+
+  private async getFixtureSummary(siteId: string) {
+    const [totalFixtures, onlineFixtures, faultFixtures, brightness] = await Promise.all([
+      this.prisma.fixture.count({ where: { floor: { siteId } } }),
+      this.prisma.fixture.count({ where: { floor: { siteId }, status: "online" } }),
+      this.prisma.fixture.count({ where: { floor: { siteId }, status: "fault" } }),
+      this.prisma.fixture.aggregate({ where: { floor: { siteId } }, _avg: { brightness: true } })
+    ]);
+    return {
+      totalFixtures,
+      onlineFixtures,
+      faultFixtures,
+      averageBrightness: Math.round(brightness._avg.brightness ?? 0)
     };
   }
 }

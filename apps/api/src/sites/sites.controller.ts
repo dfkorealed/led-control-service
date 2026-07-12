@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from "@nestjs/common";
+import { Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -10,7 +10,7 @@ export class SitesController {
   constructor(private readonly sitesService: SitesService) {}
 
   @Get("default/dashboard")
-  getDefaultDashboard(@CurrentUser() user: AuthenticatedUser) {
-    return this.sitesService.getDefaultDashboard(user.organizationId);
+  getDefaultDashboard(@CurrentUser() user: AuthenticatedUser, @Query("includeFixtures") includeFixtures?: string) {
+    return this.sitesService.getDefaultDashboard(user.organizationId, includeFixtures === "true");
   }
 }

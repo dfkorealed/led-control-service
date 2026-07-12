@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiPost } from "../../api/client";
-import { useDashboard } from "../../api/queries";
+import { useControlDashboard } from "../../api/queries";
 import { useCommandStatus, type CommandStage } from "../../api/commands";
 
 type ControlMode = "fixture" | "group";
 
 export function ControlView() {
-  const { data } = useDashboard();
+  const { data } = useControlDashboard();
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<ControlMode>("fixture");
   const [targetId, setTargetId] = useState("");

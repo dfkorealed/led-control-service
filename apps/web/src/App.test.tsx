@@ -37,6 +37,13 @@ vi.mock("./api/client", () => ({
       return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
     }
     if (path === "/sites/default/dashboard") return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    if (path === "/sites/default/dashboard?includeFixtures=true") return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    const fixturePageMatch = path.match(/^\/floors\/([^/]+)\/fixtures\?/);
+    if (fixturePageMatch) {
+      const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
+      const fixtures = dashboard.floors.find((floor) => floor.id === fixturePageMatch[1])?.fixtures ?? [];
+      return Promise.resolve({ items: fixtures, nextCursor: null });
+    }
     if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve(apiState.commandStatus);
     const floorEditorMatch = path.match(/^\/floors\/(.+)\/editor-state$/);
     if (floorEditorMatch) {
@@ -420,9 +427,12 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "제어" }));
-    fireEvent.click(screen.getByRole("button", { name: "적용" }));
+    const applyButton = screen.getByRole("button", { name: "적용" });
+    await waitFor(() => expect(applyButton).toBeEnabled());
+    fireEvent.click(applyButton);
 
-    expect(await screen.findByText("일부 조명 적용 실패")).toBeInTheDocument();
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/commands/dimming", expect.any(Object)));
+    expect(await screen.findByText("일부 조명 적용 실패", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
   });
