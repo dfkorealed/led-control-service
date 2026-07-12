@@ -1,6 +1,6 @@
 # 양산 장비 2-노드 실험실 검증
 
-기준일: 2026-07-11
+기준일: 2026-07-12
 
 ## 목적과 완료 기준
 
@@ -78,8 +78,26 @@ sudo journalctl -u bluetooth-meshd -u led-control-gateway --since '30 minutes ag
 
 세 run이 모두 `true`이고 수동 DB 수정이나 run 사이 reprovisioning이 없어야 한다. 실패한 단계는 결과 JSON의 단계명과 error, API/Mosquitto/journald 로그의 같은 시각을 기준으로 분석한다.
 
+## 72시간 soak
+
+HIL 3회 연속 성공 후 같은 장비와 인증서로 health command를 5분마다 실행한다. health command는 gateway heartbeat age, 두 node의 마지막 상태 age, RSSI/hop, 최근 명령 왕복 결과를 JSON 하나로 출력하고 하나라도 기준을 벗어나면 non-zero로 종료해야 한다.
+
+```bash
+export SOAK_HEALTH_COMMAND_JSON='["/opt/led-lab/bin/hil-step","soak-health"]'
+export SOAK_DURATION_HOURS=72
+export SOAK_INTERVAL_SECONDS=300
+export SOAK_SAMPLE_TIMEOUT_MS=120000
+export SOAK_OUTPUT_PATH="$PWD/.local/soak-72h.jsonl"
+pnpm gateway:soak
+```
+
+runner는 첫 실패에서 즉시 non-zero로 종료하고 증거 파일을 `0600`으로 유지한다. 72시간 완료 결과의 `passed=true`, `failures=0`, JSONL 전체 sample과 같은 기간 journald를 함께 보관한다.
+
 ## 현재 상태
 
 - HIL runner와 deterministic 순서, secret redaction, timeout, JSON 결과 형식은 구현 및 자동 테스트 완료다.
+- 72시간 soak runner의 주기 실행, 첫 실패 종료, `0600` JSONL 증거는 구현 및 자동 테스트 완료다.
+- Light Lightness/Generic OnOff SIG opcode codec과 status decode는 구현 및 자동 테스트 완료다.
 - `/opt/led-lab/bin/hil-step` 단계별 실제 장비 실행 파일은 Raspberry Pi Phase 0 결과와 함께 구현해야 한다.
 - 2-node 3회 연속 실기 결과는 아직 없다. 따라서 현재 프로젝트 상태를 양산 준비 완료로 판정하지 않는다.
+- 2026-07-12 macOS probe 결과는 여섯 항목 모두 `hardware_required`, exit code 2였다.

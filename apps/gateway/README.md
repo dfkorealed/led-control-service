@@ -143,6 +143,8 @@ WantedBy=multi-user.target
 
 양산 gateway runtime에는 stub adapter가 없다. 자동 테스트용 adapter는 `apps/gateway/test`에만 존재하고 배포 진입점에서 import하지 않는다. 수동 제어, 검색, 등록은 검증된 BlueZ D-Bus adapter가 없으면 시작 단계에서 실패한다.
 
+SIG model codec은 acknowledged Light Lightness Set, Generic OnOff Set, Lightness Status를 구현했다. 실제 BlueZ adapter는 `Management1` provisioning callback application export와 fixture-unicast mapping이 아직 없어 factory에서 의도적으로 시작을 차단한다.
+
 `BleMeshAdapter.setBrightness()`는 fixture별 결과를 반환해야 한다.
 
 ```ts

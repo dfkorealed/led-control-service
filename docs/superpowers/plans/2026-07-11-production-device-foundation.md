@@ -884,3 +884,4 @@ git commit -m "docs: complete production device foundation runbook"
 - 2026-07-11: Task 11의 deterministic HIL runner와 한글 runbook을 추가했다. 실제 장애 명령과 3회 연속 HIL은 Raspberry Pi/두 node에서 실행해야 한다.
 - 2026-07-11: Task 12 자동 검증에서 전체 workspace 테스트, typecheck, Chromium MVP E2E, ESP32-H2 clean build가 통과했다. Raspberry Pi Phase 0과 2-node HIL 3회 증거는 아직 없어 양산 준비 완료로 표시하지 않는다.
 - 2026-07-12: Task 19의 signed upload, FloorAsset lifecycle, ready URL 강제, Web direct upload를 구현했다. 로컬 PostgreSQL migration은 적용했으나 현재 머신에 Docker CLI가 없어 MinIO integration 실행은 보류했다.
+- 2026-07-12: BlueZ 공식 Mesh API 기준 Lightness/OnOff codec과 72시간 soak runner를 구현했다. macOS capability probe는 여섯 항목 모두 `hardware_required`로 exit 2였으며, D-Bus application callback export와 fixture-unicast mapping이 없어 실제 adapter factory 연결은 보류했다.

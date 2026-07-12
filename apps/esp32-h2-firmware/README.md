@@ -107,7 +107,7 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 - gateway `identify-device` 명령을 Health Attention Set으로 보내는 실제 BlueZ adapter 연결
 - gateway가 Light Lightness Status, Generic OnOff Status, Health Fault Status를 수신해 서버 fixture state로 동기화
 - OTA 이미지 수신, 검증, rollback 정책
-- BLE Mesh optional transition time을 LEDC fade 완료 후 Status publication으로 연결
+- BLE Mesh optional transition time을 LEDC 비동기 fade 완료 callback/task와 present/target 상태 분리 후 Status publication으로 연결. 현재 즉시 duty 변경만 구현되어 있어 미완료다.
 - 표준 BLE Mesh TID와 cloud gateway command sequence의 매핑 정책. 현재 영속 sequence 필드는 준비되어 있지만 Generic OnOff/Lightness 표준 메시지의 8-bit TID를 cloud sequence로 간주하지 않는다.
 
 ## 양산 GPIO 설정
