@@ -5,10 +5,11 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { CommandsController } from "./commands.controller";
 import { CommandsService } from "./commands.service";
 import { CommandDispatchService } from "./command-dispatch.service";
+import { CommandStatusService } from "./command-status.service";
 
 @Module({
   imports: [PrismaModule, MqttModule, AuthModule],
   controllers: [CommandsController],
-  providers: [CommandsService, CommandDispatchService]
+  providers: [CommandsService, CommandDispatchService, CommandStatusService]
 })
 export class CommandsModule {}

@@ -49,7 +49,7 @@ describe("CommandsService", () => {
         brightness: 75,
         requestedBy: ids.user
       })
-    ).resolves.toEqual(command);
+    ).resolves.toEqual({ ...command, dispatchCount: 1 });
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.gateway.update).toHaveBeenCalledWith({

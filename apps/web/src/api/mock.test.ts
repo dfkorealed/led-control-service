@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mockPost } from "./mock";
+import { mockGet, mockPost } from "./mock";
 
 describe("mock auth api", () => {
   it("rejects login when demo credentials do not match", async () => {
@@ -20,5 +20,18 @@ describe("mock auth api", () => {
     ).resolves.toMatchObject({
       user: { email: "operator@example.com" }
     });
+  });
+});
+
+describe("mock command api", () => {
+  it("returns a command id and a queryable terminal status", async () => {
+    const created = await mockPost<{ id: string; dispatchCount: number }>("/commands/dimming", {
+      targetType: "fixture",
+      targetId: "fixture-1",
+      brightness: 70
+    });
+
+    expect(created.dispatchCount).toBe(1);
+    await expect(mockGet(`/commands/${created.id}`)).resolves.toMatchObject({ id: created.id, stage: "completed" });
   });
 });

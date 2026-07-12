@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-07-11
+기준일: 2026-07-12
 
 ## 구현 완료
 
@@ -9,7 +9,9 @@
 - 선택 조명의 현재 밝기를 슬라이더에 반영한다.
 - 0%, 30%, 70%, 100% 프리셋 버튼으로 밝기 값을 바꿀 수 있다.
 - `POST /commands/dimming`으로 개별 조명 밝기 명령을 전송한다.
-- 명령 전송 후 API 접수와 장비 ACK 대기 상태를 구분하는 메시지를 표시한다.
+- 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 로그인 사용자 조직 범위에서만 조회를 허용한다.
+- 제어 화면은 최근 명령을 1초 polling하며 접수, MQTT 발행, gateway 수신, 조명 적용 완료, 일부 실패, 실패, timeout 단계를 표시하고 종료 상태에서 polling을 중단한다.
+- 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
 - dashboard의 group 목록을 그룹 카드로 표시하고 선택할 수 있다.
 - `개별`, `그룹` segmented control이 실제 제어 모드를 전환한다.
 - 그룹 선택 후 `POST /commands/dimming`에 `targetType: "group"`으로 밝기 명령을 전송한다.
@@ -47,7 +49,6 @@
 - 이벤트 기반 제어 규칙 생성
 - 차량 감지, 인체 감지, 시간대 조건 등 rule builder
 - 명령 전송 이력 화면
-- 명령 실패 사유 상세 표시
 - 명령 retry, rollback, cancel
 - 다중 선택 제어
 - 층/구역별 일괄 제어
@@ -61,7 +62,7 @@
 ## 부족하거나 개선이 필요한 기능
 
 - `스케줄` 버튼은 추후 구현 범위라 비활성 상태다.
-- 명령 메시지는 ACK 대기 상태를 표시하지만, command 이력 화면이 없어 ACK 완료/실패를 사용자가 한 곳에서 추적하기 어렵다.
+- 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.
 - 제어 대상이 없을 때 empty state가 충분하지 않다.
 - Raspberry Pi gateway는 현재 실제 BlueZ adapter 미구현으로 의도적으로 시작이 차단된다. Phase 0 통과 후 BlueZ D-Bus adapter를 연결해야 한다.
 - ESP32-H2 펌웨어는 BLE Mesh node 서버 모델까지 빌드되지만, 실제 RF/provisioning/model bind/group subscription은 보드와 라즈베리파이 확보 후 실기기 검증이 필요하다.
@@ -75,6 +76,8 @@
 - `apps/api/src/commands/commands.controller.ts`
 - `apps/api/src/commands/commands.service.ts`
 - `apps/api/src/commands/command-dispatch.service.ts`
+- `apps/api/src/commands/command-status.service.ts`
+- `apps/web/src/api/commands.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
 - `apps/gateway/src/gateway.ts`
 - `apps/gateway/src/index.ts`

@@ -27,7 +27,8 @@ const authState = vi.hoisted(() => ({
 }));
 const apiState = vi.hoisted(() => ({
   dashboard: null as null | unknown,
-  registrationSession: null as null | RegistrationSession
+  registrationSession: null as null | RegistrationSession,
+  commandStatus: null as null | unknown
 }));
 
 vi.mock("./api/client", () => ({
@@ -36,6 +37,7 @@ vi.mock("./api/client", () => ({
       return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
     }
     if (path === "/sites/default/dashboard") return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve(apiState.commandStatus);
     const floorEditorMatch = path.match(/^\/floors\/(.+)\/editor-state$/);
     if (floorEditorMatch) {
       const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
@@ -113,6 +115,7 @@ vi.mock("./api/client", () => ({
       });
     }
     if (path.endsWith("/complete")) return Promise.resolve({ ...mockRegistrationSession, status: "completed" });
+    if (path === "/commands/dimming") return Promise.resolve({ id: "command-created-1", dispatchCount: 1 });
     return Promise.resolve({ status: "accepted" });
   })
 }));
@@ -129,6 +132,7 @@ describe("App", () => {
     };
     apiState.dashboard = null;
     apiState.registrationSession = null;
+    apiState.commandStatus = null;
     useNavigationStore.setState({ view: "monitoring" });
     resetMockApiState();
     vi.clearAllMocks();
@@ -385,6 +389,42 @@ describe("App", () => {
       })
     );
     expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
+  });
+
+  it("shows fixture-level partial failure from command status polling", async () => {
+    apiState.commandStatus = {
+      id: "command-created-1",
+      stage: "partial_failed",
+      dispatchCount: 1,
+      completedFixtureCount: 2,
+      totalFixtureCount: 2,
+      errorMessage: "one or more gateway dispatches failed",
+      dispatches: [
+        {
+          id: "dispatch-1",
+          status: "failed",
+          gateway: { id: "gateway-1", name: "Gateway B2" },
+          errorMessage: null,
+          results: [
+            { fixtureId: "fixture-1", fixtureName: "B2-L01", status: "succeeded", errorMessage: null },
+            { fixtureId: "fixture-2", fixtureName: "B2-L02", status: "failed", errorMessage: "장비 응답 오류" }
+          ]
+        }
+      ]
+    };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    fireEvent.click(screen.getByRole("button", { name: "적용" }));
+
+    expect(await screen.findByText("일부 조명 적용 실패")).toBeInTheDocument();
+    expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
+    expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
   });
 
   it("starts a lighting registration session from settings and shows discovered nodes", async () => {

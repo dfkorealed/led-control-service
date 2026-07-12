@@ -90,7 +90,7 @@ export class CommandsService {
           }
         });
       }
-      return command;
+      return { ...command, dispatchCount: dispatchGroups.length };
     });
   }
 

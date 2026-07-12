@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiPost } from "../../api/client";
 import { useDashboard } from "../../api/queries";
+import { useCommandStatus, type CommandStage } from "../../api/commands";
 
 type ControlMode = "fixture" | "group";
 
@@ -14,6 +15,8 @@ export function ControlView() {
   const [brightness, setBrightness] = useState(70);
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [commandId, setCommandId] = useState<string | null>(null);
+  const commandQuery = useCommandStatus(commandId);
   const fixtures = useMemo(() => data?.floors.flatMap((floor) => floor.fixtures) ?? [], [data]);
   const selectedFixture = fixtures.find((fixture) => fixture.id === targetId) ?? fixtures[0];
   const groups = data?.groups ?? [];
@@ -33,12 +36,13 @@ export function ControlView() {
     setIsSubmitting(true);
     setMessage("");
     try {
-      await apiPost("/commands/dimming", {
+      const command = await apiPost<{ id: string; dispatchCount: number }>("/commands/dimming", {
         siteId: data.site.id,
         targetType: mode,
         targetId: commandTargetId,
         brightness
       });
+      setCommandId(command.id);
       setMessage("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.");
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     } catch {
@@ -178,6 +182,8 @@ export function ControlView() {
           </button>
           {blockMessage && <p className="danger-text" role="alert">{blockMessage}</p>}
           {message && <p className="success-text">{message}</p>}
+          {commandQuery.data && <CommandProgress status={commandQuery.data} />}
+          {commandQuery.error && <p className="danger-text" role="alert">명령 처리 상태를 불러오지 못했습니다.</p>}
         </aside>
       </div>
 
@@ -200,6 +206,38 @@ export function ControlView() {
       </div>
     </section>
   );
+}
+
+function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof useCommandStatus>["data"]> }) {
+  const failedResults = status.dispatches.flatMap((dispatch) =>
+    dispatch.results.filter((result) => result.status === "failed" || result.status === "timed_out")
+  );
+  const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
+  return (
+    <div className="dial-card" aria-live="polite">
+      <span>최근 명령 상태</span>
+      <strong>{commandStageLabel(status.stage)}</strong>
+      <small>{status.completedFixtureCount} / {status.totalFixtureCount} 처리</small>
+      {failedResults.map((result) => (
+        <small className={isFailure ? "danger-text" : ""} key={result.fixtureId}>
+          {result.fixtureName}: {result.errorMessage ?? (result.status === "timed_out" ? "응답 시간 초과" : "적용 실패")}
+        </small>
+      ))}
+    </div>
+  );
+}
+
+function commandStageLabel(stage: CommandStage) {
+  const labels: Record<CommandStage, string> = {
+    queued: "명령 접수 완료",
+    published: "게이트웨이 전송 완료",
+    accepted: "게이트웨이 수신 완료",
+    completed: "조명 적용 완료",
+    partial_failed: "일부 조명 적용 실패",
+    failed: "명령 처리 실패",
+    timed_out: "명령 응답 시간 초과"
+  };
+  return labels[stage];
 }
 
 function formatControlBlockReason(

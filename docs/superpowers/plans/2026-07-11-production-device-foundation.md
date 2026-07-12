@@ -797,11 +797,11 @@ git commit -m "docs: complete production device foundation runbook"
 - Produces: `GET /commands/:commandId`
 - Produces: command/dispatch/fixture result 단계 표시
 
-- [ ] **Step 1: 다른 조직 command 조회 거부와 fixture별 결과 응답 테스트**
-- [ ] **Step 2: status service/controller 구현**
-- [ ] **Step 3: command 생성 응답에 dispatch 수 포함**
-- [ ] **Step 4: UI에서 접수/수신/적용/부분 실패/timeout polling 표시**
-- [ ] **Step 5: API/Web/E2E 검증과 커밋**
+- [x] **Step 1: 다른 조직 command 조회 거부와 fixture별 결과 응답 테스트**
+- [x] **Step 2: status service/controller 구현**
+- [x] **Step 3: command 생성 응답에 dispatch 수 포함**
+- [x] **Step 4: UI에서 접수/수신/적용/부분 실패/timeout polling 표시**
+- [x] **Step 5: API/Web/E2E 검증과 커밋**
 
 ### Task 18: 1,000 fixture 조회와 렌더링 성능 기반
 

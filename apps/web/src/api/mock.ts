@@ -137,11 +137,13 @@ export const mockRegistrationSession: RegistrationSession = {
 
 let mockDashboardState: Dashboard = mockDashboard;
 let mockRegistrationSessionState: RegistrationSession = mockRegistrationSession;
+let mockCommandStatusState: Record<string, unknown> | null = null;
 
 export function resetMockApiState() {
   isMockAuthenticated = false;
   mockDashboardState = mockDashboard;
   mockRegistrationSessionState = mockRegistrationSession;
+  mockCommandStatusState = null;
 }
 
 export async function mockGet<T>(path: string): Promise<T> {
@@ -152,6 +154,7 @@ export async function mockGet<T>(path: string): Promise<T> {
   if (path === "/sites/default/dashboard") return mockDashboardState as T;
   if (path === "/energy/default/estimate") return mockEnergyEstimate as T;
   if (path === `/registration-sessions/${mockRegistrationSessionState.id}`) return mockRegistrationSessionState as T;
+  if (mockCommandStatusState && path === `/commands/${mockCommandStatusState.id}`) return mockCommandStatusState as T;
   throw new Error(`No mock response for GET ${path}`);
 }
 
@@ -188,6 +191,37 @@ export async function mockPost<T>(path?: string, body?: unknown): Promise<T> {
       mockDashboardState.floors[0]?.id
     );
     return mockDashboardState as T;
+  }
+  if (path === "/commands/dimming") {
+    const input = body as { targetId?: string; brightness?: number } | undefined;
+    const fixture = mockDashboardState.floors.flatMap((floor) => floor.fixtures).find((item) => item.id === input?.targetId);
+    const commandId = "mock-command-latest";
+    mockCommandStatusState = {
+      id: commandId,
+      stage: "completed",
+      dispatchCount: 1,
+      completedFixtureCount: 1,
+      totalFixtureCount: 1,
+      errorMessage: null,
+      dispatches: [
+        {
+          id: "mock-dispatch-latest",
+          status: "completed",
+          gateway: { id: mockDashboardState.gateways[0]?.id ?? "mock-gateway", name: mockDashboardState.gateways[0]?.name ?? "Mock Gateway" },
+          errorMessage: null,
+          results: [
+            {
+              fixtureId: fixture?.id ?? input?.targetId ?? "mock-fixture",
+              fixtureName: fixture?.name ?? "Mock Fixture",
+              status: "succeeded",
+              brightness: input?.brightness ?? 0,
+              errorMessage: null
+            }
+          ]
+        }
+      ]
+    };
+    return { id: commandId, dispatchCount: 1 } as T;
   }
   if (path?.endsWith("/identify")) {
     return { ...mockRegistrationSessionState.discoveredNodes[0], status: "identifying", identifyState: "blinking" } as T;
