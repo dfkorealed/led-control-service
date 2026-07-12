@@ -72,6 +72,7 @@ describe("FloorEditorService", () => {
       floorPlan: {
         upsert: jest.fn()
       },
+      floorAsset: { count: jest.fn().mockResolvedValue(0) },
       fixture: {
         findUnique: jest.fn(),
         update: jest.fn()
@@ -134,6 +135,25 @@ describe("FloorEditorService", () => {
     });
 
     await expect(service.getEditorState(ids.floorId, ids.organizationId)).rejects.toThrow("floor not found");
+  });
+
+  it("rejects data URLs in floor plan persistence", async () => {
+    const { service, prisma } = await createService();
+
+    await expect(
+      service.updateFloorPlan(ids.floorId, { imageUrl: "data:image/png;base64,AAAA", width: 1200, height: 800 }, ids.organizationId)
+    ).rejects.toThrow("object storage URL");
+    expect(prisma.floorPlan.upsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects floor plan URLs that are not ready assets of the floor", async () => {
+    const { service, prisma } = await createService();
+
+    await expect(
+      service.updateFloorPlan(ids.floorId, { imageUrl: "https://assets.example/other.png", width: 1200, height: 800 }, ids.organizationId)
+    ).rejects.toThrow("ready floor assets");
+    expect(prisma.floorAsset.count).toHaveBeenCalled();
+    expect(prisma.floorPlan.upsert).not.toHaveBeenCalled();
   });
 
   it("updates fixture name, ratedWatt, x, y, and size for the current organization", async () => {

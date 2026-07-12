@@ -27,6 +27,8 @@
 - `pnpm benchmark:fixtures`는 실제 인증 cookie와 floor ID로 100회 측정해 API p95가 1초를 넘으면 실패한다.
 - 모니터링 화면에서 `도면 편집` 버튼으로 선택 층의 전체 화면 에디터에 진입한다.
 - 에디터에서 배경 없음, JPG/PNG 이미지, PDF 첫 페이지 렌더링 배경을 선택 등록한다.
+- 도면 파일은 브라우저에서 SHA-256을 계산한 뒤 S3 호환 object storage presigned URL로 직접 업로드한다. PDF는 원본과 첫 페이지 PNG를 별도 asset으로 저장한다.
+- API는 JPEG/PNG/PDF, 최대 50 MB, checksum을 검증하고 S3 HEAD가 일치한 ready asset URL만 FloorPlan에 저장한다. data URL과 임의 외부 URL은 거부한다.
 - 에디터에서 지도 확대, 축소, 100% 복귀, 패닝을 수행한다.
 - 에디터 캔버스는 `react-konva`/`Konva` 기반 Stage, Layer, Transformer로 도형과 조명을 렌더링한다.
 - 에디터에서 좌측 도구의 네모, 세모, 선, 텍스트 도구를 도면 위로 드래그 앤 드롭해 기본 크기 도형을 추가한다.
@@ -61,7 +63,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- 층별 도면 에디터 MVP 1은 동작하지만, 업로드 파일은 별도 파일 스토리지 없이 data URL 형태로 `FloorPlan`에 저장한다. 운영 전에는 API 정적 업로드 디렉터리 또는 S3 호환 저장소로 분리해야 한다.
+- MinIO 기반 로컬 S3 integration test는 준비됐지만 현재 개발 머신에 Docker CLI가 없어 실제 실행 증거는 아직 없다.
 - PDF는 첫 페이지만 배경 이미지로 렌더링한다. 다중 페이지 선택과 원본 PDF 파일 관리 UI는 후속 작업이다.
 - 도형 삭제, 조명/도형 다중 선택과 일괄 이동, undo/redo는 아직 없다.
 - 도형/조명 리사이즈는 Konva Transformer의 모서리/변 핸들 중심으로 제공한다. 향후 회전, grid snap, 키보드 미세 조정이 필요하다.

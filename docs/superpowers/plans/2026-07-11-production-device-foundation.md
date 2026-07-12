@@ -841,10 +841,10 @@ git commit -m "docs: complete production device foundation runbook"
 - Produces: S3-compatible signed upload/complete flow
 - Removes: data URL floor plan persistence
 
-- [ ] **Step 1: data URL 거부, MIME/size/checksum 검증 실패 테스트**
-- [ ] **Step 2: S3-compatible storage와 signed upload 구현**
-- [ ] **Step 3: DB에 object metadata만 저장하도록 editor API 변경**
-- [ ] **Step 4: Web direct upload와 PDF render object upload 구현**
+- [x] **Step 1: data URL 거부, MIME/size/checksum 검증 실패 테스트**
+- [x] **Step 2: S3-compatible storage와 signed upload 구현**
+- [x] **Step 3: DB에 object metadata만 저장하도록 editor API 변경**
+- [x] **Step 4: Web direct upload와 PDF render object upload 구현**
 - [ ] **Step 5: 로컬 S3 호환 integration/E2E, 문서, 커밋**
 
 ### Task 20: 실제 adapter·HIL·soak 완료 게이트
@@ -875,3 +875,4 @@ git commit -m "docs: complete production device foundation runbook"
 - 2026-07-11: Task 10의 host 상태 테스트, NVS debounce 복원, identify, reset fault, watchdog, 8초 factory reset을 구현해 ESP-IDF build를 통과했다. transition과 두 보드 실기는 미완료다.
 - 2026-07-11: Task 11의 deterministic HIL runner와 한글 runbook을 추가했다. 실제 장애 명령과 3회 연속 HIL은 Raspberry Pi/두 node에서 실행해야 한다.
 - 2026-07-11: Task 12 자동 검증에서 전체 workspace 테스트, typecheck, Chromium MVP E2E, ESP32-H2 clean build가 통과했다. Raspberry Pi Phase 0과 2-node HIL 3회 증거는 아직 없어 양산 준비 완료로 표시하지 않는다.
+- 2026-07-12: Task 19의 signed upload, FloorAsset lifecycle, ready URL 강제, Web direct upload를 구현했다. 로컬 PostgreSQL migration은 적용했으나 현재 머신에 Docker CLI가 없어 MinIO integration 실행은 보류했다.

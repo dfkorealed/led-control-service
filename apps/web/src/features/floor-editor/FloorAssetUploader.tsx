@@ -2,6 +2,7 @@ import { FileImage, FileText, X } from "lucide-react";
 import { useState } from "react";
 import { useFloorEditorStore } from "./editor-store";
 import type { FloorPlanDraft } from "./editor-types";
+import { uploadFloorAsset } from "../../api/floor-editor";
 
 export function FloorAssetUploader() {
   const { state, updateFloorPlan } = useFloorEditorStore();
@@ -10,7 +11,10 @@ export function FloorAssetUploader() {
   async function handleFile(file: File) {
     setStatus("도면을 읽는 중");
     try {
-      const floorPlan = file.type === "application/pdf" ? await renderPdfFirstPage(file) : await readImageFile(file);
+      if (!state?.floor.id) throw new Error("floor unavailable");
+      const floorPlan = file.type === "application/pdf"
+        ? await renderPdfFirstPage(state.floor.id, file)
+        : await uploadImageFile(state.floor.id, file);
       updateFloorPlan(floorPlan);
       setStatus(file.type === "application/pdf" ? "PDF 첫 페이지가 배경으로 등록되었습니다." : "이미지 배경이 등록되었습니다.");
     } catch {
@@ -75,21 +79,23 @@ export function FloorAssetUploader() {
   );
 }
 
-async function readImageFile(file: File): Promise<FloorPlanDraft> {
-  const dataUrl = await readFileAsDataUrl(file);
-  const size = await getImageSize(dataUrl);
+async function uploadImageFile(floorId: string, file: File): Promise<FloorPlanDraft> {
+  const objectUrl = URL.createObjectURL(file);
+  const size = await getImageSize(objectUrl);
+  URL.revokeObjectURL(objectUrl);
+  const asset = await uploadFloorAsset(floorId, file, "original");
   return {
-    imageUrl: dataUrl,
+    imageUrl: asset.publicUrl,
     sourceType: "image",
-    originalFileUrl: dataUrl,
-    renderedImageUrl: dataUrl,
+    originalFileUrl: asset.publicUrl,
+    renderedImageUrl: asset.publicUrl,
     width: size.width,
     height: size.height,
     version: 1
   };
 }
 
-async function renderPdfFirstPage(file: File): Promise<FloorPlanDraft> {
+async function renderPdfFirstPage(floorId: string, file: File): Promise<FloorPlanDraft> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url).toString();
   const buffer = await file.arrayBuffer();
@@ -103,25 +109,26 @@ async function renderPdfFirstPage(file: File): Promise<FloorPlanDraft> {
   canvas.width = Math.round(viewport.width);
   canvas.height = Math.round(viewport.height);
   await page.render({ canvas, canvasContext: context, viewport }).promise;
-  const renderedImageUrl = canvas.toDataURL("image/png");
+  const renderedBlob = await canvasToBlob(canvas);
+  const [originalAsset, renderedAsset] = await Promise.all([
+    uploadFloorAsset(floorId, file, "original"),
+    uploadFloorAsset(floorId, renderedBlob, "rendered")
+  ]);
 
   return {
-    imageUrl: renderedImageUrl,
+    imageUrl: renderedAsset.publicUrl,
     sourceType: "pdf",
-    originalFileUrl: await readFileAsDataUrl(file),
-    renderedImageUrl,
+    originalFileUrl: originalAsset.publicUrl,
+    renderedImageUrl: renderedAsset.publicUrl,
     width: canvas.width,
     height: canvas.height,
     version: 1
   };
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
+function canvasToBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PDF render blob unavailable")), "image/png");
   });
 }
 

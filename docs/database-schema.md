@@ -199,6 +199,7 @@ Organization
 - `floorPlan`: `FloorPlan?`
 - `mapObjects`: `FloorMapObject[]`
 - `fixtures`: `Fixture[]`
+- `assets`: `FloorAsset[]`
 - `provisioningSessions`: `ProvisioningSession[]`
 
 ### FloorPlan
@@ -227,7 +228,30 @@ Organization
 
 - 현재 읽기 전용 모니터링 화면은 `imageUrl`, `width`, `height`를 사용한다.
 - 구현 중인 에디터에서는 `sourceType = none`이거나 `FloorPlan`이 없을 때 배경 없는 격자 캔버스를 표시한다.
-- PDF 업로드는 원본을 `originalFileUrl`에 보관하고, 첫 페이지 렌더링 결과를 `renderedImageUrl`로 표시하는 방향이다.
+- PDF 업로드는 원본 ready asset URL을 `originalFileUrl`, 첫 페이지 PNG ready asset URL을 `renderedImageUrl`에 저장한다.
+- `imageUrl`, `originalFileUrl`, `renderedImageUrl`은 같은 층의 ready `FloorAsset.publicUrl`만 허용하며 data URL과 임의 외부 URL을 거부한다.
+
+### FloorAsset
+
+S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 이미지를 추적한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | asset ID |
+| `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 소속 층 |
+| `kind` | `FloorAssetKind` | 예 | `original`, `rendered` | 원본 또는 렌더 결과 |
+| `status` | `FloorAssetStatus` | 예 | `pending` | 업로드 검증 전/후 상태 |
+| `objectKey` | `String` | 예 | Unique | bucket 내부 object key |
+| `publicUrl` | `String` | 예 |  | 모니터링/에디터 조회 URL |
+| `mimeType` | `String` | 예 |  | 서명된 Content-Type |
+| `sizeBytes` | `BigInt` | 예 |  | 서명된 byte 크기 |
+| `sha256` | `String` | 예 |  | 64자리 hex SHA-256 |
+| `readyAt` | `DateTime?` | 아니오 |  | S3 HEAD 검증 완료 시각 |
+
+운영 메모:
+
+- upload intent는 JPEG/PNG/PDF, 1 byte~50 MB, SHA-256 형식을 검증하고 5분짜리 PUT URL을 발급한다.
+- complete 요청은 S3 HEAD의 MIME, 크기, checksum이 모두 intent와 같을 때만 `ready`로 전환한다.
 
 ### FloorMapObject
 

@@ -137,6 +137,7 @@ export class FloorEditorService {
     const data = this.buildFloorPlanData(input);
 
     if (Object.keys(data).length === 0) throw new BadRequestException("floor plan update payload is empty");
+    await this.assertReadyAssetUrls(floorId, data);
 
     return this.prisma.floorPlan.upsert({
       where: { floorId },
@@ -234,19 +235,30 @@ export class FloorEditorService {
       if (!["none", "image", "pdf"].includes(input.sourceType)) throw new BadRequestException("invalid sourceType");
       data.sourceType = input.sourceType;
     }
-    if (input.imageUrl !== undefined) data.imageUrl = this.trimOptionalString(input.imageUrl, "imageUrl");
+    if (input.imageUrl !== undefined) data.imageUrl = this.objectStorageUrl(input.imageUrl, "imageUrl");
     if (input.originalFileUrl !== undefined) {
       data.originalFileUrl =
-        input.originalFileUrl === null ? null : this.trimOptionalString(input.originalFileUrl, "originalFileUrl");
+        input.originalFileUrl === null ? null : this.objectStorageUrl(input.originalFileUrl, "originalFileUrl");
     }
     if (input.renderedImageUrl !== undefined) {
       data.renderedImageUrl =
-        input.renderedImageUrl === null ? null : this.trimOptionalString(input.renderedImageUrl, "renderedImageUrl");
+        input.renderedImageUrl === null ? null : this.objectStorageUrl(input.renderedImageUrl, "renderedImageUrl");
     }
     if (input.width !== undefined) data.width = this.positiveInteger(input.width, "width");
     if (input.height !== undefined) data.height = this.positiveInteger(input.height, "height");
 
     return data;
+  }
+
+  private async assertReadyAssetUrls(floorId: string, data: FloorPlanData) {
+    const urls = Array.from(
+      new Set([data.imageUrl, data.originalFileUrl, data.renderedImageUrl].filter((url): url is string => Boolean(url)))
+    );
+    if (urls.length === 0) return;
+    const readyCount = await this.prisma.floorAsset.count({
+      where: { floorId, status: "ready", publicUrl: { in: urls } }
+    });
+    if (readyCount !== urls.length) throw new BadRequestException("floor plan URLs must reference ready floor assets");
   }
 
   private buildFixtureData(input: UpdateFixtureInput) {
@@ -310,6 +322,16 @@ export class FloorEditorService {
   private trimOptionalString(value: unknown, field: string) {
     if (typeof value !== "string") throw new BadRequestException(`${field} must be a string`);
     return value.trim();
+  }
+
+  private objectStorageUrl(value: unknown, field: string) {
+    const result = this.trimOptionalString(value, field);
+    if (result === "") return result;
+    try {
+      const url = new URL(result);
+      if (url.protocol === "http:" || url.protocol === "https:") return result;
+    } catch {}
+    throw new BadRequestException(`${field} must be an object storage URL`);
   }
 
   private nullableTrimmedString(value: unknown, field: string) {

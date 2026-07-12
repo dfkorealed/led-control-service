@@ -20,6 +20,27 @@ export function updateFloorPlan(floorId: string, payload: FloorPlanPayload) {
   return request<FloorEditorState["floor"]["floorPlan"]>(`/floors/${floorId}/floor-plan`, "PATCH", payload);
 }
 
+export async function uploadFloorAsset(floorId: string, file: Blob, kind: "original" | "rendered") {
+  const mimeType = file.type;
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const checksumBase64 = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  const intent = await apiPost<{ assetId: string; uploadUrl: string; publicUrl: string }>(
+    `/floors/${floorId}/assets/upload-intent`,
+    { kind, mimeType, sizeBytes: file.size, sha256 }
+  );
+  const response = await fetch(intent.uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": mimeType, "x-amz-checksum-sha256": checksumBase64 },
+    body: file
+  });
+  if (!response.ok) throw new Error(`floor asset upload failed with ${response.status}`);
+  return apiPost<{ id: string; status: "ready"; publicUrl: string }>(
+    `/floors/${floorId}/assets/${intent.assetId}/complete`,
+    {}
+  );
+}
+
 export function updateEditorFixture(fixtureId: string, payload: Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size">>) {
   return request<EditorFixture>(`/fixtures/${fixtureId}`, "PATCH", payload);
 }
