@@ -88,7 +88,7 @@ export class BluezTransport {
 }
 ```
 
-- [ ] **Step 4: Raspberry Pi probe와 판정표 구현**
+- [x] **Step 4: Raspberry Pi probe와 판정표 구현**
 
 코드와 Mac의 `hardware_required` 판정은 완료했다. Raspberry Pi에서 daemon, adapter, PB-ADV, provisioning, model 왕복, 재부팅 복구를 확인하는 실기 판정은 하드웨어 실행 대기 상태다.
 
@@ -515,7 +515,7 @@ await expect(adapter.setBrightness([fixtureId], 50)).rejects.toMatchObject({ cod
 
 Lightness Set acknowledged 메시지를 사용하고 Status payload의 source unicast와 TID/sequence를 fixture에 매핑한다. Health fault는 fixture `faultCode`로 변환한다.
 
-- [ ] **Step 4: 운영 stub 차단**
+- [x] **Step 4: 운영 stub 차단**
 
 `NODE_ENV=production` 또는 `GATEWAY_MODE=production`에서 stub/command adapter 선택 시 시작을 거부한다.
 
@@ -624,7 +624,7 @@ Runner의 단계·timeout·JSON 판정 계약은 구현했다. 실제 MQTT 단�
 Run: `pnpm gateway:hil:2node -- --repeat 3`
 Expected: all three runs PASS with no manual DB edits or reprovisioning between runs.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add apps/gateway/scripts docs/runbooks package.json
