@@ -78,6 +78,18 @@ enum FloorAssetStatus {
   ready
 }
 
+enum CertificatePurpose {
+  device
+  mqtt
+}
+
+enum GatewayCertificateStatus {
+  active
+  replaced
+  revoked
+  expired
+}
+
 model Organization {
   id          String       @id @default(uuid())
   name        String
@@ -257,6 +269,7 @@ model Gateway {
   serialNumber            String                  @unique
   firmwareVersion         String
   lastHeartbeatAt         DateTime?
+  /// Active device certificate fingerprint pointer; canonical history is GatewayCertificate.fingerprint.
   certificateFingerprint  String?                 @unique
   assignmentVersion       Int                     @default(0)
   nextCommandSequence     BigInt                  @default(0)
@@ -270,6 +283,7 @@ model Gateway {
   provisioningSessions    ProvisioningSession[]
   commandDispatches       CommandDispatch[]
   processedEvents         ProcessedGatewayEvent[]
+  certificates            GatewayCertificate[]
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
 
@@ -280,14 +294,56 @@ model GatewayInventory {
   id                     String              @id @default(uuid())
   serialNumber           String              @unique
   claimCodeHash          String?
-  certificateFingerprint String              @unique
+  /// Active device certificate fingerprint pointer; canonical history is GatewayCertificate.fingerprint.
+  certificateFingerprint String?             @unique
   claimedGatewayId       String?             @unique
   claimedAt              DateTime?
   disabledAt             DateTime?
   claimedGateway         Gateway?            @relation("GatewayInventoryClaim", fields: [claimedGatewayId], references: [id])
   claimAudits            GatewayClaimAudit[]
+  certificates           GatewayCertificate[]
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
+}
+
+model GatewayEnrollment {
+  id              String   @id @default(uuid())
+  serialNumber    String
+  tokenHash       String   @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  stationIdentity String
+  outcome         String?
+  failureReason   String?
+  createdAt       DateTime @default(now())
+
+  @@index([serialNumber, createdAt])
+}
+
+model GatewayCertificate {
+  id                String              @id @default(uuid())
+  inventoryId       String
+  gatewayId         String?
+  purpose           CertificatePurpose
+  certificateSerial String
+  /// Canonical certificate fingerprint ledger; Gateway and GatewayInventory point to the active device certificate.
+  fingerprint       String              @unique
+  issuer            String
+  notBefore         DateTime
+  notAfter          DateTime
+  status            GatewayCertificateStatus
+  revokedAt         DateTime?
+  replacedById      String?             @unique
+  inventory         GatewayInventory    @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+  gateway           Gateway?            @relation(fields: [gatewayId], references: [id], onDelete: SetNull)
+  replacedBy        GatewayCertificate? @relation("GatewayCertificateReplacement", fields: [replacedById], references: [id], onDelete: Restrict)
+  replaces          GatewayCertificate? @relation("GatewayCertificateReplacement")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([inventoryId, purpose, status])
+  @@index([gatewayId, purpose, status])
+  @@unique([issuer, certificateSerial])
 }
 
 model GatewayClaimAudit {

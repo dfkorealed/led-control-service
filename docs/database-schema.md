@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-07-11
+작성일: 2026-07-15
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -11,6 +11,7 @@
 - 조직/사용자/인증: `Organization`, `User`, `Invitation`, `Session`
 - 현장/공간/도면: `Site`, `Floor`, `FloorPlan`, `FloorMapObject`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`
+- 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
 - 게이트웨이 claim 감사: `GatewayClaimAudit`
 - 조명 검색/등록: `ProvisioningSession`, `DiscoveredMeshNode`
@@ -30,6 +31,7 @@ Organization
       │       └─ EnergyUsage
       ├─ Gateway ─ MeshNode
       │   ├─ GatewayInventory
+      │   ├─ GatewayCertificate
       │   └─ CommandDispatch ─ CommandFixtureResult
       ├─ Command ─ CommandDispatch ─ MqttOutbox
       └─ ProvisioningSession ─ DiscoveredMeshNode
@@ -113,6 +115,26 @@ Organization
 | `none` | 배경 없이 격자 캔버스만 사용 |
 | `image` | JPG 또는 PNG 이미지 원본 사용 |
 | `pdf` | PDF 첫 페이지를 렌더링한 이미지 사용 |
+
+### CertificatePurpose
+
+게이트웨이 인증서 사용 목적을 DB enum으로 제한한다.
+
+| 값 | 의미 |
+| --- | --- |
+| `device` | 제조 enrollment와 API bootstrap용 장치 인증서 |
+| `mqtt` | claim 완료 후 broker 접속용 MQTT client 인증서 |
+
+### GatewayCertificateStatus
+
+인증서 수명주기 상태를 DB enum으로 제한한다.
+
+| 값 | 의미 |
+| --- | --- |
+| `active` | 현재 사용할 수 있는 인증서 |
+| `replaced` | 새 인증서로 교체된 인증서 |
+| `revoked` | CA에서 폐기된 인증서 |
+| `expired` | 유효기간이 종료된 인증서 |
 
 ## 3. 테이블 상세
 
@@ -391,8 +413,10 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 관계:
 
 - `site`: `Site`
+- `inventory`: `GatewayInventory?`
 - `meshNodes`: `MeshNode[]`
 - `provisioningSessions`: `ProvisioningSession[]`
+- `certificates`: `GatewayCertificate[]`
 
 운영 메모:
 
@@ -400,9 +424,94 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 
 ### GatewayInventory / GatewayClaimAudit
 
-`GatewayInventory`는 제조 또는 출고 시 등록된 장비 identity 원장이다. `serialNumber`, 일회성 `claimCodeHash`, 장치 인증서 `certificateFingerprint`, claim 결과인 `claimedGatewayId/claimedAt`, 폐기 상태 `disabledAt`을 저장한다. claim code 원문과 인증서 private key는 DB와 Git에 저장하지 않는다.
+`GatewayInventory`는 제조 또는 출고 시 등록된 장비 identity 원장이다. `serialNumber`, 일회성 `claimCodeHash`, 선택적인 장치 인증서 `certificateFingerprint`, claim 결과인 `claimedGatewayId/claimedAt`, 폐기 상태 `disabledAt`을 저장한다. claim code 원문과 인증서 private key는 DB와 Git에 저장하지 않는다.
+
+`certificateFingerprint`는 device enrollment 전에는 `NULL`이다. 제조 흐름은 token/Claim Code hash를 먼저 저장하고, CSR 서명이 성공하면 device `GatewayCertificate` 생성과 `GatewayInventory.certificateFingerprint` 확정을 하나의 transaction으로 처리한다. placeholder fingerprint는 사용하지 않는다.
+
+인증서 fingerprint의 canonical 원장은 `GatewayCertificate.fingerprint`다. `GatewayInventory.certificateFingerprint`와 `Gateway.certificateFingerprint`는 별도 원장이 아니라 현재 active device 인증서를 가리키는 호환용 pointer다. 기존 bootstrap/claim 경로가 이 pointer를 사용하므로 제거하지 않으며, device 인증서 발급·교체 transaction은 canonical 원장과 두 pointer를 함께 갱신한다. MQTT 인증서 fingerprint는 이 pointer에 기록하지 않는다.
 
 `GatewayClaimAudit`는 성공·실패 claim 시도의 inventory/site/user, serial, outcome, reason, IP, 시각을 기록한다. Claim 성공 transaction은 `GatewayInventory.claimCodeHash`를 `null`로 폐기해 재사용을 차단한다.
+
+`GatewayInventory`는 `certificates` 관계로 장비에 발급된 device/MQTT 인증서 metadata를 조회한다. 인증서가 한 건이라도 연결된 inventory의 hard delete는 FK `RESTRICT`로 차단한다. 운영 중 inventory는 삭제하지 않고 `disabledAt`을 설정해 비활성화하며, 폐기/재발급 감사 원장을 보존한다. claim된 `Gateway`를 삭제하는 경우에는 인증서 이력을 유지하고 `gatewayId`만 `NULL`이 된다.
+
+### GatewayEnrollment
+
+제조 스테이션이 게이트웨이 최초 장치 인증서를 발급할 때 사용하는 15분 수명의 일회성 enrollment 기록이다. token은 `<enrollment UUID>.<256-bit random secret>` 형식이며 원문은 응답 시 한 번만 전달한다. DB에는 UUID를 `id`로 명시하고 secret의 salted scrypt hash만 `tokenHash`에 저장한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | enrollment ID |
+| `serialNumber` | `String` | 예 |  | 대상 게이트웨이 제조 시리얼 |
+| `tokenHash` | `String` | 예 | Unique | token secret의 salted scrypt hash |
+| `expiresAt` | `DateTime` | 예 |  | token 만료 시각 |
+| `usedAt` | `DateTime?` | 아니오 |  | 최초 사용 완료 시각. 값이 있으면 재사용 금지 |
+| `stationIdentity` | `String` | 예 |  | 제조 요청을 인증한 station 인증서 identity |
+| `outcome` | `String?` | 아니오 |  | 발급 결과 상태 |
+| `failureReason` | `String?` | 아니오 |  | 실패 시 보안 감사용 사유 코드 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+
+제약:
+
+- Unique: `tokenHash`
+- PostgreSQL partial unique: `serialNumber WHERE usedAt IS NULL`
+- Index: `serialNumber`, `createdAt`
+- 원문 enrollment token, secret, 빠른 lookup digest는 DB, 로그, Git에 저장하지 않는다.
+
+상태 전이:
+
+- 제조 station이 새 enrollment를 만들면 UUID와 256-bit secret을 생성하고 secret의 salted scrypt hash 및 `expiresAt = createdAt + 15분`만 저장한다. transaction에서 같은 serial의 이전 미사용 row를 `usedAt`과 `outcome = superseded`로 닫은 뒤 새 row를 생성한다. partial unique index 충돌은 원문 없는 `Conflict`로 반환한다.
+- gateway는 token을 UUID와 secret으로 파싱하고 UUID로 row를 찾은 뒤 저장된 salted scrypt hash를 constant-time 비교한다. malformed token, unknown UUID, wrong secret은 모두 `enrollment token is not active`로 일반화한다.
+- serial이 일치하고 미사용·미만료이며 `outcome IS NULL`이면 CSR 검증 전에 conditional update로 `usedAt`과 `outcome = processing`을 즉시 설정한다. 동시에 들어온 요청 중 이 update가 1건을 변경한 요청만 계속 진행한다.
+- serial 불일치와 만료 요청도 `usedAt IS NULL AND outcome IS NULL` 조건부 update로 즉시 소비하고 `outcome = failed`, `failureReason = serial_mismatch` 또는 `token_expired`를 기록한다. 이 terminal row는 올바른 serial이나 같은 token으로 재사용할 수 없다.
+- consume 이후 CSR, CA 서명, CA bundle 또는 DB 단계가 실패하면 `outcome = failed`와 원문 없는 failure code만 남긴다. `usedAt`은 되돌리지 않으며 제조 station이 새 enrollment를 발급해야 한다.
+- CA가 인증서를 발급한 뒤 DB transaction이 실패하면 API는 best-effort revoke를 요청하고 `failureReason = persistence_failed`를 기록한다. revoke 자체의 오류 body는 저장하거나 반환하지 않는다.
+- 성공 transaction은 device `GatewayCertificate`, `GatewayInventory.certificateFingerprint`, scrypt `claimCodeHash`, enrollment `outcome = issued`를 함께 반영한다. claim 전이므로 `GatewayCertificate.gatewayId`와 `Gateway.certificateFingerprint`는 갱신하지 않는다.
+
+### GatewayCertificate
+
+게이트웨이에 발급한 장치 bootstrap 인증서와 MQTT client 인증서의 수명주기 원장이다. 실제 인증서 PEM과 private key 대신 식별·폐기·교체에 필요한 metadata만 저장한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 인증서 원장 ID |
+| `inventoryId` | `String` | 예 | FK -> `GatewayInventory.id`, delete restrict | 제조 장비 원장 ID |
+| `gatewayId` | `String?` | 아니오 | FK -> `Gateway.id`, delete 시 set null | claim 후 연결된 서비스 게이트웨이 ID |
+| `purpose` | `CertificatePurpose` | 예 | DB enum | 인증서 용도 |
+| `certificateSerial` | `String` | 예 | issuer와 복합 Unique | CA가 발급한 인증서 serial |
+| `fingerprint` | `String` | 예 | Unique | 인증서 SHA-256 fingerprint의 canonical 원장 |
+| `issuer` | `String` | 예 |  | 발급 CA 식별자 |
+| `notBefore` | `DateTime` | 예 |  | 유효 시작 시각 |
+| `notAfter` | `DateTime` | 예 |  | 만료 시각 |
+| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `replaced`, `revoked`, `expired` |
+| `revokedAt` | `DateTime?` | 아니오 |  | 폐기 시각 |
+| `replacedById` | `String?` | 아니오 | Unique self FK, delete restrict | 이 인증서를 교체한 새 인증서 ID |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
+
+관계 및 삭제 정책:
+
+- `inventory`: `GatewayInventory`. 인증서가 연결된 inventory의 hard delete를 `RESTRICT`로 차단한다.
+- `gateway`: `Gateway?`. Gateway가 삭제되어도 인증서 감사 기록은 유지하고 FK만 `NULL`로 만든다.
+- `replacedBy` / `replaces`: `GatewayCertificate?` self relation. 한 새 인증서는 최대 한 기존 인증서를 교체하며, 교체 대상으로 참조된 후속 인증서의 hard delete를 `RESTRICT`로 차단한다.
+
+제약:
+
+- Unique: `fingerprint`, `replacedById`, `issuer + certificateSerial`
+- Check: `replacedById IS NULL OR replacedById <> id`로 자기 자신을 교체 대상으로 지정할 수 없다.
+- Index: `inventoryId + purpose + status`, `gatewayId + purpose + status`
+
+교체 transaction 계약:
+
+- `GatewayCertificate.fingerprint`가 전체 인증서 이력의 canonical 값이다. `GatewayInventory`와 `Gateway`의 fingerprint는 active `device` 인증서 pointer이므로 lifecycle service가 같은 transaction에서 동기화한다.
+- DB의 self-check와 unique 제약만으로는 cross-inventory, cross-purpose 또는 다중 노드 cycle을 완전히 차단할 수 없다.
+- Task 27/29 lifecycle service는 같은 transaction 안에서 기존/후속 인증서가 동일한 `inventoryId`와 `purpose`인지 확인하고, 기존 교체 체인을 잠금 조회해 cycle이 생기지 않는지 검증한 뒤 `replacedById`와 상태를 함께 갱신해야 한다.
+- revoke 대상은 `purpose + issuer + certificateSerial + fingerprint`로 식별해 CA 교체나 serial 충돌 상황에서도 모호하지 않게 한다.
+
+보안 저장 정책:
+
+- 인증서 PEM, device/MQTT private key, enrollment token 원문, Claim Code 원문은 이 테이블을 포함한 어떤 DB 테이블에도 저장하지 않는다.
+- private key는 해당 Raspberry Pi 내부에서 생성하고 장비의 identity volume에만 권한 `0600`으로 보관한다.
+- DB 원장은 인증서 조회, rotation, revoke와 감사에 필요한 metadata만 보관한다.
 
 ### MeshNode
 
@@ -607,7 +716,9 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `FloorMapObject` | Index `floorId`, `zIndex` | 한 층 안에서 편집 객체 렌더링 순서 조회 최적화 |
 | `Fixture` | Unique `meshNodeId` | 하나의 메시 노드는 하나의 조명에만 연결 |
 | `Gateway` | Unique `serialNumber` | 게이트웨이 시리얼 중복 방지 |
-| `GatewayInventory` | Unique `serialNumber`, `certificateFingerprint`, `claimedGatewayId` | 제조 identity 및 일회성 claim 보장 |
+| `GatewayInventory` | Unique `serialNumber`, nullable `certificateFingerprint`, `claimedGatewayId` | 인증서 발급 전 제조 identity 생성과 발급 후 fingerprint 확정 지원 |
+| `GatewayEnrollment` | Unique `tokenHash`, partial unique `serialNumber WHERE usedAt IS NULL`, Index `serialNumber + createdAt` | secret hash 중복, serial별 미사용 enrollment 단일성, token 재사용 방지와 제조 이력 조회 |
+| `GatewayCertificate` | DB enum purpose/status; Unique `fingerprint`, `replacedById`, `issuer + certificateSerial`; self-replacement Check; inventory/replacement delete Restrict | 인증서 수명주기와 감사 가능한 1:1 교체 체인 추적 |
 | `CommandDispatch` | Unique `idempotencyKey`, `gatewayId + sequence` | 중복 명령과 순서 충돌 방지 |
 | `CommandFixtureResult` | PK `dispatchId + fixtureId` | dispatch별 조명 결과 중복 방지 |
 | `ProcessedGatewayEvent` | PK `eventId`, Unique `gatewayId + sequence + eventType` | QoS 중복·stale 이벤트 방지 |
