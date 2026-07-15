@@ -4,7 +4,8 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "pnpm --filter @led-control/shared build && node scripts/dev.mjs",
-    "test": "node --test scripts/dev-runtime.test.mjs && pnpm --filter @led-control/shared build && pnpm -r test",
+    "test": "node --test scripts/dev-runtime.test.mjs scripts/lan-tls-integration.test.mjs && pnpm --filter @led-control/shared build && pnpm -r test",
+    "test:lan-tls": "node --test scripts/lan-tls-integration.test.mjs",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm --filter @led-control/shared build && pnpm -r typecheck",
     "gateway:smoke": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec node scripts/local-smoke-test.mjs",

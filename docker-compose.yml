@@ -20,9 +20,9 @@ services:
     ports:
       - "8883:8883"
     volumes:
-      - ./infra/mosquitto.dev-tls.conf:/mosquitto/config/mosquitto.conf:ro
+      - ${MOSQUITTO_TLS_CONFIG_PATH:-./infra/mosquitto.dev-tls.conf}:/mosquitto/config/mosquitto.conf:ro
       - ./infra/mosquitto.acl.example:/mosquitto/config/mosquitto.acl:ro
-      - ./.local/pki:/mosquitto/certs:ro
+      - ${MQTT_TLS_CERT_DIR:-./.local/pki}:/mosquitto/certs:ro
 
   object-storage:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z

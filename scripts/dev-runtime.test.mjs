@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   parseEnvFile,
@@ -16,17 +17,73 @@ test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다"
   });
 });
 
-test("개발 환경은 명시한 실제 gateway identity와 절대 경로의 mTLS 인증서를 사용한다", () => {
+test("개발 환경은 명시한 LAN MQTT URL과 mTLS 경로를 보존한다", () => {
   const root = "/workspace/led-control";
   const env = resolveDevEnvironment(root, {
-    MQTT_URL: "mqtt://localhost:1883",
+    MQTT_URL: "mqtts://mqtt.lan:8883",
+    MQTT_PUBLIC_URL: "mqtts://192.168.1.11:8883",
+    MQTT_CA_PATH: "/vault/current/mqtt-ca.crt",
+    MQTT_CLIENT_CERT_PATH: "/vault/current/api-mqtt-client.crt",
+    MQTT_CLIENT_KEY_PATH: "/vault/current/api-mqtt-client.key",
     DEV_GATEWAY_ID: "11111111-1111-4111-8111-111111111111"
   });
 
+  assert.equal(env.MQTT_URL, "mqtts://mqtt.lan:8883");
+  assert.equal(env.MQTT_PUBLIC_URL, "mqtts://192.168.1.11:8883");
+  assert.equal(env.MQTT_CA_PATH, "/vault/current/mqtt-ca.crt");
+  assert.equal(env.MQTT_CLIENT_CERT_PATH, "/vault/current/api-mqtt-client.crt");
+  assert.equal(env.MQTT_CLIENT_KEY_PATH, "/vault/current/api-mqtt-client.key");
+  assert.equal(env.DEV_GATEWAY_ID, "11111111-1111-4111-8111-111111111111");
+});
+
+test("개발 환경은 미설정 mTLS 값에만 기존 로컬 PKI 기본값을 사용한다", () => {
+  const env = resolveDevEnvironment("/workspace/led-control", {});
+
   assert.equal(env.MQTT_URL, "mqtts://localhost:8883");
+  assert.equal(env.MQTT_PUBLIC_URL, "mqtts://localhost:8883");
   assert.equal(env.MQTT_CA_PATH, "/workspace/led-control/.local/pki/ca.crt");
   assert.equal(env.MQTT_CLIENT_CERT_PATH, "/workspace/led-control/.local/pki/api.crt");
-  assert.equal(env.DEV_GATEWAY_ID, "11111111-1111-4111-8111-111111111111");
+  assert.equal(env.MQTT_CLIENT_KEY_PATH, "/workspace/led-control/.local/pki/api.key");
+});
+
+test("개발 환경은 평문 MQTT URL을 거부한다", () => {
+  assert.throws(
+    () => resolveDevEnvironment("/workspace/led-control", { MQTT_URL: "mqtt://mqtt.lan:1883" }),
+    /MQTT_URL must use mqtts:\/\//
+  );
+  assert.throws(
+    () => resolveDevEnvironment("/workspace/led-control", { MQTT_PUBLIC_URL: "mqtt://mqtt.lan:1883" }),
+    /MQTT_PUBLIC_URL must use mqtts:\/\//
+  );
+});
+
+test("Vault 현재 bundle을 사용하면 API client와 Mosquitto server 경로를 함께 선택한다", () => {
+  const root = "/workspace/led-control";
+  const env = resolveDevEnvironment(root, { PKI_LAB_CURRENT_DIR: "/vault/pki/current" });
+  const config = renderMosquittoConfig(root, env);
+
+  assert.equal(env.MQTT_CA_PATH, "/vault/pki/current/mqtt-ca.crt");
+  assert.equal(env.MQTT_CLIENT_CERT_PATH, "/vault/pki/current/api-mqtt-client.crt");
+  assert.equal(env.MQTT_CLIENT_KEY_PATH, "/vault/pki/current/api-mqtt-client.key");
+  assert.match(config, /cafile \/vault\/pki\/current\/mqtt-ca\.crt/);
+  assert.match(config, /certfile \/vault\/pki\/current\/mqtt-server\.crt/);
+  assert.match(config, /keyfile \/vault\/pki\/current\/mqtt-server\.key/);
+  assert.match(config, /crlfile \/vault\/pki\/current\/mqtt-client\.crl/);
+});
+
+test("명시한 Vault client 경로는 PKI_LAB_CURRENT_DIR 없이도 Mosquitto bundle 경로를 선택한다", () => {
+  const root = "/workspace/led-control";
+  const env = resolveDevEnvironment(root, {
+    MQTT_CA_PATH: "/vault/pki/current/mqtt-ca.crt",
+    MQTT_CLIENT_CERT_PATH: "/vault/pki/current/api-mqtt-client.crt",
+    MQTT_CLIENT_KEY_PATH: "/vault/pki/current/api-mqtt-client.key"
+  });
+  const config = renderMosquittoConfig(root, env);
+
+  assert.match(config, /cafile \/vault\/pki\/current\/mqtt-ca\.crt/);
+  assert.match(config, /certfile \/vault\/pki\/current\/mqtt-server\.crt/);
+  assert.match(config, /keyfile \/vault\/pki\/current\/mqtt-server\.key/);
+  assert.match(config, /crlfile \/vault\/pki\/current\/mqtt-client\.crl/);
 });
 
 test("DEV_GATEWAY_ID가 없으면 mock identity 없이 온보딩 모드로 시작한다", () => {
@@ -36,11 +93,12 @@ test("DEV_GATEWAY_ID가 없으면 mock identity 없이 온보딩 모드로 시�
 });
 
 test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () => {
-  const config = renderMosquittoConfig("/workspace/led-control");
+  const config = renderMosquittoConfig("/workspace/led-control", {});
   const acl = renderMosquittoAcl("00000000-0000-4000-8000-000000000004");
 
   assert.match(config, /listener 8883/);
   assert.match(config, /require_certificate true/);
+  assert.match(config, /tls_version tlsv1\.2/);
   assert.match(config, /cafile \/workspace\/led-control\/.local\/pki\/ca\.crt/);
   assert.match(acl, /user api-service\ntopic readwrite sites\/#/);
   assert.match(acl, /user 00000000-0000-4000-8000-000000000004/);
@@ -53,4 +111,26 @@ test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행�
 
 test("추가 인자가 있어도 제품 개발 프로세스만 실행한다", () => {
   assert.deepEqual(resolveDevAppFilters(["--with-mock-gateway"]), ["@led-control/api", "@led-control/web"]);
+});
+
+test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 강제한다", () => {
+  const config = readFileSync(new URL("../infra/mosquitto.production-tls.conf", import.meta.url), "utf8");
+
+  assert.match(config, /^allow_anonymous false$/m);
+  assert.match(config, /^cafile \/mosquitto\/certs\/mqtt-ca\.crt$/m);
+  assert.match(config, /^certfile \/mosquitto\/certs\/mqtt-server\.crt$/m);
+  assert.match(config, /^keyfile \/mosquitto\/certs\/mqtt-server\.key$/m);
+  assert.match(config, /^crlfile \/mosquitto\/certs\/mqtt-client\.crl$/m);
+  assert.match(config, /^require_certificate true$/m);
+  assert.match(config, /^use_identity_as_username true$/m);
+  assert.match(config, /^tls_version tlsv1\.2$/m);
+  assert.match(config, /^acl_file \/mosquitto\/config\/mosquitto\.acl$/m);
+  assert.doesNotMatch(config, /allow_anonymous true|require_certificate false|use_identity_as_username false/i);
+});
+
+test("Compose는 선택 가능한 Mosquitto config와 certificate directory를 read-only로 mount한다", () => {
+  const compose = readFileSync(new URL("../docker-compose.yml", import.meta.url), "utf8");
+
+  assert.match(compose, /\$\{MOSQUITTO_TLS_CONFIG_PATH:-\.\/infra\/mosquitto\.dev-tls\.conf\}:\/mosquitto\/config\/mosquitto\.conf:ro/);
+  assert.match(compose, /\$\{MQTT_TLS_CERT_DIR:-\.\/\.local\/pki\}:\/mosquitto\/certs:ro/);
 });

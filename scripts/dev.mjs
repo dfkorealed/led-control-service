@@ -7,6 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   parseEnvFile,
   resolveDevAppFilters,
+  resolveMosquittoTlsPaths,
   renderMosquittoAcl,
   renderMosquittoConfig,
   resolveDevEnvironment
@@ -20,7 +21,8 @@ let apps = null;
 if (!existsSync(envFile)) fail(".env 파일이 없습니다. cp .env.example .env를 먼저 실행하세요.");
 
 const fileEnv = parseEnvFile(readFileSync(envFile, "utf8"));
-const env = resolveDevEnvironment(root, { ...fileEnv, ...process.env });
+const sourceEnv = { ...fileEnv, ...process.env };
+const env = resolveDevEnvironment(root, sourceEnv);
 const appFilters = resolveDevAppFilters(process.argv.slice(2));
 const apiPort = Number(env.API_PORT || 4000);
 const webPort = Number(env.WEB_PORT || 5173);
@@ -30,7 +32,7 @@ await requireService("Redis", 6379, "brew services start redis 또는 pnpm docke
 await requireFreePort(apiPort, "API_PORT");
 await requireFreePort(webPort, "WEB_PORT");
 
-ensureDevelopmentPki(env.DEV_GATEWAY_ID);
+ensureDevelopmentPki(env.DEV_GATEWAY_ID, usesExternalMqttPki(sourceEnv));
 const localDir = join(root, ".local");
 mkdirSync(localDir, { recursive: true });
 writeFileSync(
@@ -38,7 +40,7 @@ writeFileSync(
   renderMosquittoAcl(env.DEV_GATEWAY_ID),
   { mode: 0o600 }
 );
-writeFileSync(join(localDir, "mosquitto.host.conf"), renderMosquittoConfig(root), { mode: 0o600 });
+writeFileSync(join(localDir, "mosquitto.host.conf"), renderMosquittoConfig(root, env), { mode: 0o600 });
 
 if (!(await isPortOpen(8883))) {
   const mosquitto = findMosquitto();
@@ -83,8 +85,19 @@ apps.once("exit", (code, signal) => {
   process.exitCode = signal ? 130 : code ?? 1;
 });
 
-function ensureDevelopmentPki(gatewayId) {
+function ensureDevelopmentPki(gatewayId, externalPki) {
   const pki = join(root, ".local", "pki");
+  if (externalPki) {
+    const required = [
+      env.MQTT_CA_PATH,
+      env.MQTT_CLIENT_CERT_PATH,
+      env.MQTT_CLIENT_KEY_PATH,
+      ...Object.values(resolveMosquittoTlsPaths(root, env))
+    ];
+    const missing = [...new Set(required)].filter((path) => !existsSync(path));
+    if (missing.length) fail(`명시한 Vault TLS bundle 파일을 찾지 못했습니다: ${missing.join(", ")}`);
+    return;
+  }
   if (!existsSync(join(pki, "ca.crt")) || !existsSync(join(pki, "api.crt")) || !existsSync(join(pki, "broker.crt"))) {
     runChecked(join(root, "scripts", "dev-pki", "create-ca.sh"), [], env);
   }
@@ -94,6 +107,19 @@ function ensureDevelopmentPki(gatewayId) {
       runChecked(join(root, "scripts", "dev-pki", "issue-gateway-cert.sh"), [gatewayId], env);
     }
   }
+}
+
+function usesExternalMqttPki(source) {
+  return Boolean(
+    source.PKI_LAB_CURRENT_DIR?.trim() ||
+      source.MQTT_CA_PATH?.trim() ||
+      source.MQTT_CLIENT_CERT_PATH?.trim() ||
+      source.MQTT_CLIENT_KEY_PATH?.trim() ||
+      source.MQTT_SERVER_CLIENT_CA_PATH?.trim() ||
+      source.MQTT_SERVER_CERT_PATH?.trim() ||
+      source.MQTT_SERVER_KEY_PATH?.trim() ||
+      source.MQTT_CLIENT_CRL_PATH?.trim()
+  );
 }
 
 function findMosquitto() {
@@ -142,20 +168,21 @@ function isPortOpen(port) {
 }
 
 async function waitForMqttTls(mqttEnv, timeoutMs) {
+  const mqttUrl = new URL(mqttEnv.MQTT_URL);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await canConnectMqttTls(mqttEnv)) return;
+    if (await canConnectMqttTls(mqttEnv, mqttUrl)) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  fail(`API 개발 인증서로 localhost:8883 mTLS handshake를 ${timeoutMs}ms 안에 완료하지 못했습니다.`);
+  fail(`API 개발 인증서로 ${mqttUrl.host} mTLS handshake를 ${timeoutMs}ms 안에 완료하지 못했습니다.`);
 }
 
-function canConnectMqttTls(mqttEnv) {
+function canConnectMqttTls(mqttEnv, mqttUrl) {
   return new Promise((resolve) => {
     const socket = connectTls({
-      host: "127.0.0.1",
-      port: 8883,
-      servername: "localhost",
+      host: mqttUrl.hostname,
+      port: Number(mqttUrl.port || 8883),
+      servername: mqttUrl.hostname,
       ca: readFileSync(mqttEnv.MQTT_CA_PATH),
       cert: readFileSync(mqttEnv.MQTT_CLIENT_CERT_PATH),
       key: readFileSync(mqttEnv.MQTT_CLIENT_KEY_PATH),
