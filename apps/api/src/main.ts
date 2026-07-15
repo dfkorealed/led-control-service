@@ -3,12 +3,22 @@ import { config } from "dotenv";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { createApiHttpsOptions } from "./api-tls-options";
+import { startApiTlsCrlReload } from "./api-tls-reloader";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, createApiHttpsOptions(process.env));
+  const tls = createApiHttpsOptions(process.env);
+  const app = await NestFactory.create(AppModule, tls);
+  if (tls.httpsOptions) {
+    startApiTlsCrlReload({
+      crlPath: process.env.API_DEVICE_CRL_PATH!.trim(),
+      initialOptions: tls.httpsOptions,
+      load: () => createApiHttpsOptions(process.env).httpsOptions!,
+      server: app.getHttpServer()
+    });
+  }
   const webOrigin = process.env.WEB_PUBLIC_URL ?? "http://localhost:5173";
   app.enableCors({
     origin: Array.from(new Set([webOrigin, "http://localhost:5173", "http://127.0.0.1:5173"])),

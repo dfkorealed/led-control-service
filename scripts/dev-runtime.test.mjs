@@ -6,7 +6,8 @@ import {
   resolveDevAppFilters,
   resolveDevEnvironment,
   renderMosquittoAcl,
-  renderMosquittoConfig
+  renderMosquittoConfig,
+  startMosquittoCrlReload
 } from "./dev-runtime.mjs";
 
 test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다", () => {
@@ -134,3 +135,45 @@ test("Compose는 선택 가능한 Mosquitto config와 certificate directory를 r
   assert.match(compose, /\$\{MOSQUITTO_TLS_CONFIG_PATH:-\.\/infra\/mosquitto\.dev-tls\.conf\}:\/mosquitto\/config\/mosquitto\.conf:ro/);
   assert.match(compose, /\$\{MQTT_TLS_CERT_DIR:-\.\/\.local\/pki\}:\/mosquitto\/certs:ro/);
 });
+
+test("host Mosquitto는 변경된 CRL에만 SIGHUP하고 임시 파일과 동일 checksum은 무시한다", () => {
+  const harness = createCrlWatcherHarness();
+  const broker = { kill: (signal) => signals.push(signal) };
+  const signals = [];
+  let crl = "old";
+
+  startMosquittoCrlReload({ crlPath: "/tls/mqtt-client.crl", broker, readFile: () => Buffer.from(crl), ...harness });
+  harness.trigger("change", "mqtt-client.crl.tmp");
+  harness.runPending();
+  harness.trigger("change", "mqtt-client.crl");
+  harness.runPending();
+  crl = "new";
+  harness.trigger("rename", "mqtt-client.crl");
+  harness.runPending();
+
+  assert.deepEqual(signals, ["SIGHUP"]);
+});
+
+function createCrlWatcherHarness() {
+  let callback;
+  let pending;
+  return {
+    watch: (_path, listener) => {
+      callback = listener;
+      return { close() {} };
+    },
+    schedule: (listener) => {
+      pending = listener;
+      return 1;
+    },
+    cancel() {},
+    trigger(event, filename) {
+      callback(event, filename);
+    },
+    runPending() {
+      const listener = pending;
+      pending = undefined;
+      listener?.();
+    }
+  };
+}

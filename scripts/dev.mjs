@@ -10,13 +10,15 @@ import {
   resolveMosquittoTlsPaths,
   renderMosquittoAcl,
   renderMosquittoConfig,
-  resolveDevEnvironment
+  resolveDevEnvironment,
+  startMosquittoCrlReload
 } from "./dev-runtime.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const envFile = join(root, ".env");
 let stopping = false;
 let broker = null;
+let brokerCrlWatcher = null;
 let apps = null;
 if (!existsSync(envFile)) fail(".env 파일이 없습니다. cp .env.example .env를 먼저 실행하세요.");
 
@@ -56,6 +58,7 @@ if (!(await isPortOpen(8883))) {
       stop();
     }
   });
+  brokerCrlWatcher = startMosquittoCrlReload({ crlPath: resolveMosquittoTlsPaths(root, env).crl, broker });
 }
 await waitForMqttTls(env, 5000);
 
@@ -75,6 +78,7 @@ function stop(signal = "SIGTERM") {
   if (stopping) return;
   stopping = true;
   apps?.kill(signal);
+  brokerCrlWatcher?.close();
   broker?.kill(signal);
 }
 

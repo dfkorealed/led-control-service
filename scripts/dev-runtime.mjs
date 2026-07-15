@@ -1,4 +1,6 @@
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { readFileSync, watch as watchFile } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 export function resolveDevAppFilters(_args) {
   return ["@led-control/api", "@led-control/web"];
@@ -67,6 +69,44 @@ export function renderMosquittoConfig(root, source = {}) {
   ].join("\n");
 }
 
+export function startMosquittoCrlReload({
+  crlPath,
+  broker,
+  readFile = readFileSync,
+  logger = console,
+  watch = defaultWatch,
+  schedule = setTimeout,
+  cancel = clearTimeout
+}) {
+  let checksum = checksumOf(readFile(crlPath));
+  let timer;
+  const filename = basename(crlPath);
+  const watcher = watch(dirname(crlPath), (_event, changedFilename) => {
+    if (changedFilename !== filename) return;
+    if (timer) cancel(timer);
+    timer = schedule(reload, 200);
+  });
+
+  function reload() {
+    timer = undefined;
+    try {
+      const nextChecksum = checksumOf(readFile(crlPath));
+      if (nextChecksum === checksum) return;
+      broker.kill("SIGHUP");
+      checksum = nextChecksum;
+    } catch {
+      logger.error("[dev] Mosquitto CRL reload failed; retaining the current broker context.");
+    }
+  }
+
+  return {
+    close() {
+      if (timer) cancel(timer);
+      watcher.close();
+    }
+  };
+}
+
 function resolvePkiDirectory(root, source) {
   return source.PKI_LAB_CURRENT_DIR?.trim() || join(root, ".local", "pki");
 }
@@ -86,6 +126,14 @@ function mqttsUrl(value, key) {
     throw new Error(`${key} must use mqtts://`);
   }
   return url;
+}
+
+function defaultWatch(path, listener) {
+  return watchFile(path, { persistent: false }, (event, filename) => listener(event, filename.toString()));
+}
+
+function checksumOf(content) {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 export function renderMosquittoAcl(gatewayIds) {
