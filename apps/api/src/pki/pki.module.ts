@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { X509Certificate } from "node:crypto";
 import { accessSync, constants, readFileSync } from "node:fs";
 import { PrismaModule } from "../prisma/prisma.module";
+import { DeviceCertificateGuard } from "../gateway-onboarding/device-certificate.guard";
 import {
   CERTIFICATE_AUTHORITY_PROVIDER,
   UnavailableCertificateAuthorityProvider,
@@ -16,10 +17,12 @@ import {
   type ManufacturingEnrollmentConfiguration
 } from "./manufacturing-enrollment.service";
 import { VaultPkiProvider, type VaultPkiProviderOptions } from "./vault-pki.provider";
+import { GatewayCertificateController } from "./gateway-certificate.controller";
+import { GatewayCertificateService } from "./gateway-certificate.service";
 
 @Module({
   imports: [PrismaModule],
-  controllers: [ManufacturingEnrollmentController],
+  controllers: [ManufacturingEnrollmentController, GatewayCertificateController],
   providers: [
     {
       provide: CERTIFICATE_AUTHORITY_PROVIDER,
@@ -31,13 +34,15 @@ import { VaultPkiProvider, type VaultPkiProviderOptions } from "./vault-pki.prov
     },
     GatewayCsrValidator,
     ManufacturingEnrollmentService,
+    GatewayCertificateService,
     {
       provide: MANUFACTURING_CA_FINGERPRINT,
       inject: [MANUFACTURING_ENROLLMENT_CONFIGURATION],
       useFactory: (configuration: ManufacturingEnrollmentConfiguration) =>
         configuration.manufacturingCaFingerprint
     },
-    ManufacturingAuthGuard
+    ManufacturingAuthGuard,
+    DeviceCertificateGuard
   ],
   exports: [CERTIFICATE_AUTHORITY_PROVIDER]
 })
