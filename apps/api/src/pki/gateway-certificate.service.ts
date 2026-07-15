@@ -17,8 +17,8 @@ import type { SignedCertificate } from "./pki.types";
 const MQTT_CERTIFICATE_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 interface IssueMqttCertificateInput {
-  csrPem: string;
-  deviceCertificateFingerprint: string;
+  csrPem?: unknown;
+  deviceCertificateFingerprint?: unknown;
 }
 
 @Injectable()
@@ -29,9 +29,9 @@ export class GatewayCertificateService {
     private readonly csrValidator: GatewayCsrValidator
   ) {}
 
-  async issueMqttCertificate(input: IssueMqttCertificateInput) {
-    const csrPem = this.requireCsr(input.csrPem);
-    const deviceFingerprint = this.normalizeFingerprint(input.deviceCertificateFingerprint);
+  async issueMqttCertificate(input?: IssueMqttCertificateInput | null) {
+    const csrPem = this.requireCsr(input?.csrPem);
+    const deviceFingerprint = this.normalizeFingerprint(input?.deviceCertificateFingerprint);
     const deviceCertificate = await this.db().gatewayCertificate.findUnique({
       where: { fingerprint: deviceFingerprint },
       include: { inventory: { include: { claimedGateway: true } } }
@@ -60,46 +60,51 @@ export class GatewayCertificateService {
       throw new BadRequestException("CSR is invalid");
     }
 
-    let signed: SignedCertificate;
+    let signed: SignedCertificate | undefined;
     try {
-      signed = await this.certificateAuthority.signCsr({
-        purpose: "mqtt",
-        csrPem,
-        commonName: inventory.claimedGateway.id,
-        uriSans: [`urn:dfkorea:gateway:${inventory.claimedGateway.id}`],
-        ttlSeconds: MQTT_CERTIFICATE_TTL_SECONDS
-      });
-    } catch {
-      throw new ServiceUnavailableException("MQTT certificate issuance failed");
-    }
-
-    const certificateData = this.certificateData(inventory.id, inventory.claimedGateway.id, signed);
-    try {
-      await this.db().$transaction(async (tx: any) => {
+      const issuance = await this.db().$transaction(async (tx: any) => {
+        // The parameterized transaction lock makes every MQTT issuance for one inventory observe its predecessor.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${inventory.id}::text, 0))`;
+        signed = await this.certificateAuthority.signCsr({
+          purpose: "mqtt",
+          csrPem,
+          commonName: inventory.claimedGateway.id,
+          uriSans: [`urn:dfkorea:gateway:${inventory.claimedGateway.id}`],
+          ttlSeconds: MQTT_CERTIFICATE_TTL_SECONDS
+        });
+        const certificateData = this.certificateData(inventory.id, inventory.claimedGateway.id, signed);
         const activeMqttCertificate = await tx.gatewayCertificate.findFirst({
           where: { inventoryId: inventory.id, purpose: "mqtt", status: "active" }
         });
+
+        if (activeMqttCertificate) {
+          await tx.gatewayCertificate.update({
+            where: { id: activeMqttCertificate.id },
+            data: { status: "replaced" }
+          });
+        }
         const mqttCertificate = await tx.gatewayCertificate.create({ data: certificateData });
 
         if (activeMqttCertificate) {
-          // The scoped lookup and update run in one transaction so the ledger never exposes a partial replacement link.
           await tx.gatewayCertificate.update({
             where: { id: activeMqttCertificate.id },
-            data: { status: "replaced", replacedById: mqttCertificate.id }
+            data: { replacedById: mqttCertificate.id }
           });
         }
+
+        return { signed, certificateData };
       });
+
+      return {
+        gatewayId: inventory.claimedGateway.id,
+        certificatePem: issuance.signed.certificatePem,
+        caChainPem: issuance.signed.caChainPem,
+        notAfter: issuance.certificateData.notAfter.toISOString()
+      };
     } catch {
-      await this.bestEffortRevoke(signed);
+      if (signed) await this.bestEffortRevoke(signed);
       throw new ServiceUnavailableException("MQTT certificate issuance failed");
     }
-
-    return {
-      gatewayId: inventory.claimedGateway.id,
-      certificatePem: signed.certificatePem,
-      caChainPem: signed.caChainPem,
-      notAfter: certificateData.notAfter.toISOString()
-    };
   }
 
   private certificateData(inventoryId: string, gatewayId: string, signed: SignedCertificate) {

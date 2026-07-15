@@ -331,6 +331,7 @@ model GatewayCertificate {
   issuer            String
   notBefore         DateTime
   notAfter          DateTime
+  /// PostgreSQL migration enforces one active MQTT certificate per inventory with a partial unique index.
   status            GatewayCertificateStatus
   revokedAt         DateTime?
   replacedById      String?             @unique

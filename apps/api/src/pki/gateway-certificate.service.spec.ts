@@ -78,6 +78,10 @@ describe("GatewayCertificateService", () => {
       uriSans: ["urn:dfkorea:gateway:gateway-1"],
       ttlSeconds: 90 * 24 * 60 * 60
     });
+    expect(prisma.gatewayCertificate.update).toHaveBeenNthCalledWith(1, {
+      where: { id: "mqtt-certificate-old" },
+      data: { status: "replaced" }
+    });
     expect(prisma.gatewayCertificate.create).toHaveBeenCalledWith({
       data: {
         inventoryId: "inventory-1",
@@ -91,10 +95,11 @@ describe("GatewayCertificateService", () => {
         status: "active"
       }
     });
-    expect(prisma.gatewayCertificate.update).toHaveBeenCalledWith({
+    expect(prisma.gatewayCertificate.update).toHaveBeenNthCalledWith(2, {
       where: { id: "mqtt-certificate-old" },
-      data: { status: "replaced", replacedById: "mqtt-certificate-new" }
+      data: { replacedById: "mqtt-certificate-new" }
     });
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
     expect(prisma.gatewayInventory.update).not.toHaveBeenCalled();
     expect(result).toEqual({
       gatewayId: "gateway-1",
@@ -106,7 +111,7 @@ describe("GatewayCertificateService", () => {
 
   it("best-effort revokes the new MQTT certificate when its ledger transaction fails", async () => {
     const { service, prisma, ca } = createFixture();
-    prisma.$transaction.mockRejectedValueOnce(new Error("database unavailable"));
+    prisma.gatewayCertificate.create.mockRejectedValueOnce(new Error("database unavailable"));
 
     await expect(service.issueMqttCertificate({ csrPem: CSR, deviceCertificateFingerprint: DEVICE_FINGERPRINT })).rejects.toThrow(
       ServiceUnavailableException
@@ -118,6 +123,59 @@ describe("GatewayCertificateService", () => {
       issuer: "CN=MQTT Issuing CA",
       fingerprint: MQTT_FINGERPRINT.match(/.{2}/g)?.join(":")
     });
+  });
+
+  it("best-effort revokes a signed MQTT certificate when its metadata is invalid", async () => {
+    const { service, ca } = createFixture();
+    ca.signCsr.mockResolvedValueOnce({
+      certificatePem: "-----BEGIN CERTIFICATE-----\\nSECRET-MQTT-CERT\\n-----END CERTIFICATE-----",
+      caChainPem: ["MQTT PUBLIC CA"],
+      certificateSerial: "01:02",
+      fingerprint: "not-a-fingerprint",
+      issuer: "CN=MQTT Issuing CA",
+      notBefore: "2026-07-15T00:00:00.000Z",
+      notAfter: "2026-10-13T00:00:00.000Z"
+    });
+
+    await expect(service.issueMqttCertificate({ csrPem: CSR, deviceCertificateFingerprint: DEVICE_FINGERPRINT })).rejects.toThrow(
+      ServiceUnavailableException
+    );
+
+    expect(ca.revoke).toHaveBeenCalledWith({
+      purpose: "mqtt",
+      certificateSerial: "01:02",
+      issuer: "CN=MQTT Issuing CA",
+      fingerprint: "not-a-fingerprint"
+    });
+  });
+
+  it.each([undefined, null, {}, []])("rejects an invalid MQTT certificate request input (%p) with 400 before signing", async (input) => {
+    const { service, ca } = createFixture();
+
+    await expect(service.issueMqttCertificate(input as never)).rejects.toThrow(BadRequestException);
+
+    expect(ca.signCsr).not.toHaveBeenCalled();
+  });
+
+  it("serializes concurrent MQTT certificate issuance per inventory and leaves one linked active certificate", async () => {
+    const { service, ca, records } = createConcurrentFixture();
+
+    await Promise.all([
+      service.issueMqttCertificate({ csrPem: CSR, deviceCertificateFingerprint: DEVICE_FINGERPRINT }),
+      service.issueMqttCertificate({ csrPem: CSR, deviceCertificateFingerprint: DEVICE_FINGERPRINT })
+    ]);
+
+    const activeCertificates = records.filter((certificate) => certificate.status === "active");
+    expect(activeCertificates).toHaveLength(1);
+    expect(activeCertificates[0]).toMatchObject({ id: "mqtt-certificate-2", purpose: "mqtt" });
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        id: "mqtt-certificate-1",
+        status: "replaced",
+        replacedById: "mqtt-certificate-2"
+      })
+    );
+    expect(ca.revoke).not.toHaveBeenCalled();
   });
 });
 
@@ -138,6 +196,7 @@ function createFixture(overrides: {
     },
     gatewayInventory: { update: jest.fn() }
   };
+  prisma.$executeRaw = jest.fn().mockResolvedValue(0);
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
 
   const ca = {
@@ -159,6 +218,61 @@ function createFixture(overrides: {
     ca,
     csrValidator
   };
+}
+
+function createConcurrentFixture() {
+  const records: Array<Record<string, unknown>> = [];
+  let lock = Promise.resolve();
+  const prisma: any = {
+    gatewayCertificate: {
+      findUnique: jest.fn().mockResolvedValue(baseDeviceCertificate()),
+      findFirst: jest.fn(async () => records.find((certificate) => certificate.status === "active") ?? null),
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const certificate = { ...data, id: `mqtt-certificate-${records.length + 1}` };
+        records.push(certificate);
+        return certificate;
+      }),
+      update: jest.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        Object.assign(records.find((certificate) => certificate.id === where.id) ?? {}, data);
+      })
+    }
+  };
+  prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => {
+    let releaseLock: (() => void) | undefined;
+    const tx = {
+      ...prisma,
+      $executeRaw: jest.fn(async () => {
+        const previousLock = lock;
+        lock = new Promise<void>((resolve) => {
+          releaseLock = resolve;
+        });
+        await previousLock;
+      })
+    };
+
+    try {
+      return await callback(tx);
+    } finally {
+      releaseLock?.();
+    }
+  });
+
+  const signed = (suffix: string) => ({
+    certificatePem: `-----BEGIN CERTIFICATE-----\\nSECRET-MQTT-CERT-${suffix}\\n-----END CERTIFICATE-----`,
+    caChainPem: ["MQTT PUBLIC CA"],
+    certificateSerial: `01:0${suffix}`,
+    fingerprint: suffix === "1" ? MQTT_FINGERPRINT : "CC".repeat(32),
+    issuer: "CN=MQTT Issuing CA",
+    notBefore: "2026-07-15T00:00:00.000Z",
+    notAfter: "2026-10-13T00:00:00.000Z"
+  });
+  const ca = {
+    signCsr: jest.fn().mockResolvedValueOnce(signed("1")).mockResolvedValueOnce(signed("2")),
+    revoke: jest.fn().mockResolvedValue(undefined)
+  } as jest.Mocked<CertificateAuthorityProvider>;
+  const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
+
+  return { service: new GatewayCertificateService(prisma, ca, csrValidator), ca, records };
 }
 
 function baseInventory(): TestInventory {

@@ -6,6 +6,7 @@ const readSchema = () =>
 
 const pkiMigrationSuffix = "_add_gateway_pki_lifecycle";
 const activeEnrollmentMigrationSuffix = "_enforce_single_active_gateway_enrollment";
+const activeMqttCertificateMigrationSuffix = "_enforce_single_active_mqtt_certificate";
 
 const findPkiMigrationDirectory = (directoryNames: string[]) => {
   const matches = directoryNames.filter((name) => name.endsWith(pkiMigrationSuffix));
@@ -189,6 +190,14 @@ describe("Prisma domain schema", () => {
       'CREATE UNIQUE INDEX "GatewayEnrollment_single_active_serial_key" ON "GatewayEnrollment"("serialNumber") WHERE "usedAt" IS NULL'
     );
     expect(migration).not.toMatch(/tokenHash.*(?:sha256|md5|digest)/i);
+  });
+
+  it("enforces one active MQTT certificate per inventory with a PostgreSQL partial unique index", () => {
+    const migration = readMigrationBySuffix(activeMqttCertificateMigrationSuffix);
+
+    expect(migration).toMatch(
+      /CREATE UNIQUE INDEX "GatewayCertificate_single_active_mqtt_inventory_key"\s+ON "GatewayCertificate"\("inventoryId"\)\s+WHERE "purpose" = 'mqtt' AND "status" = 'active'/
+    );
   });
 
   it("rejects ambiguous gateway PKI lifecycle migration discovery", () => {
