@@ -36,7 +36,8 @@ RUN pnpm --filter @led-control/shared build \
     && pnpm --filter @led-control/gateway exec esbuild src/index.ts \
       --bundle --platform=node --format=esm --target=node22 --packages=external \
       --outfile=/tmp/gateway.mjs \
-    && pnpm --filter @led-control/gateway deploy --prod /tmp/gateway-runtime
+    && pnpm --filter @led-control/gateway deploy --prod /tmp/gateway-runtime \
+    && find /tmp/gateway-runtime/node_modules -type f -name '*.md' -delete
 
 RUN pnpm --filter @led-control/gateway exec esbuild scripts/manufacturing-enroll.ts \
       --bundle --platform=node --format=esm --target=node22 --outfile=/tmp/manufacturing-enroll.mjs

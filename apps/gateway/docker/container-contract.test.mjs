@@ -44,6 +44,7 @@ test("image build context에 인증서나 private key를 복사하지 않는다"
   const dockerignore = await readFile(path.resolve(dockerDir, "../../../.dockerignore"), "utf8");
 
   assert.doesNotMatch(dockerfile, /COPY[^\n]*(certs|\.pem|\.key)/i);
+  assert.match(dockerfile, /find \/tmp\/gateway-runtime\/node_modules[^\n]*'\*\.md' -delete/);
   assert.match(dockerignore, /\*\*\/certs/);
   assert.match(dockerignore, /\*\.key/);
   assert.match(dockerignore, /\.env/);

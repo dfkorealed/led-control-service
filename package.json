@@ -10,6 +10,8 @@
     "typecheck": "pnpm --filter @led-control/shared build && pnpm -r typecheck",
     "gateway:smoke": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec node scripts/local-smoke-test.mjs",
     "gateway:hil:2node": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec tsx scripts/hil-2node-test.ts",
+    "gateway:pki:hil": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec tsx scripts/pki-hil-test.ts",
+    "api:pki:e2e": "pnpm --filter @led-control/api exec jest test/gateway-pki.e2e-spec.ts --runInBand",
     "gateway:soak": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec tsx scripts/soak-test.ts",
     "gateway:host:test": "node --test scripts/gateway-host-prepare.test.mjs",
     "gateway:appliance:build": "scripts/gateway-appliance-build.sh",
