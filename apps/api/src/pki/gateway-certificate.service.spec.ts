@@ -6,6 +6,8 @@ const CSR = "-----BEGIN CERTIFICATE REQUEST-----\nSECRET-MQTT-CSR\n-----END CERT
 const DEVICE_FINGERPRINT = "AA".repeat(32);
 const MQTT_FINGERPRINT = "BB".repeat(32);
 const NOW = new Date("2026-07-15T03:00:00.000Z");
+const INVENTORY_LOCK_TIMEOUT_MS = 10_000;
+const MQTT_TRANSACTION_BUDGET_MS = 140_000;
 
 describe("GatewayCertificateService", () => {
   it("rejects a device whose inventory has not been claimed", async () => {
@@ -99,7 +101,7 @@ describe("GatewayCertificateService", () => {
       where: { id: "mqtt-certificate-old" },
       data: { replacedById: "mqtt-certificate-new" }
     });
-    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
     expect(prisma.gatewayInventory.update).not.toHaveBeenCalled();
     expect(result).toEqual({
       gatewayId: "gateway-1",
@@ -123,6 +125,53 @@ describe("GatewayCertificateService", () => {
       issuer: "CN=MQTT Issuing CA",
       fingerprint: MQTT_FINGERPRINT.match(/.{2}/g)?.join(":")
     });
+  });
+
+  it("allows a simulated six-second CA delay and configures lock timeout before the advisory lock", async () => {
+    jest.useFakeTimers();
+    try {
+      const { service, prisma, ca, executedQueries } = createFixture();
+      let markSigningStarted!: () => void;
+      const signingStarted = new Promise<void>((resolve) => {
+        markSigningStarted = resolve;
+      });
+      ca.signCsr.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            markSigningStarted();
+            setTimeout(() => resolve(mqttSignedCertificate()), 6_000);
+          })
+      );
+
+      const issuance = service.issueMqttCertificate({ csrPem: CSR, deviceCertificateFingerprint: DEVICE_FINGERPRINT });
+      await signingStarted;
+
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        maxWait: MQTT_TRANSACTION_BUDGET_MS,
+        timeout: MQTT_TRANSACTION_BUDGET_MS
+      });
+      expect(executedQueries.map(({ template, values }) => ({ sql: template.join("?"), values }))).toEqual([
+        { sql: "SELECT set_config('lock_timeout', ?, true)", values: [`${INVENTORY_LOCK_TIMEOUT_MS}ms`] },
+        { sql: "SELECT pg_advisory_xact_lock(hashtextextended(?::text, 0))", values: ["inventory-1"] }
+      ]);
+
+      await jest.advanceTimersByTimeAsync(6_000);
+      await expect(issuance).resolves.toMatchObject({ gatewayId: "gateway-1" });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not revoke when the transaction fails before CA signing", async () => {
+    const { service, prisma, ca } = createFixture();
+    prisma.$executeRaw.mockRejectedValueOnce(new Error("lock timeout"));
+
+    await expect(service.issueMqttCertificate({ csrPem: CSR, deviceCertificateFingerprint: DEVICE_FINGERPRINT })).rejects.toThrow(
+      ServiceUnavailableException
+    );
+
+    expect(ca.signCsr).not.toHaveBeenCalled();
+    expect(ca.revoke).not.toHaveBeenCalled();
   });
 
   it("best-effort revokes a signed MQTT certificate when its metadata is invalid", async () => {
@@ -196,8 +245,12 @@ function createFixture(overrides: {
     },
     gatewayInventory: { update: jest.fn() }
   };
-  prisma.$executeRaw = jest.fn().mockResolvedValue(0);
-  prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+  const executedQueries: Array<{ template: string[]; values: unknown[] }> = [];
+  prisma.$executeRaw = jest.fn((template: TemplateStringsArray, ...values: unknown[]) => {
+    executedQueries.push({ template: Array.from(template), values });
+    return Promise.resolve(0);
+  });
+  prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>, _options: unknown) => callback(prisma));
 
   const ca = {
     signCsr: jest.fn().mockResolvedValue({
@@ -216,7 +269,8 @@ function createFixture(overrides: {
     service: new GatewayCertificateService(prisma, ca, csrValidator),
     prisma,
     ca,
-    csrValidator
+    csrValidator,
+    executedQueries
   };
 }
 
@@ -239,9 +293,12 @@ function createConcurrentFixture() {
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => {
     let releaseLock: (() => void) | undefined;
+    let rawQueryCount = 0;
     const tx = {
       ...prisma,
       $executeRaw: jest.fn(async () => {
+        rawQueryCount += 1;
+        if (rawQueryCount === 1) return 0;
         const previousLock = lock;
         lock = new Promise<void>((resolve) => {
           releaseLock = resolve;
@@ -273,6 +330,18 @@ function createConcurrentFixture() {
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
 
   return { service: new GatewayCertificateService(prisma, ca, csrValidator), ca, records };
+}
+
+function mqttSignedCertificate() {
+  return {
+    certificatePem: "-----BEGIN CERTIFICATE-----\nSECRET-MQTT-CERT\n-----END CERTIFICATE-----",
+    caChainPem: ["MQTT PUBLIC CA"],
+    certificateSerial: "01:02",
+    fingerprint: MQTT_FINGERPRINT.match(/.{2}/g)?.join(":") ?? MQTT_FINGERPRINT,
+    issuer: "CN=MQTT Issuing CA",
+    notBefore: "2026-07-15T00:00:00.000Z",
+    notAfter: "2026-10-13T00:00:00.000Z"
+  };
 }
 
 function baseInventory(): TestInventory {

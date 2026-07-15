@@ -15,6 +15,12 @@ import { GatewayCsrValidator } from "./csr-validator";
 import type { SignedCertificate } from "./pki.types";
 
 const MQTT_CERTIFICATE_TTL_SECONDS = 90 * 24 * 60 * 60;
+const MAX_VAULT_REQUEST_TIMEOUT_MS = 120_000;
+const INVENTORY_ADVISORY_LOCK_TIMEOUT_MS = 10_000;
+const DATABASE_COMPLETION_MARGIN_MS = 10_000;
+const MQTT_ISSUANCE_TRANSACTION_TIMEOUT_MS =
+  MAX_VAULT_REQUEST_TIMEOUT_MS + INVENTORY_ADVISORY_LOCK_TIMEOUT_MS + DATABASE_COMPLETION_MARGIN_MS;
+const MQTT_ISSUANCE_TRANSACTION_MAX_WAIT_MS = MQTT_ISSUANCE_TRANSACTION_TIMEOUT_MS;
 
 interface IssueMqttCertificateInput {
   csrPem?: unknown;
@@ -63,7 +69,8 @@ export class GatewayCertificateService {
     let signed: SignedCertificate | undefined;
     try {
       const issuance = await this.db().$transaction(async (tx: any) => {
-        // The parameterized transaction lock makes every MQTT issuance for one inventory observe its predecessor.
+        // Keep the advisory-lock wait finite within this transaction, and bind both dynamic values.
+        await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${INVENTORY_ADVISORY_LOCK_TIMEOUT_MS}ms`}, true)`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${inventory.id}::text, 0))`;
         signed = await this.certificateAuthority.signCsr({
           purpose: "mqtt",
@@ -93,6 +100,9 @@ export class GatewayCertificateService {
         }
 
         return { signed, certificateData };
+      }, {
+        maxWait: MQTT_ISSUANCE_TRANSACTION_MAX_WAIT_MS,
+        timeout: MQTT_ISSUANCE_TRANSACTION_TIMEOUT_MS
       });
 
       return {
