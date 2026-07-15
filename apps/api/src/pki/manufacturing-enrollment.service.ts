@@ -196,6 +196,7 @@ export class ManufacturingEnrollmentService {
 
     return {
       deviceCertificatePem: signed.certificatePem,
+      deviceCertificateFingerprint: this.certificateData(inventory.id, signed).fingerprint,
       deviceCaBundlePem,
       apiCaBundlePem: this.configuration.apiCaBundlePem,
       mqttCaBundlePem: this.configuration.mqttCaBundlePem,

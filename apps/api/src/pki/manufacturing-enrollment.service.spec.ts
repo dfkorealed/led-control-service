@@ -188,6 +188,7 @@ describe("ManufacturingEnrollmentService", () => {
     });
     expect(result).toMatchObject({
       deviceCertificatePem: "-----BEGIN CERTIFICATE-----\nSECRET-CERT\n-----END CERTIFICATE-----",
+      deviceCertificateFingerprint: "AA".repeat(32),
       deviceCaBundlePem: DEVICE_CA_CERTIFICATE_PEM,
       apiCaBundlePem: "API PUBLIC CA",
       mqttCaBundlePem: "MQTT PUBLIC CA"

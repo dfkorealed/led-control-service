@@ -28,6 +28,7 @@ COPY apps/gateway/package.json apps/gateway/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --frozen-lockfile --filter @led-control/gateway...
 COPY apps/gateway/src apps/gateway/src
+COPY apps/gateway/scripts apps/gateway/scripts
 COPY apps/gateway/tsconfig.json apps/gateway/tsconfig.json
 COPY packages/shared/src packages/shared/src
 COPY packages/shared/tsconfig.json packages/shared/tsconfig.json
@@ -36,6 +37,9 @@ RUN pnpm --filter @led-control/shared build \
       --bundle --platform=node --format=esm --target=node22 --packages=external \
       --outfile=/tmp/gateway.mjs \
     && pnpm --filter @led-control/gateway deploy --prod /tmp/gateway-runtime
+
+RUN pnpm --filter @led-control/gateway exec esbuild scripts/manufacturing-enroll.ts \
+      --bundle --platform=node --format=esm --target=node22 --outfile=/tmp/manufacturing-enroll.mjs
 
 FROM node:22-bookworm-slim AS runtime
 # Bookworm is the OpenSSL 3.0 minor-version contract. Without a Debian snapshot,
@@ -49,6 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=bluez-builder /src/bluez-5.82/mesh/bluetooth-meshd /usr/local/sbin/bluetooth-meshd
 COPY --from=app-builder /tmp/gateway.mjs /opt/led-control/gateway.mjs
+COPY --from=app-builder /tmp/manufacturing-enroll.mjs /usr/local/bin/manufacturing-enroll.mjs
 COPY --from=app-builder /tmp/gateway-runtime/node_modules /opt/led-control/node_modules
 COPY apps/gateway/docker/dbus-system.conf /etc/dbus-1/gateway-system.conf
 COPY apps/gateway/docker/bluetooth-mesh.conf /etc/dbus-1/system.d/bluetooth-mesh.conf
@@ -56,6 +61,7 @@ COPY apps/gateway/docker/entrypoint.sh /usr/local/bin/gateway-entrypoint
 COPY apps/gateway/docker/healthcheck.sh /usr/local/bin/gateway-healthcheck
 
 RUN chmod 0755 /usr/local/bin/gateway-entrypoint /usr/local/bin/gateway-healthcheck \
+    && chmod 0755 /usr/local/bin/manufacturing-enroll.mjs \
     && mkdir -p /var/lib/led-control/identity /var/lib/bluetooth/mesh /run/dbus \
     && chown -R gateway:gateway /var/lib/led-control
 

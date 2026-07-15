@@ -14,6 +14,7 @@
     "gateway:host:test": "node --test scripts/gateway-host-prepare.test.mjs",
     "gateway:appliance:build": "scripts/gateway-appliance-build.sh",
     "gateway:appliance:deploy": "scripts/gateway-appliance-deploy.sh",
+    "gateway:manufacturing:enroll": "scripts/gateway-manufacturing-enroll.sh",
     "benchmark:fixtures": "node scripts/benchmark-fixture-api.mjs",
     "gateway:enroll-inventory": "pnpm --filter @led-control/api gateway:enroll-inventory",
     "docker:up": "docker compose up -d",
