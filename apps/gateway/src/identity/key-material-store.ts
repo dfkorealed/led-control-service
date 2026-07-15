@@ -27,6 +27,20 @@ export interface IdentityBundle {
   mqttCaBundlePem: string;
 }
 
+export interface DeviceIdentityPaths {
+  generationPath: string;
+  certificatePath: string;
+  privateKeyPath: string;
+  deviceCaPath: string;
+  apiCaPath: string;
+  mqttCaPath: string;
+  notAfter: Date;
+}
+
+export interface InstallIdentityOptions {
+  activate?: (candidate: Omit<DeviceIdentityPaths, "notAfter">) => Promise<void>;
+}
+
 export interface KeyMaterialStoreOptions {
   identityRoot: string;
   opensslPath?: string;
@@ -78,7 +92,7 @@ export class KeyMaterialStore {
     }
   }
 
-  async installIdentityBundle(bundle: IdentityBundle): Promise<void> {
+  async installIdentityBundle(bundle: IdentityBundle, options: InstallIdentityOptions = {}): Promise<void> {
     await this.ensureLayout();
     const pendingTarget = await this.readPendingTarget();
     const generationId = pendingTarget.slice("pending-generations/".length);
@@ -141,21 +155,74 @@ export class KeyMaterialStore {
       throw new Error("identity activation failed");
     }
 
+    const candidate = {
+      generationPath: activeGenerationPath,
+      certificatePath,
+      privateKeyPath: join(activeGenerationPath, "device.key"),
+      deviceCaPath: join(activeGenerationPath, "device-ca.crt"),
+      apiCaPath: join(activeGenerationPath, "api-ca.crt"),
+      mqttCaPath: join(activeGenerationPath, "mqtt-ca.crt")
+    };
+    try {
+      await options.activate?.(candidate);
+    } catch {
+      try {
+        if (previousCurrentTarget === null) {
+          await rm(join(this.options.identityRoot, "current"), { force: true });
+          await this.syncDirectory(this.options.identityRoot);
+        } else {
+          await this.replacePointer("current", previousCurrentTarget);
+        }
+        await rm(activeGenerationPath, { recursive: true, force: true });
+        await this.syncDirectory(generationsRoot);
+      } catch {
+        // Preserve the last durable pointer when rollback itself cannot be completed.
+      }
+      throw new Error("identity activation failed");
+    }
+
     if (await pointsTo(join(this.options.identityRoot, "pending"), pendingTarget)) {
       await rm(join(this.options.identityRoot, "pending"), { force: true });
       await this.syncDirectory(this.options.identityRoot);
+    }
+    if (previousCurrentTarget !== null) {
+      await rm(join(this.options.identityRoot, previousCurrentTarget), { recursive: true, force: true });
+      await this.syncDirectory(generationsRoot);
+    }
+  }
+
+  async currentIdentity(): Promise<DeviceIdentityPaths> {
+    try {
+      await assertPlainDirectory(this.options.identityRoot, "device identity validation failed", 0o750);
+      const target = await readlink(join(this.options.identityRoot, "current"));
+      if (!/^generations\/([0-9a-f-]+)$/.test(target) || !GENERATION_ID_PATTERN.test(target.slice("generations/".length))) {
+        throw new Error("invalid current pointer");
+      }
+      const generationPath = join(this.options.identityRoot, target);
+      await assertPlainDirectory(generationPath, "device identity validation failed", 0o750);
+      const certificatePath = join(generationPath, "device.crt");
+      const privateKeyPath = join(generationPath, "device.key");
+      const csrPath = join(generationPath, "device.csr");
+      const deviceCaPath = join(generationPath, "device-ca.crt");
+      const apiCaPath = join(generationPath, "api-ca.crt");
+      const mqttCaPath = join(generationPath, "mqtt-ca.crt");
+      await assertPlainFile(privateKeyPath, 0o600);
+      await Promise.all([certificatePath, csrPath, deviceCaPath, apiCaPath, mqttCaPath].map((path) => assertPlainFile(path, 0o644)));
+      const notAfter = await this.validateBundle({ csrPath, certificatePath, deviceCaPath });
+      return { generationPath, certificatePath, privateKeyPath, deviceCaPath, apiCaPath, mqttCaPath, notAfter };
+    } catch (error) {
+      if (error instanceof DeviceIdentityPermissionsError) throw error;
+      throw new Error("device identity validation failed");
     }
   }
 
   private async ensureLayout() {
     await mkdir(this.options.identityRoot, { recursive: true, mode: 0o750 });
-    await assertPlainDirectory(this.options.identityRoot, "identity storage directory is invalid");
-    await chmod(this.options.identityRoot, 0o750);
+    await assertPlainDirectory(this.options.identityRoot, "identity storage directory is invalid", 0o750);
     for (const name of ["pending-generations", "generations"]) {
       const path = join(this.options.identityRoot, name);
       await mkdir(path, { recursive: true, mode: 0o750 });
-      await assertPlainDirectory(path, "identity storage directory is invalid");
-      await chmod(path, 0o750);
+      await assertPlainDirectory(path, "identity storage directory is invalid", 0o750);
     }
   }
 
@@ -188,7 +255,7 @@ export class KeyMaterialStore {
     }
   }
 
-  private async validateBundle(paths: { csrPath: string; certificatePath: string; deviceCaPath: string }) {
+  private async validateBundle(paths: { csrPath: string; certificatePath: string; deviceCaPath: string }): Promise<Date> {
     try {
       await this.runOpenSsl(["req", "-verify", "-noout", "-in", paths.csrPath]);
       const csrPublicKey = await this.runOpenSsl(["req", "-in", paths.csrPath, "-pubkey", "-noout"]);
@@ -198,10 +265,20 @@ export class KeyMaterialStore {
       if (normalizePem(csrPublicKey) !== normalizePem(certificatePublicKey)) {
         throw new Error("public key mismatch");
       }
-      await this.runOpenSsl(["x509", "-checkend", "0", "-noout", "-in", paths.certificatePath]);
+      const csrSubject = await this.runOpenSsl(["req", "-in", paths.csrPath, "-noout", "-subject", "-nameopt", "RFC2253"]);
+      const certificateSubject = await this.runOpenSsl(["x509", "-in", paths.certificatePath, "-noout", "-subject", "-nameopt", "RFC2253"]);
+      if (csrSubject.trim() !== certificateSubject.trim()) throw new Error("CN mismatch");
       await this.runOpenSsl([
         "verify", "-purpose", "sslclient", "-CAfile", paths.deviceCaPath, paths.certificatePath
       ]);
+      const validity = parseCertificateValidity(await this.runOpenSsl([
+        "x509", "-in", paths.certificatePath, "-noout", "-startdate", "-enddate"
+      ]));
+      const now = Date.now();
+      if (validity.notBefore >= validity.notAfter || validity.notBefore > now || validity.notAfter <= now) {
+        throw new Error("certificate is not currently valid");
+      }
+      return new Date(validity.notAfter);
     } catch {
       throw new Error("identity bundle validation failed");
     }
@@ -268,11 +345,18 @@ async function syncDirectory(path: string) {
   }
 }
 
-async function assertPlainDirectory(path: string, message = "pending device identity is invalid") {
+async function assertPlainDirectory(path: string, message = "pending device identity is invalid", mode?: number) {
   const metadata = await lstat(path);
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
     throw new Error(message);
   }
+  if (mode !== undefined && (metadata.mode & 0o777) !== mode) throw new DeviceIdentityPermissionsError();
+}
+
+async function assertPlainFile(path: string, mode?: number) {
+  const metadata = await lstat(path);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error("device identity validation failed");
+  if (mode !== undefined && (metadata.mode & 0o777) !== mode) throw new DeviceIdentityPermissionsError();
 }
 
 async function pointsTo(path: string, expectedTarget: string) {
@@ -281,6 +365,23 @@ async function pointsTo(path: string, expectedTarget: string) {
   } catch {
     return false;
   }
+}
+
+class DeviceIdentityPermissionsError extends Error {
+  constructor() {
+    super("device identity permissions are invalid");
+  }
+}
+
+function parseCertificateValidity(output: string) {
+  const values = new Map(output.trim().split("\n").map((line) => {
+    const separator = line.indexOf("=");
+    return [line.slice(0, separator), line.slice(separator + 1)];
+  }));
+  const notBefore = new Date(values.get("notBefore") ?? "").getTime();
+  const notAfter = new Date(values.get("notAfter") ?? "").getTime();
+  if (!Number.isFinite(notBefore) || !Number.isFinite(notAfter)) throw new Error("certificate dates are invalid");
+  return { notBefore, notAfter };
 }
 
 function validateCertificatePem(value: string) {

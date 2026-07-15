@@ -91,7 +91,7 @@ describe("MqttIdentityStore", () => {
 
     await expect(store.ensure("gateway-28", fixture.mqttCaPem, async () => {
       throw new Error("API rejected request");
-    })).rejects.toThrow("MQTT identity installation failed");
+    }, undefined, true)).rejects.toThrow("MQTT identity installation failed");
 
     await expect(readlink(join(fixture.identityRoot, "current"))).resolves.toBe(previous);
     await expectNoCandidateGenerations(fixture.identityRoot, previous);
@@ -154,6 +154,24 @@ describe("MqttIdentityStore", () => {
       ...(await signCsr(fixture.directory, csrPem, "gateway-28")),
       notAfter: "2099-01-01T00:00:00.000Z"
     }))).rejects.toThrow("MQTT identity validation failed");
+
+    await expect(readlink(join(fixture.identityRoot, "current"))).resolves.toBe(previous);
+    await expectNoCandidateGenerations(fixture.identityRoot, previous);
+  });
+
+  it("keeps the previous generation when the broker rejects a validated rotation candidate", async () => {
+    const fixture = await createFixture();
+    const gatewayId = "gateway-27";
+    await activateIdentity(fixture, gatewayId);
+    const previous = await readlink(join(fixture.identityRoot, "current"));
+
+    await expect(fixture.store.ensure(gatewayId, fixture.mqttCaPem, async (csrPem) => ({
+      gatewayId,
+      ...(await signCsr(fixture.directory, csrPem, gatewayId))
+    }), async (candidate) => {
+      await expect(readFile(candidate.keyPath, "utf8")).resolves.toContain("BEGIN PRIVATE KEY");
+      throw new Error("broker rejected candidate");
+    }, true)).rejects.toThrow("MQTT identity installation failed");
 
     await expect(readlink(join(fixture.identityRoot, "current"))).resolves.toBe(previous);
     await expectNoCandidateGenerations(fixture.identityRoot, previous);

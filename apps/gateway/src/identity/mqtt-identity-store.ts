@@ -19,6 +19,13 @@ export interface MqttIdentityStoreOptions {
   syncDirectory?: (path: string) => Promise<void>;
 }
 
+export interface MqttIdentityCandidate {
+  generationPath: string;
+  certificatePath: string;
+  keyPath: string;
+  caPath: string;
+}
+
 export class MqttIdentityStore {
   private readonly opensslPath: string;
   private readonly generator: OpenSslCsrGenerator;
@@ -35,13 +42,15 @@ export class MqttIdentityStore {
   async ensure(
     gatewayId: string,
     mqttCaBundlePem: string,
-    issue: (csrPem: string) => Promise<MqttCertificateResponse>
+    issue: (csrPem: string) => Promise<MqttCertificateResponse>,
+    probe?: (candidate: MqttIdentityCandidate) => Promise<void>,
+    force = false
   ): Promise<boolean> {
     validateGatewayId(gatewayId);
     validateCertificateBundle(mqttCaBundlePem);
     await this.ensureLayout();
     const currentState = await this.currentState(gatewayId);
-    if (currentState === "valid") return false;
+    if (currentState === "valid" && !force) return false;
     if (currentState === "unsafe") throw new Error("MQTT identity permissions are invalid");
 
     const generationId = randomUUID();
@@ -66,7 +75,7 @@ export class MqttIdentityStore {
 
       const response = await issue(generated.csrPem);
       if (response.gatewayId !== gatewayId) throw new Error("MQTT identity validation failed");
-      await this.install(generation, generationId, gatewayId, mqttCaBundlePem, response);
+      await this.install(generation, generationId, gatewayId, mqttCaBundlePem, response, probe);
       generation.path = null;
       return true;
     } catch (error) {
@@ -81,7 +90,8 @@ export class MqttIdentityStore {
     generationId: string,
     gatewayId: string,
     mqttCaBundlePem: string,
-    response: MqttCertificateResponse
+    response: MqttCertificateResponse,
+    probe?: (candidate: MqttIdentityCandidate) => Promise<void>
   ) {
     if (!generation.path) throw new Error("MQTT identity installation failed");
     const pendingPath = generation.path;
@@ -96,6 +106,12 @@ export class MqttIdentityStore {
     await writeFileAtomic(chainPath, chain, 0o644);
     await writeFileAtomic(caPath, mqttCaBundlePem, 0o644);
     await this.validateGeneration({ pendingPath, gatewayId, certificatePath, chainPath, responseNotAfter: response.notAfter });
+    await probe?.({
+      generationPath: pendingPath,
+      certificatePath,
+      keyPath: join(pendingPath, "gateway.key"),
+      caPath
+    });
 
     const generationsRoot = join(this.options.identityRoot, "generations");
     const activePath = join(generationsRoot, generationId);
@@ -123,24 +139,41 @@ export class MqttIdentityStore {
       if (!pointerRestored) generation.path = null;
       throw new Error("MQTT identity installation failed");
     }
+    if (previous) {
+      await rm(join(this.options.identityRoot, previous), { recursive: true, force: true });
+      await this.sync(generationsRoot);
+    }
+  }
+
+  async currentIdentity(gatewayId: string): Promise<MqttIdentityCandidate & { notAfter: Date }> {
+    try {
+      await assertPlainDirectory(this.options.identityRoot, "MQTT identity storage directory is invalid", 0o750);
+      const target = await readlink(join(this.options.identityRoot, "current"));
+      if (!/^generations\/([0-9a-f-]+)$/.test(target) || !GENERATION_ID_PATTERN.test(target.slice("generations/".length))) {
+        throw new Error("invalid current pointer");
+      }
+      const generationPath = join(this.options.identityRoot, target);
+      await assertPlainDirectory(generationPath, "MQTT identity storage directory is invalid", 0o750);
+      const certificatePath = join(generationPath, "gateway.crt");
+      const chainPath = join(generationPath, "gateway-chain.crt");
+      const keyPath = join(generationPath, "gateway.key");
+      const caPath = join(generationPath, "mqtt-ca.crt");
+      await assertPlainFile(certificatePath, 0o644);
+      await assertPlainFile(chainPath, 0o644);
+      await assertPlainFile(keyPath, 0o600);
+      await assertPlainFile(caPath, 0o644);
+      validateCertificateBundle(await readFile(caPath, "utf8"));
+      const notAfter = await this.validateGeneration({ pendingPath: generationPath, gatewayId, certificatePath, chainPath });
+      return { generationPath, certificatePath, keyPath, caPath, notAfter };
+    } catch (error) {
+      if (error instanceof MqttIdentityPermissionsError) throw error;
+      throw new Error("MQTT identity validation failed");
+    }
   }
 
   private async currentState(gatewayId: string): Promise<"valid" | "invalid" | "unsafe"> {
     try {
-      const target = await readlink(join(this.options.identityRoot, "current"));
-      if (!/^generations\/([0-9a-f-]+)$/.test(target) || !GENERATION_ID_PATTERN.test(target.slice("generations/".length))) return "invalid";
-      const currentPath = join(this.options.identityRoot, target);
-      await assertPlainDirectory(currentPath, "MQTT identity storage directory is invalid", 0o750);
-      const certificatePath = join(currentPath, "gateway.crt");
-      const chainPath = join(currentPath, "gateway-chain.crt");
-      const keyPath = join(currentPath, "gateway.key");
-      const mqttCaPath = join(currentPath, "mqtt-ca.crt");
-      await assertPlainFile(certificatePath, 0o644);
-      await assertPlainFile(chainPath, 0o644);
-      await assertPlainFile(keyPath, 0o600);
-      await assertPlainFile(mqttCaPath, 0o644);
-      validateCertificateBundle(await readFile(mqttCaPath, "utf8"));
-      await this.validateGeneration({ pendingPath: currentPath, gatewayId, certificatePath, chainPath });
+      await this.currentIdentity(gatewayId);
       return "valid";
     } catch (error) {
       if (error instanceof MqttIdentityPermissionsError) return "unsafe";
@@ -154,7 +187,7 @@ export class MqttIdentityStore {
     certificatePath: string;
     chainPath: string;
     responseNotAfter?: string;
-  }) {
+  }): Promise<Date> {
     try {
       const keyPublic = await this.runOpenSsl(["pkey", "-in", join(paths.pendingPath, "gateway.key"), "-pubout"]);
       const certificatePublic = await this.runOpenSsl(["x509", "-in", paths.certificatePath, "-pubkey", "-noout"]);
@@ -172,6 +205,7 @@ export class MqttIdentityStore {
       }
       const subject = await this.runOpenSsl(["x509", "-in", paths.certificatePath, "-noout", "-subject", "-nameopt", "RFC2253"]);
       if (subject.trim() !== `subject=CN=${paths.gatewayId}`) throw new Error("CN mismatch");
+      return new Date(validity.notAfter);
     } catch {
       throw new Error("MQTT identity validation failed");
     }
@@ -179,13 +213,11 @@ export class MqttIdentityStore {
 
   private async ensureLayout() {
     await mkdir(this.options.identityRoot, { recursive: true, mode: 0o750 });
-    await assertPlainDirectory(this.options.identityRoot, "MQTT identity storage directory is invalid");
-    await chmod(this.options.identityRoot, 0o750);
+    await assertPlainDirectory(this.options.identityRoot, "MQTT identity storage directory is invalid", 0o750);
     for (const name of ["pending-generations", "generations"]) {
       const path = join(this.options.identityRoot, name);
       await mkdir(path, { recursive: true, mode: 0o750 });
-      await assertPlainDirectory(path, "MQTT identity storage directory is invalid");
-      await chmod(path, 0o750);
+      await assertPlainDirectory(path, "MQTT identity storage directory is invalid", 0o750);
     }
   }
 

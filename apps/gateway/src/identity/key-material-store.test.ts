@@ -141,6 +141,26 @@ describe("KeyMaterialStore", () => {
     expect(await readlink(join(fixture.identityRoot, "current"))).toBe(activeBefore);
   });
 
+  it("rolls back a rotated generation when new-device mTLS activation fails", async () => {
+    const fixture = await createFixture();
+    const first = await fixture.store.generateDeviceIdentity("GW-RPI-000001");
+    const firstSigned = await signCsr(fixture.directory, first.csrPem, "active");
+    await fixture.store.installIdentityBundle(bundleFrom(firstSigned));
+    const previous = await readlink(join(fixture.identityRoot, "current"));
+
+    const second = await fixture.store.generateDeviceIdentity("GW-RPI-000001");
+    const secondSigned = await signCsr(fixture.directory, second.csrPem, "replacement");
+    await expect(fixture.store.installIdentityBundle(bundleFrom(secondSigned), {
+      activate: async (candidate) => {
+        await expect(readFile(candidate.privateKeyPath, "utf8")).resolves.toContain("BEGIN PRIVATE KEY");
+        throw new Error("activation denied");
+      }
+    })).rejects.toThrow("identity activation failed");
+
+    await expect(readlink(join(fixture.identityRoot, "current"))).resolves.toBe(previous);
+    expect(await readdir(join(fixture.identityRoot, "generations"))).toHaveLength(1);
+  });
+
   it("restores the previous current and returns the new generation to pending after current directory sync fails", async () => {
     const fixture = await createFixture();
     const first = await fixture.store.generateDeviceIdentity("GW-RPI-000001");

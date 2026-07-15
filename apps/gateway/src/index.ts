@@ -29,6 +29,10 @@ import { ApplianceHealth } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
 import { MqttCertificateClient } from "./identity/mqtt-certificate-client";
 import { MqttIdentityStore } from "./identity/mqtt-identity-store";
+import { probeMqttIdentity } from "./identity/mqtt-identity-probe";
+import { KeyMaterialStore } from "./identity/key-material-store";
+import { DeviceCertificateClient } from "./identity/device-certificate-client";
+import { createGatewayCertificateRotation } from "./identity/certificate-rotation";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -43,6 +47,7 @@ async function main() {
   await health.startingUnassigned();
   const runtime = await startGatewayRuntime({ env: process.env });
   const assignment = runtime.assignment;
+  startCertificateRotation(assignment, process.env);
   await health.startingAssigned();
   const { siteId, gatewayId, serialNumber: gatewaySerial, mqttUrl } = assignment;
   const gatewayFirmwareVersion = process.env.GATEWAY_FIRMWARE_VERSION || "gateway-dev-local";
@@ -232,7 +237,40 @@ export async function ensureMqttIdentity(assignment: GatewayAssignment, env: Nod
   const mqttIdentityRoot = env.GATEWAY_MQTT_IDENTITY_ROOT ?? "/var/lib/led-control/identity/mqtt";
   const mqttCaPath = env.GATEWAY_MQTT_CA_SOURCE_PATH ?? join(deviceIdentityRoot, "current", "mqtt-ca.crt");
   const store = new MqttIdentityStore({ identityRoot: mqttIdentityRoot });
-  await store.ensure(assignment.gatewayId, await readFile(mqttCaPath, "utf8"), (csrPem) => client.requestCertificate(csrPem));
+  await store.ensure(
+    assignment.gatewayId,
+    await readFile(mqttCaPath, "utf8"),
+    (csrPem) => client.requestCertificate(csrPem),
+    (candidate) => probeMqttIdentity(assignment.mqttUrl, candidate)
+  );
+}
+
+function startCertificateRotation(assignment: GatewayAssignment, env: NodeJS.ProcessEnv) {
+  const bootstrapUrl = required(env, "GATEWAY_BOOTSTRAP_URL");
+  const deviceIdentityRoot = env.GATEWAY_IDENTITY_ROOT ?? "/var/lib/led-control/identity/device";
+  const mqttIdentityRoot = env.GATEWAY_MQTT_IDENTITY_ROOT ?? "/var/lib/led-control/identity/mqtt";
+  const currentDevice = join(deviceIdentityRoot, "current");
+  const deviceClient = new DeviceCertificateClient({
+    renewUrl: new URL("/gateway-certificates/device/renew", bootstrapUrl).toString(),
+    activateUrl: new URL("/gateway-certificates/device/activate", bootstrapUrl).toString(),
+    certificatePath: join(currentDevice, "device.crt"),
+    privateKeyPath: join(currentDevice, "device.key"),
+    caPath: join(currentDevice, "api-ca.crt")
+  });
+  const mqttClient = new MqttCertificateClient({
+    url: new URL("/gateway-certificates/mqtt", bootstrapUrl).toString(),
+    certificatePath: join(currentDevice, "device.crt"),
+    privateKeyPath: join(currentDevice, "device.key"),
+    caPath: required(env, "GATEWAY_BOOTSTRAP_CA_PATH")
+  });
+  createGatewayCertificateRotation({
+    gatewayId: assignment.gatewayId,
+    deviceStore: new KeyMaterialStore({ identityRoot: deviceIdentityRoot }),
+    mqttStore: new MqttIdentityStore({ identityRoot: mqttIdentityRoot }),
+    deviceClient,
+    mqttClient,
+    mqttProbe: (candidate) => probeMqttIdentity(assignment.mqttUrl, candidate)
+  }).start();
 }
 
 function required(env: NodeJS.ProcessEnv, name: string) {
