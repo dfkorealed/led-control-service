@@ -1,4 +1,6 @@
-import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import { config } from "dotenv";
 import {
   type DeviceStatusAckV2,
@@ -24,6 +26,9 @@ import { handleGatewayDimmingCommand, parseCommandTimeout } from "./commands/gat
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { createProductionAdapters } from "./adapters/adapter-factory";
 import { ApplianceHealth } from "./health/appliance-health";
+import type { GatewayAssignment } from "./config/assignment";
+import { MqttCertificateClient } from "./identity/mqtt-certificate-client";
+import { MqttIdentityStore } from "./identity/mqtt-identity-store";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -36,18 +41,19 @@ async function main() {
   }
   const health = new ApplianceHealth(process.env.GATEWAY_HEALTH_PATH ?? "/var/run/led-control/health.json");
   await health.startingUnassigned();
-  const assignment = await resolveGatewayAssignment({ env: process.env, store: createAssignmentStore(process.env) });
+  const runtime = await startGatewayRuntime({ env: process.env });
+  const assignment = runtime.assignment;
   await health.startingAssigned();
   const { siteId, gatewayId, serialNumber: gatewaySerial, mqttUrl } = assignment;
   const gatewayFirmwareVersion = process.env.GATEWAY_FIRMWARE_VERSION || "gateway-dev-local";
   const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS ?? 5000);
   const commandTimeoutMs = parseCommandTimeout(process.env.GATEWAY_BLE_STATUS_TIMEOUT_MS);
-  const adapters = await createProductionAdapters(process.env);
+  const adapters = runtime.adapters;
   await health.meshReady();
   const adapter = adapters.dimming;
   const scannerAdapter = adapters.scanner;
   const provisioningAdapter = adapters.provisioning;
-  const client = createMqttClient({ ...process.env, MQTT_URL: mqttUrl });
+  const client = runtime.client;
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
 
@@ -198,7 +204,46 @@ async function main() {
   }
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+export async function startGatewayRuntime(options: {
+  env: NodeJS.ProcessEnv;
+  resolveAssignment?: () => Promise<GatewayAssignment>;
+  ensureMqttIdentity?: (assignment: GatewayAssignment, env: NodeJS.ProcessEnv) => Promise<void>;
+  createAdapters?: typeof createProductionAdapters;
+  createMqtt?: typeof createMqttClient;
+}) {
+  const assignment = await (options.resolveAssignment ?? (() =>
+    resolveGatewayAssignment({ env: options.env, store: createAssignmentStore(options.env) })
+  ))();
+  await (options.ensureMqttIdentity ?? ensureMqttIdentity)(assignment, options.env);
+  const adapters = await (options.createAdapters ?? createProductionAdapters)(options.env);
+  const client = (options.createMqtt ?? createMqttClient)({ ...options.env, MQTT_URL: assignment.mqttUrl });
+  return { assignment, adapters, client };
+}
+
+export async function ensureMqttIdentity(assignment: GatewayAssignment, env: NodeJS.ProcessEnv) {
+  const bootstrapUrl = required(env, "GATEWAY_BOOTSTRAP_URL");
+  const client = new MqttCertificateClient({
+    url: new URL("/gateway-certificates/mqtt", bootstrapUrl).toString(),
+    certificatePath: required(env, "GATEWAY_DEVICE_CERT_PATH"),
+    privateKeyPath: required(env, "GATEWAY_DEVICE_KEY_PATH"),
+    caPath: required(env, "GATEWAY_BOOTSTRAP_CA_PATH")
+  });
+  const deviceIdentityRoot = env.GATEWAY_IDENTITY_ROOT ?? "/var/lib/led-control/identity/device";
+  const mqttIdentityRoot = env.GATEWAY_MQTT_IDENTITY_ROOT ?? "/var/lib/led-control/identity/mqtt";
+  const mqttCaPath = env.GATEWAY_MQTT_CA_SOURCE_PATH ?? join(deviceIdentityRoot, "current", "mqtt-ca.crt");
+  const store = new MqttIdentityStore({ identityRoot: mqttIdentityRoot });
+  await store.ensure(assignment.gatewayId, await readFile(mqttCaPath, "utf8"), (csrPem) => client.requestCertificate(csrPem));
+}
+
+function required(env: NodeJS.ProcessEnv, name: string) {
+  const value = env[name];
+  if (!value) throw new Error(`${name} is required for MQTT identity`);
+  return value;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
