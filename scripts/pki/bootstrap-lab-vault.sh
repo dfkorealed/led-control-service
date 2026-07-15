@@ -5,7 +5,6 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VAULT_BIN="${VAULT_BIN:-vault}"
 PKI_ENV="${PKI_ENV:-lab}"
-VAULT_STORAGE_MODE="${VAULT_STORAGE_MODE:-file}"
 PKI_LAN_DOMAIN="${PKI_LAN_DOMAIN:-lan}"
 PKI_CSR_DIR="${PKI_CSR_DIR:-$ROOT_DIR/.local/vault-pki/csrs}"
 PKI_INTERMEDIATE_DIR="${PKI_INTERMEDIATE_DIR:-$ROOT_DIR/.local/vault-pki/intermediates}"
@@ -14,6 +13,7 @@ POLICY_PATH="$ROOT_DIR/infra/vault/policies/gateway-pki.hcl"
 DEVICE_MOUNT="gateway-device-pki"
 MQTT_MOUNT="gateway-mqtt-pki"
 API_MOUNT="api-server-pki"
+GATEWAY_UUID_CN_GLOB="????????-????-????-????-????????????"
 
 die() {
   printf '%s\n' "$*" >&2
@@ -31,13 +31,11 @@ validate_vault_environment() {
     lab) ;;
     production)
       [[ "$VAULT_ADDR" == https://* ]] || die "production Vault requires HTTPS VAULT_ADDR"
-      case "$VAULT_STORAGE_MODE" in
-        dev|inmem) die "production Vault rejects dev or inmem storage" ;;
-      esac
       local storage_type
       storage_type="$("$VAULT_BIN" status -format=json | node -e 'let source = ""; process.stdin.on("data", (chunk) => { source += chunk; }); process.stdin.on("end", () => { const status = JSON.parse(source); process.stdout.write(String(status.storage_type || "").toLowerCase()); });')" || die "production Vault status is unavailable"
       case "$storage_type" in
-        dev|inmem) die "production Vault rejects dev or inmem storage" ;;
+        raft|consul) ;;
+        *) die "production Vault rejects unapproved storage backend: ${storage_type:-missing}" ;;
       esac
       ;;
     *) die "PKI_ENV must be lab or production" ;;
@@ -141,7 +139,13 @@ configure_roles_and_policy() {
     max_ttl=8760h \
     >/dev/null
   "$VAULT_BIN" write "$MQTT_MOUNT/roles/gateway-mqtt" \
-    allow_any_name=true \
+    "allowed_domains=$GATEWAY_UUID_CN_GLOB" \
+    allow_bare_domains=true \
+    allow_subdomains=false \
+    allow_glob_domains=true \
+    allow_wildcard_certificates=false \
+    allow_any_name=false \
+    allow_localhost=false \
     allowed_uri_sans="urn:dfkorea:gateway:*" \
     client_flag=true \
     server_flag=false \

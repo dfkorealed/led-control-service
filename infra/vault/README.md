@@ -16,12 +16,12 @@ gateway-device-intermediate.csr, gateway-mqtt-intermediate.csr, api-server-inter
 
 ## Service issue와 bundle 배포
 
-LAB_API_DNS, LAB_API_IP, LAB_MQTT_DNS, LAB_MQTT_IP를 모두 지정하고 scripts/pki/issue-lab-service-cert.sh를 실행한다. API에는 api.crt/key/chain, MQTT에는 mqtt-server.crt/key/chain, API의 Mosquitto mTLS identity에는 api-mqtt-client.crt/key/chain이 별도 P-256 key와 CSR로 생성된다. api-mqtt-client의 CN은 api-service이며 Mosquitto ACL username과 일치한다.
+LAB_API_DNS, LAB_API_IP, LAB_MQTT_DNS, LAB_MQTT_IP를 모두 지정하고 scripts/pki/issue-lab-service-cert.sh를 실행한다. API에는 api.crt/key/chain, MQTT에는 mqtt-server.crt/key/chain, API의 Mosquitto mTLS identity에는 api-mqtt-client.crt/key/chain이 별도 P-256 key와 CSR로 생성된다. api-mqtt-client의 CN은 항상 api-service이며 Mosquitto ACL username과 일치한다. Gateway MQTT role은 Prisma Gateway.id 형식의 UUID 5-segment CN glob만 허용하고 gateway URI SAN만 허용하므로 api-service CN을 발급할 수 없다.
 
 공개 배포물 api-ca.crt와 mqtt-ca.crt는 versioned file을 만든 후 current pointer를 원자적으로 교체한다. mqtt-client.crl도 Vault의 PEM endpoint에서 검증한 뒤 current bundle에 포함한다. Private key와 CSR은 0600, certificate, chain, CA bundle, CRL은 0644이며 public bundle에는 private key와 Vault token을 절대 포함하지 않는다.
 
 ## Production 및 실기 검증
 
-PKI_ENV=production은 HTTPS VAULT_ADDR만 허용한다. 스크립트는 VAULT_STORAGE_MODE뿐 아니라 vault status -format=json의 storage_type이 dev 또는 inmem이면 거부한다. Production 배포 전에는 HA storage, Vault TLS, audit device, 승인된 unseal 절차와 token policy를 준비하고 복구 절차를 점검한다.
+PKI_ENV=production은 HTTPS VAULT_ADDR만 허용한다. 스크립트는 호출 환경 변수 대신 vault status -format=json의 storage_type을 신뢰 경계로 사용하며, raft 또는 consul만 명시적으로 허용한다. 빈 값, file, dev, inmem 및 알 수 없는 backend는 모두 거부한다. Production 배포 전에는 HA storage, Vault TLS, audit device, 승인된 unseal 절차와 token policy를 준비하고 복구 절차를 점검한다.
 
 실제 장비에서는 Raspberry Pi가 API와 MQTT의 DNS/IP SAN을 정상 검증하는지, 잘못된 IP와 신뢰하지 않은 CA가 실패하는지 확인한다. Mosquitto는 시작 시 mqtt-client.crl을 읽어야 하며 Task29가 이후 CRL 원자 갱신을 담당한다.

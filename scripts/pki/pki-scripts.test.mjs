@@ -55,7 +55,7 @@ function createValidCrl(directory) {
   return crl;
 }
 
-function writeMockVault(directory, crlPath = "") {
+function writeMockVault(directory, crlPath = "", storageType = "inmem") {
   const executable = join(directory, "vault");
   writeFileSync(
     executable,
@@ -65,7 +65,7 @@ printf '%s\\n' "$*" >> "${directory}/vault.log"
 if [[ "$1" == "list" ]]; then
   printf '%s\\n' '["issuer"]'
 elif [[ "$1" == "status" ]]; then
-  printf '%s\\n' '{"storage_type":"inmem"}'
+  printf '%s\\n' '{"storage_type":"${storageType}"}'
 elif [[ "$1 $2" == "read -field=certificate" ]]; then
   printf '%s\\n' '-----BEGIN CERTIFICATE-----' 'INTERMEDIATE' '-----END CERTIFICATE-----'
 elif [[ "$1 $2" == "read -format=raw" ]]; then
@@ -81,12 +81,55 @@ fi
   return executable;
 }
 
-test("bootstrap script rejects production HTTP and development storage modes", () => {
+function matchesVaultGlob(pattern, value) {
+  const expression = [...pattern].map((character) => {
+    if (character === "*") return ".*";
+    if (character === "?") return ".";
+    return character.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
+  }).join("");
+  return new RegExp(`^${expression}$`).test(value);
+}
+
+test("production Vault scripts accept only raft or consul status storage and lab remains permissive", () => {
   const directory = temporaryDirectory();
-  const vault = writeMockVault(directory);
   try {
+    const baseEnvironment = {
+      VAULT_ADDR: "https://vault.internal:8200",
+      PKI_ENV: "production",
+      VAULT_STORAGE_MODE: "raft"
+    };
+
+    for (const script of [bootstrap, issue]) {
+      for (const storageType of ["", "unknown", "file", "inmem", "dev"]) {
+        const vault = writeMockVault(directory, "", storageType);
+        const output = runFailure(script, script === bootstrap ? ["prepare"] : [], {
+          ...baseEnvironment,
+          VAULT_BIN: vault,
+          LAB_API_DNS: "api.lan",
+          LAB_API_IP: "192.168.1.10",
+          LAB_MQTT_DNS: "mqtt.lan",
+          LAB_MQTT_IP: "192.168.1.11"
+        });
+        assert.match(output, /approved storage backend/i);
+      }
+    }
+
+    for (const storageType of ["raft", "consul"]) {
+      const vault = writeMockVault(directory, "", storageType);
+      run(bootstrap, ["prepare"], { ...baseEnvironment, VAULT_BIN: vault });
+    }
+
+    const labVault = writeMockVault(directory, "", "file");
+    run(bootstrap, ["prepare"], {
+      VAULT_BIN: labVault,
+      VAULT_ADDR: "http://vault.internal:8200",
+      PKI_ENV: "lab",
+      VAULT_STORAGE_MODE: "file"
+    });
+
+    const httpVault = writeMockVault(directory);
     const httpOutput = runFailure(bootstrap, ["prepare"], {
-      VAULT_BIN: vault,
+      VAULT_BIN: httpVault,
       VAULT_ADDR: "http://vault.internal:8200",
       PKI_ENV: "production",
       VAULT_STORAGE_MODE: "raft"
@@ -94,20 +137,12 @@ test("bootstrap script rejects production HTTP and development storage modes", (
     assert.match(httpOutput, /HTTPS/i);
 
     const devOutput = runFailure(bootstrap, ["prepare"], {
-      VAULT_BIN: vault,
+      VAULT_BIN: httpVault,
       VAULT_ADDR: "https://vault.internal:8200",
       PKI_ENV: "production",
       VAULT_STORAGE_MODE: "inmem"
     });
     assert.match(devOutput, /dev|inmem/i);
-
-    const statusOutput = runFailure(bootstrap, ["prepare"], {
-      VAULT_BIN: vault,
-      VAULT_ADDR: "https://vault.internal:8200",
-      PKI_ENV: "production",
-      VAULT_STORAGE_MODE: "raft"
-    });
-    assert.match(statusOutput, /dev|inmem/i);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -163,7 +198,14 @@ test("bootstrap install imports externally signed intermediates and configures i
     assert.match(log, /gateway-mqtt-pki\/intermediate\/set-signed/);
     assert.match(log, /api-server-pki\/intermediate\/set-signed/);
     assert.match(log, /gateway-device-pki\/roles\/gateway-device.*client_flag=true.*server_flag=false.*max_ttl=8760h/);
-    assert.match(log, /gateway-mqtt-pki\/roles\/gateway-mqtt.*client_flag=true.*server_flag=false.*max_ttl=2160h/);
+    const gatewayRole = log.match(/gateway-mqtt-pki\/roles\/gateway-mqtt[^\n]*/)?.[0] ?? "";
+    const gatewayUuidGlob = "????????-????-????-????-????????????";
+    assert.match(gatewayRole, /allow_any_name=false/);
+    assert.match(gatewayRole, new RegExp(`allowed_domains=${gatewayUuidGlob.replace(/\?/g, "\\?")}`));
+    assert.match(gatewayRole, /allow_bare_domains=true.*allow_subdomains=false.*allow_glob_domains=true.*allow_wildcard_certificates=false/);
+    assert.match(gatewayRole, /allowed_uri_sans=urn:dfkorea:gateway:\*/);
+    assert.equal(matchesVaultGlob(gatewayUuidGlob, "550e8400-e29b-41d4-a716-446655440000"), true);
+    assert.equal(matchesVaultGlob(gatewayUuidGlob, "api-service"), false);
     assert.match(log, /gateway-mqtt-pki\/roles\/mqtt-server.*client_flag=false.*server_flag=true/);
     assert.match(log, /gateway-mqtt-pki\/roles\/api-mqtt-client.*allowed_domains=api-service.*allow_bare_domains=true.*client_flag=true.*server_flag=false/);
     assert.match(log, /api-server-pki\/roles\/api-server.*client_flag=false.*server_flag=true/);

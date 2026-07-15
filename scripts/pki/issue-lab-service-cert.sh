@@ -5,7 +5,6 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VAULT_BIN="${VAULT_BIN:-vault}"
 PKI_ENV="${PKI_ENV:-lab}"
-VAULT_STORAGE_MODE="${VAULT_STORAGE_MODE:-file}"
 OUTPUT_DIR="${PKI_SERVICE_CERT_DIR:-$ROOT_DIR/.local/vault-pki/services}"
 
 API_MOUNT="api-server-pki"
@@ -28,13 +27,11 @@ validate_vault_environment() {
     lab) ;;
     production)
       [[ "$VAULT_ADDR" == https://* ]] || die "production Vault requires HTTPS VAULT_ADDR"
-      case "$VAULT_STORAGE_MODE" in
-        dev|inmem) die "production Vault rejects dev or inmem storage" ;;
-      esac
       local storage_type
       storage_type="$("$VAULT_BIN" status -format=json | node -e 'let source = ""; process.stdin.on("data", (chunk) => { source += chunk; }); process.stdin.on("end", () => { const status = JSON.parse(source); process.stdout.write(String(status.storage_type || "").toLowerCase()); });')" || die "production Vault status is unavailable"
       case "$storage_type" in
-        dev|inmem) die "production Vault rejects dev or inmem storage" ;;
+        raft|consul) ;;
+        *) die "production Vault rejects unapproved storage backend: ${storage_type:-missing}" ;;
       esac
       ;;
     *) die "PKI_ENV must be lab or production" ;;
