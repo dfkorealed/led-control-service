@@ -872,6 +872,22 @@ git commit -m "docs: complete production device foundation runbook"
 - [x] gateway runtime stub를 `apps/gateway/test` 전용 helper로 이동
 - [x] gateway smoke test를 mTLS 및 gateway-scoped v2 ACK 계약으로 변경
 
+### Task 22: 테스트 전용 런타임 제거와 실장비 E2E 경로 단일화
+
+**목표:** 현장 등록, 실제 BLE Mesh 검색/등록, 모니터링, 수동 제어가 하나의 양산 경로만 사용하도록 mock·demo·legacy 우회를 제거한다.
+
+**유지 예외:** 사용자가 명시적으로 제외한 로그인 폼의 데모 이메일, 비밀번호, 초대 코드 기본 입력값은 이번 작업에서 변경하지 않는다.
+
+- [x] **Step 1: 웹 mock API와 `VITE_USE_MOCK_API` 제거, UI 테스트 데이터는 `src/test`로 격리**
+- [x] **Step 2: `apps/mock-gateway`, `dev:mock`, `MOCK_*`, shared demo ID 제거**
+- [x] **Step 3: 파괴적 demo seed를 삭제하고 빈 DB 전용 owner bootstrap 명령으로 교체**
+- [x] **Step 4: `DEV_GATEWAY_ID` 누락 시 mock identity fallback 없이 API/Web 온보딩 모드만 시작**
+- [x] **Step 5: MQTT v1 dimming/state/ack/heartbeat와 미사용 shell command adapter 제거**
+- [x] **Step 6: 고정 통계 인사이트, 비기능 설정/RF/알림/스케줄 UI 제거**
+- [x] **Step 7: 에너지 예상치를 로그인 사용자 조직 현장으로 제한하고 실제 계산값 비율로 차트 표시**
+- [x] **Step 8: 메뉴 문서에 유지 중인 개발·시험 자산과 제거 조건 기록**
+- [x] **Step 9: 전체 테스트, 타입 검사, 웹 빌드, ESP-IDF 빌드, 실장비 E2E 준비 상태 검증**
+
 ## 진행 로그
 
 - 2026-07-11: 설계 승인 및 구현 계획 작성. 구현은 Task 1부터 순서대로 진행한다.
@@ -885,3 +901,413 @@ git commit -m "docs: complete production device foundation runbook"
 - 2026-07-11: Task 12 자동 검증에서 전체 workspace 테스트, typecheck, Chromium MVP E2E, ESP32-H2 clean build가 통과했다. Raspberry Pi Phase 0과 2-node HIL 3회 증거는 아직 없어 양산 준비 완료로 표시하지 않는다.
 - 2026-07-12: Task 19의 signed upload, FloorAsset lifecycle, ready URL 강제, Web direct upload를 구현했다. 로컬 PostgreSQL migration은 적용했으나 현재 머신에 Docker CLI가 없어 MinIO integration 실행은 보류했다.
 - 2026-07-12: BlueZ 공식 Mesh API 기준 Lightness/OnOff codec과 72시간 soak runner를 구현했다. macOS capability probe는 여섯 항목 모두 `hardware_required`로 exit 2였으며, D-Bus application callback export와 fixture-unicast mapping이 없어 실제 adapter factory 연결은 보류했다.
+- 2026-07-14: Task 22 Step 1~8을 완료했다. 런타임 mock/demo/legacy MQTT 경로와 수동 Gateway 생성 우회를 제거하고, 현장 생성 후 제조 원장 기반 claim UI 및 비파괴 inventory 적재 명령으로 양산 온보딩 경로를 연결했다. 전체 자동 검증과 ESP-IDF build는 통과했으며 Raspberry Pi/ESP32-H2 연속 실기 검증은 남아 있다.
+- 2026-07-14: Task 22 Step 9 검증에서 전체 workspace 테스트, typecheck, Web production build, ESP32-H2 build, 실제 DB 로그인/빈 dashboard/인증 경계가 통과했다. 과거 mock gateway DB 행과 빈 검색 세션을 제거했다. Mac에 ESP32 serial port가 없고 `dfkorea.local`이 해석되지 않아 Raspberry Pi/두 node HIL은 Task 20의 미완료 상태를 유지한다.
+
+### Task 23: Gateway PKI 도메인과 인증서 원장
+
+**Files:**
+- Modify: `apps/api/prisma/schema.prisma`
+- Create: `apps/api/prisma/migrations/*_add_gateway_pki_lifecycle/migration.sql`
+- Create: `apps/api/src/pki/pki.types.ts`
+- Modify: `apps/api/test/domain-schema.test.ts`
+- Modify: `docs/database-schema.md`
+
+**Interfaces:**
+- Produces: `CertificatePurpose = "device" | "mqtt"`
+- Produces: `GatewayCertificate`, `GatewayEnrollment` persistence
+- Constraint: certificate PEM, private key, token 원문, Claim Code 원문은 DB에 저장하지 않음
+
+- [ ] **Step 1: schema 계약 실패 테스트 작성**
+
+```ts
+expect(schema).toContain("model GatewayCertificate");
+expect(schema).toContain("certificateSerial");
+expect(schema).toContain("fingerprint");
+expect(schema).toContain("model GatewayEnrollment");
+expect(schema).toContain("tokenHash");
+expect(schema).not.toContain("privateKey String");
+```
+
+- [ ] **Step 2: API schema 테스트가 모델 누락으로 실패하는지 확인**
+
+Run: `pnpm --filter @led-control/api test -- --runInBand test/domain-schema.test.ts`
+Expected: `GatewayCertificate` 또는 `GatewayEnrollment` 누락으로 FAIL
+
+- [ ] **Step 3: Prisma 모델과 migration 작성**
+
+```prisma
+model GatewayEnrollment {
+  id              String   @id @default(uuid())
+  serialNumber    String
+  tokenHash       String
+  expiresAt       DateTime
+  usedAt          DateTime?
+  stationIdentity String
+  outcome         String?
+  failureReason   String?
+  createdAt       DateTime @default(now())
+  @@index([serialNumber, createdAt])
+}
+
+model GatewayCertificate {
+  id                String   @id @default(uuid())
+  inventoryId       String
+  gatewayId         String?
+  purpose           String
+  certificateSerial String
+  fingerprint       String   @unique
+  issuer            String
+  notBefore         DateTime
+  notAfter          DateTime
+  status            String
+  revokedAt         DateTime?
+  replacedById      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@index([inventoryId, purpose, status])
+  @@index([gatewayId, purpose, status])
+}
+```
+
+- [ ] **Step 4: migration과 Prisma client 생성 후 schema 테스트 통과 확인**
+
+Run: `pnpm --filter @led-control/api prisma:generate && pnpm --filter @led-control/api test -- --runInBand test/domain-schema.test.ts`
+Expected: PASS
+
+- [ ] **Step 5: `docs/database-schema.md`에 원문 비밀정보 금지와 관계·인덱스 갱신**
+
+- [ ] **Step 6: Task 23 변경만 검토 후 커밋**
+
+### Task 24: CA Provider 경계와 Vault PKI 구현
+
+**Files:**
+- Create: `apps/api/src/pki/certificate-authority.provider.ts`
+- Create: `apps/api/src/pki/vault-pki.provider.ts`
+- Create: `apps/api/src/pki/vault-pki.provider.spec.ts`
+- Create: `apps/api/src/pki/pki.module.ts`
+- Modify: `apps/api/src/app.module.ts`
+- Modify: `apps/api/package.json`
+- Modify: `.env.example`
+
+**Interfaces:**
+- Produces: `CertificateAuthorityProvider.signCsr(input): Promise<SignedCertificate>`
+- Produces: `CertificateAuthorityProvider.revoke(input): Promise<void>`
+- Constraint: production에서 local/OpenSSL signer 선택 시 시작 실패
+
+- [ ] **Step 1: provider 계약과 Vault 요청 실패 테스트 작성**
+
+```ts
+export interface SignCsrInput {
+  purpose: "device" | "mqtt";
+  csrPem: string;
+  commonName: string;
+  uriSans: string[];
+  ttlSeconds: number;
+}
+
+export interface SignedCertificate {
+  certificatePem: string;
+  caChainPem: string[];
+  certificateSerial: string;
+  fingerprint: string;
+  issuer: string;
+  notBefore: string;
+  notAfter: string;
+}
+```
+
+- [ ] **Step 2: 테스트가 provider 미구현으로 실패하는지 확인**
+
+Run: `pnpm --filter @led-control/api test -- --runInBand src/pki/vault-pki.provider.spec.ts`
+Expected: module 또는 class 누락으로 FAIL
+
+- [ ] **Step 3: HTTPS Vault client와 역할별 sign/revoke 구현**
+
+Device는 `VAULT_PKI_DEVICE_MOUNT`/`VAULT_PKI_DEVICE_ROLE`, MQTT는 `VAULT_PKI_MQTT_MOUNT`/`VAULT_PKI_MQTT_ROLE`만 사용한다. Vault token은 `VAULT_TOKEN_FILE`에서 읽고 요청·오류 로그에서 제거한다.
+
+- [ ] **Step 4: `NODE_ENV=production` fail-closed 설정 검증**
+
+```ts
+if (env.NODE_ENV === "production" && env.PKI_PROVIDER !== "vault") {
+  throw new Error("PKI_PROVIDER=vault is required in production");
+}
+```
+
+- [ ] **Step 5: provider 단위 테스트와 API typecheck 통과 확인**
+
+Run: `pnpm --filter @led-control/api test -- --runInBand src/pki/vault-pki.provider.spec.ts && pnpm --filter @led-control/api typecheck`
+Expected: PASS
+
+- [ ] **Step 6: Task 24 변경만 검토 후 커밋**
+
+### Task 25: 제조 Enrollment 발급 API와 1회용 비밀정보
+
+**Files:**
+- Create: `apps/api/src/pki/manufacturing-auth.guard.ts`
+- Create: `apps/api/src/pki/manufacturing-enrollment.controller.ts`
+- Create: `apps/api/src/pki/manufacturing-enrollment.service.ts`
+- Create: `apps/api/src/pki/manufacturing-enrollment.service.spec.ts`
+- Modify: `apps/api/src/pki/pki.module.ts`
+- Deprecate: `apps/api/prisma/enroll-gateway-inventory.ts`
+
+**Interfaces:**
+- Produces: `POST /manufacturing/gateway-enrollments`
+- Produces: `POST /gateway-manufacturing/enroll`
+- Produces: 15분 TTL enrollment token과 1회 표시 Claim Code
+
+- [ ] **Step 1: token 재사용, 만료, serial 불일치, CSR key 부적합 실패 테스트 작성**
+
+```ts
+await expect(service.enrollDevice({ serialNumber, token, csrPem })).resolves.toMatchObject({
+  deviceCertificatePem: expect.stringContaining("BEGIN CERTIFICATE"),
+  apiCaBundlePem: expect.any(String),
+  mqttCaBundlePem: expect.any(String)
+});
+await expect(service.enrollDevice({ serialNumber, token, csrPem })).rejects.toThrow("enrollment token is not active");
+```
+
+- [ ] **Step 2: 관련 테스트가 서비스 누락으로 실패하는지 확인**
+
+Run: `pnpm --filter @led-control/api test -- --runInBand src/pki/manufacturing-enrollment.service.spec.ts`
+Expected: FAIL
+
+- [ ] **Step 3: 제조 station mTLS guard와 enrollment 생성 구현**
+
+제조 endpoint는 일반 Web session을 받지 않고 별도 manufacturing client CA로 검증된 certificate subject만 허용한다. token과 Claim Code는 256-bit CSPRNG로 생성하고 scrypt hash만 저장한다.
+
+- [ ] **Step 4: CSR proof-of-possession, ECDSA P-256, 서버 고정 CN/SAN 검증 구현**
+
+CSR이 요청한 subject를 그대로 서명하지 않고 `CN=<serial>`, `URI:urn:dfkorea:gateway:<serial>`을 API가 Vault 요청에 지정한다.
+
+- [ ] **Step 5: 인증서 metadata와 inventory를 transaction으로 기록하고 token 폐기**
+
+- [ ] **Step 6: Claim Code 원문이 로그·DB·두 번째 응답에 없는 테스트 추가**
+
+- [ ] **Step 7: API 전체 테스트와 typecheck 통과 확인 후 커밋**
+
+### Task 26: Gateway 내부 Key/CSR 생성과 원자 저장
+
+**Files:**
+- Create: `apps/gateway/src/identity/key-material-store.ts`
+- Create: `apps/gateway/src/identity/key-material-store.test.ts`
+- Create: `apps/gateway/src/identity/openssl-csr-generator.ts`
+- Create: `apps/gateway/src/identity/openssl-csr-generator.test.ts`
+- Create: `apps/gateway/src/identity/manufacturing-enrollment-client.ts`
+- Modify: `apps/gateway/docker/Dockerfile`
+- Modify: `apps/gateway/compose.raspberry-pi.yml`
+
+**Interfaces:**
+- Produces: `generateDeviceIdentity(serialNumber): Promise<{ csrPem: string }>`
+- Produces: `installIdentityBundle(bundle): Promise<void>`
+- Constraint: private key는 API 응답·stdout·CSR payload에 포함되지 않음
+
+- [ ] **Step 1: directory `0750`, key `0600`, cert `0644`, atomic rename 실패 테스트 작성**
+
+```ts
+const result = await store.generateDeviceIdentity("GW-RPI-000001");
+expect(result).toEqual({ csrPem: expect.stringContaining("BEGIN CERTIFICATE REQUEST") });
+expect(await modeOf("device.key")).toBe(0o600);
+expect(JSON.stringify(result)).not.toContain("PRIVATE KEY");
+```
+
+- [ ] **Step 2: 테스트가 identity 구현 누락으로 실패하는지 확인**
+
+Run: `pnpm --filter @led-control/gateway test -- src/identity/key-material-store.test.ts`
+Expected: FAIL
+
+- [ ] **Step 3: OpenSSL을 shell 없이 고정 argument array로 실행해 ECDSA P-256 PKCS#8 key와 CSR 생성**
+
+- [ ] **Step 4: temporary write, `fsync`, `chmod`, atomic rename과 기존 활성 bundle 보존 구현**
+
+- [ ] **Step 5: enrollment client가 token을 request body에 한 번만 사용하고 오류 로그를 redaction하도록 구현**
+
+- [ ] **Step 6: Docker runtime에 고정 버전 OpenSSL과 persistent identity mount 추가**
+
+- [ ] **Step 7: gateway 테스트·typecheck와 image contract 테스트 통과 후 커밋**
+
+### Task 27: Device mTLS Bootstrap 후 MQTT CSR 발급
+
+**Files:**
+- Create: `apps/api/src/pki/gateway-certificate.controller.ts`
+- Create: `apps/api/src/pki/gateway-certificate.service.ts`
+- Create: `apps/api/src/pki/gateway-certificate.service.spec.ts`
+- Create: `apps/gateway/src/identity/mqtt-certificate-client.ts`
+- Create: `apps/gateway/src/identity/mqtt-certificate-client.test.ts`
+- Modify: `apps/gateway/src/config/resolve-assignment.ts`
+- Modify: `apps/gateway/src/index.ts`
+
+**Interfaces:**
+- Produces: `POST /gateway-certificates/mqtt`
+- Consumes: authenticated device fingerprint, claimed inventory, gateway assignment, CSR
+- Produces: CN=`Gateway.id`, TTL 90일 MQTT certificate
+
+- [ ] **Step 1: 미claim 장비, fingerprint 불일치, 다른 gateway CN 요청 거부 테스트 작성**
+
+- [ ] **Step 2: 테스트 실패 확인**
+
+Run: `pnpm --filter @led-control/api test -- --runInBand src/pki/gateway-certificate.service.spec.ts`
+Expected: FAIL
+
+- [ ] **Step 3: device mTLS identity와 inventory/gateway 관계 검증 후 MQTT CSR sign 구현**
+
+- [ ] **Step 4: MQTT certificate metadata transaction 기록과 기존 active certificate 교체 연결 구현**
+
+- [ ] **Step 5: Gateway가 assignment 후 별도 `gateway.key`/CSR을 만들고 certificate를 원자 설치하도록 구현**
+
+- [ ] **Step 6: certificate 설치 전 MQTT 연결 금지와 설치 후 재연결 테스트 작성**
+
+- [ ] **Step 7: API/gateway 전체 관련 테스트와 typecheck 통과 후 커밋**
+
+### Task 28: LAN Service TLS와 CA Bundle 자동 배포
+
+**Files:**
+- Create: `infra/vault/README.md`
+- Create: `infra/vault/policies/gateway-pki.hcl`
+- Create: `scripts/pki/bootstrap-lab-vault.sh`
+- Create: `scripts/pki/issue-lab-service-cert.sh`
+- Create: `scripts/pki/pki-scripts.test.mjs`
+- Modify: `scripts/dev-runtime.mjs`
+- Modify: `.env.example`
+- Modify: `docker-compose.yml`
+
+**Interfaces:**
+- Produces: LAN DNS/IP SAN을 가진 API/MQTT server certificate
+- Produces: versioned `api-ca.crt`, `mqtt-ca.crt` bundle
+- Constraint: `MQTT_PUBLIC_URL` 사용자 값을 localhost로 덮어쓰지 않음
+
+- [ ] **Step 1: SAN 누락, production Vault dev mode, CA key Git 포함 거부 정적 테스트 작성**
+
+- [ ] **Step 2: 스크립트 계약 테스트 실패 확인**
+
+Run: `node --test scripts/pki/pki-scripts.test.mjs`
+Expected: FAIL
+
+- [ ] **Step 3: 오프라인 Root CSR 서명 절차와 Vault intermediate mount/role/policy bootstrap 구현**
+
+- [ ] **Step 4: `LAB_API_DNS`, `LAB_API_IP`, `LAB_MQTT_DNS`, `LAB_MQTT_IP`를 SAN으로 강제하는 service cert 발급 구현**
+
+- [ ] **Step 5: API HTTPS, device client CA, Mosquitto server cert/client CA/CRL 설정 연결**
+
+- [ ] **Step 6: Raspberry Pi에서 hostname 검증 성공, 잘못된 IP와 신뢰하지 않은 CA 실패 integration test**
+
+- [ ] **Step 7: 관련 문서와 `.env.example` 갱신 후 커밋**
+
+### Task 29: 인증서 Rotation, 폐기와 CRL 배포
+
+**Files:**
+- Create: `apps/api/src/pki/certificate-lifecycle.service.ts`
+- Create: `apps/api/src/pki/certificate-lifecycle.service.spec.ts`
+- Create: `apps/gateway/src/identity/certificate-rotation.ts`
+- Create: `apps/gateway/src/identity/certificate-rotation.test.ts`
+- Modify: `apps/api/src/gateway-onboarding/gateway-onboarding.service.ts`
+- Modify: `apps/api/src/main.ts`
+- Modify: `scripts/dev-runtime.mjs`
+
+**Interfaces:**
+- Produces: MQTT 만료 30일 전 key rotation
+- Produces: device 인증서 만료 30일 전 renewal
+- Produces: inventory disabled 시 device/MQTT revoke와 CRL 반영
+
+- [ ] **Step 1: fake clock로 renewal window, grace overlap, expired fail-closed 테스트 작성**
+
+- [ ] **Step 2: revoke 후 bootstrap/MQTT 재연결 거부 테스트 작성**
+
+- [ ] **Step 3: Vault revoke와 certificate status transaction 구현**
+
+- [ ] **Step 4: CRL download, checksum, atomic replace, API/broker reload 구현**
+
+- [ ] **Step 5: Gateway 새 인증서 연결 성공 후에만 이전 key/cert 삭제하도록 구현**
+
+- [ ] **Step 6: lifecycle 테스트, API/gateway typecheck 통과 후 커밋**
+
+### Task 30: 제조 Station 자동 부여 스크립트
+
+**Files:**
+- Create: `scripts/gateway-manufacturing-enroll.sh`
+- Create: `scripts/gateway-manufacturing-enroll.test.mjs`
+- Create: `apps/gateway/scripts/manufacturing-enroll.ts`
+- Modify: `package.json`
+- Modify: `.gitignore`
+
+**Interfaces:**
+- Produces: `pnpm gateway:manufacturing:enroll --target <ssh> --serial <serial> --label-output <path>`
+- Produces: Claim label artifact `0600`, private key는 gateway 외부에 생성하지 않음
+
+- [ ] **Step 1: command injection, token stdout 노출, label 권한, 중복 serial 실패 테스트 작성**
+
+- [ ] **Step 2: 테스트 실패 확인**
+
+Run: `node --test scripts/gateway-manufacturing-enroll.test.mjs`
+Expected: FAIL
+
+- [ ] **Step 3: 제조 API에서 enrollment를 만들고 secret JSON을 stdout 대신 pipe로 전달**
+
+- [ ] **Step 4: SSH target에서 local key/CSR 생성과 enrollment 호출 실행**
+
+- [ ] **Step 5: public key 일치, certificate chain, fingerprint 원장 일치 검증**
+
+- [ ] **Step 6: Claim Code QR/label 입력 파일을 `0600`으로 생성하고 나머지 secret 임시 파일 제거**
+
+- [ ] **Step 7: 성공/실패 제조 감사 결과 기록과 재실행 idempotency 구현**
+
+- [ ] **Step 8: 스크립트 테스트와 실제 Pi 1대 dry run 후 커밋**
+
+### Task 31: PKI 보안 E2E와 양산 완료 게이트
+
+**Files:**
+- Create: `apps/api/test/gateway-pki.e2e-spec.ts`
+- Create: `apps/gateway/scripts/pki-hil-test.ts`
+- Modify: `docs/runbooks/raspberry-pi-gateway-appliance.md`
+- Modify: `docs/runbooks/production-device-lab.md`
+- Modify: `docs/menus/settings.md`
+- Modify: `README.md`
+
+**Interfaces:**
+- Produces: 제조 등록부터 MQTT rotation까지 반복 가능한 증거 JSON
+- Completion gate: private key 외부 유출 0건, 정상 3회, 부정 시험 전부 거부
+
+- [ ] **Step 1: 제조 등록 → Claim → Bootstrap → MQTT 발급 happy path E2E 작성**
+
+- [ ] **Step 2: token 재사용, CSR 변조, serial 불일치, 잘못된 CA, 폐기 인증서 부정 시험 작성**
+
+- [ ] **Step 3: API·broker·gateway 재시작 후 identity/assignment 복구 시험 작성**
+
+- [ ] **Step 4: MQTT rotation overlap 중 명령 유실·중복 제어 없음 검증**
+
+- [ ] **Step 5: Raspberry Pi 2대에 서로 다른 key/fingerprint가 발급되는지 검증**
+
+- [ ] **Step 6: 로그·DB·Docker image·배포 tar에서 `PRIVATE KEY`, Claim Code, token 원문 secret scan**
+
+- [ ] **Step 7: 전체 workspace 테스트, typecheck, ARM64 image build, PKI HIL 3회 실행**
+
+- [ ] **Step 8: 한글 runbook과 메뉴 문서에 발급·복구·폐기·CA rotation 절차 갱신**
+
+- [ ] **Step 9: Root offline 보관, Vault production mode, backup/restore, 운영 책임자 승인 증거가 모두 있을 때만 양산 PKI 완료 표시**
+
+## PKI 구현 순서
+
+Task 23 → 24 → 25 → 26 → 27 → 28 → 29 → 30 → 31 순서를 변경하지 않는다. Task 23~27이 장비별 identity와 MQTT 인증서 핵심 경로이고, Task 28은 실제 LAN HIL을 가능하게 하며, Task 29~31은 양산에서 필수인 수명주기와 운영 증거를 완성한다.
+
+## 2026-07-15 PKI 구현 체크포인트
+
+### 완료 및 커밋
+
+- Task 23~25: Gateway PKI 원장, Vault CA provider, 제조 mTLS enrollment, PKCS#10 PoP/ECDSA P-256 검증, 1회용 token/Claim Code를 구현했다. 커밋: `e64ca33`.
+- Task 26: Raspberry Pi 내부 private key/CSR 생성, device identity 세대 저장, 원자적 current 전환, 분리된 Device/API/MQTT CA 검증, 제조 enrollment HTTPS client와 appliance mount를 구현했다. 커밋: `4515d8f`.
+- 자동 검증: API 154 tests, Gateway 88 tests, identity 23 tests, Docker/Compose contract 8 tests, 양쪽 typecheck와 실제 로컬 OpenSSL 분리 CA 검증이 통과했다.
+- 실제 PostgreSQL 검증: 빈 임시 DB에 전체 13개 migration을 적용했고 partial unique enrollment index를 확인했다.
+
+### 중단 지점과 다음 순서
+
+1. Task 27: Device mTLS로 claim된 inventory/gateway를 확인하고 별도 MQTT CSR을 발급한다. Gateway는 `identity/mqtt/current` 설치가 성공하기 전 BlueZ/MQTT runtime을 시작하지 않는다.
+2. Task 28: Vault intermediate/role/policy, LAN API/MQTT server certificate, CA bundle 배포와 실제 TLS hostname/잘못된 CA 부정 시험을 구현한다.
+3. Task 29: device/MQTT 만료 30일 전 rotation, revoke, CRL checksum/원자 교체와 broker/API reload를 구현한다.
+4. Task 30: 제조 station이 SSH 대상 Raspberry Pi 내부에서 key를 만들고 enrollment를 실행하며 Claim label만 `0600`으로 출력하는 자동화 스크립트를 구현한다.
+5. Task 31: 제조 등록부터 claim, bootstrap, MQTT 발급, 조명 등록·제어, rotation까지 실제 Raspberry Pi/ESP32-H2 HIL 3회와 부정 시험 증거를 수집한다.
+
+### 완료로 표시하지 않는 항목
+
+- 현재 머신에는 Docker CLI가 없어 ARM64 appliance image build를 실행하지 못했다.
+- 실제 Vault, manufacturing client certificate, Raspberry Pi, MQTT broker, ESP32-H2를 연결한 PKI/조명 E2E는 아직 실행하지 않았다.
+- 따라서 소프트웨어 Task 23~26은 완료지만 양산 PKI 또는 하드웨어 E2E 100% 완료로 표시하지 않는다.

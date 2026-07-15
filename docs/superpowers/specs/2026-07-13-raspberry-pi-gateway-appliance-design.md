@@ -116,6 +116,81 @@ Lightness Status의 source unicast를 영속 mapping으로 fixture ID에 변환�
 
 첫 실험실 시험에서는 현재 수동 개발 PKI를 사용할 수 있지만, 수동 파일 복사는 실기 검증 방식일 뿐 양산 enrollment 완료로 기록하지 않는다.
 
+## 양산 Gateway PKI 자동 등록 설계
+
+### 최종 판단
+
+Raspberry Pi 내부에서 gateway별 private key를 생성하고 CSR만 서버로 전송하며, 중앙 발급 서비스가 검증된 CSR에만 인증서를 서명하는 방식이 현재 서비스에 적합하다. 이는 장비 고유 식별, 통신 데이터 보호, 논리적 접근 통제를 요구하는 IoT 보안 기준과 일치한다. 파일 기반 private key는 TPM보다 물리 탈취 저항성이 낮으므로 잠금 함체, root 전용 파일 권한, read-only container mount, 짧은 운영 인증서 수명, 폐기와 재발급 감사 로그를 필수 보완 통제로 적용한다.
+
+CA 인증서는 gateway마다 생성하지 않는다. 전체 fleet이 신뢰하는 CA chain을 버전 관리하고 gateway마다 고유 leaf 인증서와 private key만 발급한다.
+
+| 구분 | Gateway별 고유 | 저장 위치 | 수명 |
+| --- | --- | --- | --- |
+| 제조 serial | 예 | 제조 원장, gateway 설정 | 장비 수명 |
+| Claim Code | 예 | 서버에는 hash만, 원문은 라벨 1회 | claim 성공까지 |
+| `device.key` | 예 | gateway 내부 `0600` | device 인증서 key rotation까지 |
+| `device.crt` | 예 | gateway, 서버 metadata | 365일 |
+| `api-ca.crt` | 아니오 | fleet trust bundle | CA rotation 정책 |
+| `mqtt-ca.crt` | 아니오 | fleet trust bundle | CA rotation 정책 |
+| `gateway.key` | 예 | gateway 내부 `0600` | MQTT 인증서 key rotation까지 |
+| `gateway.crt` | 예 | gateway, 서버 metadata | 90일 |
+
+### CA 계층과 서명 서비스
+
+Root CA private key는 오프라인으로 보관한다. HashiCorp Vault PKI에는 Root가 서명한 Device Issuing CA와 MQTT Client Issuing CA intermediate만 둔다. API는 Vault token 원문을 환경변수나 DB에 저장하지 않고 Vault Agent의 짧은 수명 token sink 파일을 read-only로 읽는다. `NODE_ENV=production`에서는 OpenSSL local signer를 허용하지 않고 Vault provider가 준비되지 않으면 API 시작을 실패시킨다.
+
+서비스 인증서의 책임은 분리한다. 운영 API와 MQTT broker의 server certificate는 배포 환경의 공인 또는 사설 Service CA가 발급한다. Gateway PKI API는 `api-ca.crt`, `mqtt-ca.crt` trust bundle을 배포하지만 server private key를 gateway enrollment 응답에 포함하지 않는다.
+
+### 제조 등록 흐름
+
+1. 제조 운영자가 mTLS로 보호된 제조 API에 serial을 등록한다.
+2. API는 15분 유효, 1회 사용 가능한 enrollment token과 Claim Code를 생성한다.
+3. enrollment token과 Claim Code 원문은 hash만 DB에 저장하며 Claim Code 원문은 제조 라벨 출력 경로에 한 번만 반환한다.
+4. 제조 station은 enrollment token을 gateway에 전달한다.
+5. Gateway는 내부에서 ECDSA P-256 `device.key`를 생성하고 CN=`serial`, SAN URI=`urn:dfkorea:gateway:<serial>` CSR을 만든다.
+6. Gateway는 CSR과 token을 제조 enrollment API에 전송한다.
+7. API는 token, serial, CSR proof-of-possession과 허용 key algorithm을 검증하고 CSR subject를 신뢰하지 않은 채 서버 정책으로 subject/SAN을 고정한다.
+8. Vault Device Issuing CA가 CSR을 서명한다.
+9. API는 `device.crt`, device CA chain, `api-ca.crt`, `mqtt-ca.crt`, 인증서 metadata를 반환한다.
+10. Gateway는 temporary file write, `fsync`, permission 설정, atomic rename 순서로 identity bundle을 설치한다.
+11. API는 `GatewayInventory`와 인증서 원장에 fingerprint, serial number, issuer, notBefore/notAfter, status를 기록하고 token을 폐기한다.
+12. 제조 station은 private key가 gateway 밖으로 나오지 않았고 certificate public key가 local private key와 일치하는지 확인한 뒤 합격 라벨을 출력한다.
+
+### Claim 이후 MQTT 인증서 흐름
+
+1. 고객이 Web에서 serial과 Claim Code로 gateway를 현장에 claim한다.
+2. Gateway는 `device.crt/device.key`로 `/gateway-bootstrap` mTLS 요청을 보내 assignment를 받는다.
+3. Gateway는 내부에서 별도 ECDSA P-256 `gateway.key`와 CN=`Gateway.id`, SAN URI=`urn:dfkorea:mqtt:<Gateway.id>` CSR을 생성한다.
+4. Gateway는 device mTLS로 `/gateway-certificates/mqtt`에 CSR을 제출한다.
+5. API는 device fingerprint, inventory, claim, assignment 관계를 모두 검증한다.
+6. Vault MQTT Client Issuing CA는 90일 인증서를 발급한다.
+7. Gateway는 `gateway.crt`, MQTT CA chain을 원자 저장하고 MQTT에 재연결한다.
+8. Mosquitto는 client certificate CN을 gateway identity로 사용하고 gateway-scoped ACL만 허용한다.
+9. Gateway는 만료 30일 전 새 key/CSR로 rotation하고 새 연결 성공 후 이전 key/certificate를 삭제한다.
+
+### 저장과 권한
+
+Host identity 디렉터리는 container writable layer가 아니라 `/opt/led-control/data/identity` persistent volume에 둔다. directory는 `0750 root:gateway`, private key는 `0600 gateway:gateway`, certificate와 CA bundle은 `0644 root:root`를 적용한다. private key, Claim Code, enrollment token, Vault token은 stdout, journald, API 응답 로그, DB, Docker image, backup에 포함하지 않는다.
+
+Gateway 프로세스는 key 파일 내용을 애플리케이션 로그에 출력하지 않으며 CSR 생성 subprocess는 shell 없이 고정 argument array로 실행한다. 제조 실패 시 임시 key와 token을 제거하고 이미 활성화된 identity bundle은 덮어쓰지 않는다.
+
+### 인증서 원장과 폐기
+
+`GatewayCertificate`는 inventory/gateway, purpose(`device` 또는 `mqtt`), certificate serial, fingerprint, issuer, notBefore, notAfter, status, revokedAt, replacedById를 저장한다. `GatewayEnrollment`는 serial, token hash, 만료, 사용 시각, station identity, 결과와 실패 사유를 저장한다. 인증서 PEM과 private key는 DB에 저장하지 않는다.
+
+Inventory 비활성화, gateway 도난, key 노출 신고 시 device와 MQTT 인증서를 모두 폐기한다. Vault CRL을 갱신하고 API mTLS와 Mosquitto에 배포한 뒤 broker를 reload한다. CRL 배포 실패 상태에서는 해당 gateway를 제어 가능 상태로 표시하지 않는다.
+
+### 시험과 양산 provider
+
+자동 테스트는 in-memory fake CA로 계약을 검증한다. 실험실 E2E와 양산은 동일한 Vault PKI API를 사용하되 별도 mount, intermediate, policy, namespace로 격리한다. Vault dev mode와 export 가능한 Root CA key는 양산에서 금지한다. Root CA는 오프라인, Vault는 intermediate만 보유하고 CSR sign, revoke, CRL 기능만 허용한다.
+
+참고 기준:
+
+- NIST IR 8259A IoT Device Cybersecurity Capability Core Baseline
+- RFC 7030 Enrollment over Secure Transport의 CSR 기반 enrollment 원칙
+- HashiCorp Vault PKI의 intermediate CA, CSR sign, revoke, CRL과 rotation 원칙
+- Mosquitto `require_certificate`, `use_identity_as_username`, gateway-scoped ACL
+
 ## 이미지 빌드와 배포
 
 ARM64 multi-stage Dockerfile은 BlueZ 5.82 source를 고정 checksum으로 빌드하고 Gateway production dependency와 TypeScript build 산출물만 runtime image에 포함한다.

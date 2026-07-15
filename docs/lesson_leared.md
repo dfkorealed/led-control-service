@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-07-15 / Gateway PKI와 원자적 identity
+- **발생했던 문제/실수**: API server CA를 Device issuing CA처럼 사용했고, enrollment token을 빠른 hash로 저장했으며, OpenSSL key 생성 직후 권한 노출과 current pointer fsync 실패 시 dangling 가능성이 있었다.
+- **원인**: CA 용도, 1회용 secret lookup, multi-file identity 활성화를 각각 독립된 계약으로 분리하지 않고 정상 경로 테스트에 집중했다.
+- **해결 및 예방책**: API/Device/MQTT/Manufacturing CA를 별도 파일과 DTO로 구분한다. token은 `<UUID>.<고엔트로피 secret>`으로 만들고 DB에는 salted scrypt hash만 저장하며 serial별 활성 token은 partial unique index로 제한한다. key 파일은 OpenSSL 전에 `0600`으로 선생성하고 immutable generation과 원자 current pointer를 사용한다.
+- **반복 방지 체크**: pointer rename 후 fsync 실패, rollback 실패, serial mismatch 후 token 재사용, 잘못된 CA, private key 권한의 생성 순간을 부정 테스트로 유지한다. 실제 Vault/ARM64/Pi/ESP32 증거 없이는 양산 E2E 완료로 기록하지 않는다.
+
 ## [날짜 / 태스크명] - 예시
 - **발생했던 문제/실수**: 서브 에이전트 리뷰 반영 중 토큰 초과로 끊겼을 때 구문 에러가 방치됨.
 - **원인**: 이전 컨텍스트 확인 없이 무작정 코드 빌드부터 실행함.
@@ -15,12 +21,12 @@
 - **발생했던 문제/실수**: 조명/현장 데이터를 모두 삭제한 뒤 mock 게이트웨이가 과거 fixture ID로 상태 이벤트를 계속 발행했고, API가 존재하지 않는 fixture를 `update`하려다 크래시했다.
 - **원인**: 장비 이벤트는 DB 초기화, 장비 교체, mock 데이터 삭제 이후에도 늦게 도착할 수 있는데, MQTT 수신 로직이 대상 row 존재를 전제로 했다. 또한 조직에 `Site`가 0건인 최초 가입 상태를 dashboard API가 처리하지 못했다.
 - **해결 및 예방책**: MQTT 상태 반영은 `updateMany`처럼 대상이 없어도 실패하지 않는 방식으로 처리하고, 현장이 없는 조직은 빈 dashboard를 반환한다.
-- **반복 방지 체크**: DB를 초기 상태로 만들 때는 mock gateway를 함께 중지하거나, 수신 이벤트가 삭제된 장비 ID를 포함해도 API가 죽지 않는 테스트를 유지한다.
+- **반복 방지 체크**: DB를 초기 상태로 만들 때 gateway를 중지하고, 실제 장비의 지연 이벤트가 삭제된 장비 ID를 포함해도 API가 죽지 않는 테스트를 유지한다.
 
 ## 2026-07-05 / 조명 등록 전 선행 설정 누락
 - **발생했던 문제/실수**: 빈 DB 상태에서 조명 등록을 시작하려 했지만 `Site`, `Floor`, `Gateway`가 없어 등록 세션을 만들 수 없었다.
 - **원인**: 조명 등록 UX는 층과 게이트웨이가 이미 있다고 가정했지만, 최초 가입 사용자가 직접 현장과 층을 만드는 온보딩 흐름이 없었다.
-- **해결 및 예방책**: 빈 현장 상태에서는 조명 등록 버튼보다 `초기 설치 설정` 마법사를 먼저 보여주고, 현장 생성, 층 일괄 등록, 게이트웨이 수동 등록을 완료한 뒤 조명 검색을 열어준다.
+- **해결 및 예방책**: 빈 현장 상태에서는 조명 등록 버튼보다 `초기 설치 설정`을 먼저 보여준다. 현장과 층을 생성한 뒤 제조 원장 기반 gateway claim이 성공해야 조명 검색을 연다.
 - **반복 방지 체크**: 기능 진입점마다 필요한 선행 데이터가 무엇인지 문서와 empty state에 함께 표시한다.
 
 ## 2026-07-06 / 인증 Guard가 있는 신규 API 모듈 부팅 실패
@@ -88,3 +94,33 @@
 - **원인**: 코드 완료, target build 완료, 단일 보드 검증, 2-node 현장 검증의 완료 용어가 분리되지 않았다.
 - **해결 및 예방책**: 상태를 `자동 검증 완료`, `Raspberry Pi Phase 0 완료`, `2-node HIL 3회 완료`로 분리한다. 상위 수준의 로그가 없으면 양산 준비 완료로 기록하지 않는다.
 - **반복 방지 체크**: 하드웨어 기능 문서에는 사용 장비, firmware hash, 실행 명령, 반복 횟수, 실제 status와 journald 로그 경로를 남긴다.
+
+## 2026-07-13 / 운영 MQTT 보안 전환 후 로컬 개발 실행 계약 불일치
+- **발생했던 문제/실수**: API는 모든 환경에서 MQTT mTLS 인증서를 강제하도록 변경했지만 루트 `.env`, Docker 기본 서비스, mock gateway와 README는 평문 1883 실행 방식을 유지해 `pnpm dev`가 `MQTT_CA_PATH is required`로 종료됐다.
+- **원인**: 런타임 보안 정책만 변경하고 루트 개발 오케스트레이션, 인증서 발급, mock client identity, 고정 포트와 문서를 하나의 실행 계약으로 함께 검증하지 않았다. 상대 인증서 경로도 workspace별 현재 디렉터리에 따라 잘못 해석될 수 있었다.
+- **해결 및 예방책**: 루트 `pnpm dev`가 절대 인증서 경로를 주입하고 개발 PKI, mTLS Mosquitto, DB migration과 자식 프로세스 수명주기를 관리하도록 했다. 런타임 mock identity는 제거하고 실제 claim된 `DEV_GATEWAY_ID`만 허용한다.
+- **반복 방지 체크**: 인증·전송 정책을 강화할 때 API, 실제 gateway, compose, `.env.example`, 루트 실행 명령을 같은 테스트 단위로 확인하고 실제 루트 명령으로 로그인까지 검증한다.
+
+## 2026-07-13 / Raspberry Pi 호스트 패키지와 pnpm store 불일치
+- **발생했던 문제/실수**: Debian 13에서 `rfkill` 명령을 `util-linux` 패키지로 설치하려 했고, 로컬 의존성 갱신은 기존 pnpm store v11과 현재 pnpm 9 store v3가 달라 실패했다.
+- **원인**: macOS와 Debian의 패키지 구성을 일반화했고, workspace의 기존 `node_modules`가 어떤 pnpm/store로 설치됐는지 확인하기 전에 add 명령을 실행했다.
+- **해결 및 예방책**: Pi host preflight는 Debian의 `rfkill` 패키지를 직접 설치한다. pnpm 의존성 변경 전에는 `node_modules/.modules.yaml`의 store 경로와 실행 pnpm 버전을 확인하고 기존 설치를 임의로 재생성하지 않는다.
+- **반복 방지 체크**: 실제 OS package 이름은 대상 OS의 `apt-cache show`로 검증하고, appliance build는 clean container의 frozen lockfile 설치로 재현한다.
+
+## 2026-07-13 / private D-Bus 실기 호출과 64비트 token
+- **발생했던 문제/실수**: fake D-Bus 테스트는 통과했지만 Pi에서는 bus 접속 정책, callback 메서드의 `this` 손실, Promise/callback 호출 규약, uint64 정밀도 문제로 `CreateNetwork`와 `Attach`가 차례로 실패했다.
+- **원인**: 테스트 double이 실제 `@homebridge/dbus-native`의 callback API와 Long.js 반환 형식을 재현하지 않았고, system bus 정책에서 연결 허용과 daemon 응답 수신을 별도 권한으로 보지 않았다.
+- **해결 및 예방책**: root/gateway만 private bus 접속을 허용하고 DBus/BlueZ 응답 수신을 명시했다. introspected 메서드는 원 interface에 bind해 callback을 Promise로 변환하며 `ReturnLongjs`의 low/high를 bigint로 저장하고 Attach에는 10진 문자열을 사용한다.
+- **반복 방지 체크**: D-Bus wrapper 테스트에는 callback 방식, `this` 의존 메서드, 다중 반환, 64비트 최대 범위를 포함하고 실제 Pi Phase 0를 자동 테스트와 별도 관문으로 유지한다.
+
+## 2026-07-14 / 기본 개발 실행에 mock 장비 혼입
+- **발생했던 문제/실수**: 사용자가 실제 조명 검색을 시험하려고 `pnpm dev`를 실행했지만 mock gateway가 함께 시작되어 하드웨어가 꺼진 상태에서도 가짜 후보 4개가 즉시 검색됐다.
+- **원인**: 일반 개발 실행과 cloud pipeline 시뮬레이션 실행을 같은 명령으로 묶었고 mock producer의 기본 발견 개수 4가 실제 BLE scan 결과처럼 API DB에 저장됐다.
+- **해결 및 예방책**: `pnpm dev`는 API와 Web만 실행하고 실제 gateway MQTT 이벤트만 받는다. 실행 가능한 Mock gateway와 `dev:mock` 경로는 제거하고, 테스트 데이터는 `src/test` 또는 `*.spec.ts` 내부의 불변 fixture로만 격리한다.
+- **반복 방지 체크**: 양산 장비 시험 명령에는 mock/stub/simulator process를 포함하지 않고, 가짜 장비 이벤트에는 mock firmware 식별자를 유지해 DB 정리와 감사 시 구분 가능하게 한다.
+
+## 2026-07-14 / 테스트 전용 런타임과 양산 E2E 경로 혼재
+- **발생했던 문제/실수**: 웹 mock API, mock gateway, 파괴적 demo seed, legacy MQTT v1이 실제 장비 경로와 같은 workspace와 실행 설정에 남아 있었고 고정 통계·설정 문구가 실제 기능처럼 표시됐다.
+- **원인**: 초기 MVP 시뮬레이션 자산을 실제 BlueZ/MQTT v2 구현 뒤에도 제거하지 않았고, 현장 생성과 제조 gateway claim을 별도 흐름으로 구현하면서 전체 온보딩 E2E를 다시 연결하지 않았다.
+- **해결 및 예방책**: 제품 런타임의 mock 선택지를 제거하고 테스트 fixture/stub은 test directory로 격리했다. demo seed는 빈 DB 전용 owner bootstrap으로 교체하고 MQTT v1을 제거했다.
+- **반복 방지 체크**: 실장비 완료 판정은 `owner -> site/floor -> inventory claim -> assignment -> scan -> provision -> monitor -> v2 ACK control` 전체가 한 번에 실행된 증거가 있을 때만 한다. claim UI 구현만으로 완료 처리하지 않고 Raspberry Pi와 ESP32-H2의 연속 로그를 증거로 남긴다.
