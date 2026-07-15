@@ -10,17 +10,17 @@ const assignment = {
 };
 
 describe("startGatewayRuntime", () => {
-  it("fails closed before BlueZ and MQTT startup when MQTT identity preparation fails", async () => {
+  it("fails closed before BlueZ and MQTT startup when the current MQTT identity has unsafe permissions", async () => {
     const createAdapters = vi.fn();
     const createMqtt = vi.fn();
 
     await expect(startGatewayRuntime({
       env: {},
       resolveAssignment: async () => assignment,
-      ensureMqttIdentity: async () => { throw new Error("MQTT identity unavailable"); },
+      ensureMqttIdentity: async () => { throw new Error("MQTT identity permissions are invalid"); },
       createAdapters,
       createMqtt
-    })).rejects.toThrow("MQTT identity unavailable");
+    })).rejects.toThrow("MQTT identity permissions are invalid");
 
     expect(createAdapters).not.toHaveBeenCalled();
     expect(createMqtt).not.toHaveBeenCalled();

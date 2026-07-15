@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, open, readFile, readlink, rename, rm, symlink } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, readlink, rename as renameFile, rm, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { OpenSslCsrGenerator } from "./openssl-csr-generator";
@@ -15,15 +15,21 @@ export interface MqttIdentityStoreOptions {
   identityRoot: string;
   opensslPath?: string;
   generator?: OpenSslCsrGenerator;
+  rename?: (source: string, destination: string) => Promise<void>;
+  syncDirectory?: (path: string) => Promise<void>;
 }
 
 export class MqttIdentityStore {
   private readonly opensslPath: string;
   private readonly generator: OpenSslCsrGenerator;
+  private readonly rename: (source: string, destination: string) => Promise<void>;
+  private readonly sync: (path: string) => Promise<void>;
 
   constructor(private readonly options: MqttIdentityStoreOptions) {
     this.opensslPath = options.opensslPath ?? "openssl";
     this.generator = options.generator ?? new OpenSslCsrGenerator({ opensslPath: this.opensslPath });
+    this.rename = options.rename ?? renameFile;
+    this.sync = options.syncDirectory ?? syncDirectory;
   }
 
   async ensure(
@@ -34,12 +40,15 @@ export class MqttIdentityStore {
     validateGatewayId(gatewayId);
     validateCertificateBundle(mqttCaBundlePem);
     await this.ensureLayout();
-    if (await this.isCurrentValid(gatewayId)) return false;
+    const currentState = await this.currentState(gatewayId);
+    if (currentState === "valid") return false;
+    if (currentState === "unsafe") throw new Error("MQTT identity permissions are invalid");
 
     const generationId = randomUUID();
     const pendingRoot = join(this.options.identityRoot, "pending-generations");
     const stagingPath = join(pendingRoot, `.${generationId}.tmp`);
     const pendingPath = join(pendingRoot, generationId);
+    const generation = { path: stagingPath as string | null };
     await mkdir(stagingPath, { mode: 0o750 });
     await chmod(stagingPath, 0o750);
     try {
@@ -48,30 +57,34 @@ export class MqttIdentityStore {
         privateKeyPath: join(stagingPath, ".gateway.key.tmp"),
         csrPath: join(stagingPath, ".gateway.csr.tmp")
       });
-      await rename(join(stagingPath, ".gateway.key.tmp"), join(stagingPath, "gateway.key"));
-      await rename(join(stagingPath, ".gateway.csr.tmp"), join(stagingPath, "gateway.csr"));
-      await syncDirectory(stagingPath);
-      await rename(stagingPath, pendingPath);
-      await syncDirectory(pendingRoot);
+      await this.rename(join(stagingPath, ".gateway.key.tmp"), join(stagingPath, "gateway.key"));
+      await this.rename(join(stagingPath, ".gateway.csr.tmp"), join(stagingPath, "gateway.csr"));
+      await this.sync(stagingPath);
+      await this.rename(stagingPath, pendingPath);
+      generation.path = pendingPath;
+      await this.sync(pendingRoot);
 
       const response = await issue(generated.csrPem);
       if (response.gatewayId !== gatewayId) throw new Error("MQTT identity validation failed");
-      await this.install(pendingPath, generationId, gatewayId, mqttCaBundlePem, response);
+      await this.install(generation, generationId, gatewayId, mqttCaBundlePem, response);
+      generation.path = null;
       return true;
     } catch (error) {
-      await rm(stagingPath, { recursive: true, force: true });
+      if (generation.path) await this.removeGeneration(generation.path);
       if ((error as Error).message === "MQTT identity validation failed") throw error;
       throw new Error("MQTT identity installation failed");
     }
   }
 
   private async install(
-    pendingPath: string,
+    generation: { path: string | null },
     generationId: string,
     gatewayId: string,
     mqttCaBundlePem: string,
     response: MqttCertificateResponse
   ) {
+    if (!generation.path) throw new Error("MQTT identity installation failed");
+    const pendingPath = generation.path;
     const certificatePath = join(pendingPath, "gateway.crt");
     const chainPath = join(pendingPath, "gateway-chain.crt");
     const caPath = join(pendingPath, "mqtt-ca.crt");
@@ -82,51 +95,83 @@ export class MqttIdentityStore {
     await writeFileAtomic(certificatePath, certificateBundle, 0o644);
     await writeFileAtomic(chainPath, chain, 0o644);
     await writeFileAtomic(caPath, mqttCaBundlePem, 0o644);
-    await this.validateGeneration({ pendingPath, gatewayId, certificatePath, chainPath });
+    await this.validateGeneration({ pendingPath, gatewayId, certificatePath, chainPath, responseNotAfter: response.notAfter });
 
     const generationsRoot = join(this.options.identityRoot, "generations");
     const activePath = join(generationsRoot, generationId);
     const previous = await readOptionalLink(join(this.options.identityRoot, "current"));
-    await rename(pendingPath, activePath);
-    await syncDirectory(join(this.options.identityRoot, "pending-generations"));
-    await syncDirectory(generationsRoot);
+    await this.rename(pendingPath, activePath);
+    generation.path = activePath;
+    await this.sync(join(this.options.identityRoot, "pending-generations"));
+    await this.sync(generationsRoot);
     try {
-      await replacePointer(this.options.identityRoot, "current", `generations/${generationId}`);
-    } catch {
-      if (previous) await replacePointer(this.options.identityRoot, "current", previous);
-      else await rm(join(this.options.identityRoot, "current"), { force: true });
+      await this.replacePointer("current", `generations/${generationId}`);
+    } catch (error) {
+      let pointerRestored = !(error instanceof PointerReplacementError) || !error.pointerChanged;
+      if (!pointerRestored) {
+        try {
+          if (previous) await this.replacePointer("current", previous);
+          else {
+            await rm(join(this.options.identityRoot, "current"), { force: true });
+            await this.sync(this.options.identityRoot);
+          }
+          pointerRestored = true;
+        } catch {
+          pointerRestored = false;
+        }
+      }
+      if (!pointerRestored) generation.path = null;
       throw new Error("MQTT identity installation failed");
     }
   }
 
-  private async isCurrentValid(gatewayId: string) {
+  private async currentState(gatewayId: string): Promise<"valid" | "invalid" | "unsafe"> {
     try {
       const target = await readlink(join(this.options.identityRoot, "current"));
-      if (!/^generations\/([0-9a-f-]+)$/.test(target) || !GENERATION_ID_PATTERN.test(target.slice("generations/".length))) return false;
+      if (!/^generations\/([0-9a-f-]+)$/.test(target) || !GENERATION_ID_PATTERN.test(target.slice("generations/".length))) return "invalid";
       const currentPath = join(this.options.identityRoot, target);
-      await assertPlainDirectory(currentPath);
+      await assertPlainDirectory(currentPath, "MQTT identity storage directory is invalid", 0o750);
       const certificatePath = join(currentPath, "gateway.crt");
       const chainPath = join(currentPath, "gateway-chain.crt");
       const keyPath = join(currentPath, "gateway.key");
       const mqttCaPath = join(currentPath, "mqtt-ca.crt");
-      for (const path of [certificatePath, chainPath, keyPath, mqttCaPath]) await assertPlainFile(path);
+      await assertPlainFile(certificatePath, 0o644);
+      await assertPlainFile(chainPath, 0o644);
+      await assertPlainFile(keyPath, 0o600);
+      await assertPlainFile(mqttCaPath, 0o644);
       validateCertificateBundle(await readFile(mqttCaPath, "utf8"));
       await this.validateGeneration({ pendingPath: currentPath, gatewayId, certificatePath, chainPath });
-      return true;
-    } catch {
-      return false;
+      return "valid";
+    } catch (error) {
+      if (error instanceof MqttIdentityPermissionsError) return "unsafe";
+      return "invalid";
     }
   }
 
-  private async validateGeneration(paths: { pendingPath: string; gatewayId: string; certificatePath: string; chainPath: string }) {
+  private async validateGeneration(paths: {
+    pendingPath: string;
+    gatewayId: string;
+    certificatePath: string;
+    chainPath: string;
+    responseNotAfter?: string;
+  }) {
     try {
       const keyPublic = await this.runOpenSsl(["pkey", "-in", join(paths.pendingPath, "gateway.key"), "-pubout"]);
       const certificatePublic = await this.runOpenSsl(["x509", "-in", paths.certificatePath, "-pubkey", "-noout"]);
       if (normalizePem(keyPublic) !== normalizePem(certificatePublic)) throw new Error("key mismatch");
-      await this.runOpenSsl(["x509", "-checkend", "0", "-noout", "-in", paths.certificatePath]);
+      await this.runOpenSsl(["verify", "-purpose", "sslclient", "-CAfile", paths.chainPath, paths.certificatePath]);
+      const validity = parseCertificateValidity(await this.runOpenSsl([
+        "x509", "-in", paths.certificatePath, "-noout", "-startdate", "-enddate"
+      ]));
+      const now = Date.now();
+      if (validity.notBefore >= validity.notAfter || validity.notBefore > now || validity.notAfter <= now) {
+        throw new Error("certificate is not currently valid");
+      }
+      if (paths.responseNotAfter !== undefined && new Date(paths.responseNotAfter).getTime() !== validity.notAfter) {
+        throw new Error("certificate notAfter metadata mismatch");
+      }
       const subject = await this.runOpenSsl(["x509", "-in", paths.certificatePath, "-noout", "-subject", "-nameopt", "RFC2253"]);
       if (subject.trim() !== `subject=CN=${paths.gatewayId}`) throw new Error("CN mismatch");
-      await this.runOpenSsl(["verify", "-purpose", "sslclient", "-CAfile", paths.chainPath, paths.certificatePath]);
     } catch {
       throw new Error("MQTT identity validation failed");
     }
@@ -150,6 +195,25 @@ export class MqttIdentityStore {
     });
     return result.stdout;
   }
+
+  private async removeGeneration(path: string) {
+    await rm(path, { recursive: true, force: true });
+    await this.sync(dirname(path));
+  }
+
+  private async replacePointer(name: "current", target: string) {
+    const temporaryPath = join(this.options.identityRoot, `.${name}.${randomUUID()}.tmp`);
+    let pointerChanged = false;
+    try {
+      await symlink(target, temporaryPath);
+      await this.rename(temporaryPath, join(this.options.identityRoot, name));
+      pointerChanged = true;
+      await this.sync(this.options.identityRoot);
+    } catch {
+      await rm(temporaryPath, { force: true });
+      throw new PointerReplacementError(pointerChanged);
+    }
+  }
 }
 
 async function writeFileAtomic(path: string, contents: string, mode: number) {
@@ -163,20 +227,8 @@ async function writeFileAtomic(path: string, contents: string, mode: number) {
     } finally {
       await file.close();
     }
-    await rename(temporaryPath, path);
+    await renameFile(temporaryPath, path);
     await syncDirectory(dirname(path));
-  } catch (error) {
-    await rm(temporaryPath, { force: true });
-    throw error;
-  }
-}
-
-async function replacePointer(root: string, name: "current", target: string) {
-  const temporaryPath = join(root, `.${name}.${randomUUID()}.tmp`);
-  try {
-    await symlink(target, temporaryPath);
-    await rename(temporaryPath, join(root, name));
-    await syncDirectory(root);
   } catch (error) {
     await rm(temporaryPath, { force: true });
     throw error;
@@ -201,14 +253,39 @@ async function syncDirectory(path: string) {
   }
 }
 
-async function assertPlainDirectory(path: string, message = "MQTT identity storage directory is invalid") {
+async function assertPlainDirectory(path: string, message = "MQTT identity storage directory is invalid", mode?: number) {
   const metadata = await lstat(path);
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error(message);
+  if (mode !== undefined && (metadata.mode & 0o777) !== mode) throw new MqttIdentityPermissionsError();
 }
 
-async function assertPlainFile(path: string) {
+async function assertPlainFile(path: string, mode?: number) {
   const metadata = await lstat(path);
   if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error("MQTT identity validation failed");
+  if (mode !== undefined && (metadata.mode & 0o777) !== mode) throw new MqttIdentityPermissionsError();
+}
+
+class MqttIdentityPermissionsError extends Error {
+  constructor() {
+    super("MQTT identity permissions are invalid");
+  }
+}
+
+class PointerReplacementError extends Error {
+  constructor(readonly pointerChanged: boolean) {
+    super("MQTT identity pointer replacement failed");
+  }
+}
+
+function parseCertificateValidity(output: string) {
+  const values = new Map(output.trim().split("\n").map((line) => {
+    const separator = line.indexOf("=");
+    return [line.slice(0, separator), line.slice(separator + 1)];
+  }));
+  const notBefore = new Date(values.get("notBefore") ?? "").getTime();
+  const notAfter = new Date(values.get("notAfter") ?? "").getTime();
+  if (!Number.isFinite(notBefore) || !Number.isFinite(notAfter)) throw new Error("certificate dates are invalid");
+  return { notBefore, notAfter };
 }
 
 function validateGatewayId(value: string) {
