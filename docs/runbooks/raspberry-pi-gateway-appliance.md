@@ -1,5 +1,7 @@
 # Raspberry Pi 게이트웨이 Appliance 운영 절차
 
+> 현재 상태: **코드 완료·실기 미검증**. 실물 Pi/ESP32와 offline Root/Vault backup 승인 증거는 확인하지 않았다.
+
 ## 1. 적용 범위
 
 이 문서는 Raspberry Pi 4/CM5에서 Docker 기반 게이트웨이를 설치하고 ESP32-H2 조명을 검색·등록·제어하는 절차다. Pi에는 전체 모노레포를 복사하지 않는다. 다음 파일만 배포한다.
@@ -79,18 +81,27 @@ ALLOW_DIRTY_BUILD=1 pnpm gateway:appliance:build
 - bootstrap device certificate와 private key
 - bootstrap API CA
 
-웹에서 gateway claim이 끝나면 API가 assignment를 반환하고 gateway가 `/var/lib/led-control/assignment.json`에 저장한다. MQTT 인증서는 claim 후 발급하는 것이 최종 방향이다. 현재 개발 환경에서는 아래 여섯 파일을 수동 배치한다.
+웹 claim 후 API가 assignment를 반환하면 gateway가 이를 `/var/lib/led-control/assignment.json`에 저장하고 MQTT key·CSR·인증서를 자동 발급한다. 장비 private key는 Pi의 Docker volume 안에서만 생성되며 제조 PC로 전송하지 않는다.
 
-```text
-/opt/led-control/gateway/data/certs/mqtt-ca.crt
-/opt/led-control/gateway/data/certs/gateway.crt
-/opt/led-control/gateway/data/certs/gateway.key
-/opt/led-control/gateway/data/certs/device.crt
-/opt/led-control/gateway/data/certs/device.key
-/opt/led-control/gateway/data/certs/api-ca.crt
+먼저 `gateway-appliance-deploy.sh`를 한 번 실행한다. image는 Pi에 load되고 제조 identity가 없다는 메시지와 exit code 2로 멈추는 것이 정상이다. 제조 PC에는 API가 신뢰하는 station mTLS 인증서·key·CA가 있어야 한다.
+
+```bash
+set -a
+. dist/gateway-appliance/led-control-gateway-<revision>-linux-arm64.tar.env
+set +a
+export GATEWAY_IMAGE="$GATEWAY_IMAGE_REPOSITORY:$GATEWAY_IMAGE_TAG"
+export MANUFACTURING_API_URL='https://<API DNS 또는 IP>:4000'
+export STATION_CERT="$PWD/.local/manufacturing/station.crt"
+export STATION_KEY="$PWD/.local/manufacturing/station.key"
+export STATION_CA="$PWD/.local/manufacturing/api-ca.crt"
+
+pnpm gateway:manufacturing:enroll -- \
+  --target dfkorea@dfkorea.local \
+  --serial GW-RPI-000001 \
+  --label-output "$PWD/.local/manufacturing/GW-RPI-000001.json"
 ```
 
-private key는 `chmod 600`으로 제한한다.
+label JSON은 `0600`이며 web claim에 사용할 일회성 code를 포함한다. 같은 serial과 정상 label로 재실행하면 API를 다시 호출하지 않는다. token은 pipe로만 전달되고 device private key는 `data/identity/device`에 generation 단위로 원자 설치된다.
 
 ## 6. Pi 설정 파일
 
@@ -178,8 +189,8 @@ idf.py -p /dev/cu.usbmodemXXXX erase-flash flash monitor
 
 ## 10. 웹에서 현장·층·조명 등록
 
-1. `gateway:enroll-inventory`로 Pi의 `GATEWAY_SERIAL`, 일회성 claim code hash, 인증서 fingerprint를 제조 원장에 등록한다.
-2. 웹에서 현장과 층을 만든 뒤 `게이트웨이 등록` 화면에 제품 시리얼과 일회성 코드를 입력해 claim한다. 초기 현장 API는 Gateway를 직접 만들지 않는다.
+1. 제조 등록 script가 만든 label JSON에서 제품 serial과 일회성 claim code를 확인한다. DB를 수동 수정하지 않는다.
+2. 웹에서 현장과 층을 만든 뒤 `게이트웨이 등록` 화면에 label의 제품 serial과 일회성 코드를 입력해 claim한다. 초기 현장 API는 Gateway를 직접 만들지 않는다.
 3. 층을 만들고 해당 gateway를 층에 연결한다.
 4. ESP32-H2를 unprovisioned 상태로 켠다.
 5. 조명 검색을 시작하고 UUID/RSSI가 나타나는지 확인한다.

@@ -1238,24 +1238,26 @@ Expected: FAIL
 - Produces: `pnpm gateway:manufacturing:enroll --target <ssh> --serial <serial> --label-output <path>`
 - Produces: Claim label artifact `0600`, private key는 gateway 외부에 생성하지 않음
 
-- [ ] **Step 1: command injection, token stdout 노출, label 권한, 중복 serial 실패 테스트 작성**
+- [x] **Step 1: command injection, token stdout 노출, label 권한, 중복 serial 실패 테스트 작성**
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `node --test scripts/gateway-manufacturing-enroll.test.mjs`
 Expected: FAIL
 
-- [ ] **Step 3: 제조 API에서 enrollment를 만들고 secret JSON을 stdout 대신 pipe로 전달**
+- [x] **Step 3: 제조 API에서 enrollment를 만들고 secret JSON을 stdout 대신 pipe로 전달**
 
-- [ ] **Step 4: SSH target에서 local key/CSR 생성과 enrollment 호출 실행**
+- [x] **Step 4: SSH target에서 local key/CSR 생성과 enrollment 호출 실행**
 
-- [ ] **Step 5: public key 일치, certificate chain, fingerprint 원장 일치 검증**
+- [x] **Step 5: public key 일치, certificate chain, fingerprint 원장 일치 검증**
 
-- [ ] **Step 6: Claim Code QR/label 입력 파일을 `0600`으로 생성하고 나머지 secret 임시 파일 제거**
+- [x] **Step 6: Claim Code QR/label 입력 파일을 `0600`으로 생성하고 나머지 secret 임시 파일 제거**
 
-- [ ] **Step 7: 성공/실패 제조 감사 결과 기록과 재실행 idempotency 구현**
+- [x] **Step 7: 성공/실패 제조 감사 결과 기록과 재실행 idempotency 구현**
 
 - [ ] **Step 8: 스크립트 테스트와 실제 Pi 1대 dry run 후 커밋**
+
+스크립트·API 테스트와 Docker enrollment bundle 빌드는 통과했다. 실제 Pi dry run 증거가 없어 Step 8은 미완료로 유지한다.
 
 ### Task 31: PKI 보안 E2E와 양산 완료 게이트
 
@@ -1271,9 +1273,9 @@ Expected: FAIL
 - Produces: 제조 등록부터 MQTT rotation까지 반복 가능한 증거 JSON
 - Completion gate: private key 외부 유출 0건, 정상 3회, 부정 시험 전부 거부
 
-- [ ] **Step 1: 제조 등록 → Claim → Bootstrap → MQTT 발급 happy path E2E 작성**
+- [x] **Step 1: 제조 등록 → Claim → Bootstrap → MQTT 발급 happy path E2E 작성**
 
-- [ ] **Step 2: token 재사용, CSR 변조, serial 불일치, 잘못된 CA, 폐기 인증서 부정 시험 작성**
+- [x] **Step 2: token 재사용, CSR 변조, serial 불일치, 잘못된 CA, 폐기 인증서 부정 시험 작성**
 
 - [ ] **Step 3: API·broker·gateway 재시작 후 identity/assignment 복구 시험 작성**
 
@@ -1285,9 +1287,11 @@ Expected: FAIL
 
 - [ ] **Step 7: 전체 workspace 테스트, typecheck, ARM64 image build, PKI HIL 3회 실행**
 
-- [ ] **Step 8: 한글 runbook과 메뉴 문서에 발급·복구·폐기·CA rotation 절차 갱신**
+- [x] **Step 8: 한글 runbook과 메뉴 문서에 발급·복구·폐기·CA rotation 절차 갱신**
 
 - [ ] **Step 9: Root offline 보관, Vault production mode, backup/restore, 운영 책임자 승인 증거가 모두 있을 때만 양산 PKI 완료 표시**
+
+실제 PostgreSQL 기반 제조 등록·claim·bootstrap·MQTT 발급과 주요 부정 시험은 자동화했다. ARM64 image build와 image/archive private-key PEM scan도 통과했다. 재시작·rotation·2대 fingerprint·전체 secret scan은 HIL runner 판정 계약까지 구현했으며, 실물 3회 결과와 운영 승인 증거가 없어 Step 3~7·9는 미완료다.
 
 ## PKI 구현 순서
 

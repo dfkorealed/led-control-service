@@ -1,5 +1,7 @@
 # 양산 장비 2-노드 실험실 검증
 
+> 현재 판정: **코드 완료·실기 미검증**. 실물 Raspberry Pi/ESP32-H2와 offline Root/Vault backup 승인 증거는 아직 완료로 표시하지 않는다.
+
 기준일: 2026-07-14
 
 ## 목적과 완료 기준
@@ -70,6 +72,24 @@ export HIL_ACL_NEGATIVE_COMMAND_JSON='["/opt/led-lab/bin/hil-step","acl-negative
 
 ## 실행과 증거
 
+PKI HIL은 제조/보안/재시작/rotation/서로 다른 2대 fingerprint·secret scan을 JSON 명령 배열로 실행한다. 기본 3회 반복이며 실패 시 non-zero다.
+
+```bash
+export PKI_HIL_REPEAT=3
+export PKI_HIL_STEP_TIMEOUT_MS=120000
+export PKI_HIL_MANUFACTURING_COMMAND_JSON='["/opt/led-lab/bin/pki-step","manufacturing"]'
+export PKI_HIL_TOKEN_REUSE_COMMAND_JSON='["/opt/led-lab/bin/pki-step","token-reuse"]'
+export PKI_HIL_CSR_TAMPER_COMMAND_JSON='["/opt/led-lab/bin/pki-step","csr-tamper"]'
+export PKI_HIL_SERIAL_MISMATCH_COMMAND_JSON='["/opt/led-lab/bin/pki-step","serial-mismatch"]'
+export PKI_HIL_WRONG_CA_COMMAND_JSON='["/opt/led-lab/bin/pki-step","wrong-ca"]'
+export PKI_HIL_CLAIM_BOOTSTRAP_MQTT_COMMAND_JSON='["/opt/led-lab/bin/pki-step","claim-bootstrap-mqtt"]'
+export PKI_HIL_RESTART_RECOVERY_COMMAND_JSON='["/opt/led-lab/bin/pki-step","restart-recovery"]'
+export PKI_HIL_MQTT_ROTATION_COMMAND_JSON='["/opt/led-lab/bin/pki-step","mqtt-rotation"]'
+export PKI_HIL_TWO_GATEWAY_FINGERPRINT_COMMAND_JSON='["/opt/led-lab/bin/pki-step","two-gateway-fingerprint"]'
+export PKI_HIL_SECRET_SCAN_COMMAND_JSON='["/opt/led-lab/bin/pki-step","secret-scan"]'
+pnpm gateway:pki:hil > .local/pki-hil-result.json
+```
+
 ```bash
 pnpm gateway:hil:2node -- --repeat 3 > .local/hil-2node-result.json
 jq '.passed, [.runs[].passed]' .local/hil-2node-result.json
@@ -95,11 +115,11 @@ runner는 첫 실패에서 즉시 non-zero로 종료하고 증거 파일을 `060
 
 ## 현재 상태
 
-- HIL runner와 deterministic 순서, secret redaction, timeout, JSON 결과 형식은 구현 및 자동 테스트 완료다.
+- HIL runner와 deterministic 순서, secret redaction, JSON 배열 명령, repeat 3, 실패 non-zero 계약은 코드 및 자동 테스트 완료다.
 - 72시간 soak runner의 주기 실행, 첫 실패 종료, `0600` JSONL 증거는 구현 및 자동 테스트 완료다.
 - Light Lightness/Generic OnOff SIG opcode codec과 status decode는 구현 및 자동 테스트 완료다.
 - `/opt/led-lab/bin/hil-step` 단계별 실제 장비 실행 파일은 Raspberry Pi Phase 0 결과와 함께 구현해야 한다.
-- 2-node 3회 연속 실기 결과는 아직 없다. 따라서 현재 프로젝트 상태를 양산 준비 완료로 판정하지 않는다.
+- 2-node 3회 연속 실기 결과와 offline Root/Vault backup 승인 증거는 아직 없다. 따라서 현재 프로젝트 상태를 양산 준비 완료로 판정하지 않는다.
 - 2026-07-12 macOS probe 결과는 여섯 항목 모두 `hardware_required`, exit code 2였다.
 - 웹 mock API, mock gateway, demo seed, MQTT v1 상태/제어 경로는 제거했다. HIL은 실제 API, PostgreSQL, mTLS broker, Raspberry Pi BlueZ, ESP32-H2만 사용한다.
 - 현장/층 생성과 gateway claim UI를 분리했고 수동 Gateway 생성 API를 제거했다. `gateway:enroll-inventory`는 기존 원장을 덮어쓰지 않고 제조 identity를 적재한다.

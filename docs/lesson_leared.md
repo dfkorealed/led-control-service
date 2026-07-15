@@ -124,3 +124,15 @@
 - **원인**: 초기 MVP 시뮬레이션 자산을 실제 BlueZ/MQTT v2 구현 뒤에도 제거하지 않았고, 현장 생성과 제조 gateway claim을 별도 흐름으로 구현하면서 전체 온보딩 E2E를 다시 연결하지 않았다.
 - **해결 및 예방책**: 제품 런타임의 mock 선택지를 제거하고 테스트 fixture/stub은 test directory로 격리했다. demo seed는 빈 DB 전용 owner bootstrap으로 교체하고 MQTT v1을 제거했다.
 - **반복 방지 체크**: 실장비 완료 판정은 `owner -> site/floor -> inventory claim -> assignment -> scan -> provision -> monitor -> v2 ACK control` 전체가 한 번에 실행된 증거가 있을 때만 한다. claim UI 구현만으로 완료 처리하지 않고 Raspberry Pi와 ESP32-H2의 연속 로그를 증거로 남긴다.
+
+## 2026-07-15 / 제조 등록과 배포의 인증서 순환 의존성
+- **발생했던 문제/실수**: 배포 스크립트가 claim 뒤에 발급되는 MQTT 인증서를 실행 전에 요구해, image를 올리고 제조 device identity를 생성하는 최초 절차 자체가 막혔다.
+- **원인**: 제조 identity, claim, MQTT identity의 발급 순서를 배포 사전 조건과 함께 검증하지 않았다.
+- **해결 및 예방책**: image를 먼저 load한 뒤 제조 device identity만 확인하고, MQTT key·CSR·인증서는 claim과 assignment 이후 gateway가 자동 발급한다.
+- **반복 방지 체크**: 온보딩 배포 테스트는 `image load -> 제조 등록 -> claim -> bootstrap -> MQTT 발급` 순서를 기준으로 각 단계가 다음 단계 산출물을 미리 요구하지 않는지 검사한다.
+
+## 2026-07-15 / Docker secret scan의 문서 예시 오탐
+- **발생했던 문제/실수**: image secret scan이 실제 key가 아니라 dependency README의 예시 PEM을 private key로 감지했다.
+- **원인**: 양산 runtime에 필요 없는 Markdown이 node_modules에 포함됐고, 단순 문자열 scan이 실제 secret과 문서 예시를 구분하지 못했다.
+- **해결 및 예방책**: runtime image에서 dependency Markdown을 제거하고 image와 배포 archive를 다시 scan한다.
+- **반복 방지 체크**: secret scan은 source, runtime image, 배포 archive를 구분해 수행하고, 오탐 제거 후에도 `BEGIN ... PRIVATE KEY` 0건을 증거로 남긴다.

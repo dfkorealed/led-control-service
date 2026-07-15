@@ -1,5 +1,9 @@
 # LED 조명 관제 서비스
 
+PKI 제조 등록 -> claim -> bootstrap -> MQTT 발급과 token 재사용, serial mismatch, disabled/revoked 차단은 실제 PostgreSQL E2E로 검증한다. HIL runner는 제조·부정 시험·재시작·rotation·2대 fingerprint·secret scan을 JSON 명령 배열로 3회 반복하며 실패 시 non-zero를 반환한다.
+
+실물 Raspberry Pi/ESP32와 offline Root/Vault backup 승인 증거는 아직 확인하지 않았으므로 상태는 **코드 완료·실기 미검증**이다.
+
 주차장 LED 조명 제어 및 모니터링 서비스의 MVP 1 구현 저장소입니다.
 
 ## 로컬 실장비 개발 환경
