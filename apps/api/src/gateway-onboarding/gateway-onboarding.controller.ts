@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -38,5 +38,11 @@ export class GatewayOnboardingController {
       serialNumber: body.serialNumber,
       certificateFingerprint: request.deviceCertificateFingerprint ?? ""
     });
+  }
+
+  @Post("gateway-inventories/:inventoryId/disable")
+  @UseGuards(SessionAuthGuard)
+  disableInventory(@CurrentUser() user: AuthenticatedUser, @Param("inventoryId") inventoryId: string) {
+    return this.service.disableInventory(user, inventoryId);
   }
 }

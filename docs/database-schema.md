@@ -132,6 +132,7 @@ Organization
 | 값 | 의미 |
 | --- | --- |
 | `active` | 현재 사용할 수 있는 인증서 |
+| `pending` | 새 device 인증서. 발급 뒤 10분 안에 새 인증서 mTLS로 activation해야 하며, 그 전까지 active pointer를 변경하지 않음 |
 | `replaced` | 새 인증서로 교체된 인증서 |
 | `revoked` | CA에서 폐기된 인증서 |
 | `expired` | 유효기간이 종료된 인증서 |
@@ -482,7 +483,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `issuer` | `String` | 예 |  | 발급 CA 식별자 |
 | `notBefore` | `DateTime` | 예 |  | 유효 시작 시각 |
 | `notAfter` | `DateTime` | 예 |  | 만료 시각 |
-| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `replaced`, `revoked`, `expired` |
+| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `pending`, `replaced`, `revoked`, `expired` |
 | `revokedAt` | `DateTime?` | 아니오 |  | 폐기 시각 |
 | `replacedById` | `String?` | 아니오 | Unique self FK, delete restrict | 이 인증서를 교체한 새 인증서 ID |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -497,7 +498,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 제약:
 
 - Unique: `fingerprint`, `replacedById`, `issuer + certificateSerial`
-- PostgreSQL partial Unique: `inventoryId` (`purpose = mqtt` 및 `status = active`인 행만 대상)
+- PostgreSQL partial Unique: `inventoryId` (`purpose = mqtt` 및 `status = active`인 행만 대상), `inventoryId` (`purpose = device` 및 `status = active`인 행만 대상), `inventoryId` (`purpose = device` 및 `status = pending`인 행만 대상)
 - Check: `replacedById IS NULL OR replacedById <> id`로 자기 자신을 교체 대상으로 지정할 수 없다.
 - Index: `inventoryId + purpose + status`, `gatewayId + purpose + status`
 
@@ -507,6 +508,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - DB의 self-check와 unique 제약만으로는 cross-inventory, cross-purpose 또는 다중 노드 cycle을 완전히 차단할 수 없다.
 - MQTT 인증서 발급은 inventory ID를 입력으로 한 PostgreSQL transaction-scoped advisory lock 안에서 실행한다. 같은 inventory의 동시 요청은 직렬화되며, 기존 active MQTT 인증서는 `replaced`로 전환한 뒤 새 active 행을 만들고 마지막에 기존 행의 `replacedById`를 새 ID로 연결한다. 세 단계는 하나의 transaction이므로 외부에는 원자적으로 보인다.
 - partial Unique index는 위 서비스 잠금과 별도로 같은 inventory에 active MQTT 인증서가 둘 이상 남지 않도록 DB에서 강제한다. migration은 과거 중복 active 행이 있으면 가장 최근 행만 active로 남기고 나머지는 `replaced`로 정리한 뒤 index를 만든다.
+- Device renewal은 active device 인증서가 만료 30일 안에 있을 때만 P-256 CSR을 server-fixed serial CN/URI SAN으로 서명하고 `pending` 원장을 만든다. Inventory advisory lock과 pending partial unique index가 같은 inventory의 동시 renewal을 하나로 제한하며, 서명 후 원장 기록 또는 CA metadata 검증에 실패한 인증서는 best-effort revoke 후 일반화된 503을 반환한다. 성공 응답은 기존 PEM/`caChainPem` 배열 계약과 claimed gateway ID를 함께 반환한다. pending 인증서로 10분 안에 mTLS activation하면 transaction에서 기존 active를 `replaced`로, pending을 `active`로 바꾸고 inventory/gateway pointer를 함께 바꾼다. grace를 넘긴 pending은 revoke 후 거부한다.
+- Owner/admin inventory disable은 소속 조직의 claimed inventory만 허용한다. `disabledAt`을 먼저 확정해 bootstrap과 MQTT 발급을 즉시 차단한 뒤, 아직 revoke되지 않은 device/MQTT 인증서를 Vault에서 순차 폐기하고 각 성공을 원장에 기록한다. Vault 일부 실패 뒤에도 inventory는 disabled이며 같은 endpoint 호출로 남은 인증서 폐기를 재시도한다.
 - Task 27/29 lifecycle service는 같은 transaction 안에서 기존/후속 인증서가 동일한 `inventoryId`와 `purpose`인지 확인하고, 기존 교체 체인을 잠금 조회해 cycle이 생기지 않는지 검증한 뒤 `replacedById`와 상태를 함께 갱신해야 한다.
 - revoke 대상은 `purpose + issuer + certificateSerial + fingerprint`로 식별해 CA 교체나 serial 충돌 상황에서도 모호하지 않게 한다.
 

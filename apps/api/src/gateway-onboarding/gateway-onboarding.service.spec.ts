@@ -1,5 +1,6 @@
 import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { CertificateLifecycleService } from "../pki/certificate-lifecycle.service";
 import { GatewayOnboardingService } from "./gateway-onboarding.service";
 
 describe("GatewayOnboardingService", () => {
@@ -70,5 +71,39 @@ describe("GatewayOnboardingService", () => {
     await expect(service.bootstrapGateway({ serialNumber: "GW-PROD-001", certificateFingerprint: "FF:EE:DD" })).rejects.toBeInstanceOf(
       UnauthorizedException
     );
+  });
+
+  it("keeps inventory disabled when certificate revocation partially fails and retries on the next request", async () => {
+    const { prisma } = await createFixture();
+    const disabledInventory = { id: "inventory-1", disabledAt: null as Date | null };
+    prisma.gatewayInventory.findFirst = jest.fn().mockImplementation(() => Promise.resolve(disabledInventory));
+    prisma.gatewayInventory.update = jest.fn().mockImplementation(() => {
+      disabledInventory.disabledAt = new Date();
+      return Promise.resolve(disabledInventory);
+    });
+    const lifecycle = {
+      revokeInventoryCertificates: jest
+        .fn()
+        .mockRejectedValueOnce(new Error("Vault unavailable"))
+        .mockResolvedValueOnce({ revoked: 2 })
+    } as unknown as CertificateLifecycleService;
+    const service = new GatewayOnboardingService(prisma, lifecycle);
+
+    await expect(service.disableInventory(user, "inventory-1")).rejects.toThrow("certificate revocation pending");
+    await expect(service.disableInventory(user, "inventory-1")).resolves.toEqual({ status: "disabled", revoked: 2 });
+
+    expect(prisma.gatewayInventory.update).toHaveBeenCalledTimes(1);
+    expect(lifecycle.revokeInventoryCertificates).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects inventory disable outside the administrator organization", async () => {
+    const { prisma } = await createFixture();
+    prisma.gatewayInventory.findFirst = jest.fn().mockResolvedValue(null);
+    const lifecycle = { revokeInventoryCertificates: jest.fn() } as unknown as CertificateLifecycleService;
+    const service = new GatewayOnboardingService(prisma, lifecycle);
+
+    await expect(service.disableInventory(user, "inventory-1")).rejects.toThrow("inventory not found in the user's organization");
+
+    expect(lifecycle.revokeInventoryCertificates).not.toHaveBeenCalled();
   });
 });

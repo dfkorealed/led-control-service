@@ -28,6 +28,8 @@ const environmentKeys = [
   "VAULT_PKI_MQTT_ROLE",
   "VAULT_REQUEST_TIMEOUT_MS",
   "API_MANUFACTURING_CLIENT_CA_PATH",
+  "API_DEVICE_CRL_PATH",
+  "MQTT_CLIENT_CRL_PATH",
   "PKI_API_CA_BUNDLE_PATH",
   "PKI_MQTT_CA_BUNDLE_PATH"
 ] as const;
@@ -139,6 +141,8 @@ describe("PkiModule", () => {
 
   it.each([
     "API_MANUFACTURING_CLIENT_CA_PATH",
+    "API_DEVICE_CRL_PATH",
+    "MQTT_CLIENT_CRL_PATH",
     "PKI_API_CA_BUNDLE_PATH",
     "PKI_MQTT_CA_BUNDLE_PATH"
   ] as const)("fails closed when production %s is missing", async (missingKey) => {
@@ -160,6 +164,8 @@ describe("PkiModule", () => {
       VAULT_PKI_MQTT_MOUNT: "mqtt-pki",
       VAULT_PKI_MQTT_ROLE: "gateway-mqtt",
       API_MANUFACTURING_CLIENT_CA_PATH: manufacturingCaFile,
+      API_DEVICE_CRL_PATH: join(temporaryDirectory, "device.crl"),
+      MQTT_CLIENT_CRL_PATH: join(temporaryDirectory, "mqtt.crl"),
       PKI_API_CA_BUNDLE_PATH: apiCaBundleFile,
       PKI_MQTT_CA_BUNDLE_PATH: mqttCaBundleFile
     });

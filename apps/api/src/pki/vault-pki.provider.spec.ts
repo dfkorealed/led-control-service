@@ -134,6 +134,40 @@ describe("VaultPkiProvider", () => {
     ).rejects.toThrow("certificate serial must be colon- or hyphen-separated hexadecimal");
   });
 
+  it.each([
+    ["device", "/v1/device-pki/crl/pem"],
+    ["mqtt", "/v1/mqtt-pki/crl/pem"]
+  ] as const)("reads the %s CRL through the fixed raw GET endpoint", async (purpose, expectedPath) => {
+    let method = "";
+    let url = "";
+    const crl = "-----BEGIN X509 CRL-----\nMIIB\n-----END X509 CRL-----\n";
+    const address = await startServer((request, response) => {
+      method = request.method ?? "";
+      url = request.url ?? "";
+      request.resume();
+      response.writeHead(200, { "content-type": "application/x-pem-file" });
+      response.end(crl);
+    });
+    const provider = new VaultPkiProvider(options(address, tokenFile));
+
+    await expect(provider.readCrl(purpose)).resolves.toBe(crl);
+    expect({ method, url }).toEqual({ method: "GET", url: expectedPath });
+  });
+
+  it("rejects non-PEM CRL responses without exposing the body", async () => {
+    const address = await startServer((request, response) => {
+      request.resume();
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end("SECRET-CRL-BODY");
+    });
+    const provider = new VaultPkiProvider(options(address, tokenFile));
+
+    const error = await captureError(provider.readCrl("device"));
+
+    expect(error.message).toBe("Vault PKI returned an invalid CRL");
+    expect(error.message).not.toContain("SECRET-CRL-BODY");
+  });
+
   it("redacts Vault response bodies and request secrets from errors", async () => {
     const address = await startServer((request, response) => {
       request.resume();

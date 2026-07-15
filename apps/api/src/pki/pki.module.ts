@@ -19,6 +19,12 @@ import {
 import { VaultPkiProvider, type VaultPkiProviderOptions } from "./vault-pki.provider";
 import { GatewayCertificateController } from "./gateway-certificate.controller";
 import { GatewayCertificateService } from "./gateway-certificate.service";
+import {
+  CERTIFICATE_LIFECYCLE_CONFIGURATION,
+  CertificateLifecycleService,
+  type CertificateLifecycleConfiguration
+} from "./certificate-lifecycle.service";
+import { publishCrlAtomically } from "./crl-publisher";
 
 @Module({
   imports: [PrismaModule],
@@ -33,8 +39,17 @@ import { GatewayCertificateService } from "./gateway-certificate.service";
       useFactory: () => createManufacturingEnrollmentConfiguration(process.env)
     },
     GatewayCsrValidator,
+    {
+      provide: CERTIFICATE_LIFECYCLE_CONFIGURATION,
+      useFactory: (): CertificateLifecycleConfiguration => ({
+        deviceCrlPath: productionPath(process.env, "API_DEVICE_CRL_PATH"),
+        mqttCrlPath: productionPath(process.env, "MQTT_CLIENT_CRL_PATH"),
+        publishCrl: publishCrlAtomically
+      })
+    },
     ManufacturingEnrollmentService,
     GatewayCertificateService,
+    CertificateLifecycleService,
     {
       provide: MANUFACTURING_CA_FINGERPRINT,
       inject: [MANUFACTURING_ENROLLMENT_CONFIGURATION],
@@ -44,7 +59,7 @@ import { GatewayCertificateService } from "./gateway-certificate.service";
     ManufacturingAuthGuard,
     DeviceCertificateGuard
   ],
-  exports: [CERTIFICATE_AUTHORITY_PROVIDER]
+  exports: [CERTIFICATE_AUTHORITY_PROVIDER, CertificateLifecycleService]
 })
 export class PkiModule {}
 
@@ -139,6 +154,7 @@ function productionPath(env: NodeJS.ProcessEnv, key: string): string | undefined
   if (env.NODE_ENV === "production" && !value) throw new Error(`${key} is required in production`);
   return value || undefined;
 }
+
 
 function readCertificateBundle(path: string, key: string) {
   let pem: string;

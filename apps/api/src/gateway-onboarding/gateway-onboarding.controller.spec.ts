@@ -23,4 +23,14 @@ describe("GatewayOnboardingController", () => {
 
     expect(service.bootstrapGateway).toHaveBeenCalledWith({ serialNumber: "GW-1", certificateFingerprint: "AABB01" });
   });
+
+  it("passes the authenticated user to inventory disable", async () => {
+    const service = { disableInventory: jest.fn().mockResolvedValue({ status: "disabled" }) };
+    const controller = new GatewayOnboardingController(service as never);
+    const user = { id: "user-1", organizationId: "org-1", role: "owner" } as never;
+
+    await controller.disableInventory(user, "inventory-1");
+
+    expect(service.disableInventory).toHaveBeenCalledWith(user, "inventory-1");
+  });
 });

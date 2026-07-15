@@ -37,4 +37,35 @@ describe("DeviceCertificateClient", () => {
         ]
       });
   });
+
+  it("retries activation with the same candidate when the first response is lost", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-device-client-"));
+    const [certificatePath, privateKeyPath, caPath] = ["device.crt", "device.key", "api-ca.crt"].map((name) => join(directory, name));
+    await Promise.all([
+      writeFile(certificatePath, "certificate"), writeFile(privateKeyPath, "key"), writeFile(caPath, "ca")
+    ]);
+    let requests = 0;
+    const client = new DeviceCertificateClient({
+      renewUrl: "https://api.example/gateway-certificates/device/renew",
+      activateUrl: "https://api.example/gateway-certificates/device/activate",
+      certificatePath,
+      privateKeyPath,
+      caPath,
+      request: async () => {
+        requests += 1;
+        if (requests === 1) throw new Error("response lost");
+        return JSON.stringify({ status: "active" });
+      }
+    });
+
+    await expect(client.activate({
+      generationPath: directory,
+      certificatePath,
+      privateKeyPath,
+      deviceCaPath: caPath,
+      apiCaPath: caPath,
+      mqttCaPath: caPath
+    })).resolves.toBeUndefined();
+    expect(requests).toBe(2);
+  });
 });

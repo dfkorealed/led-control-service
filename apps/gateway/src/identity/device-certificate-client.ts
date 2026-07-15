@@ -55,10 +55,15 @@ export class DeviceCertificateClient {
   }
 
   async activate(candidate: Omit<DeviceIdentityPaths, "notAfter">): Promise<void> {
-    try {
-      await this.send(this.activateUrl, Buffer.alloc(0), await readTls(candidate.certificatePath, candidate.privateKeyPath, candidate.apiCaPath));
-    } catch {
-      throw new Error("device certificate activation failed");
+    const tls = await readTls(candidate.certificatePath, candidate.privateKeyPath, candidate.apiCaPath)
+      .catch(() => { throw new Error("device certificate activation failed"); });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await this.send(this.activateUrl, Buffer.alloc(0), tls);
+        return;
+      } catch {
+        if (attempt === 2) throw new Error("device certificate activation failed");
+      }
     }
   }
 

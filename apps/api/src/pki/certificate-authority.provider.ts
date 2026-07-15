@@ -1,10 +1,11 @@
-import type { RevokeCertificateInput, SignCsrInput, SignedCertificate } from "./pki.types";
+import type { CertificatePurpose, RevokeCertificateInput, SignCsrInput, SignedCertificate } from "./pki.types";
 
 export const CERTIFICATE_AUTHORITY_PROVIDER = Symbol("CERTIFICATE_AUTHORITY_PROVIDER");
 
 export interface CertificateAuthorityProvider {
   signCsr(input: SignCsrInput): Promise<SignedCertificate>;
   revoke(input: RevokeCertificateInput): Promise<void>;
+  readCrl(purpose: CertificatePurpose): Promise<string>;
 }
 
 export class UnavailableCertificateAuthorityProvider implements CertificateAuthorityProvider {
@@ -13,6 +14,10 @@ export class UnavailableCertificateAuthorityProvider implements CertificateAutho
   }
 
   async revoke(_input: RevokeCertificateInput): Promise<void> {
+    throw new Error("certificate authority is unavailable");
+  }
+
+  async readCrl(_purpose: CertificatePurpose): Promise<string> {
     throw new Error("certificate authority is unavailable");
   }
 }

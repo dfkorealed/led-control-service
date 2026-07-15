@@ -2,6 +2,7 @@ export type CertificatePurpose = "device" | "mqtt";
 
 export type GatewayCertificateStatus =
   | "active"
+  | "pending"
   | "replaced"
   | "revoked"
   | "expired";

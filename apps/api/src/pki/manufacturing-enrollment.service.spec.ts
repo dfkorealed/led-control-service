@@ -325,7 +325,8 @@ function createFixture(overrides: {
 
   const ca = {
     signCsr: jest.fn().mockResolvedValue(signedCertificate()),
-    revoke: jest.fn().mockResolvedValue(undefined)
+    revoke: jest.fn().mockResolvedValue(undefined),
+    readCrl: jest.fn()
   } as jest.Mocked<CertificateAuthorityProvider>;
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
   const service = new ManufacturingEnrollmentService(prisma, ca, csrValidator, {

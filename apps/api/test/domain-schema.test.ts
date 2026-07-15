@@ -7,6 +7,8 @@ const readSchema = () =>
 const pkiMigrationSuffix = "_add_gateway_pki_lifecycle";
 const activeEnrollmentMigrationSuffix = "_enforce_single_active_gateway_enrollment";
 const activeMqttCertificateMigrationSuffix = "_enforce_single_active_mqtt_certificate";
+const pendingDeviceCertificateStatusMigrationSuffix = "_add_pending_device_certificate_status";
+const pendingDeviceCertificateLifecycleMigrationSuffix = "_enforce_pending_device_certificate_lifecycle";
 
 const findPkiMigrationDirectory = (directoryNames: string[]) => {
   const matches = directoryNames.filter((name) => name.endsWith(pkiMigrationSuffix));
@@ -197,6 +199,21 @@ describe("Prisma domain schema", () => {
 
     expect(migration).toMatch(
       /CREATE UNIQUE INDEX "GatewayCertificate_single_active_mqtt_inventory_key"\s+ON "GatewayCertificate"\("inventoryId"\)\s+WHERE "purpose" = 'mqtt' AND "status" = 'active'/
+    );
+  });
+
+  it("separates the pending enum addition from pending certificate repairs and indexes", () => {
+    const enumMigration = readMigrationBySuffix(pendingDeviceCertificateStatusMigrationSuffix);
+    const lifecycleMigration = readMigrationBySuffix(pendingDeviceCertificateLifecycleMigrationSuffix);
+
+    expect(enumMigration.trim()).toBe('ALTER TYPE "GatewayCertificateStatus" ADD VALUE IF NOT EXISTS \'pending\';');
+    expect(lifecycleMigration).not.toContain('ALTER TYPE "GatewayCertificateStatus" ADD VALUE');
+    expect(lifecycleMigration).toMatch(/"status" = 'pending'/);
+    expect(lifecycleMigration).toMatch(
+      /CREATE UNIQUE INDEX "GatewayCertificate_single_active_device_inventory_key"\s+ON "GatewayCertificate"\("inventoryId"\)\s+WHERE "purpose" = 'device' AND "status" = 'active'/
+    );
+    expect(lifecycleMigration).toMatch(
+      /CREATE UNIQUE INDEX "GatewayCertificate_single_pending_device_inventory_key"\s+ON "GatewayCertificate"\("inventoryId"\)\s+WHERE "purpose" = 'device' AND "status" = 'pending'/
     );
   });
 

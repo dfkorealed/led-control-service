@@ -17,4 +17,19 @@ describe("GatewayCertificateController", () => {
       deviceCertificateFingerprint: "AA".repeat(32)
     });
   });
+
+  it("passes only the mTLS fingerprint to device renewal and activation", async () => {
+    const service = {
+      renewDeviceCertificate: jest.fn().mockResolvedValue({}),
+      activateDeviceCertificate: jest.fn().mockResolvedValue({ status: "active" })
+    };
+    const controller = new GatewayCertificateController({} as never, service as never);
+    const request = { deviceCertificateFingerprint: "AA".repeat(32) } as never;
+
+    await controller.renewDeviceCertificate({ csrPem: "CSR", certificateFingerprint: "untrusted" } as never, request);
+    await controller.activateDeviceCertificate(request);
+
+    expect(service.renewDeviceCertificate).toHaveBeenCalledWith({ csrPem: "CSR", deviceCertificateFingerprint: "AA".repeat(32) });
+    expect(service.activateDeviceCertificate).toHaveBeenCalledWith({ deviceCertificateFingerprint: "AA".repeat(32) });
+  });
 });

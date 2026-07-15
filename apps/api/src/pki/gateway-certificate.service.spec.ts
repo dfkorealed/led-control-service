@@ -262,7 +262,8 @@ function createFixture(overrides: {
       notBefore: "2026-07-15T00:00:00.000Z",
       notAfter: "2026-10-13T00:00:00.000Z"
     }),
-    revoke: jest.fn().mockResolvedValue(undefined)
+    revoke: jest.fn().mockResolvedValue(undefined),
+    readCrl: jest.fn()
   } as jest.Mocked<CertificateAuthorityProvider>;
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
   return {
@@ -325,7 +326,8 @@ function createConcurrentFixture() {
   });
   const ca = {
     signCsr: jest.fn().mockResolvedValueOnce(signed("1")).mockResolvedValueOnce(signed("2")),
-    revoke: jest.fn().mockResolvedValue(undefined)
+    revoke: jest.fn().mockResolvedValue(undefined),
+    readCrl: jest.fn()
   } as jest.Mocked<CertificateAuthorityProvider>;
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
 

@@ -69,6 +69,65 @@ export class VaultPkiProvider implements CertificateAuthorityProvider {
     });
   }
 
+  async readCrl(purpose: CertificatePurpose): Promise<string> {
+    const rolePath = this.rolePaths[purpose];
+    const token = await readVaultToken(this.options.tokenFile);
+    const url = new URL(`/v1/${encodeURIComponent(rolePath.mount)}/crl/pem`, this.baseUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.options.requestTimeoutMs);
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        const requestOptions: HttpsRequestOptions = {
+          method: "GET",
+          signal: controller.signal,
+          headers: {
+            accept: "application/x-pem-file",
+            "x-vault-token": token,
+            ...(this.options.namespace ? { "x-vault-namespace": this.options.namespace } : {})
+          },
+          ...(url.protocol === "https:" ? { ca: this.options.caPem, rejectUnauthorized: true } : {})
+        };
+        const transport = url.protocol === "https:" ? httpsRequest : httpRequest;
+        const request = transport(url, requestOptions, (response) => {
+          const chunks: Buffer[] = [];
+          let responseBytes = 0;
+          response.on("data", (chunk: Buffer) => {
+            responseBytes += chunk.byteLength;
+            if (responseBytes > MAX_RESPONSE_BYTES) {
+              response.destroy(new Error("Vault PKI response exceeded the size limit"));
+              return;
+            }
+            chunks.push(Buffer.from(chunk));
+          });
+          response.on("error", () => reject(new Error("Vault PKI request failed")));
+          response.on("end", () => {
+            const statusCode = response.statusCode ?? 0;
+            if (statusCode < 200 || statusCode >= 300) {
+              reject(new Error(`Vault PKI request failed with status ${statusCode}`));
+              return;
+            }
+            const pem = Buffer.concat(chunks).toString("utf8");
+            if (!isPemCrl(pem)) {
+              reject(new Error("Vault PKI returned an invalid CRL"));
+              return;
+            }
+            resolve(pem);
+          });
+        });
+        request.on("error", (error: NodeJS.ErrnoException) => {
+          if (controller.signal.aborted || error.name === "AbortError" || error.code === "ABORT_ERR") {
+            reject(new Error("Vault PKI request timed out"));
+            return;
+          }
+          reject(new Error("Vault PKI request failed"));
+        });
+        request.end();
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private async requestJson(path: string, body: Record<string, unknown>): Promise<VaultResponse> {
     const token = await readVaultToken(this.options.tokenFile);
     const payload = Buffer.from(JSON.stringify(body), "utf8");
@@ -254,4 +313,8 @@ function normalizeVaultSerial(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPemCrl(value: string) {
+  return /^-----BEGIN X509 CRL-----\r?\n[\s\S]+-----END X509 CRL-----\r?\n?$/.test(value);
 }
