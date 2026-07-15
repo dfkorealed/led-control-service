@@ -1142,22 +1142,22 @@ Expected: FAIL
 - Consumes: authenticated device fingerprint, claimed inventory, gateway assignment, CSR
 - Produces: CN=`Gateway.id`, TTL 90일 MQTT certificate
 
-- [ ] **Step 1: 미claim 장비, fingerprint 불일치, 다른 gateway CN 요청 거부 테스트 작성**
+- [x] **Step 1: 미claim 장비, fingerprint 불일치, 다른 gateway CN 요청 거부 테스트 작성**
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/pki/gateway-certificate.service.spec.ts`
 Expected: FAIL
 
-- [ ] **Step 3: device mTLS identity와 inventory/gateway 관계 검증 후 MQTT CSR sign 구현**
+- [x] **Step 3: device mTLS identity와 inventory/gateway 관계 검증 후 MQTT CSR sign 구현**
 
-- [ ] **Step 4: MQTT certificate metadata transaction 기록과 기존 active certificate 교체 연결 구현**
+- [x] **Step 4: MQTT certificate metadata transaction 기록과 기존 active certificate 교체 연결 구현**
 
-- [ ] **Step 5: Gateway가 assignment 후 별도 `gateway.key`/CSR을 만들고 certificate를 원자 설치하도록 구현**
+- [x] **Step 5: Gateway가 assignment 후 별도 `gateway.key`/CSR을 만들고 certificate를 원자 설치하도록 구현**
 
-- [ ] **Step 6: certificate 설치 전 MQTT 연결 금지와 설치 후 재연결 테스트 작성**
+- [x] **Step 6: certificate 설치 전 MQTT 연결 금지와 설치 후 재연결 테스트 작성**
 
-- [ ] **Step 7: API/gateway 전체 관련 테스트와 typecheck 통과 후 커밋**
+- [x] **Step 7: API/gateway 전체 관련 테스트와 typecheck 통과 후 커밋**
 
 ### Task 28: LAN Service TLS와 CA Bundle 자동 배포
 
