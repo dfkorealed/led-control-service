@@ -1211,17 +1211,19 @@ Expected: FAIL
 - Produces: device 인증서 만료 30일 전 renewal
 - Produces: inventory disabled 시 device/MQTT revoke와 CRL 반영
 
-- [ ] **Step 1: fake clock로 renewal window, grace overlap, expired fail-closed 테스트 작성**
+- [x] **Step 1: fake clock로 renewal window, grace overlap, expired fail-closed 테스트 작성**
 
-- [ ] **Step 2: revoke 후 bootstrap/MQTT 재연결 거부 테스트 작성**
+- [x] **Step 2: revoke 후 bootstrap/MQTT 재연결 거부 테스트 작성**
 
-- [ ] **Step 3: Vault revoke와 certificate status transaction 구현**
+- [x] **Step 3: Vault revoke와 certificate status transaction 구현**
 
-- [ ] **Step 4: CRL download, checksum, atomic replace, API/broker reload 구현**
+- [x] **Step 4: CRL download, checksum, atomic replace, API/broker reload 구현**
 
-- [ ] **Step 5: Gateway 새 인증서 연결 성공 후에만 이전 key/cert 삭제하도록 구현**
+- [x] **Step 5: Gateway 새 인증서 연결 성공 후에만 이전 key/cert 삭제하도록 구현**
 
-- [ ] **Step 6: lifecycle 테스트, API/gateway typecheck 통과 후 커밋**
+- [x] **Step 6: lifecycle 테스트, API/gateway typecheck 통과 후 커밋**
+
+2026-07-15 기준 신규 PostgreSQL에서 16개 migration 적용, API 199개 테스트와 API/Gateway 타입 검사를 통과했다. 활성화 응답 유실 재시도와 CRL 원자 교체 실패 재시도까지 자동 검증했다.
 
 ### Task 30: 제조 Station 자동 부여 스크립트
 
