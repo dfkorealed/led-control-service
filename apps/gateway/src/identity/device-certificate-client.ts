@@ -9,7 +9,7 @@ const MAX_RESPONSE_BYTES = 256 * 1024;
 export interface DeviceCertificateResponse {
   gatewayId: string;
   certificatePem: string;
-  caChainPem: string;
+  caChainPem: string | readonly string[];
   notAfter: string;
 }
 
@@ -149,15 +149,29 @@ function parseResponse(payload: string): DeviceCertificateResponse {
   return {
     gatewayId: requiredText(response.gatewayId, 256),
     certificatePem: certificate(response.certificatePem),
-    caChainPem: certificate(response.caChainPem),
+    caChainPem: normalizeCertificateChain(response.caChainPem),
     notAfter: validDate(response.notAfter)
   };
 }
 
 function certificate(value: unknown) {
-  const pem = requiredText(value, MAX_RESPONSE_BYTES);
-  if (!pem.includes("-----BEGIN CERTIFICATE-----") || pem.includes("PRIVATE KEY")) throw new Error("invalid response");
-  return pem;
+  const chain = normalizeCertificateChain(value);
+  if (chain.length !== 1) throw new Error("invalid response");
+  return chain[0];
+}
+
+export function normalizeCertificateChain(value: unknown): readonly string[] {
+  const source = typeof value === "string" ? [value] : value;
+  if (!Array.isArray(source) || source.length === 0) throw new Error("invalid response");
+  return source.flatMap((entry) => normalizeCertificateBundle(entry));
+}
+
+function normalizeCertificateBundle(value: unknown): readonly string[] {
+  const pem = requiredText(value, MAX_RESPONSE_BYTES).replace(/\r\n/g, "\n").trim();
+  if (pem.includes("PRIVATE KEY")) throw new Error("invalid response");
+  const certificates = pem.match(/-----BEGIN CERTIFICATE-----\n[\s\S]*?\n-----END CERTIFICATE-----/g);
+  if (!certificates || certificates.length === 0 || certificates.join("\n") !== pem) throw new Error("invalid response");
+  return certificates.map((certificate) => `${certificate}\n`);
 }
 
 function validDate(value: unknown) {

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { DeviceCertificateClient } from "./device-certificate-client";
+import { normalizeCertificateChain, type DeviceCertificateClient } from "./device-certificate-client";
 import type { KeyMaterialStore } from "./key-material-store";
 import type { MqttCertificateClient } from "./mqtt-certificate-client";
 import type { MqttIdentityCandidate, MqttIdentityStore } from "./mqtt-identity-store";
@@ -88,9 +88,10 @@ export function createGatewayCertificateRotation(options: {
       const [deviceCaBundlePem, apiCaBundlePem, mqttCaBundlePem] = await Promise.all([
         readFile(current.deviceCaPath, "utf8"), readFile(current.apiCaPath, "utf8"), readFile(current.mqttCaPath, "utf8")
       ]);
+      const renewedChainPem = normalizeCertificateChain(renewed.caChainPem).join("");
       await options.deviceStore.installIdentityBundle({
         deviceCertificatePem: renewed.certificatePem,
-        deviceCaBundlePem: `${deviceCaBundlePem.trim()}\n${renewed.caChainPem.trim()}\n`,
+        deviceCaBundlePem: `${deviceCaBundlePem.trim()}\n${renewedChainPem}`,
         apiCaBundlePem,
         mqttCaBundlePem
       }, { activate: (candidate) => options.deviceClient.activate(candidate) });
