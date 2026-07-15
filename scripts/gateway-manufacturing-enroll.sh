@@ -14,13 +14,19 @@ while (($#)); do case "$1" in --target) TARGET=${2-}; shift 2;; --serial) SERIAL
 : "${STATION_KEY:?STATION_KEY is required}"
 : "${STATION_CA:?STATION_CA is required}"
 : "${GATEWAY_IMAGE:?GATEWAY_IMAGE is required}"
-GATEWAY_IDENTITY_HOST_ROOT=${GATEWAY_IDENTITY_HOST_ROOT:-/opt/led-control/data/identity}
-GATEWAY_FACTORY_TRUST_HOST_ROOT=${GATEWAY_FACTORY_TRUST_HOST_ROOT:-/opt/led-control/data/factory-trust}
+GATEWAY_IDENTITY_HOST_ROOT=${GATEWAY_IDENTITY_HOST_ROOT:-/opt/led-control/gateway/data/identity}
+GATEWAY_FACTORY_TRUST_HOST_ROOT=${GATEWAY_FACTORY_TRUST_HOST_ROOT:-/opt/led-control/gateway/data/factory-trust}
 [[ "$SERIAL" =~ $SERIAL_PATTERN && "$TARGET" =~ $TARGET_PATTERN && "$LABEL_OUTPUT" =~ $PATH_PATTERN && "$MANUFACTURING_API_URL" =~ $URL_PATTERN ]] || { printf '%s\n' 'invalid enrollment input' >&2; exit 2; }
 [[ "$GATEWAY_IDENTITY_HOST_ROOT" =~ $PATH_PATTERN && "$GATEWAY_FACTORY_TRUST_HOST_ROOT" =~ $PATH_PATTERN ]] || { printf '%s\n' 'invalid enrollment path' >&2; exit 2; }
 [[ "$GATEWAY_IMAGE" =~ ^[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$ ]] || { printf '%s\n' 'invalid gateway image' >&2; exit 2; }
+for file in "$STATION_CERT" "$STATION_KEY" "$STATION_CA"; do
+  [[ -f "$file" && ! -L "$file" ]] || { printf '%s\n' 'invalid station credential path' >&2; exit 2; }
+done
+KEY_MODE=$(stat -f '%Lp' "$STATION_KEY" 2>/dev/null || stat -c '%a' "$STATION_KEY")
+[[ "$KEY_MODE" == 600 ]] || { printf '%s\n' 'invalid station key permissions' >&2; exit 2; }
 
 if [[ -e "$LABEL_OUTPUT" ]]; then
+  [[ -f "$LABEL_OUTPUT" && ! -L "$LABEL_OUTPUT" ]] || { printf '%s\n' 'invalid label path' >&2; exit 2; }
   MODE=$(stat -f '%Lp' "$LABEL_OUTPUT" 2>/dev/null || stat -c '%a' "$LABEL_OUTPUT")
   [[ "$MODE" == 600 ]] || { printf '%s\n' 'invalid label permissions' >&2; exit 2; }
   jq -e --arg serial "$SERIAL" '.serialNumber == $serial and (.claimCode|type)=="string" and (.fingerprint|type)=="string"' "$LABEL_OUTPUT" >/dev/null && exit 0

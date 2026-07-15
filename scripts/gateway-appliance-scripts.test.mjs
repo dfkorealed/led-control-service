@@ -13,12 +13,14 @@ test("build script는 ARM64 immutable image archive와 checksum을 만든다", a
   assert.match(source, /sha256sum|shasum -a 256/);
 });
 
-test("deploy script는 checksum과 필수 설정을 검증한 뒤 Compose를 적용한다", async () => {
+test("deploy script는 image를 먼저 load하고 제조 identity 검증 뒤 Compose를 적용한다", async () => {
   const source = await readFile(path.join(root, "scripts/gateway-appliance-deploy.sh"), "utf8");
   assert.match(source, /sha256sum -c|shasum -a 256 -c/);
   assert.match(source, /docker image load/);
   assert.match(source, /\.env\.appliance/);
-  assert.match(source, /gateway\.crt/);
+  assert.ok(source.indexOf("docker image load") < source.indexOf("제조 identity 누락"));
+  assert.match(source, /data\/identity\/device\/current\/\$file/);
+  assert.doesNotMatch(source, /data\/certs\/gateway\.crt/);
   assert.match(source, /docker compose/);
   assert.match(source, /--remove-orphans/);
 });

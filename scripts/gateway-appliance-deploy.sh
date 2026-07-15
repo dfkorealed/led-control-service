@@ -17,7 +17,7 @@ else
 fi
 
 REMOTE_DIR=/opt/led-control/gateway
-ssh "$TARGET" "sudo mkdir -p $REMOTE_DIR/data/{gateway,mesh,certs} && sudo chown -R \$USER:\$(id -gn) $REMOTE_DIR"
+ssh "$TARGET" "sudo mkdir -p $REMOTE_DIR/data/{gateway,mesh,identity,factory-trust} && sudo chown -R \$USER:\$(id -gn) $REMOTE_DIR"
 scp \
   "$ARCHIVE" "$ARCHIVE.sha256" "$ARCHIVE.env" \
   "$ROOT_DIR/apps/gateway/compose.raspberry-pi.yml" \
@@ -33,16 +33,16 @@ mv /tmp/compose.raspberry-pi.yml "$REMOTE_DIR/compose.yml"
 mv /tmp/.env.appliance.example "$REMOTE_DIR/.env.appliance.example"
 cd "$REMOTE_DIR"
 sha256sum -c "$ARCHIVE_NAME.sha256"
+docker image load --input "$ARCHIVE_NAME"
 
 if [ ! -f .env.appliance ]; then
   echo "$REMOTE_DIR/.env.appliance를 .env.appliance.example 기준으로 작성한 뒤 다시 실행하세요." >&2
   exit 2
 fi
-for file in mqtt-ca.crt gateway.crt gateway.key device.crt device.key api-ca.crt; do
-  [ -s "data/certs/$file" ] || { echo "필수 인증서 누락: $REMOTE_DIR/data/certs/$file" >&2; exit 2; }
+for file in device.crt device.key api-ca.crt mqtt-ca.crt; do
+  [ -s "data/identity/device/current/$file" ] || { echo "제조 identity 누락: $REMOTE_DIR/data/identity/device/current/$file" >&2; exit 2; }
 done
 
-docker image load --input "$ARCHIVE_NAME"
 set -a
 . "./$ARCHIVE_NAME.env"
 set +a
