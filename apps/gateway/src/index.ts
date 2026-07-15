@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import { config } from "dotenv";
 import {
-  dimmingCommandSchema,
   type DeviceStatusAckV2,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
@@ -15,10 +14,8 @@ import {
 import { randomUUID } from "node:crypto";
 import {
   applyIdentifyDevice,
-  applyManualDimmingCommand,
   applyProvisionDevice,
-  applyProvisioningScan,
-  createHeartbeatPayload
+  applyProvisioningScan
 } from "./gateway";
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
@@ -26,17 +23,27 @@ import { CommandJournal } from "./commands/command-journal";
 import { handleGatewayDimmingCommand, parseCommandTimeout } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { createProductionAdapters } from "./adapters/adapter-factory";
+import { ApplianceHealth } from "./health/appliance-health";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
 
 async function main() {
+  if (process.env.GATEWAY_PHASE0_PROBE === "1") {
+    await createProductionAdapters(process.env);
+    console.log(JSON.stringify({ status: "passed", capability: "bluez-mesh-bootstrap" }));
+    process.exit(0);
+  }
+  const health = new ApplianceHealth(process.env.GATEWAY_HEALTH_PATH ?? "/var/run/led-control/health.json");
+  await health.startingUnassigned();
   const assignment = await resolveGatewayAssignment({ env: process.env, store: createAssignmentStore(process.env) });
+  await health.startingAssigned();
   const { siteId, gatewayId, serialNumber: gatewaySerial, mqttUrl } = assignment;
   const gatewayFirmwareVersion = process.env.GATEWAY_FIRMWARE_VERSION || "gateway-dev-local";
   const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS ?? 5000);
   const commandTimeoutMs = parseCommandTimeout(process.env.GATEWAY_BLE_STATUS_TIMEOUT_MS);
   const adapters = await createProductionAdapters(process.env);
+  await health.meshReady();
   const adapter = adapters.dimming;
   const scannerAdapter = adapters.scanner;
   const provisioningAdapter = adapters.provisioning;
@@ -45,9 +52,9 @@ async function main() {
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
 
   client.on("connect", () => {
+    void health.healthy();
     client.subscribe(
       [
-        mqttTopics.dimmingCommand(siteId),
         mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
         mqttTopics.provisioningScanStart(siteId, gatewayId),
         mqttTopics.identifyDevice(siteId, gatewayId),
@@ -60,11 +67,10 @@ async function main() {
     setInterval(() => void publishHeartbeat(), heartbeatMs);
   });
 
+  client.on("close", () => void health.unhealthy("mqtt_disconnected"));
+  client.on("error", () => void health.unhealthy("mqtt_error"));
+
   client.on("message", (topic, payload) => {
-    if (topic === mqttTopics.dimmingCommand(siteId)) {
-      void handleDimmingPayload(payload);
-      return;
-    }
     if (topic === mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")) {
       void handleDimmingPayloadV2(payload);
       return;
@@ -79,15 +85,6 @@ async function main() {
     }
     if (topic === mqttTopics.provisionDevice(siteId, gatewayId)) void handleProvisionDevicePayload(payload);
   });
-
-  async function handleDimmingPayload(payload: Buffer) {
-    const command = dimmingCommandSchema.parse(JSON.parse(payload.toString()));
-    const result = await applyManualDimmingCommand(adapter, command);
-    client.publish(mqttTopics.commandAck(siteId), JSON.stringify(result.ack), { qos: 1 });
-    for (const state of result.fixtureStates) {
-      client.publish(mqttTopics.fixtureState(siteId), JSON.stringify(state), { qos: 1 });
-    }
-  }
 
   async function handleDimmingPayloadV2(payload: Buffer) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
@@ -185,11 +182,7 @@ async function main() {
   }
 
   async function publishHeartbeat() {
-    client.publish(
-      mqttTopics.gatewayHeartbeat(siteId),
-      JSON.stringify(createHeartbeatPayload(siteId, gatewaySerial, new Date(), gatewayFirmwareVersion)),
-      { qos: 1 }
-    );
+    await health.healthy();
     const occurredAt = new Date().toISOString();
     const heartbeat = gatewayHeartbeatV2Schema.parse({
       siteId,
@@ -207,5 +200,5 @@ async function main() {
 
 void main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
+  process.exit(1);
 });

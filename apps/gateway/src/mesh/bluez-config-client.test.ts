@@ -1,0 +1,53 @@
+import { EventEmitter } from "node:events";
+import { describe, expect, it } from "vitest";
+import { CONFIG_OPCODES } from "./bluez-config-codec";
+import { BluezConfigClient } from "./bluez-config-client";
+
+class FakeTransport {
+  calls: Array<{ method: string; args: unknown[] }> = [];
+  async call<T>(_service: string, _path: string, _interfaceName: string, method: string, args: unknown[]): Promise<T> {
+    this.calls.push({ method, args });
+    return undefined as T;
+  }
+}
+
+it("configures composition, AppKey, model bindings, and status publications in order", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const configure = client.configureNode({ unicast: 0x1201, elementCount: 1 });
+
+  await waitForCall(transport, "AddAppKey");
+  application.emit("devKeyMessageReceived", { source: 0x1201, data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0]) });
+  await waitForCallCount(transport, "DevKeySend", 1);
+  application.emit("devKeyMessageReceived", { source: 0x1201, data: Uint8Array.from([0x02, 0x00, 0x34, 0x12]) });
+
+  let expectedDevKeySendCount = 2;
+  for (const modelId of [0x1000, 0x1300]) {
+    await waitForCallCount(transport, "DevKeySend", expectedDevKeySendCount++);
+    application.emit("devKeyMessageReceived", {
+      source: 0x1201,
+      data: Uint8Array.from([0x80, 0x3e, 0, 0x01, 0x12, 0, 0, modelId & 0xff, modelId >> 8])
+    });
+  }
+  for (const modelId of [0x1000, 0x1300]) {
+    await waitForCallCount(transport, "DevKeySend", expectedDevKeySendCount++);
+    application.emit("devKeyMessageReceived", {
+      source: 0x1201,
+      data: Uint8Array.from([0x80, 0x19, 0, 0x01, 0x12, 0x01, 0, 0, 0, 5, 0, 0, modelId & 0xff, modelId >> 8])
+    });
+  }
+
+  await expect(configure).resolves.toMatchObject({ unicast: 0x1201, elementCount: 1, compositionPage: 0 });
+  expect(transport.calls.map((call) => call.method)).toEqual([
+    "CreateAppKey", "AddAppKey", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend"
+  ]);
+});
+
+async function waitForCall(transport: FakeTransport, method: string) {
+  await expect.poll(() => transport.calls.some((call) => call.method === method)).toBe(true);
+}
+
+async function waitForCallCount(transport: FakeTransport, method: string, count: number) {
+  await expect.poll(() => transport.calls.filter((call) => call.method === method).length).toBeGreaterThanOrEqual(count);
+}
