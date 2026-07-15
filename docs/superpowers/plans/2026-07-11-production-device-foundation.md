@@ -1176,22 +1176,24 @@ Expected: FAIL
 - Produces: versioned `api-ca.crt`, `mqtt-ca.crt` bundle
 - Constraint: `MQTT_PUBLIC_URL` 사용자 값을 localhost로 덮어쓰지 않음
 
-- [ ] **Step 1: SAN 누락, production Vault dev mode, CA key Git 포함 거부 정적 테스트 작성**
+- [x] **Step 1: SAN 누락, production Vault dev mode, CA key Git 포함 거부 정적 테스트 작성**
 
-- [ ] **Step 2: 스크립트 계약 테스트 실패 확인**
+- [x] **Step 2: 스크립트 계약 테스트 실패 확인**
 
 Run: `node --test scripts/pki/pki-scripts.test.mjs`
 Expected: FAIL
 
-- [ ] **Step 3: 오프라인 Root CSR 서명 절차와 Vault intermediate mount/role/policy bootstrap 구현**
+- [x] **Step 3: 오프라인 Root CSR 서명 절차와 Vault intermediate mount/role/policy bootstrap 구현**
 
-- [ ] **Step 4: `LAB_API_DNS`, `LAB_API_IP`, `LAB_MQTT_DNS`, `LAB_MQTT_IP`를 SAN으로 강제하는 service cert 발급 구현**
+- [x] **Step 4: `LAB_API_DNS`, `LAB_API_IP`, `LAB_MQTT_DNS`, `LAB_MQTT_IP`를 SAN으로 강제하는 service cert 발급 구현**
 
-- [ ] **Step 5: API HTTPS, device client CA, Mosquitto server cert/client CA/CRL 설정 연결**
+- [x] **Step 5: API HTTPS, device client CA, Mosquitto server cert/client CA/CRL 설정 연결**
 
 - [ ] **Step 6: Raspberry Pi에서 hostname 검증 성공, 잘못된 IP와 신뢰하지 않은 CA 실패 integration test**
 
-- [ ] **Step 7: 관련 문서와 `.env.example` 갱신 후 커밋**
+호스트 자동 integration은 실제 발급 bundle로 정상 mTLS, 폐기 CRL, 잘못된 DNS/IP와 신뢰하지 않은 CA 실패까지 통과했다. Raspberry Pi 실기만 하드웨어 대기다.
+
+- [x] **Step 7: 관련 문서와 `.env.example` 갱신 후 커밋**
 
 ### Task 29: 인증서 Rotation, 폐기와 CRL 배포
 
