@@ -1,0 +1,52 @@
+services:
+  gateway-appliance:
+    image: "${GATEWAY_IMAGE_REPOSITORY:-led-control-gateway}:${GATEWAY_IMAGE_TAG:-local}"
+    container_name: led-control-gateway
+    network_mode: host
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run:rw,nosuid,nodev,size=16m
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    env_file:
+      - .env.appliance
+    environment:
+      MQTT_CA_PATH: /var/lib/led-control/identity/mqtt/current/mqtt-ca.crt
+      MQTT_CLIENT_CERT_PATH: /var/lib/led-control/identity/mqtt/current/gateway.crt
+      MQTT_CLIENT_KEY_PATH: /var/lib/led-control/identity/mqtt/current/gateway.key
+      GATEWAY_IDENTITY_ROOT: /var/lib/led-control/identity/device
+      GATEWAY_FACTORY_API_CA_PATH: /etc/led-control/factory-trust/api-ca.crt
+      GATEWAY_DEVICE_CERT_PATH: /var/lib/led-control/identity/device/current/device.crt
+      GATEWAY_DEVICE_KEY_PATH: /var/lib/led-control/identity/device/current/device.key
+      GATEWAY_BOOTSTRAP_CA_PATH: /var/lib/led-control/identity/device/current/api-ca.crt
+      GATEWAY_ASSIGNMENT_PATH: /var/lib/led-control/assignment.json
+      GATEWAY_COMMAND_JOURNAL_PATH: /var/lib/led-control/command-journal.json
+      GATEWAY_EVENT_SEQUENCE_PATH: /var/lib/led-control/event-sequence.json
+      GATEWAY_MESH_IDENTITY_PATH: /var/lib/led-control/mesh-identity.json
+      GATEWAY_MESH_ADDRESS_PATH: /var/lib/led-control/mesh-addresses.json
+      GATEWAY_MESH_TRANSACTION_PATH: /var/lib/led-control/mesh-transactions.json
+      GATEWAY_HEALTH_PATH: /var/run/led-control/health.json
+    volumes:
+      - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/gateway:/var/lib/led-control"
+      - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/identity:/var/lib/led-control/identity"
+      - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/mesh:/var/lib/bluetooth/mesh"
+      - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/factory-trust:/etc/led-control/factory-trust:ro"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/gateway-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4
+    stop_grace_period: 20s
