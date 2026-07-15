@@ -15,32 +15,18 @@ interface FloorInput {
   floorPlan?: FloorPlanInput;
 }
 
-interface GatewayInput {
-  name: string;
-  serialNumber: string;
-}
-
 export interface CreateInitialSiteInput {
   organizationId: string;
   siteName: string;
   address: string;
   tariffKwhRate: number;
   floors: FloorInput[];
-  gateway?: GatewayInput;
 }
 
 export interface AddFloorsInput {
   organizationId: string;
   siteId: string;
   floors: FloorInput[];
-}
-
-export interface RegisterGatewayInput {
-  organizationId: string;
-  siteId: string;
-  name: string;
-  serialNumber: string;
-  firmwareVersion?: string;
 }
 
 @Injectable()
@@ -52,8 +38,6 @@ export class SetupService {
 
   async createInitialSite(input: CreateInitialSiteInput) {
     this.validateInitialSiteInput(input);
-
-    await this.assertGatewaySerialAvailable(input.gateway.serialNumber);
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -79,14 +63,6 @@ export class SetupService {
 
         await this.createFloorPlans(tx, createdSite.id, input.floors);
 
-        await tx.gateway.create({
-          data: {
-            siteId: createdSite.id,
-            name: input.gateway.name.trim(),
-            serialNumber: input.gateway.serialNumber.trim(),
-            firmwareVersion: "manual-unknown"
-          }
-        });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       this.throwMappedPrismaSetupError(error);
@@ -126,29 +102,7 @@ export class SetupService {
     return this.sitesService.getDefaultDashboard(input.organizationId);
   }
 
-  async registerGateway(input: RegisterGatewayInput) {
-    this.validateRegisterGatewayInput(input);
-    await this.assertSiteInOrganization(input.siteId, input.organizationId);
-    await this.assertGatewaySerialAvailable(input.serialNumber);
-
-    try {
-      await this.prisma.gateway.create({
-        data: {
-          siteId: input.siteId,
-          name: input.name.trim(),
-          serialNumber: input.serialNumber.trim(),
-          firmwareVersion: input.firmwareVersion?.trim() || "manual-unknown"
-        }
-      });
-    } catch (error) {
-      this.throwMappedPrismaSetupError(error);
-      throw error;
-    }
-
-    return this.sitesService.getDefaultDashboard(input.organizationId);
-  }
-
-  private validateInitialSiteInput(input: CreateInitialSiteInput): asserts input is CreateInitialSiteInput & { gateway: GatewayInput } {
+  private validateInitialSiteInput(input: CreateInitialSiteInput) {
     if (!this.isRecord(input)) throw new BadRequestException("setup payload must be an object");
     this.requireString(input.organizationId, "organizationId is required");
     this.requireString(input.siteName, "siteName is required");
@@ -157,10 +111,6 @@ export class SetupService {
       throw new BadRequestException("tariffKwhRate must be greater than 0 and less than or equal to 100000");
     }
     this.validateFloors(input.floors);
-    if (input.gateway === undefined) throw new BadRequestException("gateway is required");
-    if (!this.isRecord(input.gateway)) throw new BadRequestException("gateway must be an object");
-    this.requireString(input.gateway.name, "gateway name is required");
-    this.requireString(input.gateway.serialNumber, "gateway serialNumber is required");
   }
 
   private validateFloors(floors: FloorInput[]) {
@@ -205,17 +155,6 @@ export class SetupService {
     }
   }
 
-  private validateRegisterGatewayInput(input: RegisterGatewayInput) {
-    if (!this.isRecord(input)) throw new BadRequestException("gateway payload must be an object");
-    this.requireString(input.organizationId, "organizationId is required");
-    this.requireString(input.siteId, "siteId is required");
-    this.requireString(input.name, "gateway name is required");
-    this.requireString(input.serialNumber, "gateway serialNumber is required");
-    if (input.firmwareVersion !== undefined) {
-      this.requireString(input.firmwareVersion, "gateway firmwareVersion is required");
-    }
-  }
-
   private requireString(value: unknown, message: string): asserts value is string {
     if (typeof value !== "string" || value.trim().length === 0) {
       throw new BadRequestException(message);
@@ -227,9 +166,6 @@ export class SetupService {
   }
 
   private throwMappedPrismaSetupError(error: unknown) {
-    if (this.isRecord(error) && error.code === "P2002") {
-      throw new BadRequestException("gateway serialNumber already exists");
-    }
     if (this.isRecord(error) && error.code === "P2034") {
       throw new ConflictException("setup transaction conflicted, please retry");
     }
@@ -250,11 +186,6 @@ export class SetupService {
   private async assertSiteInOrganization(siteId: string, organizationId: string) {
     const site = await this.prisma.site.findFirst({ where: { id: siteId, organizationId } });
     if (!site) throw new BadRequestException("siteId must reference a site in the current organization");
-  }
-
-  private async assertGatewaySerialAvailable(serialNumber: string) {
-    const existingGateway = await this.prisma.gateway.findUnique({ where: { serialNumber: serialNumber.trim() } });
-    if (existingGateway) throw new BadRequestException("gateway serialNumber already exists");
   }
 
   private async createFloorPlans(

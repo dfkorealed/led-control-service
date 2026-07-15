@@ -21,22 +21,11 @@ interface InitialSiteSetupBody {
   address: string;
   tariffKwhRate: number;
   floors: FloorBody[];
-  gateway?: {
-    name: string;
-    serialNumber: string;
-  };
 }
 
 interface AddFloorsBody {
   siteId: string;
   floors: FloorBody[];
-}
-
-interface RegisterGatewayBody {
-  siteId: string;
-  name: string;
-  serialNumber: string;
-  firmwareVersion?: string;
 }
 
 @UseGuards(SessionAuthGuard)
@@ -52,11 +41,6 @@ export class SetupController {
   @Post("floors")
   addFloors(@CurrentUser() user: AuthenticatedUser, @Body() body: AddFloorsBody) {
     return this.setupService.addFloors(this.withOrganizationId(body, user.organizationId));
-  }
-
-  @Post("gateways")
-  registerGateway(@CurrentUser() user: AuthenticatedUser, @Body() body: RegisterGatewayBody) {
-    return this.setupService.registerGateway(this.withOrganizationId(body, user.organizationId));
   }
 
   private withOrganizationId<T>(body: T, organizationId: string): T & { organizationId: string } {

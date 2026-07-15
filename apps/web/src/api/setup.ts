@@ -16,10 +16,20 @@ export interface InitialSiteSetupRequest {
   address: string;
   tariffKwhRate: number;
   floors: InitialFloorInput[];
-  gateway: {
-    name: string;
-    serialNumber: string;
-  };
+}
+
+export interface ClaimGatewayRequest {
+  siteId: string;
+  name: string;
+  serialNumber: string;
+  claimCode: string;
+}
+
+export function claimGateway(payload: ClaimGatewayRequest) {
+  return apiPost<{ status: "claimed"; gatewayId: string; siteId: string; serialNumber: string }>(
+    "/gateways/claim",
+    payload
+  );
 }
 
 export function createInitialSiteSetup(payload: InitialSiteSetupRequest) {

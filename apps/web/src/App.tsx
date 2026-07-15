@@ -1,4 +1,4 @@
-import { Activity, BarChart3, Bell, MapPin, Settings, SlidersHorizontal } from "lucide-react";
+import { Activity, BarChart3, MapPin, Settings, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCurrentUser, logout } from "./api/auth";
 import { useDashboard } from "./api/queries";
@@ -75,7 +75,7 @@ function AuthenticatedShell() {
       <main className="content">
         <header className="topbar">
           <div>
-            <span className="eyebrow">{dashboard?.site.name ?? "Demo Underground Parking"}</span>
+            <span className="eyebrow">{dashboard?.site.name || "현장 미등록"}</span>
             <h1>{active.label}</h1>
           </div>
           <div className="topbar-actions" aria-label="현장 상태">
@@ -86,9 +86,6 @@ function AuthenticatedShell() {
             <span className={`status-pill ${gatewayStatusClass}`}>
               {gatewayStatusLabel}
             </span>
-            <button className="icon-button" aria-label="알림">
-              <Bell size={18} />
-            </button>
             <button className="logout-button" onClick={handleLogout}>
               로그아웃
             </button>

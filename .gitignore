@@ -4,6 +4,9 @@ test-results/
 .DS_Store
 .env
 apps/api/dist/
+apps/web/dist/
 packages/shared/dist/
 .aider*
 .local/pki/
+.local/mosquitto.acl
+.local/mosquitto.host.conf

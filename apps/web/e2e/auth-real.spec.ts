@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 
 test.skip(process.env.E2E_REAL_AUTH !== "true", "Set E2E_REAL_AUTH=true after starting the real API and database.");
 
-test("real backend rejects wrong credentials and accepts the seeded demo account", async ({ page }) => {
+test("real backend rejects wrong credentials and accepts the bootstrapped owner", async ({ page }) => {
+  const ownerEmail = process.env.E2E_OWNER_EMAIL ?? "operator@example.com";
+  const ownerPassword = process.env.E2E_OWNER_PASSWORD ?? "demo-password-1234";
   await page.goto("/");
 
   await page.getByLabel("아이디").fill("wrong@example.com");
@@ -10,8 +12,8 @@ test("real backend rejects wrong credentials and accepts the seeded demo account
   await page.getByRole("button", { name: "로그인" }).click();
   await expect(page.getByText("아이디 또는 비밀번호를 확인해 주세요.")).toBeVisible();
 
-  await page.getByLabel("아이디").fill("operator@example.com");
-  await page.getByLabel("비밀번호").fill("demo-password-1234");
+  await page.getByLabel("아이디").fill(ownerEmail);
+  await page.getByLabel("비밀번호").fill(ownerPassword);
   await page.getByRole("button", { name: "로그인" }).click();
   await expect(page.getByRole("heading", { name: "모니터링" })).toBeVisible();
   await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();

@@ -18,8 +18,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [basementCount, setBasementCount] = useState("2");
   const [groundCount, setGroundCount] = useState("0");
   const [floors, setFloors] = useState<InitialFloorInput[]>(buildFloors(2, 0));
-  const [gatewayName, setGatewayName] = useState("메인 게이트웨이");
-  const [gatewaySerial, setGatewaySerial] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
   const validationMessage = useMemo(() => {
@@ -44,9 +42,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     }
     if (new Set(floorNames).size !== floorNames.length) return "층 이름은 중복될 수 없습니다.";
     if (new Set(floorLevels).size !== floorLevels.length) return "층 level은 중복될 수 없습니다.";
-    if (!gatewaySerial.trim()) return "게이트웨이 시리얼을 입력하세요.";
     return "";
-  }, [address, basementCount, floors, gatewaySerial, groundCount, siteName, tariffKwhRate]);
+  }, [address, basementCount, floors, groundCount, siteName, tariffKwhRate]);
 
   const setupMutation = useMutation({
     mutationFn: () =>
@@ -54,11 +51,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         siteName: siteName.trim(),
         address: address.trim(),
         tariffKwhRate: Number(tariffKwhRate),
-        floors: floors.map((floor) => ({ name: floor.name.trim(), level: floor.level })),
-        gateway: {
-          name: gatewayName.trim() || "메인 게이트웨이",
-          serialNumber: gatewaySerial.trim()
-        }
+        floors: floors.map((floor) => ({ name: floor.name.trim(), level: floor.level }))
       }),
     onSuccess: (dashboard) => {
       queryClient.setQueryData(["dashboard"], dashboard);
@@ -186,20 +179,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
               </div>
             ))
           )}
-        </div>
-      </div>
-
-      <div className="setup-section">
-        <h4>게이트웨이</h4>
-        <div className="setup-form-grid">
-          <label>
-            게이트웨이 이름
-            <input value={gatewayName} onChange={(event) => setGatewayName(event.target.value)} />
-          </label>
-          <label>
-            게이트웨이 시리얼
-            <input value={gatewaySerial} onChange={(event) => setGatewaySerial(event.target.value)} placeholder="GW-001" />
-          </label>
         </div>
       </div>
 

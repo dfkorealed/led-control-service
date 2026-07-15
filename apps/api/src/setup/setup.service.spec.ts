@@ -78,23 +78,15 @@ describe("SetupService", () => {
     });
   }
 
-  function uniqueConstraintError() {
-    return Object.assign(new Error("Unique constraint failed on the fields: (`serialNumber`)"), {
-      code: "P2002",
-      name: "PrismaClientKnownRequestError"
-    });
-  }
-
   const initialSiteInput = {
     organizationId: "organization-1",
     siteName: "A 주차장",
     address: "서울시 강남구",
     tariffKwhRate: 160,
-    floors: [{ name: "B2", level: -2 }],
-    gateway: { name: "B2 게이트웨이", serialNumber: "GW-001" }
+    floors: [{ name: "B2", level: -2 }]
   };
 
-  it("creates the initial site with floors and a gateway for the current organization", async () => {
+  it("creates the initial site and floors without bypassing the gateway claim flow", async () => {
     const { service, prisma, sitesService } = await createModule();
 
     const result = await service.createInitialSite({
@@ -105,8 +97,7 @@ describe("SetupService", () => {
       floors: [
         { name: " B2 ", level: -2 },
         { name: "B1", level: -1 }
-      ],
-      gateway: { name: " B2 게이트웨이 ", serialNumber: " GW-001 " }
+      ]
     });
 
     expect(prisma.site.count).toHaveBeenCalledWith({ where: { organizationId: "organization-1" } });
@@ -124,37 +115,12 @@ describe("SetupService", () => {
         { siteId: "site-1", name: "B1", level: -1 }
       ]
     });
-    expect(prisma.gateway.create).toHaveBeenCalledWith({
-      data: {
-        siteId: "site-1",
-        name: "B2 게이트웨이",
-        serialNumber: "GW-001",
-        firmwareVersion: "manual-unknown"
-      }
-    });
+    expect(prisma.gateway.create).not.toHaveBeenCalled();
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable
     });
     expect(sitesService.getDefaultDashboard).toHaveBeenCalledWith("organization-1");
     expect(result).toBe(dashboard);
-  });
-
-  it("ignores firmwareVersion during initial site setup because gateway heartbeat owns it", async () => {
-    const { service, prisma } = await createModule();
-
-    await service.createInitialSite({
-      ...initialSiteInput,
-      gateway: { ...initialSiteInput.gateway, firmwareVersion: "user-entered-1.0.0" }
-    } as any);
-
-    expect(prisma.gateway.create).toHaveBeenCalledWith({
-      data: {
-        siteId: "site-1",
-        name: "B2 게이트웨이",
-        serialNumber: "GW-001",
-        firmwareVersion: "manual-unknown"
-      }
-    });
   });
 
   it("rejects initial setup when the organization already has a site", async () => {
@@ -174,19 +140,12 @@ describe("SetupService", () => {
     expect(prisma.site.create).not.toHaveBeenCalled();
   });
 
-  it("rejects initial setup without a gateway", async () => {
+  it("accepts initial setup without a gateway so it can be claimed from manufacturing inventory", async () => {
     const { service, prisma } = await createModule();
 
-    await expect(
-      service.createInitialSite({
-        organizationId: "organization-1",
-        siteName: "A 주차장",
-        address: "서울시 강남구",
-        tariffKwhRate: 160,
-        floors: [{ name: "B2", level: -2 }]
-      })
-    ).rejects.toThrow("gateway is required");
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    await expect(service.createInitialSite(initialSiteInput)).resolves.toBe(dashboard);
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.gateway.create).not.toHaveBeenCalled();
   });
 
   it("rejects duplicate floor names and levels in the same request", async () => {
@@ -224,7 +183,6 @@ describe("SetupService", () => {
         address: "서울시 강남구",
         tariffKwhRate: 160,
         floors: [{ name: "B2", level: -2 }],
-        gateway: { name: "B2 게이트웨이", serialNumber: "GW-001" }
       } as any)
     ).rejects.toBeInstanceOf(BadRequestException);
 
@@ -235,7 +193,6 @@ describe("SetupService", () => {
         address: "서울시 강남구",
         tariffKwhRate: 160,
         floors: [{ name: "B2", level: -2 }],
-        gateway: { name: "B2 게이트웨이", serialNumber: "GW-001" }
       } as any)
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -353,21 +310,6 @@ describe("SetupService", () => {
     await expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it("maps initial site gateway serial unique races to BadRequestException", async () => {
-    const { service, prisma } = await createModule();
-    prisma.$transaction.mockRejectedValueOnce(uniqueConstraintError());
-
-    let caught: unknown;
-    try {
-      await service.createInitialSite(initialSiteInput);
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(BadRequestException);
-    expect((caught as Error).message).toBe("gateway serialNumber already exists");
-  });
-
   it("adds floors only to a site in the current organization and rejects existing duplicates", async () => {
     const { service, prisma, sitesService } = await createModule({
       floor: {
@@ -436,65 +378,4 @@ describe("SetupService", () => {
     await expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it("registers a gateway for a site in the current organization", async () => {
-    const { service, prisma } = await createModule();
-
-    const result = await service.registerGateway({
-      organizationId: "organization-1",
-      siteId: "site-1",
-      name: " 메인 게이트웨이 ",
-      serialNumber: " GW-002 "
-    });
-
-    expect(prisma.site.findFirst).toHaveBeenCalledWith({
-      where: { id: "site-1", organizationId: "organization-1" }
-    });
-    expect(prisma.gateway.create).toHaveBeenCalledWith({
-      data: {
-        siteId: "site-1",
-        name: "메인 게이트웨이",
-        serialNumber: "GW-002",
-        firmwareVersion: "manual-unknown"
-      }
-    });
-    expect(result).toBe(dashboard);
-  });
-
-  it("rejects duplicate gateway serial numbers", async () => {
-    const { service } = await createModule({
-      gateway: {
-        findUnique: jest.fn().mockResolvedValue({ id: "gateway-1", serialNumber: "GW-001" }),
-        create: jest.fn()
-      }
-    });
-
-    await expect(
-      service.registerGateway({
-        organizationId: "organization-1",
-        siteId: "site-1",
-        name: "메인 게이트웨이",
-        serialNumber: " GW-001 "
-      })
-    ).rejects.toThrow("gateway serialNumber already exists");
-  });
-
-  it("maps register gateway serial unique races to BadRequestException", async () => {
-    const { service, prisma } = await createModule();
-    prisma.gateway.create.mockRejectedValueOnce(uniqueConstraintError());
-
-    let caught: unknown;
-    try {
-      await service.registerGateway({
-        organizationId: "organization-1",
-        siteId: "site-1",
-        name: "메인 게이트웨이",
-        serialNumber: "GW-002"
-      });
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(BadRequestException);
-    expect((caught as Error).message).toBe("gateway serialNumber already exists");
-  });
 });

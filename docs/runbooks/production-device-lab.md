@@ -1,6 +1,6 @@
 # 양산 장비 2-노드 실험실 검증
 
-기준일: 2026-07-12
+기준일: 2026-07-14
 
 ## 목적과 완료 기준
 
@@ -101,3 +101,6 @@ runner는 첫 실패에서 즉시 non-zero로 종료하고 증거 파일을 `060
 - `/opt/led-lab/bin/hil-step` 단계별 실제 장비 실행 파일은 Raspberry Pi Phase 0 결과와 함께 구현해야 한다.
 - 2-node 3회 연속 실기 결과는 아직 없다. 따라서 현재 프로젝트 상태를 양산 준비 완료로 판정하지 않는다.
 - 2026-07-12 macOS probe 결과는 여섯 항목 모두 `hardware_required`, exit code 2였다.
+- 웹 mock API, mock gateway, demo seed, MQTT v1 상태/제어 경로는 제거했다. HIL은 실제 API, PostgreSQL, mTLS broker, Raspberry Pi BlueZ, ESP32-H2만 사용한다.
+- 현장/층 생성과 gateway claim UI를 분리했고 수동 Gateway 생성 API를 제거했다. `gateway:enroll-inventory`는 기존 원장을 덮어쓰지 않고 제조 identity를 적재한다.
+- `제조 원장 등록 -> 웹 claim -> appliance bootstrap` 코드 경로와 자동 테스트는 연결됐다. Raspberry Pi와 ESP32-H2를 사용한 연속 실기 증거는 아직 없으므로 양산 준비 완료로 판정하지 않는다.

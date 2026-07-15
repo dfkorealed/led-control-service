@@ -5,6 +5,7 @@ import { useDashboard, useFloorFixtures, type Dashboard } from "../../api/querie
 import { FloorEditorView } from "../floor-editor/FloorEditorView";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { SetupWizard } from "../setup/SetupWizard";
+import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 import { FloorMap } from "./FloorMap";
 
 const statusLabels = {
@@ -80,7 +81,7 @@ function MonitoringDashboard({ data }: { data: Dashboard }) {
             <h2>등록된 조명이 없습니다</h2>
           </div>
         </div>
-        <RegistrationPanel dashboard={data} />
+        {data.gateways.length === 0 ? <GatewayClaimPanel siteId={data.site.id} /> : <RegistrationPanel dashboard={data} />}
       </section>
     );
   }

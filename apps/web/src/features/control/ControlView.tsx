@@ -66,9 +66,6 @@ export function ControlView() {
           <button className={mode === "group" ? "active" : ""} onClick={() => setMode("group")}>
             그룹
           </button>
-          <button disabled title="스케줄 제어는 추후 구현 예정입니다.">
-            스케줄
-          </button>
         </div>
       </div>
 

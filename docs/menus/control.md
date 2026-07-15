@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-07-12
+기준일: 2026-07-14
 
 ## 구현 완료
 
@@ -21,7 +21,6 @@
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 개별/그룹 적용 버튼을 비활성화하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
 - 그룹 제어 명령은 MQTT payload에 `targetFixtureIds`를 포함해 게이트웨이가 실제 대상 조명 목록을 바로 처리할 수 있게 한다.
 - MQTT `command-ack` 이벤트가 command 상태를 갱신한다.
-- Mock gateway가 개별/그룹 dimming command를 받아 fixture state와 command ack를 발행한다.
 - Raspberry Pi gateway 앱 골격이 `sites/{siteId}/commands/dimming` MQTT 명령을 수신하고 ACK, fixture state, heartbeat를 발행한다.
 - ESP32-H2 펌웨어는 PlatformIO 대신 ESP-IDF 구조로 작성하며, LEDC PWM 기반 밝기 적용 골격을 제공한다.
 - ESP-IDF `v5.5.1` + `esp32h2` 환경을 로컬에 구성했고 `scripts/esp32-h2-build.sh`로 실제 펌웨어 빌드를 통과했다.
@@ -29,8 +28,12 @@
 - ESP32-H2 실제 보드 플래시 절차와 라즈베리파이 게이트웨이 로컬 실행 절차를 문서화했다.
 - ESP32-H2 펌웨어에 BLE Mesh node 초기화, provisioning advertisement, node identity, Health Server, Generic OnOff Server, Light Lightness Server, status publication 골격을 추가했고 ESP-IDF 빌드를 통과했다.
 - Gateway adapter 계약을 fixture별 장비 리포트 기반으로 확장해 일부 노드 실패 시 command ACK와 fixture state가 함께 동기화되도록 했다.
-- Raspberry Pi gateway의 MQTT 명령 수신 계약은 구현되어 있으며 실제 BlueZ Mesh adapter 연결 전에는 gateway 시작을 거부한다.
-- Mock 검색/등록은 별도 `apps/mock-gateway`에서만 실행하며 양산 gateway에 stub/command adapter를 포함하지 않는다.
+- Raspberry Pi gateway는 BlueZ 5.82 D-Bus application, network 생성/attach, fixture-unicast 영속 mapping, acknowledged Light Lightness Set/Status adapter를 양산 경로로 사용한다.
+- 실제 조명 Status 수신 전에는 제어 성공으로 처리하지 않으며 mapping 없음, status 불일치, timeout을 fixture별 실패 코드로 반환한다.
+- ESP32-H2 등록 후 AppKey 0 추가, Generic OnOff Server `0x1000`, Light Lightness Server `0x1300` bind와 provisioner 주소 publication을 설정한다.
+- Docker appliance는 Raspberry Pi 실제 HCI에서 mesh network 생성과 token 재시작 attach를 통과했다.
+- API와 gateway의 legacy MQTT v1 dimming, fixture-state, command-ack, heartbeat 경로를 제거하고 gateway-scoped MQTT v2만 사용한다.
+- 양산 gateway에 mock, stub, shell command adapter를 포함하지 않는다. 자동 테스트 adapter는 `apps/gateway/test`에만 둔다.
 - 수동 개별/그룹 명령을 소유 gateway별 `CommandDispatch`로 분할하고 gateway마다 독립 sequence와 idempotency key를 발급한다.
 - Command, gateway별 dispatch, 조명별 pending 결과, MQTT outbox를 하나의 DB transaction에 저장한다.
 - MQTT outbox publisher가 PostgreSQL `FOR UPDATE SKIP LOCKED`와 30초 worker lease로 다중 API 인스턴스의 중복 발행을 차단한다.
@@ -54,18 +57,16 @@
 - 층/구역별 일괄 제어
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
-- 실제 라즈베리파이 provisioner 실행 파일 구현
-- 실제 BLE Mesh provisioning, AppKey bind, group subscription BlueZ adapter 연결
+- BLE Mesh group address subscription과 group 단일 전송 최적화
 - ESP32-H2 factory reset, identify 점멸 패턴, 제품/진단 정보 report 구현
 - ESP32-H2 실제 보드 플래시 검증
 
 ## 부족하거나 개선이 필요한 기능
 
-- `스케줄` 버튼은 추후 구현 범위라 비활성 상태다.
+- 스케줄 제어는 추후 구현 범위이며, 동작하지 않는 버튼은 양산 UI에서 제거했다.
 - 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.
 - 제어 대상이 없을 때 empty state가 충분하지 않다.
-- Raspberry Pi gateway는 현재 실제 BlueZ adapter 미구현으로 의도적으로 시작이 차단된다. Phase 0 통과 후 BlueZ D-Bus adapter를 연결해야 한다.
-- ESP32-H2 펌웨어는 BLE Mesh node 서버 모델까지 빌드되지만, 실제 RF/provisioning/model bind/group subscription은 보드와 라즈베리파이 확보 후 실기기 검증이 필요하다.
+- Raspberry Pi Phase 0의 daemon/HCI/network/token 재연결은 통과했지만 ESP32-H2 provisioning과 0/25/50/100% 왕복, 2-node HIL은 아직 실기 검증이 필요하다.
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
@@ -83,7 +84,10 @@
 - `apps/gateway/src/index.ts`
 - `apps/gateway/src/commands/command-journal.ts`
 - `apps/gateway/src/commands/gateway-command-handler.ts`
-- `apps/mock-gateway/src/simulator.ts`
+- `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
+- `apps/gateway/src/mesh/bluez-provisioner.ts`
+- `apps/gateway/src/mesh/bluez-config-client.ts`
+- `docs/runbooks/raspberry-pi-gateway-appliance.md`
 - `apps/esp32-h2-firmware/main/app_main.c`
 - `apps/esp32-h2-firmware/main/ble_mesh_node.c`
 - `apps/esp32-h2-firmware/main/ble_mesh_platform.c`

@@ -9,8 +9,7 @@ describe("SetupController", () => {
   function createController() {
     const setupService = {
       createInitialSite: jest.fn().mockRejectedValue(new BadRequestException("siteName is required")),
-      addFloors: jest.fn().mockRejectedValue(new BadRequestException("siteId is required")),
-      registerGateway: jest.fn().mockRejectedValue(new BadRequestException("siteId is required"))
+      addFloors: jest.fn().mockRejectedValue(new BadRequestException("siteId is required"))
     };
 
     return {
@@ -31,12 +30,5 @@ describe("SetupController", () => {
 
     await expect(controller.addFloors(user, null as any)).rejects.toBeInstanceOf(BadRequestException);
     expect(setupService.addFloors).toHaveBeenCalledWith({ organizationId: "organization-1" });
-  });
-
-  it("passes a null gateway body to service validation without a raw TypeError", async () => {
-    const { controller, setupService } = createController();
-
-    await expect(controller.registerGateway(user, null as any)).rejects.toBeInstanceOf(BadRequestException);
-    expect(setupService.registerGateway).toHaveBeenCalledWith({ organizationId: "organization-1" });
   });
 });

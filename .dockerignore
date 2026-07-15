@@ -1,0 +1,12 @@
+.git
+.gitignore
+**/.env
+**/.env.*
+**/certs
+**/certs/**
+**/*.key
+**/*.pem
+**/node_modules
+**/dist
+artifacts
+.superpowers

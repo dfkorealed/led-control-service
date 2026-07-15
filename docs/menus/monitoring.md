@@ -1,12 +1,13 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-07-12
+기준일: 2026-07-14
 
 ## 구현 완료
 
 - 로그인 사용자의 조직 기준 `GET /sites/default/dashboard` 데이터를 조회한다.
 - 현장이 없으면 `초기 설치 설정` 마법사를 먼저 표시한다.
 - 현장은 있으나 등록된 조명이 없으면 `조명 등록` 패널을 표시한다.
+- 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
 - 조명 등록 패널은 gateway scan/provisioning MQTT 흐름과 연결되어, 등록 완료 이벤트 후 dashboard polling으로 새 fixture를 표시할 수 있다.
 - 층별 탭으로 지하/지상 층을 전환한다.
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
@@ -18,7 +19,6 @@
 - 층 탭은 좁은 화면에서 가로 스크롤되고, 모바일 하단 내비게이션은 safe area 여백을 반영한다.
 - MQTT `fixture-state` 이벤트가 fixture 최신 상태 snapshot을 갱신한다.
 - MQTT `gateway-heartbeat` 이벤트가 gateway online/offline 상태 판단에 반영된다.
-- Mock gateway가 fixture 상태와 gateway heartbeat를 발행한다.
 - dashboard query는 React Query로 3초마다 polling한다.
 - 기본 dashboard는 fixture 본문을 제외한 현장/층/gateway metadata와 DB aggregate summary만 반환한다. 제어 화면만 `includeFixtures=true`를 명시한다.
 - 모니터링 fixture snapshot은 `GET /floors/:floorId/fixtures`에서 조직 범위를 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다.
@@ -90,10 +90,9 @@
 - `apps/api/src/mqtt/topic-scope.ts`
 - `apps/api/src/fixtures/fixture-freshness.service.ts`
 - `apps/gateway/src/state/event-sequence-store.ts`
-- `apps/mock-gateway/src/index.ts`
 - `packages/shared/src/schemas.ts`
 - `packages/shared/src/mqtt.ts`
 
 ## 갱신 규칙
 
-모니터링 메뉴의 UI, API, DB, MQTT, mock gateway, 펌웨어 계약이 바뀌면 이 문서를 같은 작업 안에서 갱신한다.
+모니터링 메뉴의 UI, API, DB, MQTT, 실제 gateway, 펌웨어 계약이 바뀌면 이 문서를 같은 작업 안에서 갱신한다.

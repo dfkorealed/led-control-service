@@ -15,16 +15,8 @@ services:
     ports:
       - "6379:6379"
 
-  mqtt:
-    image: eclipse-mosquitto:2
-    ports:
-      - "1883:1883"
-    volumes:
-      - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-
   mqtt-tls:
     image: eclipse-mosquitto:2
-    profiles: ["secure-mqtt"]
     ports:
       - "8883:8883"
     volumes:

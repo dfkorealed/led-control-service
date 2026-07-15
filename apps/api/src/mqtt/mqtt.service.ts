@@ -1,12 +1,8 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import {
   acceptanceAckV2Schema,
-  commandAckSchema,
   deviceStatusAckV2Schema,
-  DimmingCommandPayload,
-  fixtureStateSchema,
   fixtureStateV2Schema,
-  gatewayHeartbeatSchema,
   gatewayHeartbeatV2Schema,
   IdentifyDevicePayload,
   identifyDeviceSchema,
@@ -33,9 +29,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     const client = this.getClient();
     client.on("connect", () => {
-      client.subscribe(["sites/+/events/fixture-state", "sites/+/events/command-ack", "sites/+/events/gateway-heartbeat"], {
-        qos: 1
-      });
       client.subscribe(
         [
           "sites/+/gateways/+/events/unprovisioned-device-found",
@@ -50,11 +43,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     client.on("message", (topic, payload) => {
       void this.handleMessage(topic, payload);
     });
-  }
-
-  async publishDimmingCommand(payload: DimmingCommandPayload) {
-    const topic = mqttTopics.dimmingCommand(payload.siteId);
-    await this.publishTopic(topic, payload);
   }
 
   async publishProvisioningScanStart(input: ProvisioningScanStartPayload) {
@@ -170,46 +158,6 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
       if (!dispatch) return;
       await this.storeDeviceStatusAck(dispatch, ack);
-      return;
-    }
-
-    if (topic.endsWith("/events/fixture-state")) {
-      const state = fixtureStateSchema.parse(JSON.parse(payload.toString()));
-      await this.prisma.fixture.updateMany({
-        where: { id: state.fixtureId },
-        data: {
-          brightness: state.brightness,
-          status: state.status,
-          rssi: state.rssi,
-          hopCount: state.hopCount,
-          commandSuccessRate: state.commandSuccessRate,
-          lastSeenAt: new Date(state.lastSeenAt)
-        }
-      });
-      return;
-    }
-
-    if (topic.endsWith("/events/command-ack")) {
-      const ack = commandAckSchema.parse(JSON.parse(payload.toString()));
-      await this.prisma.command.updateMany({
-        where: { id: ack.commandId },
-        data: {
-          status: ack.status,
-          errorMessage: ack.errorMessage ?? null
-        }
-      });
-      return;
-    }
-
-    if (topic.endsWith("/events/gateway-heartbeat")) {
-      const heartbeat = gatewayHeartbeatSchema.parse(JSON.parse(payload.toString()));
-      await this.prisma.gateway.updateMany({
-        where: { serialNumber: heartbeat.gatewaySerial },
-        data: {
-          lastHeartbeatAt: new Date(heartbeat.sentAt),
-          ...(heartbeat.firmwareVersion ? { firmwareVersion: heartbeat.firmwareVersion } : {})
-        }
-      });
       return;
     }
 
@@ -450,6 +398,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (!existingFixture) {
         await tx.fixture.create({
           data: {
+            id: node.id,
             floorId: node.session.floorId,
             meshNodeId: meshNode.id,
             name: node.pendingFixtureName,

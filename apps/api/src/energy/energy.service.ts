@@ -18,8 +18,9 @@ export class EnergyService {
     return { kwh, cost };
   }
 
-  async getDefaultSiteEstimate() {
+  async getDefaultSiteEstimate(organizationId: string) {
     const site = await this.prisma.site.findFirstOrThrow({
+      where: { organizationId },
       include: { floors: { include: { fixtures: true } } }
     });
     const fixtures = site.floors.flatMap((floor) => floor.fixtures);

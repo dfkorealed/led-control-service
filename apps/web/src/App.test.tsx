@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
-import { mockDashboard, mockEnergyEstimate, mockGet, mockPost, mockRegistrationSession, resetMockApiState } from "./api/mock";
+import { mockDashboard, mockEnergyEstimate, mockRegistrationSession } from "./test/fixtures";
 import type { RegistrationSession } from "./api/registration";
 import { App } from "./App";
 import { useNavigationStore } from "./state/navigation-store";
@@ -92,25 +92,32 @@ vi.mock("./api/client", () => ({
           fixtures: []
         })),
         groups: [],
-        gateways: [
-          {
-            id: "gateway-onboarded-1",
-            name: input.gateway.name,
-            serialNumber: input.gateway.serialNumber,
-            firmwareVersion: "manual-unknown",
-            lastHeartbeatAt: null,
-            connectionStatus: "offline" as const
-          }
-        ]
+        gateways: []
       };
       apiState.dashboard = nextDashboard;
       apiState.registrationSession = {
         ...mockRegistrationSession,
         siteId: nextDashboard.site.id,
         floorId: nextDashboard.floors[0]?.id ?? "",
-        gatewayId: nextDashboard.gateways[0]?.id ?? ""
+        gatewayId: ""
       };
       return Promise.resolve(nextDashboard);
+    }
+    if (path === "/gateways/claim") {
+      const input = body as { siteId: string; name: string; serialNumber: string };
+      const dashboard = apiState.dashboard as typeof mockDashboard;
+      apiState.dashboard = {
+        ...dashboard,
+        gateways: [{
+          id: "gateway-onboarded-1",
+          name: input.name,
+          serialNumber: input.serialNumber,
+          firmwareVersion: "bootstrap-pending",
+          lastHeartbeatAt: null,
+          connectionStatus: "offline" as const
+        }]
+      };
+      return Promise.resolve({ status: "claimed", gatewayId: "gateway-onboarded-1", siteId: input.siteId, serialNumber: input.serialNumber });
     }
     if (path.endsWith("/identify")) {
       return Promise.resolve({ ...mockRegistrationSession.discoveredNodes[0], status: "identifying", identifyState: "blinking" });
@@ -141,7 +148,6 @@ describe("App", () => {
     apiState.registrationSession = null;
     apiState.commandStatus = null;
     useNavigationStore.setState({ view: "monitoring" });
-    resetMockApiState();
     vi.clearAllMocks();
     cleanup();
   });
@@ -368,9 +374,13 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "통계" }));
     expect(await screen.findByText("에너지 리포트")).toBeInTheDocument();
+    expect(screen.queryByText("18%")).not.toBeInTheDocument();
+    expect(screen.queryByText("18:00-22:00")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "설정" }));
     expect(await screen.findByText("운영 설정")).toBeInTheDocument();
+    expect(screen.queryByText("MVP 2 준비")).not.toBeInTheDocument();
+    expect(screen.queryByText("통신 음영 검토")).not.toBeInTheDocument();
   });
 
   it("sends group dimming commands from the control screen", async () => {
@@ -500,7 +510,7 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "조명 검색 시작" })).not.toBeInTheDocument();
   });
 
-  it("moves from initial setup to lighting registration after site floors and gateway are submitted", async () => {
+  it("moves from initial setup through gateway claim to lighting registration", async () => {
     apiState.dashboard = {
       ...mockDashboard,
       site: { id: "", name: "" },
@@ -519,34 +529,14 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "모니터링" }));
     fireEvent.change(await screen.findByLabelText("현장명"), { target: { value: "온보딩 주차장" } });
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 중구" } });
-    fireEvent.change(screen.getByLabelText("게이트웨이 시리얼"), { target: { value: "GW-ONBOARD-001" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
+
+    fireEvent.change(await screen.findByLabelText("제품 시리얼"), { target: { value: "GW-ONBOARD-001" } });
+    fireEvent.change(screen.getByLabelText("일회성 등록 코드"), { target: { value: "claim-once" } });
+    fireEvent.click(screen.getByRole("button", { name: "게이트웨이 등록" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeEnabled());
     expect(screen.getByText("B2")).toBeInTheDocument();
   });
 
-  it("keeps mock setup dashboard and registration session ids aligned", async () => {
-    const dashboard = await mockPost<typeof mockDashboard>("/setup/initial-site", {
-      siteName: "mock setup site",
-      address: "미입력",
-      tariffKwhRate: 160,
-      floors: [{ name: "B1", level: -1 }],
-      gateway: { name: "mock gateway", serialNumber: "GW-MOCK-SETUP" }
-    });
-
-    const session = await mockPost<RegistrationSession>("/registration-sessions", {
-      siteId: dashboard.site.id,
-      floorId: dashboard.floors[0].id
-    });
-
-    expect(session.siteId).toBe(dashboard.site.id);
-    expect(session.floorId).toBe(dashboard.floors[0].id);
-    expect(session.gatewayId).toBe(dashboard.gateways[0].id);
-    await expect(mockGet(`/registration-sessions/${session.id}`)).resolves.toMatchObject({
-      siteId: dashboard.site.id,
-      floorId: dashboard.floors[0].id,
-      gatewayId: dashboard.gateways[0].id
-    });
-  });
 });

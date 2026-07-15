@@ -538,7 +538,7 @@ MVP 1과 병행해 다음 리스크를 별도 PoC로 확인한다.
 
 ### 12.2 Gateway adapter 선택
 
-Gateway 본체에는 test mode, stub adapter, 범용 shell command adapter를 포함하지 않는다. 실행 가능한 adapter는 검증된 `BlueZMeshAdapter` 또는 Phase 0 실패 후 선정한 `EspProvisionerBridgeAdapter`뿐이며, 실제 adapter 초기화와 capability 검증이 끝나지 않으면 MQTT 연결 전에 종료한다. Mock 동작은 별도 `apps/mock-gateway` 애플리케이션과 단위 테스트 dependency injection에서만 제공하며 gateway 배포 산출물에 포함하지 않는다.
+Gateway 본체에는 test mode, stub adapter, 범용 shell command adapter를 포함하지 않는다. 실행 가능한 adapter는 검증된 `BlueZMeshAdapter` 또는 Phase 0 실패 후 선정한 `EspProvisionerBridgeAdapter`뿐이며, 실제 adapter 초기화와 capability 검증이 끝나지 않으면 MQTT 연결 전에 종료한다. Mock gateway 런타임은 제공하지 않고 자동 테스트는 test directory의 dependency injection만 사용한다.
 
 adapter interface는 dimming, scan, provision, identify를 분리하되 production adapter가 다음 결과를 반환해야 한다.
 
