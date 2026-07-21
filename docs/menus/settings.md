@@ -261,8 +261,9 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - 2026-07-21 기준 Task 1~5의 역할·현장 접근·설치 시운전 기반 구현을 완료했다.
 - Task 5 최종 보완으로 기존 현장이 있는 경우에도 Gateway claim과 조명 provisioning UI를 service-provider `operator`에게만 노출한다. customer `admin/viewer`의 직접 API 호출은 백엔드에서도 계속 차단한다.
-- 다음 작업 시작 전 Task 1~5 통합 보안 리뷰를 먼저 수행한다. 특히 setup transaction의 실제 DB rollback, Gateway/registration controller 역할 metadata 회귀 테스트를 보강한다.
-- Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`로 완료했다. 다음 구현 범위는 Task 7의 도면 에디터 설정 이동이다.
+- Task 1~5 통합 보안 리뷰와 보완 재리뷰를 완료했다. Floor editor SiteAccess, invitation 원자 소비, legacy migration 역할 보존과 bootstrap singleton을 검증했다.
+- Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다. 다음 구현 범위는 Task 7의 도면 에디터 설정 이동이다.
+- Task 7 시작 시 `.superpowers/sdd/task-7-brief.md` 또는 기준 계획의 Task 7을 읽고, 모니터링 편집 진입 제거와 `/settings/floor-plans/:floorId/edit`의 실제 editor state lifecycle 연결부터 TDD로 진행한다.
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
@@ -271,7 +272,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 모바일 WebView용 설정 navigation은 현재 desktop 좌측 메뉴를 유지한다. 상단 선택 메뉴 전환은 후속 UI 작업이 필요하다.
 - 현재 도면 에디터는 모니터링에서 열리며 여러 개별 API를 병렬 호출해 부분 저장 위험이 있다.
 - 현재 FloorPlan version은 배경 변경만 표현하고 도형·조명 배치의 전체 revision이 아니다.
-- 현재 변경 API는 조직 소속만 확인하며 역할과 사용자별 현장 범위가 충분히 적용되지 않았다.
+- 기존 도면 변경 API는 SiteAccess `manage`를 적용했지만, Task 8의 단일 transaction/revision API로 전환되기 전까지 여러 요청 사이의 부분 저장 위험은 남아 있다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.

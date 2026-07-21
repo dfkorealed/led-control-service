@@ -540,7 +540,7 @@ git commit -m "feat(setup): restrict commissioning to assigned operators"
 - Produces: `settingsSectionsFor(role: UserRole)`
 - Produces: URL query `siteId` 기반 현장 선택
 
-- [ ] **Step 1: routing 실패 테스트 작성**
+- [x] **Step 1: routing 실패 테스트 작성**
 
 ```tsx
 window.history.pushState({}, "", "/settings/floor-plans");
@@ -549,13 +549,13 @@ expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheD
 expect(screen.queryByRole("link", { name: "설치 및 시운전" })).not.toBeInTheDocument();
 ```
 
-- [ ] **Step 2: dependency 설치**
+- [x] **Step 2: dependency 설치**
 
 Run: `pnpm --filter @led-control/web add react-router-dom@^7.0.0`
 
 Expected: `apps/web/package.json`과 lockfile 변경.
 
-- [ ] **Step 3: App route 구현**
+- [x] **Step 3: App route 구현**
 
 ```tsx
 <Routes>
@@ -573,7 +573,7 @@ Expected: `apps/web/package.json`과 lockfile 변경.
 </Routes>
 ```
 
-- [ ] **Step 4: 역할별 메뉴 구현**
+- [x] **Step 4: 역할별 메뉴 구현**
 
 operator에는 모든 설정 섹션을, admin에는 설치·Gateway 해제·OTA를 제외한 운영 설정을, viewer에는 조회 가능한 개요·도면·장비 상태만 반환한다.
 
@@ -587,13 +587,13 @@ location / {
 }
 ```
 
-- [ ] **Step 5: 테스트 실행**
+- [x] **Step 5: 테스트 실행**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/App.test.tsx src/features/settings`
 
 Expected: 새로고침 경로와 역할별 menu 테스트 PASS.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add apps/web/package.json pnpm-lock.yaml apps/web/src apps/web/Dockerfile apps/web/nginx.conf
