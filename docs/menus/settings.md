@@ -9,29 +9,34 @@
 - 설정 메뉴를 현장 구성, 도면 관리, 장비 시운전, 운영 정책, 보안, 유지보수의 관리 허브로 만든다.
 - 실시간 상태 확인은 모니터링, 조명 명령 실행은 제어, 에너지 분석은 통계에서 담당한다.
 - 모니터링의 도면 에디터는 설정의 `도면 관리`로 이동하고 모니터링 도면은 읽기 전용으로 유지한다.
-- 최초 현장 설정, Gateway claim, 최초 provisioning은 `owner/admin`만 수행한다.
-- 설치 완료 후 도면 배경, 도형, 조명 배치와 일반 조명 정보는 `operator`도 직접 편집할 수 있다.
+- 최초 현장 설정, Gateway claim, 최초 provisioning은 서비스 운영사의 `operator`만 수행한다.
+- 설치 완료 후 고객사의 `admin`은 도면 배경, 도형, 조명 배치, 일반 조명 정보와 운영 정책을 직접 관리한다.
 - 설정값은 임의 JSON 한 필드에 모으지 않고 검증 가능한 명시적 모델과 컬럼으로 관리한다.
 
 ## 권한 기준
 
-| 기능 | owner | admin | operator | viewer |
-| --- | --- | --- | --- | --- |
-| 설정 조회 | 허용 | 허용 | 허용 | 허용 |
-| 최초 현장·층·Gateway 설치 | 허용 | 허용 | 금지 | 금지 |
-| BLE Mesh 검색·provisioning | 허용 | 허용 | 금지 | 금지 |
-| 도면 배경·도형 편집 | 허용 | 허용 | 허용 | 금지 |
-| 조명 이름·정격전력·위치 편집 | 허용 | 허용 | 허용 | 금지 |
-| 그룹 관리 | 허용 | 허용 | 허용 | 금지 |
-| 도면 버전 복구 | 허용 | 허용 | 허용 | 금지 |
-| 층 보관·Gateway 해제·장비 초기화 | 허용 | 허용 | 금지 | 금지 |
-| 운영 정책·알림·사용자·OTA 변경 | 허용 | 허용 | 조회 | 조회 |
-| 편집 잠금 강제 해제 | 허용 | 허용 | 금지 | 금지 |
+| 기능 | operator | admin | viewer |
+| --- | --- | --- | --- |
+| 설정 조회 | 배정 현장 | 고객사 전체 현장 | 배정 현장 |
+| 최초 현장·층·Gateway 설치 | 허용 | 금지 | 금지 |
+| BLE Mesh 검색·provisioning | 허용 | 금지 | 금지 |
+| 현장 정보와 층 관리 | 허용 | 허용 | 금지 |
+| 도면 배경·도형 편집 | 허용 | 허용 | 금지 |
+| 조명 이름·정격전력·위치 편집 | 허용 | 허용 | 금지 |
+| 그룹 관리와 운영 정책 | 허용 | 허용 | 금지 |
+| 도면 버전 복구 | 허용 | 허용 | 금지 |
+| Gateway 해제·장비 교체·초기화 | 허용 | 금지 | 금지 |
+| 알림 규칙과 고객사 사용자 관리 | 허용 | 허용 | 금지 |
+| operator 배정·인증서·OTA 변경 | 허용 | 금지 | 금지 |
+| 편집 잠금 강제 해제 | 허용 | 허용 | 금지 |
 
 - 프론트의 버튼 노출과 무관하게 모든 변경 API가 서버에서 조직, 현장 접근 범위와 역할을 검사한다.
-- `owner/admin`은 조직 내 모든 현장에 접근하고 `operator/viewer`는 `SiteMembership`으로 할당된 현장에만 접근한다.
-- 마지막 owner는 비활성화하거나 권한을 낮출 수 없다.
-- 현장 초기화, Gateway 해제, 인증서 폐기, 전체 OTA에는 재인증과 감사 로그를 적용한다.
+- `operator`는 서비스 운영사 소속이며 `SiteMembership`으로 명시적으로 배정된 고객 현장만 접근한다. 역할만으로 모든 고객 현장에 접근하지 않는다.
+- `admin`은 자기 고객사 조직의 모든 현장을 관리하고 다른 고객사에는 접근할 수 없다.
+- `viewer`는 자기 고객사 조직 안에서도 `SiteMembership`으로 배정된 현장만 조회한다.
+- 마지막 고객사 admin은 비활성화하거나 viewer로 낮출 수 없다.
+- operator 배정, 현장 초기화, Gateway 해제, 인증서 폐기, 전체 OTA에는 재인증과 감사 로그를 적용한다.
+- admin은 admin/viewer를 초대할 수 있지만 operator를 생성하거나 배정할 수 없다.
 
 ## 설정 정보 구조
 
@@ -97,7 +102,7 @@
 
 - Redis에 층별 90초 편집 lease를 두고 편집 화면이 30초마다 갱신한다.
 - 다른 사용자가 편집 중이면 읽기 전용으로 열고 수정자와 시작 시각을 표시한다.
-- owner/admin의 강제 lease 해제는 감사 로그를 남긴다.
+- operator/admin의 강제 lease 해제는 감사 로그를 남긴다.
 - lease와 별도로 revision 불일치 시 `409 Conflict`를 반환하고 강제 덮어쓰기를 허용하지 않는다.
 - 변경사항이 있으면 화면 이탈을 확인하고 네트워크 오류 시 클라이언트 편집 상태를 유지한다.
 - 도면 저장소는 비공개로 전환하고 만료 시간이 짧은 서명 URL로 업로드·조회한다.
@@ -114,7 +119,7 @@
 ### 조명과 그룹
 
 - 1,000개 이상 조명을 서버 페이지네이션하고 층, 상태, 그룹, 통신 품질로 필터링한다.
-- operator 이상은 조명 이름, 정격전력, 도면 좌표와 표시 크기를 수정한다.
+- operator/admin은 조명 이름, 정격전력, 도면 좌표와 표시 크기를 수정한다.
 - 제품 serial, Mesh 주소, 펌웨어, 인증 관련 값은 읽기 전용이다.
 - 그룹 생성·수정·archive와 구성원의 일괄 추가·제외를 지원한다.
 - 장비 교체는 논리 Fixture와 전력 이력을 유지하고 연결된 MeshNode만 교체하는 별도 workflow로 구현한다.
@@ -123,7 +128,7 @@
 
 - 다중 Gateway 목록에서 이름, serial, heartbeat, 펌웨어, 인증서 만료, Mesh 품질과 담당 범위를 표시한다.
 - `GatewayFloorCoverage`로 층별 주·보조 Gateway를 지정한다.
-- 일상 설정과 분리된 시운전 화면에서 Claim, 검색, provisioning, 임시 배치, 품질 검사를 순서대로 수행한다.
+- operator 전용 시운전 화면에서 Claim, 검색, provisioning, 임시 배치, 품질 검사를 순서대로 수행한다.
 - 완료 시 등록 성공·실패, Mesh 주소, 펌웨어, RSSI, hop count, 명령 성공률과 작업자를 보고서로 보존한다.
 - claim code, private key와 Mesh key는 UI, DB 원문과 감사 로그에 노출하지 않는다.
 
@@ -136,8 +141,12 @@
 
 ### 사용자, 보안과 감사
 
-- `SiteMembership`으로 operator/viewer의 현장 접근 범위를 제한한다.
-- 이메일 초대, 역할 변경, 비활성화, 세션 강제 종료와 owner/admin MFA를 제공한다.
+- `SiteMembership`으로 operator와 viewer의 현장 접근 범위를 제한한다.
+- 이메일 초대, 역할 변경, 비활성화, 세션 강제 종료와 operator/admin MFA를 제공한다.
+- 서비스 운영사 Organization과 고객사 Organization을 구분하고 operator의 고객 현장 배정은 서비스 운영사 권한으로만 변경한다.
+- 최초 서비스 계정은 `auth:bootstrap-operator`로 서비스 운영사 Organization에 생성한다.
+- operator가 고객사 Organization과 첫 현장·층을 생성하면 자기 계정의 SiteMembership을 함께 만든다.
+- operator가 고객사 admin을 초대하고, 이후 고객사 admin은 자기 Organization의 admin/viewer만 초대한다.
 - 공통 `AuditLog`에 작업자, 현장, action, 대상, 변경 요약, 결과, IP, User-Agent와 관련 revision을 기록한다.
 - 비밀번호, claim code, private key와 인증서 원문은 감사 로그에 저장하지 않는다.
 
@@ -171,6 +180,7 @@
 ### 주요 신규·확장 모델
 
 - `SiteMembership`
+- `Organization.type`: `service_provider`, `customer`
 - `FloorMapRevision`
 - `GatewayFloorCoverage`
 - `SiteOperationPolicy`
@@ -199,13 +209,15 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 각 단계는 실패 테스트, 최소 구현, 관련 테스트 통과, 메뉴·DB 문서 갱신과 독립 커밋으로 완료한다.
 - API를 먼저 배포해 이전 웹과 호환한 뒤 웹을 전환하고, 사용되지 않는 개별 에디터 변경 API를 제거한다.
 - 기존 Floor, FloorPlan, Fixture와 FloorMapObject는 삭제하거나 재생성하지 않는 비파괴 migration을 사용한다.
+- 기존 site를 가진 Organization은 customer로, site가 없는 bootstrap Organization은 service_provider로 이관한다.
+- 기존 `owner`는 고객사 Organization이면 admin, 서비스 운영사 Organization이면 operator로 변환하고, 기존 customer 성격의 `operator`는 admin으로 변환한다.
 
 ## 테스트와 완료 기준
 
 - 백엔드 단위 테스트: 역할, 현장 범위, 입력 검증, 층 archive 조건, revision 충돌
 - DB 통합 테스트: 원자 저장 rollback, revision 생성·복구, 다른 조직 격리
 - 프론트 테스트: 역할별 메뉴, 읽기 전용, 편집 dirty state, API 오류와 충돌 UI
-- 웹 E2E: admin 설치 후 operator 도면 편집, 모니터링 반영, viewer 변경 차단
+- 웹 E2E: operator 설치 후 admin 도면 편집, 모니터링 반영, viewer 변경 차단
 - 동시성 테스트: 동일 층의 두 사용자, lease 만료, 강제 해제와 `409`
 - 성능 테스트: 조명 1,000개 로딩·이동·선택·변경분 저장
 - 보안 테스트: 다른 조직 IDOR, 직접 API 호출, 악성 파일, private asset URL 만료
@@ -215,6 +227,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 ## 미구현
 
 - URL 기반 설정 하위 navigation
+- `owner` 제거와 `operator/admin/viewer` 3단계 역할 migration
+- 서비스 운영사와 고객사 Organization 구분
 - 역할별 설정 UI와 서버 공통 Roles Guard
 - SiteMembership 기반 현장 범위
 - 현장 정보 수정과 층 CRUD/archive UI
@@ -226,7 +240,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - ESP32-H2 factory reset과 장비 교체 workflow
 - 시운전 보고서
 - 운영 정책과 알림
-- 사용자 초대·권한·비활성화·MFA·세션 UI
+- 고객사 사용자 초대·권한·비활성화·MFA·세션 UI와 operator 현장 배정 UI
 - 공통 설정 감사 로그
 - 서명된 OTA package, 단계 배포, 중단과 rollback
 - 외부 API·Webhook·BMS 연동 설정
@@ -238,6 +252,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 현재 도면 에디터는 모니터링에서 열리며 여러 개별 API를 병렬 호출해 부분 저장 위험이 있다.
 - 현재 FloorPlan version은 배경 변경만 표현하고 도형·조명 배치의 전체 revision이 아니다.
 - 현재 변경 API는 조직 소속만 확인하며 역할과 사용자별 현장 범위가 충분히 적용되지 않았다.
+- 현재 DB와 bootstrap·claim 코드는 `owner/admin/operator/viewer` 의미를 사용하므로 새 3단계 역할로 안전하게 migration해야 한다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
