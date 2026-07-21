@@ -1,4 +1,6 @@
 import { Test } from "@nestjs/testing";
+import { NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { FloorEditorService } from "./floor-editor.service";
 
@@ -10,6 +12,15 @@ describe("FloorEditorService", () => {
     floorId: "00000000-0000-4000-8000-000000000003",
     fixtureId: "00000000-0000-4000-8000-000000000004",
     objectId: "00000000-0000-4000-8000-000000000005"
+  };
+  const assignedOperator = {
+    id: "operator-1",
+    organizationId: "service-provider-1",
+    organizationType: "service_provider" as const,
+    email: "operator@example.com",
+    name: "Operator",
+    role: "operator" as const,
+    status: "active" as const
   };
 
   const floor = {
@@ -63,7 +74,7 @@ describe("FloorEditorService", () => {
     ]
   };
 
-  async function createService(prismaOverrides = {}) {
+  async function createService(prismaOverrides = {}, siteAccessOverrides = {}) {
     const prisma: any = {
       floor: {
         findUnique: jest.fn().mockResolvedValue(floor),
@@ -87,16 +98,45 @@ describe("FloorEditorService", () => {
     };
 
     const moduleRef = await Test.createTestingModule({
-      providers: [FloorEditorService, { provide: PrismaService, useValue: prisma }]
+      providers: [
+        FloorEditorService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: SiteAccessService, useValue: { assert: jest.fn(), ...siteAccessOverrides } }
+      ]
     }).compile();
 
-    return { service: moduleRef.get(FloorEditorService), prisma };
+    return { service: moduleRef.get(FloorEditorService), prisma, siteAccess: moduleRef.get(SiteAccessService) };
   }
+
+  it("authorizes assigned service-provider operators to read editor state by site", async () => {
+    const { service, siteAccess } = await createService();
+
+    await expect(service.getEditorState(ids.floorId, assignedOperator as never)).resolves.toMatchObject({
+      floor: { id: ids.floorId }
+    });
+
+    expect(siteAccess.assert).toHaveBeenCalledWith(assignedOperator, ids.siteId, "read");
+  });
+
+  it("authorizes fixture updates with manage capability by site", async () => {
+    const fixture = { id: ids.fixtureId, floor: { siteId: ids.siteId } };
+    const { service, prisma, siteAccess } = await createService({
+      fixture: {
+        findUnique: jest.fn().mockResolvedValue(fixture),
+        update: jest.fn().mockResolvedValue({ ...fixture, x: 100 })
+      }
+    });
+
+    await service.updateFixture(ids.fixtureId, { x: 100 }, assignedOperator as never);
+
+    expect(siteAccess.assert).toHaveBeenCalledWith(assignedOperator, ids.siteId, "manage");
+    expect(prisma.fixture.update).toHaveBeenCalled();
+  });
 
   it("returns floor editor state for the current organization", async () => {
     const { service, prisma } = await createService();
 
-    const result = await service.getEditorState(ids.floorId, ids.organizationId);
+    const result = await service.getEditorState(ids.floorId, assignedOperator);
 
     expect(result.floor).toMatchObject({
       id: ids.floorId,
@@ -115,7 +155,6 @@ describe("FloorEditorService", () => {
     expect(prisma.floor.findUnique).toHaveBeenCalledWith({
       where: { id: ids.floorId },
       include: {
-        site: { select: { organizationId: true } },
         floorPlan: true,
         fixtures: { orderBy: { name: "asc" } },
         mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] }
@@ -123,25 +162,25 @@ describe("FloorEditorService", () => {
     });
   });
 
-  it("rejects floor editor state from another organization", async () => {
+  it("rejects floor editor state when site access cannot read the floor", async () => {
     const { service } = await createService({
       floor: {
         findUnique: jest.fn().mockResolvedValue({
           ...floor,
-          site: { organizationId: ids.otherOrganizationId }
+          siteId: ids.siteId
         }),
         findFirst: jest.fn()
       }
-    });
+    }, { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) });
 
-    await expect(service.getEditorState(ids.floorId, ids.organizationId)).rejects.toThrow("floor not found");
+    await expect(service.getEditorState(ids.floorId, assignedOperator)).rejects.toThrow("site not found");
   });
 
   it("rejects data URLs in floor plan persistence", async () => {
     const { service, prisma } = await createService();
 
     await expect(
-      service.updateFloorPlan(ids.floorId, { imageUrl: "data:image/png;base64,AAAA", width: 1200, height: 800 }, ids.organizationId)
+      service.updateFloorPlan(ids.floorId, { imageUrl: "data:image/png;base64,AAAA", width: 1200, height: 800 }, assignedOperator)
     ).rejects.toThrow("object storage URL");
     expect(prisma.floorPlan.upsert).not.toHaveBeenCalled();
   });
@@ -150,7 +189,7 @@ describe("FloorEditorService", () => {
     const { service, prisma } = await createService();
 
     await expect(
-      service.updateFloorPlan(ids.floorId, { imageUrl: "https://assets.example/other.png", width: 1200, height: 800 }, ids.organizationId)
+      service.updateFloorPlan(ids.floorId, { imageUrl: "https://assets.example/other.png", width: 1200, height: 800 }, assignedOperator)
     ).rejects.toThrow("ready floor assets");
     expect(prisma.floorAsset.count).toHaveBeenCalled();
     expect(prisma.floorPlan.upsert).not.toHaveBeenCalled();
@@ -159,7 +198,7 @@ describe("FloorEditorService", () => {
   it("updates fixture name, ratedWatt, x, y, and size for the current organization", async () => {
     const fixture = {
       id: ids.fixtureId,
-      floor: { site: { organizationId: ids.organizationId } }
+      floor: { siteId: ids.siteId }
     };
     const updatedFixture = {
       id: ids.fixtureId,
@@ -179,7 +218,7 @@ describe("FloorEditorService", () => {
     const result = await service.updateFixture(
       ids.fixtureId,
       { name: " B2-L01-updated ", ratedWatt: 55.5, x: 321, y: 654, size: 36 },
-      ids.organizationId
+      assignedOperator
     );
 
     expect(result).toBe(updatedFixture);
@@ -189,20 +228,18 @@ describe("FloorEditorService", () => {
     });
   });
 
-  it("rejects fixture updates from another organization", async () => {
+  it("rejects fixture updates when site access cannot manage the floor", async () => {
     const { service, prisma } = await createService({
       fixture: {
         findUnique: jest.fn().mockResolvedValue({
           id: ids.fixtureId,
-          floor: { site: { organizationId: ids.otherOrganizationId } }
+          floor: { siteId: ids.siteId }
         }),
         update: jest.fn()
       }
-    });
+    }, { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) });
 
-    await expect(service.updateFixture(ids.fixtureId, { x: 100 }, ids.organizationId)).rejects.toThrow(
-      "fixture not found"
-    );
+    await expect(service.updateFixture(ids.fixtureId, { x: 100 }, assignedOperator)).rejects.toThrow("site not found");
     expect(prisma.fixture.update).not.toHaveBeenCalled();
   });
 
@@ -252,7 +289,7 @@ describe("FloorEditorService", () => {
         locked: false,
         visible: true
       },
-      ids.organizationId
+      assignedOperator
     );
 
     expect(result).toBe(createdObject);
@@ -282,7 +319,7 @@ describe("FloorEditorService", () => {
     const object = {
       id: ids.objectId,
       type: "text",
-      floor: { site: { organizationId: ids.organizationId } }
+      floor: { siteId: ids.siteId }
     };
     const updatedObject = {
       id: ids.objectId,
@@ -306,7 +343,7 @@ describe("FloorEditorService", () => {
     const result = await service.updateObject(
       ids.objectId,
       { text: "입구", x: 80, y: 90, fontSize: 18, zIndex: 20, visible: false },
-      ids.organizationId
+      assignedOperator
     );
 
     expect(result).toBe(updatedObject);
@@ -319,7 +356,7 @@ describe("FloorEditorService", () => {
   it("deletes an object in the current organization", async () => {
     const object = {
       id: ids.objectId,
-      floor: { site: { organizationId: ids.organizationId } }
+      floor: { siteId: ids.siteId }
     };
     const { service, prisma } = await createService({
       floorMapObject: {
@@ -330,7 +367,7 @@ describe("FloorEditorService", () => {
       }
     });
 
-    await expect(service.deleteObject(ids.objectId, ids.organizationId)).resolves.toEqual({ deleted: true });
+    await expect(service.deleteObject(ids.objectId, assignedOperator)).resolves.toEqual({ deleted: true });
     expect(prisma.floorMapObject.delete).toHaveBeenCalledWith({ where: { id: ids.objectId } });
   });
 });

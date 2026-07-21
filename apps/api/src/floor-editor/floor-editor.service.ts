@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { FloorPlanSourceType, Prisma } from "@prisma/client";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 
 interface UpdateFloorPlanInput {
@@ -67,19 +69,22 @@ type FloorPlanData = {
 
 @Injectable()
 export class FloorEditorService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly siteAccess: SiteAccessService
+  ) {}
 
-  async getEditorState(floorId: string, organizationId: string) {
+  async getEditorState(floorId: string, user: AuthenticatedUser) {
     const floor = await this.prisma.floor.findUnique({
       where: { id: floorId },
       include: {
-        site: { select: { organizationId: true } },
         floorPlan: true,
         fixtures: { orderBy: { name: "asc" } },
         mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] }
       }
     });
-    this.assertFloorInOrganization(floor, organizationId);
+    if (!floor) throw new NotFoundException("floor not found");
+    await this.siteAccess.assert(user, floor.siteId, "read");
 
     return {
       floor: {
@@ -132,8 +137,8 @@ export class FloorEditorService {
     };
   }
 
-  async updateFloorPlan(floorId: string, input: UpdateFloorPlanInput, organizationId: string) {
-    await this.assertExistingFloor(floorId, organizationId);
+  async updateFloorPlan(floorId: string, input: UpdateFloorPlanInput, user: AuthenticatedUser) {
+    await this.assertExistingFloor(floorId, user, "manage");
     const data = this.buildFloorPlanData(input);
 
     if (Object.keys(data).length === 0) throw new BadRequestException("floor plan update payload is empty");
@@ -157,14 +162,13 @@ export class FloorEditorService {
     });
   }
 
-  async updateFixture(fixtureId: string, input: UpdateFixtureInput, organizationId: string) {
+  async updateFixture(fixtureId: string, input: UpdateFixtureInput, user: AuthenticatedUser) {
     const fixture = await this.prisma.fixture.findUnique({
       where: { id: fixtureId },
-      include: { floor: { include: { site: { select: { organizationId: true } } } } }
+      include: { floor: { select: { siteId: true } } }
     });
-    if (!fixture || fixture.floor.site.organizationId !== organizationId) {
-      throw new NotFoundException("fixture not found");
-    }
+    if (!fixture) throw new NotFoundException("fixture not found");
+    await this.siteAccess.assert(user, fixture.floor.siteId, "manage");
 
     const data = this.buildFixtureData(input);
     if (Object.keys(data).length === 0) throw new BadRequestException("fixture update payload is empty");
@@ -175,15 +179,15 @@ export class FloorEditorService {
     });
   }
 
-  async createObject(input: CreateObjectInput, organizationId: string) {
-    await this.assertExistingFloor(input.floorId, organizationId);
+  async createObject(input: CreateObjectInput, user: AuthenticatedUser) {
+    await this.assertExistingFloor(input.floorId, user, "manage");
     const data = this.buildCreateObjectData(input);
 
     return this.prisma.floorMapObject.create({ data: data as Prisma.FloorMapObjectUncheckedCreateInput });
   }
 
-  async updateObject(objectId: string, input: UpdateObjectInput, organizationId: string) {
-    await this.assertExistingObject(objectId, organizationId);
+  async updateObject(objectId: string, input: UpdateObjectInput, user: AuthenticatedUser) {
+    await this.assertExistingObject(objectId, user, "manage");
     const data = this.buildUpdateObjectData(input);
     if (Object.keys(data).length === 0) throw new BadRequestException("map object update payload is empty");
 
@@ -193,40 +197,31 @@ export class FloorEditorService {
     });
   }
 
-  async deleteObject(objectId: string, organizationId: string) {
-    await this.assertExistingObject(objectId, organizationId);
+  async deleteObject(objectId: string, user: AuthenticatedUser) {
+    await this.assertExistingObject(objectId, user, "manage");
     await this.prisma.floorMapObject.delete({ where: { id: objectId } });
 
     return { deleted: true };
   }
 
-  private async assertExistingFloor(floorId: string, organizationId: string) {
-    const floor = await this.prisma.floor.findFirst({
-      where: { id: floorId, site: { organizationId } },
-      include: { site: { select: { organizationId: true } } }
+  private async assertExistingFloor(floorId: string, user: AuthenticatedUser, capability: "read" | "manage") {
+    const floor = await this.prisma.floor.findUnique({
+      where: { id: floorId },
+      select: { siteId: true }
     });
     if (!floor) throw new NotFoundException("floor not found");
+    await this.siteAccess.assert(user, floor.siteId, capability);
     return floor;
   }
 
-  private async assertExistingObject(objectId: string, organizationId: string) {
+  private async assertExistingObject(objectId: string, user: AuthenticatedUser, capability: "read" | "manage") {
     const object = await this.prisma.floorMapObject.findUnique({
       where: { id: objectId },
-      include: { floor: { include: { site: { select: { organizationId: true } } } } }
+      include: { floor: { select: { siteId: true } } }
     });
-    if (!object || object.floor.site.organizationId !== organizationId) {
-      throw new NotFoundException("floor map object not found");
-    }
+    if (!object) throw new NotFoundException("floor map object not found");
+    await this.siteAccess.assert(user, object.floor.siteId, capability);
     return object;
-  }
-
-  private assertFloorInOrganization(
-    floor: ({ site: { organizationId: string } } & Record<string, unknown>) | null,
-    organizationId: string
-  ): asserts floor is { site: { organizationId: string } } & Record<string, unknown> {
-    if (!floor || floor.site.organizationId !== organizationId) {
-      throw new NotFoundException("floor not found");
-    }
   }
 
   private buildFloorPlanData(input: UpdateFloorPlanInput) {

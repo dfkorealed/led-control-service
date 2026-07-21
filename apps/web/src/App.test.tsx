@@ -361,6 +361,26 @@ describe("App", () => {
     expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
   });
 
+  it("does not expose floor editing from monitoring to viewers", async () => {
+    authState.user = {
+      id: "viewer-1",
+      organizationId: "organization-1",
+      email: "viewer@example.com",
+      name: "Demo Viewer",
+      role: "viewer",
+      status: "active"
+    };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "도면 편집" })).not.toBeInTheDocument();
+  });
+
   it("renders redesigned landmarks for control statistics and settings", async () => {
     const queryClient = new QueryClient();
     render(

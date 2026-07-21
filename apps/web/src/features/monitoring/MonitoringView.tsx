@@ -117,9 +117,11 @@ function MonitoringDashboard({ data, userRole }: { data: Dashboard; userRole: "o
           <h2>{floor?.name ?? "층 미등록"} 운영 현황</h2>
         </div>
         <div className="monitoring-heading-actions">
-          <button className="secondary-button" disabled={!floor} onClick={() => floor && setEditingFloorId(floor.id)}>
-            도면 편집
-          </button>
+          {userRole !== "viewer" && (
+            <button className="secondary-button" disabled={!floor} onClick={() => floor && setEditingFloorId(floor.id)}>
+              도면 편집
+            </button>
+          )}
           <div className="segmented-control" aria-label="층 선택">
             {data.floors.map((item) => (
               <button

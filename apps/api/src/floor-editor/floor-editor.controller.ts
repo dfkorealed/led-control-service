@@ -11,7 +11,7 @@ export class FloorEditorController {
 
   @Get("floors/:floorId/editor-state")
   getEditorState(@Param("floorId") floorId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.floorEditorService.getEditorState(floorId, user.organizationId);
+    return this.floorEditorService.getEditorState(floorId, user);
   }
 
   @Patch("floors/:floorId/floor-plan")
@@ -20,7 +20,7 @@ export class FloorEditorController {
     @Body() body: Record<string, unknown>,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.floorEditorService.updateFloorPlan(floorId, body, user.organizationId);
+    return this.floorEditorService.updateFloorPlan(floorId, body, user);
   }
 
   @Patch("fixtures/:fixtureId")
@@ -29,12 +29,12 @@ export class FloorEditorController {
     @Body() body: Record<string, unknown>,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.floorEditorService.updateFixture(fixtureId, body, user.organizationId);
+    return this.floorEditorService.updateFixture(fixtureId, body, user);
   }
 
   @Post("floor-map-objects")
   createObject(@Body() body: Record<string, unknown>, @CurrentUser() user: AuthenticatedUser) {
-    return this.floorEditorService.createObject(body as never, user.organizationId);
+    return this.floorEditorService.createObject(body as never, user);
   }
 
   @Patch("floor-map-objects/:objectId")
@@ -43,11 +43,11 @@ export class FloorEditorController {
     @Body() body: Record<string, unknown>,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.floorEditorService.updateObject(objectId, body, user.organizationId);
+    return this.floorEditorService.updateObject(objectId, body, user);
   }
 
   @Delete("floor-map-objects/:objectId")
   deleteObject(@Param("objectId") objectId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.floorEditorService.deleteObject(objectId, user.organizationId);
+    return this.floorEditorService.deleteObject(objectId, user);
   }
 }
