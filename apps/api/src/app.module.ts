@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { AccessModule } from "./access/access.module";
+import { AuditModule } from "./audit/audit.module";
 import { AuthModule } from "./auth/auth.module";
 import { CommandsModule } from "./commands/commands.module";
 import { EnergyModule } from "./energy/energy.module";
@@ -15,6 +17,8 @@ import { SitesModule } from "./sites/sites.module";
   imports: [
     PrismaModule,
     AuthModule,
+    AccessModule,
+    AuditModule,
     SitesModule,
     CommandsModule,
     EnergyModule,
