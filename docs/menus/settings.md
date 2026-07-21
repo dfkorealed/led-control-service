@@ -1,89 +1,282 @@
-# 설정 메뉴 기능 현황
+# 설정 메뉴 기능 현황 및 구현 설계
 
-> PKI onboarding은 코드 완료·실기 미검증이다. 실물 장비와 offline Root/Vault backup 승인 증거는 별도 확인 전까지 완료로 표시하지 않는다.
+> 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-07-15
+기준일: 2026-07-21
+
+## 목표와 기능 경계
+
+- 설정 메뉴를 현장 구성, 도면 관리, 장비 시운전, 운영 정책, 보안, 유지보수의 관리 허브로 만든다.
+- 실시간 상태 확인은 모니터링, 조명 명령 실행은 제어, 에너지 분석은 통계에서 담당한다.
+- 모니터링의 도면 에디터는 설정의 `도면 관리`로 이동하고 모니터링 도면은 읽기 전용으로 유지한다.
+- 최초 현장 설정, Gateway claim, 최초 provisioning은 `owner/admin`만 수행한다.
+- 설치 완료 후 도면 배경, 도형, 조명 배치와 일반 조명 정보는 `operator`도 직접 편집할 수 있다.
+- 설정값은 임의 JSON 한 필드에 모으지 않고 검증 가능한 명시적 모델과 컬럼으로 관리한다.
+
+## 권한 기준
+
+| 기능 | owner | admin | operator | viewer |
+| --- | --- | --- | --- | --- |
+| 설정 조회 | 허용 | 허용 | 허용 | 허용 |
+| 최초 현장·층·Gateway 설치 | 허용 | 허용 | 금지 | 금지 |
+| BLE Mesh 검색·provisioning | 허용 | 허용 | 금지 | 금지 |
+| 도면 배경·도형 편집 | 허용 | 허용 | 허용 | 금지 |
+| 조명 이름·정격전력·위치 편집 | 허용 | 허용 | 허용 | 금지 |
+| 그룹 관리 | 허용 | 허용 | 허용 | 금지 |
+| 도면 버전 복구 | 허용 | 허용 | 허용 | 금지 |
+| 층 보관·Gateway 해제·장비 초기화 | 허용 | 허용 | 금지 | 금지 |
+| 운영 정책·알림·사용자·OTA 변경 | 허용 | 허용 | 조회 | 조회 |
+| 편집 잠금 강제 해제 | 허용 | 허용 | 금지 | 금지 |
+
+- 프론트의 버튼 노출과 무관하게 모든 변경 API가 서버에서 조직, 현장 접근 범위와 역할을 검사한다.
+- `owner/admin`은 조직 내 모든 현장에 접근하고 `operator/viewer`는 `SiteMembership`으로 할당된 현장에만 접근한다.
+- 마지막 owner는 비활성화하거나 권한을 낮출 수 없다.
+- 현장 초기화, Gateway 해제, 인증서 폐기, 전체 OTA에는 재인증과 감사 로그를 적용한다.
+
+## 설정 정보 구조
+
+| 하위 메뉴 | 책임 |
+| --- | --- |
+| 설정 개요 | 현장, 조명, Gateway, 사용자, 펌웨어 상태 요약과 필요한 조치 표시 |
+| 현장 및 층 | 현장 기본 정보, 층 추가·수정·정렬·보관 |
+| 도면 관리 | 층별 배경 도면, Konva 편집기, 버전 조회·복구 |
+| 조명 및 그룹 | 조명 일반 정보, 그룹과 구성원 일괄 관리 |
+| Gateway 및 네트워크 | Claim, 담당 층·구역, 연결·Mesh·인증서 진단 |
+| 설치 및 시운전 | BLE Mesh 검색, provisioning, 배치, 통신 품질 검사, 시운전 보고서 |
+| 운영 정책 | 오프라인·stale·명령 제한 시간, 디밍 범위, 정전 복구 정책 |
+| 알림 | 장애 조건, 수신자, 채널, 지연·cooldown, 점검 시간 |
+| 사용자 및 보안 | 초대, 역할, 현장 접근, MFA, 세션, 감사 로그 |
+| 펌웨어 및 유지보수 | 버전, 서명된 OTA, 단계 배포, 중단·롤백, 인증서 수명주기 |
+| 외부 연동 | API key, Webhook, BMS/BACnet 연동과 접근 범위 |
+
+- PC 웹에서는 설정 전용 좌측 메뉴와 우측 상세 화면을 사용한다.
+- 모바일 WebView에서는 좌측 메뉴를 상단 선택 메뉴로 바꾸고 동일한 웹 컴포넌트와 API를 사용한다.
+- 설정과 에디터는 URL을 가지며 새로고침, 브라우저 뒤로 가기와 직접 진입을 지원한다.
 
 ## 구현 완료
 
-- 현장이 없으면 `초기 설치 설정` 마법사를 표시한다.
-- 초기 설치에서 현장명, 주소, kWh 단가, 층 이름과 층 level을 등록한다. 이 단계에서는 Gateway 레코드를 만들지 않는다.
-- 현장 생성 후 제조 원장의 시리얼과 일회성 등록 코드로 gateway를 claim한다. 성공한 장비만 Gateway 레코드와 현장 assignment를 가진다.
-- 초기 설치 화면과 초기 설치 API는 gateway firmware version을 사용자 입력값으로 사용하지 않고, gateway heartbeat의 `firmwareVersion` 값으로 자동 갱신한다.
-- 현장, 층/도면, 그룹, 게이트웨이, OTA, 사용자 권한 설정 카드를 표시한다.
-- 게이트웨이 카드에 실제 gateway 이름, 시리얼, 온라인/오프라인 상태를 표시한다.
-- 현장이 있으면 `조명 등록` 패널을 제공한다.
-- 조명 등록 세션을 시작할 수 있다.
-- 발견된 BLE Mesh 후보 노드를 표시한다.
-- 후보 노드 점멸 확인 명령을 보낼 수 있다.
-- 후보 노드 등록 요청 시 API가 pending fixture 정보를 저장하고 gateway `provision-device` 명령을 발행한다.
-- gateway `provisioning-completed` 이벤트 수신 시 API가 `MeshNode`와 `Fixture`를 생성한다.
-- gateway `provisioning-failed` 이벤트 수신 시 후보 노드를 실패 상태와 실패 사유로 갱신한다.
-- 등록 세션을 완료할 수 있다.
-- 백엔드에 제조 장비 원장 기반 `POST /gateways/claim` API를 구현했다. 조직의 owner/admin만 현장에 장비를 연결할 수 있고 일회성 claim code는 성공 시 폐기된다.
-- 백엔드에 장비 인증서 기반 `POST /gateway-bootstrap` API를 구현했다. 인증된 TLS peer certificate의 SHA-256 fingerprint와 제조 원장을 대조한 뒤 assignment만 반환한다.
-- claim 성공/실패 감사 로그와 15분 내 연속 실패 rate limit을 적용했다.
-- Raspberry Pi Docker appliance가 실제 BlueZ scan/provisioning adapter를 사용하며 mesh identity/token과 fixture-unicast mapping을 영속 저장한다.
-- 등록 완료 시 discovered node ID를 Fixture ID로 사용해 gateway mapping과 이후 제어 ID가 일치한다.
-- ARM64 image build/checksum/deploy 스크립트와 Pi 설치·인증서·ESP32 적용·복구 runbook을 제공한다.
-- 실제 Raspberry Pi gateway가 MQTT scan 명령을 처리할 때만 후보 조명이 나타나며 mock 검색 실행 경로는 제거했다.
-- 파괴적인 demo seed를 제거하고, 빈 DB에서만 owner를 생성하는 `auth:bootstrap-owner` 명령을 제공한다.
+- 현장이 없으면 초기 설치 설정 마법사를 표시한다.
+- 초기 설치에서 현장명, 주소, kWh 단가, 층 이름과 level을 등록하며 Gateway 레코드는 만들지 않는다.
+- 현장 생성 후 제조 원장의 시리얼과 일회성 claim code로 Gateway를 연결한다.
+- Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
+- 설정 화면에 현장, 층/도면, 그룹, Gateway 요약 카드를 표시한다.
+- Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
+- 현장이 있으면 조명 등록 세션, BLE Mesh 후보 목록과 provisioning 요청 UI를 제공한다.
+- provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다.
+- 제조 장비 원장 기반 `POST /gateways/claim`과 장비 인증서 기반 `POST /gateway-bootstrap`을 구현했다.
+- Claim 성공·실패 감사 로그와 연속 실패 rate limit을 적용했다.
+- Raspberry Pi appliance가 실제 BlueZ scan/provisioning adapter와 영속 Mesh identity를 사용한다.
+- 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
+- Konva 도면 에디터에 도면 업로드, 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 구현했다.
+- PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
+
+## 확정 구현 설계
+
+### 화면과 라우팅
+
+- 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL로 표현한다.
+- 설정 하위 경로는 `/settings/floors`, `/settings/floor-plans`, `/settings/fixtures`, `/settings/gateways`, `/settings/commissioning`, `/settings/security` 형식으로 구성한다.
+- 도면 편집기는 `/settings/floor-plans/:floorId/edit` 전체 작업 화면으로 연다.
+- `MonitoringView`에서 에디터 조회 상태와 `도면 편집` 버튼을 제거한다.
+- 모니터링 empty state는 설치 UI를 직접 포함하지 않고 권한에 맞는 설정 단계로 안내한다.
+
+### 도면 에디터 저장과 버전
+
+- 기존 여러 개별 API의 `Promise.all` 저장을 변경 항목 기반 단일 저장 API로 교체한다.
+- `PUT /floors/:floorId/editor-state`가 도면, 도형, 조명 배치를 하나의 Prisma transaction으로 저장한다.
+- 요청은 `expectedRevision`, 도면 변경, 조명 변경, 객체 생성·수정·삭제 목록을 포함한다.
+- 서버는 조직·현장·역할, 모든 대상의 층 소속, asset 준비 상태와 현재 revision을 검증한다.
+- 하나라도 실패하면 전체 변경을 rollback하고 부분 저장을 허용하지 않는다.
+- `Floor.mapRevision`은 배경뿐 아니라 층 전체 편집 상태의 optimistic concurrency token이다.
+- `FloorMapRevision`은 수정자, 버전, 변경 요약, 복구 원본과 전체 복구 스냅숏을 보관한다.
+- 과거 버전 복구는 기존 버전을 덮어쓰지 않고 새 버전을 생성한다.
+- 복구는 배경, 도형, 기존 조명의 표시 정보만 대상으로 하며 Mesh 주소나 장비 등록 상태를 생성·삭제하지 않는다.
+- 실존하지 않는 과거 조명은 건너뛰고 복구 결과에 경고를 포함한다.
+
+### 편집 충돌과 파일 보안
+
+- Redis에 층별 90초 편집 lease를 두고 편집 화면이 30초마다 갱신한다.
+- 다른 사용자가 편집 중이면 읽기 전용으로 열고 수정자와 시작 시각을 표시한다.
+- owner/admin의 강제 lease 해제는 감사 로그를 남긴다.
+- lease와 별도로 revision 불일치 시 `409 Conflict`를 반환하고 강제 덮어쓰기를 허용하지 않는다.
+- 변경사항이 있으면 화면 이탈을 확인하고 네트워크 오류 시 클라이언트 편집 상태를 유지한다.
+- 도면 저장소는 비공개로 전환하고 만료 시간이 짧은 서명 URL로 업로드·조회한다.
+- 확장자 대신 실제 MIME을 검사하고 이미지는 재인코딩하며 PDF는 격리된 worker에서 렌더링한다.
+- 원본 PDF는 다운로드 전용으로 제공하며 실패하거나 검역되지 않은 파일은 현재 도면에 연결하지 않는다.
+
+### 현장과 층
+
+- 현장명, 주소, 시간대, 통화와 kWh 요금을 수정한다.
+- 층 이름, level, 표시 순서와 활성 상태를 관리한다.
+- 층은 hard delete 대신 archive하며 조명이나 Gateway 담당 범위가 남아 있으면 archive를 차단한다.
+- `Site.timezone`, `Site.currency`, `Floor.status`, `Floor.displayOrder`를 명시적 필드로 추가한다.
+
+### 조명과 그룹
+
+- 1,000개 이상 조명을 서버 페이지네이션하고 층, 상태, 그룹, 통신 품질로 필터링한다.
+- operator 이상은 조명 이름, 정격전력, 도면 좌표와 표시 크기를 수정한다.
+- 제품 serial, Mesh 주소, 펌웨어, 인증 관련 값은 읽기 전용이다.
+- 그룹 생성·수정·archive와 구성원의 일괄 추가·제외를 지원한다.
+- 장비 교체는 논리 Fixture와 전력 이력을 유지하고 연결된 MeshNode만 교체하는 별도 workflow로 구현한다.
+
+### Gateway와 시운전
+
+- 다중 Gateway 목록에서 이름, serial, heartbeat, 펌웨어, 인증서 만료, Mesh 품질과 담당 범위를 표시한다.
+- `GatewayFloorCoverage`로 층별 주·보조 Gateway를 지정한다.
+- 일상 설정과 분리된 시운전 화면에서 Claim, 검색, provisioning, 임시 배치, 품질 검사를 순서대로 수행한다.
+- 완료 시 등록 성공·실패, Mesh 주소, 펌웨어, RSSI, hop count, 명령 성공률과 작업자를 보고서로 보존한다.
+- claim code, private key와 Mesh key는 UI, DB 원문과 감사 로그에 노출하지 않는다.
+
+### 운영 정책과 알림
+
+- `SiteOperationPolicy`에 Gateway offline, Fixture stale, 명령 ACK·완료 제한 시간, 디밍 범위와 정전 복구 동작을 저장한다.
+- API와 MQTT 처리기가 고정 상수 대신 현장 정책을 사용한다.
+- `AlertRule`, `NotificationChannel`, `NotificationRecipient`, `NotificationDelivery`로 조건, 수신자와 결과를 분리한다.
+- 반복 장애에는 지연과 cooldown을 적용하고 점검 시간에는 지정 알림을 억제한다.
+
+### 사용자, 보안과 감사
+
+- `SiteMembership`으로 operator/viewer의 현장 접근 범위를 제한한다.
+- 이메일 초대, 역할 변경, 비활성화, 세션 강제 종료와 owner/admin MFA를 제공한다.
+- 공통 `AuditLog`에 작업자, 현장, action, 대상, 변경 요약, 결과, IP, User-Agent와 관련 revision을 기록한다.
+- 비밀번호, claim code, private key와 인증서 원문은 감사 로그에 저장하지 않는다.
+
+### 펌웨어와 유지보수
+
+- 서명된 OTA package에 대상 제품, hardware revision, firmware version과 SHA-256을 기록한다.
+- 시험 장비, 일부 층, 전체 현장 순서의 단계 배포와 유지보수 시간을 지원한다.
+- Gateway와 ESP32-H2가 서명과 hash를 검증하며 웹은 바이너리를 장비에 직접 전달하지 않는다.
+- 배포 진행률, fixture별 실패, 중단, rollback과 인증서 갱신·폐기 상태를 관리한다.
+
+## API와 데이터 모델 변경 예정
+
+### 주요 API
+
+- `GET/PATCH /sites/:siteId/settings`
+- `POST /sites/:siteId/floors`
+- `PATCH /floors/:floorId`
+- `POST /floors/:floorId/archive`
+- `PUT /sites/:siteId/floors/order`
+- `GET/PUT /floors/:floorId/editor-state`
+- `GET /floors/:floorId/editor-revisions`
+- `POST /floors/:floorId/editor-revisions/:revisionId/restore`
+- `POST/DELETE /floors/:floorId/editor-lease`
+- `GET /sites/:siteId/fixtures`
+- `PATCH /fixtures/:fixtureId/profile`
+- `POST/PATCH /sites/:siteId/groups`
+- `PUT /fixture-groups/:groupId/fixtures`
+- `GET/PATCH /sites/:siteId/operation-policy`
+- `GET /sites/:siteId/audit-logs`
+
+### 주요 신규·확장 모델
+
+- `SiteMembership`
+- `FloorMapRevision`
+- `GatewayFloorCoverage`
+- `SiteOperationPolicy`
+- `AlertRule`, `NotificationChannel`, `NotificationRecipient`, `NotificationDelivery`
+- `AuditLog`
+- OTA package, deployment, target와 result 모델
+- `Site.timezone`, `Site.currency`
+- `Floor.status`, `Floor.displayOrder`, `Floor.mapRevision`
+
+DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 같은 커밋에서 갱신한다.
+
+## 구현 순서
+
+1. 현장 접근 범위와 역할 Guard
+2. URL 기반 설정 shell과 역할별 navigation
+3. 현장·층 CRUD와 archive
+4. 도면 에디터를 모니터링에서 설정으로 이동
+5. 단일 transaction 저장, revision과 복구
+6. Redis 편집 lease와 비공개 asset pipeline
+7. 조명 정보와 그룹 관리
+8. 다중 Gateway coverage와 시운전 화면 정리
+9. 운영 정책과 알림
+10. 사용자, MFA, 세션과 공통 감사 로그
+11. 서명된 OTA와 유지보수
+
+- 각 단계는 실패 테스트, 최소 구현, 관련 테스트 통과, 메뉴·DB 문서 갱신과 독립 커밋으로 완료한다.
+- API를 먼저 배포해 이전 웹과 호환한 뒤 웹을 전환하고, 사용되지 않는 개별 에디터 변경 API를 제거한다.
+- 기존 Floor, FloorPlan, Fixture와 FloorMapObject는 삭제하거나 재생성하지 않는 비파괴 migration을 사용한다.
+
+## 테스트와 완료 기준
+
+- 백엔드 단위 테스트: 역할, 현장 범위, 입력 검증, 층 archive 조건, revision 충돌
+- DB 통합 테스트: 원자 저장 rollback, revision 생성·복구, 다른 조직 격리
+- 프론트 테스트: 역할별 메뉴, 읽기 전용, 편집 dirty state, API 오류와 충돌 UI
+- 웹 E2E: admin 설치 후 operator 도면 편집, 모니터링 반영, viewer 변경 차단
+- 동시성 테스트: 동일 층의 두 사용자, lease 만료, 강제 해제와 `409`
+- 성능 테스트: 조명 1,000개 로딩·이동·선택·변경분 저장
+- 보안 테스트: 다른 조직 IDOR, 직접 API 호출, 악성 파일, private asset URL 만료
+- Hardware E2E: Raspberry Pi와 ESP32-H2의 Claim, provisioning, 상태 수신, 제어와 OTA
+- 실제 Pi/ESP32-H2 반복 로그와 firmware hash가 없으면 Hardware E2E 또는 양산 검증 완료로 표시하지 않는다.
 
 ## 미구현
 
-- 현장 정보 수정
-- 층 추가/수정/삭제 UI
-- 도면 파일 업로드
-- 조명 위치 편집
-- fixture group 생성/수정/삭제
-- 여러 gateway 추가 등록과 QR claim UI
-- gateway별 층/구역 coverage 설정
-- ESP32-H2 factory reset UI/명령 연동
-- provisioning 전 vendor identify 점멸 protocol
-- 사용자 초대, 권한 변경, 계정 비활성화
-- OTA 패키지 업로드
-- OTA 배포 생성, 중단, 롤백
-- 설정 변경 감사 로그
-- 현장 삭제 또는 초기화 workflow
+- URL 기반 설정 하위 navigation
+- 역할별 설정 UI와 서버 공통 Roles Guard
+- SiteMembership 기반 현장 범위
+- 현장 정보 수정과 층 CRUD/archive UI
+- 도면 에디터의 설정 메뉴 이동
+- 도면 단일 transaction 저장, revision, rollback과 동시 편집 lease
+- 비공개 도면 asset과 보안 처리 pipeline
+- 조명 정보·그룹 CRUD 관리 화면
+- 다중 Gateway와 층 coverage
+- ESP32-H2 factory reset과 장비 교체 workflow
+- 시운전 보고서
+- 운영 정책과 알림
+- 사용자 초대·권한·비활성화·MFA·세션 UI
+- 공통 설정 감사 로그
+- 서명된 OTA package, 단계 배포, 중단과 rollback
+- 외부 API·Webhook·BMS 연동 설정
+- 스케줄·센서·이벤트·장면 설정은 제어 메뉴의 후속 범위로 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
 
-- 설정 카드는 대부분 요약 표시이며 상세 편집 화면으로 연결되지 않는다.
-- 최초 gateway의 수동 생성 우회를 제거하고 제조 원장 기반 claim UI를 구현했다. 여러 gateway 추가 등록 UX는 아직 없다.
-- gateway firmware version은 heartbeat 기반 자동 갱신으로 바뀌었지만, 실제 라즈베리파이 배포 시 정확한 `GATEWAY_FIRMWARE_VERSION` 주입 정책이 필요하다.
-- `gateway:enroll-inventory` 명령으로 `GatewayInventory`에 serial, scrypt claim code hash, 인증서 fingerprint를 비파괴 적재한다. 양산 제조 PKI/ERP 연동 전까지 사용하는 운영 도구다.
-- 운영 mTLS에는 API server certificate/key, device CA 배포와 인증서 폐기·교체 절차가 필요하다. 이 값들은 Git이나 DB에 private key 형태로 저장하지 않는다.
-- 조명 등록은 첫 번째 floor와 첫 번째 gateway를 중심으로 동작하므로 층 선택/게이트웨이 선택 UI가 필요하다.
-- 등록된 조명 위치는 자동 좌표로 배치되며 실제 도면 위 위치 조정이 필요하다.
-- 표준 BLE Mesh는 provisioning 전 Generic 모델 점멸이 불가능하므로 현재 식별 명령은 명시적 미지원 오류를 반환한다. 유지하려면 vendor provisioning identify protocol이 필요하다.
-- Pi Phase 0의 network 생성/token 재연결은 확인했지만 실제 ESP32-H2 검색·등록·model bind는 아직 실기 검증이 필요하다.
-- ESP32-H2가 이미 provisioning된 상태면 검색되지 않으므로 `erase-flash` 또는 펌웨어 factory reset 절차가 필요하다.
-- 정적 RF 안내 패널은 기능처럼 보이지 않도록 화면에서 제거했다. 실제 RF 시뮬레이션과 heatmap은 미구현 상태다.
-- 초기 현장 생성과 gateway claim을 분리했고 수동 Gateway 생성 API를 제거했다. 제조 원장 적재, 웹 claim, appliance bootstrap의 실장비 연속 검증은 아직 필요하다.
+- 현재 설정 화면은 네 개 요약 카드와 Gateway claim 또는 조명 등록 패널 중심이며 상세 관리 화면이 없다.
+- 현재 도면 에디터는 모니터링에서 열리며 여러 개별 API를 병렬 호출해 부분 저장 위험이 있다.
+- 현재 FloorPlan version은 배경 변경만 표현하고 도형·조명 배치의 전체 revision이 아니다.
+- 현재 변경 API는 조직 소속만 확인하며 역할과 사용자별 현장 범위가 충분히 적용되지 않았다.
+- 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
+- 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
+- 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
+
+## 경쟁 서비스 참고 근거
+
+- Emblaze: Planner의 도면·그룹·센서, Autopilot의 시운전, Dashboard의 모니터링·유지보수 분리
+  - https://emblaze.co.kr/support/faq/
+- Silvair: 웹 planning과 모바일 commissioning, area·zone·scene·schedule·mesh quality·보고서
+  - https://silvair.com/support/faq/
+- Casambi Pro: PC planning, tablet commissioning, project·layout·group·cloud gateway 관리
+  - https://support.casambi.com/support/solutions/articles/12000102096-introduction-to-casambi-pro
+- Signify Interact: Expert와 User의 그룹·zone·firmware·schedule 관리 권한 분리
+  - https://sme.interact-lighting.com/web/help/interact-pro/2.7/system-guide/access-per-role.html
+- Lutron Vive: schedule, occupancy, daylight, load shed와 energy·health 운영 기능
+  - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
 
+- `apps/web/src/App.tsx`
 - `apps/web/src/features/settings/SettingsView.tsx`
-- `apps/web/src/features/setup/SetupWizard.tsx`
-- `apps/web/src/features/setup/GatewayClaimPanel.tsx`
-- `apps/web/src/features/registration/RegistrationPanel.tsx`
-- `apps/web/src/features/rf/RfPlanningPanel.tsx`
-- `apps/web/src/api/setup.ts`
-- `apps/api/src/mqtt/mqtt.service.ts`
-- `apps/gateway/src/gateway.ts`
-- `apps/gateway/src/index.ts`
-- `apps/web/src/api/registration.ts`
+- `apps/web/src/features/monitoring/MonitoringView.tsx`
+- `apps/web/src/features/floor-editor`
+- `apps/web/src/features/setup`
+- `apps/web/src/features/registration`
+- `apps/web/src/api/floor-editor.ts`
+- `apps/api/src/floor-editor`
 - `apps/api/src/setup`
-- `apps/api/prisma/enroll-gateway-inventory.ts`
+- `apps/api/src/gateway-onboarding`
 - `apps/api/src/registration`
 - `apps/api/prisma/schema.prisma`
-- `apps/api/prisma/migrations/20260710093000_add_provisioning_pending_fixture/migration.sql`
-- `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
-- `apps/gateway/compose.raspberry-pi.yml`
-- `docs/runbooks/raspberry-pi-gateway-appliance.md`
-- `packages/shared/src/mqtt.ts`
 - `packages/shared/src/schemas.ts`
+- `docs/database-schema.md`
+- `docs/menus/monitoring.md`
+- `docs/menus/control.md`
 
 ## 갱신 규칙
 
-설정 메뉴의 현장, 층, 도면, 그룹, 게이트웨이, 사용자 권한, OTA, RF 계획 기능이 바뀌면 이 문서를 같은 작업 안에서 갱신한다.
+- 설정 메뉴의 현장, 층, 도면, 조명, 그룹, Gateway, 시운전, 운영 정책, 알림, 사용자, 보안, OTA와 연동 기능을 구현·수정·삭제할 때 이 문서를 같은 작업에서 갱신한다.
+- 도면 에디터 또는 등록 진입점이 바뀌면 `docs/menus/monitoring.md`도 같은 작업에서 갱신한다.
+- DB schema가 바뀌면 `docs/database-schema.md`를 같은 작업에서 갱신한다.
+- 자동 테스트 완료, 코드 완료, Raspberry Pi 검증과 ESP32-H2 Hardware E2E를 별도 상태로 기록한다.
