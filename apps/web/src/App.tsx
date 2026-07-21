@@ -7,7 +7,9 @@ import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
 import { MonitoringView } from "./features/monitoring/MonitoringView";
 import { SettingsShell } from "./features/settings/SettingsShell";
+import { SettingsPlaceholderView } from "./features/settings/SettingsPlaceholderView";
 import { SettingsView } from "./features/settings/SettingsView";
+import { settingsPlaceholderSections } from "./features/settings/settings-sections";
 import { StatisticsView } from "./features/statistics/StatisticsView";
 import "./styles.css";
 
@@ -108,6 +110,13 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
             <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} />} />
             <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute />} />
+            {settingsPlaceholderSections.map((section) => (
+              <Route
+                key={section.path}
+                path={section.path.replace("/settings/", "")}
+                element={<SettingsPlaceholderView section={section} userRole={user.role} />}
+              />
+            ))}
             <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
           </Route>
           <Route path="*" element={<Navigate to={`/monitoring${location.search}`} replace />} />

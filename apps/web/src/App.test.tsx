@@ -6,6 +6,7 @@ import type { InitialSiteSetupRequest } from "./api/setup";
 import { mockDashboard, mockEnergyEstimate, mockRegistrationSession } from "./test/fixtures";
 import type { RegistrationSession } from "./api/registration";
 import { App } from "./App";
+import { settingsSectionsFor } from "./features/settings/settings-sections";
 
 const authState = vi.hoisted(() => ({
   user: {
@@ -49,10 +50,10 @@ vi.mock("./api/client", () => ({
     if (path === "/sites/site-2/dashboard?includeFixtures=true") {
       return Promise.resolve({ ...mockDashboard, site: { id: "site-2", name: "물류센터" } });
     }
-    const fixturePageMatch = path.match(/^\/floors\/([^/]+)\/fixtures\?/);
+    const fixturePageMatch = path.match(/^\/sites\/([^/]+)\/floors\/([^/]+)\/fixtures\?/);
     if (fixturePageMatch) {
       const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
-      const fixtures = dashboard.floors.find((floor) => floor.id === fixturePageMatch[1])?.fixtures ?? [];
+      const fixtures = dashboard.floors.find((floor) => floor.id === fixturePageMatch[2])?.fixtures ?? [];
       return Promise.resolve({ items: fixtures, nextCursor: null });
     }
     if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve(apiState.commandStatus);
@@ -142,7 +143,8 @@ vi.mock("./api/client", () => ({
     if (path.endsWith("/complete")) return Promise.resolve({ ...mockRegistrationSession, status: "completed" });
     if (path === "/commands/dimming") return Promise.resolve({ id: "command-created-1", dispatchCount: 1 });
     return Promise.resolve({ status: "accepted" });
-  })
+  }),
+  apiRequest: vi.fn(() => Promise.resolve({}))
 }));
 
 describe("App", () => {
@@ -216,6 +218,54 @@ describe("App", () => {
 
     expect(await screen.findByText("물류센터")).toBeInTheDocument();
     expect(apiGet).toHaveBeenCalledWith("/sites/site-2/dashboard");
+  });
+
+  it("loads selected-site fixtures through the site-scoped URL", async () => {
+    window.history.pushState({}, "", "/monitoring?siteId=site-2");
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("물류센터");
+
+    await waitFor(() => {
+      expect(apiGet).toHaveBeenCalledWith(
+        `/sites/site-2/floors/${mockDashboard.floors[0].id}/fixtures?limit=200`
+      );
+    });
+  });
+
+  it.each(
+    settingsSectionsFor("operator").filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
+  )("renders a destination for the $label settings link", async (section) => {
+    window.history.pushState({}, "", `${section.path}?siteId=site-1`);
+    authState.user = { ...authState.user!, role: "operator" };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { name: section.label })).toBeInTheDocument();
+    expect(screen.getByText("이 설정 화면은 준비 중입니다.")).toBeInTheDocument();
+  });
+
+  it("redirects a viewer's unavailable settings URL to the settings overview", async () => {
+    window.history.pushState({}, "", "/settings/floors?siteId=site-2");
+    authState.user = { ...authState.user!, role: "viewer" };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { name: "운영 설정" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "현장 및 층" })).not.toBeInTheDocument();
   });
 
   it("renders the approved control center landmarks", async () => {

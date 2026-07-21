@@ -28,7 +28,7 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
-  const fixtureQuery = useFloorFixtures(floor?.id, siteId);
+  const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");

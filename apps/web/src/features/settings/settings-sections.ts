@@ -6,7 +6,7 @@ export interface SettingsSection {
   roles: AuthUser["role"][];
 }
 
-const settingsSections: SettingsSection[] = [
+export const settingsSections: SettingsSection[] = [
   { label: "설정 개요", path: "/settings", roles: ["operator", "admin", "viewer"] },
   { label: "현장 및 층", path: "/settings/floors", roles: ["operator", "admin"] },
   { label: "도면 관리", path: "/settings/floor-plans", roles: ["operator", "admin", "viewer"] },
@@ -24,3 +24,7 @@ const settingsSections: SettingsSection[] = [
 export function settingsSectionsFor(role: AuthUser["role"]) {
   return settingsSections.filter((section) => section.roles.includes(role));
 }
+
+export const settingsPlaceholderSections = settingsSections.filter(
+  (section) => !["/settings", "/settings/floor-plans"].includes(section.path)
+);

@@ -15,7 +15,7 @@ export function SiteSwitcher({ sites, selectedSiteId }: SiteSwitcherProps) {
   function selectSite(siteId: string) {
     const search = new URLSearchParams(location.search);
     search.set("siteId", siteId);
-    navigate({ pathname: location.pathname, search: search.toString() });
+    navigate({ pathname: location.pathname, search: search.toString(), hash: location.hash });
   }
 
   return (

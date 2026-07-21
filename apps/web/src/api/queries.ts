@@ -82,14 +82,15 @@ export function useFloorFixtures(floorId: string | undefined, siteId?: string) {
   return useInfiniteQuery({
     queryKey: ["floor-fixtures", siteId ?? "default", floorId],
     queryFn: ({ pageParam }) => {
+      if (!floorId || !siteId) throw new Error("siteId and floorId are required to load fixtures");
       const search = new URLSearchParams({ limit: "200" });
       if (pageParam) search.set("cursor", pageParam);
       return apiGet<{ items: FixtureSnapshot[]; nextCursor: string | null }>(
-        `/floors/${floorId}/fixtures?${search.toString()}`
+        `/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/fixtures?${search.toString()}`
       );
     },
     initialPageParam: "" as string,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
-    enabled: Boolean(floorId)
+    enabled: Boolean(floorId && siteId)
   });
 }
