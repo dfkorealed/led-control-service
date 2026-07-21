@@ -35,7 +35,7 @@ describe("AuthService", () => {
     const prisma: {
       invitation: {
         findUnique: jest.Mock;
-        update: jest.Mock;
+        updateMany: jest.Mock;
       };
       user: {
         findUnique: jest.Mock;
@@ -45,7 +45,7 @@ describe("AuthService", () => {
     } = {
       invitation: {
         findUnique: jest.fn().mockResolvedValue(invitation),
-        update: jest.fn().mockResolvedValue({ ...invitation, acceptedAt: now })
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
       user: {
         findUnique: jest.fn().mockResolvedValue(null),
@@ -81,10 +81,56 @@ describe("AuthService", () => {
         passwordHash: expect.any(String)
       })
     });
-    expect(prisma.invitation.update).toHaveBeenCalledWith({
-      where: { id: invitation.id },
+    expect(prisma.invitation.updateMany).toHaveBeenCalledWith({
+      where: { id: invitation.id, acceptedAt: null },
       data: { acceptedAt: now }
     });
+  });
+
+  it("does not create a user when another signup already consumed an email-optional invitation", async () => {
+    const invitation = {
+      id: "invitation-1",
+      organizationId: "organization-1",
+      email: null,
+      role: "operator",
+      organization: { type: "service_provider" },
+      expiresAt: new Date("2026-07-09T00:00:00.000Z"),
+      acceptedAt: null
+    };
+    const transactionClient = {
+      invitation: {
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 })
+      },
+      user: {
+        create: jest.fn().mockResolvedValue({ id: "second-user" })
+      }
+    };
+    const prisma = {
+      invitation: {
+        findUnique: jest.fn().mockResolvedValue(invitation)
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue(null)
+      },
+      $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(transactionClient))
+    };
+    const service = new AuthService(prisma as unknown as PrismaService);
+
+    await expect(
+      service.signup({
+        token: "shared-invitation-token",
+        email: "second-operator@example.com",
+        name: "Second Operator",
+        password: "correct horse battery staple"
+      })
+    ).rejects.toThrow("Invitation is invalid or expired");
+
+    expect(transactionClient.invitation.updateMany).toHaveBeenCalledWith({
+      where: { id: invitation.id, acceptedAt: null },
+      data: { acceptedAt: now }
+    });
+    expect(transactionClient.user.create).not.toHaveBeenCalled();
   });
 
   it("rejects signup when the invitation email does not match", async () => {

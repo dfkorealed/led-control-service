@@ -71,6 +71,14 @@ export class AuthService {
 
     const passwordHash = await this.hashPassword(input.password);
     const user = await this.db().$transaction(async (tx: any) => {
+      const consumedInvitation = await tx.invitation.updateMany({
+        where: { id: invitation.id, acceptedAt: null },
+        data: { acceptedAt: new Date() }
+      });
+      if (consumedInvitation.count !== 1) {
+        throw new BadRequestException("Invitation is invalid or expired");
+      }
+
       const createdUser = await tx.user.create({
         data: {
           organizationId: invitation.organizationId,
@@ -80,10 +88,6 @@ export class AuthService {
           status: "active",
           passwordHash
         }
-      });
-      await tx.invitation.update({
-        where: { id: invitation.id },
-        data: { acceptedAt: new Date() }
       });
       return createdUser;
     });
