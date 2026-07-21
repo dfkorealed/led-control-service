@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { ForbiddenException } from "@nestjs/common";
+import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { Roles } from "./roles.decorator";
 import { RolesGuard } from "./roles.guard";
@@ -50,5 +50,21 @@ describe("RolesGuard", () => {
     } as any;
 
     expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it("rejects an unauthenticated request with UnauthorizedException", () => {
+    class TestController {
+      @Roles("admin")
+      manage() {}
+    }
+
+    const guard = new RolesGuard(new Reflector());
+    const context = {
+      getHandler: () => TestController.prototype.manage,
+      getClass: () => TestController,
+      switchToHttp: () => ({ getRequest: () => ({}) })
+    } as any;
+
+    expect(() => guard.canActivate(context)).toThrow(new UnauthorizedException("authentication required"));
   });
 });

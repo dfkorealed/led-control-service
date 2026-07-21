@@ -74,11 +74,29 @@ describe("SiteAccessService", () => {
     await expect(service.assert(viewer, customerSiteId, "manage")).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("hides other customer sites from a customer admin", async () => {
-    site.memberships = [];
+  it("hides other customer sites from a customer admin even when the admin has a membership", async () => {
+    site.memberships = [{ id: "cross-tenant-membership" }];
     const service = await createService();
 
     await expect(service.assert(admin, otherCustomerSiteId, "read")).rejects.toThrow("site not found");
+  });
+
+  it("denies a service-provider admin all site access and returns no accessible sites", async () => {
+    const service = await createService();
+    const serviceProviderAdmin: AuthenticatedUser = { ...operator, role: "admin" };
+
+    await expect(service.assert(serviceProviderAdmin, customerSiteId, "read")).rejects.toThrow("site not found");
+    await expect(service.listAccessibleSiteIds(serviceProviderAdmin)).resolves.toEqual([]);
+    expect(prisma.site.findMany).not.toHaveBeenCalled();
+    expect(prisma.siteMembership.findMany).not.toHaveBeenCalled();
+  });
+
+  it("denies an operator in a customer organization all site access", async () => {
+    const service = await createService();
+    const customerOperator: AuthenticatedUser = { ...admin, role: "operator" };
+
+    await expect(service.assert(customerOperator, customerSiteId, "read")).rejects.toThrow("site not found");
+    await expect(service.listAccessibleSiteIds(customerOperator)).resolves.toEqual([]);
   });
 
   it("lists customer organization sites for an admin and memberships for other roles", async () => {
@@ -89,5 +107,13 @@ describe("SiteAccessService", () => {
     await expect(service.listAccessibleSiteIds(admin)).resolves.toEqual(["customer-site"]);
     await expect(service.listAccessibleSiteIds(operator)).resolves.toEqual(["assigned-site"]);
     await expect(service.listAccessibleSiteIds(viewer)).resolves.toEqual(["assigned-site"]);
+  });
+
+  it("does not use site memberships when listing sites for a customer admin", async () => {
+    prisma.site.findMany.mockResolvedValue([{ id: "customer-site" }]);
+    const service = await createService();
+
+    await expect(service.listAccessibleSiteIds(admin)).resolves.toEqual(["customer-site"]);
+    expect(prisma.siteMembership.findMany).not.toHaveBeenCalled();
   });
 });
