@@ -20,6 +20,7 @@ describe("AuthService", () => {
       siteId: "site-1",
       email: "admin@example.com",
       role: "admin",
+      organization: { type: "customer" },
       expiresAt: new Date("2026-07-09T00:00:00.000Z"),
       acceptedAt: null
     };
@@ -62,9 +63,13 @@ describe("AuthService", () => {
       password: "correct horse battery staple"
     });
 
-    expect(result.user).toEqual(createdUser);
+    expect(result.user).toEqual({
+      ...createdUser,
+      organizationType: "customer"
+    });
     expect(prisma.invitation.findUnique).toHaveBeenCalledWith({
-      where: { tokenHash: service.hashToken(token) }
+      where: { tokenHash: service.hashToken(token) },
+      include: { organization: { select: { type: true } } }
     });
     expect(prisma.user.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -127,6 +132,7 @@ describe("AuthService", () => {
       name: "관리자",
       role: "admin",
       status: "active",
+      organization: { type: "customer" },
       passwordHash
     };
     prisma.user.findUnique.mockResolvedValue(user);
@@ -146,6 +152,7 @@ describe("AuthService", () => {
     expect(result.user).toEqual({
       id: user.id,
       organizationId: user.organizationId,
+      organizationType: "customer",
       email: user.email,
       name: user.name,
       role: user.role,
@@ -163,6 +170,60 @@ describe("AuthService", () => {
         expiresAt: new Date("2026-08-01T00:00:00.000Z")
       })
     });
+  });
+
+  it("rejects an operator invitation for a customer organization", async () => {
+    const prisma = {
+      invitation: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "invitation-1",
+          organizationId: "organization-1",
+          role: "operator",
+          expiresAt: new Date("2026-07-09T00:00:00.000Z"),
+          acceptedAt: null,
+          organization: { type: "customer" }
+        })
+      },
+      user: { findUnique: jest.fn() },
+      $transaction: jest.fn()
+    };
+    const service = new AuthService(prisma as unknown as PrismaService);
+
+    await expect(
+      service.signup({
+        token: "plain-invitation-token",
+        email: "operator@example.com",
+        name: "운영자",
+        password: "correct horse battery staple"
+      })
+    ).rejects.toThrow("customer invitations cannot grant operator role");
+  });
+
+  it("rejects a non-operator invitation for a service provider organization", async () => {
+    const prisma = {
+      invitation: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "invitation-1",
+          organizationId: "organization-1",
+          role: "admin",
+          expiresAt: new Date("2026-07-09T00:00:00.000Z"),
+          acceptedAt: null,
+          organization: { type: "service_provider" }
+        })
+      },
+      user: { findUnique: jest.fn() },
+      $transaction: jest.fn()
+    };
+    const service = new AuthService(prisma as unknown as PrismaService);
+
+    await expect(
+      service.signup({
+        token: "plain-invitation-token",
+        email: "admin@example.com",
+        name: "관리자",
+        password: "correct horse battery staple"
+      })
+    ).rejects.toThrow("service provider invitations require operator role");
   });
 
   it("rejects login with the same error for unknown email or wrong password", async () => {

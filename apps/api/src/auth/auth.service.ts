@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { PrismaService } from "../prisma/prisma.service";
+import type { OrganizationType, UserRole } from "./auth.types";
 
 const scrypt = promisify(scryptCallback);
 const SESSION_COOKIE_NAME = "led_session";
@@ -29,8 +30,9 @@ type StoredUser = {
   organizationId: string;
   email: string;
   name: string;
-  role: string;
-  status: string;
+  role: UserRole;
+  status: "active" | "disabled";
+  organization: { type: OrganizationType };
   passwordHash?: string | null;
 };
 
@@ -43,7 +45,8 @@ export class AuthService {
   async signup(input: SignupInput) {
     const email = this.normalizeEmail(input.email);
     const invitation = await this.db().invitation.findUnique({
-      where: { tokenHash: this.hashToken(input.token) }
+      where: { tokenHash: this.hashToken(input.token) },
+      include: { organization: { select: { type: true } } }
     });
 
     if (!invitation || invitation.acceptedAt || invitation.expiresAt <= new Date()) {
@@ -52,6 +55,13 @@ export class AuthService {
 
     if (invitation.email && this.normalizeEmail(invitation.email) !== email) {
       throw new BadRequestException("Invitation email does not match");
+    }
+
+    if (invitation.organization.type === "service_provider" && invitation.role !== "operator") {
+      throw new BadRequestException("service provider invitations require operator role");
+    }
+    if (invitation.organization.type === "customer" && invitation.role === "operator") {
+      throw new BadRequestException("customer invitations cannot grant operator role");
     }
 
     const existingUser = await this.db().user.findUnique({ where: { email } });
@@ -78,12 +88,13 @@ export class AuthService {
       return createdUser;
     });
 
-    return { user: this.publicUser(user) };
+    return { user: this.publicUser({ ...user, organization: invitation.organization }) };
   }
 
   async login(input: LoginInput) {
     const user = await this.db().user.findUnique({
-      where: { email: this.normalizeEmail(input.email) }
+      where: { email: this.normalizeEmail(input.email) },
+      include: { organization: { select: { type: true } } }
     });
 
     if (!user || user.status !== "active" || !user.passwordHash) {
@@ -118,7 +129,7 @@ export class AuthService {
   async getUserBySessionToken(sessionToken: string) {
     const session = await this.db().session.findUnique({
       where: { tokenHash: this.hashToken(sessionToken) },
-      include: { user: true }
+      include: { user: { include: { organization: { select: { type: true } } } } }
     });
 
     if (!session || session.revokedAt || session.expiresAt <= new Date() || session.user.status !== "active") {
@@ -170,6 +181,7 @@ export class AuthService {
     return {
       id: user.id,
       organizationId: user.organizationId,
+      organizationType: user.organization.type,
       email: user.email,
       name: user.name,
       role: user.role,

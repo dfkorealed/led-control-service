@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { AuthService } from "../src/auth/auth.service";
-import { bootstrapFirstOwner, type BootstrapDatabase } from "../src/auth/bootstrap-owner";
+import { bootstrapFirstOperator, type BootstrapDatabase } from "../src/auth/bootstrap-operator";
 
 const prisma = new PrismaClient();
 
@@ -12,13 +12,13 @@ function required(name: string) {
 
 async function main() {
   const auth = new AuthService(prisma as never);
-  const result = await bootstrapFirstOwner(
+  const result = await bootstrapFirstOperator(
     prisma as unknown as BootstrapDatabase,
     {
       organizationName: required("BOOTSTRAP_ORGANIZATION_NAME"),
-      email: required("BOOTSTRAP_OWNER_EMAIL"),
-      name: required("BOOTSTRAP_OWNER_NAME"),
-      password: required("BOOTSTRAP_OWNER_PASSWORD")
+      email: required("BOOTSTRAP_OPERATOR_EMAIL"),
+      name: required("BOOTSTRAP_OPERATOR_NAME"),
+      password: required("BOOTSTRAP_OPERATOR_PASSWORD")
     },
     (password) => auth.hashPassword(password)
   );

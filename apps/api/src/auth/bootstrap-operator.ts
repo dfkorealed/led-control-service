@@ -1,4 +1,4 @@
-interface BootstrapOwnerInput {
+interface BootstrapOperatorInput {
   organizationName: string;
   email: string;
   name: string;
@@ -11,14 +11,14 @@ export interface BootstrapDatabase {
     create(input: { data: Record<string, unknown> }): Promise<{ id: string; email: string }>;
   };
   organization: {
-    create(input: { data: { name: string } }): Promise<{ id: string; name: string }>;
+    create(input: { data: { name: string; type: "service_provider" } }): Promise<{ id: string; name: string }>;
   };
   $transaction<T>(callback: (tx: BootstrapDatabase) => Promise<T>): Promise<T>;
 }
 
-export async function bootstrapFirstOwner(
+export async function bootstrapFirstOperator(
   prisma: BootstrapDatabase,
-  input: BootstrapOwnerInput,
+  input: BootstrapOperatorInput,
   hashPassword: (password: string) => Promise<string>
 ) {
   const organizationName = input.organizationName.trim();
@@ -31,14 +31,16 @@ export async function bootstrapFirstOwner(
     if ((await tx.user.count()) !== 0) {
       throw new Error("BOOTSTRAP_REFUSED: at least one user already exists");
     }
-    const organization = await tx.organization.create({ data: { name: organizationName } });
+    const organization = await tx.organization.create({
+      data: { name: organizationName, type: "service_provider" }
+    });
     const user = await tx.user.create({
       data: {
         organizationId: organization.id,
         email,
         name,
         passwordHash,
-        role: "owner",
+        role: "operator",
         status: "active"
       }
     });

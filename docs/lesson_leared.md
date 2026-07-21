@@ -122,8 +122,8 @@
 ## 2026-07-14 / 테스트 전용 런타임과 양산 E2E 경로 혼재
 - **발생했던 문제/실수**: 웹 mock API, mock gateway, 파괴적 demo seed, legacy MQTT v1이 실제 장비 경로와 같은 workspace와 실행 설정에 남아 있었고 고정 통계·설정 문구가 실제 기능처럼 표시됐다.
 - **원인**: 초기 MVP 시뮬레이션 자산을 실제 BlueZ/MQTT v2 구현 뒤에도 제거하지 않았고, 현장 생성과 제조 gateway claim을 별도 흐름으로 구현하면서 전체 온보딩 E2E를 다시 연결하지 않았다.
-- **해결 및 예방책**: 제품 런타임의 mock 선택지를 제거하고 테스트 fixture/stub은 test directory로 격리했다. demo seed는 빈 DB 전용 owner bootstrap으로 교체하고 MQTT v1을 제거했다.
-- **반복 방지 체크**: 실장비 완료 판정은 `owner -> site/floor -> inventory claim -> assignment -> scan -> provision -> monitor -> v2 ACK control` 전체가 한 번에 실행된 증거가 있을 때만 한다. claim UI 구현만으로 완료 처리하지 않고 Raspberry Pi와 ESP32-H2의 연속 로그를 증거로 남긴다.
+- **해결 및 예방책**: 제품 런타임의 mock 선택지를 제거하고 테스트 fixture/stub은 test directory로 격리했다. demo seed는 빈 DB 전용 operator bootstrap으로 교체하고 MQTT v1을 제거했다.
+- **반복 방지 체크**: 실장비 완료 판정은 `operator -> site/floor -> inventory claim -> assignment -> scan -> provision -> monitor -> v2 ACK control` 전체가 한 번에 실행된 증거가 있을 때만 한다. claim UI 구현만으로 완료 처리하지 않고 Raspberry Pi와 ESP32-H2의 연속 로그를 증거로 남긴다.
 
 ## 2026-07-15 / 제조 등록과 배포의 인증서 순환 의존성
 - **발생했던 문제/실수**: 배포 스크립트가 claim 뒤에 발급되는 MQTT 인증서를 실행 전에 요구해, image를 올리고 제조 device identity를 생성하는 최초 절차 자체가 막혔다.

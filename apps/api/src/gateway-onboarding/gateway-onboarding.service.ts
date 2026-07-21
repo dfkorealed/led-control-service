@@ -47,7 +47,7 @@ export class GatewayOnboardingService {
   ) {}
 
   async claimGateway(user: ClaimingUser, input: ClaimGatewayInput) {
-    if (!new Set(["owner", "admin"]).has(user.role)) throw new ForbiddenException("gateway claim requires owner or admin role");
+    if (user.role !== "admin") throw new ForbiddenException("gateway claim requires admin role");
     const serialNumber = this.requireText(input.serialNumber, "serialNumber is required");
     const name = this.requireText(input.name, "gateway name is required");
     const claimCode = this.requireText(input.claimCode, "claimCode is required");
@@ -131,7 +131,7 @@ export class GatewayOnboardingService {
   }
 
   async disableInventory(user: ClaimingUser, inventoryId: string) {
-    if (!new Set(["owner", "admin"]).has(user.role)) throw new ForbiddenException("inventory disable requires owner or admin role");
+    if (user.role !== "admin") throw new ForbiddenException("inventory disable requires admin role");
     const id = this.requireText(inventoryId, "inventoryId is required");
     const inventory = await this.db().$transaction(async (tx: any) => {
       const current = await tx.gatewayInventory.findFirst({

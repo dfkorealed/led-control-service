@@ -1,10 +1,14 @@
+export type UserRole = "operator" | "admin" | "viewer";
+export type OrganizationType = "service_provider" | "customer";
+
 export interface AuthenticatedUser {
   id: string;
   organizationId: string;
+  organizationType: OrganizationType;
   email: string;
   name: string;
-  role: string;
-  status: string;
+  role: UserRole;
+  status: "active" | "disabled";
 }
 
 export interface AuthenticatedRequest {

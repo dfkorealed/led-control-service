@@ -11,7 +11,7 @@
     "typecheck": "pnpm --filter @led-control/shared build && tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "auth:bootstrap-owner": "pnpm --filter @led-control/shared build && tsx prisma/bootstrap-owner.ts",
+    "auth:bootstrap-operator": "pnpm --filter @led-control/shared build && tsx prisma/bootstrap-operator.ts",
     "gateway:enroll-inventory": "echo 'Deprecated: use POST /manufacturing/gateway-enrollments' && exit 1"
   },
   "dependencies": {

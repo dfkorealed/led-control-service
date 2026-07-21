@@ -4,10 +4,11 @@ import { apiGet, apiPost } from "./client";
 export interface AuthUser {
   id: string;
   organizationId: string;
+  organizationType: "service_provider" | "customer";
   email: string;
   name: string;
-  role: string;
-  status: string;
+  role: "operator" | "admin" | "viewer";
+  status: "active" | "disabled";
 }
 
 export function useCurrentUser() {

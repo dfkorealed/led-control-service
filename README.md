@@ -41,14 +41,14 @@ PKI 제조 등록 -> claim -> bootstrap -> MQTT 발급과 token 재사용, seria
    pnpm --filter @led-control/api prisma:migrate --name init
    ```
 
-   완전히 빈 DB의 최초 설치에서만 owner 계정을 생성합니다. 사용자가 한 명이라도 있으면 명령은 실패하며 기존 현장과 장비 데이터를 삭제하지 않습니다.
+   완전히 빈 DB의 최초 설치에서만 서비스 운영사 operator 계정을 생성합니다. 사용자가 한 명이라도 있으면 명령은 실패하며 기존 현장과 장비 데이터를 삭제하지 않습니다.
 
    ```bash
-   BOOTSTRAP_ORGANIZATION_NAME='DF Korea' \
-   BOOTSTRAP_OWNER_EMAIL='operator@example.com' \
-   BOOTSTRAP_OWNER_NAME='관리자' \
-   BOOTSTRAP_OWNER_PASSWORD='demo-password-1234' \
-   pnpm --filter @led-control/api auth:bootstrap-owner
+   BOOTSTRAP_ORGANIZATION_NAME='DF Korea Service' \
+   BOOTSTRAP_OPERATOR_EMAIL='operator@example.com' \
+   BOOTSTRAP_OPERATOR_NAME='운영자' \
+   BOOTSTRAP_OPERATOR_PASSWORD='demo-password-1234' \
+   pnpm --filter @led-control/api auth:bootstrap-operator
    ```
 
 4. API와 Web을 실제 장비 모드로 실행합니다. 이 명령은 누락된 개발용 PKI와 `.env`의 `DEV_GATEWAY_ID`용 인증서를 생성하고, 8883 mTLS broker를 시작하고, 대기 중인 DB migration을 적용합니다. Raspberry Pi gateway와 ESP32-H2가 동작하지 않으면 조명 검색 결과는 0개가 정상입니다.
@@ -103,7 +103,7 @@ scripts/dev-pki/create-ca.sh
 pnpm docker:up
 pnpm --filter @led-control/api prisma:generate
 pnpm --filter @led-control/api prisma:migrate --name auth
-BOOTSTRAP_ORGANIZATION_NAME='DF Korea' BOOTSTRAP_OWNER_EMAIL='operator@example.com' BOOTSTRAP_OWNER_NAME='관리자' BOOTSTRAP_OWNER_PASSWORD='demo-password-1234' pnpm --filter @led-control/api auth:bootstrap-owner
+BOOTSTRAP_ORGANIZATION_NAME='DF Korea Service' BOOTSTRAP_OPERATOR_EMAIL='operator@example.com' BOOTSTRAP_OPERATOR_NAME='운영자' BOOTSTRAP_OPERATOR_PASSWORD='demo-password-1234' pnpm --filter @led-control/api auth:bootstrap-operator
 pnpm dev
 ```
 

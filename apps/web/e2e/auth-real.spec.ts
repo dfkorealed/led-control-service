@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test.skip(process.env.E2E_REAL_AUTH !== "true", "Set E2E_REAL_AUTH=true after starting the real API and database.");
 
-test("real backend rejects wrong credentials and accepts the bootstrapped owner", async ({ page }) => {
+test("real backend rejects wrong credentials and accepts the bootstrapped operator", async ({ page }) => {
   const ownerEmail = process.env.E2E_OWNER_EMAIL ?? "operator@example.com";
   const ownerPassword = process.env.E2E_OWNER_PASSWORD ?? "demo-password-1234";
   await page.goto("/");
