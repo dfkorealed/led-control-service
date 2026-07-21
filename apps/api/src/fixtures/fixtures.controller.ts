@@ -16,7 +16,7 @@ export class FixturesController {
     @Query("limit") limit: string | undefined,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.fixturesService.getFloorFixtures(floorId, user.organizationId, {
+    return this.fixturesService.getFloorFixtures(user, floorId, {
       cursor,
       limit: limit === undefined ? undefined : Number(limit)
     });

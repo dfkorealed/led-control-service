@@ -1,24 +1,30 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class FixturesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly siteAccess: SiteAccessService
+  ) {}
 
   async getFloorFixtures(
+    user: AuthenticatedUser,
     floorId: string,
-    organizationId: string,
     options: { cursor?: string; limit?: number }
   ) {
     const limit = options.limit ?? 200;
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
       throw new BadRequestException("limit must be an integer from 1 to 200");
     }
-    const floor = await this.prisma.floor.findFirst({
-      where: { id: floorId, site: { organizationId } },
-      select: { id: true }
+    const floor = await this.prisma.floor.findUnique({
+      where: { id: floorId },
+      select: { id: true, siteId: true }
     });
     if (!floor) throw new NotFoundException("floor not found");
+    await this.siteAccess.assert(user, floor.siteId, "read");
 
     const rows = await this.prisma.fixture.findMany({
       where: { floorId },

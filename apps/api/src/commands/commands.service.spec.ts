@@ -1,5 +1,6 @@
 import { CommandDispatchService } from "./command-dispatch.service";
 import { CommandsService } from "./commands.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 
 const ids = {
   command: "11111111-1111-4111-8111-111111111111",
@@ -11,6 +12,14 @@ const ids = {
 };
 
 describe("CommandsService", () => {
+  const operator: AuthenticatedUser = {
+    id: ids.user, organizationId: "org-1", organizationType: "service_provider", email: "operator@example.com", name: "Operator", role: "operator", status: "active"
+  };
+  const viewer: AuthenticatedUser = {
+    ...operator, id: "viewer-1", email: "viewer@example.com", organizationType: "customer", role: "viewer"
+  };
+  const input = { siteId: ids.site, targetType: "fixture" as const, targetId: ids.target, brightness: 75 };
+
   it("stores command, gateway dispatch, fixture result and outbox in one transaction", async () => {
     const command = {
       id: ids.command,
@@ -22,7 +31,6 @@ describe("CommandsService", () => {
       createdAt: new Date("2026-07-01T00:00:00.000Z")
     };
     const prisma: any = {
-      user: { findUnique: jest.fn().mockResolvedValue({ id: ids.user, organizationId: "org-1", role: "operator" }) },
       fixture: {
         findFirst: jest.fn().mockResolvedValue({
           id: ids.target,
@@ -39,18 +47,14 @@ describe("CommandsService", () => {
       mqttOutbox: { create: jest.fn().mockResolvedValue({ id: "outbox-1" }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
-    const service = new CommandsService(prisma, new CommandDispatchService());
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.site }) };
+    const service = new (CommandsService as any)(prisma, new CommandDispatchService(), siteAccess);
 
     await expect(
-      service.createDimmingCommand({
-        siteId: ids.site,
-        targetType: "fixture",
-        targetId: ids.target,
-        brightness: 75,
-        requestedBy: ids.user
-      })
+      service.createDimmingCommand(operator, input)
     ).resolves.toEqual({ ...command, dispatchCount: 1 });
 
+    expect(siteAccess.assert).toHaveBeenCalledWith(operator, ids.site, "manage");
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.gateway.update).toHaveBeenCalledWith({
       where: { id: ids.gateway },
@@ -69,22 +73,16 @@ describe("CommandsService", () => {
     });
   });
 
-  it("rejects viewer users before resolving targets", async () => {
+  it("rejects viewer users after confirming readable site access", async () => {
     const prisma: any = {
-      user: { findUnique: jest.fn().mockResolvedValue({ id: ids.user, organizationId: "org-1", role: "viewer" }) },
       fixture: { findFirst: jest.fn() },
       $transaction: jest.fn()
     };
-    const service = new CommandsService(prisma, new CommandDispatchService());
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.site }) };
+    const service = new (CommandsService as any)(prisma, new CommandDispatchService(), siteAccess);
 
     await expect(
-      service.createDimmingCommand({
-        siteId: ids.site,
-        targetType: "fixture",
-        targetId: ids.target,
-        brightness: 75,
-        requestedBy: ids.user
-      })
+      service.createDimmingCommand(viewer, input)
     ).rejects.toThrow("viewer users cannot control lights");
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -103,27 +101,19 @@ describe("CommandsService", () => {
     ]
   ])("rejects an %s fixture before creating a command", async (_case, fixture, message) => {
     const prisma: any = {
-      user: { findUnique: jest.fn().mockResolvedValue({ id: ids.user, organizationId: "org-1", role: "operator" }) },
       fixture: { findFirst: jest.fn().mockResolvedValue(fixture) },
       $transaction: jest.fn()
     };
-    const service = new CommandsService(prisma, new CommandDispatchService());
+    const service = new (CommandsService as any)(prisma, new CommandDispatchService(), { assert: jest.fn().mockResolvedValue({ id: ids.site }) });
 
     await expect(
-      service.createDimmingCommand({
-        siteId: ids.site,
-        targetType: "fixture",
-        targetId: ids.target,
-        brightness: 75,
-        requestedBy: ids.user
-      })
+      service.createDimmingCommand(operator, input)
     ).rejects.toThrow(message);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("rejects a group when any fixture cannot be controlled", async () => {
     const prisma: any = {
-      user: { findUnique: jest.fn().mockResolvedValue({ id: ids.user, organizationId: "org-1", role: "operator" }) },
       fixtureGroup: {
         findFirst: jest.fn().mockResolvedValue({
           groupFixtures: [
@@ -141,17 +131,20 @@ describe("CommandsService", () => {
       },
       $transaction: jest.fn()
     };
-    const service = new CommandsService(prisma, new CommandDispatchService());
+    const service = new (CommandsService as any)(prisma, new CommandDispatchService(), { assert: jest.fn().mockResolvedValue({ id: ids.site }) });
 
     await expect(
-      service.createDimmingCommand({
-        siteId: ids.site,
-        targetType: "group",
-        targetId: ids.target,
-        brightness: 75,
-        requestedBy: ids.user
-      })
+      service.createDimmingCommand(operator, { ...input, targetType: "group" })
     ).rejects.toThrow("group contains uncontrollable fixture: L2");
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("does not resolve targets for an unassigned operator", async () => {
+    const prisma: any = { fixture: { findFirst: jest.fn() }, $transaction: jest.fn() };
+    const siteAccess = { assert: jest.fn().mockRejectedValue(new Error("site not found")) };
+    const service = new (CommandsService as any)(prisma, new CommandDispatchService(), siteAccess);
+
+    await expect(service.createDimmingCommand(operator, input)).rejects.toThrow("site not found");
+    expect(prisma.fixture.findFirst).not.toHaveBeenCalled();
   });
 });

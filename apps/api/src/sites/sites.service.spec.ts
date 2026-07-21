@@ -1,4 +1,7 @@
 import { Test } from "@nestjs/testing";
+import { NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { SitesService } from "./sites.service";
 
@@ -9,9 +12,24 @@ describe("SitesService", () => {
     },
     fixture: { findMany: jest.fn() }
   };
+  const siteAccess = {
+    assert: jest.fn(),
+    listAccessibleSiteIds: jest.fn()
+  };
+  const user: AuthenticatedUser = {
+    id: "user-1",
+    organizationId: "organization-1",
+    organizationType: "customer",
+    email: "admin@example.com",
+    name: "Admin",
+    role: "admin",
+    status: "active"
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    siteAccess.assert.mockResolvedValue({ id: "site-1" });
+    siteAccess.listAccessibleSiteIds.mockResolvedValue(["site-1"]);
   });
 
   it("returns a site dashboard with floors, fixtures, groups, and summary", async () => {
@@ -81,15 +99,17 @@ describe("SitesService", () => {
     ]);
 
     const moduleRef = await Test.createTestingModule({
-      providers: [SitesService, { provide: PrismaService, useValue: prisma }]
+      providers: [
+        SitesService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: SiteAccessService, useValue: siteAccess }
+      ]
     }).compile();
 
     const service = moduleRef.get(SitesService);
-    const dashboard = await service.getDefaultDashboard("organization-1");
+    const dashboard = await (service as any).getDashboard(user, "site-1", true);
 
-    expect(prisma.site.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { organizationId: "organization-1" } })
-    );
+    expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "read");
     expect(dashboard.summary.totalFixtures).toBe(2);
     expect(dashboard.summary.onlineFixtures).toBe(1);
     expect(dashboard.summary.faultFixtures).toBe(1);
@@ -112,16 +132,22 @@ describe("SitesService", () => {
     });
   });
 
-  it("returns an empty dashboard when the organization has no site yet", async () => {
-    prisma.site.findFirst.mockResolvedValue(null);
+  it("returns the existing empty dashboard shape when the default route has no accessible sites", async () => {
+    siteAccess.listAccessibleSiteIds.mockResolvedValue([]);
 
     const moduleRef = await Test.createTestingModule({
-      providers: [SitesService, { provide: PrismaService, useValue: prisma }]
+      providers: [
+        SitesService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: SiteAccessService, useValue: siteAccess }
+      ]
     }).compile();
 
     const service = moduleRef.get(SitesService);
-    const dashboard = await service.getDefaultDashboard("organization-1");
+    const dashboard = await (service as any).getDefaultDashboard(user);
 
+    expect(siteAccess.listAccessibleSiteIds).toHaveBeenCalledWith(user);
+    expect(prisma.site.findFirst).not.toHaveBeenCalled();
     expect(dashboard).toEqual({
       site: { id: "", name: "현장 미등록" },
       summary: {
@@ -134,5 +160,24 @@ describe("SitesService", () => {
       groups: [],
       gateways: []
     });
+  });
+
+  it("does not reveal an explicitly requested inaccessible site dashboard", async () => {
+    siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
+    const service = new (SitesService as any)(prisma, siteAccess);
+
+    await expect(service.getDashboard(user, "other-site")).rejects.toThrow("site not found");
+  });
+
+  it("lists only accessible sites with customer and site names", async () => {
+    siteAccess.listAccessibleSiteIds.mockResolvedValue(["site-1"]);
+    (prisma.site as any).findMany = jest.fn().mockResolvedValue([
+      { id: "site-1", name: "Factory A", organization: { name: "Customer A" } }
+    ]);
+    const service = new (SitesService as any)(prisma, siteAccess);
+
+    await expect(service.listSites(user)).resolves.toEqual([
+      { id: "site-1", customerName: "Customer A", name: "Factory A" }
+    ]);
   });
 });

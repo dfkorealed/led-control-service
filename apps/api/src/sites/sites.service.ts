@@ -1,13 +1,42 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class SitesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly siteAccess: SiteAccessService
+  ) {}
 
-  async getDefaultDashboard(organizationId: string, includeFixtures = true) {
+  async listSites(user: AuthenticatedUser) {
+    const siteIds = await this.siteAccess.listAccessibleSiteIds(user);
+    if (siteIds.length === 0) return [];
+
+    const sites = await this.prisma.site.findMany({
+      where: { id: { in: siteIds } },
+      select: { id: true, name: true, organization: { select: { name: true } } },
+      orderBy: { name: "asc" }
+    });
+    return sites.map((site) => ({ id: site.id, customerName: site.organization.name, name: site.name }));
+  }
+
+  async getDefaultDashboard(user: AuthenticatedUser, includeFixtures = true) {
+    const siteIds = await this.siteAccess.listAccessibleSiteIds(user);
+    if (siteIds.length === 0) return emptyDashboard();
+    return this.getDashboard(user, siteIds[0], includeFixtures);
+  }
+
+  async getDashboard(user: AuthenticatedUser, siteId: string, includeFixtures = true) {
+    await this.siteAccess.assert(user, siteId, "read");
+    return this.getDashboardById(siteId, includeFixtures);
+  }
+
+  // Setup reaches this only after its own transaction created or organization-validated the exact site.
+  async getDashboardById(siteId: string, includeFixtures = true) {
     const site = await this.prisma.site.findFirst({
-      where: { organizationId },
+      where: { id: siteId },
       include: {
         floors: {
           orderBy: { level: "asc" },
@@ -23,20 +52,7 @@ export class SitesService {
       }
     });
 
-    if (!site) {
-      return {
-        site: { id: "", name: "현장 미등록" },
-        summary: {
-          totalFixtures: 0,
-          onlineFixtures: 0,
-          faultFixtures: 0,
-          averageBrightness: 0
-        },
-        floors: [],
-        groups: [],
-        gateways: []
-      };
-    }
+    if (!site) throw new NotFoundException("site not found");
 
     const fixtures = includeFixtures
       ? await this.prisma.fixture.findMany({
@@ -146,4 +162,19 @@ export class SitesService {
       averageBrightness: Math.round(brightness._avg.brightness ?? 0)
     };
   }
+}
+
+function emptyDashboard() {
+  return {
+    site: { id: "", name: "현장 미등록" },
+    summary: {
+      totalFixtures: 0,
+      onlineFixtures: 0,
+      faultFixtures: 0,
+      averageBrightness: 0
+    },
+    floors: [],
+    groups: [],
+    gateways: []
+  };
 }

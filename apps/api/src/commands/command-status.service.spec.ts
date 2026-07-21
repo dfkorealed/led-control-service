@@ -1,11 +1,16 @@
 import { NotFoundException } from "@nestjs/common";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { CommandStatusService } from "./command-status.service";
 
 describe("CommandStatusService", () => {
+  const user: AuthenticatedUser = {
+    id: "user-1", organizationId: "org-1", organizationType: "customer", email: "admin@example.com", name: "Admin", role: "admin", status: "active"
+  };
+
   it("returns gateway dispatches and fixture results within the user's organization", async () => {
     const prisma: any = {
       command: {
-        findFirst: jest.fn().mockResolvedValue({
+        findUnique: jest.fn().mockResolvedValue({
           id: "command-1",
           siteId: "site-1",
           targetType: "group",
@@ -41,9 +46,10 @@ describe("CommandStatusService", () => {
         })
       }
     };
-    const service = new CommandStatusService(prisma);
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new (CommandStatusService as any)(prisma, siteAccess);
 
-    await expect(service.getCommand("command-1", "org-1")).resolves.toMatchObject({
+    await expect(service.getCommand(user, "command-1")).resolves.toMatchObject({
       id: "command-1",
       stage: "completed",
       dispatchCount: 1,
@@ -56,22 +62,20 @@ describe("CommandStatusService", () => {
         }
       ]
     });
-    expect(prisma.command.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "command-1", site: { organizationId: "org-1" } } })
-    );
+    expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "read");
   });
 
   it("does not reveal a command outside the user's organization", async () => {
-    const prisma: any = { command: { findFirst: jest.fn().mockResolvedValue(null) } };
-    const service = new CommandStatusService(prisma);
+    const prisma: any = { command: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const service = new (CommandStatusService as any)(prisma, { assert: jest.fn() });
 
-    await expect(service.getCommand("command-other", "org-1")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getCommand(user, "command-other")).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("reports partial failure when terminal fixture results are mixed", async () => {
     const prisma: any = {
       command: {
-        findFirst: jest.fn().mockResolvedValue({
+        findUnique: jest.fn().mockResolvedValue({
           id: "command-1",
           siteId: "site-1",
           targetType: "group",
@@ -101,10 +105,25 @@ describe("CommandStatusService", () => {
       }
     };
 
-    await expect(new CommandStatusService(prisma).getCommand("command-1", "org-1")).resolves.toMatchObject({
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    await expect(new (CommandStatusService as any)(prisma, siteAccess).getCommand(user, "command-1")).resolves.toMatchObject({
       stage: "partial_failed",
       completedFixtureCount: 2,
       totalFixtureCount: 2
     });
+  });
+
+  it("does not reveal a command at an inaccessible site", async () => {
+    const prisma: any = {
+      command: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue({ siteId: "other-site" })
+      }
+    };
+    const service = new (CommandStatusService as any)(prisma, {
+      assert: jest.fn().mockRejectedValue(new NotFoundException("site not found"))
+    });
+
+    await expect(service.getCommand(user, "command-other")).rejects.toThrow("site not found");
   });
 });

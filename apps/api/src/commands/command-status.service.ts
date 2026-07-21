@@ -1,15 +1,27 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 
 type ResultStatus = "pending" | "succeeded" | "failed" | "timed_out";
 
 @Injectable()
 export class CommandStatusService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly siteAccess: SiteAccessService
+  ) {}
 
-  async getCommand(commandId: string, organizationId: string) {
-    const command = await this.prisma.command.findFirst({
-      where: { id: commandId, site: { organizationId } },
+  async getCommand(user: AuthenticatedUser, commandId: string) {
+    const scopedCommand = await this.prisma.command.findUnique({
+      where: { id: commandId },
+      select: { siteId: true }
+    });
+    if (!scopedCommand) throw new NotFoundException("command not found");
+    await this.siteAccess.assert(user, scopedCommand.siteId, "read");
+
+    const command = await this.prisma.command.findUnique({
+      where: { id: commandId },
       include: {
         dispatches: {
           orderBy: { createdAt: "asc" },

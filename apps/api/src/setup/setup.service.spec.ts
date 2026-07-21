@@ -55,7 +55,7 @@ describe("SetupService", () => {
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
 
     const sitesService = {
-      getDefaultDashboard: jest.fn().mockResolvedValue(dashboard)
+      getDashboardById: jest.fn().mockResolvedValue(dashboard)
     };
 
     return Test.createTestingModule({
@@ -119,7 +119,7 @@ describe("SetupService", () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable
     });
-    expect(sitesService.getDefaultDashboard).toHaveBeenCalledWith("organization-1");
+    expect(sitesService.getDashboardById).toHaveBeenCalledWith("site-1");
     expect(result).toBe(dashboard);
   });
 
@@ -354,7 +354,7 @@ describe("SetupService", () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable
     });
-    expect(sitesService.getDefaultDashboard).toHaveBeenCalledWith("organization-1");
+    expect(sitesService.getDashboardById).toHaveBeenCalledWith("site-1");
     expect(result).toBe(dashboard);
   });
 

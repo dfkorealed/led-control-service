@@ -15,7 +15,7 @@ export class CommandsController {
 
   @Get(":commandId")
   getCommand(@Param("commandId") commandId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.commandStatusService.getCommand(commandId, user.organizationId);
+    return this.commandStatusService.getCommand(user, commandId);
   }
 
   @Post("dimming")
@@ -29,6 +29,6 @@ export class CommandsController {
     },
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.commandsService.createDimmingCommand({ ...body, requestedBy: user.id });
+    return this.commandsService.createDimmingCommand(user, body);
   }
 }

@@ -1,4 +1,6 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 
 interface EstimateInput {
@@ -10,7 +12,10 @@ interface EstimateInput {
 
 @Injectable()
 export class EnergyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly siteAccess: SiteAccessService
+  ) {}
 
   calculateEstimatedUsage(input: EstimateInput) {
     const kwh = Number(((input.ratedWatt * (input.brightness / 100) * input.hours) / 1000).toFixed(4));
@@ -18,9 +23,13 @@ export class EnergyService {
     return { kwh, cost };
   }
 
-  async getDefaultSiteEstimate(organizationId: string) {
+  async getDefaultSiteEstimate(user: AuthenticatedUser) {
+    const siteIds = await this.siteAccess.listAccessibleSiteIds(user);
+    const siteId = siteIds[0];
+    if (!siteId) throw new NotFoundException("site not found");
+    await this.siteAccess.assert(user, siteId, "read");
     const site = await this.prisma.site.findFirstOrThrow({
-      where: { organizationId },
+      where: { id: siteId },
       include: { floors: { include: { fixtures: true } } }
     });
     const fixtures = site.floors.flatMap((floor) => floor.fixtures);

@@ -1,10 +1,12 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-07-14
+기준일: 2026-07-21
 
 ## 구현 완료
 
-- 로그인 사용자의 조직 기준 `GET /sites/default/dashboard` 데이터를 조회한다.
+- `GET /sites`는 로그인 사용자가 SiteAccess 권한으로 접근 가능한 현장의 고객사명과 현장명만 반환한다.
+- `GET /sites/default/dashboard`는 접근 가능한 첫 현장을 반환하고, 접근 가능한 현장이 없을 때도 최초 설치 흐름을 위해 기존 빈 dashboard shape를 유지한다.
+- `GET /sites/:siteId/dashboard`, 층별 fixture 조회, 기본 에너지 추정은 `AuthenticatedUser + SiteAccessService`로 현장 read 권한을 확인하며 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
 - 현장이 없으면 `초기 설치 설정` 마법사를 먼저 표시한다.
 - 현장은 있으나 등록된 조명이 없으면 `조명 등록` 패널을 표시한다.
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
@@ -21,7 +23,7 @@
 - MQTT `gateway-heartbeat` 이벤트가 gateway online/offline 상태 판단에 반영된다.
 - dashboard query는 React Query로 3초마다 polling한다.
 - 기본 dashboard는 fixture 본문을 제외한 현장/층/gateway metadata와 DB aggregate summary만 반환한다. 제어 화면만 `includeFixtures=true`를 명시한다.
-- 모니터링 fixture snapshot은 `GET /floors/:floorId/fixtures`에서 조직 범위를 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다.
+- 모니터링 fixture snapshot은 `GET /floors/:floorId/fixtures`에서 현장 read 권한을 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다.
 - `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
 - Playwright deterministic 1,000 fixture/5-page 시나리오가 Chromium에서 1,000개 marker 렌더링을 검증한다.
 - `pnpm benchmark:fixtures`는 실제 인증 cookie와 floor ID로 100회 측정해 API p95가 1초를 넘으면 실패한다.

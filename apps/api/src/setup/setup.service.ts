@@ -40,7 +40,7 @@ export class SetupService {
     this.validateInitialSiteInput(input);
 
     try {
-      await this.prisma.$transaction(async (tx) => {
+      const siteId = await this.prisma.$transaction(async (tx) => {
         const existingSiteCount = await tx.site.count({ where: { organizationId: input.organizationId } });
         if (existingSiteCount > 0) throw new BadRequestException("initial site already exists");
 
@@ -62,14 +62,14 @@ export class SetupService {
         });
 
         await this.createFloorPlans(tx, createdSite.id, input.floors);
-
+        return createdSite.id;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      return this.sitesService.getDashboardById(siteId);
     } catch (error) {
       this.throwMappedPrismaSetupError(error);
       throw error;
     }
 
-    return this.sitesService.getDefaultDashboard(input.organizationId);
   }
 
   async addFloors(input: AddFloorsInput) {
@@ -99,7 +99,7 @@ export class SetupService {
       throw error;
     }
 
-    return this.sitesService.getDefaultDashboard(input.organizationId);
+    return this.sitesService.getDashboardById(input.siteId);
   }
 
   private validateInitialSiteInput(input: CreateInitialSiteInput) {

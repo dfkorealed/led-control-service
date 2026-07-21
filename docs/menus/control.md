@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-07-14
+기준일: 2026-07-21
 
 ## 구현 완료
 
@@ -9,14 +9,14 @@
 - 선택 조명의 현재 밝기를 슬라이더에 반영한다.
 - 0%, 30%, 70%, 100% 프리셋 버튼으로 밝기 값을 바꿀 수 있다.
 - `POST /commands/dimming`으로 개별 조명 밝기 명령을 전송한다.
-- 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 로그인 사용자 조직 범위에서만 조회를 허용한다.
+- 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 command의 현장 read 권한이 있는 사용자에게만 조회를 허용한다.
 - 제어 화면은 최근 명령을 1초 polling하며 접수, MQTT 발행, gateway 수신, 조명 적용 완료, 일부 실패, 실패, timeout 단계를 표시하고 종료 상태에서 polling을 중단한다.
 - 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
 - dashboard의 group 목록을 그룹 카드로 표시하고 선택할 수 있다.
 - `개별`, `그룹` segmented control이 실제 제어 모드를 전환한다.
 - 그룹 선택 후 `POST /commands/dimming`에 `targetType: "group"`으로 밝기 명령을 전송한다.
-- 백엔드는 로그인 사용자의 조직/현장에 속한 fixture 또는 group만 제어 대상으로 허용한다.
-- `viewer` 권한 사용자는 조명 제어 명령을 생성할 수 없다.
+- 백엔드는 SiteAccess `manage` 권한이 있는 operator/admin만 해당 현장의 fixture 또는 group을 제어 대상으로 허용하며, 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
+- `viewer` 권한 사용자는 배정 현장을 조회할 수 있지만 조명 제어 명령 생성은 `403`으로 거부한다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 개별/그룹 적용 버튼을 비활성화하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
 - 그룹 제어 명령은 MQTT payload에 `targetFixtureIds`를 포함해 게이트웨이가 실제 대상 조명 목록을 바로 처리할 수 있게 한다.

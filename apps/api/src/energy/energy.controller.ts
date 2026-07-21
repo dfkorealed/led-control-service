@@ -11,6 +11,6 @@ export class EnergyController {
 
   @Get("default/estimate")
   getDefaultEstimate(@CurrentUser() user: AuthenticatedUser) {
-    return this.energyService.getDefaultSiteEstimate(user.organizationId);
+    return this.energyService.getDefaultSiteEstimate(user);
   }
 }
