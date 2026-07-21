@@ -9,6 +9,7 @@ const activeEnrollmentMigrationSuffix = "_enforce_single_active_gateway_enrollme
 const activeMqttCertificateMigrationSuffix = "_enforce_single_active_mqtt_certificate";
 const pendingDeviceCertificateStatusMigrationSuffix = "_add_pending_device_certificate_status";
 const pendingDeviceCertificateLifecycleMigrationSuffix = "_enforce_pending_device_certificate_lifecycle";
+const roleRevisionMigrationSuffix = "simplify_roles_and_floor_revisions";
 
 const findPkiMigrationDirectory = (directoryNames: string[]) => {
   const matches = directoryNames.filter((name) => name.endsWith(pkiMigrationSuffix));
@@ -79,6 +80,32 @@ const prismaStorageFields = (schema: string): PrismaStorageField[] =>
   });
 
 describe("Prisma domain schema", () => {
+  it("declares the production tenant role and revision contract", () => {
+    const schema = readSchema();
+
+    expect(schema).toMatch(/enum UserRole\s*\{\s*operator\s+admin\s+viewer\s*\}/);
+    expect(schema).not.toMatch(/enum UserRole\s*\{[^}]*owner/);
+    expect(schema).toContain("enum OrganizationType");
+    expect(schema).toContain("model SiteMembership");
+    expect(schema).toContain("@@unique([userId, siteId])");
+    expect(schema).toContain("mapRevision");
+    expect(schema).toContain("model FloorMapRevision");
+    expect(schema).toMatch(/snapshot\s+Json/);
+    expect(schema).toContain("model AuditLog");
+  });
+
+  it("preserves tenant access while migrating legacy roles", () => {
+    const migration = readMigrationBySuffix(roleRevisionMigrationSuffix);
+
+    expect(migration).toContain('CREATE TYPE "OrganizationType" AS ENUM (\'service_provider\', \'customer\')');
+    expect(migration).toMatch(/WHEN "role"::text = 'owner'[\s\S]*?'service_provider'[\s\S]*?THEN 'operator'/);
+    expect(migration).toMatch(/WHEN "role"::text IN \('owner', 'operator'\) THEN 'admin'/);
+    expect(migration).toMatch(/INSERT INTO "SiteMembership"[\s\S]*?WHERE u\."role" = 'viewer' AND o\."type" = 'customer'/);
+    expect(migration).toContain('ALTER TABLE "Floor" ADD COLUMN "mapRevision" INTEGER NOT NULL DEFAULT 0');
+    expect(migration).toContain('CREATE TABLE "FloorMapRevision"');
+    expect(migration).toContain('CREATE TABLE "AuditLog"');
+  });
+
   it("declares the MVP 1 lighting control domain models", () => {
     const schema = readSchema();
 

@@ -69,10 +69,18 @@ Organization
 
 | 값 | 의미 |
 | --- | --- |
-| `owner` | 조직 소유자 |
-| `admin` | 관리자 |
-| `operator` | 운영자 |
+| `operator` | 서비스 운영사 운영자 |
+| `admin` | 고객사 관리자 |
 | `viewer` | 조회 사용자 |
+
+### OrganizationType
+
+조직 유형을 서비스 운영사와 고객사로 구분한다.
+
+| 값 | 의미 |
+| --- | --- |
+| `service_provider` | 고객 현장을 설치·운영하는 서비스 운영사 |
+| `customer` | 실제 현장과 관리자를 가진 고객사 |
 
 ### UserStatus
 
@@ -147,6 +155,7 @@ Organization
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 조직 ID |
 | `name` | `String` | 예 |  | 조직명 |
+| `type` | `OrganizationType` | 예 | `customer` | 서비스 운영사 또는 고객사 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -178,6 +187,8 @@ Organization
 - `commands`: `Command[]`
 - `sessions`: `Session[]`
 - `provisioningSessions`: `ProvisioningSession[]`
+- `siteMemberships`: `SiteMembership[]`
+- `floorMapRevisions`: `FloorMapRevision[]`
 
 ### Site
 
@@ -202,6 +213,7 @@ Organization
 - `commands`: `Command[]`
 - `invitations`: `Invitation[]`
 - `provisioningSessions`: `ProvisioningSession[]`
+- `memberships`: `SiteMembership[]`
 
 ### Floor
 
@@ -213,6 +225,7 @@ Organization
 | `siteId` | `String` | 예 | FK -> `Site.id` | 소속 현장 |
 | `name` | `String` | 예 |  | 층 이름 |
 | `level` | `Int` | 예 |  | 정렬/층 숫자 |
+| `mapRevision` | `Int` | 예 | `0` | 층 전체 편집 상태의 optimistic concurrency revision |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -224,6 +237,53 @@ Organization
 - `fixtures`: `Fixture[]`
 - `assets`: `FloorAsset[]`
 - `provisioningSessions`: `ProvisioningSession[]`
+- `mapRevisions`: `FloorMapRevision[]`
+
+### SiteMembership
+
+`operator`와 `viewer`의 현장 접근 범위를 명시적으로 보관한다. `(userId, siteId)`는 unique이며 두 부모가 삭제되면 함께 삭제한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | membership ID |
+| `userId` | `String` | 예 | FK -> `User.id`, cascade delete | 사용자 ID |
+| `siteId` | `String` | 예 | FK -> `Site.id`, cascade delete, indexed | 현장 ID |
+| `createdAt` | `DateTime` | 예 | `now()` | 배정 시각 |
+
+### FloorMapRevision
+
+층 도면의 전체 편집 스냅숏과 복구 이력을 보관한다. `Floor` 삭제 시 함께 삭제되며, 기록한 사용자는 삭제할 수 없다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | revision ID |
+| `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 대상 층 |
+| `revision` | `Int` | 예 | `(floorId, revision)` unique | 층별 revision 번호 |
+| `snapshot` | `Json` | 예 |  | canonical editor state |
+| `snapshotSha256` | `String` | 예 |  | 스냅숏 SHA-256 |
+| `changeSummary` | `Json` | 예 |  | 변경 요약 |
+| `changedBy` | `String` | 예 | FK -> `User.id`, restrict delete | 수정 사용자 |
+| `restoredFromRevision` | `Int?` | 아니오 |  | 복구 원본 revision |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+
+### AuditLog
+
+조직·현장·작업자와 다형 대상의 감사 결과를 공통으로 보관한다. 다형 대상 ID는 FK로 강제하지 않으며 현장/작업자 시간순 조회 인덱스를 둔다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 감사 ID |
+| `organizationId` | `String?` | 아니오 |  | 관련 조직 |
+| `siteId` | `String?` | 아니오 | indexed with `createdAt` | 관련 현장 |
+| `actorId` | `String?` | 아니오 | indexed with `createdAt` | 작업자 |
+| `action` | `String` | 예 |  | 수행한 동작 |
+| `targetType` | `String` | 예 |  | 대상 모델 종류 |
+| `targetId` | `String?` | 아니오 |  | 대상 ID |
+| `outcome` | `String` | 예 |  | 결과 |
+| `metadata` | `Json?` | 아니오 |  | 비밀값을 제외한 변경 요약 |
+| `ipAddress` | `String?` | 아니오 |  | 요청 IP |
+| `userAgent` | `String?` | 아니오 |  | 요청 User-Agent |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 
 ### FloorPlan
 
@@ -509,7 +569,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - MQTT 인증서 발급은 inventory ID를 입력으로 한 PostgreSQL transaction-scoped advisory lock 안에서 실행한다. 같은 inventory의 동시 요청은 직렬화되며, 기존 active MQTT 인증서는 `replaced`로 전환한 뒤 새 active 행을 만들고 마지막에 기존 행의 `replacedById`를 새 ID로 연결한다. 세 단계는 하나의 transaction이므로 외부에는 원자적으로 보인다.
 - partial Unique index는 위 서비스 잠금과 별도로 같은 inventory에 active MQTT 인증서가 둘 이상 남지 않도록 DB에서 강제한다. migration은 과거 중복 active 행이 있으면 가장 최근 행만 active로 남기고 나머지는 `replaced`로 정리한 뒤 index를 만든다.
 - Device renewal은 active device 인증서가 만료 30일 안에 있을 때만 P-256 CSR을 server-fixed serial CN/URI SAN으로 서명하고 `pending` 원장을 만든다. Inventory advisory lock과 pending partial unique index가 같은 inventory의 동시 renewal을 하나로 제한하며, 서명 후 원장 기록 또는 CA metadata 검증에 실패한 인증서는 best-effort revoke 후 일반화된 503을 반환한다. 성공 응답은 기존 PEM/`caChainPem` 배열 계약과 claimed gateway ID를 함께 반환한다. pending 인증서로 10분 안에 mTLS activation하면 transaction에서 기존 active를 `replaced`로, pending을 `active`로 바꾸고 inventory/gateway pointer를 함께 바꾼다. grace를 넘긴 pending은 revoke 후 거부한다.
-- Owner/admin inventory disable은 소속 조직의 claimed inventory만 허용한다. `disabledAt`을 먼저 확정해 bootstrap과 MQTT 발급을 즉시 차단한 뒤, 아직 revoke되지 않은 device/MQTT 인증서를 Vault에서 순차 폐기하고 각 성공을 원장에 기록한다. Vault 일부 실패 뒤에도 inventory는 disabled이며 같은 endpoint 호출로 남은 인증서 폐기를 재시도한다.
+- Admin inventory disable은 소속 조직의 claimed inventory만 허용한다. `disabledAt`을 먼저 확정해 bootstrap과 MQTT 발급을 즉시 차단한 뒤, 아직 revoke되지 않은 device/MQTT 인증서를 Vault에서 순차 폐기하고 각 성공을 원장에 기록한다. Vault 일부 실패 뒤에도 inventory는 disabled이며 같은 endpoint 호출로 남은 인증서 폐기를 재시도한다.
 - Task 27/29 lifecycle service는 같은 transaction 안에서 기존/후속 인증서가 동일한 `inventoryId`와 `purpose`인지 확인하고, 기존 교체 체인을 잠금 조회해 cycle이 생기지 않는지 검증한 뒤 `replacedById`와 상태를 함께 갱신해야 한다.
 - revoke 대상은 `purpose + issuer + certificateSerial + fingerprint`로 식별해 CA 교체나 serial 충돌 상황에서도 모호하지 않게 한다.
 

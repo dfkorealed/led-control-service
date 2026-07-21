@@ -36,10 +36,14 @@ enum CommandFixtureResultStatus {
 }
 
 enum UserRole {
-  owner
-  admin
   operator
+  admin
   viewer
+}
+
+enum OrganizationType {
+  service_provider
+  customer
 }
 
 enum UserStatus {
@@ -94,6 +98,7 @@ enum GatewayCertificateStatus {
 model Organization {
   id          String       @id @default(uuid())
   name        String
+  type        OrganizationType @default(customer)
   users       User[]
   sites       Site[]
   invitations Invitation[]
@@ -114,6 +119,8 @@ model User {
   sessions             Session[]
   provisioningSessions ProvisioningSession[]
   gatewayClaimAudits   GatewayClaimAudit[]
+  siteMemberships      SiteMembership[]
+  floorMapRevisions    FloorMapRevision[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
@@ -132,6 +139,7 @@ model Site {
   invitations          Invitation[]
   provisioningSessions ProvisioningSession[]
   gatewayClaimAudits   GatewayClaimAudit[]
+  memberships          SiteMembership[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -143,16 +151,65 @@ model Floor {
   siteId               String
   name                 String
   level                Int
+  mapRevision          Int                   @default(0)
   site                 Site                  @relation(fields: [siteId], references: [id])
   floorPlan            FloorPlan?
   fixtures             Fixture[]
   mapObjects           FloorMapObject[]
   assets               FloorAsset[]
   provisioningSessions ProvisioningSession[]
+  mapRevisions         FloorMapRevision[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
   @@index([siteId])
+}
+
+model SiteMembership {
+  id        String   @id @default(uuid())
+  userId    String
+  siteId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, siteId])
+  @@index([siteId])
+}
+
+model FloorMapRevision {
+  id                   String   @id @default(uuid())
+  floorId              String
+  revision             Int
+  snapshot             Json
+  snapshotSha256       String
+  changeSummary        Json
+  changedBy            String
+  restoredFromRevision Int?
+  floor                Floor    @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  user                 User     @relation(fields: [changedBy], references: [id], onDelete: Restrict)
+  createdAt            DateTime @default(now())
+
+  @@unique([floorId, revision])
+  @@index([floorId, createdAt])
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String?
+  siteId         String?
+  actorId        String?
+  action         String
+  targetType     String
+  targetId       String?
+  outcome        String
+  metadata       Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  @@index([siteId, createdAt])
+  @@index([actorId, createdAt])
 }
 
 model FloorAsset {

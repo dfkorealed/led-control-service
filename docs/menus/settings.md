@@ -74,6 +74,10 @@
 - 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
 - Konva 도면 에디터에 도면 업로드, 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 구현했다.
 - PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
+- `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다.
+- 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
+- `Floor.mapRevision`, `FloorMapRevision`, 공통 `AuditLog` 저장 구조를 추가했다. revision 저장·감사 로그 기록 API는 후속 작업이다.
+- 빈 DB bootstrap은 `auth:bootstrap-operator`로 서비스 운영사 `operator`를 생성하며, 로그인/session 응답에 Organization 유형을 포함한다.
 
 ## 확정 구현 설계
 
@@ -227,10 +231,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 ## 미구현
 
 - URL 기반 설정 하위 navigation
-- `owner` 제거와 `operator/admin/viewer` 3단계 역할 migration
-- 서비스 운영사와 고객사 Organization 구분
 - 역할별 설정 UI와 서버 공통 Roles Guard
-- SiteMembership 기반 현장 범위
+- SiteMembership 기반 현장 범위 적용 API
 - 현장 정보 수정과 층 CRUD/archive UI
 - 도면 에디터의 설정 메뉴 이동
 - 도면 단일 transaction 저장, revision, rollback과 동시 편집 lease
@@ -252,7 +254,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 현재 도면 에디터는 모니터링에서 열리며 여러 개별 API를 병렬 호출해 부분 저장 위험이 있다.
 - 현재 FloorPlan version은 배경 변경만 표현하고 도형·조명 배치의 전체 revision이 아니다.
 - 현재 변경 API는 조직 소속만 확인하며 역할과 사용자별 현장 범위가 충분히 적용되지 않았다.
-- 현재 DB와 bootstrap·claim 코드는 `owner/admin/operator/viewer` 의미를 사용하므로 새 3단계 역할로 안전하게 migration해야 한다.
+- 현재 Gateway claim은 customer admin만 허용한다. operator의 고객 현장 설치 권한과 SiteMembership 범위 적용은 후속 접근 제어 작업에서 연결해야 한다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
