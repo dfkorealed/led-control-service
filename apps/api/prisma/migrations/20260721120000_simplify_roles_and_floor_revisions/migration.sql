@@ -1,30 +1,21 @@
--- Preserve existing customer data while separating the service provider from customer tenants.
+-- Existing organizations cannot be safely classified from legacy domain data.
+-- New service providers are created only by the privileged bootstrap command.
 CREATE TYPE "OrganizationType" AS ENUM ('service_provider', 'customer');
 
 ALTER TABLE "Organization"
   ADD COLUMN "type" "OrganizationType" NOT NULL DEFAULT 'customer';
 
-UPDATE "Organization" o
-SET "type" = CASE
-  WHEN EXISTS (SELECT 1 FROM "Site" s WHERE s."organizationId" = o.id)
-    THEN 'customer'::"OrganizationType"
-  ELSE 'service_provider'::"OrganizationType"
-END;
+CREATE UNIQUE INDEX "Organization_single_service_provider_key" ON "Organization"("type") WHERE "type" = 'service_provider';
 
 -- PostgreSQL enums cannot remove values in place. Convert both role columns before dropping the legacy enum.
 ALTER TYPE "UserRole" RENAME TO "UserRole_old";
 CREATE TYPE "UserRole" AS ENUM ('operator', 'admin', 'viewer');
 
--- ALTER COLUMN ... USING forbids subqueries, so classify through a temporary enum column first.
+-- ALTER COLUMN ... USING forbids subqueries, so convert through a temporary enum column first.
 ALTER TABLE "User" ADD COLUMN "role_new" "UserRole";
 UPDATE "User" u
 SET "role_new" = (
   CASE
-    WHEN u."role"::text = 'owner' AND EXISTS (
-      SELECT 1
-      FROM "Organization" o
-      WHERE o.id = u."organizationId" AND o."type" = 'service_provider'
-    ) THEN 'operator'
     WHEN u."role"::text IN ('owner', 'operator') THEN 'admin'
     ELSE 'viewer'
   END

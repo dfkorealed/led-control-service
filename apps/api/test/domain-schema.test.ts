@@ -94,17 +94,30 @@ describe("Prisma domain schema", () => {
     expect(schema).toContain("model AuditLog");
   });
 
-  it("preserves tenant access while migrating legacy roles", () => {
+  it("keeps every legacy organization as a customer and demotes legacy privileged roles", () => {
     const migration = readMigrationBySuffix(roleRevisionMigrationSuffix);
 
     expect(migration).toContain('CREATE TYPE "OrganizationType" AS ENUM (\'service_provider\', \'customer\')');
-    expect(migration).toMatch(/WHEN (?:u\.)?"role"::text = 'owner'[\s\S]*?'service_provider'[\s\S]*?THEN 'operator'/);
+    expect(migration).toContain(
+      'ADD COLUMN "type" "OrganizationType" NOT NULL DEFAULT \'customer\''
+    );
+    expect(migration).not.toMatch(/UPDATE "Organization"[\s\S]*?EXISTS[\s\S]*?"Site"/);
+    expect(migration).not.toMatch(/THEN 'service_provider'/);
     expect(migration).toMatch(/WHEN (?:u\.)?"role"::text IN \('owner', 'operator'\) THEN 'admin'/);
+    expect(migration).not.toMatch(/THEN 'operator'/);
     expect(migration).not.toMatch(/ALTER TABLE "User"[\s\S]*?ALTER COLUMN "role"[\s\S]*?USING \([\s\S]*?EXISTS/);
     expect(migration).toMatch(/INSERT INTO "SiteMembership"[\s\S]*?WHERE u\."role" = 'viewer' AND o\."type" = 'customer'/);
     expect(migration).toContain('ALTER TABLE "Floor" ADD COLUMN "mapRevision" INTEGER NOT NULL DEFAULT 0');
     expect(migration).toContain('CREATE TABLE "FloorMapRevision"');
     expect(migration).toContain('CREATE TABLE "AuditLog"');
+  });
+
+  it("enforces one service provider organization in PostgreSQL", () => {
+    const migration = readMigrationBySuffix(roleRevisionMigrationSuffix);
+
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX "Organization_single_service_provider_key" ON "Organization"("type") WHERE "type" = \'service_provider\''
+    );
   });
 
   it("declares the MVP 1 lighting control domain models", () => {

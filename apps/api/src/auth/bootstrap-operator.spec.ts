@@ -5,11 +5,14 @@ describe("bootstrapFirstOperator", () => {
     const prisma: any = {
       user: {
         count: jest.fn().mockResolvedValue(0),
+        findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({ id: "operator-1", email: "operator@example.com" })
       },
       organization: {
+        findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({ id: "organization-1", name: "DF Korea" })
       },
+      $executeRawUnsafe: jest.fn().mockResolvedValue(0),
       $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma))
     };
 
@@ -33,20 +36,73 @@ describe("bootstrapFirstOperator", () => {
         status: "active"
       }
     });
+    expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith("SELECT pg_advisory_xact_lock(80520260721)");
   });
 
-  it("refuses to bootstrap when any user already exists", async () => {
+  it("allows bootstrap when only customer users already exist", async () => {
     const prisma: any = {
-      user: { count: jest.fn().mockResolvedValue(1) },
+      user: {
+        count: jest.fn().mockResolvedValue(1),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: "operator-1", email: "operator@example.com" })
+      },
+      organization: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: "organization-1", name: "DF Korea" })
+      },
+      $executeRawUnsafe: jest.fn().mockResolvedValue(0),
       $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma))
     };
 
-    await expect(
-      bootstrapFirstOperator(
-        prisma,
-        { organizationName: "DF Korea Service", email: "operator@example.com", name: "운영자", password: "secure-password" },
-        async () => "scrypt$hash"
-      )
-    ).rejects.toThrow("BOOTSTRAP_REFUSED");
+    await expect(bootstrapFirstOperator(prisma, input(), async () => "scrypt$hash")).resolves.toEqual({
+      organizationId: "organization-1",
+      userId: "operator-1",
+      email: "operator@example.com"
+    });
+  });
+
+  it("refuses when a service provider organization already exists", async () => {
+    const prisma = bootstrapPrisma({ serviceProvider: { id: "service-provider-1" } });
+
+    await expect(bootstrapFirstOperator(prisma, input(), async () => "scrypt$hash")).rejects.toThrow("BOOTSTRAP_REFUSED");
+    expect(prisma.organization.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses when an operator already exists", async () => {
+    const prisma = bootstrapPrisma({ operator: { id: "operator-1" } });
+
+    await expect(bootstrapFirstOperator(prisma, input(), async () => "scrypt$hash")).rejects.toThrow("BOOTSTRAP_REFUSED");
+    expect(prisma.organization.create).not.toHaveBeenCalled();
   });
 });
+
+const input = () => ({
+  organizationName: "DF Korea Service",
+  email: "operator@example.com",
+  name: "운영자",
+  password: "secure-password"
+});
+
+const bootstrapPrisma = ({
+  serviceProvider = null,
+  operator = null
+}: {
+  serviceProvider?: { id: string } | null;
+  operator?: { id: string } | null;
+} = {}) => {
+  const prisma: any = {
+    user: {
+      count: jest.fn().mockResolvedValue(0),
+      findFirst: jest.fn().mockResolvedValue(operator),
+      create: jest.fn().mockResolvedValue({ id: "operator-1", email: "operator@example.com" })
+    },
+    organization: {
+      findFirst: jest.fn().mockResolvedValue(serviceProvider),
+      create: jest.fn().mockResolvedValue({ id: "organization-1", name: "DF Korea" })
+    },
+    $executeRawUnsafe: jest.fn().mockResolvedValue(0),
+    $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma))
+  };
+
+  return prisma;
+};

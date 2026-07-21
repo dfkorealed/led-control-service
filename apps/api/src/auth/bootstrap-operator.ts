@@ -5,14 +5,23 @@ interface BootstrapOperatorInput {
   password: string;
 }
 
+interface BootstrapRecord {
+  id: string;
+}
+
 export interface BootstrapDatabase {
   user: {
-    count(): Promise<number>;
+    findFirst(input: { where: { role: "operator" }; select: { id: true } }): Promise<BootstrapRecord | null>;
     create(input: { data: Record<string, unknown> }): Promise<{ id: string; email: string }>;
   };
   organization: {
+    findFirst(input: {
+      where: { type: "service_provider" };
+      select: { id: true };
+    }): Promise<BootstrapRecord | null>;
     create(input: { data: { name: string; type: "service_provider" } }): Promise<{ id: string; name: string }>;
   };
+  $executeRawUnsafe(query: string): Promise<unknown>;
   $transaction<T>(callback: (tx: BootstrapDatabase) => Promise<T>): Promise<T>;
 }
 
@@ -28,8 +37,21 @@ export async function bootstrapFirstOperator(
   const passwordHash = await hashPassword(input.password);
 
   return prisma.$transaction(async (tx) => {
-    if ((await tx.user.count()) !== 0) {
-      throw new Error("BOOTSTRAP_REFUSED: at least one user already exists");
+    await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(80520260721)");
+
+    const [serviceProvider, operator] = await Promise.all([
+      tx.organization.findFirst({
+        where: { type: "service_provider" },
+        select: { id: true }
+      }),
+      tx.user.findFirst({
+        where: { role: "operator" },
+        select: { id: true }
+      })
+    ]);
+
+    if (serviceProvider || operator) {
+      throw new Error("BOOTSTRAP_REFUSED: a service provider organization or operator already exists");
     }
     const organization = await tx.organization.create({
       data: { name: organizationName, type: "service_provider" }
