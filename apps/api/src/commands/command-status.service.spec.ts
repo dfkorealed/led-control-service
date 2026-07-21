@@ -124,6 +124,24 @@ describe("CommandStatusService", () => {
       assert: jest.fn().mockRejectedValue(new NotFoundException("site not found"))
     });
 
-    await expect(service.getCommand(user, "command-other")).rejects.toThrow("site not found");
+    await expect(service.getCommand(user, "command-other")).rejects.toThrow("command not found");
+  });
+
+  it("returns the same public 404 response for absent and inaccessible commands", async () => {
+    const absentService = new (CommandStatusService as any)(
+      { command: { findUnique: jest.fn().mockResolvedValue(null) } },
+      { assert: jest.fn() }
+    );
+    const inaccessibleService = new (CommandStatusService as any)(
+      { command: { findUnique: jest.fn().mockResolvedValue({ siteId: "other-site" }) } },
+      { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) }
+    );
+
+    const absent = await absentService.getCommand(user, "missing-command").catch((error: unknown) => error);
+    const inaccessible = await inaccessibleService.getCommand(user, "other-command").catch((error: unknown) => error);
+
+    expect(absent).toBeInstanceOf(NotFoundException);
+    expect(inaccessible).toBeInstanceOf(NotFoundException);
+    expect(inaccessible.getResponse()).toEqual(absent.getResponse());
   });
 });

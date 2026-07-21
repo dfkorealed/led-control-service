@@ -18,7 +18,12 @@ export class CommandStatusService {
       select: { siteId: true }
     });
     if (!scopedCommand) throw new NotFoundException("command not found");
-    await this.siteAccess.assert(user, scopedCommand.siteId, "read");
+    try {
+      await this.siteAccess.assert(user, scopedCommand.siteId, "read");
+    } catch (error) {
+      if (error instanceof NotFoundException) throw new NotFoundException("command not found");
+      throw error;
+    }
 
     const command = await this.prisma.command.findUnique({
       where: { id: commandId },

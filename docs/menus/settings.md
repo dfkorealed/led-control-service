@@ -78,6 +78,7 @@
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
 - `Floor.mapRevision`, `FloorMapRevision`, 공통 `AuditLog` 저장 구조를 추가했다. revision 저장·감사 로그 기록 API는 후속 작업이다.
 - 빈 DB bootstrap은 `auth:bootstrap-operator`로 서비스 운영사 `operator`를 생성하며, 로그인/session 응답에 Organization 유형을 포함한다.
+- `POST /setup/initial-site`와 `POST /setup/floors`는 `SessionAuthGuard`와 `RolesGuard`의 `operator` 역할 검사를 적용한다. 현재 조직 기반 초기 설치 생성 흐름은 유지하며, 고객사 Organization과 SiteMembership을 함께 만드는 transaction 전환은 후속 Task 5 범위다.
 
 ## 확정 구현 설계
 

@@ -23,7 +23,7 @@
 - MQTT `gateway-heartbeat` 이벤트가 gateway online/offline 상태 판단에 반영된다.
 - dashboard query는 React Query로 3초마다 polling한다.
 - 기본 dashboard는 fixture 본문을 제외한 현장/층/gateway metadata와 DB aggregate summary만 반환한다. 제어 화면만 `includeFixtures=true`를 명시한다.
-- 모니터링 fixture snapshot은 `GET /floors/:floorId/fixtures`에서 현장 read 권한을 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다.
+- 모니터링 fixture snapshot은 `GET /floors/:floorId/fixtures`에서 현장 read 권한을 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다. 존재하지 않는 층과 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
 - Playwright deterministic 1,000 fixture/5-page 시나리오가 Chromium에서 1,000개 marker 렌더링을 검증한다.
 - `pnpm benchmark:fixtures`는 실제 인증 cookie와 floor ID로 100회 측정해 API p95가 1초를 넘으면 실패한다.
@@ -88,6 +88,7 @@
 - `apps/api/src/floor-editor/*`
 - `apps/api/src/sites/sites.controller.ts`
 - `apps/api/src/sites/sites.service.ts`
+- `apps/api/src/fixtures/fixtures.service.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
 - `apps/api/src/mqtt/topic-scope.ts`
 - `apps/api/src/fixtures/fixture-freshness.service.ts`

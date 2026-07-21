@@ -1,4 +1,6 @@
 import { Body, Controller, Post, UseGuards } from "@nestjs/common";
+import { Roles } from "../access/roles.decorator";
+import { RolesGuard } from "../access/roles.guard";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -28,7 +30,8 @@ interface AddFloorsBody {
   floors: FloorBody[];
 }
 
-@UseGuards(SessionAuthGuard)
+@UseGuards(SessionAuthGuard, RolesGuard)
+@Roles("operator")
 @Controller("setup")
 export class SetupController {
   constructor(private readonly setupService: SetupService) {}

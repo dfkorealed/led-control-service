@@ -74,6 +74,27 @@ describe("FixturesService", () => {
     expect(prisma.fixture.findMany).not.toHaveBeenCalled();
   });
 
+  it("returns the same public 404 response for absent and inaccessible floors", async () => {
+    const absentService = new (FixturesService as any)(
+      { floor: { findUnique: jest.fn().mockResolvedValue(null) } },
+      { assert: jest.fn() }
+    );
+    const inaccessibleService = new (FixturesService as any)(
+      {
+        floor: { findUnique: jest.fn().mockResolvedValue({ id: "other-floor", siteId: "other-site" }) },
+        fixture: { findMany: jest.fn() }
+      },
+      { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) }
+    );
+
+    const absent = await absentService.getFloorFixtures(user, "missing-floor", {}).catch((error: unknown) => error);
+    const inaccessible = await inaccessibleService.getFloorFixtures(user, "other-floor", {}).catch((error: unknown) => error);
+
+    expect(absent).toBeInstanceOf(NotFoundException);
+    expect(inaccessible).toBeInstanceOf(NotFoundException);
+    expect(inaccessible.getResponse()).toEqual(absent.getResponse());
+  });
+
   it.each([0, 201])("rejects invalid page limit %s", async (limit) => {
     const service = new FixturesService({} as never, {} as never);
     await expect((service as any).getFloorFixtures(user, "floor-1", { limit })).rejects.toBeInstanceOf(BadRequestException);

@@ -24,7 +24,12 @@ export class FixturesService {
       select: { id: true, siteId: true }
     });
     if (!floor) throw new NotFoundException("floor not found");
-    await this.siteAccess.assert(user, floor.siteId, "read");
+    try {
+      await this.siteAccess.assert(user, floor.siteId, "read");
+    } catch (error) {
+      if (error instanceof NotFoundException) throw new NotFoundException("floor not found");
+      throw error;
+    }
 
     const rows = await this.prisma.fixture.findMany({
       where: { floorId },

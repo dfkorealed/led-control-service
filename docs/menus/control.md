@@ -9,7 +9,7 @@
 - 선택 조명의 현재 밝기를 슬라이더에 반영한다.
 - 0%, 30%, 70%, 100% 프리셋 버튼으로 밝기 값을 바꿀 수 있다.
 - `POST /commands/dimming`으로 개별 조명 밝기 명령을 전송한다.
-- 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 command의 현장 read 권한이 있는 사용자에게만 조회를 허용한다.
+- 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 command의 현장 read 권한이 있는 사용자에게만 조회를 허용한다. 존재하지 않는 command와 접근할 수 없는 command는 같은 `command not found` 404 응답으로 처리한다.
 - 제어 화면은 최근 명령을 1초 polling하며 접수, MQTT 발행, gateway 수신, 조명 적용 완료, 일부 실패, 실패, timeout 단계를 표시하고 종료 상태에서 polling을 중단한다.
 - 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
 - dashboard의 group 목록을 그룹 카드로 표시하고 선택할 수 있다.

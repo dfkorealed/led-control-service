@@ -1,5 +1,10 @@
+import "reflect-metadata";
 import { BadRequestException } from "@nestjs/common";
+import { GUARDS_METADATA } from "@nestjs/common/constants";
+import { RolesGuard } from "../access/roles.guard";
+import { rolesMetadataKey } from "../access/roles.decorator";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { SetupController } from "./setup.controller";
 import { SetupService } from "./setup.service";
 
@@ -17,6 +22,13 @@ describe("SetupController", () => {
       setupService
     };
   }
+
+  it("requires the operator role for every setup route", () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, SetupController)).toEqual(
+      expect.arrayContaining([SessionAuthGuard, RolesGuard])
+    );
+    expect(Reflect.getMetadata(rolesMetadataKey, SetupController)).toEqual(["operator"]);
+  });
 
   it("passes a null initial site body to service validation without a raw TypeError", async () => {
     const { controller, setupService } = createController();
