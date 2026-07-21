@@ -12,6 +12,7 @@ export class FixturesService {
 
   async getFloorFixtures(
     user: AuthenticatedUser,
+    siteId: string,
     floorId: string,
     options: { cursor?: string; limit?: number }
   ) {
@@ -23,9 +24,9 @@ export class FixturesService {
       where: { id: floorId },
       select: { id: true, siteId: true }
     });
-    if (!floor) throw new NotFoundException("floor not found");
+    if (!floor || floor.siteId !== siteId) throw new NotFoundException("floor not found");
     try {
-      await this.siteAccess.assert(user, floor.siteId, "read");
+      await this.siteAccess.assert(user, siteId, "read");
     } catch (error) {
       if (error instanceof NotFoundException) throw new NotFoundException("floor not found");
       throw error;

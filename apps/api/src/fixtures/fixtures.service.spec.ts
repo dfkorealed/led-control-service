@@ -39,7 +39,7 @@ describe("FixturesService", () => {
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
     const service = new (FixturesService as any)(prisma, siteAccess);
 
-    const result = await service.getFloorFixtures(user, "floor-1", { limit: 1 });
+    const result = await service.getFloorFixtures(user, "site-1", "floor-1", { limit: 1 });
 
     expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "read");
     expect(prisma.fixture.findMany).toHaveBeenCalledWith(
@@ -68,7 +68,7 @@ describe("FixturesService", () => {
     };
     const siteAccess = { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) };
 
-    await expect(new (FixturesService as any)(prisma, siteAccess).getFloorFixtures(user, "other-floor", {})).rejects.toBeInstanceOf(
+    await expect(new (FixturesService as any)(prisma, siteAccess).getFloorFixtures(user, "other-site", "other-floor", {})).rejects.toBeInstanceOf(
       NotFoundException
     );
     expect(prisma.fixture.findMany).not.toHaveBeenCalled();
@@ -87,8 +87,8 @@ describe("FixturesService", () => {
       { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) }
     );
 
-    const absent = await absentService.getFloorFixtures(user, "missing-floor", {}).catch((error: unknown) => error);
-    const inaccessible = await inaccessibleService.getFloorFixtures(user, "other-floor", {}).catch((error: unknown) => error);
+    const absent = await absentService.getFloorFixtures(user, "site-1", "missing-floor", {}).catch((error: unknown) => error);
+    const inaccessible = await inaccessibleService.getFloorFixtures(user, "other-site", "other-floor", {}).catch((error: unknown) => error);
 
     expect(absent).toBeInstanceOf(NotFoundException);
     expect(inaccessible).toBeInstanceOf(NotFoundException);
@@ -97,6 +97,22 @@ describe("FixturesService", () => {
 
   it.each([0, 201])("rejects invalid page limit %s", async (limit) => {
     const service = new FixturesService({} as never, {} as never);
-    await expect((service as any).getFloorFixtures(user, "floor-1", { limit })).rejects.toBeInstanceOf(BadRequestException);
+    await expect((service as any).getFloorFixtures(user, "site-1", "floor-1", { limit })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("returns the opaque floor response when the requested site does not own the floor", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      fixture: { findMany: jest.fn() }
+    };
+    const siteAccess = { assert: jest.fn() };
+    const service = new (FixturesService as any)(prisma, siteAccess);
+
+    const error = await service.getFloorFixtures(user, "site-2", "floor-1", {}).catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(NotFoundException);
+    expect(error.getResponse()).toEqual({ statusCode: 404, message: "floor not found", error: "Not Found" });
+    expect(siteAccess.assert).not.toHaveBeenCalled();
+    expect(prisma.fixture.findMany).not.toHaveBeenCalled();
   });
 });
