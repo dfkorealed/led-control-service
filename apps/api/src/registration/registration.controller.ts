@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { Roles } from "../access/roles.decorator";
+import { RolesGuard } from "../access/roles.guard";
 import { RegistrationService } from "./registration.service";
 
 interface CreateRegistrationSessionBody {
@@ -16,24 +18,20 @@ interface RegisterNodeBody {
   ratedWatt?: string;
 }
 
-@UseGuards(SessionAuthGuard)
+@UseGuards(SessionAuthGuard, RolesGuard)
+@Roles("operator")
 @Controller("registration-sessions")
 export class RegistrationController {
   constructor(private readonly registrationService: RegistrationService) {}
 
   @Post()
   createSession(@Body() body: CreateRegistrationSessionBody, @CurrentUser() user: AuthenticatedUser) {
-    return this.registrationService.createSession({
-      siteId: body.siteId,
-      floorId: body.floorId,
-      requestedBy: user.id,
-      organizationId: user.organizationId
-    });
+    return this.registrationService.createSession(user, body);
   }
 
   @Get(":sessionId")
   getSession(@Param("sessionId") sessionId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.registrationService.getSession(sessionId, user.organizationId);
+    return this.registrationService.getSession(user, sessionId);
   }
 
   @Post(":sessionId/nodes/:nodeId/identify")
@@ -42,7 +40,7 @@ export class RegistrationController {
     @Param("nodeId") nodeId: string,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.registrationService.identifyNode(sessionId, nodeId, user.organizationId);
+    return this.registrationService.identifyNode(user, sessionId, nodeId);
   }
 
   @Post(":sessionId/nodes/:nodeId/register")
@@ -52,11 +50,11 @@ export class RegistrationController {
     @Body() body: RegisterNodeBody,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.registrationService.registerNode(sessionId, nodeId, body, user.organizationId);
+    return this.registrationService.registerNode(user, sessionId, nodeId, body);
   }
 
   @Post(":sessionId/complete")
   completeSession(@Param("sessionId") sessionId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.registrationService.completeSession(sessionId, user.organizationId);
+    return this.registrationService.completeSession(user, sessionId);
   }
 }

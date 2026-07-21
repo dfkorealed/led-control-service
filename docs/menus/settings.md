@@ -60,15 +60,16 @@
 
 ## 구현 완료
 
-- 현장이 없으면 초기 설치 설정 마법사를 표시한다.
-- 초기 설치에서 현장명, 주소, kWh 단가, 층 이름과 level을 등록하며 Gateway 레코드는 만들지 않는다.
-- 현장 생성 후 제조 원장의 시리얼과 일회성 claim code로 Gateway를 연결한다.
+- 현장이 없는 service-provider `operator`에게만 초기 설치 설정 마법사를 표시한다. customer `admin/viewer`는 `설치 담당자가 현장을 준비 중입니다` 상태를 본다.
+- 초기 설치에서 고객사명, 현장명, 주소, kWh 단가, 층 이름과 level을 등록하며 Gateway 레코드는 만들지 않는다.
+- `POST /setup/initial-site`는 service-provider operator만 호출할 수 있고, Serializable transaction으로 customer Organization, 첫 Site, Floors, operator의 SiteMembership을 함께 생성한다.
+- 현장 생성 후 해당 현장에 배정된 operator만 제조 원장의 시리얼과 일회성 claim code로 Gateway를 연결한다.
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
 - 설정 화면에 현장, 층/도면, 그룹, Gateway 요약 카드를 표시한다.
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
 - 현장이 있으면 조명 등록 세션, BLE Mesh 후보 목록과 provisioning 요청 UI를 제공한다.
 - provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다.
-- 제조 장비 원장 기반 `POST /gateways/claim`과 장비 인증서 기반 `POST /gateway-bootstrap`을 구현했다.
+- 제조 장비 원장 기반 `POST /gateways/claim`과 장비 인증서 기반 `POST /gateway-bootstrap`을 구현했다. claim과 assigned inventory disable은 operator 역할과 현장 `commission` 권한이 필요하며 admin/viewer는 `403`, 미배정 operator는 `404`를 받는다.
 - Claim 성공·실패 감사 로그와 연속 실패 rate limit을 적용했다.
 - Raspberry Pi appliance가 실제 BlueZ scan/provisioning adapter와 영속 Mesh identity를 사용한다.
 - 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
@@ -78,7 +79,8 @@
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
 - `Floor.mapRevision`, `FloorMapRevision`, 공통 `AuditLog` 저장 구조를 추가했다. revision 저장·감사 로그 기록 API는 후속 작업이다.
 - 빈 DB bootstrap은 `auth:bootstrap-operator`로 서비스 운영사 `operator`를 생성하며, 로그인/session 응답에 Organization 유형을 포함한다.
-- `POST /setup/initial-site`와 `POST /setup/floors`는 `SessionAuthGuard`와 `RolesGuard`의 `operator` 역할 검사를 적용한다. 현재 조직 기반 초기 설치 생성 흐름은 유지하며, 고객사 Organization과 SiteMembership을 함께 만드는 transaction 전환은 후속 Task 5 범위다.
+- `POST /setup/floors`와 registration session 생성·조회·identify·register·complete는 operator 역할과 대상 현장의 `commission` 권한을 모두 확인한다.
+- `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
 
 ## 확정 구현 설계
 
@@ -255,7 +257,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 현재 도면 에디터는 모니터링에서 열리며 여러 개별 API를 병렬 호출해 부분 저장 위험이 있다.
 - 현재 FloorPlan version은 배경 변경만 표현하고 도형·조명 배치의 전체 revision이 아니다.
 - 현재 변경 API는 조직 소속만 확인하며 역할과 사용자별 현장 범위가 충분히 적용되지 않았다.
-- 현재 Gateway claim은 customer admin만 허용한다. operator의 고객 현장 설치 권한과 SiteMembership 범위 적용은 후속 접근 제어 작업에서 연결해야 한다.
+- Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.

@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 
@@ -6,19 +8,18 @@ import { ObjectStorageService } from "../storage/object-storage.service";
 export class FloorAssetsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: ObjectStorageService
+    private readonly storage: ObjectStorageService,
+    private readonly siteAccess: SiteAccessService
   ) {}
 
   async createUploadIntent(
+    user: AuthenticatedUser,
     floorId: string,
-    organizationId: string,
     input: { kind: "original" | "rendered"; mimeType: string; sizeBytes: number; sha256: string }
   ) {
-    const floor = await this.prisma.floor.findFirst({
-      where: { id: floorId, site: { organizationId } },
-      select: { id: true }
-    });
+    const floor = await this.findFloor(floorId);
     if (!floor) throw new NotFoundException("floor not found");
+    await this.siteAccess.assert(user, floor.siteId, "manage");
     if (input.kind !== "original" && input.kind !== "rendered") throw new BadRequestException("invalid floor asset kind");
 
     const descriptor = await this.storage.createUploadDescriptor({
@@ -47,9 +48,12 @@ export class FloorAssetsService {
     };
   }
 
-  async completeUpload(floorId: string, assetId: string, organizationId: string) {
+  async completeUpload(user: AuthenticatedUser, floorId: string, assetId: string) {
+    const floor = await this.findFloor(floorId);
+    if (!floor) throw new NotFoundException("floor not found");
+    await this.siteAccess.assert(user, floor.siteId, "manage");
     const asset = await this.prisma.floorAsset.findFirst({
-      where: { id: assetId, floorId, floor: { site: { organizationId } } }
+      where: { id: assetId, floorId }
     });
     if (!asset) throw new NotFoundException("floor asset not found");
     if (asset.status === "ready") return { id: asset.id, status: asset.status, publicUrl: asset.publicUrl };
@@ -68,5 +72,19 @@ export class FloorAssetsService {
       data: { status: "ready", readyAt: new Date() }
     });
     return { id: ready.id, status: ready.status, publicUrl: ready.publicUrl };
+  }
+
+  async listAssets(user: AuthenticatedUser, floorId: string) {
+    const floor = await this.findFloor(floorId);
+    if (!floor) throw new NotFoundException("floor not found");
+    await this.siteAccess.assert(user, floor.siteId, "read");
+    return this.prisma.floorAsset.findMany({
+      where: { floorId, status: "ready" },
+      orderBy: { createdAt: "asc" }
+    });
+  }
+
+  private findFloor(floorId: string) {
+    return this.prisma.floor.findUnique({ where: { id: floorId }, select: { id: true, siteId: true } });
   }
 }

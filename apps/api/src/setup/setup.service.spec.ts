@@ -1,6 +1,8 @@
-import { BadRequestException, ConflictException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { Prisma } from "@prisma/client";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { SitesService } from "../sites/sites.service";
 import { SetupService } from "./setup.service";
@@ -31,6 +33,12 @@ describe("SetupService", () => {
           tariffKwhRate: "160.00"
         })
       },
+      organization: {
+        create: jest.fn().mockResolvedValue({ id: "customer-organization-1", name: "고객사 A", type: "customer" })
+      },
+      siteMembership: {
+        create: jest.fn().mockResolvedValue({ id: "membership-1" })
+      },
       floor: {
         findMany: jest.fn().mockResolvedValue([]),
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
@@ -57,17 +65,20 @@ describe("SetupService", () => {
     const sitesService = {
       getDashboardById: jest.fn().mockResolvedValue(dashboard)
     };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
 
     return Test.createTestingModule({
       providers: [
         SetupService,
         { provide: PrismaService, useValue: prisma },
-        { provide: SitesService, useValue: sitesService }
+        { provide: SitesService, useValue: sitesService },
+        { provide: SiteAccessService, useValue: siteAccess }
       ]
     }).compile().then((moduleRef) => ({
       service: moduleRef.get(SetupService),
       prisma,
-      sitesService
+      sitesService,
+      siteAccess
     }));
   }
 
@@ -79,18 +90,56 @@ describe("SetupService", () => {
   }
 
   const initialSiteInput = {
-    organizationId: "organization-1",
+    customerOrganizationName: "고객사 A",
     siteName: "A 주차장",
     address: "서울시 강남구",
     tariffKwhRate: 160,
     floors: [{ name: "B2", level: -2 }]
   };
 
+  const operator: AuthenticatedUser = {
+    id: "operator-1",
+    organizationId: "provider-organization-1",
+    organizationType: "service_provider",
+    email: "operator@example.com",
+    name: "Operator",
+    role: "operator",
+    status: "active"
+  };
+  const admin: AuthenticatedUser = {
+    ...operator,
+    organizationId: "customer-organization-1",
+    organizationType: "customer",
+    role: "admin"
+  };
+
+  it("rejects initial site creation by a customer admin", async () => {
+    const { service } = await createModule();
+
+    await expect((service as any).createInitialSite(admin, initialSiteInput)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("creates a customer organization, initial site, floors, and operator membership atomically", async () => {
+    const { service, prisma } = await createModule();
+
+    await (service as any).createInitialSite(operator, initialSiteInput);
+
+    expect(prisma.organization.create).toHaveBeenCalledWith({
+      data: { name: "고객사 A", type: "customer" }
+    });
+    expect(prisma.siteMembership.create).toHaveBeenCalledWith({
+      data: { userId: operator.id, siteId: "site-1" }
+    });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+    });
+  });
+
   it("creates the initial site and floors without bypassing the gateway claim flow", async () => {
     const { service, prisma, sitesService } = await createModule();
 
-    const result = await service.createInitialSite({
-      organizationId: "organization-1",
+    const result = await service.createInitialSite(operator, {
+      customerOrganizationName: "고객사 A",
       siteName: " A 주차장 ",
       address: " 서울시 강남구 ",
       tariffKwhRate: 160,
@@ -100,10 +149,10 @@ describe("SetupService", () => {
       ]
     });
 
-    expect(prisma.site.count).toHaveBeenCalledWith({ where: { organizationId: "organization-1" } });
+    expect(prisma.organization.create).toHaveBeenCalledWith({ data: { name: "고객사 A", type: "customer" } });
     expect(prisma.site.create).toHaveBeenCalledWith({
       data: {
-        organizationId: "organization-1",
+        organizationId: "customer-organization-1",
         name: "A 주차장",
         address: "서울시 강남구",
         tariffKwhRate: "160.00"
@@ -123,27 +172,10 @@ describe("SetupService", () => {
     expect(result).toBe(dashboard);
   });
 
-  it("rejects initial setup when the organization already has a site", async () => {
-    const { service, prisma } = await createModule({
-      site: {
-        count: jest.fn().mockResolvedValue(1),
-        findFirst: jest.fn(),
-        create: jest.fn()
-      }
-    });
-
-    await expect(
-      service.createInitialSite({
-        ...initialSiteInput
-      })
-    ).rejects.toThrow("initial site already exists");
-    expect(prisma.site.create).not.toHaveBeenCalled();
-  });
-
   it("accepts initial setup without a gateway so it can be claimed from manufacturing inventory", async () => {
     const { service, prisma } = await createModule();
 
-    await expect(service.createInitialSite(initialSiteInput)).resolves.toBe(dashboard);
+    await expect(service.createInitialSite(operator, initialSiteInput)).resolves.toBe(dashboard);
     expect(prisma.$transaction).toHaveBeenCalled();
     expect(prisma.gateway.create).not.toHaveBeenCalled();
   });
@@ -152,7 +184,7 @@ describe("SetupService", () => {
     const { service } = await createModule();
 
     await expect(
-      service.createInitialSite({
+      service.createInitialSite(operator, {
         ...initialSiteInput,
         floors: [
           { name: " B2 ", level: -2 },
@@ -162,7 +194,7 @@ describe("SetupService", () => {
     ).rejects.toThrow("floor names must be unique");
 
     await expect(
-      service.createInitialSite({
+      service.createInitialSite(operator, {
         ...initialSiteInput,
         floors: [
           { name: "B2", level: -2 },
@@ -175,11 +207,10 @@ describe("SetupService", () => {
   it("rejects malformed initial site payloads with BadRequestException", async () => {
     const { service } = await createModule();
 
-    await expect(service.createInitialSite(null as any)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createInitialSite(operator, null as any)).rejects.toBeInstanceOf(BadRequestException);
 
     await expect(
-      service.createInitialSite({
-        organizationId: "organization-1",
+      service.createInitialSite(operator, {
         address: "서울시 강남구",
         tariffKwhRate: 160,
         floors: [{ name: "B2", level: -2 }],
@@ -187,8 +218,7 @@ describe("SetupService", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     await expect(
-      service.createInitialSite({
-        organizationId: "organization-1",
+      service.createInitialSite(operator, {
         siteName: 123,
         address: "서울시 강남구",
         tariffKwhRate: 160,
@@ -201,7 +231,7 @@ describe("SetupService", () => {
     const { service } = await createModule();
 
     await expect(
-      service.createInitialSite({
+      service.createInitialSite(operator, {
         ...initialSiteInput,
         floors: [{ name: 123, level: -2 }]
       } as any)
@@ -211,11 +241,11 @@ describe("SetupService", () => {
   it("rejects tariff rates outside the Decimal(10,2) setup range", async () => {
     const { service } = await createModule();
 
-    await expect(service.createInitialSite({ ...initialSiteInput, tariffKwhRate: 0 })).rejects.toThrow(
+    await expect(service.createInitialSite(operator, { ...initialSiteInput, tariffKwhRate: 0 })).rejects.toThrow(
       "tariffKwhRate must be greater than 0 and less than or equal to 100000"
     );
 
-    await expect(service.createInitialSite({ ...initialSiteInput, tariffKwhRate: 100000.01 })).rejects.toThrow(
+    await expect(service.createInitialSite(operator, { ...initialSiteInput, tariffKwhRate: 100000.01 })).rejects.toThrow(
       "tariffKwhRate must be greater than 0 and less than or equal to 100000"
     );
   });
@@ -224,20 +254,18 @@ describe("SetupService", () => {
     const { service } = await createModule();
 
     await expect(
-      service.createInitialSite({ ...initialSiteInput, floors: [{ name: "0F", level: 0 }] })
+      service.createInitialSite(operator, { ...initialSiteInput, floors: [{ name: "0F", level: 0 }] })
     ).rejects.toThrow("floor level must be between -100 and 100 and cannot be 0");
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: "B101", level: -101 }]
       })
     ).rejects.toThrow("floor level must be between -100 and 100 and cannot be 0");
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: "101F", level: 101 }]
       })
@@ -248,8 +276,7 @@ describe("SetupService", () => {
     const { service } = await createModule();
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: 123,
         floors: [{ name: "B1", level: -1 }]
       } as any)
@@ -260,32 +287,28 @@ describe("SetupService", () => {
     const { service } = await createModule();
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: "B1", level: -1, floorPlan: { imageUrl: "   ", width: 1200, height: 800 } }]
       })
     ).rejects.toThrow("floorPlan imageUrl is required");
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: "B1", level: -1, floorPlan: "/b1.svg" }]
       } as any)
     ).rejects.toThrow("floorPlan must be an object");
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: "B1", level: -1, floorPlan: { imageUrl: "/b1.svg", width: 1200.5, height: 800 } }]
       })
     ).rejects.toThrow("floorPlan width must be a positive integer");
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: "B1", level: -1, floorPlan: { imageUrl: "/b1.svg", width: 1200, height: 0 } }]
       })
@@ -298,7 +321,7 @@ describe("SetupService", () => {
 
     let caught: unknown;
     try {
-      await service.createInitialSite({
+      await service.createInitialSite(operator, {
         ...initialSiteInput
       });
     } catch (error) {
@@ -320,31 +343,25 @@ describe("SetupService", () => {
     });
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: " B2 ", level: -1 }]
       })
     ).rejects.toThrow("floor names must be unique");
 
     await expect(
-      service.addFloors({
-        organizationId: "organization-1",
+      service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: "B1", level: -2 }]
       })
     ).rejects.toThrow("floor levels must be unique");
 
     prisma.floor.findMany.mockResolvedValue([]);
-    const result = await service.addFloors({
-      organizationId: "organization-1",
+    const result = await service.addFloors(operator, {
       siteId: "site-1",
       floors: [{ name: " B1 ", level: -1, floorPlan: { imageUrl: "/b1.svg", width: 1200, height: 800 } }]
     });
 
-    expect(prisma.site.findFirst).toHaveBeenCalledWith({
-      where: { id: "site-1", organizationId: "organization-1" }
-    });
     expect(prisma.floor.createMany).toHaveBeenCalledWith({
       data: [{ siteId: "site-1", name: "B1", level: -1 }]
     });
@@ -364,8 +381,7 @@ describe("SetupService", () => {
 
     let caught: unknown;
     try {
-      await service.addFloors({
-        organizationId: "organization-1",
+      await service.addFloors(operator, {
         siteId: "site-1",
         floors: [{ name: "B1", level: -1 }]
       });

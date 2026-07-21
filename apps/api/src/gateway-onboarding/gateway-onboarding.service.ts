@@ -14,17 +14,13 @@ import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:cry
 import { promisify } from "node:util";
 import { PrismaService } from "../prisma/prisma.service";
 import { CertificateLifecycleService } from "../pki/certificate-lifecycle.service";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 
 const scrypt = promisify(scryptCallback);
 const CLAIM_KEY_LENGTH = 64;
 const CLAIM_WINDOW_MS = 15 * 60 * 1000;
 const CLAIM_FAILURE_LIMIT = 5;
-
-interface ClaimingUser {
-  id: string;
-  organizationId: string;
-  role: string;
-}
 
 interface ClaimGatewayInput {
   siteId: string;
@@ -43,11 +39,13 @@ interface BootstrapGatewayInput {
 export class GatewayOnboardingService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly siteAccess: SiteAccessService,
     @Optional() private readonly certificateLifecycle?: CertificateLifecycleService
   ) {}
 
-  async claimGateway(user: ClaimingUser, input: ClaimGatewayInput) {
-    if (user.role !== "admin") throw new ForbiddenException("gateway claim requires admin role");
+  async claimGateway(user: AuthenticatedUser, input: ClaimGatewayInput) {
+    this.assertOperator(user);
+    await this.siteAccess.assert(user, input.siteId, "commission");
     const serialNumber = this.requireText(input.serialNumber, "serialNumber is required");
     const name = this.requireText(input.name, "gateway name is required");
     const claimCode = this.requireText(input.claimCode, "claimCode is required");
@@ -63,11 +61,7 @@ export class GatewayOnboardingService {
       throw new HttpException("too many gateway claim attempts", HttpStatus.TOO_MANY_REQUESTS);
     }
 
-    const [site, inventory] = await Promise.all([
-      this.db().site.findFirst({ where: { id: input.siteId, organizationId: user.organizationId } }),
-      this.db().gatewayInventory.findUnique({ where: { serialNumber } })
-    ]);
-    if (!site) throw new BadRequestException("site not found in the user's organization");
+    const inventory = await this.db().gatewayInventory.findUnique({ where: { serialNumber } });
     if (!inventory || inventory.disabledAt) return this.rejectClaim(input, user.id, "gateway inventory is unavailable");
     if (inventory.claimedGatewayId || !inventory.claimCodeHash) throw new ConflictException("gateway is already claimed");
     if (!(await this.verifyClaimCode(claimCode, inventory.claimCodeHash))) {
@@ -130,14 +124,18 @@ export class GatewayOnboardingService {
     };
   }
 
-  async disableInventory(user: ClaimingUser, inventoryId: string) {
-    if (user.role !== "admin") throw new ForbiddenException("inventory disable requires admin role");
+  async disableInventory(user: AuthenticatedUser, inventoryId: string) {
+    this.assertOperator(user);
     const id = this.requireText(inventoryId, "inventoryId is required");
+    const assignedInventory = await this.db().gatewayInventory.findUnique({
+      where: { id },
+      select: { claimedGateway: { select: { siteId: true } } }
+    });
+    if (!assignedInventory?.claimedGateway) throw new NotFoundException("inventory not found");
+    await this.siteAccess.assert(user, assignedInventory.claimedGateway.siteId, "commission");
     const inventory = await this.db().$transaction(async (tx: any) => {
-      const current = await tx.gatewayInventory.findFirst({
-        where: { id, claimedGateway: { site: { organizationId: user.organizationId } } }
-      });
-      if (!current) throw new NotFoundException("inventory not found in the user's organization");
+      const current = await tx.gatewayInventory.findFirst({ where: { id } });
+      if (!current) throw new NotFoundException("inventory not found");
       if (current.disabledAt) return current;
       return tx.gatewayInventory.update({ where: { id: current.id }, data: { disabledAt: new Date() } });
     });
@@ -191,5 +189,9 @@ export class GatewayOnboardingService {
 
   private db() {
     return this.prisma as any;
+  }
+
+  private assertOperator(user: AuthenticatedUser) {
+    if (user.role !== "operator") throw new ForbiddenException("gateway commissioning requires operator role");
   }
 }

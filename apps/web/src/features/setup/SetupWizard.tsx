@@ -12,6 +12,7 @@ const MAX_TARIFF_KWH_RATE = 100000;
 
 export function SetupWizard({ onComplete }: SetupWizardProps) {
   const queryClient = useQueryClient();
+  const [customerOrganizationName, setCustomerOrganizationName] = useState("");
   const [siteName, setSiteName] = useState("");
   const [address, setAddress] = useState("");
   const [tariffKwhRate, setTariffKwhRate] = useState("160");
@@ -27,6 +28,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     const floorNames = floors.map((floor) => floor.name.trim()).filter(Boolean);
     const floorLevels = floors.map((floor) => floor.level);
 
+    if (!customerOrganizationName.trim()) return "고객사명을 입력하세요.";
     if (!siteName.trim()) return "현장명을 입력하세요.";
     if (!address.trim()) return "주소를 입력하세요.";
     if (!Number.isFinite(tariff) || tariff <= 0 || tariff > MAX_TARIFF_KWH_RATE) {
@@ -43,11 +45,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     if (new Set(floorNames).size !== floorNames.length) return "층 이름은 중복될 수 없습니다.";
     if (new Set(floorLevels).size !== floorLevels.length) return "층 level은 중복될 수 없습니다.";
     return "";
-  }, [address, basementCount, floors, groundCount, siteName, tariffKwhRate]);
+  }, [address, basementCount, customerOrganizationName, floors, groundCount, siteName, tariffKwhRate]);
 
   const setupMutation = useMutation({
     mutationFn: () =>
       createInitialSiteSetup({
+        customerOrganizationName: customerOrganizationName.trim(),
         siteName: siteName.trim(),
         address: address.trim(),
         tariffKwhRate: Number(tariffKwhRate),
@@ -78,6 +81,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       <div className="setup-section">
         <h4>현장 정보</h4>
         <div className="setup-form-grid">
+          <label>
+            고객사명
+            <input value={customerOrganizationName} onChange={(event) => setCustomerOrganizationName(event.target.value)} placeholder="고객사 A" />
+          </label>
           <label>
             현장명
             <input value={siteName} onChange={(event) => setSiteName(event.target.value)} placeholder="A 주차장" />
@@ -203,6 +210,20 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         {setupMutation.isPending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />}
         초기 설정 완료
       </button>
+    </section>
+  );
+}
+
+export function InstallationPending() {
+  return (
+    <section className="setup-wizard" aria-labelledby="installation-pending-title">
+      <div className="panel-title-row">
+        <div>
+          <span className="eyebrow">설치 준비</span>
+          <h3 id="installation-pending-title">설치 담당자가 현장을 준비 중입니다</h3>
+        </div>
+        <span className="status-pill offline">대기</span>
+      </div>
     </section>
   );
 }

@@ -1,6 +1,6 @@
 import { Activity, BarChart3, MapPin, Settings, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCurrentUser, logout } from "./api/auth";
+import { useCurrentUser, logout, type AuthUser } from "./api/auth";
 import { useDashboard } from "./api/queries";
 import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
@@ -29,10 +29,10 @@ export function App() {
     return <AuthView onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ["auth", "me"] })} />;
   }
 
-  return <AuthenticatedShell />;
+  return <AuthenticatedShell user={auth.user} />;
 }
 
-function AuthenticatedShell() {
+function AuthenticatedShell({ user }: { user: AuthUser }) {
   const { view, setView } = useNavigationStore();
   const queryClient = useQueryClient();
   const { data: dashboard } = useDashboard();
@@ -91,10 +91,10 @@ function AuthenticatedShell() {
             </button>
           </div>
         </header>
-        {view === "monitoring" && <MonitoringView />}
+        {view === "monitoring" && <MonitoringView userRole={user.role} />}
         {view === "control" && <ControlView />}
         {view === "statistics" && <StatisticsView />}
-        {view === "settings" && <SettingsView />}
+        {view === "settings" && <SettingsView userRole={user.role} />}
       </main>
     </div>
   );

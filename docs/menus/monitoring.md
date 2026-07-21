@@ -7,7 +7,7 @@
 - `GET /sites`는 로그인 사용자가 SiteAccess 권한으로 접근 가능한 현장의 고객사명과 현장명만 반환한다.
 - `GET /sites/default/dashboard`는 접근 가능한 첫 현장을 반환하고, 접근 가능한 현장이 없을 때도 최초 설치 흐름을 위해 기존 빈 dashboard shape를 유지한다.
 - `GET /sites/:siteId/dashboard`, 층별 fixture 조회, 기본 에너지 추정은 `AuthenticatedUser + SiteAccessService`로 현장 read 권한을 확인하며 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
-- 현장이 없으면 `초기 설치 설정` 마법사를 먼저 표시한다.
+- 현장이 없으면 service-provider `operator`에게 `초기 설치 설정` 마법사를 표시하고 customer `admin/viewer`에게는 `설치 담당자가 현장을 준비 중입니다` 상태를 표시한다.
 - 현장은 있으나 등록된 조명이 없으면 `조명 등록` 패널을 표시한다.
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
 - 조명 등록 패널은 gateway scan/provisioning MQTT 흐름과 연결되어, 등록 완료 이벤트 후 dashboard polling으로 새 fixture를 표시할 수 있다.
@@ -31,6 +31,7 @@
 - 에디터에서 배경 없음, JPG/PNG 이미지, PDF 첫 페이지 렌더링 배경을 선택 등록한다.
 - 도면 파일은 브라우저에서 SHA-256을 계산한 뒤 S3 호환 object storage presigned URL로 직접 업로드한다. PDF는 원본과 첫 페이지 PNG를 별도 asset으로 저장한다.
 - API는 JPEG/PNG/PDF, 최대 50 MB, checksum을 검증하고 S3 HEAD가 일치한 ready asset URL만 FloorPlan에 저장한다. data URL과 임의 외부 URL은 거부한다.
+- floor asset 목록은 현장 `read` 권한으로 조회하며, upload intent와 complete는 `manage` 권한으로 제한한다. 따라서 customer admin은 설치 후 도면을 교체할 수 있고 viewer는 변경할 수 없다.
 - 에디터에서 지도 확대, 축소, 100% 복귀, 패닝을 수행한다.
 - 에디터 캔버스는 `react-konva`/`Konva` 기반 Stage, Layer, Transformer로 도형과 조명을 렌더링한다.
 - 에디터에서 좌측 도구의 네모, 세모, 선, 텍스트 도구를 도면 위로 드래그 앤 드롭해 기본 크기 도형을 추가한다.

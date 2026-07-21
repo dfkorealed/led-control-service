@@ -4,7 +4,7 @@ import { getFloorEditorState } from "../../api/floor-editor";
 import { useDashboard, useFloorFixtures, type Dashboard } from "../../api/queries";
 import { FloorEditorView } from "../floor-editor/FloorEditorView";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
-import { SetupWizard } from "../setup/SetupWizard";
+import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 import { FloorMap } from "./FloorMap";
 
@@ -14,16 +14,16 @@ const statusLabels = {
   fault: "장애"
 } as const;
 
-export function MonitoringView() {
+export function MonitoringView({ userRole = "operator" }: { userRole?: "operator" | "admin" | "viewer" }) {
   const { data, isLoading, error } = useDashboard();
 
   if (isLoading) return <div className="panel">불러오는 중</div>;
   if (error || !data) return <div className="panel danger">현황 데이터를 불러오지 못했습니다.</div>;
 
-  return <MonitoringDashboard data={data} />;
+  return <MonitoringDashboard data={data} userRole={userRole} />;
 }
 
-function MonitoringDashboard({ data }: { data: Dashboard }) {
+function MonitoringDashboard({ data, userRole }: { data: Dashboard; userRole: "operator" | "admin" | "viewer" }) {
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
@@ -67,7 +67,7 @@ function MonitoringDashboard({ data }: { data: Dashboard }) {
   if (!data.site.id) {
     return (
       <section className="screen-grid monitoring-screen">
-        <SetupWizard />
+        {userRole === "operator" ? <SetupWizard /> : <InstallationPending />}
       </section>
     );
   }

@@ -19,6 +19,7 @@ interface FloorBody {
 }
 
 interface InitialSiteSetupBody {
+  customerOrganizationName: string;
   siteName: string;
   address: string;
   tariffKwhRate: number;
@@ -38,18 +39,11 @@ export class SetupController {
 
   @Post("initial-site")
   createInitialSite(@CurrentUser() user: AuthenticatedUser, @Body() body: InitialSiteSetupBody) {
-    return this.setupService.createInitialSite(this.withOrganizationId(body, user.organizationId));
+    return this.setupService.createInitialSite(user, body);
   }
 
   @Post("floors")
   addFloors(@CurrentUser() user: AuthenticatedUser, @Body() body: AddFloorsBody) {
-    return this.setupService.addFloors(this.withOrganizationId(body, user.organizationId));
-  }
-
-  private withOrganizationId<T>(body: T, organizationId: string): T & { organizationId: string } {
-    if (body && typeof body === "object" && !Array.isArray(body)) {
-      return { ...body, organizationId };
-    }
-    return { organizationId } as T & { organizationId: string };
+    return this.setupService.addFloors(user, body);
   }
 }

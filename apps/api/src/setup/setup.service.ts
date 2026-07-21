@@ -1,5 +1,7 @@
-import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { SitesService } from "../sites/sites.service";
 
@@ -16,7 +18,7 @@ interface FloorInput {
 }
 
 export interface CreateInitialSiteInput {
-  organizationId: string;
+  customerOrganizationName: string;
   siteName: string;
   address: string;
   tariffKwhRate: number;
@@ -24,7 +26,6 @@ export interface CreateInitialSiteInput {
 }
 
 export interface AddFloorsInput {
-  organizationId: string;
   siteId: string;
   floors: FloorInput[];
 }
@@ -33,20 +34,23 @@ export interface AddFloorsInput {
 export class SetupService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly sitesService: SitesService
+    private readonly sitesService: SitesService,
+    private readonly siteAccess: SiteAccessService
   ) {}
 
-  async createInitialSite(input: CreateInitialSiteInput) {
+  async createInitialSite(user: AuthenticatedUser, input: CreateInitialSiteInput) {
+    this.assertServiceProviderOperator(user);
     this.validateInitialSiteInput(input);
 
     try {
       const siteId = await this.prisma.$transaction(async (tx) => {
-        const existingSiteCount = await tx.site.count({ where: { organizationId: input.organizationId } });
-        if (existingSiteCount > 0) throw new BadRequestException("initial site already exists");
+        const organization = await tx.organization.create({
+          data: { name: input.customerOrganizationName.trim(), type: "customer" }
+        });
 
         const createdSite = await tx.site.create({
           data: {
-            organizationId: input.organizationId,
+            organizationId: organization.id,
             name: input.siteName.trim(),
             address: input.address.trim(),
             tariffKwhRate: input.tariffKwhRate.toFixed(2)
@@ -62,6 +66,7 @@ export class SetupService {
         });
 
         await this.createFloorPlans(tx, createdSite.id, input.floors);
+        await tx.siteMembership.create({ data: { userId: user.id, siteId: createdSite.id } });
         return createdSite.id;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       return this.sitesService.getDashboardById(siteId);
@@ -72,9 +77,10 @@ export class SetupService {
 
   }
 
-  async addFloors(input: AddFloorsInput) {
+  async addFloors(user: AuthenticatedUser, input: AddFloorsInput) {
+    this.assertServiceProviderOperator(user);
     this.validateAddFloorsInput(input);
-    await this.assertSiteInOrganization(input.siteId, input.organizationId);
+    await this.siteAccess.assert(user, input.siteId, "commission");
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -104,7 +110,7 @@ export class SetupService {
 
   private validateInitialSiteInput(input: CreateInitialSiteInput) {
     if (!this.isRecord(input)) throw new BadRequestException("setup payload must be an object");
-    this.requireString(input.organizationId, "organizationId is required");
+    this.requireString(input.customerOrganizationName, "customerOrganizationName is required");
     this.requireString(input.siteName, "siteName is required");
     this.requireString(input.address, "address is required");
     if (!Number.isFinite(input.tariffKwhRate) || input.tariffKwhRate <= 0 || input.tariffKwhRate > 100000) {
@@ -138,7 +144,6 @@ export class SetupService {
 
   private validateAddFloorsInput(input: AddFloorsInput) {
     if (!this.isRecord(input)) throw new BadRequestException("add floors payload must be an object");
-    this.requireString(input.organizationId, "organizationId is required");
     this.requireString(input.siteId, "siteId is required");
     this.validateFloors(input.floors);
   }
@@ -183,13 +188,14 @@ export class SetupService {
     }
   }
 
-  private async assertSiteInOrganization(siteId: string, organizationId: string) {
-    const site = await this.prisma.site.findFirst({ where: { id: siteId, organizationId } });
-    if (!site) throw new BadRequestException("siteId must reference a site in the current organization");
+  private assertServiceProviderOperator(user: AuthenticatedUser) {
+    if (user.role !== "operator" || user.organizationType !== "service_provider") {
+      throw new ForbiddenException("setup requires a service-provider operator");
+    }
   }
 
   private async createFloorPlans(
-    tx: Pick<Prisma.TransactionClient, "floor" | "floorPlan">,
+    tx: Pick<Prisma.TransactionClient, "organization" | "site" | "siteMembership" | "floor" | "floorPlan">,
     siteId: string,
     floors: FloorInput[]
   ) {

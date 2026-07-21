@@ -1,4 +1,7 @@
 import { Test } from "@nestjs/testing";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { MqttService } from "../mqtt/mqtt.service";
 import { RegistrationService } from "./registration.service";
@@ -15,6 +18,11 @@ describe("RegistrationService", () => {
     meshNodeId: "33333333-3333-4333-8333-333333333333",
     fixtureId: "44444444-4444-4444-8444-444444444444"
   };
+  const operator: AuthenticatedUser = {
+    id: "00000000-0000-4000-8000-000000000002", organizationId: "provider-org", organizationType: "service_provider",
+    email: "operator@example.com", name: "Operator", role: "operator", status: "active"
+  };
+  const admin: AuthenticatedUser = { ...operator, organizationId: ids.organizationId, organizationType: "customer", role: "admin" };
 
   function createModule(prismaOverrides = {}) {
     const prisma: any = {
@@ -56,28 +64,35 @@ describe("RegistrationService", () => {
       publishIdentifyDevice: jest.fn().mockResolvedValue(undefined),
       publishProvisionDevice: jest.fn().mockResolvedValue(undefined)
     };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.siteId }) };
 
     return Test.createTestingModule({
       providers: [
         RegistrationService,
         { provide: PrismaService, useValue: prisma },
-        { provide: MqttService, useValue: mqtt }
+        { provide: MqttService, useValue: mqtt },
+        { provide: SiteAccessService, useValue: siteAccess }
       ]
     }).compile().then((moduleRef) => ({
       service: moduleRef.get(RegistrationService),
       prisma,
-      mqtt
+      mqtt,
+      siteAccess
     }));
   }
+
+  it("rejects a customer admin from starting provisioning", async () => {
+    const { service } = await createModule();
+
+    await expect((service as any).createSession(admin, { siteId: ids.siteId, floorId: ids.floorId })).rejects.toBeInstanceOf(ForbiddenException);
+  });
 
   it("creates an active registration session and publishes a scan command", async () => {
     const { service, prisma, mqtt } = await createModule();
 
-    const session = await service.createSession({
+    const session = await service.createSession(operator, {
       siteId: ids.siteId,
-      floorId: ids.floorId,
-      requestedBy: ids.userId,
-      organizationId: ids.organizationId
+      floorId: ids.floorId
     });
 
     expect(session.id).toBe(ids.sessionId);
@@ -130,7 +145,7 @@ describe("RegistrationService", () => {
       }
     });
 
-    const result = await service.identifyNode(ids.sessionId, ids.nodeId, ids.organizationId);
+    const result = await service.identifyNode(operator, ids.sessionId, ids.nodeId);
 
     expect(result.identifyState).toBe("blinking");
     expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
@@ -186,14 +201,14 @@ describe("RegistrationService", () => {
     });
 
     const result = await service.registerNode(
+      operator,
       ids.sessionId,
       ids.nodeId,
       {
         fixtureName: "B2-L13",
         x: 420,
         y: 260
-      },
-      ids.organizationId
+      }
     );
 
     expect(result).toEqual({ fixture: null, discoveredNode: provisioningNode });
@@ -235,7 +250,7 @@ describe("RegistrationService", () => {
       }
     });
 
-    const result = await service.completeSession(ids.sessionId, ids.organizationId);
+    const result = await service.completeSession(operator, ids.sessionId);
 
     expect(result.status).toBe("completed");
     expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
@@ -246,7 +261,7 @@ describe("RegistrationService", () => {
   });
 
   it("does not expose registration sessions across organizations", async () => {
-    const { service } = await createModule({
+    const { service, siteAccess } = await createModule({
       provisioningSession: {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue({
@@ -257,7 +272,8 @@ describe("RegistrationService", () => {
         update: jest.fn()
       }
     });
+    siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
 
-    await expect(service.getSession(ids.sessionId, ids.organizationId)).rejects.toThrow("registration session not found");
+    await expect(service.getSession(operator, ids.sessionId)).rejects.toBeInstanceOf(NotFoundException);
   });
 });

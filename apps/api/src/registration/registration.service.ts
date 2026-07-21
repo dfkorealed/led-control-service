@@ -1,12 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { SiteAccessService } from "../access/site-access.service";
+import { AuthenticatedUser } from "../auth/auth.types";
 import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 interface CreateSessionInput {
   siteId: string;
   floorId: string;
-  requestedBy: string;
-  organizationId: string;
 }
 
 interface RegisterNodeInput {
@@ -20,17 +20,19 @@ interface RegisterNodeInput {
 export class RegistrationService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mqttService: MqttService
+    private readonly mqttService: MqttService,
+    private readonly siteAccess: SiteAccessService
   ) {}
 
-  async createSession(input: CreateSessionInput) {
+  async createSession(user: AuthenticatedUser, input: CreateSessionInput) {
+    await this.assertCommissionAccess(user, input.siteId);
     const floor = await this.prisma.floor.findFirst({
-      where: { id: input.floorId, siteId: input.siteId, site: { organizationId: input.organizationId } }
+      where: { id: input.floorId, siteId: input.siteId }
     });
     if (!floor) throw new BadRequestException("floorId must reference a floor in the selected site");
 
     const gateway = await this.prisma.gateway.findFirst({
-      where: { siteId: input.siteId, site: { organizationId: input.organizationId } },
+      where: { siteId: input.siteId },
       orderBy: { createdAt: "asc" }
     });
     if (!gateway) throw new BadRequestException("site must have a gateway before registration can start");
@@ -40,7 +42,7 @@ export class RegistrationService {
         siteId: input.siteId,
         floorId: input.floorId,
         gatewayId: gateway.id,
-        requestedBy: input.requestedBy,
+        requestedBy: user.id,
         status: "active"
       },
       include: { discoveredNodes: true }
@@ -58,19 +60,18 @@ export class RegistrationService {
     return session;
   }
 
-  async getSession(sessionId: string, organizationId: string) {
+  async getSession(user: AuthenticatedUser, sessionId: string) {
     const session = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
       include: { site: true, discoveredNodes: { orderBy: { discoveredAt: "asc" } } }
     });
-    if (!session || session.site.organizationId !== organizationId) {
-      throw new NotFoundException("registration session not found");
-    }
+    if (!session) throw new NotFoundException("registration session not found");
+    await this.assertCommissionAccess(user, session.siteId);
     return session;
   }
 
-  async identifyNode(sessionId: string, nodeId: string, organizationId: string) {
-    const node = await this.findSessionNode(sessionId, nodeId, organizationId);
+  async identifyNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
+    const node = await this.findSessionNode(user, sessionId, nodeId);
     this.assertActiveSession(node.session.status);
 
     const updated = await this.prisma.discoveredMeshNode.update({
@@ -90,13 +91,13 @@ export class RegistrationService {
     return updated;
   }
 
-  async registerNode(sessionId: string, nodeId: string, input: RegisterNodeInput, organizationId: string) {
+  async registerNode(user: AuthenticatedUser, sessionId: string, nodeId: string, input: RegisterNodeInput) {
     if (!input.fixtureName.trim()) throw new BadRequestException("fixtureName is required");
     if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) {
       throw new BadRequestException("x and y must be valid floor plan coordinates");
     }
 
-    const node = await this.findSessionNode(sessionId, nodeId, organizationId);
+    const node = await this.findSessionNode(user, sessionId, nodeId);
     this.assertActiveSession(node.session.status);
 
     const meshAddress = node.meshAddress ?? (await this.nextMeshAddress(node.session.gatewayId));
@@ -127,14 +128,13 @@ export class RegistrationService {
     return { fixture: null, discoveredNode };
   }
 
-  async completeSession(sessionId: string, organizationId: string) {
+  async completeSession(user: AuthenticatedUser, sessionId: string) {
     const session = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
       include: { site: true }
     });
-    if (!session || session.site.organizationId !== organizationId) {
-      throw new NotFoundException("registration session not found");
-    }
+    if (!session) throw new NotFoundException("registration session not found");
+    await this.assertCommissionAccess(user, session.siteId);
     this.assertActiveSession(session.status);
 
     return this.prisma.provisioningSession.update({
@@ -144,14 +144,13 @@ export class RegistrationService {
     });
   }
 
-  private async findSessionNode(sessionId: string, nodeId: string, organizationId: string) {
+  private async findSessionNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
     const node = await this.prisma.discoveredMeshNode.findUnique({
       where: { id: nodeId },
       include: { session: { include: { site: true } } }
     });
-    if (!node || node.sessionId !== sessionId || node.session.site.organizationId !== organizationId) {
-      throw new NotFoundException("discovered node not found");
-    }
+    if (!node || node.sessionId !== sessionId) throw new NotFoundException("discovered node not found");
+    await this.assertCommissionAccess(user, node.session.siteId);
     return node;
   }
 
@@ -162,5 +161,10 @@ export class RegistrationService {
   private async nextMeshAddress(gatewayId: string) {
     const count = await this.prisma.meshNode.count({ where: { gatewayId } });
     return `0x${(count + 1).toString(16).padStart(4, "0")}`;
+  }
+
+  private async assertCommissionAccess(user: AuthenticatedUser, siteId: string) {
+    if (user.role !== "operator") throw new ForbiddenException("registration requires operator role");
+    await this.siteAccess.assert(user, siteId, "commission");
   }
 }

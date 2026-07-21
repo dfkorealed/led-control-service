@@ -1,6 +1,7 @@
 import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { rootCertificates } from "node:tls";
 import { GatewayOnboardingService } from "../src/gateway-onboarding/gateway-onboarding.service";
+import { SiteAccessService } from "../src/access/site-access.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import type { CertificateAuthorityProvider } from "../src/pki/certificate-authority.provider";
 import { GatewayCertificateService } from "../src/pki/gateway-certificate.service";
@@ -44,16 +45,18 @@ describeWithDatabase("gateway PKI PostgreSQL E2E", () => {
     await expect(manufacturing.enrollDevice({ serialNumber: "GW-E2E-001", token: enrollment.enrollmentToken, csrPem: CSR }))
       .rejects.toBeInstanceOf(UnauthorizedException);
 
-    const organization = await prisma.organization.create({ data: { name: "E2E organization" } });
+    const organization = await prisma.organization.create({ data: { name: "E2E organization", type: "customer" } });
+    const provider = await prisma.organization.create({ data: { name: "E2E provider", type: "service_provider" } });
     const user = await prisma.user.create({ data: {
-      organizationId: organization.id, email: "pki-e2e@example.com", name: "E2E admin",
-      passwordHash: "not-used", role: "admin"
+      organizationId: provider.id, email: "pki-e2e@example.com", name: "E2E operator",
+      passwordHash: "not-used", role: "operator"
     } });
     const site = await prisma.site.create({ data: {
       organizationId: organization.id, name: "E2E site", address: "E2E", tariffKwhRate: 100
     } });
+    await prisma.siteMembership.create({ data: { userId: user.id, siteId: site.id } });
     const claimed = await onboarding.claimGateway(
-      { id: user.id, organizationId: organization.id, role: "admin" },
+      { id: user.id, organizationId: provider.id, organizationType: "service_provider", email: user.email, name: user.name, role: "operator", status: "active" },
       { siteId: site.id, serialNumber: "GW-E2E-001", claimCode: issued.claimCode, name: "E2E gateway" }
     );
 
@@ -116,7 +119,7 @@ function services(prisma: PrismaService, validator = { validate: jest.fn().mockR
     manufacturing: new ManufacturingEnrollmentService(prisma, certificateAuthority, validator as never, {
       apiCaBundlePem: rootCertificates[0], mqttCaBundlePem: rootCertificates[0], manufacturingCaFingerprint: "CC".repeat(32)
     }),
-    onboarding: new GatewayOnboardingService(prisma),
+    onboarding: new GatewayOnboardingService(prisma, new SiteAccessService(prisma)),
     mqtt: new GatewayCertificateService(prisma, certificateAuthority, validator as never)
   };
 }

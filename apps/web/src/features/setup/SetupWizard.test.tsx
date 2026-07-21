@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Dashboard } from "../../api/queries";
 import { createInitialSiteSetup } from "../../api/setup";
-import { SetupWizard } from "./SetupWizard";
+import { InstallationPending, SetupWizard } from "./SetupWizard";
 
 vi.mock("../../api/setup", () => ({ createInitialSiteSetup: vi.fn() }));
 const createInitialSiteSetupMock = vi.mocked(createInitialSiteSetup);
@@ -34,15 +34,23 @@ describe("SetupWizard", () => {
     expect(screen.getByDisplayValue("2F")).toBeInTheDocument();
   });
 
-  it("현장과 층만 생성하며 수동 게이트웨이 정보를 전송하지 않는다", async () => {
+  it("renders installation pending instead of a setup form for a customer user", () => {
+    render(<InstallationPending />);
+
+    expect(screen.getByText("설치 담당자가 현장을 준비 중입니다")).toBeInTheDocument();
+    expect(screen.queryByLabelText("고객사명")).not.toBeInTheDocument();
+  });
+
+  it("고객사명과 현장·층을 생성하며 수동 게이트웨이 정보를 전송하지 않는다", async () => {
     createInitialSiteSetupMock.mockResolvedValue(dashboard);
     const { onComplete } = renderWizard();
+    fireEvent.change(screen.getByLabelText("고객사명"), { target: { value: "고객사 A" } });
     fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "A 주차장" } });
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
     await waitFor(() => expect(createInitialSiteSetupMock).toHaveBeenCalledTimes(1));
     expect(createInitialSiteSetupMock).toHaveBeenCalledWith({
-      siteName: "A 주차장", address: "서울시 강남구", tariffKwhRate: 160,
+      customerOrganizationName: "고객사 A", siteName: "A 주차장", address: "서울시 강남구", tariffKwhRate: 160,
       floors: [{ name: "B2", level: -2 }, { name: "B1", level: -1 }]
     });
     expect(screen.queryByLabelText("게이트웨이 시리얼")).not.toBeInTheDocument();
@@ -51,6 +59,7 @@ describe("SetupWizard", () => {
 
   it("주소가 없으면 제출을 막고 미입력 값을 선택할 수 있다", () => {
     renderWizard();
+    fireEvent.change(screen.getByLabelText("고객사명"), { target: { value: "고객사 A" } });
     fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "주소 미정" } });
     expect(screen.getByRole("button", { name: "초기 설정 완료" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "주소 미입력" }));
@@ -59,6 +68,7 @@ describe("SetupWizard", () => {
 
   it("중복 층 이름을 거부한다", () => {
     renderWizard();
+    fireEvent.change(screen.getByLabelText("고객사명"), { target: { value: "고객사 A" } });
     fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "중복 현장" } });
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울" } });
     fireEvent.change(screen.getByLabelText("층 이름 2"), { target: { value: "B2" } });
@@ -67,6 +77,7 @@ describe("SetupWizard", () => {
 
   it("과도한 단가와 층수를 거부한다", () => {
     renderWizard();
+    fireEvent.change(screen.getByLabelText("고객사명"), { target: { value: "고객사 A" } });
     fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "검증 현장" } });
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울" } });
     fireEvent.change(screen.getByLabelText("kWh 단가"), { target: { value: "Infinity" } });

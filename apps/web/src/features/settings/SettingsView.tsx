@@ -1,15 +1,15 @@
 import { useDashboard } from "../../api/queries";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
-import { SetupWizard } from "../setup/SetupWizard";
+import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 
-export function SettingsView() {
+export function SettingsView({ userRole = "operator" }: { userRole?: "operator" | "admin" | "viewer" }) {
   const { data } = useDashboard();
 
   if (!data?.site.id) {
     return (
       <section className="settings-screen">
-        <SetupWizard />
+        {userRole === "operator" ? <SetupWizard /> : <InstallationPending />}
       </section>
     );
   }

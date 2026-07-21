@@ -489,7 +489,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeInTheDocument();
   });
 
-  it("shows the initial setup wizard from monitoring when the dashboard has no site", async () => {
+  it("shows installation pending instead of SetupWizard for an admin with no accessible site", async () => {
     apiState.dashboard = {
       ...mockDashboard,
       site: { id: "", name: "" },
@@ -506,11 +506,13 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "모니터링" }));
-    expect(await screen.findByRole("heading", { name: "초기 설치 설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "초기 설치 설정" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "조명 검색 시작" })).not.toBeInTheDocument();
   });
 
   it("moves from initial setup through gateway claim to lighting registration", async () => {
+    authState.user = { ...authState.user!, role: "operator" };
     apiState.dashboard = {
       ...mockDashboard,
       site: { id: "", name: "" },
@@ -527,6 +529,7 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "모니터링" }));
+    fireEvent.change(await screen.findByLabelText("고객사명"), { target: { value: "고객사 A" } });
     fireEvent.change(await screen.findByLabelText("현장명"), { target: { value: "온보딩 주차장" } });
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 중구" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));

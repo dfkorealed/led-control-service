@@ -1,5 +1,7 @@
 import { Body, Controller, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { Roles } from "../access/roles.decorator";
+import { RolesGuard } from "../access/roles.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { DeviceCertificateGuard, DeviceCertificateRequest } from "./device-certificate.guard";
@@ -26,7 +28,8 @@ export class GatewayOnboardingController {
   constructor(private readonly service: GatewayOnboardingService) {}
 
   @Post("gateways/claim")
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles("operator")
   claimGateway(@CurrentUser() user: AuthenticatedUser, @Body() body: ClaimGatewayBody, @Req() request: ClaimRequest) {
     return this.service.claimGateway(user, { ...body, ipAddress: request.ip });
   }
@@ -41,7 +44,8 @@ export class GatewayOnboardingController {
   }
 
   @Post("gateway-inventories/:inventoryId/disable")
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles("operator")
   disableInventory(@CurrentUser() user: AuthenticatedUser, @Param("inventoryId") inventoryId: string) {
     return this.service.disableInventory(user, inventoryId);
   }

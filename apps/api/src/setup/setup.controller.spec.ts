@@ -34,13 +34,13 @@ describe("SetupController", () => {
     const { controller, setupService } = createController();
 
     await expect(controller.createInitialSite(user, null as any)).rejects.toBeInstanceOf(BadRequestException);
-    expect(setupService.createInitialSite).toHaveBeenCalledWith({ organizationId: "organization-1" });
+    expect(setupService.createInitialSite).toHaveBeenCalledWith(user, null);
   });
 
   it("passes a null add floors body to service validation without a raw TypeError", async () => {
     const { controller, setupService } = createController();
 
     await expect(controller.addFloors(user, null as any)).rejects.toBeInstanceOf(BadRequestException);
-    expect(setupService.addFloors).toHaveBeenCalledWith({ organizationId: "organization-1" });
+    expect(setupService.addFloors).toHaveBeenCalledWith(user, null);
   });
 });
