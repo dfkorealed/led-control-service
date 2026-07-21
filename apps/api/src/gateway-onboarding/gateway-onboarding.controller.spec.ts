@@ -1,6 +1,23 @@
+import "reflect-metadata";
+import { GUARDS_METADATA } from "@nestjs/common/constants";
+import { RolesGuard } from "../access/roles.guard";
+import { rolesMetadataKey } from "../access/roles.decorator";
+import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { GatewayOnboardingController } from "./gateway-onboarding.controller";
 
 describe("GatewayOnboardingController", () => {
+  it("requires the operator role for gateway claim and inventory disable", () => {
+    for (const handler of [
+      GatewayOnboardingController.prototype.claimGateway,
+      GatewayOnboardingController.prototype.disableInventory
+    ]) {
+      expect(Reflect.getMetadata(GUARDS_METADATA, handler)).toEqual(
+        expect.arrayContaining([SessionAuthGuard, RolesGuard])
+      );
+      expect(Reflect.getMetadata(rolesMetadataKey, handler)).toEqual(["operator"]);
+    }
+  });
+
   it("passes the authenticated user and request IP to claim", async () => {
     const service = { claimGateway: jest.fn().mockResolvedValue({ status: "claimed" }) };
     const controller = new GatewayOnboardingController(service as never);
