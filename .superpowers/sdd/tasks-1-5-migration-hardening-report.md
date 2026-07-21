@@ -81,3 +81,46 @@ Used the repository's PostgreSQL 16 Docker image on `127.0.0.1:55432`, separate 
 ## Local Database Notice
 
 This task intentionally changes an existing migration because the project is not in production. A local development database that applied the earlier migration will have a Prisma checksum mismatch. Do not run reset automatically or use destructive DB commands from this task. Choose a reset only when its data is disposable; when data must be retained, audit the incorrectly inferred service provider/operator rows and apply a manual corrective migration before accepting the revised migration history.
+
+## Re-review Fix Evidence
+
+### RED
+
+Added a regression contract in `apps/api/test/domain-schema.test.ts` for both legacy `User.role` and `Invitation.role` conversions. Before the migration change:
+
+```bash
+pnpm --filter @led-control/api exec jest test/domain-schema.test.ts --runInBand
+```
+
+Result: FAIL, 1 suite / 13 tests, with the new `preserves legacy admin roles for users and invitations during conversion` test failing because both CASE expressions omitted `admin`.
+
+### GREEN
+
+Updated only the two migration CASE lists in `apps/api/prisma/migrations/20260721120000_simplify_roles_and_floor_revisions/migration.sql` so `owner`, `operator`, and `admin` map to `admin`, while the existing `ELSE 'viewer'` path preserves `viewer`.
+
+Fix commit: `215859a fix(migration): preserve legacy admin roles`
+
+Focused and static checks after the fix:
+
+```bash
+pnpm --filter @led-control/api exec jest test/domain-schema.test.ts src/auth/bootstrap-operator.spec.ts --runInBand
+set -a; source ../../.env; set +a
+pnpm --filter @led-control/api exec prisma validate
+pnpm --filter @led-control/api typecheck
+git diff --check
+```
+
+Result: 2 suites / 17 tests passed; Prisma schema valid; API typecheck passed; `git diff --check` passed.
+
+### Disposable PostgreSQL Role Matrix
+
+Applied the complete migration chain through the working-tree migration to a temporary PostgreSQL 16 container after inserting `owner`, `admin`, `operator`, and `viewer` rows in both `User` and `Invitation`.
+
+Result:
+
+```text
+User:       admin->admin, operator->admin, owner->admin, viewer->viewer
+Invitation: admin->admin, operator->admin, owner->admin, viewer->viewer
+```
+
+The disposable container was removed after verification.
