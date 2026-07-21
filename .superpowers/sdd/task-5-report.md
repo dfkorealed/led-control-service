@@ -46,3 +46,11 @@ PASS: tsc --noEmit
 ## Concerns
 
 - No database-backed end-to-end commissioning run was executed because Task 5 requested focused unit/web tests and typechecks only. The database-gated PKI E2E test fixture was updated to model the required service-provider operator membership.
+
+## Review Follow-up
+
+- High-risk review found that admin/viewer users with an existing site could still see commissioning controls in the web UI. Monitoring and settings now render claim/provisioning controls only for `operator`.
+- Registration-flow tests now opt into the operator role, and an admin regression test verifies that commissioning controls remain hidden.
+- Floor asset tests now assert exact `read`/`manage` capabilities and verify opaque 404 behavior before inaccessible asset reads/writes.
+- Follow-up verification: Web 19/19, FloorAssets API 7/7, Web/API typecheck, and `git diff --check` passed.
+- Deferred to the Task 1~5 combined security review: database-backed setup rollback and controller role-metadata regression tests.

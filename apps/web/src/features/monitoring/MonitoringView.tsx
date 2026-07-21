@@ -81,7 +81,11 @@ function MonitoringDashboard({ data, userRole }: { data: Dashboard; userRole: "o
             <h2>등록된 조명이 없습니다</h2>
           </div>
         </div>
-        {data.gateways.length === 0 ? <GatewayClaimPanel siteId={data.site.id} /> : <RegistrationPanel dashboard={data} />}
+        {userRole === "operator" ? (
+          data.gateways.length === 0 ? <GatewayClaimPanel siteId={data.site.id} /> : <RegistrationPanel dashboard={data} />
+        ) : (
+          <InstallationPending />
+        )}
       </section>
     );
   }

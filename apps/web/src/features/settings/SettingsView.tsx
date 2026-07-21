@@ -42,7 +42,9 @@ export function SettingsView({ userRole = "operator" }: { userRole?: "operator" 
           </div>
         ))}
       </div>
-      {data.gateways.length === 0 ? <GatewayClaimPanel siteId={data.site.id} /> : <RegistrationPanel dashboard={data} />}
+      {userRole === "operator" ? (
+        data.gateways.length === 0 ? <GatewayClaimPanel siteId={data.site.id} /> : <RegistrationPanel dashboard={data} />
+      ) : null}
     </section>
   );
 }

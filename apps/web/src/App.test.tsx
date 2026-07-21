@@ -448,6 +448,7 @@ describe("App", () => {
   });
 
   it("starts a lighting registration session from settings and shows discovered nodes", async () => {
+    authState.user = { ...authState.user!, role: "operator" };
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -471,6 +472,7 @@ describe("App", () => {
   });
 
   it("shows lighting registration as the first action when no fixtures are registered", async () => {
+    authState.user = { ...authState.user!, role: "operator" };
     apiState.dashboard = {
       ...mockDashboard,
       summary: { ...mockDashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
@@ -487,6 +489,29 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "모니터링" }));
     expect(await screen.findByText("등록된 조명이 없습니다")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeInTheDocument();
+  });
+
+  it("hides commissioning controls from an admin for an existing site", async () => {
+    apiState.dashboard = {
+      ...mockDashboard,
+      summary: { ...mockDashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
+      floors: mockDashboard.floors.map((floor) => ({ ...floor, fixtures: [] })),
+      groups: []
+    };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "조명 검색 시작" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "설정" }));
+    await screen.findByRole("heading", { name: "운영 설정" });
+    expect(screen.queryByText("게이트웨이 등록")).not.toBeInTheDocument();
+    expect(screen.queryByText("조명 등록")).not.toBeInTheDocument();
   });
 
   it("shows installation pending instead of SetupWizard for an admin with no accessible site", async () => {

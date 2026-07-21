@@ -20,8 +20,8 @@ describe("FloorAssetsService", () => {
         objectKey: "floors/floor-1/file.png", uploadUrl: "https://signed.example", publicUrl: "https://assets.example/file.png", expiresInSeconds: 300
       })
     };
-    const siteAccess = { assert: jest.fn().mockImplementation((user: AuthenticatedUser) => {
-      if (user.role === "viewer") throw new ForbiddenException();
+    const siteAccess = { assert: jest.fn().mockImplementation((user: AuthenticatedUser, _siteId: string, capability: string) => {
+      if (capability === "manage" && user.role === "viewer") throw new ForbiddenException();
       return { id: "site-1" };
     }) } as unknown as SiteAccessService;
     const service = new FloorAssetsService(prisma, storage, siteAccess);
@@ -29,6 +29,8 @@ describe("FloorAssetsService", () => {
 
     await expect(service.createUploadIntent(admin, "floor-1", uploadInput)).resolves.toBeDefined();
     await expect(service.createUploadIntent(viewer, "floor-1", uploadInput)).rejects.toBeInstanceOf(ForbiddenException);
+    expect((siteAccess as any).assert).toHaveBeenNthCalledWith(1, admin, "site-1", "manage");
+    expect((siteAccess as any).assert).toHaveBeenNthCalledWith(2, viewer, "site-1", "manage");
   });
 
   it("uses read access when listing ready floor assets", async () => {
@@ -105,6 +107,32 @@ describe("FloorAssetsService", () => {
       id: "asset-1",
       status: "ready"
     });
+  });
+
+  it("requires manage access before completing an upload", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: { findFirst: jest.fn() }
+    };
+    const siteAccess = { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) };
+    const service = new FloorAssetsService(prisma, {} as any, siteAccess as unknown as SiteAccessService);
+
+    await expect(service.completeUpload(admin, "floor-1", "asset-1")).rejects.toBeInstanceOf(NotFoundException);
+    expect(siteAccess.assert).toHaveBeenCalledWith(admin, "site-1", "manage");
+    expect(prisma.floorAsset.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("returns an opaque 404 before listing assets for an inaccessible site", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-other" }) },
+      floorAsset: { findMany: jest.fn() }
+    };
+    const siteAccess = { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) };
+    const service = new FloorAssetsService(prisma, {} as any, siteAccess as unknown as SiteAccessService);
+
+    await expect(service.listAssets(admin, "floor-1")).rejects.toBeInstanceOf(NotFoundException);
+    expect(siteAccess.assert).toHaveBeenCalledWith(admin, "site-other", "read");
+    expect(prisma.floorAsset.findMany).not.toHaveBeenCalled();
   });
 
   it("rejects checksum mismatch and cross-tenant assets", async () => {

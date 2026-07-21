@@ -251,6 +251,14 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 외부 API·Webhook·BMS 연동 설정
 - 스케줄·센서·이벤트·장면 설정은 제어 메뉴의 후속 범위로 유지한다.
 
+## 작업 재개 지점
+
+- 2026-07-21 기준 Task 1~5의 역할·현장 접근·설치 시운전 기반 구현을 완료했다.
+- Task 5 최종 보완으로 기존 현장이 있는 경우에도 Gateway claim과 조명 provisioning UI를 service-provider `operator`에게만 노출한다. customer `admin/viewer`의 직접 API 호출은 백엔드에서도 계속 차단한다.
+- 다음 작업 시작 전 Task 1~5 통합 보안 리뷰를 먼저 수행한다. 특히 setup transaction의 실제 DB rollback, Gateway/registration controller 역할 metadata 회귀 테스트를 보강한다.
+- 통합 리뷰 이후 계획서의 Task 6 `URL 기반 설정 shell과 현장 선택`부터 재개한다. Task 6 구현은 아직 시작하지 않았다.
+- 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
+
 ## 부족하거나 개선이 필요한 기능
 
 - 현재 설정 화면은 네 개 요약 카드와 Gateway claim 또는 조명 등록 패널 중심이며 상세 관리 화면이 없다.
