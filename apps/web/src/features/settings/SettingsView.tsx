@@ -3,8 +3,8 @@ import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 
-export function SettingsView({ userRole = "operator" }: { userRole?: "operator" | "admin" | "viewer" }) {
-  const { data } = useDashboard();
+export function SettingsView({ userRole = "operator", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
+  const { data } = useDashboard(siteId);
 
   if (!data?.site.id) {
     return (

@@ -1,12 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiPost } from "./api/client";
+import { apiGet, apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
 import { mockDashboard, mockEnergyEstimate, mockRegistrationSession } from "./test/fixtures";
 import type { RegistrationSession } from "./api/registration";
 import { App } from "./App";
-import { useNavigationStore } from "./state/navigation-store";
 
 const authState = vi.hoisted(() => ({
   user: {
@@ -36,8 +35,20 @@ vi.mock("./api/client", () => ({
     if (path === "/auth/me") {
       return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
     }
+    if (path === "/sites") {
+      return Promise.resolve([
+        { id: mockDashboard.site.id, name: mockDashboard.site.name },
+        { id: "site-2", name: "물류센터" }
+      ]);
+    }
     if (path === "/sites/default/dashboard") return Promise.resolve(apiState.dashboard ?? mockDashboard);
     if (path === "/sites/default/dashboard?includeFixtures=true") return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    if (path === "/sites/site-2/dashboard") {
+      return Promise.resolve({ ...mockDashboard, site: { id: "site-2", name: "물류센터" } });
+    }
+    if (path === "/sites/site-2/dashboard?includeFixtures=true") {
+      return Promise.resolve({ ...mockDashboard, site: { id: "site-2", name: "물류센터" } });
+    }
     const fixturePageMatch = path.match(/^\/floors\/([^/]+)\/fixtures\?/);
     if (fixturePageMatch) {
       const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
@@ -147,7 +158,7 @@ describe("App", () => {
     apiState.dashboard = null;
     apiState.registrationSession = null;
     apiState.commandStatus = null;
-    useNavigationStore.setState({ view: "monitoring" });
+    window.history.replaceState({}, "", "/monitoring");
     vi.clearAllMocks();
     cleanup();
   });
@@ -175,10 +186,36 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("button", { name: "모니터링" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "제어" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "통계" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "모니터링" })).toHaveAttribute("href", "/monitoring");
+    expect(screen.getByRole("link", { name: "제어" })).toHaveAttribute("href", "/control");
+    expect(screen.getByRole("link", { name: "통계" })).toHaveAttribute("href", "/statistics");
+    expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("href", "/settings");
+  });
+
+  it("renders the floor-plan settings route for an admin on refresh", async () => {
+    window.history.pushState({}, "", "/settings/floor-plans");
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "설치 및 시운전" })).not.toBeInTheDocument();
+  });
+
+  it("loads the selected site through its site-scoped dashboard URL", async () => {
+    window.history.pushState({}, "", "/monitoring?siteId=site-2");
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("물류센터")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith("/sites/site-2/dashboard");
   });
 
   it("renders the approved control center landmarks", async () => {
@@ -235,7 +272,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
     expect(await screen.findByText("게이트웨이가 오프라인입니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "적용" })).toBeDisabled();
   });
@@ -259,7 +296,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
     fireEvent.click(screen.getByRole("button", { name: "그룹" }));
     expect(await screen.findByText("B2-L02: 조명이 오프라인입니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "적용" })).toBeDisabled();
@@ -302,7 +339,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "설정" }));
+    fireEvent.click(await screen.findByRole("link", { name: "설정" }));
 
     expect(await screen.findByText("설정 게이트웨이 (GW-SETTINGS-001)")).toBeInTheDocument();
     expect(screen.getByText("오프라인")).toBeInTheDocument();
@@ -320,7 +357,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "설정" }));
+    fireEvent.click(await screen.findByRole("link", { name: "설정" }));
 
     await waitFor(() => expect(screen.getAllByText("미등록").length).toBeGreaterThan(0));
   });
@@ -389,15 +426,15 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
     expect(await screen.findByText("빠른 밝기 제어")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "통계" }));
+    fireEvent.click(screen.getByRole("link", { name: "통계" }));
     expect(await screen.findByText("에너지 리포트")).toBeInTheDocument();
     expect(screen.queryByText("18%")).not.toBeInTheDocument();
     expect(screen.queryByText("18:00-22:00")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "설정" }));
+    fireEvent.click(screen.getByRole("link", { name: "설정" }));
     expect(await screen.findByText("운영 설정")).toBeInTheDocument();
     expect(screen.queryByText("MVP 2 준비")).not.toBeInTheDocument();
     expect(screen.queryByText("통신 음영 검토")).not.toBeInTheDocument();
@@ -411,7 +448,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
     fireEvent.click(await screen.findByRole("button", { name: "그룹" }));
     fireEvent.click(screen.getAllByRole("button", { name: /B2 Entrance Zone/ })[0]);
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
@@ -456,7 +493,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
     const applyButton = screen.getByRole("button", { name: "적용" });
     await waitFor(() => expect(applyButton).toBeEnabled());
     fireEvent.click(applyButton);
@@ -476,7 +513,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "설정" }));
+    fireEvent.click(await screen.findByRole("link", { name: "설정" }));
     expect(await screen.findByText("조명 등록")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
@@ -506,7 +543,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "모니터링" }));
+    fireEvent.click(await screen.findByRole("link", { name: "모니터링" }));
     expect(await screen.findByText("등록된 조명이 없습니다")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeInTheDocument();
   });
@@ -528,7 +565,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "조명 검색 시작" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "설정" }));
+    fireEvent.click(screen.getByRole("link", { name: "설정" }));
     await screen.findByRole("heading", { name: "운영 설정" });
     expect(screen.queryByText("게이트웨이 등록")).not.toBeInTheDocument();
     expect(screen.queryByText("조명 등록")).not.toBeInTheDocument();
@@ -550,7 +587,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "모니터링" }));
+    fireEvent.click(await screen.findByRole("link", { name: "모니터링" }));
     expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "초기 설치 설정" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "조명 검색 시작" })).not.toBeInTheDocument();
@@ -573,7 +610,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "모니터링" }));
+    fireEvent.click(await screen.findByRole("link", { name: "모니터링" }));
     fireEvent.change(await screen.findByLabelText("고객사명"), { target: { value: "고객사 A" } });
     fireEvent.change(await screen.findByLabelText("현장명"), { target: { value: "온보딩 주차장" } });
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 중구" } });

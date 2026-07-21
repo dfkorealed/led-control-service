@@ -14,21 +14,21 @@ const statusLabels = {
   fault: "장애"
 } as const;
 
-export function MonitoringView({ userRole = "operator" }: { userRole?: "operator" | "admin" | "viewer" }) {
-  const { data, isLoading, error } = useDashboard();
+export function MonitoringView({ userRole = "operator", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
+  const { data, isLoading, error } = useDashboard(siteId);
 
   if (isLoading) return <div className="panel">불러오는 중</div>;
   if (error || !data) return <div className="panel danger">현황 데이터를 불러오지 못했습니다.</div>;
 
-  return <MonitoringDashboard data={data} userRole={userRole} />;
+  return <MonitoringDashboard data={data} userRole={userRole} siteId={siteId} />;
 }
 
-function MonitoringDashboard({ data, userRole }: { data: Dashboard; userRole: "operator" | "admin" | "viewer" }) {
+function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
-  const fixtureQuery = useFloorFixtures(floor?.id);
+  const fixtureQuery = useFloorFixtures(floor?.id, siteId);
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");
@@ -46,7 +46,7 @@ function MonitoringDashboard({ data, userRole }: { data: Dashboard; userRole: "o
     [fixtures]
   );
   const editorQuery = useQuery({
-    queryKey: ["floor-editor", editingFloorId],
+    queryKey: ["floor-editor", siteId ?? "default", editingFloorId],
     queryFn: () => getFloorEditorState(editingFloorId ?? ""),
     enabled: Boolean(editingFloorId)
   });

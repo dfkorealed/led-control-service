@@ -1,23 +1,32 @@
 import { Activity, BarChart3, MapPin, Settings, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useCurrentUser, logout, type AuthUser } from "./api/auth";
 import { useDashboard } from "./api/queries";
 import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
 import { MonitoringView } from "./features/monitoring/MonitoringView";
+import { SettingsShell } from "./features/settings/SettingsShell";
 import { SettingsView } from "./features/settings/SettingsView";
 import { StatisticsView } from "./features/statistics/StatisticsView";
-import { useNavigationStore } from "./state/navigation-store";
 import "./styles.css";
 
 const items = [
-  { key: "monitoring", label: "모니터링", icon: Activity },
-  { key: "control", label: "제어", icon: SlidersHorizontal },
-  { key: "statistics", label: "통계", icon: BarChart3 },
-  { key: "settings", label: "설정", icon: Settings }
+  { path: "/monitoring", label: "모니터링", icon: Activity },
+  { path: "/control", label: "제어", icon: SlidersHorizontal },
+  { path: "/statistics", label: "통계", icon: BarChart3 },
+  { path: "/settings", label: "설정", icon: Settings }
 ] as const;
 
 export function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
+  );
+}
+
+function AppContent() {
   const queryClient = useQueryClient();
   const { data: auth, isLoading: isAuthLoading, error: authError } = useCurrentUser();
 
@@ -33,10 +42,10 @@ export function App() {
 }
 
 function AuthenticatedShell({ user }: { user: AuthUser }) {
-  const { view, setView } = useNavigationStore();
+  const location = useLocation();
   const queryClient = useQueryClient();
-  const { data: dashboard } = useDashboard();
-  const active = items.find((item) => item.key === view) ?? items[0];
+  const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
+  const { data: dashboard } = useDashboard(siteId);
   const gateway = dashboard?.gateways[0];
   const gatewayStatusLabel = gateway ? (gateway.connectionStatus === "online" ? "게이트웨이 정상" : "게이트웨이 오프라인") : "게이트웨이 미등록";
   const gatewayStatusClass = gateway?.connectionStatus === "online" ? "online" : "offline";
@@ -60,14 +69,14 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
           {items.map((item) => {
             const Icon = item.icon;
             return (
-              <button
-                key={item.key}
-                className={view === item.key ? "nav-item active" : "nav-item"}
-                onClick={() => setView(item.key)}
+              <NavLink
+                className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}
+                key={item.path}
+                to={`${item.path}${location.search}`}
               >
                 <Icon size={18} />
                 <span>{item.label}</span>
-              </button>
+              </NavLink>
             );
           })}
         </nav>
@@ -76,7 +85,7 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
         <header className="topbar">
           <div>
             <span className="eyebrow">{dashboard?.site.name || "현장 미등록"}</span>
-            <h1>{active.label}</h1>
+            <h1>{titleForPath(location.pathname)}</h1>
           </div>
           <div className="topbar-actions" aria-label="현장 상태">
             <span className="site-pill">
@@ -91,11 +100,70 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
             </button>
           </div>
         </header>
-        {view === "monitoring" && <MonitoringView userRole={user.role} />}
-        {view === "control" && <ControlView />}
-        {view === "statistics" && <StatisticsView />}
-        {view === "settings" && <SettingsView userRole={user.role} />}
+        <Routes>
+          <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
+          <Route path="/control" element={<ControlView siteId={siteId} />} />
+          <Route path="/statistics" element={<StatisticsView />} />
+          <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
+            <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
+            <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} />} />
+            <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute />} />
+            <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
+          </Route>
+          <Route path="*" element={<Navigate to={`/monitoring${location.search}`} replace />} />
+        </Routes>
       </main>
     </div>
   );
+}
+
+function FloorPlanSettingsView({ siteId }: { siteId?: string }) {
+  const { data, isLoading, error } = useDashboard(siteId);
+
+  return (
+    <section className="settings-screen">
+      <div className="screen-heading">
+        <div>
+          <span className="eyebrow">도면</span>
+          <h2>도면 관리</h2>
+        </div>
+      </div>
+      {isLoading && <div className="panel">도면 목록을 불러오는 중</div>}
+      {error && <div className="panel danger">도면 목록을 불러오지 못했습니다.</div>}
+      {data && (
+        <div className="settings-grid">
+          {data.floors.map((floor) => (
+            <div className="setting-card" key={floor.id}>
+              <span>{floor.name}</span>
+              <strong>{floor.floorPlan ? "도면 등록됨" : "도면 미등록"}</strong>
+              <small>편집 기능은 다음 작업에서 연결됩니다.</small>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FloorEditorRoute() {
+  const { floorId } = useParams();
+
+  return (
+    <section className="settings-screen">
+      <div className="screen-heading">
+        <div>
+          <span className="eyebrow">도면</span>
+          <h2>도면 편집</h2>
+        </div>
+      </div>
+      <div className="panel">{floorId} 도면 편집 화면을 준비 중입니다.</div>
+    </section>
+  );
+}
+
+function titleForPath(pathname: string) {
+  if (pathname.startsWith("/control")) return "제어";
+  if (pathname.startsWith("/statistics")) return "통계";
+  if (pathname.startsWith("/settings")) return "설정";
+  return "모니터링";
 }

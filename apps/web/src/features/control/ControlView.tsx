@@ -6,8 +6,8 @@ import { useCommandStatus, type CommandStage } from "../../api/commands";
 
 type ControlMode = "fixture" | "group";
 
-export function ControlView() {
-  const { data } = useControlDashboard();
+export function ControlView({ siteId }: { siteId?: string }) {
+  const { data } = useControlDashboard(siteId);
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<ControlMode>("fixture");
   const [targetId, setTargetId] = useState("");

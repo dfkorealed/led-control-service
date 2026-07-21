@@ -43,27 +43,44 @@ export interface Dashboard {
   }>;
 }
 
-export function useDashboard() {
+export interface SiteSummary {
+  id: string;
+  name: string;
+}
+
+function dashboardPath(siteId?: string, includeFixtures = false) {
+  const path = siteId ? `/sites/${encodeURIComponent(siteId)}/dashboard` : "/sites/default/dashboard";
+  return includeFixtures ? `${path}?includeFixtures=true` : path;
+}
+
+export function useSites() {
   return useQuery({
-    queryKey: ["dashboard"],
-    queryFn: () => apiGet<Dashboard>("/sites/default/dashboard"),
+    queryKey: ["sites"],
+    queryFn: () => apiGet<SiteSummary[]>("/sites")
+  });
+}
+
+export function useDashboard(siteId?: string) {
+  return useQuery({
+    queryKey: ["dashboard", siteId ?? "default"],
+    queryFn: () => apiGet<Dashboard>(dashboardPath(siteId)),
     refetchInterval: 3000
   });
 }
 
-export function useControlDashboard() {
+export function useControlDashboard(siteId?: string) {
   return useQuery({
-    queryKey: ["dashboard", "with-fixtures"],
-    queryFn: () => apiGet<Dashboard>("/sites/default/dashboard?includeFixtures=true"),
+    queryKey: ["dashboard", siteId ?? "default", "with-fixtures"],
+    queryFn: () => apiGet<Dashboard>(dashboardPath(siteId, true)),
     refetchInterval: 3000
   });
 }
 
 export type FixtureSnapshot = Dashboard["floors"][number]["fixtures"][number];
 
-export function useFloorFixtures(floorId: string | undefined) {
+export function useFloorFixtures(floorId: string | undefined, siteId?: string) {
   return useInfiniteQuery({
-    queryKey: ["floor-fixtures", floorId],
+    queryKey: ["floor-fixtures", siteId ?? "default", floorId],
     queryFn: ({ pageParam }) => {
       const search = new URLSearchParams({ limit: "200" });
       if (pageParam) search.set("cursor", pageParam);
