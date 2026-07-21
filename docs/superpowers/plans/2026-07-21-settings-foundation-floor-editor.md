@@ -165,30 +165,27 @@ model AuditLog {
 
 - [ ] **Step 4: 비파괴 SQL migration 작성**
 
-Migration 순서는 Organization type 생성, 기존 Organization 분류, 새 UserRole enum 변환, membership backfill, revision 모델 생성 순서로 고정한다.
+Migration 순서는 Organization type 생성과 customer 기본값 적용, service_provider partial Unique index 생성, 새 UserRole enum 변환, membership backfill, revision 모델 생성 순서로 고정한다. legacy 데이터의 현장 유무는 서비스 운영사 식별 근거가 아니므로 기존 Organization을 분류하거나 service_provider로 update하지 않는다.
 
 ```sql
-UPDATE "Organization" o
-SET "type" = CASE
-  WHEN EXISTS (SELECT 1 FROM "Site" s WHERE s."organizationId" = o.id)
-    THEN 'customer'::"OrganizationType"
-  ELSE 'service_provider'::"OrganizationType"
-END;
+ALTER TABLE "Organization"
+  ADD COLUMN "type" "OrganizationType" NOT NULL DEFAULT 'customer';
 
-ALTER TABLE "User" ALTER COLUMN "role" TYPE "UserRole_new"
-USING (
-  CASE
-    WHEN "role"::text = 'owner' AND EXISTS (
-      SELECT 1 FROM "Organization" o WHERE o.id = "User"."organizationId" AND o."type" = 'service_provider'
-    ) THEN 'operator'
-    WHEN "role"::text IN ('owner', 'operator') THEN 'admin'
-    ELSE 'viewer'
-  END
-)::"UserRole_new";
+CREATE UNIQUE INDEX "Organization_single_service_provider_key"
+  ON "Organization"("type")
+  WHERE "type" = 'service_provider';
+
+ALTER TABLE "User" ADD COLUMN "role_new" "UserRole";
+UPDATE "User"
+SET "role_new" = CASE
+  WHEN "role"::text IN ('owner', 'operator') THEN 'admin'::"UserRole"
+  ELSE 'viewer'::"UserRole"
+END;
 ```
 
-기존 viewer는 자기 고객사 site 전체에 membership을 backfill해 migration 직후 조회 권한이 갑자기 사라지지 않게 한다.
-`Invitation.role`도 새 enum으로 변환하며 기존 owner/operator invitation은 admin으로 이관한다.
+기존 viewer는 customer로 유지된 자기 Organization의 site 전체에 membership을 backfill해 migration 직후 조회 권한이 갑자기 사라지지 않게 한다. `Invitation.role`도 새 enum으로 변환하며 기존 owner/operator invitation은 admin으로 이관한다. service_provider Organization과 첫 operator는 migration이 아니라 `auth:bootstrap-operator` CLI가 PostgreSQL transaction advisory lock, 사전 존재 검사 및 partial Unique index 방어 아래 생성한다.
+
+이 migration 파일을 수정 전 이미 적용한 로컬 개발 DB는 Prisma checksum 충돌이 난다. 데이터 보존이 불필요한 로컬 DB만 reset을 선택할 수 있고, 보존이 필요하면 잘못 추론된 service provider/operator 데이터를 감사한 뒤 수동 보정 migration을 적용한다. 자동 reset은 실행하지 않는다.
 
 - [ ] **Step 5: schema와 migration 검증**
 

@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-07-15
+작성일: 2026-07-21
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -155,7 +155,7 @@ Organization
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 조직 ID |
 | `name` | `String` | 예 |  | 조직명 |
-| `type` | `OrganizationType` | 예 | `customer` | 서비스 운영사 또는 고객사 |
+| `type` | `OrganizationType` | 예 | `customer`; `service_provider`는 PostgreSQL partial Unique로 1개만 허용 | 서비스 운영사 또는 고객사 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -164,6 +164,13 @@ Organization
 - `users`: `User[]`
 - `sites`: `Site[]`
 - `invitations`: `Invitation[]`
+
+테넌트 및 bootstrap 보안 계약:
+
+- legacy migration은 기존 `Organization`의 현장 유무를 서비스 운영사 식별자로 사용하지 않는다. 기존 행은 모두 기본값 `customer`로 유지하고 legacy `owner`/`operator` 사용자와 invitation은 모두 `admin`으로 변환한다.
+- `service_provider` Organization과 첫 `operator`는 배포 권한이 있는 `auth:bootstrap-operator` CLI만 생성한다. bootstrap은 PostgreSQL transaction-scoped advisory lock을 잡고 기존 service provider Organization 또는 operator가 있으면 거부한다.
+- `Organization.type = service_provider`에는 PostgreSQL partial Unique index가 적용된다. 이 index는 Prisma schema에 표현되지 않으므로 `20260721120000_simplify_roles_and_floor_revisions` migration과 domain schema 계약 테스트가 기준이다.
+- 이 migration 파일을 수정 전 이미 로컬 개발 DB에 적용했다면 Prisma migration checksum 충돌이 난다. 데이터 보존이 불필요한 로컬 DB만 reset을 선택할 수 있으며, 보존이 필요하면 기존 잘못 분류된 service provider/operator 행을 먼저 감사한 뒤 수동 보정 migration을 적용한다. 이 저장소는 reset이나 파괴적 DB 명령을 자동 실행하지 않는다.
 
 ### User
 

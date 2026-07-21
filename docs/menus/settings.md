@@ -75,10 +75,11 @@
 - 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
 - Konva 도면 에디터에 도면 업로드, 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 구현했다.
 - PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
-- `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다.
+- `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다. legacy migration은 현장 유무로 서비스 운영사를 추론하지 않으며 기존 Organization을 모두 customer로, legacy owner/operator와 invitation을 admin으로 유지한다.
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
 - `Floor.mapRevision`, `FloorMapRevision`, 공통 `AuditLog` 저장 구조를 추가했다. revision 저장·감사 로그 기록 API는 후속 작업이다.
-- 빈 DB bootstrap은 `auth:bootstrap-operator`로 서비스 운영사 `operator`를 생성하며, 로그인/session 응답에 Organization 유형을 포함한다.
+- bootstrap은 기존 customer 사용자가 있어도 `auth:bootstrap-operator`로 최초 service-provider operator를 만들 수 있다. PostgreSQL advisory lock, 기존 service provider/operator 검사, `service_provider` partial Unique index로 둘 이상의 서비스 운영사를 차단하며, 로그인/session 응답에 Organization 유형을 포함한다.
+- 수정 전 legacy migration을 적용한 로컬 개발 DB는 checksum 충돌이 발생할 수 있다. 데이터가 불필요한 경우에만 reset을 선택하고, 보존이 필요하면 감사 후 수동 보정 migration을 사용한다. 설정 기능은 자동 reset이나 파괴적 DB 명령을 실행하지 않는다.
 - `POST /setup/floors`와 registration session 생성·조회·identify·register·complete는 operator 역할과 대상 현장의 `commission` 권한을 모두 확인한다.
 - `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
 
@@ -216,8 +217,9 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 각 단계는 실패 테스트, 최소 구현, 관련 테스트 통과, 메뉴·DB 문서 갱신과 독립 커밋으로 완료한다.
 - API를 먼저 배포해 이전 웹과 호환한 뒤 웹을 전환하고, 사용되지 않는 개별 에디터 변경 API를 제거한다.
 - 기존 Floor, FloorPlan, Fixture와 FloorMapObject는 삭제하거나 재생성하지 않는 비파괴 migration을 사용한다.
-- 기존 site를 가진 Organization은 customer로, site가 없는 bootstrap Organization은 service_provider로 이관한다.
-- 기존 `owner`는 고객사 Organization이면 admin, 서비스 운영사 Organization이면 operator로 변환하고, 기존 customer 성격의 `operator`는 admin으로 변환한다.
+- legacy migration은 기존 Organization을 모두 customer로 유지하고, 현장 유무로 service provider를 추론하지 않는다. service_provider Organization은 배포 권한이 있는 bootstrap CLI로만 명시 생성한다.
+- 기존 `owner`/`operator`와 Invitation은 모두 admin으로 변환하고 viewer는 viewer로 유지한다. 기존 customer viewer의 SiteMembership backfill은 유지한다.
+- 수정된 legacy migration을 이미 적용한 로컬 개발 DB는 Prisma checksum 충돌이 날 수 있다. 데이터 보존 여부에 따라 reset 또는 감사 기반 수동 보정 migration을 선택하며, 이 기능은 파괴적 DB 명령을 자동 실행하지 않는다.
 
 ## 테스트와 완료 기준
 
