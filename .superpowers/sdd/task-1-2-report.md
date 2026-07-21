@@ -76,4 +76,41 @@ PASS: no whitespace errors
 
 ## Concerns
 
-- The migration was contract-tested and Prisma-validated but deliberately was not applied to the existing local `led_control` database during this task, to avoid mutating shared developer data. Apply it first to a disposable PostgreSQL copy before production rollout.
+None remaining for this task. The shared `led_control` database was not modified.
+
+## Disposable PostgreSQL Migration Verification (2026-07-21)
+
+The first disposable deployment exposed PostgreSQL error `0A000: cannot use subquery in transform expression` at the `ALTER TABLE "User" ... USING` conversion. PostgreSQL forbids the organization lookup subquery in that expression. The migration now computes the converted user role through a temporary `role_new` enum column, then replaces the legacy role column. A schema contract test first failed on the forbidden pattern and passed after the change.
+
+Exact commands and relevant results:
+
+```text
+psql 'postgresql://led:led@localhost:5432/postgres' -Atqc 'SELECT current_database(), current_user;'
+postgres|led
+
+dropdb --if-exists -h localhost -U led led_control_task12_verify
+createdb -h localhost -U led led_control_task12_verify
+
+DATABASE_URL='postgresql://led:led@localhost:5432/led_control_task12_verify?schema=public' pnpm --filter @led-control/api exec prisma migrate deploy
+17 migrations found; all migrations successfully applied, including 20260721120000_simplify_roles_and_floor_revisions.
+
+DATABASE_URL='postgresql://led:led@localhost:5432/led_control_task12_verify?schema=public' pnpm --filter @led-control/api exec prisma migrate status
+Database schema is up to date.
+
+SELECT unnest(enum_range(NULL::"UserRole"));
+operator
+admin
+viewer
+
+SELECT unnest(enum_range(NULL::"OrganizationType"));
+service_provider
+customer
+
+SELECT to_regclass('public."SiteMembership"'), to_regclass('public."FloorMapRevision"'), to_regclass('public."AuditLog"');
+"SiteMembership" | "FloorMapRevision" | "AuditLog"
+
+SELECT column_default FROM information_schema.columns WHERE table_name = 'Floor' AND column_name = 'mapRevision';
+0
+```
+
+The disposable database is retained as `led_control_task12_verify` for reviewer inspection. It is separate from the shared `led_control` database.

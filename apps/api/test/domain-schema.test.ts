@@ -98,8 +98,9 @@ describe("Prisma domain schema", () => {
     const migration = readMigrationBySuffix(roleRevisionMigrationSuffix);
 
     expect(migration).toContain('CREATE TYPE "OrganizationType" AS ENUM (\'service_provider\', \'customer\')');
-    expect(migration).toMatch(/WHEN "role"::text = 'owner'[\s\S]*?'service_provider'[\s\S]*?THEN 'operator'/);
-    expect(migration).toMatch(/WHEN "role"::text IN \('owner', 'operator'\) THEN 'admin'/);
+    expect(migration).toMatch(/WHEN (?:u\.)?"role"::text = 'owner'[\s\S]*?'service_provider'[\s\S]*?THEN 'operator'/);
+    expect(migration).toMatch(/WHEN (?:u\.)?"role"::text IN \('owner', 'operator'\) THEN 'admin'/);
+    expect(migration).not.toMatch(/ALTER TABLE "User"[\s\S]*?ALTER COLUMN "role"[\s\S]*?USING \([\s\S]*?EXISTS/);
     expect(migration).toMatch(/INSERT INTO "SiteMembership"[\s\S]*?WHERE u\."role" = 'viewer' AND o\."type" = 'customer'/);
     expect(migration).toContain('ALTER TABLE "Floor" ADD COLUMN "mapRevision" INTEGER NOT NULL DEFAULT 0');
     expect(migration).toContain('CREATE TABLE "FloorMapRevision"');

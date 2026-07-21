@@ -15,19 +15,23 @@ END;
 ALTER TYPE "UserRole" RENAME TO "UserRole_old";
 CREATE TYPE "UserRole" AS ENUM ('operator', 'admin', 'viewer');
 
-ALTER TABLE "User"
-  ALTER COLUMN "role" TYPE "UserRole"
-  USING (
-    CASE
-      WHEN "role"::text = 'owner' AND EXISTS (
-        SELECT 1
-        FROM "Organization" o
-        WHERE o.id = "User"."organizationId" AND o."type" = 'service_provider'
-      ) THEN 'operator'
-      WHEN "role"::text IN ('owner', 'operator') THEN 'admin'
-      ELSE 'viewer'
-    END
-  )::"UserRole";
+-- ALTER COLUMN ... USING forbids subqueries, so classify through a temporary enum column first.
+ALTER TABLE "User" ADD COLUMN "role_new" "UserRole";
+UPDATE "User" u
+SET "role_new" = (
+  CASE
+    WHEN u."role"::text = 'owner' AND EXISTS (
+      SELECT 1
+      FROM "Organization" o
+      WHERE o.id = u."organizationId" AND o."type" = 'service_provider'
+    ) THEN 'operator'
+    WHEN u."role"::text IN ('owner', 'operator') THEN 'admin'
+    ELSE 'viewer'
+  END
+)::"UserRole";
+ALTER TABLE "User" DROP COLUMN "role";
+ALTER TABLE "User" RENAME COLUMN "role_new" TO "role";
+ALTER TABLE "User" ALTER COLUMN "role" SET NOT NULL;
 
 ALTER TABLE "Invitation"
   ALTER COLUMN "role" TYPE "UserRole"
