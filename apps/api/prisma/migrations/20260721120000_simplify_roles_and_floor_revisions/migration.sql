@@ -16,7 +16,7 @@ ALTER TABLE "User" ADD COLUMN "role_new" "UserRole";
 UPDATE "User" u
 SET "role_new" = (
   CASE
-    WHEN u."role"::text IN ('owner', 'operator') THEN 'admin'
+    WHEN u."role"::text IN ('owner', 'operator', 'admin') THEN 'admin'
     ELSE 'viewer'
   END
 )::"UserRole";
@@ -28,7 +28,7 @@ ALTER TABLE "Invitation"
   ALTER COLUMN "role" TYPE "UserRole"
   USING (
     CASE
-      WHEN "role"::text IN ('owner', 'operator') THEN 'admin'
+      WHEN "role"::text IN ('owner', 'operator', 'admin') THEN 'admin'
       ELSE 'viewer'
     END
   )::"UserRole";

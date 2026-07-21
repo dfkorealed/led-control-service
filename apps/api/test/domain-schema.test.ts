@@ -103,13 +103,26 @@ describe("Prisma domain schema", () => {
     );
     expect(migration).not.toMatch(/UPDATE "Organization"[\s\S]*?EXISTS[\s\S]*?"Site"/);
     expect(migration).not.toMatch(/THEN 'service_provider'/);
-    expect(migration).toMatch(/WHEN (?:u\.)?"role"::text IN \('owner', 'operator'\) THEN 'admin'/);
+    expect(migration).toMatch(/WHEN (?:u\.)?"role"::text IN \('owner', 'operator', 'admin'\) THEN 'admin'/);
     expect(migration).not.toMatch(/THEN 'operator'/);
     expect(migration).not.toMatch(/ALTER TABLE "User"[\s\S]*?ALTER COLUMN "role"[\s\S]*?USING \([\s\S]*?EXISTS/);
     expect(migration).toMatch(/INSERT INTO "SiteMembership"[\s\S]*?WHERE u\."role" = 'viewer' AND o\."type" = 'customer'/);
     expect(migration).toContain('ALTER TABLE "Floor" ADD COLUMN "mapRevision" INTEGER NOT NULL DEFAULT 0');
     expect(migration).toContain('CREATE TABLE "FloorMapRevision"');
     expect(migration).toContain('CREATE TABLE "AuditLog"');
+  });
+
+  it("preserves legacy admin roles for users and invitations during conversion", () => {
+    const migration = readMigrationBySuffix(roleRevisionMigrationSuffix);
+
+    expect(migration).toContain(
+      'WHEN u."role"::text IN (\'owner\', \'operator\', \'admin\') THEN \'admin\''
+    );
+    expect(migration).toContain(
+      'WHEN "role"::text IN (\'owner\', \'operator\', \'admin\') THEN \'admin\''
+    );
+    expect(migration).toMatch(/WHEN u\."role"::text IN \([\s\S]*?\) THEN 'admin'[\s\S]*?ELSE 'viewer'/);
+    expect(migration).toMatch(/WHEN "role"::text IN \([\s\S]*?\) THEN 'admin'[\s\S]*?ELSE 'viewer'/);
   });
 
   it("enforces one service provider organization in PostgreSQL", () => {
