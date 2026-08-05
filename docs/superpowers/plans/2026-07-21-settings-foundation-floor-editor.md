@@ -278,7 +278,7 @@ Run: `pnpm --filter @led-control/web exec vitest run src/features/auth src/App.t
 
 Expected: 모두 PASS.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add apps/api apps/web/src/api/auth.ts package.json README.md docs
