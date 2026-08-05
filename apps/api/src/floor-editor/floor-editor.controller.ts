@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -12,6 +12,30 @@ export class FloorEditorController {
   @Get("floors/:floorId/editor-state")
   getEditorState(@Param("floorId") floorId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.floorEditorService.getEditorState(floorId, user);
+  }
+
+  @Put("floors/:floorId/editor-state")
+  saveEditorState(
+    @Param("floorId") floorId: string,
+    @Body() body: Record<string, unknown>,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.floorEditorService.saveEditorState(user, floorId, body);
+  }
+
+  @Get("floors/:floorId/editor-revisions")
+  listEditorRevisions(@Param("floorId") floorId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.floorEditorService.listEditorRevisions(user, floorId);
+  }
+
+  @Post("floors/:floorId/editor-revisions/:revision/restore")
+  restoreEditorRevision(
+    @Param("floorId") floorId: string,
+    @Param("revision") revision: string,
+    @Body() body: Record<string, unknown>,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.floorEditorService.restoreEditorRevision(user, floorId, Number(revision), body);
   }
 
   @Patch("floors/:floorId/floor-plan")

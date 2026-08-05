@@ -7,9 +7,10 @@ import { FloorEditorService } from "./floor-editor.service";
 import { StorageModule } from "../storage/storage.module";
 import { FloorAssetsController } from "./floor-assets.controller";
 import { FloorAssetsService } from "./floor-assets.service";
+import { AuditModule } from "../audit/audit.module";
 
 @Module({
-  imports: [PrismaModule, AuthModule, AccessModule, StorageModule],
+  imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule],
   controllers: [FloorEditorController, FloorAssetsController],
   providers: [FloorEditorService, FloorAssetsService]
 })

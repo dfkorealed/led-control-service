@@ -1,6 +1,8 @@
 import { Test } from "@nestjs/testing";
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
+import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { FloorEditorService } from "./floor-editor.service";
 
@@ -101,7 +103,14 @@ describe("FloorEditorService", () => {
       providers: [
         FloorEditorService,
         { provide: PrismaService, useValue: prisma },
-        { provide: SiteAccessService, useValue: { assert: jest.fn(), ...siteAccessOverrides } }
+        {
+          provide: SiteAccessService,
+          useValue: {
+            assert: jest.fn().mockResolvedValue({ id: ids.siteId, organizationId: ids.organizationId }),
+            ...siteAccessOverrides
+          }
+        },
+        { provide: AuditService, useValue: { record: jest.fn() } }
       ]
     }).compile();
 
@@ -369,5 +378,368 @@ describe("FloorEditorService", () => {
 
     await expect(service.deleteObject(ids.objectId, assignedOperator)).resolves.toEqual({ deleted: true });
     expect(prisma.floorMapObject.delete).toHaveBeenCalledWith({ where: { id: ids.objectId } });
+  });
+});
+
+describe("FloorEditorService atomic revisions", () => {
+  const floorId = "00000000-0000-4000-8000-000000000103";
+  const siteId = "00000000-0000-4000-8000-000000000102";
+  const fixtureId = "00000000-0000-4000-8000-000000000104";
+  const missingFixtureId = "00000000-0000-4000-8000-000000000199";
+  const objectId = "00000000-0000-4000-8000-000000000105";
+  const deletedObjectId = "00000000-0000-4000-8000-000000000106";
+  const user = {
+    id: "00000000-0000-4000-8000-000000000101",
+    organizationId: "service-provider-1",
+    organizationType: "service_provider" as const,
+    email: "operator@example.com",
+    name: "Operator",
+    role: "operator" as const,
+    status: "active" as const
+  };
+  const canonicalFloor = {
+    id: floorId,
+    siteId,
+    name: "B2",
+    level: -2,
+    mapRevision: 4,
+    floorPlan: {
+      id: "floor-plan-1",
+      floorId,
+      imageUrl: "https://assets.example/b2.png",
+      sourceType: "image",
+      originalFileUrl: null,
+      renderedImageUrl: "https://assets.example/b2-rendered.png",
+      width: 1200,
+      height: 800,
+      version: 3
+    },
+    fixtures: [{
+      id: fixtureId,
+      name: "B2-L01",
+      ratedWatt: "40.00",
+      x: 130,
+      y: 250,
+      size: 24,
+      brightness: 80,
+      status: "online"
+    }],
+    mapObjects: [{
+      id: objectId,
+      floorId,
+      type: "rectangle",
+      x: 140,
+      y: 120,
+      width: 240,
+      height: 160,
+      rotation: 0,
+      points: null,
+      text: null,
+      strokeColor: "#0b63e5",
+      fillColor: "#f8fafc",
+      strokeWidth: 2,
+      fontSize: null,
+      zIndex: 10,
+      locked: false,
+      visible: true,
+      createdAt: new Date("2026-07-20T00:00:00.000Z")
+    }]
+  };
+  const saveInput = {
+    expectedRevision: 3,
+    floorPlan: {
+      imageUrl: "https://assets.example/b2.png",
+      sourceType: "image" as const,
+      originalFileUrl: null,
+      renderedImageUrl: "https://assets.example/b2-rendered.png",
+      width: 1200,
+      height: 800
+    },
+    fixtureUpdates: [{ id: fixtureId, x: 130, y: 250, size: 24 }],
+    objectCreates: [{
+      type: "text",
+      x: 10,
+      y: 20,
+      width: null,
+      height: null,
+      rotation: 0,
+      points: null,
+      text: "입구",
+      strokeColor: "#111111",
+      fillColor: null,
+      strokeWidth: 2,
+      fontSize: 18,
+      zIndex: 11,
+      locked: false,
+      visible: true
+    }],
+    objectUpdates: [{ id: objectId, patch: { x: 140 } }],
+    objectDeletes: [deletedObjectId]
+  };
+
+  function createTransactionClient(overrides: Record<string, unknown> = {}) {
+    const tx: any = {
+      floor: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue(canonicalFloor)
+      },
+      floorPlan: {
+        upsert: jest.fn().mockResolvedValue(canonicalFloor.floorPlan),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      floorAsset: { count: jest.fn().mockResolvedValue(2) },
+      fixture: {
+        findMany: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve((where.id.in as string[]).filter((id) => id === fixtureId).map((id) => ({ id })))
+        ),
+        update: jest.fn().mockResolvedValue({ id: fixtureId })
+      },
+      floorMapObject: {
+        findMany: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve((where.id.in as string[]).map((id) => ({ id })))
+        ),
+        create: jest.fn().mockResolvedValue({ id: "created-object-1" }),
+        update: jest.fn().mockResolvedValue({ id: objectId }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        createMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      floorMapRevision: {
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: "revision-4", ...data })),
+        findUnique: jest.fn(),
+        findMany: jest.fn()
+      },
+      auditLog: { create: jest.fn().mockResolvedValue({ id: "audit-1" }) }
+    };
+    for (const [key, value] of Object.entries(overrides)) {
+      tx[key] = { ...tx[key], ...(value as Record<string, unknown>) };
+    }
+    return tx;
+  }
+
+  async function createAtomicService(options: {
+    tx?: any;
+    siteAccessAssert?: jest.Mock;
+    revisionList?: unknown[];
+  } = {}) {
+    const tx = options.tx ?? createTransactionClient();
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId }) },
+      floorMapRevision: {
+        findMany: jest.fn().mockResolvedValue(options.revisionList ?? [])
+      },
+      auditLog: { create: jest.fn() },
+      $transaction: jest.fn(async (callback: (client: unknown) => unknown) => callback(tx))
+    };
+    const siteAccess = {
+      assert: options.siteAccessAssert ?? jest.fn().mockResolvedValue({ id: siteId, organizationId: "customer-organization-1" })
+    };
+    const auditService = new AuditService(prisma);
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        FloorEditorService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: SiteAccessService, useValue: siteAccess },
+        { provide: AuditService, useValue: auditService }
+      ]
+    }).compile();
+    return { service: moduleRef.get(FloorEditorService) as any, prisma, siteAccess, tx };
+  }
+
+  it("rejects a stale save revision without committing normalized rows, revision, or audit", async () => {
+    const tx = createTransactionClient({ floor: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) } });
+    const { service, prisma } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, saveInput)).rejects.toBeInstanceOf(ConflictException);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.fixture.update).not.toHaveBeenCalled();
+    expect(tx.floorMapObject.create).not.toHaveBeenCalled();
+    expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("saves normalized rows, revision, and audit in one Serializable transaction", async () => {
+    const { service, prisma, tx } = await createAtomicService();
+
+    const result = await service.saveEditorState(user, floorId, saveInput);
+
+    expect(result.floor).toMatchObject({ id: floorId, mapRevision: 4 });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+    });
+    expect(tx.floor.updateMany).toHaveBeenCalledWith({
+      where: { id: floorId, mapRevision: 3 },
+      data: { mapRevision: { increment: 1 } }
+    });
+    expect(tx.fixture.update).toHaveBeenCalledWith({ where: { id: fixtureId }, data: { x: 130, y: 250, size: 24 } });
+    expect(tx.floorMapRevision.create).toHaveBeenCalledWith({ data: expect.objectContaining({ floorId, revision: 4 }) });
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organizationId: "customer-organization-1",
+        siteId,
+        actorId: user.id,
+        action: "floor_editor.saved",
+        targetType: "floor",
+        targetId: floorId,
+        outcome: "success"
+      })
+    });
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["fixture", { fixture: { findMany: jest.fn().mockResolvedValue([]) } }],
+    ["object", { floorMapObject: { findMany: jest.fn().mockResolvedValue([{ id: objectId }]) } }]
+  ])("rejects a %s from another floor before attempting the optimistic mutation", async (_kind, override) => {
+    const tx = createTransactionClient(override);
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, saveInput)).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.floor.updateMany).not.toHaveBeenCalled();
+    expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-ready floor plan assets before attempting the optimistic mutation", async () => {
+    const tx = createTransactionClient({ floorAsset: { count: jest.fn().mockResolvedValue(1) } });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, saveInput)).rejects.toThrow("ready floor assets");
+
+    expect(tx.floor.updateMany).not.toHaveBeenCalled();
+    expect(tx.floorPlan.upsert).not.toHaveBeenCalled();
+    expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["fixture update IDs", { ...saveInput, fixtureUpdates: [saveInput.fixtureUpdates[0], saveInput.fixtureUpdates[0]] }],
+    ["object update IDs", { ...saveInput, objectUpdates: [saveInput.objectUpdates[0], saveInput.objectUpdates[0]] }],
+    ["object delete IDs", { ...saveInput, objectDeletes: [deletedObjectId, deletedObjectId] }],
+    ["object update/delete IDs", { ...saveInput, objectDeletes: [objectId] }]
+  ])("rejects duplicate %s before opening a transaction", async (_label, input) => {
+    const { service, prisma } = await createAtomicService();
+
+    await expect(service.saveEditorState(user, floorId, input)).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("stores a deterministic canonical snapshot and SHA-256 regardless of query ordering", async () => {
+    const reversedFloor = {
+      ...canonicalFloor,
+      fixtures: [
+        { ...canonicalFloor.fixtures[0], id: missingFixtureId, name: "B2-L02" },
+        canonicalFloor.fixtures[0]
+      ],
+      mapObjects: [
+        { ...canonicalFloor.mapObjects[0], id: deletedObjectId, zIndex: 1 },
+        canonicalFloor.mapObjects[0]
+      ]
+    };
+    const tx = createTransactionClient({ floor: { findUnique: jest.fn().mockResolvedValue(reversedFloor) } });
+    const { service } = await createAtomicService({ tx });
+
+    await service.saveEditorState(user, floorId, saveInput);
+
+    const revisionData = tx.floorMapRevision.create.mock.calls[0][0].data;
+    expect(revisionData.snapshot).toEqual({
+      floorPlan: {
+        imageUrl: "https://assets.example/b2.png",
+        sourceType: "image",
+        originalFileUrl: null,
+        renderedImageUrl: "https://assets.example/b2-rendered.png",
+        width: 1200,
+        height: 800
+      },
+      fixtures: [
+        { id: fixtureId, name: "B2-L01", ratedWatt: "40.00", x: 130, y: 250, size: 24 },
+        { id: missingFixtureId, name: "B2-L02", ratedWatt: "40.00", x: 130, y: 250, size: 24 }
+      ],
+      objects: [
+        {
+          id: objectId, type: "rectangle", x: 140, y: 120, width: 240, height: 160, rotation: 0,
+          points: null, text: null, strokeColor: "#0b63e5", fillColor: "#f8fafc", strokeWidth: 2,
+          fontSize: null, zIndex: 10, locked: false, visible: true
+        },
+        {
+          id: deletedObjectId, type: "rectangle", x: 140, y: 120, width: 240, height: 160, rotation: 0,
+          points: null, text: null, strokeColor: "#0b63e5", fillColor: "#f8fafc", strokeWidth: 2,
+          fontSize: null, zIndex: 1, locked: false, visible: true
+        }
+      ]
+    });
+    expect(revisionData.snapshotSha256).toBe("4bff6853255f4cbe4ed2365792773aff9086e7449a6ac01cae7db55423f832cb");
+  });
+
+  it("lists revisions with read access and hides cross-tenant floors before reading revisions", async () => {
+    const revisions = [{ id: "revision-4", revision: 4, changedBy: user.id }];
+    const { service, prisma, siteAccess } = await createAtomicService({ revisionList: revisions });
+
+    await expect(service.listEditorRevisions(user, floorId)).resolves.toBe(revisions);
+    expect(siteAccess.assert).toHaveBeenCalledWith(user, siteId, "read");
+
+    siteAccess.assert.mockRejectedValueOnce(new NotFoundException("site not found"));
+    await expect(service.listEditorRevisions(user, floorId)).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.floorMapRevision.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects restore expectedRevision conflicts without partial writes", async () => {
+    const tx = createTransactionClient({
+      floor: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      floorMapRevision: {
+        findUnique: jest.fn().mockResolvedValue({ revision: 1, snapshot: { floorPlan: null, fixtures: [], objects: [] } })
+      }
+    });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.restoreEditorRevision(user, floorId, 1, { expectedRevision: 3 }))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    expect(tx.floorPlan.deleteMany).not.toHaveBeenCalled();
+    expect(tx.floorMapObject.deleteMany).not.toHaveBeenCalled();
+    expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("restores only existing fixtures, reports missing fixtures, and audits in the same transaction", async () => {
+    const snapshot = {
+      floorPlan: null,
+      fixtures: [
+        { id: fixtureId, name: "Old L01", ratedWatt: "30.00", x: 10, y: 20, size: 18 },
+        { id: missingFixtureId, name: "Removed L02", ratedWatt: "30.00", x: 30, y: 40, size: 18 }
+      ],
+      objects: canonicalFloor.mapObjects.map(({ floorId: _floorId, createdAt: _createdAt, ...object }) => object)
+    };
+    const tx = createTransactionClient({
+      floorMapRevision: { findUnique: jest.fn().mockResolvedValue({ revision: 1, snapshot }) }
+    });
+    const { service, prisma } = await createAtomicService({ tx });
+
+    const result = await service.restoreEditorRevision(user, floorId, 1, { expectedRevision: 3 });
+
+    expect(result.skippedFixtureIds).toEqual([missingFixtureId]);
+    expect(tx.fixture.update).toHaveBeenCalledTimes(1);
+    expect(tx.fixture.update).toHaveBeenCalledWith({
+      where: { id: fixtureId },
+      data: { name: "Old L01", ratedWatt: "30.00", x: 10, y: 20, size: 18 }
+    });
+    expect(tx.floorMapRevision.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ floorId, revision: 4, restoredFromRevision: 1 })
+    });
+    expect(tx.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: "floor_editor.restored", metadata: expect.objectContaining({ revision: 4, restoredFromRevision: 1 }) })
+    });
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [new NotFoundException("site not found"), NotFoundException],
+    [new ForbiddenException("site capability denied"), ForbiddenException]
+  ])("does not open a save transaction when site manage access is denied", async (error, expectedType) => {
+    const { service, prisma } = await createAtomicService({ siteAccessAssert: jest.fn().mockRejectedValue(error) });
+
+    await expect(service.saveEditorState(user, floorId, saveInput)).rejects.toBeInstanceOf(expectedType);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

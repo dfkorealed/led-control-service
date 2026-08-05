@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  floorEditorSnapshotSchema,
   provisionDeviceSchema,
   provisioningCompletedSchema,
   provisioningFailedSchema,
   provisioningScanStartSchema,
+  restoreFloorEditorRevisionSchema,
+  saveEditorStateSchema,
   unprovisionedDeviceFoundSchema
 } from "./schemas";
 import { mqttTopics } from "./mqtt";
@@ -87,5 +90,52 @@ describe("shared schemas", () => {
         failedAt: "2026-07-01T00:00:05.000Z"
       }).errorMessage
     ).toBe("provisioning timeout");
+  });
+
+  it("validates atomic floor editor save and restore inputs", () => {
+    const save = saveEditorStateSchema.parse({
+      expectedRevision: 3,
+      floorPlan: null,
+      fixtureUpdates: [{ id: "fixture-1", x: 120, y: 240, size: 24 }],
+      objectCreates: [{
+        type: "rectangle", x: 10, y: 20, width: 30, height: 40, rotation: 0,
+        points: null, text: null, strokeColor: "#111111", fillColor: null,
+        strokeWidth: 2, fontSize: null, zIndex: 1, locked: false, visible: true
+      }],
+      objectUpdates: [{ id: "object-1", patch: { x: 15, visible: false } }],
+      objectDeletes: ["object-2"]
+    });
+
+    expect(save.expectedRevision).toBe(3);
+    expect(save.floorPlan).toBeNull();
+    expect(restoreFloorEditorRevisionSchema.parse({ expectedRevision: 4 })).toEqual({ expectedRevision: 4 });
+    expect(() => saveEditorStateSchema.parse({ ...save, expectedRevision: -1 })).toThrow();
+    expect(() => restoreFloorEditorRevisionSchema.parse({ expectedRevision: 1.5 })).toThrow();
+
+    expect(saveEditorStateSchema.parse({
+      ...save,
+      objectCreates: [{
+        type: "text", x: 10, y: 20, width: null, height: null, rotation: 0,
+        text: "Entrance", strokeColor: "#111111", strokeWidth: 2, locked: false, visible: true
+      }]
+    }).objectCreates[0]).toEqual({
+      type: "text", x: 10, y: 20, width: null, height: null, rotation: 0,
+      text: "Entrance", strokeColor: "#111111", strokeWidth: 2, locked: false, visible: true
+    });
+  });
+
+  it("validates persisted floor editor snapshots independently from runtime fixture state", () => {
+    expect(floorEditorSnapshotSchema.parse({
+      floorPlan: null,
+      fixtures: [{ id: "fixture-1", name: "B2-L01", ratedWatt: "40.00", x: 10, y: 20, size: 24 }],
+      objects: []
+    })).toEqual({
+      floorPlan: null,
+      fixtures: [{ id: "fixture-1", name: "B2-L01", ratedWatt: "40.00", x: 10, y: 20, size: 24 }],
+      objects: []
+    });
+
+    expect(() => floorEditorSnapshotSchema.parse({ floorPlan: null, fixtures: [{ id: "fixture-1" }], objects: [] }))
+      .toThrow();
   });
 });
