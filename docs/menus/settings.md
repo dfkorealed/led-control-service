@@ -8,7 +8,7 @@
 
 - 설정 메뉴를 현장 구성, 도면 관리, 장비 시운전, 운영 정책, 보안, 유지보수의 관리 허브로 만든다.
 - 실시간 상태 확인은 모니터링, 조명 명령 실행은 제어, 에너지 분석은 통계에서 담당한다.
-- 도면 에디터의 실제 state 조회·저장·취소 이동은 Task 7에서 설정의 `도면 관리`로 옮긴다. Task 6은 모니터링의 기존 편집 동작을 유지한다.
+- 도면 에디터는 설정의 `도면 관리`에서만 열고, 모니터링은 읽기 전용 상태 확인에 한정한다.
 - 최초 현장 설정, Gateway claim, 최초 provisioning은 서비스 운영사의 `operator`만 수행한다.
 - 설치 완료 후 고객사의 `admin`은 도면 배경, 도형, 조명 배치, 일반 조명 정보와 운영 정책을 직접 관리한다.
 - 설정값은 임의 JSON 한 필드에 모으지 않고 검증 가능한 명시적 모델과 컬럼으로 관리한다.
@@ -83,7 +83,8 @@
 - `POST /setup/floors`와 registration session 생성·조회·identify·register·complete는 operator 역할과 대상 현장의 `commission` 권한을 모두 확인한다.
 - `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
-- `/settings/floor-plans`는 새로고침과 직접 진입이 가능한 `도면 관리` 목록 골격을 제공한다. `/settings/floor-plans/:floorId/edit`는 Task 7의 실제 에디터 연결 전 route 골격만 제공한다.
+- `/settings/floor-plans`는 새로고침과 직접 진입이 가능한 층별 도면 목록을 제공한다. `operator/admin`은 각 층의 `/settings/floor-plans/:floorId/edit` 링크로 이동할 수 있고, 목록·편집·저장·취소 이동에서 현재 `siteId` query를 보존한다.
+- `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회하고 기존 `FloorEditorView`의 저장·취소 callback으로 도면 목록으로 이동한다. `viewer`는 목록과 도면 등록 상태만 읽을 수 있으며, 직접 edit URL도 목록으로 redirect되어 editor state를 조회하거나 편집기를 렌더링하지 않는다.
 - 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
 - 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`만 갱신하며, 현재 pathname, 다른 query parameter와 hash fragment를 유지한다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.
@@ -96,7 +97,7 @@
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL로 표현한다.
 - 설정 하위 경로는 `/settings/floors`, `/settings/floor-plans`, `/settings/fixtures`, `/settings/gateways`, `/settings/commissioning`, `/settings/security` 형식으로 구성한다.
 - 도면 편집기는 `/settings/floor-plans/:floorId/edit` 전체 작업 화면으로 연다.
-- `MonitoringView`의 에디터 조회 상태와 `도면 편집` 버튼 제거, 설정 에디터의 실제 state 조회·저장·취소 이동은 Task 7에서 구현한다.
+- `MonitoringView`는 에디터 조회 상태와 `도면 편집` 버튼 없이 읽기 전용 도면만 표시한다. 설정 에디터 route가 실제 state 조회와 저장·취소 navigation을 소유한다.
 - 모니터링 empty state의 설정 단계 안내는 후속 작업이다.
 
 ### 도면 에디터 저장과 버전
@@ -270,7 +271,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현재 desktop 좌측 메뉴를 유지한다. 상단 선택 메뉴 전환은 후속 UI 작업이 필요하다.
-- 현재 도면 에디터는 모니터링에서 열리며 여러 개별 API를 병렬 호출해 부분 저장 위험이 있다.
+- 도면 에디터는 설정 route에서 열리지만, Task 8의 단일 transaction 저장 API 전까지 여러 개별 API를 병렬 호출하므로 부분 저장 위험이 남아 있다.
 - 현재 FloorPlan version은 배경 변경만 표현하고 도형·조명 배치의 전체 revision이 아니다.
 - 기존 도면 변경 API는 SiteAccess `manage`를 적용했지만, Task 8의 단일 transaction/revision API로 전환되기 전까지 여러 요청 사이의 부분 저장 위험은 남아 있다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
@@ -301,6 +302,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/Dockerfile`
 - `apps/web/nginx.conf.template`
 - `apps/web/src/features/settings/SettingsView.tsx`
+- `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`
+- `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/floor-editor`
 - `apps/web/src/features/setup`

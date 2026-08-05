@@ -27,19 +27,7 @@
 - `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
 - Playwright deterministic 1,000 fixture/5-page 시나리오가 Chromium에서 1,000개 marker 렌더링을 검증한다.
 - `pnpm benchmark:fixtures`는 실제 인증 cookie와 floor ID로 100회 측정해 API p95가 1초를 넘으면 실패한다.
-- 모니터링 화면의 `도면 편집` 버튼은 operator/admin에게만 표시하며, viewer에게는 읽기 전용 도면만 표시한다. editor state는 현장 `read`, 도면·조명 배치·객체 변경 API는 현장 `manage` 권한을 확인한다.
-- 에디터에서 배경 없음, JPG/PNG 이미지, PDF 첫 페이지 렌더링 배경을 선택 등록한다.
-- 도면 파일은 브라우저에서 SHA-256을 계산한 뒤 S3 호환 object storage presigned URL로 직접 업로드한다. PDF는 원본과 첫 페이지 PNG를 별도 asset으로 저장한다.
-- API는 JPEG/PNG/PDF, 최대 50 MB, checksum을 검증하고 S3 HEAD가 일치한 ready asset URL만 FloorPlan에 저장한다. data URL과 임의 외부 URL은 거부한다.
-- floor asset 목록은 현장 `read` 권한으로 조회하며, upload intent와 complete는 `manage` 권한으로 제한한다. 따라서 customer admin은 설치 후 도면을 교체할 수 있고 viewer는 변경할 수 없다.
-- 에디터에서 지도 확대, 축소, 100% 복귀, 패닝을 수행한다.
-- 에디터 캔버스는 `react-konva`/`Konva` 기반 Stage, Layer, Transformer로 도형과 조명을 렌더링한다.
-- 에디터에서 좌측 도구의 네모, 세모, 선, 텍스트 도구를 도면 위로 드래그 앤 드롭해 기본 크기 도형을 추가한다.
-- 에디터에서 좌측 도구를 선택한 뒤 도면 위를 드래그하면 사용자가 크기를 지정해 도형을 추가할 수 있다. 단순 클릭만으로는 도형을 생성하지 않는다.
-- 에디터에서 도형의 선 색상, 채움 색상, 선 두께, 텍스트, 글자 크기를 수정한다.
-- 에디터에서 생성된 도형/텍스트를 단일 선택한 뒤 드래그 이동과 모서리/변 Transformer 핸들 리사이즈를 수행한다.
-- 에디터에서 조명 단일 선택, 마우스 포인터 위치를 기준으로 한 드래그 이동, Transformer 리사이즈, 조명명, 정격 전력, X/Y 좌표, 표시 크기 수정을 수행한다.
-- 에디터 저장 시 `FloorPlan`, `FloorMapObject`, `Fixture` 변경 사항을 백엔드 API에 반영하고 dashboard query를 갱신한다.
+- 모니터링의 층 도면은 모든 역할에 읽기 전용으로 표시하며, 편집 버튼·editor state 조회·에디터 분기를 제공하지 않는다. 편집은 설정의 `/settings/floor-plans/:floorId/edit`에서만 시작한다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
 - gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어가며, 시작 시 heartbeat와 journal의 마지막 fixture 결과 snapshot을 재발행한다.
@@ -83,8 +71,6 @@
 
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/monitoring/FloorMap.tsx`
-- `apps/web/src/features/floor-editor/*`
-- `apps/web/src/api/floor-editor.ts`
 - `apps/web/src/api/queries.ts`
 - `apps/api/src/floor-editor/*`
 - `apps/api/src/sites/sites.controller.ts`

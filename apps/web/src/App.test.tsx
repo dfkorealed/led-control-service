@@ -430,7 +430,7 @@ describe("App", () => {
     expect(screen.getByText("99%")).toBeInTheDocument();
   });
 
-  it("opens the floor editor from monitoring and returns when cancelled", async () => {
+  it("keeps the monitoring floor map read only", async () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -439,13 +439,8 @@ describe("App", () => {
     );
 
     expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "도면 편집" }));
-
-    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "취소" }));
-
-    expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "도면 편집" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("층 도면")).toBeInTheDocument();
   });
 
   it("does not expose floor editing from monitoring to viewers", async () => {

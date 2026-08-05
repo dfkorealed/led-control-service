@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { getFloorEditorState } from "../../api/floor-editor";
 import { useDashboard, useFloorFixtures, type Dashboard } from "../../api/queries";
-import { FloorEditorView } from "../floor-editor/FloorEditorView";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
@@ -26,7 +23,6 @@ export function MonitoringView({ userRole = "operator", siteId }: { userRole?: "
 function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
-  const [editingFloorId, setEditingFloorId] = useState<string | null>(null);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
@@ -45,12 +41,6 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
     }),
     [fixtures]
   );
-  const editorQuery = useQuery({
-    queryKey: ["floor-editor", siteId ?? "default", editingFloorId],
-    queryFn: () => getFloorEditorState(editingFloorId ?? ""),
-    enabled: Boolean(editingFloorId)
-  });
-
   useEffect(() => {
     if (fixtureQuery.hasNextPage && !fixtureQuery.isFetchingNextPage) void fixtureQuery.fetchNextPage();
   }, [fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
@@ -96,19 +86,6 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
     setSelectedFixtureId(nextFloor?.fixtures.find((fixture) => fixture.status === "fault")?.id ?? nextFloor?.fixtures[0]?.id ?? null);
   }
 
-  if (editingFloorId) {
-    if (editorQuery.error) return <div className="panel danger">도면 편집기를 불러오지 못했습니다.</div>;
-    if (editorQuery.isLoading || !editorQuery.data) return <div className="panel">도면 편집기를 불러오는 중</div>;
-
-    return (
-      <FloorEditorView
-        initialState={editorQuery.data}
-        onCancel={() => setEditingFloorId(null)}
-        onSaved={() => setEditingFloorId(null)}
-      />
-    );
-  }
-
   return (
     <section className="screen-grid monitoring-screen">
       <div className="screen-heading">
@@ -117,11 +94,6 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
           <h2>{floor?.name ?? "층 미등록"} 운영 현황</h2>
         </div>
         <div className="monitoring-heading-actions">
-          {userRole !== "viewer" && (
-            <button className="secondary-button" disabled={!floor} onClick={() => floor && setEditingFloorId(floor.id)}>
-              도면 편집
-            </button>
-          )}
           <div className="segmented-control" aria-label="층 선택">
             {data.floors.map((item) => (
               <button

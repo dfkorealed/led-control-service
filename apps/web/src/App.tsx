@@ -1,12 +1,14 @@
 import { Activity, BarChart3, MapPin, Settings, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useCurrentUser, logout, type AuthUser } from "./api/auth";
 import { useDashboard } from "./api/queries";
 import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
 import { MonitoringView } from "./features/monitoring/MonitoringView";
 import { SettingsShell } from "./features/settings/SettingsShell";
+import { FloorEditorRoute } from "./features/settings/floor-plans/FloorEditorRoute";
+import { FloorPlanSettingsView } from "./features/settings/floor-plans/FloorPlanSettingsView";
 import { SettingsPlaceholderView } from "./features/settings/SettingsPlaceholderView";
 import { SettingsView } from "./features/settings/SettingsView";
 import { settingsPlaceholderSections } from "./features/settings/settings-sections";
@@ -108,8 +110,8 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
           <Route path="/statistics" element={<StatisticsView />} />
           <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
-            <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} />} />
-            <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute />} />
+            <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />
+            <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={user.role} />} />
             {settingsPlaceholderSections.map((section) => (
               <Route
                 key={section.path}
@@ -123,50 +125,6 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
         </Routes>
       </main>
     </div>
-  );
-}
-
-function FloorPlanSettingsView({ siteId }: { siteId?: string }) {
-  const { data, isLoading, error } = useDashboard(siteId);
-
-  return (
-    <section className="settings-screen">
-      <div className="screen-heading">
-        <div>
-          <span className="eyebrow">도면</span>
-          <h2>도면 관리</h2>
-        </div>
-      </div>
-      {isLoading && <div className="panel">도면 목록을 불러오는 중</div>}
-      {error && <div className="panel danger">도면 목록을 불러오지 못했습니다.</div>}
-      {data && (
-        <div className="settings-grid">
-          {data.floors.map((floor) => (
-            <div className="setting-card" key={floor.id}>
-              <span>{floor.name}</span>
-              <strong>{floor.floorPlan ? "도면 등록됨" : "도면 미등록"}</strong>
-              <small>편집 기능은 다음 작업에서 연결됩니다.</small>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function FloorEditorRoute() {
-  const { floorId } = useParams();
-
-  return (
-    <section className="settings-screen">
-      <div className="screen-heading">
-        <div>
-          <span className="eyebrow">도면</span>
-          <h2>도면 편집</h2>
-        </div>
-      </div>
-      <div className="panel">{floorId} 도면 편집 화면을 준비 중입니다.</div>
-    </section>
   );
 }
 

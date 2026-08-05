@@ -18,7 +18,7 @@ export function FloorMap({ floor, selectedFixtureId, onSelectFixture }: FloorMap
   const height = floor.floorPlan?.height ?? 800;
 
   return (
-    <div className="floor-map" style={{ aspectRatio: `${width} / ${height}` }} aria-label={`${floor.name} 조명 맵`}>
+    <div className="floor-map" style={{ aspectRatio: `${width} / ${height}` }} role="region" aria-label="층 도면">
       {floor.floorPlan ? (
         <img className="floor-map-image" src={floor.floorPlan.imageUrl} alt={`${floor.name} 도면`} />
       ) : null}

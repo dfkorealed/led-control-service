@@ -615,14 +615,14 @@ git commit -m "feat(settings): add routed settings workspace"
 - Consumes: `GET /floors/:floorId/editor-state`
 - Produces: 읽기 전용 monitoring과 `/settings/floor-plans/:floorId/edit`
 
-- [ ] **Step 1: monitoring 회귀 테스트 수정**
+- [x] **Step 1: monitoring 회귀 테스트 수정**
 
 ```tsx
 expect(screen.queryByRole("button", { name: "도면 편집" })).not.toBeInTheDocument();
 expect(screen.getByLabelText("층 도면")).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: settings 도면 목록 테스트 작성**
+- [x] **Step 2: settings 도면 목록 테스트 작성**
 
 ```tsx
 expect(await screen.findByText("B2")).toBeInTheDocument();
@@ -631,17 +631,17 @@ fireEvent.click(screen.getByRole("link", { name: "B2 도면 편집" }));
 expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
 ```
 
-- [ ] **Step 3: 실패 확인**
+- [x] **Step 3: 실패 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/monitoring src/features/settings`
 
 Expected: monitoring 편집 버튼과 settings route 누락으로 FAIL.
 
-- [ ] **Step 4: 컴포넌트 이동 구현**
+- [x] **Step 4: 컴포넌트 이동 구현**
 
 `MonitoringView`의 `editingFloorId`, editor query와 editor branch를 제거한다. `FloorEditorRoute`가 route param을 읽고 editor query를 실행하며 `FloorEditorView`의 저장·취소는 각각 설정 도면 목록으로 이동한다.
 
-- [ ] **Step 5: 문서와 테스트 갱신**
+- [x] **Step 5: 문서와 테스트 갱신**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/monitoring src/features/settings src/features/floor-editor`
 
