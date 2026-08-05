@@ -77,7 +77,8 @@
 - PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
 - `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다. legacy migration은 현장 유무로 서비스 운영사를 추론하지 않으며 기존 Organization을 모두 customer로, legacy owner/operator와 invitation을 admin으로 유지한다.
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
-- `Floor.mapRevision`, `FloorMapRevision`, 공통 `AuditLog` 저장 구조를 추가했다. revision 저장·감사 로그 기록 API는 후속 작업이다.
+- `PUT /floors/:floorId/editor-state`는 `Floor.mapRevision` optimistic update, normalized row 변경, canonical `FloorMapRevision` snapshot/SHA-256과 `floor_editor.saved` 감사를 하나의 Serializable Prisma transaction으로 저장한다. fixture/object의 층 소속, 중복 ID와 준비되지 않은 asset은 optimistic mutation 전에 거부한다.
+- `GET /floors/:floorId/editor-revisions`는 현장 `read`, `POST /floors/:floorId/editor-revisions/:revision/restore`는 `manage` 권한을 요구한다. 복구는 `expectedRevision` 충돌을 `409`로 처리하고, 사라진 fixture를 생성하지 않고 `skippedFixtureIds`로 반환하며 새 revision과 `floor_editor.restored` 감사를 같은 transaction에 남긴다.
 - bootstrap은 기존 customer 사용자가 있어도 `auth:bootstrap-operator`로 최초 service-provider operator를 만들 수 있다. PostgreSQL advisory lock, 기존 service provider/operator 검사, `service_provider` partial Unique index로 둘 이상의 서비스 운영사를 차단하며, 로그인/session 응답에 Organization 유형을 포함한다.
 - 수정 전 legacy migration을 적용한 로컬 개발 DB는 checksum 충돌이 발생할 수 있다. 데이터가 불필요한 경우에만 reset을 선택하고, 보존이 필요하면 감사 후 수동 보정 migration을 사용한다. 설정 기능은 자동 reset이나 파괴적 DB 명령을 실행하지 않는다.
 - `POST /setup/floors`와 registration session 생성·조회·identify·register·complete는 operator 역할과 대상 현장의 `commission` 권한을 모두 확인한다.
@@ -112,6 +113,12 @@
 - 과거 버전 복구는 기존 버전을 덮어쓰지 않고 새 버전을 생성한다.
 - 복구는 배경, 도형, 기존 조명의 표시 정보만 대상으로 하며 Mesh 주소나 장비 등록 상태를 생성·삭제하지 않는다.
 - 실존하지 않는 과거 조명은 건너뛰고 복구 결과에 경고를 포함한다.
+- 웹의 atomic save 전환과 Task 11 전체 E2E가 끝날 때까지 아래 기존 개별 변경 API를 임시 유지한다. 이 API는 개별 요청 단위 SiteAccess `manage`는 확인하지만 통합 revision을 만들지 않으므로 신규 웹 저장 경로에서 사용하지 않는다.
+  - `PATCH /floors/:floorId/floor-plan`
+  - `PATCH /fixtures/:fixtureId`
+  - `POST /floor-map-objects`
+  - `PATCH /floor-map-objects/:objectId`
+  - `DELETE /floor-map-objects/:objectId`
 
 ### 편집 충돌과 파일 보안
 
@@ -183,7 +190,7 @@
 - `PUT /sites/:siteId/floors/order`
 - `GET/PUT /floors/:floorId/editor-state`
 - `GET /floors/:floorId/editor-revisions`
-- `POST /floors/:floorId/editor-revisions/:revisionId/restore`
+- `POST /floors/:floorId/editor-revisions/:revision/restore`
 - `POST/DELETE /floors/:floorId/editor-lease`
 - `GET /sites/:siteId/fixtures`
 - `PATCH /fixtures/:fixtureId/profile`
@@ -264,16 +271,15 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - Task 5 최종 보완으로 기존 현장이 있는 경우에도 Gateway claim과 조명 provisioning UI를 service-provider `operator`에게만 노출한다. customer `admin/viewer`의 직접 API 호출은 백엔드에서도 계속 차단한다.
 - Task 1~5 통합 보안 리뷰와 보완 재리뷰를 완료했다. Floor editor SiteAccess, invitation 원자 소비, legacy migration 역할 보존과 bootstrap singleton을 검증했다.
 - Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다. 다음 구현 범위는 Task 7의 도면 에디터 설정 이동이다.
-- Task 7 시작 시 `.superpowers/sdd/task-7-brief.md` 또는 기준 계획의 Task 7을 읽고, 모니터링 편집 진입 제거와 `/settings/floor-plans/:floorId/edit`의 실제 editor state lifecycle 연결부터 TDD로 진행한다.
+- Task 8 atomic save/revision API는 `d8d42f1`에서 완료했다. 다음 구현 범위는 Task 9의 웹 변경분 생성, atomic save 연결, 충돌·복구 UI다.
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
 
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현재 desktop 좌측 메뉴를 유지한다. 상단 선택 메뉴 전환은 후속 UI 작업이 필요하다.
-- 도면 에디터는 설정 route에서 열리지만, Task 8의 단일 transaction 저장 API 전까지 여러 개별 API를 병렬 호출하므로 부분 저장 위험이 남아 있다.
-- 현재 FloorPlan version은 배경 변경만 표현하고 도형·조명 배치의 전체 revision이 아니다.
-- 기존 도면 변경 API는 SiteAccess `manage`를 적용했지만, Task 8의 단일 transaction/revision API로 전환되기 전까지 여러 요청 사이의 부분 저장 위험은 남아 있다.
+- atomic save/revision API는 구현됐지만 웹 도면 에디터는 Task 9 전까지 기존 개별 API를 병렬 호출한다. 따라서 UI 저장은 아직 부분 저장 위험이 있으며 `Floor.mapRevision` 충돌·복구 UI도 연결되지 않았다.
+- 기존 개별 변경 API는 Task 11 전체 E2E 완료 전까지 호환 목적으로 유지한다. 직접 호출하면 통합 `FloorMapRevision`과 floor editor audit가 생성되지 않으므로 Task 9 이후 웹 경로에서는 atomic API만 사용해야 한다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
@@ -308,6 +314,11 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/floor-editor`
 - `apps/web/src/features/setup`
 - `apps/web/src/features/registration`
+- `apps/api/src/floor-editor/floor-editor.controller.ts`
+- `apps/api/src/floor-editor/floor-editor.service.ts`
+- `apps/api/src/floor-editor/floor-editor-snapshot.ts`
+- `apps/api/src/floor-editor/floor-editor.integration.spec.ts`
+- `packages/shared/src/schemas.ts`
 - `apps/web/src/api/floor-editor.ts`
 - `apps/api/src/floor-editor`
 - `apps/api/src/setup`

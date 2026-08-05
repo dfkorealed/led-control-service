@@ -670,7 +670,7 @@ git commit -m "feat(settings): move floor editor from monitoring"
 - Produces: `GET /floors/:floorId/editor-revisions`
 - Produces: `POST /floors/:floorId/editor-revisions/:revision/restore`
 
-- [ ] **Step 1: transaction과 충돌 실패 테스트 작성**
+- [x] **Step 1: transaction과 충돌 실패 테스트 작성**
 
 ```ts
 await expect(service.saveEditorState(admin, floorId, { expectedRevision: 3, ...changes }))
@@ -680,13 +680,13 @@ expect(prisma.$transaction).toHaveBeenCalledTimes(1);
 
 fixture가 다른 floor에 속하거나 asset이 ready가 아니면 transaction 전체가 실패하고 revision이 생성되지 않는 테스트도 추가한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.service.spec.ts --runInBand`
 
 Expected: save API 미구현으로 FAIL.
 
-- [ ] **Step 3: DTO와 transaction 구현**
+- [x] **Step 3: DTO와 transaction 구현**
 
 ```ts
 interface SaveEditorStateInput {
@@ -702,21 +702,21 @@ interface SaveEditorStateInput {
 Serializable transaction 시작 시 `floor.updateMany({ where: { id, mapRevision: expectedRevision }, data: { mapRevision: { increment: 1 } } })` 결과가 1인지 확인한다. 변경 적용 후 transaction 내부에서 최신 상태를 조회해 canonical JSON, SHA-256과 change summary를 `FloorMapRevision`에 저장한다.
 같은 transaction에서 `AuditService.record`로 `floor_editor.saved` 또는 `floor_editor.restored` action을 기록한다.
 
-- [ ] **Step 4: 복구 구현**
+- [x] **Step 4: 복구 구현**
 
 복구 API는 최신 revision을 expectedRevision으로 받고 과거 snapshot을 현재 normalized tables에 적용한 뒤 새 revision을 만든다. 현재 존재하지 않는 fixture는 만들지 않고 `skippedFixtureIds`로 반환한다.
 
-- [ ] **Step 5: 기존 개별 변경 endpoint 처리**
+- [x] **Step 5: 기존 개별 변경 endpoint 처리**
 
 새 웹 전환 전까지 기존 PATCH endpoint는 유지하되 operator/admin 권한과 site access를 적용한다. Task 11의 전체 E2E 통과 후 제거할 endpoint 목록을 문서에 명시한다.
 
-- [ ] **Step 6: 테스트 실행**
+- [x] **Step 6: 테스트 실행**
 
 Run: `pnpm --filter @led-control/api exec jest src/floor-editor --runInBand`
 
 Expected: 정상 저장, rollback, `409`, 복구와 교차 tenant 테스트 PASS.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add apps/api/src/floor-editor packages/shared
