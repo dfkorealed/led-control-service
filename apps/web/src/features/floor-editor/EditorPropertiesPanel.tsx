@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useFloorEditorStore } from "./editor-store";
 
-export function EditorPropertiesPanel() {
+export function EditorPropertiesPanel({ readOnly = false }: { readOnly?: boolean }) {
   const { state, selection, updateFixture, updateObject } = useFloorEditorStore();
   const selected = useMemo(() => {
     if (!state || !selection) return null;
@@ -29,12 +29,13 @@ export function EditorPropertiesPanel() {
         <h3>{fixture.name}</h3>
         <label>
           조명명
-          <input value={fixture.name} onChange={(event) => updateFixture(fixture.id, { name: event.target.value })} />
+          <input disabled={readOnly} value={fixture.name} onChange={(event) => updateFixture(fixture.id, { name: event.target.value })} />
         </label>
         <label>
           정격 전력
           <input
             type="number"
+            disabled={readOnly}
             value={fixture.ratedWatt}
             onChange={(event) => updateFixture(fixture.id, { ratedWatt: Number(event.target.value) })}
           />
@@ -42,15 +43,15 @@ export function EditorPropertiesPanel() {
         <div className="editor-property-grid">
           <label>
             X
-            <input type="number" value={Math.round(fixture.x)} onChange={(event) => updateFixture(fixture.id, { x: Number(event.target.value) })} />
+            <input type="number" disabled={readOnly} value={Math.round(fixture.x)} onChange={(event) => updateFixture(fixture.id, { x: Number(event.target.value) })} />
           </label>
           <label>
             Y
-            <input type="number" value={Math.round(fixture.y)} onChange={(event) => updateFixture(fixture.id, { y: Number(event.target.value) })} />
+            <input type="number" disabled={readOnly} value={Math.round(fixture.y)} onChange={(event) => updateFixture(fixture.id, { y: Number(event.target.value) })} />
           </label>
           <label>
             크기
-            <input type="number" value={Math.round(fixture.size ?? 20)} onChange={(event) => updateFixture(fixture.id, { size: Number(event.target.value) })} />
+            <input type="number" disabled={readOnly} value={Math.round(fixture.size ?? 20)} onChange={(event) => updateFixture(fixture.id, { size: Number(event.target.value) })} />
           </label>
         </div>
       </aside>
@@ -64,23 +65,23 @@ export function EditorPropertiesPanel() {
       <h3>{object.type}</h3>
       <label>
         선 색상
-        <input type="color" value={normalizeColorValue(object.strokeColor)} onChange={(event) => updateObject(object.id, { strokeColor: event.target.value })} />
+        <input type="color" disabled={readOnly} value={normalizeColorValue(object.strokeColor)} onChange={(event) => updateObject(object.id, { strokeColor: event.target.value })} />
       </label>
       <label>
         채우기 색상
-        <input type="color" value={normalizeColorValue(object.fillColor ?? "")} onChange={(event) => updateObject(object.id, { fillColor: event.target.value })} />
+        <input type="color" disabled={readOnly} value={normalizeColorValue(object.fillColor ?? "")} onChange={(event) => updateObject(object.id, { fillColor: event.target.value })} />
       </label>
       <label>
         선 두께
-        <input type="number" value={object.strokeWidth} onChange={(event) => updateObject(object.id, { strokeWidth: Number(event.target.value) })} />
+        <input type="number" disabled={readOnly} value={object.strokeWidth} onChange={(event) => updateObject(object.id, { strokeWidth: Number(event.target.value) })} />
       </label>
       <label>
         텍스트
-        <input value={object.text} onChange={(event) => updateObject(object.id, { text: event.target.value })} />
+        <input disabled={readOnly} value={object.text} onChange={(event) => updateObject(object.id, { text: event.target.value })} />
       </label>
       <label>
         글자 크기
-        <input type="number" value={object.fontSize ?? 16} onChange={(event) => updateObject(object.id, { fontSize: Number(event.target.value) })} />
+        <input type="number" disabled={readOnly} value={object.fontSize ?? 16} onChange={(event) => updateObject(object.id, { fontSize: Number(event.target.value) })} />
       </label>
     </aside>
   );

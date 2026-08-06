@@ -67,12 +67,21 @@ const editorState: FloorEditorState = {
 
 function renderEditor(state: FloorEditorState = editorState, props?: Partial<Parameters<typeof FloorEditorView>[0]>) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const editorProps = { userRole: "admin" as const, onCancel: vi.fn(), onSaved: vi.fn(), onReload: vi.fn(), ...props };
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <FloorEditorView initialState={state} userRole="admin" onCancel={vi.fn()} onSaved={vi.fn()} onReload={vi.fn()} {...props} />
+      <FloorEditorView initialState={state} {...editorProps} />
     </QueryClientProvider>
   );
-  return { ...result, queryClient };
+  return {
+    ...result,
+    queryClient,
+    rerenderEditor: (nextState: FloorEditorState) => result.rerender(
+      <QueryClientProvider client={queryClient}>
+        <FloorEditorView initialState={nextState} {...editorProps} />
+      </QueryClientProvider>
+    )
+  };
 }
 
 describe("FloorEditorView", () => {
@@ -264,6 +273,75 @@ describe("FloorEditorView", () => {
     expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
   });
 
+  it("synchronously locks rapid saves and disables every mutation surface while saving", async () => {
+    const save = deferred<FloorEditorState>();
+    floorEditorApi.saveFloorEditorState.mockReturnValueOnce(save.promise);
+    renderEditor();
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    fireEvent.change(screen.getByLabelText("조명명"), { target: { value: "저장 대기" } });
+
+    const saveButton = screen.getByRole("button", { name: "저장" });
+    fireEvent.click(saveButton);
+    fireEvent.click(saveButton);
+
+    expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("조명명")).toBeDisabled();
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "사각형" })).toBeDisabled();
+    expect(document.querySelectorAll('.floor-asset-uploader input[type="file"]:disabled')).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "배경 없음" })).toBeDisabled();
+    act(() => useFloorEditorStore.getState().setActiveTool("rectangle"));
+    fireEvent.mouseDown(screen.getByLabelText("B2 편집 캔버스"), { clientX: 200, clientY: 160 });
+    fireEvent.mouseMove(screen.getByLabelText("B2 편집 캔버스"), { clientX: 320, clientY: 240 });
+    fireEvent.mouseUp(screen.getByLabelText("B2 편집 캔버스"), { clientX: 320, clientY: 240 });
+    expect(useFloorEditorStore.getState().state?.objects).toHaveLength(1);
+
+    save.resolve({ ...structuredClone(editorState), floor: { ...structuredClone(editorState.floor), mapRevision: 8 } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "저장" })).toBeDisabled());
+  });
+
+  it("keeps save and restore mutually exclusive with rapid restore clicks", async () => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
+    const restore = deferred<FloorEditorState & { skippedFixtureIds: string[] }>();
+    floorEditorApi.restoreFloorEditorRevision.mockReturnValueOnce(restore.promise);
+    renderEditor();
+    const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
+
+    fireEvent.click(restoreButton);
+    fireEvent.click(restoreButton);
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 999 }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(floorEditorApi.restoreFloorEditorRevision).toHaveBeenCalledOnce();
+    expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+
+    restore.resolve({
+      ...structuredClone(editorState),
+      floor: { ...structuredClone(editorState.floor), mapRevision: 8 },
+      skippedFixtureIds: []
+    });
+    await waitFor(() => expect(useFloorEditorStore.getState().isDirty).toBe(false));
+  });
+
+  it("prevents restore from entering while an atomic save is pending", async () => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
+    const save = deferred<FloorEditorState>();
+    floorEditorApi.saveFloorEditorState.mockReturnValueOnce(save.promise);
+    renderEditor();
+    const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 333 }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    act(() => useFloorEditorStore.getState().adoptBaseline(useFloorEditorStore.getState().state!));
+    expect(restoreButton).toBeDisabled();
+    fireEvent.click(restoreButton);
+
+    expect(floorEditorApi.restoreFloorEditorRevision).not.toHaveBeenCalled();
+    save.resolve({ ...structuredClone(editorState), floor: { ...structuredClone(editorState.floor), mapRevision: 8 } });
+    await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
+  });
+
   it("keeps current edits and dirty state after a network failure", async () => {
     floorEditorApi.saveFloorEditorState.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     renderEditor();
@@ -341,6 +419,32 @@ describe("FloorEditorView", () => {
     expect(floorEditorApi.listFloorEditorRevisions).toHaveBeenLastCalledWith("floor-b2", { cursor: 7 });
   });
 
+  it("counts a changed floor plan as one revision change", async () => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({
+      items: [revision(7, { fixtureUpdates: 1, floorPlanChanged: true })],
+      nextCursor: null
+    });
+
+    renderEditor();
+
+    expect(await screen.findByText("변경 2건")).toBeInTheDocument();
+  });
+
+  it("distinguishes revision loading error and retry from an empty result", async () => {
+    const firstRequest = deferred<{ items: never[]; nextCursor: null }>();
+    floorEditorApi.listFloorEditorRevisions.mockReturnValueOnce(firstRequest.promise).mockResolvedValueOnce({ items: [], nextCursor: null });
+    renderEditor();
+
+    expect(screen.getByRole("status")).toHaveTextContent("버전 기록을 불러오는 중");
+    firstRequest.reject(new Error("revision unavailable"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("버전 기록을 불러오지 못했습니다");
+
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+
+    expect(await screen.findByText("저장된 버전이 없습니다.")).toBeInTheDocument();
+    expect(floorEditorApi.listFloorEditorRevisions).toHaveBeenCalledTimes(2);
+  });
+
   it("restores with the current baseline revision and adopts the response", async () => {
     floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({
       items: [{
@@ -390,6 +494,25 @@ describe("FloorEditorView", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("현재 존재하지 않는 조명 1개를 건너뛰었습니다");
   });
 
+  it("keeps the skipped fixture notice across a same-floor editor refetch", async () => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
+    floorEditorApi.restoreFloorEditorRevision.mockResolvedValueOnce({
+      ...structuredClone(editorState),
+      floor: { ...structuredClone(editorState.floor), mapRevision: 8 },
+      skippedFixtureIds: ["fixture-removed"]
+    });
+    const { rerenderEditor } = renderEditor();
+    fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
+    expect(await screen.findByText(/현재 존재하지 않는 조명 1개/)).toBeInTheDocument();
+
+    rerenderEditor({
+      ...structuredClone(editorState),
+      floor: { ...structuredClone(editorState.floor), mapRevision: 8 }
+    });
+
+    expect(screen.getByText(/현재 존재하지 않는 조명 1개/)).toBeInTheDocument();
+  });
+
   it("does not render restore controls for a viewer", async () => {
     floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({
       items: [{
@@ -424,6 +547,27 @@ function createDataTransfer() {
         values.clear();
       }
     })
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function revision(revisionNumber: number, changeSummary: Record<string, unknown> = { fixtureUpdates: 1 }) {
+  return {
+    revision: revisionNumber,
+    snapshotSha256: `hash-${revisionNumber}`,
+    changeSummary,
+    restoredFromRevision: null,
+    createdAt: "2026-07-20T03:00:00.000Z",
+    actor: { displayName: "김관리" }
   };
 }
 

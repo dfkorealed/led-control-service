@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, Type, Undo2, ZoomIn, ZoomOut } from "lucide-react";
-import { type DragEvent, useEffect, useState } from "react";
+import { type DragEvent, useEffect, useRef, useState } from "react";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import {
@@ -41,6 +41,8 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
+  const mutationLock = useRef(false);
+  const noticeFloorId = useRef(initialState.floor.id);
   const floorId = state?.floor.id ?? initialState.floor.id;
   const siteId = state?.floor.siteId ?? initialState.floor.siteId;
   const revisionsQuery = useInfiniteQuery({
@@ -52,8 +54,11 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
 
   useEffect(() => {
     initialize(initialState);
-    setSaveStatus("idle");
-    setSkippedFixtureCount(0);
+    if (!mutationLock.current) setSaveStatus("idle");
+    if (noticeFloorId.current !== initialState.floor.id) {
+      noticeFloorId.current = initialState.floor.id;
+      setSkippedFixtureCount(0);
+    }
   }, [initialState, initialize]);
 
   useEffect(() => {
@@ -61,24 +66,30 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   }, [isDirty, onDirtyChange]);
 
   async function handleSave() {
-    if (!state || !baseline || !isDirty || saveStatus === "saving") return;
+    if (!state || !baseline || !isDirty || mutationLock.current) return;
+    mutationLock.current = true;
     setSaveStatus("saving");
+    setSkippedFixtureCount(0);
     try {
       const saved = await saveFloorEditorState(state.floor.id, buildEditorChanges(baseline, state));
       adoptBaseline(saved);
-      setSaveStatus("idle");
-      setSkippedFixtureCount(0);
       await invalidateEditorQueries(queryClient, saved);
       await onSaved(saved);
     } catch (error) {
       setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
+      return;
+    } finally {
+      mutationLock.current = false;
     }
+    setSaveStatus("idle");
   }
 
   async function handleRestore(revision: number) {
-    if (!baseline || restoringRevision !== null) return;
+    if (!baseline || mutationLock.current) return;
+    mutationLock.current = true;
     setRestoringRevision(revision);
     setSaveStatus("idle");
+    setSkippedFixtureCount(0);
     try {
       const restored = await restoreFloorEditorRevision(baseline.floor.id, revision, {
         expectedRevision: baseline.floor.mapRevision
@@ -89,6 +100,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
     } catch (error) {
       setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
     } finally {
+      mutationLock.current = false;
       setRestoringRevision(null);
     }
   }
@@ -101,6 +113,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   }
 
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const isMutationPending = saveStatus === "saving" || restoringRevision !== null;
 
   return (
     <section className="floor-editor-shell">
@@ -121,7 +134,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
             <Undo2 size={16} />
             취소
           </button>
-          <button className="primary-button" disabled={!isDirty || saveStatus === "saving"} onClick={handleSave}>
+          <button className="primary-button" disabled={!isDirty || isMutationPending} onClick={handleSave}>
             <Save size={16} />
             {saveStatus === "saving" ? "저장 중" : "저장"}
           </button>
@@ -149,7 +162,8 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
                 className={activeTool === tool.key ? "active" : ""}
                 aria-label={tool.label}
                 title={tool.label}
-                draggable={tool.key !== "select" && tool.key !== "pan"}
+                disabled={isMutationPending}
+                draggable={!isMutationPending && tool.key !== "select" && tool.key !== "pan"}
                 onClick={() => setActiveTool(tool.key)}
                 onDragStart={(event) => handleToolDragStart(event, tool.key)}
               >
@@ -159,19 +173,23 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
           })}
         </aside>
         <main className="floor-editor-stage">
-          <FloorEditorCanvas />
+          <FloorEditorCanvas readOnly={isMutationPending} />
         </main>
         <div className="floor-editor-side-panel">
-          <FloorAssetUploader />
-          <EditorPropertiesPanel />
+          <FloorAssetUploader readOnly={isMutationPending} />
+          <EditorPropertiesPanel readOnly={isMutationPending} />
           <RevisionPanel
             revisions={revisions}
             canRestore={userRole === "operator" || userRole === "admin"}
             isDirty={isDirty}
             restoringRevision={restoringRevision}
+            isMutationPending={isMutationPending}
+            isLoading={revisionsQuery.isLoading}
+            isError={revisionsQuery.isError}
             hasNextPage={revisionsQuery.hasNextPage}
             isFetchingNextPage={revisionsQuery.isFetchingNextPage}
             onLoadMore={() => void revisionsQuery.fetchNextPage()}
+            onRetry={() => void revisionsQuery.refetch()}
             onRestore={(revision) => void handleRestore(revision)}
           />
         </div>
@@ -185,18 +203,26 @@ function RevisionPanel({
   canRestore,
   isDirty,
   restoringRevision,
+  isMutationPending,
+  isLoading,
+  isError,
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
+  onRetry,
   onRestore
 }: {
   revisions: FloorEditorRevision[];
   canRestore: boolean;
   isDirty: boolean;
   restoringRevision: number | null;
+  isMutationPending: boolean;
+  isLoading: boolean;
+  isError: boolean;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   onLoadMore: () => void;
+  onRetry: () => void;
   onRestore: (revision: number) => void;
 }) {
   return (
@@ -205,7 +231,15 @@ function RevisionPanel({
         <span className="eyebrow">버전</span>
         <h3>변경 기록</h3>
       </div>
-      {revisions.length === 0 ? <p className="muted-text">저장된 버전이 없습니다.</p> : (
+      {isLoading ? <p className="muted-text" role="status">버전 기록을 불러오는 중</p> : null}
+      {isError ? (
+        <div role="alert">
+          <p className="danger-text">버전 기록을 불러오지 못했습니다.</p>
+          <button className="secondary-button" onClick={onRetry}>다시 시도</button>
+        </div>
+      ) : null}
+      {!isLoading && !isError && revisions.length === 0 ? <p className="muted-text">저장된 버전이 없습니다.</p> : null}
+      {!isLoading && !isError && revisions.length > 0 ? (
         <ol className="editor-revision-list">
           {revisions.map((revision) => (
             <li key={revision.revision}>
@@ -220,7 +254,7 @@ function RevisionPanel({
                   className="icon-button"
                   aria-label={`리비전 ${revision.revision} 복구`}
                   title="이 버전 복구"
-                  disabled={isDirty || restoringRevision !== null}
+                  disabled={isDirty || isMutationPending}
                   onClick={() => onRestore(revision.revision)}
                 >
                   <RotateCcw size={16} />
@@ -229,8 +263,8 @@ function RevisionPanel({
             </li>
           ))}
         </ol>
-      )}
-      {hasNextPage ? (
+      ) : null}
+      {!isError && hasNextPage ? (
         <button className="secondary-button" disabled={isFetchingNextPage} onClick={onLoadMore}>
           {isFetchingNextPage ? "불러오는 중" : "이전 버전 더 보기"}
         </button>
@@ -241,7 +275,9 @@ function RevisionPanel({
 
 function revisionChangeCount(summary: Record<string, unknown>) {
   return Object.entries(summary).reduce((total, [key, value]) => {
-    return key !== "restoredFromRevision" && typeof value === "number" ? total + value : total;
+    if (key === "restoredFromRevision") return total;
+    if (typeof value === "number") return total + value;
+    return key === "floorPlanChanged" && value === true ? total + 1 : total;
   }, 0);
 }
 

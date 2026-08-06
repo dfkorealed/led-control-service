@@ -14,7 +14,7 @@ const fixtureColors: Record<EditorFixture["status"], string> = {
   fault: "#ef4444"
 };
 
-export function FloorEditorCanvas() {
+export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) {
   const stageRef = useRef<Konva.Stage | null>(null);
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const objectRefs = useRef(new Map<string, Konva.Node>());
@@ -76,6 +76,7 @@ export function FloorEditorCanvas() {
   }
 
   function handleStageMouseDown(event: Konva.KonvaEventObject<MouseEvent>) {
+    if (readOnly) return;
     if (activeTool !== "select" && activeTool !== "pan") {
       const start = getStageWorldPoint();
       setCreationStart(start);
@@ -89,6 +90,7 @@ export function FloorEditorCanvas() {
   }
 
   function handleStageMouseMove(event: Konva.KonvaEventObject<MouseEvent>) {
+    if (readOnly) return;
     if (creationStart && activeTool !== "select" && activeTool !== "pan") {
       setCreationPreview(createObjectFromDrag(activeTool, creationStart, getStageWorldPoint()));
       setHasCreationDragMoved(true);
@@ -101,6 +103,7 @@ export function FloorEditorCanvas() {
   }
 
   function handleStageMouseUp() {
+    if (readOnly) return;
     if (creationPreview && hasCreationDragMoved) addObject(editorState.floor.id, creationPreview);
     setCreationStart(null);
     setCreationPreview(null);
@@ -109,6 +112,7 @@ export function FloorEditorCanvas() {
   }
 
   function handleContainerMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
+    if (readOnly) return;
     if (activeTool !== "select" && activeTool !== "pan") {
       const start = getDomWorldPoint(event);
       setCreationStart(start);
@@ -122,6 +126,7 @@ export function FloorEditorCanvas() {
   }
 
   function handleContainerMouseMove(event: ReactMouseEvent<HTMLDivElement>) {
+    if (readOnly) return;
     if (creationStart && activeTool !== "select" && activeTool !== "pan") {
       setCreationPreview(createObjectFromDrag(activeTool, creationStart, getDomWorldPoint(event)));
       setHasCreationDragMoved(true);
@@ -134,6 +139,7 @@ export function FloorEditorCanvas() {
   }
 
   function handleDragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (readOnly) return;
     if (readDraggedTool(event.dataTransfer)) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
@@ -141,6 +147,7 @@ export function FloorEditorCanvas() {
   }
 
   function handleDrop(event: ReactDragEvent<HTMLDivElement>) {
+    if (readOnly) return;
     const tool = readDraggedTool(event.dataTransfer);
     if (!tool) return;
     event.preventDefault();
@@ -176,6 +183,7 @@ export function FloorEditorCanvas() {
     <div
       className={`floor-editor-canvas konva-editor-canvas ${backgroundImageUrl ? "has-plan" : "grid-only"}`}
       aria-label={`${editorState.floor.name} 편집 캔버스`}
+      aria-disabled={readOnly}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onMouseDown={handleContainerMouseDown}
@@ -188,6 +196,7 @@ export function FloorEditorCanvas() {
         width={bounds.width}
         height={bounds.height}
         className="floor-editor-konva-stage"
+        listening={!readOnly}
         onMouseDown={handleStageMouseDown}
         onMouseMove={handleStageMouseMove}
         onMouseUp={handleStageMouseUp}

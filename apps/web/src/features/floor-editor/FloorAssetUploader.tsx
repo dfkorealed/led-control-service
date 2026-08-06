@@ -4,11 +4,12 @@ import { useFloorEditorStore } from "./editor-store";
 import type { FloorPlanDraft } from "./editor-types";
 import { uploadFloorAsset } from "../../api/floor-editor";
 
-export function FloorAssetUploader() {
+export function FloorAssetUploader({ readOnly = false }: { readOnly?: boolean }) {
   const { state, updateFloorPlan } = useFloorEditorStore();
   const [status, setStatus] = useState<string>("");
 
   async function handleFile(file: File) {
+    if (readOnly) return;
     setStatus("도면을 읽는 중");
     try {
       if (!state?.floor.id) throw new Error("floor unavailable");
@@ -29,11 +30,12 @@ export function FloorAssetUploader() {
         <strong>{state?.floor.floorPlan?.sourceType === "none" || !state?.floor.floorPlan ? "배경 없음" : "배경 등록됨"}</strong>
       </div>
       <div className="floor-asset-actions">
-        <label className="secondary-button">
+        <label className="secondary-button" aria-disabled={readOnly}>
           <FileImage size={16} />
           이미지
           <input
             type="file"
+            disabled={readOnly}
             accept="image/jpeg,image/png"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -42,11 +44,12 @@ export function FloorAssetUploader() {
             }}
           />
         </label>
-        <label className="secondary-button">
+        <label className="secondary-button" aria-disabled={readOnly}>
           <FileText size={16} />
           PDF
           <input
             type="file"
+            disabled={readOnly}
             accept="application/pdf"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -57,6 +60,7 @@ export function FloorAssetUploader() {
         </label>
         <button
           className="secondary-button"
+          disabled={readOnly}
           onClick={() => {
             updateFloorPlan({
               imageUrl: "",
