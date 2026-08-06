@@ -289,7 +289,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 ## 부족하거나 개선이 필요한 기능
 
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
-- 모바일 WebView용 설정 navigation은 현재 desktop 좌측 메뉴를 유지한다. 상단 선택 메뉴 전환은 후속 UI 작업이 필요하다.
+- 모바일 WebView용 설정 navigation은 현장 선택 아래 가로 스크롤 메뉴로 전환하며, 에디터 본문은 단일 열 전체 폭을 사용한다. 네이티브 상단 선택 메뉴와의 통합은 후속 UI 작업이다.
 - 기존 개별 변경 API 함수와 endpoint는 Task 11 전체 E2E 완료 전까지 호환 목적으로 유지한다. 현재 웹 저장 경로는 이 함수를 호출하지 않지만, 외부에서 직접 호출하면 통합 `FloorMapRevision`과 floor editor audit가 생성되지 않는다.
 - dirty 내부 이동 guard는 링크 이동과 브라우저 history 이동을 확인한다. Task 10 이후 전체 E2E에서 현장 선택 같은 모든 programmatic navigation 경로도 함께 검증해야 한다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.

@@ -1774,6 +1774,33 @@ button.group-card {
     padding: 18px 14px;
   }
 
+  .settings-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .settings-sidebar {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .settings-nav {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .settings-nav-link {
+    border-bottom: 3px solid transparent;
+    border-left: 0;
+    white-space: nowrap;
+  }
+
+  .settings-nav-link.active {
+    border-bottom-color: var(--primary);
+  }
+
   .topbar,
   .screen-heading,
   .floor-editor-topbar {
