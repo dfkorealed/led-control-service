@@ -9,7 +9,8 @@ import { useFloorEditorStore } from "./editor-store";
 const floorEditorApi = vi.hoisted(() => ({
   listFloorEditorRevisions: vi.fn(),
   restoreFloorEditorRevision: vi.fn(),
-  saveFloorEditorState: vi.fn()
+  saveFloorEditorState: vi.fn(),
+  uploadFloorAsset: vi.fn()
 }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
@@ -96,11 +97,13 @@ describe("FloorEditorView", () => {
       floor: { ...structuredClone(editorState.floor), mapRevision: 8 },
       skippedFixtureIds: []
     });
+    floorEditorApi.uploadFloorAsset.mockResolvedValue({ id: "asset-1", status: "ready", publicUrl: "/uploads/plan.png" });
   });
 
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null });
   });
 
@@ -340,6 +343,38 @@ describe("FloorEditorView", () => {
     expect(floorEditorApi.restoreFloorEditorRevision).not.toHaveBeenCalled();
     save.resolve({ ...structuredClone(editorState), floor: { ...structuredClone(editorState.floor), mapRevision: 8 } });
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
+  });
+
+  it("blocks save and restore while a background upload is pending", async () => {
+    const upload = deferred<{ id: string; status: "ready"; publicUrl: string }>();
+    floorEditorApi.uploadFloorAsset.mockReturnValueOnce(upload.promise);
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
+    renderEditor();
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 444 }));
+    const NativeUrl = URL;
+    class TestUrl extends NativeUrl {}
+    Object.assign(TestUrl, { createObjectURL: vi.fn(() => "blob:plan"), revokeObjectURL: vi.fn() });
+    vi.stubGlobal("URL", TestUrl);
+    vi.stubGlobal("Image", class {
+      naturalWidth = 1200;
+      naturalHeight = 800;
+      onload: ((event: Event) => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.(new Event("load")));
+      }
+    });
+
+    const imageInput = document.querySelector<HTMLInputElement>('.floor-asset-uploader input[accept^="image/"]')!;
+    fireEvent.change(imageInput, { target: { files: [new File(["plan"], "plan.png", { type: "image/png" })] } });
+
+    await waitFor(() => expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "리비전 5 복구" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
+
+    upload.resolve({ id: "asset-1", status: "ready", publicUrl: "/uploads/plan.png" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "저장" })).toBeEnabled());
   });
 
   it("keeps current edits and dirty state after a network failure", async () => {

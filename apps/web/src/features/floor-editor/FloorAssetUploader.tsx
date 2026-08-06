@@ -4,12 +4,22 @@ import { useFloorEditorStore } from "./editor-store";
 import type { FloorPlanDraft } from "./editor-types";
 import { uploadFloorAsset } from "../../api/floor-editor";
 
-export function FloorAssetUploader({ readOnly = false }: { readOnly?: boolean }) {
+export function FloorAssetUploader({
+  readOnly = false,
+  onBusyChange
+}: {
+  readOnly?: boolean;
+  onBusyChange?: (busy: boolean) => void;
+}) {
   const { state, updateFloorPlan } = useFloorEditorStore();
   const [status, setStatus] = useState<string>("");
+  const [isUploading, setIsUploading] = useState(false);
+  const isDisabled = readOnly || isUploading;
 
   async function handleFile(file: File) {
-    if (readOnly) return;
+    if (isDisabled) return;
+    setIsUploading(true);
+    onBusyChange?.(true);
     setStatus("도면을 읽는 중");
     try {
       if (!state?.floor.id) throw new Error("floor unavailable");
@@ -20,6 +30,9 @@ export function FloorAssetUploader({ readOnly = false }: { readOnly?: boolean })
       setStatus(file.type === "application/pdf" ? "PDF 첫 페이지가 배경으로 등록되었습니다." : "이미지 배경이 등록되었습니다.");
     } catch {
       setStatus("도면 파일을 읽지 못했습니다.");
+    } finally {
+      setIsUploading(false);
+      onBusyChange?.(false);
     }
   }
 
@@ -30,12 +43,12 @@ export function FloorAssetUploader({ readOnly = false }: { readOnly?: boolean })
         <strong>{state?.floor.floorPlan?.sourceType === "none" || !state?.floor.floorPlan ? "배경 없음" : "배경 등록됨"}</strong>
       </div>
       <div className="floor-asset-actions">
-        <label className="secondary-button" aria-disabled={readOnly}>
+        <label className="secondary-button" aria-disabled={isDisabled}>
           <FileImage size={16} />
           이미지
           <input
             type="file"
-            disabled={readOnly}
+            disabled={isDisabled}
             accept="image/jpeg,image/png"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -44,12 +57,12 @@ export function FloorAssetUploader({ readOnly = false }: { readOnly?: boolean })
             }}
           />
         </label>
-        <label className="secondary-button" aria-disabled={readOnly}>
+        <label className="secondary-button" aria-disabled={isDisabled}>
           <FileText size={16} />
           PDF
           <input
             type="file"
-            disabled={readOnly}
+            disabled={isDisabled}
             accept="application/pdf"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -60,7 +73,7 @@ export function FloorAssetUploader({ readOnly = false }: { readOnly?: boolean })
         </label>
         <button
           className="secondary-button"
-          disabled={readOnly}
+          disabled={isDisabled}
           onClick={() => {
             updateFloorPlan({
               imageUrl: "",

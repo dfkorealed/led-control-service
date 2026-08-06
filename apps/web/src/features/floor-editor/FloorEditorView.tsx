@@ -41,7 +41,9 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
+  const [assetUploadPending, setAssetUploadPending] = useState(false);
   const mutationLock = useRef(false);
+  const assetUploadLock = useRef(false);
   const noticeFloorId = useRef(initialState.floor.id);
   const floorId = state?.floor.id ?? initialState.floor.id;
   const siteId = state?.floor.siteId ?? initialState.floor.siteId;
@@ -66,7 +68,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   }, [isDirty, onDirtyChange]);
 
   async function handleSave() {
-    if (!state || !baseline || !isDirty || mutationLock.current) return;
+    if (!state || !baseline || !isDirty || mutationLock.current || assetUploadLock.current) return;
     mutationLock.current = true;
     setSaveStatus("saving");
     setSkippedFixtureCount(0);
@@ -85,7 +87,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   }
 
   async function handleRestore(revision: number) {
-    if (!baseline || mutationLock.current) return;
+    if (!baseline || mutationLock.current || assetUploadLock.current) return;
     mutationLock.current = true;
     setRestoringRevision(revision);
     setSaveStatus("idle");
@@ -114,6 +116,12 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
 
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const isMutationPending = saveStatus === "saving" || restoringRevision !== null;
+  const isSaveOrRestoreBlocked = isMutationPending || assetUploadPending;
+
+  function handleAssetBusyChange(busy: boolean) {
+    assetUploadLock.current = busy;
+    setAssetUploadPending(busy);
+  }
 
   return (
     <section className="floor-editor-shell">
@@ -134,7 +142,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
             <Undo2 size={16} />
             취소
           </button>
-          <button className="primary-button" disabled={!isDirty || isMutationPending} onClick={handleSave}>
+          <button className="primary-button" disabled={!isDirty || isSaveOrRestoreBlocked} onClick={handleSave}>
             <Save size={16} />
             {saveStatus === "saving" ? "저장 중" : "저장"}
           </button>
@@ -176,14 +184,14 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
           <FloorEditorCanvas readOnly={isMutationPending} />
         </main>
         <div className="floor-editor-side-panel">
-          <FloorAssetUploader readOnly={isMutationPending} />
+          <FloorAssetUploader readOnly={isMutationPending} onBusyChange={handleAssetBusyChange} />
           <EditorPropertiesPanel readOnly={isMutationPending} />
           <RevisionPanel
             revisions={revisions}
             canRestore={userRole === "operator" || userRole === "admin"}
             isDirty={isDirty}
             restoringRevision={restoringRevision}
-            isMutationPending={isMutationPending}
+            isMutationPending={isSaveOrRestoreBlocked}
             isLoading={revisionsQuery.isLoading}
             isError={revisionsQuery.isError}
             hasNextPage={revisionsQuery.hasNextPage}
