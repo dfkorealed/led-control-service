@@ -40,6 +40,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom } = useFloorEditorStore();
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
+  const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
   const floorId = state?.floor.id ?? initialState.floor.id;
   const siteId = state?.floor.siteId ?? initialState.floor.siteId;
   const revisionsQuery = useInfiniteQuery({
@@ -52,6 +53,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   useEffect(() => {
     initialize(initialState);
     setSaveStatus("idle");
+    setSkippedFixtureCount(0);
   }, [initialState, initialize]);
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
       const saved = await saveFloorEditorState(state.floor.id, buildEditorChanges(baseline, state));
       adoptBaseline(saved);
       setSaveStatus("idle");
+      setSkippedFixtureCount(0);
       await invalidateEditorQueries(queryClient, saved);
       await onSaved(saved);
     } catch (error) {
@@ -81,6 +84,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
         expectedRevision: baseline.floor.mapRevision
       });
       adoptBaseline(restored);
+      setSkippedFixtureCount(restored.skippedFixtureIds.length);
       await invalidateEditorQueries(queryClient, restored);
     } catch (error) {
       setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
@@ -130,6 +134,9 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
           <span>다른 사용자가 먼저 저장했습니다.</span>
           <button className="secondary-button" onClick={() => void onReload()}>최신 버전 다시 불러오기</button>
         </div>
+      ) : null}
+      {skippedFixtureCount > 0 ? (
+        <p className="success-text" role="status">현재 존재하지 않는 조명 {skippedFixtureCount}개를 건너뛰었습니다.</p>
       ) : null}
 
       <div className="floor-editor-layout">

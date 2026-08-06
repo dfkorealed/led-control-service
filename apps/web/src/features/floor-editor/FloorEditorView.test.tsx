@@ -366,6 +366,30 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().initialState?.floor.mapRevision).toBe(8);
   });
 
+  it("reports fixtures skipped by a revision restore", async () => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({
+      items: [{
+        revision: 5,
+        snapshotSha256: "hash-5",
+        changeSummary: { fixtureUpdates: 1 },
+        restoredFromRevision: null,
+        createdAt: "2026-07-20T03:00:00.000Z",
+        actor: { displayName: "김관리" }
+      }],
+      nextCursor: null
+    });
+    floorEditorApi.restoreFloorEditorRevision.mockResolvedValueOnce({
+      ...structuredClone(editorState),
+      floor: { ...structuredClone(editorState.floor), mapRevision: 8 },
+      skippedFixtureIds: ["fixture-removed"]
+    });
+    renderEditor();
+
+    fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("현재 존재하지 않는 조명 1개를 건너뛰었습니다");
+  });
+
   it("does not render restore controls for a viewer", async () => {
     floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({
       items: [{

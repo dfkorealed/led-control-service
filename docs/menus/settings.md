@@ -95,7 +95,7 @@
 - `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회한다. `operator/admin`만 편집 route를 사용하며 `viewer`의 직접 edit URL은 목록으로 redirect되어 editor state를 조회하거나 편집기를 렌더링하지 않는다.
 - 웹 에디터는 shared `SaveEditorStateInput` 계약으로 baseline과 현재 상태를 O(n) 비교한다. 1,000개 fixture에서도 실제 변경된 fixture와 floor plan, object create/update/delete만 중복 없이 `PUT /floors/:floorId/editor-state` 한 번으로 전송하고 unchanged 상태는 저장하지 않는다.
 - atomic save 성공 응답과 revision 복구 응답은 새 baseline과 `mapRevision`으로 채택한다. 네트워크 오류는 현재 편집 상태를 유지하고 `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
-- 버전 패널은 cursor pagination으로 수정자 display name, 시각, 변경 수를 표시한다. 복구 버튼은 `operator/admin`에게만 제공하고 현재 baseline의 `mapRevision`을 `expectedRevision`으로 전송한다.
+- 버전 패널은 cursor pagination으로 수정자 display name, 시각, 변경 수를 표시한다. 복구 버튼은 `operator/admin`에게만 제공하고 현재 baseline의 `mapRevision`을 `expectedRevision`으로 전송하며, 현재 존재하지 않아 건너뛴 조명 수를 복구 결과에 표시한다.
 - dirty 상태에서는 앱 내부 링크 이동, 현장 전환, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. 저장 성공 또는 사용자가 명시적으로 이동을 확인한 뒤에는 현재 `siteId` query를 유지한 채 정상 이동한다.
 - 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
 - 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`만 갱신하며, 현재 pathname, 다른 query parameter와 hash fragment를 유지한다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
