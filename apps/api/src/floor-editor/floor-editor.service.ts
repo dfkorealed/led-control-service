@@ -126,6 +126,7 @@ export class FloorEditorService {
     const input = this.parseInput(saveEditorStateSchema, rawInput, "invalid floor editor save payload");
     this.assertUniqueMutationIds(input);
     const prepared = this.prepareSaveInput(floorId, input);
+    await this.preflightObjectUpdates(floorId, prepared.objectUpdates);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -504,6 +505,24 @@ export class FloorEditorService {
 
     if (input.floorPlan) {
       await this.assertReadyAssetUrls(floorId, input.floorPlan, tx);
+    }
+  }
+
+  private async preflightObjectUpdates(
+    floorId: string,
+    updates: PreparedSaveEditorState["objectUpdates"]
+  ) {
+    if (updates.length === 0) return;
+    const objects = await this.prisma.floorMapObject.findMany({
+      where: { floorId, id: { in: updates.map((update) => update.id) } },
+      select: { id: true, type: true, width: true, height: true, points: true }
+    });
+    if (objects.length !== updates.length) {
+      throw new BadRequestException("object updates must belong to the requested floor");
+    }
+    const objectStates = new Map(objects.map((object) => [object.id, object]));
+    for (const update of updates) {
+      this.normalizeObjectGeometryPatch(update.data, objectStates.get(update.id));
     }
   }
 

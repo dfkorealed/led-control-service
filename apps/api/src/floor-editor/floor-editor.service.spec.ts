@@ -566,6 +566,13 @@ describe("FloorEditorService atomic revisions", () => {
       floorMapRevision: {
         findMany: jest.fn().mockResolvedValue(options.revisionList ?? [])
       },
+      floorMapObject: {
+        findMany: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve((where.id.in as string[]).map((id) => ({
+            id, type: "rectangle", width: 240, height: 160, points: null
+          })))
+        )
+      },
       auditLog: { create: jest.fn() },
       $transaction: jest.fn(async (callback: (client: unknown) => unknown) => callback(tx))
     };
@@ -673,7 +680,7 @@ describe("FloorEditorService atomic revisions", () => {
     ["incomplete rectangle-to-line transition", { type: "line" }]
   ])("rejects merged object geometry for %s before optimistic mutation", async (_label, patch) => {
     const tx = createTransactionClient();
-    const { service } = await createAtomicService({ tx });
+    const { service, prisma } = await createAtomicService({ tx });
 
     await expect(service.saveEditorState(user, floorId, {
       ...saveInput,
@@ -684,6 +691,7 @@ describe("FloorEditorService atomic revisions", () => {
       objectDeletes: []
     })).rejects.toBeInstanceOf(BadRequestException);
 
+    expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.floor.updateMany).not.toHaveBeenCalled();
     expect(tx.floorMapObject.update).not.toHaveBeenCalled();
   });
