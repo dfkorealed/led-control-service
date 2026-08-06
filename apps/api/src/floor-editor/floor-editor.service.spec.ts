@@ -189,7 +189,14 @@ describe("FloorEditorService", () => {
     const { service, prisma } = await createService();
 
     await expect(
-      service.updateFloorPlan(ids.floorId, { imageUrl: "data:image/png;base64,AAAA", width: 1200, height: 800 }, assignedOperator)
+      service.updateFloorPlan(ids.floorId, {
+        sourceType: "image",
+        imageUrl: "data:image/png;base64,AAAA",
+        originalFileUrl: "data:image/png;base64,AAAA",
+        renderedImageUrl: "data:image/png;base64,AAAA",
+        width: 1200,
+        height: 800
+      }, assignedOperator)
     ).rejects.toThrow("object storage URL");
     expect(prisma.floorPlan.upsert).not.toHaveBeenCalled();
   });
@@ -198,7 +205,14 @@ describe("FloorEditorService", () => {
     const { service, prisma } = await createService();
 
     await expect(
-      service.updateFloorPlan(ids.floorId, { imageUrl: "https://assets.example/other.png", width: 1200, height: 800 }, assignedOperator)
+      service.updateFloorPlan(ids.floorId, {
+        sourceType: "image",
+        imageUrl: "https://assets.example/other.png",
+        originalFileUrl: "https://assets.example/other.png",
+        renderedImageUrl: "https://assets.example/other.png",
+        width: 1200,
+        height: 800
+      }, assignedOperator)
     ).rejects.toThrow("ready floor assets");
     expect(prisma.floorAsset.count).toHaveBeenCalled();
     expect(prisma.floorPlan.upsert).not.toHaveBeenCalled();
@@ -408,7 +422,7 @@ describe("FloorEditorService atomic revisions", () => {
       floorId,
       imageUrl: "https://assets.example/b2.png",
       sourceType: "image",
-      originalFileUrl: null,
+      originalFileUrl: "https://assets.example/b2.png",
       renderedImageUrl: "https://assets.example/b2-rendered.png",
       width: 1200,
       height: 800,
@@ -450,7 +464,7 @@ describe("FloorEditorService atomic revisions", () => {
     floorPlan: {
       imageUrl: "https://assets.example/b2.png",
       sourceType: "image" as const,
-      originalFileUrl: null,
+      originalFileUrl: "https://assets.example/b2.png",
       renderedImageUrl: "https://assets.example/b2-rendered.png",
       width: 1200,
       height: 800
@@ -460,8 +474,8 @@ describe("FloorEditorService atomic revisions", () => {
       type: "text",
       x: 10,
       y: 20,
-      width: null,
-      height: null,
+      width: 120,
+      height: 40,
       rotation: 0,
       points: null,
       text: "입구",
@@ -496,7 +510,7 @@ describe("FloorEditorService atomic revisions", () => {
       },
       floorMapObject: {
         findMany: jest.fn().mockImplementation(({ where }: any) =>
-          Promise.resolve((where.id.in as string[]).map((id) => ({ id })))
+          Promise.resolve((where.id.in as string[]).map((id) => ({ id, type: "rectangle" })))
         ),
         create: jest.fn().mockResolvedValue({ id: "created-object-1" }),
         update: jest.fn().mockResolvedValue({ id: objectId }),
@@ -613,6 +627,22 @@ describe("FloorEditorService atomic revisions", () => {
   });
 
   it.each([
+    ["points on a rectangle", { points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }],
+    ["triangle without three points", { type: "triangle" }]
+  ])("rejects %s before the optimistic mutation", async (_label, patch) => {
+    const tx = createTransactionClient();
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, {
+      ...saveInput,
+      objectUpdates: [{ id: objectId, patch }]
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.floor.updateMany).not.toHaveBeenCalled();
+    expect(tx.floorMapObject.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["fixture update IDs", { ...saveInput, fixtureUpdates: [saveInput.fixtureUpdates[0], saveInput.fixtureUpdates[0]] }],
     ["object update IDs", { ...saveInput, objectUpdates: [saveInput.objectUpdates[0], saveInput.objectUpdates[0]] }],
     ["object delete IDs", { ...saveInput, objectDeletes: [deletedObjectId, deletedObjectId] }],
@@ -623,6 +653,26 @@ describe("FloorEditorService atomic revisions", () => {
     await expect(service.saveEditorState(user, floorId, input)).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["blank fixture name", { ...saveInput, fixtureUpdates: [{ id: fixtureId, name: "   " }] }],
+    ["invalid rated watt", { ...saveInput, fixtureUpdates: [{ id: fixtureId, ratedWatt: "not-a-number" }] }],
+    ["blank object type", {
+      ...saveInput,
+      objectCreates: [{ ...saveInput.objectCreates[0], type: "   " }]
+    }],
+    ["blank object color", {
+      ...saveInput,
+      objectUpdates: [{ id: objectId, patch: { fillColor: "   " } }]
+    }]
+  ])("rejects %s before opening a mutation transaction", async (_label, input) => {
+    const { service, prisma, tx } = await createAtomicService();
+
+    await expect(service.saveEditorState(user, floorId, input)).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.floor.updateMany).not.toHaveBeenCalled();
   });
 
   it("stores a deterministic canonical snapshot and SHA-256 regardless of query ordering", async () => {
@@ -647,7 +697,7 @@ describe("FloorEditorService atomic revisions", () => {
       floorPlan: {
         imageUrl: "https://assets.example/b2.png",
         sourceType: "image",
-        originalFileUrl: null,
+        originalFileUrl: "https://assets.example/b2.png",
         renderedImageUrl: "https://assets.example/b2-rendered.png",
         width: 1200,
         height: 800
@@ -669,19 +719,83 @@ describe("FloorEditorService atomic revisions", () => {
         }
       ]
     });
-    expect(revisionData.snapshotSha256).toBe("4bff6853255f4cbe4ed2365792773aff9086e7449a6ac01cae7db55423f832cb");
+    expect(revisionData.snapshotSha256).toBe("faba9c7c806314da6599b8c40fe2f4e7c2c479ba2869bcdf4d53e7914e9415cf");
   });
 
-  it("lists revisions with read access and hides cross-tenant floors before reading revisions", async () => {
-    const revisions = [{ id: "revision-4", revision: 4, changedBy: user.id }];
+  it("returns editor objects in stable zIndex and createdAt order while snapshot hashing stays ID canonical", async () => {
+    const lowerZObject = {
+      ...canonicalFloor.mapObjects[0],
+      id: deletedObjectId,
+      zIndex: 1,
+      createdAt: new Date("2026-07-21T00:00:00.000Z")
+    };
+    const tx = createTransactionClient({
+      floor: { findUnique: jest.fn().mockResolvedValue({
+        ...canonicalFloor,
+        mapObjects: [canonicalFloor.mapObjects[0], lowerZObject]
+      }) }
+    });
+    const { service } = await createAtomicService({ tx });
+
+    const result = await service.saveEditorState(user, floorId, saveInput);
+
+    expect(result.objects.map((object: { id: string }) => object.id)).toEqual([deletedObjectId, objectId]);
+    expect(tx.floorMapRevision.create.mock.calls[0][0].data.snapshot.objects.map((object: { id: string }) => object.id))
+      .toEqual([objectId, deletedObjectId]);
+  });
+
+  it("paginates revisions and returns only a tenant-safe actor display name", async () => {
+    const revisions = [
+      {
+        id: "revision-4",
+        revision: 4,
+        snapshotSha256: "hash-4",
+        changeSummary: { fixtureUpdates: 1 },
+        changedBy: user.id,
+        restoredFromRevision: null,
+        createdAt: new Date("2026-07-22T00:00:00.000Z"),
+        user: { id: user.id, name: "Provider Operator", email: user.email, organizationId: "service-provider-1" }
+      },
+      {
+        id: "revision-3",
+        revision: 3,
+        snapshotSha256: "hash-3",
+        changeSummary: {},
+        changedBy: "customer-admin-id",
+        restoredFromRevision: null,
+        createdAt: new Date("2026-07-21T00:00:00.000Z"),
+        user: { id: "customer-admin-id", name: "Customer Admin", email: "admin@customer.test", organizationId: "customer-organization-1" }
+      }
+    ];
     const { service, prisma, siteAccess } = await createAtomicService({ revisionList: revisions });
 
-    await expect(service.listEditorRevisions(user, floorId)).resolves.toBe(revisions);
+    await expect(service.listEditorRevisions(user, floorId, { cursor: "5", limit: "1" })).resolves.toEqual({
+      items: [{
+        revision: 4,
+        snapshotSha256: "hash-4",
+        changeSummary: { fixtureUpdates: 1 },
+        restoredFromRevision: null,
+        createdAt: new Date("2026-07-22T00:00:00.000Z"),
+        actor: { displayName: "서비스 운영자" }
+      }],
+      nextCursor: 4
+    });
     expect(siteAccess.assert).toHaveBeenCalledWith(user, siteId, "read");
+    expect(prisma.floorMapRevision.findMany).toHaveBeenCalledWith({
+      where: { floorId, revision: { lt: 5 } },
+      orderBy: { revision: "desc" },
+      take: 2,
+      select: expect.objectContaining({
+        user: { select: { name: true, organizationId: true } }
+      })
+    });
+    expect(JSON.stringify(await service.listEditorRevisions(user, floorId, { limit: "1" }))).not.toMatch(
+      /changedBy|customer-admin-id|operator@example\.com|admin@customer\.test|revision-4/
+    );
 
     siteAccess.assert.mockRejectedValueOnce(new NotFoundException("site not found"));
-    await expect(service.listEditorRevisions(user, floorId)).rejects.toBeInstanceOf(NotFoundException);
-    expect(prisma.floorMapRevision.findMany).toHaveBeenCalledTimes(1);
+    await expect(service.listEditorRevisions(user, floorId, {})).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.floorMapRevision.findMany).toHaveBeenCalledTimes(2);
   });
 
   it("rejects restore expectedRevision conflicts without partial writes", async () => {

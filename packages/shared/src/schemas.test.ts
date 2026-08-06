@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  EDITOR_MAX_FIXTURE_UPDATES,
+  EDITOR_MAX_EXPECTED_REVISION,
+  EDITOR_MAX_ID_LENGTH,
+  EDITOR_MAX_MAP_OBJECT_MUTATIONS,
+  EDITOR_MAX_TEXT_LENGTH,
+  EDITOR_REVISION_DEFAULT_LIMIT,
+  POSTGRES_INT_MAX,
+  editorRevisionListQuerySchema,
   floorEditorSnapshotSchema,
+  fixtureLayoutUpdateSchema,
+  floorMapObjectDraftSchema,
+  floorPlanUpdateSchema,
   provisionDeviceSchema,
   provisioningCompletedSchema,
   provisioningFailedSchema,
@@ -115,11 +126,11 @@ describe("shared schemas", () => {
     expect(saveEditorStateSchema.parse({
       ...save,
       objectCreates: [{
-        type: "text", x: 10, y: 20, width: null, height: null, rotation: 0,
+        type: "text", x: 10, y: 20, width: 120, height: 40, rotation: 0,
         text: "Entrance", strokeColor: "#111111", strokeWidth: 2, locked: false, visible: true
       }]
     }).objectCreates[0]).toEqual({
-      type: "text", x: 10, y: 20, width: null, height: null, rotation: 0,
+      type: "text", x: 10, y: 20, width: 120, height: 40, rotation: 0,
       text: "Entrance", strokeColor: "#111111", strokeWidth: 2, locked: false, visible: true
     });
   });
@@ -137,5 +148,94 @@ describe("shared schemas", () => {
 
     expect(() => floorEditorSnapshotSchema.parse({ floorPlan: null, fixtures: [{ id: "fixture-1" }], objects: [] }))
       .toThrow();
+  });
+
+  it("requires complete non-empty source-specific floor plan data", () => {
+    const imagePlan = {
+      sourceType: "image" as const,
+      imageUrl: "https://assets.example/floor.png",
+      originalFileUrl: "https://assets.example/floor.png",
+      renderedImageUrl: "https://assets.example/floor.png",
+      width: 1200,
+      height: 800
+    };
+    const pdfPlan = {
+      ...imagePlan,
+      sourceType: "pdf" as const,
+      originalFileUrl: "https://assets.example/floor.pdf",
+      renderedImageUrl: "https://assets.example/floor-rendered.png"
+    };
+
+    expect(floorPlanUpdateSchema.parse(imagePlan)).toEqual(imagePlan);
+    expect(floorPlanUpdateSchema.parse(pdfPlan)).toEqual(pdfPlan);
+    expect(() => floorPlanUpdateSchema.parse({ sourceType: "image" })).toThrow();
+    expect(() => floorPlanUpdateSchema.parse({ ...imagePlan, imageUrl: "   " })).toThrow();
+    expect(() => floorPlanUpdateSchema.parse({ ...imagePlan, sourceType: "none" })).toThrow();
+    expect(() => floorPlanUpdateSchema.parse({ ...imagePlan, width: 0 })).toThrow();
+  });
+
+  it("bounds PostgreSQL Int fields and editor request collection sizes", () => {
+    const base = {
+      expectedRevision: EDITOR_MAX_EXPECTED_REVISION,
+      fixtureUpdates: [],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    };
+    expect(saveEditorStateSchema.parse(base).expectedRevision).toBe(EDITOR_MAX_EXPECTED_REVISION);
+    expect(() => saveEditorStateSchema.parse({ ...base, expectedRevision: POSTGRES_INT_MAX })).toThrow();
+    expect(() => restoreFloorEditorRevisionSchema.parse({ expectedRevision: POSTGRES_INT_MAX })).toThrow();
+
+    const fixtureUpdates = Array.from({ length: EDITOR_MAX_FIXTURE_UPDATES }, (_, index) => ({
+      id: `fixture-${index}`,
+      x: index
+    }));
+    expect(saveEditorStateSchema.parse({ ...base, fixtureUpdates }).fixtureUpdates).toHaveLength(
+      EDITOR_MAX_FIXTURE_UPDATES
+    );
+    expect(() => saveEditorStateSchema.parse({
+      ...base,
+      fixtureUpdates: [...fixtureUpdates, { id: "fixture-over-limit", x: 0 }]
+    })).toThrow();
+
+    expect(() => saveEditorStateSchema.parse({
+      ...base,
+      objectDeletes: Array.from({ length: EDITOR_MAX_MAP_OBJECT_MUTATIONS + 1 }, (_, index) => `object-${index}`)
+    })).toThrow();
+  });
+
+  it("bounds editor strings and validates type-specific point arrays", () => {
+    const triangle = {
+      type: "triangle" as const,
+      x: 10,
+      y: 20,
+      width: 30,
+      height: 40,
+      rotation: 0,
+      points: [{ x: 15, y: 0 }, { x: 30, y: 40 }, { x: 0, y: 40 }],
+      text: null,
+      strokeColor: "#111111",
+      fillColor: null,
+      strokeWidth: 2,
+      fontSize: null,
+      zIndex: POSTGRES_INT_MAX,
+      locked: false,
+      visible: true
+    };
+
+    expect(floorMapObjectDraftSchema.parse(triangle)).toEqual(triangle);
+    expect(() => floorMapObjectDraftSchema.parse({ ...triangle, type: "rectangle", points: triangle.points })).toThrow();
+    expect(() => floorMapObjectDraftSchema.parse({ ...triangle, points: {} })).toThrow();
+    expect(() => floorMapObjectDraftSchema.parse({ ...triangle, points: triangle.points.slice(0, 2) })).toThrow();
+    expect(() => floorMapObjectDraftSchema.parse({ ...triangle, zIndex: POSTGRES_INT_MAX + 1 })).toThrow();
+    expect(() => floorMapObjectDraftSchema.parse({ ...triangle, text: "x".repeat(EDITOR_MAX_TEXT_LENGTH + 1) })).toThrow();
+    expect(() => fixtureLayoutUpdateSchema.parse({ id: "x".repeat(EDITOR_MAX_ID_LENGTH + 1), x: 1 })).toThrow();
+  });
+
+  it("coerces and bounds floor editor revision cursor pagination", () => {
+    expect(editorRevisionListQuerySchema.parse({})).toEqual({ limit: EDITOR_REVISION_DEFAULT_LIMIT });
+    expect(editorRevisionListQuerySchema.parse({ cursor: "42", limit: "10" })).toEqual({ cursor: 42, limit: 10 });
+    expect(() => editorRevisionListQuerySchema.parse({ cursor: "-1" })).toThrow();
+    expect(() => editorRevisionListQuerySchema.parse({ limit: "101" })).toThrow();
   });
 });

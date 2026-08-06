@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -24,8 +24,12 @@ export class FloorEditorController {
   }
 
   @Get("floors/:floorId/editor-revisions")
-  listEditorRevisions(@Param("floorId") floorId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.floorEditorService.listEditorRevisions(user, floorId);
+  listEditorRevisions(
+    @Param("floorId") floorId: string,
+    @Query() query: Record<string, unknown>,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.floorEditorService.listEditorRevisions(user, floorId, query);
   }
 
   @Post("floors/:floorId/editor-revisions/:revision/restore")

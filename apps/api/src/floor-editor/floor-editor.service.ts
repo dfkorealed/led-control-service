@@ -2,7 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import {
   FloorEditorSnapshot,
   SaveEditorStateInput,
+  editorRevisionListQuerySchema,
   floorEditorSnapshotSchema,
+  floorPlanUpdateSchema,
   restoreFloorEditorRevisionSchema,
   saveEditorStateSchema
 } from "@led-control/shared";
@@ -76,6 +78,24 @@ type FloorPlanData = {
   height?: number;
 };
 
+type CompleteFloorPlanData = {
+  imageUrl: string;
+  sourceType: "image" | "pdf";
+  originalFileUrl: string;
+  renderedImageUrl: string;
+  width: number;
+  height: number;
+};
+
+interface PreparedSaveEditorState {
+  expectedRevision: number;
+  floorPlan?: CompleteFloorPlanData | null;
+  fixtureUpdates: Array<{ id: string; data: Record<string, unknown> }>;
+  objectCreates: Prisma.FloorMapObjectUncheckedCreateInput[];
+  objectUpdates: Array<{ id: string; data: Record<string, unknown> }>;
+  objectDeletes: string[];
+}
+
 @Injectable()
 export class FloorEditorService {
   constructor(
@@ -103,19 +123,20 @@ export class FloorEditorService {
     const access = await this.assertExistingFloor(floorId, user, "manage");
     const input = this.parseInput(saveEditorStateSchema, rawInput, "invalid floor editor save payload");
     this.assertUniqueMutationIds(input);
+    const prepared = this.prepareSaveInput(floorId, input);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await this.assertAtomicSaveTargets(tx, floorId, input);
-        await this.incrementRevision(tx, floorId, input.expectedRevision);
-        await this.applySaveChanges(tx, floorId, input);
+        await this.assertAtomicSaveTargets(tx, floorId, prepared);
+        await this.incrementRevision(tx, floorId, prepared.expectedRevision);
+        await this.applySaveChanges(tx, floorId, prepared);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
         const snapshot = buildFloorEditorSnapshot(floor);
-        const changeSummary = this.saveChangeSummary(input);
+        const changeSummary = this.saveChangeSummary(prepared);
         await this.createRevision(tx, {
           floorId,
-          revision: input.expectedRevision + 1,
+          revision: prepared.expectedRevision + 1,
           snapshot,
           changeSummary,
           changedBy: user.id
@@ -129,7 +150,7 @@ export class FloorEditorService {
           targetId: floorId,
           outcome: "success",
           metadata: {
-            revision: input.expectedRevision + 1,
+            revision: prepared.expectedRevision + 1,
             snapshotSha256: hashFloorEditorSnapshot(snapshot),
             changeSummary
           },
@@ -144,22 +165,37 @@ export class FloorEditorService {
     }
   }
 
-  async listEditorRevisions(user: AuthenticatedUser, floorId: string) {
-    await this.assertExistingFloor(floorId, user, "read");
-    return this.prisma.floorMapRevision.findMany({
-      where: { floorId },
+  async listEditorRevisions(user: AuthenticatedUser, floorId: string, rawQuery: unknown = {}) {
+    const access = await this.assertExistingFloor(floorId, user, "read");
+    const query = this.parseInput(editorRevisionListQuerySchema, rawQuery, "invalid revision list query");
+    const rows = await this.prisma.floorMapRevision.findMany({
+      where: { floorId, ...(query.cursor === undefined ? {} : { revision: { lt: query.cursor } }) },
       orderBy: { revision: "desc" },
+      take: query.limit + 1,
       select: {
-        id: true,
         revision: true,
         snapshotSha256: true,
         changeSummary: true,
-        changedBy: true,
         restoredFromRevision: true,
         createdAt: true,
-        user: { select: { id: true, name: true, email: true } }
+        user: { select: { name: true, organizationId: true } }
       }
     });
+    const hasMore = rows.length > query.limit;
+    const items = rows.slice(0, query.limit).map((row) => ({
+      revision: row.revision,
+      snapshotSha256: row.snapshotSha256,
+      changeSummary: row.changeSummary,
+      restoredFromRevision: row.restoredFromRevision,
+      createdAt: row.createdAt,
+      actor: {
+        displayName: row.user.organizationId === access.organizationId ? row.user.name : "서비스 운영자"
+      }
+    }));
+    return {
+      items,
+      nextCursor: hasMore && items.length > 0 ? items[items.length - 1].revision : null
+    };
   }
 
   async restoreEditorRevision(
@@ -281,7 +317,7 @@ export class FloorEditorService {
         brightness: fixture.brightness,
         status: fixture.status
       })),
-      objects: floor.mapObjects.map((object) => ({
+      objects: [...floor.mapObjects].sort((left, right) => this.compareEditorObjects(left, right)).map((object) => ({
         id: object.id,
         floorId: object.floorId,
         type: object.type,
@@ -305,21 +341,20 @@ export class FloorEditorService {
 
   async updateFloorPlan(floorId: string, input: UpdateFloorPlanInput, user: AuthenticatedUser) {
     await this.assertExistingFloor(floorId, user, "manage");
-    const data = this.buildFloorPlanData(input);
-
-    if (Object.keys(data).length === 0) throw new BadRequestException("floor plan update payload is empty");
+    const parsed = this.parseInput(floorPlanUpdateSchema, input, "invalid floor plan payload");
+    const data = this.buildFloorPlanData(parsed);
     await this.assertReadyAssetUrls(floorId, data);
 
     return this.prisma.floorPlan.upsert({
       where: { floorId },
       create: {
         floorId,
-        imageUrl: data.imageUrl ?? "",
-        sourceType: data.sourceType ?? "none",
-        originalFileUrl: data.originalFileUrl ?? null,
-        renderedImageUrl: data.renderedImageUrl ?? null,
-        width: data.width ?? 1,
-        height: data.height ?? 1
+        imageUrl: data.imageUrl!,
+        sourceType: data.sourceType!,
+        originalFileUrl: data.originalFileUrl!,
+        renderedImageUrl: data.renderedImageUrl!,
+        width: data.width!,
+        height: data.height!
       },
       update: {
         ...data,
@@ -393,10 +428,35 @@ export class FloorEditorService {
     if (new Set(ids).size !== ids.length) throw new BadRequestException(message);
   }
 
+  private prepareSaveInput(floorId: string, input: SaveEditorStateInput): PreparedSaveEditorState {
+    const floorPlan = input.floorPlan === undefined
+      ? undefined
+      : input.floorPlan === null
+        ? null
+        : this.buildFloorPlanData(input.floorPlan) as CompleteFloorPlanData;
+
+    return {
+      expectedRevision: input.expectedRevision,
+      floorPlan,
+      fixtureUpdates: input.fixtureUpdates.map(({ id, ...patch }) => ({
+        id,
+        data: this.buildFixtureData(patch)
+      })),
+      objectCreates: input.objectCreates.map((object) =>
+        this.buildCreateObjectData({ ...object, floorId }) as Prisma.FloorMapObjectUncheckedCreateInput
+      ),
+      objectUpdates: input.objectUpdates.map(({ id, patch }) => ({
+        id,
+        data: this.buildUpdateObjectData(patch)
+      })),
+      objectDeletes: input.objectDeletes
+    };
+  }
+
   private async assertAtomicSaveTargets(
     tx: Prisma.TransactionClient,
     floorId: string,
-    input: SaveEditorStateInput
+    input: PreparedSaveEditorState
   ) {
     const fixtureIds = input.fixtureUpdates.map((update) => update.id);
     const fixtures = fixtureIds.length === 0
@@ -412,13 +472,41 @@ export class FloorEditorService {
     ];
     const objects = objectIds.length === 0
       ? []
-      : await tx.floorMapObject.findMany({ where: { floorId, id: { in: objectIds } }, select: { id: true } });
+      : await tx.floorMapObject.findMany({
+          where: { floorId, id: { in: objectIds } },
+          select: { id: true, type: true }
+        });
     if (objects.length !== objectIds.length) {
       throw new BadRequestException("object updates and deletes must belong to the requested floor");
     }
+    const objectTypes = new Map(objects.map((object) => [object.id, object.type]));
+    for (const update of input.objectUpdates) {
+      this.normalizeObjectTypePatch(update.data, objectTypes.get(update.id));
+    }
 
-    if (input.floorPlan && input.floorPlan !== null) {
-      await this.assertReadyAssetUrls(floorId, this.buildFloorPlanData(input.floorPlan), tx);
+    if (input.floorPlan) {
+      await this.assertReadyAssetUrls(floorId, input.floorPlan, tx);
+    }
+  }
+
+  private normalizeObjectTypePatch(data: Record<string, unknown>, currentType: string | undefined) {
+    if (!currentType) throw new BadRequestException("floor map object not found");
+    const effectiveType = typeof data.type === "string" ? data.type : currentType;
+    const pointsSupplied = data.points !== undefined;
+
+    if (pointsSupplied && effectiveType !== "triangle" && data.points !== null) {
+      throw new BadRequestException(`${effectiveType} objects do not accept points`);
+    }
+    if (effectiveType === "triangle") {
+      if (data.type === "triangle" && currentType !== "triangle" && !pointsSupplied) {
+        throw new BadRequestException("changing an object to triangle requires points");
+      }
+      if (pointsSupplied && (!Array.isArray(data.points) || data.points.length !== 3)) {
+        throw new BadRequestException("triangle objects require exactly 3 points");
+      }
+    }
+    if (data.type !== undefined && effectiveType !== "triangle" && currentType === "triangle" && !pointsSupplied) {
+      data.points = null;
     }
   }
 
@@ -430,39 +518,29 @@ export class FloorEditorService {
     if (updated.count !== 1) throw new ConflictException("floor editor revision conflict");
   }
 
-  private async applySaveChanges(tx: Prisma.TransactionClient, floorId: string, input: SaveEditorStateInput) {
+  private async applySaveChanges(tx: Prisma.TransactionClient, floorId: string, input: PreparedSaveEditorState) {
     if (input.floorPlan === null) {
       await tx.floorPlan.deleteMany({ where: { floorId } });
     } else if (input.floorPlan !== undefined) {
-      const data = this.buildFloorPlanData(input.floorPlan);
+      const data = input.floorPlan;
       await tx.floorPlan.upsert({
         where: { floorId },
-        create: {
-          floorId,
-          imageUrl: data.imageUrl ?? "",
-          sourceType: data.sourceType ?? "none",
-          originalFileUrl: data.originalFileUrl ?? null,
-          renderedImageUrl: data.renderedImageUrl ?? null,
-          width: data.width ?? 1,
-          height: data.height ?? 1
-        },
+        create: { floorId, ...data },
         update: { ...data, version: { increment: 1 } }
       });
     }
 
-    for (const { id, ...patch } of input.fixtureUpdates) {
-      await tx.fixture.update({ where: { id }, data: this.buildFixtureData(patch) });
+    for (const { id, data } of input.fixtureUpdates) {
+      await tx.fixture.update({ where: { id }, data });
     }
 
     if (input.objectDeletes.length > 0) {
       await tx.floorMapObject.deleteMany({ where: { floorId, id: { in: input.objectDeletes } } });
     }
-    for (const object of input.objectCreates) {
-      const data = this.buildCreateObjectData({ ...object, floorId });
-      await tx.floorMapObject.create({ data: data as Prisma.FloorMapObjectUncheckedCreateInput });
+    for (const data of input.objectCreates) {
+      await tx.floorMapObject.create({ data });
     }
-    for (const { id, patch } of input.objectUpdates) {
-      const data = this.buildUpdateObjectData(patch);
+    for (const { id, data } of input.objectUpdates) {
       await tx.floorMapObject.update({
         where: { id },
         data: data as Prisma.FloorMapObjectUncheckedUpdateInput
@@ -483,7 +561,7 @@ export class FloorEditorService {
     return floor;
   }
 
-  private saveChangeSummary(input: SaveEditorStateInput) {
+  private saveChangeSummary(input: PreparedSaveEditorState) {
     return {
       floorPlanChanged: input.floorPlan !== undefined,
       fixtureUpdates: input.fixtureUpdates.length,
@@ -491,6 +569,17 @@ export class FloorEditorService {
       objectUpdates: input.objectUpdates.length,
       objectDeletes: input.objectDeletes.length
     };
+  }
+
+  private compareEditorObjects(
+    left: { id: string; zIndex: number; createdAt?: Date | string },
+    right: { id: string; zIndex: number; createdAt?: Date | string }
+  ) {
+    if (left.zIndex !== right.zIndex) return left.zIndex - right.zIndex;
+    const leftCreatedAt = left.createdAt ? new Date(left.createdAt).getTime() : 0;
+    const rightCreatedAt = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+    if (leftCreatedAt !== rightCreatedAt) return leftCreatedAt - rightCreatedAt;
+    return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
   }
 
   private async createRevision(
@@ -697,7 +786,7 @@ export class FloorEditorService {
 
   private objectStorageUrl(value: unknown, field: string) {
     const result = this.trimOptionalString(value, field);
-    if (result === "") return result;
+    if (result === "") throw new BadRequestException(`${field} must not be empty`);
     try {
       const url = new URL(result);
       if (url.protocol === "http:" || url.protocol === "https:") return result;

@@ -27,7 +27,7 @@ describe("FloorEditorController", () => {
 
     await controller.getEditorState("floor-1", user);
     await (controller as any).saveEditorState("floor-1", { expectedRevision: 3 }, user);
-    await (controller as any).listEditorRevisions("floor-1", user);
+    await (controller as any).listEditorRevisions("floor-1", { cursor: "2", limit: "20" }, user);
     await (controller as any).restoreEditorRevision("floor-1", "2", { expectedRevision: 3 }, user);
     await controller.updateFloorPlan("floor-1", { imageUrl: "https://assets.example/floor.png" }, user);
     await controller.updateFixture("fixture-1", { x: 100 }, user);
@@ -37,7 +37,7 @@ describe("FloorEditorController", () => {
 
     expect(service.getEditorState).toHaveBeenCalledWith("floor-1", user);
     expect(service.saveEditorState).toHaveBeenCalledWith(user, "floor-1", { expectedRevision: 3 });
-    expect(service.listEditorRevisions).toHaveBeenCalledWith(user, "floor-1");
+    expect(service.listEditorRevisions).toHaveBeenCalledWith(user, "floor-1", { cursor: "2", limit: "20" });
     expect(service.restoreEditorRevision).toHaveBeenCalledWith(user, "floor-1", 2, { expectedRevision: 3 });
     expect(service.updateFloorPlan).toHaveBeenCalledWith("floor-1", { imageUrl: "https://assets.example/floor.png" }, user);
     expect(service.updateFixture).toHaveBeenCalledWith("fixture-1", { x: 100 }, user);
