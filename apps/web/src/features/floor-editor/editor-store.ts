@@ -17,6 +17,7 @@ interface EditorStore {
   selection: Selection;
   initialize: (state: FloorEditorState) => void;
   adoptBaseline: (state: FloorEditorState) => void;
+  discardChanges: () => void;
   setActiveTool: (tool: EditorTool) => void;
   setZoom: (zoom: number) => void;
   setPan: (pan: { x: number; y: number }) => void;
@@ -41,6 +42,12 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => ({
   selection: null,
   initialize: (state) => set({ initialState: state, state, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null }),
   adoptBaseline: (state) => set({ initialState: state, state, isDirty: false, selection: null }),
+  discardChanges: () => set(({ initialState }) => initialState ? {
+    state: initialState,
+    isDirty: false,
+    activeTool: "select",
+    selection: null
+  } : { isDirty: false, activeTool: "select", selection: null }),
   setActiveTool: (tool) => set({ activeTool: tool, selection: tool === "select" ? get().selection : null }),
   setZoom: (zoom) => set({ zoom: Math.min(Math.max(zoom, 0.25), 3) }),
   setPan: (pan) => set({ pan }),

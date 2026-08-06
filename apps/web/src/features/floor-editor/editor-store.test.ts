@@ -68,4 +68,18 @@ describe("floor editor store baseline", () => {
 
     expect(firstId).not.toBe(secondId);
   });
+
+  it("discards the current draft back to the baseline", () => {
+    useFloorEditorStore.getState().updateFixture("fixture-1", { x: 99 });
+
+    useFloorEditorStore.getState().discardChanges();
+
+    expect(useFloorEditorStore.getState()).toMatchObject({
+      state: initialState,
+      initialState,
+      isDirty: false,
+      selection: null,
+      activeTool: "select"
+    });
+  });
 });

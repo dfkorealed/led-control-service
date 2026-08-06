@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { BrowserRouter, Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FloorEditorState } from "../../floor-editor/editor-types";
+import { useFloorEditorStore } from "../../floor-editor/editor-store";
 import { FloorEditorRoute } from "./FloorEditorRoute";
 
 const getFloorEditorState = vi.hoisted(() => vi.fn());
+const dirtySentinelKey = "__floorEditorDirtySentinel";
 
 vi.mock("../../../api/floor-editor", () => ({ getFloorEditorState }));
 vi.mock("../../floor-editor/FloorEditorView", () => ({
@@ -64,11 +66,30 @@ function renderRoute(userRole: "operator" | "admin" | "viewer", initialEntry = "
   return { ...result, queryClient };
 }
 
+function renderBrowserRoute() {
+  window.history.replaceState({}, "", "/settings?siteId=site-2");
+  window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
+  const queryClient = new QueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/settings" element={<><h2>설정 개요</h2><LocationProbe /></>} />
+          <Route path="/settings/floor-plans" element={<><h2>도면 관리</h2><LocationProbe /></>} />
+          <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute userRole="admin" />} />
+        </Routes>
+      </BrowserRouter>
+    </QueryClientProvider>
+  );
+}
+
 describe("FloorEditorRoute", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
     vi.restoreAllMocks();
+    window.history.replaceState({}, "", "/");
+    useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, selection: null });
   });
 
   it.each(["저장", "취소"])("returns an admin to the selected site's list after %s", async (action) => {
@@ -168,25 +189,71 @@ describe("FloorEditorRoute", () => {
     });
   });
 
-  it("skips the compensating popstate after a cancelled back navigation", async () => {
+  it("keeps the same editor route and draft across repeated cancelled browser backs", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const forward = vi.spyOn(window.history, "forward").mockImplementation(() => undefined);
-    renderRoute("admin");
+    useFloorEditorStore.getState().initialize(editorState);
+    useFloorEditorStore.setState({ state: { ...editorState, floor: { ...editorState.floor, name: "작성 중" } }, isDirty: true });
+    renderBrowserRoute();
     await screen.findByRole("heading", { name: "B2 도면 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    await waitFor(() => expect(window.history.state?.[dirtySentinelKey]).toBeTruthy());
 
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    act(() => window.history.back());
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    await waitFor(() => expect(window.history.state?.[dirtySentinelKey]).toBeTruthy());
+    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/floor-plans/floor-b2/edit");
+    expect(useFloorEditorStore.getState().state?.floor.name).toBe("작성 중");
 
+    act(() => window.history.back());
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(window.history.state?.[dirtySentinelKey]).toBeTruthy());
+
+    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(getFloorEditorState).toHaveBeenCalledOnce();
+    expect(useFloorEditorStore.getState().state?.floor.name).toBe("작성 중");
+  });
+
+  it("discards the draft and performs the real back after browser approval", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    useFloorEditorStore.getState().initialize(editorState);
+    useFloorEditorStore.setState({ state: { ...editorState, floor: { ...editorState.floor, name: "작성 중" } }, isDirty: true });
+    renderBrowserRoute();
+    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    await waitFor(() => expect(window.history.state?.[dirtySentinelKey]).toBeTruthy());
+
+    act(() => window.history.back());
+
+    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledOnce();
-    expect(forward).toHaveBeenCalledOnce();
+    expect(useFloorEditorStore.getState()).toMatchObject({ state: editorState, initialState: editorState, isDirty: false });
+  });
+
+  it("allows browser back without confirmation after save", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const confirm = vi.spyOn(window, "confirm");
+    useFloorEditorStore.getState().initialize(editorState);
+    renderBrowserRoute();
+    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    await waitFor(() => expect(window.history.state?.[dirtySentinelKey]).toBeTruthy());
+    act(() => useFloorEditorStore.getState().adoptBaseline(editorState));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+
+    act(() => window.history.back());
+
+    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("removes popstate and beforeunload guards on cleanup", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    const { unmount } = renderRoute("admin");
+    const { unmount } = renderBrowserRoute();
     await screen.findByRole("heading", { name: "B2 도면 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(dirtyGuardIsActive()).toBe(true));
@@ -194,7 +261,7 @@ describe("FloorEditorRoute", () => {
     unmount();
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    act(() => window.history.back());
 
     expect(event.defaultPrevented).toBe(false);
     expect(confirm).not.toHaveBeenCalled();
