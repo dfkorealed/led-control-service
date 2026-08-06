@@ -96,6 +96,28 @@ describe("EditorLeaseService", () => {
     expect(set).toHaveBeenCalledTimes(2);
   });
 
+  it("returns read-only without a token when Redis rejects a stale renewal token", async () => {
+    const holderA = JSON.stringify({
+      userId: adminA.id, userName: adminA.name, token: "lease-token", acquiredAt: "2026-08-06T00:00:00.000Z"
+    });
+    const holderB = JSON.stringify({
+      userId: adminB.id, userName: adminB.name, token: "successor-token", acquiredAt: "2026-08-06T00:01:00.000Z"
+    });
+    const { service, redis } = await createService({
+      set: jest.fn().mockResolvedValue(null),
+      get: jest.fn().mockResolvedValueOnce(holderA).mockResolvedValueOnce(holderB),
+      eval: jest.fn().mockResolvedValue(0)
+    });
+
+    await expect(service.acquire(floorId, adminA, "lease-token")).resolves.toEqual({
+      editable: false,
+      holderName: adminB.name,
+      acquiredAt: "2026-08-06T00:01:00.000Z"
+    });
+
+    expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("decoded.token ~= ARGV[1]"), 1, `floor-editor:lease:${floorId}`, "lease-token", "90");
+  });
+
   it("renews and releases only the caller's matching token", async () => {
     const { service, redis } = await createService({
       set: jest.fn().mockResolvedValue(null),
@@ -114,7 +136,7 @@ describe("EditorLeaseService", () => {
     expect(redis.eval).toHaveBeenNthCalledWith(2, expect.any(String), 1, `floor-editor:lease:${floorId}`, "lease-token");
   });
 
-  it("records a force-release audit before atomically releasing the audited token", async () => {
+  it("records a requested audit before a force delete and a truthful success result after it", async () => {
     const get = jest.fn().mockResolvedValue(JSON.stringify({
       userId: adminA.id,
       userName: adminA.name,
@@ -126,15 +148,43 @@ describe("EditorLeaseService", () => {
 
     await expect(service.release(floorId, adminB, true)).resolves.toEqual({ released: true });
 
-    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({
-      action: "floor_editor.lease_force_released",
+    expect(auditRecord).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      action: "floor_editor.lease_force_release_requested",
       actorId: adminB.id,
       siteId,
       targetId: floorId,
+      outcome: "attempted",
+      metadata: expect.objectContaining({ leaseHolderId: adminA.id })
+    }));
+    expect(auditRecord).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      action: "floor_editor.lease_force_released",
+      outcome: "success",
       metadata: expect.objectContaining({ leaseHolderId: adminA.id })
     }));
     expect(auditRecord.mock.invocationCallOrder[0]).toBeLessThan(redis.eval.mock.invocationCallOrder[0]);
     expect(redis.eval).toHaveBeenCalledWith(expect.any(String), 1, `floor-editor:lease:${floorId}`, "holder-token");
+  });
+
+  it("records that a force release was not applied when the audited token has a successor", async () => {
+    const auditRecord = jest.fn().mockResolvedValue({ id: "audit-1" });
+    const { service, redis } = await createService({
+      get: jest.fn().mockResolvedValue(JSON.stringify({
+        userId: adminA.id, userName: adminA.name, token: "audited-token", acquiredAt: "2026-08-06T00:00:00.000Z"
+      })),
+      eval: jest.fn().mockResolvedValue(0),
+      auditRecord
+    });
+
+    await expect(service.release(floorId, adminB, true)).resolves.toEqual({ released: false });
+
+    expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("decoded.token ~= ARGV[1]"), 1, `floor-editor:lease:${floorId}`, "audited-token");
+    expect(auditRecord).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      action: "floor_editor.lease_force_release_requested", outcome: "attempted"
+    }));
+    expect(auditRecord).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      action: "floor_editor.lease_force_release_not_applied", outcome: "stale_token"
+    }));
+    expect(auditRecord.mock.invocationCallOrder[0]).toBeLessThan(redis.eval.mock.invocationCallOrder[0]);
   });
 
   it("does not release a lease when its required audit record fails", async () => {

@@ -18,14 +18,19 @@ interface FloorEditorRouteProps {
 
 const discardMessage = "저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?";
 const leaseHeartbeatMs = 30_000;
+const initialLeaseRetryDelaysMs = [250, 500, 1_000, 2_000, 4_000, 8_000];
+
+interface FloorLeaseState {
+  floorId: string | null;
+  lease: FloorEditorLease;
+}
+
 export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   const { floorId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isDirty, setIsDirty] = useState(false);
-  const [lease, setLease] = useState<FloorEditorLease>({ editable: false });
-  const [leaseFloorId, setLeaseFloorId] = useState<string | null>(null);
   const leaseTokenRef = useRef<string | null>(null);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
   const selectedSiteId = new URLSearchParams(location.search).get("siteId");
@@ -36,66 +41,7 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
     enabled: canEdit && Boolean(floorId)
   });
   const listPath = `/settings/floor-plans${location.search}`;
-
-  useEffect(() => {
-    if (!canEdit || !floorId) return;
-
-    let active = true;
-    let heartbeat: number | null = null;
-    const stopHeartbeat = () => {
-      if (heartbeat !== null) window.clearInterval(heartbeat);
-      heartbeat = null;
-    };
-    const loseLease = (nextLease: FloorEditorLease = { editable: false }) => {
-      leaseTokenRef.current = null;
-      stopHeartbeat();
-      if (active) {
-        setLeaseFloorId(floorId);
-        setLease(nextLease.editable ? { editable: false } : nextLease);
-      }
-    };
-    const renewLease = async (token: string) => {
-      try {
-        const renewed = await acquireFloorEditorLease(floorId, token);
-        if (!active) return;
-        if (!renewed.editable || renewed.token !== token) {
-          loseLease(renewed);
-          return;
-        }
-        setLease(renewed);
-      } catch {
-        loseLease();
-      }
-    };
-    const acquireLease = async () => {
-      try {
-        const acquired = await acquireFloorEditorLease(floorId);
-        if (!active) {
-          if (acquired.editable && acquired.token) void releaseFloorEditorLease(floorId, acquired.token).catch(() => undefined);
-          return;
-        }
-        if (!acquired.editable || !acquired.token) {
-          loseLease(acquired);
-          return;
-        }
-        leaseTokenRef.current = acquired.token;
-        setLeaseFloorId(floorId);
-        setLease(acquired);
-        heartbeat = window.setInterval(() => void renewLease(acquired.token!), leaseHeartbeatMs);
-      } catch {
-        loseLease();
-      }
-    };
-
-    void acquireLease();
-    return () => {
-      active = false;
-      stopHeartbeat();
-      const token = leaseTokenRef.current;
-      leaseTokenRef.current = null;
-      if (token) void releaseFloorEditorLease(floorId, token).catch(() => undefined);
-    };
-  }, [canEdit, floorId]);
+  const leaseState = useFloorEditorLease(canEdit, floorId);
 
   useEffect(() => {
     if (!editorQuery.data || selectedSiteId) return;
@@ -131,7 +77,7 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
     return <Navigate to={`/settings/floor-plans?siteId=${encodeURIComponent(selectedSiteId)}`} replace />;
   }
 
-  const activeLease = leaseFloorId === floorId ? lease : { editable: false };
+  const activeLease = leaseState.floorId === floorId ? leaseState.lease : { editable: false };
 
   return (
     <>
@@ -156,6 +102,103 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
       />
     </>
   );
+}
+
+function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
+  const [leaseState, setLeaseState] = useState<FloorLeaseState>({ floorId: null, lease: { editable: false } });
+
+  useEffect(() => {
+    if (!canEdit || !floorId) return;
+
+    let disposed = false;
+    let leaseLost = false;
+    let acquiredToken: string | null = null;
+    let heartbeat: number | null = null;
+    let retryTimer: number | null = null;
+    let renewalInFlight = false;
+    let initialAcquireInFlight = false;
+    let retryAttempt = 0;
+    const publish = (lease: FloorEditorLease) => {
+      if (!disposed) setLeaseState({ floorId, lease });
+    };
+    const stopTimers = () => {
+      if (heartbeat !== null) window.clearInterval(heartbeat);
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      heartbeat = null;
+      retryTimer = null;
+    };
+    const loseLease = (lease: FloorEditorLease = { editable: false }) => {
+      if (disposed || leaseLost) return;
+      leaseLost = true;
+      acquiredToken = null;
+      stopTimers();
+      publish(lease.editable ? { editable: false } : lease);
+    };
+    const releaseAfterDispose = (token: string) => {
+      void releaseFloorEditorLease(floorId, token).catch(() => undefined);
+    };
+    const renewLease = async () => {
+      const token = acquiredToken;
+      if (disposed || leaseLost || renewalInFlight || !token) return;
+      renewalInFlight = true;
+      try {
+        const renewed = await acquireFloorEditorLease(floorId, token);
+        if (disposed || leaseLost || acquiredToken !== token) return;
+        if (!renewed.editable || renewed.token !== token) {
+          loseLease(renewed);
+          return;
+        }
+        publish(renewed);
+      } catch {
+        if (!disposed && !leaseLost && acquiredToken === token) loseLease();
+      } finally {
+        renewalInFlight = false;
+      }
+    };
+    const scheduleInitialRetry = (lease: FloorEditorLease) => {
+      publish(lease);
+      if (disposed || leaseLost || acquiredToken || retryAttempt >= initialLeaseRetryDelaysMs.length) return;
+      const delay = initialLeaseRetryDelaysMs[retryAttempt++];
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        void acquireInitialLease();
+      }, delay);
+    };
+    const acquireInitialLease = async () => {
+      if (disposed || leaseLost || acquiredToken || initialAcquireInFlight) return;
+      initialAcquireInFlight = true;
+      try {
+        const acquired = await acquireFloorEditorLease(floorId);
+        if (disposed) {
+          if (acquired.editable && acquired.token) releaseAfterDispose(acquired.token);
+          return;
+        }
+        if (leaseLost || acquiredToken) return;
+        if (!acquired.editable || !acquired.token) {
+          scheduleInitialRetry(acquired);
+          return;
+        }
+        acquiredToken = acquired.token;
+        publish(acquired);
+        heartbeat = window.setInterval(() => void renewLease(), leaseHeartbeatMs);
+      } catch {
+        if (!disposed && !leaseLost && !acquiredToken) publish({ editable: false });
+      } finally {
+        initialAcquireInFlight = false;
+      }
+    };
+
+    void acquireInitialLease();
+    return () => {
+      disposed = true;
+      stopTimers();
+      const token = acquiredToken;
+      acquiredToken = null;
+      if (token) releaseAfterDispose(token);
+    };
+  }, [canEdit, floorId]);
+
+  return leaseState;
 }
 
 function formatLeaseTime(value: string | undefined) {

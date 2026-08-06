@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { FloorEditorController } from "./floor-editor.controller";
 
 describe("FloorEditorController", () => {
@@ -62,4 +63,16 @@ describe("FloorEditorController", () => {
       expect(service.restoreEditorRevision).toHaveBeenCalledWith(user, "floor-1", revision, { expectedRevision: 0 });
     }
   );
+
+  it("defaults missing lease bodies while rejecting a JSON null body with a controlled validation error", () => {
+    const leaseService = { acquire: jest.fn(), release: jest.fn() };
+    const controller = new FloorEditorController({} as never, leaseService as never);
+
+    controller.acquireLease("floor-1", undefined as never, user);
+    controller.releaseLease("floor-1", undefined as never, user);
+
+    expect(leaseService.acquire).toHaveBeenCalledWith("floor-1", user, undefined);
+    expect(leaseService.release).toHaveBeenCalledWith("floor-1", user, false, undefined);
+    expect(() => controller.acquireLease("floor-1", null as never, user)).toThrow(BadRequestException);
+  });
 });

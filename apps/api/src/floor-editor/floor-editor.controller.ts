@@ -16,19 +16,20 @@ export class FloorEditorController {
   @Post("floors/:floorId/editor-lease")
   acquireLease(
     @Param("floorId") floorId: string,
-    @Body() body: Record<string, unknown>,
+    @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.editorLeaseService.acquire(floorId, user, this.readLeaseToken(body));
+    return this.editorLeaseService.acquire(floorId, user, this.readLeaseToken(this.readLeaseBody(body)));
   }
 
   @Delete("floors/:floorId/editor-lease")
   releaseLease(
     @Param("floorId") floorId: string,
-    @Body() body: Record<string, unknown>,
+    @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.editorLeaseService.release(floorId, user, this.readForce(body), this.readLeaseToken(body));
+    const leaseBody = this.readLeaseBody(body);
+    return this.editorLeaseService.release(floorId, user, this.readForce(leaseBody), this.readLeaseToken(leaseBody));
   }
 
   @Get("floors/:floorId/editor-state")
@@ -108,6 +109,14 @@ export class FloorEditorController {
       throw new BadRequestException("invalid editor lease token");
     }
     return token;
+  }
+
+  private readLeaseBody(body: unknown): Record<string, unknown> {
+    if (body === undefined) return {};
+    if (!body || Array.isArray(body) || typeof body !== "object") {
+      throw new BadRequestException("invalid editor lease body");
+    }
+    return body as Record<string, unknown>;
   }
 
   private readForce(body: Record<string, unknown>) {

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
-import { BrowserRouter, Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FloorEditorState } from "../../floor-editor/editor-types";
 import { dirtyEditorSentinelKey } from "../../floor-editor/dirty-editor-history";
@@ -96,6 +96,25 @@ function renderBrowserRoute() {
   );
 }
 
+function renderFloorTransitionRoute() {
+  const queryClient = new QueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/settings/floor-plans/floor-b2/edit?siteId=site-2"]}>
+        <FloorTransitionControl />
+        <Routes>
+          <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute userRole="admin" />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+function FloorTransitionControl() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate("/settings/floor-plans/floor-b3/edit?siteId=site-3")}>B3로 이동</button>;
+}
+
 describe("FloorEditorRoute", () => {
   beforeEach(() => {
     acquireFloorEditorLease.mockResolvedValue({ editable: true, token: "test-lease-token", holderName: "김관리" });
@@ -104,6 +123,7 @@ describe("FloorEditorRoute", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.clearAllMocks();
     vi.restoreAllMocks();
     window.history.replaceState({}, "", "/");
@@ -134,6 +154,81 @@ describe("FloorEditorRoute", () => {
     unmount();
 
     await waitFor(() => expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "lease-token"));
+  });
+
+  it("serializes pending heartbeats and keeps a lost lease read-only", async () => {
+    vi.useFakeTimers();
+    getFloorEditorState.mockResolvedValue(editorState);
+    const pendingHeartbeat = deferred<{ editable: boolean; token?: string; holderName?: string }>();
+    acquireFloorEditorLease
+      .mockResolvedValueOnce({ editable: true, token: "lease-token", holderName: "김관리" })
+      .mockReturnValueOnce(pendingHeartbeat.promise);
+    renderRoute("admin");
+
+    await act(async () => {});
+    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+
+    pendingHeartbeat.reject(new Error("lease unavailable"));
+    await act(async () => {});
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a stale floor acquisition clear the new floor's releasable token", async () => {
+    getFloorEditorState.mockImplementation((floorId: string) => Promise.resolve(
+      floorId === "floor-b2" ? editorState : {
+        ...editorState,
+        floor: { ...editorState.floor, id: "floor-b3", siteId: "site-3", name: "B3", level: -3 }
+      }
+    ));
+    const staleAcquire = deferred<{ editable: boolean; token?: string; holderName?: string }>();
+    acquireFloorEditorLease
+      .mockReturnValueOnce(staleAcquire.promise)
+      .mockResolvedValueOnce({ editable: true, token: "b3-token", holderName: "김관리" });
+    const { unmount } = renderFloorTransitionRoute();
+
+    await waitFor(() => expect(acquireFloorEditorLease).toHaveBeenCalledWith("floor-b2"));
+    fireEvent.click(screen.getByRole("button", { name: "B3로 이동" }));
+    await screen.findByRole("heading", { name: "B3 도면 편집" });
+    await waitFor(() => expect(acquireFloorEditorLease).toHaveBeenCalledWith("floor-b3"));
+    staleAcquire.reject(new Error("old floor unavailable"));
+    await act(async () => {});
+    unmount();
+
+    await waitFor(() => expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b3", "b3-token"));
+  });
+
+  it("retries an initial same-floor conflict after delayed cleanup release without reviving a lost token", async () => {
+    vi.useFakeTimers();
+    getFloorEditorState.mockResolvedValue(editorState);
+    const delayedRelease = deferred<{ released: boolean }>();
+    releaseFloorEditorLease.mockReturnValueOnce(delayedRelease.promise);
+    acquireFloorEditorLease
+      .mockResolvedValueOnce({ editable: true, token: "old-token", holderName: "김관리" })
+      .mockResolvedValueOnce({ editable: false, holderName: "김관리" })
+      .mockResolvedValueOnce({ editable: true, token: "new-token", holderName: "김관리" });
+    const firstRoute = renderRoute("admin");
+
+    await act(async () => {});
+    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    firstRoute.unmount();
+    const secondRoute = renderRoute("admin");
+    await act(async () => {});
+    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+
+    delayedRelease.resolve({ released: true });
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+    secondRoute.unmount();
   });
 
   it.each(["저장", "취소"])("returns an admin to the selected site's list after %s", async (action) => {
@@ -370,4 +465,14 @@ function dirtyGuardIsActive() {
   const event = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(event);
   return event.defaultPrevented;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

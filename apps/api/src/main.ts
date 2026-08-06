@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { config } from "dotenv";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { enableApiShutdownHooks } from "./api-lifecycle";
 import { createApiHttpsOptions } from "./api-tls-options";
 import { startApiTlsCrlReload } from "./api-tls-reloader";
 
@@ -11,6 +12,7 @@ config();
 async function bootstrap() {
   const tls = createApiHttpsOptions(process.env);
   const app = await NestFactory.create(AppModule, tls);
+  enableApiShutdownHooks(app);
   if (tls.httpsOptions) {
     startApiTlsCrlReload({
       crlPath: process.env.API_DEVICE_CRL_PATH!.trim(),

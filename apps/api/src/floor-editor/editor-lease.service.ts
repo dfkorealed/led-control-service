@@ -7,14 +7,14 @@ import { PrismaService } from "../prisma/prisma.service";
 import { RedisProvider } from "../redis/redis.provider";
 
 const leaseTtlSeconds = 90;
-const renewLeaseScript = `
+export const editorLeaseRenewScript = `
   local lease = redis.call("GET", KEYS[1])
   if not lease then return 0 end
   local decoded = cjson.decode(lease)
   if decoded.token ~= ARGV[1] then return 0 end
   return redis.call("EXPIRE", KEYS[1], ARGV[2])
 `;
-const releaseLeaseScript = `
+export const editorLeaseReleaseScript = `
   local lease = redis.call("GET", KEYS[1])
   if not lease then return 0 end
   local decoded = cjson.decode(lease)
@@ -78,17 +78,17 @@ export class EditorLeaseService {
       if (user.role !== "operator" && user.role !== "admin") {
         throw new ForbiddenException("floor editor lease force release requires operator or admin role");
       }
-      await this.auditService.record({
-        organizationId: access.organizationId,
-        siteId: access.id,
-        actorId: user.id,
-        action: "floor_editor.lease_force_released",
-        targetType: "floor",
-        targetId: floorId,
-        outcome: "success",
-        metadata: { leaseHolderId: holder.userId, acquiredAt: holder.acquiredAt }
-      });
-      return { released: await this.releaseToken(floorId, holder.token) };
+      await this.recordForceReleaseAudit(access, user, floorId, holder, "floor_editor.lease_force_release_requested", "attempted");
+      const released = await this.releaseToken(floorId, holder.token);
+      await this.recordForceReleaseAudit(
+        access,
+        user,
+        floorId,
+        holder,
+        released ? "floor_editor.lease_force_released" : "floor_editor.lease_force_release_not_applied",
+        released ? "success" : "stale_token"
+      );
+      return { released };
     }
 
     if (!token || holder.userId !== user.id || holder.token !== token) {
@@ -102,7 +102,7 @@ export class EditorLeaseService {
     if (!holder || holder.userId !== user.id || holder.token !== token) return this.readOnly(holder);
 
     const renewed = await this.redisProvider.getClient().eval(
-      renewLeaseScript,
+      editorLeaseRenewScript,
       1,
       this.key(floorId),
       token,
@@ -113,7 +113,7 @@ export class EditorLeaseService {
   }
 
   private async releaseToken(floorId: string, token: string) {
-    const released = await this.redisProvider.getClient().eval(releaseLeaseScript, 1, this.key(floorId), token);
+    const released = await this.redisProvider.getClient().eval(editorLeaseReleaseScript, 1, this.key(floorId), token);
     return Number(released) === 1;
   }
 
@@ -121,6 +121,26 @@ export class EditorLeaseService {
     const floor = await this.prisma.floor.findUnique({ where: { id: floorId }, select: { id: true, siteId: true } });
     if (!floor) throw new NotFoundException("floor not found");
     return this.siteAccess.assert(user, floor.siteId, "manage");
+  }
+
+  private recordForceReleaseAudit(
+    access: { id: string; organizationId: string },
+    user: AuthenticatedUser,
+    floorId: string,
+    holder: StoredEditorLease,
+    action: string,
+    outcome: string
+  ) {
+    return this.auditService.record({
+      organizationId: access.organizationId,
+      siteId: access.id,
+      actorId: user.id,
+      action,
+      targetType: "floor",
+      targetId: floorId,
+      outcome,
+      metadata: { leaseHolderId: holder.userId, acquiredAt: holder.acquiredAt }
+    });
   }
 
   private async readLease(floorId: string): Promise<StoredEditorLease | null> {
