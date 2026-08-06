@@ -73,7 +73,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => ({
       if (!state) return {};
       const object: FloorMapObject = {
         ...draft,
-        id: `draft-${Date.now()}-${state.objects.length + 1}`,
+        id: `draft-${crypto.randomUUID()}`,
         floorId,
         zIndex: draft.zIndex ?? state.objects.length + 1
       };

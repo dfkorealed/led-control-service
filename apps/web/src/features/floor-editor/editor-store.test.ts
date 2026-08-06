@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFloorEditorStore } from "./editor-store";
 import type { FloorEditorState } from "./editor-types";
 
@@ -50,5 +50,22 @@ describe("floor editor store baseline", () => {
     const id = useFloorEditorStore.getState().state!.objects[0].id;
     useFloorEditorStore.getState().removeObject(id);
     expect(useFloorEditorStore.getState().state!.objects).toEqual([]);
+  });
+
+  it("keeps draft ids unique after add delete and re-add", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const draft = {
+      type: "rectangle" as const, x: 0, y: 0, width: 10, height: 10, points: null,
+      rotation: 0, strokeColor: "#000000", fillColor: "#ffffff", strokeWidth: 1,
+      text: "", fontSize: null, locked: false, visible: true
+    };
+
+    useFloorEditorStore.getState().addObject("floor-1", draft);
+    const firstId = useFloorEditorStore.getState().state!.objects[0].id;
+    useFloorEditorStore.getState().removeObject(firstId);
+    useFloorEditorStore.getState().addObject("floor-1", draft);
+    const secondId = useFloorEditorStore.getState().state!.objects[0].id;
+
+    expect(firstId).not.toBe(secondId);
   });
 });

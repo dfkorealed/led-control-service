@@ -126,6 +126,56 @@ describe("buildEditorChanges", () => {
     expect(buildEditorChanges(initial, current).floorPlan).toBeNull();
   });
 
+  it("treats null and a none floor plan as the same API state", () => {
+    const initial = state({ floor: { ...state().floor, floorPlan: null } });
+    const current = state({
+      floor: {
+        ...initial.floor,
+        floorPlan: {
+          imageUrl: "",
+          sourceType: "none",
+          originalFileUrl: null,
+          renderedImageUrl: null,
+          width: 1200,
+          height: 800,
+          version: 1
+        }
+      }
+    });
+
+    expect(buildEditorChanges(initial, current)).not.toHaveProperty("floorPlan");
+  });
+
+  it("treats default source and fallback asset URLs as the same API state", () => {
+    const initial = state({
+      floor: {
+        ...state().floor,
+        floorPlan: {
+          imageUrl: "/plan.png",
+          sourceType: undefined,
+          originalFileUrl: null,
+          renderedImageUrl: null,
+          width: 1200,
+          height: 800,
+          version: 1
+        }
+      }
+    });
+    const current = state({
+      floor: {
+        ...initial.floor,
+        floorPlan: {
+          ...initial.floor.floorPlan!,
+          sourceType: "image",
+          originalFileUrl: "/plan.png",
+          renderedImageUrl: "/plan.png"
+        }
+      }
+    });
+
+    expect(buildEditorChanges(initial, current)).not.toHaveProperty("floorPlan");
+  });
+
   it("returns no mutations for an unchanged state", () => {
     const initial = state({ fixtures: [fixture(1)], objects: [object("object-1")] });
 

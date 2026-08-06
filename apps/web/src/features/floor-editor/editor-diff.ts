@@ -41,8 +41,10 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
     objectUpdates,
     objectDeletes: initial.objects.filter((object) => !currentObjectIds.has(object.id)).map((object) => object.id)
   };
-  if (!sameFloorPlan(initial.floor.floorPlan, current.floor.floorPlan)) {
-    changes.floorPlan = toFloorPlanUpdate(current.floor.floorPlan);
+  const initialFloorPlan = toFloorPlanUpdate(initial.floor.floorPlan);
+  const currentFloorPlan = toFloorPlanUpdate(current.floor.floorPlan);
+  if (!sameFloorPlan(initialFloorPlan, currentFloorPlan)) {
+    changes.floorPlan = currentFloorPlan;
   }
   return changes;
 }
@@ -100,7 +102,10 @@ function toObjectCreate(object: FloorMapObject): SaveEditorStateInput["objectCre
   return { ...base, type: "rectangle", width: object.width, height: object.height, points: null };
 }
 
-function sameFloorPlan(left: FloorEditorState["floor"]["floorPlan"], right: FloorEditorState["floor"]["floorPlan"]) {
+function sameFloorPlan(
+  left: SaveEditorStateInput["floorPlan"],
+  right: SaveEditorStateInput["floorPlan"]
+) {
   if (left === right) return true;
   if (!left || !right) return left === right;
   return left.imageUrl === right.imageUrl
