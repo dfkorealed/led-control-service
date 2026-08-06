@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
 import { useSites } from "../../api/queries";
@@ -15,6 +16,13 @@ export function SettingsShell({ userRole, selectedSiteId }: SettingsShellProps) 
   const location = useLocation();
   const sections = settingsSectionsFor(userRole);
   const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
+  const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
+  const canSelectSite = useCallback(() => {
+    if (!isEditorDirty) return true;
+    if (!window.confirm("저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?")) return false;
+    discardEditorChanges();
+    return true;
+  }, [discardEditorChanges, isEditorDirty]);
 
   return (
     <section className="settings-workspace">
@@ -22,7 +30,7 @@ export function SettingsShell({ userRole, selectedSiteId }: SettingsShellProps) 
         <SiteSwitcher
           sites={sites}
           selectedSiteId={selectedSiteId}
-          canSelectSite={() => !isEditorDirty || window.confirm("저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?")}
+          canSelectSite={canSelectSite}
         />
         <nav className="settings-nav">
           {sections.map((section) => (

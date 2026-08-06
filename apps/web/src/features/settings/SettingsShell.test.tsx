@@ -16,6 +16,12 @@ function LocationProbe() {
   return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
 }
 
+function RoutedSettingsShell() {
+  const location = useLocation();
+  const selectedSiteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
+  return <SettingsShell userRole="admin" selectedSiteId={selectedSiteId} />;
+}
+
 describe("SettingsShell", () => {
   afterEach(() => {
     cleanup();
@@ -40,7 +46,12 @@ describe("SettingsShell", () => {
 
   it("blocks a site switch while the floor editor is dirty", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    useFloorEditorStore.setState({ isDirty: true });
+    const draft = {
+      floor: { id: "floor-1", siteId: "site-1", name: "작성 중", level: -1, mapRevision: 3, floorPlan: null },
+      fixtures: [],
+      objects: []
+    };
+    useFloorEditorStore.setState({ state: draft, isDirty: true });
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1"]}>
         <Routes>
@@ -55,5 +66,39 @@ describe("SettingsShell", () => {
 
     expect(confirm).toHaveBeenCalledOnce();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
+    expect(useFloorEditorStore.getState()).toMatchObject({ state: draft, isDirty: true });
+  });
+
+  it("discards the editor draft once after an approved site switch", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const baseline = {
+      floor: { id: "floor-1", siteId: "site-1", name: "B1", level: -1, mapRevision: 3, floorPlan: null },
+      fixtures: [{
+        id: "fixture-1", name: "L1", x: 10, y: 20, size: 20, ratedWatt: 40,
+        brightness: 70, status: "online" as const
+      }],
+      objects: []
+    };
+    useFloorEditorStore.getState().initialize(baseline);
+    useFloorEditorStore.getState().updateFixture("fixture-1", { x: 99 });
+    render(
+      <MemoryRouter initialEntries={["/settings/floor-plans/floor-1/edit?siteId=site-1"]}>
+        <Routes>
+          <Route path="/settings" element={<RoutedSettingsShell />}>
+            <Route path="floor-plans" element={<LocationProbe />} />
+            <Route path="floor-plans/:floorId/edit" element={<LocationProbe />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "현장 선택" }), { target: { value: "site-2" } });
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-2");
+    expect(useFloorEditorStore.getState()).toMatchObject({ state: baseline, initialState: baseline, isDirty: false });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "현장 선택" }), { target: { value: "site-1" } });
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
+    expect(confirm).toHaveBeenCalledOnce();
   });
 });
