@@ -80,9 +80,11 @@ describe("FloorEditorService", () => {
     const prisma: any = {
       floor: {
         findUnique: jest.fn().mockResolvedValue(floor),
-        findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, site: { organizationId: ids.organizationId } })
+        findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, site: { organizationId: ids.organizationId } }),
+        updateMany: jest.fn()
       },
       floorPlan: {
+        findUnique: jest.fn().mockResolvedValue(null),
         upsert: jest.fn()
       },
       floorAsset: { count: jest.fn().mockResolvedValue(0) },
@@ -96,6 +98,7 @@ describe("FloorEditorService", () => {
         update: jest.fn(),
         delete: jest.fn()
       },
+      $transaction: jest.fn(),
       ...prismaOverrides
     };
 
@@ -219,18 +222,18 @@ describe("FloorEditorService", () => {
   });
 
   it("keeps the legacy floor plan endpoint compatible with background-none and partial patches", async () => {
+    const nonePlan = {
+      imageUrl: "", sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
+      width: 1200, height: 800
+    };
     const { service, prisma } = await createService({
-      floorPlan: { upsert: jest.fn().mockResolvedValue({ sourceType: "none", imageUrl: "" }) }
+      floorPlan: {
+        findUnique: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(nonePlan),
+        upsert: jest.fn().mockResolvedValue(nonePlan)
+      }
     });
 
-    await service.updateFloorPlan(ids.floorId, {
-      imageUrl: "",
-      sourceType: "none",
-      originalFileUrl: null,
-      renderedImageUrl: null,
-      width: 1200,
-      height: 800
-    }, assignedOperator);
+    await service.updateFloorPlan(ids.floorId, nonePlan, assignedOperator);
     await service.updateFloorPlan(ids.floorId, { width: 900, id: "floor-plan-1", version: 2 } as never, assignedOperator);
 
     expect(prisma.floorPlan.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({
@@ -239,6 +242,84 @@ describe("FloorEditorService", () => {
     expect(prisma.floorPlan.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
       update: { width: 900, version: { increment: 1 } }
     }));
+  });
+
+  it("creates a complete ready image floor plan through the legacy endpoint", async () => {
+    const imagePlan = {
+      imageUrl: "https://assets.example/image.png",
+      sourceType: "image" as const,
+      originalFileUrl: "https://assets.example/original.png",
+      renderedImageUrl: "https://assets.example/rendered.png",
+      width: 1200,
+      height: 800
+    };
+    const { service, prisma } = await createService({
+      floorAsset: { count: jest.fn().mockResolvedValue(3) }
+    });
+
+    await service.updateFloorPlan(ids.floorId, imagePlan, assignedOperator);
+
+    expect(prisma.floorPlan.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: { floorId: ids.floorId, ...imagePlan }
+    }));
+  });
+
+  it("merges a partial legacy image patch and validates every effective ready URL", async () => {
+    const existing = {
+      imageUrl: "https://assets.example/image.png",
+      sourceType: "image" as const,
+      originalFileUrl: "https://assets.example/original.png",
+      renderedImageUrl: "https://assets.example/rendered.png",
+      width: 1200,
+      height: 800
+    };
+    const nextRendered = "https://assets.example/rendered-v2.png";
+    const { service, prisma } = await createService({
+      floorPlan: { findUnique: jest.fn().mockResolvedValue(existing), upsert: jest.fn() },
+      floorAsset: { count: jest.fn().mockResolvedValue(3) }
+    });
+
+    await service.updateFloorPlan(ids.floorId, { renderedImageUrl: nextRendered }, assignedOperator);
+
+    expect(prisma.floorAsset.count).toHaveBeenCalledWith({
+      where: {
+        floorId: ids.floorId,
+        status: "ready",
+        publicUrl: { in: [existing.imageUrl, existing.originalFileUrl, nextRendered] }
+      }
+    });
+    expect(prisma.floorPlan.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: { renderedImageUrl: nextRendered, version: { increment: 1 } }
+    }));
+  });
+
+  it.each([
+    ["incomplete image create", null, { sourceType: "image" }, 0],
+    ["empty image create", null, {
+      sourceType: "image", imageUrl: "", originalFileUrl: null, renderedImageUrl: null, width: 1200, height: 800
+    }, 0],
+    ["empty image update", {
+      sourceType: "image", imageUrl: "https://assets.example/image.png",
+      originalFileUrl: "https://assets.example/original.png",
+      renderedImageUrl: "https://assets.example/rendered.png", width: 1200, height: 800
+    }, { imageUrl: "" }, 0],
+    ["non-ready partial image update", {
+      sourceType: "image", imageUrl: "https://assets.example/image.png",
+      originalFileUrl: "https://assets.example/original.png",
+      renderedImageUrl: "https://assets.example/rendered.png", width: 1200, height: 800
+    }, { renderedImageUrl: "https://assets.example/not-ready.png" }, 2]
+  ])("rejects %s before any mutation", async (_label, existing, patch, readyCount) => {
+    const { service, prisma } = await createService({
+      floorPlan: { findUnique: jest.fn().mockResolvedValue(existing), upsert: jest.fn() },
+      floorAsset: { count: jest.fn().mockResolvedValue(readyCount) }
+    });
+
+    await expect(service.updateFloorPlan(ids.floorId, patch as never, assignedOperator))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.floorPlan.upsert).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.floor.updateMany).not.toHaveBeenCalled();
   });
 
   it("updates fixture name, ratedWatt, x, y, and size for the current organization", async () => {
@@ -696,15 +777,39 @@ describe("FloorEditorService atomic revisions", () => {
     expect(tx.floorMapObject.update).not.toHaveBeenCalled();
   });
 
-  it("rejects restore revision overflow before floor lookup or transaction", async () => {
-    const { service, prisma } = await createAtomicService();
+  it.each([2_147_483_648, "1e100", 0, 1.5])(
+    "rejects authorized invalid restore revision %s after access and before revision query",
+    async (revision) => {
+      const { service, prisma, siteAccess, tx } = await createAtomicService();
 
-    await expect(service.restoreEditorRevision(user, floorId, 2_147_483_648, { expectedRevision: 3 }))
-      .rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.restoreEditorRevision(user, floorId, revision as never, { expectedRevision: 3 }))
+        .rejects.toBeInstanceOf(BadRequestException);
 
-    expect(prisma.floor.findUnique).not.toHaveBeenCalled();
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
+      expect(prisma.floor.findUnique).toHaveBeenCalledWith({ where: { id: floorId }, select: { siteId: true } });
+      expect(siteAccess.assert).toHaveBeenCalledWith(user, siteId, "manage");
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.floorMapRevision.findUnique).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["cross-tenant", "unassigned"])(
+    "returns opaque 404 for %s invalid restore revisions before parsing or revision query",
+    async () => {
+      const accessError = new NotFoundException("site not found");
+      const tx = createTransactionClient();
+      const { service, prisma } = await createAtomicService({
+        tx,
+        siteAccessAssert: jest.fn().mockRejectedValue(accessError)
+      });
+
+      await expect(service.restoreEditorRevision(user, floorId, "2147483648" as never, { expectedRevision: 3 }))
+        .rejects.toBe(accessError);
+
+      expect(prisma.floor.findUnique).toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.floorMapRevision.findUnique).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     ["fixture update IDs", { ...saveInput, fixtureUpdates: [saveInput.fixtureUpdates[0], saveInput.fixtureUpdates[0]] }],

@@ -1,4 +1,3 @@
-import { BadRequestException } from "@nestjs/common";
 import { FloorEditorController } from "./floor-editor.controller";
 
 describe("FloorEditorController", () => {
@@ -39,7 +38,7 @@ describe("FloorEditorController", () => {
     expect(service.getEditorState).toHaveBeenCalledWith("floor-1", user);
     expect(service.saveEditorState).toHaveBeenCalledWith(user, "floor-1", { expectedRevision: 3 });
     expect(service.listEditorRevisions).toHaveBeenCalledWith(user, "floor-1", { cursor: "2", limit: "20" });
-    expect(service.restoreEditorRevision).toHaveBeenCalledWith(user, "floor-1", 2, { expectedRevision: 3 });
+    expect(service.restoreEditorRevision).toHaveBeenCalledWith(user, "floor-1", "2", { expectedRevision: 3 });
     expect(service.updateFloorPlan).toHaveBeenCalledWith("floor-1", { imageUrl: "https://assets.example/floor.png" }, user);
     expect(service.updateFixture).toHaveBeenCalledWith("fixture-1", { x: 100 }, user);
     expect(service.createObject).toHaveBeenCalledWith({ floorId: "floor-1", type: "text", x: 1, y: 2 }, user);
@@ -48,14 +47,14 @@ describe("FloorEditorController", () => {
   });
 
   it.each(["2147483648", "1e100", "0", "1.5"])(
-    "rejects invalid restore revision %s before calling the service",
+    "forwards raw restore revision %s for access-aware service validation",
     (revision) => {
       const service = { restoreEditorRevision: jest.fn() };
       const controller = new FloorEditorController(service as never);
 
-      expect(() => controller.restoreEditorRevision("floor-1", revision, { expectedRevision: 0 }, user))
-        .toThrow(BadRequestException);
-      expect(service.restoreEditorRevision).not.toHaveBeenCalled();
+      controller.restoreEditorRevision("floor-1", revision, { expectedRevision: 0 }, user);
+
+      expect(service.restoreEditorRevision).toHaveBeenCalledWith(user, "floor-1", revision, { expectedRevision: 0 });
     }
   );
 });

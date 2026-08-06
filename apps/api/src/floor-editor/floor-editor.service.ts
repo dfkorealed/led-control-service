@@ -4,6 +4,7 @@ import {
   SaveEditorStateInput,
   editorRevisionListQuerySchema,
   floorMapObjectGeometrySchema,
+  legacyFloorPlanEffectiveSchema,
   legacyFloorPlanPatchSchema,
   parseFloorEditorSnapshot,
   positivePostgresIntSchema,
@@ -204,15 +205,15 @@ export class FloorEditorService {
   async restoreEditorRevision(
     user: AuthenticatedUser,
     floorId: string,
-    revision: number,
+    revision: unknown,
     rawInput: unknown
   ) {
+    const access = await this.assertExistingFloor(floorId, user, "manage");
     const parsedRevision = this.parseInput(
       positivePostgresIntSchema,
       revision,
       "revision must be a positive PostgreSQL integer"
     );
-    const access = await this.assertExistingFloor(floorId, user, "manage");
     const input = this.parseInput(
       restoreFloorEditorRevisionSchema,
       rawInput,
@@ -346,18 +347,34 @@ export class FloorEditorService {
     await this.assertExistingFloor(floorId, user, "manage");
     const parsed = this.parseInput(legacyFloorPlanPatchSchema, input, "invalid floor plan payload");
     const data = this.buildFloorPlanData(parsed);
-    await this.assertReadyAssetUrls(floorId, data);
+    const existing = await this.prisma.floorPlan.findUnique({
+      where: { floorId },
+      select: {
+        imageUrl: true,
+        sourceType: true,
+        originalFileUrl: true,
+        renderedImageUrl: true,
+        width: true,
+        height: true
+      }
+    });
+    const effective = this.parseInput(legacyFloorPlanEffectiveSchema, {
+      imageUrl: data.imageUrl !== undefined ? data.imageUrl : existing?.imageUrl,
+      sourceType: data.sourceType !== undefined ? data.sourceType : existing?.sourceType,
+      originalFileUrl: data.originalFileUrl !== undefined ? data.originalFileUrl : existing?.originalFileUrl,
+      renderedImageUrl: data.renderedImageUrl !== undefined ? data.renderedImageUrl : existing?.renderedImageUrl,
+      width: data.width !== undefined ? data.width : existing?.width,
+      height: data.height !== undefined ? data.height : existing?.height
+    }, "invalid effective floor plan payload");
+    if (effective.sourceType !== "none") {
+      await this.assertReadyAssetUrls(floorId, effective);
+    }
 
     return this.prisma.floorPlan.upsert({
       where: { floorId },
       create: {
         floorId,
-        imageUrl: data.imageUrl ?? "",
-        sourceType: data.sourceType ?? "none",
-        originalFileUrl: data.originalFileUrl ?? null,
-        renderedImageUrl: data.renderedImageUrl ?? null,
-        width: data.width ?? 1,
-        height: data.height ?? 1
+        ...effective
       },
       update: {
         ...data,

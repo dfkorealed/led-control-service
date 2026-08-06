@@ -50,6 +50,19 @@ export const floorPlanUpdateSchema = z.discriminatedUnion("sourceType", [
   z.object({ sourceType: z.literal("pdf"), ...floorPlanFields }).strict()
 ]);
 
+export const legacyFloorPlanEffectiveSchema = z.discriminatedUnion("sourceType", [
+  z.object({
+    sourceType: z.literal("none"),
+    imageUrl: z.literal(""),
+    originalFileUrl: z.union([z.literal(""), z.null()]),
+    renderedImageUrl: z.union([z.literal(""), z.null()]),
+    width: positiveInt4Schema,
+    height: positiveInt4Schema
+  }).strict(),
+  z.object({ sourceType: z.literal("image"), ...floorPlanFields }).strict(),
+  z.object({ sourceType: z.literal("pdf"), ...floorPlanFields }).strict()
+]);
+
 export const legacyFloorPlanPatchSchema = z.object({
   imageUrl: z.string().trim().max(EDITOR_MAX_URL_LENGTH).optional(),
   sourceType: z.enum(["none", "image", "pdf"]).optional(),

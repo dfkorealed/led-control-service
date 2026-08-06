@@ -9,6 +9,7 @@ import {
   POSTGRES_INT_MAX,
   editorRevisionListQuerySchema,
   floorEditorSnapshotSchema,
+  legacyFloorPlanEffectiveSchema,
   parseFloorEditorSnapshot,
   positivePostgresIntSchema,
   fixtureLayoutUpdateSchema,
@@ -215,6 +216,18 @@ describe("shared schemas", () => {
     expect(() => floorPlanUpdateSchema.parse({ ...imagePlan, imageUrl: "   " })).toThrow();
     expect(() => floorPlanUpdateSchema.parse({ ...imagePlan, sourceType: "none" })).toThrow();
     expect(() => floorPlanUpdateSchema.parse({ ...imagePlan, width: 0 })).toThrow();
+
+    expect(legacyFloorPlanEffectiveSchema.parse({
+      sourceType: "none",
+      imageUrl: "",
+      originalFileUrl: null,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800
+    })).toMatchObject({ sourceType: "none", imageUrl: "" });
+    expect(legacyFloorPlanEffectiveSchema.parse(imagePlan)).toEqual(imagePlan);
+    expect(() => legacyFloorPlanEffectiveSchema.parse({ ...imagePlan, imageUrl: "" })).toThrow();
+    expect(() => legacyFloorPlanEffectiveSchema.parse({ ...imagePlan, originalFileUrl: null })).toThrow();
   });
 
   it("bounds PostgreSQL Int fields and editor request collection sizes", () => {
