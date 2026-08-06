@@ -223,6 +223,7 @@ FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest s
 
 - `a3aa1b7 fix(floor-editor): preserve legacy revision compatibility`
 - `669be7e test(floor-editor): cover legacy postgres restores`
+- `d8041f6 fix(floor-editor): preflight object geometry patches`
 
 ### 변경 파일
 
@@ -268,6 +269,15 @@ pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.service.s
 
 - 좌표 배열이 아닌 persisted points는 transaction rollback됐지만 `BadRequestException` 대신 raw `ZodError`로 노출됐다.
 
+Merged geometry transaction boundary 추가 RED:
+
+```bash
+pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.service.spec.ts --runInBand -t "rejects merged object geometry"
+# exit 1: 3 failed, 39 skipped
+```
+
+- 세 invalid geometry가 `floor.updateMany` 전에 거부되지만 `$transaction`은 이미 한 번 호출됐다. root Prisma preflight 검증과 transaction 내부 재검증을 분리한 뒤 transaction 미호출 assertion까지 통과시켰다.
+
 ### GREEN
 
 ```bash
@@ -310,7 +320,7 @@ FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest s
 - atomic `floorPlan` write는 complete image/pdf + ready URL 계약을 그대로 사용한다. 별도 v1 persisted parser만 `none`, nullable URL/geometry와 bounded legacy type을 허용하므로 신규 write 계약이 느슨해지지 않는다.
 - legacy floor-plan PATCH는 unknown response-only `id/version`을 strip하고 background-none 및 partial patch를 유지한다. non-empty URL은 계속 object-storage URL/ready asset 검사를 거친다.
 - snapshot parser는 URL/type/text/color/points 길이, finite number와 INT4를 제한하고 malformed points를 거부한다. parser/build 오류는 restore/save 서비스 경계에서 `400`으로 변환된다.
-- object patch는 같은 floor의 현재 type/width/height/points를 조회해 merge한 뒤 shared type-specific geometry schema를 통과해야 한다. 검증은 `floor.updateMany`보다 먼저 실행된다.
+- object patch는 root client에서 같은 floor의 현재 type/width/height/points를 조회해 merge한 뒤 shared type-specific geometry schema를 통과해야 transaction을 연다. transaction 내부에서도 최신 상태를 다시 merge·검증하므로 preflight 이후 race가 있어도 `floor.updateMany` 전에 차단된다.
 - restore revision은 controller와 service 모두 같은 shared positive INT4 parser를 사용하며 DB 조회 전에 overflow를 거부한다.
 
 ### Remaining concerns

@@ -278,7 +278,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - Task 5 최종 보완으로 기존 현장이 있는 경우에도 Gateway claim과 조명 provisioning UI를 service-provider `operator`에게만 노출한다. customer `admin/viewer`의 직접 API 호출은 백엔드에서도 계속 차단한다.
 - Task 1~5 통합 보안 리뷰와 보완 재리뷰를 완료했다. Floor editor SiteAccess, invitation 원자 소비, legacy migration 역할 보존과 bootstrap singleton을 검증했다.
 - Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다. 다음 구현 범위는 Task 7의 도면 에디터 설정 이동이다.
-- Task 8 atomic save/revision API는 `d8d42f1`, Fix Round 1은 `edde0a8`/`8d7aa2e`, Fix Round 2의 legacy snapshot·INT4·merged geometry 보정은 `a3aa1b7`/`669be7e`에서 완료했다. 다음 구현 범위는 Task 9의 웹 변경분 생성, atomic save 연결, 충돌·복구 UI다.
+- Task 8 atomic save/revision API는 `d8d42f1`, Fix Round 1은 `edde0a8`/`8d7aa2e`, Fix Round 2의 legacy snapshot·INT4·merged geometry 보정은 `a3aa1b7`/`669be7e`/`d8041f6`에서 완료했다. 다음 구현 범위는 Task 9의 웹 변경분 생성, atomic save 연결, 충돌·복구 UI다.
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
