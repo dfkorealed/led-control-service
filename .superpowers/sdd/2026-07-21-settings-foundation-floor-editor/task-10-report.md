@@ -73,3 +73,28 @@
 ### Remaining Concerns
 
 - The focused real-Redis test proves script token comparison in a local isolated database, but a deployed multi-process browser/API/Redis expiry test and the existing PostgreSQL floor-editor integration suite still require their dedicated environment configuration.
+
+## Fix Round 2
+
+### RED
+
+- `pnpm --filter @led-control/web exec vitest run src/features/settings/floor-plans/FloorEditorRoute.test.tsx` failed as intended after a successful acquire, a heartbeat left unresolved at 30 seconds, and 50 more simulated seconds: the route still reported `lease-read-only` as `false` at 80 seconds. This reproduced the remaining review finding before the Redis 90-second TTL.
+
+### GREEN
+
+- The route now names the server lease assumption (`90_000ms`), client safety margin (`10_000ms`), and derived local deadline (`80_000ms`). Each successful acquire or token-checked renew resets the deadline.
+- Deadline expiry is terminal for its effect: it clears the local releasable token, heartbeat, retry, and deadline timers, publishes read-only, and ignores a late successful heartbeat response. Cleanup after deadline therefore cannot release an ownership token that is no longer locally trusted.
+- Fake-timer/deferred tests cover the unresolved heartbeat crossing the 80-second deadline, late success remaining read-only, no later renewal, deadline-safe unmount, floor-transition cancellation of the old deadline, and retain the bounded same-floor delayed-cleanup retry coverage.
+- Focused Web: `pnpm --filter @led-control/web exec vitest run src/features/settings/floor-plans/FloorEditorRoute.test.tsx` -> 1 file, 23 tests passed.
+- Full Web: `pnpm --filter @led-control/web test` -> 16 files, 128 tests passed.
+- Affected API including local real Redis script integration: `RUN_REDIS_INTEGRATION=true REDIS_URL=redis://127.0.0.1:6379/15 pnpm --filter @led-control/api exec jest src/api-lifecycle.spec.ts src/redis src/floor-editor --runInBand` -> 7 suites, 84 tests passed; the unrelated PostgreSQL-backed floor-editor integration suite remained skipped because its dedicated database URL is not configured.
+- Type/build: `pnpm --filter @led-control/api typecheck`, `pnpm --filter @led-control/web typecheck`, `pnpm --filter @led-control/api build`, and `pnpm --filter @led-control/web build` passed. The Web build retains its pre-existing PDF/editor large-chunk warning.
+
+### Self-review
+
+- The watchdog intentionally does not issue a release when it fires: the network state is untrusted, and clearing the local token prevents a late cleanup from acting on an expired or successor lease. Redis remains the authority and expires the original key within its 90-second server TTL.
+- A successful renew can reset the deadline only while the current effect is active, has not lost the lease, and still owns the same token. Floor cleanup clears the old deadline before the next floor effect publishes.
+
+### Remaining Concerns
+
+- The client and server TTL constants live in separate deployable applications, so the 90-second alignment is documented and regression-tested but not imported from a shared runtime package. Any future server TTL change must update the named client assumption and its safety margin in the same change.

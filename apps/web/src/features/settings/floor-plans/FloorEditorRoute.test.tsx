@@ -179,6 +179,34 @@ describe("FloorEditorRoute", () => {
     expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
   });
 
+  it("fails closed before Redis expiry when a heartbeat remains pending and ignores its late success", async () => {
+    vi.useFakeTimers();
+    getFloorEditorState.mockResolvedValue(editorState);
+    const pendingHeartbeat = deferred<{ editable: boolean; token?: string; holderName?: string }>();
+    acquireFloorEditorLease
+      .mockResolvedValueOnce({ editable: true, token: "lease-token", holderName: "김관리" })
+      .mockReturnValueOnce(pendingHeartbeat.promise);
+    const { unmount } = renderRoute("admin");
+
+    await act(async () => {});
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(50_000); });
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+
+    pendingHeartbeat.resolve({ editable: true, token: "lease-token", holderName: "김관리" });
+    await act(async () => {});
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+
+    unmount();
+    expect(releaseFloorEditorLease).not.toHaveBeenCalled();
+  });
+
   it("does not let a stale floor acquisition clear the new floor's releasable token", async () => {
     getFloorEditorState.mockImplementation((floorId: string) => Promise.resolve(
       floorId === "floor-b2" ? editorState : {
@@ -201,6 +229,32 @@ describe("FloorEditorRoute", () => {
     unmount();
 
     await waitFor(() => expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b3", "b3-token"));
+  });
+
+  it("cancels the old floor deadline when moving to another editable floor", async () => {
+    vi.useFakeTimers();
+    getFloorEditorState.mockImplementation((floorId: string) => Promise.resolve(
+      floorId === "floor-b2" ? editorState : {
+        ...editorState,
+        floor: { ...editorState.floor, id: "floor-b3", siteId: "site-3", name: "B3", level: -3 }
+      }
+    ));
+    acquireFloorEditorLease
+      .mockResolvedValueOnce({ editable: true, token: "b2-token", holderName: "김관리" })
+      .mockResolvedValueOnce({ editable: true, token: "b3-token", holderName: "김관리" })
+      .mockResolvedValue({ editable: true, token: "b3-token", holderName: "김관리" });
+    const { unmount } = renderFloorTransitionRoute();
+
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    fireEvent.click(screen.getByRole("button", { name: "B3로 이동" }));
+    await act(async () => {});
+    expect(screen.getByRole("heading", { name: "B3 도면 편집" })).toBeInTheDocument();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(70_000); });
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+    unmount();
+    expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b3", "b3-token");
   });
 
   it("retries an initial same-floor conflict after delayed cleanup release without reviving a lost token", async () => {

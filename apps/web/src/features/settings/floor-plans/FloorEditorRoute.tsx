@@ -18,6 +18,10 @@ interface FloorEditorRouteProps {
 
 const discardMessage = "저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?";
 const leaseHeartbeatMs = 30_000;
+// Must remain aligned with EditorLeaseService. The client fails closed before Redis can expire the lease.
+const serverFloorEditorLeaseTtlMs = 90_000;
+const floorEditorLeaseSafetyMarginMs = 10_000;
+const floorEditorLeaseDeadlineMs = serverFloorEditorLeaseTtlMs - floorEditorLeaseSafetyMarginMs;
 const initialLeaseRetryDelaysMs = [250, 500, 1_000, 2_000, 4_000, 8_000];
 
 interface FloorLeaseState {
@@ -115,6 +119,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
     let acquiredToken: string | null = null;
     let heartbeat: number | null = null;
     let retryTimer: number | null = null;
+    let leaseDeadlineTimer: number | null = null;
     let renewalInFlight = false;
     let initialAcquireInFlight = false;
     let retryAttempt = 0;
@@ -124,8 +129,10 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
     const stopTimers = () => {
       if (heartbeat !== null) window.clearInterval(heartbeat);
       if (retryTimer !== null) window.clearTimeout(retryTimer);
+      if (leaseDeadlineTimer !== null) window.clearTimeout(leaseDeadlineTimer);
       heartbeat = null;
       retryTimer = null;
+      leaseDeadlineTimer = null;
     };
     const loseLease = (lease: FloorEditorLease = { editable: false }) => {
       if (disposed || leaseLost) return;
@@ -133,6 +140,10 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       acquiredToken = null;
       stopTimers();
       publish(lease.editable ? { editable: false } : lease);
+    };
+    const scheduleLeaseDeadline = () => {
+      if (leaseDeadlineTimer !== null) window.clearTimeout(leaseDeadlineTimer);
+      leaseDeadlineTimer = window.setTimeout(() => loseLease(), floorEditorLeaseDeadlineMs);
     };
     const releaseAfterDispose = (token: string) => {
       void releaseFloorEditorLease(floorId, token).catch(() => undefined);
@@ -148,6 +159,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
           loseLease(renewed);
           return;
         }
+        scheduleLeaseDeadline();
         publish(renewed);
       } catch {
         if (!disposed && !leaseLost && acquiredToken === token) loseLease();
@@ -179,6 +191,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
           return;
         }
         acquiredToken = acquired.token;
+        scheduleLeaseDeadline();
         publish(acquired);
         heartbeat = window.setInterval(() => void renewLease(), leaseHeartbeatMs);
       } catch {
