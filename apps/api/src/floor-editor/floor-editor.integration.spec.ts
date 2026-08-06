@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -304,6 +304,93 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     await expect(prisma.floor.findUniqueOrThrow({ where: { id: ids.floorId }, select: { mapRevision: true } }))
       .resolves.toEqual({ mapRevision: 0 });
     await expect(prisma.floorPlan.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
+    await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
+    await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(0);
+  });
+
+  it("round-trips legacy floor plan and nullable object rows through canonical revisions", async () => {
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    await service.updateFloorPlan(ids.floorId, {
+      imageUrl: "",
+      sourceType: "none",
+      originalFileUrl: null,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800
+    }, operator);
+    await service.updateFloorPlan(ids.floorId, { width: 900 }, operator);
+    const legacyObject = await prisma.floorMapObject.create({
+      data: {
+        floorId: ids.floorId,
+        type: "legacy-shape",
+        x: 10,
+        y: 20,
+        width: null,
+        height: null
+      }
+    });
+
+    await service.saveEditorState(operator, ids.floorId, {
+      expectedRevision: 0,
+      fixtureUpdates: [],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    });
+    const revisionOne = await prisma.floorMapRevision.findUniqueOrThrow({
+      where: { floorId_revision: { floorId: ids.floorId, revision: 1 } }
+    });
+
+    await service.updateFloorPlan(ids.floorId, {
+      imageUrl: readyAssetUrl,
+      sourceType: "image",
+      originalFileUrl: readyAssetUrl,
+      renderedImageUrl: readyAssetUrl,
+      width: 640,
+      height: 480
+    }, operator);
+    await prisma.floorMapObject.update({
+      where: { id: legacyObject.id },
+      data: { type: "rectangle", width: 100, height: 80 }
+    });
+
+    const restored = await service.restoreEditorRevision(operator, ids.floorId, 1, { expectedRevision: 1 });
+    expect(restored).toMatchObject({
+      floor: { mapRevision: 2, floorPlan: { sourceType: "none", imageUrl: "", width: 900, height: 800 } },
+      objects: [{ id: legacyObject.id, type: "legacy-shape", width: 0, height: 0 }]
+    });
+    const revisionTwo = await prisma.floorMapRevision.findUniqueOrThrow({
+      where: { floorId_revision: { floorId: ids.floorId, revision: 2 } }
+    });
+    expect(revisionTwo.snapshot).toEqual(revisionOne.snapshot);
+    expect(revisionTwo.snapshotSha256).toBe(revisionOne.snapshotSha256);
+  });
+
+  it("rejects invalid merged object geometry without committing revision state", async () => {
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    const rectangle = await prisma.floorMapObject.create({
+      data: {
+        floorId: ids.floorId,
+        type: "rectangle",
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 80
+      }
+    });
+
+    await expect(service.saveEditorState(operator, ids.floorId, {
+      expectedRevision: 0,
+      fixtureUpdates: [],
+      objectCreates: [],
+      objectUpdates: [{ id: rectangle.id, patch: { width: null } }],
+      objectDeletes: []
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(prisma.floor.findUniqueOrThrow({ where: { id: ids.floorId }, select: { mapRevision: true } }))
+      .resolves.toEqual({ mapRevision: 0 });
+    await expect(prisma.floorMapObject.findUniqueOrThrow({ where: { id: rectangle.id }, select: { width: true } }))
+      .resolves.toEqual({ width: 100 });
     await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
     await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(0);
   });
