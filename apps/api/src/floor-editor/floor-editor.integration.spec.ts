@@ -15,6 +15,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     operatorId: "10000000-0000-4000-8000-000000000004",
     viewerId: "10000000-0000-4000-8000-000000000005",
     otherAdminId: "10000000-0000-4000-8000-000000000006",
+    unassignedOperatorId: "10000000-0000-4000-8000-000000000014",
     siteId: "10000000-0000-4000-8000-000000000007",
     floorId: "10000000-0000-4000-8000-000000000008",
     fixtureId: "10000000-0000-4000-8000-000000000009",
@@ -50,6 +51,12 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     name: "Other admin",
     role: "admin" as const,
     status: "active" as const
+  };
+  const unassignedOperator = {
+    ...operator,
+    id: ids.unassignedOperatorId,
+    email: "unassigned-floor-editor-operator@example.com",
+    name: "Unassigned floor editor operator"
   };
   const saveInput = {
     expectedRevision: 0,
@@ -88,6 +95,11 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         {
           id: otherAdmin.id, organizationId: otherAdmin.organizationId, email: otherAdmin.email, name: otherAdmin.name,
           passwordHash: "test", role: otherAdmin.role, status: otherAdmin.status
+        },
+        {
+          id: unassignedOperator.id, organizationId: unassignedOperator.organizationId,
+          email: unassignedOperator.email, name: unassignedOperator.name,
+          passwordHash: "test", role: unassignedOperator.role, status: unassignedOperator.status
         }
       ]
     });
@@ -393,6 +405,60 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       .resolves.toEqual({ width: 100 });
     await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
     await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(0);
+  });
+
+  it("validates effective legacy image and pdf plans before mutating persisted state", async () => {
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    const readyImagePlan = {
+      sourceType: "image" as const,
+      imageUrl: readyAssetUrl,
+      originalFileUrl: readyAssetUrl,
+      renderedImageUrl: readyAssetUrl,
+      width: 1200,
+      height: 800
+    };
+
+    await expect(service.updateFloorPlan(ids.floorId, { sourceType: "image" }, operator))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(prisma.floorPlan.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
+
+    await service.updateFloorPlan(ids.floorId, readyImagePlan, operator);
+    const stored = await prisma.floorPlan.findUniqueOrThrow({ where: { floorId: ids.floorId } });
+    for (const patch of [
+      { imageUrl: "" },
+      { renderedImageUrl: "https://assets.example/not-ready.png" },
+      { sourceType: "pdf", originalFileUrl: null },
+      {
+        sourceType: "pdf",
+        imageUrl: "https://assets.example/not-ready-rendered.png",
+        originalFileUrl: "https://assets.example/not-ready.pdf",
+        renderedImageUrl: "https://assets.example/not-ready-rendered.png"
+      }
+    ]) {
+      await expect(service.updateFloorPlan(ids.floorId, patch as never, operator))
+        .rejects.toBeInstanceOf(BadRequestException);
+    }
+
+    await expect(prisma.floorPlan.findUniqueOrThrow({ where: { floorId: ids.floorId } })).resolves.toEqual(stored);
+    await expect(prisma.floor.findUniqueOrThrow({ where: { id: ids.floorId }, select: { mapRevision: true } }))
+      .resolves.toEqual({ mapRevision: 0 });
+    await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
+    await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(0);
+  });
+
+  it("preserves opaque restore access before validating an invalid revision path", async () => {
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+
+    await expect(service.restoreEditorRevision(otherAdmin, ids.floorId, "2147483648", { expectedRevision: 0 }))
+      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.restoreEditorRevision(unassignedOperator, ids.floorId, "2147483648", { expectedRevision: 0 }))
+      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.restoreEditorRevision(operator, ids.floorId, "2147483648", { expectedRevision: 0 }))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(prisma.floor.findUniqueOrThrow({ where: { id: ids.floorId }, select: { mapRevision: true } }))
+      .resolves.toEqual({ mapRevision: 0 });
+    await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
   });
 
   it("commits only one of two concurrent saves with the same expected revision", async () => {

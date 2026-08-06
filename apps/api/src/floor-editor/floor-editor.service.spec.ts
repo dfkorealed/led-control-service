@@ -295,8 +295,12 @@ describe("FloorEditorService", () => {
 
   it.each([
     ["incomplete image create", null, { sourceType: "image" }, 0],
+    ["incomplete pdf create", null, { sourceType: "pdf" }, 0],
     ["empty image create", null, {
       sourceType: "image", imageUrl: "", originalFileUrl: null, renderedImageUrl: null, width: 1200, height: 800
+    }, 0],
+    ["empty pdf create", null, {
+      sourceType: "pdf", imageUrl: "", originalFileUrl: null, renderedImageUrl: null, width: 1200, height: 800
     }, 0],
     ["empty image update", {
       sourceType: "image", imageUrl: "https://assets.example/image.png",
@@ -307,7 +311,17 @@ describe("FloorEditorService", () => {
       sourceType: "image", imageUrl: "https://assets.example/image.png",
       originalFileUrl: "https://assets.example/original.png",
       renderedImageUrl: "https://assets.example/rendered.png", width: 1200, height: 800
-    }, { renderedImageUrl: "https://assets.example/not-ready.png" }, 2]
+    }, { renderedImageUrl: "https://assets.example/not-ready.png" }, 2],
+    ["empty pdf update", {
+      sourceType: "pdf", imageUrl: "https://assets.example/rendered.png",
+      originalFileUrl: "https://assets.example/original.pdf",
+      renderedImageUrl: "https://assets.example/rendered.png", width: 1200, height: 800
+    }, { renderedImageUrl: null }, 0],
+    ["non-ready partial pdf update", {
+      sourceType: "pdf", imageUrl: "https://assets.example/rendered.png",
+      originalFileUrl: "https://assets.example/original.pdf",
+      renderedImageUrl: "https://assets.example/rendered.png", width: 1200, height: 800
+    }, { originalFileUrl: "https://assets.example/not-ready.pdf" }, 1]
   ])("rejects %s before any mutation", async (_label, existing, patch, readyCount) => {
     const { service, prisma } = await createService({
       floorPlan: { findUnique: jest.fn().mockResolvedValue(existing), upsert: jest.fn() },
