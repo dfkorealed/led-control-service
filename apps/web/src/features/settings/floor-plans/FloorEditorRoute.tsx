@@ -2,7 +2,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import type { AuthUser } from "../../../api/auth";
-import { getFloorEditorState } from "../../../api/floor-editor";
+import {
+  acquireFloorEditorLease,
+  getFloorEditorState,
+  releaseFloorEditorLease,
+  type FloorEditorLease
+} from "../../../api/floor-editor";
 import { FloorEditorView } from "../../floor-editor/FloorEditorView";
 import { dirtyEditorSentinelKey, hasDirtyEditorSentinel } from "../../floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "../../floor-editor/editor-store";
@@ -12,12 +17,16 @@ interface FloorEditorRouteProps {
 }
 
 const discardMessage = "저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?";
+const leaseHeartbeatMs = 30_000;
 export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   const { floorId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isDirty, setIsDirty] = useState(false);
+  const [lease, setLease] = useState<FloorEditorLease>({ editable: false });
+  const [leaseFloorId, setLeaseFloorId] = useState<string | null>(null);
+  const leaseTokenRef = useRef<string | null>(null);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
   const selectedSiteId = new URLSearchParams(location.search).get("siteId");
   const canEdit = userRole === "operator" || userRole === "admin";
@@ -27,6 +36,66 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
     enabled: canEdit && Boolean(floorId)
   });
   const listPath = `/settings/floor-plans${location.search}`;
+
+  useEffect(() => {
+    if (!canEdit || !floorId) return;
+
+    let active = true;
+    let heartbeat: number | null = null;
+    const stopHeartbeat = () => {
+      if (heartbeat !== null) window.clearInterval(heartbeat);
+      heartbeat = null;
+    };
+    const loseLease = (nextLease: FloorEditorLease = { editable: false }) => {
+      leaseTokenRef.current = null;
+      stopHeartbeat();
+      if (active) {
+        setLeaseFloorId(floorId);
+        setLease(nextLease.editable ? { editable: false } : nextLease);
+      }
+    };
+    const renewLease = async (token: string) => {
+      try {
+        const renewed = await acquireFloorEditorLease(floorId, token);
+        if (!active) return;
+        if (!renewed.editable || renewed.token !== token) {
+          loseLease(renewed);
+          return;
+        }
+        setLease(renewed);
+      } catch {
+        loseLease();
+      }
+    };
+    const acquireLease = async () => {
+      try {
+        const acquired = await acquireFloorEditorLease(floorId);
+        if (!active) {
+          if (acquired.editable && acquired.token) void releaseFloorEditorLease(floorId, acquired.token).catch(() => undefined);
+          return;
+        }
+        if (!acquired.editable || !acquired.token) {
+          loseLease(acquired);
+          return;
+        }
+        leaseTokenRef.current = acquired.token;
+        setLeaseFloorId(floorId);
+        setLease(acquired);
+        heartbeat = window.setInterval(() => void renewLease(acquired.token!), leaseHeartbeatMs);
+      } catch {
+        loseLease();
+      }
+    };
+
+    void acquireLease();
+    return () => {
+      active = false;
+      stopHeartbeat();
+      const token = leaseTokenRef.current;
+      leaseTokenRef.current = null;
+      if (token) void releaseFloorEditorLease(floorId, token).catch(() => undefined);
+    };
+  }, [canEdit, floorId]);
 
   useEffect(() => {
     if (!editorQuery.data || selectedSiteId) return;
@@ -62,19 +131,37 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
     return <Navigate to={`/settings/floor-plans?siteId=${encodeURIComponent(selectedSiteId)}`} replace />;
   }
 
+  const activeLease = leaseFloorId === floorId ? lease : { editable: false };
+
   return (
-    <FloorEditorView
-      initialState={editorQuery.data}
-      userRole={userRole}
-      onDirtyChange={setIsDirty}
-      onCancel={leaveEditor}
-      onReload={async () => { await editorQuery.refetch(); }}
-      onSaved={() => {
-        setIsDirty(false);
-        navigateFromEditor(listPath);
-      }}
-    />
+    <>
+      {!activeLease.editable ? (
+        <p className="danger-text" role="alert">
+          {activeLease.holderName
+            ? `${activeLease.holderName}님이 ${formatLeaseTime(activeLease.acquiredAt)}부터 이 도면을 편집 중입니다. 읽기 전용으로 열었습니다.`
+            : "편집 lease를 확보하지 못했습니다. 읽기 전용으로 열었습니다."}
+        </p>
+      ) : null}
+      <FloorEditorView
+        initialState={editorQuery.data}
+        userRole={userRole}
+        readOnly={!activeLease.editable}
+        onDirtyChange={setIsDirty}
+        onCancel={leaveEditor}
+        onReload={async () => { await editorQuery.refetch(); }}
+        onSaved={() => {
+          setIsDirty(false);
+          navigateFromEditor(listPath);
+        }}
+      />
+    </>
   );
+}
+
+function formatLeaseTime(value: string | undefined) {
+  if (!value) return "알 수 없는 시각";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "알 수 없는 시각" : date.toLocaleString("ko-KR");
 }
 
 function useDirtyNavigationGuard(

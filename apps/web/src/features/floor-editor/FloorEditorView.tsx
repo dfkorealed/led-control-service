@@ -19,6 +19,7 @@ import type { EditorTool, FloorEditorState } from "./editor-types";
 interface FloorEditorViewProps {
   initialState: FloorEditorState;
   userRole: AuthUser["role"];
+  readOnly?: boolean;
   onCancel: () => void;
   onSaved: (state: FloorEditorState) => void | Promise<void>;
   onReload: () => void | Promise<void>;
@@ -35,7 +36,7 @@ const tools: Array<{ key: EditorTool; label: string; icon: typeof MousePointer2 
 ];
 const TOOL_DRAG_DATA_TYPE = "application/x-floor-editor-tool";
 
-export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onReload, onDirtyChange }: FloorEditorViewProps) {
+export function FloorEditorView({ initialState, userRole, readOnly = false, onCancel, onSaved, onReload, onDirtyChange }: FloorEditorViewProps) {
   const queryClient = useQueryClient();
   const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom } = useFloorEditorStore();
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
@@ -68,7 +69,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   }, [isDirty, onDirtyChange]);
 
   async function handleSave() {
-    if (!state || !baseline || !isDirty || mutationLock.current || assetUploadLock.current) return;
+    if (readOnly || !state || !baseline || !isDirty || mutationLock.current || assetUploadLock.current) return;
     mutationLock.current = true;
     setSaveStatus("saving");
     setSkippedFixtureCount(0);
@@ -87,7 +88,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
   }
 
   async function handleRestore(revision: number) {
-    if (!baseline || mutationLock.current || assetUploadLock.current) return;
+    if (readOnly || !baseline || mutationLock.current || assetUploadLock.current) return;
     mutationLock.current = true;
     setRestoringRevision(revision);
     setSaveStatus("idle");
@@ -116,7 +117,7 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
 
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const isMutationPending = saveStatus === "saving" || restoringRevision !== null;
-  const isSaveOrRestoreBlocked = isMutationPending || assetUploadPending;
+  const isSaveOrRestoreBlocked = readOnly || isMutationPending || assetUploadPending;
 
   function handleAssetBusyChange(busy: boolean) {
     assetUploadLock.current = busy;
@@ -170,8 +171,8 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
                 className={activeTool === tool.key ? "active" : ""}
                 aria-label={tool.label}
                 title={tool.label}
-                disabled={isMutationPending}
-                draggable={!isMutationPending && tool.key !== "select" && tool.key !== "pan"}
+                disabled={readOnly || isMutationPending}
+                draggable={!readOnly && !isMutationPending && tool.key !== "select" && tool.key !== "pan"}
                 onClick={() => setActiveTool(tool.key)}
                 onDragStart={(event) => handleToolDragStart(event, tool.key)}
               >
@@ -181,14 +182,14 @@ export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onR
           })}
         </aside>
         <main className="floor-editor-stage">
-          <FloorEditorCanvas readOnly={isMutationPending} />
+          <FloorEditorCanvas readOnly={readOnly || isMutationPending} />
         </main>
         <div className="floor-editor-side-panel">
-          <FloorAssetUploader readOnly={isMutationPending} onBusyChange={handleAssetBusyChange} />
-          <EditorPropertiesPanel readOnly={isMutationPending} />
+          <FloorAssetUploader readOnly={readOnly || isMutationPending} onBusyChange={handleAssetBusyChange} />
+          <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />
           <RevisionPanel
             revisions={revisions}
-            canRestore={userRole === "operator" || userRole === "admin"}
+            canRestore={!readOnly && (userRole === "operator" || userRole === "admin")}
             isDirty={isDirty}
             restoringRevision={restoringRevision}
             isMutationPending={isSaveOrRestoreBlocked}

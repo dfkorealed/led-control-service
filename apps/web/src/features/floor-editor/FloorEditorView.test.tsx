@@ -121,6 +121,14 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
   });
 
+  it("keeps save disabled when a route-owned lease makes the editor read-only", () => {
+    renderEditor(editorState, { readOnly: true });
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 221 }));
+
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
+  });
+
   it("calls cancel when the cancel button is clicked", () => {
     const onCancel = vi.fn();
     renderEditor(editorState, { onCancel });

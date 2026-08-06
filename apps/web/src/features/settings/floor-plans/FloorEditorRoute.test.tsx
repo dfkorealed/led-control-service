@@ -2,24 +2,31 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { BrowserRouter, Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FloorEditorState } from "../../floor-editor/editor-types";
 import { dirtyEditorSentinelKey } from "../../floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "../../floor-editor/editor-store";
 import { FloorEditorRoute } from "./FloorEditorRoute";
 
-const getFloorEditorState = vi.hoisted(() => vi.fn());
+const floorEditorApi = vi.hoisted(() => ({
+  getFloorEditorState: vi.fn(),
+  acquireFloorEditorLease: vi.fn(),
+  releaseFloorEditorLease: vi.fn()
+}));
+const { getFloorEditorState, acquireFloorEditorLease, releaseFloorEditorLease } = floorEditorApi;
 
-vi.mock("../../../api/floor-editor", () => ({ getFloorEditorState }));
+vi.mock("../../../api/floor-editor", () => floorEditorApi);
 vi.mock("../../floor-editor/FloorEditorView", () => ({
-  FloorEditorView: ({ initialState, onCancel, onSaved, onDirtyChange }: {
+  FloorEditorView: ({ initialState, onCancel, onSaved, onDirtyChange, readOnly = false }: {
     initialState: FloorEditorState;
     onCancel: () => void;
     onSaved: (state: FloorEditorState) => void;
     onDirtyChange: (dirty: boolean) => void;
+    readOnly?: boolean;
   }) => (
     <section>
       <h2>{initialState.floor.name} 도면 편집</h2>
+      <output data-testid="lease-read-only">{String(readOnly)}</output>
       <LocationProbe />
       <button onClick={() => onDirtyChange(true)}>수정</button>
       <button onClick={() => onDirtyChange(false)}>변경 되돌리기</button>
@@ -90,12 +97,43 @@ function renderBrowserRoute() {
 }
 
 describe("FloorEditorRoute", () => {
+  beforeEach(() => {
+    acquireFloorEditorLease.mockResolvedValue({ editable: true, token: "test-lease-token", holderName: "김관리" });
+    releaseFloorEditorLease.mockResolvedValue({ released: true });
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
     vi.restoreAllMocks();
     window.history.replaceState({}, "", "/");
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, selection: null });
+  });
+
+  it("switches an editor to read-only when another user holds the floor lease", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    acquireFloorEditorLease.mockResolvedValue({
+      editable: false,
+      holderName: "김관리",
+      acquiredAt: "2026-08-06T00:00:00.000Z"
+    });
+
+    renderRoute("admin");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("김관리");
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+  });
+
+  it("releases the acquired lease when the editor route unmounts normally", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    acquireFloorEditorLease.mockResolvedValue({ editable: true, token: "lease-token", holderName: "김관리" });
+    const { unmount } = renderRoute("admin");
+
+    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await waitFor(() => expect(acquireFloorEditorLease).toHaveBeenCalledWith("floor-b2"));
+    unmount();
+
+    await waitFor(() => expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "lease-token"));
   });
 
   it.each(["저장", "취소"])("returns an admin to the selected site's list after %s", async (action) => {

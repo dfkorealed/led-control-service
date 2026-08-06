@@ -8,10 +8,12 @@ import { StorageModule } from "../storage/storage.module";
 import { FloorAssetsController } from "./floor-assets.controller";
 import { FloorAssetsService } from "./floor-assets.service";
 import { AuditModule } from "../audit/audit.module";
+import { RedisModule } from "../redis/redis.module";
+import { EditorLeaseService } from "./editor-lease.service";
 
 @Module({
-  imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule],
+  imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule, RedisModule],
   controllers: [FloorEditorController, FloorAssetsController],
-  providers: [FloorEditorService, FloorAssetsService]
+  providers: [FloorEditorService, FloorAssetsService, EditorLeaseService]
 })
 export class FloorEditorModule {}

@@ -97,6 +97,8 @@
 - atomic save와 revision 복구는 하나의 동기 ref lock으로 상호 배제한다. 요청 중 도구, 캔버스, 배경 입력과 속성 입력을 disabled/read-only로 유지하고, 이미 시작된 배경 asset upload가 끝날 때까지 save/restore도 막아 요청 이후 로컬 수정이 성공 응답에 덮이지 않게 한다. 성공 응답은 새 baseline과 `mapRevision`으로 채택하고 네트워크 오류는 현재 편집 상태를 유지하며, `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
 - 버전 패널은 cursor pagination으로 수정자 display name, 시각과 숫자 변경 수 및 `floorPlanChanged`를 합산해 표시한다. loading/error/empty 상태를 구분하고 오류에는 announcement와 재시도를 제공한다. 복구 버튼은 `operator/admin`에게만 제공하고 현재 baseline의 `mapRevision`을 `expectedRevision`으로 전송하며, 현재 존재하지 않아 건너뛴 조명 안내는 같은 floor query refetch 뒤에도 유지한다.
 - dirty 상태에서는 앱 내부 링크 이동, 현장 전환, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. dirty 진입 시 현재 URL과 같은 history sentinel을 추가해 첫 back이 editor route를 벗어나기 전에 확인하며, 취소는 sentinel을 복원한다. 저장 또는 승인된 내부 이동·현장 전환·취소는 sentinel entry를 목적지로 replace하고, 같은 editor에서 clean 상태가 되거나 unmount되면 sentinel을 소비해 back stack에 editor가 중복으로 남지 않는다. listener는 unmount에서 정리하고 저장 후 back에는 폐기 확인을 표시하지 않는다.
+- `POST /floors/:floorId/editor-lease`는 층별 Redis key `floor-editor:lease:{floorId}`를 `SET NX EX 90`으로 획득하고, 같은 token의 POST는 Lua 비교 후 TTL을 90초로 갱신한다. `DELETE`는 보유 token과 일치할 때만 Lua로 제거하며, operator/admin 강제 해제는 `floor_editor.lease_force_released` 감사 로그가 성공한 뒤 감사한 token만 제거한다. 두 API 모두 대상 floor의 현장 `manage` 권한을 확인한다.
+- 도면 편집 route는 진입 시 lease를 얻고 editable token이면 30초마다 갱신한다. 이미 다른 사용자가 보유하면 수정자와 시작 시각을 표시해 읽기 전용으로 열며, heartbeat 실패·token 상실·lease 획득 실패도 저장/복구/도구/캔버스/배경/속성 변경을 막는 읽기 전용으로 전환한다. 정상 route 이탈은 token release를 요청하고, 브라우저 종료 같은 비정상 종료의 회수는 90초 TTL에 맡긴다. 이 lease는 revision `409` optimistic concurrency를 대체하거나 강제 덮어쓰기를 허용하지 않는다.
 - 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
 - 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.
@@ -136,7 +138,8 @@
 
 - Redis에 층별 90초 편집 lease를 두고 편집 화면이 30초마다 갱신한다.
 - 다른 사용자가 편집 중이면 읽기 전용으로 열고 수정자와 시작 시각을 표시한다.
-- operator/admin의 강제 lease 해제는 감사 로그를 남긴다.
+- `REDIS_URL`은 API 실행에 필수이며 Redis provider는 최초 lease 요청까지 client 생성을 지연하고 Nest 종료에서 `quit()`한다. lease value에는 `{ userId, userName, token, acquiredAt }`만 저장하고 token 불일치 갱신·삭제는 허용하지 않는다.
+- operator/admin의 강제 lease 해제는 `floor_editor.lease_force_released` 감사 로그를 성공적으로 남긴 뒤, 감사한 token에만 적용한다.
 - lease와 별도로 revision 불일치 시 `409 Conflict`를 반환하고 강제 덮어쓰기를 허용하지 않는다.
 - 변경사항이 있으면 화면 이탈을 확인하고 네트워크 오류 시 클라이언트 편집 상태를 유지한다.
 - 도면 저장소는 비공개로 전환하고 만료 시간이 짧은 서명 URL로 업로드·조회한다.
@@ -263,7 +266,6 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - SiteMembership 기반 현장 범위 적용 API
 - 현장 정보 수정과 층 CRUD/archive UI
-- Redis 기반 동시 편집 lease
 - 비공개 도면 asset과 보안 처리 pipeline
 - 조명 정보·그룹 CRUD 관리 화면
 - 다중 Gateway와 층 coverage
@@ -284,7 +286,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다. 다음 구현 범위는 Task 7의 도면 에디터 설정 이동이다.
 - Task 8 atomic save/revision API는 `d8d42f1`, Fix Round 1은 `edde0a8`/`8d7aa2e`, Fix Round 2는 `a3aa1b7`/`669be7e`/`d8041f6`, Fix Round 3은 `63cd6fd`/`45336dc`에서 완료했다. Fix Round 4의 concurrent legacy PATCH complete-state write는 `f786d3f`에서 보정했다. 다음 구현 범위는 Task 9의 웹 변경분 생성, atomic save 연결, 충돌·복구 UI다.
 - Task 9 웹 변경분 생성, atomic save 전환, 충돌·revision 복구 UI와 dirty navigation guard는 `c43ff85`에서 완료했다. Fix Round 1의 의미 정규화·draft ID는 `7b1fae0`, site/history 정합성은 `f103f7c`, mutation 상호 배제와 revision 상태는 `d67e27e`, background upload race는 `f0c9e3a`에서 보정했다. 다음 구현 범위는 Task 10의 Redis 편집 lease다.
-- Task 9 Fix Round 2의 same-URL history sentinel과 승인된 site 전환 draft 폐기는 `3c8bd02`, `1a8bce3`에서 보정했다.
+- Task 9 Fix Round 2의 same-URL history sentinel과 승인된 site 전환 draft 폐기는 `3c8bd02`, `1a8bce3`에서 보정했다. Task 10은 Redis concurrent lease, token-checked renewal/release, force-release audit, 웹 heartbeat/read-only 전환을 구현했다.
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
@@ -330,12 +332,14 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/setup`
 - `apps/web/src/features/registration`
 - `apps/api/src/floor-editor/floor-editor.controller.ts`
+- `apps/api/src/floor-editor/editor-lease.service.ts`
 - `apps/api/src/floor-editor/floor-editor.service.ts`
 - `apps/api/src/floor-editor/floor-editor-snapshot.ts`
 - `apps/api/src/floor-editor/floor-editor.integration.spec.ts`
 - `packages/shared/src/schemas.ts`
 - `apps/web/src/api/floor-editor.ts`
 - `apps/api/src/floor-editor`
+- `apps/api/src/redis`
 - `apps/api/src/setup`
 - `apps/api/src/gateway-onboarding`
 - `apps/api/src/registration`

@@ -29,8 +29,27 @@ export interface FloorEditorRevisionPage {
   nextCursor: number | null;
 }
 
+export interface FloorEditorLease {
+  editable: boolean;
+  token?: string;
+  holderName?: string;
+  acquiredAt?: string;
+}
+
 export function saveFloorEditorState(floorId: string, payload: SaveEditorStateInput) {
   return apiPut<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`, payload);
+}
+
+export function acquireFloorEditorLease(floorId: string, token?: string) {
+  return apiPost<FloorEditorLease>(`/floors/${encodeURIComponent(floorId)}/editor-lease`, token ? { token } : {});
+}
+
+export function releaseFloorEditorLease(floorId: string, token: string) {
+  return apiRequest<{ released: boolean }>(`/floors/${encodeURIComponent(floorId)}/editor-lease`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token })
+  });
 }
 
 export function listFloorEditorRevisions(floorId: string, query: { cursor?: number; limit?: number } = {}) {

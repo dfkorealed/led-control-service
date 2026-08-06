@@ -23,7 +23,8 @@ describe("FloorEditorController", () => {
       updateObject: jest.fn(),
       deleteObject: jest.fn()
     };
-    const controller = new FloorEditorController(service as never);
+    const leaseService = { acquire: jest.fn(), release: jest.fn() };
+    const controller = new FloorEditorController(service as never, leaseService as never);
 
     await controller.getEditorState("floor-1", user);
     await (controller as any).saveEditorState("floor-1", { expectedRevision: 3 }, user);
@@ -34,6 +35,8 @@ describe("FloorEditorController", () => {
     await controller.createObject({ floorId: "floor-1", type: "text", x: 1, y: 2 }, user);
     await controller.updateObject("object-1", { x: 3 }, user);
     await controller.deleteObject("object-1", user);
+    await (controller as any).acquireLease("floor-1", { token: "lease-token" }, user);
+    await (controller as any).releaseLease("floor-1", { token: "lease-token", force: false }, user);
 
     expect(service.getEditorState).toHaveBeenCalledWith("floor-1", user);
     expect(service.saveEditorState).toHaveBeenCalledWith(user, "floor-1", { expectedRevision: 3 });
@@ -44,13 +47,15 @@ describe("FloorEditorController", () => {
     expect(service.createObject).toHaveBeenCalledWith({ floorId: "floor-1", type: "text", x: 1, y: 2 }, user);
     expect(service.updateObject).toHaveBeenCalledWith("object-1", { x: 3 }, user);
     expect(service.deleteObject).toHaveBeenCalledWith("object-1", user);
+    expect(leaseService.acquire).toHaveBeenCalledWith("floor-1", user, "lease-token");
+    expect(leaseService.release).toHaveBeenCalledWith("floor-1", user, false, "lease-token");
   });
 
   it.each(["2147483648", "1e100", "0", "1.5"])(
     "forwards raw restore revision %s for access-aware service validation",
     (revision) => {
       const service = { restoreEditorRevision: jest.fn() };
-      const controller = new FloorEditorController(service as never);
+      const controller = new FloorEditorController(service as never, service as never);
 
       controller.restoreEditorRevision("floor-1", revision, { expectedRevision: 0 }, user);
 
