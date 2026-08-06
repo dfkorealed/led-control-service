@@ -24,6 +24,9 @@ const floorEditorLeaseSafetyMarginMs = 10_000;
 const floorEditorLeaseDeadlineMs = serverFloorEditorLeaseTtlMs - floorEditorLeaseSafetyMarginMs;
 const initialLeaseRetryDelaysMs = [250, 500, 1_000, 2_000, 4_000, 8_000];
 
+// performance.now() is monotonic in the browser and can be controlled independently in timer tests.
+const currentLeaseTime = () => performance.now();
+
 interface FloorLeaseState {
   floorId: string | null;
   lease: FloorEditorLease;
@@ -120,6 +123,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
     let heartbeat: number | null = null;
     let retryTimer: number | null = null;
     let leaseDeadlineTimer: number | null = null;
+    let leaseDeadlineAt: number | null = null;
     let renewalInFlight = false;
     let initialAcquireInFlight = false;
     let retryAttempt = 0;
@@ -133,6 +137,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       heartbeat = null;
       retryTimer = null;
       leaseDeadlineTimer = null;
+      leaseDeadlineAt = null;
     };
     const loseLease = (lease: FloorEditorLease = { editable: false }) => {
       if (disposed || leaseLost) return;
@@ -141,9 +146,17 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       stopTimers();
       publish(lease.editable ? { editable: false } : lease);
     };
-    const scheduleLeaseDeadline = () => {
+    const scheduleLeaseDeadline = (deadlineAt: number) => {
+      const now = currentLeaseTime();
+      if ((leaseDeadlineAt !== null && now >= leaseDeadlineAt) || now >= deadlineAt) {
+        loseLease();
+        return false;
+      }
       if (leaseDeadlineTimer !== null) window.clearTimeout(leaseDeadlineTimer);
-      leaseDeadlineTimer = window.setTimeout(() => loseLease(), floorEditorLeaseDeadlineMs);
+      leaseDeadlineAt = deadlineAt;
+      const remainingMs = deadlineAt - now;
+      leaseDeadlineTimer = window.setTimeout(() => loseLease(), remainingMs);
+      return true;
     };
     const releaseAfterDispose = (token: string) => {
       void releaseFloorEditorLease(floorId, token).catch(() => undefined);
@@ -152,6 +165,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       const token = acquiredToken;
       if (disposed || leaseLost || renewalInFlight || !token) return;
       renewalInFlight = true;
+      const deadlineAt = currentLeaseTime() + floorEditorLeaseDeadlineMs;
       try {
         const renewed = await acquireFloorEditorLease(floorId, token);
         if (disposed || leaseLost || acquiredToken !== token) return;
@@ -159,7 +173,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
           loseLease(renewed);
           return;
         }
-        scheduleLeaseDeadline();
+        if (!scheduleLeaseDeadline(deadlineAt)) return;
         publish(renewed);
       } catch {
         if (!disposed && !leaseLost && acquiredToken === token) loseLease();
@@ -179,6 +193,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
     const acquireInitialLease = async () => {
       if (disposed || leaseLost || acquiredToken || initialAcquireInFlight) return;
       initialAcquireInFlight = true;
+      const deadlineAt = currentLeaseTime() + floorEditorLeaseDeadlineMs;
       try {
         const acquired = await acquireFloorEditorLease(floorId);
         if (disposed) {
@@ -191,7 +206,10 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
           return;
         }
         acquiredToken = acquired.token;
-        scheduleLeaseDeadline();
+        if (!scheduleLeaseDeadline(deadlineAt)) {
+          releaseAfterDispose(acquired.token);
+          return;
+        }
         publish(acquired);
         heartbeat = window.setInterval(() => void renewLease(), leaseHeartbeatMs);
       } catch {

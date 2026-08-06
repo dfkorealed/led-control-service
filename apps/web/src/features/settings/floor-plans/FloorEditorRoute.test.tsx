@@ -207,6 +207,84 @@ describe("FloorEditorRoute", () => {
     expect(releaseFloorEditorLease).not.toHaveBeenCalled();
   });
 
+  it("releases a token from an initial acquire that arrives after its request deadline", async () => {
+    vi.useFakeTimers();
+    let currentTime = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => currentTime);
+    getFloorEditorState.mockResolvedValue(editorState);
+    const delayedAcquire = deferred<{ editable: boolean; token?: string; holderName?: string }>();
+    acquireFloorEditorLease.mockReturnValueOnce(delayedAcquire.promise);
+    renderRoute("admin");
+
+    await act(async () => {});
+    currentTime = 80_000;
+    await act(async () => { await vi.advanceTimersByTimeAsync(80_000); });
+    delayedAcquire.resolve({ editable: true, token: "late-token", holderName: "김관리" });
+    await act(async () => {});
+
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(1);
+    expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "late-token");
+  });
+
+  it("uses a renewal request deadline despite a delayed success and stalled next renewal", async () => {
+    vi.useFakeTimers();
+    let currentTime = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => currentTime);
+    getFloorEditorState.mockResolvedValue(editorState);
+    const delayedRenewal = deferred<{ editable: boolean; token?: string; holderName?: string }>();
+    const stalledRenewal = deferred<{ editable: boolean; token?: string; holderName?: string }>();
+    acquireFloorEditorLease
+      .mockResolvedValueOnce({ editable: true, token: "lease-token", holderName: "김관리" })
+      .mockReturnValueOnce(delayedRenewal.promise)
+      .mockReturnValueOnce(stalledRenewal.promise);
+    renderRoute("admin");
+
+    await act(async () => {});
+    currentTime = 30_000;
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+
+    currentTime = 70_000;
+    await act(async () => { await vi.advanceTimersByTimeAsync(40_000); });
+    delayedRenewal.resolve({ editable: true, token: "lease-token", holderName: "김관리" });
+    await act(async () => {});
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+
+    currentTime = 90_000;
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(3);
+    currentTime = 110_000;
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+
+    stalledRenewal.resolve({ editable: true, token: "lease-token", holderName: "김관리" });
+    await act(async () => {});
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not replace an expired prior deadline when a renewal completion is delivered late", async () => {
+    vi.useFakeTimers();
+    let currentTime = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => currentTime);
+    getFloorEditorState.mockResolvedValue(editorState);
+    const delayedRenewal = deferred<{ editable: boolean; token?: string; holderName?: string }>();
+    acquireFloorEditorLease
+      .mockResolvedValueOnce({ editable: true, token: "lease-token", holderName: "김관리" })
+      .mockReturnValueOnce(delayedRenewal.promise);
+    renderRoute("admin");
+
+    await act(async () => {});
+    currentTime = 30_000;
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    currentTime = 90_000;
+    delayedRenewal.resolve({ editable: true, token: "lease-token", holderName: "김관리" });
+    await act(async () => {});
+
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+  });
+
   it("does not let a stale floor acquisition clear the new floor's releasable token", async () => {
     getFloorEditorState.mockImplementation((floorId: string) => Promise.resolve(
       floorId === "floor-b2" ? editorState : {

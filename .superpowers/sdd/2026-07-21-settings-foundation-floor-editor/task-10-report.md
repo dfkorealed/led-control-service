@@ -98,3 +98,28 @@
 ### Remaining Concerns
 
 - The client and server TTL constants live in separate deployable applications, so the 90-second alignment is documented and regression-tested but not imported from a shared runtime package. Any future server TTL change must update the named client assumption and its safety margin in the same change.
+
+## Fix Round 3
+
+### RED
+
+- `pnpm --filter @led-control/web exec vitest run src/features/settings/floor-plans/FloorEditorRoute.test.tsx` failed in both new deferred-response cases. An initial acquire response at its request-derived 80-second deadline published editable instead of releasing its token, and a renewal started at 30 seconds but completed at 70 seconds deferred the next fail-closed transition until 150 seconds rather than its conservative 110-second request deadline.
+- A final timer-delivery RED test also failed: with the old 80-second watchdog callback delayed but monotonic time at 90 seconds, a pending renewal success replaced the already expired prior deadline and published editable.
+
+### GREEN
+
+- Lease timing now uses the browser monotonic `performance.now()` through one `currentLeaseTime()` seam instead of wall-clock `Date.now()`. Tests control that clock explicitly alongside fake timers, avoiding wall-clock/fake-timer coupling.
+- Every initial acquire and renewal captures an absolute deadline when its request starts. A pending renewal leaves the prior watchdog armed; only a valid, pre-deadline response replaces it with a timer for the captured request deadline. The active absolute deadline is checked before replacement, so callback delivery delay cannot turn an already expired watchdog into a newer editable window.
+- An initial token received too late is never published as editable and is immediately passed to the existing token-checked release endpoint. A late renewal response cannot reset or revive a terminal read-only effect.
+- Focused Web: `pnpm --filter @led-control/web exec vitest run src/features/settings/floor-plans/FloorEditorRoute.test.tsx` -> 1 file, 26 tests passed.
+- Full Web: `pnpm --filter @led-control/web test` -> 16 files, 131 tests passed.
+- Type/build: `pnpm --filter @led-control/web typecheck` and `pnpm --filter @led-control/web build` passed. The production build retains the pre-existing large PDF/editor chunk warning.
+
+### Self-review
+
+- The initial response check is performed after the token-bearing response arrives, so no token is lost: a response at or after the absolute deadline takes the fail-closed path and releases only that acquired token.
+- The renewal path never clears the prior deadline before a response is both valid and within its own request-derived window. This keeps the UI bounded by its last conservative proof of ownership during network stalls.
+
+### Remaining Concerns
+
+- Browser timer throttling in a suspended tab can delay JavaScript callbacks. The conservative 10-second margin reduces that exposure, while Redis remains the final 90-second authority; server-side collaboration protections continue to reject stale tokens.
