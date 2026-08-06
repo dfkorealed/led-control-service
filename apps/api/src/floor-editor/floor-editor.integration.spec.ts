@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -444,6 +445,83 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       .resolves.toEqual({ mapRevision: 0 });
     await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
     await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(0);
+  });
+
+  it("persists a complete legacy floor plan when concurrent patches interleave", async () => {
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    await service.updateFloorPlan(ids.floorId, {
+      sourceType: "image",
+      imageUrl: readyAssetUrl,
+      originalFileUrl: readyAssetUrl,
+      renderedImageUrl: readyAssetUrl,
+      width: 1200,
+      height: 800
+    }, operator);
+
+    let markReadyAssetReadFinished!: () => void;
+    let releaseReadyAssetRead!: () => void;
+    const readyAssetReadFinished = new Promise<void>((resolve) => {
+      markReadyAssetReadFinished = resolve;
+    });
+    const readyAssetReadRelease = new Promise<void>((resolve) => {
+      releaseReadyAssetRead = resolve;
+    });
+    const delayedPrisma = {
+      floor: prisma.floor,
+      floorPlan: prisma.floorPlan,
+      floorAsset: {
+        count: async (args: Prisma.FloorAssetCountArgs) => {
+          const count = await prisma.floorAsset.count(args);
+          markReadyAssetReadFinished();
+          await readyAssetReadRelease;
+          return count;
+        }
+      }
+    };
+    const delayedService = new FloorEditorService(
+      delayedPrisma as never,
+      siteAccess,
+      new AuditService(prisma)
+    );
+
+    const lastWriter = delayedService.updateFloorPlan(
+      ids.floorId,
+      { imageUrl: readyAssetUrl },
+      operator
+    );
+    await readyAssetReadFinished;
+    try {
+      await service.updateFloorPlan(ids.floorId, {
+        sourceType: "none",
+        imageUrl: "",
+        originalFileUrl: null,
+        renderedImageUrl: null,
+        width: 1200,
+        height: 800
+      }, operator);
+    } finally {
+      releaseReadyAssetRead();
+    }
+    await lastWriter;
+
+    await expect(prisma.floorPlan.findUniqueOrThrow({
+      where: { floorId: ids.floorId },
+      select: {
+        sourceType: true,
+        imageUrl: true,
+        originalFileUrl: true,
+        renderedImageUrl: true,
+        width: true,
+        height: true
+      }
+    })).resolves.toEqual({
+      sourceType: "image",
+      imageUrl: readyAssetUrl,
+      originalFileUrl: readyAssetUrl,
+      renderedImageUrl: readyAssetUrl,
+      width: 1200,
+      height: 800
+    });
   });
 
   it("preserves opaque restore access before validating an invalid revision path", async () => {

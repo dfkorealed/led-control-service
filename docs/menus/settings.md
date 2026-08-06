@@ -80,6 +80,7 @@
 - `PUT /floors/:floorId/editor-state`는 `Floor.mapRevision` optimistic update, normalized row 변경, canonical `FloorMapRevision` snapshot/SHA-256과 `floor_editor.saved` 감사를 하나의 Serializable Prisma transaction으로 저장한다. fixture/object의 층 소속, 중복 ID와 준비되지 않은 asset은 optimistic mutation 전에 거부한다.
 - `GET /floors/:floorId/editor-revisions`는 현장 `read`, `POST /floors/:floorId/editor-revisions/:revision/restore`는 `manage` 권한을 요구한다. 복구는 `expectedRevision` 충돌을 `409`로 처리하고, 사라진 fixture를 생성하지 않고 `skippedFixtureIds`로 반환하며 새 revision과 `floor_editor.restored` 감사를 같은 transaction에 남긴다.
 - atomic save의 `floorPlan: null`만 배경 삭제를 뜻한다. non-null image/pdf는 source type, ready asset을 가리키는 non-empty `imageUrl`/`originalFileUrl`/`renderedImageUrl`, 양수 INT4 width/height를 모두 포함해야 하며 부분 create/default 값 우회는 `400`으로 거부한다.
+- legacy `PATCH /floors/:floorId/floor-plan`은 partial request를 기존 row와 merge해 검증한 complete `effective` 전체 상태를 기록한다. 동시 PATCH도 마지막 writer가 검증한 `none` 또는 complete ready image/pdf 상태로 끝나며 row lock이나 별도 transaction에 의존하지 않는다.
 - atomic write schema와 persisted snapshot v1 parser를 분리했다. snapshot parser는 기존 `sourceType: none`, nullable floor-plan URL, nullable geometry와 bounded legacy object type을 canonical shape 그대로 읽고 복구하며, 상한 초과 문자열이나 좌표 배열이 아닌 points 같은 위험 데이터는 `400`으로 거부한다.
 - shared editor schema는 fixture update 1,000개와 map object mutation 합계 2,000개를 상한으로 두고 ID/이름/URL/text/color/points 크기, INT4 revision/zIndex와 rectangle/triangle/line/text별 dimensions/points 형태를 제한한다. trim, decimal과 object type 의미 정규화는 optimistic update 전에 끝난다.
 - object update는 현재 type/width/height/points를 같은 층에서 먼저 조회하고 patch를 merge한 완성 geometry를 type별 schema로 검증한 뒤에만 optimistic revision을 증가시킨다. restore는 floor `manage` SiteAccess의 opaque `404`를 먼저 적용하고, 권한 확인 뒤 service에서 path revision을 positive INT4로 검증해 authorized invalid path만 `400`으로 반환한다.
@@ -125,7 +126,7 @@
   - `POST /floor-map-objects`
   - `PATCH /floor-map-objects/:objectId`
   - `DELETE /floor-map-objects/:objectId`
-- legacy `PATCH /floors/:floorId/floor-plan`은 Task 11까지 현재 Web의 `sourceType: none` 배경 제거와 기존 row partial patch를 유지한다. root preflight에서 기존 row와 patch를 merge해 effective `none`일 때만 빈/null URL을 허용하며, effective image/pdf는 complete non-empty URL/dimensions와 모든 effective URL의 ready asset 상태를 mutation 전에 검증한다. 신규 atomic API의 non-null floor plan도 계속 complete image/pdf payload만 허용한다.
+- legacy `PATCH /floors/:floorId/floor-plan`은 Task 11까지 현재 Web의 `sourceType: none` 배경 제거와 기존 row partial patch를 유지한다. root preflight에서 기존 row와 patch를 merge해 effective `none`일 때만 빈/null URL을 허용하며, effective image/pdf는 complete non-empty URL/dimensions와 모든 effective URL의 ready asset 상태를 mutation 전에 검증한다. write payload에는 원래 partial patch가 아니라 검증된 effective 전체 상태를 사용해 concurrent last-write-wins 결과도 같은 invariant를 만족한다. 현재 `FloorAsset` 제품 lifecycle은 `pending`에서 `ready`로만 진행하고 ready 취소·삭제 API가 없으므로 asset 검증과 write를 추가 transaction으로 묶지 않는다. 신규 atomic API의 non-null floor plan도 계속 complete image/pdf payload만 허용한다.
 
 ### 편집 충돌과 파일 보안
 

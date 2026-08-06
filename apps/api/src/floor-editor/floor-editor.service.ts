@@ -377,7 +377,7 @@ export class FloorEditorService {
         ...effective
       },
       update: {
-        ...data,
+        ...effective,
         version: { increment: 1 }
       }
     });

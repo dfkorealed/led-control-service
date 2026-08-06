@@ -240,7 +240,15 @@ describe("FloorEditorService", () => {
       create: expect.objectContaining({ sourceType: "none", imageUrl: "", originalFileUrl: null, renderedImageUrl: null })
     }));
     expect(prisma.floorPlan.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      update: { width: 900, version: { increment: 1 } }
+      update: {
+        imageUrl: "",
+        sourceType: "none",
+        originalFileUrl: null,
+        renderedImageUrl: null,
+        width: 900,
+        height: 800,
+        version: { increment: 1 }
+      }
     }));
   });
 
@@ -289,8 +297,75 @@ describe("FloorEditorService", () => {
       }
     });
     expect(prisma.floorPlan.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      update: { renderedImageUrl: nextRendered, version: { increment: 1 } }
+      update: {
+        imageUrl: existing.imageUrl,
+        sourceType: existing.sourceType,
+        originalFileUrl: existing.originalFileUrl,
+        renderedImageUrl: nextRendered,
+        width: existing.width,
+        height: existing.height,
+        version: { increment: 1 }
+      }
     }));
+  });
+
+  it("persists a complete validated state when legacy floor plan patches interleave", async () => {
+    const existing = {
+      imageUrl: "https://assets.example/image.png",
+      sourceType: "image" as const,
+      originalFileUrl: "https://assets.example/original.png",
+      renderedImageUrl: "https://assets.example/rendered.png",
+      width: 1200,
+      height: 800
+    };
+    const nonePlan = {
+      imageUrl: "",
+      sourceType: "none" as const,
+      originalFileUrl: null,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800
+    };
+    const nextImageUrl = "https://assets.example/image-v2.png";
+    let persisted: typeof existing | typeof nonePlan = { ...existing };
+    let markReadyCheckStarted!: () => void;
+    let releaseReadyCheck!: () => void;
+    const readyCheckStarted = new Promise<void>((resolve) => {
+      markReadyCheckStarted = resolve;
+    });
+    const readyCheckRelease = new Promise<void>((resolve) => {
+      releaseReadyCheck = resolve;
+    });
+    const floorPlan = {
+      findUnique: jest.fn().mockImplementation(async () => ({ ...persisted })),
+      upsert: jest.fn().mockImplementation(async (args: any) => {
+        const { version: _version, ...update } = args.update;
+        persisted = { ...persisted, ...update };
+        return persisted;
+      })
+    };
+    const { service } = await createService({
+      floorPlan,
+      floorAsset: {
+        count: jest.fn().mockImplementation(async () => {
+          markReadyCheckStarted();
+          await readyCheckRelease;
+          return 3;
+        })
+      }
+    });
+
+    const lastWriter = service.updateFloorPlan(
+      ids.floorId,
+      { imageUrl: nextImageUrl },
+      assignedOperator
+    );
+    await readyCheckStarted;
+    await service.updateFloorPlan(ids.floorId, nonePlan, assignedOperator);
+    releaseReadyCheck();
+    await lastWriter;
+
+    expect(persisted).toEqual({ ...existing, imageUrl: nextImageUrl });
   });
 
   it.each([
