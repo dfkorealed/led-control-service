@@ -427,3 +427,96 @@ FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest s
 - 웹 에디터의 atomic save/revision UI 연결은 Task 9 범위다.
 - 기존 개별 mutation endpoint는 Task 11까지 유지되며 통합 revision/audit을 만들지 않는다.
 - PostgreSQL integration suite 11개는 `FLOOR_EDITOR_TEST_DATABASE_URL`이 없으면 skip된다. Fix Round 3에서는 별도 disposable PostgreSQL로 모두 실행했다.
+
+## Fix Round 4
+
+### 구현 커밋
+
+- `f786d3f fix(floor-editor): persist validated legacy plan state`
+
+### 변경 파일
+
+- `apps/api/src/floor-editor/floor-editor.service.ts`
+- `apps/api/src/floor-editor/floor-editor.service.spec.ts`
+- `apps/api/src/floor-editor/floor-editor.integration.spec.ts`
+- `docs/menus/settings.md`
+
+### RED
+
+Legacy PATCH unit interleaving:
+
+```bash
+pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.service.spec.ts --runInBand -t "persists a complete validated state when legacy floor plan patches interleave"
+# exit 1: 1 failed, 57 skipped
+```
+
+- complete image row를 읽은 요청 A가 `{ imageUrl: image-v2 }`의 effective image 상태와 ready asset 3개를 검증한 뒤 대기했다.
+- 요청 B가 complete `none` 상태를 기록한 다음 A의 기존 partial write를 진행하자 마지막 row는 `sourceType: none`, `imageUrl: image-v2`, nullable original/rendered URL인 혼합 상태가 됐다.
+
+Disposable PostgreSQL 16 concurrent interleaving:
+
+```bash
+FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts --runInBand -t "persists a complete legacy floor plan when concurrent patches interleave"
+# exit 1: 1 failed, 11 skipped
+```
+
+- 17개 migration을 적용한 실제 DB에서 ready asset count 쿼리가 끝난 요청 A를 대기시키고, 요청 B의 complete `none` upsert를 commit한 뒤 A를 재개했다.
+- 최종 PostgreSQL row가 unit RED와 동일한 invalid 혼합 상태여서 complete image 기대값에 실패했다.
+
+### GREEN
+
+Focused tests:
+
+```bash
+pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.service.spec.ts --runInBand
+# PASS: 1 suite, 58 tests
+
+pnpm --filter @led-control/api exec jest src/floor-editor --runInBand
+# PASS: 3 suites, 70 tests; opt-in PostgreSQL suite 12 tests skipped
+
+pnpm --filter @led-control/shared test -- src/schemas.test.ts
+# PASS: 1 file, 10 tests
+
+pnpm --filter @led-control/api exec jest src/access/site-access.service.spec.ts src/access/roles.guard.spec.ts src/audit/audit.service.spec.ts --runInBand
+# PASS: 3 suites, 21 tests
+```
+
+Typecheck, build, Prisma와 diff:
+
+```bash
+pnpm --filter @led-control/shared typecheck
+pnpm --filter @led-control/api typecheck
+pnpm --filter @led-control/shared build
+pnpm --filter @led-control/api build
+# PASS: all four commands
+
+DATABASE_URL='postgresql://validate:validate@127.0.0.1:1/validate?schema=public' pnpm --filter @led-control/api exec prisma validate
+# PASS: schema is valid
+
+git diff --check
+# PASS
+```
+
+Fresh disposable PostgreSQL 16에 17개 migration을 적용한 전체 integration:
+
+```bash
+FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts --runInBand
+# PASS: 1 suite, 12 tests
+```
+
+- 신규 deterministic interleaving은 B의 complete `none` commit 뒤 마지막 A가 자신이 검증한 complete ready image 상태 전체를 기록하는 것을 실제 DB에서 확인했다.
+- 기존 save/restore snapshot hash, audit rollback, invalid target preflight, legacy compatibility, SiteAccess와 Serializable conflict 테스트도 함께 통과했다.
+- 테스트 종료 후 disposable PostgreSQL container를 제거했으며 제품 DB에는 연결하지 않았다.
+
+### Self-review
+
+- legacy request는 계속 partial patch를 허용하고 기존 row와 merge한 `effective`를 검증한다. 변경점은 `upsert.update`가 원래 partial `data` 대신 검증 완료된 `effective` 전체 상태를 기록하는 한 곳뿐이다.
+- 각 writer가 complete `none` 또는 complete ready image/pdf row를 기록하므로 floor-plan row의 read/validate/write TOCTOU는 transaction이나 row lock 없이 complete-state last-write-wins로 안전하다.
+- 현재 제품의 `FloorAsset` lifecycle은 `pending -> ready` 단방향이고 ready 취소·asset 삭제 API가 없다. 따라서 ready 검증 후 write 사이에 asset이 non-ready로 바뀌는 지원 경로가 없어 legacy PATCH에 별도 transaction을 추가하지 않았다.
+- SiteAccess `manage`, empty/null을 허용하는 `none`, partial request 호환, version increment와 atomic save/revision API 코드는 변경하지 않았다.
+
+### Remaining concerns
+
+- ready asset 취소나 개별 asset 삭제 lifecycle을 추가하면 단순 transaction만으로 충분하다고 가정하지 말고, floor-plan 참조와 asset 상태 변경을 같은 lock/constraint 경계로 묶어야 한다.
+- 기존 개별 mutation endpoint는 Task 11까지 유지되며 통합 revision/audit을 만들지 않는다. 웹 atomic save/revision UI 연결은 Task 9 범위다.
+- PostgreSQL integration suite 12개는 `FLOOR_EDITOR_TEST_DATABASE_URL`이 없으면 skip된다. Fix Round 4에서는 별도 disposable PostgreSQL로 모두 실행했다.
