@@ -738,7 +738,7 @@ git commit -m "feat(floor-editor): save floor revisions atomically"
 - Consumes: Task 8 atomic save/revision API
 - Produces: `buildEditorChanges(initial, current): SaveEditorStateInput`
 
-- [ ] **Step 1: diff 실패 테스트 작성**
+- [x] **Step 1: diff 실패 테스트 작성**
 
 ```ts
 const input = buildEditorChanges(initialWith1000Fixtures, currentWithOneMovedFixture);
@@ -748,17 +748,17 @@ expect(input.objectUpdates).toHaveLength(0);
 expect(input.objectDeletes).toHaveLength(0);
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/floor-editor/editor-diff.test.ts`
 
 Expected: module 미존재로 FAIL.
 
-- [ ] **Step 3: revision과 baseline 상태 구현**
+- [x] **Step 3: revision과 baseline 상태 구현**
 
 `FloorEditorState.floor.mapRevision`을 추가하고 store에 `initialState`, `state`, `isDirty`를 둔다. 업데이트 action은 값이 실제로 달라질 때만 dirty를 설정한다.
 
-- [ ] **Step 4: atomic API client 구현**
+- [x] **Step 4: atomic API client 구현**
 
 ```ts
 export function saveFloorEditorState(floorId: string, payload: SaveEditorStateInput) {
@@ -768,7 +768,7 @@ export function saveFloorEditorState(floorId: string, payload: SaveEditorStateIn
 
 API client 공통 함수에 `PUT`과 status를 보존하는 `ApiError`를 추가해 `409`를 다른 오류와 구분한다.
 
-- [ ] **Step 5: 저장·충돌·복구 UI 구현**
+- [x] **Step 5: 저장·충돌·복구 UI 구현**
 
 - 저장 성공 시 반환 상태를 새 baseline으로 설정하고 관련 dashboard/floor query를 invalidate한다.
 - 네트워크 실패 시 editor state를 유지한다.
@@ -776,13 +776,13 @@ API client 공통 함수에 `PUT`과 status를 보존하는 `ApiError`를 추가
 - version panel은 수정자, 시각, 변경 수를 표시하고 operator/admin에만 복구 버튼을 보인다.
 - dirty 상태에서 route 이동 또는 브라우저 종료 시 확인한다.
 
-- [ ] **Step 6: 웹 테스트 실행**
+- [x] **Step 6: 웹 테스트 실행**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/floor-editor src/features/settings/floor-plans`
 
 Expected: 변경분, 저장, 충돌, 복구와 dirty guard 테스트 PASS.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add apps/web/src/api apps/web/src/features/floor-editor apps/web/src/features/settings/floor-plans

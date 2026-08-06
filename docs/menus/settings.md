@@ -2,7 +2,7 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-07-21
+기준일: 2026-08-06
 
 ## 목표와 기능 경계
 
@@ -92,7 +92,11 @@
 - `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
 - `/settings/floor-plans`는 새로고침과 직접 진입이 가능한 층별 도면 목록을 제공한다. `operator/admin`은 각 층의 `/settings/floor-plans/:floorId/edit` 링크로 이동할 수 있고, 목록·편집·저장·취소 이동에서 현재 `siteId` query를 보존한다.
-- `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회하고 기존 `FloorEditorView`의 저장·취소 callback으로 도면 목록으로 이동한다. `viewer`는 목록과 도면 등록 상태만 읽을 수 있으며, 직접 edit URL도 목록으로 redirect되어 editor state를 조회하거나 편집기를 렌더링하지 않는다.
+- `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회한다. `operator/admin`만 편집 route를 사용하며 `viewer`의 직접 edit URL은 목록으로 redirect되어 editor state를 조회하거나 편집기를 렌더링하지 않는다.
+- 웹 에디터는 shared `SaveEditorStateInput` 계약으로 baseline과 현재 상태를 O(n) 비교한다. 1,000개 fixture에서도 실제 변경된 fixture와 floor plan, object create/update/delete만 중복 없이 `PUT /floors/:floorId/editor-state` 한 번으로 전송하고 unchanged 상태는 저장하지 않는다.
+- atomic save 성공 응답과 revision 복구 응답은 새 baseline과 `mapRevision`으로 채택한다. 네트워크 오류는 현재 편집 상태를 유지하고 `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
+- 버전 패널은 cursor pagination으로 수정자 display name, 시각, 변경 수를 표시한다. 복구 버튼은 `operator/admin`에게만 제공하고 현재 baseline의 `mapRevision`을 `expectedRevision`으로 전송한다.
+- dirty 상태에서는 앱 내부 링크 이동, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. 저장 성공 또는 사용자가 명시적으로 이동을 확인한 뒤에는 현재 `siteId` query를 유지한 채 정상 이동한다.
 - 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
 - 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`만 갱신하며, 현재 pathname, 다른 query parameter와 hash fragment를 유지한다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.
@@ -259,8 +263,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - SiteMembership 기반 현장 범위 적용 API
 - 현장 정보 수정과 층 CRUD/archive UI
-- 도면 에디터의 설정 메뉴 이동
-- 도면 단일 transaction 저장, revision, rollback과 동시 편집 lease
+- Redis 기반 동시 편집 lease
 - 비공개 도면 asset과 보안 처리 pipeline
 - 조명 정보·그룹 CRUD 관리 화면
 - 다중 Gateway와 층 coverage
@@ -280,14 +283,15 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - Task 1~5 통합 보안 리뷰와 보완 재리뷰를 완료했다. Floor editor SiteAccess, invitation 원자 소비, legacy migration 역할 보존과 bootstrap singleton을 검증했다.
 - Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다. 다음 구현 범위는 Task 7의 도면 에디터 설정 이동이다.
 - Task 8 atomic save/revision API는 `d8d42f1`, Fix Round 1은 `edde0a8`/`8d7aa2e`, Fix Round 2는 `a3aa1b7`/`669be7e`/`d8041f6`, Fix Round 3은 `63cd6fd`/`45336dc`에서 완료했다. Fix Round 4의 concurrent legacy PATCH complete-state write는 `f786d3f`에서 보정했다. 다음 구현 범위는 Task 9의 웹 변경분 생성, atomic save 연결, 충돌·복구 UI다.
+- Task 9 웹 변경분 생성, atomic save 전환, 충돌·revision 복구 UI와 dirty navigation guard는 `c43ff85`에서 완료했다. 다음 구현 범위는 Task 10의 Redis 편집 lease다.
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
 
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현재 desktop 좌측 메뉴를 유지한다. 상단 선택 메뉴 전환은 후속 UI 작업이 필요하다.
-- atomic save/revision API는 구현됐지만 웹 도면 에디터는 Task 9 전까지 기존 개별 API를 병렬 호출한다. 따라서 UI 저장은 아직 부분 저장 위험이 있으며 `Floor.mapRevision` 충돌·복구 UI도 연결되지 않았다.
-- 기존 개별 변경 API는 Task 11 전체 E2E 완료 전까지 호환 목적으로 유지한다. 직접 호출하면 통합 `FloorMapRevision`과 floor editor audit가 생성되지 않으므로 Task 9 이후 웹 경로에서는 atomic API만 사용해야 한다.
+- 기존 개별 변경 API 함수와 endpoint는 Task 11 전체 E2E 완료 전까지 호환 목적으로 유지한다. 현재 웹 저장 경로는 이 함수를 호출하지 않지만, 외부에서 직접 호출하면 통합 `FloorMapRevision`과 floor editor audit가 생성되지 않는다.
+- dirty 내부 이동 guard는 링크 이동과 브라우저 history 이동을 확인한다. Task 10 이후 전체 E2E에서 현장 선택 같은 모든 programmatic navigation 경로도 함께 검증해야 한다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
@@ -320,6 +324,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/floor-editor`
+- `apps/web/src/features/floor-editor/editor-diff.ts`
+- `apps/web/src/features/floor-editor/editor-store.ts`
 - `apps/web/src/features/setup`
 - `apps/web/src/features/registration`
 - `apps/api/src/floor-editor/floor-editor.controller.ts`
