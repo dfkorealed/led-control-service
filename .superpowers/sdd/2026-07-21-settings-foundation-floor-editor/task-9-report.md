@@ -182,3 +182,42 @@ same-URL sentinel 부재로 실제 back 테스트 3건이 실패했고, `discard
 - same-URL sentinel은 BrowserRouter의 현재 history state/index 계약에 의존한다. React Router major upgrade 시 실제 history entry 회귀 테스트를 함께 확인해야 한다.
 - 실제 API 기반 다중 사용자 lease와 전체 programmatic navigation E2E는 Task 10~11 범위다.
 - production build의 기존 PDF worker와 main bundle 500kB 초과 경고는 유지된다.
+
+## Fix Round 3 (2026-08-06)
+
+### Review base
+
+수정 시작 전 `git rev-parse HEAD` 결과는 `e85893c49276c72fe64a8764bc7ea6b360c2058f`였다. 시작 작업 트리는 clean이었다.
+
+### RED
+
+실제 `BrowserRouter` history entry를 사용하는 연속 back 테스트를 구현 전에 실행했다.
+
+```bash
+pnpm --filter web test -- --run \
+  src/features/settings/floor-plans/FloorEditorRoute.test.tsx \
+  src/features/sites/SiteSwitcher.test.tsx
+# FAIL: 2 files, 6 failed / 14 passed
+```
+
+저장, 승인된 취소·내부 이동·현장 전환 뒤 두 번째 back이 중복 editor entry에 머물렀다. 같은 editor가 clean 상태가 되거나 unmount되어도 sentinel state가 남는 실패를 함께 확인했다.
+
+### GREEN
+
+- focused Vitest: 3 files / 23 tests PASS.
+- 전체 Web Vitest: 16 files / 119 tests PASS.
+- Web typecheck: PASS.
+- Web production build: 1,746 modules transformed, PASS.
+- `git diff --check`: PASS.
+
+### Self-review
+
+- 저장과 승인된 내부 링크·취소·현장 전환은 현재 entry가 dirty sentinel일 때 목적지를 push하지 않고 replace한다. 따라서 목적지에서 첫 back은 원래 editor, 두 번째 back은 editor 이전 route로 이동한다.
+- 같은 editor에서 dirty가 false로 바뀌면 sentinel에서 원래 editor entry로 복귀해 다음 back이 즉시 이전 route로 이동한다. 실제 unmount도 남은 sentinel을 소비하며 listener와 `beforeunload` guard를 함께 정리한다.
+- unmount sentinel 소비는 다음 tick에 실행하고 effect 재설정 시 취소해 production `StrictMode`의 setup-cleanup 재실행에서는 history를 이동하지 않는다. 실제 BrowserRouter harness도 `StrictMode`로 검증했다.
+- browser back 취소는 sentinel을 그대로 복원해 draft와 route를 유지한다. 저장 후 연속 back에는 폐기 확인이 없고, 기존 site discard/store lifecycle과 canonical site/floor route 회귀 테스트도 통과했다.
+
+### Concerns
+
+- sentinel은 BrowserRouter가 history state에 유지하는 `idx` 계약을 사용한다. React Router major upgrade 시 실제 history entry 연속 back 테스트를 함께 확인해야 한다.
+- production build의 기존 PDF worker와 main bundle 500kB 초과 경고는 유지된다.
