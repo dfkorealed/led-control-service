@@ -1,4 +1,5 @@
-import { apiGet, apiPost, apiRequest } from "./client";
+import type { RestoreFloorEditorRevisionInput, SaveEditorStateInput } from "@led-control/shared";
+import { apiGet, apiPost, apiPut, apiRequest } from "./client";
 import type { EditorFixture, FloorEditorState, FloorMapObject, FloorMapObjectDraft } from "../features/floor-editor/editor-types";
 
 interface FloorPlanPayload {
@@ -11,7 +12,40 @@ interface FloorPlanPayload {
 }
 
 export function getFloorEditorState(floorId: string) {
-  return apiGet<FloorEditorState>(`/floors/${floorId}/editor-state`);
+  return apiGet<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`);
+}
+
+export interface FloorEditorRevision {
+  revision: number;
+  snapshotSha256: string;
+  changeSummary: Record<string, unknown>;
+  restoredFromRevision: number | null;
+  createdAt: string;
+  actor: { displayName: string };
+}
+
+export interface FloorEditorRevisionPage {
+  items: FloorEditorRevision[];
+  nextCursor: number | null;
+}
+
+export function saveFloorEditorState(floorId: string, payload: SaveEditorStateInput) {
+  return apiPut<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`, payload);
+}
+
+export function listFloorEditorRevisions(floorId: string, query: { cursor?: number; limit?: number } = {}) {
+  const search = new URLSearchParams();
+  if (query.cursor !== undefined) search.set("cursor", String(query.cursor));
+  if (query.limit !== undefined) search.set("limit", String(query.limit));
+  const suffix = search.size > 0 ? `?${search.toString()}` : "";
+  return apiGet<FloorEditorRevisionPage>(`/floors/${encodeURIComponent(floorId)}/editor-revisions${suffix}`);
+}
+
+export function restoreFloorEditorRevision(floorId: string, revision: number, payload: RestoreFloorEditorRevisionInput) {
+  return apiPost<FloorEditorState & { skippedFixtureIds: string[] }>(
+    `/floors/${encodeURIComponent(floorId)}/editor-revisions/${revision}/restore`,
+    payload
+  );
 }
 
 export function updateFloorPlan(floorId: string, payload: FloorPlanPayload) {

@@ -5,8 +5,10 @@ export type MapObjectType = "rectangle" | "triangle" | "line" | "text";
 export interface FloorEditorState {
   floor: {
     id: string;
+    siteId: string;
     name: string;
     level: number;
+    mapRevision: number;
     floorPlan: FloorPlanDraft | null;
   };
   fixtures: EditorFixture[];
@@ -43,13 +45,13 @@ export interface FloorMapObject {
   y: number;
   width: number;
   height: number;
-  points?: Array<{ x: number; y: number }>;
+  points?: Array<{ x: number; y: number }> | null;
   rotation: number;
   strokeColor: string;
-  fillColor?: string;
+  fillColor?: string | null;
   strokeWidth: number;
   text: string;
-  fontSize?: number;
+  fontSize?: number | null;
   zIndex: number;
   locked: boolean;
   visible: boolean;

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { buildEditorChanges, hasEditorChanges } from "./editor-diff";
 import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
 
 type Selection =
@@ -7,12 +8,15 @@ type Selection =
   | null;
 
 interface EditorStore {
+  initialState: FloorEditorState | null;
   state: FloorEditorState | null;
+  isDirty: boolean;
   activeTool: EditorTool;
   zoom: number;
   pan: { x: number; y: number };
   selection: Selection;
   initialize: (state: FloorEditorState) => void;
+  adoptBaseline: (state: FloorEditorState) => void;
   setActiveTool: (tool: EditorTool) => void;
   setZoom: (zoom: number) => void;
   setPan: (pan: { x: number; y: number }) => void;
@@ -24,15 +28,19 @@ interface EditorStore {
   updateFloorPlan: (floorPlan: FloorPlanDraft | null) => void;
   addObject: (floorId: string, draft: FloorMapObjectDraft) => void;
   updateObject: (objectId: string, patch: Partial<FloorMapObject>) => void;
+  removeObject: (objectId: string) => void;
 }
 
 export const useFloorEditorStore = create<EditorStore>((set, get) => ({
+  initialState: null,
   state: null,
+  isDirty: false,
   activeTool: "select",
   zoom: 1,
   pan: { x: 0, y: 0 },
   selection: null,
-  initialize: (state) => set({ state, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null }),
+  initialize: (state) => set({ initialState: state, state, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null }),
+  adoptBaseline: (state) => set({ initialState: state, state, isDirty: false, selection: null }),
   setActiveTool: (tool) => set({ activeTool: tool, selection: tool === "select" ? get().selection : null }),
   setZoom: (zoom) => set({ zoom: Math.min(Math.max(zoom, 0.25), 3) }),
   setPan: (pan) => set({ pan }),
@@ -41,22 +49,27 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => ({
   selectObject: (objectId) => set({ selection: { kind: "object", id: objectId }, activeTool: "select" }),
   clearSelection: () => set({ selection: null }),
   updateFixture: (fixtureId, patch) =>
-    set(({ state }) => {
+    set(({ initialState, state }) => {
       if (!state) return {};
+      const fixture = state.fixtures.find((candidate) => candidate.id === fixtureId);
+      if (!fixture || !hasPatchChange(fixture, patch)) return {};
+      const nextState = {
+        ...state,
+        fixtures: state.fixtures.map((candidate) => candidate.id === fixtureId ? { ...candidate, ...patch } : candidate)
+      };
       return {
-        state: {
-          ...state,
-          fixtures: state.fixtures.map((fixture) => (fixture.id === fixtureId ? { ...fixture, ...patch } : fixture))
-        }
+        state: nextState,
+        isDirty: stateIsDirty(initialState, nextState)
       };
     }),
   updateFloorPlan: (floorPlan) =>
-    set(({ state }) => {
+    set(({ initialState, state }) => {
       if (!state) return {};
-      return { state: { ...state, floor: { ...state.floor, floorPlan } } };
+      const nextState = { ...state, floor: { ...state.floor, floorPlan } };
+      return { state: nextState, isDirty: stateIsDirty(initialState, nextState) };
     }),
   addObject: (floorId, draft) =>
-    set(({ state }) => {
+    set(({ initialState, state }) => {
       if (!state) return {};
       const object: FloorMapObject = {
         ...draft,
@@ -66,18 +79,41 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => ({
       };
       return {
         state: { ...state, objects: [...state.objects, object] },
+        isDirty: stateIsDirty(initialState, { ...state, objects: [...state.objects, object] }),
         selection: { kind: "object", id: object.id },
         activeTool: "select"
       };
     }),
   updateObject: (objectId, patch) =>
-    set(({ state }) => {
+    set(({ initialState, state }) => {
       if (!state) return {};
+      const object = state.objects.find((candidate) => candidate.id === objectId);
+      if (!object || !hasPatchChange(object, patch)) return {};
+      const nextState = {
+        ...state,
+        objects: state.objects.map((candidate) => candidate.id === objectId ? { ...candidate, ...patch } : candidate)
+      };
       return {
-        state: {
-          ...state,
-          objects: state.objects.map((object) => (object.id === objectId ? { ...object, ...patch } : object))
-        }
+        state: nextState,
+        isDirty: stateIsDirty(initialState, nextState)
+      };
+    }),
+  removeObject: (objectId) =>
+    set(({ initialState, state, selection }) => {
+      if (!state || !state.objects.some((object) => object.id === objectId)) return {};
+      const nextState = { ...state, objects: state.objects.filter((object) => object.id !== objectId) };
+      return {
+        state: nextState,
+        isDirty: stateIsDirty(initialState, nextState),
+        selection: selection?.kind === "object" && selection.id === objectId ? null : selection
       };
     })
 }));
+
+function hasPatchChange<T extends object>(value: T, patch: Partial<T>) {
+  return Object.entries(patch).some(([key, next]) => !Object.is(value[key as keyof T], next));
+}
+
+function stateIsDirty(initialState: FloorEditorState | null, state: FloorEditorState) {
+  return initialState ? hasEditorChanges(buildEditorChanges(initialState, state)) : false;
+}

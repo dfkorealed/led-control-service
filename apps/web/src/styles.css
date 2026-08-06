@@ -1174,7 +1174,8 @@ button.group-card {
 
 .floor-editor-toolbar,
 .editor-properties-panel,
-.floor-asset-uploader {
+.floor-asset-uploader,
+.editor-revisions {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--panel);
@@ -1219,6 +1220,20 @@ button.group-card {
   align-content: start;
   gap: 12px;
   min-width: 0;
+}
+
+.editor-conflict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff7f7;
+  color: #991b1b;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .floor-editor-stage {
@@ -1366,6 +1381,69 @@ button.group-card {
   display: grid;
   gap: 12px;
   padding: 14px;
+}
+
+.editor-revisions {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.editor-revisions h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.editor-revision-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor-revision-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+.editor-revision-list li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.editor-revision-list li > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.editor-revision-list strong,
+.editor-revision-list span,
+.editor-revision-list time {
+  overflow-wrap: anywhere;
+}
+
+.editor-revision-list strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.editor-revision-list span,
+.editor-revision-list time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.editor-revisions > .secondary-button {
+  justify-content: center;
+  width: 100%;
 }
 
 .floor-asset-uploader strong {

@@ -1,17 +1,28 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { Hand, Minus, MousePointer2, Save, Square, Triangle, Type, Undo2, ZoomIn, ZoomOut } from "lucide-react";
-import { type DragEvent, useEffect } from "react";
-import { createFloorMapObject, updateEditorFixture, updateFloorMapObject, updateFloorPlan } from "../../api/floor-editor";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, Type, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { type DragEvent, useEffect, useState } from "react";
+import type { AuthUser } from "../../api/auth";
+import { ApiError } from "../../api/client";
+import {
+  listFloorEditorRevisions,
+  restoreFloorEditorRevision,
+  saveFloorEditorState,
+  type FloorEditorRevision
+} from "../../api/floor-editor";
 import { EditorPropertiesPanel } from "./EditorPropertiesPanel";
 import { FloorAssetUploader } from "./FloorAssetUploader";
 import { FloorEditorCanvas } from "./FloorEditorCanvas";
+import { buildEditorChanges } from "./editor-diff";
 import { useFloorEditorStore } from "./editor-store";
-import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft } from "./editor-types";
+import type { EditorTool, FloorEditorState } from "./editor-types";
 
 interface FloorEditorViewProps {
   initialState: FloorEditorState;
+  userRole: AuthUser["role"];
   onCancel: () => void;
   onSaved: (state: FloorEditorState) => void | Promise<void>;
+  onReload: () => void | Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const tools: Array<{ key: EditorTool; label: string; icon: typeof MousePointer2 }> = [
@@ -24,22 +35,58 @@ const tools: Array<{ key: EditorTool; label: string; icon: typeof MousePointer2 
 ];
 const TOOL_DRAG_DATA_TYPE = "application/x-floor-editor-tool";
 
-export function FloorEditorView({ initialState, onCancel, onSaved }: FloorEditorViewProps) {
+export function FloorEditorView({ initialState, userRole, onCancel, onSaved, onReload, onDirtyChange }: FloorEditorViewProps) {
   const queryClient = useQueryClient();
-  const { state, activeTool, zoom, initialize, setActiveTool, setZoom, resetZoom } = useFloorEditorStore();
+  const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom } = useFloorEditorStore();
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
+  const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
+  const floorId = state?.floor.id ?? initialState.floor.id;
+  const siteId = state?.floor.siteId ?? initialState.floor.siteId;
+  const revisionsQuery = useInfiniteQuery({
+    queryKey: ["floor-editor-revisions", siteId, floorId],
+    queryFn: ({ pageParam }) => listFloorEditorRevisions(floorId, pageParam === undefined ? {} : { cursor: pageParam }),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined
+  });
 
   useEffect(() => {
     initialize(initialState);
+    setSaveStatus("idle");
   }, [initialState, initialize]);
 
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   async function handleSave() {
-    if (!state) return;
-    await persistEditorState(initialState, state);
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-      queryClient.invalidateQueries({ queryKey: ["floor-editor", state.floor.id] })
-    ]);
-    await onSaved(state);
+    if (!state || !baseline || !isDirty || saveStatus === "saving") return;
+    setSaveStatus("saving");
+    try {
+      const saved = await saveFloorEditorState(state.floor.id, buildEditorChanges(baseline, state));
+      adoptBaseline(saved);
+      setSaveStatus("idle");
+      await invalidateEditorQueries(queryClient, saved);
+      await onSaved(saved);
+    } catch (error) {
+      setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
+    }
+  }
+
+  async function handleRestore(revision: number) {
+    if (!baseline || restoringRevision !== null) return;
+    setRestoringRevision(revision);
+    setSaveStatus("idle");
+    try {
+      const restored = await restoreFloorEditorRevision(baseline.floor.id, revision, {
+        expectedRevision: baseline.floor.mapRevision
+      });
+      adoptBaseline(restored);
+      await invalidateEditorQueries(queryClient, restored);
+    } catch (error) {
+      setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
+    } finally {
+      setRestoringRevision(null);
+    }
   }
 
   function handleToolDragStart(event: DragEvent<HTMLButtonElement>, tool: EditorTool) {
@@ -48,6 +95,8 @@ export function FloorEditorView({ initialState, onCancel, onSaved }: FloorEditor
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(TOOL_DRAG_DATA_TYPE, tool);
   }
+
+  const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
     <section className="floor-editor-shell">
@@ -68,12 +117,20 @@ export function FloorEditorView({ initialState, onCancel, onSaved }: FloorEditor
             <Undo2 size={16} />
             취소
           </button>
-          <button className="primary-button" onClick={handleSave}>
+          <button className="primary-button" disabled={!isDirty || saveStatus === "saving"} onClick={handleSave}>
             <Save size={16} />
-            저장
+            {saveStatus === "saving" ? "저장 중" : "저장"}
           </button>
         </div>
       </header>
+
+      {saveStatus === "error" ? <p className="danger-text" role="alert">변경분을 저장하지 못했습니다.</p> : null}
+      {saveStatus === "conflict" ? (
+        <div className="editor-conflict" role="alert">
+          <span>다른 사용자가 먼저 저장했습니다.</span>
+          <button className="secondary-button" onClick={() => void onReload()}>최신 버전 다시 불러오기</button>
+        </div>
+      ) : null}
 
       <div className="floor-editor-layout">
         <aside className="floor-editor-toolbar" role="toolbar" aria-label="도면 편집 도구">
@@ -100,65 +157,95 @@ export function FloorEditorView({ initialState, onCancel, onSaved }: FloorEditor
         <div className="floor-editor-side-panel">
           <FloorAssetUploader />
           <EditorPropertiesPanel />
+          <RevisionPanel
+            revisions={revisions}
+            canRestore={userRole === "operator" || userRole === "admin"}
+            isDirty={isDirty}
+            restoringRevision={restoringRevision}
+            hasNextPage={revisionsQuery.hasNextPage}
+            isFetchingNextPage={revisionsQuery.isFetchingNextPage}
+            onLoadMore={() => void revisionsQuery.fetchNextPage()}
+            onRestore={(revision) => void handleRestore(revision)}
+          />
         </div>
       </div>
     </section>
   );
 }
 
-async function persistEditorState(initialState: FloorEditorState, state: FloorEditorState) {
-  const initialFixtureIds = new Set(initialState.fixtures.map((fixture) => fixture.id));
-  const initialObjectIds = new Set(initialState.objects.map((object) => object.id));
-  const operations: Array<Promise<unknown>> = [];
-
-  if (state.floor.floorPlan) {
-    operations.push(updateFloorPlan(state.floor.id, state.floor.floorPlan));
-  }
-
-  for (const fixture of state.fixtures) {
-    if (!initialFixtureIds.has(fixture.id)) continue;
-    operations.push(updateEditorFixture(fixture.id, toFixturePayload(fixture)));
-  }
-
-  for (const object of state.objects) {
-    const draft = toObjectDraft(object);
-    if (object.id.startsWith("draft-") || !initialObjectIds.has(object.id)) {
-      operations.push(createFloorMapObject(state.floor.id, draft));
-    } else {
-      operations.push(updateFloorMapObject(object.id, draft));
-    }
-  }
-
-  await Promise.all(operations);
+function RevisionPanel({
+  revisions,
+  canRestore,
+  isDirty,
+  restoringRevision,
+  hasNextPage,
+  isFetchingNextPage,
+  onLoadMore,
+  onRestore
+}: {
+  revisions: FloorEditorRevision[];
+  canRestore: boolean;
+  isDirty: boolean;
+  restoringRevision: number | null;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  onLoadMore: () => void;
+  onRestore: (revision: number) => void;
+}) {
+  return (
+    <section className="editor-revisions" aria-label="도면 버전">
+      <div>
+        <span className="eyebrow">버전</span>
+        <h3>변경 기록</h3>
+      </div>
+      {revisions.length === 0 ? <p className="muted-text">저장된 버전이 없습니다.</p> : (
+        <ol className="editor-revision-list">
+          {revisions.map((revision) => (
+            <li key={revision.revision}>
+              <div>
+                <strong>리비전 {revision.revision}</strong>
+                <span>{revision.actor.displayName}</span>
+                <time dateTime={revision.createdAt}>{formatRevisionTime(revision.createdAt)}</time>
+                <span>변경 {revisionChangeCount(revision.changeSummary)}건</span>
+              </div>
+              {canRestore ? (
+                <button
+                  className="icon-button"
+                  aria-label={`리비전 ${revision.revision} 복구`}
+                  title="이 버전 복구"
+                  disabled={isDirty || restoringRevision !== null}
+                  onClick={() => onRestore(revision.revision)}
+                >
+                  <RotateCcw size={16} />
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      )}
+      {hasNextPage ? (
+        <button className="secondary-button" disabled={isFetchingNextPage} onClick={onLoadMore}>
+          {isFetchingNextPage ? "불러오는 중" : "이전 버전 더 보기"}
+        </button>
+      ) : null}
+    </section>
+  );
 }
 
-function toFixturePayload(fixture: EditorFixture) {
-  const payload: Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size">> = {
-    name: fixture.name,
-    ratedWatt: fixture.ratedWatt,
-    x: fixture.x,
-    y: fixture.y
-  };
-  if (fixture.size !== undefined) payload.size = fixture.size;
-  return payload;
+function revisionChangeCount(summary: Record<string, unknown>) {
+  return Object.entries(summary).reduce((total, [key, value]) => {
+    return key !== "restoredFromRevision" && typeof value === "number" ? total + value : total;
+  }, 0);
 }
 
-function toObjectDraft(object: FloorMapObject): FloorMapObjectDraft {
-  return {
-    type: object.type,
-    x: object.x,
-    y: object.y,
-    width: object.width,
-    height: object.height,
-    points: object.points,
-    rotation: object.rotation,
-    strokeColor: object.strokeColor,
-    fillColor: object.fillColor,
-    strokeWidth: object.strokeWidth,
-    text: object.text,
-    fontSize: object.fontSize,
-    zIndex: object.zIndex,
-    locked: object.locked,
-    visible: object.visible
-  };
+function formatRevisionTime(createdAt: string) {
+  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt));
+}
+
+async function invalidateEditorQueries(queryClient: ReturnType<typeof useQueryClient>, state: FloorEditorState) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["dashboard", state.floor.siteId] }),
+    queryClient.invalidateQueries({ queryKey: ["floor-editor", state.floor.siteId, state.floor.id] }),
+    queryClient.invalidateQueries({ queryKey: ["floor-editor-revisions", state.floor.siteId, state.floor.id] })
+  ]);
 }

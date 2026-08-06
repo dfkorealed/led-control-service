@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@led-control/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.8",
     "konva": "^10.3.0",
     "lucide-react": "^0.468.0",
