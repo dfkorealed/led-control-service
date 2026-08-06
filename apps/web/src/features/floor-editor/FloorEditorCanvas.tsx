@@ -241,8 +241,8 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
                 fill={fixtureColors[fixture.status]}
                 stroke="#ffffff"
                 strokeWidth={2}
-                shadowColor="rgba(15, 38, 70, 0.22)"
-                shadowBlur={10}
+                perfectDrawEnabled={false}
+                shadowEnabled={false}
               />
               <Text x={14} y={-8} text={fixture.name} fontSize={12} fontStyle="bold" fill="#172033" />
             </Group>
