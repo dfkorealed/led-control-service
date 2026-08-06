@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
+import { positivePostgresIntSchema } from "@led-control/shared";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -39,7 +40,9 @@ export class FloorEditorController {
     @Body() body: Record<string, unknown>,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.floorEditorService.restoreEditorRevision(user, floorId, Number(revision), body);
+    const parsedRevision = positivePostgresIntSchema.safeParse(revision);
+    if (!parsedRevision.success) throw new BadRequestException("revision must be a positive PostgreSQL integer");
+    return this.floorEditorService.restoreEditorRevision(user, floorId, parsedRevision.data, body);
   }
 
   @Patch("floors/:floorId/floor-plan")

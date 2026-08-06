@@ -218,6 +218,29 @@ describe("FloorEditorService", () => {
     expect(prisma.floorPlan.upsert).not.toHaveBeenCalled();
   });
 
+  it("keeps the legacy floor plan endpoint compatible with background-none and partial patches", async () => {
+    const { service, prisma } = await createService({
+      floorPlan: { upsert: jest.fn().mockResolvedValue({ sourceType: "none", imageUrl: "" }) }
+    });
+
+    await service.updateFloorPlan(ids.floorId, {
+      imageUrl: "",
+      sourceType: "none",
+      originalFileUrl: null,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800
+    }, assignedOperator);
+    await service.updateFloorPlan(ids.floorId, { width: 900, id: "floor-plan-1", version: 2 } as never, assignedOperator);
+
+    expect(prisma.floorPlan.upsert).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      create: expect.objectContaining({ sourceType: "none", imageUrl: "", originalFileUrl: null, renderedImageUrl: null })
+    }));
+    expect(prisma.floorPlan.upsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      update: { width: 900, version: { increment: 1 } }
+    }));
+  });
+
   it("updates fixture name, ratedWatt, x, y, and size for the current organization", async () => {
     const fixture = {
       id: ids.fixtureId,
@@ -510,7 +533,9 @@ describe("FloorEditorService atomic revisions", () => {
       },
       floorMapObject: {
         findMany: jest.fn().mockImplementation(({ where }: any) =>
-          Promise.resolve((where.id.in as string[]).map((id) => ({ id, type: "rectangle" })))
+          Promise.resolve((where.id.in as string[]).map((id) => ({
+            id, type: "rectangle", width: 240, height: 160, points: null
+          })))
         ),
         create: jest.fn().mockResolvedValue({ id: "created-object-1" }),
         update: jest.fn().mockResolvedValue({ id: objectId }),
@@ -643,6 +668,37 @@ describe("FloorEditorService atomic revisions", () => {
   });
 
   it.each([
+    ["nullable rectangle width", { width: null }],
+    ["nonzero line height", { type: "line", height: 5 }],
+    ["incomplete rectangle-to-line transition", { type: "line" }]
+  ])("rejects merged object geometry for %s before optimistic mutation", async (_label, patch) => {
+    const tx = createTransactionClient();
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, {
+      ...saveInput,
+      floorPlan: undefined,
+      fixtureUpdates: [],
+      objectCreates: [],
+      objectUpdates: [{ id: objectId, patch }],
+      objectDeletes: []
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.floor.updateMany).not.toHaveBeenCalled();
+    expect(tx.floorMapObject.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects restore revision overflow before floor lookup or transaction", async () => {
+    const { service, prisma } = await createAtomicService();
+
+    await expect(service.restoreEditorRevision(user, floorId, 2_147_483_648, { expectedRevision: 3 }))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.floor.findUnique).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["fixture update IDs", { ...saveInput, fixtureUpdates: [saveInput.fixtureUpdates[0], saveInput.fixtureUpdates[0]] }],
     ["object update IDs", { ...saveInput, objectUpdates: [saveInput.objectUpdates[0], saveInput.objectUpdates[0]] }],
     ["object delete IDs", { ...saveInput, objectDeletes: [deletedObjectId, deletedObjectId] }],
@@ -720,6 +776,63 @@ describe("FloorEditorService atomic revisions", () => {
       ]
     });
     expect(revisionData.snapshotSha256).toBe("faba9c7c806314da6599b8c40fe2f4e7c2c479ba2869bcdf4d53e7914e9415cf");
+  });
+
+  it("saves a deterministic snapshot when persisted rows use legacy none and nullable geometry", async () => {
+    const legacyFloor = {
+      ...canonicalFloor,
+      floorPlan: {
+        ...canonicalFloor.floorPlan,
+        imageUrl: "",
+        sourceType: "none" as const,
+        originalFileUrl: null,
+        renderedImageUrl: null
+      },
+      mapObjects: [{
+        ...canonicalFloor.mapObjects[0],
+        type: "legacy-shape",
+        width: null,
+        height: null
+      }]
+    };
+    const tx = createTransactionClient({ floor: { findUnique: jest.fn().mockResolvedValue(legacyFloor) } });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, {
+      expectedRevision: 3,
+      fixtureUpdates: [],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    })).resolves.toMatchObject({
+      floor: { floorPlan: { sourceType: "none", imageUrl: "" } },
+      objects: [{ type: "legacy-shape", width: 0, height: 0 }]
+    });
+
+    expect(tx.floorMapRevision.create.mock.calls[0][0].data.snapshot).toMatchObject({
+      floorPlan: { sourceType: "none", originalFileUrl: null, renderedImageUrl: null },
+      objects: [{ type: "legacy-shape", width: null, height: null }]
+    });
+  });
+
+  it("rejects unsafe persisted object points as 400 and rolls back the optimistic mutation", async () => {
+    const unsafeFloor = {
+      ...canonicalFloor,
+      mapObjects: [{ ...canonicalFloor.mapObjects[0], points: { x: 1, y: 2 } }]
+    };
+    const tx = createTransactionClient({ floor: { findUnique: jest.fn().mockResolvedValue(unsafeFloor) } });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, {
+      expectedRevision: 3,
+      fixtureUpdates: [],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("returns editor objects in stable zIndex and createdAt order while snapshot hashing stays ID canonical", async () => {
@@ -845,6 +958,56 @@ describe("FloorEditorService atomic revisions", () => {
       data: expect.objectContaining({ action: "floor_editor.restored", metadata: expect.objectContaining({ revision: 4, restoredFromRevision: 1 }) })
     });
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("restores legacy none floor plans and nullable object geometry", async () => {
+    const snapshot = {
+      floorPlan: {
+        imageUrl: "", sourceType: "none", originalFileUrl: null, renderedImageUrl: null,
+        width: 1200, height: 800
+      },
+      fixtures: [],
+      objects: [{
+        id: objectId, type: "legacy-shape", x: 10, y: 20, width: null, height: null,
+        rotation: 0, points: null, text: null, strokeColor: "#111111", fillColor: null,
+        strokeWidth: 2, fontSize: null, zIndex: 0, locked: false, visible: true
+      }]
+    };
+    const tx = createTransactionClient({
+      floorMapRevision: { findUnique: jest.fn().mockResolvedValue({ revision: 1, snapshot }) }
+    });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.restoreEditorRevision(user, floorId, 1, { expectedRevision: 3 })).resolves.toBeDefined();
+
+    expect(tx.floorPlan.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ floorId, sourceType: "none", imageUrl: "" })
+    }));
+    expect(tx.floorMapObject.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ floorId, type: "legacy-shape", width: null, height: null })]
+    });
+  });
+
+  it("rejects unsafe legacy revision data before optimistic restore mutation", async () => {
+    const snapshot = {
+      floorPlan: null,
+      fixtures: [],
+      objects: [{
+        id: objectId, type: "rectangle", x: 10, y: 20, width: null, height: null,
+        rotation: 0, points: { x: 1, y: 2 }, text: null, strokeColor: "#111111", fillColor: null,
+        strokeWidth: 2, fontSize: null, zIndex: 0, locked: false, visible: true
+      }]
+    };
+    const tx = createTransactionClient({
+      floorMapRevision: { findUnique: jest.fn().mockResolvedValue({ revision: 1, snapshot }) }
+    });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.restoreEditorRevision(user, floorId, 1, { expectedRevision: 3 }))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.floor.updateMany).not.toHaveBeenCalled();
+    expect(tx.floorMapObject.deleteMany).not.toHaveBeenCalled();
   });
 
   it.each([

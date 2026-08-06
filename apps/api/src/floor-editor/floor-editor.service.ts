@@ -3,8 +3,10 @@ import {
   FloorEditorSnapshot,
   SaveEditorStateInput,
   editorRevisionListQuerySchema,
-  floorEditorSnapshotSchema,
-  floorPlanUpdateSchema,
+  floorMapObjectGeometrySchema,
+  legacyFloorPlanPatchSchema,
+  parseFloorEditorSnapshot,
+  positivePostgresIntSchema,
   restoreFloorEditorRevisionSchema,
   saveEditorStateSchema
 } from "@led-control/shared";
@@ -132,7 +134,7 @@ export class FloorEditorService {
         await this.applySaveChanges(tx, floorId, prepared);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
-        const snapshot = buildFloorEditorSnapshot(floor);
+        const snapshot = this.buildSnapshot(floor);
         const changeSummary = this.saveChangeSummary(prepared);
         await this.createRevision(tx, {
           floorId,
@@ -204,8 +206,12 @@ export class FloorEditorService {
     revision: number,
     rawInput: unknown
   ) {
+    const parsedRevision = this.parseInput(
+      positivePostgresIntSchema,
+      revision,
+      "revision must be a positive PostgreSQL integer"
+    );
     const access = await this.assertExistingFloor(floorId, user, "manage");
-    if (!Number.isInteger(revision) || revision < 1) throw new BadRequestException("revision must be a positive integer");
     const input = this.parseInput(
       restoreFloorEditorRevisionSchema,
       rawInput,
@@ -215,16 +221,12 @@ export class FloorEditorService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const source = await tx.floorMapRevision.findUnique({
-          where: { floorId_revision: { floorId, revision } },
+          where: { floorId_revision: { floorId, revision: parsedRevision } },
           select: { revision: true, snapshot: true }
         });
         if (!source) throw new NotFoundException("floor revision not found");
 
-        const snapshot = this.parseInput(
-          floorEditorSnapshotSchema,
-          source.snapshot,
-          "floor revision snapshot is invalid"
-        );
+        const snapshot = this.parseSnapshot(source.snapshot);
         await this.assertSnapshotAssetsReady(tx, floorId, snapshot);
         const existingFixtureIds = await this.existingFixtureIds(tx, floorId, snapshot.fixtures.map((fixture) => fixture.id));
         const skippedFixtureIds = snapshot.fixtures
@@ -236,10 +238,10 @@ export class FloorEditorService {
         await this.applySnapshot(tx, floorId, snapshot, existingFixtureIds);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
-        const restoredSnapshot = buildFloorEditorSnapshot(floor);
+        const restoredSnapshot = this.buildSnapshot(floor);
         const nextRevision = input.expectedRevision + 1;
         const changeSummary = {
-          restoredFromRevision: revision,
+          restoredFromRevision: parsedRevision,
           skippedFixtureIds,
           fixtureUpdates: existingFixtureIds.size,
           objectCreates: snapshot.objects.length
@@ -250,7 +252,7 @@ export class FloorEditorService {
           snapshot: restoredSnapshot,
           changeSummary,
           changedBy: user.id,
-          restoredFromRevision: revision
+          restoredFromRevision: parsedRevision
         });
         await this.auditService.record({
           organizationId: access.organizationId,
@@ -262,7 +264,7 @@ export class FloorEditorService {
           outcome: "success",
           metadata: {
             revision: nextRevision,
-            restoredFromRevision: revision,
+            restoredFromRevision: parsedRevision,
             skippedFixtureIds,
             snapshotSha256: hashFloorEditorSnapshot(restoredSnapshot)
           },
@@ -341,7 +343,7 @@ export class FloorEditorService {
 
   async updateFloorPlan(floorId: string, input: UpdateFloorPlanInput, user: AuthenticatedUser) {
     await this.assertExistingFloor(floorId, user, "manage");
-    const parsed = this.parseInput(floorPlanUpdateSchema, input, "invalid floor plan payload");
+    const parsed = this.parseInput(legacyFloorPlanPatchSchema, input, "invalid floor plan payload");
     const data = this.buildFloorPlanData(parsed);
     await this.assertReadyAssetUrls(floorId, data);
 
@@ -349,12 +351,12 @@ export class FloorEditorService {
       where: { floorId },
       create: {
         floorId,
-        imageUrl: data.imageUrl!,
-        sourceType: data.sourceType!,
-        originalFileUrl: data.originalFileUrl!,
-        renderedImageUrl: data.renderedImageUrl!,
-        width: data.width!,
-        height: data.height!
+        imageUrl: data.imageUrl ?? "",
+        sourceType: data.sourceType ?? "none",
+        originalFileUrl: data.originalFileUrl ?? null,
+        renderedImageUrl: data.renderedImageUrl ?? null,
+        width: data.width ?? 1,
+        height: data.height ?? 1
       },
       update: {
         ...data,
@@ -410,6 +412,22 @@ export class FloorEditorService {
       return schema.parse(value);
     } catch {
       throw new BadRequestException(message);
+    }
+  }
+
+  private parseSnapshot(value: unknown): FloorEditorSnapshot {
+    try {
+      return parseFloorEditorSnapshot(value);
+    } catch {
+      throw new BadRequestException("floor revision snapshot is invalid");
+    }
+  }
+
+  private buildSnapshot(floor: Parameters<typeof buildFloorEditorSnapshot>[0]): FloorEditorSnapshot {
+    try {
+      return buildFloorEditorSnapshot(floor);
+    } catch {
+      throw new BadRequestException("persisted floor editor state is invalid");
     }
   }
 
@@ -474,14 +492,14 @@ export class FloorEditorService {
       ? []
       : await tx.floorMapObject.findMany({
           where: { floorId, id: { in: objectIds } },
-          select: { id: true, type: true }
+          select: { id: true, type: true, width: true, height: true, points: true }
         });
     if (objects.length !== objectIds.length) {
       throw new BadRequestException("object updates and deletes must belong to the requested floor");
     }
-    const objectTypes = new Map(objects.map((object) => [object.id, object.type]));
+    const objectStates = new Map(objects.map((object) => [object.id, object]));
     for (const update of input.objectUpdates) {
-      this.normalizeObjectTypePatch(update.data, objectTypes.get(update.id));
+      this.normalizeObjectGeometryPatch(update.data, objectStates.get(update.id));
     }
 
     if (input.floorPlan) {
@@ -489,25 +507,27 @@ export class FloorEditorService {
     }
   }
 
-  private normalizeObjectTypePatch(data: Record<string, unknown>, currentType: string | undefined) {
-    if (!currentType) throw new BadRequestException("floor map object not found");
-    const effectiveType = typeof data.type === "string" ? data.type : currentType;
-    const pointsSupplied = data.points !== undefined;
-
-    if (pointsSupplied && effectiveType !== "triangle" && data.points !== null) {
-      throw new BadRequestException(`${effectiveType} objects do not accept points`);
-    }
-    if (effectiveType === "triangle") {
-      if (data.type === "triangle" && currentType !== "triangle" && !pointsSupplied) {
-        throw new BadRequestException("changing an object to triangle requires points");
-      }
-      if (pointsSupplied && (!Array.isArray(data.points) || data.points.length !== 3)) {
-        throw new BadRequestException("triangle objects require exactly 3 points");
-      }
-    }
-    if (data.type !== undefined && effectiveType !== "triangle" && currentType === "triangle" && !pointsSupplied) {
+  private normalizeObjectGeometryPatch(
+    data: Record<string, unknown>,
+    current: { type: string; width: number | null; height: number | null; points: unknown } | undefined
+  ) {
+    if (!current) throw new BadRequestException("floor map object not found");
+    const effectiveType = typeof data.type === "string" ? data.type : current.type;
+    if (data.type !== undefined && effectiveType !== "triangle" && current.type === "triangle" && data.points === undefined) {
       data.points = null;
     }
+
+    const geometry = this.parseInput(floorMapObjectGeometrySchema, {
+      type: effectiveType,
+      width: data.width === undefined ? current.width : data.width,
+      height: data.height === undefined ? current.height : data.height,
+      points: data.points === undefined ? current.points : data.points
+    }, "invalid map object geometry");
+
+    if (data.type !== undefined) data.type = geometry.type;
+    if (data.width !== undefined) data.width = geometry.width;
+    if (data.height !== undefined) data.height = geometry.height;
+    if (data.points !== undefined) data.points = geometry.points;
   }
 
   private async incrementRevision(tx: Prisma.TransactionClient, floorId: string, expectedRevision: number) {
@@ -612,7 +632,7 @@ export class FloorEditorService {
     floorId: string,
     snapshot: FloorEditorSnapshot
   ) {
-    if (!snapshot.floorPlan) return;
+    if (!snapshot.floorPlan || snapshot.floorPlan.sourceType === "none") return;
     await this.assertReadyAssetUrls(floorId, snapshot.floorPlan, tx);
   }
 
@@ -691,14 +711,20 @@ export class FloorEditorService {
       if (!["none", "image", "pdf"].includes(input.sourceType)) throw new BadRequestException("invalid sourceType");
       data.sourceType = input.sourceType;
     }
-    if (input.imageUrl !== undefined) data.imageUrl = this.objectStorageUrl(input.imageUrl, "imageUrl");
+    if (input.imageUrl !== undefined) {
+      data.imageUrl = input.imageUrl.trim() === "" ? "" : this.objectStorageUrl(input.imageUrl, "imageUrl");
+    }
     if (input.originalFileUrl !== undefined) {
       data.originalFileUrl =
-        input.originalFileUrl === null ? null : this.objectStorageUrl(input.originalFileUrl, "originalFileUrl");
+        input.originalFileUrl === null || input.originalFileUrl.trim() === ""
+          ? input.originalFileUrl
+          : this.objectStorageUrl(input.originalFileUrl, "originalFileUrl");
     }
     if (input.renderedImageUrl !== undefined) {
       data.renderedImageUrl =
-        input.renderedImageUrl === null ? null : this.objectStorageUrl(input.renderedImageUrl, "renderedImageUrl");
+        input.renderedImageUrl === null || input.renderedImageUrl.trim() === ""
+          ? input.renderedImageUrl
+          : this.objectStorageUrl(input.renderedImageUrl, "renderedImageUrl");
     }
     if (input.width !== undefined) data.width = this.positiveInteger(input.width, "width");
     if (input.height !== undefined) data.height = this.positiveInteger(input.height, "height");

@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { FloorEditorController } from "./floor-editor.controller";
 
 describe("FloorEditorController", () => {
@@ -45,4 +46,16 @@ describe("FloorEditorController", () => {
     expect(service.updateObject).toHaveBeenCalledWith("object-1", { x: 3 }, user);
     expect(service.deleteObject).toHaveBeenCalledWith("object-1", user);
   });
+
+  it.each(["2147483648", "1e100", "0", "1.5"])(
+    "rejects invalid restore revision %s before calling the service",
+    (revision) => {
+      const service = { restoreEditorRevision: jest.fn() };
+      const controller = new FloorEditorController(service as never);
+
+      expect(() => controller.restoreEditorRevision("floor-1", revision, { expectedRevision: 0 }, user))
+        .toThrow(BadRequestException);
+      expect(service.restoreEditorRevision).not.toHaveBeenCalled();
+    }
+  );
 });

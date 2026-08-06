@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { FloorEditorSnapshot, floorEditorSnapshotSchema } from "@led-control/shared";
+import { FloorEditorSnapshot, parseFloorEditorSnapshot } from "@led-control/shared";
 
 interface SnapshotFloor {
   floorPlan: null | {
@@ -39,7 +39,7 @@ interface SnapshotFloor {
 }
 
 export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnapshot {
-  return floorEditorSnapshotSchema.parse({
+  return parseFloorEditorSnapshot({
     floorPlan: floor.floorPlan
       ? {
           imageUrl: floor.floorPlan.imageUrl,

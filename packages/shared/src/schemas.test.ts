@@ -9,6 +9,8 @@ import {
   POSTGRES_INT_MAX,
   editorRevisionListQuerySchema,
   floorEditorSnapshotSchema,
+  parseFloorEditorSnapshot,
+  positivePostgresIntSchema,
   fixtureLayoutUpdateSchema,
   floorMapObjectDraftSchema,
   floorPlanUpdateSchema,
@@ -150,6 +152,47 @@ describe("shared schemas", () => {
       .toThrow();
   });
 
+  it("parses legacy v1 snapshots without weakening atomic floor plan writes", () => {
+    const legacySnapshot = {
+      floorPlan: {
+        imageUrl: "",
+        sourceType: "none" as const,
+        originalFileUrl: null,
+        renderedImageUrl: null,
+        width: 1200,
+        height: 800
+      },
+      fixtures: [{ id: "fixture-1", name: "B2-L01", ratedWatt: "40.00", x: 10, y: 20, size: 24 }],
+      objects: [{
+        id: "legacy-object-1", type: "legacy-shape", x: 10, y: 20, width: null, height: null,
+        rotation: 0, points: null, text: null, strokeColor: "#111111", fillColor: null,
+        strokeWidth: 2, fontSize: null, zIndex: 0, locked: false, visible: true
+      }]
+    };
+
+    expect(parseFloorEditorSnapshot(legacySnapshot)).toEqual(legacySnapshot);
+    expect(floorEditorSnapshotSchema.parse(legacySnapshot)).toEqual(legacySnapshot);
+    expect(() => floorPlanUpdateSchema.parse(legacySnapshot.floorPlan)).toThrow();
+  });
+
+  it("rejects unsafe legacy snapshot values", () => {
+    const object = {
+      id: "legacy-object-1", type: "rectangle", x: 0, y: 0, width: null, height: null,
+      rotation: 0, points: null, text: null, strokeColor: "#111111", fillColor: null,
+      strokeWidth: 2, fontSize: null, zIndex: 0, locked: false, visible: true
+    };
+    const snapshot = { floorPlan: null, fixtures: [], objects: [object] };
+
+    expect(() => parseFloorEditorSnapshot({
+      ...snapshot,
+      objects: [{ ...object, points: { x: 1, y: 2 } }]
+    })).toThrow();
+    expect(() => parseFloorEditorSnapshot({
+      ...snapshot,
+      objects: [{ ...object, type: "x".repeat(201) }]
+    })).toThrow();
+  });
+
   it("requires complete non-empty source-specific floor plan data", () => {
     const imagePlan = {
       sourceType: "image" as const,
@@ -185,6 +228,9 @@ describe("shared schemas", () => {
     expect(saveEditorStateSchema.parse(base).expectedRevision).toBe(EDITOR_MAX_EXPECTED_REVISION);
     expect(() => saveEditorStateSchema.parse({ ...base, expectedRevision: POSTGRES_INT_MAX })).toThrow();
     expect(() => restoreFloorEditorRevisionSchema.parse({ expectedRevision: POSTGRES_INT_MAX })).toThrow();
+    expect(positivePostgresIntSchema.parse("2147483647")).toBe(POSTGRES_INT_MAX);
+    expect(() => positivePostgresIntSchema.parse("2147483648")).toThrow();
+    expect(() => positivePostgresIntSchema.parse("1e100")).toThrow();
 
     const fixtureUpdates = Array.from({ length: EDITOR_MAX_FIXTURE_UPDATES }, (_, index) => ({
       id: `fixture-${index}`,

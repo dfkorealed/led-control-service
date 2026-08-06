@@ -11,6 +11,7 @@ export const EDITOR_MAX_NAME_LENGTH = 200;
 export const EDITOR_MAX_TEXT_LENGTH = 10_000;
 export const EDITOR_MAX_URL_LENGTH = 2_048;
 export const EDITOR_MAX_COLOR_LENGTH = 64;
+export const EDITOR_MAX_OBJECT_TYPE_LENGTH = 64;
 export const EDITOR_MAX_RATED_WATT = 999_999.99;
 export const EDITOR_REVISION_DEFAULT_LIMIT = 20;
 export const EDITOR_REVISION_MAX_LIMIT = 100;
@@ -21,6 +22,10 @@ const int4Schema = z.number().int().min(POSTGRES_INT_MIN).max(POSTGRES_INT_MAX);
 const nonnegativeInt4Schema = int4Schema.nonnegative();
 const expectedRevisionSchema = nonnegativeInt4Schema.max(EDITOR_MAX_EXPECTED_REVISION);
 const positiveInt4Schema = int4Schema.positive();
+export const positivePostgresIntSchema = z.union([
+  z.number(),
+  z.string().regex(/^\d+$/)
+]).transform((value) => Number(value)).pipe(positiveInt4Schema);
 const editorIdSchema = z.string().trim().min(1).max(EDITOR_MAX_ID_LENGTH);
 const editorUrlSchema = z.string().trim().min(1).max(EDITOR_MAX_URL_LENGTH);
 const editorColorSchema = z.string().trim().min(1).max(EDITOR_MAX_COLOR_LENGTH);
@@ -44,6 +49,15 @@ export const floorPlanUpdateSchema = z.discriminatedUnion("sourceType", [
   z.object({ sourceType: z.literal("image"), ...floorPlanFields }).strict(),
   z.object({ sourceType: z.literal("pdf"), ...floorPlanFields }).strict()
 ]);
+
+export const legacyFloorPlanPatchSchema = z.object({
+  imageUrl: z.string().trim().max(EDITOR_MAX_URL_LENGTH).optional(),
+  sourceType: z.enum(["none", "image", "pdf"]).optional(),
+  originalFileUrl: z.string().trim().max(EDITOR_MAX_URL_LENGTH).nullable().optional(),
+  renderedImageUrl: z.string().trim().max(EDITOR_MAX_URL_LENGTH).nullable().optional(),
+  width: positiveInt4Schema.optional(),
+  height: positiveInt4Schema.optional()
+}).refine((value) => Object.keys(value).length > 0, "floor plan patch must not be empty");
 
 export const fixtureLayoutUpdateSchema = z.object({
   id: editorIdSchema,
@@ -71,6 +85,24 @@ const floorMapObjectFields = {
   locked: z.boolean(),
   visible: z.boolean()
 };
+
+export const floorMapObjectGeometrySchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("rectangle"), width: finiteNumberSchema.positive(),
+    height: finiteNumberSchema.positive(), points: z.null()
+  }).strict(),
+  z.object({
+    type: z.literal("triangle"), width: finiteNumberSchema.positive(),
+    height: finiteNumberSchema.positive(), points: trianglePointsSchema
+  }).strict(),
+  z.object({
+    type: z.literal("line"), width: finiteNumberSchema.positive(), height: z.literal(0), points: z.null()
+  }).strict(),
+  z.object({
+    type: z.literal("text"), width: finiteNumberSchema.positive(),
+    height: finiteNumberSchema.positive(), points: z.null()
+  }).strict()
+]);
 
 const floorMapObjectDraftCommon = {
   x: floorMapObjectFields.x,
@@ -120,7 +152,7 @@ const floorMapObjectSnapshotCommon = {
   visible: floorMapObjectFields.visible
 };
 
-const floorMapObjectSnapshotSchema = z.discriminatedUnion("type", [
+export const floorMapObjectStateSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("rectangle"), ...floorMapObjectSnapshotCommon,
     width: finiteNumberSchema.positive(), height: finiteNumberSchema.positive(), points: z.null()
@@ -193,18 +225,53 @@ export const editorRevisionListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(EDITOR_REVISION_MAX_LIMIT).default(EDITOR_REVISION_DEFAULT_LIMIT)
 }).strict();
 
-export const floorEditorSnapshotSchema = z.object({
-  floorPlan: floorPlanUpdateSchema.nullable(),
+const legacySnapshotUrlSchema = z.string().trim().max(EDITOR_MAX_URL_LENGTH);
+const legacySnapshotPointsSchema = z.array(editorPointSchema).max(EDITOR_MAX_POINTS).nullable();
+
+export const FLOOR_EDITOR_SNAPSHOT_VERSION = 1;
+
+export const floorEditorSnapshotV1Schema = z.object({
+  floorPlan: z.object({
+    imageUrl: legacySnapshotUrlSchema,
+    sourceType: z.enum(["none", "image", "pdf"]),
+    originalFileUrl: legacySnapshotUrlSchema.nullable(),
+    renderedImageUrl: legacySnapshotUrlSchema.nullable(),
+    width: positiveInt4Schema,
+    height: positiveInt4Schema
+  }).strict().nullable(),
   fixtures: z.array(z.object({
     id: editorIdSchema,
     name: z.string().trim().min(1).max(EDITOR_MAX_NAME_LENGTH),
     ratedWatt: z.string().min(1).max(32),
     x: finiteNumberSchema,
     y: finiteNumberSchema,
-    size: finiteNumberSchema.positive()
+    size: finiteNumberSchema
   }).strict()),
-  objects: z.array(floorMapObjectSnapshotSchema)
+  objects: z.array(z.object({
+    id: editorIdSchema,
+    type: z.string().trim().min(1).max(EDITOR_MAX_OBJECT_TYPE_LENGTH),
+    x: finiteNumberSchema,
+    y: finiteNumberSchema,
+    width: nullableFiniteNumberSchema,
+    height: nullableFiniteNumberSchema,
+    rotation: finiteNumberSchema,
+    points: legacySnapshotPointsSchema,
+    text: z.string().trim().max(EDITOR_MAX_TEXT_LENGTH).nullable(),
+    strokeColor: editorColorSchema,
+    fillColor: z.string().trim().max(EDITOR_MAX_COLOR_LENGTH).nullable(),
+    strokeWidth: finiteNumberSchema,
+    fontSize: nullableFiniteNumberSchema,
+    zIndex: int4Schema,
+    locked: z.boolean(),
+    visible: z.boolean()
+  }).strict())
 }).strict();
+
+export const floorEditorSnapshotSchema = floorEditorSnapshotV1Schema;
+
+export function parseFloorEditorSnapshot(value: unknown) {
+  return floorEditorSnapshotV1Schema.parse(value);
+}
 
 export type SaveEditorStateInput = z.infer<typeof saveEditorStateSchema>;
 export type RestoreFloorEditorRevisionInput = z.infer<typeof restoreFloorEditorRevisionSchema>;
