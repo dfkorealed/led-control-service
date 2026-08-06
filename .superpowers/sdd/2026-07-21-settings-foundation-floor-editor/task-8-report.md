@@ -216,3 +216,105 @@ FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest s
 - 웹 에디터의 atomic save/revision UI 연결은 여전히 Task 9 범위다.
 - 기존 개별 mutation endpoint는 Task 11까지 유지되며 통합 revision/audit을 만들지 않는다.
 - PostgreSQL integration suite 7개는 `FLOOR_EDITOR_TEST_DATABASE_URL`이 없으면 skip된다. Fix Round 1에서는 별도 disposable PostgreSQL로 모두 실행했다.
+
+## Fix Round 2
+
+### 구현 커밋
+
+- `a3aa1b7 fix(floor-editor): preserve legacy revision compatibility`
+- `669be7e test(floor-editor): cover legacy postgres restores`
+
+### 변경 파일
+
+- `packages/shared/src/schemas.ts`
+- `packages/shared/src/schemas.test.ts`
+- `apps/api/src/floor-editor/floor-editor.controller.ts`
+- `apps/api/src/floor-editor/floor-editor.controller.spec.ts`
+- `apps/api/src/floor-editor/floor-editor.service.ts`
+- `apps/api/src/floor-editor/floor-editor.service.spec.ts`
+- `apps/api/src/floor-editor/floor-editor-snapshot.ts`
+- `apps/api/src/floor-editor/floor-editor.integration.spec.ts`
+- `docs/menus/settings.md`
+
+### RED
+
+Persisted snapshot와 shared path revision parser:
+
+```bash
+pnpm --filter @led-control/shared test -- src/schemas.test.ts
+# exit 1: 2 failed, 8 passed
+```
+
+- legacy v1 snapshot parser가 없어 `sourceType: none`, nullable URL과 nullable legacy geometry snapshot을 읽지 못했다.
+- shared positive PostgreSQL INT parser가 없어 restore path의 `2147483648`, `1e100` 경계를 검증할 수 없었다.
+
+Legacy endpoint, restore overflow와 merged object geometry:
+
+```bash
+pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.controller.spec.ts src/floor-editor/floor-editor.service.spec.ts --runInBand
+# exit 1: 9 failed, 34 passed
+```
+
+- legacy floor-plan endpoint가 현재 Web의 `sourceType: none` payload를 `400`으로 거부했다.
+- controller는 overflow/지수/0/소수 revision을 service로 전달했고 service는 floor lookup을 먼저 실행했다.
+- rectangle `width: null`, line의 nonzero height, incomplete rectangle-to-line patch가 optimistic mutation과 저장까지 진행됐다.
+
+Unsafe persisted state error mapping:
+
+```bash
+pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.service.spec.ts --runInBand
+# exit 1: 1 failed, 41 passed
+```
+
+- 좌표 배열이 아닌 persisted points는 transaction rollback됐지만 `BadRequestException` 대신 raw `ZodError`로 노출됐다.
+
+### GREEN
+
+```bash
+pnpm --filter @led-control/shared test
+# PASS: 2 files, 14 tests
+
+pnpm --filter @led-control/api exec jest src/floor-editor --runInBand
+# PASS: 3 suites, 54 tests; opt-in PostgreSQL 9 tests skipped
+
+pnpm --filter @led-control/api exec jest src/access/site-access.service.spec.ts src/access/roles.guard.spec.ts src/audit/audit.service.spec.ts --runInBand
+# PASS: 3 suites, 21 tests
+
+pnpm --filter @led-control/shared typecheck
+pnpm --filter @led-control/shared build
+pnpm --filter @led-control/api typecheck
+pnpm --filter @led-control/api build
+# PASS: all four commands
+
+DATABASE_URL='postgresql://validate:validate@127.0.0.1:1/validate?schema=public' pnpm --filter @led-control/api exec prisma validate
+# PASS: schema is valid
+
+git diff --check
+# PASS
+```
+
+Disposable PostgreSQL 16에 17개 migration을 적용한 실제 DB 검증:
+
+```bash
+FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts --runInBand
+# PASS: 1 suite, 9 tests
+```
+
+- legacy endpoint로 `sourceType: none` 배경을 생성하고 width partial patch를 적용한 뒤 nullable geometry의 legacy object와 함께 revision 1을 저장했다.
+- image/strict geometry로 변경한 뒤 revision 1을 restore해 floor plan/object 상태, canonical snapshot JSON과 SHA-256이 원본과 동일함을 확인했다.
+- rectangle `width: null` patch는 실제 PostgreSQL에서 `400`으로 끝났고 `Floor.mapRevision`, object width, revision, audit가 모두 변경되지 않았다.
+- 기존 save/restore, missing fixture skip, audit rollback, stale/concurrent conflict, access isolation 테스트도 함께 통과했다.
+
+### Self-review
+
+- atomic `floorPlan` write는 complete image/pdf + ready URL 계약을 그대로 사용한다. 별도 v1 persisted parser만 `none`, nullable URL/geometry와 bounded legacy type을 허용하므로 신규 write 계약이 느슨해지지 않는다.
+- legacy floor-plan PATCH는 unknown response-only `id/version`을 strip하고 background-none 및 partial patch를 유지한다. non-empty URL은 계속 object-storage URL/ready asset 검사를 거친다.
+- snapshot parser는 URL/type/text/color/points 길이, finite number와 INT4를 제한하고 malformed points를 거부한다. parser/build 오류는 restore/save 서비스 경계에서 `400`으로 변환된다.
+- object patch는 같은 floor의 현재 type/width/height/points를 조회해 merge한 뒤 shared type-specific geometry schema를 통과해야 한다. 검증은 `floor.updateMany`보다 먼저 실행된다.
+- restore revision은 controller와 service 모두 같은 shared positive INT4 parser를 사용하며 DB 조회 전에 overflow를 거부한다.
+
+### Remaining concerns
+
+- 웹 에디터의 atomic save/revision UI 연결은 Task 9 범위다.
+- 기존 개별 mutation endpoint는 Task 11까지 유지되며 통합 revision/audit을 만들지 않는다.
+- PostgreSQL integration suite 9개는 `FLOOR_EDITOR_TEST_DATABASE_URL`이 없으면 skip된다. Fix Round 2에서는 별도 disposable PostgreSQL로 모두 실행했다.
