@@ -4,15 +4,17 @@ import type { SiteSummary } from "../../api/queries";
 interface SiteSwitcherProps {
   sites: SiteSummary[];
   selectedSiteId?: string;
+  canSelectSite?: () => boolean;
 }
 
-export function SiteSwitcher({ sites, selectedSiteId }: SiteSwitcherProps) {
+export function SiteSwitcher({ sites, selectedSiteId, canSelectSite }: SiteSwitcherProps) {
   const location = useLocation();
   const navigate = useNavigate();
 
   if (sites.length === 0) return null;
 
   function selectSite(siteId: string) {
+    if (siteId === selectedSiteId || canSelectSite?.() === false) return;
     const search = new URLSearchParams(location.search);
     search.set("siteId", siteId);
     navigate({ pathname: location.pathname, search: search.toString(), hash: location.hash });

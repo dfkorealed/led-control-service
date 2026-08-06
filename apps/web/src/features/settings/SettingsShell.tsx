@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
 import { useSites } from "../../api/queries";
 import { SiteSwitcher } from "../sites/SiteSwitcher";
+import { useFloorEditorStore } from "../floor-editor/editor-store";
 import { settingsSectionsFor } from "./settings-sections";
 
 interface SettingsShellProps {
@@ -13,11 +14,16 @@ export function SettingsShell({ userRole, selectedSiteId }: SettingsShellProps) 
   const { data: sites = [] } = useSites();
   const location = useLocation();
   const sections = settingsSectionsFor(userRole);
+  const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
 
   return (
     <section className="settings-workspace">
       <aside className="settings-sidebar" aria-label="설정 메뉴">
-        <SiteSwitcher sites={sites} selectedSiteId={selectedSiteId} />
+        <SiteSwitcher
+          sites={sites}
+          selectedSiteId={selectedSiteId}
+          canSelectSite={() => !isEditorDirty || window.confirm("저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?")}
+        />
         <nav className="settings-nav">
           {sections.map((section) => (
             <NavLink

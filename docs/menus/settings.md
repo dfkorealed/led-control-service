@@ -96,7 +96,7 @@
 - 웹 에디터는 shared `SaveEditorStateInput` 계약으로 baseline과 현재 상태를 O(n) 비교한다. 1,000개 fixture에서도 실제 변경된 fixture와 floor plan, object create/update/delete만 중복 없이 `PUT /floors/:floorId/editor-state` 한 번으로 전송하고 unchanged 상태는 저장하지 않는다.
 - atomic save 성공 응답과 revision 복구 응답은 새 baseline과 `mapRevision`으로 채택한다. 네트워크 오류는 현재 편집 상태를 유지하고 `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
 - 버전 패널은 cursor pagination으로 수정자 display name, 시각, 변경 수를 표시한다. 복구 버튼은 `operator/admin`에게만 제공하고 현재 baseline의 `mapRevision`을 `expectedRevision`으로 전송한다.
-- dirty 상태에서는 앱 내부 링크 이동, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. 저장 성공 또는 사용자가 명시적으로 이동을 확인한 뒤에는 현재 `siteId` query를 유지한 채 정상 이동한다.
+- dirty 상태에서는 앱 내부 링크 이동, 현장 전환, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. 저장 성공 또는 사용자가 명시적으로 이동을 확인한 뒤에는 현재 `siteId` query를 유지한 채 정상 이동한다.
 - 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
 - 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`만 갱신하며, 현재 pathname, 다른 query parameter와 hash fragment를 유지한다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.
@@ -291,7 +291,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현장 선택 아래 가로 스크롤 메뉴로 전환하며, 에디터 본문은 단일 열 전체 폭을 사용한다. 네이티브 상단 선택 메뉴와의 통합은 후속 UI 작업이다.
 - 기존 개별 변경 API 함수와 endpoint는 Task 11 전체 E2E 완료 전까지 호환 목적으로 유지한다. 현재 웹 저장 경로는 이 함수를 호출하지 않지만, 외부에서 직접 호출하면 통합 `FloorMapRevision`과 floor editor audit가 생성되지 않는다.
-- dirty 내부 이동 guard는 링크 이동과 브라우저 history 이동을 확인한다. Task 10 이후 전체 E2E에서 현장 선택 같은 모든 programmatic navigation 경로도 함께 검증해야 한다.
+- dirty 내부 이동 guard는 링크, 현장 전환과 브라우저 history 이동을 확인한다. Task 10 이후 전체 E2E에서 추가되는 programmatic navigation 경로도 같은 guard 계약에 연결해야 한다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
