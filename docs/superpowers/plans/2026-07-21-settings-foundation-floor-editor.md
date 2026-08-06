@@ -789,6 +789,10 @@ git add apps/web/src/api apps/web/src/features/floor-editor apps/web/src/feature
 git commit -m "feat(floor-editor): add revision-aware editing"
 ```
 
+- [x] **Step 8: Fix Round 1 review 보완**
+
+save/restore 동기 잠금과 편집 surface 비활성화, history 보상 guard, site/floor canonical URL, floor plan 의미 정규화, UUID draft ID, revision 상태·요약·복구 안내 lifecycle을 실패 테스트 후 보완한다. desktop/mobile Playwright 레이아웃 회귀를 함께 검증한다.
+
 ---
 
 ### Task 10: Redis 편집 lease

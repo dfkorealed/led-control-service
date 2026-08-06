@@ -95,3 +95,49 @@ Playwright mock API 시각 검증에서 desktop은 `scrollWidth=viewport=1440`, 
 - 기존 개별 floor editor mutation endpoint와 Web API 함수는 Task 11 전체 E2E 전까지 남는다. 직접 호출하면 통합 revision/audit가 생성되지 않는다.
 - 실제 API를 포함한 browser E2E와 두 사용자 동시 편집은 Task 10 lease 및 Task 11 범위다. 이번 시각 검증은 mock API를 사용했다.
 - production build는 성공하지만 기존 PDF worker와 main bundle이 500kB를 넘는 Vite chunk 경고를 유지한다.
+
+## Fix Round 1 (2026-08-06)
+
+### Review base
+
+수정 시작 전 `git rev-parse HEAD` 결과는 `2fba753f7d295ea7c49101162f82efb674c29a33`였다. Fix Round 1 review 범위는 이 SHA 이후이며 시작 작업 트리는 clean이었다.
+
+### RED
+
+review의 Important 1~6, Minor 1~2를 테스트로 먼저 재현했다.
+
+```bash
+pnpm --filter web test -- --run \
+  src/features/floor-editor/FloorEditorView.test.tsx \
+  src/features/floor-editor/editor-diff.test.ts \
+  src/features/floor-editor/editor-store.test.ts \
+  src/features/settings/floor-plans/FloorEditorRoute.test.tsx \
+  src/features/sites/SiteSwitcher.test.tsx
+# FAIL: 5 files, 13 failed / 37 passed
+```
+
+실패는 rapid save와 save/restore race, mutation surface 활성 상태, popstate confirm 반복, site/floor 불일치, floorPlan 의미 비교, draft ID 충돌, boolean revision count, skipped 안내 소멸, revision 상태 혼합을 각각 확인했다. self-review에서는 이미 시작된 background upload 중 save/restore가 열리는 실패 테스트도 추가해 `1 failed / 26 passed` RED를 확인했다.
+
+### GREEN
+
+- focused Vitest: 5 files, 51 tests PASS. background upload 보완 후 `FloorEditorView`: 27 tests PASS.
+- Playwright layout: desktop 1440x1000, mobile 390x844에서 2 tests PASS. body 수평 overflow 없이 toolbar, canvas, background/properties/revision panel 가시성을 확인했다.
+- 전체 Web Vitest: 16 files / 111 tests PASS.
+- Web typecheck: PASS.
+- Web production build: 1,745 modules transformed, PASS.
+- `git diff --check`는 문서 커밋 직전과 최종 커밋 후 재실행한다.
+
+### Self-review
+
+- save/restore는 같은 synchronous ref lock을 사용하며 delayed promise와 rapid double click 양방향 race에서 한 요청만 허용한다. 요청 중 도구, Konva canvas, 배경 파일/삭제와 속성 입력은 실제 disabled/read-only다. 시작된 asset upload도 별도 ref로 save/restore와 상호 배제한다.
+- 취소된 popstate의 보상 forward 이벤트는 skip-next ref로 한 번 건너뛰고 unmount에서 모든 guard listener와 ref를 정리한다.
+- editor에서 승인된 site switch는 floorId를 버리고 새 site 목록으로 이동한다. siteId 없는 direct URL은 응답 floor.siteId로 canonicalize해 site/floor query key를 사용하고, 선택 site와 floor site가 다르면 editor를 렌더링하지 않는다.
+- floorPlan 양쪽을 API 의미 형태로 먼저 정규화해 null/none과 default/fallback URL 동치를 no-op으로 처리하며 실제 image 삭제는 null mutation으로 유지한다. draft ID는 `crypto.randomUUID()`를 사용한다.
+- revision 요약은 true인 `floorPlanChanged`를 1건으로 합산한다. loading/error/empty를 분리하고 오류 announcement와 retry를 제공하며, skipped fixture 안내는 같은 floor refetch로 지워지지 않는다.
+- 기존 role, atomic PUT, network failure state 유지, 409 reload-only, expectedRevision, site/floor invalidation과 `ApiError` status/body 계약은 기존 회귀 테스트에서 유지된다.
+
+### Concerns
+
+- dirty history guard는 React Router data-router blocker가 아닌 capture click/popstate 보상 방식이다. 현재 link, back/forward와 cleanup은 테스트하지만 후속 programmatic navigation은 같은 guard 계약에 연결해야 한다.
+- 실제 API를 포함한 다중 사용자/lease E2E는 Task 10~11 범위다. 이번 desktop/mobile 검증은 mock API를 사용했다.
+- production build의 기존 PDF worker와 main bundle 500kB 초과 경고는 유지된다.
