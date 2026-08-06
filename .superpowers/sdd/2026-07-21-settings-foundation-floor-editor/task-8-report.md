@@ -328,3 +328,102 @@ FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest s
 - 웹 에디터의 atomic save/revision UI 연결은 Task 9 범위다.
 - 기존 개별 mutation endpoint는 Task 11까지 유지되며 통합 revision/audit을 만들지 않는다.
 - PostgreSQL integration suite 9개는 `FLOOR_EDITOR_TEST_DATABASE_URL`이 없으면 skip된다. Fix Round 2에서는 별도 disposable PostgreSQL로 모두 실행했다.
+
+## Fix Round 3
+
+### 구현 커밋
+
+- `63cd6fd fix(floor-editor): validate legacy floor plan state`
+- `45336dc test(floor-editor): verify legacy plan preflight in postgres`
+
+### 변경 파일
+
+- `packages/shared/src/schemas.ts`
+- `packages/shared/src/schemas.test.ts`
+- `apps/api/src/floor-editor/floor-editor.controller.ts`
+- `apps/api/src/floor-editor/floor-editor.controller.spec.ts`
+- `apps/api/src/floor-editor/floor-editor.service.ts`
+- `apps/api/src/floor-editor/floor-editor.service.spec.ts`
+- `apps/api/src/floor-editor/floor-editor.integration.spec.ts`
+- `docs/menus/settings.md`
+
+### RED
+
+Legacy effective floor-plan schema:
+
+```bash
+pnpm --filter @led-control/shared test -- src/schemas.test.ts
+# exit 1: 1 failed, 9 passed
+```
+
+- `none`과 strict image/pdf를 구분하는 effective-state schema가 없어 shared contract 테스트가 실패했다.
+
+Legacy create/update와 restore access ordering:
+
+```bash
+pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.service.spec.ts --runInBand
+# exit 1: 10 failed, 43 passed
+```
+
+- 기존 implementation은 partial image update의 patch URL만 ready 검사해 effective URL 3개 검증 테스트가 실패했다.
+- incomplete/empty image create와 기존 image row의 empty URL update가 commit되어 mutation 미호출 테스트가 실패했다.
+- authorized invalid revision은 floor access 조회 전에 `400`으로 끝났고 cross-tenant/unassigned invalid revision도 opaque `404` 대신 `400`을 반환했다.
+
+Controller raw path forwarding:
+
+```bash
+pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.controller.spec.ts --runInBand
+# exit 1: 5 failed
+```
+
+- controller가 유효 revision을 number로 변환하고 invalid path 4종을 service 호출 전에 거부해 access-aware ordering 테스트가 실패했다.
+
+### GREEN
+
+```bash
+pnpm --filter @led-control/shared test
+# PASS: 2 files, 14 tests
+
+pnpm --filter @led-control/api exec jest src/floor-editor --runInBand
+# PASS: 3 suites, 69 tests; opt-in PostgreSQL 11 tests skipped
+
+pnpm --filter @led-control/api exec jest src/access/site-access.service.spec.ts src/access/roles.guard.spec.ts src/audit/audit.service.spec.ts --runInBand
+# PASS: 3 suites, 21 tests
+
+pnpm --filter @led-control/shared typecheck
+pnpm --filter @led-control/shared build
+pnpm --filter @led-control/api typecheck
+pnpm --filter @led-control/api build
+# PASS: all four commands
+
+DATABASE_URL='postgresql://validate:validate@127.0.0.1:1/validate?schema=public' pnpm --filter @led-control/api exec prisma validate
+# PASS: schema is valid
+
+git diff --check
+# PASS
+```
+
+Disposable PostgreSQL 16에 17개 migration을 적용한 실제 DB 검증:
+
+```bash
+FLOOR_EDITOR_TEST_DATABASE_URL="$url" pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts --runInBand
+# PASS: 1 suite, 11 tests
+```
+
+- legacy image create의 incomplete payload를 거부하고 complete ready image row만 생성했다.
+- existing image row의 empty URL, non-ready rendered URL, incomplete/non-ready pdf 전환은 기존 row, mapRevision, revision과 audit을 변경하지 않았다.
+- cross-tenant customer admin과 미배정 service-provider operator의 overflow revision restore는 opaque `404`, 배정 operator의 같은 path는 `400`을 반환했다.
+- 기존 canonical save/restore hash, missing fixture skip, rollback, concurrent conflict와 access isolation도 함께 통과했다.
+
+### Self-review
+
+- legacy patch parser는 partial payload를 bounded 형태로 읽고, service root preflight가 현재 row와 patch를 merge한 완성 상태를 `legacyFloorPlanEffectiveSchema`로 검증한다.
+- effective `none`은 empty `imageUrl`, empty/null original/rendered URL과 양수 dimensions만 허용한다. image/pdf는 atomic floor-plan과 같은 complete non-empty URL/dimensions 계약을 사용한다.
+- image/pdf의 ready 검사는 patch URL만이 아니라 effective URL 세 개 전체를 대상으로 하며 invalid 상태에서는 upsert, transaction과 optimistic update를 호출하지 않는다.
+- controller는 raw revision path를 전달한다. service는 floor `manage` access를 먼저 확인하고 positive INT4 parse를 수행한 다음에만 revision transaction/query를 연다.
+
+### Remaining concerns
+
+- 웹 에디터의 atomic save/revision UI 연결은 Task 9 범위다.
+- 기존 개별 mutation endpoint는 Task 11까지 유지되며 통합 revision/audit을 만들지 않는다.
+- PostgreSQL integration suite 11개는 `FLOOR_EDITOR_TEST_DATABASE_URL`이 없으면 skip된다. Fix Round 3에서는 별도 disposable PostgreSQL로 모두 실행했다.
