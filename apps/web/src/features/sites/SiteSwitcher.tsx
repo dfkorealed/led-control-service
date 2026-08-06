@@ -17,7 +17,10 @@ export function SiteSwitcher({ sites, selectedSiteId, canSelectSite }: SiteSwitc
     if (siteId === selectedSiteId || canSelectSite?.() === false) return;
     const search = new URLSearchParams(location.search);
     search.set("siteId", siteId);
-    navigate({ pathname: location.pathname, search: search.toString(), hash: location.hash });
+    const pathname = /^\/settings\/floor-plans\/[^/]+\/edit$/.test(location.pathname)
+      ? "/settings/floor-plans"
+      : location.pathname;
+    navigate({ pathname, search: search.toString(), hash: location.hash });
   }
 
   return (

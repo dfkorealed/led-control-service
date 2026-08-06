@@ -17,6 +17,7 @@ vi.mock("../../floor-editor/FloorEditorView", () => ({
   }) => (
     <section>
       <h2>{initialState.floor.name} 도면 편집</h2>
+      <LocationProbe />
       <button onClick={() => onDirtyChange(true)}>수정</button>
       <button onClick={onCancel}>취소</button>
       <button onClick={() => { onDirtyChange(false); onSaved(initialState); }}>저장</button>
@@ -92,6 +93,24 @@ describe("FloorEditorRoute", () => {
     expect(queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toEqual(editorState);
   });
 
+  it("canonicalizes a direct editor URL without siteId from the editor response", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const { queryClient } = renderRoute("operator", "/settings/floor-plans/floor-b2/edit");
+
+    await waitFor(() => expect(queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toEqual(editorState));
+    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+  });
+
+  it("does not show an editor when the selected site does not own the floor", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    renderRoute("admin", "/settings/floor-plans/floor-b2/edit?siteId=site-1");
+
+    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
+    expect(screen.queryByRole("heading", { name: "B2 도면 편집" })).not.toBeInTheDocument();
+  });
+
   it("blocks a viewer's direct edit URL before loading editor state", async () => {
     renderRoute("viewer");
 
@@ -148,4 +167,42 @@ describe("FloorEditorRoute", () => {
       expect(dirtyEvent.defaultPrevented).toBe(true);
     });
   });
+
+  it("skips the compensating popstate after a cancelled back navigation", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const forward = vi.spyOn(window.history, "forward").mockImplementation(() => undefined);
+    renderRoute("admin");
+    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(forward).toHaveBeenCalledOnce();
+  });
+
+  it("removes popstate and beforeunload guards on cleanup", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { unmount } = renderRoute("admin");
+    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    await waitFor(() => expect(dirtyGuardIsActive()).toBe(true));
+
+    unmount();
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+  });
 });
+
+function dirtyGuardIsActive() {
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}

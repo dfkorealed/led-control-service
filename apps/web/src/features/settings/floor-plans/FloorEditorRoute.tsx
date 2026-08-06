@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import type { AuthUser } from "../../../api/auth";
 import { getFloorEditorState } from "../../../api/floor-editor";
@@ -15,15 +15,25 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   const { floorId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isDirty, setIsDirty] = useState(false);
-  const siteId = new URLSearchParams(location.search).get("siteId") ?? "default";
+  const selectedSiteId = new URLSearchParams(location.search).get("siteId");
   const canEdit = userRole === "operator" || userRole === "admin";
   const editorQuery = useQuery({
-    queryKey: ["floor-editor", siteId, floorId],
+    queryKey: ["floor-editor", selectedSiteId ?? "unresolved", floorId],
     queryFn: () => getFloorEditorState(floorId ?? ""),
     enabled: canEdit && Boolean(floorId)
   });
   const listPath = `/settings/floor-plans${location.search}`;
+
+  useEffect(() => {
+    if (!editorQuery.data || selectedSiteId) return;
+    const canonicalSiteId = editorQuery.data.floor.siteId;
+    queryClient.setQueryData(["floor-editor", canonicalSiteId, floorId], editorQuery.data);
+    const search = new URLSearchParams(location.search);
+    search.set("siteId", canonicalSiteId);
+    navigate({ pathname: location.pathname, search: search.toString() }, { replace: true });
+  }, [editorQuery.data, floorId, location.pathname, location.search, navigate, queryClient, selectedSiteId]);
 
   useDirtyNavigationGuard(isDirty, () => setIsDirty(false));
 
@@ -36,6 +46,10 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   if (!canEdit) return <Navigate to={listPath} replace />;
   if (editorQuery.error) return <div className="panel danger">도면 편집기를 불러오지 못했습니다.</div>;
   if (editorQuery.isLoading || !editorQuery.data) return <div className="panel">도면 편집기를 불러오는 중</div>;
+  if (!selectedSiteId) return <div className="panel">도면 편집기를 불러오는 중</div>;
+  if (selectedSiteId !== editorQuery.data.floor.siteId) {
+    return <Navigate to={`/settings/floor-plans?siteId=${encodeURIComponent(selectedSiteId)}`} replace />;
+  }
 
   return (
     <FloorEditorView
@@ -53,8 +67,13 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
 }
 
 function useDirtyNavigationGuard(isDirty: boolean, onConfirmedLeave: () => void) {
+  const skipNextPopState = useRef(false);
+
   useEffect(() => {
-    if (!isDirty) return;
+    if (!isDirty) {
+      skipNextPopState.current = false;
+      return;
+    }
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -75,9 +94,14 @@ function useDirtyNavigationGuard(isDirty: boolean, onConfirmedLeave: () => void)
       event.stopPropagation();
     };
     const handlePopState = () => {
+      if (skipNextPopState.current) {
+        skipNextPopState.current = false;
+        return;
+      }
       if (window.confirm(discardMessage)) {
         onConfirmedLeave();
       } else {
+        skipNextPopState.current = true;
         window.history.forward();
       }
     };
@@ -86,6 +110,7 @@ function useDirtyNavigationGuard(isDirty: boolean, onConfirmedLeave: () => void)
     document.addEventListener("click", handleLinkClick, true);
     window.addEventListener("popstate", handlePopState);
     return () => {
+      skipNextPopState.current = false;
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("click", handleLinkClick, true);
       window.removeEventListener("popstate", handlePopState);

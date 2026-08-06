@@ -39,6 +39,7 @@ describe("SiteSwitcher", () => {
             { id: "site-2", name: "물류센터" }
           ]}
           selectedSiteId="site-1"
+          canSelectSite={() => true}
         />
         <LocationProbe />
       </MemoryRouter>
@@ -47,5 +48,24 @@ describe("SiteSwitcher", () => {
     fireEvent.change(screen.getByLabelText("현장 선택"), { target: { value: "site-2" } });
 
     expect(screen.getByText("/settings/floor-plans?siteId=site-2#map-preview")).toBeInTheDocument();
+  });
+
+  it("leaves a floor-specific editor route when switching sites", () => {
+    render(
+      <MemoryRouter initialEntries={["/settings/floor-plans/floor-1/edit?siteId=site-1"]}>
+        <SiteSwitcher
+          sites={[
+            { id: "site-1", name: "본사 주차장" },
+            { id: "site-2", name: "물류센터" }
+          ]}
+          selectedSiteId="site-1"
+        />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText("현장 선택"), { target: { value: "site-2" } });
+
+    expect(screen.getByText("/settings/floor-plans?siteId=site-2")).toBeInTheDocument();
   });
 });
