@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import type { SiteSummary } from "../../api/queries";
+import { hasDirtyEditorSentinel } from "../floor-editor/dirty-editor-history";
 
 interface SiteSwitcherProps {
   sites: SiteSummary[];
@@ -20,7 +21,10 @@ export function SiteSwitcher({ sites, selectedSiteId, canSelectSite }: SiteSwitc
     const pathname = /^\/settings\/floor-plans\/[^/]+\/edit$/.test(location.pathname)
       ? "/settings/floor-plans"
       : location.pathname;
-    navigate({ pathname, search: search.toString(), hash: location.hash });
+    navigate(
+      { pathname, search: search.toString(), hash: location.hash },
+      { replace: hasDirtyEditorSentinel() }
+    );
   }
 
   return (

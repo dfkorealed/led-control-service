@@ -4,6 +4,7 @@ import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom"
 import type { AuthUser } from "../../../api/auth";
 import { getFloorEditorState } from "../../../api/floor-editor";
 import { FloorEditorView } from "../../floor-editor/FloorEditorView";
+import { dirtyEditorSentinelKey, hasDirtyEditorSentinel } from "../../floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "../../floor-editor/editor-store";
 
 interface FloorEditorRouteProps {
@@ -11,8 +12,6 @@ interface FloorEditorRouteProps {
 }
 
 const discardMessage = "저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?";
-const dirtySentinelKey = "__floorEditorDirtySentinel";
-
 export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   const { floorId } = useParams();
   const location = useLocation();
@@ -43,12 +42,16 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
     setIsDirty(false);
   }, [discardEditorChanges]);
 
-  useDirtyNavigationGuard(isDirty, confirmEditorLeave);
+  const navigateFromEditor = useCallback((to: string) => {
+    navigate(to, { replace: hasDirtyEditorSentinel() });
+  }, [navigate]);
+
+  useDirtyNavigationGuard(isDirty, confirmEditorLeave, navigateFromEditor);
 
   function leaveEditor() {
     if (isDirty && !window.confirm(discardMessage)) return;
     if (isDirty) confirmEditorLeave();
-    navigate(listPath);
+    navigateFromEditor(listPath);
   }
 
   if (!canEdit) return <Navigate to={listPath} replace />;
@@ -68,26 +71,48 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
       onReload={async () => { await editorQuery.refetch(); }}
       onSaved={() => {
         setIsDirty(false);
-        navigate(listPath);
+        navigateFromEditor(listPath);
       }}
     />
   );
 }
 
-function useDirtyNavigationGuard(isDirty: boolean, onConfirmedLeave: () => void) {
+function useDirtyNavigationGuard(
+  isDirty: boolean,
+  onConfirmedLeave: () => void,
+  navigateFromEditor: (to: string) => void
+) {
   const restoringSentinel = useRef(false);
   const allowNextPopState = useRef(false);
+  const sentinelTokenRef = useRef<string | null>(null);
+  const unmountCleanupTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!isDirty) return;
+    if (unmountCleanupTimer.current !== null) window.clearTimeout(unmountCleanupTimer.current);
+    return () => {
+      const sentinelToken = sentinelTokenRef.current;
+      unmountCleanupTimer.current = window.setTimeout(() => {
+        if (sentinelToken && hasDirtyEditorSentinel(sentinelToken)) window.history.back();
+      }, 0);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isDirty) {
+      const sentinelToken = sentinelTokenRef.current;
+      sentinelTokenRef.current = null;
+      if (sentinelToken && hasDirtyEditorSentinel(sentinelToken)) window.history.back();
+      return;
+    }
 
     const currentState = window.history.state ?? {};
-    const existingToken = currentState[dirtySentinelKey] as string | undefined;
+    const existingToken = currentState[dirtyEditorSentinelKey] as string | undefined;
     const sentinelToken = existingToken ?? crypto.randomUUID();
+    sentinelTokenRef.current = sentinelToken;
     if (!existingToken) {
       const currentIndex = typeof currentState.idx === "number" ? currentState.idx : 0;
       window.history.pushState(
-        { ...currentState, idx: currentIndex + 1, [dirtySentinelKey]: sentinelToken },
+        { ...currentState, idx: currentIndex + 1, [dirtyEditorSentinelKey]: sentinelToken },
         "",
         window.location.href
       );
@@ -105,7 +130,10 @@ function useDirtyNavigationGuard(isDirty: boolean, onConfirmedLeave: () => void)
       const destination = new URL(anchor.href, window.location.href);
       if (destination.origin !== window.location.origin) return;
       if (window.confirm(discardMessage)) {
+        event.preventDefault();
+        event.stopPropagation();
         onConfirmedLeave();
+        navigateFromEditor(`${destination.pathname}${destination.search}${destination.hash}`);
         return;
       }
       event.preventDefault();
@@ -116,7 +144,7 @@ function useDirtyNavigationGuard(isDirty: boolean, onConfirmedLeave: () => void)
         allowNextPopState.current = false;
         return;
       }
-      if (restoringSentinel.current && event.state?.[dirtySentinelKey] === sentinelToken) {
+      if (restoringSentinel.current && event.state?.[dirtyEditorSentinelKey] === sentinelToken) {
         restoringSentinel.current = false;
         return;
       }
@@ -138,5 +166,5 @@ function useDirtyNavigationGuard(isDirty: boolean, onConfirmedLeave: () => void)
       document.removeEventListener("click", handleLinkClick, true);
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [isDirty, onConfirmedLeave]);
+  }, [isDirty, navigateFromEditor, onConfirmedLeave]);
 }
