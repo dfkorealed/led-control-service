@@ -141,3 +141,44 @@ pnpm --filter web test -- --run \
 - dirty history guard는 React Router data-router blocker가 아닌 capture click/popstate 보상 방식이다. 현재 link, back/forward와 cleanup은 테스트하지만 후속 programmatic navigation은 같은 guard 계약에 연결해야 한다.
 - 실제 API를 포함한 다중 사용자/lease E2E는 Task 10~11 범위다. 이번 desktop/mobile 검증은 mock API를 사용했다.
 - production build의 기존 PDF worker와 main bundle 500kB 초과 경고는 유지된다.
+
+## Fix Round 2 (2026-08-06)
+
+### Review base
+
+수정 시작 전 `git rev-parse HEAD` 결과는 `64bad7e19177fc2e7753e08b579c0ae0c2296161`였다. 시작 작업 트리는 clean이었다.
+
+### RED
+
+BrowserRouter 실제 history entry와 editor store lifecycle 테스트를 구현 전에 실행했다.
+
+```bash
+pnpm --filter web test -- --run \
+  src/features/floor-editor/editor-store.test.ts \
+  src/features/settings/SettingsShell.test.tsx \
+  src/features/settings/floor-plans/FloorEditorRoute.test.tsx
+# FAIL: 3 files, 5 failed / 16 passed
+```
+
+same-URL sentinel 부재로 실제 back 테스트 3건이 실패했고, `discardChanges` 부재와 승인된 site 전환 후 dirty/draft 잔존이 각각 실패했다.
+
+### GREEN
+
+- focused Vitest: 3 files / 21 tests PASS.
+- 전체 Web Vitest: 16 files / 115 tests PASS.
+- Web typecheck: PASS.
+- Web production build: 1,745 modules transformed, PASS.
+
+### Self-review
+
+- dirty 진입 시 React Router history state의 `idx`를 유지해 하나 증가시킨 same-URL sentinel을 native history에 추가한다. 첫 back은 원래 editor URL entry에 머물러 route가 unmount되지 않으며 취소 시 forward로 sentinel을 복원한다.
+- sentinel restore event와 승인 후 실제 back event는 별도 ref로 구분한다. stable `useCallback` discard handler 때문에 같은 URL Router rerender에서 effect/listener가 재등록되지 않으며 반복 back도 확인 한 번씩만 수행한다.
+- browser 승인, dirty 취소, internal link 승인은 store의 `discardChanges()`로 current draft를 baseline에 되돌리고 local dirty를 해제한다. save 후 back은 confirm 없이 진행한다.
+- site switch 취소는 draft/dirty/URL을 유지한다. 승인은 같은 `discardChanges()`를 호출한 뒤 새 site floor list로 이동하며, 이어지는 site switch는 재확인하지 않는다.
+- 기존 click guard, `beforeunload`, site canonicalization과 role/query 계약은 focused 및 전체 회귀 테스트에서 유지된다.
+
+### Concerns
+
+- same-URL sentinel은 BrowserRouter의 현재 history state/index 계약에 의존한다. React Router major upgrade 시 실제 history entry 회귀 테스트를 함께 확인해야 한다.
+- 실제 API 기반 다중 사용자 lease와 전체 programmatic navigation E2E는 Task 10~11 범위다.
+- production build의 기존 PDF worker와 main bundle 500kB 초과 경고는 유지된다.

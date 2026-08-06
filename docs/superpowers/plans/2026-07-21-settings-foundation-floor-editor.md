@@ -793,6 +793,10 @@ git commit -m "feat(floor-editor): add revision-aware editing"
 
 save/restore 동기 잠금과 편집 surface 비활성화, history 보상 guard, site/floor canonical URL, floor plan 의미 정규화, UUID draft ID, revision 상태·요약·복구 안내 lifecycle을 실패 테스트 후 보완한다. desktop/mobile Playwright 레이아웃 회귀를 함께 검증한다.
 
+- [x] **Step 9: Fix Round 2 history와 site discard lifecycle 보완**
+
+BrowserRouter 실제 history entry에서 same-URL sentinel로 dirty back을 route 이탈 전에 확인하고 반복 취소, 승인 back, save 후 back과 cleanup을 검증한다. 승인된 site 전환은 editor draft를 baseline으로 복원해 다음 전환에서 확인을 반복하지 않는다.
+
 ---
 
 ### Task 10: Redis 편집 lease

@@ -96,9 +96,9 @@
 - 웹 에디터는 shared `SaveEditorStateInput` 계약으로 baseline과 현재 상태를 O(n) 비교한다. 1,000개 fixture에서도 실제 변경된 fixture와 floor plan, object create/update/delete만 중복 없이 `PUT /floors/:floorId/editor-state` 한 번으로 전송한다. floor plan의 `null`/`none`, 기본 source type과 fallback asset URL은 API 의미 형태로 정규화해 unchanged 저장을 만들지 않으며 draft object ID는 UUID로 생성한다.
 - atomic save와 revision 복구는 하나의 동기 ref lock으로 상호 배제한다. 요청 중 도구, 캔버스, 배경 입력과 속성 입력을 disabled/read-only로 유지하고, 이미 시작된 배경 asset upload가 끝날 때까지 save/restore도 막아 요청 이후 로컬 수정이 성공 응답에 덮이지 않게 한다. 성공 응답은 새 baseline과 `mapRevision`으로 채택하고 네트워크 오류는 현재 편집 상태를 유지하며, `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
 - 버전 패널은 cursor pagination으로 수정자 display name, 시각과 숫자 변경 수 및 `floorPlanChanged`를 합산해 표시한다. loading/error/empty 상태를 구분하고 오류에는 announcement와 재시도를 제공한다. 복구 버튼은 `operator/admin`에게만 제공하고 현재 baseline의 `mapRevision`을 `expectedRevision`으로 전송하며, 현재 존재하지 않아 건너뛴 조명 안내는 같은 floor query refetch 뒤에도 유지한다.
-- dirty 상태에서는 앱 내부 링크 이동, 현장 전환, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. 취소한 history 이동의 보상 `popstate`는 한 번 건너뛰어 확인 반복을 막고 listener를 unmount에서 정리한다. 저장 성공 또는 사용자가 명시적으로 이동을 확인한 뒤에는 정상 이동한다.
+- dirty 상태에서는 앱 내부 링크 이동, 현장 전환, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. dirty 진입 시 현재 URL과 같은 history sentinel을 추가해 첫 back이 editor route를 벗어나기 전에 확인하며, 취소는 sentinel을 복원하고 승인은 draft를 baseline으로 되돌린 뒤 실제 back을 진행한다. listener는 unmount에서 정리하고 저장 후 back에는 폐기 확인을 표시하지 않는다.
 - 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
-- 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. floor 편집 route에서 승인된 현장 전환은 이전 floorId를 버리고 새 현장의 `/settings/floor-plans`로 이동한다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
+- 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.
 - 웹 Dockerfile은 production API 요청을 same-origin `/api`로 빌드한다. nginx official template entrypoint가 `API_UPSTREAM`(기본 `http://api:4000`)을 주입하고 `/api/*`를 reverse proxy하며, SPA fallback으로 `/settings/floor-plans` 같은 deep route 새로고침을 `index.html`로 응답한다. Vite 개발 서버는 `/api`를 기본 `http://localhost:4000` upstream으로 proxy해 로컬 API 개발 동작을 유지한다.
 
@@ -284,6 +284,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다. 다음 구현 범위는 Task 7의 도면 에디터 설정 이동이다.
 - Task 8 atomic save/revision API는 `d8d42f1`, Fix Round 1은 `edde0a8`/`8d7aa2e`, Fix Round 2는 `a3aa1b7`/`669be7e`/`d8041f6`, Fix Round 3은 `63cd6fd`/`45336dc`에서 완료했다. Fix Round 4의 concurrent legacy PATCH complete-state write는 `f786d3f`에서 보정했다. 다음 구현 범위는 Task 9의 웹 변경분 생성, atomic save 연결, 충돌·복구 UI다.
 - Task 9 웹 변경분 생성, atomic save 전환, 충돌·revision 복구 UI와 dirty navigation guard는 `c43ff85`에서 완료했다. Fix Round 1의 의미 정규화·draft ID는 `7b1fae0`, site/history 정합성은 `f103f7c`, mutation 상호 배제와 revision 상태는 `d67e27e`, background upload race는 `f0c9e3a`에서 보정했다. 다음 구현 범위는 Task 10의 Redis 편집 lease다.
+- Task 9 Fix Round 2의 same-URL history sentinel과 승인된 site 전환 draft 폐기는 `3c8bd02`, `1a8bce3`에서 보정했다.
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
@@ -291,7 +292,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현장 선택 아래 가로 스크롤 메뉴로 전환하며, 에디터 본문은 단일 열 전체 폭을 사용한다. 네이티브 상단 선택 메뉴와의 통합은 후속 UI 작업이다.
 - 기존 개별 변경 API 함수와 endpoint는 Task 11 전체 E2E 완료 전까지 호환 목적으로 유지한다. 현재 웹 저장 경로는 이 함수를 호출하지 않지만, 외부에서 직접 호출하면 통합 `FloorMapRevision`과 floor editor audit가 생성되지 않는다.
-- dirty 내부 이동 guard는 링크, 현장 전환과 브라우저 history 이동을 확인한다. 브라우저 native blocker가 아닌 click/popstate 보상 방식이므로 Task 10 이후 추가되는 programmatic navigation 경로도 같은 guard 계약에 연결해야 한다.
+- dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
