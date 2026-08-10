@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-07-21
+기준일: 2026-08-06
 
 ## 구현 완료
 
@@ -17,6 +17,7 @@
 - 그룹 선택 후 `POST /commands/dimming`에 `targetType: "group"`으로 밝기 명령을 전송한다.
 - 백엔드는 SiteAccess `manage` 권한이 있는 operator/admin만 해당 현장의 fixture 또는 group을 제어 대상으로 허용하며, 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
 - `viewer` 권한 사용자는 배정 현장을 조회할 수 있지만 조명 제어 명령 생성은 `403`으로 거부한다.
+- 사용자 역할은 service-provider `operator`, customer `admin`, 조회 전용 `viewer` 세 가지다. operator/admin의 제어는 SiteAccess `manage` 범위로 한정되고, viewer는 화면 비활성화와 API `403` 양쪽에서 변경이 차단된다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 개별/그룹 적용 버튼을 비활성화하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
 - 그룹 제어 명령은 MQTT payload에 `targetFixtureIds`를 포함해 게이트웨이가 실제 대상 조명 목록을 바로 처리할 수 있게 한다.

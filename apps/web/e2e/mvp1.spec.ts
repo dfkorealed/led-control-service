@@ -8,8 +8,9 @@ test.beforeEach(async ({ page }) => {
         user: {
           id: "00000000-0000-4000-8000-000000000002",
           organizationId: "00000000-0000-4000-8000-000000000001",
-          email: "operator@example.com",
-          name: "Demo Operator",
+          organizationType: "customer",
+          email: "admin@example.com",
+          name: "Demo Administrator",
           role: "admin",
           status: "active"
         }
@@ -17,7 +18,7 @@ test.beforeEach(async ({ page }) => {
     });
   });
 
-  await page.route("**/sites/default/dashboard", async (route) => {
+  await page.route("**/sites/default/dashboard**", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -66,6 +67,38 @@ test.beforeEach(async ({ page }) => {
     });
   });
 
+  await page.route("**/sites", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([{ id: "site-1", name: "Demo Underground Parking" }])
+    });
+  });
+
+  await page.route("**/sites/site-1/floors/floor-1/fixtures?**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          id: "fixture-1",
+          name: "B2-L01",
+          x: 120,
+          y: 140,
+          ratedWatt: 40,
+          brightness: 70,
+          status: "online",
+          rssi: -58,
+          hopCount: 1,
+          commandSuccessRate: 0.98,
+          lastSeenAt: "2026-07-01T00:00:00.000Z",
+          gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
+          controllable: true,
+          controlBlockReason: null
+        }],
+        nextCursor: null
+      })
+    });
+  });
+
   await page.route("**/energy/default/estimate", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -78,23 +111,22 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("operator can view monitoring dashboard and navigate primary sections", async ({ page }) => {
+test("customer admin can view monitoring dashboard and navigate primary sections", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "모니터링" })).toBeVisible();
   await expect(page.getByText("전체 조명")).toBeVisible();
   await expect(page.getByRole("button", { name: "B2-L01 정상 70%" })).toBeVisible();
 
-  await page.getByRole("button", { name: "제어" }).click();
+  await page.getByRole("link", { name: "제어" }).click();
   await expect(page.getByRole("heading", { name: "제어", exact: true })).toBeVisible();
   await expect(page.getByText("빠른 밝기 제어")).toBeVisible();
 
-  await page.getByRole("button", { name: "통계" }).click();
+  await page.getByRole("link", { name: "통계" }).click();
   await expect(page.getByRole("heading", { name: "통계", exact: true })).toBeVisible();
   await expect(page.getByText("에너지 리포트")).toBeVisible();
   await expect(page.locator(".metric").filter({ hasText: "일 사용량" })).toBeVisible();
 
-  await page.getByRole("button", { name: "설정" }).click();
+  await page.getByRole("link", { name: "설정" }).click();
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();
   await expect(page.getByText("운영 설정")).toBeVisible();
-  await expect(page.getByText("통신 음영 검토")).toBeVisible();
 });

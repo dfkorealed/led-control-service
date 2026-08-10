@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-07-21
+작성일: 2026-08-06
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -8,12 +8,12 @@
 
 현재 DB는 다음 업무 영역으로 나뉜다.
 
-- 조직/사용자/인증: `Organization`, `User`, `Invitation`, `Session`
-- 현장/공간/도면: `Site`, `Floor`, `FloorPlan`, `FloorMapObject`
+- 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
+- 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
-- 게이트웨이 claim 감사: `GatewayClaimAudit`
+- 감사: `GatewayClaimAudit`, `AuditLog`
 - 조명 검색/등록: `ProvisioningSession`, `DiscoveredMeshNode`
 
 간단한 관계 흐름은 다음과 같다.

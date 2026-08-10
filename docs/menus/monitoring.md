@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-07-21
+기준일: 2026-08-06
 
 ## 구현 완료
 
@@ -26,6 +26,7 @@
 - 모니터링 fixture snapshot은 `GET /floors/:floorId/fixtures`에서 현장 read 권한을 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다. 존재하지 않는 층과 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
 - Playwright deterministic 1,000 fixture/5-page 시나리오가 Chromium에서 1,000개 marker 렌더링을 검증한다.
+- 같은 1,000 fixture browser 회귀는 설정 에디터에서 한 조명만 이동·저장해 atomic payload의 `fixtureUpdates.length === 1`을 확인하고, 기존 모니터링 marker 렌더링 assertion을 유지한다. 이 browser fixture 검증은 실제 Gateway, BLE 또는 Hardware E2E가 아니다.
 - `pnpm benchmark:fixtures`는 실제 인증 cookie와 floor ID로 100회 측정해 API p95가 1초를 넘으면 실패한다.
 - 모니터링의 층 도면은 모든 역할에 읽기 전용으로 표시하며, 편집 버튼·editor state 조회·에디터 분기를 제공하지 않는다. 편집은 설정의 `/settings/floor-plans/:floorId/edit`에서만 시작한다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.

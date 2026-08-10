@@ -136,3 +136,9 @@
 - **원인**: 양산 runtime에 필요 없는 Markdown이 node_modules에 포함됐고, 단순 문자열 scan이 실제 secret과 문서 예시를 구분하지 못했다.
 - **해결 및 예방책**: runtime image에서 dependency Markdown을 제거하고 image와 배포 archive를 다시 scan한다.
 - **반복 방지 체크**: secret scan은 source, runtime image, 배포 archive를 구분해 수행하고, 오탐 제거 후에도 `BEGIN ... PRIVATE KEY` 0건을 증거로 남긴다.
+
+## 2026-08-06 / Playwright API route glob의 source module 가로채기
+- **발생했던 문제/실수**: E2E API fixture에 `**/api/**` route를 등록했더니 `/src/api/auth.ts`, `/src/api/queries.ts` Vite module 요청까지 `404`로 처리되어 React가 빈 화면으로 남았다.
+- **원인**: Playwright glob은 pathname segment 경계를 강제하지 않으므로 `src/api`도 패턴에 포함된다. fixture handler가 URL pathname을 다시 검사하지 않고 모든 비매칭 요청을 API `404`로 fulfill했다.
+- **해결 및 예방책**: route handler 첫 단계에서 `pathname.startsWith("/api/")`를 확인하고 그 외 요청은 `route.continue()`로 넘긴다. fixture data는 E2E support 아래에만 두고, tenant/site 범위를 벗어난 실제 API path만 `404`로 제한한다.
+- **반복 방지 체크**: Vite SPA E2E route mock을 추가하면 source module과 asset 요청이 정상 `200`인지, 인증 loading 화면이 아닌 실제 React 화면이 렌더되는지 함께 확인한다.
