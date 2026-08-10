@@ -18,11 +18,11 @@ describe("EditorLeaseService", () => {
 
   async function createService({
     floorState,
-    updateMany = jest.fn().mockResolvedValue({ count: 1 }),
+    update = jest.fn().mockResolvedValue({ id: floorId }),
     auditRecord = jest.fn().mockResolvedValue({ id: "audit-1" })
   }: {
     floorState?: Record<string, unknown> | null;
-    updateMany?: jest.Mock;
+    update?: jest.Mock;
     auditRecord?: jest.Mock;
   } = {}) {
     const now = new Date();
@@ -40,13 +40,19 @@ describe("EditorLeaseService", () => {
     const prisma = {
       floor: {
         findUnique: floorFindUnique,
-        updateMany
+        update
       },
       $transaction: jest.fn().mockImplementation(async (callback: (tx: any) => Promise<unknown>) => callback({
         floor: {
           findUnique: floorFindUnique,
-          updateMany
-        }
+          update
+        },
+        $queryRaw: jest.fn()
+          .mockResolvedValueOnce(resolvedFloorState ? [{
+            id: floorId,
+            ...resolvedFloorState
+          }] : [])
+          .mockResolvedValue([{ dbNow: now }])
       }))
     };
     const redis = { set: jest.fn(), get: jest.fn(), eval: jest.fn().mockResolvedValue(1), del: jest.fn() };
@@ -82,7 +88,7 @@ describe("EditorLeaseService", () => {
 
     expect(lease.editable).toBe(true);
     expect(lease.fence).toBe(5);
-    expect(prisma.floor.updateMany).toHaveBeenCalled();
+    expect(prisma.floor.update).toHaveBeenCalled();
     expect(redis.set).toHaveBeenCalled();
   });
 
@@ -111,6 +117,36 @@ describe("EditorLeaseService", () => {
       action: "floor_editor.lease_force_released",
       outcome: "success"
     }));
+  });
+
+  it("keeps PostgreSQL authority updates even when Redis release calls fail", async () => {
+    const { service, prisma, redis } = await createService();
+    redis.eval.mockRejectedValueOnce(new Error("redis offline"));
+
+    await expect(service.release(floorId, adminA, false, "holder-token")).resolves.toEqual({ released: true });
+    expect(prisma.floor.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        editorLeaseFence: { increment: 1 },
+        editorLeaseTokenHash: null
+      })
+    }));
+  });
+
+  it("rejects lease acquire when incrementing the authoritative fence would overflow PostgreSQL int4", async () => {
+    const { service } = await createService({
+      floorState: {
+        id: floorId,
+        siteId,
+        editorLeaseFence: 2_147_483_647,
+        editorLeaseTokenHash: null,
+        editorLeaseHolderId: null,
+        editorLeaseHolderName: null,
+        editorLeaseAcquiredAt: null,
+        editorLeaseExpiresAt: null
+      }
+    });
+
+    await expect(service.acquire(floorId, adminA)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("does not expose a missing floor as an editable lease", async () => {

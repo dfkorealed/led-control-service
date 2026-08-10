@@ -100,6 +100,14 @@ interface PreparedSaveEditorState {
   objectDeletes: string[];
 }
 
+interface LockedFloorLeaseAuthority {
+  mapRevision: number;
+  editorLeaseFence: number;
+  editorLeaseTokenHash: string | null;
+  editorLeaseExpiresAt: Date | null;
+  dbNow: Date;
+}
+
 @Injectable()
 export class FloorEditorService {
   constructor(
@@ -494,33 +502,42 @@ export class FloorEditorService {
     leaseToken: string,
     leaseFence: number
   ) {
-    const now = new Date();
-    const updated = await tx.floor.updateMany({
-      where: {
-        id: floorId,
-        mapRevision: expectedRevision,
-        editorLeaseFence: leaseFence,
-        editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
-        editorLeaseExpiresAt: { gt: now }
-      },
-      data: { mapRevision: { increment: 1 } }
-    });
-    if (updated.count === 1) return;
-
-    const floor = await tx.floor.findUnique({
-      where: { id: floorId },
-      select: {
-        mapRevision: true,
-        editorLeaseFence: true,
-        editorLeaseTokenHash: true,
-        editorLeaseExpiresAt: true
-      }
-    });
+    const floor = await this.lockFloorLeaseAuthority(tx, floorId);
     if (!floor) throw new NotFoundException("floor not found");
+    const leaseActive = Boolean(
+      floor.editorLeaseTokenHash &&
+      floor.editorLeaseFence === leaseFence &&
+      floor.editorLeaseTokenHash === hashEditorLeaseToken(leaseToken) &&
+      floor.editorLeaseExpiresAt &&
+      floor.editorLeaseExpiresAt.getTime() > floor.dbNow.getTime()
+    );
+    if (!leaseActive) {
+      throw new ConflictException("floor editor lease is no longer active");
+    }
     if (floor.mapRevision !== expectedRevision) {
       throw new ConflictException("floor editor revision conflict");
     }
-    throw new ConflictException("floor editor lease is no longer active");
+    await tx.floor.update({
+      where: { id: floorId },
+      data: { mapRevision: { increment: 1 } }
+    });
+  }
+
+  private async lockFloorLeaseAuthority(tx: Prisma.TransactionClient, floorId: string) {
+    const rows = await tx.$queryRaw<Omit<LockedFloorLeaseAuthority, "dbNow">[]>(Prisma.sql`
+      SELECT
+        "mapRevision",
+        "editorLeaseFence",
+        "editorLeaseTokenHash",
+        "editorLeaseExpiresAt"
+      FROM "Floor"
+      WHERE "id" = ${floorId}
+      FOR UPDATE
+    `);
+    const row = rows[0];
+    if (!row) return null;
+    const nowRows = await tx.$queryRaw<Array<{ dbNow: Date }>>(Prisma.sql`SELECT clock_timestamp() AS "dbNow"`);
+    return { ...row, dbNow: nowRows[0]!.dbNow };
   }
 
   private async applySaveChanges(tx: Prisma.TransactionClient, floorId: string, input: PreparedSaveEditorState) {

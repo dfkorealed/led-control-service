@@ -214,7 +214,7 @@ export const floorMapObjectPatchSchema = z.object({
 export const saveEditorStateSchema = z.object({
   expectedRevision: expectedRevisionSchema,
   leaseToken: z.string().trim().min(1).max(256),
-  leaseFence: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  leaseFence: positiveInt4Schema,
   floorPlan: floorPlanUpdateSchema.nullable().optional(),
   fixtureUpdates: z.array(fixtureLayoutUpdateSchema).max(EDITOR_MAX_FIXTURE_UPDATES),
   objectCreates: z.array(floorMapObjectDraftSchema),
@@ -234,7 +234,7 @@ export const saveEditorStateSchema = z.object({
 export const restoreFloorEditorRevisionSchema = z.object({
   expectedRevision: expectedRevisionSchema,
   leaseToken: z.string().trim().min(1).max(256),
-  leaseFence: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER)
+  leaseFence: positiveInt4Schema
 }).strict();
 
 export const editorRevisionListQuerySchema = z.object({

@@ -1,4 +1,5 @@
 import { ConflictException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { SiteAccessService } from "../access/site-access.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -40,6 +41,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
   };
 
   let prisma: PrismaService;
+  let lockingPrisma: PrismaService;
   let siteAccess: SiteAccessService;
   let redisProvider: RedisProvider;
   let leaseService: EditorLeaseService;
@@ -49,12 +51,33 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     process.env.DATABASE_URL = databaseUrl;
     process.env.REDIS_URL = redisUrl;
     prisma = new PrismaService();
+    lockingPrisma = new PrismaService();
     await prisma.$connect();
+    await lockingPrisma.$connect();
     siteAccess = new SiteAccessService(prisma);
     redisProvider = new RedisProvider();
     const auditService = new AuditService(prisma);
     leaseService = new EditorLeaseService(prisma, siteAccess, auditService, redisProvider);
     floorEditorService = new FloorEditorService(prisma, siteAccess, auditService);
+
+    const existingProvider = await prisma.organization.findFirst({
+      where: { type: "service_provider" },
+      select: { id: true }
+    });
+    if (existingProvider) {
+      ids.providerOrganizationId = existingProvider.id;
+      operatorA.organizationId = existingProvider.id;
+      operatorB.organizationId = existingProvider.id;
+    } else {
+      await prisma.organization.create({
+        data: { id: ids.providerOrganizationId, name: "Provider", type: "service_provider" }
+      });
+    }
+    await prisma.organization.upsert({
+      where: { id: ids.customerOrganizationId },
+      create: { id: ids.customerOrganizationId, name: "Lease customer", type: "customer" },
+      update: { name: "Lease customer", type: "customer" }
+    });
 
     await prisma.user.upsert({
       where: { id: operatorA.id },
@@ -153,8 +176,53 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
 
   afterAll(async () => {
     await redisProvider.onModuleDestroy();
+    await lockingPrisma.$disconnect();
     await prisma.$disconnect();
   });
+
+  async function lockFloorAuthorityRow(work: () => Promise<void>) {
+    let releaseLock!: () => void;
+    let markLocked!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      markLocked = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const transaction = lockingPrisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Floor" WHERE id = ${ids.floorId} FOR UPDATE`;
+      markLocked?.();
+      await released;
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      maxWait: 5_000,
+      timeout: 10_000
+    });
+
+    await locked;
+    try {
+      await work();
+    } finally {
+      releaseLock();
+      await transaction;
+    }
+  }
+
+  async function waitForExpiry() {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  async function createBaselineRevision(token: string, fence: number) {
+    return floorEditorService.saveEditorState(operatorA, ids.floorId, {
+      expectedRevision: 0,
+      leaseToken: token,
+      leaseFence: fence,
+      fixtureUpdates: [{ id: ids.fixtureId, x: 40 }],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    });
+  }
 
   it("allows only one active holder and advances the fence for a successor after expiry", async () => {
     const first = await leaseService.acquire(ids.floorId, operatorA);
@@ -174,16 +242,86 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     expect(successor.token).not.toBe(first.token);
   });
 
+  it("rejects renewals that expire while waiting on the authoritative PostgreSQL row lock", async () => {
+    const lease = await leaseService.acquire(ids.floorId, operatorA);
+    if (!lease.token) throw new Error("expected active lease token");
+    await prisma.floor.update({
+      where: { id: ids.floorId },
+      data: { editorLeaseExpiresAt: new Date(Date.now() + 100) }
+    });
+
+    let renewalPromise: Promise<Awaited<ReturnType<typeof leaseService.acquire>>> | null = null;
+    await lockFloorAuthorityRow(async () => {
+      renewalPromise = leaseService.acquire(ids.floorId, operatorA, lease.token!);
+      await waitForExpiry();
+    });
+    const renewal = await renewalPromise;
+
+    expect(renewal).toEqual({ editable: false });
+  });
+
+  it("rejects stale predecessor save and restore after an expiry successor even without Redis state, while allowing the successor to continue", async () => {
+    const first = await leaseService.acquire(ids.floorId, operatorA);
+    if (!first.token || !first.fence) throw new Error("expected active lease token");
+    await createBaselineRevision(first.token, first.fence);
+    await prisma.floor.update({
+      where: { id: ids.floorId },
+      data: { editorLeaseExpiresAt: new Date(Date.now() - 1_000) }
+    });
+    await redisProvider.getClient().del(`floor-editor:lease:${ids.floorId}`);
+
+    const successor = await leaseService.acquire(ids.floorId, operatorB);
+    if (!successor.token || !successor.fence) throw new Error("expected successor lease token");
+    await redisProvider.getClient().del(`floor-editor:lease:${ids.floorId}`);
+
+    await expect(floorEditorService.saveEditorState(operatorA, ids.floorId, {
+      expectedRevision: 1,
+      leaseToken: first.token,
+      leaseFence: first.fence,
+      fixtureUpdates: [{ id: ids.fixtureId, x: 50 }],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(floorEditorService.restoreEditorRevision(operatorA, ids.floorId, 1, {
+      expectedRevision: 1,
+      leaseToken: first.token,
+      leaseFence: first.fence
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(floorEditorService.saveEditorState(operatorB, ids.floorId, {
+      expectedRevision: 1,
+      leaseToken: successor.token,
+      leaseFence: successor.fence,
+      fixtureUpdates: [{ id: ids.fixtureId, x: 60 }],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    })).resolves.toMatchObject({ floor: { mapRevision: 2 }, fixtures: [{ id: ids.fixtureId, x: 60 }] });
+
+    await expect(floorEditorService.restoreEditorRevision(operatorB, ids.floorId, 1, {
+      expectedRevision: 2,
+      leaseToken: successor.token,
+      leaseFence: successor.fence
+    })).resolves.toMatchObject({
+      floor: { mapRevision: 3 },
+      fixtures: [{ id: ids.fixtureId, x: 40 }]
+    });
+  });
+
   it("rejects stale predecessor save and restore after a force release creates a successor", async () => {
     const first = await leaseService.acquire(ids.floorId, operatorA);
     if (!first.token || !first.fence) throw new Error("expected active lease token");
+    await createBaselineRevision(first.token, first.fence);
 
     await expect(leaseService.release(ids.floorId, operatorB, true)).resolves.toEqual({ released: true });
     const successor = await leaseService.acquire(ids.floorId, operatorB);
     if (!successor.token || !successor.fence) throw new Error("expected successor lease token");
+    await redisProvider.getClient().del(`floor-editor:lease:${ids.floorId}`);
 
     await expect(floorEditorService.saveEditorState(operatorA, ids.floorId, {
-      expectedRevision: 0,
+      expectedRevision: 1,
       leaseToken: first.token,
       leaseFence: first.fence,
       fixtureUpdates: [{ id: ids.fixtureId, x: 50 }],
@@ -193,20 +331,77 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     })).rejects.toBeInstanceOf(ConflictException);
 
     await expect(floorEditorService.saveEditorState(operatorB, ids.floorId, {
-      expectedRevision: 0,
+      expectedRevision: 1,
       leaseToken: successor.token,
       leaseFence: successor.fence,
       fixtureUpdates: [{ id: ids.fixtureId, x: 60 }],
       objectCreates: [],
       objectUpdates: [],
       objectDeletes: []
-    })).resolves.toMatchObject({ floor: { mapRevision: 1 }, fixtures: [{ id: ids.fixtureId, x: 60 }] });
+    })).resolves.toMatchObject({ floor: { mapRevision: 2 }, fixtures: [{ id: ids.fixtureId, x: 60 }] });
 
     await expect(floorEditorService.restoreEditorRevision(operatorA, ids.floorId, 1, {
-      expectedRevision: 1,
+      expectedRevision: 2,
       leaseToken: first.token,
       leaseFence: first.fence
     })).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(floorEditorService.restoreEditorRevision(operatorB, ids.floorId, 1, {
+      expectedRevision: 2,
+      leaseToken: successor.token,
+      leaseFence: successor.fence
+    })).resolves.toMatchObject({
+      floor: { mapRevision: 3 },
+      fixtures: [{ id: ids.fixtureId, x: 40 }]
+    });
+  });
+
+  it("rejects saves and restores that become stale while waiting on the authoritative PostgreSQL row lock", async () => {
+    const lease = await leaseService.acquire(ids.floorId, operatorA);
+    if (!lease.token || !lease.fence) throw new Error("expected active lease token");
+    await createBaselineRevision(lease.token, lease.fence);
+    await prisma.floor.update({
+      where: { id: ids.floorId },
+      data: { editorLeaseExpiresAt: new Date(Date.now() + 100) }
+    });
+
+    let staleSave: Promise<unknown> | null = null;
+    await lockFloorAuthorityRow(async () => {
+      staleSave = floorEditorService.saveEditorState(operatorA, ids.floorId, {
+        expectedRevision: 1,
+        leaseToken: lease.token!,
+        leaseFence: lease.fence!,
+        fixtureUpdates: [{ id: ids.fixtureId, x: 90 }],
+        objectCreates: [],
+        objectUpdates: [],
+        objectDeletes: []
+      });
+      await waitForExpiry();
+    });
+    await expect(staleSave).rejects.toBeInstanceOf(ConflictException);
+
+    const successor = await leaseService.acquire(ids.floorId, operatorB);
+    if (!successor.token || !successor.fence) throw new Error("expected successor lease token");
+
+    let staleRestore: Promise<unknown> | null = null;
+    await lockFloorAuthorityRow(async () => {
+      staleRestore = floorEditorService.restoreEditorRevision(operatorA, ids.floorId, 1, {
+        expectedRevision: 1,
+        leaseToken: lease.token!,
+        leaseFence: lease.fence!
+      });
+      await waitForExpiry();
+    });
+    await expect(staleRestore).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(floorEditorService.restoreEditorRevision(operatorB, ids.floorId, 1, {
+      expectedRevision: 1,
+      leaseToken: successor.token,
+      leaseFence: successor.fence
+    })).resolves.toMatchObject({
+      floor: { mapRevision: 2 },
+      fixtures: [{ id: ids.fixtureId, x: 40 }]
+    });
   });
 
   it("keeps mapRevision as a final conflict guard after a valid lease check", async () => {
