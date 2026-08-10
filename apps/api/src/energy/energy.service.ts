@@ -25,8 +25,12 @@ export class EnergyService {
 
   async getDefaultSiteEstimate(user: AuthenticatedUser) {
     const siteIds = await this.siteAccess.listAccessibleSiteIds(user);
-    const siteId = siteIds[0];
+    const siteId = [...siteIds].sort()[0];
     if (!siteId) throw new NotFoundException("site not found");
+    return this.getSiteEstimate(user, siteId);
+  }
+
+  async getSiteEstimate(user: AuthenticatedUser, siteId: string) {
     await this.siteAccess.assert(user, siteId, "read");
     const site = await this.prisma.site.findFirstOrThrow({
       where: { id: siteId },

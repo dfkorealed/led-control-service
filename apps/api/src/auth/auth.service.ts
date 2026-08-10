@@ -71,6 +71,7 @@ export class AuthService {
 
     const passwordHash = await this.hashPassword(input.password);
     const user = await this.db().$transaction(async (tx: any) => {
+      const assignment = await this.validateInvitationAssignment(tx, invitation);
       const consumedInvitation = await tx.invitation.updateMany({
         where: { id: invitation.id, acceptedAt: null },
         data: { acceptedAt: new Date() }
@@ -89,6 +90,11 @@ export class AuthService {
           passwordHash
         }
       });
+      if (assignment) {
+        await tx.siteMembership.create({
+          data: { userId: createdUser.id, siteId: assignment.id }
+        });
+      }
       return createdUser;
     });
 
@@ -195,6 +201,29 @@ export class AuthService {
 
   private normalizeEmail(email: string) {
     return email.trim().toLowerCase();
+  }
+
+  private async validateInvitationAssignment(tx: any, invitation: {
+    siteId?: string | null;
+    role: UserRole;
+    organizationId: string;
+    organization: { type: OrganizationType };
+  }) {
+    if (invitation.role === "admin") return null;
+    if (!invitation.siteId) {
+      throw new BadRequestException(`${invitation.role} invitations require a valid customer site assignment`);
+    }
+    const site = await tx.site.findUnique({
+      where: { id: invitation.siteId },
+      select: { id: true, organizationId: true }
+    });
+    if (!site) {
+      throw new BadRequestException(`${invitation.role} invitations require a valid customer site assignment`);
+    }
+    if (invitation.role === "viewer" && site.organizationId !== invitation.organizationId) {
+      throw new BadRequestException("viewer invitations require a valid customer site assignment");
+    }
+    return site;
   }
 
   private addDays(date: Date, days: number) {

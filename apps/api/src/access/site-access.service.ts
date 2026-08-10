@@ -26,7 +26,8 @@ export class SiteAccessService {
 
     const assigned = "memberships" in site && site.memberships.length > 0;
     const customerAdmin = user.role === "admin" && site.organizationId === user.organizationId;
-    const canRead = customerAdmin || (usesMembership && assigned);
+    const validViewerMembership = user.role !== "viewer" || site.organizationId === user.organizationId;
+    const canRead = customerAdmin || (usesMembership && assigned && validViewerMembership);
     const canManage = user.role === "admin" ? customerAdmin : user.role === "operator" && assigned;
     const canCommission = user.role === "operator" && assigned;
     const permitted = capability === "read" ? canRead : capability === "manage" ? canManage : canCommission;
@@ -53,9 +54,11 @@ export class SiteAccessService {
 
     const memberships = await this.prisma.siteMembership.findMany({
       where: { userId: user.id },
-      select: { siteId: true }
+      select: { siteId: true, site: { select: { organizationId: true } } }
     });
-    return memberships.map((membership) => membership.siteId);
+    return memberships
+      .filter((membership) => user.role !== "viewer" || membership.site.organizationId === user.organizationId)
+      .map((membership) => membership.siteId);
   }
 
   private hasValidOrganizationType(user: AuthenticatedUser) {

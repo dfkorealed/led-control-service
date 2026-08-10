@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import type { AuthUser } from "../../api/auth";
 import { apiPost } from "../../api/client";
 import { useControlDashboard } from "../../api/queries";
 import { useCommandStatus, type CommandStage } from "../../api/commands";
 
 type ControlMode = "fixture" | "group";
 
-export function ControlView({ siteId }: { siteId?: string }) {
+export function ControlView({ siteId, userRole }: { siteId?: string; userRole: AuthUser["role"] }) {
   const { data } = useControlDashboard(siteId);
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<ControlMode>("fixture");
@@ -27,11 +28,12 @@ export function ControlView({ siteId }: { siteId?: string }) {
   const blockMessage = blockedFixture && !blockedFixture.controllable
     ? formatControlBlockReason(blockedFixture.controlBlockReason, mode === "group" ? blockedFixture.name : undefined)
     : null;
-  const canSubmit = Boolean(data && selectedTargetName && !blockMessage && !isSubmitting);
+  const readOnly = userRole === "viewer";
+  const canSubmit = Boolean(data && selectedTargetName && !blockMessage && !isSubmitting && !readOnly);
 
   async function submitCommand() {
     const commandTargetId = mode === "fixture" ? targetId || selectedFixture?.id : groupId || selectedGroup?.id;
-    if (!data || !commandTargetId) return;
+    if (!data || !commandTargetId || readOnly) return;
 
     setIsSubmitting(true);
     setMessage("");
@@ -60,10 +62,10 @@ export function ControlView({ siteId }: { siteId?: string }) {
           <h2>빠른 밝기 제어</h2>
         </div>
         <div className="segmented-control" aria-label="제어 모드">
-          <button className={mode === "fixture" ? "active" : ""} onClick={() => setMode("fixture")}>
+          <button className={mode === "fixture" ? "active" : ""} onClick={() => setMode("fixture")} disabled={readOnly}>
             개별
           </button>
-          <button className={mode === "group" ? "active" : ""} onClick={() => setMode("group")}>
+          <button className={mode === "group" ? "active" : ""} onClick={() => setMode("group")} disabled={readOnly}>
             그룹
           </button>
         </div>
@@ -76,6 +78,7 @@ export function ControlView({ siteId }: { siteId?: string }) {
                 <button
                   key={fixture.id}
                   className={fixture.id === selectedFixture?.id ? "device-control-card active" : "device-control-card"}
+                  disabled={readOnly}
                   onClick={() => {
                     setTargetId(fixture.id);
                     setBrightness(fixture.brightness);
@@ -91,6 +94,7 @@ export function ControlView({ siteId }: { siteId?: string }) {
                 <button
                   key={group.id}
                   className={group.id === selectedGroup?.id ? "device-control-card active" : "device-control-card"}
+                  disabled={readOnly}
                   onClick={() => {
                     setGroupId(group.id);
                     setMessage("");
@@ -110,9 +114,15 @@ export function ControlView({ siteId }: { siteId?: string }) {
               <h3>{selectedTargetName ?? "대상 선택"}</h3>
             </div>
             <span className={`status-pill ${canSubmit ? "online" : "offline"}`}>
-              {canSubmit ? "전송 가능" : blockMessage ? "제어 불가" : "대상 없음"}
+              {readOnly ? "조회 전용" : canSubmit ? "전송 가능" : blockMessage ? "제어 불가" : "대상 없음"}
             </span>
           </div>
+
+          {readOnly ? (
+            <p className="danger-text" role="alert">
+              조회 전용 계정입니다. 조명 제어는 operator 또는 admin 계정으로만 수행할 수 있습니다.
+            </p>
+          ) : null}
 
           <div className="dial-card">
             <span>밝기</span>
@@ -123,6 +133,7 @@ export function ControlView({ siteId }: { siteId?: string }) {
               min="0"
               max="100"
               value={brightness}
+              disabled={readOnly}
               onChange={(event) => setBrightness(Number(event.target.value))}
             />
           </div>
@@ -132,6 +143,7 @@ export function ControlView({ siteId }: { siteId?: string }) {
               조명 선택
               <select
                 value={targetId || selectedFixture?.id || ""}
+                disabled={readOnly}
                 onChange={(event) => {
                   const fixture = fixtures.find((item) => item.id === event.target.value);
                   setTargetId(event.target.value);
@@ -151,6 +163,7 @@ export function ControlView({ siteId }: { siteId?: string }) {
               그룹 선택
               <select
                 value={groupId || selectedGroup?.id || ""}
+                disabled={readOnly}
                 onChange={(event) => {
                   setGroupId(event.target.value);
                   setMessage("");
@@ -168,7 +181,7 @@ export function ControlView({ siteId }: { siteId?: string }) {
 
           <div className="preset-row">
             {[0, 30, 70, 100].map((value) => (
-              <button key={value} onClick={() => setBrightness(value)}>
+              <button key={value} onClick={() => setBrightness(value)} disabled={readOnly}>
                 {value}%
               </button>
             ))}
@@ -189,6 +202,7 @@ export function ControlView({ siteId }: { siteId?: string }) {
           <button
             className={group.id === selectedGroup?.id && mode === "group" ? "group-card active" : "group-card"}
             key={group.id}
+            disabled={readOnly}
             onClick={() => {
               setMode("group");
               setGroupId(group.id);

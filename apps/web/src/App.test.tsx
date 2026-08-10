@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiGet, apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
+import { dirtyEditorSentinelKey } from "./features/floor-editor/dirty-editor-history";
+import { useFloorEditorStore } from "./features/floor-editor/editor-store";
 import { mockDashboard, mockEnergyEstimate, mockRegistrationSession } from "./test/fixtures";
 import type { RegistrationSession } from "./api/registration";
 import { App } from "./App";
@@ -12,6 +14,7 @@ const authState = vi.hoisted(() => ({
   user: {
     id: "user-1",
     organizationId: "organization-1",
+    organizationType: "customer",
     email: "operator@example.com",
     name: "Demo Operator",
     role: "admin",
@@ -19,6 +22,7 @@ const authState = vi.hoisted(() => ({
   } as null | {
     id: string;
     organizationId: string;
+    organizationType: "service_provider" | "customer";
     email: string;
     name: string;
     role: string;
@@ -28,7 +32,19 @@ const authState = vi.hoisted(() => ({
 const apiState = vi.hoisted(() => ({
   dashboard: null as null | unknown,
   registrationSession: null as null | RegistrationSession,
-  commandStatus: null as null | unknown
+  commandStatus: null as null | unknown,
+  energyEstimateBySite: {
+    default: {
+      day: { kwh: 21.4, cost: 3424 },
+      month: { kwh: 642, cost: 102720 },
+      year: { kwh: 7811, cost: 1249760 }
+    },
+    "site-2": {
+      day: { kwh: 7.5, cost: 1200 },
+      month: { kwh: 225, cost: 36000 },
+      year: { kwh: 2737.5, cost: 438000 }
+    }
+  } as Record<string, typeof mockEnergyEstimate>
 }));
 
 vi.mock("./api/client", () => ({
@@ -38,8 +54,8 @@ vi.mock("./api/client", () => ({
     }
     if (path === "/sites") {
       return Promise.resolve([
-        { id: mockDashboard.site.id, name: mockDashboard.site.name },
-        { id: "site-2", name: "물류센터" }
+        { id: mockDashboard.site.id, name: mockDashboard.site.name, customerName: "고객사 A" },
+        { id: "site-2", name: "물류센터", customerName: "고객사 B" }
       ]);
     }
     if (path === "/sites/default/dashboard") return Promise.resolve(apiState.dashboard ?? mockDashboard);
@@ -72,13 +88,18 @@ vi.mock("./api/client", () => ({
         objects: []
       });
     }
-    if (path === "/energy/default/estimate") return Promise.resolve(mockEnergyEstimate);
+    if (path === "/energy/default/estimate") return Promise.resolve(apiState.energyEstimateBySite.default);
+    if (path === "/energy/sites/site-2/estimate") return Promise.resolve(apiState.energyEstimateBySite["site-2"]);
     if (path === `/registration-sessions/${mockRegistrationSession.id}`) {
       return Promise.resolve(apiState.registrationSession ?? mockRegistrationSession);
     }
     return Promise.reject(new Error(`No mock for ${path}`));
   }),
   apiPost: vi.fn((path: string, body?: unknown) => {
+    if (path === "/auth/logout") {
+      authState.user = null;
+      return Promise.resolve({ ok: true });
+    }
     if (path === "/registration-sessions") {
       const input = body as { siteId?: string; floorId?: string } | undefined;
       const dashboard = apiState.dashboard as typeof mockDashboard | null;
@@ -152,6 +173,7 @@ describe("App", () => {
     authState.user = {
       id: "user-1",
       organizationId: "organization-1",
+      organizationType: "customer",
       email: "operator@example.com",
       name: "Demo Operator",
       role: "admin",
@@ -160,6 +182,18 @@ describe("App", () => {
     apiState.dashboard = null;
     apiState.registrationSession = null;
     apiState.commandStatus = null;
+    apiState.energyEstimateBySite = {
+      default: {
+        day: { kwh: 21.4, cost: 3424 },
+        month: { kwh: 642, cost: 102720 },
+        year: { kwh: 7811, cost: 1249760 }
+      },
+      "site-2": {
+        day: { kwh: 7.5, cost: 1200 },
+        month: { kwh: 225, cost: 36000 },
+        year: { kwh: 2737.5, cost: 438000 }
+      }
+    };
     window.history.replaceState({}, "", "/monitoring");
     vi.clearAllMocks();
     cleanup();
@@ -447,6 +481,7 @@ describe("App", () => {
     authState.user = {
       id: "viewer-1",
       organizationId: "organization-1",
+      organizationType: "customer",
       email: "viewer@example.com",
       name: "Demo Viewer",
       role: "viewer",
@@ -483,6 +518,19 @@ describe("App", () => {
     expect(await screen.findByText("운영 설정")).toBeInTheDocument();
     expect(screen.queryByText("MVP 2 준비")).not.toBeInTheDocument();
     expect(screen.queryByText("통신 음영 검토")).not.toBeInTheDocument();
+  });
+
+  it("loads statistics from the selected site-scoped estimate endpoint", async () => {
+    window.history.pushState({}, "", "/statistics?siteId=site-2");
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findAllByText("7.5 kWh")).toHaveLength(2);
+    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/estimate");
   });
 
   it("sends group dimming commands from the control screen", async () => {
@@ -547,6 +595,73 @@ describe("App", () => {
     expect(await screen.findByText("일부 조명 적용 실패", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
+  });
+
+  it("renders control as read-only for viewers and never posts a command", async () => {
+    authState.user = {
+      id: "viewer-1",
+      organizationId: "organization-1",
+      organizationType: "customer",
+      email: "viewer@example.com",
+      name: "Demo Viewer",
+      role: "viewer",
+      status: "active"
+    };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
+    expect(await screen.findByText("조회 전용 계정입니다. 조명 제어는 operator 또는 admin 계정으로만 수행할 수 있습니다."))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "적용" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "적용" }));
+    expect(apiPost).not.toHaveBeenCalledWith("/commands/dimming", expect.anything());
+    expect(screen.queryByText("명령 전송에 실패했습니다. 대상 상태와 게이트웨이 연결을 확인하세요.")).not.toBeInTheDocument();
+  });
+
+  it("confirms dirty editor logout before revoking the session", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    window.history.replaceState({}, "", "/settings?siteId=site-2");
+    window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
+    useFloorEditorStore.setState({ isDirty: true });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
+
+    expect(confirm).toHaveBeenCalled();
+    expect(apiPost).not.toHaveBeenCalledWith("/auth/logout", {});
+    useFloorEditorStore.setState({ isDirty: false });
+  });
+
+  it("returns to the login view after a confirmed logout from a dirty editor", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    window.history.replaceState({}, "", "/settings?siteId=site-2");
+    window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
+    useFloorEditorStore.setState({ isDirty: true });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
+
+    expect(confirm).toHaveBeenCalled();
+    expect(apiPost).toHaveBeenCalledWith("/auth/logout", {});
+    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
   });
 
   it("starts a lighting registration session from settings and shows discovered nodes", async () => {

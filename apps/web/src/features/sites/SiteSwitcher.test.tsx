@@ -1,13 +1,14 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SiteSummary } from "../../api/queries";
 import { dirtyEditorSentinelKey } from "../floor-editor/dirty-editor-history";
 import { SiteSwitcher } from "./SiteSwitcher";
 
 const sites = [
-  { id: "site-1", name: "본사 주차장" },
-  { id: "site-2", name: "물류센터" }
-];
+  { id: "site-1", name: "본사 주차장", customerName: "고객사 A" },
+  { id: "site-2", name: "물류센터", customerName: "고객사 B" }
+] satisfies SiteSummary[];
 
 function LocationProbe() {
   const location = useLocation();
@@ -34,7 +35,7 @@ describe("SiteSwitcher", () => {
           sites={[
             { id: "site-1", name: "본사 주차장" },
             { id: "site-2", name: "물류센터" }
-          ]}
+          ] satisfies SiteSummary[]}
           selectedSiteId="site-1"
         />
         <LocationProbe />
@@ -46,6 +47,23 @@ describe("SiteSwitcher", () => {
     expect(screen.getByText("/settings/floor-plans?siteId=site-2")).toBeInTheDocument();
   });
 
+  it("renders customer and site name when duplicate site names exist", () => {
+    render(
+      <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1"]}>
+        <SiteSwitcher
+          sites={[
+            { id: "site-1", name: "본사", customerName: "고객사 A" },
+            { id: "site-2", name: "본사", customerName: "고객사 B" }
+          ] satisfies SiteSummary[]}
+          selectedSiteId="site-1"
+        />
+      </MemoryRouter>
+    );
+
+    const options = screen.getAllByRole("option").map((option) => option.textContent);
+    expect(options).toEqual(["고객사 A · 본사", "고객사 B · 본사"]);
+  });
+
   it("preserves the current hash while replacing only the siteId", () => {
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1#map-preview"]}>
@@ -53,7 +71,7 @@ describe("SiteSwitcher", () => {
           sites={[
             { id: "site-1", name: "본사 주차장" },
             { id: "site-2", name: "물류센터" }
-          ]}
+          ] satisfies SiteSummary[]}
           selectedSiteId="site-1"
           canSelectSite={() => true}
         />
@@ -73,7 +91,7 @@ describe("SiteSwitcher", () => {
           sites={[
             { id: "site-1", name: "본사 주차장" },
             { id: "site-2", name: "물류센터" }
-          ]}
+          ] satisfies SiteSummary[]}
           selectedSiteId="site-1"
         />
         <LocationProbe />

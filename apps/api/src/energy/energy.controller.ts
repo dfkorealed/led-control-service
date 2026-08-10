@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from "@nestjs/common";
+import { Controller, Get, Param, UseGuards } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -12,5 +12,10 @@ export class EnergyController {
   @Get("default/estimate")
   getDefaultEstimate(@CurrentUser() user: AuthenticatedUser) {
     return this.energyService.getDefaultSiteEstimate(user);
+  }
+
+  @Get("sites/:siteId/estimate")
+  getSiteEstimate(@CurrentUser() user: AuthenticatedUser, @Param("siteId") siteId: string) {
+    return this.energyService.getSiteEstimate(user, siteId);
   }
 }

@@ -1,7 +1,7 @@
 import { useEnergyEstimate } from "../../api/energy";
 
-export function StatisticsView() {
-  const { data, isLoading, error } = useEnergyEstimate();
+export function StatisticsView({ siteId }: { siteId?: string }) {
+  const { data, isLoading, error } = useEnergyEstimate(siteId);
 
   if (isLoading) return <section className="panel">전력 통계를 불러오는 중</section>;
   if (error || !data) return <section className="panel danger">전력 통계를 불러오지 못했습니다.</section>;

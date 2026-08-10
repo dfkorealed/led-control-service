@@ -32,7 +32,7 @@ export function SiteSwitcher({ sites, selectedSiteId, canSelectSite }: SiteSwitc
       <span className="sr-only">현장 선택</span>
       <select aria-label="현장 선택" value={selectedSiteId ?? ""} onChange={(event) => selectSite(event.target.value)}>
         {sites.map((site) => (
-          <option key={site.id} value={site.id}>{site.name}</option>
+          <option key={site.id} value={site.id}>{site.customerName ? `${site.customerName} · ${site.name}` : site.name}</option>
         ))}
       </select>
     </label>

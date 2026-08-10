@@ -7,7 +7,12 @@ import { SiteAccessService } from "./site-access.service";
 describe("SiteAccessService", () => {
   const customerSiteId = "customer-site";
   const otherCustomerSiteId = "other-customer-site";
-  const site = { id: customerSiteId, organizationId: "customer-org", memberships: [] as { id: string }[] };
+  const site = {
+    id: customerSiteId,
+    organizationId: "customer-org",
+    memberships: [] as { id: string }[],
+    organization: { id: "customer-org" }
+  };
   const prisma = {
     site: { findUnique: jest.fn(), findMany: jest.fn() },
     siteMembership: { findMany: jest.fn() }
@@ -28,7 +33,14 @@ describe("SiteAccessService", () => {
     site.memberships = [];
     prisma.site.findUnique.mockImplementation(({ where }: { where: { id: string } }) => {
       if (where.id === customerSiteId) return Promise.resolve(site);
-      if (where.id === otherCustomerSiteId) return Promise.resolve({ ...site, id: otherCustomerSiteId, organizationId: "other-customer-org" });
+      if (where.id === otherCustomerSiteId) {
+        return Promise.resolve({
+          ...site,
+          id: otherCustomerSiteId,
+          organizationId: "other-customer-org",
+          organization: { id: "other-customer-org" }
+        });
+      }
       return Promise.resolve(null);
     });
   });
@@ -74,6 +86,13 @@ describe("SiteAccessService", () => {
     await expect(service.assert(viewer, customerSiteId, "manage")).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it("hides a cross-customer membership from a viewer even when the membership row exists", async () => {
+    site.memberships = [{ id: "cross-customer-membership" }];
+    const service = await createService();
+
+    await expect(service.assert(viewer, otherCustomerSiteId, "read")).rejects.toThrow("site not found");
+  });
+
   it("hides other customer sites from a customer admin even when the admin has a membership", async () => {
     site.memberships = [{ id: "cross-tenant-membership" }];
     const service = await createService();
@@ -101,11 +120,21 @@ describe("SiteAccessService", () => {
 
   it("lists customer organization sites for an admin and memberships for other roles", async () => {
     prisma.site.findMany.mockResolvedValue([{ id: "customer-site" }]);
-    prisma.siteMembership.findMany.mockResolvedValue([{ siteId: "assigned-site" }]);
+    prisma.siteMembership.findMany.mockResolvedValue([{ siteId: "assigned-site", site: { organizationId: "customer-org" } }]);
     const service = await createService();
 
     await expect(service.listAccessibleSiteIds(admin)).resolves.toEqual(["customer-site"]);
     await expect(service.listAccessibleSiteIds(operator)).resolves.toEqual(["assigned-site"]);
+    await expect(service.listAccessibleSiteIds(viewer)).resolves.toEqual(["assigned-site"]);
+  });
+
+  it("filters cross-customer viewer memberships from the accessible site list", async () => {
+    prisma.siteMembership.findMany.mockResolvedValue([
+      { siteId: "assigned-site", site: { organizationId: "customer-org" } },
+      { siteId: "foreign-site", site: { organizationId: "other-customer-org" } }
+    ]);
+    const service = await createService();
+
     await expect(service.listAccessibleSiteIds(viewer)).resolves.toEqual(["assigned-site"]);
   });
 

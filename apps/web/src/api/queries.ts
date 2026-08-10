@@ -46,6 +46,7 @@ export interface Dashboard {
 export interface SiteSummary {
   id: string;
   name: string;
+  customerName?: string;
 }
 
 function dashboardPath(siteId?: string, includeFixtures = false) {

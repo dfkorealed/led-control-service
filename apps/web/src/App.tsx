@@ -13,6 +13,8 @@ import { SettingsPlaceholderView } from "./features/settings/SettingsPlaceholder
 import { SettingsView } from "./features/settings/SettingsView";
 import { settingsPlaceholderSections } from "./features/settings/settings-sections";
 import { StatisticsView } from "./features/statistics/StatisticsView";
+import { hasDirtyEditorSentinel } from "./features/floor-editor/dirty-editor-history";
+import { useFloorEditorStore } from "./features/floor-editor/editor-store";
 import "./styles.css";
 
 const items = [
@@ -48,6 +50,8 @@ function AppContent() {
 function AuthenticatedShell({ user }: { user: AuthUser }) {
   const location = useLocation();
   const queryClient = useQueryClient();
+  const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
+  const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
   const { data: dashboard } = useDashboard(siteId);
   const gateway = dashboard?.gateways[0];
@@ -55,8 +59,16 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
   const gatewayStatusClass = gateway?.connectionStatus === "online" ? "online" : "offline";
 
   async function handleLogout() {
+    if (isEditorDirty || hasDirtyEditorSentinel()) {
+      const confirmed = window.confirm("저장하지 않은 변경사항이 있습니다. 로그아웃하시겠습니까?");
+      if (!confirmed) return;
+      discardEditorChanges();
+    }
     await logout();
-    queryClient.clear();
+    queryClient.setQueryData(["auth", "me"], null);
+    queryClient.removeQueries({
+      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] !== "auth"
+    });
   }
 
   return (
@@ -106,8 +118,8 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
         </header>
         <Routes>
           <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
-          <Route path="/control" element={<ControlView siteId={siteId} />} />
-          <Route path="/statistics" element={<StatisticsView />} />
+          <Route path="/control" element={<ControlView siteId={siteId} userRole={user.role} />} />
+          <Route path="/statistics" element={<StatisticsView siteId={siteId} />} />
           <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
             <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />
