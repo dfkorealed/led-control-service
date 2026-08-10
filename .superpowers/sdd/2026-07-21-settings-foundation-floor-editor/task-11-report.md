@@ -20,6 +20,7 @@ Task 11의 browser regression, 1,000 fixture 저장 검증 및 한국어 문서 
 4. 기존 `mvp1` smoke E2E는 역할 selector, dashboard query 및 site-scoped fixture endpoint가 현재 route 계약과 달라 실패했다. 현재 customer admin 계약과 `/sites/:siteId/...` route로 fixture를 맞췄다.
 5. Fix Round 1에서 lease/save/release 순서 assertion을 먼저 추가했을 때 fixture에 `editorRequests`가 없어 `undefined.filter`로 실패했다. fixture가 initial acquire마다 같은 token을 발급해 StrictMode의 늦은 cleanup release가 새 acquire까지 지우는 문제도 드러났다.
 6. Fix Round 2의 browser lease contract test는 fixture가 lease 없이 atomic PUT을 `409`으로 막아 실패했다. tokenless conflict/stale renewal이 replacement token을 발급하고 stale release도 성공으로 응답하는 차이도 같은 state machine에서 확인했다.
+7. Fix Round 3의 browser lease contract test는 active holder의 stale DELETE가 fixture에서 `200 { released: false }`로 응답해 production `ForbiddenException`과 달라 실패했다.
 
 ### GREEN
 
@@ -29,6 +30,7 @@ Task 11의 browser regression, 1,000 fixture 저장 검증 및 한국어 문서 
 - unknown tenant route의 `404` browser assertion은 support fixture가 assigned data 밖을 노출하지 않는지 확인할 뿐 production tenant authorization E2E라고 해석하지 않는다. 실제 tenant 경계는 API service/integration tests가 담당한다.
 - Fix Round 2 fixture는 tokenless POST를 active token이 없을 때만 acquire하고, active holder에서는 read-only로 응답한다. matching token renewal만 같은 token을 반환하며 stale renewal은 token 없이 read-only, matching DELETE만 `released: true`를 반환한다. atomic PUT은 production처럼 lease token을 소비하지 않는다.
 - browser flow는 StrictMode cleanup의 conflict 후 bounded retry가 마지막 successful acquire까지 수렴한 뒤 canvas interaction을 시작하고, save 전 successful acquire와 save navigation 뒤 matching release를 ordered capture로 확인한다.
+- Fix Round 3 fixture는 active holder가 있을 때 token 누락 또는 stale DELETE를 controlled `403 { message: "floor editor lease is held by another user" }`로 응답한다. matching DELETE만 `200 { released: true }`로 clear하고, holder가 없는 DELETE는 `200 { released: false }`를 유지한다.
 
 ## 1,000 Fixture 성능 및 제품 변경 근거
 
@@ -63,6 +65,9 @@ pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.sp
 
 pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.spec.ts e2e/monitoring-1000.spec.ts --repeat-each=5
 # 25 passed
+
+pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.spec.ts e2e/monitoring-1000.spec.ts --repeat-each=5
+# 25 passed after Fix Round 3
 
 pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.spec.ts e2e/monitoring-1000.spec.ts e2e/mvp1.spec.ts
 # 5 passed

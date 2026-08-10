@@ -108,10 +108,12 @@ test("browser lease fixture preserves active tokens across conflict, renewal, an
     const conflict = await request("/api/floors/floor-1/editor-lease", "POST", {});
     const staleRenewal = await request("/api/floors/floor-1/editor-lease", "POST", { token: "stale-token" });
     const staleRelease = await request("/api/floors/floor-1/editor-lease", "DELETE", { token: "stale-token" });
+    const missingRelease = await request("/api/floors/floor-1/editor-lease", "DELETE", {});
     const renewed = await request("/api/floors/floor-1/editor-lease", "POST", { token: acquired.body.token });
     const released = await request("/api/floors/floor-1/editor-lease", "DELETE", { token: acquired.body.token });
+    const noHolderRelease = await request("/api/floors/floor-1/editor-lease", "DELETE", { token: acquired.body.token });
     const reacquired = await request("/api/floors/floor-1/editor-lease", "POST", {});
-    return { saveWithoutLease, acquired, conflict, staleRenewal, staleRelease, renewed, released, reacquired };
+    return { saveWithoutLease, acquired, conflict, staleRenewal, staleRelease, missingRelease, renewed, released, noHolderRelease, reacquired };
   });
 
   expect(outcomes.saveWithoutLease.status).toBe(200);
@@ -121,9 +123,11 @@ test("browser lease fixture preserves active tokens across conflict, renewal, an
   expect(outcomes.conflict.body).not.toHaveProperty("token");
   expect(outcomes.staleRenewal.body).toMatchObject({ editable: false });
   expect(outcomes.staleRenewal.body).not.toHaveProperty("token");
-  expect(outcomes.staleRelease.body).toEqual({ released: false });
+  expect(outcomes.staleRelease).toEqual({ status: 403, body: { message: "floor editor lease is held by another user" } });
+  expect(outcomes.missingRelease).toEqual({ status: 403, body: { message: "floor editor lease is held by another user" } });
   expect(outcomes.renewed.body).toMatchObject({ editable: true, token: outcomes.acquired.body.token });
   expect(outcomes.released.body).toEqual({ released: true });
+  expect(outcomes.noHolderRelease).toEqual({ status: 200, body: { released: false } });
   expect(outcomes.reacquired.body).toMatchObject({ editable: true });
   expect(outcomes.reacquired.body.token).not.toBe(outcomes.acquired.body.token);
 });

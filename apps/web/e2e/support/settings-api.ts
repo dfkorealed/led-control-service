@@ -161,9 +161,17 @@ export async function installSettingsApiRoutes(
       }
       if (request.method() === "DELETE") {
         const payload = (request.postDataJSON() as Record<string, unknown> | null) ?? {};
-        const released = payload.token === activeLeaseToken;
+        if (!activeLeaseToken) {
+          state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-release", payload, released: false });
+          return route.fulfill({ json: { released: false } });
+        }
+        if (payload.token !== activeLeaseToken) {
+          state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-release", payload, released: false });
+          return route.fulfill({ status: 403, json: { message: "floor editor lease is held by another user" } });
+        }
+        const released = true;
         state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-release", payload, released });
-        if (released) activeLeaseToken = null;
+        activeLeaseToken = null;
         return route.fulfill({ json: { released } });
       }
     }
