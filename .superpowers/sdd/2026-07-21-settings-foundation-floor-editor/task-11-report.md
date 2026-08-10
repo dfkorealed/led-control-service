@@ -19,6 +19,7 @@ Task 11의 browser regression, 1,000 fixture 저장 검증 및 한국어 문서 
 3. 1,000 marker를 렌더한 editor에서 실제 canvas click이 45초 test timeout까지 완료되지 않았다. Circle마다 적용된 shadow blur와 Konva perfect draw가 Chrome renderer를 포화시킨 것이 원인이었다.
 4. 기존 `mvp1` smoke E2E는 역할 selector, dashboard query 및 site-scoped fixture endpoint가 현재 route 계약과 달라 실패했다. 현재 customer admin 계약과 `/sites/:siteId/...` route로 fixture를 맞췄다.
 5. Fix Round 1에서 lease/save/release 순서 assertion을 먼저 추가했을 때 fixture에 `editorRequests`가 없어 `undefined.filter`로 실패했다. fixture가 initial acquire마다 같은 token을 발급해 StrictMode의 늦은 cleanup release가 새 acquire까지 지우는 문제도 드러났다.
+6. Fix Round 2의 browser lease contract test는 fixture가 lease 없이 atomic PUT을 `409`으로 막아 실패했다. tokenless conflict/stale renewal이 replacement token을 발급하고 stale release도 성공으로 응답하는 차이도 같은 state machine에서 확인했다.
 
 ### GREEN
 
@@ -26,6 +27,8 @@ Task 11의 browser regression, 1,000 fixture 저장 검증 및 한국어 문서 
 - admin 저장은 ordered browser fixture request에서 acquire가 atomic save보다 앞서는지, `expectedRevision: 7`과 한 개의 fixture update만 있는 완전한 payload인지, `floorPlan`과 object mutation이 없는지, save navigation 후 acquired token으로 release하는지를 eventually-safe polling으로 확인한다.
 - `monitoring-1000.spec.ts`는 기존 1,000 marker count, 10초 이내 loading, 마지막 marker visibility assertion을 유지한 채 settings editor에 진입한다. navigation 시작부터 marker 색상 pixel `[32, 201, 151, 255]`와 실제 Konva hit selection의 속성 패널까지 8초 budget을 적용하고, X 좌표 변경 후 저장 payload의 `fixtureUpdates.length === 1`을 확인한다.
 - unknown tenant route의 `404` browser assertion은 support fixture가 assigned data 밖을 노출하지 않는지 확인할 뿐 production tenant authorization E2E라고 해석하지 않는다. 실제 tenant 경계는 API service/integration tests가 담당한다.
+- Fix Round 2 fixture는 tokenless POST를 active token이 없을 때만 acquire하고, active holder에서는 read-only로 응답한다. matching token renewal만 같은 token을 반환하며 stale renewal은 token 없이 read-only, matching DELETE만 `released: true`를 반환한다. atomic PUT은 production처럼 lease token을 소비하지 않는다.
+- browser flow는 StrictMode cleanup의 conflict 후 bounded retry가 마지막 successful acquire까지 수렴한 뒤 canvas interaction을 시작하고, save 전 successful acquire와 save navigation 뒤 matching release를 ordered capture로 확인한다.
 
 ## 1,000 Fixture 성능 및 제품 변경 근거
 
@@ -58,6 +61,9 @@ Task 11의 browser regression, 1,000 fixture 저장 검증 및 한국어 문서 
 pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.spec.ts e2e/monitoring-1000.spec.ts e2e/mvp1.spec.ts --repeat-each=3
 # 15 passed
 
+pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.spec.ts e2e/monitoring-1000.spec.ts --repeat-each=5
+# 25 passed
+
 pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.spec.ts e2e/monitoring-1000.spec.ts e2e/mvp1.spec.ts
 # 5 passed
 
@@ -77,6 +83,7 @@ git diff --check
 - viewer는 assigned B2 도면 row와 `도면 등록됨` 상태를 read-only로 볼 수 있고, direct editor URL은 editor-state/lease 요청 전에 목록으로 redirect되는 계약을 test로 고정했다. viewer mutation fixture는 여전히 `403`을 반환한다.
 - fixture route는 assigned `site-1`만 제공하고 unknown path를 `404`로 처리한다. 이는 fixture-isolation coverage이며 production tenant boundary 증거는 API service/integration tests에 남긴다.
 - atomic save는 acquire, save, post-navigation release의 순서와 acquired token을 capture하고, 변경 fixture 하나와 empty object mutation 목록만 허용한 뒤 mutable E2E fixture state에 반영한다.
+- browser fixture의 conflict/stale route assertion은 production lease service의 token transition을 반영한다. 이는 browser support의 fidelity 검증이며 production lease authorization 자체는 API unit/integration tests가 계속 담당한다.
 - monitoring의 기존 규모 assertion을 제거하거나 완화하지 않았다.
 - documentation은 browser route fixture를 실제 Raspberry Pi, ESP32-H2, BLE 또는 hardware E2E라고 주장하지 않는다.
 

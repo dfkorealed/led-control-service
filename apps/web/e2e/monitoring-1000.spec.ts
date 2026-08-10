@@ -39,6 +39,10 @@ test("loads and renders 1,000 fixtures through cursor pages", async ({ page }) =
   const editorStartedAt = Date.now();
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
   await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
+  await expect.poll(() => {
+    const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
+    return latestLease?.type === "lease-acquire" && latestLease.result.editable;
+  }, { timeout: remainingEditorBudget(editorStartedAt) }).toBe(true);
   const canvas = page.getByLabel("B2 편집 캔버스");
   await expect.poll(async () => canvas.locator("canvas").first().evaluate((element) => {
     const context = element.getContext("2d");

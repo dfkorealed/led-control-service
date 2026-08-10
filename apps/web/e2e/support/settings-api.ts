@@ -35,9 +35,14 @@ interface SavePayload {
 }
 
 type EditorRequest =
-  | { sequence: number; type: "lease-acquire"; payload: Record<string, unknown>; issuedToken: string }
+  | {
+    sequence: number;
+    type: "lease-acquire";
+    payload: Record<string, unknown>;
+    result: { editable: boolean; token?: string; holderName?: string; acquiredAt?: string };
+  }
   | { sequence: number; type: "atomic-save"; payload: SavePayload }
-  | { sequence: number; type: "lease-release"; payload: Record<string, unknown> };
+  | { sequence: number; type: "lease-release"; payload: Record<string, unknown>; released: boolean };
 
 export interface SettingsApiFixtureState {
   requests: string[];
@@ -128,7 +133,6 @@ export async function installSettingsApiRoutes(
       if (request.method() === "GET") return route.fulfill({ json: editorState(fixtureState, mapRevision) });
       if (request.method() === "PUT") {
         if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
-        if (!activeLeaseToken) return route.fulfill({ status: 409, json: { message: "lease required" } });
         const payload = request.postDataJSON() as SavePayload;
         state.editorRequests.push({ sequence: ++editorRequestSequence, type: "atomic-save", payload });
         state.atomicSavePayloads.push(payload);
@@ -143,21 +147,24 @@ export async function installSettingsApiRoutes(
       if (request.method() === "POST") {
         const payload = (request.postDataJSON() as Record<string, unknown> | null) ?? {};
         const requestedToken = typeof payload.token === "string" ? payload.token : null;
-        // Initial acquires need distinct tokens so a late StrictMode cleanup can only
-        // release its own lease, matching the production token-checked release contract.
-        const issuedToken = requestedToken === activeLeaseToken && requestedToken
-          ? requestedToken
-          : `lease-token-${++issuedLeaseCount}`;
-        activeLeaseToken = issuedToken;
+        const result = requestedToken
+          ? requestedToken === activeLeaseToken
+            ? editableLease(requestedToken)
+            : readOnlyLease(activeLeaseToken)
+          : activeLeaseToken
+            ? readOnlyLease(activeLeaseToken)
+            : editableLease(`lease-token-${++issuedLeaseCount}`);
+        if (result.editable && result.token) activeLeaseToken = result.token;
         state.leaseRequests.push(payload);
-        state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-acquire", payload, issuedToken });
-        return route.fulfill({ json: { editable: true, token: issuedToken, holderName: "관리자" } });
+        state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-acquire", payload, result });
+        return route.fulfill({ json: result });
       }
       if (request.method() === "DELETE") {
         const payload = (request.postDataJSON() as Record<string, unknown> | null) ?? {};
-        state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-release", payload });
-        if (payload.token === activeLeaseToken) activeLeaseToken = null;
-        return route.fulfill({ json: { released: true } });
+        const released = payload.token === activeLeaseToken;
+        state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-release", payload, released });
+        if (released) activeLeaseToken = null;
+        return route.fulfill({ json: { released } });
       }
     }
     if (path === "/floors/floor-1/editor-revisions") {
@@ -168,6 +175,14 @@ export async function installSettingsApiRoutes(
   });
 
   return state;
+}
+
+function editableLease(token: string) {
+  return { editable: true, token, holderName: "관리자", acquiredAt: "2026-07-12T00:00:00.000Z" };
+}
+
+function readOnlyLease(token: string | null) {
+  return token ? { editable: false, holderName: "관리자", acquiredAt: "2026-07-12T00:00:00.000Z" } : { editable: false };
 }
 
 function currentUser(role: SettingsRole) {
