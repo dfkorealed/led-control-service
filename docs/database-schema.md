@@ -235,7 +235,7 @@ Organization
 | `mapRevision` | `Int` | 예 | `0` | 층 전체 편집 상태의 optimistic concurrency revision |
 | `editorLeaseFence` | `Int` | 예 | `0` | 편집 lease의 monotonic fencing counter |
 | `editorLeaseTokenHash` | `String?` | 아니오 |  | 현재 활성 lease token의 SHA-256 hash |
-| `editorLeaseHolderId` | `String?` | 아니오 | FK -> `User.id`, restrict delete | 현재 lease 보유 사용자 |
+| `editorLeaseHolderId` | `String?` | 아니오 | FK 없음 | lease 무효화·사용자 삭제와 독립적으로 보존하는 현재 보유 사용자 ID snapshot |
 | `editorLeaseHolderName` | `String?` | 아니오 |  | 현재 lease 보유 사용자 이름 snapshot |
 | `editorLeaseAcquiredAt` | `DateTime?` | 아니오 |  | 현재 lease 획득 시각 |
 | `editorLeaseExpiresAt` | `DateTime?` | 아니오 |  | 현재 lease 만료 시각 |

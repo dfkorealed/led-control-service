@@ -264,7 +264,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 미구현
 
-- SiteMembership 기반 현장 범위 적용 API
+- 고객사 사용자 초대·비활성화와 operator별 `SiteMembership` 현장 배정을 관리하는 설정 UI
 - 현장 정보 수정과 층 CRUD/archive UI
 - 비공개 도면 asset과 보안 처리 pipeline
 - 조명 정보·그룹 CRUD 관리 화면
@@ -272,7 +272,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - ESP32-H2 factory reset과 장비 교체 workflow
 - 시운전 보고서
 - 운영 정책과 알림
-- 고객사 사용자 초대·권한·비활성화·MFA·세션 UI와 operator 현장 배정 UI
+- MFA·세션 관리 UI
 - 공통 설정 감사 로그
 - 서명된 OTA package, 단계 배포, 중단과 rollback
 - 외부 API·Webhook·BMS 연동 설정
