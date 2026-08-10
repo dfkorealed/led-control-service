@@ -11,6 +11,8 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
 - `2c2eb5b` `docs(settings): reconcile ledgers and final fix evidence`
 - `ef1c577` `fix(auth-statistics): harden signup rollback and site switching`
 - `3e41953` `fix(floor-editor): restore coverage and authoritative lease timing`
+- `e773d5e` `docs(settings): record corrective final-fix evidence`
+- `ca2cce8` `test(auth): pin admin organization-wide signup`
 
 ## Corrective Follow-up
 
@@ -46,8 +48,10 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
   - real PostgreSQL signup coverage now proves:
     - operator invitation signup creates `SiteMembership` atomically
     - viewer invitation signup creates `SiteMembership` atomically
-    - missing/invalid/cross-organization viewer assignments are rejected without consuming the invitation
+    - missing/cross-organization viewer assignments are rejected without consuming the invitation
+    - the invalid-site defensive branch is exercised through a Prisma query extension because the database foreign key prevents persisting a dangling invitation `siteId`
     - transaction rollback leaves both invitation and membership unchanged when a competing signup wins after the precheck
+  - focused unit coverage proves admin signup remains organization-wide and does not query a site or create `SiteMembership`, even if the invitation carries `siteId`
   - `site-access.service.spec.ts` continues to enforce the viewer organization invariant in both `assert` and `listAccessibleSiteIds`
 
 ### I2. Statistics now follows the selected site and uses site-scoped auth/cache keys
@@ -107,7 +111,7 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
   - focused unit regression was then added first in `apps/web/src/App.test.tsx` to pin the auth-query transition
 - GREEN:
   - `pnpm --filter @led-control/web exec vitest run src/App.test.tsx -t "returns to the login view after a confirmed logout from a dirty editor"`
-  - `pnpm --filter @led-control/web exec playwright test apps/web/e2e/settings-floor-editor.spec.ts --grep "dirty editor logout keeps the draft on cancel and logs out only after confirmation"`
+  - `pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.spec.ts --grep "dirty editor logout keeps the draft on cancel and logs out only after confirmation"`
   - cancel keeps the editor route and session; confirm discards dirty state, posts `/auth/logout`, and returns to the login screen
 
 ### M1. Canonical docs/routes/selected-site ledger status are reconciled
@@ -152,9 +156,10 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
 - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec prisma migrate deploy` — passed
 - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec prisma migrate reset --force --skip-seed` — passed on disposable DB
 - `AUTH_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec jest src/auth/auth.integration.spec.ts --runInBand` — 6 passed
+- `pnpm --filter @led-control/api exec jest src/auth/auth.service.spec.ts --runInBand` — 10 passed
 - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' FLOOR_EDITOR_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts --runInBand` — 9 passed
 - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' FLOOR_EDITOR_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' REDIS_URL='redis://127.0.0.1:6389/15' RUN_REDIS_INTEGRATION='true' pnpm --filter @led-control/api exec jest src/floor-editor/editor-lease.integration.spec.ts --runInBand` — 6 passed
-- `pnpm --filter @led-control/web exec playwright test apps/web/e2e/settings-floor-editor.spec.ts apps/web/e2e/monitoring-1000.spec.ts` — 6 passed
+- `pnpm --filter @led-control/web exec playwright test e2e/settings-floor-editor.spec.ts e2e/monitoring-1000.spec.ts` — 6 passed
 - `pnpm --filter @led-control/web build && pnpm --filter @led-control/api build` — passed
 - `node --test apps/web/container-contract.node.mjs` — 3 passed, including Docker smoke build
 - `docker build -f apps/web/Dockerfile -t led-control-web-fixwave .` — passed
