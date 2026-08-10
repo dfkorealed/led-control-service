@@ -13,7 +13,7 @@ describe("AuthService", () => {
     jest.useRealTimers();
   });
 
-  it("creates a user from a valid invitation and marks the invitation accepted", async () => {
+  it("keeps admin signup organization-wide even when the invitation carries a site", async () => {
     const invitation = {
       id: "invitation-1",
       organizationId: "organization-1",
@@ -41,6 +41,12 @@ describe("AuthService", () => {
         findUnique: jest.Mock;
         create: jest.Mock;
       };
+      site: {
+        findUnique: jest.Mock;
+      };
+      siteMembership: {
+        create: jest.Mock;
+      };
       $transaction: jest.Mock;
     } = {
       invitation: {
@@ -50,6 +56,12 @@ describe("AuthService", () => {
       user: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue(createdUser)
+      },
+      site: {
+        findUnique: jest.fn()
+      },
+      siteMembership: {
+        create: jest.fn()
       },
       $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma))
     };
@@ -85,6 +97,8 @@ describe("AuthService", () => {
       where: { id: invitation.id, acceptedAt: null },
       data: { acceptedAt: now }
     });
+    expect(prisma.site.findUnique).not.toHaveBeenCalled();
+    expect(prisma.siteMembership.create).not.toHaveBeenCalled();
   });
 
   it("creates a site membership atomically for an invited operator", async () => {
