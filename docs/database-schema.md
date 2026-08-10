@@ -233,6 +233,12 @@ Organization
 | `name` | `String` | 예 |  | 층 이름 |
 | `level` | `Int` | 예 |  | 정렬/층 숫자 |
 | `mapRevision` | `Int` | 예 | `0` | 층 전체 편집 상태의 optimistic concurrency revision |
+| `editorLeaseFence` | `Int` | 예 | `0` | 편집 lease의 monotonic fencing counter |
+| `editorLeaseTokenHash` | `String?` | 아니오 |  | 현재 활성 lease token의 SHA-256 hash |
+| `editorLeaseHolderId` | `String?` | 아니오 | FK -> `User.id`, restrict delete | 현재 lease 보유 사용자 |
+| `editorLeaseHolderName` | `String?` | 아니오 |  | 현재 lease 보유 사용자 이름 snapshot |
+| `editorLeaseAcquiredAt` | `DateTime?` | 아니오 |  | 현재 lease 획득 시각 |
+| `editorLeaseExpiresAt` | `DateTime?` | 아니오 |  | 현재 lease 만료 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -246,6 +252,11 @@ Organization
 - `provisioningSessions`: `ProvisioningSession[]`
 - `mapRevisions`: `FloorMapRevision[]`
 
+운영 메모:
+
+- floor editor save/restore transaction은 `editorLeaseFence`, `editorLeaseTokenHash`, `editorLeaseExpiresAt`, `mapRevision`을 같은 PostgreSQL transaction 안에서 함께 검증한다.
+- Redis key `floor-editor:lease:{floorId}`는 빠른 경합 감지와 best-effort heartbeat cache일 뿐 정본이 아니다. 만료, 강제 해제, successor 획득은 항상 `Floor` row의 lease authority를 먼저 갱신한다.
+
 ### SiteMembership
 
 `operator`와 `viewer`의 현장 접근 범위를 명시적으로 보관한다. `(userId, siteId)`는 unique이며 두 부모가 삭제되면 함께 삭제한다.
@@ -256,6 +267,11 @@ Organization
 | `userId` | `String` | 예 | FK -> `User.id`, cascade delete | 사용자 ID |
 | `siteId` | `String` | 예 | FK -> `Site.id`, cascade delete, indexed | 현장 ID |
 | `createdAt` | `DateTime` | 예 | `now()` | 배정 시각 |
+
+운영 메모:
+
+- signup은 invitation 소비와 `SiteMembership` 생성을 같은 transaction으로 처리한다. scoped `operator`/`viewer` invitation은 유효한 `siteId`가 필요하고, `admin` invitation은 조직 전체 접근 의미를 유지하므로 membership을 만들지 않는다.
+- `viewer` membership은 반드시 사용자의 customer Organization에 속한 site만 가리켜야 한다. SiteAccess는 권한 판정과 접근 가능한 현장 목록 계산 양쪽에서 이 invariant를 강제한다.
 
 ### FloorMapRevision
 
@@ -682,6 +698,11 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 
 - `organization`: `Organization`
 - `site`: `Site?`
+
+운영 메모:
+
+- `siteId`는 scoped `operator`/`viewer` 초대의 대상 현장이다. signup transaction은 이 현장이 존재하고, viewer의 경우 초대 조직과 같은 customer Organization에 속하는지 검증한 뒤 membership을 만든다.
+- `siteId`가 없거나 잘못된 customer Organization을 가리키는 viewer 초대는 signup 단계에서 거부한다.
 
 ### Session
 

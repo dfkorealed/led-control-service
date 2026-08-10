@@ -4,7 +4,7 @@
 
 **Goal:** `operator/admin/viewer` 3단계 권한과 현장 접근 범위를 양산 기준으로 적용하고, 도면 에디터를 모니터링에서 설정으로 옮겨 원자 저장·버전 복구·동시 편집 방지를 제공한다.
 
-**Architecture:** 서비스 운영사 operator는 `SiteMembership`으로 배정된 고객 현장만 접근하고, 고객사 admin은 자기 Organization의 현장을 관리하며 viewer는 배정 현장을 조회한다. API의 기존 `organizationId` 직접 비교를 공통 `SiteAccessService`로 교체하고, 도면 편집은 단일 transaction API와 `Floor.mapRevision`으로 저장한다. Redis lease는 편집 충돌 가능성을 낮추고 PostgreSQL revision 검사는 최종 덮어쓰기를 차단한다.
+**Architecture:** 서비스 운영사 operator는 `SiteMembership`으로 배정된 고객 현장만 접근하고, 고객사 admin은 자기 Organization의 현장을 관리하며 viewer는 배정 현장을 조회한다. API의 기존 `organizationId` 직접 비교를 공통 `SiteAccessService`로 교체하고, 도면 편집은 단일 transaction API와 `Floor.mapRevision`으로 저장한다. Redis는 경합 완화와 heartbeat cache에 사용하고, PostgreSQL `Floor.editorLease*` authority와 monotonic fence가 save/restore transaction 안에서 최종 편집 권한을 판정한다.
 
 **Tech Stack:** React 18, React Router, React Query, Zustand, TypeScript, NestJS, Prisma, PostgreSQL, Redis/ioredis, Konva, Vitest, Jest, Playwright
 
@@ -799,7 +799,7 @@ BrowserRouter 실제 history entry에서 same-URL sentinel로 dirty back을 rout
 
 ---
 
-### Task 10: Redis 편집 lease
+### Task 10: 편집 lease
 
 **Files:**
 - Create: `apps/api/src/redis/redis.module.ts`, `redis.provider.ts`, `redis.provider.spec.ts`
@@ -814,7 +814,7 @@ BrowserRouter 실제 history entry에서 same-URL sentinel로 dirty back을 rout
 - Produces: `DELETE /floors/:floorId/editor-lease`
 - Lease key: `floor-editor:lease:{floorId}`, TTL 90 seconds
 
-- [ ] **Step 1: lease 실패 테스트 작성**
+- [x] **Step 1: lease 실패 테스트 작성**
 
 ```ts
 await expect(service.acquire(floorId, adminA)).resolves.toMatchObject({ editable: true });
@@ -822,29 +822,29 @@ await expect(service.acquire(floorId, adminB)).resolves.toMatchObject({ editable
 await expect(service.release(floorId, adminB, false)).rejects.toBeInstanceOf(ForbiddenException);
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/floor-editor/editor-lease.service.spec.ts --runInBand`
 
 Expected: service 미존재로 FAIL.
 
-- [ ] **Step 3: token 비교 lease 구현**
+- [x] **Step 3: token 비교 lease 구현**
 
-`RedisModule`은 필수 `REDIS_URL`로 단일 lazy client를 생성하고 Nest 종료 시 `quit()`한다. value는 `{ userId, userName, token, acquiredAt }` JSON이며 acquire는 Redis `SET NX EX 90`, 갱신과 해제는 Lua script로 token이 일치할 때만 수행한다. operator/admin 강제 해제는 `AuditService`에 `floor_editor.lease_force_released` action을 성공적으로 기록한 뒤에만 실행한다.
+`RedisModule`은 필수 `REDIS_URL`로 단일 lazy client를 생성하고 Nest 종료 시 `quit()`한다. Redis value는 `{ userId, userName, token, acquiredAt, fence }` JSON이며 acquire/renew/release cache는 Lua script로 token이 일치할 때만 갱신한다. authoritative lease는 PostgreSQL `Floor.editorLeaseFence`, `editorLeaseTokenHash`, `editorLeaseHolderId`, `editorLeaseHolderName`, `editorLeaseAcquiredAt`, `editorLeaseExpiresAt`에 저장하고, save/restore transaction 안에서 token hash·fence·만료를 다시 검증한다. operator/admin 강제 해제는 `AuditService`에 관련 action을 기록한 뒤 PostgreSQL fence를 증가시켜 predecessor를 무효화한다.
 
-- [ ] **Step 4: 웹 heartbeat 구현**
+- [x] **Step 4: 웹 heartbeat 구현**
 
 편집 route 진입 시 lease를 얻고 editable일 때 30초마다 같은 token으로 갱신한다. lease가 없거나 상실되면 editor를 읽기 전용으로 전환하며 저장 버튼을 비활성화한다. 정상 route 이탈 시 release하고 비정상 종료는 TTL에 맡긴다.
 
-- [ ] **Step 5: 테스트 실행**
+- [x] **Step 5: 테스트 실행**
 
 Run: `pnpm --filter @led-control/api exec jest src/redis src/floor-editor --runInBand`
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/settings/floor-plans`
 
-Expected: lease 충돌, 만료, token 불일치, 읽기 전용 전환 테스트 PASS.
+Expected: lease 충돌, 만료, token 불일치, fence 검증, 읽기 전용 전환 테스트 PASS.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add apps/api/src/redis apps/api/src/floor-editor apps/web/src/api/floor-editor.ts apps/web/src/features/settings/floor-plans .env.example
@@ -867,7 +867,7 @@ git commit -m "feat(floor-editor): prevent concurrent floor edits"
 - Verifies: operator 설치 → admin 편집 → monitoring 반영 → viewer 차단
 - Verifies: 1,000 fixture diff 저장과 교차 tenant 차단
 
-- [ ] **Step 1: 실제 역할 E2E 작성**
+- [x] **Step 1: 실제 역할 E2E 작성**
 
 ```ts
 test("operator commissions and customer admin edits a floor plan", async ({ browser }) => {
@@ -895,11 +895,11 @@ test("operator commissions and customer admin edits a floor plan", async ({ brow
 
 테스트 데이터는 test fixture로만 만들며 런타임 mock Gateway나 가짜 BLE 발견 이벤트를 시작하지 않는다.
 
-- [ ] **Step 2: 1,000 fixture 기준 검증**
+- [x] **Step 2: 1,000 fixture 기준 검증**
 
 기존 `monitoring-1000.spec.ts`에 settings editor 진입과 한 조명 이동 저장을 추가하고 request body의 `fixtureUpdates.length === 1`을 확인한다.
 
-- [ ] **Step 3: 전체 자동 검증**
+- [x] **Step 3: 전체 자동 검증**
 
 Run: `pnpm typecheck`
 
@@ -911,7 +911,7 @@ Run: `pnpm --filter @led-control/web exec playwright test e2e/settings-floor-edi
 
 Expected: 모두 exit code 0.
 
-- [ ] **Step 4: 문서 상태 갱신**
+- [x] **Step 4: 문서 상태 갱신**
 
 - 설정 문서의 완료 항목에는 자동 검증 범위만 기록한다.
 - 모니터링 문서에서 에디터를 제거하고 읽기 전용 도면을 기록한다.
@@ -919,7 +919,7 @@ Expected: 모두 exit code 0.
 - DB 문서에 OrganizationType, SiteMembership, mapRevision과 FloorMapRevision을 반영한다.
 - 실제 Hardware가 필요하지 않은 도면 작업을 Hardware E2E 완료로 표시하지 않는다.
 
-- [ ] **Step 5: 최종 커밋**
+- [x] **Step 5: 최종 커밋**
 
 ```bash
 git add apps/web/e2e docs
@@ -929,6 +929,18 @@ git commit -m "test(settings): cover role-scoped floor editing"
 ---
 
 ## 후속 구현 계획 분리 기준
+
+## Final Fix Wave Addendum
+
+- 2026-08-10 final whole-branch fix wave는 Task 10/11 완료 선언 뒤 발견된 whole-branch findings(C1, I1~I6, M1~M2)를 동일 브랜치에서 보정한다.
+- 범위:
+  - invitation signup의 scoped membership lifecycle과 viewer organization invariant 보강
+  - selected-site statistics와 customerName site switcher 정합성 보강
+  - viewer control read-only UI와 dirty logout guard 보강
+  - PostgreSQL authoritative lease fence와 save/restore same-transaction validation 추가
+  - legacy editor mutation endpoint/export 제거
+  - web Docker shared workspace build 계약과 실 Docker smoke build 추가
+- 이 addendum은 historical Task 1~11 완료 사실을 뒤집지 않는다. 최종 승인 여부는 scoped final re-review가 결정한다.
 
 이 계획이 완료된 뒤 다음 설정 영역은 각각 독립 계획으로 작성하고 구현한다.
 

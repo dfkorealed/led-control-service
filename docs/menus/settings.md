@@ -2,7 +2,7 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-08-06
+기준일: 2026-08-10
 
 ## 목표와 기능 경계
 
@@ -77,6 +77,7 @@
 - PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
 - `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다. legacy migration은 현장 유무로 서비스 운영사를 추론하지 않으며 기존 Organization을 모두 customer로, legacy owner/operator와 invitation을 admin으로 유지한다.
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
+- invitation signup은 초대 소비와 새 `User` 생성, scoped `SiteMembership` 생성을 하나의 transaction으로 처리한다. operator/viewer 초대는 유효한 `Invitation.siteId`가 필요하며 viewer는 자기 고객사 Organization에 속한 현장으로만 가입할 수 있다. admin 초대는 조직 전체 접근 의미를 유지하므로 membership을 만들지 않는다.
 - `PUT /floors/:floorId/editor-state`는 `Floor.mapRevision` optimistic update, normalized row 변경, canonical `FloorMapRevision` snapshot/SHA-256과 `floor_editor.saved` 감사를 하나의 Serializable Prisma transaction으로 저장한다. fixture/object의 층 소속, 중복 ID와 준비되지 않은 asset은 optimistic mutation 전에 거부한다.
 - `GET /floors/:floorId/editor-revisions`는 현장 `read`, `POST /floors/:floorId/editor-revisions/:revision/restore`는 `manage` 권한을 요구한다. 복구는 `expectedRevision` 충돌을 `409`로 처리하고, 사라진 fixture를 생성하지 않고 `skippedFixtureIds`로 반환하며 새 revision과 `floor_editor.restored` 감사를 같은 transaction에 남긴다.
 - atomic save의 `floorPlan: null`만 배경 삭제를 뜻한다. non-null image/pdf는 source type, ready asset을 가리키는 non-empty `imageUrl`/`originalFileUrl`/`renderedImageUrl`, 양수 INT4 width/height를 모두 포함해야 하며 부분 create/default 값 우회는 `400`으로 거부한다.
@@ -97,12 +98,15 @@
 - atomic save와 revision 복구는 하나의 동기 ref lock으로 상호 배제한다. 요청 중 도구, 캔버스, 배경 입력과 속성 입력을 disabled/read-only로 유지하고, 이미 시작된 배경 asset upload가 끝날 때까지 save/restore도 막아 요청 이후 로컬 수정이 성공 응답에 덮이지 않게 한다. 성공 응답은 새 baseline과 `mapRevision`으로 채택하고 네트워크 오류는 현재 편집 상태를 유지하며, `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
 - 버전 패널은 cursor pagination으로 수정자 display name, 시각과 숫자 변경 수 및 `floorPlanChanged`를 합산해 표시한다. loading/error/empty 상태를 구분하고 오류에는 announcement와 재시도를 제공한다. 복구 버튼은 `operator/admin`에게만 제공하고 현재 baseline의 `mapRevision`을 `expectedRevision`으로 전송하며, 현재 존재하지 않아 건너뛴 조명 안내는 같은 floor query refetch 뒤에도 유지한다.
 - dirty 상태에서는 앱 내부 링크 이동, 현장 전환, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. dirty 진입 시 현재 URL과 같은 history sentinel을 추가해 첫 back이 editor route를 벗어나기 전에 확인하며, 취소는 sentinel을 복원한다. 저장 또는 승인된 내부 이동·현장 전환·취소는 sentinel entry를 목적지로 replace하고, 같은 editor에서 clean 상태가 되거나 unmount되면 sentinel을 소비해 back stack에 editor가 중복으로 남지 않는다. listener는 unmount에서 정리하고 저장 후 back에는 폐기 확인을 표시하지 않는다.
-- `POST /floors/:floorId/editor-lease`는 층별 Redis key `floor-editor:lease:{floorId}`를 `SET NX EX 90`으로 획득하고, 같은 token의 POST는 Lua 비교 후 TTL을 90초로 갱신한다. `DELETE`는 보유 token과 일치할 때만 Lua로 제거한다. body가 없는 최초 acquire/release는 빈 object로 해석하고, `null`이나 배열/원시 body는 `400`으로 거부한다. 두 API 모두 대상 floor의 현장 `manage` 권한을 확인한다.
-- operator/admin 강제 해제는 먼저 durable `floor_editor.lease_force_release_requested`/`attempted` audit을 기록한 뒤 감사한 token만 Lua delete에 전달한다. 삭제 결과는 `floor_editor.lease_force_released`/`success` 또는 successor token을 보존한 `floor_editor.lease_force_release_not_applied`/`stale_token` audit으로 구분해 과거형 성공 기록이 실제 Redis 결과와 어긋나지 않게 한다.
-- 도면 편집 route는 진입 시 lease를 얻고 editable token이면 30초마다 single-flight heartbeat로 갱신한다. 서버 Redis TTL은 90초이며, 클라이언트는 `performance.now()` monotonic clock의 acquire/renew 요청 시작 시점부터 80초(10초 안전 여유)에 local deadline watchdog을 계산한다. pending renew는 이전 watchdog을 유지하고, 성공 응답도 해당 요청의 시작 시점에서 계산한 deadline으로만 교체한다. callback 처리 자체가 지연돼 이전 absolute deadline을 지난 경우에도 renew 성공으로 이를 교체하지 않는다. 응답이 그 deadline 이후 도착하면 editable을 publish하지 않으며, 늦은 최초 acquire가 받은 token은 token-checked release를 요청한다. deadline에 도달하면 token과 모든 heartbeat/retry timer를 폐기하고 읽기 전용으로 고정하므로 늦은 성공 응답은 편집 권한을 되살릴 수 없다. heartbeat가 상실되면 같은 effect에서 다시 editable로 바뀌지 않으며, 이전 floor 요청의 늦은 성공·실패와 이전 floor watchdog도 현재 floor lease를 건드리지 못한다. 처음 read-only 충돌은 250ms부터 최대 15.75초의 bounded retry로 delayed cleanup release를 회복하지만, `SET NX`만 사용하므로 다른 사용자의 lease를 빼앗지 않는다. 충돌, 갱신 실패, token 상실, deadline 만료, lease 획득 실패와 floor 전환 중에는 저장/복구/도구/캔버스/배경/속성 변경을 막는 읽기 전용으로 전환한다. 정상 route 이탈은 아직 보유한 token의 release를 요청하고, 브라우저 종료 같은 비정상 종료의 회수는 90초 TTL에 맡긴다. 이 lease는 revision `409` optimistic concurrency를 대체하거나 강제 덮어쓰기를 허용하지 않는다.
+- `POST /floors/:floorId/editor-lease`는 Redis key `floor-editor:lease:{floorId}`를 캐시·경합 완화에 사용하지만, 실제 편집 권한의 정본은 PostgreSQL `Floor.editorLease*` 컬럼이다. 획득은 같은 transaction에서 만료 여부를 확인하고 monotonic `editorLeaseFence`를 증가시키며, `editorLeaseTokenHash`, `editorLeaseHolderId`, `editorLeaseHolderName`, `editorLeaseAcquiredAt`, `editorLeaseExpiresAt`를 함께 기록한다. 같은 token의 POST는 이 정본을 연장한 뒤 Redis를 best-effort로 갱신하고, `DELETE`와 강제 해제는 fence를 다시 증가시켜 이전 토큰을 무효화한다.
+- operator/admin 강제 해제는 먼저 durable `floor_editor.lease_force_release_requested`/`attempted` audit을 기록한 뒤, PostgreSQL 정본의 token hash와 fence를 기준으로 successor를 덮지 않도록 무효화한다. Redis 삭제는 후속 cache cleanup일 뿐 성공 조건이 아니며, stale predecessor를 되살릴 수 없다.
+- `PUT /floors/:floorId/editor-state`와 `POST /floors/:floorId/editor-revisions/:revision/restore`는 `leaseToken`, `leaseFence`, `expectedRevision`을 모두 요구한다. 저장·복구 transaction 안에서 현재 `Floor` row의 token hash, fence, 만료 시각을 다시 검증해 lease가 만료되었거나 강제 해제된 stale client를 `409 floor editor lease is no longer active`로 거부하고, 그 뒤 `mapRevision`을 최종 optimistic guard로 검사한다.
+- 도면 편집 route는 진입 시 lease를 얻고 editable token이면 30초마다 single-flight heartbeat로 갱신한다. 클라이언트는 `performance.now()` 기반 80초 local deadline watchdog으로 fail-closed 동작을 유지하고, 서버는 PostgreSQL 만료 시각과 fence를 authoritative source로 사용한다. 충돌, 갱신 실패, token 상실, deadline 만료, lease 획득 실패와 floor 전환 중에는 저장/복구/도구/캔버스/배경/속성 변경을 막는 읽기 전용으로 전환한다. 정상 route 이탈은 아직 보유한 token의 release를 요청하고, 브라우저 종료 같은 비정상 종료의 회수는 서버 만료 시각과 Redis TTL에 맡긴다.
+- Task 11 완료 후 legacy `PATCH /floors/:floorId/floor-plan`, `PATCH /fixtures/:fixtureId`, `POST/PATCH/DELETE /floor-map-objects` 경로와 웹 export를 제거했다. 이제 도면 변경은 revision·audit·lease fence가 모두 걸린 atomic save/restore 경로로만 가능하며, stale legacy client가 `mapRevision`을 우회해 normalized row를 덮어쓸 경로는 없다.
 - Playwright browser 회귀는 operator의 시운전 메뉴 노출, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403` fixture를 검증한다. 1,000 fixture editor는 navigation 시작부터 marker 색상 표시와 Konva hit selection까지 8초 이내여야 한다. fixture route는 `apps/web/e2e/support`에만 있으며 assigned `site-1` 밖의 `404`는 test-fixture isolation 검증일 뿐 production tenant E2E 증거는 아니다.
 - 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
-- 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
+- 현장 선택기는 `GET /sites` 응답의 `customerName`과 `name`을 함께 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. 서비스 운영사 operator가 동일한 현장명을 여러 고객사에서 배정받은 경우 `고객사명 · 현장명`으로 구분해 오조작 가능성을 줄인다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard, floor fixture, statistics query key는 모두 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`, `/sites/:siteId/floors/:floorId/fixtures`, `/energy/sites/:siteId/estimate`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
+- dirty editor에서 상단 `로그아웃` 버튼을 눌러도 동일한 폐기 확인을 거친다. 취소하면 session과 draft를 유지하고, 승인한 뒤에만 draft를 버리고 `/auth/logout` 후 auth query를 로그인 화면으로 전환한다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.
 - 웹 Dockerfile은 production API 요청을 same-origin `/api`로 빌드한다. nginx official template entrypoint가 `API_UPSTREAM`(기본 `http://api:4000`)을 주입하고 `/api/*`를 reverse proxy하며, SPA fallback으로 `/settings/floor-plans` 같은 deep route 새로고침을 `index.html`로 응답한다. Vite 개발 서버는 `/api`를 기본 `http://localhost:4000` upstream으로 proxy해 로컬 API 개발 동작을 유지한다.
 
@@ -128,21 +132,15 @@
 - 과거 버전 복구는 기존 버전을 덮어쓰지 않고 새 버전을 생성한다.
 - 복구는 배경, 도형, 기존 조명의 표시 정보만 대상으로 하며 Mesh 주소나 장비 등록 상태를 생성·삭제하지 않는다.
 - 실존하지 않는 과거 조명은 건너뛰고 복구 결과에 경고를 포함한다.
-- 호환 목적으로 아래 기존 개별 변경 API를 임시 유지한다. 이 API는 개별 요청 단위 SiteAccess `manage`는 확인하지만 통합 revision을 만들지 않으므로 신규 웹 저장 경로에서 사용하지 않는다.
-  - `PATCH /floors/:floorId/floor-plan`
-  - `PATCH /fixtures/:fixtureId`
-  - `POST /floor-map-objects`
-  - `PATCH /floor-map-objects/:objectId`
-  - `DELETE /floor-map-objects/:objectId`
-- legacy `PATCH /floors/:floorId/floor-plan`은 Task 11까지 현재 Web의 `sourceType: none` 배경 제거와 기존 row partial patch를 유지한다. root preflight에서 기존 row와 patch를 merge해 effective `none`일 때만 빈/null URL을 허용하며, effective image/pdf는 complete non-empty URL/dimensions와 모든 effective URL의 ready asset 상태를 mutation 전에 검증한다. write payload에는 원래 partial patch가 아니라 검증된 effective 전체 상태를 사용해 concurrent last-write-wins 결과도 같은 invariant를 만족한다. 현재 `FloorAsset` 제품 lifecycle은 `pending`에서 `ready`로만 진행하고 ready 취소·삭제 API가 없으므로 asset 검증과 write를 추가 transaction으로 묶지 않는다. 신규 atomic API의 non-null floor plan도 계속 complete image/pdf payload만 허용한다.
+- 호환용 개별 변경 API는 최종 fix wave에서 제거했다. 현재 제품 경로에서 도면 관련 변경은 atomic save/restore만 허용한다.
 
 ### 편집 충돌과 파일 보안
 
-- Redis에 층별 90초 편집 lease를 두고 편집 화면이 30초마다 갱신한다.
+- Redis에 층별 90초 cache lease를 두고 편집 화면이 30초마다 갱신한다.
 - 다른 사용자가 편집 중이면 읽기 전용으로 열고 수정자와 시작 시각을 표시한다.
-- `REDIS_URL`은 API 실행에 필수이며 Redis provider는 최초 lease 요청까지 client 생성을 지연한다. API bootstrap은 Nest shutdown hook을 활성화해 SIGTERM/SIGINT에도 생성된 Redis client의 `quit()`을 호출한다. lease value에는 `{ userId, userName, token, acquiredAt }`만 저장하고 token 불일치 갱신·삭제는 허용하지 않는다.
-- operator/admin의 강제 lease 해제는 requested/attempted 감사 기록을 성공적으로 남긴 뒤 감사한 token에만 적용하고, Redis delete 결과를 success 또는 stale_token 감사로 별도 기록한다.
-- lease와 별도로 revision 불일치 시 `409 Conflict`를 반환하고 강제 덮어쓰기를 허용하지 않는다.
+- `REDIS_URL`은 API 실행에 필수이며 Redis provider는 최초 lease 요청까지 client 생성을 지연한다. API bootstrap은 Nest shutdown hook을 활성화해 SIGTERM/SIGINT에도 생성된 Redis client의 `quit()`을 호출한다. Redis에는 `{ userId, userName, token, acquiredAt, fence }`를 저장하지만 authoritative validation은 PostgreSQL `Floor.editorLease*` 정본이 담당한다.
+- operator/admin의 강제 lease 해제는 requested/attempted 감사 기록을 성공적으로 남긴 뒤 PostgreSQL fence를 증가시켜 이전 holder를 무효화하고, Redis delete 결과를 success 또는 stale_token 감사로 별도 기록한다.
+- lease와 별도로 revision 불일치 시 `409 Conflict`를 반환하고 강제 덮어쓰기를 허용하지 않는다. save/restore는 lease fence와 `mapRevision`을 모두 통과해야 한다.
 - 변경사항이 있으면 화면 이탈을 확인하고 네트워크 오류 시 클라이언트 편집 상태를 유지한다.
 - 도면 저장소는 비공개로 전환하고 만료 시간이 짧은 서명 URL로 업로드·조회한다.
 - 확장자 대신 실제 MIME을 검사하고 이미지는 재인코딩하며 PDF는 격리된 worker에서 렌더링한다.
@@ -285,18 +283,16 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 2026-07-21 기준 Task 1~5의 역할·현장 접근·설치 시운전 기반 구현을 완료했다.
 - Task 5 최종 보완으로 기존 현장이 있는 경우에도 Gateway claim과 조명 provisioning UI를 service-provider `operator`에게만 노출한다. customer `admin/viewer`의 직접 API 호출은 백엔드에서도 계속 차단한다.
 - Task 1~5 통합 보안 리뷰와 보완 재리뷰를 완료했다. Floor editor SiteAccess, invitation 원자 소비, legacy migration 역할 보존과 bootstrap singleton을 검증했다.
-- Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다. 다음 구현 범위는 Task 7의 도면 에디터 설정 이동이다.
-- Task 8 atomic save/revision API는 `d8d42f1`, Fix Round 1은 `edde0a8`/`8d7aa2e`, Fix Round 2는 `a3aa1b7`/`669be7e`/`d8041f6`, Fix Round 3은 `63cd6fd`/`45336dc`에서 완료했다. Fix Round 4의 concurrent legacy PATCH complete-state write는 `f786d3f`에서 보정했다. 다음 구현 범위는 Task 9의 웹 변경분 생성, atomic save 연결, 충돌·복구 UI다.
-- Task 9 웹 변경분 생성, atomic save 전환, 충돌·revision 복구 UI와 dirty navigation guard는 `c43ff85`에서 완료했다. Fix Round 1의 의미 정규화·draft ID는 `7b1fae0`, site/history 정합성은 `f103f7c`, mutation 상호 배제와 revision 상태는 `d67e27e`, background upload race는 `f0c9e3a`에서 보정했다. 다음 구현 범위는 Task 10의 Redis 편집 lease다.
-- Task 9 Fix Round 2의 same-URL history sentinel과 승인된 site 전환 draft 폐기는 `3c8bd02`, `1a8bce3`에서 보정했다. Task 10은 Redis concurrent lease, token-checked renewal/release, force-release audit, 웹 heartbeat/read-only 전환을 구현했다.
-- Task 11은 role-scoped browser regression과 1,000 fixture 변경분 저장을 자동 검증했다. 이는 browser route fixture 기반 검증이며 Raspberry Pi, ESP32-H2 또는 실제 BLE/Hardware E2E 완료를 뜻하지 않는다.
+- Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다.
+- Task 8 atomic save/revision API는 `d8d42f1`, `edde0a8`, `8d7aa2e`, `a3aa1b7`, `669be7e`, `d8041f6`, `63cd6fd`, `45336dc`, `f786d3f`에서 단계적으로 보정했다.
+- Task 9 웹 변경분 생성, atomic save 전환, 충돌·revision 복구 UI와 dirty navigation guard는 `c43ff85`, `7b1fae0`, `f103f7c`, `d67e27e`, `f0c9e3a`, `3c8bd02`, `1a8bce3`에서 보정했다.
+- Task 10/11의 원래 완료 선언 이후 whole-branch final fix wave에서 invitation membership lifecycle, selected-site statistics, viewer read-only control, PostgreSQL authoritative lease fence, legacy mutation 제거, dirty logout guard, Docker shared build 계약, customerName site selector를 추가 보정했다. 승인 여부는 이 문서가 아니라 scoped final re-review가 결정한다.
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
 
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현장 선택 아래 가로 스크롤 메뉴로 전환하며, 에디터 본문은 단일 열 전체 폭을 사용한다. 네이티브 상단 선택 메뉴와의 통합은 후속 UI 작업이다.
-- 기존 개별 변경 API 함수와 endpoint는 호환 목적으로 유지한다. 현재 웹 저장 경로는 이 함수를 호출하지 않지만, 외부에서 직접 호출하면 통합 `FloorMapRevision`과 floor editor audit가 생성되지 않는다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
