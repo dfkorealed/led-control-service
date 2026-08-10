@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { PrismaService } from "../prisma/prisma.service";
@@ -70,33 +71,41 @@ export class AuthService {
     }
 
     const passwordHash = await this.hashPassword(input.password);
-    const user = await this.db().$transaction(async (tx: any) => {
-      const assignment = await this.validateInvitationAssignment(tx, invitation);
-      const consumedInvitation = await tx.invitation.updateMany({
-        where: { id: invitation.id, acceptedAt: null },
-        data: { acceptedAt: new Date() }
-      });
-      if (consumedInvitation.count !== 1) {
-        throw new BadRequestException("Invitation is invalid or expired");
-      }
-
-      const createdUser = await tx.user.create({
-        data: {
-          organizationId: invitation.organizationId,
-          email,
-          name: input.name.trim(),
-          role: invitation.role,
-          status: "active",
-          passwordHash
-        }
-      });
-      if (assignment) {
-        await tx.siteMembership.create({
-          data: { userId: createdUser.id, siteId: assignment.id }
+    let user;
+    try {
+      user = await this.db().$transaction(async (tx: any) => {
+        const assignment = await this.validateInvitationAssignment(tx, invitation);
+        const consumedInvitation = await tx.invitation.updateMany({
+          where: { id: invitation.id, acceptedAt: null },
+          data: { acceptedAt: new Date() }
         });
+        if (consumedInvitation.count !== 1) {
+          throw new BadRequestException("Invitation is invalid or expired");
+        }
+
+        const createdUser = await tx.user.create({
+          data: {
+            organizationId: invitation.organizationId,
+            email,
+            name: input.name.trim(),
+            role: invitation.role,
+            status: "active",
+            passwordHash
+          }
+        });
+        if (assignment) {
+          await tx.siteMembership.create({
+            data: { userId: createdUser.id, siteId: assignment.id }
+          });
+        }
+        return createdUser;
+      });
+    } catch (error) {
+      if (this.isUniqueConstraintError(error)) {
+        throw new BadRequestException("User already exists");
       }
-      return createdUser;
-    });
+      throw error;
+    }
 
     return { user: this.publicUser({ ...user, organization: invitation.organization }) };
   }
@@ -234,5 +243,9 @@ export class AuthService {
 
   private db() {
     return this.prisma as any;
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
   }
 }

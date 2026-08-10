@@ -60,6 +60,12 @@ vi.mock("./api/client", () => ({
     }
     if (path === "/sites/default/dashboard") return Promise.resolve(apiState.dashboard ?? mockDashboard);
     if (path === "/sites/default/dashboard?includeFixtures=true") return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    if (path === `/sites/${mockDashboard.site.id}/dashboard`) {
+      return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    }
+    if (path === `/sites/${mockDashboard.site.id}/dashboard?includeFixtures=true`) {
+      return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    }
     if (path === "/sites/site-2/dashboard") {
       return Promise.resolve({ ...mockDashboard, site: { id: "site-2", name: "물류센터" } });
     }
@@ -89,6 +95,9 @@ vi.mock("./api/client", () => ({
       });
     }
     if (path === "/energy/default/estimate") return Promise.resolve(apiState.energyEstimateBySite.default);
+    if (path === `/energy/sites/${mockDashboard.site.id}/estimate`) {
+      return Promise.resolve(apiState.energyEstimateBySite.default);
+    }
     if (path === "/energy/sites/site-2/estimate") return Promise.resolve(apiState.energyEstimateBySite["site-2"]);
     if (path === `/registration-sessions/${mockRegistrationSession.id}`) {
       return Promise.resolve(apiState.registrationSession ?? mockRegistrationSession);
@@ -531,6 +540,29 @@ describe("App", () => {
 
     expect(await screen.findAllByText("7.5 kWh")).toHaveLength(2);
     expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/estimate");
+  });
+
+  it("switches statistics estimates with the selected site instead of reusing another site's cache", async () => {
+    window.history.pushState({}, "", "/statistics?siteId=site-2");
+    const queryClient = new QueryClient();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findAllByText("7.5 kWh")).toHaveLength(2);
+    window.history.pushState({}, "", `/statistics?siteId=${mockDashboard.site.id}`);
+    view.unmount();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findAllByText("21.4 kWh")).toHaveLength(2);
+    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/estimate");
+    expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/estimate`);
   });
 
   it("sends group dimming commands from the control screen", async () => {
