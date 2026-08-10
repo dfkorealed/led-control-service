@@ -27,15 +27,22 @@ interface InstallSettingsApiOptions {
 
 interface SavePayload {
   expectedRevision: number;
+  floorPlan?: unknown;
   fixtureUpdates: Array<{ id: string; x?: number; y?: number; size?: number; name?: string; ratedWatt?: number }>;
   objectCreates: unknown[];
   objectUpdates: unknown[];
   objectDeletes: string[];
 }
 
+type EditorRequest =
+  | { sequence: number; type: "lease-acquire"; payload: Record<string, unknown>; issuedToken: string }
+  | { sequence: number; type: "atomic-save"; payload: SavePayload }
+  | { sequence: number; type: "lease-release"; payload: Record<string, unknown> };
+
 export interface SettingsApiFixtureState {
   requests: string[];
   leaseRequests: Array<Record<string, unknown>>;
+  editorRequests: EditorRequest[];
   atomicSavePayloads: SavePayload[];
   fixtureUpdates: SavePayload["fixtureUpdates"];
 }
@@ -88,11 +95,15 @@ export async function installSettingsApiRoutes(
   const state: SettingsApiFixtureState = {
     requests: [],
     leaseRequests: [],
+    editorRequests: [],
     atomicSavePayloads: [],
     fixtureUpdates: []
   };
   const fixtureState = structuredClone(fixtures);
   let mapRevision = floor.mapRevision;
+  let activeLeaseToken: string | null = null;
+  let editorRequestSequence = 0;
+  let issuedLeaseCount = 0;
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -117,7 +128,9 @@ export async function installSettingsApiRoutes(
       if (request.method() === "GET") return route.fulfill({ json: editorState(fixtureState, mapRevision) });
       if (request.method() === "PUT") {
         if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
+        if (!activeLeaseToken) return route.fulfill({ status: 409, json: { message: "lease required" } });
         const payload = request.postDataJSON() as SavePayload;
+        state.editorRequests.push({ sequence: ++editorRequestSequence, type: "atomic-save", payload });
         state.atomicSavePayloads.push(payload);
         state.fixtureUpdates.push(...payload.fixtureUpdates);
         applyFixtureUpdates(fixtureState, payload.fixtureUpdates);
@@ -129,10 +142,23 @@ export async function installSettingsApiRoutes(
       if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
       if (request.method() === "POST") {
         const payload = (request.postDataJSON() as Record<string, unknown> | null) ?? {};
+        const requestedToken = typeof payload.token === "string" ? payload.token : null;
+        // Initial acquires need distinct tokens so a late StrictMode cleanup can only
+        // release its own lease, matching the production token-checked release contract.
+        const issuedToken = requestedToken === activeLeaseToken && requestedToken
+          ? requestedToken
+          : `lease-token-${++issuedLeaseCount}`;
+        activeLeaseToken = issuedToken;
         state.leaseRequests.push(payload);
-        return route.fulfill({ json: { editable: true, token: "lease-token", holderName: "관리자" } });
+        state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-acquire", payload, issuedToken });
+        return route.fulfill({ json: { editable: true, token: issuedToken, holderName: "관리자" } });
       }
-      if (request.method() === "DELETE") return route.fulfill({ json: { released: true } });
+      if (request.method() === "DELETE") {
+        const payload = (request.postDataJSON() as Record<string, unknown> | null) ?? {};
+        state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-release", payload });
+        if (payload.token === activeLeaseToken) activeLeaseToken = null;
+        return route.fulfill({ json: { released: true } });
+      }
     }
     if (path === "/floors/floor-1/editor-revisions") {
       return route.fulfill({ json: { items: [], nextCursor: null } });

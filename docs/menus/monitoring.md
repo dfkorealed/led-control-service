@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-08-06
+기준일: 2026-08-10
 
 ## 구현 완료
 
@@ -26,9 +26,8 @@
 - 모니터링 fixture snapshot은 `GET /floors/:floorId/fixtures`에서 현장 read 권한을 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다. 존재하지 않는 층과 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
 - Playwright deterministic 1,000 fixture/5-page 시나리오가 Chromium에서 1,000개 marker 렌더링을 검증한다.
-- 같은 1,000 fixture browser 회귀는 설정 에디터에서 한 조명만 이동·저장해 atomic payload의 `fixtureUpdates.length === 1`을 확인하고, 기존 모니터링 marker 렌더링 assertion을 유지한다. 이 browser fixture 검증은 실제 Gateway, BLE 또는 Hardware E2E가 아니다.
 - `pnpm benchmark:fixtures`는 실제 인증 cookie와 floor ID로 100회 측정해 API p95가 1초를 넘으면 실패한다.
-- 모니터링의 층 도면은 모든 역할에 읽기 전용으로 표시하며, 편집 버튼·editor state 조회·에디터 분기를 제공하지 않는다. 편집은 설정의 `/settings/floor-plans/:floorId/edit`에서만 시작한다.
+- 모니터링의 층 도면은 모든 역할에 읽기 전용으로 표시한다. 편집 버튼, editor state 조회와 editor 분기는 제공하지 않으며, 도면 변경과 version 복구는 설정 메뉴가 소유한다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
 - gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어가며, 시작 시 heartbeat와 journal의 마지막 fixture 결과 snapshot을 재발행한다.
@@ -40,7 +39,6 @@
 ## 미구현
 
 - WebSocket/SSE 기반 push 실시간 업데이트
-- 도면 버전 목록, 이전 버전 복원 UI
 - 층별/구역별 통신 음영 heatmap
 - 장애 이력, 장애 등급, 장애 원인 표시
 - 알림 확인, 담당자 배정, 조치 완료 workflow
@@ -51,15 +49,9 @@
 - 조명 등록 중 provisioning 진행률 표시
 - 조명 검색 실패 시 gateway offline, ESP32 provisioned 상태, BLE scan adapter 미설정 등 원인별 안내
 - 모니터링 화면 내 빠른 밝기 제어
-- AI 도면 해석 기반 에디터 객체 자동 생성
 
 ## 부족하거나 개선이 필요한 기능
 
-- MinIO 기반 로컬 S3 integration test는 준비됐지만 현재 개발 머신에 Docker CLI가 없어 실제 실행 증거는 아직 없다.
-- PDF는 첫 페이지만 배경 이미지로 렌더링한다. 다중 페이지 선택과 원본 PDF 파일 관리 UI는 후속 작업이다.
-- 도형 삭제, 조명/도형 다중 선택과 일괄 이동, undo/redo는 아직 없다.
-- 도형/조명 리사이즈는 Konva Transformer의 모서리/변 핸들 중심으로 제공한다. 향후 회전, grid snap, 키보드 미세 조정이 필요하다.
-- CAD/DWG/DXF import와 AI 도면 해석은 후속 MVP 범위다.
 - 현재 실시간성은 3초 polling이므로 대규모 현장에서는 서버 부하와 반응성 조정이 필요하다.
 - 조명 등록 완료 후 dashboard 반영은 polling에 의존하므로, 실제 현장에서는 provisioning event 기반 push 업데이트가 필요하다.
 - gateway offline 기준은 현재 90초, fixture stale 기준은 120초 고정값이다. 대규모 현장 검증 후 site/gateway별 정책 설정으로 분리해야 한다.
@@ -73,7 +65,6 @@
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/monitoring/FloorMap.tsx`
 - `apps/web/src/api/queries.ts`
-- `apps/api/src/floor-editor/*`
 - `apps/api/src/sites/sites.controller.ts`
 - `apps/api/src/sites/sites.service.ts`
 - `apps/api/src/fixtures/fixtures.service.ts`

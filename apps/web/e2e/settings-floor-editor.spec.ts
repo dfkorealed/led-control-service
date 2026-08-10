@@ -18,13 +18,35 @@ test("operator commissioning is visible and admin floor changes are reflected in
   await adminPage.getByRole("button", { name: "저장", exact: true }).click();
 
   await expect(adminPage).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
-  expect(adminApi.leaseRequests.length).toBeGreaterThan(0);
-  expect(adminApi.leaseRequests).toEqual(expect.arrayContaining([{}]));
-  expect(adminApi.leaseRequests.every((payload) => Object.keys(payload).length === 0)).toBe(true);
-  expect(adminApi.atomicSavePayloads).toHaveLength(1);
-  expect(adminApi.atomicSavePayloads[0]).toMatchObject({ expectedRevision: 7 });
-  expect(adminApi.fixtureUpdates).toHaveLength(1);
-  expect(adminApi.fixtureUpdates[0]).toMatchObject({ id: "fixture-1", x: 240 });
+  await expect.poll(() => adminApi.editorRequests.filter(({ type }) => type === "atomic-save")).toHaveLength(1);
+
+  const save = adminApi.editorRequests.find(({ type }) => type === "atomic-save");
+  if (!save || save.type !== "atomic-save") throw new Error("atomic save request was not captured");
+  const acquireBeforeSave = [...adminApi.editorRequests].reverse().find((request) => (
+    request.type === "lease-acquire" && request.sequence < save.sequence
+  ));
+  if (!acquireBeforeSave || acquireBeforeSave.type !== "lease-acquire") throw new Error("lease acquire before save was not captured");
+  const { sequence: saveSequence, ...saveRequest } = save;
+  expect(saveRequest).toEqual({
+    type: "atomic-save",
+    payload: {
+      expectedRevision: 7,
+      fixtureUpdates: [{ id: "fixture-1", x: 240 }],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    }
+  });
+  expect(acquireBeforeSave).toMatchObject({ type: "lease-acquire", payload: {} });
+  expect(acquireBeforeSave.sequence).toBeLessThan(saveSequence);
+
+  await expect.poll(() => adminApi.editorRequests.some((request) => (
+    request.type === "lease-release"
+    && request.sequence > saveSequence
+    && request.payload.token === acquireBeforeSave.issuedToken
+  ))).toBe(true);
+
+  expect(adminApi.fixtureUpdates).toEqual([{ id: "fixture-1", x: 240 }]);
 
   await adminPage.goto("/monitoring?siteId=site-1");
   const movedFixture = adminPage.getByRole("button", { name: "B2-L01 정상 70%" });
@@ -40,8 +62,9 @@ test("viewer is redirected before editor state and lease requests while mutation
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
-  await expect(page.getByRole("heading", { name: "도면 관리" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "B2 도면 편집" })).toHaveCount(0);
+  const floorRow = page.locator(".setting-card").filter({ hasText: "B2" });
+  await expect(floorRow).toContainText("도면 등록됨");
+  await expect(floorRow.getByRole("link", { name: "B2 도면 편집" })).toHaveCount(0);
   expect(api.requests.filter((path) => path.includes("/editor-state") || path.includes("/editor-lease"))).toEqual([]);
 
   const status = await page.evaluate(async () => {
@@ -55,7 +78,7 @@ test("viewer is redirected before editor state and lease requests while mutation
   expect(status).toBe(403);
 });
 
-test("settings fixtures do not expose foreign tenant routes", async ({ page }) => {
+test("settings browser fixture isolates unknown tenant route data", async ({ page }) => {
   await installSettingsApiRoutes(page, "admin");
   await page.goto("/settings/floor-plans?siteId=site-1");
 

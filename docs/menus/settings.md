@@ -100,7 +100,7 @@
 - `POST /floors/:floorId/editor-lease`는 층별 Redis key `floor-editor:lease:{floorId}`를 `SET NX EX 90`으로 획득하고, 같은 token의 POST는 Lua 비교 후 TTL을 90초로 갱신한다. `DELETE`는 보유 token과 일치할 때만 Lua로 제거한다. body가 없는 최초 acquire/release는 빈 object로 해석하고, `null`이나 배열/원시 body는 `400`으로 거부한다. 두 API 모두 대상 floor의 현장 `manage` 권한을 확인한다.
 - operator/admin 강제 해제는 먼저 durable `floor_editor.lease_force_release_requested`/`attempted` audit을 기록한 뒤 감사한 token만 Lua delete에 전달한다. 삭제 결과는 `floor_editor.lease_force_released`/`success` 또는 successor token을 보존한 `floor_editor.lease_force_release_not_applied`/`stale_token` audit으로 구분해 과거형 성공 기록이 실제 Redis 결과와 어긋나지 않게 한다.
 - 도면 편집 route는 진입 시 lease를 얻고 editable token이면 30초마다 single-flight heartbeat로 갱신한다. 서버 Redis TTL은 90초이며, 클라이언트는 `performance.now()` monotonic clock의 acquire/renew 요청 시작 시점부터 80초(10초 안전 여유)에 local deadline watchdog을 계산한다. pending renew는 이전 watchdog을 유지하고, 성공 응답도 해당 요청의 시작 시점에서 계산한 deadline으로만 교체한다. callback 처리 자체가 지연돼 이전 absolute deadline을 지난 경우에도 renew 성공으로 이를 교체하지 않는다. 응답이 그 deadline 이후 도착하면 editable을 publish하지 않으며, 늦은 최초 acquire가 받은 token은 token-checked release를 요청한다. deadline에 도달하면 token과 모든 heartbeat/retry timer를 폐기하고 읽기 전용으로 고정하므로 늦은 성공 응답은 편집 권한을 되살릴 수 없다. heartbeat가 상실되면 같은 effect에서 다시 editable로 바뀌지 않으며, 이전 floor 요청의 늦은 성공·실패와 이전 floor watchdog도 현재 floor lease를 건드리지 못한다. 처음 read-only 충돌은 250ms부터 최대 15.75초의 bounded retry로 delayed cleanup release를 회복하지만, `SET NX`만 사용하므로 다른 사용자의 lease를 빼앗지 않는다. 충돌, 갱신 실패, token 상실, deadline 만료, lease 획득 실패와 floor 전환 중에는 저장/복구/도구/캔버스/배경/속성 변경을 막는 읽기 전용으로 전환한다. 정상 route 이탈은 아직 보유한 token의 release를 요청하고, 브라우저 종료 같은 비정상 종료의 회수는 90초 TTL에 맡긴다. 이 lease는 revision `409` optimistic concurrency를 대체하거나 강제 덮어쓰기를 허용하지 않는다.
-- Playwright browser 회귀는 operator의 시운전 메뉴 노출, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403` fixture를 검증한다. fixture route는 `apps/web/e2e/support`에만 있으며 다른 tenant/site path는 `404`로 제한한다.
+- Playwright browser 회귀는 operator의 시운전 메뉴 노출, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403` fixture를 검증한다. 1,000 fixture editor는 navigation 시작부터 marker 색상 표시와 Konva hit selection까지 8초 이내여야 한다. fixture route는 `apps/web/e2e/support`에만 있으며 assigned `site-1` 밖의 `404`는 test-fixture isolation 검증일 뿐 production tenant E2E 증거는 아니다.
 - 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
 - 현장 선택기는 `GET /sites` 응답만 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard 및 floor fixture query key는 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`와 `/sites/:siteId/floors/:floorId/fixtures`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.
@@ -302,6 +302,10 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
+- MinIO 기반 local S3 integration test는 준비됐지만 현재 개발 머신에 Docker CLI가 없어 실제 실행 증거는 아직 없다.
+- PDF는 첫 페이지만 도면 배경으로 렌더링한다. 다중 페이지 선택과 원본 PDF 파일 관리 UI는 후속 작업이다.
+- 도형 삭제, 조명/도형 다중 선택과 일괄 이동, undo/redo는 아직 없다. Konva Transformer는 모서리/변 resize만 제공하므로 회전, grid snap과 키보드 미세 조정이 필요하다.
+- CAD/DWG/DXF import와 AI 도면 해석 기반 editor object 자동 생성은 후속 MVP 범위다.
 
 ## 경쟁 서비스 참고 근거
 

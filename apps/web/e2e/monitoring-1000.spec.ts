@@ -20,6 +20,12 @@ const fixtures = Array.from({ length: 1000 }, (_, index) => ({
   controlBlockReason: null
 } satisfies SettingsFixture));
 
+const editorReadinessBudgetMs = 8_000;
+
+function remainingEditorBudget(startedAt: number) {
+  return Math.max(1, editorReadinessBudgetMs - (Date.now() - startedAt));
+}
+
 test("loads and renders 1,000 fixtures through cursor pages", async ({ page }) => {
   test.setTimeout(45_000);
   const api = await installSettingsApiRoutes(page, "admin", { fixtures });
@@ -30,17 +36,18 @@ test("loads and renders 1,000 fixtures through cursor pages", async ({ page }) =
   expect(Date.now() - startedAt).toBeLessThan(10_000);
   await expect(page.getByRole("button", { name: "B2-L1000 정상 70%" })).toBeVisible();
 
+  const editorStartedAt = Date.now();
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
-  await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
   const canvas = page.getByLabel("B2 편집 캔버스");
-  const fixturePixel = await canvas.locator("canvas").first().evaluate((element) => {
+  await expect.poll(async () => canvas.locator("canvas").first().evaluate((element) => {
     const context = element.getContext("2d");
     return context ? Array.from(context.getImageData(20, 20, 1, 1).data) : [];
-  });
-  expect(fixturePixel).toEqual([32, 201, 151, 255]);
-  await canvas.click({ position: { x: 20, y: 20 }, force: true });
+  }), { timeout: remainingEditorBudget(editorStartedAt) }).toEqual([32, 201, 151, 255]);
+  await canvas.click({ position: { x: 20, y: 20 }, force: true, timeout: remainingEditorBudget(editorStartedAt) });
   const properties = page.getByRole("complementary", { name: "속성 패널" });
-  await expect(properties.getByRole("heading", { name: "B2-L0001" })).toBeVisible();
+  await expect(properties.getByRole("heading", { name: "B2-L0001" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
+  expect(Date.now() - editorStartedAt).toBeLessThan(editorReadinessBudgetMs);
   await properties.getByLabel("X").fill("50");
   await page.getByRole("button", { name: "저장", exact: true }).click();
 
