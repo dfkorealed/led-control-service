@@ -170,3 +170,10 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
 - Browser E2E still uses route fixtures, so this wave does not add a staging-authenticated full-stack browser proof of cookie/session + PostgreSQL + Redis together.
 - Web production build still emits large Vite chunk warnings; this is unchanged evidence debt, not a correctness regression.
 - Hardware, BLE mesh, Raspberry Pi, and ESP32-H2 evidence remain out of scope for this fix wave and are unchanged from the final review residual risks.
+
+## Final Closure
+
+- Scoped final re-review: READY, Critical 0 / Important 0 / Minor 1.
+- The remaining documentation-only Minor was resolved in `f3c6e4d`.
+- Fresh orchestrator verification repeated typecheck, lint, all workspace tests, Playwright 6/6, API/Web builds, Docker image build, PostgreSQL migration and integration suites, real Redis lease integration, and diff hygiene successfully.
+- Final open findings: Critical 0 / Important 0 / Minor 0.

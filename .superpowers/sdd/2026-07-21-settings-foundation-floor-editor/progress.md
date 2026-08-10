@@ -9,7 +9,7 @@
 - Task 11: complete (`4862796`..`681d818`; fix round 3 review APPROVED, findings 0)
 - Task 11 decision: preserve the approved viewer contract — floor-plan list is read-only, direct editor URL is blocked/redirected, and viewer mutation requests remain `403`.
 - Whole-branch review: `final-review.md` returned NOT READY (Critical 1, Important 6, Minor 2).
-- Final fix round: local implementation complete in `219dfe3`, `cc72fa7`, `2c2eb5b`, `ef1c577`, and `3e41953`; scoped final re-review is still pending orchestrator execution.
+- Final fix round: complete (`219dfe3`..`aafadf5`).
 - Final fix wave evidence:
   - scoped invitation membership creation and viewer organization invariant regressions added and passed
   - selected-site statistics, viewer control read-only, dirty logout, and duplicate customer-name site switcher regressions added and passed
@@ -19,4 +19,6 @@
   - real PostgreSQL + Redis integration passed for atomic save/restore, stale predecessor fencing, expiry, successor acquire, and force release
   - focused Playwright passed for operator/admin/viewer routes, 1,000 fixture rendering, tenant isolation, and dirty logout confirm/cancel
   - Docker contract plus real web image smoke build passed
-- Resume rule: do not repeat Tasks 1~11 or their task reviews. Resume only the scoped final re-review after inspecting this fix wave.
+- Scoped final re-review: READY (Critical 0, Important 0, Minor 1). The remaining documentation-only M1 was resolved in `f3c6e4d`.
+- Final orchestrator verification: `pnpm typecheck`, `pnpm lint`, `pnpm test`, focused Playwright 6/6, API/Web builds, Docker image contract/build 3/3, PostgreSQL migration, auth PostgreSQL 6/6, floor revision PostgreSQL 9/9, PostgreSQL+Redis lease 7/7, and `git diff --check` passed on 2026-08-10.
+- Plan status: complete. Do not repeat Tasks 1~11 or the final fix round.
