@@ -99,6 +99,8 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
         initialState={editorQuery.data}
         userRole={userRole}
         readOnly={!activeLease.editable}
+        leaseToken={activeLease.token}
+        leaseFence={activeLease.fence}
         onDirtyChange={setIsDirty}
         onCancel={leaveEditor}
         onReload={async () => { await editorQuery.refetch(); }}

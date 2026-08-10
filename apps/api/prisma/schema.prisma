@@ -152,6 +152,12 @@ model Floor {
   name                 String
   level                Int
   mapRevision          Int                   @default(0)
+  editorLeaseFence     Int                   @default(0)
+  editorLeaseTokenHash String?
+  editorLeaseHolderId  String?
+  editorLeaseHolderName String?
+  editorLeaseAcquiredAt DateTime?
+  editorLeaseExpiresAt DateTime?
   site                 Site                  @relation(fields: [siteId], references: [id])
   floorPlan            FloorPlan?
   fixtures             Fixture[]

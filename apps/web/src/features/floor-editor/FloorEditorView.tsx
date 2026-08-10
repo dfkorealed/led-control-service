@@ -20,6 +20,8 @@ interface FloorEditorViewProps {
   initialState: FloorEditorState;
   userRole: AuthUser["role"];
   readOnly?: boolean;
+  leaseToken?: string;
+  leaseFence?: number;
   onCancel: () => void;
   onSaved: (state: FloorEditorState) => void | Promise<void>;
   onReload: () => void | Promise<void>;
@@ -36,7 +38,17 @@ const tools: Array<{ key: EditorTool; label: string; icon: typeof MousePointer2 
 ];
 const TOOL_DRAG_DATA_TYPE = "application/x-floor-editor-tool";
 
-export function FloorEditorView({ initialState, userRole, readOnly = false, onCancel, onSaved, onReload, onDirtyChange }: FloorEditorViewProps) {
+export function FloorEditorView({
+  initialState,
+  userRole,
+  readOnly = false,
+  leaseToken,
+  leaseFence,
+  onCancel,
+  onSaved,
+  onReload,
+  onDirtyChange
+}: FloorEditorViewProps) {
   const queryClient = useQueryClient();
   const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom } = useFloorEditorStore();
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
@@ -69,12 +81,16 @@ export function FloorEditorView({ initialState, userRole, readOnly = false, onCa
   }, [isDirty, onDirtyChange]);
 
   async function handleSave() {
-    if (readOnly || !state || !baseline || !isDirty || mutationLock.current || assetUploadLock.current) return;
+    if (readOnly || !state || !baseline || !isDirty || mutationLock.current || assetUploadLock.current || !leaseToken || !leaseFence) return;
     mutationLock.current = true;
     setSaveStatus("saving");
     setSkippedFixtureCount(0);
     try {
-      const saved = await saveFloorEditorState(state.floor.id, buildEditorChanges(baseline, state));
+      const saved = await saveFloorEditorState(state.floor.id, {
+        ...buildEditorChanges(baseline, state),
+        leaseToken,
+        leaseFence
+      });
       adoptBaseline(saved);
       await invalidateEditorQueries(queryClient, saved);
       await onSaved(saved);
@@ -88,14 +104,16 @@ export function FloorEditorView({ initialState, userRole, readOnly = false, onCa
   }
 
   async function handleRestore(revision: number) {
-    if (readOnly || !baseline || mutationLock.current || assetUploadLock.current) return;
+    if (readOnly || !baseline || mutationLock.current || assetUploadLock.current || !leaseToken || !leaseFence) return;
     mutationLock.current = true;
     setRestoringRevision(revision);
     setSaveStatus("idle");
     setSkippedFixtureCount(0);
     try {
       const restored = await restoreFloorEditorRevision(baseline.floor.id, revision, {
-        expectedRevision: baseline.floor.mapRevision
+        expectedRevision: baseline.floor.mapRevision,
+        leaseToken,
+        leaseFence
       });
       adoptBaseline(restored);
       setSkippedFixtureCount(restored.skippedFixtureIds.length);

@@ -68,7 +68,15 @@ const editorState: FloorEditorState = {
 
 function renderEditor(state: FloorEditorState = editorState, props?: Partial<Parameters<typeof FloorEditorView>[0]>) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  const editorProps = { userRole: "admin" as const, onCancel: vi.fn(), onSaved: vi.fn(), onReload: vi.fn(), ...props };
+  const editorProps = {
+    userRole: "admin" as const,
+    leaseToken: "lease-token",
+    leaseFence: 7,
+    onCancel: vi.fn(),
+    onSaved: vi.fn(),
+    onReload: vi.fn(),
+    ...props
+  };
   const result = render(
     <QueryClientProvider client={queryClient}>
       <FloorEditorView initialState={state} {...editorProps} />
@@ -150,6 +158,8 @@ describe("FloorEditorView", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
     expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledWith("floor-b2", {
       expectedRevision: 7,
+      leaseToken: "lease-token",
+      leaseFence: 7,
       fixtureUpdates: [{ id: "fixture-1", name: "B2-L01 수정", ratedWatt: 45 }],
       objectCreates: [],
       objectUpdates: [],
@@ -507,7 +517,7 @@ describe("FloorEditorView", () => {
     await waitFor(() => expect(floorEditorApi.restoreFloorEditorRevision).toHaveBeenCalledWith(
       "floor-b2",
       5,
-      { expectedRevision: 7 }
+      { expectedRevision: 7, leaseToken: "lease-token", leaseFence: 7 }
     ));
     expect(useFloorEditorStore.getState()).toMatchObject({ isDirty: false });
     expect(useFloorEditorStore.getState().initialState?.floor.mapRevision).toBe(8);

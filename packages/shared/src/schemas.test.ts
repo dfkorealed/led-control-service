@@ -109,6 +109,8 @@ describe("shared schemas", () => {
   it("validates atomic floor editor save and restore inputs", () => {
     const save = saveEditorStateSchema.parse({
       expectedRevision: 3,
+      leaseToken: "lease-token",
+      leaseFence: 7,
       floorPlan: null,
       fixtureUpdates: [{ id: "fixture-1", x: 120, y: 240, size: 24 }],
       objectCreates: [{
@@ -122,9 +124,10 @@ describe("shared schemas", () => {
 
     expect(save.expectedRevision).toBe(3);
     expect(save.floorPlan).toBeNull();
-    expect(restoreFloorEditorRevisionSchema.parse({ expectedRevision: 4 })).toEqual({ expectedRevision: 4 });
+    expect(restoreFloorEditorRevisionSchema.parse({ expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7 }))
+      .toEqual({ expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7 });
     expect(() => saveEditorStateSchema.parse({ ...save, expectedRevision: -1 })).toThrow();
-    expect(() => restoreFloorEditorRevisionSchema.parse({ expectedRevision: 1.5 })).toThrow();
+    expect(() => restoreFloorEditorRevisionSchema.parse({ expectedRevision: 1.5, leaseToken: "lease-token", leaseFence: 7 })).toThrow();
 
     expect(saveEditorStateSchema.parse({
       ...save,
@@ -233,6 +236,8 @@ describe("shared schemas", () => {
   it("bounds PostgreSQL Int fields and editor request collection sizes", () => {
     const base = {
       expectedRevision: EDITOR_MAX_EXPECTED_REVISION,
+      leaseToken: "lease-token",
+      leaseFence: 7,
       fixtureUpdates: [],
       objectCreates: [],
       objectUpdates: [],
@@ -240,7 +245,11 @@ describe("shared schemas", () => {
     };
     expect(saveEditorStateSchema.parse(base).expectedRevision).toBe(EDITOR_MAX_EXPECTED_REVISION);
     expect(() => saveEditorStateSchema.parse({ ...base, expectedRevision: POSTGRES_INT_MAX })).toThrow();
-    expect(() => restoreFloorEditorRevisionSchema.parse({ expectedRevision: POSTGRES_INT_MAX })).toThrow();
+    expect(() => restoreFloorEditorRevisionSchema.parse({
+      expectedRevision: POSTGRES_INT_MAX,
+      leaseToken: "lease-token",
+      leaseFence: 7
+    })).toThrow();
     expect(positivePostgresIntSchema.parse("2147483647")).toBe(POSTGRES_INT_MAX);
     expect(() => positivePostgresIntSchema.parse("2147483648")).toThrow();
     expect(() => positivePostgresIntSchema.parse("1e100")).toThrow();

@@ -27,6 +27,8 @@ interface InstallSettingsApiOptions {
 
 interface SavePayload {
   expectedRevision: number;
+  leaseToken?: string;
+  leaseFence?: number;
   floorPlan?: unknown;
   fixtureUpdates: Array<{ id: string; x?: number; y?: number; size?: number; name?: string; ratedWatt?: number }>;
   objectCreates: unknown[];
@@ -39,7 +41,7 @@ type EditorRequest =
     sequence: number;
     type: "lease-acquire";
     payload: Record<string, unknown>;
-    result: { editable: boolean; token?: string; holderName?: string; acquiredAt?: string };
+    result: { editable: boolean; token?: string; fence?: number; holderName?: string; acquiredAt?: string };
   }
   | { sequence: number; type: "atomic-save"; payload: SavePayload }
   | { sequence: number; type: "lease-release"; payload: Record<string, unknown>; released: boolean };
@@ -50,6 +52,7 @@ export interface SettingsApiFixtureState {
   editorRequests: EditorRequest[];
   atomicSavePayloads: SavePayload[];
   fixtureUpdates: SavePayload["fixtureUpdates"];
+  logoutRequests: number;
 }
 
 const floor = {
@@ -102,13 +105,16 @@ export async function installSettingsApiRoutes(
     leaseRequests: [],
     editorRequests: [],
     atomicSavePayloads: [],
-    fixtureUpdates: []
+    fixtureUpdates: [],
+    logoutRequests: 0
   };
   const fixtureState = structuredClone(fixtures);
   let mapRevision = floor.mapRevision;
   let activeLeaseToken: string | null = null;
+  let activeLeaseFence = 0;
   let editorRequestSequence = 0;
   let issuedLeaseCount = 0;
+  let loggedOut = false;
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -118,7 +124,13 @@ export async function installSettingsApiRoutes(
     state.requests.push(`${request.method()} ${path}`);
 
     if (path === "/auth/me") {
+      if (loggedOut) return route.fulfill({ status: 401, json: { message: "unauthorized" } });
       return route.fulfill({ json: { user: currentUser(role) } });
+    }
+    if (path === "/auth/logout" && request.method() === "POST") {
+      loggedOut = true;
+      state.logoutRequests += 1;
+      return route.fulfill({ json: { ok: true } });
     }
     if (path === "/sites") {
       return route.fulfill({ json: [{ id: "site-1", name: "고객사 B2 현장" }] });
@@ -134,6 +146,12 @@ export async function installSettingsApiRoutes(
       if (request.method() === "PUT") {
         if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
         const payload = request.postDataJSON() as SavePayload;
+        if (!payload.leaseToken || payload.leaseToken !== activeLeaseToken || payload.leaseFence !== activeLeaseFence) {
+          return route.fulfill({ status: 409, json: { message: "floor editor lease is no longer active" } });
+        }
+        if (payload.expectedRevision !== mapRevision) {
+          return route.fulfill({ status: 409, json: { message: "floor editor revision conflict" } });
+        }
         state.editorRequests.push({ sequence: ++editorRequestSequence, type: "atomic-save", payload });
         state.atomicSavePayloads.push(payload);
         state.fixtureUpdates.push(...payload.fixtureUpdates);
@@ -149,12 +167,15 @@ export async function installSettingsApiRoutes(
         const requestedToken = typeof payload.token === "string" ? payload.token : null;
         const result = requestedToken
           ? requestedToken === activeLeaseToken
-            ? editableLease(requestedToken)
+            ? editableLease(requestedToken, activeLeaseFence)
             : readOnlyLease(activeLeaseToken)
           : activeLeaseToken
             ? readOnlyLease(activeLeaseToken)
-            : editableLease(`lease-token-${++issuedLeaseCount}`);
-        if (result.editable && result.token) activeLeaseToken = result.token;
+            : editableLease(`lease-token-${++issuedLeaseCount}`, ++activeLeaseFence);
+        if (result.editable && result.token) {
+          activeLeaseToken = result.token;
+          activeLeaseFence = result.fence ?? activeLeaseFence;
+        }
         state.leaseRequests.push(payload);
         state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-acquire", payload, result });
         return route.fulfill({ json: result });
@@ -172,6 +193,7 @@ export async function installSettingsApiRoutes(
         const released = true;
         state.editorRequests.push({ sequence: ++editorRequestSequence, type: "lease-release", payload, released });
         activeLeaseToken = null;
+        activeLeaseFence += 1;
         return route.fulfill({ json: { released } });
       }
     }
@@ -185,8 +207,8 @@ export async function installSettingsApiRoutes(
   return state;
 }
 
-function editableLease(token: string) {
-  return { editable: true, token, holderName: "관리자", acquiredAt: "2026-07-12T00:00:00.000Z" };
+function editableLease(token: string, fence: number) {
+  return { editable: true, token, fence, holderName: "관리자", acquiredAt: "2026-07-12T00:00:00.000Z" };
 }
 
 function readOnlyLease(token: string | null) {

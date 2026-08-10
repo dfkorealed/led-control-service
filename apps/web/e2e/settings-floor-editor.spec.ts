@@ -35,6 +35,8 @@ test("operator commissioning is visible and admin floor changes are reflected in
     type: "atomic-save",
     payload: {
       expectedRevision: 7,
+      leaseToken: acquireBeforeSave.result.token,
+      leaseFence: acquireBeforeSave.result.fence,
       fixtureUpdates: [{ id: "fixture-1", x: 240 }],
       objectCreates: [],
       objectUpdates: [],
@@ -116,7 +118,7 @@ test("browser lease fixture preserves active tokens across conflict, renewal, an
     return { saveWithoutLease, acquired, conflict, staleRenewal, staleRelease, missingRelease, renewed, released, noHolderRelease, reacquired };
   });
 
-  expect(outcomes.saveWithoutLease.status).toBe(200);
+  expect(outcomes.saveWithoutLease.status).toBe(409);
   expect(outcomes.acquired.body).toMatchObject({ editable: true });
   expect(outcomes.acquired.body.token).toEqual(expect.any(String));
   expect(outcomes.conflict.body).toMatchObject({ editable: false });
@@ -141,4 +143,44 @@ test("settings browser fixture isolates unknown tenant route data", async ({ pag
     return response.status;
   });
   expect(status).toBe(404);
+});
+
+test("dirty editor logout keeps the draft on cancel and logs out only after confirmation", async ({ page }) => {
+  const api = await installSettingsApiRoutes(page, "admin");
+  await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+  await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+  await expect.poll(() => {
+    const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
+    return latestLease?.type === "lease-acquire" && latestLease.result.editable;
+  }).toBe(true);
+
+  await page.evaluate(() => {
+    const key = "__floorEditorDirtySentinel";
+    const state = window.history.state ?? {};
+    window.history.pushState(
+      { ...state, idx: typeof state.idx === "number" ? state.idx + 1 : 1, [key]: "playwright-dirty" },
+      "",
+      window.location.href
+    );
+  });
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("저장하지 않은 변경사항");
+    await dialog.dismiss();
+  });
+  await page.getByRole("button", { name: "로그아웃" }).click();
+
+  await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1$/);
+  expect(api.logoutRequests).toBe(0);
+  await expect.poll(async () => page.evaluate(async () => (await fetch("/api/auth/me")).status)).toBe(200);
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("저장하지 않은 변경사항");
+    await dialog.accept();
+  });
+  await page.getByRole("button", { name: "로그아웃" }).click();
+
+  await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+  expect(api.logoutRequests).toBe(1);
+  await expect.poll(async () => page.evaluate(async () => (await fetch("/api/auth/me")).status)).toBe(401);
 });

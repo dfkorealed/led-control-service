@@ -7,13 +7,15 @@ const objectFields = [
   "fillColor", "strokeWidth", "text", "fontSize", "zIndex", "locked", "visible"
 ] as const;
 
-export function buildEditorChanges(initial: FloorEditorState, current: FloorEditorState): SaveEditorStateInput {
+export type EditorChangeSet = Omit<SaveEditorStateInput, "leaseToken" | "leaseFence">;
+
+export function buildEditorChanges(initial: FloorEditorState, current: FloorEditorState): EditorChangeSet {
   const initialFixtures = new Map(initial.fixtures.map((fixture) => [fixture.id, fixture]));
   const initialObjects = new Map(initial.objects.map((object) => [object.id, object]));
   const currentObjectIds = new Set(current.objects.map((object) => object.id));
-  const fixtureUpdates: SaveEditorStateInput["fixtureUpdates"] = [];
-  const objectCreates: SaveEditorStateInput["objectCreates"] = [];
-  const objectUpdates: SaveEditorStateInput["objectUpdates"] = [];
+  const fixtureUpdates: EditorChangeSet["fixtureUpdates"] = [];
+  const objectCreates: EditorChangeSet["objectCreates"] = [];
+  const objectUpdates: EditorChangeSet["objectUpdates"] = [];
 
   for (const fixture of current.fixtures) {
     const baseline = initialFixtures.get(fixture.id);
@@ -30,11 +32,11 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
     }
     const patch = changedFields(baseline, object, objectFields);
     if (Object.keys(patch).length > 0) {
-      objectUpdates.push({ id: object.id, patch: patch as SaveEditorStateInput["objectUpdates"][number]["patch"] });
+      objectUpdates.push({ id: object.id, patch: patch as EditorChangeSet["objectUpdates"][number]["patch"] });
     }
   }
 
-  const changes: SaveEditorStateInput = {
+  const changes: EditorChangeSet = {
     expectedRevision: initial.floor.mapRevision,
     fixtureUpdates,
     objectCreates,
@@ -49,7 +51,7 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
   return changes;
 }
 
-export function hasEditorChanges(changes: SaveEditorStateInput) {
+export function hasEditorChanges(changes: EditorChangeSet) {
   return changes.floorPlan !== undefined
     || changes.fixtureUpdates.length > 0
     || changes.objectCreates.length > 0
@@ -76,7 +78,7 @@ function equalValue(left: unknown, right: unknown): boolean {
   });
 }
 
-function toObjectCreate(object: FloorMapObject): SaveEditorStateInput["objectCreates"][number] {
+function toObjectCreate(object: FloorMapObject): EditorChangeSet["objectCreates"][number] {
   const base = {
     x: object.x,
     y: object.y,
@@ -103,8 +105,8 @@ function toObjectCreate(object: FloorMapObject): SaveEditorStateInput["objectCre
 }
 
 function sameFloorPlan(
-  left: SaveEditorStateInput["floorPlan"],
-  right: SaveEditorStateInput["floorPlan"]
+  left: EditorChangeSet["floorPlan"],
+  right: EditorChangeSet["floorPlan"]
 ) {
   if (left === right) return true;
   if (!left || !right) return left === right;
@@ -116,7 +118,7 @@ function sameFloorPlan(
     && left.height === right.height;
 }
 
-function toFloorPlanUpdate(floorPlan: FloorEditorState["floor"]["floorPlan"]): SaveEditorStateInput["floorPlan"] {
+function toFloorPlanUpdate(floorPlan: FloorEditorState["floor"]["floorPlan"]): EditorChangeSet["floorPlan"] {
   if (!floorPlan || floorPlan.sourceType === "none") return null;
   const sourceType = floorPlan.sourceType ?? "image";
   return {

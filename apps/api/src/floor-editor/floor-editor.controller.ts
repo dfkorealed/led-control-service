@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -64,44 +64,6 @@ export class FloorEditorController {
   ) {
     return this.floorEditorService.restoreEditorRevision(user, floorId, revision, body);
   }
-
-  @Patch("floors/:floorId/floor-plan")
-  updateFloorPlan(
-    @Param("floorId") floorId: string,
-    @Body() body: Record<string, unknown>,
-    @CurrentUser() user: AuthenticatedUser
-  ) {
-    return this.floorEditorService.updateFloorPlan(floorId, body, user);
-  }
-
-  @Patch("fixtures/:fixtureId")
-  updateFixture(
-    @Param("fixtureId") fixtureId: string,
-    @Body() body: Record<string, unknown>,
-    @CurrentUser() user: AuthenticatedUser
-  ) {
-    return this.floorEditorService.updateFixture(fixtureId, body, user);
-  }
-
-  @Post("floor-map-objects")
-  createObject(@Body() body: Record<string, unknown>, @CurrentUser() user: AuthenticatedUser) {
-    return this.floorEditorService.createObject(body as never, user);
-  }
-
-  @Patch("floor-map-objects/:objectId")
-  updateObject(
-    @Param("objectId") objectId: string,
-    @Body() body: Record<string, unknown>,
-    @CurrentUser() user: AuthenticatedUser
-  ) {
-    return this.floorEditorService.updateObject(objectId, body, user);
-  }
-
-  @Delete("floor-map-objects/:objectId")
-  deleteObject(@Param("objectId") objectId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.floorEditorService.deleteObject(objectId, user);
-  }
-
   private readLeaseToken(body: Record<string, unknown>) {
     const token = body.token;
     if (token === undefined) return undefined;

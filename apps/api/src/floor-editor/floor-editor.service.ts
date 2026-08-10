@@ -4,8 +4,6 @@ import {
   SaveEditorStateInput,
   editorRevisionListQuerySchema,
   floorMapObjectGeometrySchema,
-  legacyFloorPlanEffectiveSchema,
-  legacyFloorPlanPatchSchema,
   parseFloorEditorSnapshot,
   positivePostgresIntSchema,
   restoreFloorEditorRevisionSchema,
@@ -16,6 +14,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { hashEditorLeaseToken } from "./editor-lease-token";
 import { buildFloorEditorSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
 
 interface UpdateFloorPlanInput {
@@ -92,6 +91,8 @@ type CompleteFloorPlanData = {
 
 interface PreparedSaveEditorState {
   expectedRevision: number;
+  leaseToken: string;
+  leaseFence: number;
   floorPlan?: CompleteFloorPlanData | null;
   fixtureUpdates: Array<{ id: string; data: Record<string, unknown> }>;
   objectCreates: Prisma.FloorMapObjectUncheckedCreateInput[];
@@ -132,7 +133,7 @@ export class FloorEditorService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.assertAtomicSaveTargets(tx, floorId, prepared);
-        await this.incrementRevision(tx, floorId, prepared.expectedRevision);
+        await this.incrementRevision(tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence);
         await this.applySaveChanges(tx, floorId, prepared);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
@@ -236,7 +237,7 @@ export class FloorEditorService {
           .filter((fixtureId) => !existingFixtureIds.has(fixtureId))
           .sort();
 
-        await this.incrementRevision(tx, floorId, input.expectedRevision);
+        await this.incrementRevision(tx, floorId, input.expectedRevision, input.leaseToken, input.leaseFence);
         await this.applySnapshot(tx, floorId, snapshot, existingFixtureIds);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
@@ -343,88 +344,6 @@ export class FloorEditorService {
     };
   }
 
-  async updateFloorPlan(floorId: string, input: UpdateFloorPlanInput, user: AuthenticatedUser) {
-    await this.assertExistingFloor(floorId, user, "manage");
-    const parsed = this.parseInput(legacyFloorPlanPatchSchema, input, "invalid floor plan payload");
-    const data = this.buildFloorPlanData(parsed);
-    const existing = await this.prisma.floorPlan.findUnique({
-      where: { floorId },
-      select: {
-        imageUrl: true,
-        sourceType: true,
-        originalFileUrl: true,
-        renderedImageUrl: true,
-        width: true,
-        height: true
-      }
-    });
-    const effective = this.parseInput(legacyFloorPlanEffectiveSchema, {
-      imageUrl: data.imageUrl !== undefined ? data.imageUrl : existing?.imageUrl,
-      sourceType: data.sourceType !== undefined ? data.sourceType : existing?.sourceType,
-      originalFileUrl: data.originalFileUrl !== undefined ? data.originalFileUrl : existing?.originalFileUrl,
-      renderedImageUrl: data.renderedImageUrl !== undefined ? data.renderedImageUrl : existing?.renderedImageUrl,
-      width: data.width !== undefined ? data.width : existing?.width,
-      height: data.height !== undefined ? data.height : existing?.height
-    }, "invalid effective floor plan payload");
-    if (effective.sourceType !== "none") {
-      await this.assertReadyAssetUrls(floorId, effective);
-    }
-
-    return this.prisma.floorPlan.upsert({
-      where: { floorId },
-      create: {
-        floorId,
-        ...effective
-      },
-      update: {
-        ...effective,
-        version: { increment: 1 }
-      }
-    });
-  }
-
-  async updateFixture(fixtureId: string, input: UpdateFixtureInput, user: AuthenticatedUser) {
-    const fixture = await this.prisma.fixture.findUnique({
-      where: { id: fixtureId },
-      include: { floor: { select: { siteId: true } } }
-    });
-    if (!fixture) throw new NotFoundException("fixture not found");
-    await this.siteAccess.assert(user, fixture.floor.siteId, "manage");
-
-    const data = this.buildFixtureData(input);
-    if (Object.keys(data).length === 0) throw new BadRequestException("fixture update payload is empty");
-
-    return this.prisma.fixture.update({
-      where: { id: fixtureId },
-      data
-    });
-  }
-
-  async createObject(input: CreateObjectInput, user: AuthenticatedUser) {
-    await this.assertExistingFloor(input.floorId, user, "manage");
-    const data = this.buildCreateObjectData(input);
-
-    return this.prisma.floorMapObject.create({ data: data as Prisma.FloorMapObjectUncheckedCreateInput });
-  }
-
-  async updateObject(objectId: string, input: UpdateObjectInput, user: AuthenticatedUser) {
-    await this.assertExistingObject(objectId, user, "manage");
-    const data = this.buildUpdateObjectData(input);
-    if (Object.keys(data).length === 0) throw new BadRequestException("map object update payload is empty");
-
-    return this.prisma.floorMapObject.update({
-      where: { id: objectId },
-      data: data as Prisma.FloorMapObjectUncheckedUpdateInput
-    });
-  }
-
-  async deleteObject(objectId: string, user: AuthenticatedUser) {
-    await this.assertExistingObject(objectId, user, "manage");
-    await this.prisma.floorMapObject.delete({ where: { id: objectId } });
-
-    return { deleted: true };
-  }
-
   private parseInput<T>(schema: { parse(value: unknown): T }, value: unknown, message: string): T {
     try {
       return schema.parse(value);
@@ -473,6 +392,8 @@ export class FloorEditorService {
 
     return {
       expectedRevision: input.expectedRevision,
+      leaseToken: input.leaseToken,
+      leaseFence: input.leaseFence,
       floorPlan,
       fixtureUpdates: input.fixtureUpdates.map(({ id, ...patch }) => ({
         id,
@@ -566,12 +487,40 @@ export class FloorEditorService {
     if (data.points !== undefined) data.points = geometry.points;
   }
 
-  private async incrementRevision(tx: Prisma.TransactionClient, floorId: string, expectedRevision: number) {
+  private async incrementRevision(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    expectedRevision: number,
+    leaseToken: string,
+    leaseFence: number
+  ) {
+    const now = new Date();
     const updated = await tx.floor.updateMany({
-      where: { id: floorId, mapRevision: expectedRevision },
+      where: {
+        id: floorId,
+        mapRevision: expectedRevision,
+        editorLeaseFence: leaseFence,
+        editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
+        editorLeaseExpiresAt: { gt: now }
+      },
       data: { mapRevision: { increment: 1 } }
     });
-    if (updated.count !== 1) throw new ConflictException("floor editor revision conflict");
+    if (updated.count === 1) return;
+
+    const floor = await tx.floor.findUnique({
+      where: { id: floorId },
+      select: {
+        mapRevision: true,
+        editorLeaseFence: true,
+        editorLeaseTokenHash: true,
+        editorLeaseExpiresAt: true
+      }
+    });
+    if (!floor) throw new NotFoundException("floor not found");
+    if (floor.mapRevision !== expectedRevision) {
+      throw new ConflictException("floor editor revision conflict");
+    }
+    throw new ConflictException("floor editor lease is no longer active");
   }
 
   private async applySaveChanges(tx: Prisma.TransactionClient, floorId: string, input: PreparedSaveEditorState) {
@@ -729,16 +678,6 @@ export class FloorEditorService {
     if (!floor) throw new NotFoundException("floor not found");
     const site = await this.siteAccess.assert(user, floor.siteId, capability);
     return { siteId: floor.siteId, organizationId: site.organizationId };
-  }
-
-  private async assertExistingObject(objectId: string, user: AuthenticatedUser, capability: "read" | "manage") {
-    const object = await this.prisma.floorMapObject.findUnique({
-      where: { id: objectId },
-      include: { floor: { select: { siteId: true } } }
-    });
-    if (!object) throw new NotFoundException("floor map object not found");
-    await this.siteAccess.assert(user, object.floor.siteId, capability);
-    return object;
   }
 
   private buildFloorPlanData(input: UpdateFloorPlanInput) {

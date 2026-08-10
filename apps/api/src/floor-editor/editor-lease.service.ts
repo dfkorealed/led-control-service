@@ -1,12 +1,13 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisProvider } from "../redis/redis.provider";
+import { editorLeaseTtlMs, editorLeaseTtlSeconds, hashEditorLeaseToken } from "./editor-lease-token";
 
-const leaseTtlSeconds = 90;
 export const editorLeaseRenewScript = `
   local lease = redis.call("GET", KEYS[1])
   if not lease then return 0 end
@@ -26,12 +27,14 @@ interface StoredEditorLease {
   userId: string;
   userName: string;
   token: string;
+  fence: number;
   acquiredAt: string;
 }
 
 export interface EditorLeaseResult {
   editable: boolean;
   token?: string;
+  fence?: number;
   holderName?: string;
   acquiredAt?: string;
 }
@@ -49,37 +52,63 @@ export class EditorLeaseService {
     await this.assertManageAccess(floorId, user);
     if (token) return this.renew(floorId, user, token);
 
-    const lease: StoredEditorLease = {
-      userId: user.id,
-      userName: user.name,
-      token: randomUUID(),
-      acquiredAt: new Date().toISOString()
-    };
-    const client = this.redisProvider.getClient();
-    const acquired = await client.set(this.key(floorId), JSON.stringify(lease), "EX", leaseTtlSeconds, "NX");
-    if (acquired === "OK") return this.editable(lease);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const candidate = {
+        userId: user.id,
+        userName: user.name,
+        token: randomUUID()
+      };
+      const result = await this.prisma.$transaction(async (tx) => {
+        const floor = await tx.floor.findUnique({
+          where: { id: floorId },
+          select: this.leaseAuthoritySelect
+        });
+        if (!floor) throw new NotFoundException("floor not found");
+        if (this.isLeaseActive(floor)) return { kind: "read-only" as const, floor };
 
-    const holder = await this.readLease(floorId);
-    if (holder) return this.readOnly(holder);
+        const fence = floor.editorLeaseFence + 1;
+        const acquiredAt = new Date();
+        const expiresAt = new Date(acquiredAt.getTime() + editorLeaseTtlMs);
+        const updated = await tx.floor.updateMany({
+          where: { id: floorId, editorLeaseFence: floor.editorLeaseFence },
+          data: {
+            editorLeaseFence: fence,
+            editorLeaseTokenHash: hashEditorLeaseToken(candidate.token),
+            editorLeaseHolderId: candidate.userId,
+            editorLeaseHolderName: candidate.userName,
+            editorLeaseAcquiredAt: acquiredAt,
+            editorLeaseExpiresAt: expiresAt
+          }
+        });
+        if (updated.count !== 1) return { kind: "retry" as const };
+        return {
+          kind: "editable" as const,
+          lease: { ...candidate, fence, acquiredAt: acquiredAt.toISOString() }
+        };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    // A lease can expire after SET NX reports a conflict but before GET reads it. Retry once so an expired
-    // key does not incorrectly force a newly arriving editor into read-only mode.
-    const retried = await client.set(this.key(floorId), JSON.stringify(lease), "EX", leaseTtlSeconds, "NX");
-    if (retried === "OK") return this.editable(lease);
-    return this.readOnly(await this.readLease(floorId));
+      if (result.kind === "editable") {
+        await this.writeLeaseCache(floorId, result.lease);
+        return this.editable(result.lease);
+      }
+      if (result.kind === "read-only") return this.readOnly(this.toStoredLease(result.floor));
+    }
+
+    return this.readOnly(await this.readLeaseAuthority(floorId));
   }
 
   async release(floorId: string, user: AuthenticatedUser, force: boolean, token?: string) {
     const access = await this.assertManageAccess(floorId, user);
-    const holder = await this.readLease(floorId);
-    if (!holder) return { released: false };
+    const authority = await this.loadLeaseAuthority(floorId);
+    const holder = this.toStoredLease(authority);
+    if (!authority || !holder) return { released: false };
 
     if (force) {
       if (user.role !== "operator" && user.role !== "admin") {
         throw new ForbiddenException("floor editor lease force release requires operator or admin role");
       }
       await this.recordForceReleaseAudit(access, user, floorId, holder, "floor_editor.lease_force_release_requested", "attempted");
-      const released = await this.releaseToken(floorId, holder.token);
+      const released = await this.forceInvalidateLease(floorId, holder.fence);
       await this.recordForceReleaseAudit(
         access,
         user,
@@ -91,30 +120,110 @@ export class EditorLeaseService {
       return { released };
     }
 
-    if (!token || holder.userId !== user.id || holder.token !== token) {
+    if (!token || holder.userId !== user.id || authority.editorLeaseTokenHash !== hashEditorLeaseToken(token)) {
       throw new ForbiddenException("floor editor lease is held by another user");
     }
-    return { released: await this.releaseToken(floorId, token) };
+    return { released: await this.releaseOwnedLease(floorId, user.id, holder.fence, token) };
   }
 
   private async renew(floorId: string, user: AuthenticatedUser, token: string): Promise<EditorLeaseResult> {
-    const holder = await this.readLease(floorId);
-    if (!holder || holder.userId !== user.id || holder.token !== token) return this.readOnly(holder);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const authority = await this.prisma.$transaction(async (tx) => {
+        const floor = await tx.floor.findUnique({
+          where: { id: floorId },
+          select: this.leaseAuthoritySelect
+        });
+        if (!floor) throw new NotFoundException("floor not found");
+        if (!this.isLeaseActive(floor)) return { kind: "read-only" as const, floor };
+        if (floor.editorLeaseHolderId !== user.id || floor.editorLeaseTokenHash !== hashEditorLeaseToken(token)) {
+          return { kind: "read-only" as const, floor };
+        }
 
-    const renewed = await this.redisProvider.getClient().eval(
-      editorLeaseRenewScript,
-      1,
-      this.key(floorId),
-      token,
-      String(leaseTtlSeconds)
-    );
-    if (Number(renewed) === 1) return this.editable(holder);
-    return this.readOnly(await this.readLease(floorId));
+        const expiresAt = new Date(Date.now() + editorLeaseTtlMs);
+        const updated = await tx.floor.updateMany({
+          where: {
+            id: floorId,
+            editorLeaseFence: floor.editorLeaseFence,
+            editorLeaseHolderId: user.id,
+            editorLeaseTokenHash: hashEditorLeaseToken(token)
+          },
+          data: { editorLeaseExpiresAt: expiresAt }
+        });
+        if (updated.count !== 1) return { kind: "retry" as const };
+        return {
+          kind: "editable" as const,
+          lease: {
+            userId: user.id,
+            userName: floor.editorLeaseHolderName ?? user.name,
+            token,
+            fence: floor.editorLeaseFence,
+            acquiredAt: floor.editorLeaseAcquiredAt?.toISOString() ?? new Date().toISOString()
+          }
+        };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+      if (authority.kind === "editable") {
+        await this.redisProvider.getClient().eval(
+          editorLeaseRenewScript,
+          1,
+          this.key(floorId),
+          token,
+          String(editorLeaseTtlSeconds)
+        );
+        await this.writeLeaseCache(floorId, authority.lease);
+        return this.editable(authority.lease);
+      }
+      if (authority.kind === "read-only") return this.readOnly(this.toStoredLease(authority.floor));
+    }
+
+    return this.readOnly(await this.readLeaseAuthority(floorId));
   }
 
-  private async releaseToken(floorId: string, token: string) {
-    const released = await this.redisProvider.getClient().eval(editorLeaseReleaseScript, 1, this.key(floorId), token);
-    return Number(released) === 1;
+  private async releaseOwnedLease(floorId: string, userId: string, fence: number, token: string) {
+    const released = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.floor.updateMany({
+        where: {
+          id: floorId,
+          editorLeaseFence: fence,
+          editorLeaseHolderId: userId,
+          editorLeaseTokenHash: hashEditorLeaseToken(token)
+        },
+        data: {
+          editorLeaseFence: { increment: 1 },
+          editorLeaseTokenHash: null,
+          editorLeaseHolderId: null,
+          editorLeaseHolderName: null,
+          editorLeaseAcquiredAt: null,
+          editorLeaseExpiresAt: null
+        }
+      });
+      return updated.count === 1;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    if (released) {
+      await this.redisProvider.getClient().eval(editorLeaseReleaseScript, 1, this.key(floorId), token);
+    }
+    return released;
+  }
+
+  private async forceInvalidateLease(floorId: string, fence: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.floor.updateMany({
+        where: { id: floorId, editorLeaseFence: fence },
+        data: {
+          editorLeaseFence: { increment: 1 },
+          editorLeaseTokenHash: null,
+          editorLeaseHolderId: null,
+          editorLeaseHolderName: null,
+          editorLeaseAcquiredAt: null,
+          editorLeaseExpiresAt: null
+        }
+      });
+      if (updated.count === 1) {
+        await this.redisProvider.getClient().del(this.key(floorId));
+        return true;
+      }
+      return false;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
   private async assertManageAccess(floorId: string, user: AuthenticatedUser) {
@@ -143,21 +252,15 @@ export class EditorLeaseService {
     });
   }
 
-  private async readLease(floorId: string): Promise<StoredEditorLease | null> {
-    const raw = await this.redisProvider.getClient().get(this.key(floorId));
-    if (!raw) return null;
-    try {
-      const value = JSON.parse(raw) as Partial<StoredEditorLease>;
-      if (
-        typeof value.userId !== "string" ||
-        typeof value.userName !== "string" ||
-        typeof value.token !== "string" ||
-        typeof value.acquiredAt !== "string"
-      ) return null;
-      return value as StoredEditorLease;
-    } catch {
-      return null;
-    }
+  private async readLeaseAuthority(floorId: string): Promise<StoredEditorLease | null> {
+    return this.toStoredLease(await this.loadLeaseAuthority(floorId));
+  }
+
+  private loadLeaseAuthority(floorId: string) {
+    return this.prisma.floor.findUnique({
+      where: { id: floorId },
+      select: this.leaseAuthoritySelect
+    });
   }
 
   private key(floorId: string) {
@@ -165,10 +268,61 @@ export class EditorLeaseService {
   }
 
   private editable(lease: StoredEditorLease): EditorLeaseResult {
-    return { editable: true, token: lease.token, holderName: lease.userName, acquiredAt: lease.acquiredAt };
+    return { editable: true, token: lease.token, fence: lease.fence, holderName: lease.userName, acquiredAt: lease.acquiredAt };
   }
 
   private readOnly(lease: StoredEditorLease | null): EditorLeaseResult {
-    return lease ? { editable: false, holderName: lease.userName, acquiredAt: lease.acquiredAt } : { editable: false };
+    return lease ? { editable: false, fence: lease.fence, holderName: lease.userName, acquiredAt: lease.acquiredAt } : { editable: false };
   }
+
+  private async writeLeaseCache(floorId: string, lease: StoredEditorLease) {
+    await this.redisProvider.getClient().set(this.key(floorId), JSON.stringify(lease), "EX", editorLeaseTtlSeconds);
+  }
+
+  private isLeaseActive(floor: {
+    editorLeaseTokenHash: string | null;
+    editorLeaseHolderId: string | null;
+    editorLeaseHolderName: string | null;
+    editorLeaseAcquiredAt: Date | null;
+    editorLeaseExpiresAt: Date | null;
+    editorLeaseFence: number;
+  }) {
+    return Boolean(
+      floor.editorLeaseTokenHash &&
+      floor.editorLeaseHolderId &&
+      floor.editorLeaseHolderName &&
+      floor.editorLeaseAcquiredAt &&
+      floor.editorLeaseExpiresAt &&
+      floor.editorLeaseExpiresAt.getTime() > Date.now()
+    );
+  }
+
+  private toStoredLease(
+    floor: {
+      editorLeaseTokenHash: string | null;
+      editorLeaseHolderId: string | null;
+      editorLeaseHolderName: string | null;
+      editorLeaseAcquiredAt: Date | null;
+      editorLeaseExpiresAt: Date | null;
+      editorLeaseFence: number;
+    } | null
+  ): StoredEditorLease | null {
+    if (!floor || !this.isLeaseActive(floor)) return null;
+    return {
+      userId: floor.editorLeaseHolderId!,
+      userName: floor.editorLeaseHolderName!,
+      token: "",
+      fence: floor.editorLeaseFence,
+      acquiredAt: floor.editorLeaseAcquiredAt!.toISOString()
+    };
+  }
+
+  private readonly leaseAuthoritySelect = {
+    editorLeaseFence: true,
+    editorLeaseTokenHash: true,
+    editorLeaseHolderId: true,
+    editorLeaseHolderName: true,
+    editorLeaseAcquiredAt: true,
+    editorLeaseExpiresAt: true
+  } satisfies Prisma.FloorSelect;
 }
