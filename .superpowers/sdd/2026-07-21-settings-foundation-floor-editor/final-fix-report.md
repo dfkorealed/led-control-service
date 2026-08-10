@@ -1,7 +1,7 @@
 # Final Fix Report
 
-기준 계획: `docs/superpowers/plans/2026-07-21-settings-foundation-floor-editor.md`  
-기준 리뷰: `.superpowers/sdd/2026-07-21-settings-foundation-floor-editor/final-review.md`  
+기준 계획: `docs/superpowers/plans/2026-07-21-settings-foundation-floor-editor.md`
+기준 리뷰: `.superpowers/sdd/2026-07-21-settings-foundation-floor-editor/final-review.md`
 Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
 
 ## Commits
