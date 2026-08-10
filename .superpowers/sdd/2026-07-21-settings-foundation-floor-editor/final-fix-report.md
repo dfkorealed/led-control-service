@@ -8,6 +8,18 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
 
 - `219dfe3` `fix(access): enforce scoped site selection contracts`
 - `cc72fa7` `fix(floor-editor): fence saves and remove legacy mutations`
+- `2c2eb5b` `docs(settings): reconcile ledgers and final fix evidence`
+- `ef1c577` `fix(auth-statistics): harden signup rollback and site switching`
+- `3e41953` `fix(floor-editor): restore coverage and authoritative lease timing`
+
+## Corrective Follow-up
+
+- 2026-08-10 self-audit found three concrete gaps after `219dfe3`/`cc72fa7`/`2c2eb5b`:
+  - restored floor-editor coverage had been weakened instead of adapted
+  - AuthService signup had no self-contained real PostgreSQL integration for atomic scoped membership creation/rollback
+  - authoritative lease time was still captured too early for row-lock wait expiry checks, and the statistics regression did not exercise the real selected-site UUID path
+- `ef1c577` adds the missing real PostgreSQL signup coverage, maps concurrent signup unique conflicts back to the existing Bad Request contract, and hardens the selected-site statistics regression with real route/site switching.
+- `3e41953` restores the pre-`681d818` floor-editor save/restore coverage footprint, adds new real PostgreSQL/Redis stale-successor expiry and force-release regressions, and changes both lease validators to read PostgreSQL time only after the authority row lock is acquired.
 
 ## Findings
 
@@ -24,23 +36,31 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
 ### I1. Invitation signup now creates valid scoped memberships and rejects invalid viewer assignments
 
 - RED:
-  - `apps/api/src/auth/auth.service.spec.ts`
-  - newly added regressions failed on the pre-fix path because signup consumed the invitation without creating `SiteMembership`, and viewer invitations with missing or cross-customer `siteId` were not rejected
-  - `apps/api/src/access/site-access.service.spec.ts`
-  - newly added viewer invariant regressions failed on the pre-fix path because a malformed cross-customer membership row still granted read access and appeared in accessible-site lists
+  - `apps/api/src/auth/auth.service.spec.ts` initially failed because signup consumed the invitation without creating `SiteMembership`, and viewer invitations with missing or cross-customer `siteId` were not rejected
+  - `apps/api/src/access/site-access.service.spec.ts` initially failed because a malformed cross-customer viewer membership still granted read access and appeared in accessible-site lists
+  - `AUTH_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec jest src/auth/auth.integration.spec.ts --runInBand`
+  - the new real PostgreSQL suite first failed during the corrective pass because concurrent signup surfaced a raw Prisma `P2002` instead of the branch’s Bad Request contract
 - GREEN:
   - `pnpm test`
-  - `auth.service.spec.ts` now covers operator/viewer membership creation, missing-site rejection, and cross-organization viewer rejection
-  - `site-access.service.spec.ts` now enforces the viewer organization invariant in both `assert` and `listAccessibleSiteIds`
+  - `AUTH_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec jest src/auth/auth.integration.spec.ts --runInBand`
+  - real PostgreSQL signup coverage now proves:
+    - operator invitation signup creates `SiteMembership` atomically
+    - viewer invitation signup creates `SiteMembership` atomically
+    - missing/invalid/cross-organization viewer assignments are rejected without consuming the invitation
+    - transaction rollback leaves both invitation and membership unchanged when a competing signup wins after the precheck
+  - `site-access.service.spec.ts` continues to enforce the viewer organization invariant in both `assert` and `listAccessibleSiteIds`
 
 ### I2. Statistics now follows the selected site and uses site-scoped auth/cache keys
 
 - RED:
-  - `apps/web/src/App.test.tsx` regression `loads statistics from the selected site-scoped estimate endpoint` failed before the fix because `/statistics?siteId=site-2` still called `/energy/default/estimate`
+  - `apps/web/src/App.test.tsx` initially failed because `/statistics?siteId=site-2` still called `/energy/default/estimate`
+  - the corrective regression `switches statistics estimates with the selected site instead of reusing another site's cache` first failed because the mock still exercised a stale hard-coded site id instead of the real selected-site UUID path
 - GREEN:
   - `pnpm test`
-  - `App.test.tsx` now verifies `/energy/sites/site-2/estimate`
-  - API now exposes `GET /energy/sites/:siteId/estimate`, and default fallback remains explicit and deterministic
+  - `pnpm --filter @led-control/web exec vitest run src/App.test.tsx -t "statistics"`
+  - `pnpm --filter @led-control/api exec jest src/energy/energy.service.spec.ts --runInBand`
+  - web coverage now proves both the initial site-scoped fetch and a two-site route switch with distinct query keys and values
+  - API coverage now proves site-scoped authorization/isolation and a deterministic explicit fallback ordering
 
 ### I3. Viewer control is now clearly read-only and never posts a mutation
 
@@ -54,14 +74,22 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
 ### I4. Lease authority is now PostgreSQL-fenced inside the save/restore transaction
 
 - RED:
-  - `apps/api/src/floor-editor/editor-lease.integration.spec.ts`
-  - new two-client regressions failed on the pre-fix implementation because a stale predecessor could still save or restore after expiry/force-release and successor acquisition
-  - `apps/web/src/api/floor-editor.test.ts`
-  - save/restore DTO regressions failed before the fix because `leaseToken` and `leaseFence` were not propagated
+  - `apps/api/src/floor-editor/editor-lease.integration.spec.ts` initially failed because a stale predecessor could still save or restore after expiry/force-release and successor acquisition
+  - `apps/web/src/api/floor-editor.test.ts` initially failed because `leaseToken` and `leaseFence` were not propagated
+  - the corrective row-lock regressions first failed because both `EditorLeaseService` and `FloorEditorService` captured `dbNow` too early, before PostgreSQL finished waiting on the locked authority row
 - GREEN:
-  - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' FLOOR_EDITOR_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' REDIS_URL='redis://127.0.0.1:6389/15' RUN_REDIS_INTEGRATION='true' pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts src/floor-editor/editor-lease.redis.integration.spec.ts src/floor-editor/editor-lease.integration.spec.ts --runInBand`
-  - 3 suites / 8 tests passed with disposable PostgreSQL + real Redis
-  - coverage now includes two clients, successor fencing after expiry, force-release invalidation, stale save/restore rejection, and independent `mapRevision` conflict guarding
+  - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' FLOOR_EDITOR_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts --runInBand`
+  - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' FLOOR_EDITOR_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' REDIS_URL='redis://127.0.0.1:6389/15' RUN_REDIS_INTEGRATION='true' pnpm --filter @led-control/api exec jest src/floor-editor/editor-lease.integration.spec.ts --runInBand`
+  - `pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.service.spec.ts src/floor-editor/editor-lease.service.spec.ts --runInBand`
+  - coverage now includes:
+    - restored non-legacy atomic save/restore, rollback, asset, validation, tenant-opacity, revision/audit, and concurrency coverage adapted to `leaseToken`/`leaseFence`
+    - real PostgreSQL + Redis successor fencing after expiry and force release
+    - stale predecessor save and restore rejection even when Redis state is missing
+    - valid successor save and restore success
+    - save/restore and renew expiry rejection after authoritative PostgreSQL row-lock waits
+    - Redis release failure tolerance with PostgreSQL authority preserved
+    - `leaseFence` validation aligned to PostgreSQL `INT4`
+    - independent final `mapRevision` conflict guarding
 
 ### I5. Legacy editor mutation endpoints and unused web exports are removed
 
@@ -115,12 +143,21 @@ Fix wave base: `681d818173c6f8cdac9c2cf8bd6707d74ac638a9`
 - `pnpm typecheck` — passed
 - `pnpm lint` — passed
 - `pnpm test` — passed
+  - root node tests 14 passed
+  - shared 14 passed
+  - web 137 passed
+  - api 305 passed, 25 skipped
+  - gateway 115 passed
+  - mobile 1 passed
 - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec prisma migrate deploy` — passed
 - `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec prisma migrate reset --force --skip-seed` — passed on disposable DB
-- `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' FLOOR_EDITOR_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' REDIS_URL='redis://127.0.0.1:6389/15' RUN_REDIS_INTEGRATION='true' pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts src/floor-editor/editor-lease.redis.integration.spec.ts src/floor-editor/editor-lease.integration.spec.ts --runInBand` — passed
+- `AUTH_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec jest src/auth/auth.integration.spec.ts --runInBand` — 6 passed
+- `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' FLOOR_EDITOR_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' pnpm --filter @led-control/api exec jest src/floor-editor/floor-editor.integration.spec.ts --runInBand` — 9 passed
+- `DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' FLOOR_EDITOR_TEST_DATABASE_URL='postgresql://led:led@127.0.0.1:54329/led_control?schema=public' REDIS_URL='redis://127.0.0.1:6389/15' RUN_REDIS_INTEGRATION='true' pnpm --filter @led-control/api exec jest src/floor-editor/editor-lease.integration.spec.ts --runInBand` — 6 passed
 - `pnpm --filter @led-control/web exec playwright test apps/web/e2e/settings-floor-editor.spec.ts apps/web/e2e/monitoring-1000.spec.ts` — 6 passed
 - `pnpm --filter @led-control/web build && pnpm --filter @led-control/api build` — passed
 - `node --test apps/web/container-contract.node.mjs` — 3 passed, including Docker smoke build
+- `docker build -f apps/web/Dockerfile -t led-control-web-fixwave .` — passed
 - `git diff --check` — passed
 
 ## Residual Risks

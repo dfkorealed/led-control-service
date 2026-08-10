@@ -77,10 +77,14 @@
 ### 중단 및 재개 안내 (2026-07-21, Task 6 완료)
 
 - 사용자 요청에 따라 Task 6의 리뷰 수정과 재리뷰까지만 완료하고 Task 7은 시작하지 않는다.
-- whole-branch final review(`.superpowers/sdd/2026-07-21-settings-foundation-floor-editor/final-review.md`)에서 C1, I1~I6, M1~M2를 발견해 2026-08-10 final fix wave를 진행 중이다.
+- whole-branch final review(`.superpowers/sdd/2026-07-21-settings-foundation-floor-editor/final-review.md`)에서 C1, I1~I6, M1~M2를 발견해 2026-08-10 final fix wave를 진행했고, 현재 구현 커밋은 `219dfe3`, `cc72fa7`, `2c2eb5b`, `ef1c577`, `3e41953`이며 scoped final re-review만 대기 중이다.
 - Task 7에서 모니터링의 편집 버튼과 in-memory editor branch를 제거하고, `/settings/floor-plans/:floorId/edit`가 editor state 조회·저장·취소 navigation을 소유하도록 한다.
 - Task 6 검증: focused Web 37, fixture API 7, 전체 Web 65, API/Web typecheck, Web build, Docker/nginx deep route 및 `/api` proxy contract 통과. 재리뷰 APPROVED.
 - Vite의 기존 대형 chunk 경고는 남아 있으며 Task 11 성능 검증에서 code splitting 후보로 재검토한다.
+- corrective follow-up 증거:
+  - self-contained real PostgreSQL signup integration 6/6 통과로 operator/viewer invitation의 원자 membership 생성, invalid assignment rejection, invitation rollback을 확인했다.
+  - restored floor-editor PostgreSQL integration 9/9와 PostgreSQL+Redis lease integration 6/6 통과로 비-legacy save/restore coverage, stale predecessor fencing, authoritative row-lock expiry, stale/missing Redis rejection, successor save/restore 성공을 확인했다.
+  - 전체 workspace `pnpm typecheck`, `pnpm lint`, `pnpm test`, focused Playwright 6개, web/api build, container contract 3개, real Docker build, `git diff --check`가 모두 통과했다.
 
 ### Task 1~5 통합 보안 리뷰 완료 (2026-07-21)
 

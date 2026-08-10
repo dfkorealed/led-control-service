@@ -9,10 +9,12 @@
 - Task 11: complete (`4862796`..`681d818`; fix round 3 review APPROVED, findings 0)
 - Task 11 decision: preserve the approved viewer contract — floor-plan list is read-only, direct editor URL is blocked/redirected, and viewer mutation requests remain `403`.
 - Whole-branch review: `final-review.md` returned NOT READY (Critical 1, Important 6, Minor 2).
-- Final fix round: local implementation complete in `219dfe3` and `cc72fa7`; scoped final re-review is still pending orchestrator execution.
+- Final fix round: local implementation complete in `219dfe3`, `cc72fa7`, `2c2eb5b`, `ef1c577`, and `3e41953`; scoped final re-review is still pending orchestrator execution.
 - Final fix wave evidence:
   - scoped invitation membership creation and viewer organization invariant regressions added and passed
   - selected-site statistics, viewer control read-only, dirty logout, and duplicate customer-name site switcher regressions added and passed
+  - corrective real PostgreSQL signup integration now proves atomic operator/viewer membership creation plus invitation rollback on invalid assignment and concurrent signup loss
+  - corrective floor-editor lease regressions now prove authoritative PostgreSQL row-lock expiry handling, stale/missing Redis rejection, successor save/restore success, and restored non-legacy save/restore coverage
   - PostgreSQL migration `20260810104000_add_floor_editor_lease_authority` applied on disposable PostgreSQL
   - real PostgreSQL + Redis integration passed for atomic save/restore, stale predecessor fencing, expiry, successor acquire, and force release
   - focused Playwright passed for operator/admin/viewer routes, 1,000 fixture rendering, tenant isolation, and dirty logout confirm/cancel
