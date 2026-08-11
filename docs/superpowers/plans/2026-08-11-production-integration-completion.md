@@ -38,7 +38,7 @@
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `pnpm --filter @led-control/web test -- --run apps/web/src/App.test.tsx`
+Run: `pnpm --filter @led-control/web test -- --run src/App.test.tsx`
 
 - [ ] **Step 3: UI와 완료 문서 정정**
 
@@ -46,7 +46,7 @@ Run: `pnpm --filter @led-control/web test -- --run apps/web/src/App.test.tsx`
 
 - [ ] **Step 4: 검증과 커밋**
 
-Run: `pnpm --filter @led-control/web test -- --run apps/web/src/App.test.tsx && git diff --check`
+Run: `pnpm --filter @led-control/web test -- --run src/App.test.tsx && git diff --check`
 
 Commit: `docs: align completed product state`
 
