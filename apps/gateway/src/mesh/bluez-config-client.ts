@@ -4,6 +4,7 @@ import {
   CONFIG_OPCODES,
   encodeCompositionDataGet,
   encodeModelAppBind,
+  encodePublicationPeriod,
   encodeModelPublicationSet,
   parseAppKeyStatus,
   parseCompositionDataStatus,
@@ -18,7 +19,8 @@ const MANAGEMENT_INTERFACE = "org.bluez.mesh.Management1";
 const NET_KEY_INDEX = 0;
 const APP_KEY_INDEX = 0;
 const PROVISIONER_ADDRESS = 0x0001;
-const SERVER_MODELS = [0x1000, 0x1300] as const;
+const SERVER_MODELS = [0x0002, 0x1000, 0x1300] as const;
+const STATUS_PUBLICATION_PERIOD = encodePublicationPeriod(60_000);
 
 interface ConfigTransport {
   call<T>(service: string, path: string, interfaceName: string, method: string, args: unknown[]): Promise<T>;
@@ -76,7 +78,8 @@ export class BluezConfigClient {
           publishAddress: PROVISIONER_ADDRESS,
           appKeyIndex: APP_KEY_INDEX,
           ttl: 5,
-          modelId
+          modelId,
+          period: STATUS_PUBLICATION_PERIOD
         }),
         CONFIG_OPCODES.modelPublicationStatus,
         parseModelPublicationStatus

@@ -294,6 +294,7 @@ static void health_server_cb(esp_ble_mesh_health_server_cb_event_t event, esp_bl
     memset(health_server.health_test.current_faults, 0, sizeof(health_server.health_test.current_faults));
     memset(health_server.health_test.registered_faults, 0, sizeof(health_server.health_test.registered_faults));
     ESP_LOGI(TAG, "Health faults cleared");
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_health_server_fault_update(&elements[0]));
     break;
   case ESP_BLE_MESH_HEALTH_SERVER_FAULT_TEST_EVT:
     health_server.health_test.prev_test_id = param->fault_test.test_id;
@@ -317,6 +318,29 @@ static void health_server_cb(esp_ble_mesh_health_server_cb_event_t event, esp_bl
   }
 }
 
+/* ESP-IDF asks the application to refresh each model immediately before its configured publication period. */
+static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_model_cb_param_t *param) {
+  esp_ble_mesh_model_t *model;
+
+  if (event != ESP_BLE_MESH_MODEL_PUBLISH_UPDATE_EVT) {
+    return;
+  }
+  model = param->model_publish_update.model;
+  if (model == &root_models[1]) {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_health_server_fault_update(&elements[0]));
+    return;
+  }
+  if (model == &root_models[2]) {
+    uint8_t onoff = onoff_server.state.onoff;
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_model_publish(model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_STATUS, sizeof(onoff), &onoff, ROLE_NODE));
+    return;
+  }
+  if (model == &root_models[3]) {
+    uint16_t lightness = lightness_state.lightness_actual;
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_model_publish(model, ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS, sizeof(lightness), (uint8_t *)&lightness, ROLE_NODE));
+  }
+}
+
 esp_err_t ble_mesh_node_init(void) {
   mesh_control_state = control_state_create();
   bool restored = false;
@@ -333,6 +357,7 @@ esp_err_t ble_mesh_node_init(void) {
   ESP_ERROR_CHECK(esp_ble_mesh_register_generic_server_callback(generic_server_cb));
   ESP_ERROR_CHECK(esp_ble_mesh_register_lighting_server_callback(lighting_server_cb));
   ESP_ERROR_CHECK(esp_ble_mesh_register_health_server_callback(health_server_cb));
+  ESP_ERROR_CHECK(esp_ble_mesh_register_custom_model_callback(model_publish_cb));
 
   esp_err_t err = esp_ble_mesh_init(&provision, &composition);
   if (err != ESP_OK) {

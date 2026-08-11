@@ -30,11 +30,12 @@
 - 모니터링의 층 도면은 모든 역할에 읽기 전용으로 표시한다. 편집 버튼, editor state 조회와 editor 분기는 제공하지 않으며, 도면 변경과 version 복구는 설정 메뉴가 소유한다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
-- gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어가며, 시작 시 heartbeat와 journal의 마지막 fixture 결과 snapshot을 재발행한다.
-- heartbeat가 90초 이상 없으면 연결된 조명을 `gateway_offline`, fixture state가 120초 이상 없으면 해당 조명을 `fixture_stale` 사유로 offline 처리한다.
+- gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어가며, 시작 시 journal 추정 상태를 재발행하지 않고 확인된 Mesh address마다 Generic OnOff, Lightness, Health 실제 상태를 조회한다. 상태 응답이 없는 경우에는 offline 이벤트를 만들지 않는다.
+- BlueZ 자발 status는 확인된 primary unicast address가 fixture mapping과 일치할 때만 처리한다. gateway는 assignment의 site/gateway 범위를 payload에 주입해 MQTT v2 fixture-state로 발행하고, unknown address는 폐기한다.
+- heartbeat가 90초 이상 없으면 연결된 조명을 `gateway_offline`, fixture state가 180초(60초 publication 3회 window) 이상 없으면 해당 조명을 `fixture_stale` 사유로 offline 처리한다.
 - dashboard gateway 연결 상태 기준을 서버 TTL과 동일한 90초로 통일하고 fixture의 `statusReason`을 API 응답에 포함한다.
 - dashboard fixture 응답에 소유 gateway ID/이름/연결 상태와 `controllable`, `controlBlockReason`을 포함한다.
-- Gateway startup resync는 전체 command 이력이 아니라 fixture별 최신 snapshot만 현재 발생 시각과 새 sequence로 발행한다.
+- Gateway startup resync는 command 이력을 상태로 재발행하지 않고, 확인된 fixture마다 실제 Mesh status 응답을 새 sequence로 반영한다.
 - Gateway MQTT runtime은 MQTT close에서 heartbeat timer를 즉시 정리해 disconnected 상태의 healthy 기록과 offline heartbeat 적재를 막고, reconnect마다 하나의 timer만 다시 시작한다. persistent session 재접속(`sessionPresent=true`)에는 command topic을 다시 구독하지 않는다. 모든 command/provisioning topic handler 오류는 MQTT event loop 밖으로 새지 않도록 오류 경계에서 health 오류로 기록하며, SIGTERM/SIGINT 종료 시 timer, client listener와 MQTT client를 정리한다.
 - MQTT certificate rotation은 old client quiesce와 identity pointer commit 뒤 candidate를 runtime current client로 지정한 다음 broker에 연결한다. CONNACK 전 실패만 old identity/client로 rollback하고, CONNACK 뒤 subscription 실패는 candidate authoritative 상태에서 fail-closed 해 old session command replay를 막는다. dimming·scan·identify·provision handler는 각 MQTT message source client로 결과를 발행한다. pointer write/fsync와 restore가 모두 실패하면 candidate generation을 보존하고 runtime을 fail-closed 한다. appliance health는 D-Bus owner, 실제 `Node1` interface introspection, HCI powered bit, mapping JSON parse, 마지막 heartbeat publish freshness를 실제 probe해 기록하며 future heartbeat와 잘못된 heartbeat interval은 unhealthy로 처리한다.
 
@@ -56,7 +57,7 @@
 
 - 현재 실시간성은 3초 polling이므로 대규모 현장에서는 서버 부하와 반응성 조정이 필요하다.
 - 조명 등록 완료 후 dashboard 반영은 polling에 의존하므로, 실제 현장에서는 provisioning event 기반 push 업데이트가 필요하다.
-- gateway offline 기준은 현재 90초, fixture stale 기준은 120초 고정값이다. 대규모 현장 검증 후 site/gateway별 정책 설정으로 분리해야 한다.
+- gateway offline 기준은 현재 90초, fixture stale 기준은 180초(60초 publication 3회 window) 고정값이다. 대규모 현장 검증 후 site/gateway별 정책 설정으로 분리해야 한다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
 - 1,000개 marker 조회/렌더링 기준은 자동 검증하지만, 더 큰 현장에는 공간 클러스터링과 검색이 추가로 필요하다.
@@ -74,6 +75,8 @@
 - `apps/api/src/mqtt/topic-scope.ts`
 - `apps/api/src/fixtures/fixture-freshness.service.ts`
 - `apps/gateway/src/state/event-sequence-store.ts`
+- `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
+- `apps/gateway/src/mesh/bluez-model-codec.ts`
 - `apps/gateway/src/runtime/gateway-mqtt-runtime.ts`
 - `apps/gateway/src/identity/certificate-rotation.ts`
 - `apps/gateway/src/health/appliance-health.ts`

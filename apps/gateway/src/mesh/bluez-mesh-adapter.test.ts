@@ -19,7 +19,11 @@ function fixture() {
   const addresses = {
     findByFixtureId: vi.fn(async (fixtureId: string) => fixtureId === "fixture-1" ? {
       fixtureId, primaryUnicast: 0x0100, status: "confirmed" as const
-    } : null)
+    } : null),
+    findByPrimaryUnicast: vi.fn(async (primaryUnicast: number) => primaryUnicast === 0x0100 ? {
+      fixtureId: "fixture-1", primaryUnicast, status: "confirmed" as const
+    } : null),
+    listConfirmed: vi.fn(async () => [{ fixtureId: "fixture-1", primaryUnicast: 0x0100, status: "confirmed" as const }])
   };
   const config = { configureNode: vi.fn(async () => ({ compositionPage: 0 })) };
   const transactions = { next: vi.fn(async () => 7) };
@@ -70,5 +74,39 @@ describe("BluezMeshAdapter", () => {
       meshAddress: "0x0100"
     } as never)).resolves.toMatchObject({ nodeId: "fixture-1", meshAddress: "0x0100" });
     expect(f.config.configureNode).toHaveBeenCalledWith({ unicast: 0x0100, elementCount: 1 });
+  });
+
+  it("maps unsolicited OnOff, Lightness, and Health messages to confirmed fixtures", async () => {
+    const f = fixture();
+    const received: unknown[] = [];
+    const unsubscribe = f.adapter.onFixtureStatus((status) => received.push(status));
+
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x01]) });
+    await vi.waitFor(() => expect(received).toEqual([
+      expect.objectContaining({ fixtureId: "fixture-1", powerOn: true }),
+      expect.objectContaining({ fixtureId: "fixture-1", brightness: 100, powerOn: true, status: "online" }),
+      expect.objectContaining({ fixtureId: "fixture-1", brightness: 100, status: "fault", faultCode: "health:02e5:01" })
+    ]));
+    unsubscribe();
+  });
+
+  it("drops unsolicited status from an unknown source address", async () => {
+    const f = fixture();
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+    f.application.emit("messageReceived", { source: 0x7fff, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("queries confirmed fixtures at startup without declaring a missing reply offline", async () => {
+    const f = fixture();
+    await f.adapter.resyncFixtureStates();
+    expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3);
+    expect(f.transport.calls.filter((call) => call.method === "Send").map((call) => call.args[4])).toEqual([
+      [0x82, 0x01], [0x82, 0x4b], [0x80, 0x31, 0xe5, 0x02]
+    ]);
   });
 });

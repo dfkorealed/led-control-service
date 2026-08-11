@@ -1,6 +1,9 @@
 const LIGHT_LIGHTNESS_SET = Buffer.from([0x82, 0x4c]);
 const LIGHT_LIGHTNESS_STATUS = Buffer.from([0x82, 0x4e]);
 const GENERIC_ONOFF_SET = Buffer.from([0x82, 0x02]);
+const GENERIC_ONOFF_STATUS = Buffer.from([0x82, 0x04]);
+const HEALTH_CURRENT_STATUS = 0x04;
+const HEALTH_FAULT_STATUS = 0x05;
 
 export function encodeLightnessSet(input: { lightness: number; tid: number }) {
   assertUint16(input.lightness, "lightness");
@@ -26,6 +29,28 @@ export function decodeLightnessStatus(payload: Buffer) {
     result.remainingTime = payload.readUInt8(6);
   }
   return result;
+}
+
+export function decodeGenericOnOffStatus(payload: Buffer) {
+  if (payload.length !== 3 && payload.length !== 5) throw new Error("invalid Generic OnOff Status length");
+  if (!payload.subarray(0, 2).equals(GENERIC_ONOFF_STATUS)) throw new Error("unexpected Generic OnOff Status opcode");
+  const result: { present: boolean; target?: boolean; remainingTime?: number } = { present: payload[2] !== 0 };
+  if (payload.length === 5) {
+    result.target = payload[3] !== 0;
+    result.remainingTime = payload[4];
+  }
+  return result;
+}
+
+export function decodeHealthStatus(payload: Buffer) {
+  if (payload.length < 4 || (payload[0] !== HEALTH_CURRENT_STATUS && payload[0] !== HEALTH_FAULT_STATUS)) {
+    throw new Error("invalid Health status");
+  }
+  return {
+    testId: payload[1],
+    companyId: payload.readUInt16LE(2),
+    faults: [...payload.subarray(4)]
+  };
 }
 
 export function percentToLightness(percent: number) {

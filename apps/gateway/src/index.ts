@@ -36,6 +36,7 @@ import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
 import { createGatewayCertificateRotation, type CertificateRotation } from "./identity/certificate-rotation";
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mqtt-runtime";
+import type { BleMeshFixtureStatus } from "./gateway";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -110,28 +111,6 @@ async function main() {
     }
   }
 
-  async function publishJournalSnapshot() {
-    for (const snapshot of await commandJournal.latestFixtureSnapshots()) {
-      const succeeded = snapshot.status === "succeeded";
-      const state = fixtureStateV2Schema.parse({
-        siteId,
-        gatewayId,
-        eventId: randomUUID(),
-        sequence: await eventSequence.next(),
-        occurredAt: new Date().toISOString(),
-        fixtureId: snapshot.fixtureId,
-        brightness: succeeded ? snapshot.brightness ?? 0 : 0,
-        powerOn: succeeded && (snapshot.brightness ?? 0) > 0,
-        status: succeeded ? "online" : snapshot.status === "timed_out" ? "offline" : "fault",
-        statusReason: "startup_resync",
-        ...(snapshot.faultCode ? { faultCode: snapshot.faultCode } : {}),
-        rssi: snapshot.rssi ?? null,
-        hopCount: snapshot.hopCount ?? null
-      });
-      await publish(mqttRuntime.client, mqttTopicsV2.fixtureState(siteId, gatewayId), state);
-    }
-  }
-
   function publish(client: Pick<MqttClient, "publish">, topic: string, payload: unknown) {
     return new Promise<void>((resolve, reject) => {
       client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => (error ? reject(error) : resolve()));
@@ -193,11 +172,20 @@ async function main() {
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
       await health.mqttConnected();
-      await publishJournalSnapshot();
+      await adapter.resyncFixtureStates();
     },
     onClose: () => health.unhealthy("mqtt_disconnected"),
     onError: () => health.unhealthy("mqtt_error"),
     onRuntimeError: reportGatewayError
+  });
+  const publishFixtureStatus = createFixtureStatusPublisher({
+    siteId,
+    gatewayId,
+    eventSequence,
+    publish: (topic, state) => publish(mqttRuntime.client, topic, state)
+  });
+  adapter.onFixtureStatus((status) => {
+    void publishFixtureStatus(status).catch((error) => void reportGatewayError(error, "mesh_fixture_status"));
   });
   mqttRuntime.start();
   const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
@@ -211,6 +199,33 @@ async function main() {
 
 export function shouldPublishFixtureStates(result: Pick<GatewayCommandResult, "fixtureStateObserved">) {
   return result.fixtureStateObserved;
+}
+
+export function createFixtureStatusPublisher(input: {
+  siteId: string;
+  gatewayId: string;
+  eventSequence: Pick<EventSequenceStore, "next">;
+  publish: (topic: string, payload: unknown) => Promise<void>;
+  now?: () => string;
+}) {
+  return async (status: BleMeshFixtureStatus) => {
+    const state = fixtureStateV2Schema.parse({
+      siteId: input.siteId,
+      gatewayId: input.gatewayId,
+      eventId: randomUUID(),
+      sequence: await input.eventSequence.next(),
+      occurredAt: (input.now ?? (() => new Date().toISOString()))(),
+      fixtureId: status.fixtureId,
+      brightness: status.brightness,
+      powerOn: status.powerOn,
+      status: status.status,
+      statusReason: "mesh_publication",
+      ...(status.faultCode ? { faultCode: status.faultCode } : {}),
+      rssi: status.rssi,
+      hopCount: status.hopCount
+    });
+    await input.publish(mqttTopicsV2.fixtureState(input.siteId, input.gatewayId), state);
+  };
 }
 
 export function shouldPublishFinalAcceptance(acceptancePublished: boolean, status: AcceptanceAckV2["status"]) {

@@ -6,13 +6,24 @@ import type {
   ProvisioningScanStartPayload,
   UnprovisionedDeviceFoundPayload
 } from "@led-control/shared";
-import type { BleMeshAdapter, BleMeshCommandReport, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
+import type { BleMeshAdapter, BleMeshCommandReport, BleMeshFixtureStatus, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
 import { BLUEZ_APPLICATION_PATHS } from "./bluez-dbus-application";
 import type { BluezConfigClient } from "./bluez-config-client";
-import { decodeLightnessStatus, encodeLightnessSet, lightnessToPercent, percentToLightness } from "./bluez-model-codec";
+import {
+  decodeGenericOnOffStatus,
+  decodeHealthStatus,
+  decodeLightnessStatus,
+  encodeLightnessSet,
+  lightnessToPercent,
+  percentToLightness
+} from "./bluez-model-codec";
 
 const BLUEZ_SERVICE = "org.bluez.mesh";
 const NODE_INTERFACE = "org.bluez.mesh.Node1";
+const HEALTH_COMPANY_ID = 0x02e5;
+const GENERIC_ONOFF_GET = Uint8Array.from([0x82, 0x01]);
+const LIGHT_LIGHTNESS_GET = Uint8Array.from([0x82, 0x4b]);
+const HEALTH_FAULT_GET = Uint8Array.from([0x80, 0x31, HEALTH_COMPANY_ID & 0xff, HEALTH_COMPANY_ID >> 8]);
 
 interface AdapterTransport {
   call(service: string, path: string, interfaceName: string, method: string, args: unknown[]): Promise<unknown>;
@@ -27,6 +38,8 @@ interface AdapterProvisioner {
 
 interface AdapterAddressStore {
   findByFixtureId(fixtureId: string): Promise<{ primaryUnicast: number; status: "reserved" | "confirmed" } | null>;
+  findByPrimaryUnicast(primaryUnicast: number): Promise<{ fixtureId: string; primaryUnicast: number; status: "reserved" | "confirmed" } | null>;
+  listConfirmed(): Promise<Array<{ fixtureId: string; primaryUnicast: number; status: "confirmed" }>>;
 }
 
 interface TransactionStore {
@@ -37,9 +50,13 @@ interface ConfigClient {
   configureNode(input: { unicast: number; elementCount: number }): Promise<unknown>;
 }
 
+export type FixtureMeshStatus = BleMeshFixtureStatus;
+
 export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdapter, ProvisioningAdapter {
   private readonly responseTimeoutMs: number;
   private readonly scanSeconds: number;
+  private readonly fixtureStatuses = new Set<(status: FixtureMeshStatus) => void>();
+  private readonly latestState = new Map<string, Pick<FixtureMeshStatus, "brightness" | "powerOn">>();
 
   constructor(
     private readonly transport: AdapterTransport,
@@ -52,10 +69,27 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   ) {
     this.responseTimeoutMs = options.responseTimeoutMs ?? 8_000;
     this.scanSeconds = options.scanSeconds ?? 10;
+    this.application.on("messageReceived", this.receiveFixtureStatus);
   }
 
   start() {
     return this.provisioner.start();
+  }
+
+  onFixtureStatus(listener: (status: FixtureMeshStatus) => void) {
+    this.fixtureStatuses.add(listener);
+    return () => this.fixtureStatuses.delete(listener);
+  }
+
+  /** Requests actual node state after gateway startup; absent replies are intentionally not interpreted as offline. */
+  async resyncFixtureStates() {
+    await this.start();
+    const mappings = await this.addressStore.listConfirmed();
+    await Promise.allSettled(mappings.flatMap((mapping) => [
+      this.sendStatusGet(mapping.primaryUnicast, GENERIC_ONOFF_GET),
+      this.sendStatusGet(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET),
+      this.sendStatusGet(mapping.primaryUnicast, HEALTH_FAULT_GET)
+    ]));
   }
 
   async scan(command: ProvisioningScanStartPayload): Promise<UnprovisionedDeviceFoundPayload[]> {
@@ -134,6 +168,52 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     if (!this.provisioner.nodePath) throw new Error("BlueZ Mesh provisioner is not attached");
     return this.provisioner.nodePath;
   }
+
+  private readonly receiveFixtureStatus = (event: { source: number; data: Uint8Array }) => {
+    void this.handleFixtureStatus(event).catch(() => undefined);
+  };
+
+  private async handleFixtureStatus(event: { source: number; data: Uint8Array }) {
+    const payload = Buffer.from(event.data);
+    const kind = fixtureStatusKind(payload);
+    if (!kind) return;
+    const mapping = await this.addressStore.findByPrimaryUnicast(event.source);
+    if (!mapping || mapping.status !== "confirmed") return;
+
+    const previous = this.latestState.get(mapping.fixtureId) ?? { brightness: 0, powerOn: false };
+    let status: FixtureMeshStatus;
+    if (kind === "onoff") {
+      const onoff = decodeGenericOnOffStatus(payload);
+      status = { fixtureId: mapping.fixtureId, ...previous, powerOn: onoff.present, status: "online", rssi: null, hopCount: null };
+    } else if (kind === "lightness") {
+      const lightness = decodeLightnessStatus(payload);
+      const brightness = lightnessToPercent(lightness.present);
+      status = { fixtureId: mapping.fixtureId, brightness, powerOn: brightness > 0, status: "online", rssi: null, hopCount: null };
+    } else {
+      const health = decodeHealthStatus(payload);
+      const faultCode = health.faults.length === 0 ? undefined : `health:${health.companyId.toString(16).padStart(4, "0")}:${health.faults.map((fault) => fault.toString(16).padStart(2, "0")).join("")}`;
+      status = { fixtureId: mapping.fixtureId, ...previous, status: faultCode ? "fault" : "online", ...(faultCode ? { faultCode } : {}), rssi: null, hopCount: null };
+    }
+    this.latestState.set(mapping.fixtureId, { brightness: status.brightness, powerOn: status.powerOn });
+    for (const listener of this.fixtureStatuses) listener(status);
+  }
+
+  private async sendStatusGet(destination: number, payload: Uint8Array) {
+    await this.transport.call(BLUEZ_SERVICE, this.requireNodePath(), NODE_INTERFACE, "Send", [
+      BLUEZ_APPLICATION_PATHS.element,
+      destination,
+      0,
+      [],
+      Array.from(payload)
+    ]);
+  }
+}
+
+function fixtureStatusKind(payload: Buffer) {
+  if (payload.subarray(0, 2).equals(Buffer.from([0x82, 0x04]))) return "onoff" as const;
+  if (payload.subarray(0, 2).equals(Buffer.from([0x82, 0x4e]))) return "lightness" as const;
+  if (payload[0] === 0x04 || payload[0] === 0x05) return "health" as const;
+  return null;
 }
 
 function waitForLightnessStatus(application: EventEmitter, source: number, timeoutMs: number) {

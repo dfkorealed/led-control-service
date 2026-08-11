@@ -11,7 +11,7 @@ class FakeTransport {
   }
 }
 
-it("configures composition, AppKey, model bindings, and status publications in order", async () => {
+it("configures composition, AppKey, Health/OnOff/Lightness bindings, and 60-second publications in order", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
   const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
@@ -23,25 +23,28 @@ it("configures composition, AppKey, model bindings, and status publications in o
   application.emit("devKeyMessageReceived", { source: 0x1201, data: Uint8Array.from([0x02, 0x00, 0x34, 0x12]) });
 
   let expectedDevKeySendCount = 2;
-  for (const modelId of [0x1000, 0x1300]) {
+  for (const modelId of [0x0002, 0x1000, 0x1300]) {
     await waitForCallCount(transport, "DevKeySend", expectedDevKeySendCount++);
     application.emit("devKeyMessageReceived", {
       source: 0x1201,
       data: Uint8Array.from([0x80, 0x3e, 0, 0x01, 0x12, 0, 0, modelId & 0xff, modelId >> 8])
     });
   }
-  for (const modelId of [0x1000, 0x1300]) {
+  for (const modelId of [0x0002, 0x1000, 0x1300]) {
     await waitForCallCount(transport, "DevKeySend", expectedDevKeySendCount++);
     application.emit("devKeyMessageReceived", {
       source: 0x1201,
-      data: Uint8Array.from([0x80, 0x19, 0, 0x01, 0x12, 0x01, 0, 0, 0, 5, 0, 0, modelId & 0xff, modelId >> 8])
+      data: Uint8Array.from([0x80, 0x19, 0, 0x01, 0x12, 0x01, 0, 0, 0, 5, 0x86, 0, modelId & 0xff, modelId >> 8])
     });
   }
 
   await expect(configure).resolves.toMatchObject({ unicast: 0x1201, elementCount: 1, compositionPage: 0 });
   expect(transport.calls.map((call) => call.method)).toEqual([
-    "CreateAppKey", "AddAppKey", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend"
+    "CreateAppKey", "AddAppKey", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend"
   ]);
+  for (const call of transport.calls.filter((call) => call.method === "DevKeySend").slice(-3)) {
+    expect((call.args[5] as number[])[8]).toBe(0x86);
+  }
 });
 
 async function waitForCall(transport: FakeTransport, method: string) {

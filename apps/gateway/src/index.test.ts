@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createFixtureStatusPublisher,
   createMqttIdentityActivation,
   parseGatewayHeartbeatInterval,
   registerGatewayShutdownHandlers,
@@ -8,6 +9,10 @@ import {
   startGatewayRuntime,
   subscribeGatewayCommands
 } from "./index";
+
+const scopedSiteId = "00000000-0000-4000-8000-000000000003";
+const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
+const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
 
 const assignment = {
   siteId: "site-27",
@@ -18,6 +23,40 @@ const assignment = {
 };
 
 describe("startGatewayRuntime", () => {
+  it("publishes mapped Mesh status only on the assigned gateway v2 topic with a persisted sequence", async () => {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const next = vi.fn().mockResolvedValue(41);
+    const publishFixtureStatus = createFixtureStatusPublisher({
+      siteId: scopedSiteId,
+      gatewayId: scopedGatewayId,
+      eventSequence: { next },
+      publish,
+      now: () => "2026-08-11T00:00:00.000Z"
+    });
+
+    await publishFixtureStatus({
+      fixtureId: scopedFixtureId,
+      brightness: 75,
+      powerOn: true,
+      status: "fault",
+      faultCode: "health:02e5:01",
+      rssi: null,
+      hopCount: null
+    });
+
+    expect(publish).toHaveBeenCalledWith(
+      `sites/${scopedSiteId}/gateways/${scopedGatewayId}/state/fixtures`,
+      expect.objectContaining({
+        siteId: scopedSiteId,
+        gatewayId: scopedGatewayId,
+        fixtureId: scopedFixtureId,
+        sequence: 41,
+        occurredAt: "2026-08-11T00:00:00.000Z",
+        statusReason: "mesh_publication"
+      })
+    );
+  });
+
   it("stops the MQTT runtime before exiting for SIGTERM", async () => {
     const stop = vi.fn().mockResolvedValue(undefined);
     const stopRotation = vi.fn().mockResolvedValue(undefined);

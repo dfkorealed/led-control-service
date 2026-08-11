@@ -125,6 +125,7 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       occurredAt
     };
 
+    expect(fixtureStateV2Schema.parse({ ...state, statusReason: "mesh_publication" }).statusReason).toBe("mesh_publication");
     expect(fixtureStateV2Schema.parse(state).sequence).toBe(9);
     expect(gatewayHeartbeatV2Schema.parse(heartbeat).gatewaySerial).toBe("GW-001");
     expect(() => fixtureStateV2Schema.parse({ ...state, eventId: "", sequence: -1 })).toThrow();

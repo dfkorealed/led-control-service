@@ -10,7 +10,14 @@ describe("createProductionAdapters", () => {
   });
 
   it("constructs one real BlueZ adapter for all production capabilities", async () => {
-    const adapter = { setBrightness: vi.fn(), scan: vi.fn(), identify: vi.fn(), provision: vi.fn() };
+    const adapter = {
+      setBrightness: vi.fn(),
+      onFixtureStatus: vi.fn(() => () => undefined),
+      resyncFixtureStates: vi.fn(),
+      scan: vi.fn(),
+      identify: vi.fn(),
+      provision: vi.fn()
+    };
     const result = await createProductionAdapters(
       { GATEWAY_ADAPTER: "bluez" },
       { createBluezAdapter: async () => adapter }

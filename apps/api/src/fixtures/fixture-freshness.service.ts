@@ -17,7 +17,8 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
 
   async markStaleFixtures(now = new Date()) {
     const gatewayCutoff = new Date(now.getTime() - 90_000);
-    const fixtureCutoff = new Date(now.getTime() - 120_000);
+    // Three 60-second Mesh publication windows tolerate a delayed radio publication without masking a real outage.
+    const fixtureCutoff = new Date(now.getTime() - 180_000);
     const gatewayOffline = await this.prisma.fixture.updateMany({
       where: {
         meshNode: {

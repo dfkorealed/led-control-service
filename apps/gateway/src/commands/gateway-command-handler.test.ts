@@ -124,7 +124,11 @@ describe("handleGatewayDimmingCommand", () => {
     vi.useFakeTimers();
     const records = new Map<string, any>();
     const journal = memoryJournal(records);
-    const pendingAdapter = { setBrightness: vi.fn(() => new Promise<never>(() => undefined)) };
+    const pendingAdapter = {
+      setBrightness: vi.fn(() => new Promise<never>(() => undefined)),
+      onFixtureStatus: vi.fn(() => () => undefined),
+      resyncFixtureStates: vi.fn(async () => undefined)
+    };
 
     const resultPromise = handleGatewayDimmingCommand(pendingAdapter, journal, command, undefined, { timeoutMs: 8000 });
     await vi.advanceTimersByTimeAsync(0);

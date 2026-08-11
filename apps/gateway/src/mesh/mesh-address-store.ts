@@ -106,6 +106,19 @@ export class MeshAddressStore {
     return mapping ? { ...mapping } : null;
   }
 
+  async findByPrimaryUnicast(primaryUnicast: number) {
+    const state = await this.read();
+    const mapping = state.mappings.find((row) => row.primaryUnicast === primaryUnicast);
+    return mapping ? { ...mapping } : null;
+  }
+
+  async listConfirmed() {
+    const state = await this.read();
+    return state.mappings
+      .filter((row): row is MeshAddressReservation & { status: "confirmed" } => row.status === "confirmed")
+      .map((row) => ({ ...row }));
+  }
+
   async validate() {
     await this.read();
   }

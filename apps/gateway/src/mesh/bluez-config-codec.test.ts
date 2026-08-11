@@ -4,6 +4,7 @@ import {
   encodeCompositionDataGet,
   encodeModelAppBind,
   encodeModelPublicationSet,
+  encodePublicationPeriod,
   parseAppKeyStatus,
   parseCompositionDataStatus,
   parseModelAppStatus,
@@ -17,6 +18,11 @@ describe("BlueZ Config Client codec", () => {
     expect([...encodeModelPublicationSet({ elementAddress: 0x1201, publishAddress: 0x0001, appKeyIndex: 0, ttl: 5, modelId: 0x1300 })]).toEqual([
       0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x13
     ]);
+  });
+
+  it("encodes a 60 second publication period using the 10 second Mesh resolution", () => {
+    expect(encodePublicationPeriod(60_000)).toBe(0x86);
+    expect(() => encodePublicationPeriod(60_500)).toThrow("publication period");
   });
 
   it("parses successful status messages and rejects malformed or failed statuses", () => {

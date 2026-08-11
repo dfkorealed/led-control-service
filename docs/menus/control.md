@@ -28,13 +28,13 @@
 - ESP-IDF `v5.5.1` + `esp32h2` 환경을 로컬에 구성했고 `scripts/esp32-h2-build.sh`로 실제 펌웨어 빌드를 통과했다.
 - 게이트웨이 smoke test 스크립트(`pnpm gateway:smoke`)는 mTLS와 gateway-scoped v2 명령, acceptance/device-status ACK 흐름만 검증한다.
 - ESP32-H2 실제 보드 플래시 절차와 라즈베리파이 게이트웨이 로컬 실행 절차를 문서화했다.
-- ESP32-H2 펌웨어에 BLE Mesh node 초기화, provisioning advertisement, node identity, Health Server, Generic OnOff Server, Light Lightness Server, status publication 골격을 추가했고 ESP-IDF 빌드를 통과했다.
+- ESP32-H2 펌웨어는 Health Server, Generic OnOff Server, Light Lightness Server를 제공한다. provisioning 시 gateway가 세 Server model에 AppKey를 bind하고 provisioner 주소로 60초 publication을 설정하며, firmware는 publication update callback에서 실제 OnOff/Lightness/Health fault 상태를 갱신한다.
 - ESP32-H2 펌웨어는 BLE Mesh Health Attention 이벤트를 250ms identify 점멸로 처리하고 종료 시 원래 밝기로 복원한다. Health fault test/clear와 watchdog fault 기록도 펌웨어 경계에서 구현했다.
 - ESP32-H2 펌웨어는 active-low GPIO를 8초간 누르면 앱 NVS와 BLE Mesh credential을 지우고 재부팅하는 물리 factory reset을 수행한다.
 - Gateway adapter 계약을 fixture별 장비 리포트 기반으로 확장해 일부 노드 실패 시 command ACK와 fixture state가 함께 동기화되도록 했다.
 - Raspberry Pi gateway는 BlueZ 5.82 D-Bus application, network 생성/attach, fixture-unicast 영속 mapping, acknowledged Light Lightness Set/Status adapter를 양산 경로로 사용한다.
 - 실제 조명 Status 수신 전에는 제어 성공으로 처리하지 않으며 mapping 없음, status 불일치, timeout을 fixture별 실패 코드로 반환한다.
-- ESP32-H2 등록 후 AppKey 0 추가, Generic OnOff Server `0x1000`, Light Lightness Server `0x1300` bind와 provisioner 주소 publication을 설정한다.
+- ESP32-H2 등록 후 AppKey 0 추가, Health Server `0x0002`, Generic OnOff Server `0x1000`, Light Lightness Server `0x1300` bind와 provisioner 주소 60초 publication을 설정한다.
 - Docker appliance는 Raspberry Pi 실제 HCI에서 mesh network 생성과 token 재시작 attach를 통과했다.
 - API와 gateway의 legacy MQTT v1 dimming, fixture-state, command-ack, heartbeat 경로를 제거하고 gateway-scoped MQTT v2만 사용한다.
 - 양산 gateway에 mock, stub, shell command adapter를 포함하지 않는다. 자동 테스트 adapter는 `apps/gateway/test`에만 둔다.
@@ -48,8 +48,8 @@
 - API는 gateway/site/command/dispatch identity가 모두 일치하는 ACK만 반영한다. rejected acceptance는 같은 transaction에서 dispatch, 남은 조명별 결과, 상위 Command를 failed로 종료하며, acceptance 발행 뒤 만료된 rejection도 `accepted` dispatch를 같은 terminal 상태로 닫는다. terminal dispatch의 늦은 ACK는 무시한다.
 - BLE Mesh fixture status는 기본 8초 timeout을 적용하고 adapter가 반환하지 않아도 fixture별 `timed_out` 결과로 명령을 종료한다.
 - Gateway 재시작 후 accepted-only 명령은 실제 조명을 다시 제어하지 않고 `indeterminate after gateway restart` timeout 결과로 닫는다.
-- Gateway journal은 idempotency 결과를 24시간·최대 10,000건만 유지하고 fixture별 최신 snapshot 한 건만 startup resync에 사용한다.
-- Gateway는 assignment의 gateway ID 기반 MQTT 5 persistent session으로 QoS 1 command subscription을 유지한다. Outbox는 실제 MQTT publish 직전에 `expiresAt`을 API의 10초 acceptance deadline 기준으로 계산해 DB payload에 기록하고, 같은 기준의 10초 MQTT message expiry를 설정한다. Gateway는 `requestedAt`이 아니라 `expiresAt`을 사용하며, 최대 2초 느린 gateway clock도 deadline 이후 BLE를 실행하지 않도록 acceptance ACK 뒤 BLE 직전에 다시 만료를 검사한다. BLE 실행 또는 장비 상태 관측이 없었던 만료/불확정 결과는 fixture-state와 journal reconnect snapshot을 갱신하지 않아 기존 실제 상태를 보존한다. Production broker는 gateway별 최대 100개 또는 1 MiB QoS 1 queue를 유지하므로 이 한도를 넘는 offline 명령은 보장하지 않는다. API의 global event consumer는 deployment instance ID가 포함된 고유 client ID를 쓰되 clean session으로 연결한다.
+- Gateway journal은 idempotency 결과를 24시간·최대 10,000건만 유지한다. restart resync는 journal 추정값을 상태로 발행하지 않고 확인된 node에 OnOff/Lightness/Health Get을 보내 실제 응답만 fixture-state로 반영한다.
+- Gateway는 assignment의 gateway ID 기반 MQTT 5 persistent session으로 QoS 1 command subscription을 유지한다. Outbox는 실제 MQTT publish 직전에 `expiresAt`을 API의 10초 acceptance deadline 기준으로 계산해 DB payload에 기록하고, 같은 기준의 10초 MQTT message expiry를 설정한다. Gateway는 `requestedAt`이 아니라 `expiresAt`을 사용하며, 최대 2초 느린 gateway clock도 deadline 이후 BLE를 실행하지 않도록 acceptance ACK 뒤 BLE 직전에 다시 만료를 검사한다. BLE 실행 또는 장비 상태 관측이 없었던 만료/불확정 결과는 fixture-state와 journal의 최신 실제 관측을 갱신하지 않아 기존 실제 상태를 보존한다. Production broker는 gateway별 최대 100개 또는 1 MiB QoS 1 queue를 유지하므로 이 한도를 넘는 offline 명령은 보장하지 않는다. API의 global event consumer는 deployment instance ID가 포함된 고유 client ID를 쓰되 clean session으로 연결한다.
 
 ## 미구현
 
@@ -101,6 +101,7 @@
 - `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
 - `apps/gateway/src/mesh/bluez-provisioner.ts`
 - `apps/gateway/src/mesh/bluez-config-client.ts`
+- `apps/gateway/src/mesh/bluez-model-codec.ts`
 - `docs/runbooks/raspberry-pi-gateway-appliance.md`
 - `apps/esp32-h2-firmware/main/app_main.c`
 - `apps/esp32-h2-firmware/main/ble_mesh_node.c`

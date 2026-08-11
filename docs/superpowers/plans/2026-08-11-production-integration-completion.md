@@ -181,27 +181,27 @@ Commit: `fix(gateway): activate rotated identity and real health probes`
 - Produces: 60초 OnOff/Lightness/Health publication 설정
 - Produces: `onFixtureStatus(listener)`와 fixture-state MQTT v2 event 변환
 
-- [ ] **Step 1: publication period와 status codec 실패 테스트 작성**
+- [x] **Step 1: publication period와 status codec 실패 테스트 작성**
 
 60초 Mesh period encoding, Generic OnOff/Lightness/Health status decode와 source mapping을 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/gateway test -- --run src/mesh/bluez-config-codec.test.ts src/mesh/bluez-model-codec.test.ts`
 
-- [ ] **Step 3: Config Client에 Health와 publication 구현**
+- [x] **Step 3: Config Client에 Health와 publication 구현**
 
 Health Server model을 구성하고 OnOff/Lightness publication period를 60초로 설정한다.
 
-- [ ] **Step 4: 자발 status 수신과 MQTT 변환 구현**
+- [x] **Step 4: 자발 status 수신과 MQTT 변환 구현**
 
 BlueZ application message event를 source address mapping으로 fixture ID에 연결하고 online/fault 상태를 gateway-scoped fixture-state로 발행한다.
 
-- [ ] **Step 5: startup resync와 펌웨어 publication 보완**
+- [x] **Step 5: startup resync와 펌웨어 publication 보완**
 
 알려진 node의 상태를 조회하고 펌웨어 상태 publication이 구성된 주기에 맞게 동작하도록 한다.
 
-- [ ] **Step 6: 검증과 커밋**
+- [x] **Step 6: 검증과 커밋**
 
 Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/gateway test && scripts/esp32-h2-build.sh`
 

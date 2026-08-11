@@ -80,7 +80,7 @@ export const fixtureStateV2Schema = orderedGatewayEventSchema.extend({
   brightness: z.number().int().min(0).max(100),
   powerOn: z.boolean(),
   status: z.enum(["online", "offline", "fault"]),
-  statusReason: z.enum(["reported", "startup_resync", "fixture_stale", "gateway_offline", "command_failed"]).optional(),
+  statusReason: z.enum(["reported", "mesh_publication", "startup_resync", "fixture_stale", "gateway_offline", "command_failed"]).optional(),
   faultCode: z.string().min(1).optional(),
   rssi: z.number().max(0).nullable(),
   hopCount: z.number().int().nonnegative().nullable()

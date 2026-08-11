@@ -9,6 +9,18 @@ import type {
 
 export interface BleMeshAdapter {
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
+  onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
+  resyncFixtureStates(): Promise<void>;
+}
+
+export interface BleMeshFixtureStatus {
+  fixtureId: string;
+  brightness: number;
+  powerOn: boolean;
+  status: "online" | "fault";
+  faultCode?: string;
+  rssi: number | null;
+  hopCount: number | null;
 }
 
 export interface ProvisioningScannerAdapter {

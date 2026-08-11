@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { decodeLightnessStatus, encodeGenericOnOffSet, encodeLightnessSet, percentToLightness } from "./bluez-model-codec";
+import {
+  decodeGenericOnOffStatus,
+  decodeHealthStatus,
+  decodeLightnessStatus,
+  encodeGenericOnOffSet,
+  encodeLightnessSet,
+  percentToLightness
+} from "./bluez-model-codec";
 
 describe("BlueZ SIG model codec", () => {
   it("encodes acknowledged Light Lightness Set in little endian", () => {
@@ -16,6 +23,25 @@ describe("BlueZ SIG model codec", () => {
       present: 16384,
       target: 65535,
       remainingTime: 5
+    });
+  });
+
+  it("decodes Generic OnOff and Health Current/Fault status publications", () => {
+    expect(decodeGenericOnOffStatus(Buffer.from([0x82, 0x04, 0x01]))).toEqual({ present: true });
+    expect(decodeGenericOnOffStatus(Buffer.from([0x82, 0x04, 0x00, 0x01, 0x05]))).toEqual({
+      present: false,
+      target: true,
+      remainingTime: 5
+    });
+    expect(decodeHealthStatus(Buffer.from([0x04, 0x01, 0xe5, 0x02]))).toEqual({
+      testId: 1,
+      companyId: 0x02e5,
+      faults: []
+    });
+    expect(decodeHealthStatus(Buffer.from([0x05, 0x01, 0xe5, 0x02, 0x01, 0x02]))).toEqual({
+      testId: 1,
+      companyId: 0x02e5,
+      faults: [1, 2]
     });
   });
 

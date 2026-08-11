@@ -1,12 +1,18 @@
 import type { IdentifyDevicePayload, ProvisionDevicePayload, ProvisioningCompletedPayload, ProvisioningScanStartPayload } from "@led-control/shared";
-import type { BleMeshAdapter, ProvisioningAdapter, ProvisioningScannerAdapter } from "../src/gateway";
+import type { BleMeshAdapter, BleMeshFixtureStatus, ProvisioningAdapter, ProvisioningScannerAdapter } from "../src/gateway";
 
 export class StubBleMeshAdapter implements BleMeshAdapter {
   readonly commands: Array<{ fixtureIds: string[]; brightness: number }> = [];
+  private readonly fixtureStatusListeners = new Set<(status: BleMeshFixtureStatus) => void>();
   async setBrightness(fixtureIds: string[], brightness: number) {
     this.commands.push({ fixtureIds, brightness });
     return fixtureIds.map((fixtureId) => ({ fixtureId, acknowledged: true, brightness, rssi: null, hopCount: null }));
   }
+  onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void) {
+    this.fixtureStatusListeners.add(listener);
+    return () => this.fixtureStatusListeners.delete(listener);
+  }
+  async resyncFixtureStates() {}
 }
 
 export class StubProvisioningScannerAdapter implements ProvisioningScannerAdapter {

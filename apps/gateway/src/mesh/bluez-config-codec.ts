@@ -53,6 +53,20 @@ export function encodeModelPublicationSet(input: {
   ]);
 }
 
+/** Bluetooth Mesh publication periods use a 6-bit step count plus a 2-bit resolution. */
+export function encodePublicationPeriod(milliseconds: number) {
+  if (!Number.isInteger(milliseconds) || milliseconds <= 0) throw new Error("Invalid publication period");
+  const resolutions = [
+    { milliseconds: 600_000, value: 3 },
+    { milliseconds: 10_000, value: 2 },
+    { milliseconds: 1_000, value: 1 },
+    { milliseconds: 100, value: 0 }
+  ];
+  const resolution = resolutions.find(({ milliseconds: unit }) => milliseconds % unit === 0 && milliseconds / unit <= 0x3f);
+  if (!resolution) throw new Error("Invalid publication period");
+  return (resolution.value << 6) | (milliseconds / resolution.milliseconds);
+}
+
 export function parseCompositionDataStatus(data: Uint8Array) {
   expectOpcode(data, CONFIG_OPCODES.compositionDataStatus, 2);
   return { page: data[1], data: data.slice(2) };
