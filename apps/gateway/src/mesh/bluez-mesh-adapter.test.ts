@@ -194,6 +194,44 @@ describe("BluezMeshAdapter", () => {
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({ status: "fault", faultCode: "health:02e5:01" }));
   });
 
+  it("counts an actual OnOff and Lightness resync pair as observed while Health Current remains pending", async () => {
+    const f = fixture();
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+    const resync = f.adapter.resyncFixtureStates();
+    await vi.waitFor(() => expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3));
+
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x05, 0x01, 0xe5, 0x02, 0x00]) });
+
+    await expect(resync).resolves.toMatchObject({ total: 1, configured: 1, observed: 1, healthPending: 1, timedOut: 0, failed: 0 });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("publishes a late Current Fault and clears the pending resync health report", async () => {
+    const f = fixture();
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+    const resync = f.adapter.resyncFixtureStates();
+    await vi.waitFor(() => expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3));
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+
+    const report = await resync;
+    expect(report).toMatchObject({ observed: 1, healthPending: 1, timedOut: 0 });
+    expect(listener).not.toHaveBeenCalled();
+    const reports: unknown[] = [];
+    const unsubscribe = (f.adapter as unknown as { onResyncReport(listener: (updated: unknown) => void): () => void })
+      .onResyncReport((updated) => reports.push(updated));
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x01]) });
+
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(expect.objectContaining({ status: "fault", faultCode: "health:02e5:01" })));
+    expect(report).toMatchObject({ healthPending: 0 });
+    expect(reports).toEqual([expect.objectContaining({ observed: 1, healthPending: 0 })]);
+    unsubscribe();
+  });
+
   it("drops unsolicited status from an unknown source address", async () => {
     const f = fixture();
     const listener = vi.fn();
@@ -276,12 +314,12 @@ describe("BluezMeshAdapter", () => {
       if (payload[0] === 0x80 && payload[1] === 0x31) {
         queueMicrotask(() => f.application.emit("messageReceived", {
           source: destination,
-          data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x00])
+          data: Uint8Array.from([0x05, 0x01, 0xe5, 0x02, 0x00])
         }));
       }
     });
 
-    await expect(f.adapter.resyncFixtureStates()).resolves.toMatchObject({ total: 1000, configured: 1000, observed: 1000, timedOut: 0 });
+    await expect(f.adapter.resyncFixtureStates()).resolves.toMatchObject({ total: 1000, configured: 1000, observed: 1000, healthPending: 1000, timedOut: 0 });
     expect(maximumActiveConfigures).toBeLessThanOrEqual(4);
     expect(f.transport.call).toHaveBeenCalledTimes(3001);
   }, 10_000);

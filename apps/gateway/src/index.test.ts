@@ -106,7 +106,7 @@ describe("startGatewayRuntime", () => {
   it("records and logs a mixed startup resync outcome", async () => {
     const health = { recordMeshResync: vi.fn().mockResolvedValue(undefined) };
     const logger = { info: vi.fn(), warn: vi.fn() };
-    const report = { total: 4, configured: 4, observed: 2, timedOut: 1, failed: 1 };
+    const report = { total: 4, configured: 4, observed: 2, healthPending: 1, timedOut: 1, failed: 1 };
 
     await recordMeshResyncOutcome(health, report, logger);
 

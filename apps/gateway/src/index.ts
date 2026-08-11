@@ -187,6 +187,9 @@ async function main() {
   adapter.onFixtureStatus((status) => {
     void publishFixtureStatus(status).catch((error) => void reportGatewayError(error, "mesh_fixture_status"));
   });
+  adapter.onResyncReport?.((report) => {
+    void recordMeshResyncOutcome(health, report).catch((error) => void reportGatewayError(error, "mesh_resync"));
+  });
   mqttRuntime.start();
   const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
   registerGatewayShutdownHandlers(mqttRuntime, rotation);

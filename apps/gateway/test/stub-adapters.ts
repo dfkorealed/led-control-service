@@ -13,7 +13,7 @@ export class StubBleMeshAdapter implements BleMeshAdapter {
     return () => this.fixtureStatusListeners.delete(listener);
   }
   async resyncFixtureStates() {
-    return { total: 0, configured: 0, observed: 0, timedOut: 0, failed: 0 };
+    return { total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 };
   }
 }
 

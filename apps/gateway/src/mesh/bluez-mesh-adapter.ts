@@ -61,9 +61,13 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private readonly observationCoherenceMs: number;
   private readonly now: () => number;
   private readonly fixtureStatuses = new Set<(status: FixtureMeshStatus) => void>();
+  private readonly fixtureLightingPairs = new Set<(fixtureId: string, generation: number) => void>();
+  private readonly resyncReportListeners = new Set<(report: BleMeshResyncReport) => void>();
   private readonly latestObservations = new Map<string, FixtureObservation>();
+  private readonly healthPendingFixtures = new Set<string>();
   private nextObservationGeneration = 0;
   private resyncInFlight: Promise<BleMeshResyncReport> | undefined;
+  private lastResyncReport: BleMeshResyncReport | undefined;
 
   constructor(
     private readonly transport: AdapterTransport,
@@ -99,6 +103,11 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   onFixtureStatus(listener: (status: FixtureMeshStatus) => void) {
     this.fixtureStatuses.add(listener);
     return () => this.fixtureStatuses.delete(listener);
+  }
+
+  onResyncReport(listener: (report: BleMeshResyncReport) => void) {
+    this.resyncReportListeners.add(listener);
+    return () => this.resyncReportListeners.delete(listener);
   }
 
   /** Reconfigures confirmed nodes and waits for actual state without treating a missing reply as offline. */
@@ -220,6 +229,9 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       };
     }
     this.latestObservations.set(mapping.fixtureId, observation);
+    if (hasLightingPair(observation)) {
+      for (const listener of this.fixtureLightingPairs) listener(mapping.fixtureId, observation.generation);
+    }
     if (!observation.powerOn || !observation.brightness || !observation.currentFault) return;
     if (!isCoherent(observation, this.observationCoherenceMs)) return;
     observation.completed = true;
@@ -233,29 +245,37 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       hopCount: null
     };
     for (const listener of this.fixtureStatuses) listener(status);
+    this.markHealthPendingRecovered(mapping.fixtureId);
   }
 
   private async performResync(): Promise<BleMeshResyncReport> {
     await this.start();
     const mappings = await this.addressStore.listConfirmed();
-    for (const mapping of mappings) this.beginObservationGeneration(mapping.fixtureId, this.now());
-    const results = await mapWithConcurrency(mappings, this.resyncConcurrency, (mapping) => this.resyncFixture(mapping));
-    return results.reduce<BleMeshResyncReport>((report, result) => ({
-      total: report.total + 1,
-      configured: report.configured + (result === "observed" || result === "timed_out" ? 1 : 0),
-      observed: report.observed + (result === "observed" ? 1 : 0),
-      timedOut: report.timedOut + (result === "timed_out" ? 1 : 0),
-      failed: report.failed + (result === "failed" ? 1 : 0)
-    }), { total: 0, configured: 0, observed: 0, timedOut: 0, failed: 0 });
+    this.healthPendingFixtures.clear();
+    const generations = new Map(mappings.map((mapping) => [mapping.fixtureId, this.beginObservationGeneration(mapping.fixtureId, this.now()).generation]));
+    const results = await mapWithConcurrency(mappings, this.resyncConcurrency, (mapping) => this.resyncFixture(mapping, generations.get(mapping.fixtureId)!));
+    for (const result of results) {
+      if (result.healthPending) this.healthPendingFixtures.add(result.fixtureId);
+    }
+    const report = results.reduce<BleMeshResyncReport>((summary, result) => ({
+      total: summary.total + 1,
+      configured: summary.configured + (result.status === "observed" || result.status === "timed_out" ? 1 : 0),
+      observed: summary.observed + (result.status === "observed" ? 1 : 0),
+      healthPending: summary.healthPending + (result.healthPending ? 1 : 0),
+      timedOut: summary.timedOut + (result.status === "timed_out" ? 1 : 0),
+      failed: summary.failed + (result.status === "failed" ? 1 : 0)
+    }), { total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 });
+    this.lastResyncReport = report;
+    return report;
   }
 
-  private async resyncFixture(mapping: { fixtureId: string; primaryUnicast: number; elementCount: number }) {
+  private async resyncFixture(mapping: { fixtureId: string; primaryUnicast: number; elementCount: number }, generation: number): Promise<ResyncFixtureResult> {
     try {
       await this.retryBusy(() => this.createConfigClient(this.requireNodePath()).configureNode({
         unicast: mapping.primaryUnicast,
         elementCount: mapping.elementCount
       }));
-      const observation = this.waitForFixtureSnapshot(mapping.fixtureId);
+      const observation = this.waitForFixtureLightingPair(mapping.fixtureId, generation);
       try {
         await Promise.all([
           this.sendStatusGetWithRetry(mapping.primaryUnicast, GENERIC_ONOFF_GET),
@@ -264,21 +284,25 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         ]);
       } catch {
         observation.cancel();
-        return "failed" as const;
+        return { fixtureId: mapping.fixtureId, status: "failed" };
       }
       observation.startDeadline();
       try {
         await observation.promise;
-        return "observed" as const;
+        return {
+          fixtureId: mapping.fixtureId,
+          status: "observed",
+          healthPending: !this.hasCurrentHealth(mapping.fixtureId, generation)
+        };
       } catch {
-        return "timed_out" as const;
+        return { fixtureId: mapping.fixtureId, status: "timed_out" };
       }
     } catch {
-      return "failed" as const;
+      return { fixtureId: mapping.fixtureId, status: "failed" };
     }
   }
 
-  private waitForFixtureSnapshot(fixtureId: string) {
+  private waitForFixtureLightingPair(fixtureId: string, generation: number) {
     let settled = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let resolvePromise: () => void = () => undefined;
@@ -287,12 +311,14 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       if (timeout) clearTimeout(timeout);
       unsubscribe();
     };
-    const unsubscribe = this.onFixtureStatus((status) => {
-      if (settled || status.fixtureId !== fixtureId) return;
+    const onPair = (observedFixtureId: string, observedGeneration: number) => {
+      if (settled || observedFixtureId !== fixtureId || observedGeneration !== generation) return;
       settled = true;
       cleanup();
       resolvePromise();
-    });
+    };
+    const unsubscribe = () => this.fixtureLightingPairs.delete(onPair);
+    this.fixtureLightingPairs.add(onPair);
     const promise = new Promise<void>((resolve, reject) => {
       resolvePromise = resolve;
       rejectPromise = reject;
@@ -355,6 +381,17 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     this.latestObservations.set(fixtureId, observation);
     return observation;
   }
+
+  private hasCurrentHealth(fixtureId: string, generation: number) {
+    const observation = this.latestObservations.get(fixtureId);
+    return observation?.generation === generation && observation.currentFault !== undefined;
+  }
+
+  private markHealthPendingRecovered(fixtureId: string) {
+    if (!this.healthPendingFixtures.delete(fixtureId) || !this.lastResyncReport) return;
+    this.lastResyncReport.healthPending = this.healthPendingFixtures.size;
+    for (const listener of this.resyncReportListeners) listener(this.lastResyncReport);
+  }
 }
 
 interface FixtureObservation {
@@ -369,6 +406,16 @@ interface FixtureObservation {
 interface TimedObservation<T> {
   value: T;
   observedAt: number;
+}
+
+interface ResyncFixtureResult {
+  fixtureId: string;
+  status: "observed" | "timed_out" | "failed";
+  healthPending?: boolean;
+}
+
+function hasLightingPair(observation: FixtureObservation) {
+  return observation.powerOn !== undefined && observation.brightness !== undefined;
 }
 
 function isCoherent(observation: FixtureObservation, coherenceMs: number) {

@@ -10,6 +10,7 @@ import type {
 export interface BleMeshAdapter {
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
   onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
+  onResyncReport?(listener: (report: BleMeshResyncReport) => void): () => void;
   resyncFixtureStates(): Promise<BleMeshResyncReport>;
 }
 
@@ -27,6 +28,7 @@ export interface BleMeshResyncReport {
   total: number;
   configured: number;
   observed: number;
+  healthPending: number;
   timedOut: number;
   failed: number;
 }
