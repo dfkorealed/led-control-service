@@ -35,6 +35,7 @@ import { probeMqttIdentity } from "./identity/mqtt-identity-probe";
 import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
 import { createGatewayCertificateRotation } from "./identity/certificate-rotation";
+import { GatewayMqttRuntime } from "./runtime/gateway-mqtt-runtime";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -63,33 +64,6 @@ async function main() {
   const client = runtime.client;
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
-
-  client.on("connect", (packet) => {
-    void health.healthy();
-    subscribeGatewayCommands(client, assignment, packet.sessionPresent);
-    void publishHeartbeat();
-    void publishJournalSnapshot();
-    setInterval(() => void publishHeartbeat(), heartbeatMs);
-  });
-
-  client.on("close", () => void health.unhealthy("mqtt_disconnected"));
-  client.on("error", () => void health.unhealthy("mqtt_error"));
-
-  client.on("message", (topic, payload) => {
-    if (topic === mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")) {
-      void handleDimmingPayloadV2(payload);
-      return;
-    }
-    if (topic === mqttTopics.provisioningScanStart(siteId, gatewayId)) {
-      void handleProvisioningScanPayload(payload);
-      return;
-    }
-    if (topic === mqttTopics.identifyDevice(siteId, gatewayId)) {
-      void handleIdentifyPayload(payload);
-      return;
-    }
-    if (topic === mqttTopics.provisionDevice(siteId, gatewayId)) void handleProvisionDevicePayload(payload);
-  });
 
   async function handleDimmingPayloadV2(payload: Buffer) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
@@ -203,6 +177,34 @@ async function main() {
     });
     await publish(mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
   }
+
+  const mqttRuntime = new GatewayMqttRuntime({
+    client,
+    heartbeatMs,
+    subscribe: (sessionPresent) => subscribeGatewayCommands(client, assignment, sessionPresent),
+    publishHeartbeat,
+    topicHandlers: {
+      [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")]: handleDimmingPayloadV2,
+      [mqttTopics.provisioningScanStart(siteId, gatewayId)]: handleProvisioningScanPayload,
+      [mqttTopics.identifyDevice(siteId, gatewayId)]: handleIdentifyPayload,
+      [mqttTopics.provisionDevice(siteId, gatewayId)]: handleProvisionDevicePayload
+    },
+    onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
+    onConnect: async () => {
+      await health.healthy();
+      await publishJournalSnapshot();
+    },
+    onClose: () => health.unhealthy("mqtt_disconnected"),
+    onError: () => health.unhealthy("mqtt_error"),
+    onRuntimeError: reportGatewayError
+  });
+  mqttRuntime.start();
+  registerGatewayShutdownHandlers(mqttRuntime);
+
+  function reportGatewayError(error: unknown, context: string) {
+    console.error(`Gateway MQTT ${context} failed`, error);
+    return health.unhealthy("mqtt_error");
+  }
 }
 
 export function shouldPublishFixtureStates(result: Pick<GatewayCommandResult, "fixtureStateObserved">) {
@@ -228,6 +230,35 @@ export function subscribeGatewayCommands(
     ],
     { qos: 1 }
   );
+}
+
+export function createGatewayShutdownHandler(
+  runtime: Pick<GatewayMqttRuntime, "stop">,
+  exit: (code: number) => void = (code) => process.exit(code)
+) {
+  let stopping: Promise<void> | undefined;
+  return () => {
+    stopping ??= runtime.stop()
+      .then(() => exit(0))
+      .catch((error) => {
+        console.error("Gateway shutdown failed", error);
+        exit(1);
+      });
+    return stopping;
+  };
+}
+
+export function registerGatewayShutdownHandlers(
+  runtime: Pick<GatewayMqttRuntime, "stop">,
+  exit: (code: number) => void = (code) => process.exit(code)
+) {
+  const shutdown = createGatewayShutdownHandler(runtime, exit);
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+  return () => {
+    process.removeListener("SIGTERM", shutdown);
+    process.removeListener("SIGINT", shutdown);
+  };
 }
 
 export async function startGatewayRuntime(options: {

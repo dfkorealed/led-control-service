@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { shouldPublishFinalAcceptance, shouldPublishFixtureStates, startGatewayRuntime, subscribeGatewayCommands } from "./index";
+import {
+  registerGatewayShutdownHandlers,
+  shouldPublishFinalAcceptance,
+  shouldPublishFixtureStates,
+  startGatewayRuntime,
+  subscribeGatewayCommands
+} from "./index";
 
 const assignment = {
   siteId: "site-27",
@@ -10,6 +16,19 @@ const assignment = {
 };
 
 describe("startGatewayRuntime", () => {
+  it("stops the MQTT runtime before exiting for SIGTERM", async () => {
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const exit = vi.fn();
+    const unregister = registerGatewayShutdownHandlers({ stop } as never, exit);
+
+    process.emit("SIGTERM", "SIGTERM");
+    await Promise.resolve();
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(exit).toHaveBeenCalledWith(0);
+    unregister();
+  });
+
   it("subscribes command topics only when MQTT reports a new session", () => {
     const subscribe = vi.fn();
     const client = { subscribe };

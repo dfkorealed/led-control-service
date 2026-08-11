@@ -101,23 +101,23 @@ Commit: `fix(mqtt): preserve offline gateway commands`
 - Produces: `GatewayMqttRuntime.start()` / `stop()`
 - Produces: heartbeat timer single instance, session-aware subscribe, topic handler error callback
 
-- [ ] **Step 1: reconnect 실패 테스트 작성**
+- [x] **Step 1: reconnect 실패 테스트 작성**
 
 세 번 reconnect해도 활성 heartbeat timer가 하나이고, handler reject가 unhandled rejection 대신 `onMessageError`로 전달되는지 fake timer로 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/gateway test -- --run src/runtime/gateway-mqtt-runtime.test.ts`
 
-- [ ] **Step 3: runtime 추출과 single-flight 구현**
+- [x] **Step 3: runtime 추출과 single-flight 구현**
 
 timer handle을 소유하고 reconnect 전 clear하며 topic handler를 `Promise.resolve(...).catch(...)` 경계로 실행한다.
 
-- [ ] **Step 4: index 전환과 종료 정리**
+- [x] **Step 4: index 전환과 종료 정리**
 
 기존 inline listener를 runtime으로 교체하고 SIGTERM에서 timer와 client listener를 정리한다.
 
-- [ ] **Step 5: 검증과 커밋**
+- [x] **Step 5: 검증과 커밋**
 
 Run: `pnpm --filter @led-control/gateway test && pnpm --filter @led-control/gateway typecheck`
 
