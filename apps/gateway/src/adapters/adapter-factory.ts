@@ -1,4 +1,6 @@
 import type { BleMeshAdapter, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
+import { readFile } from "node:fs/promises";
+import type { ApplianceHealthProbes } from "../health/appliance-health";
 import { BluezDbusApplication } from "../mesh/bluez-dbus-application";
 import { BluezConfigClient } from "../mesh/bluez-config-client";
 import { BluezMeshAdapter } from "../mesh/bluez-mesh-adapter";
@@ -12,10 +14,13 @@ export interface GatewayAdapters {
   dimming: BleMeshAdapter;
   scanner: ProvisioningScannerAdapter;
   provisioning: ProvisioningAdapter;
+  healthProbes?: ApplianceHealthProbes;
 }
 
 interface AdapterFactoryDependencies {
-  createBluezAdapter?: () => Promise<BleMeshAdapter & ProvisioningScannerAdapter & ProvisioningAdapter>;
+  createBluezAdapter?: () => Promise<BleMeshAdapter & ProvisioningScannerAdapter & ProvisioningAdapter & {
+    healthProbes?: ApplianceHealthProbes;
+  }>;
 }
 
 export async function createProductionAdapters(
@@ -27,7 +32,7 @@ export async function createProductionAdapters(
   }
 
   const adapter = await (dependencies.createBluezAdapter ?? (() => createBluezAdapter(env)))();
-  return { dimming: adapter, scanner: adapter, provisioning: adapter };
+  return { dimming: adapter, scanner: adapter, provisioning: adapter, healthProbes: adapter.healthProbes };
 }
 
 async function createBluezAdapter(env: NodeJS.ProcessEnv) {
@@ -51,7 +56,28 @@ async function createBluezAdapter(env: NodeJS.ProcessEnv) {
     }
   );
   await adapter.start();
-  return adapter;
+  return Object.assign(adapter, {
+    healthProbes: createBluezHealthProbes(transport, provisioner, addressStore)
+  });
+}
+
+function createBluezHealthProbes(
+  transport: BluezTransport,
+  provisioner: BluezProvisioner,
+  addressStore: MeshAddressStore
+): ApplianceHealthProbes {
+  return {
+    dbusOwner: async () => await transport.call<boolean>(
+      "org.freedesktop.DBus",
+      "/org/freedesktop/DBus",
+      "org.freedesktop.DBus",
+      "NameHasOwner",
+      ["org.bluez.mesh"]
+    ),
+    bluezAttached: async () => provisioner.nodePath !== null,
+    hciPowered: async () => (Number.parseInt(await readFile("/sys/class/bluetooth/hci0/flags", "utf8"), 16) & 1) === 1,
+    mappingValid: async () => { await addressStore.validate(); return true; }
+  };
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number) {

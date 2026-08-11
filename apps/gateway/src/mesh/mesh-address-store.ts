@@ -106,6 +106,10 @@ export class MeshAddressStore {
     return mapping ? { ...mapping } : null;
   }
 
+  async validate() {
+    await this.read();
+  }
+
   private exclusive<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.queue.then(operation, operation);
     this.queue = result.then(

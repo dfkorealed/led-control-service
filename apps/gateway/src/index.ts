@@ -30,7 +30,7 @@ import { createProductionAdapters } from "./adapters/adapter-factory";
 import { ApplianceHealth } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
 import { MqttCertificateClient } from "./identity/mqtt-certificate-client";
-import { MqttIdentityStore } from "./identity/mqtt-identity-store";
+import { MqttIdentityStore, type MqttIdentityCandidate } from "./identity/mqtt-identity-store";
 import { probeMqttIdentity } from "./identity/mqtt-identity-probe";
 import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
@@ -46,22 +46,22 @@ async function main() {
     console.log(JSON.stringify({ status: "passed", capability: "bluez-mesh-bootstrap" }));
     process.exit(0);
   }
-  const health = new ApplianceHealth(process.env.GATEWAY_HEALTH_PATH ?? "/var/run/led-control/health.json");
+  const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS ?? 5000);
+  const health = new ApplianceHealth(process.env.GATEWAY_HEALTH_PATH ?? "/var/run/led-control/health.json", { heartbeatMs });
   await health.startingUnassigned();
   const runtime = await startGatewayRuntime({ env: process.env });
+  if (!runtime.adapters.healthProbes) throw new Error("BlueZ health probes are unavailable");
+  health.setProbes(runtime.adapters.healthProbes);
   const assignment = runtime.assignment;
-  startCertificateRotation(assignment, process.env);
   await health.startingAssigned();
   const { siteId, gatewayId, serialNumber: gatewaySerial, mqttUrl } = assignment;
   const gatewayFirmwareVersion = process.env.GATEWAY_FIRMWARE_VERSION || "gateway-dev-local";
-  const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS ?? 5000);
   const commandTimeoutMs = parseCommandTimeout(process.env.GATEWAY_BLE_STATUS_TIMEOUT_MS);
   const adapters = runtime.adapters;
   await health.meshReady();
   const adapter = adapters.dimming;
   const scannerAdapter = adapters.scanner;
   const provisioningAdapter = adapters.provisioning;
-  const client = runtime.client;
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
 
@@ -133,7 +133,7 @@ async function main() {
 
   function publish(topic: string, payload: unknown) {
     return new Promise<void>((resolve, reject) => {
-      client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => (error ? reject(error) : resolve()));
+      mqttRuntime.client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => (error ? reject(error) : resolve()));
     });
   }
 
@@ -141,7 +141,7 @@ async function main() {
     const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
     const nodes = await applyProvisioningScan(scannerAdapter, command);
     for (const node of nodes) {
-      client.publish(mqttTopics.unprovisionedDeviceFound(command.siteId, command.gatewayId), JSON.stringify(node), { qos: 1 });
+      mqttRuntime.client.publish(mqttTopics.unprovisionedDeviceFound(command.siteId, command.gatewayId), JSON.stringify(node), { qos: 1 });
     }
   }
 
@@ -154,16 +154,15 @@ async function main() {
     const command = provisionDeviceSchema.parse(JSON.parse(payload.toString()));
     const result = await applyProvisionDevice(provisioningAdapter, command);
     if (result.completed) {
-      client.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
+      mqttRuntime.client.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
       return;
     }
     if (result.failed) {
-      client.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
+      mqttRuntime.client.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
     }
   }
 
   async function publishHeartbeat() {
-    await health.healthy();
     const occurredAt = new Date().toISOString();
     const heartbeat = gatewayHeartbeatV2Schema.parse({
       siteId,
@@ -176,12 +175,13 @@ async function main() {
       configVersion: assignment.configVersion
     });
     await publish(mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
+    await health.heartbeatPublished();
   }
 
   const mqttRuntime = new GatewayMqttRuntime({
-    client,
+    client: runtime.client,
     heartbeatMs,
-    subscribe: (sessionPresent) => subscribeGatewayCommands(client, assignment, sessionPresent),
+    subscribe: (client, sessionPresent, force) => subscribeGatewayCommands(client, assignment, sessionPresent, force),
     publishHeartbeat,
     topicHandlers: {
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")]: handleDimmingPayloadV2,
@@ -191,7 +191,7 @@ async function main() {
     },
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
-      await health.healthy();
+      await health.mqttConnected();
       await publishJournalSnapshot();
     },
     onClose: () => health.unhealthy("mqtt_disconnected"),
@@ -199,6 +199,7 @@ async function main() {
     onRuntimeError: reportGatewayError
   });
   mqttRuntime.start();
+  startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
   registerGatewayShutdownHandlers(mqttRuntime);
 
   function reportGatewayError(error: unknown, context: string) {
@@ -218,18 +219,22 @@ export function shouldPublishFinalAcceptance(acceptancePublished: boolean, statu
 export function subscribeGatewayCommands(
   client: Pick<MqttClient, "subscribe">,
   assignment: Pick<GatewayAssignment, "siteId" | "gatewayId">,
-  sessionPresent: boolean
+  sessionPresent: boolean,
+  force = false
 ) {
-  if (sessionPresent) return;
-  client.subscribe(
-    [
-      mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "dimming"),
-      mqttTopics.provisioningScanStart(assignment.siteId, assignment.gatewayId),
-      mqttTopics.identifyDevice(assignment.siteId, assignment.gatewayId),
-      mqttTopics.provisionDevice(assignment.siteId, assignment.gatewayId)
-    ],
-    { qos: 1 }
-  );
+  if (sessionPresent && !force) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    client.subscribe(
+      [
+        mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "dimming"),
+        mqttTopics.provisioningScanStart(assignment.siteId, assignment.gatewayId),
+        mqttTopics.identifyDevice(assignment.siteId, assignment.gatewayId),
+        mqttTopics.provisionDevice(assignment.siteId, assignment.gatewayId)
+      ],
+      { qos: 1 },
+      (error) => (error ? reject(error) : resolve())
+    );
+  });
 }
 
 export function createGatewayShutdownHandler(
@@ -300,7 +305,11 @@ export async function ensureMqttIdentity(assignment: GatewayAssignment, env: Nod
   );
 }
 
-function startCertificateRotation(assignment: GatewayAssignment, env: NodeJS.ProcessEnv) {
+function startCertificateRotation(
+  assignment: GatewayAssignment,
+  env: NodeJS.ProcessEnv,
+  activateMqttIdentity: (candidate: MqttIdentityCandidate) => Promise<void>
+) {
   const bootstrapUrl = required(env, "GATEWAY_BOOTSTRAP_URL");
   const deviceIdentityRoot = env.GATEWAY_IDENTITY_ROOT ?? "/var/lib/led-control/identity/device";
   const mqttIdentityRoot = env.GATEWAY_MQTT_IDENTITY_ROOT ?? "/var/lib/led-control/identity/mqtt";
@@ -324,8 +333,27 @@ function startCertificateRotation(assignment: GatewayAssignment, env: NodeJS.Pro
     mqttStore: new MqttIdentityStore({ identityRoot: mqttIdentityRoot }),
     deviceClient,
     mqttClient,
-    mqttProbe: (candidate) => probeMqttIdentity(assignment.mqttUrl, candidate)
+    mqttProbe: (candidate) => probeMqttIdentity(assignment.mqttUrl, candidate),
+    activateMqttIdentity
   }).start();
+}
+
+export function createMqttIdentityActivation(
+  assignment: Pick<GatewayAssignment, "gatewayId" | "mqttUrl">,
+  env: NodeJS.ProcessEnv,
+  runtime: Pick<GatewayMqttRuntime, "activate">,
+  createMqtt: typeof createMqttClient = createMqttClient
+) {
+  return async (candidate: MqttIdentityCandidate) => {
+    const client = createMqtt({
+      ...env,
+      MQTT_URL: assignment.mqttUrl,
+      MQTT_CA_PATH: candidate.caPath,
+      MQTT_CLIENT_CERT_PATH: candidate.certificatePath,
+      MQTT_CLIENT_KEY_PATH: candidate.keyPath
+    }, { gatewayId: assignment.gatewayId });
+    await runtime.activate(client);
+  };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string) {

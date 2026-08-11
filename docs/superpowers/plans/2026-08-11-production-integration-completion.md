@@ -138,23 +138,23 @@ Commit: `fix(gateway): harden mqtt reconnect lifecycle`
 - Produces: rotation 성공 후 `activateMqttIdentity()` callback
 - Produces: health state의 `lastHeartbeatPublishedAt`, `bluezAttached`, `hciPowered`, `mappingValid`
 
-- [ ] **Step 1: rotation과 health 실패 테스트 작성**
+- [x] **Step 1: rotation과 health 실패 테스트 작성**
 
 새 MQTT identity probe 성공 후 runtime reconnect가 한 번 호출되고 실패하면 기존 identity가 유지되는지 검증한다. 선언형 boolean이 아니라 probe 결과로 health가 결정되는지 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/gateway test -- --run src/identity/certificate-rotation.test.ts src/health/appliance-health.test.ts`
 
-- [ ] **Step 3: 안전한 MQTT client 교체 구현**
+- [x] **Step 3: 안전한 MQTT client 교체 구현**
 
 새 client가 mTLS connect·subscribe 준비를 마친 뒤 runtime reference를 원자 교체하고 이전 client를 종료한다.
 
-- [ ] **Step 4: health probe 구현**
+- [x] **Step 4: health probe 구현**
 
 D-Bus owner, attached node path, HCI powered, mapping 파일 parse와 마지막 heartbeat publish freshness를 검사한다.
 
-- [ ] **Step 5: 검증과 커밋**
+- [x] **Step 5: 검증과 커밋**
 
 Run: `pnpm --filter @led-control/gateway test && pnpm --filter @led-control/gateway typecheck && sh -n apps/gateway/docker/healthcheck.sh`
 

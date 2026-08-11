@@ -154,4 +154,54 @@ describe("GatewayMqttRuntime", () => {
 
     await expect(runtime.stop()).rejects.toThrow("MQTT shutdown failed");
   });
+
+  it("keeps the active connection until a replacement has connected and subscribed", async () => {
+    const current = new FakeMqttClient();
+    const replacement = new FakeMqttClient();
+    const subscribe = vi.fn((_client: FakeMqttClient, _sessionPresent: boolean, force: boolean) => {
+      if (!force) return undefined;
+      return Promise.resolve();
+    });
+    const runtime = new GatewayMqttRuntime({
+      client: current as never,
+      heartbeatMs: 1_000,
+      subscribe: subscribe as never,
+      publishHeartbeat: vi.fn(),
+      topicHandlers,
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+
+    const activating = runtime.activate(replacement as never);
+    replacement.emit("connect", { sessionPresent: false });
+    await activating;
+
+    expect(runtime.client).toBe(replacement);
+    expect(subscribe).toHaveBeenCalledWith(replacement, false, true);
+    expect(current.end).toHaveBeenCalledWith(true, expect.any(Function));
+    await runtime.stop();
+  });
+
+  it("retains the current connection when a replacement identity cannot connect", async () => {
+    const current = new FakeMqttClient();
+    const replacement = new FakeMqttClient();
+    const runtime = new GatewayMqttRuntime({
+      client: current as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn() as never,
+      publishHeartbeat: vi.fn(),
+      topicHandlers,
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+
+    const activating = runtime.activate(replacement as never);
+    replacement.emit("error", new Error("candidate rejected"));
+
+    await expect(activating).rejects.toThrow("candidate rejected");
+    expect(runtime.client).toBe(current);
+    expect(current.end).not.toHaveBeenCalled();
+    expect(replacement.end).toHaveBeenCalledWith(true, expect.any(Function));
+    await runtime.stop();
+  });
 });

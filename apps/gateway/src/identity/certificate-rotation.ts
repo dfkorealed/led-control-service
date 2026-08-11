@@ -70,6 +70,7 @@ export function createGatewayCertificateRotation(options: {
   deviceClient: DeviceCertificateClient;
   mqttClient: MqttCertificateClient;
   mqttProbe: (candidate: MqttIdentityCandidate) => Promise<void>;
+  activateMqttIdentity?: (candidate: MqttIdentityCandidate) => Promise<void>;
   clock?: () => Date;
   schedule?: (callback: () => void, delayMs: number) => unknown;
   logger?: { error: (message: string) => void };
@@ -105,7 +106,10 @@ export function createGatewayCertificateRotation(options: {
         options.gatewayId,
         caBundlePem,
         (csrPem) => options.mqttClient.requestCertificate(csrPem),
-        options.mqttProbe,
+        async (candidate) => {
+          await options.mqttProbe(candidate);
+          await options.activateMqttIdentity?.(candidate);
+        },
         true
       );
     }

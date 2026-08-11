@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createMqttIdentityActivation,
   registerGatewayShutdownHandlers,
   shouldPublishFinalAcceptance,
   shouldPublishFixtureStates,
@@ -30,7 +31,7 @@ describe("startGatewayRuntime", () => {
   });
 
   it("subscribes command topics only when MQTT reports a new session", () => {
-    const subscribe = vi.fn();
+    const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
     const client = { subscribe };
 
     subscribeGatewayCommands(client as never, assignment, false);
@@ -44,7 +45,8 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/identify-device",
         "sites/site-27/gateways/gateway-27/commands/provision-device"
       ],
-      { qos: 1 }
+      { qos: 1 },
+      expect.any(Function)
     );
   });
 
@@ -94,5 +96,27 @@ describe("startGatewayRuntime", () => {
     })).resolves.toEqual({ assignment, adapters, client: mqtt });
 
     expect(calls).toEqual(["assignment", "identity", "bluez", "mqtt"]);
+  });
+
+  it("creates a rotated MQTT client from the probed candidate paths before activating the runtime", async () => {
+    const candidate = {
+      generationPath: "/identity/mqtt/pending-generations/candidate",
+      certificatePath: "/identity/mqtt/pending-generations/candidate/gateway.crt",
+      keyPath: "/identity/mqtt/pending-generations/candidate/gateway.key",
+      caPath: "/identity/mqtt/pending-generations/candidate/mqtt-ca.crt"
+    };
+    const client = {};
+    const createMqtt = vi.fn(() => client);
+    const runtime = { activate: vi.fn().mockResolvedValue(undefined) };
+
+    await createMqttIdentityActivation(assignment, { MQTT_URL: "mqtts://ignored.example:8883" }, runtime as never, createMqtt as never)(candidate);
+
+    expect(createMqtt).toHaveBeenCalledWith({
+      MQTT_URL: assignment.mqttUrl,
+      MQTT_CA_PATH: candidate.caPath,
+      MQTT_CLIENT_CERT_PATH: candidate.certificatePath,
+      MQTT_CLIENT_KEY_PATH: candidate.keyPath
+    }, { gatewayId: assignment.gatewayId });
+    expect(runtime.activate).toHaveBeenCalledWith(client);
   });
 });

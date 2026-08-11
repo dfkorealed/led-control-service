@@ -162,7 +162,15 @@ docker exec led-control-gateway cat /var/run/led-control/health.json
 docker inspect --format '{{json .State.Health}}' led-control-gateway
 ```
 
-claim 전에는 `starting-unassigned`, assignment·mesh·MQTT가 모두 준비되면 `healthy`가 정상이다.
+claim 전에는 `starting-unassigned`가 정상이다. claim 후 `healthy`는 선언값이 아니라 다음 실제 probe가 모두 통과하고 마지막 heartbeat publish가 `max(30초, GATEWAY_HEARTBEAT_MS x 3)` 이내일 때만 기록된다.
+
+- private D-Bus의 `org.bluez.mesh` owner
+- BlueZ `Attach`가 반환한 node path
+- `/sys/class/bluetooth/hci0/flags`의 powered bit
+- 영속 mesh address mapping JSON parse
+- MQTT QoS 1 heartbeat publish 완료 시각
+
+MQTT 인증서 rotation은 pending generation으로 broker probe를 통과한 뒤 새 mTLS client가 connect와 command subscription 완료까지 대기한다. 그 단계가 실패하면 `current` identity와 기존 MQTT runtime을 유지한다. 성공한 경우에만 runtime reference를 새 client로 교체하고 이전 client를 종료한다.
 
 ## 9. ESP32-H2 펌웨어 적용
 
@@ -235,6 +243,7 @@ docker exec led-control-gateway dbus-send --system --print-reply \
 - `MESH_MAPPING_NOT_FOUND`: API의 fixture ID와 gateway mapping 파일이 불일치한다.
 - `STATUS_TIMEOUT`: 전송 성공이 아니라 ESP32 Status 미수신이다. 거리, relay, 모델 bind를 확인한다.
 - `mqtt_disconnected`: URL, CA, client certificate, broker ACL, Pi 시간을 확인한다.
+- `dbus_owner_missing`, `bluez_not_attached`, `hci_not_powered`, `mapping_invalid`, `heartbeat_stale`: `health.json`의 probe 필드를 먼저 확인한다. `hci_not_powered`이면 `bluetoothctl show`와 `rfkill list bluetooth`를 확인하고, mapping 오류면 파일을 수동 편집하지 말고 backup 복원 또는 명시적 재-provision 절차를 따른다.
 - token/mesh DB 손상: 임의 재생성하지 말고 같은 시점 백업을 복원하거나 현장 전체를 명시적으로 재-provision한다.
 
 ## 13. 양산 판정 관문

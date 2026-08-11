@@ -12,8 +12,17 @@ const fs = require("node:fs");
 const path = process.env.GATEWAY_HEALTH_PATH || "/var/run/led-control/health.json";
 const health = JSON.parse(fs.readFileSync(path, "utf8"));
 if (health.status === "starting-unassigned" && health.assignment === false) process.exit(0);
-if (health.status !== "healthy" || !health.assignment || !health.mesh || !health.mqtt || !health.mapping) process.exit(1);
-const age = Date.now() - Date.parse(health.updatedAt);
+if (
+  health.status !== "healthy" ||
+  !health.assignment ||
+  !health.mqtt ||
+  !health.dbusOwner ||
+  !health.bluezAttached ||
+  !health.hciPowered ||
+  !health.mappingValid ||
+  !health.heartbeatFresh
+) process.exit(1);
+const age = Date.now() - Date.parse(health.lastHeartbeatPublishedAt);
 const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS || 5000);
 const maximumAge = Math.max(30000, heartbeatMs * 3);
 if (!Number.isFinite(age) || age > maximumAge) process.exit(1);
