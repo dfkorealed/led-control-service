@@ -219,6 +219,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     ) {
       observation = this.beginObservationGeneration(mapping.fixtureId, now);
     }
+    if (!hasAnyObservation(observation)) observation.startedAt = now;
     if (kind === "onoff") {
       observation.powerOn = { value: decodeGenericOnOffStatus(payload).present, observedAt: now };
     } else if (kind === "lightness") {

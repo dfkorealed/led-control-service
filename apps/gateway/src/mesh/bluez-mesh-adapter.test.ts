@@ -297,6 +297,7 @@ describe("BluezMeshAdapter", () => {
       if (method !== "Send") return;
       if (busy) {
         busy = false;
+        now += 70_000;
         throw new Error("BlueZ busy");
       }
       const destination = args[1] as number;

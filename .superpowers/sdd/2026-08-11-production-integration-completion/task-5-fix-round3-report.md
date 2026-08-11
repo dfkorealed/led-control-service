@@ -39,3 +39,4 @@ The target firmware build and host gateway tests pass. Raspberry Pi plus ESP32-H
 - 1,000개 조명의 관측 generation을 큐 등록 시점이 아니라 각 bounded worker가 실제 구성을 마친 직후 생성한다.
 - 첫 status가 오기 전에는 coherence window를 소모하지 않아 Busy retry 중 관측 세대가 불필요하게 교체되지 않는다.
 - 65초 이상 큐 대기가 누적되는 1,000-node 회귀 테스트와 gateway typecheck를 통과했다.
+- 첫 status가 늦게 도착한 경우 coherence 시작 시각을 그 첫 실제 관측 시각으로 갱신해, 바로 이어진 counterpart가 새 generation으로 잘못 분리되지 않게 했다.
