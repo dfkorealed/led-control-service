@@ -14,7 +14,7 @@ const command = {
   targetFixtureIds: ["66666666-6666-4666-8666-666666666666"],
   brightness: 65,
   requestedBy: "77777777-7777-4777-8777-777777777777",
-  requestedAt: "2026-07-11T00:00:00.000Z"
+  requestedAt: new Date().toISOString()
 };
 
 describe("handleGatewayDimmingCommand", () => {
@@ -44,6 +44,26 @@ describe("handleGatewayDimmingCommand", () => {
     expect(first.deviceStatus).toMatchObject({ status: "succeeded", results: [{ status: "succeeded", brightness: 65 }] });
     expect(duplicate).toEqual(first);
     expect(adapter.commands).toHaveLength(1);
+  });
+
+  it("rejects a command that arrived after the API acceptance deadline without calling BLE", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:10.001Z"));
+    const records = new Map<string, any>();
+    const adapter = new StubBleMeshAdapter();
+
+    const result = await handleGatewayDimmingCommand(adapter, memoryJournal(records), {
+      ...command,
+      requestedAt: "2026-07-11T00:00:00.000Z"
+    });
+
+    expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "COMMAND_EXPIRED" });
+    expect(result.deviceStatus).toMatchObject({
+      status: "failed",
+      results: [{ status: "failed", errorMessage: "gateway command expired before execution" }]
+    });
+    expect(adapter.commands).toHaveLength(0);
+    vi.useRealTimers();
   });
 
   it("times out a BLE adapter that never returns", async () => {

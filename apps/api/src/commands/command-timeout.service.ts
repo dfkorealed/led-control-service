@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS } from "@led-control/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
-const ACCEPTANCE_TIMEOUT_MS = 10_000;
 const DEVICE_STATUS_TIMEOUT_MS = 30_000;
 const DELIVERY_TIMEOUT_MS = 15 * 60_000;
 
@@ -25,7 +25,7 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
       where: {
         OR: [
           { status: "pending", createdAt: { lt: new Date(now.getTime() - DELIVERY_TIMEOUT_MS) } },
-          { status: "published", publishedAt: { lt: new Date(now.getTime() - ACCEPTANCE_TIMEOUT_MS) } },
+          { status: "published", publishedAt: { lt: new Date(now.getTime() - GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS) } },
           { status: "accepted", acceptedAt: { lt: new Date(now.getTime() - DEVICE_STATUS_TIMEOUT_MS) } }
         ]
       },

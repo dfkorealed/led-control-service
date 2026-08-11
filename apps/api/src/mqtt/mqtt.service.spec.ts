@@ -15,7 +15,7 @@ describe("MqttService", () => {
     ).toThrow("mqtts://");
   });
 
-  it("uses a deployment-specific client ID for a durable MQTT 5 API session", () => {
+  it("uses a deployment-specific clean MQTT 5 API session", () => {
     const { options } = createMqttConnectionOptions({
       MQTT_URL: "mqtts://broker:8883",
       MQTT_CA_PATH: "/certs/ca.crt",
@@ -26,13 +26,13 @@ describe("MqttService", () => {
 
     expect(options).toMatchObject({
       clientId: "api-service-api-blue-2",
-      clean: false,
-      protocolVersion: 5,
-      properties: { sessionExpiryInterval: 604800 }
+      clean: true,
+      protocolVersion: 5
     });
+    expect(options.properties).toBeUndefined();
   });
 
-  it("publishes a QoS 1 JSON payload", async () => {
+  it("publishes a QoS 1 JSON payload that expires at the acceptance deadline", async () => {
     const prisma: any = {};
     const publish = jest.fn((_topic, _payload, _options, callback) => callback());
     const service = new MqttService(prisma);
@@ -43,7 +43,7 @@ describe("MqttService", () => {
     expect(publish).toHaveBeenCalledWith(
       "sites/s/gateways/g/commands/dimming",
       JSON.stringify({ ok: true }),
-      { qos: 1 },
+      { qos: 1, properties: { messageExpiryInterval: 10 } },
       expect.any(Function)
     );
   });
@@ -78,22 +78,50 @@ describe("MqttService", () => {
         gatewayId: "55555555-5555-4555-8555-555555555555",
         idempotencyKey: "33333333-3333-4333-8333-333333333333",
         sequence: 1n,
+        status: { in: ["pending", "published"] },
         command: { siteId: "22222222-2222-4222-8222-222222222222" }
       },
       data: { status: "accepted", acceptedAt: new Date("2026-07-11T00:00:01.000Z"), errorCode: null, errorMessage: null }
     });
   });
 
+  it("does not process a device-status ACK for an already terminal dispatch", async () => {
+    const prisma: any = {
+      commandDispatch: { findFirst: jest.fn().mockResolvedValue(null) },
+      commandFixtureResult: { updateMany: jest.fn() }
+    };
+    const service = new MqttService(prisma);
+
+    await service.handleMessage(
+      "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/device-status",
+      Buffer.from(JSON.stringify(deviceStatusAckPayload()))
+    );
+
+    expect(prisma.commandDispatch.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "66666666-6666-4666-8666-666666666666",
+        commandId: "11111111-1111-4111-8111-111111111111",
+        gatewayId: "55555555-5555-4555-8555-555555555555",
+        idempotencyKey: "33333333-3333-4333-8333-333333333333",
+        sequence: 1n,
+        status: { in: ["pending", "published", "accepted"] },
+        command: { siteId: "22222222-2222-4222-8222-222222222222" }
+      },
+      select: { id: true, commandId: true }
+    });
+    expect(prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+  });
+
   it("stores fixture results from a device status ACK", async () => {
     const prisma: any = {
       commandDispatch: {
         findFirst: jest.fn().mockResolvedValue({ id: "66666666-6666-4666-8666-666666666666", commandId: "11111111-1111-4111-8111-111111111111" }),
-        update: jest.fn().mockResolvedValue(undefined),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         count: jest.fn().mockResolvedValue(1),
         findMany: jest.fn()
       },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { update: jest.fn() },
+      command: { updateMany: jest.fn() },
       $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma))
     };
     const service = new MqttService(prisma);
@@ -386,3 +414,20 @@ describe("MqttService", () => {
     expect(prisma.discoveredMeshNode.upsert).not.toHaveBeenCalled();
   });
 });
+
+function deviceStatusAckPayload() {
+  return {
+    commandId: "11111111-1111-4111-8111-111111111111",
+    dispatchId: "66666666-6666-4666-8666-666666666666",
+    idempotencyKey: "33333333-3333-4333-8333-333333333333",
+    sequence: 1,
+    siteId: "22222222-2222-4222-8222-222222222222",
+    gatewayId: "55555555-5555-4555-8555-555555555555",
+    eventId: "88888888-8888-4888-8888-888888888888",
+    status: "succeeded",
+    occurredAt: "2026-07-11T00:00:02.000Z",
+    results: [
+      { fixtureId: "99999999-9999-4999-8999-999999999999", status: "succeeded", brightness: 70, rssi: -60, hopCount: 1 }
+    ]
+  };
+}

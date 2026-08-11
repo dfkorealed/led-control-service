@@ -8,6 +8,7 @@
     "bluez:probe": "tsx scripts/bluez-capability-probe.ts",
     "test": "pnpm --filter @led-control/shared build && vitest run",
     "test:contracts": "node --test docker/*.test.mjs",
+    "test:mqtt-integration": "node --test docker/mqtt-persistence.integration.mjs",
     "lint": "tsc --noEmit",
     "typecheck": "pnpm --filter @led-control/shared build && tsc --noEmit"
   },

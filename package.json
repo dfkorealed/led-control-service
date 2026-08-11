@@ -17,9 +17,11 @@
     "gateway:appliance:build": "scripts/gateway-appliance-build.sh",
     "gateway:appliance:deploy": "scripts/gateway-appliance-deploy.sh",
     "gateway:manufacturing:enroll": "scripts/gateway-manufacturing-enroll.sh",
+    "mqtt:integration": "MQTT_INTEGRATION_REQUIRED=1 pnpm --filter @led-control/gateway test:mqtt-integration",
     "benchmark:fixtures": "node scripts/benchmark-fixture-api.mjs",
     "gateway:enroll-inventory": "pnpm --filter @led-control/api gateway:enroll-inventory",
     "docker:up": "docker compose up -d",
+    "docker:up:production": "docker compose -f docker-compose.yml -f docker-compose.production.yml up -d",
     "docker:down": "docker compose down"
   },
   "devDependencies": {

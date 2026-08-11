@@ -3,6 +3,7 @@ import {
   acceptanceAckV2Schema,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
+  GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   gatewayHeartbeatV2Schema,
   IdentifyDevicePayload,
   identifyDeviceSchema,
@@ -19,8 +20,6 @@ import mqtt, { IClientOptions, MqttClient } from "mqtt";
 import { readFileSync } from "node:fs";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
-
-const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -67,7 +66,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   async publishTopic(topic: string, payload: unknown) {
     await new Promise<void>((resolve, reject) => {
-      this.getClient().publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => {
+      this.getClient().publish(topic, JSON.stringify(payload), {
+        qos: 1,
+        properties: { messageExpiryInterval: GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000 }
+      }, (error) => {
         if (error) {
           reject(error);
           return;
@@ -131,6 +133,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           gatewayId: ack.gatewayId,
           idempotencyKey: ack.idempotencyKey,
           sequence: BigInt(ack.sequence),
+          status: { in: ["pending", "published"] },
           command: { siteId: ack.siteId }
         },
         data: {
@@ -154,6 +157,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           gatewayId: ack.gatewayId,
           idempotencyKey: ack.idempotencyKey,
           sequence: BigInt(ack.sequence),
+          status: { in: ["pending", "published", "accepted"] },
           command: { siteId: ack.siteId }
         },
         select: { id: true, commandId: true }
@@ -317,6 +321,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     ack: ReturnType<typeof deviceStatusAckV2Schema.parse>
   ) {
     await this.prisma.$transaction(async (tx) => {
+      const dispatchStatus =
+        ack.status === "succeeded" ? "completed" : ack.status === "timed_out" ? "timed_out" : "failed";
+      const completed = await tx.commandDispatch.updateMany({
+        where: { id: dispatch.id, status: { in: ["pending", "published", "accepted"] } },
+        data: { status: dispatchStatus, completedAt: new Date(ack.occurredAt) }
+      });
+      if (completed.count !== 1) return;
+
       for (const result of ack.results) {
         const updated = await tx.commandFixtureResult.updateMany({
           where: { dispatchId: dispatch.id, fixtureId: result.fixtureId },
@@ -333,19 +345,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         if (updated.count !== 1) throw new Error(`fixture result is outside dispatch: ${result.fixtureId}`);
       }
 
-      const dispatchStatus =
-        ack.status === "succeeded" ? "completed" : ack.status === "timed_out" ? "timed_out" : "failed";
-      await tx.commandDispatch.update({
-        where: { id: dispatch.id },
-        data: { status: dispatchStatus, completedAt: new Date(ack.occurredAt) }
-      });
       const remaining = await tx.commandDispatch.count({
         where: { commandId: dispatch.commandId, status: { notIn: ["completed", "failed", "timed_out"] } }
       });
       if (remaining === 0) {
         const dispatches = await tx.commandDispatch.findMany({ where: { commandId: dispatch.commandId }, select: { status: true } });
-        await tx.command.update({
-          where: { id: dispatch.commandId },
+        await tx.command.updateMany({
+          where: { id: dispatch.commandId, status: "pending" },
           data: {
             status: dispatches.every((item) => item.status === "completed") ? "acknowledged" : "failed",
             errorMessage: dispatches.every((item) => item.status === "completed") ? null : "one or more gateway dispatches failed"
@@ -444,9 +450,8 @@ export function createMqttConnectionOptions(env: NodeJS.ProcessEnv): { url: stri
       key: readFileSync(requiredMqttPath(env, "MQTT_CLIENT_KEY_PATH")),
       rejectUnauthorized: true,
       clientId: `api-service-${requiredMqttApiInstanceId(env)}`,
-      clean: false,
-      protocolVersion: 5,
-      properties: { sessionExpiryInterval: SESSION_EXPIRY_SECONDS }
+      clean: true,
+      protocolVersion: 5
     }
   };
 }
@@ -459,7 +464,7 @@ function requiredMqttPath(env: NodeJS.ProcessEnv, name: string) {
 
 function requiredMqttApiInstanceId(env: NodeJS.ProcessEnv) {
   const instanceId = env.MQTT_API_INSTANCE_ID?.trim();
-  if (!instanceId) throw new Error("MQTT_API_INSTANCE_ID is required for a persistent MQTT session");
+  if (!instanceId) throw new Error("MQTT_API_INSTANCE_ID is required for the API MQTT client");
   return instanceId;
 }
 

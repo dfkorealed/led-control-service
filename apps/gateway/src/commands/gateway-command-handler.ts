@@ -2,6 +2,7 @@ import {
   AcceptanceAckV2,
   DeviceStatusAckV2,
   GatewayDimmingCommandV2,
+  GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   acceptanceAckV2Schema,
   deviceStatusAckV2Schema
 } from "@led-control/shared";
@@ -33,6 +34,11 @@ export async function handleGatewayDimmingCommand(
     const result = createIndeterminateResult(command, stored.acceptance);
     await journal.complete(command.idempotencyKey, result);
     return result;
+  }
+
+  // Broker expiry is primary; this blocks delayed delivery paths before they reach BLE.
+  if (Date.now() - Date.parse(command.requestedAt) >= GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS) {
+    return rejectExpiredCommand(journal, command);
   }
 
   const identity = {
@@ -148,4 +154,44 @@ function createIndeterminateResult(command: GatewayDimmingCommandV2, acceptance?
     }))
   });
   return { acceptance: accepted, deviceStatus };
+}
+
+async function rejectExpiredCommand(journal: JournalLike, command: GatewayDimmingCommandV2): Promise<GatewayCommandResult> {
+  const identity = {
+    commandId: command.commandId,
+    dispatchId: command.dispatchId,
+    idempotencyKey: command.idempotencyKey,
+    sequence: command.sequence,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId
+  };
+  const result = {
+    acceptance: acceptanceAckV2Schema.parse({
+      ...identity,
+      eventId: randomUUID(),
+      status: "rejected",
+      acceptedAt: new Date().toISOString(),
+      errorCode: "COMMAND_EXPIRED",
+      errorMessage: "gateway command expired before execution"
+    }),
+    deviceStatus: deviceStatusAckV2Schema.parse({
+      ...identity,
+      eventId: randomUUID(),
+      status: "failed",
+      occurredAt: new Date().toISOString(),
+      results: command.targetFixtureIds.map((fixtureId) => ({
+        fixtureId,
+        status: "failed" as const,
+        errorMessage: "gateway command expired before execution"
+      }))
+    })
+  };
+  const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
+  if (!reserved) {
+    const raced = await journal.get(command.idempotencyKey);
+    if (raced?.state === "completed") return raced.result as GatewayCommandResult;
+    throw new Error("duplicate command has an indeterminate accepted result");
+  }
+  await journal.complete(command.idempotencyKey, result);
+  return result;
 }

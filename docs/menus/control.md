@@ -49,7 +49,7 @@
 - BLE Mesh fixture status는 기본 8초 timeout을 적용하고 adapter가 반환하지 않아도 fixture별 `timed_out` 결과로 명령을 종료한다.
 - Gateway 재시작 후 accepted-only 명령은 실제 조명을 다시 제어하지 않고 `indeterminate after gateway restart` timeout 결과로 닫는다.
 - Gateway journal은 idempotency 결과를 24시간·최대 10,000건만 유지하고 fixture별 최신 snapshot 한 건만 startup resync에 사용한다.
-- Gateway는 assignment의 gateway ID 기반 MQTT 5 persistent session으로 QoS 1 command subscription을 유지하고, production Mosquitto persistence volume이 offline gateway command queue를 보존한다. API publisher는 deployment instance ID가 포함된 별도 persistent client ID를 사용한다.
+- Gateway는 assignment의 gateway ID 기반 MQTT 5 persistent session으로 QoS 1 command subscription을 유지한다. 각 control command는 API acceptance deadline과 같은 10초 MQTT message expiry를 사용하고 gateway도 `requestedAt` 기준 만료 명령을 BLE 호출 전에 거부한다. Production broker는 gateway별 최대 100개 또는 1 MiB QoS 1 queue를 유지하므로 이 한도를 넘는 offline 명령은 보장하지 않는다. API의 global event consumer는 deployment instance ID가 포함된 고유 client ID를 쓰되 clean session으로 연결한다.
 
 ## 미구현
 
@@ -89,6 +89,9 @@
 - `apps/api/src/mqtt/mqtt.service.ts`
 - `apps/gateway/src/gateway.ts`
 - `apps/gateway/src/index.ts`
+- `apps/gateway/docker/mqtt-persistence.integration.mjs`
+- `infra/mosquitto.production-tls.conf`
+- `docker-compose.production.yml`
 - `apps/gateway/src/commands/command-journal.ts`
 - `apps/gateway/src/commands/gateway-command-handler.ts`
 - `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
