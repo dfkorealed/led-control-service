@@ -223,6 +223,43 @@ describe("MqttIdentityStore", () => {
     await expectNoCandidateGenerations(fixture.identityRoot, previous);
   });
 
+  it("preserves a valid candidate when pointer fsync and previous-pointer restore both fail", async () => {
+    const fixture = await createFixture();
+    const gatewayId = "gateway-27";
+    await activateIdentity(fixture, gatewayId);
+    const previous = await readlink(join(fixture.identityRoot, "current"));
+    let currentPointerWrites = 0;
+    const failingStore = new MqttIdentityStore({
+      identityRoot: fixture.identityRoot,
+      rename: async (source, destination) => {
+        if (destination === join(fixture.identityRoot, "current")) {
+          currentPointerWrites += 1;
+          if (currentPointerWrites >= 2) throw new Error("previous pointer restore failed");
+        }
+        await rename(source, destination);
+      },
+      syncDirectory: async (path) => {
+        if (path === fixture.identityRoot && currentPointerWrites === 1) {
+          throw new Error("candidate pointer fsync failed");
+        }
+      }
+    });
+    const prepared = await failingStore.prepare(gatewayId, fixture.mqttCaPem, async (csrPem) => ({
+      gatewayId,
+      ...(await signCsr(fixture.directory, csrPem, gatewayId))
+    }), true);
+    if (!prepared) throw new Error("expected a prepared MQTT identity");
+
+    await expect(prepared.commit()).rejects.toThrow("MQTT identity installation failed");
+    await expect(prepared.rollback()).rejects.toThrow("MQTT identity rollback is unsafe");
+
+    const current = await readlink(join(fixture.identityRoot, "current"));
+    expect(current).not.toBe(previous);
+    await expect(failingStore.currentIdentity(gatewayId)).resolves.toMatchObject({
+      generationPath: join(fixture.identityRoot, current)
+    });
+  });
+
   it.each([
     { name: "expired", startOffsetDays: -3, endOffsetDays: -2 },
     { name: "not yet valid", startOffsetDays: 1, endOffsetDays: 2 }

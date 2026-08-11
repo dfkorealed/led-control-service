@@ -4,6 +4,7 @@ import { GatewayMqttRuntime } from "./gateway-mqtt-runtime";
 
 class FakeMqttClient extends EventEmitter {
   readonly end = vi.fn((_force?: boolean, callback?: (error?: Error) => void) => callback?.());
+  readonly reconnect = vi.fn();
 }
 
 const topicHandlers = {
@@ -200,34 +201,65 @@ describe("GatewayMqttRuntime", () => {
 
     await expect(activating).rejects.toThrow("candidate rejected");
     expect(runtime.client).toBe(current);
-    expect(current.end).not.toHaveBeenCalled();
+    expect(current.end).toHaveBeenCalledWith(true, expect.any(Function));
+    expect(current.reconnect).toHaveBeenCalledTimes(1);
     expect(replacement.end).toHaveBeenCalledWith(true, expect.any(Function));
     await runtime.stop();
   });
 
-  it("buffers a command received after candidate CONNECT until SUBACK and cutover complete", async () => {
-    let finishSubscription!: () => void;
+  it("quiesces the old client, processes candidate delivery once, and resumes only after rollback", async () => {
+    let rejectCommit!: (error: Error) => void;
+    const commit = new Promise<void>((_resolve, reject) => { rejectCommit = reject; });
     const current = new FakeMqttClient();
     const candidate = new FakeMqttClient();
-    const received: string[] = [];
+    const deliveries: string[] = [];
+    const journal = new Set<string>();
+    const executions: string[] = [];
     const runtime = new GatewayMqttRuntime({
       client: current as never,
       heartbeatMs: 1_000,
-      subscribe: () => new Promise<void>((resolve) => { finishSubscription = resolve; }),
+      subscribe: vi.fn(),
       publishHeartbeat: vi.fn(),
-      topicHandlers: { "commands/dimming": (payload) => received.push(payload.toString()) },
+      topicHandlers: {
+        "commands/dimming": (payload) => {
+          const commandId = payload.toString();
+          deliveries.push(commandId);
+          if (!journal.has(commandId)) {
+            journal.add(commandId);
+            executions.push(commandId);
+          }
+        }
+      },
       onMessageError: vi.fn()
     });
     runtime.start();
 
-    const activating = runtime.activate(candidate as never);
+    const activating = runtime.activate(candidate as never, {
+      commit: () => commit,
+      rollback: vi.fn().mockResolvedValue(undefined)
+    });
+    await vi.waitFor(() => expect(candidate.reconnect).toHaveBeenCalledTimes(1));
+    expect(current.end).toHaveBeenCalledWith(true, expect.any(Function));
+    expect(current.end.mock.invocationCallOrder[0]).toBeLessThan(candidate.reconnect.mock.invocationCallOrder[0]);
+
     candidate.emit("connect", { sessionPresent: true });
-    candidate.emit("message", "commands/dimming", Buffer.from("queued-before-suback"));
-    finishSubscription();
-    await activating;
+    candidate.emit("message", "commands/dimming", Buffer.from("rotation-command"));
+    await Promise.resolve();
+    expect(deliveries).toEqual(["rotation-command"]);
+    expect(executions).toEqual(["rotation-command"]);
+
+    rejectCommit(new Error("pointer commit failed"));
+    await expect(activating).rejects.toThrow("pointer commit failed");
+    expect(candidate.end).toHaveBeenCalledWith(true, expect.any(Function));
+    expect(current.reconnect).toHaveBeenCalledTimes(1);
+    expect(deliveries).toEqual(["rotation-command"]);
+
+    current.emit("connect", { sessionPresent: true });
+    current.emit("message", "commands/dimming", Buffer.from("rotation-command"));
     await Promise.resolve();
 
-    expect(received).toEqual(["queued-before-suback"]);
+    expect(deliveries).toEqual(["rotation-command", "rotation-command"]);
+    expect(executions).toEqual(["rotation-command"]);
     await runtime.stop();
   });
 
@@ -280,7 +312,7 @@ describe("GatewayMqttRuntime", () => {
     expect(candidate.listenerCount("message")).toBe(0);
   });
 
-  it("rolls back a failed identity commit and replays candidate-buffered commands through the current runtime", async () => {
+  it("does not replay candidate commands after a failed identity commit", async () => {
     const current = new FakeMqttClient();
     const candidate = new FakeMqttClient();
     const received: string[] = [];

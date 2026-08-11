@@ -65,3 +65,24 @@
 - `pnpm --filter @led-control/gateway typecheck`: exit `0`.
 - `pnpm --filter @led-control/gateway test:contracts`: exit `0`, 9 tests passed.
 - `sh -n apps/gateway/docker/healthcheck.sh`, `sh -n apps/gateway/docker/entrypoint.sh`, `git diff --check`: exit `0`.
+
+## Fix Round 2
+
+### Critical finding 대응
+
+- Critical 1 - same client ID takeover, buffered replay와 old reconnect 경합:
+  - rotated client는 `manualConnect: true`로 생성한다. runtime은 candidate `reconnect()` 전에 현재 stable client를 `end(true)`로 quiesce하여 자동 reconnect가 candidate readiness 중 broker session을 다시 빼앗지 못하게 한다.
+  - candidate `message` listener는 SUBACK/identity commit 대기 중에도 기존 command handler를 즉시 호출한다. 따라서 MQTT.js PUBACK 뒤에 application buffer를 다시 replay하지 않는다. QoS 1 redelivery는 기존 command journal의 idempotency key로 물리 실행을 한 번으로 수렴시킨다.
+  - rollback이 정상일 때만 old client를 명시적으로 reconnect하고, candidate 종료와 local payload replay 사이의 중복 경로를 제거했다.
+  - `gateway-mqtt-runtime.test.ts`는 old `end(true)` -> candidate `reconnect()` -> candidate CONNECT/message -> identity failure -> candidate end -> old reconnect -> broker redelivery 순서를 발생시켜 delivery는 두 번 가능하지만 journal side effect는 한 번임을 검증한다.
+- Critical 2 - pointer write/fsync 뒤 previous restore failure의 dangling symlink:
+  - `MqttIdentityStore`는 pointer rename 성공 뒤 fsync가 실패하면 `pointerMayReferenceCandidate`를 유지한다. rollback은 previous pointer 복구가 성공한 경우에만 candidate generation을 삭제한다.
+  - rollback 복구도 실패하면 `MQTT identity rollback is unsafe`를 반환하고 candidate generation을 보존한다. runtime은 이 transaction rollback 실패를 MQTT fail-closed 상태로 수렴시켜 old identity를 재연결하지 않는다.
+- `mqtt-identity-store.test.ts`는 candidate pointer rename 성공, pointer fsync 실패, previous pointer restore 반복 실패를 순서대로 주입해 `current`가 유효한 candidate generation을 계속 가리키는지 검증한다.
+
+### Fix Round 2 검증
+
+- `pnpm --filter @led-control/gateway test`: exit `0`, 33 files / 153 tests passed.
+- `pnpm --filter @led-control/gateway typecheck`: exit `0`.
+- `pnpm --filter @led-control/gateway test:contracts`: exit `0`, 9 tests passed.
+- `sh -n apps/gateway/docker/healthcheck.sh`, `sh -n apps/gateway/docker/entrypoint.sh`, `git diff --check`: exit `0`.

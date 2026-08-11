@@ -143,6 +143,7 @@ export class MqttIdentityStore {
     const candidatePointer = `generations/${input.generationId}`;
     let location: "pending" | "active" | "removed" = "pending";
     let pointerCommitted = false;
+    let pointerMayReferenceCandidate = false;
     const restorePreviousPointer = async () => {
       if (input.previous) await this.replacePointer("current", input.previous);
       else {
@@ -172,8 +173,10 @@ export class MqttIdentityStore {
           pointerCommitted = true;
         } catch (error) {
           if (error instanceof PointerReplacementError && error.pointerChanged) {
+            pointerMayReferenceCandidate = true;
             try {
               await restorePreviousPointer();
+              pointerMayReferenceCandidate = false;
             } catch {
               throw new Error("MQTT identity installation failed");
             }
@@ -183,10 +186,16 @@ export class MqttIdentityStore {
       },
       rollback: async () => {
         if (location === "removed") return;
-        if (pointerCommitted) {
-          const current = await readOptionalLink(join(this.options.identityRoot, "current"));
-          if (current === candidatePointer) await restorePreviousPointer();
-          pointerCommitted = false;
+        if (pointerCommitted || pointerMayReferenceCandidate) {
+          try {
+            await restorePreviousPointer();
+            pointerCommitted = false;
+            pointerMayReferenceCandidate = false;
+          } catch {
+            // A failed pointer fsync can leave current pointing at this generation.
+            // Keep it intact rather than turning current into a dangling symlink.
+            throw new Error("MQTT identity rollback is unsafe");
+          }
         }
         await removeCandidate();
       },

@@ -7,6 +7,10 @@ export interface GatewayMqttIdentity {
   gatewayId: string;
 }
 
+export interface GatewayMqttClientOptions {
+  manualConnect?: boolean;
+}
+
 export function createMqttConnectionOptions(
   env: NodeJS.ProcessEnv,
   identity?: GatewayMqttIdentity
@@ -30,9 +34,13 @@ export function createMqttConnectionOptions(
   };
 }
 
-export function createMqttClient(env: NodeJS.ProcessEnv, identity?: GatewayMqttIdentity) {
+export function createMqttClient(
+  env: NodeJS.ProcessEnv,
+  identity?: GatewayMqttIdentity,
+  options: GatewayMqttClientOptions = {}
+) {
   const connection = createMqttConnectionOptions(env, identity);
-  return mqtt.connect(connection.url, connection.options);
+  return mqtt.connect(connection.url, { ...connection.options, ...(options.manualConnect ? { manualConnect: true } : {}) });
 }
 
 function required(env: NodeJS.ProcessEnv, name: string) {

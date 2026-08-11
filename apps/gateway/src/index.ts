@@ -363,7 +363,7 @@ export function createMqttIdentityActivation(
       MQTT_CA_PATH: candidate.caPath,
       MQTT_CLIENT_CERT_PATH: candidate.certificatePath,
       MQTT_CLIENT_KEY_PATH: candidate.keyPath
-    }, { gatewayId: assignment.gatewayId });
+    }, { gatewayId: assignment.gatewayId }, { manualConnect: true });
     await runtime.activate(client, prepared);
   };
 }
