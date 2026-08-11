@@ -66,23 +66,23 @@ Commit: `docs: align completed product state`
 - Produces: `createMqttConnectionOptions(env, identity?)`의 stable `clientId`, `clean: false`, MQTT 5 session expiry 계약
 - Produces: broker persistence volume과 QoS 1 offline queue
 
-- [ ] **Step 1: session 및 broker 계약 실패 테스트 작성**
+- [x] **Step 1: session 및 broker 계약 실패 테스트 작성**
 
 Gateway ID가 client ID에 포함되고 `clean=false`, session expiry가 명시되며 production Mosquitto가 persistence를 활성화하는지 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/gateway test -- --run src/mqtt/create-mqtt-client.test.ts && node --test tests/mqtt-production-config.node.mjs`
 
-- [ ] **Step 3: persistent session 구현**
+- [x] **Step 3: persistent session 구현**
 
 Gateway client는 assignment의 gateway ID로 stable client ID를 구성하고 API publisher는 별도 stable service client ID를 사용한다. broker data directory를 persistent volume으로 mount한다.
 
-- [ ] **Step 4: 재연결·중복 계약 검증**
+- [x] **Step 4: 재연결·중복 계약 검증**
 
 신규 session과 기존 session의 subscribe 동작 및 QoS 1 중복이 command journal에서 재실행되지 않는 테스트를 추가한다.
 
-- [ ] **Step 5: 검증과 커밋**
+- [x] **Step 5: 검증과 커밋**
 
 Run: `pnpm --filter @led-control/gateway test && pnpm --filter @led-control/api test -- --runInBand && node --test tests/mqtt-production-config.node.mjs`
 
