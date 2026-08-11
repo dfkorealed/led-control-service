@@ -14,6 +14,7 @@ import {
   provisioningScanStartSchema
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
+import type { MqttClient } from "mqtt";
 import {
   applyIdentifyDevice,
   applyProvisionDevice,
@@ -62,17 +63,9 @@ async function main() {
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
 
-  client.on("connect", () => {
+  client.on("connect", (packet) => {
     void health.healthy();
-    client.subscribe(
-      [
-        mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
-        mqttTopics.provisioningScanStart(siteId, gatewayId),
-        mqttTopics.identifyDevice(siteId, gatewayId),
-        mqttTopics.provisionDevice(siteId, gatewayId)
-      ],
-      { qos: 1 }
-    );
+    subscribeGatewayCommands(client, assignment, packet.sessionPresent);
     void publishHeartbeat();
     void publishJournalSnapshot();
     setInterval(() => void publishHeartbeat(), heartbeatMs);
@@ -209,6 +202,23 @@ async function main() {
   }
 }
 
+export function subscribeGatewayCommands(
+  client: Pick<MqttClient, "subscribe">,
+  assignment: Pick<GatewayAssignment, "siteId" | "gatewayId">,
+  sessionPresent: boolean
+) {
+  if (sessionPresent) return;
+  client.subscribe(
+    [
+      mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "dimming"),
+      mqttTopics.provisioningScanStart(assignment.siteId, assignment.gatewayId),
+      mqttTopics.identifyDevice(assignment.siteId, assignment.gatewayId),
+      mqttTopics.provisionDevice(assignment.siteId, assignment.gatewayId)
+    ],
+    { qos: 1 }
+  );
+}
+
 export async function startGatewayRuntime(options: {
   env: NodeJS.ProcessEnv;
   resolveAssignment?: () => Promise<GatewayAssignment>;
@@ -221,7 +231,10 @@ export async function startGatewayRuntime(options: {
   ))();
   await (options.ensureMqttIdentity ?? ensureMqttIdentity)(assignment, options.env);
   const adapters = await (options.createAdapters ?? createProductionAdapters)(options.env);
-  const client = (options.createMqtt ?? createMqttClient)({ ...options.env, MQTT_URL: assignment.mqttUrl });
+  const client = (options.createMqtt ?? createMqttClient)(
+    { ...options.env, MQTT_URL: assignment.mqttUrl },
+    { gatewayId: assignment.gatewayId }
+  );
   return { assignment, adapters, client };
 }
 

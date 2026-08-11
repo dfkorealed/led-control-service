@@ -34,6 +34,7 @@ test("개발 환경은 명시한 LAN MQTT URL과 mTLS 경로를 보존한다", (
   assert.equal(env.MQTT_CA_PATH, "/vault/current/mqtt-ca.crt");
   assert.equal(env.MQTT_CLIENT_CERT_PATH, "/vault/current/api-mqtt-client.crt");
   assert.equal(env.MQTT_CLIENT_KEY_PATH, "/vault/current/api-mqtt-client.key");
+  assert.equal(env.MQTT_API_INSTANCE_ID, "development");
   assert.equal(env.DEV_GATEWAY_ID, "11111111-1111-4111-8111-111111111111");
 });
 
@@ -45,6 +46,7 @@ test("개발 환경은 미설정 mTLS 값에만 기존 로컬 PKI 기본값을 �
   assert.equal(env.MQTT_CA_PATH, "/workspace/led-control/.local/pki/ca.crt");
   assert.equal(env.MQTT_CLIENT_CERT_PATH, "/workspace/led-control/.local/pki/api.crt");
   assert.equal(env.MQTT_CLIENT_KEY_PATH, "/workspace/led-control/.local/pki/api.key");
+  assert.equal(env.MQTT_API_INSTANCE_ID, "development");
 });
 
 test("개발 환경은 평문 MQTT URL을 거부한다", () => {

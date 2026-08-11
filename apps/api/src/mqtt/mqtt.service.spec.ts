@@ -1,5 +1,7 @@
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 
+jest.mock("node:fs", () => ({ readFileSync: jest.fn(() => Buffer.from("test-certificate")) }));
+
 describe("MqttService", () => {
   it("rejects insecure production broker configuration", () => {
     expect(() => createMqttConnectionOptions({ NODE_ENV: "production", MQTT_URL: "mqtt://broker:1883" })).toThrow(
@@ -11,6 +13,23 @@ describe("MqttService", () => {
     expect(() =>
       createMqttConnectionOptions({ MQTT_URL: "mqtt://localhost:1883", MQTT_ALLOW_INSECURE_LOCAL: "true" })
     ).toThrow("mqtts://");
+  });
+
+  it("uses a deployment-specific client ID for a durable MQTT 5 API session", () => {
+    const { options } = createMqttConnectionOptions({
+      MQTT_URL: "mqtts://broker:8883",
+      MQTT_CA_PATH: "/certs/ca.crt",
+      MQTT_CLIENT_CERT_PATH: "/certs/api.crt",
+      MQTT_CLIENT_KEY_PATH: "/certs/api.key",
+      MQTT_API_INSTANCE_ID: "api-blue-2"
+    });
+
+    expect(options).toMatchObject({
+      clientId: "api-service-api-blue-2",
+      clean: false,
+      protocolVersion: 5,
+      properties: { sessionExpiryInterval: 604800 }
+    });
   });
 
   it("publishes a QoS 1 JSON payload", async () => {

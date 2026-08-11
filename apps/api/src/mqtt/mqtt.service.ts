@@ -15,10 +15,12 @@ import {
   provisioningScanStartSchema,
   unprovisionedDeviceFoundSchema
 } from "@led-control/shared";
-import mqtt, { MqttClient } from "mqtt";
+import mqtt, { IClientOptions, MqttClient } from "mqtt";
 import { readFileSync } from "node:fs";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
+
+const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
@@ -430,7 +432,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-export function createMqttConnectionOptions(env: NodeJS.ProcessEnv) {
+export function createMqttConnectionOptions(env: NodeJS.ProcessEnv): { url: string; options: IClientOptions } {
   const url = env.MQTT_URL;
   if (!url?.startsWith("mqtts://")) throw new Error("MQTT_URL is required and must use mqtts://");
 
@@ -440,7 +442,11 @@ export function createMqttConnectionOptions(env: NodeJS.ProcessEnv) {
       ca: readFileSync(requiredMqttPath(env, "MQTT_CA_PATH")),
       cert: readFileSync(requiredMqttPath(env, "MQTT_CLIENT_CERT_PATH")),
       key: readFileSync(requiredMqttPath(env, "MQTT_CLIENT_KEY_PATH")),
-      rejectUnauthorized: true
+      rejectUnauthorized: true,
+      clientId: `api-service-${requiredMqttApiInstanceId(env)}`,
+      clean: false,
+      protocolVersion: 5,
+      properties: { sessionExpiryInterval: SESSION_EXPIRY_SECONDS }
     }
   };
 }
@@ -449,6 +455,12 @@ function requiredMqttPath(env: NodeJS.ProcessEnv, name: string) {
   const value = env[name];
   if (!value) throw new Error(`${name} is required for MQTT mTLS`);
   return value;
+}
+
+function requiredMqttApiInstanceId(env: NodeJS.ProcessEnv) {
+  const instanceId = env.MQTT_API_INSTANCE_ID?.trim();
+  if (!instanceId) throw new Error("MQTT_API_INSTANCE_ID is required for a persistent MQTT session");
+  return instanceId;
 }
 
 function isUniqueConstraintError(error: unknown) {

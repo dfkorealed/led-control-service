@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { startGatewayRuntime } from "./index";
+import { startGatewayRuntime, subscribeGatewayCommands } from "./index";
 
 const assignment = {
   siteId: "site-27",
@@ -10,6 +10,25 @@ const assignment = {
 };
 
 describe("startGatewayRuntime", () => {
+  it("subscribes command topics only when MQTT reports a new session", () => {
+    const subscribe = vi.fn();
+    const client = { subscribe };
+
+    subscribeGatewayCommands(client as never, assignment, false);
+    subscribeGatewayCommands(client as never, assignment, true);
+
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledWith(
+      [
+        "sites/site-27/gateways/gateway-27/commands/dimming",
+        "sites/site-27/gateways/gateway-27/commands/provisioning-scan-start",
+        "sites/site-27/gateways/gateway-27/commands/identify-device",
+        "sites/site-27/gateways/gateway-27/commands/provision-device"
+      ],
+      { qos: 1 }
+    );
+  });
+
   it("fails closed before BlueZ and MQTT startup when the current MQTT identity has unsafe permissions", async () => {
     const createAdapters = vi.fn();
     const createMqtt = vi.fn();
@@ -36,7 +55,12 @@ describe("startGatewayRuntime", () => {
       resolveAssignment: async () => { calls.push("assignment"); return assignment; },
       ensureMqttIdentity: async (received) => { calls.push("identity"); expect(received).toEqual(assignment); },
       createAdapters: (async () => { calls.push("bluez"); return adapters; }) as never,
-      createMqtt: ((env: NodeJS.ProcessEnv) => { calls.push("mqtt"); expect(env.MQTT_URL).toBe(assignment.mqttUrl); return mqtt; }) as never
+      createMqtt: ((env: NodeJS.ProcessEnv, identity: { gatewayId: string }) => {
+        calls.push("mqtt");
+        expect(env.MQTT_URL).toBe(assignment.mqttUrl);
+        expect(identity).toEqual({ gatewayId: assignment.gatewayId });
+        return mqtt;
+      }) as never
     })).resolves.toEqual({ assignment, adapters, client: mqtt });
 
     expect(calls).toEqual(["assignment", "identity", "bluez", "mqtt"]);
