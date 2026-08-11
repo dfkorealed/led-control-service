@@ -117,7 +117,14 @@ describe("startGatewayRuntime", () => {
     const createMqtt = vi.fn(() => client);
     const runtime = { activate: vi.fn().mockResolvedValue(undefined) };
 
-    const prepared = { candidate, commit: vi.fn(), rollback: vi.fn(), finalize: vi.fn(), isCommitted: vi.fn(() => false) };
+    const prepared = {
+      candidate,
+      commit: vi.fn(),
+      rollback: vi.fn(),
+      finalize: vi.fn(),
+      isCommitted: vi.fn(() => false),
+      isCurrentCandidate: vi.fn(async () => false)
+    };
     await createMqttIdentityActivation(assignment, { MQTT_URL: "mqtts://ignored.example:8883" }, runtime as never, createMqtt as never)(prepared);
 
     expect(createMqtt).toHaveBeenCalledWith({

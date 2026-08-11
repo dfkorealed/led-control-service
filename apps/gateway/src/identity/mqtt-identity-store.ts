@@ -32,6 +32,7 @@ export interface PreparedMqttIdentity {
   rollback(): Promise<void>;
   finalize(): Promise<void>;
   isCommitted(): boolean;
+  isCurrentCandidate(): Promise<boolean>;
 }
 
 export class MqttIdentityStore {
@@ -161,6 +162,8 @@ export class MqttIdentityStore {
     return {
       candidate: input.candidate,
       isCommitted: () => pointerCommitted,
+      isCurrentCandidate: async () =>
+        await readOptionalLink(join(this.options.identityRoot, "current")) === candidatePointer,
       commit: async () => {
         if (location === "removed") throw new Error("MQTT identity installation failed");
         if (pointerCommitted) return;

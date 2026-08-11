@@ -103,3 +103,15 @@
 - `pnpm --filter @led-control/gateway typecheck`: exit `0`.
 - `pnpm --filter @led-control/gateway test:contracts`: exit `0`, 9 tests passed.
 - `sh -n apps/gateway/docker/healthcheck.sh`, `sh -n apps/gateway/docker/entrypoint.sh`, `git diff --check`: exit `0`.
+## Fix Round 4
+
+- Runtime의 CONNACK 이후 실패가 바깥 certificate rotation catch에서 identity rollback으로 되돌아가던 경계를 수정했다.
+- `PreparedMqttIdentity.isCommitted()`를 추가해 runtime이 이미 pointer를 확정한 경우 rollback하지 않고 candidate generation을 유지·정리한다.
+- 회귀 테스트는 post-CONNACK 실패를 모사해 old identity 복귀, non-idempotent command 재전달 위험과 runtime/disk identity 분리를 차단한다.
+- 검증: certificate rotation, identity store, MQTT runtime, index 테스트 47건과 gateway typecheck, `git diff --check` 통과.
+
+## Fix Round 5
+
+- `isCommitted` 메모리 플래그만으로 authoritative identity를 판단하지 않고 실제 `current` symlink가 candidate generation을 가리키는지 확인한다.
+- pointer 복구 중 fsync가 실패했지만 실제 pointer는 old generation인 경우 candidate finalize로 old generation을 삭제하지 않는다.
+- fault-injection 회귀를 포함한 관련 테스트 48건, gateway typecheck와 `git diff --check`를 통과했다.
