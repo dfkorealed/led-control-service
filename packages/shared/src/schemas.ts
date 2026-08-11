@@ -295,6 +295,14 @@ export type RestoreFloorEditorRevisionInput = z.infer<typeof restoreFloorEditorR
 export type FloorEditorSnapshot = z.infer<typeof floorEditorSnapshotSchema>;
 export type EditorRevisionListQuery = z.infer<typeof editorRevisionListQuerySchema>;
 
+export const createRegistrationSessionSchema = z.object({
+  siteId: z.string().uuid(),
+  floorId: z.string().uuid(),
+  gatewayId: z.string().uuid()
+}).strict();
+
+export type CreateRegistrationSessionInput = z.infer<typeof createRegistrationSessionSchema>;
+
 export const provisioningScanStartSchema = z.object({
   sessionId: z.string().uuid(),
   siteId: z.string().uuid(),

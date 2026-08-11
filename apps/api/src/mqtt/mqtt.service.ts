@@ -22,6 +22,9 @@ import { readFileSync } from "node:fs";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
 
+const DEVICE_UUID_CONFLICT_ERROR = "device UUID is already registered by another site";
+const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
+
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
   private client: MqttClient | null = null;
@@ -400,25 +403,33 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       completedAt: string;
     }
   ) {
-    await this.prisma.$transaction(async (tx) => {
-      const node = await tx.discoveredMeshNode.findFirst({
-        where: {
-          id: event.nodeId,
-          sessionId: event.sessionId,
-          deviceUuid: event.deviceUuid,
-          session: {
-            siteId: topicScope.siteId,
-            gatewayId: topicScope.gatewayId,
-            status: "active"
-          }
-        },
-        include: { session: true }
-      });
-      if (!node || !node.pendingFixtureName || node.pendingFixtureX === null || node.pendingFixtureY === null) return;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const node = await tx.discoveredMeshNode.findFirst({
+          where: {
+            id: event.nodeId,
+            sessionId: event.sessionId,
+            deviceUuid: event.deviceUuid,
+            session: {
+              siteId: topicScope.siteId,
+              gatewayId: topicScope.gatewayId,
+              status: "active"
+            }
+          },
+          include: { session: true }
+        });
+        if (!node || !node.pendingFixtureName || node.pendingFixtureX === null || node.pendingFixtureY === null) return;
 
-      const meshNode =
-        (await tx.meshNode.findUnique({ where: { deviceUuid: event.deviceUuid } })) ??
-        (await tx.meshNode.create({
+        const existingMeshNode = await tx.meshNode.findUnique({ where: { deviceUuid: event.deviceUuid } });
+        if (existingMeshNode && existingMeshNode.gatewayId !== node.session.gatewayId) {
+          await tx.discoveredMeshNode.update({
+            where: { id: node.id },
+            data: { status: "failed", errorMessage: DEVICE_UUID_CONFLICT_ERROR }
+          });
+          return;
+        }
+
+        const meshNode = existingMeshNode ?? await tx.meshNode.create({
           data: {
             gatewayId: node.session.gatewayId,
             deviceUuid: event.deviceUuid,
@@ -426,40 +437,65 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             meshAddress: event.meshAddress,
             firmwareVersion: event.firmwareVersion ?? node.firmwareVersion
           }
-        }));
+        });
 
-      const existingFixture = await tx.fixture.findFirst({ where: { meshNodeId: meshNode.id } });
-      if (!existingFixture) {
-        await tx.fixture.create({
+        const existingFixture = await tx.fixture.findFirst({ where: { meshNodeId: meshNode.id } });
+        if (!existingFixture) {
+          await tx.fixture.create({
+            data: {
+              id: node.id,
+              floorId: node.session.floorId,
+              meshNodeId: meshNode.id,
+              name: node.pendingFixtureName,
+              ratedWatt: node.pendingRatedWatt ?? "40.00",
+              x: node.pendingFixtureX,
+              y: node.pendingFixtureY,
+              status: "offline",
+              statusReason: PROVISIONING_WAITING_STATE,
+              brightness: 0,
+              rssi: null,
+              hopCount: null,
+              commandSuccessRate: null,
+              lastSeenAt: null
+            }
+          });
+        }
+
+        await tx.discoveredMeshNode.update({
+          where: { id: node.id },
           data: {
-            id: node.id,
-            floorId: node.session.floorId,
-            meshNodeId: meshNode.id,
-            name: node.pendingFixtureName,
-            ratedWatt: node.pendingRatedWatt ?? "40.00",
-            x: node.pendingFixtureX,
-            y: node.pendingFixtureY,
-            status: "online",
-            brightness: 60,
+            status: "provisioned",
+            identifyState: "confirmed",
+            meshAddress: event.meshAddress,
+            firmwareVersion: event.firmwareVersion ?? node.firmwareVersion,
             rssi: event.rssi ?? node.rssi,
-            hopCount: event.hopCount ?? null,
-            commandSuccessRate: 1,
-            lastSeenAt: new Date(event.completedAt)
+            errorMessage: null
           }
         });
-      }
-
-      await tx.discoveredMeshNode.update({
-        where: { id: node.id },
-        data: {
-          status: "provisioned",
-          identifyState: "confirmed",
-          meshAddress: event.meshAddress,
-          firmwareVersion: event.firmwareVersion ?? node.firmwareVersion,
-          rssi: event.rssi ?? node.rssi,
-          errorMessage: null
-        }
       });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      await this.markDeviceUuidConflict(topicScope, event);
+    }
+  }
+
+  private async markDeviceUuidConflict(
+    topicScope: { siteId: string; gatewayId: string },
+    event: { sessionId: string; nodeId: string; deviceUuid: string }
+  ) {
+    await this.prisma.discoveredMeshNode.updateMany({
+      where: {
+        id: event.nodeId,
+        sessionId: event.sessionId,
+        deviceUuid: event.deviceUuid,
+        status: { in: ["discovered", "identifying", "provisioning"] },
+        session: {
+          siteId: topicScope.siteId,
+          gatewayId: topicScope.gatewayId,
+          status: "active"
+        }
+      },
+      data: { status: "failed", errorMessage: DEVICE_UUID_CONFLICT_ERROR }
     });
   }
 }

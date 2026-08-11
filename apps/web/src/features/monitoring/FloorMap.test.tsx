@@ -46,4 +46,38 @@ describe("FloorMap", () => {
     fireEvent.click(fixtureButton);
     expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
   });
+
+  it("labels a provisioned fixture as waiting for its first real state", () => {
+    render(
+      <FloorMap
+        selectedFixtureId={null}
+        onSelectFixture={vi.fn()}
+        floor={{
+          id: "floor-1",
+          name: "B2",
+          level: -2,
+          floorPlan: null,
+          fixtures: [{
+            id: "fixture-2",
+            name: "B2-L02",
+            x: 200,
+            y: 240,
+            ratedWatt: 40,
+            brightness: 0,
+            status: "offline",
+            statusReason: "provisioning_waiting_state",
+            rssi: null,
+            hopCount: null,
+            commandSuccessRate: null,
+            lastSeenAt: null,
+            gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
+            controllable: false,
+            controlBlockReason: "fixture_offline"
+          }]
+        }}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "B2-L02 상태 확인 대기 0%" })).toBeInTheDocument();
+  });
 });

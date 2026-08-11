@@ -7,6 +7,7 @@ import {
   EDITOR_MAX_TEXT_LENGTH,
   EDITOR_REVISION_DEFAULT_LIMIT,
   POSTGRES_INT_MAX,
+  createRegistrationSessionSchema,
   editorRevisionListQuerySchema,
   floorEditorSnapshotSchema,
   legacyFloorPlanEffectiveSchema,
@@ -26,6 +27,22 @@ import {
 import { mqttTopics } from "./mqtt";
 
 describe("shared schemas", () => {
+  it("requires an explicit site, floor, and gateway when creating a registration session", () => {
+    expect(createRegistrationSessionSchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "00000000-0000-4000-8000-000000000004"
+    })).toEqual({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "00000000-0000-4000-8000-000000000004"
+    });
+    expect(() => createRegistrationSessionSchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      floorId: "00000000-0000-4000-8000-000000000005"
+    })).toThrow();
+  });
+
   it("defines provisioning MQTT topics and validates discovered node events", () => {
     expect(
       mqttTopics.provisioningScanStart(

@@ -21,6 +21,8 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
     const fixtureCutoff = new Date(now.getTime() - 180_000);
     const gatewayOffline = await this.prisma.fixture.updateMany({
       where: {
+        // A newly provisioned fixture has no observed state yet, so gateway freshness must not relabel it as a confirmed outage.
+        OR: [{ statusReason: { not: "provisioning_waiting_state" } }, { statusReason: null }],
         meshNode: {
           gateway: { OR: [{ lastHeartbeatAt: { lt: gatewayCutoff } }, { lastHeartbeatAt: null }] }
         }

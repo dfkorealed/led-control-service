@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-08-06
+작성일: 2026-08-11
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -421,7 +421,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `lastStateEventId` | `String?` | 아니오 | Unique | 마지막 적용 MQTT v2 이벤트 ID |
 | `lastStateSequence` | `BigInt?` | 아니오 |  | 마지막 적용 gateway sequence |
 | `lastStateOccurredAt` | `DateTime?` | 아니오 |  | 장치 상태 발생 시각 |
-| `statusReason` | `String?` | 아니오 |  | reported, fixture_stale, gateway_offline 등 상태 근거 |
+| `statusReason` | `String?` | 아니오 |  | reported, provisioning_waiting_state, fixture_stale, gateway_offline 등 상태 근거 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -435,7 +435,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 운영 메모:
 
 - `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`은 장기 이력 테이블이 아니라 최신 모니터링 snapshot이다.
-- 현재 MQTT `fixture-state` event 수신 시 이 값들이 갱신된다.
+- provisioning 완료는 `status = offline`, `statusReason = provisioning_waiting_state`, `brightness = 0`, `lastSeenAt = null`로 Fixture를 만든다. 이 값은 실제 장비 offline 판정이 아니라 첫 실제 상태를 아직 받지 못한 미확정 상태다.
+- 첫 MQTT `fixture-state` event가 도착할 때만 online/fault/offline 상태, 밝기, RSSI, hop, lastSeenAt과 `statusReason`을 실제 관측값으로 확정한다.
 - `(floorId, id)` 복합 인덱스는 층별 fixture snapshot의 ID cursor 페이지 조회에 사용한다.
 
 ### FixtureGroup
@@ -627,6 +628,11 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 - `gateway`: `Gateway`
 - `fixture`: `Fixture?`
 
+등록 동시성 계약:
+
+- `deviceUuid`의 전역 Unique 제약은 다른 현장에서 같은 BLE Mesh UUID를 등록하거나 두 provisioning transaction이 동시에 같은 UUID를 생성하는 것을 DB에서 차단한다.
+- provisioning 완료 transaction은 기존 UUID가 다른 `gatewayId`에 속하면 Fixture를 만들지 않고 해당 `DiscoveredMeshNode`를 실패로 전환한다. 사전 조회 뒤 경쟁으로 `P2002`가 발생해도 아직 provisioning 중인 동일 session/node만 조건부 실패 처리하므로, 먼저 확정된 등록이나 MQTT 재전송을 덮어쓰지 않는다.
+
 ### Command
 
 조명 제어 명령 이력이다. 개별 조명 또는 그룹 제어를 모두 표현한다.
@@ -749,6 +755,10 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - `gateway`: `Gateway`
 - `user`: `User`
 - `discoveredNodes`: `DiscoveredMeshNode[]`
+
+등록 시작 계약:
+
+- `POST /registration-sessions`는 `siteId`, `floorId`, `gatewayId`를 모두 명시적으로 받는다. Floor와 Gateway는 모두 해당 Site에 속해야 하고, Gateway의 `lastHeartbeatAt`이 API 현재 시각 기준 90초 이내여야 한다.
 
 ### DiscoveredMeshNode
 

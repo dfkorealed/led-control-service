@@ -398,12 +398,13 @@ describe("MqttService", () => {
         ratedWatt: "45.00",
         x: 420,
         y: 260,
-        status: "online",
-        brightness: 60,
-        rssi: -61,
-        hopCount: 1,
-        commandSuccessRate: 1,
-        lastSeenAt: new Date("2026-07-01T00:00:05.000Z")
+        status: "offline",
+        brightness: 0,
+        rssi: null,
+        hopCount: null,
+        commandSuccessRate: null,
+        lastSeenAt: null,
+        statusReason: "provisioning_waiting_state"
       }
     });
     expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
@@ -416,6 +417,122 @@ describe("MqttService", () => {
         rssi: -61,
         errorMessage: null
       }
+    });
+  });
+
+  it("marks a completed node failed when its device UUID already belongs to another site", async () => {
+    const node = {
+      id: "22222222-2222-4222-8222-222222222222",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      deviceUuid: "esp32h2-b2-001",
+      serialNumber: "LC-B2-001",
+      rssi: -61,
+      firmwareVersion: "mock-node-0.1.0",
+      pendingFixtureName: "B2-L13",
+      pendingFixtureX: 420,
+      pendingFixtureY: 260,
+      pendingRatedWatt: "45.00",
+      session: {
+        siteId: "00000000-0000-4000-8000-000000000003",
+        floorId: "00000000-0000-4000-8000-000000000005",
+        gatewayId: "00000000-0000-4000-8000-000000000004"
+      }
+    };
+    const prisma: any = {
+      fixture: { update: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+      command: { update: jest.fn() },
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue(node),
+        update: jest.fn()
+      },
+      meshNode: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "33333333-3333-4333-8333-333333333333",
+          gatewayId: "99999999-9999-4999-8999-999999999999"
+        }),
+        create: jest.fn()
+      }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma);
+
+    await service.handleMessage(
+      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/events/provisioning-completed",
+      Buffer.from(JSON.stringify({
+        sessionId: node.sessionId,
+        nodeId: node.id,
+        deviceUuid: node.deviceUuid,
+        meshAddress: "0x0101",
+        completedAt: "2026-07-01T00:00:05.000Z"
+      }))
+    );
+
+    expect(prisma.fixture.create).not.toHaveBeenCalled();
+    expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
+      where: { id: node.id },
+      data: { status: "failed", errorMessage: "device UUID is already registered by another site" }
+    });
+  });
+
+  it("marks only the competing registration attempt failed when the device UUID unique index wins a race", async () => {
+    const node = {
+      id: "22222222-2222-4222-8222-222222222222",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      deviceUuid: "esp32h2-b2-001",
+      serialNumber: "LC-B2-001",
+      rssi: -61,
+      firmwareVersion: "mock-node-0.1.0",
+      pendingFixtureName: "B2-L13",
+      pendingFixtureX: 420,
+      pendingFixtureY: 260,
+      pendingRatedWatt: "45.00",
+      session: {
+        siteId: "00000000-0000-4000-8000-000000000003",
+        floorId: "00000000-0000-4000-8000-000000000005",
+        gatewayId: "00000000-0000-4000-8000-000000000004"
+      }
+    };
+    const prisma: any = {
+      fixture: { update: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+      command: { update: jest.fn() },
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue(node),
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      meshNode: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue({ code: "P2002" })
+      }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma);
+
+    await service.handleMessage(
+      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/events/provisioning-completed",
+      Buffer.from(JSON.stringify({
+        sessionId: node.sessionId,
+        nodeId: node.id,
+        deviceUuid: node.deviceUuid,
+        meshAddress: "0x0101",
+        completedAt: "2026-07-01T00:00:05.000Z"
+      }))
+    );
+
+    expect(prisma.fixture.create).not.toHaveBeenCalled();
+    expect(prisma.discoveredMeshNode.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: node.id,
+        sessionId: node.sessionId,
+        deviceUuid: node.deviceUuid,
+        status: { in: ["discovered", "identifying", "provisioning"] },
+        session: {
+          siteId: node.session.siteId,
+          gatewayId: node.session.gatewayId,
+          status: "active"
+        }
+      },
+      data: { status: "failed", errorMessage: "device UUID is already registered by another site" }
     });
   });
 

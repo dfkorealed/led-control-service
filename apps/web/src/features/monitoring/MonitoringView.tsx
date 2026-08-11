@@ -146,7 +146,9 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
               <h3>{selectedFixture?.name ?? "조명 선택"}</h3>
             </div>
             <span className={`status-pill ${selectedFixture?.status ?? "offline"}`}>
-              {selectedFixture ? statusLabels[selectedFixture.status] : "대기"}
+              {selectedFixture?.statusReason === "provisioning_waiting_state"
+                ? "상태 확인 대기"
+                : selectedFixture ? statusLabels[selectedFixture.status] : "대기"}
             </span>
           </div>
 

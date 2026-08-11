@@ -21,8 +21,8 @@ export interface Dashboard {
       y: number;
       ratedWatt: number;
       brightness: number;
-    status: "online" | "offline" | "fault";
-    statusReason?: "reported" | "startup_resync" | "fixture_stale" | "gateway_offline" | "command_failed" | null;
+      status: "online" | "offline" | "fault";
+      statusReason?: "reported" | "mesh_publication" | "startup_resync" | "fixture_stale" | "gateway_offline" | "command_failed" | "provisioning_waiting_state" | null;
       rssi: number | null;
       hopCount: number | null;
       commandSuccessRate: number | null;

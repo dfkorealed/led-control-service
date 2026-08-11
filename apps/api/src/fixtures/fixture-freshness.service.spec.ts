@@ -13,6 +13,7 @@ describe("FixtureFreshnessService", () => {
     await expect(service.markStaleFixtures(now)).resolves.toEqual({ gatewayOffline: 2, fixtureStale: 1 });
     expect(prisma.fixture.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
+        OR: [{ statusReason: { not: "provisioning_waiting_state" } }, { statusReason: null }],
         meshNode: {
           gateway: {
             OR: [{ lastHeartbeatAt: { lt: new Date("2026-07-11T00:03:30.000Z") } }, { lastHeartbeatAt: null }]

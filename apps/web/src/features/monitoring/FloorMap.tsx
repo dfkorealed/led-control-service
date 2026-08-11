@@ -27,7 +27,10 @@ export function FloorMap({ floor, selectedFixtureId, onSelectFixture }: FloorMap
         <strong>실시간 조명 배치</strong>
       </div>
       {floor.fixtures.map((fixture) => {
-        const statusLabel = fixtureStatusLabels[fixture.status];
+        const isWaitingForInitialState = fixture.statusReason === "provisioning_waiting_state";
+        const statusLabel = isWaitingForInitialState
+          ? "상태 확인 대기"
+          : fixtureStatusLabels[fixture.status];
         const markerStyle = {
           "--fixture-left": `${(fixture.x / width) * 100}%`,
           "--fixture-top": `${(fixture.y / height) * 100}%`,
@@ -37,7 +40,7 @@ export function FloorMap({ floor, selectedFixtureId, onSelectFixture }: FloorMap
         return (
           <button
             key={fixture.id}
-            className={`fixture-dot ${fixture.status}${fixture.id === selectedFixtureId ? " active" : ""}`}
+            className={`fixture-dot ${fixture.status}${isWaitingForInitialState ? " awaiting-state" : ""}${fixture.id === selectedFixtureId ? " active" : ""}`}
             style={markerStyle}
             title={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
             aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}

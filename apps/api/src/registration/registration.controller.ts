@@ -1,15 +1,11 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { createRegistrationSessionSchema } from "@led-control/shared";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { Roles } from "../access/roles.decorator";
 import { RolesGuard } from "../access/roles.guard";
 import { RegistrationService } from "./registration.service";
-
-interface CreateRegistrationSessionBody {
-  siteId: string;
-  floorId: string;
-}
 
 interface RegisterNodeBody {
   fixtureName: string;
@@ -25,8 +21,8 @@ export class RegistrationController {
   constructor(private readonly registrationService: RegistrationService) {}
 
   @Post()
-  createSession(@Body() body: CreateRegistrationSessionBody, @CurrentUser() user: AuthenticatedUser) {
-    return this.registrationService.createSession(user, body);
+  createSession(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
+    return this.registrationService.createSession(user, createRegistrationSessionSchema.parse(body));
   }
 
   @Get(":sessionId")

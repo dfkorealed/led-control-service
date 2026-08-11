@@ -1,13 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { CreateRegistrationSessionInput } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
-
-interface CreateSessionInput {
-  siteId: string;
-  floorId: string;
-}
 
 interface RegisterNodeInput {
   fixtureName: string;
@@ -15,6 +11,8 @@ interface RegisterNodeInput {
   y: number;
   ratedWatt?: string;
 }
+
+const GATEWAY_HEARTBEAT_FRESHNESS_MS = 90_000;
 
 @Injectable()
 export class RegistrationService {
@@ -24,7 +22,7 @@ export class RegistrationService {
     private readonly siteAccess: SiteAccessService
   ) {}
 
-  async createSession(user: AuthenticatedUser, input: CreateSessionInput) {
+  async createSession(user: AuthenticatedUser, input: CreateRegistrationSessionInput) {
     await this.assertCommissionAccess(user, input.siteId);
     const floor = await this.prisma.floor.findFirst({
       where: { id: input.floorId, siteId: input.siteId }
@@ -32,10 +30,13 @@ export class RegistrationService {
     if (!floor) throw new BadRequestException("floorId must reference a floor in the selected site");
 
     const gateway = await this.prisma.gateway.findFirst({
-      where: { siteId: input.siteId },
-      orderBy: { createdAt: "asc" }
+      where: {
+        id: input.gatewayId,
+        siteId: input.siteId,
+        lastHeartbeatAt: { gte: new Date(Date.now() - GATEWAY_HEARTBEAT_FRESHNESS_MS) }
+      }
     });
-    if (!gateway) throw new BadRequestException("site must have a gateway before registration can start");
+    if (!gateway) throw new BadRequestException("gatewayId must reference an online gateway in the selected site");
 
     const session = await this.prisma.provisioningSession.create({
       data: {

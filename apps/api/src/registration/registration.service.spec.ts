@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing";
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -84,7 +84,46 @@ describe("RegistrationService", () => {
   it("rejects a customer admin from starting provisioning", async () => {
     const { service } = await createModule();
 
-    await expect((service as any).createSession(admin, { siteId: ids.siteId, floorId: ids.floorId })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect((service as any).createSession(admin, {
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId
+    })).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("rejects a gateway selected from another site instead of auto-selecting a local gateway", async () => {
+    const { service, prisma } = await createModule({
+      gateway: { findFirst: jest.fn().mockResolvedValue(null) }
+    });
+
+    await expect(service.createSession(operator, {
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: "99999999-9999-4999-8999-999999999999"
+    })).rejects.toEqual(new BadRequestException("gatewayId must reference an online gateway in the selected site"));
+
+    expect(prisma.provisioningSession.create).not.toHaveBeenCalled();
+    expect(prisma.gateway.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "99999999-9999-4999-8999-999999999999",
+        siteId: ids.siteId,
+        lastHeartbeatAt: { gte: expect.any(Date) }
+      }
+    });
+  });
+
+  it("rejects a selected gateway without a heartbeat in the last 90 seconds", async () => {
+    const { service, prisma } = await createModule({
+      gateway: { findFirst: jest.fn().mockResolvedValue(null) }
+    });
+
+    await expect(service.createSession(operator, {
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId
+    })).rejects.toEqual(new BadRequestException("gatewayId must reference an online gateway in the selected site"));
+
+    expect(prisma.provisioningSession.create).not.toHaveBeenCalled();
   });
 
   it("creates an active registration session and publishes a scan command", async () => {
@@ -92,7 +131,8 @@ describe("RegistrationService", () => {
 
     const session = await service.createSession(operator, {
       siteId: ids.siteId,
-      floorId: ids.floorId
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId
     });
 
     expect(session.id).toBe(ids.sessionId);
