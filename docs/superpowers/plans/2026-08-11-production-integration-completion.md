@@ -225,23 +225,23 @@ Commit: `feat(mesh): synchronize periodic fixture health state`
 - Produces: `CreateRegistrationSessionInput { siteId, floorId, gatewayId }`
 - Produces: `provisioning_waiting_state` 초기 상태와 device UUID 충돌 오류
 
-- [ ] **Step 1: 소유권·초기 상태 실패 테스트 작성**
+- [x] **Step 1: 소유권·초기 상태 실패 테스트 작성**
 
 다른 현장 Gateway 거부, offline Gateway 거부, 기존 device UUID의 cross-site 재사용 거부와 Status 전 online 금지를 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/registration/registration.service.spec.ts src/mqtt/mqtt.service.spec.ts`
 
-- [ ] **Step 3: 세션 입력과 검증 구현**
+- [x] **Step 3: 세션 입력과 검증 구현**
 
 첫 Gateway 자동 선택을 제거하고 명시 gateway ID와 90초 heartbeat를 검사한다.
 
-- [ ] **Step 4: 실제 초기 상태 구현**
+- [x] **Step 4: 실제 초기 상태 구현**
 
 provisioning 완료 시 fixture를 미확정 상태로 만들고 첫 장비 Status에서만 online/fault, 밝기와 lastSeenAt을 확정한다.
 
-- [ ] **Step 5: 문서와 통합 검증**
+- [x] **Step 5: 문서와 통합 검증**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand && pnpm --filter @led-control/api typecheck`
 

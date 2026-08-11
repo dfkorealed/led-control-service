@@ -504,6 +504,42 @@ describe("App", () => {
     expect(screen.getByLabelText("층 도면")).toBeInTheDocument();
   });
 
+  it("excludes fixtures waiting for initial state from the offline inspection queue", async () => {
+    const sourceFixture = mockDashboard.floors[0].fixtures[0];
+    const offlineFixture = mockDashboard.floors[0].fixtures[5];
+    apiState.dashboard = {
+      ...mockDashboard,
+      summary: { ...mockDashboard.summary, totalFixtures: 2 },
+      floors: [
+        {
+          ...mockDashboard.floors[0],
+          fixtures: [
+            {
+              ...sourceFixture,
+              id: "fixture-waiting-state",
+              name: "B2-L-WAITING",
+              status: "offline" as const,
+              statusReason: "provisioning_waiting_state",
+              lastSeenAt: null
+            },
+            { ...offlineFixture, id: "fixture-real-offline", name: "B2-L-OFFLINE" }
+          ]
+        }
+      ]
+    };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    const offlineQueue = await screen.findByRole("button", { name: "오프라인 1대" });
+    fireEvent.click(offlineQueue);
+
+    expect(await screen.findByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
+  });
+
   it("does not expose floor editing from monitoring to viewers", async () => {
     authState.user = {
       id: "viewer-1",

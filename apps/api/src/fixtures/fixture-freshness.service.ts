@@ -34,6 +34,8 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
       where: {
         // A waiting fixture has no observed state; after the first state event clears this reason it re-enters normal freshness checks.
         AND: [
+          // Preserve a more specific offline reason set earlier in this run, especially gateway_offline.
+          { status: { not: "offline" } },
           { OR: [{ statusReason: { not: "provisioning_waiting_state" } }, { statusReason: null }] },
           { OR: [{ lastStateOccurredAt: { lt: fixtureCutoff } }, { lastStateOccurredAt: null }] }
         ]

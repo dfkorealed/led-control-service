@@ -1,49 +1,36 @@
-# Task 6 Report: Registration Ownership and Real Initial Fixture State
+# Task 6 완료 보고: 조명 등록 소유권과 실제 초기 상태
 
-## Scope
+## 구현 범위
 
-- Implemented Task 6 from `.superpowers/sdd/2026-08-11-production-integration-completion/task-6-brief.md`.
-- Preserved the `FixtureStatus` enum. A provisioned fixture is initially `offline` with `statusReason = provisioning_waiting_state`, `brightness = 0`, and `lastSeenAt = null`.
+- 등록 세션 입력은 `siteId`, `floorId`, `gatewayId`를 명시적으로 요구한다.
+- 서버는 operator의 시운전 권한, 층과 Gateway의 현장 소유권, 90초 이내 heartbeat를 확인한 뒤 검색 명령을 발행한다.
+- provisioning 직후 조명은 `offline + provisioning_waiting_state`, 밝기 0, `lastSeenAt = null`로 생성한다.
+- 첫 실제 `fixture-state` MQTT 이벤트만 online/fault, 밝기, 통신 품질과 마지막 수신 시각을 확정한다.
+- `MeshNode.deviceUuid` 전역 unique 제약을 동시성 방어선으로 유지한다. `P2002`가 실제 `deviceUuid` 충돌일 때만 현장 간 UUID 충돌로 처리하며 다른 트랜잭션 오류는 재전파한다.
+- 웹은 층과 Gateway를 명시적으로 선택해 등록을 시작한다.
+- 모니터링은 초기 상태 대기를 실제 오프라인 점검 큐와 대수에서 제외한다.
+- freshness worker는 초기 상태 대기를 제외하고, `gateway_offline` 사유가 같은 실행의 `fixture_stale` 판정으로 덮이지 않게 한다.
 
-## Implementation
+## 데이터베이스
 
-- Added the shared `CreateRegistrationSessionInput` schema requiring explicit `siteId`, `floorId`, and `gatewayId`.
-- Registration validates operator commission access, floor-to-site ownership, gateway-to-site ownership, and a heartbeat newer than 90 seconds before publishing a scan command.
-- Provisioning completion creates an unconfirmed fixture state without inferring online, fault, brightness, RSSI, hop count, command success rate, or last-seen time.
-- The first gateway-scoped MQTT `fixture-state` event remains the only path that establishes the reported fixture snapshot.
-- Existing `MeshNode.deviceUuid` global uniqueness is retained as the DB concurrency guard. Completion runs in a transaction, rejects a UUID owned by another gateway/site, and conditionally marks only the competing active node failed when a `P2002` race occurs.
-- Monitoring receives the `provisioning_waiting_state` API reason and displays `상태 확인 대기` separately from a real offline fixture.
+- 스키마 또는 migration 변경은 없다. 기존 `MeshNode.deviceUuid` 전역 unique index를 사용한다.
+- 초기 상태, Gateway freshness, UUID 충돌 계약은 `docs/database-schema.md`에 반영했다.
 
-## Database
+## 검증 결과
 
-- No migration was added. The required global `MeshNode.deviceUuid` unique index already exists in `20260702143000_add_registration_flow`, and no column or constraint changed.
-- Updated `docs/database-schema.md` with the initial-state, 90-second gateway freshness, and UUID race contracts.
+- Task 6 전체 검증: shared 17개, API 318개, 웹 140개 테스트 통과 및 shared/API/web typecheck 통과.
+- 최종 회귀 검증: 등록·MQTT·freshness API 28개, 모니터링 웹 42개 테스트 통과.
+- 정확히 90초 heartbeat 경계, 필수 Gateway 전달, UUID unique target 분기, 초기 상태 대기 표시·집계, 오프라인 사유 보존을 회귀 테스트로 고정했다.
 
-## TDD Evidence
+## 커밋
 
-1. Shared schema test initially failed because `createRegistrationSessionSchema` was undefined.
-2. API RED run showed automatic gateway selection, stale gateway acceptance, inferred `online/60%`, and cross-site UUID reuse; the focused API suite had 4 failures.
-3. The monitoring RED test rendered `오프라인` instead of `상태 확인 대기` for `provisioning_waiting_state`.
-4. Focused shared, API, and web tests passed after the implementation.
+- `ed7cc7b fix(registration): require owned gateway and real initial state`
+- `d9736c9 fix(registration): close task 6 review gaps`
+- 최종 점검 큐 및 freshness 원인 보존 보완 커밋은 이 보고서와 함께 기록한다.
 
-## Verification
+## 중지 및 재개 지점
 
-- `pnpm --filter @led-control/shared test`: 3 files, 17 tests passed.
-- `pnpm --filter @led-control/shared typecheck`: passed.
-- `pnpm --filter @led-control/api test -- --runInBand`: 48 suites passed, 318 tests passed; 6 integration suites and 25 tests skipped by their existing environment gates.
-- `pnpm --filter @led-control/api typecheck`: passed.
-- `pnpm --filter @led-control/web test`: 16 files, 139 tests passed.
-- `pnpm --filter @led-control/web typecheck`: passed.
-- `git diff --check`: passed.
-
-## Fix Round1
-
-- RegistrationPanel now requires explicit floor and gateway selection, and its API payload carries the selected `siteId`, `floorId`, and `gatewayId`.
-- Shared gateway freshness helpers define the inclusive 90-second boundary once. Registration queries, dashboard/fixture responses, command checks, and the freshness worker use that contract; exactly 90 seconds old remains fresh.
-- `provisioning_waiting_state` is excluded from both gateway-offline and fixture-stale worker updates. The first real fixture state clears that reason and returns the fixture to normal freshness handling.
-- Completion maps `P2002` to the cross-site device UUID conflict only when Prisma reports the `deviceUuid` unique target. Other unique constraints and transaction errors are rethrown.
-
-### Fix Round1 TDD Evidence
-
-1. Added failing tests for the missing web `gatewayId` payload, the 90-second dashboard boundary, the waiting-state stale filter, the shared helper clock boundary, and non-deviceUuid `P2002`/transaction error propagation.
-2. Focused shared, API, and web suites passed after the implementation; final full verification is recorded with this round's commit.
+- Task 6을 완료한 상태에서 사용자 요청에 따라 중지한다.
+- 다음 작업은 Task 7 `조명 등록 UI와 post-provision identify`이다.
+- Task 7 이후 Task 8 모니터링 도형 정합성, Task 9 BLE Mesh 그룹 주소 제어, Task 10 Gateway HIL 실행기, Task 11 전체 회귀와 양산 판정을 순서대로 진행한다.
+- 실제 Raspberry Pi 및 ESP32-H2를 사용하는 HIL 검증은 Task 10과 Task 11에서 수행한다.

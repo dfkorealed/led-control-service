@@ -28,8 +28,11 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");
-  const firstOfflineFixture = fixtures.find((fixture) => fixture.status === "offline");
-  const offlineCount = fixtures.filter((fixture) => fixture.status === "offline").length;
+  const operationallyOfflineFixtures = fixtures.filter(
+    (fixture) => fixture.status === "offline" && fixture.statusReason !== "provisioning_waiting_state"
+  );
+  const firstOfflineFixture = operationallyOfflineFixtures[0];
+  const offlineCount = operationallyOfflineFixtures.length;
   const floorSummary = useMemo(
     () => ({
       totalFixtures: fixtures.length,
