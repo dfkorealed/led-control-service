@@ -37,7 +37,7 @@ PC 웹을 1차 기준 제품으로 개발한다. React, React Query, Zustand, Ty
 
 층별 도면 에디터는 MVP 단계별로 다음 방향을 따른다.
 
-- MVP 1: PC 웹 모니터링 화면에서 선택 층을 전체 화면 에디터로 열어 배경 없음/JPG/PNG/PDF 첫 페이지 배경, 줌/팬, 기본 도형, 텍스트, 조명 위치와 조명 기본 정보를 수동 편집한다. 구현은 진행 중이며 `FloorPlan` 확장과 `FloorMapObject` 추가를 전제로 한다.
+- MVP 1: PC 웹 설정 화면에서 선택 층을 전체 화면 에디터로 열어 배경 없음/JPG/PNG/PDF 첫 페이지 배경, 줌/팬, 기본 도형, 텍스트, 조명 위치와 조명 기본 정보를 수동 편집한다. 도면 에디터는 `/settings/floor-plans/:floorId/edit`에서 제공하고 모니터링 화면은 읽기 전용으로 유지한다.
 - MVP 2: 실제 게이트웨이와 ESP32-H2 provisioning 결과, RSSI, hop count, 명령 성공률을 바탕으로 조명 위치 보정과 통신 품질 확인을 돕는 자동 배치 보조 기능을 추가한다.
 - MVP 3: 파일럿 현장 운영 데이터를 반영해 CAD/DWG/DXF 연동, AI 도면 해석, 구역/그룹 후보 자동 생성, 현장 실측 기반 배치 개선을 검토한다.
 
@@ -53,7 +53,7 @@ MVP 1의 인증은 고객사별 설치형 운영과 향후 SaaS 전환을 모두
 
 자동 로그인은 같은 session 구조를 사용하되 만료 기간만 늘린다. 일반 로그인 session은 짧은 기간으로 두고, 자동 로그인을 선택하면 더 긴 만료 시간을 부여한다. 로그아웃, 비밀번호 변경, 계정 비활성화, 권한 변경 시 관련 session은 폐기할 수 있어야 한다.
 
-역할은 `owner`, `admin`, `operator`, `viewer`를 기준으로 한다. MVP 1에서는 `operator` 이상만 조명 제어를 수행할 수 있게 하고, `viewer`는 모니터링과 통계 조회만 가능하게 한다.
+역할은 `operator`, `admin`, `viewer` 세 가지다. `operator`는 서비스 운영사에서 배정된 현장의 설치·시운전과 제어를 담당하고, `admin`은 자기 고객사 현장의 운영 설정과 제어를 담당하며, `viewer`는 배정 현장의 모니터링과 통계만 조회한다.
 
 ## 3. 시스템 아키텍처
 
@@ -351,7 +351,7 @@ MVP 1 구현 상태:
 - fixture-state MQTT event의 RSSI, hop count, 명령 성공률을 DB에 저장하고 상세 패널에 표시한다.
 - gateway heartbeat MQTT event를 DB에 저장하고 gateway online/offline 상태로 표시한다.
 - dashboard API는 로그인 사용자의 조직 범위 안에서만 site를 조회한다.
-- 실제 ESP32-H2 provisioning, AppKey/model bind, group subscription, 공장초기화는 MVP 2 범위다. OTA는 partition/version 계약과 보고 필드만 유지하고 실제 배포 구현은 MVP 2 첫 실기 범위에서 제외한다.
+- ESP32-H2 펌웨어에는 물리 GPIO factory reset, BLE Mesh Health Attention 기반 identify 점멸, Health fault test/clear와 watchdog fault 기록이 구현되어 있다. 다만 gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결과 ESP32-H2 실제 보드 검증은 아직 미완료다. 실제 provisioning, AppKey/model bind, group subscription은 MVP 2 범위이며 OTA는 partition/version 계약과 보고 필드만 유지하고 실제 배포 구현은 MVP 2 첫 실기 범위에서 제외한다.
 
 ### 6.4 실제 장비 검증 계획과 완료 기준
 

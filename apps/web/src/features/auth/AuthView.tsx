@@ -10,10 +10,10 @@ interface AuthViewProps {
 export function AuthView({ onAuthenticated }: AuthViewProps) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState("operator@example.com");
-  const [password, setPassword] = useState("demo-password-1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [token, setToken] = useState("demo-invite-token");
+  const [token, setToken] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 

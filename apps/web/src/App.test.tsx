@@ -223,6 +223,24 @@ describe("App", () => {
     expect(screen.getByLabelText("자동 로그인")).toBeInTheDocument();
   });
 
+  it("starts login and invitation inputs with empty values", async () => {
+    authState.user = null;
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    expect(screen.getByLabelText("아이디")).toHaveValue("");
+    expect(screen.getByLabelText("비밀번호")).toHaveValue("");
+
+    fireEvent.click(screen.getByRole("button", { name: "초대 코드를 가지고 회원가입" }));
+
+    expect(screen.getByLabelText("초대 코드")).toHaveValue("");
+  });
+
   it("renders the four primary navigation items", async () => {
     const queryClient = new QueryClient();
     render(

@@ -51,7 +51,7 @@
 
 - `apps/api/prisma/schema.prisma`
 - `apps/api/prisma/migrations/20260721120000_simplify_roles_and_floor_revisions/migration.sql`
-- `apps/api/prisma/bootstrap-owner.ts`에서 `bootstrap-operator.ts`로 rename
+- `apps/api/prisma/bootstrap-operator.ts`
 - `apps/api/src/auth/*`
 - `apps/api/src/sites/*`, `commands/*`, `energy/*`, `fixtures/*`
 - `apps/api/src/setup/*`, `registration/*`, `gateway-onboarding/*`, `floor-editor/*`
@@ -78,7 +78,7 @@
 - Produces: `Floor.mapRevision`과 `FloorMapRevision`
 - Produces: 공통 `AuditLog`
 
-- [ ] **Step 1: schema 계약 실패 테스트 작성**
+- [x] **Step 1: schema 계약 실패 테스트 작성**
 
 ```ts
 const schema = readSchema();
@@ -93,13 +93,13 @@ expect(schema).toMatch(/snapshot\s+Json/);
 expect(schema).toContain("model AuditLog");
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/api exec jest test/domain-schema.test.ts --runInBand`
 
 Expected: `owner` enum과 신규 모델 누락으로 FAIL.
 
-- [ ] **Step 3: Prisma 모델 추가**
+- [x] **Step 3: Prisma 모델 추가**
 
 ```prisma
 enum UserRole {
@@ -163,7 +163,7 @@ model AuditLog {
 
 `Organization.type @default(customer)`, `Floor.mapRevision @default(0)`과 관계 필드를 기존 모델에 추가한다.
 
-- [ ] **Step 4: 비파괴 SQL migration 작성**
+- [x] **Step 4: 비파괴 SQL migration 작성**
 
 Migration 순서는 Organization type 생성과 customer 기본값 적용, service_provider partial Unique index 생성, 새 UserRole enum 변환, membership backfill, revision 모델 생성 순서로 고정한다. legacy 데이터의 현장 유무는 서비스 운영사 식별 근거가 아니므로 기존 Organization을 분류하거나 service_provider로 update하지 않는다.
 
@@ -187,7 +187,7 @@ END;
 
 이 migration 파일을 수정 전 이미 적용한 로컬 개발 DB는 Prisma checksum 충돌이 난다. 데이터 보존이 불필요한 로컬 DB만 reset을 선택할 수 있고, 보존이 필요하면 잘못 추론된 service provider/operator 데이터를 감사한 뒤 수동 보정 migration을 적용한다. 자동 reset은 실행하지 않는다.
 
-- [ ] **Step 5: schema와 migration 검증**
+- [x] **Step 5: schema와 migration 검증**
 
 Run: `pnpm --filter @led-control/api exec prisma validate`
 
@@ -195,7 +195,7 @@ Run: `pnpm --filter @led-control/api exec jest test/domain-schema.test.ts --runI
 
 Expected: 모두 PASS.
 
-- [ ] **Step 6: DB 문서 갱신 후 커밋**
+- [x] **Step 6: DB 문서 갱신 후 커밋**
 
 ```bash
 git add apps/api/prisma apps/api/test/domain-schema.test.ts docs/database-schema.md
@@ -207,9 +207,9 @@ git commit -m "feat(auth): simplify roles and add site memberships"
 ### Task 2: operator bootstrap과 인증 타입 전환
 
 **Files:**
-- Rename: `apps/api/src/auth/bootstrap-owner.ts` → `apps/api/src/auth/bootstrap-operator.ts`
-- Rename: `apps/api/src/auth/bootstrap-owner.spec.ts` → `apps/api/src/auth/bootstrap-operator.spec.ts`
-- Rename: `apps/api/prisma/bootstrap-owner.ts` → `apps/api/prisma/bootstrap-operator.ts`
+- Modify: `apps/api/src/auth/bootstrap-operator.ts`
+- Modify: `apps/api/src/auth/bootstrap-operator.spec.ts`
+- Modify: `apps/api/prisma/bootstrap-operator.ts`
 - Modify: `apps/api/src/auth/auth.types.ts`
 - Modify: `apps/api/src/auth/auth.service.ts`
 - Modify: `apps/api/src/auth/auth.service.spec.ts`
@@ -222,7 +222,7 @@ git commit -m "feat(auth): simplify roles and add site memberships"
 - Produces: `auth:bootstrap-operator`
 - Produces: service_provider Organization과 operator 계정
 
-- [ ] **Step 1: bootstrap 실패 테스트를 새 의미로 변경**
+- [x] **Step 1: bootstrap 실패 테스트를 새 의미로 변경**
 
 ```ts
 expect(prisma.organization.create).toHaveBeenCalledWith({
@@ -233,13 +233,13 @@ expect(prisma.user.create).toHaveBeenCalledWith({
 });
 ```
 
-- [ ] **Step 2: 현재 코드에서 실패 확인**
+- [x] **Step 2: 현재 코드에서 실패 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/auth/bootstrap-operator.spec.ts --runInBand`
 
 Expected: rename 또는 `owner` 기대값 때문에 FAIL.
 
-- [ ] **Step 3: bootstrap과 typed role 구현**
+- [x] **Step 3: bootstrap과 typed role 구현**
 
 ```ts
 export type UserRole = "operator" | "admin" | "viewer";
@@ -257,7 +257,7 @@ export interface AuthenticatedUser {
 
 로그인과 session 조회는 User와 Organization type을 함께 조회해 공개 사용자에 포함한다.
 
-- [ ] **Step 4: invitation role 방어**
+- [x] **Step 4: invitation role 방어**
 
 `AuthService.signup`은 invitation의 Organization type과 role 조합을 검사한다.
 
@@ -270,7 +270,7 @@ if (organization.type === "customer" && invitation.role === "operator") {
 }
 ```
 
-- [ ] **Step 5: API·웹 인증 테스트 실행**
+- [x] **Step 5: API·웹 인증 테스트 실행**
 
 Run: `pnpm --filter @led-control/api exec jest src/auth --runInBand`
 
@@ -308,7 +308,7 @@ git commit -m "feat(auth): bootstrap service operators"
 - Produces: `SiteCapability = read | manage | commission`
 - Produces: `AuditService.record(input)`
 
-- [ ] **Step 1: 권한 행렬 실패 테스트 작성**
+- [x] **Step 1: 권한 행렬 실패 테스트 작성**
 
 ```ts
 await expect(service.assert(operator, customerSiteId, "commission")).resolves.toBeDefined();
@@ -319,13 +319,13 @@ await expect(service.assert(viewer, ownSiteId, "manage")).rejects.toBeInstanceOf
 await expect(service.assert(admin, otherCustomerSiteId, "read")).rejects.toThrow("site not found");
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/access src/audit --runInBand`
 
 Expected: module 미존재로 FAIL.
 
-- [ ] **Step 3: 역할 Guard 구현**
+- [x] **Step 3: 역할 Guard 구현**
 
 ```ts
 export const Roles = (...roles: UserRole[]) => SetMetadata("roles", roles);
@@ -338,7 +338,7 @@ if (!allowed || allowed.includes(request.user.role)) return true;
 throw new ForbiddenException("insufficient role");
 ```
 
-- [ ] **Step 4: SiteAccessService 구현**
+- [x] **Step 4: SiteAccessService 구현**
 
 ```ts
 async assert(user: AuthenticatedUser, siteId: string, capability: SiteCapability) {
@@ -365,7 +365,7 @@ async assert(user: AuthenticatedUser, siteId: string, capability: SiteCapability
 
 `AuditService.record`는 `claimCode`, `password`, `privateKey`, `certificatePem` key를 metadata에서 거부한다. 설정 transaction에서 호출할 때는 같은 Prisma transaction client를 받아 감사 기록 실패 시 설정 변경도 rollback한다.
 
-- [ ] **Step 5: 테스트와 typecheck**
+- [x] **Step 5: 테스트와 typecheck**
 
 Run: `pnpm --filter @led-control/api exec jest src/access src/audit --runInBand`
 
@@ -373,7 +373,7 @@ Run: `pnpm --filter @led-control/api typecheck`
 
 Expected: 모두 PASS.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add apps/api/src/access apps/api/src/audit apps/api/src/app.module.ts
@@ -398,7 +398,7 @@ git commit -m "feat(auth): enforce role and site capabilities"
 - Produces: `GET /sites`와 `GET /sites/:siteId/dashboard`
 - Produces: viewer 제어 차단, operator/admin 제어 허용
 
-- [ ] **Step 1: 다른 고객사와 미배정 operator 실패 테스트 추가**
+- [x] **Step 1: 다른 고객사와 미배정 operator 실패 테스트 추가**
 
 각 서비스 테스트에 다음 세 경우를 추가한다.
 
@@ -408,13 +408,13 @@ await expect(service.getFloorFixtures(otherCustomerAdmin, floorId, query)).rejec
 await expect(commands.createDimmingCommand(viewer, input)).rejects.toThrow("viewer users cannot control lights");
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/sites src/fixtures src/energy src/commands --runInBand`
 
 Expected: organizationId 기반 구현으로 새 테스트 FAIL.
 
-- [ ] **Step 3: service 입력을 AuthenticatedUser로 전환**
+- [x] **Step 3: service 입력을 AuthenticatedUser로 전환**
 
 ```ts
 getDefaultDashboard(user: AuthenticatedUser, includeFixtures = false)
@@ -428,13 +428,13 @@ Floor, Fixture, Group 또는 Command에서 siteId를 먼저 구한 뒤 `SiteAcce
 
 `GET /sites`는 `listAccessibleSiteIds` 범위의 id, 고객사명, 현장명만 반환하고 `GET /sites/:siteId/dashboard`는 명시한 site를 조회한다. 기존 `/sites/default/dashboard`는 첫 접근 가능 현장을 반환하는 호환 endpoint로 유지한다.
 
-- [ ] **Step 4: 관련 테스트 실행**
+- [x] **Step 4: 관련 테스트 실행**
 
 Run: `pnpm --filter @led-control/api exec jest src/sites src/fixtures src/energy src/commands --runInBand`
 
 Expected: 모두 PASS.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add apps/api/src/sites apps/api/src/fixtures apps/api/src/energy apps/api/src/commands
@@ -458,7 +458,7 @@ git commit -m "fix(auth): scope monitoring and control by site access"
 - Produces: admin/viewer의 Claim·provisioning `403`
 - Produces: operator/admin의 floor asset upload와 viewer의 upload `403`
 
-- [ ] **Step 1: 권한 실패 테스트 작성**
+- [x] **Step 1: 권한 실패 테스트 작성**
 
 ```ts
 await expect(setup.createInitialSite(admin, input)).rejects.toBeInstanceOf(ForbiddenException);
@@ -468,7 +468,7 @@ await expect(floorAssets.createUploadIntent(admin, floorId, uploadInput)).resolv
 await expect(floorAssets.createUploadIntent(viewer, floorId, uploadInput)).rejects.toBeInstanceOf(ForbiddenException);
 ```
 
-- [ ] **Step 2: operator onboarding transaction 테스트 작성**
+- [x] **Step 2: operator onboarding transaction 테스트 작성**
 
 ```ts
 expect(tx.organization.create).toHaveBeenCalledWith({
@@ -479,13 +479,13 @@ expect(tx.siteMembership.create).toHaveBeenCalledWith({
 });
 ```
 
-- [ ] **Step 3: 실패 확인**
+- [x] **Step 3: 실패 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/setup src/gateway-onboarding src/registration --runInBand`
 
 Expected: 기존 admin claim 허용과 organizationId 주입 때문에 FAIL.
 
-- [ ] **Step 4: endpoint와 transaction 구현**
+- [x] **Step 4: endpoint와 transaction 구현**
 
 `POST /setup/initial-site` 입력을 다음으로 변경한다.
 
@@ -501,11 +501,11 @@ interface InitialSiteSetupBody {
 
 operator 사용자 검증 후 customer Organization, Site, Floor, operator SiteMembership을 하나의 serializable transaction으로 만든다. Gateway claim과 registration endpoint에는 `@Roles("operator")`와 commission access를 적용한다. Floor asset 조회는 read access, 업로드·완료는 manage access를 적용해 admin의 설치 후 도면 교체를 허용한다.
 
-- [ ] **Step 5: SetupWizard에 고객사명 추가**
+- [x] **Step 5: SetupWizard에 고객사명 추가**
 
 `customerOrganizationName` 필드를 필수로 추가하고 admin/viewer가 현장이 없을 때는 마법사 대신 `설치 담당자가 현장을 준비 중입니다` 상태를 표시한다.
 
-- [ ] **Step 6: 테스트 실행**
+- [x] **Step 6: 테스트 실행**
 
 Run: `pnpm --filter @led-control/api exec jest src/setup src/gateway-onboarding src/registration --runInBand`
 
@@ -513,7 +513,7 @@ Run: `pnpm --filter @led-control/web exec vitest run src/features/setup src/App.
 
 Expected: 모두 PASS.
 
-- [ ] **Step 7: 커밋**
+- [x] **Step 7: 커밋**
 
 ```bash
 git add apps/api/src/setup apps/api/src/gateway-onboarding apps/api/src/registration apps/web/src/features/setup apps/web/src/App.test.tsx
@@ -647,7 +647,7 @@ Run: `pnpm --filter @led-control/web exec vitest run src/features/monitoring src
 
 Expected: 모두 PASS.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 
 ```bash
 git add apps/web/src/features/monitoring apps/web/src/features/settings apps/web/src/features/floor-editor docs/menus/monitoring.md docs/menus/settings.md
@@ -956,7 +956,7 @@ git commit -m "test(settings): cover role-scoped floor editing"
 
 ## 완료 조건
 
-- DB와 API에서 `owner`가 완전히 제거되고 세 역할만 사용된다.
+- DB와 API에서 `operator`, `admin`, `viewer` 세 역할만 사용된다.
 - operator는 배정되지 않은 고객 현장에 접근할 수 없다.
 - admin은 다른 고객사와 설치·provisioning 기능에 접근할 수 없다.
 - viewer는 설정을 변경하거나 조명을 제어할 수 없다.
