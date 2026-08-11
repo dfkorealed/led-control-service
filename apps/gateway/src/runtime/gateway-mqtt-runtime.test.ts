@@ -47,6 +47,38 @@ describe("GatewayMqttRuntime", () => {
     await runtime.stop();
   });
 
+  it("stops heartbeats while disconnected and starts one timer again after reconnect", async () => {
+    vi.useFakeTimers();
+    const client = new FakeMqttClient();
+    const health = vi.fn();
+    const publishHeartbeat = vi.fn(() => health("healthy"));
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      publishHeartbeat,
+      topicHandlers,
+      onMessageError: vi.fn(),
+      onClose: () => health("unhealthy")
+    });
+
+    runtime.start();
+    client.emit("connect", { sessionPresent: false });
+    client.emit("close");
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(publishHeartbeat).toHaveBeenCalledTimes(1);
+    expect(health).toHaveBeenLastCalledWith("unhealthy");
+    expect(vi.getTimerCount()).toBe(0);
+
+    client.emit("connect", { sessionPresent: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(publishHeartbeat).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(1);
+    await runtime.stop();
+  });
+
   it.each(Object.keys(topicHandlers))("reports rejected %s handlers without an unhandled rejection", async (topic) => {
     const client = new FakeMqttClient();
     const onMessageError = vi.fn();

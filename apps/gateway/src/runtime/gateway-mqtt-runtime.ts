@@ -54,6 +54,7 @@ export class GatewayMqttRuntime {
   };
 
   private readonly handleClose = () => {
+    this.clearHeartbeatTimer();
     this.run(() => this.options.onClose?.(), "close");
   };
 
