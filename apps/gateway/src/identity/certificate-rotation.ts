@@ -141,7 +141,13 @@ export function createGatewayCertificateRotation(options: {
         activated = true;
         await prepared.finalize();
       } catch (error) {
-        if (!activated) await prepared.rollback().catch(() => undefined);
+        if (!activated && prepared.isCommitted()) {
+          // CONNACK is the runtime point of no return. Keep the on-disk identity aligned
+          // with the authoritative candidate even when its post-connect setup fails closed.
+          await prepared.finalize().catch(() => undefined);
+        } else if (!activated) {
+          await prepared.rollback().catch(() => undefined);
+        }
         throw error;
       }
     }

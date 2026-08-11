@@ -31,6 +31,7 @@ export interface PreparedMqttIdentity {
   commit(): Promise<void>;
   rollback(): Promise<void>;
   finalize(): Promise<void>;
+  isCommitted(): boolean;
 }
 
 export class MqttIdentityStore {
@@ -159,6 +160,7 @@ export class MqttIdentityStore {
     };
     return {
       candidate: input.candidate,
+      isCommitted: () => pointerCommitted,
       commit: async () => {
         if (location === "removed") throw new Error("MQTT identity installation failed");
         if (pointerCommitted) return;

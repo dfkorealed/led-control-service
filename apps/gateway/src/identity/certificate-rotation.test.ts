@@ -51,7 +51,8 @@ describe("certificate rotation", () => {
       candidate,
       commit: vi.fn(),
       rollback: vi.fn(),
-      finalize: vi.fn()
+      finalize: vi.fn(),
+      isCommitted: vi.fn(() => false)
     };
     const mqttStore = {
       currentIdentity: vi.fn().mockResolvedValue({ notAfter: new Date("2026-08-01T00:00:00.000Z"), caPath: "/dev/null" }),
@@ -86,7 +87,8 @@ describe("certificate rotation", () => {
       },
       commit: vi.fn(),
       rollback: vi.fn(),
-      finalize: vi.fn().mockRejectedValue(new Error("cleanup failed"))
+      finalize: vi.fn().mockRejectedValue(new Error("cleanup failed")),
+      isCommitted: vi.fn(() => true)
     };
     const rotation = createGatewayCertificateRotation({
       gatewayId: "gateway-27",
@@ -107,6 +109,46 @@ describe("certificate rotation", () => {
     await rotation.run();
 
     expect(prepared.rollback).not.toHaveBeenCalled();
+  });
+
+  it("does not roll back a committed identity when runtime activation fails after CONNACK", async () => {
+    let committed = false;
+    const prepared = {
+      candidate: {
+        generationPath: "/identity/mqtt/pending-generations/candidate",
+        certificatePath: "/identity/mqtt/pending-generations/candidate/gateway.crt",
+        keyPath: "/identity/mqtt/pending-generations/candidate/gateway.key",
+        caPath: "/identity/mqtt/pending-generations/candidate/mqtt-ca.crt"
+      },
+      commit: vi.fn(async () => { committed = true; }),
+      rollback: vi.fn(async () => { committed = false; }),
+      finalize: vi.fn(),
+      isCommitted: vi.fn(() => committed)
+    };
+    const rotation = createGatewayCertificateRotation({
+      gatewayId: "gateway-27",
+      deviceStore: { currentIdentity: vi.fn().mockResolvedValue({ notAfter: new Date("2026-10-01T00:00:00.000Z") }) } as never,
+      mqttStore: {
+        currentIdentity: vi.fn().mockResolvedValue({ notAfter: new Date("2026-08-01T00:00:00.000Z"), caPath: "/dev/null" }),
+        prepare: vi.fn().mockResolvedValue(prepared)
+      } as never,
+      deviceClient: {} as never,
+      mqttClient: { requestCertificate: vi.fn() } as never,
+      mqttProbe: vi.fn().mockResolvedValue(undefined),
+      activateMqttIdentity: vi.fn(async (identity) => {
+        await identity.commit();
+        throw new Error("candidate failed after CONNACK");
+      }),
+      clock: () => new Date("2026-07-15T00:00:00.000Z"),
+      schedule: vi.fn(),
+      logger: { error: vi.fn() }
+    });
+
+    await rotation.run();
+
+    expect(prepared.rollback).not.toHaveBeenCalled();
+    expect(prepared.finalize).toHaveBeenCalledTimes(1);
+    expect(committed).toBe(true);
   });
 
   it("cancels its scheduled retry and does not restart after stop", async () => {
