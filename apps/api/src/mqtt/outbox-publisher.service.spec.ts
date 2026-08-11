@@ -1,5 +1,20 @@
 import { OutboxPublisherService } from "./outbox-publisher.service";
 
+const dimmingPayload = {
+  commandId: "11111111-1111-4111-8111-111111111111",
+  dispatchId: "22222222-2222-4222-8222-222222222222",
+  idempotencyKey: "33333333-3333-4333-8333-333333333333",
+  sequence: 1,
+  siteId: "44444444-4444-4444-8444-444444444444",
+  gatewayId: "55555555-5555-4555-8555-555555555555",
+  targetType: "fixture",
+  targetId: "66666666-6666-4666-8666-666666666666",
+  targetFixtureIds: ["66666666-6666-4666-8666-666666666666"],
+  brightness: 65,
+  requestedBy: "77777777-7777-4777-8777-777777777777",
+  requestedAt: "2026-07-11T00:00:00.000Z"
+};
+
 describe("OutboxPublisherService", () => {
   it("claims rows under a worker lease before publishing", async () => {
     const tx = {
@@ -34,7 +49,7 @@ describe("OutboxPublisherService", () => {
       id: "outbox-1",
       dispatchId: "dispatch-1",
       topic: "sites/s/gateways/g/commands/dimming",
-      payload: {},
+      payload: dimmingPayload,
       attempts: 9,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
       dispatch: { commandId: "command-1" }
@@ -50,5 +65,34 @@ describe("OutboxPublisherService", () => {
       where: { id: "dispatch-1", status: { in: ["pending", "published"] } },
       data: { status: "failed", completedAt: new Date("2026-07-11T00:01:00.000Z"), errorCode: "MQTT_DEAD_LETTER", errorMessage: "broker unavailable" }
     });
+  });
+
+  it("persists a publish-relative expiry before publishing with the matching MQTT expiry", async () => {
+    const prisma: any = {
+      mqttOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };
+    const service = new OutboxPublisherService(prisma, mqtt as never, { workerId: "worker-1" });
+    const record = {
+      id: "outbox-1",
+      dispatchId: "dispatch-1",
+      topic: "sites/44444444-4444-4444-8444-444444444444/gateways/55555555-5555-4555-8555-555555555555/commands/dimming",
+      payload: dimmingPayload,
+      attempts: 0,
+      createdAt: new Date("2026-07-11T00:00:00.000Z"),
+      dispatch: { commandId: "command-1" }
+    };
+    const publishedAt = new Date("2026-07-11T00:01:00.000Z");
+
+    await service.publishClaimed(record as never, publishedAt);
+
+    const expectedPayload = { ...dimmingPayload, expiresAt: "2026-07-11T00:01:10.000Z" };
+    expect(prisma.mqttOutbox.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: "outbox-1", lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
+      data: { payload: expectedPayload }
+    });
+    expect(mqtt.publishTopic).toHaveBeenCalledWith(record.topic, expectedPayload, { messageExpiryInterval: 10 });
   });
 });

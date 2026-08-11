@@ -14,7 +14,8 @@ const command = {
   targetFixtureIds: ["66666666-6666-4666-8666-666666666666"],
   brightness: 65,
   requestedBy: "77777777-7777-4777-8777-777777777777",
-  requestedAt: new Date().toISOString()
+  requestedAt: new Date().toISOString(),
+  expiresAt: new Date(Date.now() + 60_000).toISOString()
 };
 
 describe("handleGatewayDimmingCommand", () => {
@@ -46,15 +47,16 @@ describe("handleGatewayDimmingCommand", () => {
     expect(adapter.commands).toHaveLength(1);
   });
 
-  it("rejects a command that arrived after the API acceptance deadline without calling BLE", async () => {
+  it("rejects a command whose publish-relative expiry passed without calling BLE or observing fixture state", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-11T00:00:10.001Z"));
+    vi.setSystemTime(new Date("2026-07-11T00:00:10.000Z"));
     const records = new Map<string, any>();
     const adapter = new StubBleMeshAdapter();
 
     const result = await handleGatewayDimmingCommand(adapter, memoryJournal(records), {
       ...command,
-      requestedAt: "2026-07-11T00:00:00.000Z"
+      requestedAt: "2026-07-01T00:00:00.000Z",
+      expiresAt: "2026-07-11T00:00:00.000Z"
     });
 
     expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "COMMAND_EXPIRED" });
@@ -62,7 +64,25 @@ describe("handleGatewayDimmingCommand", () => {
       status: "failed",
       results: [{ status: "failed", errorMessage: "gateway command expired before execution" }]
     });
+    expect(result.fixtureStateObserved).toBe(false);
     expect(adapter.commands).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it("does not reject an old requestedAt when its publish-relative expiry is still valid", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:01.000Z"));
+    const adapter = new StubBleMeshAdapter();
+
+    const result = await handleGatewayDimmingCommand(adapter, memoryJournal(new Map()), {
+      ...command,
+      requestedAt: "2026-07-01T00:00:00.000Z",
+      expiresAt: "2026-07-11T00:00:10.000Z"
+    });
+
+    expect(result.acceptance.status).toBe("accepted");
+    expect(result.fixtureStateObserved).toBe(true);
+    expect(adapter.commands).toHaveLength(1);
     vi.useRealTimers();
   });
 

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
-import { gatewayDimmingCommandV2Schema, mqttTopicsV2 } from "@led-control/shared";
+import { gatewayDimmingCommandDraftV2Schema, mqttTopicsV2 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -70,7 +70,7 @@ export class CommandsService {
         await tx.commandFixtureResult.createMany({
           data: group.fixtureIds.map((fixtureId) => ({ dispatchId: dispatch.id, fixtureId }))
         });
-        const payload = gatewayDimmingCommandV2Schema.parse({
+        const payload = gatewayDimmingCommandDraftV2Schema.parse({
           commandId: command.id,
           dispatchId: dispatch.id,
           idempotencyKey,

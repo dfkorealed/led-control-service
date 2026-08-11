@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { startGatewayRuntime, subscribeGatewayCommands } from "./index";
+import { shouldPublishFixtureStates, startGatewayRuntime, subscribeGatewayCommands } from "./index";
 
 const assignment = {
   siteId: "site-27",
@@ -27,6 +27,11 @@ describe("startGatewayRuntime", () => {
       ],
       { qos: 1 }
     );
+  });
+
+  it("does not publish fixture-state for a command result without fixture observation", () => {
+    expect(shouldPublishFixtureStates({ fixtureStateObserved: false })).toBe(false);
+    expect(shouldPublishFixtureStates({ fixtureStateObserved: true })).toBe(true);
   });
 
   it("fails closed before BlueZ and MQTT startup when the current MQTT identity has unsafe permissions", async () => {

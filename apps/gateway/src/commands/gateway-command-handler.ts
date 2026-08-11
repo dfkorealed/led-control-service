@@ -2,9 +2,9 @@ import {
   AcceptanceAckV2,
   DeviceStatusAckV2,
   GatewayDimmingCommandV2,
-  GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   acceptanceAckV2Schema,
-  deviceStatusAckV2Schema
+  deviceStatusAckV2Schema,
+  isGatewayCommandExpired
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { BleMeshAdapter } from "../gateway";
@@ -15,9 +15,10 @@ interface JournalLike {
   complete(key: string, result: unknown): Promise<void>;
 }
 
-interface GatewayCommandResult {
+export interface GatewayCommandResult {
   acceptance: AcceptanceAckV2;
   deviceStatus: DeviceStatusAckV2;
+  fixtureStateObserved: boolean;
 }
 
 export async function handleGatewayDimmingCommand(
@@ -36,8 +37,8 @@ export async function handleGatewayDimmingCommand(
     return result;
   }
 
-  // Broker expiry is primary; this blocks delayed delivery paths before they reach BLE.
-  if (Date.now() - Date.parse(command.requestedAt) >= GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS) {
+  // Broker expiry is primary; this verifies the API's publish-relative deadline before BLE execution.
+  if (isGatewayCommandExpired(command.expiresAt)) {
     return rejectExpiredCommand(journal, command);
   }
 
@@ -64,9 +65,11 @@ export async function handleGatewayDimmingCommand(
   await onAccepted?.(acceptance);
 
   let deviceStatus: DeviceStatusAckV2;
+  let fixtureStateObserved = false;
   try {
     const timeoutMs = validateTimeout(options.timeoutMs ?? 8000);
     const reports = await withTimeout(adapter.setBrightness(command.targetFixtureIds, command.brightness), timeoutMs);
+    fixtureStateObserved = reports.length > 0;
     const results = reports.map((report) => ({
       fixtureId: report.fixtureId,
       status: report.acknowledged ? ("succeeded" as const) : ("failed" as const),
@@ -98,7 +101,7 @@ export async function handleGatewayDimmingCommand(
     });
   }
 
-  const result = { acceptance, deviceStatus };
+  const result = { acceptance, deviceStatus, fixtureStateObserved };
   await journal.complete(command.idempotencyKey, result);
   return result;
 }
@@ -153,7 +156,7 @@ function createIndeterminateResult(command: GatewayDimmingCommandV2, acceptance?
       errorMessage: "indeterminate after gateway restart"
     }))
   });
-  return { acceptance: accepted, deviceStatus };
+  return { acceptance: accepted, deviceStatus, fixtureStateObserved: false };
 }
 
 async function rejectExpiredCommand(journal: JournalLike, command: GatewayDimmingCommandV2): Promise<GatewayCommandResult> {
@@ -165,7 +168,7 @@ async function rejectExpiredCommand(journal: JournalLike, command: GatewayDimmin
     siteId: command.siteId,
     gatewayId: command.gatewayId
   };
-  const result = {
+  const result: GatewayCommandResult = {
     acceptance: acceptanceAckV2Schema.parse({
       ...identity,
       eventId: randomUUID(),
@@ -184,7 +187,8 @@ async function rejectExpiredCommand(journal: JournalLike, command: GatewayDimmin
         status: "failed" as const,
         errorMessage: "gateway command expired before execution"
       }))
-    })
+    }),
+    fixtureStateObserved: false
   };
   const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
   if (!reserved) {

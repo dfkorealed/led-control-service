@@ -16,6 +16,7 @@ import {
   provisioningScanStartSchema,
   unprovisionedDeviceFoundSchema
 } from "@led-control/shared";
+import { Prisma } from "@prisma/client";
 import mqtt, { IClientOptions, MqttClient } from "mqtt";
 import { readFileSync } from "node:fs";
 import { PrismaService } from "../prisma/prisma.service";
@@ -64,11 +65,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     await this.publishTopic(topic, payload);
   }
 
-  async publishTopic(topic: string, payload: unknown) {
+  async publishTopic(topic: string, payload: unknown, options: { messageExpiryInterval?: number } = {}) {
     await new Promise<void>((resolve, reject) => {
       this.getClient().publish(topic, JSON.stringify(payload), {
         qos: 1,
-        properties: { messageExpiryInterval: GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000 }
+        properties: {
+          messageExpiryInterval: options.messageExpiryInterval ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000
+        }
       }, (error) => {
         if (error) {
           reject(error);
@@ -126,23 +129,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const scope = parseGatewayScopedTopic(topic);
       const ack = acceptanceAckV2Schema.parse(JSON.parse(payload.toString()));
       if (!scope || scope.siteId !== ack.siteId || scope.gatewayId !== ack.gatewayId) return;
-      await this.prisma.commandDispatch.updateMany({
-        where: {
-          id: ack.dispatchId,
-          commandId: ack.commandId,
-          gatewayId: ack.gatewayId,
-          idempotencyKey: ack.idempotencyKey,
-          sequence: BigInt(ack.sequence),
-          status: { in: ["pending", "published"] },
-          command: { siteId: ack.siteId }
-        },
-        data: {
-          status: ack.status === "accepted" ? "accepted" : "failed",
-          acceptedAt: new Date(ack.acceptedAt),
-          errorCode: ack.errorCode ?? null,
-          errorMessage: ack.errorMessage ?? null
-        }
-      });
+      await this.storeAcceptanceAck(ack);
       return;
     }
 
@@ -240,6 +227,43 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         }
       });
     }
+  }
+
+  private async storeAcceptanceAck(ack: ReturnType<typeof acceptanceAckV2Schema.parse>) {
+    const where: Prisma.CommandDispatchWhereInput = {
+      id: ack.dispatchId,
+      commandId: ack.commandId,
+      gatewayId: ack.gatewayId,
+      idempotencyKey: ack.idempotencyKey,
+      sequence: BigInt(ack.sequence),
+      status: { in: ["pending", "published"] },
+      command: { siteId: ack.siteId }
+    };
+    const acceptedAt = new Date(ack.acceptedAt);
+    const data: Prisma.CommandDispatchUpdateManyMutationInput = {
+      status: ack.status === "accepted" ? ("accepted" as const) : ("failed" as const),
+      acceptedAt,
+      errorCode: ack.errorCode ?? null,
+      errorMessage: ack.errorMessage ?? null
+    };
+    if (ack.status === "accepted") {
+      await this.prisma.commandDispatch.updateMany({ where, data });
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const failed = await tx.commandDispatch.updateMany({ where, data });
+      if (failed.count !== 1) return;
+      const errorMessage = ack.errorMessage ?? "gateway rejected command";
+      await tx.commandFixtureResult.updateMany({
+        where: { dispatchId: ack.dispatchId, status: "pending" },
+        data: { status: "failed", occurredAt: acceptedAt, errorMessage }
+      });
+      await tx.command.updateMany({
+        where: { id: ack.commandId, status: "pending" },
+        data: { status: "failed", errorMessage }
+      });
+    });
   }
 
   private async storeFixtureStateV2(gatewayId: string, state: ReturnType<typeof fixtureStateV2Schema.parse>) {

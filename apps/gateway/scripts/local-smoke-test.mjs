@@ -55,7 +55,8 @@ client.on("connect", () => {
       targetFixtureIds: [fixtureId],
       brightness,
       requestedBy: "local-smoke-test",
-      requestedAt: new Date().toISOString()
+      requestedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 10_000).toISOString()
     };
 
     client.publish(topics.command, JSON.stringify(command), { qos: 1 }, (publishError) => {

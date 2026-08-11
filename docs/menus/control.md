@@ -45,11 +45,11 @@
 - API timeout worker는 미발행 명령 15분, MQTT 발행 후 acceptance 10초, acceptance 후 장비 상태 30초 deadline을 적용하고 종료되지 않은 명령을 `timed_out`으로 확정한다.
 - gateway는 v2 dimming command를 로컬 `0600` journal에 먼저 기록한 뒤 acceptance ACK를 보내고, BLE Mesh adapter 결과 후 fixture별 device-status ACK를 보낸다.
 - 동일 idempotency key의 최종 결과가 journal에 있으면 실제 조명을 다시 제어하지 않고 기존 ACK를 재발행한다.
-- API는 gateway/site/command/dispatch identity가 모두 일치하는 ACK만 반영하고, 모든 gateway dispatch가 끝난 뒤 상위 Command 상태를 확정한다.
+- API는 gateway/site/command/dispatch identity가 모두 일치하는 ACK만 반영한다. rejected acceptance는 같은 transaction에서 dispatch, 남은 조명별 결과, 상위 Command를 failed로 종료하고 terminal dispatch의 늦은 ACK는 무시한다.
 - BLE Mesh fixture status는 기본 8초 timeout을 적용하고 adapter가 반환하지 않아도 fixture별 `timed_out` 결과로 명령을 종료한다.
 - Gateway 재시작 후 accepted-only 명령은 실제 조명을 다시 제어하지 않고 `indeterminate after gateway restart` timeout 결과로 닫는다.
 - Gateway journal은 idempotency 결과를 24시간·최대 10,000건만 유지하고 fixture별 최신 snapshot 한 건만 startup resync에 사용한다.
-- Gateway는 assignment의 gateway ID 기반 MQTT 5 persistent session으로 QoS 1 command subscription을 유지한다. 각 control command는 API acceptance deadline과 같은 10초 MQTT message expiry를 사용하고 gateway도 `requestedAt` 기준 만료 명령을 BLE 호출 전에 거부한다. Production broker는 gateway별 최대 100개 또는 1 MiB QoS 1 queue를 유지하므로 이 한도를 넘는 offline 명령은 보장하지 않는다. API의 global event consumer는 deployment instance ID가 포함된 고유 client ID를 쓰되 clean session으로 연결한다.
+- Gateway는 assignment의 gateway ID 기반 MQTT 5 persistent session으로 QoS 1 command subscription을 유지한다. Outbox는 실제 MQTT publish 직전에 `expiresAt`을 API의 10초 acceptance deadline 기준으로 계산해 DB payload에 기록하고, 같은 기준의 10초 MQTT message expiry를 설정한다. Gateway는 `requestedAt`이 아니라 `expiresAt`을 사용하며, 최대 2초 느린 gateway clock도 deadline 이후 BLE를 실행하지 않도록 만료 2초 전부터 명령을 거부한다. BLE 실행 또는 장비 상태 관측이 없었던 만료/불확정 결과는 fixture-state를 발행하지 않아 기존 실제 상태를 보존한다. Production broker는 gateway별 최대 100개 또는 1 MiB QoS 1 queue를 유지하므로 이 한도를 넘는 offline 명령은 보장하지 않는다. API의 global event consumer는 deployment instance ID가 포함된 고유 client ID를 쓰되 clean session으로 연결한다.
 
 ## 미구현
 
@@ -87,8 +87,12 @@
 - `apps/api/src/commands/command-status.service.ts`
 - `apps/web/src/api/commands.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
+- `apps/api/src/mqtt/outbox-publisher.service.ts`
 - `apps/gateway/src/gateway.ts`
 - `apps/gateway/src/index.ts`
+- `apps/gateway/src/commands/gateway-command-handler.ts`
+- `packages/shared/src/command-delivery.ts`
+- `packages/shared/src/gateway-contracts.ts`
 - `apps/gateway/docker/mqtt-persistence.integration.mjs`
 - `infra/mosquitto.production-tls.conf`
 - `docker-compose.production.yml`

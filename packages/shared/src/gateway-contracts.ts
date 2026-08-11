@@ -34,13 +34,20 @@ const commandIdentitySchema = gatewayScopeSchema.extend({
   sequence: z.number().int().nonnegative()
 });
 
-export const gatewayDimmingCommandV2Schema = commandIdentitySchema.extend({
+const gatewayDimmingCommandFields = {
   targetType: z.enum(["fixture", "group"]),
   targetId: z.string().uuid(),
   targetFixtureIds: z.array(z.string().uuid()).min(1),
   brightness: z.number().int().min(0).max(100),
   requestedBy: z.string().uuid(),
   requestedAt: z.string().datetime()
+};
+
+// An outbox record is completed immediately before MQTT publish so its expiry starts at the real publish time.
+export const gatewayDimmingCommandDraftV2Schema = commandIdentitySchema.extend(gatewayDimmingCommandFields);
+
+export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2Schema.extend({
+  expiresAt: z.string().datetime()
 });
 
 export const acceptanceAckV2Schema = commandIdentitySchema.extend({
@@ -86,6 +93,7 @@ export const gatewayHeartbeatV2Schema = orderedGatewayEventSchema.extend({
 });
 
 export type GatewayDimmingCommandV2 = z.infer<typeof gatewayDimmingCommandV2Schema>;
+export type GatewayDimmingCommandDraftV2 = z.infer<typeof gatewayDimmingCommandDraftV2Schema>;
 export type AcceptanceAckV2 = z.infer<typeof acceptanceAckV2Schema>;
 export type DeviceStatusAckV2 = z.infer<typeof deviceStatusAckV2Schema>;
 export type FixtureStateV2 = z.infer<typeof fixtureStateV2Schema>;

@@ -23,7 +23,7 @@ import {
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
-import { handleGatewayDimmingCommand, parseCommandTimeout } from "./commands/gateway-command-handler";
+import { handleGatewayDimmingCommand, parseCommandTimeout, type GatewayCommandResult } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { createProductionAdapters } from "./adapters/adapter-factory";
 import { ApplianceHealth } from "./health/appliance-health";
@@ -105,7 +105,7 @@ async function main() {
     );
     if (!acceptancePublished) await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
     await publish(mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
-    await publishDeviceStates(result.deviceStatus, command.brightness);
+    if (shouldPublishFixtureStates(result)) await publishDeviceStates(result.deviceStatus, command.brightness);
   }
 
   async function publishDeviceStates(
@@ -200,6 +200,10 @@ async function main() {
     });
     await publish(mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
   }
+}
+
+export function shouldPublishFixtureStates(result: Pick<GatewayCommandResult, "fixtureStateObserved">) {
+  return result.fixtureStateObserved;
 }
 
 export function subscribeGatewayCommands(

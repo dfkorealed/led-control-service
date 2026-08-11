@@ -85,6 +85,57 @@ describe("MqttService", () => {
     });
   });
 
+  it("atomically fails a rejected dispatch, its pending fixture results, and its parent command", async () => {
+    const prisma: any = {
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma);
+
+    await service.handleMessage(
+      "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/acceptance",
+      Buffer.from(JSON.stringify({
+        ...acceptanceAckPayload(),
+        status: "rejected",
+        errorCode: "COMMAND_EXPIRED",
+        errorMessage: "gateway command expired before execution"
+      }))
+    );
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "66666666-6666-4666-8666-666666666666",
+        commandId: "11111111-1111-4111-8111-111111111111",
+        gatewayId: "55555555-5555-4555-8555-555555555555",
+        idempotencyKey: "33333333-3333-4333-8333-333333333333",
+        sequence: 1n,
+        status: { in: ["pending", "published"] },
+        command: { siteId: "22222222-2222-4222-8222-222222222222" }
+      },
+      data: {
+        status: "failed",
+        acceptedAt: new Date("2026-07-11T00:00:01.000Z"),
+        errorCode: "COMMAND_EXPIRED",
+        errorMessage: "gateway command expired before execution"
+      }
+    });
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledWith({
+      where: { dispatchId: "66666666-6666-4666-8666-666666666666", status: "pending" },
+      data: {
+        status: "failed",
+        occurredAt: new Date("2026-07-11T00:00:01.000Z"),
+        errorMessage: "gateway command expired before execution"
+      }
+    });
+    expect(prisma.command.updateMany).toHaveBeenCalledWith({
+      where: { id: "11111111-1111-4111-8111-111111111111", status: "pending" },
+      data: { status: "failed", errorMessage: "gateway command expired before execution" }
+    });
+  });
+
   it("does not process a device-status ACK for an already terminal dispatch", async () => {
     const prisma: any = {
       commandDispatch: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -429,5 +480,19 @@ function deviceStatusAckPayload() {
     results: [
       { fixtureId: "99999999-9999-4999-8999-999999999999", status: "succeeded", brightness: 70, rssi: -60, hopCount: 1 }
     ]
+  };
+}
+
+function acceptanceAckPayload() {
+  return {
+    commandId: "11111111-1111-4111-8111-111111111111",
+    dispatchId: "66666666-6666-4666-8666-666666666666",
+    idempotencyKey: "33333333-3333-4333-8333-333333333333",
+    sequence: 1,
+    siteId: "22222222-2222-4222-8222-222222222222",
+    gatewayId: "55555555-5555-4555-8555-555555555555",
+    eventId: "77777777-7777-4777-8777-777777777777",
+    status: "accepted",
+    acceptedAt: "2026-07-11T00:00:01.000Z"
   };
 }

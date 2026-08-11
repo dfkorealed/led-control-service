@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { createGatewayCommandExpiry, gatewayDimmingCommandDraftV2Schema, gatewayDimmingCommandV2Schema } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { MqttService } from "./mqtt.service";
@@ -70,7 +71,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
 
   async processBatch(now = new Date()) {
     const records = await this.claimBatch(now);
-    for (const record of records) await this.publishClaimed(record, now);
+    for (const record of records) await this.publishClaimed(record);
   }
 
   async publishClaimed(
@@ -86,7 +87,18 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
     now = new Date()
   ) {
     try {
-      await this.mqtt.publishTopic(record.topic, record.payload);
+      const expiry = createGatewayCommandExpiry(now);
+      const payload = gatewayDimmingCommandV2Schema.parse({
+        ...gatewayDimmingCommandDraftV2Schema.parse(record.payload),
+        expiresAt: expiry.expiresAt
+      });
+      const prepared = await this.prisma.mqttOutbox.updateMany({
+        where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
+        data: { payload }
+      });
+      if (prepared.count !== 1) return;
+
+      await this.mqtt.publishTopic(record.topic, payload, { messageExpiryInterval: expiry.messageExpiryInterval });
       await this.prisma.$transaction(async (tx) => {
         const released = await tx.mqttOutbox.updateMany({
           where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },

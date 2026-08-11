@@ -3,6 +3,7 @@ import {
   acceptanceAckV2Schema,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
+  gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
   mqttTopicsV2
@@ -46,7 +47,8 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetFixtureIds: [fixtureId],
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
-      requestedAt: occurredAt
+      requestedAt: occurredAt,
+      expiresAt: "2026-07-11T00:00:10.000Z"
     });
     const acceptance = acceptanceAckV2Schema.parse({
       eventId,
@@ -74,6 +76,29 @@ describe("gateway-scoped MQTT v2 contracts", () => {
 
     expect(acceptance.status).toBe("accepted");
     expect(deviceStatus.results[0]).toMatchObject({ fixtureId, brightness: 70 });
+  });
+
+  it("requires the publish-relative command expiry used by the gateway", () => {
+    const draft = {
+      commandId,
+      dispatchId,
+      siteId,
+      gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`,
+      sequence: 7,
+      targetType: "fixture" as const,
+      targetId: fixtureId,
+      targetFixtureIds: [fixtureId],
+      brightness: 70,
+      requestedBy: "55555555-5555-4555-8555-555555555555",
+      requestedAt: occurredAt
+    };
+
+    expect(gatewayDimmingCommandDraftV2Schema.parse(draft)).toMatchObject(draft);
+    expect(() => gatewayDimmingCommandV2Schema.parse(draft)).toThrow();
+    expect(gatewayDimmingCommandV2Schema.parse({ ...draft, expiresAt: "2026-07-11T00:00:10.000Z" }).expiresAt).toBe(
+      "2026-07-11T00:00:10.000Z"
+    );
   });
 
   it("requires ordered identity fields for fixture state and heartbeat", () => {
