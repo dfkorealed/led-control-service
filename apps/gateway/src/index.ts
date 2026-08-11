@@ -27,14 +27,14 @@ import { CommandJournal } from "./commands/command-journal";
 import { handleGatewayDimmingCommand, parseCommandTimeout, type GatewayCommandResult } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { createProductionAdapters } from "./adapters/adapter-factory";
-import { ApplianceHealth } from "./health/appliance-health";
+import { ApplianceHealth, parseHeartbeatInterval } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
 import { MqttCertificateClient } from "./identity/mqtt-certificate-client";
-import { MqttIdentityStore, type MqttIdentityCandidate } from "./identity/mqtt-identity-store";
+import { MqttIdentityStore, type PreparedMqttIdentity } from "./identity/mqtt-identity-store";
 import { probeMqttIdentity } from "./identity/mqtt-identity-probe";
 import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
-import { createGatewayCertificateRotation } from "./identity/certificate-rotation";
+import { createGatewayCertificateRotation, type CertificateRotation } from "./identity/certificate-rotation";
 import { GatewayMqttRuntime } from "./runtime/gateway-mqtt-runtime";
 
 config({ path: resolve(process.cwd(), "../../.env") });
@@ -46,7 +46,7 @@ async function main() {
     console.log(JSON.stringify({ status: "passed", capability: "bluez-mesh-bootstrap" }));
     process.exit(0);
   }
-  const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS ?? 5000);
+  const heartbeatMs = parseGatewayHeartbeatInterval(process.env.GATEWAY_HEARTBEAT_MS);
   const health = new ApplianceHealth(process.env.GATEWAY_HEALTH_PATH ?? "/var/run/led-control/health.json", { heartbeatMs });
   await health.startingUnassigned();
   const runtime = await startGatewayRuntime({ env: process.env });
@@ -199,8 +199,8 @@ async function main() {
     onRuntimeError: reportGatewayError
   });
   mqttRuntime.start();
-  startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
-  registerGatewayShutdownHandlers(mqttRuntime);
+  const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
+  registerGatewayShutdownHandlers(mqttRuntime, rotation);
 
   function reportGatewayError(error: unknown, context: string) {
     console.error(`Gateway MQTT ${context} failed`, error);
@@ -239,15 +239,19 @@ export function subscribeGatewayCommands(
 
 export function createGatewayShutdownHandler(
   runtime: Pick<GatewayMqttRuntime, "stop">,
+  rotationOrExit?: Pick<CertificateRotation, "stop"> | ((code: number) => void),
   exit: (code: number) => void = (code) => process.exit(code)
 ) {
+  const rotation = typeof rotationOrExit === "function" ? undefined : rotationOrExit;
+  const shutdownExit = typeof rotationOrExit === "function" ? rotationOrExit : exit;
   let stopping: Promise<void> | undefined;
   return () => {
-    stopping ??= runtime.stop()
-      .then(() => exit(0))
+    stopping ??= Promise.all([rotation?.stop(), runtime.stop()])
+      .then(() => undefined)
+      .then(() => shutdownExit(0))
       .catch((error) => {
         console.error("Gateway shutdown failed", error);
-        exit(1);
+        shutdownExit(1);
       });
     return stopping;
   };
@@ -255,9 +259,10 @@ export function createGatewayShutdownHandler(
 
 export function registerGatewayShutdownHandlers(
   runtime: Pick<GatewayMqttRuntime, "stop">,
+  rotationOrExit?: Pick<CertificateRotation, "stop"> | ((code: number) => void),
   exit: (code: number) => void = (code) => process.exit(code)
 ) {
-  const shutdown = createGatewayShutdownHandler(runtime, exit);
+  const shutdown = createGatewayShutdownHandler(runtime, rotationOrExit, exit);
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
   return () => {
@@ -308,8 +313,8 @@ export async function ensureMqttIdentity(assignment: GatewayAssignment, env: Nod
 function startCertificateRotation(
   assignment: GatewayAssignment,
   env: NodeJS.ProcessEnv,
-  activateMqttIdentity: (candidate: MqttIdentityCandidate) => Promise<void>
-) {
+  activateMqttIdentity: (prepared: PreparedMqttIdentity) => Promise<void>
+): CertificateRotation {
   const bootstrapUrl = required(env, "GATEWAY_BOOTSTRAP_URL");
   const deviceIdentityRoot = env.GATEWAY_IDENTITY_ROOT ?? "/var/lib/led-control/identity/device";
   const mqttIdentityRoot = env.GATEWAY_MQTT_IDENTITY_ROOT ?? "/var/lib/led-control/identity/mqtt";
@@ -327,7 +332,7 @@ function startCertificateRotation(
     privateKeyPath: join(currentDevice, "device.key"),
     caPath: required(env, "GATEWAY_BOOTSTRAP_CA_PATH")
   });
-  createGatewayCertificateRotation({
+  const rotation = createGatewayCertificateRotation({
     gatewayId: assignment.gatewayId,
     deviceStore: new KeyMaterialStore({ identityRoot: deviceIdentityRoot }),
     mqttStore: new MqttIdentityStore({ identityRoot: mqttIdentityRoot }),
@@ -335,7 +340,13 @@ function startCertificateRotation(
     mqttClient,
     mqttProbe: (candidate) => probeMqttIdentity(assignment.mqttUrl, candidate),
     activateMqttIdentity
-  }).start();
+  });
+  rotation.start();
+  return rotation;
+}
+
+export function parseGatewayHeartbeatInterval(value: string | undefined) {
+  return parseHeartbeatInterval(value === undefined ? undefined : Number(value));
 }
 
 export function createMqttIdentityActivation(
@@ -344,7 +355,8 @@ export function createMqttIdentityActivation(
   runtime: Pick<GatewayMqttRuntime, "activate">,
   createMqtt: typeof createMqttClient = createMqttClient
 ) {
-  return async (candidate: MqttIdentityCandidate) => {
+  return async (prepared: PreparedMqttIdentity) => {
+    const candidate = prepared.candidate;
     const client = createMqtt({
       ...env,
       MQTT_URL: assignment.mqttUrl,
@@ -352,7 +364,7 @@ export function createMqttIdentityActivation(
       MQTT_CLIENT_CERT_PATH: candidate.certificatePath,
       MQTT_CLIENT_KEY_PATH: candidate.keyPath
     }, { gatewayId: assignment.gatewayId });
-    await runtime.activate(client);
+    await runtime.activate(client, prepared);
   };
 }
 

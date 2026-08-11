@@ -61,10 +61,10 @@ async function createBluezAdapter(env: NodeJS.ProcessEnv) {
   });
 }
 
-function createBluezHealthProbes(
-  transport: BluezTransport,
-  provisioner: BluezProvisioner,
-  addressStore: MeshAddressStore
+export function createBluezHealthProbes(
+  transport: Pick<BluezTransport, "call">,
+  provisioner: Pick<BluezProvisioner, "nodePath">,
+  addressStore: Pick<MeshAddressStore, "validate">
 ): ApplianceHealthProbes {
   return {
     dbusOwner: async () => await transport.call<boolean>(
@@ -74,7 +74,18 @@ function createBluezHealthProbes(
       "NameHasOwner",
       ["org.bluez.mesh"]
     ),
-    bluezAttached: async () => provisioner.nodePath !== null,
+    bluezAttached: async () => {
+      const nodePath = provisioner.nodePath;
+      if (!nodePath) return false;
+      const introspection = await transport.call<string>(
+        "org.bluez.mesh",
+        nodePath,
+        "org.freedesktop.DBus.Introspectable",
+        "Introspect",
+        []
+      );
+      return typeof introspection === "string" && introspection.includes('interface name="org.bluez.mesh.Node1"');
+    },
     hciPowered: async () => (Number.parseInt(await readFile("/sys/class/bluetooth/hci0/flags", "utf8"), 16) & 1) === 1,
     mappingValid: async () => { await addressStore.validate(); return true; }
   };

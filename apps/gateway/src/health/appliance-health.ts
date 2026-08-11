@@ -43,7 +43,7 @@ export class ApplianceHealth {
     options: ApplianceHealthOptions = {}
   ) {
     this.now = options.now ?? (() => new Date());
-    this.heartbeatMs = options.heartbeatMs ?? 5_000;
+    this.heartbeatMs = parseHeartbeatInterval(options.heartbeatMs);
     this.probes = options.probes ?? unavailableProbes;
   }
 
@@ -143,8 +143,17 @@ export class ApplianceHealth {
 
   private isHeartbeatFresh() {
     if (!this.lastHeartbeatPublishedAt) return false;
-    return this.now().getTime() - this.lastHeartbeatPublishedAt.getTime() <= Math.max(30_000, this.heartbeatMs * 3);
+    const age = this.now().getTime() - this.lastHeartbeatPublishedAt.getTime();
+    return age >= 0 && age <= Math.max(30_000, this.heartbeatMs * 3);
   }
+}
+
+export function parseHeartbeatInterval(value: number | undefined) {
+  const heartbeatMs = value ?? 5_000;
+  if (!Number.isInteger(heartbeatMs) || heartbeatMs < 1 || heartbeatMs > 86_400_000) {
+    throw new Error("heartbeat interval must be a positive finite integer no greater than 86400000ms");
+  }
+  return heartbeatMs;
 }
 
 const unavailableProbes: ApplianceHealthProbes = {

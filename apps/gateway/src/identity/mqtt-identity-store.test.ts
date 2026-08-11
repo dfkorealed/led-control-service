@@ -177,6 +177,52 @@ describe("MqttIdentityStore", () => {
     await expectNoCandidateGenerations(fixture.identityRoot, previous);
   });
 
+  it("keeps the current pointer until a prepared identity is committed and restores it on rollback", async () => {
+    const fixture = await createFixture();
+    const gatewayId = "gateway-27";
+    await activateIdentity(fixture, gatewayId);
+    const previous = await readlink(join(fixture.identityRoot, "current"));
+
+    const prepared = await fixture.store.prepare(gatewayId, fixture.mqttCaPem, async (csrPem) => ({
+      gatewayId,
+      ...(await signCsr(fixture.directory, csrPem, gatewayId))
+    }), true);
+    if (!prepared) throw new Error("expected a prepared MQTT identity");
+
+    await expect(readlink(join(fixture.identityRoot, "current"))).resolves.toBe(previous);
+    await prepared.commit();
+    await expect(readlink(join(fixture.identityRoot, "current"))).resolves.not.toBe(previous);
+    await prepared.rollback();
+
+    await expect(readlink(join(fixture.identityRoot, "current"))).resolves.toBe(previous);
+    await expectNoCandidateGenerations(fixture.identityRoot, previous);
+  });
+
+  it("cleans a prepared generation when pointer commit fails without changing current", async () => {
+    const fixture = await createFixture();
+    const gatewayId = "gateway-27";
+    await activateIdentity(fixture, gatewayId);
+    const previous = await readlink(join(fixture.identityRoot, "current"));
+    const failingStore = new MqttIdentityStore({
+      identityRoot: fixture.identityRoot,
+      rename: async (source, destination) => {
+        if (destination === join(fixture.identityRoot, "current")) throw new Error("pointer commit failed");
+        await rename(source, destination);
+      }
+    });
+    const prepared = await failingStore.prepare(gatewayId, fixture.mqttCaPem, async (csrPem) => ({
+      gatewayId,
+      ...(await signCsr(fixture.directory, csrPem, gatewayId))
+    }), true);
+    if (!prepared) throw new Error("expected a prepared MQTT identity");
+
+    await expect(prepared.commit()).rejects.toThrow("MQTT identity installation failed");
+    await prepared.rollback();
+
+    await expect(readlink(join(fixture.identityRoot, "current"))).resolves.toBe(previous);
+    await expectNoCandidateGenerations(fixture.identityRoot, previous);
+  });
+
   it.each([
     { name: "expired", startOffsetDays: -3, endOffsetDays: -2 },
     { name: "not yet valid", startOffsetDays: 1, endOffsetDays: 2 }

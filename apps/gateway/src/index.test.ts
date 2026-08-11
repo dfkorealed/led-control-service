@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createMqttIdentityActivation,
+  parseGatewayHeartbeatInterval,
   registerGatewayShutdownHandlers,
   shouldPublishFinalAcceptance,
   shouldPublishFixtureStates,
@@ -19,15 +20,22 @@ const assignment = {
 describe("startGatewayRuntime", () => {
   it("stops the MQTT runtime before exiting for SIGTERM", async () => {
     const stop = vi.fn().mockResolvedValue(undefined);
+    const stopRotation = vi.fn().mockResolvedValue(undefined);
     const exit = vi.fn();
-    const unregister = registerGatewayShutdownHandlers({ stop } as never, exit);
+    const unregister = registerGatewayShutdownHandlers({ stop } as never, { stop: stopRotation } as never, exit);
 
     process.emit("SIGTERM", "SIGTERM");
-    await Promise.resolve();
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
 
     expect(stop).toHaveBeenCalledTimes(1);
-    expect(exit).toHaveBeenCalledWith(0);
+    expect(stopRotation).toHaveBeenCalledTimes(1);
     unregister();
+  });
+
+  it("rejects an invalid heartbeat interval before gateway startup", () => {
+    expect(() => parseGatewayHeartbeatInterval("NaN")).toThrow("positive finite integer");
+    expect(() => parseGatewayHeartbeatInterval("Infinity")).toThrow("positive finite integer");
+    expect(() => parseGatewayHeartbeatInterval("0")).toThrow("positive finite integer");
   });
 
   it("subscribes command topics only when MQTT reports a new session", () => {
@@ -109,7 +117,8 @@ describe("startGatewayRuntime", () => {
     const createMqtt = vi.fn(() => client);
     const runtime = { activate: vi.fn().mockResolvedValue(undefined) };
 
-    await createMqttIdentityActivation(assignment, { MQTT_URL: "mqtts://ignored.example:8883" }, runtime as never, createMqtt as never)(candidate);
+    const prepared = { candidate, commit: vi.fn(), rollback: vi.fn(), finalize: vi.fn() };
+    await createMqttIdentityActivation(assignment, { MQTT_URL: "mqtts://ignored.example:8883" }, runtime as never, createMqtt as never)(prepared);
 
     expect(createMqtt).toHaveBeenCalledWith({
       MQTT_URL: assignment.mqttUrl,
@@ -117,6 +126,6 @@ describe("startGatewayRuntime", () => {
       MQTT_CLIENT_CERT_PATH: candidate.certificatePath,
       MQTT_CLIENT_KEY_PATH: candidate.keyPath
     }, { gatewayId: assignment.gatewayId });
-    expect(runtime.activate).toHaveBeenCalledWith(client);
+    expect(runtime.activate).toHaveBeenCalledWith(client, prepared);
   });
 });

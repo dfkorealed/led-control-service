@@ -26,6 +26,13 @@ export interface MqttIdentityCandidate {
   caPath: string;
 }
 
+export interface PreparedMqttIdentity {
+  candidate: MqttIdentityCandidate;
+  commit(): Promise<void>;
+  rollback(): Promise<void>;
+  finalize(): Promise<void>;
+}
+
 export class MqttIdentityStore {
   private readonly opensslPath: string;
   private readonly generator: OpenSslCsrGenerator;
@@ -46,18 +53,44 @@ export class MqttIdentityStore {
     probe?: (candidate: MqttIdentityCandidate) => Promise<void>,
     force = false
   ): Promise<boolean> {
+    let prepared: PreparedMqttIdentity | null = null;
+    let committed = false;
+    try {
+      prepared = await this.prepare(gatewayId, mqttCaBundlePem, issue, force);
+      if (!prepared) return false;
+      await probe?.(prepared.candidate);
+      await prepared.commit();
+      committed = true;
+      await prepared.finalize();
+      return true;
+    } catch (error) {
+      if (!committed) await prepared?.rollback().catch(() => undefined);
+      if (
+        (error as Error).message === "MQTT identity validation failed" ||
+        (error as Error).message === "MQTT identity permissions are invalid"
+      ) throw error;
+      throw new Error("MQTT identity installation failed");
+    }
+  }
+
+  async prepare(
+    gatewayId: string,
+    mqttCaBundlePem: string,
+    issue: (csrPem: string) => Promise<MqttCertificateResponse>,
+    force = false
+  ): Promise<PreparedMqttIdentity | null> {
     validateGatewayId(gatewayId);
     validateCertificateBundle(mqttCaBundlePem);
     await this.ensureLayout();
     const currentState = await this.currentState(gatewayId);
-    if (currentState === "valid" && !force) return false;
+    if (currentState === "valid" && !force) return null;
     if (currentState === "unsafe") throw new Error("MQTT identity permissions are invalid");
 
     const generationId = randomUUID();
     const pendingRoot = join(this.options.identityRoot, "pending-generations");
     const stagingPath = join(pendingRoot, `.${generationId}.tmp`);
-    const pendingPath = join(pendingRoot, generationId);
-    const generation = { path: stagingPath as string | null };
+    const pendingGenerationPath = join(pendingRoot, generationId);
+    let candidatePath: string | null = stagingPath;
     await mkdir(stagingPath, { mode: 0o750 });
     await chmod(stagingPath, 0o750);
     try {
@@ -69,80 +102,102 @@ export class MqttIdentityStore {
       await this.rename(join(stagingPath, ".gateway.key.tmp"), join(stagingPath, "gateway.key"));
       await this.rename(join(stagingPath, ".gateway.csr.tmp"), join(stagingPath, "gateway.csr"));
       await this.sync(stagingPath);
-      await this.rename(stagingPath, pendingPath);
-      generation.path = pendingPath;
+      await this.rename(stagingPath, pendingGenerationPath);
+      candidatePath = pendingGenerationPath;
       await this.sync(pendingRoot);
 
       const response = await issue(generated.csrPem);
       if (response.gatewayId !== gatewayId) throw new Error("MQTT identity validation failed");
-      await this.install(generation, generationId, gatewayId, mqttCaBundlePem, response, probe);
-      generation.path = null;
-      return true;
+      const certificatePath = join(candidatePath, "gateway.crt");
+      const chainPath = join(candidatePath, "gateway-chain.crt");
+      const caPath = join(candidatePath, "mqtt-ca.crt");
+      const chain = normalizeChain(response.caChainPem);
+      validateCertificateBundle(response.certificatePem);
+      validateCertificateBundle(chain);
+      const certificateBundle = `${response.certificatePem.trim()}\n${chain}`;
+      await writeFileAtomic(certificatePath, certificateBundle, 0o644);
+      await writeFileAtomic(chainPath, chain, 0o644);
+      await writeFileAtomic(caPath, mqttCaBundlePem, 0o644);
+      await this.validateGeneration({ pendingPath: candidatePath, gatewayId, certificatePath, chainPath, responseNotAfter: response.notAfter });
+      const previous = await readOptionalLink(join(this.options.identityRoot, "current"));
+      return this.preparedIdentity({
+        generationId,
+        pendingPath: candidatePath,
+        previous,
+        candidate: { generationPath: candidatePath, certificatePath, keyPath: join(candidatePath, "gateway.key"), caPath }
+      });
     } catch (error) {
-      if (generation.path) await this.removeGeneration(generation.path);
+      if (candidatePath) await this.removeGeneration(candidatePath);
       if ((error as Error).message === "MQTT identity validation failed") throw error;
       throw new Error("MQTT identity installation failed");
     }
   }
 
-  private async install(
-    generation: { path: string | null },
-    generationId: string,
-    gatewayId: string,
-    mqttCaBundlePem: string,
-    response: MqttCertificateResponse,
-    probe?: (candidate: MqttIdentityCandidate) => Promise<void>
-  ) {
-    if (!generation.path) throw new Error("MQTT identity installation failed");
-    const pendingPath = generation.path;
-    const certificatePath = join(pendingPath, "gateway.crt");
-    const chainPath = join(pendingPath, "gateway-chain.crt");
-    const caPath = join(pendingPath, "mqtt-ca.crt");
-    const chain = normalizeChain(response.caChainPem);
-    validateCertificateBundle(response.certificatePem);
-    validateCertificateBundle(chain);
-    const certificateBundle = `${response.certificatePem.trim()}\n${chain}`;
-    await writeFileAtomic(certificatePath, certificateBundle, 0o644);
-    await writeFileAtomic(chainPath, chain, 0o644);
-    await writeFileAtomic(caPath, mqttCaBundlePem, 0o644);
-    await this.validateGeneration({ pendingPath, gatewayId, certificatePath, chainPath, responseNotAfter: response.notAfter });
-    await probe?.({
-      generationPath: pendingPath,
-      certificatePath,
-      keyPath: join(pendingPath, "gateway.key"),
-      caPath
-    });
-
-    const generationsRoot = join(this.options.identityRoot, "generations");
-    const activePath = join(generationsRoot, generationId);
-    const previous = await readOptionalLink(join(this.options.identityRoot, "current"));
-    await this.rename(pendingPath, activePath);
-    generation.path = activePath;
-    await this.sync(join(this.options.identityRoot, "pending-generations"));
-    await this.sync(generationsRoot);
-    try {
-      await this.replacePointer("current", `generations/${generationId}`);
-    } catch (error) {
-      let pointerRestored = !(error instanceof PointerReplacementError) || !error.pointerChanged;
-      if (!pointerRestored) {
+  private preparedIdentity(input: {
+    generationId: string;
+    pendingPath: string;
+    previous: string | null;
+    candidate: MqttIdentityCandidate;
+  }): PreparedMqttIdentity {
+    const activePath = join(this.options.identityRoot, "generations", input.generationId);
+    const candidatePointer = `generations/${input.generationId}`;
+    let location: "pending" | "active" | "removed" = "pending";
+    let pointerCommitted = false;
+    const restorePreviousPointer = async () => {
+      if (input.previous) await this.replacePointer("current", input.previous);
+      else {
+        await rm(join(this.options.identityRoot, "current"), { force: true });
+        await this.sync(this.options.identityRoot);
+      }
+    };
+    const removeCandidate = async () => {
+      if (location === "removed") return;
+      const path = location === "pending" ? input.pendingPath : activePath;
+      await this.removeGeneration(path);
+      location = "removed";
+    };
+    return {
+      candidate: input.candidate,
+      commit: async () => {
+        if (location === "removed") throw new Error("MQTT identity installation failed");
+        if (pointerCommitted) return;
         try {
-          if (previous) await this.replacePointer("current", previous);
-          else {
-            await rm(join(this.options.identityRoot, "current"), { force: true });
-            await this.sync(this.options.identityRoot);
+          if (location === "pending") {
+            await this.rename(input.pendingPath, activePath);
+            location = "active";
+            await this.sync(join(this.options.identityRoot, "pending-generations"));
+            await this.sync(join(this.options.identityRoot, "generations"));
           }
-          pointerRestored = true;
-        } catch {
-          pointerRestored = false;
+          await this.replacePointer("current", candidatePointer);
+          pointerCommitted = true;
+        } catch (error) {
+          if (error instanceof PointerReplacementError && error.pointerChanged) {
+            try {
+              await restorePreviousPointer();
+            } catch {
+              throw new Error("MQTT identity installation failed");
+            }
+          }
+          throw new Error("MQTT identity installation failed");
+        }
+      },
+      rollback: async () => {
+        if (location === "removed") return;
+        if (pointerCommitted) {
+          const current = await readOptionalLink(join(this.options.identityRoot, "current"));
+          if (current === candidatePointer) await restorePreviousPointer();
+          pointerCommitted = false;
+        }
+        await removeCandidate();
+      },
+      finalize: async () => {
+        if (!pointerCommitted || location !== "active") throw new Error("MQTT identity installation failed");
+        if (input.previous) {
+          await rm(join(this.options.identityRoot, input.previous), { recursive: true, force: true });
+          await this.sync(join(this.options.identityRoot, "generations"));
         }
       }
-      if (!pointerRestored) generation.path = null;
-      throw new Error("MQTT identity installation failed");
-    }
-    if (previous) {
-      await rm(join(this.options.identityRoot, previous), { recursive: true, force: true });
-      await this.sync(generationsRoot);
-    }
+    };
   }
 
   async currentIdentity(gatewayId: string): Promise<MqttIdentityCandidate & { notAfter: Date }> {

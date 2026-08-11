@@ -165,12 +165,12 @@ docker inspect --format '{{json .State.Health}}' led-control-gateway
 claim 전에는 `starting-unassigned`가 정상이다. claim 후 `healthy`는 선언값이 아니라 다음 실제 probe가 모두 통과하고 마지막 heartbeat publish가 `max(30초, GATEWAY_HEARTBEAT_MS x 3)` 이내일 때만 기록된다.
 
 - private D-Bus의 `org.bluez.mesh` owner
-- BlueZ `Attach`가 반환한 node path
+- cached node path가 아니라 해당 path의 D-Bus `org.bluez.mesh.Node1` interface introspection
 - `/sys/class/bluetooth/hci0/flags`의 powered bit
 - 영속 mesh address mapping JSON parse
 - MQTT QoS 1 heartbeat publish 완료 시각
 
-MQTT 인증서 rotation은 pending generation으로 broker probe를 통과한 뒤 새 mTLS client가 connect와 command subscription 완료까지 대기한다. 그 단계가 실패하면 `current` identity와 기존 MQTT runtime을 유지한다. 성공한 경우에만 runtime reference를 새 client로 교체하고 이전 client를 종료한다.
+MQTT 인증서 rotation은 pending generation으로 broker probe를 통과한 뒤 새 mTLS client가 connect와 command subscription 완료까지 대기한다. candidate listener는 연결 직후부터 command를 buffer하므로 stable client ID takeover 중 도착한 QoS 1 command를 놓치지 않는다. 그 단계나 `current` pointer commit이 실패하면 pending generation과 새 client를 종료하고 기존 identity/runtime을 유지한다. 성공한 경우에만 runtime reference를 새 client로 교체하고 이전 client를 종료한다. heartbeat 시각이 미래이거나 `GATEWAY_HEARTBEAT_MS`가 양의 유한 정수가 아니면 healthcheck는 fail-closed 한다.
 
 ## 9. ESP32-H2 펌웨어 적용
 

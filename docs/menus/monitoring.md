@@ -36,7 +36,7 @@
 - dashboard fixture 응답에 소유 gateway ID/이름/연결 상태와 `controllable`, `controlBlockReason`을 포함한다.
 - Gateway startup resync는 전체 command 이력이 아니라 fixture별 최신 snapshot만 현재 발생 시각과 새 sequence로 발행한다.
 - Gateway MQTT runtime은 MQTT close에서 heartbeat timer를 즉시 정리해 disconnected 상태의 healthy 기록과 offline heartbeat 적재를 막고, reconnect마다 하나의 timer만 다시 시작한다. persistent session 재접속(`sessionPresent=true`)에는 command topic을 다시 구독하지 않는다. 모든 command/provisioning topic handler 오류는 MQTT event loop 밖으로 새지 않도록 오류 경계에서 health 오류로 기록하며, SIGTERM/SIGINT 종료 시 timer, client listener와 MQTT client를 정리한다.
-- MQTT certificate rotation은 candidate mTLS client가 connect와 command subscription을 완료한 뒤에만 runtime reference를 교체한다. candidate 실패 시 기존 persistent session과 identity pointer를 유지한다. appliance health는 D-Bus owner, BlueZ attached node, HCI powered bit, mapping JSON parse, 마지막 heartbeat publish freshness를 실제 probe해 기록한다.
+- MQTT certificate rotation은 candidate mTLS client listener를 먼저 부착해 queued QoS 1 command를 buffer하고, connect·command subscription·identity pointer commit이 모두 성공한 뒤에만 runtime reference를 교체한다. candidate/pointer 실패 시 기존 persistent session과 identity pointer를 유지하고 새 client를 종료한다. appliance health는 D-Bus owner, 실제 `Node1` interface introspection, HCI powered bit, mapping JSON parse, 마지막 heartbeat publish freshness를 실제 probe해 기록하며 future heartbeat와 잘못된 heartbeat interval은 unhealthy로 처리한다.
 
 ## 미구현
 

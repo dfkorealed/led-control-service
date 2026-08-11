@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createProductionAdapters } from "./adapter-factory";
+import { createBluezHealthProbes, createProductionAdapters } from "./adapter-factory";
 
 describe("createProductionAdapters", () => {
   it("rejects stub and command adapters in every environment", async () => {
@@ -28,5 +28,25 @@ describe("createProductionAdapters", () => {
     expect(source).not.toContain("mqttTopics.commandAck");
     expect(source).not.toContain("mqttTopics.fixtureState");
     expect(source).not.toContain("mqttTopics.gatewayHeartbeat");
+  });
+
+  it("verifies the attached node through D-Bus instead of trusting a cached node path", async () => {
+    const transport = { call: vi.fn().mockResolvedValue('<node><interface name="org.bluez.mesh.Node1"/></node>') };
+    const probes = createBluezHealthProbes(
+      transport as never,
+      { nodePath: "/org/bluez/mesh/node1" } as never,
+      { validate: vi.fn() } as never
+    );
+
+    await expect(probes.bluezAttached()).resolves.toBe(true);
+    transport.call.mockResolvedValueOnce('<node><interface name="org.bluez.mesh.Management1"/></node>');
+    await expect(probes.bluezAttached()).resolves.toBe(false);
+    expect(transport.call).toHaveBeenCalledWith(
+      "org.bluez.mesh",
+      "/org/bluez/mesh/node1",
+      "org.freedesktop.DBus.Introspectable",
+      "Introspect",
+      []
+    );
   });
 });

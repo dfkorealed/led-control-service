@@ -35,3 +35,33 @@
 ## 남은 범위
 
 - Raspberry Pi에서 실제 HCI flags, private D-Bus owner/Attach와 broker certificate rotation을 사용하는 HIL/soak 증거는 별도 실기 관문으로 남는다.
+
+## Fix Round 1
+
+### Review finding 대응
+
+- Critical 1 - 동일 stable client ID takeover 중 command 유실:
+  - `GatewayMqttRuntime.activate()`가 candidate `message` listener를 connect 이전에 부착한다. connect와 강제 subscribe 사이에 받은 command는 임시 buffer에 보관하고, identity commit과 runtime cutover가 성공한 뒤 순서대로 dispatch한다.
+  - cutover 또는 identity commit 실패 시에도 buffer를 기존 runtime handler로 replay하고 candidate를 종료한다.
+  - `gateway-mqtt-runtime.test.ts`는 CONNECT 후 SUBACK 전 message 이벤트를 발생시켜 실제 이벤트 순서에서 command가 한 번 처리되는지 검증한다.
+- Critical 2 - runtime/disk pointer split-brain:
+  - `MqttIdentityStore.prepare()`는 pending candidate만 만들고, `PreparedMqttIdentity.commit/rollback/finalize`가 pointer 전환, 이전 pointer 복구, 이전 generation 정리를 분리한다.
+  - runtime은 candidate ready 후 transaction `commit()`을 실행하고, disk commit 실패 시 `rollback()`과 candidate 종료를 완료한 뒤 기존 client/identity를 유지한다.
+  - `mqtt-identity-store.test.ts`는 prepare 동안 current pointer 유지, commit 뒤 rollback 복구, pointer rename 실패 뒤 candidate cleanup을 검증한다. runtime test는 commit 실패와 buffered command replay를 검증한다.
+- Important 1 - readiness timeout, activate/stop race, rotation ownership:
+  - candidate readiness는 기본 10초(1~60초만 허용) timeout을 사용한다. activation/stop은 단일 promise queue로 직렬화하고 stop은 진행 중 candidate를 즉시 취소·종료한다.
+  - `CertificateRotation.stop()`은 timer를 취소하고 running rotation 완료를 기다린다. SIGTERM/SIGINT shutdown handler는 rotation과 runtime을 함께 stop한다.
+  - runtime timeout/race, rotation timer cancel, shutdown ownership 테스트를 추가했다.
+- Important 2 - cached BlueZ path를 health로 신뢰:
+  - `bluezAttached`는 cached path가 있어도 private D-Bus의 `org.freedesktop.DBus.Introspectable.Introspect`로 `org.bluez.mesh.Node1` interface를 다시 확인한다.
+  - `adapter-factory.test.ts`는 Node1 interface가 없을 때 unhealthy probe가 되는 경우를 검증한다.
+- Important 3 - future heartbeat와 잘못된 heartbeat interval fail-open:
+  - `ApplianceHealth`와 gateway startup은 `GATEWAY_HEARTBEAT_MS`를 양의 유한 정수(최대 24시간)로 검증한다. future heartbeat는 stale로 처리한다.
+  - container healthcheck state script도 같은 범위 검증과 `age < 0` 거부를 수행한다. shell behavior test는 stale/future timestamp와 `NaN`, `Infinity`, 0, 음수 interval을 모두 실패시킨다.
+
+### Fix Round 1 검증
+
+- `pnpm --filter @led-control/gateway test`: exit `0`, 33 files / 152 tests passed.
+- `pnpm --filter @led-control/gateway typecheck`: exit `0`.
+- `pnpm --filter @led-control/gateway test:contracts`: exit `0`, 9 tests passed.
+- `sh -n apps/gateway/docker/healthcheck.sh`, `sh -n apps/gateway/docker/entrypoint.sh`, `git diff --check`: exit `0`.

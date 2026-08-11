@@ -204,4 +204,109 @@ describe("GatewayMqttRuntime", () => {
     expect(replacement.end).toHaveBeenCalledWith(true, expect.any(Function));
     await runtime.stop();
   });
+
+  it("buffers a command received after candidate CONNECT until SUBACK and cutover complete", async () => {
+    let finishSubscription!: () => void;
+    const current = new FakeMqttClient();
+    const candidate = new FakeMqttClient();
+    const received: string[] = [];
+    const runtime = new GatewayMqttRuntime({
+      client: current as never,
+      heartbeatMs: 1_000,
+      subscribe: () => new Promise<void>((resolve) => { finishSubscription = resolve; }),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: { "commands/dimming": (payload) => received.push(payload.toString()) },
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+
+    const activating = runtime.activate(candidate as never);
+    candidate.emit("connect", { sessionPresent: true });
+    candidate.emit("message", "commands/dimming", Buffer.from("queued-before-suback"));
+    finishSubscription();
+    await activating;
+    await Promise.resolve();
+
+    expect(received).toEqual(["queued-before-suback"]);
+    await runtime.stop();
+  });
+
+  it("times out a silent candidate and keeps the current client active", async () => {
+    vi.useFakeTimers();
+    const current = new FakeMqttClient();
+    const candidate = new FakeMqttClient();
+    const runtime = new GatewayMqttRuntime({
+      client: current as never,
+      heartbeatMs: 1_000,
+      candidateReadyTimeoutMs: 100,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers,
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+
+    const activating = runtime.activate(candidate as never);
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(activating).rejects.toThrow("replacement MQTT client timed out");
+    expect(runtime.client).toBe(current);
+    expect(candidate.end).toHaveBeenCalledWith(true, expect.any(Function));
+    await runtime.stop();
+  });
+
+  it("serializes shutdown behind an in-flight activation and closes its candidate", async () => {
+    const current = new FakeMqttClient();
+    const candidate = new FakeMqttClient();
+    const runtime = new GatewayMqttRuntime({
+      client: current as never,
+      heartbeatMs: 1_000,
+      candidateReadyTimeoutMs: 10_000,
+      subscribe: () => new Promise<void>(() => undefined),
+      publishHeartbeat: vi.fn(),
+      topicHandlers,
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+
+    const activating = runtime.activate(candidate as never);
+    candidate.emit("connect", { sessionPresent: false });
+    const stopping = runtime.stop();
+
+    await expect(activating).rejects.toThrow("MQTT runtime is stopping");
+    await stopping;
+    expect(candidate.end).toHaveBeenCalledWith(true, expect.any(Function));
+    expect(current.end).toHaveBeenCalledWith(true, expect.any(Function));
+    expect(candidate.listenerCount("message")).toBe(0);
+  });
+
+  it("rolls back a failed identity commit and replays candidate-buffered commands through the current runtime", async () => {
+    const current = new FakeMqttClient();
+    const candidate = new FakeMqttClient();
+    const received: string[] = [];
+    const rollback = vi.fn().mockResolvedValue(undefined);
+    const runtime = new GatewayMqttRuntime({
+      client: current as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: { "commands/dimming": (payload) => received.push(payload.toString()) },
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+
+    const activating = runtime.activate(candidate as never, {
+      commit: async () => { throw new Error("pointer commit failed"); },
+      rollback
+    });
+    candidate.emit("connect", { sessionPresent: false });
+    candidate.emit("message", "commands/dimming", Buffer.from("replay-after-rollback"));
+
+    await expect(activating).rejects.toThrow("pointer commit failed");
+    await Promise.resolve();
+    expect(runtime.client).toBe(current);
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(received).toEqual(["replay-after-rollback"]);
+    await runtime.stop();
+  });
 });

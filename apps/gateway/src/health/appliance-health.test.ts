@@ -45,3 +45,27 @@ it("records unassigned and probe-derived appliance states atomically", async () 
     reason: "dbus_owner_missing"
   });
 });
+
+it("fails closed when the last successful heartbeat timestamp is in the future", async () => {
+  let now = new Date("2026-07-13T00:00:10.000Z");
+  const file = path.join(await mkdtemp(path.join(tmpdir(), "gateway-health-")), "health.json");
+  const health = new ApplianceHealth(file, {
+    now: () => now,
+    probes: {
+      dbusOwner: async () => true,
+      bluezAttached: async () => true,
+      hciPowered: async () => true,
+      mappingValid: async () => true
+    }
+  });
+  await health.startingAssigned();
+  await health.heartbeatPublished();
+  now = new Date("2026-07-13T00:00:09.000Z");
+  await health.refresh();
+
+  await expect(health.read()).resolves.toMatchObject({ status: "unhealthy", heartbeatFresh: false, reason: "heartbeat_stale" });
+});
+
+it.each(["0", "-1", "NaN", "Infinity", "1.5"])('rejects invalid heartbeat interval %s', (heartbeatMs) => {
+  expect(() => new ApplianceHealth("/tmp/health.json", { heartbeatMs: Number(heartbeatMs) })).toThrow("heartbeat interval");
+});

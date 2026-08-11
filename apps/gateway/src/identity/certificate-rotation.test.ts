@@ -12,7 +12,8 @@ describe("certificate rotation", () => {
     let release!: () => void;
     const firstRun = new Promise<void>((resolve) => { release = resolve; });
     const rotateDevice = vi.fn(() => firstRun);
-    const schedule = vi.fn();
+    const timer = {};
+    const schedule = vi.fn(() => timer);
     const logger = { error: vi.fn() };
     const rotation = new CertificateRotation({
       rotateDevice,
@@ -46,12 +47,15 @@ describe("certificate rotation", () => {
       keyPath: "/identity/mqtt/pending-generations/candidate/gateway.key",
       caPath: "/identity/mqtt/pending-generations/candidate/mqtt-ca.crt"
     };
+    const prepared = {
+      candidate,
+      commit: vi.fn(),
+      rollback: vi.fn(),
+      finalize: vi.fn()
+    };
     const mqttStore = {
       currentIdentity: vi.fn().mockResolvedValue({ notAfter: new Date("2026-08-01T00:00:00.000Z"), caPath: "/dev/null" }),
-      ensure: vi.fn(async (_gatewayId, _caBundle, _issue, probe) => {
-        await probe(candidate);
-        return true;
-      })
+      prepare: vi.fn().mockResolvedValue(prepared)
     };
     const rotation = createGatewayCertificateRotation({
       gatewayId: "gateway-27",
@@ -68,7 +72,62 @@ describe("certificate rotation", () => {
     await rotation.run();
 
     expect(mqttProbe).toHaveBeenCalledWith(candidate);
-    expect(activateMqttIdentity).toHaveBeenCalledWith(candidate);
+    expect(activateMqttIdentity).toHaveBeenCalledWith(prepared);
     expect(mqttProbe.mock.invocationCallOrder[0]).toBeLessThan(activateMqttIdentity.mock.invocationCallOrder[0]);
+  });
+
+  it("does not roll back an activated MQTT identity when old-generation cleanup fails", async () => {
+    const prepared = {
+      candidate: {
+        generationPath: "/identity/mqtt/pending-generations/candidate",
+        certificatePath: "/identity/mqtt/pending-generations/candidate/gateway.crt",
+        keyPath: "/identity/mqtt/pending-generations/candidate/gateway.key",
+        caPath: "/identity/mqtt/pending-generations/candidate/mqtt-ca.crt"
+      },
+      commit: vi.fn(),
+      rollback: vi.fn(),
+      finalize: vi.fn().mockRejectedValue(new Error("cleanup failed"))
+    };
+    const rotation = createGatewayCertificateRotation({
+      gatewayId: "gateway-27",
+      deviceStore: { currentIdentity: vi.fn().mockResolvedValue({ notAfter: new Date("2026-10-01T00:00:00.000Z") }) } as never,
+      mqttStore: {
+        currentIdentity: vi.fn().mockResolvedValue({ notAfter: new Date("2026-08-01T00:00:00.000Z"), caPath: "/dev/null" }),
+        prepare: vi.fn().mockResolvedValue(prepared)
+      } as never,
+      deviceClient: {} as never,
+      mqttClient: { requestCertificate: vi.fn() } as never,
+      mqttProbe: vi.fn().mockResolvedValue(undefined),
+      activateMqttIdentity: vi.fn().mockResolvedValue(undefined),
+      clock: () => new Date("2026-07-15T00:00:00.000Z"),
+      schedule: vi.fn(),
+      logger: { error: vi.fn() }
+    });
+
+    await rotation.run();
+
+    expect(prepared.rollback).not.toHaveBeenCalled();
+  });
+
+  it("cancels its scheduled retry and does not restart after stop", async () => {
+    const timer = {};
+    let scheduled!: () => void;
+    const schedule = vi.fn((callback: () => void) => {
+      scheduled = callback;
+      return timer;
+    });
+    const cancel = vi.fn();
+    const rotation = new CertificateRotation({
+      rotateDevice: vi.fn(),
+      rotateMqtt: vi.fn(),
+      schedule,
+      cancel
+    });
+
+    await rotation.run();
+    await rotation.stop();
+    scheduled();
+
+    expect(cancel).toHaveBeenCalledWith(timer);
   });
 });
