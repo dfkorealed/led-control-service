@@ -78,6 +78,38 @@ it("rejects a publication status that does not confirm the requested 60-second c
   await expect(configure).rejects.toThrow("Config Model Publication Status does not match the request");
 });
 
+it("correlates concurrent AppKey Status messages to their target unicast addresses", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const first = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 500 });
+  const second = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 500 });
+  const firstConfigure = first.configureNode({ unicast: 0x1201, elementCount: 1 });
+  const secondConfigure = second.configureNode({ unicast: 0x1202, elementCount: 1 });
+  void secondConfigure.catch(() => undefined);
+  await waitForCallCount(transport, "AddAppKey", 2);
+
+  application.emit("devKeyMessageReceived", { source: 0x1201, data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 1, 0, 0, 0]) });
+  await expect(firstConfigure).rejects.toThrow("Bluetooth Mesh Config status 0x01");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(transport.calls.filter((call) => call.method === "DevKeySend")).toHaveLength(0);
+  application.emit("devKeyMessageReceived", { source: 0x1202, data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0]) });
+  await waitForCallCount(transport, "DevKeySend", 1);
+});
+
+it("rejects an AppKey Status with unexpected key indexes", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const configure = client.configureNode({ unicast: 0x1201, elementCount: 1 });
+  await waitForCall(transport, "AddAppKey");
+
+  application.emit("devKeyMessageReceived", { source: 0x1201, data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0x10, 0]) });
+
+  await expect(configure).rejects.toThrow("Config AppKey Status does not match the request");
+  expect(transport.calls.filter((call) => call.method === "DevKeySend")).toHaveLength(0);
+});
+
 async function waitForCall(transport: FakeTransport, method: string) {
   await expect.poll(() => transport.calls.some((call) => call.method === method)).toBe(true);
 }

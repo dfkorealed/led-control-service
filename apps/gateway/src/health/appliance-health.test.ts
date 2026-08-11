@@ -66,6 +66,34 @@ it("fails closed when the last successful heartbeat timestamp is in the future",
   await expect(health.read()).resolves.toMatchObject({ status: "unhealthy", heartbeatFresh: false, reason: "heartbeat_stale" });
 });
 
+it.each([
+  [{ total: 3, configured: 0, observed: 0, timedOut: 0, failed: 3 }, "mesh_resync_all_failed"],
+  [{ total: 3, configured: 3, observed: 0, timedOut: 3, failed: 0 }, "mesh_resync_all_timed_out"]
+])("keeps an all-unobserved resync unhealthy after later successful heartbeats", async (report, reason) => {
+  const file = path.join(await mkdtemp(path.join(tmpdir(), "gateway-health-")), "health.json");
+  const health = new ApplianceHealth(file, {
+    now: () => new Date("2026-08-11T00:00:00.000Z"),
+    probes: {
+      dbusOwner: async () => true,
+      bluezAttached: async () => true,
+      hciPowered: async () => true,
+      mappingValid: async () => true
+    }
+  });
+
+  await health.startingAssigned();
+  await health.heartbeatPublished();
+  await health.recordMeshResync(report);
+  await health.heartbeatPublished();
+
+  await expect(health.read()).resolves.toMatchObject({
+    status: "unhealthy",
+    mqtt: true,
+    heartbeatFresh: true,
+    reason
+  });
+});
+
 it.each(["0", "-1", "NaN", "Infinity", "1.5"])('rejects invalid heartbeat interval %s', (heartbeatMs) => {
   expect(() => new ApplianceHealth("/tmp/health.json", { heartbeatMs: Number(heartbeatMs) })).toThrow("heartbeat interval");
 });

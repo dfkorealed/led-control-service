@@ -3,6 +3,7 @@ import {
   createFixtureStatusPublisher,
   createMqttIdentityActivation,
   parseGatewayHeartbeatInterval,
+  recordMeshResyncOutcome,
   registerGatewayShutdownHandlers,
   shouldPublishFinalAcceptance,
   shouldPublishFixtureStates,
@@ -100,6 +101,18 @@ describe("startGatewayRuntime", () => {
   it("does not publish fixture-state for a command result without fixture observation", () => {
     expect(shouldPublishFixtureStates({ fixtureStateObserved: false })).toBe(false);
     expect(shouldPublishFixtureStates({ fixtureStateObserved: true })).toBe(true);
+  });
+
+  it("records and logs a mixed startup resync outcome", async () => {
+    const health = { recordMeshResync: vi.fn().mockResolvedValue(undefined) };
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const report = { total: 4, configured: 4, observed: 2, timedOut: 1, failed: 1 };
+
+    await recordMeshResyncOutcome(health, report, logger);
+
+    expect(health.recordMeshResync).toHaveBeenCalledWith(report);
+    expect(JSON.parse(logger.info.mock.calls[0][0])).toEqual({ event: "mesh_resync", ...report });
+    expect(JSON.parse(logger.warn.mock.calls[0][0])).toEqual({ event: "mesh_resync_incomplete", ...report });
   });
 
   it("publishes a terminal rejection after an earlier acceptance was published", () => {

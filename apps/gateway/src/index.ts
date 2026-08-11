@@ -36,7 +36,7 @@ import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
 import { createGatewayCertificateRotation, type CertificateRotation } from "./identity/certificate-rotation";
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mqtt-runtime";
-import type { BleMeshFixtureStatus } from "./gateway";
+import type { BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -172,7 +172,7 @@ async function main() {
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
       await health.mqttConnected();
-      await adapter.resyncFixtureStates();
+      await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
     },
     onClose: () => health.unhealthy("mqtt_disconnected"),
     onError: () => health.unhealthy("mqtt_error"),
@@ -199,6 +199,18 @@ async function main() {
 
 export function shouldPublishFixtureStates(result: Pick<GatewayCommandResult, "fixtureStateObserved">) {
   return result.fixtureStateObserved;
+}
+
+export async function recordMeshResyncOutcome(
+  health: Pick<ApplianceHealth, "recordMeshResync">,
+  report: BleMeshResyncReport,
+  logger: Pick<Console, "info" | "warn"> = console
+) {
+  await health.recordMeshResync(report);
+  logger.info(JSON.stringify({ event: "mesh_resync", ...report }));
+  if (report.observed !== report.total) {
+    logger.warn(JSON.stringify({ event: "mesh_resync_incomplete", ...report }));
+  }
 }
 
 export function createFixtureStatusPublisher(input: {

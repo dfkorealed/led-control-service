@@ -1,4 +1,5 @@
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
+import type { BleMeshResyncReport } from "../gateway";
 
 export interface ApplianceHealthState {
   version: 1;
@@ -13,6 +14,7 @@ export interface ApplianceHealthState {
   mappingValid: boolean;
   heartbeatFresh: boolean;
   lastHeartbeatPublishedAt: string | null;
+  meshResync: BleMeshResyncReport | null;
   updatedAt: string;
   reason?: string;
 }
@@ -37,6 +39,8 @@ export class ApplianceHealth {
   private assignment = false;
   private mqtt = false;
   private lastHeartbeatPublishedAt: Date | null = null;
+  private lastMeshResync: BleMeshResyncReport | null = null;
+  private meshResyncFailure: string | undefined;
 
   constructor(
     private readonly path: string,
@@ -66,7 +70,8 @@ export class ApplianceHealth {
       hciPowered: false,
       mappingValid: false,
       heartbeatFresh: false,
-      lastHeartbeatPublishedAt: null
+      lastHeartbeatPublishedAt: null,
+      meshResync: null
     });
   }
 
@@ -99,6 +104,12 @@ export class ApplianceHealth {
     return this.refresh(reason);
   }
 
+  recordMeshResync(report: BleMeshResyncReport) {
+    this.lastMeshResync = report;
+    this.meshResyncFailure = meshResyncFailureReason(report);
+    return this.refresh();
+  }
+
   async refresh(reason?: string) {
     const [dbusOwner, bluezAttached, hciPowered, mappingValid] = await Promise.all([
       probe(this.probes.dbusOwner),
@@ -110,11 +121,12 @@ export class ApplianceHealth {
     const mapping = mappingValid;
     const lastHeartbeatPublishedAt = this.lastHeartbeatPublishedAt?.toISOString() ?? null;
     const heartbeatFresh = this.isHeartbeatFresh();
+    const failure = reason ?? this.meshResyncFailure;
     const status = !this.assignment
       ? "starting-unassigned"
-      : this.mqtt && mesh && mapping && heartbeatFresh
+      : this.mqtt && mesh && mapping && heartbeatFresh && !failure
         ? "healthy"
-        : reason || this.mqtt
+        : failure || this.mqtt
           ? "unhealthy"
           : "starting";
     return this.write({
@@ -129,7 +141,8 @@ export class ApplianceHealth {
       mappingValid,
       heartbeatFresh,
       lastHeartbeatPublishedAt,
-      ...(status === "unhealthy" ? { reason: reason ?? healthFailureReason({ dbusOwner, bluezAttached, hciPowered, mappingValid, heartbeatFresh }) } : {})
+      meshResync: this.lastMeshResync,
+      ...(status === "unhealthy" ? { reason: failure ?? healthFailureReason({ dbusOwner, bluezAttached, hciPowered, mappingValid, heartbeatFresh }) } : {})
     });
   }
 
@@ -183,4 +196,11 @@ function healthFailureReason(state: {
   if (!state.hciPowered) return "hci_not_powered";
   if (!state.mappingValid) return "mapping_invalid";
   return "heartbeat_stale";
+}
+
+function meshResyncFailureReason(report: BleMeshResyncReport) {
+  if (report.total === 0 || report.observed > 0) return undefined;
+  if (report.failed === report.total) return "mesh_resync_all_failed";
+  if (report.timedOut === report.total) return "mesh_resync_all_timed_out";
+  return "mesh_resync_no_observations";
 }

@@ -58,8 +58,11 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private readonly resyncConcurrency: number;
   private readonly resyncRetryMs: number;
   private readonly resyncSendAttempts: number;
+  private readonly observationCoherenceMs: number;
+  private readonly now: () => number;
   private readonly fixtureStatuses = new Set<(status: FixtureMeshStatus) => void>();
   private readonly latestObservations = new Map<string, FixtureObservation>();
+  private nextObservationGeneration = 0;
   private resyncInFlight: Promise<BleMeshResyncReport> | undefined;
 
   constructor(
@@ -69,13 +72,23 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     private readonly addressStore: AdapterAddressStore,
     private readonly createConfigClient: (nodePath: string) => ConfigClient | BluezConfigClient,
     private readonly transactions: TransactionStore,
-    options: { responseTimeoutMs?: number; scanSeconds?: number; resyncConcurrency?: number; resyncRetryMs?: number; resyncSendAttempts?: number } = {}
+    options: {
+      responseTimeoutMs?: number;
+      scanSeconds?: number;
+      resyncConcurrency?: number;
+      resyncRetryMs?: number;
+      resyncSendAttempts?: number;
+      observationCoherenceMs?: number;
+      now?: () => number;
+    } = {}
   ) {
     this.responseTimeoutMs = options.responseTimeoutMs ?? 8_000;
     this.scanSeconds = options.scanSeconds ?? 10;
     this.resyncConcurrency = options.resyncConcurrency ?? 4;
     this.resyncRetryMs = options.resyncRetryMs ?? 100;
     this.resyncSendAttempts = options.resyncSendAttempts ?? 3;
+    this.observationCoherenceMs = options.observationCoherenceMs ?? 65_000;
+    this.now = options.now ?? Date.now;
     this.application.on("messageReceived", this.receiveFixtureStatus);
   }
 
@@ -186,24 +199,36 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     const mapping = await this.addressStore.findByPrimaryUnicast(event.source);
     if (!mapping || mapping.status !== "confirmed") return;
 
-    const observation = this.latestObservations.get(mapping.fixtureId) ?? {};
+    const now = this.now();
+    const health = kind === "health" ? decodeHealthStatus(payload) : undefined;
+    if (health?.kind === "registered") return;
+    let observation = this.latestObservations.get(mapping.fixtureId);
+    if (!observation || observation.completed || now - observation.startedAt > this.observationCoherenceMs) {
+      observation = this.beginObservationGeneration(mapping.fixtureId, now);
+    }
     if (kind === "onoff") {
-      observation.powerOn = decodeGenericOnOffStatus(payload).present;
+      observation.powerOn = { value: decodeGenericOnOffStatus(payload).present, observedAt: now };
     } else if (kind === "lightness") {
-      observation.brightness = lightnessToPercent(decodeLightnessStatus(payload).present);
+      observation.brightness = { value: lightnessToPercent(decodeLightnessStatus(payload).present), observedAt: now };
     } else {
-      const health = decodeHealthStatus(payload);
-      if (health.kind === "registered") return;
-      observation.currentFaultCode = health.faults.length === 0 ? undefined : `health:${health.companyId.toString(16).padStart(4, "0")}:${health.faults.map((fault) => fault.toString(16).padStart(2, "0")).join("")}`;
+      const faultCode = health!.faults.length === 0
+        ? undefined
+        : `health:${health!.companyId.toString(16).padStart(4, "0")}:${health!.faults.map((fault) => fault.toString(16).padStart(2, "0")).join("")}`;
+      observation.currentFault = {
+        value: faultCode,
+        observedAt: now
+      };
     }
     this.latestObservations.set(mapping.fixtureId, observation);
-    if (observation.brightness === undefined || observation.powerOn === undefined) return;
+    if (!observation.powerOn || !observation.brightness || !observation.currentFault) return;
+    if (!isCoherent(observation, this.observationCoherenceMs)) return;
+    observation.completed = true;
     const status: FixtureMeshStatus = {
       fixtureId: mapping.fixtureId,
-      brightness: observation.brightness,
-      powerOn: observation.powerOn,
-      status: observation.currentFaultCode ? "fault" : "online",
-      ...(observation.currentFaultCode ? { faultCode: observation.currentFaultCode } : {}),
+      brightness: observation.brightness.value,
+      powerOn: observation.powerOn.value,
+      status: observation.currentFault.value ? "fault" : "online",
+      ...(observation.currentFault.value ? { faultCode: observation.currentFault.value } : {}),
       rssi: null,
       hopCount: null
     };
@@ -213,6 +238,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private async performResync(): Promise<BleMeshResyncReport> {
     await this.start();
     const mappings = await this.addressStore.listConfirmed();
+    for (const mapping of mappings) this.beginObservationGeneration(mapping.fixtureId, this.now());
     const results = await mapWithConcurrency(mappings, this.resyncConcurrency, (mapping) => this.resyncFixture(mapping));
     return results.reduce<BleMeshResyncReport>((report, result) => ({
       total: report.total + 1,
@@ -319,12 +345,37 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       Array.from(payload)
     ]);
   }
+
+  private beginObservationGeneration(fixtureId: string, startedAt: number) {
+    const observation: FixtureObservation = {
+      generation: ++this.nextObservationGeneration,
+      startedAt,
+      completed: false
+    };
+    this.latestObservations.set(fixtureId, observation);
+    return observation;
+  }
 }
 
 interface FixtureObservation {
-  brightness?: number;
-  powerOn?: boolean;
-  currentFaultCode?: string;
+  generation: number;
+  startedAt: number;
+  completed: boolean;
+  brightness?: TimedObservation<number>;
+  powerOn?: TimedObservation<boolean>;
+  currentFault?: TimedObservation<string | undefined>;
+}
+
+interface TimedObservation<T> {
+  value: T;
+  observedAt: number;
+}
+
+function isCoherent(observation: FixtureObservation, coherenceMs: number) {
+  if (!observation.powerOn || !observation.brightness || !observation.currentFault) return false;
+  const oldest = Math.min(observation.powerOn.observedAt, observation.brightness.observedAt, observation.currentFault.observedAt);
+  const newest = Math.max(observation.powerOn.observedAt, observation.brightness.observedAt, observation.currentFault.observedAt);
+  return newest - oldest <= coherenceMs;
 }
 
 async function mapWithConcurrency<T, R>(values: T[], concurrency: number, operation: (value: T) => Promise<R>) {

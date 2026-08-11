@@ -51,7 +51,14 @@ export class BluezConfigClient {
       "AddAppKey",
       [BLUEZ_APPLICATION_PATHS.element, input.unicast, APP_KEY_INDEX, NET_KEY_INDEX, false],
       CONFIG_OPCODES.appKeyStatus,
-      (data) => parseAppKeyStatus(data, { allowAlreadyStored: true })
+      (data) => {
+        const status = parseAppKeyStatus(data, { allowAlreadyStored: true });
+        if (status.netKeyIndex !== NET_KEY_INDEX || status.appKeyIndex !== APP_KEY_INDEX) {
+          throw new Error("Config AppKey Status does not match the request");
+        }
+        return status;
+      },
+      input.unicast
     );
     const composition = await this.sendDevKeyAndWait(
       input.unicast,

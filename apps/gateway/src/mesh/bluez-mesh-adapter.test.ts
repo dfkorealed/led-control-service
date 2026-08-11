@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BluezMeshAdapter } from "./bluez-mesh-adapter";
 
-function fixture() {
+function fixture(options: { observationCoherenceMs?: number; now?: () => number } = {}) {
   const application = new EventEmitter();
   const transport = {
     calls: [] as Array<{ method: string; args: unknown[] }>,
@@ -31,7 +31,8 @@ function fixture() {
     application, transport, provisioner, addresses, config, transactions,
     adapter: new BluezMeshAdapter(transport, application, provisioner, addresses, () => config, transactions, {
       responseTimeoutMs: 100,
-      scanSeconds: 1
+      scanSeconds: 1,
+      ...options
     })
   };
 }
@@ -97,13 +98,100 @@ describe("BluezMeshAdapter", () => {
     const f = fixture();
     const listener = vi.fn();
     f.adapter.onFixtureStatus(listener);
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x00]) });
     f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
     f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
     await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
     f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x05, 0x01, 0xe5, 0x02, 0x01]) });
     f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x00]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(listener).toHaveBeenCalledTimes(1);
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
     await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(2));
     expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ status: "online" }));
+  });
+
+  it("does not combine a fresh OnOff observation with stale Lightness and Health observations", async () => {
+    const f = fixture();
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x00]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+
+    listener.mockClear();
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x00]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("starts a new generation when a counterpart arrives after the coherence window", async () => {
+    let now = 0;
+    const f = fixture({ observationCoherenceMs: 10, now: () => now });
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x00]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    now = 11;
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("resets the fixture observation generation before a startup resync", async () => {
+    const f = fixture();
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x00]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+
+    listener.mockClear();
+    const resync = f.adapter.resyncFixtureStates();
+    await vi.waitFor(() => expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3));
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x00]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(listener).not.toHaveBeenCalled();
+    await expect(resync).resolves.toMatchObject({ observed: 0, timedOut: 1 });
+  });
+
+  it("does not publish online until Health Current is actually observed", async () => {
+    const f = fixture();
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("publishes an actual startup Current Fault only after the complete observation arrives", async () => {
+    const f = fixture();
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+    const resync = f.adapter.resyncFixtureStates();
+    await vi.waitFor(() => expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3));
+
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(listener).not.toHaveBeenCalled();
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x01]) });
+
+    await expect(resync).resolves.toMatchObject({ observed: 1, timedOut: 0 });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ status: "fault", faultCode: "health:02e5:01" }));
   });
 
   it("drops unsolicited status from an unknown source address", async () => {
@@ -183,6 +271,12 @@ describe("BluezMeshAdapter", () => {
         queueMicrotask(() => f.application.emit("messageReceived", {
           source: destination,
           data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff])
+        }));
+      }
+      if (payload[0] === 0x80 && payload[1] === 0x31) {
+        queueMicrotask(() => f.application.emit("messageReceived", {
+          source: destination,
+          data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x00])
         }));
       }
     });
