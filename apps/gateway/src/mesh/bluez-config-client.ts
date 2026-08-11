@@ -51,7 +51,7 @@ export class BluezConfigClient {
       "AddAppKey",
       [BLUEZ_APPLICATION_PATHS.element, input.unicast, APP_KEY_INDEX, NET_KEY_INDEX, false],
       CONFIG_OPCODES.appKeyStatus,
-      parseAppKeyStatus
+      (data) => parseAppKeyStatus(data, { allowAlreadyStored: true })
     );
     const composition = await this.sendDevKeyAndWait(
       input.unicast,
@@ -84,7 +84,14 @@ export class BluezConfigClient {
         CONFIG_OPCODES.modelPublicationStatus,
         parseModelPublicationStatus
       );
-      if (status.elementAddress !== input.unicast || status.modelId !== modelId || status.publishAddress !== PROVISIONER_ADDRESS) {
+      if (
+        status.elementAddress !== input.unicast ||
+        status.modelId !== modelId ||
+        status.publishAddress !== PROVISIONER_ADDRESS ||
+        status.appKeyIndex !== APP_KEY_INDEX ||
+        status.ttl !== 5 ||
+        status.period !== STATUS_PUBLICATION_PERIOD
+      ) {
         throw new Error("Config Model Publication Status does not match the request");
       }
     }

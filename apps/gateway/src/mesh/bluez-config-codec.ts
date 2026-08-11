@@ -72,9 +72,9 @@ export function parseCompositionDataStatus(data: Uint8Array) {
   return { page: data[1], data: data.slice(2) };
 }
 
-export function parseAppKeyStatus(data: Uint8Array) {
+export function parseAppKeyStatus(data: Uint8Array, options: { allowAlreadyStored?: boolean } = {}) {
   const offset = expectOpcode(data, CONFIG_OPCODES.appKeyStatus, 6);
-  assertSuccess(data[offset]);
+  if (data[offset] !== 0 && !(options.allowAlreadyStored && data[offset] === 0x06)) assertSuccess(data[offset]);
   const [netKeyIndex, appKeyIndex] = unpackKeyIndexes(data.slice(offset + 1, offset + 4));
   return { netKeyIndex, appKeyIndex };
 }

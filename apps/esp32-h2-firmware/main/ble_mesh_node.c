@@ -318,7 +318,7 @@ static void health_server_cb(esp_ble_mesh_health_server_cb_event_t event, esp_bl
   }
 }
 
-/* ESP-IDF asks the application to refresh each model immediately before its configured publication period. */
+/* ESP-IDF asks us to refresh the publication buffer; the Mesh stack sends it after this callback returns. */
 static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_model_cb_param_t *param) {
   esp_ble_mesh_model_t *model;
 
@@ -327,17 +327,25 @@ static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_m
   }
   model = param->model_publish_update.model;
   if (model == &root_models[1]) {
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_health_server_fault_update(&elements[0]));
+    return;
+  }
+  if (model->pub == NULL || model->pub->msg == NULL) {
     return;
   }
   if (model == &root_models[2]) {
     uint8_t onoff = onoff_server.state.onoff;
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_model_publish(model, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_STATUS, sizeof(onoff), &onoff, ROLE_NODE));
+    net_buf_simple_reset(model->pub->msg);
+    net_buf_simple_add_u8(model->pub->msg, 0x82);
+    net_buf_simple_add_u8(model->pub->msg, 0x04);
+    net_buf_simple_add_u8(model->pub->msg, onoff);
     return;
   }
   if (model == &root_models[3]) {
     uint16_t lightness = lightness_state.lightness_actual;
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_model_publish(model, ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS, sizeof(lightness), (uint8_t *)&lightness, ROLE_NODE));
+    net_buf_simple_reset(model->pub->msg);
+    net_buf_simple_add_u8(model->pub->msg, 0x82);
+    net_buf_simple_add_u8(model->pub->msg, 0x4e);
+    net_buf_simple_add_le16(model->pub->msg, lightness);
   }
 }
 

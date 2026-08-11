@@ -6,7 +6,7 @@ import type {
   ProvisioningScanStartPayload,
   UnprovisionedDeviceFoundPayload
 } from "@led-control/shared";
-import type { BleMeshAdapter, BleMeshCommandReport, BleMeshFixtureStatus, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
+import type { BleMeshAdapter, BleMeshCommandReport, BleMeshFixtureStatus, BleMeshResyncReport, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
 import { BLUEZ_APPLICATION_PATHS } from "./bluez-dbus-application";
 import type { BluezConfigClient } from "./bluez-config-client";
 import {
@@ -38,8 +38,8 @@ interface AdapterProvisioner {
 
 interface AdapterAddressStore {
   findByFixtureId(fixtureId: string): Promise<{ primaryUnicast: number; status: "reserved" | "confirmed" } | null>;
-  findByPrimaryUnicast(primaryUnicast: number): Promise<{ fixtureId: string; primaryUnicast: number; status: "reserved" | "confirmed" } | null>;
-  listConfirmed(): Promise<Array<{ fixtureId: string; primaryUnicast: number; status: "confirmed" }>>;
+  findByPrimaryUnicast(primaryUnicast: number): Promise<{ fixtureId: string; primaryUnicast: number; elementCount: number; status: "reserved" | "confirmed" } | null>;
+  listConfirmed(): Promise<Array<{ fixtureId: string; primaryUnicast: number; elementCount: number; status: "confirmed" }>>;
 }
 
 interface TransactionStore {
@@ -55,8 +55,12 @@ export type FixtureMeshStatus = BleMeshFixtureStatus;
 export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdapter, ProvisioningAdapter {
   private readonly responseTimeoutMs: number;
   private readonly scanSeconds: number;
+  private readonly resyncConcurrency: number;
+  private readonly resyncRetryMs: number;
+  private readonly resyncSendAttempts: number;
   private readonly fixtureStatuses = new Set<(status: FixtureMeshStatus) => void>();
-  private readonly latestState = new Map<string, Pick<FixtureMeshStatus, "brightness" | "powerOn">>();
+  private readonly latestObservations = new Map<string, FixtureObservation>();
+  private resyncInFlight: Promise<BleMeshResyncReport> | undefined;
 
   constructor(
     private readonly transport: AdapterTransport,
@@ -65,10 +69,13 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     private readonly addressStore: AdapterAddressStore,
     private readonly createConfigClient: (nodePath: string) => ConfigClient | BluezConfigClient,
     private readonly transactions: TransactionStore,
-    options: { responseTimeoutMs?: number; scanSeconds?: number } = {}
+    options: { responseTimeoutMs?: number; scanSeconds?: number; resyncConcurrency?: number; resyncRetryMs?: number; resyncSendAttempts?: number } = {}
   ) {
     this.responseTimeoutMs = options.responseTimeoutMs ?? 8_000;
     this.scanSeconds = options.scanSeconds ?? 10;
+    this.resyncConcurrency = options.resyncConcurrency ?? 4;
+    this.resyncRetryMs = options.resyncRetryMs ?? 100;
+    this.resyncSendAttempts = options.resyncSendAttempts ?? 3;
     this.application.on("messageReceived", this.receiveFixtureStatus);
   }
 
@@ -81,15 +88,14 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     return () => this.fixtureStatuses.delete(listener);
   }
 
-  /** Requests actual node state after gateway startup; absent replies are intentionally not interpreted as offline. */
-  async resyncFixtureStates() {
-    await this.start();
-    const mappings = await this.addressStore.listConfirmed();
-    await Promise.allSettled(mappings.flatMap((mapping) => [
-      this.sendStatusGet(mapping.primaryUnicast, GENERIC_ONOFF_GET),
-      this.sendStatusGet(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET),
-      this.sendStatusGet(mapping.primaryUnicast, HEALTH_FAULT_GET)
-    ]));
+  /** Reconfigures confirmed nodes and waits for actual state without treating a missing reply as offline. */
+  resyncFixtureStates() {
+    if (!this.resyncInFlight) {
+      this.resyncInFlight = this.performResync().finally(() => {
+        this.resyncInFlight = undefined;
+      });
+    }
+    return this.resyncInFlight;
   }
 
   async scan(command: ProvisioningScanStartPayload): Promise<UnprovisionedDeviceFoundPayload[]> {
@@ -180,22 +186,128 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     const mapping = await this.addressStore.findByPrimaryUnicast(event.source);
     if (!mapping || mapping.status !== "confirmed") return;
 
-    const previous = this.latestState.get(mapping.fixtureId) ?? { brightness: 0, powerOn: false };
-    let status: FixtureMeshStatus;
+    const observation = this.latestObservations.get(mapping.fixtureId) ?? {};
     if (kind === "onoff") {
-      const onoff = decodeGenericOnOffStatus(payload);
-      status = { fixtureId: mapping.fixtureId, ...previous, powerOn: onoff.present, status: "online", rssi: null, hopCount: null };
+      observation.powerOn = decodeGenericOnOffStatus(payload).present;
     } else if (kind === "lightness") {
-      const lightness = decodeLightnessStatus(payload);
-      const brightness = lightnessToPercent(lightness.present);
-      status = { fixtureId: mapping.fixtureId, brightness, powerOn: brightness > 0, status: "online", rssi: null, hopCount: null };
+      observation.brightness = lightnessToPercent(decodeLightnessStatus(payload).present);
     } else {
       const health = decodeHealthStatus(payload);
-      const faultCode = health.faults.length === 0 ? undefined : `health:${health.companyId.toString(16).padStart(4, "0")}:${health.faults.map((fault) => fault.toString(16).padStart(2, "0")).join("")}`;
-      status = { fixtureId: mapping.fixtureId, ...previous, status: faultCode ? "fault" : "online", ...(faultCode ? { faultCode } : {}), rssi: null, hopCount: null };
+      if (health.kind === "registered") return;
+      observation.currentFaultCode = health.faults.length === 0 ? undefined : `health:${health.companyId.toString(16).padStart(4, "0")}:${health.faults.map((fault) => fault.toString(16).padStart(2, "0")).join("")}`;
     }
-    this.latestState.set(mapping.fixtureId, { brightness: status.brightness, powerOn: status.powerOn });
+    this.latestObservations.set(mapping.fixtureId, observation);
+    if (observation.brightness === undefined || observation.powerOn === undefined) return;
+    const status: FixtureMeshStatus = {
+      fixtureId: mapping.fixtureId,
+      brightness: observation.brightness,
+      powerOn: observation.powerOn,
+      status: observation.currentFaultCode ? "fault" : "online",
+      ...(observation.currentFaultCode ? { faultCode: observation.currentFaultCode } : {}),
+      rssi: null,
+      hopCount: null
+    };
     for (const listener of this.fixtureStatuses) listener(status);
+  }
+
+  private async performResync(): Promise<BleMeshResyncReport> {
+    await this.start();
+    const mappings = await this.addressStore.listConfirmed();
+    const results = await mapWithConcurrency(mappings, this.resyncConcurrency, (mapping) => this.resyncFixture(mapping));
+    return results.reduce<BleMeshResyncReport>((report, result) => ({
+      total: report.total + 1,
+      configured: report.configured + (result === "observed" || result === "timed_out" ? 1 : 0),
+      observed: report.observed + (result === "observed" ? 1 : 0),
+      timedOut: report.timedOut + (result === "timed_out" ? 1 : 0),
+      failed: report.failed + (result === "failed" ? 1 : 0)
+    }), { total: 0, configured: 0, observed: 0, timedOut: 0, failed: 0 });
+  }
+
+  private async resyncFixture(mapping: { fixtureId: string; primaryUnicast: number; elementCount: number }) {
+    try {
+      await this.retryBusy(() => this.createConfigClient(this.requireNodePath()).configureNode({
+        unicast: mapping.primaryUnicast,
+        elementCount: mapping.elementCount
+      }));
+      const observation = this.waitForFixtureSnapshot(mapping.fixtureId);
+      try {
+        await Promise.all([
+          this.sendStatusGetWithRetry(mapping.primaryUnicast, GENERIC_ONOFF_GET),
+          this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET),
+          this.sendStatusGetWithRetry(mapping.primaryUnicast, HEALTH_FAULT_GET)
+        ]);
+      } catch {
+        observation.cancel();
+        return "failed" as const;
+      }
+      observation.startDeadline();
+      try {
+        await observation.promise;
+        return "observed" as const;
+      } catch {
+        return "timed_out" as const;
+      }
+    } catch {
+      return "failed" as const;
+    }
+  }
+
+  private waitForFixtureSnapshot(fixtureId: string) {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let resolvePromise: () => void = () => undefined;
+    let rejectPromise: (error: Error) => void = () => undefined;
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout);
+      unsubscribe();
+    };
+    const unsubscribe = this.onFixtureStatus((status) => {
+      if (settled || status.fixtureId !== fixtureId) return;
+      settled = true;
+      cleanup();
+      resolvePromise();
+    });
+    const promise = new Promise<void>((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    });
+    // The observer starts before requests are sent so a fast reply cannot be lost.
+    // Attaching a handler now also prevents a timeout during retry from becoming unhandled.
+    void promise.catch(() => undefined);
+    return {
+      promise,
+      startDeadline: () => {
+        if (settled || timeout) return;
+        timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          rejectPromise(new Error("Fixture resync observation timed out"));
+        }, this.responseTimeoutMs);
+      },
+      cancel: () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        rejectPromise(new Error("Fixture resync observation cancelled"));
+      }
+    };
+  }
+
+  private sendStatusGetWithRetry(destination: number, payload: Uint8Array) {
+    return this.retryBusy(() => this.sendStatusGet(destination, payload));
+  }
+
+  private async retryBusy<T>(operation: () => Promise<T>) {
+    for (let attempt = 0; attempt < this.resyncSendAttempts; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (attempt + 1 === this.resyncSendAttempts || !isBusyError(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, this.resyncRetryMs * (attempt + 1)));
+      }
+    }
+    throw new Error("Mesh resync retry exhausted");
   }
 
   private async sendStatusGet(destination: number, payload: Uint8Array) {
@@ -207,6 +319,29 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       Array.from(payload)
     ]);
   }
+}
+
+interface FixtureObservation {
+  brightness?: number;
+  powerOn?: boolean;
+  currentFaultCode?: string;
+}
+
+async function mapWithConcurrency<T, R>(values: T[], concurrency: number, operation: (value: T) => Promise<R>) {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++;
+      results[index] = await operation(values[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function isBusyError(error: unknown) {
+  return error instanceof Error && /busy|in.?progress|no.?resources/i.test(error.message);
 }
 
 function fixtureStatusKind(payload: Buffer) {

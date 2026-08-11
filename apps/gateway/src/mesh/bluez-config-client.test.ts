@@ -47,6 +47,37 @@ it("configures composition, AppKey, Health/OnOff/Lightness bindings, and 60-seco
   }
 });
 
+it("rejects a publication status that does not confirm the requested 60-second configuration", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const configure = client.configureNode({ unicast: 0x1201, elementCount: 1 });
+
+  await waitForCall(transport, "AddAppKey");
+  application.emit("devKeyMessageReceived", { source: 0x1201, data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0]) });
+  await waitForCallCount(transport, "DevKeySend", 1);
+  application.emit("devKeyMessageReceived", { source: 0x1201, data: Uint8Array.from([0x02, 0x00, 0x34, 0x12]) });
+
+  let expectedDevKeySendCount = 2;
+  for (const modelId of [0x0002, 0x1000, 0x1300]) {
+    await waitForCallCount(transport, "DevKeySend", expectedDevKeySendCount++);
+    application.emit("devKeyMessageReceived", {
+      source: 0x1201,
+      data: Uint8Array.from([0x80, 0x3e, 0, 0x01, 0x12, 0, 0, modelId & 0xff, modelId >> 8])
+    });
+  }
+  for (const modelId of [0x0002, 0x1000, 0x1300]) {
+    await waitForCallCount(transport, "DevKeySend", expectedDevKeySendCount++);
+    application.emit("devKeyMessageReceived", {
+      source: 0x1201,
+      data: Uint8Array.from([0x80, 0x19, 0, 0x01, 0x12, 0x01, 0, 0, 0, 4, 0x85, 0, modelId & 0xff, modelId >> 8])
+    });
+    break;
+  }
+
+  await expect(configure).rejects.toThrow("Config Model Publication Status does not match the request");
+});
+
 async function waitForCall(transport: FakeTransport, method: string) {
   await expect.poll(() => transport.calls.some((call) => call.method === method)).toBe(true);
 }

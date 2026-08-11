@@ -33,12 +33,14 @@ describe("BlueZ SIG model codec", () => {
       target: true,
       remainingTime: 5
     });
-    expect(decodeHealthStatus(Buffer.from([0x04, 0x01, 0xe5, 0x02]))).toEqual({
+    expect(decodeHealthStatus(Buffer.from([0x04, 0x01, 0xe5, 0x02, 0x00]))).toEqual({
+      kind: "current",
       testId: 1,
       companyId: 0x02e5,
       faults: []
     });
     expect(decodeHealthStatus(Buffer.from([0x05, 0x01, 0xe5, 0x02, 0x01, 0x02]))).toEqual({
+      kind: "registered",
       testId: 1,
       companyId: 0x02e5,
       faults: [1, 2]

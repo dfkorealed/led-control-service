@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-10
+기준일: 2026-08-11
 
 ## 구현 완료
 
@@ -28,7 +28,7 @@
 - ESP-IDF `v5.5.1` + `esp32h2` 환경을 로컬에 구성했고 `scripts/esp32-h2-build.sh`로 실제 펌웨어 빌드를 통과했다.
 - 게이트웨이 smoke test 스크립트(`pnpm gateway:smoke`)는 mTLS와 gateway-scoped v2 명령, acceptance/device-status ACK 흐름만 검증한다.
 - ESP32-H2 실제 보드 플래시 절차와 라즈베리파이 게이트웨이 로컬 실행 절차를 문서화했다.
-- ESP32-H2 펌웨어는 Health Server, Generic OnOff Server, Light Lightness Server를 제공한다. provisioning 시 gateway가 세 Server model에 AppKey를 bind하고 provisioner 주소로 60초 publication을 설정하며, firmware는 publication update callback에서 실제 OnOff/Lightness/Health fault 상태를 갱신한다.
+- ESP32-H2 펌웨어는 Health Server, Generic OnOff Server, Light Lightness Server를 제공한다. provisioning 및 gateway startup 보정 시 세 Server model에 AppKey bind와 provisioner 주소 60초 publication을 응답으로 확인한다. ESP-IDF publication update callback은 OnOff/Lightness publication buffer만 실제 상태로 갱신하고, 전송은 Mesh stack 자동 publication에 맡겨 중복 송신하지 않는다.
 - ESP32-H2 펌웨어는 BLE Mesh Health Attention 이벤트를 250ms identify 점멸로 처리하고 종료 시 원래 밝기로 복원한다. Health fault test/clear와 watchdog fault 기록도 펌웨어 경계에서 구현했다.
 - ESP32-H2 펌웨어는 active-low GPIO를 8초간 누르면 앱 NVS와 BLE Mesh credential을 지우고 재부팅하는 물리 factory reset을 수행한다.
 - Gateway adapter 계약을 fixture별 장비 리포트 기반으로 확장해 일부 노드 실패 시 command ACK와 fixture state가 함께 동기화되도록 했다.

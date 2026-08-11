@@ -47,9 +47,10 @@ export function decodeHealthStatus(payload: Buffer) {
     throw new Error("invalid Health status");
   }
   return {
+    kind: payload[0] === HEALTH_CURRENT_STATUS ? "current" as const : "registered" as const,
     testId: payload[1],
     companyId: payload.readUInt16LE(2),
-    faults: [...payload.subarray(4)]
+    faults: [...payload.subarray(4)].filter((fault) => fault !== 0)
   };
 }
 

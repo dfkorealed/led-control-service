@@ -127,7 +127,7 @@ describe("handleGatewayDimmingCommand", () => {
     const pendingAdapter = {
       setBrightness: vi.fn(() => new Promise<never>(() => undefined)),
       onFixtureStatus: vi.fn(() => () => undefined),
-      resyncFixtureStates: vi.fn(async () => undefined)
+      resyncFixtureStates: vi.fn(async () => ({ total: 0, configured: 0, observed: 0, timedOut: 0, failed: 0 }))
     };
 
     const resultPromise = handleGatewayDimmingCommand(pendingAdapter, journal, command, undefined, { timeoutMs: 8000 });

@@ -21,9 +21,9 @@ function fixture() {
       fixtureId, primaryUnicast: 0x0100, status: "confirmed" as const
     } : null),
     findByPrimaryUnicast: vi.fn(async (primaryUnicast: number) => primaryUnicast === 0x0100 ? {
-      fixtureId: "fixture-1", primaryUnicast, status: "confirmed" as const
+      fixtureId: "fixture-1", primaryUnicast, elementCount: 1, status: "confirmed" as const
     } : null),
-    listConfirmed: vi.fn(async () => [{ fixtureId: "fixture-1", primaryUnicast: 0x0100, status: "confirmed" as const }])
+    listConfirmed: vi.fn(async () => [{ fixtureId: "fixture-1", primaryUnicast: 0x0100, elementCount: 1, status: "confirmed" as const }])
   };
   const config = { configureNode: vi.fn(async () => ({ compositionPage: 0 })) };
   const transactions = { next: vi.fn(async () => 7) };
@@ -76,20 +76,34 @@ describe("BluezMeshAdapter", () => {
     expect(f.config.configureNode).toHaveBeenCalledWith({ unicast: 0x0100, elementCount: 1 });
   });
 
-  it("maps unsolicited OnOff, Lightness, and Health messages to confirmed fixtures", async () => {
+  it("waits for both OnOff and Lightness before publishing a fault snapshot from reverse-order messages", async () => {
     const f = fixture();
     const received: unknown[] = [];
     const unsubscribe = f.adapter.onFixtureStatus((status) => received.push(status));
 
-    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
-    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
     f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(received).toEqual([]);
+
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
     await vi.waitFor(() => expect(received).toEqual([
-      expect.objectContaining({ fixtureId: "fixture-1", powerOn: true }),
-      expect.objectContaining({ fixtureId: "fixture-1", brightness: 100, powerOn: true, status: "online" }),
-      expect.objectContaining({ fixtureId: "fixture-1", brightness: 100, status: "fault", faultCode: "health:02e5:01" })
+      expect.objectContaining({ fixtureId: "fixture-1", brightness: 100, powerOn: true, status: "fault", faultCode: "health:02e5:01" })
     ]));
     unsubscribe();
+  });
+
+  it("does not treat registered or no-fault Health status as an operational fault", async () => {
+    const f = fixture();
+    const listener = vi.fn();
+    f.adapter.onFixtureStatus(listener);
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x05, 0x01, 0xe5, 0x02, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x04, 0x01, 0xe5, 0x02, 0x00]) });
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(2));
+    expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ status: "online" }));
   });
 
   it("drops unsolicited status from an unknown source address", async () => {
@@ -101,12 +115,80 @@ describe("BluezMeshAdapter", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("queries confirmed fixtures at startup without declaring a missing reply offline", async () => {
+  it("reapplies confirmed-node configuration before querying actual status without declaring a missing reply offline", async () => {
     const f = fixture();
     await f.adapter.resyncFixtureStates();
+    expect(f.config.configureNode).toHaveBeenCalledWith({ unicast: 0x0100, elementCount: 1 });
     expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3);
     expect(f.transport.calls.filter((call) => call.method === "Send").map((call) => call.args[4])).toEqual([
       [0x82, 0x01], [0x82, 0x4b], [0x80, 0x31, 0xe5, 0x02]
     ]);
   });
+
+  it("runs one bounded resync when reconnects overlap", async () => {
+    const f = fixture();
+    let resolveConfig: (() => void) | undefined;
+    f.config.configureNode.mockImplementationOnce(() => new Promise<{ compositionPage: number }>((resolve) => {
+      resolveConfig = () => resolve({ compositionPage: 0 });
+    }));
+    const first = f.adapter.resyncFixtureStates();
+    const second = f.adapter.resyncFixtureStates();
+    expect(second).toBe(first);
+    await vi.waitFor(() => expect(f.config.configureNode).toHaveBeenCalledTimes(1));
+    resolveConfig?.();
+    await expect(first).resolves.toMatchObject({ total: 1, configured: 1, observed: 0, timedOut: 1 });
+  });
+
+  it("bounds a 1,000-node resync queue and retries a busy Mesh send", async () => {
+    const f = fixture();
+    const mappings = Array.from({ length: 1000 }, (_, index) => ({
+      fixtureId: `fixture-${index}`,
+      primaryUnicast: index + 0x0100,
+      elementCount: 1,
+      status: "confirmed" as const
+    }));
+    let activeConfigures = 0;
+    let maximumActiveConfigures = 0;
+    f.addresses.listConfirmed.mockResolvedValue(mappings);
+    f.config.configureNode.mockImplementation(async () => {
+      activeConfigures += 1;
+      maximumActiveConfigures = Math.max(maximumActiveConfigures, activeConfigures);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      activeConfigures -= 1;
+      return { compositionPage: 0 };
+    });
+    f.addresses.findByPrimaryUnicast.mockImplementation(async (primaryUnicast: number) => ({
+      fixtureId: `fixture-${primaryUnicast - 0x0100}`,
+      primaryUnicast,
+      elementCount: 1,
+      status: "confirmed" as const
+    }));
+    let busy = true;
+    f.transport.call.mockImplementation(async (_service, _path, _interfaceName, method, args) => {
+      f.transport.calls.push({ method, args });
+      if (method !== "Send") return;
+      if (busy) {
+        busy = false;
+        throw new Error("BlueZ busy");
+      }
+      const destination = args[1] as number;
+      const payload = args[4] as number[];
+      if (payload[0] === 0x82 && payload[1] === 0x01) {
+        queueMicrotask(() => f.application.emit("messageReceived", {
+          source: destination,
+          data: Uint8Array.from([0x82, 0x04, 0x01])
+        }));
+      }
+      if (payload[0] === 0x82 && payload[1] === 0x4b) {
+        queueMicrotask(() => f.application.emit("messageReceived", {
+          source: destination,
+          data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff])
+        }));
+      }
+    });
+
+    await expect(f.adapter.resyncFixtureStates()).resolves.toMatchObject({ total: 1000, configured: 1000, observed: 1000, timedOut: 0 });
+    expect(maximumActiveConfigures).toBeLessThanOrEqual(4);
+    expect(f.transport.call).toHaveBeenCalledTimes(3001);
+  }, 10_000);
 });

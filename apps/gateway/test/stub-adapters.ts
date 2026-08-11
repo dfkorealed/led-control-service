@@ -12,7 +12,9 @@ export class StubBleMeshAdapter implements BleMeshAdapter {
     this.fixtureStatusListeners.add(listener);
     return () => this.fixtureStatusListeners.delete(listener);
   }
-  async resyncFixtureStates() {}
+  async resyncFixtureStates() {
+    return { total: 0, configured: 0, observed: 0, timedOut: 0, failed: 0 };
+  }
 }
 
 export class StubProvisioningScannerAdapter implements ProvisioningScannerAdapter {
