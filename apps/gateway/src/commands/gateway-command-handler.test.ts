@@ -86,6 +86,40 @@ describe("handleGatewayDimmingCommand", () => {
     vi.useRealTimers();
   });
 
+  it("rejects after a delayed acceptance crosses expiry before BLE starts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:07.999Z"));
+    const records = new Map<string, any>();
+    const adapter = new StubBleMeshAdapter();
+    let releaseAcceptance!: () => void;
+    let acceptanceStarted!: () => void;
+    const acceptanceGate = new Promise<void>((resolve) => { releaseAcceptance = resolve; });
+    const acceptanceStartedGate = new Promise<void>((resolve) => { acceptanceStarted = resolve; });
+
+    const resultPromise = handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(records),
+      { ...command, expiresAt: "2026-07-11T00:00:10.000Z" },
+      async (acceptance) => {
+        expect(acceptance.status).toBe("accepted");
+        acceptanceStarted();
+        await acceptanceGate;
+      }
+    );
+    await acceptanceStartedGate;
+    await vi.advanceTimersByTimeAsync(1);
+    releaseAcceptance();
+
+    const result = await resultPromise;
+
+    expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "COMMAND_EXPIRED" });
+    expect(result.deviceStatus.status).toBe("failed");
+    expect(result.fixtureStateObserved).toBe(false);
+    expect(records.get(command.idempotencyKey)).toMatchObject({ state: "completed", result: { acceptance: { status: "rejected" } } });
+    expect(adapter.commands).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
   it("times out a BLE adapter that never returns", async () => {
     vi.useFakeTimers();
     const records = new Map<string, any>();

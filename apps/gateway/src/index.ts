@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { config } from "dotenv";
 import {
+  type AcceptanceAckV2,
   type DeviceStatusAckV2,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
@@ -103,7 +104,9 @@ async function main() {
       },
       { timeoutMs: commandTimeoutMs }
     );
-    if (!acceptancePublished) await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
+    if (shouldPublishFinalAcceptance(acceptancePublished, result.acceptance.status)) {
+      await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
+    }
     await publish(mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
     if (shouldPublishFixtureStates(result)) await publishDeviceStates(result.deviceStatus, command.brightness);
   }
@@ -204,6 +207,10 @@ async function main() {
 
 export function shouldPublishFixtureStates(result: Pick<GatewayCommandResult, "fixtureStateObserved">) {
   return result.fixtureStateObserved;
+}
+
+export function shouldPublishFinalAcceptance(acceptancePublished: boolean, status: AcceptanceAckV2["status"]) {
+  return !acceptancePublished || status === "rejected";
 }
 
 export function subscribeGatewayCommands(

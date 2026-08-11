@@ -236,7 +236,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       gatewayId: ack.gatewayId,
       idempotencyKey: ack.idempotencyKey,
       sequence: BigInt(ack.sequence),
-      status: { in: ["pending", "published"] },
+      status: ack.status === "rejected"
+        ? { in: ["pending", "published", "accepted"] }
+        : { in: ["pending", "published"] },
       command: { siteId: ack.siteId }
     };
     const acceptedAt = new Date(ack.acceptedAt);

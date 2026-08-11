@@ -83,6 +83,7 @@ export class CommandJournal {
 
   private updateSnapshots(data: JournalData, result: unknown) {
     if (!result || typeof result !== "object" || !("deviceStatus" in result)) return;
+    if ((result as { fixtureStateObserved?: unknown }).fixtureStateObserved === false) return;
     const deviceStatus = (result as { deviceStatus?: unknown }).deviceStatus;
     if (!deviceStatus || typeof deviceStatus !== "object") return;
     const row = deviceStatus as { occurredAt?: unknown; results?: unknown };

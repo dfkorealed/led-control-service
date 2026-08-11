@@ -33,6 +33,27 @@ describe("CommandJournal", () => {
     ]);
   });
 
+  it("preserves the last observed snapshot when an unobserved terminal result completes", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-unobserved-snapshot-")), "journal.json");
+    const journal = new CommandJournal(path);
+    await journal.accept("observed", { commandId: "command-1" });
+    await journal.complete("observed", commandResult("fixture-1", 70, "2026-07-11T00:00:01.000Z"));
+    await journal.accept("expired", { commandId: "command-2" });
+    await journal.complete("expired", {
+      fixtureStateObserved: false,
+      deviceStatus: {
+        status: "failed",
+        occurredAt: "2026-07-11T00:00:02.000Z",
+        results: [{ fixtureId: "fixture-1", status: "failed", errorMessage: "gateway command expired before execution" }]
+      }
+    });
+
+    expect(await journal.get("expired")).toMatchObject({ result: { fixtureStateObserved: false } });
+    expect(await journal.latestFixtureSnapshots()).toEqual([
+      expect.objectContaining({ fixtureId: "fixture-1", brightness: 70, occurredAt: "2026-07-11T00:00:01.000Z" })
+    ]);
+  });
+
   it("prunes expired idempotency records", async () => {
     const path = join(await mkdtemp(join(tmpdir(), "command-prune-")), "journal.json");
     let now = new Date("2026-07-11T00:00:00.000Z");
@@ -61,6 +82,7 @@ describe("CommandJournal", () => {
 function commandResult(fixtureId: string, brightness: number, occurredAt: string) {
   return {
     acceptance: { status: "accepted" },
+    fixtureStateObserved: true,
     deviceStatus: {
       status: "succeeded",
       occurredAt,

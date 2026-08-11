@@ -64,6 +64,11 @@ export async function handleGatewayDimmingCommand(
   }
   await onAccepted?.(acceptance);
 
+  // Journal fsync and the acceptance PUBACK can consume the remaining delivery window.
+  if (isGatewayCommandExpired(command.expiresAt)) {
+    return rejectExpiredCommand(journal, command, true);
+  }
+
   let deviceStatus: DeviceStatusAckV2;
   let fixtureStateObserved = false;
   try {
@@ -159,7 +164,11 @@ function createIndeterminateResult(command: GatewayDimmingCommandV2, acceptance?
   return { acceptance: accepted, deviceStatus, fixtureStateObserved: false };
 }
 
-async function rejectExpiredCommand(journal: JournalLike, command: GatewayDimmingCommandV2): Promise<GatewayCommandResult> {
+async function rejectExpiredCommand(
+  journal: JournalLike,
+  command: GatewayDimmingCommandV2,
+  alreadyAccepted = false
+): Promise<GatewayCommandResult> {
   const identity = {
     commandId: command.commandId,
     dispatchId: command.dispatchId,
@@ -190,6 +199,10 @@ async function rejectExpiredCommand(journal: JournalLike, command: GatewayDimmin
     }),
     fixtureStateObserved: false
   };
+  if (alreadyAccepted) {
+    await journal.complete(command.idempotencyKey, result);
+    return result;
+  }
   const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
   if (!reserved) {
     const raced = await journal.get(command.idempotencyKey);

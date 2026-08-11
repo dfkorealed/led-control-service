@@ -112,7 +112,7 @@ describe("MqttService", () => {
         gatewayId: "55555555-5555-4555-8555-555555555555",
         idempotencyKey: "33333333-3333-4333-8333-333333333333",
         sequence: 1n,
-        status: { in: ["pending", "published"] },
+        status: { in: ["pending", "published", "accepted"] },
         command: { siteId: "22222222-2222-4222-8222-222222222222" }
       },
       data: {
@@ -134,6 +134,32 @@ describe("MqttService", () => {
       where: { id: "11111111-1111-4111-8111-111111111111", status: "pending" },
       data: { status: "failed", errorMessage: "gateway command expired before execution" }
     });
+  });
+
+  it("closes an accepted dispatch when a delayed expiry rejection follows its acceptance", async () => {
+    const prisma: any = {
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma);
+    const topic = "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/acceptance";
+
+    await service.handleMessage(topic, Buffer.from(JSON.stringify(acceptanceAckPayload())));
+    await service.handleMessage(topic, Buffer.from(JSON.stringify({
+      ...acceptanceAckPayload(),
+      status: "rejected",
+      errorCode: "COMMAND_EXPIRED",
+      errorMessage: "gateway command expired before execution"
+    })));
+
+    expect(prisma.commandDispatch.updateMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: expect.objectContaining({ status: { in: ["pending", "published", "accepted"] } }),
+      data: expect.objectContaining({ status: "failed", errorCode: "COMMAND_EXPIRED" })
+    }));
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.command.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it("does not process a device-status ACK for an already terminal dispatch", async () => {
