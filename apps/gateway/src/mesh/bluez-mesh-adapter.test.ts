@@ -266,7 +266,8 @@ describe("BluezMeshAdapter", () => {
   });
 
   it("bounds a 1,000-node resync queue and retries a busy Mesh send", async () => {
-    const f = fixture();
+    let now = 0;
+    const f = fixture({ observationCoherenceMs: 65_000, now: () => now });
     const mappings = Array.from({ length: 1000 }, (_, index) => ({
       fixtureId: `fixture-${index}`,
       primaryUnicast: index + 0x0100,
@@ -280,6 +281,7 @@ describe("BluezMeshAdapter", () => {
       activeConfigures += 1;
       maximumActiveConfigures = Math.max(maximumActiveConfigures, activeConfigures);
       await new Promise((resolve) => setTimeout(resolve, 1));
+      now += 100;
       activeConfigures -= 1;
       return { compositionPage: 0 };
     });

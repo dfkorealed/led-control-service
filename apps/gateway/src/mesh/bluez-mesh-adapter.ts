@@ -212,7 +212,11 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     const health = kind === "health" ? decodeHealthStatus(payload) : undefined;
     if (health?.kind === "registered") return;
     let observation = this.latestObservations.get(mapping.fixtureId);
-    if (!observation || observation.completed || now - observation.startedAt > this.observationCoherenceMs) {
+    if (
+      !observation ||
+      observation.completed ||
+      (hasAnyObservation(observation) && now - observation.startedAt > this.observationCoherenceMs)
+    ) {
       observation = this.beginObservationGeneration(mapping.fixtureId, now);
     }
     if (kind === "onoff") {
@@ -252,8 +256,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     await this.start();
     const mappings = await this.addressStore.listConfirmed();
     this.healthPendingFixtures.clear();
-    const generations = new Map(mappings.map((mapping) => [mapping.fixtureId, this.beginObservationGeneration(mapping.fixtureId, this.now()).generation]));
-    const results = await mapWithConcurrency(mappings, this.resyncConcurrency, (mapping) => this.resyncFixture(mapping, generations.get(mapping.fixtureId)!));
+    const results = await mapWithConcurrency(mappings, this.resyncConcurrency, (mapping) => this.resyncFixture(mapping));
     for (const result of results) {
       if (result.healthPending) this.healthPendingFixtures.add(result.fixtureId);
     }
@@ -269,12 +272,15 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     return report;
   }
 
-  private async resyncFixture(mapping: { fixtureId: string; primaryUnicast: number; elementCount: number }, generation: number): Promise<ResyncFixtureResult> {
+  private async resyncFixture(mapping: { fixtureId: string; primaryUnicast: number; elementCount: number }): Promise<ResyncFixtureResult> {
     try {
       await this.retryBusy(() => this.createConfigClient(this.requireNodePath()).configureNode({
         unicast: mapping.primaryUnicast,
         elementCount: mapping.elementCount
       }));
+      // Start the observation window when this bounded-queue item actually runs. Large
+      // sites may wait longer than one coherence window before reaching this point.
+      const generation = this.beginObservationGeneration(mapping.fixtureId, this.now()).generation;
       const observation = this.waitForFixtureLightingPair(mapping.fixtureId, generation);
       try {
         await Promise.all([
@@ -416,6 +422,10 @@ interface ResyncFixtureResult {
 
 function hasLightingPair(observation: FixtureObservation) {
   return observation.powerOn !== undefined && observation.brightness !== undefined;
+}
+
+function hasAnyObservation(observation: FixtureObservation) {
+  return observation.powerOn !== undefined || observation.brightness !== undefined || observation.currentFault !== undefined;
 }
 
 function isCoherent(observation: FixtureObservation, coherenceMs: number) {
