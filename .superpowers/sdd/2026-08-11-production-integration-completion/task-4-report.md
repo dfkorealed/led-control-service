@@ -86,3 +86,20 @@
 - `pnpm --filter @led-control/gateway typecheck`: exit `0`.
 - `pnpm --filter @led-control/gateway test:contracts`: exit `0`, 9 tests passed.
 - `sh -n apps/gateway/docker/healthcheck.sh`, `sh -n apps/gateway/docker/entrypoint.sh`, `git diff --check`: exit `0`.
+
+## Fix Round 3
+
+### Critical finding 대응
+
+- Critical 1 - candidate immediate dispatch가 quiesced old client를 사용하고 post-CONNACK rollback이 ACK된 command를 replay할 수 있음:
+  - runtime transition을 `old quiesce -> identity commit -> currentClient=candidate -> candidate reconnect`으로 변경했다. candidate는 identity commit 전에 broker CONNECT/PUBLISH를 받을 수 없다.
+  - candidate CONNECT 전의 connection/timeout 오류만 identity rollback, candidate 종료, old reconnect를 수행한다. CONNECT가 한 번이라도 발생하면 candidate가 disk/runtime의 authoritative identity가 되며, forced subscription 오류는 old session으로 rollback하지 않고 candidate를 fail-closed 한다.
+  - topic handler signature에 source MQTT client를 추가했다. dimming acceptance/status/fixture-state와 scan/provision 결과 publish는 모두 message source client를 사용하며 identify handler도 source-client contract를 받는다.
+  - `gateway-mqtt-runtime.test.ts`는 `commit -> candidate reconnect -> CONNACK -> SUBACK failure`에서 rollback/old reconnect가 발생하지 않는지 검증한다. 같은 파일은 dimming, scan, identify, provision 네 topic을 candidate SUBACK 대기 중에 순서대로 전달해 source가 candidate이고 각 handler/publish가 한 번씩만 실행되는지 검증한다. 기존 stop/activation race test도 유지한다.
+
+### Fix Round 3 검증
+
+- `pnpm --filter @led-control/gateway test`: exit `0`, 33 files / 154 tests passed.
+- `pnpm --filter @led-control/gateway typecheck`: exit `0`.
+- `pnpm --filter @led-control/gateway test:contracts`: exit `0`, 9 tests passed.
+- `sh -n apps/gateway/docker/healthcheck.sh`, `sh -n apps/gateway/docker/entrypoint.sh`, `git diff --check`: exit `0`.

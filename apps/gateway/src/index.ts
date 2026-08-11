@@ -35,7 +35,7 @@ import { probeMqttIdentity } from "./identity/mqtt-identity-probe";
 import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
 import { createGatewayCertificateRotation, type CertificateRotation } from "./identity/certificate-rotation";
-import { GatewayMqttRuntime } from "./runtime/gateway-mqtt-runtime";
+import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mqtt-runtime";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -65,7 +65,7 @@ async function main() {
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
 
-  async function handleDimmingPayloadV2(payload: Buffer) {
+  async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
     let acceptancePublished = false;
     const result = await handleGatewayDimmingCommand(
@@ -73,19 +73,20 @@ async function main() {
       commandJournal,
       command,
       async (acceptance) => {
-        await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), acceptance);
+        await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), acceptance);
         acceptancePublished = true;
       },
       { timeoutMs: commandTimeoutMs }
     );
     if (shouldPublishFinalAcceptance(acceptancePublished, result.acceptance.status)) {
-      await publish(mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
+      await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
     }
-    await publish(mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
-    if (shouldPublishFixtureStates(result)) await publishDeviceStates(result.deviceStatus, command.brightness);
+    await publish(source, mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
+    if (shouldPublishFixtureStates(result)) await publishDeviceStates(source, result.deviceStatus, command.brightness);
   }
 
   async function publishDeviceStates(
+    source: GatewayMqttClient,
     deviceStatus: DeviceStatusAckV2,
     fallbackBrightness: number
   ) {
@@ -105,7 +106,7 @@ async function main() {
         rssi: fixture.rssi ?? null,
         hopCount: fixture.hopCount ?? null
       });
-      await publish(mqttTopicsV2.fixtureState(siteId, gatewayId), state);
+      await publish(source, mqttTopicsV2.fixtureState(siteId, gatewayId), state);
     }
   }
 
@@ -127,38 +128,38 @@ async function main() {
         rssi: snapshot.rssi ?? null,
         hopCount: snapshot.hopCount ?? null
       });
-      await publish(mqttTopicsV2.fixtureState(siteId, gatewayId), state);
+      await publish(mqttRuntime.client, mqttTopicsV2.fixtureState(siteId, gatewayId), state);
     }
   }
 
-  function publish(topic: string, payload: unknown) {
+  function publish(client: Pick<MqttClient, "publish">, topic: string, payload: unknown) {
     return new Promise<void>((resolve, reject) => {
-      mqttRuntime.client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => (error ? reject(error) : resolve()));
+      client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => (error ? reject(error) : resolve()));
     });
   }
 
-  async function handleProvisioningScanPayload(payload: Buffer) {
+  async function handleProvisioningScanPayload(payload: Buffer, source: GatewayMqttClient) {
     const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
     const nodes = await applyProvisioningScan(scannerAdapter, command);
     for (const node of nodes) {
-      mqttRuntime.client.publish(mqttTopics.unprovisionedDeviceFound(command.siteId, command.gatewayId), JSON.stringify(node), { qos: 1 });
+      source.publish(mqttTopics.unprovisionedDeviceFound(command.siteId, command.gatewayId), JSON.stringify(node), { qos: 1 });
     }
   }
 
-  async function handleIdentifyPayload(payload: Buffer) {
+  async function handleIdentifyPayload(payload: Buffer, _source: GatewayMqttClient) {
     const command = identifyDeviceSchema.parse(JSON.parse(payload.toString()));
     await applyIdentifyDevice(provisioningAdapter, command);
   }
 
-  async function handleProvisionDevicePayload(payload: Buffer) {
+  async function handleProvisionDevicePayload(payload: Buffer, source: GatewayMqttClient) {
     const command = provisionDeviceSchema.parse(JSON.parse(payload.toString()));
     const result = await applyProvisionDevice(provisioningAdapter, command);
     if (result.completed) {
-      mqttRuntime.client.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
+      source.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
       return;
     }
     if (result.failed) {
-      mqttRuntime.client.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
+      source.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
     }
   }
 
@@ -174,7 +175,7 @@ async function main() {
       firmwareVersion: gatewayFirmwareVersion,
       configVersion: assignment.configVersion
     });
-    await publish(mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
+    await publish(mqttRuntime.client, mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
     await health.heartbeatPublished();
   }
 

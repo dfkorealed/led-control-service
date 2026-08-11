@@ -1,9 +1,10 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GatewayMqttRuntime } from "./gateway-mqtt-runtime";
+import { GatewayMqttRuntime, type GatewayMqttClient } from "./gateway-mqtt-runtime";
 
 class FakeMqttClient extends EventEmitter {
   readonly end = vi.fn((_force?: boolean, callback?: (error?: Error) => void) => callback?.());
+  readonly publish = vi.fn((_topic: string, _payload: string, _options?: unknown, callback?: (error?: Error) => void) => callback?.());
   readonly reconnect = vi.fn();
 }
 
@@ -207,59 +208,74 @@ describe("GatewayMqttRuntime", () => {
     await runtime.stop();
   });
 
-  it("quiesces the old client, processes candidate delivery once, and resumes only after rollback", async () => {
-    let rejectCommit!: (error: Error) => void;
-    const commit = new Promise<void>((_resolve, reject) => { rejectCommit = reject; });
+  it("commits before candidate reconnect and keeps the candidate authoritative after CONNACK subscription failure", async () => {
     const current = new FakeMqttClient();
     const candidate = new FakeMqttClient();
-    const deliveries: string[] = [];
-    const journal = new Set<string>();
-    const executions: string[] = [];
+    const commit = vi.fn().mockResolvedValue(undefined);
+    const rollback = vi.fn().mockResolvedValue(undefined);
     const runtime = new GatewayMqttRuntime({
       client: current as never,
       heartbeatMs: 1_000,
-      subscribe: vi.fn(),
+      subscribe: vi.fn((_client, _sessionPresent, force) => force ? Promise.reject(new Error("SUBACK failed")) : undefined),
       publishHeartbeat: vi.fn(),
-      topicHandlers: {
-        "commands/dimming": (payload) => {
-          const commandId = payload.toString();
-          deliveries.push(commandId);
-          if (!journal.has(commandId)) {
-            journal.add(commandId);
-            executions.push(commandId);
-          }
-        }
-      },
+      topicHandlers,
       onMessageError: vi.fn()
     });
     runtime.start();
 
     const activating = runtime.activate(candidate as never, {
-      commit: () => commit,
+      commit,
+      rollback
+    });
+    await vi.waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(candidate.reconnect).toHaveBeenCalledTimes(1));
+    expect(current.end).toHaveBeenCalledWith(true, expect.any(Function));
+    expect(commit.mock.invocationCallOrder[0]).toBeLessThan(candidate.reconnect.mock.invocationCallOrder[0]);
+
+    candidate.emit("connect", { sessionPresent: true });
+    await expect(activating).rejects.toThrow("SUBACK failed");
+    expect(candidate.end).toHaveBeenCalledWith(true, expect.any(Function));
+    expect(runtime.client).toBe(candidate);
+    expect(rollback).not.toHaveBeenCalled();
+    expect(current.reconnect).not.toHaveBeenCalled();
+  });
+
+  it("routes every candidate command topic exactly once through the candidate source while subscription readiness is pending", async () => {
+    let finishSubscription!: () => void;
+    const current = new FakeMqttClient();
+    const candidate = new FakeMqttClient();
+    const topics = ["commands/dimming", "commands/scan", "commands/identify", "commands/provision"];
+    const deliveries: Array<{ topic: string; source: GatewayMqttClient }> = [];
+    const handlers = Object.fromEntries(topics.map((topic) => [topic, (_payload: Buffer, source: GatewayMqttClient) => {
+      source.publish(`events/${topic}`, "{}", { qos: 1 });
+      deliveries.push({ topic, source });
+    }]));
+    const runtime = new GatewayMqttRuntime({
+      client: current as never,
+      heartbeatMs: 1_000,
+      subscribe: () => new Promise<void>((resolve) => { finishSubscription = resolve; }),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: handlers,
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+
+    const activating = runtime.activate(candidate as never, {
+      commit: vi.fn().mockResolvedValue(undefined),
       rollback: vi.fn().mockResolvedValue(undefined)
     });
     await vi.waitFor(() => expect(candidate.reconnect).toHaveBeenCalledTimes(1));
-    expect(current.end).toHaveBeenCalledWith(true, expect.any(Function));
-    expect(current.end.mock.invocationCallOrder[0]).toBeLessThan(candidate.reconnect.mock.invocationCallOrder[0]);
-
     candidate.emit("connect", { sessionPresent: true });
-    candidate.emit("message", "commands/dimming", Buffer.from("rotation-command"));
-    await Promise.resolve();
-    expect(deliveries).toEqual(["rotation-command"]);
-    expect(executions).toEqual(["rotation-command"]);
-
-    rejectCommit(new Error("pointer commit failed"));
-    await expect(activating).rejects.toThrow("pointer commit failed");
-    expect(candidate.end).toHaveBeenCalledWith(true, expect.any(Function));
-    expect(current.reconnect).toHaveBeenCalledTimes(1);
-    expect(deliveries).toEqual(["rotation-command"]);
-
-    current.emit("connect", { sessionPresent: true });
-    current.emit("message", "commands/dimming", Buffer.from("rotation-command"));
+    for (const topic of topics) candidate.emit("message", topic, Buffer.from(topic));
     await Promise.resolve();
 
-    expect(deliveries).toEqual(["rotation-command", "rotation-command"]);
-    expect(executions).toEqual(["rotation-command"]);
+    expect(deliveries).toEqual(topics.map((topic) => ({ topic, source: candidate })));
+    expect(candidate.publish).toHaveBeenCalledTimes(topics.length);
+    expect(current.publish).not.toHaveBeenCalled();
+
+    finishSubscription();
+    await activating;
+    expect(runtime.client).toBe(candidate);
     await runtime.stop();
   });
 
@@ -312,7 +328,7 @@ describe("GatewayMqttRuntime", () => {
     expect(candidate.listenerCount("message")).toBe(0);
   });
 
-  it("does not replay candidate commands after a failed identity commit", async () => {
+  it("rolls back a failed identity commit before candidate reconnect", async () => {
     const current = new FakeMqttClient();
     const candidate = new FakeMqttClient();
     const received: string[] = [];
@@ -331,14 +347,13 @@ describe("GatewayMqttRuntime", () => {
       commit: async () => { throw new Error("pointer commit failed"); },
       rollback
     });
-    candidate.emit("connect", { sessionPresent: false });
-    candidate.emit("message", "commands/dimming", Buffer.from("replay-after-rollback"));
 
     await expect(activating).rejects.toThrow("pointer commit failed");
     await Promise.resolve();
     expect(runtime.client).toBe(current);
     expect(rollback).toHaveBeenCalledTimes(1);
-    expect(received).toEqual(["replay-after-rollback"]);
+    expect(candidate.reconnect).not.toHaveBeenCalled();
+    expect(received).toEqual([]);
     await runtime.stop();
   });
 });

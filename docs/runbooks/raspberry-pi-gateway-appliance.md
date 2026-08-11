@@ -170,7 +170,7 @@ claim 전에는 `starting-unassigned`가 정상이다. claim 후 `healthy`는 �
 - 영속 mesh address mapping JSON parse
 - MQTT QoS 1 heartbeat publish 완료 시각
 
-MQTT 인증서 rotation은 pending generation으로 broker probe를 통과한 뒤, manual-connect candidate를 시작하기 전에 기존 stable-client-ID connection을 `end(true)`로 quiesce한다. candidate는 connect와 command subscription 대기 중에도 command를 기존 journal-backed handler로 즉시 처리하며, rollback에서 payload를 application으로 재전달하지 않는다. 정상 rollback 때만 이전 client를 명시적으로 reconnect한다. `current` pointer write/fsync와 previous pointer 복구가 함께 실패하면 candidate generation을 보존하고 MQTT runtime을 fail-closed 해 dangling pointer를 만들지 않는다. heartbeat 시각이 미래이거나 `GATEWAY_HEARTBEAT_MS`가 양의 유한 정수가 아니면 healthcheck는 fail-closed 한다.
+MQTT 인증서 rotation은 pending generation broker probe 뒤 기존 stable-client-ID connection을 `end(true)`로 quiesce하고, candidate가 broker에 연결되기 전에 identity pointer를 commit하고 runtime current client로 지정한다. CONNACK 전 연결 실패만 disk rollback과 old client reconnect를 허용한다. CONNACK 뒤에는 candidate가 authoritative하며, subscription 실패는 old session으로 되돌리지 않고 candidate를 fail-closed 해 ACK된 non-idempotent command를 replay하지 않는다. 네 command handler는 메시지를 받은 source client로 ACK/provisioning 결과를 발행한다. `current` pointer write/fsync와 previous pointer 복구가 함께 실패하면 candidate generation을 보존하고 MQTT runtime을 fail-closed 해 dangling pointer를 만들지 않는다. heartbeat 시각이 미래이거나 `GATEWAY_HEARTBEAT_MS`가 양의 유한 정수가 아니면 healthcheck는 fail-closed 한다.
 
 ## 9. ESP32-H2 펌웨어 적용
 

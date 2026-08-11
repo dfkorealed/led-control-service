@@ -1,7 +1,7 @@
 import type { IConnackPacket, MqttClient } from "mqtt";
 
-type RuntimeMqttClient = Pick<MqttClient, "end" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe">;
-type TopicHandler = (payload: Buffer) => unknown;
+export type GatewayMqttClient = Pick<MqttClient, "end" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe">;
+type TopicHandler = (payload: Buffer, source: GatewayMqttClient) => unknown;
 type ErrorReporter = (error: unknown, context: string) => unknown;
 
 export interface GatewayMqttIdentityTransaction {
@@ -10,10 +10,10 @@ export interface GatewayMqttIdentityTransaction {
 }
 
 export interface GatewayMqttRuntimeOptions {
-  client: RuntimeMqttClient;
+  client: GatewayMqttClient;
   heartbeatMs: number;
   candidateReadyTimeoutMs?: number;
-  subscribe: (client: RuntimeMqttClient, sessionPresent: boolean, force: boolean) => unknown;
+  subscribe: (client: GatewayMqttClient, sessionPresent: boolean, force: boolean) => unknown;
   publishHeartbeat: () => unknown;
   topicHandlers: Record<string, TopicHandler>;
   onMessageError: ErrorReporter;
@@ -24,10 +24,11 @@ export interface GatewayMqttRuntimeOptions {
 }
 
 interface CandidateAttempt {
-  client: RuntimeMqttClient;
+  client: GatewayMqttClient;
   ready: Promise<void>;
   cancel(error: Error): void;
   cleanup(): void;
+  hasConnected(): boolean;
 }
 
 const DEFAULT_CANDIDATE_READY_TIMEOUT_MS = 10_000;
@@ -38,7 +39,13 @@ export class GatewayMqttRuntime {
   private stopping = false;
   private queue: Promise<void> = Promise.resolve();
   private activeCandidate: CandidateAttempt | undefined;
-  private currentClient: RuntimeMqttClient;
+  private currentClient: GatewayMqttClient;
+  private readonly clientListeners = new Map<GatewayMqttClient, {
+    connect: (packet: IConnackPacket) => void;
+    close: () => void;
+    error: (error: Error) => void;
+    message: (topic: string, payload: Buffer) => void;
+  }>();
   private readonly candidateReadyTimeoutMs: number;
 
   constructor(private readonly options: GatewayMqttRuntimeOptions) {
@@ -69,7 +76,7 @@ export class GatewayMqttRuntime {
     });
   }
 
-  activate(candidate: RuntimeMqttClient, identity?: GatewayMqttIdentityTransaction): Promise<void> {
+  activate(candidate: GatewayMqttClient, identity?: GatewayMqttIdentityTransaction): Promise<void> {
     if (!this.started || this.stopping) {
       return this.endClient(candidate).catch(() => undefined).then(() => {
         throw new Error("MQTT runtime is stopping");
@@ -87,6 +94,7 @@ export class GatewayMqttRuntime {
 
   private async activateInternal(attempt: CandidateAttempt, identity?: GatewayMqttIdentityTransaction) {
     const previous = this.currentClient;
+    let promoted = false;
     if (!this.started || this.stopping) {
       await this.abortCandidate(attempt);
       throw new Error("MQTT runtime is stopping");
@@ -96,27 +104,35 @@ export class GatewayMqttRuntime {
       // so its automatic reconnect loop cannot evict the candidate during readiness.
       await this.quiesceClient(previous);
       this.throwIfStopping();
-      attempt.client.reconnect();
-      await attempt.ready;
-      this.throwIfStopping();
       await identity?.commit();
       this.throwIfStopping();
+      this.currentClient = attempt.client;
+      promoted = true;
+      attempt.client.reconnect();
+      await attempt.ready;
       await this.commitCandidate(attempt, previous);
     } catch (error) {
+      if (attempt.hasConnected()) {
+        await this.abortCandidate(attempt);
+        await this.failClosed(attempt.client, previous, true);
+        throw error;
+      }
       const rollbackSucceeded = await this.rollbackIdentity(identity);
       await this.abortCandidate(attempt);
+      if (promoted) this.currentClient = previous;
       if (rollbackSucceeded && this.started && !this.stopping) this.resumeClient(previous);
-      if (!rollbackSucceeded) await this.failClosed(previous);
+      if (!rollbackSucceeded) await this.failClosed(previous, attempt.client);
       throw error;
     } finally {
       if (this.activeCandidate === attempt) this.activeCandidate = undefined;
     }
   }
 
-  private readonly handleConnect = (packet: IConnackPacket) => {
-    if (!packet.sessionPresent) this.run(() => this.options.subscribe(this.currentClient, false, false), "subscribe");
+  private handleConnect(client: GatewayMqttClient, packet: IConnackPacket) {
+    if (this.currentClient !== client) return;
+    if (!packet.sessionPresent) this.run(() => this.options.subscribe(client, false, false), "subscribe");
     this.connected();
-  };
+  }
 
   private connected() {
     this.run(() => this.options.onConnect?.(), "connect");
@@ -125,21 +141,24 @@ export class GatewayMqttRuntime {
     this.heartbeatTimer = setInterval(() => this.run(this.options.publishHeartbeat, "heartbeat"), this.options.heartbeatMs);
   }
 
-  private readonly handleClose = () => {
+  private handleClose(client: GatewayMqttClient) {
+    if (this.currentClient !== client) return;
     this.clearHeartbeatTimer();
     this.run(() => this.options.onClose?.(), "close");
-  };
+  }
 
-  private readonly handleError = (error: Error) => {
+  private handleError(client: GatewayMqttClient, error: Error) {
+    if (this.currentClient !== client) return;
     this.run(() => this.options.onError?.(error), "mqtt_error");
-  };
+  }
 
-  private readonly handleMessage = (topic: string, payload: Buffer) => {
-    this.dispatchMessage(topic, payload);
-  };
+  private handleMessage(client: GatewayMqttClient, topic: string, payload: Buffer) {
+    this.dispatchMessage(topic, payload, client);
+  }
 
-  private prepareCandidate(client: RuntimeMqttClient): CandidateAttempt {
+  private prepareCandidate(client: GatewayMqttClient): CandidateAttempt {
     let settled = false;
+    let connected = false;
     let resolveReady!: () => void;
     let rejectReady!: (error: Error) => void;
     let subscriptionStarted = false;
@@ -163,6 +182,7 @@ export class GatewayMqttRuntime {
     };
     const onConnect = (packet: IConnackPacket) => {
       if (subscriptionStarted) return;
+      connected = true;
       subscriptionStarted = true;
       void Promise.resolve(this.options.subscribe(client, packet.sessionPresent, true)).then(
         () => finish(),
@@ -174,17 +194,17 @@ export class GatewayMqttRuntime {
     const onMessage = (topic: string, payload: Buffer) => {
       // MQTT.js may PUBACK immediately after this event. Dispatch through the normal
       // journal-backed handler now; do not synthesize a second local delivery later.
-      this.dispatchMessage(topic, payload);
+      this.handleMessage(client, topic, payload);
     };
     const timeout = setTimeout(() => finish(new Error("replacement MQTT client timed out")), this.candidateReadyTimeoutMs);
     client.on("message", onMessage);
     client.on("connect", onConnect);
     client.on("error", onError);
     client.on("close", onClose);
-    return { client, ready, cancel: finish, cleanup };
+    return { client, ready, cancel: finish, cleanup, hasConnected: () => connected };
   }
 
-  private async commitCandidate(attempt: CandidateAttempt, previous: RuntimeMqttClient) {
+  private async commitCandidate(attempt: CandidateAttempt, previous: GatewayMqttClient) {
     attempt.cleanup();
     this.currentClient = attempt.client;
     this.addClientListeners(attempt.client);
@@ -205,12 +225,12 @@ export class GatewayMqttRuntime {
     if (this.stopping || !this.started) throw new Error("MQTT runtime is stopping");
   }
 
-  private async quiesceClient(client: RuntimeMqttClient) {
+  private async quiesceClient(client: GatewayMqttClient) {
     this.clearHeartbeatTimer();
     await this.endClient(client);
   }
 
-  private resumeClient(client: RuntimeMqttClient) {
+  private resumeClient(client: GatewayMqttClient) {
     try {
       client.reconnect();
     } catch (error) {
@@ -228,10 +248,12 @@ export class GatewayMqttRuntime {
     }
   }
 
-  private async failClosed(client: RuntimeMqttClient) {
+  private async failClosed(client: GatewayMqttClient, previous?: GatewayMqttClient, clientAlreadyEnded = false) {
     this.started = false;
     this.clearHeartbeatTimer();
     this.removeClientListeners(client);
+    if (previous && previous !== client) this.removeClientListeners(previous);
+    if (clientAlreadyEnded) return;
     try {
       await this.endClient(client);
     } catch (error) {
@@ -245,11 +267,11 @@ export class GatewayMqttRuntime {
     return result;
   }
 
-  private dispatchMessage(topic: string, payload: Buffer) {
+  private dispatchMessage(topic: string, payload: Buffer, source: GatewayMqttClient) {
     const handler = this.options.topicHandlers[topic];
     if (!handler) return;
     try {
-      void Promise.resolve(handler(payload)).catch((error) => this.report(this.options.onMessageError, error, topic));
+      void Promise.resolve(handler(payload, source)).catch((error) => this.report(this.options.onMessageError, error, topic));
     } catch (error) {
       this.report(this.options.onMessageError, error, topic);
     }
@@ -261,21 +283,32 @@ export class GatewayMqttRuntime {
     this.heartbeatTimer = undefined;
   }
 
-  private addClientListeners(client: RuntimeMqttClient) {
-    client.on("connect", this.handleConnect);
-    client.on("close", this.handleClose);
-    client.on("error", this.handleError);
-    client.on("message", this.handleMessage);
+  private addClientListeners(client: GatewayMqttClient) {
+    if (this.clientListeners.has(client)) return;
+    const listeners = {
+      connect: (packet: IConnackPacket) => this.handleConnect(client, packet),
+      close: () => this.handleClose(client),
+      error: (error: Error) => this.handleError(client, error),
+      message: (topic: string, payload: Buffer) => this.handleMessage(client, topic, payload)
+    };
+    this.clientListeners.set(client, listeners);
+    client.on("connect", listeners.connect);
+    client.on("close", listeners.close);
+    client.on("error", listeners.error);
+    client.on("message", listeners.message);
   }
 
-  private removeClientListeners(client: RuntimeMqttClient) {
-    client.removeListener("connect", this.handleConnect);
-    client.removeListener("close", this.handleClose);
-    client.removeListener("error", this.handleError);
-    client.removeListener("message", this.handleMessage);
+  private removeClientListeners(client: GatewayMqttClient) {
+    const listeners = this.clientListeners.get(client);
+    if (!listeners) return;
+    client.removeListener("connect", listeners.connect);
+    client.removeListener("close", listeners.close);
+    client.removeListener("error", listeners.error);
+    client.removeListener("message", listeners.message);
+    this.clientListeners.delete(client);
   }
 
-  private endClient(client: RuntimeMqttClient) {
+  private endClient(client: GatewayMqttClient) {
     return new Promise<void>((resolve, reject) => {
       client.end(true, (error) => (error ? reject(error) : resolve()));
     });
