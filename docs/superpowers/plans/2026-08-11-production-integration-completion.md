@@ -32,19 +32,19 @@
 - Produces: 현재 역할·에디터 위치·펌웨어 구현 범위와 일치하는 문서
 - Produces: 빈 로그인·초대 입력값을 가진 production UI
 
-- [ ] **Step 1: 로그인 기본값 회귀 테스트 작성**
+- [x] **Step 1: 로그인 기본값 회귀 테스트 작성**
 
 `AuthView` 최초 렌더에서 이메일, 비밀번호와 초대 token input value가 빈 문자열인지 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `pnpm --filter @led-control/web test -- --run src/App.test.tsx`
 
-- [ ] **Step 3: UI와 완료 문서 정정**
+- [x] **Step 3: UI와 완료 문서 정정**
 
 `owner`와 모니터링 에디터 설명을 세 역할과 설정 에디터로 바꾸고, 실제 구현된 물리 factory reset/Health Attention identify와 아직 미구현인 원격 연결을 구분한다. 완료 증거가 있는 기존 계획 checkbox만 `[x]`로 바꾼다.
 
-- [ ] **Step 4: 검증과 커밋**
+- [x] **Step 4: 검증과 커밋**
 
 Run: `pnpm --filter @led-control/web test -- --run src/App.test.tsx && git diff --check`
 
