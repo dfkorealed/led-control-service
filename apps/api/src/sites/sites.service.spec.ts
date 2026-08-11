@@ -162,6 +162,29 @@ describe("SitesService", () => {
     });
   });
 
+  it("keeps a gateway online when its heartbeat is exactly 90 seconds old", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-07-11T00:05:00.000Z"));
+    const heartbeatAtBoundary = new Date("2026-07-11T00:03:30.000Z");
+    const boundaryPrisma: any = {
+      site: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "site-1",
+          name: "Boundary Site",
+          gateways: [{ id: "gateway-1", name: "Gateway B2", serialNumber: "GW-1", firmwareVersion: "1.0", lastHeartbeatAt: heartbeatAtBoundary }],
+          floors: [{ id: "floor-1", name: "B2", level: -2, floorPlan: null }],
+          groups: []
+        })
+      },
+      fixture: { findMany: jest.fn().mockResolvedValue([]) }
+    };
+    const service = new (SitesService as any)(boundaryPrisma, { assert: jest.fn() });
+
+    const dashboard = await service.getDashboardById("site-1", true);
+
+    expect(dashboard.gateways[0].connectionStatus).toBe("online");
+    jest.useRealTimers();
+  });
+
   it("does not reveal an explicitly requested inaccessible site dashboard", async () => {
     siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
     const service = new (SitesService as any)(prisma, siteAccess);

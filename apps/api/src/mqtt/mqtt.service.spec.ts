@@ -502,7 +502,7 @@ describe("MqttService", () => {
       },
       meshNode: {
         findUnique: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockRejectedValue({ code: "P2002" })
+        create: jest.fn().mockRejectedValue({ code: "P2002", meta: { target: ["deviceUuid"] } })
       }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
@@ -534,6 +534,28 @@ describe("MqttService", () => {
       },
       data: { status: "failed", errorMessage: "device UUID is already registered by another site" }
     });
+  });
+
+  async function expectProvisioningErrorToRethrow(error: unknown) {
+    const prisma: any = {
+      $transaction: jest.fn().mockRejectedValue(error),
+      discoveredMeshNode: { updateMany: jest.fn() }
+    };
+    const service = new MqttService(prisma);
+
+    await expect((service as any).completeProvisioning(
+      { siteId: "site-1", gatewayId: "gateway-1" },
+      { sessionId: "session-1", nodeId: "node-1", deviceUuid: "device-1", meshAddress: "0x0101", completedAt: "2026-07-01T00:00:05.000Z" }
+    )).rejects.toBe(error);
+    expect(prisma.discoveredMeshNode.updateMany).not.toHaveBeenCalled();
+  }
+
+  it("rethrows a P2002 for a different unique constraint", async () => {
+    await expectProvisioningErrorToRethrow({ code: "P2002", meta: { target: ["gatewayId", "meshAddress"] } });
+  });
+
+  it("rethrows a transaction failure", async () => {
+    await expectProvisioningErrorToRethrow(new Error("transaction serialization failure"));
   });
 
   it("marks discovered nodes failed from provisioning failed events", async () => {

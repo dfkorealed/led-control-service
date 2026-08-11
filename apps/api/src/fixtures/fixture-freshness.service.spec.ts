@@ -24,8 +24,10 @@ describe("FixtureFreshnessService", () => {
     });
     expect(prisma.fixture.updateMany).toHaveBeenNthCalledWith(2, {
       where: {
-        status: { not: "offline" },
-        OR: [{ lastStateOccurredAt: { lt: new Date("2026-07-11T00:02:00.000Z") } }, { lastStateOccurredAt: null }]
+        AND: [
+          { OR: [{ statusReason: { not: "provisioning_waiting_state" } }, { statusReason: null }] },
+          { OR: [{ lastStateOccurredAt: { lt: new Date("2026-07-11T00:02:00.000Z") } }, { lastStateOccurredAt: null }] }
+        ]
       },
       data: { status: "offline", statusReason: "fixture_stale" }
     });

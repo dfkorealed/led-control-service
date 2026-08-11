@@ -28,7 +28,10 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<RegistrationSession | null>(null);
   const [localNodes, setLocalNodes] = useState<DiscoveredRegistrationNode[]>([]);
-  const floor = dashboard?.floors[0];
+  const [selectedFloorId, setSelectedFloorId] = useState("");
+  const [selectedGatewayId, setSelectedGatewayId] = useState("");
+  const floor = dashboard?.floors.find((item) => item.id === selectedFloorId);
+  const gateway = dashboard?.gateways.find((item) => item.id === selectedGatewayId);
   const hasFixtures = (dashboard?.summary.totalFixtures ?? 0) > 0;
 
   const sessionQuery = useQuery({
@@ -46,7 +49,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
   }, [localNodes, session?.discoveredNodes, sessionQuery.data?.discoveredNodes]);
 
   const startMutation = useMutation({
-    mutationFn: () => createRegistrationSession(dashboard!.site.id, floor!.id),
+    mutationFn: () => createRegistrationSession(dashboard!.site.id, floor!.id, gateway!.id),
     onSuccess: (created) => {
       setSession(created);
       setLocalNodes(created.discoveredNodes);
@@ -60,7 +63,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
 
   const registerMutation = useMutation({
     mutationFn: (node: DiscoveredRegistrationNode) =>
-      registerRegistrationNode(session!.id, node.id, nextFixtureName(dashboard, nodes), 180 + nodes.length * 36, 180),
+      registerRegistrationNode(session!.id, node.id, nextFixtureName(dashboard, nodes, floor), 180 + nodes.length * 36, 180),
     onSuccess: (result) => {
       setLocalNodes((current) => upsertNode(current, result.discoveredNode));
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -72,7 +75,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
     onSuccess: (completed) => setSession(completed)
   });
 
-  const canStart = Boolean(dashboard?.site.id && floor?.id) && !startMutation.isPending;
+  const canStart = Boolean(dashboard?.site.id && floor?.id && gateway?.id) && !startMutation.isPending;
 
   return (
     <section className={hasFixtures ? "registration-panel" : "registration-panel empty-site"}>
@@ -86,9 +89,27 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
 
       <div className="registration-summary">
         <div>
-          <strong>{floor?.name ?? "층 미선택"}</strong>
+          <strong>{floor?.name ?? "등록 대상 선택"}</strong>
           <span>{hasFixtures ? "추가 조명을 검색해 등록합니다." : "등록된 조명이 없어 먼저 검색을 시작합니다."}</span>
-          {!floor ? <small>층/도면을 먼저 등록해야 조명 검색을 시작할 수 있습니다.</small> : null}
+          {!floor || !gateway ? <small>층과 게이트웨이를 선택해야 조명 검색을 시작할 수 있습니다.</small> : null}
+        </div>
+        <div className="registration-targets">
+          <label>
+            등록 층
+            <select value={selectedFloorId} onChange={(event) => setSelectedFloorId(event.target.value)}>
+              <option value="">층 선택</option>
+              {dashboard?.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <label>
+            등록 게이트웨이
+            <select value={selectedGatewayId} onChange={(event) => setSelectedGatewayId(event.target.value)}>
+              <option value="">게이트웨이 선택</option>
+              {dashboard?.gateways.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}{item.connectionStatus === "online" ? "" : " (오프라인)"}</option>
+              ))}
+            </select>
+          </label>
         </div>
         <button className="primary-button" disabled={!canStart} onClick={() => startMutation.mutate()}>
           {startMutation.isPending ? <Loader2 size={16} /> : <Radar size={16} />}
@@ -156,8 +177,8 @@ function upsertNode(nodes: DiscoveredRegistrationNode[], next: DiscoveredRegistr
   return nodes.map((node) => (node.id === next.id ? next : node));
 }
 
-function nextFixtureName(dashboard: Dashboard | undefined, nodes: DiscoveredRegistrationNode[]) {
-  const floorName = dashboard?.floors[0]?.name ?? "B2";
+function nextFixtureName(dashboard: Dashboard | undefined, nodes: DiscoveredRegistrationNode[], floor?: Dashboard["floors"][number]) {
+  const floorName = floor?.name ?? "B2";
   const fixtureCount = dashboard?.summary.totalFixtures ?? 0;
   return `${floorName}-L${String(fixtureCount + nodes.filter((node) => node.status === "provisioned").length + 1).padStart(2, "0")}`;
 }

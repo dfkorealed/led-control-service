@@ -28,10 +28,22 @@
 
 ## Verification
 
-- `pnpm --filter @led-control/shared test`: 2 files, 16 tests passed.
+- `pnpm --filter @led-control/shared test`: 3 files, 17 tests passed.
 - `pnpm --filter @led-control/shared typecheck`: passed.
-- `pnpm --filter @led-control/api test -- --runInBand`: 48 suites passed, 314 tests passed; 6 integration suites and 25 tests skipped by their existing environment gates.
+- `pnpm --filter @led-control/api test -- --runInBand`: 48 suites passed, 318 tests passed; 6 integration suites and 25 tests skipped by their existing environment gates.
 - `pnpm --filter @led-control/api typecheck`: passed.
 - `pnpm --filter @led-control/web test`: 16 files, 139 tests passed.
 - `pnpm --filter @led-control/web typecheck`: passed.
 - `git diff --check`: passed.
+
+## Fix Round1
+
+- RegistrationPanel now requires explicit floor and gateway selection, and its API payload carries the selected `siteId`, `floorId`, and `gatewayId`.
+- Shared gateway freshness helpers define the inclusive 90-second boundary once. Registration queries, dashboard/fixture responses, command checks, and the freshness worker use that contract; exactly 90 seconds old remains fresh.
+- `provisioning_waiting_state` is excluded from both gateway-offline and fixture-stale worker updates. The first real fixture state clears that reason and returns the fixture to normal freshness handling.
+- Completion maps `P2002` to the cross-site device UUID conflict only when Prisma reports the `deviceUuid` unique target. Other unique constraints and transaction errors are rethrown.
+
+### Fix Round1 TDD Evidence
+
+1. Added failing tests for the missing web `gatewayId` payload, the 90-second dashboard boundary, the waiting-state stale filter, the shared helper clock boundary, and non-deviceUuid `P2002`/transaction error propagation.
+2. Focused shared, API, and web suites passed after the implementation; final full verification is recorded with this round's commit.

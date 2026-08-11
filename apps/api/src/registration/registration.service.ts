@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { CreateRegistrationSessionInput } from "@led-control/shared";
+import { CreateRegistrationSessionInput, gatewayHeartbeatFreshSince } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MqttService } from "../mqtt/mqtt.service";
@@ -11,8 +11,6 @@ interface RegisterNodeInput {
   y: number;
   ratedWatt?: string;
 }
-
-const GATEWAY_HEARTBEAT_FRESHNESS_MS = 90_000;
 
 @Injectable()
 export class RegistrationService {
@@ -33,7 +31,7 @@ export class RegistrationService {
       where: {
         id: input.gatewayId,
         siteId: input.siteId,
-        lastHeartbeatAt: { gte: new Date(Date.now() - GATEWAY_HEARTBEAT_FRESHNESS_MS) }
+        lastHeartbeatAt: { gte: gatewayHeartbeatFreshSince(new Date()) }
       }
     });
     if (!gateway) throw new BadRequestException("gatewayId must reference an online gateway in the selected site");

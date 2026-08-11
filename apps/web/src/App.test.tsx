@@ -110,13 +110,13 @@ vi.mock("./api/client", () => ({
       return Promise.resolve({ ok: true });
     }
     if (path === "/registration-sessions") {
-      const input = body as { siteId?: string; floorId?: string } | undefined;
+      const input = body as { siteId?: string; floorId?: string; gatewayId?: string } | undefined;
       const dashboard = apiState.dashboard as typeof mockDashboard | null;
       const nextSession = {
         ...mockRegistrationSession,
         siteId: input?.siteId ?? dashboard?.site.id ?? mockRegistrationSession.siteId,
         floorId: input?.floorId ?? dashboard?.floors[0]?.id ?? mockRegistrationSession.floorId,
-        gatewayId: dashboard?.gateways[0]?.id ?? mockRegistrationSession.gatewayId
+        gatewayId: input?.gatewayId ?? dashboard?.gateways[0]?.id ?? mockRegistrationSession.gatewayId
       };
       apiState.registrationSession = nextSession;
       return Promise.resolve(nextSession);
@@ -725,11 +725,20 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: "설정" }));
     expect(await screen.findByText("조명 등록")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: mockDashboard.floors[0].id } });
+    fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: mockDashboard.gateways[0].id } });
 
     fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
 
     expect(await screen.findByText("LC-B2-001")).toBeInTheDocument();
     expect(screen.getByText("RSSI -54 dBm")).toBeInTheDocument();
+    expect(apiPost).toHaveBeenCalledWith("/registration-sessions", {
+      siteId: mockDashboard.site.id,
+      floorId: mockDashboard.floors[0].id,
+      gatewayId: mockDashboard.gateways[0].id
+    });
 
     fireEvent.click(screen.getAllByRole("button", { name: "점멸 확인" })[0]);
     expect(await screen.findByText("점멸 중")).toBeInTheDocument();
@@ -830,8 +839,10 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("일회성 등록 코드"), { target: { value: "claim-once" } });
     fireEvent.click(screen.getByRole("button", { name: "게이트웨이 등록" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeEnabled());
-    expect(screen.getByText("B2")).toBeInTheDocument();
+    await screen.findByRole("button", { name: "조명 검색 시작" });
+    fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: "floor-onboarded-1" } });
+    fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: "gateway-onboarded-1" } });
+    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeEnabled();
   });
 
 });

@@ -1,4 +1,5 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { gatewayHeartbeatFreshSince } from "@led-control/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
@@ -16,7 +17,7 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
   }
 
   async markStaleFixtures(now = new Date()) {
-    const gatewayCutoff = new Date(now.getTime() - 90_000);
+    const gatewayCutoff = gatewayHeartbeatFreshSince(now);
     // Three 60-second Mesh publication windows tolerate a delayed radio publication without masking a real outage.
     const fixtureCutoff = new Date(now.getTime() - 180_000);
     const gatewayOffline = await this.prisma.fixture.updateMany({
@@ -31,8 +32,11 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
     });
     const fixtureStale = await this.prisma.fixture.updateMany({
       where: {
-        status: { not: "offline" },
-        OR: [{ lastStateOccurredAt: { lt: fixtureCutoff } }, { lastStateOccurredAt: null }]
+        // A waiting fixture has no observed state; after the first state event clears this reason it re-enters normal freshness checks.
+        AND: [
+          { OR: [{ statusReason: { not: "provisioning_waiting_state" } }, { statusReason: null }] },
+          { OR: [{ lastStateOccurredAt: { lt: fixtureCutoff } }, { lastStateOccurredAt: null }] }
+        ]
       },
       data: { status: "offline", statusReason: "fixture_stale" }
     });

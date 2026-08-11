@@ -126,6 +126,26 @@ describe("RegistrationService", () => {
     expect(prisma.provisioningSession.create).not.toHaveBeenCalled();
   });
 
+  it("accepts a gateway heartbeat exactly 90 seconds old", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-07-11T00:05:00.000Z"));
+    const { service, prisma } = await createModule();
+
+    await service.createSession(operator, {
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId
+    });
+
+    expect(prisma.gateway.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: ids.gatewayId,
+        siteId: ids.siteId,
+        lastHeartbeatAt: { gte: new Date("2026-07-11T00:03:30.000Z") }
+      }
+    });
+    jest.useRealTimers();
+  });
+
   it("creates an active registration session and publishes a scan command", async () => {
     const { service, prisma, mqtt } = await createModule();
 

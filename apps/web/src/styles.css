@@ -1609,6 +1609,23 @@ button.group-card {
   gap: 4px;
 }
 
+.registration-targets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.registration-targets label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.registration-targets select {
+  min-width: 150px;
+}
+
 .registration-summary span,
 .registration-summary small,
 .session-meta span,

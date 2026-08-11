@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
-import { gatewayDimmingCommandDraftV2Schema, mqttTopicsV2 } from "@led-control/shared";
+import { gatewayDimmingCommandDraftV2Schema, isGatewayHeartbeatFresh, mqttTopicsV2 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -136,7 +136,7 @@ export class CommandsService {
     if (!mapping.gatewayId) {
       throw new BadRequestException(prefix ?? "fixture is not mapped to a gateway");
     }
-    if (!mapping.gatewayLastHeartbeatAt || Date.now() - mapping.gatewayLastHeartbeatAt.getTime() >= 90_000) {
+    if (!isGatewayHeartbeatFresh(mapping.gatewayLastHeartbeatAt, new Date())) {
       throw new BadRequestException(prefix ?? "gateway is offline");
     }
     if (mapping.status === "fault") {

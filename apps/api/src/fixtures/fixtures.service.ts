@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { isGatewayHeartbeatFresh } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -41,13 +42,11 @@ export class FixturesService {
     });
     const hasNextPage = rows.length > limit;
     const page = rows.slice(0, limit);
-    const now = Date.now();
+    const now = new Date();
 
     return {
       items: page.map((fixture) => {
-        const gatewayOnline = Boolean(
-          fixture.meshNode?.gateway.lastHeartbeatAt && now - fixture.meshNode.gateway.lastHeartbeatAt.getTime() < 90_000
-        );
+        const gatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
         const controlBlockReason = !fixture.meshNode
           ? "fixture_unmapped"
           : !gatewayOnline

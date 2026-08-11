@@ -2,7 +2,7 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-08-10
+기준일: 2026-08-11
 
 ## 목표와 기능 경계
 
@@ -67,8 +67,8 @@
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
 - 설정 화면에 현장, 층/도면, 그룹, Gateway 요약 카드를 표시한다.
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
-- 현장이 있으면 조명 등록 세션, BLE Mesh 후보 목록과 provisioning 요청 UI를 제공한다. 세션 시작은 현장, 층, 90초 이내 heartbeat가 있는 Gateway를 명시적으로 선택한 경우에만 허용한다.
-- provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 DB unique 경쟁은 해당 node 실패로 기록한다.
+- 현장이 있으면 조명 등록 세션, BLE Mesh 후보 목록과 provisioning 요청 UI를 제공한다. 등록 패널은 층과 Gateway를 사용자가 명시적으로 선택하고 `siteId`, `floorId`, `gatewayId`를 함께 전송한다. 서버는 해당 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
+- provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 `MeshNode.deviceUuid` unique 경쟁만 해당 node 실패로 기록하며, 다른 unique/transaction 오류는 재전파한다.
 - 제조 장비 원장 기반 `POST /gateways/claim`과 장비 인증서 기반 `POST /gateway-bootstrap`을 구현했다. claim과 assigned inventory disable은 operator 역할과 현장 `commission` 권한이 필요하며 admin/viewer는 `403`, 미배정 operator는 `404`를 받는다.
 - Claim 성공·실패 감사 로그와 연속 실패 rate limit을 적용했다.
 - Raspberry Pi appliance가 실제 BlueZ scan/provisioning adapter와 영속 Mesh identity를 사용한다.
@@ -296,7 +296,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
-- 현재 조명 등록은 첫 Floor와 첫 Gateway 중심이므로 사용자가 대상과 coverage를 명시적으로 선택해야 한다.
+- 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
 - MinIO 기반 local S3 integration test는 준비됐지만 현재 개발 머신에 Docker CLI가 없어 실제 실행 증거는 아직 없다.
 - PDF는 첫 페이지만 도면 배경으로 렌더링한다. 다중 페이지 선택과 원본 PDF 파일 관리 UI는 후속 작업이다.

@@ -474,7 +474,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         });
       });
     } catch (error) {
-      if (!isUniqueConstraintError(error)) throw error;
+      if (!isDeviceUuidUniqueConstraintError(error)) throw error;
       await this.markDeviceUuidConflict(topicScope, event);
     }
   }
@@ -530,7 +530,16 @@ function requiredMqttApiInstanceId(env: NodeJS.ProcessEnv) {
   return instanceId;
 }
 
-function isUniqueConstraintError(error: unknown) {
+function isDeviceUuidUniqueConstraintError(error: unknown) {
+  if (!isUniqueConstraintError(error)) return false;
+  if (!error.meta || typeof error.meta !== "object" || !("target" in error.meta)) return false;
+
+  const target = error.meta.target;
+  const targets = Array.isArray(target) ? target : [target];
+  return targets.some((value) => value === "deviceUuid" || value === "MeshNode_deviceUuid_key");
+}
+
+function isUniqueConstraintError(error: unknown): error is { code: "P2002"; meta?: unknown } {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
 }
 

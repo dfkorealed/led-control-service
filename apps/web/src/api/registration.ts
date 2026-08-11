@@ -27,8 +27,8 @@ export interface RegistrationSession {
   discoveredNodes: DiscoveredRegistrationNode[];
 }
 
-export function createRegistrationSession(siteId: string, floorId: string) {
-  return apiPost<RegistrationSession>("/registration-sessions", { siteId, floorId });
+export function createRegistrationSession(siteId: string, floorId: string, gatewayId: string) {
+  return apiPost<RegistrationSession>("/registration-sessions", { siteId, floorId, gatewayId });
 }
 
 export function getRegistrationSession(sessionId: string) {

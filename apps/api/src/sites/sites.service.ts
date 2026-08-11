@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { isGatewayHeartbeatFresh } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -62,7 +63,7 @@ export class SitesService {
         })
       : [];
     const fixturesByFloor = new Map(site.floors.map((floor) => [floor.id, fixtures.filter((fixture) => fixture.floorId === floor.id)]));
-    const now = Date.now();
+    const now = new Date();
     const summary = includeFixtures
       ? {
           totalFixtures: fixtures.length,
@@ -93,10 +94,7 @@ export class SitesService {
             }
           : null,
         fixtures: (fixturesByFloor.get(floor.id) ?? []).map((fixture) => {
-          const gatewayOnline = Boolean(
-            fixture.meshNode?.gateway.lastHeartbeatAt &&
-              now - fixture.meshNode.gateway.lastHeartbeatAt.getTime() < 90_000
-          );
+          const gatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
           const controlBlockReason = !fixture.meshNode
             ? "fixture_unmapped"
             : !gatewayOnline
@@ -143,7 +141,7 @@ export class SitesService {
         firmwareVersion: gateway.firmwareVersion,
         lastHeartbeatAt: gateway.lastHeartbeatAt?.toISOString() ?? null,
         connectionStatus:
-          gateway.lastHeartbeatAt && now - gateway.lastHeartbeatAt.getTime() < 90_000 ? "online" : "offline"
+          isGatewayHeartbeatFresh(gateway.lastHeartbeatAt, now) ? "online" : "offline"
       }))
     };
   }
