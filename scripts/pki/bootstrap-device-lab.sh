@@ -19,6 +19,8 @@ APPLICATION_GENERATIONS_DIR="$APPLICATION_DIR/generations"
 APPLICATION_CURRENT="$APPLICATION_DIR/current"
 APPLICATION_TOKEN_FILE="$APPLICATION_CURRENT/token"
 APPLICATION_TOKEN_ACCESSOR_FILE="$APPLICATION_CURRENT/accessor"
+ORPHAN_PARENT="$LAB_PKI_DIR/application-tokens"
+ORPHAN_DIR="$ORPHAN_PARENT/orphaned"
 LAB_ENV_FILE="$LAB_PKI_DIR/lab.env"
 
 LAB_VAULT_SCRIPT="${LAB_VAULT_SCRIPT:-$ROOT_DIR/scripts/pki/lab-vault.sh}"
@@ -47,7 +49,7 @@ assert_no_symlink_path() {
 
 validate_output_boundaries() {
   local path
-  for path in "$ROOT_DIR/.local" "$LAB_PKI_DIR" "$SERVICE_ROOT" "$LAB_PKI_DIR/manufacturing" "$APPLICATION_DIR" "$APPLICATION_GENERATIONS_DIR"; do
+  for path in "$ROOT_DIR/.local" "$LAB_PKI_DIR" "$SERVICE_ROOT" "$LAB_PKI_DIR/manufacturing" "$APPLICATION_DIR" "$APPLICATION_GENERATIONS_DIR" "$ORPHAN_PARENT" "$ORPHAN_DIR"; do
     assert_no_symlink_path "$path"
   done
   current_application_generation >/dev/null || true
@@ -131,18 +133,25 @@ issue_application_token() {
 const fs = require("node:fs");
 const [source, tokenTarget, accessorTarget] = process.argv.slice(2);
 const auth = JSON.parse(fs.readFileSync(source, "utf8"))?.auth;
-const policies = Array.isArray(auth?.policies) ? [...auth.policies].sort() : [];
 if (typeof auth?.client_token !== "string" || auth.client_token.length < 8 || /[\r\n]/.test(auth.client_token)) process.exit(1);
 if (typeof auth?.accessor !== "string" || auth.accessor.length < 8 || /[\r\n]/.test(auth.accessor)) process.exit(1);
-if (auth.lease_duration !== 86400 || auth.renewable !== true || policies.join(",") !== "gateway-pki") process.exit(1);
 fs.writeFileSync(tokenTarget, `${auth.client_token}\n`, { mode: 0o600 });
 fs.writeFileSync(accessorTarget, `${auth.accessor}\n`, { mode: 0o600 });
 fs.chmodSync(tokenTarget, 0o600);
 fs.chmodSync(accessorTarget, 0o600);
+const policies = Array.isArray(auth?.policies) ? [...auth.policies].sort() : [];
+if (auth.lease_duration !== 86400 || auth.renewable !== true || policies.join(",") !== "gateway-pki") process.exit(2);
 NODE
   then
-    rm -f "$response"; rm -rf "$generation"
-    die "Vault application token 응답이 올바르지 않습니다."
+    rm -f "$response"
+    local failed_accessor=""
+    [[ ! -f "$accessor_temporary" ]] || failed_accessor="$(tr -d '\r\n' <"$accessor_temporary")"
+    if [[ -n "$failed_accessor" ]] && ! revoke_token_accessor "$failed_accessor"; then
+      preserve_orphan_generation "$generation"
+      die "Vault application token profile 검증 및 정리 revoke가 실패하여 orphan 복구 큐에 보존했습니다."
+    fi
+    rm -rf "$generation"
+    die "Vault application token 응답 또는 profile이 올바르지 않습니다."
   fi
   rm -f "$response"
   printf '%s\n' "$generation"
@@ -151,6 +160,35 @@ NODE
 revoke_token_accessor() {
   local accessor="$1"
   VAULT_TOKEN="$(tr -d '\r\n' <"$ROOT_TOKEN_FILE")" "$VAULT_BIN" token revoke -accessor "$accessor" >/dev/null
+}
+
+preserve_orphan_generation() {
+  local generation="$1" destination
+  mkdir -p "$ORPHAN_DIR"
+  chmod 0700 "$ORPHAN_PARENT" "$ORPHAN_DIR"
+  destination="$ORPHAN_DIR/orphan-$(date -u '+%Y%m%d%H%M%S')-$$-$RANDOM"
+  mv "$generation" "$destination"
+  chmod 0700 "$destination"
+  chmod 0600 "$destination/token" "$destination/accessor"
+}
+
+reconcile_orphan_tokens() {
+  mkdir -p "$ORPHAN_DIR"
+  chmod 0700 "$ORPHAN_PARENT" "$ORPHAN_DIR"
+  local orphan accessor failures=0
+  for orphan in "$ORPHAN_DIR"/*; do
+    [[ -e "$orphan" ]] || continue
+    [[ -d "$orphan" && ! -L "$orphan" && "$(file_mode "$orphan")" == 700 ]] || die "orphan token generation이 안전하지 않습니다."
+    assert_secret_file "$orphan/token" "orphan token" "$ORPHAN_DIR"
+    assert_secret_file "$orphan/accessor" "orphan accessor" "$ORPHAN_DIR"
+    accessor="$(tr -d '\r\n' <"$orphan/accessor")"
+    if revoke_token_accessor "$accessor"; then
+      rm -rf "$orphan"
+    else
+      failures=1
+    fi
+  done
+  (( failures == 0 )) || die "일부 orphan application token을 폐기하지 못했습니다. 복구 큐를 보존하고 bootstrap을 중단합니다."
 }
 
 current_application_generation() {
@@ -215,6 +253,7 @@ main() {
   export VAULT_TOKEN
   VAULT_TOKEN="$(tr -d '\r\n' <"$ROOT_TOKEN_FILE")"
   [[ -n "$VAULT_TOKEN" ]] || die "Lab Vault root token이 비어 있습니다."
+  reconcile_orphan_tokens
 
   "$VAULT_BOOTSTRAP_SCRIPT" prepare
   "$INTERMEDIATE_SIGN_SCRIPT"
@@ -245,15 +284,25 @@ main() {
   fi
   if [[ -n "$old_accessor" ]]; then
     if ! revoke_token_accessor "$old_accessor"; then
-      revoke_token_accessor "$new_accessor" || true
+      local cleanup_failed=0
+      revoke_token_accessor "$new_accessor" || cleanup_failed=1
       rm -f "$candidate_pointer" "$env_temporary"
+      if (( cleanup_failed )); then
+        preserve_orphan_generation "$final_generation"
+        die "이전 token과 새 token 정리 revoke가 모두 실패하여 새 token을 orphan 복구 큐에 보존했습니다."
+      fi
       rm -rf "$final_generation"
       die "이전 application token 폐기에 실패하여 새 token을 보상 폐기했습니다."
     fi
   fi
   if ! node -e 'require("node:fs").renameSync(process.argv[1], process.argv[2])' "$candidate_pointer" "$APPLICATION_CURRENT"; then
-    revoke_token_accessor "$new_accessor" || true
+    local cleanup_failed=0
+    revoke_token_accessor "$new_accessor" || cleanup_failed=1
     rm -f "$candidate_pointer" "$env_temporary"
+    if (( cleanup_failed )); then
+      preserve_orphan_generation "$final_generation"
+      die "application token publish 및 정리 revoke가 실패하여 새 token을 orphan 복구 큐에 보존했습니다. 이전 token도 이미 폐기되었습니다."
+    fi
     rm -rf "$final_generation"
     die "application token publish 실패로 새 token을 보상 폐기했습니다. 이전 token도 이미 폐기되어 API를 시작하면 안 됩니다."
   fi

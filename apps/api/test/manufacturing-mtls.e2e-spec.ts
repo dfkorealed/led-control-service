@@ -39,6 +39,7 @@ describe("Nest manufacturing mTLS integration", () => {
     execFileSync(issuer, ["issue"], { cwd: repo, env: { ...process.env, PKI_ENV: "lab" }, stdio: "pipe" });
     const manufacturing = join(repo, ".local", "lab-pki", "manufacturing");
     issueServer(directory);
+    issueOtherClient(directory);
     const env = tlsEnvironment(directory, manufacturing);
     const tls = createApiHttpsOptions(env).httpsOptions!;
     const caFingerprint = new X509Certificate(readFileSync(join(manufacturing, "manufacturing-ca.crt"))).fingerprint256;
@@ -55,6 +56,7 @@ describe("Nest manufacturing mTLS integration", () => {
 
     expect(await call(address.port, directory, manufacturing, true)).toBe(204);
     expect(await call(address.port, directory, manufacturing, false)).toBe(401);
+    expect(await callWithIdentity(address.port, directory, join(directory, "other.crt"), join(directory, "other.key"))).toBe(401);
 
     execFileSync(issuer, ["revoke"], { cwd: repo, env: { ...process.env, PKI_ENV: "lab" }, stdio: "pipe" });
     server.setSecureContext(createApiHttpsOptions(env).httpsOptions!);
@@ -71,6 +73,15 @@ function issueServer(directory: string) {
   openssl(directory, ["x509", "-req", "-in", "api.csr", "-CA", "api-ca.crt", "-CAkey", "api-ca.key", "-CAcreateserial", "-out", "api.crt", "-days", "1", "-extfile", "api.ext"]);
 }
 
+function issueOtherClient(directory: string) {
+  openssl(directory, ["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", "other-ca.key"]);
+  openssl(directory, ["req", "-x509", "-new", "-key", "other-ca.key", "-out", "other-ca.crt", "-days", "1", "-subj", "/CN=Other CA", "-addext", "basicConstraints=critical,CA:true", "-addext", "keyUsage=critical,keyCertSign,cRLSign"]);
+  openssl(directory, ["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", "other.key"]);
+  openssl(directory, ["req", "-new", "-key", "other.key", "-out", "other.csr", "-subj", "/CN=other-station"]);
+  writeFileSync(join(directory, "other.ext"), "basicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n");
+  openssl(directory, ["x509", "-req", "-in", "other.csr", "-CA", "other-ca.crt", "-CAkey", "other-ca.key", "-CAcreateserial", "-out", "other.crt", "-days", "1", "-extfile", "other.ext"]);
+}
+
 function tlsEnvironment(directory: string, manufacturing: string) {
   return {
     NODE_ENV: "development", API_TLS_CERT_PATH: join(directory, "api.crt"), API_TLS_KEY_PATH: join(directory, "api.key"),
@@ -80,11 +91,15 @@ function tlsEnvironment(directory: string, manufacturing: string) {
 }
 
 function call(port: number, directory: string, manufacturing: string, withStation: boolean): Promise<number | undefined> {
+  return callWithIdentity(port, directory, withStation ? join(manufacturing, "station.crt") : undefined, withStation ? join(manufacturing, "station.key") : undefined);
+}
+
+function callWithIdentity(port: number, directory: string, certificate?: string, privateKey?: string): Promise<number | undefined> {
   return new Promise((resolve, reject) => {
     const req = request({
       hostname: "localhost", port, path: "/manufacturing/probe", method: "POST",
       ca: readFileSync(join(directory, "api-ca.crt")), rejectUnauthorized: true, agent: new Agent({ maxCachedSessions: 0 }),
-      ...(withStation ? { cert: readFileSync(join(manufacturing, "station.crt")), key: readFileSync(join(manufacturing, "station.key")) } : {})
+      ...(certificate && privateKey ? { cert: readFileSync(certificate), key: readFileSync(privateKey) } : {})
     }, response => { response.resume(); response.once("end", () => resolve(response.statusCode)); });
     req.once("error", reject);
     req.end();

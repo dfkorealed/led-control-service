@@ -22,3 +22,11 @@ path "gateway-device-pki/crl/pem" {
 path "gateway-mqtt-pki/crl/pem" {
   capabilities = ["read"]
 }
+
+path "auth/token/lookup-self" {
+  capabilities = ["read"]
+}
+
+path "auth/token/renew-self" {
+  capabilities = ["update"]
+}

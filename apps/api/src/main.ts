@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { config } from "dotenv";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
-import { bindLifecycleToServerClose, enableApiShutdownHooks } from "./api-lifecycle";
+import { createApiRuntimeLifecycle, enableApiShutdownHooks } from "./api-lifecycle";
 import { createApiHttpsOptions } from "./api-tls-options";
 import { startApiTlsCrlReload } from "./api-tls-reloader";
 import { startVaultTokenLifecycle } from "./pki/vault-token-lifecycle";
@@ -15,6 +15,8 @@ async function bootstrap() {
   const tls = createApiHttpsOptions(process.env);
   const app = await NestFactory.create(AppModule, tls);
   enableApiShutdownHooks(app);
+  const runtime = createApiRuntimeLifecycle(app);
+  runtime.bind(app.getHttpServer());
   if (process.env.PKI_PROVIDER?.trim().toLowerCase() === "vault") {
     const tokenFile = process.env.VAULT_TOKEN_FILE?.trim();
     if (!tokenFile) throw new Error("VAULT_TOKEN_FILE is required for Vault token renewal");
@@ -23,23 +25,24 @@ async function bootstrap() {
       lifecycle = await startVaultTokenLifecycle({
         address: process.env.VAULT_ADDR?.trim() ?? "", tokenFile, expectedPolicy: "gateway-pki",
         namespace: process.env.VAULT_NAMESPACE?.trim() || undefined,
-        caPem: process.env.VAULT_CACERT?.trim() ? readFileSync(process.env.VAULT_CACERT.trim(), "utf8") : undefined,
+        caPem: process.env.VAULT_CA_CERT_PATH?.trim() ? readFileSync(process.env.VAULT_CA_CERT_PATH.trim(), "utf8") : undefined,
         requestTimeoutMs: Number(process.env.VAULT_REQUEST_TIMEOUT_MS ?? 5_000),
-        onFatal: async () => { process.exitCode = 1; await app.close(); }
+        onFatal: () => runtime.failClosed()
       });
     } catch (error) {
-      await app.close();
+      await runtime.failClosed();
       throw error;
     }
-    bindLifecycleToServerClose(app.getHttpServer(), lifecycle);
+    runtime.setToken(lifecycle);
   }
   if (tls.httpsOptions) {
-    startApiTlsCrlReload({
+    const crlLifecycle = startApiTlsCrlReload({
       crlPaths: [process.env.API_DEVICE_CRL_PATH!.trim(), process.env.API_MANUFACTURING_CRL_PATH!.trim()],
       initialOptions: tls.httpsOptions,
       load: () => createApiHttpsOptions(process.env).httpsOptions!,
       server: app.getHttpServer()
     });
+    runtime.setCrl(crlLifecycle);
   }
   const webOrigin = process.env.WEB_PUBLIC_URL ?? "http://localhost:5173";
   app.enableCors({

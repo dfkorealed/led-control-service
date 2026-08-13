@@ -71,21 +71,45 @@ describe("startApiTlsCrlReload", () => {
 
     expect(server.setSecureContext).toHaveBeenCalledWith(options("revoked"));
   });
+
+  it("stops the polling timer and file watchers when closed", () => {
+    const harness = createHarness();
+    const lifecycle = startApiTlsCrlReload({
+      crlPaths: ["/tls/device.crl"],
+      initialOptions: options("current"),
+      load: () => options("current"),
+      server: { setSecureContext: jest.fn() },
+      ...harness
+    });
+
+    lifecycle.close();
+
+    expect(harness.cancelRepeat).toHaveBeenCalledTimes(1);
+    expect(harness.closeWatcher).toHaveBeenCalledTimes(1);
+  });
 });
 
 function options(crl: string | string[]) {
   const values = Array.isArray(crl) ? crl : [crl];
-  return { cert: Buffer.from("cert"), key: Buffer.from("key"), ca: [Buffer.from("ca")], crl: values.map((value) => Buffer.from(value)) };
+  return {
+    cert: Buffer.from("cert"),
+    key: Buffer.from("key"),
+    ca: [Buffer.from("ca")],
+    crl: values.map((value) => Buffer.from(value)),
+    requestCert: true,
+    rejectUnauthorized: false
+  };
 }
 
 function createHarness() {
   let callback: ((event: string, filename: string) => void) | undefined;
   let pending: (() => void) | undefined;
   let poll: (() => void) | undefined;
+  const closeWatcher = jest.fn();
   return {
     watch: jest.fn((_path: string, listener: (event: string, filename: string) => void) => {
       callback = listener;
-      return { close: jest.fn() };
+      return { close: closeWatcher };
     }),
     schedule: jest.fn((listener: () => void) => {
       pending = listener;
@@ -97,6 +121,7 @@ function createHarness() {
       return 2 as unknown as NodeJS.Timeout;
     }),
     cancelRepeat: jest.fn(),
+    closeWatcher,
     trigger(event: string, filename: string) {
       callback?.(event, filename);
     },

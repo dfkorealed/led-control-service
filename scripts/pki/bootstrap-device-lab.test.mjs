@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { Agent, request } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -59,13 +59,21 @@ if [[ "$1 $2" == "token create" ]]; then
   count_file="$LAB_TEST_LOG.token-count"
   count=0; [[ ! -f "$count_file" ]] || count="$(cat "$count_file")"
   count=$((count + 1)); printf '%s\n' "$count" > "$count_file"
-  printf '{"auth":{"client_token":"policy-token-%s","accessor":"policy-accessor-%s","lease_duration":86400,"renewable":true,"policies":["gateway-pki"]}}\n' "$count" "$count"
+  renewable=true; [[ "\${LAB_TEST_TOKEN_PROFILE_INVALID:-0}" != 1 ]] || renewable=false
+  printf '{"auth":{"client_token":"policy-token-%s","accessor":"policy-accessor-%s","lease_duration":86400,"renewable":%s,"policies":["gateway-pki"]}}\n' "$count" "$count" "$renewable"
   exit 0
 fi
-if [[ "$1 $2" == "token revoke" && "\${LAB_TEST_FAIL_REVOKE_ACCESSOR:-}" == "\${4:-}" ]]; then exit 42; fi
+if [[ "$1 $2" == "token revoke" && ",\${LAB_TEST_FAIL_REVOKE_ACCESSORS:-\${LAB_TEST_FAIL_REVOKE_ACCESSOR:-}}," == *",\${4:-},"* ]]; then exit 42; fi
 exit 0
 `);
   chmodSync(vault, 0o755);
+  const node = join(bin, "node");
+  writeFileSync(node, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${LAB_TEST_FAIL_PUBLISH:-0}" == 1 && "\${1:-}" == -e && "\${2:-}" == *renameSync* ]]; then exit 43; fi
+exec "$LAB_TEST_REAL_NODE" "$@"
+`);
+  chmodSync(node, 0o755);
   return { directory, bin, log, script: join(scriptDirectory, "bootstrap-device-lab.sh") };
 }
 
@@ -75,6 +83,8 @@ function run(fixture, overrides = {}) {
     encoding: "utf8",
     env: {
       ...process.env,
+      PATH: `${fixture.bin}:${process.env.PATH}`,
+      LAB_TEST_REAL_NODE: process.execPath,
       PKI_ENV: "lab",
       LAB_API_IP: "192.0.2.10",
       LAB_MQTT_IP: "192.0.2.10",
@@ -211,6 +221,77 @@ test("이전 token revoke 실패 시 새 token을 보상 폐기하고 기존 gen
     rmSync(fixture.directory, { recursive: true, force: true });
   }
 });
+
+test("새 token 정리 revoke도 실패하면 각 실패 단계의 token을 orphan 복구 큐에 보존한다", () => {
+  for (const scenario of ["profile", "previous-revoke", "publish"]) {
+    const fixture = makeSandbox();
+    try {
+      const pki = join(fixture.directory, ".local", "lab-pki");
+      prepareRootToken(fixture);
+      const overrides = { LAB_TEST_FAIL_REVOKE_ACCESSORS: "policy-accessor-1" };
+      if (scenario === "profile") overrides.LAB_TEST_TOKEN_PROFILE_INVALID = "1";
+      if (scenario === "publish") overrides.LAB_TEST_FAIL_PUBLISH = "1";
+      if (scenario === "previous-revoke") {
+        const old = join(pki, "application", "generations", "token-old");
+        mkdirSync(old, { recursive: true });
+        writeFileSync(join(old, "token"), "old-token\n", { mode: 0o600 });
+        writeFileSync(join(old, "accessor"), "old-accessor\n", { mode: 0o600 });
+        symlinkSync("generations/token-old", join(pki, "application", "current"));
+        overrides.LAB_TEST_FAIL_REVOKE_ACCESSORS = "old-accessor,policy-accessor-1";
+      }
+
+      const result = run(fixture, overrides);
+      assert.notEqual(result.status, 0);
+      const orphanRoot = join(pki, "application-tokens", "orphaned");
+      const entries = readdirSync(orphanRoot);
+      assert.equal(entries.length, 1);
+      const orphan = join(orphanRoot, entries[0]);
+      assert.equal(mode(orphanRoot), 0o700);
+      assert.equal(mode(orphan), 0o700);
+      assert.equal(mode(join(orphan, "token")), 0o600);
+      assert.equal(mode(join(orphan, "accessor")), 0o600);
+      assert.equal(readFileSync(join(orphan, "token"), "utf8").trim(), "policy-token-1");
+      assert.equal(readFileSync(join(orphan, "accessor"), "utf8").trim(), "policy-accessor-1");
+      assert.doesNotMatch(result.stdout + "\n" + result.stderr, /policy-token-1|policy-accessor-1/);
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("재실행은 orphan accessor를 먼저 reconcile하고 성공한 항목만 제거한다", () => {
+  const fixture = makeSandbox();
+  try {
+    const pki = join(fixture.directory, ".local", "lab-pki");
+    const orphanRoot = join(pki, "application-tokens", "orphaned");
+    prepareRootToken(fixture);
+    for (const [name, accessor] of [["one", "orphan-one"], ["two", "orphan-two"]]) {
+      const orphan = join(orphanRoot, name);
+      mkdirSync(orphan, { recursive: true, mode: 0o700 });
+      writeFileSync(join(orphan, "token"), "token-" + name + "\n", { mode: 0o600 });
+      writeFileSync(join(orphan, "accessor"), accessor + "\n", { mode: 0o600 });
+    }
+
+    const first = run(fixture, { LAB_TEST_FAIL_REVOKE_ACCESSORS: "orphan-two" });
+    assert.notEqual(first.status, 0);
+    assert.equal(existsSync(join(orphanRoot, "one")), false);
+    assert.equal(existsSync(join(orphanRoot, "two")), true);
+    assert.doesNotMatch(readFileSync(fixture.log, "utf8"), /token create/);
+
+    const second = run(fixture);
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(readdirSync(orphanRoot), []);
+    const calls = readFileSync(fixture.log, "utf8");
+    assert.ok(calls.lastIndexOf("token revoke -accessor orphan-two") < calls.lastIndexOf("vault-prepare"));
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+function prepareRootToken(fixture) {
+  mkdirSync(join(fixture.directory, ".local", "lab-vault"), { recursive: true });
+  writeFileSync(join(fixture.directory, ".local", "lab-vault", "root-token"), "root-token\n", { mode: 0o600 });
+}
 
 function readFileNames(directory) {
   return existsSync(directory) ? execFileSync("find", [directory, "-mindepth", "1", "-print"], { encoding: "utf8" }).trim().split("\n").filter(Boolean) : [];

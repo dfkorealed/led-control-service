@@ -339,5 +339,8 @@ test("scripts and policy never create or print Root or CA private keys", () => {
   assert.match(policy, /gateway-device-pki\/revoke/);
   assert.match(policy, /gateway-mqtt-pki\/revoke/);
   assert.match(policy, /gateway-device-pki\/crl\/pem/);
+  assert.match(policy, /path "auth\/token\/lookup-self"\s*\{\s*capabilities = \["read"\]\s*\}/);
+  assert.match(policy, /path "auth\/token\/renew-self"\s*\{\s*capabilities = \["update"\]\s*\}/);
+  assert.doesNotMatch(policy, /auth\/token\/(?:create|revoke|lookup-accessor)|sudo/);
   assert.doesNotMatch(policy, /sign\/(?:mqtt-server|api-mqtt-client|api-server)/);
 });
