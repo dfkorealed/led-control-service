@@ -7,7 +7,8 @@ describe("createApiHttpsOptions", () => {
       "/tls/api.key": Buffer.from("api-key"),
       "/tls/device-ca.crt": Buffer.from("device-ca"),
       "/tls/manufacturing-ca.crt": Buffer.from("manufacturing-ca"),
-      "/tls/device.crl": Buffer.from("device-crl")
+      "/tls/device.crl": Buffer.from("device-crl"),
+      "/tls/manufacturing.crl": Buffer.from("manufacturing-crl")
     };
     const result = createApiHttpsOptions(completeEnvironment(), (path: string) => files[path]);
 
@@ -16,7 +17,7 @@ describe("createApiHttpsOptions", () => {
         cert: files["/tls/api.crt"],
         key: files["/tls/api.key"],
         ca: [files["/tls/device-ca.crt"], files["/tls/manufacturing-ca.crt"]],
-        crl: files["/tls/device.crl"],
+        crl: [files["/tls/device.crl"], files["/tls/manufacturing.crl"]],
         requestCert: true,
         rejectUnauthorized: false
       }
@@ -38,7 +39,8 @@ describe("createApiHttpsOptions", () => {
     "API_TLS_KEY_PATH",
     "API_DEVICE_CLIENT_CA_PATH",
     "API_MANUFACTURING_CLIENT_CA_PATH",
-    "API_DEVICE_CRL_PATH"
+    "API_DEVICE_CRL_PATH",
+    "API_MANUFACTURING_CRL_PATH"
   ] as const)("fails closed when production %s is missing", (missingKey) => {
     const env = completeEnvironment();
     delete env[missingKey];
@@ -54,6 +56,7 @@ function completeEnvironment(): NodeJS.ProcessEnv {
     API_TLS_KEY_PATH: "/tls/api.key",
     API_DEVICE_CLIENT_CA_PATH: "/tls/device-ca.crt",
     API_MANUFACTURING_CLIENT_CA_PATH: "/tls/manufacturing-ca.crt",
-    API_DEVICE_CRL_PATH: "/tls/device.crl"
+    API_DEVICE_CRL_PATH: "/tls/device.crl",
+    API_MANUFACTURING_CRL_PATH: "/tls/manufacturing.crl"
   };
 }

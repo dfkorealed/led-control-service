@@ -10,7 +10,7 @@ type Schedule = (listener: () => void, delayMs: number) => ReturnType<typeof set
 type Cancel = (timer: ReturnType<typeof setTimeout>) => void;
 
 export function startApiTlsCrlReload({
-  crlPath,
+  crlPaths,
   initialOptions,
   load,
   server,
@@ -19,7 +19,7 @@ export function startApiTlsCrlReload({
   schedule = setTimeout,
   cancel = clearTimeout
 }: {
-  crlPath: string;
+  crlPaths: string[];
   initialOptions: ApiTlsContext;
   load: () => ApiTlsContext;
   server: { setSecureContext(options: ApiTlsContext): void };
@@ -30,12 +30,13 @@ export function startApiTlsCrlReload({
 }) {
   let checksum = checksumOf(initialOptions.crl);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const filename = basename(crlPath);
-  const watcher = watch(dirname(crlPath), (_event, changedFilename) => {
-    if (changedFilename !== filename) return;
+  const watchedFiles = new Set(crlPaths.map((path) => `${dirname(path)}/${basename(path)}`));
+  const watchedDirectories = [...new Set(crlPaths.map(dirname))];
+  const watchers = watchedDirectories.map((directory) => watch(directory, (_event, changedFilename) => {
+    if (!watchedFiles.has(`${directory}/${changedFilename}`)) return;
     if (timer) cancel(timer);
     timer = schedule(reload, 200);
-  });
+  }));
 
   function reload() {
     timer = undefined;
@@ -53,7 +54,7 @@ export function startApiTlsCrlReload({
   return {
     close() {
       if (timer) cancel(timer);
-      watcher.close();
+      watchers.forEach((watcher) => watcher.close());
     }
   };
 }
@@ -64,6 +65,7 @@ function defaultWatch(path: string, listener: (event: string, filename: string) 
   });
 }
 
-function checksumOf(content: Buffer) {
-  return createHash("sha256").update(content).digest("hex");
+function checksumOf(content: Buffer | Buffer[]) {
+  const values = Array.isArray(content) ? content : [content];
+  return createHash("sha256").update(Buffer.concat(values)).digest("hex");
 }

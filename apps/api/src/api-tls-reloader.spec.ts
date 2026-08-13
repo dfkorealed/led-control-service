@@ -8,7 +8,7 @@ describe("startApiTlsCrlReload", () => {
       .mockReturnValueOnce(options("old"))
       .mockReturnValueOnce(options("new"));
 
-    startApiTlsCrlReload({ crlPath: "/tls/device.crl", initialOptions: load(), load, server, ...harness });
+    startApiTlsCrlReload({ crlPaths: ["/tls/device.crl"], initialOptions: load(), load, server, ...harness });
     harness.trigger("change", "device.crl.tmp");
     harness.runPending();
     expect(server.setSecureContext).not.toHaveBeenCalled();
@@ -27,7 +27,7 @@ describe("startApiTlsCrlReload", () => {
       .mockReturnValueOnce(options("new"));
     const logger = { error: jest.fn() };
 
-    startApiTlsCrlReload({ crlPath: "/tls/device.crl", initialOptions: load(), load, server, logger, ...harness });
+    startApiTlsCrlReload({ crlPaths: ["/tls/device.crl"], initialOptions: load(), load, server, logger, ...harness });
     harness.trigger("change", "device.crl");
     harness.runPending();
     expect(server.setSecureContext).not.toHaveBeenCalled();
@@ -43,15 +43,28 @@ describe("startApiTlsCrlReload", () => {
     const server = { setSecureContext: jest.fn() };
     const load = jest.fn().mockReturnValue(options("same"));
 
-    startApiTlsCrlReload({ crlPath: "/tls/device.crl", initialOptions: load(), load, server, ...harness });
+    startApiTlsCrlReload({ crlPaths: ["/tls/device.crl"], initialOptions: load(), load, server, ...harness });
     harness.trigger("change", "device.crl");
     harness.runPending();
     expect(server.setSecureContext).not.toHaveBeenCalled();
   });
+
+  it("reloads when either configured CRL changes", () => {
+    const harness = createHarness();
+    const server = { setSecureContext: jest.fn() };
+    const load = jest.fn().mockReturnValueOnce(options(["device-old", "manufacturing-old"])).mockReturnValueOnce(options(["device-old", "manufacturing-new"]));
+
+    startApiTlsCrlReload({ crlPaths: ["/tls/device.crl", "/tls/manufacturing.crl"], initialOptions: load(), load, server, ...harness });
+    harness.trigger("change", "manufacturing.crl");
+    harness.runPending();
+
+    expect(server.setSecureContext).toHaveBeenCalledWith(options(["device-old", "manufacturing-new"]));
+  });
 });
 
-function options(crl: string) {
-  return { cert: Buffer.from("cert"), key: Buffer.from("key"), ca: [Buffer.from("ca")], crl: Buffer.from(crl) };
+function options(crl: string | string[]) {
+  const values = Array.isArray(crl) ? crl : [crl];
+  return { cert: Buffer.from("cert"), key: Buffer.from("key"), ca: [Buffer.from("ca")], crl: values.map((value) => Buffer.from(value)) };
 }
 
 function createHarness() {

@@ -10,6 +10,8 @@
 
 `feat(pki): issue lab manufacturing station identity`
 
+Fix Round1: `fix(pki): harden lab manufacturing station revocation`
+
 ## Tests
 
 - RED 확인: `node --test scripts/pki/issue-lab-manufacturing-station.test.mjs`는 구현 전 issuer 부재로 4개 실패
@@ -17,8 +19,16 @@
 - `bash -n scripts/pki/issue-lab-manufacturing-station.sh`
 - `git diff --check`
 
+### Fix Round1
+
+- 기존 station 재사용 전 `basicConstraints`(critical `CA:false`), `keyUsage`(critical `digitalSignature` 하나), `extendedKeyUsage`(critical `clientAuth` 하나)를 엄격히 검증한다.
+- Manufacturing CA와 station의 private/public key가 모두 ECDSA `prime256v1`인지 확인한다.
+- OpenSSL CA database(`index.txt`, `serial`, `crlnumber`, config)를 generation에 유지하고 초기 `manufacturing.crl`을 발급한다. `revoke` subcommand는 station serial을 폐기한 뒤 CRL을 원자적으로 갱신한다.
+- API HTTPS는 `API_MANUFACTURING_CRL_PATH`를 여섯 번째 필수 TLS 경로로 받고 device/manufacturing CRL 배열을 TLS context에 전달하며 둘 중 하나의 변경도 reload한다.
+- Task 4는 station mTLS 통과, 다른 CA 거부, 폐기 station CRL 거부를 실제 API endpoint 계약으로 검증한다.
+
 ## Concerns
 
 - station identity는 Lab Root 및 API server/Gateway device issuing CA와 분리되어 있다. 이 CA는 Lab 전용이며 운영 제조 인증서로 사용하면 안 된다.
-- Task 4 통합 bootstrap이 이 station CA trust bundle을 API 제조 enrollment 경로에 연결하고 실제 Docker Vault 기반 전체 흐름을 검증해야 한다.
+- Task 4 통합 bootstrap이 이 station CA trust bundle과 manufacturing CRL을 API 제조 enrollment 경로에 연결하고 실제 Docker Vault 기반 전체 흐름을 검증해야 한다.
 - 발급 중 프로세스가 중단되어 lock이 남았을 때는 실행 중인 프로세스가 없음을 확인한 뒤에만 `.local/lab-pki/manufacturing/.station-issue.lock`을 수동 제거해야 한다.

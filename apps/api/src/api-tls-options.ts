@@ -5,7 +5,8 @@ const TLS_PATH_KEYS = [
   "API_TLS_KEY_PATH",
   "API_DEVICE_CLIENT_CA_PATH",
   "API_MANUFACTURING_CLIENT_CA_PATH",
-  "API_DEVICE_CRL_PATH"
+  "API_DEVICE_CRL_PATH",
+  "API_MANUFACTURING_CRL_PATH"
 ] as const;
 
 type TlsPathKey = (typeof TLS_PATH_KEYS)[number];
@@ -29,14 +30,15 @@ export function createApiHttpsOptions(env: NodeJS.ProcessEnv, readFile: ReadFile
   const key = readRequired(values.API_TLS_KEY_PATH, "API_TLS_KEY_PATH", readFile);
   const deviceCa = readRequired(values.API_DEVICE_CLIENT_CA_PATH, "API_DEVICE_CLIENT_CA_PATH", readFile);
   const manufacturingCa = readRequired(values.API_MANUFACTURING_CLIENT_CA_PATH, "API_MANUFACTURING_CLIENT_CA_PATH", readFile);
-  const crl = readRequired(values.API_DEVICE_CRL_PATH, "API_DEVICE_CRL_PATH", readFile);
+  const deviceCrl = readRequired(values.API_DEVICE_CRL_PATH, "API_DEVICE_CRL_PATH", readFile);
+  const manufacturingCrl = readRequired(values.API_MANUFACTURING_CRL_PATH, "API_MANUFACTURING_CRL_PATH", readFile);
 
   return {
     httpsOptions: {
       cert,
       key,
       ca: [deviceCa, manufacturingCa],
-      crl,
+      crl: [deviceCrl, manufacturingCrl],
       requestCert: true,
       rejectUnauthorized: false
     }

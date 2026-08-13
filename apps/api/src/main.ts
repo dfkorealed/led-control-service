@@ -15,7 +15,7 @@ async function bootstrap() {
   enableApiShutdownHooks(app);
   if (tls.httpsOptions) {
     startApiTlsCrlReload({
-      crlPath: process.env.API_DEVICE_CRL_PATH!.trim(),
+      crlPaths: [process.env.API_DEVICE_CRL_PATH!.trim(), process.env.API_MANUFACTURING_CRL_PATH!.trim()],
       initialOptions: tls.httpsOptions,
       load: () => createApiHttpsOptions(process.env).httpsOptions!,
       server: app.getHttpServer()
