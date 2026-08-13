@@ -41,7 +41,7 @@ Expected: `lab-vault.sh`가 없어 실패
 
 - [x] **Step 3: 최소 구현**
 
-Vault image를 loopback 포트에 dev mode로 실행하고 root token을 파일에서 주입한다. `status`는 `vault status`, `stop`은 container 정지만 수행하고 `reset`만 Lab container와 Lab Vault 디렉터리를 제거한다.
+Vault image를 loopback 포트의 persistent file-storage server mode로 실행한다. 최초 시작은 `operator init` 결과를 root token과 unseal key 파일로 저장하고, 재시작은 stdin unseal을 수행한다. `status`는 `vault status`, `stop`은 container와 data를 보존하며 `reset`만 Lab container와 Lab Vault 디렉터리를 제거한다.
 
 - [x] **Step 4: 검증과 커밋**
 

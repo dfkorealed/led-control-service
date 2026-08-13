@@ -16,8 +16,11 @@ async function createFixture() {
   const scriptPath = path.join(scriptDir, "lab-vault.sh");
   const vaultDir = path.join(repo, ".local", "lab-vault");
   const stateFile = path.join(root, "docker-state");
+  const initializedFile = path.join(root, "initialized");
+  const unsealedFile = path.join(root, "unsealed");
+  const unsealCountFile = path.join(root, "unseal-count");
   const logFile = path.join(root, "docker.log");
-  const configFile = path.join(root, "docker-config-input.log");
+  const configInputFile = path.join(root, "docker-config-input.log");
   await mkdir(scriptDir, { recursive: true });
   await mkdir(bin, { recursive: true });
   await copyFile(sourceScriptPath, scriptPath);
@@ -28,6 +31,9 @@ async function createFixture() {
 set -euo pipefail
 printf '%s\n' "$*" >> "${logFile}"
 state_file="${stateFile}"
+initialized_file="${initializedFile}"
+unsealed_file="${unsealedFile}"
+unseal_count_file="${unsealCountFile}"
 case "$1" in
   ps)
     [[ -f "$state_file" ]] && printf 'lab-vault-container\n'
@@ -44,22 +50,50 @@ case "$1" in
   run)
     {
       printf 'args=%s\n' "$*"
-      printenv VAULT_DEV_ROOT_TOKEN_ID || true
-    } > "${configFile}"
+      env
+    } > "${configInputFile}"
     [[ "$FAKE_DOCKER_RUN_FAIL" != "1" ]] || exit 1
     printf 'running' > "$state_file"
+    rm -f "$unsealed_file"
     printf 'lab-vault-container\n'
     ;;
   start)
     printf 'running' > "$state_file"
+    rm -f "$unsealed_file"
     ;;
   stop)
     printf 'stopped' > "$state_file"
     ;;
   rm)
-    rm -f "$state_file"
+    rm -f "$state_file" "$initialized_file" "$unsealed_file"
     ;;
   exec)
+    if [[ " $* " == *" vault status -format=json "* ]]; then
+      if [[ ! -f "$initialized_file" ]]; then
+        printf '{"initialized":false,"sealed":true}\n'
+        exit 2
+      fi
+      if [[ -f "$unsealed_file" ]]; then
+        printf '{"initialized":true,"sealed":false}\n'
+      else
+        printf '{"initialized":true,"sealed":true}\n'
+      fi
+      exit 0
+    fi
+    if [[ " $* " == *" vault operator init -key-shares=1 -key-threshold=1 -format=json "* ]]; then
+      printf 'initialized\n' > "$initialized_file"
+      printf '{"root_token":"fake-root-token","keys_base64":["fake-unseal-key"]}\n'
+      exit 0
+    fi
+    if [[ " $* " == *" vault operator unseal "* ]]; then
+      read -r supplied_key
+      [[ "$supplied_key" == "fake-unseal-key" ]] || exit 1
+      printf 'unsealed\n' > "$unsealed_file"
+      count=0
+      [[ -f "$unseal_count_file" ]] && count="$(cat "$unseal_count_file")"
+      printf '%s\n' "$((count + 1))" > "$unseal_count_file"
+      exit 0
+    fi
     exit 0
     ;;
   *)
@@ -69,7 +103,7 @@ case "$1" in
 esac
 `);
   await chmod(docker, 0o755);
-  return { root, repo, bin, scriptPath, vaultDir, stateFile, logFile, configFile };
+  return { root, repo, bin, scriptPath, vaultDir, logFile, configInputFile, unsealCountFile };
 }
 
 function run(fixture, args = [], overrides = {}) {
@@ -78,11 +112,10 @@ function run(fixture, args = [], overrides = {}) {
     encoding: "utf8",
     env: {
       ...process.env,
-      PATH: `${fixture.bin}:/usr/bin:/bin`,
+      PATH: `${fixture.bin}:${path.dirname(process.execPath)}:/usr/bin:/bin`,
       PKI_ENV: "lab",
       FAKE_DOCKER_SCOPE: "lab-vault",
       FAKE_DOCKER_RUN_FAIL: "0",
-      VAULT_DEV_ROOT_TOKEN_ID: "",
       ...overrides
     }
   });
@@ -97,66 +130,57 @@ test("production 환경에서는 Docker를 실행하지 않고 거부한다", as
   await assert.rejects(readFile(fixture.logFile, "utf8"));
 });
 
-test("제품 스크립트는 고정 경계만 사용하고 root token을 Docker 설정과 argv에 전달하지 않는다", async () => {
+test("start는 persistent file-storage Vault를 init 및 unseal하고 secret을 Docker 설정과 출력에 남기지 않는다", async () => {
   const fixture = await createFixture();
   const result = run(fixture, ["start"]);
 
   assert.equal(result.status, 0, result.stderr);
-  const tokenPath = path.join(fixture.vaultDir, "root-token");
-  const token = (await readFile(tokenPath, "utf8")).trim();
-  assert.match(token, /^[a-f0-9]{64}$/);
-  assert.equal((await stat(tokenPath)).mode & 0o777, 0o600);
-  assert.equal((await stat(fixture.vaultDir)).mode & 0o777, 0o700);
-
-  const source = await readFile(fixture.scriptPath, "utf8");
-  assert.doesNotMatch(source, /LAB_VAULT_TEST_|DOCKER_BIN|NODE_TEST_CONTEXT/);
-  assert.match(source, /LAB_VAULT_CONTAINER="led-control-lab-vault"/);
-  assert.match(source, /LAB_VAULT_DIR="\$LOCAL_DIR\/lab-vault"/);
+  const config = await readFile(path.join(fixture.vaultDir, "config.hcl"), "utf8");
+  const rootToken = (await readFile(path.join(fixture.vaultDir, "root-token"), "utf8")).trim();
+  const unsealKey = (await readFile(path.join(fixture.vaultDir, "unseal-key"), "utf8")).trim();
+  assert.match(config, /storage "file"[\s\S]*path = "\/vault\/file"/);
+  assert.match(config, /address = "0\.0\.0\.0:8200"/);
+  assert.match(config, /tls_disable = 1/);
+  assert.match(config, /api_addr = "http:\/\/127\.0\.0\.1:18200"/);
+  assert.doesNotMatch(config, /dev|root_token|unseal/i);
+  assert.equal((await stat(path.join(fixture.vaultDir, "root-token"))).mode & 0o777, 0o600);
+  assert.equal((await stat(path.join(fixture.vaultDir, "unseal-key"))).mode & 0o777, 0o600);
+  assert.equal((await stat(path.join(fixture.vaultDir, "data"))).mode & 0o777, 0o700);
 
   const log = await readFile(fixture.logFile, "utf8");
-  const configInput = await readFile(fixture.configFile, "utf8");
-  assert.doesNotMatch(log, new RegExp(token));
-  assert.doesNotMatch(configInput, new RegExp(token));
-  assert.doesNotMatch(result.stdout, new RegExp(token));
-  assert.match(log, /127\.0\.0\.1:18200:8200/);
-  assert.match(log, /--label led-control.scope=lab-vault/);
-  assert.match(log, /root-token:ro/);
-  assert.match(log, /--entrypoint sh/);
-  assert.match(log, /export VAULT_DEV_ROOT_TOKEN_ID/);
-  assert.match(log, /exec vault server -dev/);
-  assert.doesNotMatch(log, /--env VAULT_DEV_ROOT_TOKEN_ID|-dev-root-token-id/);
-  assert.match(configInput, /^args=.*root-token:ro/m);
-  assert.doesNotMatch(configInput, /--env VAULT_DEV_ROOT_TOKEN_ID|-dev-root-token-id/);
+  const configInput = await readFile(fixture.configInputFile, "utf8");
+  for (const secret of [rootToken, unsealKey]) {
+    assert.doesNotMatch(log, new RegExp(secret));
+    assert.doesNotMatch(configInput, new RegExp(secret));
+    assert.doesNotMatch(result.stdout, new RegExp(secret));
+  }
+  assert.match(log, /--volume .*\/data:\/vault\/file/);
+  assert.match(log, /--volume .*config\.hcl:\/vault\/config\/config\.hcl:ro/);
+  assert.match(log, /server -config=\/vault\/config\/config\.hcl/);
+  assert.doesNotMatch(log, /-dev|VAULT_DEV_ROOT_TOKEN_ID|--env/);
+  assert.match(log, /operator init -key-shares=1 -key-threshold=1 -format=json/);
+  assert.match(log, /exec -i .*operator unseal/);
 });
 
-test("start는 실행 중인 Lab Vault를 다시 생성하지 않는다", async () => {
+test("stop은 data와 credentials를 보존하고 재시작은 저장된 unseal key를 stdin으로 사용한다", async () => {
   const fixture = await createFixture();
   assert.equal(run(fixture, ["start"]).status, 0);
+  const rootToken = await readFile(path.join(fixture.vaultDir, "root-token"), "utf8");
+  const unsealKey = await readFile(path.join(fixture.vaultDir, "unseal-key"), "utf8");
+  assert.equal(run(fixture, ["stop"]).status, 0);
   assert.equal(run(fixture, ["start"]).status, 0);
 
+  assert.equal(await readFile(path.join(fixture.vaultDir, "root-token"), "utf8"), rootToken);
+  assert.equal(await readFile(path.join(fixture.vaultDir, "unseal-key"), "utf8"), unsealKey);
+  assert.equal((await readFile(fixture.unsealCountFile, "utf8")).trim(), "2");
   const log = await readFile(fixture.logFile, "utf8");
   assert.equal(log.split("\n").filter((line) => line.startsWith("run ")).length, 1);
+  assert.equal(log.split("\n").filter((line) => /operator init /.test(line)).length, 1);
+  assert.equal(log.split("\n").filter((line) => /operator unseal/.test(line)).length, 2);
+  assert.doesNotMatch(log, new RegExp(unsealKey.trim()));
 });
 
-test("status는 Vault status를 실행하고 stop은 Lab identity를 보존한다", async () => {
-  const fixture = await createFixture();
-  assert.equal(run(fixture, ["start"]).status, 0);
-  const tokenPath = path.join(fixture.vaultDir, "root-token");
-  const token = await readFile(tokenPath, "utf8");
-
-  const status = run(fixture, ["status"]);
-  assert.equal(status.status, 0, status.stderr);
-  const stopped = run(fixture, ["stop"]);
-  assert.equal(stopped.status, 0, stopped.stderr);
-  assert.equal(await readFile(tokenPath, "utf8"), token);
-
-  const log = await readFile(fixture.logFile, "utf8");
-  assert.match(log, /exec .* vault status -address=http:\/\/127\.0\.0\.1:8200/);
-  assert.match(log, /stop /);
-  assert.doesNotMatch(log, /rm -f/);
-});
-
-test("reset은 명시 확인과 Lab 소유 label이 있을 때만 임시 repo의 Lab 파일을 제거한다", async () => {
+test("reset은 명시 확인과 Lab 소유 label이 있을 때만 임시 repo의 persistent Vault를 제거한다", async () => {
   const fixture = await createFixture();
   assert.equal(run(fixture, ["start"]).status, 0);
   await writeFile(path.join(fixture.root, "unrelated.txt"), "keep");
@@ -164,7 +188,6 @@ test("reset은 명시 확인과 Lab 소유 label이 있을 때만 임시 repo의
   const rejected = run(fixture, ["reset"]);
   assert.equal(rejected.status, 1);
   assert.match(rejected.stderr, /--confirm-lab-destroy/);
-  assert.ok(await stat(fixture.vaultDir));
 
   const unowned = run(fixture, ["reset", "--confirm-lab-destroy"], { FAKE_DOCKER_SCOPE: "other" });
   assert.equal(unowned.status, 1);
@@ -177,7 +200,7 @@ test("reset은 명시 확인과 Lab 소유 label이 있을 때만 임시 repo의
   assert.equal(await readFile(path.join(fixture.root, "unrelated.txt"), "utf8"), "keep");
 });
 
-test("symlink는 제거하지 않고 유효 범위 밖 포트와 Docker run 실패는 안전하게 처리한다", async () => {
+test("symlink, 잘못된 포트, Docker run 실패는 artifact를 안전하게 처리한다", async () => {
   const symlinkFixture = await createFixture();
   const target = path.join(symlinkFixture.root, "target");
   await mkdir(path.dirname(symlinkFixture.vaultDir), { recursive: true });
@@ -200,4 +223,5 @@ test("symlink는 제거하지 않고 유효 범위 밖 포트와 Docker run 실�
   assert.equal(failure.status, 1);
   assert.match(failure.stderr, /시작에 실패/);
   await assert.rejects(stat(path.join(failingRunFixture.vaultDir, "root-token")));
+  await assert.rejects(stat(path.join(failingRunFixture.vaultDir, "unseal-key")));
 });

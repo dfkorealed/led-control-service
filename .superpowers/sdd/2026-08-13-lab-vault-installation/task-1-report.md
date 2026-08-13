@@ -8,7 +8,7 @@ DONE
 
 - `scripts/pki/lab-vault.sh`에 `start`, `status`, `stop`, `reset --confirm-lab-destroy` 명령을 추가했다.
 - `PKI_ENV=lab`이 아닌 실행을 Docker 호출 전에 거부한다.
-- Vault dev container는 `127.0.0.1:18200`에만 노출하며 root token은 `.local/lab-vault/root-token`을 read-only mount해 container 내부 entrypoint에서 읽는다.
+- Vault는 `127.0.0.1:18200`에만 노출되는 persistent file-storage server mode로 실행하며, 최초 `operator init` 결과에서 root token과 unseal key를 분리 저장한다.
 - token과 Lab 디렉터리는 각각 `0600`, `0700` 권한으로 생성한다.
 - `start`는 실행 중 container를 재생성하지 않고, `stop`은 container와 Lab identity를 보존한다.
 - `reset`은 정확한 `--confirm-lab-destroy` 인자가 있을 때만 Lab container와 Lab Vault 디렉터리를 제거한다.
@@ -43,3 +43,11 @@ DONE
 - Docker `Config.Env` 입력인 `--env VAULT_DEV_ROOT_TOKEN_ID`와 Vault argv의 `-dev-root-token-id=<token>`을 제거했다. fake Docker 계약 테스트는 Docker run 인자와 config 입력 어디에도 실제 token 문자열이 없음을 확인한다.
 - 기존 label 소유 확인, symlink 거부, 포트 범위 검증, Docker run 실패 시 신규 token 정리 동작을 유지했다.
 - Fix Round2 검증: `pnpm test:lab:vault` 6개 통과, `bash -n scripts/pki/lab-vault.sh`, `git diff --check` 통과.
+
+## Fix Round3
+
+- Vault dev mode를 제거하고 `.local/lab-vault/data`를 `/vault/file`에 mount하는 persistent file-storage server mode로 전환했다. `config.hcl`은 `0.0.0.0:8200` listener, `tls_disable = 1`, loopback `api_addr`를 사용한다.
+- container 실행 명령, Docker 환경과 Docker config 입력에는 root token 또는 unseal key가 없다. 최초 초기화는 `docker exec vault operator init -key-shares=1 -key-threshold=1 -format=json` stdout을 `0600` 임시 파일로 수집하고 Node로 검증해 `root-token`, `unseal-key`를 `0600` 원자 파일로 저장한다.
+- unseal key는 `docker exec -i ... vault operator unseal`의 stdin으로만 전달한다. stop 후 재시작은 persistent data와 저장된 unseal key로 unseal하며 init을 반복하지 않는다.
+- 계약 테스트는 persistent config, data mount, init 출력의 콘솔 비노출, Docker run/config/log의 secret 비노출, file mode, 재시작 unseal, reset label/confirm, symlink/포트/실패 정리를 검증한다.
+- Fix Round3 검증: `pnpm test:lab:vault` 5개 통과, `bash -n scripts/pki/lab-vault.sh`, `git diff --check` 통과.
