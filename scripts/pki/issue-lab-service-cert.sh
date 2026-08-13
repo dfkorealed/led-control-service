@@ -29,6 +29,14 @@ file_mode() {
   stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
 }
 
+assert_no_symlink_ancestors() {
+  local path="$1"
+  while [[ "$path" != "/" ]]; do
+    [[ ! -L "$path" ]] || die "symlink 경로는 허용하지 않습니다: $path"
+    path="$(dirname "$path")"
+  done
+}
+
 require_environment() {
   local name="$1"
   [[ -n "${!name:-}" ]] || die "$name is required"
@@ -174,7 +182,7 @@ validate_ipv4 "$LAB_MQTT_IP"
 [[ -x "$(command -v "$VAULT_BIN" 2>/dev/null || true)" || -f "$VAULT_BIN" ]] || die "Vault executable is not available"
 [[ "$LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die "LAB_SERVICE_LOCK_TIMEOUT_SECONDS must be an integer"
 
-[[ ! -L "$OUTPUT_ROOT" && ! -L "$GENERATIONS_DIR" ]] || die "service bundle symlink 경로는 허용하지 않습니다."
+assert_no_symlink_ancestors "$OUTPUT_ROOT"
 mkdir -p "$GENERATIONS_DIR"
 chmod 0700 "$OUTPUT_ROOT" "$GENERATIONS_DIR"
 acquire_lock

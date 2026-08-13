@@ -14,8 +14,11 @@ SERVICE_ROOT="$LAB_PKI_DIR/services"
 SERVICE_DIR="$SERVICE_ROOT/current"
 MANUFACTURING_DIR="$LAB_PKI_DIR/manufacturing"
 ROOT_TOKEN_FILE="$ROOT_DIR/.local/lab-vault/root-token"
-APPLICATION_TOKEN_FILE="$LAB_PKI_DIR/application-token"
-APPLICATION_TOKEN_ACCESSOR_FILE="$LAB_PKI_DIR/application-token.accessor"
+APPLICATION_DIR="$LAB_PKI_DIR/application"
+APPLICATION_GENERATIONS_DIR="$APPLICATION_DIR/generations"
+APPLICATION_CURRENT="$APPLICATION_DIR/current"
+APPLICATION_TOKEN_FILE="$APPLICATION_CURRENT/token"
+APPLICATION_TOKEN_ACCESSOR_FILE="$APPLICATION_CURRENT/accessor"
 LAB_ENV_FILE="$LAB_PKI_DIR/lab.env"
 
 LAB_VAULT_SCRIPT="${LAB_VAULT_SCRIPT:-$ROOT_DIR/scripts/pki/lab-vault.sh}"
@@ -44,9 +47,10 @@ assert_no_symlink_path() {
 
 validate_output_boundaries() {
   local path
-  for path in "$ROOT_DIR/.local" "$LAB_PKI_DIR" "$SERVICE_ROOT" "$LAB_PKI_DIR/manufacturing"; do
+  for path in "$ROOT_DIR/.local" "$LAB_PKI_DIR" "$SERVICE_ROOT" "$LAB_PKI_DIR/manufacturing" "$APPLICATION_DIR" "$APPLICATION_GENERATIONS_DIR"; do
     assert_no_symlink_path "$path"
   done
+  current_application_generation >/dev/null || true
 }
 
 require_preconditions() {
@@ -111,13 +115,16 @@ validate_outputs() {
 }
 
 issue_application_token() {
-  local response token_temporary accessor_temporary
+  local response generation token_temporary accessor_temporary
   response="$(mktemp "$LAB_PKI_DIR/.application-token-response.XXXXXX")"
-  token_temporary="$(mktemp "$LAB_PKI_DIR/.application-token.XXXXXX")"
-  accessor_temporary="$(mktemp "$LAB_PKI_DIR/.application-token-accessor.XXXXXX")"
+  generation="$(mktemp -d "$APPLICATION_GENERATIONS_DIR/.token.XXXXXX")"
+  chmod 0700 "$generation"
+  token_temporary="$generation/token"
+  accessor_temporary="$generation/accessor"
+  : >"$token_temporary"; : >"$accessor_temporary"
   chmod 0600 "$response" "$token_temporary" "$accessor_temporary"
-  if ! "$VAULT_BIN" token create -policy=gateway-pki -orphan -no-default-policy -ttl=0 -format=json >"$response"; then
-    rm -f "$response" "$token_temporary" "$accessor_temporary"
+  if ! "$VAULT_BIN" token create -policy=gateway-pki -orphan -no-default-policy -period=24h -format=json >"$response"; then
+    rm -f "$response"; rm -rf "$generation"
     die "gateway-pki application token 발급에 실패했습니다."
   fi
   if ! node - "$response" "$token_temporary" "$accessor_temporary" <<'NODE'
@@ -127,18 +134,32 @@ const auth = JSON.parse(fs.readFileSync(source, "utf8"))?.auth;
 const policies = Array.isArray(auth?.policies) ? [...auth.policies].sort() : [];
 if (typeof auth?.client_token !== "string" || auth.client_token.length < 8 || /[\r\n]/.test(auth.client_token)) process.exit(1);
 if (typeof auth?.accessor !== "string" || auth.accessor.length < 8 || /[\r\n]/.test(auth.accessor)) process.exit(1);
-if (auth.lease_duration !== 0 || auth.renewable !== false || policies.join(",") !== "gateway-pki") process.exit(1);
+if (auth.lease_duration !== 86400 || auth.renewable !== true || policies.join(",") !== "gateway-pki") process.exit(1);
 fs.writeFileSync(tokenTarget, `${auth.client_token}\n`, { mode: 0o600 });
 fs.writeFileSync(accessorTarget, `${auth.accessor}\n`, { mode: 0o600 });
 fs.chmodSync(tokenTarget, 0o600);
 fs.chmodSync(accessorTarget, 0o600);
 NODE
   then
-    rm -f "$response" "$token_temporary" "$accessor_temporary"
+    rm -f "$response"; rm -rf "$generation"
     die "Vault application token 응답이 올바르지 않습니다."
   fi
   rm -f "$response"
-  printf '%s|%s\n' "$token_temporary" "$accessor_temporary"
+  printf '%s\n' "$generation"
+}
+
+revoke_token_accessor() {
+  local accessor="$1"
+  VAULT_TOKEN="$(tr -d '\r\n' <"$ROOT_TOKEN_FILE")" "$VAULT_BIN" token revoke -accessor "$accessor" >/dev/null
+}
+
+current_application_generation() {
+  [[ -e "$APPLICATION_CURRENT" || -L "$APPLICATION_CURRENT" ]] || return 1
+  [[ -L "$APPLICATION_CURRENT" ]] || die "application token current pointer가 안전하지 않습니다."
+  local target
+  target="$(readlink "$APPLICATION_CURRENT")"
+  [[ "$target" =~ ^generations/token-[A-Za-z0-9._-]+$ ]] || die "application token current pointer가 안전하지 않습니다."
+  printf '%s\n' "$APPLICATION_DIR/$target"
 }
 
 write_lab_env() {
@@ -203,27 +224,42 @@ main() {
   "$MANUFACTURING_STATION_SCRIPT" issue
   validate_outputs
 
-  mkdir -p "$LAB_PKI_DIR"
-  chmod 0700 "$LAB_PKI_DIR" "$SERVICE_ROOT" "$MANUFACTURING_DIR"
-  local token_result token_temporary accessor_temporary env_temporary old_accessor=""
+  mkdir -p "$APPLICATION_GENERATIONS_DIR"
+  chmod 0700 "$LAB_PKI_DIR" "$SERVICE_ROOT" "$MANUFACTURING_DIR" "$APPLICATION_DIR" "$APPLICATION_GENERATIONS_DIR"
+  local token_generation final_generation candidate_pointer env_temporary old_accessor="" new_accessor
   VAULT_TOKEN="$(tr -d '\r\n' <"$ROOT_TOKEN_FILE")"
   export VAULT_TOKEN
-  token_result="$(issue_application_token)"
-  token_temporary="${token_result%%|*}"
-  accessor_temporary="${token_result#*|}"
+  token_generation="$(issue_application_token)"
   unset VAULT_TOKEN
+  new_accessor="$(tr -d '\r\n' <"$token_generation/accessor")"
+  final_generation="$APPLICATION_GENERATIONS_DIR/token-$(date -u '+%Y%m%d%H%M%S')-$$-$RANDOM"
+  mv "$token_generation" "$final_generation"
+  candidate_pointer="$APPLICATION_DIR/.current.candidate-$$-$RANDOM"
+  ln -s "generations/$(basename "$final_generation")" "$candidate_pointer"
   env_temporary="$(mktemp "$LAB_PKI_DIR/.lab.env.XXXXXX")"
-  write_lab_env "$token_temporary" "$env_temporary"
+  write_lab_env "$final_generation/token" "$env_temporary"
   if [[ -f "$APPLICATION_TOKEN_ACCESSOR_FILE" && ! -L "$APPLICATION_TOKEN_ACCESSOR_FILE" ]]; then
     old_accessor="$(tr -d '\r\n' <"$APPLICATION_TOKEN_ACCESSOR_FILE")"
+  elif [[ -f "$LAB_PKI_DIR/application-token.accessor" && ! -L "$LAB_PKI_DIR/application-token.accessor" ]]; then
+    old_accessor="$(tr -d '\r\n' <"$LAB_PKI_DIR/application-token.accessor")"
   fi
-  mv -f "$token_temporary" "$APPLICATION_TOKEN_FILE"
   if [[ -n "$old_accessor" ]]; then
-    VAULT_TOKEN="$(tr -d '\r\n' <"$ROOT_TOKEN_FILE")" "$VAULT_BIN" token revoke -accessor "$old_accessor" >/dev/null || die "이전 application token 폐기에 실패했습니다."
+    if ! revoke_token_accessor "$old_accessor"; then
+      revoke_token_accessor "$new_accessor" || true
+      rm -f "$candidate_pointer" "$env_temporary"
+      rm -rf "$final_generation"
+      die "이전 application token 폐기에 실패하여 새 token을 보상 폐기했습니다."
+    fi
   fi
-  mv -f "$accessor_temporary" "$APPLICATION_TOKEN_ACCESSOR_FILE"
+  if ! node -e 'require("node:fs").renameSync(process.argv[1], process.argv[2])' "$candidate_pointer" "$APPLICATION_CURRENT"; then
+    revoke_token_accessor "$new_accessor" || true
+    rm -f "$candidate_pointer" "$env_temporary"
+    rm -rf "$final_generation"
+    die "application token publish 실패로 새 token을 보상 폐기했습니다. 이전 token도 이미 폐기되어 API를 시작하면 안 됩니다."
+  fi
   mv -f "$env_temporary" "$LAB_ENV_FILE"
   chmod 0600 "$APPLICATION_TOKEN_FILE" "$APPLICATION_TOKEN_ACCESSOR_FILE" "$LAB_ENV_FILE"
+  rm -f "$LAB_PKI_DIR/application-token" "$LAB_PKI_DIR/application-token.accessor"
   printf 'Lab device trust environment가 준비되었습니다: %s\n' "$LAB_ENV_FILE"
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -95,7 +95,7 @@ function connectTls(options) {
 }
 
 test("Vault-issued LAN bundle enforces MQTT mTLS, CRL, DNS/IP SAN, and production Mosquitto paths", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "led-lan-tls-"));
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "led-lan-tls-")));
   let server;
   try {
     const ca = createEcdsaCertificateAuthority(directory);

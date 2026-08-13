@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -10,7 +10,7 @@ const bootstrap = join(root, "scripts", "pki", "bootstrap-lab-vault.sh");
 const issue = join(root, "scripts", "pki", "issue-lab-service-cert.sh");
 
 function temporaryDirectory() {
-  return mkdtempSync(join(tmpdir(), "led-pki-test-"));
+  return realpathSync(mkdtempSync(join(tmpdir(), "led-pki-test-")));
 }
 
 function mode(path) {
@@ -303,6 +303,29 @@ test("service bundle은 동일 SAN 재실행에 멱등이고 CRL 실패 시 기�
     assert.equal(readlinkSync(join(output, "current")), firstTarget);
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("standalone service issuer는 OUTPUT_ROOT ancestor symlink를 Vault 호출과 파일 생성 전에 거부한다", () => {
+  const directory = temporaryDirectory();
+  const outside = temporaryDirectory();
+  const link = join(directory, "linked-output");
+  symlinkSync(outside, link);
+  const vault = writeMockVault(directory, createValidCrl(directory));
+  try {
+    const failure = runFailure(issue, [], {
+      VAULT_BIN: vault, VAULT_ADDR: "https://vault.internal:8200",
+      LAB_API_DNS: "api.lan", LAB_API_IP: "192.168.1.10",
+      LAB_MQTT_DNS: "mqtt.lan", LAB_MQTT_IP: "192.168.1.11",
+      PKI_SERVICE_CERT_DIR: join(link, "bundle")
+    });
+
+    assert.match(failure, /symlink/);
+    assert.deepEqual(readdirSync(outside), []);
+    assert.equal(readdirSync(directory).includes("vault.log"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   }
 });
 

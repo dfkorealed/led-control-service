@@ -77,7 +77,10 @@ export function startMosquittoCrlReload({
   logger = console,
   watch = defaultWatch,
   schedule = setTimeout,
-  cancel = clearTimeout
+  cancel = clearTimeout,
+  repeat = setInterval,
+  cancelRepeat = clearInterval,
+  pollIntervalMs = 1_000
 }) {
   let checksum = checksumOf(readFile(crlPath));
   let timer;
@@ -87,6 +90,7 @@ export function startMosquittoCrlReload({
     if (timer) cancel(timer);
     timer = schedule(reload, 200);
   });
+  const poller = repeat(reload, pollIntervalMs);
 
   function reload() {
     timer = undefined;
@@ -103,6 +107,7 @@ export function startMosquittoCrlReload({
   return {
     close() {
       if (timer) cancel(timer);
+      cancelRepeat(poller);
       watcher.close();
     }
   };

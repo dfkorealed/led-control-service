@@ -55,7 +55,14 @@ printf '%s\n' private > "$LAB_MANUFACTURING_DIR/station.key"; chmod 0600 "$LAB_M
   writeFileSync(vault, `#!/usr/bin/env bash
 set -euo pipefail
 echo "vault-cli $*" >> "$LAB_TEST_LOG"
-if [[ "$1 $2" == "token create" ]]; then printf '{"auth":{"client_token":"policy-token-value","accessor":"policy-token-accessor","lease_duration":0,"renewable":false,"policies":["gateway-pki"]}}\n'; exit 0; fi
+if [[ "$1 $2" == "token create" ]]; then
+  count_file="$LAB_TEST_LOG.token-count"
+  count=0; [[ ! -f "$count_file" ]] || count="$(cat "$count_file")"
+  count=$((count + 1)); printf '%s\n' "$count" > "$count_file"
+  printf '{"auth":{"client_token":"policy-token-%s","accessor":"policy-accessor-%s","lease_duration":86400,"renewable":true,"policies":["gateway-pki"]}}\n' "$count" "$count"
+  exit 0
+fi
+if [[ "$1 $2" == "token revoke" && "\${LAB_TEST_FAIL_REVOKE_ACCESSOR:-}" == "\${4:-}" ]]; then exit 42; fi
 exit 0
 `);
   chmodSync(vault, 0o755);
@@ -133,15 +140,15 @@ test("Vault bootstrap 순서와 제한 token, CRL, 절대 경로 lab.env를 생�
 
     const pki = join(fixture.directory, ".local", "lab-pki");
     const envPath = join(pki, "lab.env");
-    const tokenPath = join(pki, "application-token");
+    const tokenPath = join(pki, "application", "current", "token");
     const env = readFileSync(envPath, "utf8");
     assert.equal(mode(envPath), 0o600);
     assert.equal(mode(tokenPath), 0o600);
-    assert.equal(readFileSync(tokenPath, "utf8").trim(), "policy-token-value");
+    assert.equal(readFileSync(tokenPath, "utf8").trim(), "policy-token-1");
     assert.doesNotMatch(env, /root-token-must-not-leak|root-token$/m);
     const configuredTokenPath = /^VAULT_TOKEN_FILE="([^"]+)"$/m.exec(env)?.[1];
     assert.ok(configuredTokenPath?.startsWith("/"));
-    assert.equal(readFileSync(configuredTokenPath, "utf8").trim(), "policy-token-value");
+    assert.equal(readFileSync(configuredTokenPath, "utf8").trim(), "policy-token-1");
     assert.match(env, /VAULT_PKI_DEVICE_MOUNT="gateway-device-pki"/);
     assert.match(env, /MQTT_URL="mqtts:\/\/mqtt\.led\.lan:8883"/);
     assert.match(env, /VITE_API_PROXY_TARGET="https:\/\/api\.led\.lan:4000"/);
@@ -153,24 +160,53 @@ test("Vault bootstrap 순서와 제한 token, CRL, 절대 경로 lab.env를 생�
   }
 });
 
-test("재실행은 이전 application token accessor를 폐기하고 제한된 무기한 token으로 원자 교체한다", () => {
+test("재실행은 이전 application token을 폐기한 뒤 periodic token generation을 원자 교체한다", () => {
   const fixture = makeSandbox();
   try {
     const pki = join(fixture.directory, ".local", "lab-pki");
     mkdirSync(join(fixture.directory, ".local", "lab-vault"), { recursive: true });
     writeFileSync(join(fixture.directory, ".local", "lab-vault", "root-token"), "root-token\n", { mode: 0o600 });
     mkdirSync(pki, { recursive: true });
-    writeFileSync(join(pki, "application-token"), "old-token\n", { mode: 0o600 });
-    writeFileSync(join(pki, "application-token.accessor"), "old-accessor\n", { mode: 0o600 });
+    const old = join(pki, "application", "generations", "token-old");
+    mkdirSync(old, { recursive: true });
+    writeFileSync(join(old, "token"), "old-token\n", { mode: 0o600 });
+    writeFileSync(join(old, "accessor"), "old-accessor\n", { mode: 0o600 });
+    symlinkSync("generations/token-old", join(pki, "application", "current"));
 
     const result = run(fixture);
 
     assert.equal(result.status, 0, result.stderr);
     const calls = readFileSync(fixture.log, "utf8");
-    assert.match(calls, /token create .*orphan.*no-default-policy/);
-    assert.doesNotMatch(calls, /period=24h/);
+    assert.match(calls, /token create .*orphan.*no-default-policy.*period=24h/);
+    assert.doesNotMatch(calls, /ttl=0/);
     assert.match(calls, /token revoke -accessor old-accessor/);
-    assert.equal(readFileSync(join(pki, "application-token.accessor"), "utf8").trim(), "policy-token-accessor");
+    assert.equal(readFileSync(join(pki, "application", "current", "accessor"), "utf8").trim(), "policy-accessor-1");
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("이전 token revoke 실패 시 새 token을 보상 폐기하고 기존 generation과 env를 보존한다", () => {
+  const fixture = makeSandbox();
+  try {
+    const pki = join(fixture.directory, ".local", "lab-pki");
+    const old = join(pki, "application", "generations", "token-old");
+    mkdirSync(join(fixture.directory, ".local", "lab-vault"), { recursive: true });
+    writeFileSync(join(fixture.directory, ".local", "lab-vault", "root-token"), "root-token\n", { mode: 0o600 });
+    mkdirSync(old, { recursive: true });
+    writeFileSync(join(old, "token"), "old-token\n", { mode: 0o600 });
+    writeFileSync(join(old, "accessor"), "old-accessor\n", { mode: 0o600 });
+    symlinkSync("generations/token-old", join(pki, "application", "current"));
+    writeFileSync(join(pki, "lab.env"), "EXISTING=1\n", { mode: 0o600 });
+
+    const result = run(fixture, { LAB_TEST_FAIL_REVOKE_ACCESSOR: "old-accessor" });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(readFileSync(join(pki, "application", "current", "token"), "utf8"), "old-token\n");
+    assert.equal(readFileSync(join(pki, "lab.env"), "utf8"), "EXISTING=1\n");
+    const calls = readFileSync(fixture.log, "utf8");
+    assert.match(calls, /token revoke -accessor old-accessor/);
+    assert.match(calls, /token revoke -accessor policy-accessor-1/);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }

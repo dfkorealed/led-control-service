@@ -156,9 +156,29 @@ test("host Mosquitto는 변경된 CRL에만 SIGHUP하고 임시 파일과 동일
   assert.deepEqual(signals, ["SIGHUP"]);
 });
 
+test("host Mosquitto는 symlink target만 교체되어도 polling으로 CRL 변경을 반영하고 종료 시 polling을 중지한다", () => {
+  const harness = createCrlWatcherHarness();
+  const signals = [];
+  let crl = "old";
+  const watcher = startMosquittoCrlReload({
+    crlPath: "/tls/current/mqtt-client.crl",
+    broker: { kill: (signal) => signals.push(signal) },
+    readFile: () => Buffer.from(crl),
+    ...harness
+  });
+
+  crl = "revoked";
+  harness.runPoll();
+  assert.deepEqual(signals, ["SIGHUP"]);
+  watcher.close();
+  assert.equal(harness.pollCancelled(), true);
+});
+
 function createCrlWatcherHarness() {
   let callback;
   let pending;
+  let poll;
+  let cancelled = false;
   return {
     watch: (_path, listener) => {
       callback = listener;
@@ -169,6 +189,13 @@ function createCrlWatcherHarness() {
       return 1;
     },
     cancel() {},
+    repeat(listener) {
+      poll = listener;
+      return 2;
+    },
+    cancelRepeat() {
+      cancelled = true;
+    },
     trigger(event, filename) {
       callback(event, filename);
     },
@@ -176,6 +203,12 @@ function createCrlWatcherHarness() {
       const listener = pending;
       pending = undefined;
       listener?.();
+    },
+    runPoll() {
+      poll?.();
+    },
+    pollCancelled() {
+      return cancelled;
     }
   };
 }
