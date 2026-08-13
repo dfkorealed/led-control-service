@@ -77,7 +77,7 @@ EOF
 vault_state() {
   local status_file exit_code state
   status_file="$(mktemp "$LAB_VAULT_DIR/.status.XXXXXX")"
-  if docker exec "$1" vault status -format=json >"$status_file" 2>/dev/null; then
+  if docker exec "$1" vault status -format=json -address=http://127.0.0.1:8200 >"$status_file" 2>/dev/null; then
     exit_code=0
   else
     exit_code=$?
@@ -103,7 +103,7 @@ NODE
 wait_for_vault() {
   local id="$1" attempt exit_code
   for attempt in {1..20}; do
-    if docker exec "$id" vault status -format=json >/dev/null 2>&1; then
+    if docker exec "$id" vault status -format=json -address=http://127.0.0.1:8200 >/dev/null 2>&1; then
       return
     else
       exit_code=$?
@@ -122,7 +122,7 @@ const path = require("node:path");
 
 const [initPath, rootTokenPath, unsealKeyPath] = process.argv.slice(2);
 const result = JSON.parse(fs.readFileSync(initPath, "utf8"));
-if (typeof result.root_token !== "string" || result.root_token.length === 0 || !Array.isArray(result.keys_base64) || result.keys_base64.length !== 1 || typeof result.keys_base64[0] !== "string" || result.keys_base64[0].length === 0) {
+if (typeof result.root_token !== "string" || result.root_token.length === 0 || !Array.isArray(result.unseal_keys_b64) || result.unseal_keys_b64.length !== 1 || typeof result.unseal_keys_b64[0] !== "string" || result.unseal_keys_b64[0].length === 0) {
   process.exit(1);
 }
 for (const target of [rootTokenPath, unsealKeyPath]) {
@@ -142,7 +142,7 @@ function writeAtomically(target, value) {
 }
 try {
   writeAtomically(rootTokenPath, result.root_token);
-  writeAtomically(unsealKeyPath, result.keys_base64[0]);
+  writeAtomically(unsealKeyPath, result.unseal_keys_b64[0]);
 } catch (error) {
   for (const target of [rootTokenPath, unsealKeyPath]) {
     if (fs.existsSync(target)) fs.rmSync(target);
@@ -218,7 +218,7 @@ initialize_or_unseal() {
   if [[ "$state" == "uninitialized:sealed" ]]; then
     init_file="$(mktemp "$LAB_VAULT_DIR/.init.XXXXXX")"
     chmod 0600 "$init_file"
-    if ! docker exec "$id" vault operator init -key-shares=1 -key-threshold=1 -format=json >"$init_file"; then
+    if ! docker exec "$id" vault operator init -key-shares=1 -key-threshold=1 -format=json -address=http://127.0.0.1:8200 >"$init_file"; then
       rm -f "$init_file"
       die "Lab Vault 초기화에 실패했습니다."
     fi

@@ -171,7 +171,7 @@ case "$1" in
     fi
     if [[ " $* " == *" vault operator init -key-shares=1 -key-threshold=1 -format=json "* ]]; then
       printf 'initialized\n' > "$initialized_file"
-      printf '{"root_token":"fake-root-token","keys_base64":["fake-unseal-key"]}\n'
+      printf '{"root_token":"fake-root-token","unseal_keys_b64":["fake-unseal-key"]}\n'
       exit 0
     fi
     exit 0
@@ -241,7 +241,15 @@ test("start는 persistent file-storage Vault를 init 및 unseal하고 secret을 
   assert.match(log, /server -config=\/vault\/config\/config\.hcl/);
   assert.doesNotMatch(log, /-dev|VAULT_DEV_ROOT_TOKEN_ID|--env/);
   assert.match(log, /operator init -key-shares=1 -key-threshold=1 -format=json/);
+  const initCommands = log.split("\n").filter((line) => /vault operator init/.test(line));
+  assert.equal(initCommands.length, 1);
+  assert.match(initCommands[0], /-address=http:\/\/127\.0\.0\.1:8200/);
   assert.doesNotMatch(log, /operator unseal/);
+  const statusCommands = log.split("\n").filter((line) => /vault status/.test(line));
+  assert.ok(statusCommands.length > 0);
+  for (const command of statusCommands) {
+    assert.match(command, /-address=http:\/\/127\.0\.0\.1:8200/);
+  }
   const request = JSON.parse(await readFile(fixture.unsealRequestFile, "utf8"));
   assert.equal(request.method, "POST");
   assert.equal(request.path, "/v1/sys/unseal");

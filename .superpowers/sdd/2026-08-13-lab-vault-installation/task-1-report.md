@@ -61,3 +61,10 @@ DONE
 - 실제 `hashicorp/vault:1.17.6` 검증은 `pnpm test:lab:vault:integration`으로 명시 실행할 때만 수행하며, 기본 테스트는 Docker image 또는 네트워크에 의존하지 않는다.
 - Fix Round4 검증: `pnpm test:lab:vault` 6개 통과 및 실제 Docker 테스트 1개 SKIP, `bash -n scripts/pki/lab-vault.sh`, `git diff --check` 통과.
 - 실제 Docker image pull은 완료했으나 최종 init-stop-start 통합 실행은 작업 시간 제한으로 중단했다. 다음 작업에서 `pnpm test:lab:vault:integration`을 다시 실행해 확인해야 한다.
+
+## Fix Round5 실제 Docker 통합 검증
+
+- `wait_for_vault`, `vault_state`, 사용자용 `status`의 모든 container 내부 `vault status` 호출에 `-address=http://127.0.0.1:8200`을 명시했다. fake 계약 테스트는 실행된 모든 status 명령에 이 인자가 있는지 검증한다.
+- 실제 통합 시험에서 동일한 기본 HTTPS 문제가 확인된 `vault operator init`에도 loopback HTTP 주소를 명시했다.
+- Vault 1.17.6의 실제 init JSON 계약인 `unseal_keys_b64`를 사용하도록 credential parser와 fake 응답을 정렬했다.
+- 2026-08-13 실행 결과: `pnpm test:lab:vault`는 fake 계약 6개 통과 및 opt-in Docker 시험 1개 SKIP, `pnpm test:lab:vault:integration`은 실제 `hashicorp/vault:1.17.6` 최초 init, HTTP unseal, stop, start, 재unseal, `Sealed false` 확인을 포함해 7개 전부 통과했다.
