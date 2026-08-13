@@ -10,15 +10,20 @@
 
 Fix Round1: `fix(pki): harden lab intermediate signer`
 
+Fix Round2: `fix(pki): protect lab signer serial state`
+
 ## Tests
 
 - `node --test scripts/pki/sign-lab-intermediates.test.mjs scripts/pki/pki-scripts.test.mjs`
 - `bash -n scripts/pki/sign-lab-intermediates.sh scripts/pki/bootstrap-lab-vault.sh`
 - `git diff --check`
 - 동시 signer lock/serial uniqueness와 interruption recovery 회귀 테스트
+- authoritative serial symlink 사전 거부 및 외부 target 불변 회귀 테스트
+- fake Vault의 기본 `prepare -> sign -> install` 경로 통합 테스트
 
 ## Concerns
 
 - 실제 Vault Docker와 CSR 생성부터 intermediate 설치까지의 통합 실행은 Task 4의 bootstrap 통합 시험에서 검증한다.
 - Lab Root private key는 자동화 편의를 위한 Lab 전용 파일이며 운영 환경에서 사용하면 안 된다.
 - lock이 남아 있으면 자동 삭제하지 않는다. 실행 중인 signer가 없음을 확인한 뒤에만 `.local/lab-pki/.intermediate-sign.lock`을 수동 제거해야 한다.
+- `scripts/pki/lab-pki-files.mjs`는 Lab 전용 fixed path의 serial 상태만 다룬다. 운영 PKI나 외부 경로에 사용하면 안 된다.

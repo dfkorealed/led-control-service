@@ -14,6 +14,7 @@ ROOT_KEY_PATH="$LAB_ROOT_DIR/root.key"
 ROOT_CERT_PATH="$LAB_ROOT_DIR/root.crt"
 ROOT_CONFIG_PATH="$LAB_ROOT_DIR/openssl.cnf"
 ROOT_SERIAL_PATH="$LAB_ROOT_DIR/intermediate.srl"
+FILE_HELPER="$ROOT_DIR/scripts/pki/lab-pki-files.mjs"
 GENERATION_DIR="$LAB_SIGNED_INTERMEDIATE_DIR/generations"
 PURPOSES=(gateway-device gateway-mqtt api-server)
 
@@ -45,6 +46,7 @@ require_lab_environment() {
   [[ "$PKI_ENV" == "lab" ]] || die "이 명령은 PKI_ENV=lab에서만 실행할 수 있습니다."
   [[ "$LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die "LAB_SIGNER_LOCK_TIMEOUT_SECONDS는 0 이상의 정수여야 합니다."
   command -v openssl >/dev/null 2>&1 || die "OpenSSL 실행 파일을 찾을 수 없습니다."
+  [[ -r "$FILE_HELPER" ]] || die "Lab PKI file helper를 찾을 수 없습니다."
   assert_component_path "$ROOT_DIR/.local"
 }
 
@@ -169,6 +171,10 @@ ensure_root() {
   fi
 }
 
+preflight_root_material() {
+  node "$FILE_HELPER" preflight "$LAB_PKI_DIR" "$ROOT_KEY_PATH" "$ROOT_CERT_PATH" "$ROOT_CONFIG_PATH" "$ROOT_SERIAL_PATH" || die "Lab Root 파일 사전 검증에 실패했습니다."
+}
+
 csr_fingerprint() {
   openssl dgst -sha256 "$1" | awk '{print $NF}'
 }
@@ -245,13 +251,13 @@ write_intermediate() {
     local temporary="$LAB_SIGNED_INTERMEDIATE_DIR/.generation-tmp-${purpose}-$$-$RANDOM"
     mkdir "$temporary"
     chmod 0700 "$temporary"
-    if ! openssl x509 -req -in "$csr" -CA "$ROOT_CERT_PATH" -CAkey "$ROOT_KEY_PATH" -CAserial "$ROOT_SERIAL_PATH" -CAcreateserial -out "$temporary/certificate.crt" -days 1825 -sha256 -extfile "$ROOT_CONFIG_PATH" -extensions intermediate_ca; then
+    local temporary_serial="$temporary/intermediate.srl"
+    node "$FILE_HELPER" serial-copy "$LAB_PKI_DIR" "$ROOT_SERIAL_PATH" "$temporary_serial" || { rm -rf "$temporary"; die "Lab Root serial 사전 검증에 실패했습니다."; }
+    if ! openssl x509 -req -in "$csr" -CA "$ROOT_CERT_PATH" -CAkey "$ROOT_KEY_PATH" -CAserial "$temporary_serial" -out "$temporary/certificate.crt" -days 1825 -sha256 -extfile "$ROOT_CONFIG_PATH" -extensions intermediate_ca; then
       rm -rf "$temporary"
       die "$purpose intermediate 서명에 실패했습니다."
     fi
-    [[ ! -L "$ROOT_SERIAL_PATH" ]] || die "Lab Root serial은 symlink가 아닌 일반 파일이어야 합니다."
-    assert_regular_file "$ROOT_SERIAL_PATH" "Lab Root serial"
-    chmod 0600 "$ROOT_SERIAL_PATH"
+    node "$FILE_HELPER" serial-commit "$LAB_PKI_DIR" "$ROOT_SERIAL_PATH" "$temporary_serial" || { rm -rf "$temporary"; die "Lab Root serial 반영에 실패했습니다."; }
     cat "$temporary/certificate.crt" "$ROOT_CERT_PATH" >"$temporary/chain.crt"
     printf '%s\n' "$fingerprint" >"$temporary/csr.sha256"
     chmod 0644 "$temporary/certificate.crt" "$temporary/chain.crt" "$temporary/csr.sha256"
@@ -269,6 +275,7 @@ main() {
   ensure_layout
   cleanup_own_temporary_generations
   ensure_root
+  preflight_root_material
   local purpose
   for purpose in "${PURPOSES[@]}"; do
     write_intermediate "$purpose"

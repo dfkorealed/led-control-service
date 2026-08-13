@@ -7,6 +7,9 @@ import test from "node:test";
 
 const root = join(dirname(new URL(import.meta.url).pathname), "..", "..");
 const signer = join(root, "scripts", "pki", "sign-lab-intermediates.sh");
+const fileHelper = join(root, "scripts", "pki", "lab-pki-files.mjs");
+const bootstrap = join(root, "scripts", "pki", "bootstrap-lab-vault.sh");
+const policy = join(root, "infra", "vault", "policies", "gateway-pki.hcl");
 const purposes = ["gateway-device", "gateway-mqtt", "api-server"];
 
 function temporaryDirectory() {
@@ -22,7 +25,12 @@ function sandbox() {
   const pkiDirectory = join(directory, "scripts", "pki");
   mkdirSync(pkiDirectory, { recursive: true });
   copyFileSync(signer, join(pkiDirectory, "sign-lab-intermediates.sh"));
+  copyFileSync(fileHelper, join(pkiDirectory, "lab-pki-files.mjs"));
+  copyFileSync(bootstrap, join(pkiDirectory, "bootstrap-lab-vault.sh"));
+  mkdirSync(join(directory, "infra", "vault", "policies"), { recursive: true });
+  copyFileSync(policy, join(directory, "infra", "vault", "policies", "gateway-pki.hcl"));
   chmodSync(join(pkiDirectory, "sign-lab-intermediates.sh"), 0o755);
+  chmodSync(join(pkiDirectory, "bootstrap-lab-vault.sh"), 0o755);
   return directory;
 }
 
@@ -181,6 +189,59 @@ test("serializes concurrent signers without deleting an active lock or reusing i
     assert.equal(firstExit, 0);
     const serials = new Set(purposes.map((purpose) => execFileSync("openssl", ["x509", "-in", join(output.signed, `${purpose}-intermediate.crt`), "-noout", "-serial"], { encoding: "utf8" }).trim()));
     assert.equal(serials.size, purposes.length);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects a serial symlink before OpenSSL can modify its external target", () => {
+  const directory = sandbox();
+  try {
+    const output = paths(directory);
+    mkdirSync(output.csrs, { recursive: true });
+    makeCsrs(output.csrs);
+    run(directory, { PKI_ENV: "lab" });
+    rmSync(output.signed, { recursive: true, force: true });
+    const externalSerial = join(directory, "external-serial");
+    writeFileSync(externalSerial, "ABCD\n");
+    rmSync(join(output.root, "intermediate.srl"));
+    execFileSync("ln", ["-s", externalSerial, join(output.root, "intermediate.srl")]);
+
+    const failure = runFailure(directory, { PKI_ENV: "lab" });
+    assert.match(failure, /symlink.*(serial|intermediate\.srl)|serial.*(symlink|일반 파일)/i);
+    assert.equal(readFileSync(externalSerial, "utf8"), "ABCD\n");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("uses the shared default Lab PKI paths for prepare, sign, and install", () => {
+  const directory = sandbox();
+  try {
+    const output = paths(directory);
+    const bin = join(directory, "bin");
+    mkdirSync(bin);
+    const vault = join(bin, "vault");
+    writeFileSync(vault, `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "${directory}/vault.log"
+if [[ "$1" == "secrets" ]]; then printf '[]\\n'; exit 0; fi
+if [[ "$1" == "list" ]]; then printf '["issuer"]\\n'; exit 0; fi
+if [[ "$1 $2" == "write -field=csr" ]]; then
+  key="$(mktemp)"
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$key" >/dev/null 2>&1
+  openssl req -new -key "$key" -subj "/CN=Lab Intermediate" 2>/dev/null
+  rm -f "$key"
+fi
+`);
+    chmodSync(vault, 0o755);
+    const env = { PKI_ENV: "lab", VAULT_ADDR: "http://vault.lab:8200", VAULT_BIN: vault };
+    execFileSync(join(directory, "scripts", "pki", "bootstrap-lab-vault.sh"), ["prepare"], { cwd: directory, env: { ...process.env, ...env }, stdio: "pipe" });
+    run(directory, env);
+    execFileSync(join(directory, "scripts", "pki", "bootstrap-lab-vault.sh"), ["install"], { cwd: directory, env: { ...process.env, ...env }, stdio: "pipe" });
+    const log = readFileSync(join(directory, "vault.log"), "utf8");
+    assert.match(log, /gateway-device-pki\/intermediate\/set-signed/);
+    for (const purpose of purposes) assert.equal(existsSync(join(output.signed, `${purpose}-intermediate.chain.crt`)), true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
