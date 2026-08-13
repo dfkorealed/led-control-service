@@ -17,7 +17,9 @@ else
 fi
 
 REMOTE_DIR=/opt/led-control/gateway
-ssh "$TARGET" "sudo mkdir -p $REMOTE_DIR/data/{gateway,mesh,identity,factory-trust} && sudo chown -R \$USER:\$(id -gn) $REMOTE_DIR"
+# Existing identity keys are owned by the container's gateway user. Only prepare
+# directory entries here; recursive chown would make 0600 device keys unreadable.
+ssh "$TARGET" "sudo install -d -o \"\$USER\" -g \"\$(id -gn)\" $REMOTE_DIR $REMOTE_DIR/data $REMOTE_DIR/data/gateway $REMOTE_DIR/data/mesh $REMOTE_DIR/data/identity $REMOTE_DIR/data/factory-trust"
 scp \
   "$ARCHIVE" "$ARCHIVE.sha256" "$ARCHIVE.env" \
   "$ROOT_DIR/apps/gateway/compose.raspberry-pi.yml" \

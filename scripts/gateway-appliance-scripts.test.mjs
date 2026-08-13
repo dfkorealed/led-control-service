@@ -23,4 +23,6 @@ test("deploy script는 image를 먼저 load하고 제조 identity 검증 뒤 Com
   assert.doesNotMatch(source, /data\/certs\/gateway\.crt/);
   assert.match(source, /docker compose/);
   assert.match(source, /--remove-orphans/);
+  assert.doesNotMatch(source, /chown -R[^\n]*\$REMOTE_DIR/);
+  assert.match(source, /install -d/);
 });

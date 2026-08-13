@@ -72,7 +72,7 @@ pnpm lab:pki:bootstrap
 | `.local/lab-vault/root-token` | 최초 PKI 설정용 Vault 최고 권한 token | 금지 |
 | `.local/lab-vault/unseal-key` | 재시작한 Lab Vault 해제 | 금지 |
 | `.local/lab-pki/root/root.key` | Lab 전용 offline Root private key | 금지 |
-| `.local/lab-pki/application-tokens/current/token` | API가 장비 인증서를 발급할 24시간 periodic 제한 token | API 호스트만 |
+| `.local/lab-pki/application/current/token` | API가 장비 인증서를 발급할 24시간 periodic 제한 token | API 호스트만 |
 | `.local/lab-pki/lab.env` | API/MQTT/Vault 실행 경로 모음 | 개발 Mac 전용 |
 | `.local/lab-pki/manufacturing/station.key` | 제조 원장 등록 권한 | 제조 station만 |
 | `.local/lab-pki/services/` | API/MQTT 인증서, 공개 CA와 CRL | 목적별 배포 |
@@ -81,7 +81,7 @@ pnpm lab:pki:bootstrap
 
 ```bash
 stat -f '%Lp %N' .local/lab-vault/root-token .local/lab-vault/unseal-key \
-  .local/lab-pki/application-tokens/current/token .local/lab-pki/manufacturing/station.key
+  .local/lab-pki/application/current/token .local/lab-pki/manufacturing/station.key
 openssl verify -CAfile .local/lab-pki/manufacturing/manufacturing-ca.crt \
   .local/lab-pki/manufacturing/station.crt
 openssl x509 -in .local/lab-pki/manufacturing/station.crt -noout -purpose
@@ -97,6 +97,7 @@ API는 periodic token을 만료 시간의 절반마다 `renew-self`한다. 갱�
 Lab bundle을 사용할 때 Compose의 개발용 `mqtt-tls`는 실행하지 않는다. PostgreSQL, Redis와 파일 저장소만 올린다.
 
 ```bash
+docker compose stop mqtt-tls 2>/dev/null || true
 docker compose up -d postgres redis object-storage object-storage-init
 pnpm --filter @led-control/api prisma:generate
 pnpm --filter @led-control/api exec prisma migrate deploy
@@ -184,9 +185,20 @@ ssh dfkorea@dfkorea.local 'find /opt/led-control/gateway/data/identity/device -m
 2. 초기 설정에서 고객사와 현장을 만들고 층 이름, 층 번호 등 기본 정보를 입력한다.
 3. `게이트웨이 등록`에서 이름과 `GW-RPI-000001`을 입력한다.
 4. label JSON의 `claimCode`를 비밀번호 입력란에 한 번만 입력한다.
-5. 성공 응답의 `gatewayId`를 기록하고 게이트웨이를 해당 층에 연결한다.
+5. 성공 응답의 `gatewayId`를 기록한다. Gateway는 현장에 귀속되며, 이후 조명 검색 세션에서 대상 층과 Gateway를 각각 선택한다.
 
 claim code는 성공 즉시 hash까지 폐기되므로 같은 코드의 두 번째 사용은 실패해야 정상이다. 제조 원장을 직접 수정하거나 Gateway row를 SQL로 만들면 device identity 소유권 검증을 우회하므로 금지한다.
+
+claim 후에는 로컬 Mosquitto ACL에 실제 Gateway UUID를 반영해야 한다. 실행 중인 `pnpm dev`를 `Ctrl+C`로 종료하고 새 터미널에서 다음처럼 재시작한다.
+
+```bash
+cd "/Users/kim-jh/Documents/led-control-service"
+set -a
+. .local/lab-pki/lab.env
+set +a
+export DEV_GATEWAY_ID='<claim 응답의 gatewayId>'
+pnpm dev
+```
 
 ## 8. Pi 설정, bootstrap과 MQTT 연결
 
@@ -229,7 +241,8 @@ ESP-IDF 5.5 펌웨어를 빌드하고 연결된 보드에 기록한다.
 
 ```bash
 scripts/esp32-h2-build.sh
-scripts/esp32-h2-flash.sh auto
+ls /dev/cu.usbmodem*
+scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
 ```
 
 1. ESP32-H2를 unprovisioned 상태로 켠다. 이미 provisioned된 보드는 검색되지 않는다.
@@ -299,5 +312,8 @@ pnpm --filter @led-control/api typecheck
 
 ```bash
 LAB_API_IP="$LAB_HOST_IP" LAB_MQTT_IP="$LAB_HOST_IP" pnpm test:lab:pki:integration
+set -a
+. .local/lab-pki/lab.env
+set +a
 pnpm api:vault-token:integration
 ```

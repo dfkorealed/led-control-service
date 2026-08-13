@@ -91,7 +91,7 @@ pnpm dev
 - IP/DNS, 환경값 또는 파일 권한이 잘못되면 인증서를 발급하지 않는다.
 - 중간 단계가 실패하면 기존 유효 산출물을 유지하고 임시 파일만 삭제한다.
 - Vault 상태와 로컬 산출물 세대가 불일치하면 자동 혼합하지 않고 reset 후 전체 재발급을 요구한다.
-- reset은 container와 Lab 산출물만 제거하며 PostgreSQL, 운영 PKI와 Gateway 장비 파일은 건드리지 않는다.
+- `lab:vault reset`은 Lab Vault container와 `.local/lab-vault`만 제거하며 `.local/lab-pki`, PostgreSQL, 운영 PKI와 Gateway 장비 파일은 건드리지 않는다. 전체 Lab PKI 초기화는 runbook에서 각 경계를 별도로 확인하고 수행한다.
 
 ## 수동 시험 완료 기준
 
