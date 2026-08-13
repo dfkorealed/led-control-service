@@ -8,6 +8,8 @@ type WatchDirectory = (path: string, listener: (event: string, filename: string)
 type Logger = Pick<Console, "error">;
 type Schedule = (listener: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
 type Cancel = (timer: ReturnType<typeof setTimeout>) => void;
+type Repeat = (listener: () => void, intervalMs: number) => ReturnType<typeof setInterval>;
+type CancelRepeat = (timer: ReturnType<typeof setInterval>) => void;
 
 export function startApiTlsCrlReload({
   crlPaths,
@@ -17,7 +19,10 @@ export function startApiTlsCrlReload({
   logger = console,
   watch = defaultWatch,
   schedule = setTimeout,
-  cancel = clearTimeout
+  cancel = clearTimeout,
+  repeat = setInterval,
+  cancelRepeat = clearInterval,
+  pollIntervalMs = 1_000
 }: {
   crlPaths: string[];
   initialOptions: ApiTlsContext;
@@ -27,6 +32,9 @@ export function startApiTlsCrlReload({
   watch?: WatchDirectory;
   schedule?: Schedule;
   cancel?: Cancel;
+  repeat?: Repeat;
+  cancelRepeat?: CancelRepeat;
+  pollIntervalMs?: number;
 }) {
   let checksum = checksumOf(initialOptions.crl);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -37,6 +45,9 @@ export function startApiTlsCrlReload({
     if (timer) cancel(timer);
     timer = schedule(reload, 200);
   }));
+  // A generation pointer can keep the same filename while its target changes, so
+  // directory events are only an optimization; polling is the revocation backstop.
+  const poller = repeat(reload, pollIntervalMs);
 
   function reload() {
     timer = undefined;
@@ -54,6 +65,7 @@ export function startApiTlsCrlReload({
   return {
     close() {
       if (timer) cancel(timer);
+      cancelRepeat(poller);
       watchers.forEach((watcher) => watcher.close());
     }
   };

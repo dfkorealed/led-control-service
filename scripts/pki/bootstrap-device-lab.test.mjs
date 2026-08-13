@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { request } from "node:https";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { Agent, request } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createServer } from "node:https";
@@ -34,10 +34,13 @@ function makeSandbox() {
 echo service >> "$LAB_TEST_LOG"
 [[ "${'${LAB_TEST_FAIL_SERVICE:-0}'}" != 1 ]] || exit 42
 mkdir -p "$PKI_SERVICE_CERT_DIR"
-for name in api.crt api.chain.crt mqtt-server.crt mqtt-ca.crt api-ca.crt device-ca.crt; do printf '%s\n' certificate > "$PKI_SERVICE_CERT_DIR/$name"; chmod 0644 "$PKI_SERVICE_CERT_DIR/$name"; done
-for name in api.key mqtt-server.key api-mqtt-client.key; do printf '%s\n' private > "$PKI_SERVICE_CERT_DIR/$name"; chmod 0600 "$PKI_SERVICE_CERT_DIR/$name"; done
-printf '%s\n' certificate > "$PKI_SERVICE_CERT_DIR/api-mqtt-client.crt"; chmod 0644 "$PKI_SERVICE_CERT_DIR/api-mqtt-client.crt"
-for name in device.crl mqtt-client.crl; do printf '%s\n' crl > "$PKI_SERVICE_CERT_DIR/$name"; chmod 0644 "$PKI_SERVICE_CERT_DIR/$name"; done`,
+generation="$PKI_SERVICE_CERT_DIR/generations/bundle-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+mkdir -p "$generation"
+ln -s generations/bundle-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "$PKI_SERVICE_CERT_DIR/current"
+for name in api.crt api.chain.crt mqtt-server.crt mqtt-ca.crt api-ca.crt device-ca.crt; do printf '%s\n' certificate > "$generation/$name"; chmod 0644 "$generation/$name"; done
+for name in api.key mqtt-server.key api-mqtt-client.key; do printf '%s\n' private > "$generation/$name"; chmod 0600 "$generation/$name"; done
+printf '%s\n' certificate > "$generation/api-mqtt-client.crt"; chmod 0644 "$generation/api-mqtt-client.crt"
+for name in device.crl mqtt-client.crl; do printf '%s\n' crl > "$generation/$name"; chmod 0644 "$generation/$name"; done`,
     "issue-lab-manufacturing-station.sh": `
 echo station >> "$LAB_TEST_LOG"
 mkdir -p "$LAB_MANUFACTURING_DIR"
@@ -52,7 +55,7 @@ printf '%s\n' private > "$LAB_MANUFACTURING_DIR/station.key"; chmod 0600 "$LAB_M
   writeFileSync(vault, `#!/usr/bin/env bash
 set -euo pipefail
 echo "vault-cli $*" >> "$LAB_TEST_LOG"
-if [[ "$1 $2" == "token create" ]]; then printf '{"auth":{"client_token":"policy-token-value"}}\n'; exit 0; fi
+if [[ "$1 $2" == "token create" ]]; then printf '{"auth":{"client_token":"policy-token-value","accessor":"policy-token-accessor","lease_duration":0,"renewable":false,"policies":["gateway-pki"]}}\n'; exit 0; fi
 exit 0
 `);
   chmodSync(vault, 0o755);
@@ -93,6 +96,30 @@ test("비-Lab 환경과 누락된 필수 도구를 변경 전에 거부한다", 
   }
 });
 
+test("Lab PKI 경계 또는 하위 경로의 symlink를 첫 부작용 전에 거부한다", () => {
+  for (const relativePath of [".local/lab-pki", ".local/lab-pki/services", ".local/lab-pki/manufacturing"]) {
+    const fixture = makeSandbox();
+    const outside = mkdtempSync(join(tmpdir(), "led-device-lab-outside-"));
+    try {
+      mkdirSync(join(fixture.directory, ".local", "lab-vault"), { recursive: true });
+      writeFileSync(join(fixture.directory, ".local", "lab-vault", "root-token"), "root-token\n", { mode: 0o600 });
+      const target = join(fixture.directory, relativePath);
+      mkdirSync(dirname(target), { recursive: true });
+      symlinkSync(outside, target);
+
+      const result = run(fixture);
+
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /symlink|경계|안전/);
+      assert.equal(existsSync(fixture.log), false);
+      assert.deepEqual(readFileNames(outside), []);
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  }
+});
+
 test("Vault bootstrap 순서와 제한 token, CRL, 절대 경로 lab.env를 생성한다", () => {
   const fixture = makeSandbox();
   try {
@@ -117,12 +144,41 @@ test("Vault bootstrap 순서와 제한 token, CRL, 절대 경로 lab.env를 생�
     assert.equal(readFileSync(configuredTokenPath, "utf8").trim(), "policy-token-value");
     assert.match(env, /VAULT_PKI_DEVICE_MOUNT="gateway-device-pki"/);
     assert.match(env, /MQTT_URL="mqtts:\/\/mqtt\.led\.lan:8883"/);
-    for (const name of ["device.crl", "mqtt-client.crl"]) assert.equal(existsSync(join(pki, "services", name)), true);
+    assert.match(env, /VITE_API_PROXY_TARGET="https:\/\/api\.led\.lan:4000"/);
+    assert.match(env, /NODE_EXTRA_CA_CERTS="[^"]+\/services\/current\/api-ca\.crt"/);
+    for (const name of ["device.crl", "mqtt-client.crl"]) assert.equal(existsSync(join(pki, "services", "current", name)), true);
     assert.equal(existsSync(join(pki, "manufacturing", "manufacturing.crl")), true);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }
 });
+
+test("재실행은 이전 application token accessor를 폐기하고 제한된 무기한 token으로 원자 교체한다", () => {
+  const fixture = makeSandbox();
+  try {
+    const pki = join(fixture.directory, ".local", "lab-pki");
+    mkdirSync(join(fixture.directory, ".local", "lab-vault"), { recursive: true });
+    writeFileSync(join(fixture.directory, ".local", "lab-vault", "root-token"), "root-token\n", { mode: 0o600 });
+    mkdirSync(pki, { recursive: true });
+    writeFileSync(join(pki, "application-token"), "old-token\n", { mode: 0o600 });
+    writeFileSync(join(pki, "application-token.accessor"), "old-accessor\n", { mode: 0o600 });
+
+    const result = run(fixture);
+
+    assert.equal(result.status, 0, result.stderr);
+    const calls = readFileSync(fixture.log, "utf8");
+    assert.match(calls, /token create .*orphan.*no-default-policy/);
+    assert.doesNotMatch(calls, /period=24h/);
+    assert.match(calls, /token revoke -accessor old-accessor/);
+    assert.equal(readFileSync(join(pki, "application-token.accessor"), "utf8").trim(), "policy-token-accessor");
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+function readFileNames(directory) {
+  return existsSync(directory) ? execFileSync("find", [directory, "-mindepth", "1", "-print"], { encoding: "utf8" }).trim().split("\n").filter(Boolean) : [];
+}
 
 test("중간 단계 실패 시 기존 application token과 lab.env를 보존한다", () => {
   const fixture = makeSandbox();
@@ -166,7 +222,7 @@ function issueOtherClient(directory) {
 
 function callEndpoint(port, directory, cert, key) {
   return new Promise((resolve, reject) => {
-    const req = request({ hostname: "localhost", port, path: "/manufacturing/gateway-enrollments", method: "POST", ca: readFileSync(join(directory, "server-ca.crt")), cert: readFileSync(cert), key: readFileSync(key), rejectUnauthorized: true }, (response) => {
+    const req = request({ hostname: "localhost", port, path: "/manufacturing/gateway-enrollments", method: "POST", ca: readFileSync(join(directory, "server-ca.crt")), cert: readFileSync(cert), key: readFileSync(key), rejectUnauthorized: true, agent: new Agent({ maxCachedSessions: 0 }) }, (response) => {
       response.resume();
       response.once("end", () => resolve(response.statusCode));
     });
@@ -188,21 +244,19 @@ test("제조 endpoint TLS가 정상 station만 허용하고 타 CA 및 폐기 st
     const manufacturing = join(repo, ".local", "lab-pki", "manufacturing");
     issueServerIdentity(directory);
     issueOtherClient(directory);
+    const tlsOptions = () => ({ cert: readFileSync(join(directory, "server.crt")), key: readFileSync(join(directory, "server.key")), ca: readFileSync(join(manufacturing, "manufacturing-ca.crt")), crl: readFileSync(join(manufacturing, "manufacturing.crl")), requestCert: true, rejectUnauthorized: true });
     const startServer = async () => {
-      server = createServer({ cert: readFileSync(join(directory, "server.crt")), key: readFileSync(join(directory, "server.key")), ca: readFileSync(join(manufacturing, "manufacturing-ca.crt")), crl: readFileSync(join(manufacturing, "manufacturing.crl")), requestCert: true, rejectUnauthorized: true }, (req, res) => {
+      server = createServer(tlsOptions(), (req, res) => {
         res.writeHead(req.url === "/manufacturing/gateway-enrollments" ? 204 : 404).end();
       });
       await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
       return server.address().port;
     };
-    let port = await startServer();
+    const port = await startServer();
     assert.equal(await callEndpoint(port, directory, join(manufacturing, "station.crt"), join(manufacturing, "station.key")), 204);
     await assert.rejects(callEndpoint(port, directory, join(directory, "other.crt"), join(directory, "other.key")));
-    await new Promise((resolve) => server.close(resolve));
-    server = undefined;
-
     execFileSync(join(scriptDirectory, "issue-lab-manufacturing-station.sh"), ["revoke"], { cwd: repo, env: { ...process.env, PKI_ENV: "lab" }, stdio: "pipe" });
-    port = await startServer();
+    server.setSecureContext(tlsOptions());
     await assert.rejects(callEndpoint(port, directory, join(manufacturing, "station.crt"), join(manufacturing, "station.key")));
   } finally {
     await new Promise((resolve) => server?.close(resolve) ?? resolve());

@@ -10,10 +10,12 @@ LAB_VAULT_PORT="${LAB_VAULT_PORT:-18200}"
 VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:${LAB_VAULT_PORT}}"
 VAULT_BIN="${VAULT_BIN:-vault}"
 LAB_PKI_DIR="$ROOT_DIR/.local/lab-pki"
-SERVICE_DIR="$LAB_PKI_DIR/services"
+SERVICE_ROOT="$LAB_PKI_DIR/services"
+SERVICE_DIR="$SERVICE_ROOT/current"
 MANUFACTURING_DIR="$LAB_PKI_DIR/manufacturing"
 ROOT_TOKEN_FILE="$ROOT_DIR/.local/lab-vault/root-token"
 APPLICATION_TOKEN_FILE="$LAB_PKI_DIR/application-token"
+APPLICATION_TOKEN_ACCESSOR_FILE="$LAB_PKI_DIR/application-token.accessor"
 LAB_ENV_FILE="$LAB_PKI_DIR/lab.env"
 
 LAB_VAULT_SCRIPT="${LAB_VAULT_SCRIPT:-$ROOT_DIR/scripts/pki/lab-vault.sh}"
@@ -29,6 +31,22 @@ die() {
 
 file_mode() {
   stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+}
+
+assert_no_symlink_path() {
+  local path="$1"
+  while [[ "$path" != "$ROOT_DIR" ]]; do
+    [[ "$path" != "/" ]] || die "Lab PKI 경계가 repository 밖에 있습니다."
+    [[ ! -L "$path" ]] || die "symlink 경로는 허용하지 않습니다: $path"
+    path="$(dirname "$path")"
+  done
+}
+
+validate_output_boundaries() {
+  local path
+  for path in "$ROOT_DIR/.local" "$LAB_PKI_DIR" "$SERVICE_ROOT" "$LAB_PKI_DIR/manufacturing"; do
+    assert_no_symlink_path "$path"
+  done
 }
 
 require_preconditions() {
@@ -52,18 +70,20 @@ require_preconditions() {
 }
 
 assert_secret_file() {
-  local path="$1" label="$2" boundary="${3:-$(dirname "$path")}" resolved
+  local path="$1" label="$2" boundary resolved
+  boundary="${3:-$(dirname "$path")}"
   [[ -f "$path" ]] || die "$label 파일이 없거나 안전하지 않습니다: $path"
   resolved="$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$path")" || die "$label 실제 경로를 확인할 수 없습니다."
-  [[ "$resolved" == "$boundary/"* || "$resolved" == "$boundary" ]] || die "$label이 Lab PKI 경계를 벗어났습니다."
+  [[ "$resolved" == "$boundary/"* || "$resolved" == "$boundary" ]] || die "${label}이 Lab PKI 경계를 벗어났습니다."
   [[ "$(file_mode "$path")" == "600" ]] || die "$label 권한은 0600이어야 합니다."
 }
 
 assert_public_file() {
-  local path="$1" label="$2" boundary="${3:-$(dirname "$path")}" resolved
+  local path="$1" label="$2" boundary resolved
+  boundary="${3:-$(dirname "$path")}"
   [[ -f "$path" ]] || die "$label 파일이 없거나 안전하지 않습니다: $path"
   resolved="$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$path")" || die "$label 실제 경로를 확인할 수 없습니다."
-  [[ "$resolved" == "$boundary/"* || "$resolved" == "$boundary" ]] || die "$label이 Lab PKI 경계를 벗어났습니다."
+  [[ "$resolved" == "$boundary/"* || "$resolved" == "$boundary" ]] || die "${label}이 Lab PKI 경계를 벗어났습니다."
 }
 
 write_env_line() {
@@ -79,10 +99,10 @@ write_env_line() {
 validate_outputs() {
   local name
   for name in api.crt api.chain.crt mqtt-server.crt mqtt-ca.crt api-ca.crt device-ca.crt api-mqtt-client.crt device.crl mqtt-client.crl; do
-    assert_public_file "$SERVICE_DIR/$name" "$name" "$SERVICE_DIR"
+    assert_public_file "$SERVICE_DIR/$name" "$name" "$SERVICE_ROOT"
   done
   for name in api.key mqtt-server.key api-mqtt-client.key; do
-    assert_secret_file "$SERVICE_DIR/$name" "$name" "$SERVICE_DIR"
+    assert_secret_file "$SERVICE_DIR/$name" "$name" "$SERVICE_ROOT"
   done
   for name in manufacturing-ca.crt station.crt manufacturing.crl; do
     assert_public_file "$MANUFACTURING_DIR/$name" "$name" "$MANUFACTURING_DIR"
@@ -91,28 +111,34 @@ validate_outputs() {
 }
 
 issue_application_token() {
-  local response token_temporary
+  local response token_temporary accessor_temporary
   response="$(mktemp "$LAB_PKI_DIR/.application-token-response.XXXXXX")"
   token_temporary="$(mktemp "$LAB_PKI_DIR/.application-token.XXXXXX")"
-  chmod 0600 "$response" "$token_temporary"
-  if ! "$VAULT_BIN" token create -policy=gateway-pki -orphan -period=24h -format=json >"$response"; then
-    rm -f "$response" "$token_temporary"
+  accessor_temporary="$(mktemp "$LAB_PKI_DIR/.application-token-accessor.XXXXXX")"
+  chmod 0600 "$response" "$token_temporary" "$accessor_temporary"
+  if ! "$VAULT_BIN" token create -policy=gateway-pki -orphan -no-default-policy -ttl=0 -format=json >"$response"; then
+    rm -f "$response" "$token_temporary" "$accessor_temporary"
     die "gateway-pki application token 발급에 실패했습니다."
   fi
-  if ! node - "$response" "$token_temporary" <<'NODE'
+  if ! node - "$response" "$token_temporary" "$accessor_temporary" <<'NODE'
 const fs = require("node:fs");
-const [source, target] = process.argv.slice(2);
-const token = JSON.parse(fs.readFileSync(source, "utf8"))?.auth?.client_token;
-if (typeof token !== "string" || token.length < 8 || /[\r\n]/.test(token)) process.exit(1);
-fs.writeFileSync(target, `${token}\n`, { mode: 0o600 });
-fs.chmodSync(target, 0o600);
+const [source, tokenTarget, accessorTarget] = process.argv.slice(2);
+const auth = JSON.parse(fs.readFileSync(source, "utf8"))?.auth;
+const policies = Array.isArray(auth?.policies) ? [...auth.policies].sort() : [];
+if (typeof auth?.client_token !== "string" || auth.client_token.length < 8 || /[\r\n]/.test(auth.client_token)) process.exit(1);
+if (typeof auth?.accessor !== "string" || auth.accessor.length < 8 || /[\r\n]/.test(auth.accessor)) process.exit(1);
+if (auth.lease_duration !== 0 || auth.renewable !== false || policies.join(",") !== "gateway-pki") process.exit(1);
+fs.writeFileSync(tokenTarget, `${auth.client_token}\n`, { mode: 0o600 });
+fs.writeFileSync(accessorTarget, `${auth.accessor}\n`, { mode: 0o600 });
+fs.chmodSync(tokenTarget, 0o600);
+fs.chmodSync(accessorTarget, 0o600);
 NODE
   then
-    rm -f "$response" "$token_temporary"
+    rm -f "$response" "$token_temporary" "$accessor_temporary"
     die "Vault application token 응답이 올바르지 않습니다."
   fi
   rm -f "$response"
-  printf '%s\n' "$token_temporary"
+  printf '%s|%s\n' "$token_temporary" "$accessor_temporary"
 }
 
 write_lab_env() {
@@ -144,6 +170,8 @@ write_lab_env() {
     write_env_line API_MANUFACTURING_CRL_PATH "$MANUFACTURING_DIR/manufacturing.crl"
     write_env_line PKI_API_CA_BUNDLE_PATH "$SERVICE_DIR/api-ca.crt"
     write_env_line PKI_MQTT_CA_BUNDLE_PATH "$SERVICE_DIR/mqtt-ca.crt"
+    write_env_line VITE_API_PROXY_TARGET "https://${LAB_API_DNS}:4000"
+    write_env_line NODE_EXTRA_CA_CERTS "$SERVICE_DIR/api-ca.crt"
     write_env_line LAB_API_DNS "$LAB_API_DNS"
     write_env_line LAB_API_IP "$LAB_API_IP"
     write_env_line LAB_MQTT_DNS "$LAB_MQTT_DNS"
@@ -159,9 +187,10 @@ write_lab_env() {
 
 main() {
   require_preconditions
+  validate_output_boundaries
   "$LAB_VAULT_SCRIPT" start
   assert_secret_file "$ROOT_TOKEN_FILE" "Lab Vault root token"
-  export VAULT_ADDR VAULT_BIN PKI_ENV LAB_API_DNS LAB_API_IP LAB_MQTT_DNS LAB_MQTT_IP PKI_SERVICE_CERT_DIR="$SERVICE_DIR" LAB_MANUFACTURING_DIR="$MANUFACTURING_DIR"
+  export VAULT_ADDR VAULT_BIN PKI_ENV LAB_API_DNS LAB_API_IP LAB_MQTT_DNS LAB_MQTT_IP PKI_SERVICE_CERT_DIR="$SERVICE_ROOT" LAB_MANUFACTURING_DIR="$MANUFACTURING_DIR"
   export VAULT_TOKEN
   VAULT_TOKEN="$(tr -d '\r\n' <"$ROOT_TOKEN_FILE")"
   [[ -n "$VAULT_TOKEN" ]] || die "Lab Vault root token이 비어 있습니다."
@@ -175,17 +204,26 @@ main() {
   validate_outputs
 
   mkdir -p "$LAB_PKI_DIR"
-  chmod 0700 "$LAB_PKI_DIR" "$SERVICE_DIR" "$MANUFACTURING_DIR"
-  local token_temporary env_temporary
+  chmod 0700 "$LAB_PKI_DIR" "$SERVICE_ROOT" "$MANUFACTURING_DIR"
+  local token_result token_temporary accessor_temporary env_temporary old_accessor=""
   VAULT_TOKEN="$(tr -d '\r\n' <"$ROOT_TOKEN_FILE")"
   export VAULT_TOKEN
-  token_temporary="$(issue_application_token)"
+  token_result="$(issue_application_token)"
+  token_temporary="${token_result%%|*}"
+  accessor_temporary="${token_result#*|}"
   unset VAULT_TOKEN
   env_temporary="$(mktemp "$LAB_PKI_DIR/.lab.env.XXXXXX")"
   write_lab_env "$token_temporary" "$env_temporary"
+  if [[ -f "$APPLICATION_TOKEN_ACCESSOR_FILE" && ! -L "$APPLICATION_TOKEN_ACCESSOR_FILE" ]]; then
+    old_accessor="$(tr -d '\r\n' <"$APPLICATION_TOKEN_ACCESSOR_FILE")"
+  fi
   mv -f "$token_temporary" "$APPLICATION_TOKEN_FILE"
+  if [[ -n "$old_accessor" ]]; then
+    VAULT_TOKEN="$(tr -d '\r\n' <"$ROOT_TOKEN_FILE")" "$VAULT_BIN" token revoke -accessor "$old_accessor" >/dev/null || die "이전 application token 폐기에 실패했습니다."
+  fi
+  mv -f "$accessor_temporary" "$APPLICATION_TOKEN_ACCESSOR_FILE"
   mv -f "$env_temporary" "$LAB_ENV_FILE"
-  chmod 0600 "$APPLICATION_TOKEN_FILE" "$LAB_ENV_FILE"
+  chmod 0600 "$APPLICATION_TOKEN_FILE" "$APPLICATION_TOKEN_ACCESSOR_FILE" "$LAB_ENV_FILE"
   printf 'Lab device trust environment가 준비되었습니다: %s\n' "$LAB_ENV_FILE"
 }
 

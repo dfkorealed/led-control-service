@@ -2,19 +2,31 @@
 set -euo pipefail
 umask 077
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 VAULT_BIN="${VAULT_BIN:-vault}"
 PKI_ENV="${PKI_ENV:-lab}"
-OUTPUT_DIR="${PKI_SERVICE_CERT_DIR:-$ROOT_DIR/.local/lab-pki/services}"
+OUTPUT_ROOT="${PKI_SERVICE_CERT_DIR:-$ROOT_DIR/.local/lab-pki/services}"
+GENERATIONS_DIR="$OUTPUT_ROOT/generations"
+CURRENT_POINTER="$OUTPUT_ROOT/current"
+LOCK_DIR="$OUTPUT_ROOT/.service-issue.lock"
+LOCK_TIMEOUT_SECONDS="${LAB_SERVICE_LOCK_TIMEOUT_SECONDS:-30}"
 
 DEVICE_MOUNT="gateway-device-pki"
 API_MOUNT="api-server-pki"
 MQTT_MOUNT="gateway-mqtt-pki"
 API_MQTT_URI_SAN="spiffe://led-control/mqtt/api-service"
 
+STAGE=""
+SCRATCH=""
+LOCK_HELD=0
+
 die() {
-  printf '%s\n' "$*" >&2
+  printf '[lab-service-cert] %s\n' "$*" >&2
   exit 1
+}
+
+file_mode() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
 }
 
 require_environment() {
@@ -29,11 +41,8 @@ validate_vault_environment() {
     production)
       [[ "$VAULT_ADDR" == https://* ]] || die "production Vault requires HTTPS VAULT_ADDR"
       local storage_type
-      storage_type="$("$VAULT_BIN" status -format=json | node -e 'let source = ""; process.stdin.on("data", (chunk) => { source += chunk; }); process.stdin.on("end", () => { const status = JSON.parse(source); process.stdout.write(String(status.storage_type || "").toLowerCase()); });')" || die "production Vault status is unavailable"
-      case "$storage_type" in
-        raft|consul) ;;
-        *) die "production Vault rejects unapproved storage backend: ${storage_type:-missing}" ;;
-      esac
+      storage_type="$("$VAULT_BIN" status -format=json | node -e 'let source = ""; process.stdin.on("data", chunk => source += chunk); process.stdin.on("end", () => process.stdout.write(String(JSON.parse(source).storage_type || "").toLowerCase()))')" || die "production Vault status is unavailable"
+      case "$storage_type" in raft|consul) ;; *) die "production Vault rejects unapproved storage backend: ${storage_type:-missing}" ;; esac
       ;;
     *) die "PKI_ENV must be lab or production" ;;
   esac
@@ -42,143 +51,191 @@ validate_vault_environment() {
 validate_dns() {
   local value="$1"
   [[ "$value" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] &&
-    [[ "$value" != *..* ]] &&
-    [[ ${#value} -le 253 ]] || die "DNS SAN is invalid"
+    [[ "$value" != *..* ]] && [[ ${#value} -le 253 ]] || die "DNS SAN is invalid"
 }
 
 validate_ipv4() {
-  local value="$1"
-  local IFS=.
+  local value="$1" IFS=. octet
   local -a octets
   read -r -a octets <<<"$value"
   [[ ${#octets[@]} -eq 4 ]] || die "IP SAN is invalid"
-  local octet
   for octet in "${octets[@]}"; do
-    [[ "$octet" =~ ^[0-9]{1,3}$ ]] || die "IP SAN is invalid"
-    ((10#$octet <= 255)) || die "IP SAN is invalid"
+    [[ "$octet" =~ ^[0-9]{1,3}$ ]] && ((10#$octet <= 255)) || die "IP SAN is invalid"
   done
 }
 
-publish_public() {
-  local name="$1"
-  local extension="$2"
-  local source="$3"
-  local version=1
-  local destination
-  while :; do
-    destination="$OUTPUT_DIR/${name}.v${version}.${extension}"
-    if [[ ! -e "$destination" ]]; then
-      local temporary
-      temporary="$(mktemp "$OUTPUT_DIR/.${name}.v${version}.XXXXXX")"
-      cp "$source" "$temporary"
-      chmod 0644 "$temporary"
-      mv -f "$temporary" "$destination"
-      break
-    fi
-    cmp -s "$source" "$destination" && break
-    version=$((version + 1))
+acquire_lock() {
+  local elapsed=0
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    [[ -d "$LOCK_DIR" && ! -L "$LOCK_DIR" ]] || die "service bundle lock 경로가 안전하지 않습니다."
+    (( elapsed >= LOCK_TIMEOUT_SECONDS )) && die "다른 service bundle 발급이 실행 중이거나 stale lock이 남아 있습니다."
+    sleep 1
+    elapsed=$((elapsed + 1))
   done
-
-  local current="$OUTPUT_DIR/${name}.${extension}"
-  local pointer="$OUTPUT_DIR/.${name}.current.XXXXXX"
-  rm -f "$pointer"
-  ln -s "$(basename "$destination")" "$pointer"
-  mv -f "$pointer" "$current"
+  chmod 0700 "$LOCK_DIR"
+  LOCK_HELD=1
 }
+
+cleanup() {
+  [[ -z "$STAGE" ]] || rm -rf "$STAGE"
+  [[ -z "$SCRATCH" ]] || rm -rf "$SCRATCH"
+  if (( LOCK_HELD )); then rmdir "$LOCK_DIR" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
 
 read_ca() {
-  local mount="$1"
-  local temporary="$2"
-  "$VAULT_BIN" read -field=certificate "$mount/cert/ca" >"$temporary"
-  grep -Fq -- "-----BEGIN CERTIFICATE-----" "$temporary" || die "Vault returned an invalid CA certificate"
+  local mount="$1" destination="$2"
+  "$VAULT_BIN" read -field=certificate "$mount/cert/ca" >"$destination"
+  openssl x509 -in "$destination" -noout >/dev/null 2>&1 || die "Vault returned an invalid CA certificate"
+  chmod 0644 "$destination"
+}
+
+read_crl() {
+  local mount="$1" ca="$2" destination="$3" label="$4"
+  "$VAULT_BIN" read -format=raw "$mount/crl/pem" >"$destination" || die "$label CRL 조회에 실패했습니다."
+  openssl crl -in "$destination" -noout -verify -CAfile "$ca" >/dev/null 2>&1 || die "Vault returned an invalid $label CRL"
+  chmod 0644 "$destination"
+}
+
+public_key_digest() {
+  openssl dgst -sha256 | awk '{print $NF}'
+}
+
+verify_key_pair() {
+  local key="$1" certificate="$2" label="$3" key_digest certificate_digest
+  key_digest="$(openssl pkey -in "$key" -pubout 2>/dev/null | public_key_digest)" || die "$label private key가 올바르지 않습니다."
+  certificate_digest="$(openssl x509 -in "$certificate" -pubkey -noout 2>/dev/null | public_key_digest)" || die "$label certificate가 올바르지 않습니다."
+  [[ "$key_digest" == "$certificate_digest" ]] || die "$label key와 certificate가 일치하지 않습니다."
 }
 
 issue_leaf() {
-  local name="$1"
-  local mount="$2"
-  local role="$3"
-  local common_name="$4"
-  local dns_name="$5"
-  local ip_address="$6"
-  local uri_san="${7:-}"
-
-  local key="$OUTPUT_DIR/${name}.key"
-  local csr="$OUTPUT_DIR/${name}.csr"
-  local certificate="$OUTPUT_DIR/${name}.crt"
-  local chain="$OUTPUT_DIR/${name}.chain.crt"
-  local key_temporary csr_temporary certificate_temporary chain_temporary
-  key_temporary="$(mktemp "$OUTPUT_DIR/.${name}.key.XXXXXX")"
-  csr_temporary="$(mktemp "$OUTPUT_DIR/.${name}.csr.XXXXXX")"
-  certificate_temporary="$(mktemp "$OUTPUT_DIR/.${name}.crt.XXXXXX")"
-  chain_temporary="$(mktemp "$OUTPUT_DIR/.${name}.chain.XXXXXX")"
-
-  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$key_temporary"
+  local directory="$1" name="$2" mount="$3" role="$4" common_name="$5" dns_name="$6" ip_address="$7" uri_san="${8:-}"
+  local key="$directory/${name}.key" csr="$directory/${name}.csr" certificate="$directory/${name}.crt"
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$key"
   if [[ -n "$uri_san" ]]; then
-    openssl req -new -key "$key_temporary" -out "$csr_temporary" -subj "/CN=$common_name" \
-      -addext "subjectAltName=URI:$uri_san"
-    "$VAULT_BIN" write -field=certificate "$mount/sign/$role" \
-      "csr=@$csr_temporary" \
-      "common_name=$common_name" \
-      "uri_sans=$uri_san" >"$certificate_temporary"
+    openssl req -new -key "$key" -out "$csr" -subj "/CN=$common_name" -addext "subjectAltName=URI:$uri_san"
+    "$VAULT_BIN" write -field=certificate "$mount/sign/$role" "csr=@$csr" "common_name=$common_name" "uri_sans=$uri_san" >"$certificate"
   else
-    openssl req -new -key "$key_temporary" -out "$csr_temporary" -subj "/CN=$common_name" \
-      -addext "subjectAltName=DNS:$dns_name,IP:$ip_address"
-    "$VAULT_BIN" write -field=certificate "$mount/sign/$role" \
-      "csr=@$csr_temporary" \
-      "common_name=$common_name" \
-      "alt_names=$dns_name" \
-      "ip_sans=$ip_address" >"$certificate_temporary"
+    openssl req -new -key "$key" -out "$csr" -subj "/CN=$common_name" -addext "subjectAltName=DNS:$dns_name,IP:$ip_address"
+    "$VAULT_BIN" write -field=certificate "$mount/sign/$role" "csr=@$csr" "common_name=$common_name" "alt_names=$dns_name" "ip_sans=$ip_address" >"$certificate"
   fi
-  grep -Fq -- "-----BEGIN CERTIFICATE-----" "$certificate_temporary" || die "Vault returned an invalid service certificate"
-  cat "$certificate_temporary" "$OUTPUT_DIR/${mount}.ca.tmp" >"$chain_temporary"
-
-  chmod 0600 "$key_temporary" "$csr_temporary"
-  chmod 0644 "$certificate_temporary" "$chain_temporary"
-  mv -f "$key_temporary" "$key"
-  mv -f "$csr_temporary" "$csr"
-  mv -f "$certificate_temporary" "$certificate"
-  mv -f "$chain_temporary" "$chain"
+  chmod 0600 "$key" "$csr"
+  chmod 0644 "$certificate"
+  cat "$certificate" "$directory/${mount}.ca" >"$directory/${name}.chain.crt"
+  chmod 0644 "$directory/${name}.chain.crt"
+  verify_key_pair "$key" "$certificate" "$name"
 }
 
-require_environment LAB_API_DNS
-require_environment LAB_API_IP
-require_environment LAB_MQTT_DNS
-require_environment LAB_MQTT_IP
+input_hash() {
+  {
+    printf '%s\0' "$LAB_API_DNS" "$LAB_API_IP" "$LAB_MQTT_DNS" "$LAB_MQTT_IP" "$API_MQTT_URI_SAN"
+    cat "$SCRATCH/api-ca.crt" "$SCRATCH/mqtt-ca.crt" "$SCRATCH/device-ca.crt"
+  } | openssl dgst -sha256 | awk '{print $NF}'
+}
+
+current_generation() {
+  [[ -e "$CURRENT_POINTER" || -L "$CURRENT_POINTER" ]] || return 1
+  [[ -L "$CURRENT_POINTER" ]] || die "service current pointer가 symlink가 아닙니다."
+  local target
+  target="$(readlink "$CURRENT_POINTER")"
+  [[ "$target" =~ ^generations/bundle-[0-9a-f]{64}$ ]] || die "service current pointer가 안전하지 않습니다."
+  printf '%s\n' "$OUTPUT_ROOT/$target"
+}
+
+verify_generation() {
+  local generation="$1" name
+  [[ -d "$generation" && ! -L "$generation" ]] || die "service generation이 안전하지 않습니다."
+  for name in api mqtt-server api-mqtt-client; do
+    [[ -f "$generation/$name.key" && ! -L "$generation/$name.key" && "$(file_mode "$generation/$name.key")" == 600 ]] || die "$name key가 안전하지 않습니다."
+    [[ -f "$generation/$name.csr" && ! -L "$generation/$name.csr" && "$(file_mode "$generation/$name.csr")" == 600 ]] || die "$name CSR이 안전하지 않습니다."
+    [[ -f "$generation/$name.crt" && ! -L "$generation/$name.crt" && "$(file_mode "$generation/$name.crt")" == 644 ]] || die "$name certificate가 안전하지 않습니다."
+    [[ -f "$generation/$name.chain.crt" && ! -L "$generation/$name.chain.crt" && "$(file_mode "$generation/$name.chain.crt")" == 644 ]] || die "$name chain이 안전하지 않습니다."
+    verify_key_pair "$generation/$name.key" "$generation/$name.crt" "$name"
+  done
+  for name in api-ca.crt mqtt-ca.crt device-ca.crt mqtt-client.crl device.crl input-hash; do
+    [[ -f "$generation/$name" && ! -L "$generation/$name" && "$(file_mode "$generation/$name")" == 644 ]] || die "$name 파일이 안전하지 않습니다."
+  done
+  openssl crl -in "$generation/mqtt-client.crl" -noout -verify -CAfile "$generation/mqtt-ca.crt" >/dev/null 2>&1 || die "MQTT CRL 검증에 실패했습니다."
+  openssl crl -in "$generation/device.crl" -noout -verify -CAfile "$generation/device-ca.crt" >/dev/null 2>&1 || die "device CRL 검증에 실패했습니다."
+}
+
+publish_current() {
+  local generation="$1" temporary="$OUTPUT_ROOT/.current.new-$$-$RANDOM"
+  ln -s "generations/$(basename "$generation")" "$temporary"
+  node -e 'require("node:fs").renameSync(process.argv[1], process.argv[2])' "$temporary" "$CURRENT_POINTER"
+}
+
+for name in LAB_API_DNS LAB_API_IP LAB_MQTT_DNS LAB_MQTT_IP; do require_environment "$name"; done
 validate_vault_environment
 validate_dns "$LAB_API_DNS"
 validate_dns "$LAB_MQTT_DNS"
 validate_ipv4 "$LAB_API_IP"
 validate_ipv4 "$LAB_MQTT_IP"
-[[ -x "$(command -v "$VAULT_BIN")" || -f "$VAULT_BIN" ]] || die "Vault executable is not available"
+[[ -x "$(command -v "$VAULT_BIN" 2>/dev/null || true)" || -f "$VAULT_BIN" ]] || die "Vault executable is not available"
+[[ "$LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die "LAB_SERVICE_LOCK_TIMEOUT_SECONDS must be an integer"
 
-mkdir -p "$OUTPUT_DIR"
-chmod 0700 "$OUTPUT_DIR"
+[[ ! -L "$OUTPUT_ROOT" && ! -L "$GENERATIONS_DIR" ]] || die "service bundle symlink 경로는 허용하지 않습니다."
+mkdir -p "$GENERATIONS_DIR"
+chmod 0700 "$OUTPUT_ROOT" "$GENERATIONS_DIR"
+acquire_lock
 
-api_ca="$(mktemp "$OUTPUT_DIR/.api-ca.XXXXXX")"
-mqtt_ca="$(mktemp "$OUTPUT_DIR/.mqtt-ca.XXXXXX")"
-device_ca="$(mktemp "$OUTPUT_DIR/.device-ca.XXXXXX")"
-mqtt_crl="$(mktemp "$OUTPUT_DIR/.mqtt-client.crl.XXXXXX")"
-device_crl="$(mktemp "$OUTPUT_DIR/.device.crl.XXXXXX")"
-trap 'rm -f "$api_ca" "$mqtt_ca" "$device_ca" "$mqtt_crl" "$device_crl" "$OUTPUT_DIR"/*.ca.tmp' EXIT
-read_ca "$API_MOUNT" "$api_ca"
-read_ca "$MQTT_MOUNT" "$mqtt_ca"
-read_ca "$DEVICE_MOUNT" "$device_ca"
-cp "$api_ca" "$OUTPUT_DIR/${API_MOUNT}.ca.tmp"
-cp "$mqtt_ca" "$OUTPUT_DIR/${MQTT_MOUNT}.ca.tmp"
-publish_public api-ca crt "$api_ca"
-publish_public mqtt-ca crt "$mqtt_ca"
-publish_public device-ca crt "$device_ca"
+SCRATCH="$(mktemp -d "$OUTPUT_ROOT/.service-material.XXXXXX")"
+chmod 0700 "$SCRATCH"
+read_ca "$API_MOUNT" "$SCRATCH/api-ca.crt"
+read_ca "$MQTT_MOUNT" "$SCRATCH/mqtt-ca.crt"
+read_ca "$DEVICE_MOUNT" "$SCRATCH/device-ca.crt"
+read_crl "$MQTT_MOUNT" "$SCRATCH/mqtt-ca.crt" "$SCRATCH/mqtt-client.crl" MQTT
+read_crl "$DEVICE_MOUNT" "$SCRATCH/device-ca.crt" "$SCRATCH/device.crl" device
 
-issue_leaf api "$API_MOUNT" api-server "$LAB_API_DNS" "$LAB_API_DNS" "$LAB_API_IP"
-issue_leaf mqtt-server "$MQTT_MOUNT" mqtt-server "$LAB_MQTT_DNS" "$LAB_MQTT_DNS" "$LAB_MQTT_IP"
-issue_leaf api-mqtt-client "$MQTT_MOUNT" api-mqtt-client api-service "" "" "$API_MQTT_URI_SAN"
+INPUT_HASH="$(input_hash)"
+CURRENT="$(current_generation || true)"
+if [[ -n "$CURRENT" ]]; then
+  verify_generation "$CURRENT"
+  if [[ "$(cat "$CURRENT/input-hash")" == "$INPUT_HASH" ]] &&
+    cmp -s "$CURRENT/api-ca.crt" "$SCRATCH/api-ca.crt" && cmp -s "$CURRENT/mqtt-ca.crt" "$SCRATCH/mqtt-ca.crt" &&
+    cmp -s "$CURRENT/device-ca.crt" "$SCRATCH/device-ca.crt" && cmp -s "$CURRENT/mqtt-client.crl" "$SCRATCH/mqtt-client.crl" &&
+    cmp -s "$CURRENT/device.crl" "$SCRATCH/device.crl"; then
+    printf 'Service certificate bundle is already current in %s\n' "$CURRENT_POINTER"
+    exit 0
+  fi
+fi
 
-"$VAULT_BIN" read -format=raw "$MQTT_MOUNT/crl/pem" >"$mqtt_crl"
-openssl crl -in "$mqtt_crl" -noout -verify -CAfile "$mqtt_ca" >/dev/null 2>&1 || die "Vault returned an invalid MQTT client CRL"
-publish_public mqtt-client crl "$mqtt_crl"
+STAGE="$(mktemp -d "$GENERATIONS_DIR/.bundle.XXXXXX")"
+chmod 0700 "$STAGE"
+cp "$SCRATCH/api-ca.crt" "$STAGE/api-ca.crt"
+cp "$SCRATCH/mqtt-ca.crt" "$STAGE/mqtt-ca.crt"
+cp "$SCRATCH/device-ca.crt" "$STAGE/device-ca.crt"
+cp "$SCRATCH/mqtt-client.crl" "$STAGE/mqtt-client.crl"
+cp "$SCRATCH/device.crl" "$STAGE/device.crl"
+cp "$SCRATCH/api-ca.crt" "$STAGE/${API_MOUNT}.ca"
+cp "$SCRATCH/mqtt-ca.crt" "$STAGE/${MQTT_MOUNT}.ca"
+chmod 0644 "$STAGE"/*.crt "$STAGE"/*.crl "$STAGE"/*.ca
+printf '%s\n' "$INPUT_HASH" >"$STAGE/input-hash"
+chmod 0644 "$STAGE/input-hash"
 
-"$VAULT_BIN" read -format=raw "$DEVICE_MOUNT/crl/pem" >"$device_crl"
-openssl crl -in "$device_crl" -noout -verify -CAfile "$device_ca" >/dev/null 2>&1 || die "Vault returned an invalid Gateway device CRL"
-publish_public device crl "$device_crl"
+if [[ -n "$CURRENT" && "$(cat "$CURRENT/input-hash")" == "$INPUT_HASH" ]]; then
+  for name in api mqtt-server api-mqtt-client; do
+    cp "$CURRENT/$name.key" "$CURRENT/$name.csr" "$CURRENT/$name.crt" "$CURRENT/$name.chain.crt" "$STAGE/"
+  done
+else
+  issue_leaf "$STAGE" api "$API_MOUNT" api-server "$LAB_API_DNS" "$LAB_API_DNS" "$LAB_API_IP"
+  issue_leaf "$STAGE" mqtt-server "$MQTT_MOUNT" mqtt-server "$LAB_MQTT_DNS" "$LAB_MQTT_DNS" "$LAB_MQTT_IP"
+  issue_leaf "$STAGE" api-mqtt-client "$MQTT_MOUNT" api-mqtt-client api-service "" "" "$API_MQTT_URI_SAN"
+fi
+rm -f "$STAGE/${API_MOUNT}.ca" "$STAGE/${MQTT_MOUNT}.ca"
+chmod 0600 "$STAGE"/*.key "$STAGE"/*.csr
+chmod 0644 "$STAGE"/*.crt "$STAGE"/*.crl "$STAGE/input-hash"
+verify_generation "$STAGE"
 
-printf 'Public service certificate bundle is ready in %s\n' "$OUTPUT_DIR"
+BUNDLE_HASH="$(cat "$STAGE"/*.crt "$STAGE"/*.crl "$STAGE/input-hash" | openssl dgst -sha256 | awk '{print $NF}')"
+FINAL="$GENERATIONS_DIR/bundle-$BUNDLE_HASH"
+if [[ -e "$FINAL" ]]; then
+  verify_generation "$FINAL"
+  rm -rf "$STAGE"
+  STAGE=""
+else
+  mv "$STAGE" "$FINAL"
+  STAGE=""
+fi
+publish_current "$FINAL"
+printf 'Public service certificate bundle is ready in %s\n' "$CURRENT_POINTER"

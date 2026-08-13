@@ -60,6 +60,17 @@ describe("startApiTlsCrlReload", () => {
 
     expect(server.setSecureContext).toHaveBeenCalledWith(options(["device-old", "manufacturing-new"]));
   });
+
+  it("periodically reloads a CRL reached through an unchanged symlink", () => {
+    const harness = createHarness();
+    const server = { setSecureContext: jest.fn() };
+    const load = jest.fn().mockReturnValueOnce(options("old")).mockReturnValueOnce(options("revoked"));
+
+    startApiTlsCrlReload({ crlPaths: ["/tls/current/manufacturing.crl"], initialOptions: load(), load, server, ...harness });
+    harness.runPoll();
+
+    expect(server.setSecureContext).toHaveBeenCalledWith(options("revoked"));
+  });
 });
 
 function options(crl: string | string[]) {
@@ -70,6 +81,7 @@ function options(crl: string | string[]) {
 function createHarness() {
   let callback: ((event: string, filename: string) => void) | undefined;
   let pending: (() => void) | undefined;
+  let poll: (() => void) | undefined;
   return {
     watch: jest.fn((_path: string, listener: (event: string, filename: string) => void) => {
       callback = listener;
@@ -80,6 +92,11 @@ function createHarness() {
       return 1 as unknown as NodeJS.Timeout;
     }),
     cancel: jest.fn(),
+    repeat: jest.fn((listener: () => void) => {
+      poll = listener;
+      return 2 as unknown as NodeJS.Timeout;
+    }),
+    cancelRepeat: jest.fn(),
     trigger(event: string, filename: string) {
       callback?.(event, filename);
     },
@@ -87,6 +104,9 @@ function createHarness() {
       const listener = pending;
       pending = undefined;
       listener?.();
+    },
+    runPoll() {
+      poll?.();
     }
   };
 }

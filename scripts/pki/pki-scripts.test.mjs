@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -52,12 +52,13 @@ function createValidCrl(directory) {
   ].join("\n"));
   const crl = join(caDirectory, "mqtt-client.crl");
   execFileSync("openssl", ["ca", "-config", join(caDirectory, "openssl.cnf"), "-gencrl", "-out", crl], { stdio: "ignore" });
-  return { crl, ca: join(caDirectory, "ca.crt") };
+  return { crl, ca: join(caDirectory, "ca.crt"), caKey: join(caDirectory, "ca.key") };
 }
 
 function writeMockVault(directory, crlMaterial = {}, storageType = "inmem") {
   const crlPath = typeof crlMaterial === "string" ? crlMaterial : crlMaterial.crl ?? "";
   const caPath = typeof crlMaterial === "string" ? "" : crlMaterial.ca ?? "";
+  const caKeyPath = typeof crlMaterial === "string" ? "" : crlMaterial.caKey ?? "";
   const executable = join(directory, "vault");
   writeFileSync(
     executable,
@@ -71,9 +72,12 @@ elif [[ "$1" == "status" ]]; then
 elif [[ "$1 $2" == "read -field=certificate" ]]; then
   if [[ -n "${caPath}" ]]; then cat "${caPath}"; else printf '%s\\n' '-----BEGIN CERTIFICATE-----' 'INTERMEDIATE' '-----END CERTIFICATE-----'; fi
 elif [[ "$1 $2" == "read -format=raw" ]]; then
+  [[ "\${LAB_TEST_FAIL_CRL:-0}" != 1 ]] || exit 44
   cat "${crlPath}"
 elif [[ "$1 $2" == "write -field=certificate" ]]; then
-  printf '%s\\n' '-----BEGIN CERTIFICATE-----' 'LEAF' '-----END CERTIFICATE-----'
+  csr=''
+  for argument in "$@"; do [[ "$argument" == csr=@* ]] && csr="\${argument#csr=@}"; done
+  openssl x509 -req -in "$csr" -CA "${caPath}" -CAkey "${caKeyPath}" -set_serial "$RANDOM" -days 1
 elif [[ "$1 $2" == "write -field=csr" ]]; then
   printf '%s\\n' '-----BEGIN CERTIFICATE REQUEST-----' 'CSR' '-----END CERTIFICATE REQUEST-----'
 fi
@@ -244,27 +248,59 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
       PKI_SERVICE_CERT_DIR: output
     });
     const log = readFileSync(join(directory, "vault.log"), "utf8");
+    const current = join(output, "current");
     assert.match(log, /api-server-pki\/sign\/api-server.*common_name=api\.lan.*alt_names=api\.lan.*ip_sans=192\.168\.1\.10/);
     assert.match(log, /gateway-mqtt-pki\/sign\/mqtt-server.*common_name=mqtt\.lan.*alt_names=mqtt\.lan.*ip_sans=192\.168\.1\.11/);
     assert.match(log, /gateway-mqtt-pki\/sign\/api-mqtt-client.*common_name=api-service.*uri_sans=spiffe:\/\/led-control\/mqtt\/api-service/);
     for (const name of ["api", "mqtt-server", "api-mqtt-client"]) {
-      assert.equal(mode(join(output, `${name}.key`)), 0o600);
-      assert.equal(mode(join(output, `${name}.crt`)), 0o644);
-      assert.equal(mode(join(output, `${name}.chain.crt`)), 0o644);
-      assert.equal(mode(join(output, `${name}.csr`)), 0o600);
+      assert.equal(mode(join(current, `${name}.key`)), 0o600);
+      assert.equal(mode(join(current, `${name}.crt`)), 0o644);
+      assert.equal(mode(join(current, `${name}.chain.crt`)), 0o644);
+      assert.equal(mode(join(current, `${name}.csr`)), 0o600);
     }
     for (const name of ["api-ca", "mqtt-ca", "device-ca"]) {
-      assert.equal(mode(join(output, `${name}.v1.crt`)), 0o644);
-      assert.equal(mode(join(output, `${name}.crt`)), 0o644);
-      assert.match(readFileSync(join(output, `${name}.crt`), "utf8"), /BEGIN CERTIFICATE/);
+      assert.equal(mode(join(current, `${name}.crt`)), 0o644);
+      assert.match(readFileSync(join(current, `${name}.crt`), "utf8"), /BEGIN CERTIFICATE/);
     }
-    assert.equal(mode(join(output, "mqtt-client.crl")), 0o644);
-    assert.match(readFileSync(join(output, "mqtt-client.crl"), "utf8"), /BEGIN X509 CRL/);
-    assert.equal(mode(join(output, "device.crl")), 0o644);
-    assert.match(readFileSync(join(output, "device.crl"), "utf8"), /BEGIN X509 CRL/);
+    assert.equal(mode(join(current, "mqtt-client.crl")), 0o644);
+    assert.match(readFileSync(join(current, "mqtt-client.crl"), "utf8"), /BEGIN X509 CRL/);
+    assert.equal(mode(join(current, "device.crl")), 0o644);
+    assert.match(readFileSync(join(current, "device.crl"), "utf8"), /BEGIN X509 CRL/);
     assert.match(log, /read -format=raw gateway-mqtt-pki\/crl\/pem/);
     assert.match(log, /read -format=raw gateway-device-pki\/crl\/pem/);
     assert.doesNotMatch(stdout, /token|BEGIN .*PRIVATE KEY/i);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("service bundle은 동일 SAN 재실행에 멱등이고 CRL 실패 시 기존 generation을 보존한다", () => {
+  const directory = temporaryDirectory();
+  const vault = writeMockVault(directory, createValidCrl(directory));
+  const output = join(directory, "bundle");
+  const environment = {
+    VAULT_BIN: vault,
+    VAULT_ADDR: "https://vault.internal:8200",
+    LAB_API_DNS: "api.lan",
+    LAB_API_IP: "192.168.1.10",
+    LAB_MQTT_DNS: "mqtt.lan",
+    LAB_MQTT_IP: "192.168.1.11",
+    PKI_SERVICE_CERT_DIR: output
+  };
+  try {
+    run(issue, [], environment);
+    const firstTarget = readlinkSync(join(output, "current"));
+    const firstLog = readFileSync(join(directory, "vault.log"), "utf8");
+    const firstSignCount = (firstLog.match(/write -field=certificate/g) ?? []).length;
+
+    run(issue, [], environment);
+    assert.equal(readlinkSync(join(output, "current")), firstTarget);
+    const secondLog = readFileSync(join(directory, "vault.log"), "utf8");
+    assert.equal((secondLog.match(/write -field=certificate/g) ?? []).length, firstSignCount);
+
+    const failure = runFailure(issue, [], { ...environment, LAB_TEST_FAIL_CRL: "1" });
+    assert.match(failure, /CRL|crl|failed|실패/i);
+    assert.equal(readlinkSync(join(output, "current")), firstTarget);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
