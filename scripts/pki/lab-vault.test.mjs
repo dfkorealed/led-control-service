@@ -102,7 +102,7 @@ start_server() {
   rm -f "$server_ready_file"
   node "${serverScript}" "$LAB_VAULT_PORT" "${unsealRequestFile}" "$unsealed_file" "$server_ready_file" "$FAKE_UNSEAL_RESPONSE_MODE" >/dev/null 2>&1 &
   printf '%s\n' "$!" > "$server_pid_file"
-  for _ in {1..100}; do
+  for _ in {1..500}; do
     [[ -f "$server_ready_file" ]] && return
     sleep 0.01
   done
