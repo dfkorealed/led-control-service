@@ -42,7 +42,7 @@ if [ ! -f .env.appliance ]; then
   exit 2
 fi
 for file in device.crt device.key api-ca.crt mqtt-ca.crt; do
-  [ -s "data/identity/device/current/$file" ] || { echo "제조 identity 누락: $REMOTE_DIR/data/identity/device/current/$file" >&2; exit 2; }
+  sudo test -s "data/identity/device/current/$file" || { echo "제조 identity 누락: $REMOTE_DIR/data/identity/device/current/$file" >&2; exit 2; }
 done
 
 set -a

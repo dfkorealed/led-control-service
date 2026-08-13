@@ -20,6 +20,7 @@ test("deploy script는 image를 먼저 load하고 제조 identity 검증 뒤 Com
   assert.match(source, /\.env\.appliance/);
   assert.ok(source.indexOf("docker image load") < source.indexOf("제조 identity 누락"));
   assert.match(source, /data\/identity\/device\/current\/\$file/);
+  assert.match(source, /sudo test -s "data\/identity\/device\/current\/\$file"/);
   assert.doesNotMatch(source, /data\/certs\/gateway\.crt/);
   assert.match(source, /docker compose/);
   assert.match(source, /--remove-orphans/);
