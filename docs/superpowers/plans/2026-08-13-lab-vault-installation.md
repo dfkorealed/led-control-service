@@ -88,20 +88,20 @@ Commit: `feat(pki): automate lab intermediate signing`
 **Interfaces:**
 - Produces: `manufacturing-ca.crt`, `station.crt`, `station.key`, `station.chain.crt`
 
-- [ ] **Step 1: 실패 테스트 작성**
+- [x] **Step 1: 실패 테스트 작성**
 
 station certificate가 별도 CA로 서명되고 `clientAuth`만 가지며 key `0600`, CA `0644`, 동일 station 멱등성, 잘못된 이름과 production 실행 거부를 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `node --test scripts/pki/issue-lab-manufacturing-station.test.mjs`
 Expected: issuer가 없어 실패
 
-- [ ] **Step 3: 발급 구현**
+- [x] **Step 3: 발급 구현**
 
 ECDSA P-256 Manufacturing CA와 station key/CSR을 생성하고 clientAuth extension으로 서명한다. 기존 인증서의 subject/issuer/key 일치가 확인된 경우만 재사용한다.
 
-- [ ] **Step 4: 검증과 커밋**
+- [x] **Step 4: 검증과 커밋**
 
 Run: `node --test scripts/pki/issue-lab-manufacturing-station.test.mjs && git diff --check`
 
