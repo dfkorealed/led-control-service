@@ -30,20 +30,20 @@
 - Produces: `scripts/pki/lab-vault.sh start|status|stop|reset --confirm-lab-destroy`
 - Produces: `.local/lab-vault/root-token`, loopback `VAULT_ADDR`
 
-- [ ] **Step 1: 실패 테스트 작성**
+- [x] **Step 1: 실패 테스트 작성**
 
 fake Docker 실행 파일로 `PKI_ENV=production` 거부, root token `0600`, start 멱등성, reset 확인 인자와 secret 비출력을 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `node --test scripts/pki/lab-vault.test.mjs`
 Expected: `lab-vault.sh`가 없어 실패
 
-- [ ] **Step 3: 최소 구현**
+- [x] **Step 3: 최소 구현**
 
 Vault image를 loopback 포트에 dev mode로 실행하고 root token을 파일에서 주입한다. `status`는 `vault status`, `stop`은 container 정지만 수행하고 `reset`만 Lab container와 Lab Vault 디렉터리를 제거한다.
 
-- [ ] **Step 4: 검증과 커밋**
+- [x] **Step 4: 검증과 커밋**
 
 Run: `node --test scripts/pki/lab-vault.test.mjs && git diff --check`
 
