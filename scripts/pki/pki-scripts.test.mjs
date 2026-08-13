@@ -52,10 +52,12 @@ function createValidCrl(directory) {
   ].join("\n"));
   const crl = join(caDirectory, "mqtt-client.crl");
   execFileSync("openssl", ["ca", "-config", join(caDirectory, "openssl.cnf"), "-gencrl", "-out", crl], { stdio: "ignore" });
-  return crl;
+  return { crl, ca: join(caDirectory, "ca.crt") };
 }
 
-function writeMockVault(directory, crlPath = "", storageType = "inmem") {
+function writeMockVault(directory, crlMaterial = {}, storageType = "inmem") {
+  const crlPath = typeof crlMaterial === "string" ? crlMaterial : crlMaterial.crl ?? "";
+  const caPath = typeof crlMaterial === "string" ? "" : crlMaterial.ca ?? "";
   const executable = join(directory, "vault");
   writeFileSync(
     executable,
@@ -67,7 +69,7 @@ if [[ "$1" == "list" ]]; then
 elif [[ "$1" == "status" ]]; then
   printf '%s\\n' '{"storage_type":"${storageType}"}'
 elif [[ "$1 $2" == "read -field=certificate" ]]; then
-  printf '%s\\n' '-----BEGIN CERTIFICATE-----' 'INTERMEDIATE' '-----END CERTIFICATE-----'
+  if [[ -n "${caPath}" ]]; then cat "${caPath}"; else printf '%s\\n' '-----BEGIN CERTIFICATE-----' 'INTERMEDIATE' '-----END CERTIFICATE-----'; fi
 elif [[ "$1 $2" == "read -format=raw" ]]; then
   cat "${crlPath}"
 elif [[ "$1 $2" == "write -field=certificate" ]]; then
@@ -251,14 +253,17 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
       assert.equal(mode(join(output, `${name}.chain.crt`)), 0o644);
       assert.equal(mode(join(output, `${name}.csr`)), 0o600);
     }
-    for (const name of ["api-ca", "mqtt-ca"]) {
+    for (const name of ["api-ca", "mqtt-ca", "device-ca"]) {
       assert.equal(mode(join(output, `${name}.v1.crt`)), 0o644);
       assert.equal(mode(join(output, `${name}.crt`)), 0o644);
       assert.match(readFileSync(join(output, `${name}.crt`), "utf8"), /BEGIN CERTIFICATE/);
     }
     assert.equal(mode(join(output, "mqtt-client.crl")), 0o644);
     assert.match(readFileSync(join(output, "mqtt-client.crl"), "utf8"), /BEGIN X509 CRL/);
+    assert.equal(mode(join(output, "device.crl")), 0o644);
+    assert.match(readFileSync(join(output, "device.crl"), "utf8"), /BEGIN X509 CRL/);
     assert.match(log, /read -format=raw gateway-mqtt-pki\/crl\/pem/);
+    assert.match(log, /read -format=raw gateway-device-pki\/crl\/pem/);
     assert.doesNotMatch(stdout, /token|BEGIN .*PRIVATE KEY/i);
   } finally {
     rmSync(directory, { recursive: true, force: true });

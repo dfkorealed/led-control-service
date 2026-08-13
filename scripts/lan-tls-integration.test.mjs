@@ -116,13 +116,14 @@ test("Vault-issued LAN bundle enforces MQTT mTLS, CRL, DNS/IP SAN, and productio
       FAKE_VAULT_CRL: ca.crl
     });
     assert.match(output, /Public service certificate bundle is ready/);
-    for (const name of ["mqtt-server.crt", "mqtt-server.key", "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key", "mqtt-client.crl"]) {
+    for (const name of ["mqtt-server.crt", "mqtt-server.key", "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key", "mqtt-client.crl", "device-ca.crt", "device.crl"]) {
       assert.match(readFileSync(join(bundle, name), "utf8"), /-----BEGIN/);
     }
 
     assert.match(runOpenSsl(["verify", "-CAfile", join(bundle, "mqtt-ca.crt"), join(bundle, "mqtt-server.crt")], directory), /OK/);
     assert.match(runOpenSsl(["verify", "-CAfile", join(bundle, "mqtt-ca.crt"), join(bundle, "api-mqtt-client.crt")], directory), /OK/);
     assert.match(runOpenSsl(["crl", "-in", join(bundle, "mqtt-client.crl"), "-noout", "-text"], directory), /Revoked Certificates/);
+    assert.match(runOpenSsl(["crl", "-in", join(bundle, "device.crl"), "-noout", "-text"], directory), /Revoked Certificates/);
     const mqttCertificate = runOpenSsl(["x509", "-in", join(bundle, "mqtt-server.crt"), "-noout", "-text"], directory);
     const clientCertificate = runOpenSsl(["x509", "-in", join(bundle, "api-mqtt-client.crt"), "-noout", "-text"], directory);
     assert.match(mqttCertificate, /Public Key Algorithm: id-ecPublicKey/);

@@ -119,20 +119,20 @@ Commit: `feat(pki): issue lab manufacturing station identity`
 - Consumes: `LAB_API_IP`, `LAB_MQTT_IP`, 선택적 `LAB_API_DNS`, `LAB_MQTT_DNS`
 - Produces: `.local/lab-pki/lab.env`, API/MQTT service bundle, device CRL, policy-scoped Vault token file
 
-- [ ] **Step 1: 실패 테스트 작성**
+- [x] **Step 1: 실패 테스트 작성**
 
 필수 도구 선검사, 실행 순서, production 거부, device/MQTT/manufacturing CRL, application token file 권한, 절대 경로 env, root token 미사용과 부분 실패 보존을 fake command로 검사한다. 실제 mTLS 계약 시험은 제조 station certificate 통과와 다른 CA·폐기 station certificate 거부를 검증한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `node --test scripts/pki/bootstrap-device-lab.test.mjs`
 Expected: orchestrator가 없어 실패
 
-- [ ] **Step 3: 통합 구현**
+- [x] **Step 3: 통합 구현**
 
 Vault start→prepare→sign→install→service/station issue→CRL→policy token→env 순서로 실행한다. `lab.env`에는 인증서 경로, MQTT/API URL, Vault mount/role과 token file 경로만 기록한다.
 
-- [ ] **Step 4: 검증과 커밋**
+- [x] **Step 4: 검증과 커밋**
 
 Run: `node --test scripts/pki/*.test.mjs && pnpm test:lan-tls && git diff --check`
 

@@ -5,8 +5,9 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VAULT_BIN="${VAULT_BIN:-vault}"
 PKI_ENV="${PKI_ENV:-lab}"
-OUTPUT_DIR="${PKI_SERVICE_CERT_DIR:-$ROOT_DIR/.local/vault-pki/services}"
+OUTPUT_DIR="${PKI_SERVICE_CERT_DIR:-$ROOT_DIR/.local/lab-pki/services}"
 
+DEVICE_MOUNT="gateway-device-pki"
 API_MOUNT="api-server-pki"
 MQTT_MOUNT="gateway-mqtt-pki"
 API_MQTT_URI_SAN="spiffe://led-control/mqtt/api-service"
@@ -155,21 +156,29 @@ chmod 0700 "$OUTPUT_DIR"
 
 api_ca="$(mktemp "$OUTPUT_DIR/.api-ca.XXXXXX")"
 mqtt_ca="$(mktemp "$OUTPUT_DIR/.mqtt-ca.XXXXXX")"
-crl="$(mktemp "$OUTPUT_DIR/.mqtt-client.crl.XXXXXX")"
-trap 'rm -f "$api_ca" "$mqtt_ca" "$crl" "$OUTPUT_DIR"/*.ca.tmp' EXIT
+device_ca="$(mktemp "$OUTPUT_DIR/.device-ca.XXXXXX")"
+mqtt_crl="$(mktemp "$OUTPUT_DIR/.mqtt-client.crl.XXXXXX")"
+device_crl="$(mktemp "$OUTPUT_DIR/.device.crl.XXXXXX")"
+trap 'rm -f "$api_ca" "$mqtt_ca" "$device_ca" "$mqtt_crl" "$device_crl" "$OUTPUT_DIR"/*.ca.tmp' EXIT
 read_ca "$API_MOUNT" "$api_ca"
 read_ca "$MQTT_MOUNT" "$mqtt_ca"
+read_ca "$DEVICE_MOUNT" "$device_ca"
 cp "$api_ca" "$OUTPUT_DIR/${API_MOUNT}.ca.tmp"
 cp "$mqtt_ca" "$OUTPUT_DIR/${MQTT_MOUNT}.ca.tmp"
 publish_public api-ca crt "$api_ca"
 publish_public mqtt-ca crt "$mqtt_ca"
+publish_public device-ca crt "$device_ca"
 
 issue_leaf api "$API_MOUNT" api-server "$LAB_API_DNS" "$LAB_API_DNS" "$LAB_API_IP"
 issue_leaf mqtt-server "$MQTT_MOUNT" mqtt-server "$LAB_MQTT_DNS" "$LAB_MQTT_DNS" "$LAB_MQTT_IP"
 issue_leaf api-mqtt-client "$MQTT_MOUNT" api-mqtt-client api-service "" "" "$API_MQTT_URI_SAN"
 
-"$VAULT_BIN" read -format=raw "$MQTT_MOUNT/crl/pem" >"$crl"
-openssl crl -in "$crl" -noout >/dev/null 2>&1 || die "Vault returned an invalid MQTT client CRL"
-publish_public mqtt-client crl "$crl"
+"$VAULT_BIN" read -format=raw "$MQTT_MOUNT/crl/pem" >"$mqtt_crl"
+openssl crl -in "$mqtt_crl" -noout -verify -CAfile "$mqtt_ca" >/dev/null 2>&1 || die "Vault returned an invalid MQTT client CRL"
+publish_public mqtt-client crl "$mqtt_crl"
+
+"$VAULT_BIN" read -format=raw "$DEVICE_MOUNT/crl/pem" >"$device_crl"
+openssl crl -in "$device_crl" -noout -verify -CAfile "$device_ca" >/dev/null 2>&1 || die "Vault returned an invalid Gateway device CRL"
+publish_public device crl "$device_crl"
 
 printf 'Public service certificate bundle is ready in %s\n' "$OUTPUT_DIR"

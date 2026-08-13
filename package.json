@@ -23,6 +23,9 @@
     "lab:vault": "scripts/pki/lab-vault.sh",
     "test:lab:vault": "node --test scripts/pki/lab-vault.test.mjs",
     "test:lab:vault:integration": "LAB_VAULT_INTEGRATION=1 node --test scripts/pki/lab-vault.test.mjs",
+    "lab:pki:bootstrap": "PKI_ENV=lab scripts/pki/bootstrap-device-lab.sh",
+    "test:lab:pki": "node --test scripts/pki/*.test.mjs scripts/lan-tls-integration.test.mjs",
+    "test:lab:pki:integration": "PKI_ENV=lab scripts/pki/bootstrap-device-lab.sh",
     "docker:up": "docker compose up -d",
     "docker:up:production": "docker compose -f docker-compose.yml -f docker-compose.production.yml up -d",
     "docker:down": "docker compose down"
