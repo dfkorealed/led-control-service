@@ -8,6 +8,8 @@ PKI 제조 등록 -> claim -> bootstrap -> MQTT 발급과 token 재사용, seria
 
 ## 로컬 실장비 개발 환경
 
+Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi claim과 ESP32-H2 등록·제어까지 양산 흐름을 따르는 반복 시험은 [`docs/runbooks/device-lab-first-install.md`](docs/runbooks/device-lab-first-install.md)를 기준으로 한다. 아래 절차는 기존 개발 CA를 사용하는 빠른 로컬 실행 경로다.
+
 1. 의존성을 설치합니다.
 
    ```bash

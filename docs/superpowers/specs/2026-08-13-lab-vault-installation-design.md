@@ -26,12 +26,13 @@ MacBook에서 API·Web·MQTT를 실행하고 같은 LAN의 Raspberry Pi와 ESP32
 - 기본 명령은 기존 PKI를 덮어쓰지 않는다. 초기화는 별도 `reset --confirm-lab-destroy`처럼 명시적 확인을 요구한다.
 - Lab Root는 자동화 편의를 위해 로컬 파일로 관리하지만 양산에서는 금지한다. 양산 Root는 오프라인 보관하고 Vault에는 intermediate key만 둔다.
 - Lab Vault는 Docker의 persistent file-storage server mode를 사용한다. 최초 시작은 1-share/1-threshold Lab 전용 `operator init`과 unseal을 수행하며, `stop`과 재시작은 host data와 저장된 Lab unseal key를 사용해 상태를 복구한다. 이 구성은 Lab 편의용이며 양산에서 금지한다. HA, 자동 unseal, 외부 KMS, audit device, 백업 또는 운영 unseal 절차를 제공하지 않는다.
+- Lab PKI를 실행하는 OS 계정은 신뢰 경계다. 같은 UID의 악성 프로세스는 `0600` Root key와 token을 직접 읽을 수 있으므로 스크립트가 방어할 수 있는 공격자로 간주하지 않는다. 다른 계정의 접근, 외부 경로·symlink 주입과 우발적인 동시 실행을 방어하며, 동일 UID 침해는 호스트 계정 폐기와 Lab PKI 전체 reset으로 대응한다.
 
 ## 구성 요소
 
 ### Lab Vault 수명주기
 
-`scripts/pki/lab-vault.sh`는 `start`, `status`, `stop`, `reset` 명령을 제공한다. 고정된 loopback 포트로 persistent file-storage Vault server container를 실행하고, host의 `.local/lab-vault/data`를 `/vault/file`에 mount한다. 최초 시작은 `operator init -key-shares=1 -key-threshold=1 -format=json` 결과를 콘솔에 출력하지 않고 root token과 unseal key 파일로 원자 저장한다. unseal key는 `docker exec -i` stdin으로만 전달한다. container name과 삭제 경로는 고정하며 image tag와 포트만 Lab 전용 환경변수로 변경할 수 있다.
+`scripts/pki/lab-vault.sh`는 `start`, `status`, `stop`, `reset` 명령을 제공한다. 고정된 loopback 포트로 persistent file-storage Vault server container를 실행하고, host의 `.local/lab-vault/data`를 `/vault/file`에 mount한다. 최초 시작은 `operator init -key-shares=1 -key-threshold=1 -format=json` 결과를 콘솔에 출력하지 않고 root token과 unseal key 파일로 원자 저장한다. unseal key는 Node HTTP client가 loopback `/v1/sys/unseal` 요청 body로만 전달하며 argv, 환경변수와 로그에 넣지 않는다. container name과 삭제 경로는 고정하며 image tag와 포트만 Lab 전용 환경변수로 변경할 수 있다.
 
 ### Lab Root와 intermediate 서명
 

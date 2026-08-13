@@ -142,3 +142,9 @@
 - **원인**: Playwright glob은 pathname segment 경계를 강제하지 않으므로 `src/api`도 패턴에 포함된다. fixture handler가 URL pathname을 다시 검사하지 않고 모든 비매칭 요청을 API `404`로 fulfill했다.
 - **해결 및 예방책**: route handler 첫 단계에서 `pathname.startsWith("/api/")`를 확인하고 그 외 요청은 `route.continue()`로 넘긴다. fixture data는 E2E support 아래에만 두고, tenant/site 범위를 벗어난 실제 API path만 `404`로 제한한다.
 - **반복 방지 체크**: Vite SPA E2E route mock을 추가하면 source module과 asset 요청이 정상 `200`인지, 인증 loading 화면이 아닌 실제 React 화면이 렌더되는지 함께 확인한다.
+## 2026-08-13 / Lab PKI도 제품 신뢰 흐름을 우회하지 않기
+
+- **발생했던 문제/실수**: 실제 장비 E2E에 필요한 Vault, Root 서명, 제조 station 준비가 수동 단계로 흩어져 재현하기 어렵고 개발 CA 경로와 혼동될 수 있었다.
+- **원인**: PKI 산출물의 소유 경계, 발급 순서와 reset 범위를 하나의 실행 계약으로 검증하지 않았다.
+- **해결 및 예방책**: `PKI_ENV=lab` 전용 orchestrator가 persistent Vault, 목적별 intermediate, 별도 제조 CA/station, CRL, 제한 token과 실행 bundle을 생성한다. 제품의 제조 등록, claim, bootstrap, MQTT mTLS API는 그대로 사용한다.
+- **반복 방지 체크**: root token/private key 비출력, secret `0600`, loopback Vault, 동일 입력 멱등성, 타 CA·폐기 station 거부와 Lab 디렉터리만 삭제하는 reset을 자동 테스트한다. 실제 Pi/ESP32 증거 없이는 양산 완료로 표시하지 않는다.

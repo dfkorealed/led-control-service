@@ -151,24 +151,26 @@ Commit: `feat(pki): bootstrap device lab trust environment`
 - Consumes: Task 1~4 명령과 산출물
 - Produces: MacBook 서버 준비부터 Pi 제조 등록, 웹 claim, ESP32 검색·등록·제어까지의 단일 수동 절차
 
-- [ ] **Step 1: runbook 작성**
+- [x] **Step 1: runbook 작성**
 
 각 단계에 목적, 명령, 정상 결과, 실패 진단과 reset 경계를 작성한다. 제조 enrollment 전 station identity, claim 후 Gateway ID, bootstrap 후 heartbeat, unprovisioned ESP32와 첫 status 판정 기준을 포함한다.
 
-- [ ] **Step 2: 문서 계약 테스트와 shell syntax 검증**
+- [x] **Step 2: 문서 계약 테스트와 shell syntax 검증**
 
 Run: `bash -n scripts/pki/*.sh && node --test scripts/pki/*.test.mjs scripts/pki/pki-scripts.test.mjs`
 
-- [ ] **Step 3: 저장소 전체 관련 검증**
+- [x] **Step 3: 저장소 전체 관련 검증**
 
 Run: `pnpm test:lan-tls && pnpm --filter @led-control/api test -- --runInBand src/pki src/gateway-onboarding && pnpm --filter @led-control/api typecheck`
 
-- [ ] **Step 4: secret 및 diff 검사**
+- [x] **Step 4: secret 및 diff 검사**
 
-Run: `git grep -nE 'BEGIN (EC |RSA |)PRIVATE KEY|VAULT_TOKEN=' -- ':!*.test.*' ':!docs/superpowers/specs/*' || true; git diff --check`
+Run: `rg -n 'BEGIN (EC |RSA )?PRIVATE KEY' --glob '!*.test.*' --glob '!docs/superpowers/specs/**' . || true; git diff --check`
 
-- [ ] **Step 5: 계획 상태 갱신과 커밋**
+- [x] **Step 5: 계획 상태 갱신과 커밋**
 
 완료한 체크박스와 실제 검증 수치를 기록한다.
+
+실제 결과: Lab PKI 38 pass/1 opt-in skip, API mTLS·token lifecycle 집중 13 pass/1 opt-in skip, LAN TLS 1 pass, API typecheck와 모든 PKI shell syntax 통과. Docker Desktop daemon 무응답으로 실제 Vault opt-in은 환경 복구 후 수동 절차에서 재실행한다.
 
 Commit: `docs(pki): document first device lab installation`

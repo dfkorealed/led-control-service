@@ -1,5 +1,7 @@
 # Vault PKI bootstrap 운영 절차
 
+Lab에서 Vault 시작, Root 서명, 제조 station 및 API/MQTT bundle을 한 번에 생성하려면 `LAB_API_IP`, `LAB_MQTT_IP`를 지정해 `pnpm lab:pki:bootstrap`을 실행한다. 산출물 사용과 Raspberry Pi 수동 E2E 절차는 [`docs/runbooks/device-lab-first-install.md`](../../docs/runbooks/device-lab-first-install.md)를 단일 기준으로 사용한다.
+
 이 디렉터리는 LAN 서비스의 Vault PKI 설정을 위한 것이다. Root CA는 반드시 오프라인 보관소에서 관리하며 Vault, Git, 스크립트 출력물, 서비스 bundle에 Root 또는 CA private key와 Vault token을 넣지 않는다. 제조 CA는 이 PKI와 별도의 외부 trust domain으로 운영한다.
 
 ## 사전 설정
