@@ -8,6 +8,7 @@ PKI_ENV="${PKI_ENV:-lab}"
 PKI_LAN_DOMAIN="${PKI_LAN_DOMAIN:-lan}"
 PKI_CSR_DIR="${PKI_CSR_DIR:-$ROOT_DIR/.local/vault-pki/csrs}"
 PKI_INTERMEDIATE_DIR="${PKI_INTERMEDIATE_DIR:-$ROOT_DIR/.local/vault-pki/intermediates}"
+LAB_SIGNED_INTERMEDIATE_DIR="${LAB_SIGNED_INTERMEDIATE_DIR:-$ROOT_DIR/.local/lab-pki/intermediates}"
 POLICY_PATH="$ROOT_DIR/infra/vault/policies/gateway-pki.hcl"
 
 DEVICE_MOUNT="gateway-device-pki"
@@ -200,12 +201,12 @@ prepare() {
 }
 
 install() {
-  require_environment GATEWAY_DEVICE_INTERMEDIATE_CERT
-  require_environment GATEWAY_MQTT_INTERMEDIATE_CERT
-  require_environment API_SERVER_INTERMEDIATE_CERT
-  import_intermediate "$DEVICE_MOUNT" gateway-device "$GATEWAY_DEVICE_INTERMEDIATE_CERT"
-  import_intermediate "$MQTT_MOUNT" gateway-mqtt "$GATEWAY_MQTT_INTERMEDIATE_CERT"
-  import_intermediate "$API_MOUNT" api-server "$API_SERVER_INTERMEDIATE_CERT"
+  local device_certificate="${GATEWAY_DEVICE_INTERMEDIATE_CERT:-$LAB_SIGNED_INTERMEDIATE_DIR/gateway-device-intermediate.chain.crt}"
+  local mqtt_certificate="${GATEWAY_MQTT_INTERMEDIATE_CERT:-$LAB_SIGNED_INTERMEDIATE_DIR/gateway-mqtt-intermediate.chain.crt}"
+  local api_certificate="${API_SERVER_INTERMEDIATE_CERT:-$LAB_SIGNED_INTERMEDIATE_DIR/api-server-intermediate.chain.crt}"
+  import_intermediate "$DEVICE_MOUNT" gateway-device "$device_certificate"
+  import_intermediate "$MQTT_MOUNT" gateway-mqtt "$mqtt_certificate"
+  import_intermediate "$API_MOUNT" api-server "$api_certificate"
   configure_roles_and_policy
   printf 'Intermediate certificates, roles, and policy are installed.\n'
 }

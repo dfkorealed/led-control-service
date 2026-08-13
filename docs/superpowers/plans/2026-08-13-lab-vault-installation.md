@@ -60,20 +60,20 @@ Commit: `feat(pki): add isolated lab vault lifecycle`
 - Consumes: `PKI_CSR_DIR`의 세 목적별 CSR
 - Produces: `LAB_ROOT_DIR/root.crt`, `LAB_SIGNED_INTERMEDIATE_DIR/{gateway-device,gateway-mqtt,api-server}-intermediate.chain.crt`
 
-- [ ] **Step 1: 실패 테스트 작성**
+- [x] **Step 1: 실패 테스트 작성**
 
 실제 OpenSSL CSR로 EC P-256 Root, pathlen 0 intermediate, chain 검증, `0600/0644` 권한, 같은 CSR 멱등성과 다른 CSR 충돌 거부를 검사한다.
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `node --test scripts/pki/sign-lab-intermediates.test.mjs`
 Expected: signer가 없어 실패
 
-- [ ] **Step 3: 서명 구현**
+- [x] **Step 3: 서명 구현**
 
 Lab 전용 OpenSSL config와 serial을 생성하고 임시 파일 후 atomic rename으로 세 CSR을 서명한다. CSR fingerprint metadata가 기존 산출물과 다르면 실패한다.
 
-- [ ] **Step 4: 검증과 커밋**
+- [x] **Step 4: 검증과 커밋**
 
 Run: `node --test scripts/pki/sign-lab-intermediates.test.mjs scripts/pki/pki-scripts.test.mjs`
 
