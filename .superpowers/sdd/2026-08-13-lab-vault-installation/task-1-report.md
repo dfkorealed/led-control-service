@@ -51,3 +51,13 @@ DONE
 - unseal key는 `docker exec -i ... vault operator unseal`의 stdin으로만 전달한다. stop 후 재시작은 persistent data와 저장된 unseal key로 unseal하며 init을 반복하지 않는다.
 - 계약 테스트는 persistent config, data mount, init 출력의 콘솔 비노출, Docker run/config/log의 secret 비노출, file mode, 재시작 unseal, reset label/confirm, symlink/포트/실패 정리를 검증한다.
 - Fix Round3 검증: `pnpm test:lab:vault` 5개 통과, `bash -n scripts/pki/lab-vault.sh`, `git diff --check` 통과.
+
+## Fix Round4
+
+- `vault operator unseal` CLI의 non-TTY stdin 의존을 제거했다. Node HTTP 클라이언트가 `UNSEAL_KEY_PATH`를 직접 읽고 loopback의 `POST /v1/sys/unseal`에 JSON `{ "key": ... }`를 전송한다.
+- Node 프로세스 인자에는 unseal key 파일 경로와 Lab Vault 포트만 전달하며, secret은 argv, 환경변수, stdout, stderr 또는 Docker 설정에 전달하지 않는다.
+- HTTP status가 200인지와 응답의 `sealed === false`를 모두 검증한다. 실패 응답 body는 오류 판정 후 출력하지 않고 폐기한다.
+- fake 계약 테스트에 HTTP method/path/body, Node argv secret 비노출, HTTP 오류 및 `sealed: true` 거부, stop/start 재unseal 검증을 추가했다.
+- 실제 `hashicorp/vault:1.17.6` 검증은 `pnpm test:lab:vault:integration`으로 명시 실행할 때만 수행하며, 기본 테스트는 Docker image 또는 네트워크에 의존하지 않는다.
+- Fix Round4 검증: `pnpm test:lab:vault` 6개 통과 및 실제 Docker 테스트 1개 SKIP, `bash -n scripts/pki/lab-vault.sh`, `git diff --check` 통과.
+- 실제 Docker image pull은 완료했으나 최종 init-stop-start 통합 실행은 작업 시간 제한으로 중단했다. 다음 작업에서 `pnpm test:lab:vault:integration`을 다시 실행해 확인해야 한다.

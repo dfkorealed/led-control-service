@@ -152,6 +152,66 @@ try {
 NODE
 }
 
+unseal_vault() {
+  node - "$UNSEAL_KEY_PATH" "$LAB_VAULT_PORT" <<'NODE'
+const fs = require("node:fs");
+const http = require("node:http");
+
+const [keyPath, portValue] = process.argv.slice(2);
+if (!/^\d+$/.test(portValue)) process.exit(1);
+
+let key;
+try {
+  const metadata = fs.lstatSync(keyPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) process.exit(1);
+  key = fs.readFileSync(keyPath, "utf8").trim();
+  if (key.length === 0) process.exit(1);
+} catch {
+  process.exit(1);
+}
+
+const payload = JSON.stringify({ key });
+const request = http.request({
+  hostname: "127.0.0.1",
+  port: Number(portValue),
+  path: "/v1/sys/unseal",
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(payload)
+  }
+}, (response) => {
+  if (response.statusCode !== 200) {
+    response.resume();
+    response.on("end", () => process.exit(1));
+    return;
+  }
+
+  const chunks = [];
+  let receivedBytes = 0;
+  response.on("data", (chunk) => {
+    receivedBytes += chunk.length;
+    if (receivedBytes > 1024 * 1024) {
+      response.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+  response.on("end", () => {
+    try {
+      const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      process.exit(result.sealed === false ? 0 : 1);
+    } catch {
+      process.exit(1);
+    }
+  });
+});
+request.setTimeout(5000, () => request.destroy());
+request.on("error", () => process.exit(1));
+request.end(payload);
+NODE
+}
+
 initialize_or_unseal() {
   local id="$1" state init_file
   state="$(vault_state "$id")"
@@ -173,7 +233,7 @@ initialize_or_unseal() {
   [[ "$state" == "initialized:sealed" || "$state" == "initialized:unsealed" ]] || die "Lab Vault 초기화 상태가 올바르지 않습니다."
   [[ -r "$ROOT_TOKEN_PATH" && -r "$UNSEAL_KEY_PATH" && ! -L "$ROOT_TOKEN_PATH" && ! -L "$UNSEAL_KEY_PATH" ]] || die "Lab Vault credential 파일이 없습니다. reset 후 다시 시작하세요."
   if [[ "$state" == "initialized:sealed" ]]; then
-    docker exec -i "$id" vault operator unseal >/dev/null <"$UNSEAL_KEY_PATH" || die "Lab Vault unseal에 실패했습니다."
+    unseal_vault || die "Lab Vault unseal에 실패했습니다."
   fi
   [[ "$(vault_state "$id")" == "initialized:unsealed" ]] || die "Lab Vault가 unseal 상태가 아닙니다."
 }
