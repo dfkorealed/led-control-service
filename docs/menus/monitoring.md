@@ -1,6 +1,25 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-08-11
+기준일: 2026-08-19
+
+## 확정 구현 범위
+
+- 조명과 dashboard 상태 조회 주기를 3초에서 10분으로 변경한다.
+- 사용자가 현재 현장, 층 지도와 조명 상태를 즉시 다시 조회할 수 있는 수동 새로고침 버튼을 추가한다. 이 버튼은 DB snapshot을 새로 조회하며 전체 조명에 BLE Mesh Get을 일괄 전송하지 않는다.
+- 조명 검색 결과에서 여러 장치를 선택한 뒤 일괄 또는 개별 정보를 설정할 수 있게 한다. 일괄 설정 이름은 층별 prefix와 서버가 원자 예약한 순번으로 자동 생성한다.
+- ESP32-H2 firmware device UUID의 자사 namespace를 검증해 자사 제품만 검색 결과와 provisioning session에 반영한다.
+- 설정 에디터에서 저장한 도면 배경, 도형, 텍스트, 색상과 조명 위치를 동일한 Konva renderer로 읽기 전용 표시한다.
+- 장비 상태는 BLE Mesh Health Current의 현재 fault만 수집하고 통신 품질 평가는 확장하지 않는다.
+
+상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
+
+## 명시적 보류 범위
+
+- WebSocket/SSE push
+- RSSI, hop count, 명령 성공률 기반 통신 품질 고도화
+- 장애 이력, 등급, 원인, 담당자와 조치 workflow
+- 통신 음영 heatmap, 차량 감지, 이벤트 타임라인, gateway coverage와 빠른 제어
+- 자동 HIL 판정. 실제 하드웨어 검증은 수동으로 수행한다.
 
 ## 구현 완료
 

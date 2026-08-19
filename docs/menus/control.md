@@ -1,6 +1,26 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-11
+기준일: 2026-08-19
+
+## 확정 구현 범위
+
+- 사용자가 명령을 적용하면 실제 BLE Mesh 상태 기반 terminal 결과가 나올 때까지 현재 제어 입력을 잠그는 사용자 관점의 동기 제어를 구현한다. HTTP는 길게 유지하지 않고 기존 Command/Outbox/MQTT 상태 조회 구조를 사용한다.
+- 개별 조명, 임의 다중 선택, 층 전체, 저장 구역 단위 밝기 제어를 제공한다.
+- 개별 조명은 unicast, 임의 다중 선택은 제한된 병렬 unicast를 사용한다.
+- 층 전체와 저장 구역은 사전 구성된 BLE Mesh Group Address에 단일 전송한다.
+- 임의 선택이 기존 층 또는 구역 구성과 정확히 같으면 Group Address 경로를 사용한다.
+- 장비별 BLE Mesh Health Current의 현재 fault만 수집해 제어 가능 여부와 결과에 반영한다.
+
+상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
+
+## 명시적 보류 범위
+
+- 다중 gateway command 최종 집계 고도화
+- ACK 계약 전면 개편과 API MQTT 소비 내구성 재설계
+- 명령 재시도, 취소, rollback과 명령 이력 전용 화면
+- 스케줄 제어와 이벤트 제어
+- RSSI, hop count와 제품별 상세 diagnostics
+- 자동 HIL 판정. 실제 하드웨어 검증은 단일 gateway 기준으로 수동 수행한다.
 
 ## 구현 완료
 
