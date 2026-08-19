@@ -1134,6 +1134,35 @@ button.group-card {
   gap: 8px;
 }
 
+.monitoring-refresh-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.monitoring-refresh-actions small {
+  white-space: nowrap;
+}
+
+.monitoring-refresh-error {
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.is-spinning {
+  animation: monitoring-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes monitoring-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .floor-editor-shell {
   display: grid;
   gap: 14px;

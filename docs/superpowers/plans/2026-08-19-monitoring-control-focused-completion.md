@@ -53,7 +53,7 @@
 - Produces: `monitoringQueryPolicy`과 `useDashboard`·`useFloorFixtures`의 10분 자동 갱신 정책
 - Produces: 현재 dashboard와 fixture query를 함께 갱신하는 `새로고침` UI
 
-- [ ] **Step 1: query 정책의 실패 테스트 작성**
+- [x] **Step 1: query 정책의 실패 테스트 작성**
 
 ```ts
 expect(MONITORING_REFRESH_INTERVAL_MS).toBe(600_000);
@@ -62,7 +62,7 @@ expect(queryOptions.staleTime).toBe(600_000);
 expect(queryOptions.refetchOnWindowFocus).toBe(false);
 ```
 
-- [ ] **Step 2: 새로고침 UI의 실패 테스트 작성**
+- [x] **Step 2: 새로고침 UI의 실패 테스트 작성**
 
 ```tsx
 fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
@@ -71,13 +71,13 @@ expect(refetchFixtures).toHaveBeenCalledTimes(1);
 expect(screen.getByText(/마지막 갱신/)).toBeInTheDocument();
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/api/queries.test.tsx src/features/monitoring/MonitoringView.test.tsx`
 
 Expected: 3초 interval 또는 새로고침 버튼 부재로 FAIL
 
-- [ ] **Step 4: query와 UI 최소 구현**
+- [x] **Step 4: query와 UI 최소 구현**
 
 ```ts
 export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
@@ -91,7 +91,7 @@ export const monitoringQueryPolicy = {
 
 `MonitoringView`는 dashboard `refetch`와 현재 층 fixture `refetch`를 `Promise.allSettled`로 실행하고, 실행 중 버튼을 잠그며 성공한 마지막 완료 시각을 표시한다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/api/queries.test.tsx src/features/monitoring/MonitoringView.test.tsx`
 
@@ -99,7 +99,7 @@ Run: `pnpm --filter @led-control/web typecheck`
 
 Expected: 모든 명령 exit 0
 
-- [ ] **Step 6: 문서와 체크리스트 갱신 후 커밋**
+- [x] **Step 6: 문서와 체크리스트 갱신 후 커밋**
 
 ```bash
 git add apps/web/src/api/queries.ts apps/web/src/api/queries.test.tsx \

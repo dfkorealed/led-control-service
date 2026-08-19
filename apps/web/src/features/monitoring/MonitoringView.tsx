@@ -1,3 +1,4 @@
+import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useDashboard, useFloorFixtures, type Dashboard } from "../../api/queries";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
@@ -12,17 +13,37 @@ const statusLabels = {
 } as const;
 
 export function MonitoringView({ userRole = "operator", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
-  const { data, isLoading, error } = useDashboard(siteId);
+  const dashboardQuery = useDashboard(siteId);
+  const { data, isLoading, error } = dashboardQuery;
 
   if (isLoading) return <div className="panel">불러오는 중</div>;
   if (error || !data) return <div className="panel danger">현황 데이터를 불러오지 못했습니다.</div>;
 
-  return <MonitoringDashboard data={data} userRole={userRole} siteId={siteId} />;
+  return (
+    <MonitoringDashboard
+      data={data}
+      userRole={userRole}
+      siteId={siteId}
+      dashboardUpdatedAt={dashboardQuery.dataUpdatedAt}
+      refreshDashboard={() => dashboardQuery.refetch({ throwOnError: true })}
+    />
+  );
 }
 
-function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
+interface MonitoringDashboardProps {
+  data: Dashboard;
+  userRole: "operator" | "admin" | "viewer";
+  siteId?: string;
+  dashboardUpdatedAt: number;
+  refreshDashboard: () => Promise<unknown>;
+}
+
+function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refreshDashboard }: MonitoringDashboardProps) {
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(dashboardUpdatedAt);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
@@ -47,6 +68,11 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
   useEffect(() => {
     if (fixtureQuery.hasNextPage && !fixtureQuery.isFetchingNextPage) void fixtureQuery.fetchNextPage();
   }, [fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
+
+  useEffect(() => {
+    const latestQueryUpdate = Math.max(dashboardUpdatedAt, fixtureQuery.dataUpdatedAt ?? 0);
+    if (latestQueryUpdate > 0) setLastRefreshedAt(latestQueryUpdate);
+  }, [dashboardUpdatedAt, fixtureQuery.dataUpdatedAt]);
 
   useEffect(() => {
     if (!floor) return;
@@ -89,6 +115,23 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
     setSelectedFixtureId(nextFloor?.fixtures.find((fixture) => fixture.status === "fault")?.id ?? nextFloor?.fixtures[0]?.id ?? null);
   }
 
+  async function handleRefresh() {
+    setIsManualRefreshing(true);
+    setRefreshError(null);
+    const results = await Promise.allSettled([
+      refreshDashboard(),
+      fixtureQuery.refetch({ throwOnError: true })
+    ]);
+    const failureCount = results.filter((result) => result.status === "rejected").length;
+    if (failureCount < results.length) setLastRefreshedAt(Date.now());
+    if (failureCount === results.length) {
+      setRefreshError("현황 데이터를 새로고침하지 못했습니다.");
+    } else if (failureCount > 0) {
+      setRefreshError("일부 현황 데이터를 새로고침하지 못했습니다.");
+    }
+    setIsManualRefreshing(false);
+  }
+
   return (
     <section className="screen-grid monitoring-screen">
       <div className="screen-heading">
@@ -97,6 +140,19 @@ function MonitoringDashboard({ data, userRole, siteId }: { data: Dashboard; user
           <h2>{floor?.name ?? "층 미등록"} 운영 현황</h2>
         </div>
         <div className="monitoring-heading-actions">
+          <div className="monitoring-refresh-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={isManualRefreshing}
+              onClick={() => void handleRefresh()}
+            >
+              <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
+              {isManualRefreshing ? "새로고침 중" : "새로고침"}
+            </button>
+            <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
+            {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
+          </div>
           <div className="segmented-control" aria-label="층 선택">
             {data.floors.map((item) => (
               <button
@@ -237,4 +293,16 @@ function formatLastSeen(value: string | null) {
   if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}분 전`;
   if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}시간 전`;
   return `${Math.floor(diffMs / 86_400_000)}일 전`;
+}
+
+function formatUpdatedAt(value: number) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(new Date(value));
 }

@@ -2,24 +2,65 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { useFloorFixtures } from "./queries";
+import { useDashboard, useFloorFixtures } from "./queries";
 
 const { apiGet } = vi.hoisted(() => ({ apiGet: vi.fn() }));
 
 vi.mock("./client", () => ({ apiGet }));
 
-function QueryWrapper({ children }: PropsWithChildren) {
-  return <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{children}</QueryClientProvider>;
+function createQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
+function wrapperFor(client: QueryClient) {
+  return function QueryWrapper({ children }: PropsWithChildren) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  };
 }
 
 describe("useFloorFixtures", () => {
   it("binds fixture requests to the selected site URL while retaining pagination parameters", async () => {
     apiGet.mockResolvedValue({ items: [], nextCursor: null });
+    const client = createQueryClient();
 
-    renderHook(() => useFloorFixtures("floor-1", "site-2"), { wrapper: QueryWrapper });
+    renderHook(() => useFloorFixtures("floor-1", "site-2"), { wrapper: wrapperFor(client) });
 
     await waitFor(() => {
       expect(apiGet).toHaveBeenCalledWith("/sites/site-2/floors/floor-1/fixtures?limit=200");
     });
+  });
+
+  it("refreshes monitoring fixture snapshots every ten minutes without focus refetch", async () => {
+    apiGet.mockResolvedValue({ items: [], nextCursor: null });
+    const client = createQueryClient();
+
+    renderHook(() => useFloorFixtures("floor-1", "site-2"), { wrapper: wrapperFor(client) });
+
+    await waitFor(() => expect(client.getQueryCache().find({ queryKey: ["floor-fixtures", "site-2", "floor-1"] })).toBeDefined());
+    const options = client.getQueryCache().find({ queryKey: ["floor-fixtures", "site-2", "floor-1"] })?.options as
+      | { refetchInterval?: unknown; staleTime?: unknown; refetchOnWindowFocus?: unknown }
+      | undefined;
+
+    expect(options?.refetchInterval).toBe(600_000);
+    expect(options?.staleTime).toBe(600_000);
+    expect(options?.refetchOnWindowFocus).toBe(false);
+  });
+});
+
+describe("useDashboard", () => {
+  it("refreshes monitoring metadata every ten minutes without focus refetch", async () => {
+    apiGet.mockResolvedValue({ site: { id: "site-2", name: "현장" }, summary: {}, floors: [], groups: [], gateways: [] });
+    const client = createQueryClient();
+
+    renderHook(() => useDashboard("site-2"), { wrapper: wrapperFor(client) });
+
+    await waitFor(() => expect(client.getQueryCache().find({ queryKey: ["dashboard", "site-2"] })).toBeDefined());
+    const options = client.getQueryCache().find({ queryKey: ["dashboard", "site-2"] })?.options as
+      | { refetchInterval?: unknown; staleTime?: unknown; refetchOnWindowFocus?: unknown }
+      | undefined;
+
+    expect(options?.refetchInterval).toBe(600_000);
+    expect(options?.staleTime).toBe(600_000);
+    expect(options?.refetchOnWindowFocus).toBe(false);
   });
 });

@@ -1,6 +1,14 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { apiGet } from "./client";
 
+export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+export const monitoringQueryPolicy = {
+  staleTime: MONITORING_REFRESH_INTERVAL_MS,
+  refetchInterval: MONITORING_REFRESH_INTERVAL_MS,
+  refetchOnWindowFocus: false
+} as const;
+
 export interface Dashboard {
   site: { id: string; name: string };
   summary: {
@@ -65,7 +73,7 @@ export function useDashboard(siteId?: string) {
   return useQuery({
     queryKey: ["dashboard", siteId ?? "default"],
     queryFn: () => apiGet<Dashboard>(dashboardPath(siteId)),
-    refetchInterval: 3000
+    ...monitoringQueryPolicy
   });
 }
 
@@ -92,6 +100,7 @@ export function useFloorFixtures(floorId: string | undefined, siteId?: string) {
     },
     initialPageParam: "" as string,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
-    enabled: Boolean(floorId && siteId)
+    enabled: Boolean(floorId && siteId),
+    ...monitoringQueryPolicy
   });
 }

@@ -4,8 +4,6 @@
 
 ## 확정 구현 범위
 
-- 조명과 dashboard 상태 조회 주기를 3초에서 10분으로 변경한다.
-- 사용자가 현재 현장, 층 지도와 조명 상태를 즉시 다시 조회할 수 있는 수동 새로고침 버튼을 추가한다. 이 버튼은 DB snapshot을 새로 조회하며 전체 조명에 BLE Mesh Get을 일괄 전송하지 않는다.
 - 조명 검색 결과에서 여러 장치를 선택한 뒤 일괄 또는 개별 정보를 설정할 수 있게 한다. 일괄 설정 이름은 층별 prefix와 서버가 원자 예약한 순번으로 자동 생성한다.
 - ESP32-H2 firmware device UUID의 자사 namespace를 검증해 자사 제품만 검색 결과와 provisioning session에 반영한다.
 - 설정 에디터에서 저장한 도면 배경, 도형, 텍스트, 색상과 조명 위치를 동일한 Konva renderer로 읽기 전용 표시한다.
@@ -41,7 +39,9 @@
 - MQTT `fixture-state` 이벤트가 fixture 최신 상태 snapshot을 갱신한다.
 - provisioning 완료 MQTT event는 밝기, online/fault, lastSeenAt을 추정하지 않는다. 첫 실제 `fixture-state` event가 들어올 때만 이 snapshot을 확정한다.
 - MQTT `gateway-heartbeat` 이벤트가 gateway online/offline 상태 판단에 반영된다.
-- dashboard query는 React Query로 3초마다 polling한다.
+- dashboard metadata와 선택 층 fixture snapshot은 React Query로 10분마다 polling한다. 브라우저 focus만으로 다시 조회하지 않는다.
+- 모니터링 상단의 `새로고침` 버튼은 dashboard metadata와 현재 층 fixture 전체 페이지를 함께 다시 조회한다. 실행 중에는 중복 요청을 막고, 완료 시각과 전체/부분 실패를 표시하며 기존 성공 데이터는 유지한다.
+- 모니터링 새로고침은 클라우드 DB snapshot 조회이며 전체 조명에 BLE Mesh Get을 일괄 전송하지 않는다.
 - 기본 dashboard는 fixture 본문을 제외한 현장/층/gateway metadata와 DB aggregate summary만 반환한다. 제어 화면만 `includeFixtures=true`를 명시한다.
 - 모니터링 fixture snapshot은 `GET /sites/:siteId/floors/:floorId/fixtures`에서 현장 read 권한을 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다. 존재하지 않는 층과 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
@@ -78,8 +78,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- 현재 실시간성은 3초 polling이므로 대규모 현장에서는 서버 부하와 반응성 조정이 필요하다.
-- 조명 등록 완료 후 dashboard 반영은 polling에 의존하므로, 실제 현장에서는 provisioning event 기반 push 업데이트가 필요하다.
+- 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.
+- 조명 등록 완료 후 dashboard 반영은 query invalidation 또는 10분 polling에 의존하며 WebSocket/SSE push는 명시적으로 보류한다.
 - gateway offline 기준은 현재 90초, fixture stale 기준은 180초(60초 publication 3회 window) 고정값이다. 대규모 현장 검증 후 site/gateway별 정책 설정으로 분리해야 한다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
