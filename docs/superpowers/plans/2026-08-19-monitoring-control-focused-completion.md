@@ -109,7 +109,7 @@ git add apps/web/src/api/queries.ts apps/web/src/api/queries.test.tsx \
 git commit -m "feat(monitoring): add ten-minute refresh policy"
 ```
 
-- [ ] **사용자 확인 Gate 1:** 구현 결과와 테스트를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 1:** 구현 결과와 테스트를 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
@@ -131,7 +131,7 @@ git commit -m "feat(monitoring): add ten-minute refresh policy"
 - Produces: `FloorMapSnapshot` with `revision`, `floorPlan`, `objects`
 - Security: `SiteAccessService.assert(user, siteId, "read")`, inaccessible floor is opaque 404
 
-- [ ] **Step 1: shared schema 실패 테스트 작성**
+- [x] **Step 1: shared schema 실패 테스트 작성**
 
 ```ts
 expect(floorMapSnapshotSchema.parse({
@@ -144,7 +144,7 @@ expect(floorMapSnapshotSchema.parse({
 }).revision).toBe(3);
 ```
 
-- [ ] **Step 2: API tenant와 정렬 실패 테스트 작성**
+- [x] **Step 2: API tenant와 정렬 실패 테스트 작성**
 
 ```ts
 await expect(service.getSnapshot(user, siteId, floorId)).resolves.toMatchObject({ revision: 3 });
@@ -155,7 +155,7 @@ expect(prisma.floor.findFirst).toHaveBeenCalledWith(expect.objectContaining({
 }));
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/shared exec vitest run src/schemas.test.ts`
 
@@ -163,7 +163,7 @@ Run: `pnpm --filter @led-control/api exec jest src/floor-map/floor-map.service.s
 
 Expected: schema와 service 부재로 FAIL
 
-- [ ] **Step 4: schema와 API 최소 구현**
+- [x] **Step 4: schema와 API 최소 구현**
 
 ```ts
 export const floorMapSnapshotSchema = z.object({
@@ -178,13 +178,13 @@ export const floorMapSnapshotSchema = z.object({
 
 서비스는 `Floor.mapRevision`, `FloorPlan`, visible object만 조회하고 fixture는 포함하지 않는다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
 Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/api exec jest src/floor-map/floor-map.service.spec.ts --runInBand && pnpm --filter @led-control/api typecheck`
 
 Expected: exit 0
 
-- [ ] **Step 6: 문서 갱신과 커밋**
+- [x] **Step 6: 문서 갱신과 커밋**
 
 ```bash
 git add packages/shared/src apps/api/src/floor-map apps/api/src/app.module.ts docs/menus/monitoring.md docs/superpowers/plans/2026-08-19-monitoring-control-focused-completion.md

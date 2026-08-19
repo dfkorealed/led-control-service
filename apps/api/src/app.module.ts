@@ -5,6 +5,7 @@ import { AuthModule } from "./auth/auth.module";
 import { CommandsModule } from "./commands/commands.module";
 import { EnergyModule } from "./energy/energy.module";
 import { FloorEditorModule } from "./floor-editor/floor-editor.module";
+import { FloorMapModule } from "./floor-map/floor-map.module";
 import { FixturesModule } from "./fixtures/fixtures.module";
 import { GatewayOnboardingModule } from "./gateway-onboarding/gateway-onboarding.module";
 import { PkiModule } from "./pki/pki.module";
@@ -25,6 +26,7 @@ import { SitesModule } from "./sites/sites.module";
     RegistrationModule,
     SetupModule,
     FloorEditorModule,
+    FloorMapModule,
     GatewayOnboardingModule,
     PkiModule,
     FixturesModule

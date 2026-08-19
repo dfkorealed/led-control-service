@@ -10,6 +10,7 @@ import {
   createRegistrationSessionSchema,
   editorRevisionListQuerySchema,
   floorEditorSnapshotSchema,
+  floorMapSnapshotSchema,
   legacyFloorPlanEffectiveSchema,
   parseFloorEditorSnapshot,
   positivePostgresIntSchema,
@@ -171,6 +172,21 @@ describe("shared schemas", () => {
 
     expect(() => floorEditorSnapshotSchema.parse({ floorPlan: null, fixtures: [{ id: "fixture-1" }], objects: [] }))
       .toThrow();
+  });
+
+  it("validates read-only floor map snapshots without fixture runtime state", () => {
+    const snapshot = {
+      floorId: "00000000-0000-4000-8000-000000000005",
+      revision: 3,
+      width: 1200,
+      height: 800,
+      floorPlan: null,
+      objects: []
+    };
+
+    expect(floorMapSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+    expect(() => floorMapSnapshotSchema.parse({ ...snapshot, revision: -1 })).toThrow();
+    expect(() => floorMapSnapshotSchema.parse({ ...snapshot, fixtures: [] })).toThrow();
   });
 
   it("parses legacy v1 snapshots without weakening atomic floor plan writes", () => {

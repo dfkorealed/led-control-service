@@ -184,6 +184,24 @@ export const floorMapObjectStateSchema = z.discriminatedUnion("type", [
   }).strict()
 ]);
 
+export const floorMapPlanSnapshotSchema = z.object({
+  imageUrl: editorUrlSchema,
+  sourceType: z.enum(["image", "pdf"]),
+  originalFileUrl: editorUrlSchema.nullable(),
+  renderedImageUrl: editorUrlSchema.nullable(),
+  width: positiveInt4Schema,
+  height: positiveInt4Schema
+}).strict();
+
+export const floorMapSnapshotSchema = z.object({
+  floorId: z.string().uuid(),
+  revision: nonnegativeInt4Schema,
+  width: positiveInt4Schema,
+  height: positiveInt4Schema,
+  floorPlan: floorMapPlanSnapshotSchema.nullable(),
+  objects: z.array(floorMapObjectStateSchema)
+}).strict();
+
 export const floorMapObjectPatchSchema = z.object({
   type: floorMapObjectFields.type.optional(),
   x: floorMapObjectFields.x.optional(),
@@ -293,6 +311,7 @@ export function parseFloorEditorSnapshot(value: unknown) {
 export type SaveEditorStateInput = z.infer<typeof saveEditorStateSchema>;
 export type RestoreFloorEditorRevisionInput = z.infer<typeof restoreFloorEditorRevisionSchema>;
 export type FloorEditorSnapshot = z.infer<typeof floorEditorSnapshotSchema>;
+export type FloorMapSnapshot = z.infer<typeof floorMapSnapshotSchema>;
 export type EditorRevisionListQuery = z.infer<typeof editorRevisionListQuerySchema>;
 
 export const createRegistrationSessionSchema = z.object({
