@@ -28,6 +28,7 @@
 - 현장은 있으나 등록된 조명이 없으면 service-provider `operator`에게만 Gateway claim 또는 `조명 등록` 패널을 표시한다. customer `admin/viewer`에게는 설치 대기 상태를 표시하며 시운전 기능을 노출하지 않는다.
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
 - ESP32-H2 unprovisioned UUID는 `DFKLED`, format version, 제품군, 모델, 하드웨어 revision과 6바이트 장치 식별자로 구성한다. Raspberry Pi Gateway는 shared parser로 현재 format의 자사 UUID만 scan 결과에 포함하고 타사 장치는 구조화 로그만 남긴다.
+- 등록용 자동 이름 순번은 층별 `Floor.nextFixtureSequence`, Mesh unicast 주소는 게이트웨이별 `Gateway.nextMeshUnicastAddress`에서 소유 행 잠금 후 연속 범위로 원자 예약한다. 삭제되거나 건너뛴 값은 재사용하지 않으며 Mesh 주소는 `0x0001~0x7fff`만 허용한다.
 - 조명 등록 패널은 gateway scan/provisioning MQTT 흐름과 연결되어, 등록 완료 이벤트 후 dashboard polling으로 새 fixture를 표시할 수 있다. 이 시점의 fixture는 `offline + provisioning_waiting_state`이며 실제 offline과 구분해 `상태 확인 대기`로 표시한다.
 - 층별 탭으로 지하/지상 층을 전환한다.
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
@@ -90,6 +91,7 @@
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
 - 1,000개 marker 조회/렌더링 기준은 자동 검증하지만, 더 큰 현장에는 공간 클러스터링과 검색이 추가로 필요하다.
 - 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
+- 원자 이름·Mesh 주소 예약 서비스와 DB 카운터는 구현됐지만 기존 조명 등록 API가 이를 호출하도록 연결하는 작업은 Task 6 범위다. 연결 전 기존 등록 경로는 이 보장을 사용하지 않는다.
 
 ## 관련 파일
 
@@ -100,6 +102,7 @@
 - `apps/api/src/sites/sites.controller.ts`
 - `apps/api/src/sites/sites.service.ts`
 - `apps/api/src/fixtures/fixtures.service.ts`
+- `apps/api/src/registration/registration-allocation.service.ts`
 - `apps/api/src/floor-map/floor-map.service.ts`
 - `apps/api/src/floor-map/floor-map.controller.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`

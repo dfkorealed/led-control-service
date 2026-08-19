@@ -232,6 +232,7 @@ Organization
 | `siteId` | `String` | 예 | FK -> `Site.id` | 소속 현장 |
 | `name` | `String` | 예 |  | 층 이름 |
 | `level` | `Int` | 예 |  | 정렬/층 숫자 |
+| `nextFixtureSequence` | `Int` | 예 | `0` | 마지막으로 예약한 자동 조명 이름 순번 |
 | `mapRevision` | `Int` | 예 | `0` | 층 전체 편집 상태의 optimistic concurrency revision |
 | `editorLeaseFence` | `Int` | 예 | `0` | 편집 lease의 monotonic fencing counter |
 | `editorLeaseTokenHash` | `String?` | 아니오 |  | 현재 활성 lease token의 SHA-256 hash |
@@ -256,6 +257,7 @@ Organization
 
 - floor editor save/restore transaction은 `editorLeaseFence`, `editorLeaseTokenHash`, `editorLeaseExpiresAt`, `mapRevision`을 같은 PostgreSQL transaction 안에서 함께 검증한다.
 - Redis key `floor-editor:lease:{floorId}`는 빠른 경합 감지와 best-effort heartbeat cache일 뿐 정본이 아니다. 만료, 강제 해제, successor 획득은 항상 `Floor` row의 lease authority를 먼저 갱신한다.
+- 자동 조명 이름 순번은 등록 transaction에서 `Floor` 행을 `FOR UPDATE`로 잠근 뒤 범위 단위로 예약한다. 삭제된 조명의 순번이나 건너뛴 순번을 재사용하지 않는다.
 
 ### SiteMembership
 
@@ -489,6 +491,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `lastHeartbeatAt` | `DateTime?` | 아니오 |  | 마지막 heartbeat 수신 시각 |
 | `certificateFingerprint` | `String?` | 아니오 | Unique | claim된 장치 인증서 SHA-256 fingerprint |
 | `assignmentVersion` | `Int` | 예 | `0` | gateway bootstrap 설정 버전 |
+| `nextCommandSequence` | `BigInt` | 예 | `0` | 다음 명령 dispatch sequence 예약용 카운터 |
+| `nextMeshUnicastAddress` | `Int` | 예 | `256` (`0x0100`) | 다음에 예약할 BLE Mesh unicast 주소 |
 | `claimedAt` | `DateTime?` | 아니오 |  | 현장 claim 완료 시각 |
 | `lastHeartbeatEventId` | `String?` | 아니오 | Unique | 마지막 heartbeat 이벤트 ID |
 | `lastHeartbeatSequence` | `BigInt?` | 아니오 |  | 마지막 heartbeat sequence |
@@ -507,6 +511,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 운영 메모:
 
 - `connectionStatus`는 DB 컬럼이 아니라 `lastHeartbeatAt` 기준으로 API에서 계산한다.
+- Mesh 주소는 등록 transaction에서 `Gateway` 행을 `FOR UPDATE`로 잠근 뒤 연속 범위로 예약한다. 실제 할당 범위는 `0x0001~0x7fff`이며 카운터가 `0x8000`이면 주소가 소진된 상태다.
+- `20260819090000_add_registration_allocators` migration은 기존 `MeshNode.meshAddress`의 최댓값 다음으로 카운터를 보정하되, 신규 주소 기본 시작점 `0x0100`보다 낮추지 않아 기존 노드와의 충돌을 방지한다.
 
 ### GatewayInventory / GatewayClaimAudit
 

@@ -151,6 +151,7 @@ model Floor {
   siteId               String
   name                 String
   level                Int
+  nextFixtureSequence  Int                   @default(0)
   mapRevision          Int                   @default(0)
   editorLeaseFence     Int                   @default(0)
   editorLeaseTokenHash String?
@@ -337,6 +338,7 @@ model Gateway {
   certificateFingerprint  String?                 @unique
   assignmentVersion       Int                     @default(0)
   nextCommandSequence     BigInt                  @default(0)
+  nextMeshUnicastAddress  Int                     @default(256)
   claimedAt               DateTime?
   lastHeartbeatEventId    String?                 @unique
   lastHeartbeatSequence   BigInt?

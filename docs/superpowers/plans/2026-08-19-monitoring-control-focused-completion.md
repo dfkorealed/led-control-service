@@ -351,7 +351,7 @@ git add packages/shared/src apps/gateway/src/mesh/bluez-provisioner.ts apps/gate
 git commit -m "feat(mesh): filter discovery by product identity"
 ```
 
-- [ ] **사용자 확인 Gate 4:** 구현 결과와 펌웨어 build 결과를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 4:** 구현 결과와 펌웨어 build 결과를 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
@@ -372,7 +372,7 @@ git commit -m "feat(mesh): filter discovery by product identity"
 - DB: `Floor.nextFixtureSequence Int @default(0)`
 - DB: `Gateway.nextMeshUnicastAddress Int @default(256)`
 
-- [ ] **Step 1: 동시 예약 실패 테스트 작성**
+- [x] **Step 1: 동시 예약 실패 테스트 작성**
 
 ```ts
 await expect(service.reserveFixtureNumbers(tx, floorId, 3)).resolves.toEqual([1, 2, 3]);
@@ -380,19 +380,19 @@ await expect(service.reserveMeshAddresses(tx, gatewayId, 2)).resolves.toEqual(["
 expect(tx.floor.update).toHaveBeenCalledWith(expect.objectContaining({ data: { nextFixtureSequence: { increment: 3 } } }));
 ```
 
-- [ ] **Step 2: 범위 초과 실패 테스트 작성**
+- [x] **Step 2: 범위 초과 실패 테스트 작성**
 
 ```ts
 await expect(service.reserveMeshAddresses(tx, gatewayId, 1)).rejects.toThrow("mesh unicast address range exhausted");
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/registration/registration-allocation.service.spec.ts --runInBand`
 
 Expected: allocator 부재로 FAIL
 
-- [ ] **Step 4: Prisma migration과 allocator 구현**
+- [x] **Step 4: Prisma migration과 allocator 구현**
 
 ```ts
 const rows = await tx.$queryRaw<Array<{ nextFixtureSequence: number }>>`
@@ -406,7 +406,7 @@ return Array.from({ length: count }, (_, index) => start + index);
 
 Gateway도 같은 increment-return 패턴을 사용하고 `0x0001~0x7fff` 범위를 검증한다.
 
-- [ ] **Step 5: migration과 Task 검증**
+- [x] **Step 5: migration과 Task 검증**
 
 Run: `pnpm --filter @led-control/api prisma:generate`
 
@@ -416,7 +416,7 @@ Run: `pnpm --filter @led-control/api typecheck`
 
 Expected: exit 0
 
-- [ ] **Step 6: DB 문서 갱신과 커밋**
+- [x] **Step 6: DB 문서 갱신과 커밋**
 
 ```bash
 git add apps/api/prisma apps/api/src/registration docs/database-schema.md docs/menus/monitoring.md \
