@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
+import type { FloorMapSnapshot } from "@led-control/shared";
 import { useEffect, useMemo, useState } from "react";
-import { useDashboard, useFloorFixtures, type Dashboard } from "../../api/queries";
+import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
@@ -46,7 +47,9 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   const [lastRefreshedAt, setLastRefreshedAt] = useState(dashboardUpdatedAt);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
+  const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const mapSnapshot = mapQuery.data ?? (floor ? fallbackMapSnapshot(floor) : null);
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");
   const operationallyOfflineFixtures = fixtures.filter(
@@ -70,9 +73,9 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   }, [fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
 
   useEffect(() => {
-    const latestQueryUpdate = Math.max(dashboardUpdatedAt, fixtureQuery.dataUpdatedAt ?? 0);
+    const latestQueryUpdate = Math.max(dashboardUpdatedAt, fixtureQuery.dataUpdatedAt ?? 0, mapQuery.dataUpdatedAt ?? 0);
     if (latestQueryUpdate > 0) setLastRefreshedAt(latestQueryUpdate);
-  }, [dashboardUpdatedAt, fixtureQuery.dataUpdatedAt]);
+  }, [dashboardUpdatedAt, fixtureQuery.dataUpdatedAt, mapQuery.dataUpdatedAt]);
 
   useEffect(() => {
     if (!floor) return;
@@ -120,7 +123,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
     setRefreshError(null);
     const results = await Promise.allSettled([
       refreshDashboard(),
-      fixtureQuery.refetch({ throwOnError: true })
+      fixtureQuery.refetch({ throwOnError: true }),
+      mapQuery.refetch({ throwOnError: true })
     ]);
     const failureCount = results.filter((result) => result.status === "rejected").length;
     if (failureCount < results.length) setLastRefreshedAt(Date.now());
@@ -192,8 +196,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
 
       <div className="operations-layout">
         <div className="map-panel">
-          {floor ? (
-            <FloorMap floor={{ ...floor, fixtures }} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
+          {floor && mapSnapshot ? (
+            <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
           ) : (
             <div className="panel">등록된 층이 없습니다.</div>
           )}
@@ -276,6 +280,28 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
       </div>
     </section>
   );
+}
+
+function fallbackMapSnapshot(floor: Dashboard["floors"][number]): FloorMapSnapshot {
+  const width = floor.floorPlan?.width ?? 1200;
+  const height = floor.floorPlan?.height ?? 800;
+  return {
+    floorId: floor.id,
+    revision: 0,
+    width,
+    height,
+    floorPlan: floor.floorPlan
+      ? {
+          imageUrl: floor.floorPlan.imageUrl,
+          sourceType: "image",
+          originalFileUrl: floor.floorPlan.imageUrl,
+          renderedImageUrl: floor.floorPlan.imageUrl,
+          width,
+          height
+        }
+      : null,
+    objects: []
+  };
 }
 
 function formatRssi(value: number | null) {

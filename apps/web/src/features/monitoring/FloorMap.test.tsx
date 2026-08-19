@@ -2,11 +2,45 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FloorMap } from "./FloorMap";
 
+const mapSnapshot = {
+  floorId: "00000000-0000-4000-8000-000000000003",
+  revision: 2,
+  width: 1200,
+  height: 800,
+  floorPlan: {
+    imageUrl: "/demo.svg",
+    sourceType: "image" as const,
+    originalFileUrl: "/demo.svg",
+    renderedImageUrl: "/demo.svg",
+    width: 1200,
+    height: 800
+  },
+  objects: [{
+    id: "rectangle-1",
+    type: "rectangle" as const,
+    x: 40,
+    y: 60,
+    width: 200,
+    height: 100,
+    rotation: 0,
+    points: null,
+    text: null,
+    strokeColor: "#0b63e5",
+    fillColor: "#dbeafe",
+    strokeWidth: 2,
+    fontSize: null,
+    zIndex: 1,
+    locked: false,
+    visible: true
+  }]
+};
+
 describe("FloorMap", () => {
   it("renders fixtures with brightness labels", () => {
     const onSelectFixture = vi.fn();
     render(
       <FloorMap
+        snapshot={mapSnapshot}
         selectedFixtureId="fixture-1"
         onSelectFixture={onSelectFixture}
         floor={{
@@ -42,6 +76,7 @@ describe("FloorMap", () => {
     expect(fixtureButton).toBeInTheDocument();
     expect(fixtureButton).toHaveStyle({ "--fixture-left": "8.333333333333332%", "--fixture-top": "15%", "--brightness": "70%" });
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("src", "/demo.svg");
+    expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
 
     fireEvent.click(fixtureButton);
     expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
@@ -50,6 +85,7 @@ describe("FloorMap", () => {
   it("labels a provisioned fixture as waiting for its first real state", () => {
     render(
       <FloorMap
+        snapshot={{ ...mapSnapshot, floorPlan: null, objects: [] }}
         selectedFixtureId={null}
         onSelectFixture={vi.fn()}
         floor={{

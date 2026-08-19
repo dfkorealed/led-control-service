@@ -191,7 +191,7 @@ git add packages/shared/src apps/api/src/floor-map apps/api/src/app.module.ts do
 git commit -m "feat(api): expose read-only floor map snapshots"
 ```
 
-- [ ] **사용자 확인 Gate 2:** 구현 결과와 테스트를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 2:** 구현 결과와 테스트를 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
@@ -213,7 +213,7 @@ git commit -m "feat(api): expose read-only floor map snapshots"
 - Produces: `<FloorScene snapshot fixtures interactive />`
 - Produces: `useFloorMapSnapshot(siteId, floorId)` with 10분 policy
 
-- [ ] **Step 1: 공유 renderer 실패 테스트 작성**
+- [x] **Step 1: 공유 renderer 실패 테스트 작성**
 
 ```tsx
 render(<FloorScene snapshot={snapshot} fixtures={fixtures} interactive={false} />);
@@ -221,20 +221,20 @@ expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
 expect(screen.queryByTestId("floor-transformer")).not.toBeInTheDocument();
 ```
 
-- [ ] **Step 2: 모니터링 query와 새로고침 실패 테스트 작성**
+- [x] **Step 2: 모니터링 query와 새로고침 실패 테스트 작성**
 
 ```ts
 expect(apiGet).toHaveBeenCalledWith("/sites/site-1/floors/floor-1/map-snapshot");
 expect(refetchMap).toHaveBeenCalledTimes(1);
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/floor-map/FloorScene.test.tsx src/features/monitoring/FloorMap.test.tsx src/features/monitoring/MonitoringView.test.tsx`
 
 Expected: 공유 scene과 map query 부재로 FAIL
 
-- [ ] **Step 4: renderer 추출과 읽기 전용 합성**
+- [x] **Step 4: renderer 추출과 읽기 전용 합성**
 
 ```ts
 interface FloorSceneProps {
@@ -248,7 +248,7 @@ interface FloorSceneProps {
 
 도형 geometry와 z-index 렌더링은 공유하고, `interactive=false`에서는 drag, transform, keyboard handler를 전달하지 않는다. 모니터링 수동 새로고침은 dashboard, fixture, map query를 함께 갱신한다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/floor-map/FloorScene.test.tsx src/features/floor-editor/FloorEditorView.test.tsx src/features/monitoring/FloorMap.test.tsx src/features/monitoring/MonitoringView.test.tsx`
 
@@ -256,7 +256,7 @@ Run: `pnpm --filter @led-control/web build`
 
 Expected: exit 0
 
-- [ ] **Step 6: 문서 갱신과 커밋**
+- [x] **Step 6: 문서 갱신과 커밋**
 
 ```bash
 git add apps/web/src/features/floor-map apps/web/src/features/floor-editor/FloorEditorCanvas.tsx \

@@ -1,7 +1,8 @@
 import Konva from "konva";
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
+import { Circle, Group, Image as KonvaImage, Layer, Rect, Stage, Text, Transformer } from "react-konva";
+import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
 import { clampPoint, createDefaultObject, createObjectFromDrag, screenToWorld, type Point } from "./geometry";
 import { useFloorEditorStore } from "./editor-store";
 import type { EditorFixture, EditorTool, FloorMapObject, FloorMapObjectDraft } from "./editor-types";
@@ -207,9 +208,10 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
             <KonvaImage image={backgroundImage} width={bounds.width} height={bounds.height} listening={false} />
           ) : null}
           {editorState.objects.filter((object) => object.visible).map((object) => (
-            <MapObjectNode
+            <FloorMapObjectNode
               key={object.id}
               object={object}
+              interactive={!readOnly}
               selected={object.id === selectedObjectId}
               setNodeRef={(node) => setNodeRef(objectRefs.current, object.id, node)}
               onSelect={() => selectObject(object.id)}
@@ -218,8 +220,9 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
             />
           ))}
           {creationPreview ? (
-            <MapObjectNode
-              object={{ ...creationPreview, id: "creation-preview", floorId: editorState.floor.id, zIndex: 999 }}
+            <FloorMapObjectNode
+              object={{ ...creationPreview, id: "creation-preview", zIndex: 999 }}
+              interactive={!readOnly}
               preview
             />
           ) : null}
@@ -274,99 +277,4 @@ function setNodeRef(map: Map<string, Konva.Node>, id: string, node: Konva.Node |
   } else {
     map.delete(id);
   }
-}
-
-function trianglePoints(width: number, height: number) {
-  return [
-    { x: width / 2, y: 0 },
-    { x: width, y: height },
-    { x: 0, y: height }
-  ];
-}
-
-function MapObjectNode({
-  object,
-  selected = false,
-  preview = false,
-  setNodeRef,
-  onSelect,
-  onChange,
-  onTransformEnd
-}: {
-  object: FloorMapObject;
-  selected?: boolean;
-  preview?: boolean;
-  setNodeRef?: (node: Konva.Node | null) => void;
-  onSelect?: () => void;
-  onChange?: (patch: Partial<FloorMapObject>) => void;
-  onTransformEnd?: (node: Konva.Node) => void;
-}) {
-  const common = {
-    ref: setNodeRef,
-    x: object.x,
-    y: object.y,
-    rotation: object.rotation,
-    opacity: preview ? 0.6 : 1,
-    draggable: !preview,
-    onClick: onSelect,
-    onTap: onSelect,
-    onDragStart: onSelect,
-    onDragEnd: (event: Konva.KonvaEventObject<globalThis.DragEvent>) => onChange?.({ x: event.target.x(), y: event.target.y() }),
-    onTransformEnd: (event: Konva.KonvaEventObject<Event>) => onTransformEnd?.(event.target)
-  };
-
-  if (object.type === "line") {
-    return (
-      <Line
-        {...common}
-        points={[0, 0, object.width, 0]}
-        stroke={object.strokeColor}
-        strokeWidth={Math.max(object.strokeWidth, 6)}
-        hitStrokeWidth={18}
-        lineCap="round"
-      />
-    );
-  }
-
-  if (object.type === "triangle") {
-    const points = (object.points ?? trianglePoints(object.width, object.height)).flatMap((point) => [point.x, point.y]);
-    return (
-      <Line
-        {...common}
-        points={points}
-        closed
-        fill={object.fillColor ?? "transparent"}
-        stroke={selected ? "#2563eb" : object.strokeColor}
-        strokeWidth={object.strokeWidth}
-      />
-    );
-  }
-
-  if (object.type === "text") {
-    return (
-      <Group {...common}>
-        <Rect width={object.width} height={object.height} fill={object.fillColor ?? "transparent"} stroke={selected ? "#2563eb" : object.strokeColor} strokeWidth={object.strokeWidth} />
-        <Text
-          x={8}
-          y={8}
-          width={Math.max(object.width - 16, 1)}
-          height={Math.max(object.height - 16, 1)}
-          text={object.text || "텍스트"}
-          fontSize={object.fontSize ?? 16}
-          fill={object.strokeColor}
-        />
-      </Group>
-    );
-  }
-
-  return (
-    <Rect
-      {...common}
-      width={object.width}
-      height={object.height}
-      fill={object.fillColor ?? "transparent"}
-      stroke={selected ? "#2563eb" : object.strokeColor}
-      strokeWidth={object.strokeWidth}
-    />
-  );
 }

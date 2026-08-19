@@ -470,20 +470,39 @@ button {
   content: "";
 }
 
+.floor-scene {
+  position: absolute;
+  inset: 0;
+}
+
+.floor-scene-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.floor-scene-canvas .konvajs-content,
+.floor-scene-canvas canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .floor-map-image {
   position: absolute;
   inset: 0;
+  z-index: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  opacity: 0.28;
 }
 
 .floor-map-label {
   position: absolute;
   top: 18px;
   left: 18px;
-  z-index: 1;
+  z-index: 4;
   display: flex;
   align-items: center;
   gap: 10px;

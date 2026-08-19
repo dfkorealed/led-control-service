@@ -4,7 +4,8 @@ import { MonitoringView } from "./MonitoringView";
 
 const queryMocks = vi.hoisted(() => ({
   useDashboard: vi.fn(),
-  useFloorFixtures: vi.fn()
+  useFloorFixtures: vi.fn(),
+  useFloorMapSnapshot: vi.fn()
 }));
 
 vi.mock("../../api/queries", () => queryMocks);
@@ -38,11 +39,13 @@ const fixture = {
 describe("MonitoringView refresh", () => {
   const refetchDashboard = vi.fn();
   const refetchFixtures = vi.fn();
+  const refetchMap = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     refetchDashboard.mockResolvedValue({ data: dashboard });
     refetchFixtures.mockResolvedValue({ data: { pages: [{ items: [fixture], nextCursor: null }] } });
+    refetchMap.mockResolvedValue({ data: mapSnapshot });
     queryMocks.useDashboard.mockReturnValue({
       data: dashboard,
       isLoading: false,
@@ -58,11 +61,17 @@ describe("MonitoringView refresh", () => {
       fetchNextPage: vi.fn(),
       refetch: refetchFixtures
     });
+    queryMocks.useFloorMapSnapshot.mockReturnValue({
+      data: mapSnapshot,
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      error: null,
+      refetch: refetchMap
+    });
   });
 
   afterEach(() => cleanup());
 
-  it("refreshes dashboard and current-floor fixtures together", async () => {
+  it("refreshes dashboard, current-floor fixtures, and the saved map together", async () => {
     render(<MonitoringView siteId="site-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
@@ -70,6 +79,7 @@ describe("MonitoringView refresh", () => {
     await waitFor(() => {
       expect(refetchDashboard).toHaveBeenCalledTimes(1);
       expect(refetchFixtures).toHaveBeenCalledTimes(1);
+      expect(refetchMap).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
   });
@@ -77,8 +87,10 @@ describe("MonitoringView refresh", () => {
   it("locks the refresh action until both requests settle", async () => {
     const dashboardRequest = deferred<unknown>();
     const fixtureRequest = deferred<unknown>();
+    const mapRequest = deferred<unknown>();
     refetchDashboard.mockReturnValueOnce(dashboardRequest.promise);
     refetchFixtures.mockReturnValueOnce(fixtureRequest.promise);
+    refetchMap.mockReturnValueOnce(mapRequest.promise);
     render(<MonitoringView siteId="site-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
@@ -86,6 +98,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("button", { name: "새로고침 중" })).toBeDisabled();
     dashboardRequest.resolve({ data: dashboard });
     fixtureRequest.resolve({ data: { pages: [{ items: [fixture], nextCursor: null }] } });
+    mapRequest.resolve({ data: mapSnapshot });
     await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
   });
 
@@ -99,6 +112,15 @@ describe("MonitoringView refresh", () => {
     expect(screen.getAllByText("B1-L001")).not.toHaveLength(0);
   });
 });
+
+const mapSnapshot = {
+  floorId: "00000000-0000-4000-8000-000000000003",
+  revision: 1,
+  width: 1200,
+  height: 800,
+  floorPlan: null,
+  objects: []
+};
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

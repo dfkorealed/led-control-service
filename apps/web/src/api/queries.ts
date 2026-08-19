@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import type { FloorMapSnapshot } from "@led-control/shared";
 import { apiGet } from "./client";
 
 export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
@@ -100,6 +101,20 @@ export function useFloorFixtures(floorId: string | undefined, siteId?: string) {
     },
     initialPageParam: "" as string,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled: Boolean(floorId && siteId),
+    ...monitoringQueryPolicy
+  });
+}
+
+export function useFloorMapSnapshot(floorId: string | undefined, siteId?: string) {
+  return useQuery({
+    queryKey: ["floor-map", siteId ?? "default", floorId],
+    queryFn: () => {
+      if (!floorId || !siteId) throw new Error("siteId and floorId are required to load a floor map");
+      return apiGet<FloorMapSnapshot>(
+        `/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/map-snapshot`
+      );
+    },
     enabled: Boolean(floorId && siteId),
     ...monitoringQueryPolicy
   });
