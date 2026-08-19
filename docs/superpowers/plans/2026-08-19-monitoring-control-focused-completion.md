@@ -424,7 +424,7 @@ git add apps/api/prisma apps/api/src/registration docs/database-schema.md docs/m
 git commit -m "feat(registration): reserve names and mesh addresses atomically"
 ```
 
-- [ ] **사용자 확인 Gate 5:** schema 변경과 migration 적용법을 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 5:** schema 변경과 migration 적용법을 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
@@ -450,7 +450,7 @@ git commit -m "feat(registration): reserve names and mesh addresses atomically"
 - Node status adds `reconcile_required`, discovered node adds `pendingFixtureSize Float?`
 - Produces: node별 `accepted | validation_failed` 결과
 
-- [ ] **Step 1: shared batch schema 실패 테스트 작성**
+- [x] **Step 1: shared batch schema 실패 테스트 작성**
 
 ```ts
 const input = registerFixtureBatchSchema.parse({
@@ -461,7 +461,7 @@ const input = registerFixtureBatchSchema.parse({
 expect(input.mode).toBe("batch");
 ```
 
-- [ ] **Step 2: service의 원자 예약과 부분 결과 실패 테스트 작성**
+- [x] **Step 2: service의 원자 예약과 부분 결과 실패 테스트 작성**
 
 ```ts
 const result = await service.registerBatch(user, sessionId, input);
@@ -471,7 +471,7 @@ expect(result.items).toEqual([
 ]);
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/shared exec vitest run src/schemas.test.ts`
 
@@ -479,7 +479,7 @@ Run: `pnpm --filter @led-control/api exec jest src/registration/registration.ser
 
 Expected: batch contract와 endpoint 부재로 FAIL
 
-- [ ] **Step 4: batch 등록과 reconcile 상태 구현**
+- [x] **Step 4: batch 등록과 reconcile 상태 구현**
 
 ```ts
 type RegisterBatchResult = {
@@ -494,7 +494,7 @@ type RegisterBatchResult = {
 
 서버는 선택 node를 한 transaction에서 검증하고 Task 5 allocator를 호출한다. 자동 좌표는 floor plan 크기 안의 빈 grid cell을 결정한다. MQTT publish 결과가 불명확한 node는 provisioning failure event 처리에서 `reconcile_required`로 전환한다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
 Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/api exec jest src/registration --runInBand`
 
@@ -502,7 +502,7 @@ Run: `pnpm --filter @led-control/api typecheck`
 
 Expected: exit 0
 
-- [ ] **Step 6: DB·메뉴 문서 갱신과 커밋**
+- [x] **Step 6: DB·메뉴 문서 갱신과 커밋**
 
 ```bash
 git add packages/shared/src apps/api/prisma apps/api/src/registration apps/api/src/mqtt/mqtt.service.ts \

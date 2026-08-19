@@ -1,7 +1,13 @@
 export type FixtureStatus = "online" | "offline" | "fault";
 export type CommandStatus = "pending" | "acknowledged" | "failed";
 
-export type ProvisioningNodeStatus = "discovered" | "identifying" | "provisioning" | "provisioned" | "failed";
+export type ProvisioningNodeStatus =
+  | "discovered"
+  | "identifying"
+  | "provisioning"
+  | "provisioned"
+  | "failed"
+  | "reconcile_required";
 export type ProvisioningSessionStatus = "active" | "completed" | "failed" | "cancelled";
 
 export interface ProvisioningScanStartPayload {

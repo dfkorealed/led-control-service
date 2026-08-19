@@ -36,6 +36,7 @@ import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
 import { createGatewayCertificateRotation, type CertificateRotation } from "./identity/certificate-rotation";
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mqtt-runtime";
+import { SerialTaskQueue } from "./runtime/serial-task-queue";
 import type { BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
 
 config({ path: resolve(process.cwd(), "../../.env") });
@@ -63,6 +64,7 @@ async function main() {
   const adapter = adapters.dimming;
   const scannerAdapter = adapters.scanner;
   const provisioningAdapter = adapters.provisioning;
+  const provisioningQueue = new SerialTaskQueue();
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
 
@@ -131,15 +133,17 @@ async function main() {
   }
 
   async function handleProvisionDevicePayload(payload: Buffer, source: GatewayMqttClient) {
-    const command = provisionDeviceSchema.parse(JSON.parse(payload.toString()));
-    const result = await applyProvisionDevice(provisioningAdapter, command);
-    if (result.completed) {
-      source.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
-      return;
-    }
-    if (result.failed) {
-      source.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
-    }
+    return provisioningQueue.run(async () => {
+      const command = provisionDeviceSchema.parse(JSON.parse(payload.toString()));
+      const result = await applyProvisionDevice(provisioningAdapter, command);
+      if (result.completed) {
+        source.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
+        return;
+      }
+      if (result.failed) {
+        source.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
+      }
+    });
   }
 
   async function publishHeartbeat() {

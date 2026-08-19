@@ -113,6 +113,7 @@ Organization
 | `provisioning` | 등록 진행 중 |
 | `provisioned` | 등록 완료 |
 | `failed` | 등록 실패 |
+| `reconcile_required` | 물리 provisioning 적용 여부를 먼저 확인해야 하는 상태 |
 
 ### FloorPlanSourceType
 
@@ -786,6 +787,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `pendingFixtureName` | `String?` | 아니오 |  | provisioning 완료 후 생성할 fixture 이름 |
 | `pendingFixtureX` | `Float?` | 아니오 |  | provisioning 완료 후 생성할 fixture X 좌표 |
 | `pendingFixtureY` | `Float?` | 아니오 |  | provisioning 완료 후 생성할 fixture Y 좌표 |
+| `pendingFixtureSize` | `Float?` | 아니오 |  | provisioning 완료 후 생성할 fixture marker 크기 |
 | `pendingRatedWatt` | `Decimal(8,2)?` | 아니오 |  | provisioning 완료 후 생성할 fixture 정격 전력 |
 | `errorMessage` | `String?` | 아니오 |  | 실패 사유 |
 | `discoveredAt` | `DateTime` | 예 | `now()` | 발견 시각 |
@@ -795,6 +797,13 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 제약:
 
 - 복합 Unique: `sessionId`, `deviceUuid`
+
+등록 동시성 및 복구 계약:
+
+- batch 요청은 session과 선택 node 행을 안정된 ID 순서로 잠그고, 유효한 node에 대해서만 층 이름 순번과 gateway Mesh 주소 범위를 같은 transaction에서 예약한다.
+- 일괄 자동 좌표는 저장된 도면 크기 또는 기본 `1200x800` canvas 안에서 기존 fixture와 겹치지 않는 행 우선 grid cell을 사용한다.
+- MQTT publish 오류나 provisioning failure event처럼 물리 적용 여부가 불명확한 결과는 `reconcile_required`로 기록한다. 이 상태는 device UUID와 gateway mapping을 확인하기 전 다시 provisioning하면 안 된다.
+- provisioning 완료 event는 pending 이름, 좌표, 정격 전력과 marker 크기를 `Fixture` 생성에 사용한다.
 
 관계:
 
@@ -889,12 +898,13 @@ ProvisioningSession 생성
 → unprovisioned-device-found event
 → DiscoveredMeshNode upsert
 → identify 확인
-→ register 요청 시 DiscoveredMeshNode에 pending fixture 정보 저장
-→ gateway provision-device command 발행
+→ register-batch 요청에서 node별 검증
+→ 유효 node의 이름 순번·Mesh 주소 원자 예약과 pending fixture 정보 저장
+→ gateway provision-device command를 장치별 직렬 처리
 → provisioning-completed event
 → MeshNode 생성 또는 기존 MeshNode 재사용
 → Fixture 생성 또는 기존 Fixture 유지
-→ provisioning-failed event 수신 시 DiscoveredMeshNode failed/errorMessage 갱신
+→ provisioning-failed 또는 불명확 publish 결과는 DiscoveredMeshNode reconcile_required/errorMessage 갱신
 ```
 
 ### 현장·층 초기 설정

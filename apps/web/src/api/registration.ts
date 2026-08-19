@@ -1,4 +1,7 @@
+import type { RegisterFixtureBatchInput } from "@led-control/shared";
 import { apiGet, apiPost } from "./client";
+
+export type { RegisterFixtureBatchInput } from "@led-control/shared";
 
 export interface DiscoveredRegistrationNode {
   id: string;
@@ -8,11 +11,21 @@ export interface DiscoveredRegistrationNode {
   rssi: number;
   oobCapability: string;
   firmwareVersion: string;
-  status: "discovered" | "identifying" | "provisioning" | "provisioned" | "failed";
+  status: "discovered" | "identifying" | "provisioning" | "provisioned" | "failed" | "reconcile_required";
   identifyState: string;
   meshAddress: string | null;
   errorMessage: string | null;
+  pendingFixtureSize?: number | null;
   discoveredAt: string;
+}
+
+export interface RegisterFixtureBatchResult {
+  items: Array<{
+    nodeId: string;
+    status: "accepted" | "validation_failed";
+    fixtureName?: string;
+    error?: string;
+  }>;
 }
 
 export interface RegistrationSession {
@@ -44,6 +57,10 @@ export function registerRegistrationNode(sessionId: string, nodeId: string, fixt
     `/registration-sessions/${sessionId}/nodes/${nodeId}/register`,
     { fixtureName, x, y }
   );
+}
+
+export function registerFixtureBatch(sessionId: string, input: RegisterFixtureBatchInput) {
+  return apiPost<RegisterFixtureBatchResult>(`/registration-sessions/${sessionId}/nodes/register-batch`, input);
 }
 
 export function completeRegistrationSession(sessionId: string) {

@@ -222,10 +222,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             siteId: topicScope.siteId,
             gatewayId: topicScope.gatewayId,
             status: "active"
-          }
+          },
+          status: "provisioning"
         },
         data: {
-          status: "failed",
+          status: "reconcile_required",
           errorMessage: event.errorMessage
         }
       });
@@ -450,6 +451,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
               ratedWatt: node.pendingRatedWatt ?? "40.00",
               x: node.pendingFixtureX,
               y: node.pendingFixtureY,
+              size: node.pendingFixtureSize ?? 20,
               status: "offline",
               statusReason: PROVISIONING_WAITING_STATE,
               brightness: 0,

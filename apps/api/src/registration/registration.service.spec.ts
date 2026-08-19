@@ -4,6 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { MqttService } from "../mqtt/mqtt.service";
+import { RegistrationAllocationService } from "./registration-allocation.service";
 import { RegistrationService } from "./registration.service";
 
 describe("RegistrationService", () => {
@@ -24,7 +25,7 @@ describe("RegistrationService", () => {
   };
   const admin: AuthenticatedUser = { ...operator, organizationId: ids.organizationId, organizationType: "customer", role: "admin" };
 
-  function createModule(prismaOverrides = {}) {
+  function createModule(prismaOverrides = {}, mqttOverrides = {}) {
     const prisma: any = {
       site: { findUnique: jest.fn().mockResolvedValue({ id: ids.siteId }) },
       floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId }) },
@@ -46,40 +47,160 @@ describe("RegistrationService", () => {
       },
       discoveredMeshNode: {
         findFirst: jest.fn(),
+        findMany: jest.fn(),
         findUnique: jest.fn(),
-        update: jest.fn()
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
       meshNode: {
         count: jest.fn().mockResolvedValue(256),
         create: jest.fn()
       },
       fixture: {
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn()
       },
       ...prismaOverrides
     };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     const mqtt = {
       publishProvisioningScanStart: jest.fn().mockResolvedValue(undefined),
       publishIdentifyDevice: jest.fn().mockResolvedValue(undefined),
-      publishProvisionDevice: jest.fn().mockResolvedValue(undefined)
+      publishProvisionDevice: jest.fn().mockResolvedValue(undefined),
+      ...mqttOverrides
     };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.siteId }) };
+    const allocation = {
+      reserveFixtureNumbers: jest.fn().mockResolvedValue([1]),
+      reserveMeshAddresses: jest.fn().mockResolvedValue(["0x0100"])
+    };
 
     return Test.createTestingModule({
       providers: [
         RegistrationService,
         { provide: PrismaService, useValue: prisma },
         { provide: MqttService, useValue: mqtt },
-        { provide: SiteAccessService, useValue: siteAccess }
+        { provide: SiteAccessService, useValue: siteAccess },
+        { provide: RegistrationAllocationService, useValue: allocation }
       ]
     }).compile().then((moduleRef) => ({
       service: moduleRef.get(RegistrationService),
       prisma,
       mqtt,
-      siteAccess
+      siteAccess,
+      allocation
     }));
   }
+
+  it("atomically reserves valid batch nodes and returns node-level validation failures", async () => {
+    const secondNodeId = "55555555-5555-4555-8555-555555555555";
+    const session = {
+      id: ids.sessionId,
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId,
+      status: "active",
+      floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
+    };
+    const node = {
+      id: ids.nodeId,
+      sessionId: ids.sessionId,
+      deviceUuid: "esp32h2-demo-001",
+      status: "discovered",
+      meshAddress: null
+    };
+    const { service, prisma, mqtt, allocation } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(session),
+        update: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([node]),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...node, ...data }))
+      },
+      fixture: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
+    });
+
+    const result = await service.registerBatch(operator, ids.sessionId, {
+      mode: "batch",
+      defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
+      nodes: [
+        { nodeId: ids.nodeId, placement: { mode: "auto" } },
+        { nodeId: secondNodeId, placement: { mode: "auto" } }
+      ]
+    });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({ nodeId: ids.nodeId, fixtureName: "B2-L001", status: "accepted" }),
+      { nodeId: secondNodeId, status: "validation_failed", error: "discovered node not found" }
+    ]);
+    expect(allocation.reserveFixtureNumbers).toHaveBeenCalledWith(prisma, ids.floorId, 1, 1);
+    expect(allocation.reserveMeshAddresses).toHaveBeenCalledWith(prisma, ids.gatewayId, 1);
+    expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
+      where: { id: ids.nodeId },
+      data: expect.objectContaining({
+        status: "provisioning",
+        meshAddress: "0x0100",
+        pendingFixtureName: "B2-L001",
+        pendingRatedWatt: "40.00",
+        pendingFixtureSize: 20,
+        errorMessage: null
+      })
+    });
+    expect(mqtt.publishProvisionDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an accepted node in reconciliation when MQTT publish outcome is unknown", async () => {
+    const session = {
+      id: ids.sessionId,
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId,
+      status: "active",
+      floor: { id: ids.floorId, name: "B2", floorPlan: null }
+    };
+    const node = {
+      id: ids.nodeId,
+      sessionId: ids.sessionId,
+      deviceUuid: "esp32h2-demo-001",
+      status: "discovered",
+      meshAddress: null
+    };
+    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const { service } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(session),
+        update: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([node]),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...node, ...data })),
+        updateMany
+      },
+      fixture: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
+    }, {
+      publishProvisionDevice: jest.fn().mockRejectedValue(new Error("MQTT connection closed"))
+    });
+
+    await expect(service.registerBatch(operator, ids.sessionId, {
+      mode: "batch",
+      defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
+      nodes: [{ nodeId: ids.nodeId, placement: { mode: "auto" } }]
+    })).resolves.toEqual({
+      items: [{ nodeId: ids.nodeId, fixtureName: "B2-L001", status: "accepted" }]
+    });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: ids.nodeId, sessionId: ids.sessionId, status: "provisioning" },
+      data: { status: "reconcile_required", errorMessage: "MQTT connection closed" }
+    });
+  });
 
   it("rejects a customer admin from starting provisioning", async () => {
     const { service } = await createModule();
@@ -244,11 +365,25 @@ describe("RegistrationService", () => {
         site: { organizationId: ids.organizationId }
       }
     };
-    const provisioningNode = { ...node, status: "provisioning", meshAddress: "0x0101" };
+    const provisioningNode = { ...node, status: "provisioning", meshAddress: "0x0100" };
     const { service, prisma, mqtt } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue({
+          id: ids.sessionId,
+          siteId: ids.siteId,
+          floorId: ids.floorId,
+          gatewayId: ids.gatewayId,
+          status: "active",
+          floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
+        }),
+        update: jest.fn()
+      },
       discoveredMeshNode: {
-        findUnique: jest.fn().mockResolvedValue(node),
+        findUnique: jest.fn().mockResolvedValue(provisioningNode),
         findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([node]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         update: jest.fn().mockResolvedValue(provisioningNode)
       },
       meshNode: {
@@ -256,6 +391,7 @@ describe("RegistrationService", () => {
         create: jest.fn()
       },
       fixture: {
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn()
       }
     });
@@ -276,10 +412,11 @@ describe("RegistrationService", () => {
       where: { id: ids.nodeId },
       data: {
         status: "provisioning",
-        meshAddress: "0x0101",
+        meshAddress: "0x0100",
         pendingFixtureName: "B2-L13",
         pendingFixtureX: 420,
         pendingFixtureY: 260,
+        pendingFixtureSize: 20,
         pendingRatedWatt: "40.00",
         errorMessage: null
       }
@@ -292,7 +429,7 @@ describe("RegistrationService", () => {
       gatewayId: ids.gatewayId,
       nodeId: ids.nodeId,
       deviceUuid: "esp32h2-demo-001",
-      meshAddress: "0x0101",
+      meshAddress: "0x0100",
       requestedAt: expect.any(String)
     });
   });

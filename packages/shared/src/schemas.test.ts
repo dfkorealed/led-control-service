@@ -14,6 +14,7 @@ import {
   legacyFloorPlanEffectiveSchema,
   parseFloorEditorSnapshot,
   positivePostgresIntSchema,
+  registerFixtureBatchSchema,
   fixtureLayoutUpdateSchema,
   floorMapObjectDraftSchema,
   floorPlanUpdateSchema,
@@ -28,6 +29,43 @@ import {
 import { mqttTopics } from "./mqtt";
 
 describe("shared schemas", () => {
+  it("validates batch and individual fixture registration settings", () => {
+    const nodeId = "22222222-2222-4222-8222-222222222222";
+    const batch = registerFixtureBatchSchema.parse({
+      mode: "batch",
+      defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
+      nodes: [{ nodeId, placement: { mode: "auto" } }]
+    });
+    expect(batch.mode).toBe("batch");
+    expect(batch.defaults.ratedWatt).toBe("40.00");
+
+    const individual = registerFixtureBatchSchema.parse({
+      mode: "individual",
+      defaults: { namePrefix: "B2-L", startNumber: 5, digits: 3 },
+      nodes: [{
+        nodeId,
+        fixtureName: "입구 조명",
+        ratedWatt: "35.50",
+        size: 24,
+        placement: { mode: "manual", x: 120, y: 240 }
+      }]
+    });
+    expect(individual.mode).toBe("individual");
+    expect(individual.nodes[0].fixtureName).toBe("입구 조명");
+  });
+
+  it("rejects duplicate nodes in a fixture registration batch", () => {
+    const nodeId = "22222222-2222-4222-8222-222222222222";
+    expect(() => registerFixtureBatchSchema.parse({
+      mode: "batch",
+      defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
+      nodes: [
+        { nodeId, placement: { mode: "auto" } },
+        { nodeId, placement: { mode: "auto" } }
+      ]
+    })).toThrow("nodeId must be unique within a registration batch");
+  });
+
   it("requires an explicit site, floor, and gateway when creating a registration session", () => {
     expect(createRegistrationSessionSchema.parse({
       siteId: "00000000-0000-4000-8000-000000000003",

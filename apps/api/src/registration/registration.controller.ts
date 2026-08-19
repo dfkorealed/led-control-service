@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
-import { createRegistrationSessionSchema } from "@led-control/shared";
+import { createRegistrationSessionSchema, registerFixtureBatchSchema } from "@led-control/shared";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -47,6 +47,15 @@ export class RegistrationController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.registrationService.registerNode(user, sessionId, nodeId, body);
+  }
+
+  @Post(":sessionId/nodes/register-batch")
+  registerBatch(
+    @Param("sessionId") sessionId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.registrationService.registerBatch(user, sessionId, registerFixtureBatchSchema.parse(body));
   }
 
   @Post(":sessionId/complete")

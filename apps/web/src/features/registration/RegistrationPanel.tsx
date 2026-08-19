@@ -21,7 +21,8 @@ const statusLabels = {
   identifying: "점멸 중",
   provisioning: "등록 중",
   provisioned: "등록 완료",
-  failed: "실패"
+  failed: "실패",
+  reconcile_required: "확인 필요"
 } as const;
 
 export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {

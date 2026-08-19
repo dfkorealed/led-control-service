@@ -398,6 +398,7 @@ describe("MqttService", () => {
         ratedWatt: "45.00",
         x: 420,
         y: 260,
+        size: 20,
         status: "offline",
         brightness: 0,
         rssi: null,
@@ -558,7 +559,7 @@ describe("MqttService", () => {
     await expectProvisioningErrorToRethrow(new Error("transaction serialization failure"));
   });
 
-  it("marks discovered nodes failed from provisioning failed events", async () => {
+  it("marks provisioning failures as requiring reconciliation before retry", async () => {
     const prisma = {
       fixture: { update: jest.fn() },
       command: { update: jest.fn() },
@@ -590,10 +591,11 @@ describe("MqttService", () => {
           siteId: "00000000-0000-4000-8000-000000000003",
           gatewayId: "00000000-0000-4000-8000-000000000004",
           status: "active"
-        }
+        },
+        status: "provisioning"
       },
       data: {
-        status: "failed",
+        status: "reconcile_required",
         errorMessage: "provisioning timeout"
       }
     });

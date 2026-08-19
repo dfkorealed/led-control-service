@@ -64,6 +64,7 @@ enum DiscoveredNodeStatus {
   provisioning
   provisioned
   failed
+  reconcile_required
 }
 
 enum FloorPlanSourceType {
@@ -602,6 +603,7 @@ model DiscoveredMeshNode {
   pendingFixtureName String?
   pendingFixtureX    Float?
   pendingFixtureY    Float?
+  pendingFixtureSize Float?
   pendingRatedWatt   Decimal?             @db.Decimal(8, 2)
   errorMessage       String?
   session            ProvisioningSession  @relation(fields: [sessionId], references: [id])

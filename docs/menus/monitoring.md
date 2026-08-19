@@ -29,6 +29,9 @@
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
 - ESP32-H2 unprovisioned UUID는 `DFKLED`, format version, 제품군, 모델, 하드웨어 revision과 6바이트 장치 식별자로 구성한다. Raspberry Pi Gateway는 shared parser로 현재 format의 자사 UUID만 scan 결과에 포함하고 타사 장치는 구조화 로그만 남긴다.
 - 등록용 자동 이름 순번은 층별 `Floor.nextFixtureSequence`, Mesh unicast 주소는 게이트웨이별 `Gateway.nextMeshUnicastAddress`에서 소유 행 잠금 후 연속 범위로 원자 예약한다. 삭제되거나 건너뛴 값은 재사용하지 않으며 Mesh 주소는 `0x0001~0x7fff`만 허용한다.
+- `POST /registration-sessions/:sessionId/nodes/register-batch`는 일괄·개별 설정을 하나의 요청으로 받고, session/node 행 잠금과 Task 5 allocator를 같은 transaction에서 사용한다. 유효한 node는 `accepted`, 존재하지 않거나 이미 처리 중인 node는 `validation_failed`로 분리해 성공한 등록을 유지한다.
+- 일괄 이름은 서버가 prefix, 시작 번호, 자릿수와 예약 순번으로 생성한다. 자동 좌표는 도면 크기 또는 `1200x800` 기본 canvas 안의 기존 fixture와 겹치지 않는 행 우선 grid cell을 사용하며 이름·전력·좌표·marker 크기를 provisioning 전에 저장한다.
+- Gateway는 여러 provision-device 명령을 FIFO로 직렬 처리해 BlueZ provisioning 작업이 겹치지 않게 한다. MQTT publish 오류 또는 provisioning failure event처럼 물리 적용 여부가 불명확하면 node를 `reconcile_required`로 전환하며 확인 없이 자동 재시도하지 않는다.
 - 조명 등록 패널은 gateway scan/provisioning MQTT 흐름과 연결되어, 등록 완료 이벤트 후 dashboard polling으로 새 fixture를 표시할 수 있다. 이 시점의 fixture는 `offline + provisioning_waiting_state`이며 실제 offline과 구분해 `상태 확인 대기`로 표시한다.
 - 층별 탭으로 지하/지상 층을 전환한다.
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
@@ -91,7 +94,7 @@
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
 - 1,000개 marker 조회/렌더링 기준은 자동 검증하지만, 더 큰 현장에는 공간 클러스터링과 검색이 추가로 필요하다.
 - 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
-- 원자 이름·Mesh 주소 예약 서비스와 DB 카운터는 구현됐지만 기존 조명 등록 API가 이를 호출하도록 연결하는 작업은 Task 6 범위다. 연결 전 기존 등록 경로는 이 보장을 사용하지 않는다.
+- batch API와 웹 API client는 구현됐지만 현재 등록 패널은 기존 단일 등록 동작을 사용한다. 다중 선택, 일괄/개별 form과 node별 검증 결과 표시는 Task 7에서 새 endpoint에 연결한다.
 
 ## 관련 파일
 
@@ -112,6 +115,7 @@
 - `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
 - `apps/gateway/src/mesh/bluez-model-codec.ts`
 - `apps/gateway/src/runtime/gateway-mqtt-runtime.ts`
+- `apps/gateway/src/runtime/serial-task-queue.ts`
 - `apps/gateway/src/identity/certificate-rotation.ts`
 - `apps/gateway/src/health/appliance-health.ts`
 - `apps/gateway/docker/healthcheck.sh`

@@ -322,6 +322,63 @@ export const createRegistrationSessionSchema = z.object({
 
 export type CreateRegistrationSessionInput = z.infer<typeof createRegistrationSessionSchema>;
 
+const registrationRatedWattSchema = z.union([
+  z.number().finite().nonnegative().transform(String),
+  z.string().trim().min(1).max(32).regex(/^\d+(?:\.\d+)?$/)
+]).refine((value) => Number(value) <= EDITOR_MAX_RATED_WATT, "ratedWatt is too large");
+const registrationSizeSchema = z.number().finite().positive().max(1_000);
+const registrationPlacementSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("auto") }).strict(),
+  z.object({ mode: z.literal("manual"), x: finiteNumberSchema, y: finiteNumberSchema }).strict()
+]);
+const registrationNumberDefaults = {
+  namePrefix: z.string().trim().min(1).max(100),
+  startNumber: positiveInt4Schema,
+  digits: z.number().int().min(1).max(9)
+};
+const registrationBatchNodeSchema = z.object({
+  nodeId: z.string().uuid(),
+  placement: registrationPlacementSchema
+}).strict();
+const registrationIndividualNodeSchema = z.object({
+  nodeId: z.string().uuid(),
+  fixtureName: z.string().trim().max(EDITOR_MAX_NAME_LENGTH),
+  ratedWatt: registrationRatedWattSchema,
+  size: registrationSizeSchema,
+  placement: registrationPlacementSchema
+}).strict();
+
+export const registerFixtureBatchSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("batch"),
+    defaults: z.object({
+      ...registrationNumberDefaults,
+      ratedWatt: registrationRatedWattSchema,
+      size: registrationSizeSchema
+    }).strict(),
+    nodes: z.array(registrationBatchNodeSchema).min(1).max(1_000)
+  }).strict(),
+  z.object({
+    mode: z.literal("individual"),
+    defaults: z.object(registrationNumberDefaults).strict(),
+    nodes: z.array(registrationIndividualNodeSchema).min(1).max(1_000)
+  }).strict()
+]).superRefine((input, context) => {
+  const seen = new Set<string>();
+  input.nodes.forEach((node, index) => {
+    if (seen.has(node.nodeId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "nodeId must be unique within a registration batch",
+        path: ["nodes", index, "nodeId"]
+      });
+    }
+    seen.add(node.nodeId);
+  });
+});
+
+export type RegisterFixtureBatchInput = z.infer<typeof registerFixtureBatchSchema>;
+
 export const provisioningScanStartSchema = z.object({
   sessionId: z.string().uuid(),
   siteId: z.string().uuid(),
