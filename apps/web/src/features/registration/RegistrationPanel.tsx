@@ -1,16 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Radar, Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Loader2, Radar, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { Dashboard } from "../../api/queries";
 import {
   completeRegistrationSession,
   createRegistrationSession,
   getRegistrationSession,
   identifyRegistrationNode,
-  registerRegistrationNode,
+  registerFixtureBatch,
   type DiscoveredRegistrationNode,
+  type RegisterFixtureBatchInput,
   type RegistrationSession
 } from "../../api/registration";
+import { FixtureBatchForm, type FixtureBatchDefaults } from "./FixtureBatchForm";
+import {
+  FixtureIndividualForm,
+  type FixtureIndividualDefaults,
+  type FixtureIndividualDraft
+} from "./FixtureIndividualForm";
 
 interface RegistrationPanelProps {
   dashboard: Dashboard | undefined;
@@ -25,12 +32,44 @@ const statusLabels = {
   reconcile_required: "확인 필요"
 } as const;
 
+const statusProgress = {
+  discovered: 0,
+  identifying: 1,
+  provisioning: 2,
+  provisioned: 3,
+  failed: 3,
+  reconcile_required: 3
+} as const;
+
+type RegistrationMode = "batch" | "individual";
+
+const initialBatchDefaults: FixtureBatchDefaults = {
+  namePrefix: "B2-L",
+  startNumber: 1,
+  digits: 3,
+  ratedWatt: "40.00",
+  size: 20
+};
+
+const initialIndividualDefaults: FixtureIndividualDefaults = {
+  namePrefix: "B2-L",
+  startNumber: 1,
+  digits: 3
+};
+
 export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<RegistrationSession | null>(null);
   const [localNodes, setLocalNodes] = useState<DiscoveredRegistrationNode[]>([]);
   const [selectedFloorId, setSelectedFloorId] = useState("");
   const [selectedGatewayId, setSelectedGatewayId] = useState("");
+  const [mode, setMode] = useState<RegistrationMode>("batch");
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [submittedNodeIds, setSubmittedNodeIds] = useState<string[]>([]);
+  const [batchDefaults, setBatchDefaults] = useState(initialBatchDefaults);
+  const [individualDefaults, setIndividualDefaults] = useState(initialIndividualDefaults);
+  const [individualDrafts, setIndividualDrafts] = useState<Record<string, FixtureIndividualDraft>>({});
+  const [nodeErrors, setNodeErrors] = useState<Record<string, string>>({});
   const floor = dashboard?.floors.find((item) => item.id === selectedFloorId);
   const gateway = dashboard?.gateways.find((item) => item.id === selectedGatewayId);
   const hasFixtures = (dashboard?.summary.totalFixtures ?? 0) > 0;
@@ -44,30 +83,84 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
 
   const nodes = useMemo(() => {
     const remoteNodes = sessionQuery.data?.discoveredNodes ?? session?.discoveredNodes ?? [];
-    const byId = new Map(remoteNodes.map((node) => [node.id, node]));
-    for (const node of localNodes) byId.set(node.id, node);
+    const byId = new Map(localNodes.map((node) => [node.id, node]));
+    for (const node of remoteNodes) {
+      const localNode = byId.get(node.id);
+      if (!localNode || statusProgress[node.status] >= statusProgress[localNode.status]) byId.set(node.id, node);
+    }
     return Array.from(byId.values());
   }, [localNodes, session?.discoveredNodes, sessionQuery.data?.discoveredNodes]);
+
+  useEffect(() => {
+    if (!floor) return;
+    const namePrefix = `${floor.name}-L`;
+    setBatchDefaults((current) => ({ ...current, namePrefix }));
+    setIndividualDefaults((current) => ({ ...current, namePrefix }));
+  }, [floor?.id]);
+
+  useEffect(() => {
+    const submitted = new Set(submittedNodeIds);
+    const reviewIds = nodes
+      .filter((node) => submitted.has(node.id) && (node.status === "failed" || node.status === "reconcile_required"))
+      .map((node) => node.id);
+    if (reviewIds.length === 0) return;
+    setSelectedNodeIds((current) => {
+      const next = new Set(current);
+      reviewIds.forEach((id) => next.add(id));
+      return next.size === current.length ? current : Array.from(next);
+    });
+  }, [nodes, submittedNodeIds]);
 
   const startMutation = useMutation({
     mutationFn: () => createRegistrationSession(dashboard!.site.id, floor!.id, gateway!.id),
     onSuccess: (created) => {
       setSession(created);
       setLocalNodes(created.discoveredNodes);
+      setSelectedNodeIds([]);
+      setSubmittedNodeIds([]);
+      setNodeErrors({});
     }
   });
 
   const identifyMutation = useMutation({
     mutationFn: (nodeId: string) => identifyRegistrationNode(session!.id, nodeId),
-    onSuccess: (node) => setLocalNodes((current) => upsertNode(current, node))
+    onSuccess: (node) => {
+      setLocalNodes((current) => upsertNode(current, node));
+      queryClient.setQueryData<RegistrationSession>(
+        ["registration-session", session?.id],
+        (current) => current
+          ? { ...current, discoveredNodes: upsertNode(current.discoveredNodes, node) }
+          : current
+      );
+    }
   });
 
   const registerMutation = useMutation({
-    mutationFn: (node: DiscoveredRegistrationNode) =>
-      registerRegistrationNode(session!.id, node.id, nextFixtureName(dashboard, nodes, floor), 180 + nodes.length * 36, 180),
+    mutationFn: (input: RegisterFixtureBatchInput) => registerFixtureBatch(session!.id, input),
+    onMutate: (input) => setSubmittedNodeIds((current) => Array.from(new Set([
+      ...current,
+      ...input.nodes.map((node) => node.nodeId)
+    ]))),
     onSuccess: (result) => {
-      setLocalNodes((current) => upsertNode(current, result.discoveredNode));
+      const accepted = new Set(result.items.filter((item) => item.status === "accepted").map((item) => item.nodeId));
+      setLocalNodes((current) => markNodesProvisioning(current, accepted));
+      queryClient.setQueryData<RegistrationSession>(
+        ["registration-session", session?.id],
+        (current) => current
+          ? { ...current, discoveredNodes: markNodesProvisioning(current.discoveredNodes, accepted) }
+          : current
+      );
+      setSelectedNodeIds((current) => current.filter((id) => !accepted.has(id)));
+      setNodeErrors((current) => {
+        const next = { ...current };
+        for (const item of result.items) {
+          if (item.status === "validation_failed") next[item.nodeId] = item.error ?? "등록 정보를 확인해주세요.";
+          else delete next[item.nodeId];
+        }
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["registration-session", session?.id] });
     }
   });
 
@@ -77,6 +170,81 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
   });
 
   const canStart = Boolean(dashboard?.site.id && floor?.id && gateway?.id) && !startMutation.isPending;
+  const selectedNodes = nodes.filter((node) => selectedNodeIds.includes(node.id));
+  const actionableNodes = selectedNodes.filter(isRegisterableNode);
+  const selectableNodes = nodes.filter(isRegisterableNode);
+  const individualItems = selectedNodes.map((node) => {
+    const index = nodes.findIndex((candidate) => candidate.id === node.id);
+    return {
+      nodeId: node.id,
+      label: `조명 ${index + 1}`,
+      serialNumber: node.serialNumber,
+      editable: isRegisterableNode(node),
+      draft: individualDrafts[node.id] ?? createIndividualDraft(),
+      error: nodeErrors[node.id] ?? node.errorMessage ?? undefined
+    };
+  });
+
+  function toggleNode(nodeId: string) {
+    setSelectedNodeIds((current) => current.includes(nodeId)
+      ? current.filter((id) => id !== nodeId)
+      : [...current, nodeId]);
+    setNodeErrors((current) => {
+      if (!current[nodeId]) return current;
+      const next = { ...current };
+      delete next[nodeId];
+      return next;
+    });
+  }
+
+  function toggleAllNodes() {
+    const selectableIds = selectableNodes.map((node) => node.id);
+    const allSelected = selectableIds.every((id) => selectedNodeIds.includes(id));
+    setSelectedNodeIds((current) => allSelected
+      ? current.filter((id) => !selectableIds.includes(id))
+      : Array.from(new Set([...current, ...selectableIds])));
+  }
+
+  function updateIndividualDraft(nodeId: string, patch: Partial<FixtureIndividualDraft>) {
+    setIndividualDrafts((current) => ({
+      ...current,
+      [nodeId]: { ...(current[nodeId] ?? createIndividualDraft()), ...patch }
+    }));
+  }
+
+  function submitRegistration() {
+    if (actionableNodes.length === 0) return;
+    if (mode === "batch") {
+      registerMutation.mutate({
+        mode: "batch",
+        defaults: batchDefaults,
+        nodes: actionableNodes.map((node) => ({ nodeId: node.id, placement: { mode: "auto" } }))
+      });
+      return;
+    }
+
+    const coordinateErrors: Record<string, string> = {};
+    const registrationNodes = actionableNodes.map((node) => {
+      const draft = individualDrafts[node.id] ?? createIndividualDraft();
+      const hasX = draft.x.trim() !== "";
+      const hasY = draft.y.trim() !== "";
+      if (hasX !== hasY) coordinateErrors[node.id] = "X와 Y 좌표를 모두 입력하거나 모두 비워주세요.";
+      return {
+        nodeId: node.id,
+        fixtureName: draft.fixtureName,
+        ratedWatt: draft.ratedWatt,
+        size: draft.size,
+        placement: hasX && hasY
+          ? { mode: "manual" as const, x: Number(draft.x), y: Number(draft.y) }
+          : { mode: "auto" as const }
+      };
+    });
+    if (Object.keys(coordinateErrors).length > 0) {
+      setNodeErrors((current) => ({ ...current, ...coordinateErrors }));
+      return;
+    }
+    registerMutation.mutate({ mode: "individual", defaults: individualDefaults, nodes: registrationNodes });
+  }
 
   return (
     <section className={hasFixtures ? "registration-panel" : "registration-panel empty-site"}>
@@ -127,41 +295,110 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
             <strong>{session.id.slice(0, 8)}</strong>
             <small>{nodes.length}개 후보 발견</small>
           </div>
+          {nodes.length > 0 ? (
+            <div className="registration-selection-toolbar">
+              <label className="selection-checkbox">
+                <input
+                  type="checkbox"
+                  checked={selectableNodes.length > 0 && selectableNodes.every((node) => selectedNodeIds.includes(node.id))}
+                  onChange={toggleAllNodes}
+                />
+                등록 가능 조명 전체 선택
+              </label>
+              <strong>{selectedNodeIds.length}개 선택</strong>
+            </div>
+          ) : null}
           <div className="registration-node-list">
             {nodes.length === 0 ? (
               <div className="node-row muted-node">게이트웨이가 미등록 조명을 검색하는 중입니다.</div>
             ) : (
-              nodes.map((node) => (
-                <div className="node-row" key={node.id}>
-                  <div>
-                    <strong>{node.serialNumber}</strong>
-                    <span>{node.deviceUuid}</span>
-                    <small>RSSI {node.rssi} dBm</small>
+              nodes.map((node, index) => {
+                const rowError = nodeErrors[node.id]
+                  ?? ((node.status === "failed" || node.status === "reconcile_required") ? node.errorMessage : null);
+                return (
+                  <div className={`node-row${selectedNodeIds.includes(node.id) ? " selected" : ""}`} key={node.id}>
+                    <label className="node-selection">
+                      <input
+                        type="checkbox"
+                        aria-label={`조명 ${index + 1} 선택`}
+                        checked={selectedNodeIds.includes(node.id)}
+                        disabled={!isRegisterableNode(node)}
+                        onChange={() => toggleNode(node.id)}
+                      />
+                    </label>
+                    <div className="node-identity">
+                      <strong>{node.serialNumber}</strong>
+                      <span>{node.deviceUuid}</span>
+                      <small>RSSI {node.rssi} dBm</small>
+                      {rowError ? <small className="danger-text">{rowError}</small> : null}
+                    </div>
+                    <span className={`node-status ${node.status}`}>{statusLabels[node.status]}</span>
+                    <button
+                      className="secondary-button"
+                      disabled={!isRegisterableNode(node) || identifyMutation.isPending}
+                      onClick={() => identifyMutation.mutate(node.id)}
+                    >
+                      <Sparkles size={15} />
+                      점멸 확인
+                    </button>
                   </div>
-                  <span className={`node-status ${node.status}`}>{statusLabels[node.status]}</span>
-                  <button
-                    className="secondary-button"
-                    disabled={node.status === "provisioned" || identifyMutation.isPending}
-                    onClick={() => identifyMutation.mutate(node.id)}
-                  >
-                    <Sparkles size={15} />
-                    점멸 확인
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={node.status === "provisioned" || registerMutation.isPending}
-                    onClick={() => registerMutation.mutate(node)}
-                  >
-                    <CheckCircle2 size={15} />
-                    등록
-                  </button>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
+          {nodes.length > 0 ? (
+            <div className="registration-config">
+              <div className="registration-mode-toggle" role="radiogroup" aria-label="조명 설정 방식">
+                <label className={mode === "batch" ? "active" : ""}>
+                  <input
+                    type="radio"
+                    name="registration-mode"
+                    checked={mode === "batch"}
+                    onChange={() => setMode("batch")}
+                  />
+                  일괄 설정
+                </label>
+                <label className={mode === "individual" ? "active" : ""}>
+                  <input
+                    type="radio"
+                    name="registration-mode"
+                    checked={mode === "individual"}
+                    onChange={() => setMode("individual")}
+                  />
+                  개별 설정
+                </label>
+              </div>
+              {mode === "batch" ? (
+                <FixtureBatchForm
+                  values={batchDefaults}
+                  selectedCount={actionableNodes.length}
+                  disabled={actionableNodes.length === 0 || session.status !== "active"}
+                  pending={registerMutation.isPending}
+                  onChange={setBatchDefaults}
+                  onSubmit={submitRegistration}
+                />
+              ) : (
+                <FixtureIndividualForm
+                  defaults={individualDefaults}
+                  items={individualItems}
+                  actionableCount={actionableNodes.length}
+                  disabled={actionableNodes.length === 0 || session.status !== "active"}
+                  pending={registerMutation.isPending}
+                  onDefaultsChange={setIndividualDefaults}
+                  onDraftChange={updateIndividualDraft}
+                  onSubmit={submitRegistration}
+                />
+              )}
+              {registerMutation.error ? <p className="danger-text">선택한 조명 등록 요청을 처리하지 못했습니다.</p> : null}
+            </div>
+          ) : null}
           <button
             className="link-button"
-            disabled={!nodes.some((node) => node.status === "provisioned") || completeMutation.isPending}
+            disabled={
+              !nodes.some((node) => node.status === "provisioned")
+              || nodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required")
+              || completeMutation.isPending
+            }
             onClick={() => completeMutation.mutate()}
           >
             등록 세션 완료
@@ -178,8 +415,16 @@ function upsertNode(nodes: DiscoveredRegistrationNode[], next: DiscoveredRegistr
   return nodes.map((node) => (node.id === next.id ? next : node));
 }
 
-function nextFixtureName(dashboard: Dashboard | undefined, nodes: DiscoveredRegistrationNode[], floor?: Dashboard["floors"][number]) {
-  const floorName = floor?.name ?? "B2";
-  const fixtureCount = dashboard?.summary.totalFixtures ?? 0;
-  return `${floorName}-L${String(fixtureCount + nodes.filter((node) => node.status === "provisioned").length + 1).padStart(2, "0")}`;
+function markNodesProvisioning(nodes: DiscoveredRegistrationNode[], accepted: Set<string>) {
+  return nodes.map((node): DiscoveredRegistrationNode => accepted.has(node.id)
+    ? { ...node, status: "provisioning", errorMessage: null }
+    : node);
+}
+
+function createIndividualDraft(): FixtureIndividualDraft {
+  return { fixtureName: "", ratedWatt: "40.00", size: 20, x: "", y: "" };
+}
+
+function isRegisterableNode(node: DiscoveredRegistrationNode) {
+  return node.status === "discovered" || node.status === "identifying";
 }

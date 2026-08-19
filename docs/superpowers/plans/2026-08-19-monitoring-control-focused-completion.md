@@ -511,7 +511,7 @@ git add packages/shared/src apps/api/prisma apps/api/src/registration apps/api/s
 git commit -m "feat(registration): support batch and individual fixture setup"
 ```
 
-- [ ] **사용자 확인 Gate 6:** API 예시와 테스트 결과를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 6:** API 예시와 테스트 결과를 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
@@ -531,7 +531,7 @@ git commit -m "feat(registration): support batch and individual fixture setup"
 - Produces: 검색 node checkbox 선택, `일괄 설정`/`개별 설정` segmented control
 - Produces: node별 validation과 provisioning 상태 표시
 
-- [ ] **Step 1: 일괄 설정 실패 테스트 작성**
+- [x] **Step 1: 일괄 설정 실패 테스트 작성**
 
 ```tsx
 fireEvent.click(screen.getByLabelText("조명 1 선택"));
@@ -541,7 +541,7 @@ fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
 expect(registerBatch).toHaveBeenCalledWith(expect.objectContaining({ mode: "batch" }));
 ```
 
-- [ ] **Step 2: 개별 설정 실패 테스트 작성**
+- [x] **Step 2: 개별 설정 실패 테스트 작성**
 
 ```tsx
 fireEvent.click(screen.getByRole("radio", { name: "개별 설정" }));
@@ -549,13 +549,13 @@ fireEvent.change(screen.getByLabelText("조명 1 이름"), { target: { value: "�
 expect(screen.getByDisplayValue("입구 조명")).toBeInTheDocument();
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/registration/RegistrationPanel.test.tsx`
 
 Expected: 다중 선택과 설정 form 부재로 FAIL
 
-- [ ] **Step 4: UI 최소 구현**
+- [x] **Step 4: UI 최소 구현**
 
 ```ts
 type RegistrationMode = "batch" | "individual";
@@ -571,7 +571,7 @@ type SelectedNodeDraft = {
 
 form은 서버 validation 결과를 node 행에 표시하고 성공 node 선택을 해제한다. 실패와 `reconcile_required` node는 선택과 오류 내용을 유지한다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/registration/RegistrationPanel.test.tsx`
 
@@ -579,7 +579,7 @@ Run: `pnpm --filter @led-control/web build`
 
 Expected: exit 0
 
-- [ ] **Step 6: 메뉴 문서 갱신과 커밋**
+- [x] **Step 6: 메뉴 문서 갱신과 커밋**
 
 ```bash
 git add apps/web/src/features/registration apps/web/src/api/registration.ts apps/web/src/styles.css \

@@ -162,7 +162,31 @@ vi.mock("./api/client", () => ({
       return Promise.resolve({ status: "claimed", gatewayId: "gateway-onboarded-1", siteId: input.siteId, serialNumber: input.serialNumber });
     }
     if (path.endsWith("/identify")) {
-      return Promise.resolve({ ...mockRegistrationSession.discoveredNodes[0], status: "identifying", identifyState: "blinking" });
+      const identifiedNode = { ...mockRegistrationSession.discoveredNodes[0], status: "identifying" as const, identifyState: "blinking" };
+      const currentSession = apiState.registrationSession ?? mockRegistrationSession;
+      apiState.registrationSession = {
+        ...currentSession,
+        discoveredNodes: currentSession.discoveredNodes.map((node) => node.id === identifiedNode.id ? identifiedNode : node)
+      };
+      return Promise.resolve(identifiedNode);
+    }
+    if (path.endsWith("/nodes/register-batch")) {
+      const input = body as { nodes: Array<{ nodeId: string }> };
+      const requestedIds = new Set(input.nodes.map((node) => node.nodeId));
+      const currentSession = apiState.registrationSession ?? mockRegistrationSession;
+      apiState.registrationSession = {
+        ...currentSession,
+        discoveredNodes: currentSession.discoveredNodes.map((node) => requestedIds.has(node.id)
+          ? { ...node, status: "provisioned" as const }
+          : node)
+      };
+      return Promise.resolve({
+        items: input.nodes.map((node, index) => ({
+          nodeId: node.nodeId,
+          status: "accepted",
+          fixtureName: `B2-L${String(index + 1).padStart(3, "0")}`
+        }))
+      });
     }
     if (path.endsWith("/register")) {
       return Promise.resolve({
@@ -779,7 +803,16 @@ describe("App", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "점멸 확인" })[0]);
     expect(await screen.findByText("점멸 중")).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "등록" })[0]);
+    fireEvent.click(screen.getByLabelText("조명 1 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
+      `/registration-sessions/${mockRegistrationSession.id}/nodes/register-batch`,
+      expect.objectContaining({
+        mode: "batch",
+        nodes: [{ nodeId: mockRegistrationSession.discoveredNodes[0].id, placement: { mode: "auto" } }]
+      })
+    ));
     expect(await screen.findByText("등록 완료")).toBeInTheDocument();
   });
 
