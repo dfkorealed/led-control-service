@@ -1,5 +1,20 @@
 menu "LED Control Node"
 
+config DFK_PRODUCT_FAMILY
+    int "DFK product family code"
+    default 1
+    range 0 255
+
+config DFK_MODEL_CODE
+    int "DFK model code"
+    default 1
+    range 0 255
+
+config DFK_HARDWARE_REVISION
+    int "DFK hardware revision"
+    default 1
+    range 0 255
+
 config LED_CONTROL_PWM_GPIO
     int "LED driver PWM GPIO"
     default 8

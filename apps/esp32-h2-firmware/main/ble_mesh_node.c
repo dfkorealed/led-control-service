@@ -5,6 +5,7 @@
 
 #include "ble_mesh_platform.h"
 #include "control_state.h"
+#include "device_identity.h"
 #include "esp_ble_mesh_common_api.h"
 #include "esp_ble_mesh_config_model_api.h"
 #include "esp_ble_mesh_defs.h"
@@ -358,7 +359,7 @@ esp_err_t ble_mesh_node_init(void) {
   }
   update_bound_mesh_state();
 
-  ble_mesh_platform_get_device_uuid(dev_uuid);
+  device_identity_build(dev_uuid);
 
   ESP_ERROR_CHECK(esp_ble_mesh_register_prov_callback(provisioning_cb));
   ESP_ERROR_CHECK(esp_ble_mesh_register_config_server_callback(config_server_cb));
@@ -391,7 +392,7 @@ esp_err_t ble_mesh_node_init(void) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_health_server_fault_update(&elements[0]));
   }
 
-  ESP_LOGI(TAG, "BLE Mesh node initialized name=%s uuid=%02x%02x:%02x%02x%02x%02x%02x%02x",
+  ESP_LOGI(TAG, "BLE Mesh node initialized name=%s uuid=%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
            LED_CONTROL_UNPROV_NAME,
            dev_uuid[0],
            dev_uuid[1],
@@ -400,6 +401,14 @@ esp_err_t ble_mesh_node_init(void) {
            dev_uuid[4],
            dev_uuid[5],
            dev_uuid[6],
-           dev_uuid[7]);
+           dev_uuid[7],
+           dev_uuid[8],
+           dev_uuid[9],
+           dev_uuid[10],
+           dev_uuid[11],
+           dev_uuid[12],
+           dev_uuid[13],
+           dev_uuid[14],
+           dev_uuid[15]);
   return ESP_OK;
 }

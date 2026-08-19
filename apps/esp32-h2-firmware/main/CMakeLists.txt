@@ -4,6 +4,7 @@ idf_component_register(
     "ble_mesh_node.c"
     "ble_mesh_platform.c"
     "control_state.c"
+    "device_identity.c"
     "factory_reset.c"
     "identify.c"
     "led_driver.c"

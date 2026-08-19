@@ -34,7 +34,7 @@ class FakeAddressStore {
   confirm = vi.fn(async () => ({ fixtureId: "node-1" }));
 }
 
-function createFixture() {
+function createFixture(options: { logger?: { info(message: string): void } } = {}) {
   const application = new FakeApplication();
   const transport = new FakeTransport();
   const identity = new FakeIdentityStore();
@@ -49,7 +49,7 @@ function createFixture() {
       application,
       identity,
       addresses,
-      { provisioningTimeoutMs: 100 }
+      { provisioningTimeoutMs: 100, ...options }
     )
   };
 }
@@ -90,13 +90,41 @@ describe("BluezProvisioner", () => {
 
     const scan = fixture.provisioner.scan(1);
     await vi.waitFor(() => expect(fixture.transport.calls.some((call) => call.method === "UnprovisionedScan")).toBe(true));
-    const uuid = Uint8Array.from({ length: 16 }, (_, index) => 0xf0 + index);
+    const uuid = Uint8Array.from(Buffer.from("44464b4c454401010101aabbccddeeff", "hex"));
     fixture.application.emit("scanResult", { rssi: -70, data: uuid, options: [] });
     fixture.application.emit("scanResult", { rssi: -45, data: Uint8Array.from([...uuid, 0, 0]), options: [] });
 
     await expect(scan).resolves.toEqual([
       { deviceUuid: Buffer.from(uuid).toString("hex"), rssi: -45, oobCapability: "none" }
     ]);
+  });
+
+  it("ignores third-party UUIDs and only returns DFK product identities", async () => {
+    const logger = { info: vi.fn() };
+    const fixture = createFixture({ logger });
+    fixture.identity.identity.token = 1n;
+    fixture.transport.responses.set("org.bluez.mesh.Network1.Attach", ["/org/bluez/mesh/node1", []]);
+    await fixture.provisioner.start();
+
+    const scan = fixture.provisioner.scan(1);
+    await vi.waitFor(() => expect(fixture.transport.calls.some((call) => call.method === "UnprovisionedScan")).toBe(true));
+    fixture.application.emit("scanResult", {
+      rssi: -30,
+      data: Uint8Array.from(Buffer.from("00112233445566778899aabbccddeeff", "hex")),
+      options: []
+    });
+    fixture.application.emit("scanResult", {
+      rssi: -60,
+      data: Uint8Array.from(Buffer.from("44464b4c454401010101aabbccddeeff", "hex")),
+      options: []
+    });
+
+    await expect(scan).resolves.toEqual([{
+      deviceUuid: "44464b4c454401010101aabbccddeeff",
+      rssi: -60,
+      oobCapability: "none"
+    }]);
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('"reason":"unsupported_product_identity"'));
   });
 
   it("reserves and confirms the requested address after AddNodeComplete", async () => {

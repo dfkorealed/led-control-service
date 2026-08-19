@@ -27,6 +27,7 @@
 - 현장이 없으면 service-provider `operator`에게 `초기 설치 설정` 마법사를 표시하고 customer `admin/viewer`에게는 `설치 담당자가 현장을 준비 중입니다` 상태를 표시한다.
 - 현장은 있으나 등록된 조명이 없으면 service-provider `operator`에게만 Gateway claim 또는 `조명 등록` 패널을 표시한다. customer `admin/viewer`에게는 설치 대기 상태를 표시하며 시운전 기능을 노출하지 않는다.
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
+- ESP32-H2 unprovisioned UUID는 `DFKLED`, format version, 제품군, 모델, 하드웨어 revision과 6바이트 장치 식별자로 구성한다. Raspberry Pi Gateway는 shared parser로 현재 format의 자사 UUID만 scan 결과에 포함하고 타사 장치는 구조화 로그만 남긴다.
 - 조명 등록 패널은 gateway scan/provisioning MQTT 흐름과 연결되어, 등록 완료 이벤트 후 dashboard polling으로 새 fixture를 표시할 수 있다. 이 시점의 fixture는 `offline + provisioning_waiting_state`이며 실제 offline과 구분해 `상태 확인 대기`로 표시한다.
 - 층별 탭으로 지하/지상 층을 전환한다.
 - 층별 2D 맵에 도면 이미지와 조명 위치를 표시한다.
@@ -112,6 +113,7 @@
 - `apps/gateway/src/health/appliance-health.ts`
 - `apps/gateway/docker/healthcheck.sh`
 - `packages/shared/src/schemas.ts`
+- `packages/shared/src/product-identity.ts`
 - `packages/shared/src/mqtt.ts`
 
 ## 갱신 규칙

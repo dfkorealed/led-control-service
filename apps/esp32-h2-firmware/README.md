@@ -118,6 +118,9 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 CONFIG_LED_CONTROL_PWM_GPIO=8
 CONFIG_LED_CONTROL_FACTORY_RESET_GPIO=9
 CONFIG_LED_CONTROL_FACTORY_RESET_HOLD_MS=8000
+CONFIG_DFK_PRODUCT_FAMILY=1
+CONFIG_DFK_MODEL_CODE=1
+CONFIG_DFK_HARDWARE_REVISION=1
 ```
 
 factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 외부 pull-up, switch debounce, ESD와 부팅 strap 충돌 여부를 반드시 검토한다. 8초가 충족되면 앱 상태 NVS와 BLE Mesh provisioning 정보를 삭제하고 재부팅해 unprovisioned beacon 상태로 돌아간다.
@@ -125,7 +128,7 @@ factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 �
 ## BLE Mesh 동작 흐름
 
 1. 부팅 후 NimBLE host를 초기화한다.
-2. BLE Mesh device UUID를 `0x4c45 + BLE address` 형태로 만든다.
+2. BLE Mesh device UUID를 DFK 제품 식별 계약과 Bluetooth MAC으로 만든다.
 3. unprovisioned device name을 `DFK-LED-H2`로 설정한다.
 4. PB-ADV/PB-GATT bearer를 켜고 provisioner 검색을 기다린다.
 5. provisioner가 NetKey/AppKey를 주입하고 model bind/group subscription을 설정한다.
@@ -139,12 +142,29 @@ factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 �
 
 현재 펌웨어는 노드 역할만 수행한다. 실제 현장에서 라즈베리파이 gateway 또는 별도 provisioner가 아래 작업을 수행해야 한다.
 
-- unprovisioned device UUID prefix `0x4c45` 또는 name `DFK-LED-H2` 기준으로 조명 노드를 식별한다.
+- unprovisioned device UUID의 `DFKLED` prefix, format version과 제품 코드를 검증해 조명 노드를 식별한다.
 - NetKey를 주입하고 unicast address를 할당한다.
 - AppKey를 추가한다.
 - primary element의 Generic OnOff Server, Light Lightness Server, Health Server에 AppKey를 bind한다.
 - 층/구역별 group address를 Light Lightness Server와 Generic OnOff Server에 subscribe한다.
 - 상태 publication 주소와 주기를 설정한다.
+
+## DFK BLE Mesh device UUID
+
+unprovisioned beacon의 16바이트 device UUID는 아래 고정 형식을 사용한다.
+
+| Byte | 길이 | 내용 |
+| --- | ---: | --- |
+| 0~5 | 6 | ASCII `DFKLED` (`44 46 4b 4c 45 44`) |
+| 6 | 1 | format version, 현재 `0x01` |
+| 7 | 1 | 제품군 코드 `CONFIG_DFK_PRODUCT_FAMILY` |
+| 8 | 1 | 모델 코드 `CONFIG_DFK_MODEL_CODE` |
+| 9 | 1 | 하드웨어 revision `CONFIG_DFK_HARDWARE_REVISION` |
+| 10~15 | 6 | ESP32-H2 Bluetooth MAC 기반 장치 식별자 |
+
+기본 ESP32-H2 mini 조명 모듈은 제품군, 모델, 하드웨어 revision을 각각 `1`로 사용한다. 제품 또는 PCB revision을 출시할 때는 `Kconfig.projbuild`와 양산용 `sdkconfig.defaults` 값을 확정하고 동일 값으로 펌웨어를 빌드한다. 부팅 로그의 `BLE Mesh node initialized ... uuid=` 뒤 32자리 값을 Gateway 검색 로그와 대조할 수 있다.
+
+이 UUID는 주변의 타사 장치를 검색 결과에서 제외하기 위한 제품 식별자이며 인증서나 서명을 대신하지 않는다. 복제 방지와 장비 신뢰성은 Gateway mTLS, 제조 원장, claim 절차와 별도로 보장한다.
 
 ## 문제 해결
 

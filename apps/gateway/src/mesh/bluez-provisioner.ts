@@ -1,4 +1,5 @@
 import type { EventEmitter } from "node:events";
+import { parseDfkDeviceUuid } from "@led-control/shared";
 import { BLUEZ_APPLICATION_PATHS, type BluezDbusApplication } from "./bluez-dbus-application";
 import type { BluezTransport } from "./bluez-transport";
 import type { MeshAddressStore } from "./mesh-address-store";
@@ -45,6 +46,7 @@ export interface BluezProvisionRequest {
 interface BluezProvisionerOptions {
   bootstrapTimeoutMs?: number;
   provisioningTimeoutMs?: number;
+  logger?: Pick<Console, "info">;
 }
 
 export class BluezProvisioner {
@@ -54,6 +56,7 @@ export class BluezProvisioner {
   private provisioning = false;
   private readonly bootstrapTimeoutMs: number;
   private readonly provisioningTimeoutMs: number;
+  private readonly logger: Pick<Console, "info">;
 
   constructor(
     private readonly transport: ProvisionerTransport | BluezTransport,
@@ -64,6 +67,7 @@ export class BluezProvisioner {
   ) {
     this.bootstrapTimeoutMs = options.bootstrapTimeoutMs ?? 30_000;
     this.provisioningTimeoutMs = options.provisioningTimeoutMs ?? 120_000;
+    this.logger = options.logger ?? console;
     this.application.setProvisioningDataProvider?.(async (elementCount) => {
       const reservation = this.activeReservation;
       if (!reservation) throw new Error("No active mesh address reservation");
@@ -88,6 +92,14 @@ export class BluezProvisioner {
     const results = new Map<string, BluezScanResult>();
     const onResult = (event: { rssi: number; data: Uint8Array }) => {
       const parsed = parseScanResult(event);
+      if (!parseDfkDeviceUuid(parsed.deviceUuid)) {
+        this.logger.info(JSON.stringify({
+          event: "mesh_scan_device_ignored",
+          reason: "unsupported_product_identity",
+          deviceUuid: parsed.deviceUuid
+        }));
+        return;
+      }
       const previous = results.get(parsed.deviceUuid);
       if (!previous || parsed.rssi > previous.rssi) results.set(parsed.deviceUuid, parsed);
     };

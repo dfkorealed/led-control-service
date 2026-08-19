@@ -265,7 +265,7 @@ git add apps/web/src/features/floor-map apps/web/src/features/floor-editor/Floor
 git commit -m "feat(monitoring): render saved floor maps read-only"
 ```
 
-- [ ] **사용자 확인 Gate 3:** 구현 결과와 테스트를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 3:** 구현 결과와 테스트를 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
@@ -289,7 +289,7 @@ git commit -m "feat(monitoring): render saved floor maps read-only"
 - UUID layout: `DFKLED`, format `0x01`, family, model, hardware revision, 6-byte device identity
 - Produces: firmware `device_identity_build(uint8_t output[16])`
 
-- [ ] **Step 1: shared parser 실패 테스트 작성**
+- [x] **Step 1: shared parser 실패 테스트 작성**
 
 ```ts
 expect(parseDfkDeviceUuid("44464b4c454401010101aabbccddeeff")).toEqual({
@@ -302,7 +302,7 @@ expect(parseDfkDeviceUuid("44464b4c454401010101aabbccddeeff")).toEqual({
 expect(parseDfkDeviceUuid("00112233445566778899aabbccddeeff")).toBeNull();
 ```
 
-- [ ] **Step 2: gateway filter 실패 테스트 작성**
+- [x] **Step 2: gateway filter 실패 테스트 작성**
 
 ```ts
 provisioner.handleUnprovisionedDevice(tarPartyUuid);
@@ -311,7 +311,7 @@ provisioner.handleUnprovisionedDevice(dfkUuid);
 expect(onDiscovered).toHaveBeenCalledTimes(1);
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/shared exec vitest run src/product-identity.test.ts`
 
@@ -319,7 +319,7 @@ Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-provisio
 
 Expected: parser와 filter 부재로 FAIL
 
-- [ ] **Step 4: shared, gateway, firmware 구현**
+- [x] **Step 4: shared, gateway, firmware 구현**
 
 ```c
 void device_identity_build(uint8_t output[16]) {
@@ -334,7 +334,7 @@ void device_identity_build(uint8_t output[16]) {
 
 Gateway는 parser가 `null`인 장치를 구조화 로그로만 남기고 scan event로 발행하지 않는다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
 Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-provisioner.test.ts`
 
@@ -342,7 +342,7 @@ Run: `scripts/esp32-h2-build.sh`
 
 Expected: TypeScript 테스트와 ESP-IDF build exit 0
 
-- [ ] **Step 6: 문서 갱신과 커밋**
+- [x] **Step 6: 문서 갱신과 커밋**
 
 ```bash
 git add packages/shared/src apps/gateway/src/mesh/bluez-provisioner.ts apps/gateway/src/mesh/bluez-provisioner.test.ts \
