@@ -32,6 +32,7 @@ export interface Dashboard {
       brightness: number;
       status: "online" | "offline" | "fault";
       statusReason?: "reported" | "mesh_publication" | "startup_resync" | "fixture_stale" | "gateway_offline" | "command_failed" | "provisioning_waiting_state" | null;
+      health: { faultCodes: number[]; observedAt: string } | null;
       rssi: number | null;
       hopCount: number | null;
       commandSuccessRate: number | null;

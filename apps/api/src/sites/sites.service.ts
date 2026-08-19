@@ -3,6 +3,7 @@ import { isGatewayHeartbeatFresh } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "../fixtures/fixture-health";
 
 @Injectable()
 export class SitesService {
@@ -95,13 +96,15 @@ export class SitesService {
           : null,
         fixtures: (fixturesByFloor.get(floor.id) ?? []).map((fixture) => {
           const gatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
+          const health = toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt);
+          const status = fixtureStatusWithHealth(fixture.status, health);
           const controlBlockReason = !fixture.meshNode
             ? "fixture_unmapped"
             : !gatewayOnline
               ? "gateway_offline"
-              : fixture.status === "fault"
+              : status === "fault"
                 ? "fixture_fault"
-                : fixture.status === "offline"
+                : status === "offline"
                   ? "fixture_offline"
                   : null;
           return {
@@ -111,8 +114,9 @@ export class SitesService {
           y: fixture.y,
           ratedWatt: Number(fixture.ratedWatt),
           brightness: fixture.brightness,
-          status: fixture.status,
+          status,
           statusReason: fixture.statusReason,
+          health,
           rssi: fixture.rssi,
           hopCount: fixture.hopCount,
           commandSuccessRate: fixture.commandSuccessRate,

@@ -234,6 +234,14 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
                   <dd>{formatLastSeen(selectedFixture.lastSeenAt)}</dd>
                 </div>
                 <div>
+                  <dt>장비 Health</dt>
+                  <dd>{formatHealthStatus(selectedFixture.health)}</dd>
+                </div>
+                <div>
+                  <dt>Health 수신</dt>
+                  <dd>{formatLastSeen(selectedFixture.health?.observedAt ?? null)}</dd>
+                </div>
+                <div>
                   <dt>게이트웨이</dt>
                   <dd>
                     {selectedFixture.gateway
@@ -319,6 +327,13 @@ function formatLastSeen(value: string | null) {
   if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}분 전`;
   if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}시간 전`;
   return `${Math.floor(diffMs / 86_400_000)}일 전`;
+}
+
+function formatHealthStatus(health: Dashboard["floors"][number]["fixtures"][number]["health"]) {
+  if (!health) return "확인 대기";
+  if (health.faultCodes.length === 0) return "정상";
+  const codes = health.faultCodes.map((code) => `0x${code.toString(16).padStart(2, "0").toUpperCase()}`);
+  return `장애 (${codes.join(", ")})`;
 }
 
 function formatUpdatedAt(value: number) {

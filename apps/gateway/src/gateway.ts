@@ -20,6 +20,7 @@ export interface BleMeshFixtureStatus {
   powerOn: boolean;
   status: "online" | "fault";
   faultCode?: string;
+  health: { faultCodes: number[]; observedAt: string };
   rssi: number | null;
   hopCount: number | null;
 }

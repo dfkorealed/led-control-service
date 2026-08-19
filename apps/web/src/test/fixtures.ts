@@ -35,6 +35,10 @@ export const mockDashboard: Dashboard = {
           ratedWatt: 40,
           brightness,
           status,
+          health: {
+            faultCodes: status === "fault" ? [1] : [],
+            observedAt: "2026-07-01T00:00:00.000Z"
+          },
           rssi: status === "offline" ? null : -58 - index,
           hopCount: status === "offline" ? null : 1 + (index % 3),
           commandSuccessRate: status === "fault" ? 0.72 : status === "offline" ? null : 0.98,
@@ -62,6 +66,7 @@ export const mockDashboard: Dashboard = {
         ratedWatt: 40,
         brightness: 50 + index * 5,
         status: "online" as const,
+        health: { faultCodes: [], observedAt: "2026-07-01T00:00:00.000Z" },
         rssi: -55 - index,
         hopCount: 1,
         commandSuccessRate: 0.99,

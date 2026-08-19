@@ -272,6 +272,8 @@ model Fixture {
   lastStateSequence   BigInt?
   lastStateOccurredAt DateTime?
   statusReason        String?
+  healthFaultCodes    Json?
+  healthLastSeenAt    DateTime?
   floor               Floor                  @relation(fields: [floorId], references: [id])
   meshNode            MeshNode?              @relation(fields: [meshNodeId], references: [id])
   groupFixtures       GroupFixture[]

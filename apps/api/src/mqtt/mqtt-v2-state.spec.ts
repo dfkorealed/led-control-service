@@ -19,7 +19,14 @@ describe("MqttService v2 ordered state", () => {
     });
     expect(prisma.fixture.updateMany).toHaveBeenCalledWith({
       where: expect.objectContaining({ id: "66666666-6666-4666-8666-666666666666" }),
-      data: expect.objectContaining({ brightness: 70, lastStateSequence: 9n, statusReason: "reported" })
+      data: expect.objectContaining({
+        brightness: 70,
+        healthFaultCodes: [1, 4],
+        healthLastSeenAt: new Date("2026-07-11T00:00:08.000Z"),
+        lastStateSequence: 9n,
+        status: "fault",
+        statusReason: "reported"
+      })
     });
   });
 
@@ -61,6 +68,7 @@ function fixtureEvent(sequence: number) {
     powerOn: true,
     status: "online",
     statusReason: "reported",
+    health: { faultCodes: [4, 0, 1, 4], observedAt: "2026-07-11T00:00:08.000Z" },
     rssi: -60,
     hopCount: 1
   };

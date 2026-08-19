@@ -6,7 +6,9 @@ import {
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
-  mqttTopicsV2
+  mapHealthFaults,
+  mqttTopicsV2,
+  statusFromHealth
 } from "./gateway-contracts";
 import { mqttTopics } from "./mqtt";
 
@@ -130,5 +132,27 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(gatewayHeartbeatV2Schema.parse(heartbeat).gatewaySerial).toBe("GW-001");
     expect(() => fixtureStateV2Schema.parse({ ...state, eventId: "", sequence: -1 })).toThrow();
     expect(() => gatewayHeartbeatV2Schema.parse({ ...heartbeat, gatewayId: "other" })).toThrow();
+  });
+
+  it("parses and normalizes a current Health snapshot", () => {
+    const state = {
+      eventId,
+      siteId,
+      gatewayId,
+      fixtureId,
+      sequence: 9,
+      occurredAt,
+      brightness: 40,
+      powerOn: true,
+      status: "fault",
+      health: { faultCodes: [4, 0, 1, 4], observedAt: occurredAt },
+      rssi: -60,
+      hopCount: 2
+    };
+
+    expect(fixtureStateV2Schema.parse(state).health?.faultCodes).toEqual([4, 0, 1, 4]);
+    expect(mapHealthFaults([4, 0, 1, 4])).toEqual([1, 4]);
+    expect(statusFromHealth(mapHealthFaults([0]))).toBe("online");
+    expect(statusFromHealth([1])).toBe("fault");
   });
 });

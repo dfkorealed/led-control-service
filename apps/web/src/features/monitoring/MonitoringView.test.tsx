@@ -31,6 +31,7 @@ const fixture = {
   hopCount: null,
   commandSuccessRate: null,
   lastSeenAt: "2026-08-19T01:00:00.000Z",
+  health: { faultCodes: [4], observedAt: "2026-08-19T01:00:01.000Z" },
   gateway: { id: "gateway-1", name: "GW-1", connectionStatus: "online" as const },
   controllable: true,
   controlBlockReason: null
@@ -110,6 +111,14 @@ describe("MonitoringView refresh", () => {
 
     expect(await screen.findByRole("status")).toHaveTextContent("일부 현황 데이터를 새로고침하지 못했습니다.");
     expect(screen.getAllByText("B1-L001")).not.toHaveLength(0);
+  });
+
+  it("shows the latest Health Current fault snapshot", () => {
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByText("장비 Health")).toBeInTheDocument();
+    expect(screen.getByText("장애 (0x04)")).toBeInTheDocument();
+    expect(screen.getByText("Health 수신")).toBeInTheDocument();
   });
 });
 

@@ -1,10 +1,11 @@
 import type { EventEmitter } from "node:events";
-import type {
-  IdentifyDevicePayload,
-  ProvisionDevicePayload,
-  ProvisioningCompletedPayload,
-  ProvisioningScanStartPayload,
-  UnprovisionedDeviceFoundPayload
+import {
+  mapHealthFaults,
+  type IdentifyDevicePayload,
+  type ProvisionDevicePayload,
+  type ProvisioningCompletedPayload,
+  type ProvisioningScanStartPayload,
+  type UnprovisionedDeviceFoundPayload
 } from "@led-control/shared";
 import type { BleMeshAdapter, BleMeshCommandReport, BleMeshFixtureStatus, BleMeshResyncReport, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
 import { BLUEZ_APPLICATION_PATHS } from "./bluez-dbus-application";
@@ -225,11 +226,11 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     } else if (kind === "lightness") {
       observation.brightness = { value: lightnessToPercent(decodeLightnessStatus(payload).present), observedAt: now };
     } else {
-      const faultCode = health!.faults.length === 0
-        ? undefined
-        : `health:${health!.companyId.toString(16).padStart(4, "0")}:${health!.faults.map((fault) => fault.toString(16).padStart(2, "0")).join("")}`;
       observation.currentFault = {
-        value: faultCode,
+        value: {
+          companyId: health!.companyId,
+          faultCodes: mapHealthFaults(health!.faults)
+        },
         observedAt: now
       };
     }
@@ -240,12 +241,20 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     if (!observation.powerOn || !observation.brightness || !observation.currentFault) return;
     if (!isCoherent(observation, this.observationCoherenceMs)) return;
     observation.completed = true;
+    const healthSnapshot = observation.currentFault.value;
+    const faultCode = healthSnapshot.faultCodes.length === 0
+      ? undefined
+      : `health:${healthSnapshot.companyId.toString(16).padStart(4, "0")}:${healthSnapshot.faultCodes.map((fault) => fault.toString(16).padStart(2, "0")).join("")}`;
     const status: FixtureMeshStatus = {
       fixtureId: mapping.fixtureId,
       brightness: observation.brightness.value,
       powerOn: observation.powerOn.value,
-      status: observation.currentFault.value ? "fault" : "online",
-      ...(observation.currentFault.value ? { faultCode: observation.currentFault.value } : {}),
+      status: healthSnapshot.faultCodes.length > 0 ? "fault" : "online",
+      ...(faultCode ? { faultCode } : {}),
+      health: {
+        faultCodes: healthSnapshot.faultCodes,
+        observedAt: new Date(observation.currentFault.observedAt).toISOString()
+      },
       rssi: null,
       hopCount: null
     };
@@ -407,7 +416,7 @@ interface FixtureObservation {
   completed: boolean;
   brightness?: TimedObservation<number>;
   powerOn?: TimedObservation<boolean>;
-  currentFault?: TimedObservation<string | undefined>;
+  currentFault?: TimedObservation<{ companyId: number; faultCodes: number[] }>;
 }
 
 interface TimedObservation<T> {

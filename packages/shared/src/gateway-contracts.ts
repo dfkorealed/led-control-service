@@ -75,6 +75,13 @@ export const deviceStatusAckV2Schema = commandIdentitySchema.extend({
   results: z.array(deviceCommandResultV2Schema).min(1)
 });
 
+export const healthFaultCodesSchema = z.array(z.number().int().min(0).max(0xff)).max(0xff);
+
+export const fixtureHealthSnapshotSchema = z.object({
+  faultCodes: healthFaultCodesSchema,
+  observedAt: z.string().datetime()
+}).strict();
+
 export const fixtureStateV2Schema = orderedGatewayEventSchema.extend({
   fixtureId: z.string().uuid(),
   brightness: z.number().int().min(0).max(100),
@@ -82,6 +89,7 @@ export const fixtureStateV2Schema = orderedGatewayEventSchema.extend({
   status: z.enum(["online", "offline", "fault"]),
   statusReason: z.enum(["reported", "mesh_publication", "startup_resync", "fixture_stale", "gateway_offline", "command_failed"]).optional(),
   faultCode: z.string().min(1).optional(),
+  health: fixtureHealthSnapshotSchema.optional(),
   rssi: z.number().max(0).nullable(),
   hopCount: z.number().int().nonnegative().nullable()
 });
@@ -98,3 +106,11 @@ export type AcceptanceAckV2 = z.infer<typeof acceptanceAckV2Schema>;
 export type DeviceStatusAckV2 = z.infer<typeof deviceStatusAckV2Schema>;
 export type FixtureStateV2 = z.infer<typeof fixtureStateV2Schema>;
 export type GatewayHeartbeatV2 = z.infer<typeof gatewayHeartbeatV2Schema>;
+
+export function mapHealthFaults(faultCodes: readonly number[]) {
+  return [...new Set(faultCodes.filter((code) => code !== 0))].sort((left, right) => left - right);
+}
+
+export function statusFromHealth(faultCodes: readonly number[]): "online" | "fault" {
+  return faultCodes.length > 0 ? "fault" : "online";
+}

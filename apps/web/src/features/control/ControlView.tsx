@@ -86,7 +86,10 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
                   }}
                 >
                   <span className={`device-state ${fixture.status === "fault" ? "danger" : fixture.status === "offline" ? "muted" : ""}`} />
-                  <strong>{fixture.name}</strong>
+                  <div className="device-control-identity">
+                    <strong>{fixture.name}</strong>
+                    <small>{controlHealthLabel(fixture.health)}</small>
+                  </div>
                   <span>{fixture.brightness}%</span>
                 </button>
               ))
@@ -266,4 +269,9 @@ function formatControlBlockReason(
           ? "조명이 오프라인입니다."
           : "현재 제어할 수 없습니다.";
   return `${prefix}${detail}`;
+}
+
+function controlHealthLabel(health: { faultCodes: number[]; observedAt: string } | null) {
+  if (!health) return "Health 확인 대기";
+  return health.faultCodes.length > 0 ? "Health 장애" : "Health 정상";
 }

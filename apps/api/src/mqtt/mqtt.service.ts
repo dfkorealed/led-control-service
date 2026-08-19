@@ -7,6 +7,7 @@ import {
   gatewayHeartbeatV2Schema,
   IdentifyDevicePayload,
   identifyDeviceSchema,
+  mapHealthFaults,
   mqttTopics,
   ProvisionDevicePayload,
   provisionDeviceSchema,
@@ -14,6 +15,7 @@ import {
   provisioningFailedSchema,
   ProvisioningScanStartPayload,
   provisioningScanStartSchema,
+  statusFromHealth,
   unprovisionedDeviceFoundSchema
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
@@ -273,6 +275,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async storeFixtureStateV2(gatewayId: string, state: ReturnType<typeof fixtureStateV2Schema.parse>) {
+    const health = state.health
+      ? { faultCodes: mapHealthFaults(state.health.faultCodes), observedAt: new Date(state.health.observedAt) }
+      : null;
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.processedGatewayEvent.create({
@@ -293,8 +298,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           },
           data: {
             brightness: state.brightness,
-            status: state.status,
+            status: health ? statusFromHealth(health.faultCodes) : state.status,
             statusReason: state.statusReason ?? "reported",
+            ...(health ? {
+              healthFaultCodes: health.faultCodes,
+              healthLastSeenAt: health.observedAt
+            } : {}),
             rssi: state.rssi,
             hopCount: state.hopCount,
             lastSeenAt: new Date(state.occurredAt),

@@ -30,6 +30,8 @@ describe("FixturesService", () => {
             hopCount: 1,
             commandSuccessRate: 0.99,
             lastSeenAt: new Date("2026-07-12T00:00:00.000Z"),
+            healthFaultCodes: [4, 1],
+            healthLastSeenAt: new Date("2026-07-12T00:00:01.000Z"),
             meshNode: { gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: heartbeat } }
           },
           { id: "fixture-2" }
@@ -50,8 +52,10 @@ describe("FixturesService", () => {
         {
           id: "fixture-1",
           gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
-          controllable: true,
-          controlBlockReason: null
+          status: "fault",
+          health: { faultCodes: [1, 4], observedAt: "2026-07-12T00:00:01.000Z" },
+          controllable: false,
+          controlBlockReason: "fixture_fault"
         }
       ],
       nextCursor: "fixture-1"

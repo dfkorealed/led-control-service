@@ -41,6 +41,7 @@ describe("startGatewayRuntime", () => {
       powerOn: true,
       status: "fault",
       faultCode: "health:02e5:01",
+      health: { faultCodes: [1], observedAt: "2026-08-10T23:59:59.000Z" },
       rssi: null,
       hopCount: null
     });
@@ -53,6 +54,7 @@ describe("startGatewayRuntime", () => {
         fixtureId: scopedFixtureId,
         sequence: 41,
         occurredAt: "2026-08-11T00:00:00.000Z",
+        health: { faultCodes: [1], observedAt: "2026-08-10T23:59:59.000Z" },
         statusReason: "mesh_publication"
       })
     );

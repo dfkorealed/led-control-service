@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-08-11
+작성일: 2026-08-19
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -425,6 +425,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `lastStateSequence` | `BigInt?` | 아니오 |  | 마지막 적용 gateway sequence |
 | `lastStateOccurredAt` | `DateTime?` | 아니오 |  | 장치 상태 발생 시각 |
 | `statusReason` | `String?` | 아니오 |  | reported, provisioning_waiting_state, fixture_stale, gateway_offline 등 상태 근거 |
+| `healthFaultCodes` | `Json?` | 아니오 | JSON number 배열 | 마지막 BLE Mesh Health Current의 정규화된 8비트 fault code 목록 |
+| `healthLastSeenAt` | `DateTime?` | 아니오 |  | 마지막 BLE Mesh Health Current 관측 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -438,6 +440,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 운영 메모:
 
 - `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`은 장기 이력 테이블이 아니라 최신 모니터링 snapshot이다.
+- `healthFaultCodes`, `healthLastSeenAt`도 이력 테이블이 아닌 최신 Health Current snapshot이다. fault code `0x00`은 제거하고 나머지는 중복 제거·오름차순 정렬해 저장한다. 유효한 Health Current를 아직 받지 못했거나 JSON이 유효하지 않으면 API는 `확인 대기`로 응답한다.
+- `20260819092000_add_fixture_health_snapshot` migration은 기존 조명에 두 컬럼을 nullable로 추가한다. 따라서 migration 직후 기존 조명은 첫 Health Current 수신 전까지 `확인 대기` 상태다.
 - provisioning 완료는 `status = offline`, `statusReason = provisioning_waiting_state`, `brightness = 0`, `lastSeenAt = null`로 Fixture를 만든다. 이 값은 실제 장비 offline 판정이 아니라 첫 실제 상태를 아직 받지 못한 미확정 상태다.
 - 첫 MQTT `fixture-state` event가 도착할 때만 online/fault/offline 상태, 밝기, RSSI, hop, lastSeenAt과 `statusReason`을 실제 관측값으로 확정한다.
 - freshness worker는 `provisioning_waiting_state`를 gateway offline과 fixture stale 재집계에서 제외한다. 첫 실제 `fixture-state`가 status reason을 보고값으로 바꾼 뒤에는, 보고된 `offline`을 포함해 일반 freshness 규칙을 적용한다.
@@ -864,9 +868,9 @@ User.email/password
 ### 모니터링
 
 ```text
-Mock gateway 또는 실제 gateway
-→ MQTT fixture-state event
-→ Fixture brightness/status/RSSI/hop/commandSuccessRate/lastSeenAt 갱신
+실제 Raspberry Pi gateway
+→ Generic OnOff/Lightness/Health Current의 coherent MQTT v2 fixture-state event
+→ Fixture brightness/status/RSSI/hop/lastSeenAt과 healthFaultCodes/healthLastSeenAt 갱신
 → GET /sites/default/dashboard
 → 웹 모니터링 화면 표시
 ```

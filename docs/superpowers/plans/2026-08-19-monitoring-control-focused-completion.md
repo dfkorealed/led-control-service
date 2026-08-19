@@ -587,7 +587,7 @@ git add apps/web/src/features/registration apps/web/src/api/registration.ts apps
 git commit -m "feat(web): add batch and individual fixture registration"
 ```
 
-- [ ] **사용자 확인 Gate 7:** 화면 동작과 테스트 결과를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 7:** 화면 동작과 테스트 결과를 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
@@ -596,15 +596,23 @@ git commit -m "feat(web): add batch and individual fixture registration"
 **Files:**
 - Modify: `apps/api/prisma/schema.prisma`
 - Create: `apps/api/prisma/migrations/20260819092000_add_fixture_health_snapshot/migration.sql`
-- Modify: `packages/shared/src/schemas.ts`
-- Modify: `packages/shared/src/schemas.test.ts`
+- Modify: `packages/shared/src/gateway-contracts.ts`
+- Modify: `packages/shared/src/gateway-contracts.test.ts`
+- Modify: `apps/gateway/src/gateway.ts`
+- Modify: `apps/gateway/src/index.ts`
+- Modify: `apps/gateway/src/index.test.ts`
+- Modify: `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
+- Modify: `apps/gateway/src/mesh/bluez-mesh-adapter.test.ts`
 - Modify: `apps/api/src/mqtt/mqtt.service.ts`
-- Modify: `apps/api/src/mqtt/mqtt.service.spec.ts`
+- Modify: `apps/api/src/mqtt/mqtt-v2-state.spec.ts`
+- Create: `apps/api/src/fixtures/fixture-health.ts`
 - Modify: `apps/api/src/fixtures/fixtures.service.ts`
 - Modify: `apps/api/src/sites/sites.service.ts`
 - Modify: `apps/web/src/api/queries.ts`
 - Modify: `apps/web/src/features/monitoring/MonitoringView.tsx`
 - Modify: `apps/web/src/features/control/ControlView.tsx`
+- Create: `apps/web/src/features/control/ControlView.test.tsx`
+- Modify: `apps/web/src/styles.css`
 - Modify: `docs/database-schema.md`
 - Modify: `docs/menus/monitoring.md`
 - Modify: `docs/menus/control.md`
@@ -614,31 +622,31 @@ git commit -m "feat(web): add batch and individual fixture registration"
 - MQTT fixture state: `health: { faultCodes: number[]; observedAt: string }`
 - UI status: `정상 | 장애 | 확인 대기`
 
-- [ ] **Step 1: shared와 MQTT persistence 실패 테스트 작성**
+- [x] **Step 1: shared와 MQTT persistence 실패 테스트 작성**
 
 ```ts
-expect(fixtureStateEventSchema.parse({ ...event, health: { faultCodes: [1, 4], observedAt } }).health.faultCodes).toEqual([1, 4]);
-expect(prisma.fixture.update).toHaveBeenCalledWith(expect.objectContaining({
+expect(fixtureStateV2Schema.parse({ ...event, health: { faultCodes: [1, 4], observedAt } }).health.faultCodes).toEqual([1, 4]);
+expect(prisma.fixture.updateMany).toHaveBeenCalledWith(expect.objectContaining({
   data: expect.objectContaining({ healthFaultCodes: [1, 4], healthLastSeenAt: new Date(observedAt), status: "fault" })
 }));
 ```
 
-- [ ] **Step 2: no-fault 변환 실패 테스트 작성**
+- [x] **Step 2: no-fault 변환 실패 테스트 작성**
 
 ```ts
 expect(mapHealthFaults([0])).toEqual([]);
 expect(statusFromHealth([])).toBe("online");
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
-Run: `pnpm --filter @led-control/shared exec vitest run src/schemas.test.ts`
+Run: `pnpm --filter @led-control/shared exec vitest run src/gateway-contracts.test.ts`
 
-Run: `pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts --runInBand`
+Run: `pnpm --filter @led-control/api exec jest src/mqtt/mqtt-v2-state.spec.ts --runInBand`
 
 Expected: health schema와 DB 필드 부재로 FAIL
 
-- [ ] **Step 4: schema, persistence, 조회와 UI 구현**
+- [x] **Step 4: schema, persistence, 조회와 UI 구현**
 
 ```ts
 const faultCodes = [...new Set(input.health.faultCodes.filter((code) => code !== 0))].sort((a, b) => a - b);
@@ -647,15 +655,21 @@ const status = faultCodes.length > 0 ? "fault" : "online";
 
 통신 품질 점수나 이력은 생성하지 않고 최신 Health Current snapshot만 보존한다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
 Run: `pnpm --filter @led-control/api prisma:generate`
 
-Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts --runInBand && pnpm --filter @led-control/web typecheck`
+Run: `pnpm --filter @led-control/shared test`
+
+Run: `pnpm --filter @led-control/gateway test && pnpm --filter @led-control/gateway typecheck`
+
+Run: `pnpm --filter @led-control/api exec jest src/mqtt/mqtt-v2-state.spec.ts src/fixtures/fixtures.service.spec.ts src/sites/sites.service.spec.ts --runInBand && pnpm --filter @led-control/api typecheck`
+
+Run: `pnpm --filter @led-control/web test && pnpm --filter @led-control/web build`
 
 Expected: exit 0
 
-- [ ] **Step 6: DB·메뉴 문서 갱신과 커밋**
+- [x] **Step 6: DB·메뉴 문서 갱신과 커밋**
 
 ```bash
 git add packages/shared/src apps/api/prisma apps/api/src/mqtt apps/api/src/fixtures apps/api/src/sites \

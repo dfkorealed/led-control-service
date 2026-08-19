@@ -89,7 +89,14 @@ describe("BluezMeshAdapter", () => {
 
     f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
     await vi.waitFor(() => expect(received).toEqual([
-      expect.objectContaining({ fixtureId: "fixture-1", brightness: 100, powerOn: true, status: "fault", faultCode: "health:02e5:01" })
+      expect.objectContaining({
+        fixtureId: "fixture-1",
+        brightness: 100,
+        powerOn: true,
+        status: "fault",
+        faultCode: "health:02e5:01",
+        health: { faultCodes: [1], observedAt: expect.any(String) }
+      })
     ]));
     unsubscribe();
   });

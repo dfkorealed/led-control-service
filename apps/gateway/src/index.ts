@@ -240,6 +240,7 @@ export function createFixtureStatusPublisher(input: {
       status: status.status,
       statusReason: "mesh_publication",
       ...(status.faultCode ? { faultCode: status.faultCode } : {}),
+      health: status.health,
       rssi: status.rssi,
       hopCount: status.hopCount
     });

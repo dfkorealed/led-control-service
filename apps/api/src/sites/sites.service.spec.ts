@@ -90,6 +90,7 @@ describe("SitesService", () => {
         id: "fixture-1", floorId: "floor-1", name: "L1", x: 10, y: 20, brightness: 70, status: "online",
         ratedWatt: "40", rssi: -58, hopCount: 1, commandSuccessRate: 0.98,
         lastSeenAt: new Date("2026-07-01T00:00:00.000Z"),
+        healthFaultCodes: [], healthLastSeenAt: new Date("2026-07-01T00:00:01.000Z"),
         meshNode: { gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: new Date() } }
       },
       {
@@ -116,6 +117,7 @@ describe("SitesService", () => {
     expect(dashboard.floors[0].fixtures[0].brightness).toBe(70);
     expect(dashboard.floors[0].fixtures[0].rssi).toBe(-58);
     expect(dashboard.floors[0].fixtures[0]).toMatchObject({
+      health: { faultCodes: [], observedAt: "2026-07-01T00:00:01.000Z" },
       gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
       controllable: true,
       controlBlockReason: null
