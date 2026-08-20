@@ -705,8 +705,8 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 제약:
 
 - 복합 PK: `groupId`, `meshNodeId`
-- 복합 Unique: `groupId`, `gatewayId`
-- 복합 Unique: `meshNodeId`, `gatewayId`
+- 보조 Index: `groupId`, `gatewayId`
+- 보조 Index: `meshNodeId`, `gatewayId`
 
 관계:
 
@@ -717,6 +717,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 
 - `appliedVersion = 0`은 아직 gateway ACK로 subscription이 확인되지 않았음을 뜻한다.
 - `MeshControlGroupMember`는 `(groupId, gatewayId)`와 `(meshNodeId, gatewayId)` compound FK를 사용해 서로 다른 gateway의 group/node 연결을 DB에서 차단한다.
+- child 쪽 `groupId + gatewayId`, `meshNodeId + gatewayId`는 unique가 아니라 일반 index다. 따라서 한 control group에 여러 node membership을 둘 수 있고, 한 node도 같은 gateway 안에서 floor group과 fixture group membership을 함께 가질 수 있다.
 
 ### Command
 
@@ -922,7 +923,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `MeshNode` | Unique `deviceUuid` | BLE Mesh device UUID 중복 방지 |
 | `MeshNode` | Unique `gatewayId`, `meshAddress` | 같은 게이트웨이 내 mesh address 중복 방지 |
 | `MeshControlGroup` | Unique `gatewayId + targetType + targetId`, Unique `gatewayId + groupAddress` | gateway별 영속 제어 group 중복과 주소 충돌 방지 |
-| `MeshControlGroupMember` | PK `groupId + meshNodeId`, Unique `groupId + gatewayId`, Unique `meshNodeId + gatewayId` | 같은 node membership 중복과 cross-gateway group/node 연결 방지 |
+| `MeshControlGroupMember` | PK `groupId + meshNodeId`, Index `groupId + gatewayId`, Index `meshNodeId + gatewayId` | 같은 group/node membership 중복 방지, cross-gateway group/node FK 검증, gateway 내부 membership 조회 가속 |
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
 | `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |

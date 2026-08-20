@@ -504,8 +504,8 @@ model MeshControlGroupMember {
   updatedAt           DateTime                                @updatedAt
 
   @@id([groupId, meshNodeId])
-  @@unique([groupId, gatewayId])
-  @@unique([meshNodeId, gatewayId])
+  @@index([groupId, gatewayId])
+  @@index([meshNodeId, gatewayId])
   @@index([meshNodeId, subscriptionStatus])
 }
 

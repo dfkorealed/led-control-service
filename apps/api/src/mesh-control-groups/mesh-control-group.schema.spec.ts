@@ -28,12 +28,14 @@ describe("MeshControlGroup schema contract", () => {
     expect(migration).toContain('"appliedVersion" INTEGER NOT NULL DEFAULT 0');
   });
 
-  it("binds members to the same gateway as both the group and the mesh node", () => {
+  it("binds members to the same gateway as both the group and the mesh node without limiting one group to one node", () => {
     expect(schema).toContain("gatewayId       String");
     expect(schema).toContain("@@unique([id, gatewayId])");
-    expect(schema).toContain("@@unique([groupId, gatewayId])");
     expect(schema).toContain("@@unique([id, gatewayId])");
-    expect(schema).toContain("@@unique([meshNodeId, gatewayId])");
+    expect(schema).not.toContain("@@unique([groupId, gatewayId])");
+    expect(schema).not.toContain("@@unique([meshNodeId, gatewayId])");
+    expect(schema).toContain("@@index([groupId, gatewayId])");
+    expect(schema).toContain("@@index([meshNodeId, gatewayId])");
     expect(schema).toMatch(
       /group\s+MeshControlGroup\s+@relation\(fields: \[groupId, gatewayId\], references: \[id, gatewayId\], onDelete: Cascade\)/
     );
@@ -42,9 +44,17 @@ describe("MeshControlGroup schema contract", () => {
     );
     expect(migration).toContain('CREATE UNIQUE INDEX "MeshControlGroup_id_gatewayId_key"');
     expect(migration).toContain('CREATE UNIQUE INDEX "MeshNode_id_gatewayId_key"');
-    expect(migration).toContain('CREATE UNIQUE INDEX "MeshControlGroupMember_groupId_gatewayId_key"');
-    expect(migration).toContain('CREATE UNIQUE INDEX "MeshControlGroupMember_meshNodeId_gatewayId_key"');
+    expect(migration).not.toContain('CREATE UNIQUE INDEX "MeshControlGroupMember_groupId_gatewayId_key"');
+    expect(migration).not.toContain('CREATE UNIQUE INDEX "MeshControlGroupMember_meshNodeId_gatewayId_key"');
+    expect(migration).toContain('CREATE INDEX "MeshControlGroupMember_groupId_gatewayId_idx"');
+    expect(migration).toContain('CREATE INDEX "MeshControlGroupMember_meshNodeId_gatewayId_idx"');
     expect(migration).toContain('"MeshControlGroupMember_groupId_gatewayId_fkey"');
     expect(migration).toContain('"MeshControlGroupMember_meshNodeId_gatewayId_fkey"');
+  });
+
+  it("allows one mesh node to keep multiple memberships such as floor and fixture_group within the same gateway", () => {
+    expect(schema).not.toContain("@@unique([meshNodeId, gatewayId])");
+    expect(migration).not.toContain('CREATE UNIQUE INDEX "MeshControlGroupMember_meshNodeId_gatewayId_key"');
+    expect(schema).toContain("@@id([groupId, meshNodeId])");
   });
 });

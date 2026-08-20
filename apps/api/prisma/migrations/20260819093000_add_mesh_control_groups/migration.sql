@@ -50,10 +50,10 @@ ON "MeshControlGroup"("gatewayId", "status");
 CREATE UNIQUE INDEX "MeshNode_id_gatewayId_key"
 ON "MeshNode"("id", "gatewayId");
 
-CREATE UNIQUE INDEX "MeshControlGroupMember_groupId_gatewayId_key"
+CREATE INDEX "MeshControlGroupMember_groupId_gatewayId_idx"
 ON "MeshControlGroupMember"("groupId", "gatewayId");
 
-CREATE UNIQUE INDEX "MeshControlGroupMember_meshNodeId_gatewayId_key"
+CREATE INDEX "MeshControlGroupMember_meshNodeId_gatewayId_idx"
 ON "MeshControlGroupMember"("meshNodeId", "gatewayId");
 
 CREATE INDEX "MeshControlGroupMember_meshNodeId_subscriptionStatus_idx"
