@@ -688,6 +688,7 @@ git commit -m "feat(health): persist current mesh health faults"
 **Files:**
 - Modify: `apps/api/prisma/schema.prisma`
 - Create: `apps/api/prisma/migrations/20260819093000_add_mesh_control_groups/migration.sql`
+- Create: `apps/api/src/mesh-control-groups/mesh-control-group.schema.spec.ts`
 - Create: `apps/api/src/mesh-control-groups/mesh-control-group.service.ts`
 - Create: `apps/api/src/mesh-control-groups/mesh-control-group.service.spec.ts`
 - Create: `apps/api/src/mesh-control-groups/mesh-control-group.module.ts`
@@ -696,8 +697,8 @@ git commit -m "feat(health): persist current mesh health faults"
 - Modify: `docs/menus/control.md`
 
 **Interfaces:**
-- Produces: `ensureFloorGroup(gatewayId, floorId)`
-- Produces: `ensureFixtureGroup(gatewayId, fixtureGroupId)`
+- Produces: `ensureFloorGroup(tx, gatewayId, floorId)`
+- Produces: `ensureFixtureGroup(tx, gatewayId, fixtureGroupId)`
 - Group address range: `0xC000~0xFEFF`, gateway별 원자 증가
 - DB: `MeshControlGroup`, `MeshControlGroupMember`
 
@@ -738,7 +739,7 @@ Gateway에 `nextMeshGroupAddress Int @default(49152)`를 두고 increment-return
 
 Run: `pnpm --filter @led-control/api prisma:generate`
 
-Run: `pnpm --filter @led-control/api exec jest src/mesh-control-groups/mesh-control-group.service.spec.ts --runInBand`
+Run: `pnpm --filter @led-control/api exec jest src/mesh-control-groups/mesh-control-group.schema.spec.ts src/mesh-control-groups/mesh-control-group.service.spec.ts --runInBand`
 
 Run: `pnpm --filter @led-control/api typecheck`
 
