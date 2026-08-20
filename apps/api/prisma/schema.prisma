@@ -449,6 +449,7 @@ model MeshNode {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  @@unique([id, gatewayId])
   @@unique([gatewayId, meshAddress])
   @@index([gatewayId])
 }
@@ -464,38 +465,48 @@ enum MeshControlGroupStatus {
   failed
 }
 
-model MeshControlGroup {
-  id           String                @id @default(uuid())
-  gatewayId    String
-  targetType   MeshControlTargetType
-  targetId     String
-  groupAddress String
-  status       MeshControlGroupStatus @default(configuring)
-  version      Int                   @default(1)
-  lastError    String?
-  gateway      Gateway               @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  members      MeshControlGroupMember[]
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+enum MeshControlGroupMemberSubscriptionStatus {
+  pending
+  applied
+  failed
+}
 
+model MeshControlGroup {
+  id                   String                 @id @default(uuid())
+  gatewayId            String
+  targetType           MeshControlTargetType
+  targetId             String
+  groupAddress         String
+  status               MeshControlGroupStatus @default(configuring)
+  configurationVersion Int                    @default(1)
+  lastError            String?
+  gateway              Gateway                @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  members              MeshControlGroupMember[]
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  @@unique([id, gatewayId])
   @@unique([gatewayId, targetType, targetId])
   @@unique([gatewayId, groupAddress])
   @@index([gatewayId, status])
 }
 
 model MeshControlGroupMember {
-  groupId     String
-  meshNodeId  String
-  status      MeshControlGroupStatus @default(configuring)
-  version     Int                    @default(1)
-  lastError   String?
-  group       MeshControlGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  meshNode    MeshNode               @relation(fields: [meshNodeId], references: [id], onDelete: Cascade)
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  groupId             String
+  gatewayId           String
+  meshNodeId          String
+  subscriptionStatus  MeshControlGroupMemberSubscriptionStatus @default(pending)
+  appliedVersion      Int                                     @default(0)
+  lastError           String?
+  group               MeshControlGroup                        @relation(fields: [groupId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
+  meshNode            MeshNode                                @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
+  createdAt           DateTime                                @default(now())
+  updatedAt           DateTime                                @updatedAt
 
   @@id([groupId, meshNodeId])
-  @@index([meshNodeId, status])
+  @@unique([groupId, gatewayId])
+  @@unique([meshNodeId, gatewayId])
+  @@index([meshNodeId, subscriptionStatus])
 }
 
 model Command {

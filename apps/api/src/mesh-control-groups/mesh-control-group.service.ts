@@ -72,7 +72,7 @@ export class MeshControlGroupService {
         targetId: target.targetId,
         groupAddress: this.formatAddress(address),
         status: MeshControlGroupStatus.configuring,
-        version: 1
+        configurationVersion: 1
       }
     });
   }

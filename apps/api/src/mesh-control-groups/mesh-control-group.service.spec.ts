@@ -20,7 +20,7 @@ describe("MeshControlGroupService", () => {
           targetId: floorId,
           groupAddress: "0xc000",
           status: "configuring",
-          version: 1,
+          configurationVersion: 1,
           lastError: null
         })
       },
@@ -39,7 +39,7 @@ describe("MeshControlGroupService", () => {
       targetId: floorId,
       groupAddress: "0xc000",
       status: "configuring",
-      version: 1
+      configurationVersion: 1
     });
     expect(tx.gateway.update).toHaveBeenCalledWith({
       where: { id: gatewayId },
@@ -53,7 +53,7 @@ describe("MeshControlGroupService", () => {
         targetId: floorId,
         groupAddress: "0xc000",
         status: "configuring",
-        version: 1
+        configurationVersion: 1
       }
     });
   });
@@ -66,7 +66,7 @@ describe("MeshControlGroupService", () => {
       targetId: floorId,
       groupAddress: "0xc010",
       status: "ready",
-      version: 2,
+      configurationVersion: 2,
       lastError: null
     };
     const tx: any = {
@@ -102,7 +102,7 @@ describe("MeshControlGroupService", () => {
           targetId: floorId,
           groupAddress: "0xc120",
           status: "configuring",
-          version: 1,
+          configurationVersion: 1,
           lastError: null
         })
       },
@@ -182,7 +182,7 @@ describe("MeshControlGroupService", () => {
           targetId: fixtureGroupId,
           groupAddress: "0xc100",
           status: "configuring",
-          version: 1,
+          configurationVersion: 1,
           lastError: null
         })
       },

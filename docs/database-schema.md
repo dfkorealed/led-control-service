@@ -667,7 +667,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 | `targetId` | `String` | 예 | Unique with `gatewayId`, `targetType` | 제어 대상 ID |
 | `groupAddress` | `String` | 예 | Unique with `gatewayId` | BLE Mesh group address (`0xC000~0xFEFF`) |
 | `status` | `MeshControlGroupStatus` | 예 | `configuring` | 구성 상태 |
-| `version` | `Int` | 예 | `1` | gateway ACK 기반 구성 버전 |
+| `configurationVersion` | `Int` | 예 | `1` | gateway ACK 기준 control group 구성 버전 |
 | `lastError` | `String?` | 아니오 |  | 마지막 구성 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -685,7 +685,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 운영 메모:
 
 - 같은 `gatewayId + targetType + targetId` 재호출은 기존 row를 반환하며 새 주소를 소비하지 않는다.
-- 이번 범위에서는 member 자동 채움과 MQTT subscription 동기화를 구현하지 않는다. 따라서 새 row는 `status = configuring`, `version = 1`로 시작하고 후속 Task가 member 상태를 채운다.
+- 이번 범위에서는 member 자동 채움과 MQTT subscription 동기화를 구현하지 않는다. 따라서 새 row는 `status = configuring`, `configurationVersion = 1`로 시작하고 후속 Task가 member 상태를 채운다.
 
 ### MeshControlGroupMember
 
@@ -694,9 +694,10 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `groupId` | `String` | 예 | PK 복합키, FK -> `MeshControlGroup.id`, delete cascade | 제어 group ID |
+| `gatewayId` | `String` | 예 | group/node와 compound FK | group과 node가 속한 gateway ID |
 | `meshNodeId` | `String` | 예 | PK 복합키, FK -> `MeshNode.id`, delete cascade | 대상 Mesh node ID |
-| `status` | `MeshControlGroupStatus` | 예 | `configuring` | subscription 적용 상태 |
-| `version` | `Int` | 예 | `1` | 적용하려는 group 구성 버전 |
+| `subscriptionStatus` | `MeshControlGroupMemberSubscriptionStatus` | 예 | `pending` | member subscription ACK 적용 상태 |
+| `appliedVersion` | `Int` | 예 | `0` | node에 실제 반영된 group configuration version |
 | `lastError` | `String?` | 아니오 |  | 마지막 subscription 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -704,11 +705,18 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 제약:
 
 - 복합 PK: `groupId`, `meshNodeId`
+- 복합 Unique: `groupId`, `gatewayId`
+- 복합 Unique: `meshNodeId`, `gatewayId`
 
 관계:
 
 - `group`: `MeshControlGroup`
 - `meshNode`: `MeshNode`
+
+운영 메모:
+
+- `appliedVersion = 0`은 아직 gateway ACK로 subscription이 확인되지 않았음을 뜻한다.
+- `MeshControlGroupMember`는 `(groupId, gatewayId)`와 `(meshNodeId, gatewayId)` compound FK를 사용해 서로 다른 gateway의 group/node 연결을 DB에서 차단한다.
 
 ### Command
 
@@ -914,7 +922,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `MeshNode` | Unique `deviceUuid` | BLE Mesh device UUID 중복 방지 |
 | `MeshNode` | Unique `gatewayId`, `meshAddress` | 같은 게이트웨이 내 mesh address 중복 방지 |
 | `MeshControlGroup` | Unique `gatewayId + targetType + targetId`, Unique `gatewayId + groupAddress` | gateway별 영속 제어 group 중복과 주소 충돌 방지 |
-| `MeshControlGroupMember` | PK `groupId + meshNodeId` | 같은 node에 같은 control group subscription 상태를 한 번만 저장 |
+| `MeshControlGroupMember` | PK `groupId + meshNodeId`, Unique `groupId + gatewayId`, Unique `meshNodeId + gatewayId` | 같은 node membership 중복과 cross-gateway group/node 연결 방지 |
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
 | `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |

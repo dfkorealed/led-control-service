@@ -10,7 +10,7 @@
 - 층 전체와 저장 구역은 사전 구성된 BLE Mesh Group Address에 단일 전송한다.
 - 임의 선택이 기존 층 또는 구역 구성과 정확히 같으면 Group Address 경로를 사용한다.
 - 장비별 BLE Mesh Health Current의 현재 fault만 수집해 제어 가능 여부와 결과에 반영한다.
-- gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다.
+- gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다. group은 `configurationVersion`으로 구성 버전을 관리하고, member는 `subscriptionStatus`/`appliedVersion`으로 실제 ACK 적용 여부를 분리한다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
 
@@ -74,7 +74,7 @@
 - Health Current fault code는 MQTT v2 구조화 payload와 `Fixture` 최신 snapshot으로 저장된다. API는 fault가 하나라도 있는 조명을 `fixture_fault`로 제어 차단하고, 제어 목록은 각 조명을 `Health 정상`, `Health 장애`, `Health 확인 대기`로 표시한다. Health가 없는 명령 결과 이벤트는 확인된 최신 Health snapshot을 지우지 않는다.
 - gateway health artifact는 startup resync의 `total/configured/observed/healthPending/timedOut/failed`를 `meshResync`로 기록한다. `observed`는 같은 generation의 OnOff/Lightness 실제 pair 기준이며, Health Current는 이후 publication까지 pending으로 보존한다. lighting pair 전체 실패만 unhealthy로 유지되어 제어 가능 상태를 heartbeat만으로 잘못 회복하지 않는다.
 - Gateway는 assignment의 gateway ID 기반 MQTT 5 persistent session으로 QoS 1 command subscription을 유지한다. Outbox는 실제 MQTT publish 직전에 `expiresAt`을 API의 10초 acceptance deadline 기준으로 계산해 DB payload에 기록하고, 같은 기준의 10초 MQTT message expiry를 설정한다. Gateway는 `requestedAt`이 아니라 `expiresAt`을 사용하며, 최대 2초 느린 gateway clock도 deadline 이후 BLE를 실행하지 않도록 acceptance ACK 뒤 BLE 직전에 다시 만료를 검사한다. BLE 실행 또는 장비 상태 관측이 없었던 만료/불확정 결과는 fixture-state와 journal의 최신 실제 관측을 갱신하지 않아 기존 실제 상태를 보존한다. Production broker는 gateway별 최대 100개 또는 1 MiB QoS 1 queue를 유지하므로 이 한도를 넘는 offline 명령은 보장하지 않는다. API의 global event consumer는 deployment instance ID가 포함된 고유 client ID를 쓰되 clean session으로 연결한다.
-- `MeshControlGroupService.ensureFloorGroup/ensureFixtureGroup`은 호출자 transaction 안에서 gateway row를 잠그고 기존 group을 재사용하며, 증가 전 `Gateway.nextMeshGroupAddress` 값을 실제 group address로 예약한다. 대상이 다른 site에 있으면 거부하고 `0xFF00` 이상이면 명시적 소진 오류를 반환한다.
+- `MeshControlGroupService.ensureFloorGroup/ensureFixtureGroup`은 호출자 transaction 안에서 gateway row를 잠그고 기존 group을 재사용하며, 증가 전 `Gateway.nextMeshGroupAddress` 값을 실제 group address로 예약한다. 새 group은 `configurationVersion = 1`로 시작한다. 대상이 다른 site에 있으면 거부하고 `0xFF00` 이상이면 명시적 소진 오류를 반환한다.
 
 ## 미구현
 
@@ -104,7 +104,7 @@
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
-- 영속 control group row와 allocator는 준비됐지만, `MeshControlGroupMember` 자동 생성과 gateway MQTT subscription 동기화는 후속 Task 범위다.
+- 영속 control group row와 allocator는 준비됐고 member의 `subscriptionStatus`/`appliedVersion` 저장 구조도 분리됐다. 다만 `MeshControlGroupMember` 자동 생성과 gateway MQTT subscription 동기화는 후속 Task 범위다.
 
 ## 관련 파일
 
