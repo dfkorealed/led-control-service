@@ -8,6 +8,7 @@ import { FloorEditorModule } from "./floor-editor/floor-editor.module";
 import { FloorMapModule } from "./floor-map/floor-map.module";
 import { FixturesModule } from "./fixtures/fixtures.module";
 import { GatewayOnboardingModule } from "./gateway-onboarding/gateway-onboarding.module";
+import { MeshControlGroupModule } from "./mesh-control-groups/mesh-control-group.module";
 import { PkiModule } from "./pki/pki.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RegistrationModule } from "./registration/registration.module";
@@ -24,6 +25,7 @@ import { SitesModule } from "./sites/sites.module";
     CommandsModule,
     EnergyModule,
     RegistrationModule,
+    MeshControlGroupModule,
     SetupModule,
     FloorEditorModule,
     FloorMapModule,

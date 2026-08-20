@@ -10,7 +10,7 @@
 
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
 - 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
-- 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`
+- 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
 - 감사: `GatewayClaimAudit`, `AuditLog`
@@ -32,6 +32,7 @@ Organization
       ├─ Gateway ─ MeshNode
       │   ├─ GatewayInventory
       │   ├─ GatewayCertificate
+      │   └─ MeshControlGroup ─ MeshControlGroupMember
       │   └─ CommandDispatch ─ CommandFixtureResult
       ├─ Command ─ CommandDispatch ─ MqttOutbox
       └─ ProvisioningSession ─ DiscoveredMeshNode
@@ -62,6 +63,10 @@ Organization
 ### CommandDispatchStatus / CommandFixtureResultStatus
 
 `CommandDispatchStatus`는 gateway별 전송 상태를 `pending`, `published`, `accepted`, `completed`, `failed`, `timed_out`으로 구분한다. `CommandFixtureResultStatus`는 실제 조명별 결과를 `pending`, `succeeded`, `failed`, `timed_out`으로 구분한다. Gateway acceptance와 실제 장비 status ACK를 같은 의미로 취급하지 않는다.
+
+### MeshControlTargetType / MeshControlGroupStatus
+
+`MeshControlTargetType`은 gateway별 제어 group이 가리키는 대상을 `floor`, `fixture_group`으로 구분한다. `MeshControlGroupStatus`는 group 자체와 member subscription 적용 상태를 `configuring`, `ready`, `failed`로 관리한다.
 
 ### UserRole
 
@@ -498,6 +503,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `assignmentVersion` | `Int` | 예 | `0` | gateway bootstrap 설정 버전 |
 | `nextCommandSequence` | `BigInt` | 예 | `0` | 다음 명령 dispatch sequence 예약용 카운터 |
 | `nextMeshUnicastAddress` | `Int` | 예 | `256` (`0x0100`) | 다음에 예약할 BLE Mesh unicast 주소 |
+| `nextMeshGroupAddress` | `Int` | 예 | `49152` (`0xC000`) | 다음에 예약할 BLE Mesh group address |
 | `claimedAt` | `DateTime?` | 아니오 |  | 현장 claim 완료 시각 |
 | `lastHeartbeatEventId` | `String?` | 아니오 | Unique | 마지막 heartbeat 이벤트 ID |
 | `lastHeartbeatSequence` | `BigInt?` | 아니오 |  | 마지막 heartbeat sequence |
@@ -510,6 +516,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - `site`: `Site`
 - `inventory`: `GatewayInventory?`
 - `meshNodes`: `MeshNode[]`
+- `meshControlGroups`: `MeshControlGroup[]`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `certificates`: `GatewayCertificate[]`
 
@@ -518,6 +525,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - `connectionStatus`는 DB 컬럼이 아니라 `lastHeartbeatAt` 기준으로 API에서 계산한다.
 - Mesh 주소는 등록 transaction에서 `Gateway` 행을 `FOR UPDATE`로 잠근 뒤 연속 범위로 예약한다. 실제 할당 범위는 `0x0001~0x7fff`이며 카운터가 `0x8000`이면 주소가 소진된 상태다.
 - `20260819090000_add_registration_allocators` migration은 기존 `MeshNode.meshAddress`의 최댓값 다음으로 카운터를 보정하되, 신규 주소 기본 시작점 `0x0100`보다 낮추지 않아 기존 노드와의 충돌을 방지한다.
+- `nextMeshGroupAddress`는 floor/저장 구역용 영속 Mesh group address allocator다. 제어 group 생성 transaction은 `Gateway` 행을 `FOR UPDATE`로 잠그고, 증가 전 값을 실제 할당 주소로 사용한다. 유효 범위는 `0xC000~0xFEFF`이고 `0xFF00` 이상이면 명시적으로 소진 오류를 반환한다.
+- `20260819093000_add_mesh_control_groups` migration은 기존 gateway에 `nextMeshGroupAddress = 0xC000` 기본값을 추가하고, group 메타데이터를 별도 테이블로 분리한다.
 
 ### GatewayInventory / GatewayClaimAudit
 
@@ -639,11 +648,67 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 
 - `gateway`: `Gateway`
 - `fixture`: `Fixture?`
+- `controlGroupMemberships`: `MeshControlGroupMember[]`
 
 등록 동시성 계약:
 
 - `deviceUuid`의 전역 Unique 제약은 다른 현장에서 같은 BLE Mesh UUID를 등록하거나 두 provisioning transaction이 동시에 같은 UUID를 생성하는 것을 DB에서 차단한다.
 - provisioning 완료 transaction은 기존 UUID가 다른 `gatewayId`에 속하면 Fixture를 만들지 않고 해당 `DiscoveredMeshNode`를 실패로 전환한다. 사전 조회 뒤 경쟁으로 `P2002`가 발생해도 Prisma `meta.target`이 `deviceUuid` unique를 가리킬 때만 아직 provisioning 중인 동일 session/node을 조건부 실패 처리한다. `gatewayId + meshAddress` 같은 다른 unique 또는 transaction 오류는 재전파하므로 잘못된 UUID conflict/409으로 바꾸지 않는다.
+
+### MeshControlGroup
+
+Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장하는 테이블이다. `targetType`, `targetId`는 다형 대상 구조이므로 DB FK로 직접 강제하지 않고 서비스 계층에서 gateway와 같은 site 소속인지 검증한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 제어 group ID |
+| `gatewayId` | `String` | 예 | FK -> `Gateway.id`, delete cascade | 소유 gateway |
+| `targetType` | `MeshControlTargetType` | 예 | DB enum | `floor` 또는 `fixture_group` |
+| `targetId` | `String` | 예 | Unique with `gatewayId`, `targetType` | 제어 대상 ID |
+| `groupAddress` | `String` | 예 | Unique with `gatewayId` | BLE Mesh group address (`0xC000~0xFEFF`) |
+| `status` | `MeshControlGroupStatus` | 예 | `configuring` | 구성 상태 |
+| `version` | `Int` | 예 | `1` | gateway ACK 기반 구성 버전 |
+| `lastError` | `String?` | 아니오 |  | 마지막 구성 실패 사유 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
+
+제약:
+
+- 복합 Unique: `gatewayId`, `targetType`, `targetId`
+- 복합 Unique: `gatewayId`, `groupAddress`
+
+관계:
+
+- `gateway`: `Gateway`
+- `members`: `MeshControlGroupMember[]`
+
+운영 메모:
+
+- 같은 `gatewayId + targetType + targetId` 재호출은 기존 row를 반환하며 새 주소를 소비하지 않는다.
+- 이번 범위에서는 member 자동 채움과 MQTT subscription 동기화를 구현하지 않는다. 따라서 새 row는 `status = configuring`, `version = 1`로 시작하고 후속 Task가 member 상태를 채운다.
+
+### MeshControlGroupMember
+
+개별 Mesh node에 특정 control group subscription을 적용해야 하는 상태를 저장하는 테이블이다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `groupId` | `String` | 예 | PK 복합키, FK -> `MeshControlGroup.id`, delete cascade | 제어 group ID |
+| `meshNodeId` | `String` | 예 | PK 복합키, FK -> `MeshNode.id`, delete cascade | 대상 Mesh node ID |
+| `status` | `MeshControlGroupStatus` | 예 | `configuring` | subscription 적용 상태 |
+| `version` | `Int` | 예 | `1` | 적용하려는 group 구성 버전 |
+| `lastError` | `String?` | 아니오 |  | 마지막 subscription 실패 사유 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
+
+제약:
+
+- 복합 PK: `groupId`, `meshNodeId`
+
+관계:
+
+- `group`: `MeshControlGroup`
+- `meshNode`: `MeshNode`
 
 ### Command
 
@@ -848,6 +913,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `ProcessedGatewayEvent` | PK `eventId`, Unique `gatewayId + sequence + eventType` | QoS 중복·stale 이벤트 방지 |
 | `MeshNode` | Unique `deviceUuid` | BLE Mesh device UUID 중복 방지 |
 | `MeshNode` | Unique `gatewayId`, `meshAddress` | 같은 게이트웨이 내 mesh address 중복 방지 |
+| `MeshControlGroup` | Unique `gatewayId + targetType + targetId`, Unique `gatewayId + groupAddress` | gateway별 영속 제어 group 중복과 주소 충돌 방지 |
+| `MeshControlGroupMember` | PK `groupId + meshNodeId` | 같은 node에 같은 control group subscription 상태를 한 번만 저장 |
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
 | `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |

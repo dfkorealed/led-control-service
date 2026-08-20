@@ -701,7 +701,7 @@ git commit -m "feat(health): persist current mesh health faults"
 - Group address range: `0xC000~0xFEFF`, gateway별 원자 증가
 - DB: `MeshControlGroup`, `MeshControlGroupMember`
 
-- [ ] **Step 1: allocator와 uniqueness 실패 테스트 작성**
+- [x] **Step 1: allocator와 uniqueness 실패 테스트 작성**
 
 ```ts
 await expect(service.ensureFloorGroup(tx, gatewayId, floorId)).resolves.toMatchObject({
@@ -712,19 +712,19 @@ await expect(service.ensureFloorGroup(tx, gatewayId, floorId)).resolves.toMatchO
 });
 ```
 
-- [ ] **Step 2: 다른 gateway 분리 실패 테스트 작성**
+- [x] **Step 2: 다른 gateway 분리 실패 테스트 작성**
 
 ```ts
 expect(await service.ensureFloorGroup(tx, gateway2, floorId)).toMatchObject({ gatewayId: gateway2 });
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/mesh-control-groups/mesh-control-group.service.spec.ts --runInBand`
 
 Expected: 모델과 service 부재로 FAIL
 
-- [ ] **Step 4: schema와 service 구현**
+- [x] **Step 4: schema와 service 구현**
 
 ```ts
 type MeshControlTarget =
@@ -734,7 +734,7 @@ type MeshControlTarget =
 
 Gateway에 `nextMeshGroupAddress Int @default(49152)`를 두고 increment-return으로 주소를 예약한다. group과 member는 `configuring | ready | failed` 및 구성 version을 저장한다.
 
-- [ ] **Step 5: migration과 Task 검증**
+- [x] **Step 5: migration과 Task 검증**
 
 Run: `pnpm --filter @led-control/api prisma:generate`
 
@@ -744,7 +744,7 @@ Run: `pnpm --filter @led-control/api typecheck`
 
 Expected: exit 0
 
-- [ ] **Step 6: DB 문서 갱신과 커밋**
+- [x] **Step 6: DB 문서 갱신과 커밋**
 
 ```bash
 git add apps/api/prisma apps/api/src/mesh-control-groups apps/api/src/app.module.ts \
