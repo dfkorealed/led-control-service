@@ -4,6 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { MqttService } from "../mqtt/mqtt.service";
+import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { RegistrationAllocationService } from "./registration-allocation.service";
 import { RegistrationService } from "./registration.service";
 
@@ -25,7 +26,7 @@ describe("RegistrationService", () => {
   };
   const admin: AuthenticatedUser = { ...operator, organizationId: ids.organizationId, organizationType: "customer", role: "admin" };
 
-  function createModule(prismaOverrides = {}, mqttOverrides = {}) {
+  function createModule(prismaOverrides = {}, mqttOverrides = {}, meshGroupOverrides = {}) {
     const prisma: any = {
       site: { findUnique: jest.fn().mockResolvedValue({ id: ids.siteId }) },
       floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId }) },
@@ -70,6 +71,18 @@ describe("RegistrationService", () => {
       publishProvisionDevice: jest.fn().mockResolvedValue(undefined),
       ...mqttOverrides
     };
+    const meshGroups = {
+      ensureFloorGroup: jest.fn().mockResolvedValue({
+        id: "mesh-group-1",
+        gatewayId: ids.gatewayId,
+        targetType: "floor",
+        targetId: ids.floorId,
+        groupAddress: "0xc000",
+        status: "configuring",
+        configurationVersion: 1
+      }),
+      ...meshGroupOverrides
+    };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.siteId }) };
     const allocation = {
       reserveFixtureNumbers: jest.fn().mockResolvedValue([1]),
@@ -81,6 +94,7 @@ describe("RegistrationService", () => {
         RegistrationService,
         { provide: PrismaService, useValue: prisma },
         { provide: MqttService, useValue: mqtt },
+        { provide: MeshControlGroupService, useValue: meshGroups },
         { provide: SiteAccessService, useValue: siteAccess },
         { provide: RegistrationAllocationService, useValue: allocation }
       ]
@@ -88,6 +102,7 @@ describe("RegistrationService", () => {
       service: moduleRef.get(RegistrationService),
       prisma,
       mqtt,
+      meshGroups,
       siteAccess,
       allocation
     }));
@@ -152,6 +167,93 @@ describe("RegistrationService", () => {
       })
     });
     expect(mqtt.publishProvisionDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it("ensures the floor mesh group before publishing provisioning commands", async () => {
+    const session = {
+      id: ids.sessionId,
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId,
+      status: "active",
+      floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
+    };
+    const node = {
+      id: ids.nodeId,
+      sessionId: ids.sessionId,
+      deviceUuid: "esp32h2-demo-001",
+      status: "discovered",
+      meshAddress: null
+    };
+    const { service, prisma, mqtt, meshGroups } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(session),
+        update: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([node]),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...node, ...data }))
+      },
+      fixture: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
+    });
+
+    await service.registerBatch(operator, ids.sessionId, {
+      mode: "batch",
+      defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
+      nodes: [{ nodeId: ids.nodeId, placement: { mode: "auto" } }]
+    });
+
+    expect(meshGroups.ensureFloorGroup).toHaveBeenCalledWith(prisma, ids.gatewayId, ids.floorId);
+    expect(meshGroups.ensureFloorGroup.mock.invocationCallOrder[0]).toBeLessThan(
+      mqtt.publishProvisionDevice.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("does not publish provisioning when floor mesh group allocation fails", async () => {
+    const session = {
+      id: ids.sessionId,
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId,
+      status: "active",
+      floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
+    };
+    const node = {
+      id: ids.nodeId,
+      sessionId: ids.sessionId,
+      deviceUuid: "esp32h2-demo-001",
+      status: "discovered",
+      meshAddress: null
+    };
+    const { service, prisma, mqtt, meshGroups } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(session),
+        update: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([node]),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...node, ...data }))
+      },
+      fixture: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
+    }, {}, {
+      ensureFloorGroup: jest.fn().mockRejectedValue(new BadRequestException("mesh group address range exhausted"))
+    });
+
+    await expect(service.registerBatch(operator, ids.sessionId, {
+      mode: "batch",
+      defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
+      nodes: [{ nodeId: ids.nodeId, placement: { mode: "auto" } }]
+    })).rejects.toThrow("mesh group address range exhausted");
+
+    expect(meshGroups.ensureFloorGroup).toHaveBeenCalledWith(prisma, ids.gatewayId, ids.floorId);
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
   });
 
   it("keeps an accepted node in reconciliation when MQTT publish outcome is unknown", async () => {

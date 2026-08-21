@@ -8,6 +8,17 @@ type MeshControlTarget =
   | { targetType: "floor"; targetId: string }
   | { targetType: "fixture_group"; targetId: string };
 
+type AttachProvisionedNodeInput = {
+  meshNodeId: string;
+  gatewayId: string;
+  floorId: string;
+  fixtureGroupIds: string[];
+};
+
+type ReadyDestinationInput =
+  | { type: "floor"; floorId: string; gatewayId: string }
+  | { type: "fixture_group"; fixtureGroupId: string; gatewayId: string };
+
 @Injectable()
 export class MeshControlGroupService {
   async ensureFloorGroup(tx: Prisma.TransactionClient, gatewayId: string, floorId: string) {
@@ -19,6 +30,50 @@ export class MeshControlGroupService {
       targetType: "fixture_group",
       targetId: fixtureGroupId
     });
+  }
+
+  async attachProvisionedNode(tx: Prisma.TransactionClient, input: AttachProvisionedNodeInput) {
+    const gatewaySiteId = await this.assertMeshNodeGatewayBoundary(tx, input.meshNodeId, input.gatewayId);
+    await this.assertFloorBoundary(tx, input.floorId, gatewaySiteId);
+
+    const fixtureGroupIds = Array.from(new Set(input.fixtureGroupIds)).sort();
+    await this.assertFixtureGroupBoundary(tx, fixtureGroupIds, gatewaySiteId);
+
+    const floorGroup = await this.ensureFloorGroup(tx, input.gatewayId, input.floorId);
+    await this.attachMemberToGroup(tx, floorGroup.id, floorGroup.gatewayId, floorGroup.status, input.meshNodeId);
+
+    for (const fixtureGroupId of fixtureGroupIds) {
+      const fixtureGroup = await this.ensureFixtureGroup(tx, input.gatewayId, fixtureGroupId);
+      await this.attachMemberToGroup(tx, fixtureGroup.id, fixtureGroup.gatewayId, fixtureGroup.status, input.meshNodeId);
+    }
+  }
+
+  async getReadyDestination(tx: Prisma.TransactionClient, input: ReadyDestinationInput) {
+    await this.assertDestinationTargetBoundary(tx, input);
+
+    const group = await tx.meshControlGroup.findFirst({
+      where: input.type === "floor"
+        ? {
+          gatewayId: input.gatewayId,
+          targetType: "floor",
+          targetId: input.floorId
+        }
+        : {
+          gatewayId: input.gatewayId,
+          targetType: "fixture_group",
+          targetId: input.fixtureGroupId
+        },
+      select: {
+        id: true,
+        groupAddress: true,
+        status: true
+      }
+    });
+    if (!group || group.status !== MeshControlGroupStatus.ready) {
+      throw new BadRequestException("mesh control group is not ready");
+    }
+
+    return { groupAddress: group.groupAddress };
   }
 
   private async ensureGroup(
@@ -114,6 +169,156 @@ export class MeshControlGroupService {
     }
 
     return fixtureGroup.siteId;
+  }
+
+  private async assertMeshNodeGatewayBoundary(
+    tx: Prisma.TransactionClient,
+    meshNodeId: string,
+    gatewayId: string
+  ) {
+    const meshNode = await tx.meshNode.findFirst({
+      where: { id: meshNodeId, gatewayId },
+      select: {
+        id: true,
+        gatewayId: true,
+        gateway: { select: { siteId: true } }
+      }
+    });
+    if (!meshNode) {
+      throw new NotFoundException("mesh node not found");
+    }
+
+    return meshNode.gateway.siteId;
+  }
+
+  private async assertFloorBoundary(tx: Prisma.TransactionClient, floorId: string, gatewaySiteId: string) {
+    const floor = await tx.floor.findFirst({
+      where: { id: floorId, siteId: gatewaySiteId },
+      select: { id: true }
+    });
+    if (!floor) {
+      throw new NotFoundException("floor not found");
+    }
+  }
+
+  private async assertFixtureGroupBoundary(
+    tx: Prisma.TransactionClient,
+    fixtureGroupIds: string[],
+    gatewaySiteId: string
+  ) {
+    if (fixtureGroupIds.length === 0) return;
+
+    const fixtureGroups = await tx.fixtureGroup.findMany({
+      where: {
+        id: { in: fixtureGroupIds },
+        siteId: gatewaySiteId
+      },
+      select: { id: true }
+    });
+    if (fixtureGroups.length !== fixtureGroupIds.length) {
+      throw new NotFoundException("fixture group not found");
+    }
+  }
+
+  private async assertDestinationTargetBoundary(tx: Prisma.TransactionClient, input: ReadyDestinationInput) {
+    if (input.type === "floor") {
+      const floor = await tx.floor.findFirst({
+        where: {
+          id: input.floorId,
+          site: { gateways: { some: { id: input.gatewayId } } }
+        },
+        select: { id: true }
+      });
+      if (!floor) {
+        throw new NotFoundException("mesh control group target not found");
+      }
+      return;
+    }
+
+    const fixtureGroup = await tx.fixtureGroup.findFirst({
+      where: {
+        id: input.fixtureGroupId,
+        site: { gateways: { some: { id: input.gatewayId } } }
+      },
+      select: { id: true }
+    });
+    if (!fixtureGroup) {
+      throw new NotFoundException("mesh control group target not found");
+    }
+  }
+
+  private async attachMemberToGroup(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+    gatewayId: string,
+    groupStatus: MeshControlGroupStatus,
+    meshNodeId: string
+  ) {
+    const existingMember = await tx.meshControlGroupMember.findUnique({
+      where: {
+        groupId_meshNodeId: {
+          groupId,
+          meshNodeId
+        }
+      }
+    });
+    if (existingMember) return;
+
+    await tx.meshControlGroupMember.create({
+      data: {
+        groupId,
+        gatewayId,
+        meshNodeId
+      }
+    });
+
+    const group = await tx.meshControlGroup.findFirst({
+      where: { id: groupId, gatewayId },
+      select: {
+        id: true,
+        gatewayId: true,
+        configurationVersion: true,
+        _count: { select: { members: true } }
+      }
+    });
+    if (!group) {
+      throw new NotFoundException("mesh control group not found");
+    }
+
+    if (groupStatus === MeshControlGroupStatus.ready || groupStatus === MeshControlGroupStatus.failed) {
+      await tx.meshControlGroup.update({
+        where: { id: groupId },
+        data: {
+          status: MeshControlGroupStatus.configuring,
+          configurationVersion: { increment: 1 },
+          lastError: null
+        }
+      });
+      await this.resetGroupMembers(tx, groupId, gatewayId);
+      return;
+    }
+
+    if (group._count.members <= 1) return;
+
+    await tx.meshControlGroup.update({
+      where: { id: groupId },
+      data: {
+        status: MeshControlGroupStatus.configuring,
+        lastError: null
+      }
+    });
+    await this.resetGroupMembers(tx, groupId, gatewayId);
+  }
+
+  private async resetGroupMembers(tx: Prisma.TransactionClient, groupId: string, gatewayId: string) {
+    await tx.meshControlGroupMember.updateMany({
+      where: { groupId, gatewayId },
+      data: {
+        subscriptionStatus: "pending",
+        statusVersion: 0,
+        lastError: null
+      }
+    });
   }
 
   private formatAddress(address: number) {

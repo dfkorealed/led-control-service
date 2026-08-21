@@ -23,6 +23,7 @@ import {
 import { Prisma } from "@prisma/client";
 import mqtt, { IClientOptions, MqttClient } from "mqtt";
 import { readFileSync } from "node:fs";
+import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
 
@@ -33,7 +34,10 @@ const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
 export class MqttService implements OnModuleInit, OnModuleDestroy {
   private client: MqttClient | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly meshControlGroups: MeshControlGroupService
+  ) {}
 
   onModuleInit() {
     const client = this.getClient();
@@ -466,9 +470,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           }
         });
 
-        const existingFixture = await tx.fixture.findFirst({ where: { meshNodeId: meshNode.id } });
-        if (!existingFixture) {
-          await tx.fixture.create({
+        const fixture = await tx.fixture.findFirst({ where: { meshNodeId: meshNode.id } })
+          ?? await tx.fixture.create({
             data: {
               id: node.id,
               floorId: node.session.floorId,
@@ -487,7 +490,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
               lastSeenAt: null
             }
           });
-        }
+        const fixtureGroups = await tx.groupFixture.findMany({
+          where: { fixtureId: fixture.id },
+          select: { groupId: true },
+          orderBy: { groupId: "asc" }
+        });
+        await this.meshControlGroups.attachProvisionedNode(tx, {
+          meshNodeId: meshNode.id,
+          gatewayId: node.session.gatewayId,
+          floorId: node.session.floorId,
+          fixtureGroupIds: fixtureGroups.map((membership) => membership.groupId)
+        });
 
         await tx.discoveredMeshNode.update({
           where: { id: node.id },

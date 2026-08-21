@@ -8,6 +8,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegistrationAllocationService } from "./registration-allocation.service";
@@ -83,7 +84,8 @@ export class RegistrationService {
     private readonly prisma: PrismaService,
     private readonly mqttService: MqttService,
     private readonly siteAccess: SiteAccessService,
-    private readonly allocationService: RegistrationAllocationService
+    private readonly allocationService: RegistrationAllocationService,
+    private readonly meshControlGroups: MeshControlGroupService
   ) {}
 
   async createSession(user: AuthenticatedUser, input: CreateRegistrationSessionInput) {
@@ -200,6 +202,7 @@ export class RegistrationService {
       });
       if (!session) throw new NotFoundException("registration session not found");
       this.assertActiveSession(session.status);
+      await this.meshControlGroups.ensureFloorGroup(tx, session.gatewayId, session.floorId);
 
       const nodeIds = input.nodes.map((node) => node.nodeId).sort();
       await tx.$queryRaw`

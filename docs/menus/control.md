@@ -78,6 +78,9 @@
 - gateway health artifact는 startup resync의 `total/configured/observed/healthPending/timedOut/failed`를 `meshResync`로 기록한다. `observed`는 같은 generation의 OnOff/Lightness 실제 pair 기준이며, Health Current는 이후 publication까지 pending으로 보존한다. lighting pair 전체 실패만 unhealthy로 유지되어 제어 가능 상태를 heartbeat만으로 잘못 회복하지 않는다.
 - Gateway는 assignment의 gateway ID 기반 MQTT 5 persistent session으로 QoS 1 command subscription을 유지한다. Outbox는 실제 MQTT publish 직전에 `expiresAt`을 API의 10초 acceptance deadline 기준으로 계산해 DB payload에 기록하고, 같은 기준의 10초 MQTT message expiry를 설정한다. Gateway는 `requestedAt`이 아니라 `expiresAt`을 사용하며, 최대 2초 느린 gateway clock도 deadline 이후 BLE를 실행하지 않도록 acceptance ACK 뒤 BLE 직전에 다시 만료를 검사한다. BLE 실행 또는 장비 상태 관측이 없었던 만료/불확정 결과는 fixture-state와 journal의 최신 실제 관측을 갱신하지 않아 기존 실제 상태를 보존한다. Production broker는 gateway별 최대 100개 또는 1 MiB QoS 1 queue를 유지하므로 이 한도를 넘는 offline 명령은 보장하지 않는다. API의 global event consumer는 deployment instance ID가 포함된 고유 client ID를 쓰되 clean session으로 연결한다.
 - `MeshControlGroupService.ensureFloorGroup/ensureFixtureGroup`은 호출자 transaction 안에서 gateway row를 잠그고 기존 group을 재사용하며, 증가 전 `Gateway.nextMeshGroupAddress` 값을 실제 group address로 예약한다. 새 group은 `configurationVersion = 1`로 시작한다. 대상이 다른 site에 있으면 거부하고 `0xFF00` 이상이면 명시적 소진 오류를 반환한다.
+- `RegistrationService.registerBatch`는 provisioning publish 전에 층 control group을 선확보하고, provisioning 완료 transaction은 floor group과 기존 `FixtureGroup` membership의 control group member를 idempotent하게 연결한다.
+- 새 member가 기존 `ready` 또는 `failed` group에 추가되면 `configurationVersion`을 1 올리고 group을 `configuring`으로 되돌리며, 해당 group의 전체 member를 `pending`, `statusVersion = 0`, `lastError = null`로 초기화한다. `appliedVersion`은 마지막 성공 이력으로 보존한다.
+- `MeshControlGroupService.getReadyDestination`은 floor/fixture-group과 gateway site 경계를 확인한 뒤 `ready` group address만 반환하고, 아직 준비되지 않은 target은 `mesh control group is not ready`로 거부한다.
 
 ## 미구현
 
@@ -90,7 +93,6 @@
 - 층/구역별 일괄 제어
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
-- BLE Mesh group member 자동 채움
 - BLE Mesh group 단일 전송 경로를 실제 command/gateway runtime에 연결
 - gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결
 - ESP32-H2 제품/진단 정보 report의 gateway/API 연동
@@ -107,7 +109,7 @@
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
-- 영속 control group row와 allocator, member별 `subscriptionStatus`/`appliedVersion`/`statusVersion`, gateway MQTT subscription 동기화까지는 반영됐다. 다만 `MeshControlGroupMember` 자동 생성과 실제 group dimming 단일 전송 경로 연결은 후속 Task 범위다.
+- 영속 control group row와 allocator, member별 `subscriptionStatus`/`appliedVersion`/`statusVersion`, provisioning 완료 후 자동 member 연결, gateway MQTT subscription 동기화까지는 반영됐다. 다만 실제 group dimming 단일 전송 경로 연결은 후속 Task 범위다.
 
 ## 관련 파일
 

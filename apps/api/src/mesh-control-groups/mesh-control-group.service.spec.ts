@@ -223,4 +223,337 @@ describe("MeshControlGroupService", () => {
     await expect(service.ensureFloorGroup(tx, gatewayId, floorId)).rejects.toBeInstanceOf(NotFoundException);
     expect(tx.meshControlGroup.create).not.toHaveBeenCalled();
   });
+
+  it("increments the version and resets every member when a ready group receives a new member", async () => {
+    const tx: any = {
+      meshNode: {
+        findFirst: jest.fn().mockResolvedValue({ id: "node-2", gatewayId, gateway: { siteId: "site-1" } })
+      },
+      floor: {
+        findFirst: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" })
+      },
+      fixtureGroup: {
+        findMany: jest.fn().mockResolvedValue([])
+      },
+      meshControlGroup: {
+        findFirst: jest.fn()
+          .mockResolvedValueOnce({
+            id: "group-1",
+            gatewayId,
+            targetType: "floor",
+            targetId: floorId,
+            status: "ready",
+            configurationVersion: 3
+          })
+          .mockResolvedValueOnce({
+            id: "group-1",
+            gatewayId,
+            targetType: "floor",
+            targetId: floorId,
+            status: "ready",
+            configurationVersion: 3,
+            _count: { members: 1 }
+          }),
+        update: jest.fn().mockResolvedValue({
+          id: "group-1",
+          gatewayId,
+          targetType: "floor",
+          targetId: floorId,
+          status: "configuring",
+          configurationVersion: 4
+        })
+      },
+      meshControlGroupMember: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 2 })
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await service.attachProvisionedNode(tx, {
+      meshNodeId: "node-2",
+      gatewayId,
+      floorId,
+      fixtureGroupIds: []
+    });
+
+    expect(tx.meshControlGroupMember.create).toHaveBeenCalledWith({
+      data: {
+        groupId: "group-1",
+        gatewayId,
+        meshNodeId: "node-2"
+      }
+    });
+    expect(tx.meshControlGroup.update).toHaveBeenCalledWith({
+      where: { id: "group-1" },
+      data: {
+        status: "configuring",
+        configurationVersion: { increment: 1 },
+        lastError: null
+      }
+    });
+    expect(tx.meshControlGroupMember.updateMany).toHaveBeenCalledWith({
+      where: { groupId: "group-1", gatewayId },
+      data: {
+        subscriptionStatus: "pending",
+        statusVersion: 0,
+        lastError: null
+      }
+    });
+  });
+
+  it("keeps version 1 for the first member added to an empty configuring group", async () => {
+    const tx: any = {
+      meshNode: {
+        findFirst: jest.fn().mockResolvedValue({ id: "node-1", gatewayId, gateway: { siteId: "site-1" } })
+      },
+      floor: {
+        findFirst: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" })
+      },
+      fixtureGroup: {
+        findMany: jest.fn().mockResolvedValue([])
+      },
+      meshControlGroup: {
+        findFirst: jest.fn()
+          .mockResolvedValueOnce({
+            id: "group-1",
+            gatewayId,
+            targetType: "floor",
+            targetId: floorId,
+            status: "configuring",
+            configurationVersion: 1
+          })
+          .mockResolvedValueOnce({
+            id: "group-1",
+            gatewayId,
+            targetType: "floor",
+            targetId: floorId,
+            status: "configuring",
+            configurationVersion: 1,
+            _count: { members: 0 }
+          }),
+        update: jest.fn()
+      },
+      meshControlGroupMember: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await service.attachProvisionedNode(tx, {
+      meshNodeId: "node-1",
+      gatewayId,
+      floorId,
+      fixtureGroupIds: []
+    });
+
+    expect(tx.meshControlGroup.update).not.toHaveBeenCalled();
+    expect(tx.meshControlGroupMember.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate versions or statuses when the same member is attached again", async () => {
+    const tx: any = {
+      meshNode: {
+        findFirst: jest.fn().mockResolvedValue({ id: "node-1", gatewayId, gateway: { siteId: "site-1" } })
+      },
+      floor: {
+        findFirst: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" })
+      },
+      fixtureGroup: {
+        findMany: jest.fn().mockResolvedValue([])
+      },
+      meshControlGroup: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "group-1",
+          gatewayId,
+          targetType: "floor",
+          targetId: floorId,
+          status: "ready",
+          configurationVersion: 3
+        }),
+        update: jest.fn()
+      },
+      meshControlGroupMember: {
+        findUnique: jest.fn().mockResolvedValue({
+          groupId: "group-1",
+          gatewayId,
+          meshNodeId: "node-1"
+        }),
+        create: jest.fn(),
+        updateMany: jest.fn()
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await service.attachProvisionedNode(tx, {
+      meshNodeId: "node-1",
+      gatewayId,
+      floorId,
+      fixtureGroupIds: []
+    });
+
+    expect(tx.meshControlGroupMember.create).not.toHaveBeenCalled();
+    expect(tx.meshControlGroup.update).not.toHaveBeenCalled();
+    expect(tx.meshControlGroupMember.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("attaches the floor group and existing fixture-group memberships in one call", async () => {
+    const tx: any = {
+      meshNode: {
+        findFirst: jest.fn().mockResolvedValue({ id: "node-1", gatewayId, gateway: { siteId: "site-1" } })
+      },
+      floor: {
+        findFirst: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" })
+      },
+      fixtureGroup: {
+        findMany: jest.fn().mockResolvedValue([{ id: fixtureGroupId, siteId: "site-1" }])
+      },
+      meshControlGroup: {
+        findFirst: jest.fn()
+          .mockResolvedValueOnce({
+            id: "floor-group",
+            gatewayId,
+            targetType: "floor",
+            targetId: floorId,
+            status: "configuring",
+            configurationVersion: 1
+          })
+          .mockResolvedValueOnce({
+            id: "floor-group",
+            gatewayId,
+            targetType: "floor",
+            targetId: floorId,
+            status: "configuring",
+            configurationVersion: 1,
+            _count: { members: 0 }
+          })
+          .mockResolvedValueOnce({
+            id: "fixture-group-1",
+            gatewayId,
+            targetType: "fixture_group",
+            targetId: fixtureGroupId,
+            status: "configuring",
+            configurationVersion: 1
+          })
+          .mockResolvedValueOnce({
+            id: "fixture-group-1",
+            gatewayId,
+            targetType: "fixture_group",
+            targetId: fixtureGroupId,
+            status: "configuring",
+            configurationVersion: 1,
+            _count: { members: 0 }
+          }),
+        create: jest.fn(),
+        update: jest.fn()
+      },
+      meshControlGroupMember: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn()
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await service.attachProvisionedNode(tx, {
+      meshNodeId: "node-1",
+      gatewayId,
+      floorId,
+      fixtureGroupIds: [fixtureGroupId]
+    });
+
+    expect(tx.meshControlGroupMember.create).toHaveBeenNthCalledWith(1, {
+      data: { groupId: "floor-group", gatewayId, meshNodeId: "node-1" }
+    });
+    expect(tx.meshControlGroupMember.create).toHaveBeenNthCalledWith(2, {
+      data: { groupId: "fixture-group-1", gatewayId, meshNodeId: "node-1" }
+    });
+  });
+
+  it("rejects attaching a node when the floor or fixture groups are outside the gateway site", async () => {
+    const tx: any = {
+      meshNode: {
+        findFirst: jest.fn().mockResolvedValue({ id: "node-1", gatewayId, gateway: { siteId: "site-1" } })
+      },
+      floor: {
+        findFirst: jest.fn().mockResolvedValue(null)
+      },
+      fixtureGroup: {
+        findMany: jest.fn()
+      },
+      meshControlGroup: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn()
+      },
+      meshControlGroupMember: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        updateMany: jest.fn()
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.attachProvisionedNode(tx, {
+      meshNodeId: "node-1",
+      gatewayId,
+      floorId,
+      fixtureGroupIds: []
+    })).rejects.toThrow("floor not found");
+
+    tx.floor.findFirst.mockResolvedValue({ id: floorId, siteId: "site-1" });
+    tx.fixtureGroup.findMany.mockResolvedValue([]);
+
+    await expect(service.attachProvisionedNode(tx, {
+      meshNodeId: "node-1",
+      gatewayId,
+      floorId,
+      fixtureGroupIds: [fixtureGroupId]
+    })).rejects.toThrow("fixture group not found");
+  });
+
+  it("returns only ready destinations and rejects missing or unready targets", async () => {
+    const tx: any = {
+      floor: {
+        findFirst: jest.fn()
+          .mockResolvedValueOnce({ id: floorId })
+          .mockResolvedValueOnce(null)
+      },
+      fixtureGroup: {
+        findFirst: jest.fn().mockResolvedValue({ id: fixtureGroupId })
+      },
+      meshControlGroup: {
+        findFirst: jest.fn()
+          .mockResolvedValueOnce({
+            groupAddress: "0xc000",
+            status: "ready"
+          })
+          .mockResolvedValueOnce({
+            groupAddress: "0xc001",
+            status: "configuring"
+          })
+          .mockResolvedValueOnce(null)
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.getReadyDestination(tx, {
+      type: "floor",
+      floorId,
+      gatewayId
+    })).resolves.toEqual({ groupAddress: "0xc000" });
+    await expect(service.getReadyDestination(tx, {
+      type: "fixture_group",
+      fixtureGroupId,
+      gatewayId
+    })).rejects.toThrow("mesh control group is not ready");
+    await expect(service.getReadyDestination(tx, {
+      type: "floor",
+      floorId: "missing-floor",
+      gatewayId
+    })).rejects.toThrow("mesh control group target not found");
+  });
 });

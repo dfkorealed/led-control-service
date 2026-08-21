@@ -8,7 +8,7 @@ const scope = {
 describe("MqttService v2 ordered state", () => {
   it("stores a fixture event only inside the topic and DB scope", async () => {
     const prisma: any = fixturePrisma({ lastStateSequence: 8n });
-    const service = new MqttService(prisma);
+    const service = new MqttService(prisma, { attachProvisionedNode: jest.fn() } as never);
     await service.handleMessage(
       `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/fixtures`,
       Buffer.from(JSON.stringify(fixtureEvent(9)))
@@ -32,7 +32,7 @@ describe("MqttService v2 ordered state", () => {
 
   it("drops a lower sequence and a forged payload scope", async () => {
     const prisma: any = fixturePrisma({ lastStateSequence: 9n });
-    const service = new MqttService(prisma);
+    const service = new MqttService(prisma, { attachProvisionedNode: jest.fn() } as never);
     await service.handleMessage(
       `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/fixtures`,
       Buffer.from(JSON.stringify(fixtureEvent(8)))

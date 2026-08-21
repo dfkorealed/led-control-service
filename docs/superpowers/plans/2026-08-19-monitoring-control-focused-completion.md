@@ -859,7 +859,7 @@ git add packages/shared/src apps/gateway/src/gateway.ts apps/gateway/src/index.t
 git commit -m "feat(mesh): synchronize control group subscriptions"
 ```
 
-- [ ] **사용자 확인 Gate 10:** subscription ACK 집계와 테스트를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 10:** subscription ACK 집계와 테스트를 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
@@ -880,7 +880,7 @@ git commit -m "feat(mesh): synchronize control group subscriptions"
 - Produces: provisioning 완료 node의 floor group 자동 membership
 - Produces: 기존 FixtureGroup membership의 zone subscription 동기화
 
-- [ ] **Step 1: provisioning 완료 hook 실패 테스트 작성**
+- [x] **Step 1: provisioning 완료 hook 실패 테스트 작성**
 
 ```ts
 await service.handleProvisioningCompleted(event);
@@ -891,20 +891,20 @@ expect(meshGroups.attachProvisionedNode).toHaveBeenCalledWith(expect.objectConta
 }));
 ```
 
-- [ ] **Step 2: ready 전 제어 불가 상태 실패 테스트 작성**
+- [x] **Step 2: ready 전 제어 불가 상태 실패 테스트 작성**
 
 ```ts
 await expect(meshGroups.getReadyDestination({ type: "floor", floorId, gatewayId }))
   .rejects.toThrow("mesh control group is not ready");
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts src/registration/registration.service.spec.ts src/mesh-control-groups/mesh-control-group.service.spec.ts --runInBand`
 
 Expected: provisioning hook 부재로 FAIL
 
-- [ ] **Step 4: membership와 sync dispatch 구현**
+- [x] **Step 4: membership와 sync dispatch 구현**
 
 ```ts
 await this.meshGroups.attachProvisionedNode(tx, {
@@ -917,7 +917,7 @@ await this.meshGroups.attachProvisionedNode(tx, {
 
 DB transaction은 member와 group을 `configuring`으로 저장한다. Task 10의 10초 주기 worker가 commit된 group을 찾아 subscription sync를 발행한다. 물리 subscription ACK 전에 `ready`로 만들지 않는다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
 Run: `pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts src/registration/registration.service.spec.ts src/mesh-control-groups/mesh-control-group.service.spec.ts --runInBand`
 
@@ -925,7 +925,7 @@ Run: `pnpm --filter @led-control/api typecheck`
 
 Expected: exit 0
 
-- [ ] **Step 6: 메뉴 문서 갱신과 커밋**
+- [x] **Step 6: 메뉴 문서 갱신과 커밋**
 
 ```bash
 git add apps/api/src/mqtt apps/api/src/registration apps/api/src/mesh-control-groups \
