@@ -93,7 +93,8 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/dimming",
         "sites/site-27/gateways/gateway-27/commands/provisioning-scan-start",
         "sites/site-27/gateways/gateway-27/commands/identify-device",
-        "sites/site-27/gateways/gateway-27/commands/provision-device"
+        "sites/site-27/gateways/gateway-27/commands/provision-device",
+        "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync"
       ],
       { qos: 1 },
       expect.any(Function)
