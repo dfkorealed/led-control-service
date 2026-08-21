@@ -9,6 +9,10 @@
 - provisioning 완료에서 기존 fixture를 재사용할 때 `floorId`까지 함께 조회하고, 다른 층에 이미 배정된 fixture면 `fixture is already assigned to another floor`로 실패 처리해 잘못된 floor group attach를 막았다.
 - `ensureGroup()`은 existing fast path에서도 gateway/target site 경계를 다시 조회해, 잘못 남은 group row가 있어도 그대로 반환하지 않게 했다.
 
+## Fix round 2 요약
+
+- subscription result 잠금 SQL의 마지막 절을 `FOR UPDATE OF g`로 좁혀 `Gateway` row까지 함께 잠그지 않도록 수정했다.
+
 ## 작업 요약
 
 - `RegistrationService.registerBatch()` transaction에서 provisioning publish 전에 `MeshControlGroupService.ensureFloorGroup()`을 호출하도록 연결했다.
@@ -37,6 +41,10 @@ fix round 1 추가 실패 원인:
 - subscription ACK 반영이 group row 잠금 없이 member부터 갱신해 attach와 잠금 순서가 달랐다.
 - 기존 fixture가 다른 층에 있어도 provisioning 완료가 현재 session floor group에 attach를 계속 진행했다.
 
+fix round 2 추가 실패 원인:
+
+- subscription result lock SQL이 `INNER JOIN Gateway`와 함께 bare `FOR UPDATE`로 끝나 PostgreSQL이 `Gateway` row까지 잠글 수 있었다.
+
 ## GREEN 증거
 
 1차 검증에서 아래 명령이 통과했다.
@@ -60,6 +68,17 @@ pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts src/regis
 
 - Test Suites: 3 passed
 - Tests: 52 passed
+
+fix round 2 검증에서 아래 명령이 통과했다.
+
+```bash
+pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts --runInBand
+```
+
+결과:
+
+- Test Suites: 1 passed
+- Tests: 24 passed
 
 추가 검증:
 

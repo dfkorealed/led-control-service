@@ -401,6 +401,10 @@ describe("MqttService", () => {
     );
 
     expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    const sql = String.raw({ raw: tx.$queryRaw.mock.calls[0][0] as readonly string[] }, ...tx.$queryRaw.mock.calls[0].slice(1));
+    expect(sql).toContain('INNER JOIN "Gateway" gw ON gw."id" = g."gatewayId"');
+    expect(sql).toContain("FOR UPDATE OF g");
+    expect(sql).not.toMatch(/FOR UPDATE\s*$/);
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.meshControlGroupMember.updateMany.mock.invocationCallOrder[0]
     );

@@ -568,7 +568,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           AND g."gatewayId" = ${event.gatewayId}
           AND g."configurationVersion" = ${event.version}
           AND gw."siteId" = ${event.siteId}
-        FOR UPDATE
+        FOR UPDATE OF g
       `;
       const group = lockedGroups[0];
       if (!group) return;

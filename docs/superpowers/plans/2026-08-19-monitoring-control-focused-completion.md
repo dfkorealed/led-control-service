@@ -934,6 +934,7 @@ git commit -m "feat(registration): configure mesh groups after provisioning"
 ```
 
 - 2026-08-21 fix round 1: group row 선잠금 후 member createMany(skipDuplicates)로 attach를 직렬화하고, subscription ACK도 같은 group->member 잠금 순서로 맞췄다. 기존 fixture가 다른 층에 이미 연결된 경우 `fixture is already assigned to another floor`로 실패 처리해 잘못된 floor group attach를 차단했다.
+- 2026-08-21 fix round 2: subscription ACK 잠금 SQL을 `FOR UPDATE OF g`로 좁혀 `Gateway` row 동반 잠금과 gateway->group 반대 순서 교착 가능성을 줄였다.
 
 - [ ] **사용자 확인 Gate 11:** 등록 후 group 준비 상태 흐름을 보고하고 다음 Task 승인을 기다린다.
 
