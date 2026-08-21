@@ -148,3 +148,10 @@
 - **원인**: PKI 산출물의 소유 경계, 발급 순서와 reset 범위를 하나의 실행 계약으로 검증하지 않았다.
 - **해결 및 예방책**: `PKI_ENV=lab` 전용 orchestrator가 persistent Vault, 목적별 intermediate, 별도 제조 CA/station, CRL, 제한 token과 실행 bundle을 생성한다. 제품의 제조 등록, claim, bootstrap, MQTT mTLS API는 그대로 사용한다.
 - **반복 방지 체크**: root token/private key 비출력, secret `0600`, loopback Vault, 동일 입력 멱등성, 타 CA·폐기 station 거부와 Lab 디렉터리만 삭제하는 reset을 자동 테스트한다. 실제 Pi/ESP32 증거 없이는 양산 완료로 표시하지 않는다.
+
+## 2026-08-21 / 동일 opcode 비동기 응답 상관관계
+
+- **발생했던 문제/실수**: 같은 source/opcode를 공유하는 BLE Mesh Config Status를 동시에 기다릴 때, 다른 요청의 응답이나 parser 실패가 잘못된 waiter를 먼저 reject시켰다.
+- **원인**: source/opcode까지만 맞으면 parser를 바로 실행했고, 요청별 element/group/model 같은 세부 상관관계를 parser 이전에 확인하지 않았다.
+- **해결 및 예방책**: 공통 wait API에 request-specific raw matcher를 추가해, parser 전에 해당 요청과 일치하는 raw payload만 waiter가 소비하게 한다.
+- **반복 방지 체크**: 동일 source/opcode로 동시에 발행되는 요청은 역순 응답, 타 요청 status failure, malformed payload를 포함한 상관관계 테스트를 유지한다.

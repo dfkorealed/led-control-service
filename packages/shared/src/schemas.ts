@@ -455,7 +455,7 @@ export const meshGroupSubscriptionSyncSchema = z.object({
 
 export const meshGroupSubscriptionResultMemberSchema = z.object({
   meshNodeId: z.string().uuid(),
-  status: z.enum(["applied", "failed"]),
+  status: z.enum(["ready", "failed"]),
   error: z.string().min(1).optional()
 }).strict();
 

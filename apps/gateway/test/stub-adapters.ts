@@ -29,7 +29,7 @@ export class StubBleMeshAdapter implements BleMeshAdapter {
       groupId: command.groupId,
       version: command.version,
       groupAddress: command.groupAddress,
-      members: command.members.map((member) => ({ meshNodeId: member.meshNodeId, status: "applied" as const })),
+      members: command.members.map((member) => ({ meshNodeId: member.meshNodeId, status: "ready" as const })),
       occurredAt: new Date().toISOString()
     };
   }

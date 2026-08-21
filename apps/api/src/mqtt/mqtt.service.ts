@@ -548,7 +548,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
               gatewayId: true,
               meshNodeId: true,
               subscriptionStatus: true,
-              appliedVersion: true
+              appliedVersion: true,
+              statusVersion: true
             }
           }
         }
@@ -564,14 +565,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             gatewayId: group.gatewayId,
             meshNodeId: member.meshNodeId
           },
-          data: member.status === "applied"
+          data: member.status === "ready"
             ? {
                 subscriptionStatus: "applied",
                 appliedVersion: event.version,
+                statusVersion: event.version,
                 lastError: null
               }
             : {
                 subscriptionStatus: "failed",
+                statusVersion: event.version,
                 lastError: member.error ?? "mesh group subscription failed"
               }
         });
@@ -583,13 +586,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           meshNodeId: true,
           subscriptionStatus: true,
           appliedVersion: true,
+          statusVersion: true,
           lastError: true
         }
       });
       const relevantMembers = members.filter((member) => currentMembers.has(member.meshNodeId));
-      const failedMember = relevantMembers.find((member) => member.subscriptionStatus === "failed");
+      const failedMember = relevantMembers.find(
+        (member) => member.subscriptionStatus === "failed" && member.statusVersion === event.version
+      );
       const isReady = relevantMembers.length > 0 && relevantMembers.every(
-        (member) => member.subscriptionStatus === "applied" && member.appliedVersion === event.version
+        (member) =>
+          member.subscriptionStatus === "applied" &&
+          member.appliedVersion === event.version &&
+          member.statusVersion === event.version
       );
       await tx.meshControlGroup.updateMany({
         where: {

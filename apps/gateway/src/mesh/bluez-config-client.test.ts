@@ -156,6 +156,35 @@ it("rejects a subscription status that does not confirm the requested target", a
   await expect(subscribe).rejects.toThrow("Bluetooth Mesh Config response timed out");
 });
 
+it("correlates concurrent subscription statuses by requested group address even when responses arrive in reverse order", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const first = client.addModelSubscription({ unicast: 0x0100, groupAddress: 0xc000 });
+  const second = client.addModelSubscription({ unicast: 0x0100, groupAddress: 0xc001 });
+
+  await waitForCallCount(transport, "DevKeySend", 2);
+  application.emit("devKeyMessageReceived", {
+    source: 0x0100,
+    data: Uint8Array.from([0x80, 0x1f, 0x00, 0x00, 0x01, 0x01, 0xc0, 0x00, 0x13])
+  });
+  application.emit("devKeyMessageReceived", {
+    source: 0x0100,
+    data: Uint8Array.from([0x80, 0x1f, 0x00, 0x00, 0x01, 0x00, 0xc0, 0x00, 0x13])
+  });
+
+  await expect(first).resolves.toEqual({
+    elementAddress: 0x0100,
+    groupAddress: 0xc000,
+    modelId: 0x1300
+  });
+  await expect(second).resolves.toEqual({
+    elementAddress: 0x0100,
+    groupAddress: 0xc001,
+    modelId: 0x1300
+  });
+});
+
 async function waitForCall(transport: FakeTransport, method: string) {
   await expect.poll(() => transport.calls.some((call) => call.method === method)).toBe(true);
 }

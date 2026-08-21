@@ -2,14 +2,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const schemaPath = join(__dirname, "../../prisma/schema.prisma");
-const migrationPath = join(
+const initialMigrationPath = join(
   __dirname,
   "../../prisma/migrations/20260819093000_add_mesh_control_groups/migration.sql"
+);
+const statusVersionMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260821093000_add_mesh_control_group_member_status_version/migration.sql"
 );
 
 describe("MeshControlGroup schema contract", () => {
   const schema = readFileSync(schemaPath, "utf8");
-  const migration = readFileSync(migrationPath, "utf8");
+  const migration = readFileSync(initialMigrationPath, "utf8");
+  const statusVersionMigration = readFileSync(statusVersionMigrationPath, "utf8");
   const meshControlGroupModel = schema.match(/model MeshControlGroup \{[\s\S]*?\n\}/)?.[0] ?? "";
 
   it("stores group configurationVersion instead of a generic version field", () => {
@@ -23,9 +28,11 @@ describe("MeshControlGroup schema contract", () => {
     expect(schema).toContain("enum MeshControlGroupMemberSubscriptionStatus");
     expect(schema).toMatch(/subscriptionStatus\s+MeshControlGroupMemberSubscriptionStatus\s+@default\(pending\)/);
     expect(schema).toMatch(/appliedVersion\s+Int\s+@default\(0\)/);
+    expect(schema).toMatch(/statusVersion\s+Int\s+@default\(0\)/);
     expect(migration).toContain('CREATE TYPE "MeshControlGroupMemberSubscriptionStatus" AS ENUM');
     expect(migration).toContain('"subscriptionStatus" "MeshControlGroupMemberSubscriptionStatus" NOT NULL DEFAULT \'pending\'');
     expect(migration).toContain('"appliedVersion" INTEGER NOT NULL DEFAULT 0');
+    expect(statusVersionMigration).toContain('ALTER TABLE "MeshControlGroupMember" ADD COLUMN "statusVersion" INTEGER NOT NULL DEFAULT 0;');
   });
 
   it("binds members to the same gateway as both the group and the mesh node without limiting one group to one node", () => {

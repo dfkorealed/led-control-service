@@ -698,6 +698,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 | `meshNodeId` | `String` | 예 | PK 복합키, FK -> `MeshNode.id`, delete cascade | 대상 Mesh node ID |
 | `subscriptionStatus` | `MeshControlGroupMemberSubscriptionStatus` | 예 | `pending` | member subscription ACK 적용 상태 |
 | `appliedVersion` | `Int` | 예 | `0` | node에 실제 반영된 group configuration version |
+| `statusVersion` | `Int` | 예 | `0` | 마지막 subscription result가 반영된 group configuration version |
 | `lastError` | `String?` | 아니오 |  | 마지막 subscription 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -716,6 +717,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 운영 메모:
 
 - `appliedVersion = 0`은 아직 gateway ACK로 subscription이 확인되지 않았음을 뜻한다.
+- `statusVersion = 0`은 아직 어떤 subscription result version도 반영되지 않았음을 뜻한다.
 - `MeshControlGroupMember`는 `(groupId, gatewayId)`와 `(meshNodeId, gatewayId)` compound FK를 사용해 서로 다른 gateway의 group/node 연결을 DB에서 차단한다.
 - child 쪽 `groupId + gatewayId`, `meshNodeId + gatewayId`는 unique가 아니라 일반 index다. 따라서 한 control group에 여러 node membership을 둘 수 있고, 한 node도 같은 gateway 안에서 floor group과 fixture group membership을 함께 가질 수 있다.
 

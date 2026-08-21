@@ -207,11 +207,11 @@ describe("shared schemas", () => {
       members: [
         {
           meshNodeId: "22222222-2222-4222-8222-222222222222",
-          status: "applied"
+          status: "ready"
         }
       ],
       occurredAt: "2026-08-20T09:00:01.000Z"
-    }).members[0].status).toBe("applied");
+    }).members[0].status).toBe("ready");
   });
 
   it("validates atomic floor editor save and restore inputs", () => {

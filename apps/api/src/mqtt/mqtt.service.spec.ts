@@ -278,7 +278,7 @@ describe("MqttService", () => {
         version: 2,
         groupAddress: "0xc000",
         members: [
-          { meshNodeId: nodeId1, status: "applied" },
+          { meshNodeId: nodeId1, status: "ready" },
           { meshNodeId: outsideNodeId, status: "failed", error: "ignore me" }
         ],
         occurredAt: "2026-08-20T09:00:01.000Z"
@@ -302,7 +302,8 @@ describe("MqttService", () => {
             gatewayId: true,
             meshNodeId: true,
             subscriptionStatus: true,
-            appliedVersion: true
+            appliedVersion: true,
+            statusVersion: true
           }
         }
       }
@@ -317,9 +318,76 @@ describe("MqttService", () => {
       data: {
         subscriptionStatus: "applied",
         appliedVersion: 2,
+        statusVersion: 2,
         lastError: null
       }
     });
+    expect(tx.meshControlGroup.updateMany).toHaveBeenCalledWith({
+      where: { id: groupId, gatewayId: "55555555-5555-4555-8555-555555555555", configurationVersion: 2 },
+      data: {
+        status: "configuring",
+        lastError: null
+      }
+    });
+  });
+
+  it("does not fail the current version from an omitted member that only failed in an older version", async () => {
+    const groupId = "11111111-1111-4111-8111-111111111111";
+    const nodeId1 = "22222222-2222-4222-8222-222222222222";
+    const nodeId2 = "33333333-3333-4333-8333-333333333333";
+    const tx: any = {
+      meshControlGroup: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: groupId,
+          gatewayId: "55555555-5555-4555-8555-555555555555",
+          configurationVersion: 2,
+          members: [
+            {
+              groupId,
+              gatewayId: "55555555-5555-4555-8555-555555555555",
+              meshNodeId: nodeId1,
+              subscriptionStatus: "pending",
+              appliedVersion: 0,
+              statusVersion: 0
+            },
+            {
+              groupId,
+              gatewayId: "55555555-5555-4555-8555-555555555555",
+              meshNodeId: nodeId2,
+              subscriptionStatus: "failed",
+              appliedVersion: 0,
+              statusVersion: 1
+            }
+          ]
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      meshControlGroupMember: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([
+          { meshNodeId: nodeId1, subscriptionStatus: "applied", appliedVersion: 2, statusVersion: 2, lastError: null },
+          { meshNodeId: nodeId2, subscriptionStatus: "failed", appliedVersion: 0, statusVersion: 1, lastError: "old failure" }
+        ])
+      }
+    };
+    const prisma: any = { $transaction: jest.fn(async (callback: (client: any) => Promise<unknown>) => callback(tx)) };
+    const service = new MqttService(prisma);
+
+    await service.handleMessage(
+      "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/events/mesh-group/subscription-result",
+      Buffer.from(JSON.stringify({
+        siteId: "22222222-2222-4222-8222-222222222222",
+        gatewayId: "55555555-5555-4555-8555-555555555555",
+        groupId,
+        version: 2,
+        groupAddress: "0xc000",
+        members: [
+          { meshNodeId: nodeId1, status: "ready" }
+        ],
+        occurredAt: "2026-08-20T09:00:01.000Z"
+      }))
+    );
+
     expect(tx.meshControlGroup.updateMany).toHaveBeenCalledWith({
       where: { id: groupId, gatewayId: "55555555-5555-4555-8555-555555555555", configurationVersion: 2 },
       data: {

@@ -497,6 +497,7 @@ model MeshControlGroupMember {
   meshNodeId          String
   subscriptionStatus  MeshControlGroupMemberSubscriptionStatus @default(pending)
   appliedVersion      Int                                     @default(0)
+  statusVersion       Int                                     @default(0)
   lastError           String?
   group               MeshControlGroup                        @relation(fields: [groupId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
   meshNode            MeshNode                                @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade)

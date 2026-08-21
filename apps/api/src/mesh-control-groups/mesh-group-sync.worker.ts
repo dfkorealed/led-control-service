@@ -48,18 +48,27 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
 
     for (const group of groups) {
       if (group.members.length === 0) continue;
-      await this.mqttService.publishMeshGroupSubscriptionSync({
-        siteId: group.gateway.siteId,
-        gatewayId: group.gatewayId,
-        groupId: group.id,
-        version: group.configurationVersion,
-        groupAddress: group.groupAddress,
-        members: group.members.map((member) => ({
-          meshNodeId: member.meshNodeId,
-          meshAddress: member.meshNode.meshAddress
-        })),
-        requestedAt: new Date().toISOString()
-      });
+      try {
+        await this.mqttService.publishMeshGroupSubscriptionSync({
+          siteId: group.gateway.siteId,
+          gatewayId: group.gatewayId,
+          groupId: group.id,
+          version: group.configurationVersion,
+          groupAddress: group.groupAddress,
+          members: group.members.map((member) => ({
+            meshNodeId: member.meshNodeId,
+            meshAddress: member.meshNode.meshAddress
+          })),
+          requestedAt: new Date().toISOString()
+        });
+      } catch (error) {
+        this.logger.error("mesh control group sync publish failed", {
+          groupId: group.id,
+          gatewayId: group.gatewayId,
+          version: group.configurationVersion,
+          error: error instanceof Error ? error.message : "unknown publish error"
+        });
+      }
     }
   }
 }

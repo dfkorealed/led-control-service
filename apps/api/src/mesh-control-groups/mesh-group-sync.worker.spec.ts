@@ -68,4 +68,56 @@ describe("MeshGroupSyncWorker", () => {
       requestedAt: expect.any(String)
     });
   });
+
+  it("logs and continues publishing later groups when an earlier group publish fails", async () => {
+    const prisma: any = {
+      meshControlGroup: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "00000000-0000-4000-8000-000000000101",
+            gatewayId: "00000000-0000-4000-8000-000000000102",
+            groupAddress: "0xc000",
+            configurationVersion: 2,
+            gateway: { siteId: "00000000-0000-4000-8000-000000000103" },
+            members: [
+              { meshNodeId: "00000000-0000-4000-8000-000000000104", meshNode: { meshAddress: "0x0100" } }
+            ]
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000201",
+            gatewayId: "00000000-0000-4000-8000-000000000202",
+            groupAddress: "0xc001",
+            configurationVersion: 5,
+            gateway: { siteId: "00000000-0000-4000-8000-000000000203" },
+            members: [
+              { meshNodeId: "00000000-0000-4000-8000-000000000204", meshNode: { meshAddress: "0x0101" } }
+            ]
+          }
+        ])
+      }
+    };
+    const mqtt = {
+      publishMeshGroupSubscriptionSync: jest.fn()
+        .mockRejectedValueOnce(new Error("broker rejected publish"))
+        .mockResolvedValueOnce(undefined)
+    };
+    const worker = new MeshGroupSyncWorker(prisma, mqtt as never);
+    const logger = jest.spyOn((worker as any).logger, "error").mockImplementation(() => undefined);
+
+    await worker.runOnce();
+
+    expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenCalledTimes(2);
+    expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      groupId: "00000000-0000-4000-8000-000000000201",
+      gatewayId: "00000000-0000-4000-8000-000000000202"
+    }));
+    expect(logger).toHaveBeenCalledWith(
+      "mesh control group sync publish failed",
+      expect.objectContaining({
+        groupId: "00000000-0000-4000-8000-000000000101",
+        gatewayId: "00000000-0000-4000-8000-000000000102",
+        version: 2
+      })
+    );
+  });
 });

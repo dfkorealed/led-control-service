@@ -779,6 +779,9 @@ git commit -m "feat(mesh): add persistent control groups"
 - Modify: `apps/api/src/mesh-control-groups/mesh-control-group.module.ts`
 - Modify: `apps/api/src/mqtt/mqtt.service.ts`
 - Modify: `apps/api/src/mqtt/mqtt.service.spec.ts`
+- Modify: `apps/api/prisma/schema.prisma`
+- Create: `apps/api/prisma/migrations/20260821093000_add_mesh_control_group_member_status_version/migration.sql`
+- Modify: `docs/database-schema.md`
 - Create: `apps/api/src/mesh-control-groups/mesh-group-sync.worker.ts`
 - Create: `apps/api/src/mesh-control-groups/mesh-group-sync.worker.spec.ts`
 - Modify: `docs/menus/control.md`
@@ -824,11 +827,11 @@ Expected: shared topic/schema 미정의, subscription codec/client API 미구현
 type MeshGroupSubscriptionResult = {
   groupId: string;
   version: number;
-  members: Array<{ meshNodeId: string; status: "applied" | "failed"; error?: string }>;
+  members: Array<{ meshNodeId: string; status: "ready" | "failed"; error?: string }>;
 };
 ```
 
-Gateway는 Light Lightness Server `0x1300`에 subscription을 추가하고 Config Model Subscription Status의 source, element, group, model을 검증한다. ESP32-H2 Config Server는 표준 subscription을 이미 처리하므로 firmware에 사설 opcode를 추가하지 않는다. API worker는 `configuring` group 중 member가 1개 이상인 group만 10초마다 조회하고 같은 group ID와 version을 다시 발행할 수 있다. Gateway 처리는 idempotent하며 결과 ACK의 version이 현재 DB version과 일치할 때만 상태를 갱신한다.
+Gateway는 Light Lightness Server `0x1300`에 subscription을 추가하고 Config Model Subscription Status의 source, element, group, model을 검증한다. 같은 source/opcode의 동시 요청은 parser 전에 request-specific raw matcher로 상관관계가 맞는 응답만 각 waiter가 소비한다. ESP32-H2 Config Server는 표준 subscription을 이미 처리하므로 firmware에 사설 opcode를 추가하지 않는다. API worker는 `configuring` group 중 member가 1개 이상인 group만 10초마다 조회하고, 한 group publish 실패를 구조적 로그로 남긴 뒤 다음 group 발행을 계속 진행하며, 같은 group ID와 version을 다시 발행할 수 있다. Gateway 처리는 idempotent하며 외부 `ready` 결과를 API가 내부 `subscriptionStatus="applied"`로 변환한다. 결과 ACK의 version이 현재 DB version과 일치할 때만 상태를 갱신하고 `statusVersion`으로 같은 version의 성공/실패만 집계한다.
 
 - [x] **Step 5: Task 검증**
 
@@ -839,6 +842,8 @@ Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-config-c
 Run: `pnpm --filter @led-control/api exec jest src/mesh-control-groups/mesh-group-sync.worker.spec.ts src/mqtt/mqtt.service.spec.ts --runInBand`
 
 Run: `pnpm --filter @led-control/api typecheck`
+
+Run: `pnpm --filter @led-control/api prisma:generate`
 
 Expected: exit 0
 

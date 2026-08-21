@@ -184,7 +184,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
           unicast: parseMeshAddress(member.meshAddress),
           groupAddress: parseMeshAddress(command.groupAddress)
         });
-        members.push({ meshNodeId: member.meshNodeId, status: "applied" });
+        members.push({ meshNodeId: member.meshNodeId, status: "ready" });
       } catch (error) {
         members.push({
           meshNodeId: member.meshNodeId,

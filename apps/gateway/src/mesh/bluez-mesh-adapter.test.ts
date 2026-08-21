@@ -282,7 +282,7 @@ describe("BluezMeshAdapter", () => {
       groupId: "00000000-0000-4000-8000-000000000012",
       version: 2,
       members: [
-        { meshNodeId: "fixture-1", status: "applied" },
+        { meshNodeId: "fixture-1", status: "ready" },
         { meshNodeId: "fixture-2", status: "failed", error: "subscription rejected" }
       ]
     });

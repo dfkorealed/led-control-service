@@ -24,6 +24,7 @@ const PROVISIONER_ADDRESS = 0x0001;
 const SERVER_MODELS = [0x0002, 0x1000, 0x1300] as const;
 const LIGHT_LIGHTNESS_SERVER_MODEL_ID = 0x1300;
 const STATUS_PUBLICATION_PERIOD = encodePublicationPeriod(60_000);
+type RawStatusMatcher = (data: Uint8Array) => boolean;
 
 interface ConfigTransport {
   call<T>(service: string, path: string, interfaceName: string, method: string, args: unknown[]): Promise<T>;
@@ -119,7 +120,12 @@ export class BluezConfigClient {
       input.unicast,
       encodeModelSubscriptionAdd(input.unicast, input.groupAddress, modelId),
       CONFIG_OPCODES.modelSubscriptionStatus,
-      parseModelSubscriptionStatus
+      parseModelSubscriptionStatus,
+      createModelSubscriptionStatusMatcher({
+        elementAddress: input.unicast,
+        groupAddress: input.groupAddress,
+        modelId
+      })
     );
     if (
       status.elementAddress !== input.unicast ||
@@ -143,14 +149,16 @@ export class BluezConfigClient {
     destination: number,
     payload: Uint8Array,
     opcode: Uint8Array,
-    parser: (data: Uint8Array) => T
+    parser: (data: Uint8Array) => T,
+    matcher?: RawStatusMatcher
   ) {
     return this.sendAndWait(
       "DevKeySend",
       [BLUEZ_APPLICATION_PATHS.element, destination, true, NET_KEY_INDEX, [], Array.from(payload)],
       opcode,
       parser,
-      destination
+      destination,
+      matcher
     );
   }
 
@@ -159,9 +167,10 @@ export class BluezConfigClient {
     args: unknown[],
     opcode: Uint8Array,
     parser: (data: Uint8Array) => T,
-    expectedSource?: number
+    expectedSource?: number,
+    matcher?: RawStatusMatcher
   ) {
-    const response = waitForDevKeyStatus(this.application, opcode, parser, this.responseTimeoutMs, expectedSource);
+    const response = waitForDevKeyStatus(this.application, opcode, parser, this.responseTimeoutMs, expectedSource, matcher);
     try {
       await this.transport.call(BLUEZ_SERVICE, this.nodePath, NODE_INTERFACE, method, args);
     } catch (error) {
@@ -177,7 +186,8 @@ function waitForDevKeyStatus<T>(
   opcode: Uint8Array,
   parser: (data: Uint8Array) => T,
   timeoutMs: number,
-  expectedSource?: number
+  expectedSource?: number,
+  matcher?: RawStatusMatcher
 ) {
   let settled = false;
   let rejectPromise: (error: Error) => void = () => undefined;
@@ -187,6 +197,7 @@ function waitForDevKeyStatus<T>(
   };
   const onMessage = (event: { source: number; data: Uint8Array }) => {
     if ((expectedSource !== undefined && event.source !== expectedSource) || !startsWithOpcode(event.data, opcode)) return;
+    if (matcher && !matcher(event.data)) return;
     try {
       const result = parser(event.data);
       settled = true;
@@ -220,6 +231,26 @@ function waitForDevKeyStatus<T>(
       rejectPromise(new Error("Bluetooth Mesh Config request cancelled"));
     }
   };
+}
+
+function createModelSubscriptionStatusMatcher(expected: {
+  elementAddress: number;
+  groupAddress: number;
+  modelId: number;
+}): RawStatusMatcher {
+  return (data) => {
+    if (data.length < 9) return false;
+    const offset = CONFIG_OPCODES.modelSubscriptionStatus.length;
+    return (
+      readUint16Le(data, offset + 1) === expected.elementAddress &&
+      readUint16Le(data, offset + 3) === expected.groupAddress &&
+      readUint16Le(data, offset + 5) === expected.modelId
+    );
+  };
+}
+
+function readUint16Le(data: Uint8Array, offset: number) {
+  return data[offset] | (data[offset + 1] << 8);
 }
 
 function errorChainIncludes(error: unknown, text: string): boolean {

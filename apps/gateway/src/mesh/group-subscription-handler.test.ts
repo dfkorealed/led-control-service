@@ -34,7 +34,7 @@ describe("GroupSubscriptionHandler", () => {
       groupAddress: "0xc000",
       occurredAt: "2026-08-20T09:00:01.000Z",
       members: [
-        { meshNodeId: "00000000-0000-4000-8000-000000000013", status: "applied" as const },
+        { meshNodeId: "00000000-0000-4000-8000-000000000013", status: "ready" as const },
         { meshNodeId: "00000000-0000-4000-8000-000000000014", status: "failed" as const, error: "subscription rejected" }
       ]
     }));
@@ -63,7 +63,7 @@ describe("GroupSubscriptionHandler", () => {
       groupId: "00000000-0000-4000-8000-000000000012",
       version: 3,
       members: [
-        { meshNodeId: "00000000-0000-4000-8000-000000000013", status: "applied" },
+        { meshNodeId: "00000000-0000-4000-8000-000000000013", status: "ready" },
         { meshNodeId: "00000000-0000-4000-8000-000000000014", status: "failed", error: "subscription rejected" }
       ]
     }));

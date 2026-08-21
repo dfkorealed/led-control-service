@@ -10,10 +10,10 @@
 - 층 전체와 저장 구역은 사전 구성된 BLE Mesh Group Address에 단일 전송한다.
 - 임의 선택이 기존 층 또는 구역 구성과 정확히 같으면 Group Address 경로를 사용한다.
 - 장비별 BLE Mesh Health Current의 현재 fault만 수집해 제어 가능 여부와 결과에 반영한다.
-- gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다. group은 `configurationVersion`으로 구성 버전을 관리하고, member는 `subscriptionStatus`/`appliedVersion`으로 실제 ACK 적용 여부를 분리한다.
+- gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다. group은 `configurationVersion`으로 구성 버전을 관리하고, member는 `subscriptionStatus`/`appliedVersion`/`statusVersion`으로 실제 ACK 적용 여부와 마지막 결과 version을 분리한다.
 - API는 `configuring` 상태의 control group 중 현재 member가 1개 이상인 group만 10초 주기로 gateway-scoped MQTT subscription sync command를 발행한다.
 - gateway는 같은 group/version command를 다시 받아도 Light Lightness Server `0x1300`에 표준 Config Model Subscription Add를 안전하게 재적용하고 결과를 한 번 발행한다.
-- API는 `siteId`, `gatewayId`, `groupId`, `version`이 모두 현재 group과 일치하는 subscription result만 반영한다. 현재 group/gateway에 속하지 않는 member 결과는 무시하고, 모든 현재 member가 해당 version `applied`일 때만 group을 `ready`, 하나라도 `failed`면 group을 `failed`로 집계한다.
+- API는 `siteId`, `gatewayId`, `groupId`, `version`이 모두 현재 group과 일치하는 subscription result만 반영한다. 현재 group/gateway에 속하지 않는 member 결과는 무시하고, 외부 result의 `ready`를 내부 `subscriptionStatus="applied"`로 변환한다. 모든 현재 member가 해당 version의 `appliedVersion == configurationVersion` 및 `statusVersion == configurationVersion`일 때만 group을 `ready`, 같은 version의 member 하나라도 `failed`면 group을 `failed`로 집계한다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
 
@@ -107,7 +107,7 @@
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
-- 영속 control group row와 allocator, member별 `subscriptionStatus`/`appliedVersion`, gateway MQTT subscription 동기화까지는 반영됐다. 다만 `MeshControlGroupMember` 자동 생성과 실제 group dimming 단일 전송 경로 연결은 후속 Task 범위다.
+- 영속 control group row와 allocator, member별 `subscriptionStatus`/`appliedVersion`/`statusVersion`, gateway MQTT subscription 동기화까지는 반영됐다. 다만 `MeshControlGroupMember` 자동 생성과 실제 group dimming 단일 전송 경로 연결은 후속 Task 범위다.
 
 ## 관련 파일
 
@@ -137,6 +137,7 @@
 - `apps/gateway/src/mesh/bluez-model-codec.ts`
 - `apps/api/src/mesh-control-groups/mesh-control-group.service.ts`
 - `apps/api/src/mesh-control-groups/mesh-group-sync.worker.ts`
+- `apps/api/prisma/migrations/20260821093000_add_mesh_control_group_member_status_version/migration.sql`
 - `apps/api/prisma/schema.prisma`
 - `apps/api/prisma/migrations/20260819093000_add_mesh_control_groups/migration.sql`
 - `docs/runbooks/raspberry-pi-gateway-appliance.md`
