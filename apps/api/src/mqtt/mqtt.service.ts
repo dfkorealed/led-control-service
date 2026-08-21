@@ -28,6 +28,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
 
 const DEVICE_UUID_CONFLICT_ERROR = "device UUID is already registered by another site";
+const FIXTURE_FLOOR_CONFLICT_ERROR = "fixture is already assigned to another floor";
 const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
 
 @Injectable()
@@ -470,8 +471,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           }
         });
 
-        const fixture = await tx.fixture.findFirst({ where: { meshNodeId: meshNode.id } })
-          ?? await tx.fixture.create({
+        const existingFixture = await tx.fixture.findFirst({
+          where: { meshNodeId: meshNode.id },
+          select: { id: true, floorId: true }
+        });
+        if (existingFixture && existingFixture.floorId !== node.session.floorId) {
+          await tx.discoveredMeshNode.update({
+            where: { id: node.id },
+            data: { status: "failed", errorMessage: FIXTURE_FLOOR_CONFLICT_ERROR }
+          });
+          return;
+        }
+
+        const fixture = existingFixture ?? await tx.fixture.create({
             data: {
               id: node.id,
               floorId: node.session.floorId,
@@ -544,32 +556,36 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     event: ReturnType<typeof meshGroupSubscriptionResultSchema.parse>
   ) {
     await this.prisma.$transaction(async (tx) => {
-      const group = await tx.meshControlGroup.findFirst({
-        where: {
-          id: event.groupId,
-          gatewayId: event.gatewayId,
-          configurationVersion: event.version,
-          gateway: { siteId: event.siteId }
-        },
-        select: {
-          id: true,
-          gatewayId: true,
-          configurationVersion: true,
-          members: {
-            select: {
-              groupId: true,
-              gatewayId: true,
-              meshNodeId: true,
-              subscriptionStatus: true,
-              appliedVersion: true,
-              statusVersion: true
-            }
-          }
-        }
-      });
+      const lockedGroups = await tx.$queryRaw<Array<{
+        id: string;
+        gatewayId: string;
+        configurationVersion: number;
+      }>>`
+        SELECT g."id", g."gatewayId", g."configurationVersion"
+        FROM "MeshControlGroup" g
+        INNER JOIN "Gateway" gw ON gw."id" = g."gatewayId"
+        WHERE g."id" = ${event.groupId}
+          AND g."gatewayId" = ${event.gatewayId}
+          AND g."configurationVersion" = ${event.version}
+          AND gw."siteId" = ${event.siteId}
+        FOR UPDATE
+      `;
+      const group = lockedGroups[0];
       if (!group) return;
 
-      const currentMembers = new Set(group.members.map((member) => member.meshNodeId));
+      const currentGroupMembers = await tx.meshControlGroupMember.findMany({
+        where: { groupId: group.id, gatewayId: group.gatewayId },
+        select: {
+          groupId: true,
+          gatewayId: true,
+          meshNodeId: true,
+          subscriptionStatus: true,
+          appliedVersion: true,
+          statusVersion: true
+        }
+      });
+
+      const currentMembers = new Set(currentGroupMembers.map((member) => member.meshNodeId));
       for (const member of event.members) {
         if (!currentMembers.has(member.meshNodeId)) continue;
         await tx.meshControlGroupMember.updateMany({

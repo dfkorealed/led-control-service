@@ -40,11 +40,11 @@ export class MeshControlGroupService {
     await this.assertFixtureGroupBoundary(tx, fixtureGroupIds, gatewaySiteId);
 
     const floorGroup = await this.ensureFloorGroup(tx, input.gatewayId, input.floorId);
-    await this.attachMemberToGroup(tx, floorGroup.id, floorGroup.gatewayId, floorGroup.status, input.meshNodeId);
+    await this.attachMemberToGroup(tx, floorGroup.id, floorGroup.gatewayId, input.meshNodeId);
 
     for (const fixtureGroupId of fixtureGroupIds) {
       const fixtureGroup = await this.ensureFixtureGroup(tx, input.gatewayId, fixtureGroupId);
-      await this.attachMemberToGroup(tx, fixtureGroup.id, fixtureGroup.gatewayId, fixtureGroup.status, input.meshNodeId);
+      await this.attachMemberToGroup(tx, fixtureGroup.id, fixtureGroup.gatewayId, input.meshNodeId);
     }
   }
 
@@ -89,6 +89,11 @@ export class MeshControlGroupService {
       }
     });
     if (existingGroup) {
+      const gatewaySiteId = await this.loadGatewaySiteId(tx, gatewayId);
+      const targetSiteId = await this.loadTargetSiteId(tx, target);
+      if (targetSiteId !== gatewaySiteId) {
+        throw new BadRequestException(`${target.targetType} does not belong to the gateway site`);
+      }
       return existingGroup;
     }
 
@@ -130,6 +135,18 @@ export class MeshControlGroupService {
         configurationVersion: 1
       }
     });
+  }
+
+  private async loadGatewaySiteId(tx: Prisma.TransactionClient, gatewayId: string) {
+    const gateway = await tx.gateway.findUnique({
+      where: { id: gatewayId },
+      select: { siteId: true }
+    });
+    if (!gateway) {
+      throw new NotFoundException("gateway not found");
+    }
+
+    return gateway.siteId;
   }
 
   private async lockGateway(tx: Prisma.TransactionClient, gatewayId: string) {
@@ -251,26 +268,19 @@ export class MeshControlGroupService {
     tx: Prisma.TransactionClient,
     groupId: string,
     gatewayId: string,
-    groupStatus: MeshControlGroupStatus,
     meshNodeId: string
   ) {
-    const existingMember = await tx.meshControlGroupMember.findUnique({
-      where: {
-        groupId_meshNodeId: {
-          groupId,
-          meshNodeId
-        }
-      }
-    });
-    if (existingMember) return;
+    const lockedGroup = await this.lockControlGroup(tx, groupId, gatewayId);
 
-    await tx.meshControlGroupMember.create({
-      data: {
+    const inserted = await tx.meshControlGroupMember.createMany({
+      data: [{
         groupId,
         gatewayId,
         meshNodeId
-      }
+      }],
+      skipDuplicates: true
     });
+    if (inserted.count === 0) return;
 
     const group = await tx.meshControlGroup.findFirst({
       where: { id: groupId, gatewayId },
@@ -285,7 +295,7 @@ export class MeshControlGroupService {
       throw new NotFoundException("mesh control group not found");
     }
 
-    if (groupStatus === MeshControlGroupStatus.ready || groupStatus === MeshControlGroupStatus.failed) {
+    if (lockedGroup.status === MeshControlGroupStatus.ready || lockedGroup.status === MeshControlGroupStatus.failed) {
       await tx.meshControlGroup.update({
         where: { id: groupId },
         data: {
@@ -319,6 +329,26 @@ export class MeshControlGroupService {
         lastError: null
       }
     });
+  }
+
+  private async lockControlGroup(tx: Prisma.TransactionClient, groupId: string, gatewayId: string) {
+    const rows = await tx.$queryRaw<Array<{
+      id: string;
+      gatewayId: string;
+      status: MeshControlGroupStatus;
+      configurationVersion: number;
+    }>>`
+      SELECT "id", "gatewayId", "status", "configurationVersion"
+      FROM "MeshControlGroup"
+      WHERE "id" = ${groupId} AND "gatewayId" = ${gatewayId}
+      FOR UPDATE
+    `;
+    const group = rows[0];
+    if (!group) {
+      throw new NotFoundException("mesh control group not found");
+    }
+
+    return group;
   }
 
   private formatAddress(address: number) {

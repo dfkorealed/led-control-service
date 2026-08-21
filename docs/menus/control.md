@@ -81,6 +81,8 @@
 - `RegistrationService.registerBatch`는 provisioning publish 전에 층 control group을 선확보하고, provisioning 완료 transaction은 floor group과 기존 `FixtureGroup` membership의 control group member를 idempotent하게 연결한다.
 - 새 member가 기존 `ready` 또는 `failed` group에 추가되면 `configurationVersion`을 1 올리고 group을 `configuring`으로 되돌리며, 해당 group의 전체 member를 `pending`, `statusVersion = 0`, `lastError = null`로 초기화한다. `appliedVersion`은 마지막 성공 이력으로 보존한다.
 - `MeshControlGroupService.getReadyDestination`은 floor/fixture-group과 gateway site 경계를 확인한 뒤 `ready` group address만 반환하고, 아직 준비되지 않은 target은 `mesh control group is not ready`로 거부한다.
+- control group member 추가와 subscription ACK 반영은 둘 다 group row를 먼저 잠그는 같은 순서로 직렬화해 중복 member attach, version 이중 증가와 group/member 교착 경계를 줄인다.
+- 기존 fixture가 다른 층에 이미 연결돼 있으면 provisioning 완료는 `fixture is already assigned to another floor` 오류로 실패시키고, 자동 재배치나 잘못된 floor group attach를 허용하지 않는다.
 
 ## 미구현
 

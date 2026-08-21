@@ -2,6 +2,13 @@
 
 기준일: 2026-08-21
 
+## Fix round 1 요약
+
+- `attachProvisionedNode()`는 group row를 `SELECT ... FOR UPDATE`로 먼저 잠그고, member 삽입을 compound PK 기준 `createMany(..., skipDuplicates: true)`로 바꿔 동시 duplicate attach와 ready group version 이중 증가를 막았다.
+- `storeMeshGroupSubscriptionResult()`도 현재 site/gateway/group/version row를 먼저 잠그고 member를 갱신하도록 바꿔 attach와 같은 group->member 잠금 순서를 유지했다.
+- provisioning 완료에서 기존 fixture를 재사용할 때 `floorId`까지 함께 조회하고, 다른 층에 이미 배정된 fixture면 `fixture is already assigned to another floor`로 실패 처리해 잘못된 floor group attach를 막았다.
+- `ensureGroup()`은 existing fast path에서도 gateway/target site 경계를 다시 조회해, 잘못 남은 group row가 있어도 그대로 반환하지 않게 했다.
+
 ## 작업 요약
 
 - `RegistrationService.registerBatch()` transaction에서 provisioning publish 전에 `MeshControlGroupService.ensureFloorGroup()`을 호출하도록 연결했다.
@@ -23,6 +30,13 @@ pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts src/regis
 - `MqttService`가 `MeshControlGroupService`를 주입받지 않아 provisioning 완료 hook 테스트가 컴파일 단계에서 실패했다.
 - `MeshControlGroupService`에 `attachProvisionedNode()`와 `getReadyDestination()`가 없어 신규 상태 전이 테스트가 실패했다.
 
+fix round 1 추가 실패 원인:
+
+- existing fast path가 target/site 경계를 재검증하지 않아 잘못된 기존 group을 그대로 반환했다.
+- `attachMemberToGroup()`이 `findUnique -> create` 경로라 duplicate attach에서 원자성이 없고, group 잠금 없이 stale status를 사용했다.
+- subscription ACK 반영이 group row 잠금 없이 member부터 갱신해 attach와 잠금 순서가 달랐다.
+- 기존 fixture가 다른 층에 있어도 provisioning 완료가 현재 session floor group에 attach를 계속 진행했다.
+
 ## GREEN 증거
 
 1차 검증에서 아래 명령이 통과했다.
@@ -36,19 +50,30 @@ pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts src/regis
 - Test Suites: 3 passed
 - Tests: 47 passed
 
+fix round 1 검증에서 아래 명령이 통과했다.
+
+```bash
+pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts src/registration/registration.service.spec.ts src/mesh-control-groups/mesh-control-group.service.spec.ts --runInBand
+```
+
+결과:
+
+- Test Suites: 3 passed
+- Tests: 52 passed
+
 추가 검증:
 
 ```bash
 pnpm --filter @led-control/api test
 pnpm --filter @led-control/api typecheck
-git diff --check 6dd17b5..HEAD
+git diff --check 5d9a26c..HEAD
 ```
 
 검증 결과:
 
-- `pnpm --filter @led-control/api test`: 55 passed / 6 skipped / 388 total
+- `pnpm --filter @led-control/api test`: 55 passed / 6 skipped / 393 total
 - `pnpm --filter @led-control/api typecheck`: 성공
-- `git diff --check 6dd17b5..HEAD`: 성공
+- `git diff --check 5d9a26c..HEAD`: 성공
 
 ## 변경 파일
 
