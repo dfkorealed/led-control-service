@@ -23,6 +23,8 @@ import {
   provisioningFailedSchema,
   provisioningScanStartSchema,
   restoreFloorEditorRevisionSchema,
+  meshGroupSubscriptionResultSchema,
+  meshGroupSubscriptionSyncSchema,
   saveEditorStateSchema,
   unprovisionedDeviceFoundSchema
 } from "./schemas";
@@ -160,6 +162,56 @@ describe("shared schemas", () => {
         failedAt: "2026-07-01T00:00:05.000Z"
       }).errorMessage
     ).toBe("provisioning timeout");
+  });
+
+  it("defines gateway-scoped mesh group subscription sync topics and payloads", () => {
+    expect(
+      mqttTopics.meshGroupSubscriptionSync(
+        "00000000-0000-4000-8000-000000000003",
+        "00000000-0000-4000-8000-000000000004"
+      )
+    ).toBe(
+      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/commands/mesh-group/subscription-sync"
+    );
+    expect(
+      mqttTopics.meshGroupSubscriptionResult(
+        "00000000-0000-4000-8000-000000000003",
+        "00000000-0000-4000-8000-000000000004"
+      )
+    ).toBe(
+      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/events/mesh-group/subscription-result"
+    );
+
+    const command = meshGroupSubscriptionSyncSchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      groupId: "00000000-0000-4000-8000-000000000005",
+      version: 2,
+      groupAddress: "0xc000",
+      members: [
+        {
+          meshNodeId: "22222222-2222-4222-8222-222222222222",
+          meshAddress: "0x0100"
+        }
+      ],
+      requestedAt: "2026-08-20T09:00:00.000Z"
+    });
+    expect(command.members).toHaveLength(1);
+
+    expect(meshGroupSubscriptionResultSchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      groupId: "00000000-0000-4000-8000-000000000005",
+      version: 2,
+      groupAddress: "0xc000",
+      members: [
+        {
+          meshNodeId: "22222222-2222-4222-8222-222222222222",
+          status: "applied"
+        }
+      ],
+      occurredAt: "2026-08-20T09:00:01.000Z"
+    }).members[0].status).toBe("applied");
   });
 
   it("validates atomic floor editor save and restore inputs", () => {

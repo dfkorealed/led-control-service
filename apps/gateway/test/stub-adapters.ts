@@ -1,4 +1,11 @@
-import type { IdentifyDevicePayload, ProvisionDevicePayload, ProvisioningCompletedPayload, ProvisioningScanStartPayload } from "@led-control/shared";
+import type {
+  IdentifyDevicePayload,
+  MeshGroupSubscriptionResultPayload,
+  MeshGroupSubscriptionSyncPayload,
+  ProvisionDevicePayload,
+  ProvisioningCompletedPayload,
+  ProvisioningScanStartPayload
+} from "@led-control/shared";
 import type { BleMeshAdapter, BleMeshFixtureStatus, ProvisioningAdapter, ProvisioningScannerAdapter } from "../src/gateway";
 
 export class StubBleMeshAdapter implements BleMeshAdapter {
@@ -14,6 +21,17 @@ export class StubBleMeshAdapter implements BleMeshAdapter {
   }
   async resyncFixtureStates() {
     return { total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 };
+  }
+  async syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload): Promise<MeshGroupSubscriptionResultPayload> {
+    return {
+      siteId: command.siteId,
+      gatewayId: command.gatewayId,
+      groupId: command.groupId,
+      version: command.version,
+      groupAddress: command.groupAddress,
+      members: command.members.map((member) => ({ meshNodeId: member.meshNodeId, status: "applied" as const })),
+      occurredAt: new Date().toISOString()
+    };
   }
 }
 

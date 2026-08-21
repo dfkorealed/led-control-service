@@ -4,6 +4,8 @@ export const CONFIG_OPCODES = {
   appKeyStatus: Uint8Array.from([0x80, 0x03]),
   modelAppBind: Uint8Array.from([0x80, 0x3d]),
   modelAppStatus: Uint8Array.from([0x80, 0x3e]),
+  modelSubscriptionAdd: Uint8Array.from([0x80, 0x1b]),
+  modelSubscriptionStatus: Uint8Array.from([0x80, 0x1f]),
   modelPublicationSet: Uint8Array.from([0x03]),
   modelPublicationStatus: Uint8Array.from([0x80, 0x19])
 } as const;
@@ -50,6 +52,18 @@ export function encodeModelPublicationSet(input: {
     input.period ?? 0,
     input.retransmit ?? 0,
     ...uint16Le(input.modelId)
+  ]);
+}
+
+export function encodeModelSubscriptionAdd(elementAddress: number, groupAddress: number, modelId: number) {
+  assertUnicast(elementAddress);
+  assertGroupAddress(groupAddress);
+  assertUint16(modelId, "model id");
+  return Uint8Array.from([
+    ...CONFIG_OPCODES.modelSubscriptionAdd,
+    ...uint16Le(elementAddress),
+    ...uint16Le(groupAddress),
+    ...uint16Le(modelId)
   ]);
 }
 
@@ -105,6 +119,16 @@ export function parseModelPublicationStatus(data: Uint8Array) {
   };
 }
 
+export function parseModelSubscriptionStatus(data: Uint8Array) {
+  const offset = expectOpcode(data, CONFIG_OPCODES.modelSubscriptionStatus, 9);
+  assertSuccess(data[offset]);
+  return {
+    elementAddress: readUint16Le(data, offset + 1),
+    groupAddress: readUint16Le(data, offset + 3),
+    modelId: readUint16Le(data, offset + 5)
+  };
+}
+
 export function startsWithOpcode(data: Uint8Array, opcode: Uint8Array) {
   return data.length >= opcode.length && opcode.every((value, index) => data[index] === value);
 }
@@ -137,6 +161,10 @@ function assertUnicast(value: number) {
 
 function assertKeyIndex(value: number) {
   if (!Number.isInteger(value) || value < 0 || value > 0x0fff) throw new Error("Invalid key index");
+}
+
+function assertGroupAddress(value: number) {
+  if (!Number.isInteger(value) || value < 0xc000 || value > 0xfeff) throw new Error("Invalid group address");
 }
 
 function assertByte(value: number, name: string) {

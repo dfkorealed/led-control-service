@@ -1,5 +1,7 @@
 import type {
   IdentifyDevicePayload,
+  MeshGroupSubscriptionResultPayload,
+  MeshGroupSubscriptionSyncPayload,
   ProvisionDevicePayload,
   ProvisioningCompletedPayload,
   ProvisioningFailedPayload,
@@ -12,6 +14,7 @@ export interface BleMeshAdapter {
   onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
   onResyncReport?(listener: (report: BleMeshResyncReport) => void): () => void;
   resyncFixtureStates(): Promise<BleMeshResyncReport>;
+  syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload): Promise<MeshGroupSubscriptionResultPayload>;
 }
 
 export interface BleMeshFixtureStatus {

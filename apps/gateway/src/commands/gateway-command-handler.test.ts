@@ -127,7 +127,16 @@ describe("handleGatewayDimmingCommand", () => {
     const pendingAdapter = {
       setBrightness: vi.fn(() => new Promise<never>(() => undefined)),
       onFixtureStatus: vi.fn(() => () => undefined),
-      resyncFixtureStates: vi.fn(async () => ({ total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 }))
+      resyncFixtureStates: vi.fn(async () => ({ total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 })),
+      syncGroupSubscriptions: vi.fn(async () => ({
+        siteId: command.siteId,
+        gatewayId: command.gatewayId,
+        groupId: command.targetId,
+        version: 1,
+        groupAddress: "0xc000",
+        members: [],
+        occurredAt: new Date().toISOString()
+      }))
     };
 
     const resultPromise = handleGatewayDimmingCommand(pendingAdapter, journal, command, undefined, { timeoutMs: 8000 });

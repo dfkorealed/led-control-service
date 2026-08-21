@@ -4,11 +4,13 @@ import {
   CONFIG_OPCODES,
   encodeCompositionDataGet,
   encodeModelAppBind,
+  encodeModelSubscriptionAdd,
   encodePublicationPeriod,
   encodeModelPublicationSet,
   parseAppKeyStatus,
   parseCompositionDataStatus,
   parseModelAppStatus,
+  parseModelSubscriptionStatus,
   parseModelPublicationStatus,
   startsWithOpcode
 } from "./bluez-config-codec";
@@ -20,6 +22,7 @@ const NET_KEY_INDEX = 0;
 const APP_KEY_INDEX = 0;
 const PROVISIONER_ADDRESS = 0x0001;
 const SERVER_MODELS = [0x0002, 0x1000, 0x1300] as const;
+const LIGHT_LIGHTNESS_SERVER_MODEL_ID = 0x1300;
 const STATUS_PUBLICATION_PERIOD = encodePublicationPeriod(60_000);
 
 interface ConfigTransport {
@@ -108,6 +111,24 @@ export class BluezConfigClient {
       compositionPage: composition.page,
       compositionData: composition.data
     };
+  }
+
+  async addModelSubscription(input: { unicast: number; groupAddress: number; modelId?: number }) {
+    const modelId = input.modelId ?? LIGHT_LIGHTNESS_SERVER_MODEL_ID;
+    const status = await this.sendDevKeyAndWait(
+      input.unicast,
+      encodeModelSubscriptionAdd(input.unicast, input.groupAddress, modelId),
+      CONFIG_OPCODES.modelSubscriptionStatus,
+      parseModelSubscriptionStatus
+    );
+    if (
+      status.elementAddress !== input.unicast ||
+      status.groupAddress !== input.groupAddress ||
+      status.modelId !== modelId
+    ) {
+      throw new Error("Config Model Subscription Status does not match the request");
+    }
+    return status;
   }
 
   private async ensureLocalAppKey() {

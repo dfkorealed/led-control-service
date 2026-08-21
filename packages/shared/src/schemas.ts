@@ -435,3 +435,39 @@ export const provisioningFailedSchema = z.object({
   errorMessage: z.string().min(1),
   failedAt: z.string().datetime()
 });
+
+const meshAddressSchema = z.string().regex(/^0x[0-9a-f]{4}$/i);
+
+export const meshGroupSubscriptionMemberSchema = z.object({
+  meshNodeId: z.string().uuid(),
+  meshAddress: meshAddressSchema
+}).strict();
+
+export const meshGroupSubscriptionSyncSchema = z.object({
+  siteId: z.string().uuid(),
+  gatewayId: z.string().uuid(),
+  groupId: z.string().uuid(),
+  version: positiveInt4Schema,
+  groupAddress: meshAddressSchema,
+  members: z.array(meshGroupSubscriptionMemberSchema).min(1),
+  requestedAt: z.string().datetime()
+}).strict();
+
+export const meshGroupSubscriptionResultMemberSchema = z.object({
+  meshNodeId: z.string().uuid(),
+  status: z.enum(["applied", "failed"]),
+  error: z.string().min(1).optional()
+}).strict();
+
+export const meshGroupSubscriptionResultSchema = z.object({
+  siteId: z.string().uuid(),
+  gatewayId: z.string().uuid(),
+  groupId: z.string().uuid(),
+  version: positiveInt4Schema,
+  groupAddress: meshAddressSchema,
+  members: z.array(meshGroupSubscriptionResultMemberSchema).min(1),
+  occurredAt: z.string().datetime()
+}).strict();
+
+export type MeshGroupSubscriptionSyncPayload = z.infer<typeof meshGroupSubscriptionSyncSchema>;
+export type MeshGroupSubscriptionResultPayload = z.infer<typeof meshGroupSubscriptionResultSchema>;

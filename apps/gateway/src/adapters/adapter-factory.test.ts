@@ -14,6 +14,7 @@ describe("createProductionAdapters", () => {
       setBrightness: vi.fn(),
       onFixtureStatus: vi.fn(() => () => undefined),
       resyncFixtureStates: vi.fn(),
+      syncGroupSubscriptions: vi.fn(),
       scan: vi.fn(),
       identify: vi.fn(),
       provision: vi.fn()
@@ -35,6 +36,7 @@ describe("createProductionAdapters", () => {
     expect(source).not.toContain("mqttTopics.commandAck");
     expect(source).not.toContain("mqttTopics.fixtureState");
     expect(source).not.toContain("mqttTopics.gatewayHeartbeat");
+    expect(source).toContain("mqttTopics.meshGroupSubscriptionSync");
   });
 
   it("verifies the attached node through D-Bus instead of trusting a cached node path", async () => {

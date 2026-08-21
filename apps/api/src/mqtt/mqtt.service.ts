@@ -8,6 +8,8 @@ import {
   IdentifyDevicePayload,
   identifyDeviceSchema,
   mapHealthFaults,
+  meshGroupSubscriptionResultSchema,
+  meshGroupSubscriptionSyncSchema,
   mqttTopics,
   ProvisionDevicePayload,
   provisionDeviceSchema,
@@ -40,7 +42,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         [
           "sites/+/gateways/+/events/unprovisioned-device-found",
           "sites/+/gateways/+/events/provisioning-completed",
-          "sites/+/gateways/+/events/provisioning-failed"
+          "sites/+/gateways/+/events/provisioning-failed",
+          "sites/+/gateways/+/events/mesh-group/subscription-result"
         ],
         { qos: 1 }
       );
@@ -67,6 +70,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   async publishProvisionDevice(input: ProvisionDevicePayload) {
     const payload = provisionDeviceSchema.parse(input);
     const topic = mqttTopics.provisionDevice(payload.siteId, payload.gatewayId);
+    await this.publishTopic(topic, payload);
+  }
+
+  async publishMeshGroupSubscriptionSync(input: ReturnType<typeof meshGroupSubscriptionSyncSchema.parse>) {
+    const payload = meshGroupSubscriptionSyncSchema.parse(input);
+    const topic = mqttTopics.meshGroupSubscriptionSync(payload.siteId, payload.gatewayId);
     await this.publishTopic(topic, payload);
   }
 
@@ -232,6 +241,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           errorMessage: event.errorMessage
         }
       });
+      return;
+    }
+
+    if (topic.endsWith("/events/mesh-group/subscription-result")) {
+      const event = meshGroupSubscriptionResultSchema.parse(JSON.parse(payload.toString()));
+      const topicScope = parseGatewayScopedTopic(topic);
+      if (!topicScope || topicScope.siteId !== event.siteId || topicScope.gatewayId !== event.gatewayId) return;
+      await this.storeMeshGroupSubscriptionResult(event);
     }
   }
 
@@ -507,6 +524,85 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         }
       },
       data: { status: "failed", errorMessage: DEVICE_UUID_CONFLICT_ERROR }
+    });
+  }
+
+  private async storeMeshGroupSubscriptionResult(
+    event: ReturnType<typeof meshGroupSubscriptionResultSchema.parse>
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const group = await tx.meshControlGroup.findFirst({
+        where: {
+          id: event.groupId,
+          gatewayId: event.gatewayId,
+          configurationVersion: event.version,
+          gateway: { siteId: event.siteId }
+        },
+        select: {
+          id: true,
+          gatewayId: true,
+          configurationVersion: true,
+          members: {
+            select: {
+              groupId: true,
+              gatewayId: true,
+              meshNodeId: true,
+              subscriptionStatus: true,
+              appliedVersion: true
+            }
+          }
+        }
+      });
+      if (!group) return;
+
+      const currentMembers = new Set(group.members.map((member) => member.meshNodeId));
+      for (const member of event.members) {
+        if (!currentMembers.has(member.meshNodeId)) continue;
+        await tx.meshControlGroupMember.updateMany({
+          where: {
+            groupId: group.id,
+            gatewayId: group.gatewayId,
+            meshNodeId: member.meshNodeId
+          },
+          data: member.status === "applied"
+            ? {
+                subscriptionStatus: "applied",
+                appliedVersion: event.version,
+                lastError: null
+              }
+            : {
+                subscriptionStatus: "failed",
+                lastError: member.error ?? "mesh group subscription failed"
+              }
+        });
+      }
+
+      const members = await tx.meshControlGroupMember.findMany({
+        where: { groupId: group.id, gatewayId: group.gatewayId },
+        select: {
+          meshNodeId: true,
+          subscriptionStatus: true,
+          appliedVersion: true,
+          lastError: true
+        }
+      });
+      const relevantMembers = members.filter((member) => currentMembers.has(member.meshNodeId));
+      const failedMember = relevantMembers.find((member) => member.subscriptionStatus === "failed");
+      const isReady = relevantMembers.length > 0 && relevantMembers.every(
+        (member) => member.subscriptionStatus === "applied" && member.appliedVersion === event.version
+      );
+      await tx.meshControlGroup.updateMany({
+        where: {
+          id: group.id,
+          gatewayId: group.gatewayId,
+          configurationVersion: event.version
+        },
+        data: failedMember
+          ? { status: "failed", lastError: failedMember.lastError }
+          : isReady
+            ? { status: "ready", lastError: null }
+            : { status: "configuring", lastError: null }
+      });
     });
   }
 }

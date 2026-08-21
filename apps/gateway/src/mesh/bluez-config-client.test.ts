@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
+import { BLUEZ_APPLICATION_PATHS } from "./bluez-dbus-application";
 import { CONFIG_OPCODES } from "./bluez-config-codec";
 import { BluezConfigClient } from "./bluez-config-client";
 
@@ -108,6 +109,51 @@ it("rejects an AppKey Status with unexpected key indexes", async () => {
 
   await expect(configure).rejects.toThrow("Config AppKey Status does not match the request");
   expect(transport.calls.filter((call) => call.method === "DevKeySend")).toHaveLength(0);
+});
+
+it("adds a Light Lightness Server subscription and validates source, element, group, and model", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const subscribe = client.addModelSubscription({ unicast: 0x0100, groupAddress: 0xc000 });
+
+  await waitForCallCount(transport, "DevKeySend", 1);
+  application.emit("devKeyMessageReceived", {
+    source: 0x0100,
+    data: Uint8Array.from([0x80, 0x1f, 0x00, 0x00, 0x01, 0x00, 0xc0, 0x00, 0x13])
+  });
+
+  await expect(subscribe).resolves.toEqual({
+    elementAddress: 0x0100,
+    groupAddress: 0xc000,
+    modelId: 0x1300
+  });
+  expect(transport.calls[0]).toEqual({
+    method: "DevKeySend",
+    args: [
+      BLUEZ_APPLICATION_PATHS.element,
+      0x0100,
+      true,
+      0,
+      [],
+      [0x80, 0x1b, 0x00, 0x01, 0x00, 0xc0, 0x00, 0x13]
+    ]
+  });
+});
+
+it("rejects a subscription status that does not confirm the requested target", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const subscribe = client.addModelSubscription({ unicast: 0x0100, groupAddress: 0xc000 });
+
+  await waitForCallCount(transport, "DevKeySend", 1);
+  application.emit("devKeyMessageReceived", {
+    source: 0x0101,
+    data: Uint8Array.from([0x80, 0x1f, 0x00, 0x01, 0x01, 0x00, 0xc0, 0x00, 0x13])
+  });
+
+  await expect(subscribe).rejects.toThrow("Bluetooth Mesh Config response timed out");
 });
 
 async function waitForCall(transport: FakeTransport, method: string) {

@@ -767,14 +767,22 @@ git commit -m "feat(mesh): add persistent control groups"
 - Modify: `apps/gateway/src/mesh/bluez-config-codec.test.ts`
 - Modify: `apps/gateway/src/mesh/bluez-config-client.ts`
 - Modify: `apps/gateway/src/mesh/bluez-config-client.test.ts`
+- Modify: `apps/gateway/src/gateway.ts`
+- Modify: `apps/gateway/src/index.ts`
+- Modify: `apps/gateway/src/commands/gateway-command-handler.test.ts`
+- Modify: `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
+- Modify: `apps/gateway/src/mesh/bluez-mesh-adapter.test.ts`
 - Create: `apps/gateway/src/mesh/group-subscription-handler.ts`
 - Create: `apps/gateway/src/mesh/group-subscription-handler.test.ts`
-- Modify: `apps/gateway/src/runtime/gateway-mqtt-runtime.ts`
-- Modify: `apps/api/src/mesh-control-groups/mesh-control-group.service.ts`
+- Modify: `apps/gateway/src/adapters/adapter-factory.test.ts`
+- Modify: `apps/gateway/test/stub-adapters.ts`
+- Modify: `apps/api/src/mesh-control-groups/mesh-control-group.module.ts`
 - Modify: `apps/api/src/mqtt/mqtt.service.ts`
+- Modify: `apps/api/src/mqtt/mqtt.service.spec.ts`
 - Create: `apps/api/src/mesh-control-groups/mesh-group-sync.worker.ts`
 - Create: `apps/api/src/mesh-control-groups/mesh-group-sync.worker.spec.ts`
 - Modify: `docs/menus/control.md`
+- Create: `.superpowers/sdd/2026-08-19-monitoring-control-focused-completion/task-10-report.md`
 
 **Interfaces:**
 - MQTT command: `mesh-group/subscription-sync`
@@ -782,7 +790,7 @@ git commit -m "feat(mesh): add persistent control groups"
 - Gateway: `BluezConfigClient.addModelSubscription(unicast, groupAddress, 0x1300)`
 - API: 10초 주기 sync worker가 `configuring` group을 versioned command로 발행하고 모든 member ACK 성공 후 group을 `ready`로 전환
 
-- [ ] **Step 1: Config opcode codec 실패 테스트 작성**
+- [x] **Step 1: Config opcode codec 실패 테스트 작성**
 
 ```ts
 expect(Array.from(encodeModelSubscriptionAdd(0x0100, 0xc000, 0x1300))).toEqual([
@@ -790,7 +798,7 @@ expect(Array.from(encodeModelSubscriptionAdd(0x0100, 0xc000, 0x1300))).toEqual([
 ]);
 ```
 
-- [ ] **Step 2: subscription 결과 집계 실패 테스트 작성**
+- [x] **Step 2: subscription 결과 집계 실패 테스트 작성**
 
 ```ts
 await handler.sync({ groupId, groupAddress: "0xc000", members });
@@ -800,39 +808,48 @@ await worker.runOnce();
 expect(publishSubscriptionSync).toHaveBeenCalledWith(expect.objectContaining({ groupId, version: 2 }));
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
+
+Run: `pnpm --filter @led-control/shared exec vitest run src/schemas.test.ts`
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-config-codec.test.ts src/mesh/bluez-config-client.test.ts src/mesh/group-subscription-handler.test.ts`
 
-Expected: subscription codec와 handler 부재로 FAIL
+Run: `pnpm --filter @led-control/api exec jest src/mesh-control-groups/mesh-group-sync.worker.spec.ts src/mqtt/mqtt.service.spec.ts --runInBand`
 
-- [ ] **Step 4: shared 계약, gateway 구성, API 집계 구현**
+Expected: shared topic/schema 미정의, subscription codec/client API 미구현, handler/worker 파일 부재, result persistence 미구현으로 FAIL
+
+- [x] **Step 4: shared 계약, gateway 구성, API 집계 구현**
 
 ```ts
 type MeshGroupSubscriptionResult = {
   groupId: string;
   version: number;
-  members: Array<{ meshNodeId: string; status: "ready" | "failed"; error?: string }>;
+  members: Array<{ meshNodeId: string; status: "applied" | "failed"; error?: string }>;
 };
 ```
 
-Gateway는 Light Lightness Server `0x1300`에 subscription을 추가하고 Config Model Subscription Status의 element, address, model을 검증한다. ESP32-H2 Config Server는 표준 subscription을 이미 처리하므로 firmware에 사설 opcode를 추가하지 않는다. API worker는 `configuring` group을 10초마다 조회하고 같은 group ID와 version을 다시 발행할 수 있다. Gateway 처리는 idempotent하며 결과 ACK의 version이 현재 DB version과 일치할 때만 상태를 갱신한다.
+Gateway는 Light Lightness Server `0x1300`에 subscription을 추가하고 Config Model Subscription Status의 source, element, group, model을 검증한다. ESP32-H2 Config Server는 표준 subscription을 이미 처리하므로 firmware에 사설 opcode를 추가하지 않는다. API worker는 `configuring` group 중 member가 1개 이상인 group만 10초마다 조회하고 같은 group ID와 version을 다시 발행할 수 있다. Gateway 처리는 idempotent하며 결과 ACK의 version이 현재 DB version과 일치할 때만 상태를 갱신한다.
 
-- [ ] **Step 5: Task 검증**
+- [x] **Step 5: Task 검증**
 
-Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-config-codec.test.ts src/mesh/bluez-config-client.test.ts src/mesh/group-subscription-handler.test.ts`
+Run: `pnpm --filter @led-control/shared test`
 
-Run: `pnpm --filter @led-control/api exec jest src/mesh-control-groups/mesh-group-sync.worker.spec.ts --runInBand`
+Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-config-codec.test.ts src/mesh/bluez-config-client.test.ts src/mesh/group-subscription-handler.test.ts src/mesh/bluez-mesh-adapter.test.ts src/adapters/adapter-factory.test.ts`
+
+Run: `pnpm --filter @led-control/api exec jest src/mesh-control-groups/mesh-group-sync.worker.spec.ts src/mqtt/mqtt.service.spec.ts --runInBand`
 
 Run: `pnpm --filter @led-control/api typecheck`
 
 Expected: exit 0
 
-- [ ] **Step 6: 메뉴 문서 갱신과 커밋**
+- [x] **Step 6: 메뉴 문서 갱신과 커밋**
 
 ```bash
-git add packages/shared/src apps/gateway/src/mesh apps/gateway/src/runtime/gateway-mqtt-runtime.ts \
-  apps/api/src/mesh-control-groups apps/api/src/mqtt/mqtt.service.ts docs/menus/control.md \
+git add packages/shared/src apps/gateway/src/gateway.ts apps/gateway/src/index.ts \
+  apps/gateway/src/commands/gateway-command-handler.test.ts apps/gateway/src/adapters/adapter-factory.test.ts \
+  apps/gateway/src/mesh apps/gateway/test/stub-adapters.ts \
+  apps/api/src/mesh-control-groups apps/api/src/mqtt/mqtt.service.ts apps/api/src/mqtt/mqtt.service.spec.ts docs/menus/control.md \
+  .superpowers/sdd/2026-08-19-monitoring-control-focused-completion/task-10-report.md \
   docs/superpowers/plans/2026-08-19-monitoring-control-focused-completion.md
 git commit -m "feat(mesh): synchronize control group subscriptions"
 ```

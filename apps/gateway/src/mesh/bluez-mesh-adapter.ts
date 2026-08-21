@@ -2,6 +2,8 @@ import type { EventEmitter } from "node:events";
 import {
   mapHealthFaults,
   type IdentifyDevicePayload,
+  type MeshGroupSubscriptionResultPayload,
+  type MeshGroupSubscriptionSyncPayload,
   type ProvisionDevicePayload,
   type ProvisioningCompletedPayload,
   type ProvisioningScanStartPayload,
@@ -49,6 +51,7 @@ interface TransactionStore {
 
 interface ConfigClient {
   configureNode(input: { unicast: number; elementCount: number }): Promise<unknown>;
+  addModelSubscription(input: { unicast: number; groupAddress: number; modelId?: number }): Promise<unknown>;
 }
 
 export type FixtureMeshStatus = BleMeshFixtureStatus;
@@ -168,6 +171,38 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     const reports: BleMeshCommandReport[] = [];
     for (const fixtureId of fixtureIds) reports.push(await this.setFixtureBrightness(fixtureId, brightness));
     return reports;
+  }
+
+  async syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload): Promise<MeshGroupSubscriptionResultPayload> {
+    await this.start();
+    const nodePath = this.requireNodePath();
+    const configClient = this.createConfigClient(nodePath);
+    const members: MeshGroupSubscriptionResultPayload["members"] = [];
+    for (const member of command.members) {
+      try {
+        await configClient.addModelSubscription({
+          unicast: parseMeshAddress(member.meshAddress),
+          groupAddress: parseMeshAddress(command.groupAddress)
+        });
+        members.push({ meshNodeId: member.meshNodeId, status: "applied" });
+      } catch (error) {
+        members.push({
+          meshNodeId: member.meshNodeId,
+          status: "failed",
+          error: error instanceof Error ? error.message : "Bluetooth Mesh group subscription failed"
+        });
+      }
+    }
+
+    return {
+      siteId: command.siteId,
+      gatewayId: command.gatewayId,
+      groupId: command.groupId,
+      version: command.version,
+      groupAddress: command.groupAddress,
+      members,
+      occurredAt: new Date().toISOString()
+    };
   }
 
   private async setFixtureBrightness(fixtureId: string, brightness: number): Promise<BleMeshCommandReport> {
@@ -515,4 +550,9 @@ function waitForLightnessStatus(application: EventEmitter, source: number, timeo
 
 function failed(fixtureId: string, brightness: number, faultCode: string): BleMeshCommandReport {
   return { fixtureId, acknowledged: false, brightness, faultCode, rssi: null, hopCount: null };
+}
+
+function parseMeshAddress(value: string) {
+  if (!/^0x[0-9a-f]{4}$/i.test(value)) throw new Error("Invalid mesh address");
+  return Number.parseInt(value.slice(2), 16);
 }

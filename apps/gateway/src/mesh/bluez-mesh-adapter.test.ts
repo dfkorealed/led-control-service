@@ -25,7 +25,10 @@ function fixture(options: { observationCoherenceMs?: number; now?: () => number 
     } : null),
     listConfirmed: vi.fn(async () => [{ fixtureId: "fixture-1", primaryUnicast: 0x0100, elementCount: 1, status: "confirmed" as const }])
   };
-  const config = { configureNode: vi.fn(async () => ({ compositionPage: 0 })) };
+  const config = {
+    configureNode: vi.fn(async () => ({ compositionPage: 0 })),
+    addModelSubscription: vi.fn(async () => ({ elementAddress: 0x0100, groupAddress: 0xc000, modelId: 0x1300 }))
+  };
   const transactions = { next: vi.fn(async () => 7) };
   return {
     application, transport, provisioner, addresses, config, transactions,
@@ -256,6 +259,35 @@ describe("BluezMeshAdapter", () => {
     expect(f.transport.calls.filter((call) => call.method === "Send").map((call) => call.args[4])).toEqual([
       [0x82, 0x01], [0x82, 0x4b], [0x80, 0x31, 0xe5, 0x02]
     ]);
+  });
+
+  it("reapplies a Light Lightness Server group subscription for each member and reports failures individually", async () => {
+    const f = fixture();
+    f.config.addModelSubscription
+      .mockResolvedValueOnce({ elementAddress: 0x0100, groupAddress: 0xc000, modelId: 0x1300 })
+      .mockRejectedValueOnce(new Error("subscription rejected"));
+
+    await expect(f.adapter.syncGroupSubscriptions({
+      siteId: "00000000-0000-4000-8000-000000000010",
+      gatewayId: "00000000-0000-4000-8000-000000000011",
+      groupId: "00000000-0000-4000-8000-000000000012",
+      version: 2,
+      groupAddress: "0xc000",
+      members: [
+        { meshNodeId: "fixture-1", meshAddress: "0x0100" },
+        { meshNodeId: "fixture-2", meshAddress: "0x0101" }
+      ],
+      requestedAt: "2026-08-21T00:00:00.000Z"
+    })).resolves.toMatchObject({
+      groupId: "00000000-0000-4000-8000-000000000012",
+      version: 2,
+      members: [
+        { meshNodeId: "fixture-1", status: "applied" },
+        { meshNodeId: "fixture-2", status: "failed", error: "subscription rejected" }
+      ]
+    });
+    expect(f.config.addModelSubscription).toHaveBeenNthCalledWith(1, { unicast: 0x0100, groupAddress: 0xc000 });
+    expect(f.config.addModelSubscription).toHaveBeenNthCalledWith(2, { unicast: 0x0101, groupAddress: 0xc000 });
   });
 
   it("runs one bounded resync when reconnects overlap", async () => {

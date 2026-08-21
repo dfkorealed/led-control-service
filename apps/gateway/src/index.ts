@@ -38,6 +38,7 @@ import { createGatewayCertificateRotation, type CertificateRotation } from "./id
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mqtt-runtime";
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
 import type { BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
+import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -146,6 +147,11 @@ async function main() {
     });
   }
 
+  const groupSubscriptionHandler = new GroupSubscriptionHandler(
+    adapter,
+    { siteId, gatewayId }
+  );
+
   async function publishHeartbeat() {
     const occurredAt = new Date().toISOString();
     const heartbeat = gatewayHeartbeatV2Schema.parse({
@@ -171,7 +177,8 @@ async function main() {
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")]: handleDimmingPayloadV2,
       [mqttTopics.provisioningScanStart(siteId, gatewayId)]: handleProvisioningScanPayload,
       [mqttTopics.identifyDevice(siteId, gatewayId)]: handleIdentifyPayload,
-      [mqttTopics.provisionDevice(siteId, gatewayId)]: handleProvisionDevicePayload
+      [mqttTopics.provisionDevice(siteId, gatewayId)]: handleProvisionDevicePayload,
+      [mqttTopics.meshGroupSubscriptionSync(siteId, gatewayId)]: (payload, source) => groupSubscriptionHandler.handle(payload, source)
     },
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
@@ -265,7 +272,8 @@ export function subscribeGatewayCommands(
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "dimming"),
         mqttTopics.provisioningScanStart(assignment.siteId, assignment.gatewayId),
         mqttTopics.identifyDevice(assignment.siteId, assignment.gatewayId),
-        mqttTopics.provisionDevice(assignment.siteId, assignment.gatewayId)
+        mqttTopics.provisionDevice(assignment.siteId, assignment.gatewayId),
+        mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId)
       ],
       { qos: 1 },
       (error) => (error ? reject(error) : resolve())
