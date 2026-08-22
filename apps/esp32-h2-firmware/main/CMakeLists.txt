@@ -9,6 +9,7 @@ idf_component_register(
     "identify.c"
     "led_driver.c"
     "mesh_state.c"
+    "mesh_publication_jitter.c"
     "persistent_state.c"
   INCLUDE_DIRS "."
   REQUIRES bt driver nvs_flash esp_timer esp_system

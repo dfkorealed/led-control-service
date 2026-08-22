@@ -8,7 +8,7 @@
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령을 받아 PWM 밝기에 반영하는 단계까지 빌드 검증했다.
-- BLE Mesh와 양산 기반 보강 포함 후 `led_control_node.bin` 크기는 약 `0xe4d10` 바이트이며, 1MB OTA app partition 기준 약 11% 여유가 남는다. OTA 기능을 추가할 때는 파티션 크기 재검토가 필요하다.
+- BLE Mesh group publication 지터 포함 후 `led_control_node.bin` 크기는 `0xe5240` 바이트이며, 1MB OTA app partition 기준 약 10% 여유가 남는다. OTA 기능을 추가할 때는 파티션 크기 재검토가 필요하다.
 
 ## ESP-IDF 설치
 
@@ -90,6 +90,7 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 - Generic OnOff Set/Get 수신 후 0% 또는 100% PWM 반영
 - Light Lightness Set/Get 수신 후 0~65535 lightness 값을 0~100% 밝기로 변환해 PWM 반영
 - OnOff/Lightness status publication
+- group 주소로 받은 Light Lightness Set Unacknowledged는 PWM을 즉시 반영하고 primary unicast 기반 결정적 지터 후 실제 Lightness Status publication
 - Health fault clear/test callback과 fault update publication 진입점
 - 마지막 밝기, 이전 밝기, command sequence를 NVS blob으로 저장하고 2초 debounce commit으로 flash write를 제한
 - Off 후 On 시 직전 0% 초과 밝기를 복원
@@ -133,7 +134,7 @@ factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 �
 4. PB-ADV/PB-GATT bearer를 켜고 provisioner 검색을 기다린다.
 5. provisioner가 NetKey/AppKey를 주입하고 model bind/group subscription을 설정한다.
 6. gateway가 Generic OnOff 또는 Light Lightness client message를 보낸다.
-7. 펌웨어는 PWM 밝기를 변경하고 OnOff/Lightness status를 publish한다.
+7. 펌웨어는 PWM 밝기를 변경하고 OnOff/Lightness status를 publish한다. group Lightness Set Unacknowledged는 PWM을 먼저 변경하고 아래 지터 후 Lightness status만 publish한다.
 8. Health fault test/clear 요청은 Health Server callback에서 처리하고 fault update를 publish한다.
 
 웹의 `조명 검색`에 잡히려면 보드가 반드시 unprovisioned 상태여야 한다. 한 번 provisioning된 보드는 NetKey/AppKey와 mesh address를 NVS에 보관하므로 unprovisioned beacon을 내보내지 않는다. 재검색 테스트 전에는 `erase-flash`를 실행하거나 후속 factory reset 기능을 통해 mesh 설정을 삭제한다.
@@ -148,6 +149,34 @@ factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 �
 - primary element의 Generic OnOff Server, Light Lightness Server, Health Server에 AppKey를 bind한다.
 - 층/구역별 group address를 Light Lightness Server와 Generic OnOff Server에 subscribe한다.
 - 상태 publication 주소와 주기를 설정한다.
+
+## Group Lightness publication 지터
+
+group 주소의 `Light Lightness Set Unacknowledged`를 받으면 명령 적용은 지연하지 않는다. PWM, NVS 저장 예약, present Lightness 상태를 먼저 갱신한 뒤 ESP-IDF model publication API로 실제 반영값을 보낸다. acknowledged Set과 unicast Set의 기존 즉시 응답/publication 동작은 유지한다. TID 중복 및 replay 처리는 ESP-IDF Bluetooth Mesh model 계층에 맡기며 펌웨어가 별도 TID 판정을 중복 구현하지 않는다.
+
+publication 지연은 다음 고정 수식을 사용한다.
+
+```text
+delay_ms = 64 + (primary_unicast & 0x03FF) * 5
+```
+
+- 1,024개 주소 슬롯을 `64~5,179ms` 범위에 결정적으로 분산한다.
+- 같은 primary unicast는 재부팅 후에도 같은 슬롯을 사용한다.
+- 계산은 ESP-IDF에 의존하지 않는 `mesh_publication_jitter.c`에 분리되어 호스트 단위 테스트로 경곗값과 주소 wrap을 검증한다.
+- ESP-IDF `server_model_update_state`의 암묵 publication과 명시적 publication을 함께 사용하지 않는다. `RSP_BY_APP` 수신 경로에서 상태를 한 번 적용하고, publish update callback은 주기 publication buffer만 갱신한다.
+- 타이머 예약이 실패하면 상태 확인 자체가 유실되지 않도록 실제 Lightness Status를 즉시 publish하고 오류를 기록한다.
+
+Light Lightness Server의 publication 주소와 AppKey가 provisioner에서 설정되어 있지 않으면 지연 계산이 정상이어도 status를 보낼 수 없다. 동일 노드에 겹치는 group 명령은 Gateway가 직렬화해야 하며, 다음 명령이 지터 대기 중 도착하면 예약 publication은 최신 실제 상태 기준으로 다시 예약된다.
+
+### HIL 검증 한계
+
+ESP-IDF 빌드와 지터 계산 단위 테스트만으로는 아래 항목을 증명할 수 없다. 실제 ESP32-H2 노드와 라즈베리파이 Gateway를 연결한 HIL 시험에서 확인한다.
+
+- group subscription과 publication 주소/AppKey 설정 후 단일 group 패킷이 모든 대상 PWM에 즉시 반영되는지
+- 각 노드의 Lightness Status가 primary unicast별 `64~5,179ms` 슬롯에 실제 송신되는지
+- relay/retransmit가 있는 주차장 RF 환경에서 노드 수 증가에 따른 충돌률과 8초 Gateway 수집 timeout의 적정성
+- 패킷 손실, 노드 재부팅, 연속 명령에서 Gateway가 누락 또는 상태 불일치를 정확히 판정하는지
+- 100개 이상 실제 노드 soak에서 heap, watchdog, Mesh replay/TID 동작에 회귀가 없는지
 
 ## DFK BLE Mesh device UUID
 

@@ -18,8 +18,10 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "identify.h"
 #include "led_driver.h"
+#include "mesh_publication_jitter.h"
 #include "mesh_state.h"
 #include "persistent_state.h"
 
@@ -32,6 +34,7 @@ static const char *TAG = "ble_mesh_node";
 static uint8_t dev_uuid[16] = {0};
 static uint8_t health_test_ids[] = {LED_CONTROL_HEALTH_TEST_ID};
 static control_state_t mesh_control_state;
+static esp_timer_handle_t group_lightness_publish_timer;
 
 static esp_ble_mesh_cfg_srv_t config_server = {
     .net_transmit = ESP_BLE_MESH_TRANSMIT(2, 20),
@@ -116,7 +119,6 @@ static esp_ble_mesh_prov_t provision = {
 };
 
 static void update_bound_mesh_state(void) {
-  esp_ble_mesh_server_state_value_t state = {0};
   uint16_t actual = mesh_state_percent_to_lightness(mesh_control_state.brightness_percent);
 
   lightness_state.lightness_actual = actual;
@@ -128,30 +130,54 @@ static void update_bound_mesh_state(void) {
   }
 
   onoff_server.state.onoff = mesh_control_state.power_on ? 1 : 0;
-
-  if (onoff_server.model != NULL) {
-    state.gen_onoff.onoff = onoff_server.state.onoff;
-    esp_ble_mesh_server_model_update_state(onoff_server.model, ESP_BLE_MESH_GENERIC_ONOFF_STATE, &state);
-  }
-
-  if (lightness_server.model != NULL) {
-    state.light_lightness_actual.lightness = actual;
-    esp_ble_mesh_server_model_update_state(lightness_server.model, ESP_BLE_MESH_LIGHT_LIGHTNESS_ACTUAL_STATE, &state);
-
-    state.light_lightness_linear.lightness = actual;
-    esp_ble_mesh_server_model_update_state(lightness_server.model, ESP_BLE_MESH_LIGHT_LIGHTNESS_LINEAR_STATE, &state);
-  }
 }
 
-static void apply_control_state_and_publish(esp_ble_mesh_model_t *model) {
+static void apply_control_state(void) {
   ESP_ERROR_CHECK_WITHOUT_ABORT(led_driver_set_brightness(mesh_control_state.brightness_percent));
   ESP_ERROR_CHECK_WITHOUT_ABORT(persistent_state_schedule_save(&mesh_control_state));
   update_bound_mesh_state();
+}
 
+static void publish_control_state(esp_ble_mesh_model_t *model) {
   uint8_t onoff = onoff_server.state.onoff;
   uint16_t lightness = lightness_state.lightness_actual;
   esp_ble_mesh_model_publish(&root_models[2], ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_STATUS, sizeof(onoff), &onoff, ROLE_NODE);
   esp_ble_mesh_model_publish(model != NULL ? model : &root_models[3], ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS, sizeof(lightness), (uint8_t *)&lightness, ROLE_NODE);
+}
+
+static void apply_control_state_and_publish(esp_ble_mesh_model_t *model) {
+  apply_control_state();
+  publish_control_state(model);
+}
+
+static void publish_group_lightness_status(void *argument) {
+  (void)argument;
+  uint16_t lightness = lightness_state.lightness_actual;
+  esp_err_t error = esp_ble_mesh_model_publish(
+      &root_models[3],
+      ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS,
+      sizeof(lightness),
+      (uint8_t *)&lightness,
+      ROLE_NODE);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to publish delayed group lightness status: %s", esp_err_to_name(error));
+  }
+}
+
+static void schedule_group_lightness_status(void) {
+  uint16_t primary_unicast = esp_ble_mesh_get_primary_element_address();
+  uint32_t delay_ms = mesh_group_publication_jitter_ms(primary_unicast);
+  esp_err_t error = esp_timer_stop(group_lightness_publish_timer);
+  if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
+    ESP_LOGW(TAG, "Failed to stop pending group status timer: %s", esp_err_to_name(error));
+  }
+  error = esp_timer_start_once(group_lightness_publish_timer, (uint64_t)delay_ms * 1000U);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to schedule group lightness status: %s", esp_err_to_name(error));
+    publish_group_lightness_status(NULL);
+    return;
+  }
+  ESP_LOGI(TAG, "Group lightness applied, status publication scheduled in %" PRIu32 "ms", delay_ms);
 }
 
 static void send_onoff_status(esp_ble_mesh_model_t *model, esp_ble_mesh_msg_ctx_t *ctx) {
@@ -271,18 +297,22 @@ static void lighting_server_cb(esp_ble_mesh_lighting_server_cb_event_t event, es
     if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET ||
         param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET_UNACK) {
       mesh_state_apply_lightness(&mesh_control_state, param->value.set.lightness.lightness);
-      apply_control_state_and_publish(param->model);
+      bool delayed_group_publication =
+          param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET_UNACK &&
+          ESP_BLE_MESH_ADDR_IS_GROUP(param->ctx.recv_dst);
+      if (delayed_group_publication) {
+        apply_control_state();
+        schedule_group_lightness_status();
+      } else {
+        apply_control_state_and_publish(param->model);
+      }
       if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET) {
         send_lightness_status(param->model, &param->ctx);
       }
     }
     break;
   case ESP_BLE_MESH_LIGHTING_SERVER_STATE_CHANGE_EVT:
-    if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET ||
-        param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET_UNACK) {
-      mesh_state_apply_lightness(&mesh_control_state, param->value.state_change.lightness_set.lightness);
-      apply_control_state_and_publish(param->model);
-    }
+    /* RSP_BY_APP handles accepted Set messages above; publishing here would duplicate status. */
     break;
   default:
     break;
@@ -351,6 +381,15 @@ static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_m
 }
 
 esp_err_t ble_mesh_node_init(void) {
+  const esp_timer_create_args_t group_publish_timer_args = {
+      .callback = publish_group_lightness_status,
+      .name = "mesh_group_pub",
+  };
+  ESP_RETURN_ON_ERROR(
+      esp_timer_create(&group_publish_timer_args, &group_lightness_publish_timer),
+      TAG,
+      "create group publication timer");
+
   mesh_control_state = control_state_create();
   bool restored = false;
   ESP_RETURN_ON_ERROR(persistent_state_load(&mesh_control_state, &restored), TAG, "load persisted state");

@@ -1,6 +1,7 @@
 #include <assert.h>
 
 #include "../main/control_state.h"
+#include "../main/mesh_publication_jitter.h"
 #include "../main/mesh_state.h"
 
 int main(void) {
@@ -53,6 +54,11 @@ int main(void) {
   assert(!command_sequence_accept(&state, 9));
   assert(!command_sequence_accept(&state, 10));
   assert(command_sequence_accept(&state, 11));
+
+  assert(mesh_group_publication_jitter_ms(0x0000) == 64);
+  assert(mesh_group_publication_jitter_ms(0x0001) == 69);
+  assert(mesh_group_publication_jitter_ms(0x03ff) == 5179);
+  assert(mesh_group_publication_jitter_ms(0x0401) == 69);
 
   return 0;
 }
