@@ -53,6 +53,7 @@ client.on("connect", () => {
       targetType: "fixture",
       targetId: fixtureId,
       targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast",
       brightness,
       requestedBy: "local-smoke-test",
       requestedAt: new Date().toISOString(),

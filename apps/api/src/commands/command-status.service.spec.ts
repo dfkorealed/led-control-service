@@ -14,7 +14,8 @@ describe("CommandStatusService", () => {
           id: "command-1",
           siteId: "site-1",
           targetType: "group",
-          targetId: "group-1",
+          targetId: null,
+          targetFixtureIds: ["fixture-1"],
           brightness: 70,
           status: "pending",
           errorMessage: null,
@@ -23,6 +24,8 @@ describe("CommandStatusService", () => {
           dispatches: [
             {
               id: "dispatch-1",
+              deliveryMode: "mesh_group",
+              destinationAddress: "0xc000",
               status: "completed",
               publishedAt: new Date("2026-07-12T00:00:01.000Z"),
               acceptedAt: new Date("2026-07-12T00:00:01.500Z"),
@@ -55,8 +58,12 @@ describe("CommandStatusService", () => {
       dispatchCount: 1,
       completedFixtureCount: 1,
       totalFixtureCount: 1,
+      targetId: null,
+      targetFixtureIds: ["fixture-1"],
       dispatches: [
         {
+          deliveryMode: "mesh_group",
+          destinationAddress: "0xc000",
           gateway: { id: "gateway-1", name: "B2 Gateway" },
           results: [{ fixtureId: "fixture-1", fixtureName: "B2-L01", status: "succeeded" }]
         }

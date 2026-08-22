@@ -10,6 +10,7 @@ const dimmingPayload = {
   targetType: "fixture",
   targetId: "66666666-6666-4666-8666-666666666666",
   targetFixtureIds: ["66666666-6666-4666-8666-666666666666"],
+  deliveryMode: "unicast",
   brightness: 65,
   requestedBy: "77777777-7777-4777-8777-777777777777",
   requestedAt: "2026-07-11T00:00:00.000Z"

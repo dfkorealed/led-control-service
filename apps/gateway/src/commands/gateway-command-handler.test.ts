@@ -12,6 +12,7 @@ const command = {
   targetType: "fixture" as const,
   targetId: "66666666-6666-4666-8666-666666666666",
   targetFixtureIds: ["66666666-6666-4666-8666-666666666666"],
+  deliveryMode: "unicast" as const,
   brightness: 65,
   requestedBy: "77777777-7777-4777-8777-777777777777",
   requestedAt: new Date().toISOString(),

@@ -35,20 +35,45 @@ const commandIdentitySchema = gatewayScopeSchema.extend({
 });
 
 const gatewayDimmingCommandFields = {
-  targetType: z.enum(["fixture", "group"]),
-  targetId: z.string().uuid(),
+  targetType: z.enum(["fixture", "fixtures", "floor", "group"]),
+  targetId: z.string().uuid().nullable(),
   targetFixtureIds: z.array(z.string().uuid()).min(1),
+  deliveryMode: z.enum(["unicast", "parallel_unicast", "mesh_group"]),
+  destinationAddress: z.string().regex(/^0x[0-9a-f]{4}$/i).optional(),
   brightness: z.number().int().min(0).max(100),
   requestedBy: z.string().uuid(),
   requestedAt: z.string().datetime()
 };
 
-// An outbox record is completed immediately before MQTT publish so its expiry starts at the real publish time.
-export const gatewayDimmingCommandDraftV2Schema = commandIdentitySchema.extend(gatewayDimmingCommandFields);
+function validateDimmingDelivery(
+  command: { deliveryMode: "unicast" | "parallel_unicast" | "mesh_group"; destinationAddress?: string },
+  context: z.RefinementCtx
+) {
+  if (command.deliveryMode === "mesh_group" && !command.destinationAddress) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["destinationAddress"],
+      message: "destinationAddress is required for mesh_group delivery"
+    });
+  }
+  if (command.deliveryMode !== "mesh_group" && command.destinationAddress) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["destinationAddress"],
+      message: "destinationAddress is only allowed for mesh_group delivery"
+    });
+  }
+}
 
-export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2Schema.extend({
+// An outbox record is completed immediately before MQTT publish so its expiry starts at the real publish time.
+const gatewayDimmingCommandDraftV2BaseSchema = commandIdentitySchema.extend(gatewayDimmingCommandFields).strict();
+export const gatewayDimmingCommandDraftV2Schema = gatewayDimmingCommandDraftV2BaseSchema.superRefine(
+  validateDimmingDelivery
+);
+
+export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
   expiresAt: z.string().datetime()
-});
+}).strict().superRefine(validateDimmingDelivery);
 
 export const acceptanceAckV2Schema = commandIdentitySchema.extend({
   eventId: z.string().uuid(),

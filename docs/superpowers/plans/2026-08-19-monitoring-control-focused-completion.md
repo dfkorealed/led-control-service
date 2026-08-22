@@ -963,7 +963,7 @@ git commit -m "feat(registration): configure mesh groups after provisioning"
 - Gateway payload adds `destinationAddress` for mesh group
 - DB: `Command.targetId String?`, `Command.targetFixtureIds Json`, `CommandDispatch.deliveryMode String`, `CommandDispatch.destinationAddress String?`
 
-- [ ] **Step 1: target schema 실패 테스트 작성**
+- [x] **Step 1: target schema 실패 테스트 작성**
 
 ```ts
 expect(createDimmingCommandSchema.parse({
@@ -973,21 +973,21 @@ expect(createDimmingCommandSchema.parse({
 }).target.type).toBe("fixtures");
 ```
 
-- [ ] **Step 2: delivery mode 결정 실패 테스트 작성**
+- [x] **Step 2: delivery mode 결정 실패 테스트 작성**
 
 ```ts
 expect(await service.createDimmingCommand(user, floorInput)).toMatchObject({ deliveryMode: "mesh_group" });
 expect(await service.createDimmingCommand(user, multiInput)).toMatchObject({ deliveryMode: "parallel_unicast" });
 ```
 
-- [ ] **Step 3: 다중 gateway와 준비 안 된 group 거부 테스트 작성**
+- [x] **Step 3: 다중 gateway와 준비 안 된 group 거부 테스트 작성**
 
 ```ts
 await expect(service.createDimmingCommand(user, floorAcrossGateways)).rejects.toThrow("multiple gateways are not supported");
 await expect(service.createDimmingCommand(user, unreadyGroup)).rejects.toThrow("mesh control group is not ready");
 ```
 
-- [ ] **Step 4: RED 확인**
+- [x] **Step 4: RED 확인**
 
 Run: `pnpm --filter @led-control/shared exec vitest run src/gateway-contracts.test.ts`
 
@@ -997,7 +997,7 @@ Run: `pnpm --filter @led-control/api exec jest src/commands/commands.service.spe
 
 Expected: 확장 target과 delivery mode 부재로 FAIL
 
-- [ ] **Step 5: API와 DB 최소 구현**
+- [x] **Step 5: API와 DB 최소 구현**
 
 ```ts
 type ResolvedControlTarget = {
@@ -1010,7 +1010,7 @@ type ResolvedControlTarget = {
 
 서버는 floor/group fixture를 DB에서 다시 계산하고 임의 선택이 ready floor/group과 정확히 일치하면 `mesh_group`으로 승격한다. migration은 기존 Command에 `targetFixtureIds='[]'`, 기존 CommandDispatch에 `deliveryMode='unicast'`를 backfill한 뒤 NOT NULL을 적용하고 `Command.targetId`의 NOT NULL 제약을 제거한다.
 
-- [ ] **Step 6: Task 검증**
+- [x] **Step 6: Task 검증**
 
 Run: `pnpm --filter @led-control/api prisma:generate`
 
@@ -1018,7 +1018,7 @@ Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/api e
 
 Expected: exit 0
 
-- [ ] **Step 7: DB·메뉴 문서 갱신과 커밋**
+- [x] **Step 7: DB·메뉴 문서 갱신과 커밋**
 
 ```bash
 git add packages/shared/src apps/api/prisma apps/api/src/commands docs/database-schema.md docs/menus/control.md \

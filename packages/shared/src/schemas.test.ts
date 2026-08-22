@@ -8,6 +8,8 @@ import {
   EDITOR_REVISION_DEFAULT_LIMIT,
   POSTGRES_INT_MAX,
   createRegistrationSessionSchema,
+  createDimmingCommandSchema,
+  createDimmingCommandRequestSchema,
   editorRevisionListQuerySchema,
   floorEditorSnapshotSchema,
   floorMapSnapshotSchema,
@@ -31,6 +33,54 @@ import {
 import { mqttTopics } from "./mqtt";
 
 describe("shared schemas", () => {
+  it("validates all dimming target types and normalizes legacy requests", () => {
+    const siteId = "00000000-0000-4000-8000-000000000003";
+    const fixture1 = "11111111-1111-4111-8111-111111111111";
+    const fixture2 = "22222222-2222-4222-8222-222222222222";
+
+    expect(createDimmingCommandSchema.parse({
+      siteId,
+      target: { type: "fixtures", fixtureIds: [fixture1, fixture2] },
+      brightness: 70
+    }).target.type).toBe("fixtures");
+    expect(createDimmingCommandSchema.parse({
+      siteId,
+      target: { type: "floor", floorId: fixture1 },
+      brightness: 70
+    }).target.type).toBe("floor");
+    expect(createDimmingCommandSchema.parse({
+      siteId,
+      target: { type: "group", groupId: fixture1 },
+      brightness: 70
+    }).target.type).toBe("group");
+    expect(createDimmingCommandRequestSchema.parse({
+      siteId,
+      targetType: "fixture",
+      targetId: fixture1,
+      brightness: 70
+    })).toEqual({
+      siteId,
+      target: { type: "fixture", fixtureId: fixture1 },
+      brightness: 70
+    });
+  });
+
+  it("rejects empty or duplicate fixture target lists", () => {
+    const siteId = "00000000-0000-4000-8000-000000000003";
+    const fixtureId = "11111111-1111-4111-8111-111111111111";
+
+    expect(() => createDimmingCommandSchema.parse({
+      siteId,
+      target: { type: "fixtures", fixtureIds: [] },
+      brightness: 70
+    })).toThrow();
+    expect(() => createDimmingCommandSchema.parse({
+      siteId,
+      target: { type: "fixtures", fixtureIds: [fixtureId, fixtureId] },
+      brightness: 70
+    })).toThrow("fixtureIds must be unique");
+  });
+
   it("validates batch and individual fixture registration settings", () => {
     const nodeId = "22222222-2222-4222-8222-222222222222";
     const batch = registerFixtureBatchSchema.parse({

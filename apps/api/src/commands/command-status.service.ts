@@ -55,6 +55,7 @@ export class CommandStatusService {
       siteId: command.siteId,
       targetType: command.targetType,
       targetId: command.targetId,
+      targetFixtureIds: command.targetFixtureIds,
       brightness: command.brightness,
       status: command.status,
       stage,
@@ -66,6 +67,8 @@ export class CommandStatusService {
       updatedAt: command.updatedAt.toISOString(),
       dispatches: command.dispatches.map((dispatch) => ({
         id: dispatch.id,
+        deliveryMode: dispatch.deliveryMode,
+        destinationAddress: dispatch.destinationAddress,
         status: dispatch.status,
         gateway: dispatch.gateway,
         publishedAt: toIso(dispatch.publishedAt),

@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-21
+기준일: 2026-08-22
 
 ## 확정 구현 범위
 
@@ -33,6 +33,10 @@
 - 선택 조명의 현재 밝기를 슬라이더에 반영한다.
 - 0%, 30%, 70%, 100% 프리셋 버튼으로 밝기 값을 바꿀 수 있다.
 - `POST /commands/dimming`으로 개별 조명 밝기 명령을 전송한다.
+- 명령 API는 `fixture`, `fixtures`, `floor`, `group` target을 받고, 실제 현장 DB 관계를 같은 transaction 안에서 다시 조회해 확정된 `targetFixtureIds` snapshot을 저장한다. 현재 웹의 `{targetType,targetId}` 요청은 Task 14 전까지 controller 경계에서만 신규 target으로 변환한다.
+- 단일 조명은 `unicast`, 임의 다중 선택은 `parallel_unicast`, 준비 완료된 층/저장 구역은 `mesh_group` delivery mode로 저장한다. 임의 선택이 준비 완료된 층 또는 구역 구성과 정확히 같으면 층 우선, 같은 종류 ID 정렬 순으로 Group Address 경로를 선택한다.
+- 하나의 논리 target이 여러 gateway에 걸치면 `현재 여러 게이트웨이에 걸친 대상은 지원하지 않습니다`로 전체 거부하며, 준비되지 않은 floor/group은 unicast로 fallback하지 않는다.
+- 명령 생성 응답은 `selectedTargetCount`, `transmissionCount`, `deliveryMode`, `terminalStatusUrl`을 제공하고 상태 응답은 nullable `targetId`, 확정 fixture snapshot과 dispatch의 delivery metadata를 반환한다.
 - 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 command의 현장 read 권한이 있는 사용자에게만 조회를 허용한다. 존재하지 않는 command와 접근할 수 없는 command는 같은 `command not found` 404 응답으로 처리한다.
 - 제어 화면은 최근 명령을 1초 polling하며 접수, MQTT 발행, gateway 수신, 조명 적용 완료, 일부 실패, 실패, timeout 단계를 표시하고 종료 상태에서 polling을 중단한다.
 - 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
@@ -62,7 +66,7 @@
 - Docker appliance는 Raspberry Pi 실제 HCI에서 mesh network 생성과 token 재시작 attach를 통과했다.
 - API와 gateway의 legacy MQTT v1 dimming, fixture-state, command-ack, heartbeat 경로를 제거하고 gateway-scoped MQTT v2만 사용한다.
 - 양산 gateway에 mock, stub, shell command adapter를 포함하지 않는다. 자동 테스트 adapter는 `apps/gateway/test`에만 둔다.
-- 수동 개별/그룹 명령을 소유 gateway별 `CommandDispatch`로 분할하고 gateway마다 독립 sequence와 idempotency key를 발급한다.
+- 수동 명령은 현재 단일 gateway `CommandDispatch`로 만들고 gateway 독립 sequence와 idempotency key를 발급한다. 여러 gateway에 걸친 논리 target은 후속 fan-out 설계 전까지 생성하지 않는다.
 - Command, gateway별 dispatch, 조명별 pending 결과, MQTT outbox를 하나의 DB transaction에 저장한다.
 - MQTT outbox publisher가 PostgreSQL `FOR UPDATE SKIP LOCKED`와 30초 worker lease로 다중 API 인스턴스의 중복 발행을 차단한다.
 - broker 전송 실패에는 지수 backoff와 jitter를 적용하며 최대 10회 또는 15분을 넘으면 outbox를 dead-letter 처리하고 dispatch, 조명별 결과, 상위 명령을 실패로 종료한다.
@@ -91,11 +95,10 @@
 - 차량 감지, 인체 감지, 시간대 조건 등 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
-- 다중 선택 제어
-- 층/구역별 일괄 제어
+- 다중 선택, 층/구역별 제어 화면과 신규 target 요청 연결(Task 14). 백엔드 target 해석과 delivery mode 영속화는 구현 완료했다.
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
-- BLE Mesh group 단일 전송 경로를 실제 command/gateway runtime에 연결
+- Gateway에서 `parallel_unicast`와 `mesh_group` delivery mode를 실제 BLE Mesh 송신으로 분기하고 group 단일 전송 뒤 fixture별 status를 집계(Task 13)
 - gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결
 - ESP32-H2 제품/진단 정보 report의 gateway/API 연동
 - ESP32-H2 실제 보드 플래시 검증
@@ -111,7 +114,7 @@
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
-- 영속 control group row와 allocator, member별 `subscriptionStatus`/`appliedVersion`/`statusVersion`, provisioning 완료 후 자동 member 연결, gateway MQTT subscription 동기화까지는 반영됐다. 다만 실제 group dimming 단일 전송 경로 연결은 후속 Task 범위다.
+- API target 해석, 확정 fixture snapshot, delivery mode와 destination address 영속화까지 반영됐다. 다만 실제 Gateway 병렬 unicast/group dimming 송신은 Task 13, 신규 웹 제어 UI는 Task 14 범위다.
 
 ## 관련 파일
 
@@ -144,6 +147,7 @@
 - `apps/api/prisma/migrations/20260821093000_add_mesh_control_group_member_status_version/migration.sql`
 - `apps/api/prisma/schema.prisma`
 - `apps/api/prisma/migrations/20260819093000_add_mesh_control_groups/migration.sql`
+- `apps/api/prisma/migrations/20260819094000_extend_command_targets/migration.sql`
 - `docs/runbooks/raspberry-pi-gateway-appliance.md`
 - `apps/esp32-h2-firmware/main/app_main.c`
 - `apps/esp32-h2-firmware/main/ble_mesh_node.c`

@@ -47,6 +47,7 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetType: "fixture",
       targetId: fixtureId,
       targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast",
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt,
@@ -91,6 +92,7 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetType: "fixture" as const,
       targetId: fixtureId,
       targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast" as const,
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt
@@ -101,6 +103,38 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(gatewayDimmingCommandV2Schema.parse({ ...draft, expiresAt: "2026-07-11T00:00:10.000Z" }).expiresAt).toBe(
       "2026-07-11T00:00:10.000Z"
     );
+  });
+
+  it("requires a destination address only for mesh group delivery", () => {
+    const base = {
+      commandId,
+      dispatchId,
+      siteId,
+      gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`,
+      sequence: 7,
+      targetType: "floor" as const,
+      targetId: "77777777-7777-4777-8777-777777777777",
+      targetFixtureIds: [fixtureId],
+      brightness: 70,
+      requestedBy: "55555555-5555-4555-8555-555555555555",
+      requestedAt: occurredAt
+    };
+
+    expect(gatewayDimmingCommandDraftV2Schema.parse({
+      ...base,
+      deliveryMode: "mesh_group",
+      destinationAddress: "0xc000"
+    })).toMatchObject({ deliveryMode: "mesh_group", destinationAddress: "0xc000" });
+    expect(() => gatewayDimmingCommandDraftV2Schema.parse({
+      ...base,
+      deliveryMode: "mesh_group"
+    })).toThrow("destinationAddress is required");
+    expect(() => gatewayDimmingCommandDraftV2Schema.parse({
+      ...base,
+      deliveryMode: "parallel_unicast",
+      destinationAddress: "0xc000"
+    })).toThrow("destinationAddress is only allowed");
   });
 
   it("requires ordered identity fields for fixture state and heartbeat", () => {

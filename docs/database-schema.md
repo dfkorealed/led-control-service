@@ -723,15 +723,16 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 
 ### Command
 
-조명 제어 명령 이력이다. 개별 조명 또는 그룹 제어를 모두 표현한다.
+조명 제어 명령 이력이다. 개별 조명, 임의 다중 선택, 층 전체, 저장 구역 제어를 모두 표현한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 명령 ID |
 | `siteId` | `String` | 예 | FK -> `Site.id` | 대상 현장 |
 | `requestedBy` | `String` | 예 | FK -> `User.id` | 요청 사용자 |
-| `targetType` | `String` | 예 |  | `fixture` 또는 `group` |
-| `targetId` | `String` | 예 |  | 대상 조명/그룹 ID |
+| `targetType` | `String` | 예 |  | `fixture`, `fixtures`, `floor`, `group` |
+| `targetId` | `String?` | 아니오 |  | 단일 조명/층/구역 ID. 임의 다중 선택은 `NULL` |
+| `targetFixtureIds` | `Json` | 예 | `[]` | 명령 생성 transaction에서 확정한 조명 ID snapshot |
 | `brightness` | `Int` | 예 |  | 요청 밝기 0-100 |
 | `status` | `CommandStatus` | 예 | `pending` | 명령 상태 |
 | `errorMessage` | `String?` | 아니오 |  | 실패 사유 |
@@ -745,18 +746,28 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 
 운영 메모:
 
-- `targetType`, `targetId`는 다형 대상 구조라 DB FK로 직접 강제하지 않는다.
+- `targetType`, `targetId`는 다형 대상 구조라 DB FK로 직접 강제하지 않는다. API는 사용자 입력을 그대로 신뢰하지 않고 같은 transaction 안에서 현장 소속 Fixture/Floor/FixtureGroup 관계를 다시 조회한다.
+- `targetFixtureIds`는 명령 생성 시점의 권위 있는 대상 snapshot이다. 이후 층이나 구역 구성이 변경돼도 이미 생성된 명령의 fixture별 결과 집합은 바뀌지 않는다.
 - MQTT command ACK 수신 시 `status`, `errorMessage`가 갱신된다.
 
 ### CommandDispatch / CommandFixtureResult / MqttOutbox
 
-`CommandDispatch`는 하나의 사용자 `Command`를 소유 gateway별로 분할한 전송 단위다. `idempotencyKey`는 전체 unique, `(gatewayId, sequence)`도 unique이며 acceptance/device status 진행 상태와 오류를 저장한다.
+`CommandDispatch`는 하나의 사용자 `Command`를 gateway로 전달하는 전송 단위다. 현재 단일 gateway 검증 범위에서는 논리 target이 여러 gateway에 걸치면 명령 생성 전에 전체 거부한다. `idempotencyKey`는 전체 unique, `(gatewayId, sequence)`도 unique이며 acceptance/device status 진행 상태와 오류를 저장한다.
+
+| `CommandDispatch` 추가 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `deliveryMode` | `String` | 예 | `unicast` | `unicast`, `parallel_unicast`, `mesh_group` |
+| `destinationAddress` | `String?` | 아니오 |  | `mesh_group`일 때 사용할 BLE Mesh Group Address |
+
+`unicast`와 `parallel_unicast`는 조명 수만큼 실제 전송하고, `mesh_group`은 `destinationAddress`에 한 번 전송한다. floor/group target은 `MeshControlGroup.status = ready`인 주소만 사용하며 준비되지 않은 group을 unicast로 대체하지 않는다.
 
 `Gateway.nextCommandSequence`는 gateway별 dispatch sequence를 트랜잭션 안에서 원자 증가시키는 카운터다. 동시 제어 요청에서도 `(gatewayId, sequence)`가 충돌하지 않도록 `max(sequence)+1` 계산을 사용하지 않는다.
 
 `CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
 
 `MqttOutbox`는 dispatch와 1:1로 연결되며 topic, JSON payload, attempts, nextAttemptAt, publishedAt, lastError를 저장한다. Command와 outbox를 같은 DB transaction에서 생성해 MQTT publish 실패로 `pending` 명령이 유실되는 문제를 방지한다.
+
+`20260819094000_extend_command_targets` migration은 기존 Command의 `targetFixtureIds`를 빈 JSON 배열로, 기존 CommandDispatch의 `deliveryMode`를 `unicast`로 명시적으로 backfill한 뒤 NOT NULL과 기본값을 적용한다.
 
 다중 API 인스턴스에서는 `lockedBy`, `lockedAt`, `leaseExpiresAt`으로 30초 발행 lease를 소유하고 PostgreSQL `FOR UPDATE SKIP LOCKED`로 같은 레코드의 중복 발행을 차단한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하고 dispatch와 조명별 결과를 실패로 종료한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
 

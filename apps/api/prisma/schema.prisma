@@ -515,7 +515,8 @@ model Command {
   siteId       String
   requestedBy  String
   targetType   String
-  targetId     String
+  targetId     String?
+  targetFixtureIds Json               @default("[]")
   brightness   Int
   status       CommandStatus     @default(pending)
   errorMessage String?
@@ -534,6 +535,8 @@ model CommandDispatch {
   gatewayId      String
   idempotencyKey String                 @unique
   sequence       BigInt
+  deliveryMode   String                 @default("unicast")
+  destinationAddress String?
   status         CommandDispatchStatus  @default(pending)
   publishedAt    DateTime?
   acceptedAt     DateTime?
