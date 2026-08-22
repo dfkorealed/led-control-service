@@ -758,16 +758,20 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 | --- | --- | --- | --- | --- |
 | `deliveryMode` | `String` | 예 | `unicast` | `unicast`, `parallel_unicast`, `mesh_group` |
 | `destinationAddress` | `String?` | 아니오 |  | `mesh_group`일 때 사용할 BLE Mesh Group Address |
+| `meshControlGroupId` | `String?` | 아니오 | `gatewayId`와 복합 FK -> `MeshControlGroup(id, gatewayId)`, `ON DELETE RESTRICT` | 명령 생성 시 선택한 Mesh control group snapshot |
+| `meshControlGroupVersion` | `Int?` | 아니오 | 양수 | 명령 생성 시 선택한 group 구성 버전 snapshot |
 
-`unicast`와 `parallel_unicast`는 조명 수만큼 실제 전송하고, `mesh_group`은 `destinationAddress`에 한 번 전송한다. floor/group target은 `MeshControlGroup.status = ready`인 주소만 사용하며 준비되지 않은 group을 unicast로 대체하지 않는다.
+`unicast`와 `parallel_unicast`는 조명 수만큼 실제 전송하고, `mesh_group`은 `destinationAddress`에 한 번 전송한다. floor/group target은 `MeshControlGroup.status = ready`인 주소만 사용하며 준비되지 않은 group을 unicast로 대체하지 않는다. Mesh group dispatch는 그룹 삭제로 명령 감사 snapshot이 사라지지 않도록 `ON DELETE RESTRICT` 관계를 사용하고, `(meshControlGroupId, status)` index로 발행 대기 명령 검증을 지원한다.
 
 `Gateway.nextCommandSequence`는 gateway별 dispatch sequence를 트랜잭션 안에서 원자 증가시키는 카운터다. 동시 제어 요청에서도 `(gatewayId, sequence)`가 충돌하지 않도록 `max(sequence)+1` 계산을 사용하지 않는다.
 
 `CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
 
-`MqttOutbox`는 dispatch와 1:1로 연결되며 topic, JSON payload, attempts, nextAttemptAt, publishedAt, lastError를 저장한다. Command와 outbox를 같은 DB transaction에서 생성해 MQTT publish 실패로 `pending` 명령이 유실되는 문제를 방지한다.
+`MqttOutbox`는 dispatch와 1:1로 연결되며 topic, JSON payload, attempts, nextAttemptAt, publishedAt, lastError를 저장한다. Command와 outbox를 같은 DB transaction에서 생성해 MQTT publish 실패로 `pending` 명령이 유실되는 문제를 방지한다. `mesh_group` payload는 `meshControlGroupId`, `meshControlGroupVersion`, Group Address를 포함한다. Publisher는 payload 준비 transaction 안에서 Dispatch snapshot 및 현재 그룹의 gateway/address/version/status를 다시 확인하고, 동일 버전 `configuring`만 재시도한다. 그룹 삭제·실패·버전/주소/gateway 불일치는 MQTT 발행 없이 `MESH_GROUP_STALE` terminal failure로 종료한다.
 
-`20260819094000_extend_command_targets` migration은 기존 Command의 `targetFixtureIds`를 빈 JSON 배열로, 기존 CommandDispatch의 `deliveryMode`를 `unicast`로 명시적으로 backfill한 뒤 NOT NULL과 기본값을 적용한다.
+`20260819094000_extend_command_targets` migration은 기존 Command의 `targetFixtureIds`를 관련 `CommandFixtureResult.fixtureId` 집합으로 backfill한다. 기존 Dispatch는 실제 result 수 1개 이하면 `unicast`, 2개 이상이면 `parallel_unicast`로 정규화한다. 기존 outbox payload도 같은 fixture 목록을 사용하며 과거 `group` 명령을 Mesh group으로 가장하지 않고 `fixtures`, `targetId = null`로 바꾼다. 단, 기존 `fixture` 명령이 정확히 한 조명을 가리킬 때만 `fixture`를 유지한다. 권위 있는 result가 없거나 strict wire 한도인 1,000개를 초과하는 outbox가 하나라도 있으면 migration은 대상을 자르거나 잘못 발행하지 않고 명시적으로 중단한다.
+
+이 migration은 아직 어떤 배포 환경에도 적용하지 않은 Task 12 신규 migration이라는 전제에서 같은 파일을 보정했다. 이미 이전 버전을 적용한 환경이 생긴 뒤에는 파일을 다시 수정하지 말고 별도의 순방향 보정 migration을 추가해야 한다.
 
 다중 API 인스턴스에서는 `lockedBy`, `lockedAt`, `leaseExpiresAt`으로 30초 발행 lease를 소유하고 PostgreSQL `FOR UPDATE SKIP LOCKED`로 같은 레코드의 중복 발행을 차단한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하고 dispatch와 조명별 결과를 실패로 종료한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
 

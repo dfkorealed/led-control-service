@@ -482,6 +482,7 @@ model MeshControlGroup {
   lastError            String?
   gateway              Gateway                @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   members              MeshControlGroupMember[]
+  commandDispatches    CommandDispatch[]
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
 
@@ -537,6 +538,8 @@ model CommandDispatch {
   sequence       BigInt
   deliveryMode   String                 @default("unicast")
   destinationAddress String?
+  meshControlGroupId String?
+  meshControlGroupVersion Int?
   status         CommandDispatchStatus  @default(pending)
   publishedAt    DateTime?
   acceptedAt     DateTime?
@@ -545,6 +548,7 @@ model CommandDispatch {
   errorMessage   String?
   command        Command                @relation(fields: [commandId], references: [id])
   gateway        Gateway                @relation(fields: [gatewayId], references: [id])
+  meshControlGroup MeshControlGroup?     @relation(fields: [meshControlGroupId, gatewayId], references: [id, gatewayId], onDelete: Restrict)
   fixtureResults CommandFixtureResult[]
   outbox         MqttOutbox?
   createdAt      DateTime               @default(now())
@@ -553,6 +557,7 @@ model CommandDispatch {
   @@unique([gatewayId, sequence])
   @@index([commandId])
   @@index([gatewayId, status])
+  @@index([meshControlGroupId, status])
 }
 
 model CommandFixtureResult {

@@ -69,6 +69,8 @@ export class CommandStatusService {
         id: dispatch.id,
         deliveryMode: dispatch.deliveryMode,
         destinationAddress: dispatch.destinationAddress,
+        meshControlGroupId: dispatch.meshControlGroupId,
+        meshControlGroupVersion: dispatch.meshControlGroupVersion,
         status: dispatch.status,
         gateway: dispatch.gateway,
         publishedAt: toIso(dispatch.publishedAt),

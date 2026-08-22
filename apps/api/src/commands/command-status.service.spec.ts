@@ -26,6 +26,8 @@ describe("CommandStatusService", () => {
               id: "dispatch-1",
               deliveryMode: "mesh_group",
               destinationAddress: "0xc000",
+              meshControlGroupId: "mesh-group-1",
+              meshControlGroupVersion: 3,
               status: "completed",
               publishedAt: new Date("2026-07-12T00:00:01.000Z"),
               acceptedAt: new Date("2026-07-12T00:00:01.500Z"),
@@ -64,6 +66,8 @@ describe("CommandStatusService", () => {
         {
           deliveryMode: "mesh_group",
           destinationAddress: "0xc000",
+          meshControlGroupId: "mesh-group-1",
+          meshControlGroupVersion: 3,
           gateway: { id: "gateway-1", name: "B2 Gateway" },
           results: [{ fixtureId: "fixture-1", fixtureName: "B2-L01", status: "succeeded" }]
         }

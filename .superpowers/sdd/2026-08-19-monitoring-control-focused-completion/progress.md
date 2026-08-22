@@ -1,0 +1,193 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-08-19-monitoring-control-focused-completion.md
+
+## 재개 상태
+
+- 현재 범위: Task 9만 구현하고 사용자 확인 Gate 9에서 중지한다.
+- 기준 커밋: `0aeb239`
+- 작업 위치: 사용자가 지정한 현재 브랜치 `codex/mvp1-cloud-web`의 깨끗한 checkout.
+- Spec: `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`
+
+## 사전 충돌 점검
+
+| 생산 Task | 소비 Task | 공유 파일/인터페이스 | 점검 결과 |
+| --- | --- | --- | --- |
+| Task 9 | Task 10 | `MeshControlGroup`, `MeshControlGroupMember`, `mesh-control-group.service.ts` | Task 9의 `configuring/ready/failed`, version, last error가 Task 10 sync worker 요구와 일치한다. |
+| Task 9 | Task 11 | floor/fixture-group별 gateway group과 member 관계 | Task 9는 영속 모델과 allocator만 만들고 member 자동 동기화는 Task 11에 남겨 범위가 충돌하지 않는다. |
+| Task 9 | Task 9 | public interface와 테스트 예시 | 계획의 interface 표기는 `tx`를 생략하지만 테스트와 기존 allocator는 TransactionClient를 첫 인자로 요구한다. |
+
+Ruling: `ensureFloorGroup`과 `ensureFixtureGroup`은 `tx`를 첫 인자로 받는다 — 주소 예약과 그룹 생성을 호출자 transaction 하나로 묶어야 하기 때문이다 — 잘못되면 Task 10/11 호출부에서 얇은 wrapper를 추가해야 한다.
+
+Ruling: 그룹 주소는 Gateway의 next pointer를 DB에서 원자 증가시키고 증가 전 값을 할당한다 — 기본값 `49152`가 첫 주소 `0xc000`이어야 하기 때문이다 — 잘못되면 migration 전에 allocator semantics를 조정해야 한다.
+
+Ruling: 주소 범위는 양 끝을 포함한 `0xC000~0xFEFF`이며 초과 시 transaction을 실패시킨다 — BLE Mesh group address 범위와 계획의 명시값을 보존하기 때문이다.
+
+## Task 9 실행
+
+- 기준 커밋: `0aeb239`
+- 구현 에이전트: `01a01f4d-5bd6-7360-a2ff-fae1dd0c0ca5` (Fermat)
+- 구현 커밋: `9dbc596`
+- 리뷰 에이전트: `01a01f55-a8ce-7fd1-9bbf-026566d19eb3` (Aquinas)
+- Fix round 1: member의 subscription 상태/적용 version 의미를 명시하고, group과 node의 gateway가 일치하도록 DB 복합 FK를 추가한다.
+
+Ruling: 두 리뷰 finding을 모두 수용한다 — 후속 subscription ACK가 `configurationVersion`과 `appliedVersion`을 비교해야 하고 tenant/gateway 경계를 DB가 보장해야 하기 때문이다 — 복합 unique index와 member의 `gatewayId` 컬럼이 추가된다.
+
+- Fix round 1 커밋: `2348012`
+- Fix round 1 re-review: 기존 finding은 해결했지만 child의 `@@unique([groupId, gatewayId])`, `@@unique([meshNodeId, gatewayId])`가 정상 다대다 cardinality를 막는 새 Critical 결함을 도입했다.
+- Fix round 2: parent의 compound unique와 child의 compound FK는 유지하고, child 쪽 두 제약은 일반 index로 교체한다.
+
+Ruling: compound FK의 참조 대상인 parent group/node에만 compound unique가 필요하다 — child 컬럼은 unique일 필요가 없고 복수 node/group membership을 허용해야 한다 — 잘못되면 PostgreSQL migration 검증에서 FK 생성이 실패한다.
+
+- Fix round 2 커밋: `3271482`
+- Fix round 2 re-review: 모든 finding 해결, 새 Critical/Important breakage 없음.
+- 문서 정합성 커밋: `5cc693e`
+- 최종 검증: Prisma generate/validate, Task 9 11개 테스트, API 전체 349개 테스트, API typecheck, diff check 통과. 기존 opt-in 테스트 26개는 skip.
+- Task 9: complete
+- 사용자 확인 Gate 9: 대기
+
+## Task 10 실행
+
+- 기준 커밋: `5cc693e`
+- 사용자 확인 Gate 9 승인: 2026-08-21
+
+### 사전 충돌 점검
+
+| 생산 Task | 소비 Task | 공유 파일/인터페이스 | 점검 결과 |
+| --- | --- | --- | --- |
+| Task 10 | Task 10 | gateway MQTT runtime과 실제 command wiring | runtime은 generic handler dispatch만 제공하므로 실제 topic subscribe/handler 연결은 `apps/gateway/src/index.ts`와 adapter capability까지 수정해야 한다. |
+| Task 10 | Task 10 | API worker와 Nest provider graph | worker가 실제 10초 주기로 실행되려면 `mesh-control-group.module.ts`가 `MqttModule`을 import하고 worker를 provider로 등록해야 한다. |
+| Task 10 | Task 11 | `MeshControlGroupMember`와 sync worker | Task 11 전에는 member가 없을 수 있으므로 worker는 member 0개 group을 발행하지 않고 `configuring`으로 유지한다. |
+| Task 10 | Task 12 이후 | group `ready` 상태 | ACK version이 현재 `configurationVersion`과 일치하고 모든 member의 적용 성공이 확인된 경우에만 `ready`가 된다. |
+
+Ruling: 계획의 Files 목록에 `apps/gateway/src/index.ts`, 관련 index/adapter 테스트, `bluez-mesh-adapter.ts`, `adapter-factory.ts`, `apps/api/src/mesh-control-groups/mesh-control-group.module.ts`를 추가한다 — 이 파일 없이는 실제 양산 진입점과 Nest worker가 연결되지 않기 때문이다 — 잘못되면 diff 범위가 계획보다 넓어진다.
+
+Ruling: sync command/result는 siteId와 gatewayId를 payload에도 포함하고 topic scope와 교차 검증한다 — broker ACL만 애플리케이션 권한 검증으로 신뢰하지 않는 기존 MQTT v2 원칙 때문이다 — 메시지 필드가 계획 예시보다 늘어난다.
+
+Ruling: repeated group/version command는 표준 Config Model Subscription Add의 멱등성으로 재처리하고 동일 version ACK를 허용한다. stale version ACK는 무시한다 — API replica/worker retry에도 물리 구성이 수렴해야 하기 때문이다.
+
+Ruling: member가 0개인 configuring group은 Task 11이 membership을 생성할 때까지 worker가 발행하지 않는다 — 빈 ACK로 group을 ready로 만드는 것을 막기 때문이다.
+
+- 구현 에이전트: `01a021a4-21cd-7ce2-bdc3-7aeffc0b8e8b` (Franklin)
+- 구현 커밋: `fadaf53`
+- 리뷰 에이전트: `01a021b6-00e5-7f20-9d2d-0e310ab08d08` (Hypatia)
+- Fix round 1: 공개 MQTT result를 `ready | failed`로 복원하고, worker 발행 오류를 group별로 격리하며, member `statusVersion` migration으로 현재 구성 version의 성공/실패만 집계하고, Config Status에 request-specific raw matcher를 추가한다.
+
+Ruling: 외부 MQTT 성공 상태는 Task brief의 `ready`를 유지하고 API에서 내부 `subscriptionStatus = applied`로 변환한다 — 공개 계약과 DB 상태 이름의 역할이 다르기 때문이다 — 잘못되면 shared 계약 소비자를 함께 마이그레이션해야 한다.
+
+Ruling: 과거 실패 혼입은 worker reset에 의존하지 않고 `statusVersion`을 영속화해 해결한다 — 다중 API worker와 늦은 ACK가 겹쳐도 결과 version을 판별해야 하기 때문이다 — DB migration과 스키마 문서 갱신이 추가된다.
+
+- Fix round 1 커밋: `854979a`
+- Fix round 1 re-review: 기존 4개 Important finding 해결, 새 Critical/Important finding 없음.
+- Fix round 2: gateway 전체 테스트에서 새 subscription topic 기대값 누락을 발견해 `index.test.ts`를 실제 5개 topic 계약과 일치시킨다.
+- Fix round 2 커밋: `6dd17b5`
+- Fix round 2 re-review: 승인, 새 Critical/Important finding 없음.
+- 최종 검증: shared 27개, gateway 189개, API 353개 테스트 통과. API opt-in 테스트 26개는 skip. gateway/API typecheck, Prisma generate/validate, diff check, clean worktree 통과.
+- Task 10: complete
+- 사용자 확인 Gate 10: 대기
+
+## Task 11 실행
+
+- 기준 커밋: `6dd17b5`
+- 사용자 확인 Gate 10 승인: 2026-08-21
+
+### 사전 충돌 점검
+
+| 생산 Task | 소비 Task | 공유 파일/인터페이스 | 점검 결과 |
+| --- | --- | --- | --- |
+| Task 11 | Task 10 | `MeshControlGroupMember.statusVersion`, sync worker | membership 변경 시 group을 `configuring`으로 만들고 현재 version ACK 전에는 `ready`가 되지 않아야 한다. |
+| Task 11 | Task 12 | `getReadyDestination()` | Task 12가 group delivery를 선택하기 전에 gateway/target 범위와 `ready` 상태를 검증할 API가 필요하다. |
+| Task 11 | provisioning completion | MeshNode/Fixture 생성 transaction | membership 생성도 같은 transaction에 들어가야 등록 완료만 남고 group 구성이 누락되는 부분 성공을 막을 수 있다. |
+| Task 11 | Nest module graph | `MqttService -> MeshControlGroupService`, sync worker | 현재 `MeshControlGroupModule -> MqttModule` 방향을 유지하면 순환 의존성이 생긴다. |
+
+Ruling: 등록 요청 transaction에서 floor group을 선할당한다 — 주소 고갈과 site/gateway 오류를 물리 provisioning 전에 차단하기 위해서다 — 잘못되면 미사용 configuring group row가 남을 수 있으나 다음 등록에서 재사용된다.
+
+Ruling: 새 member가 기존 ready/failed group에 추가될 때만 configuration version을 증가시키고 모든 member 상태를 pending으로 초기화한다 — 새 membership이 포함된 동일 구성 전체를 ACK해야 ready가 되기 때문이다 — 잘못되면 기존 node에 멱등 Config Subscription Add가 한 번 더 전송된다.
+
+Ruling: configuring 빈 group의 첫 member는 초기 version 1을 유지한다 — 아직 물리 적용된 구성 version이 없기 때문이다 — 잘못되면 첫 구성 version이 2부터 시작한다.
+
+Ruling: `MeshControlGroupModule`은 persistence service만 제공하고 `MqttModule`이 sync worker를 소유한다 — `MqttService`가 group service를 사용하면서 Nest 순환 의존성을 피하기 위해서다 — worker provider 위치가 파일 namespace와 다르지만 런타임 책임과 일치한다.
+
+- 구현 에이전트: `01a021d0-b768-74c1-bce8-baff7694eee5` (Aristotle)
+- 구현 커밋: `5d9a26c`
+- 리뷰 에이전트: `01a021dc-6526-70d1-9cb3-6f670d63d325` (Ohm)
+- Fix round 1: group row 선잠금과 `createMany(skipDuplicates)`로 member attach를 직렬화하고, ACK도 group->member 잠금 순서로 맞춘다. 기존 Fixture의 다른 층 재사용을 실패 처리하고 existing group fast path의 site boundary를 검증한다.
+
+Ruling: 다른 층에 이미 연결된 Fixture는 자동 이동하지 않고 `failed`로 종료한다 — 위치, 구역 membership, 물리 subscription 제거까지 원자적으로 옮기는 기능이 현재 범위에 없기 때문이다 — 실제 층 이동은 별도 운영 기능이 필요하다.
+
+- Fix round 1 커밋: `ab5c8dd`
+- Fix round 1 re-review: 기존 3개 Important 해결. ACK join의 bare `FOR UPDATE`가 Gateway까지 잠글 수 있는 새 Important 발견.
+- Fix round 2: ACK lock SQL을 `FOR UPDATE OF g`로 제한하고 SQL 문자열 회귀 테스트를 추가한다.
+- Fix round 2 커밋: `f62ca34`
+- Fix round 2 re-review: 승인, 새 Critical/Important finding 없음.
+- 최종 검증: API 367개 테스트 통과, 기존 opt-in 테스트 26개 skip. API typecheck/build, Prisma validate, diff check, clean worktree 통과.
+- 검증 한계: 실제 PostgreSQL의 두 concurrent transaction interleaving은 자동 통합 테스트로 실행하지 않았고, row-lock SQL과 원자적 `createMany(skipDuplicates)` 계약을 단위 테스트와 리뷰로 검증했다.
+- Task 11: complete
+- 사용자 확인 Gate 11: 대기
+
+## Task 12 실행
+
+- 기준 커밋: `f62ca34`
+- 사용자 확인 Gate 11 승인: 2026-08-22
+
+### 사전 충돌 점검
+
+| 생산 Task | 소비 Task | 공유 파일/인터페이스 | 점검 결과 |
+| --- | --- | --- | --- |
+| Task 12 | Task 13 | Gateway dimming payload | Task 12는 delivery metadata를 계약과 outbox에 저장하고, 실제 병렬/그룹 BLE Mesh 송신은 Task 13에 남긴다. |
+| Task 12 | Task 14 | 웹 제어 요청 | 현재 웹은 legacy `{ targetType, targetId }`를 사용하므로 controller에서 새 target union으로 한시 정규화해야 Gate 12에서 기존 UI가 깨지지 않는다. |
+| Task 12 | Task 11 | `getReadyDestination()` | floor/group 및 임의 선택 승격은 Task 11이 보장한 ready destination만 사용한다. |
+| Task 12 | Command status | 기존 Command target 표시 | `targetId`가 nullable이 되므로 다중 target은 `targetFixtureIds` snapshot으로 추적하고 status 응답의 null 처리 회귀를 확인해야 한다. |
+
+Ruling: 서비스 내부 입력과 신규 저장 계약은 새 `target` union만 사용하고 legacy 입력은 controller 경계에서만 정규화한다 — Task 14 전 기존 UI를 유지하면서 신규 도메인 로직에 구형 분기를 퍼뜨리지 않기 위해서다 — Task 14 완료 후 adapter 제거 여부를 다시 판단한다.
+
+Ruling: floor/group target은 ready Mesh control group이 없을 때 unicast로 fallback하지 않는다 — 물리 subscription이 확인되지 않은 group을 성공처럼 처리하지 않기 위해서다 — 설정 미완료 현장은 명확한 오류를 받는다.
+
+Ruling: 임의 선택 exact-match 승격은 floor 후보를 우선하고 같은 종류 후보는 ID 정렬로 결정한다 — 여러 물리 주소가 같은 fixture 집합을 나타내도 결과가 재현 가능해야 하기 때문이다 — 잘못되면 다른 ready group 주소가 선택될 수 있다.
+
+Ruling: 현재 단일 gateway 양산 범위에서는 하나의 논리 target이 여러 gateway에 걸치면 전체 요청을 거부한다 — 부분 제어나 여러 dispatch의 단일 응답 의미를 이번 범위에서 숨기지 않기 위해서다 — 다중 gateway fan-out은 별도 후속 설계가 필요하다.
+
+### Task 12 구현
+
+- target schema, legacy controller 정규화, delivery metadata Gateway 계약을 TDD로 확장했다.
+- DB 관계 재조회와 Command/Dispatch/fixture result/outbox 생성을 하나의 transaction callback에 배치했다.
+- 임의 exact match는 floor 우선과 ID 정렬을 적용하고 ready destination이 없으면 `parallel_unicast`를 유지한다.
+- 공개 요청 검증 실패는 원본 Zod 상세나 500이 아니라 `invalid dimming command request` 400으로 변환한다.
+
+Ruling: `targetFixtureIds`는 요청값이 아니라 transaction 안에서 다시 계산한 정렬 fixture ID snapshot을 저장하고 Gateway payload에도 같은 배열을 사용한다 — 명령 이력과 장비별 결과 집합이 생성 이후 floor/group 변경에 흔들리지 않게 하기 위해서다 — 잘못되면 상태 조회와 ACK 결과 수가 불일치한다.
+
+Ruling: Gate 12에서는 Gateway payload와 DB metadata까지만 확장하고 비-unicast 실제 송신은 Task 13에 남긴다 — 계획의 생산자/소비자 경계를 보존하기 위해서다 — 따라서 Gate 12 단독 상태는 group 하드웨어 제어 배포 완료가 아니다.
+
+- 사전 검증: shared 30개, commands 20개, API 전체 371개, Gateway 전체 189개 테스트 통과. API opt-in 26개는 skip.
+- Task 12 보고서: `.superpowers/sdd/2026-08-19-monitoring-control-focused-completion/task-12-report.md`
+- 구현 커밋: `9aeea66`
+- Task 12: 구현, 최종 자동 검증 및 단일 작업 커밋 완료
+- 사용자 확인 Gate 12: 대기
+
+### Task 12 독립 리뷰
+
+- 리뷰 에이전트: `01a0286e-123d-7930-afe3-473265de1cda` (Mill)
+- 결과: Important 3건으로 승인 보류
+- Finding 1: 이전 버전이 만든 미발행 outbox JSON에는 필수 `deliveryMode`가 없어 신규 publisher parse에서 영구 실패한다.
+- Finding 2: ready group address만 snapshot하고 구성 ID/version을 저장하지 않아 group 재구성과 outbox 지연 사이에 실제 물리 대상이 달라질 수 있다.
+- Finding 3: Gateway wire schema가 target type, target ID, fixture 수, delivery mode가 서로 모순인 payload를 허용한다.
+
+Ruling: 이전 `group` outbox는 신규 의미의 Mesh group 명령으로 변환하지 않고 물리 fixture 목록 기반 `fixtures` 명령으로 migration한다 — 과거 명령은 물리 subscription ready/version 증거가 없고 기존 Gateway가 목록 unicast로 실행했기 때문이다 — fixture 수 1개는 `unicast`, 2개 이상은 `parallel_unicast`로 backfill한다.
+
+Ruling: Mesh group delivery에는 `meshControlGroupId`와 `meshControlGroupVersion`을 Dispatch 및 Gateway payload에 함께 저장하고 publisher가 발행 직전 DB의 gateway/address/status/version을 재검증한다 — 생성 이후 재구성된 주소로 오래된 명령이 발행되는 것을 막기 위해서다 — Task 13 Gateway는 로컬 적용 version 비교를 최종 물리 경계로 추가해야 한다.
+
+Ruling: Gateway wire schema는 target type, nullable target ID, fixture 수, delivery mode, group metadata/address 범위를 하나의 불변식으로 검증한다 — MQTT consumer가 API 구현의 정상 경로만 신뢰해서는 안 되기 때문이다 — 과거 pending group outbox는 migration에서 `fixtures`로 정규화한다.
+
+### Task 12 독립 리뷰 Fix round 1
+
+- Finding 1: 기존 Command는 result fixture ID snapshot, Dispatch는 실제 result 수 기반 physical mode로 backfill한다. 기존 outbox는 동일 fixture 목록으로 strict payload를 만들고 과거 group 명령은 `fixtures`로 정규화한다. result가 없거나 1,000개를 초과하는 outbox는 migration을 중단한다.
+- Finding 2: ready destination의 group ID/address/configurationVersion을 Dispatch와 payload에 snapshot하고 Publisher가 payload 준비 transaction 안에서 현재 group과 다시 비교한다. 동일 version `configuring`만 재시도하고 missing/failed/version/address/gateway mismatch는 `MESH_GROUP_STALE` terminal failure로 종료한다.
+- Finding 3: Shared wire schema에 fixture unique/1,000개 제한, target 조합, Group Address 범위, Mesh metadata 필수·금지 불변식을 추가했다.
+
+Ruling: `CommandDispatch(meshControlGroupId, gatewayId)`는 `MeshControlGroup(id, gatewayId)`를 참조하는 `ON DELETE RESTRICT` 복합 FK를 사용한다 — 잘못된 gateway 조합을 DB에서 차단하고 발행 대기 및 감사 명령의 물리 group snapshot을 삭제로 무효화하지 않기 위해서다 — 운영상 group 제거는 참조 명령 보존 정책과 함께 처리해야 한다.
+
+Ruling: Publisher 검증과 outbox payload 준비는 하나의 DB transaction으로 묶고 실제 MQTT publish는 commit 뒤 수행한다 — stale payload를 publish하지 않으면서 DB transaction 안에 외부 I/O를 넣지 않기 위해서다 — commit과 publish 사이 극소 race는 Task 13 Gateway의 로컬 적용 version 비교로 최종 차단한다.
+
+Ruling: Task 12 migration은 아직 실제 환경에 적용되지 않았으므로 같은 `20260819094000_extend_command_targets` 파일을 보정한다 — 이미 적용된 환경이 생긴 뒤에는 migration 이력을 수정하지 않고 별도 순방향 migration을 만들어야 한다.
+
+- Fix round 1 RED: Shared 11건, migration 계약 4건과 전제 검사 1건, Mesh/Commands 4건, Publisher 9건 실패 확인
+- Fix round 1 GREEN: Shared 41개, API 관련 56개, API 전체 383개(기존 opt-in 26개 skip), Gateway 189개 통과. Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과.
+- Fix round 1 상태: 구현 및 자동 검증 완료. 실제 PostgreSQL migration rehearsal과 Task 13 Gateway 로컬 group version 비교는 후속 범위다.

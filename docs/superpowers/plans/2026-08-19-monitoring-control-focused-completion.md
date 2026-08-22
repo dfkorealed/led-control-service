@@ -952,6 +952,10 @@ git commit -m "feat(registration): configure mesh groups after provisioning"
 - Modify: `apps/api/src/commands/commands.service.ts`
 - Modify: `apps/api/src/commands/commands.service.spec.ts`
 - Modify: `apps/api/src/commands/command-dispatch.service.ts`
+- Modify: `apps/api/src/commands/command-status.service.ts`
+- Modify: `apps/api/src/mesh-control-groups/mesh-control-group.service.ts`
+- Modify: `apps/api/src/mqtt/outbox-publisher.service.ts`
+- Create: `apps/api/src/commands/command-target-migration.spec.ts`
 - Modify: `apps/api/prisma/schema.prisma`
 - Create: `apps/api/prisma/migrations/20260819094000_extend_command_targets/migration.sql`
 - Modify: `docs/database-schema.md`
@@ -960,8 +964,8 @@ git commit -m "feat(registration): configure mesh groups after provisioning"
 **Interfaces:**
 - Input: `DimmingTarget = fixture | fixtures | floor | group`
 - Produces: `deliveryMode = unicast | parallel_unicast | mesh_group`
-- Gateway payload adds `destinationAddress` for mesh group
-- DB: `Command.targetId String?`, `Command.targetFixtureIds Json`, `CommandDispatch.deliveryMode String`, `CommandDispatch.destinationAddress String?`
+- Gateway payload adds `destinationAddress`, `meshControlGroupId`, `meshControlGroupVersion` for mesh group
+- DB: `Command.targetId String?`, `Command.targetFixtureIds Json`, `CommandDispatch.deliveryMode String`, `CommandDispatch.destinationAddress String?`, `CommandDispatch.meshControlGroupId String?`, `CommandDispatch.meshControlGroupVersion Int?`
 
 - [x] **Step 1: target schema 실패 테스트 작성**
 
@@ -1008,7 +1012,7 @@ type ResolvedControlTarget = {
 };
 ```
 
-서버는 floor/group fixture를 DB에서 다시 계산하고 임의 선택이 ready floor/group과 정확히 일치하면 `mesh_group`으로 승격한다. migration은 기존 Command에 `targetFixtureIds='[]'`, 기존 CommandDispatch에 `deliveryMode='unicast'`를 backfill한 뒤 NOT NULL을 적용하고 `Command.targetId`의 NOT NULL 제약을 제거한다.
+서버는 floor/group fixture를 DB에서 다시 계산하고 임의 선택이 ready floor/group과 정확히 일치하면 `mesh_group`으로 승격한다. migration은 기존 Command의 result fixture snapshot, Dispatch의 실제 result 수 기반 physical mode, 기존 outbox의 strict `fixtures` payload를 backfill한 뒤 NOT NULL을 적용하고 `Command.targetId`의 NOT NULL 제약을 제거한다.
 
 - [x] **Step 6: Task 검증**
 
@@ -1025,6 +1029,18 @@ git add packages/shared/src apps/api/prisma apps/api/src/commands docs/database-
   docs/superpowers/plans/2026-08-19-monitoring-control-focused-completion.md
 git commit -m "feat(control): resolve fixture floor and group targets"
 ```
+
+- [x] **Review fix 1: 기존 outbox와 Dispatch migration 정규화**
+
+과거 outbox는 `CommandFixtureResult` 목록을 권위 있는 대상으로 사용한다. 과거 `group` payload는 Mesh subscription/version 증거가 없으므로 `fixtures`와 `unicast | parallel_unicast`로 바꾸고, result가 없거나 strict wire 한도 1,000개를 초과하는 outbox가 있으면 migration을 중단한다. Task 12 migration은 아직 적용 전이라는 전제에서 같은 파일을 수정했다.
+
+- [x] **Review fix 2: Mesh group snapshot과 발행 직전 검증**
+
+Dispatch와 Gateway payload에 group ID/version/address를 저장한다. Publisher는 payload 준비 transaction 안에서 현재 group과 snapshot을 비교해 같은 version의 `configuring`만 재시도하고, missing/failed/version/address/gateway mismatch는 `MESH_GROUP_STALE`로 즉시 종료한다.
+
+- [x] **Review fix 3: Gateway wire 불변식 강화**
+
+fixture 목록의 unique/1,000개 제한, target type/ID/fixture 수/delivery mode 조합, BLE Mesh group address 범위, Mesh metadata 필수·금지 조건을 shared Zod schema에서 함께 검증한다.
 
 - [ ] **사용자 확인 Gate 12:** API 계약과 대상별 delivery mode를 보고하고 다음 Task 승인을 기다린다.
 
@@ -1048,6 +1064,7 @@ git commit -m "feat(control): resolve fixture floor and group targets"
 - Produces: `applyParallelUnicast(expectedFixtures, brightness, concurrency=8)`
 - Produces: `applyMeshGroup(groupAddress, expectedFixtures, brightness)`
 - Group result: actual Lightness Status by expected source address
+- Consumes: Task 12 `meshControlGroupId`, `meshControlGroupVersion`; Gateway 로컬에 적용 완료된 동일 group/version만 송신
 
 - [ ] **Step 1: unacknowledged group codec 실패 테스트 작성**
 
@@ -1078,6 +1095,8 @@ await expect(result).resolves.toEqual(expect.arrayContaining([
 ]));
 ```
 
+동시에 payload의 `meshControlGroupId`/`meshControlGroupVersion`이 Gateway 로컬에서 적용 완료한 subscription version과 다르면 BLE 송신 전에 실패하는 테스트를 작성한다. API publisher 검증 transaction 커밋과 실제 MQTT publish 사이의 극소 race를 이 물리 경계에서 최종 차단한다.
+
 - [ ] **Step 4: RED 확인**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-model-codec.test.ts src/mesh/bluez-mesh-adapter.test.ts src/commands/gateway-command-handler.test.ts`
@@ -1089,6 +1108,7 @@ Expected: group opcode와 실행 경로 부재로 FAIL
 ```ts
 switch (command.deliveryMode) {
   case "mesh_group":
+    assertLocallyAppliedMeshGroupVersion(command.meshControlGroupId, command.meshControlGroupVersion);
     return adapter.applyMeshGroup(parseMeshAddress(command.destinationAddress), fixtures, command.brightness);
   case "parallel_unicast":
     return adapter.applyParallelUnicast(fixtures, command.brightness, 8);

@@ -34,34 +34,86 @@ const commandIdentitySchema = gatewayScopeSchema.extend({
   sequence: z.number().int().nonnegative()
 });
 
+const meshGroupAddressSchema = z.string().regex(/^0x[0-9a-f]{4}$/i).refine(
+  (value) => {
+    const address = Number.parseInt(value.slice(2), 16);
+    return address >= 0xc000 && address <= 0xfeff;
+  },
+  "destinationAddress must be a BLE Mesh group address from 0xc000 to 0xfeff"
+);
+
 const gatewayDimmingCommandFields = {
   targetType: z.enum(["fixture", "fixtures", "floor", "group"]),
   targetId: z.string().uuid().nullable(),
-  targetFixtureIds: z.array(z.string().uuid()).min(1),
+  targetFixtureIds: z.array(z.string().uuid()).min(1).max(1_000),
   deliveryMode: z.enum(["unicast", "parallel_unicast", "mesh_group"]),
-  destinationAddress: z.string().regex(/^0x[0-9a-f]{4}$/i).optional(),
+  destinationAddress: meshGroupAddressSchema.optional(),
+  meshControlGroupId: z.string().uuid().optional(),
+  meshControlGroupVersion: z.number().int().positive().optional(),
   brightness: z.number().int().min(0).max(100),
   requestedBy: z.string().uuid(),
   requestedAt: z.string().datetime()
 };
 
 function validateDimmingDelivery(
-  command: { deliveryMode: "unicast" | "parallel_unicast" | "mesh_group"; destinationAddress?: string },
+  command: {
+    targetType: "fixture" | "fixtures" | "floor" | "group";
+    targetId: string | null;
+    targetFixtureIds: string[];
+    deliveryMode: "unicast" | "parallel_unicast" | "mesh_group";
+    destinationAddress?: string;
+    meshControlGroupId?: string;
+    meshControlGroupVersion?: number;
+  },
   context: z.RefinementCtx
 ) {
-  if (command.deliveryMode === "mesh_group" && !command.destinationAddress) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["destinationAddress"],
-      message: "destinationAddress is required for mesh_group delivery"
-    });
+  const issue = (path: string, message: string) => context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: [path],
+    message
+  });
+  if (new Set(command.targetFixtureIds).size !== command.targetFixtureIds.length) {
+    issue("targetFixtureIds", "targetFixtureIds must be unique");
   }
-  if (command.deliveryMode !== "mesh_group" && command.destinationAddress) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["destinationAddress"],
-      message: "destinationAddress is only allowed for mesh_group delivery"
-    });
+
+  if (command.targetType === "fixture") {
+    if (!command.targetId) issue("targetId", "fixture targetId is required");
+    if (command.targetFixtureIds.length !== 1 || command.targetFixtureIds[0] !== command.targetId) {
+      issue("targetFixtureIds", "fixture targetId must match its only targetFixtureId");
+    }
+    if (command.deliveryMode !== "unicast") issue("deliveryMode", "fixture target requires unicast delivery");
+  } else if (command.targetType === "fixtures") {
+    if (command.targetId !== null) issue("targetId", "fixtures targetId must be null");
+    if (command.targetFixtureIds.length === 1 && command.deliveryMode !== "unicast") {
+      issue("deliveryMode", "one fixtures target requires unicast delivery");
+    }
+    if (
+      command.targetFixtureIds.length > 1 &&
+      command.deliveryMode !== "parallel_unicast" &&
+      command.deliveryMode !== "mesh_group"
+    ) {
+      issue("deliveryMode", "multiple fixtures require parallel_unicast or mesh_group delivery");
+    }
+  } else {
+    if (!command.targetId) issue("targetId", `${command.targetType} targetId is required`);
+    if (command.deliveryMode !== "mesh_group") {
+      issue("deliveryMode", `${command.targetType} target requires mesh_group delivery`);
+    }
+  }
+
+  if (command.deliveryMode === "mesh_group") {
+    if (!command.destinationAddress) issue("destinationAddress", "destinationAddress is required for mesh_group delivery");
+    if (!command.meshControlGroupId) issue("meshControlGroupId", "meshControlGroupId is required for mesh_group delivery");
+    if (!command.meshControlGroupVersion) {
+      issue("meshControlGroupVersion", "meshControlGroupVersion is required for mesh_group delivery");
+    }
+  } else {
+    if (command.destinationAddress !== undefined) {
+      issue("destinationAddress", "destinationAddress is only allowed for mesh_group delivery");
+    }
+    if (command.meshControlGroupId !== undefined || command.meshControlGroupVersion !== undefined) {
+      issue("deliveryMode", "group metadata is only allowed for mesh_group delivery");
+    }
   }
 }
 

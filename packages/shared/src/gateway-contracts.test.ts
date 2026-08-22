@@ -17,6 +17,8 @@ const gatewayId = "00000000-0000-4000-8000-000000000004";
 const commandId = "11111111-1111-4111-8111-111111111111";
 const dispatchId = "22222222-2222-4222-8222-222222222222";
 const fixtureId = "33333333-3333-4333-8333-333333333333";
+const fixtureId2 = "33333333-3333-4333-8333-333333333334";
+const meshControlGroupId = "88888888-8888-4888-8888-888888888888";
 const eventId = "44444444-4444-4444-8444-444444444444";
 const occurredAt = "2026-07-11T00:00:00.000Z";
 
@@ -124,8 +126,15 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(gatewayDimmingCommandDraftV2Schema.parse({
       ...base,
       deliveryMode: "mesh_group",
-      destinationAddress: "0xc000"
-    })).toMatchObject({ deliveryMode: "mesh_group", destinationAddress: "0xc000" });
+      destinationAddress: "0xc000",
+      meshControlGroupId,
+      meshControlGroupVersion: 2
+    })).toMatchObject({
+      deliveryMode: "mesh_group",
+      destinationAddress: "0xc000",
+      meshControlGroupId,
+      meshControlGroupVersion: 2
+    });
     expect(() => gatewayDimmingCommandDraftV2Schema.parse({
       ...base,
       deliveryMode: "mesh_group"
@@ -135,6 +144,123 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       deliveryMode: "parallel_unicast",
       destinationAddress: "0xc000"
     })).toThrow("destinationAddress is only allowed");
+  });
+
+  it("rejects duplicate, oversized, and out-of-range physical fixture/group targets", () => {
+    const fixtureCommand = {
+      commandId,
+      dispatchId,
+      siteId,
+      gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`,
+      sequence: 7,
+      targetType: "fixture" as const,
+      targetId: fixtureId,
+      targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast" as const,
+      brightness: 70,
+      requestedBy: "55555555-5555-4555-8555-555555555555",
+      requestedAt: occurredAt
+    };
+
+    expect(() => gatewayDimmingCommandDraftV2Schema.parse({
+      ...fixtureCommand,
+      targetType: "fixtures",
+      targetId: null,
+      targetFixtureIds: [fixtureId, fixtureId],
+      deliveryMode: "parallel_unicast"
+    })).toThrow("targetFixtureIds must be unique");
+    expect(() => gatewayDimmingCommandDraftV2Schema.parse({
+      ...fixtureCommand,
+      targetType: "fixtures",
+      targetId: null,
+      targetFixtureIds: Array.from({ length: 1_001 }, (_, index) =>
+        `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000`
+      ),
+      deliveryMode: "parallel_unicast"
+    })).toThrow();
+    expect(() => gatewayDimmingCommandDraftV2Schema.parse({
+      ...fixtureCommand,
+      targetType: "floor",
+      targetId: "77777777-7777-4777-8777-777777777777",
+      deliveryMode: "mesh_group",
+      destinationAddress: "0xbfff",
+      meshControlGroupId,
+      meshControlGroupVersion: 1
+    })).toThrow("destinationAddress must be a BLE Mesh group address");
+  });
+
+  it.each([
+    ["fixture requires targetId", { targetType: "fixture", targetId: null }],
+    ["fixture target matches its only fixture", { targetType: "fixture", targetId: fixtureId2 }],
+    ["fixture only allows one fixture", { targetType: "fixture", targetFixtureIds: [fixtureId, fixtureId2] }],
+    ["fixture only allows unicast", {
+      targetType: "fixture", deliveryMode: "mesh_group", destinationAddress: "0xc000",
+      meshControlGroupId, meshControlGroupVersion: 1
+    }],
+    ["fixtures requires null targetId", { targetType: "fixtures", targetId: fixtureId }],
+    ["one fixtures target requires unicast", {
+      targetType: "fixtures", targetId: null, deliveryMode: "parallel_unicast"
+    }],
+    ["multiple fixtures reject unicast", {
+      targetType: "fixtures", targetId: null, targetFixtureIds: [fixtureId, fixtureId2]
+    }],
+    ["floor only allows mesh group", {
+      targetType: "floor", targetId: "77777777-7777-4777-8777-777777777777"
+    }],
+    ["group requires targetId", { targetType: "group", targetId: null }]
+  ])("enforces target invariant: %s", (_name, patch) => {
+    const base = {
+      commandId,
+      dispatchId,
+      siteId,
+      gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`,
+      sequence: 7,
+      targetType: "fixture" as const,
+      targetId: fixtureId,
+      targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast" as const,
+      brightness: 70,
+      requestedBy: "55555555-5555-4555-8555-555555555555",
+      requestedAt: occurredAt
+    };
+
+    expect(() => gatewayDimmingCommandDraftV2Schema.parse({ ...base, ...patch })).toThrow();
+  });
+
+  it("requires complete mesh metadata and forbids it for non-mesh delivery", () => {
+    const mesh = {
+      commandId,
+      dispatchId,
+      siteId,
+      gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`,
+      sequence: 7,
+      targetType: "floor" as const,
+      targetId: "77777777-7777-4777-8777-777777777777",
+      targetFixtureIds: [fixtureId],
+      deliveryMode: "mesh_group" as const,
+      destinationAddress: "0xc000",
+      meshControlGroupId,
+      meshControlGroupVersion: 2,
+      brightness: 70,
+      requestedBy: "55555555-5555-4555-8555-555555555555",
+      requestedAt: occurredAt
+    };
+
+    for (const field of ["destinationAddress", "meshControlGroupId", "meshControlGroupVersion"] as const) {
+      const invalid = { ...mesh };
+      delete invalid[field];
+      expect(() => gatewayDimmingCommandDraftV2Schema.parse(invalid)).toThrow(`${field} is required`);
+    }
+    expect(() => gatewayDimmingCommandDraftV2Schema.parse({ ...mesh, meshControlGroupVersion: 0 })).toThrow();
+    expect(() => gatewayDimmingCommandDraftV2Schema.parse({
+      ...mesh,
+      targetType: "fixture",
+      targetId: fixtureId,
+      deliveryMode: "unicast"
+    })).toThrow("group metadata is only allowed");
   });
 
   it("requires ordered identity fields for fixture state and heartbeat", () => {

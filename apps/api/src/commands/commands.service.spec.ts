@@ -68,7 +68,11 @@ function createHarness(options: {
   const meshControlGroups = {
     getReadyDestination: options.readyError
       ? jest.fn().mockRejectedValue(options.readyError)
-      : jest.fn().mockResolvedValue({ groupAddress: options.readyAddress ?? "0xc000" })
+      : jest.fn().mockResolvedValue({
+        groupId: "99999999-9999-4999-8999-999999999999",
+        groupAddress: options.readyAddress ?? "0xc000",
+        configurationVersion: 3
+      })
   };
   const service = new (CommandsService as any)(
     prisma, new CommandDispatchService(), siteAccess, meshControlGroups
@@ -123,7 +127,16 @@ describe("CommandsService", () => {
       type: "floor", floorId: ids.floor, gatewayId: ids.gateway1
     });
     expect(tx.commandDispatch.create).toHaveBeenCalledWith({ data: expect.objectContaining({
-      deliveryMode: "mesh_group", destinationAddress: "0xc010"
+      deliveryMode: "mesh_group",
+      destinationAddress: "0xc010",
+      meshControlGroupId: "99999999-9999-4999-8999-999999999999",
+      meshControlGroupVersion: 3
+    }) });
+    expect(tx.mqttOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      payload: expect.objectContaining({
+        meshControlGroupId: "99999999-9999-4999-8999-999999999999",
+        meshControlGroupVersion: 3
+      })
     }) });
   });
 

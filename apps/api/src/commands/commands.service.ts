@@ -30,6 +30,8 @@ interface ResolvedControlTarget {
   gatewayId: string;
   deliveryMode: DeliveryMode;
   destinationAddress?: string;
+  meshControlGroupId?: string;
+  meshControlGroupVersion?: number;
 }
 
 type FixtureRow = {
@@ -121,7 +123,9 @@ export class CommandsService {
           idempotencyKey,
           sequence,
           deliveryMode: resolved.deliveryMode,
-          destinationAddress: resolved.destinationAddress ?? null
+          destinationAddress: resolved.destinationAddress ?? null,
+          meshControlGroupId: resolved.meshControlGroupId ?? null,
+          meshControlGroupVersion: resolved.meshControlGroupVersion ?? null
         }
       });
       await tx.commandFixtureResult.createMany({
@@ -139,6 +143,12 @@ export class CommandsService {
         targetFixtureIds: resolved.fixtureIds,
         deliveryMode: resolved.deliveryMode,
         ...(resolved.destinationAddress ? { destinationAddress: resolved.destinationAddress } : {}),
+        ...(resolved.meshControlGroupId
+          ? {
+            meshControlGroupId: resolved.meshControlGroupId,
+            meshControlGroupVersion: resolved.meshControlGroupVersion
+          }
+          : {}),
         brightness: command.brightness,
         requestedBy: command.requestedBy,
         requestedAt: command.createdAt.toISOString()
@@ -231,7 +241,7 @@ export class CommandsService {
         floorId: target.floorId,
         gatewayId
       });
-      return { fixtureIds, gatewayId, deliveryMode: "mesh_group", destinationAddress: destination.groupAddress };
+      return this.toMeshGroupTarget(fixtureIds, gatewayId, destination);
     }
     if (target.type === "group") {
       const destination = await this.meshControlGroups.getReadyDestination(tx, {
@@ -239,12 +249,12 @@ export class CommandsService {
         fixtureGroupId: target.groupId,
         gatewayId
       });
-      return { fixtureIds, gatewayId, deliveryMode: "mesh_group", destinationAddress: destination.groupAddress };
+      return this.toMeshGroupTarget(fixtureIds, gatewayId, destination);
     }
 
     const promoted = await this.findExactReadyDestination(tx, siteId, gatewayId, mappings, fixtureIds);
     return promoted
-      ? { fixtureIds, gatewayId, deliveryMode: "mesh_group", destinationAddress: promoted }
+      ? this.toMeshGroupTarget(fixtureIds, gatewayId, promoted)
       : { fixtureIds, gatewayId, deliveryMode: "parallel_unicast" };
   }
 
@@ -264,12 +274,12 @@ export class CommandsService {
       .filter((floor) => this.sameFixtureSet(fixtureIds, floor.fixtures.map((fixture) => fixture.id)))
       .sort((left, right) => left.id.localeCompare(right.id));
     for (const floor of exactFloors) {
-      const address = await this.tryReadyDestination(tx, {
+      const destination = await this.tryReadyDestination(tx, {
         type: "floor" as const,
         floorId: floor.id,
         gatewayId
       });
-      if (address) return address;
+      if (destination) return destination;
     }
 
     const groups = await tx.fixtureGroup.findMany({
@@ -286,12 +296,12 @@ export class CommandsService {
       .filter((group) => this.sameFixtureSet(fixtureIds, group.groupFixtures.map((item) => item.fixtureId)))
       .sort((left, right) => left.id.localeCompare(right.id));
     for (const group of exactGroups) {
-      const address = await this.tryReadyDestination(tx, {
+      const destination = await this.tryReadyDestination(tx, {
         type: "fixture_group" as const,
         fixtureGroupId: group.id,
         gatewayId
       });
-      if (address) return address;
+      if (destination) return destination;
     }
     return null;
   }
@@ -303,11 +313,26 @@ export class CommandsService {
       | { type: "fixture_group"; fixtureGroupId: string; gatewayId: string }
   ) {
     try {
-      return (await this.meshControlGroups.getReadyDestination(tx, input)).groupAddress;
+      return await this.meshControlGroups.getReadyDestination(tx, input);
     } catch (error) {
       if (error instanceof BadRequestException && error.message === "mesh control group is not ready") return null;
       throw error;
     }
+  }
+
+  private toMeshGroupTarget(
+    fixtureIds: string[],
+    gatewayId: string,
+    destination: { groupId: string; groupAddress: string; configurationVersion: number }
+  ): ResolvedControlTarget {
+    return {
+      fixtureIds,
+      gatewayId,
+      deliveryMode: "mesh_group",
+      destinationAddress: destination.groupAddress,
+      meshControlGroupId: destination.groupId,
+      meshControlGroupVersion: destination.configurationVersion
+    };
   }
 
   private sameFixtureSet(expected: string[], actual: string[]) {

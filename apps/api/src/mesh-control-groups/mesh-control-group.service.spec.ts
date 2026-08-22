@@ -666,7 +666,9 @@ describe("MeshControlGroupService", () => {
       meshControlGroup: {
         findFirst: jest.fn()
           .mockResolvedValueOnce({
+            id: "mesh-group-1",
             groupAddress: "0xc000",
+            configurationVersion: 3,
             status: "ready"
           })
           .mockResolvedValueOnce({
@@ -682,7 +684,11 @@ describe("MeshControlGroupService", () => {
       type: "floor",
       floorId,
       gatewayId
-    })).resolves.toEqual({ groupAddress: "0xc000" });
+    })).resolves.toEqual({
+      groupId: "mesh-group-1",
+      groupAddress: "0xc000",
+      configurationVersion: 3
+    });
     await expect(service.getReadyDestination(tx, {
       type: "fixture_group",
       fixtureGroupId,

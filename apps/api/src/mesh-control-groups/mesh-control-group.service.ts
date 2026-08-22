@@ -66,6 +66,7 @@ export class MeshControlGroupService {
       select: {
         id: true,
         groupAddress: true,
+        configurationVersion: true,
         status: true
       }
     });
@@ -73,7 +74,11 @@ export class MeshControlGroupService {
       throw new BadRequestException("mesh control group is not ready");
     }
 
-    return { groupAddress: group.groupAddress };
+    return {
+      groupId: group.id,
+      groupAddress: group.groupAddress,
+      configurationVersion: group.configurationVersion
+    };
   }
 
   private async ensureGroup(
