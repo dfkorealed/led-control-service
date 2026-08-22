@@ -1,3 +1,30 @@
+BEGIN;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "MqttOutbox" AS outbox
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM "CommandFixtureResult" AS result
+      WHERE result."dispatchId" = outbox."dispatchId"
+    )
+  ) THEN
+    RAISE EXCEPTION 'cannot migrate MqttOutbox without CommandFixtureResult targets';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM "MqttOutbox" AS outbox
+    JOIN "CommandFixtureResult" AS result ON result."dispatchId" = outbox."dispatchId"
+    GROUP BY outbox."id"
+    HAVING COUNT(result."fixtureId") > 1000
+  ) THEN
+    RAISE EXCEPTION 'cannot migrate MqttOutbox with more than 1000 fixture targets';
+  END IF;
+END $$;
+
 ALTER TABLE "Command"
   ALTER COLUMN "targetId" DROP NOT NULL,
   ADD COLUMN "targetFixtureIds" JSONB;
@@ -32,31 +59,6 @@ SET "deliveryMode" = CASE
   ELSE 'parallel_unicast'
 END;
 
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM "MqttOutbox" AS outbox
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM "CommandFixtureResult" AS result
-      WHERE result."dispatchId" = outbox."dispatchId"
-    )
-  ) THEN
-    RAISE EXCEPTION 'cannot migrate MqttOutbox without CommandFixtureResult targets';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1
-    FROM "MqttOutbox" AS outbox
-    JOIN "CommandFixtureResult" AS result ON result."dispatchId" = outbox."dispatchId"
-    GROUP BY outbox."id"
-    HAVING COUNT(result."fixtureId") > 1000
-  ) THEN
-    RAISE EXCEPTION 'cannot migrate MqttOutbox with more than 1000 fixture targets';
-  END IF;
-END $$;
-
 WITH dispatch_targets AS (
   SELECT
     dispatch."id" AS "dispatchId",
@@ -71,9 +73,13 @@ WITH dispatch_targets AS (
   GROUP BY dispatch."id"
 )
 UPDATE "MqttOutbox" AS outbox
-SET "payload" = (
-  outbox."payload" - 'destinationAddress' - 'meshControlGroupId' - 'meshControlGroupVersion'
-) || jsonb_build_object(
+SET "payload" = jsonb_build_object(
+  'commandId', outbox."payload"->'commandId',
+  'dispatchId', outbox."payload"->'dispatchId',
+  'idempotencyKey', outbox."payload"->'idempotencyKey',
+  'sequence', outbox."payload"->'sequence',
+  'siteId', outbox."payload"->'siteId',
+  'gatewayId', outbox."payload"->'gatewayId',
   'targetType', CASE
     WHEN outbox."payload"->>'targetType' = 'fixture'
       AND dispatch_targets."fixtureCount" = 1 THEN 'fixture'
@@ -86,7 +92,10 @@ SET "payload" = (
     ELSE 'null'::jsonb
   END,
   'targetFixtureIds', dispatch_targets."fixtureIds",
-  'deliveryMode', dispatch_targets."deliveryMode"
+  'deliveryMode', dispatch_targets."deliveryMode",
+  'brightness', outbox."payload"->'brightness',
+  'requestedBy', outbox."payload"->'requestedBy',
+  'requestedAt', outbox."payload"->'requestedAt'
 )
 FROM dispatch_targets
 WHERE outbox."dispatchId" = dispatch_targets."dispatchId";
@@ -102,3 +111,5 @@ ALTER TABLE "CommandDispatch"
   ADD CONSTRAINT "CommandDispatch_meshControlGroupId_gatewayId_fkey"
   FOREIGN KEY ("meshControlGroupId", "gatewayId") REFERENCES "MeshControlGroup"("id", "gatewayId")
   ON DELETE RESTRICT ON UPDATE CASCADE;
+
+COMMIT;

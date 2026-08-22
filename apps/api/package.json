@@ -7,6 +7,7 @@
     "dev": "pnpm --filter @led-control/shared build && nest start --watch",
     "build": "pnpm --filter @led-control/shared build && nest build",
     "test": "pnpm --filter @led-control/shared build && jest",
+    "test:command-migration": "pnpm --filter @led-control/shared build && jest src/commands/command-target-migration.integration.spec.ts --runInBand",
     "lint": "tsc --noEmit",
     "typecheck": "pnpm --filter @led-control/shared build && tsc --noEmit",
     "prisma:generate": "prisma generate",

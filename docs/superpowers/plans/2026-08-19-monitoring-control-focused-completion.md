@@ -1042,6 +1042,16 @@ Dispatch와 Gateway payload에 group ID/version/address를 저장한다. Publish
 
 fixture 목록의 unique/1,000개 제한, target type/ID/fixture 수/delivery mode 조합, BLE Mesh group address 범위, Mesh metadata 필수·금지 조건을 shared Zod schema에서 함께 검증한다.
 
+- [x] **재리뷰 1 fix 1·2: legacy retry 정규화와 migration 원자성**
+
+Migration은 strict draft 허용 키만으로 outbox JSON을 재구성해 `expiresAt`과 임의 legacy 키를 제거한다. Result 없음/1,000개 초과 preflight를 DDL 전에 실행하고 전체 SQL을 `BEGIN/COMMIT`으로 감싼다. 실제 PostgreSQL rehearsal은 무작위 임시 schema에서 fresh/retry strict parse, guard 실패 rollback, 후반 DDL 실패 rollback을 검증한다.
+
+Run: `COMMAND_MIGRATION_TEST_DATABASE_URL='postgresql:///postgres' pnpm --filter @led-control/api test:command-migration`
+
+- [x] **재리뷰 1 fix 3: timeout/publisher lease fencing**
+
+Timeout worker는 유효 publisher lease를 초기 조회와 transaction 조건부 update에서 모두 제외한다. Publisher는 payload 준비 시 lease를 검증하고 30초로 갱신하며, MQTT QoS 1 publish는 20초 timeout 후 해당 outgoing message ID를 취소한다. 동시 publish ID, callback 이중 완료, pending publish 경쟁, query 후 claim, expired lease 회귀를 자동 테스트한다.
+
 - [ ] **사용자 확인 Gate 12:** API 계약과 대상별 delivery mode를 보고하고 다음 Task 승인을 기다린다.
 
 ---
@@ -1053,8 +1063,22 @@ fixture 목록의 unique/1,000개 제한, target type/ID/fixture 수/delivery mo
 - Modify: `apps/gateway/src/mesh/bluez-model-codec.test.ts`
 - Modify: `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
 - Modify: `apps/gateway/src/mesh/bluez-mesh-adapter.test.ts`
+- Create: `apps/gateway/src/mesh/group-state-store.ts`
+- Create: `apps/gateway/src/mesh/group-state-store.test.ts`
+- Modify: `apps/gateway/src/mesh/group-subscription-handler.ts`
+- Modify: `apps/gateway/src/mesh/group-subscription-handler.test.ts`
+- Modify: `apps/gateway/src/runtime/gateway-mqtt-runtime.ts`
+- Modify: `apps/gateway/src/runtime/gateway-mqtt-runtime.test.ts`
 - Modify: `apps/gateway/src/commands/gateway-command-handler.ts`
 - Modify: `apps/gateway/src/commands/gateway-command-handler.test.ts`
+- Modify: `packages/shared/src/mqtt.ts`
+- Modify: `packages/shared/src/mqtt.test.ts`
+- Modify: `packages/shared/src/gateway-contracts.ts`
+- Modify: `packages/shared/src/gateway-contracts.test.ts`
+- Modify: `apps/api/src/mesh-control-groups/mesh-control-group.service.ts`
+- Modify: `apps/api/src/mesh-control-groups/mesh-control-group.service.spec.ts`
+- Modify: `apps/api/src/mqtt/mqtt.service.ts`
+- Modify: `apps/api/src/mqtt/mqtt.service.spec.ts`
 - Modify: `apps/esp32-h2-firmware/main/ble_mesh_node.c`
 - Modify: `apps/esp32-h2-firmware/README.md`
 - Modify: `docs/menus/control.md`
@@ -1065,6 +1089,8 @@ fixture 목록의 unique/1,000개 제한, target type/ID/fixture 수/delivery mo
 - Produces: `applyMeshGroup(groupAddress, expectedFixtures, brightness)`
 - Group result: actual Lightness Status by expected source address
 - Consumes: Task 12 `meshControlGroupId`, `meshControlGroupVersion`; Gateway 로컬에 적용 완료된 동일 group/version만 송신
+- Produces: group ID/address/version별 durable `configuring | ready | failed` snapshot과 group 단위 sync/control serialization
+- Recovery: local state 유실·손상 시 `mesh-group/resync-request`, cloud ready group을 포함한 gateway 전체 subscription 재동기화
 
 - [ ] **Step 1: unacknowledged group codec 실패 테스트 작성**
 
@@ -1095,21 +1121,46 @@ await expect(result).resolves.toEqual(expect.arrayContaining([
 ]));
 ```
 
-동시에 payload의 `meshControlGroupId`/`meshControlGroupVersion`이 Gateway 로컬에서 적용 완료한 subscription version과 다르면 BLE 송신 전에 실패하는 테스트를 작성한다. API publisher 검증 transaction 커밋과 실제 MQTT publish 사이의 극소 race를 이 물리 경계에서 최종 차단한다.
+동시에 payload의 `meshControlGroupId`/address/version이 Gateway durable state의 정확한 `ready` snapshot과 다르면 BLE 송신 전에 실패하는 테스트를 작성한다. API publisher 검증 transaction 커밋과 실제 MQTT publish 사이의 극소 race를 이 물리 경계에서 최종 차단한다.
 
-- [ ] **Step 4: RED 확인**
+- [ ] **Step 4: durable group state와 복구 실패 테스트 작성**
 
-Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-model-codec.test.ts src/mesh/bluez-mesh-adapter.test.ts src/commands/gateway-command-handler.test.ts`
+```ts
+await handler.sync(syncV2);
+expect(store.writeConfiguring).toHaveBeenCalledBefore(configClient.addSubscription);
+expect(store.fsync).toHaveBeenCalledBefore(configClient.addSubscription);
 
-Expected: group opcode와 실행 경로 부재로 FAIL
+const controlling = handler.applyMeshGroup(commandV1);
+await expect(controlling).rejects.toMatchObject({ code: "MESH_GROUP_NOT_READY" });
+expect(transport.send).not.toHaveBeenCalled();
+```
 
-- [ ] **Step 5: gateway와 firmware 구현**
+- sync 첫 Config 요청 전 `configuring(version)` 파일과 디렉터리 fsync가 끝나는지 검증한다.
+- 모든 member 성공 뒤 `ready(version)` 저장 완료 후에만 ready ACK를 발행하는지 검증한다.
+- 일부 member 실패, 상태 저장 실패는 `failed` fail-closed이며 이전 version 제어를 허용하지 않는지 검증한다.
+- 같은 group의 sync/control은 직렬화되고 다른 group은 병렬 실행되는지 검증한다.
+- 재시작 후 ready/configuring/failed 복원과 exact ID/address/version 검증을 확인한다.
+- state 파일 유실·손상 시 모든 group 제어를 차단하고 resync request를 보내며, API가 해당 gateway의 cloud ready group까지 같은 version `configuring`으로 되돌려 전체 member sync를 재발행하는지 검증한다.
+
+- [ ] **Step 5: RED 확인**
+
+Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-model-codec.test.ts src/mesh/bluez-mesh-adapter.test.ts src/mesh/group-state-store.test.ts src/mesh/group-subscription-handler.test.ts src/runtime/gateway-mqtt-runtime.test.ts src/commands/gateway-command-handler.test.ts`
+
+Expected: group opcode, durable state 저장소, group 직렬화, full resync 계약과 실행 경로 부재로 FAIL
+
+- [ ] **Step 6: gateway와 firmware 구현**
 
 ```ts
 switch (command.deliveryMode) {
   case "mesh_group":
-    assertLocallyAppliedMeshGroupVersion(command.meshControlGroupId, command.meshControlGroupVersion);
-    return adapter.applyMeshGroup(parseMeshAddress(command.destinationAddress), fixtures, command.brightness);
+    return groupSerialQueue.run(command.meshControlGroupId, async () => {
+      await groupStateStore.assertReady({
+        groupId: command.meshControlGroupId,
+        groupAddress: command.destinationAddress,
+        configurationVersion: command.meshControlGroupVersion
+      });
+      return adapter.applyMeshGroup(parseMeshAddress(command.destinationAddress), fixtures, command.brightness);
+    });
   case "parallel_unicast":
     return adapter.applyParallelUnicast(fixtures, command.brightness, 8);
   default:
@@ -1119,17 +1170,21 @@ switch (command.deliveryMode) {
 
 ESP32-H2는 Group Set Unack 수신 후 실제 PWM 상태를 publication한다. publication 지연은 primary unicast 하위 비트를 사용해 결정적으로 계산하고 command 적용 자체는 지연하지 않는다.
 
-- [ ] **Step 6: Task 검증**
+Subscription handler도 같은 `groupSerialQueue`를 사용한다. 첫 Config 요청 전에 `configuring`을 원자 저장하고 fsync하며, member 전체 성공 뒤 `ready` 저장과 fsync를 마친 후 ACK한다. 부분 실패는 `failed`로 저장하고 이전 ready snapshot으로 rollback하지 않는다. 시작 시 state 파일을 복원하고 누락·손상 시 fail-closed와 resync request를 유지한다. API의 resync 처리는 gateway의 모든 cloud group을 조회해 ready group도 같은 version의 `configuring`으로 전환하고 member `statusVersion`을 초기화한다.
 
-Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-model-codec.test.ts src/mesh/bluez-mesh-adapter.test.ts src/commands/gateway-command-handler.test.ts`
+- [ ] **Step 7: Task 검증**
+
+Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-model-codec.test.ts src/mesh/bluez-mesh-adapter.test.ts src/mesh/group-state-store.test.ts src/mesh/group-subscription-handler.test.ts src/runtime/gateway-mqtt-runtime.test.ts src/commands/gateway-command-handler.test.ts`
 
 Run: `pnpm --filter @led-control/gateway typecheck`
+
+Run: `pnpm --filter @led-control/api exec jest src/mesh-control-groups --runInBand`
 
 Run: `scripts/esp32-h2-build.sh`
 
 Expected: gateway test/typecheck와 ESP-IDF build exit 0
 
-- [ ] **Step 7: 메뉴 문서 갱신과 커밋**
+- [ ] **Step 8: 메뉴 문서 갱신과 커밋**
 
 ```bash
 git add apps/gateway/src apps/esp32-h2-firmware/main/ble_mesh_node.c apps/esp32-h2-firmware/README.md \

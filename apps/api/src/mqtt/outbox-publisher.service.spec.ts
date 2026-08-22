@@ -1,4 +1,5 @@
 import { OutboxPublisherService } from "./outbox-publisher.service";
+import { CommandTimeoutService } from "../commands/command-timeout.service";
 
 const dimmingPayload = {
   commandId: "11111111-1111-4111-8111-111111111111",
@@ -142,10 +143,98 @@ describe("OutboxPublisherService", () => {
 
     const expectedPayload = { ...dimmingPayload, expiresAt: "2026-07-11T00:01:10.000Z" };
     expect(prisma.mqttOutbox.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { id: "outbox-1", lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
-      data: { payload: expectedPayload }
+      where: {
+        id: "outbox-1",
+        lockedBy: "worker-1",
+        publishedAt: null,
+        deadLetteredAt: null,
+        leaseExpiresAt: { gt: publishedAt }
+      },
+      data: { payload: expectedPayload, leaseExpiresAt: new Date("2026-07-11T00:01:30.000Z") }
     });
-    expect(mqtt.publishTopic).toHaveBeenCalledWith(record.topic, expectedPayload, { messageExpiryInterval: 10 });
+    expect(mqtt.publishTopic).toHaveBeenCalledWith(record.topic, expectedPayload, {
+      messageExpiryInterval: 10,
+      timeoutMs: 20_000
+    });
+  });
+
+  it("does not publish when its lease expired before payload preparation", async () => {
+    const prisma: any = {
+      mqttOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn() };
+    const service = new OutboxPublisherService(prisma, mqtt as never, { workerId: "worker-1" });
+    const now = new Date("2026-07-11T00:01:00.000Z");
+    const record = {
+      id: "outbox-1",
+      dispatchId: "dispatch-1",
+      topic: "sites/s/gateways/g/commands/dimming",
+      payload: dimmingPayload,
+      attempts: 0,
+      createdAt: new Date("2026-07-11T00:00:00.000Z"),
+      dispatch: { commandId: "command-1" }
+    };
+
+    await service.publishClaimed(record as never, now);
+
+    expect(prisma.mqttOutbox.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ leaseExpiresAt: { gt: now } })
+    }));
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+  });
+
+  it("keeps a valid publisher lease while a publish promise is pending so timeout skips the dispatch", async () => {
+    const publishStarted = deferred<void>();
+    const releasePublish = deferred<void>();
+    let activeLeaseExpiresAt: Date | null = null;
+    const prisma: any = {
+      meshControlGroup: { findUnique: jest.fn() },
+      mqttOutbox: {
+        updateMany: jest.fn().mockImplementation(({ data }) => {
+          if (data.leaseExpiresAt) activeLeaseExpiresAt = data.leaseExpiresAt;
+          return Promise.resolve({ count: 1 });
+        })
+      },
+      commandDispatch: {
+        findMany: jest.fn().mockImplementation(({ where }) => {
+          expect(where.NOT.outbox.is.leaseExpiresAt.gt).toEqual(new Date("2026-07-11T00:16:10.000Z"));
+          return Promise.resolve(activeLeaseExpiresAt! > new Date("2026-07-11T00:16:10.000Z") ? [] : [
+            { id: dimmingPayload.dispatchId, commandId: dimmingPayload.commandId, status: "pending" }
+          ]);
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      commandFixtureResult: { updateMany: jest.fn() },
+      command: { updateMany: jest.fn() }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = {
+      publishTopic: jest.fn().mockImplementation(async () => {
+        publishStarted.resolve();
+        await releasePublish.promise;
+      })
+    };
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, { workerId: "worker-1" });
+    const record = {
+      id: "outbox-1",
+      dispatchId: dimmingPayload.dispatchId,
+      topic: "sites/s/gateways/g/commands/dimming",
+      payload: dimmingPayload,
+      attempts: 0,
+      createdAt: new Date("2026-07-11T00:00:00.000Z"),
+      dispatch: { commandId: dimmingPayload.commandId }
+    };
+
+    const publishing = publisher.publishClaimed(record as never, new Date("2026-07-11T00:16:00.000Z"));
+    await publishStarted.promise;
+    await expect(new CommandTimeoutService(prisma).closeExpired(
+      new Date("2026-07-11T00:16:10.000Z")
+    )).resolves.toEqual({ timedOut: 0 });
+
+    releasePublish.resolve();
+    await publishing;
+    expect(prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
   });
 
   it("publishes a mesh command only when its ready group snapshot still matches", async () => {
@@ -286,3 +375,9 @@ describe("OutboxPublisherService", () => {
     }));
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((value) => { resolve = value; });
+  return { promise, resolve };
+}

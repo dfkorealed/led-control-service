@@ -65,3 +65,43 @@
 
 - Publisher의 DB 검증 transaction 커밋과 MQTT publish 사이에는 제거할 수 없는 극소 race가 남는다. Task 13 Gateway가 payload group ID/version을 로컬 적용 완료 subscription version과 비교하고 불일치 시 BLE 송신 전에 거부해야 한다.
 - 실제 PostgreSQL 데이터에 migration을 적용하는 검증과 실제 BLE Mesh 송신은 각각 배포 전 migration rehearsal과 Task 13 범위다.
+
+## 재리뷰 1 Fix round 2
+
+### RED 증거
+
+- Migration SQL 계약 2건이 명시 transaction/preflight 순서와 허용 키 기반 payload 재구성 부재로 실패했다.
+- PostgreSQL 16.14 격리 schema rehearsal 3건이 실패했다. Retry payload는 `legacyDebug`/`expiresAt` 때문에 strict draft parse가 실패했고, guard 및 후반 index 오류 뒤 신규 컬럼 5개가 남았다.
+- CommandTimeoutService 신규 테스트 3건이 초기 조회와 transaction update에 active lease 제외 조건이 없어 실패했다.
+- MqttService는 `timeoutMs` 계약이 없어 동시 publish 취소 테스트가 compile 실패했고, OutboxPublisher 3건은 lease fencing/갱신과 20초 publish timeout 부재로 실패했다. Publish promise를 정지한 경쟁 테스트에서는 timeout worker가 같은 dispatch를 `timed_out`으로 종료했다.
+
+### 수정 내용
+
+- Legacy outbox payload는 strict draft가 허용하는 identity/command 키만 `jsonb_build_object`로 재구성한다. 과거 `expiresAt`, group metadata와 임의 legacy 키는 남지 않는다.
+- Result 없음/1,000개 초과 preflight를 모든 DDL 앞에 두고 migration 전체를 명시적 `BEGIN/COMMIT`으로 감쌌다.
+- `COMMAND_MIGRATION_TEST_DATABASE_URL` opt-in rehearsal은 매 실행 무작위 schema를 생성해 fresh/retry strict parse, Dispatch mode/FK, guard rollback, 후반 DDL rollback을 검증하고 종료 시 schema를 삭제한다.
+- Timeout worker는 현재 유효 outbox lease를 가진 pending dispatch를 초기 조회와 transaction 조건부 update 모두에서 제외한다. Query 이후 claim이 발생하면 update count 0으로 terminal 전이를 중단한다.
+- Publisher는 prepare update에서 lease 유효성을 다시 검사하고 시작 시점부터 30초로 갱신한다. MqttService의 기존 계약은 유지하면서 선택적 `timeoutMs`를 추가하고, OutboxPublisher만 20초를 사용한다. Timeout 시 MQTT.js 5.15의 실제 message ID를 `removeOutgoingMessage`로 제거하며 늦거나 중복된 callback은 한 번만 완료 처리한다.
+- Task 13 계획/설계에는 group ID/address/version별 durable `configuring | ready | failed`, sync 전 fsync barrier, group별 sync/control 직렬화, 부분 실패 fail-closed, 재시작 복원, state 유실·손상 시 cloud ready group 전체 resync 흐름과 테스트를 추가했다. BLE 송신 코드는 변경하지 않았다.
+
+### GREEN 증거
+
+- Shared 전체: 41개 통과
+- Migration SQL 계약: 5개 통과
+- PostgreSQL 16.14 격리 rehearsal: 3개 통과
+- Timeout/MQTT/Outbox 관련: 43개 통과
+- Commands/MQTT/Mesh 관련 API: 92개 통과, opt-in rehearsal 3개 skip
+- API 전체: 391개 통과, 기존 및 opt-in 29개 skip
+- Gateway 전체: 189개 통과
+- Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과
+
+실행 명령:
+
+```bash
+COMMAND_MIGRATION_TEST_DATABASE_URL='postgresql:///postgres' pnpm --filter @led-control/api test:command-migration
+```
+
+### 남은 한계
+
+- MQTT QoS 1 packet이 broker에 이미 전달되고 PUBACK만 유실된 경우 outgoing 제거는 물리 적용을 되돌릴 수 없다. 기존 command idempotency key, 10초 message/command expiry와 Gateway journal 재전송 방어를 함께 사용한다.
+- Gateway durable group state 및 BLE Mesh 실제 group 송신은 문서화된 Task 13 구현/HIL 범위다.

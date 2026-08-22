@@ -176,6 +176,24 @@ Ruling: Mesh group delivery에는 `meshControlGroupId`와 `meshControlGroupVersi
 
 Ruling: Gateway wire schema는 target type, nullable target ID, fixture 수, delivery mode, group metadata/address 범위를 하나의 불변식으로 검증한다 — MQTT consumer가 API 구현의 정상 경로만 신뢰해서는 안 되기 때문이다 — 과거 pending group outbox는 migration에서 `fixtures`로 정규화한다.
 
+### Task 12 재리뷰 1
+
+- 재리뷰 에이전트: `01a0286e-123d-7930-afe3-473265de1cda` (Mill)
+- 수정 커밋: `b0c794c`
+- 결과: 기존 wire schema finding은 해결, outbox 호환과 Mesh TOCTOU는 미해결/부분 해결이며 새 Important 2건을 포함해 승인 보류
+- Finding 1: 이전 publish 시도에서 저장된 `expiresAt`이 migration 후 남아 strict draft parse를 실패시킨다.
+- Finding 2: migration preflight가 DDL 뒤에 있고 명시 transaction이 없어 guard 실패 시 부분 적용된다.
+- Finding 3: timeout worker가 활성 publisher lease를 취소한 뒤 이미 준비된 MQTT publish가 계속될 수 있다.
+- Finding 4: Task 13의 단순 in-memory version 비교는 subscription 적용 중 race와 Gateway 재시작 복구를 닫지 못한다.
+
+Ruling: migration은 모든 preflight를 DDL보다 먼저 수행하고 파일 전체를 명시적 transaction으로 감싼다 — edge data와 후반 DDL 오류 모두에서 부분 schema를 남기지 않기 위해서다 — 실제 PostgreSQL 성공/실패 rehearsal을 반복 가능한 검증으로 남긴다.
+
+Ruling: legacy outbox payload는 허용 키만 재구성하거나 최소한 publish-relative `expiresAt`을 제거해 strict draft 계약으로 되돌린다 — 이전 publish 실패 row도 신규 publisher가 새 expiry로 재발행할 수 있어야 하기 때문이다 — fresh/retry 양쪽을 실제 DB rehearsal에 포함한다.
+
+Ruling: timeout worker는 현재 시각 기준 유효한 outbox lease가 있는 pending dispatch를 조회와 조건부 update 모두에서 제외하고, MQTT publish는 lease보다 짧은 취소 가능한 timeout을 사용한다 — timeout terminal 전이와 살아 있는 publisher의 물리 publish가 동시에 성립하지 않게 하기 위해서다 — packet 취소와 활성 lease 경쟁 테스트를 추가한다.
+
+Ruling: Task 13 Gateway group state는 group ID/address/version별 `configuring | ready | failed`를 내구 저장하고 sync/control을 group 단위 직렬화한다 — 일부 member 적용 중 이전 version 명령과 재시작 후 상태 유실을 fail-closed로 막기 위해서다 — state 유실 시 cloud ready group 전체 resync 복구 경로도 계획에 포함한다.
+
 ### Task 12 독립 리뷰 Fix round 1
 
 - Finding 1: 기존 Command는 result fixture ID snapshot, Dispatch는 실제 result 수 기반 physical mode로 backfill한다. 기존 outbox는 동일 fixture 목록으로 strict payload를 만들고 과거 group 명령은 `fixtures`로 정규화한다. result가 없거나 1,000개를 초과하는 outbox는 migration을 중단한다.
@@ -191,3 +209,18 @@ Ruling: Task 12 migration은 아직 실제 환경에 적용되지 않았으므�
 - Fix round 1 RED: Shared 11건, migration 계약 4건과 전제 검사 1건, Mesh/Commands 4건, Publisher 9건 실패 확인
 - Fix round 1 GREEN: Shared 41개, API 관련 56개, API 전체 383개(기존 opt-in 26개 skip), Gateway 189개 통과. Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과.
 - Fix round 1 상태: 구현 및 자동 검증 완료. 실제 PostgreSQL migration rehearsal과 Task 13 Gateway 로컬 group version 비교는 후속 범위다.
+
+### Task 12 재리뷰 1 Fix round 2
+
+- Finding 1: Legacy outbox JSON을 strict draft 허용 키만으로 재구성해 retry `expiresAt`과 임의 과거 키를 제거했다. Fresh fixture/unicast와 retry group→fixtures/parallel_unicast payload를 실제 PostgreSQL 결과에서 shared schema로 parse한다.
+- Finding 2: 모든 preflight를 DDL 전에 이동하고 migration 전체를 명시적 transaction으로 감쌌다. 무작위 임시 schema rehearsal은 성공, guard 실패, 후반 index 실패를 실행하고 실패 뒤 신규 컬럼/constraint가 0개인지 확인한다.
+- Finding 3: Timeout worker가 유효 publisher lease를 초기 조회와 transaction update에서 모두 제외한다. Publisher는 prepare 시 lease를 검증·30초 갱신하고 MQTT publish를 20초로 제한해 timeout 시 해당 outgoing message ID를 제거한다.
+- Finding 4: Task 13 계획/설계/제어 문서에 durable group state, configuring fsync barrier, member 전체 성공 후 ready+ACK, 부분 실패 fail-closed, group 단위 sync/control 직렬화, restart restore, state 유실·손상 시 cloud ready group full resync와 자동 테스트를 명시했다. Task 13 코드는 구현하지 않았다.
+
+Ruling: 실제 migration rehearsal은 `COMMAND_MIGRATION_TEST_DATABASE_URL`이 지정된 경우에만 실행하고 무작위 schema만 생성·삭제한다 — 개발자 로컬 사용자 데이터를 건드리지 않으면서 PostgreSQL DDL/JSON/rollback 의미를 검증하기 위해서다 — 기본 전체 test에서는 3건 skip된다.
+
+Ruling: OutboxPublisher의 20초 MQTT timeout은 30초 lease보다 짧고 prepare transaction에서 lease를 30초로 다시 갱신한다 — publish promise가 멈춰도 timeout worker가 먼저 terminal 전이하지 않고 packet 취소 후 lease가 해제되게 하기 위해서다 — QoS 1 PUBACK 유실은 기존 idempotency와 expiry 계약으로 방어한다.
+
+- Fix round 2 RED: migration 계약 2건, PostgreSQL rehearsal 3건, timeout lease 3건 실패 및 MQTT timeout 계약 compile 실패/Outbox 경쟁 3건 실패 확인
+- Fix round 2 GREEN: Shared 41개, migration 계약 5개, PostgreSQL 16.14 rehearsal 3개, 관련 API 92개(기본 실행에서 rehearsal 3개 skip), API 전체 391개(기존 및 opt-in 29개 skip), Gateway 189개 통과. Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과.
+- Fix round 2 상태: 구현, Task 13 문서화와 전체 자동 검증 완료. 실제 Task 13 Gateway durable state/BLE 송신 및 HIL은 후속 범위다.

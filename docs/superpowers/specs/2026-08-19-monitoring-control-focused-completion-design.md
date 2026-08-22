@@ -228,7 +228,7 @@ MeshControlGroupMember는 group과 MeshNode 관계, subscription 적용 상태�
 
 ### 5.4 Gateway와 펌웨어의 그룹 명령
 
-Gateway command payload는 `deliveryMode`, `destinationAddress`, `expectedFixtures`를 포함한다.
+Gateway command payload는 `deliveryMode`, `destinationAddress`, `meshControlGroupId`, `meshControlGroupVersion`, `targetFixtureIds`를 포함한다.
 
 - `unicast`: 기존 acknowledged Light Lightness Set 사용
 - `parallel_unicast`: concurrency limit을 적용해 acknowledged Set 병렬 실행
@@ -239,6 +239,16 @@ ESP32-H2는 group Set을 적용한 뒤 실제 PWM 반영값으로 Lightness Stat
 Gateway는 expected fixture의 실제 Lightness Status를 모아 fixture별 결과를 만든다. 제한 시간 안에 관측되지 않은 node는 `timed_out`, 다른 밝기를 보고한 node는 `state_mismatch`로 처리한다. 일부 실패는 command의 `partial_failed` 상태로 표시한다.
 
 이 방식은 제어 명령 자체는 단일 Mesh 전송으로 유지하면서, 사용자에게는 각 조명의 실제 적용 결과를 제공한다.
+
+Gateway는 group ID/address/version별 로컬 적용 상태를 `configuring | ready | failed`로 내구 저장한다. 저장 파일은 gateway 데이터 디렉터리에 `0600` 권한으로 두고 임시 파일 쓰기, 파일 `fsync`, 원자 rename, 상위 디렉터리 `fsync` 순서로 교체한다. 상태에는 `groupId`, `groupAddress`, `configurationVersion`, `status`, 마지막 오류와 갱신 시각을 포함한다.
+
+- subscription sync는 첫 Config Model Subscription 요청 전에 `configuring(version)`을 원자 저장하고 `fsync`가 끝나야 시작한다.
+- 같은 group의 subscription sync와 dimming은 group ID 기반 단일 직렬화 queue를 공유한다. 다른 group끼리는 병렬 실행할 수 있다.
+- 모든 현재 member가 적용된 뒤에만 `ready(version)`을 내구 저장하고, 저장 완료 후 cloud에 ready ACK를 보낸다.
+- member 하나라도 실패하거나 state 저장에 실패하면 `failed(version)` 또는 더 보수적인 차단 상태를 유지한다. 이전 ready version으로 되돌리거나 일부 적용 상태에서 group 제어를 허용하지 않는다.
+- group dimming은 lock 안에서 `groupId`, address, version과 durable state의 `ready`가 모두 정확히 일치할 때만 BLE 송신한다. `configuring`, `failed`, 누락, 손상, 불일치는 BLE 전에 실패한다.
+
+재시작 시 Gateway는 durable state를 먼저 복원한다. 정상 `ready` snapshot은 exact-match 명령에만 사용할 수 있고 `configuring` 또는 `failed`는 계속 차단한다. 파일이 없거나 JSON/schema/checksum이 손상되면 파일을 격리하고 모든 group을 fail-closed로 취급한 뒤 `mesh-group/resync-request`를 반복 발행한다. Cloud는 해당 gateway의 `ready`를 포함한 모든 control group을 같은 version의 `configuring`으로 되돌리고 member result 상태를 초기화해 전체 subscription sync를 다시 발행한다. Gateway는 각 group의 configuring barrier와 member 전체 적용을 다시 완료하기 전까지 group 제어를 받지 않는다.
 
 ### 5.5 Health Current 수집
 
@@ -279,6 +289,9 @@ Gateway는 expected fixture의 실제 Lightness Status를 모아 fixture별 결�
 - subscription 미완료 group 제어 거부 테스트
 - 제어 중 UI 잠금, terminal 복구, 성공/부분 실패/timeout 표시 테스트
 - group command 1회 송신과 fixture별 status 수집 gateway 테스트
+- sync 첫 전송 전 configuring fsync 순서, sync 중 이전 version 제어 차단, member 부분 실패 fail-closed 테스트
+- group별 sync/control 직렬화와 서로 다른 group 병렬 실행 테스트
+- Gateway 재시작 ready/configuring/failed 복원, state 파일 유실·손상 시 cloud ready group 전체 resync 테스트
 - Health Current fault code 저장과 기존 fixture status 변환 테스트
 
 ### 7.2 수동 하드웨어 검증

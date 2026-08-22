@@ -9,6 +9,12 @@ const migration = readFileSync(join(
 const schema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 
 describe("command target migration contract", () => {
+  it("runs every preflight before DDL inside one explicit transaction", () => {
+    expect(migration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(migration.trimEnd().endsWith("COMMIT;")).toBe(true);
+    expect(migration.indexOf("DO $$")).toBeLessThan(migration.indexOf('ALTER TABLE "Command"'));
+  });
+
   it("backfills authoritative command fixture snapshots from persisted fixture results", () => {
     expect(migration).toMatch(/UPDATE "Command"\s+AS command[\s\S]*?jsonb_agg\(DISTINCT result\."fixtureId"/);
     expect(migration).toMatch(/dispatch\."commandId" = command\."id"/);
@@ -24,15 +30,17 @@ describe("command target migration contract", () => {
     expect(migration).toContain("cannot migrate MqttOutbox without CommandFixtureResult targets");
     expect(migration).toMatch(/HAVING COUNT\(result\."fixtureId"\) > 1000/);
     expect(migration).toContain("cannot migrate MqttOutbox with more than 1000 fixture targets");
-    expect(migration).toMatch(/UPDATE "MqttOutbox" AS outbox[\s\S]*?jsonb_build_object/);
+    expect(migration).toMatch(/UPDATE "MqttOutbox" AS outbox\s+SET "payload" = jsonb_build_object/);
+    expect(migration).not.toMatch(/SET "payload" = \([\s\S]*?\)\s*\|\|/);
+    expect(migration).not.toContain("'expiresAt'");
+    expect(migration).toContain(`'commandId', outbox."payload"->'commandId'`);
+    expect(migration).toContain(`'requestedAt', outbox."payload"->'requestedAt'`);
     expect(migration).toContain(`WHEN outbox."payload"->>'targetType' = 'fixture'`);
     expect(migration).toContain(`ELSE 'fixtures'`);
     expect(migration).toContain(`'targetId', CASE`);
     expect(migration).toContain(`ELSE 'null'::jsonb`);
     expect(migration).toContain(`'targetFixtureIds', dispatch_targets."fixtureIds"`);
     expect(migration).toContain(`'deliveryMode', dispatch_targets."deliveryMode"`);
-    expect(migration).toContain(`- 'destinationAddress' - 'meshControlGroupId' - 'meshControlGroupVersion'`);
-
     const migratedLegacyGroup = {
       commandId: "11111111-1111-4111-8111-111111111111",
       dispatchId: "22222222-2222-4222-8222-222222222222",

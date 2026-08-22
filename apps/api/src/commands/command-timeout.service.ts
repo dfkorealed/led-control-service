@@ -21,13 +21,15 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
   }
 
   async closeExpired(now = new Date()) {
+    const activeLeaseExclusion = excludeActivePendingPublisherLease(now);
     const dispatches = await this.prisma.commandDispatch.findMany({
       where: {
         OR: [
           { status: "pending", createdAt: { lt: new Date(now.getTime() - DELIVERY_TIMEOUT_MS) } },
           { status: "published", publishedAt: { lt: new Date(now.getTime() - GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS) } },
           { status: "accepted", acceptedAt: { lt: new Date(now.getTime() - DEVICE_STATUS_TIMEOUT_MS) } }
-        ]
+        ],
+        ...activeLeaseExclusion
       },
       select: { id: true, commandId: true, status: true }
     });
@@ -36,7 +38,7 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
     for (const dispatch of dispatches) {
       const closed = await this.prisma.$transaction(async (tx) => {
         const result = await tx.commandDispatch.updateMany({
-          where: { id: dispatch.id, status: dispatch.status },
+          where: { id: dispatch.id, status: dispatch.status, ...activeLeaseExclusion },
           data: {
             status: "timed_out",
             completedAt: now,
@@ -69,4 +71,20 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
     }
     return { timedOut };
   }
+}
+
+function excludeActivePendingPublisherLease(now: Date) {
+  return {
+    NOT: {
+      status: "pending" as const,
+      outbox: {
+        is: {
+          publishedAt: null,
+          deadLetteredAt: null,
+          lockedBy: { not: null },
+          leaseExpiresAt: { gt: now }
+        }
+      }
+    }
+  };
 }

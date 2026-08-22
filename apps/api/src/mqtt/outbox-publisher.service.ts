@@ -11,6 +11,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { MqttService } from "./mqtt.service";
 
 const LEASE_MS = 30_000;
+const MQTT_PUBLISH_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPTS = 10;
 const MAX_AGE_MS = 15 * 60_000;
 
@@ -119,13 +120,22 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
       const prepared = await this.prisma.$transaction(async (tx) => {
         await this.assertMeshGroupSnapshot(tx, record, draft);
         return tx.mqttOutbox.updateMany({
-          where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
-          data: { payload }
+          where: {
+            id: record.id,
+            lockedBy: this.workerId,
+            publishedAt: null,
+            deadLetteredAt: null,
+            leaseExpiresAt: { gt: now }
+          },
+          data: { payload, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) }
         });
       });
       if (prepared.count !== 1) return;
 
-      await this.mqtt.publishTopic(record.topic, payload, { messageExpiryInterval: expiry.messageExpiryInterval });
+      await this.mqtt.publishTopic(record.topic, payload, {
+        messageExpiryInterval: expiry.messageExpiryInterval,
+        timeoutMs: MQTT_PUBLISH_TIMEOUT_MS
+      });
       await this.prisma.$transaction(async (tx) => {
         const released = await tx.mqttOutbox.updateMany({
           where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },

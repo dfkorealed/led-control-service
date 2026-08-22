@@ -48,6 +48,68 @@ describe("MqttService", () => {
     );
   });
 
+  it("does not resolve a QoS 1 publish until the MQTT callback confirms PUBACK", async () => {
+    let callback: ((error?: Error) => void) | undefined;
+    const client: any = {
+      publish: jest.fn((_topic, _payload, _options, value) => {
+        callback = value;
+        return client;
+      })
+    };
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).client = client;
+    let settled = false;
+
+    const publishing = service.publishTopic("sites/s/gateways/g/commands/dimming", { ok: true })
+      .finally(() => { settled = true; });
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    callback?.();
+    await expect(publishing).resolves.toBeUndefined();
+  });
+
+  it("cancels each concurrent QoS 1 packet by its own message ID on timeout", async () => {
+    jest.useFakeTimers();
+    try {
+      let lastMessageId = 0;
+      const callbacks = new Map<number, (error?: Error) => void>();
+      const client: any = {
+        publish: jest.fn((_topic, _payload, _options, callback) => {
+          lastMessageId += 1;
+          callbacks.set(lastMessageId, callback);
+          return client;
+        }),
+        getLastMessageId: jest.fn(() => lastMessageId),
+        removeOutgoingMessage: jest.fn((messageId: number) => {
+          callbacks.get(messageId)?.(new Error("Message removed"));
+          return client;
+        })
+      };
+      const service = new MqttService({} as never, createMeshGroupsMock() as never);
+      (service as any).client = client;
+
+      const first = service.publishTopic("topic/first", { id: 1 }, { timeoutMs: 1_000 });
+      const second = service.publishTopic("topic/second", { id: 2 }, { timeoutMs: 1_000 });
+      const resultsPromise = Promise.allSettled([first, second]);
+      await jest.advanceTimersByTimeAsync(1_000);
+
+      const results = await resultsPromise;
+      expect(results).toEqual([
+        expect.objectContaining({ status: "rejected", reason: expect.objectContaining({ message: "MQTT publish timed out after 1000ms" }) }),
+        expect.objectContaining({ status: "rejected", reason: expect.objectContaining({ message: "MQTT publish timed out after 1000ms" }) })
+      ]);
+      expect(client.removeOutgoingMessage).toHaveBeenNthCalledWith(1, 1);
+      expect(client.removeOutgoingMessage).toHaveBeenNthCalledWith(2, 2);
+
+      callbacks.get(1)?.();
+      callbacks.get(2)?.();
+      expect(client.removeOutgoingMessage).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("marks a gateway dispatch accepted from a scoped acceptance ACK", async () => {
     const prisma: any = {
       commandDispatch: {

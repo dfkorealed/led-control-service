@@ -69,6 +69,7 @@
 - 수동 명령은 현재 단일 gateway `CommandDispatch`로 만들고 gateway 독립 sequence와 idempotency key를 발급한다. 여러 gateway에 걸친 논리 target은 후속 fan-out 설계 전까지 생성하지 않는다.
 - Command, gateway별 dispatch, 조명별 pending 결과, MQTT outbox를 하나의 DB transaction에 저장한다.
 - MQTT outbox publisher가 PostgreSQL `FOR UPDATE SKIP LOCKED`와 30초 worker lease로 다중 API 인스턴스의 중복 발행을 차단한다.
+- Publisher는 payload 준비 transaction에서 lease가 유효한지 다시 확인하고 30초로 갱신한다. MQTT QoS 1 publish는 20초 timeout을 사용하며 timeout 시 해당 message ID를 outgoing store에서 제거한다. API timeout worker는 유효 lease가 있는 pending dispatch를 초기 조회와 terminal update 모두에서 제외하고, lease가 만료된 명령만 정상 timeout 처리한다.
 - Mesh group outbox는 발행 직전 현재 group의 ID, gateway, 주소, 구성 버전, `ready` 상태가 명령 생성 snapshot과 같은지 다시 검증한다. 같은 버전의 `configuring`은 재시도하고 삭제·실패·버전/주소/gateway 불일치는 MQTT로 보내지 않고 `MESH_GROUP_STALE`로 즉시 실패 처리한다.
 - broker 전송 실패에는 지수 backoff와 jitter를 적용하며 최대 10회 또는 15분을 넘으면 outbox를 dead-letter 처리하고 dispatch, 조명별 결과, 상위 명령을 실패로 종료한다.
 - API timeout worker는 미발행 명령 15분, MQTT 발행 후 acceptance 10초, acceptance 후 장비 상태 30초 deadline을 적용하고 종료되지 않은 명령을 `timed_out`으로 확정한다.
@@ -100,6 +101,7 @@
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
 - Gateway에서 `parallel_unicast`와 `mesh_group` delivery mode를 실제 BLE Mesh 송신으로 분기하고 group 단일 전송 뒤 fixture별 status를 집계(Task 13)
+- Task 13 Gateway durable group state: ID/address/version별 `configuring | ready | failed` 원자 저장, sync 전 fsync barrier, group 단위 sync/control 직렬화, 부분 실패 fail-closed, 재시작 복원, state 유실·손상 시 cloud ready group 전체 resync
 - gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결
 - ESP32-H2 제품/진단 정보 report의 gateway/API 연동
 - ESP32-H2 실제 보드 플래시 검증
@@ -115,7 +117,7 @@
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
-- API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화 및 발행 직전 stale 검증까지 반영됐다. 다만 실제 Gateway 병렬 unicast/group dimming 송신과 Gateway 로컬 적용 version 최종 비교는 Task 13, 신규 웹 제어 UI는 Task 14 범위다.
+- API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, 발행 직전 stale 검증, publisher lease와 timeout worker 경쟁 차단까지 반영됐다. 다만 실제 Gateway 병렬 unicast/group dimming 송신과 durable group state 수명주기는 Task 13, 신규 웹 제어 UI는 Task 14 범위다.
 
 ## 관련 파일
 

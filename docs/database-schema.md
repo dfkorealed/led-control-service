@@ -769,11 +769,13 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 
 `MqttOutbox`는 dispatch와 1:1로 연결되며 topic, JSON payload, attempts, nextAttemptAt, publishedAt, lastError를 저장한다. Command와 outbox를 같은 DB transaction에서 생성해 MQTT publish 실패로 `pending` 명령이 유실되는 문제를 방지한다. `mesh_group` payload는 `meshControlGroupId`, `meshControlGroupVersion`, Group Address를 포함한다. Publisher는 payload 준비 transaction 안에서 Dispatch snapshot 및 현재 그룹의 gateway/address/version/status를 다시 확인하고, 동일 버전 `configuring`만 재시도한다. 그룹 삭제·실패·버전/주소/gateway 불일치는 MQTT 발행 없이 `MESH_GROUP_STALE` terminal failure로 종료한다.
 
-`20260819094000_extend_command_targets` migration은 기존 Command의 `targetFixtureIds`를 관련 `CommandFixtureResult.fixtureId` 집합으로 backfill한다. 기존 Dispatch는 실제 result 수 1개 이하면 `unicast`, 2개 이상이면 `parallel_unicast`로 정규화한다. 기존 outbox payload도 같은 fixture 목록을 사용하며 과거 `group` 명령을 Mesh group으로 가장하지 않고 `fixtures`, `targetId = null`로 바꾼다. 단, 기존 `fixture` 명령이 정확히 한 조명을 가리킬 때만 `fixture`를 유지한다. 권위 있는 result가 없거나 strict wire 한도인 1,000개를 초과하는 outbox가 하나라도 있으면 migration은 대상을 자르거나 잘못 발행하지 않고 명시적으로 중단한다.
+`20260819094000_extend_command_targets` migration은 기존 Command의 `targetFixtureIds`를 관련 `CommandFixtureResult.fixtureId` 집합으로 backfill한다. 기존 Dispatch는 실제 result 수 1개 이하면 `unicast`, 2개 이상이면 `parallel_unicast`로 정규화한다. 기존 outbox payload도 같은 fixture 목록을 사용하며 과거 `group` 명령을 Mesh group으로 가장하지 않고 `fixtures`, `targetId = null`로 바꾼다. 단, 기존 `fixture` 명령이 정확히 한 조명을 가리킬 때만 `fixture`를 유지한다. Payload는 strict draft wire가 허용하는 키만 새 JSON으로 재구성하므로 이전 재시도에서 저장된 `expiresAt`과 임의 legacy 키를 제거한다. 권위 있는 result가 없거나 strict wire 한도인 1,000개를 초과하는 outbox가 하나라도 있으면 migration은 대상을 자르거나 잘못 발행하지 않고 명시적으로 중단한다.
+
+모든 preflight는 DDL보다 먼저 실행되고 migration 전체는 명시적 PostgreSQL transaction으로 감싼다. Guard 또는 후반 index/FK 오류가 발생하면 신규 컬럼, update, constraint가 함께 rollback된다. `COMMAND_MIGRATION_TEST_DATABASE_URL`을 지정한 opt-in rehearsal은 무작위 임시 schema만 만들고 fresh/retry strict parse, guard rollback, 후반 DDL rollback을 검증한 뒤 schema를 삭제한다.
 
 이 migration은 아직 어떤 배포 환경에도 적용하지 않은 Task 12 신규 migration이라는 전제에서 같은 파일을 보정했다. 이미 이전 버전을 적용한 환경이 생긴 뒤에는 파일을 다시 수정하지 말고 별도의 순방향 보정 migration을 추가해야 한다.
 
-다중 API 인스턴스에서는 `lockedBy`, `lockedAt`, `leaseExpiresAt`으로 30초 발행 lease를 소유하고 PostgreSQL `FOR UPDATE SKIP LOCKED`로 같은 레코드의 중복 발행을 차단한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하고 dispatch와 조명별 결과를 실패로 종료한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
+다중 API 인스턴스에서는 `lockedBy`, `lockedAt`, `leaseExpiresAt`으로 30초 발행 lease를 소유하고 PostgreSQL `FOR UPDATE SKIP LOCKED`로 같은 레코드의 중복 발행을 차단한다. Publisher는 payload 준비 시 lease 유효성을 조건부 update로 다시 검사하고 publish 시작 시점부터 30초로 갱신한다. MQTT QoS 1 callback을 20초 안에 받지 못하면 해당 message ID를 `removeOutgoingMessage`로 취소하고 재시도 경로로 전환한다. Timeout worker는 현재 유효 lease가 있는 pending dispatch를 조회와 terminal update 모두에서 제외한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하고 dispatch와 조명별 결과를 실패로 종료한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
 
 | `MqttOutbox` 운영 컬럼 | 타입 | 설명 |
 | --- | --- | --- |

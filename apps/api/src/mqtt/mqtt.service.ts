@@ -84,20 +84,44 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     await this.publishTopic(topic, payload);
   }
 
-  async publishTopic(topic: string, payload: unknown, options: { messageExpiryInterval?: number } = {}) {
+  async publishTopic(
+    topic: string,
+    payload: unknown,
+    options: { messageExpiryInterval?: number; timeoutMs?: number } = {}
+  ) {
     await new Promise<void>((resolve, reject) => {
-      this.getClient().publish(topic, JSON.stringify(payload), {
-        qos: 1,
-        properties: {
-          messageExpiryInterval: options.messageExpiryInterval ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000
-        }
-      }, (error) => {
+      const client = this.getClient();
+      let settled = false;
+      let timeout: NodeJS.Timeout | null = null;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
         if (error) {
           reject(error);
           return;
         }
         resolve();
+      };
+
+      client.publish(topic, JSON.stringify(payload), {
+        qos: 1,
+        properties: {
+          messageExpiryInterval: options.messageExpiryInterval ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000
+        }
+      }, (error) => {
+        finish(error ?? undefined);
       });
+
+      if (settled || options.timeoutMs === undefined) return;
+      const messageId = client.getLastMessageId();
+      timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        timeout = null;
+        client.removeOutgoingMessage(messageId);
+        reject(new Error(`MQTT publish timed out after ${options.timeoutMs}ms`));
+      }, options.timeoutMs);
     });
   }
 
