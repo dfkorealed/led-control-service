@@ -19,6 +19,7 @@ type PublisherOptions = {
   workerId?: string;
   random?: () => number;
   pollMs?: number;
+  clock?: () => Date;
 };
 
 @Injectable()
@@ -26,6 +27,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
   private readonly workerId: string;
   private readonly random: () => number;
   private readonly pollMs: number;
+  private readonly clock: () => Date;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -36,6 +38,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
     this.workerId = options.workerId ?? randomUUID();
     this.random = options.random ?? Math.random;
     this.pollMs = options.pollMs ?? Number(process.env.MQTT_OUTBOX_POLL_MS ?? 1000);
+    this.clock = options.clock ?? (() => new Date());
   }
 
   onModuleInit() {
@@ -47,7 +50,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
-  async claimBatch(now = new Date()) {
+  async claimBatch(now = this.clock()) {
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT "id"
@@ -86,7 +89,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async processBatch(now = new Date()) {
+  async processBatch(now = this.clock()) {
     const records = await this.claimBatch(now);
     for (const record of records) await this.publishClaimed(record);
   }
@@ -107,56 +110,68 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
         meshControlGroupId: string | null;
         meshControlGroupVersion: number | null;
       };
-    },
-    now = new Date()
+    }
   ) {
     try {
-      const draft = gatewayDimmingCommandDraftV2Schema.parse(record.payload);
-      const expiry = createGatewayCommandExpiry(now);
-      const payload = gatewayDimmingCommandV2Schema.parse({
-        ...draft,
-        expiresAt: expiry.expiresAt
-      });
+      const draft = parseStoredDimmingDraft(record.payload);
       const prepared = await this.prisma.$transaction(async (tx) => {
         await this.assertMeshGroupSnapshot(tx, record, draft);
-        return tx.mqttOutbox.updateMany({
+        const preparedAt = this.clock();
+        const expiry = createGatewayCommandExpiry(preparedAt);
+        const payload = gatewayDimmingCommandV2Schema.parse({ ...draft, expiresAt: expiry.expiresAt });
+        const updated = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,
             lockedBy: this.workerId,
             publishedAt: null,
             deadLetteredAt: null,
-            leaseExpiresAt: { gt: now }
+            leaseExpiresAt: { gt: preparedAt }
           },
-          data: { payload, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) }
+          data: { payload, leaseExpiresAt: new Date(preparedAt.getTime() + LEASE_MS) }
         });
+        return updated.count === 1 ? { payload, expiry } : null;
       });
-      if (prepared.count !== 1) return;
+      if (!prepared) return;
 
-      await this.mqtt.publishTopic(record.topic, payload, {
-        messageExpiryInterval: expiry.messageExpiryInterval,
+      const publishFenceAt = this.clock();
+      const publishable = await this.prisma.mqttOutbox.count({
+        where: {
+          id: record.id,
+          lockedBy: this.workerId,
+          publishedAt: null,
+          deadLetteredAt: null,
+          leaseExpiresAt: { gt: new Date(publishFenceAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) }
+        }
+      });
+      if (publishable !== 1) return;
+
+      await this.mqtt.publishTopic(record.topic, prepared.payload, {
+        messageExpiryInterval: prepared.expiry.messageExpiryInterval,
         timeoutMs: MQTT_PUBLISH_TIMEOUT_MS
       });
+      const publishedAt = this.clock();
       await this.prisma.$transaction(async (tx) => {
         const released = await tx.mqttOutbox.updateMany({
           where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
-          data: { publishedAt: now, lastError: null, lockedBy: null, lockedAt: null, leaseExpiresAt: null }
+          data: { publishedAt, lastError: null, lockedBy: null, lockedAt: null, leaseExpiresAt: null }
         });
         if (released.count !== 1) return;
         await tx.commandDispatch.updateMany({
           where: { id: record.dispatchId, status: "pending" },
-          data: { status: "published", publishedAt: now }
+          data: { status: "published", publishedAt }
         });
       });
     } catch (error) {
+      const failedAt = this.clock();
       const message = error instanceof Error ? error.message : "unknown MQTT publish error";
       const attempts = record.attempts + 1;
       if (error instanceof StaleMeshGroupError) {
-        await this.moveToTerminalFailure(record, attempts, message, now, "MESH_GROUP_STALE");
+        await this.moveToTerminalFailure(record, attempts, message, failedAt, "MESH_GROUP_STALE");
         return;
       }
-      const exhausted = attempts >= MAX_ATTEMPTS || now.getTime() - record.createdAt.getTime() >= MAX_AGE_MS;
+      const exhausted = attempts >= MAX_ATTEMPTS || failedAt.getTime() - record.createdAt.getTime() >= MAX_AGE_MS;
       if (exhausted) {
-        await this.moveToDeadLetter(record, attempts, message, now);
+        await this.moveToDeadLetter(record, attempts, message, failedAt);
         return;
       }
 
@@ -166,7 +181,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
         where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
         data: {
           attempts,
-          nextAttemptAt: new Date(now.getTime() + delay + jitter),
+          nextAttemptAt: new Date(failedAt.getTime() + delay + jitter),
           lastError: message,
           lockedBy: null,
           lockedAt: null,
@@ -259,6 +274,16 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
       });
     });
   }
+}
+
+function parseStoredDimmingDraft(payload: Prisma.JsonValue): GatewayDimmingCommandDraftV2 {
+  const draft = gatewayDimmingCommandDraftV2Schema.safeParse(payload);
+  if (draft.success) return draft.data;
+
+  const full = gatewayDimmingCommandV2Schema.safeParse(payload);
+  if (!full.success) throw draft.error;
+  const { expiresAt: _expiredPublishDeadline, ...withoutExpiry } = full.data;
+  return gatewayDimmingCommandDraftV2Schema.parse(withoutExpiry);
 }
 
 class MeshGroupConfiguringError extends Error {

@@ -69,7 +69,8 @@
 - 수동 명령은 현재 단일 gateway `CommandDispatch`로 만들고 gateway 독립 sequence와 idempotency key를 발급한다. 여러 gateway에 걸친 논리 target은 후속 fan-out 설계 전까지 생성하지 않는다.
 - Command, gateway별 dispatch, 조명별 pending 결과, MQTT outbox를 하나의 DB transaction에 저장한다.
 - MQTT outbox publisher가 PostgreSQL `FOR UPDATE SKIP LOCKED`와 30초 worker lease로 다중 API 인스턴스의 중복 발행을 차단한다.
-- Publisher는 payload 준비 transaction에서 lease가 유효한지 다시 확인하고 30초로 갱신한다. MQTT QoS 1 publish는 20초 timeout을 사용하며 timeout 시 해당 message ID를 outgoing store에서 제거한다. API timeout worker는 유효 lease가 있는 pending dispatch를 초기 조회와 terminal update 모두에서 제외하고, lease가 만료된 명령만 정상 timeout 처리한다.
+- Publisher는 strict draft/full 저장 payload를 모두 처리하되 full payload의 과거 `expiresAt`만 제거하고 매 재시도마다 새 expiry를 만든다. Mesh snapshot 검증 직후 fresh clock으로 현재 worker의 유효 lease를 30초 연장하고 MQTT 직전에도 20초 publish timeout 전체를 덮는 소유권/lease를 재확인한다. Timeout 시 해당 message ID를 outgoing store에서 제거하며 backoff/dead-letter 시각도 실제 실패 시각을 사용한다.
+- Pending timeout은 active lease를 조회 결과에서 추정하지 않고 transaction에서 미발행 outbox row를 먼저 dead-letter 선점한다. Outbox가 없거나 active lease가 있으면 fail-closed하고, 선점 뒤 Dispatch 경쟁을 잃으면 transaction을 rollback한다. Published/accepted timeout은 outbox 선점 없이 기존 조건부 종료를 유지한다.
 - Mesh group outbox는 발행 직전 현재 group의 ID, gateway, 주소, 구성 버전, `ready` 상태가 명령 생성 snapshot과 같은지 다시 검증한다. 같은 버전의 `configuring`은 재시도하고 삭제·실패·버전/주소/gateway 불일치는 MQTT로 보내지 않고 `MESH_GROUP_STALE`로 즉시 실패 처리한다.
 - broker 전송 실패에는 지수 backoff와 jitter를 적용하며 최대 10회 또는 15분을 넘으면 outbox를 dead-letter 처리하고 dispatch, 조명별 결과, 상위 명령을 실패로 종료한다.
 - API timeout worker는 미발행 명령 15분, MQTT 발행 후 acceptance 10초, acceptance 후 장비 상태 30초 deadline을 적용하고 종료되지 않은 명령을 `timed_out`으로 확정한다.
@@ -117,7 +118,7 @@
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
-- API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, 발행 직전 stale 검증, publisher lease와 timeout worker 경쟁 차단까지 반영됐다. 다만 실제 Gateway 병렬 unicast/group dimming 송신과 durable group state 수명주기는 Task 13, 신규 웹 제어 UI는 Task 14 범위다.
+- API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing과 outbox row 기반 pending timeout 직렬화까지 반영됐다. 다만 실제 Gateway 병렬 unicast/group dimming 송신과 durable group state 수명주기는 Task 13, 신규 웹 제어 UI는 Task 14 범위다.
 
 ## 관련 파일
 

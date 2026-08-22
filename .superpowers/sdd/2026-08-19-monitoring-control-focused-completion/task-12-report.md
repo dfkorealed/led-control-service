@@ -105,3 +105,34 @@ COMMAND_MIGRATION_TEST_DATABASE_URL='postgresql:///postgres' pnpm --filter @led-
 
 - MQTT QoS 1 packet이 broker에 이미 전달되고 PUBACK만 유실된 경우 outgoing 제거는 물리 적용을 되돌릴 수 없다. 기존 command idempotency key, 10초 message/command expiry와 Gateway journal 재전송 방어를 함께 사용한다.
 - Gateway durable group state 및 BLE Mesh 실제 group 송신은 문서화된 Task 13 구현/HIL 범위다.
+
+## 재리뷰 2 Fix round 3
+
+### RED 증거
+
+- OutboxPublisher service 회귀에서 첫 publish 실패 후 DB에 남은 strict full payload를 두 번째 시도가 draft로 읽지 못해 MQTT 호출이 1회에 머물렀다.
+- Snapshot 조회가 31초 지연된 테스트에서 prepare update가 fresh 시각이 아닌 기존 `T0`를 사용해 이미 만료된 lease를 통과시켰다.
+- MQTT 직전 worker ownership/잔여 lease 조회가 없어 fencing 테스트가 실패했다.
+- Pending timeout 테스트 5건이 outbox 선점 부재, Dispatch 우선 update, active publisher claim, Dispatch 경쟁 rollback 부재와 published/accepted 불필요 outbox cleanup 때문에 실패했다.
+
+### 수정 내용
+
+- 저장 payload는 strict draft를 먼저 검사하고, 실패하면 strict full wire만 허용한다. Full payload는 `expiresAt`만 제거해 draft로 재검증하며 임의 extra key는 계속 거부한다. 첫 publish 실패로 실제 저장된 full payload를 두 번째 service 호출에 넣어 새 expiry로 MQTT가 다시 호출되는 회귀를 추가했다.
+- `PublisherOptions.clock`을 주입해 snapshot 검증 직후 fresh 시각으로 유효 lease를 30초 연장하고 같은 시점의 expiry를 저장한다. MQTT 직전에는 worker ownership, 미발행·미-dead-letter 상태와 20초 timeout 전체를 덮는 잔여 lease를 `count = 1`로 재확인한다.
+- Publish 성공, catch/backoff, dead-letter 시각은 시작 시각을 재사용하지 않고 각 경로의 fresh clock을 사용한다.
+- Pending timeout은 transaction에서 inactive/expired lease를 가진 outbox를 먼저 dead-letter 선점한다. Outbox가 없거나 active lease이면 fail-closed하고, Dispatch update 경쟁을 잃으면 sentinel exception으로 outbox 변경까지 rollback한다. Published/accepted timeout은 outbox 선점 없이 기존 조건부 Dispatch 종료를 유지한다.
+
+### GREEN 증거
+
+- Publisher/timeout 집중: 23개 통과
+- Shared 전체: 41개 통과
+- Commands/MQTT/Mesh 관련 API: 98개 통과, opt-in rehearsal 3개 skip
+- API 전체: 397개 통과, 기존 및 opt-in 29개 skip
+- Gateway 전체: 189개 통과
+- PostgreSQL 격리 migration rehearsal: 3개 통과
+- Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과
+
+### 남은 한계
+
+- Pending timeout과 publisher의 PostgreSQL row 경쟁은 동일 outbox 조건과 transaction 호출 순서를 service 단위 테스트로 검증했다. 실제 다중 프로세스 lock wait를 강제로 만드는 별도 PostgreSQL concurrency rehearsal은 포함하지 않았다.
+- QoS 1 PUBACK 유실은 at-least-once 경계이므로 Gateway idempotency journal과 Task 13 BLE 실행 직전 expiry/version 검증이 계속 필요하다.

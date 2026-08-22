@@ -21,70 +21,76 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
   }
 
   async closeExpired(now = new Date()) {
-    const activeLeaseExclusion = excludeActivePendingPublisherLease(now);
     const dispatches = await this.prisma.commandDispatch.findMany({
       where: {
         OR: [
           { status: "pending", createdAt: { lt: new Date(now.getTime() - DELIVERY_TIMEOUT_MS) } },
           { status: "published", publishedAt: { lt: new Date(now.getTime() - GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS) } },
           { status: "accepted", acceptedAt: { lt: new Date(now.getTime() - DEVICE_STATUS_TIMEOUT_MS) } }
-        ],
-        ...activeLeaseExclusion
+        ]
       },
       select: { id: true, commandId: true, status: true }
     });
 
     let timedOut = 0;
     for (const dispatch of dispatches) {
-      const closed = await this.prisma.$transaction(async (tx) => {
-        const result = await tx.commandDispatch.updateMany({
-          where: { id: dispatch.id, status: dispatch.status, ...activeLeaseExclusion },
-          data: {
-            status: "timed_out",
-            completedAt: now,
-            errorCode: "COMMAND_TIMEOUT",
-            errorMessage: "gateway command deadline exceeded"
+      let closed = false;
+      try {
+        closed = await this.prisma.$transaction(async (tx) => {
+          if (dispatch.status === "pending") {
+            const claimed = await tx.mqttOutbox.updateMany({
+              where: {
+                dispatchId: dispatch.id,
+                publishedAt: null,
+                deadLetteredAt: null,
+                OR: [{ lockedBy: null }, { leaseExpiresAt: { lte: now } }]
+              },
+              data: {
+                deadLetteredAt: now,
+                lastError: "command timed out before delivery",
+                lockedBy: null,
+                lockedAt: null,
+                leaseExpiresAt: null
+              }
+            });
+            if (claimed.count !== 1) return false;
           }
-        });
-        if (result.count !== 1) return false;
-        await tx.commandFixtureResult.updateMany({
-          where: { dispatchId: dispatch.id, status: "pending" },
-          data: { status: "timed_out", occurredAt: now, errorMessage: "gateway command deadline exceeded" }
-        });
-        await tx.mqttOutbox.updateMany({
-          where: { dispatchId: dispatch.id, publishedAt: null, deadLetteredAt: null },
-          data: {
-            deadLetteredAt: now,
-            lastError: "command timed out before delivery",
-            lockedBy: null,
-            lockedAt: null,
-            leaseExpiresAt: null
+
+          const result = await tx.commandDispatch.updateMany({
+            where: { id: dispatch.id, status: dispatch.status },
+            data: {
+              status: "timed_out",
+              completedAt: now,
+              errorCode: "COMMAND_TIMEOUT",
+              errorMessage: "gateway command deadline exceeded"
+            }
+          });
+          if (result.count !== 1) {
+            // A false return would commit the outbox claim; throwing makes Prisma roll back both row updates.
+            if (dispatch.status === "pending") throw new PendingTimeoutRaceError();
+            return false;
           }
+          await tx.commandFixtureResult.updateMany({
+            where: { dispatchId: dispatch.id, status: "pending" },
+            data: { status: "timed_out", occurredAt: now, errorMessage: "gateway command deadline exceeded" }
+          });
+          await tx.command.updateMany({
+            where: { id: dispatch.commandId, status: "pending" },
+            data: { status: "failed", errorMessage: "one or more gateway dispatches timed out" }
+          });
+          return true;
         });
-        await tx.command.updateMany({
-          where: { id: dispatch.commandId, status: "pending" },
-          data: { status: "failed", errorMessage: "one or more gateway dispatches timed out" }
-        });
-        return true;
-      });
+      } catch (error) {
+        if (!(error instanceof PendingTimeoutRaceError)) throw error;
+      }
       if (closed) timedOut += 1;
     }
     return { timedOut };
   }
 }
 
-function excludeActivePendingPublisherLease(now: Date) {
-  return {
-    NOT: {
-      status: "pending" as const,
-      outbox: {
-        is: {
-          publishedAt: null,
-          deadLetteredAt: null,
-          lockedBy: { not: null },
-          leaseExpiresAt: { gt: now }
-        }
-      }
-    }
-  };
+class PendingTimeoutRaceError extends Error {
+  constructor() {
+    super("pending command timeout lost its dispatch race");
+  }
 }

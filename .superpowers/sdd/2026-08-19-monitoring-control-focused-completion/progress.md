@@ -194,6 +194,21 @@ Ruling: timeout worker는 현재 시각 기준 유효한 outbox lease가 있는 
 
 Ruling: Task 13 Gateway group state는 group ID/address/version별 `configuring | ready | failed`를 내구 저장하고 sync/control을 group 단위 직렬화한다 — 일부 member 적용 중 이전 version 명령과 재시작 후 상태 유실을 fail-closed로 막기 위해서다 — state 유실 시 cloud ready group 전체 resync 복구 경로도 계획에 포함한다.
 
+### Task 12 재리뷰 2
+
+- 재리뷰 에이전트: `01a0286e-123d-7930-afe3-473265de1cda` (Mill)
+- 수정 커밋: `1c65074`
+- 결과: migration 원자성/실제 rehearsal과 Task 13 durable state 계획은 해결됐으나 runtime retry/lease Important 2건으로 승인 보류
+- Finding 1: 새 publisher가 첫 publish 실패 후 DB에 저장한 `expiresAt` 포함 full payload를 다음 시도에서 strict draft로 parse해 실패한다.
+- Finding 2: Mesh snapshot 조회 전의 오래된 `now`로 lease를 갱신해 DB 지연 뒤 이미 만료된 lease로 publish할 수 있다.
+- Orchestrator 추가 finding: pending timeout transaction이 Dispatch를 먼저 갱신하고 outbox를 lease 조건 없이 나중에 닫아, Dispatch update 뒤 publisher claim 경쟁을 차단하지 못한다.
+
+Ruling: 저장 outbox는 strict draft 또는 strict full payload 둘 중 하나로 parse한 뒤 항상 `expiresAt`을 제거한 draft로 정규화하고 새 publish-relative expiry를 만든다 — 첫 MQTT 실패도 정상 재시도 가능해야 하기 때문이다 — 두 번 연속 publish 시도 회귀 테스트를 추가한다.
+
+Ruling: Mesh 검증을 마친 뒤 fresh clock으로 lease를 연장하되 기존 lease가 그 시각에도 유효한 경우에만 준비하고, MQTT 호출 직전 같은 worker 소유권과 유효 lease를 다시 확인한다 — 느린 DB 조회 중 다른 worker가 lease를 회수한 명령을 발행하지 않기 위해서다 — publish timeout은 갱신 lease보다 짧게 유지한다.
+
+Ruling: pending timeout은 transaction에서 outbox를 먼저 `inactive/expired lease` 조건으로 dead-letter 선점하고 성공한 경우에만 Dispatch/fixture/Command를 종료한다 — publisher claim과 같은 outbox row에서 직렬화하기 위해서다 — published/accepted timeout은 기존 Dispatch 조건부 종료 경로를 유지한다.
+
 ### Task 12 독립 리뷰 Fix round 1
 
 - Finding 1: 기존 Command는 result fixture ID snapshot, Dispatch는 실제 result 수 기반 physical mode로 backfill한다. 기존 outbox는 동일 fixture 목록으로 strict payload를 만들고 과거 group 명령은 `fixtures`로 정규화한다. result가 없거나 1,000개를 초과하는 outbox는 migration을 중단한다.
@@ -224,3 +239,17 @@ Ruling: OutboxPublisher의 20초 MQTT timeout은 30초 lease보다 짧고 prepar
 - Fix round 2 RED: migration 계약 2건, PostgreSQL rehearsal 3건, timeout lease 3건 실패 및 MQTT timeout 계약 compile 실패/Outbox 경쟁 3건 실패 확인
 - Fix round 2 GREEN: Shared 41개, migration 계약 5개, PostgreSQL 16.14 rehearsal 3개, 관련 API 92개(기본 실행에서 rehearsal 3개 skip), API 전체 391개(기존 및 opt-in 29개 skip), Gateway 189개 통과. Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과.
 - Fix round 2 상태: 구현, Task 13 문서화와 전체 자동 검증 완료. 실제 Task 13 Gateway durable state/BLE 송신 및 HIL은 후속 범위다.
+
+### Task 12 재리뷰 2 Fix round 3
+
+- Finding 1: OutboxPublisher가 strict draft와 strict full wire를 모두 입력으로 허용한다. Full은 `expiresAt`만 제거해 strict draft로 재검증하고 매 시도 fresh expiry를 만든다. 임의 extra key는 거부하며 첫 publish 실패 후 저장 full payload의 두 번째 publish 성공을 service 단위로 검증했다.
+- Finding 2: Mesh snapshot 검증 직후 주입 clock의 fresh 시각으로 현재 worker가 소유한 유효 lease만 30초 연장한다. MQTT 직전에도 worker ownership과 20초 publish timeout 전체를 덮는 잔여 lease를 확인해 snapshot 지연 중 만료·회수된 row는 발행하지 않는다. 성공/backoff/dead-letter도 완료 시점 fresh 시각을 쓴다.
+- Orchestrator 추가 finding: Pending timeout은 inactive/expired lease outbox를 먼저 dead-letter 선점한 뒤 Dispatch/fixture/Command를 종료한다. 필수 1:1 outbox 부재와 active lease는 fail-closed하며, 선점 뒤 Dispatch 경쟁은 sentinel exception으로 transaction 전체를 rollback한다. Published/accepted는 outbox 선점 없이 종료한다.
+
+Ruling: MQTT 직전 lease 조건은 단순 `leaseExpiresAt > now`보다 강한 `leaseExpiresAt > now + 20초 publish timeout`을 사용한다 — MQTT promise가 허용 시간 동안 정지해도 timeout worker나 다른 publisher가 row를 회수하지 못하게 하기 위해서다 — 조건을 만족하지 못하면 현재 시도는 발행하지 않고 lease 만료 후 다시 claim한다.
+
+Ruling: Pending CommandDispatch와 MqttOutbox는 정상 생성 경로에서 필수 1:1이므로 timeout 시 outbox가 없으면 fail-closed한다 — outbox 선점 없이 Dispatch만 종료하면 뒤늦은 물리 publish를 막을 row 경계가 없기 때문이다 — 비정상 row는 운영 조사 및 별도 복구 대상이다.
+
+- Fix round 3 RED: runtime full retry 1건, fresh lease/publish 직전 fencing 2건, pending timeout 선점·경쟁 5건 실패 확인
+- Fix round 3 GREEN: 집중 23개, Shared 41개, 관련 API 98개(3개 opt-in skip), API 전체 397개(29개 skip), Gateway 189개, PostgreSQL migration rehearsal 3개 통과. Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과.
+- Fix round 3 상태: Important 2건과 orchestrator 추가 finding 구현 및 문서화 완료. Task 13 실제 BLE 송신은 변경하지 않았다.

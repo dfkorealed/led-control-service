@@ -1050,7 +1050,19 @@ Run: `COMMAND_MIGRATION_TEST_DATABASE_URL='postgresql:///postgres' pnpm --filter
 
 - [x] **재리뷰 1 fix 3: timeout/publisher lease fencing**
 
-Timeout worker는 유효 publisher lease를 초기 조회와 transaction 조건부 update에서 모두 제외한다. Publisher는 payload 준비 시 lease를 검증하고 30초로 갱신하며, MQTT QoS 1 publish는 20초 timeout 후 해당 outgoing message ID를 취소한다. 동시 publish ID, callback 이중 완료, pending publish 경쟁, query 후 claim, expired lease 회귀를 자동 테스트한다.
+Publisher는 payload 준비 시 lease를 검증하고 30초로 갱신하며, MQTT QoS 1 publish는 20초 timeout 후 해당 outgoing message ID를 취소한다. 동시 publish ID와 callback 이중 완료를 자동 테스트한다. Pending timeout의 최종 경쟁 정책은 재리뷰 2 fix에서 outbox row 선점 방식으로 강화했다.
+
+- [x] **재리뷰 2 fix 1: runtime full payload retry**
+
+저장 outbox를 strict draft 또는 strict full wire로만 parse한다. Full이면 `expiresAt`만 제거한 뒤 draft로 재검증하고 매 시도마다 새 expiry를 생성한다. 첫 publish 실패로 저장된 full payload가 두 번째 publish에서 새 expiry로 성공하는 service 회귀와 임의 extra key 거부를 검증한다.
+
+- [x] **재리뷰 2 fix 2: fresh lease와 publish 직전 fencing**
+
+Mesh snapshot 검증이 끝난 직후 주입 가능한 fresh clock으로 현재 worker의 유효 lease만 30초 연장하고 새 expiry를 저장한다. MQTT 직전에는 worker ownership, 미발행·미-dead-letter 상태와 20초 timeout 전체를 덮는 lease를 다시 확인한다. Snapshot 지연 중 lease가 만료되거나 다른 worker가 회수한 row는 MQTT를 0회 호출한다. Backoff/dead-letter/success 시각도 각 완료 시점 fresh clock을 사용한다.
+
+- [x] **재리뷰 2 추가 fix: pending timeout outbox 선점**
+
+Pending timeout transaction은 미발행·미-dead-letter이며 unlocked 또는 lease 만료인 outbox를 먼저 dead-letter 선점한다. 정확히 1개를 선점한 경우에만 Dispatch/fixture/Command를 종료하고, 필수 1:1 outbox가 없으면 fail-closed한다. 선점 후 Dispatch update 경쟁을 잃으면 sentinel 오류로 transaction을 rollback한다. Query 후 publisher claim, timeout 선점 후 publisher claim, active/expired lease와 호출 순서를 자동 테스트한다. Published/accepted는 outbox 선점 없이 종료한다.
 
 - [ ] **사용자 확인 Gate 12:** API 계약과 대상별 delivery mode를 보고하고 다음 Task 승인을 기다린다.
 
