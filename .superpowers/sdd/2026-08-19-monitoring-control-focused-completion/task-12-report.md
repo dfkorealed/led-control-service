@@ -136,3 +136,34 @@ COMMAND_MIGRATION_TEST_DATABASE_URL='postgresql:///postgres' pnpm --filter @led-
 
 - Pending timeout과 publisher의 PostgreSQL row 경쟁은 동일 outbox 조건과 transaction 호출 순서를 service 단위 테스트로 검증했다. 실제 다중 프로세스 lock wait를 강제로 만드는 별도 PostgreSQL concurrency rehearsal은 포함하지 않았다.
 - QoS 1 PUBACK 유실은 at-least-once 경계이므로 Gateway idempotency journal과 Task 13 BLE 실행 직전 expiry/version 검증이 계속 필요하다.
+
+## 재리뷰 3 Fix round 4
+
+### RED 증거
+
+- 기존 strict full payload의 첫 publish 실패 뒤 준비 transaction이 새 full payload를 미리 저장해 기존 expiry가 바뀌는 테스트가 실패했다.
+- Final ownership count가 lease 조건을 query 시작 전 시각으로 계산해 ownership-only 계약 테스트가 실패했다.
+- Count가 31초 지연돼 준비 lease가 이미 만료된 뒤에도 MQTT가 1회 호출됐다.
+- 짧은 count 지연 뒤에도 준비 시점 expiry를 그대로 사용하고 성공 transaction에 full payload를 저장하지 않아 final fence 기준 expiry/DB payload 테스트가 실패했다.
+
+### 수정 내용
+
+- 준비 transaction은 Mesh snapshot 검증 후 fresh `preparedAt`으로 lease만 30초 연장하고 `{draft, leaseExpiresAt}`을 반환한다. Draft/full 저장 payload는 이 단계에서 수정하지 않는다.
+- Final query는 worker ownership, 미발행, 미-dead-letter만 확인한다. Query 반환 후 fresh clock을 읽어 `leaseExpiresAt > freshNow + 20초`를 로컬에서 엄격히 검사한다. 11초 지연으로 남은 lease가 19초인 경우와 31초 지연으로 만료된 경우 모두 MQTT를 호출하지 않는다.
+- Publish-relative expiry는 final fence 통과 직후 fresh clock으로 생성해 즉시 MQTT에 전달한다. MQTT 성공 후 같은 outbox update transaction에서 full payload와 `publishedAt`을 저장한다.
+- 기존 strict full payload retry를 유지한다. Publish 실패나 발행 전 종료에는 원래 draft/full payload가 남고, broker 수신 직후 프로세스 종료로 재시도되는 at-least-once 경계는 idempotency key와 Gateway journal로 방어한다.
+
+### GREEN 증거
+
+- OutboxPublisher 집중: 19개 통과
+- Shared 전체: 41개 통과
+- Commands/MQTT/Mesh 관련 API: 100개 통과, opt-in rehearsal 3개 skip
+- API 전체: 399개 통과, 기존 및 opt-in 29개 skip
+- Gateway 전체: 189개 통과
+- PostgreSQL 격리 migration rehearsal: 3개 통과
+- Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과
+
+### 남은 한계
+
+- DB 성공 기록과 외부 MQTT publish는 하나의 원자 transaction이 될 수 없다. Broker 수신 뒤 API가 종료되면 lease 만료 후 재발행될 수 있으므로 Gateway idempotency journal의 실장비 검증은 Task 13/HIL 필수 항목이다.
+- Pending timeout의 실제 다중 PostgreSQL connection 경쟁 rehearsal과 실제 BLE Mesh 송신은 이번 fix 범위에 포함하지 않았다.

@@ -69,13 +69,14 @@
 - 수동 명령은 현재 단일 gateway `CommandDispatch`로 만들고 gateway 독립 sequence와 idempotency key를 발급한다. 여러 gateway에 걸친 논리 target은 후속 fan-out 설계 전까지 생성하지 않는다.
 - Command, gateway별 dispatch, 조명별 pending 결과, MQTT outbox를 하나의 DB transaction에 저장한다.
 - MQTT outbox publisher가 PostgreSQL `FOR UPDATE SKIP LOCKED`와 30초 worker lease로 다중 API 인스턴스의 중복 발행을 차단한다.
-- Publisher는 strict draft/full 저장 payload를 모두 처리하되 full payload의 과거 `expiresAt`만 제거하고 매 재시도마다 새 expiry를 만든다. Mesh snapshot 검증 직후 fresh clock으로 현재 worker의 유효 lease를 30초 연장하고 MQTT 직전에도 20초 publish timeout 전체를 덮는 소유권/lease를 재확인한다. Timeout 시 해당 message ID를 outgoing store에서 제거하며 backoff/dead-letter 시각도 실제 실패 시각을 사용한다.
+- Publisher는 strict draft/full 저장 payload를 모두 처리하되 full payload의 과거 `expiresAt`만 제거한다. Mesh snapshot 검증 직후 fresh clock으로 현재 worker의 유효 lease만 30초 연장하고 payload는 아직 수정하지 않는다. Final ownership query가 반환된 뒤 fresh clock으로 준비 lease가 20초 MQTT timeout 전체를 엄격히 덮는지 확인한 다음 새 expiry를 만들고 즉시 발행한다. Full payload와 `publishedAt`은 MQTT 성공 transaction에서 함께 저장한다. Timeout 시 해당 message ID를 outgoing store에서 제거하며 backoff/dead-letter 시각도 실제 실패 시각을 사용한다.
 - Pending timeout은 active lease를 조회 결과에서 추정하지 않고 transaction에서 미발행 outbox row를 먼저 dead-letter 선점한다. Outbox가 없거나 active lease가 있으면 fail-closed하고, 선점 뒤 Dispatch 경쟁을 잃으면 transaction을 rollback한다. Published/accepted timeout은 outbox 선점 없이 기존 조건부 종료를 유지한다.
 - Mesh group outbox는 발행 직전 현재 group의 ID, gateway, 주소, 구성 버전, `ready` 상태가 명령 생성 snapshot과 같은지 다시 검증한다. 같은 버전의 `configuring`은 재시도하고 삭제·실패·버전/주소/gateway 불일치는 MQTT로 보내지 않고 `MESH_GROUP_STALE`로 즉시 실패 처리한다.
 - broker 전송 실패에는 지수 backoff와 jitter를 적용하며 최대 10회 또는 15분을 넘으면 outbox를 dead-letter 처리하고 dispatch, 조명별 결과, 상위 명령을 실패로 종료한다.
 - API timeout worker는 미발행 명령 15분, MQTT 발행 후 acceptance 10초, acceptance 후 장비 상태 30초 deadline을 적용하고 종료되지 않은 명령을 `timed_out`으로 확정한다.
 - gateway는 v2 dimming command를 로컬 `0600` journal에 먼저 기록한 뒤 acceptance ACK를 보내고, BLE Mesh adapter 결과 후 fixture별 device-status ACK를 보낸다.
 - 동일 idempotency key의 최종 결과가 journal에 있으면 실제 조명을 다시 제어하지 않고 기존 ACK를 재발행한다.
+- Broker가 명령을 받은 직후 API 프로세스가 종료되면 outbox에는 기존 draft/full payload와 lease만 남아 재시도될 수 있다. 이 at-least-once 경계에서 Gateway journal이 동일 idempotency key의 BLE 재실행을 차단한다.
 - API는 gateway/site/command/dispatch identity가 모두 일치하는 ACK만 반영한다. rejected acceptance는 같은 transaction에서 dispatch, 남은 조명별 결과, 상위 Command를 failed로 종료하며, acceptance 발행 뒤 만료된 rejection도 `accepted` dispatch를 같은 terminal 상태로 닫는다. terminal dispatch의 늦은 ACK는 무시한다.
 - BLE Mesh fixture status는 기본 8초 timeout을 적용하고 adapter가 반환하지 않아도 fixture별 `timed_out` 결과로 명령을 종료한다.
 - Gateway 재시작 후 accepted-only 명령은 실제 조명을 다시 제어하지 않고 `indeterminate after gateway restart` timeout 결과로 닫는다.

@@ -117,8 +117,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
       const prepared = await this.prisma.$transaction(async (tx) => {
         await this.assertMeshGroupSnapshot(tx, record, draft);
         const preparedAt = this.clock();
-        const expiry = createGatewayCommandExpiry(preparedAt);
-        const payload = gatewayDimmingCommandV2Schema.parse({ ...draft, expiresAt: expiry.expiresAt });
+        const leaseExpiresAt = new Date(preparedAt.getTime() + LEASE_MS);
         const updated = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,
@@ -127,33 +126,39 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
             deadLetteredAt: null,
             leaseExpiresAt: { gt: preparedAt }
           },
-          data: { payload, leaseExpiresAt: new Date(preparedAt.getTime() + LEASE_MS) }
+          data: { leaseExpiresAt }
         });
-        return updated.count === 1 ? { payload, expiry } : null;
+        return updated.count === 1 ? { draft, leaseExpiresAt } : null;
       });
       if (!prepared) return;
 
-      const publishFenceAt = this.clock();
       const publishable = await this.prisma.mqttOutbox.count({
         where: {
           id: record.id,
           lockedBy: this.workerId,
           publishedAt: null,
-          deadLetteredAt: null,
-          leaseExpiresAt: { gt: new Date(publishFenceAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) }
+          deadLetteredAt: null
         }
       });
       if (publishable !== 1) return;
 
-      await this.mqtt.publishTopic(record.topic, prepared.payload, {
-        messageExpiryInterval: prepared.expiry.messageExpiryInterval,
+      const publishAt = this.clock();
+      if (prepared.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
+      const expiry = createGatewayCommandExpiry(publishAt);
+      const payload = gatewayDimmingCommandV2Schema.parse({
+        ...prepared.draft,
+        expiresAt: expiry.expiresAt
+      });
+
+      await this.mqtt.publishTopic(record.topic, payload, {
+        messageExpiryInterval: expiry.messageExpiryInterval,
         timeoutMs: MQTT_PUBLISH_TIMEOUT_MS
       });
       const publishedAt = this.clock();
       await this.prisma.$transaction(async (tx) => {
         const released = await tx.mqttOutbox.updateMany({
           where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
-          data: { publishedAt, lastError: null, lockedBy: null, lockedAt: null, leaseExpiresAt: null }
+          data: { payload, publishedAt, lastError: null, lockedBy: null, lockedAt: null, leaseExpiresAt: null }
         });
         if (released.count !== 1) return;
         await tx.commandDispatch.updateMany({

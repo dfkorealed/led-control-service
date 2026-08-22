@@ -775,9 +775,11 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 
 이 migration은 아직 어떤 배포 환경에도 적용하지 않은 Task 12 신규 migration이라는 전제에서 같은 파일을 보정했다. 이미 이전 버전을 적용한 환경이 생긴 뒤에는 파일을 다시 수정하지 말고 별도의 순방향 보정 migration을 추가해야 한다.
 
-다중 API 인스턴스에서는 `lockedBy`, `lockedAt`, `leaseExpiresAt`으로 30초 발행 lease를 소유하고 PostgreSQL `FOR UPDATE SKIP LOCKED`로 같은 레코드의 중복 발행을 차단한다. 저장 payload는 strict draft 또는 strict full wire만 허용한다. 이전 publish가 full payload를 남겼다면 기존 `expiresAt`만 제거해 strict draft로 다시 검증하고 매 시도마다 새 publish-relative expiry를 저장한다. 임의 추가 키는 재시도 호환 대상으로 인정하지 않는다.
+다중 API 인스턴스에서는 `lockedBy`, `lockedAt`, `leaseExpiresAt`으로 30초 발행 lease를 소유하고 PostgreSQL `FOR UPDATE SKIP LOCKED`로 같은 레코드의 중복 발행을 차단한다. 저장 payload는 strict draft 또는 strict full wire만 허용한다. 이전 성공 기록 또는 구버전 publish 시도가 full payload를 남겼다면 기존 `expiresAt`만 제거해 strict draft로 다시 검증한다. 임의 추가 키는 재시도 호환 대상으로 인정하지 않는다.
 
-Publisher는 Mesh snapshot 검증이 끝난 직후의 fresh clock으로 기존 lease가 아직 유효하고 현재 worker가 소유한 경우에만 30초 연장하며, 같은 시점 기준 새 payload expiry를 만든다. MQTT 호출 직전에도 같은 worker 소유권과 미발행·미-dead-letter 상태, 20초 publish timeout 전체를 덮는 남은 lease를 다시 확인한다. MQTT QoS 1 callback을 20초 안에 받지 못하면 해당 message ID를 `removeOutgoingMessage`로 취소하고 fresh failure 시각 기준 재시도 경로로 전환한다.
+Publisher는 Mesh snapshot 검증이 끝난 직후의 fresh `preparedAt`으로 기존 lease가 아직 유효하고 현재 worker가 소유한 경우에만 30초 연장한다. 이 transaction은 payload를 수정하지 않고 실제 `leaseExpiresAt`과 정규화한 draft를 반환한다. Final ownership query는 같은 worker 소유권과 미발행·미-dead-letter 상태만 확인한다. Query 반환 후 fresh clock을 다시 읽어 준비 lease가 `freshNow + 20초 MQTT timeout`보다 엄격히 뒤인지 로컬에서 검사한다. DB 대기로 남은 시간이 부족하거나 만료됐다면 발행하지 않는다.
+
+Publish-relative `expiresAt`은 final fence를 통과한 fresh clock 기준으로 만들고 즉시 MQTT에 전달한다. Full payload는 MQTT 성공 후 outbox update transaction에서 `publishedAt`과 함께 저장한다. MQTT 실패나 발행 전 프로세스 종료에는 기존 strict draft/full payload가 그대로 남아 lease 만료 후 재시도할 수 있다. Broker가 물리 publish를 수신한 직후 API가 종료되면 DB 성공 기록 없이 재시도될 수 있으므로 command idempotency key와 Gateway durable journal이 중복 물리 실행을 차단하는 필수 경계다. MQTT QoS 1 callback을 20초 안에 받지 못하면 해당 message ID를 `removeOutgoingMessage`로 취소하고 fresh failure 시각 기준 재시도 경로로 전환한다.
 
 Pending delivery timeout은 Dispatch보다 `MqttOutbox`를 먼저 조건부 dead-letter 선점한다. `lockedBy IS NULL` 또는 `leaseExpiresAt <= now`인 미발행 row를 정확히 1개 선점한 경우에만 Dispatch, 조명별 결과, Command를 종료한다. 필수 1:1 outbox가 없거나 active publisher lease가 있으면 fail-closed로 아무 terminal 전이도 하지 않는다. Outbox 선점 뒤 Dispatch 상태 경쟁을 잃으면 전용 오류로 transaction 전체를 rollback한다. 따라서 publisher claim과 timeout은 같은 outbox row update에서 직렬화된다. Published/accepted timeout은 outbox 선점 없이 기존 Dispatch 조건부 종료를 사용한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하고 dispatch와 조명별 결과를 실패로 종료한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
 

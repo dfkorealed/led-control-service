@@ -209,6 +209,17 @@ Ruling: Mesh 검증을 마친 뒤 fresh clock으로 lease를 연장하되 기존
 
 Ruling: pending timeout은 transaction에서 outbox를 먼저 `inactive/expired lease` 조건으로 dead-letter 선점하고 성공한 경우에만 Dispatch/fixture/Command를 종료한다 — publisher claim과 같은 outbox row에서 직렬화하기 위해서다 — published/accepted timeout은 기존 Dispatch 조건부 종료 경로를 유지한다.
 
+### Task 12 재리뷰 3
+
+- 재리뷰 에이전트: `01a0286e-d7b1-7e92-b0df-d0cdb05cf342` (Mill)
+- 수정 커밋: `b524c40`
+- 결과: full payload 재시도와 pending timeout 선점은 해결됐으나 publish fence의 stale clock Important 1건으로 승인 보류
+- Finding: MQTT 직전 ownership count를 시작하기 전 시각으로 lease를 검사해 count query가 lease보다 오래 지연되면 반환 후 만료된 lease로 publish한다.
+
+Ruling: final fence query가 반환된 뒤 fresh clock으로 준비 단계에서 받은 lease expiry가 MQTT timeout 전체를 덮는지 다시 검사한다 — DB 조회 지연을 fence 유효 시간에 포함하기 위해서다 — 만료 또는 부족하면 MQTT를 호출하지 않는다.
+
+Ruling: publish-relative `expiresAt`은 DB 준비 단계에서 만들지 않고 final fence 반환 직후 실제 MQTT 호출 직전에 생성한다 — DB 지연으로 장비 수신 전에 command expiry가 소진되는 것을 막기 위해서다 — 성공 후 outbox의 full payload와 `publishedAt`을 같은 transaction에 저장하고 실패/프로세스 중단 시 draft를 재사용한다.
+
 ### Task 12 독립 리뷰 Fix round 1
 
 - Finding 1: 기존 Command는 result fixture ID snapshot, Dispatch는 실제 result 수 기반 physical mode로 backfill한다. 기존 outbox는 동일 fixture 목록으로 strict payload를 만들고 과거 group 명령은 `fixtures`로 정규화한다. result가 없거나 1,000개를 초과하는 outbox는 migration을 중단한다.
@@ -253,3 +264,17 @@ Ruling: Pending CommandDispatch와 MqttOutbox는 정상 생성 경로에서 필�
 - Fix round 3 RED: runtime full retry 1건, fresh lease/publish 직전 fencing 2건, pending timeout 선점·경쟁 5건 실패 확인
 - Fix round 3 GREEN: 집중 23개, Shared 41개, 관련 API 98개(3개 opt-in skip), API 전체 397개(29개 skip), Gateway 189개, PostgreSQL migration rehearsal 3개 통과. Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과.
 - Fix round 3 상태: Important 2건과 orchestrator 추가 finding 구현 및 문서화 완료. Task 13 실제 BLE 송신은 변경하지 않았다.
+
+### Task 12 재리뷰 3 Fix round 4
+
+- Finding: Final ownership query 시작 전 `publishFenceAt`과 lease 조건을 제거했다. 준비 transaction은 snapshot 검증 후 fresh `preparedAt`으로 lease만 연장하고 실제 `leaseExpiresAt`과 정규화 draft를 반환한다. Query 반환 후 fresh clock으로 준비 lease가 20초 MQTT timeout 전체를 엄격히 덮는지 로컬 검증한다.
+- Payload: Publish-relative expiry는 final fence 반환 후 fresh clock으로 만들고 즉시 MQTT에 전달한다. Full payload는 MQTT 성공 후 `publishedAt`과 같은 outbox update transaction에 저장하며, 실패/발행 전 종료에는 기존 strict draft/full payload를 유지한다.
+- 회귀: 11초 지연으로 lease가 19초 남거나 31초 지연으로 만료되면 MQTT 0회다. 5초 지연은 final fence 기준 새 expiry와 10초 MQTT interval로 발행하고 성공 DB payload가 같은 full payload인지 검증한다. 기존 strict full retry와 임의 extra key 거부도 유지한다.
+
+Ruling: Ownership query에는 반환 이후 시각을 미리 표현할 수 없으므로 lease deadline 조건을 넣지 않는다 — query 반환 후 준비 transaction에서 확정한 절대 `leaseExpiresAt`을 fresh local clock과 비교해야 DB 대기 시간을 포함할 수 있기 때문이다 — ownership count와 local timeout 여유를 모두 통과한 경우만 publish한다.
+
+Ruling: Outbox full payload는 publish 시도 증거가 아니라 성공한 wire payload snapshot으로 저장한다 — 발행 전 저장하면 crash/실패 retry의 오래된 expiry가 다시 입력 상태가 되기 때문이다 — 실패에는 draft 또는 기존 strict full을 보존하고 성공 transaction에서만 `payload + publishedAt`을 함께 확정한다.
+
+- Fix round 4 RED: strict full 조기 저장, ownership query 계약, 31초 지연 publish, 짧은 지연 expiry/성공 payload 저장 4건 실패 확인
+- Fix round 4 GREEN: Publisher 집중 19개, Shared 41개, 관련 API 100개(3개 opt-in skip), API 전체 399개(29개 skip), Gateway 189개, PostgreSQL migration rehearsal 3개 통과. Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과.
+- Fix round 4 상태: 마지막 재리뷰 Important 1건 구현 및 문서화 완료. Task 13 실제 BLE 송신은 변경하지 않았다.

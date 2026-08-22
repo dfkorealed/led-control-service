@@ -55,14 +55,17 @@ function meshRecord(overrides: Record<string, unknown> = {}) {
 }
 
 describe("OutboxPublisherService", () => {
-  it("retries a stored full payload with a newly generated expiry after the first publish fails", async () => {
+  it("retries a pre-existing strict full payload while only persisting a new full payload after success", async () => {
     const firstAttemptAt = new Date("2026-07-11T00:01:00.000Z");
     const secondAttemptAt = new Date("2026-07-11T00:02:00.000Z");
     const clock = sequenceClock(
       firstAttemptAt, firstAttemptAt, firstAttemptAt,
       secondAttemptAt, secondAttemptAt, secondAttemptAt
     );
-    const stored = { payload: dimmingPayload as Record<string, unknown>, attempts: 0 };
+    const stored = {
+      payload: { ...dimmingPayload, expiresAt: "2026-07-11T00:00:10.000Z" } as Record<string, unknown>,
+      attempts: 0
+    };
     const prisma: any = {
       mqttOutbox: {
         updateMany: jest.fn().mockImplementation(({ data }) => {
@@ -95,7 +98,7 @@ describe("OutboxPublisherService", () => {
     };
 
     await service.publishClaimed({ ...baseRecord, payload: stored.payload } as never);
-    expect(stored.payload.expiresAt).toBe("2026-07-11T00:01:10.000Z");
+    expect(stored.payload.expiresAt).toBe("2026-07-11T00:00:10.000Z");
 
     await service.publishClaimed({
       ...baseRecord,
@@ -105,6 +108,7 @@ describe("OutboxPublisherService", () => {
 
     expect(mqtt.publishTopic).toHaveBeenCalledTimes(2);
     expect(mqtt.publishTopic.mock.calls[1][1].expiresAt).toBe("2026-07-11T00:02:10.000Z");
+    expect(stored.payload.expiresAt).toBe("2026-07-11T00:02:10.000Z");
   });
 
   it("rejects a stored payload with arbitrary keys instead of treating it as a retryable full payload", async () => {
@@ -204,10 +208,46 @@ describe("OutboxPublisherService", () => {
         id: "outbox-1",
         lockedBy: "worker-1",
         publishedAt: null,
-        deadLetteredAt: null,
-        leaseExpiresAt: { gt: new Date("2026-07-11T00:01:20.000Z") }
+        deadLetteredAt: null
       }
     });
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["leaves less time than the publish timeout", "2026-07-11T00:01:11.000Z"],
+    ["returns after the lease expires", "2026-07-11T00:01:31.000Z"]
+  ])("does not publish when the final ownership query %s", async (_caseName, fenceReturnedAt) => {
+    const preparedAt = new Date("2026-07-11T00:01:00.000Z");
+    let current = preparedAt;
+    const prisma: any = {
+      mqttOutbox: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        count: jest.fn().mockImplementation(async () => {
+          current = new Date(fenceReturnedAt);
+          return 1;
+        })
+      },
+      commandDispatch: { updateMany: jest.fn() }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };
+    const service = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "worker-1",
+      clock: () => current
+    });
+
+    await service.publishClaimed({
+      id: "outbox-1",
+      dispatchId: "dispatch-1",
+      topic: "sites/s/gateways/g/commands/dimming",
+      payload: dimmingPayload,
+      attempts: 0,
+      createdAt: new Date("2026-07-11T00:00:00.000Z"),
+      dispatch: { commandId: "command-1" }
+    } as never);
+
+    expect(prisma.mqttOutbox.count).toHaveBeenCalledTimes(1);
     expect(mqtt.publishTopic).not.toHaveBeenCalled();
   });
 
@@ -283,20 +323,30 @@ describe("OutboxPublisherService", () => {
     });
   });
 
-  it("persists a publish-relative expiry before publishing with the matching MQTT expiry", async () => {
-    const publishedAt = new Date("2026-07-11T00:01:00.000Z");
+  it("creates expiry after a short final fence delay and stores the full payload with publish success", async () => {
+    const preparedAt = new Date("2026-07-11T00:01:00.000Z");
+    const fenceReturnedAt = new Date("2026-07-11T00:01:05.000Z");
+    const publishedAt = new Date("2026-07-11T00:01:06.000Z");
+    let current = preparedAt;
     const prisma: any = {
       mqttOutbox: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-        count: jest.fn().mockResolvedValue(1)
+        count: jest.fn().mockImplementation(async () => {
+          current = fenceReturnedAt;
+          return 1;
+        })
       },
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
-    const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };
+    const mqtt = {
+      publishTopic: jest.fn().mockImplementation(async () => {
+        current = publishedAt;
+      })
+    };
     const service = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "worker-1",
-      clock: () => publishedAt
+      clock: () => current
     });
     const record = {
       id: "outbox-1",
@@ -309,20 +359,31 @@ describe("OutboxPublisherService", () => {
     };
     await service.publishClaimed(record as never);
 
-    const expectedPayload = { ...dimmingPayload, expiresAt: "2026-07-11T00:01:10.000Z" };
+    const expectedPayload = { ...dimmingPayload, expiresAt: "2026-07-11T00:01:15.000Z" };
     expect(prisma.mqttOutbox.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         id: "outbox-1",
         lockedBy: "worker-1",
         publishedAt: null,
         deadLetteredAt: null,
-        leaseExpiresAt: { gt: publishedAt }
+        leaseExpiresAt: { gt: preparedAt }
       },
-      data: { payload: expectedPayload, leaseExpiresAt: new Date("2026-07-11T00:01:30.000Z") }
+      data: { leaseExpiresAt: new Date("2026-07-11T00:01:30.000Z") }
     });
     expect(mqtt.publishTopic).toHaveBeenCalledWith(record.topic, expectedPayload, {
       messageExpiryInterval: 10,
       timeoutMs: 20_000
+    });
+    expect(prisma.mqttOutbox.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: "outbox-1", lockedBy: "worker-1", publishedAt: null, deadLetteredAt: null },
+      data: {
+        payload: expectedPayload,
+        publishedAt,
+        lastError: null,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null
+      }
     });
   });
 
