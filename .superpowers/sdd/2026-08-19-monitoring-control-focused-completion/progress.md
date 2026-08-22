@@ -220,6 +220,22 @@ Ruling: final fence query가 반환된 뒤 fresh clock으로 준비 단계에서
 
 Ruling: publish-relative `expiresAt`은 DB 준비 단계에서 만들지 않고 final fence 반환 직후 실제 MQTT 호출 직전에 생성한다 — DB 지연으로 장비 수신 전에 command expiry가 소진되는 것을 막기 위해서다 — 성공 후 outbox의 full payload와 `publishedAt`을 같은 transaction에 저장하고 실패/프로세스 중단 시 draft를 재사용한다.
 
+### Task 12 최종 승인
+
+- Fix round 3 커밋: `b524c40`
+- 재리뷰 3: runtime retry와 pending timeout 선점은 해결됐으나 final fence query 지연 후 만료 lease publish Important 1건으로 승인 보류
+- Fix round 4 커밋: `b0c81c7`
+- 재리뷰 4: Critical 0건, Important 0건으로 승인
+
+Ruling: 준비 transaction은 Mesh snapshot 검증과 fresh lease 연장만 수행하고 full payload를 저장하지 않는다 — DB 지연이 publish-relative expiry를 소비하지 않게 하기 위해서다 — final fence 반환 뒤 fresh clock으로 lease 잔여 시간을 검증하고 새 expiry를 만든다.
+
+- 최종 fresh 검증: Shared 41개, API 399개, Gateway 189개, PostgreSQL migration rehearsal 3개 통과. API opt-in 29개는 기본 전체 실행에서 skip하고 migration rehearsal 3개는 별도 명령으로 실제 실행했다.
+- Prisma generate/validate, API typecheck/build, Gateway typecheck, `git diff --check f62ca34..HEAD`, clean worktree 확인.
+- 실제 PostgreSQL migration rehearsal은 fresh/retry legacy payload strict 정규화, preflight 실패 rollback, 후반 DDL 실패 rollback을 격리 schema에서 검증했고 잔여 임시 schema 0개를 확인했다.
+- 잔여 위험: Broker가 QoS 1 PUBLISH를 받은 뒤 PUBACK만 유실한 경우 이미 전달된 물리 메시지를 취소할 수 없다. Gateway idempotency journal, MQTT expiry와 Task 13의 durable group version barrier가 중복/오래된 물리 적용을 방어해야 한다.
+- Task 12: complete
+- 사용자 확인 Gate 12: 대기
+
 ### Task 12 독립 리뷰 Fix round 1
 
 - Finding 1: 기존 Command는 result fixture ID snapshot, Dispatch는 실제 result 수 기반 physical mode로 backfill한다. 기존 outbox는 동일 fixture 목록으로 strict payload를 만들고 과거 group 명령은 `fixtures`로 정규화한다. result가 없거나 1,000개를 초과하는 outbox는 migration을 중단한다.
