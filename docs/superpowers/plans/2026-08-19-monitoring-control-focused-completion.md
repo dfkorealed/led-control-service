@@ -1234,6 +1234,18 @@ provisioning member 연결과 전체 resync가 모두 Gateway row를 먼저 잠�
 
 Gateway/shared/API 자동 테스트와 typecheck를 통과했고 ESP-IDF 실제 target build를 완료했다. group Set은 PWM에 즉시 반영하고 primary unicast 기반 `64~5,179ms` 결정적 지터 뒤 실제 Lightness Status를 publication한다. 빌드된 1MB OTA app partition의 잔여 공간은 `0x1aa90` 바이트로 약 10%다.
 
+- [x] **Review fix 7: resync 요청의 애플리케이션 ACK와 재시작 복구 보장**
+
+Gateway는 resync 요청과 고정 `eventId`를 디스크에 영속화하고 MQTT PUBACK만으로 제거하지 않는다. API가 DB transaction을 커밋한 뒤 발행하는 애플리케이션 ACK의 `requestEventId`가 일치할 때만 요청을 제거하며, 그 전에는 재시작·재연결·heartbeat 이후에도 같은 요청을 재전송한다. resync 파일의 state/manifest가 누락되거나 revision이 다르거나 손상되면 fail-closed 요청을 다시 만든다. group state 저장 실패 중에도 마지막으로 검증된 전체 group snapshot을 메모리에 보존해 일부 group만 복구되는 상태를 막는다.
+
+- [x] **Review fix 8: MQTT 재구독과 BLE 결과 귀속·중단 경계 보강**
+
+이전 SUBACK가 실패했다면 MQTT persistent session 재연결에서 `sessionPresent`만 신뢰하지 않고 command 및 resync ACK topic을 강제 재구독한다. unicast와 group 전송은 queue 획득 뒤, TID 할당 뒤, BlueZ 호출 직전에 `AbortSignal`을 다시 확인해 timeout 이후 신규 RF 송신을 차단한다. group Status 수집은 첫 publication이 아니라 목표 Lightness와 일치하는 Status를 기다리고, 제한 시간까지 일치하지 않으면 마지막 실제 관측값을 `state_mismatch`로 반환한다.
+
+- [x] **Review fix 9: 최종 결과 보존과 TID 영속 성능 보강**
+
+내부 Status 수집 제한 뒤 250ms completion grace를 두어 이미 확정된 `state_mismatch` 결과가 외부 watchdog의 전체 timeout으로 덮이지 않게 했다. watchdog 최대값은 API의 30초 accepted-command deadline보다 작은 29.25초다. Mesh TID는 32개 블록의 다음 시작점을 먼저 원자 저장한 뒤 메모리에서 순차 발급한다. 재시작 시 미사용 TID를 건너뛰어 재사용을 막고, 1,000개 병렬 unicast의 파일 fsync 횟수를 1,000회에서 약 32회로 줄였다.
+
 - [ ] **사용자 확인 Gate 13:** 단일 전송 증거와 firmware build 결과를 보고하고 다음 Task 승인을 기다린다.
 
 ---
