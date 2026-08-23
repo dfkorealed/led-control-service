@@ -30,6 +30,9 @@ interface GatewayCommandOptions {
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
 }
 
+const COMMAND_COMPLETION_GRACE_MS = 250;
+const MAX_BLE_STATUS_TIMEOUT_MS = 29_000;
+
 export function handleGatewayDimmingCommand(
   adapter: BleMeshAdapter,
   journal: JournalLike,
@@ -116,7 +119,12 @@ async function executeGatewayDimmingCommand(
     const controller = new AbortController();
     const reports = validateReports(
       command.targetFixtureIds,
-      await withTimeout(applyCommand(adapter, command, controller.signal), timeoutMs, () => controller.abort())
+      await withTimeout(
+        applyCommand(adapter, command, controller.signal),
+        timeoutMs + COMMAND_COMPLETION_GRACE_MS,
+        timeoutMs,
+        () => controller.abort()
+      )
     );
     observedFixtureIds = reports
       .filter((report) => report.acknowledged || report.faultCode === "state_mismatch")
@@ -230,12 +238,17 @@ function errorCode(error: unknown, fallback: string) {
 
 class MeshStatusTimeoutError extends Error {}
 
-function withTimeout<T>(operation: Promise<T>, timeoutMs: number, onTimeout: () => void = () => undefined) {
+function withTimeout<T>(
+  operation: Promise<T>,
+  watchdogMs: number,
+  statusTimeoutMs: number,
+  onTimeout: () => void = () => undefined
+) {
   return new Promise<T>((resolve, reject) => {
     const timeout = setTimeout(() => {
       onTimeout();
-      reject(new MeshStatusTimeoutError(`BLE Mesh status timeout after ${timeoutMs}ms`));
-    }, timeoutMs);
+      reject(new MeshStatusTimeoutError(`BLE Mesh status timeout after ${statusTimeoutMs}ms`));
+    }, watchdogMs);
     operation.then(
       (value) => {
         clearTimeout(timeout);
@@ -250,7 +263,10 @@ function withTimeout<T>(operation: Promise<T>, timeoutMs: number, onTimeout: () 
 }
 
 function validateTimeout(value: number) {
-  if (!Number.isInteger(value) || value < 1000 || value > 300_000) throw new Error("BLE Mesh timeout must be 1000-300000ms");
+  // Keep the emergency watchdog below the API's 30-second accepted-command deadline.
+  if (!Number.isInteger(value) || value < 1000 || value > MAX_BLE_STATUS_TIMEOUT_MS) {
+    throw new Error(`BLE Mesh timeout must be 1000-${MAX_BLE_STATUS_TIMEOUT_MS}ms`);
+  }
   return value;
 }
 

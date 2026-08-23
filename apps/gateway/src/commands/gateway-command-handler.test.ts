@@ -23,8 +23,10 @@ const command = {
 describe("handleGatewayDimmingCommand", () => {
   it("validates the production BLE status timeout at startup", () => {
     expect(parseCommandTimeout(undefined)).toBe(8000);
-    expect(() => parseCommandTimeout("999")).toThrow("1000-300000ms");
-    expect(() => parseCommandTimeout("invalid")).toThrow("1000-300000ms");
+    expect(parseCommandTimeout("29000")).toBe(29000);
+    expect(() => parseCommandTimeout("999")).toThrow("1000-29000ms");
+    expect(() => parseCommandTimeout("invalid")).toThrow("1000-29000ms");
+    expect(() => parseCommandTimeout("29001")).toThrow("1000-29000ms");
   });
   it("returns acceptance then device status and reuses terminal result for duplicates", async () => {
     const records = new Map<string, any>();
@@ -143,7 +145,7 @@ describe("handleGatewayDimmingCommand", () => {
 
     const resultPromise = handleGatewayDimmingCommand(pendingAdapter, journal, command, undefined, { timeoutMs: 8000 });
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(8000);
+    await vi.advanceTimersByTimeAsync(8250);
     const result = await resultPromise;
 
     expect(result.deviceStatus).toMatchObject({
@@ -325,8 +327,86 @@ describe("handleGatewayDimmingCommand", () => {
         targetFixtureIds: [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"],
         deliveryMode: "parallel_unicast"
       }, undefined, { timeoutMs: 1000 });
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(1250);
 
+      await expect(pending).resolves.toMatchObject({ deviceStatus: { status: "timed_out" } });
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves an adapter mismatch returned at the end of its status collection window", async () => {
+    vi.useFakeTimers();
+    try {
+      const groupCommand = meshCommand();
+      const adapter = {
+        setBrightness: vi.fn(),
+        applyMeshGroup: vi.fn(async () => {
+          await Promise.resolve();
+          return await new Promise<any[]>((resolve) => {
+            setTimeout(() => resolve(groupCommand.targetFixtureIds.map((fixtureId) => ({
+              fixtureId,
+              acknowledged: false,
+              outcome: "failed",
+              brightness: 30,
+              faultCode: "state_mismatch",
+              rssi: null,
+              hopCount: null
+            }))), 8000);
+          });
+        })
+      } as any;
+
+      const pending = handleGatewayDimmingCommand(
+        adapter,
+        memoryJournal(new Map()),
+        groupCommand,
+        undefined,
+        { timeoutMs: 8000, groupStateStore: { assertReady: vi.fn() }, groupQueue: new KeyedSerialTaskQueue() }
+      );
+      await vi.advanceTimersByTimeAsync(8000);
+
+      await expect(pending).resolves.toMatchObject({
+        deviceStatus: {
+          status: "failed",
+          results: [
+            { status: "failed", faultCode: "state_mismatch" },
+            { status: "failed", faultCode: "state_mismatch" }
+          ]
+        }
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts a genuinely hung adapter after the bounded completion grace", async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      let settled = false;
+      const adapter = {
+        setBrightness: vi.fn(),
+        applyParallelUnicast: vi.fn((_fixtures, _brightness, _concurrency, receivedSignal: AbortSignal) => {
+          signal = receivedSignal;
+          return new Promise<never>(() => undefined);
+        })
+      } as any;
+      const pending = handleGatewayDimmingCommand(adapter, memoryJournal(new Map()), {
+        ...command,
+        targetType: "fixtures",
+        targetId: null,
+        targetFixtureIds: [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"],
+        deliveryMode: "parallel_unicast"
+      }, undefined, { timeoutMs: 8000 });
+      void pending.then(() => { settled = true; });
+
+      await vi.advanceTimersByTimeAsync(8249);
+      expect(settled).toBe(false);
+      expect(signal?.aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
       await expect(pending).resolves.toMatchObject({ deviceStatus: { status: "timed_out" } });
       expect(signal?.aborted).toBe(true);
     } finally {
