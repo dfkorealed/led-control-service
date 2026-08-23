@@ -17,6 +17,7 @@ const fixtures = Array.from({ length: 1000 }, (_, index) => ({
   brightness: 70,
   status: "online",
   statusReason: "reported",
+  health: { faultCodes: [], observedAt: "2026-07-12T00:00:00.000Z" },
   rssi: -60,
   hopCount: 2,
   commandSuccessRate: 0.99,

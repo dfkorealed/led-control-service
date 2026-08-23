@@ -18,6 +18,7 @@ export interface SettingsFixture {
   brightness: number;
   status: "online" | "offline" | "fault";
   statusReason?: "reported";
+  health: { faultCodes: number[]; observedAt: string } | null;
   rssi: number | null;
   hopCount: number | null;
   commandSuccessRate: number | null;
@@ -45,11 +46,11 @@ export type SettingsMapObject = FloorMapSnapshot["objects"][number];
 export interface FixtureCommandResult {
   fixtureId: string;
   fixtureName: string;
-  status: "pending" | "succeeded" | "failed";
+  status: "pending" | "succeeded" | "failed" | "timed_out";
   errorMessage: string | null;
 }
 
-type FixtureCommandStage = "accepted" | "completed" | "failed";
+type FixtureCommandStage = "queued" | "published" | "accepted" | "completed" | "partial_failed" | "failed" | "timed_out";
 
 interface SavePayload {
   expectedRevision: number;
@@ -122,6 +123,7 @@ const defaultFixtures: SettingsFixture[] = [{
   brightness: 70,
   status: "online",
   statusReason: "reported",
+  health: { faultCodes: [], observedAt: "2026-07-12T00:00:00.000Z" },
   rssi: -60,
   hopCount: 2,
   commandSuccessRate: 0.99,
@@ -177,6 +179,11 @@ export async function installSettingsApiRoutes(
       Object.assign(fixture, structuredClone(update));
     },
     setCommandStatus: (input) => {
+      const expectedFixtureIds = commandResults.map((result) => result.fixtureId).sort();
+      const receivedFixtureIds = input.results.map((result) => result.fixtureId).sort();
+      if (expectedFixtureIds.length === 0 || expectedFixtureIds.join(",") !== receivedFixtureIds.join(",")) {
+        throw new Error("command result fixtures must match the created command targets");
+      }
       commandStage = input.stage;
       commandResults = structuredClone(input.results);
     }
@@ -234,6 +241,11 @@ export async function installSettingsApiRoutes(
       const payload = parsed.data;
       state.dimmingRequests.push(payload);
       const targetFixtureIds = fixtureIdsForTarget(payload, fixtureState, runtimeFloor.id);
+      const deliveryMode = payload.target.type === "fixture"
+        ? "unicast"
+        : payload.target.type === "fixtures"
+          ? "parallel_unicast"
+          : "mesh_group";
       commandResults = targetFixtureIds.map((fixtureId) => {
         const fixture = fixtureState.find((candidate) => candidate.id === fixtureId);
         return {
@@ -250,8 +262,8 @@ export async function installSettingsApiRoutes(
           id: commandId,
           dispatchCount: 1,
           selectedTargetCount: targetFixtureIds.length,
-          transmissionCount: 1,
-          deliveryMode: payload.target.type === "fixture" ? "unicast" : "parallel_unicast",
+          transmissionCount: deliveryMode === "parallel_unicast" ? targetFixtureIds.length : 1,
+          deliveryMode,
           terminalStatusUrl: `/commands/${commandId}`
         }
       });
@@ -423,12 +435,18 @@ function commandStatus(id: string, stage: FixtureCommandStage, results: FixtureC
     errorMessage: stage === "failed" ? "one or more fixtures failed" : null,
     dispatches: [{
       id: "dispatch-1",
-      status: stage,
+      status: dispatchStatusForStage(stage),
       gateway: { id: gatewayId, name: "Gateway B2" },
       errorMessage: null,
       results
     }]
   };
+}
+
+function dispatchStatusForStage(stage: FixtureCommandStage) {
+  if (stage === "queued") return "pending";
+  if (stage === "partial_failed") return "failed";
+  return stage;
 }
 
 function editorState(runtimeFloor: typeof floor, fixtures: SettingsFixture[], mapRevision: number) {

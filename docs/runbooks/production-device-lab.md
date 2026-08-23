@@ -130,6 +130,10 @@ export SCAN_LOG_PID=$!
 
 ```bash
 kill "$SCAN_LOG_PID" 2>/dev/null || true
+printf 'SESSION_ID (Network 응답 UUID): '
+read -r SESSION_ID
+export SESSION_ID
+: "${SESSION_ID:?SESSION_ID를 입력해야 합니다}"
 
 docker compose exec -T postgres psql -U led -d led_control \
   -v session_id="$SESSION_ID" -P pager=off --csv \
@@ -139,6 +143,10 @@ FROM "DiscoveredMeshNode"
 WHERE "sessionId" = :'session_id'
 ORDER BY "deviceUuid";
 SQL
+test "$(wc -l < "$EVIDENCE_DIR/01-scan/discovered-nodes.csv")" -gt 1 || {
+  printf '검색 결과 CSV가 비어 있습니다. SESSION_ID와 검색 결과를 확인하세요.\n' >&2
+  exit 1
+}
 ```
 
 ### 기대 로그와 API/DB 상태
@@ -183,6 +191,7 @@ SQL
 ```bash
 ssh "$LAB_PI" 'docker logs --since=10m led-control-gateway' \
   > "$EVIDENCE_DIR/02-registration/gateway.log" 2>&1
+: "${SESSION_ID:?Gate 1에서 SESSION_ID를 설정해야 합니다}"
 
 docker compose exec -T postgres psql -U led -d led_control \
   -v session_id="$SESSION_ID" -P pager=off --csv \
@@ -198,6 +207,10 @@ LEFT JOIN "Fixture" f ON f."meshNodeId" = m.id
 WHERE d."sessionId" = :'session_id'
 ORDER BY f.name;
 SQL
+test "$(wc -l < "$EVIDENCE_DIR/02-registration/registration.csv")" -gt 1 || {
+  printf '등록 결과 CSV가 비어 있습니다. SESSION_ID와 provisioning 결과를 확인하세요.\n' >&2
+  exit 1
+}
 ```
 
 ### 기대 로그와 API/DB 상태
@@ -238,6 +251,13 @@ floor와 zone(`fixture_group`)의 group address가 Gateway별로 할당되고, �
 등록 완료 후 worker 주기 10초와 MQTT 왕복 시간을 고려해 최대 30초 기다린다. `SITE_ID`, `GATEWAY_ID`, `FLOOR_ID`는 claim/dashboard 응답에서 기록한다.
 
 ```bash
+printf 'SITE_ID: '; read -r SITE_ID; export SITE_ID
+printf 'GATEWAY_ID: '; read -r GATEWAY_ID; export GATEWAY_ID
+printf 'FLOOR_ID: '; read -r FLOOR_ID; export FLOOR_ID
+: "${SITE_ID:?SITE_ID를 입력해야 합니다}"
+: "${GATEWAY_ID:?GATEWAY_ID를 입력해야 합니다}"
+: "${FLOOR_ID:?FLOOR_ID를 입력해야 합니다}"
+
 docker compose exec -T postgres psql -U led -d led_control \
   -v gateway_id="$GATEWAY_ID" -P pager=off --csv \
   > "$EVIDENCE_DIR/03-subscriptions/group-status.csv" <<'SQL'
@@ -251,6 +271,10 @@ LEFT JOIN "MeshControlGroupMember" m
 WHERE g."gatewayId" = :'gateway_id'
 ORDER BY g."targetType", g."targetId", m."meshNodeId";
 SQL
+test "$(wc -l < "$EVIDENCE_DIR/03-subscriptions/group-status.csv")" -gt 1 || {
+  printf 'Mesh group CSV가 비어 있습니다. GATEWAY_ID와 worker 상태를 확인하세요.\n' >&2
+  exit 1
+}
 
 ssh "$LAB_PI" 'docker logs --since=10m led-control-gateway' \
   > "$EVIDENCE_DIR/03-subscriptions/gateway.log" 2>&1
@@ -306,23 +330,31 @@ export DBUS_MONITOR_PID=$!
 1. 웹 `제어`에서 `층` 또는 `구역`을 선택한다.
 2. Gate 3에서 ready인 대상을 고르고 밝기 `70%`를 설정한다.
 3. `밝기 적용`을 한 번만 누른다.
-4. 완료 또는 부분 실패가 표시될 때까지 추가 제어를 하지 않는다.
+4. POST response의 `id`를 기록하고 완료 또는 부분 실패가 표시될 때까지 추가 제어를 하지 않는다.
 
 ```bash
 wait "$DBUS_MONITOR_PID" || true
+: "${SITE_ID:?Gate 3에서 SITE_ID를 설정해야 합니다}"
+printf 'COMMAND_ID (POST response UUID): '
+read -r COMMAND_ID
+export COMMAND_ID
+: "${COMMAND_ID:?COMMAND_ID를 입력해야 합니다}"
 
 docker compose exec -T postgres psql -U led -d led_control \
-  -v site_id="$SITE_ID" -P pager=off --csv \
+  -v site_id="$SITE_ID" -v command_id="$COMMAND_ID" -P pager=off --csv \
   > "$EVIDENCE_DIR/04-group-control/latest-command.csv" <<'SQL'
 SELECT c.id AS command_id, c."targetType", c.brightness, c.status,
        d.id AS dispatch_id, d."deliveryMode", d."destinationAddress",
        d."meshControlGroupId", d."meshControlGroupVersion", d.status AS dispatch_status
 FROM "Command" c
 JOIN "CommandDispatch" d ON d."commandId" = c.id
-WHERE c."siteId" = :'site_id'
-ORDER BY c."createdAt" DESC
-LIMIT 1;
+WHERE c.id = :'command_id'
+  AND c."siteId" = :'site_id';
 SQL
+test "$(wc -l < "$EVIDENCE_DIR/04-group-control/latest-command.csv")" -gt 1 || {
+  printf '명령 CSV가 비어 있습니다. SITE_ID와 제어 요청을 확인하세요.\n' >&2
+  exit 1
+}
 ```
 
 ### 기대 로그와 API/DB 상태
@@ -363,6 +395,7 @@ SQL
 4. timeout 뒤 node 2 전원을 복구하고 gateway를 재시작해 상태를 다시 동기화한다.
 
 ```bash
+: "${COMMAND_ID:?Gate 4에서 COMMAND_ID를 설정해야 합니다}"
 docker compose exec -T postgres psql -U led -d led_control \
   -v command_id="$COMMAND_ID" -P pager=off --csv \
   > "$EVIDENCE_DIR/05-fixture-status/results.csv" <<'SQL'
@@ -375,6 +408,10 @@ JOIN "Fixture" f ON f.id = r."fixtureId"
 WHERE d."commandId" = :'command_id'
 ORDER BY f.name;
 SQL
+test "$(wc -l < "$EVIDENCE_DIR/05-fixture-status/results.csv")" -gt 1 || {
+  printf 'fixture 결과 CSV가 비어 있습니다. COMMAND_ID와 terminal 상태를 확인하세요.\n' >&2
+  exit 1
+}
 ```
 
 ### 기대 로그와 API/DB 상태
@@ -403,7 +440,7 @@ production firmware를 변경하지 않고 panic reset fault `0x01`을 발생시
 
 ### 선행 조건
 
-- Gate 2를 마친 provisioned node 1대와 해당 `FIXTURE_ID`, `MESH_UNICAST`가 있다.
+- Gate 2를 마친 provisioned node 1대와 해당 `FIXTURE_ID`가 있다.
 - flash에 사용한 정확한 ELF와 ESP-IDF/OpenOCD가 Mac에 있다.
 - gateway provisioner의 Health Client model은 AppKey index `0`에 bind돼 있다.
 - 시험 중 조명 출력을 안전하게 분리하거나 관찰할 수 있다.
@@ -411,6 +448,15 @@ production firmware를 변경하지 않고 panic reset fault `0x01`을 발생시
 ### 실행 명령과 화면 조작
 
 #### 6-1. fault 발생
+
+브라우저 또는 Gate 2 등록 CSV에서 시험할 fixture ID를 입력하고 빈 값이면 중단한다.
+
+```bash
+printf 'FIXTURE_ID: '
+read -r FIXTURE_ID
+export FIXTURE_ID
+: "${FIXTURE_ID:?FIXTURE_ID를 입력해야 합니다}"
+```
 
 Terminal A에서 OpenOCD를 실행한다.
 
@@ -467,6 +513,10 @@ SELECT id, name, status, "healthFaultCodes", "healthLastSeenAt",
 FROM "Fixture"
 WHERE id = :'fixture_id';
 SQL
+test "$(wc -l < "$EVIDENCE_DIR/06-health/final-health.csv")" -gt 1 || {
+  printf 'Health CSV가 비어 있습니다. FIXTURE_ID를 확인하세요.\n' >&2
+  exit 1
+}
 ```
 
 표준 Health Fault Clear 실기는 Gateway 내부 송신 경로가 구현된 뒤 opcode `80 2f e5 02`를 같은 attached node owner로 전송하고, ESP32 serial의 `Health faults cleared`와 다음 Health Current를 함께 확인해야 한다. 그 전까지 표준 Clear 항목은 `not_executed`이며 Gate 6 전체를 완전 통과로 표시하지 않는다.
@@ -515,6 +565,15 @@ GDB/OpenOCD log, ESP32 fault/reset serial log, `fault-gateway.log`, `clear-gatew
 6. reload 후에도 `밝기 적용 중`과 잠금이 유지되고 같은 `GET /api/commands/{COMMAND_ID}`만 polling되는지 확인한다.
 7. `partial_failed` 또는 다른 matching terminal stage가 표시된 뒤 잠금이 해제되는지 확인한다.
 
+reload 시험에서 새로 생성된 command ID를 입력한다.
+
+```bash
+printf 'COMMAND_ID (reload 시험 POST response UUID): '
+read -r COMMAND_ID
+export COMMAND_ID
+: "${COMMAND_ID:?COMMAND_ID를 입력해야 합니다}"
+```
+
 진행 중과 종료 후 DevTools Console에서 storage를 확인한다.
 
 ```js
@@ -539,6 +598,10 @@ JOIN "CommandFixtureResult" r ON r."dispatchId" = d.id
 WHERE c.id = :'command_id'
 ORDER BY r."fixtureId";
 SQL
+test "$(wc -l < "$EVIDENCE_DIR/07-browser-recovery/command.csv")" -gt 1 || {
+  printf '복구 명령 CSV가 비어 있습니다. COMMAND_ID와 polling 결과를 확인하세요.\n' >&2
+  exit 1
+}
 ```
 
 ### 기대 로그와 API/DB 상태

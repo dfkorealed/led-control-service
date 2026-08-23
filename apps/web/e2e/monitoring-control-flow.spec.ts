@@ -24,6 +24,7 @@ const fixtures: SettingsFixture[] = [
     brightness: 70,
     status: "online",
     statusReason: "reported",
+    health: { faultCodes: [], observedAt: "2026-07-12T00:00:00.000Z" },
     rssi: -58,
     hopCount: 1,
     commandSuccessRate: 0.99,
@@ -42,6 +43,7 @@ const fixtures: SettingsFixture[] = [
     brightness: 70,
     status: "online",
     statusReason: "reported",
+    health: { faultCodes: [], observedAt: "2026-07-12T00:00:00.000Z" },
     rssi: -61,
     hopCount: 2,
     commandSuccessRate: 0.98,
@@ -89,6 +91,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     const api = await installBrowserContractFixture(page);
     await page.goto(`/control?siteId=${ids.site}`);
 
+    await expect(page.getByText("B2 · 온라인 · Health 정상", { exact: true }).first()).toBeVisible();
     await page.getByRole("checkbox", { name: "B2-L001 선택" }).check();
     const createResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/commands/dimming"));
     await page.getByRole("button", { name: "밝기 적용" }).click();
@@ -118,6 +121,48 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await expect(page.getByText("명령 처리 실패")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText("B2-L001: 장비 응답 오류")).toBeVisible();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
+  });
+
+  test("다중 조명 부분 실패에서 성공과 timeout 결과를 장비별로 표시한다", async ({ page }) => {
+    const api = await installBrowserContractFixture(page);
+    await page.goto(`/control?siteId=${ids.site}`);
+    await page.getByRole("checkbox", { name: "B2-L001 선택" }).check();
+    await page.getByRole("checkbox", { name: "B2-L002 선택" }).check();
+    const createResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/commands/dimming"));
+    await page.getByRole("button", { name: "밝기 적용" }).click();
+    const createResponse = await createResponsePromise;
+    await expect.poll(() => api.dimmingRequests).toEqual([{
+      siteId: ids.site,
+      target: { type: "fixtures", fixtureIds: [ids.fixture1, ids.fixture2] },
+      brightness: 70
+    }]);
+    await expect(createResponse.json()).resolves.toMatchObject({
+      selectedTargetCount: 2,
+      transmissionCount: 2,
+      deliveryMode: "parallel_unicast"
+    });
+    await expect.poll(() => api.commandStatusRequests).toContain(ids.command);
+
+    api.setCommandStatus({
+      stage: "partial_failed",
+      results: [
+        {
+          fixtureId: ids.fixture1,
+          fixtureName: "B2-L001",
+          status: "succeeded",
+          errorMessage: null
+        },
+        {
+          fixtureId: ids.fixture2,
+          fixtureName: "B2-L002",
+          status: "timed_out",
+          errorMessage: "응답 시간 초과"
+        }
+      ]
+    });
+
+    await expect(page.getByText("일부 조명 적용 실패")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("B2-L002: 응답 시간 초과")).toBeVisible();
   });
 
   test("브라우저 새로고침 후 진행 중 명령을 복구하고 terminal 결과까지 추적한다", async ({ page }) => {
