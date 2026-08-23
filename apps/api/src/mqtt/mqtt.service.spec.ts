@@ -3,6 +3,13 @@ import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 jest.mock("node:fs", () => ({ readFileSync: jest.fn(() => Buffer.from("test-certificate")) }));
 
 describe("MqttService", () => {
+  const resyncRequest = {
+    siteId: "22222222-2222-4222-8222-222222222222",
+    gatewayId: "55555555-5555-4555-8555-555555555555",
+    eventId: "77777777-7777-4777-8777-777777777777",
+    occurredAt: "2026-08-23T09:00:00.000Z",
+    reason: "state_missing"
+  };
   it("rejects insecure production broker configuration", () => {
     expect(() => createMqttConnectionOptions({ NODE_ENV: "production", MQTT_URL: "mqtt://broker:1883" })).toThrow(
       "mqtts://"
@@ -45,6 +52,22 @@ describe("MqttService", () => {
       JSON.stringify({ ok: true }),
       { qos: 1, properties: { messageExpiryInterval: 10 } },
       expect.any(Function)
+    );
+  });
+
+  it("subscribes to gateway mesh group resync requests at startup", () => {
+    const subscribe = jest.fn();
+    const on = jest.fn((event: string, listener: () => void) => {
+      if (event === "connect") listener();
+    });
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).client = { on, subscribe };
+
+    service.onModuleInit();
+
+    expect(subscribe).toHaveBeenCalledWith(
+      expect.arrayContaining(["sites/+/gateways/+/events/mesh-group/resync-request"]),
+      { qos: 1 }
     );
   });
 
@@ -298,6 +321,40 @@ describe("MqttService", () => {
         occurredAt: new Date("2026-07-11T00:00:02.000Z")
       }
     });
+  });
+
+  it("handles a scoped mesh group resync request inside one database transaction", async () => {
+    const tx = { transaction: true };
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: (client: any) => Promise<unknown>) => callback(tx))
+    };
+    const meshGroups = createMeshGroupsMock();
+    const service = new MqttService(prisma, meshGroups as never);
+
+    await service.handleMessage(
+      `sites/${resyncRequest.siteId}/gateways/${resyncRequest.gatewayId}/events/mesh-group/resync-request`,
+      Buffer.from(JSON.stringify(resyncRequest))
+    );
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(meshGroups.resetGatewayGroupsForResync).toHaveBeenCalledWith(tx, {
+      siteId: resyncRequest.siteId,
+      gatewayId: resyncRequest.gatewayId
+    });
+  });
+
+  it("ignores a mesh group resync request whose topic and payload scopes differ", async () => {
+    const prisma: any = { $transaction: jest.fn() };
+    const meshGroups = createMeshGroupsMock();
+    const service = new MqttService(prisma, meshGroups as never);
+
+    await service.handleMessage(
+      `sites/${resyncRequest.siteId}/gateways/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/events/mesh-group/resync-request`,
+      Buffer.from(JSON.stringify(resyncRequest))
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(meshGroups.resetGatewayGroupsForResync).not.toHaveBeenCalled();
   });
 
   it("persists only current-version mesh group subscription results from the same site and gateway", async () => {
@@ -1077,7 +1134,8 @@ describe("MqttService", () => {
 
 function createMeshGroupsMock() {
   return {
-    attachProvisionedNode: jest.fn().mockResolvedValue(undefined)
+    attachProvisionedNode: jest.fn().mockResolvedValue(undefined),
+    resetGatewayGroupsForResync: jest.fn().mockResolvedValue({ groupCount: 0, memberCount: 0 })
   };
 }
 

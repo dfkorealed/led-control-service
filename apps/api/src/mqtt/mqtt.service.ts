@@ -8,6 +8,7 @@ import {
   IdentifyDevicePayload,
   identifyDeviceSchema,
   mapHealthFaults,
+  meshGroupResyncRequestV2Schema,
   meshGroupSubscriptionResultSchema,
   meshGroupSubscriptionSyncSchema,
   mqttTopics,
@@ -48,6 +49,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           "sites/+/gateways/+/events/unprovisioned-device-found",
           "sites/+/gateways/+/events/provisioning-completed",
           "sites/+/gateways/+/events/provisioning-failed",
+          "sites/+/gateways/+/events/mesh-group/resync-request",
           "sites/+/gateways/+/events/mesh-group/subscription-result"
         ],
         { qos: 1 }
@@ -278,6 +280,17 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const topicScope = parseGatewayScopedTopic(topic);
       if (!topicScope || topicScope.siteId !== event.siteId || topicScope.gatewayId !== event.gatewayId) return;
       await this.storeMeshGroupSubscriptionResult(event);
+      return;
+    }
+
+    if (topic.endsWith("/events/mesh-group/resync-request")) {
+      const event = meshGroupResyncRequestV2Schema.parse(JSON.parse(payload.toString()));
+      const topicScope = parseGatewayScopedTopic(topic);
+      if (!topicScope || topicScope.siteId !== event.siteId || topicScope.gatewayId !== event.gatewayId) return;
+      await this.prisma.$transaction((tx) => this.meshControlGroups.resetGatewayGroupsForResync(tx, {
+        siteId: event.siteId,
+        gatewayId: event.gatewayId
+      }));
     }
   }
 

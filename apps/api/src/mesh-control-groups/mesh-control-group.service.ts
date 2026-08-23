@@ -19,8 +19,63 @@ type ReadyDestinationInput =
   | { type: "floor"; floorId: string; gatewayId: string }
   | { type: "fixture_group"; fixtureGroupId: string; gatewayId: string };
 
+type GatewayGroupResyncInput = {
+  siteId: string;
+  gatewayId: string;
+};
+
 @Injectable()
 export class MeshControlGroupService {
+  async resetGatewayGroupsForResync(tx: Prisma.TransactionClient, input: GatewayGroupResyncInput) {
+    const gateways = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "Gateway"
+      WHERE "id" = ${input.gatewayId} AND "siteId" = ${input.siteId}
+      FOR UPDATE
+    `;
+    if (gateways.length === 0) {
+      return { groupCount: 0, memberCount: 0 };
+    }
+
+    // Stable group ordering serializes concurrent full resets without introducing
+    // a second version sequence for an idempotent recovery request.
+    const groups = await tx.$queryRaw<Array<{ id: string; configurationVersion: number }>>`
+      SELECT "id", "configurationVersion"
+      FROM "MeshControlGroup"
+      WHERE "gatewayId" = ${input.gatewayId}
+      ORDER BY "id"
+      FOR UPDATE
+    `;
+    const groupIds = groups.map((group) => group.id);
+    if (groupIds.length === 0) {
+      return { groupCount: 0, memberCount: 0 };
+    }
+
+    const groupUpdate = await tx.meshControlGroup.updateMany({
+      where: {
+        gatewayId: input.gatewayId,
+        id: { in: groupIds }
+      },
+      data: {
+        status: MeshControlGroupStatus.configuring,
+        lastError: null
+      }
+    });
+    const memberUpdate = await tx.meshControlGroupMember.updateMany({
+      where: {
+        gatewayId: input.gatewayId,
+        groupId: { in: groupIds }
+      },
+      data: {
+        subscriptionStatus: "pending",
+        statusVersion: 0,
+        lastError: null
+      }
+    });
+
+    return { groupCount: groupUpdate.count, memberCount: memberUpdate.count };
+  }
+
   async ensureFloorGroup(tx: Prisma.TransactionClient, gatewayId: string, floorId: string) {
     return this.ensureGroup(tx, gatewayId, { targetType: "floor", targetId: floorId });
   }

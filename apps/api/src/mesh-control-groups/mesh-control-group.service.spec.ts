@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { MeshControlGroupService } from "./mesh-control-group.service";
 
 describe("MeshControlGroupService", () => {
+  const siteId = "00000000-0000-4000-8000-000000000000";
   const gatewayId = "00000000-0000-4000-8000-000000000001";
   const gatewayId2 = "00000000-0000-4000-8000-000000000002";
   const floorId = "00000000-0000-4000-8000-000000000003";
@@ -700,4 +701,107 @@ describe("MeshControlGroupService", () => {
       gatewayId
     })).rejects.toThrow("mesh control group target not found");
   });
+
+  it("resets every gateway group for a full resync without incrementing versions", async () => {
+    const tx: any = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId }])
+        .mockResolvedValueOnce([
+          { id: "group-configuring", configurationVersion: 2 },
+          { id: "group-failed", configurationVersion: 5 },
+          { id: "group-ready", configurationVersion: 7 }
+        ]),
+      meshControlGroup: {
+        updateMany: jest.fn().mockResolvedValue({ count: 3 })
+      },
+      meshControlGroupMember: {
+        updateMany: jest.fn().mockResolvedValue({ count: 6 })
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.resetGatewayGroupsForResync(tx, { siteId, gatewayId })).resolves.toEqual({
+      groupCount: 3,
+      memberCount: 6
+    });
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    const gatewaySql = renderSqlCall(tx.$queryRaw.mock.calls[0]);
+    const groupsSql = renderSqlCall(tx.$queryRaw.mock.calls[1]);
+    expect(gatewaySql).toContain('FROM "Gateway"');
+    expect(gatewaySql).toContain('"siteId" =');
+    expect(gatewaySql).toContain("FOR UPDATE");
+    expect(groupsSql).toContain('FROM "MeshControlGroup"');
+    expect(groupsSql).toContain('ORDER BY "id"');
+    expect(groupsSql).toContain("FOR UPDATE");
+    expect(groupsSql).not.toContain('"status" =');
+    expect(tx.meshControlGroup.updateMany).toHaveBeenCalledWith({
+      where: {
+        gatewayId,
+        id: { in: ["group-configuring", "group-failed", "group-ready"] }
+      },
+      data: {
+        status: "configuring",
+        lastError: null
+      }
+    });
+    expect(tx.meshControlGroupMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        gatewayId,
+        groupId: { in: ["group-configuring", "group-failed", "group-ready"] }
+      },
+      data: {
+        subscriptionStatus: "pending",
+        statusVersion: 0,
+        lastError: null
+      }
+    });
+  });
+
+  it("keeps duplicate full resync requests idempotent at the same configuration version", async () => {
+    const tx: any = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId }])
+        .mockResolvedValueOnce([{ id: "group-ready", configurationVersion: 7 }])
+        .mockResolvedValueOnce([{ id: gatewayId }])
+        .mockResolvedValueOnce([{ id: "group-ready", configurationVersion: 7 }]),
+      meshControlGroup: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      meshControlGroupMember: {
+        updateMany: jest.fn().mockResolvedValue({ count: 2 })
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await service.resetGatewayGroupsForResync(tx, { siteId, gatewayId });
+    await service.resetGatewayGroupsForResync(tx, { siteId, gatewayId });
+
+    expect(tx.meshControlGroup.updateMany).toHaveBeenCalledTimes(2);
+    for (const call of tx.meshControlGroup.updateMany.mock.calls) {
+      expect(call[0].data).not.toHaveProperty("configurationVersion");
+    }
+  });
+
+  it("ignores a resync request outside the site and gateway boundary", async () => {
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      meshControlGroup: { updateMany: jest.fn() },
+      meshControlGroupMember: { updateMany: jest.fn() }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.resetGatewayGroupsForResync(tx, { siteId, gatewayId })).resolves.toEqual({
+      groupCount: 0,
+      memberCount: 0
+    });
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.meshControlGroup.updateMany).not.toHaveBeenCalled();
+    expect(tx.meshControlGroupMember.updateMany).not.toHaveBeenCalled();
+  });
 });
+
+function renderSqlCall(call: readonly unknown[]) {
+  return String.raw({ raw: call[0] as readonly string[] }, ...call.slice(1));
+}
