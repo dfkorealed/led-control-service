@@ -335,4 +335,19 @@ Ruling: terminal 결과는 화면에 남기되 입력 잠금만 해제한다 —
 - 최종 재리뷰: Critical 0건, Important 0건.
 - 최종 fresh 검증: 웹 테스트 `198개`, build/typecheck/`git diff --check`, clean worktree 통과. 실제 브라우저·하드웨어 E2E는 Task 16 범위로 남긴다.
 - Task 15 상태: complete
-- 사용자 확인 Gate 15: 대기
+- 사용자 확인 Gate 15 승인: 2026-08-23
+
+## Task 16 실행
+
+- 기준 커밋: `55ab570`
+- 작업 위치: 사용자 지정 현재 브랜치 `codex/mvp1-cloud-web`
+
+### 사전 충돌 점검
+
+| 생산 Task | 소비 Task | 공유 파일/인터페이스 | 점검 결과 |
+| --- | --- | --- | --- |
+| Task 16 | Task 2·14 모니터링 UI | 10분 상태 query, 1,000개 지도 object | deterministic route fixture에서 새로고침과 대규모 렌더링 계약을 함께 검증한다. |
+| Task 16 | Task 15 제어 UI | active command polling, terminal 잠금 해제 | 명령 생성부터 fixture별 terminal 결과까지 브라우저에서 재현하고 실제 BLE 검증으로 표기하지 않는다. |
+| Task 16 | Raspberry Pi·ESP32-H2 | 검색 UUID, batch 등록, Mesh group/Health | 자동 E2E와 분리된 실기 런북에 명령·기대 로그·증거 파일을 순서대로 남긴다. |
+
+Ruling: Playwright route fixture는 웹/API 계약 회귀만 증명한다. Raspberry Pi BlueZ, MQTT mTLS, ESP32-H2 BLE Mesh의 실제 동작은 수동 HIL 절차를 통과하기 전까지 완료로 판정하지 않는다.
