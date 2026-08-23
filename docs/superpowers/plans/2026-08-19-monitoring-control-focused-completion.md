@@ -1405,7 +1405,7 @@ git add apps/web/src/api/commands.ts apps/web/src/features/control apps/web/src/
 git commit -m "feat(control): lock controls until device results"
 ```
 
-구현 커밋: `017c3f9`, `c4196cf`, `a167fe3`, `703b82d`, `3b9598d`
+구현 커밋: `017c3f9`, `c4196cf`, `a167fe3`, `703b82d`, `3b9598d`, `13e3f47`
 
 - [ ] **사용자 확인 Gate 15:** 구현 완료, 사용자 확인 대기
 
