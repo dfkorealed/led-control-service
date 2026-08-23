@@ -1,4 +1,10 @@
 import type { Page } from "@playwright/test";
+import {
+  createDimmingCommandSchema,
+  floorMapSnapshotSchema,
+  type CreateDimmingCommandInput,
+  type FloorMapSnapshot
+} from "@led-control/shared";
 
 export type SettingsRole = "operator" | "admin" | "viewer";
 
@@ -23,7 +29,27 @@ export interface SettingsFixture {
 
 interface InstallSettingsApiOptions {
   fixtures?: SettingsFixture[];
+  commandId?: string;
+  mapObjects?: SettingsMapObject[];
+  ids?: Partial<SettingsApiIds>;
 }
+
+interface SettingsApiIds {
+  siteId: string;
+  floorId: string;
+  gatewayId: string;
+}
+
+export type SettingsMapObject = FloorMapSnapshot["objects"][number];
+
+export interface FixtureCommandResult {
+  fixtureId: string;
+  fixtureName: string;
+  status: "pending" | "succeeded" | "failed";
+  errorMessage: string | null;
+}
+
+type FixtureCommandStage = "accepted" | "completed" | "failed";
 
 interface SavePayload {
   expectedRevision: number;
@@ -53,6 +79,14 @@ export interface SettingsApiFixtureState {
   atomicSavePayloads: SavePayload[];
   fixtureUpdates: SavePayload["fixtureUpdates"];
   logoutRequests: number;
+  dashboardRequests: number;
+  fixturePageRequests: number;
+  mapSnapshotRequests: number;
+  fixturePageCursors: Array<string | null>;
+  dimmingRequests: CreateDimmingCommandInput[];
+  commandStatusRequests: string[];
+  updateFixture: (fixtureId: string, update: Pick<SettingsFixture, "status" | "brightness">) => void;
+  setCommandStatus: (input: { stage: FixtureCommandStage; results: FixtureCommandResult[] }) => void;
 }
 
 const floor = {
@@ -70,6 +104,12 @@ const floor = {
     height: 800,
     version: 1
   }
+};
+
+const defaultIds: SettingsApiIds = {
+  siteId: floor.siteId,
+  floorId: floor.id,
+  gatewayId: "gateway-1"
 };
 
 const defaultFixtures: SettingsFixture[] = [{
@@ -92,23 +132,55 @@ const defaultFixtures: SettingsFixture[] = [{
 }];
 
 /**
- * Browser-only API fixture for settings E2E. It deliberately exposes only the
- * assigned site so an overly broad route mock cannot hide tenant regressions.
+ * Browser-only API fixture for settings and monitoring/control contract E2E.
+ * It deliberately exposes only the assigned site so an overly broad route mock
+ * cannot hide tenant regressions. This fixture never represents real hardware.
  */
 export async function installSettingsApiRoutes(
   page: Page,
   role: SettingsRole,
-  { fixtures = defaultFixtures }: InstallSettingsApiOptions = {}
+  {
+    fixtures = defaultFixtures,
+    commandId = "77777777-7777-4777-8777-777777777777",
+    mapObjects = [],
+    ids: idOverrides
+  }: InstallSettingsApiOptions = {}
 ): Promise<SettingsApiFixtureState> {
+  const ids = { ...defaultIds, ...idOverrides };
+  const runtimeFloor = { ...floor, id: ids.floorId, siteId: ids.siteId };
+  const fixtureState = structuredClone(fixtures);
+  let commandStage: FixtureCommandStage = "accepted";
+  let commandResults: FixtureCommandResult[] = [];
+  let commandCreated = false;
   const state: SettingsApiFixtureState = {
     requests: [],
     leaseRequests: [],
     editorRequests: [],
     atomicSavePayloads: [],
     fixtureUpdates: [],
-    logoutRequests: 0
+    logoutRequests: 0,
+    dashboardRequests: 0,
+    fixturePageRequests: 0,
+    mapSnapshotRequests: 0,
+    fixturePageCursors: [],
+    dimmingRequests: [],
+    commandStatusRequests: [],
+    updateFixture: (fixtureId, update) => {
+      const fixture = fixtureState.find((candidate) => candidate.id === fixtureId);
+      if (!fixture) throw new Error(`fixture not found: ${fixtureId}`);
+      if (!Number.isInteger(update.brightness) || update.brightness < 0 || update.brightness > 100) {
+        throw new Error(`invalid fixture brightness: ${update.brightness}`);
+      }
+      if (!(["online", "offline", "fault"] as const).includes(update.status)) {
+        throw new Error(`invalid fixture status: ${String(update.status)}`);
+      }
+      Object.assign(fixture, structuredClone(update));
+    },
+    setCommandStatus: (input) => {
+      commandStage = input.stage;
+      commandResults = structuredClone(input.results);
+    }
   };
-  const fixtureState = structuredClone(fixtures);
   let mapRevision = floor.mapRevision;
   let activeLeaseToken: string | null = null;
   let activeLeaseFence = 0;
@@ -133,16 +205,68 @@ export async function installSettingsApiRoutes(
       return route.fulfill({ json: { ok: true } });
     }
     if (path === "/sites") {
-      return route.fulfill({ json: [{ id: "site-1", name: "고객사 B2 현장" }] });
+      return route.fulfill({ json: [{ id: ids.siteId, name: "고객사 B2 현장" }] });
     }
-    if (path === "/sites/default/dashboard" || path === "/sites/site-1/dashboard") {
-      return route.fulfill({ json: dashboard(fixtureState) });
+    if (path === "/sites/default/dashboard" || path === `/sites/${ids.siteId}/dashboard`) {
+      state.dashboardRequests += 1;
+      return route.fulfill({
+        json: dashboard(fixtureState, runtimeFloor, ids.gatewayId, url.searchParams.get("includeFixtures") === "true")
+      });
     }
-    if (path === "/sites/site-1/floors/floor-1/fixtures") {
-      return route.fulfill({ json: pagedFixtures(fixtureState, url.searchParams.get("cursor")) });
+    if (path === `/sites/${ids.siteId}/floors/${ids.floorId}/fixtures`) {
+      state.fixturePageRequests += 1;
+      const cursor = url.searchParams.get("cursor");
+      state.fixturePageCursors.push(cursor);
+      return route.fulfill({ json: pagedFixtures(fixtureState, cursor) });
     }
-    if (path === "/floors/floor-1/editor-state") {
-      if (request.method() === "GET") return route.fulfill({ json: editorState(fixtureState, mapRevision) });
+    if (path === `/sites/${ids.siteId}/floors/${ids.floorId}/map-snapshot`) {
+      state.mapSnapshotRequests += 1;
+      const snapshot = mapSnapshot(runtimeFloor, mapRevision, mapObjects);
+      // Legacy settings specs retain short IDs; UUID-based contract specs use the same strict parser as the API.
+      const response = idOverrides ? floorMapSnapshotSchema.parse(snapshot) : snapshot;
+      return route.fulfill({ json: response });
+    }
+    if (path === "/commands/dimming" && request.method() === "POST") {
+      const parsed = createDimmingCommandSchema.safeParse(request.postDataJSON());
+      if (!parsed.success) {
+        return route.fulfill({ status: 400, json: { message: "invalid dimming command request" } });
+      }
+      const payload = parsed.data;
+      state.dimmingRequests.push(payload);
+      const targetFixtureIds = fixtureIdsForTarget(payload, fixtureState, runtimeFloor.id);
+      commandResults = targetFixtureIds.map((fixtureId) => {
+        const fixture = fixtureState.find((candidate) => candidate.id === fixtureId);
+        return {
+          fixtureId,
+          fixtureName: fixture?.name ?? fixtureId,
+          status: "pending" as const,
+          errorMessage: null
+        };
+      });
+      commandStage = "accepted";
+      commandCreated = true;
+      return route.fulfill({
+        json: {
+          id: commandId,
+          dispatchCount: 1,
+          selectedTargetCount: targetFixtureIds.length,
+          transmissionCount: 1,
+          deliveryMode: payload.target.type === "fixture" ? "unicast" : "parallel_unicast",
+          terminalStatusUrl: `/commands/${commandId}`
+        }
+      });
+    }
+    const commandStatusMatch = path.match(/^\/commands\/([^/]+)$/);
+    if (commandStatusMatch && request.method() === "GET") {
+      const requestedCommandId = decodeURIComponent(commandStatusMatch[1]);
+      state.commandStatusRequests.push(requestedCommandId);
+      if (!commandCreated || requestedCommandId !== commandId) {
+        return route.fulfill({ status: 404, json: { message: "command not found" } });
+      }
+      return route.fulfill({ json: commandStatus(commandId, commandStage, commandResults, ids.gatewayId) });
+    }
+    if (path === `/floors/${ids.floorId}/editor-state`) {
+      if (request.method() === "GET") return route.fulfill({ json: editorState(runtimeFloor, fixtureState, mapRevision) });
       if (request.method() === "PUT") {
         if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
         const payload = request.postDataJSON() as SavePayload;
@@ -157,10 +281,10 @@ export async function installSettingsApiRoutes(
         state.fixtureUpdates.push(...payload.fixtureUpdates);
         applyFixtureUpdates(fixtureState, payload.fixtureUpdates);
         mapRevision += 1;
-        return route.fulfill({ json: editorState(fixtureState, mapRevision) });
+        return route.fulfill({ json: editorState(runtimeFloor, fixtureState, mapRevision) });
       }
     }
-    if (path === "/floors/floor-1/editor-lease") {
+    if (path === `/floors/${ids.floorId}/editor-lease`) {
       if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
       if (request.method() === "POST") {
         const payload = (request.postDataJSON() as Record<string, unknown> | null) ?? {};
@@ -197,7 +321,7 @@ export async function installSettingsApiRoutes(
         return route.fulfill({ json: { released } });
       }
     }
-    if (path === "/floors/floor-1/editor-revisions") {
+    if (path === `/floors/${ids.floorId}/editor-revisions`) {
       return route.fulfill({ json: { items: [], nextCursor: null } });
     }
 
@@ -207,11 +331,19 @@ export async function installSettingsApiRoutes(
   return state;
 }
 
-function editableLease(token: string, fence: number) {
+interface EditorLeaseResult {
+  editable: boolean;
+  token?: string;
+  fence?: number;
+  holderName?: string;
+  acquiredAt?: string;
+}
+
+function editableLease(token: string, fence: number): EditorLeaseResult {
   return { editable: true, token, fence, holderName: "관리자", acquiredAt: "2026-07-12T00:00:00.000Z" };
 }
 
-function readOnlyLease(token: string | null) {
+function readOnlyLease(token: string | null): EditorLeaseResult {
   return token ? { editable: false, holderName: "관리자", acquiredAt: "2026-07-12T00:00:00.000Z" } : { editable: false };
 }
 
@@ -227,9 +359,14 @@ function currentUser(role: SettingsRole) {
   };
 }
 
-function dashboard(fixtures: SettingsFixture[]) {
+function dashboard(
+  fixtures: SettingsFixture[],
+  runtimeFloor: typeof floor,
+  gatewayId: string,
+  includeFixtures = false
+) {
   return {
-    site: { id: "site-1", name: "고객사 B2 현장" },
+    site: { id: runtimeFloor.siteId, name: "고객사 B2 현장" },
     summary: {
       totalFixtures: fixtures.length,
       onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
@@ -238,10 +375,16 @@ function dashboard(fixtures: SettingsFixture[]) {
         ? Math.round(fixtures.reduce((total, fixture) => total + fixture.brightness, 0) / fixtures.length)
         : 0
     },
-    floors: [{ id: floor.id, name: floor.name, level: floor.level, floorPlan: floor.floorPlan, fixtures: [] }],
+    floors: [{
+      id: runtimeFloor.id,
+      name: runtimeFloor.name,
+      level: runtimeFloor.level,
+      floorPlan: runtimeFloor.floorPlan,
+      fixtures: includeFixtures ? fixtures : []
+    }],
     groups: [],
     gateways: [{
-      id: "gateway-1",
+      id: gatewayId,
       name: "Gateway B2",
       serialNumber: "GW-E2E-001",
       firmwareVersion: "e2e-1.0.0",
@@ -251,12 +394,60 @@ function dashboard(fixtures: SettingsFixture[]) {
   };
 }
 
-function editorState(fixtures: SettingsFixture[], mapRevision: number) {
+function mapSnapshot(runtimeFloor: typeof floor, revision: number, objects: SettingsMapObject[]) {
+  const { version: _version, ...floorPlan } = runtimeFloor.floorPlan;
   return {
-    floor: { ...floor, mapRevision },
+    floorId: runtimeFloor.id,
+    revision,
+    width: runtimeFloor.floorPlan.width,
+    height: runtimeFloor.floorPlan.height,
+    floorPlan,
+    objects: objects.map((object) => ({
+      ...object,
+      points: object.points ?? null,
+      text: object.text ?? null,
+      fillColor: object.fillColor ?? null,
+      fontSize: object.fontSize ?? null
+    }))
+  };
+}
+
+function commandStatus(id: string, stage: FixtureCommandStage, results: FixtureCommandResult[], gatewayId: string) {
+  const completedFixtureCount = results.filter((result) => result.status !== "pending").length;
+  return {
+    id,
+    stage,
+    dispatchCount: 1,
+    completedFixtureCount,
+    totalFixtureCount: results.length,
+    errorMessage: stage === "failed" ? "one or more fixtures failed" : null,
+    dispatches: [{
+      id: "dispatch-1",
+      status: stage,
+      gateway: { id: gatewayId, name: "Gateway B2" },
+      errorMessage: null,
+      results
+    }]
+  };
+}
+
+function editorState(runtimeFloor: typeof floor, fixtures: SettingsFixture[], mapRevision: number) {
+  return {
+    floor: { ...runtimeFloor, mapRevision },
     fixtures,
     objects: []
   };
+}
+
+function fixtureIdsForTarget(
+  payload: CreateDimmingCommandInput,
+  fixtures: SettingsFixture[],
+  floorId: string
+) {
+  if (payload.target.type === "fixture") return [payload.target.fixtureId];
+  if (payload.target.type === "fixtures") return payload.target.fixtureIds;
+  if (payload.target.type === "floor") return payload.target.floorId === floorId ? fixtures.map((fixture) => fixture.id) : [];
+  return [];
 }
 
 function pagedFixtures(fixtures: SettingsFixture[], cursor: string | null) {
