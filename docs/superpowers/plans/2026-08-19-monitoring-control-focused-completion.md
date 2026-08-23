@@ -1108,7 +1108,7 @@ Pending timeout transaction은 미발행·미-dead-letter이며 unlocked 또는 
 - Group result: actual Lightness Status by expected source address
 - Consumes: Task 12 `meshControlGroupId`, `meshControlGroupVersion`; Gateway 로컬에 적용 완료된 동일 group/version만 송신
 - Produces: group ID/address/version별 durable `configuring | ready | failed` snapshot과 group 단위 sync/control serialization
-- Recovery: local state 유실·손상 시 `mesh-group/resync-request`, cloud ready group을 포함한 gateway 전체 subscription 재동기화
+- Recovery: local state 유실·손상 시 `mesh-group/resync-request`, cloud ready group을 포함한 gateway 전체 group version 증가 및 subscription 재동기화
 
 - [x] **Step 1: unacknowledged group codec 실패 테스트 작성**
 
@@ -1158,7 +1158,7 @@ expect(transport.send).not.toHaveBeenCalled();
 - 일부 member 실패, 상태 저장 실패는 `failed` fail-closed이며 이전 version 제어를 허용하지 않는지 검증한다.
 - 같은 group의 sync/control은 직렬화되고 다른 group은 병렬 실행되는지 검증한다.
 - 재시작 후 ready/configuring/failed 복원과 exact ID/address/version 검증을 확인한다.
-- state 파일 유실·손상 시 모든 group 제어를 차단하고 resync request를 보내며, API가 해당 gateway의 cloud ready group까지 같은 version `configuring`으로 되돌려 전체 member sync를 재발행하는지 검증한다.
+- state 파일 유실·손상 시 모든 group 제어를 차단하고 resync request를 보내며, API가 해당 gateway의 cloud ready group까지 `configurationVersion`을 새 버전으로 정확히 한 번 증가시키고 `configuring`으로 되돌려 전체 member sync를 재발행하는지 검증한다.
 
 - [x] **Step 5: RED 확인**
 
@@ -1188,7 +1188,7 @@ switch (command.deliveryMode) {
 
 ESP32-H2는 Group Set Unack 수신 후 실제 PWM 상태를 publication한다. publication 지연은 primary unicast 하위 비트를 사용해 결정적으로 계산하고 command 적용 자체는 지연하지 않는다.
 
-Subscription handler도 같은 `groupSerialQueue`를 사용한다. 첫 Config 요청 전에 `configuring`을 원자 저장하고 fsync하며, member 전체 성공 뒤 `ready` 저장과 fsync를 마친 후 ACK한다. 부분 실패는 `failed`로 저장하고 이전 ready snapshot으로 rollback하지 않는다. 시작 시 state 파일을 복원하고 누락·손상 시 fail-closed와 resync request를 유지한다. API의 resync 처리는 gateway의 모든 cloud group을 조회해 ready group도 같은 version의 `configuring`으로 전환하고 member `statusVersion`을 초기화한다.
+Subscription handler도 같은 `groupSerialQueue`를 사용한다. 첫 Config 요청 전에 `configuring`을 원자 저장하고 fsync하며, member 전체 성공 뒤 `ready` 저장과 fsync를 마친 후 ACK한다. 부분 실패는 `failed`로 저장하고 이전 ready snapshot으로 rollback하지 않는다. 시작 시 state 파일을 복원하고 누락·손상 시 fail-closed와 resync request를 유지한다. API의 resync 처리는 gateway의 모든 cloud group을 조회해 각 `configurationVersion`을 이벤트당 정확히 한 번 증가시키고 `configuring`으로 전환하며 member `statusVersion`을 초기화한다. 이전 버전의 지연 subscription 결과는 반영하지 않는다.
 
 - [x] **Step 7: Task 검증**
 
@@ -1244,7 +1244,11 @@ Gateway는 resync 요청과 고정 `eventId`를 디스크에 영속화하고 MQT
 
 - [x] **Review fix 9: 최종 결과 보존과 TID 영속 성능 보강**
 
-내부 Status 수집 제한 뒤 250ms completion grace를 두어 이미 확정된 `state_mismatch` 결과가 외부 watchdog의 전체 timeout으로 덮이지 않게 했다. watchdog 최대값은 API의 30초 accepted-command deadline보다 작은 29.25초다. Mesh TID는 32개 블록의 다음 시작점을 먼저 원자 저장한 뒤 메모리에서 순차 발급한다. 재시작 시 미사용 TID를 건너뛰어 재사용을 막고, 1,000개 병렬 unicast의 파일 fsync 횟수를 1,000회에서 약 32회로 줄였다.
+주소 조회, queue 대기, TID 저장, BlueZ 전송과 Status 수집 전 구간에 하나의 절대 deadline을 적용한다. 내부 Status 수집 종료 뒤에는 250ms 비상 grace만 허용해 이미 확정된 `state_mismatch` 결과를 보존하면서 deadline 이후 신규 RF 송신을 차단한다.
+
+- [x] **Review fix 10: 목적지별 TID와 stale subscription 결과 fencing**
+
+Mesh TID 저장소는 목적지별 독립 순환을 보장하는 v2 형식으로 전환하고 기존 v1 파일을 자동 마이그레이션한다. 최대 1,000개 목적지의 다음 32개 TID 블록을 한 번의 원자 저장으로 예약해 재시작 안전성과 대량 unicast 성능을 함께 유지한다. API resync는 신규 이벤트마다 각 group의 `configurationVersion`을 정확히 한 번 증가시키며, 동일 `eventId` 재전달은 버전을 다시 올리지 않고 ACK만 재발행한다. 따라서 resync 이전 버전의 지연 subscription 결과가 group을 `ready`로 되돌릴 수 없다.
 
 - [ ] **사용자 확인 Gate 13:** 단일 전송 증거와 firmware build 결과를 보고하고 다음 Task 승인을 기다린다.
 
