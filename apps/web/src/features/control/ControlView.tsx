@@ -85,6 +85,10 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
           disabled={readOnly || isSubmitting}
           onChange={(nextSelection) => {
             setSelection(nextSelection);
+            if (nextSelection.mode === "fixtures" && nextSelection.fixtureIds.length === 1) {
+              const fixture = fixtures.find((item) => item.id === nextSelection.fixtureIds[0]);
+              if (fixture) setBrightness(fixture.brightness);
+            }
             setMessage("");
           }}
         />

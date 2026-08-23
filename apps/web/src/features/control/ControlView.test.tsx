@@ -96,6 +96,43 @@ describe("ControlView 대상 선택", () => {
     }));
   });
 
+  it("syncs brightness from the fixture when exactly one light is selected", () => {
+    renderControl();
+
+    fireEvent.click(screen.getByLabelText("B2-L002 선택"));
+
+    expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("60");
+  });
+
+  it("keeps the chosen brightness for empty and multiple light selections", () => {
+    renderControl();
+    const brightnessSlider = screen.getByRole("slider", { name: "밝기" });
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    expect(brightnessSlider).toHaveValue("70");
+
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    fireEvent.click(screen.getByLabelText("B2-L002 선택"));
+    expect(brightnessSlider).toHaveValue("30");
+
+    fireEvent.click(screen.getByRole("button", { name: "선택 해제" }));
+    expect(brightnessSlider).toHaveValue("30");
+  });
+
+  it("keeps the chosen brightness when switching to floor and zone targets", () => {
+    renderControl();
+    const brightnessSlider = screen.getByRole("slider", { name: "밝기" });
+
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    fireEvent.click(screen.getByRole("button", { name: "B1" }));
+    expect(brightnessSlider).toHaveValue("30");
+
+    fireEvent.click(screen.getByRole("button", { name: "구역" }));
+    fireEvent.click(screen.getByRole("button", { name: /B2 입구 구역/ }));
+    expect(brightnessSlider).toHaveValue("30");
+  });
+
   it("sends arbitrary multiple lights as a fixtures target", async () => {
     renderControl();
 
