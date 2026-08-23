@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createFixtureStatusPublisher,
+  createMeshGroupResyncRequest,
   createMqttIdentityActivation,
   parseGatewayHeartbeatInterval,
   recordMeshResyncOutcome,
@@ -24,6 +25,20 @@ const assignment = {
 };
 
 describe("startGatewayRuntime", () => {
+  it("creates a strict startup mesh-group resync request", () => {
+    expect(createMeshGroupResyncRequest(
+      { siteId: scopedSiteId, gatewayId: scopedGatewayId },
+      "state_missing",
+      () => "2026-08-23T00:00:00.000Z",
+      () => "11111111-1111-4111-8111-111111111111"
+    )).toEqual({
+      siteId: scopedSiteId,
+      gatewayId: scopedGatewayId,
+      eventId: "11111111-1111-4111-8111-111111111111",
+      occurredAt: "2026-08-23T00:00:00.000Z",
+      reason: "state_missing"
+    });
+  });
   it("publishes mapped Mesh status only on the assigned gateway v2 topic with a persisted sequence", async () => {
     const publish = vi.fn().mockResolvedValue(undefined);
     const next = vi.fn().mockResolvedValue(41);

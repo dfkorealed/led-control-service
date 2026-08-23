@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { StubBleMeshAdapter } from "../../test/stub-adapters";
 import { handleGatewayDimmingCommand, parseCommandTimeout } from "./gateway-command-handler";
+import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 
 const command = {
   commandId: "11111111-1111-4111-8111-111111111111",
@@ -176,7 +177,171 @@ describe("handleGatewayDimmingCommand", () => {
     expect(result.deviceStatus.results[0]).toMatchObject({ status: "timed_out", errorMessage: "indeterminate after gateway restart" });
     expect(adapter.commands).toHaveLength(0);
   });
+
+  it("dispatches unicast and parallel-unicast through their explicit adapter methods", async () => {
+    const applyUnicast = vi.fn(async (fixtureId: string, brightness: number) => ({
+      fixtureId, acknowledged: true, brightness, rssi: null, hopCount: null
+    }));
+    const applyParallelUnicast = vi.fn(async (fixtureIds: string[], brightness: number, concurrency: number) =>
+      fixtureIds.map((fixtureId) => ({ fixtureId, acknowledged: true, brightness, rssi: null, hopCount: null }))
+    );
+    const adapter = { setBrightness: vi.fn(), applyUnicast, applyParallelUnicast } as any;
+
+    await handleGatewayDimmingCommand(adapter, memoryJournal(new Map()), command);
+    await handleGatewayDimmingCommand(adapter, memoryJournal(new Map()), {
+      ...command,
+      idempotencyKey: "99999999-9999-4999-8999-999999999991",
+      targetType: "fixtures",
+      targetId: null,
+      targetFixtureIds: [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"],
+      deliveryMode: "parallel_unicast"
+    });
+
+    expect(applyUnicast).toHaveBeenCalledWith(command.targetFixtureIds[0], 65);
+    expect(applyParallelUnicast).toHaveBeenCalledWith(
+      [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"],
+      65,
+      8
+    );
+    expect(adapter.setBrightness).not.toHaveBeenCalled();
+  });
+
+  it("validates an exact durable ready snapshot before accepting and sending one mesh group command", async () => {
+    const events: string[] = [];
+    const groupStateStore = {
+      assertReady: vi.fn(async () => { events.push("ready"); })
+    };
+    const applyMeshGroup = vi.fn(async (_address: number, fixtureIds: string[], brightness: number) => {
+      events.push("mesh");
+      return fixtureIds.map((fixtureId) => ({
+        fixtureId,
+        acknowledged: true,
+        outcome: "applied" as const,
+        brightness,
+        rssi: null,
+        hopCount: null
+      }));
+    });
+    const groupCommand = meshCommand();
+
+    const result = await handleGatewayDimmingCommand(
+      { setBrightness: vi.fn(), applyMeshGroup } as any,
+      memoryJournal(new Map()),
+      groupCommand,
+      async () => { events.push("accepted"); },
+      { groupStateStore, groupQueue: new KeyedSerialTaskQueue() }
+    );
+
+    expect(events).toEqual(["ready", "accepted", "mesh"]);
+    expect(groupStateStore.assertReady).toHaveBeenCalledWith({
+      groupId: groupCommand.meshControlGroupId,
+      groupAddress: "0xc000",
+      version: 3
+    });
+    expect(applyMeshGroup).toHaveBeenCalledWith(0xc000, groupCommand.targetFixtureIds, 65);
+    expect(result.acceptance.status).toBe("accepted");
+  });
+
+  it("durably rejects a mesh group snapshot mismatch without acceptance callback or BLE send", async () => {
+    const records = new Map<string, any>();
+    const onAccepted = vi.fn();
+    const applyMeshGroup = vi.fn();
+    const groupCommand = meshCommand();
+    const options = {
+      groupStateStore: {
+        assertReady: vi.fn(async () => { throw Object.assign(new Error("not ready"), { code: "MESH_GROUP_NOT_READY" }); })
+      },
+      groupQueue: new KeyedSerialTaskQueue()
+    };
+
+    const first = await handleGatewayDimmingCommand(
+      { setBrightness: vi.fn(), applyMeshGroup } as any,
+      memoryJournal(records),
+      groupCommand,
+      onAccepted,
+      options
+    );
+    const duplicate = await handleGatewayDimmingCommand(
+      { setBrightness: vi.fn(), applyMeshGroup } as any,
+      memoryJournal(records),
+      groupCommand,
+      onAccepted,
+      options
+    );
+
+    expect(first.acceptance).toMatchObject({ status: "rejected", errorCode: "MESH_GROUP_NOT_READY" });
+    expect(first.deviceStatus.results).toEqual(groupCommand.targetFixtureIds.map((fixtureId) => expect.objectContaining({
+      fixtureId,
+      status: "failed"
+    })));
+    expect(duplicate).toEqual(first);
+    expect(onAccepted).not.toHaveBeenCalled();
+    expect(applyMeshGroup).not.toHaveBeenCalled();
+  });
+
+  it("maps per-fixture group timeout and state mismatch without collapsing the whole result", async () => {
+    const groupCommand = meshCommand();
+    const result = await handleGatewayDimmingCommand(
+      {
+        setBrightness: vi.fn(),
+        applyMeshGroup: vi.fn(async () => [
+          { fixtureId: groupCommand.targetFixtureIds[0], acknowledged: false, outcome: "failed", brightness: 30, faultCode: "state_mismatch", rssi: null, hopCount: null },
+          { fixtureId: groupCommand.targetFixtureIds[1], acknowledged: false, outcome: "timed_out", brightness: 65, faultCode: "status_timeout", rssi: null, hopCount: null }
+        ])
+      } as any,
+      memoryJournal(new Map()),
+      groupCommand,
+      undefined,
+      { groupStateStore: { assertReady: vi.fn() }, groupQueue: new KeyedSerialTaskQueue() }
+    );
+
+    expect(result.deviceStatus).toMatchObject({
+      status: "timed_out",
+      results: [
+        { status: "failed", faultCode: "state_mismatch" },
+        { status: "timed_out", faultCode: "status_timeout" }
+      ]
+    });
+  });
+
+  it("waits behind same-group subscription work but not unrelated group work", async () => {
+    const queue = new KeyedSerialTaskQueue();
+    const groupCommand = meshCommand();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const held = queue.run(groupCommand.meshControlGroupId, async () => gate);
+    const applyMeshGroup = vi.fn(async (_address: number, fixtureIds: string[], brightness: number) =>
+      fixtureIds.map((fixtureId) => ({ fixtureId, acknowledged: true, brightness, rssi: null, hopCount: null }))
+    );
+    const pending = handleGatewayDimmingCommand(
+      { setBrightness: vi.fn(), applyMeshGroup } as any,
+      memoryJournal(new Map()),
+      groupCommand,
+      undefined,
+      { groupStateStore: { assertReady: vi.fn() }, groupQueue: queue }
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(applyMeshGroup).not.toHaveBeenCalled();
+    release();
+    await held;
+    await pending;
+    expect(applyMeshGroup).toHaveBeenCalledTimes(1);
+  });
 });
+
+function meshCommand() {
+  return {
+    ...command,
+    idempotencyKey: "99999999-9999-4999-8999-999999999992",
+    targetType: "floor" as const,
+    targetId: "88888888-8888-4888-8888-888888888888",
+    targetFixtureIds: [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"],
+    deliveryMode: "mesh_group" as const,
+    destinationAddress: "0xc000",
+    meshControlGroupId: "88888888-8888-4888-8888-888888888889",
+    meshControlGroupVersion: 3
+  };
+}
 
 function memoryJournal(records: Map<string, any>) {
   return {

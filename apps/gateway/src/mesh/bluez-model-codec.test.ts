@@ -5,12 +5,17 @@ import {
   decodeLightnessStatus,
   encodeGenericOnOffSet,
   encodeLightnessSet,
+  encodeLightnessSetUnacknowledged,
   percentToLightness
 } from "./bluez-model-codec";
 
 describe("BlueZ SIG model codec", () => {
   it("encodes acknowledged Light Lightness Set in little endian", () => {
     expect(encodeLightnessSet({ lightness: 32768, tid: 7 })).toEqual(Buffer.from([0x82, 0x4c, 0x00, 0x80, 0x07]));
+  });
+
+  it("encodes unacknowledged Light Lightness Set in little endian", () => {
+    expect(encodeLightnessSetUnacknowledged(0xffff, 7)).toEqual(Buffer.from([0x82, 0x4d, 0xff, 0xff, 0x07]));
   });
 
   it("encodes acknowledged Generic OnOff Set", () => {

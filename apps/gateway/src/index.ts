@@ -7,6 +7,7 @@ import {
   type DeviceStatusAckV2,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
+  meshGroupResyncRequestV2Schema,
   identifyDeviceSchema,
   mqttTopics,
   mqttTopicsV2,
@@ -39,6 +40,8 @@ import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mq
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
 import type { BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
 import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
+import { GroupStateStore, type GroupStateRestoreReason } from "./mesh/group-state-store";
+import { KeyedSerialTaskQueue } from "./runtime/keyed-serial-task-queue";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -68,6 +71,11 @@ async function main() {
   const provisioningQueue = new SerialTaskQueue();
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
+  const groupStateStore = new GroupStateStore(
+    process.env.GATEWAY_MESH_GROUP_STATE_PATH ?? "/var/lib/led-control/mesh-groups.json"
+  );
+  const groupRestore = await groupStateStore.initialize();
+  const groupQueue = new KeyedSerialTaskQueue();
 
   async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
@@ -80,7 +88,7 @@ async function main() {
         await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), acceptance);
         acceptancePublished = true;
       },
-      { timeoutMs: commandTimeoutMs }
+      { timeoutMs: commandTimeoutMs, groupStateStore, groupQueue }
     );
     if (shouldPublishFinalAcceptance(acceptancePublished, result.acceptance.status)) {
       await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
@@ -149,7 +157,9 @@ async function main() {
 
   const groupSubscriptionHandler = new GroupSubscriptionHandler(
     adapter,
-    { siteId, gatewayId }
+    { siteId, gatewayId },
+    groupStateStore,
+    groupQueue
   );
 
   async function publishHeartbeat() {
@@ -183,6 +193,11 @@ async function main() {
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
       await health.mqttConnected();
+      await publish(
+        mqttRuntime.client,
+        mqttTopicsV2.meshGroupResyncRequest(siteId, gatewayId),
+        createMeshGroupResyncRequest({ siteId, gatewayId }, groupRestore.reason)
+      );
       await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
     },
     onClose: () => health.unhealthy("mqtt_disconnected"),
@@ -209,6 +224,20 @@ async function main() {
     console.error(`Gateway MQTT ${context} failed`, error);
     return health.unhealthy("mqtt_error");
   }
+}
+
+export function createMeshGroupResyncRequest(
+  scope: { siteId: string; gatewayId: string },
+  reason: GroupStateRestoreReason,
+  now: () => string = () => new Date().toISOString(),
+  eventId: () => string = randomUUID
+) {
+  return meshGroupResyncRequestV2Schema.parse({
+    ...scope,
+    eventId: eventId(),
+    occurredAt: now(),
+    reason
+  });
 }
 
 export function shouldPublishFixtureStates(result: Pick<GatewayCommandResult, "fixtureStateObserved">) {

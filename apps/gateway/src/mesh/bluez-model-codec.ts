@@ -1,4 +1,5 @@
 const LIGHT_LIGHTNESS_SET = Buffer.from([0x82, 0x4c]);
+const LIGHT_LIGHTNESS_SET_UNACKNOWLEDGED = Buffer.from([0x82, 0x4d]);
 const LIGHT_LIGHTNESS_STATUS = Buffer.from([0x82, 0x4e]);
 const GENERIC_ONOFF_SET = Buffer.from([0x82, 0x02]);
 const GENERIC_ONOFF_STATUS = Buffer.from([0x82, 0x04]);
@@ -12,6 +13,16 @@ export function encodeLightnessSet(input: { lightness: number; tid: number }) {
   LIGHT_LIGHTNESS_SET.copy(payload, 0);
   payload.writeUInt16LE(input.lightness, 2);
   payload.writeUInt8(input.tid, 4);
+  return payload;
+}
+
+export function encodeLightnessSetUnacknowledged(lightness: number, tid: number) {
+  assertUint16(lightness, "lightness");
+  assertUint8(tid, "tid");
+  const payload = Buffer.alloc(5);
+  LIGHT_LIGHTNESS_SET_UNACKNOWLEDGED.copy(payload, 0);
+  payload.writeUInt16LE(lightness, 2);
+  payload.writeUInt8(tid, 4);
   return payload;
 }
 

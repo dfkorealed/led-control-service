@@ -17,9 +17,11 @@ import {
   decodeHealthStatus,
   decodeLightnessStatus,
   encodeLightnessSet,
+  encodeLightnessSetUnacknowledged,
   lightnessToPercent,
   percentToLightness
 } from "./bluez-model-codec";
+import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 
 const BLUEZ_SERVICE = "org.bluez.mesh";
 const NODE_INTERFACE = "org.bluez.mesh.Node1";
@@ -72,6 +74,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private nextObservationGeneration = 0;
   private resyncInFlight: Promise<BleMeshResyncReport> | undefined;
   private lastResyncReport: BleMeshResyncReport | undefined;
+  private readonly commandSources = new KeyedSerialTaskQueue();
 
   constructor(
     private readonly transport: AdapterTransport,
@@ -169,8 +172,69 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   async setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]> {
     await this.start();
     const reports: BleMeshCommandReport[] = [];
-    for (const fixtureId of fixtureIds) reports.push(await this.setFixtureBrightness(fixtureId, brightness));
+    for (const fixtureId of fixtureIds) reports.push(await this.applyUnicast(fixtureId, brightness));
     return reports;
+  }
+
+  async applyUnicast(fixtureId: string, brightness: number): Promise<BleMeshCommandReport> {
+    await this.start();
+    const mapping = await this.addressStore.findByFixtureId(fixtureId);
+    if (!mapping || mapping.status !== "confirmed") return failed(fixtureId, brightness, "MESH_MAPPING_NOT_FOUND");
+    return this.commandSources.run(String(mapping.primaryUnicast), () =>
+      this.sendFixtureBrightness(fixtureId, mapping.primaryUnicast, brightness)
+    );
+  }
+
+  async applyParallelUnicast(fixtureIds: string[], brightness: number, concurrency = 8): Promise<BleMeshCommandReport[]> {
+    await this.start();
+    validateConcurrency(concurrency);
+    return mapWithConcurrency(fixtureIds, concurrency, (fixtureId) => this.applyUnicast(fixtureId, brightness));
+  }
+
+  async applyMeshGroup(groupAddress: number, fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]> {
+    await this.start();
+    validateGroupAddress(groupAddress);
+    const mappings = await Promise.all(fixtureIds.map(async (fixtureId) => ({
+      fixtureId,
+      mapping: await this.addressStore.findByFixtureId(fixtureId)
+    })));
+    const complete = mappings.every(({ mapping }) => mapping?.status === "confirmed");
+    const uniqueSources = new Set(mappings.flatMap(({ mapping }) => mapping?.status === "confirmed" ? [mapping.primaryUnicast] : []));
+    if (!complete || uniqueSources.size !== fixtureIds.length) {
+      return fixtureIds.map((fixtureId) => failed(fixtureId, brightness, "mesh_mapping_incomplete", "failed"));
+    }
+    const expected = mappings.map(({ fixtureId, mapping }) => ({ fixtureId, source: mapping!.primaryUnicast }));
+    return this.commandSources.runMany(expected.map(({ source }) => String(source)), async () => {
+      const tid = await this.transactions.next(groupAddress);
+      const statuses = waitForGroupLightnessStatuses(this.application, expected, this.responseTimeoutMs);
+      try {
+        await this.transport.call(BLUEZ_SERVICE, this.requireNodePath(), NODE_INTERFACE, "Send", [
+          BLUEZ_APPLICATION_PATHS.element,
+          groupAddress,
+          0,
+          [],
+          Array.from(encodeLightnessSetUnacknowledged(percentToLightness(brightness), tid))
+        ]);
+        const observed = await statuses.promise;
+        return expected.map(({ fixtureId, source }) => {
+          const status = observed.get(source);
+          if (!status) return failed(fixtureId, brightness, "status_timeout", "timed_out");
+          const reportedBrightness = lightnessToPercent(status.present);
+          if (Math.abs(reportedBrightness - brightness) > 1) {
+            return failed(fixtureId, reportedBrightness, "state_mismatch", "failed");
+          }
+          return applied(fixtureId, reportedBrightness, true);
+        });
+      } catch (error) {
+        statuses.cancel();
+        return fixtureIds.map((fixtureId) => failed(
+          fixtureId,
+          brightness,
+          error instanceof Error && error.message.includes("timed out") ? "status_timeout" : "mesh_send_failed",
+          error instanceof Error && error.message.includes("timed out") ? "timed_out" : "failed"
+        ));
+      }
+    });
   }
 
   async syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload): Promise<MeshGroupSubscriptionResultPayload> {
@@ -205,23 +269,21 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     };
   }
 
-  private async setFixtureBrightness(fixtureId: string, brightness: number): Promise<BleMeshCommandReport> {
-    const mapping = await this.addressStore.findByFixtureId(fixtureId);
-    if (!mapping || mapping.status !== "confirmed") return failed(fixtureId, brightness, "MESH_MAPPING_NOT_FOUND");
+  private async sendFixtureBrightness(fixtureId: string, primaryUnicast: number, brightness: number): Promise<BleMeshCommandReport> {
     const nodePath = this.requireNodePath();
-    const tid = await this.transactions.next(mapping.primaryUnicast);
-    const status = waitForLightnessStatus(this.application, mapping.primaryUnicast, this.responseTimeoutMs);
+    const tid = await this.transactions.next(primaryUnicast);
+    const status = waitForLightnessStatus(this.application, primaryUnicast, this.responseTimeoutMs);
     try {
       await this.transport.call(BLUEZ_SERVICE, nodePath, NODE_INTERFACE, "Send", [
         BLUEZ_APPLICATION_PATHS.element,
-        mapping.primaryUnicast,
+        primaryUnicast,
         0,
         [],
         Array.from(encodeLightnessSet({ lightness: percentToLightness(brightness), tid }))
       ]);
       const reportedBrightness = lightnessToPercent((await status.promise).present);
       if (Math.abs(reportedBrightness - brightness) > 1) return failed(fixtureId, brightness, "STATUS_MISMATCH");
-      return { fixtureId, acknowledged: true, brightness: reportedBrightness, rssi: null, hopCount: null };
+      return applied(fixtureId, reportedBrightness);
     } catch (error) {
       status.cancel();
       return failed(fixtureId, brightness, error instanceof Error && error.message.includes("timed out") ? "STATUS_TIMEOUT" : "MESH_SEND_FAILED");
@@ -548,11 +610,73 @@ function waitForLightnessStatus(application: EventEmitter, source: number, timeo
   };
 }
 
-function failed(fixtureId: string, brightness: number, faultCode: string): BleMeshCommandReport {
-  return { fixtureId, acknowledged: false, brightness, faultCode, rssi: null, hopCount: null };
+function waitForGroupLightnessStatuses(
+  application: EventEmitter,
+  expected: Array<{ fixtureId: string; source: number }>,
+  timeoutMs: number
+) {
+  const expectedSources = new Set(expected.map(({ source }) => source));
+  const observed = new Map<number, ReturnType<typeof decodeLightnessStatus>>();
+  let settled = false;
+  let resolvePromise: (statuses: Map<number, ReturnType<typeof decodeLightnessStatus>>) => void = () => undefined;
+  const cleanup = () => {
+    clearTimeout(timeout);
+    application.off("messageReceived", onMessage);
+  };
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resolvePromise(observed);
+  };
+  const onMessage = (event: { source: number; data: Uint8Array }) => {
+    if (settled || !expectedSources.has(event.source) || observed.has(event.source)) return;
+    const payload = Buffer.from(event.data);
+    if (payload[0] !== 0x82 || payload[1] !== 0x4e) return;
+    try {
+      observed.set(event.source, decodeLightnessStatus(payload));
+      if (observed.size === expectedSources.size) finish();
+    } catch {
+      // A malformed publication cannot satisfy an expected source and remains timed out.
+    }
+  };
+  const promise = new Promise<Map<number, ReturnType<typeof decodeLightnessStatus>>>((resolve) => {
+    resolvePromise = resolve;
+  });
+  const timeout = setTimeout(finish, timeoutMs);
+  application.on("messageReceived", onMessage);
+  return { promise, cancel: finish };
+}
+
+function applied(fixtureId: string, brightness: number, includeOutcome = false): BleMeshCommandReport {
+  return {
+    fixtureId,
+    acknowledged: true,
+    ...(includeOutcome ? { outcome: "applied" as const } : {}),
+    brightness,
+    rssi: null,
+    hopCount: null
+  };
+}
+
+function failed(
+  fixtureId: string,
+  brightness: number,
+  faultCode: string,
+  outcome: "failed" | "timed_out" = "failed"
+): BleMeshCommandReport {
+  return { fixtureId, acknowledged: false, outcome, brightness, faultCode, rssi: null, hopCount: null };
 }
 
 function parseMeshAddress(value: string) {
   if (!/^0x[0-9a-f]{4}$/i.test(value)) throw new Error("Invalid mesh address");
   return Number.parseInt(value.slice(2), 16);
+}
+
+function validateConcurrency(value: number) {
+  if (!Number.isInteger(value) || value < 1 || value > 64) throw new Error("mesh unicast concurrency must be 1 to 64");
+}
+
+function validateGroupAddress(value: number) {
+  if (!Number.isInteger(value) || value < 0xc000 || value > 0xfeff) throw new Error("invalid mesh group address");
 }

@@ -66,6 +66,98 @@ describe("BluezMeshAdapter", () => {
     expect(f.transport.call).not.toHaveBeenCalled();
   });
 
+  it("applies unicast commands with a bounded default concurrency of eight", async () => {
+    const f = fixture();
+    let active = 0;
+    let maximumActive = 0;
+    const releases: Array<() => void> = [];
+    f.addresses.findByFixtureId.mockImplementation(async (fixtureId: string) => {
+      const index = Number(fixtureId.slice("fixture-".length));
+      return { fixtureId, primaryUnicast: 0x0100 + index, status: "confirmed" as const };
+    });
+    f.transport.call.mockImplementation(async (_service, _path, _interfaceName, _method, args) => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise<void>((resolve) => releases.push(resolve));
+      active -= 1;
+      const destination = args[1] as number;
+      queueMicrotask(() => f.application.emit("messageReceived", {
+        source: destination,
+        data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff])
+      }));
+    });
+
+    const result = f.adapter.applyParallelUnicast(
+      Array.from({ length: 10 }, (_, index) => `fixture-${index}`),
+      100
+    );
+    await vi.waitFor(() => expect(releases).toHaveLength(8));
+    releases.splice(0, 8).forEach((release) => release());
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases.splice(0).forEach((release) => release());
+
+    await expect(result).resolves.toHaveLength(10);
+    expect(maximumActive).toBe(8);
+  });
+
+  it("sends one unacknowledged group command and aggregates actual status by expected source", async () => {
+    const f = fixture();
+    configureGroupFixtures(f);
+    const baselineListeners = f.application.listenerCount("messageReceived");
+
+    const result = f.adapter.applyMeshGroup(0xc000, ["fixture-1", "fixture-2"], 70);
+    await vi.waitFor(() => expect(f.transport.call).toHaveBeenCalledTimes(1));
+    expect(f.transport.calls[0].args[1]).toBe(0xc000);
+    expect(f.transport.calls[0].args[4]).toEqual([0x82, 0x4d, 0x33, 0xb3, 0x07]);
+    f.application.emit("messageReceived", {
+      source: 0x0100,
+      data: Uint8Array.from([0x82, 0x4e, 0x33, 0xb3])
+    });
+    f.application.emit("messageReceived", {
+      source: 0x0101,
+      data: Uint8Array.from([0x82, 0x4e, 0x33, 0xb3])
+    });
+
+    await expect(result).resolves.toEqual([
+      { fixtureId: "fixture-1", acknowledged: true, outcome: "applied", brightness: 70, rssi: null, hopCount: null },
+      { fixtureId: "fixture-2", acknowledged: true, outcome: "applied", brightness: 70, rssi: null, hopCount: null }
+    ]);
+    expect(f.application.listenerCount("messageReceived")).toBe(baselineListeners);
+  });
+
+  it("classifies group state mismatch and missing status without leaking listeners", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      configureGroupFixtures(f);
+      const baselineListeners = f.application.listenerCount("messageReceived");
+      const result = f.adapter.applyMeshGroup(0xc000, ["fixture-1", "fixture-2"], 70);
+      await vi.advanceTimersByTimeAsync(0);
+      f.application.emit("messageReceived", {
+        source: 0x0100,
+        data: Uint8Array.from([0x82, 0x4e, 0xcc, 0x4c])
+      });
+      await vi.advanceTimersByTimeAsync(100);
+
+      await expect(result).resolves.toEqual([
+        expect.objectContaining({ fixtureId: "fixture-1", acknowledged: false, outcome: "failed", faultCode: "state_mismatch" }),
+        expect.objectContaining({ fixtureId: "fixture-2", acknowledged: false, outcome: "timed_out", faultCode: "status_timeout" })
+      ]);
+      expect(f.application.listenerCount("messageReceived")).toBe(baselineListeners);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not send a group command when any expected fixture mapping is unavailable", async () => {
+    const f = fixture();
+    await expect(f.adapter.applyMeshGroup(0xc000, ["fixture-1", "missing"], 70)).resolves.toEqual([
+      expect.objectContaining({ fixtureId: "fixture-1", outcome: "failed", faultCode: "mesh_mapping_incomplete" }),
+      expect.objectContaining({ fixtureId: "missing", outcome: "failed", faultCode: "mesh_mapping_incomplete" })
+    ]);
+    expect(f.transport.call).not.toHaveBeenCalled();
+  });
+
   it("normalizes scan and configures a provisioned node before completion", async () => {
     const f = fixture();
     await expect(f.adapter.scan({ sessionId: "session-1" } as never)).resolves.toMatchObject([
@@ -366,3 +458,20 @@ describe("BluezMeshAdapter", () => {
     expect(f.transport.call).toHaveBeenCalledTimes(3001);
   }, 10_000);
 });
+
+function configureGroupFixtures(f: ReturnType<typeof fixture>) {
+  f.addresses.findByFixtureId.mockImplementation(async (fixtureId: string) => {
+    if (fixtureId === "fixture-1") return { fixtureId, primaryUnicast: 0x0100, status: "confirmed" as const };
+    if (fixtureId === "fixture-2") return { fixtureId, primaryUnicast: 0x0101, status: "confirmed" as const };
+    return null;
+  });
+  f.addresses.findByPrimaryUnicast.mockImplementation(async (primaryUnicast: number) => {
+    if (primaryUnicast !== 0x0100 && primaryUnicast !== 0x0101) return null;
+    return {
+      fixtureId: primaryUnicast === 0x0100 ? "fixture-1" : "fixture-2",
+      primaryUnicast,
+      elementCount: 1,
+      status: "confirmed" as const
+    };
+  });
+}

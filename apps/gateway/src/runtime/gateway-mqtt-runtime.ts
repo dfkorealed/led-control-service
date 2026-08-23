@@ -47,6 +47,7 @@ export class GatewayMqttRuntime {
     message: (topic: string, payload: Buffer) => void;
   }>();
   private readonly candidateReadyTimeoutMs: number;
+  private connectionEpoch = 0;
 
   constructor(private readonly options: GatewayMqttRuntimeOptions) {
     this.currentClient = options.client;
@@ -130,8 +131,26 @@ export class GatewayMqttRuntime {
 
   private handleConnect(client: GatewayMqttClient, packet: IConnackPacket) {
     if (this.currentClient !== client) return;
-    if (!packet.sessionPresent) this.run(() => this.options.subscribe(client, false, false), "subscribe");
-    this.connected();
+    const epoch = ++this.connectionEpoch;
+    if (packet.sessionPresent) {
+      this.connected();
+      return;
+    }
+    let subscription: unknown;
+    try {
+      subscription = this.options.subscribe(client, false, false);
+    } catch (error) {
+      this.report(this.options.onRuntimeError, error, "subscribe");
+      return;
+    }
+    if (!isPromiseLike(subscription)) {
+      this.connected();
+      return;
+    }
+    this.run(async () => {
+      await subscription;
+      if (this.currentClient === client && this.started && !this.stopping && this.connectionEpoch === epoch) this.connected();
+    }, "subscribe");
   }
 
   private connected() {
@@ -143,6 +162,7 @@ export class GatewayMqttRuntime {
 
   private handleClose(client: GatewayMqttClient) {
     if (this.currentClient !== client) return;
+    this.connectionEpoch += 1;
     this.clearHeartbeatTimer();
     this.run(() => this.options.onClose?.(), "close");
   }
@@ -334,4 +354,8 @@ export class GatewayMqttRuntime {
 function boundedCandidateReadyTimeout(value: number) {
   if (!Number.isInteger(value) || value < 1 || value > 60_000) throw new Error("invalid MQTT candidate readiness timeout");
   return value;
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return value !== null && (typeof value === "object" || typeof value === "function") && "then" in value;
 }

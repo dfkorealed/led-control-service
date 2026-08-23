@@ -8,6 +8,8 @@ import {
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { BleMeshAdapter } from "../gateway";
+import type { GroupStateIdentity, GroupStateStore } from "../mesh/group-state-store";
+import type { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 
 interface JournalLike {
   get(key: string): Promise<{ state: "accepted" | "completed"; command: unknown; result?: unknown } | null>;
@@ -21,12 +23,35 @@ export interface GatewayCommandResult {
   fixtureStateObserved: boolean;
 }
 
-export async function handleGatewayDimmingCommand(
+interface GatewayCommandOptions {
+  timeoutMs?: number;
+  groupStateStore?: Pick<GroupStateStore, "assertReady">;
+  groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
+}
+
+export function handleGatewayDimmingCommand(
   adapter: BleMeshAdapter,
   journal: JournalLike,
   command: GatewayDimmingCommandV2,
   onAccepted?: (acceptance: AcceptanceAckV2) => Promise<void>,
-  options: { timeoutMs?: number } = {}
+  options: GatewayCommandOptions = {}
+): Promise<GatewayCommandResult> {
+  if (command.deliveryMode !== "mesh_group") {
+    return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options);
+  }
+  const groupId = command.meshControlGroupId;
+  if (!groupId || !options.groupQueue) {
+    return executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options);
+  }
+  return options.groupQueue.run(groupId, () => executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options));
+}
+
+async function executeGatewayDimmingCommand(
+  adapter: BleMeshAdapter,
+  journal: JournalLike,
+  command: GatewayDimmingCommandV2,
+  onAccepted: ((acceptance: AcceptanceAckV2) => Promise<void>) | undefined,
+  options: GatewayCommandOptions
 ): Promise<GatewayCommandResult> {
   const existing = await journal.get(command.idempotencyKey);
   if (existing?.state === "completed") return existing.result as GatewayCommandResult;
@@ -40,6 +65,19 @@ export async function handleGatewayDimmingCommand(
   // Broker expiry is primary; this verifies the API's publish-relative deadline before BLE execution.
   if (isGatewayCommandExpired(command.expiresAt)) {
     return rejectExpiredCommand(journal, command);
+  }
+
+  if (command.deliveryMode === "mesh_group") {
+    const identity = meshGroupIdentity(command);
+    if (!options.groupStateStore || !options.groupQueue || !adapter.applyMeshGroup) {
+      return rejectBeforeExecution(journal, command, "MESH_GROUP_UNAVAILABLE", "mesh group control is unavailable");
+    }
+    try {
+      await options.groupStateStore.assertReady(identity);
+    } catch (error) {
+      const code = errorCode(error, "MESH_GROUP_NOT_READY");
+      return rejectBeforeExecution(journal, command, code, error instanceof Error ? error.message : "mesh group is not ready");
+    }
   }
 
   const identity = {
@@ -73,21 +111,32 @@ export async function handleGatewayDimmingCommand(
   let fixtureStateObserved = false;
   try {
     const timeoutMs = validateTimeout(options.timeoutMs ?? 8000);
-    const reports = await withTimeout(adapter.setBrightness(command.targetFixtureIds, command.brightness), timeoutMs);
-    fixtureStateObserved = reports.length > 0;
+    const reports = validateReports(command.targetFixtureIds, await withTimeout(applyCommand(adapter, command), timeoutMs));
+    fixtureStateObserved = reports.some((report) => report.acknowledged || report.faultCode === "state_mismatch");
     const results = reports.map((report) => ({
       fixtureId: report.fixtureId,
-      status: report.acknowledged ? ("succeeded" as const) : ("failed" as const),
+      status: report.acknowledged
+        ? ("succeeded" as const)
+        : report.outcome === "timed_out"
+          ? ("timed_out" as const)
+          : ("failed" as const),
       ...(report.acknowledged ? { brightness: report.brightness } : {}),
       ...(report.faultCode ? { faultCode: report.faultCode } : {}),
       rssi: report.rssi,
       hopCount: report.hopCount
     }));
     const succeeded = results.filter((result) => result.status === "succeeded").length;
+    const timedOut = results.some((result) => result.status === "timed_out");
     deviceStatus = deviceStatusAckV2Schema.parse({
       ...identity,
       eventId: randomUUID(),
-      status: succeeded === results.length ? "succeeded" : succeeded === 0 ? "failed" : "partially_succeeded",
+      status: succeeded === results.length
+        ? "succeeded"
+        : succeeded > 0
+          ? "partially_succeeded"
+          : timedOut
+            ? "timed_out"
+            : "failed",
       occurredAt: new Date().toISOString(),
       results
     });
@@ -109,6 +158,60 @@ export async function handleGatewayDimmingCommand(
   const result = { acceptance, deviceStatus, fixtureStateObserved };
   await journal.complete(command.idempotencyKey, result);
   return result;
+}
+
+function applyCommand(adapter: BleMeshAdapter, command: GatewayDimmingCommandV2) {
+  switch (command.deliveryMode) {
+    case "unicast":
+      return adapter.applyUnicast
+        ? adapter.applyUnicast(command.targetFixtureIds[0], command.brightness).then((report) => [report])
+        : adapter.setBrightness(command.targetFixtureIds, command.brightness);
+    case "parallel_unicast":
+      if (!adapter.applyParallelUnicast) throw new Error("parallel unicast control is unavailable");
+      return adapter.applyParallelUnicast(command.targetFixtureIds, command.brightness, 8);
+    case "mesh_group":
+      if (!adapter.applyMeshGroup || !command.destinationAddress) throw new Error("mesh group control is unavailable");
+      return adapter.applyMeshGroup(parseGroupAddress(command.destinationAddress), command.targetFixtureIds, command.brightness);
+  }
+}
+
+function validateReports(expectedFixtureIds: string[], reports: Awaited<ReturnType<BleMeshAdapter["setBrightness"]>>) {
+  const expected = new Set(expectedFixtureIds);
+  if (
+    reports.length !== expected.size ||
+    reports.some((report) => !expected.has(report.fixtureId)) ||
+    new Set(reports.map((report) => report.fixtureId)).size !== reports.length
+  ) {
+    throw new Error("BLE Mesh adapter returned an invalid fixture result set");
+  }
+  const byFixture = new Map(reports.map((report) => [report.fixtureId, report]));
+  return expectedFixtureIds.map((fixtureId) => byFixture.get(fixtureId)!);
+}
+
+function meshGroupIdentity(command: GatewayDimmingCommandV2): GroupStateIdentity {
+  if (!command.meshControlGroupId || !command.meshControlGroupVersion || !command.destinationAddress) {
+    throw new Error("mesh group command metadata is incomplete");
+  }
+  return {
+    groupId: command.meshControlGroupId,
+    groupAddress: command.destinationAddress,
+    version: command.meshControlGroupVersion
+  };
+}
+
+function parseGroupAddress(value: string) {
+  const address = Number.parseInt(value.slice(2), 16);
+  if (!/^0x[0-9a-f]{4}$/i.test(value) || address < 0xc000 || address > 0xfeff) {
+    throw new Error("invalid mesh group address");
+  }
+  return address;
+}
+
+function errorCode(error: unknown, fallback: string) {
+  if (!error || typeof error !== "object" || !("code" in error) || typeof error.code !== "string" || error.code.length === 0) {
+    return fallback;
+  }
+  return error.code;
 }
 
 class MeshStatusTimeoutError extends Error {}
@@ -208,6 +311,48 @@ async function rejectExpiredCommand(
     const raced = await journal.get(command.idempotencyKey);
     if (raced?.state === "completed") return raced.result as GatewayCommandResult;
     throw new Error("duplicate command has an indeterminate accepted result");
+  }
+  await journal.complete(command.idempotencyKey, result);
+  return result;
+}
+
+async function rejectBeforeExecution(
+  journal: JournalLike,
+  command: GatewayDimmingCommandV2,
+  code: string,
+  message: string
+): Promise<GatewayCommandResult> {
+  const identity = {
+    commandId: command.commandId,
+    dispatchId: command.dispatchId,
+    idempotencyKey: command.idempotencyKey,
+    sequence: command.sequence,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId
+  };
+  const result: GatewayCommandResult = {
+    acceptance: acceptanceAckV2Schema.parse({
+      ...identity,
+      eventId: randomUUID(),
+      status: "rejected",
+      acceptedAt: new Date().toISOString(),
+      errorCode: code,
+      errorMessage: message
+    }),
+    deviceStatus: deviceStatusAckV2Schema.parse({
+      ...identity,
+      eventId: randomUUID(),
+      status: "failed",
+      occurredAt: new Date().toISOString(),
+      results: command.targetFixtureIds.map((fixtureId) => ({ fixtureId, status: "failed", errorMessage: message }))
+    }),
+    fixtureStateObserved: false
+  };
+  const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
+  if (!reserved) {
+    const raced = await journal.get(command.idempotencyKey);
+    if (raced?.state === "completed") return raced.result as GatewayCommandResult;
+    throw new Error("duplicate command has an indeterminate rejected result");
   }
   await journal.complete(command.idempotencyKey, result);
   return result;

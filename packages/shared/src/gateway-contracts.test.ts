@@ -6,6 +6,7 @@ import {
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
+  meshGroupResyncRequestV2Schema,
   mapHealthFaults,
   mqttTopicsV2,
   statusFromHealth
@@ -31,6 +32,23 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(mqttTopicsV2.deviceStatusAck(siteId, gatewayId)).toBe(`sites/${siteId}/gateways/${gatewayId}/acks/device-status`);
     expect(mqttTopicsV2.fixtureState(siteId, gatewayId)).toBe(`sites/${siteId}/gateways/${gatewayId}/state/fixtures`);
     expect(mqttTopicsV2.heartbeat(siteId, gatewayId)).toBe(`sites/${siteId}/gateways/${gatewayId}/state/heartbeat`);
+    expect(mqttTopicsV2.meshGroupResyncRequest(siteId, gatewayId)).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`
+    );
+  });
+
+  it("strictly validates a mesh group resync request", () => {
+    const request = {
+      siteId,
+      gatewayId,
+      eventId,
+      occurredAt,
+      reason: "state_missing" as const
+    };
+
+    expect(meshGroupResyncRequestV2Schema.parse(request)).toEqual(request);
+    expect(() => meshGroupResyncRequestV2Schema.parse({ ...request, reason: "unknown" })).toThrow();
+    expect(() => meshGroupResyncRequestV2Schema.parse({ ...request, extra: true })).toThrow();
   });
 
   it("keeps legacy topics unchanged during migration", () => {

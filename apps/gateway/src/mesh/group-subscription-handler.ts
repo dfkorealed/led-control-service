@@ -1,14 +1,19 @@
 import {
   meshGroupSubscriptionSyncSchema,
+  meshGroupSubscriptionResultSchema,
   mqttTopics
 } from "@led-control/shared";
 import type { BleMeshAdapter } from "../gateway";
 import type { GatewayMqttClient } from "../runtime/gateway-mqtt-runtime";
+import type { GroupStateIdentity, GroupStateStore } from "./group-state-store";
+import type { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 
 export class GroupSubscriptionHandler {
   constructor(
     private readonly adapter: Pick<BleMeshAdapter, "syncGroupSubscriptions">,
-    private readonly scope: { siteId: string; gatewayId: string }
+    private readonly scope: { siteId: string; gatewayId: string },
+    private readonly stateStore: Pick<GroupStateStore, "writeConfiguring" | "writeReady" | "writeFailed">,
+    private readonly queue: Pick<KeyedSerialTaskQueue, "run">
   ) {}
 
   async handle(payload: Buffer, source: Pick<GatewayMqttClient, "publish">) {
@@ -17,14 +22,46 @@ export class GroupSubscriptionHandler {
       throw new Error("mesh group subscription scope mismatch");
     }
 
-    const result = await this.adapter.syncGroupSubscriptions(command);
-    await new Promise<void>((resolve, reject) => {
-      source.publish(
-        mqttTopics.meshGroupSubscriptionResult(command.siteId, command.gatewayId),
-        JSON.stringify(result),
-        { qos: 1 },
-        (error) => (error ? reject(error) : resolve())
-      );
+    await this.queue.run(command.groupId, async () => {
+      const identity: GroupStateIdentity = {
+        groupId: command.groupId,
+        groupAddress: command.groupAddress,
+        version: command.version
+      };
+      await this.stateStore.writeConfiguring(identity);
+      let result;
+      try {
+        result = meshGroupSubscriptionResultSchema.parse(await this.adapter.syncGroupSubscriptions(command));
+        assertResultIdentity(command, result);
+        if (result.members.every((member) => member.status === "ready")) await this.stateStore.writeReady(identity);
+        else await this.stateStore.writeFailed(identity);
+      } catch (error) {
+        await this.stateStore.writeFailed(identity).catch(() => undefined);
+        throw error;
+      }
+      await new Promise<void>((resolve, reject) => {
+        source.publish(
+          mqttTopics.meshGroupSubscriptionResult(command.siteId, command.gatewayId),
+          JSON.stringify(result),
+          { qos: 1 },
+          (error) => (error ? reject(error) : resolve())
+        );
+      });
     });
+  }
+}
+
+function assertResultIdentity(
+  command: { siteId: string; gatewayId: string; groupId: string; groupAddress: string; version: number },
+  result: { siteId: string; gatewayId: string; groupId: string; groupAddress: string; version: number }
+) {
+  if (
+    result.siteId !== command.siteId ||
+    result.gatewayId !== command.gatewayId ||
+    result.groupId !== command.groupId ||
+    result.groupAddress.toLowerCase() !== command.groupAddress.toLowerCase() ||
+    result.version !== command.version
+  ) {
+    throw new Error("mesh group subscription result identity mismatch");
   }
 }

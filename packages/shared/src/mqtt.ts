@@ -21,6 +21,8 @@ export const mqttTopics = {
     `sites/${siteId}/gateways/${gatewayId}/commands/mesh-group/subscription-sync`,
   meshGroupSubscriptionResult: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/subscription-result`,
+  meshGroupResyncRequest: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`,
   meshNodeMetrics: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/mesh-node-metrics`
 } as const;

@@ -49,6 +49,34 @@ describe("GatewayMqttRuntime", () => {
     await runtime.stop();
   });
 
+  it("waits for a new-session subscription before publishing startup work", async () => {
+    const client = new FakeMqttClient();
+    let release!: () => void;
+    const subscription = new Promise<void>((resolve) => { release = resolve; });
+    const onConnect = vi.fn();
+    const publishHeartbeat = vi.fn();
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(() => subscription),
+      publishHeartbeat,
+      topicHandlers,
+      onMessageError: vi.fn(),
+      onConnect
+    });
+
+    runtime.start();
+    client.emit("connect", { sessionPresent: false });
+    await Promise.resolve();
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(publishHeartbeat).not.toHaveBeenCalled();
+
+    release();
+    await vi.waitFor(() => expect(onConnect).toHaveBeenCalledTimes(1));
+    expect(publishHeartbeat).toHaveBeenCalledTimes(1);
+    await runtime.stop();
+  });
+
   it("stops heartbeats while disconnected and starts one timer again after reconnect", async () => {
     vi.useFakeTimers();
     const client = new FakeMqttClient();

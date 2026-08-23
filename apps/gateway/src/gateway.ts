@@ -11,6 +11,9 @@ import type {
 
 export interface BleMeshAdapter {
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
+  applyUnicast?(fixtureId: string, brightness: number): Promise<BleMeshCommandReport>;
+  applyParallelUnicast?(fixtureIds: string[], brightness: number, concurrency?: number): Promise<BleMeshCommandReport[]>;
+  applyMeshGroup?(groupAddress: number, fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
   onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
   onResyncReport?(listener: (report: BleMeshResyncReport) => void): () => void;
   resyncFixtureStates(): Promise<BleMeshResyncReport>;
@@ -49,6 +52,7 @@ export interface ProvisioningAdapter {
 export interface BleMeshCommandReport {
   fixtureId: string;
   acknowledged: boolean;
+  outcome?: "applied" | "failed" | "timed_out";
   brightness: number;
   faultCode?: string;
   rssi: number | null;

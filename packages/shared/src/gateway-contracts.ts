@@ -13,7 +13,9 @@ export const mqttTopicsV2 = {
   acceptanceAck: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/acks/acceptance`,
   deviceStatusAck: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/acks/device-status`,
   fixtureState: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/fixtures`,
-  heartbeat: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/heartbeat`
+  heartbeat: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/heartbeat`,
+  meshGroupResyncRequest: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`
 } as const;
 
 const gatewayScopeSchema = z.object({
@@ -177,12 +179,19 @@ export const gatewayHeartbeatV2Schema = orderedGatewayEventSchema.extend({
   configVersion: z.number().int().nonnegative().optional()
 });
 
+export const meshGroupResyncRequestV2Schema = gatewayScopeSchema.extend({
+  eventId: z.string().uuid(),
+  occurredAt: z.string().datetime(),
+  reason: z.enum(["startup", "first_run", "state_missing", "state_corrupt"])
+}).strict();
+
 export type GatewayDimmingCommandV2 = z.infer<typeof gatewayDimmingCommandV2Schema>;
 export type GatewayDimmingCommandDraftV2 = z.infer<typeof gatewayDimmingCommandDraftV2Schema>;
 export type AcceptanceAckV2 = z.infer<typeof acceptanceAckV2Schema>;
 export type DeviceStatusAckV2 = z.infer<typeof deviceStatusAckV2Schema>;
 export type FixtureStateV2 = z.infer<typeof fixtureStateV2Schema>;
 export type GatewayHeartbeatV2 = z.infer<typeof gatewayHeartbeatV2Schema>;
+export type MeshGroupResyncRequestV2 = z.infer<typeof meshGroupResyncRequestV2Schema>;
 
 export function mapHealthFaults(faultCodes: readonly number[]) {
   return [...new Set(faultCodes.filter((code) => code !== 0))].sort((left, right) => left - right);
