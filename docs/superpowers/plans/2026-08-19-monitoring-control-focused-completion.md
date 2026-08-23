@@ -1351,7 +1351,7 @@ git commit -m "feat(control): add fixture floor and zone selection"
 - Produces: terminal 전 target, slider, preset, 적용 버튼 잠금
 - Terminal: `completed | partial_failed | failed | timed_out`
 
-- [ ] **Step 1: 명령 중 UI 잠금 실패 테스트 작성**
+- [x] **Step 1: 명령 중 UI 잠금 실패 테스트 작성**
 
 ```tsx
 fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
@@ -1359,37 +1359,37 @@ expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled()
 expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
 ```
 
-- [ ] **Step 2: terminal 해제와 결과 실패 테스트 작성**
+- [x] **Step 2: terminal 해제와 결과 실패 테스트 작성**
 
 ```tsx
-commandStatus.resolve({ status: "partial_failed", results });
+commandStatus.resolve({ stage: "partial_failed", results });
 expect(await screen.findByText("일부 조명 적용 실패")).toBeInTheDocument();
 expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
 ```
 
-- [ ] **Step 3: 새로고침 복구 실패 테스트 작성**
+- [x] **Step 3: 새로고침 복구 실패 테스트 작성**
 
 ```ts
-sessionStorage.setItem(activeCommandKey(siteId), commandId);
+sessionStorage.setItem(activeCommandStorageKey(siteId), JSON.stringify({ commandId }));
 render(<ControlView siteId={siteId} />);
-expect(getCommandStatus).toHaveBeenCalledWith(commandId);
+expect(useCommandStatus).toHaveBeenCalledWith(commandId);
 ```
 
-- [ ] **Step 4: RED 확인**
+- [x] **Step 4: RED 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/active-command-store.test.ts`
 
 Expected: 전체 UI 잠금과 command 복구 부재로 FAIL
 
-- [ ] **Step 5: 동기 UX와 복구 구현**
+- [x] **Step 5: 동기 UX와 복구 구현**
 
 ```ts
-const TERMINAL_COMMAND_STATUSES = new Set(["completed", "partial_failed", "failed", "timed_out"]);
+const TERMINAL_COMMAND_STAGES = new Set(["completed", "partial_failed", "failed", "timed_out"]);
 ```
 
-명령 생성 즉시 command ID를 현장별 sessionStorage에 저장하고 1초 polling한다. terminal 수신 시 결과를 화면에 남기고 저장된 ID와 입력 잠금을 해제한다. 네트워크 오류는 command를 실패로 단정하지 않고 재조회 버튼을 제공한다.
+명령 생성 즉시 `saveActiveCommandId`로 command ID를 현장별 `sessionStorage`에 저장하고 1초 polling한다. `isTerminalCommandStage`가 확인한 terminal 결과의 ID가 현재 추적 ID와 일치할 때만 결과를 화면에 남기고 `clearActiveCommandId`와 입력 잠금 해제를 수행한다. 네트워크 오류와 5xx는 command를 실패로 단정하지 않고 command ID를 보존해 `명령 상태 다시 조회`를 제공한다. 인증된 404로 명령이 사라진 경우에만 저장된 ID를 CAS 방식으로 삭제하고 잠금을 해제한다. 저장·복구 helper는 RFC 4122 UUID를 검증하고 저장소 접근 실패를 앱 오류로 전파하지 않는다.
 
-- [ ] **Step 6: Task 검증**
+- [x] **Step 6: Task 검증**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx src/features/control/active-command-store.test.ts`
 
@@ -1397,7 +1397,7 @@ Run: `pnpm --filter @led-control/web build`
 
 Expected: exit 0
 
-- [ ] **Step 7: 메뉴 문서 갱신과 커밋**
+- [x] **Step 7: 메뉴 문서 갱신과 커밋**
 
 ```bash
 git add apps/web/src/api/commands.ts apps/web/src/features/control apps/web/src/styles.css docs/menus/control.md \
@@ -1405,7 +1405,9 @@ git add apps/web/src/api/commands.ts apps/web/src/features/control apps/web/src/
 git commit -m "feat(control): lock controls until device results"
 ```
 
-- [ ] **사용자 확인 Gate 15:** 동기 제어 상태 전이와 테스트를 보고하고 최종 검증 승인을 기다린다.
+구현 커밋: `017c3f9`, `c4196cf`, `a167fe3`, `703b82d`, `3b9598d`
+
+- [ ] **사용자 확인 Gate 15:** 구현 완료, 사용자 확인 대기
 
 ---
 

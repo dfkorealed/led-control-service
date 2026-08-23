@@ -4,7 +4,7 @@
 
 ## 확정 구현 범위
 
-- 사용자가 명령을 적용하면 실제 BLE Mesh 상태 기반 terminal 결과가 나올 때까지 현재 제어 입력을 잠그는 사용자 관점의 동기 제어를 구현한다. HTTP는 길게 유지하지 않고 기존 Command/Outbox/MQTT 상태 조회 구조를 사용한다.
+- 사용자가 명령을 적용하면 실제 BLE Mesh 상태 기반 terminal 결과가 나올 때까지 현재 제어 입력을 잠그는 사용자 관점의 동기 제어를 구현한다. HTTP 연결을 장시간 유지하지 않고 기존 Command/Outbox/MQTT 상태를 1초 polling으로 조회한다.
 - 개별 조명, 임의 다중 선택, 층 전체, 저장 구역 단위 밝기 제어를 제공한다.
 - 개별 조명은 unicast, 임의 다중 선택은 제한된 병렬 unicast를 사용한다.
 - 층 전체와 저장 구역은 사전 구성된 BLE Mesh Group Address에 단일 전송한다.
@@ -40,6 +40,10 @@
 - 명령 생성 응답은 `selectedTargetCount`, `transmissionCount`, `deliveryMode`, `terminalStatusUrl`을 제공하고 상태 응답은 nullable `targetId`, 확정 fixture snapshot과 dispatch의 delivery metadata를 반환한다. Mesh group dispatch에는 선택 당시 `meshControlGroupId`, `meshControlGroupVersion`, Group Address가 함께 보존된다.
 - 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 command의 현장 read 권한이 있는 사용자에게만 조회를 허용한다. 존재하지 않는 command와 접근할 수 없는 command는 같은 `command not found` 404 응답으로 처리한다.
 - 제어 화면은 최근 명령을 1초 polling하며 접수, MQTT 발행, gateway 수신, 조명 적용 완료, 일부 실패, 실패, timeout 단계를 표시하고 종료 상태에서 polling을 중단한다.
+- 제어 화면은 명령 생성 직후 현장별 `sessionStorage`에 active command ID를 저장하고, 새로고침 후 같은 현장의 진행 명령을 복구한다. `activeCommandStorageKey`, `loadActiveCommandId`, `saveActiveCommandId`, `clearActiveCommandId` helper가 저장소 접근 불가·손상 데이터·잘못된 UUID를 안전하게 무시한다.
+- `completed`, `partial_failed`, `failed`, `timed_out` terminal 상태를 확인하기 전까지 대상 선택, 검색·필터, 밝기 slider, preset, `밝기 적용` 버튼을 잠근다. 상태 응답의 command ID가 현재 추적 ID와 일치할 때만 terminal 결과로 반영하고 잠금을 해제한다.
+- terminal 결과는 화면에 유지하며, 네트워크 오류와 5xx는 명령 실패로 확정하지 않고 command ID를 보존해 `명령 상태 다시 조회`로 재조회한다. 인증된 404로 명령이 더 이상 존재하지 않음이 확인된 경우에만 저장된 active command를 CAS 방식으로 제거하고 잠금을 해제한다.
+- active command 저장·삭제는 RFC 4122 UUID 검증과 현장별 key 격리를 사용하며, 삭제 시 기대 command ID를 다시 비교해 오래된 명령이 새 명령의 저장값을 지우지 못하게 한다.
 - 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
 - 대상 picker의 `개별/다중`, `층`, `구역` 버튼으로 제어 모드를 전환하고 각 모드에서 실제 전송 대상을 선택한다.
 - 백엔드는 SiteAccess `manage` 권한이 있는 operator/admin만 해당 현장의 fixture 또는 group을 제어 대상으로 허용하며, 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
@@ -109,7 +113,6 @@
 - 차량 감지, 인체 감지, 시간대 조건 등 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
-- 명령이 실제 BLE Mesh ACK 기반 terminal 상태가 될 때까지 제어 입력을 잠그고, 새로고침 후 진행 중 명령을 복구하는 사용자 관점 동기 제어(Task 15)
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
 - gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결
@@ -139,6 +142,8 @@
 - `apps/api/src/commands/command-dispatch.service.ts`
 - `apps/api/src/commands/command-status.service.ts`
 - `apps/web/src/api/commands.ts`
+- `apps/web/src/features/control/active-command-store.ts`
+- `apps/web/src/features/control/active-command-store.test.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
 - `apps/api/src/fixtures/fixture-health.ts`
 - `apps/api/src/mqtt/outbox-publisher.service.ts`

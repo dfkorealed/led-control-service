@@ -294,3 +294,43 @@ Ruling: Outbox full payload는 publish 시도 증거가 아니라 성공한 wire
 - Fix round 4 RED: strict full 조기 저장, ownership query 계약, 31초 지연 publish, 짧은 지연 expiry/성공 payload 저장 4건 실패 확인
 - Fix round 4 GREEN: Publisher 집중 19개, Shared 41개, 관련 API 100개(3개 opt-in skip), API 전체 399개(29개 skip), Gateway 189개, PostgreSQL migration rehearsal 3개 통과. Prisma generate/validate, Shared/API/Gateway typecheck와 API build 통과.
 - Fix round 4 상태: 마지막 재리뷰 Important 1건 구현 및 문서화 완료. Task 13 실제 BLE 송신은 변경하지 않았다.
+
+## Task 13~14 재개 기록
+
+- Task 13: Gateway 병렬 unicast, Mesh group 단일 전송, 내구 group state와 ESP32 publication 구현 및 최종 리뷰 완료.
+- Task 13 최종 문서 커밋: `cba88f0`
+- Task 14: 개별·다중·층·구역 target picker, 신규 target payload, 최대 1,000개 선택과 대규모 목록 batch 렌더링 구현 완료.
+- Task 14 구현 커밋: `fb8968e`
+- Task 14 회귀 수정 커밋: `efe4b24`
+- Task 14 문서 커밋: `cd61e35`
+- Task 14 최종 검증: 웹 테스트 168개와 프로덕션 빌드 통과, 독립 리뷰 Critical/Important 0건.
+- Task 13: complete
+- Task 14: complete
+- 사용자 확인 Gate 14 승인: 2026-08-23
+
+## Task 15 실행
+
+- 기준 커밋: `cd61e35`
+- 작업 위치: 사용자 지정 현재 브랜치 `codex/mvp1-cloud-web`
+
+### 사전 충돌 점검
+
+| 생산 Task | 소비 Task | 공유 파일/인터페이스 | 점검 결과 |
+| --- | --- | --- | --- |
+| Task 15 | `useCommandStatus` | command stage와 polling 종료 조건 | 기존 terminal 집합을 export해 UI 잠금과 polling이 같은 정의를 사용해야 한다. |
+| Task 15 | Task 14 picker | `disabled`와 선택 상태 | HTTP 생성 중뿐 아니라 저장된 active command가 terminal 전까지 picker, slider, preset, apply를 모두 잠가야 한다. |
+| Task 15 | 브라우저 새로고침 | 현장별 `sessionStorage` key | command ID는 site별로 분리하고 손상된 값과 저장소 접근 실패를 앱 크래시 없이 처리해야 한다. |
+| Task 15 | 상태 조회 오류 | 진행 command 복구 | 네트워크 오류는 terminal 실패가 아니므로 command ID를 보존하고 수동 재조회를 제공해야 한다. |
+
+Ruling: active command는 서버의 terminal stage가 확인될 때만 저장소에서 제거한다 — 조회 오류나 새로고침을 명령 실패로 오인하지 않기 위해서다 — 잘못되면 UI가 장시간 잠길 수 있으므로 명시적 재조회 동작을 제공한다.
+
+Ruling: terminal 결과는 화면에 남기되 입력 잠금만 해제한다 — 사용자가 최종 성공·부분 실패·실패·timeout 결과를 확인해야 하기 때문이다 — 새 명령을 만들면 이전 결과를 교체한다.
+
+## Task 15 작업 단위 완료
+
+- 구현 커밋: `017c3f9`(현장별 active command session store 테스트/구현), `c4196cf`(storage 예외 테스트 보강), `a167fe3`(terminal 전 제어 입력 잠금과 새로고침 복구 연결), `703b82d`(RFC 4122 UUID 검증), `3b9598d`(command ID 불일치·404·현장 전환 경계 보강).
+- 구현 범위: 장시간 HTTP 연결이 아닌 1초 polling 기반 사용자 관점 동기 제어. `activeCommandStorageKey`, `loadActiveCommandId`, `saveActiveCommandId`, `clearActiveCommandId`로 현장별 `sessionStorage`를 격리하고, terminal 전 대상 선택·검색·필터·slider·preset·적용 입력을 잠근다.
+- 복구 계약: 현재 추적 command ID와 상태 응답 ID가 일치할 때만 terminal 결과를 반영한다. terminal 결과는 화면에 남기고, 네트워크/5xx 오류는 ID를 보존한 채 재조회한다. 인증된 404일 때만 CAS 삭제와 잠금 해제를 수행한다. UUID 형식 검증과 기대 ID 비교로 손상값 및 stale clear를 차단한다.
+- 리뷰 Important 2건: 상태 응답 command ID 불일치에도 terminal이면 잠금이 풀릴 수 있는 문제, 유효하지 않거나 조회할 수 없는 command ID로 영구 잠금될 수 있는 문제를 확인했다. fix round에서 ID 일치 조건, RFC 4122 UUID 검증, 404 해제, 현장별 복구 경계를 반영했다.
+- 중간 검증: 웹 테스트 `192개` 통과, 웹 TypeScript 검사와 프로덕션 빌드 통과, `git diff --check` 통과. 최종 통합 fresh 검증과 실제 브라우저/하드웨어 E2E는 Task 16 범위로 남긴다.
+- Task 15 상태: 구현 및 재리뷰 완료, 최종 검증 대기
