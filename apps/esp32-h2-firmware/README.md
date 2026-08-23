@@ -8,7 +8,7 @@
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령을 받아 PWM 밝기에 반영하는 단계까지 빌드 검증했다.
-- BLE Mesh group publication 지터 포함 후 `led_control_node.bin` 크기는 `0xe5240` 바이트이며, 1MB OTA app partition 기준 약 10% 여유가 남는다. OTA 기능을 추가할 때는 파티션 크기 재검토가 필요하다.
+- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개 설정 포함 후 `led_control_node.bin` 크기는 `0xe5570` 바이트이며, 1MB OTA app partition 기준 `0x1aa90` 바이트(약 10%)가 남는다. DIRAM은 112,156바이트(43.47%)를 사용하고 145,844바이트가 남는다. OTA 기능을 추가할 때는 파티션 크기 재검토가 필요하다.
 
 ## ESP-IDF 설치
 
@@ -91,6 +91,8 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 - Light Lightness Set/Get 수신 후 0~65535 lightness 값을 0~100% 밝기로 변환해 PWM 반영
 - OnOff/Lightness status publication
 - group 주소로 받은 Light Lightness Set Unacknowledged는 PWM을 즉시 반영하고 primary unicast 기반 결정적 지터 후 실제 Lightness Status publication
+- `RSP_BY_APP` Light Lightness Set은 `(source, destination, TID)` 기준 6초 transaction cache로 중복 적용 방지
+- Light Lightness/Generic OnOff 모델별 group subscription 16개 지원: 층 group 1개와 사용자 fixture group 최대 15개
 - Health fault clear/test callback과 fault update publication 진입점
 - 마지막 밝기, 이전 밝기, command sequence를 NVS blob으로 저장하고 2초 debounce commit으로 flash write를 제한
 - Off 후 On 시 직전 0% 초과 밝기를 복원
@@ -109,7 +111,7 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 - gateway가 Light Lightness Status, Generic OnOff Status, Health Fault Status를 수신해 서버 fixture state로 동기화
 - OTA 이미지 수신, 검증, rollback 정책
 - BLE Mesh optional transition time을 LEDC 비동기 fade 완료 callback/task와 present/target 상태 분리 후 Status publication으로 연결. 현재 즉시 duty 변경만 구현되어 있어 미완료다.
-- 표준 BLE Mesh TID와 cloud gateway command sequence의 매핑 정책. 현재 영속 sequence 필드는 준비되어 있지만 Generic OnOff/Lightness 표준 메시지의 8-bit TID를 cloud sequence로 간주하지 않는다.
+- 표준 BLE Mesh TID와 cloud gateway command sequence의 매핑 정책. Light Lightness의 로컬 6초 TID 중복 방지는 구현됐지만 8-bit TID를 cloud sequence로 간주하지 않는다.
 
 ## 양산 GPIO 설정
 
@@ -122,6 +124,7 @@ CONFIG_LED_CONTROL_FACTORY_RESET_HOLD_MS=8000
 CONFIG_DFK_PRODUCT_FAMILY=1
 CONFIG_DFK_MODEL_CODE=1
 CONFIG_DFK_HARDWARE_REVISION=1
+CONFIG_BLE_MESH_MODEL_GROUP_COUNT=16
 ```
 
 factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 외부 pull-up, switch debounce, ESD와 부팅 strap 충돌 여부를 반드시 검토한다. 8초가 충족되면 앱 상태 NVS와 BLE Mesh provisioning 정보를 삭제하고 재부팅해 unprovisioned beacon 상태로 돌아간다.
@@ -150,9 +153,13 @@ factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 �
 - 층/구역별 group address를 Light Lightness Server와 Generic OnOff Server에 subscribe한다.
 - 상태 publication 주소와 주기를 설정한다.
 
+`CONFIG_BLE_MESH_MODEL_GROUP_COUNT=16`은 모델별 subscription 상한이다. 양산 계약은 각 조명 모델에 층 group 1개와 사용자 fixture group 최대 15개다. 17번째 주소를 추가하려고 상한을 임의로 높이면 모델별 RAM 사용량도 증가하므로 제품 요구사항과 메모리 측정을 함께 갱신해야 한다.
+
 ## Group Lightness publication 지터
 
-group 주소의 `Light Lightness Set Unacknowledged`를 받으면 명령 적용은 지연하지 않는다. PWM, NVS 저장 예약, present Lightness 상태를 먼저 갱신한 뒤 ESP-IDF model publication API로 실제 반영값을 보낸다. acknowledged Set과 unicast Set의 기존 즉시 응답/publication 동작은 유지한다. TID 중복 및 replay 처리는 ESP-IDF Bluetooth Mesh model 계층에 맡기며 펌웨어가 별도 TID 판정을 중복 구현하지 않는다.
+group 주소의 `Light Lightness Set Unacknowledged`를 받으면 명령 적용은 지연하지 않는다. PWM, NVS 저장 예약, present Lightness 상태를 먼저 갱신한 뒤 ESP-IDF model publication API로 실제 반영값을 보낸다. acknowledged Set과 unicast Set의 기존 즉시 응답/publication 동작은 유지한다.
+
+ESP-IDF의 내장 TID 검사는 자동 응답 경로에만 적용되므로 `RSP_BY_APP` Light Lightness Set에는 32개 고정 슬롯 transaction cache를 사용한다. 키는 `(source, destination, TID)`이며 첫 수신 후 6초 미만인 같은 키를 중복으로 본다. 단조 시각의 unsigned elapsed 계산을 사용해 wrap 경계에서도 판정이 유지된다. 중복 acknowledged Set은 현재 Lightness Status만 직접 응답하고 PWM, NVS 저장, publication을 다시 실행하지 않는다. 중복 unacknowledged Set은 적용과 지연 publication 예약을 모두 생략한다. 캐시는 최대 512바이트로 컴파일 시 제한한다.
 
 publication 지연은 다음 고정 수식을 사용한다.
 
@@ -174,6 +181,10 @@ ESP-IDF 빌드와 지터 계산 단위 테스트만으로는 아래 항목을 �
 
 - group subscription과 publication 주소/AppKey 설정 후 단일 group 패킷이 모든 대상 PWM에 즉시 반영되는지
 - 각 노드의 Lightness Status가 primary unicast별 `64~5,179ms` 슬롯에 실제 송신되는지
+- 같은 `(source, destination, TID)` acknowledged Set을 6초 안에 재전송했을 때 Status 응답은 오지만 PWM 변경, NVS 저장 예약, publication이 추가 발생하지 않는지
+- 같은 `(source, destination, TID)` unacknowledged Set을 6초 안에 재전송했을 때 PWM 변경과 지터 타이머 재예약이 없는지, 정확히 6초 이후에는 새 transaction으로 적용되는지
+- Light Lightness와 Generic OnOff 각 모델에 층 group 1개와 사용자 group 15개까지 subscription이 성공하고 17번째 주소는 Config Status 오류로 거부되는지
+- 16개 group을 모두 구독하고 재부팅한 뒤 subscription이 유지되며 group별 Lightness 명령이 정상 수신되는지
 - relay/retransmit가 있는 주차장 RF 환경에서 노드 수 증가에 따른 충돌률과 8초 Gateway 수집 timeout의 적정성
 - 패킷 손실, 노드 재부팅, 연속 명령에서 Gateway가 누락 또는 상태 불일치를 정확히 판정하는지
 - 100개 이상 실제 노드 soak에서 heap, watchdog, Mesh replay/TID 동작에 회귀가 없는지

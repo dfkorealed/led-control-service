@@ -23,6 +23,7 @@
 #include "led_driver.h"
 #include "mesh_publication_jitter.h"
 #include "mesh_state.h"
+#include "mesh_transaction_cache.h"
 #include "persistent_state.h"
 
 #define LED_CONTROL_COMPANY_ID 0x02E5
@@ -35,6 +36,7 @@ static uint8_t dev_uuid[16] = {0};
 static uint8_t health_test_ids[] = {LED_CONTROL_HEALTH_TEST_ID};
 static control_state_t mesh_control_state;
 static esp_timer_handle_t group_lightness_publish_timer;
+static mesh_lightness_transaction_cache_t lightness_transaction_cache;
 
 static esp_ble_mesh_cfg_srv_t config_server = {
     .net_transmit = ESP_BLE_MESH_TRANSMIT(2, 20),
@@ -296,6 +298,24 @@ static void lighting_server_cb(esp_ble_mesh_lighting_server_cb_event_t event, es
   case ESP_BLE_MESH_LIGHTING_SERVER_RECV_SET_MSG_EVT:
     if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET ||
         param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET_UNACK) {
+      bool duplicate = mesh_lightness_transaction_is_duplicate(
+          &lightness_transaction_cache,
+          param->ctx.addr,
+          param->ctx.recv_dst,
+          param->value.set.lightness.tid,
+          (uint64_t)(esp_timer_get_time() / 1000));
+      if (duplicate) {
+        if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET) {
+          send_lightness_status(param->model, &param->ctx);
+        }
+        ESP_LOGD(
+            TAG,
+            "Ignored duplicate Lightness Set src=0x%04x dst=0x%04x tid=%u",
+            param->ctx.addr,
+            param->ctx.recv_dst,
+            param->value.set.lightness.tid);
+        break;
+      }
       mesh_state_apply_lightness(&mesh_control_state, param->value.set.lightness.lightness);
       bool delayed_group_publication =
           param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET_UNACK &&
