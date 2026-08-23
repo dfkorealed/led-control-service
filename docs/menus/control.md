@@ -28,27 +28,27 @@
 
 ## 구현 완료
 
-- dashboard의 fixture 목록을 기반으로 제어 대상 조명을 표시한다.
-- 개별 조명 카드를 선택할 수 있다.
+- dashboard의 fixture, 층, 저장 구역 목록을 기반으로 `개별/다중`, `층`, `구역` 제어 대상을 선택할 수 있다.
+- 개별/다중 조명 목록은 이름 검색, 상태·층 필터, checkbox 선택을 제공하고 선택 개수와 제어 불가 개수를 표시한다.
+- 개별/다중 조명은 최대 1,000개까지 선택할 수 있으며, 목록은 최초 100개를 렌더링하고 `더 보기`로 100개씩 추가해 대규모 현장의 브라우저 부하를 제한한다.
 - 선택 조명의 현재 밝기를 슬라이더에 반영한다.
 - 0%, 30%, 70%, 100% 프리셋 버튼으로 밝기 값을 바꿀 수 있다.
-- `POST /commands/dimming`으로 개별 조명 밝기 명령을 전송한다.
-- 명령 API는 `fixture`, `fixtures`, `floor`, `group` target을 받고, 실제 현장 DB 관계를 같은 transaction 안에서 다시 조회해 확정된 `targetFixtureIds` snapshot을 저장한다. 현재 웹의 `{targetType,targetId}` 요청은 Task 14 전까지 controller 경계에서만 신규 target으로 변환한다.
+- `POST /commands/dimming`으로 선택한 개별·다중 조명, 층 또는 구역의 밝기 명령을 전송한다.
+- 웹은 1개 조명에 `fixture`, 2개 이상에 `fixtures`, 층에 `floor`, 구역에 `group` 구조의 신규 `target` payload를 사용한다. 명령 API는 실제 현장 DB 관계를 같은 transaction 안에서 다시 조회해 확정된 `targetFixtureIds` snapshot을 저장한다.
 - 단일 조명은 `unicast`, 임의 다중 선택은 `parallel_unicast`, 준비 완료된 층/저장 구역은 `mesh_group` delivery mode로 저장한다. 임의 선택이 준비 완료된 층 또는 구역 구성과 정확히 같으면 층 우선, 같은 종류 ID 정렬 순으로 Group Address 경로를 선택한다.
 - 하나의 논리 target이 여러 gateway에 걸치면 `현재 여러 게이트웨이에 걸친 대상은 지원하지 않습니다`로 전체 거부하며, 준비되지 않은 floor/group은 unicast로 fallback하지 않는다.
 - 명령 생성 응답은 `selectedTargetCount`, `transmissionCount`, `deliveryMode`, `terminalStatusUrl`을 제공하고 상태 응답은 nullable `targetId`, 확정 fixture snapshot과 dispatch의 delivery metadata를 반환한다. Mesh group dispatch에는 선택 당시 `meshControlGroupId`, `meshControlGroupVersion`, Group Address가 함께 보존된다.
 - 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 command의 현장 read 권한이 있는 사용자에게만 조회를 허용한다. 존재하지 않는 command와 접근할 수 없는 command는 같은 `command not found` 404 응답으로 처리한다.
 - 제어 화면은 최근 명령을 1초 polling하며 접수, MQTT 발행, gateway 수신, 조명 적용 완료, 일부 실패, 실패, timeout 단계를 표시하고 종료 상태에서 polling을 중단한다.
 - 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
-- dashboard의 group 목록을 그룹 카드로 표시하고 선택할 수 있다.
-- `개별`, `그룹` segmented control이 실제 제어 모드를 전환한다.
-- 그룹 선택 후 `POST /commands/dimming`에 `targetType: "group"`으로 밝기 명령을 전송한다.
+- 대상 picker의 `개별/다중`, `층`, `구역` 버튼으로 제어 모드를 전환하고 각 모드에서 실제 전송 대상을 선택한다.
 - 백엔드는 SiteAccess `manage` 권한이 있는 operator/admin만 해당 현장의 fixture 또는 group을 제어 대상으로 허용하며, 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
 - `viewer` 권한 사용자는 배정 현장을 조회할 수 있지만 조명 제어 명령 생성은 `403`으로 거부한다.
 - 사용자 역할은 service-provider `operator`, customer `admin`, 조회 전용 `viewer` 세 가지다. operator/admin의 제어는 SiteAccess `manage` 범위로 한정되고, viewer는 화면 비활성화와 API `403` 양쪽에서 변경이 차단된다.
-- `viewer`가 제어 화면에 진입하면 읽기 전용 안내를 표시하고 밝기 슬라이더, 프리셋, 대상 선택과 `적용` 버튼을 모두 비활성화한다. 이 경우 브라우저는 `POST /commands/dimming`을 보내지 않으며 권한 오류를 장비 장애로 오인하지 않는다.
+- `viewer`가 제어 화면에 진입하면 읽기 전용 안내를 표시하고 밝기 슬라이더, 프리셋, 대상 선택과 `밝기 적용` 버튼을 모두 비활성화한다. 이 경우 브라우저는 `POST /commands/dimming`을 보내지 않으며 권한 오류를 장비 장애로 오인하지 않는다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
-- 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 개별/그룹 적용 버튼을 비활성화하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
+- 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 대상 선택과 `밝기 적용`을 차단하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
+- 초기 데이터가 없으면 loading 또는 empty state를 구분해 표시한다. 기존 캐시가 있는 상태에서 dashboard 백그라운드 갱신이 실패해도 제어 화면과 캐시 데이터를 유지한다.
 - 그룹 제어 명령은 MQTT payload에 `targetFixtureIds`를 포함해 게이트웨이가 실제 대상 조명 목록을 바로 처리할 수 있게 한다.
 - MQTT `command-ack` 이벤트가 command 상태를 갱신한다.
 - Raspberry Pi gateway 앱 골격이 `sites/{siteId}/commands/dimming` MQTT 명령을 수신하고 ACK, fixture state, heartbeat를 발행한다.
@@ -109,7 +109,7 @@
 - 차량 감지, 인체 감지, 시간대 조건 등 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
-- 다중 선택, 층/구역별 제어 화면과 신규 target 요청 연결(Task 14). 백엔드 target 해석과 delivery mode 영속화는 구현 완료했다.
+- 명령이 실제 BLE Mesh ACK 기반 terminal 상태가 될 때까지 제어 입력을 잠그고, 새로고침 후 진행 중 명령을 복구하는 사용자 관점 동기 제어(Task 15)
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
 - gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결
@@ -121,18 +121,19 @@
 - 스케줄 제어는 추후 구현 범위이며, 동작하지 않는 버튼은 양산 UI에서 제거했다.
 - 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.
 - Health Current는 최신 snapshot만 사용하며 fault 이력과 제품별 code 설명은 아직 제공하지 않는다.
-- 제어 대상이 없을 때 empty state가 충분하지 않다.
 - viewer의 읽기 전용 안내는 구현됐지만, 향후 명령 이력 화면에서도 동일한 권한 설명을 재사용하도록 공통화할 수 있다.
 - Raspberry Pi Phase 0의 daemon/HCI/network/token 재연결은 통과했지만 ESP32-H2 provisioning과 0/25/50/100% 왕복, 2-node HIL은 아직 실기 검증이 필요하다.
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - BLE Mesh group publication, TID cache, 모델별 group 16개 설정을 포함한 ESP32-H2 app partition 여유가 약 10%(`0x1aa90` 바이트)이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
-- API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기까지 반영됐다. 신규 웹 제어 UI는 Task 14 범위다.
+- API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기, 신규 웹 target picker 연결까지 반영됐다.
 - 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 RF/HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
 
 ## 관련 파일
 
 - `apps/web/src/features/control/ControlView.tsx`
+- `apps/web/src/features/control/ControlTargetPicker.tsx`
+- `apps/web/src/features/control/ControlView.test.tsx`
 - `apps/api/src/commands/commands.controller.ts`
 - `apps/api/src/commands/commands.service.ts`
 - `apps/api/src/commands/command-dispatch.service.ts`

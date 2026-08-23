@@ -1270,7 +1270,7 @@ Mesh TID 저장소는 목적지별 독립 순환을 보장하는 v2 형식으로
 - Produces: `개별/다중`, `층`, `구역` segmented control
 - Produces: 검색, 상태·층 필터, checkbox 선택과 대상 요약
 
-- [ ] **Step 1: 임의 다중 선택 실패 테스트 작성**
+- [x] **Step 1: 임의 다중 선택 실패 테스트 작성**
 
 ```tsx
 fireEvent.click(screen.getByLabelText("B2-L001 선택"));
@@ -1281,28 +1281,29 @@ expect(createCommand).toHaveBeenCalledWith(expect.objectContaining({
 }));
 ```
 
-- [ ] **Step 2: 층과 구역 target 실패 테스트 작성**
+- [x] **Step 2: 층과 구역 target 실패 테스트 작성**
 
 ```tsx
-fireEvent.click(screen.getByRole("radio", { name: "층" }));
+fireEvent.click(screen.getByRole("button", { name: "층" }));
+expect(screen.getByRole("button", { name: "층" })).toHaveAttribute("aria-pressed", "true");
 fireEvent.click(screen.getByRole("button", { name: "B2" }));
 expect(screen.getByText("BLE Mesh 그룹 전송")).toBeInTheDocument();
 ```
 
-- [ ] **Step 3: 제어 불가 대상 차단 실패 테스트 작성**
+- [x] **Step 3: 제어 불가 대상 차단 실패 테스트 작성**
 
 ```tsx
 expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
 expect(screen.getByText(/게이트웨이가 오프라인/)).toBeInTheDocument();
 ```
 
-- [ ] **Step 4: RED 확인**
+- [x] **Step 4: RED 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx`
 
 Expected: 다중/층/구역 picker 부재로 FAIL
 
-- [ ] **Step 5: target picker와 API 연결 구현**
+- [x] **Step 5: target picker와 API 연결 구현**
 
 ```ts
 type ControlMode = "fixtures" | "floor" | "group";
@@ -1314,7 +1315,7 @@ type ControlSelection =
 
 목록은 이름 검색, 상태·층 필터를 제공하고 선택 개수와 제어 불가 개수를 표시한다. 1개 선택은 `fixture`, 2개 이상은 `fixtures` target으로 보낸다.
 
-- [ ] **Step 6: Task 검증**
+- [x] **Step 6: Task 검증**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.test.tsx`
 
@@ -1322,7 +1323,7 @@ Run: `pnpm --filter @led-control/web build`
 
 Expected: exit 0
 
-- [ ] **Step 7: 메뉴 문서 갱신과 커밋**
+- [x] **Step 7: 메뉴 문서 갱신과 커밋**
 
 ```bash
 git add apps/web/src/api apps/web/src/features/control apps/web/src/styles.css docs/menus/control.md \
@@ -1330,7 +1331,7 @@ git add apps/web/src/api apps/web/src/features/control apps/web/src/styles.css d
 git commit -m "feat(control): add fixture floor and zone selection"
 ```
 
-- [ ] **사용자 확인 Gate 14:** 화면 선택 흐름과 테스트를 보고하고 다음 Task 승인을 기다린다.
+- [ ] **사용자 확인 Gate 14:** 구현 완료, 사용자 확인 대기. 화면 선택 흐름과 테스트를 보고하고 다음 Task 승인을 기다린다.
 
 ---
 
