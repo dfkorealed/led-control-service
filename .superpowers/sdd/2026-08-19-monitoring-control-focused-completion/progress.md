@@ -354,12 +354,13 @@ Ruling: Playwright route fixture는 웹/API 계약 회귀만 증명한다. Raspb
 
 ## Task 16 작업 단위 완료
 
-- 구현 커밋: `5ceb9cb`(모니터링·제어 Playwright route fixture), `ee6bcb1`(현재 제어 화면과 기존 navigation test 정렬), `a03162c`(양산 장비 실험실 Gate와 최초 설치 런북 갱신).
+- 구현 커밋: `5ceb9cb`(모니터링·제어 Playwright route fixture), `ee6bcb1`(현재 제어 화면과 기존 navigation test 정렬), `a03162c`(양산 장비 실험실 Gate와 최초 설치 런북 갱신), `4592580`(Health·부분 실패 E2E와 실기 증거 fail-fast 보강).
 - 브라우저 계약: 수동 새로고침과 마지막 갱신 시각, 10분 자동 갱신 경계, 조명 1,000개 5페이지의 마지막 상태 반영, 저장 지도 객체의 Konva canvas pixel, 개별 제어 terminal 잠금과 fixture별 실패, 동일 탭 reload 뒤 active command 복구를 검증한다. 자동 route fixture이며 실제 하드웨어 E2E가 아니다.
 - E2E 독립 리뷰 초기 Important 4건: 실제 API와 다른 비 UUID·응답 URL·snapshot fixture 계약, 숨김 접근성 요소만 확인하던 지도 검증, 1,000개 중 첫 페이지만 재조회돼도 통과할 수 있던 10분 갱신 검증, POST 완료 전 상태 변경·reload 가능성을 확인했다. shared schema 기반 UUID/응답 계약 정렬, canvas pixel 검증, 5페이지 마지막 조명 상태 변경 확인, 요청·첫 상태 조회 `expect.poll()` 동기화로 모두 해결했다.
 - 런북 독립 리뷰 초기 Important 3건: 별도 D-Bus 프로세스의 `Node1.Send` owner 권한 위반, 등록 검증 SQL의 잘못된 직접 ID join, 2-node HIL runner 필수 TLS 환경 변수 누락을 확인했다. Health Clear를 Gateway 내부 API/IPC 부재로 `not_executed` 처리하고, `DiscoveredMeshNode.deviceUuid -> MeshNode.deviceUuid -> Fixture.meshNodeId` 관계 SQL과 `HIL_CA_PATH`·인증서·키 환경 변수를 반영해 모두 해결했다.
 - 최종 독립 리뷰: E2E Critical 0건, Important 0건. 런북 Critical 0건, Important 0건.
-- 전체 Playwright: `12 passed`, 실제 인증 opt-in `1 skipped`. 지정 시나리오 5회 반복: `20 passed`.
+- 최종 통합 리뷰 추가 Important 6건: Health/전체 terminal fixture 계약, 런북 ID 변수와 Gate 2/4 증거 정합성, 다중 대상 결과·dispatch 상태·전송 수 계약을 보완했다. 모든 ID는 SQL 전에 fail-fast하고 header-only CSV를 거부하며, 다중 E2E는 정확한 fixture 목록과 `parallel_unicast` 전송 수, 성공+timeout 부분 실패를 검증한다. 최종 재리뷰는 Critical 0건, Important 0건이다.
+- 전체 Playwright: `13 passed`, 실제 인증 opt-in `1 skipped`. 지정 시나리오 5회 반복: `25 passed`.
 - 전체 테스트: root 15, shared 44, web 198, API 414(29 opt-in skip), gateway 247, mobile 1개 통과. typecheck, lint, web build, API build 통과.
 - 펌웨어 검증: `scripts/esp32-h2-build.sh`로 ESP-IDF 5.5 esp32h2 build 통과. binary `0xe5570`, app partition 여유 약 10%.
 - 실장비 상태: Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다. zone은 `FixtureGroup` CRUD/UI 부재, 표준 Health Fault Clear callback은 Gateway 내부 BlueZ owner 송신 API/IPC 부재로 각각 `not_executed`다. 자동 fixture 결과를 실장비 완료로 기록하지 않는다.

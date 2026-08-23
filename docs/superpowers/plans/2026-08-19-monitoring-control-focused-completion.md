@@ -1475,9 +1475,9 @@ git add apps/web/e2e docs/runbooks docs/menus docs/superpowers/plans/2026-08-19-
 git commit -m "test: document monitoring and control hardware validation"
 ```
 
-구현 커밋: `5ceb9cb`(모니터링·제어 route fixture E2E), `ee6bcb1`(기존 navigation 회귀 보정), `a03162c`(실장비 검증 Gate 런북)
+구현 커밋: `5ceb9cb`(모니터링·제어 route fixture E2E), `ee6bcb1`(기존 navigation 회귀 보정), `a03162c`(실장비 검증 Gate 런북), `4592580`(Health·부분 실패 E2E와 실기 증거 fail-fast 보강)
 
-자동 검증: 전체 Playwright `12 passed`, 실제 인증 opt-in `1 skipped`; 지정 시나리오 5회 반복 `20 passed`. 루트 `pnpm test`는 root 15, shared 44, web 198, API 414(29 opt-in skip), gateway 247, mobile 1개가 통과했다. typecheck, lint, web/API build도 통과했다. ESP-IDF 5.5의 esp32h2 build는 binary `0xe5570`, app partition 여유 약 10%로 성공했다.
+자동 검증: 전체 Playwright `13 passed`, 실제 인증 opt-in `1 skipped`; 지정 시나리오 5회 반복 `25 passed`. 루트 `pnpm test`는 root 15, shared 44, web 198, API 414(29 opt-in skip), gateway 247, mobile 1개가 통과했다. typecheck, lint, web/API build도 통과했다. ESP-IDF 5.5의 esp32h2 build는 binary `0xe5570`, app partition 여유 약 10%로 성공했다.
 
 실장비 상태: Raspberry Pi/ESP32-H2 HIL은 미실행이다. zone은 `FixtureGroup` CRUD/UI 부재, 표준 Health Fault Clear는 Gateway 내부 송신 API/IPC 부재로 각각 `not_executed`이며 자동 route fixture 결과를 실기 완료로 사용하지 않는다.
 
