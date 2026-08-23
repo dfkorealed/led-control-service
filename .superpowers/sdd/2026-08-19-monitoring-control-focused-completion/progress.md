@@ -333,5 +333,6 @@ Ruling: terminal 결과는 화면에 남기되 입력 잠금만 해제한다 —
 - 복구 계약: 현재 추적 command ID와 상태 응답 ID가 일치할 때만 terminal 결과를 반영한다. ID가 불일치하면 terminal로 처리하지 않고 1초 polling과 수동 재조회를 유지한다. terminal 결과는 화면에 남기고, 네트워크/5xx 오류는 ID를 보존한 채 재조회한다. cached nonterminal 상태가 남아도 최신 조회의 인증된 404가 확정되면 CAS 삭제와 잠금 해제를 수행한다. UUID 형식 검증과 기대 ID 비교로 손상값 및 stale clear를 차단한다.
 - 최종 리뷰 Important 2건: 상태 응답 command ID 불일치에도 terminal이면 잠금이 풀릴 수 있는 문제, cached nonterminal 데이터가 있는 최신 404에서 잠금이 계속될 수 있는 문제를 확인했다. `13e3f47`에서 polling 응답 ID 검증, 불일치 시 안전 잠금 유지, cached nonterminal + 최신 404 잠금 해제를 해결했다.
 - 최종 재리뷰: Critical 0건, Important 0건.
-- 중간 검증: 웹 테스트 `192개` 통과, 웹 TypeScript 검사와 프로덕션 빌드 통과, `git diff --check` 통과. 최종 fresh 검증과 실제 브라우저/하드웨어 E2E는 아직 대기 중이며 Task 16 범위로 남긴다.
-- Task 15 상태: 구현 및 재리뷰 완료, 최종 fresh 검증 대기
+- 최종 fresh 검증: 웹 테스트 `198개`, build/typecheck/`git diff --check`, clean worktree 통과. 실제 브라우저·하드웨어 E2E는 Task 16 범위로 남긴다.
+- Task 15 상태: complete
+- 사용자 확인 Gate 15: 대기
