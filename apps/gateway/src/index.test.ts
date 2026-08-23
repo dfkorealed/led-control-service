@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createFixtureStatusPublisher,
   createMeshGroupResyncRequest,
+  MeshGroupResyncPublisher,
+  observedFixtureResults,
+  publishObservedDeviceStates,
   createMqttIdentityActivation,
   parseGatewayHeartbeatInterval,
   recordMeshResyncOutcome,
@@ -38,6 +41,77 @@ describe("startGatewayRuntime", () => {
       occurredAt: "2026-08-23T00:00:00.000Z",
       reason: "state_missing"
     });
+  });
+
+  it("publishes one stable resync request until success and skips normal startup restore", async () => {
+    const publish = vi.fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(undefined);
+    const ids = vi.fn(() => "11111111-1111-4111-8111-111111111111");
+    const pending = new MeshGroupResyncPublisher(
+      { siteId: scopedSiteId, gatewayId: scopedGatewayId },
+      "state_missing",
+      () => "2026-08-23T00:00:00.000Z",
+      ids
+    );
+
+    await expect(pending.publishPending(publish)).rejects.toThrow("offline");
+    await Promise.all([pending.publishPending(publish), pending.publishPending(publish)]);
+    await pending.publishPending(publish);
+
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish.mock.calls[0][1]).toEqual(publish.mock.calls[1][1]);
+    expect(ids).toHaveBeenCalledTimes(1);
+    const restored = new MeshGroupResyncPublisher(
+      { siteId: scopedSiteId, gatewayId: scopedGatewayId },
+      "startup"
+    );
+    await restored.publishPending(publish);
+    expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns only applied and state-mismatch fixtures with actual observed brightness", () => {
+    expect(observedFixtureResults({
+      fixtureStateObserved: true,
+      observedFixtureIds: [scopedFixtureId, "00000000-0000-4000-8000-000000000006"],
+      deviceStatus: {
+        results: [
+          { fixtureId: scopedFixtureId, status: "failed", brightness: 31, faultCode: "state_mismatch" },
+          { fixtureId: "00000000-0000-4000-8000-000000000006", status: "timed_out", faultCode: "status_timeout" }
+        ]
+      }
+    } as never)).toEqual([
+      { fixtureId: scopedFixtureId, status: "failed", brightness: 31, faultCode: "state_mismatch" }
+    ]);
+  });
+
+  it("publishes fixture state only for the observed member of a partial command", async () => {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const next = vi.fn().mockResolvedValue(21);
+    await publishObservedDeviceStates({
+      siteId: scopedSiteId,
+      gatewayId: scopedGatewayId,
+      eventSequence: { next },
+      publish,
+      fallbackBrightness: 70,
+      result: {
+        fixtureStateObserved: true,
+        observedFixtureIds: [scopedFixtureId],
+        deviceStatus: {
+          occurredAt: "2026-08-23T00:00:00.000Z",
+          results: [
+            { fixtureId: scopedFixtureId, status: "failed", brightness: 31, faultCode: "state_mismatch" },
+            { fixtureId: "00000000-0000-4000-8000-000000000006", status: "timed_out", faultCode: "status_timeout" }
+          ]
+        }
+      } as never
+    });
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(
+      `sites/${scopedSiteId}/gateways/${scopedGatewayId}/state/fixtures`,
+      expect.objectContaining({ fixtureId: scopedFixtureId, brightness: 31, powerOn: true, status: "fault" })
+    );
   });
   it("publishes mapped Mesh status only on the assigned gateway v2 topic with a persisted sequence", async () => {
     const publish = vi.fn().mockResolvedValue(undefined);

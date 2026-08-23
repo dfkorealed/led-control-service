@@ -77,6 +77,37 @@ describe("GatewayMqttRuntime", () => {
     await runtime.stop();
   });
 
+  it("retries a failed subscription on the same connection and cleans the retry timer", async () => {
+    vi.useFakeTimers();
+    const client = new FakeMqttClient();
+    const subscribe = vi.fn()
+      .mockRejectedValueOnce(new Error("SUBACK failed"))
+      .mockResolvedValueOnce(undefined);
+    const publishHeartbeat = vi.fn();
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 10_000,
+      subscriptionRetryBaseMs: 100,
+      subscribe,
+      publishHeartbeat,
+      topicHandlers,
+      onMessageError: vi.fn(),
+      onRuntimeError: vi.fn()
+    });
+
+    runtime.start();
+    client.emit("connect", { sessionPresent: false });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(publishHeartbeat).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.waitFor(() => expect(publishHeartbeat).toHaveBeenCalledTimes(1));
+    expect(subscribe).toHaveBeenCalledTimes(2);
+
+    await runtime.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("stops heartbeats while disconnected and starts one timer again after reconnect", async () => {
     vi.useFakeTimers();
     const client = new FakeMqttClient();

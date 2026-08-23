@@ -197,11 +197,12 @@ describe("handleGatewayDimmingCommand", () => {
       deliveryMode: "parallel_unicast"
     });
 
-    expect(applyUnicast).toHaveBeenCalledWith(command.targetFixtureIds[0], 65);
+    expect(applyUnicast).toHaveBeenCalledWith(command.targetFixtureIds[0], 65, expect.any(AbortSignal));
     expect(applyParallelUnicast).toHaveBeenCalledWith(
       [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"],
       65,
-      8
+      8,
+      expect.any(AbortSignal)
     );
     expect(adapter.setBrightness).not.toHaveBeenCalled();
   });
@@ -302,6 +303,35 @@ describe("handleGatewayDimmingCommand", () => {
         { status: "timed_out", faultCode: "status_timeout" }
       ]
     });
+    expect(result.observedFixtureIds).toEqual([groupCommand.targetFixtureIds[0]]);
+    expect(result.deviceStatus.results[0]).toMatchObject({ brightness: 30 });
+  });
+
+  it("aborts the adapter signal when the outer command timeout expires", async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      const adapter = {
+        setBrightness: vi.fn(),
+        applyParallelUnicast: vi.fn((_fixtures, _brightness, _concurrency, receivedSignal: AbortSignal) => {
+          signal = receivedSignal;
+          return new Promise<never>(() => undefined);
+        })
+      } as any;
+      const pending = handleGatewayDimmingCommand(adapter, memoryJournal(new Map()), {
+        ...command,
+        targetType: "fixtures",
+        targetId: null,
+        targetFixtureIds: [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"],
+        deliveryMode: "parallel_unicast"
+      }, undefined, { timeoutMs: 1000 });
+      await vi.advanceTimersByTimeAsync(1000);
+
+      await expect(pending).resolves.toMatchObject({ deviceStatus: { status: "timed_out" } });
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits behind same-group subscription work but not unrelated group work", async () => {

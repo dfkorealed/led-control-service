@@ -176,19 +176,26 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     return reports;
   }
 
-  async applyUnicast(fixtureId: string, brightness: number): Promise<BleMeshCommandReport> {
+  async applyUnicast(fixtureId: string, brightness: number, signal?: AbortSignal): Promise<BleMeshCommandReport> {
     await this.start();
     const mapping = await this.addressStore.findByFixtureId(fixtureId);
     if (!mapping || mapping.status !== "confirmed") return failed(fixtureId, brightness, "MESH_MAPPING_NOT_FOUND");
     return this.commandSources.run(String(mapping.primaryUnicast), () =>
-      this.sendFixtureBrightness(fixtureId, mapping.primaryUnicast, brightness)
+      signal?.aborted
+        ? Promise.resolve(failed(fixtureId, brightness, "command_aborted", "timed_out"))
+        : this.sendFixtureBrightness(fixtureId, mapping.primaryUnicast, brightness, signal)
     );
   }
 
-  async applyParallelUnicast(fixtureIds: string[], brightness: number, concurrency = 8): Promise<BleMeshCommandReport[]> {
+  async applyParallelUnicast(
+    fixtureIds: string[],
+    brightness: number,
+    concurrency = 8,
+    signal?: AbortSignal
+  ): Promise<BleMeshCommandReport[]> {
     await this.start();
     validateConcurrency(concurrency);
-    return mapWithConcurrency(fixtureIds, concurrency, (fixtureId) => this.applyUnicast(fixtureId, brightness));
+    return mapWithConcurrency(fixtureIds, concurrency, (fixtureId) => this.applyUnicast(fixtureId, brightness, signal), signal);
   }
 
   async applyMeshGroup(groupAddress: number, fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]> {
@@ -269,10 +276,15 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     };
   }
 
-  private async sendFixtureBrightness(fixtureId: string, primaryUnicast: number, brightness: number): Promise<BleMeshCommandReport> {
+  private async sendFixtureBrightness(
+    fixtureId: string,
+    primaryUnicast: number,
+    brightness: number,
+    signal?: AbortSignal
+  ): Promise<BleMeshCommandReport> {
     const nodePath = this.requireNodePath();
     const tid = await this.transactions.next(primaryUnicast);
-    const status = waitForLightnessStatus(this.application, primaryUnicast, this.responseTimeoutMs);
+    const status = waitForLightnessStatus(this.application, primaryUnicast, this.responseTimeoutMs, signal);
     try {
       await this.transport.call(BLUEZ_SERVICE, nodePath, NODE_INTERFACE, "Send", [
         BLUEZ_APPLICATION_PATHS.element,
@@ -282,7 +294,9 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         Array.from(encodeLightnessSet({ lightness: percentToLightness(brightness), tid }))
       ]);
       const reportedBrightness = lightnessToPercent((await status.promise).present);
-      if (Math.abs(reportedBrightness - brightness) > 1) return failed(fixtureId, brightness, "STATUS_MISMATCH");
+      if (Math.abs(reportedBrightness - brightness) > 1) {
+        return failed(fixtureId, reportedBrightness, "state_mismatch");
+      }
       return applied(fixtureId, reportedBrightness);
     } catch (error) {
       status.cancel();
@@ -542,17 +556,23 @@ function isCoherent(observation: FixtureObservation, coherenceMs: number) {
   return newest - oldest <= coherenceMs;
 }
 
-async function mapWithConcurrency<T, R>(values: T[], concurrency: number, operation: (value: T) => Promise<R>) {
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  operation: (value: T) => Promise<R>,
+  signal?: AbortSignal
+) {
   const results = new Array<R>(values.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(Math.max(1, concurrency), values.length) }, async () => {
-    while (next < values.length) {
+    while (next < values.length && !signal?.aborted) {
       const index = next++;
+      if (signal?.aborted) break;
       results[index] = await operation(values[index]);
     }
   });
   await Promise.all(workers);
-  return results;
+  return results.filter((value): value is R => value !== undefined);
 }
 
 function isBusyError(error: unknown) {
@@ -566,13 +586,14 @@ function fixtureStatusKind(payload: Buffer) {
   return null;
 }
 
-function waitForLightnessStatus(application: EventEmitter, source: number, timeoutMs: number) {
+function waitForLightnessStatus(application: EventEmitter, source: number, timeoutMs: number, signal?: AbortSignal) {
   let rejectPromise: (error: Error) => void = () => undefined;
   let resolvePromise: (status: ReturnType<typeof decodeLightnessStatus>) => void = () => undefined;
   let settled = false;
   const cleanup = () => {
     clearTimeout(timeout);
     application.off("messageReceived", onMessage);
+    signal?.removeEventListener("abort", onAbort);
   };
   const onMessage = (event: { source: number; data: Uint8Array }) => {
     if (event.source !== source || event.data[0] !== 0x82 || event.data[1] !== 0x4e) return;
@@ -591,6 +612,13 @@ function waitForLightnessStatus(application: EventEmitter, source: number, timeo
     resolvePromise = resolve;
     rejectPromise = reject;
   });
+  void promise.catch(() => undefined);
+  const onAbort = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    rejectPromise(new Error("Lightness request aborted"));
+  };
   const timeout = setTimeout(() => {
     if (settled) return;
     settled = true;
@@ -598,6 +626,8 @@ function waitForLightnessStatus(application: EventEmitter, source: number, timeo
     rejectPromise(new Error("Lightness Status timed out"));
   }, timeoutMs);
   application.on("messageReceived", onMessage);
+  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   return {
     promise,
     cancel: () => {

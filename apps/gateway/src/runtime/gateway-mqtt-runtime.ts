@@ -13,6 +13,7 @@ export interface GatewayMqttRuntimeOptions {
   client: GatewayMqttClient;
   heartbeatMs: number;
   candidateReadyTimeoutMs?: number;
+  subscriptionRetryBaseMs?: number;
   subscribe: (client: GatewayMqttClient, sessionPresent: boolean, force: boolean) => unknown;
   publishHeartbeat: () => unknown;
   topicHandlers: Record<string, TopicHandler>;
@@ -48,10 +49,14 @@ export class GatewayMqttRuntime {
   }>();
   private readonly candidateReadyTimeoutMs: number;
   private connectionEpoch = 0;
+  private subscriptionRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  private subscriptionRetryAttempt = 0;
+  private readonly subscriptionRetryBaseMs: number;
 
   constructor(private readonly options: GatewayMqttRuntimeOptions) {
     this.currentClient = options.client;
     this.candidateReadyTimeoutMs = boundedCandidateReadyTimeout(options.candidateReadyTimeoutMs ?? DEFAULT_CANDIDATE_READY_TIMEOUT_MS);
+    this.subscriptionRetryBaseMs = boundedSubscriptionRetry(options.subscriptionRetryBaseMs ?? 1_000);
   }
 
   get client() {
@@ -72,6 +77,7 @@ export class GatewayMqttRuntime {
     return this.enqueue(async () => {
       this.started = false;
       this.clearHeartbeatTimer();
+      this.clearSubscriptionRetry();
       this.removeClientListeners(this.currentClient);
       await this.endClient(this.currentClient);
     });
@@ -132,25 +138,55 @@ export class GatewayMqttRuntime {
   private handleConnect(client: GatewayMqttClient, packet: IConnackPacket) {
     if (this.currentClient !== client) return;
     const epoch = ++this.connectionEpoch;
+    this.clearSubscriptionRetry();
+    this.subscriptionRetryAttempt = 0;
     if (packet.sessionPresent) {
       this.connected();
       return;
     }
+    this.subscribeActiveConnection(client, epoch);
+  }
+
+  private subscribeActiveConnection(client: GatewayMqttClient, epoch: number) {
     let subscription: unknown;
     try {
       subscription = this.options.subscribe(client, false, false);
     } catch (error) {
       this.report(this.options.onRuntimeError, error, "subscribe");
+      this.scheduleSubscriptionRetry(client, epoch);
       return;
     }
     if (!isPromiseLike(subscription)) {
       this.connected();
       return;
     }
-    this.run(async () => {
-      await subscription;
-      if (this.currentClient === client && this.started && !this.stopping && this.connectionEpoch === epoch) this.connected();
-    }, "subscribe");
+    void Promise.resolve(subscription).then(
+      () => {
+        if (this.isActiveConnection(client, epoch)) {
+          this.clearSubscriptionRetry();
+          this.subscriptionRetryAttempt = 0;
+          this.connected();
+        }
+      },
+      (error) => {
+        this.report(this.options.onRuntimeError, error, "subscribe");
+        this.scheduleSubscriptionRetry(client, epoch);
+      }
+    );
+  }
+
+  private scheduleSubscriptionRetry(client: GatewayMqttClient, epoch: number) {
+    if (!this.isActiveConnection(client, epoch) || this.subscriptionRetryTimer) return;
+    const delay = Math.min(this.subscriptionRetryBaseMs * (2 ** this.subscriptionRetryAttempt), 30_000);
+    this.subscriptionRetryAttempt += 1;
+    this.subscriptionRetryTimer = setTimeout(() => {
+      this.subscriptionRetryTimer = undefined;
+      if (this.isActiveConnection(client, epoch)) this.subscribeActiveConnection(client, epoch);
+    }, delay);
+  }
+
+  private isActiveConnection(client: GatewayMqttClient, epoch: number) {
+    return this.currentClient === client && this.started && !this.stopping && this.connectionEpoch === epoch;
   }
 
   private connected() {
@@ -163,6 +199,7 @@ export class GatewayMqttRuntime {
   private handleClose(client: GatewayMqttClient) {
     if (this.currentClient !== client) return;
     this.connectionEpoch += 1;
+    this.clearSubscriptionRetry();
     this.clearHeartbeatTimer();
     this.run(() => this.options.onClose?.(), "close");
   }
@@ -247,6 +284,7 @@ export class GatewayMqttRuntime {
 
   private async quiesceClient(client: GatewayMqttClient) {
     this.clearHeartbeatTimer();
+    this.clearSubscriptionRetry();
     await this.endClient(client);
   }
 
@@ -271,6 +309,7 @@ export class GatewayMqttRuntime {
   private async failClosed(client: GatewayMqttClient, previous?: GatewayMqttClient, clientAlreadyEnded = false) {
     this.started = false;
     this.clearHeartbeatTimer();
+    this.clearSubscriptionRetry();
     this.removeClientListeners(client);
     if (previous && previous !== client) this.removeClientListeners(previous);
     if (clientAlreadyEnded) return;
@@ -301,6 +340,12 @@ export class GatewayMqttRuntime {
     if (!this.heartbeatTimer) return;
     clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = undefined;
+  }
+
+  private clearSubscriptionRetry() {
+    if (!this.subscriptionRetryTimer) return;
+    clearTimeout(this.subscriptionRetryTimer);
+    this.subscriptionRetryTimer = undefined;
   }
 
   private addClientListeners(client: GatewayMqttClient) {
@@ -353,6 +398,11 @@ export class GatewayMqttRuntime {
 
 function boundedCandidateReadyTimeout(value: number) {
   if (!Number.isInteger(value) || value < 1 || value > 60_000) throw new Error("invalid MQTT candidate readiness timeout");
+  return value;
+}
+
+function boundedSubscriptionRetry(value: number) {
+  if (!Number.isInteger(value) || value < 10 || value > 30_000) throw new Error("invalid MQTT subscription retry interval");
   return value;
 }
 

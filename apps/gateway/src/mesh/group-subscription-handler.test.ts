@@ -160,6 +160,37 @@ describe("GroupSubscriptionHandler", () => {
     expect(source.publish).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["missing", ["00000000-0000-4000-8000-000000000013"]],
+    ["duplicate", ["00000000-0000-4000-8000-000000000013", "00000000-0000-4000-8000-000000000013"]],
+    ["extra", [
+      "00000000-0000-4000-8000-000000000013",
+      "00000000-0000-4000-8000-000000000014",
+      "00000000-0000-4000-8000-000000000099"
+    ]]
+  ])("fails closed for a %s subscription result member set", async (_case, memberIds) => {
+    const store = stateStore();
+    const source = mqttSource();
+    const handler = new GroupSubscriptionHandler({
+      syncGroupSubscriptions: vi.fn(async (input: MeshGroupSubscriptionSyncPayload) => ({
+        siteId: input.siteId,
+        gatewayId: input.gatewayId,
+        groupId: input.groupId,
+        version: input.version,
+        groupAddress: input.groupAddress,
+        members: memberIds.map((meshNodeId) => ({ meshNodeId, status: "ready" as const })),
+        occurredAt: "2026-08-20T09:00:01.000Z"
+      }))
+    }, scope(), store, new KeyedSerialTaskQueue());
+
+    await expect(handler.handle(Buffer.from(JSON.stringify(command())), source as never)).rejects.toThrow(
+      "mesh group subscription result member mismatch"
+    );
+    expect(store.writeReady).not.toHaveBeenCalled();
+    expect(store.writeFailed).toHaveBeenCalled();
+    expect(source.publish).not.toHaveBeenCalled();
+  });
+
   it("serializes the same group and allows different groups to synchronize concurrently", async () => {
     const queue = new KeyedSerialTaskQueue();
     const events: string[] = [];

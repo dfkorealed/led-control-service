@@ -58,6 +58,23 @@ describe("BluezMeshAdapter", () => {
     ]);
   });
 
+  it("preserves actual unicast brightness when status mismatches the request", async () => {
+    const f = fixture();
+    const pending = f.adapter.applyUnicast("fixture-1", 70);
+    await vi.waitFor(() => expect(f.transport.call).toHaveBeenCalledTimes(1));
+    f.application.emit("messageReceived", {
+      source: 0x0100,
+      data: Uint8Array.from([0x82, 0x4e, 0xcd, 0x4c])
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      fixtureId: "fixture-1",
+      acknowledged: false,
+      brightness: 30,
+      faultCode: "state_mismatch"
+    });
+  });
+
   it("fails an unmapped fixture before sending", async () => {
     const f = fixture();
     await expect(f.adapter.setBrightness(["missing"], 60)).resolves.toMatchObject([
@@ -98,6 +115,31 @@ describe("BluezMeshAdapter", () => {
 
     await expect(result).resolves.toHaveLength(10);
     expect(maximumActive).toBe(8);
+  });
+
+  it("does not schedule another parallel-unicast batch after abort", async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    const releases: Array<() => void> = [];
+    f.addresses.findByFixtureId.mockImplementation(async (fixtureId: string) => ({
+      fixtureId,
+      primaryUnicast: 0x0100 + Number(fixtureId.slice("fixture-".length)),
+      status: "confirmed" as const
+    }));
+    f.transport.call.mockImplementation(async () => new Promise<void>((resolve) => releases.push(resolve)));
+
+    const pending = f.adapter.applyParallelUnicast(
+      Array.from({ length: 12 }, (_, index) => `fixture-${index}`),
+      100,
+      8,
+      controller.signal
+    );
+    await vi.waitFor(() => expect(f.transport.call).toHaveBeenCalledTimes(8));
+    controller.abort();
+    releases.splice(0).forEach((release) => release());
+    await pending;
+
+    expect(f.transport.call).toHaveBeenCalledTimes(8);
   });
 
   it("sends one unacknowledged group command and aggregates actual status by expected source", async () => {

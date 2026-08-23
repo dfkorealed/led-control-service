@@ -21,6 +21,7 @@ export interface GatewayCommandResult {
   acceptance: AcceptanceAckV2;
   deviceStatus: DeviceStatusAckV2;
   fixtureStateObserved: boolean;
+  observedFixtureIds?: string[];
 }
 
 interface GatewayCommandOptions {
@@ -109,10 +110,18 @@ async function executeGatewayDimmingCommand(
 
   let deviceStatus: DeviceStatusAckV2;
   let fixtureStateObserved = false;
+  let observedFixtureIds: string[] = [];
   try {
     const timeoutMs = validateTimeout(options.timeoutMs ?? 8000);
-    const reports = validateReports(command.targetFixtureIds, await withTimeout(applyCommand(adapter, command), timeoutMs));
-    fixtureStateObserved = reports.some((report) => report.acknowledged || report.faultCode === "state_mismatch");
+    const controller = new AbortController();
+    const reports = validateReports(
+      command.targetFixtureIds,
+      await withTimeout(applyCommand(adapter, command, controller.signal), timeoutMs, () => controller.abort())
+    );
+    observedFixtureIds = reports
+      .filter((report) => report.acknowledged || report.faultCode === "state_mismatch")
+      .map((report) => report.fixtureId);
+    fixtureStateObserved = observedFixtureIds.length > 0;
     const results = reports.map((report) => ({
       fixtureId: report.fixtureId,
       status: report.acknowledged
@@ -120,7 +129,7 @@ async function executeGatewayDimmingCommand(
         : report.outcome === "timed_out"
           ? ("timed_out" as const)
           : ("failed" as const),
-      ...(report.acknowledged ? { brightness: report.brightness } : {}),
+      ...(report.acknowledged || report.faultCode === "state_mismatch" ? { brightness: report.brightness } : {}),
       ...(report.faultCode ? { faultCode: report.faultCode } : {}),
       rssi: report.rssi,
       hopCount: report.hopCount
@@ -155,20 +164,20 @@ async function executeGatewayDimmingCommand(
     });
   }
 
-  const result = { acceptance, deviceStatus, fixtureStateObserved };
+  const result = { acceptance, deviceStatus, fixtureStateObserved, observedFixtureIds };
   await journal.complete(command.idempotencyKey, result);
   return result;
 }
 
-function applyCommand(adapter: BleMeshAdapter, command: GatewayDimmingCommandV2) {
+function applyCommand(adapter: BleMeshAdapter, command: GatewayDimmingCommandV2, signal: AbortSignal) {
   switch (command.deliveryMode) {
     case "unicast":
       return adapter.applyUnicast
-        ? adapter.applyUnicast(command.targetFixtureIds[0], command.brightness).then((report) => [report])
+        ? adapter.applyUnicast(command.targetFixtureIds[0], command.brightness, signal).then((report) => [report])
         : adapter.setBrightness(command.targetFixtureIds, command.brightness);
     case "parallel_unicast":
       if (!adapter.applyParallelUnicast) throw new Error("parallel unicast control is unavailable");
-      return adapter.applyParallelUnicast(command.targetFixtureIds, command.brightness, 8);
+      return adapter.applyParallelUnicast(command.targetFixtureIds, command.brightness, 8, signal);
     case "mesh_group":
       if (!adapter.applyMeshGroup || !command.destinationAddress) throw new Error("mesh group control is unavailable");
       return adapter.applyMeshGroup(parseGroupAddress(command.destinationAddress), command.targetFixtureIds, command.brightness);
@@ -216,9 +225,12 @@ function errorCode(error: unknown, fallback: string) {
 
 class MeshStatusTimeoutError extends Error {}
 
-function withTimeout<T>(operation: Promise<T>, timeoutMs: number) {
+function withTimeout<T>(operation: Promise<T>, timeoutMs: number, onTimeout: () => void = () => undefined) {
   return new Promise<T>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new MeshStatusTimeoutError(`BLE Mesh status timeout after ${timeoutMs}ms`)), timeoutMs);
+    const timeout = setTimeout(() => {
+      onTimeout();
+      reject(new MeshStatusTimeoutError(`BLE Mesh status timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
     operation.then(
       (value) => {
         clearTimeout(timeout);

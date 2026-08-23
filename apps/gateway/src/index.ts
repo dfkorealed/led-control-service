@@ -4,7 +4,6 @@ import { join, resolve } from "node:path";
 import { config } from "dotenv";
 import {
   type AcceptanceAckV2,
-  type DeviceStatusAckV2,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
   meshGroupResyncRequestV2Schema,
@@ -76,6 +75,7 @@ async function main() {
   );
   const groupRestore = await groupStateStore.initialize();
   const groupQueue = new KeyedSerialTaskQueue();
+  const groupResyncPublisher = new MeshGroupResyncPublisher({ siteId, gatewayId }, groupRestore.reason);
 
   async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
@@ -94,32 +94,22 @@ async function main() {
       await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
     }
     await publish(source, mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
-    if (shouldPublishFixtureStates(result)) await publishDeviceStates(source, result.deviceStatus, command.brightness);
+    if (shouldPublishFixtureStates(result)) await publishDeviceStates(source, result, command.brightness);
   }
 
   async function publishDeviceStates(
     source: GatewayMqttClient,
-    deviceStatus: DeviceStatusAckV2,
+    result: GatewayCommandResult,
     fallbackBrightness: number
   ) {
-    for (const fixture of deviceStatus.results) {
-      const state = fixtureStateV2Schema.parse({
-        siteId,
-        gatewayId,
-        eventId: randomUUID(),
-        sequence: await eventSequence.next(),
-        occurredAt: deviceStatus.occurredAt,
-        fixtureId: fixture.fixtureId,
-        brightness: fixture.status === "succeeded" ? fixture.brightness ?? fallbackBrightness : 0,
-        powerOn: fixture.status === "succeeded" && (fixture.brightness ?? fallbackBrightness) > 0,
-        status: fixture.status === "succeeded" ? "online" : "fault",
-        statusReason: fixture.status === "succeeded" ? "reported" : "command_failed",
-        ...(fixture.faultCode ? { faultCode: fixture.faultCode } : {}),
-        rssi: fixture.rssi ?? null,
-        hopCount: fixture.hopCount ?? null
-      });
-      await publish(source, mqttTopicsV2.fixtureState(siteId, gatewayId), state);
-    }
+    await publishObservedDeviceStates({
+      siteId,
+      gatewayId,
+      eventSequence,
+      publish: (topic, state) => publish(source, topic, state),
+      result,
+      fallbackBrightness
+    });
   }
 
   function publish(client: Pick<MqttClient, "publish">, topic: string, payload: unknown) {
@@ -176,6 +166,7 @@ async function main() {
     });
     await publish(mqttRuntime.client, mqttTopicsV2.heartbeat(siteId, gatewayId), heartbeat);
     await health.heartbeatPublished();
+    await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
   }
 
   const mqttRuntime = new GatewayMqttRuntime({
@@ -193,11 +184,7 @@ async function main() {
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
       await health.mqttConnected();
-      await publish(
-        mqttRuntime.client,
-        mqttTopicsV2.meshGroupResyncRequest(siteId, gatewayId),
-        createMeshGroupResyncRequest({ siteId, gatewayId }, groupRestore.reason)
-      );
+      await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
       await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
     },
     onClose: () => health.unhealthy("mqtt_disconnected"),
@@ -238,6 +225,73 @@ export function createMeshGroupResyncRequest(
     occurredAt: now(),
     reason
   });
+}
+
+export class MeshGroupResyncPublisher {
+  private pending: ReturnType<typeof createMeshGroupResyncRequest> | undefined;
+  private inFlight: Promise<void> | undefined;
+
+  constructor(
+    private readonly scope: { siteId: string; gatewayId: string },
+    reason: GroupStateRestoreReason,
+    now?: () => string,
+    eventId?: () => string
+  ) {
+    if (reason !== "startup") this.pending = createMeshGroupResyncRequest(scope, reason, now, eventId);
+  }
+
+  publishPending(publish: (topic: string, payload: unknown) => Promise<void>) {
+    if (!this.pending) return Promise.resolve();
+    if (this.inFlight) return this.inFlight;
+    const payload = this.pending;
+    this.inFlight = publish(mqttTopicsV2.meshGroupResyncRequest(this.scope.siteId, this.scope.gatewayId), payload)
+      .then(() => { this.pending = undefined; })
+      .finally(() => { this.inFlight = undefined; });
+    return this.inFlight;
+  }
+}
+
+export function observedFixtureResults(result: Pick<GatewayCommandResult, "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds">) {
+  if (!result.fixtureStateObserved) return [];
+  const observedIds = new Set(
+    result.observedFixtureIds ?? result.deviceStatus.results
+      .filter((fixture) => fixture.status === "succeeded" || (fixture.faultCode === "state_mismatch" && fixture.brightness !== undefined))
+      .map((fixture) => fixture.fixtureId)
+  );
+  return result.deviceStatus.results.filter((fixture) =>
+    observedIds.has(fixture.fixtureId) &&
+    fixture.brightness !== undefined &&
+    (fixture.status === "succeeded" || fixture.faultCode === "state_mismatch")
+  );
+}
+
+export async function publishObservedDeviceStates(input: {
+  siteId: string;
+  gatewayId: string;
+  eventSequence: Pick<EventSequenceStore, "next">;
+  publish: (topic: string, payload: unknown) => Promise<void>;
+  result: Pick<GatewayCommandResult, "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds">;
+  fallbackBrightness: number;
+}) {
+  for (const fixture of observedFixtureResults(input.result)) {
+    const brightness = fixture.brightness ?? input.fallbackBrightness;
+    const state = fixtureStateV2Schema.parse({
+      siteId: input.siteId,
+      gatewayId: input.gatewayId,
+      eventId: randomUUID(),
+      sequence: await input.eventSequence.next(),
+      occurredAt: input.result.deviceStatus.occurredAt,
+      fixtureId: fixture.fixtureId,
+      brightness,
+      powerOn: brightness > 0,
+      status: fixture.status === "succeeded" ? "online" : "fault",
+      statusReason: fixture.status === "succeeded" ? "reported" : "command_failed",
+      ...(fixture.faultCode ? { faultCode: fixture.faultCode } : {}),
+      rssi: fixture.rssi ?? null,
+      hopCount: fixture.hopCount ?? null
+    });
+    await input.publish(mqttTopicsV2.fixtureState(input.siteId, input.gatewayId), state);
+  }
 }
 
 export function shouldPublishFixtureStates(result: Pick<GatewayCommandResult, "fixtureStateObserved">) {

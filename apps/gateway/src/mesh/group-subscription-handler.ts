@@ -33,6 +33,7 @@ export class GroupSubscriptionHandler {
       try {
         result = meshGroupSubscriptionResultSchema.parse(await this.adapter.syncGroupSubscriptions(command));
         assertResultIdentity(command, result);
+        assertResultMembers(command.members, result.members);
         if (result.members.every((member) => member.status === "ready")) await this.stateStore.writeReady(identity);
         else await this.stateStore.writeFailed(identity);
       } catch (error) {
@@ -48,6 +49,22 @@ export class GroupSubscriptionHandler {
         );
       });
     });
+  }
+}
+
+function assertResultMembers(
+  commandMembers: Array<{ meshNodeId: string }>,
+  resultMembers: Array<{ meshNodeId: string }>
+) {
+  const expected = commandMembers.map((member) => member.meshNodeId);
+  const actual = resultMembers.map((member) => member.meshNodeId);
+  if (
+    new Set(expected).size !== expected.length ||
+    new Set(actual).size !== actual.length ||
+    actual.length !== expected.length ||
+    actual.some((memberId) => !expected.includes(memberId))
+  ) {
+    throw new Error("mesh group subscription result member mismatch");
   }
 }
 
