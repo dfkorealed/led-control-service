@@ -1428,7 +1428,7 @@ git commit -m "feat(control): lock controls until device results"
 - Produces: 실제 Raspberry Pi + ESP32-H2 수동 검증 체크리스트와 증거 기록 형식
 - Does not claim: 실제 하드웨어 검증 완료
 
-- [ ] **Step 1: E2E 실패 시나리오 작성**
+- [x] **Step 1: E2E 실패 시나리오 작성**
 
 ```ts
 await page.getByRole("button", { name: "새로고침" }).click();
@@ -1438,17 +1438,17 @@ await page.getByRole("button", { name: "밝기 적용" }).click();
 await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
 ```
 
-- [ ] **Step 2: E2E RED 확인**
+- [x] **Step 2: E2E RED 확인**
 
 Run: `pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts`
 
 Expected: 통합 fixture와 route 계약이 완성되기 전 FAIL
 
-- [ ] **Step 3: deterministic E2E fixture를 현재 계약에 맞게 작성**
+- [x] **Step 3: deterministic E2E fixture를 현재 계약에 맞게 작성**
 
 테스트 전용 route fixture는 브라우저 계약 검증으로 명시하고 실제 하드웨어 검증으로 표기하지 않는다. 1,000 fixture 시나리오는 10분 query 정책과 지도 object 렌더링을 함께 검증한다.
 
-- [ ] **Step 4: 전체 자동 검증**
+- [x] **Step 4: 전체 자동 검증**
 
 Run: `pnpm test`
 
@@ -1464,15 +1464,21 @@ Run: `scripts/esp32-h2-build.sh`
 
 Expected: 모든 명령 exit 0. 실패가 있으면 완료로 표시하지 않고 원인과 남은 작업을 기록한다.
 
-- [ ] **Step 5: 수동 하드웨어 절차 갱신**
+- [x] **Step 5: 수동 하드웨어 절차 갱신**
 
 런북에 자사 UUID 검색, batch 등록, floor/zone subscription ready, group destination 1회 전송, fixture별 status, Health fault 발생·해제, 브라우저 재접속 복구의 명령과 기대 로그를 순서대로 기록한다.
 
-- [ ] **Step 6: 메뉴 완료/보류 상태 갱신과 커밋**
+- [x] **Step 6: 메뉴 완료/보류 상태 갱신과 커밋**
 
 ```bash
 git add apps/web/e2e docs/runbooks docs/menus docs/superpowers/plans/2026-08-19-monitoring-control-focused-completion.md
 git commit -m "test: document monitoring and control hardware validation"
 ```
 
-- [ ] **사용자 확인 Gate 16:** 자동 검증 결과, 미실행 실기 항목, 수동 E2E 절차를 최종 보고한다.
+구현 커밋: `5ceb9cb`(모니터링·제어 route fixture E2E), `ee6bcb1`(기존 navigation 회귀 보정), `a03162c`(실장비 검증 Gate 런북)
+
+자동 검증: 전체 Playwright `12 passed`, 실제 인증 opt-in `1 skipped`; 지정 시나리오 5회 반복 `20 passed`. 루트 `pnpm test`는 root 15, shared 44, web 198, API 414(29 opt-in skip), gateway 247, mobile 1개가 통과했다. typecheck, lint, web/API build도 통과했다. ESP-IDF 5.5의 esp32h2 build는 binary `0xe5570`, app partition 여유 약 10%로 성공했다.
+
+실장비 상태: Raspberry Pi/ESP32-H2 HIL은 미실행이다. zone은 `FixtureGroup` CRUD/UI 부재, 표준 Health Fault Clear는 Gateway 내부 송신 API/IPC 부재로 각각 `not_executed`이며 자동 route fixture 결과를 실기 완료로 사용하지 않는다.
+
+- [ ] **사용자 확인 Gate 16:** 자동 검증 결과, 미실행 실기 항목, 수동 E2E 절차를 최종 보고하고 사용자 확인을 기다린다.

@@ -44,6 +44,7 @@
 - `completed`, `partial_failed`, `failed`, `timed_out` terminal 상태를 확인하기 전까지 대상 선택, 검색·필터, 밝기 slider, preset, `밝기 적용` 버튼을 잠근다. 상태 응답의 command ID가 현재 추적 ID와 일치할 때만 terminal 결과로 반영하고 잠금을 해제한다. ID가 불일치하면 terminal로 처리하지 않고 1초 polling과 `명령 상태 다시 조회`를 유지한다.
 - terminal 결과는 화면에 유지하며, 네트워크 오류와 5xx는 명령 실패로 확정하지 않고 command ID를 보존해 `명령 상태 다시 조회`로 재조회한다. cached nonterminal 상태가 남아 있어도 최신 조회에서 인증된 404로 명령이 더 이상 존재하지 않음이 확인되면 저장된 active command를 CAS 방식으로 제거하고 잠금을 해제한다.
 - active command 저장·삭제는 RFC 4122 UUID 검증과 현장별 key 격리를 사용하며, 삭제 시 기대 command ID를 다시 비교해 오래된 명령이 새 명령의 저장값을 지우지 못하게 한다.
+- Playwright deterministic route fixture는 개별 조명 명령 생성, terminal 전 모든 제어 입력 잠금, 조명별 terminal 실패 결과 표시, 동일 탭 새로고침 후 active command 복구와 terminal 완료 추적을 검증한다. 이는 브라우저와 API 계약 회귀이며 실제 BLE Mesh 전송 검증이 아니다.
 - 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
 - 대상 picker의 `개별/다중`, `층`, `구역` 버튼으로 제어 모드를 전환하고 각 모드에서 실제 전송 대상을 선택한다.
 - 백엔드는 SiteAccess `manage` 권한이 있는 operator/admin만 해당 현장의 fixture 또는 group을 제어 대상으로 허용하며, 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
@@ -131,7 +132,8 @@
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
 - API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기, 신규 웹 target picker 연결까지 반영됐다.
 - 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 RF/HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
-- `sessionStorage` 새로고침 복구와 ACK terminal 전 입력 잠금은 자동 테스트됐지만, 실제 브라우저에서 gateway와 ESP32를 연결한 E2E는 Task 16에서 수행한다.
+- `sessionStorage` 새로고침 복구와 ACK terminal 전 입력 잠금의 브라우저 계약 검증은 Task 16에서 완료했다. Raspberry Pi Gateway, 실제 MQTT broker와 ESP32-H2를 연결한 E2E는 아직 실행하지 않았다.
+- zone 제어 실기는 `FixtureGroup` CRUD/UI가 없어 `not_executed` 상태다. 표준 Health Fault Clear callback 실기는 Gateway 프로세스 내부에서 BlueZ node owner 권한으로 전송할 API/IPC가 없어 `not_executed` 상태이며, 두 항목 모두 자동 fixture 통과로 완료 처리하지 않는다.
 
 ## 관련 파일
 
