@@ -1,4 +1,4 @@
-const STORAGE_PREFIX = 'led-control:active-command:';
+const STORAGE_PREFIX = "led-control:active-command:";
 
 function isCommandId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
@@ -27,7 +27,7 @@ export function loadActiveCommandId(siteId: string): string | null {
     if (!raw) return null;
 
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || !('commandId' in parsed)) return null;
+    if (!parsed || typeof parsed !== "object" || !("commandId" in parsed)) return null;
 
     const commandId = (parsed as { commandId: unknown }).commandId;
     return isCommandId(commandId) ? commandId : null;
@@ -45,7 +45,7 @@ export function saveActiveCommandId(siteId: string, commandId: string): void {
   try {
     storage.setItem(activeCommandStorageKey(siteId), JSON.stringify({ commandId }));
   } catch {
-    // Storage can be disabled or quota-limited; the command remains recoverable from the server.
+    // Storage can be disabled or quota-limited; the current tab continues, but refresh recovery is unavailable.
   }
 }
 
