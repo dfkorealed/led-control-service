@@ -1068,11 +1068,13 @@ Pending timeout transaction은 미발행·미-dead-letter이며 unlocked 또는 
 
 준비 transaction은 snapshot 검증 후 fresh `preparedAt`으로 lease만 30초 연장하고 `{draft, leaseExpiresAt}`을 반환한다. Final ownership count가 반환된 뒤 fresh clock을 읽어 `leaseExpiresAt > freshNow + 20초`를 로컬에서 다시 보장한다. 11초/31초 지연은 MQTT 0회, 짧은 지연은 final fence 시각 기준 새 expiry와 10초 MQTT interval로 발행한다. Full payload는 MQTT 성공 후 `publishedAt`과 같은 outbox transaction에서 저장한다. 실패 또는 발행 전 종료에는 기존 draft/full payload를 유지하고, broker 수신 직후 종료로 생기는 재시도는 Gateway idempotency journal로 중복 실행을 차단한다.
 
-- [ ] **사용자 확인 Gate 12:** API 계약과 대상별 delivery mode를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 12:** API 계약과 대상별 delivery mode를 보고하고 다음 Task 승인을 받았다.
 
 ---
 
 ### Task 13: Gateway 병렬 unicast와 Mesh group 단일 전송
+
+**진행 상태:** 2026-08-23 구현 및 리뷰 보완 완료. Gateway 전송/영속 상태, API 전체 재동기화, ESP32-H2 publication을 양산 경로에 반영했고 사용자 확인 Gate 13을 기다린다.
 
 **Files:**
 - Modify: `apps/gateway/src/mesh/bluez-model-codec.ts`
@@ -1108,13 +1110,13 @@ Pending timeout transaction은 미발행·미-dead-letter이며 unlocked 또는 
 - Produces: group ID/address/version별 durable `configuring | ready | failed` snapshot과 group 단위 sync/control serialization
 - Recovery: local state 유실·손상 시 `mesh-group/resync-request`, cloud ready group을 포함한 gateway 전체 subscription 재동기화
 
-- [ ] **Step 1: unacknowledged group codec 실패 테스트 작성**
+- [x] **Step 1: unacknowledged group codec 실패 테스트 작성**
 
 ```ts
 expect(Array.from(encodeLightnessSetUnacknowledged(0xffff, 7))).toEqual([0x82, 0x4d, 0xff, 0xff, 0x07]);
 ```
 
-- [ ] **Step 2: 단일 전송과 status 집계 실패 테스트 작성**
+- [x] **Step 2: 단일 전송과 status 집계 실패 테스트 작성**
 
 ```ts
 const result = adapter.applyMeshGroup(0xc000, fixtures, 70);
@@ -1127,7 +1129,7 @@ await expect(result).resolves.toEqual(expect.arrayContaining([
 ]));
 ```
 
-- [ ] **Step 3: timeout과 state mismatch 실패 테스트 작성**
+- [x] **Step 3: timeout과 state mismatch 실패 테스트 작성**
 
 ```ts
 emitLightnessStatus(source1, 30);
@@ -1139,7 +1141,7 @@ await expect(result).resolves.toEqual(expect.arrayContaining([
 
 동시에 payload의 `meshControlGroupId`/address/version이 Gateway durable state의 정확한 `ready` snapshot과 다르면 BLE 송신 전에 실패하는 테스트를 작성한다. API publisher 검증 transaction 커밋과 실제 MQTT publish 사이의 극소 race를 이 물리 경계에서 최종 차단한다.
 
-- [ ] **Step 4: durable group state와 복구 실패 테스트 작성**
+- [x] **Step 4: durable group state와 복구 실패 테스트 작성**
 
 ```ts
 await handler.sync(syncV2);
@@ -1158,13 +1160,13 @@ expect(transport.send).not.toHaveBeenCalled();
 - 재시작 후 ready/configuring/failed 복원과 exact ID/address/version 검증을 확인한다.
 - state 파일 유실·손상 시 모든 group 제어를 차단하고 resync request를 보내며, API가 해당 gateway의 cloud ready group까지 같은 version `configuring`으로 되돌려 전체 member sync를 재발행하는지 검증한다.
 
-- [ ] **Step 5: RED 확인**
+- [x] **Step 5: RED 확인**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-model-codec.test.ts src/mesh/bluez-mesh-adapter.test.ts src/mesh/group-state-store.test.ts src/mesh/group-subscription-handler.test.ts src/runtime/gateway-mqtt-runtime.test.ts src/commands/gateway-command-handler.test.ts`
 
 Expected: group opcode, durable state 저장소, group 직렬화, full resync 계약과 실행 경로 부재로 FAIL
 
-- [ ] **Step 6: gateway와 firmware 구현**
+- [x] **Step 6: gateway와 firmware 구현**
 
 ```ts
 switch (command.deliveryMode) {
@@ -1188,7 +1190,7 @@ ESP32-H2는 Group Set Unack 수신 후 실제 PWM 상태를 publication한다. p
 
 Subscription handler도 같은 `groupSerialQueue`를 사용한다. 첫 Config 요청 전에 `configuring`을 원자 저장하고 fsync하며, member 전체 성공 뒤 `ready` 저장과 fsync를 마친 후 ACK한다. 부분 실패는 `failed`로 저장하고 이전 ready snapshot으로 rollback하지 않는다. 시작 시 state 파일을 복원하고 누락·손상 시 fail-closed와 resync request를 유지한다. API의 resync 처리는 gateway의 모든 cloud group을 조회해 ready group도 같은 version의 `configuring`으로 전환하고 member `statusVersion`을 초기화한다.
 
-- [ ] **Step 7: Task 검증**
+- [x] **Step 7: Task 검증**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-model-codec.test.ts src/mesh/bluez-mesh-adapter.test.ts src/mesh/group-state-store.test.ts src/mesh/group-subscription-handler.test.ts src/runtime/gateway-mqtt-runtime.test.ts src/commands/gateway-command-handler.test.ts`
 
@@ -1200,13 +1202,37 @@ Run: `scripts/esp32-h2-build.sh`
 
 Expected: gateway test/typecheck와 ESP-IDF build exit 0
 
-- [ ] **Step 8: 메뉴 문서 갱신과 커밋**
+- [x] **Step 8: 메뉴 문서 갱신과 커밋**
 
 ```bash
 git add apps/gateway/src apps/esp32-h2-firmware/main/ble_mesh_node.c apps/esp32-h2-firmware/README.md \
   docs/menus/control.md docs/superpowers/plans/2026-08-19-monitoring-control-focused-completion.md
 git commit -m "feat(gateway): execute mesh group dimming"
 ```
+
+- [x] **Review fix 1: 실제 관측 상태만 동기화하고 병렬 작업을 취소 가능하게 보완**
+
+부분 성공 시 ACK 또는 `state_mismatch` Status를 실제로 받은 조명만 fixture-state로 발행한다. timeout/미관측 조명을 0%·꺼짐·fault로 추정하지 않는다. `parallel_unicast`는 동시성 8을 유지하되 전체 8초 timeout 시 `AbortSignal`로 아직 시작하지 않은 전송과 대기 중인 Status 수집을 중단한다.
+
+- [x] **Review fix 2: subscription 결과의 전체 member 일치 검증**
+
+Gateway는 subscription 결과의 node 목록이 command의 전체 member 집합과 정확히 일치할 때만 `ready`를 저장한다. 누락, 중복, 알 수 없는 node가 있으면 `failed`로 영속화해 부분 구성 상태에서 group 제어가 열리지 않게 한다.
+
+- [x] **Review fix 3: resync 재시도·중복 방지와 MQTT 구독 복구**
+
+정상 `startup` 복원에는 전체 resync를 요청하지 않는다. state 유실·손상 요청은 같은 `eventId` payload를 연결 및 heartbeat 시 재시도하고 성공 후 제거한다. API는 `ProcessedGatewayEvent`로 중복 요청을 멱등 처리한다. MQTT command subscribe 실패는 최대 30초 backoff로 현재 연결에서 재시도한다.
+
+- [x] **Review fix 4: API lock 순서와 group 수용량 일치**
+
+provisioning member 연결과 전체 resync가 모두 Gateway row를 먼저 잠그도록 순서를 통일했다. ESP32-H2 모델별 group subscription은 16개로 설정하고 API는 조명 한 대당 층 group 1개와 사용자 fixture group 최대 15개만 허용한다.
+
+- [x] **Review fix 5: firmware TID 중복 transaction 차단**
+
+`RSP_BY_APP` Light Lightness Set은 `(source, destination, TID)` 기준 6초 transaction cache를 사용한다. 중복 acknowledged Set은 현재 Status만 응답하고, 중복 unacknowledged Set은 PWM/NVS/publication 재실행과 지터 타이머 재예약을 생략한다.
+
+- [x] **Review fix 6: firmware와 통합 검증**
+
+Gateway/shared/API 자동 테스트와 typecheck를 통과했고 ESP-IDF 실제 target build를 완료했다. group Set은 PWM에 즉시 반영하고 primary unicast 기반 `64~5,179ms` 결정적 지터 뒤 실제 Lightness Status를 publication한다. 빌드된 1MB OTA app partition의 잔여 공간은 `0x1aa90` 바이트로 약 10%다.
 
 - [ ] **사용자 확인 Gate 13:** 단일 전송 증거와 firmware build 결과를 보고하고 다음 Task 승인을 기다린다.
 

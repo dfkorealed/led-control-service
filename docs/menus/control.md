@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-22
+기준일: 2026-08-23
 
 ## 확정 구현 범위
 
@@ -91,6 +91,14 @@
 - `MeshControlGroupService.getReadyDestination`은 floor/fixture-group과 gateway site 경계를 확인한 뒤 `ready` group의 ID, address, configuration version을 반환하고, 아직 준비되지 않은 target은 `mesh control group is not ready`로 거부한다.
 - control group member 추가와 subscription ACK 반영은 둘 다 group row를 먼저 잠그는 같은 순서로 직렬화해 중복 member attach, version 이중 증가와 group/member 교착 경계를 줄인다.
 - 기존 fixture가 다른 층에 이미 연결돼 있으면 provisioning 완료는 `fixture is already assigned to another floor` 오류로 실패시키고, 자동 재배치나 잘못된 floor group attach를 허용하지 않는다.
+- Gateway는 `unicast`, 동시성 8의 `parallel_unicast`, `mesh_group` delivery mode를 실제 BlueZ BLE Mesh 경로로 분기한다. 병렬 unicast의 전체 8초 timeout에는 아직 시작하지 않은 전송과 대기 중인 Status 수집을 취소한다.
+- `mesh_group`은 group address에 Light Lightness Set Unacknowledged를 정확히 한 번 전송한 뒤, 명령 snapshot의 각 fixture primary unicast에서 오는 실제 Lightness Status를 집계한다. 기대 밝기와 다르면 `state_mismatch`, 응답이 없으면 `timed_out`으로 조명별 결과를 확정한다.
+- 명령 결과 뒤 fixture-state는 실제 ACK 또는 `state_mismatch` Status가 관측된 조명만 발행한다. 부분 timeout 또는 전송 실패 조명을 임의의 0%·꺼짐·fault 상태로 덮어쓰지 않는다.
+- Gateway는 group ID/address/version별 `configuring | ready | failed` 상태를 임시 파일 저장, 파일 fsync, rename, 디렉터리 fsync 순으로 영속화한다. 첫 subscription 요청 전에 `configuring`을 저장하고 전체 member 결과가 정확히 일치한 경우에만 `ready`를 저장한다. 같은 group의 sync/control은 직렬화하고 다른 group은 병렬 실행한다.
+- Gateway 재시작 시 정상적인 durable group state는 그대로 복원한다. state 파일이 없거나 손상됐을 때만 같은 `eventId`의 전체 resync 요청을 MQTT 연결 및 heartbeat에서 성공할 때까지 재시도하며, 해당 기간 group 제어는 fail-closed한다. API는 이벤트를 멱등 처리하고 해당 Gateway의 cloud group을 같은 version의 `configuring`으로 되돌려 전체 member sync를 다시 발행한다.
+- MQTT command subscribe 실패는 현재 연결에서 최대 30초 backoff로 재시도한다. subscription 결과에 member 누락, 중복 또는 미등록 node가 있으면 group을 `failed`로 저장한다.
+- ESP32-H2는 group Light Lightness Set Unacknowledged를 PWM에 즉시 반영하고 primary unicast 기반 `64~5,179ms` 결정적 지터 뒤 실제 Lightness Status를 publication한다. `(source, destination, TID)` 6초 cache가 중복 적용과 publication 재예약을 막는다.
+- 펌웨어의 모델별 group subscription 상한은 16개이며, 서비스 계약은 조명 한 대당 층 group 1개와 사용자 fixture group 최대 15개다. API도 provisioning member 연결 시 같은 사용자 group 상한을 검증한다.
 
 ## 미구현
 
@@ -102,8 +110,6 @@
 - 다중 선택, 층/구역별 제어 화면과 신규 target 요청 연결(Task 14). 백엔드 target 해석과 delivery mode 영속화는 구현 완료했다.
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
-- Gateway에서 `parallel_unicast`와 `mesh_group` delivery mode를 실제 BLE Mesh 송신으로 분기하고 group 단일 전송 뒤 fixture별 status를 집계(Task 13)
-- Task 13 Gateway durable group state: ID/address/version별 `configuring | ready | failed` 원자 저장, sync 전 fsync barrier, group 단위 sync/control 직렬화, 부분 실패 fail-closed, 재시작 복원, state 유실·손상 시 cloud ready group 전체 resync
 - gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결
 - ESP32-H2 제품/진단 정보 report의 gateway/API 연동
 - ESP32-H2 실제 보드 플래시 검증
@@ -117,9 +123,10 @@
 - viewer의 읽기 전용 안내는 구현됐지만, 향후 명령 이력 화면에서도 동일한 권한 설명을 재사용하도록 공통화할 수 있다.
 - Raspberry Pi Phase 0의 daemon/HCI/network/token 재연결은 통과했지만 ESP32-H2 provisioning과 0/25/50/100% 왕복, 2-node HIL은 아직 실기 검증이 필요하다.
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
-- BLE Mesh 포함 후 ESP32-H2 app partition 여유가 약 12%이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
+- BLE Mesh group publication, TID cache, 모델별 group 16개 설정을 포함한 ESP32-H2 app partition 여유가 약 10%(`0x1aa90` 바이트)이므로 OTA와 추가 진단 기능을 넣기 전에 partition 크기를 재검토해야 한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
-- API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing과 outbox row 기반 pending timeout 직렬화까지 반영됐다. 다만 실제 Gateway 병렬 unicast/group dimming 송신과 durable group state 수명주기는 Task 13, 신규 웹 제어 UI는 Task 14 범위다.
+- API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기까지 반영됐다. 신규 웹 제어 UI는 Task 14 범위다.
+- 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
 
 ## 관련 파일
 
@@ -146,7 +153,9 @@
 - `apps/gateway/src/mesh/bluez-provisioner.ts`
 - `apps/gateway/src/mesh/bluez-config-client.ts`
 - `apps/gateway/src/mesh/group-subscription-handler.ts`
+- `apps/gateway/src/mesh/group-state-store.ts`
 - `apps/gateway/src/mesh/bluez-model-codec.ts`
+- `apps/gateway/src/runtime/keyed-serial-task-queue.ts`
 - `apps/api/src/mesh-control-groups/mesh-control-group.service.ts`
 - `apps/api/src/mesh-control-groups/mesh-group-sync.worker.ts`
 - `apps/api/prisma/migrations/20260821093000_add_mesh_control_group_member_status_version/migration.sql`
@@ -160,7 +169,9 @@
 - `apps/esp32-h2-firmware/main/control_state.c`
 - `apps/esp32-h2-firmware/main/led_driver.c`
 - `apps/esp32-h2-firmware/main/mesh_state.c`
+- `apps/esp32-h2-firmware/main/mesh_transaction_cache.c`
 - `apps/esp32-h2-firmware/README.md`
+- `apps/esp32-h2-firmware/sdkconfig.defaults`
 - `apps/gateway/README.md`
 - `scripts/esp32-h2-build.sh`
 - `scripts/esp32-h2-flash.sh`
