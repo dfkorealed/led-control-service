@@ -6,7 +6,6 @@ import {
   type AcceptanceAckV2,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
-  meshGroupResyncRequestV2Schema,
   identifyDeviceSchema,
   mqttTopics,
   mqttTopicsV2,
@@ -39,8 +38,11 @@ import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mq
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
 import type { BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
 import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
-import { GroupStateStore, type GroupStateRestoreReason } from "./mesh/group-state-store";
+import { GroupStateStore } from "./mesh/group-state-store";
 import { KeyedSerialTaskQueue } from "./runtime/keyed-serial-task-queue";
+import { MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
+
+export { createMeshGroupResyncRequest, MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -75,7 +77,12 @@ async function main() {
   );
   const groupRestore = await groupStateStore.initialize();
   const groupQueue = new KeyedSerialTaskQueue();
-  const groupResyncPublisher = new MeshGroupResyncPublisher({ siteId, gatewayId }, groupRestore.reason);
+  const groupResyncStore = new MeshGroupResyncStore(
+    process.env.GATEWAY_MESH_GROUP_RESYNC_PATH ?? "/var/lib/led-control/mesh-group-resync.json",
+    { siteId, gatewayId }
+  );
+  await groupResyncStore.initialize(groupRestore.reason);
+  const groupResyncPublisher = new MeshGroupResyncPublisher({ siteId, gatewayId }, groupResyncStore);
 
   async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
@@ -179,7 +186,9 @@ async function main() {
       [mqttTopics.provisioningScanStart(siteId, gatewayId)]: handleProvisioningScanPayload,
       [mqttTopics.identifyDevice(siteId, gatewayId)]: handleIdentifyPayload,
       [mqttTopics.provisionDevice(siteId, gatewayId)]: handleProvisionDevicePayload,
-      [mqttTopics.meshGroupSubscriptionSync(siteId, gatewayId)]: (payload, source) => groupSubscriptionHandler.handle(payload, source)
+      [mqttTopics.meshGroupSubscriptionSync(siteId, gatewayId)]: (payload, source) => groupSubscriptionHandler.handle(payload, source),
+      [mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)]: (payload) =>
+        groupResyncPublisher.acknowledge(JSON.parse(payload.toString()))
     },
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
@@ -210,44 +219,6 @@ async function main() {
   function reportGatewayError(error: unknown, context: string) {
     console.error(`Gateway MQTT ${context} failed`, error);
     return health.unhealthy("mqtt_error");
-  }
-}
-
-export function createMeshGroupResyncRequest(
-  scope: { siteId: string; gatewayId: string },
-  reason: GroupStateRestoreReason,
-  now: () => string = () => new Date().toISOString(),
-  eventId: () => string = randomUUID
-) {
-  return meshGroupResyncRequestV2Schema.parse({
-    ...scope,
-    eventId: eventId(),
-    occurredAt: now(),
-    reason
-  });
-}
-
-export class MeshGroupResyncPublisher {
-  private pending: ReturnType<typeof createMeshGroupResyncRequest> | undefined;
-  private inFlight: Promise<void> | undefined;
-
-  constructor(
-    private readonly scope: { siteId: string; gatewayId: string },
-    reason: GroupStateRestoreReason,
-    now?: () => string,
-    eventId?: () => string
-  ) {
-    if (reason !== "startup") this.pending = createMeshGroupResyncRequest(scope, reason, now, eventId);
-  }
-
-  publishPending(publish: (topic: string, payload: unknown) => Promise<void>) {
-    if (!this.pending) return Promise.resolve();
-    if (this.inFlight) return this.inFlight;
-    const payload = this.pending;
-    this.inFlight = publish(mqttTopicsV2.meshGroupResyncRequest(this.scope.siteId, this.scope.gatewayId), payload)
-      .then(() => { this.pending = undefined; })
-      .finally(() => { this.inFlight = undefined; });
-    return this.inFlight;
   }
 }
 
@@ -356,7 +327,8 @@ export function subscribeGatewayCommands(
         mqttTopics.provisioningScanStart(assignment.siteId, assignment.gatewayId),
         mqttTopics.identifyDevice(assignment.siteId, assignment.gatewayId),
         mqttTopics.provisionDevice(assignment.siteId, assignment.gatewayId),
-        mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId)
+        mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId),
+        mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId)
       ],
       { qos: 1 },
       (error) => (error ? reject(error) : resolve())

@@ -108,6 +108,38 @@ describe("GatewayMqttRuntime", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("forces subscription after a failed new-session SUBACK even when reconnect reports a persistent session", async () => {
+    const client = new FakeMqttClient();
+    let releaseSecond!: () => void;
+    const secondSubscription = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    const subscribe = vi.fn()
+      .mockRejectedValueOnce(new Error("SUBACK failed"))
+      .mockReturnValueOnce(secondSubscription);
+    const publishHeartbeat = vi.fn();
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 10_000,
+      subscribe,
+      publishHeartbeat,
+      topicHandlers,
+      onMessageError: vi.fn(),
+      onRuntimeError: vi.fn()
+    });
+
+    runtime.start();
+    client.emit("connect", { sessionPresent: false });
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
+    client.emit("close");
+    client.emit("connect", { sessionPresent: true });
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(2));
+    expect(subscribe).toHaveBeenLastCalledWith(client, true, true);
+    expect(publishHeartbeat).not.toHaveBeenCalled();
+
+    releaseSecond();
+    await vi.waitFor(() => expect(publishHeartbeat).toHaveBeenCalledTimes(1));
+    await runtime.stop();
+  });
+
   it("stops heartbeats while disconnected and starts one timer again after reconnect", async () => {
     vi.useFakeTimers();
     const client = new FakeMqttClient();

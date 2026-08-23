@@ -52,6 +52,7 @@ export class GatewayMqttRuntime {
   private subscriptionRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private subscriptionRetryAttempt = 0;
   private readonly subscriptionRetryBaseMs: number;
+  private subscriptionsReady = false;
 
   constructor(private readonly options: GatewayMqttRuntimeOptions) {
     this.currentClient = options.client;
@@ -140,23 +141,25 @@ export class GatewayMqttRuntime {
     const epoch = ++this.connectionEpoch;
     this.clearSubscriptionRetry();
     this.subscriptionRetryAttempt = 0;
-    if (packet.sessionPresent) {
+    if (!packet.sessionPresent) this.subscriptionsReady = false;
+    if (packet.sessionPresent && this.subscriptionsReady) {
       this.connected();
       return;
     }
-    this.subscribeActiveConnection(client, epoch);
+    this.subscribeActiveConnection(client, epoch, packet.sessionPresent);
   }
 
-  private subscribeActiveConnection(client: GatewayMqttClient, epoch: number) {
+  private subscribeActiveConnection(client: GatewayMqttClient, epoch: number, sessionPresent: boolean) {
     let subscription: unknown;
     try {
-      subscription = this.options.subscribe(client, false, false);
+      subscription = this.options.subscribe(client, sessionPresent, sessionPresent);
     } catch (error) {
       this.report(this.options.onRuntimeError, error, "subscribe");
-      this.scheduleSubscriptionRetry(client, epoch);
+      this.scheduleSubscriptionRetry(client, epoch, sessionPresent);
       return;
     }
     if (!isPromiseLike(subscription)) {
+      this.subscriptionsReady = true;
       this.connected();
       return;
     }
@@ -165,23 +168,24 @@ export class GatewayMqttRuntime {
         if (this.isActiveConnection(client, epoch)) {
           this.clearSubscriptionRetry();
           this.subscriptionRetryAttempt = 0;
+          this.subscriptionsReady = true;
           this.connected();
         }
       },
       (error) => {
         this.report(this.options.onRuntimeError, error, "subscribe");
-        this.scheduleSubscriptionRetry(client, epoch);
+        this.scheduleSubscriptionRetry(client, epoch, sessionPresent);
       }
     );
   }
 
-  private scheduleSubscriptionRetry(client: GatewayMqttClient, epoch: number) {
+  private scheduleSubscriptionRetry(client: GatewayMqttClient, epoch: number, sessionPresent: boolean) {
     if (!this.isActiveConnection(client, epoch) || this.subscriptionRetryTimer) return;
     const delay = Math.min(this.subscriptionRetryBaseMs * (2 ** this.subscriptionRetryAttempt), 30_000);
     this.subscriptionRetryAttempt += 1;
     this.subscriptionRetryTimer = setTimeout(() => {
       this.subscriptionRetryTimer = undefined;
-      if (this.isActiveConnection(client, epoch)) this.subscribeActiveConnection(client, epoch);
+      if (this.isActiveConnection(client, epoch)) this.subscribeActiveConnection(client, epoch, sessionPresent);
     }, delay);
   }
 
@@ -264,6 +268,7 @@ export class GatewayMqttRuntime {
   private async commitCandidate(attempt: CandidateAttempt, previous: GatewayMqttClient) {
     attempt.cleanup();
     this.currentClient = attempt.client;
+    this.subscriptionsReady = true;
     this.addClientListeners(attempt.client);
     this.connected();
     this.removeClientListeners(previous);

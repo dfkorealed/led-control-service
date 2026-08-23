@@ -75,6 +75,41 @@ describe("BluezMeshAdapter", () => {
     });
   });
 
+  it("ignores an old periodic unicast status and resolves when the target status arrives", async () => {
+    const f = fixture();
+    const pending = f.adapter.applyUnicast("fixture-1", 70);
+    await vi.waitFor(() => expect(f.transport.call).toHaveBeenCalledTimes(1));
+    f.application.emit("messageReceived", {
+      source: 0x0100,
+      data: Uint8Array.from([0x82, 0x4e, 0xcd, 0x4c])
+    });
+    let settled = false;
+    void pending.then(() => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+
+    f.application.emit("messageReceived", {
+      source: 0x0100,
+      data: Uint8Array.from([0x82, 0x4e, 0x33, 0xb3])
+    });
+    await expect(pending).resolves.toMatchObject({ acknowledged: true, brightness: 70 });
+  });
+
+  it("does not send unicast after abort while durable TID allocation is pending", async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    let releaseTid!: (tid: number) => void;
+    f.transactions.next.mockImplementationOnce(() => new Promise<number>((resolve) => { releaseTid = resolve; }));
+
+    const pending = f.adapter.applyUnicast("fixture-1", 70, controller.signal);
+    await vi.waitFor(() => expect(f.transactions.next).toHaveBeenCalledTimes(1));
+    controller.abort();
+    releaseTid(7);
+
+    await expect(pending).resolves.toMatchObject({ acknowledged: false, outcome: "timed_out", faultCode: "command_aborted" });
+    expect(f.transport.call).not.toHaveBeenCalled();
+  });
+
   it("fails an unmapped fixture before sending", async () => {
     const f = fixture();
     await expect(f.adapter.setBrightness(["missing"], 60)).resolves.toMatchObject([
@@ -165,6 +200,57 @@ describe("BluezMeshAdapter", () => {
       { fixtureId: "fixture-2", acknowledged: true, outcome: "applied", brightness: 70, rssi: null, hopCount: null }
     ]);
     expect(f.application.listenerCount("messageReceived")).toBe(baselineListeners);
+  });
+
+  it("keeps mismatching periodic group statuses until target statuses arrive", async () => {
+    const f = fixture();
+    configureGroupFixtures(f);
+    const pending = f.adapter.applyMeshGroup(0xc000, ["fixture-1", "fixture-2"], 70);
+    await vi.waitFor(() => expect(f.transport.call).toHaveBeenCalledTimes(1));
+    for (const source of [0x0100, 0x0101]) {
+      f.application.emit("messageReceived", {
+        source,
+        data: Uint8Array.from([0x82, 0x4e, 0xcd, 0x4c])
+      });
+    }
+    let settled = false;
+    void pending.then(() => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+
+    for (const source of [0x0100, 0x0101]) {
+      f.application.emit("messageReceived", {
+        source,
+        data: Uint8Array.from([0x82, 0x4e, 0x33, 0xb3])
+      });
+    }
+    await expect(pending).resolves.toEqual([
+      expect.objectContaining({ fixtureId: "fixture-1", acknowledged: true }),
+      expect.objectContaining({ fixtureId: "fixture-2", acknowledged: true })
+    ]);
+  });
+
+  it("does not send a queued group command after it is aborted behind an overlapping source lock", async () => {
+    const f = fixture();
+    configureGroupFixtures(f);
+    const first = f.adapter.applyMeshGroup(0xc000, ["fixture-1", "fixture-2"], 70);
+    await vi.waitFor(() => expect(f.transport.call).toHaveBeenCalledTimes(1));
+    const controller = new AbortController();
+    const second = f.adapter.applyMeshGroup(0xc001, ["fixture-1", "fixture-2"], 80, controller.signal);
+    controller.abort();
+
+    for (const source of [0x0100, 0x0101]) {
+      f.application.emit("messageReceived", {
+        source,
+        data: Uint8Array.from([0x82, 0x4e, 0x33, 0xb3])
+      });
+    }
+    await first;
+    await expect(second).resolves.toEqual([
+      expect.objectContaining({ fixtureId: "fixture-1", outcome: "timed_out", faultCode: "command_aborted" }),
+      expect.objectContaining({ fixtureId: "fixture-2", outcome: "timed_out", faultCode: "command_aborted" })
+    ]);
+    expect(f.transport.call).toHaveBeenCalledTimes(1);
   });
 
   it("classifies group state mismatch and missing status without leaking listeners", async () => {

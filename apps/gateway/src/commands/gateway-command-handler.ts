@@ -180,7 +180,12 @@ function applyCommand(adapter: BleMeshAdapter, command: GatewayDimmingCommandV2,
       return adapter.applyParallelUnicast(command.targetFixtureIds, command.brightness, 8, signal);
     case "mesh_group":
       if (!adapter.applyMeshGroup || !command.destinationAddress) throw new Error("mesh group control is unavailable");
-      return adapter.applyMeshGroup(parseGroupAddress(command.destinationAddress), command.targetFixtureIds, command.brightness);
+      return adapter.applyMeshGroup(
+        parseGroupAddress(command.destinationAddress),
+        command.targetFixtureIds,
+        command.brightness,
+        signal
+      );
   }
 }
 

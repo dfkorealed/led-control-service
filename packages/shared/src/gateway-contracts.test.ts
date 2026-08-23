@@ -6,6 +6,7 @@ import {
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
+  meshGroupResyncAckV2Schema,
   meshGroupResyncRequestV2Schema,
   mapHealthFaults,
   mqttTopicsV2,
@@ -35,6 +36,23 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(mqttTopicsV2.meshGroupResyncRequest(siteId, gatewayId)).toBe(
       `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`
     );
+    expect(mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/commands/mesh-group/resync-ack`
+    );
+  });
+
+  it("strictly validates a scoped mesh group resync acknowledgement", () => {
+    const acknowledgement = {
+      siteId,
+      gatewayId,
+      eventId: "55555555-5555-4555-8555-555555555555",
+      requestEventId: eventId,
+      occurredAt
+    };
+
+    expect(meshGroupResyncAckV2Schema.parse(acknowledgement)).toEqual(acknowledgement);
+    expect(() => meshGroupResyncAckV2Schema.parse({ ...acknowledgement, requestEventId: "stale" })).toThrow();
+    expect(() => meshGroupResyncAckV2Schema.parse({ ...acknowledgement, extra: true })).toThrow();
   });
 
   it("strictly validates a mesh group resync request", () => {

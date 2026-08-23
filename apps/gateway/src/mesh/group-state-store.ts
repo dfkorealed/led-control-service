@@ -41,7 +41,8 @@ export class GroupStateStore {
 
   constructor(
     private readonly path: string,
-    private readonly now: () => string = () => new Date().toISOString()
+    private readonly now: () => string = () => new Date().toISOString(),
+    private readonly write: typeof writeJsonAtomic = writeJsonAtomic
   ) {}
 
   initialize() {
@@ -86,8 +87,8 @@ export class GroupStateStore {
 
     if (rawState === null && rawManifest === null) {
       const initial = { version: 1, revision: 1, groups: [] } satisfies StoredGroupState;
-      await writeJsonAtomic(`${this.path}.manifest`, { version: 1, revision: 1 } satisfies StoreManifest);
-      await writeJsonAtomic(this.path, initial);
+      await this.write(`${this.path}.manifest`, { version: 1, revision: 1 } satisfies StoreManifest);
+      await this.write(this.path, initial);
       this.state = initial;
       this.available = true;
       return { reason: "first_run" };
@@ -121,7 +122,9 @@ export class GroupStateStore {
       if (!this.available && !allowRecovery) {
         throw new GroupStateError("MESH_GROUP_NOT_READY", "mesh group state must be recovered before it can become terminal");
       }
-      const groups = this.available ? this.state.groups.map((group) => ({ ...group })) : [];
+      // Keep the last fully persisted snapshot in memory while disk writes are unavailable.
+      // A configuring retry must recover every group, not rebuild from an empty list.
+      const groups = this.state.groups.map((group) => ({ ...group }));
       const existingIndex = groups.findIndex((group) => group.groupId === identity.groupId);
       const existing = existingIndex < 0 ? undefined : groups[existingIndex];
       const addressOwner = groups.find(
@@ -155,8 +158,8 @@ export class GroupStateStore {
       this.available = false;
       try {
         // Manifest-first revision fencing makes a crash between the two renames fail closed on restart.
-        await writeJsonAtomic(`${this.path}.manifest`, { version: 1, revision: next.revision } satisfies StoreManifest);
-        await writeJsonAtomic(this.path, next);
+        await this.write(`${this.path}.manifest`, { version: 1, revision: next.revision } satisfies StoreManifest);
+        await this.write(this.path, next);
         this.state = next;
         this.available = true;
       } catch (error) {

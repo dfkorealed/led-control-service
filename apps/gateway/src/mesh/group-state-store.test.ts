@@ -1,8 +1,9 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GroupStateStore } from "./group-state-store";
+import { writeJsonAtomic } from "./mesh-store-file";
 
 const directories: string[] = [];
 const snapshot = {
@@ -97,6 +98,38 @@ describe("GroupStateStore", () => {
       ...snapshot,
       groupId: "00000000-0000-4000-8000-000000000099"
     })).rejects.toMatchObject({ code: "MESH_GROUP_ADDRESS_CONFLICT" });
+  });
+
+  it("preserves every trusted group when a write fails and a later configuring retry recovers the store", async () => {
+    const { path } = await fixture();
+    let failStateWrite = false;
+    const writer = vi.fn(async (target: string, value: unknown) => {
+      if (failStateWrite && target === path) throw new Error("disk unavailable");
+      await writeJsonAtomic(target, value);
+    });
+    const store = new GroupStateStore(path, () => "2026-08-23T00:00:00.000Z", writer);
+    await store.initialize();
+    await store.writeConfiguring(snapshot);
+    await store.writeReady(snapshot);
+
+    const second = {
+      groupId: "00000000-0000-4000-8000-000000000013",
+      groupAddress: "0xc001",
+      version: 1
+    };
+    failStateWrite = true;
+    await expect(store.writeConfiguring(second)).rejects.toThrow("failed to persist mesh group state");
+    await expect(store.assertReady(snapshot)).rejects.toMatchObject({ code: "MESH_GROUP_NOT_READY" });
+
+    failStateWrite = false;
+    await store.writeConfiguring(second);
+    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+      groups: [
+        { ...snapshot, status: "ready" },
+        { ...second, status: "configuring" }
+      ]
+    });
+    await expect(store.assertReady(snapshot)).resolves.toBeUndefined();
   });
 });
 

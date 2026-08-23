@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createFixtureStatusPublisher,
   createMeshGroupResyncRequest,
-  MeshGroupResyncPublisher,
   observedFixtureResults,
   publishObservedDeviceStates,
   createMqttIdentityActivation,
@@ -41,33 +40,6 @@ describe("startGatewayRuntime", () => {
       occurredAt: "2026-08-23T00:00:00.000Z",
       reason: "state_missing"
     });
-  });
-
-  it("publishes one stable resync request until success and skips normal startup restore", async () => {
-    const publish = vi.fn()
-      .mockRejectedValueOnce(new Error("offline"))
-      .mockResolvedValue(undefined);
-    const ids = vi.fn(() => "11111111-1111-4111-8111-111111111111");
-    const pending = new MeshGroupResyncPublisher(
-      { siteId: scopedSiteId, gatewayId: scopedGatewayId },
-      "state_missing",
-      () => "2026-08-23T00:00:00.000Z",
-      ids
-    );
-
-    await expect(pending.publishPending(publish)).rejects.toThrow("offline");
-    await Promise.all([pending.publishPending(publish), pending.publishPending(publish)]);
-    await pending.publishPending(publish);
-
-    expect(publish).toHaveBeenCalledTimes(2);
-    expect(publish.mock.calls[0][1]).toEqual(publish.mock.calls[1][1]);
-    expect(ids).toHaveBeenCalledTimes(1);
-    const restored = new MeshGroupResyncPublisher(
-      { siteId: scopedSiteId, gatewayId: scopedGatewayId },
-      "startup"
-    );
-    await restored.publishPending(publish);
-    expect(publish).toHaveBeenCalledTimes(2);
   });
 
   it("returns only applied and state-mismatch fixtures with actual observed brightness", () => {
@@ -183,7 +155,8 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning-scan-start",
         "sites/site-27/gateways/gateway-27/commands/identify-device",
         "sites/site-27/gateways/gateway-27/commands/provision-device",
-        "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync"
+        "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
+        "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack"
       ],
       { qos: 1 },
       expect.any(Function)

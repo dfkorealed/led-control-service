@@ -239,7 +239,7 @@ describe("handleGatewayDimmingCommand", () => {
       groupAddress: "0xc000",
       version: 3
     });
-    expect(applyMeshGroup).toHaveBeenCalledWith(0xc000, groupCommand.targetFixtureIds, 65);
+    expect(applyMeshGroup).toHaveBeenCalledWith(0xc000, groupCommand.targetFixtureIds, 65, expect.any(AbortSignal));
     expect(result.acceptance.status).toBe("accepted");
   });
 

@@ -13,7 +13,7 @@ export interface BleMeshAdapter {
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
   applyUnicast?(fixtureId: string, brightness: number, signal?: AbortSignal): Promise<BleMeshCommandReport>;
   applyParallelUnicast?(fixtureIds: string[], brightness: number, concurrency?: number, signal?: AbortSignal): Promise<BleMeshCommandReport[]>;
-  applyMeshGroup?(groupAddress: number, fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
+  applyMeshGroup?(groupAddress: number, fixtureIds: string[], brightness: number, signal?: AbortSignal): Promise<BleMeshCommandReport[]>;
   onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
   onResyncReport?(listener: (report: BleMeshResyncReport) => void): () => void;
   resyncFixtureStates(): Promise<BleMeshResyncReport>;
