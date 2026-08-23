@@ -1,9 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException
+} from "@nestjs/common";
 import { MeshControlGroupStatus, Prisma } from "@prisma/client";
 
 const MIN_MESH_GROUP_ADDRESS = 0xc000;
 const MAX_MESH_GROUP_ADDRESS = 0xfeff;
 const MAX_FIXTURE_GROUPS_PER_NODE = 15;
+const MAX_CONFIGURATION_VERSION = 2_147_483_647;
 const MESH_GROUP_RESYNC_EVENT_TYPE = "mesh_group_resync_request";
 
 type MeshControlTarget =
@@ -80,6 +86,9 @@ export class MeshControlGroupService {
     if (groupIds.length === 0) {
       return { groupCount: 0, memberCount: 0 };
     }
+    if (groups.some((group) => group.configurationVersion >= MAX_CONFIGURATION_VERSION)) {
+      throw new InternalServerErrorException("mesh control group configuration version exhausted");
+    }
 
     const groupUpdate = await tx.meshControlGroup.updateMany({
       where: {
@@ -88,6 +97,7 @@ export class MeshControlGroupService {
       },
       data: {
         status: MeshControlGroupStatus.configuring,
+        configurationVersion: { increment: 1 },
         lastError: null
       }
     });

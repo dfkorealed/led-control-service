@@ -827,7 +827,7 @@ describe("MeshControlGroupService", () => {
     })).rejects.toThrow("mesh control group target not found");
   });
 
-  it("resets every gateway group for a full resync without incrementing versions", async () => {
+  it("increments every gateway group version exactly once for a new full resync", async () => {
     const tx: any = {
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{ id: gatewayId }])
@@ -868,6 +868,7 @@ describe("MeshControlGroupService", () => {
       },
       data: {
         status: "configuring",
+        configurationVersion: { increment: 1 },
         lastError: null
       }
     });
@@ -902,6 +903,9 @@ describe("MeshControlGroupService", () => {
     const service = new MeshControlGroupService();
 
     await service.resetGatewayGroupsForResync(tx, resyncInput);
+    expect(tx.meshControlGroup.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ configurationVersion: { increment: 1 } })
+    }));
     // The worker and subscription result handler can make this version ready
     // before MQTT redelivers the original QoS 1 event.
     tx.meshControlGroup.updateMany.mockClear();
@@ -915,6 +919,52 @@ describe("MeshControlGroupService", () => {
     expect(eventInsertSql).toContain('INSERT INTO "ProcessedGatewayEvent"');
     expect(eventInsertSql).toContain("ON CONFLICT DO NOTHING");
     expect(eventInsertSql).toContain("RETURNING");
+  });
+
+  it("fails closed before writes when a group configuration version is exhausted", async () => {
+    const tx: any = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId }])
+        .mockResolvedValueOnce([{ eventId: resyncInput.eventId }])
+        .mockResolvedValueOnce([{ id: "group-max", configurationVersion: 2_147_483_647 }]),
+      meshControlGroup: {
+        updateMany: jest.fn()
+      },
+      meshControlGroupMember: {
+        updateMany: jest.fn()
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.resetGatewayGroupsForResync(tx, resyncInput)).rejects.toThrow(
+      "mesh control group configuration version exhausted"
+    );
+
+    expect(tx.meshControlGroup.updateMany).not.toHaveBeenCalled();
+    expect(tx.meshControlGroupMember.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("propagates member reset failures so the caller transaction can roll back version increments", async () => {
+    const resetError = new Error("member reset failed");
+    const tx: any = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId }])
+        .mockResolvedValueOnce([{ eventId: resyncInput.eventId }])
+        .mockResolvedValueOnce([{ id: "group-ready", configurationVersion: 7 }]),
+      meshControlGroup: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      meshControlGroupMember: {
+        updateMany: jest.fn().mockRejectedValue(resetError)
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.resetGatewayGroupsForResync(tx, resyncInput)).rejects.toBe(resetError);
+
+    expect(tx.meshControlGroup.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ configurationVersion: { increment: 1 } })
+    }));
   });
 
   it("ignores a resync request outside the site and gateway boundary", async () => {

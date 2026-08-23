@@ -431,7 +431,7 @@ describe("MqttService", () => {
     expect(service.publishTopic).not.toHaveBeenCalled();
   });
 
-  it("persists only current-version mesh group subscription results from the same site and gateway", async () => {
+  it("accepts a subscription result carrying the incremented post-resync version", async () => {
     const groupId = "11111111-1111-4111-8111-111111111111";
     const nodeId1 = "22222222-2222-4222-8222-222222222222";
     const nodeId2 = "33333333-3333-4333-8333-333333333333";
@@ -603,7 +603,7 @@ describe("MqttService", () => {
     );
   });
 
-  it("ignores stale or foreign subscription results before touching members when no locked group row matches", async () => {
+  it("ignores a delayed pre-resync subscription result before touching current-version members", async () => {
     const tx: any = {
       $queryRaw: jest.fn().mockResolvedValue([]),
       meshControlGroupMember: {
