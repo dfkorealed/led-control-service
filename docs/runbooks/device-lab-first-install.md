@@ -233,25 +233,61 @@ ssh dfkorea@dfkorea.local \
   'docker inspect --format "{{json .State.Health}}" led-control-gateway && docker logs --tail=200 led-control-gateway'
 ```
 
-정상 판정은 assignment에 웹 claim의 `gatewayId`와 `siteId`가 기록되고, MQTT heartbeat가 API DB의 gateway `lastSeenAt`을 갱신하며, 컨테이너 health가 `healthy`가 되는 것이다. BlueZ Mesh가 아직 준비되지 않았다면 `starting` 또는 `unhealthy` 원인을 로그에서 먼저 해결한다.
+정상 판정은 assignment에 웹 claim의 `gatewayId`와 `siteId`가 기록되고, MQTT heartbeat가 API DB의 gateway `lastHeartbeatAt`을 갱신하며, 컨테이너 health가 `healthy`가 되는 것이다. BlueZ Mesh가 아직 준비되지 않았다면 `starting` 또는 `unhealthy` 원인을 로그에서 먼저 해결한다.
 
-## 9. ESP32-H2 검색, 등록과 제어
+## 9. ESP32-H2 준비와 Task 16 실기 검증 진입
 
-ESP-IDF 5.5 펌웨어를 빌드하고 연결된 보드에 기록한다.
+ESP-IDF 5.5 firmware를 빌드하고 연결된 각 보드에 기록한다. `esp32-h2-flash.sh`는 flash 후 serial monitor까지 계속 실행하므로 node마다 terminal을 하나씩 사용한다.
 
 ```bash
+cd "/Users/kim-jh/Documents/led-control-service"
 scripts/esp32-h2-build.sh
 ls /dev/cu.usbmodem*
 scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
 ```
 
-1. ESP32-H2를 unprovisioned 상태로 켠다. 이미 provisioned된 보드는 검색되지 않는다.
-2. 웹 모니터링의 조명 검색을 시작하고 실제 UUID와 RSSI가 나타나는지 확인한다. 하드웨어가 꺼져 있으면 결과 `0개`가 정상이다.
-3. 조명 이름, 정격 전력과 대략적인 도면 위치를 입력해 등록한다.
-4. Pi 로그에서 provisioning 완료, AppKey, Generic OnOff `0x1000`, Light Lightness `0x1300` bind와 status publication을 확인한다.
-5. 제어 메뉴에서 `0% -> 25% -> 50% -> 100%`를 적용한다.
-6. 웹 성공은 MQTT 접수 ACK가 아니라 ESP32-H2의 Light Lightness Status가 API까지 돌아온 뒤에만 판정한다.
-7. Pi와 ESP32를 재부팅한 뒤 같은 fixture ID와 unicast address로 재-provision 없이 상태 조회와 제어가 되는지 확인한다.
+serial log의 `BLE Mesh node initialized ... uuid=` 값은 32자리 hex이고 `44464b4c4544`로 시작해야 한다. 검색 전 보드는 unprovisioned 상태여야 한다. 이미 provisioned된 보드는 NetKey와 unicast address를 보존하므로 검색되지 않으며, 새 설치 시험에서는 firmware README의 `erase-flash` 절차로 초기화한 뒤 다시 flash한다.
+
+### 9.1 자동 브라우저 계약과 HIL을 분리한다
+
+다음 Playwright 명령은 로그인 이후의 모니터링·제어 route/UI 계약을 빠르게 회귀 검증하기 위한 것이다. 실제 Raspberry Pi, ESP32-H2, BLE Mesh 또는 MQTT mTLS를 사용하지 않으므로 이 결과만으로 실장비 설치 성공을 표시하지 않는다.
+
+```bash
+pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts
+pnpm --filter @led-control/web exec playwright test e2e/monitoring-1000.spec.ts
+```
+
+실제 장비 판정은 [양산 장비 2-노드 실험실 검증](./production-device-lab.md)의 Gate 1부터 Gate 7까지 순서대로 수행한다. 그 문서의 `목적`, `선행 조건`, `실행 명령과 화면 조작`, `기대 로그와 API/DB 상태`, `실패 판정`, `저장할 증거`를 생략하거나 자동 fixture 결과로 대체하지 않는다.
+
+### 9.2 설치 직후 실행 순서
+
+1. **자사 UUID 검색**: 모니터링에서 층과 Gateway를 선택한 뒤 **조명 검색 시작**을 누른다. ESP32 boot UUID와 API `discoveredNodes[].deviceUuid`를 대조하고, 타사 prefix가 웹에 나타나지 않는지 확인한다.
+2. **batch 등록**: 두 node를 선택해 **일괄 설정**으로 자동 이름을 지정한다. batch API의 `accepted`는 접수 상태일 뿐이므로 각 node가 `provisioned` 또는 명시적 실패 상태가 될 때까지 기다린다.
+3. **subscription ready**: 최소 10초 후 층과 사용자 구역의 `MeshControlGroup` 및 모든 member가 같은 version의 `ready/applied`인지 확인한다. Gateway의 `/var/lib/led-control/mesh-groups.json`에 대응 snapshot이 없으면 제어로 넘어가지 않는다. 현재 clean install에는 FixtureGroup 생성·멤버십 API/UI가 없으므로 zone을 SQL로 만들지 않으며, 기존에 지원 경로로 생성된 zone이 없으면 이 항목은 `not_executed`다.
+4. **group 단일 전송**: 제어 메뉴에서 층 또는 구역을 선택하고 밝기를 한 번 적용한다. create response가 `deliveryMode=mesh_group`, `transmissionCount=1`인지 확인하고, 상세 런북의 `dbus-monitor`로 실제 group destination `Node1.Send`가 한 번인지 저장한다.
+5. **fixture별 status**: `GET /api/commands/{commandId}`가 각 fixture의 Light Lightness Status를 받은 뒤 terminal이 되는지 확인한다. 한 node 전원 OFF 시험에서는 응답 node `succeeded`, 미응답 node `timed_out`, command `partial_failed`여야 한다. MQTT 접수 ACK만으로 성공 처리되면 실패다.
+6. **Health 발생·해제**: exact ELF의 GDB로 production image에 panic fault `0x01`을 일회성 발생시키고, Gateway resync로 DB/UI fault를 확인한다. 현재는 ESP32 정상 reset 뒤 Health Current가 정상화되는 것까지만 검증한다. Gateway 내부 표준 Health Fault Clear 송신 경로가 없어 callback 실기는 `not_executed`이며 전체 통과로 표시하지 않는다.
+7. **active command 복구**: **밝기 적용 중**에 같은 브라우저 탭을 reload하고 동일 command ID polling과 잠금이 복구되는지 확인한다. 새 탭이나 브라우저 재실행은 현재 `sessionStorage` 계약 범위가 아니다.
+8. **재시작 복구**: Pi와 ESP32를 재부팅한 뒤 같은 fixture ID, unicast address와 group version으로 재-provision 없이 상태 조회와 제어가 되는지 확인한다.
+
+각 단계 전에 브라우저 DevTools Network의 **Preserve log**를 켜고, Pi Gateway log와 두 ESP32 serial log를 동시에 수집한다. claim code, session cookie, 인증서 private key가 HAR나 로그에 들어가면 해당 증거를 폐기하고 secret을 rotation한 뒤 다시 시험한다.
+
+### 9.3 Health fault 수동 주입 경계
+
+firmware의 panic/watchdog reset fault `0x01` 기록, Gateway의 Health Fault Get과 API snapshot 저장은 구현돼 있다. 웹에는 fault 발생·해제 버튼이 없으므로 실험실에서는 `production-device-lab.md`의 Gate 6만 사용한다. 현재 fault 해제는 ESP32 정상 reset과 다음 Health Current로 확인하며 임시 firmware, 임의 MQTT publish 또는 DB 수정을 사용하지 않는다.
+
+GDB panic 주입 또는 다음 Health Current 중 하나라도 확인되지 않으면 `failed`다. Gateway 내부 표준 Health Fault Clear 송신 경로와 ESP32 clear callback은 아직 실기할 수 없으므로 `not_executed`로 남긴다. 이 시험은 현재 구현된 panic/watchdog 경로만 검증하며 실제 LED driver의 모든 field fault sensor를 검증한 것으로 확대 해석하지 않는다.
+
+### 9.4 실행 후 최소 증거
+
+- Git SHA, Gateway image tag, ESP32 firmware build log
+- ESP32 UUID와 검색 API/HAR, 하드웨어 OFF 검색 0개 화면
+- batch request/response와 node별 provisioning terminal matrix
+- DB와 Gateway의 floor/zone group address/version/readiness
+- group command create/terminal response, fixture별 status와 ESP32 publication log
+- Health fault/clear 시점의 GDB, ESP32, Gateway, DB와 모니터링 증거
+- 같은 탭 reload 전후 동일 command ID polling과 제어 잠금 화면
+- 미실행 또는 차단 항목을 그대로 표시한 최종 판정표
 
 ## 10. 부정 시험
 
