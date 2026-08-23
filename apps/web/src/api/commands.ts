@@ -47,6 +47,13 @@ export function isTerminalCommandStage(stage: CommandStage | null | undefined): 
   return Boolean(stage && TERMINAL_COMMAND_STAGES.has(stage));
 }
 
+export function getCommandStatusRefetchInterval(
+  requestedCommandId: string | null,
+  status: CommandStatusResponse | null | undefined
+): 1000 | false {
+  return status?.id === requestedCommandId && isTerminalCommandStage(status.stage) ? false : 1000;
+}
+
 export function createDimmingCommand(input: CreateDimmingCommandInput) {
   return apiPost<CreateDimmingCommandResponse>("/commands/dimming", input);
 }
@@ -56,9 +63,6 @@ export function useCommandStatus(commandId: string | null) {
     queryKey: ["command-status", commandId],
     queryFn: () => apiGet<CommandStatusResponse>(`/commands/${commandId}`),
     enabled: Boolean(commandId),
-    refetchInterval: (query) => {
-      const stage = query.state.data?.stage;
-      return isTerminalCommandStage(stage) ? false : 1000;
-    }
+    refetchInterval: (query) => getCommandStatusRefetchInterval(commandId, query.state.data)
   });
 }

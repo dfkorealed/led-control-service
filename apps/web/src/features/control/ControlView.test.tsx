@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CommandStage } from "../../api/commands";
 import type { Dashboard } from "../../api/queries";
 import { ControlView } from "./ControlView";
 import { activeCommandStorageKey } from "./active-command-store";
@@ -36,7 +37,8 @@ const commandIds = {
   restored: "00000000-0000-4000-8000-000000009008",
   retry: "00000000-0000-4000-8000-000000009009",
   siteA: "00000000-0000-4000-8000-000000009010",
-  siteB: "00000000-0000-4000-8000-000000009011"
+  siteB: "00000000-0000-4000-8000-000000009011",
+  cached404: "00000000-0000-4000-8000-000000009012"
 };
 
 const dashboard: Dashboard = {
@@ -399,12 +401,13 @@ describe("ControlView 대상 선택", () => {
   });
 
   it("keeps controls locked when a terminal status belongs to a different command", async () => {
+    const refetch = vi.fn();
     sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.different, "completed"),
       error: null,
       isFetching: false,
-      refetch: vi.fn()
+      refetch
     });
 
     renderControl();
@@ -413,6 +416,9 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     expect(screen.queryByText("조명 적용 완료")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("명령 상태 응답의 식별자가 일치하지 않습니다");
+    fireEvent.click(screen.getByRole("button", { name: "명령 상태 다시 조회" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toContain(commandIds.expected);
   });
 
@@ -433,11 +439,28 @@ describe("ControlView 대상 선택", () => {
     expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toBeNull();
   });
 
+  it("releases a missing active command when a matching nonterminal status is cached", async () => {
+    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.cached404 }));
+    mocks.useCommandStatus.mockReturnValue({
+      data: createCommandStatus(commandIds.cached404, "accepted"),
+      error: Object.assign(new Error("not found"), { status: 404 }),
+      isFetching: false,
+      refetch: vi.fn()
+    });
+
+    renderControl();
+
+    expect(await screen.findByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).toBeInTheDocument();
+    expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "명령 상태 다시 조회" })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toBeNull();
+  });
+
   it("hides a stale status error when matching terminal results arrive", async () => {
     sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.terminal }));
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.terminal, "completed"),
-      error: new Error("stale transport error"),
+      error: Object.assign(new Error("not found"), { status: 404 }),
       isFetching: false,
       refetch: vi.fn()
     });
@@ -445,6 +468,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(await screen.findByText("조명 적용 완료")).toBeInTheDocument();
+    expect(screen.queryByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).not.toBeInTheDocument();
     expect(screen.queryByText("명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.")).not.toBeInTheDocument();
   });
 
@@ -484,10 +508,13 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
   });
 
-  it("keeps the active command when status lookup fails and retries on request", async () => {
+  it.each([
+    ["network", new Error("network")],
+    ["5xx", Object.assign(new Error("server error"), { status: 500 })]
+  ])("keeps the active command when a %s status lookup fails and retries on request", async (_label, queryError) => {
     const refetch = vi.fn();
     sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.retry }));
-    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: new Error("network"), isFetching: false, refetch });
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: queryError, isFetching: false, refetch });
     renderControl();
 
     expect(await screen.findByText("명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.")).toBeInTheDocument();
@@ -584,7 +611,7 @@ function createLargeDashboard(fixtureCount: number): Dashboard {
 
 function createCommandStatus(
   id: string,
-  stage: "completed" | "partial_failed" | "failed" | "timed_out"
+  stage: CommandStage
 ) {
   return {
     id,

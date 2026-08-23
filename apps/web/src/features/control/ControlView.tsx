@@ -29,6 +29,11 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
   const scopedCommandId = activeSiteId && commandSiteId === activeSiteId ? commandId : null;
   const commandQuery = useCommandStatus(scopedCommandId);
   const matchingCommandStatus = commandQuery.data?.id === scopedCommandId ? commandQuery.data : null;
+  const matchingCommandIsTerminal = isTerminalCommandStage(matchingCommandStatus?.stage);
+  const hasMismatchedCommandStatus = Boolean(
+    scopedCommandId && commandQuery.data && commandQuery.data.id !== scopedCommandId
+  );
+  const missingCommand = isMissingCommandError(commandQuery.error);
   const fixtures = useMemo(() => data?.floors.flatMap((floor) => floor.fixtures) ?? [], [data]);
   const selected = useMemo(() => resolveSelection(data, fixtures, selection), [data, fixtures, selection]);
   const blockedFixture = selected.fixtures.find((fixture) => !fixture.controllable);
@@ -37,7 +42,7 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     : null;
   const readOnly = userRole === "viewer";
   const target = selected.isValid ? toDimmingTarget(selection) : null;
-  const commandInProgress = Boolean(scopedCommandId && !isTerminalCommandStage(matchingCommandStatus?.stage));
+  const commandInProgress = Boolean(scopedCommandId && !matchingCommandIsTerminal);
   const restorePending = Boolean(activeSiteId && activeSiteId !== commandSiteId);
   const controlsLocked = readOnly || isSubmitting || restorePending || commandInProgress;
   const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !controlsLocked);
@@ -52,21 +57,21 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
   }, [activeSiteId]);
 
   useEffect(() => {
-    if (!activeSiteId || !scopedCommandId || !matchingCommandStatus || !isTerminalCommandStage(matchingCommandStatus.stage)) return;
+    if (!activeSiteId || !scopedCommandId || !matchingCommandStatus || !matchingCommandIsTerminal) return;
 
     setTerminalResult({ siteId: activeSiteId, status: matchingCommandStatus });
     clearActiveCommandId(activeSiteId, scopedCommandId);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
     setMessage("");
-  }, [activeSiteId, matchingCommandStatus, scopedCommandId]);
+  }, [activeSiteId, matchingCommandIsTerminal, matchingCommandStatus, scopedCommandId]);
 
   useEffect(() => {
-    if (!activeSiteId || !scopedCommandId || matchingCommandStatus || !isMissingCommandError(commandQuery.error)) return;
+    if (!activeSiteId || !scopedCommandId || matchingCommandIsTerminal || !missingCommand) return;
 
     clearActiveCommandId(activeSiteId, scopedCommandId);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
     setMessage("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다");
-  }, [activeSiteId, commandQuery.error, matchingCommandStatus, scopedCommandId]);
+  }, [activeSiteId, matchingCommandIsTerminal, missingCommand, scopedCommandId]);
 
   async function submitCommand() {
     if (!data || !target || !canSubmit) return;
@@ -178,7 +183,17 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
           {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
           {matchingCommandStatus ? <CommandProgress status={matchingCommandStatus} /> : null}
           {!matchingCommandStatus && terminalResult?.siteId === data.site.id ? <CommandProgress status={terminalResult.status} /> : null}
-          {commandQuery.error && scopedCommandId && !isTerminalCommandStage(matchingCommandStatus?.stage) ? (
+          {hasMismatchedCommandStatus && !missingCommand ? (
+            <div className="command-status-error" role="alert">
+              <p className="danger-text">
+                명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
+              </p>
+              <button type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
+                {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+              </button>
+            </div>
+          ) : null}
+          {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
             <div className="command-status-error" role="alert">
               <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
               <button type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
