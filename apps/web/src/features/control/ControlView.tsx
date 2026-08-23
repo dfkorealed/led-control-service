@@ -2,8 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import type { DimmingTarget } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthUser } from "../../api/auth";
-import { createDimmingCommand, useCommandStatus, type CommandStage } from "../../api/commands";
+import {
+  createDimmingCommand,
+  isTerminalCommandStage,
+  useCommandStatus,
+  type CommandStage,
+  type CommandStatusResponse
+} from "../../api/commands";
 import { useControlDashboard, type DashboardFixture } from "../../api/queries";
+import { clearActiveCommandId, loadActiveCommandId, saveActiveCommandId } from "./active-command-store";
 import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicker";
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
@@ -16,7 +23,11 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [commandId, setCommandId] = useState<string | null>(null);
-  const commandQuery = useCommandStatus(commandId);
+  const [commandSiteId, setCommandSiteId] = useState<string | null>(null);
+  const [terminalResult, setTerminalResult] = useState<{ siteId: string; status: CommandStatusResponse } | null>(null);
+  const activeSiteId = data?.site.id ?? null;
+  const scopedCommandId = activeSiteId && commandSiteId === activeSiteId ? commandId : null;
+  const commandQuery = useCommandStatus(scopedCommandId);
   const fixtures = useMemo(() => data?.floors.flatMap((floor) => floor.fixtures) ?? [], [data]);
   const selected = useMemo(() => resolveSelection(data, fixtures, selection), [data, fixtures, selection]);
   const blockedFixture = selected.fixtures.find((fixture) => !fixture.controllable);
@@ -25,13 +36,28 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     : null;
   const readOnly = userRole === "viewer";
   const target = selected.isValid ? toDimmingTarget(selection) : null;
-  const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !isSubmitting && !readOnly);
+  const commandInProgress = Boolean(scopedCommandId && !isTerminalCommandStage(commandQuery.data?.stage));
+  const controlsLocked = readOnly || isSubmitting || commandInProgress;
+  const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !controlsLocked);
 
   useEffect(() => {
+    if (!activeSiteId) return;
     setSelection(emptySelection);
     setMessage("");
-    setCommandId(null);
-  }, [siteId]);
+    setTerminalResult(null);
+    setCommandSiteId(activeSiteId);
+    setCommandId(loadActiveCommandId(activeSiteId));
+  }, [activeSiteId]);
+
+  useEffect(() => {
+    if (!activeSiteId || !scopedCommandId || !commandQuery.data) return;
+    if (commandQuery.data.id !== scopedCommandId || !isTerminalCommandStage(commandQuery.data.stage)) return;
+
+    setTerminalResult({ siteId: activeSiteId, status: commandQuery.data });
+    clearActiveCommandId(activeSiteId, scopedCommandId);
+    setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
+    setMessage("");
+  }, [activeSiteId, commandQuery.data, scopedCommandId]);
 
   async function submitCommand() {
     if (!data || !target || !canSubmit) return;
@@ -40,7 +66,10 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     setMessage("");
     try {
       const command = await createDimmingCommand({ siteId: data.site.id, target, brightness });
+      setCommandSiteId(data.site.id);
       setCommandId(command.id);
+      saveActiveCommandId(data.site.id, command.id);
+      setTerminalResult(null);
       setMessage("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.");
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     } catch {
@@ -78,20 +107,22 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
       ) : null}
 
       <div className="control-layout">
-        <ControlTargetPicker
-          key={data.site.id}
-          dashboard={data}
-          selection={selection}
-          disabled={readOnly || isSubmitting}
-          onChange={(nextSelection) => {
-            setSelection(nextSelection);
-            if (nextSelection.mode === "fixtures" && nextSelection.fixtureIds.length === 1) {
-              const fixture = fixtures.find((item) => item.id === nextSelection.fixtureIds[0]);
-              if (fixture) setBrightness(fixture.brightness);
-            }
-            setMessage("");
-          }}
-        />
+        <fieldset className="control-picker-fieldset" disabled={controlsLocked}>
+          <ControlTargetPicker
+            key={data.site.id}
+            dashboard={data}
+            selection={selection}
+            disabled={controlsLocked}
+            onChange={(nextSelection) => {
+              setSelection(nextSelection);
+              if (nextSelection.mode === "fixtures" && nextSelection.fixtureIds.length === 1) {
+                const fixture = fixtures.find((item) => item.id === nextSelection.fixtureIds[0]);
+                if (fixture) setBrightness(fixture.brightness);
+              }
+              setMessage("");
+            }}
+          />
+        </fieldset>
 
         <aside className="control-panel">
           <div className="panel-title-row">
@@ -118,26 +149,34 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
               min="0"
               max="100"
               value={brightness}
-              disabled={readOnly || isSubmitting}
+              disabled={controlsLocked}
               onChange={(event) => setBrightness(Number(event.target.value))}
             />
           </div>
 
           <div className="preset-row">
             {[0, 30, 70, 100].map((value) => (
-              <button key={value} type="button" onClick={() => setBrightness(value)} disabled={readOnly || isSubmitting}>
+              <button key={value} type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
                 {value}%
               </button>
             ))}
           </div>
 
           <button className="primary-button" type="button" onClick={submitCommand} disabled={!canSubmit}>
-            {isSubmitting ? "전송 중" : "밝기 적용"}
+            {controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
           </button>
           {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
           {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
           {commandQuery.data ? <CommandProgress status={commandQuery.data} /> : null}
-          {commandQuery.error ? <p className="danger-text" role="alert">명령 처리 상태를 불러오지 못했습니다.</p> : null}
+          {!commandQuery.data && terminalResult?.siteId === data.site.id ? <CommandProgress status={terminalResult.status} /> : null}
+          {commandQuery.error && scopedCommandId ? (
+            <div className="command-status-error" role="alert">
+              <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
+              <button type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
+                {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+              </button>
+            </div>
+          ) : null}
         </aside>
       </div>
     </section>

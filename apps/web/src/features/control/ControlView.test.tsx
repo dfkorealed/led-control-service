@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Dashboard } from "../../api/queries";
 import { ControlView } from "./ControlView";
+import { activeCommandStorageKey } from "./active-command-store";
 
 const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
@@ -70,6 +71,7 @@ const dashboard: Dashboard = {
 describe("ControlView 대상 선택", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     mocks.apiPost.mockResolvedValue({
       id: "command-1",
       dispatchCount: 1,
@@ -77,11 +79,14 @@ describe("ControlView 대상 선택", () => {
       transmissionCount: 2,
       deliveryMode: "parallel_unicast"
     });
-    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null });
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null, isFetching: false, refetch: vi.fn() });
     mocks.useControlDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    sessionStorage.clear();
+  });
 
   it("sends one selected light as a fixture target", async () => {
     renderControl();
@@ -150,7 +155,7 @@ describe("ControlView 대상 선택", () => {
   });
 
   it("sends floor and zone selections through their mesh group targets", async () => {
-    renderControl();
+    const { rerender } = renderControl();
 
     fireEvent.click(screen.getByRole("button", { name: "층" }));
     fireEvent.click(screen.getByRole("button", { name: "B1" }));
@@ -161,6 +166,15 @@ describe("ControlView 대상 선택", () => {
       target: { type: "floor", floorId: dashboard.floors[1].id },
       brightness: 70
     }));
+
+    mocks.useCommandStatus.mockReturnValue({
+      data: createCommandStatus("command-1", "completed"),
+      error: null,
+      isFetching: false,
+      refetch: vi.fn()
+    });
+    rerender(controlElement(dashboard.site.id));
+    await waitFor(() => expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled());
 
     fireEvent.click(screen.getByRole("button", { name: "구역" }));
     fireEvent.click(screen.getByRole("button", { name: /B2 입구 구역/ }));
@@ -344,6 +358,79 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("button", { name: "개별/다중" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "층" })).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("locks every editable control until the device result is terminal", async () => {
+    let resolveCommand: (value: { id: string }) => void = () => undefined;
+    mocks.apiPost.mockImplementationOnce(() => new Promise((resolve) => { resolveCommand = resolve; }));
+    renderControl();
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+
+    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "70%" })).toBeDisabled();
+    expect(screen.getByRole("searchbox", { name: "조명 검색" })).toBeDisabled();
+    expect(screen.getByLabelText("B2-L001 선택")).toBeDisabled();
+
+    resolveCommand({ id: "command-locked" });
+    await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith("command-locked"));
+    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+  });
+
+  it("unlocks controls and keeps terminal device results visible", async () => {
+    const terminalStatus = createCommandStatus("command-1", "partial_failed");
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null, isFetching: false, refetch: vi.fn() });
+    const { rerender } = renderControl();
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith("command-1"));
+
+    mocks.useCommandStatus.mockReturnValue({ data: terminalStatus, error: null, isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id));
+
+    expect(await screen.findByText("일부 조명 적용 실패")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
+    await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toBeNull());
+  });
+
+  it("restores the active command for the loaded site after a refresh", async () => {
+    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: "restored-command" }));
+    renderControl();
+
+    await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith("restored-command"));
+    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+  });
+
+  it("keeps the active command when status lookup fails and retries on request", async () => {
+    const refetch = vi.fn();
+    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: "retry-command" }));
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: new Error("network"), isFetching: false, refetch });
+    renderControl();
+
+    expect(await screen.findByText("명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+    expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toContain("retry-command");
+
+    fireEvent.click(screen.getByRole("button", { name: "명령 상태 다시 조회" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("isolates restored command state and results when the loaded site changes", async () => {
+    const nextSiteId = "00000000-0000-4000-8000-000000000099";
+    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: "site-a-command" }));
+    sessionStorage.setItem(activeCommandStorageKey(nextSiteId), JSON.stringify({ commandId: "site-b-command" }));
+    const { rerender } = renderControl();
+
+    await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith("site-a-command"));
+    const nextDashboard: Dashboard = { ...dashboard, site: { id: nextSiteId, name: "다음 현장" } };
+    mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
+    rerender(controlElement(nextSiteId));
+
+    await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith("site-b-command"));
+    expect(screen.queryByText("명령 접수 완료")).not.toBeInTheDocument();
+  });
 });
 
 function renderControl(
@@ -411,5 +498,26 @@ function createLargeDashboard(fixtureCount: number): Dashboard {
     }],
     groups: [],
     gateways: []
+  };
+}
+
+function createCommandStatus(
+  id: string,
+  stage: "completed" | "partial_failed" | "failed" | "timed_out"
+) {
+  return {
+    id,
+    stage,
+    dispatchCount: 1,
+    completedFixtureCount: 1,
+    totalFixtureCount: 1,
+    errorMessage: null,
+    dispatches: [{
+      id: "dispatch-1",
+      status: stage,
+      gateway: { id: "gateway-1", name: "GW-B2" },
+      errorMessage: null,
+      results: [{ fixtureId: fixtureIds.b2First, fixtureName: "B2-L001", status: "failed" as const, errorMessage: "장비 응답 오류" }]
+    }]
   };
 }

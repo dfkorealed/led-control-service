@@ -36,7 +36,16 @@ export interface CommandStatusResponse {
   }>;
 }
 
-const terminalStages = new Set<CommandStage>(["completed", "partial_failed", "failed", "timed_out"]);
+export const TERMINAL_COMMAND_STAGES: ReadonlySet<CommandStage> = new Set([
+  "completed",
+  "partial_failed",
+  "failed",
+  "timed_out"
+]);
+
+export function isTerminalCommandStage(stage: CommandStage | null | undefined): boolean {
+  return Boolean(stage && TERMINAL_COMMAND_STAGES.has(stage));
+}
 
 export function createDimmingCommand(input: CreateDimmingCommandInput) {
   return apiPost<CreateDimmingCommandResponse>("/commands/dimming", input);
@@ -49,7 +58,7 @@ export function useCommandStatus(commandId: string | null) {
     enabled: Boolean(commandId),
     refetchInterval: (query) => {
       const stage = query.state.data?.stage;
-      return stage && terminalStages.has(stage) ? false : 1000;
+      return isTerminalCommandStage(stage) ? false : 1000;
     }
   });
 }

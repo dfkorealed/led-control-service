@@ -896,6 +896,18 @@ button {
   min-width: 0;
 }
 
+.control-picker-fieldset {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.control-picker-fieldset:disabled {
+  opacity: 0.68;
+}
+
 .control-target-modes {
   justify-self: start;
 }
@@ -1098,6 +1110,27 @@ button {
 
 .control-readonly-notice {
   margin: 0;
+}
+
+.command-status-error {
+  display: grid;
+  gap: 8px;
+}
+
+.command-status-error p {
+  margin: 0;
+}
+
+.command-status-error button {
+  justify-self: start;
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--primary);
+  padding: 5px 9px;
+  font: inherit;
+  font-weight: 800;
 }
 
 .control-target-summary {
