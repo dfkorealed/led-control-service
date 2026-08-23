@@ -199,12 +199,18 @@ describe("handleGatewayDimmingCommand", () => {
       deliveryMode: "parallel_unicast"
     });
 
-    expect(applyUnicast).toHaveBeenCalledWith(command.targetFixtureIds[0], 65, expect.any(AbortSignal));
+    expect(applyUnicast).toHaveBeenCalledWith(
+      command.targetFixtureIds[0],
+      65,
+      expect.any(AbortSignal),
+      expect.any(Number)
+    );
     expect(applyParallelUnicast).toHaveBeenCalledWith(
       [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"],
       65,
       8,
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      expect.any(Number)
     );
     expect(adapter.setBrightness).not.toHaveBeenCalled();
   });
@@ -241,7 +247,13 @@ describe("handleGatewayDimmingCommand", () => {
       groupAddress: "0xc000",
       version: 3
     });
-    expect(applyMeshGroup).toHaveBeenCalledWith(0xc000, groupCommand.targetFixtureIds, 65, expect.any(AbortSignal));
+    expect(applyMeshGroup).toHaveBeenCalledWith(
+      0xc000,
+      groupCommand.targetFixtureIds,
+      65,
+      expect.any(AbortSignal),
+      expect.any(Number)
+    );
     expect(result.acceptance.status).toBe("accepted");
   });
 
@@ -376,6 +388,44 @@ describe("handleGatewayDimmingCommand", () => {
           ]
         }
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes one absolute deadline so slow preparation still preserves the terminal mismatch", async () => {
+    vi.useFakeTimers();
+    try {
+      const groupCommand = meshCommand();
+      const applyMeshGroup = vi.fn(
+        async (_address: number, fixtureIds: string[], _brightness: number, _signal: AbortSignal, deadlineAt: number) => {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          return await new Promise<any[]>((resolve) => {
+            setTimeout(() => resolve(fixtureIds.map((fixtureId) => ({
+              fixtureId,
+              acknowledged: false,
+              outcome: "failed",
+              brightness: 30,
+              faultCode: "state_mismatch",
+              rssi: null,
+              hopCount: null
+            }))), Math.max(0, deadlineAt - Date.now()));
+          });
+        }
+      );
+      const pending = handleGatewayDimmingCommand(
+        { setBrightness: vi.fn(), applyMeshGroup } as any,
+        memoryJournal(new Map()),
+        groupCommand,
+        undefined,
+        { timeoutMs: 1000, groupStateStore: { assertReady: vi.fn() }, groupQueue: new KeyedSerialTaskQueue() }
+      );
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(pending).resolves.toMatchObject({
+        deviceStatus: { status: "failed", results: [{ faultCode: "state_mismatch" }, { faultCode: "state_mismatch" }] }
+      });
+      expect(applyMeshGroup.mock.calls[0][4]).toBeTypeOf("number");
     } finally {
       vi.useRealTimers();
     }

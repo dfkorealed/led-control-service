@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BluezMeshAdapter } from "./bluez-mesh-adapter";
 
-function fixture(options: { observationCoherenceMs?: number; now?: () => number } = {}) {
+function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?: number; now?: () => number } = {}) {
   const application = new EventEmitter();
   const transport = {
     calls: [] as Array<{ method: string; args: unknown[] }>,
@@ -29,13 +29,17 @@ function fixture(options: { observationCoherenceMs?: number; now?: () => number 
     configureNode: vi.fn(async () => ({ compositionPage: 0 })),
     addModelSubscription: vi.fn(async () => ({ elementAddress: 0x0100, groupAddress: 0xc000, modelId: 0x1300 }))
   };
-  const transactions = { next: vi.fn(async () => 7) };
+  const transactions = {
+    next: vi.fn(async () => 7),
+    nextMany: vi.fn(async (destinations: number[]) => destinations.map(() => 7))
+  };
   return {
     application, transport, provisioner, addresses, config, transactions,
     adapter: new BluezMeshAdapter(transport, application, provisioner, addresses, () => config, transactions, {
-      responseTimeoutMs: 100,
+      responseTimeoutMs: options.responseTimeoutMs ?? 100,
       scanSeconds: 1,
-      ...options
+      observationCoherenceMs: options.observationCoherenceMs,
+      now: options.now
     })
   };
 }
@@ -75,6 +79,39 @@ describe("BluezMeshAdapter", () => {
     });
   });
 
+  it("uses the remaining absolute deadline after slow preparation to retain a mismatch", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture({ responseTimeoutMs: 1000 });
+      f.addresses.findByFixtureId.mockImplementationOnce(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        return { fixtureId: "fixture-1", primaryUnicast: 0x0100, status: "confirmed" as const };
+      });
+      const pending = f.adapter.applyUnicast("fixture-1", 70, undefined, Date.now() + 1000);
+
+      await vi.advanceTimersByTimeAsync(400);
+      expect(f.transport.call).toHaveBeenCalledTimes(1);
+      f.application.emit("messageReceived", {
+        source: 0x0100,
+        data: Uint8Array.from([0x82, 0x4e, 0xcd, 0x4c])
+      });
+      await vi.advanceTimersByTimeAsync(599);
+      let settled = false;
+      void pending.then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toMatchObject({
+        acknowledged: false,
+        brightness: 30,
+        faultCode: "state_mismatch"
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ignores an old periodic unicast status and resolves when the target status arrives", async () => {
     const f = fixture();
     const pending = f.adapter.applyUnicast("fixture-1", 70);
@@ -108,6 +145,29 @@ describe("BluezMeshAdapter", () => {
 
     await expect(pending).resolves.toMatchObject({ acknowledged: false, outcome: "timed_out", faultCode: "command_aborted" });
     expect(f.transport.call).not.toHaveBeenCalled();
+  });
+
+  it("does not send a queued unicast after its absolute deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      let releaseFirst!: () => void;
+      f.transport.call.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseFirst = resolve; }));
+      const first = f.adapter.applyUnicast("fixture-1", 70);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(() => expect(f.transport.call).toHaveBeenCalledTimes(1));
+
+      const second = f.adapter.applyUnicast("fixture-1", 80, undefined, Date.now() + 1000);
+      await vi.advanceTimersByTimeAsync(1001);
+      releaseFirst();
+      await vi.advanceTimersByTimeAsync(0);
+
+      await first;
+      await expect(second).resolves.toMatchObject({ outcome: "timed_out", faultCode: "command_deadline_exceeded" });
+      expect(f.transport.call).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails an unmapped fixture before sending", async () => {
@@ -150,6 +210,42 @@ describe("BluezMeshAdapter", () => {
 
     await expect(result).resolves.toHaveLength(10);
     expect(maximumActive).toBe(8);
+    expect(f.transactions.nextMany).toHaveBeenCalledWith(
+      Array.from({ length: 10 }, (_, index) => 0x0100 + index)
+    );
+    expect(f.transactions.next).not.toHaveBeenCalled();
+  });
+
+  it("does not send parallel unicast when batch TID reservation crosses the absolute deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture();
+      f.addresses.findByFixtureId.mockImplementation(async (fixtureId: string) => ({
+        fixtureId,
+        primaryUnicast: 0x0100 + Number(fixtureId.slice("fixture-".length)),
+        status: "confirmed" as const
+      }));
+      f.transactions.nextMany.mockImplementationOnce(() => new Promise((resolve) => {
+        setTimeout(() => resolve([1, 1]), 1001);
+      }));
+
+      const pending = f.adapter.applyParallelUnicast(
+        ["fixture-1", "fixture-2"],
+        100,
+        8,
+        undefined,
+        Date.now() + 1000
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+
+      await expect(pending).resolves.toEqual([
+        expect.objectContaining({ fixtureId: "fixture-1", outcome: "timed_out" }),
+        expect.objectContaining({ fixtureId: "fixture-2", outcome: "timed_out" })
+      ]);
+      expect(f.transport.call).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not schedule another parallel-unicast batch after abort", async () => {

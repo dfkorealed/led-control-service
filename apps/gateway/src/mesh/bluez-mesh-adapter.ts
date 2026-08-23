@@ -48,7 +48,8 @@ interface AdapterAddressStore {
 }
 
 interface TransactionStore {
-  next(destination?: number): Promise<number>;
+  next(destination: number): Promise<number>;
+  nextMany(destinations: number[]): Promise<number[]>;
 }
 
 interface ConfigClient {
@@ -176,14 +177,21 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     return reports;
   }
 
-  async applyUnicast(fixtureId: string, brightness: number, signal?: AbortSignal): Promise<BleMeshCommandReport> {
+  async applyUnicast(
+    fixtureId: string,
+    brightness: number,
+    signal?: AbortSignal,
+    deadlineAt?: number
+  ): Promise<BleMeshCommandReport> {
     await this.start();
+    if (isCommandExpired(signal, deadlineAt)) return deadlineExceeded(fixtureId, brightness, signal);
     const mapping = await this.addressStore.findByFixtureId(fixtureId);
+    if (isCommandExpired(signal, deadlineAt)) return deadlineExceeded(fixtureId, brightness, signal);
     if (!mapping || mapping.status !== "confirmed") return failed(fixtureId, brightness, "MESH_MAPPING_NOT_FOUND");
     return this.commandSources.run(String(mapping.primaryUnicast), () =>
-      signal?.aborted
-        ? Promise.resolve(failed(fixtureId, brightness, "command_aborted", "timed_out"))
-        : this.sendFixtureBrightness(fixtureId, mapping.primaryUnicast, brightness, signal)
+      isCommandExpired(signal, deadlineAt)
+        ? Promise.resolve(deadlineExceeded(fixtureId, brightness, signal))
+        : this.sendFixtureBrightness(fixtureId, mapping.primaryUnicast, brightness, signal, deadlineAt)
     );
   }
 
@@ -191,25 +199,63 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     fixtureIds: string[],
     brightness: number,
     concurrency = 8,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    deadlineAt?: number
   ): Promise<BleMeshCommandReport[]> {
     await this.start();
     validateConcurrency(concurrency);
-    return mapWithConcurrency(fixtureIds, concurrency, (fixtureId) => this.applyUnicast(fixtureId, brightness, signal), signal);
+    if (isCommandExpired(signal, deadlineAt)) return deadlineExceededMany(fixtureIds, brightness, signal);
+    const mappings = await Promise.all(fixtureIds.map(async (fixtureId) => ({
+      fixtureId,
+      mapping: await this.addressStore.findByFixtureId(fixtureId)
+    })));
+    if (isCommandExpired(signal, deadlineAt)) return deadlineExceededMany(fixtureIds, brightness, signal);
+
+    const confirmed = mappings.filter((row): row is typeof row & { mapping: NonNullable<typeof row.mapping> } =>
+      row.mapping?.status === "confirmed"
+    );
+    const destinations = confirmed.map(({ mapping }) => mapping.primaryUnicast);
+    if (new Set(destinations).size !== destinations.length) {
+      return fixtureIds.map((fixtureId) => failed(fixtureId, brightness, "mesh_mapping_duplicate"));
+    }
+    const tids = await this.transactions.nextMany(destinations);
+    if (isCommandExpired(signal, deadlineAt)) return deadlineExceededMany(fixtureIds, brightness, signal);
+    const tidsByFixture = new Map(confirmed.map(({ fixtureId }, index) => [fixtureId, tids[index]]));
+
+    return mapWithConcurrency(mappings, concurrency, ({ fixtureId, mapping }) => {
+      if (!mapping || mapping.status !== "confirmed") {
+        return Promise.resolve(failed(fixtureId, brightness, "MESH_MAPPING_NOT_FOUND"));
+      }
+      return this.commandSources.run(String(mapping.primaryUnicast), () =>
+        isCommandExpired(signal, deadlineAt)
+          ? Promise.resolve(deadlineExceeded(fixtureId, brightness, signal))
+          : this.sendFixtureBrightness(
+            fixtureId,
+            mapping.primaryUnicast,
+            brightness,
+            signal,
+            deadlineAt,
+            tidsByFixture.get(fixtureId)
+          )
+      );
+    }, signal);
   }
 
   async applyMeshGroup(
     groupAddress: number,
     fixtureIds: string[],
     brightness: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    deadlineAt?: number
   ): Promise<BleMeshCommandReport[]> {
     await this.start();
     validateGroupAddress(groupAddress);
+    if (isCommandExpired(signal, deadlineAt)) return deadlineExceededMany(fixtureIds, brightness, signal);
     const mappings = await Promise.all(fixtureIds.map(async (fixtureId) => ({
       fixtureId,
       mapping: await this.addressStore.findByFixtureId(fixtureId)
     })));
+    if (isCommandExpired(signal, deadlineAt)) return deadlineExceededMany(fixtureIds, brightness, signal);
     const complete = mappings.every(({ mapping }) => mapping?.status === "confirmed");
     const uniqueSources = new Set(mappings.flatMap(({ mapping }) => mapping?.status === "confirmed" ? [mapping.primaryUnicast] : []));
     if (!complete || uniqueSources.size !== fixtureIds.length) {
@@ -217,21 +263,23 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     }
     const expected = mappings.map(({ fixtureId, mapping }) => ({ fixtureId, source: mapping!.primaryUnicast }));
     return this.commandSources.runMany(expected.map(({ source }) => String(source)), async () => {
-      if (signal?.aborted) return aborted(fixtureIds, brightness);
+      if (isCommandExpired(signal, deadlineAt)) return deadlineExceededMany(fixtureIds, brightness, signal);
       const tid = await this.transactions.next(groupAddress);
-      if (signal?.aborted) return aborted(fixtureIds, brightness);
+      if (isCommandExpired(signal, deadlineAt)) return deadlineExceededMany(fixtureIds, brightness, signal);
       const targetLightness = percentToLightness(brightness);
+      const timeoutMs = remainingStatusTimeout(this.responseTimeoutMs, deadlineAt);
+      if (timeoutMs === 0) return deadlineExceededMany(fixtureIds, brightness, signal);
       const statuses = waitForGroupLightnessStatuses(
         this.application,
         expected,
         targetLightness,
-        this.responseTimeoutMs,
+        timeoutMs,
         signal
       );
       try {
-        if (signal?.aborted) {
+        if (isCommandExpired(signal, deadlineAt)) {
           statuses.cancel();
-          return aborted(fixtureIds, brightness);
+          return deadlineExceededMany(fixtureIds, brightness, signal);
         }
         await this.transport.call(BLUEZ_SERVICE, this.requireNodePath(), NODE_INTERFACE, "Send", [
           BLUEZ_APPLICATION_PATHS.element,
@@ -299,23 +347,27 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     fixtureId: string,
     primaryUnicast: number,
     brightness: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    deadlineAt?: number,
+    reservedTid?: number
   ): Promise<BleMeshCommandReport> {
     const nodePath = this.requireNodePath();
-    const tid = await this.transactions.next(primaryUnicast);
-    if (signal?.aborted) return failed(fixtureId, brightness, "command_aborted", "timed_out");
+    const tid = reservedTid ?? await this.transactions.next(primaryUnicast);
+    if (isCommandExpired(signal, deadlineAt)) return deadlineExceeded(fixtureId, brightness, signal);
     const targetLightness = percentToLightness(brightness);
+    const timeoutMs = remainingStatusTimeout(this.responseTimeoutMs, deadlineAt);
+    if (timeoutMs === 0) return deadlineExceeded(fixtureId, brightness, signal);
     const status = waitForLightnessStatus(
       this.application,
       primaryUnicast,
       targetLightness,
-      this.responseTimeoutMs,
+      timeoutMs,
       signal
     );
     try {
-      if (signal?.aborted) {
+      if (isCommandExpired(signal, deadlineAt)) {
         status.cancel();
-        return failed(fixtureId, brightness, "command_aborted", "timed_out");
+        return deadlineExceeded(fixtureId, brightness, signal);
       }
       await this.transport.call(BLUEZ_SERVICE, nodePath, NODE_INTERFACE, "Send", [
         BLUEZ_APPLICATION_PATHS.element,
@@ -769,6 +821,28 @@ function failed(
 
 function aborted(fixtureIds: string[], brightness: number) {
   return fixtureIds.map((fixtureId) => failed(fixtureId, brightness, "command_aborted", "timed_out"));
+}
+
+function deadlineExceeded(fixtureId: string, brightness: number, signal?: AbortSignal) {
+  return failed(
+    fixtureId,
+    brightness,
+    signal?.aborted ? "command_aborted" : "command_deadline_exceeded",
+    "timed_out"
+  );
+}
+
+function deadlineExceededMany(fixtureIds: string[], brightness: number, signal?: AbortSignal) {
+  return fixtureIds.map((fixtureId) => deadlineExceeded(fixtureId, brightness, signal));
+}
+
+function isCommandExpired(signal?: AbortSignal, deadlineAt?: number) {
+  return signal?.aborted === true || (deadlineAt !== undefined && Date.now() >= deadlineAt);
+}
+
+function remainingStatusTimeout(configuredTimeoutMs: number, deadlineAt?: number) {
+  if (deadlineAt === undefined) return configuredTimeoutMs;
+  return Math.max(0, Math.min(configuredTimeoutMs, deadlineAt - Date.now()));
 }
 
 function isAbortError(error: unknown) {

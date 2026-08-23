@@ -116,12 +116,13 @@ async function executeGatewayDimmingCommand(
   let observedFixtureIds: string[] = [];
   try {
     const timeoutMs = validateTimeout(options.timeoutMs ?? 8000);
+    const deadlineAt = Date.now() + timeoutMs;
     const controller = new AbortController();
     const reports = validateReports(
       command.targetFixtureIds,
       await withTimeout(
-        applyCommand(adapter, command, controller.signal),
-        timeoutMs + COMMAND_COMPLETION_GRACE_MS,
+        applyCommand(adapter, command, controller.signal, deadlineAt),
+        deadlineAt + COMMAND_COMPLETION_GRACE_MS,
         timeoutMs,
         () => controller.abort()
       )
@@ -177,22 +178,28 @@ async function executeGatewayDimmingCommand(
   return result;
 }
 
-function applyCommand(adapter: BleMeshAdapter, command: GatewayDimmingCommandV2, signal: AbortSignal) {
+function applyCommand(
+  adapter: BleMeshAdapter,
+  command: GatewayDimmingCommandV2,
+  signal: AbortSignal,
+  deadlineAt: number
+) {
   switch (command.deliveryMode) {
     case "unicast":
       return adapter.applyUnicast
-        ? adapter.applyUnicast(command.targetFixtureIds[0], command.brightness, signal).then((report) => [report])
+        ? adapter.applyUnicast(command.targetFixtureIds[0], command.brightness, signal, deadlineAt).then((report) => [report])
         : adapter.setBrightness(command.targetFixtureIds, command.brightness);
     case "parallel_unicast":
       if (!adapter.applyParallelUnicast) throw new Error("parallel unicast control is unavailable");
-      return adapter.applyParallelUnicast(command.targetFixtureIds, command.brightness, 8, signal);
+      return adapter.applyParallelUnicast(command.targetFixtureIds, command.brightness, 8, signal, deadlineAt);
     case "mesh_group":
       if (!adapter.applyMeshGroup || !command.destinationAddress) throw new Error("mesh group control is unavailable");
       return adapter.applyMeshGroup(
         parseGroupAddress(command.destinationAddress),
         command.targetFixtureIds,
         command.brightness,
-        signal
+        signal,
+        deadlineAt
       );
   }
 }
@@ -240,7 +247,7 @@ class MeshStatusTimeoutError extends Error {}
 
 function withTimeout<T>(
   operation: Promise<T>,
-  watchdogMs: number,
+  watchdogAt: number,
   statusTimeoutMs: number,
   onTimeout: () => void = () => undefined
 ) {
@@ -248,7 +255,7 @@ function withTimeout<T>(
     const timeout = setTimeout(() => {
       onTimeout();
       reject(new MeshStatusTimeoutError(`BLE Mesh status timeout after ${statusTimeoutMs}ms`));
-    }, watchdogMs);
+    }, Math.max(0, watchdogAt - Date.now()));
     operation.then(
       (value) => {
         clearTimeout(timeout);
