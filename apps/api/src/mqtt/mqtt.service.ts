@@ -8,10 +8,12 @@ import {
   IdentifyDevicePayload,
   identifyDeviceSchema,
   mapHealthFaults,
+  meshGroupResyncAckV2Schema,
   meshGroupResyncRequestV2Schema,
   meshGroupSubscriptionResultSchema,
   meshGroupSubscriptionSyncSchema,
   mqttTopics,
+  mqttTopicsV2,
   ProvisionDevicePayload,
   provisionDeviceSchema,
   provisioningCompletedSchema,
@@ -23,6 +25,7 @@ import {
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import mqtt, { IClientOptions, MqttClient } from "mqtt";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -293,6 +296,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         eventId: event.eventId,
         occurredAt: event.occurredAt
       }));
+      const ack = meshGroupResyncAckV2Schema.parse({
+        siteId: event.siteId,
+        gatewayId: event.gatewayId,
+        eventId: randomUUID(),
+        requestEventId: event.eventId,
+        occurredAt: new Date().toISOString()
+      });
+      await this.publishTopic(mqttTopicsV2.meshGroupResyncAck(event.siteId, event.gatewayId), ack);
     }
   }
 

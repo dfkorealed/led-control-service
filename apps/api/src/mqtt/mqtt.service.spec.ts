@@ -325,11 +325,23 @@ describe("MqttService", () => {
 
   it("handles a scoped mesh group resync request inside one database transaction", async () => {
     const tx = { transaction: true };
+    const order: string[] = [];
     const prisma: any = {
-      $transaction: jest.fn(async (callback: (client: any) => Promise<unknown>) => callback(tx))
+      $transaction: jest.fn(async (callback: (client: any) => Promise<unknown>) => {
+        const result = await callback(tx);
+        order.push("transaction-committed");
+        return result;
+      })
     };
     const meshGroups = createMeshGroupsMock();
+    meshGroups.resetGatewayGroupsForResync.mockImplementation(async () => {
+      order.push("groups-reset");
+      return { groupCount: 2, memberCount: 4 };
+    });
     const service = new MqttService(prisma, meshGroups as never);
+    jest.spyOn(service, "publishTopic").mockImplementation(async () => {
+      order.push("ack-published");
+    });
 
     await service.handleMessage(
       `sites/${resyncRequest.siteId}/gateways/${resyncRequest.gatewayId}/events/mesh-group/resync-request`,
@@ -343,12 +355,71 @@ describe("MqttService", () => {
       eventId: resyncRequest.eventId,
       occurredAt: resyncRequest.occurredAt
     });
+    expect(service.publishTopic).toHaveBeenCalledWith(
+      `sites/${resyncRequest.siteId}/gateways/${resyncRequest.gatewayId}/commands/mesh-group/resync-ack`,
+      {
+        siteId: resyncRequest.siteId,
+        gatewayId: resyncRequest.gatewayId,
+        eventId: expect.any(String),
+        requestEventId: resyncRequest.eventId,
+        occurredAt: expect.any(String)
+      }
+    );
+    expect(order).toEqual(["groups-reset", "transaction-committed", "ack-published"]);
+  });
+
+  it("publishes the application ACK again when a resync event is redelivered", async () => {
+    const tx = { transaction: true };
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: (client: any) => Promise<unknown>) => callback(tx))
+    };
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    jest.spyOn(service, "publishTopic").mockResolvedValue(undefined);
+    const topic = `sites/${resyncRequest.siteId}/gateways/${resyncRequest.gatewayId}/events/mesh-group/resync-request`;
+    const payload = Buffer.from(JSON.stringify(resyncRequest));
+
+    await service.handleMessage(topic, payload);
+    await service.handleMessage(topic, payload);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(service.publishTopic).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not publish a mesh group resync ACK when the database transaction fails", async () => {
+    const databaseError = new Error("database unavailable");
+    const prisma: any = {
+      $transaction: jest.fn().mockRejectedValue(databaseError)
+    };
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    jest.spyOn(service, "publishTopic").mockResolvedValue(undefined);
+
+    await expect(service.handleMessage(
+      `sites/${resyncRequest.siteId}/gateways/${resyncRequest.gatewayId}/events/mesh-group/resync-request`,
+      Buffer.from(JSON.stringify(resyncRequest))
+    )).rejects.toBe(databaseError);
+
+    expect(service.publishTopic).not.toHaveBeenCalled();
+  });
+
+  it("surfaces mesh group resync ACK publish failures so the gateway can retry", async () => {
+    const publishError = new Error("broker unavailable");
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: (client: any) => Promise<unknown>) => callback({ transaction: true }))
+    };
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    jest.spyOn(service, "publishTopic").mockRejectedValue(publishError);
+
+    await expect(service.handleMessage(
+      `sites/${resyncRequest.siteId}/gateways/${resyncRequest.gatewayId}/events/mesh-group/resync-request`,
+      Buffer.from(JSON.stringify(resyncRequest))
+    )).rejects.toBe(publishError);
   });
 
   it("ignores a mesh group resync request whose topic and payload scopes differ", async () => {
     const prisma: any = { $transaction: jest.fn() };
     const meshGroups = createMeshGroupsMock();
     const service = new MqttService(prisma, meshGroups as never);
+    jest.spyOn(service, "publishTopic").mockResolvedValue(undefined);
 
     await service.handleMessage(
       `sites/${resyncRequest.siteId}/gateways/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/events/mesh-group/resync-request`,
@@ -357,6 +428,7 @@ describe("MqttService", () => {
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(meshGroups.resetGatewayGroupsForResync).not.toHaveBeenCalled();
+    expect(service.publishTopic).not.toHaveBeenCalled();
   });
 
   it("persists only current-version mesh group subscription results from the same site and gateway", async () => {
