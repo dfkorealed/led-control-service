@@ -339,7 +339,9 @@ describe("MqttService", () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(meshGroups.resetGatewayGroupsForResync).toHaveBeenCalledWith(tx, {
       siteId: resyncRequest.siteId,
-      gatewayId: resyncRequest.gatewayId
+      gatewayId: resyncRequest.gatewayId,
+      eventId: resyncRequest.eventId,
+      occurredAt: resyncRequest.occurredAt
     });
   });
 

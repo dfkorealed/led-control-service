@@ -8,6 +8,12 @@ describe("MeshControlGroupService", () => {
   const floorId = "00000000-0000-4000-8000-000000000003";
   const floorIdOtherSite = "00000000-0000-4000-8000-000000000004";
   const fixtureGroupId = "00000000-0000-4000-8000-000000000005";
+  const resyncInput = {
+    siteId,
+    gatewayId,
+    eventId: "00000000-0000-4000-8000-000000000006",
+    occurredAt: "2026-08-23T09:00:00.000Z"
+  };
 
   it("allocates the next gateway mesh group address for a floor target inside the caller transaction", async () => {
     const tx: any = {
@@ -75,7 +81,11 @@ describe("MeshControlGroupService", () => {
         findFirst: jest.fn().mockResolvedValue(existingGroup),
         create: jest.fn()
       },
-      $queryRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: gatewayId,
+        siteId: "site-1",
+        nextMeshGroupAddress: 0xc020
+      }]),
       gateway: {
         findUnique: jest.fn().mockResolvedValue({ id: gatewayId, siteId: "site-1" }),
         update: jest.fn()
@@ -87,9 +97,47 @@ describe("MeshControlGroupService", () => {
     const service = new MeshControlGroupService();
 
     await expect(service.ensureFloorGroup(tx, gatewayId, floorId)).resolves.toBe(existingGroup);
-    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(tx.gateway.update).not.toHaveBeenCalled();
     expect(tx.meshControlGroup.create).not.toHaveBeenCalled();
+  });
+
+  it("locks the gateway before looking up an existing control group", async () => {
+    const existingGroup = {
+      id: "group-1",
+      gatewayId,
+      targetType: "floor",
+      targetId: floorId,
+      groupAddress: "0xc010",
+      status: "ready",
+      configurationVersion: 2,
+      lastError: null
+    };
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: gatewayId,
+        siteId: "site-1",
+        nextMeshGroupAddress: 0xc020
+      }]),
+      meshControlGroup: {
+        findFirst: jest.fn().mockResolvedValue(existingGroup)
+      },
+      gateway: {
+        findUnique: jest.fn().mockResolvedValue({ id: gatewayId, siteId: "site-1" })
+      },
+      floor: {
+        findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" })
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.ensureFloorGroup(tx, gatewayId, floorId)).resolves.toBe(existingGroup);
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(renderSqlCall(tx.$queryRaw.mock.calls[0])).toContain('FROM "Gateway"');
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.meshControlGroup.findFirst.mock.invocationCallOrder[0]
+    );
   });
 
   it("rejects an existing group when the target site no longer matches the gateway site", async () => {
@@ -112,7 +160,11 @@ describe("MeshControlGroupService", () => {
         findUnique: jest.fn().mockResolvedValue({ id: gatewayId, siteId: "site-1" }),
         update: jest.fn()
       },
-      $queryRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: gatewayId,
+        siteId: "site-1",
+        nextMeshGroupAddress: 0xc020
+      }]),
       floor: {
         findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-2" })
       }
@@ -122,7 +174,7 @@ describe("MeshControlGroupService", () => {
     await expect(service.ensureFloorGroup(tx, gatewayId, floorId)).rejects.toThrow(
       "floor does not belong to the gateway site"
     );
-    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(tx.gateway.update).not.toHaveBeenCalled();
   });
 
@@ -262,7 +314,9 @@ describe("MeshControlGroupService", () => {
 
   it("increments the version and resets every member when a ready group receives a new member", async () => {
     const tx: any = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "group-1", gatewayId, status: "ready", configurationVersion: 3 }]),
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc020 }])
+        .mockResolvedValue([{ id: "group-1", gatewayId, status: "ready", configurationVersion: 3 }]),
       meshNode: {
         findFirst: jest.fn().mockResolvedValue({ id: "node-2", gatewayId, gateway: { siteId: "site-1" } })
       },
@@ -318,7 +372,12 @@ describe("MeshControlGroupService", () => {
       fixtureGroupIds: []
     });
 
+    expect(renderSqlCall(tx.$queryRaw.mock.calls[0])).toContain('FROM "Gateway"');
+    expect(renderSqlCall(tx.$queryRaw.mock.calls[1])).toContain('FROM "MeshControlGroup"');
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.$queryRaw.mock.invocationCallOrder[1]
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
       tx.meshControlGroupMember.createMany.mock.invocationCallOrder[0]
     );
     expect(tx.meshControlGroupMember.createMany).toHaveBeenCalledWith({
@@ -349,7 +408,9 @@ describe("MeshControlGroupService", () => {
 
   it("keeps version 1 for the first member added to an empty configuring group", async () => {
     const tx: any = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "group-1", gatewayId, status: "configuring", configurationVersion: 1 }]),
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc020 }])
+        .mockResolvedValue([{ id: "group-1", gatewayId, status: "configuring", configurationVersion: 1 }]),
       meshNode: {
         findFirst: jest.fn().mockResolvedValue({ id: "node-1", gatewayId, gateway: { siteId: "site-1" } })
       },
@@ -404,7 +465,9 @@ describe("MeshControlGroupService", () => {
 
   it("does not mutate versions or statuses when the same member is attached again", async () => {
     const tx: any = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "group-1", gatewayId, status: "ready", configurationVersion: 3 }]),
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc020 }])
+        .mockResolvedValue([{ id: "group-1", gatewayId, status: "ready", configurationVersion: 3 }]),
       meshNode: {
         findFirst: jest.fn().mockResolvedValue({ id: "node-1", gatewayId, gateway: { siteId: "site-1" } })
       },
@@ -458,7 +521,9 @@ describe("MeshControlGroupService", () => {
 
   it("re-synchronizes an in-progress group without incrementing the version when another member is added", async () => {
     const tx: any = {
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "group-1", gatewayId, status: "configuring", configurationVersion: 4 }]),
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc020 }])
+        .mockResolvedValue([{ id: "group-1", gatewayId, status: "configuring", configurationVersion: 4 }]),
       meshNode: {
         findFirst: jest.fn().mockResolvedValue({ id: "node-2", gatewayId, gateway: { siteId: "site-1" } })
       },
@@ -534,6 +599,7 @@ describe("MeshControlGroupService", () => {
   it("attaches the floor group and existing fixture-group memberships in one call", async () => {
     const tx: any = {
       $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc020 }])
         .mockResolvedValueOnce([{ id: "floor-group", gatewayId, status: "configuring", configurationVersion: 1 }])
         .mockResolvedValueOnce([{ id: "fixture-group-1", gatewayId, status: "configuring", configurationVersion: 1 }]),
       meshNode: {
@@ -613,8 +679,67 @@ describe("MeshControlGroupService", () => {
     });
   });
 
+  it("accepts the production limit of 15 unique fixture groups plus the floor group", async () => {
+    const fixtureGroupIds = Array.from({ length: 15 }, (_, index) => `fixture-group-${index + 1}`);
+    const tx = createCapacityAttachTx(gatewayId, floorId, fixtureGroupIds);
+    const service = new MeshControlGroupService();
+
+    await expect(service.attachProvisionedNode(tx as never, {
+      meshNodeId: "node-1",
+      gatewayId,
+      floorId,
+      fixtureGroupIds
+    })).resolves.toBeUndefined();
+
+    expect(tx.meshControlGroupMember.createMany).toHaveBeenCalledTimes(16);
+  });
+
+  it("deduplicates fixture group IDs before applying the production subscription limit", async () => {
+    const fixtureGroupIds = Array.from({ length: 15 }, (_, index) => `fixture-group-${index + 1}`);
+    const sortedFixtureGroupIds = [...fixtureGroupIds].sort();
+    const tx = createCapacityAttachTx(gatewayId, floorId, fixtureGroupIds);
+    const service = new MeshControlGroupService();
+
+    await expect(service.attachProvisionedNode(tx as never, {
+      meshNodeId: "node-1",
+      gatewayId,
+      floorId,
+      fixtureGroupIds: [...fixtureGroupIds, fixtureGroupIds[0]]
+    })).resolves.toBeUndefined();
+
+    expect(tx.fixtureGroup.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: sortedFixtureGroupIds } })
+    }));
+    expect(tx.meshControlGroupMember.createMany).toHaveBeenCalledTimes(16);
+  });
+
+  it("rejects 16 unique fixture groups before acquiring locks or writing memberships", async () => {
+    const tx: any = {
+      $queryRaw: jest.fn(),
+      meshNode: { findFirst: jest.fn() },
+      meshControlGroupMember: { createMany: jest.fn() }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.attachProvisionedNode(tx, {
+      meshNodeId: "node-1",
+      gatewayId,
+      floorId,
+      fixtureGroupIds: Array.from({ length: 16 }, (_, index) => `fixture-group-${index + 1}`)
+    })).rejects.toThrow("a node can belong to at most 15 fixture groups");
+
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.meshNode.findFirst).not.toHaveBeenCalled();
+    expect(tx.meshControlGroupMember.createMany).not.toHaveBeenCalled();
+  });
+
   it("rejects attaching a node when the floor or fixture groups are outside the gateway site", async () => {
     const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: gatewayId,
+        siteId: "site-1",
+        nextMeshGroupAddress: 0xc020
+      }]),
       meshNode: {
         findFirst: jest.fn().mockResolvedValue({ id: "node-1", gatewayId, gateway: { siteId: "site-1" } })
       },
@@ -706,6 +831,7 @@ describe("MeshControlGroupService", () => {
     const tx: any = {
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{ id: gatewayId }])
+        .mockResolvedValueOnce([{ eventId: resyncInput.eventId }])
         .mockResolvedValueOnce([
           { id: "group-configuring", configurationVersion: 2 },
           { id: "group-failed", configurationVersion: 5 },
@@ -720,14 +846,14 @@ describe("MeshControlGroupService", () => {
     };
     const service = new MeshControlGroupService();
 
-    await expect(service.resetGatewayGroupsForResync(tx, { siteId, gatewayId })).resolves.toEqual({
+    await expect(service.resetGatewayGroupsForResync(tx, resyncInput)).resolves.toEqual({
       groupCount: 3,
       memberCount: 6
     });
 
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
     const gatewaySql = renderSqlCall(tx.$queryRaw.mock.calls[0]);
-    const groupsSql = renderSqlCall(tx.$queryRaw.mock.calls[1]);
+    const groupsSql = renderSqlCall(tx.$queryRaw.mock.calls[2]);
     expect(gatewaySql).toContain('FROM "Gateway"');
     expect(gatewaySql).toContain('"siteId" =');
     expect(gatewaySql).toContain("FOR UPDATE");
@@ -758,13 +884,14 @@ describe("MeshControlGroupService", () => {
     });
   });
 
-  it("keeps duplicate full resync requests idempotent at the same configuration version", async () => {
+  it("does not reset ready progress when the same resync event is delivered again", async () => {
     const tx: any = {
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{ id: gatewayId }])
+        .mockResolvedValueOnce([{ eventId: resyncInput.eventId }])
         .mockResolvedValueOnce([{ id: "group-ready", configurationVersion: 7 }])
         .mockResolvedValueOnce([{ id: gatewayId }])
-        .mockResolvedValueOnce([{ id: "group-ready", configurationVersion: 7 }]),
+        .mockResolvedValueOnce([]),
       meshControlGroup: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
@@ -774,13 +901,20 @@ describe("MeshControlGroupService", () => {
     };
     const service = new MeshControlGroupService();
 
-    await service.resetGatewayGroupsForResync(tx, { siteId, gatewayId });
-    await service.resetGatewayGroupsForResync(tx, { siteId, gatewayId });
+    await service.resetGatewayGroupsForResync(tx, resyncInput);
+    // The worker and subscription result handler can make this version ready
+    // before MQTT redelivers the original QoS 1 event.
+    tx.meshControlGroup.updateMany.mockClear();
+    tx.meshControlGroupMember.updateMany.mockClear();
+    await service.resetGatewayGroupsForResync(tx, resyncInput);
 
-    expect(tx.meshControlGroup.updateMany).toHaveBeenCalledTimes(2);
-    for (const call of tx.meshControlGroup.updateMany.mock.calls) {
-      expect(call[0].data).not.toHaveProperty("configurationVersion");
-    }
+    expect(tx.meshControlGroup.updateMany).not.toHaveBeenCalled();
+    expect(tx.meshControlGroupMember.updateMany).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(5);
+    const eventInsertSql = renderSqlCall(tx.$queryRaw.mock.calls[1]);
+    expect(eventInsertSql).toContain('INSERT INTO "ProcessedGatewayEvent"');
+    expect(eventInsertSql).toContain("ON CONFLICT DO NOTHING");
+    expect(eventInsertSql).toContain("RETURNING");
   });
 
   it("ignores a resync request outside the site and gateway boundary", async () => {
@@ -791,7 +925,7 @@ describe("MeshControlGroupService", () => {
     };
     const service = new MeshControlGroupService();
 
-    await expect(service.resetGatewayGroupsForResync(tx, { siteId, gatewayId })).resolves.toEqual({
+    await expect(service.resetGatewayGroupsForResync(tx, resyncInput)).resolves.toEqual({
       groupCount: 0,
       memberCount: 0
     });
@@ -804,4 +938,48 @@ describe("MeshControlGroupService", () => {
 
 function renderSqlCall(call: readonly unknown[]) {
   return String.raw({ raw: call[0] as readonly string[] }, ...call.slice(1));
+}
+
+function createCapacityAttachTx(gatewayId: string, floorId: string, fixtureGroupIds: string[]) {
+  const lockedGroup = {
+    id: "locked-group",
+    gatewayId,
+    status: "configuring",
+    configurationVersion: 1
+  };
+  const tx: any = {
+    $queryRaw: jest.fn()
+      .mockResolvedValueOnce([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc000 }])
+      .mockResolvedValue([lockedGroup]),
+    meshNode: {
+      findFirst: jest.fn().mockResolvedValue({ id: "node-1", gatewayId, gateway: { siteId: "site-1" } })
+    },
+    floor: {
+      findFirst: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }),
+      findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" })
+    },
+    gateway: {
+      findUnique: jest.fn().mockResolvedValue({ id: gatewayId, siteId: "site-1" })
+    },
+    fixtureGroup: {
+      findMany: jest.fn().mockResolvedValue(fixtureGroupIds.map((id) => ({ id, siteId: "site-1" }))),
+      findUnique: jest.fn().mockResolvedValue({ siteId: "site-1" })
+    },
+    meshControlGroup: {
+      findFirst: jest.fn(({ where }: { where: Record<string, string> }) => Promise.resolve({
+        id: where.targetType === "floor" ? "floor-group" : `mesh-${where.targetId}`,
+        gatewayId,
+        targetType: where.targetType,
+        targetId: where.targetId,
+        groupAddress: "0xc000",
+        status: "configuring",
+        configurationVersion: 1
+      }))
+    },
+    meshControlGroupMember: {
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      updateMany: jest.fn()
+    }
+  };
+  return tx;
 }

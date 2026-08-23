@@ -289,7 +289,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       if (!topicScope || topicScope.siteId !== event.siteId || topicScope.gatewayId !== event.gatewayId) return;
       await this.prisma.$transaction((tx) => this.meshControlGroups.resetGatewayGroupsForResync(tx, {
         siteId: event.siteId,
-        gatewayId: event.gatewayId
+        gatewayId: event.gatewayId,
+        eventId: event.eventId,
+        occurredAt: event.occurredAt
       }));
     }
   }
