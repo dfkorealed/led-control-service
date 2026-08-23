@@ -1,7 +1,8 @@
 const STORAGE_PREFIX = "led-control:active-command:";
+const RFC_4122_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isCommandId(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+  return typeof value === "string" && RFC_4122_UUID_PATTERN.test(value);
 }
 
 export function activeCommandStorageKey(siteId: string): string {
