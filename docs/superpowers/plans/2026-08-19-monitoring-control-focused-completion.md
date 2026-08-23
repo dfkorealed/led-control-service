@@ -1331,7 +1331,7 @@ git add apps/web/src/api apps/web/src/features/control apps/web/src/styles.css d
 git commit -m "feat(control): add fixture floor and zone selection"
 ```
 
-- [ ] **사용자 확인 Gate 14:** 구현 완료, 사용자 확인 대기. 화면 선택 흐름과 테스트를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 14:** 2026-08-23 사용자 승인 후 Task 15를 시작했다.
 
 ---
 
