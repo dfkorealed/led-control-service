@@ -1,5 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "./client";
+import type { CreateDimmingCommandInput } from "@led-control/shared";
+import { apiGet, apiPost } from "./client";
+
+export type CommandDeliveryMode = "unicast" | "parallel_unicast" | "mesh_group";
+
+export interface CreateDimmingCommandResponse {
+  id: string;
+  dispatchCount: number;
+  selectedTargetCount: number;
+  transmissionCount: number;
+  deliveryMode: CommandDeliveryMode;
+  terminalStatusUrl: string;
+}
 
 export type CommandStage = "queued" | "published" | "accepted" | "completed" | "partial_failed" | "failed" | "timed_out";
 
@@ -25,6 +37,10 @@ export interface CommandStatusResponse {
 }
 
 const terminalStages = new Set<CommandStage>(["completed", "partial_failed", "failed", "timed_out"]);
+
+export function createDimmingCommand(input: CreateDimmingCommandInput) {
+  return apiPost<CreateDimmingCommandResponse>("/commands/dimming", input);
+}
 
 export function useCommandStatus(commandId: string | null) {
   return useQuery({

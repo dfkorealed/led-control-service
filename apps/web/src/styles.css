@@ -890,6 +890,229 @@ button {
   align-items: start;
 }
 
+.control-target-picker {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.control-target-modes {
+  justify-self: start;
+}
+
+.control-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 140px 140px;
+  gap: 8px;
+}
+
+.control-search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 12px;
+  color: var(--muted);
+}
+
+.control-search-field:focus-within {
+  border-color: #7eaff2;
+  box-shadow: 0 0 0 3px rgba(11, 99, 229, 0.1);
+}
+
+.control-search-field input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.select-field.compact select {
+  min-height: 42px;
+  border-radius: 8px;
+}
+
+.control-selection-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.control-selection-actions span {
+  margin-right: auto;
+}
+
+.control-selection-actions button {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--primary);
+  padding: 5px 9px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.control-selection-actions button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.control-selection-limit {
+  min-height: 18px;
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.control-target-list {
+  display: grid;
+  align-content: start;
+  max-height: 520px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.control-fixture-row {
+  display: grid;
+  grid-template-columns: 20px 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  border-bottom: 1px solid var(--border);
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.control-fixture-row:last-child {
+  border-bottom: 0;
+}
+
+.control-fixture-row:hover,
+.control-fixture-row.selected {
+  background: var(--primary-soft);
+}
+
+.control-fixture-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.control-target-identity,
+.control-target-button > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.control-target-identity strong,
+.control-target-button strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-target-identity small,
+.control-target-button small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.control-target-value {
+  color: var(--primary);
+  font-weight: 900;
+}
+
+.control-target-button-list {
+  gap: 0;
+}
+
+.control-target-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 66px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: #ffffff;
+  padding: 10px 14px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.control-target-button:last-child {
+  border-bottom: 0;
+}
+
+.control-target-button:hover,
+.control-target-button.selected {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.control-target-button > span:last-child {
+  font-weight: 900;
+}
+
+.control-empty-state {
+  margin: 0;
+  padding: 28px 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.control-load-more {
+  justify-self: center;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--primary);
+  padding: 7px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.control-load-more:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.control-readonly-notice {
+  margin: 0;
+}
+
+.control-target-summary {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+.control-target-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .device-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -944,7 +1167,7 @@ button {
   display: grid;
   gap: 14px;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 8px;
   background: var(--panel);
   padding: 18px;
   box-shadow: var(--shadow);
@@ -953,7 +1176,7 @@ button {
 .dial-card {
   display: grid;
   gap: 12px;
-  border-radius: 18px;
+  border-radius: 8px;
   background: var(--primary);
   color: #ffffff;
   padding: 18px;
@@ -1969,6 +2192,10 @@ button.group-card {
     grid-template-columns: 1fr;
   }
 
+  .control-target-list {
+    max-height: 420px;
+  }
+
   .detail-panel {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2087,6 +2314,23 @@ button.group-card {
 
   .segmented-control {
     width: 100%;
+  }
+
+  .control-filter-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .control-search-field {
+    grid-column: 1 / -1;
+  }
+
+  .control-selection-actions {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .control-selection-actions span {
+    flex-basis: 100%;
   }
 
   .floor-editor-layout {

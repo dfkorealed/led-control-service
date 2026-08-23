@@ -1,49 +1,45 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { DimmingTarget } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthUser } from "../../api/auth";
-import { apiPost } from "../../api/client";
-import { useControlDashboard } from "../../api/queries";
-import { useCommandStatus, type CommandStage } from "../../api/commands";
+import { createDimmingCommand, useCommandStatus, type CommandStage } from "../../api/commands";
+import { useControlDashboard, type DashboardFixture } from "../../api/queries";
+import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicker";
 
-type ControlMode = "fixture" | "group";
+const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 
 export function ControlView({ siteId, userRole }: { siteId?: string; userRole: AuthUser["role"] }) {
-  const { data } = useControlDashboard(siteId);
+  const { data, isLoading, error } = useControlDashboard(siteId);
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<ControlMode>("fixture");
-  const [targetId, setTargetId] = useState("");
-  const [groupId, setGroupId] = useState("");
+  const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [commandId, setCommandId] = useState<string | null>(null);
   const commandQuery = useCommandStatus(commandId);
   const fixtures = useMemo(() => data?.floors.flatMap((floor) => floor.fixtures) ?? [], [data]);
-  const selectedFixture = fixtures.find((fixture) => fixture.id === targetId) ?? fixtures[0];
-  const groups = data?.groups ?? [];
-  const selectedGroup = groups.find((group) => group.id === groupId) ?? groups[0];
-  const selectedGroupFixtures = selectedGroup ? fixtures.filter((fixture) => selectedGroup.fixtureIds.includes(fixture.id)) : [];
-  const selectedTargetName = mode === "fixture" ? selectedFixture?.name : selectedGroup?.name;
-  const blockedFixture = mode === "fixture" ? selectedFixture : selectedGroupFixtures.find((fixture) => !fixture.controllable);
-  const blockMessage = blockedFixture && !blockedFixture.controllable
-    ? formatControlBlockReason(blockedFixture.controlBlockReason, mode === "group" ? blockedFixture.name : undefined)
+  const selected = useMemo(() => resolveSelection(data, fixtures, selection), [data, fixtures, selection]);
+  const blockedFixture = selected.fixtures.find((fixture) => !fixture.controllable);
+  const blockMessage = blockedFixture
+    ? formatControlBlockReason(blockedFixture.controlBlockReason, blockedFixture.name)
     : null;
   const readOnly = userRole === "viewer";
-  const canSubmit = Boolean(data && selectedTargetName && !blockMessage && !isSubmitting && !readOnly);
+  const target = selected.isValid ? toDimmingTarget(selection) : null;
+  const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !isSubmitting && !readOnly);
+
+  useEffect(() => {
+    setSelection(emptySelection);
+    setMessage("");
+    setCommandId(null);
+  }, [siteId]);
 
   async function submitCommand() {
-    const commandTargetId = mode === "fixture" ? targetId || selectedFixture?.id : groupId || selectedGroup?.id;
-    if (!data || !commandTargetId || readOnly) return;
+    if (!data || !target || !canSubmit) return;
 
     setIsSubmitting(true);
     setMessage("");
     try {
-      const command = await apiPost<{ id: string; dispatchCount: number }>("/commands/dimming", {
-        siteId: data.site.id,
-        targetType: mode,
-        targetId: commandTargetId,
-        brightness
-      });
+      const command = await createDimmingCommand({ siteId: data.site.id, target, brightness });
       setCommandId(command.id);
       setMessage("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.");
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -54,78 +50,60 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     }
   }
 
+  if (isLoading && !data) {
+    return <section className="control-screen"><p className="muted-text" role="status">제어 대상을 불러오는 중입니다.</p></section>;
+  }
+
+  if (error && !data) {
+    return <section className="control-screen"><p className="danger-text" role="alert">제어 대상을 불러오지 못했습니다.</p></section>;
+  }
+
+  if (!data) {
+    return <section className="control-screen"><p className="muted-text" role="status">제어 대상 데이터가 없습니다.</p></section>;
+  }
+
   return (
     <section className="control-screen">
       <div className="screen-heading">
         <div>
           <span className="eyebrow">수동 제어</span>
-          <h2>빠른 밝기 제어</h2>
-        </div>
-        <div className="segmented-control" aria-label="제어 모드">
-          <button className={mode === "fixture" ? "active" : ""} onClick={() => setMode("fixture")} disabled={readOnly}>
-            개별
-          </button>
-          <button className={mode === "group" ? "active" : ""} onClick={() => setMode("group")} disabled={readOnly}>
-            그룹
-          </button>
+          <h2>조명 밝기 제어</h2>
         </div>
       </div>
 
+      {readOnly ? (
+        <p className="danger-text control-readonly-notice" role="alert">
+          조회 전용 계정입니다. 조명 제어는 operator 또는 admin 계정으로만 수행할 수 있습니다.
+        </p>
+      ) : null}
+
       <div className="control-layout">
-        <div className="device-card-grid">
-          {mode === "fixture"
-            ? fixtures.slice(0, 8).map((fixture) => (
-                <button
-                  key={fixture.id}
-                  className={fixture.id === selectedFixture?.id ? "device-control-card active" : "device-control-card"}
-                  disabled={readOnly}
-                  onClick={() => {
-                    setTargetId(fixture.id);
-                    setBrightness(fixture.brightness);
-                    setMessage("");
-                  }}
-                >
-                  <span className={`device-state ${fixture.status === "fault" ? "danger" : fixture.status === "offline" ? "muted" : ""}`} />
-                  <div className="device-control-identity">
-                    <strong>{fixture.name}</strong>
-                    <small>{controlHealthLabel(fixture.health)}</small>
-                  </div>
-                  <span>{fixture.brightness}%</span>
-                </button>
-              ))
-            : groups.map((group) => (
-                <button
-                  key={group.id}
-                  className={group.id === selectedGroup?.id ? "device-control-card active" : "device-control-card"}
-                  disabled={readOnly}
-                  onClick={() => {
-                    setGroupId(group.id);
-                    setMessage("");
-                  }}
-                >
-                  <span className="device-state" />
-                  <strong>{group.name}</strong>
-                  <span>{group.fixtureIds.length}개</span>
-                </button>
-              ))}
-        </div>
+        <ControlTargetPicker
+          key={data.site.id}
+          dashboard={data}
+          selection={selection}
+          disabled={readOnly || isSubmitting}
+          onChange={(nextSelection) => {
+            setSelection(nextSelection);
+            setMessage("");
+          }}
+        />
 
         <aside className="control-panel">
           <div className="panel-title-row">
             <div>
-              <span className="eyebrow">{mode === "fixture" ? "선택 조명" : "선택 그룹"}</span>
-              <h3>{selectedTargetName ?? "대상 선택"}</h3>
+              <span className="eyebrow">선택 대상</span>
+              <h3>{selected.name}</h3>
             </div>
             <span className={`status-pill ${canSubmit ? "online" : "offline"}`}>
               {readOnly ? "조회 전용" : canSubmit ? "전송 가능" : blockMessage ? "제어 불가" : "대상 없음"}
             </span>
           </div>
 
-          {readOnly ? (
-            <p className="danger-text" role="alert">
-              조회 전용 계정입니다. 조명 제어는 operator 또는 admin 계정으로만 수행할 수 있습니다.
-            </p>
-          ) : null}
+          <div className="control-target-summary" aria-live="polite">
+            <strong>{selected.fixtures.length}개 선택 · 제어 불가 {selected.blockedCount}개</strong>
+            <span>{deliveryLabel(selection, selected.fixtures.length)}</span>
+          </div>
 
           <div className="dial-card">
             <span>밝기</span>
@@ -136,90 +114,95 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
               min="0"
               max="100"
               value={brightness}
-              disabled={readOnly}
+              disabled={readOnly || isSubmitting}
               onChange={(event) => setBrightness(Number(event.target.value))}
             />
           </div>
 
-          {mode === "fixture" ? (
-            <label className="select-field">
-              조명 선택
-              <select
-                value={targetId || selectedFixture?.id || ""}
-                disabled={readOnly}
-                onChange={(event) => {
-                  const fixture = fixtures.find((item) => item.id === event.target.value);
-                  setTargetId(event.target.value);
-                  if (fixture) setBrightness(fixture.brightness);
-                  setMessage("");
-                }}
-              >
-                {fixtures.map((fixture) => (
-                  <option key={fixture.id} value={fixture.id}>
-                    {fixture.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label className="select-field">
-              그룹 선택
-              <select
-                value={groupId || selectedGroup?.id || ""}
-                disabled={readOnly}
-                onChange={(event) => {
-                  setGroupId(event.target.value);
-                  setMessage("");
-                }}
-              >
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-              <small>{selectedGroupFixtures.length}개 조명에 같은 밝기를 적용합니다.</small>
-            </label>
-          )}
-
           <div className="preset-row">
             {[0, 30, 70, 100].map((value) => (
-              <button key={value} onClick={() => setBrightness(value)} disabled={readOnly}>
+              <button key={value} type="button" onClick={() => setBrightness(value)} disabled={readOnly || isSubmitting}>
                 {value}%
               </button>
             ))}
           </div>
 
-          <button className="primary-button" onClick={submitCommand} disabled={!canSubmit}>
-            {isSubmitting ? "전송 중" : "적용"}
+          <button className="primary-button" type="button" onClick={submitCommand} disabled={!canSubmit}>
+            {isSubmitting ? "전송 중" : "밝기 적용"}
           </button>
-          {blockMessage && <p className="danger-text" role="alert">{blockMessage}</p>}
-          {message && <p className="success-text">{message}</p>}
-          {commandQuery.data && <CommandProgress status={commandQuery.data} />}
-          {commandQuery.error && <p className="danger-text" role="alert">명령 처리 상태를 불러오지 못했습니다.</p>}
+          {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
+          {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
+          {commandQuery.data ? <CommandProgress status={commandQuery.data} /> : null}
+          {commandQuery.error ? <p className="danger-text" role="alert">명령 처리 상태를 불러오지 못했습니다.</p> : null}
         </aside>
-      </div>
-
-      <div className="group-strip">
-        {groups.map((group) => (
-          <button
-            className={group.id === selectedGroup?.id && mode === "group" ? "group-card active" : "group-card"}
-            key={group.id}
-            disabled={readOnly}
-            onClick={() => {
-              setMode("group");
-              setGroupId(group.id);
-              setMessage("");
-            }}
-          >
-            <span>그룹</span>
-            <strong>{group.name}</strong>
-            <small>{group.fixtureIds.length}개 조명</small>
-          </button>
-        ))}
       </div>
     </section>
   );
+}
+
+function resolveSelection(
+  data: ReturnType<typeof useControlDashboard>["data"],
+  fixtures: DashboardFixture[],
+  selection: ControlSelection
+) {
+  if (!data) return { name: "대상 선택", fixtures: [], blockedCount: 0, isValid: false };
+
+  if (selection.mode === "fixtures") {
+    const byId = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
+    const selectedFixtures = selection.fixtureIds.flatMap((id) => {
+      const fixture = byId.get(id);
+      return fixture ? [fixture] : [];
+    });
+    return selectionResult(
+      selectedFixtures.length === 1 ? selectedFixtures[0].name : selectedFixtures.length > 1 ? `${selectedFixtures.length}개 조명` : "대상 선택",
+      selectedFixtures,
+      selection.fixtureIds.length > 0 && selectedFixtures.length === selection.fixtureIds.length
+    );
+  }
+
+  if (selection.mode === "floor") {
+    const floor = data.floors.find((item) => item.id === selection.floorId);
+    return selectionResult(floor?.name ?? "층 선택", floor?.fixtures ?? [], Boolean(floor));
+  }
+
+  const group = data.groups.find((item) => item.id === selection.groupId);
+  const fixtureById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
+  const groupFixtures = group?.fixtureIds.flatMap((id) => {
+    const fixture = fixtureById.get(id);
+    return fixture ? [fixture] : [];
+  }) ?? [];
+  return selectionResult(
+    group?.name ?? "구역 선택",
+    groupFixtures,
+    Boolean(group && group.fixtureIds.length > 0 && groupFixtures.length === group.fixtureIds.length)
+  );
+}
+
+function selectionResult(name: string, fixtures: DashboardFixture[], isValid: boolean) {
+  return {
+    name,
+    fixtures,
+    blockedCount: fixtures.filter((fixture) => !fixture.controllable).length,
+    isValid
+  };
+}
+
+function toDimmingTarget(selection: ControlSelection): DimmingTarget | null {
+  if (selection.mode === "fixtures") {
+    if (selection.fixtureIds.length === 0) return null;
+    return selection.fixtureIds.length === 1
+      ? { type: "fixture", fixtureId: selection.fixtureIds[0] }
+      : { type: "fixtures", fixtureIds: selection.fixtureIds };
+  }
+  if (selection.mode === "floor") return selection.floorId ? { type: "floor", floorId: selection.floorId } : null;
+  return selection.groupId ? { type: "group", groupId: selection.groupId } : null;
+}
+
+function deliveryLabel(selection: ControlSelection, fixtureCount: number) {
+  if (selection.mode === "floor" || selection.mode === "group") return "BLE Mesh 그룹 전송";
+  if (fixtureCount === 1) return "BLE Mesh 개별 전송";
+  if (fixtureCount > 1) return "BLE Mesh 다중 대상 전송";
+  return "대상을 선택하세요";
 }
 
 function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof useCommandStatus>["data"]> }) {
@@ -256,9 +239,8 @@ function commandStageLabel(stage: CommandStage) {
 
 function formatControlBlockReason(
   reason: "fixture_unmapped" | "gateway_offline" | "fixture_fault" | "fixture_offline" | null,
-  fixtureName?: string
+  fixtureName: string
 ) {
-  const prefix = fixtureName ? `${fixtureName}: ` : "";
   const detail = reason === "fixture_unmapped"
     ? "게이트웨이에 매핑되지 않았습니다."
     : reason === "gateway_offline"
@@ -268,10 +250,5 @@ function formatControlBlockReason(
         : reason === "fixture_offline"
           ? "조명이 오프라인입니다."
           : "현재 제어할 수 없습니다.";
-  return `${prefix}${detail}`;
-}
-
-function controlHealthLabel(health: { faultCodes: number[]; observedAt: string } | null) {
-  if (!health) return "Health 확인 대기";
-  return health.faultCodes.length > 0 ? "Health 장애" : "Health 정상";
+  return `${fixtureName}: ${detail}`;
 }

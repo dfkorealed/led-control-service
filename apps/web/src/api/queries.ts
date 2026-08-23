@@ -59,6 +59,10 @@ export interface SiteSummary {
   customerName?: string;
 }
 
+export type DashboardFloor = Dashboard["floors"][number];
+export type DashboardFixture = DashboardFloor["fixtures"][number];
+export type DashboardGroup = Dashboard["groups"][number];
+
 function dashboardPath(siteId?: string, includeFixtures = false) {
   const path = siteId ? `/sites/${encodeURIComponent(siteId)}/dashboard` : "/sites/default/dashboard";
   return includeFixtures ? `${path}?includeFixtures=true` : path;

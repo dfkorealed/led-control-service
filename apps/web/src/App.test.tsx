@@ -408,11 +408,13 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    expect(await screen.findByText("게이트웨이가 오프라인입니다.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "적용" })).toBeDisabled();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
+
+    expect(await screen.findByText("B2-L01: 게이트웨이가 오프라인입니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
 
-  it("blocks a group when one of its fixtures is uncontrollable", async () => {
+  it("blocks a zone when one of its fixtures is uncontrollable", async () => {
     apiState.dashboard = {
       ...mockDashboard,
       floors: mockDashboard.floors.map((floor, floorIndex) => ({
@@ -432,9 +434,13 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(screen.getByRole("button", { name: "그룹" }));
+    const zoneModeButton = await screen.findByRole("button", { name: "구역" });
+    fireEvent.click(zoneModeButton);
+    expect(zoneModeButton).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "B2 Entrance Zone 선택" }));
+
     expect(await screen.findByText("B2-L02: 조명이 오프라인입니다.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "적용" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
 
   it("shows unregistered gateway status when the dashboard has no gateways", async () => {
@@ -594,7 +600,7 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    expect(await screen.findByText("빠른 밝기 제어")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "통계" }));
     expect(await screen.findByText("에너지 리포트")).toBeInTheDocument();
@@ -652,16 +658,20 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("button", { name: "그룹" }));
-    fireEvent.click(screen.getAllByRole("button", { name: /B2 Entrance Zone/ })[0]);
+    const zoneModeButton = await screen.findByRole("button", { name: "구역" });
+    fireEvent.click(zoneModeButton);
+    expect(zoneModeButton).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "B2 Entrance Zone 선택" }));
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
-    fireEvent.click(screen.getByRole("button", { name: "적용" }));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
 
     await waitFor(() =>
       expect(apiPost).toHaveBeenCalledWith("/commands/dimming", {
         siteId: mockDashboard.site.id,
-        targetType: "group",
-        targetId: mockDashboard.groups[0].id,
+        target: {
+          type: "group",
+          groupId: mockDashboard.groups[0].id
+        },
         brightness: 30
       })
     );
@@ -697,11 +707,23 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    const applyButton = screen.getByRole("button", { name: "적용" });
+    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "B2-L02 선택" }));
+    const applyButton = screen.getByRole("button", { name: "밝기 적용" });
     await waitFor(() => expect(applyButton).toBeEnabled());
     fireEvent.click(applyButton);
 
-    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/commands/dimming", expect.any(Object)));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/commands/dimming", {
+      siteId: mockDashboard.site.id,
+      target: {
+        type: "fixtures",
+        fixtureIds: [
+          mockDashboard.floors[0].fixtures[0].id,
+          mockDashboard.floors[0].fixtures[1].id
+        ]
+      },
+      brightness: 70
+    }));
     expect(await screen.findByText("일부 조명 적용 실패", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
@@ -727,8 +749,14 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
     expect(await screen.findByText("조회 전용 계정입니다. 조명 제어는 operator 또는 admin 계정으로만 수행할 수 있습니다."))
       .toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "적용" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "적용" }));
+    const fixtureModeButton = screen.getByRole("button", { name: "개별/다중" });
+    expect(fixtureModeButton).toHaveAttribute("aria-pressed", "true");
+    expect(fixtureModeButton).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "B2-L01 선택" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    const applyButton = screen.getByRole("button", { name: "밝기 적용" });
+    expect(applyButton).toBeDisabled();
+    fireEvent.click(applyButton);
     expect(apiPost).not.toHaveBeenCalledWith("/commands/dimming", expect.anything());
     expect(screen.queryByText("명령 전송에 실패했습니다. 대상 상태와 게이트웨이 연결을 확인하세요.")).not.toBeInTheDocument();
   });
