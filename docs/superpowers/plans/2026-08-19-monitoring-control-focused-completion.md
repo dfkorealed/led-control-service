@@ -1250,7 +1250,7 @@ Gateway는 resync 요청과 고정 `eventId`를 디스크에 영속화하고 MQT
 
 Mesh TID 저장소는 목적지별 독립 순환을 보장하는 v2 형식으로 전환하고 기존 v1 파일을 자동 마이그레이션한다. 최대 1,000개 목적지의 다음 32개 TID 블록을 한 번의 원자 저장으로 예약해 재시작 안전성과 대량 unicast 성능을 함께 유지한다. API resync는 신규 이벤트마다 각 group의 `configurationVersion`을 정확히 한 번 증가시키며, 동일 `eventId` 재전달은 버전을 다시 올리지 않고 ACK만 재발행한다. 따라서 resync 이전 버전의 지연 subscription 결과가 group을 `ready`로 되돌릴 수 없다.
 
-- [ ] **사용자 확인 Gate 13:** 단일 전송 증거와 firmware build 결과를 보고하고 다음 Task 승인을 기다린다.
+- [x] **사용자 확인 Gate 13:** 2026-08-23 사용자 승인 후 Task 14를 시작했다.
 
 ---
 
