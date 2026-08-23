@@ -119,7 +119,7 @@ test("customer admin can view monitoring dashboard and navigate primary sections
 
   await page.getByRole("link", { name: "제어" }).click();
   await expect(page.getByRole("heading", { name: "제어", exact: true })).toBeVisible();
-  await expect(page.getByText("빠른 밝기 제어")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
 
   await page.getByRole("link", { name: "통계" }).click();
   await expect(page.getByRole("heading", { name: "통계", exact: true })).toBeVisible();
