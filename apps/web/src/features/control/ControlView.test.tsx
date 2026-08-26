@@ -112,6 +112,7 @@ describe("ControlView 대상 선택", () => {
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", {
       siteId: dashboard.site.id,
+      clientRequestId: expect.any(String),
       target: { type: "fixture", fixtureId: fixtureIds.b2First },
       brightness: 70
     }));
@@ -164,6 +165,7 @@ describe("ControlView 대상 선택", () => {
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", {
       siteId: dashboard.site.id,
+      clientRequestId: expect.any(String),
       target: { type: "fixtures", fixtureIds: [fixtureIds.b2First, fixtureIds.b2Second] },
       brightness: 30
     }));
@@ -179,6 +181,7 @@ describe("ControlView 대상 선택", () => {
     fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
     await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", {
       siteId: dashboard.site.id,
+      clientRequestId: expect.any(String),
       target: { type: "floor", floorId: dashboard.floors[1].id },
       brightness: 70
     }));
@@ -197,6 +200,7 @@ describe("ControlView 대상 선택", () => {
     fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
     await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", {
       siteId: dashboard.site.id,
+      clientRequestId: expect.any(String),
       target: { type: "group", groupId: dashboard.groups[0].id },
       brightness: 70
     }));

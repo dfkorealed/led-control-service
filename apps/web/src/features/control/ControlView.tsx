@@ -79,7 +79,12 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     setIsSubmitting(true);
     setMessage("");
     try {
-      const command = await createDimmingCommand({ siteId: data.site.id, target, brightness });
+      const command = await createDimmingCommand({
+        siteId: data.site.id,
+        clientRequestId: crypto.randomUUID(),
+        target,
+        brightness
+      });
       saveActiveCommandId(data.site.id, command.id);
       setCommandSiteId(data.site.id);
       setCommandId(command.id);
