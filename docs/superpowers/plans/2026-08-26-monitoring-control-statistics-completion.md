@@ -213,11 +213,11 @@
 
 **Produces:** 180초 known/unknown 일별 적산, powerOn, 열린 구간 기반, PUBACK 후 application ACK durable outbox.
 
-- [ ] 중복·역순·OFF·첫 상태·180초·자정/DST·Decimal 테스트를 작성한다.
-- [ ] durable outbox 재시작·ACK·100k/100MiB fail-closed 테스트를 작성한다.
-- [ ] RED 확인 후 transaction 적산과 MQTT 5 ACK 경계를 구현한다.
-- [ ] API·Gateway 테스트와 typecheck를 실행한다.
-- [ ] 통계 문서를 갱신하고 `feat(energy): persist state based energy usage`로 커밋한다.
+- [x] 중복·역순·OFF·첫 상태·180초·자정/DST·Decimal 테스트를 작성한다.
+- [x] durable outbox 재시작·ACK·100k/100MiB fail-closed 테스트를 작성한다.
+- [x] RED 확인 후 transaction 적산과 MQTT 5 ACK 경계를 구현한다.
+- [x] API·Gateway 테스트와 typecheck를 실행한다.
+- [x] 통계 문서를 갱신하고 `feat(energy): persist state based energy usage`로 커밋한다.
 
 ### Task 9: 통계 summary와 series API
 
@@ -230,11 +230,11 @@
 
 **Produces:** summary, day/month series, fixture별 forecast, 실제 월 UTC 초 24시간 baseline, coverage gate.
 
-- [ ] 권한, no-data, partial, fixture별 1시간, 현장 80%, DST baseline 테스트를 작성한다.
-- [ ] RED 확인 후 열린 구간 projection과 period query를 구현한다.
-- [ ] 기존 estimate endpoint는 deprecated 병행한다.
-- [ ] API unit/integration/typecheck/build를 실행한다.
-- [ ] `feat(energy): add summary forecast and time series`로 커밋한다.
+- [x] 권한, no-data, partial, fixture별 1시간, 현장 80%, DST baseline 테스트를 작성한다.
+- [x] RED 확인 후 열린 구간 projection과 period query를 구현한다.
+- [x] 기존 estimate endpoint는 deprecated 병행한다.
+- [x] API unit/integration/typecheck/build를 실행한다.
+- [x] `feat(energy): add summary forecast and time series`로 커밋한다.
 
 ### Task 10: 통계 Web과 실제 브라우저 QA
 
@@ -249,11 +249,11 @@
 
 **Produces:** 오늘·월·년 카드, day/month LineChart, forecast·baseline·절감 비용, no-data/partial 상태.
 
-- [ ] Recharts UI와 접근성, null point, empty/partial 테스트를 작성한다.
-- [ ] `recharts`를 설치하고 API query와 responsive chart를 구현한다.
-- [ ] Web test/typecheck/build를 실행한다.
+- [x] Recharts UI와 접근성, null point, empty/partial 테스트를 작성한다.
+- [x] `recharts`를 설치하고 API query와 responsive chart를 구현한다.
+- [x] Web test/typecheck/build를 실행한다.
 - [ ] 실제 Chromium에서 데이터 없음, 정상·부분 수집, 탭·tooltip·비용을 QA한다.
-- [ ] 문서를 갱신하고 `feat(statistics): add energy history and savings report`로 커밋한다.
+- [x] 문서를 갱신하고 `feat(statistics): add energy history and savings report`로 커밋한다.
 
 ### Task 11: 최초 설치부터 고객 운영까지 브라우저 E2E
 
