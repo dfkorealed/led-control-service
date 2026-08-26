@@ -171,6 +171,43 @@ describe("EnergyService", () => {
     expect(result.estimatedSavings).toEqual({ kwh: null, cost: null });
   });
 
+  it("fails closed at 79.99% site coverage even when every fixture has at least one known hour", async () => {
+    const generatedAt = new Date("2026-08-01T05:40:00.000Z");
+    jest.useFakeTimers().setSystemTime(generatedAt);
+    const fixtures = coverageBoundaryFixtures(generatedAt, 4_399);
+    const { service } = createStateBasedService({ timeZone: "America/New_York", fixtures });
+
+    const result = await service.getSiteSummary(user, "site-1");
+
+    expect(result.monthToDate).toMatchObject({ knownSeconds: 7_999, unknownSeconds: 2_001, dataStatus: "partial" });
+    expect(result.monthForecast).toEqual({
+      estimatedKwh: null,
+      estimatedCost: null,
+      observedKnownSeconds: 7_999,
+      reason: "insufficient_state"
+    });
+    expect(result.estimatedSavings).toEqual({ kwh: null, cost: null });
+  });
+
+  it("allows forecast at exactly 80% site coverage with different fixture tracking starts", async () => {
+    const generatedAt = new Date("2026-08-01T05:40:00.000Z");
+    jest.useFakeTimers().setSystemTime(generatedAt);
+    const fixtures = coverageBoundaryFixtures(generatedAt, 4_400);
+    const { service } = createStateBasedService({ timeZone: "America/New_York", fixtures });
+
+    const result = await service.getSiteSummary(user, "site-1");
+
+    expect(result.monthToDate).toMatchObject({ knownSeconds: 8_000, unknownSeconds: 2_000, dataStatus: "partial" });
+    expect(result.monthForecast).toMatchObject({
+      observedKnownSeconds: 8_000,
+      reason: "available"
+    });
+    expect(result.monthForecast.estimatedKwh).not.toBeNull();
+    expect(result.monthForecast.estimatedCost).not.toBeNull();
+    expect(result.estimatedSavings.kwh).not.toBeNull();
+    expect(result.estimatedSavings.cost).not.toBeNull();
+  });
+
   it("returns every day in an inclusive series range and keeps empty points null", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-08-04T00:00:00.000Z"));
     const fixture = stateFixture({
@@ -304,6 +341,23 @@ function stateFixture(input: Record<string, any> = {}) {
     energyStateCursor: input.cursor ?? null,
     energyDailyAggregates: input.aggregates ?? []
   };
+}
+
+function coverageBoundaryFixtures(generatedAt: Date, firstFixtureKnownSeconds: number) {
+  return [
+    stateFixture({
+      id: "fixture-coverage-1",
+      energyTrackingStartedAt: new Date("2026-08-01T04:00:00.000Z"),
+      aggregates: [aggregate("2026-08-01", 0.1, firstFixtureKnownSeconds, 6_000 - firstFixtureKnownSeconds)],
+      cursor: stateCursor(generatedAt)
+    }),
+    stateFixture({
+      id: "fixture-coverage-2",
+      energyTrackingStartedAt: new Date("2026-08-01T04:33:20.000Z"),
+      aggregates: [aggregate("2026-08-01", 0.1, 3_600, 400)],
+      cursor: stateCursor(generatedAt)
+    })
+  ];
 }
 
 function createStateBasedService(input: { timeZone?: string; fixtures?: any[] } = {}) {
