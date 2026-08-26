@@ -12,6 +12,8 @@ export const mqttTopicsV2 = {
     `sites/${siteId}/gateways/${gatewayId}/commands/${kind}`,
   acceptanceAck: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/acks/acceptance`,
   deviceStatusAck: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/acks/device-status`,
+  stateIngestedAck: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`,
   fixtureState: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/fixtures`,
   heartbeat: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/heartbeat`,
   meshGroupResyncRequest: (siteId: string, gatewayId: string) =>
@@ -156,6 +158,14 @@ export const deviceStatusAckV2Schema = commandIdentitySchema.extend({
   results: z.array(deviceCommandResultV2Schema).min(1)
 });
 
+// Broker PUBACK only confirms transport; this acknowledgement permits durable state outbox deletion.
+export const applicationStateIngestedAckV2Schema = z.object({
+  eventId: z.string().uuid(),
+  sequence: z.number().int().nonnegative(),
+  fixtureId: z.string().uuid(),
+  ingestedAt: z.string().datetime()
+}).strict();
+
 export const healthFaultCodesSchema = z.array(z.number().int().min(0).max(0xff)).max(0xff);
 
 export const fixtureHealthSnapshotSchema = z.object({
@@ -197,6 +207,7 @@ export type GatewayDimmingCommandV2 = z.infer<typeof gatewayDimmingCommandV2Sche
 export type GatewayDimmingCommandDraftV2 = z.infer<typeof gatewayDimmingCommandDraftV2Schema>;
 export type AcceptanceAckV2 = z.infer<typeof acceptanceAckV2Schema>;
 export type DeviceStatusAckV2 = z.infer<typeof deviceStatusAckV2Schema>;
+export type ApplicationStateIngestedAckV2 = z.infer<typeof applicationStateIngestedAckV2Schema>;
 export type FixtureStateV2 = z.infer<typeof fixtureStateV2Schema>;
 export type GatewayHeartbeatV2 = z.infer<typeof gatewayHeartbeatV2Schema>;
 export type MeshGroupResyncRequestV2 = z.infer<typeof meshGroupResyncRequestV2Schema>;

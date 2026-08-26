@@ -58,6 +58,20 @@ enum ProvisioningSessionStatus {
   cancelled
 }
 
+enum ProvisioningScanStatus {
+  pending
+  scanning
+  completed
+  failed
+}
+
+enum FixtureGroupLifecycleStatus {
+  active
+  retiring
+  retired
+  invalid
+}
+
 enum DiscoveredNodeStatus {
   discovered
   identifying
@@ -132,6 +146,7 @@ model Site {
   name                 String
   address              String
   tariffKwhRate        Decimal               @db.Decimal(10, 2)
+  timeZone             String                @default("Asia/Seoul")
   organization         Organization          @relation(fields: [organizationId], references: [id])
   floors               Floor[]
   gateways             Gateway[]
@@ -163,6 +178,7 @@ model Floor {
   site                 Site                  @relation(fields: [siteId], references: [id])
   floorPlan            FloorPlan?
   fixtures             Fixture[]
+  fixtureGroups        FixtureGroup[]
   mapObjects           FloorMapObject[]
   assets               FloorAsset[]
   provisioningSessions ProvisioningSession[]
@@ -274,10 +290,14 @@ model Fixture {
   statusReason        String?
   healthFaultCodes    Json?
   healthLastSeenAt    DateTime?
+  energyTrackingStartedAt DateTime           @default(now())
+  firstStateOccurredAt DateTime?
+  powerOn             Boolean?
   floor               Floor                  @relation(fields: [floorId], references: [id])
   meshNode            MeshNode?              @relation(fields: [meshNodeId], references: [id])
   groupFixtures       GroupFixture[]
   energyUsages        EnergyUsage[]
+  energyDailyAggregates FixtureEnergyDailyAggregate[]
   commandResults      CommandFixtureResult[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
@@ -312,13 +332,20 @@ model FloorMapObject {
 }
 
 model FixtureGroup {
-  id            String         @id @default(uuid())
-  siteId        String
-  name          String
-  site          Site           @relation(fields: [siteId], references: [id])
-  groupFixtures GroupFixture[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id              String                      @id @default(uuid())
+  siteId          String
+  floorId         String?
+  gatewayId       String?
+  name            String
+  lifecycleStatus FixtureGroupLifecycleStatus @default(active)
+  site            Site                        @relation(fields: [siteId], references: [id])
+  floor           Floor?                      @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  gateway         Gateway?                    @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
+  groupFixtures   GroupFixture[]
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+
+  @@index([siteId, floorId, gatewayId, lifecycleStatus])
 }
 
 model GroupFixture {
@@ -351,6 +378,7 @@ model Gateway {
   inventory               GatewayInventory?       @relation("GatewayInventoryClaim")
   meshNodes               MeshNode[]
   meshControlGroups       MeshControlGroup[]
+  fixtureGroups           FixtureGroup[]
   provisioningSessions    ProvisioningSession[]
   commandDispatches       CommandDispatch[]
   processedEvents         ProcessedGatewayEvent[]
@@ -463,12 +491,19 @@ enum MeshControlGroupStatus {
   configuring
   ready
   failed
+  retiring
+  retired
 }
 
 enum MeshControlGroupMemberSubscriptionStatus {
   pending
   applied
   failed
+}
+
+enum MeshControlGroupMemberOperation {
+  add
+  delete
 }
 
 model MeshControlGroup {
@@ -497,8 +532,11 @@ model MeshControlGroupMember {
   gatewayId           String
   meshNodeId          String
   subscriptionStatus  MeshControlGroupMemberSubscriptionStatus @default(pending)
+  desired             Boolean                                 @default(true)
   appliedVersion      Int                                     @default(0)
   statusVersion       Int                                     @default(0)
+  operationId         String?
+  operation           MeshControlGroupMemberOperation?
   lastError           String?
   group               MeshControlGroup                        @relation(fields: [groupId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
   meshNode            MeshNode                                @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
@@ -515,6 +553,8 @@ model Command {
   id           String            @id @default(uuid())
   siteId       String
   requestedBy  String
+  clientRequestId String
+  requestFingerprint String
   targetType   String
   targetId     String?
   targetFixtureIds Json               @default("[]")
@@ -528,6 +568,7 @@ model Command {
   updatedAt    DateTime          @updatedAt
 
   @@index([siteId, createdAt])
+  @@unique([siteId, requestedBy, clientRequestId])
 }
 
 model CommandDispatch {
@@ -648,6 +689,13 @@ model ProvisioningSession {
   gatewayId       String
   requestedBy     String
   status          ProvisioningSessionStatus @default(active)
+  scanStatus      ProvisioningScanStatus    @default(pending)
+  scanCorrelationId String?
+  scanAttempt     Int                       @default(0)
+  scanStartedAt   DateTime?
+  scanCompletedAt DateTime?
+  scanFailureCode String?
+  scanFailureMessage String?
   site            Site                      @relation(fields: [siteId], references: [id])
   floor           Floor                     @relation(fields: [floorId], references: [id])
   gateway         Gateway                   @relation(fields: [gatewayId], references: [id])
@@ -657,6 +705,8 @@ model ProvisioningSession {
   completedAt     DateTime?
   createdAt       DateTime                  @default(now())
   updatedAt       DateTime                  @updatedAt
+
+  @@index([gatewayId, scanStatus])
 }
 
 model DiscoveredMeshNode {
@@ -693,4 +743,20 @@ model EnergyUsage {
   cost      Decimal  @db.Decimal(12, 2)
   fixture   Fixture  @relation(fields: [fixtureId], references: [id])
   createdAt DateTime @default(now())
+}
+
+model FixtureEnergyDailyAggregate {
+  id               String   @id @default(uuid())
+  fixtureId        String
+  localDate        DateTime @db.Date
+  estimatedKwh     Decimal  @db.Decimal(20, 12)
+  estimatedCost    Decimal  @db.Decimal(20, 8)
+  knownSeconds     Int      @default(0)
+  unknownSeconds   Int      @default(0)
+  fixture          Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([fixtureId, localDate])
+  @@index([localDate])
 }

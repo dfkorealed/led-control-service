@@ -381,12 +381,13 @@ export type RegisterFixtureBatchInput = z.infer<typeof registerFixtureBatchSchem
 
 export const provisioningScanStartSchema = z.object({
   sessionId: z.string().uuid(),
+  scanCorrelationId: z.string().uuid(),
+  scanAttempt: positiveInt4Schema,
   siteId: z.string().uuid(),
   gatewayId: z.string().uuid(),
   floorId: z.string().uuid(),
-  requestedBy: z.string().uuid(),
   requestedAt: z.string().datetime()
-});
+}).strict();
 
 export const identifyDeviceSchema = z.object({
   sessionId: z.string().uuid(),
@@ -409,13 +410,45 @@ export const provisionDeviceSchema = z.object({
 
 export const unprovisionedDeviceFoundSchema = z.object({
   sessionId: z.string().uuid(),
+  scanCorrelationId: z.string().uuid(),
+  scanAttempt: positiveInt4Schema,
+  siteId: z.string().uuid(),
+  gatewayId: z.string().uuid(),
   deviceUuid: z.string().min(1),
   serialNumber: z.string().min(1),
   rssi: z.number().max(0),
   oobCapability: z.enum(["none", "static-oob", "output-oob", "input-oob"]),
   firmwareVersion: z.string().min(1),
   discoveredAt: z.string().datetime()
-});
+}).strict();
+
+const provisioningScanTerminalFields = {
+  siteId: z.string().uuid(),
+  gatewayId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  sequence: nonnegativeInt4Schema,
+  occurredAt: z.string().datetime(),
+  sessionId: z.string().uuid(),
+  scanCorrelationId: z.string().uuid(),
+  scanAttempt: positiveInt4Schema
+};
+
+export const provisioningScanCompletedSchema = z.object({
+  ...provisioningScanTerminalFields,
+  acceptedNodeCount: nonnegativeInt4Schema
+}).strict();
+
+export const provisioningScanFailedSchema = z.object({
+  ...provisioningScanTerminalFields,
+  code: z.enum([
+    "bluetooth_unavailable",
+    "mesh_unavailable",
+    "scan_start_failed",
+    "scan_runtime_failed",
+    "scan_timeout"
+  ]),
+  message: z.string().trim().min(1)
+}).strict();
 
 export const provisioningCompletedSchema = z.object({
   sessionId: z.string().uuid(),
@@ -438,7 +471,9 @@ export const provisioningFailedSchema = z.object({
 
 const meshAddressSchema = z.string().regex(/^0x[0-9a-f]{4}$/i);
 
-export const meshGroupSubscriptionMemberSchema = z.object({
+export const meshGroupSubscriptionOperationSchema = z.object({
+  operationId: z.string().uuid(),
+  action: z.enum(["add", "delete"]),
   meshNodeId: z.string().uuid(),
   meshAddress: meshAddressSchema
 }).strict();
@@ -449,11 +484,13 @@ export const meshGroupSubscriptionSyncSchema = z.object({
   groupId: z.string().uuid(),
   version: positiveInt4Schema,
   groupAddress: meshAddressSchema,
-  members: z.array(meshGroupSubscriptionMemberSchema).min(1),
+  operations: z.array(meshGroupSubscriptionOperationSchema).min(1).max(100),
   requestedAt: z.string().datetime()
 }).strict();
 
-export const meshGroupSubscriptionResultMemberSchema = z.object({
+export const meshGroupSubscriptionResultOperationSchema = z.object({
+  operationId: z.string().uuid(),
+  action: z.enum(["add", "delete"]),
   meshNodeId: z.string().uuid(),
   status: z.enum(["ready", "failed"]),
   error: z.string().min(1).optional()
@@ -465,7 +502,7 @@ export const meshGroupSubscriptionResultSchema = z.object({
   groupId: z.string().uuid(),
   version: positiveInt4Schema,
   groupAddress: meshAddressSchema,
-  members: z.array(meshGroupSubscriptionResultMemberSchema).min(1),
+  operations: z.array(meshGroupSubscriptionResultOperationSchema).min(1).max(100),
   occurredAt: z.string().datetime()
 }).strict();
 
@@ -499,6 +536,7 @@ export const dimmingTargetSchema = z.union([
 
 const createDimmingCommandFields = {
   siteId: z.string().uuid(),
+  clientRequestId: z.string().uuid(),
   brightness: z.number().int().min(0).max(100)
 };
 
@@ -513,6 +551,7 @@ const legacyCreateDimmingCommandSchema = z.object({
   targetId: z.string().uuid()
 }).strict().transform((input) => ({
   siteId: input.siteId,
+  clientRequestId: input.clientRequestId,
   target: input.targetType === "fixture"
     ? { type: "fixture" as const, fixtureId: input.targetId }
     : { type: "group" as const, groupId: input.targetId },

@@ -23,6 +23,8 @@ import {
   provisionDeviceSchema,
   provisioningCompletedSchema,
   provisioningFailedSchema,
+  provisioningScanCompletedSchema,
+  provisioningScanFailedSchema,
   provisioningScanStartSchema,
   restoreFloorEditorRevisionSchema,
   meshGroupSubscriptionResultSchema,
@@ -40,26 +42,31 @@ describe("shared schemas", () => {
 
     expect(createDimmingCommandSchema.parse({
       siteId,
+      clientRequestId: "33333333-3333-4333-8333-333333333333",
       target: { type: "fixtures", fixtureIds: [fixture1, fixture2] },
       brightness: 70
     }).target.type).toBe("fixtures");
     expect(createDimmingCommandSchema.parse({
       siteId,
+      clientRequestId: "33333333-3333-4333-8333-333333333333",
       target: { type: "floor", floorId: fixture1 },
       brightness: 70
     }).target.type).toBe("floor");
     expect(createDimmingCommandSchema.parse({
       siteId,
+      clientRequestId: "33333333-3333-4333-8333-333333333333",
       target: { type: "group", groupId: fixture1 },
       brightness: 70
     }).target.type).toBe("group");
     expect(createDimmingCommandRequestSchema.parse({
       siteId,
+      clientRequestId: "33333333-3333-4333-8333-333333333333",
       targetType: "fixture",
       targetId: fixture1,
       brightness: 70
     })).toEqual({
       siteId,
+      clientRequestId: "33333333-3333-4333-8333-333333333333",
       target: { type: "fixture", fixtureId: fixture1 },
       brightness: 70
     });
@@ -71,11 +78,13 @@ describe("shared schemas", () => {
 
     expect(() => createDimmingCommandSchema.parse({
       siteId,
+      clientRequestId: "33333333-3333-4333-8333-333333333333",
       target: { type: "fixtures", fixtureIds: [] },
       brightness: 70
     })).toThrow();
     expect(() => createDimmingCommandSchema.parse({
       siteId,
+      clientRequestId: "33333333-3333-4333-8333-333333333333",
       target: { type: "fixtures", fixtureIds: [fixtureId, fixtureId] },
       brightness: 70
     })).toThrow("fixtureIds must be unique");
@@ -134,7 +143,7 @@ describe("shared schemas", () => {
     })).toThrow();
   });
 
-  it("defines provisioning MQTT topics and validates discovered node events", () => {
+  it("correlates provisioning scan starts, found events, and terminal events", () => {
     expect(
       mqttTopics.provisioningScanStart(
         "00000000-0000-4000-8000-000000000003",
@@ -146,10 +155,11 @@ describe("shared schemas", () => {
 
     const scanCommand = provisioningScanStartSchema.parse({
       sessionId: "11111111-1111-4111-8111-111111111111",
+      scanCorrelationId: "99999999-9999-4999-8999-999999999999",
+      scanAttempt: 1,
       siteId: "00000000-0000-4000-8000-000000000003",
       gatewayId: "00000000-0000-4000-8000-000000000004",
       floorId: "00000000-0000-4000-8000-000000000005",
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: "2026-07-01T00:00:00.000Z"
     });
 
@@ -157,6 +167,10 @@ describe("shared schemas", () => {
 
     const discovered = unprovisionedDeviceFoundSchema.parse({
       sessionId: "11111111-1111-4111-8111-111111111111",
+      scanCorrelationId: "99999999-9999-4999-8999-999999999999",
+      scanAttempt: 1,
+      siteId: "00000000-0000-4000-8000-000000000003",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
       deviceUuid: "esp32h2-demo-001",
       serialNumber: "LC-B2-001",
       rssi: -54,
@@ -166,6 +180,46 @@ describe("shared schemas", () => {
     });
 
     expect(discovered.rssi).toBe(-54);
+
+    const completed = provisioningScanCompletedSchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      eventId: "44444444-4444-4444-8444-444444444444",
+      sequence: 8,
+      occurredAt: "2026-07-01T00:00:03.000Z",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      scanCorrelationId: "99999999-9999-4999-8999-999999999999",
+      scanAttempt: 1,
+      acceptedNodeCount: 0
+    });
+    expect(completed.acceptedNodeCount).toBe(0);
+
+    expect(provisioningScanFailedSchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      eventId: "55555555-5555-4555-8555-555555555555",
+      sequence: 9,
+      occurredAt: "2026-07-01T00:00:04.000Z",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      scanCorrelationId: "99999999-9999-4999-8999-999999999999",
+      scanAttempt: 1,
+      code: "scan_timeout",
+      message: "Bluetooth scan timed out"
+    }).code).toBe("scan_timeout");
+
+    expect(() => provisioningScanCompletedSchema.parse({ ...completed, scanAttempt: 0 })).toThrow();
+    expect(() => provisioningScanFailedSchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      eventId: "55555555-5555-4555-8555-555555555555",
+      sequence: 9,
+      occurredAt: "2026-07-01T00:00:04.000Z",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      scanCorrelationId: "99999999-9999-4999-8999-999999999999",
+      scanAttempt: 1,
+      code: "unknown",
+      message: "Bluetooth scan failed"
+    })).toThrow();
   });
 
   it("defines provisioning command and result event contracts", () => {
@@ -214,7 +268,7 @@ describe("shared schemas", () => {
     ).toBe("provisioning timeout");
   });
 
-  it("defines gateway-scoped mesh group subscription sync topics and payloads", () => {
+  it("defines desired Add/Delete mesh group reconciliation operations", () => {
     expect(
       mqttTopics.meshGroupSubscriptionSync(
         "00000000-0000-4000-8000-000000000003",
@@ -238,15 +292,17 @@ describe("shared schemas", () => {
       groupId: "00000000-0000-4000-8000-000000000005",
       version: 2,
       groupAddress: "0xc000",
-      members: [
+      operations: [
         {
+          operationId: "66666666-6666-4666-8666-666666666666",
+          action: "add",
           meshNodeId: "22222222-2222-4222-8222-222222222222",
           meshAddress: "0x0100"
         }
       ],
       requestedAt: "2026-08-20T09:00:00.000Z"
     });
-    expect(command.members).toHaveLength(1);
+    expect(command.operations).toHaveLength(1);
 
     expect(meshGroupSubscriptionResultSchema.parse({
       siteId: "00000000-0000-4000-8000-000000000003",
@@ -254,14 +310,16 @@ describe("shared schemas", () => {
       groupId: "00000000-0000-4000-8000-000000000005",
       version: 2,
       groupAddress: "0xc000",
-      members: [
+      operations: [
         {
+          operationId: "66666666-6666-4666-8666-666666666666",
+          action: "add",
           meshNodeId: "22222222-2222-4222-8222-222222222222",
           status: "ready"
         }
       ],
       occurredAt: "2026-08-20T09:00:01.000Z"
-    }).members[0].status).toBe("ready");
+    }).operations[0].status).toBe("ready");
   });
 
   it("validates atomic floor editor save and restore inputs", () => {

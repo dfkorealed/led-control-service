@@ -10,6 +10,7 @@ const activeMqttCertificateMigrationSuffix = "_enforce_single_active_mqtt_certif
 const pendingDeviceCertificateStatusMigrationSuffix = "_add_pending_device_certificate_status";
 const pendingDeviceCertificateLifecycleMigrationSuffix = "_enforce_pending_device_certificate_lifecycle";
 const roleRevisionMigrationSuffix = "simplify_roles_and_floor_revisions";
+const menuCompletionFoundationMigrationSuffix = "menu_completion_foundation";
 
 const findPkiMigrationDirectory = (directoryNames: string[]) => {
   const matches = directoryNames.filter((name) => name.endsWith(pkiMigrationSuffix));
@@ -92,6 +93,45 @@ describe("Prisma domain schema", () => {
     expect(schema).toContain("model FloorMapRevision");
     expect(schema).toMatch(/snapshot\s+Json/);
     expect(schema).toContain("model AuditLog");
+  });
+
+  it("declares menu completion lifecycle, energy, and idempotency persistence contracts", () => {
+    const schema = readSchema();
+    const migration = readMigrationBySuffix(menuCompletionFoundationMigrationSuffix);
+
+    expect(schema).toContain("enum ProvisioningScanStatus");
+    expect(prismaModelBody(schema, "ProvisioningSession")).toMatch(/scanCorrelationId\s+String\?/);
+    expect(prismaModelBody(schema, "ProvisioningSession")).toMatch(/scanAttempt\s+Int\s+@default\(0\)/);
+    expect(schema).toContain("@@index([gatewayId, scanStatus])");
+
+    expect(schema).toContain("enum FixtureGroupLifecycleStatus");
+    expect(prismaModelBody(schema, "FixtureGroup")).toMatch(/floorId\s+String\?/);
+    expect(prismaModelBody(schema, "FixtureGroup")).toMatch(/gatewayId\s+String\?/);
+    expect(prismaModelBody(schema, "FixtureGroup")).toMatch(/lifecycleStatus\s+FixtureGroupLifecycleStatus/);
+    expect(prismaModelBody(schema, "MeshControlGroupMember")).toMatch(/desired\s+Boolean\s+@default\(true\)/);
+    expect(prismaModelBody(schema, "MeshControlGroupMember")).toMatch(/operationId\s+String\?/);
+    expect(schema).toMatch(/enum MeshControlGroupStatus\s*\{[\s\S]*?retiring[\s\S]*?retired/);
+
+    expect(prismaModelBody(schema, "Site")).toMatch(/timeZone\s+String\s+@default\("Asia\/Seoul"\)/);
+    expect(prismaModelBody(schema, "Fixture")).toMatch(/energyTrackingStartedAt\s+DateTime\s+@default\(now\(\)\)/);
+    expect(prismaModelBody(schema, "Fixture")).toMatch(/firstStateOccurredAt\s+DateTime\?/);
+    expect(prismaModelBody(schema, "Fixture")).toMatch(/powerOn\s+Boolean\?/);
+    expect(schema).toContain("model FixtureEnergyDailyAggregate");
+    expect(schema).toContain("@@unique([fixtureId, localDate])");
+
+    expect(prismaModelBody(schema, "Command")).toMatch(/clientRequestId\s+String/);
+    expect(prismaModelBody(schema, "Command")).toMatch(/requestFingerprint\s+String/);
+    expect(schema).toContain("@@unique([siteId, requestedBy, clientRequestId])");
+
+    expect(migration).toContain('CREATE TYPE "ProvisioningScanStatus"');
+    expect(migration).toContain('CREATE TYPE "FixtureGroupLifecycleStatus"');
+    expect(migration).toContain('CREATE TABLE "FixtureEnergyDailyAggregate"');
+    expect(migration).toContain('CREATE UNIQUE INDEX "ProvisioningSession_single_scanning_gateway_key"');
+    expect(migration).toContain('CREATE FUNCTION "assert_active_fixture_group_integrity"');
+    expect(migration).toContain('CREATE CONSTRAINT TRIGGER "FixtureGroup_active_integrity"');
+    expect(migration).toContain('ADD CONSTRAINT "FixtureEnergyDailyAggregate_nonnegative_seconds_check"');
+    expect(migration).toContain('CREATE UNIQUE INDEX "Command_siteId_requestedBy_clientRequestId_key"');
+    expect(migration).toMatch(/encode\(\s*digest\(/);
   });
 
   it("keeps every legacy organization as a customer and demotes legacy privileged roles", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   acceptanceAckV2Schema,
+  applicationStateIngestedAckV2Schema,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
   gatewayDimmingCommandDraftV2Schema,
@@ -32,6 +33,9 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(mqttTopicsV2.acceptanceAck(siteId, gatewayId)).toBe(`sites/${siteId}/gateways/${gatewayId}/acks/acceptance`);
     expect(mqttTopicsV2.deviceStatusAck(siteId, gatewayId)).toBe(`sites/${siteId}/gateways/${gatewayId}/acks/device-status`);
     expect(mqttTopicsV2.fixtureState(siteId, gatewayId)).toBe(`sites/${siteId}/gateways/${gatewayId}/state/fixtures`);
+    expect(mqttTopicsV2.stateIngestedAck(siteId, gatewayId)).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`
+    );
     expect(mqttTopicsV2.heartbeat(siteId, gatewayId)).toBe(`sites/${siteId}/gateways/${gatewayId}/state/heartbeat`);
     expect(mqttTopicsV2.meshGroupResyncRequest(siteId, gatewayId)).toBe(
       `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`
@@ -39,6 +43,19 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)).toBe(
       `sites/${siteId}/gateways/${gatewayId}/commands/mesh-group/resync-ack`
     );
+  });
+
+  it("strictly validates the application acknowledgement that permits durable state outbox deletion", () => {
+    const acknowledgement = {
+      eventId,
+      sequence: 9,
+      fixtureId,
+      ingestedAt: occurredAt
+    };
+
+    expect(applicationStateIngestedAckV2Schema.parse(acknowledgement)).toEqual(acknowledgement);
+    expect(() => applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, gatewayId })).toThrow();
+    expect(() => applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, sequence: -1 })).toThrow();
   });
 
   it("strictly validates a scoped mesh group resync acknowledgement", () => {

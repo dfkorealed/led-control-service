@@ -5,6 +5,10 @@ export const mqttTopics = {
   gatewayHeartbeat: (siteId: string) => `sites/${siteId}/events/gateway-heartbeat`,
   provisioningScanStart: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/commands/provisioning-scan-start`,
+  provisioningScanCompleted: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`,
+  provisioningScanFailed: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`,
   provisionDevice: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/commands/provision-device`,
   identifyDevice: (siteId: string, gatewayId: string) =>

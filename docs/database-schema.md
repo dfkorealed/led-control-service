@@ -214,6 +214,7 @@ Organization
 | `name` | `String` | 예 |  | 현장명 |
 | `address` | `String` | 예 |  | 주소 |
 | `tariffKwhRate` | `Decimal(10,2)` | 예 |  | kWh 단가 |
+| `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -432,6 +433,9 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `statusReason` | `String?` | 아니오 |  | reported, provisioning_waiting_state, fixture_stale, gateway_offline 등 상태 근거 |
 | `healthFaultCodes` | `Json?` | 아니오 | JSON number 배열 | 마지막 BLE Mesh Health Current의 정규화된 8비트 fault code 목록 |
 | `healthLastSeenAt` | `DateTime?` | 아니오 |  | 마지막 BLE Mesh Health Current 관측 시각 |
+| `energyTrackingStartedAt` | `DateTime` | 예 | `now()` | 상태 기반 에너지 추적을 시작한 시각. 기존 조명은 foundation migration 적용 시각 |
+| `firstStateOccurredAt` | `DateTime?` | 아니오 |  | 첫 수락된 fixture-state 발생 시각 |
+| `powerOn` | `Boolean?` | 아니오 |  | 마지막 수락된 전원 상태 snapshot |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -441,6 +445,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - `meshNode`: `MeshNode?`
 - `groupFixtures`: `GroupFixture[]`
 - `energyUsages`: `EnergyUsage[]`
+- `energyDailyAggregates`: `FixtureEnergyDailyAggregate[]`
 
 운영 메모:
 
@@ -454,20 +459,31 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 
 ### FixtureGroup
 
-조명 그룹 또는 구역이다. 그룹 제어의 대상이 된다.
+조명 그룹 또는 구역이다. legacy 그룹을 격리하고, 신규 제어 구역은 하나의 층과 Gateway 경계에 고정한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 그룹 ID |
 | `siteId` | `String` | 예 | FK -> `Site.id` | 소속 현장 |
+| `floorId` | `String?` | 아니오 | FK -> `Floor.id`, active면 필수 | 제어 대상 층 |
+| `gatewayId` | `String?` | 아니오 | FK -> `Gateway.id`, active면 필수 | 제어 대상 Gateway |
 | `name` | `String` | 예 |  | 그룹명 |
+| `lifecycleStatus` | `FixtureGroupLifecycleStatus` | 예 | 신규 `active`, legacy 기본 `invalid` | `active`, `retiring`, `retired`, `invalid` |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
 관계:
 
 - `site`: `Site`
+- `floor`: `Floor?`
+- `gateway`: `Gateway?`
 - `groupFixtures`: `GroupFixture[]`
+
+제약과 migration:
+
+- `20260826_menu_completion_foundation`은 legacy group의 모든 member가 같은 site의 한 floor와 한 Gateway MeshNode에 속할 때만 `floorId`, `gatewayId`를 backfill하고 `active`로 전환한다. 빈 그룹, 경계가 섞인 그룹, MeshNode가 없는 조명을 포함한 그룹은 `invalid`로 남긴다.
+- PostgreSQL check는 `active` group에 non-null `floorId`, `gatewayId`를 요구한다. deferred constraint trigger는 active group의 site 경계, member floor/Gateway 일치, 빈 group 금지와 조명 하나당 active 또는 retiring group 최대 15개를 commit 시점에 강제한다.
+- `retiring`, `retired`, `invalid` group은 제어 대상으로 조회하거나 명령을 보내면 안 된다.
 
 ### GroupFixture
 
@@ -685,7 +701,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 운영 메모:
 
 - 같은 `gatewayId + targetType + targetId` 재호출은 기존 row를 반환하며 새 주소를 소비하지 않는다.
-- 이번 범위에서는 member 자동 채움과 MQTT subscription 동기화를 구현하지 않는다. 따라서 새 row는 `status = configuring`, `configurationVersion = 1`로 시작하고 후속 Task가 member 상태를 채운다.
+- lifecycle 값 `retiring`, `retired`는 desired subscription 삭제가 끝날 때까지 group 명령을 차단한다.
 
 ### MeshControlGroupMember
 
@@ -697,8 +713,11 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 | `gatewayId` | `String` | 예 | group/node와 compound FK | group과 node가 속한 gateway ID |
 | `meshNodeId` | `String` | 예 | PK 복합키, FK -> `MeshNode.id`, delete cascade | 대상 Mesh node ID |
 | `subscriptionStatus` | `MeshControlGroupMemberSubscriptionStatus` | 예 | `pending` | member subscription ACK 적용 상태 |
+| `desired` | `Boolean` | 예 | `true` | cloud 정본이 이 node의 subscription을 원하는지 여부 |
 | `appliedVersion` | `Int` | 예 | `0` | node에 실제 반영된 group configuration version |
 | `statusVersion` | `Int` | 예 | `0` | 마지막 subscription result가 반영된 group configuration version |
+| `operationId` | `String?` | 아니오 | UUID | 현재 Add/Delete reconciliation operation 식별자 |
+| `operation` | `MeshControlGroupMemberOperation?` | 아니오 | `add`, `delete` | 현재 reconciliation 동작 |
 | `lastError` | `String?` | 아니오 |  | 마지막 subscription 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -730,6 +749,8 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 | `id` | `String` | 예 | PK, `uuid()` | 명령 ID |
 | `siteId` | `String` | 예 | FK -> `Site.id` | 대상 현장 |
 | `requestedBy` | `String` | 예 | FK -> `User.id` | 요청 사용자 |
+| `clientRequestId` | `String` | 예 | Unique with `siteId`, `requestedBy` | 클라이언트가 재시도에도 보존하는 UUID |
+| `requestFingerprint` | `String` | 예 | SHA-256 | 안정 정렬 target·brightness의 canonical fingerprint |
 | `targetType` | `String` | 예 |  | `fixture`, `fixtures`, `floor`, `group` |
 | `targetId` | `String?` | 아니오 |  | 단일 조명/층/구역 ID. 임의 다중 선택은 `NULL` |
 | `targetFixtureIds` | `Json` | 예 | `[]` | 명령 생성 transaction에서 확정한 조명 ID snapshot |
@@ -749,6 +770,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 - `targetType`, `targetId`는 다형 대상 구조라 DB FK로 직접 강제하지 않는다. API는 사용자 입력을 그대로 신뢰하지 않고 같은 transaction 안에서 현장 소속 Fixture/Floor/FixtureGroup 관계를 다시 조회한다.
 - `targetFixtureIds`는 명령 생성 시점의 권위 있는 대상 snapshot이다. 이후 층이나 구역 구성이 변경돼도 이미 생성된 명령의 fixture별 결과 집합은 바뀌지 않는다.
 - MQTT command ACK 수신 시 `status`, `errorMessage`가 갱신된다.
+- `(siteId, requestedBy, clientRequestId)` unique는 동일 사용자·현장 요청의 중복 Command, Outbox, Gateway sequence 생성을 차단한다. 동일 ID에 다른 fingerprint가 오면 API는 conflict로 처리한다.
 
 ### CommandDispatch / CommandFixtureResult / MqttOutbox
 
@@ -854,6 +876,13 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `gatewayId` | `String` | 예 | FK -> `Gateway.id` | 스캔/등록 게이트웨이 |
 | `requestedBy` | `String` | 예 | FK -> `User.id` | 요청 사용자 |
 | `status` | `ProvisioningSessionStatus` | 예 | `active` | 세션 상태 |
+| `scanStatus` | `ProvisioningScanStatus` | 예 | `pending` | `pending`, `scanning`, `completed`, `failed` |
+| `scanCorrelationId` | `String?` | 아니오 | UUID | scan 시도별 correlation ID |
+| `scanAttempt` | `Int` | 예 | `0` | scan 재시도 횟수. 실제 scan은 1부터 시작 |
+| `scanStartedAt` | `DateTime?` | 아니오 |  | 현재 scan 시작 시각 |
+| `scanCompletedAt` | `DateTime?` | 아니오 |  | 완료 또는 실패 수신 시각 |
+| `scanFailureCode` | `String?` | 아니오 |  | Gateway가 분류한 비밀값 없는 실패 코드 |
+| `scanFailureMessage` | `String?` | 아니오 |  | 사용자 노출 가능한 실패 설명 |
 | `startedAt` | `DateTime` | 예 | `now()` | 시작 시각 |
 | `completedAt` | `DateTime?` | 아니오 |  | 완료 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -870,6 +899,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 등록 시작 계약:
 
 - `POST /registration-sessions`는 `siteId`, `floorId`, `gatewayId`를 모두 명시적으로 받는다. Floor와 Gateway는 모두 해당 Site에 속해야 하고, Gateway의 `lastHeartbeatAt`은 API 현재 시각 기준 정확히 90초 전을 포함해 90초 이내여야 한다. dashboard/API/명령 판단은 공통 freshness helper를 사용한다.
+- partial unique index `ProvisioningSession_single_scanning_gateway_key`는 Gateway 하나에 `scanStatus = scanning` 세션 하나만 허용한다. found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다.
 
 ### DiscoveredMeshNode
 
@@ -930,6 +960,29 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 
 - `fixture`: `Fixture`
 
+### FixtureEnergyDailyAggregate
+
+상태 기반 전력 추정의 정본이다. legacy `EnergyUsage`의 의미와 데이터는 변경하지 않는다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 집계 ID |
+| `fixtureId` | `String` | 예 | FK -> `Fixture.id`, delete cascade | 대상 조명 |
+| `localDate` | `Date` | 예 | Unique with `fixtureId` | Site timezone 기준 현지 날짜 |
+| `estimatedKwh` | `Decimal(20,12)` | 예 |  | 상태 기반 추정 사용량 |
+| `estimatedCost` | `Decimal(20,8)` | 예 |  | 적산 당시 단가 기준 예상 비용 |
+| `knownSeconds` | `Int` | 예 | `0`, non-negative check | 유효 상태로 계산한 시간 |
+| `unknownSeconds` | `Int` | 예 | `0`, non-negative check | 첫 상태 이전 또는 수집 공백 시간 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 갱신 시각 |
+
+제약:
+
+- 복합 Unique: `fixtureId`, `localDate`
+- Index: `localDate`
+- `knownSeconds`, `unknownSeconds`는 음수가 될 수 없다.
+- migration은 모든 기존 Fixture의 `energyTrackingStartedAt`에 적용 시각을 저장한다. 따라서 그 이전 구간을 추정하거나 `EnergyUsage`를 새 집계로 backfill하지 않는다.
+
 ## 4. 주요 제약 조건 요약
 
 | 테이블 | 제약 | 설명 |
@@ -943,6 +996,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `GatewayEnrollment` | Unique `tokenHash`, partial unique `serialNumber WHERE usedAt IS NULL`, Index `serialNumber + createdAt` | secret hash 중복, serial별 미사용 enrollment 단일성, token 재사용 방지와 제조 이력 조회 |
 | `GatewayCertificate` | DB enum purpose/status; Unique `fingerprint`, `replacedById`, `issuer + certificateSerial`; partial unique `inventoryId WHERE purpose = mqtt AND status = active`; self-replacement Check; inventory/replacement delete Restrict | 인증서 수명주기와 inventory별 단일 active MQTT 인증서, 감사 가능한 1:1 교체 체인 추적 |
 | `CommandDispatch` | Unique `idempotencyKey`, `gatewayId + sequence` | 중복 명령과 순서 충돌 방지 |
+| `Command` | Unique `siteId + requestedBy + clientRequestId` | 사용자 재시도의 멱등성 보장 |
+| `FixtureEnergyDailyAggregate` | Unique `fixtureId + localDate`, localDate index, non-negative seconds check | 일별 idempotent upsert와 기간 조회 |
 | `CommandFixtureResult` | PK `dispatchId + fixtureId` | dispatch별 조명 결과 중복 방지 |
 | `ProcessedGatewayEvent` | PK `eventId`, Unique `gatewayId + sequence + eventType` | QoS 중복·stale 이벤트 방지 |
 | `MeshNode` | Unique `deviceUuid` | BLE Mesh device UUID 중복 방지 |
@@ -953,6 +1008,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
 | `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |
 | `DiscoveredMeshNode` | Unique `sessionId`, `deviceUuid` | 같은 등록 세션 안에서 발견 노드 중복 방지 |
+| `ProvisioningSession` | Partial unique `gatewayId WHERE scanStatus = scanning` | Gateway당 동시 검색 1개 제한 |
+| `FixtureGroup` | active boundary check, deferred group/member trigger, `siteId + floorId + gatewayId + lifecycleStatus` index | legacy 격리와 활성 구역 경계·member 수 제한 |
 
 ## 5. 현재 구현 기준으로 중요한 데이터 흐름
 
