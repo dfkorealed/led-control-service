@@ -245,6 +245,7 @@ describe("App", () => {
         year: { kwh: 2737.5, cost: 438000 }
       }
     };
+    window.sessionStorage.clear();
     window.history.replaceState({}, "", "/monitoring");
     vi.clearAllMocks();
     cleanup();
