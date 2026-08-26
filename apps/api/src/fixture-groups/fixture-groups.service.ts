@@ -130,6 +130,7 @@ export class FixtureGroupsService {
           data: {
             status: MeshControlGroupStatus.retiring,
             configurationVersion: { increment: 1 },
+            operationPlanVersion: 0,
             lastError: null
           }
         });
@@ -146,6 +147,7 @@ export class FixtureGroupsService {
           data: {
             status: MeshControlGroupStatus.configuring,
             configurationVersion: { increment: 1 },
+            operationPlanVersion: 0,
             lastError: null
           }
         });
@@ -158,6 +160,7 @@ export class FixtureGroupsService {
           data: {
             status: MeshControlGroupStatus.configuring,
             configurationVersion: { increment: 1 },
+            operationPlanVersion: 0,
             lastError: null
           }
         });
@@ -203,6 +206,7 @@ export class FixtureGroupsService {
         data: {
           status: MeshControlGroupStatus.retiring,
           configurationVersion: { increment: 1 },
+          operationPlanVersion: 0,
           lastError: null
         }
       });
@@ -238,7 +242,7 @@ export class FixtureGroupsService {
         : MeshControlGroupStatus.configuring;
       await tx.meshControlGroup.update({
         where: { id: meshGroup.id },
-        data: { status, configurationVersion: { increment: 1 }, lastError: null }
+        data: { status, configurationVersion: { increment: 1 }, operationPlanVersion: 0, lastError: null }
       });
       await this.resetMembershipProgress(tx, meshGroup.id, meshGroup.gatewayId);
 

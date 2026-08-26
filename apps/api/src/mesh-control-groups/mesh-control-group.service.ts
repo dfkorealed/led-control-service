@@ -5,6 +5,7 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import type { MeshGroupSubscriptionSyncPayload } from "@led-control/shared";
 import { MeshControlGroupStatus, Prisma } from "@prisma/client";
 
 const MIN_MESH_GROUP_ADDRESS = 0xc000;
@@ -35,6 +36,13 @@ type GatewayGroupResyncInput = {
   occurredAt: string;
 };
 
+type PrepareSubscriptionSyncInput = {
+  groupId: string;
+  gatewayId: string;
+  configurationVersion: number;
+  requestedAt: string;
+};
+
 type LockedGateway = {
   id: string;
   siteId: string;
@@ -43,6 +51,120 @@ type LockedGateway = {
 
 @Injectable()
 export class MeshControlGroupService {
+  async prepareSubscriptionSync(
+    tx: Prisma.TransactionClient,
+    input: PrepareSubscriptionSyncInput
+  ): Promise<MeshGroupSubscriptionSyncPayload | null> {
+    const groups = await tx.$queryRaw<Array<{
+      id: string;
+      gatewayId: string;
+      groupAddress: string;
+      configurationVersion: number;
+      operationPlanVersion: number;
+      status: MeshControlGroupStatus;
+      siteId: string;
+    }>>`
+      SELECT group_state."id", group_state."gatewayId", group_state."groupAddress",
+        group_state."configurationVersion", group_state."operationPlanVersion",
+        group_state."status", gateway."siteId"
+      FROM "MeshControlGroup" group_state
+      INNER JOIN "Gateway" gateway ON gateway."id" = group_state."gatewayId"
+      WHERE group_state."id" = ${input.groupId}
+        AND group_state."gatewayId" = ${input.gatewayId}
+        AND group_state."configurationVersion" = ${input.configurationVersion}
+        AND group_state."status" IN ('configuring', 'retiring')
+      FOR UPDATE OF group_state
+    `;
+    const group = groups[0];
+    if (!group) return null;
+
+    const desiredMembers = await tx.meshControlGroupMember.findMany({
+      where: { groupId: group.id, gatewayId: group.gatewayId, desired: true },
+      orderBy: [{ meshNodeId: "asc" }],
+      select: {
+        meshNodeId: true,
+        meshNode: { select: { meshAddress: true } }
+      }
+    });
+    const normalizedDesired = desiredMembers.map((member) => ({
+      meshNodeId: member.meshNodeId,
+      meshAddress: member.meshNode.meshAddress.toLowerCase()
+    }));
+
+    if (group.operationPlanVersion !== group.configurationVersion) {
+      const appliedMembers = await tx.meshControlGroupAppliedMember.findMany({
+        where: { groupId: group.id, gatewayId: group.gatewayId },
+        orderBy: [{ meshNodeId: "asc" }, { meshAddress: "asc" }],
+        select: { meshNodeId: true, meshAddress: true }
+      });
+      const desiredKeys = new Set(normalizedDesired.map(meshMemberKey));
+      const appliedKeys = new Set(appliedMembers.map(meshMemberKey));
+      const operations = [
+        ...appliedMembers
+          .map(normalizeMeshMember)
+          .filter((member) => !desiredKeys.has(meshMemberKey(member)))
+          .map((member) => ({ action: "delete" as const, ...member })),
+        ...normalizedDesired
+          .filter((member) => !appliedKeys.has(meshMemberKey(member)))
+          .map((member) => ({ action: "add" as const, ...member }))
+      ];
+
+      await tx.meshControlGroupExpectedOperation.deleteMany({
+        where: { groupId: group.id, configurationVersion: group.configurationVersion }
+      });
+      if (operations.length > 0) {
+        await tx.meshControlGroupExpectedOperation.createMany({
+          data: operations.map((operation) => ({
+            operationId: randomUUID(),
+            groupId: group.id,
+            gatewayId: group.gatewayId,
+            configurationVersion: group.configurationVersion,
+            ...operation,
+            status: "pending" as const,
+            lastError: null
+          }))
+        });
+      }
+      await tx.meshControlGroup.updateMany({
+        where: {
+          id: group.id,
+          gatewayId: group.gatewayId,
+          configurationVersion: group.configurationVersion
+        },
+        data: { operationPlanVersion: group.configurationVersion }
+      });
+    }
+
+    const expectedOperations = await tx.meshControlGroupExpectedOperation.findMany({
+      where: {
+        groupId: group.id,
+        gatewayId: group.gatewayId,
+        configurationVersion: group.configurationVersion
+      },
+      orderBy: [{ action: "desc" }, { meshNodeId: "asc" }, { meshAddress: "asc" }],
+      select: {
+        operationId: true,
+        action: true,
+        meshNodeId: true,
+        meshAddress: true
+      }
+    });
+
+    return {
+      siteId: group.siteId,
+      gatewayId: group.gatewayId,
+      groupId: group.id,
+      version: group.configurationVersion,
+      groupAddress: group.groupAddress.toLowerCase(),
+      desiredMembers: normalizedDesired,
+      expectedOperations: expectedOperations.map((operation) => ({
+        ...operation,
+        meshAddress: operation.meshAddress.toLowerCase()
+      })),
+      requestedAt: input.requestedAt
+    };
+  }
+
   async resetGatewayGroupsForResync(tx: Prisma.TransactionClient, input: GatewayGroupResyncInput) {
     const gateways = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT "id"
@@ -109,6 +231,7 @@ export class MeshControlGroupService {
         data: {
           status: MeshControlGroupStatus.configuring,
           configurationVersion: { increment: 1 },
+          operationPlanVersion: 0,
           lastError: null
         }
       });
@@ -120,6 +243,7 @@ export class MeshControlGroupService {
         data: {
           status: MeshControlGroupStatus.retiring,
           configurationVersion: { increment: 1 },
+          operationPlanVersion: 0,
           lastError: null
         }
       });
@@ -133,6 +257,8 @@ export class MeshControlGroupService {
       data: {
         subscriptionStatus: "pending",
         statusVersion: 0,
+        operationId: null,
+        operation: null,
         lastError: null
       }
     });
@@ -437,6 +563,7 @@ export class MeshControlGroupService {
         data: {
           status: MeshControlGroupStatus.configuring,
           configurationVersion: { increment: 1 },
+          operationPlanVersion: 0,
           lastError: null
         }
       });
@@ -444,12 +571,19 @@ export class MeshControlGroupService {
       return;
     }
 
-    if (group._count.members <= 1) return;
+    if (group._count.members <= 1) {
+      await tx.meshControlGroup.update({
+        where: { id: groupId },
+        data: { operationPlanVersion: 0 }
+      });
+      return;
+    }
 
     await tx.meshControlGroup.update({
       where: { id: groupId },
       data: {
         status: MeshControlGroupStatus.configuring,
+        operationPlanVersion: 0,
         lastError: null
       }
     });
@@ -462,6 +596,8 @@ export class MeshControlGroupService {
       data: {
         subscriptionStatus: "pending",
         statusVersion: 0,
+        operationId: null,
+        operation: null,
         lastError: null
       }
     });
@@ -491,4 +627,12 @@ export class MeshControlGroupService {
     return `0x${address.toString(16).padStart(4, "0")}`;
   }
 
+}
+
+function normalizeMeshMember(member: { meshNodeId: string; meshAddress: string }) {
+  return { meshNodeId: member.meshNodeId, meshAddress: member.meshAddress.toLowerCase() };
+}
+
+function meshMemberKey(member: { meshNodeId: string; meshAddress: string }) {
+  return `${member.meshNodeId}:${member.meshAddress.toLowerCase()}`;
 }

@@ -6,7 +6,17 @@ import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 const ids = { siteId: "00000000-0000-4000-8000-000000000010", gatewayId: "00000000-0000-4000-8000-000000000011", groupId: "00000000-0000-4000-8000-000000000012", memberId: "00000000-0000-4000-8000-000000000013", secondMemberId: "00000000-0000-4000-8000-000000000014" };
 
 function command(overrides: Partial<MeshGroupSubscriptionSyncPayload> = {}): MeshGroupSubscriptionSyncPayload {
-  return { siteId: ids.siteId, gatewayId: ids.gatewayId, groupId: ids.groupId, version: 3, groupAddress: "0xc000", desiredMembers: [{ meshNodeId: ids.memberId, meshAddress: "0x0100" }], requestedAt: "2026-08-20T09:00:00.000Z", ...overrides };
+  return {
+    siteId: ids.siteId,
+    gatewayId: ids.gatewayId,
+    groupId: ids.groupId,
+    version: 3,
+    groupAddress: "0xc000",
+    desiredMembers: [{ meshNodeId: ids.memberId, meshAddress: "0x0100" }],
+    expectedOperations: [{ operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", action: "add", meshNodeId: ids.memberId, meshAddress: "0x0100" }],
+    requestedAt: "2026-08-20T09:00:00.000Z",
+    ...overrides
+  };
 }
 function result(input: MeshGroupSubscriptionSyncPayload, operations: MeshGroupSubscriptionResultPayload["operations"]): MeshGroupSubscriptionResultPayload {
   return { siteId: ids.siteId, gatewayId: ids.gatewayId, groupId: input.groupId, version: input.version, groupAddress: input.groupAddress, operations, occurredAt: "2026-08-20T09:00:01.000Z" };
@@ -15,7 +25,7 @@ function stateStore() { return { readAppliedMembers: vi.fn(async () => []), writ
 function source() { return { publish: vi.fn((_topic: string, _payload: string, _options: unknown, done?: (error?: Error) => void) => done?.()) }; }
 
 describe("GroupSubscriptionHandler", () => {
-  it("publishes Gateway-created add operations for the cloud desired membership", async () => {
+  it("publishes the cloud-planned add operation with its exact operation id", async () => {
     const adapter = { syncGroupSubscriptions: vi.fn(async (input: MeshGroupSubscriptionSyncPayload) => result(input, [{ operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", action: "add", meshNodeId: ids.memberId, meshAddress: "0x0100", status: "ready" }])) };
     const store = stateStore();
     const mqtt = source();
@@ -32,7 +42,10 @@ describe("GroupSubscriptionHandler", () => {
     const store = stateStore();
     store.readAppliedMembers.mockResolvedValue([{ meshNodeId: ids.memberId, meshAddress: "0x0100" }]);
     const handler = new GroupSubscriptionHandler(adapter, { siteId: ids.siteId, gatewayId: ids.gatewayId }, store, new KeyedSerialTaskQueue());
-    await handler.handle(Buffer.from(JSON.stringify(command({ desiredMembers: [] }))), mqtt as never);
+    await handler.handle(Buffer.from(JSON.stringify(command({
+      desiredMembers: [],
+      expectedOperations: [{ operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", action: "delete", meshNodeId: ids.memberId, meshAddress: "0x0100" }]
+    }))), mqtt as never);
     expect(JSON.parse(mqtt.publish.mock.calls[0][1]).operations).toEqual([expect.objectContaining({ action: "delete" })]);
   });
 
@@ -47,7 +60,9 @@ describe("GroupSubscriptionHandler", () => {
     const adapter = { syncGroupSubscriptions: vi.fn(async (input: MeshGroupSubscriptionSyncPayload) => result(input, [{ operationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", action: "add", meshNodeId: ids.memberId, meshAddress: "0x0100", status: "failed", error: "subscription rejected" }])) };
     const store = stateStore();
     const handler = new GroupSubscriptionHandler(adapter, { siteId: ids.siteId, gatewayId: ids.gatewayId }, store, new KeyedSerialTaskQueue());
-    await handler.handle(Buffer.from(JSON.stringify(command())), source() as never);
+    await handler.handle(Buffer.from(JSON.stringify(command({
+      expectedOperations: [{ operationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", action: "add", meshNodeId: ids.memberId, meshAddress: "0x0100" }]
+    }))), source() as never);
     expect(store.writeFailed).toHaveBeenCalledTimes(1);
     expect(store.writeReady).not.toHaveBeenCalled();
   });
@@ -77,7 +92,13 @@ describe("GroupSubscriptionHandler", () => {
     store.readAppliedMembers.mockResolvedValue([previous]);
     const handler = new GroupSubscriptionHandler(adapter, { siteId: ids.siteId, gatewayId: ids.gatewayId }, store, new KeyedSerialTaskQueue());
 
-    await handler.handle(Buffer.from(JSON.stringify(command({ desiredMembers: [replacement] }))), source() as never);
+    await handler.handle(Buffer.from(JSON.stringify(command({
+      desiredMembers: [replacement],
+      expectedOperations: [
+        { operationId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", action: "delete", ...previous },
+        { operationId: "ffffffff-ffff-4fff-8fff-ffffffffffff", action: "add", ...replacement }
+      ]
+    }))), source() as never);
 
     expect(store.writeReady).toHaveBeenCalledWith(expect.any(Object), [replacement]);
   });
@@ -85,14 +106,21 @@ describe("GroupSubscriptionHandler", () => {
   it("persists successful partial operations so retry only applies the remaining membership", async () => {
     const first = { meshNodeId: ids.memberId, meshAddress: "0x0100" };
     const second = { meshNodeId: ids.secondMemberId, meshAddress: "0x0101" };
-    const requested = command({ desiredMembers: [first, second] });
+    const requested = command({
+      desiredMembers: [first, second],
+      expectedOperations: [
+        { operationId: "11111111-1111-4111-8111-111111111111", action: "add", ...first },
+        { operationId: "22222222-2222-4222-8222-222222222222", action: "add", ...second }
+      ]
+    });
     const adapter = { syncGroupSubscriptions: vi.fn()
       .mockImplementationOnce(async (input: MeshGroupSubscriptionSyncPayload) => result(input, [
         { operationId: "11111111-1111-4111-8111-111111111111", action: "add", ...first, status: "ready" },
         { operationId: "22222222-2222-4222-8222-222222222222", action: "add", ...second, status: "failed", error: "subscription rejected" }
       ]))
       .mockImplementationOnce(async (input: MeshGroupSubscriptionSyncPayload) => result(input, [
-        { operationId: "33333333-3333-4333-8333-333333333333", action: "add", ...second, status: "ready" }
+        { operationId: "11111111-1111-4111-8111-111111111111", action: "add", ...first, status: "ready" },
+        { operationId: "22222222-2222-4222-8222-222222222222", action: "add", ...second, status: "ready" }
       ])) };
     const store = stateStore();
     store.readAppliedMembers.mockResolvedValueOnce([]).mockResolvedValueOnce([first]);

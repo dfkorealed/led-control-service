@@ -10,10 +10,10 @@
 - 층 전체와 저장 구역은 사전 구성된 BLE Mesh Group Address에 단일 전송한다.
 - 임의 선택이 기존 층 또는 구역 구성과 정확히 같으면 Group Address 경로를 사용한다.
 - 장비별 BLE Mesh Health Current의 현재 fault만 수집해 제어 가능 여부와 결과에 반영한다.
-- gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다. group은 `configurationVersion`으로 구성 버전을 관리하고, member는 `subscriptionStatus`/`appliedVersion`/`statusVersion`으로 실제 ACK 적용 여부와 마지막 결과 version을 분리한다.
-- API는 `configuring` group의 전체 desired member set과 `retiring` group의 빈 desired set을 10초 주기로 gateway-scoped MQTT subscription sync command로 재발행한다.
-- gateway는 같은 group/version command를 다시 받아도 Light Lightness Server `0x1300`에 표준 Config Model Subscription Add를 안전하게 재적용하고 결과를 한 번 발행한다.
-- API는 `siteId`, `gatewayId`, `groupId`, group address, version이 현재 group과 일치할 때만 subscription result를 처리한다. 현재 cloud member 상태에서 계산한 operation 전체 집합과 ACK의 `operationId/action/meshNodeId/meshAddress`를 mutation 전에 대조하며, 기대 operation이 있는데 빈 결과이거나 부분·중복·외부 node·잘못된 action/address/operation ID가 있으면 member를 일부 반영하지 않고 group 전체를 `failed`로 닫는다. 성공·실패 operation ID와 종류는 member에 저장해 같은 version의 재전송도 동일 tuple일 때만 멱등 수락한다.
+- gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다. group은 `configurationVersion`과 `operationPlanVersion`을 분리하고, 버전별 `MeshControlGroupExpectedOperation`과 실제 pair snapshot인 `MeshControlGroupAppliedMember`를 영속 저장한다.
+- API는 `configuring` group의 전체 desired member set과 `retiring` group의 빈 desired set, cloud가 발급한 expected operation 전체 set을 10초 주기로 gateway-scoped MQTT subscription sync command로 재발행한다.
+- gateway는 cloud operation ID를 보존해 Light Lightness Server `0x1300`의 Config Model Subscription Add/Delete를 수행한다. 같은 group/version 재전송에서 이미 만족된 operation은 BLE 호출을 반복하지 않고 동일 ID의 `ready`로 재보고한다.
+- API는 `siteId`, `gatewayId`, `groupId`, group address, version이 현재 group과 일치할 때만 subscription result를 처리한다. 현재 version의 영속 expected set과 ACK의 `operationId/action/meshNodeId/meshAddress`를 mutation 전에 exact-set으로 대조하며, 빈·부분·중복·외부 node·잘못된 action/address/operation ID를 fail-closed한다. 동일 node address 교체의 delete-old와 add-new 두 operation을 각각 반영하고 successful operation만 applied snapshot에 멱등 반영한다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md`를 따른다.
 
@@ -56,7 +56,8 @@
 - foundation migration에서 active로 판정됐지만 MeshControlGroup이 없던 legacy 구역은 update/delete/resync transaction이 group을 생성해 복구한다. resync는 기존 `GroupFixture`의 controllable node를 새 desired set으로 복원한 뒤 version을 증가시킨다.
 - PATCH에서 gateway 변경은 전체 replacement로 정의한다. 이전 gateway의 MeshControlGroup은 version을 증가시킨 빈 desired set과 `retiring` 상태로 남겨 subscription cleanup을 계속하고, 새 gateway에는 별도 MeshControlGroup과 전체 desired set을 구성한다. 이전 cleanup ACK는 active FixtureGroup을 retired로 바꾸지 않으며 과거 dispatch 참조도 보존한다.
 - 삭제는 과거 `CommandDispatch`의 MeshControlGroup 참조를 보존하는 soft delete다. FixtureGroup은 `retiring`, member desired set은 빈 배열, MeshControlGroup은 `retiring`이 되며, 기대한 모든 Delete operation의 exact ACK가 성공할 때만 두 group 모두 `retired`가 된다. publish 실패, gateway 재시작 또는 ACK 실패에는 같은 version/set을 계속 재발행하며 resync는 version만 증가시킨다.
-- gateway reconnect resync는 `configuring/ready/failed`를 새 `configuring` version으로 재발행하고 `retiring`은 `retiring`을 유지한다. `retired`는 조회·version 증가·member reset에서 제외해 다시 활성화하지 않는다.
+- gateway reconnect resync는 `configuring/ready/failed`를 새 `configuring` version으로 재발행하고 `retiring`은 `retiring`을 유지한다. member의 이전 `operationId/operation`과 version 진행 상태를 초기화하고 새 version plan에 fresh operation ID를 발급한다. `retired`는 조회·version 증가·member reset에서 제외해 다시 활성화하지 않는다.
+- gateway A에서 B로 이동한 뒤 B 삭제가 진행 중이어도 지연된 A cleanup ACK는 FixtureGroup의 현재 gateway ownership과 다르므로 lifecycle을 `retired`로 바꾸지 못한다. 현재 owning gateway의 MeshControlGroup이 빈 applied set으로 수렴한 ACK만 soft delete를 완료한다.
 - legacy `invalid`와 `retiring`/`retired` 저장 구역은 일반 명령 target과 exact-set mesh group 승격에서 제외한다. invalid/retired는 읽기 전용이며, 아직 retiring인 구역은 subscription 정리 완료 전 제어할 수 없다.
 - dashboard는 active 저장 구역에 lifecycle, floor/gateway, fixture count, MeshControlGroup status/version/error를 제공하고 층에도 gateway별 MeshControlGroup 상태를 제공한다. Web은 `ready`가 아닌 층·저장 구역을 제어 picker에서 비활성화하며 retired/invalid 구역은 dashboard 제어 target에 포함되지 않는다.
 - 비접근 site의 저장 구역 요청은 query/body 형식 검증보다 SiteAccess를 먼저 수행해 malformed 입력이어도 일관된 `404` 경계를 유지한다.

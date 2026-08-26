@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import {
   mapHealthFaults,
@@ -322,17 +321,15 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     const applied = new Map((appliedMembers ?? [...(this.appliedGroupMembers.get(command.groupId) ?? new Map()).values()])
       .map(normalizeGroupMember)
       .map((member) => [groupMemberKey(member), member]));
-    const desired = new Map(command.desiredMembers
-      .map(normalizeGroupMember)
-      .map((member) => [groupMemberKey(member), member]));
     const operations: MeshGroupSubscriptionResultPayload["operations"] = [];
-    const changes = [
-      ...[...applied].filter(([key]) => !desired.has(key))
-        .map(([, member]) => ({ action: "delete" as const, ...member })),
-      ...[...desired].filter(([key]) => !applied.has(key))
-        .map(([, member]) => ({ action: "add" as const, ...member }))
-    ];
-    for (const change of changes) {
+    for (const plannedOperation of command.expectedOperations) {
+      const change = { ...plannedOperation, ...normalizeGroupMember(plannedOperation) };
+      const key = groupMemberKey(change);
+      const alreadySatisfied = change.action === "add" ? applied.has(key) : !applied.has(key);
+      if (alreadySatisfied) {
+        operations.push({ ...change, status: "ready" });
+        continue;
+      }
       try {
         const input = {
           unicast: parseMeshAddress(change.meshAddress),
@@ -342,10 +339,10 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         else await configClient.removeModelSubscription(input);
         if (change.action === "add") applied.set(groupMemberKey(change), change);
         else applied.delete(groupMemberKey(change));
-        operations.push({ operationId: randomUUID(), action: change.action, meshNodeId: change.meshNodeId, meshAddress: change.meshAddress, status: "ready" });
+        operations.push({ operationId: change.operationId, action: change.action, meshNodeId: change.meshNodeId, meshAddress: change.meshAddress, status: "ready" });
       } catch (error) {
         operations.push({
-          operationId: randomUUID(),
+          operationId: change.operationId,
           action: change.action,
           meshNodeId: change.meshNodeId,
           meshAddress: change.meshAddress,

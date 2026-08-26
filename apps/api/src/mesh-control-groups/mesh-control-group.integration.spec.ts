@@ -11,7 +11,8 @@ describeWithPostgres("MeshControlGroup PostgreSQL conflict recovery", () => {
     siteId: randomUUID(),
     floorId: randomUUID(),
     gatewayId: randomUUID(),
-    winnerId: randomUUID()
+    winnerId: randomUUID(),
+    meshNodeId: randomUUID()
   };
   let prisma: PrismaService;
 
@@ -55,11 +56,36 @@ describeWithPostgres("MeshControlGroup PostgreSQL conflict recovery", () => {
         configurationVersion: 1
       }
     });
+    await prisma.meshNode.create({
+      data: {
+        id: ids.meshNodeId,
+        gatewayId: ids.gatewayId,
+        meshAddress: "0x0101",
+        firmwareVersion: "integration"
+      }
+    });
+    await prisma.meshControlGroupMember.create({
+      data: {
+        groupId: ids.winnerId,
+        gatewayId: ids.gatewayId,
+        meshNodeId: ids.meshNodeId,
+        desired: true
+      }
+    });
+    await prisma.meshControlGroupAppliedMember.create({
+      data: {
+        groupId: ids.winnerId,
+        gatewayId: ids.gatewayId,
+        meshNodeId: ids.meshNodeId,
+        meshAddress: "0x0100"
+      }
+    });
   });
 
   afterAll(async () => {
     if (!prisma) return;
     await prisma.meshControlGroup.deleteMany({ where: { gatewayId: ids.gatewayId } });
+    await prisma.meshNode.deleteMany({ where: { gatewayId: ids.gatewayId } });
     await prisma.gateway.deleteMany({ where: { id: ids.gatewayId } });
     await prisma.floor.deleteMany({ where: { id: ids.floorId } });
     await prisma.site.deleteMany({ where: { id: ids.siteId } });
@@ -94,5 +120,24 @@ describeWithPostgres("MeshControlGroup PostgreSQL conflict recovery", () => {
 
     expect(result.group.id).toBe(ids.winnerId);
     expect(result.transactionStillUsable).toBe(1);
+  });
+
+  it("persists a two-operation address replacement plan inside PostgreSQL", async () => {
+    const service = new MeshControlGroupService();
+
+    const payload = await prisma.$transaction((tx) => service.prepareSubscriptionSync(tx, {
+      groupId: ids.winnerId,
+      gatewayId: ids.gatewayId,
+      configurationVersion: 1,
+      requestedAt: "2026-08-26T10:00:00.000Z"
+    }));
+
+    expect(payload?.expectedOperations).toEqual([
+      expect.objectContaining({ action: "delete", meshNodeId: ids.meshNodeId, meshAddress: "0x0100" }),
+      expect.objectContaining({ action: "add", meshNodeId: ids.meshNodeId, meshAddress: "0x0101" })
+    ]);
+    await expect(prisma.meshControlGroupExpectedOperation.count({
+      where: { groupId: ids.winnerId, configurationVersion: 1 }
+    })).resolves.toBe(2);
   });
 });

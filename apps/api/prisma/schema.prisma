@@ -514,9 +514,12 @@ model MeshControlGroup {
   groupAddress         String
   status               MeshControlGroupStatus @default(configuring)
   configurationVersion Int                    @default(1)
+  operationPlanVersion Int                    @default(0)
   lastError            String?
   gateway              Gateway                @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   members              MeshControlGroupMember[]
+  expectedOperations   MeshControlGroupExpectedOperation[]
+  appliedMembers       MeshControlGroupAppliedMember[]
   commandDispatches    CommandDispatch[]
   createdAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
@@ -525,6 +528,37 @@ model MeshControlGroup {
   @@unique([gatewayId, targetType, targetId])
   @@unique([gatewayId, groupAddress])
   @@index([gatewayId, status])
+}
+
+model MeshControlGroupExpectedOperation {
+  operationId          String                                   @id @default(uuid())
+  groupId              String
+  gatewayId            String
+  configurationVersion Int
+  action               MeshControlGroupMemberOperation
+  meshNodeId           String
+  meshAddress          String
+  status               MeshControlGroupMemberSubscriptionStatus @default(pending)
+  lastError            String?
+  group                MeshControlGroup                         @relation(fields: [groupId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
+  createdAt            DateTime                                 @default(now())
+  updatedAt            DateTime                                 @updatedAt
+
+  @@unique([groupId, configurationVersion, action, meshNodeId, meshAddress])
+  @@index([groupId, gatewayId, configurationVersion])
+}
+
+model MeshControlGroupAppliedMember {
+  groupId     String
+  gatewayId   String
+  meshNodeId  String
+  meshAddress String
+  group       MeshControlGroup @relation(fields: [groupId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@id([groupId, meshNodeId, meshAddress])
+  @@index([groupId, gatewayId])
 }
 
 model MeshControlGroupMember {

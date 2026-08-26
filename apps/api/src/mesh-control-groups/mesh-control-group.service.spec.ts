@@ -448,6 +448,7 @@ describe("MeshControlGroupService", () => {
       data: {
         status: "configuring",
         configurationVersion: { increment: 1 },
+        operationPlanVersion: 0,
         lastError: null
       }
     });
@@ -456,6 +457,8 @@ describe("MeshControlGroupService", () => {
       data: {
         subscriptionStatus: "pending",
         statusVersion: 0,
+        operationId: null,
+        operation: null,
         lastError: null
       }
     });
@@ -514,7 +517,10 @@ describe("MeshControlGroupService", () => {
       fixtureGroupIds: []
     });
 
-    expect(tx.meshControlGroup.update).not.toHaveBeenCalled();
+    expect(tx.meshControlGroup.update).toHaveBeenCalledWith({
+      where: { id: "group-1" },
+      data: { operationPlanVersion: 0 }
+    });
     expect(tx.meshControlGroupMember.updateMany).not.toHaveBeenCalled();
   });
 
@@ -638,6 +644,7 @@ describe("MeshControlGroupService", () => {
       where: { id: "group-1" },
       data: {
         status: "configuring",
+        operationPlanVersion: 0,
         lastError: null
       }
     });
@@ -646,6 +653,8 @@ describe("MeshControlGroupService", () => {
       data: {
         subscriptionStatus: "pending",
         statusVersion: 0,
+        operationId: null,
+        operation: null,
         lastError: null
       }
     });
@@ -924,6 +933,7 @@ describe("MeshControlGroupService", () => {
       data: {
         status: "configuring",
         configurationVersion: { increment: 1 },
+        operationPlanVersion: 0,
         lastError: null
       }
     });
@@ -935,6 +945,8 @@ describe("MeshControlGroupService", () => {
       data: {
         subscriptionStatus: "pending",
         statusVersion: 0,
+        operationId: null,
+        operation: null,
         lastError: null
       }
     });
@@ -967,6 +979,7 @@ describe("MeshControlGroupService", () => {
       data: {
         status: "configuring",
         configurationVersion: { increment: 1 },
+        operationPlanVersion: 0,
         lastError: null
       }
     });
@@ -975,6 +988,7 @@ describe("MeshControlGroupService", () => {
       data: {
         status: "retiring",
         configurationVersion: { increment: 1 },
+        operationPlanVersion: 0,
         lastError: null
       }
     });
@@ -984,6 +998,67 @@ describe("MeshControlGroupService", () => {
         groupId: { in: ["group-configuring", "group-ready", "group-failed", "group-retiring"] }
       }
     }));
+  });
+
+  it("persists delete-old and add-new operations for one replaced node before publishing", async () => {
+    const nodeId = "00000000-0000-4000-8000-000000000021";
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: "group-1",
+        gatewayId,
+        groupAddress: "0xc000",
+        configurationVersion: 4,
+        operationPlanVersion: 3,
+        status: "configuring",
+        siteId
+      }]),
+      meshControlGroupMember: {
+        findMany: jest.fn().mockResolvedValue([{
+          meshNodeId: nodeId,
+          meshNode: { meshAddress: "0x0101" }
+        }])
+      },
+      meshControlGroupAppliedMember: {
+        findMany: jest.fn().mockResolvedValue([{
+          meshNodeId: nodeId,
+          meshAddress: "0x0100"
+        }])
+      },
+      meshControlGroupExpectedOperation: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+        findMany: jest.fn().mockImplementation(async () => {
+          const operations = tx.meshControlGroupExpectedOperation.createMany.mock.calls[0][0].data;
+          return operations.map((operation: object) => ({ ...operation, status: "pending", lastError: null }));
+        })
+      },
+      meshControlGroup: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    const payload = await service.prepareSubscriptionSync(tx, {
+      groupId: "group-1",
+      gatewayId,
+      configurationVersion: 4,
+      requestedAt: "2026-08-26T10:00:00.000Z"
+    });
+
+    const operations = tx.meshControlGroupExpectedOperation.createMany.mock.calls[0][0].data;
+    expect(operations).toEqual([
+      expect.objectContaining({ action: "delete", meshNodeId: nodeId, meshAddress: "0x0100", configurationVersion: 4 }),
+      expect.objectContaining({ action: "add", meshNodeId: nodeId, meshAddress: "0x0101", configurationVersion: 4 })
+    ]);
+    expect(operations[0].operationId).not.toBe(operations[1].operationId);
+    expect(payload).toMatchObject({
+      version: 4,
+      desiredMembers: [{ meshNodeId: nodeId, meshAddress: "0x0101" }],
+      expectedOperations: [
+        expect.objectContaining({ operationId: operations[0].operationId, action: "delete", meshAddress: "0x0100" }),
+        expect.objectContaining({ operationId: operations[1].operationId, action: "add", meshAddress: "0x0101" })
+      ]
+    });
   });
 
   it("does not reset ready progress when the same resync event is delivered again", async () => {

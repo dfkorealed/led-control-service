@@ -32,9 +32,10 @@ export class GroupSubscriptionHandler {
       await this.stateStore.writeConfiguring(identity);
       let result;
       try {
+        assertOperationPlan(command.desiredMembers, appliedMembers, command.expectedOperations);
         result = meshGroupSubscriptionResultSchema.parse(await this.adapter.syncGroupSubscriptions(command, appliedMembers));
         assertResultIdentity(command, result);
-        assertResultOperations(command.desiredMembers, appliedMembers, result.operations);
+        assertResultOperations(command.expectedOperations, result.operations);
         const nextAppliedMembers = applySuccessfulOperations(appliedMembers, result.operations);
         if (result.operations.every((operation) => operation.status === "ready")) await this.stateStore.writeReady(identity, nextAppliedMembers);
         else await this.stateStore.writeFailed(identity, nextAppliedMembers);
@@ -54,20 +55,36 @@ export class GroupSubscriptionHandler {
   }
 }
 
-function assertResultOperations(
+function assertOperationPlan(
   desiredMembers: Array<{ meshNodeId: string; meshAddress: string }>,
   appliedMembers: Array<{ meshNodeId: string; meshAddress: string }>,
   operations: Array<{ action: "add" | "delete"; meshNodeId: string; meshAddress: string }>
 ) {
   const desired = new Set(desiredMembers.map(memberKey));
   const applied = new Set(appliedMembers.map(memberKey));
-  const expected = new Set([
+  const residual = new Set([
     ...desiredMembers.filter((member) => !applied.has(memberKey(member))).map((member) => `add:${memberKey(member)}`),
     ...appliedMembers.filter((member) => !desired.has(memberKey(member))).map((member) => `delete:${memberKey(member)}`)
   ]);
-  const actual = new Set(operations.map((operation) => `${operation.action}:${memberKey(operation)}`));
-  if (expected.size !== operations.length || expected.size !== actual.size || [...expected].some((operation) => !actual.has(operation))) {
+  const planned = new Set(operations.map(operationKey));
+  const includesResidual = [...residual].every((operation) => planned.has(operation));
+  const containsOnlySafeOperations = operations.every((operation) => {
+    const key = memberKey(operation);
+    return operation.action === "add" ? desired.has(key) : !desired.has(key);
+  });
+  if (planned.size !== operations.length || !includesResidual || !containsOnlySafeOperations) {
     throw new Error("mesh group subscription operation diff mismatch");
+  }
+}
+
+function assertResultOperations(
+  expectedOperations: Array<{ operationId: string; action: "add" | "delete"; meshNodeId: string; meshAddress: string }>,
+  operations: Array<{ operationId: string; action: "add" | "delete"; meshNodeId: string; meshAddress: string }>
+) {
+  const expected = new Set(expectedOperations.map(exactOperationKey));
+  const actual = new Set(operations.map(exactOperationKey));
+  if (expected.size !== expectedOperations.length || actual.size !== operations.length || expected.size !== actual.size || [...expected].some((operation) => !actual.has(operation))) {
+    throw new Error("mesh group subscription operation result mismatch");
   }
 }
 
@@ -93,6 +110,14 @@ function normalizeMember(member: { meshNodeId: string; meshAddress: string }) {
 
 function memberKey(member: { meshNodeId: string; meshAddress: string }) {
   return `${member.meshNodeId}:${member.meshAddress.toLowerCase()}`;
+}
+
+function operationKey(operation: { action: "add" | "delete"; meshNodeId: string; meshAddress: string }) {
+  return `${operation.action}:${memberKey(operation)}`;
+}
+
+function exactOperationKey(operation: { operationId: string; action: "add" | "delete"; meshNodeId: string; meshAddress: string }) {
+  return `${operation.operationId}:${operationKey(operation)}`;
 }
 
 function assertResultIdentity(

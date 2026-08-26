@@ -129,6 +129,15 @@
 - [x] conflict-safe insert를 실제 PostgreSQL interactive transaction에서 검증하고 SiteAccess 404 우선순위를 고정한다.
 - [x] API/Shared/Web 검증, migration rehearsal, 문서·보고서와 별도 fix 커밋을 완료한다.
 
+#### Fix Round 2: version별 operation plan과 gateway migration ACK ownership
+
+- [x] reconnect version 증가가 member operation 진행 상태와 plan marker를 초기화해 fresh operation ID로 수렴하도록 한다.
+- [x] current FixtureGroup gateway와 다른 delayed cleanup ACK가 lifecycle을 retired로 바꾸지 못하게 한다.
+- [x] 동일 node address replacement의 delete-old/add-new를 shared sync 계약, gateway 실행, API exact ACK에서 정상 수락한다.
+- [x] version별 expected operation과 applied pair snapshot을 Prisma 및 새 migration에 영속화한다.
+- [x] API/Shared/Gateway/Web full tests와 typecheck/build, PostgreSQL full migration/integration, 관련 Playwright를 실행한다.
+- [x] control/database/status 문서와 implementer report를 갱신하고 별도 fix 커밋을 만든다.
+
 ### Task 5: Gateway 구독 해제와 ACK 완전성
 
 **Files:**

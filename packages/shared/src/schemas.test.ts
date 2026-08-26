@@ -305,9 +305,24 @@ describe("shared schemas", () => {
           meshAddress: "0x0100"
         }
       ],
+      expectedOperations: [
+        {
+          operationId: "66666666-6666-4666-8666-666666666661",
+          action: "delete",
+          meshNodeId: "22222222-2222-4222-8222-222222222222",
+          meshAddress: "0x00ff"
+        },
+        {
+          operationId: "66666666-6666-4666-8666-666666666662",
+          action: "add",
+          meshNodeId: "22222222-2222-4222-8222-222222222222",
+          meshAddress: "0x0100"
+        }
+      ],
       requestedAt: "2026-08-20T09:00:00.000Z"
     });
     expect(command.desiredMembers).toHaveLength(1);
+    expect(command.expectedOperations).toHaveLength(2);
 
     expect(meshGroupSubscriptionResultSchema.parse({
       siteId: "00000000-0000-4000-8000-000000000003",

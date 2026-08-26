@@ -503,22 +503,41 @@ function assertUniqueMeshNodeIds(
   });
 }
 
-function assertUniqueOperationIds(
-  operations: Array<{ operationId: string }>,
-  context: z.RefinementCtx
+function assertUniqueOperations(
+  operations: Array<{ operationId: string; action: "add" | "delete"; meshNodeId: string; meshAddress: string }>,
+  context: z.RefinementCtx,
+  fieldName: string
 ) {
   const seen = new Set<string>();
+  const seenTuples = new Set<string>();
   operations.forEach((operation, index) => {
     if (seen.has(operation.operationId)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["operations", index, "operationId"],
+        path: [fieldName, index, "operationId"],
         message: "operationId must be unique"
       });
     }
     seen.add(operation.operationId);
+
+    const tuple = `${operation.action}:${operation.meshNodeId}:${operation.meshAddress.toLowerCase()}`;
+    if (seenTuples.has(tuple)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [fieldName, index],
+        message: `${fieldName} must be unique by action, meshNodeId, and meshAddress`
+      });
+    }
+    seenTuples.add(tuple);
   });
 }
+
+export const meshGroupSubscriptionOperationSchema = z.object({
+  operationId: z.string().uuid(),
+  action: z.enum(["add", "delete"]),
+  meshNodeId: z.string().uuid(),
+  meshAddress: meshAddressSchema
+}).strict();
 
 export const meshGroupSubscriptionSyncSchema = z.object({
   siteId: z.string().uuid(),
@@ -527,14 +546,14 @@ export const meshGroupSubscriptionSyncSchema = z.object({
   version: positiveInt4Schema,
   groupAddress: meshAddressSchema,
   desiredMembers: z.array(meshGroupDesiredMemberSchema).max(100),
+  expectedOperations: z.array(meshGroupSubscriptionOperationSchema).max(200),
   requestedAt: z.string().datetime()
-}).strict().superRefine((input, context) => assertUniqueMeshNodeIds(input.desiredMembers, context, "desiredMembers"));
+}).strict().superRefine((input, context) => {
+  assertUniqueMeshNodeIds(input.desiredMembers, context, "desiredMembers");
+  assertUniqueOperations(input.expectedOperations, context, "expectedOperations");
+});
 
-export const meshGroupSubscriptionResultOperationSchema = z.object({
-  operationId: z.string().uuid(),
-  action: z.enum(["add", "delete"]),
-  meshNodeId: z.string().uuid(),
-  meshAddress: meshAddressSchema,
+export const meshGroupSubscriptionResultOperationSchema = meshGroupSubscriptionOperationSchema.extend({
   status: z.enum(["ready", "failed"]),
   error: z.string().min(1).optional()
 }).strict();
@@ -549,7 +568,7 @@ export const meshGroupSubscriptionResultSchema = z.object({
   operations: z.array(meshGroupSubscriptionResultOperationSchema).max(200),
   occurredAt: z.string().datetime()
 }).strict().superRefine((input, context) => {
-  assertUniqueOperationIds(input.operations, context);
+  assertUniqueOperations(input.operations, context, "operations");
 });
 
 export type MeshGroupSubscriptionSyncPayload = z.infer<typeof meshGroupSubscriptionSyncSchema>;

@@ -10,12 +10,31 @@ const statusVersionMigrationPath = join(
   __dirname,
   "../../prisma/migrations/20260821093000_add_mesh_control_group_member_status_version/migration.sql"
 );
+const operationPlanMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260826190000_persist_mesh_group_operation_plans/migration.sql"
+);
 
 describe("MeshControlGroup schema contract", () => {
   const schema = readFileSync(schemaPath, "utf8");
   const migration = readFileSync(initialMigrationPath, "utf8");
   const statusVersionMigration = readFileSync(statusVersionMigrationPath, "utf8");
+  const operationPlanMigration = readFileSync(operationPlanMigrationPath, "utf8");
   const meshControlGroupModel = schema.match(/model MeshControlGroup \{[\s\S]*?\n\}/)?.[0] ?? "";
+
+  it("persists a version-bound operation plan and the cloud applied membership snapshot", () => {
+    expect(meshControlGroupModel).toMatch(/operationPlanVersion\s+Int\s+@default\(0\)/);
+    expect(schema).toContain("model MeshControlGroupExpectedOperation {");
+    expect(schema).toContain("model MeshControlGroupAppliedMember {");
+    expect(schema).toMatch(/configurationVersion\s+Int/);
+    expect(schema).toMatch(/@@unique\(\[groupId, configurationVersion, action, meshNodeId, meshAddress\]\)/);
+    expect(schema).toMatch(/@@id\(\[groupId, meshNodeId, meshAddress\]\)/);
+    expect(operationPlanMigration).toContain('ADD COLUMN "operationPlanVersion" INTEGER NOT NULL DEFAULT 0');
+    expect(operationPlanMigration).toContain('CREATE TABLE "MeshControlGroupExpectedOperation"');
+    expect(operationPlanMigration).toContain('CREATE TABLE "MeshControlGroupAppliedMember"');
+    expect(operationPlanMigration).toContain('"MeshControlGroupExpectedOperation_groupId_gatewayId_fkey"');
+    expect(operationPlanMigration).toContain('WHERE member."appliedVersion" > 0');
+  });
 
   it("stores group configurationVersion instead of a generic version field", () => {
     expect(meshControlGroupModel).toMatch(/configurationVersion\s+Int\s+@default\(1\)/);

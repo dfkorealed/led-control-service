@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { MqttService } from "../mqtt/mqtt.service";
+import { MeshControlGroupService } from "./mesh-control-group.service";
 
 const GROUP_SYNC_INTERVAL_MS = 10_000;
 
@@ -11,7 +12,8 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mqttService: MqttService
+    private readonly mqttService: MqttService,
+    private readonly meshControlGroups: MeshControlGroupService
   ) {}
 
   onModuleInit() {
@@ -35,34 +37,19 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
       select: {
         id: true,
         gatewayId: true,
-        groupAddress: true,
-        configurationVersion: true,
-        gateway: { select: { siteId: true } },
-        members: {
-          where: { desired: true },
-          orderBy: [{ meshNodeId: "asc" }],
-          select: {
-            meshNodeId: true,
-            meshNode: { select: { meshAddress: true } }
-          }
-        }
+        configurationVersion: true
       }
     });
 
     for (const group of groups) {
       try {
-        await this.mqttService.publishMeshGroupSubscriptionSync({
-          siteId: group.gateway.siteId,
-          gatewayId: group.gatewayId,
+        const payload = await this.prisma.$transaction((tx) => this.meshControlGroups.prepareSubscriptionSync(tx, {
           groupId: group.id,
-          version: group.configurationVersion,
-          groupAddress: group.groupAddress,
-          desiredMembers: group.members.map((member) => ({
-            meshNodeId: member.meshNodeId,
-            meshAddress: member.meshNode.meshAddress
-          })),
+          gatewayId: group.gatewayId,
+          configurationVersion: group.configurationVersion,
           requestedAt: new Date().toISOString()
-        });
+        }));
+        if (payload) await this.mqttService.publishMeshGroupSubscriptionSync(payload);
       } catch (error) {
         this.logger.error("mesh control group sync publish failed", {
           groupId: group.id,

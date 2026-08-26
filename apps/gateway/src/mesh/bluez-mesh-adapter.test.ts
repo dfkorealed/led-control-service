@@ -594,6 +594,10 @@ describe("BluezMeshAdapter", () => {
         { meshNodeId: "fixture-1", meshAddress: "0x0100" },
         { meshNodeId: "fixture-2", meshAddress: "0x0101" }
       ],
+      expectedOperations: [
+        { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", action: "add", meshNodeId: "fixture-1", meshAddress: "0x0100" },
+        { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2", action: "add", meshNodeId: "fixture-2", meshAddress: "0x0101" }
+      ],
       requestedAt: "2026-08-21T00:00:00.000Z"
     })).resolves.toMatchObject({
       groupId: "00000000-0000-4000-8000-000000000012",
@@ -613,6 +617,9 @@ describe("BluezMeshAdapter", () => {
       version: 3,
       groupAddress: "0xc000",
       desiredMembers: [],
+      expectedOperations: [
+        { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3", action: "delete", meshNodeId: "fixture-1", meshAddress: "0x0100" }
+      ],
       requestedAt: "2026-08-21T00:01:00.000Z"
     })).resolves.toMatchObject({ operations: [{ action: "delete", meshNodeId: "fixture-1", status: "ready" }] });
     expect(f.config.removeModelSubscription).toHaveBeenCalledWith({ unicast: 0x0100, groupAddress: 0xc000 });
@@ -627,12 +634,25 @@ describe("BluezMeshAdapter", () => {
       groupAddress: "0xc000",
       requestedAt: "2026-08-21T00:00:00.000Z"
     };
-    await f.adapter.syncGroupSubscriptions({ ...base, version: 2, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0100" }] });
+    await f.adapter.syncGroupSubscriptions({
+      ...base,
+      version: 2,
+      desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0100" }],
+      expectedOperations: [{ operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1", action: "add", meshNodeId: "fixture-1", meshAddress: "0x0100" }]
+    });
 
-    await expect(f.adapter.syncGroupSubscriptions({ ...base, version: 3, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }] })).resolves.toMatchObject({
+    await expect(f.adapter.syncGroupSubscriptions({
+      ...base,
+      version: 3,
+      desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }],
+      expectedOperations: [
+        { operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2", action: "delete", meshNodeId: "fixture-1", meshAddress: "0x0100" },
+        { operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3", action: "add", meshNodeId: "fixture-1", meshAddress: "0x0101" }
+      ]
+    })).resolves.toMatchObject({
       operations: [
-        { action: "delete", meshNodeId: "fixture-1", meshAddress: "0x0100", status: "ready" },
-        { action: "add", meshNodeId: "fixture-1", meshAddress: "0x0101", status: "ready" }
+        { operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2", action: "delete", meshNodeId: "fixture-1", meshAddress: "0x0100", status: "ready" },
+        { operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3", action: "add", meshNodeId: "fixture-1", meshAddress: "0x0101", status: "ready" }
       ]
     });
     expect(f.config.removeModelSubscription).toHaveBeenCalledWith({ unicast: 0x0100, groupAddress: 0xc000 });
@@ -648,10 +668,23 @@ describe("BluezMeshAdapter", () => {
       groupAddress: "0xc000",
       requestedAt: "2026-08-21T00:00:00.000Z"
     };
-    await f.adapter.syncGroupSubscriptions({ ...base, version: 2, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0100" }] });
+    await f.adapter.syncGroupSubscriptions({
+      ...base,
+      version: 2,
+      desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0100" }],
+      expectedOperations: [{ operationId: "cccccccc-cccc-4ccc-8ccc-ccccccccccc1", action: "add", meshNodeId: "fixture-1", meshAddress: "0x0100" }]
+    });
     f.config.removeModelSubscription.mockRejectedValueOnce(new Error("old address still active"));
 
-    await expect(f.adapter.syncGroupSubscriptions({ ...base, version: 3, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }] })).resolves.toMatchObject({
+    await expect(f.adapter.syncGroupSubscriptions({
+      ...base,
+      version: 3,
+      desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }],
+      expectedOperations: [
+        { operationId: "cccccccc-cccc-4ccc-8ccc-ccccccccccc2", action: "delete", meshNodeId: "fixture-1", meshAddress: "0x0100" },
+        { operationId: "cccccccc-cccc-4ccc-8ccc-ccccccccccc3", action: "add", meshNodeId: "fixture-1", meshAddress: "0x0101" }
+      ]
+    })).resolves.toMatchObject({
       operations: [
         { action: "delete", meshAddress: "0x0100", status: "failed" },
         { action: "add", meshAddress: "0x0101", status: "ready" }
@@ -659,7 +692,12 @@ describe("BluezMeshAdapter", () => {
     });
     const addCallsAfterPartial = f.config.addModelSubscription.mock.calls.length;
 
-    await expect(f.adapter.syncGroupSubscriptions({ ...base, version: 4, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }] })).resolves.toMatchObject({
+    await expect(f.adapter.syncGroupSubscriptions({
+      ...base,
+      version: 4,
+      desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }],
+      expectedOperations: [{ operationId: "cccccccc-cccc-4ccc-8ccc-ccccccccccc4", action: "delete", meshNodeId: "fixture-1", meshAddress: "0x0100" }]
+    })).resolves.toMatchObject({
       operations: [{ action: "delete", meshAddress: "0x0100", status: "ready" }]
     });
     expect(f.config.addModelSubscription).toHaveBeenCalledTimes(addCallsAfterPartial);

@@ -10,7 +10,7 @@
 
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
 - 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
-- 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`
+- 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
 - 감사: `GatewayClaimAudit`, `AuditLog`
@@ -33,6 +33,8 @@ Organization
       │   ├─ GatewayInventory
       │   ├─ GatewayCertificate
       │   └─ MeshControlGroup ─ MeshControlGroupMember
+      │                      ├─ MeshControlGroupExpectedOperation
+      │                      └─ MeshControlGroupAppliedMember
       │   └─ CommandDispatch ─ CommandFixtureResult
       ├─ Command ─ CommandDispatch ─ MqttOutbox
       └─ ProvisioningSession ─ ProvisioningScanOutbox
@@ -693,6 +695,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 | `groupAddress` | `String` | 예 | Unique with `gatewayId` | BLE Mesh group address (`0xC000~0xFEFF`) |
 | `status` | `MeshControlGroupStatus` | 예 | `configuring` | 구성 상태 |
 | `configurationVersion` | `Int` | 예 | `1` | gateway ACK 기준 control group 구성 버전 |
+| `operationPlanVersion` | `Int` | 예 | `0` | expected operation plan을 생성 완료한 구성 버전. 빈 계획도 현재 version으로 기록 |
 | `lastError` | `String?` | 아니오 |  | 마지막 구성 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -706,6 +709,8 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 
 - `gateway`: `Gateway`
 - `members`: `MeshControlGroupMember[]`
+- `expectedOperations`: `MeshControlGroupExpectedOperation[]`
+- `appliedMembers`: `MeshControlGroupAppliedMember[]`
 
 운영 메모:
 
@@ -749,7 +754,15 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 - `statusVersion = 0`은 아직 어떤 subscription result version도 반영되지 않았음을 뜻한다.
 - `MeshControlGroupMember`는 `(groupId, gatewayId)`와 `(meshNodeId, gatewayId)` compound FK를 사용해 서로 다른 gateway의 group/node 연결을 DB에서 차단한다.
 - child 쪽 `groupId + gatewayId`, `meshNodeId + gatewayId`는 unique가 아니라 일반 index다. 따라서 한 control group에 여러 node membership을 둘 수 있고, 한 node도 같은 gateway 안에서 floor group과 fixture group membership을 함께 가질 수 있다.
-- subscription result를 반영할 때 `operationId`와 `operation`을 현재 version의 tuple로 저장한다. 같은 version ACK 재전송은 저장된 operation ID/종류와 node/address가 모두 같은 경우에만 멱등 수락하며, resync 또는 desired 전체 교체 시 이 진행 필드를 초기화한다.
+- `operationId`와 `operation`은 이전 migration과 member aggregate 호환을 위해 남아 있으나 round 2 이후 ACK 권위 원본은 아니다. resync 또는 desired 전체 교체 시 null로 초기화하며, exact operation 상태는 아래 version별 테이블에서 관리한다.
+
+### MeshControlGroupExpectedOperation
+
+각 configuration version에서 cloud가 gateway에 요구한 operation exact set을 저장한다. `operationId`가 PK이며 `(groupId, configurationVersion, action, meshNodeId, meshAddress)`가 Unique라 동일 node의 delete-old/add-new 두 tuple을 함께 표현할 수 있다. `status`와 `lastError`는 operation별 ACK 결과를 보존하고, `(groupId, gatewayId)` compound FK는 group 삭제 시 cascade한다.
+
+### MeshControlGroupAppliedMember
+
+cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 PK는 `(groupId, meshNodeId, meshAddress)`이며 한 node의 이전 address delete가 실패하고 새 address add가 성공한 partial replacement에서 두 address를 동시에 보존할 수 있다. 다음 version plan은 desired pair set과 이 applied pair set의 차집합으로 생성한다. migration은 기존 `MeshControlGroupMember.appliedVersion > 0` 행을 현재 MeshNode address로 backfill한다.
 
 ### Command
 
@@ -1040,6 +1053,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `MeshNode` | Unique `gatewayId`, `meshAddress` | 같은 게이트웨이 내 mesh address 중복 방지 |
 | `MeshControlGroup` | Unique `gatewayId + targetType + targetId`, Unique `gatewayId + groupAddress` | gateway별 영속 제어 group 중복과 주소 충돌 방지 |
 | `MeshControlGroupMember` | PK `groupId + meshNodeId`, Index `groupId + gatewayId`, Index `meshNodeId + gatewayId` | 같은 group/node membership 중복 방지, cross-gateway group/node FK 검증, gateway 내부 membership 조회 가속 |
+| `MeshControlGroupExpectedOperation` | PK `operationId`, Unique `groupId + configurationVersion + action + meshNodeId + meshAddress` | version별 exact ACK와 동일 node address replacement 2-operation 보존 |
+| `MeshControlGroupAppliedMember` | PK `groupId + meshNodeId + meshAddress`, Index `groupId + gatewayId` | partial success를 포함한 cloud 확인 실제 subscription pair snapshot |
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
 | `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |

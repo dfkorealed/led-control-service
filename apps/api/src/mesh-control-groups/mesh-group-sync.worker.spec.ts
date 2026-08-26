@@ -3,6 +3,7 @@ import { MeshGroupSyncWorker } from "./mesh-group-sync.worker";
 describe("MeshGroupSyncWorker", () => {
   it("publishes complete desired membership, including an empty set, and can republish the same version", async () => {
     const prisma: any = {
+      $transaction: jest.fn(async (callback: (tx: object) => Promise<unknown>) => callback({})),
       meshControlGroup: {
         findMany: jest.fn().mockResolvedValue([
           {
@@ -29,7 +30,30 @@ describe("MeshGroupSyncWorker", () => {
     const mqtt = {
       publishMeshGroupSubscriptionSync: jest.fn().mockResolvedValue(undefined)
     };
-    const worker = new MeshGroupSyncWorker(prisma, mqtt as never);
+    const meshGroups = {
+      prepareSubscriptionSync: jest.fn(async (_tx: unknown, input: { groupId: string }) => input.groupId.endsWith("101")
+        ? {
+            siteId: "00000000-0000-4000-8000-000000000103",
+            gatewayId: "00000000-0000-4000-8000-000000000102",
+            groupId: input.groupId,
+            version: 2,
+            groupAddress: "0xc000",
+            desiredMembers: [{ meshNodeId: "00000000-0000-4000-8000-000000000104", meshAddress: "0x0100" }],
+            expectedOperations: [{ operationId: "00000000-0000-4000-8000-000000000105", action: "add", meshNodeId: "00000000-0000-4000-8000-000000000104", meshAddress: "0x0100" }],
+            requestedAt: "2026-08-26T00:00:00.000Z"
+          }
+        : {
+            siteId: "00000000-0000-4000-8000-000000000203",
+            gatewayId: "00000000-0000-4000-8000-000000000202",
+            groupId: input.groupId,
+            version: 5,
+            groupAddress: "0xc001",
+            desiredMembers: [],
+            expectedOperations: [],
+            requestedAt: "2026-08-26T00:00:00.000Z"
+          })
+    };
+    const worker = new MeshGroupSyncWorker(prisma, mqtt as never, meshGroups as never);
 
     await worker.runOnce();
     await worker.runOnce();
@@ -40,17 +64,7 @@ describe("MeshGroupSyncWorker", () => {
       select: {
         id: true,
         gatewayId: true,
-        groupAddress: true,
-        configurationVersion: true,
-        gateway: { select: { siteId: true } },
-        members: {
-          where: { desired: true },
-          orderBy: [{ meshNodeId: "asc" }],
-          select: {
-            meshNodeId: true,
-            meshNode: { select: { meshAddress: true } }
-          }
-        }
+        configurationVersion: true
       }
     });
     expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenCalledTimes(4);
@@ -66,7 +80,13 @@ describe("MeshGroupSyncWorker", () => {
           meshAddress: "0x0100"
         }
       ],
-      requestedAt: expect.any(String)
+      expectedOperations: [{
+        operationId: "00000000-0000-4000-8000-000000000105",
+        action: "add",
+        meshNodeId: "00000000-0000-4000-8000-000000000104",
+        meshAddress: "0x0100"
+      }],
+      requestedAt: "2026-08-26T00:00:00.000Z"
     });
     expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenNthCalledWith(2, expect.objectContaining({
       groupId: "00000000-0000-4000-8000-000000000201",
@@ -76,6 +96,7 @@ describe("MeshGroupSyncWorker", () => {
 
   it("publishes the empty cloud desired set for a retiring group until the delete ACK arrives", async () => {
     const prisma: any = {
+      $transaction: jest.fn(async (callback: (tx: object) => Promise<unknown>) => callback({})),
       meshControlGroup: {
         findMany: jest.fn().mockResolvedValue([{
           id: "00000000-0000-4000-8000-000000000301",
@@ -88,7 +109,24 @@ describe("MeshGroupSyncWorker", () => {
       }
     };
     const mqtt = { publishMeshGroupSubscriptionSync: jest.fn().mockResolvedValue(undefined) };
-    const worker = new MeshGroupSyncWorker(prisma, mqtt as never);
+    const meshGroups = {
+      prepareSubscriptionSync: jest.fn().mockResolvedValue({
+        siteId: "00000000-0000-4000-8000-000000000303",
+        gatewayId: "00000000-0000-4000-8000-000000000302",
+        groupId: "00000000-0000-4000-8000-000000000301",
+        version: 6,
+        groupAddress: "0xc002",
+        desiredMembers: [],
+        expectedOperations: [{
+          operationId: "00000000-0000-4000-8000-000000000304",
+          action: "delete",
+          meshNodeId: "00000000-0000-4000-8000-000000000305",
+          meshAddress: "0x0100"
+        }],
+        requestedAt: "2026-08-26T00:00:00.000Z"
+      })
+    };
+    const worker = new MeshGroupSyncWorker(prisma, mqtt as never, meshGroups as never);
 
     await worker.runOnce();
 
@@ -98,12 +136,14 @@ describe("MeshGroupSyncWorker", () => {
     expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenCalledWith(expect.objectContaining({
       groupId: "00000000-0000-4000-8000-000000000301",
       version: 6,
-      desiredMembers: []
+      desiredMembers: [],
+      expectedOperations: [expect.objectContaining({ action: "delete" })]
     }));
   });
 
   it("logs and continues publishing later groups when an earlier group publish fails", async () => {
     const prisma: any = {
+      $transaction: jest.fn(async (callback: (tx: object) => Promise<unknown>) => callback({})),
       meshControlGroup: {
         findMany: jest.fn().mockResolvedValue([
           {
@@ -134,7 +174,19 @@ describe("MeshGroupSyncWorker", () => {
         .mockRejectedValueOnce(new Error("broker rejected publish"))
         .mockResolvedValueOnce(undefined)
     };
-    const worker = new MeshGroupSyncWorker(prisma, mqtt as never);
+    const meshGroups = {
+      prepareSubscriptionSync: jest.fn(async (_tx: unknown, input: { groupId: string; gatewayId: string; configurationVersion: number; requestedAt: string }) => ({
+        siteId: input.groupId.endsWith("101") ? "00000000-0000-4000-8000-000000000103" : "00000000-0000-4000-8000-000000000203",
+        gatewayId: input.gatewayId,
+        groupId: input.groupId,
+        version: input.configurationVersion,
+        groupAddress: input.groupId.endsWith("101") ? "0xc000" : "0xc001",
+        desiredMembers: [],
+        expectedOperations: [],
+        requestedAt: input.requestedAt
+      }))
+    };
+    const worker = new MeshGroupSyncWorker(prisma, mqtt as never, meshGroups as never);
     const logger = jest.spyOn((worker as any).logger, "error").mockImplementation(() => undefined);
 
     await worker.runOnce();

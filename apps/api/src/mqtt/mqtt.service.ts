@@ -834,51 +834,26 @@ export class MqttService implements OnModuleInit {
       const group = lockedGroups[0];
       if (!group) return;
 
-      const currentGroupMembers = await tx.meshControlGroupMember.findMany({
-        where: { groupId: group.id, gatewayId: group.gatewayId },
+      const expectedOperations = await tx.meshControlGroupExpectedOperation.findMany({
+        where: {
+          groupId: group.id,
+          gatewayId: group.gatewayId,
+          configurationVersion: event.version
+        },
         select: {
-          groupId: true,
-          gatewayId: true,
-          meshNodeId: true,
-          desired: true,
-          subscriptionStatus: true,
-          appliedVersion: true,
-          statusVersion: true,
           operationId: true,
-          operation: true,
-          meshNode: { select: { meshAddress: true } }
+          action: true,
+          meshNodeId: true,
+          meshAddress: true
         }
       });
-
-      const expectedOperations = currentGroupMembers.flatMap((member) => {
-        const action = member.statusVersion === event.version && member.operationId && member.operation
-          ? member.operation
-          : member.desired
-            ? member.appliedVersion === 0 ? "add" as const : null
-            : member.appliedVersion > 0 ? "delete" as const : null;
-        if (!action) return [];
-        return [{
-          member,
-          action,
-          meshAddress: member.meshNode.meshAddress.toLowerCase()
-        }];
-      });
-      const actualOperationIds = new Set(event.operations.map((operation) => operation.operationId));
-      const matchedExpectedMembers = new Set<string>();
+      const expectedSet = new Set(expectedOperations.map(meshSubscriptionOperationKey));
+      const actualSet = new Set(event.operations.map(meshSubscriptionOperationKey));
       const operationSetMatches =
-        event.operations.length === expectedOperations.length &&
-        actualOperationIds.size === event.operations.length &&
-        event.operations.every((operation) => {
-          const expected = expectedOperations.find((candidate) =>
-            candidate.member.meshNodeId === operation.meshNodeId &&
-            candidate.action === operation.action &&
-            candidate.meshAddress === operation.meshAddress.toLowerCase() &&
-            (!candidate.member.operationId || candidate.member.operationId === operation.operationId)
-          );
-          if (!expected || matchedExpectedMembers.has(expected.member.meshNodeId)) return false;
-          matchedExpectedMembers.add(expected.member.meshNodeId);
-          return true;
-        });
+        expectedSet.size === expectedOperations.length &&
+        actualSet.size === event.operations.length &&
+        expectedSet.size === actualSet.size &&
+        [...expectedSet].every((operation) => actualSet.has(operation));
       if (!operationSetMatches) {
         await tx.meshControlGroup.updateMany({
           where: {
@@ -887,7 +862,7 @@ export class MqttService implements OnModuleInit {
             configurationVersion: event.version
           },
           data: {
-            status: "failed",
+            status: group.status === "retiring" ? "retiring" : "failed",
             lastError: "mesh group subscription operation set mismatch"
           }
         });
@@ -895,50 +870,42 @@ export class MqttService implements OnModuleInit {
       }
 
       const failedOperation = event.operations.find((operation) => operation.status === "failed");
-      for (const member of event.operations) {
-        await tx.meshControlGroupMember.updateMany({
+      for (const operation of event.operations) {
+        await tx.meshControlGroupExpectedOperation.updateMany({
           where: {
             groupId: group.id,
             gatewayId: group.gatewayId,
-            meshNodeId: member.meshNodeId
+            configurationVersion: event.version,
+            operationId: operation.operationId,
+            action: operation.action,
+            meshNodeId: operation.meshNodeId,
+            meshAddress: operation.meshAddress.toLowerCase()
           },
-          data: member.status === "ready"
+          data: operation.status === "ready"
             ? {
-                subscriptionStatus: "applied",
-                appliedVersion: event.version,
-                statusVersion: event.version,
-                operationId: member.operationId,
-                operation: member.action,
+                status: "applied",
                 lastError: null
               }
             : {
-                subscriptionStatus: "failed",
-                statusVersion: event.version,
-                operationId: member.operationId,
-                operation: member.action,
-                lastError: member.error ?? "mesh group subscription failed"
+                status: "failed",
+                lastError: operation.error ?? "mesh group subscription failed"
               }
         });
-      }
-      const noOperationMemberIds = currentGroupMembers
-        .filter((member) => !expectedOperations.some((expected) => expected.member.meshNodeId === member.meshNodeId))
-        .map((member) => member.meshNodeId);
-      if (noOperationMemberIds.length > 0) {
-        await tx.meshControlGroupMember.updateMany({
-          where: {
-            groupId: group.id,
-            gatewayId: group.gatewayId,
-            meshNodeId: { in: noOperationMemberIds }
-          },
-          data: {
-            subscriptionStatus: "applied",
-            appliedVersion: event.version,
-            statusVersion: event.version,
-            operationId: null,
-            operation: null,
-            lastError: null
-          }
-        });
+        if (operation.status !== "ready") continue;
+        const memberIdentity = {
+          groupId: group.id,
+          gatewayId: group.gatewayId,
+          meshNodeId: operation.meshNodeId,
+          meshAddress: operation.meshAddress.toLowerCase()
+        };
+        if (operation.action === "delete") {
+          await tx.meshControlGroupAppliedMember.deleteMany({ where: memberIdentity });
+        } else {
+          await tx.meshControlGroupAppliedMember.createMany({
+            data: [memberIdentity],
+            skipDuplicates: true
+          });
+        }
       }
 
       const members = await tx.meshControlGroupMember.findMany({
@@ -946,36 +913,76 @@ export class MqttService implements OnModuleInit {
         select: {
           meshNodeId: true,
           desired: true,
-          subscriptionStatus: true,
-          appliedVersion: true,
-          statusVersion: true,
-          lastError: true
+          meshNode: { select: { meshAddress: true } }
         }
       });
-      const relevantMembers = members.filter((member) => member.desired !== false);
-      const failedMember = relevantMembers.find(
-        (member) => member.subscriptionStatus === "failed" && member.statusVersion === event.version
-      );
-      const isReady = relevantMembers.length > 0 && relevantMembers.every(
-        (member) =>
-          member.subscriptionStatus === "applied" &&
-          member.appliedVersion === event.version &&
-          member.statusVersion === event.version
-      );
+      const appliedMembers = await tx.meshControlGroupAppliedMember.findMany({
+        where: { groupId: group.id, gatewayId: group.gatewayId },
+        select: { meshNodeId: true, meshAddress: true }
+      });
+      const appliedByNode = new Map<string, Set<string>>();
+      for (const member of appliedMembers) {
+        const addresses = appliedByNode.get(member.meshNodeId) ?? new Set<string>();
+        addresses.add(member.meshAddress.toLowerCase());
+        appliedByNode.set(member.meshNodeId, addresses);
+      }
+      const failedByNode = new Map(event.operations
+        .filter((operation) => operation.status === "failed")
+        .map((operation) => [operation.meshNodeId, operation.error ?? "mesh group subscription failed"]));
+      for (const member of members) {
+        const addresses = appliedByNode.get(member.meshNodeId) ?? new Set<string>();
+        const desiredAddress = member.meshNode.meshAddress.toLowerCase();
+        const converged = member.desired
+          ? addresses.size === 1 && addresses.has(desiredAddress)
+          : addresses.size === 0;
+        const memberError = failedByNode.get(member.meshNodeId);
+        await tx.meshControlGroupMember.updateMany({
+          where: { groupId: group.id, gatewayId: group.gatewayId, meshNodeId: member.meshNodeId },
+          data: memberError
+            ? {
+                subscriptionStatus: "failed",
+                statusVersion: event.version,
+                operationId: null,
+                operation: null,
+                lastError: memberError
+              }
+            : converged
+              ? {
+                  subscriptionStatus: "applied",
+                  appliedVersion: event.version,
+                  statusVersion: event.version,
+                  operationId: null,
+                  operation: null,
+                  lastError: null
+                }
+              : {
+                  subscriptionStatus: "pending",
+                  statusVersion: event.version,
+                  operationId: null,
+                  operation: null,
+                  lastError: null
+                }
+        });
+      }
+
+      const desiredSet = new Set(members
+        .filter((member) => member.desired)
+        .map((member) => `${member.meshNodeId}:${member.meshNode.meshAddress.toLowerCase()}`));
+      const appliedSet = new Set(appliedMembers.map((member) =>
+        `${member.meshNodeId}:${member.meshAddress.toLowerCase()}`
+      ));
+      const membershipsConverged = desiredSet.size === appliedSet.size &&
+        [...desiredSet].every((member) => appliedSet.has(member));
+      const isReady = desiredSet.size > 0 && membershipsConverged && !failedOperation;
       const retirementSucceeded =
         group.status === "retiring" &&
         group.targetType === "fixture_group" &&
-        relevantMembers.length === 0 &&
-        members.every(
-          (member) => member.subscriptionStatus === "applied" && member.statusVersion === event.version
-        ) &&
-        !failedOperation &&
-        !failedMember;
+        desiredSet.size === 0 &&
+        appliedSet.size === 0 &&
+        !failedOperation;
       const nextStatus = failedOperation
-        ? "failed"
-        : failedMember
-          ? "failed"
-          : retirementSucceeded
+        ? group.status === "retiring" ? "retiring" : "failed"
+        : retirementSucceeded
             ? "retired"
             : isReady
               ? "ready"
@@ -984,9 +991,7 @@ export class MqttService implements OnModuleInit {
                 : "configuring";
       const nextError = failedOperation
         ? failedOperation.error ?? "mesh group subscription failed"
-        : failedMember
-          ? failedMember.lastError
-          : null;
+        : null;
       await tx.meshControlGroup.updateMany({
         where: {
           id: group.id,
@@ -997,12 +1002,21 @@ export class MqttService implements OnModuleInit {
       });
       if (retirementSucceeded) {
         await tx.fixtureGroup.updateMany({
-          where: { id: group.targetId, lifecycleStatus: "retiring" },
+          where: { id: group.targetId, gatewayId: group.gatewayId, lifecycleStatus: "retiring" },
           data: { lifecycleStatus: "retired" }
         });
       }
     });
   }
+}
+
+function meshSubscriptionOperationKey(operation: {
+  operationId: string;
+  action: "add" | "delete";
+  meshNodeId: string;
+  meshAddress: string;
+}) {
+  return `${operation.operationId}:${operation.action}:${operation.meshNodeId}:${operation.meshAddress.toLowerCase()}`;
 }
 
 export function createMqttConnectionOptions(env: NodeJS.ProcessEnv): { url: string; options: IClientOptions } {
