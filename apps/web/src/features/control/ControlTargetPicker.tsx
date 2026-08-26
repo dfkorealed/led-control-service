@@ -203,7 +203,7 @@ export function ControlTargetPicker({ dashboard, selection, disabled, onChange }
               aria-label={floor.name}
               className={selection.floorId === floor.id ? "control-target-button selected" : "control-target-button"}
               key={floor.id}
-              disabled={disabled}
+              disabled={disabled || !floor.meshControlGroups.some((group) => group.status === "ready")}
               onClick={() => onChange({ mode: "floor", floorId: floor.id })}
             >
               <span><strong>{floor.name}</strong><small>층 전체 조명</small></span>
@@ -222,7 +222,7 @@ export function ControlTargetPicker({ dashboard, selection, disabled, onChange }
               aria-label={`${group.name} 선택`}
               className={selection.groupId === group.id ? "control-target-button selected" : "control-target-button"}
               key={group.id}
-              disabled={disabled}
+              disabled={disabled || group.lifecycleStatus !== "active" || group.meshControlGroup?.status !== "ready"}
               onClick={() => onChange({ mode: "group", groupId: group.id })}
             >
               <span><strong>{group.name}</strong><small>저장된 구역</small></span>

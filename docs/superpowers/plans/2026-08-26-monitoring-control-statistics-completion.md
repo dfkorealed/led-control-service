@@ -120,6 +120,15 @@
 - [x] API·Mesh group 테스트, typecheck, build를 실행한다.
 - [x] 제어 문서를 갱신하고 `feat(control): add managed fixture groups`로 커밋한다.
 
+#### Fix Round 1: 저장 구역 lifecycle·ACK·dashboard 경계
+
+- [x] 빈/부분/중복/외부/잘못된 action·address·operation ID ACK가 retiring/ready를 만들지 못하는 RED/GREEN을 확인한다.
+- [x] reconnect resync가 retiring을 보존하고 retired를 제외하는 RED/GREEN을 확인한다.
+- [x] MeshControlGroup 없는 valid legacy update/delete/resync 복구와 gateway 이동 cleanup semantics를 구현한다.
+- [x] dashboard의 active 구역·층 Mesh 상태 계약과 Web의 non-ready target 차단을 구현한다.
+- [x] conflict-safe insert를 실제 PostgreSQL interactive transaction에서 검증하고 SiteAccess 404 우선순위를 고정한다.
+- [x] API/Shared/Web 검증, migration rehearsal, 문서·보고서와 별도 fix 커밋을 완료한다.
+
 ### Task 5: Gateway 구독 해제와 ACK 완전성
 
 **Files:**

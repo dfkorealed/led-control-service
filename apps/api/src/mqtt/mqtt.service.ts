@@ -764,17 +764,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const lockedGroups = await tx.$queryRaw<Array<{
         id: string;
         gatewayId: string;
+        groupAddress: string;
         configurationVersion: number;
         targetType: "floor" | "fixture_group";
         targetId: string;
         status: "configuring" | "ready" | "failed" | "retiring" | "retired";
       }>>`
-        SELECT g."id", g."gatewayId", g."configurationVersion", g."targetType", g."targetId", g."status"
+        SELECT g."id", g."gatewayId", g."groupAddress", g."configurationVersion", g."targetType", g."targetId", g."status"
         FROM "MeshControlGroup" g
         INNER JOIN "Gateway" gw ON gw."id" = g."gatewayId"
         WHERE g."id" = ${event.groupId}
           AND g."gatewayId" = ${event.gatewayId}
+          AND LOWER(g."groupAddress") = ${event.groupAddress.toLowerCase()}
           AND g."configurationVersion" = ${event.version}
+          AND g."status" <> 'retired'
           AND gw."siteId" = ${event.siteId}
         FOR UPDATE OF g
       `;
@@ -790,14 +793,59 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           desired: true,
           subscriptionStatus: true,
           appliedVersion: true,
-          statusVersion: true
+          statusVersion: true,
+          operationId: true,
+          operation: true,
+          meshNode: { select: { meshAddress: true } }
         }
       });
 
-      const currentMembers = new Set(currentGroupMembers.map((member) => member.meshNodeId));
+      const expectedOperations = currentGroupMembers.flatMap((member) => {
+        const action = member.statusVersion === event.version && member.operationId && member.operation
+          ? member.operation
+          : member.desired
+            ? member.appliedVersion === 0 ? "add" as const : null
+            : member.appliedVersion > 0 ? "delete" as const : null;
+        if (!action) return [];
+        return [{
+          member,
+          action,
+          meshAddress: member.meshNode.meshAddress.toLowerCase()
+        }];
+      });
+      const actualOperationIds = new Set(event.operations.map((operation) => operation.operationId));
+      const matchedExpectedMembers = new Set<string>();
+      const operationSetMatches =
+        event.operations.length === expectedOperations.length &&
+        actualOperationIds.size === event.operations.length &&
+        event.operations.every((operation) => {
+          const expected = expectedOperations.find((candidate) =>
+            candidate.member.meshNodeId === operation.meshNodeId &&
+            candidate.action === operation.action &&
+            candidate.meshAddress === operation.meshAddress.toLowerCase() &&
+            (!candidate.member.operationId || candidate.member.operationId === operation.operationId)
+          );
+          if (!expected || matchedExpectedMembers.has(expected.member.meshNodeId)) return false;
+          matchedExpectedMembers.add(expected.member.meshNodeId);
+          return true;
+        });
+      if (!operationSetMatches) {
+        await tx.meshControlGroup.updateMany({
+          where: {
+            id: group.id,
+            gatewayId: group.gatewayId,
+            configurationVersion: event.version
+          },
+          data: {
+            status: "failed",
+            lastError: "mesh group subscription operation set mismatch"
+          }
+        });
+        return;
+      }
+
       const failedOperation = event.operations.find((operation) => operation.status === "failed");
       for (const member of event.operations) {
-        if (!currentMembers.has(member.meshNodeId)) continue;
         await tx.meshControlGroupMember.updateMany({
           where: {
             groupId: group.id,
@@ -809,13 +857,37 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
                 subscriptionStatus: "applied",
                 appliedVersion: event.version,
                 statusVersion: event.version,
+                operationId: member.operationId,
+                operation: member.action,
                 lastError: null
               }
             : {
                 subscriptionStatus: "failed",
                 statusVersion: event.version,
+                operationId: member.operationId,
+                operation: member.action,
                 lastError: member.error ?? "mesh group subscription failed"
               }
+        });
+      }
+      const noOperationMemberIds = currentGroupMembers
+        .filter((member) => !expectedOperations.some((expected) => expected.member.meshNodeId === member.meshNodeId))
+        .map((member) => member.meshNodeId);
+      if (noOperationMemberIds.length > 0) {
+        await tx.meshControlGroupMember.updateMany({
+          where: {
+            groupId: group.id,
+            gatewayId: group.gatewayId,
+            meshNodeId: { in: noOperationMemberIds }
+          },
+          data: {
+            subscriptionStatus: "applied",
+            appliedVersion: event.version,
+            statusVersion: event.version,
+            operationId: null,
+            operation: null,
+            lastError: null
+          }
         });
       }
 
@@ -830,9 +902,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           lastError: true
         }
       });
-      const relevantMembers = members.filter(
-        (member) => currentMembers.has(member.meshNodeId) && member.desired !== false
-      );
+      const relevantMembers = members.filter((member) => member.desired !== false);
       const failedMember = relevantMembers.find(
         (member) => member.subscriptionStatus === "failed" && member.statusVersion === event.version
       );
@@ -846,6 +916,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         group.status === "retiring" &&
         group.targetType === "fixture_group" &&
         relevantMembers.length === 0 &&
+        members.every(
+          (member) => member.subscriptionStatus === "applied" && member.statusVersion === event.version
+        ) &&
         !failedOperation &&
         !failedMember;
       const nextStatus = failedOperation

@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import type { FloorMapSnapshot } from "@led-control/shared";
+import type { FixtureGroupMetadata, FloorMapSnapshot } from "@led-control/shared";
 import { apiGet } from "./client";
 
 export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
@@ -23,6 +23,12 @@ export interface Dashboard {
     name: string;
     level: number;
     floorPlan: { imageUrl: string; width: number; height: number; version: number } | null;
+    meshControlGroups: Array<{
+      gatewayId: string;
+      status: "configuring" | "ready" | "failed" | "retiring" | "retired";
+      version: number;
+      error: string | null;
+    }>;
     fixtures: Array<{
       id: string;
       name: string;
@@ -42,7 +48,7 @@ export interface Dashboard {
       controlBlockReason: "fixture_unmapped" | "gateway_offline" | "fixture_fault" | "fixture_offline" | null;
     }>;
   }>;
-  groups: Array<{ id: string; name: string; fixtureIds: string[] }>;
+  groups: Array<FixtureGroupMetadata & { fixtureIds: string[] }>;
   gateways: Array<{
     id: string;
     name: string;

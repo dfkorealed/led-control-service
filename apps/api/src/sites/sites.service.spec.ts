@@ -42,7 +42,25 @@ describe("SitesService", () => {
           name: "Gateway B2",
           serialNumber: "GW-DEMO-001",
           firmwareVersion: "mock-1.0.0",
-          lastHeartbeatAt: new Date()
+          lastHeartbeatAt: new Date(),
+          meshControlGroups: [
+            {
+              id: "mesh-floor-1",
+              targetType: "floor",
+              targetId: "floor-1",
+              status: "ready",
+              configurationVersion: 3,
+              lastError: null
+            },
+            {
+              id: "mesh-group-1",
+              targetType: "fixture_group",
+              targetId: "group-1",
+              status: "failed",
+              configurationVersion: 4,
+              lastError: "subscription rejected"
+            }
+          ]
         }
       ],
       floors: [
@@ -83,7 +101,32 @@ describe("SitesService", () => {
           ]
         }
       ],
-      groups: [{ id: "group-1", name: "Entrance", groupFixtures: [{ fixtureId: "fixture-1" }] }]
+      groups: [
+        {
+          id: "group-1",
+          name: "Entrance",
+          floorId: "floor-1",
+          gatewayId: "gateway-1",
+          lifecycleStatus: "active",
+          groupFixtures: [{ fixtureId: "fixture-1" }]
+        },
+        {
+          id: "group-retired",
+          name: "Old zone",
+          floorId: "floor-1",
+          gatewayId: "gateway-1",
+          lifecycleStatus: "retired",
+          groupFixtures: [{ fixtureId: "fixture-2" }]
+        },
+        {
+          id: "group-invalid",
+          name: "Legacy invalid",
+          floorId: null,
+          gatewayId: null,
+          lifecycleStatus: "invalid",
+          groupFixtures: []
+        }
+      ]
     });
     prisma.fixture.findMany.mockResolvedValue([
       {
@@ -132,6 +175,26 @@ describe("SitesService", () => {
       serialNumber: "GW-DEMO-001",
       connectionStatus: "online"
     });
+    expect(dashboard.floors[0].meshControlGroups).toEqual([{
+      gatewayId: "gateway-1",
+      status: "ready",
+      version: 3,
+      error: null
+    }]);
+    expect(dashboard.groups).toEqual([{
+      id: "group-1",
+      name: "Entrance",
+      floorId: "floor-1",
+      gatewayId: "gateway-1",
+      lifecycleStatus: "active",
+      fixtureCount: 1,
+      fixtureIds: ["fixture-1"],
+      meshControlGroup: {
+        status: "failed",
+        version: 4,
+        error: "subscription rejected"
+      }
+    }]);
   });
 
   it("returns the existing empty dashboard shape when the default route has no accessible sites", async () => {

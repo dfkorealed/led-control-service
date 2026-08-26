@@ -433,6 +433,7 @@ function dashboard(
       name: runtimeFloor.name,
       level: runtimeFloor.level,
       floorPlan: runtimeFloor.floorPlan,
+      meshControlGroups: [],
       fixtures: includeFixtures ? fixtures : []
     }],
     groups: [],

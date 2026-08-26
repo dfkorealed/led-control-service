@@ -8,6 +8,7 @@ import { PrismaService } from "../prisma/prisma.service";
 
 const MAX_FIXTURE_GROUPS_PER_FIXTURE = 15;
 const MAX_CONFIGURATION_VERSION = 2_147_483_647;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type LockedFixtureGroup = {
   id: string;
@@ -40,8 +41,9 @@ export class FixtureGroupsService {
     private readonly meshControlGroups: MeshControlGroupService
   ) {}
 
-  async list(user: AuthenticatedUser, siteId: string, floorId?: string): Promise<FixtureGroupMetadata[]> {
+  async list(user: AuthenticatedUser, siteId: string, rawQuery: unknown = {}): Promise<FixtureGroupMetadata[]> {
     await this.siteAccess.assert(user, siteId, "read");
+    const floorId = this.parseListQuery(rawQuery);
     if (floorId) await this.assertFloorInSite(this.prisma, siteId, floorId);
 
     const groups = await this.prisma.fixtureGroup.findMany({
@@ -71,8 +73,8 @@ export class FixtureGroupsService {
   }
 
   async create(user: AuthenticatedUser, siteId: string, rawInput: unknown): Promise<FixtureGroupMetadata> {
-    const input = this.parseInput(rawInput);
     await this.siteAccess.assert(user, siteId, "manage");
+    const input = this.parseInput(rawInput);
 
     return this.prisma.$transaction(async (tx) => {
       const fixtures = await this.lockAndValidateBoundary(tx, siteId, input);
@@ -109,17 +111,57 @@ export class FixtureGroupsService {
     groupId: string,
     rawInput: unknown
   ): Promise<FixtureGroupMetadata> {
-    const input = this.parseInput(rawInput);
     await this.siteAccess.assert(user, siteId, "manage");
+    const input = this.parseInput(rawInput);
 
     return this.prisma.$transaction(async (tx) => {
       const group = await this.lockFixtureGroup(tx, siteId, groupId);
       this.assertActive(group);
-      const fixtures = await this.lockAndValidateBoundary(tx, siteId, input);
+      const fixtures = await this.lockAndValidateBoundary(tx, siteId, input, group.gatewayId ?? undefined);
       await this.assertFixtureCapacity(tx, input.fixtureIds, group.id);
 
-      const meshGroup = await this.lockMeshControlGroupForFixtureGroup(tx, group.id, input.gatewayId);
-      const nextVersion = this.nextConfigurationVersion(meshGroup.configurationVersion);
+      let meshGroup: LockedMeshControlGroup;
+      let nextVersion: number;
+      if (group.gatewayId !== input.gatewayId) {
+        const previous = await this.ensureAndLockFixtureMeshGroup(tx, group.id, group.gatewayId!);
+        const previousVersion = this.nextConfigurationVersion(previous.meshGroup.configurationVersion);
+        await tx.meshControlGroup.update({
+          where: { id: previous.meshGroup.id },
+          data: {
+            status: MeshControlGroupStatus.retiring,
+            configurationVersion: { increment: 1 },
+            lastError: null
+          }
+        });
+        await this.replaceDesiredMembers(tx, {
+          ...previous.meshGroup,
+          configurationVersion: previousVersion
+        }, []);
+
+        const replacement = await this.ensureAndLockFixtureMeshGroup(tx, group.id, input.gatewayId);
+        meshGroup = replacement.meshGroup;
+        nextVersion = this.nextConfigurationVersion(meshGroup.configurationVersion);
+        await tx.meshControlGroup.update({
+          where: { id: meshGroup.id },
+          data: {
+            status: MeshControlGroupStatus.configuring,
+            configurationVersion: { increment: 1 },
+            lastError: null
+          }
+        });
+      } else {
+        const current = await this.ensureAndLockFixtureMeshGroup(tx, group.id, input.gatewayId);
+        meshGroup = current.meshGroup;
+        nextVersion = this.nextConfigurationVersion(meshGroup.configurationVersion);
+        await tx.meshControlGroup.update({
+          where: { id: meshGroup.id },
+          data: {
+            status: MeshControlGroupStatus.configuring,
+            configurationVersion: { increment: 1 },
+            lastError: null
+          }
+        });
+      }
       await tx.fixtureGroup.update({
         where: { id: group.id },
         data: {
@@ -132,14 +174,6 @@ export class FixtureGroupsService {
       await tx.groupFixture.deleteMany({ where: { groupId: group.id } });
       await tx.groupFixture.createMany({
         data: fixtures.map((fixture) => ({ groupId: group.id, fixtureId: fixture.id }))
-      });
-      await tx.meshControlGroup.update({
-        where: { id: meshGroup.id },
-        data: {
-          status: MeshControlGroupStatus.configuring,
-          configurationVersion: { increment: 1 },
-          lastError: null
-        }
       });
       await this.replaceDesiredMembers(tx, { ...meshGroup, configurationVersion: nextVersion }, fixtures.map((fixture) => fixture.meshNodeId!));
 
@@ -157,7 +191,7 @@ export class FixtureGroupsService {
     return this.prisma.$transaction(async (tx) => {
       const group = await this.lockFixtureGroup(tx, siteId, groupId);
       this.assertActive(group);
-      const meshGroup = await this.lockMeshControlGroupForFixtureGroup(tx, group.id, group.gatewayId!);
+      const { meshGroup } = await this.ensureAndLockFixtureMeshGroup(tx, group.id, group.gatewayId!);
       const nextVersion = this.nextConfigurationVersion(meshGroup.configurationVersion);
 
       await tx.fixtureGroup.update({
@@ -192,7 +226,12 @@ export class FixtureGroupsService {
       }
       if (!group.gatewayId) throw new BadRequestException("fixture group is missing a gateway");
 
-      const meshGroup = await this.lockMeshControlGroupForFixtureGroup(tx, group.id, group.gatewayId);
+      const recovered = await this.ensureAndLockFixtureMeshGroup(tx, group.id, group.gatewayId);
+      const meshGroup = recovered.meshGroup;
+      if (recovered.created) {
+        const meshNodeIds = await this.lockLegacyGroupMeshNodes(tx, group.id, group.gatewayId);
+        await this.replaceDesiredMembers(tx, meshGroup, meshNodeIds);
+      }
       const nextVersion = this.nextConfigurationVersion(meshGroup.configurationVersion);
       const status = group.lifecycleStatus === "retiring"
         ? MeshControlGroupStatus.retiring
@@ -214,13 +253,30 @@ export class FixtureGroupsService {
     return parsed.data;
   }
 
+  private parseListQuery(rawQuery: unknown) {
+    if (!rawQuery || Array.isArray(rawQuery) || typeof rawQuery !== "object") {
+      throw new BadRequestException("invalid fixture group query");
+    }
+    const entries = Object.entries(rawQuery);
+    if (entries.some(([key]) => key !== "floorId")) throw new BadRequestException("invalid fixture group query");
+    const floorId = (rawQuery as { floorId?: unknown }).floorId;
+    if (floorId === undefined) return undefined;
+    if (typeof floorId !== "string" || !UUID_PATTERN.test(floorId)) {
+      throw new BadRequestException("invalid fixture group query");
+    }
+    return floorId;
+  }
+
   private async lockAndValidateBoundary(
     tx: Prisma.TransactionClient,
     siteId: string,
-    input: UpdateFixtureGroupInput
+    input: UpdateFixtureGroupInput,
+    previousGatewayId?: string
   ): Promise<LockedFixture[]> {
     await this.assertFloorInSite(tx, siteId, input.floorId);
-    await this.assertGatewayInSite(tx, siteId, input.gatewayId);
+    for (const gatewayId of [...new Set([input.gatewayId, previousGatewayId].filter((id): id is string => Boolean(id)))].sort()) {
+      await this.assertGatewayInSite(tx, siteId, gatewayId);
+    }
     const fixtureIds = [...input.fixtureIds].sort();
     const fixtures = await tx.$queryRaw<LockedFixture[]>(Prisma.sql`
       SELECT
@@ -316,14 +372,60 @@ export class FixtureGroupsService {
       FOR UPDATE
     `);
     const group = rows[0];
-    if (!group) throw new NotFoundException("fixture group mesh control group not found");
-    return group;
+    return group?.gatewayId === gatewayId ? group : null;
+  }
+
+  private async ensureAndLockFixtureMeshGroup(
+    tx: Prisma.TransactionClient,
+    fixtureGroupId: string,
+    gatewayId: string
+  ) {
+    const existing = await this.lockMeshControlGroupForFixtureGroup(tx, fixtureGroupId, gatewayId);
+    if (existing) return { meshGroup: existing, created: false };
+
+    const ensured = await this.meshControlGroups.ensureFixtureGroup(tx, gatewayId, fixtureGroupId);
+    return {
+      meshGroup: {
+        id: ensured.id,
+        gatewayId: ensured.gatewayId,
+        configurationVersion: ensured.configurationVersion,
+        status: ensured.status
+      },
+      created: true
+    };
+  }
+
+  private async lockLegacyGroupMeshNodes(
+    tx: Prisma.TransactionClient,
+    fixtureGroupId: string,
+    gatewayId: string
+  ) {
+    const rows = await tx.$queryRaw<Array<{ meshNodeId: string; gatewayId: string }>>(Prisma.sql`
+      SELECT mesh_node."id" AS "meshNodeId", mesh_node."gatewayId"
+      FROM "GroupFixture" membership
+      INNER JOIN "Fixture" fixture ON fixture."id" = membership."fixtureId"
+      INNER JOIN "MeshNode" mesh_node ON mesh_node."id" = fixture."meshNodeId"
+      WHERE membership."groupId" = ${fixtureGroupId}
+      ORDER BY fixture."id"
+      FOR UPDATE OF fixture
+    `);
+    if (rows.length === 0 || rows.some((row) => row.gatewayId !== gatewayId)) {
+      throw new BadRequestException("fixture group legacy membership is not controllable");
+    }
+    return rows.map((row) => row.meshNodeId);
   }
 
   private async replaceDesiredMembers(tx: Prisma.TransactionClient, meshGroup: LockedMeshControlGroup, meshNodeIds: string[]) {
     await tx.meshControlGroupMember.updateMany({
       where: { groupId: meshGroup.id, gatewayId: meshGroup.gatewayId },
-      data: { desired: false, subscriptionStatus: "pending", statusVersion: 0, lastError: null }
+      data: {
+        desired: false,
+        subscriptionStatus: "pending",
+        statusVersion: 0,
+        operationId: null,
+        operation: null,
+        lastError: null
+      }
     });
     for (const meshNodeId of [...meshNodeIds].sort()) {
       await tx.meshControlGroupMember.upsert({
@@ -337,7 +439,14 @@ export class FixtureGroupsService {
           statusVersion: 0,
           lastError: null
         },
-        update: { desired: true, subscriptionStatus: "pending", statusVersion: 0, lastError: null }
+        update: {
+          desired: true,
+          subscriptionStatus: "pending",
+          statusVersion: 0,
+          operationId: null,
+          operation: null,
+          lastError: null
+        }
       });
     }
   }
@@ -345,7 +454,13 @@ export class FixtureGroupsService {
   private async resetMembershipProgress(tx: Prisma.TransactionClient, groupId: string, gatewayId: string) {
     await tx.meshControlGroupMember.updateMany({
       where: { groupId, gatewayId },
-      data: { subscriptionStatus: "pending", statusVersion: 0, lastError: null }
+      data: {
+        subscriptionStatus: "pending",
+        statusVersion: 0,
+        operationId: null,
+        operation: null,
+        lastError: null
+      }
     });
   }
 

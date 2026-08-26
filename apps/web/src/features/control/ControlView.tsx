@@ -234,7 +234,11 @@ function resolveSelection(
 
   if (selection.mode === "floor") {
     const floor = data.floors.find((item) => item.id === selection.floorId);
-    return selectionResult(floor?.name ?? "층 선택", floor?.fixtures ?? [], Boolean(floor));
+    return selectionResult(
+      floor?.name ?? "층 선택",
+      floor?.fixtures ?? [],
+      Boolean(floor?.meshControlGroups.some((group) => group.status === "ready"))
+    );
   }
 
   const group = data.groups.find((item) => item.id === selection.groupId);
@@ -246,7 +250,13 @@ function resolveSelection(
   return selectionResult(
     group?.name ?? "구역 선택",
     groupFixtures,
-    Boolean(group && group.fixtureIds.length > 0 && groupFixtures.length === group.fixtureIds.length)
+    Boolean(
+      group &&
+      group.lifecycleStatus === "active" &&
+      group.meshControlGroup?.status === "ready" &&
+      group.fixtureIds.length > 0 &&
+      groupFixtures.length === group.fixtureIds.length
+    )
   );
 }
 

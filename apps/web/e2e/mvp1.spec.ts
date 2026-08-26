@@ -35,6 +35,7 @@ test.beforeEach(async ({ page }) => {
             name: "B2",
             level: -2,
             floorPlan: { imageUrl: "/demo/floor-b2.svg", width: 1200, height: 800, version: 1 },
+            meshControlGroups: [{ gatewayId: "gateway-1", status: "ready", version: 1, error: null }],
             fixtures: [
               {
                 id: "fixture-1",
@@ -52,7 +53,16 @@ test.beforeEach(async ({ page }) => {
             ]
           }
         ],
-        groups: [{ id: "group-1", name: "B2 Entrance Zone", fixtureIds: ["fixture-1"] }],
+        groups: [{
+          id: "group-1",
+          name: "B2 Entrance Zone",
+          floorId: "floor-1",
+          gatewayId: "gateway-1",
+          lifecycleStatus: "active",
+          fixtureCount: 1,
+          meshControlGroup: { status: "ready", version: 1, error: null },
+          fixtureIds: ["fixture-1"]
+        }],
         gateways: [
           {
             id: "gateway-1",

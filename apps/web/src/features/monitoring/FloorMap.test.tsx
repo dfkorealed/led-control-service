@@ -48,6 +48,7 @@ describe("FloorMap", () => {
           name: "B2",
           level: -2,
           floorPlan: { imageUrl: "/demo.svg", width: 1200, height: 800, version: 1 },
+          meshControlGroups: [],
           fixtures: [
             {
               id: "fixture-1",
@@ -94,6 +95,7 @@ describe("FloorMap", () => {
           name: "B2",
           level: -2,
           floorPlan: null,
+          meshControlGroups: [],
           fixtures: [{
             id: "fixture-2",
             name: "B2-L02",

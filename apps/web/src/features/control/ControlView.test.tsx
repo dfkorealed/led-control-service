@@ -50,6 +50,7 @@ const dashboard: Dashboard = {
       name: "B2",
       level: -2,
       floorPlan: null,
+      meshControlGroups: [{ gatewayId: "gateway-1", status: "ready", version: 1, error: null }],
       fixtures: [
         createFixture(fixtureIds.b2First, "B2-L001", 70),
         createFixture(fixtureIds.b2Second, "B2-L002", 60),
@@ -66,6 +67,7 @@ const dashboard: Dashboard = {
       name: "B1",
       level: -1,
       floorPlan: null,
+      meshControlGroups: [{ gatewayId: "gateway-1", status: "ready", version: 1, error: null }],
       fixtures: [createFixture(fixtureIds.b1First, "B1-L001", 50)]
     }
   ],
@@ -73,11 +75,21 @@ const dashboard: Dashboard = {
     {
       id: "00000000-0000-4000-8000-000000000006",
       name: "B2 입구 구역",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "gateway-1",
+      lifecycleStatus: "active",
+      fixtureCount: 2,
+      meshControlGroup: { status: "ready", version: 1, error: null },
       fixtureIds: [fixtureIds.b2First, fixtureIds.b2Second]
     },
     {
       id: "00000000-0000-4000-8000-000000000007",
       name: "B2 비상 구역",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "gateway-1",
+      lifecycleStatus: "active",
+      fixtureCount: 2,
+      meshControlGroup: { status: "ready", version: 1, error: null },
       fixtureIds: [fixtureIds.b2First, fixtureIds.b2Offline]
     }
   ],
@@ -204,6 +216,26 @@ describe("ControlView 대상 선택", () => {
       target: { type: "group", groupId: dashboard.groups[0].id },
       brightness: 70
     }));
+  });
+
+  it("does not expose configuring or failed mesh groups as selectable control targets", () => {
+    const unavailableDashboard: Dashboard = {
+      ...dashboard,
+      floors: dashboard.floors.map((floor, index) => index === 0
+        ? { ...floor, meshControlGroups: [{ gatewayId: "gateway-1", status: "configuring", version: 2, error: null }] }
+        : floor),
+      groups: dashboard.groups.map((group, index) => index === 0
+        ? { ...group, meshControlGroup: { status: "failed", version: 2, error: "subscription rejected" } }
+        : group)
+    };
+    mocks.useControlDashboard.mockReturnValue({ data: unavailableDashboard, isLoading: false, error: null });
+    renderControl();
+
+    fireEvent.click(screen.getByRole("button", { name: "구역" }));
+    expect(screen.getByRole("button", { name: /B2 입구 구역/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
   });
 
   it("filters the fixture checklist by search, state, and floor", () => {
@@ -602,6 +634,7 @@ function createLargeDashboard(fixtureCount: number): Dashboard {
       name: "B1",
       level: -1,
       floorPlan: null,
+      meshControlGroups: [{ gatewayId: "gateway-1", status: "ready", version: 1, error: null }],
       fixtures: Array.from({ length: fixtureCount }, (_, index) => createFixture(
         `00000000-0000-4000-8${String(index).padStart(3, "0")}-${String(index + 1).padStart(12, "0")}`,
         `대규모 조명 ${String(index + 1).padStart(4, "0")}`,

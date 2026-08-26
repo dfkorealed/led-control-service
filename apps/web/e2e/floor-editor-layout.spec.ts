@@ -70,7 +70,7 @@ async function mockEditorApi(page: Page) {
       return route.fulfill({ json: {
         site: { id: "site-2", name: "물류센터" },
         summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, averageBrightness: 70 },
-        floors: [{ id: "floor-b2", name: "B2", level: -2, floorPlan: editorState.floor.floorPlan, fixtures: [] }],
+        floors: [{ id: "floor-b2", name: "B2", level: -2, floorPlan: editorState.floor.floorPlan, meshControlGroups: [], fixtures: [] }],
         groups: [],
         gateways: []
       } });

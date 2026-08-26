@@ -13,7 +13,7 @@
 - gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다. group은 `configurationVersion`으로 구성 버전을 관리하고, member는 `subscriptionStatus`/`appliedVersion`/`statusVersion`으로 실제 ACK 적용 여부와 마지막 결과 version을 분리한다.
 - API는 `configuring` group의 전체 desired member set과 `retiring` group의 빈 desired set을 10초 주기로 gateway-scoped MQTT subscription sync command로 재발행한다.
 - gateway는 같은 group/version command를 다시 받아도 Light Lightness Server `0x1300`에 표준 Config Model Subscription Add를 안전하게 재적용하고 결과를 한 번 발행한다.
-- API는 `siteId`, `gatewayId`, `groupId`, `version`이 모두 현재 group과 일치하는 subscription result만 반영한다. 현재 group/gateway에 속하지 않는 member row는 갱신하지 않고, 외부 result의 `ready`를 내부 `subscriptionStatus="applied"`로 변환한다. 동일 node의 주소 교체처럼 여러 operation이 한 member row를 순차 갱신하더라도 operation 결과 하나라도 실패하면 해당 error를 보존해 group을 `failed`로 유지하며, 모든 operation이 성공하고 모든 현재 member의 `appliedVersion == configurationVersion` 및 `statusVersion == configurationVersion`일 때만 group을 `ready`로 집계한다.
+- API는 `siteId`, `gatewayId`, `groupId`, group address, version이 현재 group과 일치할 때만 subscription result를 처리한다. 현재 cloud member 상태에서 계산한 operation 전체 집합과 ACK의 `operationId/action/meshNodeId/meshAddress`를 mutation 전에 대조하며, 기대 operation이 있는데 빈 결과이거나 부분·중복·외부 node·잘못된 action/address/operation ID가 있으면 member를 일부 반영하지 않고 group 전체를 `failed`로 닫는다. 성공·실패 operation ID와 종류는 member에 저장해 같은 version의 재전송도 동일 tuple일 때만 멱등 수락한다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md`를 따른다.
 
@@ -53,8 +53,14 @@
 - `GET /sites/:siteId/fixture-groups`, `POST /sites/:siteId/fixture-groups`, `PATCH /sites/:siteId/fixture-groups/:groupId`, `DELETE /sites/:siteId/fixture-groups/:groupId`, `POST /sites/:siteId/fixture-groups/:groupId/resync`를 제공한다. 목록은 read 권한의 viewer도 볼 수 있고, 생성·수정·삭제·재동기화는 SiteAccess `manage` 권한의 operator/admin만 수행한다.
 - 저장 구역 생성·수정은 이름, 한 floor, 한 gateway와 1~100개의 unique fixture 전체 set을 입력으로 받는다. transaction은 기존 group, floor, gateway, fixture ID 순으로 잠가 같은 조명의 active/retiring 사용자 구역 15개 한도를 직렬화하고, mesh node가 없거나 선택 경계를 벗어난 fixture를 거부한다.
 - 저장 구역 변경은 `GroupFixture`와 `MeshControlGroupMember.desired`를 전체 교체하고 configuration version을 증가시켜 `configuring`으로 전환한다. 실패한 active 구역은 같은 desired set으로 resync할 수 있다.
-- 삭제는 과거 `CommandDispatch`의 MeshControlGroup 참조를 보존하는 soft delete다. FixtureGroup은 `retiring`, member desired set은 빈 배열, MeshControlGroup은 `retiring`이 되며, 해당 version의 Delete ACK가 성공할 때 두 group 모두 `retired`가 된다. publish 실패, gateway 재시작 또는 ACK 실패에는 같은 version/set을 계속 재발행하며 resync는 version만 증가시킨다.
+- foundation migration에서 active로 판정됐지만 MeshControlGroup이 없던 legacy 구역은 update/delete/resync transaction이 group을 생성해 복구한다. resync는 기존 `GroupFixture`의 controllable node를 새 desired set으로 복원한 뒤 version을 증가시킨다.
+- PATCH에서 gateway 변경은 전체 replacement로 정의한다. 이전 gateway의 MeshControlGroup은 version을 증가시킨 빈 desired set과 `retiring` 상태로 남겨 subscription cleanup을 계속하고, 새 gateway에는 별도 MeshControlGroup과 전체 desired set을 구성한다. 이전 cleanup ACK는 active FixtureGroup을 retired로 바꾸지 않으며 과거 dispatch 참조도 보존한다.
+- 삭제는 과거 `CommandDispatch`의 MeshControlGroup 참조를 보존하는 soft delete다. FixtureGroup은 `retiring`, member desired set은 빈 배열, MeshControlGroup은 `retiring`이 되며, 기대한 모든 Delete operation의 exact ACK가 성공할 때만 두 group 모두 `retired`가 된다. publish 실패, gateway 재시작 또는 ACK 실패에는 같은 version/set을 계속 재발행하며 resync는 version만 증가시킨다.
+- gateway reconnect resync는 `configuring/ready/failed`를 새 `configuring` version으로 재발행하고 `retiring`은 `retiring`을 유지한다. `retired`는 조회·version 증가·member reset에서 제외해 다시 활성화하지 않는다.
 - legacy `invalid`와 `retiring`/`retired` 저장 구역은 일반 명령 target과 exact-set mesh group 승격에서 제외한다. invalid/retired는 읽기 전용이며, 아직 retiring인 구역은 subscription 정리 완료 전 제어할 수 없다.
+- dashboard는 active 저장 구역에 lifecycle, floor/gateway, fixture count, MeshControlGroup status/version/error를 제공하고 층에도 gateway별 MeshControlGroup 상태를 제공한다. Web은 `ready`가 아닌 층·저장 구역을 제어 picker에서 비활성화하며 retired/invalid 구역은 dashboard 제어 target에 포함되지 않는다.
+- 비접근 site의 저장 구역 요청은 query/body 형식 검증보다 SiteAccess를 먼저 수행해 malformed 입력이어도 일관된 `404` 경계를 유지한다.
+- background outbox의 transient DB 실패가 API process를 종료하지 않고 다음 tick에서 회복하도록 하는 안정성 보완은 별도 커밋 `84fba86`, `eae91dc`에서 완료됐다.
 - `viewer`가 제어 화면에 진입하면 읽기 전용 안내를 표시하고 밝기 슬라이더, 프리셋, 대상 선택과 `밝기 적용` 버튼을 모두 비활성화한다. 이 경우 브라우저는 `POST /commands/dimming`을 보내지 않으며 권한 오류를 장비 장애로 오인하지 않는다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 대상 선택과 `밝기 적용`을 차단하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.

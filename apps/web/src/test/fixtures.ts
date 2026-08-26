@@ -24,6 +24,12 @@ export const mockDashboard: Dashboard = {
       name: "B2",
       level: -2,
       floorPlan: { imageUrl: "/demo/floor-b2.svg", width: 1200, height: 800, version: 1 },
+      meshControlGroups: [{
+        gatewayId: "00000000-0000-4000-8000-000000000004",
+        status: "ready",
+        version: 1,
+        error: null
+      }],
       fixtures: Array.from({ length: 12 }, (_, index) => {
         const brightness = [70, 65, 40, 80, 55, 0, 75, 60, 90, 45, 50, 30][index];
         const status = index === 5 ? "offline" : index === 10 ? "fault" : "online";
@@ -58,6 +64,12 @@ export const mockDashboard: Dashboard = {
       name: "B1",
       level: -1,
       floorPlan: { imageUrl: "/demo/floor-b2.svg", width: 1200, height: 800, version: 1 },
+      meshControlGroups: [{
+        gatewayId: "00000000-0000-4000-8000-000000000004",
+        status: "ready",
+        version: 1,
+        error: null
+      }],
       fixtures: Array.from({ length: 4 }, (_, index) => ({
         id: `00000000-0000-4000-8000-${(3001 + index).toString().padStart(12, "0")}`,
         name: `B1-L${String(index + 1).padStart(2, "0")}`,
@@ -85,6 +97,11 @@ export const mockDashboard: Dashboard = {
     {
       id: "00000000-0000-4000-8000-000000000006",
       name: "B2 Entrance Zone",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      lifecycleStatus: "active",
+      fixtureCount: 4,
+      meshControlGroup: { status: "ready", version: 1, error: null },
       fixtureIds: [
         "00000000-0000-4000-8000-000000002001",
         "00000000-0000-4000-8000-000000002002",

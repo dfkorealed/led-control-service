@@ -47,10 +47,24 @@ export class SitesService {
           }
         },
         groups: {
+          where: { lifecycleStatus: "active" },
           include: { groupFixtures: true },
           orderBy: { name: "asc" }
         },
-        gateways: { orderBy: { name: "asc" } }
+        gateways: {
+          orderBy: { name: "asc" },
+          include: {
+            meshControlGroups: {
+              select: {
+                targetType: true,
+                targetId: true,
+                status: true,
+                configurationVersion: true,
+                lastError: true
+              }
+            }
+          }
+        }
       }
     });
 
@@ -94,6 +108,14 @@ export class SitesService {
               version: floor.floorPlan.version
             }
           : null,
+        meshControlGroups: site.gateways.flatMap((gateway) => (gateway.meshControlGroups ?? [])
+          .filter((group) => group.targetType === "floor" && group.targetId === floor.id)
+          .map((group) => ({
+            gatewayId: gateway.id,
+            status: group.status,
+            version: group.configurationVersion,
+            error: group.lastError
+          }))),
         fixtures: (fixturesByFloor.get(floor.id) ?? []).map((fixture) => {
           const gatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
           const health = toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt);
@@ -133,10 +155,30 @@ export class SitesService {
           };
         })
       })),
-      groups: site.groups.map((group) => ({
+      groups: site.groups.filter((group) => group.lifecycleStatus === "active").map((group) => ({
         id: group.id,
         name: group.name,
-        fixtureIds: group.groupFixtures.map((item) => item.fixtureId)
+        floorId: group.floorId,
+        gatewayId: group.gatewayId,
+        lifecycleStatus: group.lifecycleStatus,
+        fixtureCount: group.groupFixtures.length,
+        fixtureIds: group.groupFixtures.map((item) => item.fixtureId),
+        meshControlGroup: group.gatewayId
+          ? (() => {
+              const meshGroup = site.gateways
+                .find((gateway) => gateway.id === group.gatewayId)
+                ?.meshControlGroups?.find((candidate) =>
+                  candidate.targetType === "fixture_group" && candidate.targetId === group.id
+                );
+              return meshGroup
+                ? {
+                    status: meshGroup.status,
+                    version: meshGroup.configurationVersion,
+                    error: meshGroup.lastError
+                  }
+                : null;
+            })()
+          : null
       })),
       gateways: site.gateways.map((gateway) => ({
         id: gateway.id,

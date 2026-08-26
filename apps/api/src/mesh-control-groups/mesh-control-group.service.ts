@@ -4,6 +4,7 @@ import {
   InternalServerErrorException,
   NotFoundException
 } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { MeshControlGroupStatus, Prisma } from "@prisma/client";
 
 const MIN_MESH_GROUP_ADDRESS = 0xc000;
@@ -75,10 +76,15 @@ export class MeshControlGroupService {
 
     // Stable group ordering serializes concurrent full resets without introducing
     // a second version sequence for an idempotent recovery request.
-    const groups = await tx.$queryRaw<Array<{ id: string; configurationVersion: number }>>`
-      SELECT "id", "configurationVersion"
+    const groups = await tx.$queryRaw<Array<{
+      id: string;
+      configurationVersion: number;
+      status: MeshControlGroupStatus;
+    }>>`
+      SELECT "id", "configurationVersion", "status"
       FROM "MeshControlGroup"
       WHERE "gatewayId" = ${input.gatewayId}
+        AND "status" <> 'retired'
       ORDER BY "id"
       FOR UPDATE
     `;
@@ -90,17 +96,35 @@ export class MeshControlGroupService {
       throw new InternalServerErrorException("mesh control group configuration version exhausted");
     }
 
-    const groupUpdate = await tx.meshControlGroup.updateMany({
-      where: {
-        gatewayId: input.gatewayId,
-        id: { in: groupIds }
-      },
-      data: {
-        status: MeshControlGroupStatus.configuring,
-        configurationVersion: { increment: 1 },
-        lastError: null
-      }
-    });
+    const configuringGroupIds = groups
+      .filter((group) => group.status !== MeshControlGroupStatus.retiring)
+      .map((group) => group.id);
+    const retiringGroupIds = groups
+      .filter((group) => group.status === MeshControlGroupStatus.retiring)
+      .map((group) => group.id);
+    let groupCount = 0;
+    if (configuringGroupIds.length > 0) {
+      const update = await tx.meshControlGroup.updateMany({
+        where: { gatewayId: input.gatewayId, id: { in: configuringGroupIds } },
+        data: {
+          status: MeshControlGroupStatus.configuring,
+          configurationVersion: { increment: 1 },
+          lastError: null
+        }
+      });
+      groupCount += update.count;
+    }
+    if (retiringGroupIds.length > 0) {
+      const update = await tx.meshControlGroup.updateMany({
+        where: { gatewayId: input.gatewayId, id: { in: retiringGroupIds } },
+        data: {
+          status: MeshControlGroupStatus.retiring,
+          configurationVersion: { increment: 1 },
+          lastError: null
+        }
+      });
+      groupCount += update.count;
+    }
     const memberUpdate = await tx.meshControlGroupMember.updateMany({
       where: {
         gatewayId: input.gatewayId,
@@ -113,7 +137,7 @@ export class MeshControlGroupService {
       }
     });
 
-    return { groupCount: groupUpdate.count, memberCount: memberUpdate.count };
+    return { groupCount, memberCount: memberUpdate.count };
   }
 
   async ensureFloorGroup(tx: Prisma.TransactionClient, gatewayId: string, floorId: string) {
@@ -228,28 +252,36 @@ export class MeshControlGroupService {
       select: { nextMeshGroupAddress: true }
     });
 
-    try {
-      return await tx.meshControlGroup.create({
-        data: {
-          gatewayId,
-          targetType: target.targetType,
-          targetId: target.targetId,
-          groupAddress: this.formatAddress(address),
-          status: MeshControlGroupStatus.configuring,
-          configurationVersion: 1
-        }
-      });
-    } catch (error) {
-      // The gateway lock is the normal serialization path. A P2002 can still
-      // surface after a retry or a legacy concurrent writer; only reuse a row
-      // with the exact target and rethrow every other uniqueness collision.
-      if (!this.isUniqueConstraintError(error)) throw error;
-      const concurrentGroup = await tx.meshControlGroup.findFirst({
-        where: { gatewayId, targetType: target.targetType, targetId: target.targetId }
-      });
-      if (concurrentGroup) return concurrentGroup;
-      throw error;
-    }
+    const insertedGroups = await tx.$queryRaw<Array<{
+      id: string;
+      gatewayId: string;
+      targetType: "floor" | "fixture_group";
+      targetId: string;
+      groupAddress: string;
+      status: MeshControlGroupStatus;
+      configurationVersion: number;
+      lastError: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }>>(Prisma.sql`
+      INSERT INTO "MeshControlGroup" (
+        "id", "gatewayId", "targetType", "targetId", "groupAddress",
+        "status", "configurationVersion", "createdAt", "updatedAt"
+      )
+      VALUES (
+        ${randomUUID()}, ${gatewayId}, CAST(${target.targetType} AS "MeshControlTargetType"),
+        ${target.targetId}, ${this.formatAddress(address)}, 'configuring', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
+      ON CONFLICT ("gatewayId", "targetType", "targetId") DO NOTHING
+      RETURNING *
+    `);
+    if (insertedGroups[0]) return insertedGroups[0];
+
+    const concurrentGroup = await tx.meshControlGroup.findFirst({
+      where: { gatewayId, targetType: target.targetType, targetId: target.targetId }
+    });
+    if (concurrentGroup) return concurrentGroup;
+    throw new InternalServerErrorException("mesh control group conflict could not be recovered");
   }
 
   private async lockGateway(tx: Prisma.TransactionClient, gatewayId: string) {
@@ -459,7 +491,4 @@ export class MeshControlGroupService {
     return `0x${address.toString(16).padStart(4, "0")}`;
   }
 
-  private isUniqueConstraintError(error: unknown) {
-    return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
-  }
 }

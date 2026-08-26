@@ -11,6 +11,7 @@ const ids = {
   otherGateway: "00000000-0000-4000-8000-000000000006",
   group: "00000000-0000-4000-8000-000000000007",
   meshGroup: "00000000-0000-4000-8000-000000000008",
+  meshGroupNew: "00000000-0000-4000-8000-000000000014",
   fixtureA: "00000000-0000-4000-8000-000000000009",
   fixtureB: "00000000-0000-4000-8000-000000000010",
   fixtureC: "00000000-0000-4000-8000-000000000011",
@@ -65,6 +66,17 @@ describe("FixtureGroupsService", () => {
 
     await expect(service.update(admin, ids.site, ids.group, input)).rejects.toEqual(new NotFoundException("fixture group not found"));
     expect(prisma.meshControlGroup.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("checks site access before parsing malformed create input", async () => {
+    const { service, prisma, siteAccess } = createHarness();
+    siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service.create(admin, ids.otherSite, { fixtureIds: [] })).rejects.toEqual(
+      new NotFoundException("site not found")
+    );
+    expect(siteAccess.assert).toHaveBeenCalledWith(admin, ids.otherSite, "manage");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("creates a whole desired membership set at version one after stable floor, gateway, and fixture locks", async () => {
@@ -148,6 +160,56 @@ describe("FixtureGroupsService", () => {
     }));
   });
 
+  it.each(["update", "remove", "resync"] as const)(
+    "recovers a valid legacy active group without a mesh control group during %s",
+    async (operation) => {
+      const { service, prisma, meshGroups } = createHarness({
+        fixtures: fixtureRows([ids.fixtureA, ids.fixtureB]),
+        existingGroup: activeGroup(),
+        meshGroup: null
+      });
+
+      if (operation === "update") await service.update(admin, ids.site, ids.group, input);
+      if (operation === "remove") await service.remove(admin, ids.site, ids.group);
+      if (operation === "resync") await service.resync(admin, ids.site, ids.group);
+
+      expect(meshGroups.ensureFixtureGroup).toHaveBeenCalledWith(expect.anything(), ids.gateway, ids.group);
+      if (operation === "resync") {
+        expect(prisma.meshControlGroupMember.upsert).toHaveBeenCalledTimes(2);
+      }
+    }
+  );
+
+  it("moves a group to a new gateway while retiring the old gateway subscription set", async () => {
+    const movedInput = { ...input, gatewayId: ids.otherGateway };
+    const { service, prisma, meshGroups } = createHarness({
+      fixtures: fixtureRows([ids.fixtureA, ids.fixtureB], ids.otherGateway),
+      existingGroup: activeGroup(),
+      meshGroup: { id: ids.meshGroup, gatewayId: ids.gateway, configurationVersion: 4, status: "ready" }
+    });
+
+    await expect(service.update(admin, ids.site, ids.group, movedInput)).resolves.toMatchObject({
+      gatewayId: ids.otherGateway,
+      lifecycleStatus: "active",
+      meshControlGroup: { status: "configuring" }
+    });
+
+    expect(prisma.meshControlGroup.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: ids.meshGroup },
+      data: expect.objectContaining({ status: "retiring", configurationVersion: { increment: 1 } })
+    }));
+    expect(meshGroups.ensureFixtureGroup).toHaveBeenCalledWith(prisma, ids.otherGateway, ids.group);
+    const gatewayLockIds = prisma.$queryRaw.mock.calls
+      .map(([query]: [{ values?: unknown[] }]) => query)
+      .filter((query: { strings?: string[] }) => query.strings?.join("?").includes('FROM "Gateway"'))
+      .map((query: { values?: unknown[] }) => query.values?.[0]);
+    expect(gatewayLockIds).toEqual([ids.gateway, ids.otherGateway]);
+    expect(prisma.meshControlGroupMember.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { groupId: ids.meshGroup, gatewayId: ids.gateway },
+      data: expect.objectContaining({ desired: false })
+    }));
+  });
+
   it("moves deletion to retiring with an empty desired set without deleting historical dispatch references", async () => {
     const { service, prisma } = createHarness({
       existingGroup: activeGroup(),
@@ -214,6 +276,12 @@ function createHarness(options: {
       if (sql.includes('FROM "Floor"')) return [{ id: ids.floor, siteId: ids.site }];
       if (sql.includes('FROM "Gateway"')) return [{ id: ids.gateway, siteId: ids.site }];
       if (sql.includes('FROM "Fixture"')) return options.fixtures ?? fixtureRows([ids.fixtureA, ids.fixtureB]);
+      if (sql.includes('FROM "GroupFixture"')) {
+        return (options.fixtures ?? fixtureRows([ids.fixtureA, ids.fixtureB])).map((fixture) => ({
+          meshNodeId: fixture.meshNodeId,
+          gatewayId: fixture.meshNode?.gatewayId
+        }));
+      }
       if (sql.includes('FROM "MeshControlGroup"')) return options.meshGroup === null ? [] : [options.meshGroup ?? { id: ids.meshGroup, gatewayId: ids.gateway, configurationVersion: 1, status: "configuring" }];
       return [];
     }),
@@ -242,17 +310,24 @@ function createHarness(options: {
     }
   };
   const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.site }) };
-  const meshGroups = { ensureFixtureGroup: jest.fn().mockResolvedValue({ id: ids.meshGroup, configurationVersion: 1 }) };
+  const meshGroups = {
+    ensureFixtureGroup: jest.fn(async (_tx: unknown, gatewayId: string) => ({
+      id: gatewayId === ids.otherGateway ? ids.meshGroupNew : ids.meshGroup,
+      gatewayId,
+      configurationVersion: 1,
+      status: "configuring"
+    }))
+  };
   const service = new FixtureGroupsService(prisma, siteAccess as never, meshGroups as never);
   return { service, prisma, siteAccess, meshGroups };
 }
 
-function fixtureRows(fixtureIds: string[]) {
+function fixtureRows(fixtureIds: string[], gatewayId = ids.gateway) {
   return fixtureIds.map((id, index) => ({
     id,
     floorId: ids.floor,
     meshNodeId: index === 0 ? ids.nodeA : ids.nodeB,
-    meshNode: { gatewayId: ids.gateway }
+    meshNode: { gatewayId }
   }));
 }
 

@@ -710,6 +710,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 운영 메모:
 
 - 같은 `gatewayId + targetType + targetId` 재호출은 기존 row를 반환하며 새 주소를 소비하지 않는다.
+- target 생성은 `INSERT ... ON CONFLICT (gatewayId, targetType, targetId) DO NOTHING RETURNING`을 사용한다. concurrent winner가 있어도 PostgreSQL interactive transaction을 abort시키지 않고 같은 transaction에서 winner를 다시 조회한다.
 - lifecycle 값 `retiring`, `retired`는 desired subscription 삭제가 끝날 때까지 group 명령을 차단한다.
 
 ### MeshControlGroupMember
@@ -748,6 +749,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 - `statusVersion = 0`은 아직 어떤 subscription result version도 반영되지 않았음을 뜻한다.
 - `MeshControlGroupMember`는 `(groupId, gatewayId)`와 `(meshNodeId, gatewayId)` compound FK를 사용해 서로 다른 gateway의 group/node 연결을 DB에서 차단한다.
 - child 쪽 `groupId + gatewayId`, `meshNodeId + gatewayId`는 unique가 아니라 일반 index다. 따라서 한 control group에 여러 node membership을 둘 수 있고, 한 node도 같은 gateway 안에서 floor group과 fixture group membership을 함께 가질 수 있다.
+- subscription result를 반영할 때 `operationId`와 `operation`을 현재 version의 tuple로 저장한다. 같은 version ACK 재전송은 저장된 operation ID/종류와 node/address가 모두 같은 경우에만 멱등 수락하며, resync 또는 desired 전체 교체 시 이 진행 필드를 초기화한다.
 
 ### Command
 

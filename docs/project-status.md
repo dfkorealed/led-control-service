@@ -14,11 +14,11 @@
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
-| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약, Task 2 검색 lifecycle, Task 4 저장 구역 API와 desired membership을 완료했다. Task 3 보완과 Task 5 Gateway delete reconciliation이 다음 의존 단계다. |
+| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약, Task 2 검색 lifecycle, Task 3 Web 상태 구현, Task 4 저장 구역 API와 fix round 1을 완료했다. Task 3 실제 browser QA와 Task 5 Gateway delete reconciliation이 다음 의존 단계다. |
 
 ## 다음 단계
 
-현재 작업은 **메뉴 완성 구현**이다. [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)의 Task 4는 operator/admin 저장 구역 CRUD, viewer read-only, transaction boundary/capacity 검사, soft-delete desired empty set과 resync를 API에서 완료했다. Task 3의 Web 보완과 Task 5의 Gateway Config Model Delete HIL은 남아 있다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
+현재 작업은 **메뉴 완성 구현**이다. [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)의 Task 4 fix round 1은 exact operation ACK, lifecycle 보존 resync, legacy/gateway 이동 복구, dashboard 준비 상태, PostgreSQL conflict-safe insert와 SiteAccess 404 경계를 완료했다. Task 3의 실제 browser QA와 Task 5의 Gateway Config Model Delete/HIL은 남아 있다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
 
 ## 알려진 미해결 항목
 
@@ -29,7 +29,7 @@
 
 ### 제어
 
-- 저장 구역 CRUD와 cloud desired membership은 API에 구현됐지만, 저장 구역 관리 dialog와 MeshControlGroup 준비 상태를 보여 주는 Web UI는 Task 7에서 구현해야 한다.
+- 저장 구역 CRUD와 cloud desired membership, dashboard 준비 상태 기반 제어 차단은 구현됐지만, 생성·수정·삭제·resync 관리 dialog는 Task 7에서 구현해야 한다.
 - Gateway의 Config Model Subscription Delete 실장과 실제 Raspberry Pi/ESP32-H2 HIL은 Task 5에서 검증해야 한다.
 - device-status ACK 대상·aggregate status 완전성과 동시 요청 client request id 멱등성 보완이 필요하다.
 
