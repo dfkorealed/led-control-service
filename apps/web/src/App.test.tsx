@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiGet, apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
@@ -852,6 +852,62 @@ describe("App", () => {
     await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey("user-1", request.siteId))).toBeNull());
     expect(sessionStorage.getItem(activeCommandStorageKey(otherUserId, request.siteId))).not.toBeNull();
   });
+
+  it.each(["success", "failure"])(
+    "does not recreate command recovery after an in-flight POST resolves with %s during logout",
+    async (result) => {
+      let resolveCommand: (value: unknown) => void = () => undefined;
+      let rejectCommand: (reason: unknown) => void = () => undefined;
+      let resolveLogout: () => void = () => undefined;
+      vi.mocked(apiPost)
+        .mockImplementationOnce(() => new Promise((resolve, reject) => {
+          resolveCommand = resolve;
+          rejectCommand = reject;
+        }))
+        .mockImplementationOnce(() => new Promise((resolve) => {
+          resolveLogout = () => {
+            authState.user = null;
+            resolve({ ok: true });
+          };
+        }));
+      const queryClient = new QueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      );
+
+      fireEvent.click(await screen.findByRole("link", { name: "제어" }));
+      fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
+      fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+      await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
+        "/commands/dimming",
+        expect.anything(),
+        { signal: expect.any(AbortSignal) }
+      ));
+      const commandSignal = vi.mocked(apiPost).mock.calls[0][2]?.signal;
+      const recoveryKey = activeCommandStorageKey("user-1", mockDashboard.site.id);
+
+      fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+
+      expect(commandSignal?.aborted).toBe(true);
+      expect(sessionStorage.getItem(recoveryKey)).toContain("clientRequestId");
+
+      await act(async () => {
+        if (result === "success") resolveCommand({ id: "command-created-1", dispatchCount: 1 });
+        else rejectCommand(new Error("response lost"));
+        await Promise.resolve();
+      });
+      expect(sessionStorage.getItem(recoveryKey)).not.toContain("command-created-1");
+
+      await act(async () => {
+        resolveLogout();
+        await Promise.resolve();
+      });
+      expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+      expect(sessionStorage.getItem(recoveryKey)).toBeNull();
+    }
+  );
 
   it("starts a lighting registration session from settings and shows discovered nodes", async () => {
     authState.user = { ...authState.user!, role: "operator" };

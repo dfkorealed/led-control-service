@@ -5,6 +5,7 @@ import { useCurrentUser, logout, type AuthUser } from "./api/auth";
 import { useDashboard } from "./api/queries";
 import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
+import { invalidateActiveCommandSession } from "./features/control/active-command-session";
 import { clearActiveCommandsForUser } from "./features/control/active-command-store";
 import { MonitoringView } from "./features/monitoring/MonitoringView";
 import { SettingsShell } from "./features/settings/SettingsShell";
@@ -65,6 +66,7 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
       if (!confirmed) return;
       discardEditorChanges();
     }
+    invalidateActiveCommandSession(user.id);
     await logout();
     clearActiveCommandsForUser(user.id);
     queryClient.setQueryData(["auth", "me"], null);

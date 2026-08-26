@@ -20,6 +20,10 @@ import {
   saveActiveCommandRequest
 } from "./active-command-store";
 import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicker";
+import {
+  ownsActiveCommandSession,
+  registerActiveCommandRequest
+} from "./active-command-session";
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 
@@ -144,13 +148,17 @@ export function ControlView({
   async function sendCommand(request: CreateDimmingCommandInput, requestUserId: string) {
     const generation = activeScope.current.generation;
     const controller = new AbortController();
+    const commandSession = registerActiveCommandRequest(requestUserId, controller);
     activePostController.current?.abort();
     activePostController.current = controller;
     setIsSubmitting(true);
     setMessage("");
     try {
       const command = await createDimmingCommand(request, controller.signal);
-      if (!ownsRequestScope(generation, requestUserId, request.siteId)) return;
+      if (
+        !ownsRequestScope(generation, requestUserId, request.siteId)
+        || !ownsActiveCommandSession(requestUserId, commandSession.generation)
+      ) return;
       saveActiveCommandId(requestUserId, request.siteId, command.id);
       setCommandUserId(requestUserId);
       setCommandSiteId(request.siteId);
@@ -158,7 +166,10 @@ export function ControlView({
       setMessage("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.");
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     } catch (error) {
-      if (!ownsRequestScope(generation, requestUserId, request.siteId)) return;
+      if (
+        !ownsRequestScope(generation, requestUserId, request.siteId)
+        || !ownsActiveCommandSession(requestUserId, commandSession.generation)
+      ) return;
       if (isDefinitiveCommandRejection(error)) {
         clearActiveCommandRequest(requestUserId, request.siteId, request.clientRequestId);
         setActiveRequest(null);
@@ -168,6 +179,7 @@ export function ControlView({
         setMessage("명령 응답을 확인하지 못했습니다. 동일 요청으로 다시 전송하세요.");
       }
     } finally {
+      commandSession.release();
       if (activePostController.current === controller) activePostController.current = null;
       if (ownsRequestScope(generation, requestUserId, request.siteId)) setIsSubmitting(false);
     }

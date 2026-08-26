@@ -502,6 +502,32 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
   });
 
+  it.each(["success", "failure"])("ignores a delayed %s result after switching users", async (result) => {
+    let resolveCommand: (value: unknown) => void = () => undefined;
+    let rejectCommand: (reason: unknown) => void = () => undefined;
+    mocks.apiPost.mockImplementationOnce(() => new Promise((resolve, reject) => {
+      resolveCommand = resolve;
+      rejectCommand = reject;
+    }));
+    const { rerender } = renderControl("admin", dashboard.site.id, USER_A);
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    const originalSignal = mocks.apiPost.mock.calls[0][2]?.signal as AbortSignal;
+
+    rerender(controlElement(dashboard.site.id, "admin", USER_B));
+    expect(originalSignal.aborted).toBe(true);
+
+    if (result === "success") resolveCommand({ id: commandIds.siteA });
+    else rejectCommand(new Error("response lost"));
+
+    await waitFor(() => expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled());
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).not.toContain(commandIds.siteA);
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_B, dashboard.site.id))).toBeNull();
+    expect(screen.queryByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).not.toBeInTheDocument();
+    expect(screen.queryByText("명령 응답을 확인하지 못했습니다. 동일 요청으로 다시 전송하세요.")).not.toBeInTheDocument();
+  });
+
   it.each(["success", "failure"])("ignores a delayed %s result after switching sites", async (result) => {
     let resolveCommand: (value: unknown) => void = () => undefined;
     let rejectCommand: (reason: unknown) => void = () => undefined;
