@@ -152,11 +152,11 @@
 
 **Produces:** Model Subscription Add/Delete reconciliation과 완전한 fixture/result-derived ACK 검증.
 
-- [ ] add/delete diff, operation ACK와 누락·중복·외부 fixture/status 불일치 테스트를 작성한다.
-- [ ] 기존 add-only·부분 ACK 수락으로 실패하는지 확인한다.
-- [ ] Gateway reconcile과 API fail-closed terminal 처리를 구현한다.
-- [ ] API·Gateway 전체 관련 테스트와 typecheck를 실행한다.
-- [ ] `feat(control): reconcile subscriptions and validate ACKs`로 커밋한다.
+- [x] add/delete diff, operation ACK와 누락·중복·외부 fixture/status 불일치 테스트를 작성한다.
+- [x] 기존 add-only·부분 ACK 수락으로 실패하는지 확인한다.
+- [x] Gateway reconcile과 API fail-closed terminal 처리를 구현한다.
+- [x] API·Gateway 전체 관련 테스트와 typecheck를 실행한다.
+- [x] `feat(control): reconcile subscriptions and validate ACKs`로 커밋한다.
 
 ### Task 6: 제어 요청 멱등성
 
@@ -172,11 +172,11 @@
 
 **Produces:** 동일 payload 재시도는 기존 Command, 다른 payload는 409, POST 응답 유실 복구.
 
-- [ ] 동시 unique 충돌, payload conflict, 브라우저 응답 유실 테스트를 작성한다.
-- [ ] RED 확인 후 transaction 재조회와 canonical fingerprint를 구현한다.
-- [ ] Web sessionStorage에 요청 ID와 canonical payload를 terminal까지 보존한다.
-- [ ] API·Web 테스트와 typecheck를 실행한다.
-- [ ] `feat(control): make command creation idempotent`로 커밋한다.
+- [x] 동시 unique 충돌, payload conflict, 브라우저 응답 유실 테스트를 작성한다.
+- [x] RED 확인 후 transaction 재조회와 canonical fingerprint를 구현한다.
+- [x] Web sessionStorage에 요청 ID와 canonical payload를 terminal까지 보존한다.
+- [x] API·Web 테스트와 typecheck를 실행한다.
+- [x] `feat(control): make command creation idempotent`로 커밋한다.
 
 ### Task 7: 제어 Web과 실제 브라우저 QA
 
@@ -192,11 +192,11 @@
 
 **Produces:** 구역 관리 dialog, floor/group configuring·failed·ready 표시, viewer 읽기 전용.
 
-- [ ] role·준비 상태·CRUD·재동기화 UI 테스트와 Playwright 흐름을 먼저 실패시킨다.
-- [ ] 공통 UI 패턴으로 dialog와 target 상태를 구현한다.
-- [ ] Web test/typecheck/build를 실행한다.
+- [x] role·준비 상태·CRUD·재동기화 UI 테스트와 Playwright 흐름을 먼저 실패시킨다.
+- [x] 공통 UI 패턴으로 dialog와 target 상태를 구현한다.
+- [x] Web test/typecheck/build를 실행한다.
 - [ ] 실제 Chromium에서 admin CRUD, viewer 제한, 개별·다중·층·구역 제어와 terminal 결과를 QA한다.
-- [ ] 문서를 갱신하고 `feat(web): complete manual control workflows`로 커밋한다.
+- [x] 문서를 갱신하고 `feat(web): complete manual control workflows`로 커밋한다.
 
 ### Task 8: 상태 기반 에너지 적산과 전달 보장
 
