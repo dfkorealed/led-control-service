@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FixtureGroupMetadata } from "@led-control/shared";
+import { useRef, useState } from "react";
 import type { Dashboard } from "../../api/queries";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
 
@@ -122,6 +123,31 @@ describe("FixtureGroupDialog", () => {
     expect(screen.queryByRole("button", { name: "B2 입구 재동기화" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "B2 입구 삭제" })).not.toBeInTheDocument();
   });
+
+  it("traps keyboard focus, closes on Escape, and restores the opener", async () => {
+    renderDialogHarness();
+    const opener = screen.getByRole("button", { name: "구역 관리 열기" });
+    opener.focus();
+    fireEvent.click(opener);
+
+    const closeButton = await screen.findByRole("button", { name: "구역 관리 닫기" });
+    await waitFor(() => expect(closeButton).toHaveFocus());
+    const dialog = screen.getByRole("dialog", { name: "구역 관리" });
+    const focusableButtons = within(dialog).getAllByRole("button").filter((button) => !button.hasAttribute("disabled"));
+    const lastButton = focusableButtons.at(-1)!;
+
+    lastButton.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(closeButton).toHaveFocus();
+
+    closeButton.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(lastButton).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "구역 관리" })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
 });
 
 function renderDialog(canManage: boolean) {
@@ -136,6 +162,28 @@ function renderDialog(canManage: boolean) {
       />
     </QueryClientProvider>
   );
+}
+
+function DialogHarness() {
+  const [open, setOpen] = useState(false);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  return (
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <button ref={openerRef} type="button" onClick={() => setOpen(true)}>구역 관리 열기</button>
+      <FixtureGroupDialog
+        open={open}
+        siteId={ids.site}
+        dashboard={dashboard}
+        canManage
+        returnFocusRef={openerRef}
+        onClose={() => setOpen(false)}
+      />
+    </QueryClientProvider>
+  );
+}
+
+function renderDialogHarness() {
+  return render(<DialogHarness />);
 }
 
 function createDashboard(): Dashboard {

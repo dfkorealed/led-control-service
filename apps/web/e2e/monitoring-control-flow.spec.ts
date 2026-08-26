@@ -375,6 +375,38 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await expect(page.getByText("삭제 중")).toBeVisible();
   });
 
+  test("저장 구역 dialog는 키보드 포커스를 가두고 Escape 후 opener로 복귀한다", async ({ page }) => {
+    await installBrowserContractFixture(page);
+    await installFixtureGroupContractRoutes(page, [{
+      id: ids.group,
+      name: "B2 입구",
+      floorId: ids.floor,
+      gatewayId: ids.gateway,
+      lifecycleStatus: "active",
+      fixtureCount: 1,
+      meshControlGroup: { status: "ready", version: 1, error: null }
+    }]);
+    await page.goto(`/control?siteId=${ids.site}`);
+
+    const opener = page.getByRole("button", { name: "구역 관리" });
+    await opener.click();
+    const dialog = page.getByRole("dialog", { name: "구역 관리" });
+    const closeButton = page.getByRole("button", { name: "구역 관리 닫기" });
+    const lastButton = page.getByRole("button", { name: "B2 입구 삭제" });
+
+    await expect(dialog).toBeVisible();
+    await expect(closeButton).toBeFocused();
+    await lastButton.focus();
+    await page.keyboard.press("Tab");
+    await expect(closeButton).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(lastButton).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+  });
+
   test("viewer는 저장 구역 상태만 조회하고 관리 동작을 사용할 수 없다", async ({ page }) => {
     await installSettingsApiRoutes(page, "viewer", {
       fixtures,

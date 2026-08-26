@@ -22,6 +22,7 @@ import {
 } from "./active-command-store";
 import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicker";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
+import { floorMeshReadiness } from "./control-readiness";
 import {
   isActiveCommandSessionBlocked,
   ownsActiveCommandSession,
@@ -53,6 +54,7 @@ export function ControlView({
   const [activeRequest, setActiveRequest] = useState<CreateDimmingCommandInput | null>(null);
   const [terminalResult, setTerminalResult] = useState<{ siteId: string; status: CommandStatusResponse } | null>(null);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+  const groupDialogOpenerRef = useRef<HTMLButtonElement>(null);
   const requestGeneration = useRef(0);
   const activePostController = useRef<AbortController | null>(null);
   const activeScope = useRef<{ generation: number; userId: string; siteId: string | null }>({
@@ -219,6 +221,7 @@ export function ControlView({
           <h2>조명 밝기 제어</h2>
         </div>
         <button
+          ref={groupDialogOpenerRef}
           className="secondary-button"
           type="button"
           onClick={() => setGroupDialogOpen(true)}
@@ -331,6 +334,7 @@ export function ControlView({
         siteId={data.site.id}
         dashboard={data}
         canManage={!readOnly}
+        returnFocusRef={groupDialogOpenerRef}
         onClose={() => setGroupDialogOpen(false)}
       />
     </section>
@@ -362,7 +366,7 @@ function resolveSelection(
     return selectionResult(
       floor?.name ?? "층 선택",
       floor?.fixtures ?? [],
-      Boolean(floor?.meshControlGroups.some((group) => group.status === "ready"))
+      Boolean(floor && floorMeshReadiness(floor).ready)
     );
   }
 

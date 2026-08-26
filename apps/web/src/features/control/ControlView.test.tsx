@@ -286,6 +286,25 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByText(/Gateway 1\/2 준비 · Mesh 설정 중/)).toBeInTheDocument();
   });
 
+  it("fails closed when a selected floor loses one gateway readiness after dashboard refresh", () => {
+    const readyDashboard = twoGatewayFloorDashboard("ready");
+    mocks.useControlDashboard.mockReturnValue({ data: readyDashboard, isLoading: false, error: null });
+    const { rerender } = renderControl("admin", readyDashboard.site.id);
+
+    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    fireEvent.click(screen.getByRole("button", { name: "B2" }));
+    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
+
+    const refreshedDashboard = twoGatewayFloorDashboard("configuring");
+    mocks.useControlDashboard.mockReturnValue({ data: refreshedDashboard, isLoading: false, error: null });
+    rerender(controlElement(refreshedDashboard.site.id));
+
+    expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
   it("opens saved-zone management for admin and viewer accounts", () => {
     const { rerender } = renderControl("admin");
     expect(screen.getByRole("button", { name: "구역 관리" })).toBeEnabled();
@@ -825,6 +844,25 @@ function createLargeDashboard(fixtureCount: number): Dashboard {
     }],
     groups: [],
     gateways: []
+  };
+}
+
+function twoGatewayFloorDashboard(secondGatewayStatus: "ready" | "configuring"): Dashboard {
+  const floor = dashboard.floors[0];
+  return {
+    ...dashboard,
+    floors: [{
+      ...floor,
+      fixtures: [
+        { ...floor.fixtures[0], gateway: { id: "gateway-1", name: "GW-B2-1", connectionStatus: "online" } },
+        { ...floor.fixtures[1], gateway: { id: "gateway-2", name: "GW-B2-2", connectionStatus: "online" } }
+      ],
+      meshControlGroups: [
+        { gatewayId: "gateway-1", status: "ready", version: 2, error: null },
+        { gatewayId: "gateway-2", status: secondGatewayStatus, version: 2, error: null }
+      ]
+    }],
+    groups: []
   };
 }
 

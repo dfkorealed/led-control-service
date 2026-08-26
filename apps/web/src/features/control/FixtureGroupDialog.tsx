@@ -1,7 +1,7 @@
 import type { CreateFixtureGroupInput, FixtureGroupMetadata } from "@led-control/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   createFixtureGroup,
   deleteFixtureGroup,
@@ -11,12 +11,14 @@ import {
   updateFixtureGroup
 } from "../../api/fixture-groups";
 import type { Dashboard, DashboardFixture } from "../../api/queries";
+import { useModalFocus } from "./useModalFocus";
 
 interface FixtureGroupDialogProps {
   open: boolean;
   siteId: string;
   dashboard: Dashboard;
   canManage: boolean;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
 }
 
@@ -30,8 +32,9 @@ type GroupForm = {
 
 const emptyForm: GroupForm = { groupId: null, name: "", floorId: "", gatewayId: "", fixtureIds: [] };
 
-export function FixtureGroupDialog({ open, siteId, dashboard, canManage, onClose }: FixtureGroupDialogProps) {
+export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnFocusRef, onClose }: FixtureGroupDialogProps) {
   const queryClient = useQueryClient();
+  const dialogRef = useRef<HTMLElement>(null);
   const [form, setForm] = useState<GroupForm | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<FixtureGroupMetadata | null>(null);
   const [membershipOverrides, setMembershipOverrides] = useState<Record<string, string[]>>({});
@@ -93,6 +96,13 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, onClose
   });
   const isMutating = saveMutation.isPending || deleteMutation.isPending || resyncMutation.isPending;
 
+  function closeDialog() {
+    if (isMutating) return;
+    onClose();
+  }
+
+  useModalFocus({ open, dialogRef, returnFocusRef, onClose: closeDialog });
+
   const dashboardMemberships = useMemo(() => new Map(
     dashboard.groups.map((group) => [group.id, group.fixtureIds])
   ), [dashboard.groups]);
@@ -115,18 +125,20 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, onClose
     });
   }
 
-  function closeDialog() {
-    if (isMutating) return;
-    onClose();
-  }
-
   const error = saveMutation.error ?? deleteMutation.error ?? resyncMutation.error;
 
   return (
     <div className="fixture-group-dialog-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.currentTarget === event.target) closeDialog();
     }}>
-      <section className="fixture-group-dialog" role="dialog" aria-modal="true" aria-labelledby="fixture-group-dialog-title">
+      <section
+        ref={dialogRef}
+        className="fixture-group-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fixture-group-dialog-title"
+        tabIndex={-1}
+      >
         <header className="fixture-group-dialog-header">
           <div>
             <span className="eyebrow">저장 구역</span>
