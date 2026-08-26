@@ -116,7 +116,7 @@ nano .env.appliance
 필수 값의 예시는 다음과 같다.
 
 ```env
-GATEWAY_DATA_DIR=/opt/led-control/gateway/data
+GATEWAY_DATA_DIR=/opt/led-control/data
 MQTT_URL=mqtts://<클라우드 또는 개발 PC IP>:8883
 GATEWAY_SERIAL=GW-RPI-000001
 GATEWAY_FIRMWARE_VERSION=gateway-appliance-<revision>
@@ -219,13 +219,27 @@ docker compose -f compose.yml restart gateway-appliance
 sudo reboot
 ```
 
-재부팅 후 같은 fixture ID와 unicast address로 재-provision 없이 제어돼야 한다. 아래 디렉터리는 함께 백업한다.
+재부팅 후 같은 fixture ID와 unicast address로 재-provision 없이 제어돼야 한다. Compose가 실제 mount에 사용하는 `.env.appliance`를 로드한 뒤 gateway와 mesh 디렉터리를 같은 archive로 백업한다.
 
 ```bash
-sudo tar -C /opt/led-control/gateway -czf gateway-data-backup.tgz data/gateway data/mesh
+cd /opt/led-control/gateway
+set -a
+. ./.env.appliance
+set +a
+GATEWAY_DATA_DIR="${GATEWAY_DATA_DIR:-/opt/led-control/data}"
+BACKUP_PATH="/opt/led-control/gateway-data-backup-$(date +%Y%m%d%H%M%S).tgz"
+sudo tar -C "$GATEWAY_DATA_DIR" -czf "$BACKUP_PATH" gateway mesh
+sudo tar -tzf "$BACKUP_PATH" | grep -E 'gateway/state-event-outbox.json(.manifest.json)?|^mesh/'
 ```
 
-`data/gateway`와 `data/mesh` 중 하나만 복원하면 token과 BlueZ DB가 불일치할 수 있으므로 항상 같은 시점의 묶음으로 복원한다.
+`gateway`와 `mesh` 중 하나만 복원하면 token과 BlueZ DB가 불일치할 수 있으므로 항상 같은 시점의 묶음으로 복원한다. 복원할 때도 같은 `GATEWAY_DATA_DIR`을 사용한다.
+
+```bash
+docker compose --env-file .env.appliance -f compose.yml stop gateway-appliance
+sudo tar -C "$GATEWAY_DATA_DIR" -xzf "$BACKUP_PATH" gateway mesh
+sudo chmod 0700 "$GATEWAY_DATA_DIR/gateway"
+docker compose --env-file .env.appliance -f compose.yml up -d gateway-appliance
+```
 
 ## 12. 장애 진단
 
@@ -252,13 +266,17 @@ outbox 백업이 없어 복원이 불가능하면 담당 운영자의 데이터 
 
 ```bash
 cd /opt/led-control/gateway
-docker compose -f compose.yml stop gateway-appliance
-sudo tar --ignore-failed-read -C /opt/led-control/data/gateway \
+set -a
+. ./.env.appliance
+set +a
+GATEWAY_DATA_DIR="${GATEWAY_DATA_DIR:-/opt/led-control/data}"
+docker compose --env-file .env.appliance -f compose.yml stop gateway-appliance
+sudo tar --ignore-failed-read -C "$GATEWAY_DATA_DIR/gateway" \
   -czf "state-outbox-incident-$(date +%Y%m%d%H%M%S).tgz" \
   state-event-outbox.json state-event-outbox.json.manifest.json
-sudo rm -f /opt/led-control/data/gateway/state-event-outbox.json \
-  /opt/led-control/data/gateway/state-event-outbox.json.manifest.json
-sudo chmod 0700 /opt/led-control/data/gateway
+sudo rm -f "$GATEWAY_DATA_DIR/gateway/state-event-outbox.json" \
+  "$GATEWAY_DATA_DIR/gateway/state-event-outbox.json.manifest.json"
+sudo chmod 0700 "$GATEWAY_DATA_DIR/gateway"
 docker compose --env-file .env.appliance -f compose.yml up -d gateway-appliance
 ```
 

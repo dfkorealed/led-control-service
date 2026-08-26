@@ -39,6 +39,7 @@ import {
   StateEventOutbox,
   StateEventOutboxError,
   StateEventOutboxPublisher,
+  StateEventReservationSlot,
   type StateEventCapacityReservation
 } from "./state/state-event-outbox";
 import { createProductionAdapters } from "./adapters/adapter-factory";
@@ -240,31 +241,44 @@ async function main() {
     });
   }
 
-  let fixtureStatusReservation: StateEventCapacityReservation | undefined;
+  const fixtureStatusReservation = new StateEventReservationSlot(stateEventOutbox);
   let stopFixtureStatusIntake: (() => void) | undefined;
 
   async function armFixtureStatusIntake(reservation?: StateEventCapacityReservation) {
-    if (fixtureStatusReservation || stopFixtureStatusIntake) return;
-    fixtureStatusReservation = reservation ?? await stateEventCapacity.reserve(["*"]);
-    stopFixtureStatusIntake = adapter.onFixtureStatus((status) => {
-      const currentReservation = fixtureStatusReservation;
-      fixtureStatusReservation = undefined;
-      stopFixtureStatusIntake?.();
-      stopFixtureStatusIntake = undefined;
-      if (!currentReservation) {
-        void stateEventCapacity.block();
-        return;
-      }
-      const publishFixtureStatus = createFixtureStatusPublisher({
-        siteId,
-        gatewayId,
-        eventSequence,
-        publish: (_topic, state) => enqueueFixtureState(state, currentReservation)
+    const candidate = reservation ?? await stateEventCapacity.reserve(["*"]);
+    const alreadyCurrent = fixtureStatusReservation.isCurrent(candidate);
+    if (!await fixtureStatusReservation.attach(candidate)) return false;
+    if (stopFixtureStatusIntake) {
+      if (!alreadyCurrent) await fixtureStatusReservation.release(candidate);
+      return false;
+    }
+
+    let unsubscribe: () => void = () => undefined;
+    try {
+      unsubscribe = adapter.onFixtureStatus((status) => {
+        const currentReservation = fixtureStatusReservation.take(candidate);
+        if (!currentReservation) return;
+        unsubscribe();
+        if (stopFixtureStatusIntake === unsubscribe) stopFixtureStatusIntake = undefined;
+        const publishFixtureStatus = createFixtureStatusPublisher({
+          siteId,
+          gatewayId,
+          eventSequence,
+          publish: (_topic, state) => enqueueFixtureState(state, currentReservation)
+        });
+        void publishFixtureStatus(status)
+          .then(() => armFixtureStatusIntake())
+          .catch(async (error) => {
+            await stateEventOutbox.release(currentReservation);
+            await reportGatewayError(error, "mesh_fixture_status");
+          });
       });
-      void publishFixtureStatus(status)
-        .then(() => armFixtureStatusIntake())
-        .catch((error) => void reportGatewayError(error, "mesh_fixture_status"));
-    });
+      stopFixtureStatusIntake = unsubscribe;
+      return true;
+    } catch (error) {
+      await fixtureStatusReservation.release(candidate);
+      throw error;
+    }
   }
 
   if (!stateEventCapacity.isBlocked()) await armFixtureStatusIntake();
@@ -346,6 +360,7 @@ async function main() {
   registerGatewayShutdownHandlers({
     stop: async () => {
       stopFixtureStatusIntake?.();
+      await fixtureStatusReservation.release();
       stateEventPublisher.disconnect();
       await mqttRuntime.stop();
     }

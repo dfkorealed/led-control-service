@@ -321,6 +321,47 @@ export class StateEventOutbox {
   }
 }
 
+export class StateEventReservationSlot {
+  private current: StateEventCapacityReservation | undefined;
+
+  constructor(private readonly outbox: Pick<StateEventOutbox, "release">) {}
+
+  async attach(candidate: StateEventCapacityReservation) {
+    if (this.current?.id === candidate.id) return true;
+    if (!this.compareAndSet(undefined, candidate)) {
+      await this.outbox.release(candidate);
+      return false;
+    }
+    return true;
+  }
+
+  isCurrent(candidate: StateEventCapacityReservation) {
+    return this.current?.id === candidate.id;
+  }
+
+  take(candidate: StateEventCapacityReservation) {
+    if (!this.compareAndSet(candidate, undefined)) return undefined;
+    return candidate;
+  }
+
+  async release(candidate?: StateEventCapacityReservation) {
+    const current = this.current;
+    if (!current || (candidate && current.id !== candidate.id)) return false;
+    if (!this.compareAndSet(current, undefined)) return false;
+    await this.outbox.release(current);
+    return true;
+  }
+
+  private compareAndSet(
+    expected: StateEventCapacityReservation | undefined,
+    next: StateEventCapacityReservation | undefined
+  ) {
+    if (this.current?.id !== expected?.id) return false;
+    this.current = next;
+    return true;
+  }
+}
+
 export class StateEventCapacityGate {
   private blocked = false;
   private queue: Promise<unknown> = Promise.resolve();
@@ -393,8 +434,9 @@ export class StateEventCapacityGate {
   recoverAndReserve(fixtureIds: string[]) {
     return this.exclusive(async () => {
       if (!this.blocked) return null;
+      let reservation: StateEventCapacityReservation | undefined;
       try {
-        const reservation = await this.outbox.reserve(fixtureIds.map((fixtureId) => ({
+        reservation = await this.outbox.reserve(fixtureIds.map((fixtureId) => ({
           fixtureId,
           payloadBytes: this.payloadBytesPerEvent
         })));
@@ -402,7 +444,8 @@ export class StateEventCapacityGate {
         await this.onRecovered();
         return reservation;
       } catch (error) {
-        if (isCapacityError(error)) await this.markBlocked();
+        if (reservation) await this.outbox.release(reservation);
+        await this.markBlocked();
         throw error;
       }
     });

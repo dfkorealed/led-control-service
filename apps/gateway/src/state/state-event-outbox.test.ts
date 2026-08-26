@@ -6,7 +6,8 @@ import { mqttTopicsV2, type FixtureStateV2 } from "@led-control/shared";
 import {
   StateEventCapacityGate,
   StateEventOutbox,
-  StateEventOutboxPublisher
+  StateEventOutboxPublisher,
+  StateEventReservationSlot
 } from "./state-event-outbox";
 
 const directories: string[] = [];
@@ -154,6 +155,53 @@ describe("StateEventOutbox", () => {
     });
     await expect(gate.tryRecover()).resolves.toBe(true);
     expect(recovered).toEqual(["recovered"]);
+  });
+
+  it("keeps one publication reservation across repeated block and ACK recovery races", async () => {
+    const event = fixtureState(7);
+    const payloadBytes = Buffer.byteLength(JSON.stringify(event), "utf8");
+    const outbox = new StateEventOutbox(await outboxPath(), scope, {
+      maxRecords: 2,
+      maxPayloadBytes: payloadBytes * 2
+    });
+    await outbox.initialize();
+    const gate = new StateEventCapacityGate(outbox, { payloadBytesPerEvent: payloadBytes });
+    await gate.initialize();
+    const publicationSlot = new StateEventReservationSlot(outbox);
+    const standing = await gate.reserve(["*"]);
+    await expect(publicationSlot.attach(standing)).resolves.toBe(true);
+    expect(publicationSlot.take({ id: "stale-reservation" })).toBeUndefined();
+    expect(publicationSlot.isCurrent(standing)).toBe(true);
+
+    for (let cycle = 0; cycle < 5; cycle += 1) {
+      const eventReservation = await gate.reserve([event.fixtureId]);
+      await outbox.enqueue(event, eventReservation);
+      await expect(gate.reserve(["provisioning"])).rejects.toThrow("capacity");
+      await outbox.acknowledge({
+        eventId: event.eventId,
+        sequence: event.sequence,
+        fixtureId: event.fixtureId,
+        status: "ingested",
+        ingestedAt: "2026-08-26T00:00:02.000Z"
+      });
+
+      const recovery = await gate.recoverAndReserve(["*"]);
+      expect(recovery).not.toBeNull();
+      await expect(publicationSlot.attach(recovery!)).resolves.toBe(false);
+      expect(publicationSlot.isCurrent(standing)).toBe(true);
+
+      const probe = await gate.reserve(["probe"]);
+      await expect(outbox.release(probe)).resolves.toBe(true);
+      await expect(outbox.release(probe)).resolves.toBe(false);
+    }
+
+    await expect(publicationSlot.release()).resolves.toBe(true);
+    await expect(publicationSlot.release()).resolves.toBe(false);
+    const fullCapacity = await outbox.reserve([
+      { fixtureId: "probe-1", payloadBytes },
+      { fixtureId: "probe-2", payloadBytes }
+    ]);
+    await outbox.release(fullCapacity);
   });
 
   it("keeps PUBACKed records and reconnects with bounded application-ACK retries", async () => {
