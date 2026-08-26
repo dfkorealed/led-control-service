@@ -311,7 +311,7 @@ describe("handleGatewayDimmingCommand", () => {
     );
 
     expect(result.deviceStatus).toMatchObject({
-      status: "timed_out",
+      status: "failed",
       results: [
         { status: "failed", faultCode: "state_mismatch" },
         { status: "timed_out", faultCode: "status_timeout" }

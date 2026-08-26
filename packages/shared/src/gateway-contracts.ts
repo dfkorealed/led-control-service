@@ -166,6 +166,17 @@ export const deviceStatusAckV2Schema = commandIdentitySchema.extend({
   results: z.array(deviceCommandResultV2Schema).min(1)
 });
 
+export function deriveDeviceStatusAckStatus(
+  results: ReadonlyArray<{ status: "succeeded" | "failed" | "timed_out" }>
+): "succeeded" | "partially_succeeded" | "failed" | "timed_out" {
+  const succeeded = results.filter((result) => result.status === "succeeded").length;
+  if (succeeded === results.length) return "succeeded";
+  if (succeeded > 0) return "partially_succeeded";
+  // Without a success, a concrete failure takes precedence over any timeout.
+  if (results.some((result) => result.status === "failed")) return "failed";
+  return "timed_out";
+}
+
 // Broker PUBACK only confirms transport; this acknowledgement permits durable state outbox deletion.
 export const applicationStateIngestedAckV2Schema = z.object({
   eventId: z.string().uuid(),

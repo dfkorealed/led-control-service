@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import {
   acceptanceAckV2Schema,
   applicationProvisioningScanTerminalIngestedAckV2Schema,
+  deriveDeviceStatusAckStatus,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
   GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
@@ -1120,16 +1121,6 @@ export class MqttService implements OnModuleInit {
       }
     });
   }
-}
-
-function deriveDeviceStatusAckStatus(
-  results: Array<{ status: "succeeded" | "failed" | "timed_out" }>
-): "succeeded" | "partially_succeeded" | "failed" | "timed_out" {
-  const succeeded = results.filter((result) => result.status === "succeeded").length;
-  if (succeeded === results.length) return "succeeded";
-  if (succeeded > 0) return "partially_succeeded";
-  if (results.every((result) => result.status === "timed_out")) return "timed_out";
-  return "failed";
 }
 
 function meshSubscriptionOperationKey(operation: {

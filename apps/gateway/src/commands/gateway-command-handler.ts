@@ -3,6 +3,7 @@ import {
   DeviceStatusAckV2,
   GatewayDimmingCommandV2,
   acceptanceAckV2Schema,
+  deriveDeviceStatusAckStatus,
   deviceStatusAckV2Schema,
   isGatewayCommandExpired
 } from "@led-control/shared";
@@ -143,18 +144,10 @@ async function executeGatewayDimmingCommand(
       rssi: report.rssi,
       hopCount: report.hopCount
     }));
-    const succeeded = results.filter((result) => result.status === "succeeded").length;
-    const timedOut = results.some((result) => result.status === "timed_out");
     deviceStatus = deviceStatusAckV2Schema.parse({
       ...identity,
       eventId: randomUUID(),
-      status: succeeded === results.length
-        ? "succeeded"
-        : succeeded > 0
-          ? "partially_succeeded"
-          : timedOut
-            ? "timed_out"
-            : "failed",
+      status: deriveDeviceStatusAckStatus(results),
       occurredAt: new Date().toISOString(),
       results
     });

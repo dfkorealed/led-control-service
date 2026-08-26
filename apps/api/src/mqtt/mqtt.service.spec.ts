@@ -840,6 +840,26 @@ describe("MqttService", () => {
     expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
   });
 
+  it("accepts failed precedence when failed and timed-out fixture results are mixed", async () => {
+    const results = [
+      fixtureResult("99999999-9999-4999-8999-999999999999", "failed"),
+      fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "timed_out")
+    ];
+    const prisma = deviceAckPrisma(results.map((result) => result.fixtureId));
+    const service = new MqttService(prisma as never, createMeshGroupsMock() as never);
+
+    await service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({
+      ...deviceStatusAckPayload(),
+      status: "failed",
+      results
+    })));
+
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "failed", errorCode: null, errorMessage: null })
+    }));
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
+  });
+
   it("handles a scoped mesh group resync request inside one database transaction", async () => {
     const tx = { transaction: true };
     const order: string[] = [];

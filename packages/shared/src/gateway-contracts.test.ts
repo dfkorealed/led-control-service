@@ -4,6 +4,7 @@ import {
   applicationStateIngestedAckV2Schema,
   applicationProvisioningScanTerminalIngestedAckV2Schema,
   deviceStatusAckV2Schema,
+  deriveDeviceStatusAckStatus,
   fixtureStateV2Schema,
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandV2Schema,
@@ -27,6 +28,17 @@ const eventId = "44444444-4444-4444-8444-444444444444";
 const occurredAt = "2026-07-11T00:00:00.000Z";
 
 describe("gateway-scoped MQTT v2 contracts", () => {
+  it.each([
+    ["all succeeded", ["succeeded", "succeeded"], "succeeded"],
+    ["success and failure", ["succeeded", "failed"], "partially_succeeded"],
+    ["success and timeout", ["succeeded", "timed_out"], "partially_succeeded"],
+    ["all timed out", ["timed_out", "timed_out"], "timed_out"],
+    ["all failed", ["failed", "failed"], "failed"],
+    ["failure and timeout", ["failed", "timed_out"], "failed"]
+  ] as const)("derives the shared aggregate status for %s", (_case, statuses, expected) => {
+    expect(deriveDeviceStatusAckStatus(statuses.map((status) => ({ status })))).toBe(expected);
+  });
+
   it("builds gateway-scoped command, ack, state, and heartbeat topics", () => {
     expect(mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")).toBe(
       `sites/${siteId}/gateways/${gatewayId}/commands/dimming`
