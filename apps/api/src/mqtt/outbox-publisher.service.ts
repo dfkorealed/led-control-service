@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   createGatewayCommandExpiry,
@@ -23,7 +23,7 @@ type PublisherOptions = {
 };
 
 @Injectable()
-export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
+export class OutboxPublisherService implements OnModuleInit {
   private readonly logger = new Logger(OutboxPublisherService.name);
   private readonly workerId: string;
   private readonly random: () => number;
@@ -31,6 +31,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
   private readonly clock: () => Date;
   private timer: NodeJS.Timeout | null = null;
   private activeBatch: Promise<void> | null = null;
+  private stopPromise: Promise<void> | null = null;
   private stopped = false;
 
   constructor(
@@ -50,11 +51,14 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
     this.timer = setInterval(() => void this.runScheduledBatch(), this.pollMs);
   }
 
-  async onModuleDestroy() {
-    this.stopped = true;
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-    await this.activeBatch;
+  stopAndDrain() {
+    if (!this.stopPromise) {
+      this.stopped = true;
+      if (this.timer) clearInterval(this.timer);
+      this.timer = null;
+      this.stopPromise = this.activeBatch ?? Promise.resolve();
+    }
+    return this.stopPromise;
   }
 
   private runScheduledBatch() {

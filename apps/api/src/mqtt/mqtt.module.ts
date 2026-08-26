@@ -7,10 +7,19 @@ import { FixtureFreshnessService } from "../fixtures/fixture-freshness.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
+import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
 
 @Module({
   imports: [PrismaModule, MeshControlGroupModule],
-  providers: [MqttService, FixtureFreshnessService, OutboxPublisherService, ProvisioningScanOutboxPublisherService, CommandTimeoutService, MeshGroupSyncWorker],
+  providers: [
+    MqttService,
+    FixtureFreshnessService,
+    OutboxPublisherService,
+    ProvisioningScanOutboxPublisherService,
+    MqttShutdownCoordinator,
+    CommandTimeoutService,
+    MeshGroupSyncWorker
+  ],
   exports: [MqttService]
 })
 export class MqttModule {}

@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 
 jest.mock("node:fs", () => ({ readFileSync: jest.fn(() => Buffer.from("test-certificate")) }));
@@ -37,6 +38,94 @@ describe("MqttService", () => {
       protocolVersion: 5
     });
     expect(options.properties).toBeUndefined();
+  });
+
+  it("awaits the MQTT end callback and reuses one close promise", async () => {
+    let finishClose: ((error?: Error) => void) | undefined;
+    const client: any = {
+      end: jest.fn((_force: boolean, callback?: (error?: Error) => void) => {
+        finishClose = callback;
+        return client;
+      })
+    };
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).client = client;
+
+    const closing = service.close();
+    expect(service.close()).toBe(closing);
+    let closed = false;
+    void closing.then(() => { closed = true; });
+    await Promise.resolve();
+
+    expect(client.end).toHaveBeenCalledWith(false, expect.any(Function));
+    expect(closed).toBe(false);
+
+    finishClose?.();
+    await closing;
+    expect(closed).toBe(true);
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("forces MQTT close after the graceful timeout and awaits the force-close callback", async () => {
+    jest.useFakeTimers();
+    const loggerWarn = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+    let finishForceClose: ((error?: Error) => void) | undefined;
+    const client: any = {
+      end: jest.fn((force: boolean, callback?: (error?: Error) => void) => {
+        if (force) finishForceClose = callback;
+        return client;
+      })
+    };
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).client = client;
+
+    try {
+      const closing = service.close();
+      let closed = false;
+      void closing.then(() => { closed = true; });
+      expect(client.end).toHaveBeenNthCalledWith(1, false, expect.any(Function));
+
+      await jest.advanceTimersByTimeAsync(4_999);
+      expect(client.end).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(client.end).toHaveBeenNthCalledWith(2, true, expect.any(Function));
+      expect(loggerWarn).toHaveBeenCalledWith("MQTT client graceful close timed out; forcing close");
+      expect(closed).toBe(false);
+
+      finishForceClose?.();
+      await closing;
+      expect(closed).toBe(true);
+    } finally {
+      loggerWarn.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it("finishes shutdown when the forced MQTT end callback also stalls", async () => {
+    jest.useFakeTimers();
+    const loggerWarn = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+    const client: any = { end: jest.fn(() => client) };
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).client = client;
+
+    try {
+      const closing = service.close();
+      await jest.advanceTimersByTimeAsync(5_999);
+      let closed = false;
+      void closing.then(() => { closed = true; });
+      await Promise.resolve();
+      expect(closed).toBe(false);
+
+      await jest.advanceTimersByTimeAsync(1);
+      await closing;
+
+      expect(client.end).toHaveBeenNthCalledWith(2, true, expect.any(Function));
+      expect(loggerWarn).toHaveBeenCalledWith("MQTT client forced close callback timed out; continuing shutdown");
+    } finally {
+      loggerWarn.mockRestore();
+      jest.useRealTimers();
+    }
   });
 
   it("publishes a QoS 1 JSON payload that expires at the acceptance deadline", async () => {

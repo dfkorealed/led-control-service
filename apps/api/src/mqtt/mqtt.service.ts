@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import {
   acceptanceAckV2Schema,
   applicationProvisioningScanTerminalIngestedAckV2Schema,
@@ -37,10 +37,15 @@ import { parseGatewayTopic } from "./topic-scope";
 const DEVICE_UUID_CONFLICT_ERROR = "device UUID is already registered by another site";
 const FIXTURE_FLOOR_CONFLICT_ERROR = "fixture is already assigned to another floor";
 const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
+const MQTT_CLOSE_TIMEOUT_MS = 5_000;
+const MQTT_FORCE_CLOSE_TIMEOUT_MS = 1_000;
 
 @Injectable()
-export class MqttService implements OnModuleInit, OnModuleDestroy {
+export class MqttService implements OnModuleInit {
+  private readonly logger = new Logger(MqttService.name);
   private client: MqttClient | null = null;
+  private closePromise: Promise<void> | null = null;
+  private closing = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -135,11 +140,56 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  onModuleDestroy() {
-    this.client?.end();
+  close() {
+    if (!this.closePromise) {
+      this.closing = true;
+      this.closePromise = this.closeClient();
+    }
+    return this.closePromise;
+  }
+
+  private closeClient() {
+    const client = this.client;
+    if (!client) return Promise.resolve();
+
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timeout: NodeJS.Timeout | null = null;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        timeout = null;
+        if (this.client === client) this.client = null;
+        if (error) reject(error);
+        else resolve();
+      };
+      const forceClose = () => {
+        if (settled) return;
+        this.logger.warn("MQTT client graceful close timed out; forcing close");
+        timeout = setTimeout(() => {
+          if (settled) return;
+          this.logger.warn("MQTT client forced close callback timed out; continuing shutdown");
+          finish();
+        }, MQTT_FORCE_CLOSE_TIMEOUT_MS);
+        try {
+          client.end(true, finish);
+        } catch (error) {
+          finish(error instanceof Error ? error : new Error("MQTT client forced close failed"));
+        }
+      };
+
+      timeout = setTimeout(forceClose, MQTT_CLOSE_TIMEOUT_MS);
+      try {
+        client.end(false, finish);
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error("MQTT client graceful close failed"));
+      }
+    });
   }
 
   private getClient() {
+    if (this.closing) throw new Error("MQTT client is closing");
     if (!this.client) {
       const connection = createMqttConnectionOptions(process.env);
       this.client = mqtt.connect(connection.url, connection.options);

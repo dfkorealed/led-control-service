@@ -60,7 +60,7 @@
 - legacy `invalid`와 `retiring`/`retired` 저장 구역은 일반 명령 target과 exact-set mesh group 승격에서 제외한다. invalid/retired는 읽기 전용이며, 아직 retiring인 구역은 subscription 정리 완료 전 제어할 수 없다.
 - dashboard는 active 저장 구역에 lifecycle, floor/gateway, fixture count, MeshControlGroup status/version/error를 제공하고 층에도 gateway별 MeshControlGroup 상태를 제공한다. Web은 `ready`가 아닌 층·저장 구역을 제어 picker에서 비활성화하며 retired/invalid 구역은 dashboard 제어 target에 포함되지 않는다.
 - 비접근 site의 저장 구역 요청은 query/body 형식 검증보다 SiteAccess를 먼저 수행해 malformed 입력이어도 일관된 `404` 경계를 유지한다.
-- background outbox의 transient DB 실패가 API process를 종료하지 않고 다음 tick에서 회복하도록 하는 안정성 보완은 별도 커밋 `84fba86`, `eae91dc`에서 완료됐다.
+- API command/scan outbox worker는 initial·interval batch의 transient DB 실패를 scheduler 경계에서 격리해 API process를 유지하고 다음 tick에서 회복한다. batch는 worker별 single-flight이며 종료가 시작되면 다음 record publish를 시작하지 않는다. 두 worker와 `MqttService`는 독립 destroy hook을 갖지 않고 `MqttShutdownCoordinator` 하나가 두 `stopAndDrain()`을 멱등 호출해 모두 완료된 뒤에만 MQTT client close를 시작한다. close는 MQTT.js graceful `end` callback을 await하고 5초 안에 완료되지 않으면 force close callback을 추가 1초간 기다린 뒤 종료를 계속한다.
 - `viewer`가 제어 화면에 진입하면 읽기 전용 안내를 표시하고 밝기 슬라이더, 프리셋, 대상 선택과 `밝기 적용` 버튼을 모두 비활성화한다. 이 경우 브라우저는 `POST /commands/dimming`을 보내지 않으며 권한 오류를 장비 장애로 오인하지 않는다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 대상 선택과 `밝기 적용`을 차단하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
@@ -163,8 +163,13 @@
 - `apps/web/src/features/control/active-command-store.ts`
 - `apps/web/src/features/control/active-command-store.test.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
+- `apps/api/src/mqtt/mqtt.service.spec.ts`
+- `apps/api/src/mqtt/mqtt.module.ts`
+- `apps/api/src/mqtt/mqtt-shutdown-coordinator.service.ts`
+- `apps/api/src/mqtt/mqtt-shutdown-coordinator.spec.ts`
 - `apps/api/src/fixtures/fixture-health.ts`
 - `apps/api/src/mqtt/outbox-publisher.service.ts`
+- `apps/api/src/mqtt/outbox-publisher.service.spec.ts`
 - `apps/gateway/src/gateway.ts`
 - `apps/gateway/src/index.ts`
 - `apps/gateway/src/commands/gateway-command-handler.ts`

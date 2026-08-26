@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { provisioningScanStartSchema } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
@@ -20,7 +20,7 @@ type PublisherOptions = {
 };
 
 @Injectable()
-export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnModuleDestroy {
+export class ProvisioningScanOutboxPublisherService implements OnModuleInit {
   private readonly logger = new Logger(ProvisioningScanOutboxPublisherService.name);
   private readonly workerId: string;
   private readonly random: () => number;
@@ -29,6 +29,7 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
   private readonly publishTimeoutMs: number;
   private timer: NodeJS.Timeout | null = null;
   private activeBatch: Promise<void> | null = null;
+  private stopPromise: Promise<void> | null = null;
   private stopped = false;
 
   constructor(
@@ -52,11 +53,14 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
     this.timer = setInterval(() => void this.runScheduledBatch(), this.pollMs);
   }
 
-  async onModuleDestroy() {
-    this.stopped = true;
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
-    await this.activeBatch;
+  stopAndDrain() {
+    if (!this.stopPromise) {
+      this.stopped = true;
+      if (this.timer) clearInterval(this.timer);
+      this.timer = null;
+      this.stopPromise = this.activeBatch ?? Promise.resolve();
+    }
+    return this.stopPromise;
   }
 
   private runScheduledBatch() {

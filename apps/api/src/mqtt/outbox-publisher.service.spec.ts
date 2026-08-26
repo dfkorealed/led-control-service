@@ -77,11 +77,13 @@ describe("OutboxPublisherService", () => {
       await jest.advanceTimersByTimeAsync(1_000);
       expect(claimBatch).toHaveBeenCalledTimes(2);
 
-      await service.onModuleDestroy();
+      const stopping = service.stopAndDrain();
+      expect(service.stopAndDrain()).toBe(stopping);
+      await stopping;
       await jest.advanceTimersByTimeAsync(2_000);
       expect(claimBatch).toHaveBeenCalledTimes(2);
     } finally {
-      await service.onModuleDestroy();
+      await service.stopAndDrain();
       process.off("unhandledRejection", unhandledRejection);
       loggerError.mockRestore();
       jest.useRealTimers();
@@ -110,7 +112,7 @@ describe("OutboxPublisherService", () => {
       expect(logs).not.toContain("name-secret");
       expect(logs).not.toContain("message-secret");
     } finally {
-      await service.onModuleDestroy();
+      await service.stopAndDrain();
       loggerError.mockRestore();
       jest.useRealTimers();
     }
@@ -135,7 +137,7 @@ describe("OutboxPublisherService", () => {
       expect(claimBatch).toHaveBeenCalledTimes(2);
     } finally {
       pendingClaim.resolve([]);
-      await service.onModuleDestroy();
+      await service.stopAndDrain();
       jest.useRealTimers();
     }
   });
@@ -158,7 +160,7 @@ describe("OutboxPublisherService", () => {
       await jest.advanceTimersByTimeAsync(0);
       expect(publishClaimed).toHaveBeenCalledTimes(1);
 
-      const destroying = Promise.resolve(service.onModuleDestroy()).then(() => { destroyCompleted = true; });
+      const destroying = service.stopAndDrain().then(() => { destroyCompleted = true; });
       await Promise.resolve();
       const completedBeforeRelease = destroyCompleted;
       await jest.advanceTimersByTimeAsync(3_000);
@@ -174,7 +176,7 @@ describe("OutboxPublisherService", () => {
       }).toEqual({ completedBeforeRelease: false, claimCalls: 1, publishCalls: 1 });
     } finally {
       activePublish.resolve();
-      await Promise.resolve(service.onModuleDestroy());
+      await service.stopAndDrain();
       jest.useRealTimers();
     }
   });
