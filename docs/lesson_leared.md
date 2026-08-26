@@ -173,3 +173,10 @@
 - **원인**: source/opcode까지만 맞으면 parser를 바로 실행했고, 요청별 element/group/model 같은 세부 상관관계를 parser 이전에 확인하지 않았다.
 - **해결 및 예방책**: 공통 wait API에 request-specific raw matcher를 추가해, parser 전에 해당 요청과 일치하는 raw payload만 waiter가 소비하게 한다.
 - **반복 방지 체크**: 동일 source/opcode로 동시에 발행되는 요청은 역순 응답, 타 요청 status failure, malformed payload를 포함한 상관관계 테스트를 유지한다.
+
+## 2026-08-26 / 병렬 서브에이전트의 Git index 공유 충돌
+
+- **발생했던 문제/실수**: 서로 다른 파일을 수정하던 병렬 서브에이전트가 동시에 `git add`와 `git commit --amend`를 실행해 다른 작업의 staged 파일이 잘못된 커밋에 포함됐다.
+- **원인**: 파일 쓰기 범위는 분리했지만 모든 에이전트가 같은 working tree와 Git index를 공유한다는 점을 커밋 절차에 반영하지 않았다.
+- **해결 및 예방책**: 병렬 서브에이전트는 코드 수정, 테스트, 변경 파일 보고까지만 수행한다. 메인 에이전트가 `git diff`와 정확한 파일 목록을 확인한 뒤 작업 단위별로 순차 stage/commit한다.
+- **반복 방지 체크**: 병렬 구현을 시작할 때 모든 구현자에게 `git add/commit 금지`를 명시하고, 각 커밋 직후 `git show --name-status`로 다른 작업 파일 혼입 여부를 확인한다.
