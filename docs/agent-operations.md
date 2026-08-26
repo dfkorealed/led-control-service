@@ -2,7 +2,7 @@
 
 기준일: 2026-08-26
 
-이 문서는 프로젝트 자동화 작업의 단일 운영 기준이다. 새 운영 문서를 작업마다 만들지 않으며, 이 문서와 `docs/project-status.md`를 지속 갱신한다.
+이 문서는 프로젝트 자동화 작업의 단일 운영 기준이다. 새 운영 문서를 작업마다 만들지 않으며, 이 문서와 `docs/project-status.md`를 지속 갱신한다. `project-status.md`는 현재 상태 요약의 정본이고, `writing-plans`는 진행 중인 작업의 실행 체크리스트다. 작업 상태나 체크리스트가 바뀌면 둘을 함께 일치시켜 갱신한다.
 
 ## 역할과 소유 경계
 
@@ -32,24 +32,24 @@ Custom agent는 **누가** 작업하는지를 정의한다. 역할, 기본 모�
 - `verification-before-completion`
 - `requesting-code-review`, `receiving-code-review`
 
-Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택, 기본 모델·권한·파일 소유권이다. `subagent-driven-development`의 durable role routing은 custom agent가 일부 대체하지만, 태스크별 독립 context, review gate, 작업 상태 ledger는 유지한다.
+Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택, 기본 모델·권한·파일 소유권이다. `subagent-driven-development`의 지속적인 역할 배정은 custom agent가 일부 대체하지만, 작업별 독립 작업 맥락, 검토 승인 관문, 작업 상태 기록부는 유지한다.
 
 ## 작업 생명주기
 
-1. 총괄은 요구사항, 완료 조건, 영향 메뉴와 담당 역할을 `project-status.md`에 기록한다.
+1. 총괄은 요구사항, 완료 조건, 영향 메뉴와 담당 역할을 `project-status.md`와 활성 `writing-plans` 체크리스트에 함께 기록한다.
 2. 담당 역할은 관련 `AGENTS.md`, 교훈 문서, 메뉴 문서와 기존 코드를 읽고 계획을 확정한다.
 3. 구현 전 테스트 또는 재현 절차를 먼저 정의한다.
 4. 독립 소유 범위만 병렬로 작업하고, 공유 계약 변경은 순차로 처리한다.
 5. 담당 역할은 코드·테스트·관련 메뉴 문서를 같은 작업 단위에서 갱신하고 작은 단위로 커밋한다.
 6. QA가 요구사항, diff, 자동 검증과 문서 일치 여부를 검토한다.
-7. 총괄은 결과와 미해결 사항을 상태판에 반영하고, human gate가 필요한 작업은 사용자 승인 뒤 진행한다.
+7. 총괄은 결과와 미해결 사항을 상태판과 활성 체크리스트에 함께 반영하고, 사용자 승인 관문이 필요한 작업은 승인 뒤 진행한다.
 
 ## 병렬화와 승인 규칙
 
 - 서로 다른 앱 디렉터리의 독립 작업만 병렬 실행한다.
 - 같은 파일, 같은 API 계약, 같은 Prisma migration은 한 역할만 수정한다.
 - `packages/shared`와 DB 스키마는 총괄 승인 후 관련 역할이 순서대로 변경한다.
-- 인증서, private key, DB 초기화, 실제 장비 flash, Raspberry Pi 배포, 운영 환경 명령은 human gate를 통과한 뒤 실행한다.
+- 인증서, private key, DB 초기화, 실제 장비 flash, Raspberry Pi 배포, 운영 환경 명령은 사용자 승인 관문을 통과한 뒤 실행한다.
 - QA는 기본 읽기 전용이다. 수정이 필요하면 총괄이 담당 역할에 별도 태스크로 배정한다.
 
 ## 문서와 커밋 규칙
@@ -57,7 +57,7 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 - 기능 변경 시 영향을 받은 `docs/menus/*.md`를 같은 커밋에서 갱신한다.
 - DB 변경 시 `docs/database-schema.md`를 같은 커밋에서 갱신한다.
 - 반복 가능한 실패와 예방책은 `docs/lesson_leared.md`에 누적한다.
-- 현재 진행 상태와 다음 작업은 `docs/project-status.md`만 갱신한다.
+- `project-status.md`는 상태 요약의 정본으로 유지한다. 활성 작업은 `writing-plans` 체크리스트에도 같은 상태를 반영한다.
 - mock·자동 fixture·빌드 성공은 실제 하드웨어 검증 완료와 구분해 기록한다.
 
 ## 다음 자동화 단계
