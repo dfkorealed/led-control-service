@@ -153,7 +153,7 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
               />
             )}
           />
-          <Route path="/statistics" element={<StatisticsView siteId={siteId} />} />
+          <Route path="/statistics" element={<StatisticsView siteId={siteId ?? dashboard?.site.id} />} />
           <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
             <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />

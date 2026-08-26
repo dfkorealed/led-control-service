@@ -4,14 +4,18 @@
 
 ## 구현 완료
 
-- `useEnergyEstimate`가 선택된 `siteId`를 query key와 API path에 함께 반영해 전력 추정 API 데이터를 조회한다.
-- 일, 월, 년 사용량 kWh를 표시한다.
-- 일, 월, 년 예상 전기료를 표시한다.
-- 기간별 사용량을 막대 차트 형태로 표시한다.
+- Web은 선택 현장의 `GET /energy/sites/:siteId/summary`와 일별·월별 `series` wrapper를 React Query로 조회한다. URL에 `siteId`가 없으면 대시보드가 반환한 실제 현장 ID를 사용하며 legacy default estimate API로 우회하지 않는다.
+- 오늘, 이번 달 누적, 올해 누적의 상태 기반 추정 사용량과 비용을 표시한다.
+- `Recharts` 반응형 꺾은선 차트와 일별·월별 segmented 탭을 제공한다. 데이터가 없는 point는 `null`로 유지해 선을 연결하거나 0으로 표시하지 않는다.
+- 이번 달 예상 사용량·비용, 24시간·100% 밝기 기준 사용량·비용, 예상 절감 kWh·비용을 함께 표시하며 음수 절감값도 숨기지 않는다.
+- `available`, `partial`, `no_data`를 색상뿐 아니라 `수집 완료`, `수집 공백 있음`, `수집 데이터 없음` 문구로 표시한다.
+- known 시간이 전혀 없는 현장은 0 kWh 카드나 0선 대신 상태 수집 대기 화면을 표시한다. partial 현장은 누적값을 유지하고 수집 공백 경고와 기간별 공백 시간을 제공한다.
+- 차트 hover tooltip에는 기간, kWh, 비용, 수집 상태와 공백 시간을 표시한다. 같은 내용을 스크린 리더용 목록에도 제공해 hover 없이 확인할 수 있다.
+- summary 실패와 series 실패를 분리한다. series 실패 시 KPI와 비용 정보는 유지하고 차트 영역만 다시 시도할 수 있다.
+- 현장 timezone을 기준으로 현재 월의 첫날·마지막 날과 현재 연도의 월별 조회 범위를 계산한다.
 - `GET /energy/sites/:siteId/estimate`는 SiteAccess `read` 권한으로 현장을 검증하고, 다른 고객사 또는 미배정 현장은 `404`로 숨긴다.
-- `siteId`가 없을 때만 명시적 fallback으로 `GET /energy/default/estimate`를 사용하며, 기본 현장 선택은 접근 가능한 현장 ID의 안정 정렬 순서를 따른다.
-- 차트 높이를 반환된 일/월/년 예상 사용량의 상대 비율로 계산한다.
-- 추정 집계 상태를 UI에 표시한다.
+- legacy `GET /energy/default/estimate`는 전환 호환성을 위해 API에 남아 있지만 현재 Web은 호출하지 않는다.
+- Desktop Chromium과 390x844 mobile viewport의 route fixture 기반 Playwright에서 KPI, 일·월 탭, partial tooltip, no-data, 독립 오류 재시도, 가로 overflow를 검증한다.
 - MQTT v2 조명 상태 이벤트를 현장 IANA timezone의 날짜 경계로 분할해 `FixtureEnergyDailyAggregate`에 적산한다. 이벤트 원장, 최신 조명 상태, `FixtureEnergyStateCursor`, 일별 집계는 하나의 DB transaction으로 반영하며 중복·역순·stale checkpoint는 재적산하지 않는다.
 - 도면 에디터에서 정격 전력을 변경하면 변경 직전까지 기존 정격 전력으로 checkpoint를 닫은 뒤 새 값을 저장한다.
 - `GET /energy/sites/:siteId/summary`가 현장 timezone 기준 오늘, 이번 달 누적, 올해 누적 사용량과 비용을 상태 이벤트 기반 추정치로 반환한다.
@@ -41,16 +45,19 @@
 ## 부족하거나 개선이 필요한 기능
 
 - 근거 없는 절감 지표, 피크 시간, 추천 정책 고정 문구는 제거했다.
-- 통계 API는 상태 이벤트 기반 summary·series·월 예상·절감량을 제공하지만, Web 화면은 아직 legacy snapshot estimate를 사용한다. 신규 API 기반 카드와 꺾은선 차트 연결은 Task 10 후속 작업이다.
+- 브라우저 자동 검증은 API route fixture 기반이며 실제 Raspberry Pi, ESP32-H2, BLE Mesh 상태 publication을 포함한 HIL 결과가 아니다.
 - 예상 전기료는 단일 단가 기반이며 복합 요금제를 반영하지 않는다.
-- 신규 API는 기준 현장, timezone, 기준 기간, 생성 시각, 마지막 집계 시각을 반환하지만 Web 표시는 아직 미구현이다.
 - 현재 추정치는 선택된 현장 단위로만 제공하므로 층별·그룹별 drill-down은 후속 구현이 필요하다.
 - 실제 전력계 측정값이 아니라 BLE Mesh 상태 수신 이력과 정격 전력을 이용한 추정치다. 180초를 넘는 통신 공백은 사용량을 추정하지 않고 `partial`로 노출한다.
 
 ## 관련 파일
 
 - `apps/web/src/features/statistics/StatisticsView.tsx`
+- `apps/web/src/features/statistics/StatisticsView.test.tsx`
+- `apps/web/src/features/statistics/statistics-periods.ts`
 - `apps/web/src/api/energy.ts`
+- `apps/web/src/api/energy.test.tsx`
+- `apps/web/e2e/statistics-flow.spec.ts`
 - `apps/api/src/energy/energy.controller.ts`
 - `apps/api/src/energy/energy.service.ts`
 - `apps/api/src/energy/energy-periods.ts`

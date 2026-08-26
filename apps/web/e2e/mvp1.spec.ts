@@ -122,13 +122,41 @@ test.beforeEach(async ({ page }) => {
     });
   });
 
-  await page.route("**/energy/default/estimate", async (route) => {
+  await page.route("**/energy/sites/site-1/summary", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        day: { kwh: 3.36, cost: 537.6 },
-        month: { kwh: 100.8, cost: 16128 },
-        year: { kwh: 1226.4, cost: 196224 }
+        siteId: "site-1",
+        timeZone: "Asia/Seoul",
+        source: "state_based_estimate",
+        generatedAt: "2026-08-26T00:00:00.000Z",
+        today: { estimatedKwh: 3.36, estimatedCost: 538, knownSeconds: 43200, unknownSeconds: 0, dataStatus: "available" },
+        monthToDate: { estimatedKwh: 100.8, estimatedCost: 16128, knownSeconds: 2073600, unknownSeconds: 0, dataStatus: "available" },
+        yearToDate: { estimatedKwh: 1226.4, estimatedCost: 196224, knownSeconds: 20000000, unknownSeconds: 0, dataStatus: "available" },
+        monthForecast: { estimatedKwh: 120, estimatedCost: 19200, observedKnownSeconds: 2073600, reason: "available" },
+        baseline24Hours: { estimatedKwh: 297.6, estimatedCost: 47616, fixtureCount: 10, daysInMonth: 31 },
+        estimatedSavings: { kwh: 177.6, cost: 28416 },
+        lastAggregatedAt: "2026-08-26T00:00:00.000Z"
+      })
+    });
+  });
+
+  await page.route("**/energy/sites/site-1/series?**", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const granularity = params.get("granularity") === "month" ? "month" : "day";
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        siteId: "site-1",
+        timeZone: "Asia/Seoul",
+        source: "state_based_estimate",
+        generatedAt: "2026-08-26T00:00:00.000Z",
+        granularity,
+        from: params.get("from"),
+        to: params.get("to"),
+        points: granularity === "day"
+          ? [{ source: "state_based_estimate", period: "2026-08-26", estimatedKwh: 3.36, estimatedCost: 538, knownSeconds: 43200, unknownSeconds: 0, dataStatus: "available" }]
+          : [{ source: "state_based_estimate", period: "2026-08-01", estimatedKwh: 100.8, estimatedCost: 16128, knownSeconds: 2073600, unknownSeconds: 0, dataStatus: "available" }]
       })
     });
   });
@@ -147,7 +175,7 @@ test("customer admin can view monitoring dashboard and navigate primary sections
   await page.getByRole("link", { name: "통계" }).click();
   await expect(page.getByRole("heading", { name: "통계", exact: true })).toBeVisible();
   await expect(page.getByText("에너지 리포트")).toBeVisible();
-  await expect(page.locator(".metric").filter({ hasText: "일 사용량" })).toBeVisible();
+  await expect(page.locator(".metric").filter({ hasText: "오늘" })).toContainText("3.36 kWh");
 
   await page.getByRole("link", { name: "설정" }).click();
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();

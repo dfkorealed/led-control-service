@@ -1,16 +1,32 @@
+import type { EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "./client";
 
-export interface EnergyEstimate {
-  day: { kwh: number; cost: number };
-  month: { kwh: number; cost: number };
-  year: { kwh: number; cost: number };
+export function useEnergySummary(siteId?: string) {
+  return useQuery({
+    queryKey: ["energy-summary", siteId],
+    queryFn: () => apiGet<EnergySummary>(`/energy/sites/${encodeURIComponent(siteId!)}/summary`),
+    enabled: Boolean(siteId),
+    retry: 1
+  });
 }
 
-export function useEnergyEstimate(siteId?: string) {
-  const path = siteId ? `/energy/sites/${encodeURIComponent(siteId)}/estimate` : "/energy/default/estimate";
+interface EnergySeriesQuery {
+  siteId?: string;
+  granularity: "day" | "month";
+  from: string;
+  to: string;
+  enabled: boolean;
+}
+
+export function useEnergySeries({ siteId, granularity, from, to, enabled }: EnergySeriesQuery) {
   return useQuery({
-    queryKey: ["energy-estimate", siteId ?? "default"],
-    queryFn: () => apiGet<EnergyEstimate>(path)
+    queryKey: ["energy-series", siteId, granularity, from, to],
+    queryFn: () => {
+      const params = new URLSearchParams({ granularity, from, to });
+      return apiGet<EnergySeriesResponse>(`/energy/sites/${encodeURIComponent(siteId!)}/series?${params.toString()}`);
+    },
+    enabled: enabled && Boolean(siteId && from && to),
+    retry: 1
   });
 }

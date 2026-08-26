@@ -5,7 +5,13 @@ import { apiGet, apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
 import { dirtyEditorSentinelKey } from "./features/floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "./features/floor-editor/editor-store";
-import { mockDashboard, mockEnergyEstimate, mockRegistrationSession } from "./test/fixtures";
+import {
+  mockDashboard,
+  mockEnergyDaySeries,
+  mockEnergyMonthSeries,
+  mockEnergySummary,
+  mockRegistrationSession
+} from "./test/fixtures";
 import type { RegistrationSession } from "./api/registration";
 import { App } from "./App";
 import { settingsSectionsFor } from "./features/settings/settings-sections";
@@ -36,19 +42,7 @@ const authState = vi.hoisted(() => ({
 const apiState = vi.hoisted(() => ({
   dashboard: null as null | unknown,
   registrationSession: null as null | RegistrationSession,
-  commandStatus: null as null | unknown,
-  energyEstimateBySite: {
-    default: {
-      day: { kwh: 21.4, cost: 3424 },
-      month: { kwh: 642, cost: 102720 },
-      year: { kwh: 7811, cost: 1249760 }
-    },
-    "site-2": {
-      day: { kwh: 7.5, cost: 1200 },
-      month: { kwh: 225, cost: 36000 },
-      year: { kwh: 2737.5, cost: 438000 }
-    }
-  } as Record<string, typeof mockEnergyEstimate>
+  commandStatus: null as null | unknown
 }));
 
 vi.mock("./api/client", () => ({
@@ -123,11 +117,24 @@ vi.mock("./api/client", () => ({
         objects: []
       });
     }
-    if (path === "/energy/default/estimate") return Promise.resolve(apiState.energyEstimateBySite.default);
-    if (path === `/energy/sites/${mockDashboard.site.id}/estimate`) {
-      return Promise.resolve(apiState.energyEstimateBySite.default);
+    const energySummaryMatch = path.match(/^\/energy\/sites\/([^/]+)\/summary$/);
+    if (energySummaryMatch) {
+      const selectedSiteId = decodeURIComponent(energySummaryMatch[1]);
+      return Promise.resolve(selectedSiteId === "site-2"
+        ? {
+            ...mockEnergySummary,
+            siteId: selectedSiteId,
+            today: { ...mockEnergySummary.today, estimatedKwh: 7.5, estimatedCost: 1_200 }
+          }
+        : mockEnergySummary);
     }
-    if (path === "/energy/sites/site-2/estimate") return Promise.resolve(apiState.energyEstimateBySite["site-2"]);
+    const energySeriesMatch = path.match(/^\/energy\/sites\/([^/]+)\/series\?(.*)$/);
+    if (energySeriesMatch) {
+      const selectedSiteId = decodeURIComponent(energySeriesMatch[1]);
+      const params = new URLSearchParams(energySeriesMatch[2]);
+      const fixture = params.get("granularity") === "month" ? mockEnergyMonthSeries : mockEnergyDaySeries;
+      return Promise.resolve({ ...fixture, siteId: selectedSiteId });
+    }
     if (path === `/registration-sessions/${mockRegistrationSession.id}`) {
       return Promise.resolve(apiState.registrationSession ?? mockRegistrationSession);
     }
@@ -237,18 +244,6 @@ describe("App", () => {
     apiState.dashboard = null;
     apiState.registrationSession = null;
     apiState.commandStatus = null;
-    apiState.energyEstimateBySite = {
-      default: {
-        day: { kwh: 21.4, cost: 3424 },
-        month: { kwh: 642, cost: 102720 },
-        year: { kwh: 7811, cost: 1249760 }
-      },
-      "site-2": {
-        day: { kwh: 7.5, cost: 1200 },
-        month: { kwh: 225, cost: 36000 },
-        year: { kwh: 2737.5, cost: 438000 }
-      }
-    };
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/monitoring");
     vi.clearAllMocks();
@@ -636,7 +631,7 @@ describe("App", () => {
     expect(screen.queryByText("통신 음영 검토")).not.toBeInTheDocument();
   });
 
-  it("loads statistics from the selected site-scoped estimate endpoint", async () => {
+  it("loads statistics summary and series from the selected site", async () => {
     window.history.pushState({}, "", "/statistics?siteId=site-2");
     const queryClient = new QueryClient();
     render(
@@ -645,11 +640,31 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findAllByText("7.5 kWh")).toHaveLength(2);
-    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/estimate");
+    expect(await screen.findByText("7.5 kWh")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/summary");
+    expect(apiGet).toHaveBeenCalledWith(
+      "/energy/sites/site-2/series?granularity=day&from=2026-08-01&to=2026-08-31"
+    );
+    expect(apiGet).toHaveBeenCalledWith(
+      "/energy/sites/site-2/series?granularity=month&from=2026-01-01&to=2026-12-01"
+    );
   });
 
-  it("switches statistics estimates with the selected site instead of reusing another site's cache", async () => {
+  it("uses the dashboard site for statistics when the URL has no siteId", async () => {
+    window.history.pushState({}, "", "/statistics");
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("4.25 kWh")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/summary`);
+    expect(apiGet).not.toHaveBeenCalledWith("/energy/default/estimate");
+  });
+
+  it("switches statistics data with the selected site instead of reusing another site's cache", async () => {
     window.history.pushState({}, "", "/statistics?siteId=site-2");
     const queryClient = new QueryClient();
     const view = render(
@@ -658,7 +673,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findAllByText("7.5 kWh")).toHaveLength(2);
+    expect(await screen.findByText("7.5 kWh")).toBeInTheDocument();
     window.history.pushState({}, "", `/statistics?siteId=${mockDashboard.site.id}`);
     view.unmount();
     render(
@@ -667,9 +682,9 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findAllByText("21.4 kWh")).toHaveLength(2);
-    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/estimate");
-    expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/estimate`);
+    expect(await screen.findByText("4.25 kWh")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/summary");
+    expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/summary`);
   });
 
   it("sends group dimming commands from the control screen", async () => {

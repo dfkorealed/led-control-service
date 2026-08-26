@@ -1,5 +1,6 @@
 import type { Dashboard } from "../api/queries";
 import type { RegistrationSession } from "../api/registration";
+import type { EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 
 export const mockUser = {
   id: "00000000-0000-4000-8000-000000000002",
@@ -122,10 +123,44 @@ export const mockDashboard: Dashboard = {
   ]
 };
 
-export const mockEnergyEstimate = {
-  day: { kwh: 21.4, cost: 3424 },
-  month: { kwh: 642, cost: 102720 },
-  year: { kwh: 7811, cost: 1249760 }
+export const mockEnergySummary: EnergySummary = {
+  siteId: mockDashboard.site.id,
+  timeZone: "Asia/Seoul",
+  source: "state_based_estimate",
+  generatedAt: "2026-08-26T00:00:00.000Z",
+  today: { estimatedKwh: 4.25, estimatedCost: 680, knownSeconds: 43_200, unknownSeconds: 0, dataStatus: "available" },
+  monthToDate: { estimatedKwh: 120.5, estimatedCost: 19_280, knownSeconds: 2_073_600, unknownSeconds: 7_200, dataStatus: "partial" },
+  yearToDate: { estimatedKwh: 900, estimatedCost: 144_000, knownSeconds: 20_000_000, unknownSeconds: 7_200, dataStatus: "partial" },
+  monthForecast: { estimatedKwh: 160, estimatedCost: 25_600, observedKnownSeconds: 2_073_600, reason: "available" },
+  baseline24Hours: { estimatedKwh: 297.6, estimatedCost: 47_616, fixtureCount: 10, daysInMonth: 31 },
+  estimatedSavings: { kwh: 137.6, cost: 22_016 },
+  lastAggregatedAt: "2026-08-26T00:00:00.000Z"
+};
+
+export const mockEnergyDaySeries: EnergySeriesResponse = {
+  siteId: mockDashboard.site.id,
+  timeZone: "Asia/Seoul",
+  source: "state_based_estimate",
+  generatedAt: mockEnergySummary.generatedAt,
+  granularity: "day",
+  from: "2026-08-01",
+  to: "2026-08-31",
+  points: [
+    { source: "state_based_estimate", period: "2026-08-25", estimatedKwh: 4.1, estimatedCost: 656, knownSeconds: 86_400, unknownSeconds: 0, dataStatus: "available" },
+    { source: "state_based_estimate", period: "2026-08-26", estimatedKwh: 4.25, estimatedCost: 680, knownSeconds: 79_200, unknownSeconds: 7_200, dataStatus: "partial" },
+    { source: "state_based_estimate", period: "2026-08-27", estimatedKwh: null, estimatedCost: null, knownSeconds: 0, unknownSeconds: 86_400, dataStatus: "no_data" }
+  ]
+};
+
+export const mockEnergyMonthSeries: EnergySeriesResponse = {
+  ...mockEnergyDaySeries,
+  granularity: "month",
+  from: "2026-01-01",
+  to: "2026-12-01",
+  points: [
+    { source: "state_based_estimate", period: "2026-07-01", estimatedKwh: 140, estimatedCost: 22_400, knownSeconds: 2_678_400, unknownSeconds: 0, dataStatus: "available" },
+    { source: "state_based_estimate", period: "2026-08-01", estimatedKwh: 120.5, estimatedCost: 19_280, knownSeconds: 2_073_600, unknownSeconds: 7_200, dataStatus: "partial" }
+  ]
 };
 
 export const mockRegistrationSession: RegistrationSession = {
