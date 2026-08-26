@@ -17,7 +17,7 @@
 | 메뉴 완성 구현 | 완료(소프트웨어) | Task 12까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
 | 계정·설치 주체 전환 설계 | 완료 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했고 재설치는 제외했다. |
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
-| 계정·설치 주체 전환 구현 | 진행 중 | Task 1에서 `User.loginId`, nullable `User.email`, 현장별 1:1 `Site.adminUserId`, 설치 전 nullable 현장 정보를 migration 정본으로 추가했다. 정규화 충돌·operator 중복·기존 admin/현장 모호성은 적용 전 중단하며, 전용 폐기 가능 PostgreSQL URL이 없어 실제 migration rehearsal는 명시적으로 skip했다. Task 2 이후 소비자 전환이 남아 있다. |
+| 계정·설치 주체 전환 구현 | 진행 중 | Task 1 review fix round 1에서 `User.loginId`와 `Site.adminUserId`만 expand-only로 추가하고 기존 `email`, `address`, `tariffKwhRate` 필수 계약을 보존했다. role 전체 기준 operator 1명, 같은 customer의 active admin만 현장에 연결하는 DB trigger, 정규화 충돌·모호한 active admin/현장 중단을 추가했다. 전용 폐기 가능 PostgreSQL URL이 없어 실제 migration rehearsal는 명시적으로 skip했고, 정적 계약·Prisma·API typecheck는 통과했다. Task 2와 Task 3가 각각 로그인/이메일 및 설치 전 현장 nullable 계약을 최종화한다. |
 
 ## 다음 단계
 

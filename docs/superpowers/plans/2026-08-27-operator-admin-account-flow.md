@@ -56,7 +56,7 @@
 - Modify: `docs/database-schema.md`
 
 **Interfaces:**
-- Produces: `User.loginId: string`, `User.email: string | null`, `Site.adminUserId: string | null`, `Site.address: string | null`, `Site.tariffKwhRate: Decimal | null`
+- Produces: 호환 확장 단계의 `User.loginId: string | null`, 기존 `User.email: string`, `Site.adminUserId: string | null`
 - Produces: `Site.admin`/`User.administeredSite` 일대일 Prisma relation
 
 - [x] **Step 1: migration 실패 조건을 통합 테스트로 작성**
@@ -83,20 +83,18 @@ Expected: 새 migration과 relation이 없어 실패
 
 ```prisma
 model User {
-  loginId          String @unique
-  email            String? @unique
+  loginId          String? @unique
+  email            String  @unique
   administeredSite Site?  @relation("SiteAdmin")
 }
 
 model Site {
   adminUserId       String? @unique
   admin             User?   @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
-  address           String?
-  tariffKwhRate     Decimal? @db.Decimal(10, 2)
 }
 ```
 
-Migration은 다음 순서를 한 파일에서 보장한다: nullable column 추가 → `lower(trim(email))` backfill → 허용 문자·길이·정규화 충돌·operator 중복·admin/현장 모호성 검사 → 명확한 customer의 admin 연결 → loginId NOT NULL/unique/check → `Site.adminUserId` unique/FK. 모호성이 있으면 PostgreSQL `RAISE EXCEPTION`으로 중단한다.
+Migration은 다음 순서를 한 파일에서 보장한다: nullable column 추가 → `lower(trim(email))` backfill → 허용 문자·길이·정규화 충돌·operator 중복·admin/현장 모호성 검사 → 명확한 customer의 admin 연결 → nullable loginId unique/check → `Site.adminUserId` unique/FK와 같은 customer의 active admin만 허용하는 trigger. 모호성이 있으면 PostgreSQL `RAISE EXCEPTION`으로 중단한다. `loginId NOT NULL`, email nullable, Site 설치 필드 nullable 전환은 소비자 코드와 각각 같은 Task 2·3 commit에서 수행한다.
 
 - [x] **Step 4: Prisma 및 migration 검증**
 
@@ -107,6 +105,10 @@ Run: `pnpm --filter @led-control/api exec jest src/prisma/operator-admin-migrati
 Expected: PASS 또는 테스트 DB 환경 미설정 시 명시적 skip
 
 - [x] **Step 5: DB 문서와 상태판 갱신 후 커밋**
+
+- [x] **Review fix round 1: expand-only DB 계약과 assignment invariant 보정**
+
+`loginId`/`adminUserId`만 nullable 확장으로 유지하고 기존 `email`, `address`, `tariffKwhRate`의 required 계약은 보존했다. migration은 모든 `operator` 행의 중복을 막고, 같은 customer Organization의 active admin만 `Site.adminUserId`에 연결하도록 trigger를 추가했다. rehearsal은 전용 URL이 제공될 때 ambiguous legacy data rollback, role/tenant assignment 거부, duplicate operator/loginId/assignment를 검증한다.
 
 ```bash
 git add apps/api/prisma apps/api/src/prisma/operator-admin-migration.integration.spec.ts docs/database-schema.md docs/project-status.md docs/superpowers/plans/2026-08-27-operator-admin-account-flow.md
