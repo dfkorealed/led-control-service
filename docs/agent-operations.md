@@ -62,4 +62,4 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 
 ## 다음 자동화 단계
 
-CI와 HIL 자동화는 다음 단계다. CI는 타입 검사, 린트, 단위·통합·브라우저 테스트와 build를 자동 실행한다. HIL은 전용 Raspberry Pi와 ESP32-H2에서 인증, 검색, provisioning, 상태 수집, 제어 및 재시작 복구를 검증한다. 실제 장비를 변경하거나 배포하는 HIL 실행은 human gate를 유지한다.
+CI와 HIL 자동화는 다음 단계다. CI는 타입 검사, 린트, 단위·통합·브라우저 테스트와 build를 자동 실행한다. HIL은 전용 Raspberry Pi와 ESP32-H2에서 인증, 검색, provisioning, 상태 수집, 제어 및 재시작 복구를 검증한다. 실제 장비를 변경하거나 배포하는 HIL 실행은 사용자 승인 관문을 유지한다.
