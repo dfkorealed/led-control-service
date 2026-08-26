@@ -9,8 +9,13 @@ import {
   identifyDeviceSchema,
   mqttTopicsV2,
   mqttTopics,
+  type ProvisioningScanFoundDevice,
+  type ProvisioningScanStartPayload,
   fixtureStateV2Schema,
   provisionDeviceSchema,
+  provisioningScanCompletedSchema,
+  provisioningScanFailedSchema,
+  provisioningScanFoundSchema,
   provisioningScanStartSchema
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
@@ -130,30 +135,17 @@ async function main() {
     try {
       const nodes = await applyProvisioningScan(scannerAdapter, command);
       for (const node of nodes) {
-        await publish(source, mqttTopicsV2.provisioningScanFound(command.siteId, command.gatewayId), {
-          ...command,
-          ...node,
-          eventId: randomUUID(),
-          sequence: await eventSequence.next(),
-          occurredAt: new Date().toISOString()
-        });
+        await publish(source, mqttTopicsV2.provisioningScanFound(command.siteId, command.gatewayId),
+          createProvisioningScanFoundPayload(command, node, { eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() })
+        );
       }
-      await publish(source, mqttTopicsV2.provisioningScanCompleted(command.siteId, command.gatewayId), {
-        ...command,
-        eventId: randomUUID(),
-        sequence: await eventSequence.next(),
-        occurredAt: new Date().toISOString(),
-        acceptedNodeCount: nodes.length
-      });
+      await publish(source, mqttTopicsV2.provisioningScanCompleted(command.siteId, command.gatewayId),
+        createProvisioningScanCompletedPayload(command, nodes.length, { eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() })
+      );
     } catch (error) {
-      await publish(source, mqttTopicsV2.provisioningScanFailed(command.siteId, command.gatewayId), {
-        ...command,
-        eventId: randomUUID(),
-        sequence: await eventSequence.next(),
-        occurredAt: new Date().toISOString(),
-        code: "scan_runtime_failed",
-        message: error instanceof Error ? error.message : "Provisioning scan failed"
-      });
+      await publish(source, mqttTopicsV2.provisioningScanFailed(command.siteId, command.gatewayId),
+        createProvisioningScanFailedPayload(command, error, { eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() })
+      );
     }
   }
 
@@ -208,8 +200,8 @@ async function main() {
     topicHandlers: {
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")]: handleDimmingPayloadV2,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start")]: handleProvisioningScanPayload,
-      [`sites/${siteId}/gateways/${gatewayId}/commands/provisioning/identify-device`]: handleIdentifyPayload,
-      [`sites/${siteId}/gateways/${gatewayId}/commands/provisioning/provision-device`]: handleProvisionDevicePayload,
+      [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device")]: handleIdentifyPayload,
+      [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device")]: handleProvisionDevicePayload,
       [`sites/${siteId}/gateways/${gatewayId}/commands/mesh-group/subscription-sync`]: (payload, source) => groupSubscriptionHandler.handle(payload, source),
       [mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)]: (payload) =>
         groupResyncPublisher.acknowledge(JSON.parse(payload.toString()))
@@ -349,8 +341,8 @@ export function subscribeGatewayCommands(
       [
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "dimming"),
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/scan-start"),
-        mqttTopics.identifyDevice(assignment.siteId, assignment.gatewayId),
-        mqttTopics.provisionDevice(assignment.siteId, assignment.gatewayId),
+        mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/identify-device"),
+        mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/provision-device"),
         mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId)
       ],
@@ -358,6 +350,66 @@ export function subscribeGatewayCommands(
       (error) => (error ? reject(error) : resolve())
     );
   });
+}
+
+type ProvisioningScanEnvelope = { eventId: string; sequence: number; occurredAt: string };
+
+export function createProvisioningScanFoundPayload(
+  command: ProvisioningScanStartPayload,
+  node: ProvisioningScanFoundDevice,
+  envelope: ProvisioningScanEnvelope
+) {
+  return provisioningScanFoundSchema.parse({
+    sessionId: command.sessionId,
+    scanCorrelationId: command.scanCorrelationId,
+    scanAttempt: command.scanAttempt,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId,
+    ...envelope,
+    ...node
+  });
+}
+
+export function createProvisioningScanCompletedPayload(
+  command: ProvisioningScanStartPayload,
+  acceptedNodeCount: number,
+  envelope: ProvisioningScanEnvelope
+) {
+  return provisioningScanCompletedSchema.parse({
+    sessionId: command.sessionId,
+    scanCorrelationId: command.scanCorrelationId,
+    scanAttempt: command.scanAttempt,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId,
+    ...envelope,
+    acceptedNodeCount
+  });
+}
+
+export function createProvisioningScanFailedPayload(
+  command: ProvisioningScanStartPayload,
+  error: unknown,
+  envelope: ProvisioningScanEnvelope
+) {
+  const failure = sanitizeProvisioningScanFailure(error);
+  return provisioningScanFailedSchema.parse({
+    sessionId: command.sessionId,
+    scanCorrelationId: command.scanCorrelationId,
+    scanAttempt: command.scanAttempt,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId,
+    ...envelope,
+    ...failure
+  });
+}
+
+function sanitizeProvisioningScanFailure(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("bluetooth")) return { code: "bluetooth_unavailable" as const, message: "Bluetooth 기능을 사용할 수 없습니다." };
+  if (message.includes("mesh")) return { code: "mesh_unavailable" as const, message: "Mesh 네트워크를 사용할 수 없습니다." };
+  if (message.includes("timeout") || message.includes("timed out")) return { code: "scan_timeout" as const, message: "조명 검색 시간이 초과되었습니다." };
+  if (message.includes("start")) return { code: "scan_start_failed" as const, message: "조명 검색을 시작하지 못했습니다." };
+  return { code: "scan_runtime_failed" as const, message: "조명 검색 중 문제가 발생했습니다." };
 }
 
 export function createGatewayShutdownHandler(

@@ -120,15 +120,28 @@ export class RegistrationService {
       include: { discoveredNodes: true }
     });
 
-    await this.mqttService.publishProvisioningScanStart({
-      sessionId: session.id,
-      siteId: session.siteId,
-      gatewayId: session.gatewayId,
-      floorId: session.floorId,
-      scanCorrelationId: session.scanCorrelationId!,
-      scanAttempt: session.scanAttempt,
-      requestedAt: session.startedAt.toISOString()
-    });
+    try {
+      await this.mqttService.publishProvisioningScanStart({
+        sessionId: session.id,
+        siteId: session.siteId,
+        gatewayId: session.gatewayId,
+        floorId: session.floorId,
+        scanCorrelationId: session.scanCorrelationId!,
+        scanAttempt: session.scanAttempt,
+        requestedAt: session.startedAt.toISOString()
+      });
+    } catch (error) {
+      await this.prisma.provisioningSession.updateMany({
+        where: { id: session.id, status: "active", scanStatus: "scanning" },
+        data: {
+          scanStatus: "failed",
+          scanCompletedAt: new Date(),
+          scanFailureCode: "scan_start_publish_failed",
+          scanFailureMessage: "조명 검색 명령을 전송하지 못했습니다. 다시 시도해 주세요."
+        }
+      });
+      throw error;
+    }
 
     return session;
   }

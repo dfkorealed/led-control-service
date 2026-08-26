@@ -10,9 +10,9 @@ class FakeMqttClient extends EventEmitter {
 
 const topicHandlers = {
   "commands/dimming": vi.fn(),
-  "commands/provisioning-scan-start": vi.fn(),
-  "commands/identify-device": vi.fn(),
-  "commands/provision-device": vi.fn()
+  "commands/provisioning/scan-start": vi.fn(),
+  "commands/provisioning/identify-device": vi.fn(),
+  "commands/provisioning/provision-device": vi.fn()
 };
 
 describe("GatewayMqttRuntime", () => {

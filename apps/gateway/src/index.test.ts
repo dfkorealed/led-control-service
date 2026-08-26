@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createFixtureStatusPublisher,
+  createProvisioningScanCompletedPayload,
+  createProvisioningScanFailedPayload,
+  createProvisioningScanFoundPayload,
   createMeshGroupResyncRequest,
   observedFixtureResults,
   publishObservedDeviceStates,
@@ -13,6 +16,7 @@ import {
   startGatewayRuntime,
   subscribeGatewayCommands
 } from "./index";
+import { provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
 
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
@@ -27,6 +31,25 @@ const assignment = {
 };
 
 describe("startGatewayRuntime", () => {
+  it("builds strict v2 scan found, completed, and sanitized failed payloads", () => {
+    const command = {
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      scanCorrelationId: "22222222-2222-4222-8222-222222222222",
+      scanAttempt: 1,
+      siteId: scopedSiteId,
+      gatewayId: scopedGatewayId,
+      floorId: "33333333-3333-4333-8333-333333333333",
+      requestedAt: "2026-08-26T00:00:00.000Z"
+    };
+    const envelope = { eventId: "44444444-4444-4444-8444-444444444444", sequence: 3, occurredAt: "2026-08-26T00:00:01.000Z" };
+    expect(provisioningScanFoundSchema.parse(createProvisioningScanFoundPayload(command, {
+      deviceUuid: "device-1", serialNumber: "serial-1", rssi: -50, oobCapability: "none", firmwareVersion: "1.0.0"
+    }, envelope))).not.toHaveProperty("floorId");
+    expect(provisioningScanCompletedSchema.parse(createProvisioningScanCompletedPayload(command, 1, envelope)).acceptedNodeCount).toBe(1);
+    const failed = provisioningScanFailedSchema.parse(createProvisioningScanFailedPayload(command, new Error("BlueZ private path /secret failed"), envelope));
+    expect(failed).toMatchObject({ code: "scan_runtime_failed", message: "조명 검색 중 문제가 발생했습니다." });
+    expect(failed.message).not.toContain("/secret");
+  });
   it("creates a strict startup mesh-group resync request", () => {
     expect(createMeshGroupResyncRequest(
       { siteId: scopedSiteId, gatewayId: scopedGatewayId },
@@ -152,9 +175,9 @@ describe("startGatewayRuntime", () => {
     expect(subscribe).toHaveBeenCalledWith(
       [
         "sites/site-27/gateways/gateway-27/commands/dimming",
-        "sites/site-27/gateways/gateway-27/commands/provisioning-scan-start",
-        "sites/site-27/gateways/gateway-27/commands/identify-device",
-        "sites/site-27/gateways/gateway-27/commands/provision-device",
+        "sites/site-27/gateways/gateway-27/commands/provisioning/scan-start",
+        "sites/site-27/gateways/gateway-27/commands/provisioning/identify-device",
+        "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack"
       ],

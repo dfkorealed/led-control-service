@@ -503,6 +503,23 @@ function assertUniqueMeshNodeIds(
   });
 }
 
+function assertUniqueOperationIds(
+  operations: Array<{ operationId: string }>,
+  context: z.RefinementCtx
+) {
+  const seen = new Set<string>();
+  operations.forEach((operation, index) => {
+    if (seen.has(operation.operationId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["operations", index, "operationId"],
+        message: "operationId must be unique"
+      });
+    }
+    seen.add(operation.operationId);
+  });
+}
+
 export const meshGroupSubscriptionSyncSchema = z.object({
   siteId: z.string().uuid(),
   gatewayId: z.string().uuid(),
@@ -529,7 +546,10 @@ export const meshGroupSubscriptionResultSchema = z.object({
   groupAddress: meshAddressSchema,
   operations: z.array(meshGroupSubscriptionResultOperationSchema).max(100),
   occurredAt: z.string().datetime()
-}).strict().superRefine((input, context) => assertUniqueMeshNodeIds(input.operations, context, "operations"));
+}).strict().superRefine((input, context) => {
+  assertUniqueMeshNodeIds(input.operations, context, "operations");
+  assertUniqueOperationIds(input.operations, context);
+});
 
 export type MeshGroupSubscriptionSyncPayload = z.infer<typeof meshGroupSubscriptionSyncSchema>;
 export type MeshGroupSubscriptionResultPayload = z.infer<typeof meshGroupSubscriptionResultSchema>;
@@ -565,15 +585,38 @@ export type FixtureGroupMetadata = z.infer<typeof fixtureGroupMetadataSchema>;
 export const energyPeriodSchema = z.enum(["day", "month", "year"]);
 export const energyDataStatusSchema = z.enum(["no_data", "partial", "available"]);
 export const energySourceSchema = z.literal("state_based_estimate");
-export const energySummarySchema = z.object({
-  source: energySourceSchema,
-  period: energyPeriodSchema,
-  generatedAt: z.string().datetime(),
-  estimatedKwh: z.number().nullable(),
-  estimatedCost: z.number().nullable(),
+const energyPeriodValueSchema = z.object({
+  estimatedKwh: z.number(),
+  estimatedCost: z.number(),
   knownSeconds: nonnegativeInt4Schema,
   unknownSeconds: nonnegativeInt4Schema,
   dataStatus: energyDataStatusSchema
+}).strict();
+export const energySummarySchema = z.object({
+  siteId: z.string().uuid(),
+  timeZone: z.string().min(1),
+  source: energySourceSchema,
+  generatedAt: z.string().datetime(),
+  today: energyPeriodValueSchema,
+  monthToDate: energyPeriodValueSchema,
+  yearToDate: energyPeriodValueSchema,
+  monthForecast: z.object({
+    estimatedKwh: z.number().nullable(),
+    estimatedCost: z.number().nullable(),
+    observedKnownSeconds: nonnegativeInt4Schema,
+    reason: z.enum(["available", "insufficient_state", "no_registered_fixture"])
+  }).strict(),
+  baseline24Hours: z.object({
+    estimatedKwh: z.number(),
+    estimatedCost: z.number(),
+    fixtureCount: nonnegativeInt4Schema,
+    daysInMonth: positiveInt4Schema
+  }).strict(),
+  estimatedSavings: z.object({
+    kwh: z.number().nullable(),
+    cost: z.number().nullable()
+  }).strict(),
+  lastAggregatedAt: z.string().datetime().nullable()
 }).strict();
 export const energySeriesPointSchema = z.object({
   source: energySourceSchema,

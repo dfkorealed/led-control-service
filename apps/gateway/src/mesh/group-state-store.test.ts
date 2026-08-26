@@ -86,6 +86,19 @@ describe("GroupStateStore", () => {
     });
   });
 
+  it("keeps the last applied members available after a failed retry", async () => {
+    const { path } = await fixture();
+    const store = new GroupStateStore(path);
+    const members = [{ meshNodeId: "00000000-0000-4000-8000-000000000013", meshAddress: "0x0100" }];
+    await store.initialize();
+    await store.writeConfiguring(snapshot);
+    await store.writeReady(snapshot, members);
+    await store.writeConfiguring({ ...snapshot, version: 4 });
+    await store.writeFailed({ ...snapshot, version: 4 });
+
+    await expect(store.readAppliedMembers(snapshot.groupId)).resolves.toEqual(members);
+  });
+
   it("rejects stale versions and address reuse by another group", async () => {
     const { path } = await fixture();
     const store = new GroupStateStore(path);

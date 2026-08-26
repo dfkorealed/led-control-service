@@ -39,12 +39,16 @@ describe("RegistrationService", () => {
           gatewayId: ids.gatewayId,
           requestedBy: ids.userId,
           status: "active",
+          scanStatus: "scanning",
+          scanCorrelationId: "99999999-9999-4999-8999-999999999999",
+          scanAttempt: 1,
           startedAt: new Date("2026-07-01T00:00:00.000Z"),
           completedAt: null,
           discoveredNodes: []
         }),
         findUnique: jest.fn(),
-        update: jest.fn()
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
       discoveredMeshNode: {
         findFirst: jest.fn(),
@@ -385,7 +389,11 @@ describe("RegistrationService", () => {
         floorId: ids.floorId,
         gatewayId: ids.gatewayId,
         requestedBy: ids.userId,
-        status: "active"
+        status: "active",
+        scanStatus: "scanning",
+        scanCorrelationId: expect.any(String),
+        scanAttempt: 1,
+        scanStartedAt: expect.any(Date)
       },
       include: { discoveredNodes: true }
     });
@@ -394,8 +402,31 @@ describe("RegistrationService", () => {
       siteId: ids.siteId,
       gatewayId: ids.gatewayId,
       floorId: ids.floorId,
-      requestedBy: ids.userId,
+      scanCorrelationId: expect.any(String),
+      scanAttempt: 1,
       requestedAt: "2026-07-01T00:00:00.000Z"
+    });
+  });
+
+  it("marks the scan failed when publishing its start command fails so a retry is not blocked", async () => {
+    const { service, prisma } = await createModule({}, {
+      publishProvisioningScanStart: jest.fn().mockRejectedValue(new Error("broker unavailable"))
+    });
+
+    await expect(service.createSession(operator, {
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId
+    })).rejects.toThrow("broker unavailable");
+
+    expect(prisma.provisioningSession.updateMany).toHaveBeenCalledWith({
+      where: { id: ids.sessionId, status: "active", scanStatus: "scanning" },
+      data: {
+        scanStatus: "failed",
+        scanCompletedAt: expect.any(Date),
+        scanFailureCode: "scan_start_publish_failed",
+        scanFailureMessage: "조명 검색 명령을 전송하지 못했습니다. 다시 시도해 주세요."
+      }
     });
   });
 

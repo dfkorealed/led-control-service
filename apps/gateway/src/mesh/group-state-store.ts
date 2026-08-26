@@ -84,7 +84,7 @@ export class GroupStateStore {
   async readAppliedMembers(groupId: string): Promise<GroupStateMember[]> {
     await this.initialize();
     const group = this.available ? this.state.groups.find((candidate) => candidate.groupId === groupId) : undefined;
-    return group?.status === "ready" ? group.members.map((member) => ({ ...member })) : [];
+    return group ? group.members.map((member) => ({ ...member })) : [];
   }
 
   private async restore(): Promise<{ reason: GroupStateRestoreReason }> {

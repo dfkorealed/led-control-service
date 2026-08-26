@@ -29,7 +29,9 @@ describe("GroupSubscriptionHandler", () => {
   it("accepts an empty desired set and publishes the Gateway-created delete operation", async () => {
     const adapter = { syncGroupSubscriptions: vi.fn(async (input: MeshGroupSubscriptionSyncPayload) => result(input, [{ operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", action: "delete", meshNodeId: ids.memberId, status: "ready" }])) };
     const mqtt = source();
-    const handler = new GroupSubscriptionHandler(adapter, { siteId: ids.siteId, gatewayId: ids.gatewayId }, stateStore(), new KeyedSerialTaskQueue());
+    const store = stateStore();
+    store.readAppliedMembers.mockResolvedValue([{ meshNodeId: ids.memberId, meshAddress: "0x0100" }]);
+    const handler = new GroupSubscriptionHandler(adapter, { siteId: ids.siteId, gatewayId: ids.gatewayId }, store, new KeyedSerialTaskQueue());
     await handler.handle(Buffer.from(JSON.stringify(command({ desiredMembers: [] }))), mqtt as never);
     expect(JSON.parse(mqtt.publish.mock.calls[0][1]).operations).toEqual([expect.objectContaining({ action: "delete" })]);
   });
@@ -46,6 +48,20 @@ describe("GroupSubscriptionHandler", () => {
     const store = stateStore();
     const handler = new GroupSubscriptionHandler(adapter, { siteId: ids.siteId, gatewayId: ids.gatewayId }, store, new KeyedSerialTaskQueue());
     await handler.handle(Buffer.from(JSON.stringify(command())), source() as never);
+    expect(store.writeFailed).toHaveBeenCalledTimes(1);
+    expect(store.writeReady).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when Gateway operations do not equal the computed add/delete diff", async () => {
+    const applied = [{ meshNodeId: "00000000-0000-4000-8000-000000000014", meshAddress: "0x0101" }];
+    const adapter = { syncGroupSubscriptions: vi.fn(async (input: MeshGroupSubscriptionSyncPayload) => result(input, [{
+      operationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", action: "add", meshNodeId: ids.memberId, status: "ready"
+    }])) };
+    const store = stateStore();
+    store.readAppliedMembers.mockResolvedValue(applied);
+    const handler = new GroupSubscriptionHandler(adapter, { siteId: ids.siteId, gatewayId: ids.gatewayId }, store, new KeyedSerialTaskQueue());
+
+    await expect(handler.handle(Buffer.from(JSON.stringify(command())), source() as never)).rejects.toThrow("mesh group subscription operation diff mismatch");
     expect(store.writeFailed).toHaveBeenCalledTimes(1);
     expect(store.writeReady).not.toHaveBeenCalled();
   });

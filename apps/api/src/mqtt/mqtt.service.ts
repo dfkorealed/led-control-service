@@ -77,13 +77,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   async publishIdentifyDevice(input: IdentifyDevicePayload) {
     const payload = identifyDeviceSchema.parse(input);
-    const topic = mqttTopics.identifyDevice(payload.siteId, payload.gatewayId);
+    const topic = mqttTopicsV2.gatewayCommand(payload.siteId, payload.gatewayId, "provisioning/identify-device");
     await this.publishTopic(topic, payload);
   }
 
   async publishProvisionDevice(input: ProvisionDevicePayload) {
     const payload = provisionDeviceSchema.parse(input);
-    const topic = mqttTopics.provisionDevice(payload.siteId, payload.gatewayId);
+    const topic = mqttTopicsV2.gatewayCommand(payload.siteId, payload.gatewayId, "provisioning/provision-device");
     await this.publishTopic(topic, payload);
   }
 

@@ -21,6 +21,7 @@ describe("CommandsController", () => {
     const controller = new CommandsController(commandsService, commandStatusService);
     const body = {
       siteId: "22222222-2222-4222-8222-222222222222",
+      clientRequestId: "11111111-1111-4111-8111-111111111111",
       target: { type: "floor" as const, floorId: "33333333-3333-4333-8333-333333333333" },
       brightness: 70
     };
@@ -41,10 +42,17 @@ describe("CommandsController", () => {
     const siteId = "22222222-2222-4222-8222-222222222222";
     const targetId = "33333333-3333-4333-8333-333333333333";
 
-    controller.createDimmingCommand({ siteId, targetType: "group", targetId, brightness: 45 }, user);
+    controller.createDimmingCommand({
+      siteId,
+      clientRequestId: "11111111-1111-4111-8111-111111111111",
+      targetType: "group",
+      targetId,
+      brightness: 45
+    }, user);
 
     expect(commandsService.createDimmingCommand).toHaveBeenCalledWith(user, {
       siteId,
+      clientRequestId: "11111111-1111-4111-8111-111111111111",
       target: { type: "group", groupId: targetId },
       brightness: 45
     });

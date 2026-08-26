@@ -26,6 +26,7 @@ describeWithPostgres("menu completion foundation PostgreSQL rehearsal", () => {
     expect(runMigration(schema).status).toBe(0);
     expect(query(schema, `SELECT "lifecycleStatus" FROM "FixtureGroup" WHERE "id" = 'valid';`)).toBe("active");
     expect(query(schema, `SELECT COUNT(*) FROM "FixtureGroup" WHERE "id" LIKE 'over-%' AND "lifecycleStatus" = 'invalid';`)).toBe("16");
+    expect(query(schema, `SELECT "lifecycleStatus" FROM "FixtureGroup" WHERE "id" = 'cross-boundary';`)).toBe("invalid");
     expect(query(schema, `SELECT column_default FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'FixtureGroup' AND column_name = 'lifecycleStatus';`)).toContain("active");
 
     execute(schema, `
@@ -50,6 +51,12 @@ describeWithPostgres("menu completion foundation PostgreSQL rehearsal", () => {
       COMMIT;`);
     expect(changedFixtureBoundary.status).not.toBe(0);
     expect(changedFixtureBoundary.stderr).toContain("active FixtureGroup members must match its floor and gateway");
+
+    execute(schema, `INSERT INTO "ProvisioningSession" ("id", "gatewayId", "scanStatus") VALUES ('scan-one', 'gateway-a', 'scanning');`);
+    const duplicateScanningSession = runSql(`SET search_path TO "${schema}";
+      INSERT INTO "ProvisioningSession" ("id", "gatewayId", "scanStatus") VALUES ('scan-two', 'gateway-a', 'scanning');`);
+    expect(duplicateScanningSession.status).not.toBe(0);
+    expect(duplicateScanningSession.stderr).toContain("ProvisioningSession_single_scanning_gateway_key");
   });
 });
 
@@ -77,13 +84,13 @@ function legacyRows() {
     ('over-${index + 1}', 'site', 'over-${index + 1}')`).join(",");
   const overLimitMemberships = Array.from({ length: 16 }, (_, index) => `('over-${index + 1}', 'fixture-over')`).join(",");
   return `
-    INSERT INTO "Site" VALUES ('site');
-    INSERT INTO "Floor" VALUES ('floor-a', 'site'), ('floor-b', 'site');
+    INSERT INTO "Site" VALUES ('site'), ('other-site');
+    INSERT INTO "Floor" VALUES ('floor-a', 'site'), ('floor-b', 'site'), ('floor-cross', 'other-site');
     INSERT INTO "Gateway" VALUES ('gateway-a', 'site');
     INSERT INTO "MeshNode" VALUES ('node-a', 'gateway-a'), ('node-b', 'gateway-a'), ('node-over', 'gateway-a');
-    INSERT INTO "Fixture" VALUES ('fixture-a', 'floor-a', 'node-a'), ('fixture-b', 'floor-a', 'node-b'), ('fixture-over', 'floor-a', 'node-over');
-    INSERT INTO "FixtureGroup" ("id", "siteId", "name") VALUES ('valid', 'site', 'valid'), ${overLimitGroups};
-    INSERT INTO "GroupFixture" VALUES ('valid', 'fixture-a'), ${overLimitMemberships};
+    INSERT INTO "Fixture" VALUES ('fixture-a', 'floor-a', 'node-a'), ('fixture-b', 'floor-a', 'node-b'), ('fixture-over', 'floor-a', 'node-over'), ('fixture-cross', 'floor-cross', 'node-a');
+    INSERT INTO "FixtureGroup" ("id", "siteId", "name") VALUES ('valid', 'site', 'valid'), ('cross-boundary', 'site', 'cross-boundary'), ${overLimitGroups};
+    INSERT INTO "GroupFixture" VALUES ('valid', 'fixture-a'), ('cross-boundary', 'fixture-cross'), ${overLimitMemberships};
   `;
 }
 

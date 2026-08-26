@@ -3,10 +3,6 @@ export const mqttTopics = {
   fixtureState: (siteId: string) => `sites/${siteId}/events/fixture-state`,
   commandAck: (siteId: string) => `sites/${siteId}/events/command-ack`,
   gatewayHeartbeat: (siteId: string) => `sites/${siteId}/events/gateway-heartbeat`,
-  provisionDevice: (siteId: string, gatewayId: string) =>
-    `sites/${siteId}/gateways/${gatewayId}/commands/provision-device`,
-  identifyDevice: (siteId: string, gatewayId: string) =>
-    `sites/${siteId}/gateways/${gatewayId}/commands/identify-device`,
   provisioningProgress: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/provisioning-progress`,
   provisioningCompleted: (siteId: string, gatewayId: string) =>

@@ -55,6 +55,55 @@ describe("MqttService", () => {
     );
   });
 
+  it("publishes every provisioning command on the v2 provisioning command namespace", async () => {
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    const publishTopic = jest.spyOn(service, "publishTopic").mockResolvedValue(undefined);
+    const base = {
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      siteId: "22222222-2222-4222-8222-222222222222",
+      gatewayId: "33333333-3333-4333-8333-333333333333",
+      nodeId: "44444444-4444-4444-8444-444444444444",
+      requestedAt: "2026-08-26T00:00:00.000Z"
+    };
+    await service.publishIdentifyDevice({ ...base, deviceUuid: "device-1" });
+    await service.publishProvisionDevice({ ...base, deviceUuid: "device-1", meshAddress: "0x0100" });
+
+    expect(publishTopic).toHaveBeenNthCalledWith(1, "sites/22222222-2222-4222-8222-222222222222/gateways/33333333-3333-4333-8333-333333333333/commands/provisioning/identify-device", expect.any(Object));
+    expect(publishTopic).toHaveBeenNthCalledWith(2, "sites/22222222-2222-4222-8222-222222222222/gateways/33333333-3333-4333-8333-333333333333/commands/provisioning/provision-device", expect.any(Object));
+  });
+
+  it("accepts strict gateway-scoped scan found, completed, and failed payloads", async () => {
+    const siteId = "22222222-2222-4222-8222-222222222222";
+    const gatewayId = "33333333-3333-4333-8333-333333333333";
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const scanCorrelationId = "44444444-4444-4444-8444-444444444444";
+    const prisma: any = {
+      provisioningSession: {
+        findFirst: jest.fn().mockResolvedValue({ id: sessionId }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      discoveredMeshNode: { upsert: jest.fn().mockResolvedValue(undefined) }
+    };
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    const base = {
+      sessionId, scanCorrelationId, scanAttempt: 1, siteId, gatewayId,
+      eventId: "55555555-5555-4555-8555-555555555555", sequence: 1, occurredAt: "2026-08-26T00:00:01.000Z"
+    };
+
+    await service.handleMessage(`sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`, Buffer.from(JSON.stringify({
+      ...base, deviceUuid: "device-1", serialNumber: "serial-1", rssi: -50, oobCapability: "none", firmwareVersion: "1.0.0"
+    })));
+    await service.handleMessage(`sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`, Buffer.from(JSON.stringify({
+      ...base, eventId: "66666666-6666-4666-8666-666666666666", sequence: 2, acceptedNodeCount: 1
+    })));
+    await service.handleMessage(`sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`, Buffer.from(JSON.stringify({
+      ...base, eventId: "77777777-7777-4777-8777-777777777777", sequence: 3, code: "scan_timeout", message: "조명 검색 시간이 초과되었습니다."
+    })));
+
+    expect(prisma.discoveredMeshNode.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.provisioningSession.updateMany).toHaveBeenCalledTimes(2);
+  });
+
   it("subscribes to gateway mesh group resync requests at startup", () => {
     const subscribe = jest.fn();
     const on = jest.fn((event: string, listener: () => void) => {

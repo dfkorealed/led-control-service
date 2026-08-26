@@ -34,6 +34,7 @@ export class GroupSubscriptionHandler {
       try {
         result = meshGroupSubscriptionResultSchema.parse(await this.adapter.syncGroupSubscriptions(command, appliedMembers));
         assertResultIdentity(command, result);
+        assertResultOperations(command.desiredMembers, appliedMembers, result.operations);
         if (result.operations.every((operation) => operation.status === "ready")) await this.stateStore.writeReady(identity, command.desiredMembers);
         else await this.stateStore.writeFailed(identity);
       } catch (error) {
@@ -49,6 +50,23 @@ export class GroupSubscriptionHandler {
         );
       });
     });
+  }
+}
+
+function assertResultOperations(
+  desiredMembers: Array<{ meshNodeId: string; meshAddress: string }>,
+  appliedMembers: Array<{ meshNodeId: string; meshAddress: string }>,
+  operations: Array<{ action: "add" | "delete"; meshNodeId: string }>
+) {
+  const desired = new Set(desiredMembers.map((member) => member.meshNodeId));
+  const applied = new Set(appliedMembers.map((member) => member.meshNodeId));
+  const expected = new Set([
+    ...desiredMembers.filter((member) => !applied.has(member.meshNodeId)).map((member) => `add:${member.meshNodeId}`),
+    ...appliedMembers.filter((member) => !desired.has(member.meshNodeId)).map((member) => `delete:${member.meshNodeId}`)
+  ]);
+  const actual = new Set(operations.map((operation) => `${operation.action}:${operation.meshNodeId}`));
+  if (expected.size !== actual.size || [...expected].some((operation) => !actual.has(operation))) {
+    throw new Error("mesh group subscription operation diff mismatch");
   }
 }
 

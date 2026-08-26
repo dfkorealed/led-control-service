@@ -231,13 +231,12 @@ describe("shared schemas", () => {
   });
 
   it("defines provisioning command and result event contracts", () => {
-    expect(
-      mqttTopics.provisionDevice(
-        "00000000-0000-4000-8000-000000000003",
-        "00000000-0000-4000-8000-000000000004"
-      )
-    ).toBe(
-      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/commands/provision-device"
+    expect(mqttTopicsV2.gatewayCommand(
+      "00000000-0000-4000-8000-000000000003",
+      "00000000-0000-4000-8000-000000000004",
+      "provisioning/provision-device"
+    )).toBe(
+      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/commands/provisioning/provision-device"
     );
 
     expect(
@@ -332,6 +331,14 @@ describe("shared schemas", () => {
       ...command,
       desiredMembers: [command.desiredMembers[0], command.desiredMembers[0]]
     })).toThrow("desiredMembers must be unique by meshNodeId");
+    expect(() => meshGroupSubscriptionResultSchema.parse({
+      siteId: command.siteId, gatewayId: command.gatewayId, groupId: command.groupId, version: command.version,
+      groupAddress: command.groupAddress, occurredAt: "2026-08-20T09:00:01.000Z",
+      operations: [
+        { operationId: "66666666-6666-4666-8666-666666666666", action: "add", meshNodeId: "22222222-2222-4222-8222-222222222222", status: "ready" },
+        { operationId: "66666666-6666-4666-8666-666666666666", action: "delete", meshNodeId: "33333333-3333-4333-8333-333333333333", status: "ready" }
+      ]
+    })).toThrow("operationId must be unique");
   });
 
   it("defines shared fixture group and state-based energy response contracts", () => {
@@ -354,15 +361,18 @@ describe("shared schemas", () => {
     }).lifecycleStatus).toBe("active");
 
     expect(energySummarySchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      timeZone: "Asia/Seoul",
       source: "state_based_estimate",
-      period: "month",
       generatedAt: "2026-08-26T00:00:00.000Z",
-      estimatedKwh: 1.2345,
-      estimatedCost: 123.45,
-      knownSeconds: 3600,
-      unknownSeconds: 0,
-      dataStatus: "available"
-    }).source).toBe("state_based_estimate");
+      today: { estimatedKwh: 1.2, estimatedCost: 120, knownSeconds: 3600, unknownSeconds: 0, dataStatus: "available" },
+      monthToDate: { estimatedKwh: 2.4, estimatedCost: 240, knownSeconds: 7200, unknownSeconds: 0, dataStatus: "available" },
+      yearToDate: { estimatedKwh: 3.6, estimatedCost: 360, knownSeconds: 10800, unknownSeconds: 0, dataStatus: "available" },
+      monthForecast: { estimatedKwh: 4.8, estimatedCost: 480, observedKnownSeconds: 7200, reason: "available" },
+      baseline24Hours: { estimatedKwh: 8, estimatedCost: 800, fixtureCount: 4, daysInMonth: 31 },
+      estimatedSavings: { kwh: 3.2, cost: 320 },
+      lastAggregatedAt: "2026-08-26T00:00:00.000Z"
+    }).monthToDate.estimatedKwh).toBe(2.4);
     expect(energySeriesPointSchema.parse({
       source: "state_based_estimate",
       period: "2026-08-26",
