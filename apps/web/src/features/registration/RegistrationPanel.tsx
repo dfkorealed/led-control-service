@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Radar, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Loader2, Radar } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dashboard } from "../../api/queries";
 import {
   completeRegistrationSession,
   createRegistrationSession,
   getRegistrationSession,
-  identifyRegistrationNode,
   registerFixtureBatch,
+  retryRegistrationScan,
   type DiscoveredRegistrationNode,
   type RegisterFixtureBatchInput,
   type RegistrationSession
@@ -25,7 +25,7 @@ interface RegistrationPanelProps {
 
 const statusLabels = {
   discovered: "발견",
-  identifying: "점멸 중",
+  identifying: "등록 대기",
   provisioning: "등록 중",
   provisioned: "등록 완료",
   failed: "실패",
@@ -70,26 +70,50 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
   const [individualDefaults, setIndividualDefaults] = useState(initialIndividualDefaults);
   const [individualDrafts, setIndividualDrafts] = useState<Record<string, FixtureIndividualDraft>>({});
   const [nodeErrors, setNodeErrors] = useState<Record<string, string>>({});
+  const invalidatedProvisionedNodes = useRef(new Set<string>());
+  const invalidatedSessionId = useRef<string | null>(null);
   const floor = dashboard?.floors.find((item) => item.id === selectedFloorId);
   const gateway = dashboard?.gateways.find((item) => item.id === selectedGatewayId);
   const hasFixtures = (dashboard?.summary.totalFixtures ?? 0) > 0;
 
-  const sessionQuery = useQuery({
+  const sessionQuery = useQuery<RegistrationSession, Error, RegistrationSession, readonly ["registration-session", string | undefined]>({
     queryKey: ["registration-session", session?.id],
     queryFn: () => getRegistrationSession(session!.id),
     enabled: Boolean(session?.id),
-    refetchInterval: session?.status === "active" ? 1500 : false
+    refetchInterval: (query) => shouldPollRegistrationSession(query.state.data ?? session, localNodes) ? 1500 : false
   });
+  const sessionSnapshot = sessionQuery.data ?? session;
 
   const nodes = useMemo(() => {
-    const remoteNodes = sessionQuery.data?.discoveredNodes ?? session?.discoveredNodes ?? [];
+    const remoteNodes = sessionSnapshot?.discoveredNodes ?? [];
     const byId = new Map(localNodes.map((node) => [node.id, node]));
     for (const node of remoteNodes) {
       const localNode = byId.get(node.id);
       if (!localNode || statusProgress[node.status] >= statusProgress[localNode.status]) byId.set(node.id, node);
     }
     return Array.from(byId.values());
-  }, [localNodes, session?.discoveredNodes, sessionQuery.data?.discoveredNodes]);
+  }, [localNodes, sessionSnapshot?.discoveredNodes]);
+
+  useEffect(() => {
+    if (!sessionSnapshot || invalidatedSessionId.current === sessionSnapshot.id) return;
+    invalidatedSessionId.current = sessionSnapshot.id;
+    invalidatedProvisionedNodes.current.clear();
+  }, [sessionSnapshot?.id]);
+
+  useEffect(() => {
+    if (!sessionSnapshot) return;
+    const newProvisionedNodeIds = nodes
+      .filter((node) => node.status === "provisioned" && !invalidatedProvisionedNodes.current.has(node.id))
+      .map((node) => node.id);
+    if (newProvisionedNodeIds.length === 0) return;
+    newProvisionedNodeIds.forEach((nodeId) => invalidatedProvisionedNodes.current.add(nodeId));
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dashboard", sessionSnapshot.siteId] }),
+      queryClient.invalidateQueries({ queryKey: ["floor-fixtures", sessionSnapshot.siteId, sessionSnapshot.floorId] }),
+      queryClient.invalidateQueries({ queryKey: ["floor-map", sessionSnapshot.siteId, sessionSnapshot.floorId] }),
+      queryClient.invalidateQueries({ queryKey: ["registration-session", sessionSnapshot.id] })
+    ]);
+  }, [nodes, queryClient, sessionSnapshot]);
 
   useEffect(() => {
     if (!floor) return;
@@ -119,19 +143,19 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
       setSelectedNodeIds([]);
       setSubmittedNodeIds([]);
       setNodeErrors({});
+      queryClient.setQueryData(["registration-session", created.id], created);
     }
   });
 
-  const identifyMutation = useMutation({
-    mutationFn: (nodeId: string) => identifyRegistrationNode(session!.id, nodeId),
-    onSuccess: (node) => {
-      setLocalNodes((current) => upsertNode(current, node));
-      queryClient.setQueryData<RegistrationSession>(
-        ["registration-session", session?.id],
-        (current) => current
-          ? { ...current, discoveredNodes: upsertNode(current.discoveredNodes, node) }
-          : current
-      );
+  const retryMutation = useMutation({
+    mutationFn: () => retryRegistrationScan(session!.id),
+    onSuccess: (restarted) => {
+      setSession(restarted);
+      setLocalNodes(restarted.discoveredNodes);
+      setSelectedNodeIds([]);
+      setSubmittedNodeIds([]);
+      setNodeErrors({});
+      queryClient.setQueryData(["registration-session", restarted.id], restarted);
     }
   });
 
@@ -159,7 +183,6 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
         }
         return next;
       });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["registration-session", session?.id] });
     }
   });
@@ -171,15 +194,15 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
 
   const canStart = Boolean(dashboard?.site.id && floor?.id && gateway?.id) && !startMutation.isPending;
   const selectedNodes = nodes.filter((node) => selectedNodeIds.includes(node.id));
-  const actionableNodes = selectedNodes.filter(isRegisterableNode);
-  const selectableNodes = nodes.filter(isRegisterableNode);
+  const actionableNodes = selectedNodes.filter((node) => isRegisterableNode(node, sessionSnapshot));
+  const selectableNodes = nodes.filter((node) => isRegisterableNode(node, sessionSnapshot));
   const individualItems = selectedNodes.map((node) => {
     const index = nodes.findIndex((candidate) => candidate.id === node.id);
     return {
       nodeId: node.id,
       label: `조명 ${index + 1}`,
       serialNumber: node.serialNumber,
-      editable: isRegisterableNode(node),
+      editable: isRegisterableNode(node, sessionSnapshot),
       draft: individualDrafts[node.id] ?? createIndividualDraft(),
       error: nodeErrors[node.id] ?? node.errorMessage ?? undefined
     };
@@ -253,7 +276,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
           <span className="eyebrow">BLE Mesh Provisioning</span>
           <h3>조명 등록</h3>
         </div>
-        <span className="status-pill online">{session?.status === "active" ? "검색 중" : "준비됨"}</span>
+        <span className="status-pill online">{scanStatusLabel(sessionSnapshot)}</span>
       </div>
 
       <div className="registration-summary">
@@ -288,13 +311,37 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
 
       {startMutation.error ? <p className="danger-text">조명 검색 세션을 시작하지 못했습니다.</p> : null}
 
-      {session ? (
+      {session && sessionSnapshot ? (
         <div className="registration-session">
           <div className="session-meta">
             <span>등록 세션</span>
             <strong>{session.id.slice(0, 8)}</strong>
             <small>{nodes.length}개 후보 발견</small>
+            {sessionSnapshot.scanStatus === "completed" && nodes.length > 0 ? (
+              <button className="secondary-button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate()}>
+                {retryMutation.isPending ? <Loader2 size={15} /> : <Radar size={15} />}
+                다시 검색
+              </button>
+            ) : null}
           </div>
+          {sessionSnapshot.scanStatus === "failed" ? (
+            <div className="node-row muted-node" role="alert">
+              <span>{safeScanFailureMessage(sessionSnapshot.scanFailureMessage)}</span>
+              <button className="secondary-button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate()}>
+                {retryMutation.isPending ? <Loader2 size={15} /> : <Radar size={15} />}
+                다시 검색
+              </button>
+            </div>
+          ) : null}
+          {sessionSnapshot.scanStatus === "completed" && nodes.length === 0 ? (
+            <div className="node-row muted-node">
+              <span>검색된 미등록 조명이 없습니다.</span>
+              <button className="secondary-button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate()}>
+                {retryMutation.isPending ? <Loader2 size={15} /> : <Radar size={15} />}
+                다시 검색
+              </button>
+            </div>
+          ) : null}
           {nodes.length > 0 ? (
             <div className="registration-selection-toolbar">
               <label className="selection-checkbox">
@@ -309,7 +356,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
             </div>
           ) : null}
           <div className="registration-node-list">
-            {nodes.length === 0 ? (
+            {nodes.length === 0 && sessionSnapshot.scanStatus !== "completed" && sessionSnapshot.scanStatus !== "failed" ? (
               <div className="node-row muted-node">게이트웨이가 미등록 조명을 검색하는 중입니다.</div>
             ) : (
               nodes.map((node, index) => {
@@ -322,7 +369,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
                         type="checkbox"
                         aria-label={`조명 ${index + 1} 선택`}
                         checked={selectedNodeIds.includes(node.id)}
-                        disabled={!isRegisterableNode(node)}
+                        disabled={!isRegisterableNode(node, sessionSnapshot)}
                         onChange={() => toggleNode(node.id)}
                       />
                     </label>
@@ -333,20 +380,12 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
                       {rowError ? <small className="danger-text">{rowError}</small> : null}
                     </div>
                     <span className={`node-status ${node.status}`}>{statusLabels[node.status]}</span>
-                    <button
-                      className="secondary-button"
-                      disabled={!isRegisterableNode(node) || identifyMutation.isPending}
-                      onClick={() => identifyMutation.mutate(node.id)}
-                    >
-                      <Sparkles size={15} />
-                      점멸 확인
-                    </button>
                   </div>
                 );
               })
             )}
           </div>
-          {nodes.length > 0 ? (
+          {nodes.length > 0 && sessionSnapshot.scanStatus !== "failed" ? (
             <div className="registration-config">
               <div className="registration-mode-toggle" role="radiogroup" aria-label="조명 설정 방식">
                 <label className={mode === "batch" ? "active" : ""}>
@@ -372,7 +411,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
                 <FixtureBatchForm
                   values={batchDefaults}
                   selectedCount={actionableNodes.length}
-                  disabled={actionableNodes.length === 0 || session.status !== "active"}
+                  disabled={actionableNodes.length === 0 || sessionSnapshot.status !== "active"}
                   pending={registerMutation.isPending}
                   onChange={setBatchDefaults}
                   onSubmit={submitRegistration}
@@ -382,7 +421,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
                   defaults={individualDefaults}
                   items={individualItems}
                   actionableCount={actionableNodes.length}
-                  disabled={actionableNodes.length === 0 || session.status !== "active"}
+                  disabled={actionableNodes.length === 0 || sessionSnapshot.status !== "active"}
                   pending={registerMutation.isPending}
                   onDefaultsChange={setIndividualDefaults}
                   onDraftChange={updateIndividualDraft}
@@ -397,6 +436,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
             disabled={
               !nodes.some((node) => node.status === "provisioned")
               || nodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required")
+              || (sessionSnapshot.scanStatus !== "completed" && sessionSnapshot.scanStatus !== "failed")
               || completeMutation.isPending
             }
             onClick={() => completeMutation.mutate()}
@@ -409,12 +449,6 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
   );
 }
 
-function upsertNode(nodes: DiscoveredRegistrationNode[], next: DiscoveredRegistrationNode) {
-  const exists = nodes.some((node) => node.id === next.id);
-  if (!exists) return [...nodes, next];
-  return nodes.map((node) => (node.id === next.id ? next : node));
-}
-
 function markNodesProvisioning(nodes: DiscoveredRegistrationNode[], accepted: Set<string>) {
   return nodes.map((node): DiscoveredRegistrationNode => accepted.has(node.id)
     ? { ...node, status: "provisioning", errorMessage: null }
@@ -425,6 +459,25 @@ function createIndividualDraft(): FixtureIndividualDraft {
   return { fixtureName: "", ratedWatt: "40.00", size: 20, x: "", y: "" };
 }
 
-function isRegisterableNode(node: DiscoveredRegistrationNode) {
-  return node.status === "discovered" || node.status === "identifying";
+function isRegisterableNode(node: DiscoveredRegistrationNode, session: RegistrationSession | null) {
+  return session?.status === "active" && session.scanStatus !== "failed" && node.status === "discovered";
+}
+
+export function shouldPollRegistrationSession(session: RegistrationSession | null | undefined, localNodes: DiscoveredRegistrationNode[]) {
+  if (!session || session.status !== "active") return false;
+  return session.scanStatus === "pending"
+    || session.scanStatus === "scanning"
+    || session.discoveredNodes.some((node) => node.status === "provisioning")
+    || localNodes.some((node) => node.status === "provisioning");
+}
+
+function scanStatusLabel(session: RegistrationSession | null) {
+  if (!session) return "준비됨";
+  if (session.scanStatus === "completed") return "검색 완료";
+  if (session.scanStatus === "failed") return "검색 실패";
+  return "검색 중";
+}
+
+function safeScanFailureMessage(message: string | null) {
+  return message?.trim() || "조명 검색 중 문제가 발생했습니다. 다시 검색하세요.";
 }

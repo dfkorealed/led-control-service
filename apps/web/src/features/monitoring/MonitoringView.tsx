@@ -1,5 +1,4 @@
 import { RefreshCw } from "lucide-react";
-import type { FloorMapSnapshot } from "@led-control/shared";
 import { useEffect, useMemo, useState } from "react";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
@@ -44,12 +43,13 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [mapRefreshFailed, setMapRefreshFailed] = useState(false);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(dashboardUpdatedAt);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
-  const mapSnapshot = mapQuery.data ?? (floor ? fallbackMapSnapshot(floor) : null);
+  const mapSnapshot = mapQuery.data;
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");
   const operationallyOfflineFixtures = fixtures.filter(
@@ -127,6 +127,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
       mapQuery.refetch({ throwOnError: true })
     ]);
     const failureCount = results.filter((result) => result.status === "rejected").length;
+    setMapRefreshFailed(results[2]?.status === "rejected");
     if (failureCount < results.length) setLastRefreshedAt(Date.now());
     if (failureCount === results.length) {
       setRefreshError("현황 데이터를 새로고침하지 못했습니다.");
@@ -134,6 +135,15 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
       setRefreshError("일부 현황 데이터를 새로고침하지 못했습니다.");
     }
     setIsManualRefreshing(false);
+  }
+
+  async function handleMapRetry() {
+    setMapRefreshFailed(false);
+    try {
+      await mapQuery.refetch({ throwOnError: true });
+    } catch {
+      setMapRefreshFailed(true);
+    }
   }
 
   return (
@@ -197,7 +207,20 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
       <div className="operations-layout">
         <div className="map-panel">
           {floor && mapSnapshot ? (
-            <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
+            <>
+              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
+              {mapQuery.error || mapRefreshFailed ? (
+                <div className="panel danger" role="status">
+                  저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.
+                  <button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>
+                </div>
+              ) : null}
+            </>
+          ) : floor && (mapQuery.error || mapRefreshFailed) ? (
+            <div className="panel danger" role="alert">
+              <p>저장된 지도를 불러오지 못했습니다.</p>
+              <button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>
+            </div>
           ) : (
             <div className="panel">등록된 층이 없습니다.</div>
           )}
@@ -288,28 +311,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
       </div>
     </section>
   );
-}
-
-function fallbackMapSnapshot(floor: Dashboard["floors"][number]): FloorMapSnapshot {
-  const width = floor.floorPlan?.width ?? 1200;
-  const height = floor.floorPlan?.height ?? 800;
-  return {
-    floorId: floor.id,
-    revision: 0,
-    width,
-    height,
-    floorPlan: floor.floorPlan
-      ? {
-          imageUrl: floor.floorPlan.imageUrl,
-          sourceType: "image",
-          originalFileUrl: floor.floorPlan.imageUrl,
-          renderedImageUrl: floor.floorPlan.imageUrl,
-          width,
-          height
-        }
-      : null,
-    objects: []
-  };
 }
 
 function formatRssi(value: number | null) {

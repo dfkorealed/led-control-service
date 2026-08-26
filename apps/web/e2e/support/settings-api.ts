@@ -5,6 +5,7 @@ import {
   type CreateDimmingCommandInput,
   type FloorMapSnapshot
 } from "@led-control/shared";
+import type { RegistrationSession } from "../../src/api/registration";
 
 export type SettingsRole = "operator" | "admin" | "viewer";
 
@@ -32,6 +33,9 @@ interface InstallSettingsApiOptions {
   fixtures?: SettingsFixture[];
   commandId?: string;
   mapObjects?: SettingsMapObject[];
+  mapSnapshotFailuresBeforeSuccess?: number;
+  registrationSession?: RegistrationSession;
+  registrationRetrySession?: RegistrationSession;
   ids?: Partial<SettingsApiIds>;
 }
 
@@ -86,6 +90,7 @@ export interface SettingsApiFixtureState {
   fixturePageCursors: Array<string | null>;
   dimmingRequests: CreateDimmingCommandInput[];
   commandStatusRequests: string[];
+  registrationScanRetryRequests: number;
   updateFixture: (fixtureId: string, update: Pick<SettingsFixture, "status" | "brightness">) => void;
   setCommandStatus: (input: { stage: FixtureCommandStage; results: FixtureCommandResult[] }) => void;
 }
@@ -145,6 +150,9 @@ export async function installSettingsApiRoutes(
     fixtures = defaultFixtures,
     commandId = "77777777-7777-4777-8777-777777777777",
     mapObjects = [],
+    mapSnapshotFailuresBeforeSuccess = 0,
+    registrationSession,
+    registrationRetrySession,
     ids: idOverrides
   }: InstallSettingsApiOptions = {}
 ): Promise<SettingsApiFixtureState> {
@@ -154,6 +162,8 @@ export async function installSettingsApiRoutes(
   let commandStage: FixtureCommandStage = "accepted";
   let commandResults: FixtureCommandResult[] = [];
   let commandCreated = false;
+  const initialRegistrationSession = registrationSession ? structuredClone(registrationSession) : null;
+  const retriedRegistrationSession = registrationRetrySession ? structuredClone(registrationRetrySession) : null;
   const state: SettingsApiFixtureState = {
     requests: [],
     leaseRequests: [],
@@ -167,6 +177,7 @@ export async function installSettingsApiRoutes(
     fixturePageCursors: [],
     dimmingRequests: [],
     commandStatusRequests: [],
+    registrationScanRetryRequests: 0,
     updateFixture: (fixtureId, update) => {
       const fixture = fixtureState.find((candidate) => candidate.id === fixtureId);
       if (!fixture) throw new Error(`fixture not found: ${fixtureId}`);
@@ -189,6 +200,7 @@ export async function installSettingsApiRoutes(
     }
   };
   let mapRevision = floor.mapRevision;
+  let remainingMapSnapshotFailures = mapSnapshotFailuresBeforeSuccess;
   let activeLeaseToken: string | null = null;
   let activeLeaseFence = 0;
   let editorRequestSequence = 0;
@@ -214,6 +226,19 @@ export async function installSettingsApiRoutes(
     if (path === "/sites") {
       return route.fulfill({ json: [{ id: ids.siteId, name: "고객사 B2 현장" }] });
     }
+    if (path === "/registration-sessions" && request.method() === "POST") {
+      if (!initialRegistrationSession) return route.fulfill({ status: 404, json: { message: "registration fixture not configured" } });
+      return route.fulfill({ json: structuredClone(initialRegistrationSession) });
+    }
+    if (path === `/registration-sessions/${initialRegistrationSession?.id}` && request.method() === "GET") {
+      if (!initialRegistrationSession) return route.fulfill({ status: 404, json: { message: "registration fixture not configured" } });
+      return route.fulfill({ json: structuredClone(initialRegistrationSession) });
+    }
+    if (path === `/registration-sessions/${initialRegistrationSession?.id}/scan/retry` && request.method() === "POST") {
+      if (!retriedRegistrationSession) return route.fulfill({ status: 409, json: { message: "registration retry fixture not configured" } });
+      state.registrationScanRetryRequests += 1;
+      return route.fulfill({ json: structuredClone(retriedRegistrationSession) });
+    }
     if (path === "/sites/default/dashboard" || path === `/sites/${ids.siteId}/dashboard`) {
       state.dashboardRequests += 1;
       return route.fulfill({
@@ -228,6 +253,10 @@ export async function installSettingsApiRoutes(
     }
     if (path === `/sites/${ids.siteId}/floors/${ids.floorId}/map-snapshot`) {
       state.mapSnapshotRequests += 1;
+      if (remainingMapSnapshotFailures > 0) {
+        remainingMapSnapshotFailures -= 1;
+        return route.fulfill({ status: 503, json: { message: "map snapshot unavailable" } });
+      }
       const snapshot = mapSnapshot(runtimeFloor, mapRevision, mapObjects);
       // Legacy settings specs retain short IDs; UUID-based contract specs use the same strict parser as the API.
       const response = idOverrides ? floorMapSnapshotSchema.parse(snapshot) : snapshot;

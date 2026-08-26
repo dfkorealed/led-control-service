@@ -78,6 +78,31 @@ vi.mock("./api/client", () => ({
       const fixtures = dashboard.floors.find((floor) => floor.id === fixturePageMatch[2])?.fixtures ?? [];
       return Promise.resolve({ items: fixtures, nextCursor: null });
     }
+    const mapSnapshotMatch = path.match(/^\/sites\/([^/]+)\/floors\/([^/]+)\/map-snapshot$/);
+    if (mapSnapshotMatch) {
+      const dashboard = (apiState.dashboard ?? mockDashboard) as typeof mockDashboard;
+      const floor = dashboard.floors.find((item) => item.id === mapSnapshotMatch[2]);
+      if (!floor) return Promise.reject(new Error(`No floor for ${path}`));
+      const width = floor.floorPlan?.width ?? 1200;
+      const height = floor.floorPlan?.height ?? 800;
+      return Promise.resolve({
+        floorId: floor.id,
+        revision: floor.floorPlan?.version ?? 0,
+        width,
+        height,
+        floorPlan: floor.floorPlan
+          ? {
+              imageUrl: floor.floorPlan.imageUrl,
+              sourceType: "image",
+              originalFileUrl: floor.floorPlan.imageUrl,
+              renderedImageUrl: floor.floorPlan.imageUrl,
+              width,
+              height
+            }
+          : null,
+        objects: []
+      });
+    }
     if (path === "/commands/command-created-1" && apiState.commandStatus) return Promise.resolve(apiState.commandStatus);
     const floorEditorMatch = path.match(/^\/floors\/(.+)\/editor-state$/);
     if (floorEditorMatch) {
@@ -160,15 +185,6 @@ vi.mock("./api/client", () => ({
         }]
       };
       return Promise.resolve({ status: "claimed", gatewayId: "gateway-onboarded-1", siteId: input.siteId, serialNumber: input.serialNumber });
-    }
-    if (path.endsWith("/identify")) {
-      const identifiedNode = { ...mockRegistrationSession.discoveredNodes[0], status: "identifying" as const, identifyState: "blinking" };
-      const currentSession = apiState.registrationSession ?? mockRegistrationSession;
-      apiState.registrationSession = {
-        ...currentSession,
-        discoveredNodes: currentSession.discoveredNodes.map((node) => node.id === identifiedNode.id ? identifiedNode : node)
-      };
-      return Promise.resolve(identifiedNode);
     }
     if (path.endsWith("/nodes/register-batch")) {
       const input = body as { nodes: Array<{ nodeId: string }> };
@@ -666,14 +682,15 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
 
     await waitFor(() =>
-      expect(apiPost).toHaveBeenCalledWith("/commands/dimming", {
+      expect(apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
         siteId: mockDashboard.site.id,
         target: {
           type: "group",
           groupId: mockDashboard.groups[0].id
         },
-        brightness: 30
-      })
+        brightness: 30,
+        clientRequestId: expect.any(String)
+      }))
     );
     expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
   });
@@ -713,7 +730,7 @@ describe("App", () => {
     await waitFor(() => expect(applyButton).toBeEnabled());
     fireEvent.click(applyButton);
 
-    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/commands/dimming", {
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
       siteId: mockDashboard.site.id,
       target: {
         type: "fixtures",
@@ -722,8 +739,9 @@ describe("App", () => {
           mockDashboard.floors[0].fixtures[1].id
         ]
       },
-      brightness: 70
-    }));
+      brightness: 70,
+      clientRequestId: expect.any(String)
+    })));
     expect(await screen.findByText("일부 조명 적용 실패", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
@@ -827,9 +845,6 @@ describe("App", () => {
       floorId: mockDashboard.floors[0].id,
       gatewayId: mockDashboard.gateways[0].id
     });
-
-    fireEvent.click(screen.getAllByRole("button", { name: "점멸 확인" })[0]);
-    expect(await screen.findByText("점멸 중")).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("조명 1 선택"));
     fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));

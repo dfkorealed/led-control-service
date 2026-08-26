@@ -120,6 +120,33 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText("장애 (0x04)")).toBeInTheDocument();
     expect(screen.getByText("Health 수신")).toBeInTheDocument();
   });
+
+  it("지도 최초 조회 실패에는 빈 캔버스 대신 오류와 재시도를 표시한다", () => {
+    queryMocks.useFloorMapSnapshot.mockReturnValue({
+      data: undefined,
+      dataUpdatedAt: 0,
+      error: new Error("map unavailable"),
+      refetch: refetchMap
+    });
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByText("저장된 지도를 불러오지 못했습니다.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "지도 다시 시도" }));
+    expect(refetchMap).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
+  });
+
+  it("이전 지도 snapshot이 있을 때 갱신 실패를 알리고 지도를 유지한다", async () => {
+    refetchMap.mockRejectedValueOnce(new Error("map unavailable"));
+    render(<MonitoringView siteId="site-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+
+    expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "지도 다시 시도" }));
+    expect(refetchMap).toHaveBeenCalledTimes(2);
+  });
 });
 
 const mapSnapshot = {

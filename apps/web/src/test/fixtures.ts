@@ -118,6 +118,13 @@ export const mockRegistrationSession: RegistrationSession = {
   gatewayId: "00000000-0000-4000-8000-000000000004",
   requestedBy: mockUser.id,
   status: "active",
+  scanStatus: "scanning",
+  scanCorrelationId: "44444444-4444-4444-8444-444444444444",
+  scanAttempt: 1,
+  scanStartedAt: "2026-07-01T00:00:00.000Z",
+  scanCompletedAt: null,
+  scanFailureCode: null,
+  scanFailureMessage: null,
   startedAt: "2026-07-01T00:00:00.000Z",
   completedAt: null,
   discoveredNodes: Array.from({ length: 4 }, (_, index) => ({

@@ -99,6 +99,19 @@ test.beforeEach(async ({ page }) => {
     });
   });
 
+  await page.route("**/sites/site-1/floors/floor-1/map-snapshot", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        floorId: "floor-1",
+        revision: 1,
+        width: 1200,
+        height: 800,
+        objects: []
+      })
+    });
+  });
+
   await page.route("**/energy/default/estimate", async (route) => {
     await route.fulfill({
       contentType: "application/json",

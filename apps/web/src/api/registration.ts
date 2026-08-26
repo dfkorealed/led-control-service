@@ -35,6 +35,13 @@ export interface RegistrationSession {
   gatewayId: string;
   requestedBy: string;
   status: "active" | "completed" | "failed" | "cancelled";
+  scanStatus: "pending" | "scanning" | "completed" | "failed";
+  scanCorrelationId: string | null;
+  scanAttempt: number;
+  scanStartedAt: string | null;
+  scanCompletedAt: string | null;
+  scanFailureCode: string | null;
+  scanFailureMessage: string | null;
   startedAt: string;
   completedAt: string | null;
   discoveredNodes: DiscoveredRegistrationNode[];
@@ -46,10 +53,6 @@ export function createRegistrationSession(siteId: string, floorId: string, gatew
 
 export function getRegistrationSession(sessionId: string) {
   return apiGet<RegistrationSession>(`/registration-sessions/${sessionId}`);
-}
-
-export function identifyRegistrationNode(sessionId: string, nodeId: string) {
-  return apiPost<DiscoveredRegistrationNode>(`/registration-sessions/${sessionId}/nodes/${nodeId}/identify`, {});
 }
 
 export function registerRegistrationNode(sessionId: string, nodeId: string, fixtureName: string, x: number, y: number) {
@@ -65,4 +68,8 @@ export function registerFixtureBatch(sessionId: string, input: RegisterFixtureBa
 
 export function completeRegistrationSession(sessionId: string) {
   return apiPost<RegistrationSession>(`/registration-sessions/${sessionId}/complete`, {});
+}
+
+export function retryRegistrationScan(sessionId: string) {
+  return apiPost<RegistrationSession>(`/registration-sessions/${sessionId}/scan/retry`, {});
 }
