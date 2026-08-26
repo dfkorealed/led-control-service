@@ -118,7 +118,7 @@
 - [x] migration 적용 전 실패와 서비스 테스트 RED를 확인한다.
 - [x] transaction 잠금, 전체 membership 교체와 soft delete/resync를 구현한다.
 - [x] API·Mesh group 테스트, typecheck, build를 실행한다.
-- [ ] 제어 문서를 갱신하고 `feat(control): add managed fixture groups`로 커밋한다.
+- [x] 제어 문서를 갱신하고 `feat(control): add managed fixture groups`로 커밋한다.
 
 ### Task 5: Gateway 구독 해제와 ACK 완전성
 
