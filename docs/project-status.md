@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | 에이전트 운영 기반 Task 1 | 완료 | 운영 기준과 지속 갱신 상태판을 작성했다. |
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
-| 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 감사 결과, 계약, 데이터 모델, 검증 및 배포 순서를 기록했다. |
+| 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 독립 QA 결과를 반영해 scan·구역 reconciliation·ACK·MQTT PUBACK·fixture별 에너지 투영과 forecast 계약을 확정했다. |
 | 메뉴 완성 구현 계획 | 대기 | 설계를 작업 단위와 커밋 단위로 분해한 뒤 구현을 시작한다. |
 
 ## 다음 단계
@@ -24,18 +24,18 @@
 ### 모니터링
 
 - provisioning 전 조명 `점멸 확인`은 표준 BLE Mesh 경로에서 지원되지 않는데 화면과 API가 성공 흐름을 전제한다.
-- 검색 session에는 완료·실패 상태와 0건 완료 화면이 없어 하드웨어 검색 실패가 계속 검색 중으로 보일 수 있다.
+- 검색 session에는 correlation 기반 완료·실패, found event 검증, gateway당 단일 active scan과 retry 계약이 아직 구현되지 않았다.
 - 도면 최초 조회 실패가 빈 기본 canvas로 보일 수 있으며, 등록 완료 뒤 필요한 query를 즉시 갱신하지 않는다.
 
 ### 제어
 
 - 사용자가 저장 구역을 생성·수정할 FixtureGroup CRUD와 UI가 없어 구역 제어의 정상 사용자 흐름이 완성되지 않았다.
-- 층·구역의 MeshControlGroup 준비 상태가 제어 화면에 노출되지 않는다.
-- device-status ACK 대상 집합 완전성과 client request id 멱등성 보완이 필요하다.
+- 구역 lifecycle과 desired membership Add/Delete reconciliation, MeshControlGroup 준비 상태 UI가 아직 구현되지 않았다.
+- device-status ACK 대상·aggregate status 완전성과 동시 요청 client request id 멱등성 보완이 필요하다.
 
 ### 통계
 
-- 현재 통계는 현재 밝기와 하루 12시간 가정의 snapshot 계산이며, 상태 이력 기반 적산·일별/월별 꺾은선·월 예상 비용·24시간 100% 기준 절감 비용이 없다.
+- 현재 통계는 12시간 snapshot 계산이며, `powerOn` 기반 180초 적산·열린 구간 투영·fixture별 coverage forecast·실제 월 초 기준 24시간 baseline이 없다.
 
 ### 실장비 검증
 

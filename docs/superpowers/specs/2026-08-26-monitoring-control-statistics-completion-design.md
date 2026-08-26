@@ -69,7 +69,9 @@ sites/{siteId}/gateways/{gatewayId}/events/provisioning/scan-failed
 
 두 event는 `siteId`, `gatewayId`, `eventId`, `sequence`, `occurredAt`, `sessionId`, `scanCorrelationId`, `scanAttempt`을 공통으로 가진다. 완료 event는 `acceptedNodeCount`를, 실패 event는 `bluetooth_unavailable | mesh_unavailable | scan_start_failed | scan_runtime_failed | scan_timeout` code와 비밀값 없는 `message`를 추가한다.
 
-API는 `siteId`, `gatewayId`, `sessionId`, `scanCorrelationId`, `scanAttempt`이 현재 세션 행과 모두 일치하는 event만 행 잠금 transaction에서 반영한다. 이전 시도의 완료·실패와 세션 종료 뒤 이벤트는 상태와 발견 node를 변경하지 않고 구조화 로그만 남긴다. `scan-completed`는 `scanStatus=completed`, `scan-failed`는 `scanStatus=failed`로 바꾸며, 둘 모두 `scanCompletedAt`을 기록한다. 0개 결과는 실패가 아닌 `completed`와 `acceptedNodeCount=0`이다.
+`unprovisioned-device-found`에도 `scanCorrelationId`, `scanAttempt`을 추가한다. API는 발견·완료·실패 event 모두의 `siteId`, `gatewayId`, `sessionId`, correlation, attempt가 현재 세션 행과 일치할 때만 행 잠금 transaction에서 반영한다. 이전 시도와 종료된 세션의 event는 상태와 발견 node를 변경하지 않는다. 완료는 `scanStatus=completed`, 실패는 `failed`로 바꾸며 0개 결과는 실패가 아니다.
+
+gateway 하나에는 `scanning` 세션 하나만 허용하는 partial unique index를 둔다. `POST /registration-sessions/:sessionId/scan/retry`는 active 세션의 terminal scan만 잠그고 attempt 증가·새 correlation 저장·scan-start outbox 생성을 한 transaction에서 수행한다. 같은 gateway가 이미 검색 중이면 `409 gateway_scan_in_progress`를 반환한다.
 
 `POST /registration-sessions/:sessionId/nodes/:nodeId/identify`는 `501`과 `code=pre_provision_identify_unsupported`을 반환한다. 이 endpoint는 `DiscoveredMeshNode.status`, `identifyState`를 변경하거나 MQTT 명령을 발행하지 않는다. 웹 등록 패널에서는 provisioning 전 `점멸 확인` 버튼과 점멸 상태 표시를 제거한다.
 
@@ -89,10 +91,11 @@ API는 `siteId`, `gatewayId`, `sessionId`, `scanCorrelationId`, `scanAttempt`이
 
 | 모델 | 추가 필드·제약 | 목적 |
 | --- | --- | --- |
-| `FixtureGroup` | `floorId`, `gatewayId`, `deletedAt` | 구역을 정확히 한 층과 한 gateway에 고정하고 안전한 삭제 상태를 보존 |
-| `FixtureGroup` | `@@index([siteId, floorId, gatewayId, deletedAt])` | 제어 대상과 관리 dialog 조회 |
+| `FixtureGroup` | nullable `floorId`, `gatewayId`; `lifecycleStatus=active | retiring | retired | invalid` | legacy를 격리하면서 신규 구역을 한 층·한 gateway에 고정 |
+| `FixtureGroup` | `@@index([siteId, floorId, gatewayId, lifecycleStatus])` | 제어 대상과 관리 dialog 조회 |
 | `GroupFixture` | 기존 복합 PK 유지 | 동일 조명 중복 가입 방지 |
-| `MeshControlGroup` | `retiring`, `retired` 상태 추가 | 삭제 시 subscription 제거가 끝날 때까지 group 명령을 차단 |
+| `MeshControlGroupMember` | desired 여부, 적용 version·operation 상태 | add/delete reconciliation과 재시작 복구 |
+| `MeshControlGroup` | `retiring`, `retired` 상태 추가 | subscription 제거가 끝날 때까지 group 명령 차단 |
 
 서비스 transaction은 group, floor, gateway, 선택 fixture를 안정된 ID 순서로 잠그고 다음을 검증한다.
 
@@ -101,9 +104,9 @@ API는 `siteId`, `gatewayId`, `sessionId`, `scanCorrelationId`, `scanAttempt`이
 3. fixture 하나는 삭제되지 않은 사용자 구역에 최대 15개까지만 가입한다.
 4. 빈 구역, 중복 fixture ID, 제어 불가능 fixture는 생성·수정 입력으로 허용하지 않는다.
 
-같은 제약을 PostgreSQL migration의 `GroupFixture` `BEFORE INSERT OR UPDATE` trigger로도 강제한다. trigger는 group/fixture 관계 불일치와 15개 초과를 거부하므로 직접 DB 변경도 서비스 규칙을 우회할 수 없다. `FixtureGroup`의 floor/gateway site 일치도 `BEFORE INSERT OR UPDATE` trigger에서 검증한다.
+같은 제약을 PostgreSQL trigger로 강제한다. 신규·수정 `active` group은 non-null floor/gateway, 동일 site, member 경계와 15개 한도를 만족해야 한다. `invalid`, `retiring`, `retired`는 제어 대상으로 조회하지 않는다.
 
-구역 삭제는 즉시 hard delete하지 않는다. 삭제 요청은 해당 MeshControlGroup을 `retiring`으로 바꾸고 membership 제거 subscription sync를 발행한다. gateway가 모두 적용했다고 ACK하면 `FixtureGroup.deletedAt`과 MeshControlGroup `retired`를 기록한다. `retiring`, `retired`, `failed` group은 제어 대상에서 제외하며, 실패한 삭제는 권한 있는 사용자가 재동기화할 수 있다. 과거 CommandDispatch의 group 참조는 삭제하지 않는다.
+구역 create/update/delete는 desired membership 전체와 증가한 version을 cloud 정본으로 저장한다. Gateway는 durable applied membership과 desired set을 비교해 add/delete diff를 만들고 각 node에 Config Model Subscription Add/Delete를 수행한다. operation ID, 종류, node, version별 ACK와 최종 applied set이 모두 일치해야 `ready`가 된다. 수정은 add/delete를 함께 허용하고, 삭제는 desired set을 빈 배열로 보낸 뒤 모든 Delete ACK가 성공하면 group과 MeshControlGroup을 `retired`로 바꾼다. 실패·재시작·resync는 같은 desired set으로 다시 reconciliation하며 과거 CommandDispatch 참조는 보존한다.
 
 ### 6.2 구역 API와 UI
 
@@ -115,17 +118,17 @@ DELETE /sites/:siteId/fixture-groups/:groupId
 POST   /sites/:siteId/fixture-groups/:groupId/resync
 ```
 
-생성·수정 body는 `{ name, floorId, gatewayId, fixtureIds }`이며 `fixtureIds`는 1~100개를 허용한다. 수정은 전체 membership 교체로 정의해 부분 수정의 순서 경쟁을 없앤다. 삭제는 `202`와 현재 `retiring` 상태를 반환한다. 목록과 dashboard control metadata는 `floorId`, `gatewayId`, fixture count, `MeshControlGroup.status`, `configurationVersion`, `lastError`를 반환한다.
+생성·수정 body는 `{ name, floorId, gatewayId, fixtureIds }`이며 `fixtureIds`는 1~100개를 허용한다. 수정은 desired membership 전체 교체로 정의한다. 삭제는 `202`와 `retiring`을 반환한다. 목록과 dashboard metadata는 lifecycle, floor/gateway, fixture count, MeshControlGroup status/version/error를 반환한다.
 
 제어 화면은 대상 선택 옆에 구역 관리 dialog를 둔다. `operator`, `admin`만 생성·수정·삭제·재동기화할 수 있고 `viewer`는 목록과 상태만 읽을 수 있다. 구역은 층과 gateway를 먼저 선택한 뒤 해당 경계의 fixture만 선택한다. 변경 직후 해당 구역은 `configuring`으로 표시하고 `ready` 전에는 구역 제어를 비활성화한다. floor도 동일한 MeshControlGroup 상태를 dashboard metadata로 반환해 `configuring`이면 준비 중, `failed`이면 실패 이유와 재동기화 동작을 표시하고 제어를 비활성화한다. API는 기존처럼 `ready`가 아닌 group 명령을 거부하며 unicast로 자동 대체하지 않는다.
 
 ### 6.3 ACK 완전성과 요청 멱등성
 
-`device-status ACK` 처리 transaction은 dispatch와 모든 `CommandFixtureResult`를 잠근 뒤 ACK 결과의 fixture ID 집합을 dispatch snapshot의 fixture ID 집합과 정확히 비교한다. 중복 ID, 누락 ID, 예상 밖 ID가 하나라도 있으면 ACK 결과를 부분 반영하지 않는다. dispatch와 모든 예상 fixture result를 `failed`로 terminal 처리하고 오류 코드는 `ack_fixture_set_mismatch`로 기록한다. 실제 상태 snapshot은 별도 `fixture-state` event만 갱신한다.
+`device-status ACK` 처리 transaction은 dispatch와 모든 `CommandFixtureResult`를 잠근 뒤 결과 fixture ID 집합이 dispatch snapshot과 정확히 같은지 검증한다. 또한 individual result에서 유도한 aggregate status가 ACK status와 일치해야 한다: 모두 성공은 `succeeded`, 모두 timeout은 `timed_out`, 성공이 하나 이상인 혼합은 `partially_succeeded`, 성공 없이 failed가 포함된 결과는 `failed`다. 집합 또는 status가 다르면 결과를 부분 반영하지 않고 전체를 `failed`로 terminal 처리하며 `ack_fixture_set_mismatch` 또는 `ack_status_mismatch`를 기록한다. 실제 fixture snapshot은 별도 `fixture-state`만 갱신한다.
 
 `CreateDimmingCommandInput`과 `POST /commands/dimming` body에 UUID `clientRequestId`를 추가한다. `Command`에는 `clientRequestId`와 안정 정렬한 target·brightness로 계산한 SHA-256 `requestFingerprint`을 추가하고 `@@unique([siteId, requestedBy, clientRequestId])`를 둔다.
 
-같은 사용자·현장·`clientRequestId` 요청은 transaction에서 기존 Command를 먼저 조회한다. fingerprint가 같으면 기존 command, dispatch 정보, terminal status URL을 반환하고 Outbox·sequence·BLE 명령을 새로 만들지 않는다. fingerprint가 다르면 `409 client_request_id_payload_conflict`를 반환한다. 웹은 적용 클릭 시 UUID를 만들고 POST 성공 응답, command status 복구, terminal 결과 확인 전까지 site/user 범위 `sessionStorage`에 요청 ID와 canonical payload를 보존한다. 네트워크 오류나 POST 응답 유실 뒤 재시도는 같은 값으로 수행한다.
+같은 사용자·현장·`clientRequestId` 요청은 기존 Command를 먼저 조회한다. 동시 요청이 unique 제약에서 충돌하면 생성 transaction을 rollback한 뒤 새 transaction에서 기존 Command를 재조회해 fingerprint를 비교한다. 같으면 기존 응답을 반환하고 Outbox·sequence·BLE 명령을 만들지 않으며, 다르면 `409 client_request_id_payload_conflict`를 반환한다. 웹은 terminal 확인 전까지 site/user 범위 `sessionStorage`에 요청 ID와 canonical payload를 보존해 응답 유실 재시도에 같은 값을 사용한다.
 
 ## 7. 통계 설계
 
@@ -135,8 +138,9 @@ POST   /sites/:siteId/fixture-groups/:groupId/resync
 
 | 모델 | 필드·제약 | 목적 |
 | --- | --- | --- |
-| `Site` | `timeZone String @default("Asia/Seoul")` | 현장별 일·월 경계 결정. IANA timezone만 허용 |
-| `FixtureEnergyDailyAggregate` | `fixtureId`, `localDate @db.Date`, `estimatedKwh Decimal(16,6)`, `estimatedCost Decimal(16,2)`, `knownSeconds Int`, `unknownSeconds Int`, `createdAt`, `updatedAt` | 조명·현지 일자별 상태 기반 추정 합계 |
+| `Site` | `timeZone String @default("Asia/Seoul")` | IANA timezone 기준 일·월 경계 결정 |
+| `Fixture` | `firstStateOccurredAt DateTime?`, `powerOn Boolean?` | 첫 상태 유무와 최신 전원 snapshot 보존 |
+| `FixtureEnergyDailyAggregate` | `fixtureId`, `localDate @db.Date`, `estimatedKwh Decimal(20,12)`, `estimatedCost Decimal(20,8)`, `knownSeconds Int`, `unknownSeconds Int`, timestamps | 조명·현지 일자별 상태 기반 추정 합계 |
 | `FixtureEnergyDailyAggregate` | `@@unique([fixtureId, localDate])`, `@@index([localDate])` | idempotent upsert와 기간 조회 |
 
 `estimatedCost`는 해당 구간을 적산할 당시의 `Site.tariffKwhRate`로 함께 증가시켜, 이후 단가 변경이 과거 적산 비용을 바꾸지 않게 한다. 이번 달 예상 비용과 24시간 baseline은 조회 시점의 단가와 현재 등록 fixture를 사용하므로 응답에 이 기준을 명시한다.
@@ -147,17 +151,19 @@ POST   /sites/:siteId/fixture-groups/:groupId/resync
 
 1. 이전 시각이 없거나 incoming `occurredAt`이 이전 시각보다 같거나 이르면 적산하지 않는다.
 2. `elapsedSeconds = incomingOccurredAt - previousLastStateOccurredAt`을 계산한다.
-3. 이전 brightness와 정격 전력으로 `[previousLastStateOccurredAt, min(incomingOccurredAt, previousLastStateOccurredAt + 180초)]`만 known 구간으로 계산한다.
+3. 이전 정격 전력과 유효 밝기 `powerOn ? brightness : 0`으로 `[previousLastStateOccurredAt, min(incomingOccurredAt, previousLastStateOccurredAt + 180초)]`만 known 구간으로 계산한다.
 4. 180초를 넘는 나머지 시간은 unknown 구간으로 기록한다. 밝기 0%도 관측된 known 시간이며 `estimatedKwh=0`으로 적산한다.
 5. known·unknown 구간 모두 `Site.timeZone`의 자정 경계에서 분할한다. 각 조각은 `FixtureEnergyDailyAggregate`에 `fixtureId + localDate` 기준으로 idempotent upsert한다.
-6. known kWh는 `ratedWatt * (brightness / 100) * seconds / 3,600,000`으로 계산하고, 해당 구간의 현재 `tariffKwhRate`로 `estimatedCost`를 증가시킨다.
-7. aggregate upsert와 Fixture 최신 상태 갱신은 같은 transaction으로 commit한다. transaction rollback, 중복 event, 낮은 sequence, 잘못된 site/gateway mapping, 역순 event에는 aggregate를 변경하지 않는다.
+6. known kWh는 `ratedWatt * (effectiveBrightness / 100) * seconds / 3,600,000`으로 계산하고, 해당 구간의 현재 `tariffKwhRate`로 `estimatedCost`를 증가시킨다.
+7. aggregate upsert, 첫 event의 `firstStateOccurredAt`, 최신 `powerOn`과 상태 갱신은 같은 transaction으로 commit한다. 중복·낮은 sequence·mapping 오류·역순 event에는 aggregate를 변경하지 않는다.
 
-정격 전력 변경은 fixture 수정 transaction에서 먼저 같은 180초 규칙으로 기존 전력의 미닫힌 구간을 적산한 뒤 새 `ratedWatt`을 저장한다. 이로써 이후 `fixture-state`의 이전 전력 값이 바뀌어 과거 구간을 덮어쓰는 일을 막는다. `luxon`을 API 의존성으로 추가해 IANA timezone과 일광 절약 시간제의 일 경계를 정확히 계산한다.
+정격 전력 변경은 같은 180초 규칙으로 기존 전력의 미닫힌 구간을 먼저 적산한다. `Site.timeZone`은 첫 상태 또는 aggregate가 생긴 뒤 변경 요청을 `409 energy_timezone_locked`로 거부한다. `luxon`으로 일광 절약 시간제를 포함한 경계를 계산하며 Decimal은 DB 계산에서 유지하고 API 직렬화에서만 kWh 4자리·비용 2자리로 반올림한다.
+
+조회는 하나의 `generatedAt`을 고정하고 각 fixture의 열린 구간을 쓰기 없이 투영한다. 마지막 상태가 있으면 그 시각부터 최대 180초를 최신 유효 밝기의 known, 나머지를 unknown으로 분할한다. 첫 상태가 없으면 `max(createdAt, 조회 기간 시작)`부터 `generatedAt`까지 unknown이다. 저장 aggregate와 열린 구간 투영을 합쳐 오늘·월·연도와 series를 만들며 조회 자체는 aggregate를 변경하지 않는다.
 
 ### 7.3 통계 API와 계산식
 
-기존 `/energy/default/estimate`, `/energy/sites/:siteId/estimate` snapshot endpoint는 웹 전환과 같은 배포에서 제거한다. 다음 두 API가 현장 통계의 유일한 조회 경로다.
+기존 `/energy/default/estimate`, `/energy/sites/:siteId/estimate`는 이번 구현에서 deprecated로 유지하고 새 API와 최소 한 번의 배포를 병행한다. 웹 전환 후 production access log에서 호출이 없음을 확인한 다음 배포에서 제거한다.
 
 ```text
 GET /energy/sites/:siteId/summary
@@ -177,9 +183,9 @@ type EnergySummary = {
 };
 ```
 
-`dataStatus`는 aggregate가 없으면 `no_data`, `unknownSeconds > 0`이면 `partial`, 그 외 known 값이 있으면 `available`이다. `monthForecast`는 이번 달 누적 `estimatedKwh / knownSeconds`를 평균 전력량으로 환산한 뒤, **조회 시점의 등록 fixture 수 × 해당 월 전체 초**에 곱해 계산한다. known 시간이 0이거나 등록 fixture가 없으면 forecast와 savings는 `null`이다.
+`dataStatus`는 aggregate와 열린 구간 모두 없으면 `no_data`, unknown이 있으면 `partial`, 그 외 known 값이 있으면 `available`이다. 월 forecast는 fixture별 `monthToDateKwh + (fixtureKnownKwh * 3600 / fixtureKnownSeconds) * remainingSeconds / 3600`을 합산한다. 각 현재 fixture의 월 known이 최소 3,600초이고, `sum(knownSeconds) / sum(generatedAt - max(monthStartUtc, fixture.createdAt))` coverage가 80% 이상일 때만 제공한다. 하나라도 미달하면 `insufficient_state`이며 forecast와 savings는 `null`이다.
 
-`baseline24Hours.estimatedKwh`는 `sum(current registered Fixture.ratedWatt) * 24 * daysInMonth / 1000`이다. 비용은 조회 시점 `Site.tariffKwhRate`를 곱한다. `estimatedSavings`는 baseline에서 월 forecast를 뺀 값이며 음수는 0으로 표시하지 않고 실제 음수를 반환해 기준보다 사용량이 높다는 사실을 보존한다.
+현장 timezone의 월 시작과 다음 달 시작을 UTC instant로 변환해 `monthTotalSeconds`, `remainingSeconds=monthEndUtc-generatedAt`을 구한다. baseline은 fixture별 `ratedWatt * monthTotalSeconds / 3,600,000` 합계이며 현재 단가를 곱한다. savings는 baseline에서 fixture별 forecast 합계를 빼고 음수도 그대로 반환한다.
 
 `series`의 `day`는 요청한 현지 날짜 범위의 각 일자를, `month`는 요청한 현지 월 범위의 각 월을 반환한다. 각 point는 `{ period, estimatedKwh: number | null, estimatedCost: number | null, knownSeconds, unknownSeconds, dataStatus }`이다. aggregate가 전혀 없는 point는 `estimatedKwh=null`로 반환해 웹이 0kWh 선을 그리지 않게 한다. 웹은 day 조회를 현재 달 전체, month 조회를 현재 연도 전체로 고정한다.
 
@@ -204,16 +210,18 @@ type EnergySummary = {
 - gateway 재연결과 MeshControlGroup resync는 기존 fail-closed 규칙을 유지한다. `ready`가 아닌 group에는 제어 송신을 하지 않는다.
 - energy aggregation에서 timezone이 유효하지 않거나 aggregate upsert가 실패하면 상태 이벤트 transaction 전체를 rollback하고 재전달 가능한 MQTT 처리로 남긴다. 부분 aggregate만 commit하는 경로는 만들지 않는다.
 
+API는 현재 manifest의 `mqtt ^5.10.3`과 `protocolVersion: 5`를 유지하며 lockfile 해석 버전은 `5.15.1`이다. 연결 옵션의 `customHandleAcks`로 QoS 1 `fixture-state` 처리를 제어해 DB transaction commit 뒤에만 success PUBACK `0x00`을 보낸다. 재시도 가능한 DB·lock 실패는 error reason code `0x80`으로 응답하고 Gateway는 같은 `eventId`를 재발행한다. 형식 오류는 `0x99`로 거부한다. 새 영속 inbox는 만들지 않고, 기존 `ProcessedGatewayEvent`를 상태·aggregate와 같은 transaction에 기록해 중복을 차단한다.
+
 ## 9. 테스트와 HIL
 
 ### 9.1 자동 테스트
 
-- scan completed, 0개 completed, failed, 이전 correlation 무시, identify `501` 무상태 변경, provisioning 완료 query invalidation
+- scan completed/failed/0건, found event correlation·attempt, gateway당 active scan 1개, retry 충돌, identify `501`, 등록 완료 query invalidation
 - map 최초 오류·재시도, 이전 snapshot 유지, 성공한 빈 지도와 오류 지도 구분
-- 구역 floor/gateway 경계, fixture당 15개 한도, CRUD 권한, 삭제와 subscription removal, configuring/failed UI 차단
-- floor/group ready 전 명령 차단, ACK 누락·중복·외부 fixture 집합 실패, 동일·상이한 `clientRequestId` 재시도
-- energy duplicate·역순 event, 0% 밝기, 180초 경계, 자정·월말·DST timezone 분할, 정격 전력 변경, unknownSeconds, aggregate idempotency
-- summary/series 권한 격리, 신규·부분 수집·공백 현장, forecast와 24시간 baseline 계산, Recharts의 `null` point와 empty state
+- 구역 nullable legacy migration, active 경계·15개 한도, desired add/delete diff와 operation ACK, 삭제·resync, ready 전 UI 차단
+- ACK fixture 집합·유도 status 불일치, 동일 ID 동시 unique 충돌과 payload conflict, 응답 유실 재시도
+- energy duplicate·역순, 전원 off, 180초, 첫 상태 없는 열린 구간, 자정·DST, Decimal 정밀도, timezone 변경 409, PUBACK commit·오류 재전달
+- fixture별 known 3,600초·site coverage 80% forecast, 실제 월 UTC 초 baseline, 신규·공백 UI, LineChart null point
 
 ### 9.2 수동 HIL
 
@@ -221,20 +229,21 @@ type EnergySummary = {
 
 ## 10. 마이그레이션과 배포 순서
 
-1. backend가 Prisma schema, SQL trigger, shared MQTT/API schema와 migration을 추가한다. 기존 `EnergyUsage`와 기존 `FixtureGroup` 데이터는 보존하고, 기존 group은 운영자가 floor/gateway/membership을 검증한 뒤 migration script로만 backfill한다. 경계를 확정할 수 없는 legacy group은 `failed`로 옮겨 제어 대상에서 제외한다.
-2. API가 scan lifecycle, identify unsupported, group CRUD·sync metadata, ACK completeness, command idempotency, energy aggregation·summary·series를 적용하고 migration 후에 배포한다.
-3. gateway가 scan complete/failed event와 모든 대상 fixture 결과를 포함한 ACK를 발행하도록 shared contract에 맞춰 배포한다.
-4. web이 등록·지도 오류·구역 dialog·group 상태·idempotent 재시도·Recharts 통계를 새 API로 전환한다. API와 웹이 전환된 뒤 기존 energy snapshot endpoint를 제거한다.
+1. migration은 `FixtureGroup.floorId/gatewayId` nullable과 lifecycle, energy·scan·command 필드를 먼저 추가한다. 유효 legacy group은 관계를 backfill하고 나머지는 `invalid`로 격리한 뒤 active non-null trigger/check를 활성화한다. `EnergyUsage`는 보존한다.
+2. API가 lifecycle-aware 구역 조회, scan, ACK·멱등성, MQTT v5 commit ACK, energy aggregate와 새 조회 API를 배포한다. timezone은 적산 시작 뒤 잠근다.
+3. gateway가 scan correlation event, desired membership Add/Delete reconciliation과 operation ACK, 완전한 device-status ACK를 새 shared 계약으로 배포한다.
+4. web이 등록·지도 오류·구역 dialog·group 상태·멱등 재시도·Recharts 통계를 전환한다. 기존 estimate API는 deprecated 상태로 한 배포 이상 병행한다.
 5. 자동 테스트, API build, web build, gateway contract test를 통과한 뒤 전용 실장비에서 수동 HIL을 수행한다. HIL 증거가 없으면 메뉴 기능은 코드 검증 완료로만 기록한다.
 
 ## 11. 완료 조건
 
 - provisioning 전 identify는 UI에 없고 API도 상태 변경 없이 명시적으로 미지원 응답을 반환한다.
-- scan session은 correlation 기반 completed/failed/0건 상태를 가지며, 등록 완료 뒤 모니터링 query가 즉시 갱신된다.
+- scan session과 found event는 correlation·attempt를 검증하고 gateway당 검색 하나와 명시적 retry를 보장하며, 등록 완료 뒤 query가 즉시 갱신된다.
 - 지도 최초 조회 오류가 빈 지도와 구분되고 재시도할 수 있다.
-- operator/admin이 한 층·한 gateway 경계와 fixture당 15개 한도 안에서 구역을 관리하고, configuring/failed 구역은 제어할 수 없다.
-- 모든 device-status ACK는 dispatch fixture 집합과 정확히 일치할 때만 성공 또는 부분 성공으로 반영된다.
-- 같은 `clientRequestId`의 같은 제어 요청은 하나의 command만 만들고, 다른 payload는 conflict가 된다.
-- 통계는 상태 기반 추정으로 오늘·이번 달·올해 누적, 일별·월별 LineChart, 이번 달 예상 비용과 24시간 100% baseline 대비 절감 비용을 표시한다.
-- 기존 `EnergyUsage`는 보존되고, 신규 aggregate는 180초 한계·현장 timezone·idempotent upsert 규칙을 만족한다.
+- operator/admin은 active 구역만 관리·제어하며 desired membership Add/Delete가 operation별 ACK로 적용되기 전에는 group 제어가 차단된다.
+- device-status ACK는 fixture 집합과 individual 결과에서 유도한 status가 모두 일치해야 반영된다.
+- 동시 unique 충돌을 포함해 같은 `clientRequestId`·payload는 하나의 command만 만들고 다른 payload는 conflict가 된다.
+- 상태 적산은 `powerOn`, 180초, 열린 구간 투영, Decimal 정밀도와 잠긴 timezone을 지키며 transaction commit 뒤에만 QoS 1 success PUBACK을 보낸다.
+- 통계는 fixture별 3,600초와 site coverage 80%를 충족할 때만 월 forecast·실제 월 초 기준 24시간 baseline 절감 비용을 표시한다.
+- 새 summary/series와 deprecated estimate API가 최소 한 배포 병행되고 `EnergyUsage`는 보존된다.
 - 자동 테스트와 실제 HIL 결과가 문서와 상태판에서 구분되어 기록된다.
