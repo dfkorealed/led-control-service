@@ -93,7 +93,10 @@ describe("MqttShutdownCoordinator", () => {
     }
   });
 
-  it("drains active mesh sync and inbound ACK handling before client.end in the production MQTT module", async () => {
+  it.each([
+    ["when PUBACK callbacks complete", true],
+    ["when PUBACK callbacks never arrive", false]
+  ])("drains active mesh sync and inbound ACK handling before client.end in the production MQTT module %s", async (_case, completeCallbacks) => {
     jest.useFakeTimers({ doNotFake: ["setImmediate"] });
     const meshPublish = deferred<void>();
     const inboundReset = deferred<void>();
@@ -104,10 +107,12 @@ describe("MqttShutdownCoordinator", () => {
 
     let meshPublishCallback: ((error?: Error) => void) | undefined;
     let ackPublishCallback: ((error?: Error) => void) | undefined;
+    let lastMessageId = 0;
     let client: any;
     client = Object.assign(new EventEmitter(), {
       subscribe: jest.fn(),
       publish: jest.fn((topic: string, _payload: string, _options: object, callback: (error?: Error) => void) => {
+        lastMessageId += 1;
         if (topic.endsWith("/commands/mesh-group/subscription-sync")) {
           order.push("mesh-publish-started");
           meshPublishCallback = (error?: Error) => {
@@ -121,7 +126,7 @@ describe("MqttShutdownCoordinator", () => {
         }
         return client;
       }),
-      getLastMessageId: jest.fn(() => 1),
+      getLastMessageId: jest.fn(() => lastMessageId),
       removeOutgoingMessage: jest.fn(),
       end: jest.fn((_force: boolean, callback?: (error?: Error) => void) => {
         order.push("client-end");
@@ -171,6 +176,7 @@ describe("MqttShutdownCoordinator", () => {
     jest.spyOn(scanWorker, "claimBatch").mockResolvedValue([]);
     jest.spyOn(commandTimeout, "closeExpired").mockResolvedValue({ timedOut: 0 });
     const loggerError = jest.spyOn((mqtt as any).logger, "error").mockImplementation(() => undefined);
+    const meshLoggerError = jest.spyOn((meshWorker as any).logger, "error").mockImplementation(() => undefined);
     let closing: Promise<void> | undefined;
 
     try {
@@ -209,19 +215,37 @@ describe("MqttShutdownCoordinator", () => {
       expect(ackPublishCallback).toBeDefined();
       expect(client.end).not.toHaveBeenCalled();
 
-      ackPublishCallback?.(Object.assign(new Error("payload=private-ack"), { code: "PRIVATE_ACK" }));
-      await waitForTurn();
-      expect(client.end).not.toHaveBeenCalled();
+      if (completeCallbacks) {
+        ackPublishCallback?.(Object.assign(new Error("payload=private-ack"), { code: "PRIVATE_ACK" }));
+        await waitForTurn();
+        expect(client.end).not.toHaveBeenCalled();
 
-      meshPublishCallback?.();
-      await meshPublish.promise;
+        meshPublishCallback?.();
+        await meshPublish.promise;
+      } else {
+        await jest.advanceTimersByTimeAsync(9_999);
+        expect(client.end).not.toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(1);
+        expect(client.end).toHaveBeenCalledTimes(1);
+      }
       await closing;
       await waitForTurn();
 
       expect(unhandled).toEqual([]);
       expect(loggerError).toHaveBeenCalledWith("mqtt inbound message handling failed (error=UNEXPECTED_ERROR)");
-      expect(JSON.stringify(loggerError.mock.calls)).not.toContain("private-ack");
+      expect(JSON.stringify(loggerError.mock.calls)).not.toContain(completeCallbacks ? "private-ack" : "timed out");
       expect(order).toEqual(["mesh-publish-started", "ack-publish-started", "client-end"]);
+      if (completeCallbacks) {
+        expect(client.removeOutgoingMessage).not.toHaveBeenCalled();
+      } else {
+        expect(client.removeOutgoingMessage).toHaveBeenNthCalledWith(1, 1);
+        expect(client.removeOutgoingMessage).toHaveBeenNthCalledWith(2, 2);
+        expect(meshLoggerError).toHaveBeenCalledWith(
+          "mesh control group sync publish failed",
+          expect.objectContaining({ error: "UNEXPECTED_ERROR" })
+        );
+        expect(JSON.stringify(meshLoggerError.mock.calls)).not.toContain("timed out");
+      }
       await expect(meshWorker.stopAndDrain()).resolves.toBeUndefined();
     } finally {
       if (client.end.mock.calls.length > 0 && !ackPublishCallback) {

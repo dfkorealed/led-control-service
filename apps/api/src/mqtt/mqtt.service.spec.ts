@@ -213,7 +213,8 @@ describe("MqttService", () => {
         scanCorrelationId,
         scanAttempt: 1,
         ingestedAt: expect.any(String)
-      }
+      },
+      { timeoutMs: 10_000 }
     );
     expect(order).toEqual(["transaction-committed", "ack-published"]);
   });
@@ -268,7 +269,8 @@ describe("MqttService", () => {
         sessionId,
         scanCorrelationId,
         scanAttempt: 1
-      })
+      }),
+      { timeoutMs: 10_000 }
     );
   });
 
@@ -305,7 +307,8 @@ describe("MqttService", () => {
     await expect(service.handleMessage(topic, payload)).resolves.toBeUndefined();
     expect(publishTopic).toHaveBeenCalledWith(
       `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
-      expect.objectContaining({ eventId: "66666666-6666-4666-8666-666666666666", sequence: 2 })
+      expect.objectContaining({ eventId: "66666666-6666-4666-8666-666666666666", sequence: 2 }),
+      { timeoutMs: 10_000 }
     );
   });
 
@@ -355,7 +358,8 @@ describe("MqttService", () => {
     expect(publishTopic).toHaveBeenCalledTimes(2);
     expect(publishTopic).toHaveBeenLastCalledWith(
       `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
-      expect.objectContaining({ eventId: event.eventId, sequence: event.sequence })
+      expect.objectContaining({ eventId: event.eventId, sequence: event.sequence }),
+      { timeoutMs: 10_000 }
     );
   });
 
@@ -811,7 +815,8 @@ describe("MqttService", () => {
         eventId: expect.any(String),
         requestEventId: resyncRequest.eventId,
         occurredAt: expect.any(String)
-      }
+      },
+      { timeoutMs: 10_000 }
     );
     expect(order).toEqual(["groups-reset", "transaction-committed", "ack-published"]);
   });

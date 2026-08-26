@@ -37,6 +37,7 @@ import { parseGatewayTopic } from "./topic-scope";
 const DEVICE_UUID_CONFLICT_ERROR = "device UUID is already registered by another site";
 const FIXTURE_FLOOR_CONFLICT_ERROR = "fixture is already assigned to another floor";
 const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
+const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
 const MQTT_FORCE_CLOSE_TIMEOUT_MS = 1_000;
 
@@ -101,7 +102,7 @@ export class MqttService implements OnModuleInit {
   async publishMeshGroupSubscriptionSync(input: ReturnType<typeof meshGroupSubscriptionSyncSchema.parse>) {
     const payload = meshGroupSubscriptionSyncSchema.parse(input);
     const topic = mqttTopics.meshGroupSubscriptionSync(payload.siteId, payload.gatewayId);
-    await this.publishTopic(topic, payload);
+    await this.publishTopic(topic, payload, { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS });
   }
 
   async publishTopic(
@@ -374,7 +375,8 @@ export class MqttService implements OnModuleInit {
       });
       await this.publishTopic(
         mqttTopicsV2.provisioningScanTerminalIngestedAck(event.siteId, event.gatewayId),
-        acknowledgement
+        acknowledgement,
+        { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS }
       );
       return;
     }
@@ -439,7 +441,11 @@ export class MqttService implements OnModuleInit {
         requestEventId: event.eventId,
         occurredAt: new Date().toISOString()
       });
-      await this.publishTopic(mqttTopicsV2.meshGroupResyncAck(event.siteId, event.gatewayId), ack);
+      await this.publishTopic(
+        mqttTopicsV2.meshGroupResyncAck(event.siteId, event.gatewayId),
+        ack,
+        { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS }
+      );
     }
   }
 
