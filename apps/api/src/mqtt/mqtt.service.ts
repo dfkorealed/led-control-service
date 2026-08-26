@@ -24,7 +24,8 @@ import {
   provisioningScanStartSchema,
   provisioningScanFoundSchema,
   provisioningScanCompletedSchema,
-  provisioningScanFailedSchema
+  provisioningScanFailedSchema,
+  type ApplicationStateIngestedAckV2
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import mqtt, { IClientOptions, MqttClient } from "mqtt";
@@ -253,9 +254,21 @@ export class MqttService implements OnModuleInit {
         done(0);
         return;
       }
-      void this.handleFixtureStatePacket(topic, payload)
-        .then(() => done(0))
-        .catch((error) => this.rejectFixtureStateDelivery(error));
+      if (this.inboundStopped) {
+        this.client?.stream.destroy();
+        return;
+      }
+      let handler!: Promise<void>;
+      handler = this.ingestFixtureStatePacket(topic, payload)
+        .then(({ scope, acknowledgement }) => {
+          done(0);
+          return this.publishFixtureStateAcknowledgement(scope.siteId, scope.gatewayId, acknowledgement).catch((error) => {
+            this.logger.error(`fixture state application ACK publish failed after DB commit (error=${this.errorKind(error)})`);
+          });
+        })
+        .catch((error) => this.rejectFixtureStateDelivery(error))
+        .finally(() => this.activeInboundHandlers.delete(handler));
+      this.activeInboundHandlers.add(handler);
     };
   }
 
@@ -269,6 +282,12 @@ export class MqttService implements OnModuleInit {
   }
 
   async handleFixtureStatePacket(topic: string, payload: Buffer) {
+    const { scope, acknowledgement } = await this.ingestFixtureStatePacket(topic, payload);
+    await this.publishFixtureStateAcknowledgement(scope.siteId, scope.gatewayId, acknowledgement);
+    return acknowledgement;
+  }
+
+  private async ingestFixtureStatePacket(topic: string, payload: Buffer) {
     const scope = parseGatewayTopic(topic);
     const state = fixtureStateV2Schema.parse(JSON.parse(payload.toString()));
     if (!scope || scope.siteId !== state.siteId || scope.gatewayId !== state.gatewayId) {
@@ -279,15 +298,24 @@ export class MqttService implements OnModuleInit {
       ...ingested,
       ingestedAt: new Date().toISOString()
     });
-    await this.publishTopic(mqttTopicsV2.stateIngestedAck(scope.siteId, scope.gatewayId), acknowledgement, {
-      timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS
-    });
-    return acknowledgement;
+    return { scope, acknowledgement };
+  }
+
+  private publishFixtureStateAcknowledgement(
+    siteId: string,
+    gatewayId: string,
+    acknowledgement: ApplicationStateIngestedAckV2
+  ) {
+    return this.publishTopic(
+      mqttTopicsV2.stateIngestedAck(siteId, gatewayId),
+      acknowledgement,
+      { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS }
+    );
   }
 
   async handleMessage(topic: string, payload: Buffer) {
     if (topic.endsWith("/state/fixtures")) {
-      // MQTT 5 customHandleAcks owns this path so broker PUBACK follows the DB commit and application ACK.
+      // MQTT 5 customHandleAcks owns this path so broker PUBACK follows the database commit.
       return;
     }
 

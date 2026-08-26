@@ -6,6 +6,63 @@ const scope = {
 };
 
 describe("MqttService v2 ordered state", () => {
+  it("releases the inbound PUBACK after commit without waiting for the application ACK publish callback", async () => {
+    let releaseApplicationAck!: () => void;
+    const applicationAckPending = new Promise<void>((resolve) => {
+      releaseApplicationAck = resolve;
+    });
+    const ingestion = {
+      ingest: jest.fn().mockResolvedValue({
+        eventId: fixtureEvent(9).eventId,
+        sequence: 9,
+        fixtureId: fixtureEvent(9).fixtureId,
+        status: "ingested"
+      })
+    };
+    const service = new MqttService({} as never, { attachProvisionedNode: jest.fn() } as never, ingestion as never);
+    jest.spyOn(service, "publishTopic").mockReturnValue(applicationAckPending);
+    const done = jest.fn();
+
+    const customHandleAcks = (service as unknown as {
+      createCustomHandleAcks: () => (topic: string, payload: Buffer, packet: { qos: number }, done: (reasonCode: number) => void) => void;
+    }).createCustomHandleAcks();
+    customHandleAcks(
+      `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/fixtures`,
+      Buffer.from(JSON.stringify(fixtureEvent(9))),
+      { qos: 1 },
+      done
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(done).toHaveBeenCalledWith(0);
+    releaseApplicationAck();
+    await service.stopInboundAndDrain();
+  });
+
+  it("rejects new fixture state intake after shutdown drain starts", async () => {
+    const ingestion = { ingest: jest.fn() };
+    const destroy = jest.fn();
+    const service = new MqttService({} as never, { attachProvisionedNode: jest.fn() } as never, ingestion as never);
+    (service as unknown as { client: { stream: { destroy: () => void } } }).client = { stream: { destroy } };
+    const done = jest.fn();
+
+    await service.stopInboundAndDrain();
+    const customHandleAcks = (service as unknown as {
+      createCustomHandleAcks: () => (topic: string, payload: Buffer, packet: { qos: number }, done: (reasonCode: number) => void) => void;
+    }).createCustomHandleAcks();
+    customHandleAcks(
+      `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/fixtures`,
+      Buffer.from(JSON.stringify(fixtureEvent(9))),
+      { qos: 1 },
+      done
+    );
+
+    expect(ingestion.ingest).not.toHaveBeenCalled();
+    expect(done).not.toHaveBeenCalled();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("publishes the exact application ACK only after state transaction commit", async () => {
     const markers: string[] = [];
     const ingestion = {
