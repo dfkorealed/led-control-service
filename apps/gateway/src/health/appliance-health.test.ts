@@ -63,6 +63,8 @@ it("keeps a state outbox capacity blocker sticky across heartbeats until explici
   await health.heartbeatPublished();
 
   await health.setOperationalBlocker("state_outbox_capacity", true);
+  await health.unhealthy("mqtt_error");
+  await expect(health.read()).resolves.toMatchObject({ status: "unhealthy", reason: "state_outbox_capacity" });
   await health.heartbeatPublished();
   await expect(health.read()).resolves.toMatchObject({ status: "unhealthy", reason: "state_outbox_capacity" });
 

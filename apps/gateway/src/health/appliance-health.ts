@@ -129,7 +129,7 @@ export class ApplianceHealth {
     const mapping = mappingValid;
     const lastHeartbeatPublishedAt = this.lastHeartbeatPublishedAt?.toISOString() ?? null;
     const heartbeatFresh = this.isHeartbeatFresh();
-    const failure = reason ?? this.operationalBlockers.values().next().value ?? this.meshResyncFailure;
+    const failure = this.operationalBlockers.values().next().value ?? reason ?? this.meshResyncFailure;
     const status = !this.assignment
       ? "starting-unassigned"
       : this.mqtt && mesh && mapping && heartbeatFresh && !failure

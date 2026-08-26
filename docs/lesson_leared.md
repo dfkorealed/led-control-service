@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-26 / durable outbox 최초 생성과 운영 중 소실 구분
+- **발생했던 문제/실수**: 상태 outbox 파일이 없을 때 항상 빈 파일을 생성해 운영 중 미ACK 이벤트 파일 소실을 정상 first-run으로 오인했고, dimming 이외의 RF 작업은 용량 gate 없이 시작할 수 있었다.
+- **원인**: 파일 존재 여부만으로 초기화 상태를 판단했고 producer마다 별도 용량 확인을 사용했으며 자발 publication을 위한 선예약이 없었다.
+- **해결 및 예방책**: 별도 `0600` manifest와 `0700` 디렉터리로 초기화 이력을 보존하고 missing/corrupt/permission 오류를 health에 명시해 시작을 차단한다. command·scan·identify·provision은 같은 reservation gate를 통과하며, Mesh publication listener는 한 슬롯을 선예약하고 ACK 회복 뒤 재구독·강제 resync한다.
+- **반복 방지 체크**: first-run, restart, outbox-only missing, manifest corrupt, unsafe directory, startup-full, concurrent producer와 ACK 회복 테스트를 한 세트로 유지하고 두 outbox 파일을 같은 백업 단위로 다룬다.
+
 ## 2026-08-26 / application ACK 수렴과 MQTT ACL producer 권한
 - **발생했던 문제/실수**: scan terminal을 MQTT connect 시점에만 재발행해 DB transaction 또는 ACK publish가 한 번 실패한 동일 연결에서는 journal이 영구 undelivered로 남았고, Gateway의 광범위한 `write .../acks/#` 권한이 API 전용 commit ACK self-publish도 허용했다.
 - **원인**: reconnect를 유일한 retry trigger로 보았고 ACK namespace를 consumer 관점의 wildcard로 열어 실제 producer별 권한을 구분하지 않았다.

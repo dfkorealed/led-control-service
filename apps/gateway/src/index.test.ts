@@ -13,9 +13,11 @@ import {
   registerGatewayShutdownHandlers,
   shouldPublishFinalAcceptance,
   shouldPublishFixtureStates,
+  stateEventOutboxHealthReason,
   startGatewayRuntime,
   subscribeGatewayCommands
 } from "./index";
+import { StateEventOutboxError } from "./state/state-event-outbox";
 import { provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
 
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
@@ -191,6 +193,16 @@ describe("startGatewayRuntime", () => {
   it("does not publish fixture-state for a command result without fixture observation", () => {
     expect(shouldPublishFixtureStates({ fixtureStateObserved: false })).toBe(false);
     expect(shouldPublishFixtureStates({ fixtureStateObserved: true })).toBe(true);
+  });
+
+  it.each([
+    ["STATE_OUTBOX_MISSING", "state_outbox_missing"],
+    ["STATE_OUTBOX_CORRUPT", "state_outbox_corrupt"],
+    ["STATE_OUTBOX_MANIFEST_CORRUPT", "state_outbox_corrupt"],
+    ["STATE_OUTBOX_PERMISSIONS", "state_outbox_permissions"],
+    ["STATE_OUTBOX_CAPACITY", "state_outbox_capacity"]
+  ] as const)("maps %s startup failure to an explicit health blocker", (code, expected) => {
+    expect(stateEventOutboxHealthReason(new StateEventOutboxError(code, "failed"))).toBe(expected);
   });
 
   it("records and logs a mixed startup resync outcome", async () => {

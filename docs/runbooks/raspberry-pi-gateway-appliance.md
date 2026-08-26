@@ -244,7 +244,23 @@ docker exec led-control-gateway dbus-send --system --print-reply \
 - `STATUS_TIMEOUT`: 전송 성공이 아니라 ESP32 Status 미수신이다. 거리, relay, 모델 bind를 확인한다.
 - `mqtt_disconnected`: URL, CA, client certificate, broker ACL, Pi 시간을 확인한다.
 - `dbus_owner_missing`, `bluez_not_attached`, `hci_not_powered`, `mapping_invalid`, `heartbeat_stale`: `health.json`의 probe 필드를 먼저 확인한다. `hci_not_powered`이면 `bluetoothctl show`와 `rfkill list bluetooth`를 확인하고, mapping 오류면 파일을 수동 편집하지 말고 backup 복원 또는 명시적 재-provision 절차를 따른다.
+- `state_outbox_capacity`: 미ACK 상태 이벤트가 `100,000건` 또는 `100MiB` 한도에 도달했다. MQTT/API를 먼저 복구해 application ACK drain을 완료한다. 공간이 회복되면 Gateway가 Mesh publication listener를 다시 열고 강제 상태 resync를 수행하므로 outbox 파일을 삭제하지 않는다.
+- `state_outbox_missing`, `state_outbox_corrupt`, `state_outbox_permissions`: 조명 제어와 provisioning을 계속하지 않는다. `/var/lib/led-control/state-event-outbox.json`과 `.manifest.json`을 같은 시점의 `data/gateway` 백업에서 함께 복원하고, 상위 디렉터리 `0700`, 두 파일 `0600`, 소유자 `gateway`를 확인한 뒤 재시작한다.
 - token/mesh DB 손상: 임의 재생성하지 말고 같은 시점 백업을 복원하거나 현장 전체를 명시적으로 재-provision한다.
+
+outbox 백업이 없어 복원이 불가능하면 담당 운영자의 데이터 유실 승인과 장애 기록이 필요하다. 컨테이너를 중지하고 현재 파일을 별도 보관한 뒤 **두 파일을 함께** 제거해야만 새 first-run으로 초기화할 수 있다. 이 절차는 미ACK 이벤트를 복구하지 못하며 API 통계에는 마지막 정상 상태 이후 구간이 unknown으로 남는다. 재시작 후 강제 resync 결과와 현장 조명 상태를 대조하기 전에는 제어·등록을 재개하지 않는다.
+
+```bash
+cd /opt/led-control/gateway
+docker compose -f compose.yml stop gateway-appliance
+sudo tar --ignore-failed-read -C /opt/led-control/data/gateway \
+  -czf "state-outbox-incident-$(date +%Y%m%d%H%M%S).tgz" \
+  state-event-outbox.json state-event-outbox.json.manifest.json
+sudo rm -f /opt/led-control/data/gateway/state-event-outbox.json \
+  /opt/led-control/data/gateway/state-event-outbox.json.manifest.json
+sudo chmod 0700 /opt/led-control/data/gateway
+docker compose --env-file .env.appliance -f compose.yml up -d gateway-appliance
+```
 
 ## 13. 양산 판정 관문
 

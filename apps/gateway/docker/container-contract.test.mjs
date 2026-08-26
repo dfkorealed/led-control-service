@@ -27,6 +27,7 @@ test("appliance runtime은 Node 22와 전용 non-root gateway 사용자를 사�
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/local\/bin\/gateway-entrypoint"\]/);
   assert.match(entrypoint, /-S \/run\/dbus\/system_bus_socket/);
   assert.match(entrypoint, /^umask 077$/m);
+  assert.match(entrypoint, /chmod 0700 \/var\/lib\/led-control/);
   expectOrder(entrypoint, "umask 077", "mkdir -p");
   expectOrder(entrypoint, "-S /run/dbus/system_bus_socket", "bluetooth-meshd --nodetach");
 });

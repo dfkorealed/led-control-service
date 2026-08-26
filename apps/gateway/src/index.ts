@@ -35,7 +35,9 @@ import { handleGatewayDimmingCommand, parseCommandTimeout, type GatewayCommandRe
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { ProvisioningScanJournal } from "./state/provisioning-scan-journal";
 import {
+  StateEventCapacityGate,
   StateEventOutbox,
+  StateEventOutboxError,
   StateEventOutboxPublisher,
   type StateEventCapacityReservation
 } from "./state/state-event-outbox";
@@ -96,7 +98,18 @@ async function main() {
     process.env.GATEWAY_STATE_EVENT_OUTBOX_PATH ?? "/var/lib/led-control/state-event-outbox.json",
     { siteId, gatewayId }
   );
-  await stateEventOutbox.initialize();
+  try {
+    await stateEventOutbox.initialize();
+  } catch (error) {
+    await health.setOperationalBlocker(stateEventOutboxHealthReason(error), true);
+    throw error;
+  }
+  const stateEventCapacity = new StateEventCapacityGate(stateEventOutbox, {
+    payloadBytesPerEvent: STATE_EVENT_RESERVATION_BYTES,
+    onBlocked: (reason) => health.setOperationalBlocker(reason, true),
+    onRecovered: () => health.setOperationalBlocker("state_outbox_capacity", false)
+  });
+  await stateEventCapacity.initialize();
   const stateEventPublisher = new StateEventOutboxPublisher(stateEventOutbox, {
     onError: (error) => void reportGatewayError(error, "state_event_outbox_retry")
   });
@@ -140,13 +153,8 @@ async function main() {
           groupQueue,
           beforeExecution: async () => {
             try {
-              stateReservation = await stateEventOutbox.reserve(command.targetFixtureIds.map((fixtureId) => ({
-                fixtureId,
-                payloadBytes: STATE_EVENT_RESERVATION_BYTES
-              })));
-              await health.setOperationalBlocker("state_outbox_capacity", false);
+              stateReservation = await stateEventCapacity.reserve(command.targetFixtureIds);
             } catch (error) {
-              await health.setOperationalBlocker("state_outbox_capacity", true);
               throw error;
             }
           }
@@ -182,7 +190,7 @@ async function main() {
       await stateEventOutbox.enqueue(state, reservation);
       stateEventPublisher.wake();
     } catch (error) {
-      await health.setOperationalBlocker("state_outbox_capacity", true);
+      await stateEventCapacity.block();
       throw error;
     }
   }
@@ -195,38 +203,71 @@ async function main() {
 
   async function handleProvisioningScanPayload(payload: Buffer, source: GatewayMqttClient) {
     const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
-    try {
-      await handleDurableProvisioningScan({
-        adapter: scannerAdapter,
-        journal: provisioningScanJournal,
-        command,
-        nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
-        publish: (topic, event) => publish(source, topic, event),
-        onTerminalPersisted: () => provisioningScanRecovery.scheduleRetry()
-      });
-    } finally {
-      provisioningScanRecovery.scheduleRetry();
-    }
+    return stateEventCapacity.run(["*"], async () => {
+      try {
+        await handleDurableProvisioningScan({
+          adapter: scannerAdapter,
+          journal: provisioningScanJournal,
+          command,
+          nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
+          publish: (topic, event) => publish(source, topic, event),
+          onTerminalPersisted: () => provisioningScanRecovery.scheduleRetry()
+        });
+      } finally {
+        provisioningScanRecovery.scheduleRetry();
+      }
+    });
   }
 
   async function handleIdentifyPayload(payload: Buffer, _source: GatewayMqttClient) {
     const command = identifyDeviceSchema.parse(JSON.parse(payload.toString()));
-    await applyIdentifyDevice(provisioningAdapter, command);
+    await stateEventCapacity.run(["*"], () => applyIdentifyDevice(provisioningAdapter, command));
   }
 
   async function handleProvisionDevicePayload(payload: Buffer, source: GatewayMqttClient) {
     return provisioningQueue.run(async () => {
       const command = provisionDeviceSchema.parse(JSON.parse(payload.toString()));
-      const result = await applyProvisionDevice(provisioningAdapter, command);
-      if (result.completed) {
-        source.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
-        return;
-      }
-      if (result.failed) {
-        source.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
-      }
+      return stateEventCapacity.run(["*"], async () => {
+        const result = await applyProvisionDevice(provisioningAdapter, command);
+        if (result.completed) {
+          source.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
+          return;
+        }
+        if (result.failed) {
+          source.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
+        }
+      });
     });
   }
+
+  let fixtureStatusReservation: StateEventCapacityReservation | undefined;
+  let stopFixtureStatusIntake: (() => void) | undefined;
+
+  async function armFixtureStatusIntake(reservation?: StateEventCapacityReservation) {
+    if (fixtureStatusReservation || stopFixtureStatusIntake) return;
+    fixtureStatusReservation = reservation ?? await stateEventCapacity.reserve(["*"]);
+    stopFixtureStatusIntake = adapter.onFixtureStatus((status) => {
+      const currentReservation = fixtureStatusReservation;
+      fixtureStatusReservation = undefined;
+      stopFixtureStatusIntake?.();
+      stopFixtureStatusIntake = undefined;
+      if (!currentReservation) {
+        void stateEventCapacity.block();
+        return;
+      }
+      const publishFixtureStatus = createFixtureStatusPublisher({
+        siteId,
+        gatewayId,
+        eventSequence,
+        publish: (_topic, state) => enqueueFixtureState(state, currentReservation)
+      });
+      void publishFixtureStatus(status)
+        .then(() => armFixtureStatusIntake())
+        .catch((error) => void reportGatewayError(error, "mesh_fixture_status"));
+    });
+  }
+
+  if (!stateEventCapacity.isBlocked()) await armFixtureStatusIntake();
 
   const groupSubscriptionHandler = new GroupSubscriptionHandler(
     adapter,
@@ -268,9 +309,13 @@ async function main() {
       [mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId)]: (payload) =>
         provisioningScanRecovery.acknowledgeTerminal(JSON.parse(payload.toString())),
       [mqttTopicsV2.stateIngestedAck(siteId, gatewayId)]: async (payload) => {
-        await stateEventPublisher.acknowledge(JSON.parse(payload.toString()));
-        if (await stateEventOutbox.canAcceptIntake()) {
-          await health.setOperationalBlocker("state_outbox_capacity", false);
+        const removed = await stateEventPublisher.acknowledge(JSON.parse(payload.toString()));
+        if (removed && stateEventCapacity.isBlocked()) {
+          const reservation = await stateEventCapacity.recoverAndReserve(["*"]);
+          if (reservation) {
+            await armFixtureStatusIntake(reservation);
+            await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
+          }
         }
       }
     },
@@ -293,15 +338,6 @@ async function main() {
     onError: () => health.unhealthy("mqtt_error"),
     onRuntimeError: reportGatewayError
   });
-  const publishFixtureStatus = createFixtureStatusPublisher({
-    siteId,
-    gatewayId,
-    eventSequence,
-    publish: (_topic, state) => enqueueFixtureState(state)
-  });
-  adapter.onFixtureStatus((status) => {
-    void publishFixtureStatus(status).catch((error) => void reportGatewayError(error, "mesh_fixture_status"));
-  });
   adapter.onResyncReport?.((report) => {
     void recordMeshResyncOutcome(health, report).catch((error) => void reportGatewayError(error, "mesh_resync"));
   });
@@ -309,6 +345,7 @@ async function main() {
   const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
   registerGatewayShutdownHandlers({
     stop: async () => {
+      stopFixtureStatusIntake?.();
       stateEventPublisher.disconnect();
       await mqttRuntime.stop();
     }
@@ -317,6 +354,21 @@ async function main() {
   function reportGatewayError(error: unknown, context: string) {
     console.error(`Gateway MQTT ${context} failed`, error);
     return health.unhealthy("mqtt_error");
+  }
+}
+
+export function stateEventOutboxHealthReason(error: unknown) {
+  if (!(error instanceof StateEventOutboxError)) return "state_outbox_corrupt";
+  switch (error.code) {
+    case "STATE_OUTBOX_MISSING":
+      return "state_outbox_missing";
+    case "STATE_OUTBOX_PERMISSIONS":
+      return "state_outbox_permissions";
+    case "STATE_OUTBOX_CAPACITY":
+      return "state_outbox_capacity";
+    case "STATE_OUTBOX_CORRUPT":
+    case "STATE_OUTBOX_MANIFEST_CORRUPT":
+      return "state_outbox_corrupt";
   }
 }
 

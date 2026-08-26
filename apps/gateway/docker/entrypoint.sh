@@ -5,6 +5,7 @@ umask 077
 mkdir -p /run/dbus /var/run/led-control /var/lib/bluetooth/mesh /var/lib/led-control \
   /var/lib/led-control/identity/device /var/lib/led-control/identity/mqtt
 chmod 0750 /var/lib/led-control/identity /var/lib/led-control/identity/device /var/lib/led-control/identity/mqtt
+chmod 0700 /var/lib/led-control
 chown gateway:gateway /var/lib/led-control /var/lib/led-control/identity \
   /var/lib/led-control/identity/device /var/lib/led-control/identity/mqtt /var/run/led-control
 rm -f /run/dbus/system_bus_socket
