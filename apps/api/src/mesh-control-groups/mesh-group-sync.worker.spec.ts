@@ -1,7 +1,7 @@
 import { MeshGroupSyncWorker } from "./mesh-group-sync.worker";
 
 describe("MeshGroupSyncWorker", () => {
-  it("publishes only configuring groups that still have members and can republish the same version", async () => {
+  it("publishes complete desired membership, including an empty set, and can republish the same version", async () => {
     const prisma: any = {
       meshControlGroup: {
         findMany: jest.fn().mockResolvedValue([
@@ -44,6 +44,7 @@ describe("MeshGroupSyncWorker", () => {
         configurationVersion: true,
         gateway: { select: { siteId: true } },
         members: {
+          where: { desired: true },
           orderBy: [{ meshNodeId: "asc" }],
           select: {
             meshNodeId: true,
@@ -52,14 +53,14 @@ describe("MeshGroupSyncWorker", () => {
         }
       }
     });
-    expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenCalledTimes(2);
+    expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenCalledTimes(4);
     expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenNthCalledWith(1, {
       siteId: "00000000-0000-4000-8000-000000000103",
       gatewayId: "00000000-0000-4000-8000-000000000102",
       groupId: "00000000-0000-4000-8000-000000000101",
       version: 2,
       groupAddress: "0xc000",
-      members: [
+      desiredMembers: [
         {
           meshNodeId: "00000000-0000-4000-8000-000000000104",
           meshAddress: "0x0100"
@@ -67,6 +68,10 @@ describe("MeshGroupSyncWorker", () => {
       ],
       requestedAt: expect.any(String)
     });
+    expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      groupId: "00000000-0000-4000-8000-000000000201",
+      desiredMembers: []
+    }));
   });
 
   it("logs and continues publishing later groups when an earlier group publish fails", async () => {

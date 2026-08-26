@@ -196,7 +196,7 @@ interface BleMeshCommandReport {
 {"deviceUuid":"esp32h2-b2-001","serialNumber":"LC-B2-001","rssi":-61,"oobCapability":"static-oob","firmwareVersion":"esp32h2-0.1.0"}
 ```
 
-gateway는 `sessionId`와 `discoveredAt`을 보강해 `unprovisioned-device-found` 이벤트로 발행한다.
+gateway는 `eventId`, `sequence`, `occurredAt`를 보강한 v2 `scan-found` 이벤트로 발견 결과를 발행한다.
 
 `GATEWAY_PROVISION_COMMAND`는 한 노드 provisioning, AppKey bind, model subscription, publication 설정을 완료한 뒤 결과 한 줄을 출력한다.
 

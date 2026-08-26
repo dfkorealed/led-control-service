@@ -5,6 +5,7 @@ import {
   encodeCompositionDataGet,
   encodeModelAppBind,
   encodeModelSubscriptionAdd,
+  encodeModelSubscriptionDelete,
   encodePublicationPeriod,
   encodeModelPublicationSet,
   parseAppKeyStatus,
@@ -132,6 +133,21 @@ export class BluezConfigClient {
       status.groupAddress !== input.groupAddress ||
       status.modelId !== modelId
     ) {
+      throw new Error("Config Model Subscription Status does not match the request");
+    }
+    return status;
+  }
+
+  async removeModelSubscription(input: { unicast: number; groupAddress: number; modelId?: number }) {
+    const modelId = input.modelId ?? LIGHT_LIGHTNESS_SERVER_MODEL_ID;
+    const status = await this.sendDevKeyAndWait(
+      input.unicast,
+      encodeModelSubscriptionDelete(input.unicast, input.groupAddress, modelId),
+      CONFIG_OPCODES.modelSubscriptionStatus,
+      parseModelSubscriptionStatus,
+      createModelSubscriptionStatusMatcher({ elementAddress: input.unicast, groupAddress: input.groupAddress, modelId })
+    );
+    if (status.elementAddress !== input.unicast || status.groupAddress !== input.groupAddress || status.modelId !== modelId) {
       throw new Error("Config Model Subscription Status does not match the request");
     }
     return status;

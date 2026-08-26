@@ -132,6 +132,10 @@ describe("Prisma domain schema", () => {
     expect(migration).toContain('ADD CONSTRAINT "FixtureEnergyDailyAggregate_nonnegative_seconds_check"');
     expect(migration).toContain('CREATE UNIQUE INDEX "Command_siteId_requestedBy_clientRequestId_key"');
     expect(migration).toMatch(/encode\(\s*digest\(/);
+    expect(migration).toContain('ALTER COLUMN "lifecycleStatus" SET DEFAULT \'active\'');
+    expect(migration).toContain('CREATE FUNCTION "assert_previous_active_fixture_group_integrity"');
+    expect(migration).toContain('CREATE FUNCTION "assert_fixture_active_group_integrity"');
+    expect(migration).toContain('HAVING COUNT(*) > 15');
   });
 
   it("keeps every legacy organization as a customer and demotes legacy privileged roles", () => {

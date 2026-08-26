@@ -12,13 +12,13 @@ describe("gateway provisioning", () => {
       siteId: "22222222-2222-4222-8222-222222222222",
       gatewayId: "33333333-3333-4333-8333-333333333333",
       floorId: "44444444-4444-4444-8444-444444444444",
-      requestedBy: "55555555-5555-4555-8555-555555555555",
+      scanCorrelationId: "55555555-5555-4555-8555-555555555555",
+      scanAttempt: 1,
       requestedAt: "2026-07-01T00:00:00.000Z"
     });
 
     expect(nodes).toHaveLength(2);
     expect(nodes[0]).toMatchObject({
-      sessionId: "11111111-1111-4111-8111-111111111111",
       deviceUuid: "esp32h2-b1-001",
       serialNumber: "LC-B1-001",
       oobCapability: "static-oob"

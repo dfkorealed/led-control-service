@@ -138,7 +138,7 @@ describe("handleGatewayDimmingCommand", () => {
         groupId: command.targetId,
         version: 1,
         groupAddress: "0xc000",
-        members: [],
+        operations: [],
         occurredAt: new Date().toISOString()
       }))
     };

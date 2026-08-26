@@ -14,6 +14,12 @@ export const mqttTopicsV2 = {
   deviceStatusAck: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/acks/device-status`,
   stateIngestedAck: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`,
+  provisioningScanFound: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`,
+  provisioningScanCompleted: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`,
+  provisioningScanFailed: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`,
   fixtureState: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/fixtures`,
   heartbeat: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/heartbeat`,
   meshGroupResyncRequest: (siteId: string, gatewayId: string) =>

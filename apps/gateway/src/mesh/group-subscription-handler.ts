@@ -12,7 +12,7 @@ export class GroupSubscriptionHandler {
   constructor(
     private readonly adapter: Pick<BleMeshAdapter, "syncGroupSubscriptions">,
     private readonly scope: { siteId: string; gatewayId: string },
-    private readonly stateStore: Pick<GroupStateStore, "writeConfiguring" | "writeReady" | "writeFailed">,
+    private readonly stateStore: Pick<GroupStateStore, "readAppliedMembers" | "writeConfiguring" | "writeReady" | "writeFailed">,
     private readonly queue: Pick<KeyedSerialTaskQueue, "run">
   ) {}
 
@@ -23,6 +23,7 @@ export class GroupSubscriptionHandler {
     }
 
     await this.queue.run(command.groupId, async () => {
+      const appliedMembers = await this.stateStore.readAppliedMembers(command.groupId);
       const identity: GroupStateIdentity = {
         groupId: command.groupId,
         groupAddress: command.groupAddress,
@@ -31,10 +32,9 @@ export class GroupSubscriptionHandler {
       await this.stateStore.writeConfiguring(identity);
       let result;
       try {
-        result = meshGroupSubscriptionResultSchema.parse(await this.adapter.syncGroupSubscriptions(command));
+        result = meshGroupSubscriptionResultSchema.parse(await this.adapter.syncGroupSubscriptions(command, appliedMembers));
         assertResultIdentity(command, result);
-        assertResultMembers(command.members, result.members);
-        if (result.members.every((member) => member.status === "ready")) await this.stateStore.writeReady(identity);
+        if (result.operations.every((operation) => operation.status === "ready")) await this.stateStore.writeReady(identity, command.desiredMembers);
         else await this.stateStore.writeFailed(identity);
       } catch (error) {
         await this.stateStore.writeFailed(identity).catch(() => undefined);
@@ -49,22 +49,6 @@ export class GroupSubscriptionHandler {
         );
       });
     });
-  }
-}
-
-function assertResultMembers(
-  commandMembers: Array<{ meshNodeId: string }>,
-  resultMembers: Array<{ meshNodeId: string }>
-) {
-  const expected = commandMembers.map((member) => member.meshNodeId);
-  const actual = resultMembers.map((member) => member.meshNodeId);
-  if (
-    new Set(expected).size !== expected.length ||
-    new Set(actual).size !== actual.length ||
-    actual.length !== expected.length ||
-    actual.some((memberId) => !expected.includes(memberId))
-  ) {
-    throw new Error("mesh group subscription result member mismatch");
   }
 }
 

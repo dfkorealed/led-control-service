@@ -29,7 +29,12 @@ export class StubBleMeshAdapter implements BleMeshAdapter {
       groupId: command.groupId,
       version: command.version,
       groupAddress: command.groupAddress,
-      members: command.members.map((member) => ({ meshNodeId: member.meshNodeId, status: "ready" as const })),
+      operations: command.desiredMembers.map((member) => ({
+        operationId: `99999999-9999-4999-8999-${member.meshNodeId.replaceAll("-", "").slice(-12)}`,
+        action: "add" as const,
+        meshNodeId: member.meshNodeId,
+        status: "ready" as const
+      })),
       occurredAt: new Date().toISOString()
     };
   }
@@ -45,13 +50,11 @@ export class StubProvisioningScannerAdapter implements ProvisioningScannerAdapte
     return Array.from({ length: count }, (_, index) => {
       const sequence = String(index + 1).padStart(3, "0");
       return {
-        sessionId: command.sessionId,
         deviceUuid: `esp32h2-${floorCode}-${sequence}`,
         serialNumber: `LC-${serialFloorCode}-${sequence}`,
         rssi: -54 - index * 3,
         oobCapability: "static-oob" as const,
-        firmwareVersion: "esp32h2-test-0.1.0",
-        discoveredAt: new Date().toISOString()
+        firmwareVersion: "esp32h2-test-0.1.0"
       };
     });
   }

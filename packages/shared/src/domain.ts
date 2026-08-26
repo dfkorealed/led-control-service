@@ -10,15 +10,6 @@ export type ProvisioningNodeStatus =
   | "reconcile_required";
 export type ProvisioningSessionStatus = "active" | "completed" | "failed" | "cancelled";
 
-export interface ProvisioningScanStartPayload {
-  sessionId: string;
-  siteId: string;
-  gatewayId: string;
-  floorId: string;
-  requestedBy: string;
-  requestedAt: string;
-}
-
 export interface IdentifyDevicePayload {
   sessionId: string;
   siteId: string;
@@ -36,16 +27,6 @@ export interface ProvisionDevicePayload {
   deviceUuid: string;
   meshAddress: string;
   requestedAt: string;
-}
-
-export interface UnprovisionedDeviceFoundPayload {
-  sessionId: string;
-  deviceUuid: string;
-  serialNumber: string;
-  rssi: number;
-  oobCapability: "none" | "static-oob" | "output-oob" | "input-oob";
-  firmwareVersion: string;
-  discoveredAt: string;
 }
 
 export interface ProvisioningCompletedPayload {

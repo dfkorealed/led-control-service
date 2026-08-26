@@ -388,6 +388,7 @@ export const provisioningScanStartSchema = z.object({
   floorId: z.string().uuid(),
   requestedAt: z.string().datetime()
 }).strict();
+export type ProvisioningScanStartPayload = z.infer<typeof provisioningScanStartSchema>;
 
 export const identifyDeviceSchema = z.object({
   sessionId: z.string().uuid(),
@@ -408,19 +409,27 @@ export const provisionDeviceSchema = z.object({
   requestedAt: z.string().datetime()
 });
 
-export const unprovisionedDeviceFoundSchema = z.object({
+const provisioningScanFoundDeviceSchema = z.object({
+  deviceUuid: z.string().min(1),
+  serialNumber: z.string().min(1),
+  rssi: z.number().max(0),
+  oobCapability: z.enum(["none", "static-oob", "output-oob", "input-oob"]),
+  firmwareVersion: z.string().min(1)
+}).strict();
+
+export const provisioningScanFoundSchema = z.object({
   sessionId: z.string().uuid(),
   scanCorrelationId: z.string().uuid(),
   scanAttempt: positiveInt4Schema,
   siteId: z.string().uuid(),
   gatewayId: z.string().uuid(),
-  deviceUuid: z.string().min(1),
-  serialNumber: z.string().min(1),
-  rssi: z.number().max(0),
-  oobCapability: z.enum(["none", "static-oob", "output-oob", "input-oob"]),
-  firmwareVersion: z.string().min(1),
-  discoveredAt: z.string().datetime()
+  eventId: z.string().uuid(),
+  sequence: nonnegativeInt4Schema,
+  occurredAt: z.string().datetime(),
+  ...provisioningScanFoundDeviceSchema.shape
 }).strict();
+export type ProvisioningScanFoundPayload = z.infer<typeof provisioningScanFoundSchema>;
+export type ProvisioningScanFoundDevice = z.infer<typeof provisioningScanFoundDeviceSchema>;
 
 const provisioningScanTerminalFields = {
   siteId: z.string().uuid(),
@@ -471,12 +480,28 @@ export const provisioningFailedSchema = z.object({
 
 const meshAddressSchema = z.string().regex(/^0x[0-9a-f]{4}$/i);
 
-export const meshGroupSubscriptionOperationSchema = z.object({
-  operationId: z.string().uuid(),
-  action: z.enum(["add", "delete"]),
+export const meshGroupDesiredMemberSchema = z.object({
   meshNodeId: z.string().uuid(),
   meshAddress: meshAddressSchema
 }).strict();
+
+function assertUniqueMeshNodeIds(
+  members: Array<{ meshNodeId: string }>,
+  context: z.RefinementCtx,
+  fieldName: string
+) {
+  const seen = new Set<string>();
+  members.forEach((member, index) => {
+    if (seen.has(member.meshNodeId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [fieldName, index, "meshNodeId"],
+        message: `${fieldName} must be unique by meshNodeId`
+      });
+    }
+    seen.add(member.meshNodeId);
+  });
+}
 
 export const meshGroupSubscriptionSyncSchema = z.object({
   siteId: z.string().uuid(),
@@ -484,9 +509,9 @@ export const meshGroupSubscriptionSyncSchema = z.object({
   groupId: z.string().uuid(),
   version: positiveInt4Schema,
   groupAddress: meshAddressSchema,
-  operations: z.array(meshGroupSubscriptionOperationSchema).min(1).max(100),
+  desiredMembers: z.array(meshGroupDesiredMemberSchema).max(100),
   requestedAt: z.string().datetime()
-}).strict();
+}).strict().superRefine((input, context) => assertUniqueMeshNodeIds(input.desiredMembers, context, "desiredMembers"));
 
 export const meshGroupSubscriptionResultOperationSchema = z.object({
   operationId: z.string().uuid(),
@@ -502,12 +527,66 @@ export const meshGroupSubscriptionResultSchema = z.object({
   groupId: z.string().uuid(),
   version: positiveInt4Schema,
   groupAddress: meshAddressSchema,
-  operations: z.array(meshGroupSubscriptionResultOperationSchema).min(1).max(100),
+  operations: z.array(meshGroupSubscriptionResultOperationSchema).max(100),
   occurredAt: z.string().datetime()
-}).strict();
+}).strict().superRefine((input, context) => assertUniqueMeshNodeIds(input.operations, context, "operations"));
 
 export type MeshGroupSubscriptionSyncPayload = z.infer<typeof meshGroupSubscriptionSyncSchema>;
 export type MeshGroupSubscriptionResultPayload = z.infer<typeof meshGroupSubscriptionResultSchema>;
+
+export const fixtureGroupLifecycleStatusSchema = z.enum(["active", "retiring", "retired", "invalid"]);
+const fixtureGroupInputFields = {
+  name: z.string().trim().min(1).max(200),
+  floorId: z.string().uuid(),
+  gatewayId: z.string().uuid(),
+  fixtureIds: z.array(z.string().uuid()).min(1).max(100)
+};
+export const createFixtureGroupSchema = z.object(fixtureGroupInputFields).strict().superRefine((input, context) =>
+  assertUniqueMeshNodeIds(input.fixtureIds.map((meshNodeId) => ({ meshNodeId })), context, "fixtureIds")
+);
+export const updateFixtureGroupSchema = createFixtureGroupSchema;
+export const fixtureGroupMetadataSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  floorId: z.string().uuid().nullable(),
+  gatewayId: z.string().uuid().nullable(),
+  lifecycleStatus: fixtureGroupLifecycleStatusSchema,
+  fixtureCount: nonnegativeInt4Schema,
+  meshControlGroup: z.object({
+    status: z.enum(["configuring", "ready", "failed", "retiring", "retired"]),
+    version: nonnegativeInt4Schema,
+    error: z.string().nullable()
+  }).nullable()
+}).strict();
+export type CreateFixtureGroupInput = z.infer<typeof createFixtureGroupSchema>;
+export type UpdateFixtureGroupInput = z.infer<typeof updateFixtureGroupSchema>;
+export type FixtureGroupMetadata = z.infer<typeof fixtureGroupMetadataSchema>;
+
+export const energyPeriodSchema = z.enum(["day", "month", "year"]);
+export const energyDataStatusSchema = z.enum(["no_data", "partial", "available"]);
+export const energySourceSchema = z.literal("state_based_estimate");
+export const energySummarySchema = z.object({
+  source: energySourceSchema,
+  period: energyPeriodSchema,
+  generatedAt: z.string().datetime(),
+  estimatedKwh: z.number().nullable(),
+  estimatedCost: z.number().nullable(),
+  knownSeconds: nonnegativeInt4Schema,
+  unknownSeconds: nonnegativeInt4Schema,
+  dataStatus: energyDataStatusSchema
+}).strict();
+export const energySeriesPointSchema = z.object({
+  source: energySourceSchema,
+  period: z.string().min(1),
+  estimatedKwh: z.number().nullable(),
+  estimatedCost: z.number().nullable(),
+  knownSeconds: nonnegativeInt4Schema,
+  unknownSeconds: nonnegativeInt4Schema,
+  dataStatus: energyDataStatusSchema
+}).strict();
+export type EnergyPeriod = z.infer<typeof energyPeriodSchema>;
+export type EnergySummary = z.infer<typeof energySummarySchema>;
+export type EnergySeriesPoint = z.infer<typeof energySeriesPointSchema>;
 
 const fixtureIdSchema = z.string().uuid();
 const multipleFixturesTargetSchema = z.object({

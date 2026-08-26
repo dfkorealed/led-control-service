@@ -10,7 +10,13 @@ export interface GroupStateIdentity {
 
 export interface DurableGroupState extends GroupStateIdentity {
   status: GroupStateStatus;
+  members: GroupStateMember[];
   updatedAt: string;
+}
+
+export interface GroupStateMember {
+  meshNodeId: string;
+  meshAddress: string;
 }
 
 export type GroupStateRestoreReason = "startup" | "first_run" | "state_missing" | "state_corrupt";
@@ -67,12 +73,18 @@ export class GroupStateStore {
     return this.update(identity, "configuring", true);
   }
 
-  writeReady(identity: GroupStateIdentity) {
-    return this.update(identity, "ready", false);
+  writeReady(identity: GroupStateIdentity, members: GroupStateMember[] = []) {
+    return this.update(identity, "ready", false, members);
   }
 
   writeFailed(identity: GroupStateIdentity) {
     return this.update(identity, "failed", false);
+  }
+
+  async readAppliedMembers(groupId: string): Promise<GroupStateMember[]> {
+    await this.initialize();
+    const group = this.available ? this.state.groups.find((candidate) => candidate.groupId === groupId) : undefined;
+    return group?.status === "ready" ? group.members.map((member) => ({ ...member })) : [];
   }
 
   private async restore(): Promise<{ reason: GroupStateRestoreReason }> {
@@ -115,7 +127,7 @@ export class GroupStateStore {
     }
   }
 
-  private update(identity: GroupStateIdentity, status: GroupStateStatus, allowRecovery: boolean) {
+  private update(identity: GroupStateIdentity, status: GroupStateStatus, allowRecovery: boolean, members?: GroupStateMember[]) {
     return this.exclusive(async () => {
       await this.initialize();
       validateIdentity(identity);
@@ -148,7 +160,13 @@ export class GroupStateStore {
         throw new GroupStateError("MESH_GROUP_NOT_READY", "mesh group terminal state does not match the configuring snapshot");
       }
 
-      const nextGroup: DurableGroupState = { ...identity, groupAddress: identity.groupAddress.toLowerCase(), status, updatedAt: this.now() };
+      const nextGroup: DurableGroupState = {
+        ...identity,
+        groupAddress: identity.groupAddress.toLowerCase(),
+        status,
+        members: (members ?? existing?.members ?? []).map(parseMember),
+        updatedAt: this.now()
+      };
       if (existingIndex < 0) groups.push(nextGroup);
       else groups[existingIndex] = nextGroup;
       if (groups.length > 1_000) throw new Error("mesh group state exceeds the supported limit");
@@ -208,7 +226,16 @@ function parseGroup(value: unknown): DurableGroupState {
   if (typeof value.updatedAt !== "string" || Number.isNaN(Date.parse(value.updatedAt))) {
     throw new Error("invalid mesh group update time");
   }
-  return { ...(identity as GroupStateIdentity), groupAddress: (identity.groupAddress as string).toLowerCase(), status: value.status, updatedAt: value.updatedAt };
+  // Older durable snapshots did not record memberships; treat them as empty so the next cloud snapshot safely reapplies it.
+  const members = value.members === undefined ? [] : Array.isArray(value.members) ? value.members.map(parseMember) : (() => { throw new Error("invalid mesh group members"); })();
+  return { ...(identity as GroupStateIdentity), groupAddress: (identity.groupAddress as string).toLowerCase(), status: value.status, members, updatedAt: value.updatedAt };
+}
+
+function parseMember(value: unknown): GroupStateMember {
+  if (!isRecord(value) || typeof value.meshNodeId !== "string" || !/^0x[0-9a-f]{4}$/i.test(String(value.meshAddress))) {
+    throw new Error("invalid mesh group member");
+  }
+  return { meshNodeId: value.meshNodeId, meshAddress: String(value.meshAddress).toLowerCase() };
 }
 
 function validateIdentity(identity: GroupStateIdentity) {

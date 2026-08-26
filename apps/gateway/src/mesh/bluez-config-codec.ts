@@ -5,6 +5,7 @@ export const CONFIG_OPCODES = {
   modelAppBind: Uint8Array.from([0x80, 0x3d]),
   modelAppStatus: Uint8Array.from([0x80, 0x3e]),
   modelSubscriptionAdd: Uint8Array.from([0x80, 0x1b]),
+  modelSubscriptionDelete: Uint8Array.from([0x80, 0x1c]),
   modelSubscriptionStatus: Uint8Array.from([0x80, 0x1f]),
   modelPublicationSet: Uint8Array.from([0x03]),
   modelPublicationStatus: Uint8Array.from([0x80, 0x19])
@@ -61,6 +62,18 @@ export function encodeModelSubscriptionAdd(elementAddress: number, groupAddress:
   assertUint16(modelId, "model id");
   return Uint8Array.from([
     ...CONFIG_OPCODES.modelSubscriptionAdd,
+    ...uint16Le(elementAddress),
+    ...uint16Le(groupAddress),
+    ...uint16Le(modelId)
+  ]);
+}
+
+export function encodeModelSubscriptionDelete(elementAddress: number, groupAddress: number, modelId: number) {
+  assertUnicast(elementAddress);
+  assertGroupAddress(groupAddress);
+  assertUint16(modelId, "model id");
+  return Uint8Array.from([
+    ...CONFIG_OPCODES.modelSubscriptionDelete,
     ...uint16Le(elementAddress),
     ...uint16Le(groupAddress),
     ...uint16Le(modelId)

@@ -467,9 +467,9 @@ describe("MqttService", () => {
         groupId,
         version: 2,
         groupAddress: "0xc000",
-        members: [
-          { meshNodeId: nodeId1, status: "ready" },
-          { meshNodeId: outsideNodeId, status: "failed", error: "ignore me" }
+        operations: [
+          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", action: "add", meshNodeId: nodeId1, status: "ready" },
+          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2", action: "add", meshNodeId: outsideNodeId, status: "failed", error: "ignore me" }
         ],
         occurredAt: "2026-08-20T09:00:01.000Z"
       }))
@@ -546,8 +546,8 @@ describe("MqttService", () => {
         groupId,
         version: 2,
         groupAddress: "0xc000",
-        members: [
-          { meshNodeId: nodeId1, status: "ready" }
+        operations: [
+          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3", action: "add", meshNodeId: nodeId1, status: "ready" }
         ],
         occurredAt: "2026-08-20T09:00:01.000Z"
       }))
@@ -588,7 +588,7 @@ describe("MqttService", () => {
         groupId,
         version: 2,
         groupAddress: "0xc000",
-        members: [{ meshNodeId: memberId, status: "ready" }],
+        operations: [{ operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4", action: "add", meshNodeId: memberId, status: "ready" }],
         occurredAt: "2026-08-20T09:00:01.000Z"
       }))
     );
@@ -625,7 +625,7 @@ describe("MqttService", () => {
         groupId: "11111111-1111-4111-8111-111111111111",
         version: 2,
         groupAddress: "0xc000",
-        members: [{ meshNodeId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "ready" }],
+        operations: [{ operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5", action: "add", meshNodeId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "ready" }],
         occurredAt: "2026-08-20T09:00:01.000Z"
       }))
     );
@@ -669,7 +669,11 @@ describe("MqttService", () => {
         findFirst: jest.fn().mockResolvedValue({
           id: "11111111-1111-4111-8111-111111111111",
           siteId: "00000000-0000-4000-8000-000000000003",
-          gatewayId: "00000000-0000-4000-8000-000000000004"
+          gatewayId: "00000000-0000-4000-8000-000000000004",
+          status: "active",
+          scanStatus: "scanning",
+          scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          scanAttempt: 1
         })
       },
       discoveredMeshNode: {
@@ -679,16 +683,22 @@ describe("MqttService", () => {
     const service = new MqttService(prisma as never, createMeshGroupsMock() as never);
 
     await service.handleMessage(
-      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/events/unprovisioned-device-found",
+      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/events/provisioning/scan-found",
       Buffer.from(
         JSON.stringify({
           sessionId: "11111111-1111-4111-8111-111111111111",
+          scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          scanAttempt: 1,
+          siteId: "00000000-0000-4000-8000-000000000003",
+          gatewayId: "00000000-0000-4000-8000-000000000004",
+          eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          sequence: 1,
+          occurredAt: "2026-07-01T00:00:01.000Z",
           deviceUuid: "esp32h2-b2-001",
           serialNumber: "LC-B2-001",
           rssi: -54,
           oobCapability: "static-oob",
-          firmwareVersion: "mock-node-0.1.0",
-          discoveredAt: "2026-07-01T00:00:01.000Z"
+          firmwareVersion: "mock-node-0.1.0"
         })
       )
     );
@@ -1188,16 +1198,22 @@ describe("MqttService", () => {
     const service = new MqttService(prisma as never, createMeshGroupsMock() as never);
 
     await service.handleMessage(
-      "sites/99999999-9999-4999-8999-999999999999/gateways/00000000-0000-4000-8000-000000000004/events/unprovisioned-device-found",
+      "sites/99999999-9999-4999-8999-999999999999/gateways/00000000-0000-4000-8000-000000000004/events/provisioning/scan-found",
       Buffer.from(
         JSON.stringify({
           sessionId: "11111111-1111-4111-8111-111111111111",
+          scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          scanAttempt: 1,
+          siteId: "99999999-9999-4999-8999-999999999999",
+          gatewayId: "00000000-0000-4000-8000-000000000004",
+          eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          sequence: 1,
+          occurredAt: "2026-07-01T00:00:01.000Z",
           deviceUuid: "esp32h2-b2-001",
           serialNumber: "LC-B2-001",
           rssi: -54,
           oobCapability: "static-oob",
-          firmwareVersion: "mock-node-0.1.0",
-          discoveredAt: "2026-07-01T00:00:01.000Z"
+          firmwareVersion: "mock-node-0.1.0"
         })
       )
     );

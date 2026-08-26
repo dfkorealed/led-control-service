@@ -7,7 +7,7 @@ import {
   mqttTopicsV2
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
@@ -97,6 +97,8 @@ export class CommandsService {
         data: {
           siteId: input.siteId,
           requestedBy: user.id,
+          clientRequestId: input.clientRequestId,
+          requestFingerprint: createRequestFingerprint(input.target, input.brightness),
           targetType: input.target.type,
           targetId,
           targetFixtureIds: resolved.fixtureIds,
@@ -357,4 +359,15 @@ export class CommandsService {
     if (mapping.status === "fault") throw new BadRequestException(prefix ?? "fixture is in fault state");
     if (mapping.status === "offline") throw new BadRequestException(prefix ?? "fixture is offline");
   }
+}
+
+function createRequestFingerprint(target: DimmingTarget, brightness: number) {
+  const canonicalTarget = target.type === "fixture"
+    ? [target.type, target.fixtureId]
+    : target.type === "fixtures"
+      ? [target.type, ...target.fixtureIds.slice().sort()]
+      : target.type === "floor"
+        ? [target.type, target.floorId]
+        : [target.type, target.groupId];
+  return createHash("sha256").update(JSON.stringify({ target: canonicalTarget, brightness })).digest("hex");
 }

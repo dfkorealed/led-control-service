@@ -39,6 +39,15 @@ WITH valid_legacy_groups AS (
     AND COUNT(DISTINCT mesh_node."gatewayId") = 1
     AND BOOL_AND(floor."siteId" = group_row."siteId")
     AND BOOL_AND(gateway."siteId" = group_row."siteId")
+),
+over_limit_legacy_groups AS (
+  SELECT membership."groupId"
+  FROM "GroupFixture" AS membership
+  JOIN valid_legacy_groups AS candidate ON candidate."id" = membership."groupId"
+  JOIN "GroupFixture" AS other_membership ON other_membership."fixtureId" = membership."fixtureId"
+  JOIN valid_legacy_groups AS other_group ON other_group."id" = other_membership."groupId"
+  GROUP BY membership."groupId", membership."fixtureId"
+  HAVING COUNT(*) > 15
 )
 UPDATE "FixtureGroup" AS group_row
 SET
@@ -46,7 +55,15 @@ SET
   "gatewayId" = valid_legacy_groups."gatewayId",
   "lifecycleStatus" = 'active'
 FROM valid_legacy_groups
-WHERE group_row."id" = valid_legacy_groups."id";
+WHERE group_row."id" = valid_legacy_groups."id"
+  AND NOT EXISTS (
+    SELECT 1
+    FROM over_limit_legacy_groups
+    WHERE over_limit_legacy_groups."groupId" = group_row."id"
+  );
+
+ALTER TABLE "FixtureGroup"
+  ALTER COLUMN "lifecycleStatus" SET DEFAULT 'active';
 
 ALTER TABLE "FixtureGroup"
   ADD CONSTRAINT "FixtureGroup_active_boundary_check"
@@ -135,23 +152,16 @@ ALTER TABLE "Command"
 CREATE UNIQUE INDEX "Command_siteId_requestedBy_clientRequestId_key"
   ON "Command"("siteId", "requestedBy", "clientRequestId");
 
-CREATE FUNCTION "assert_active_fixture_group_integrity"()
-RETURNS TRIGGER
+CREATE FUNCTION "assert_fixture_group_integrity"(target_group_id TEXT)
+RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  target_group_id TEXT;
   target_group "FixtureGroup"%ROWTYPE;
 BEGIN
-  IF TG_TABLE_NAME = 'GroupFixture' THEN
-    target_group_id := CASE WHEN TG_OP = 'DELETE' THEN OLD."groupId" ELSE NEW."groupId" END;
-  ELSE
-    target_group_id := CASE WHEN TG_OP = 'DELETE' THEN OLD."id" ELSE NEW."id" END;
-  END IF;
-
   SELECT * INTO target_group FROM "FixtureGroup" WHERE "id" = target_group_id;
   IF NOT FOUND OR target_group."lifecycleStatus" <> 'active' THEN
-    RETURN NULL;
+    RETURN;
   END IF;
 
   IF target_group."floorId" IS NULL OR target_group."gatewayId" IS NULL THEN
@@ -203,6 +213,49 @@ BEGIN
     RAISE EXCEPTION 'a fixture cannot belong to more than 15 active or retiring FixtureGroups';
   END IF;
 
+  RETURN;
+END;
+$$;
+
+CREATE FUNCTION "assert_active_fixture_group_integrity"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'GroupFixture' THEN
+    PERFORM "assert_fixture_group_integrity"(NEW."groupId");
+  ELSE
+    PERFORM "assert_fixture_group_integrity"(CASE WHEN TG_OP = 'DELETE' THEN OLD."id" ELSE NEW."id" END);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE FUNCTION "assert_previous_active_fixture_group_integrity"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  PERFORM "assert_fixture_group_integrity"(OLD."groupId");
+  IF TG_OP = 'UPDATE' AND NEW."groupId" <> OLD."groupId" THEN
+    PERFORM "assert_fixture_group_integrity"(NEW."groupId");
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE FUNCTION "assert_fixture_active_group_integrity"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  membership RECORD;
+BEGIN
+  FOR membership IN
+    SELECT "groupId" FROM "GroupFixture" WHERE "fixtureId" = NEW."id"
+  LOOP
+    PERFORM "assert_fixture_group_integrity"(membership."groupId");
+  END LOOP;
   RETURN NULL;
 END;
 $$;
@@ -213,8 +266,18 @@ DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION "assert_active_fixture_group_integrity"();
 
 CREATE CONSTRAINT TRIGGER "GroupFixture_active_integrity"
-AFTER INSERT OR UPDATE OR DELETE ON "GroupFixture"
+AFTER INSERT OR UPDATE ON "GroupFixture"
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION "assert_active_fixture_group_integrity"();
+
+CREATE CONSTRAINT TRIGGER "GroupFixture_previous_active_integrity"
+AFTER UPDATE OR DELETE ON "GroupFixture"
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION "assert_previous_active_fixture_group_integrity"();
+
+CREATE CONSTRAINT TRIGGER "Fixture_active_group_integrity"
+AFTER UPDATE OF "floorId", "meshNodeId" ON "Fixture"
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION "assert_fixture_active_group_integrity"();
 
 COMMIT;

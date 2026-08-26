@@ -6,6 +6,7 @@ import {
   registerFixtureBatchSchema
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
@@ -110,7 +111,11 @@ export class RegistrationService {
         floorId: input.floorId,
         gatewayId: gateway.id,
         requestedBy: user.id,
-        status: "active"
+        status: "active",
+        scanStatus: "scanning",
+        scanCorrelationId: randomUUID(),
+        scanAttempt: 1,
+        scanStartedAt: new Date()
       },
       include: { discoveredNodes: true }
     });
@@ -120,7 +125,8 @@ export class RegistrationService {
       siteId: session.siteId,
       gatewayId: session.gatewayId,
       floorId: session.floorId,
-      requestedBy: session.requestedBy,
+      scanCorrelationId: session.scanCorrelationId!,
+      scanAttempt: session.scanAttempt,
       requestedAt: session.startedAt.toISOString()
     });
 

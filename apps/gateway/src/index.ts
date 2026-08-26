@@ -7,8 +7,8 @@ import {
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
   identifyDeviceSchema,
-  mqttTopics,
   mqttTopicsV2,
+  mqttTopics,
   fixtureStateV2Schema,
   provisionDeviceSchema,
   provisioningScanStartSchema
@@ -127,9 +127,33 @@ async function main() {
 
   async function handleProvisioningScanPayload(payload: Buffer, source: GatewayMqttClient) {
     const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
-    const nodes = await applyProvisioningScan(scannerAdapter, command);
-    for (const node of nodes) {
-      source.publish(mqttTopics.unprovisionedDeviceFound(command.siteId, command.gatewayId), JSON.stringify(node), { qos: 1 });
+    try {
+      const nodes = await applyProvisioningScan(scannerAdapter, command);
+      for (const node of nodes) {
+        await publish(source, mqttTopicsV2.provisioningScanFound(command.siteId, command.gatewayId), {
+          ...command,
+          ...node,
+          eventId: randomUUID(),
+          sequence: await eventSequence.next(),
+          occurredAt: new Date().toISOString()
+        });
+      }
+      await publish(source, mqttTopicsV2.provisioningScanCompleted(command.siteId, command.gatewayId), {
+        ...command,
+        eventId: randomUUID(),
+        sequence: await eventSequence.next(),
+        occurredAt: new Date().toISOString(),
+        acceptedNodeCount: nodes.length
+      });
+    } catch (error) {
+      await publish(source, mqttTopicsV2.provisioningScanFailed(command.siteId, command.gatewayId), {
+        ...command,
+        eventId: randomUUID(),
+        sequence: await eventSequence.next(),
+        occurredAt: new Date().toISOString(),
+        code: "scan_runtime_failed",
+        message: error instanceof Error ? error.message : "Provisioning scan failed"
+      });
     }
   }
 
@@ -183,10 +207,10 @@ async function main() {
     publishHeartbeat,
     topicHandlers: {
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")]: handleDimmingPayloadV2,
-      [mqttTopics.provisioningScanStart(siteId, gatewayId)]: handleProvisioningScanPayload,
-      [mqttTopics.identifyDevice(siteId, gatewayId)]: handleIdentifyPayload,
-      [mqttTopics.provisionDevice(siteId, gatewayId)]: handleProvisionDevicePayload,
-      [mqttTopics.meshGroupSubscriptionSync(siteId, gatewayId)]: (payload, source) => groupSubscriptionHandler.handle(payload, source),
+      [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start")]: handleProvisioningScanPayload,
+      [`sites/${siteId}/gateways/${gatewayId}/commands/provisioning/identify-device`]: handleIdentifyPayload,
+      [`sites/${siteId}/gateways/${gatewayId}/commands/provisioning/provision-device`]: handleProvisionDevicePayload,
+      [`sites/${siteId}/gateways/${gatewayId}/commands/mesh-group/subscription-sync`]: (payload, source) => groupSubscriptionHandler.handle(payload, source),
       [mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)]: (payload) =>
         groupResyncPublisher.acknowledge(JSON.parse(payload.toString()))
     },
@@ -324,7 +348,7 @@ export function subscribeGatewayCommands(
     client.subscribe(
       [
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "dimming"),
-        mqttTopics.provisioningScanStart(assignment.siteId, assignment.gatewayId),
+        mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/scan-start"),
         mqttTopics.identifyDevice(assignment.siteId, assignment.gatewayId),
         mqttTopics.provisionDevice(assignment.siteId, assignment.gatewayId),
         mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId),

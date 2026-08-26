@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-08-20
+작성일: 2026-08-26
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -66,7 +66,15 @@ Organization
 
 ### MeshControlTargetType / MeshControlGroupStatus
 
-`MeshControlTargetType`은 gateway별 제어 group이 가리키는 대상을 `floor`, `fixture_group`으로 구분한다. `MeshControlGroupStatus`는 group 자체와 member subscription 적용 상태를 `configuring`, `ready`, `failed`로 관리한다.
+`MeshControlTargetType`은 gateway별 제어 group이 가리키는 대상을 `floor`, `fixture_group`으로 구분한다. `MeshControlGroupStatus`는 subscription 적용 상태를 `configuring`, `ready`, `failed`로 관리하고, 삭제 전 정리 단계와 완료 상태를 `retiring`, `retired`로 구분한다.
+
+### FixtureGroupLifecycleStatus
+
+조명 그룹의 업무 수명주기다. 새 그룹은 `active`로 생성하며, migration은 기존 그룹이 같은 site/floor/gateway에 속하고 fixture별 활성/정리중 그룹 수가 15개 이하일 때만 `active`로 backfill한다. 그 외 기존 그룹은 `invalid`로 격리한다. `retiring`은 gateway subscription 정리 중, `retired`는 더 이상 제어하지 않는 완료 상태다.
+
+### ProvisioningScanStatus
+
+검색 시도의 상태다. `pending`은 아직 시작하지 않음, `scanning`은 gateway가 수행 중, `completed`는 정상 종료(발견 0건 포함), `failed`는 gateway 또는 전송 실패를 뜻한다. scan event는 gateway-scoped v2 envelope(`eventId`, `sequence`, `occurredAt`)로만 수신한다.
 
 ### UserRole
 
@@ -468,7 +476,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `floorId` | `String?` | 아니오 | FK -> `Floor.id`, active면 필수 | 제어 대상 층 |
 | `gatewayId` | `String?` | 아니오 | FK -> `Gateway.id`, active면 필수 | 제어 대상 Gateway |
 | `name` | `String` | 예 |  | 그룹명 |
-| `lifecycleStatus` | `FixtureGroupLifecycleStatus` | 예 | 신규 `active`, legacy 기본 `invalid` | `active`, `retiring`, `retired`, `invalid` |
+| `lifecycleStatus` | `FixtureGroupLifecycleStatus` | 예 | `active` | `active`, `retiring`, `retired`, `invalid`. legacy backfill 불가 그룹은 `invalid` |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -1057,7 +1065,7 @@ Gateway heartbeat MQTT event
 ```text
 ProvisioningSession 생성
 → gateway scan command 발행
-→ unprovisioned-device-found event
+→ gateway-scoped v2 `provisioning/scan-found` event
 → DiscoveredMeshNode upsert
 → identify 확인
 → register-batch 요청에서 node별 검증

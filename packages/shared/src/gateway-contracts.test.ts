@@ -36,6 +36,15 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(mqttTopicsV2.stateIngestedAck(siteId, gatewayId)).toBe(
       `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`
     );
+    expect(mqttTopicsV2.provisioningScanFound(siteId, gatewayId)).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`
+    );
+    expect(mqttTopicsV2.provisioningScanCompleted(siteId, gatewayId)).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`
+    );
+    expect(mqttTopicsV2.provisioningScanFailed(siteId, gatewayId)).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`
+    );
     expect(mqttTopicsV2.heartbeat(siteId, gatewayId)).toBe(`sites/${siteId}/gateways/${gatewayId}/state/heartbeat`);
     expect(mqttTopicsV2.meshGroupResyncRequest(siteId, gatewayId)).toBe(
       `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`

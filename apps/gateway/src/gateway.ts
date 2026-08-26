@@ -6,7 +6,7 @@ import type {
   ProvisioningCompletedPayload,
   ProvisioningFailedPayload,
   ProvisioningScanStartPayload,
-  UnprovisionedDeviceFoundPayload
+  ProvisioningScanFoundDevice
 } from "@led-control/shared";
 
 export interface BleMeshAdapter {
@@ -29,7 +29,7 @@ export interface BleMeshAdapter {
   onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
   onResyncReport?(listener: (report: BleMeshResyncReport) => void): () => void;
   resyncFixtureStates(): Promise<BleMeshResyncReport>;
-  syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload): Promise<MeshGroupSubscriptionResultPayload>;
+  syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload, appliedMembers?: MeshGroupSubscriptionSyncPayload["desiredMembers"]): Promise<MeshGroupSubscriptionResultPayload>;
 }
 
 export interface BleMeshFixtureStatus {
@@ -53,7 +53,7 @@ export interface BleMeshResyncReport {
 }
 
 export interface ProvisioningScannerAdapter {
-  scan(command: ProvisioningScanStartPayload): Promise<UnprovisionedDeviceFoundPayload[]>;
+  scan(command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]>;
 }
 
 export interface ProvisioningAdapter {

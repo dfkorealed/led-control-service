@@ -37,6 +37,7 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
         configurationVersion: true,
         gateway: { select: { siteId: true } },
         members: {
+          where: { desired: true },
           orderBy: [{ meshNodeId: "asc" }],
           select: {
             meshNodeId: true,
@@ -47,7 +48,6 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
     });
 
     for (const group of groups) {
-      if (group.members.length === 0) continue;
       try {
         await this.mqttService.publishMeshGroupSubscriptionSync({
           siteId: group.gateway.siteId,
@@ -55,7 +55,7 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
           groupId: group.id,
           version: group.configurationVersion,
           groupAddress: group.groupAddress,
-          members: group.members.map((member) => ({
+          desiredMembers: group.members.map((member) => ({
             meshNodeId: member.meshNodeId,
             meshAddress: member.meshNode.meshAddress
           })),

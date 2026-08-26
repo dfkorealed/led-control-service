@@ -27,7 +27,8 @@ function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?:
   };
   const config = {
     configureNode: vi.fn(async () => ({ compositionPage: 0 })),
-    addModelSubscription: vi.fn(async () => ({ elementAddress: 0x0100, groupAddress: 0xc000, modelId: 0x1300 }))
+    addModelSubscription: vi.fn(async () => ({ elementAddress: 0x0100, groupAddress: 0xc000, modelId: 0x1300 })),
+    removeModelSubscription: vi.fn(async () => ({ elementAddress: 0x0100, groupAddress: 0xc000, modelId: 0x1300 }))
   };
   const transactions = {
     next: vi.fn(async () => 7),
@@ -385,7 +386,7 @@ describe("BluezMeshAdapter", () => {
   it("normalizes scan and configures a provisioned node before completion", async () => {
     const f = fixture();
     await expect(f.adapter.scan({ sessionId: "session-1" } as never)).resolves.toMatchObject([
-      { sessionId: "session-1", deviceUuid: "00112233445566778899aabbccddeeff", serialNumber: "00112233445566778899aabbccddeeff" }
+      { deviceUuid: "00112233445566778899aabbccddeeff", serialNumber: "00112233445566778899aabbccddeeff" }
     ]);
     await expect(f.adapter.provision({
       sessionId: "session-1",
@@ -589,7 +590,7 @@ describe("BluezMeshAdapter", () => {
       groupId: "00000000-0000-4000-8000-000000000012",
       version: 2,
       groupAddress: "0xc000",
-      members: [
+      desiredMembers: [
         { meshNodeId: "fixture-1", meshAddress: "0x0100" },
         { meshNodeId: "fixture-2", meshAddress: "0x0101" }
       ],
@@ -597,13 +598,24 @@ describe("BluezMeshAdapter", () => {
     })).resolves.toMatchObject({
       groupId: "00000000-0000-4000-8000-000000000012",
       version: 2,
-      members: [
-        { meshNodeId: "fixture-1", status: "ready" },
-        { meshNodeId: "fixture-2", status: "failed", error: "subscription rejected" }
+      operations: [
+        { action: "add", meshNodeId: "fixture-1", status: "ready" },
+        { action: "add", meshNodeId: "fixture-2", status: "failed", error: "subscription rejected" }
       ]
     });
     expect(f.config.addModelSubscription).toHaveBeenNthCalledWith(1, { unicast: 0x0100, groupAddress: 0xc000 });
     expect(f.config.addModelSubscription).toHaveBeenNthCalledWith(2, { unicast: 0x0101, groupAddress: 0xc000 });
+
+    await expect(f.adapter.syncGroupSubscriptions({
+      siteId: "00000000-0000-4000-8000-000000000010",
+      gatewayId: "00000000-0000-4000-8000-000000000011",
+      groupId: "00000000-0000-4000-8000-000000000012",
+      version: 3,
+      groupAddress: "0xc000",
+      desiredMembers: [],
+      requestedAt: "2026-08-21T00:01:00.000Z"
+    })).resolves.toMatchObject({ operations: [{ action: "delete", meshNodeId: "fixture-1", status: "ready" }] });
+    expect(f.config.removeModelSubscription).toHaveBeenCalledWith({ unicast: 0x0100, groupAddress: 0xc000 });
   });
 
   it("runs one bounded resync when reconnects overlap", async () => {

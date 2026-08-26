@@ -21,7 +21,9 @@ import {
   ProvisioningScanStartPayload,
   provisioningScanStartSchema,
   statusFromHealth,
-  unprovisionedDeviceFoundSchema
+  provisioningScanFoundSchema,
+  provisioningScanCompletedSchema,
+  provisioningScanFailedSchema
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import mqtt, { IClientOptions, MqttClient } from "mqtt";
@@ -49,7 +51,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     client.on("connect", () => {
       client.subscribe(
         [
-          "sites/+/gateways/+/events/unprovisioned-device-found",
+          "sites/+/gateways/+/events/provisioning/scan-found",
+          "sites/+/gateways/+/events/provisioning/scan-completed",
+          "sites/+/gateways/+/events/provisioning/scan-failed",
           "sites/+/gateways/+/events/provisioning-completed",
           "sites/+/gateways/+/events/provisioning-failed",
           "sites/+/gateways/+/events/mesh-group/resync-request",
@@ -67,7 +71,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   async publishProvisioningScanStart(input: ProvisioningScanStartPayload) {
     const payload = provisioningScanStartSchema.parse(input);
-    const topic = mqttTopics.provisioningScanStart(payload.siteId, payload.gatewayId);
+    const topic = mqttTopicsV2.gatewayCommand(payload.siteId, payload.gatewayId, "provisioning/scan-start");
     await this.publishTopic(topic, payload);
   }
 
@@ -202,17 +206,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    if (topic.endsWith("/events/unprovisioned-device-found")) {
-      const node = unprovisionedDeviceFoundSchema.parse(JSON.parse(payload.toString()));
+    if (topic.endsWith("/events/provisioning/scan-found")) {
+      const node = provisioningScanFoundSchema.parse(JSON.parse(payload.toString()));
       const topicScope = parseGatewayScopedTopic(topic);
-      if (!topicScope) return;
+      if (!topicScope || topicScope.siteId !== node.siteId || topicScope.gatewayId !== node.gatewayId) return;
 
       const session = await this.prisma.provisioningSession.findFirst({
         where: {
           id: node.sessionId,
           siteId: topicScope.siteId,
           gatewayId: topicScope.gatewayId,
-          status: "active"
+          status: "active",
+          scanStatus: "scanning",
+          scanCorrelationId: node.scanCorrelationId,
+          scanAttempt: node.scanAttempt
         }
       });
       if (!session) return;
@@ -231,15 +238,39 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           rssi: node.rssi,
           oobCapability: node.oobCapability,
           firmwareVersion: node.firmwareVersion,
-          discoveredAt: new Date(node.discoveredAt)
+          discoveredAt: new Date(node.occurredAt)
         },
         update: {
           rssi: node.rssi,
           oobCapability: node.oobCapability,
           firmwareVersion: node.firmwareVersion,
-          discoveredAt: new Date(node.discoveredAt),
+          discoveredAt: new Date(node.occurredAt),
           errorMessage: null
         }
+      });
+      return;
+    }
+
+    if (topic.endsWith("/events/provisioning/scan-completed") || topic.endsWith("/events/provisioning/scan-failed")) {
+      const topicScope = parseGatewayScopedTopic(topic);
+      if (!topicScope) return;
+      const event = topic.endsWith("/scan-completed")
+        ? provisioningScanCompletedSchema.parse(JSON.parse(payload.toString()))
+        : provisioningScanFailedSchema.parse(JSON.parse(payload.toString()));
+      if (event.siteId !== topicScope.siteId || event.gatewayId !== topicScope.gatewayId) return;
+      await this.prisma.provisioningSession.updateMany({
+        where: {
+          id: event.sessionId,
+          siteId: event.siteId,
+          gatewayId: event.gatewayId,
+          status: "active",
+          scanStatus: "scanning",
+          scanCorrelationId: event.scanCorrelationId,
+          scanAttempt: event.scanAttempt
+        },
+        data: "acceptedNodeCount" in event
+          ? { scanStatus: "completed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: null, scanFailureMessage: null }
+          : { scanStatus: "failed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: event.code, scanFailureMessage: event.message }
       });
       return;
     }
@@ -636,7 +667,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
 
       const currentMembers = new Set(currentGroupMembers.map((member) => member.meshNodeId));
-      for (const member of event.members) {
+      for (const member of event.operations) {
         if (!currentMembers.has(member.meshNodeId)) continue;
         await tx.meshControlGroupMember.updateMany({
           where: {

@@ -10,6 +10,7 @@ import {
   createRegistrationSessionSchema,
   createDimmingCommandSchema,
   createDimmingCommandRequestSchema,
+  createFixtureGroupSchema,
   editorRevisionListQuerySchema,
   floorEditorSnapshotSchema,
   floorMapSnapshotSchema,
@@ -25,13 +26,17 @@ import {
   provisioningFailedSchema,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema,
+  provisioningScanFoundSchema,
   provisioningScanStartSchema,
   restoreFloorEditorRevisionSchema,
+  energySeriesPointSchema,
+  energySummarySchema,
+  fixtureGroupMetadataSchema,
   meshGroupSubscriptionResultSchema,
   meshGroupSubscriptionSyncSchema,
   saveEditorStateSchema,
-  unprovisionedDeviceFoundSchema
 } from "./schemas";
+import { mqttTopicsV2 } from "./gateway-contracts";
 import { mqttTopics } from "./mqtt";
 
 describe("shared schemas", () => {
@@ -145,12 +150,13 @@ describe("shared schemas", () => {
 
   it("correlates provisioning scan starts, found events, and terminal events", () => {
     expect(
-      mqttTopics.provisioningScanStart(
+      mqttTopicsV2.gatewayCommand(
         "00000000-0000-4000-8000-000000000003",
-        "00000000-0000-4000-8000-000000000004"
+        "00000000-0000-4000-8000-000000000004",
+        "provisioning/scan-start"
       )
     ).toBe(
-      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/commands/provisioning-scan-start"
+      "sites/00000000-0000-4000-8000-000000000003/gateways/00000000-0000-4000-8000-000000000004/commands/provisioning/scan-start"
     );
 
     const scanCommand = provisioningScanStartSchema.parse({
@@ -165,18 +171,20 @@ describe("shared schemas", () => {
 
     expect(scanCommand.floorId).toBe("00000000-0000-4000-8000-000000000005");
 
-    const discovered = unprovisionedDeviceFoundSchema.parse({
+    const discovered = provisioningScanFoundSchema.parse({
       sessionId: "11111111-1111-4111-8111-111111111111",
       scanCorrelationId: "99999999-9999-4999-8999-999999999999",
       scanAttempt: 1,
       siteId: "00000000-0000-4000-8000-000000000003",
       gatewayId: "00000000-0000-4000-8000-000000000004",
+      eventId: "33333333-3333-4333-8333-333333333334",
+      sequence: 7,
+      occurredAt: "2026-07-01T00:00:01.000Z",
       deviceUuid: "esp32h2-demo-001",
       serialNumber: "LC-B2-001",
       rssi: -54,
       oobCapability: "static-oob",
-      firmwareVersion: "esp32h2-0.1.0",
-      discoveredAt: "2026-07-01T00:00:01.000Z"
+      firmwareVersion: "esp32h2-0.1.0"
     });
 
     expect(discovered.rssi).toBe(-54);
@@ -268,7 +276,7 @@ describe("shared schemas", () => {
     ).toBe("provisioning timeout");
   });
 
-  it("defines desired Add/Delete mesh group reconciliation operations", () => {
+  it("defines a complete desired mesh group membership set including deletion to empty", () => {
     expect(
       mqttTopics.meshGroupSubscriptionSync(
         "00000000-0000-4000-8000-000000000003",
@@ -292,17 +300,15 @@ describe("shared schemas", () => {
       groupId: "00000000-0000-4000-8000-000000000005",
       version: 2,
       groupAddress: "0xc000",
-      operations: [
+      desiredMembers: [
         {
-          operationId: "66666666-6666-4666-8666-666666666666",
-          action: "add",
           meshNodeId: "22222222-2222-4222-8222-222222222222",
           meshAddress: "0x0100"
         }
       ],
       requestedAt: "2026-08-20T09:00:00.000Z"
     });
-    expect(command.operations).toHaveLength(1);
+    expect(command.desiredMembers).toHaveLength(1);
 
     expect(meshGroupSubscriptionResultSchema.parse({
       siteId: "00000000-0000-4000-8000-000000000003",
@@ -320,6 +326,52 @@ describe("shared schemas", () => {
       ],
       occurredAt: "2026-08-20T09:00:01.000Z"
     }).operations[0].status).toBe("ready");
+
+    expect(meshGroupSubscriptionSyncSchema.parse({ ...command, desiredMembers: [] }).desiredMembers).toEqual([]);
+    expect(() => meshGroupSubscriptionSyncSchema.parse({
+      ...command,
+      desiredMembers: [command.desiredMembers[0], command.desiredMembers[0]]
+    })).toThrow("desiredMembers must be unique by meshNodeId");
+  });
+
+  it("defines shared fixture group and state-based energy response contracts", () => {
+    const group = createFixtureGroupSchema.parse({
+      name: "B2 entrance",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      fixtureIds: ["11111111-1111-4111-8111-111111111111"]
+    });
+    expect(group.fixtureIds).toHaveLength(1);
+
+    expect(fixtureGroupMetadataSchema.parse({
+      id: "77777777-7777-4777-8777-777777777777",
+      name: "B2 entrance",
+      floorId: group.floorId,
+      gatewayId: group.gatewayId,
+      lifecycleStatus: "active",
+      fixtureCount: 1,
+      meshControlGroup: { status: "configuring", version: 1, error: null }
+    }).lifecycleStatus).toBe("active");
+
+    expect(energySummarySchema.parse({
+      source: "state_based_estimate",
+      period: "month",
+      generatedAt: "2026-08-26T00:00:00.000Z",
+      estimatedKwh: 1.2345,
+      estimatedCost: 123.45,
+      knownSeconds: 3600,
+      unknownSeconds: 0,
+      dataStatus: "available"
+    }).source).toBe("state_based_estimate");
+    expect(energySeriesPointSchema.parse({
+      source: "state_based_estimate",
+      period: "2026-08-26",
+      estimatedKwh: null,
+      estimatedCost: null,
+      knownSeconds: 0,
+      unknownSeconds: 60,
+      dataStatus: "partial"
+    }).estimatedKwh).toBeNull();
   });
 
   it("validates atomic floor editor save and restore inputs", () => {

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import {
   mapHealthFaults,
@@ -7,7 +8,7 @@ import {
   type ProvisionDevicePayload,
   type ProvisioningCompletedPayload,
   type ProvisioningScanStartPayload,
-  type UnprovisionedDeviceFoundPayload
+  type ProvisioningScanFoundDevice
 } from "@led-control/shared";
 import type { BleMeshAdapter, BleMeshCommandReport, BleMeshFixtureStatus, BleMeshResyncReport, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
 import { BLUEZ_APPLICATION_PATHS } from "./bluez-dbus-application";
@@ -37,7 +38,7 @@ interface AdapterTransport {
 interface AdapterProvisioner {
   nodePath: string | null;
   start(): Promise<void>;
-  scan(seconds: number): Promise<Array<{ deviceUuid: string; rssi: number; oobCapability: UnprovisionedDeviceFoundPayload["oobCapability"] }>>;
+  scan(seconds: number): Promise<Array<{ deviceUuid: string; rssi: number; oobCapability: ProvisioningScanFoundDevice["oobCapability"] }>>;
   provision(input: { nodeId: string; deviceUuid: string; meshAddress: string }): Promise<{ primaryUnicast: number; elementCount: number }>;
 }
 
@@ -55,6 +56,7 @@ interface TransactionStore {
 interface ConfigClient {
   configureNode(input: { unicast: number; elementCount: number }): Promise<unknown>;
   addModelSubscription(input: { unicast: number; groupAddress: number; modelId?: number }): Promise<unknown>;
+  removeModelSubscription(input: { unicast: number; groupAddress: number; modelId?: number }): Promise<unknown>;
 }
 
 export type FixtureMeshStatus = BleMeshFixtureStatus;
@@ -76,6 +78,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private resyncInFlight: Promise<BleMeshResyncReport> | undefined;
   private lastResyncReport: BleMeshResyncReport | undefined;
   private readonly commandSources = new KeyedSerialTaskQueue();
+  private readonly appliedGroupMembers = new Map<string, Map<string, string>>();
 
   constructor(
     private readonly transport: AdapterTransport,
@@ -128,17 +131,15 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     return this.resyncInFlight;
   }
 
-  async scan(command: ProvisioningScanStartPayload): Promise<UnprovisionedDeviceFoundPayload[]> {
+  async scan(_command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]> {
     const rows = await this.provisioner.scan(this.scanSeconds);
     const discoveredAt = new Date().toISOString();
     return rows.map((row) => ({
-      sessionId: command.sessionId,
       deviceUuid: row.deviceUuid,
       serialNumber: row.deviceUuid,
       rssi: row.rssi,
       oobCapability: row.oobCapability,
-      firmwareVersion: "unknown",
-      discoveredAt
+      firmwareVersion: "unknown"
     }));
   }
 
@@ -311,26 +312,46 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     });
   }
 
-  async syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload): Promise<MeshGroupSubscriptionResultPayload> {
+  async syncGroupSubscriptions(
+    command: MeshGroupSubscriptionSyncPayload,
+    appliedMembers?: MeshGroupSubscriptionSyncPayload["desiredMembers"]
+  ): Promise<MeshGroupSubscriptionResultPayload> {
     await this.start();
     const nodePath = this.requireNodePath();
     const configClient = this.createConfigClient(nodePath);
-    const members: MeshGroupSubscriptionResultPayload["members"] = [];
-    for (const member of command.members) {
+    const applied = new Map((appliedMembers ?? [...(this.appliedGroupMembers.get(command.groupId) ?? new Map())]
+      .map(([meshNodeId, meshAddress]) => ({ meshNodeId, meshAddress })))
+      .map((member) => [member.meshNodeId, member.meshAddress]));
+    const desired = new Map(command.desiredMembers.map((member) => [member.meshNodeId, member.meshAddress]));
+    const operations: MeshGroupSubscriptionResultPayload["operations"] = [];
+    const changes = [
+      ...[...applied].filter(([meshNodeId, meshAddress]) => !desired.has(meshNodeId) || desired.get(meshNodeId) !== meshAddress)
+        .map(([meshNodeId, meshAddress]) => ({ action: "delete" as const, meshNodeId, meshAddress })),
+      ...[...desired].filter(([meshNodeId, meshAddress]) => !applied.has(meshNodeId) || applied.get(meshNodeId) !== meshAddress)
+        .map(([meshNodeId, meshAddress]) => ({ action: "add" as const, meshNodeId, meshAddress }))
+    ];
+    for (const change of changes) {
       try {
-        await configClient.addModelSubscription({
-          unicast: parseMeshAddress(member.meshAddress),
+        const input = {
+          unicast: parseMeshAddress(change.meshAddress),
           groupAddress: parseMeshAddress(command.groupAddress)
-        });
-        members.push({ meshNodeId: member.meshNodeId, status: "ready" });
+        };
+        if (change.action === "add") await configClient.addModelSubscription(input);
+        else await configClient.removeModelSubscription(input);
+        if (change.action === "add") applied.set(change.meshNodeId, change.meshAddress);
+        else applied.delete(change.meshNodeId);
+        operations.push({ operationId: randomUUID(), action: change.action, meshNodeId: change.meshNodeId, status: "ready" });
       } catch (error) {
-        members.push({
-          meshNodeId: member.meshNodeId,
+        operations.push({
+          operationId: randomUUID(),
+          action: change.action,
+          meshNodeId: change.meshNodeId,
           status: "failed",
           error: error instanceof Error ? error.message : "Bluetooth Mesh group subscription failed"
         });
       }
     }
+    this.appliedGroupMembers.set(command.groupId, applied);
 
     return {
       siteId: command.siteId,
@@ -338,7 +359,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       groupId: command.groupId,
       version: command.version,
       groupAddress: command.groupAddress,
-      members,
+      operations,
       occurredAt: new Date().toISOString()
     };
   }
