@@ -13,11 +13,12 @@
 | 에이전트 운영 기반 Task 1 | 완료 | 운영 기준과 지속 갱신 상태판을 작성했다. |
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
-| 메뉴 완성 구현 계획 | 대기 | 설계를 작업 단위와 커밋 단위로 분해한 뒤 구현을 시작한다. |
+| 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
+| 메뉴 완성 구현 | 진행 중 | 구현 계획 Task 1의 공유 스키마와 Prisma 기반 계약부터 진행한다. |
 
 ## 다음 단계
 
-다음 작업은 **메뉴 완성 구현 계획 작성**이다. 모니터링, 제어, 통계의 공유 Prisma·MQTT 계약을 먼저 순차 변경하고, 그 뒤 API, 웹, 게이트웨이 변경을 역할별로 구현한다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
+현재 작업은 **메뉴 완성 구현**이다. [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)의 Task 1부터 공유 Prisma·MQTT 계약, API, Gateway, Web과 실제 브라우저 QA를 순차 진행한다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
 
 ## 알려진 미해결 항목
 
