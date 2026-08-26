@@ -800,7 +800,8 @@ describe("MqttService", () => {
       siteId: resyncRequest.siteId,
       gatewayId: resyncRequest.gatewayId,
       eventId: resyncRequest.eventId,
-      occurredAt: resyncRequest.occurredAt
+      occurredAt: resyncRequest.occurredAt,
+      reason: resyncRequest.reason
     });
     expect(service.publishTopic).toHaveBeenCalledWith(
       `sites/${resyncRequest.siteId}/gateways/${resyncRequest.gatewayId}/commands/mesh-group/resync-ack`,
@@ -1016,6 +1017,7 @@ describe("MqttService", () => {
         configurationVersion: 2,
         targetType: "fixture_group",
         targetId: "33333333-3333-4333-8333-333333333333",
+        fullReconciliationRequired: true,
         status: "configuring"
       }]),
       meshControlGroupExpectedOperation: {
@@ -1061,7 +1063,7 @@ describe("MqttService", () => {
     });
     expect(tx.meshControlGroup.updateMany).toHaveBeenCalledWith({
       where: { id: groupId, gatewayId, configurationVersion: 2 },
-      data: { status: "ready", lastError: null }
+      data: { status: "ready", lastError: null, fullReconciliationRequired: false }
     });
   });
 

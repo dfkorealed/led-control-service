@@ -545,6 +545,7 @@ export const meshGroupSubscriptionSyncSchema = z.object({
   groupId: z.string().uuid(),
   version: positiveInt4Schema,
   groupAddress: meshAddressSchema,
+  reconciliationMode: z.enum(["incremental", "full_state"]).optional(),
   desiredMembers: z.array(meshGroupDesiredMemberSchema).max(100),
   expectedOperations: z.array(meshGroupSubscriptionOperationSchema).max(200),
   requestedAt: z.string().datetime()

@@ -299,6 +299,7 @@ describe("shared schemas", () => {
       groupId: "00000000-0000-4000-8000-000000000005",
       version: 2,
       groupAddress: "0xc000",
+      reconciliationMode: "full_state",
       desiredMembers: [
         {
           meshNodeId: "22222222-2222-4222-8222-222222222222",
@@ -322,6 +323,7 @@ describe("shared schemas", () => {
       requestedAt: "2026-08-20T09:00:00.000Z"
     });
     expect(command.desiredMembers).toHaveLength(1);
+    expect(command.reconciliationMode).toBe("full_state");
     expect(command.expectedOperations).toHaveLength(2);
 
     expect(meshGroupSubscriptionResultSchema.parse({

@@ -34,6 +34,7 @@ type GatewayGroupResyncInput = {
   gatewayId: string;
   eventId: string;
   occurredAt: string;
+  reason: "startup" | "first_run" | "state_missing" | "state_corrupt";
 };
 
 type PrepareSubscriptionSyncInput = {
@@ -61,12 +62,13 @@ export class MeshControlGroupService {
       groupAddress: string;
       configurationVersion: number;
       operationPlanVersion: number;
+      fullReconciliationRequired: boolean;
       status: MeshControlGroupStatus;
       siteId: string;
     }>>`
       SELECT group_state."id", group_state."gatewayId", group_state."groupAddress",
         group_state."configurationVersion", group_state."operationPlanVersion",
-        group_state."status", gateway."siteId"
+        group_state."fullReconciliationRequired", group_state."status", gateway."siteId"
       FROM "MeshControlGroup" group_state
       INNER JOIN "Gateway" gateway ON gateway."id" = group_state."gatewayId"
       WHERE group_state."id" = ${input.groupId}
@@ -105,7 +107,7 @@ export class MeshControlGroupService {
           .filter((member) => !desiredKeys.has(meshMemberKey(member)))
           .map((member) => ({ action: "delete" as const, ...member })),
         ...normalizedDesired
-          .filter((member) => !appliedKeys.has(meshMemberKey(member)))
+          .filter((member) => group.fullReconciliationRequired || !appliedKeys.has(meshMemberKey(member)))
           .map((member) => ({ action: "add" as const, ...member }))
       ];
 
@@ -156,6 +158,7 @@ export class MeshControlGroupService {
       groupId: group.id,
       version: group.configurationVersion,
       groupAddress: group.groupAddress.toLowerCase(),
+      reconciliationMode: group.fullReconciliationRequired ? "full_state" : "incremental",
       desiredMembers: normalizedDesired,
       expectedOperations: expectedOperations.map((operation) => ({
         ...operation,
@@ -224,6 +227,9 @@ export class MeshControlGroupService {
     const retiringGroupIds = groups
       .filter((group) => group.status === MeshControlGroupStatus.retiring)
       .map((group) => group.id);
+    const fullReconciliation = requiresFullReconciliation(input.reason)
+      ? { fullReconciliationRequired: true }
+      : {};
     let groupCount = 0;
     if (configuringGroupIds.length > 0) {
       const update = await tx.meshControlGroup.updateMany({
@@ -232,6 +238,7 @@ export class MeshControlGroupService {
           status: MeshControlGroupStatus.configuring,
           configurationVersion: { increment: 1 },
           operationPlanVersion: 0,
+          ...fullReconciliation,
           lastError: null
         }
       });
@@ -244,6 +251,7 @@ export class MeshControlGroupService {
           status: MeshControlGroupStatus.retiring,
           configurationVersion: { increment: 1 },
           operationPlanVersion: 0,
+          ...fullReconciliation,
           lastError: null
         }
       });
@@ -571,18 +579,11 @@ export class MeshControlGroupService {
       return;
     }
 
-    if (group._count.members <= 1) {
-      await tx.meshControlGroup.update({
-        where: { id: groupId },
-        data: { operationPlanVersion: 0 }
-      });
-      return;
-    }
-
     await tx.meshControlGroup.update({
       where: { id: groupId },
       data: {
         status: MeshControlGroupStatus.configuring,
+        configurationVersion: { increment: 1 },
         operationPlanVersion: 0,
         lastError: null
       }
@@ -635,4 +636,8 @@ function normalizeMeshMember(member: { meshNodeId: string; meshAddress: string }
 
 function meshMemberKey(member: { meshNodeId: string; meshAddress: string }) {
   return `${member.meshNodeId}:${member.meshAddress.toLowerCase()}`;
+}
+
+function requiresFullReconciliation(reason: GatewayGroupResyncInput["reason"]) {
+  return reason === "first_run" || reason === "state_missing" || reason === "state_corrupt";
 }

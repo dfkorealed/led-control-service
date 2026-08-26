@@ -429,7 +429,8 @@ export class MqttService implements OnModuleInit {
         siteId: event.siteId,
         gatewayId: event.gatewayId,
         eventId: event.eventId,
-        occurredAt: event.occurredAt
+        occurredAt: event.occurredAt,
+        reason: event.reason
       }));
       const ack = meshGroupResyncAckV2Schema.parse({
         siteId: event.siteId,
@@ -859,9 +860,11 @@ export class MqttService implements OnModuleInit {
         configurationVersion: number;
         targetType: "floor" | "fixture_group";
         targetId: string;
+        fullReconciliationRequired: boolean;
         status: "configuring" | "ready" | "failed" | "retiring" | "retired";
       }>>`
-        SELECT g."id", g."gatewayId", g."groupAddress", g."configurationVersion", g."targetType", g."targetId", g."status"
+        SELECT g."id", g."gatewayId", g."groupAddress", g."configurationVersion", g."targetType", g."targetId",
+          g."fullReconciliationRequired", g."status"
         FROM "MeshControlGroup" g
         INNER JOIN "Gateway" gw ON gw."id" = g."gatewayId"
         WHERE g."id" = ${event.groupId}
@@ -1039,7 +1042,13 @@ export class MqttService implements OnModuleInit {
           gatewayId: group.gatewayId,
           configurationVersion: event.version
         },
-        data: { status: nextStatus, lastError: nextError }
+        data: {
+          status: nextStatus,
+          lastError: nextError,
+          ...(group.fullReconciliationRequired && (isReady || retirementSucceeded)
+            ? { fullReconciliationRequired: false }
+            : {})
+        }
       });
       if (retirementSucceeded) {
         await tx.fixtureGroup.updateMany({

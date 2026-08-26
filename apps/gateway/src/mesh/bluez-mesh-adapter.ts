@@ -326,7 +326,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       const change = { ...plannedOperation, ...normalizeGroupMember(plannedOperation) };
       const key = groupMemberKey(change);
       const alreadySatisfied = change.action === "add" ? applied.has(key) : !applied.has(key);
-      if (alreadySatisfied) {
+      if (alreadySatisfied && command.reconciliationMode !== "full_state") {
         operations.push({ ...change, status: "ready" });
         continue;
       }

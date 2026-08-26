@@ -122,8 +122,20 @@ describeWithPostgres("MeshControlGroup PostgreSQL conflict recovery", () => {
     expect(result.transactionStillUsable).toBe(1);
   });
 
-  it("persists a two-operation address replacement plan inside PostgreSQL", async () => {
+  it("persists a full-state delete-old and reapply-current plan inside PostgreSQL", async () => {
     const service = new MeshControlGroupService();
+    await prisma.meshControlGroup.update({
+      where: { id: ids.winnerId },
+      data: { fullReconciliationRequired: true, operationPlanVersion: 0 }
+    });
+    await prisma.meshControlGroupAppliedMember.create({
+      data: {
+        groupId: ids.winnerId,
+        gatewayId: ids.gatewayId,
+        meshNodeId: ids.meshNodeId,
+        meshAddress: "0x0101"
+      }
+    });
 
     const payload = await prisma.$transaction((tx) => service.prepareSubscriptionSync(tx, {
       groupId: ids.winnerId,
@@ -132,6 +144,7 @@ describeWithPostgres("MeshControlGroup PostgreSQL conflict recovery", () => {
       requestedAt: "2026-08-26T10:00:00.000Z"
     }));
 
+    expect(payload?.reconciliationMode).toBe("full_state");
     expect(payload?.expectedOperations).toEqual([
       expect.objectContaining({ action: "delete", meshNodeId: ids.meshNodeId, meshAddress: "0x0100" }),
       expect.objectContaining({ action: "add", meshNodeId: ids.meshNodeId, meshAddress: "0x0101" })

@@ -14,16 +14,22 @@ const operationPlanMigrationPath = join(
   __dirname,
   "../../prisma/migrations/20260826190000_persist_mesh_group_operation_plans/migration.sql"
 );
+const fullReconciliationMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260826203000_add_mesh_group_full_reconciliation/migration.sql"
+);
 
 describe("MeshControlGroup schema contract", () => {
   const schema = readFileSync(schemaPath, "utf8");
   const migration = readFileSync(initialMigrationPath, "utf8");
   const statusVersionMigration = readFileSync(statusVersionMigrationPath, "utf8");
   const operationPlanMigration = readFileSync(operationPlanMigrationPath, "utf8");
+  const fullReconciliationMigration = readFileSync(fullReconciliationMigrationPath, "utf8");
   const meshControlGroupModel = schema.match(/model MeshControlGroup \{[\s\S]*?\n\}/)?.[0] ?? "";
 
   it("persists a version-bound operation plan and the cloud applied membership snapshot", () => {
     expect(meshControlGroupModel).toMatch(/operationPlanVersion\s+Int\s+@default\(0\)/);
+    expect(meshControlGroupModel).toMatch(/fullReconciliationRequired\s+Boolean\s+@default\(false\)/);
     expect(schema).toContain("model MeshControlGroupExpectedOperation {");
     expect(schema).toContain("model MeshControlGroupAppliedMember {");
     expect(schema).toMatch(/configurationVersion\s+Int/);
@@ -34,6 +40,9 @@ describe("MeshControlGroup schema contract", () => {
     expect(operationPlanMigration).toContain('CREATE TABLE "MeshControlGroupAppliedMember"');
     expect(operationPlanMigration).toContain('"MeshControlGroupExpectedOperation_groupId_gatewayId_fkey"');
     expect(operationPlanMigration).toContain('WHERE member."appliedVersion" > 0');
+    expect(fullReconciliationMigration).toContain(
+      'ADD COLUMN "fullReconciliationRequired" BOOLEAN NOT NULL DEFAULT false'
+    );
   });
 
   it("stores group configurationVersion instead of a generic version field", () => {

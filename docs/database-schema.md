@@ -696,6 +696,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 | `status` | `MeshControlGroupStatus` | 예 | `configuring` | 구성 상태 |
 | `configurationVersion` | `Int` | 예 | `1` | gateway ACK 기준 control group 구성 버전 |
 | `operationPlanVersion` | `Int` | 예 | `0` | expected operation plan을 생성 완료한 구성 버전. 빈 계획도 현재 version으로 기록 |
+| `fullReconciliationRequired` | `Boolean` | 예 | `false` | gateway state-loss 뒤 cloud snapshot 기반 full-state Add/Delete가 exact ACK로 수렴할 때까지 유지하는 복구 flag |
 | `lastError` | `String?` | 아니오 |  | 마지막 구성 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -717,6 +718,8 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 - 같은 `gatewayId + targetType + targetId` 재호출은 기존 row를 반환하며 새 주소를 소비하지 않는다.
 - target 생성은 `INSERT ... ON CONFLICT (gatewayId, targetType, targetId) DO NOTHING RETURNING`을 사용한다. concurrent winner가 있어도 PostgreSQL interactive transaction을 abort시키지 않고 같은 transaction에서 winner를 다시 조회한다.
 - lifecycle 값 `retiring`, `retired`는 desired subscription 삭제가 끝날 때까지 group 명령을 차단한다.
+- `first_run`, `state_missing`, `state_corrupt` resync는 `fullReconciliationRequired = true`와 새 configuration version을 같은 transaction에서 기록한다. 현재 version의 exact ACK가 ready 또는 retired로 수렴할 때만 false로 되돌린다.
+- configuring 상태에서 desired member가 실제 추가되는 경우에도 version을 증가시킨다. 이전 expected operation row는 과거 version 이력으로 남고 지연 ACK는 current-version row lock 조건에서 무시된다.
 
 ### MeshControlGroupMember
 
@@ -762,7 +765,7 @@ Gateway별 층/저장 구역 제어용 BLE Mesh group address를 영속 저장�
 
 ### MeshControlGroupAppliedMember
 
-cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 PK는 `(groupId, meshNodeId, meshAddress)`이며 한 node의 이전 address delete가 실패하고 새 address add가 성공한 partial replacement에서 두 address를 동시에 보존할 수 있다. 다음 version plan은 desired pair set과 이 applied pair set의 차집합으로 생성한다. migration은 기존 `MeshControlGroupMember.appliedVersion > 0` 행을 현재 MeshNode address로 backfill한다.
+cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 PK는 `(groupId, meshNodeId, meshAddress)`이며 한 node의 이전 address delete가 실패하고 새 address add가 성공한 partial replacement에서 두 address를 동시에 보존할 수 있다. incremental plan은 desired pair set과 이 applied pair set의 차집합으로 생성한다. full-state plan은 모든 desired pair를 Add로 재확인하고 desired에 없는 applied pair를 Delete하며, retiring의 빈 desired set에서는 모든 cloud applied pair가 Delete 대상이다. migration은 기존 `MeshControlGroupMember.appliedVersion > 0` 행을 현재 MeshNode address로 backfill한다.
 
 ### Command
 

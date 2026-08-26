@@ -54,6 +54,26 @@ describe("GroupStateStore", () => {
     await expect(restarted.assertReady(snapshot)).rejects.toMatchObject({ code: "MESH_GROUP_NOT_READY" });
   });
 
+  it("rebuilds the durable membership snapshot from a full-state recovery after state loss", async () => {
+    const { path } = await fixture();
+    const member = { meshNodeId: "00000000-0000-4000-8000-000000000013", meshAddress: "0x0100" };
+    const store = new GroupStateStore(path);
+    await store.initialize();
+    await store.writeConfiguring(snapshot);
+    await store.writeReady(snapshot, [member]);
+    await rm(path);
+
+    const recovered = new GroupStateStore(path);
+    await expect(recovered.initialize()).resolves.toEqual({ reason: "state_missing" });
+    await expect(recovered.readAppliedMembers(snapshot.groupId)).resolves.toEqual([]);
+    await recovered.writeConfiguring({ ...snapshot, version: 4 });
+    await recovered.writeReady({ ...snapshot, version: 4 }, [member]);
+
+    const restarted = new GroupStateStore(path);
+    await expect(restarted.initialize()).resolves.toEqual({ reason: "startup" });
+    await expect(restarted.readAppliedMembers(snapshot.groupId)).resolves.toEqual([member]);
+  });
+
   it("fails closed on corruption or a manifest revision mismatch", async () => {
     const { path } = await fixture();
     const store = new GroupStateStore(path);

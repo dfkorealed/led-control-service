@@ -14,11 +14,11 @@
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
-| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약, Task 2 검색 lifecycle, Task 3 Web 상태 구현, Task 4 저장 구역 API와 fix round 2를 완료했다. Task 3 실제 browser QA와 Task 5 장비 HIL이 다음 의존 단계다. |
+| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약, Task 2 검색 lifecycle, Task 3 Web 상태 구현, Task 4 저장 구역 API와 fix round 3를 완료했다. Task 3/6 병렬 Web 검증과 Task 5 장비 HIL이 다음 의존 단계다. |
 
 ## 다음 단계
 
-현재 작업은 **메뉴 완성 구현**이다. [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)의 Task 4 fix round 2는 reconnect fresh operation, 동일 node address replacement 2-operation, delayed old gateway ACK 격리와 DB 영속 expected/applied 상태를 완료했다. full migration rehearsal과 PostgreSQL integration, control Playwright도 통과했다. Task 3의 실제 browser QA와 Task 5의 Raspberry Pi/ESP32-H2 HIL은 남아 있다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
+현재 작업은 **메뉴 완성 구현**이다. Task 4 fix round 3는 configuring desired 변경 시 version 증가와 stale ACK 무시, `first_run/state_missing/state_corrupt`의 영속 full-state reconciliation, retiring cloud-applied Delete 복구를 완료했다. 새 migration 포함 PostgreSQL 29개 migration deploy와 integration 2건, API/shared/gateway 전체 테스트 및 전체 typecheck/build는 통과했다. 병렬 작업 중인 Web command recovery 변경의 unit 25건은 현재 실패 상태이며 Task 4 파일에서 수정하지 않았다. Raspberry Pi/ESP32-H2 HIL은 남아 있다.
 
 ## 알려진 미해결 항목
 

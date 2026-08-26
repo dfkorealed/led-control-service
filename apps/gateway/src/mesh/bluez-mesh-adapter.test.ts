@@ -625,6 +625,43 @@ describe("BluezMeshAdapter", () => {
     expect(f.config.removeModelSubscription).toHaveBeenCalledWith({ unicast: 0x0100, groupAddress: 0xc000 });
   });
 
+  it("executes full-state add and delete operations even when the local membership snapshot says they are satisfied", async () => {
+    const f = fixture();
+    const member = { meshNodeId: "fixture-1", meshAddress: "0x0100" };
+    const base = {
+      siteId: "00000000-0000-4000-8000-000000000010",
+      gatewayId: "00000000-0000-4000-8000-000000000011",
+      groupId: "00000000-0000-4000-8000-000000000012",
+      groupAddress: "0xc000",
+      reconciliationMode: "full_state" as const,
+      requestedAt: "2026-08-21T00:00:00.000Z"
+    };
+
+    await f.adapter.syncGroupSubscriptions({
+      ...base,
+      version: 4,
+      desiredMembers: [member],
+      expectedOperations: [{
+        operationId: "dddddddd-dddd-4ddd-8ddd-dddddddddd01",
+        action: "add",
+        ...member
+      }]
+    }, [member]);
+    await f.adapter.syncGroupSubscriptions({
+      ...base,
+      version: 5,
+      desiredMembers: [],
+      expectedOperations: [{
+        operationId: "dddddddd-dddd-4ddd-8ddd-dddddddddd02",
+        action: "delete",
+        ...member
+      }]
+    }, []);
+
+    expect(f.config.addModelSubscription).toHaveBeenCalledWith({ unicast: 0x0100, groupAddress: 0xc000 });
+    expect(f.config.removeModelSubscription).toHaveBeenCalledWith({ unicast: 0x0100, groupAddress: 0xc000 });
+  });
+
   it("replaces a member address with an old-address delete and new-address add", async () => {
     const f = fixture();
     const base = {

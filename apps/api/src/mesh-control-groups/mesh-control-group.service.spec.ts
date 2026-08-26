@@ -12,7 +12,8 @@ describe("MeshControlGroupService", () => {
     siteId,
     gatewayId,
     eventId: "00000000-0000-4000-8000-000000000006",
-    occurredAt: "2026-08-23T09:00:00.000Z"
+    occurredAt: "2026-08-23T09:00:00.000Z",
+    reason: "state_missing" as const
   };
 
   it("allocates the next gateway mesh group address for a floor target inside the caller transaction", async () => {
@@ -464,7 +465,7 @@ describe("MeshControlGroupService", () => {
     });
   });
 
-  it("keeps version 1 for the first member added to an empty configuring group", async () => {
+  it("increments the version when the first desired member is added to a configuring group", async () => {
     const tx: any = {
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc020 }])
@@ -519,9 +520,23 @@ describe("MeshControlGroupService", () => {
 
     expect(tx.meshControlGroup.update).toHaveBeenCalledWith({
       where: { id: "group-1" },
-      data: { operationPlanVersion: 0 }
+      data: {
+        status: "configuring",
+        configurationVersion: { increment: 1 },
+        operationPlanVersion: 0,
+        lastError: null
+      }
     });
-    expect(tx.meshControlGroupMember.updateMany).not.toHaveBeenCalled();
+    expect(tx.meshControlGroupMember.updateMany).toHaveBeenCalledWith({
+      where: { groupId: "group-1", gatewayId },
+      data: {
+        subscriptionStatus: "pending",
+        statusVersion: 0,
+        operationId: null,
+        operation: null,
+        lastError: null
+      }
+    });
   });
 
   it("does not mutate versions or statuses when the same member is attached again", async () => {
@@ -580,7 +595,7 @@ describe("MeshControlGroupService", () => {
     expect(tx.meshControlGroupMember.updateMany).not.toHaveBeenCalled();
   });
 
-  it("re-synchronizes an in-progress group without incrementing the version when another member is added", async () => {
+  it("increments the version when another desired member is added to an in-progress group", async () => {
     const tx: any = {
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc020 }])
@@ -644,6 +659,7 @@ describe("MeshControlGroupService", () => {
       where: { id: "group-1" },
       data: {
         status: "configuring",
+        configurationVersion: { increment: 1 },
         operationPlanVersion: 0,
         lastError: null
       }
@@ -934,6 +950,7 @@ describe("MeshControlGroupService", () => {
         status: "configuring",
         configurationVersion: { increment: 1 },
         operationPlanVersion: 0,
+        fullReconciliationRequired: true,
         lastError: null
       }
     });
@@ -950,6 +967,43 @@ describe("MeshControlGroupService", () => {
         lastError: null
       }
     });
+  });
+
+  it.each(["first_run", "state_missing", "state_corrupt"] as const)(
+    "marks every non-retired group for full-state reconciliation after %s",
+    async (reason) => {
+      const tx: any = {
+        $queryRaw: jest.fn()
+          .mockResolvedValueOnce([{ id: gatewayId }])
+          .mockResolvedValueOnce([{ eventId: resyncInput.eventId }])
+          .mockResolvedValueOnce([{ id: "group-ready", configurationVersion: 7, status: "ready" }]),
+        meshControlGroup: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        meshControlGroupMember: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      };
+      const service = new MeshControlGroupService();
+
+      await service.resetGatewayGroupsForResync(tx, { ...resyncInput, reason });
+
+      expect(tx.meshControlGroup.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ fullReconciliationRequired: true })
+      }));
+    }
+  );
+
+  it("does not clear an unfinished full-state reconciliation during a normal startup resync", async () => {
+    const tx: any = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: gatewayId }])
+        .mockResolvedValueOnce([{ eventId: resyncInput.eventId }])
+        .mockResolvedValueOnce([{ id: "group-ready", configurationVersion: 7, status: "ready" }]),
+      meshControlGroup: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      meshControlGroupMember: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    const service = new MeshControlGroupService();
+
+    await service.resetGatewayGroupsForResync(tx, { ...resyncInput, reason: "startup" });
+
+    expect(tx.meshControlGroup.updateMany.mock.calls[0][0].data).not.toHaveProperty("fullReconciliationRequired");
   });
 
   it("preserves retiring groups and excludes retired groups during reconnect resync", async () => {
@@ -980,6 +1034,7 @@ describe("MeshControlGroupService", () => {
         status: "configuring",
         configurationVersion: { increment: 1 },
         operationPlanVersion: 0,
+        fullReconciliationRequired: true,
         lastError: null
       }
     });
@@ -989,6 +1044,7 @@ describe("MeshControlGroupService", () => {
         status: "retiring",
         configurationVersion: { increment: 1 },
         operationPlanVersion: 0,
+        fullReconciliationRequired: true,
         lastError: null
       }
     });
@@ -1058,6 +1114,65 @@ describe("MeshControlGroupService", () => {
         expect.objectContaining({ operationId: operations[0].operationId, action: "delete", meshAddress: "0x0100" }),
         expect.objectContaining({ operationId: operations[1].operationId, action: "add", meshAddress: "0x0101" })
       ]
+    });
+  });
+
+  it("creates a full-state add plan when gateway state is lost but cloud applied state already matches", async () => {
+    const nodeId = "00000000-0000-4000-8000-000000000021";
+    const createMany = jest.fn().mockResolvedValue({ count: 1 });
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: "group-1",
+        gatewayId,
+        groupAddress: "0xc000",
+        configurationVersion: 8,
+        operationPlanVersion: 0,
+        fullReconciliationRequired: true,
+        status: "configuring",
+        siteId
+      }]),
+      meshControlGroupMember: {
+        findMany: jest.fn().mockResolvedValue([{
+          meshNodeId: nodeId,
+          meshNode: { meshAddress: "0x0100" }
+        }])
+      },
+      meshControlGroupAppliedMember: {
+        findMany: jest.fn().mockResolvedValue([{ meshNodeId: nodeId, meshAddress: "0x0100" }])
+      },
+      meshControlGroupExpectedOperation: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        createMany,
+        findMany: jest.fn().mockImplementation(async () => {
+          const call = createMany.mock.calls[0];
+          return call ? call[0].data : [];
+        })
+      },
+      meshControlGroup: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      }
+    };
+    const service = new MeshControlGroupService();
+
+    const payload = await service.prepareSubscriptionSync(tx, {
+      groupId: "group-1",
+      gatewayId,
+      configurationVersion: 8,
+      requestedAt: "2026-08-26T10:00:00.000Z"
+    });
+
+    expect(createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        action: "add",
+        meshNodeId: nodeId,
+        meshAddress: "0x0100",
+        configurationVersion: 8
+      })]
+    });
+    expect(payload).toMatchObject({
+      reconciliationMode: "full_state",
+      desiredMembers: [{ meshNodeId: nodeId, meshAddress: "0x0100" }],
+      expectedOperations: [expect.objectContaining({ action: "add", meshNodeId: nodeId })]
     });
   });
 

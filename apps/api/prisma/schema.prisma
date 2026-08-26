@@ -515,6 +515,7 @@ model MeshControlGroup {
   status               MeshControlGroupStatus @default(configuring)
   configurationVersion Int                    @default(1)
   operationPlanVersion Int                    @default(0)
+  fullReconciliationRequired Boolean          @default(false)
   lastError            String?
   gateway              Gateway                @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   members              MeshControlGroupMember[]
