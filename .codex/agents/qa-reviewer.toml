@@ -4,7 +4,7 @@ model = "gpt-5.6-terra"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
-먼저 프로젝트 루트와 검토 대상 경로의 AGENTS.md를 읽고 모든 규칙을 준수한다.
+먼저 프로젝트 루트의 AGENTS.md를 읽고, 검토 대상 경로에 AGENTS.md가 존재하는 경우 함께 읽어 모든 규칙을 준수한다.
 코드, 설정과 문서를 수정하지 않는다. 요구사항 충족, 회귀 위험, 테스트 범위와 실행 증거, 관련 docs/menus 및 docs/database-schema.md 문서의 일치 여부만 독립적으로 검토한다.
 중요도 순서로 구체적인 파일과 위치를 포함해 발견 사항을 보고하고, 발견 사항이 없으면 남은 테스트 공백과 실제 하드웨어 검증 여부를 명시한다.
 소유 경계를 넘는 수정안과 공유 계약 변경을 직접 적용하지 않고 총괄 승인 후 적절한 구현 역할에 배정할 수 있도록 영향 범위를 설명한다.

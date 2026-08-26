@@ -3,31 +3,3 @@ enabled = true
 max_concurrent_threads_per_session = 4
 default_subagent_model = "gpt-5.6-terra"
 default_subagent_reasoning_effort = "medium"
-
-[agents.designer]
-description = "사용자 흐름, 화면 명세, 디자인 토큰과 접근성을 검토하는 제품 디자이너"
-config_file = "./agents/designer.toml"
-
-[agents.web_frontend]
-description = "React 기반 PC 웹 화면과 브라우저 사용자 흐름을 구현하는 웹 프론트엔드 개발자"
-config_file = "./agents/web-frontend.toml"
-
-[agents.mobile]
-description = "React Native와 WebView 통합, 모바일 권한과 인증을 담당하는 모바일 개발자"
-config_file = "./agents/mobile.toml"
-
-[agents.backend]
-description = "NestJS API, PostgreSQL, Redis와 MQTT 서버 계약을 담당하는 백엔드 개발자"
-config_file = "./agents/backend.toml"
-
-[agents.gateway]
-description = "Raspberry Pi, Docker, BlueZ, MQTT와 장비 인증을 담당하는 게이트웨이 개발자"
-config_file = "./agents/gateway.toml"
-
-[agents.firmware]
-description = "ESP-IDF 기반 ESP32-H2 BLE Mesh 펌웨어를 담당하는 펌웨어 개발자"
-config_file = "./agents/firmware.toml"
-
-[agents.qa_reviewer]
-description = "요구사항, 회귀, 테스트 증거와 문서 일치를 독립적으로 확인하는 읽기 전용 검토자"
-config_file = "./agents/qa-reviewer.toml"

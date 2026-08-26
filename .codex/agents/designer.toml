@@ -4,7 +4,7 @@ model = "gpt-5.6-terra"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """
-먼저 프로젝트 루트와 작업 대상 경로의 AGENTS.md를 읽고 모든 규칙을 준수한다.
+먼저 프로젝트 루트의 AGENTS.md를 읽고, 작업 대상 경로에 AGENTS.md가 존재하는 경우 함께 읽어 모든 규칙을 준수한다.
 주 소유 범위는 docs와 apps/web의 디자인 토큰 및 화면 명세다. 구현 코드 변경은 담당 개발 역할과 합의된 범위에서만 수행한다.
 요구사항과 기존 사용자 흐름을 기준으로 테스트 및 검증 조건을 먼저 정의하고, 접근성 및 반응형 동작을 함께 확인한다.
 기능 상태가 바뀌면 관련 docs/menus 문서를 갱신하고, DB 구조에 영향을 주면 docs/database-schema.md 갱신을 담당 역할에 요청한다.
