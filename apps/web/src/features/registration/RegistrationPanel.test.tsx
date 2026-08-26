@@ -247,7 +247,7 @@ describe("RegistrationPanel", () => {
     expect(screen.getByLabelText("조명 1 선택")).toBeEnabled();
   });
 
-  it("provisioning 완료를 관측하면 정확한 현황 query를 갱신한다", async () => {
+  it("provisioning 중에는 등록 화면을 유지하고 세션 완료 후 dashboard를 갱신한다", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
     });
@@ -278,11 +278,16 @@ describe("RegistrationPanel", () => {
     });
 
     await waitFor(() => {
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", mockDashboard.site.id] });
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", "default"] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-fixtures", mockDashboard.site.id, mockDashboard.floors[0].id] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-map", mockDashboard.site.id, mockDashboard.floors[0].id] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["registration-session", mockRegistrationSession.id] });
+    });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["dashboard", mockDashboard.site.id] });
+
+    fireEvent.click(screen.getByRole("button", { name: "등록 세션 완료" }));
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", mockDashboard.site.id] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", "default"] });
     });
   });
 

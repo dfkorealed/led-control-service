@@ -113,9 +113,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
       .map((node) => node.id);
     if (newProvisionedNodeIds.length === 0) return;
     newProvisionedNodeIds.forEach((nodeId) => invalidatedProvisionedNodes.current.add(nodeId));
-    const dashboardQueryKeys = new Set([sessionSnapshot.siteId, dashboardQuerySiteId ?? "default"]);
     void Promise.all([
-      ...Array.from(dashboardQueryKeys, (siteKey) => queryClient.invalidateQueries({ queryKey: ["dashboard", siteKey] })),
       queryClient.invalidateQueries({ queryKey: ["floor-fixtures", sessionSnapshot.siteId, sessionSnapshot.floorId] }),
       queryClient.invalidateQueries({ queryKey: ["floor-map", sessionSnapshot.siteId, sessionSnapshot.floorId] }),
       queryClient.invalidateQueries({ queryKey: ["registration-session", sessionSnapshot.id] })
@@ -209,7 +207,15 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
 
   const completeMutation = useMutation({
     mutationFn: () => completeRegistrationSession(session!.id),
-    onSuccess: (completed) => setSession(completed)
+    onSuccess: (completed) => {
+      setSession(completed);
+      const dashboardQueryKeys = new Set([completed.siteId, dashboardQuerySiteId ?? "default"]);
+      void Promise.all([
+        ...Array.from(dashboardQueryKeys, (siteKey) => queryClient.invalidateQueries({ queryKey: ["dashboard", siteKey] })),
+        queryClient.invalidateQueries({ queryKey: ["floor-fixtures", completed.siteId, completed.floorId] }),
+        queryClient.invalidateQueries({ queryKey: ["floor-map", completed.siteId, completed.floorId] })
+      ]);
+    }
   });
 
   const canStart = Boolean(dashboard?.site.id && floor?.id && gateway?.id) && !startMutation.isPending;
