@@ -14,11 +14,11 @@
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
-| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약·Prisma 기반과 Task 2 검색 lifecycle round 4의 application ACK·startup recovery·journal 보존·publish 종료 경계 보완을 완료했으며, Task 2 독립 재리뷰를 대기한다. |
+| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약·Prisma 기반과 Task 2 검색 lifecycle Fix Round 5의 동일 연결 terminal 재시도·Gateway application ACK ACL 최소권한 보완을 완료했으며, Task 2 독립 재리뷰를 대기한다. |
 
 ## 다음 단계
 
-현재 작업은 **메뉴 완성 구현**이다. [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)의 Task 2 Fix Round 4에서 broker PUBACK과 API transaction commit을 분리하는 scan terminal application ACK, pre-connected startup recovery, 미전달 journal 보존, bounded recovery publish를 TDD로 보완하고 전체 workspace 테스트를 통과했다. Task 2 독립 재리뷰와 전체 승인 뒤 다음 Task로 진행한다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
+현재 작업은 **메뉴 완성 구현**이다. [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)의 Task 2 Fix Round 5에서 연결 유지 중 undelivered scan terminal을 bounded exponential backoff로 재발행하고, Gateway ACL이 application ACK를 self-publish하지 못하도록 최소권한을 강제했다. 관련 전체 테스트와 소유 패키지 typecheck/build를 통과했으며 Task 2 독립 재리뷰 승인 뒤 다음 Task로 진행한다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
 
 ## 알려진 미해결 항목
 

@@ -87,17 +87,44 @@ export type ProvisioningScanEnvelope = { eventId: string; sequence: number; occu
 
 const PROVISIONING_SCAN_OUTBOX_LEASE_MS = 30_000;
 const DEFAULT_RECOVERY_PUBLISH_TIMEOUT_MS = 10_000;
+const DEFAULT_RECOVERY_RETRY_INITIAL_DELAY_MS = 1_000;
+const DEFAULT_RECOVERY_RETRY_MAX_DELAY_MS = 30_000;
+
+type RecoveryPublish = (topic: string, payload: unknown) => Promise<void>;
+type RecoveryErrorHandler = (error: unknown) => unknown;
 
 export class ProvisioningScanRecoveryPublisher {
   private preparation: Promise<void> | undefined;
   private activeDrain: { promise: Promise<void>; controller: AbortController } | undefined;
   private readonly publishTimeoutMs: number;
+  private readonly retryInitialDelayMs: number;
+  private readonly retryMaxDelayMs: number;
+  private retryDelayMs: number;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private connectedDrain: { generation: number; promise: Promise<void> } | undefined;
+  private connectedPublish: RecoveryPublish | undefined;
+  private connectedErrorHandler: RecoveryErrorHandler | undefined;
+  private retryRequested = false;
+  // A generation fence prevents a late publish completion from a closed connection scheduling work on its replacement.
+  private connectionGeneration = 0;
+  private connected = false;
 
   constructor(
     private readonly journal: ProvisioningScanJournal,
-    options: { publishTimeoutMs?: number } = {}
+    options: {
+      publishTimeoutMs?: number;
+      retryInitialDelayMs?: number;
+      retryMaxDelayMs?: number;
+    } = {}
   ) {
     this.publishTimeoutMs = boundedRecoveryPublishTimeout(options.publishTimeoutMs ?? DEFAULT_RECOVERY_PUBLISH_TIMEOUT_MS);
+    const retryBounds = boundedRecoveryRetryDelays(
+      options.retryInitialDelayMs ?? DEFAULT_RECOVERY_RETRY_INITIAL_DELAY_MS,
+      options.retryMaxDelayMs ?? DEFAULT_RECOVERY_RETRY_MAX_DELAY_MS
+    );
+    this.retryInitialDelayMs = retryBounds.initial;
+    this.retryMaxDelayMs = retryBounds.max;
+    this.retryDelayMs = this.retryInitialDelayMs;
   }
 
   prepare(createTerminal: (command: ProvisioningScanStartPayload) => Promise<ProvisioningScanTerminalEvent>) {
@@ -105,7 +132,37 @@ export class ProvisioningScanRecoveryPublisher {
     return this.preparation;
   }
 
-  drain(publish: (topic: string, payload: unknown) => Promise<void>) {
+  connect(publish: RecoveryPublish, onError?: RecoveryErrorHandler) {
+    if (this.connected) return this.connectedDrain?.promise ?? Promise.resolve();
+    this.connected = true;
+    const generation = ++this.connectionGeneration;
+    this.connectedPublish = publish;
+    this.connectedErrorHandler = onError;
+    this.retryDelayMs = this.retryInitialDelayMs;
+    this.retryRequested = false;
+    this.clearRetryTimer();
+    return this.runConnectedDrain(generation);
+  }
+
+  scheduleRetry() {
+    if (!this.connected) return;
+    this.retryRequested = true;
+    if (this.connectedDrain) return;
+    this.armRetryTimer(this.connectionGeneration);
+  }
+
+  async acknowledgeTerminal(acknowledgement: unknown) {
+    const acknowledged = await this.journal.acknowledgeTerminal(acknowledgement);
+    if (!acknowledged || !this.connected) return acknowledged;
+    if ((await this.journal.pendingTerminals()).length === 0) {
+      this.retryRequested = false;
+      this.retryDelayMs = this.retryInitialDelayMs;
+      this.clearRetryTimer();
+    }
+    return acknowledged;
+  }
+
+  drain(publish: RecoveryPublish) {
     if (this.activeDrain) return this.activeDrain.promise;
     const controller = new AbortController();
     const promise = (async () => {
@@ -123,10 +180,72 @@ export class ProvisioningScanRecoveryPublisher {
   }
 
   disconnect() {
+    this.connected = false;
+    this.connectionGeneration += 1;
+    this.connectedPublish = undefined;
+    this.connectedErrorHandler = undefined;
+    this.retryRequested = false;
+    this.retryDelayMs = this.retryInitialDelayMs;
+    this.clearRetryTimer();
+    this.connectedDrain = undefined;
     const active = this.activeDrain;
     if (!active) return;
     this.activeDrain = undefined;
     active.controller.abort(new Error("provisioning scan terminal recovery disconnected"));
+  }
+
+  private runConnectedDrain(generation: number): Promise<void> {
+    const current = this.connectedDrain;
+    if (current?.generation === generation) return current.promise;
+    const publish = this.connectedPublish;
+    if (!publish || !this.isCurrentConnection(generation)) return Promise.resolve();
+    this.retryRequested = false;
+    const active = { generation, promise: Promise.resolve() };
+    active.promise = (async () => {
+      let retry = false;
+      try {
+        await this.drain(publish);
+        retry = (await this.journal.pendingTerminals()).length > 0;
+      } catch (error) {
+        retry = true;
+        if (this.isCurrentConnection(generation)) this.reportConnectedError(error);
+      }
+      if (this.connectedDrain !== active) return;
+      this.connectedDrain = undefined;
+      if (!this.isCurrentConnection(generation)) return;
+      if (retry || this.retryRequested) this.armRetryTimer(generation);
+      else this.retryDelayMs = this.retryInitialDelayMs;
+    })();
+    this.connectedDrain = active;
+    return active.promise;
+  }
+
+  private armRetryTimer(generation: number) {
+    if (this.retryTimer || this.connectedDrain || !this.isCurrentConnection(generation)) return;
+    const delay = this.retryDelayMs;
+    this.retryDelayMs = Math.min(this.retryDelayMs * 2, this.retryMaxDelayMs);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      if (this.isCurrentConnection(generation)) void this.runConnectedDrain(generation);
+    }, delay);
+  }
+
+  private clearRetryTimer() {
+    if (!this.retryTimer) return;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+  }
+
+  private isCurrentConnection(generation: number) {
+    return this.connected && this.connectionGeneration === generation;
+  }
+
+  private reportConnectedError(error: unknown) {
+    try {
+      this.connectedErrorHandler?.(error);
+    } catch {
+      // Retry ownership must remain with this scheduler even if observability reporting fails.
+    }
   }
 }
 
@@ -247,6 +366,13 @@ function boundedRecoveryPublishTimeout(value: number) {
     throw new Error("invalid provisioning scan recovery publish timeout");
   }
   return value;
+}
+
+function boundedRecoveryRetryDelays(initial: number, max: number) {
+  if (!Number.isInteger(initial) || initial < 1 || !Number.isInteger(max) || max < initial) {
+    throw new Error("invalid provisioning scan recovery retry delays");
+  }
+  return { initial, max };
 }
 
 export function createProvisioningScanFoundPayload(

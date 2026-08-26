@@ -182,7 +182,7 @@ describe("MqttService", () => {
     );
   });
 
-  it("does not publish a terminal application ACK when the database transaction fails", async () => {
+  it("publishes the commit-coupled ACK when the same terminal is redelivered after a transaction failure", async () => {
     const siteId = "22222222-2222-4222-8222-222222222222";
     const gatewayId = "33333333-3333-4333-8333-333333333333";
     const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -192,7 +192,7 @@ describe("MqttService", () => {
         findUnique: jest.fn().mockResolvedValue({
           id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt: 1
         }),
-        update: jest.fn().mockRejectedValue(new Error("transaction failed"))
+        update: jest.fn().mockRejectedValueOnce(new Error("transaction failed")).mockResolvedValueOnce(undefined)
       },
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       $queryRaw: jest.fn().mockResolvedValue([])
@@ -201,17 +201,72 @@ describe("MqttService", () => {
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
     const publishTopic = jest.spyOn(service, "publishTopic").mockResolvedValue(undefined);
 
-    await expect(service.handleMessage(
-      `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`,
-      Buffer.from(JSON.stringify({
-        sessionId, siteId, gatewayId, scanCorrelationId, scanAttempt: 1,
-        eventId: "66666666-6666-4666-8666-666666666666", sequence: 2,
-        occurredAt: "2026-08-26T00:00:01.000Z", code: "scan_timeout",
-        message: "조명 검색 시간이 초과되었습니다."
-      }))
-    )).rejects.toThrow("transaction failed");
+    const topic = `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`;
+    const payload = Buffer.from(JSON.stringify({
+      sessionId, siteId, gatewayId, scanCorrelationId, scanAttempt: 1,
+      eventId: "66666666-6666-4666-8666-666666666666", sequence: 2,
+      occurredAt: "2026-08-26T00:00:01.000Z", code: "scan_timeout",
+      message: "조명 검색 시간이 초과되었습니다."
+    }));
+
+    await expect(service.handleMessage(topic, payload)).rejects.toThrow("transaction failed");
 
     expect(publishTopic).not.toHaveBeenCalled();
+    await expect(service.handleMessage(topic, payload)).resolves.toBeUndefined();
+    expect(publishTopic).toHaveBeenCalledWith(
+      `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
+      expect.objectContaining({ eventId: "66666666-6666-4666-8666-666666666666", sequence: 2 })
+    );
+  });
+
+  it("re-publishes the commit-coupled ACK when its first publish fails after commit", async () => {
+    const siteId = "22222222-2222-4222-8222-222222222222";
+    const gatewayId = "33333333-3333-4333-8333-333333333333";
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const scanCorrelationId = "44444444-4444-4444-8444-444444444444";
+    const event = {
+      sessionId, siteId, gatewayId, scanCorrelationId, scanAttempt: 1,
+      eventId: "66666666-6666-4666-8666-666666666666", sequence: 2,
+      occurredAt: "2026-08-26T00:00:01.000Z", acceptedNodeCount: 0
+    };
+    const session: any = {
+      id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning",
+      scanCorrelationId, scanAttempt: 1, scanCompletedAt: null,
+      scanFailureCode: null, scanFailureMessage: null
+    };
+    const markers: any[] = [];
+    const prisma: any = {
+      provisioningSession: {
+        findUnique: jest.fn(async () => session),
+        update: jest.fn(async ({ data }) => Object.assign(session, data))
+      },
+      processedGatewayEvent: {
+        findFirst: jest.fn(async ({ where }) => where.eventId
+          ? markers.find((marker) => marker.eventId === where.eventId) ?? null
+          : null),
+        create: jest.fn(async ({ data }) => { markers.push(data); })
+      },
+      $queryRaw: jest.fn().mockResolvedValue([])
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    const publishTopic = jest.spyOn(service, "publishTopic")
+      .mockRejectedValueOnce(new Error("application ACK publish failed"))
+      .mockResolvedValueOnce(undefined);
+    const topic = `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`;
+    const payload = Buffer.from(JSON.stringify(event));
+
+    await expect(service.handleMessage(topic, payload)).rejects.toThrow("application ACK publish failed");
+    session.status = "completed";
+    await expect(service.handleMessage(topic, payload)).resolves.toBeUndefined();
+
+    expect(prisma.provisioningSession.update).toHaveBeenCalledTimes(1);
+    expect(prisma.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
+    expect(publishTopic).toHaveBeenCalledTimes(2);
+    expect(publishTopic).toHaveBeenLastCalledWith(
+      `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
+      expect.objectContaining({ eventId: event.eventId, sequence: event.sequence })
+    );
   });
 
   it("stores a correlated scan failure and ignores wrong correlation, attempt, scope, duplicate, and lower sequence events", async () => {

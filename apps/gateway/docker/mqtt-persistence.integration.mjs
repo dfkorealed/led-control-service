@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFile as execFileCallback } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { execFile as execFileCallback, spawn } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,7 @@ import test from "node:test";
 const execFile = promisify(execFileCallback);
 const dockerImage = "eclipse-mosquitto:2";
 const dockerRequired = process.env.MQTT_INTEGRATION_REQUIRED === "1";
+let dockerAvailability;
 
 test("Mosquitto restores an offline gateway QoS 1 command after broker restart", async (t) => {
   if (!(await dockerAvailable())) {
@@ -78,6 +79,74 @@ test("Mosquitto restores an offline gateway QoS 1 command after broker restart",
   }
 });
 
+test("Mosquitto rejects application ACK publishes from a Gateway certificate", async (t) => {
+  const useDocker = await dockerAvailable();
+  if (!useDocker && !(await hostMosquittoAvailable())) {
+    if (dockerRequired) assert.fail("Docker daemon is required when MQTT_INTEGRATION_REQUIRED=1");
+    t.skip("Docker daemon and host Mosquitto are unavailable.");
+    return;
+  }
+
+  const directory = await mkdtemp(join(process.cwd(), ".mqtt-acl-"));
+  const dataDirectory = join(directory, "data");
+  const configDirectory = join(directory, "config");
+  const certificatesDirectory = join(directory, "certs");
+  const gatewayId = "00000000-0000-4000-8000-000000000004";
+  const port = await unusedPort();
+  const containerName = `led-mqtt-acl-${randomUUID()}`;
+  let gateway;
+  let hostBroker;
+
+  try {
+    await chmod(directory, 0o755);
+    await mkdir(configDirectory);
+    await mkdir(certificatesDirectory);
+    await mkdir(dataDirectory);
+    await chmod(dataDirectory, 0o777);
+    await createTestCertificates(certificatesDirectory, gatewayId);
+    const aclPath = join(configDirectory, "mosquitto.acl");
+    await writeFile(
+      aclPath,
+      await readFile(new URL("../../../infra/mosquitto.acl.example", import.meta.url)),
+      { mode: 0o644 }
+    );
+    const configPath = join(configDirectory, "mosquitto.conf");
+    await writeFile(configPath, useDocker
+      ? tlsBrokerConfig()
+      : tlsBrokerConfig({ listener: port, certificatesDirectory, aclPath }), { mode: 0o644 });
+    if (useDocker) {
+      await startBroker({ containerName, configDirectory, certificatesDirectory, dataDirectory, port, containerPort: 8883 });
+    } else {
+      hostBroker = startHostBroker(configPath);
+    }
+
+    ({ client: gateway } = await connectEventually(`mqtts://127.0.0.1:${port}`, {
+      clientId: `gateway-acl-${randomUUID()}`,
+      protocolVersion: 5,
+      clean: true,
+      reconnectPeriod: 0,
+      ca: await readFile(join(certificatesDirectory, "ca.crt")),
+      cert: await readFile(join(certificatesDirectory, "gateway.crt")),
+      key: await readFile(join(certificatesDirectory, "gateway.key")),
+      rejectUnauthorized: true
+    }));
+
+    const base = `sites/site-1/gateways/${gatewayId}/acks`;
+    await assert.doesNotReject(publish(gateway, `${base}/acceptance`, "{}"));
+    await assert.doesNotReject(publish(gateway, `${base}/device-status`, "{}"));
+    await assert.rejects(publish(gateway, `${base}/state-ingested`, "{}"), /not authorized/i);
+    await assert.rejects(
+      publish(gateway, `${base}/provisioning/scan-terminal-ingested`, "{}"),
+      /not authorized/i
+    );
+  } finally {
+    await end(gateway);
+    if (useDocker) await execFile("docker", ["rm", "-f", containerName]).catch(() => undefined);
+    await stopHostBroker(hostBroker);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 function brokerConfig() {
   return [
     "listener 1883",
@@ -104,20 +173,33 @@ function persistentGatewayOptions(clientId) {
 }
 
 async function dockerAvailable() {
+  dockerAvailability ??= execFile(
+    "docker",
+    ["version", "--format", "{{.Server.Version}}"],
+    { timeout: 5_000 }
+  ).then(() => true, () => false);
+  return dockerAvailability;
+}
+
+async function hostMosquittoAvailable() {
   try {
-    await execFile("docker", ["version", "--format", "{{.Server.Version}}"]);
+    await execFile("mosquitto", ["-h"], { timeout: 5_000 });
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return error?.code !== "ENOENT";
   }
 }
 
-async function startBroker({ containerName, configDirectory, dataDirectory, port }) {
+async function startBroker({ containerName, configDirectory, certificatesDirectory, dataDirectory, port, containerPort = 1883 }) {
+  const mounts = [
+    "-v", `${configDirectory}:/mosquitto/config:ro`,
+    "-v", `${dataDirectory}:/mosquitto/data`
+  ];
+  if (certificatesDirectory) mounts.push("-v", `${certificatesDirectory}:/mosquitto/certs:ro`);
   await execFile("docker", [
     "run", "--detach", "--name", containerName, "--user", "1883:1883",
-    "-p", `${port}:1883`,
-    "-v", `${configDirectory}:/mosquitto/config:ro`,
-    "-v", `${dataDirectory}:/mosquitto/data`,
+    "-p", `${port}:${containerPort}`,
+    ...mounts,
     dockerImage
   ]);
   await sleep(100);
@@ -128,6 +210,73 @@ async function startBroker({ containerName, configDirectory, dataDirectory, port
     stderr: error.stderr ?? ""
   }));
   throw new Error(`Mosquitto container exited during startup: ${logs}${stderr}`);
+}
+
+function tlsBrokerConfig({
+  listener = 8883,
+  certificatesDirectory = "/mosquitto/certs",
+  aclPath = "/mosquitto/config/mosquitto.acl"
+} = {}) {
+  return [
+    `listener ${listener}`,
+    "allow_anonymous false",
+    `cafile ${join(certificatesDirectory, "ca.crt")}`,
+    `certfile ${join(certificatesDirectory, "server.crt")}`,
+    `keyfile ${join(certificatesDirectory, "server.key")}`,
+    "require_certificate true",
+    "use_identity_as_username true",
+    `acl_file ${aclPath}`,
+    "log_dest stdout",
+    ""
+  ].join("\n");
+}
+
+function startHostBroker(configPath) {
+  const child = spawn("mosquitto", ["-c", configPath], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  child.stdout.on("data", (chunk) => { output += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { output += chunk.toString(); });
+  child.logs = () => output;
+  return child;
+}
+
+async function stopHostBroker(child) {
+  if (!child || child.exitCode !== null) return;
+  child.kill("SIGTERM");
+  await new Promise((resolve) => {
+    const timeout = setTimeout(resolve, 2_000);
+    child.once("close", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+async function createTestCertificates(directory, gatewayId) {
+  await execFile("openssl", [
+    "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+    "-keyout", "ca.key", "-out", "ca.crt", "-subj", "/CN=MQTT Test CA",
+    "-addext", "basicConstraints=critical,CA:true",
+    "-addext", "keyUsage=critical,keyCertSign"
+  ], { cwd: directory });
+  await createSignedCertificate(directory, "server", "mqtt-test", [
+    "subjectAltName=IP:127.0.0.1",
+    "extendedKeyUsage=serverAuth"
+  ]);
+  await createSignedCertificate(directory, "gateway", gatewayId, ["extendedKeyUsage=clientAuth"]);
+  await chmod(join(directory, "server.key"), 0o644);
+}
+
+async function createSignedCertificate(directory, name, commonName, extensions) {
+  await execFile("openssl", [
+    "req", "-newkey", "rsa:2048", "-nodes", "-keyout", `${name}.key`, "-out", `${name}.csr`,
+    "-subj", `/CN=${commonName}`
+  ], { cwd: directory });
+  await writeFile(join(directory, `${name}.ext`), ["basicConstraints=critical,CA:false", ...extensions, ""].join("\n"));
+  await execFile("openssl", [
+    "x509", "-req", "-in", `${name}.csr`, "-CA", "ca.crt", "-CAkey", "ca.key", "-CAcreateserial",
+    "-out", `${name}.crt`, "-days", "1", "-sha256", "-extfile", `${name}.ext`
+  ], { cwd: directory });
 }
 
 async function connectEventually(url, options) {

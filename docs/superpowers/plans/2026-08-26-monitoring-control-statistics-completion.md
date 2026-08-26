@@ -71,6 +71,14 @@
 - [x] recovery publish timeout·disconnect cancellation·fresh reconnect·동시 drain 직렬화 RED/GREEN을 확인한다.
 - [x] Shared/API/Gateway 전체 검증과 문서·보고서·커밋을 완료한다.
 
+#### Fix Round 5: 연결 유지 terminal 재시도와 Gateway ACK ACL
+
+- [x] 동일 연결에서 transaction 실패 뒤 undelivered terminal을 bounded exponential backoff로 재발행하고 commit-coupled ACK로 수렴하는 RED/GREEN을 확인한다.
+- [x] ACK 뒤 재발행 중단, concurrent drain single-flight, close의 timer·active publish 취소와 reconnect 재시작을 RED/GREEN으로 확인한다.
+- [x] Gateway write ACL을 `acks/acceptance`, `acks/device-status`로 제한하고 application ACK 두 종류를 read-only로 유지하는 host/generated RED/GREEN을 확인한다.
+- [x] Gateway certificate의 application ACK publish가 실제 host Mosquitto에서 거부되는 negative integration을 실행한다. Docker 전용 persistence 재시작 test는 daemon 부재로 skip됐다.
+- [x] API/Gateway/Shared/host 관련 전체 테스트·typecheck·build와 문서·보고서·별도 커밋을 완료한다.
+
 ### Task 3: 모니터링 Web과 실제 브라우저 QA
 
 **Files:**

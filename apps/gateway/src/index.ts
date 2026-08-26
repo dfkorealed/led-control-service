@@ -148,13 +148,17 @@ async function main() {
 
   async function handleProvisioningScanPayload(payload: Buffer, source: GatewayMqttClient) {
     const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
-    await handleDurableProvisioningScan({
-      adapter: scannerAdapter,
-      journal: provisioningScanJournal,
-      command,
-      nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
-      publish: (topic, event) => publish(source, topic, event)
-    });
+    try {
+      await handleDurableProvisioningScan({
+        adapter: scannerAdapter,
+        journal: provisioningScanJournal,
+        command,
+        nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
+        publish: (topic, event) => publish(source, topic, event)
+      });
+    } finally {
+      provisioningScanRecovery.scheduleRetry();
+    }
   }
 
   async function handleIdentifyPayload(payload: Buffer, _source: GatewayMqttClient) {
@@ -214,12 +218,15 @@ async function main() {
       [mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)]: (payload) =>
         groupResyncPublisher.acknowledge(JSON.parse(payload.toString())),
       [mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId)]: (payload) =>
-        provisioningScanJournal.acknowledgeTerminal(JSON.parse(payload.toString()))
+        provisioningScanRecovery.acknowledgeTerminal(JSON.parse(payload.toString()))
     },
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
       await health.mqttConnected();
-      await provisioningScanRecovery.drain((topic, event) => publish(mqttRuntime.client, topic, event));
+      await provisioningScanRecovery.connect(
+        (topic, event) => publish(mqttRuntime.client, topic, event),
+        (error) => reportGatewayError(error, "provisioning_scan_terminal_retry")
+      );
       await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
       await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
     },

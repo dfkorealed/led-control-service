@@ -236,6 +236,110 @@ describe("ProvisioningScanJournal", () => {
     await runtime.stop();
   });
 
+  it("retries a terminal after an API transaction failure on the same connection and stops after the commit-coupled ACK", async () => {
+    vi.useFakeTimers();
+    const journal = new ProvisioningScanJournal(await journalPath());
+    const recovery = new ProvisioningScanRecoveryPublisher(journal, {
+      publishTimeoutMs: 1_000,
+      retryInitialDelayMs: 100,
+      retryMaxDelayMs: 400
+    });
+    const publish = vi.fn().mockResolvedValue(undefined);
+
+    await recovery.connect(publish);
+    expect(publish).not.toHaveBeenCalled();
+
+    await journal.begin(command);
+    const terminal = await journal.complete(command, {
+      topic: `sites/${command.siteId}/gateways/${command.gatewayId}/events/provisioning/scan-completed`,
+      payload: createProvisioningScanCompletedPayload(command, 0, {
+        eventId: "66666666-6666-4666-8666-666666666666",
+        sequence: 7,
+        occurredAt: "2026-08-26T00:00:01.000Z"
+      })
+    });
+    await publish(terminal.topic, terminal.payload);
+    recovery.scheduleRetry();
+    expect(publish).toHaveBeenCalledTimes(1);
+
+    // The broker accepted the first delivery, but the API transaction failed and emitted no application ACK.
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+
+    await recovery.acknowledgeTerminal({
+      eventId: terminal.payload.eventId,
+      sequence: terminal.payload.sequence,
+      sessionId: terminal.payload.sessionId,
+      scanCorrelationId: terminal.payload.scanCorrelationId,
+      scanAttempt: terminal.payload.scanAttempt,
+      ingestedAt: "2026-08-26T00:00:02.000Z"
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(publish).toHaveBeenCalledTimes(2);
+    recovery.disconnect();
+  });
+
+  it("uses bounded exponential backoff without overlapping connected drains", async () => {
+    vi.useFakeTimers();
+    const journal = await journalWithPendingTerminal();
+    const recovery = new ProvisioningScanRecoveryPublisher(journal, {
+      publishTimeoutMs: 1_000,
+      retryInitialDelayMs: 100,
+      retryMaxDelayMs: 400
+    });
+    const publish = vi.fn().mockResolvedValue(undefined);
+
+    const first = recovery.connect(publish);
+    const concurrent = recovery.connect(publish);
+    expect(concurrent).toBe(first);
+    await first;
+    expect(publish).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(publish).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(publish).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(199);
+    expect(publish).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(publish).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(399);
+    expect(publish).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(publish).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(publish).toHaveBeenCalledTimes(5);
+    recovery.disconnect();
+  });
+
+  it("cancels a scheduled retry and active publish on close, then restarts on reconnect", async () => {
+    vi.useFakeTimers();
+    const journal = await journalWithPendingTerminal();
+    const recovery = new ProvisioningScanRecoveryPublisher(journal, {
+      publishTimeoutMs: 1_000,
+      retryInitialDelayMs: 100,
+      retryMaxDelayMs: 400
+    });
+    const firstPublish = vi.fn().mockResolvedValue(undefined);
+
+    await recovery.connect(firstPublish);
+    recovery.disconnect();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(firstPublish).toHaveBeenCalledTimes(1);
+
+    const stalledPublish = vi.fn(() => new Promise<void>(() => undefined));
+    const stalled = recovery.connect(stalledPublish);
+    await vi.waitFor(() => expect(stalledPublish).toHaveBeenCalledTimes(1));
+    recovery.disconnect();
+    await expect(stalled).resolves.toBeUndefined();
+
+    const reconnectPublish = vi.fn().mockResolvedValue(undefined);
+    await recovery.connect(reconnectPublish);
+    expect(reconnectPublish).toHaveBeenCalledTimes(1);
+    recovery.disconnect();
+  });
+
   it("rejects a stalled drain on timeout and starts a fresh serialized drain on reconnect", async () => {
     vi.useFakeTimers();
     const journal = await journalWithPendingTerminal();
