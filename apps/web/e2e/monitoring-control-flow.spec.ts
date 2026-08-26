@@ -76,6 +76,21 @@ function registrationSession(scanStatus: RegistrationSession["scanStatus"], scan
   };
 }
 
+const discoveredNode = {
+  id: "66666666-6666-4666-8666-666666666666",
+  sessionId: "88888888-8888-4888-8888-888888888888",
+  deviceUuid: "esp32h2-b2-001",
+  serialNumber: "LC-B2-001",
+  rssi: -54,
+  oobCapability: "static-oob",
+  firmwareVersion: "1.0.0",
+  status: "discovered" as const,
+  identifyState: "idle",
+  meshAddress: null,
+  errorMessage: null,
+  discoveredAt: "2026-08-26T00:02:01.000Z"
+};
+
 async function installBrowserContractFixture(page: Parameters<typeof installSettingsApiRoutes>[0]) {
   return installSettingsApiRoutes(page, "admin", {
     fixtures,
@@ -125,12 +140,34 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     expect(api.mapSnapshotRequests).toBe(5);
   });
 
-  test("0건 완료와 검색 실패에서 명시적으로 다시 검색한다", async ({ page }) => {
+  test("0건 완료 후 relation 없는 응답에서도 polling으로 다시 검색을 완료한다", async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-08-26T00:00:00.000Z") });
+    const initial = registrationSession("completed", null);
+    const pending = {
+      ...registrationSession("pending", null),
+      scanAttempt: 2,
+      scanStartedAt: null,
+      scanCompletedAt: null,
+      discoveredNodes: []
+    };
+    const scanning = {
+      ...pending,
+      scanStatus: "scanning" as const,
+      scanStartedAt: "2026-08-26T00:02:00.000Z"
+    };
+    const completed = {
+      ...scanning,
+      scanStatus: "completed" as const,
+      scanCompletedAt: "2026-08-26T00:02:10.000Z",
+      discoveredNodes: [discoveredNode]
+    };
+    const { discoveredNodes: _omitted, ...retryResponse } = pending;
     const api = await installSettingsApiRoutes(page, "operator", {
       fixtures: [],
       ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
-      registrationSession: registrationSession("completed", null),
-      registrationRetrySession: registrationSession("scanning", null)
+      registrationSession: initial,
+      registrationRetrySession: retryResponse,
+      registrationPollingSessions: [pending, scanning, completed]
     });
     await page.goto(`/monitoring?siteId=${ids.site}`);
     await page.getByLabel("등록 층").selectOption(ids.floor);
@@ -141,6 +178,17 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await page.getByRole("button", { name: "다시 검색" }).click();
     await expect.poll(() => api.registrationScanRetryRequests).toBe(1);
     await expect(page.getByText("게이트웨이가 미등록 조명을 검색하는 중입니다.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "선택 조명 등록" })).toHaveCount(0);
+
+    await page.clock.fastForward(1_500);
+    await expect(page.getByText("게이트웨이가 미등록 조명을 검색하는 중입니다.")).toBeVisible();
+    await page.clock.fastForward(1_500);
+    await expect(page.getByText(discoveredNode.serialNumber)).toBeVisible();
+    await expect(page.getByLabel("조명 1 선택")).toBeEnabled();
+
+    const terminalRequestCount = api.registrationSessionRequests;
+    await page.clock.fastForward(4_500);
+    expect(api.registrationSessionRequests).toBe(terminalRequestCount);
   });
 
   test("검색 실패 원인은 정제된 메시지만 표시한다", async ({ page }) => {

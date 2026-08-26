@@ -47,6 +47,10 @@ export interface RegistrationSession {
   discoveredNodes: DiscoveredRegistrationNode[];
 }
 
+export type RegistrationScanRetryResult = Omit<RegistrationSession, "discoveredNodes"> & {
+  discoveredNodes?: DiscoveredRegistrationNode[];
+};
+
 export function createRegistrationSession(siteId: string, floorId: string, gatewayId: string) {
   return apiPost<RegistrationSession>("/registration-sessions", { siteId, floorId, gatewayId });
 }
@@ -71,5 +75,5 @@ export function completeRegistrationSession(sessionId: string) {
 }
 
 export function retryRegistrationScan(sessionId: string) {
-  return apiPost<RegistrationSession>(`/registration-sessions/${sessionId}/scan/retry`, {});
+  return apiPost<RegistrationScanRetryResult>(`/registration-sessions/${sessionId}/scan/retry`, {});
 }

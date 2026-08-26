@@ -21,6 +21,7 @@ import {
 
 interface RegistrationPanelProps {
   dashboard: Dashboard | undefined;
+  dashboardQuerySiteId?: string;
 }
 
 const statusLabels = {
@@ -57,7 +58,7 @@ const initialIndividualDefaults: FixtureIndividualDefaults = {
   digits: 3
 };
 
-export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
+export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: RegistrationPanelProps) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<RegistrationSession | null>(null);
   const [localNodes, setLocalNodes] = useState<DiscoveredRegistrationNode[]>([]);
@@ -70,6 +71,7 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
   const [individualDefaults, setIndividualDefaults] = useState(initialIndividualDefaults);
   const [individualDrafts, setIndividualDrafts] = useState<Record<string, FixtureIndividualDraft>>({});
   const [nodeErrors, setNodeErrors] = useState<Record<string, string>>({});
+  const [isRestartingScan, setIsRestartingScan] = useState(false);
   const invalidatedProvisionedNodes = useRef(new Set<string>());
   const invalidatedSessionId = useRef<string | null>(null);
   const floor = dashboard?.floors.find((item) => item.id === selectedFloorId);
@@ -85,14 +87,18 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
   const sessionSnapshot = sessionQuery.data ?? session;
 
   const nodes = useMemo(() => {
-    const remoteNodes = sessionSnapshot?.discoveredNodes ?? [];
-    const byId = new Map(localNodes.map((node) => [node.id, node]));
+    if (isRestartingScan || sessionSnapshot?.scanStatus !== "completed") return [];
+    const remoteNodes = currentScanNodes(sessionSnapshot);
+    const currentNodeIds = new Set(remoteNodes.map((node) => node.id));
+    const byId = new Map(
+      localNodes.filter((node) => currentNodeIds.has(node.id)).map((node) => [node.id, node])
+    );
     for (const node of remoteNodes) {
       const localNode = byId.get(node.id);
       if (!localNode || statusProgress[node.status] >= statusProgress[localNode.status]) byId.set(node.id, node);
     }
     return Array.from(byId.values());
-  }, [localNodes, sessionSnapshot?.discoveredNodes]);
+  }, [isRestartingScan, localNodes, sessionSnapshot]);
 
   useEffect(() => {
     if (!sessionSnapshot || invalidatedSessionId.current === sessionSnapshot.id) return;
@@ -107,13 +113,14 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
       .map((node) => node.id);
     if (newProvisionedNodeIds.length === 0) return;
     newProvisionedNodeIds.forEach((nodeId) => invalidatedProvisionedNodes.current.add(nodeId));
+    const dashboardQueryKeys = new Set([sessionSnapshot.siteId, dashboardQuerySiteId ?? "default"]);
     void Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["dashboard", sessionSnapshot.siteId] }),
+      ...Array.from(dashboardQueryKeys, (siteKey) => queryClient.invalidateQueries({ queryKey: ["dashboard", siteKey] })),
       queryClient.invalidateQueries({ queryKey: ["floor-fixtures", sessionSnapshot.siteId, sessionSnapshot.floorId] }),
       queryClient.invalidateQueries({ queryKey: ["floor-map", sessionSnapshot.siteId, sessionSnapshot.floorId] }),
       queryClient.invalidateQueries({ queryKey: ["registration-session", sessionSnapshot.id] })
     ]);
-  }, [nodes, queryClient, sessionSnapshot]);
+  }, [dashboardQuerySiteId, nodes, queryClient, sessionSnapshot]);
 
   useEffect(() => {
     if (!floor) return;
@@ -149,13 +156,26 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
 
   const retryMutation = useMutation({
     mutationFn: () => retryRegistrationScan(session!.id),
+    onMutate: () => {
+      setIsRestartingScan(true);
+      clearRegistrationCandidates();
+    },
     onSuccess: (restarted) => {
-      setSession(restarted);
-      setLocalNodes(restarted.discoveredNodes);
-      setSelectedNodeIds([]);
-      setSubmittedNodeIds([]);
-      setNodeErrors({});
-      queryClient.setQueryData(["registration-session", restarted.id], restarted);
+      const canonicalPending: RegistrationSession = { ...restarted, discoveredNodes: [] };
+      setSession(canonicalPending);
+      setIsRestartingScan(false);
+      clearRegistrationCandidates();
+      queryClient.setQueryData(["registration-session", restarted.id], canonicalPending);
+      void queryClient.invalidateQueries({
+        queryKey: ["registration-session", restarted.id],
+        exact: true
+      });
+    },
+    onError: () => {
+      setIsRestartingScan(false);
+      if (session?.id) {
+        void queryClient.invalidateQueries({ queryKey: ["registration-session", session.id], exact: true });
+      }
     }
   });
 
@@ -233,6 +253,14 @@ export function RegistrationPanel({ dashboard }: RegistrationPanelProps) {
       ...current,
       [nodeId]: { ...(current[nodeId] ?? createIndividualDraft()), ...patch }
     }));
+  }
+
+  function clearRegistrationCandidates() {
+    setLocalNodes([]);
+    setSelectedNodeIds([]);
+    setSubmittedNodeIds([]);
+    setIndividualDrafts({});
+    setNodeErrors({});
   }
 
   function submitRegistration() {
@@ -460,15 +488,25 @@ function createIndividualDraft(): FixtureIndividualDraft {
 }
 
 function isRegisterableNode(node: DiscoveredRegistrationNode, session: RegistrationSession | null) {
-  return session?.status === "active" && session.scanStatus !== "failed" && node.status === "discovered";
+  return session?.status === "active" && session.scanStatus === "completed" && node.status === "discovered";
 }
 
 export function shouldPollRegistrationSession(session: RegistrationSession | null | undefined, localNodes: DiscoveredRegistrationNode[]) {
   if (!session || session.status !== "active") return false;
   return session.scanStatus === "pending"
     || session.scanStatus === "scanning"
-    || session.discoveredNodes.some((node) => node.status === "provisioning")
+    || session.discoveredNodes?.some((node) => node.status === "provisioning")
     || localNodes.some((node) => node.status === "provisioning");
+}
+
+function currentScanNodes(session: RegistrationSession) {
+  if (!session.scanStartedAt) return [];
+  const scanStartedAt = Date.parse(session.scanStartedAt);
+  if (!Number.isFinite(scanStartedAt)) return [];
+  return (session.discoveredNodes ?? []).filter((node) => {
+    const discoveredAt = Date.parse(node.discoveredAt);
+    return Number.isFinite(discoveredAt) && discoveredAt >= scanStartedAt;
+  });
 }
 
 function scanStatusLabel(session: RegistrationSession | null) {

@@ -139,6 +139,8 @@ vi.mock("./api/client", () => ({
       const dashboard = apiState.dashboard as typeof mockDashboard | null;
       const nextSession = {
         ...mockRegistrationSession,
+        scanStatus: "completed" as const,
+        scanCompletedAt: "2026-07-01T00:00:10.000Z",
         siteId: input?.siteId ?? dashboard?.site.id ?? mockRegistrationSession.siteId,
         floorId: input?.floorId ?? dashboard?.floors[0]?.id ?? mockRegistrationSession.floorId,
         gatewayId: input?.gatewayId ?? dashboard?.gateways[0]?.id ?? mockRegistrationSession.gatewayId

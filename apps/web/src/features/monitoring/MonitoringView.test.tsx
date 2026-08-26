@@ -147,6 +147,40 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(screen.getByRole("button", { name: "지도 다시 시도" }));
     expect(refetchMap).toHaveBeenCalledTimes(2);
   });
+
+  it("한 층의 지도 갱신 실패를 다른 층의 성공한 지도에 표시하지 않는다", async () => {
+    const twoFloorDashboard = {
+      ...dashboard,
+      floors: [
+        dashboard.floors[0],
+        { ...dashboard.floors[0], id: "floor-2", name: "B2", level: -2 }
+      ]
+    };
+    const firstFloorRefetch = vi.fn().mockRejectedValue(new Error("floor 1 map unavailable"));
+    const secondFloorRefetch = vi.fn().mockResolvedValue({ data: { ...mapSnapshot, floorId: "floor-2" } });
+    queryMocks.useDashboard.mockReturnValue({
+      data: twoFloorDashboard,
+      isLoading: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      refetch: refetchDashboard
+    });
+    queryMocks.useFloorMapSnapshot.mockImplementation((floorId: string) => ({
+      data: { ...mapSnapshot, floorId },
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      error: null,
+      refetch: floorId === "floor-1" ? firstFloorRefetch : secondFloorRefetch
+    }));
+    render(<MonitoringView siteId="site-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "B2" }));
+
+    expect(await screen.findByRole("heading", { name: "B2 운영 현황" })).toBeInTheDocument();
+    expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument();
+  });
 });
 
 const mapSnapshot = {

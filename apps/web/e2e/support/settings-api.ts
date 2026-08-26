@@ -5,7 +5,7 @@ import {
   type CreateDimmingCommandInput,
   type FloorMapSnapshot
 } from "@led-control/shared";
-import type { RegistrationSession } from "../../src/api/registration";
+import type { RegistrationScanRetryResult, RegistrationSession } from "../../src/api/registration";
 
 export type SettingsRole = "operator" | "admin" | "viewer";
 
@@ -35,7 +35,8 @@ interface InstallSettingsApiOptions {
   mapObjects?: SettingsMapObject[];
   mapSnapshotFailuresBeforeSuccess?: number;
   registrationSession?: RegistrationSession;
-  registrationRetrySession?: RegistrationSession;
+  registrationRetrySession?: RegistrationScanRetryResult;
+  registrationPollingSessions?: RegistrationSession[];
   ids?: Partial<SettingsApiIds>;
 }
 
@@ -90,6 +91,7 @@ export interface SettingsApiFixtureState {
   fixturePageCursors: Array<string | null>;
   dimmingRequests: CreateDimmingCommandInput[];
   commandStatusRequests: string[];
+  registrationSessionRequests: number;
   registrationScanRetryRequests: number;
   updateFixture: (fixtureId: string, update: Pick<SettingsFixture, "status" | "brightness">) => void;
   setCommandStatus: (input: { stage: FixtureCommandStage; results: FixtureCommandResult[] }) => void;
@@ -153,6 +155,7 @@ export async function installSettingsApiRoutes(
     mapSnapshotFailuresBeforeSuccess = 0,
     registrationSession,
     registrationRetrySession,
+    registrationPollingSessions = [],
     ids: idOverrides
   }: InstallSettingsApiOptions = {}
 ): Promise<SettingsApiFixtureState> {
@@ -164,6 +167,9 @@ export async function installSettingsApiRoutes(
   let commandCreated = false;
   const initialRegistrationSession = registrationSession ? structuredClone(registrationSession) : null;
   const retriedRegistrationSession = registrationRetrySession ? structuredClone(registrationRetrySession) : null;
+  const queuedRegistrationSessions = structuredClone(registrationPollingSessions);
+  let currentRegistrationSession = initialRegistrationSession;
+  let registrationRetryStarted = false;
   const state: SettingsApiFixtureState = {
     requests: [],
     leaseRequests: [],
@@ -177,6 +183,7 @@ export async function installSettingsApiRoutes(
     fixturePageCursors: [],
     dimmingRequests: [],
     commandStatusRequests: [],
+    registrationSessionRequests: 0,
     registrationScanRetryRequests: 0,
     updateFixture: (fixtureId, update) => {
       const fixture = fixtureState.find((candidate) => candidate.id === fixtureId);
@@ -231,12 +238,17 @@ export async function installSettingsApiRoutes(
       return route.fulfill({ json: structuredClone(initialRegistrationSession) });
     }
     if (path === `/registration-sessions/${initialRegistrationSession?.id}` && request.method() === "GET") {
-      if (!initialRegistrationSession) return route.fulfill({ status: 404, json: { message: "registration fixture not configured" } });
-      return route.fulfill({ json: structuredClone(initialRegistrationSession) });
+      if (!currentRegistrationSession) return route.fulfill({ status: 404, json: { message: "registration fixture not configured" } });
+      state.registrationSessionRequests += 1;
+      if (registrationRetryStarted && queuedRegistrationSessions.length > 0) {
+        currentRegistrationSession = queuedRegistrationSessions.shift() ?? currentRegistrationSession;
+      }
+      return route.fulfill({ json: structuredClone(currentRegistrationSession) });
     }
     if (path === `/registration-sessions/${initialRegistrationSession?.id}/scan/retry` && request.method() === "POST") {
       if (!retriedRegistrationSession) return route.fulfill({ status: 409, json: { message: "registration retry fixture not configured" } });
       state.registrationScanRetryRequests += 1;
+      registrationRetryStarted = true;
       return route.fulfill({ json: structuredClone(retriedRegistrationSession) });
     }
     if (path === "/sites/default/dashboard" || path === `/sites/${ids.siteId}/dashboard`) {

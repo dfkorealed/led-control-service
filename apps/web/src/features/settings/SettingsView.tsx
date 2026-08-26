@@ -43,7 +43,9 @@ export function SettingsView({ userRole = "operator", siteId }: { userRole?: "op
         ))}
       </div>
       {userRole === "operator" ? (
-        data.gateways.length === 0 ? <GatewayClaimPanel siteId={data.site.id} /> : <RegistrationPanel dashboard={data} />
+        data.gateways.length === 0
+          ? <GatewayClaimPanel siteId={data.site.id} />
+          : <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
       ) : null}
     </section>
   );

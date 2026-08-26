@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   completeRegistrationSession,
@@ -28,13 +28,16 @@ const retryScanMock = vi.mocked(retryRegistrationScan);
 describe("RegistrationPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    createSessionMock.mockResolvedValue(scanningSession());
-    getSessionMock.mockResolvedValue(scanningSession());
+    createSessionMock.mockResolvedValue(completedSession(mockRegistrationSession.discoveredNodes));
+    getSessionMock.mockResolvedValue(completedSession(mockRegistrationSession.discoveredNodes));
     retryScanMock.mockResolvedValue(scanningSession());
     vi.mocked(completeRegistrationSession).mockResolvedValue({ ...mockRegistrationSession, status: "completed" });
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
   it("선택한 여러 조명을 일괄 설정 payload로 등록한다", async () => {
     registerBatchMock.mockResolvedValue({
@@ -132,20 +135,95 @@ describe("RegistrationPanel", () => {
     await waitFor(() => expect(retryScanMock).toHaveBeenCalledWith(mockRegistrationSession.id));
   });
 
-  it("다시 검색이 시작되면 이전 검색 후보를 등록 대상으로 남기지 않는다", async () => {
+  it("retry 응답에 discoveredNodes가 없어도 후보를 비우고 canonical GET으로 수렴한다", async () => {
     const terminal = completedSession(mockRegistrationSession.discoveredNodes);
-    const restarted = { ...terminal, scanStatus: "scanning" as const, discoveredNodes: [] };
+    const restarted = {
+      ...terminal,
+      scanStatus: "pending" as const,
+      scanAttempt: 2,
+      scanStartedAt: null,
+      scanCompletedAt: null
+    };
+    const { discoveredNodes: _omitted, ...retryResponse } = restarted;
+    const canonical = { ...restarted, discoveredNodes: terminal.discoveredNodes };
     createSessionMock.mockResolvedValue(terminal);
     getSessionMock.mockResolvedValue(terminal);
-    retryScanMock.mockResolvedValue(restarted);
+    retryScanMock.mockResolvedValue(retryResponse);
     await renderStartedPanel();
+    getSessionMock.mockResolvedValue(canonical);
 
     fireEvent.click(screen.getByRole("button", { name: "다시 검색" }));
     await waitFor(() => expect(retryScanMock).toHaveBeenCalledWith(mockRegistrationSession.id));
 
+    expect(await screen.findByText("게이트웨이가 미등록 조명을 검색하는 중입니다.")).toBeInTheDocument();
     expect(screen.queryByLabelText("조명 1 선택")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "선택 조명 등록" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "점멸 확인" })).not.toBeInTheDocument();
+    expect(getSessionMock.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("다시 검색 요청 즉시 이전 후보와 선택 및 개별 초안을 비운다", async () => {
+    const retryRequest = deferred<typeof mockRegistrationSession>();
+    const terminal = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
+    const rediscovered = {
+      ...terminal,
+      scanAttempt: 2,
+      scanStartedAt: "2026-07-01T00:01:00.000Z",
+      discoveredNodes: [{ ...terminal.discoveredNodes[0], discoveredAt: "2026-07-01T00:01:01.000Z" }]
+    };
+    createSessionMock.mockResolvedValue(terminal);
+    getSessionMock.mockResolvedValue(terminal);
+    retryScanMock.mockReturnValue(retryRequest.promise);
+    const queryClient = await renderStartedPanel();
+    fireEvent.click(screen.getByLabelText("조명 1 선택"));
+    fireEvent.click(screen.getByRole("radio", { name: "개별 설정" }));
+    fireEvent.change(screen.getByLabelText("조명 1 이름"), { target: { value: "이전 검색 초안" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "다시 검색" }));
+
+    expect(screen.queryAllByText(terminal.discoveredNodes[0].serialNumber)).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "선택 조명 등록" })).not.toBeInTheDocument();
+
+    retryRequest.resolve({ ...rediscovered, scanStatus: "pending", scanStartedAt: null, discoveredNodes: [] });
+    await act(async () => { await retryRequest.promise; });
+    queryClient.setQueryData(["registration-session", terminal.id], rediscovered);
+    expect(await screen.findByText(rediscovered.discoveredNodes[0].serialNumber)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("조명 1 선택"));
+    expect(screen.getByLabelText("조명 1 이름")).toHaveValue("");
+  });
+
+  it("새 attempt가 completed 되기 전에는 등록을 막고 completed 결과의 stale 후보를 제외한다", async () => {
+    const oldNodes = mockRegistrationSession.discoveredNodes.slice(0, 2);
+    const terminal = completedSession(oldNodes);
+    const pending = {
+      ...terminal,
+      scanStatus: "pending" as const,
+      scanAttempt: 2,
+      scanStartedAt: null,
+      scanCompletedAt: null
+    };
+    createSessionMock.mockResolvedValue(terminal);
+    getSessionMock.mockResolvedValue(terminal);
+    const queryClient = await renderStartedPanel();
+
+    queryClient.setQueryData(["registration-session", terminal.id], pending);
+    expect(await screen.findByText("게이트웨이가 미등록 조명을 검색하는 중입니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "선택 조명 등록" })).not.toBeInTheDocument();
+
+    const completed = {
+      ...pending,
+      scanStatus: "completed" as const,
+      scanStartedAt: "2026-07-01T00:01:00.000Z",
+      scanCompletedAt: "2026-07-01T00:01:10.000Z",
+      discoveredNodes: [
+        oldNodes[0],
+        { ...oldNodes[1], discoveredAt: "2026-07-01T00:01:01.000Z" }
+      ]
+    };
+    queryClient.setQueryData(["registration-session", terminal.id], completed);
+
+    expect(await screen.findByText(oldNodes[1].serialNumber)).toBeInTheDocument();
+    expect(screen.queryByText(oldNodes[0].serialNumber)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("조명 1 선택")).toBeEnabled();
   });
 
   it("provisioning 완료를 관측하면 정확한 현황 query를 갱신한다", async () => {
@@ -154,7 +232,7 @@ describe("RegistrationPanel", () => {
     });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const provisioning = {
-      ...scanningSession(),
+      ...completedSession([]),
       discoveredNodes: [{ ...mockRegistrationSession.discoveredNodes[0], status: "provisioning" as const }]
     };
     const provisioned = {
@@ -180,6 +258,7 @@ describe("RegistrationPanel", () => {
 
     await waitFor(() => {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", mockDashboard.site.id] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", "default"] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-fixtures", mockDashboard.site.id, mockDashboard.floors[0].id] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-map", mockDashboard.site.id, mockDashboard.floors[0].id] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["registration-session", mockRegistrationSession.id] });
@@ -197,9 +276,53 @@ describe("RegistrationPanel", () => {
       []
     )).toBe(true);
   });
+
+  it("scanning session을 실제 interval로 조회하고 completed 응답 뒤 polling을 중지한다", async () => {
+    vi.useFakeTimers();
+    const scanning = scanningSession();
+    const completed = completedSession([]);
+    createSessionMock.mockResolvedValue(scanning);
+    getSessionMock.mockResolvedValueOnce(scanning).mockResolvedValue(completed);
+    await renderStartedPanelWithoutWaiting();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const initialCalls = getSessionMock.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(getSessionMock.mock.calls.length).toBeGreaterThan(initialCalls);
+
+    const terminalCalls = getSessionMock.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_500); });
+    expect(getSessionMock).toHaveBeenCalledTimes(terminalCalls);
+  });
+
+  it("terminal session에서 등록이 provisioning을 만들면 실제 polling을 재시작한다", async () => {
+    vi.useFakeTimers();
+    const terminal = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
+    createSessionMock.mockResolvedValue(terminal);
+    getSessionMock.mockResolvedValue(terminal);
+    registerBatchMock.mockResolvedValue({
+      items: [{ nodeId: terminal.discoveredNodes[0].id, status: "accepted", fixtureName: "B2-L001" }]
+    });
+    await renderStartedPanelWithoutWaiting();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const terminalCalls = getSessionMock.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(getSessionMock).toHaveBeenCalledTimes(terminalCalls);
+
+    fireEvent.click(screen.getByLabelText("조명 1 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(getSessionMock.mock.calls.length).toBeGreaterThan(terminalCalls);
+  });
 });
 
 async function renderStartedPanel() {
+  const queryClient = await renderStartedPanelWithoutWaiting();
+  await screen.findByText(/개 후보 발견/);
+  return queryClient;
+}
+
+async function renderStartedPanelWithoutWaiting() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
   });
@@ -211,7 +334,8 @@ async function renderStartedPanel() {
   fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: mockDashboard.floors[0].id } });
   fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: mockDashboard.gateways[0].id } });
   fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
-  await screen.findByText(/개 후보 발견/);
+  await act(async () => { await Promise.resolve(); });
+  return queryClient;
 }
 
 function scanningSession() {
@@ -225,4 +349,14 @@ function completedSession(discoveredNodes: typeof mockRegistrationSession.discov
     scanFailureMessage: null,
     discoveredNodes
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

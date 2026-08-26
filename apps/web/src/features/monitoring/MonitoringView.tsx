@@ -43,13 +43,14 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [mapRefreshFailed, setMapRefreshFailed] = useState(false);
+  const [mapRefreshFailedFloorId, setMapRefreshFailedFloorId] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(dashboardUpdatedAt);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const mapSnapshot = mapQuery.data;
+  const mapRefreshFailed = mapRefreshFailedFloorId === floor?.id;
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");
   const operationallyOfflineFixtures = fixtures.filter(
@@ -104,7 +105,9 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
           </div>
         </div>
         {userRole === "operator" ? (
-          data.gateways.length === 0 ? <GatewayClaimPanel siteId={data.site.id} /> : <RegistrationPanel dashboard={data} />
+          data.gateways.length === 0
+            ? <GatewayClaimPanel siteId={data.site.id} />
+            : <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
         ) : (
           <InstallationPending />
         )}
@@ -119,6 +122,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   }
 
   async function handleRefresh() {
+    const refreshedFloorId = floor?.id ?? null;
     setIsManualRefreshing(true);
     setRefreshError(null);
     const results = await Promise.allSettled([
@@ -127,7 +131,9 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
       mapQuery.refetch({ throwOnError: true })
     ]);
     const failureCount = results.filter((result) => result.status === "rejected").length;
-    setMapRefreshFailed(results[2]?.status === "rejected");
+    setMapRefreshFailedFloorId((current) => results[2]?.status === "rejected"
+      ? refreshedFloorId
+      : current === refreshedFloorId ? null : current);
     if (failureCount < results.length) setLastRefreshedAt(Date.now());
     if (failureCount === results.length) {
       setRefreshError("현황 데이터를 새로고침하지 못했습니다.");
@@ -138,11 +144,12 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   }
 
   async function handleMapRetry() {
-    setMapRefreshFailed(false);
+    const retriedFloorId = floor?.id ?? null;
+    setMapRefreshFailedFloorId((current) => current === retriedFloorId ? null : current);
     try {
       await mapQuery.refetch({ throwOnError: true });
     } catch {
-      setMapRefreshFailed(true);
+      setMapRefreshFailedFloorId(retriedFloorId);
     }
   }
 

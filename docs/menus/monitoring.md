@@ -39,8 +39,9 @@
 - `POST /registration-sessions/:sessionId/scan/retry`는 terminal scan만 재시작한다. gateway별 `status=active`인 `pending/scanning` partial unique 제약으로 같은 gateway의 동시 검색을 막고, 신규·retry 충돌 모두 `gateway_scan_in_progress`를 반환한다. publisher MQTT timeout은 기본 10초로 30초 lease보다 짧으며 process crash는 lease 만료 뒤 같은 attempt를 재시도한다. timeout/reject는 backoff를 증가시키고 최대 3회 또는 5분 실패는 사용자용 고정 메시지와 함께 `failed`로 복구한다.
 - scanning 또는 pending scan은 registration session 완료를 `409 scan_session_not_terminal`로 거부한다. provisioning 전 identify API는 session site의 commission 권한과 404 경계를 확인한 뒤 `501 pre_provision_identify_unsupported`를 반환하며, 발견 node 상태를 바꾸거나 MQTT 명령을 발행하지 않는다.
 - 웹 등록 패널은 `completed` 0건에서 검색 결과 없음과 `다시 검색`을, `failed`에서 API가 제공한 정제된 실패 메시지와 `다시 검색`을 표시한다. provisioning 전 점멸 확인 UI와 호출 경로는 제거했다.
-- 등록 세션 polling은 `pending/scanning` 또는 provisioning node가 있을 때만 1.5초 간격으로 수행한다. terminal scan에서 중지하며, 등록 요청 또는 서버 응답이 provisioning을 관측하면 다시 시작한다. 다시 검색 응답으로 session cache와 후보 목록을 교체해 이전 attempt 후보가 등록 요청에 남지 않게 한다.
-- provisioning 완료를 session polling으로 관측하면 실제 React Query key인 `dashboard`, 현재 층 `floor-fixtures`, 현재 층 `floor-map`, 해당 `registration-session`을 invalidate한다. 새 fixture는 첫 실제 상태 전까지 기존 API 계약대로 `상태 확인 대기`로 표시한다.
+- 등록 세션 polling은 `pending/scanning` 또는 provisioning node가 있을 때만 1.5초 간격으로 수행한다. terminal scan에서 중지하며, 등록 요청 또는 서버 응답이 provisioning을 관측하면 다시 시작한다. 다시 검색 요청을 시작하는 즉시 이전 후보, 선택, 제출 상태와 개별 초안을 비우고 POST 응답은 relation이 없는 상태 전이 응답으로 취급한 뒤 canonical session GET으로 수렴한다.
+- 등록 후보는 현재 scan이 `completed`이고 node의 발견 시각이 현재 `scanStartedAt` 이후인 경우에만 노출하고 등록할 수 있다. pending/scanning과 이전 attempt에서 남은 relation은 등록 대상으로 사용하지 않는다.
+- provisioning 완료를 session polling으로 관측하면 실제 React Query key인 현 화면 `dashboard`(기본 경로는 `default`, 선택 현장은 site ID), 현재 층 `floor-fixtures`, 현재 층 `floor-map`, 해당 `registration-session`을 invalidate한다. 기본 경로에서는 UUID dashboard cache도 함께 무효화한다. 새 fixture는 첫 실제 상태 전까지 기존 API 계약대로 `상태 확인 대기`로 표시한다.
 - 등록 batch transaction은 실제 provisioning publish 전에 해당 층의 `MeshControlGroup`을 선확보해 group address 소진이나 gateway/site 불일치를 미리 실패시킨다.
 - 조명 등록 패널은 gateway scan/provisioning MQTT 흐름과 연결되어, 등록 완료 이벤트 후 dashboard polling으로 새 fixture를 표시할 수 있다. 이 시점의 fixture는 `offline + provisioning_waiting_state`이며 실제 offline과 구분해 `상태 확인 대기`로 표시한다.
 - provisioning 완료 transaction은 생성 또는 재사용한 `MeshNode`/`Fixture`를 같은 transaction 안에서 floor control group과 기존 `FixtureGroup` membership의 control group member에 연결한다. 이때 fixture group 대상은 요청 payload가 아니라 DB의 `GroupFixture` 관계를 권위 데이터로 조회한다.
@@ -69,8 +70,8 @@
 - 층 지도 snapshot은 도형을 `zIndex`, 생성 시각 순으로 고정해 반환한다. 존재하지 않거나 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - 웹은 `useFloorMapSnapshot`으로 선택 층의 저장된 배경과 도형을 10분마다 조회하고, 설정 에디터와 공통 `FloorMapObjectNode` geometry를 사용해 Konva scene에 읽기 전용으로 합성한다. 조명 marker는 같은 좌표계의 접근 가능한 HTML 버튼으로 표시한다.
 - 모니터링 수동 새로고침은 dashboard metadata, 현재 층 fixture 페이지와 현재 층 map snapshot 세 요청을 함께 갱신하며 일부 실패 시 기존 성공 데이터를 유지한다.
-- 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가한다.
-- deterministic Playwright route fixture는 0건 완료, 실패 메시지, 명시적 다시 검색과 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
+- 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가하며, 수동 갱신 실패 상태는 해당 floor ID에 귀속되어 다른 층으로 전환할 때 누수되지 않는다.
+- deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색과 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
 - gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어간다. 시작 시에는 journal 추정 상태를 재발행하지 않고, 확인된 node의 AppKey/model bind/60초 publication 응답을 다시 확인·보정한 뒤 Generic OnOff, Lightness, Health 실제 상태를 조회한다.
