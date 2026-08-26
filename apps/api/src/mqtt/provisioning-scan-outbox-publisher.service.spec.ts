@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 
 const payload = {
@@ -11,6 +12,66 @@ const payload = {
 };
 
 describe("ProvisioningScanOutboxPublisherService", () => {
+  it("contains an initial claim failure, recovers on the next tick, and stops after destroy", async () => {
+    jest.useFakeTimers();
+    const unhandledRejection = jest.fn();
+    const loggerError = jest.spyOn(Logger.prototype, "error").mockImplementation();
+    process.on("unhandledRejection", unhandledRejection);
+    const service = new ProvisioningScanOutboxPublisherService({} as never, {} as never, {
+      workerId: "scan-outbox-worker", pollMs: 1_000
+    });
+    const claimBatch = jest.spyOn(service, "claimBatch")
+      .mockRejectedValueOnce(Object.assign(new Error("payload-secret"), { code: "P2028" }))
+      .mockResolvedValue([]);
+
+    try {
+      service.onModuleInit();
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(unhandledRejection).not.toHaveBeenCalled();
+      expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("scan-outbox-worker"));
+      expect(loggerError.mock.calls.flat().join(" ")).not.toContain("payload-secret");
+
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(claimBatch).toHaveBeenCalledTimes(2);
+
+      service.onModuleDestroy();
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(claimBatch).toHaveBeenCalledTimes(2);
+    } finally {
+      service.onModuleDestroy();
+      process.off("unhandledRejection", unhandledRejection);
+      loggerError.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not overlap a slow scheduled claim", async () => {
+    jest.useFakeTimers();
+    const pendingClaim = deferred<[]>();
+    const service = new ProvisioningScanOutboxPublisherService({} as never, {} as never, {
+      workerId: "scan-outbox-worker", pollMs: 1_000
+    });
+    const claimBatch = jest.spyOn(service, "claimBatch")
+      .mockReturnValueOnce(pendingClaim.promise)
+      .mockResolvedValue([]);
+
+    try {
+      service.onModuleInit();
+      await jest.advanceTimersByTimeAsync(3_000);
+      expect(claimBatch).toHaveBeenCalledTimes(1);
+
+      pendingClaim.resolve([]);
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(claimBatch).toHaveBeenCalledTimes(2);
+    } finally {
+      pendingClaim.resolve([]);
+      service.onModuleDestroy();
+      jest.useRealTimers();
+    }
+  });
+
   it("transitions a leased pending scan to scanning before publishing its strict scan-start payload", async () => {
     const now = new Date("2026-08-26T00:00:00.000Z");
     const prisma: any = {
@@ -188,3 +249,9 @@ describe("ProvisioningScanOutboxPublisherService", () => {
     }));
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((value) => { resolve = value; });
+  return { promise, resolve };
+}

@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { provisioningScanStartSchema } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
@@ -21,12 +21,15 @@ type PublisherOptions = {
 
 @Injectable()
 export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ProvisioningScanOutboxPublisherService.name);
   private readonly workerId: string;
   private readonly random: () => number;
   private readonly pollMs: number;
   private readonly clock: () => Date;
   private readonly publishTimeoutMs: number;
   private timer: NodeJS.Timeout | null = null;
+  private batchInFlight = false;
+  private stopped = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -44,12 +47,34 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
   }
 
   onModuleInit() {
-    void this.processBatch();
-    this.timer = setInterval(() => void this.processBatch(), this.pollMs);
+    this.stopped = false;
+    void this.runScheduledBatch();
+    this.timer = setInterval(() => void this.runScheduledBatch(), this.pollMs);
   }
 
   onModuleDestroy() {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  private async runScheduledBatch() {
+    // setInterval does not await asynchronous callbacks, so one stalled DB transaction must retain the worker slot.
+    if (this.stopped || this.batchInFlight) return;
+
+    this.batchInFlight = true;
+    try {
+      await this.processBatch();
+    } catch (error) {
+      this.logger.error(`mqtt provisioning scan outbox batch failed (worker=${this.workerId}, error=${this.errorKind(error)})`);
+    } finally {
+      this.batchInFlight = false;
+    }
+  }
+
+  private errorKind(error: unknown) {
+    if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") return error.code;
+    return error instanceof Error ? error.name : "unknown";
   }
 
   async claimBatch(now = this.clock()) {
