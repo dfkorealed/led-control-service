@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | 에이전트 운영 기반 Task 1 | 완료 | 운영 기준과 지속 갱신 상태판을 작성했다. |
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
-| 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 독립 QA 결과를 반영해 scan·구역 reconciliation·ACK·MQTT PUBACK·fixture별 에너지 투영과 forecast 계약을 확정했다. |
+| 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 대기 | 설계를 작업 단위와 커밋 단위로 분해한 뒤 구현을 시작한다. |
 
 ## 다음 단계
@@ -35,7 +35,7 @@
 
 ### 통계
 
-- 현재 통계는 12시간 snapshot 계산이며, `powerOn` 기반 180초 적산·열린 구간 투영·fixture별 coverage forecast·실제 월 초 기준 24시간 baseline이 없다.
+- 현재 통계는 12시간 snapshot 계산이며, migration 시점 추적·첫 상태 이전 unknown·180초 투영·fixture별 forecast가 없다. Gateway durable state outbox와 DB commit 뒤 application ACK도 아직 구현되지 않았다.
 
 ### 실장비 검증
 

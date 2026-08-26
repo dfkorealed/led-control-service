@@ -139,7 +139,7 @@ POST   /sites/:siteId/fixture-groups/:groupId/resync
 | 모델 | 필드·제약 | 목적 |
 | --- | --- | --- |
 | `Site` | `timeZone String @default("Asia/Seoul")` | IANA timezone 기준 일·월 경계 결정 |
-| `Fixture` | `firstStateOccurredAt DateTime?`, `powerOn Boolean?` | 첫 상태 유무와 최신 전원 snapshot 보존 |
+| `Fixture` | `energyTrackingStartedAt DateTime @default(now())`, `firstStateOccurredAt DateTime?`, `powerOn Boolean?` | 통계 도입 시점, 첫 상태 유무와 최신 전원 snapshot 보존 |
 | `FixtureEnergyDailyAggregate` | `fixtureId`, `localDate @db.Date`, `estimatedKwh Decimal(20,12)`, `estimatedCost Decimal(20,8)`, `knownSeconds Int`, `unknownSeconds Int`, timestamps | 조명·현지 일자별 상태 기반 추정 합계 |
 | `FixtureEnergyDailyAggregate` | `@@unique([fixtureId, localDate])`, `@@index([localDate])` | idempotent upsert와 기간 조회 |
 
@@ -149,7 +149,7 @@ POST   /sites/:siteId/fixture-groups/:groupId/resync
 
 별도 interval 테이블이나 API process의 timer worker는 만들지 않는다. API는 **수락된** MQTT `fixture-state` event를 처리하는 기존 transaction 안에서, 현재 Fixture 행을 잠그고 이전 `lastStateOccurredAt`, `brightness`, `ratedWatt`을 사용해 이전 상태 구간을 닫는다.
 
-1. 이전 시각이 없거나 incoming `occurredAt`이 이전 시각보다 같거나 이르면 적산하지 않는다.
+1. 첫 상태이면 `[energyTrackingStartedAt, incomingOccurredAt]`을 unknown으로 현장 일 경계에서 분할 적산한 뒤 `firstStateOccurredAt`을 설정한다. incoming 시각이 tracking 시작과 같거나 이르면 구간은 만들지 않는다.
 2. `elapsedSeconds = incomingOccurredAt - previousLastStateOccurredAt`을 계산한다.
 3. 이전 정격 전력과 유효 밝기 `powerOn ? brightness : 0`으로 `[previousLastStateOccurredAt, min(incomingOccurredAt, previousLastStateOccurredAt + 180초)]`만 known 구간으로 계산한다.
 4. 180초를 넘는 나머지 시간은 unknown 구간으로 기록한다. 밝기 0%도 관측된 known 시간이며 `estimatedKwh=0`으로 적산한다.
@@ -159,7 +159,7 @@ POST   /sites/:siteId/fixture-groups/:groupId/resync
 
 정격 전력 변경은 같은 180초 규칙으로 기존 전력의 미닫힌 구간을 먼저 적산한다. `Site.timeZone`은 첫 상태 또는 aggregate가 생긴 뒤 변경 요청을 `409 energy_timezone_locked`로 거부한다. `luxon`으로 일광 절약 시간제를 포함한 경계를 계산하며 Decimal은 DB 계산에서 유지하고 API 직렬화에서만 kWh 4자리·비용 2자리로 반올림한다.
 
-조회는 하나의 `generatedAt`을 고정하고 각 fixture의 열린 구간을 쓰기 없이 투영한다. 마지막 상태가 있으면 그 시각부터 최대 180초를 최신 유효 밝기의 known, 나머지를 unknown으로 분할한다. 첫 상태가 없으면 `max(createdAt, 조회 기간 시작)`부터 `generatedAt`까지 unknown이다. 저장 aggregate와 열린 구간 투영을 합쳐 오늘·월·연도와 series를 만들며 조회 자체는 aggregate를 변경하지 않는다.
+조회는 하나의 `generatedAt`을 고정하고 각 fixture의 열린 구간을 쓰기 없이 투영한다. 마지막 상태가 있으면 그 시각부터 최대 180초를 최신 유효 밝기의 known, 나머지를 unknown으로 분할한다. 첫 상태가 없으면 `max(energyTrackingStartedAt, 조회 기간 시작)`부터 `generatedAt`까지 unknown이다. 저장 aggregate와 열린 구간 투영을 합쳐 오늘·월·연도와 series를 만들며 `createdAt`으로 소급하거나 조회 중 aggregate를 변경하지 않는다.
 
 ### 7.3 통계 API와 계산식
 
@@ -183,7 +183,7 @@ type EnergySummary = {
 };
 ```
 
-`dataStatus`는 aggregate와 열린 구간 모두 없으면 `no_data`, unknown이 있으면 `partial`, 그 외 known 값이 있으면 `available`이다. 월 forecast는 fixture별 `monthToDateKwh + (fixtureKnownKwh * 3600 / fixtureKnownSeconds) * remainingSeconds / 3600`을 합산한다. 각 현재 fixture의 월 known이 최소 3,600초이고, `sum(knownSeconds) / sum(generatedAt - max(monthStartUtc, fixture.createdAt))` coverage가 80% 이상일 때만 제공한다. 하나라도 미달하면 `insufficient_state`이며 forecast와 savings는 `null`이다.
+`dataStatus`는 aggregate와 열린 구간 모두 없으면 `no_data`, unknown이 있으면 `partial`, 그 외 known 값이 있으면 `available`이다. 월 forecast는 fixture별 `monthToDateKwh + (fixtureKnownKwh * 3600 / fixtureKnownSeconds) * remainingSeconds / 3600`을 합산한다. 각 현재 fixture의 월 known이 최소 3,600초이고, `sum(knownSeconds) / sum(generatedAt - max(monthStartUtc, energyTrackingStartedAt))` coverage가 80% 이상일 때만 제공한다. 하나라도 미달하면 `insufficient_state`이며 forecast와 savings는 `null`이다.
 
 현장 timezone의 월 시작과 다음 달 시작을 UTC instant로 변환해 `monthTotalSeconds`, `remainingSeconds=monthEndUtc-generatedAt`을 구한다. baseline은 fixture별 `ratedWatt * monthTotalSeconds / 3,600,000` 합계이며 현재 단가를 곱한다. savings는 baseline에서 fixture별 forecast 합계를 빼고 음수도 그대로 반환한다.
 
@@ -210,7 +210,11 @@ type EnergySummary = {
 - gateway 재연결과 MeshControlGroup resync는 기존 fail-closed 규칙을 유지한다. `ready`가 아닌 group에는 제어 송신을 하지 않는다.
 - energy aggregation에서 timezone이 유효하지 않거나 aggregate upsert가 실패하면 상태 이벤트 transaction 전체를 rollback하고 재전달 가능한 MQTT 처리로 남긴다. 부분 aggregate만 commit하는 경로는 만들지 않는다.
 
-API는 현재 manifest의 `mqtt ^5.10.3`과 `protocolVersion: 5`를 유지하며 lockfile 해석 버전은 `5.15.1`이다. 연결 옵션의 `customHandleAcks`로 QoS 1 `fixture-state` 처리를 제어해 DB transaction commit 뒤에만 success PUBACK `0x00`을 보낸다. 재시도 가능한 DB·lock 실패는 error reason code `0x80`으로 응답하고 Gateway는 같은 `eventId`를 재발행한다. 형식 오류는 `0x99`로 거부한다. 새 영속 inbox는 만들지 않고, 기존 `ProcessedGatewayEvent`를 상태·aggregate와 같은 transaction에 기록해 중복을 차단한다.
+API는 manifest의 `mqtt ^5.10.3`, lockfile `5.15.1`, `protocolVersion: 5`를 유지한다. 고정 instance client ID, `clean=false`, session expiry를 사용하고 `customHandleAcks`가 QoS 1 `fixture-state` DB transaction 완료 전 success PUBACK을 금지한다. commit 뒤에만 broker PUBACK `0x00`을 보내며, 재시도 가능한 DB·lock 실패는 success PUBACK 없이 연결을 종료해 persistent session redelivery를 유도한다. `ProcessedGatewayEvent`는 상태·aggregate와 같은 transaction에서 중복을 차단하고 새 영속 inbox는 만들지 않는다.
+
+Gateway는 fixture-state payload를 publish 전에 권한 `0600`의 durable state-event outbox에 저장한다. broker PUBACK은 MQTT 전달 확인일 뿐 삭제 조건이 아니다. API는 commit 후 `sites/{siteId}/gateways/{gatewayId}/acks/state-ingested`에 `{ eventId, sequence, fixtureId, ingestedAt }`를 QoS 1으로 발행하고, 이미 처리된 `ProcessedGatewayEvent`에도 같은 application ACK를 재발행한다. Gateway는 이 ACK가 정확히 일치할 때만 outbox 항목을 삭제하며, ACK 전 reconnect/backoff에는 동일 eventId·sequence·payload를 재발행한다.
+
+state-event outbox 상한은 `100,000 events` 또는 `100 MiB` 중 먼저 도달하는 값이다. 상한에 닿으면 기존·신규 상태를 폐기하거나 덮어쓰지 않고 intake를 중지하며 health를 unhealthy로 전환하고 제어·provisioning을 fail-closed한다. Gateway는 outbox drain과 재연결만 계속한다. 이 계약은 broker PUBACK과 application ACK를 로그·metric·테스트에서 별도 단계로 취급한다.
 
 ## 9. 테스트와 HIL
 
@@ -220,7 +224,8 @@ API는 현재 manifest의 `mqtt ^5.10.3`과 `protocolVersion: 5`를 유지하며
 - map 최초 오류·재시도, 이전 snapshot 유지, 성공한 빈 지도와 오류 지도 구분
 - 구역 nullable legacy migration, active 경계·15개 한도, desired add/delete diff와 operation ACK, 삭제·resync, ready 전 UI 차단
 - ACK fixture 집합·유도 status 불일치, 동일 ID 동시 unique 충돌과 payload conflict, 응답 유실 재시도
-- energy duplicate·역순, 전원 off, 180초, 첫 상태 없는 열린 구간, 자정·DST, Decimal 정밀도, timezone 변경 409, PUBACK commit·오류 재전달
+- energy tracking migration, 첫 상태 이전 unknown, 전원 off, 180초 열린 구간, 자정·DST, Decimal 정밀도, timezone 변경 409
+- durable state outbox 재시작, broker/application ACK 분리, commit 전 PUBACK 금지, DB 실패 redelivery, duplicate application ACK, 100,000건·100MiB fail-closed
 - fixture별 known 3,600초·site coverage 80% forecast, 실제 월 UTC 초 baseline, 신규·공백 UI, LineChart null point
 
 ### 9.2 수동 HIL
@@ -229,9 +234,9 @@ API는 현재 manifest의 `mqtt ^5.10.3`과 `protocolVersion: 5`를 유지하며
 
 ## 10. 마이그레이션과 배포 순서
 
-1. migration은 `FixtureGroup.floorId/gatewayId` nullable과 lifecycle, energy·scan·command 필드를 먼저 추가한다. 유효 legacy group은 관계를 backfill하고 나머지는 `invalid`로 격리한 뒤 active non-null trigger/check를 활성화한다. `EnergyUsage`는 보존한다.
+1. migration은 `FixtureGroup.floorId/gatewayId` nullable과 lifecycle, energy·scan·command 필드를 먼저 추가한다. `energyTrackingStartedAt`은 기존 fixture에 migration 적용 시각, 신규 fixture에 생성 시각을 저장한다. 유효 legacy group은 관계를 backfill하고 나머지는 `invalid`로 격리한 뒤 active non-null trigger/check를 활성화한다. `EnergyUsage`는 보존한다.
 2. API가 lifecycle-aware 구역 조회, scan, ACK·멱등성, MQTT v5 commit ACK, energy aggregate와 새 조회 API를 배포한다. timezone은 적산 시작 뒤 잠근다.
-3. gateway가 scan correlation event, desired membership Add/Delete reconciliation과 operation ACK, 완전한 device-status ACK를 새 shared 계약으로 배포한다.
+3. gateway가 scan correlation event, desired membership Add/Delete reconciliation, 완전한 device-status ACK와 durable state-event outbox/application ACK를 새 shared 계약으로 배포한다.
 4. web이 등록·지도 오류·구역 dialog·group 상태·멱등 재시도·Recharts 통계를 전환한다. 기존 estimate API는 deprecated 상태로 한 배포 이상 병행한다.
 5. 자동 테스트, API build, web build, gateway contract test를 통과한 뒤 전용 실장비에서 수동 HIL을 수행한다. HIL 증거가 없으면 메뉴 기능은 코드 검증 완료로만 기록한다.
 
@@ -243,7 +248,8 @@ API는 현재 manifest의 `mqtt ^5.10.3`과 `protocolVersion: 5`를 유지하며
 - operator/admin은 active 구역만 관리·제어하며 desired membership Add/Delete가 operation별 ACK로 적용되기 전에는 group 제어가 차단된다.
 - device-status ACK는 fixture 집합과 individual 결과에서 유도한 status가 모두 일치해야 반영된다.
 - 동시 unique 충돌을 포함해 같은 `clientRequestId`·payload는 하나의 command만 만들고 다른 payload는 conflict가 된다.
-- 상태 적산은 `powerOn`, 180초, 열린 구간 투영, Decimal 정밀도와 잠긴 timezone을 지키며 transaction commit 뒤에만 QoS 1 success PUBACK을 보낸다.
+- 에너지 적산은 migration부터의 `energyTrackingStartedAt`, 첫 상태 이전 unknown, `powerOn`, 180초 열린 구간, Decimal 정밀도와 잠긴 timezone을 지킨다.
+- Gateway는 100,000건·100MiB durable outbox에서 application ACK 전 이벤트를 보존하고, API는 DB commit 뒤 broker PUBACK과 gateway-scoped state-ingested ACK를 보낸다. DB 실패·ACK 유실·중복은 동일 payload 재전달로 복구되며 상한 도달은 fail-closed한다.
 - 통계는 fixture별 3,600초와 site coverage 80%를 충족할 때만 월 forecast·실제 월 초 기준 24시간 baseline 절감 비용을 표시한다.
 - 새 summary/series와 deprecated estimate API가 최소 한 배포 병행되고 `EnergyUsage`는 보존된다.
 - 자동 테스트와 실제 HIL 결과가 문서와 상태판에서 구분되어 기록된다.
