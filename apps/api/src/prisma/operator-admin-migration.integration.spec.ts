@@ -40,12 +40,18 @@ describe("operator/admin migration static contract", () => {
     expect(migration).toMatch(/JOIN "User" AS admin[\s\S]*?AND admin\."status" = 'active'/);
   });
 
-  it("enforces one operator record and an active same-customer site admin", () => {
+  it("enforces one operator record and active same-customer admin invariants across all owners", () => {
     expect(migration).toContain('CREATE UNIQUE INDEX "User_single_operator_key" ON "User"("role")');
     expect(migration).toContain('WHERE "role" = \'operator\';');
     expect(migration).not.toContain('WHERE "role" = \'operator\' AND "status" = \'active\';');
     expect(migration).toContain('CREATE FUNCTION "validate_site_admin_assignment"()');
     expect(migration).toContain('CREATE TRIGGER "Site_validate_admin_assignment"');
+    expect(migration).toContain('CREATE FUNCTION "validate_assigned_site_admin_user"()');
+    expect(migration).toContain('CREATE TRIGGER "User_validate_assigned_site_admin"');
+    expect(migration).toContain('BEFORE UPDATE OF "role", "status", "organizationId" ON "User"');
+    expect(migration).toContain('CREATE FUNCTION "validate_customer_organization_type"()');
+    expect(migration).toContain('CREATE TRIGGER "Organization_validate_assigned_site_admin"');
+    expect(migration).toContain('BEFORE UPDATE OF "type" ON "Organization"');
     expect(migration).toContain('admin."role" = \'admin\'');
     expect(migration).toContain('admin."status" = \'active\'');
     expect(migration).toContain('organization."type" = \'customer\'');
@@ -131,6 +137,86 @@ describeWithPostgres("operator/admin migration PostgreSQL rehearsal", () => {
       .toContain("site admin must be an active admin in the same customer organization");
     expect(runSqlInSchema(schemaName, `UPDATE "Site" SET "adminUserId" = 'admin-2' WHERE "id" = '${siteId}';`).stderr)
       .toContain("site admin must be an active admin in the same customer organization");
+  });
+
+  it("rejects disabled admin site-admin assignments", () => {
+    const schemaName = createIsolatedSchema("disabled_assignment");
+    installLegacyTables(schemaName);
+    const { siteId } = seedLegacyCustomer(schemaName, { admins: 1, sites: 1 });
+
+    expect(applyOperatorAdminMigration(schemaName).status).toBe(0);
+    seedUser(schemaName, "disabled-admin", "customer-1", "disabled-admin@example.com", "admin", "disabled", "disabled-admin");
+
+    expect(runSqlInSchema(schemaName, `UPDATE "Site" SET "adminUserId" = 'disabled-admin' WHERE "id" = '${siteId}';`).stderr)
+      .toContain("site admin must be an active admin in the same customer organization");
+  });
+
+  it("rejects changes that would invalidate an assigned admin and allows unassign-before-disable", () => {
+    const schemaName = createIsolatedSchema("assigned_admin_user_update");
+    installLegacyTables(schemaName);
+    const { adminId, siteId } = seedLegacyCustomer(schemaName, { admins: 1, sites: 1 });
+    seedOrganization(schemaName, "customer-2", "Customer 2", "customer");
+
+    expect(applyOperatorAdminMigration(schemaName).status).toBe(0);
+    for (const update of [
+      `UPDATE "User" SET "role" = 'viewer' WHERE "id" = '${adminId}';`,
+      `UPDATE "User" SET "status" = 'disabled' WHERE "id" = '${adminId}';`,
+      `UPDATE "User" SET "organizationId" = 'customer-2' WHERE "id" = '${adminId}';`
+    ]) {
+      const result = runSqlInSchema(schemaName, update);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("assigned site admin must remain an active admin in the same customer organization");
+    }
+
+    expect(runSqlInSchema(schemaName, `UPDATE "Site" SET "adminUserId" = NULL WHERE "id" = '${siteId}';`).status).toBe(0);
+    expect(runSqlInSchema(schemaName, `UPDATE "User" SET "status" = 'disabled' WHERE "id" = '${adminId}';`).status).toBe(0);
+  });
+
+  it("rejects converting a customer with an assigned admin while allowing unrelated organization changes", () => {
+    const schemaName = createIsolatedSchema("assigned_admin_organization_update");
+    installLegacyTables(schemaName);
+    seedLegacyCustomer(schemaName, { admins: 1, sites: 1 });
+
+    expect(applyOperatorAdminMigration(schemaName).status).toBe(0);
+    const typeChange = runSqlInSchema(schemaName, `UPDATE "Organization" SET "type" = 'service_provider' WHERE "id" = 'customer-1';`);
+    expect(typeChange.status).not.toBe(0);
+    expect(typeChange.stderr).toContain("organization with assigned site admins must remain a customer");
+    expect(runSqlInSchema(schemaName, `UPDATE "Organization" SET "name" = 'Renamed customer' WHERE "id" = 'customer-1';`).status).toBe(0);
+  });
+
+  it("enforces loginId checks and operator uniqueness after migration", () => {
+    const schemaName = createIsolatedSchema("post_migration_user_constraints");
+    installLegacyTables(schemaName);
+    const { adminId } = seedLegacyCustomer(schemaName, { admins: 1, sites: 1 });
+    seedOrganization(schemaName, "provider", "Provider", "service_provider");
+    seedUser(schemaName, "operator-1", "provider", "operator-1@example.com", "operator", "active");
+
+    expect(applyOperatorAdminMigration(schemaName).status).toBe(0);
+    expect(runSqlInSchema(schemaName, `
+      INSERT INTO "User" ("id", "organizationId", "loginId", "email", "name", "passwordHash", "role", "status")
+      VALUES ('invalid-login', 'customer-1', 'invalid+login', 'invalid-login@example.com', 'Invalid', 'hash', 'viewer', 'active');
+    `).stderr).toContain("User_loginId_format_check");
+    expect(runSqlInSchema(schemaName, `UPDATE "User" SET "loginId" = 'invalid+login' WHERE "id" = '${adminId}';`).stderr)
+      .toContain("User_loginId_format_check");
+    expect(runSqlInSchema(schemaName, `
+      INSERT INTO "User" ("id", "organizationId", "loginId", "email", "name", "passwordHash", "role", "status")
+      VALUES ('operator-2', 'provider', 'operator-2', 'operator-2@example.com', 'Operator 2', 'hash', 'operator', 'disabled');
+    `).stderr).toContain("User_single_operator_key");
+  });
+
+  it("retains the site-admin foreign key independently of the assignment trigger", () => {
+    const schemaName = createIsolatedSchema("site_admin_fk");
+    installLegacyTables(schemaName);
+    seedLegacyCustomer(schemaName, { admins: 1, sites: 1 });
+
+    expect(applyOperatorAdminMigration(schemaName).status).toBe(0);
+    const result = runSqlInSchema(schemaName, `
+      ALTER TABLE "Site" DISABLE TRIGGER "Site_validate_admin_assignment";
+      INSERT INTO "Site" ("id", "organizationId", "adminUserId", "name", "address", "tariffKwhRate")
+      VALUES ('site-missing-admin', 'customer-1', 'missing-admin', 'Missing admin', 'Legacy address', 150.00);
+    `);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Site_adminUserId_fkey");
   });
 
   it("keeps unique site-admin assignment after a valid migration", () => {

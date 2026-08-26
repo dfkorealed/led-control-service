@@ -110,6 +110,10 @@ Expected: PASS 또는 테스트 DB 환경 미설정 시 명시적 skip
 
 `loginId`/`adminUserId`만 nullable 확장으로 유지하고 기존 `email`, `address`, `tariffKwhRate`의 required 계약은 보존했다. migration은 모든 `operator` 행의 중복을 막고, 같은 customer Organization의 active admin만 `Site.adminUserId`에 연결하도록 trigger를 추가했다. rehearsal은 전용 URL이 제공될 때 ambiguous legacy data rollback, role/tenant assignment 거부, duplicate operator/loginId/assignment를 검증한다.
 
+- [x] **Review fix round 2: 배정 후 관계 불변식 보정**
+
+`User.role`/`status`/`organizationId` 변경과 `Organization.type` 변경도 이미 연결된 `Site.adminUserId`의 active same-customer admin 불변식을 깨면 PostgreSQL trigger가 거부한다. Site를 먼저 unassign한 뒤 admin을 disabled로 바꾸는 정상 순서는 유지한다. rehearsal은 post-migration loginId check, operator unique, Site FK와 세 trigger를 함께 검증한다.
+
 ```bash
 git add apps/api/prisma apps/api/src/prisma/operator-admin-migration.integration.spec.ts docs/database-schema.md docs/project-status.md docs/superpowers/plans/2026-08-27-operator-admin-account-flow.md
 git commit -m "feat(db): add site admin account ownership"
@@ -118,6 +122,8 @@ git commit -m "feat(db): add site admin account ownership"
 ### Task 2: loginId 인증과 비밀번호 공용 경계
 
 **Files:**
+- Modify: `apps/api/prisma/schema.prisma`
+- Create: `apps/api/prisma/migrations/20260827100000_login_id_contract/migration.sql`
 - Create: `apps/api/src/auth/password.service.ts`
 - Create: `apps/api/src/auth/password.service.spec.ts`
 - Modify: `apps/api/src/auth/auth.service.ts`
@@ -136,6 +142,7 @@ git commit -m "feat(db): add site admin account ownership"
 - Produces: `POST /auth/login { loginId, password, rememberMe }`
 - Produces: `POST /auth/change-password { currentPassword, newPassword, newPasswordConfirmation }`
 - Produces: `AuthenticatedUser.loginId`
+- Produces: 최종 `User.loginId: string`, `User.email: string | null` Prisma/DB 계약
 
 - [ ] **Step 1: loginId와 비밀번호 변경 RED 테스트 작성**
 
@@ -178,12 +185,16 @@ export function normalizeLoginId(value: string) {
 
 `BOOTSTRAP_OPERATOR_EMAIL` 대신 `BOOTSTRAP_OPERATOR_LOGIN_ID`를 필수로 받고 반환값도 `{ organizationId, userId, loginId }`로 바꾼다. operator partial unique 위반은 기존과 같은 bootstrap 거부 오류로 정규화한다.
 
-- [ ] **Step 5: GREEN 및 회귀 확인**
+- [ ] **Step 5: loginId contract migration 구현**
+
+dual-write 인증 코드가 준비된 뒤 contract migration은 `loginId IS NULL AND email IS NOT NULL` 행을 다시 `lower(btrim(email))`으로 backfill하고 형식·충돌·NULL guard를 실행한 다음 `loginId NOT NULL`을 적용한다. Prisma schema는 `loginId String @unique`, `email String? @unique`로 전환한다. 배포 runbook은 Task 1 expand migration 적용 → 이 Task의 dual-write API 배포 → contract migration 적용 순서를 기록한다.
+
+- [ ] **Step 6: GREEN 및 회귀 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/auth --runInBand && pnpm --filter @led-control/api typecheck`
 Expected: PASS
 
-- [ ] **Step 6: 문서 갱신 후 커밋**
+- [ ] **Step 7: 문서 갱신 후 커밋**
 
 ```bash
 git add apps/api/src/auth apps/api/prisma/bootstrap-operator.ts docs/database-schema.md docs/menus/settings.md docs/project-status.md
@@ -252,6 +263,8 @@ git commit -m "feat(api): add operator site admin management"
 ### Task 4: 현장 접근과 admin 최초 설치 계약
 
 **Files:**
+- Modify: `apps/api/prisma/schema.prisma`
+- Create: `apps/api/prisma/migrations/20260827110000_pending_site_contract/migration.sql`
 - Modify: `apps/api/src/access/site-access.service.ts`
 - Modify: `apps/api/src/access/site-access.service.spec.ts`
 - Modify: `apps/api/src/sites/sites.service.ts`
@@ -266,6 +279,7 @@ git commit -m "feat(api): add operator site admin management"
 - Produces: viewer membership의 `read` 전용, operator의 고객 현장 capability 없음
 - Produces: `POST /setup/initial-site { siteId, address, tariffKwhRate, timeZone?, floors }`
 - Produces: dashboard `site.installationStatus`, `customerName`, `address`, `tariffKwhRate`, `timeZone`
+- Produces: 최종 `Site.address: string | null`, `Site.tariffKwhRate: Decimal | null` Prisma/DB 계약
 
 - [ ] **Step 1: 권한 RED 테스트 작성**
 
@@ -295,7 +309,7 @@ Expected: 기존 operator 중심 기대와 충돌해 실패
 
 - [ ] **Step 4: 접근·dashboard·setup 구현**
 
-`installationStatus`는 DB enum이 아니라 `address !== null && tariffKwhRate !== null && floors.length > 0`에서 `pending|installed`로 계산한다. setup은 assigned admin과 pending 상태를 잠근 뒤 site update와 floor create를 Serializable transaction으로 수행하고 재호출은 Conflict로 거부한다.
+pending-site migration이 `address`와 `tariffKwhRate`의 NOT NULL을 제거하고 Prisma schema를 nullable로 전환한다. `installationStatus`는 DB enum이 아니라 `address !== null && tariffKwhRate !== null && floors.length > 0`에서 `pending|installed`로 계산한다. setup은 assigned admin과 pending 상태를 잠근 뒤 site update와 floor create를 Serializable transaction으로 수행하고 재호출은 Conflict로 거부한다. energy 계산은 pending site의 null 단가를 비용 산출 불가 상태로 안전하게 처리한다.
 
 - [ ] **Step 5: GREEN 확인 및 커밋**
 

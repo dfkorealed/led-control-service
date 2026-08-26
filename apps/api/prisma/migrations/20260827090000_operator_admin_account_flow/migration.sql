@@ -112,4 +112,55 @@ CREATE TRIGGER "Site_validate_admin_assignment"
 BEFORE INSERT OR UPDATE OF "adminUserId", "organizationId" ON "Site"
 FOR EACH ROW EXECUTE FUNCTION "validate_site_admin_assignment"();
 
+CREATE FUNCTION "validate_assigned_site_admin_user"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "Site" AS site
+    JOIN "Organization" AS organization ON organization."id" = site."organizationId"
+    WHERE site."adminUserId" = NEW."id"
+      AND (
+        NEW."role" <> 'admin'
+        OR NEW."status" <> 'active'
+        OR NEW."organizationId" <> site."organizationId"
+        OR organization."type" <> 'customer'
+      )
+  ) THEN
+    RAISE EXCEPTION 'assigned site admin must remain an active admin in the same customer organization';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "User_validate_assigned_site_admin"
+BEFORE UPDATE OF "role", "status", "organizationId" ON "User"
+FOR EACH ROW EXECUTE FUNCTION "validate_assigned_site_admin_user"();
+
+CREATE FUNCTION "validate_customer_organization_type"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW."type" <> 'customer'
+    AND EXISTS (
+      SELECT 1
+      FROM "Site" AS site
+      WHERE site."organizationId" = NEW."id"
+        AND site."adminUserId" IS NOT NULL
+    ) THEN
+    RAISE EXCEPTION 'organization with assigned site admins must remain a customer';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "Organization_validate_assigned_site_admin"
+BEFORE UPDATE OF "type" ON "Organization"
+FOR EACH ROW EXECUTE FUNCTION "validate_customer_organization_type"();
+
 COMMIT;

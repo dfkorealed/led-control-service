@@ -191,14 +191,14 @@ Organization
 
 ### User
 
-서비스 사용자 계정이다. Task 1은 기존 이메일 로그인 계약을 유지한 채 정규화된 `loginId`를 nullable 확장 필드로 추가한다. Task 2가 API 로그인 계약을 `loginId`로 전환하고 email nullable 여부를 최종화한다. 비밀번호는 hash로 저장한다.
+서비스 사용자 계정이다. Task 1은 기존 이메일 로그인 계약을 유지한 채 정규화된 `loginId`를 nullable 확장 필드로 추가한다. 활성 계획의 loginId contract migration이 API 로그인 계약을 `loginId`로 전환하고 email nullable 여부를 최종화한다. 비밀번호는 hash로 저장한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 사용자 ID |
 | `organizationId` | `String` | 예 | FK -> `Organization.id` | 소속 조직 |
-| `loginId` | `String?` | 아니오 | Unique, null 허용 4~100자 소문자 영문·숫자·`.`, `_`, `-`, `@` check | 호환 확장 필드. migration이 기존 `email`을 `lower(btrim(email))`으로 이전하며 Task 2가 로그인 정본으로 전환 |
-| `email` | `String` | 예 | Unique | Task 1의 기존 로그인·소비자 호환 필드. Task 2가 최종 계약을 정함 |
+| `loginId` | `String?` | 아니오 | Unique, null 허용 4~100자 소문자 영문·숫자·`.`, `_`, `-`, `@` check | 호환 확장 필드. migration이 기존 `email`을 `lower(btrim(email))`으로 이전하며 후속 loginId contract migration이 로그인 정본으로 전환 |
+| `email` | `String` | 예 | Unique | Task 1의 기존 로그인·소비자 호환 필드. 후속 loginId contract migration이 최종 계약을 정함 |
 | `name` | `String` | 예 |  | 사용자 이름 |
 | `passwordHash` | `String` | 예 |  | 비밀번호 hash |
 | `role` | `UserRole` | 예 |  | 권한 |
@@ -221,6 +221,7 @@ Organization
 - `20260827090000_operator_admin_account_flow` migration은 nullable `loginId`/`adminUserId` 추가, `loginId` backfill, 형식·정규화 충돌·operator 중복·기존 active admin/현장 모호성 사전검증, 명확한 customer active admin 연결, 최종 제약 추가를 하나의 PostgreSQL transaction에서 수행한다. 기존 `email`, `Site.address`, `Site.tariffKwhRate`의 NOT NULL은 이 단계에서 변경하지 않는다.
 - 정규화 충돌 또는 active admin이 있는 customer의 active admin/현장 수가 각각 하나가 아니면 `RAISE EXCEPTION`으로 중단한다. disabled admin만 있는 customer 현장은 unassigned로 남기며, 임의 loginId 보정이나 권한 확대는 하지 않는다.
 - role이 `operator`인 행은 상태와 관계없이 PostgreSQL partial unique index로 한 명만 허용한다. 이 index는 Prisma schema에 표현되지 않으며 migration이 정본이다.
+- 후속 loginId contract migration은 dual-write API 배포 뒤 `loginId`를 재backfill·검증하고 `NOT NULL` 및 email nullable 계약을 적용한다. pending-site contract migration은 `Site.address`와 `Site.tariffKwhRate` nullable 전환과 해당 소비자 처리를 함께 소유한다.
 
 ### Site
 
@@ -232,8 +233,8 @@ Organization
 | `organizationId` | `String` | 예 | FK -> `Organization.id` | 소속 조직 |
 | `adminUserId` | `String?` | 아니오 | Unique, FK -> `User.id`, restrict delete | 이 현장을 직접 관리하는 단일 admin. admin 계정도 한 현장만 가질 수 있음 |
 | `name` | `String` | 예 |  | 현장명 |
-| `address` | `String` | 예 |  | 주소. Task 3가 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
-| `tariffKwhRate` | `Decimal(10,2)` | 예 |  | kWh 단가. Task 3가 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
+| `address` | `String` | 예 |  | 주소. pending-site contract migration이 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
+| `tariffKwhRate` | `Decimal(10,2)` | 예 |  | kWh 단가. pending-site contract migration이 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
 | `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -252,7 +253,9 @@ Organization
 
 admin 연결 제약:
 
-- `adminUserId`가 null이 아니면 PostgreSQL trigger는 같은 customer Organization에 속한 `active` `admin`만 연결하도록 검증한다. viewer, operator, disabled admin 또는 다른 customer의 admin 연결은 거부한다.
+- `Site` trigger는 `adminUserId`가 null이 아니면 같은 customer Organization에 속한 `active` `admin`만 연결하도록 검증한다. viewer, operator, disabled admin 또는 다른 customer의 admin 연결은 거부한다.
+- `User` trigger는 이미 연결된 admin의 `role`, `status`, `organizationId` 변경이 위 관계를 무효화하면 거부한다. 현장에서 `adminUserId`를 먼저 null로 해제한 뒤 disabled 처리하는 순서는 허용한다.
+- `Organization` trigger는 연결된 site admin이 하나라도 있는 customer의 `type`을 `service_provider`로 바꾸는 변경을 거부한다. `name`처럼 관계와 무관한 변경은 허용한다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
 
 ### Floor
