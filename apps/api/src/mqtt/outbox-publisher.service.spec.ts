@@ -71,18 +71,46 @@ describe("OutboxPublisherService", () => {
       await jest.advanceTimersByTimeAsync(0);
 
       expect(unhandledRejection).not.toHaveBeenCalled();
-      expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("command-outbox-worker"));
+      expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("worker=command-outbox-worker, error=P2028"));
       expect(loggerError.mock.calls.flat().join(" ")).not.toContain("payload-secret");
 
       await jest.advanceTimersByTimeAsync(1_000);
       expect(claimBatch).toHaveBeenCalledTimes(2);
 
-      service.onModuleDestroy();
+      await service.onModuleDestroy();
       await jest.advanceTimersByTimeAsync(2_000);
       expect(claimBatch).toHaveBeenCalledTimes(2);
     } finally {
-      service.onModuleDestroy();
+      await service.onModuleDestroy();
       process.off("unhandledRejection", unhandledRejection);
+      loggerError.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it("redacts untrusted error codes, names, and messages from scheduler logs", async () => {
+    jest.useFakeTimers();
+    const loggerError = jest.spyOn(Logger.prototype, "error").mockImplementation();
+    const service = new OutboxPublisherService({} as never, {} as never, { workerId: "command-outbox-worker", pollMs: 1_000 });
+    jest.spyOn(service, "claimBatch")
+      .mockRejectedValueOnce(Object.assign(new Error("message-secret"), {
+        code: "P2028-code-secret",
+        name: "name-secret-with-code"
+      }))
+      .mockRejectedValueOnce(Object.assign(new Error("other-message-secret"), { name: "name-secret-without-code" }));
+
+    try {
+      service.onModuleInit();
+      await jest.advanceTimersByTimeAsync(1_000);
+
+      expect(loggerError).toHaveBeenNthCalledWith(1, expect.stringContaining("error=UNEXPECTED_ERROR"));
+      expect(loggerError).toHaveBeenNthCalledWith(2, expect.stringContaining("error=UNEXPECTED_ERROR"));
+      const logs = loggerError.mock.calls.flat().join(" ");
+      expect(logs).not.toContain("P2028-code-secret");
+      expect(logs).not.toContain("name-secret");
+      expect(logs).not.toContain("message-secret");
+    } finally {
+      await service.onModuleDestroy();
       loggerError.mockRestore();
       jest.useRealTimers();
     }
@@ -107,7 +135,46 @@ describe("OutboxPublisherService", () => {
       expect(claimBatch).toHaveBeenCalledTimes(2);
     } finally {
       pendingClaim.resolve([]);
-      service.onModuleDestroy();
+      await service.onModuleDestroy();
+      jest.useRealTimers();
+    }
+  });
+
+  it("waits for an in-flight publish on destroy without starting another publish", async () => {
+    jest.useFakeTimers();
+    const activePublish = deferred<void>();
+    const service = new OutboxPublisherService({} as never, {} as never, { workerId: "command-outbox-worker", pollMs: 1_000 });
+    const claimBatch = jest.spyOn(service, "claimBatch").mockResolvedValue([
+      meshRecord({ id: "outbox-1" }),
+      meshRecord({ id: "outbox-2" })
+    ] as never);
+    const publishClaimed = jest.spyOn(service, "publishClaimed")
+      .mockReturnValueOnce(activePublish.promise)
+      .mockResolvedValue(undefined);
+    let destroyCompleted = false;
+
+    try {
+      service.onModuleInit();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(publishClaimed).toHaveBeenCalledTimes(1);
+
+      const destroying = Promise.resolve(service.onModuleDestroy()).then(() => { destroyCompleted = true; });
+      await Promise.resolve();
+      const completedBeforeRelease = destroyCompleted;
+      await jest.advanceTimersByTimeAsync(3_000);
+
+      activePublish.resolve();
+      await destroying;
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect({
+        completedBeforeRelease,
+        claimCalls: claimBatch.mock.calls.length,
+        publishCalls: publishClaimed.mock.calls.length
+      }).toEqual({ completedBeforeRelease: false, claimCalls: 1, publishCalls: 1 });
+    } finally {
+      activePublish.resolve();
+      await Promise.resolve(service.onModuleDestroy());
       jest.useRealTimers();
     }
   });

@@ -28,7 +28,7 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
   private readonly clock: () => Date;
   private readonly publishTimeoutMs: number;
   private timer: NodeJS.Timeout | null = null;
-  private batchInFlight = false;
+  private activeBatch: Promise<void> | null = null;
   private stopped = false;
 
   constructor(
@@ -52,29 +52,34 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
     this.timer = setInterval(() => void this.runScheduledBatch(), this.pollMs);
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    await this.activeBatch;
   }
 
-  private async runScheduledBatch() {
+  private runScheduledBatch() {
     // setInterval does not await asynchronous callbacks, so one stalled DB transaction must retain the worker slot.
-    if (this.stopped || this.batchInFlight) return;
+    if (this.stopped || this.activeBatch) return this.activeBatch ?? Promise.resolve();
 
-    this.batchInFlight = true;
-    try {
-      await this.processBatch();
-    } catch (error) {
-      this.logger.error(`mqtt provisioning scan outbox batch failed (worker=${this.workerId}, error=${this.errorKind(error)})`);
-    } finally {
-      this.batchInFlight = false;
-    }
+    const batch = this.processBatch()
+      .catch((error) => {
+        this.logger.error(`mqtt provisioning scan outbox batch failed (worker=${this.workerId}, error=${this.errorKind(error)})`);
+      })
+      .finally(() => {
+        this.activeBatch = null;
+      });
+    this.activeBatch = batch;
+    return batch;
   }
 
   private errorKind(error: unknown) {
-    if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") return error.code;
-    return error instanceof Error ? error.name : "unknown";
+    if (
+      typeof error === "object" && error !== null && "code" in error &&
+      typeof error.code === "string" && /^P\d{4}$/.test(error.code)
+    ) return error.code;
+    return "UNEXPECTED_ERROR";
   }
 
   async claimBatch(now = this.clock()) {
@@ -105,7 +110,11 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
 
   async processBatch(now = this.clock()) {
     const records = await this.claimBatch(now);
-    for (const record of records) await this.publishClaimed(record);
+    for (const record of records) {
+      // Shutdown waits for a publish already in progress but must not start later records while dependencies are closing.
+      if (this.stopped) return;
+      await this.publishClaimed(record);
+    }
   }
 
   async publishClaimed(record: {
