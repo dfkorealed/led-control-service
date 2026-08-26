@@ -221,7 +221,7 @@ Organization
 - `20260827090000_operator_admin_account_flow` migration은 nullable `loginId`/`adminUserId` 추가, `loginId` backfill, 형식·정규화 충돌·operator 중복·기존 active admin/현장 모호성 사전검증, 명확한 customer active admin 연결, 최종 제약 추가를 하나의 PostgreSQL transaction에서 수행한다. 기존 `email`, `Site.address`, `Site.tariffKwhRate`의 NOT NULL은 이 단계에서 변경하지 않는다.
 - 정규화 충돌 또는 active admin이 있는 customer의 active admin/현장 수가 각각 하나가 아니면 `RAISE EXCEPTION`으로 중단한다. disabled admin만 있는 customer 현장은 unassigned로 남기며, 임의 loginId 보정이나 권한 확대는 하지 않는다.
 - role이 `operator`인 행은 상태와 관계없이 PostgreSQL partial unique index로 한 명만 허용한다. 이 index는 Prisma schema에 표현되지 않으며 migration이 정본이다.
-- 후속 loginId contract migration은 dual-write API 배포 뒤 `loginId`를 재backfill·검증하고 `NOT NULL` 및 email nullable 계약을 적용한다. pending-site contract migration은 `Site.address`와 `Site.tariffKwhRate` nullable 전환과 해당 소비자 처리를 함께 소유한다.
+- Task 2의 loginId contract migration은 dual-write API 배포 뒤 `loginId`를 재backfill·검증하고 `NOT NULL` 및 email nullable 계약을 적용한다. Task 3의 pending-site contract migration은 `Site.address`와 `Site.tariffKwhRate` nullable 전환과 해당 소비자·energy 처리까지 함께 소유한다.
 
 ### Site
 
@@ -233,8 +233,8 @@ Organization
 | `organizationId` | `String` | 예 | FK -> `Organization.id` | 소속 조직 |
 | `adminUserId` | `String?` | 아니오 | Unique, FK -> `User.id`, restrict delete | 이 현장을 직접 관리하는 단일 admin. admin 계정도 한 현장만 가질 수 있음 |
 | `name` | `String` | 예 |  | 현장명 |
-| `address` | `String` | 예 |  | 주소. pending-site contract migration이 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
-| `tariffKwhRate` | `Decimal(10,2)` | 예 |  | kWh 단가. pending-site contract migration이 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
+| `address` | `String` | 예 |  | 주소. Task 3 pending-site contract migration이 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
+| `tariffKwhRate` | `Decimal(10,2)` | 예 |  | kWh 단가. Task 3 pending-site contract migration이 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
 | `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -256,6 +256,7 @@ admin 연결 제약:
 - `Site` trigger는 `adminUserId`가 null이 아니면 같은 customer Organization에 속한 `active` `admin`만 연결하도록 검증한다. viewer, operator, disabled admin 또는 다른 customer의 admin 연결은 거부한다.
 - `User` trigger는 이미 연결된 admin의 `role`, `status`, `organizationId` 변경이 위 관계를 무효화하면 거부한다. 현장에서 `adminUserId`를 먼저 null로 해제한 뒤 disabled 처리하는 순서는 허용한다.
 - `Organization` trigger는 연결된 site admin이 하나라도 있는 customer의 `type`을 `service_provider`로 바꾸는 변경을 거부한다. `name`처럼 관계와 무관한 변경은 허용한다.
+- 세 trigger는 stale snapshot write-skew를 막기 위해 관련 행을 잠근 뒤 변경 후 상태를 검증한다. 가능한 명시 잠금 순서는 `Site -> User -> Organization`이며, 현재 UPDATE 대상 행은 PostgreSQL이 trigger 호출 전에 이미 잠근다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 `FOR UPDATE`로 잠근다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
 
 ### Floor

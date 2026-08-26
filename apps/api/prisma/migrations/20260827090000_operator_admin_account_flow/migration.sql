@@ -86,21 +86,39 @@ CREATE FUNCTION "validate_site_admin_assignment"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  locked_admin "User"%ROWTYPE;
+  locked_organization "Organization"%ROWTYPE;
 BEGIN
   IF NEW."adminUserId" IS NULL THEN
     RETURN NEW;
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1
-    FROM "User" AS admin
-    JOIN "Organization" AS organization ON organization."id" = NEW."organizationId"
-    WHERE admin."id" = NEW."adminUserId"
-      AND admin."organizationId" = NEW."organizationId"
-      AND admin."role" = 'admin'
-      AND admin."status" = 'active'
-      AND organization."type" = 'customer'
-  ) THEN
+  -- The triggering Site row is already locked by the UPDATE/INSERT statement.
+  -- Lock related rows in Site -> User -> Organization order so concurrent
+  -- assignment, admin-state, and organization-type writes cannot pass stale checks.
+  SELECT * INTO locked_admin
+  FROM "User"
+  WHERE "id" = NEW."adminUserId"
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'site admin must be an active admin in the same customer organization';
+  END IF;
+
+  SELECT * INTO locked_organization
+  FROM "Organization"
+  WHERE "id" = NEW."organizationId"
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'site admin must be an active admin in the same customer organization';
+  END IF;
+
+  IF locked_admin."organizationId" <> NEW."organizationId"
+    OR locked_admin."role" <> 'admin'
+    OR locked_admin."status" <> 'active'
+    OR locked_organization."type" <> 'customer' THEN
     RAISE EXCEPTION 'site admin must be an active admin in the same customer organization';
   END IF;
 
@@ -116,19 +134,31 @@ CREATE FUNCTION "validate_assigned_site_admin_user"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  locked_site "Site"%ROWTYPE;
+  locked_organization "Organization"%ROWTYPE;
 BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM "Site" AS site
-    JOIN "Organization" AS organization ON organization."id" = site."organizationId"
-    WHERE site."adminUserId" = NEW."id"
-      AND (
-        NEW."role" <> 'admin'
-        OR NEW."status" <> 'active'
-        OR NEW."organizationId" <> site."organizationId"
-        OR organization."type" <> 'customer'
-      )
-  ) THEN
+  -- The updated User row is already locked. Lock its assigned Site first, then
+  -- Organization, preserving the Site -> User -> Organization validation order.
+  SELECT * INTO locked_site
+  FROM "Site"
+  WHERE "adminUserId" = NEW."id"
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT * INTO locked_organization
+  FROM "Organization"
+  WHERE "id" = locked_site."organizationId"
+  FOR UPDATE;
+
+  IF NOT FOUND
+    OR NEW."role" <> 'admin'
+    OR NEW."status" <> 'active'
+    OR NEW."organizationId" <> locked_site."organizationId"
+    OR locked_organization."type" <> 'customer' THEN
     RAISE EXCEPTION 'assigned site admin must remain an active admin in the same customer organization';
   END IF;
 
@@ -144,16 +174,36 @@ CREATE FUNCTION "validate_customer_organization_type"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  locked_site "Site"%ROWTYPE;
+  locked_admin "User"%ROWTYPE;
 BEGIN
-  IF NEW."type" <> 'customer'
-    AND EXISTS (
-      SELECT 1
-      FROM "Site" AS site
-      WHERE site."organizationId" = NEW."id"
-        AND site."adminUserId" IS NOT NULL
-    ) THEN
-    RAISE EXCEPTION 'organization with assigned site admins must remain a customer';
+  IF NEW."type" = 'customer' THEN
+    RETURN NEW;
   END IF;
+
+  -- The updated Organization row is already locked. Lock its assigned Site and
+  -- User in Site -> User order before validating the post-update organization type.
+  SELECT * INTO locked_site
+  FROM "Site"
+  WHERE "organizationId" = NEW."id"
+    AND "adminUserId" IS NOT NULL
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT * INTO locked_admin
+  FROM "User"
+  WHERE "id" = locked_site."adminUserId"
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'organization has an assigned site admin with no user';
+  END IF;
+
+  RAISE EXCEPTION 'organization with assigned site admins must remain a customer';
 
   RETURN NEW;
 END;

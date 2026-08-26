@@ -52,6 +52,10 @@ describe("operator/admin migration static contract", () => {
     expect(migration).toContain('CREATE FUNCTION "validate_customer_organization_type"()');
     expect(migration).toContain('CREATE TRIGGER "Organization_validate_assigned_site_admin"');
     expect(migration).toContain('BEFORE UPDATE OF "type" ON "Organization"');
+    expect(migration).toMatch(/validate_site_admin_assignment[\s\S]*?FROM "User"[\s\S]*?FOR UPDATE[\s\S]*?FROM "Organization"[\s\S]*?FOR UPDATE/);
+    expect(migration).toMatch(/validate_assigned_site_admin_user[\s\S]*?FROM "Site"[\s\S]*?FOR UPDATE[\s\S]*?FROM "Organization"[\s\S]*?FOR UPDATE/);
+    expect(migration).toMatch(/validate_customer_organization_type[\s\S]*?FROM "Site"[\s\S]*?FOR UPDATE[\s\S]*?FROM "User"[\s\S]*?FOR UPDATE/);
+    expect(migration).toContain("Lock related rows in Site -> User -> Organization order");
     expect(migration).toContain('admin."role" = \'admin\'');
     expect(migration).toContain('admin."status" = \'active\'');
     expect(migration).toContain('organization."type" = \'customer\'');
@@ -198,6 +202,16 @@ describeWithPostgres("operator/admin migration PostgreSQL rehearsal", () => {
     `).stderr).toContain("User_loginId_format_check");
     expect(runSqlInSchema(schemaName, `UPDATE "User" SET "loginId" = 'invalid+login' WHERE "id" = '${adminId}';`).stderr)
       .toContain("User_loginId_format_check");
+    expect(runSqlInSchema(schemaName, `
+      INSERT INTO "User" ("id", "organizationId", "loginId", "email", "name", "passwordHash", "role", "status")
+      VALUES ('shared-login-1', 'customer-1', 'shared-login', 'shared-login-1@example.com', 'Shared 1', 'hash', 'viewer', 'active');
+    `).status).toBe(0);
+    expect(runSqlInSchema(schemaName, `
+      INSERT INTO "User" ("id", "organizationId", "loginId", "email", "name", "passwordHash", "role", "status")
+      VALUES ('shared-login-2', 'customer-1', 'shared-login', 'shared-login-2@example.com', 'Shared 2', 'hash', 'viewer', 'active');
+    `).stderr).toContain("User_loginId_key");
+    expect(runSqlInSchema(schemaName, `UPDATE "User" SET "loginId" = 'shared-login' WHERE "id" = '${adminId}';`).stderr)
+      .toContain("User_loginId_key");
     expect(runSqlInSchema(schemaName, `
       INSERT INTO "User" ("id", "organizationId", "loginId", "email", "name", "passwordHash", "role", "status")
       VALUES ('operator-2', 'provider', 'operator-2', 'operator-2@example.com', 'Operator 2', 'hash', 'operator', 'disabled');
