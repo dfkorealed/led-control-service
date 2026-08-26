@@ -18,6 +18,8 @@ import type { MqttClient } from "mqtt";
 import {
   applyIdentifyDevice,
   applyProvisionDevice,
+  createProvisioningScanFailedPayload,
+  ProvisioningScanRecoveryPublisher,
   handleDurableProvisioningScan
 } from "./gateway";
 export {
@@ -82,6 +84,15 @@ async function main() {
     process.env.GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH ?? "/var/lib/led-control/provisioning-scan-journal.json"
   );
   await provisioningScanJournal.initialize();
+  const provisioningScanRecovery = new ProvisioningScanRecoveryPublisher(provisioningScanJournal);
+  await provisioningScanRecovery.prepare(async (command) => ({
+    topic: mqttTopicsV2.provisioningScanFailed(command.siteId, command.gatewayId),
+    payload: createProvisioningScanFailedPayload(command, new Error("gateway scan interrupted"), {
+      eventId: randomUUID(),
+      sequence: await eventSequence.next(),
+      occurredAt: new Date().toISOString()
+    })
+  }));
   const groupStateStore = new GroupStateStore(
     process.env.GATEWAY_MESH_GROUP_STATE_PATH ?? "/var/lib/led-control/mesh-groups.json"
   );
@@ -206,6 +217,7 @@ async function main() {
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
       await health.mqttConnected();
+      await provisioningScanRecovery.drain((topic, event) => publish(mqttRuntime.client, topic, event));
       await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
       await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
     },

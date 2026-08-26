@@ -85,12 +85,43 @@ export async function applyProvisioningScan(adapter: ProvisioningScannerAdapter,
 
 export type ProvisioningScanEnvelope = { eventId: string; sequence: number; occurredAt: string };
 
+export class ProvisioningScanRecoveryPublisher {
+  private preparation: Promise<void> | undefined;
+  private draining: Promise<void> | undefined;
+
+  constructor(private readonly journal: ProvisioningScanJournal) {}
+
+  prepare(createTerminal: (command: ProvisioningScanStartPayload) => Promise<ProvisioningScanTerminalEvent>) {
+    this.preparation ??= this.journal.recoverRunning(createTerminal);
+    return this.preparation;
+  }
+
+  drain(publish: (topic: string, payload: unknown) => Promise<void>) {
+    if (this.draining) return this.draining;
+    const draining = (async () => {
+      for (const terminal of await this.journal.pendingTerminals()) {
+        await publish(terminal.topic, terminal.payload);
+        if (!await this.journal.markDelivered(terminal)) {
+          throw new Error("provisioning scan terminal delivery state changed");
+        }
+      }
+    })();
+    this.draining = draining;
+    void draining.then(
+      () => { if (this.draining === draining) this.draining = undefined; },
+      () => { if (this.draining === draining) this.draining = undefined; }
+    );
+    return draining;
+  }
+}
+
 export async function publishProvisioningScanLifecycle(input: {
   adapter: ProvisioningScannerAdapter;
   command: ProvisioningScanStartPayload;
   nextEnvelope: () => Promise<ProvisioningScanEnvelope>;
   publish: (topic: string, payload: unknown) => Promise<void>;
   persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
+  markDelivered?: (terminal: ProvisioningScanTerminalEvent) => Promise<boolean>;
 }) {
   let nodes: ProvisioningScanFoundDevice[];
   try {
@@ -125,16 +156,24 @@ export async function handleDurableProvisioningScan(input: {
 }) {
   const started = await input.journal.begin(input.command);
   if (started.kind === "terminal") {
-    await input.publish(started.terminal.topic, started.terminal.payload);
+    if (!started.delivered) {
+      await publishScanTerminal({
+        publish: input.publish,
+        markDelivered: (terminal) => input.journal.markDelivered(terminal)
+      }, started.terminal);
+    }
     return;
   }
   if (started.kind === "running") return;
   if (started.kind === "recovered") {
-    const terminal = await input.journal.complete(input.command, {
+    await publishScanTerminal({
+      publish: input.publish,
+      persistTerminal: (terminal) => input.journal.complete(input.command, terminal),
+      markDelivered: (terminal) => input.journal.markDelivered(terminal)
+    }, {
       topic: mqttTopicsV2.provisioningScanFailed(input.command.siteId, input.command.gatewayId),
       payload: createProvisioningScanFailedPayload(input.command, new Error("gateway scan interrupted"), await input.nextEnvelope())
     });
-    await input.publish(terminal.topic, terminal.payload);
     return;
   }
   await publishProvisioningScanLifecycle({
@@ -142,19 +181,24 @@ export async function handleDurableProvisioningScan(input: {
     command: input.command,
     nextEnvelope: input.nextEnvelope,
     publish: input.publish,
-    persistTerminal: (terminal) => input.journal.complete(input.command, terminal)
+    persistTerminal: (terminal) => input.journal.complete(input.command, terminal),
+    markDelivered: (terminal) => input.journal.markDelivered(terminal)
   });
 }
 
 async function publishScanTerminal(
   input: {
     persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
+    markDelivered?: (terminal: ProvisioningScanTerminalEvent) => Promise<boolean>;
     publish: (topic: string, payload: unknown) => Promise<void>;
   },
   terminal: ProvisioningScanTerminalEvent
 ) {
   const durable = input.persistTerminal ? await input.persistTerminal(terminal) : terminal;
   await input.publish(durable.topic, durable.payload);
+  if (input.markDelivered && !await input.markDelivered(durable)) {
+    throw new Error("provisioning scan terminal delivery state changed");
+  }
 }
 
 export function createProvisioningScanFoundPayload(

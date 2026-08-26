@@ -1,8 +1,15 @@
 import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { handleDurableProvisioningScan } from "../gateway";
+import {
+  ProvisioningScanRecoveryPublisher,
+  createProvisioningScanCompletedPayload,
+  createProvisioningScanFailedPayload,
+  handleDurableProvisioningScan
+} from "../gateway";
+import { GatewayMqttRuntime } from "../runtime/gateway-mqtt-runtime";
 import { ProvisioningScanJournal } from "./provisioning-scan-journal";
 
 const directories: string[] = [];
@@ -15,6 +22,11 @@ const command = {
   scanAttempt: 1,
   requestedAt: "2026-08-26T00:00:00.000Z"
 };
+
+class FakeMqttClient extends EventEmitter {
+  readonly end = vi.fn((_force?: boolean, callback?: (error?: Error) => void) => callback?.());
+  readonly publish = vi.fn((_topic: string, _payload: string, _options?: unknown, callback?: (error?: Error) => void) => callback?.());
+}
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -40,7 +52,7 @@ describe("ProvisioningScanJournal", () => {
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
-  it("replays the persisted terminal event with its original eventId and sequence after restart", async () => {
+  it("does not replay a persisted terminal after a successful delivery", async () => {
     const path = await journalPath();
     const firstPublish = vi.fn().mockResolvedValue(undefined);
     const envelope = {
@@ -66,11 +78,104 @@ describe("ProvisioningScanJournal", () => {
     });
 
     expect(replayScanner.scan).not.toHaveBeenCalled();
-    expect(replayPublish).toHaveBeenCalledWith(
+    expect(replayPublish).not.toHaveBeenCalled();
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it("converts a persisted running scan before connection and publishes its sanitized failure only when MQTT is ready", async () => {
+    const path = await journalPath();
+    await new ProvisioningScanJournal(path).begin(command);
+    const journal = new ProvisioningScanJournal(path);
+    const recovery = new ProvisioningScanRecoveryPublisher(journal);
+    const publish = vi.fn().mockResolvedValue(undefined);
+
+    await journal.initialize();
+    await recovery.prepare(async (interrupted) => ({
+      topic: `sites/${interrupted.siteId}/gateways/${interrupted.gatewayId}/events/provisioning/scan-failed`,
+      payload: createProvisioningScanFailedPayload(interrupted, new Error("gateway scan interrupted"), {
+        eventId: "66666666-6666-4666-8666-666666666666",
+        sequence: 9,
+        occurredAt: "2026-08-26T00:00:01.000Z"
+      })
+    }));
+
+    expect(publish).not.toHaveBeenCalled();
+
+    const client = new FakeMqttClient();
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 10_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: {},
+      onMessageError: vi.fn(),
+      onConnect: () => recovery.drain(publish)
+    });
+    runtime.start();
+    expect(publish).not.toHaveBeenCalled();
+
+    client.emit("connect", { sessionPresent: false });
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+    expect(publish).toHaveBeenCalledWith(
+      `sites/${command.siteId}/gateways/${command.gatewayId}/events/provisioning/scan-failed`,
+      expect.objectContaining({
+        eventId: "66666666-6666-4666-8666-666666666666",
+        sequence: 9,
+        code: "scan_runtime_failed",
+        message: "조명 검색 중 문제가 발생했습니다."
+      })
+    );
+    await runtime.stop();
+  });
+
+  it("replays an undelivered terminal on reconnect with its original eventId and sequence, serializes drains, and marks the success", async () => {
+    const path = await journalPath();
+    const first = new ProvisioningScanJournal(path);
+    await first.begin(command);
+    const envelope = {
+      eventId: "66666666-6666-4666-8666-666666666666", sequence: 7, occurredAt: "2026-08-26T00:00:01.000Z"
+    };
+    await first.complete(command, {
+      topic: `sites/${command.siteId}/gateways/${command.gatewayId}/events/provisioning/scan-completed`,
+      payload: createProvisioningScanCompletedPayload(command, 0, envelope)
+    });
+
+    const journal = new ProvisioningScanJournal(path);
+    const recovery = new ProvisioningScanRecoveryPublisher(journal);
+    await journal.initialize();
+    let release!: () => void;
+    const publish = vi.fn()
+      .mockRejectedValueOnce(new Error("broker unavailable"))
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    const client = new FakeMqttClient();
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 10_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: {},
+      onMessageError: vi.fn(),
+      onRuntimeError: vi.fn(),
+      onConnect: () => recovery.drain(publish)
+    });
+    runtime.start();
+    client.emit("connect", { sessionPresent: false });
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+
+    client.emit("connect", { sessionPresent: true });
+    client.emit("connect", { sessionPresent: true });
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+    expect(publish).toHaveBeenCalledWith(
       `sites/${command.siteId}/gateways/${command.gatewayId}/events/provisioning/scan-completed`,
       expect.objectContaining({ eventId: envelope.eventId, sequence: envelope.sequence, acceptedNodeCount: 0 })
     );
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+
+    release();
+    await vi.waitFor(async () => expect(await journal.pendingTerminals()).toEqual([]));
+    client.emit("connect", { sessionPresent: true });
+    await Promise.resolve();
+    expect(publish).toHaveBeenCalledTimes(2);
+    await runtime.stop();
   });
 
   it("converges an interrupted running scan to one sanitized terminal without scanning after restart", async () => {

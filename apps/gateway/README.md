@@ -169,7 +169,7 @@ WantedBy=multi-user.target
 
 양산 gateway runtime에는 stub adapter가 없다. 자동 테스트용 adapter는 `apps/gateway/test`에만 존재하고 배포 진입점에서 import하지 않는다. 수동 제어, 검색, 등록은 검증된 BlueZ D-Bus adapter가 없으면 시작 단계에서 실패한다.
 
-검색 시작 명령은 `/var/lib/led-control/provisioning-scan-journal.json`에 `(sessionId, scanCorrelationId, scanAttempt)` key로 원자 저장한다. 이 파일은 `0600`이어야 하며, 손상·권한 오류·1,000 record 초과는 scanner를 시작하지 않는 fail-closed 오류다. running duplicate는 기존 실행만 기다리고, terminal record는 original `eventId`와 `sequence`를 가진 동일 terminal event를 재발행한다. restart에서 남은 running record는 새 BlueZ scan을 실행하지 않고 정제된 `scan-failed` terminal로 수렴한다. terminal record는 24시간 보존한다. 경로는 `GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH`로 바꿀 수 있다.
+검색 시작 명령은 `/var/lib/led-control/provisioning-scan-journal.json`에 `(sessionId, scanCorrelationId, scanAttempt)` key로 원자 저장한다. 이 파일은 `0600`이어야 하며, 손상·권한 오류·1,000 record 초과는 scanner를 시작하지 않는 fail-closed 오류다. running duplicate는 기존 실행만 기다린다. 재시작 초기화는 남은 running record를 새 BlueZ scan 없이 정제된 `scan-failed` terminal로 원자 전환하지만 MQTT 연결 전에는 발행하지 않는다. command topic 구독이 준비된 connect 시점에 아직 전달되지 않은 terminal만 original `eventId`와 `sequence`로 직렬 drain하며, publish 실패는 journal에 남겨 다음 reconnect에서 재시도한다. 성공은 `deliveredAt` marker로 기록해 보존 기간 안의 중복 발행을 막는다. terminal record는 24시간 보존한다. 경로는 `GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH`로 바꿀 수 있다.
 
 SIG model codec과 실제 BlueZ adapter는 scan, provisioning, AppKey 추가, Generic OnOff/Light Lightness bind, status publication, acknowledged Lightness Status 처리를 구현했다. fixture ID와 unicast mapping은 gateway volume에 원자 저장하며 실제 Status 전에는 제어 성공으로 처리하지 않는다.
 

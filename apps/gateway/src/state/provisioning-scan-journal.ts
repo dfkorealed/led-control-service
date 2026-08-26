@@ -20,6 +20,7 @@ type StoredRecord = {
   command: ProvisioningScanStartPayload;
   state: "running" | "terminal";
   terminal?: ProvisioningScanTerminalEvent;
+  deliveredAt?: string;
   updatedAt: string;
 };
 
@@ -32,7 +33,7 @@ export type ProvisioningScanJournalBegin =
   | { kind: "new" }
   | { kind: "running" }
   | { kind: "recovered" }
-  | { kind: "terminal"; terminal: ProvisioningScanTerminalEvent };
+  | { kind: "terminal"; terminal: ProvisioningScanTerminalEvent; delivered: boolean };
 
 type JournalOptions = {
   now?: () => Date;
@@ -74,7 +75,9 @@ export class ProvisioningScanJournal {
       const existing = state.records[key];
       if (existing) {
         if (!sameCommand(existing.command, parsed)) throw new Error("provisioning scan journal logical key scope mismatch");
-        if (existing.state === "terminal" && existing.terminal) return { kind: "terminal", terminal: existing.terminal };
+        if (existing.state === "terminal" && existing.terminal) {
+          return { kind: "terminal", terminal: existing.terminal, delivered: Boolean(existing.deliveredAt) };
+        }
         if (existing.state !== "running") throw new Error("invalid provisioning scan journal");
         return this.localRunning.has(key) ? { kind: "running" } : { kind: "recovered" };
       }
@@ -102,6 +105,55 @@ export class ProvisioningScanJournal {
       this.localRunning.delete(key);
       await this.persist(state);
       return parsedTerminal;
+    });
+  }
+
+  recoverRunning(createTerminal: (command: ProvisioningScanStartPayload) => Promise<ProvisioningScanTerminalEvent>): Promise<void> {
+    return this.exclusive(async () => {
+      const state = await this.load();
+      const recovered = Object.entries(state.records)
+        .filter(([, record]) => record.state === "running")
+        .sort(([left], [right]) => left.localeCompare(right));
+      if (recovered.length === 0) return;
+
+      const terminals = await Promise.all(recovered.map(async ([key, record]) => ({
+        key,
+        command: record.command,
+        terminal: parseTerminal(record.command, await createTerminal(record.command))
+      })));
+      const updatedAt = this.now().toISOString();
+      for (const { key, command, terminal } of terminals) {
+        state.records[key] = { command, state: "terminal", terminal, updatedAt };
+        this.localRunning.delete(key);
+      }
+      await this.persist(state);
+    });
+  }
+
+  pendingTerminals(): Promise<ProvisioningScanTerminalEvent[]> {
+    return this.exclusive(async () => {
+      const state = await this.load();
+      if (this.prune(state)) await this.persist(state);
+      return Object.entries(state.records)
+        .filter(([, record]) => record.state === "terminal" && record.terminal && !record.deliveredAt)
+        .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt))
+        .map(([, record]) => record.terminal!);
+    });
+  }
+
+  markDelivered(terminal: ProvisioningScanTerminalEvent): Promise<boolean> {
+    return this.exclusive(async () => {
+      const state = await this.load();
+      const payload = terminal.payload;
+      const key = `${payload.sessionId}:${payload.scanCorrelationId}:${payload.scanAttempt}`;
+      const record = state.records[key];
+      if (!record || record.state !== "terminal" || !record.terminal) return false;
+      const parsed = parseTerminal(record.command, terminal);
+      if (!sameTerminal(record.terminal, parsed) || record.deliveredAt) return false;
+      record.deliveredAt = this.now().toISOString();
+      record.updatedAt = record.deliveredAt;
+      await this.persist(state);
+      return true;
     });
   }
 
@@ -181,7 +233,16 @@ function parseJournal(value: unknown, maxRecords: number): StoredJournal {
       records[key] = { command, state: "running", updatedAt: value.updatedAt };
       continue;
     }
-    records[key] = { command, state: "terminal", terminal: parseTerminal(command, value.terminal), updatedAt: value.updatedAt };
+    if (value.deliveredAt !== undefined && (typeof value.deliveredAt !== "string" || Number.isNaN(Date.parse(value.deliveredAt)))) {
+      throw new Error("invalid provisioning scan journal");
+    }
+    records[key] = {
+      command,
+      state: "terminal",
+      terminal: parseTerminal(command, value.terminal),
+      updatedAt: value.updatedAt,
+      ...(value.deliveredAt ? { deliveredAt: value.deliveredAt } : {})
+    };
   }
   return { version: 1, records };
 }
@@ -217,6 +278,13 @@ function sameCommand(left: ProvisioningScanStartPayload, right: ProvisioningScan
     left.siteId === right.siteId &&
     left.gatewayId === right.gatewayId &&
     left.floorId === right.floorId;
+}
+
+function sameTerminal(left: ProvisioningScanTerminalEvent, right: ProvisioningScanTerminalEvent) {
+  return left.topic === right.topic &&
+    left.payload.eventId === right.payload.eventId &&
+    left.payload.sequence === right.payload.sequence &&
+    left.payload.occurredAt === right.payload.occurredAt;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
