@@ -14,28 +14,31 @@
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
-| 메뉴 완성 구현 | 진행 중 | Task 8b 상태 이벤트 적산과 durable state outbox까지 구현·자동 검증했다. 실제 Raspberry Pi/ESP32-H2 HIL과 상태 적산 통계 조회 UI는 남아 있다. |
+| 메뉴 완성 구현 | 완료(소프트웨어) | Task 12까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
 
 ## 다음 단계
 
-현재 작업은 **메뉴 완성 구현**이다. Task 8b는 상태 이벤트 중복·역순·stale checkpoint 차단, 원자적 에너지 적산, DB commit 이후 application ACK, Gateway `0600` durable outbox와 재전송, 용량 fail-closed, 정격 전력 변경 checkpoint, site timezone 계약을 완료했다. PostgreSQL migration/integration, Nest `MqttModule` bootstrap smoke, shared/API/Gateway/Web 전체 테스트와 typecheck를 통과했다. Raspberry Pi/ESP32-H2 HIL은 남아 있다.
+**메뉴 완성 소프트웨어 범위는 완료했다.** 모니터링, 수동 제어, 상태 기반 통계와 격리 PostgreSQL·Redis·mTLS Mosquitto·API·Web을 사용하는 Chromium E2E를 완료했다. E2E는 운영자 현장 생성, Gateway claim, 0건 검색과 재검색, 조명 2개 등록, 모니터링/Health, 고객 관리자·viewer 초대 가입, 통계, 저장 구역 CRUD, 개별·다중·층·구역 제어와 viewer 제어 차단을 실제 HTTP/MQTT 계약으로 검증한다. 실제 Raspberry Pi/ESP32-H2 HIL은 남아 있다.
 
 ## 알려진 미해결 항목
 
 ### 모니터링
 
-- Web 등록 패널에서 provisioning 전 조명 `점멸 확인` 버튼·상태를 제거하고 scan lifecycle 재시도/0건/실패 화면을 연결해야 한다.
-- 도면 최초 조회 실패가 빈 기본 canvas로 보일 수 있으며, 등록 완료 뒤 필요한 query를 즉시 갱신하지 않는다.
+- 진행 중인 조명 검색·등록 세션은 브라우저 새로고침 뒤 자동 복구되지 않는다. 현재 세션 ID가 화면 상태에만 있으므로 active session 조회·복구 API와 UI가 후속으로 필요하다.
 
 ### 제어
 
-- 저장 구역 CRUD와 cloud desired membership, dashboard 준비 상태 기반 제어 차단은 구현됐지만, 생성·수정·삭제·resync 관리 dialog는 Task 7에서 구현해야 한다.
-- Gateway Config Model Subscription Add/Delete의 cloud exact operation 계약은 구현됐지만 실제 Raspberry Pi/ESP32-H2 HIL은 Task 5에서 검증해야 한다.
-- device-status ACK 대상·aggregate status 완전성과 동시 요청 client request id 멱등성 보완이 필요하다.
+- 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
+- Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
 
 ### 통계
 
-- 상태 이벤트 일별 적산 정본은 구현됐다. 통계 API/UI는 아직 기존 snapshot 추정치를 사용하므로 기간 조회, 첫 상태 이전 unknown/수집 공백 표시, 180초 투영, fixture별 forecast와 비용·절감량 연결이 남아 있다.
+- 상태 이벤트 기반 오늘·월·년 집계, 일·월 차트, 180초 projection, 예상 비용과 24시간 100% 기준 절감량을 구현했다.
+- 실제 ESP32-H2 상태 publication을 장시간 수집하는 HIL은 실행하지 않았다.
+
+### 계정 인계
+
+- 초대 토큰 소비와 고객 관리자 회원가입은 구현·E2E 검증됐다. 운영자용 고객 관리자 초대 발급 API/UI는 설정 메뉴 보류 범위이며 현재 제조·운영 절차에서 초대 record를 준비해야 한다.
 
 ### 실장비 검증
 

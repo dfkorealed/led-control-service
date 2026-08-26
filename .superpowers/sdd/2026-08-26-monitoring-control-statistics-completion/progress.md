@@ -71,3 +71,7 @@
 - Ruling: Task 9는 series 응답 wrapper와 `from`/`to` 포함 경계를 shared/API 테스트로 먼저 고정한다 — Web과 API의 기간 경계 불일치를 방지한다 — 잘못 판단하면 마지막 일/월이 중복 또는 누락될 수 있다.
 - Ruling: Task 10은 계획 파일 목록에 없던 `App.tsx`, `App.test.tsx`, `mvp1.spec.ts`도 수정 범위에 포함한다 — 새 energy API가 site-scoped이므로 기본 `/statistics`와 기존 회귀를 유지하는 데 필수다 — 잘못 판단하면 기본 현장 통계가 조회되지 않는다.
 - Task 6: 동일 canonical 요청 재사용, payload conflict 409, 동시 P2002 새 transaction 재조회와 Web `sessionStorage` 응답 유실 재시도를 구현했다. API 490 tests/typecheck/build, Web focused 52 tests/typecheck/build를 통과했다. 전체 Web은 기존 `App.test.tsx`의 테스트 간 sessionStorage 미초기화로 215개 중 1개가 실패하며 해당 파일은 독립 write scope 밖이라 상위 통합 단계로 넘긴다. 실장비 HIL과 실제 브라우저 네트워크 응답 차단은 Task 7에서 수행한다.
+- Task 11 선행 수정 `351c62f`: provisioning 중 dashboard 갱신으로 등록 화면이 사라지던 문제를 등록 세션 완료 시점 갱신으로 변경했다.
+- Task 11 선행 수정 `d5793ad`: MQTT custom ACK 안에서 application ACK publish를 await하던 교착을 DB commit 뒤 수신 PUBACK 우선 순서로 수정하고 shutdown 신규 입력 경쟁을 차단했다.
+- Task 11 `069b660`: 격리 PostgreSQL·Redis·mTLS Mosquitto·API·Web과 test-only publisher로 operator 설치, 고객 admin/viewer 초대 가입, 통계, 저장 구역 CRUD, 개별·다중·층·구역 제어를 실제 Chromium에서 완료했다. production bundle 격리와 종료 후 포트 해제도 검증했다.
+- Task 12: `pnpm typecheck`, `pnpm lint`, `pnpm test`, Chromium Playwright 24 passed/3 skipped, 실백엔드 journey 2 passed를 완료했다. 독립 최종 리뷰는 Critical/P1/P2 없이 승인했다. Raspberry Pi/ESP32-H2 HIL은 별도 미실행 상태다.

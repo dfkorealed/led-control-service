@@ -186,3 +186,10 @@
 - **원인**: 파일 쓰기 범위는 분리했지만 모든 에이전트가 같은 working tree와 Git index를 공유한다는 점을 커밋 절차에 반영하지 않았다.
 - **해결 및 예방책**: 병렬 서브에이전트는 코드 수정, 테스트, 변경 파일 보고까지만 수행한다. 메인 에이전트가 `git diff`와 정확한 파일 목록을 확인한 뒤 작업 단위별로 순차 stage/commit한다.
 - **반복 방지 체크**: 병렬 구현을 시작할 때 모든 구현자에게 `git add/commit 금지`를 명시하고, 각 커밋 직후 `git show --name-status`로 다른 작업 파일 혼입 여부를 확인한다.
+
+## 2026-08-26 / MQTT customHandleAcks 내부 publish 교착
+
+- **발생했던 문제/실수**: 조명 상태 DB transaction 뒤 같은 MQTT client로 application ACK publish 완료를 기다린 다음 수신 PUBACK을 보내도록 구현해, outgoing PUBACK 처리가 custom ACK callback에 막히고 10초 후 연결이 끊겼다.
+- **원인**: MQTT.js packet 처리 callback 안에서 같은 연결의 후속 QoS 1 publish callback까지 await해 순환 대기를 만들었다.
+- **해결 및 예방책**: 상태 DB commit 뒤 수신 PUBACK을 먼저 완료하고 application ACK는 추적되는 후속 handler로 발행한다. application ACK가 실패하면 Gateway durable outbox가 같은 event를 재발행하고 API duplicate ACK로 수렴한다. 종료 시작 뒤 새 custom ACK 입력은 연결을 끊어 persistent session 재전달을 보존한다.
+- **반복 방지 체크**: custom ACK 테스트는 미완료 outgoing publish를 둔 상태에서도 수신 PUBACK이 먼저 호출되는지, shutdown drain 이후 새 입력이 DB에 들어가지 않는지 검증한다. 실제 mTLS broker E2E에서 상태를 2건 이상 연속 발행해 application ACK를 확인한다.

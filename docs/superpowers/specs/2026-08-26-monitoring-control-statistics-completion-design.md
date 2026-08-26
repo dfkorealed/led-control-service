@@ -23,7 +23,7 @@
 - 모바일 전용 화면과 React Native 네이티브 구현
 - 실측 전력 계량기, 시간대별 복합 요금제, 통계 내보내기와 drill-down
 
-## 3. 현재 감사 결과
+## 3. 구현 전 감사 결과
 
 ### 3.1 모니터링
 
@@ -80,7 +80,7 @@ gateway 하나에는 `scanning` 세션 하나만 허용하는 partial unique ind
 - 등록 패널은 `scanStatus=scanning` 또는 node가 `provisioning`인 동안 세션 조회를 1.5초 간격으로 수행한다. scan이 terminal이고 진행 중인 node가 없으면 polling을 중지하며, 등록 요청 뒤에는 provisioning 결과를 위해 다시 시작한다.
 - 완료·0건 화면은 자사 BLE Mesh 조명이 검색되지 않았음을 표시하고 `다시 검색`으로 새 `scanCorrelationId`를 가진 scan만 시작한다.
 - 실패 화면은 `scanFailureMessage`과 재시도 동작을 제공한다. gateway 인증서, 내부 예외 원문, Bluetooth adapter 식별자는 화면에 노출하지 않는다.
-- provisioning 완료를 세션 polling으로 관측하면 `dashboard`, 현재 floor fixture pages, `map-snapshot`, registration session query를 모두 invalidate한다. 신규 fixture는 기존 정책대로 첫 실제 상태 전까지 `상태 확인 대기`로 표시한다.
+- provisioning 완료를 세션 polling으로 관측하면 현재 floor fixture pages, `map-snapshot`, registration session query를 갱신하되 등록 화면은 유지한다. 사용자가 등록 세션을 완료하면 `dashboard`를 갱신해 운영 화면으로 전환한다. 신규 fixture는 기존 정책대로 첫 실제 상태 전까지 `상태 확인 대기`로 표시한다.
 - `map-snapshot`의 첫 요청이 실패했고 마지막 성공 snapshot이 없으면 기본 canvas를 렌더링하지 않는다. 지도 영역에는 오류와 재시도 버튼을 표시한다. 이전 snapshot이 있을 때 refetch가 실패하면 그 snapshot을 유지하고 갱신 실패 표기와 재시도만 추가한다. 성공 응답이 배경·도형 없음일 때만 빈 기본 canvas를 렌더링한다.
 
 ## 6. 제어 설계

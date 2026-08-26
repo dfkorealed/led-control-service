@@ -96,7 +96,7 @@
 - [x] React Query polling 종료·재시작과 invalidation을 구현한다.
 - [x] 지도 오류와 이전 snapshot 유지, 재시도 UI를 구현한다.
 - [x] Web test/typecheck/build를 실행한다.
-- [ ] 로컬 API·DB·Web을 띄우고 Chromium에서 scan 0건, 실패, 성공 등록, 지도 오류 복구를 QA한다.
+- [x] Chromium에서 실백엔드 scan 0건·성공 등록과 route fixture 기반 실패·지도 오류 복구를 QA한다.
 - [x] 문서와 증거를 갱신하고 `feat(web): finish monitoring registration states`로 커밋한다.
 
 ### Task 4: 저장 구역 CRUD와 desired membership
@@ -195,7 +195,7 @@
 - [x] role·준비 상태·CRUD·재동기화 UI 테스트와 Playwright 흐름을 먼저 실패시킨다.
 - [x] 공통 UI 패턴으로 dialog와 target 상태를 구현한다.
 - [x] Web test/typecheck/build를 실행한다.
-- [ ] 실제 Chromium에서 admin CRUD, viewer 제한, 개별·다중·층·구역 제어와 terminal 결과를 QA한다.
+- [x] 실제 Chromium에서 admin CRUD, viewer 제한, 개별·다중·층·구역 제어와 terminal 결과를 QA한다.
 - [x] 문서를 갱신하고 `feat(web): complete manual control workflows`로 커밋한다.
 
 ### Task 8: 상태 기반 에너지 적산과 전달 보장
@@ -252,7 +252,7 @@
 - [x] Recharts UI와 접근성, null point, empty/partial 테스트를 작성한다.
 - [x] `recharts`를 설치하고 API query와 responsive chart를 구현한다.
 - [x] Web test/typecheck/build를 실행한다.
-- [ ] 실제 Chromium에서 데이터 없음, 정상·부분 수집, 탭·tooltip·비용을 QA한다.
+- [x] 실제 Chromium에서 데이터 없음, 정상·부분 수집, 탭·tooltip·비용을 QA한다.
 - [x] 문서를 갱신하고 `feat(statistics): add energy history and savings report`로 커밋한다.
 
 ### Task 11: 최초 설치부터 고객 운영까지 브라우저 E2E
@@ -265,12 +265,12 @@
 
 **Produces:** real local backend 기반 operator 설치와 admin 운영 journey 증거.
 
-- [ ] 격리 DB와 test-only gateway publisher를 준비하고 production bundle에 포함되지 않음을 테스트한다.
-- [ ] operator 로그인, 현장·층·claim, scan 완료·등록·지도·Health 확인을 자동화한다.
-- [ ] admin 로그인, 구역 생성, 개별·다중·층·구역 제어 terminal, 통계 조회를 자동화한다.
-- [ ] Chromium trace/screenshot/network 결과를 저장하고 실패 상태를 검토한다.
-- [ ] 실제 하드웨어 미검증 경계를 상태판에 기록한다.
-- [ ] `test(e2e): cover installation to customer operation`으로 커밋한다.
+- [x] 격리 DB와 test-only gateway publisher를 준비하고 production bundle에 포함되지 않음을 테스트한다.
+- [x] operator 로그인, 현장·층·claim, scan 완료·등록·지도·Health 확인을 자동화한다.
+- [x] admin 초대 가입, 구역 생성, 개별·다중·층·구역 제어 terminal, 통계 조회와 viewer 초대 가입·제어 차단을 자동화한다.
+- [x] Chromium trace/screenshot/network 결과를 저장하고 실패 상태를 검토한다.
+- [x] 실제 하드웨어 미검증 경계를 상태판에 기록한다.
+- [x] `test(e2e): cover installation to customer operation`으로 커밋한다 (`069b660`).
 
 ### Task 12: 전체 회귀와 최종 독립 QA
 
@@ -284,12 +284,12 @@
 
 **Produces:** 구현·문서·브라우저 증거가 일치하는 최종 상태.
 
-- [ ] `pnpm typecheck && pnpm lint && pnpm test`를 실행한다.
-- [ ] API/Web build와 관련 Playwright 전체를 실행한다.
-- [ ] 실제 브라우저에서 정상 operator/admin/viewer 흐름을 마지막으로 수동 확인한다.
-- [ ] 독립 QA가 요구사항, 보안, 회귀, mock 경계와 문서 일치를 검토한다.
-- [ ] 모든 체크리스트와 상태판을 실제 증거에 맞춰 갱신한다.
-- [ ] `docs: complete monitoring control and statistics`로 커밋한다.
+- [x] `pnpm typecheck && pnpm lint && pnpm test`를 실행한다.
+- [x] API/Web build와 관련 Playwright 전체를 실행한다.
+- [x] 실제 Chromium에서 정상 operator/admin/viewer 흐름을 마지막으로 확인한다.
+- [x] 독립 QA가 요구사항, 보안, 회귀, mock 경계와 문서 일치를 검토한다.
+- [x] 모든 체크리스트와 상태판을 실제 증거에 맞춰 갱신한다.
+- [x] `docs: complete monitoring control and statistics`로 커밋한다.
 
 ## 완료 조건
 
