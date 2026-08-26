@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "e2e:auth:real": "E2E_REAL_AUTH=true playwright test e2e/auth-real.spec.ts",
+    "e2e:journey:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/installation-customer-journey.spec.ts --project=chromium",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },
@@ -32,6 +33,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^25.0.1",
+    "mqtt": "^5.10.3",
     "typescript": "^5.7.2",
     "vite": "^5.4.21",
     "vitest": "^2.1.8"

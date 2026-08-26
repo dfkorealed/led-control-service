@@ -204,6 +204,9 @@ importers:
       jsdom:
         specifier: ^25.0.1
         version: 25.0.1
+      mqtt:
+        specifier: ^5.10.3
+        version: 5.15.1
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

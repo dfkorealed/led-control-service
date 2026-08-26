@@ -1,12 +1,19 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const realBackendLab = process.env.E2E_REAL_BACKEND_LAB === "1";
+const webPort = Number(process.env.E2E_LAB_WEB_PORT ?? 15173);
+
 export default defineConfig({
   testDir: "./e2e",
+  timeout: realBackendLab ? 240_000 : 30_000,
+  expect: { timeout: realBackendLab ? 15_000 : 5_000 },
   use: {
-    baseURL: "http://localhost:5173",
-    trace: "on-first-retry"
+    actionTimeout: realBackendLab ? 15_000 : 0,
+    baseURL: realBackendLab ? `http://127.0.0.1:${webPort}` : "http://localhost:5173",
+    trace: realBackendLab ? "on" : "on-first-retry",
+    screenshot: realBackendLab ? "on" : "only-on-failure"
   },
-  webServer: {
+  webServer: realBackendLab ? undefined : {
     command: "pnpm --filter @led-control/web dev",
     url: "http://localhost:5173",
     reuseExistingServer: true,
