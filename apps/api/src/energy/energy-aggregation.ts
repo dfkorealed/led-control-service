@@ -48,14 +48,30 @@ export interface FixtureEnergyDailyDelta {
   unknownSeconds: number;
 }
 
-export type FixtureStateTransitionStatus = "accepted" | "duplicate" | "stale_sequence" | "reverse_time";
+export type RejectedFixtureStateTransitionStatus =
+  | "duplicate"
+  | "stale_sequence"
+  | "reverse_time"
+  | "stale_checkpoint";
+export type FixtureStateTransitionStatus = "accepted" | RejectedFixtureStateTransitionStatus;
 
-export interface FixtureStateTransitionResult {
-  status: FixtureStateTransitionStatus;
+export interface AcceptedFixtureStateTransitionResult {
+  status: "accepted";
   dailyDeltas: FixtureEnergyDailyDelta[];
   nextSnapshot: FixtureEnergySnapshot;
   nextCheckpoint: FixtureEnergyCheckpoint;
 }
+
+export interface RejectedFixtureStateTransitionResult {
+  status: RejectedFixtureStateTransitionStatus;
+  dailyDeltas: [];
+  nextSnapshot: FixtureEnergySnapshot;
+  nextCheckpoint: FixtureEnergyCheckpoint;
+}
+
+export type FixtureStateTransitionResult =
+  | AcceptedFixtureStateTransitionResult
+  | RejectedFixtureStateTransitionResult;
 
 export interface FixtureEnergyProjectionResult {
   dailyDeltas: FixtureEnergyDailyDelta[];
@@ -132,6 +148,9 @@ export function aggregateFixtureStateTransition(input: {
   }
   if (snapshot.lastStateOccurredAt && event.occurredAt < snapshot.lastStateOccurredAt) {
     return rejectedTransition("reverse_time", snapshot, checkpoint);
+  }
+  if (checkpoint.observedStateOccurredAt && event.occurredAt < checkpoint.aggregatedThrough) {
+    return rejectedTransition("stale_checkpoint", snapshot, checkpoint);
   }
 
   const accumulator = createAccumulator(checkpoint);
@@ -227,10 +246,10 @@ export function projectOpenFixtureEnergy(input: {
 }
 
 function rejectedTransition(
-  status: Exclude<FixtureStateTransitionStatus, "accepted">,
+  status: RejectedFixtureStateTransitionStatus,
   snapshot: FixtureEnergySnapshot,
   checkpoint: FixtureEnergyCheckpoint
-): FixtureStateTransitionResult {
+): RejectedFixtureStateTransitionResult {
   return { status, dailyDeltas: [], nextSnapshot: snapshot, nextCheckpoint: cloneCheckpoint(checkpoint) };
 }
 

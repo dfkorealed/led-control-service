@@ -528,4 +528,67 @@ describe("closeFixtureEnergyCheckpoint", () => {
       })
     ).toThrow("ratedWatt differs from the persisted energy checkpoint");
   });
+
+  it("rejects a delayed higher-sequence state behind an advanced rated-watt checkpoint", () => {
+    const original = snapshot({ brightness: 50, ratedWatt: decimal("40") });
+    const closed = closeFixtureEnergyCheckpoint({
+      snapshot: original,
+      checkpoint: createInitialFixtureEnergyCheckpoint(original),
+      closedAt: new Date("2026-01-01T00:10:00.000Z"),
+      nextRatedWatt: decimal("80"),
+      timeZone: "UTC",
+      tariffKwhRate: decimal("160")
+    });
+    const updated = snapshot({ brightness: 50, ratedWatt: decimal("80") });
+
+    const result = aggregateFixtureStateTransition({
+      snapshot: updated,
+      checkpoint: closed.nextCheckpoint,
+      event: {
+        eventId: "delayed-event",
+        sequence: 2n,
+        occurredAt: new Date("2026-01-01T00:09:00.000Z"),
+        brightness: 100,
+        powerOn: true
+      },
+      timeZone: "UTC",
+      tariffKwhRate: decimal("160")
+    });
+
+    expect(result.status).toBe("stale_checkpoint");
+    expect(result.dailyDeltas).toEqual([]);
+    expect(result.nextSnapshot).toEqual(updated);
+    expect(result.nextCheckpoint).toEqual(closed.nextCheckpoint);
+  });
+
+  it("accepts a higher-sequence state exactly at the persisted checkpoint boundary", () => {
+    const original = snapshot({ brightness: 50, ratedWatt: decimal("40") });
+    const closed = closeFixtureEnergyCheckpoint({
+      snapshot: original,
+      checkpoint: createInitialFixtureEnergyCheckpoint(original),
+      closedAt: new Date("2026-01-01T00:10:00.000Z"),
+      nextRatedWatt: decimal("80"),
+      timeZone: "UTC",
+      tariffKwhRate: decimal("160")
+    });
+    const updated = snapshot({ brightness: 50, ratedWatt: decimal("80") });
+
+    const result = aggregateFixtureStateTransition({
+      snapshot: updated,
+      checkpoint: closed.nextCheckpoint,
+      event: {
+        eventId: "boundary-event",
+        sequence: 2n,
+        occurredAt: new Date("2026-01-01T00:10:00.000Z"),
+        brightness: 100,
+        powerOn: true
+      },
+      timeZone: "UTC",
+      tariffKwhRate: decimal("160")
+    });
+
+    expect(result.status).toBe("accepted");
+    expect(result.dailyDeltas).toEqual([]);
+    expect(result.nextSnapshot.lastStateEventId).toBe("boundary-event");
+  });
 });
