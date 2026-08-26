@@ -45,6 +45,11 @@ export class MqttService implements OnModuleInit {
   private readonly logger = new Logger(MqttService.name);
   private client: MqttClient | null = null;
   private closePromise: Promise<void> | null = null;
+  private inboundStopPromise: Promise<void> | null = null;
+  private readonly activeInboundHandlers = new Set<Promise<void>>();
+  private connectListener: (() => void) | null = null;
+  private messageListener: ((topic: string, payload: Buffer) => void) | null = null;
+  private inboundStopped = false;
   private closing = false;
 
   constructor(
@@ -54,7 +59,7 @@ export class MqttService implements OnModuleInit {
 
   onModuleInit() {
     const client = this.getClient();
-    client.on("connect", () => {
+    this.connectListener = () => {
       client.subscribe(
         [
           "sites/+/gateways/+/events/provisioning/scan-found",
@@ -69,10 +74,10 @@ export class MqttService implements OnModuleInit {
       );
       client.subscribe(["sites/+/gateways/+/acks/acceptance", "sites/+/gateways/+/acks/device-status"], { qos: 1 });
       client.subscribe(["sites/+/gateways/+/state/fixtures", "sites/+/gateways/+/state/heartbeat"], { qos: 1 });
-    });
-    client.on("message", (topic, payload) => {
-      void this.handleMessage(topic, payload);
-    });
+    };
+    this.messageListener = (topic, payload) => this.startInboundHandler(topic, payload);
+    client.on("connect", this.connectListener);
+    client.on("message", this.messageListener);
   }
 
   async publishProvisioningScanStart(input: ProvisioningScanStartPayload) {
@@ -146,6 +151,42 @@ export class MqttService implements OnModuleInit {
       this.closePromise = this.closeClient();
     }
     return this.closePromise;
+  }
+
+  stopInboundAndDrain() {
+    if (!this.inboundStopPromise) {
+      this.inboundStopped = true;
+      const client = this.client;
+      if (client && this.connectListener) client.removeListener("connect", this.connectListener);
+      if (client && this.messageListener) client.removeListener("message", this.messageListener);
+      this.connectListener = null;
+      this.messageListener = null;
+      this.inboundStopPromise = Promise.all([...this.activeInboundHandlers]).then(() => undefined);
+    }
+    return this.inboundStopPromise;
+  }
+
+  private startInboundHandler(topic: string, payload: Buffer) {
+    if (this.inboundStopped) return;
+
+    let handler!: Promise<void>;
+    handler = Promise.resolve()
+      .then(() => this.handleMessage(topic, payload))
+      .catch((error) => {
+        this.logger.error(`mqtt inbound message handling failed (error=${this.errorKind(error)})`);
+      })
+      .finally(() => {
+        this.activeInboundHandlers.delete(handler);
+      });
+    this.activeInboundHandlers.add(handler);
+  }
+
+  private errorKind(error: unknown) {
+    if (
+      typeof error === "object" && error !== null && "code" in error &&
+      typeof error.code === "string" && /^P\d{4}$/.test(error.code)
+    ) return error.code;
+    return "UNEXPECTED_ERROR";
   }
 
   private closeClient() {

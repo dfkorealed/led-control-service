@@ -1,4 +1,10 @@
 import { Test } from "@nestjs/testing";
+import { EventEmitter } from "node:events";
+import { CommandTimeoutService } from "../commands/command-timeout.service";
+import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
+import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.worker";
+import { PrismaService } from "../prisma/prisma.service";
+import { MqttModule } from "./mqtt.module";
 import { MqttService } from "./mqtt.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
@@ -12,6 +18,7 @@ describe("MqttShutdownCoordinator", () => {
     const mqtt = new MqttService({} as never, {} as never);
     const client: any = {
       on: jest.fn(),
+      removeListener: jest.fn(),
       subscribe: jest.fn(),
       end: jest.fn((_force: boolean, callback?: (error?: Error) => void) => {
         order.push("client-end");
@@ -54,7 +61,8 @@ describe("MqttShutdownCoordinator", () => {
         MqttShutdownCoordinator,
         { provide: MqttService, useValue: mqtt },
         { provide: OutboxPublisherService, useValue: commandWorker },
-        { provide: ProvisioningScanOutboxPublisherService, useValue: scanWorker }
+        { provide: ProvisioningScanOutboxPublisherService, useValue: scanWorker },
+        { provide: MeshGroupSyncWorker, useValue: { stopAndDrain: jest.fn().mockResolvedValue(undefined) } }
       ]
     }).compile();
     await moduleRef.init();
@@ -82,6 +90,151 @@ describe("MqttShutdownCoordinator", () => {
       commandPublish.resolve();
       scanPublish.resolve();
       await closing?.catch(() => undefined);
+    }
+  });
+
+  it("drains active mesh sync and inbound ACK handling before client.end in the production MQTT module", async () => {
+    jest.useFakeTimers({ doNotFake: ["setImmediate"] });
+    const meshPublish = deferred<void>();
+    const inboundReset = deferred<void>();
+    const order: string[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+
+    let meshPublishCallback: ((error?: Error) => void) | undefined;
+    let ackPublishCallback: ((error?: Error) => void) | undefined;
+    let client: any;
+    client = Object.assign(new EventEmitter(), {
+      subscribe: jest.fn(),
+      publish: jest.fn((topic: string, _payload: string, _options: object, callback: (error?: Error) => void) => {
+        if (topic.endsWith("/commands/mesh-group/subscription-sync")) {
+          order.push("mesh-publish-started");
+          meshPublishCallback = (error?: Error) => {
+            if (error) meshPublish.reject(error);
+            else meshPublish.resolve();
+            callback(error);
+          };
+        } else if (topic.endsWith("/commands/mesh-group/resync-ack")) {
+          order.push("ack-publish-started");
+          ackPublishCallback = callback;
+        }
+        return client;
+      }),
+      getLastMessageId: jest.fn(() => 1),
+      removeOutgoingMessage: jest.fn(),
+      end: jest.fn((_force: boolean, callback?: (error?: Error) => void) => {
+        order.push("client-end");
+        callback?.();
+        return client;
+      })
+    });
+    const prisma: any = {
+      meshControlGroup: {
+        findMany: jest.fn().mockResolvedValue([{
+          id: "11111111-1111-4111-8111-111111111111",
+          gatewayId: "55555555-5555-4555-8555-555555555555",
+          configurationVersion: 2
+        }])
+      },
+      $transaction: jest.fn(async (callback: (tx: object) => Promise<unknown>) => callback({ transaction: true }))
+    };
+    const meshGroups = {
+      prepareSubscriptionSync: jest.fn().mockResolvedValue({
+        siteId: "22222222-2222-4222-8222-222222222222",
+        gatewayId: "55555555-5555-4555-8555-555555555555",
+        groupId: "11111111-1111-4111-8111-111111111111",
+        version: 2,
+        groupAddress: "0xc000",
+        desiredMembers: [],
+        expectedOperations: [],
+        requestedAt: "2026-08-26T00:00:00.000Z"
+      }),
+      resetGatewayGroupsForResync: jest.fn(async () => {
+        await inboundReset.promise;
+        return { groupCount: 1, memberCount: 0 };
+      })
+    };
+    const moduleRef = await Test.createTestingModule({ imports: [MqttModule] })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .overrideProvider(MeshControlGroupService)
+      .useValue(meshGroups)
+      .compile();
+    const mqtt = moduleRef.get(MqttService);
+    const meshWorker = moduleRef.get(MeshGroupSyncWorker);
+    const commandWorker = moduleRef.get(OutboxPublisherService);
+    const scanWorker = moduleRef.get(ProvisioningScanOutboxPublisherService);
+    const commandTimeout = moduleRef.get(CommandTimeoutService);
+    (mqtt as any).client = client;
+    jest.spyOn(commandWorker, "claimBatch").mockResolvedValue([]);
+    jest.spyOn(scanWorker, "claimBatch").mockResolvedValue([]);
+    jest.spyOn(commandTimeout, "closeExpired").mockResolvedValue({ timedOut: 0 });
+    const loggerError = jest.spyOn((mqtt as any).logger, "error").mockImplementation(() => undefined);
+    let closing: Promise<void> | undefined;
+
+    try {
+      await moduleRef.init();
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(meshPublishCallback).toBeDefined();
+
+      client.emit(
+        "message",
+        "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/events/mesh-group/resync-request",
+        Buffer.from(JSON.stringify({
+          siteId: "22222222-2222-4222-8222-222222222222",
+          gatewayId: "55555555-5555-4555-8555-555555555555",
+          eventId: "77777777-7777-4777-8777-777777777777",
+          occurredAt: "2026-08-26T00:00:00.000Z",
+          reason: "state_missing"
+        }))
+      );
+      await waitForTurn();
+      expect(meshGroups.resetGatewayGroupsForResync).toHaveBeenCalledTimes(1);
+
+      closing = moduleRef.close();
+      await waitForTurn();
+      expect(client.end).not.toHaveBeenCalled();
+      expect(client.listenerCount("message")).toBe(0);
+
+      client.emit(
+        "message",
+        "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/events/mesh-group/resync-request",
+        Buffer.from("later-message")
+      );
+      expect(meshGroups.resetGatewayGroupsForResync).toHaveBeenCalledTimes(1);
+
+      inboundReset.resolve();
+      await waitForTurn();
+      expect(ackPublishCallback).toBeDefined();
+      expect(client.end).not.toHaveBeenCalled();
+
+      ackPublishCallback?.(Object.assign(new Error("payload=private-ack"), { code: "PRIVATE_ACK" }));
+      await waitForTurn();
+      expect(client.end).not.toHaveBeenCalled();
+
+      meshPublishCallback?.();
+      await meshPublish.promise;
+      await closing;
+      await waitForTurn();
+
+      expect(unhandled).toEqual([]);
+      expect(loggerError).toHaveBeenCalledWith("mqtt inbound message handling failed (error=UNEXPECTED_ERROR)");
+      expect(JSON.stringify(loggerError.mock.calls)).not.toContain("private-ack");
+      expect(order).toEqual(["mesh-publish-started", "ack-publish-started", "client-end"]);
+      await expect(meshWorker.stopAndDrain()).resolves.toBeUndefined();
+    } finally {
+      if (client.end.mock.calls.length > 0 && !ackPublishCallback) {
+        jest.spyOn(mqtt, "publishTopic").mockResolvedValue(undefined);
+      }
+      inboundReset.resolve();
+      ackPublishCallback?.();
+      meshPublishCallback?.();
+      meshPublish.resolve();
+      await closing?.catch(() => undefined);
+      await moduleRef.close().catch(() => undefined);
+      process.off("unhandledRejection", onUnhandled);
+      jest.useRealTimers();
     }
   });
 });
@@ -119,8 +272,12 @@ function scanRecord(id: string) {
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((value) => { resolve = value; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolveValue, rejectValue) => {
+    resolve = resolveValue;
+    reject = rejectValue;
+  });
+  return { promise, resolve, reject };
 }
 
 function waitForTurn() {

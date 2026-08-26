@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { MqttService } from "../mqtt/mqtt.service";
 import { MeshControlGroupService } from "./mesh-control-group.service";
@@ -6,9 +6,12 @@ import { MeshControlGroupService } from "./mesh-control-group.service";
 const GROUP_SYNC_INTERVAL_MS = 10_000;
 
 @Injectable()
-export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
+export class MeshGroupSyncWorker implements OnModuleInit {
   private readonly logger = new Logger(MeshGroupSyncWorker.name);
-  private timer: NodeJS.Timeout | undefined;
+  private timer: NodeJS.Timeout | null = null;
+  private activeRun: Promise<void> | null = null;
+  private stopPromise: Promise<void> | null = null;
+  private stopped = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -17,15 +20,34 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    this.stopped = false;
     this.timer = setInterval(() => {
-      void this.runOnce().catch((error) => {
-        this.logger.error("mesh control group sync failed", error instanceof Error ? error.stack : undefined);
-      });
+      void this.runScheduledSync();
     }, GROUP_SYNC_INTERVAL_MS);
   }
 
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+  stopAndDrain() {
+    if (!this.stopPromise) {
+      this.stopped = true;
+      if (this.timer) clearInterval(this.timer);
+      this.timer = null;
+      this.stopPromise = this.activeRun ?? Promise.resolve();
+    }
+    return this.stopPromise;
+  }
+
+  private runScheduledSync() {
+    if (this.stopped || this.activeRun) return this.activeRun ?? Promise.resolve();
+
+    const run = this.runOnce()
+      .catch((error) => {
+        this.logger.error(`mesh control group sync failed (error=${this.errorKind(error)})`);
+      })
+      .finally(() => {
+        this.activeRun = null;
+      });
+    this.activeRun = run;
+    return run;
   }
 
   async runOnce() {
@@ -42,6 +64,7 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
     });
 
     for (const group of groups) {
+      if (this.stopped) return;
       try {
         const payload = await this.prisma.$transaction((tx) => this.meshControlGroups.prepareSubscriptionSync(tx, {
           groupId: group.id,
@@ -49,15 +72,24 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
           configurationVersion: group.configurationVersion,
           requestedAt: new Date().toISOString()
         }));
+        if (this.stopped) return;
         if (payload) await this.mqttService.publishMeshGroupSubscriptionSync(payload);
       } catch (error) {
         this.logger.error("mesh control group sync publish failed", {
           groupId: group.id,
           gatewayId: group.gatewayId,
           version: group.configurationVersion,
-          error: error instanceof Error ? error.message : "unknown publish error"
+          error: this.errorKind(error)
         });
       }
     }
+  }
+
+  private errorKind(error: unknown) {
+    if (
+      typeof error === "object" && error !== null && "code" in error &&
+      typeof error.code === "string" && /^P\d{4}$/.test(error.code)
+    ) return error.code;
+    return "UNEXPECTED_ERROR";
   }
 }

@@ -1,6 +1,71 @@
 import { MeshGroupSyncWorker } from "./mesh-group-sync.worker";
 
 describe("MeshGroupSyncWorker", () => {
+  it("waits for the active publish and starts no later group or tick after stop", async () => {
+    jest.useFakeTimers();
+    const activePublish = deferred<void>();
+    const prisma: any = {
+      $transaction: jest.fn(async (callback: (tx: object) => Promise<unknown>) => callback({})),
+      meshControlGroup: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "00000000-0000-4000-8000-000000000101",
+            gatewayId: "00000000-0000-4000-8000-000000000102",
+            configurationVersion: 1
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000201",
+            gatewayId: "00000000-0000-4000-8000-000000000202",
+            configurationVersion: 1
+          }
+        ])
+      }
+    };
+    const mqtt = {
+      publishMeshGroupSubscriptionSync: jest.fn()
+        .mockImplementationOnce(() => activePublish.promise)
+        .mockResolvedValue(undefined)
+    };
+    const meshGroups = {
+      prepareSubscriptionSync: jest.fn(async (_tx: unknown, input: { groupId: string; gatewayId: string }) => ({
+        siteId: "00000000-0000-4000-8000-000000000301",
+        gatewayId: input.gatewayId,
+        groupId: input.groupId,
+        version: 1,
+        groupAddress: "0xc000",
+        desiredMembers: [],
+        expectedOperations: [],
+        requestedAt: "2026-08-26T00:00:00.000Z"
+      }))
+    };
+    const worker = new MeshGroupSyncWorker(prisma, mqtt as never, meshGroups as never);
+
+    try {
+      worker.onModuleInit();
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenCalledTimes(1);
+
+      const stopping = worker.stopAndDrain();
+      expect(worker.stopAndDrain()).toBe(stopping);
+      let stopped = false;
+      void stopping.then(() => { stopped = true; });
+      await Promise.resolve();
+      expect(stopped).toBe(false);
+
+      activePublish.resolve();
+      await stopping;
+      expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(20_000);
+      await Promise.resolve();
+      expect(prisma.meshControlGroup.findMany).toHaveBeenCalledTimes(1);
+    } finally {
+      activePublish.resolve();
+      await worker.stopAndDrain?.();
+      jest.useRealTimers();
+    }
+  });
+
   it("publishes complete desired membership, including an empty set, and can republish the same version", async () => {
     const prisma: any = {
       $transaction: jest.fn(async (callback: (tx: object) => Promise<unknown>) => callback({})),
@@ -206,3 +271,9 @@ describe("MeshGroupSyncWorker", () => {
     );
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((value) => { resolve = value; });
+  return { promise, resolve };
+}

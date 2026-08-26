@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import { EventEmitter } from "node:events";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 
 jest.mock("node:fs", () => ({ readFileSync: jest.fn(() => Buffer.from("test-certificate")) }));
@@ -473,6 +474,48 @@ describe("MqttService", () => {
       expect.arrayContaining(["sites/+/gateways/+/events/mesh-group/resync-request"]),
       { qos: 1 }
     );
+  });
+
+  it("detaches inbound messages, drains the active handler, and contains a redacted rejection", async () => {
+    const activeHandler = deferred<void>();
+    const client = Object.assign(new EventEmitter(), {
+      subscribe: jest.fn()
+    });
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).client = client;
+    const sensitiveError = Object.assign(new Error("payload=private-token"), {
+      name: "PrivateHandlerFailure",
+      code: "PRIVATE_CODE"
+    });
+    const handleMessage = jest.spyOn(service, "handleMessage").mockImplementation(async () => {
+      await activeHandler.promise;
+      throw sensitiveError;
+    });
+    const loggerError = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+
+    service.onModuleInit();
+    client.emit("message", "sites/private/topic", Buffer.from("private-payload"));
+    await Promise.resolve();
+    expect(handleMessage).toHaveBeenCalledTimes(1);
+
+    const stopping = service.stopInboundAndDrain();
+    expect(service.stopInboundAndDrain()).toBe(stopping);
+    let stopped = false;
+    void stopping.then(() => { stopped = true; });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    expect(client.listenerCount("message")).toBe(0);
+
+    client.emit("message", "sites/private/topic", Buffer.from("later-private-payload"));
+    activeHandler.resolve();
+    await stopping;
+
+    expect(handleMessage).toHaveBeenCalledTimes(1);
+    expect(loggerError).toHaveBeenCalledWith("mqtt inbound message handling failed (error=UNEXPECTED_ERROR)");
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain("private-token");
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain("PRIVATE_CODE");
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain("PrivateHandlerFailure");
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain("private-payload");
   });
 
   it("does not resolve a QoS 1 publish until the MQTT callback confirms PUBACK", async () => {
@@ -1986,6 +2029,12 @@ function createMeshGroupsMock() {
     attachProvisionedNode: jest.fn().mockResolvedValue(undefined),
     resetGatewayGroupsForResync: jest.fn().mockResolvedValue({ groupCount: 0, memberCount: 0 })
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((value) => { resolve = value; });
+  return { promise, resolve };
 }
 
 function subscriptionOperation(
