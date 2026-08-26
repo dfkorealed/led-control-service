@@ -591,4 +591,83 @@ describe("closeFixtureEnergyCheckpoint", () => {
     expect(result.dailyDeltas).toEqual([]);
     expect(result.nextSnapshot.lastStateEventId).toBe("boundary-event");
   });
+
+  it("rejects a first observed state behind a checkpoint that advanced without an observation", () => {
+    const original = snapshot({
+      firstStateOccurredAt: null,
+      lastStateEventId: null,
+      lastStateSequence: null,
+      lastStateOccurredAt: null,
+      brightness: 0,
+      powerOn: null,
+      ratedWatt: decimal("40")
+    });
+    const closed = closeFixtureEnergyCheckpoint({
+      snapshot: original,
+      checkpoint: createInitialFixtureEnergyCheckpoint(original),
+      closedAt: new Date("2026-01-01T00:10:00.000Z"),
+      nextRatedWatt: decimal("80"),
+      timeZone: "UTC",
+      tariffKwhRate: decimal("160")
+    });
+    const updated = { ...original, ratedWatt: decimal("80") };
+
+    const result = aggregateFixtureStateTransition({
+      snapshot: updated,
+      checkpoint: closed.nextCheckpoint,
+      event: {
+        eventId: "delayed-first-event",
+        sequence: 1n,
+        occurredAt: new Date("2026-01-01T00:09:00.000Z"),
+        brightness: 100,
+        powerOn: true
+      },
+      timeZone: "UTC",
+      tariffKwhRate: decimal("160")
+    });
+
+    expect(result.status).toBe("stale_checkpoint");
+    expect(result.dailyDeltas).toEqual([]);
+    expect(result.nextSnapshot).toEqual(updated);
+    expect(result.nextCheckpoint).toEqual(closed.nextCheckpoint);
+  });
+
+  it("accepts a first observed state exactly at an observation-free checkpoint", () => {
+    const original = snapshot({
+      firstStateOccurredAt: null,
+      lastStateEventId: null,
+      lastStateSequence: null,
+      lastStateOccurredAt: null,
+      brightness: 0,
+      powerOn: null,
+      ratedWatt: decimal("40")
+    });
+    const closed = closeFixtureEnergyCheckpoint({
+      snapshot: original,
+      checkpoint: createInitialFixtureEnergyCheckpoint(original),
+      closedAt: new Date("2026-01-01T00:10:00.000Z"),
+      nextRatedWatt: decimal("80"),
+      timeZone: "UTC",
+      tariffKwhRate: decimal("160")
+    });
+    const updated = { ...original, ratedWatt: decimal("80") };
+
+    const result = aggregateFixtureStateTransition({
+      snapshot: updated,
+      checkpoint: closed.nextCheckpoint,
+      event: {
+        eventId: "boundary-first-event",
+        sequence: 1n,
+        occurredAt: new Date("2026-01-01T00:10:00.000Z"),
+        brightness: 100,
+        powerOn: true
+      },
+      timeZone: "UTC",
+      tariffKwhRate: decimal("160")
+    });
+
+    expect(result.status).toBe("accepted");
+    expect(result.dailyDeltas).toEqual([]);
+    expect(result.nextSnapshot.lastStateEventId).toBe("boundary-first-event");
+  });
 });

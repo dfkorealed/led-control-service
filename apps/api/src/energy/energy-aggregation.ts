@@ -149,7 +149,7 @@ export function aggregateFixtureStateTransition(input: {
   if (snapshot.lastStateOccurredAt && event.occurredAt < snapshot.lastStateOccurredAt) {
     return rejectedTransition("reverse_time", snapshot, checkpoint);
   }
-  if (checkpoint.observedStateOccurredAt && event.occurredAt < checkpoint.aggregatedThrough) {
+  if (event.occurredAt < checkpoint.aggregatedThrough) {
     return rejectedTransition("stale_checkpoint", snapshot, checkpoint);
   }
 
