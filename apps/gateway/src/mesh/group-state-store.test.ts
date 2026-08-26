@@ -99,6 +99,22 @@ describe("GroupStateStore", () => {
     await expect(store.readAppliedMembers(snapshot.groupId)).resolves.toEqual(members);
   });
 
+  it("durably replaces the member snapshot with successful partial operations before marking failed", async () => {
+    const { path } = await fixture();
+    const store = new GroupStateStore(path);
+    const before = [{ meshNodeId: "00000000-0000-4000-8000-000000000013", meshAddress: "0x0100" }];
+    const after = [{ meshNodeId: "00000000-0000-4000-8000-000000000014", meshAddress: "0x0101" }];
+    await store.initialize();
+    await store.writeConfiguring(snapshot);
+    await store.writeReady(snapshot, before);
+    await store.writeConfiguring({ ...snapshot, version: 4 });
+    await store.writeFailed({ ...snapshot, version: 4 }, after);
+
+    const restarted = new GroupStateStore(path);
+    await restarted.initialize();
+    await expect(restarted.readAppliedMembers(snapshot.groupId)).resolves.toEqual(after);
+  });
+
   it("rejects stale versions and address reuse by another group", async () => {
     const { path } = await fixture();
     const store = new GroupStateStore(path);

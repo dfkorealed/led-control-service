@@ -534,6 +534,7 @@ export const meshGroupSubscriptionResultOperationSchema = z.object({
   operationId: z.string().uuid(),
   action: z.enum(["add", "delete"]),
   meshNodeId: z.string().uuid(),
+  meshAddress: meshAddressSchema,
   status: z.enum(["ready", "failed"]),
   error: z.string().min(1).optional()
 }).strict();
@@ -544,10 +545,10 @@ export const meshGroupSubscriptionResultSchema = z.object({
   groupId: z.string().uuid(),
   version: positiveInt4Schema,
   groupAddress: meshAddressSchema,
-  operations: z.array(meshGroupSubscriptionResultOperationSchema).max(100),
+  // A full desired set has at most 100 members, but every address replacement emits delete and add.
+  operations: z.array(meshGroupSubscriptionResultOperationSchema).max(200),
   occurredAt: z.string().datetime()
 }).strict().superRefine((input, context) => {
-  assertUniqueMeshNodeIds(input.operations, context, "operations");
   assertUniqueOperationIds(input.operations, context);
 });
 

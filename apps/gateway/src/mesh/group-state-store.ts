@@ -77,8 +77,8 @@ export class GroupStateStore {
     return this.update(identity, "ready", false, members);
   }
 
-  writeFailed(identity: GroupStateIdentity) {
-    return this.update(identity, "failed", false);
+  writeFailed(identity: GroupStateIdentity, members?: GroupStateMember[]) {
+    return this.update(identity, "failed", false, members);
   }
 
   async readAppliedMembers(groupId: string): Promise<GroupStateMember[]> {

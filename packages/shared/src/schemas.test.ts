@@ -320,6 +320,7 @@ describe("shared schemas", () => {
           operationId: "66666666-6666-4666-8666-666666666666",
           action: "add",
           meshNodeId: "22222222-2222-4222-8222-222222222222",
+          meshAddress: "0x0100",
           status: "ready"
         }
       ],
@@ -331,12 +332,20 @@ describe("shared schemas", () => {
       ...command,
       desiredMembers: [command.desiredMembers[0], command.desiredMembers[0]]
     })).toThrow("desiredMembers must be unique by meshNodeId");
+    expect(meshGroupSubscriptionResultSchema.parse({
+      siteId: command.siteId, gatewayId: command.gatewayId, groupId: command.groupId, version: command.version,
+      groupAddress: command.groupAddress, occurredAt: "2026-08-20T09:00:01.000Z",
+      operations: [
+        { operationId: "77777777-7777-4777-8777-777777777777", action: "delete", meshNodeId: "22222222-2222-4222-8222-222222222222", meshAddress: "0x0100", status: "ready" },
+        { operationId: "88888888-8888-4888-8888-888888888888", action: "add", meshNodeId: "22222222-2222-4222-8222-222222222222", meshAddress: "0x0101", status: "ready" }
+      ]
+    }).operations).toHaveLength(2);
     expect(() => meshGroupSubscriptionResultSchema.parse({
       siteId: command.siteId, gatewayId: command.gatewayId, groupId: command.groupId, version: command.version,
       groupAddress: command.groupAddress, occurredAt: "2026-08-20T09:00:01.000Z",
       operations: [
-        { operationId: "66666666-6666-4666-8666-666666666666", action: "add", meshNodeId: "22222222-2222-4222-8222-222222222222", status: "ready" },
-        { operationId: "66666666-6666-4666-8666-666666666666", action: "delete", meshNodeId: "33333333-3333-4333-8333-333333333333", status: "ready" }
+        { operationId: "66666666-6666-4666-8666-666666666666", action: "add", meshNodeId: "22222222-2222-4222-8222-222222222222", meshAddress: "0x0100", status: "ready" },
+        { operationId: "66666666-6666-4666-8666-666666666666", action: "delete", meshNodeId: "33333333-3333-4333-8333-333333333333", meshAddress: "0x0101", status: "ready" }
       ]
     })).toThrow("operationId must be unique");
   });

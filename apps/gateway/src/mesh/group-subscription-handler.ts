@@ -35,8 +35,9 @@ export class GroupSubscriptionHandler {
         result = meshGroupSubscriptionResultSchema.parse(await this.adapter.syncGroupSubscriptions(command, appliedMembers));
         assertResultIdentity(command, result);
         assertResultOperations(command.desiredMembers, appliedMembers, result.operations);
-        if (result.operations.every((operation) => operation.status === "ready")) await this.stateStore.writeReady(identity, command.desiredMembers);
-        else await this.stateStore.writeFailed(identity);
+        const nextAppliedMembers = applySuccessfulOperations(appliedMembers, result.operations);
+        if (result.operations.every((operation) => operation.status === "ready")) await this.stateStore.writeReady(identity, nextAppliedMembers);
+        else await this.stateStore.writeFailed(identity, nextAppliedMembers);
       } catch (error) {
         await this.stateStore.writeFailed(identity).catch(() => undefined);
         throw error;
@@ -56,18 +57,42 @@ export class GroupSubscriptionHandler {
 function assertResultOperations(
   desiredMembers: Array<{ meshNodeId: string; meshAddress: string }>,
   appliedMembers: Array<{ meshNodeId: string; meshAddress: string }>,
-  operations: Array<{ action: "add" | "delete"; meshNodeId: string }>
+  operations: Array<{ action: "add" | "delete"; meshNodeId: string; meshAddress: string }>
 ) {
-  const desired = new Set(desiredMembers.map((member) => member.meshNodeId));
-  const applied = new Set(appliedMembers.map((member) => member.meshNodeId));
+  const desired = new Set(desiredMembers.map(memberKey));
+  const applied = new Set(appliedMembers.map(memberKey));
   const expected = new Set([
-    ...desiredMembers.filter((member) => !applied.has(member.meshNodeId)).map((member) => `add:${member.meshNodeId}`),
-    ...appliedMembers.filter((member) => !desired.has(member.meshNodeId)).map((member) => `delete:${member.meshNodeId}`)
+    ...desiredMembers.filter((member) => !applied.has(memberKey(member))).map((member) => `add:${memberKey(member)}`),
+    ...appliedMembers.filter((member) => !desired.has(memberKey(member))).map((member) => `delete:${memberKey(member)}`)
   ]);
-  const actual = new Set(operations.map((operation) => `${operation.action}:${operation.meshNodeId}`));
-  if (expected.size !== actual.size || [...expected].some((operation) => !actual.has(operation))) {
+  const actual = new Set(operations.map((operation) => `${operation.action}:${memberKey(operation)}`));
+  if (expected.size !== operations.length || expected.size !== actual.size || [...expected].some((operation) => !actual.has(operation))) {
     throw new Error("mesh group subscription operation diff mismatch");
   }
+}
+
+function applySuccessfulOperations(
+  appliedMembers: Array<{ meshNodeId: string; meshAddress: string }>,
+  operations: Array<{ action: "add" | "delete"; meshNodeId: string; meshAddress: string; status: "ready" | "failed" }>
+) {
+  const members = new Map(appliedMembers.map((member) => [memberKey(member), normalizeMember(member)]));
+  for (const operation of operations) {
+    if (operation.status !== "ready") continue;
+    const member = normalizeMember(operation);
+    if (operation.action === "add") members.set(memberKey(member), member);
+    else members.delete(memberKey(member));
+  }
+  // A failed old-address delete can coexist with a successful new-address add. Keep both pair identities
+  // so the next desired-state diff retries only the physical subscription that still remains.
+  return [...members.values()].sort((left, right) => memberKey(left).localeCompare(memberKey(right)));
+}
+
+function normalizeMember(member: { meshNodeId: string; meshAddress: string }) {
+  return { meshNodeId: member.meshNodeId, meshAddress: member.meshAddress.toLowerCase() };
+}
+
+function memberKey(member: { meshNodeId: string; meshAddress: string }) {
+  return `${member.meshNodeId}:${member.meshAddress.toLowerCase()}`;
 }
 
 function assertResultIdentity(

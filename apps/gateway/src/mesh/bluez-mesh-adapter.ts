@@ -78,7 +78,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private resyncInFlight: Promise<BleMeshResyncReport> | undefined;
   private lastResyncReport: BleMeshResyncReport | undefined;
   private readonly commandSources = new KeyedSerialTaskQueue();
-  private readonly appliedGroupMembers = new Map<string, Map<string, string>>();
+  private readonly appliedGroupMembers = new Map<string, Map<string, { meshNodeId: string; meshAddress: string }>>();
 
   constructor(
     private readonly transport: AdapterTransport,
@@ -319,16 +319,18 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     await this.start();
     const nodePath = this.requireNodePath();
     const configClient = this.createConfigClient(nodePath);
-    const applied = new Map((appliedMembers ?? [...(this.appliedGroupMembers.get(command.groupId) ?? new Map())]
-      .map(([meshNodeId, meshAddress]) => ({ meshNodeId, meshAddress })))
-      .map((member) => [member.meshNodeId, member.meshAddress]));
-    const desired = new Map(command.desiredMembers.map((member) => [member.meshNodeId, member.meshAddress]));
+    const applied = new Map((appliedMembers ?? [...(this.appliedGroupMembers.get(command.groupId) ?? new Map()).values()])
+      .map(normalizeGroupMember)
+      .map((member) => [groupMemberKey(member), member]));
+    const desired = new Map(command.desiredMembers
+      .map(normalizeGroupMember)
+      .map((member) => [groupMemberKey(member), member]));
     const operations: MeshGroupSubscriptionResultPayload["operations"] = [];
     const changes = [
-      ...[...applied].filter(([meshNodeId, meshAddress]) => !desired.has(meshNodeId) || desired.get(meshNodeId) !== meshAddress)
-        .map(([meshNodeId, meshAddress]) => ({ action: "delete" as const, meshNodeId, meshAddress })),
-      ...[...desired].filter(([meshNodeId, meshAddress]) => !applied.has(meshNodeId) || applied.get(meshNodeId) !== meshAddress)
-        .map(([meshNodeId, meshAddress]) => ({ action: "add" as const, meshNodeId, meshAddress }))
+      ...[...applied].filter(([key]) => !desired.has(key))
+        .map(([, member]) => ({ action: "delete" as const, ...member })),
+      ...[...desired].filter(([key]) => !applied.has(key))
+        .map(([, member]) => ({ action: "add" as const, ...member }))
     ];
     for (const change of changes) {
       try {
@@ -338,14 +340,15 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         };
         if (change.action === "add") await configClient.addModelSubscription(input);
         else await configClient.removeModelSubscription(input);
-        if (change.action === "add") applied.set(change.meshNodeId, change.meshAddress);
-        else applied.delete(change.meshNodeId);
-        operations.push({ operationId: randomUUID(), action: change.action, meshNodeId: change.meshNodeId, status: "ready" });
+        if (change.action === "add") applied.set(groupMemberKey(change), change);
+        else applied.delete(groupMemberKey(change));
+        operations.push({ operationId: randomUUID(), action: change.action, meshNodeId: change.meshNodeId, meshAddress: change.meshAddress, status: "ready" });
       } catch (error) {
         operations.push({
           operationId: randomUUID(),
           action: change.action,
           meshNodeId: change.meshNodeId,
+          meshAddress: change.meshAddress,
           status: "failed",
           error: error instanceof Error ? error.message : "Bluetooth Mesh group subscription failed"
         });
@@ -626,6 +629,14 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     this.lastResyncReport.healthPending = this.healthPendingFixtures.size;
     for (const listener of this.resyncReportListeners) listener(this.lastResyncReport);
   }
+}
+
+function normalizeGroupMember(member: { meshNodeId: string; meshAddress: string }) {
+  return { meshNodeId: member.meshNodeId, meshAddress: member.meshAddress.toLowerCase() };
+}
+
+function groupMemberKey(member: { meshNodeId: string; meshAddress: string }) {
+  return `${member.meshNodeId}:${member.meshAddress.toLowerCase()}`;
 }
 
 interface FixtureObservation {

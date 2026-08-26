@@ -618,6 +618,53 @@ describe("BluezMeshAdapter", () => {
     expect(f.config.removeModelSubscription).toHaveBeenCalledWith({ unicast: 0x0100, groupAddress: 0xc000 });
   });
 
+  it("replaces a member address with an old-address delete and new-address add", async () => {
+    const f = fixture();
+    const base = {
+      siteId: "00000000-0000-4000-8000-000000000010",
+      gatewayId: "00000000-0000-4000-8000-000000000011",
+      groupId: "00000000-0000-4000-8000-000000000012",
+      groupAddress: "0xc000",
+      requestedAt: "2026-08-21T00:00:00.000Z"
+    };
+    await f.adapter.syncGroupSubscriptions({ ...base, version: 2, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0100" }] });
+
+    await expect(f.adapter.syncGroupSubscriptions({ ...base, version: 3, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }] })).resolves.toMatchObject({
+      operations: [
+        { action: "delete", meshNodeId: "fixture-1", meshAddress: "0x0100", status: "ready" },
+        { action: "add", meshNodeId: "fixture-1", meshAddress: "0x0101", status: "ready" }
+      ]
+    });
+    expect(f.config.removeModelSubscription).toHaveBeenCalledWith({ unicast: 0x0100, groupAddress: 0xc000 });
+    expect(f.config.addModelSubscription).toHaveBeenLastCalledWith({ unicast: 0x0101, groupAddress: 0xc000 });
+  });
+
+  it("retries only the residual old-address delete after a replacement partially succeeds", async () => {
+    const f = fixture();
+    const base = {
+      siteId: "00000000-0000-4000-8000-000000000010",
+      gatewayId: "00000000-0000-4000-8000-000000000011",
+      groupId: "00000000-0000-4000-8000-000000000012",
+      groupAddress: "0xc000",
+      requestedAt: "2026-08-21T00:00:00.000Z"
+    };
+    await f.adapter.syncGroupSubscriptions({ ...base, version: 2, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0100" }] });
+    f.config.removeModelSubscription.mockRejectedValueOnce(new Error("old address still active"));
+
+    await expect(f.adapter.syncGroupSubscriptions({ ...base, version: 3, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }] })).resolves.toMatchObject({
+      operations: [
+        { action: "delete", meshAddress: "0x0100", status: "failed" },
+        { action: "add", meshAddress: "0x0101", status: "ready" }
+      ]
+    });
+    const addCallsAfterPartial = f.config.addModelSubscription.mock.calls.length;
+
+    await expect(f.adapter.syncGroupSubscriptions({ ...base, version: 4, desiredMembers: [{ meshNodeId: "fixture-1", meshAddress: "0x0101" }] })).resolves.toMatchObject({
+      operations: [{ action: "delete", meshAddress: "0x0100", status: "ready" }]
+    });
+    expect(f.config.addModelSubscription).toHaveBeenCalledTimes(addCallsAfterPartial);
+  });
+
   it("runs one bounded resync when reconnects overlap", async () => {
     const f = fixture();
     let resolveConfig: (() => void) | undefined;

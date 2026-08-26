@@ -517,8 +517,8 @@ describe("MqttService", () => {
         version: 2,
         groupAddress: "0xc000",
         operations: [
-          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", action: "add", meshNodeId: nodeId1, status: "ready" },
-          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2", action: "add", meshNodeId: outsideNodeId, status: "failed", error: "ignore me" }
+          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", action: "add", meshNodeId: nodeId1, meshAddress: "0x0100", status: "ready" },
+          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2", action: "add", meshNodeId: outsideNodeId, meshAddress: "0x0101", status: "failed", error: "ignore me" }
         ],
         occurredAt: "2026-08-20T09:00:01.000Z"
       }))
@@ -596,7 +596,7 @@ describe("MqttService", () => {
         version: 2,
         groupAddress: "0xc000",
         operations: [
-          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3", action: "add", meshNodeId: nodeId1, status: "ready" }
+          { operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3", action: "add", meshNodeId: nodeId1, meshAddress: "0x0100", status: "ready" }
         ],
         occurredAt: "2026-08-20T09:00:01.000Z"
       }))
@@ -637,7 +637,7 @@ describe("MqttService", () => {
         groupId,
         version: 2,
         groupAddress: "0xc000",
-        operations: [{ operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4", action: "add", meshNodeId: memberId, status: "ready" }],
+        operations: [{ operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4", action: "add", meshNodeId: memberId, meshAddress: "0x0100", status: "ready" }],
         occurredAt: "2026-08-20T09:00:01.000Z"
       }))
     );
@@ -674,7 +674,7 @@ describe("MqttService", () => {
         groupId: "11111111-1111-4111-8111-111111111111",
         version: 2,
         groupAddress: "0xc000",
-        operations: [{ operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5", action: "add", meshNodeId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "ready" }],
+        operations: [{ operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5", action: "add", meshNodeId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", meshAddress: "0x0100", status: "ready" }],
         occurredAt: "2026-08-20T09:00:01.000Z"
       }))
     );
