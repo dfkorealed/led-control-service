@@ -606,11 +606,12 @@ export type FixtureGroupMetadata = z.infer<typeof fixtureGroupMetadataSchema>;
 export const energyPeriodSchema = z.enum(["day", "month", "year"]);
 export const energyDataStatusSchema = z.enum(["no_data", "partial", "available"]);
 export const energySourceSchema = z.literal("state_based_estimate");
+const energyDurationSecondsSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const energyPeriodValueSchema = z.object({
   estimatedKwh: z.number(),
   estimatedCost: z.number(),
-  knownSeconds: nonnegativeInt4Schema,
-  unknownSeconds: nonnegativeInt4Schema,
+  knownSeconds: energyDurationSecondsSchema,
+  unknownSeconds: energyDurationSecondsSchema,
   dataStatus: energyDataStatusSchema
 }).strict();
 export const energySummarySchema = z.object({
@@ -624,7 +625,7 @@ export const energySummarySchema = z.object({
   monthForecast: z.object({
     estimatedKwh: z.number().nullable(),
     estimatedCost: z.number().nullable(),
-    observedKnownSeconds: nonnegativeInt4Schema,
+    observedKnownSeconds: energyDurationSecondsSchema,
     reason: z.enum(["available", "insufficient_state", "no_registered_fixture"])
   }).strict(),
   baseline24Hours: z.object({
@@ -644,13 +645,24 @@ export const energySeriesPointSchema = z.object({
   period: z.string().min(1),
   estimatedKwh: z.number().nullable(),
   estimatedCost: z.number().nullable(),
-  knownSeconds: nonnegativeInt4Schema,
-  unknownSeconds: nonnegativeInt4Schema,
+  knownSeconds: energyDurationSecondsSchema,
+  unknownSeconds: energyDurationSecondsSchema,
   dataStatus: energyDataStatusSchema
+}).strict();
+export const energySeriesResponseSchema = z.object({
+  siteId: z.string().uuid(),
+  timeZone: z.string().min(1),
+  source: energySourceSchema,
+  generatedAt: z.string().datetime(),
+  granularity: z.enum(["day", "month"]),
+  from: z.string().date(),
+  to: z.string().date(),
+  points: z.array(energySeriesPointSchema)
 }).strict();
 export type EnergyPeriod = z.infer<typeof energyPeriodSchema>;
 export type EnergySummary = z.infer<typeof energySummarySchema>;
 export type EnergySeriesPoint = z.infer<typeof energySeriesPointSchema>;
+export type EnergySeriesResponse = z.infer<typeof energySeriesResponseSchema>;
 
 const fixtureIdSchema = z.string().uuid();
 const multipleFixturesTargetSchema = z.object({

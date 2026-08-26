@@ -1,8 +1,10 @@
 import { EnergyService } from "./energy.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 
 describe("EnergyService", () => {
+  afterEach(() => jest.useRealTimers());
   it("estimates kWh and cost from rated watt, brightness, hours, and tariff", () => {
     const service = new EnergyService({} as never, {} as never);
     const result = service.calculateEstimatedUsage({
@@ -97,4 +99,220 @@ describe("EnergyService", () => {
     );
     expect(prisma.site.findFirstOrThrow).not.toHaveBeenCalled();
   });
+
+  it("returns an empty state-based summary without registered fixtures", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-26T03:00:00.000Z"));
+    const { service } = createStateBasedService({ fixtures: [] });
+
+    await expect(service.getSiteSummary(user, "site-1")).resolves.toMatchObject({
+      siteId: "site-1",
+      timeZone: "Asia/Seoul",
+      source: "state_based_estimate",
+      today: { estimatedKwh: 0, dataStatus: "no_data" },
+      monthForecast: { estimatedKwh: null, reason: "no_registered_fixture" },
+      baseline24Hours: { fixtureCount: 0, daysInMonth: 31 },
+      estimatedSavings: { kwh: null, cost: null }
+    });
+  });
+
+  it("uses the actual timezone month duration for a DST baseline", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-03-15T12:00:00.000Z"));
+    const fixture = stateFixture({
+      ratedWatt: "40",
+      energyTrackingStartedAt: new Date("2026-03-01T05:00:00.000Z")
+    });
+    const { service } = createStateBasedService({ timeZone: "America/New_York", fixtures: [fixture] });
+
+    const result = await service.getSiteSummary(user, "site-1");
+
+    expect(result.baseline24Hours).toEqual({
+      estimatedKwh: 29.72,
+      estimatedCost: 4755.2,
+      fixtureCount: 1,
+      daysInMonth: 31
+    });
+  });
+
+  it("projects a fixture forecast only after per-fixture and site coverage gates pass", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-02T00:00:00.000Z"));
+    const fixture = stateFixture({
+      energyTrackingStartedAt: new Date("2026-07-31T15:00:00.000Z"),
+      aggregates: [{
+        localDate: new Date("2026-08-01T00:00:00.000Z"),
+        estimatedKwh: new Prisma.Decimal("0.8"),
+        estimatedCost: new Prisma.Decimal("128"),
+        knownSeconds: 118_800,
+        unknownSeconds: 0,
+        updatedAt: new Date("2026-08-02T00:00:00.000Z")
+      }],
+      cursor: stateCursor(new Date("2026-08-02T00:00:00.000Z"))
+    });
+    const { service } = createStateBasedService({ fixtures: [fixture] });
+
+    const result = await service.getSiteSummary(user, "site-1");
+
+    expect(result.monthForecast.reason).toBe("available");
+    expect(result.monthForecast.observedKnownSeconds).toBe(118_800);
+    expect(result.monthForecast.estimatedKwh).toBeGreaterThan(0.8);
+    expect(result.estimatedSavings.kwh).not.toBeNull();
+  });
+
+  it("fails the forecast closed when one fixture has less than one hour of known state", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-01T17:00:00.000Z"));
+    const fixtures = [
+      stateFixture({ aggregates: [aggregate("2026-08-01", 1, 7_000, 0)] }),
+      stateFixture({ id: "fixture-2", aggregates: [aggregate("2026-08-01", 0.1, 3_599, 0)] })
+    ];
+    const { service } = createStateBasedService({ fixtures });
+
+    const result = await service.getSiteSummary(user, "site-1");
+
+    expect(result.monthForecast).toMatchObject({ estimatedKwh: null, estimatedCost: null, reason: "insufficient_state" });
+    expect(result.estimatedSavings).toEqual({ kwh: null, cost: null });
+  });
+
+  it("returns every day in an inclusive series range and keeps empty points null", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-04T00:00:00.000Z"));
+    const fixture = stateFixture({
+      aggregates: [aggregate("2026-08-01", 1.25, 3600, 0), aggregate("2026-08-03", 0.5, 1800, 60)],
+      cursor: stateCursor(new Date("2026-08-04T00:00:00.000Z"))
+    });
+    const { service } = createStateBasedService({ fixtures: [fixture] });
+
+    const result = await service.getSiteSeries(user, "site-1", {
+      granularity: "day", from: "2026-08-01", to: "2026-08-03"
+    });
+
+    expect(result).toMatchObject({ granularity: "day", from: "2026-08-01", to: "2026-08-03" });
+    expect(result.points.map((point: any) => [point.period, point.estimatedKwh, point.dataStatus])).toEqual([
+      ["2026-08-01", 1.25, "available"],
+      ["2026-08-02", null, "no_data"],
+      ["2026-08-03", 0.5, "partial"]
+    ]);
+  });
+
+  it("checks tenant access before loading state-based statistics", async () => {
+    const { service, prisma, siteAccess } = createStateBasedService();
+    siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service.getSiteSummary(user, "foreign-site")).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.site.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(prisma.fixture.findMany).not.toHaveBeenCalled();
+  });
+
+  it("projects the open interval with the checkpoint watt snapshot after rated-watt changes", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-01T00:01:00.000Z"));
+    const cursor = stateCursor(new Date("2026-08-01T00:00:00.000Z"));
+    const fixture = stateFixture({
+      ratedWatt: "40",
+      cursor,
+      aggregates: [aggregate("2026-08-01", 0.000166666667, 60, 0)]
+    });
+    const { service } = createStateBasedService({ timeZone: "UTC", fixtures: [fixture] });
+
+    const result = await service.getSiteSummary(user, "site-1");
+
+    expect(result.today).toMatchObject({ estimatedKwh: 0.0005, knownSeconds: 120, unknownSeconds: 0, dataStatus: "available" });
+    expect(result.baseline24Hours.estimatedKwh).toBe(29.76);
+  });
+
+  it("returns all months in an inclusive year series with Decimal totals", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
+    const fixture = stateFixture({
+      aggregates: [aggregate("2026-01-01", 0.1, 3600, 0), aggregate("2026-12-31", 0.2, 3600, 0)],
+      cursor: stateCursor(new Date("2027-01-01T00:00:00.000Z"))
+    });
+    const { service } = createStateBasedService({ timeZone: "UTC", fixtures: [fixture] });
+
+    const result = await service.getSiteSeries(user, "site-1", {
+      granularity: "month", from: "2026-01-01", to: "2026-12-01"
+    });
+
+    expect(result.points).toHaveLength(12);
+    expect(result.points[0]).toMatchObject({ period: "2026-01", estimatedKwh: 0.1 });
+    expect(result.points[11]).toMatchObject({ period: "2026-12", estimatedKwh: 0.2 });
+  });
+
+  it("rejects malformed, reversed, and unbounded series ranges", async () => {
+    const { service } = createStateBasedService();
+
+    await expect(service.getSiteSeries(user, "site-1", { granularity: "day", from: "2026-02-30", to: "2026-03-01" }))
+      .rejects.toMatchObject({ status: 400 });
+    await expect(service.getSiteSeries(user, "site-1", { granularity: "day", from: "2026-08-02", to: "2026-08-01" }))
+      .rejects.toMatchObject({ status: 400 });
+    await expect(service.getSiteSeries(user, "site-1", { granularity: "day", from: "2020-01-01", to: "2026-01-01" }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it("does not draw an apparent zero-use point when only unknown time was observed", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-02T00:00:00.000Z"));
+    const fixture = stateFixture({
+      firstStateOccurredAt: null,
+      lastStateEventId: null,
+      aggregates: [aggregate("2026-08-01", 0, 0, 3_600)],
+      cursor: stateCursor(new Date("2026-08-02T00:00:00.000Z"))
+    });
+    const { service } = createStateBasedService({ fixtures: [fixture] });
+
+    const result = await service.getSiteSeries(user, "site-1", {
+      granularity: "day", from: "2026-08-01", to: "2026-08-01"
+    });
+
+    expect(result.points[0]).toMatchObject({ estimatedKwh: null, estimatedCost: null, dataStatus: "partial" });
+  });
 });
+
+const user: AuthenticatedUser = {
+  id: "user-1", organizationId: "org-1", organizationType: "customer", email: "admin@example.com", name: "Admin", role: "admin", status: "active"
+};
+
+function aggregate(localDate: string, kwh: number, knownSeconds: number, unknownSeconds: number) {
+  return {
+    localDate: new Date(`${localDate}T00:00:00.000Z`),
+    estimatedKwh: new Prisma.Decimal(kwh),
+    estimatedCost: new Prisma.Decimal(kwh * 160),
+    knownSeconds,
+    unknownSeconds,
+    updatedAt: new Date(`${localDate}T12:00:00.000Z`)
+  };
+}
+
+function stateCursor(at: Date) {
+  return {
+    aggregatedThrough: at,
+    observedStateOccurredAt: at,
+    brightness: 50,
+    powerOn: true,
+    ratedWatt: new Prisma.Decimal(40),
+    durationRemainders: [],
+    updatedAt: at
+  };
+}
+
+function stateFixture(input: Record<string, any> = {}) {
+  const startedAt = input.energyTrackingStartedAt ?? new Date("2026-08-01T00:00:00.000Z");
+  return {
+    id: input.id ?? "fixture-1",
+    ratedWatt: new Prisma.Decimal(input.ratedWatt ?? 40),
+    energyTrackingStartedAt: startedAt,
+    firstStateOccurredAt: input.firstStateOccurredAt ?? startedAt,
+    lastStateEventId: "event-1",
+    lastStateSequence: 1n,
+    lastStateOccurredAt: input.cursor?.observedStateOccurredAt ?? null,
+    brightness: 50,
+    powerOn: true,
+    energyStateCursor: input.cursor ?? null,
+    energyDailyAggregates: input.aggregates ?? []
+  };
+}
+
+function createStateBasedService(input: { timeZone?: string; fixtures?: any[] } = {}) {
+  const prisma = {
+    site: { findUniqueOrThrow: jest.fn().mockResolvedValue({
+      id: "site-1", timeZone: input.timeZone ?? "Asia/Seoul", tariffKwhRate: new Prisma.Decimal(160)
+    }) },
+    fixture: { findMany: jest.fn().mockResolvedValue(input.fixtures ?? []) }
+  };
+  const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }), listAccessibleSiteIds: jest.fn() };
+  return { service: new EnergyService(prisma as never, siteAccess as never), prisma, siteAccess };
+}

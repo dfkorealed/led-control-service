@@ -30,6 +30,7 @@ import {
   provisioningScanStartSchema,
   restoreFloorEditorRevisionSchema,
   energySeriesPointSchema,
+  energySeriesResponseSchema,
   energySummarySchema,
   fixtureGroupMetadataSchema,
   meshGroupSubscriptionResultSchema,
@@ -408,6 +409,29 @@ describe("shared schemas", () => {
       unknownSeconds: 60,
       dataStatus: "partial"
     }).estimatedKwh).toBeNull();
+    expect(energySeriesResponseSchema.parse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      timeZone: "Asia/Seoul",
+      source: "state_based_estimate",
+      generatedAt: "2026-08-26T00:00:00.000Z",
+      granularity: "day",
+      from: "2026-08-01",
+      to: "2026-08-31",
+      points: []
+    }).points).toEqual([]);
+    expect(energySummarySchema.safeParse({
+      siteId: "00000000-0000-4000-8000-000000000003",
+      timeZone: "Asia/Seoul",
+      source: "state_based_estimate",
+      generatedAt: "2026-08-26T00:00:00.000Z",
+      today: { estimatedKwh: 1, estimatedCost: 1, knownSeconds: 3_000_000_000, unknownSeconds: 0, dataStatus: "available" },
+      monthToDate: { estimatedKwh: 1, estimatedCost: 1, knownSeconds: 3_000_000_000, unknownSeconds: 0, dataStatus: "available" },
+      yearToDate: { estimatedKwh: 1, estimatedCost: 1, knownSeconds: 3_000_000_000, unknownSeconds: 0, dataStatus: "available" },
+      monthForecast: { estimatedKwh: null, estimatedCost: null, observedKnownSeconds: 0, reason: "insufficient_state" },
+      baseline24Hours: { estimatedKwh: 1, estimatedCost: 1, fixtureCount: 1, daysInMonth: 31 },
+      estimatedSavings: { kwh: null, cost: null },
+      lastAggregatedAt: null
+    }).success).toBe(true);
   });
 
   it("validates atomic floor editor save and restore inputs", () => {
