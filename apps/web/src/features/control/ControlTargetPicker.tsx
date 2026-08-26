@@ -197,38 +197,52 @@ export function ControlTargetPicker({ dashboard, selection, disabled, onChange }
 
       {selection.mode === "floor" ? (
         <div className="control-target-list control-target-button-list" role="group" aria-label="층 목록">
-          {dashboard.floors.map((floor) => (
-            <button
-              type="button"
-              aria-label={floor.name}
-              className={selection.floorId === floor.id ? "control-target-button selected" : "control-target-button"}
-              key={floor.id}
-              disabled={disabled || !floor.meshControlGroups.some((group) => group.status === "ready")}
-              onClick={() => onChange({ mode: "floor", floorId: floor.id })}
-            >
-              <span><strong>{floor.name}</strong><small>층 전체 조명</small></span>
-              <span>{floor.fixtures.length}개</span>
-            </button>
-          ))}
+          {dashboard.floors.map((floor) => {
+            const readiness = floorMeshReadiness(floor);
+            return (
+              <button
+                type="button"
+                aria-label={floor.name}
+                className={selection.floorId === floor.id ? "control-target-button selected" : "control-target-button"}
+                key={floor.id}
+                disabled={disabled || !readiness.ready}
+                onClick={() => onChange({ mode: "floor", floorId: floor.id })}
+              >
+                <span>
+                  <strong>{floor.name}</strong>
+                  <small>층 전체 조명 · {readiness.label}</small>
+                  {readiness.error ? <small className="danger-text">{readiness.error}</small> : null}
+                </span>
+                <span>{floor.fixtures.length}개</span>
+              </button>
+            );
+          })}
           {dashboard.floors.length === 0 ? <p className="control-empty-state">등록된 층이 없습니다.</p> : null}
         </div>
       ) : null}
 
       {selection.mode === "group" ? (
         <div className="control-target-list control-target-button-list" role="group" aria-label="구역 목록">
-          {dashboard.groups.map((group) => (
-            <button
-              type="button"
-              aria-label={`${group.name} 선택`}
-              className={selection.groupId === group.id ? "control-target-button selected" : "control-target-button"}
-              key={group.id}
-              disabled={disabled || group.lifecycleStatus !== "active" || group.meshControlGroup?.status !== "ready"}
-              onClick={() => onChange({ mode: "group", groupId: group.id })}
-            >
-              <span><strong>{group.name}</strong><small>저장된 구역</small></span>
-              <span>{group.fixtureIds.length}개</span>
-            </button>
-          ))}
+          {dashboard.groups.map((group) => {
+            const readiness = fixtureGroupReadiness(group);
+            return (
+              <button
+                type="button"
+                aria-label={`${group.name} 선택`}
+                className={selection.groupId === group.id ? "control-target-button selected" : "control-target-button"}
+                key={group.id}
+                disabled={disabled || !readiness.ready}
+                onClick={() => onChange({ mode: "group", groupId: group.id })}
+              >
+                <span>
+                  <strong>{group.name}</strong>
+                  <small>저장된 구역 · {readiness.label}</small>
+                  {readiness.error ? <small className="danger-text">{readiness.error}</small> : null}
+                </span>
+                <span>{group.fixtureIds.length}개</span>
+              </button>
+            );
+          })}
           {dashboard.groups.length === 0 ? <p className="control-empty-state">등록된 구역이 없습니다.</p> : null}
         </div>
       ) : null}
@@ -245,4 +259,39 @@ function fixtureStatusLabel(status: DashboardFixture["status"]) {
 function fixtureHealthLabel(fixture: DashboardFixture) {
   if (!fixture.health) return "Health 확인 대기";
   return fixture.health.faultCodes.length > 0 ? "Health 장애" : "Health 정상";
+}
+
+function floorMeshReadiness(floor: Dashboard["floors"][number]) {
+  const expectedGatewayIds = new Set(floor.fixtures.flatMap((fixture) => fixture.gateway?.id ? [fixture.gateway.id] : []));
+  if (expectedGatewayIds.size === 0) return { ready: false, label: "Mesh 그룹 없음", error: null };
+  const relevantGroups = floor.meshControlGroups.filter((group) => expectedGatewayIds.has(group.gatewayId));
+  const readyGatewayIds = new Set(relevantGroups
+    .filter((group) => group.status === "ready")
+    .map((group) => group.gatewayId));
+  const readyCount = readyGatewayIds.size;
+  const failed = relevantGroups.find((group) => group.status === "failed");
+  if (failed) {
+    return {
+      ready: false,
+      label: `Gateway ${readyCount}/${expectedGatewayIds.size} 준비 · Mesh 설정 실패`,
+      error: failed.error
+    };
+  }
+  if (readyCount !== expectedGatewayIds.size) {
+    return {
+      ready: false,
+      label: `Gateway ${readyCount}/${expectedGatewayIds.size} 준비 · Mesh 설정 중`,
+      error: null
+    };
+  }
+  return { ready: true, label: `Gateway ${readyCount}/${expectedGatewayIds.size} 준비 완료`, error: null };
+}
+
+function fixtureGroupReadiness(group: Dashboard["groups"][number]) {
+  if (group.lifecycleStatus !== "active") return { ready: false, label: "사용 중지", error: null };
+  if (group.meshControlGroup?.status === "ready") return { ready: true, label: "제어 준비 완료", error: null };
+  if (group.meshControlGroup?.status === "failed") {
+    return { ready: false, label: "Mesh 설정 실패", error: group.meshControlGroup.error };
+  }
+  return { ready: false, label: "Mesh 설정 중", error: null };
 }

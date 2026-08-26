@@ -51,6 +51,8 @@
 - `viewer` 권한 사용자는 배정 현장을 조회할 수 있지만 조명 제어 명령 생성은 `403`으로 거부한다.
 - 사용자 역할은 service-provider `operator`, customer `admin`, 조회 전용 `viewer` 세 가지다. operator/admin의 제어는 SiteAccess `manage` 범위로 한정되고, viewer는 화면 비활성화와 API `403` 양쪽에서 변경이 차단된다.
 - `GET /sites/:siteId/fixture-groups`, `POST /sites/:siteId/fixture-groups`, `PATCH /sites/:siteId/fixture-groups/:groupId`, `DELETE /sites/:siteId/fixture-groups/:groupId`, `POST /sites/:siteId/fixture-groups/:groupId/resync`를 제공한다. 목록은 read 권한의 viewer도 볼 수 있고, 생성·수정·삭제·재동기화는 SiteAccess `manage` 권한의 operator/admin만 수행한다.
+- 제어 화면의 `구역 관리` dialog에서 operator/admin은 같은 층·gateway의 조명 1~100개를 선택해 저장 구역을 생성·수정하고, 확인 후 삭제하거나 실패한 Mesh 설정을 재동기화할 수 있다. viewer는 동일 dialog에서 lifecycle과 Mesh 상태만 조회한다.
+- 대상 picker는 층과 저장 구역의 `Mesh 설정 중`, `Mesh 설정 실패`, `제어 준비 완료` 상태를 표시한다. 층은 포함 조명의 모든 gateway별 Mesh group metadata가 존재하고 `ready`일 때만 선택할 수 있으며, 하나라도 누락되거나 준비되지 않으면 fail-closed한다.
 - 저장 구역 생성·수정은 이름, 한 floor, 한 gateway와 1~100개의 unique fixture 전체 set을 입력으로 받는다. transaction은 기존 group, floor, gateway, fixture ID 순으로 잠가 같은 조명의 active/retiring 사용자 구역 15개 한도를 직렬화하고, mesh node가 없거나 선택 경계를 벗어난 fixture를 거부한다.
 - 저장 구역 변경은 `GroupFixture`와 `MeshControlGroupMember.desired`를 전체 교체하고 configuration version을 증가시켜 `configuring`으로 전환한다. provisioning 중 configuring group에 새 desired member가 실제 삽입되는 경우도 version을 증가시켜 이미 발행된 이전 ACK를 stale로 무시하고 새 expected operation set으로 자동 수렴한다. 중복 member attach는 version을 바꾸지 않는다.
 - foundation migration에서 active로 판정됐지만 MeshControlGroup이 없던 legacy 구역은 update/delete/resync transaction이 group을 생성해 복구한다. resync는 기존 `GroupFixture`의 controllable node를 새 desired set으로 복원한 뒤 version을 증가시킨다.
@@ -148,13 +150,18 @@
 - API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기, 신규 웹 target picker 연결까지 반영됐다.
 - 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 RF/HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
 - `sessionStorage` 새로고침 복구와 ACK terminal 전 입력 잠금의 브라우저 계약 검증은 Task 16에서 완료했다. Raspberry Pi Gateway, 실제 MQTT broker와 ESP32-H2를 연결한 E2E는 아직 실행하지 않았다.
-- 저장 구역 API와 desired membership은 구현됐지만, 생성·수정·삭제·resync를 제공하는 Web 관리 dialog와 browser E2E는 Task 7 범위다. 따라서 zone 제어 실기는 `not_executed` 상태다. 표준 Health Fault Clear callback 실기도 Gateway 프로세스 내부에서 BlueZ node owner 권한으로 전송할 API/IPC가 없어 `not_executed` 상태이며, 두 항목 모두 자동 fixture 통과로 완료 처리하지 않는다.
+- 저장 구역 생성·수정·삭제·재동기화 Web dialog와 Chromium route fixture 검증은 완료됐다. 다만 실제 Raspberry Pi/BlueZ/ESP32-H2를 연결한 zone 제어 실기는 `not_executed` 상태다. 표준 Health Fault Clear callback 실기도 Gateway 프로세스 내부에서 BlueZ node owner 권한으로 전송할 API/IPC가 없어 `not_executed` 상태이며, 두 항목 모두 자동 fixture 통과로 완료 처리하지 않는다.
 
 ## 관련 파일
 
 - `apps/web/src/features/control/ControlView.tsx`
 - `apps/web/src/features/control/ControlTargetPicker.tsx`
 - `apps/web/src/features/control/ControlView.test.tsx`
+- `apps/web/src/features/control/FixtureGroupDialog.tsx`
+- `apps/web/src/features/control/FixtureGroupDialog.test.tsx`
+- `apps/web/src/api/fixture-groups.ts`
+- `apps/web/src/api/fixture-groups.test.ts`
+- `apps/web/e2e/monitoring-control-flow.spec.ts`
 - `apps/api/src/commands/commands.controller.ts`
 - `apps/api/src/commands/commands.service.ts`
 - `apps/api/src/fixture-groups/fixture-groups.controller.ts`

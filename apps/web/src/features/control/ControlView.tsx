@@ -1,3 +1,4 @@
+import { Layers3 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CreateDimmingCommandInput, DimmingTarget } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
@@ -20,6 +21,7 @@ import {
   saveActiveCommandRequest
 } from "./active-command-store";
 import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicker";
+import { FixtureGroupDialog } from "./FixtureGroupDialog";
 import {
   isActiveCommandSessionBlocked,
   ownsActiveCommandSession,
@@ -50,6 +52,7 @@ export function ControlView({
   const [commandUserId, setCommandUserId] = useState<string | null>(null);
   const [activeRequest, setActiveRequest] = useState<CreateDimmingCommandInput | null>(null);
   const [terminalResult, setTerminalResult] = useState<{ siteId: string; status: CommandStatusResponse } | null>(null);
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const requestGeneration = useRef(0);
   const activePostController = useRef<AbortController | null>(null);
   const activeScope = useRef<{ generation: number; userId: string; siteId: string | null }>({
@@ -97,6 +100,7 @@ export function ControlView({
     setSelection(emptySelection);
     setMessage("");
     setTerminalResult(null);
+    setGroupDialogOpen(false);
     setCommandUserId(userId);
     setCommandSiteId(activeSiteId);
     setActiveRequest(activeSiteId ? loadActiveCommandRequest(userId, activeSiteId) : null);
@@ -214,6 +218,14 @@ export function ControlView({
           <span className="eyebrow">수동 제어</span>
           <h2>조명 밝기 제어</h2>
         </div>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => setGroupDialogOpen(true)}
+          disabled={commandSessionBlocked || isSubmitting || restorePending || commandInProgress}
+        >
+          <Layers3 size={16} aria-hidden="true" /> {readOnly ? "구역 현황" : "구역 관리"}
+        </button>
       </div>
 
       {readOnly ? (
@@ -314,6 +326,13 @@ export function ControlView({
           ) : null}
         </aside>
       </div>
+      <FixtureGroupDialog
+        open={groupDialogOpen}
+        siteId={data.site.id}
+        dashboard={data}
+        canManage={!readOnly}
+        onClose={() => setGroupDialogOpen(false)}
+      />
     </section>
   );
 }

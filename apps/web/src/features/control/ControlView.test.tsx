@@ -235,9 +235,63 @@ describe("ControlView 대상 선택", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "구역" }));
     expect(screen.getByRole("button", { name: /B2 입구 구역/ })).toBeDisabled();
+    expect(screen.getByText(/Mesh 설정 실패/)).toBeInTheDocument();
+    expect(screen.getByText("subscription rejected")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "층" }));
     expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
+    expect(screen.getByText(/Mesh 설정 중/)).toBeInTheDocument();
+  });
+
+  it("requires every gateway mesh group on a floor to be ready", () => {
+    const partiallyReadyDashboard: Dashboard = {
+      ...dashboard,
+      floors: dashboard.floors.map((floor, index) => index === 0 ? {
+        ...floor,
+        fixtures: floor.fixtures.map((fixture, fixtureIndex) => fixtureIndex === 1 ? {
+          ...fixture,
+          gateway: { id: "gateway-2", name: "GW-B2-2", connectionStatus: "online" }
+        } : fixture),
+        meshControlGroups: [
+          { gatewayId: "gateway-1", status: "ready", version: 2, error: null },
+          { gatewayId: "gateway-2", status: "configuring", version: 2, error: null }
+        ]
+      } : floor)
+    };
+    mocks.useControlDashboard.mockReturnValue({ data: partiallyReadyDashboard, isLoading: false, error: null });
+    renderControl();
+
+    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
+    expect(screen.getByText(/Gateway 1\/2 준비 · Mesh 설정 중/)).toBeInTheDocument();
+  });
+
+  it("keeps floor control unavailable when a fixture gateway has no mesh group metadata", () => {
+    const missingGatewayGroupDashboard: Dashboard = {
+      ...dashboard,
+      floors: dashboard.floors.map((floor, index) => index === 0 ? {
+        ...floor,
+        fixtures: floor.fixtures.map((fixture, fixtureIndex) => fixtureIndex === 1 ? {
+          ...fixture,
+          gateway: { id: "gateway-2", name: "GW-B2-2", connectionStatus: "online" }
+        } : fixture),
+        meshControlGroups: [{ gatewayId: "gateway-1", status: "ready", version: 2, error: null }]
+      } : floor)
+    };
+    mocks.useControlDashboard.mockReturnValue({ data: missingGatewayGroupDashboard, isLoading: false, error: null });
+    renderControl();
+
+    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
+    expect(screen.getByText(/Gateway 1\/2 준비 · Mesh 설정 중/)).toBeInTheDocument();
+  });
+
+  it("opens saved-zone management for admin and viewer accounts", () => {
+    const { rerender } = renderControl("admin");
+    expect(screen.getByRole("button", { name: "구역 관리" })).toBeEnabled();
+
+    rerender(controlElement(dashboard.site.id, "viewer"));
+    expect(screen.getByRole("button", { name: "구역 현황" })).toBeEnabled();
   });
 
   it("filters the fixture checklist by search, state, and floor", () => {

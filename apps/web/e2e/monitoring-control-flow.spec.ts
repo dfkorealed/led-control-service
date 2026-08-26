@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import type { CreateFixtureGroupInput, FixtureGroupMetadata } from "@led-control/shared";
 import {
   installSettingsApiRoutes,
   type SettingsFixture
@@ -11,7 +12,10 @@ const ids = {
   gateway: "77777777-7777-4777-8777-777777777771",
   fixture1: "33333333-3333-4333-8333-333333333331",
   fixture2: "33333333-3333-4333-8333-333333333332",
-  command: "11111111-1111-4111-8111-111111111111"
+  command: "11111111-1111-4111-8111-111111111111",
+  secondCommand: "11111111-1111-4111-8111-111111111112",
+  group: "55555555-5555-4555-8555-555555555551",
+  createdGroup: "55555555-5555-4555-8555-555555555552"
 } as const;
 
 const fixtures: SettingsFixture[] = [
@@ -321,4 +325,249 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await page.getByRole("checkbox", { name: "B2-L001 선택" }).check();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
   });
+
+  test("관리자가 저장 구역을 생성·수정·삭제하고 실패한 Mesh 설정을 재동기화한다", async ({ page }) => {
+    await installBrowserContractFixture(page);
+    const groupApi = await installFixtureGroupContractRoutes(page, [{
+      id: ids.group,
+      name: "B2 입구",
+      floorId: ids.floor,
+      gatewayId: ids.gateway,
+      lifecycleStatus: "active",
+      fixtureCount: 1,
+      meshControlGroup: { status: "failed", version: 2, error: "구독 설정 응답 시간 초과" }
+    }]);
+    await page.goto(`/control?siteId=${ids.site}`);
+
+    await page.getByRole("button", { name: "구역 관리" }).click();
+    await expect(page.getByRole("dialog", { name: "구역 관리" })).toBeVisible();
+    await expect(page.getByText("Mesh 설정 실패")).toBeVisible();
+    await page.getByRole("button", { name: "B2 입구 재동기화" }).click();
+    await expect.poll(() => groupApi.resyncRequests).toEqual([ids.group]);
+    await expect(page.getByText("Mesh 설정 중")).toBeVisible();
+
+    await page.getByRole("button", { name: "새 구역" }).click();
+    await page.getByLabel("구역 이름").fill("B2 출구");
+    await page.getByLabel("층", { exact: true }).selectOption(ids.floor);
+    await page.getByLabel("게이트웨이", { exact: true }).selectOption(ids.gateway);
+    await page.getByLabel("B2-L001 포함").check();
+    await page.getByLabel("B2-L002 포함").check();
+    await page.getByRole("button", { name: "구역 만들기" }).click();
+
+    await expect.poll(() => groupApi.createRequests).toEqual([{
+      name: "B2 출구",
+      floorId: ids.floor,
+      gatewayId: ids.gateway,
+      fixtureIds: [ids.fixture1, ids.fixture2]
+    }]);
+    await page.getByRole("button", { name: "B2 출구 수정" }).click();
+    await page.getByLabel("구역 이름").fill("B2 출구 통로");
+    await page.getByRole("button", { name: "변경 저장" }).click();
+    await expect.poll(() => groupApi.updateRequests).toEqual([expect.objectContaining({
+      groupId: ids.createdGroup,
+      name: "B2 출구 통로",
+      fixtureIds: [ids.fixture1, ids.fixture2]
+    })]);
+
+    await page.getByRole("button", { name: "B2 출구 통로 삭제" }).click();
+    await page.getByRole("alert", { name: "구역 삭제 확인" }).getByRole("button", { name: "삭제 확인" }).click();
+    await expect.poll(() => groupApi.deleteRequests).toEqual([ids.createdGroup]);
+    await expect(page.getByText("삭제 중")).toBeVisible();
+  });
+
+  test("viewer는 저장 구역 상태만 조회하고 관리 동작을 사용할 수 없다", async ({ page }) => {
+    await installSettingsApiRoutes(page, "viewer", {
+      fixtures,
+      ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+    });
+    await installFixtureGroupContractRoutes(page, [{
+      id: ids.group,
+      name: "B2 입구",
+      floorId: ids.floor,
+      gatewayId: ids.gateway,
+      lifecycleStatus: "active",
+      fixtureCount: 1,
+      meshControlGroup: { status: "failed", version: 2, error: "구독 설정 응답 시간 초과" }
+    }]);
+    await page.goto(`/control?siteId=${ids.site}`);
+
+    await page.getByRole("button", { name: "구역 현황" }).click();
+    await expect(page.getByText("Mesh 설정 실패")).toBeVisible();
+    await expect(page.getByRole("button", { name: "새 구역" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "B2 입구 수정" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "B2 입구 재동기화" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "B2 입구 삭제" })).toHaveCount(0);
+  });
+
+  test("준비 완료된 층과 저장 구역을 BLE Mesh 대상으로 동기 제어한다", async ({ page }) => {
+    await installBrowserContractFixture(page);
+    const controlApi = await installReadyMeshControlRoutes(page);
+    await page.goto(`/control?siteId=${ids.site}`);
+
+    await page.getByRole("button", { name: "층" }).click();
+    await expect(page.getByText(/Gateway 1\/1 준비 완료/)).toBeVisible();
+    await page.getByRole("button", { name: "B2" }).click();
+    await page.getByRole("button", { name: "밝기 적용" }).click();
+    await expect(page.getByText("조명 적용 완료")).toBeVisible();
+    await expect.poll(() => controlApi.dimmingRequests[0]?.target).toEqual({ type: "floor", floorId: ids.floor });
+
+    await page.getByRole("button", { name: "구역", exact: true }).click();
+    await expect(page.getByText(/저장된 구역 · 제어 준비 완료/)).toBeVisible();
+    await page.getByRole("button", { name: "B2 입구 선택" }).click();
+    await page.getByRole("button", { name: "밝기 적용" }).click();
+    await expect.poll(() => controlApi.dimmingRequests[1]?.target).toEqual({ type: "group", groupId: ids.group });
+    await expect(page.getByText("조명 적용 완료")).toBeVisible();
+  });
 });
+
+async function installFixtureGroupContractRoutes(page: Page, initialGroups: FixtureGroupMetadata[]) {
+  const groups = structuredClone(initialGroups);
+  const state = {
+    createRequests: [] as CreateFixtureGroupInput[],
+    updateRequests: [] as Array<CreateFixtureGroupInput & { groupId: string }>,
+    deleteRequests: [] as string[],
+    resyncRequests: [] as string[]
+  };
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const root = `/api/sites/${ids.site}/fixture-groups`;
+    if (url.pathname === root && request.method() === "GET") {
+      return route.fulfill({ json: groups });
+    }
+    if (url.pathname === root && request.method() === "POST") {
+      const input = request.postDataJSON() as CreateFixtureGroupInput;
+      state.createRequests.push(input);
+      const created: FixtureGroupMetadata = {
+        id: ids.createdGroup,
+        name: input.name,
+        floorId: input.floorId,
+        gatewayId: input.gatewayId,
+        lifecycleStatus: "active",
+        fixtureCount: input.fixtureIds.length,
+        meshControlGroup: { status: "configuring", version: 1, error: null }
+      };
+      groups.push(created);
+      return route.fulfill({ status: 201, json: created });
+    }
+    const match = url.pathname.match(new RegExp(`^${root}/([^/]+)(/resync)?$`));
+    if (!match) return route.fallback();
+    const groupId = decodeURIComponent(match[1]);
+    const index = groups.findIndex((group) => group.id === groupId);
+    if (index < 0) return route.fulfill({ status: 404, json: { message: "fixture group not found" } });
+    if (match[2] && request.method() === "POST") {
+      state.resyncRequests.push(groupId);
+      groups[index] = {
+        ...groups[index],
+        meshControlGroup: { status: "configuring", version: (groups[index].meshControlGroup?.version ?? 0) + 1, error: null }
+      };
+      return route.fulfill({ status: 202, json: groups[index] });
+    }
+    if (request.method() === "PATCH") {
+      const input = request.postDataJSON() as CreateFixtureGroupInput;
+      state.updateRequests.push({ groupId, ...input });
+      groups[index] = {
+        ...groups[index],
+        ...input,
+        fixtureCount: input.fixtureIds.length,
+        meshControlGroup: { status: "configuring", version: (groups[index].meshControlGroup?.version ?? 0) + 1, error: null }
+      };
+      return route.fulfill({ json: groups[index] });
+    }
+    if (request.method() === "DELETE") {
+      state.deleteRequests.push(groupId);
+      groups[index] = {
+        ...groups[index],
+        lifecycleStatus: "retiring",
+        meshControlGroup: { status: "retiring", version: (groups[index].meshControlGroup?.version ?? 0) + 1, error: null }
+      };
+      return route.fulfill({ status: 202, json: {
+        id: groupId,
+        lifecycleStatus: "retiring",
+        meshControlGroup: groups[index].meshControlGroup
+      } });
+    }
+    return route.fallback();
+  });
+  return state;
+}
+
+async function installReadyMeshControlRoutes(page: Page) {
+  const dimmingRequests: Array<{ target: unknown; brightness: number }> = [];
+  const commandIds = [ids.command, ids.secondCommand];
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === `/api/sites/${ids.site}/dashboard`) {
+      return route.fulfill({ json: {
+        site: { id: ids.site, name: "고객사 B2 현장" },
+        summary: { totalFixtures: 2, onlineFixtures: 2, faultFixtures: 0, averageBrightness: 70 },
+        floors: [{
+          id: ids.floor,
+          name: "B2",
+          level: -2,
+          floorPlan: null,
+          meshControlGroups: [{ gatewayId: ids.gateway, status: "ready", version: 1, error: null }],
+          fixtures
+        }],
+        groups: [{
+          id: ids.group,
+          name: "B2 입구",
+          floorId: ids.floor,
+          gatewayId: ids.gateway,
+          lifecycleStatus: "active",
+          fixtureCount: 2,
+          meshControlGroup: { status: "ready", version: 1, error: null },
+          fixtureIds: [ids.fixture1, ids.fixture2]
+        }],
+        gateways: [{
+          id: ids.gateway,
+          name: "Gateway B2",
+          serialNumber: "GW-E2E-001",
+          firmwareVersion: "e2e-1.0.0",
+          lastHeartbeatAt: "2026-07-12T00:00:00.000Z",
+          connectionStatus: "online"
+        }]
+      } });
+    }
+    if (url.pathname === "/api/commands/dimming" && request.method() === "POST") {
+      const payload = request.postDataJSON() as { target: unknown; brightness: number };
+      dimmingRequests.push(payload);
+      const commandId = commandIds[dimmingRequests.length - 1];
+      return route.fulfill({ json: {
+        id: commandId,
+        dispatchCount: 1,
+        selectedTargetCount: 2,
+        transmissionCount: 1,
+        deliveryMode: "mesh_group",
+        terminalStatusUrl: `/commands/${commandId}`
+      } });
+    }
+    const commandMatch = url.pathname.match(/^\/api\/commands\/([^/]+)$/);
+    if (commandMatch && request.method() === "GET") {
+      const commandId = decodeURIComponent(commandMatch[1]);
+      return route.fulfill({ json: {
+        id: commandId,
+        stage: "completed",
+        dispatchCount: 1,
+        completedFixtureCount: 2,
+        totalFixtureCount: 2,
+        errorMessage: null,
+        dispatches: [{
+          id: `dispatch-${commandId}`,
+          status: "succeeded",
+          gateway: { id: ids.gateway, name: "Gateway B2" },
+          errorMessage: null,
+          results: fixtures.map((fixture) => ({
+            fixtureId: fixture.id,
+            fixtureName: fixture.name,
+            status: "succeeded",
+            errorMessage: null
+          }))
+        }]
+      } });
+    }
+    return route.fallback();
+  });
+  return { dimmingRequests };
+}
