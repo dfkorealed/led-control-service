@@ -255,6 +255,7 @@ export async function publishProvisioningScanLifecycle(input: {
   nextEnvelope: () => Promise<ProvisioningScanEnvelope>;
   publish: (topic: string, payload: unknown) => Promise<void>;
   persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
+  onTerminalPersisted?: () => void;
 }) {
   let nodes: ProvisioningScanFoundDevice[];
   try {
@@ -286,10 +287,12 @@ export async function handleDurableProvisioningScan(input: {
   command: ProvisioningScanStartPayload;
   nextEnvelope: () => Promise<ProvisioningScanEnvelope>;
   publish: (topic: string, payload: unknown) => Promise<void>;
+  onTerminalPersisted?: () => void;
 }) {
   const started = await input.journal.begin(input.command);
   if (started.kind === "terminal") {
     if (!started.delivered) {
+      input.onTerminalPersisted?.();
       await publishScanTerminal({
         publish: input.publish
       }, started.terminal);
@@ -300,7 +303,8 @@ export async function handleDurableProvisioningScan(input: {
   if (started.kind === "recovered") {
     await publishScanTerminal({
       publish: input.publish,
-      persistTerminal: (terminal) => input.journal.complete(input.command, terminal)
+      persistTerminal: (terminal) => input.journal.complete(input.command, terminal),
+      onTerminalPersisted: input.onTerminalPersisted
     }, {
       topic: mqttTopicsV2.provisioningScanFailed(input.command.siteId, input.command.gatewayId),
       payload: createProvisioningScanFailedPayload(input.command, new Error("gateway scan interrupted"), await input.nextEnvelope())
@@ -312,7 +316,8 @@ export async function handleDurableProvisioningScan(input: {
     command: input.command,
     nextEnvelope: input.nextEnvelope,
     publish: input.publish,
-    persistTerminal: (terminal) => input.journal.complete(input.command, terminal)
+    persistTerminal: (terminal) => input.journal.complete(input.command, terminal),
+    onTerminalPersisted: input.onTerminalPersisted
   });
 }
 
@@ -320,10 +325,12 @@ async function publishScanTerminal(
   input: {
     persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
     publish: (topic: string, payload: unknown) => Promise<void>;
+    onTerminalPersisted?: () => void;
   },
   terminal: ProvisioningScanTerminalEvent
 ) {
   const durable = input.persistTerminal ? await input.persistTerminal(terminal) : terminal;
+  input.onTerminalPersisted?.();
   await input.publish(durable.topic, durable.payload);
 }
 

@@ -280,6 +280,41 @@ describe("ProvisioningScanJournal", () => {
     recovery.disconnect();
   });
 
+  it("wakes connected recovery after durable terminal persistence when the initial publish stalls", async () => {
+    vi.useFakeTimers();
+    const journal = new ProvisioningScanJournal(await journalPath());
+    const recovery = new ProvisioningScanRecoveryPublisher(journal, {
+      publishTimeoutMs: 1_000,
+      retryInitialDelayMs: 100,
+      retryMaxDelayMs: 400
+    });
+    const recoveryPublish = vi.fn().mockResolvedValue(undefined);
+    await recovery.connect(recoveryPublish);
+
+    let releaseInitial!: () => void;
+    const initialPublish = vi.fn(() => new Promise<void>((resolve) => { releaseInitial = resolve; }));
+    const scan = handleDurableProvisioningScan({
+      adapter: { scan: vi.fn().mockResolvedValue([]) },
+      journal,
+      command,
+      nextEnvelope: vi.fn().mockResolvedValue({
+        eventId: "66666666-6666-4666-8666-666666666666",
+        sequence: 7,
+        occurredAt: "2026-08-26T00:00:01.000Z"
+      }),
+      publish: initialPublish,
+      onTerminalPersisted: () => recovery.scheduleRetry()
+    });
+
+    await vi.waitFor(() => expect(initialPublish).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.waitFor(() => expect(recoveryPublish).toHaveBeenCalledTimes(1));
+
+    releaseInitial();
+    await scan;
+    recovery.disconnect();
+  });
+
   it("uses bounded exponential backoff without overlapping connected drains", async () => {
     vi.useFakeTimers();
     const journal = await journalWithPendingTerminal();

@@ -3,7 +3,7 @@
 ## 2026-08-26 / application ACK 수렴과 MQTT ACL producer 권한
 - **발생했던 문제/실수**: scan terminal을 MQTT connect 시점에만 재발행해 DB transaction 또는 ACK publish가 한 번 실패한 동일 연결에서는 journal이 영구 undelivered로 남았고, Gateway의 광범위한 `write .../acks/#` 권한이 API 전용 commit ACK self-publish도 허용했다.
 - **원인**: reconnect를 유일한 retry trigger로 보았고 ACK namespace를 consumer 관점의 wildcard로 열어 실제 producer별 권한을 구분하지 않았다.
-- **해결 및 예방책**: 연결 lifecycle에 terminal 생성 wake-up과 1초~30초 exponential bounded backoff scheduler를 두고, exact application ACK에서 timer를 정리한다. close는 timer와 active publish를 취소하고 reconnect는 generation fence 뒤 즉시 재시작한다. Gateway ACL은 `acks/acceptance`, `acks/device-status` write만 열고 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested`는 read-only로 고정한다.
+- **해결 및 예방책**: terminal을 durable journal에 저장한 직후 최초 publish 결과를 기다리기 전에 scheduler를 깨우고, 1초~30초 exponential bounded backoff와 exact application ACK로 수렴시킨다. close는 timer와 active publish를 취소하고 reconnect는 generation fence 뒤 즉시 재시작한다. Gateway ACL은 `acks/acceptance`, `acks/device-status` write만 열고 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested`는 read-only로 고정한다.
 - **반복 방지 체크**: transaction 실패·ACK publish 실패 뒤 동일 연결 duplicate 수렴, ACK 뒤 무발행, backoff 상한, concurrent single-flight, close/reconnect와 Gateway certificate의 application ACK publish 거부 테스트를 함께 유지한다.
 
 ## 2026-08-26 / 검색 outbox 재발행과 Gateway 논리 실행 중복

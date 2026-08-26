@@ -154,7 +154,8 @@ async function main() {
         journal: provisioningScanJournal,
         command,
         nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
-        publish: (topic, event) => publish(source, topic, event)
+        publish: (topic, event) => publish(source, topic, event),
+        onTerminalPersisted: () => provisioningScanRecovery.scheduleRetry()
       });
     } finally {
       provisioningScanRecovery.scheduleRetry();
