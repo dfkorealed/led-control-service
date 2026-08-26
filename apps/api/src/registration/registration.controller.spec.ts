@@ -34,4 +34,14 @@ describe("RegistrationController", () => {
     )).resolves.toEqual({ items: [] });
     expect(registerBatch).toHaveBeenCalledWith(user, "11111111-1111-4111-8111-111111111111", body);
   });
+
+  it("delegates scan retry to the lifecycle service", async () => {
+    const retryScan = jest.fn().mockResolvedValue({ id: "11111111-1111-4111-8111-111111111111" });
+    const controller = new RegistrationController({ retryScan } as never);
+    const user = { id: "00000000-0000-4000-8000-000000000002", role: "operator" } as AuthenticatedUser;
+
+    await controller.retryScan("11111111-1111-4111-8111-111111111111", user);
+
+    expect(retryScan).toHaveBeenCalledWith(user, "11111111-1111-4111-8111-111111111111");
+  });
 });

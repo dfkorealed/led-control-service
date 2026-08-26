@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing";
-import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, NotFoundException } from "@nestjs/common";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -430,51 +430,89 @@ describe("RegistrationService", () => {
     });
   });
 
-  it("marks a discovered node as identifying and publishes identify command", async () => {
-    const node = {
-      id: ids.nodeId,
-      sessionId: ids.sessionId,
-      deviceUuid: "esp32h2-demo-001",
-      serialNumber: "LC-B2-001",
-      rssi: -54,
-      oobCapability: "static-oob",
-      firmwareVersion: "mock-node-0.1.0",
-      status: "discovered",
-      identifyState: "idle",
-      session: {
-        id: ids.sessionId,
-        siteId: ids.siteId,
-        floorId: ids.floorId,
-        gatewayId: ids.gatewayId,
-        requestedBy: ids.userId,
-        status: "active",
-        site: { organizationId: ids.organizationId }
-      }
-    };
-    const { service, prisma, mqtt } = await createModule({
-      discoveredMeshNode: {
-        findUnique: jest.fn().mockResolvedValue(node),
-        findFirst: jest.fn(),
-        update: jest.fn().mockResolvedValue({ ...node, status: "identifying", identifyState: "blinking" })
-      }
-    });
-
-    const result = await service.identifyNode(operator, ids.sessionId, ids.nodeId);
-
-    expect(result.identifyState).toBe("blinking");
-    expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
-      where: { id: ids.nodeId },
-      data: { status: "identifying", identifyState: "blinking" }
-    });
-    expect(mqtt.publishIdentifyDevice).toHaveBeenCalledWith({
-      sessionId: ids.sessionId,
+  it("retries only a terminal scan under a session row lock with a new correlation and attempt", async () => {
+    const correlation = "88888888-8888-4888-8888-888888888888";
+    const terminalSession = {
+      id: ids.sessionId,
       siteId: ids.siteId,
+      floorId: ids.floorId,
       gatewayId: ids.gatewayId,
-      nodeId: ids.nodeId,
-      deviceUuid: "esp32h2-demo-001",
-      requestedAt: expect.any(String)
+      status: "active",
+      scanStatus: "failed",
+      scanAttempt: 1,
+      scanCorrelationId: "77777777-7777-4777-8777-777777777777",
+      startedAt: new Date("2026-07-01T00:00:00.000Z")
+    };
+    const update = jest.fn().mockResolvedValue({ ...terminalSession, scanStatus: "scanning", scanAttempt: 2, scanCorrelationId: correlation });
+    const { service, prisma, mqtt } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(terminalSession),
+        update,
+        updateMany: jest.fn()
+      }
     });
+    jest.spyOn(require("node:crypto"), "randomUUID").mockReturnValue(correlation);
+
+    await service.retryScan(operator, ids.sessionId);
+
+    expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
+    expect(update).toHaveBeenCalledWith({
+      where: { id: ids.sessionId },
+      data: {
+        scanStatus: "scanning",
+        scanCorrelationId: correlation,
+        scanAttempt: 2,
+        scanStartedAt: expect.any(Date),
+        scanCompletedAt: null,
+        scanFailureCode: null,
+        scanFailureMessage: null
+      }
+    });
+    expect(mqtt.publishProvisioningScanStart).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: ids.sessionId,
+      scanCorrelationId: correlation,
+      scanAttempt: 2
+    }));
   });
+
+  it("returns gateway_scan_in_progress when retry conflicts with the gateway scanning unique index", async () => {
+    const terminalSession = {
+      id: ids.sessionId,
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId,
+      status: "active",
+      scanStatus: "completed",
+      scanAttempt: 1,
+      startedAt: new Date("2026-07-01T00:00:00.000Z")
+    };
+    const { service } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(terminalSession),
+        update: jest.fn().mockRejectedValue({ code: "P2002", meta: { target: ["ProvisioningSession_single_scanning_gateway_key"] } }),
+        updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.retryScan(operator, ids.sessionId)).rejects.toEqual(
+      new ConflictException({ code: "gateway_scan_in_progress" })
+    );
+  });
+
+  it("rejects pre-provision identify without reading or mutating node state or publishing MQTT", async () => {
+    const { service, prisma, mqtt } = await createModule();
+
+    await expect(service.identifyNode(operator, ids.sessionId, ids.nodeId)).rejects.toEqual(
+      new HttpException({ code: "pre_provision_identify_unsupported" }, 501)
+    );
+
+    expect(prisma.discoveredMeshNode.findUnique).not.toHaveBeenCalled();
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(mqtt.publishIdentifyDevice).not.toHaveBeenCalled();
+  });
+
 
   it("starts provisioning for a discovered node and publishes a provision command", async () => {
     const node = {

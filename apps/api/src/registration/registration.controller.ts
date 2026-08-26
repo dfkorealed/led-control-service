@@ -39,6 +39,11 @@ export class RegistrationController {
     return this.registrationService.identifyNode(user, sessionId, nodeId);
   }
 
+  @Post(":sessionId/scan/retry")
+  retryScan(@Param("sessionId") sessionId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.registrationService.retryScan(user, sessionId);
+  }
+
   @Post(":sessionId/nodes/:nodeId/register")
   registerNode(
     @Param("sessionId") sessionId: string,

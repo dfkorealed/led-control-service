@@ -72,36 +72,60 @@ describe("MqttService", () => {
     expect(publishTopic).toHaveBeenNthCalledWith(2, "sites/22222222-2222-4222-8222-222222222222/gateways/33333333-3333-4333-8333-333333333333/commands/provisioning/provision-device", expect.any(Object));
   });
 
-  it("accepts strict gateway-scoped scan found, completed, and failed payloads", async () => {
+  it("records zero-node scan completion as completed under a session row lock", async () => {
     const siteId = "22222222-2222-4222-8222-222222222222";
     const gatewayId = "33333333-3333-4333-8333-333333333333";
     const sessionId = "11111111-1111-4111-8111-111111111111";
     const scanCorrelationId = "44444444-4444-4444-8444-444444444444";
     const prisma: any = {
       provisioningSession: {
-        findFirst: jest.fn().mockResolvedValue({ id: sessionId }),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+        findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt: 1 }),
+        update: jest.fn()
       },
       discoveredMeshNode: { upsert: jest.fn().mockResolvedValue(undefined) }
     };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
     const base = {
       sessionId, scanCorrelationId, scanAttempt: 1, siteId, gatewayId,
       eventId: "55555555-5555-4555-8555-555555555555", sequence: 1, occurredAt: "2026-08-26T00:00:01.000Z"
     };
 
-    await service.handleMessage(`sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`, Buffer.from(JSON.stringify({
-      ...base, deviceUuid: "device-1", serialNumber: "serial-1", rssi: -50, oobCapability: "none", firmwareVersion: "1.0.0"
-    })));
     await service.handleMessage(`sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`, Buffer.from(JSON.stringify({
-      ...base, eventId: "66666666-6666-4666-8666-666666666666", sequence: 2, acceptedNodeCount: 1
-    })));
-    await service.handleMessage(`sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`, Buffer.from(JSON.stringify({
-      ...base, eventId: "77777777-7777-4777-8777-777777777777", sequence: 3, code: "scan_timeout", message: "조명 검색 시간이 초과되었습니다."
+      ...base, eventId: "66666666-6666-4666-8666-666666666666", sequence: 2, acceptedNodeCount: 0
     })));
 
-    expect(prisma.discoveredMeshNode.upsert).toHaveBeenCalledTimes(1);
-    expect(prisma.provisioningSession.updateMany).toHaveBeenCalledTimes(2);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
+    expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
+      where: { id: sessionId },
+      data: { scanStatus: "completed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: null, scanFailureMessage: null }
+    });
+  });
+
+  it("ignores a delayed found event after its scan is terminal", async () => {
+    const siteId = "22222222-2222-4222-8222-222222222222";
+    const gatewayId = "33333333-3333-4333-8333-333333333333";
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const scanCorrelationId = "44444444-4444-4444-8444-444444444444";
+    const prisma: any = {
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId, status: "active", scanStatus: "completed", scanCorrelationId, scanAttempt: 1 })
+      },
+      discoveredMeshNode: { upsert: jest.fn() }
+    };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+
+    await service.handleMessage(`sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`, Buffer.from(JSON.stringify({
+      sessionId, scanCorrelationId, scanAttempt: 1, siteId, gatewayId,
+      eventId: "55555555-5555-4555-8555-555555555555", sequence: 3, occurredAt: "2026-08-26T00:00:03.000Z",
+      deviceUuid: "device-1", serialNumber: "serial-1", rssi: -50, oobCapability: "none", firmwareVersion: "1.0.0"
+    })));
+
+    expect(prisma.discoveredMeshNode.upsert).not.toHaveBeenCalled();
   });
 
   it("subscribes to gateway mesh group resync requests at startup", () => {
@@ -761,7 +785,7 @@ describe("MqttService", () => {
       fixture: { update: jest.fn() },
       command: { update: jest.fn() },
       provisioningSession: {
-        findFirst: jest.fn().mockResolvedValue({
+        findUnique: jest.fn().mockResolvedValue({
           id: "11111111-1111-4111-8111-111111111111",
           siteId: "00000000-0000-4000-8000-000000000003",
           gatewayId: "00000000-0000-4000-8000-000000000004",
@@ -775,6 +799,8 @@ describe("MqttService", () => {
         upsert: jest.fn().mockResolvedValue(undefined)
       }
     };
+    (prisma as any).$queryRaw = jest.fn().mockResolvedValue([]);
+    (prisma as any).$transaction = jest.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma as never, createMeshGroupsMock() as never);
 
     await service.handleMessage(
@@ -1283,13 +1309,13 @@ describe("MqttService", () => {
     const prisma = {
       fixture: { update: jest.fn() },
       command: { update: jest.fn() },
-      provisioningSession: {
-        findFirst: jest.fn().mockResolvedValue(null)
-      },
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue(null) },
       discoveredMeshNode: {
         upsert: jest.fn()
       }
     };
+    (prisma as any).$queryRaw = jest.fn().mockResolvedValue([]);
+    (prisma as any).$transaction = jest.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma as never, createMeshGroupsMock() as never);
 
     await service.handleMessage(

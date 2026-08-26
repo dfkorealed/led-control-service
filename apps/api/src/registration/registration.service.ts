@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
 import {
   CreateRegistrationSessionInput,
   gatewayHeartbeatFreshSince,
@@ -157,24 +157,65 @@ export class RegistrationService {
   }
 
   async identifyNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
-    const node = await this.findSessionNode(user, sessionId, nodeId);
-    this.assertActiveSession(node.session.status);
+    void user;
+    void sessionId;
+    void nodeId;
+    throw new HttpException({ code: "pre_provision_identify_unsupported" }, HttpStatus.NOT_IMPLEMENTED);
+  }
 
-    const updated = await this.prisma.discoveredMeshNode.update({
-      where: { id: nodeId },
-      data: { status: "identifying", identifyState: "blinking" }
+  async retryScan(user: AuthenticatedUser, sessionId: string) {
+    const accessSession = await this.prisma.provisioningSession.findUnique({
+      where: { id: sessionId },
+      select: { siteId: true }
     });
+    if (!accessSession) throw new NotFoundException("registration session not found");
+    await this.assertCommissionAccess(user, accessSession.siteId);
 
-    await this.mqttService.publishIdentifyDevice({
-      sessionId,
-      siteId: node.session.siteId,
-      gatewayId: node.session.gatewayId,
-      nodeId,
-      deviceUuid: node.deviceUuid,
-      requestedAt: new Date().toISOString()
-    });
+    let session: Awaited<ReturnType<typeof this.prisma.provisioningSession.update>>;
+    try {
+      session = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+        const current = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
+        if (!current) throw new NotFoundException("registration session not found");
+        this.assertActiveSession(current.status);
+        if (current.scanStatus !== "completed" && current.scanStatus !== "failed") {
+          throw new ConflictException({ code: "scan_retry_requires_terminal_scan" });
+        }
 
-    return updated;
+        return tx.provisioningSession.update({
+          where: { id: current.id },
+          data: {
+            scanStatus: "scanning",
+            scanCorrelationId: randomUUID(),
+            scanAttempt: current.scanAttempt + 1,
+            scanStartedAt: new Date(),
+            scanCompletedAt: null,
+            scanFailureCode: null,
+            scanFailureMessage: null
+          }
+        });
+      });
+    } catch (error) {
+      if (this.isGatewayScanConflict(error)) throw new ConflictException({ code: "gateway_scan_in_progress" });
+      throw error;
+    }
+
+    try {
+      await this.mqttService.publishProvisioningScanStart({
+        sessionId: session.id,
+        siteId: session.siteId,
+        gatewayId: session.gatewayId,
+        floorId: session.floorId,
+        scanCorrelationId: session.scanCorrelationId!,
+        scanAttempt: session.scanAttempt,
+        requestedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      await this.markScanStartPublishFailed(session.id, session.scanCorrelationId!, session.scanAttempt);
+      throw error;
+    }
+
+    return session;
   }
 
   async registerNode(user: AuthenticatedUser, sessionId: string, nodeId: string, input: RegisterNodeInput) {
@@ -390,18 +431,24 @@ export class RegistrationService {
     });
   }
 
-  private async findSessionNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
-    const node = await this.prisma.discoveredMeshNode.findUnique({
-      where: { id: nodeId },
-      include: { session: { include: { site: true } } }
-    });
-    if (!node || node.sessionId !== sessionId) throw new NotFoundException("discovered node not found");
-    await this.assertCommissionAccess(user, node.session.siteId);
-    return node;
-  }
-
   private assertActiveSession(status: string) {
     if (status !== "active") throw new BadRequestException("registration session is not active");
+  }
+
+  private async markScanStartPublishFailed(sessionId: string, scanCorrelationId: string, scanAttempt: number) {
+    await this.prisma.provisioningSession.updateMany({
+      where: { id: sessionId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt },
+      data: {
+        scanStatus: "failed",
+        scanCompletedAt: new Date(),
+        scanFailureCode: "scan_start_publish_failed",
+        scanFailureMessage: "조명 검색 명령을 전송하지 못했습니다. 다시 시도해 주세요."
+      }
+    });
+  }
+
+  private isGatewayScanConflict(error: unknown) {
+    return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
   }
 
   private validateManualPlacement(

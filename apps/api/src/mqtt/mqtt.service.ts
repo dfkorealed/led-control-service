@@ -210,43 +210,33 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const node = provisioningScanFoundSchema.parse(JSON.parse(payload.toString()));
       const topicScope = parseGatewayScopedTopic(topic);
       if (!topicScope || topicScope.siteId !== node.siteId || topicScope.gatewayId !== node.gatewayId) return;
-
-      const session = await this.prisma.provisioningSession.findFirst({
-        where: {
-          id: node.sessionId,
-          siteId: topicScope.siteId,
-          gatewayId: topicScope.gatewayId,
-          status: "active",
-          scanStatus: "scanning",
-          scanCorrelationId: node.scanCorrelationId,
-          scanAttempt: node.scanAttempt
-        }
-      });
-      if (!session) return;
-
-      await this.prisma.discoveredMeshNode.upsert({
-        where: {
-          sessionId_deviceUuid: {
+      await this.prisma.$transaction(async (tx) => {
+        const session = await this.lockCurrentScan(tx, node, topicScope);
+        if (!session) return;
+        await tx.discoveredMeshNode.upsert({
+          where: {
+            sessionId_deviceUuid: {
+              sessionId: node.sessionId,
+              deviceUuid: node.deviceUuid
+            }
+          },
+          create: {
             sessionId: node.sessionId,
-            deviceUuid: node.deviceUuid
+            deviceUuid: node.deviceUuid,
+            serialNumber: node.serialNumber,
+            rssi: node.rssi,
+            oobCapability: node.oobCapability,
+            firmwareVersion: node.firmwareVersion,
+            discoveredAt: new Date(node.occurredAt)
+          },
+          update: {
+            rssi: node.rssi,
+            oobCapability: node.oobCapability,
+            firmwareVersion: node.firmwareVersion,
+            discoveredAt: new Date(node.occurredAt),
+            errorMessage: null
           }
-        },
-        create: {
-          sessionId: node.sessionId,
-          deviceUuid: node.deviceUuid,
-          serialNumber: node.serialNumber,
-          rssi: node.rssi,
-          oobCapability: node.oobCapability,
-          firmwareVersion: node.firmwareVersion,
-          discoveredAt: new Date(node.occurredAt)
-        },
-        update: {
-          rssi: node.rssi,
-          oobCapability: node.oobCapability,
-          firmwareVersion: node.firmwareVersion,
-          discoveredAt: new Date(node.occurredAt),
-          errorMessage: null
-        }
+        });
       });
       return;
     }
@@ -258,19 +248,15 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         ? provisioningScanCompletedSchema.parse(JSON.parse(payload.toString()))
         : provisioningScanFailedSchema.parse(JSON.parse(payload.toString()));
       if (event.siteId !== topicScope.siteId || event.gatewayId !== topicScope.gatewayId) return;
-      await this.prisma.provisioningSession.updateMany({
-        where: {
-          id: event.sessionId,
-          siteId: event.siteId,
-          gatewayId: event.gatewayId,
-          status: "active",
-          scanStatus: "scanning",
-          scanCorrelationId: event.scanCorrelationId,
-          scanAttempt: event.scanAttempt
-        },
-        data: "acceptedNodeCount" in event
-          ? { scanStatus: "completed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: null, scanFailureMessage: null }
-          : { scanStatus: "failed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: event.code, scanFailureMessage: event.message }
+      await this.prisma.$transaction(async (tx) => {
+        const session = await this.lockCurrentScan(tx, event, topicScope);
+        if (!session) return;
+        await tx.provisioningSession.update({
+          where: { id: session.id },
+          data: "acceptedNodeCount" in event
+            ? { scanStatus: "completed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: null, scanFailureMessage: null }
+            : { scanStatus: "failed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: event.code, scanFailureMessage: event.message }
+        });
       });
       return;
     }
@@ -336,6 +322,27 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
       await this.publishTopic(mqttTopicsV2.meshGroupResyncAck(event.siteId, event.gatewayId), ack);
     }
+  }
+
+  private async lockCurrentScan(
+    tx: Prisma.TransactionClient,
+    event: { sessionId: string; siteId: string; gatewayId: string; scanCorrelationId: string; scanAttempt: number },
+    topicScope: { siteId: string; gatewayId: string }
+  ) {
+    await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${event.sessionId} FOR UPDATE`;
+    const session = await tx.provisioningSession.findUnique({ where: { id: event.sessionId } });
+    if (!session) return null;
+    if (
+      event.siteId !== topicScope.siteId ||
+      event.gatewayId !== topicScope.gatewayId ||
+      session.siteId !== event.siteId ||
+      session.gatewayId !== event.gatewayId ||
+      session.status !== "active" ||
+      session.scanStatus !== "scanning" ||
+      session.scanCorrelationId !== event.scanCorrelationId ||
+      session.scanAttempt !== event.scanAttempt
+    ) return null;
+    return session;
   }
 
   private async storeAcceptanceAck(ack: ReturnType<typeof acceptanceAckV2Schema.parse>) {

@@ -8,6 +8,13 @@ import type {
   ProvisioningScanStartPayload,
   ProvisioningScanFoundDevice
 } from "@led-control/shared";
+import {
+  mqttTopicsV2,
+  parseDfkDeviceUuid,
+  provisioningScanCompletedSchema,
+  provisioningScanFailedSchema,
+  provisioningScanFoundSchema
+} from "@led-control/shared";
 
 export interface BleMeshAdapter {
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
@@ -73,6 +80,95 @@ export interface BleMeshCommandReport {
 
 export async function applyProvisioningScan(adapter: ProvisioningScannerAdapter, command: ProvisioningScanStartPayload) {
   return adapter.scan(command);
+}
+
+type ProvisioningScanEnvelope = { eventId: string; sequence: number; occurredAt: string };
+
+export async function publishProvisioningScanLifecycle(input: {
+  adapter: ProvisioningScannerAdapter;
+  command: ProvisioningScanStartPayload;
+  nextEnvelope: () => Promise<ProvisioningScanEnvelope>;
+  publish: (topic: string, payload: unknown) => Promise<void>;
+}) {
+  let nodes: ProvisioningScanFoundDevice[];
+  try {
+    nodes = (await applyProvisioningScan(input.adapter, input.command))
+      .filter((node) => parseDfkDeviceUuid(node.deviceUuid) !== null);
+    for (const node of nodes) {
+      await input.publish(
+        mqttTopicsV2.provisioningScanFound(input.command.siteId, input.command.gatewayId),
+        createProvisioningScanFoundPayload(input.command, node, await input.nextEnvelope())
+      );
+    }
+  } catch (error) {
+    await input.publish(
+      mqttTopicsV2.provisioningScanFailed(input.command.siteId, input.command.gatewayId),
+      createProvisioningScanFailedPayload(input.command, error, await input.nextEnvelope())
+    );
+    return;
+  }
+
+  await input.publish(
+    mqttTopicsV2.provisioningScanCompleted(input.command.siteId, input.command.gatewayId),
+    createProvisioningScanCompletedPayload(input.command, nodes.length, await input.nextEnvelope())
+  );
+}
+
+export function createProvisioningScanFoundPayload(
+  command: ProvisioningScanStartPayload,
+  node: ProvisioningScanFoundDevice,
+  envelope: ProvisioningScanEnvelope
+) {
+  return provisioningScanFoundSchema.parse({
+    sessionId: command.sessionId,
+    scanCorrelationId: command.scanCorrelationId,
+    scanAttempt: command.scanAttempt,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId,
+    ...envelope,
+    ...node
+  });
+}
+
+export function createProvisioningScanCompletedPayload(
+  command: ProvisioningScanStartPayload,
+  acceptedNodeCount: number,
+  envelope: ProvisioningScanEnvelope
+) {
+  return provisioningScanCompletedSchema.parse({
+    sessionId: command.sessionId,
+    scanCorrelationId: command.scanCorrelationId,
+    scanAttempt: command.scanAttempt,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId,
+    ...envelope,
+    acceptedNodeCount
+  });
+}
+
+export function createProvisioningScanFailedPayload(
+  command: ProvisioningScanStartPayload,
+  error: unknown,
+  envelope: ProvisioningScanEnvelope
+) {
+  return provisioningScanFailedSchema.parse({
+    sessionId: command.sessionId,
+    scanCorrelationId: command.scanCorrelationId,
+    scanAttempt: command.scanAttempt,
+    siteId: command.siteId,
+    gatewayId: command.gatewayId,
+    ...envelope,
+    ...sanitizeProvisioningScanFailure(error)
+  });
+}
+
+function sanitizeProvisioningScanFailure(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("bluetooth")) return { code: "bluetooth_unavailable" as const, message: "Bluetooth 기능을 사용할 수 없습니다." };
+  if (message.includes("mesh")) return { code: "mesh_unavailable" as const, message: "Mesh 네트워크를 사용할 수 없습니다." };
+  if (message.includes("timeout") || message.includes("timed out")) return { code: "scan_timeout" as const, message: "조명 검색 시간이 초과되었습니다." };
+  if (message.includes("start")) return { code: "scan_start_failed" as const, message: "조명 검색을 시작하지 못했습니다." };
+  return { code: "scan_runtime_failed" as const, message: "조명 검색 중 문제가 발생했습니다." };
 }
 
 export async function applyIdentifyDevice(adapter: ProvisioningAdapter, command: IdentifyDevicePayload) {

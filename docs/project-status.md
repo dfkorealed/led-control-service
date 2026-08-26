@@ -14,18 +14,17 @@
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
-| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약·Prisma 기반을 완료했고 Task 2 검색 lifecycle API·Gateway를 진행한다. |
+| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약·Prisma 기반과 Task 2 검색 lifecycle API·Gateway를 완료했고 Task 3 웹 등록 흐름을 진행한다. |
 
 ## 다음 단계
 
-현재 작업은 **메뉴 완성 구현**이다. [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)의 Task 1 공용 계약을 완료했고, Task 2부터 API, Gateway, Web과 실제 브라우저 QA를 순차 진행한다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
+현재 작업은 **메뉴 완성 구현**이다. [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)의 Task 1 공용 계약과 Task 2 검색 lifecycle API·Gateway 계약을 완료했고, Task 3부터 Web과 실제 브라우저 QA를 순차 진행한다. 실제 장비 flash, 인증서 발급·폐기, DB 초기화와 배포는 사용자 승인 후 수행한다.
 
 ## 알려진 미해결 항목
 
 ### 모니터링
 
-- provisioning 전 조명 `점멸 확인`은 표준 BLE Mesh 경로에서 지원되지 않는데 화면과 API가 성공 흐름을 전제한다.
-- 검색 session에는 correlation 기반 완료·실패, found event 검증, gateway당 단일 active scan과 retry 계약이 아직 구현되지 않았다.
+- Web 등록 패널에서 provisioning 전 조명 `점멸 확인` 버튼·상태를 제거하고 scan lifecycle 재시도/0건/실패 화면을 연결해야 한다.
 - 도면 최초 조회 실패가 빈 기본 canvas로 보일 수 있으며, 등록 완료 뒤 필요한 query를 즉시 갱신하지 않는다.
 
 ### 제어

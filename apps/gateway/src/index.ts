@@ -9,13 +9,8 @@ import {
   identifyDeviceSchema,
   mqttTopicsV2,
   mqttTopics,
-  type ProvisioningScanFoundDevice,
-  type ProvisioningScanStartPayload,
   fixtureStateV2Schema,
   provisionDeviceSchema,
-  provisioningScanCompletedSchema,
-  provisioningScanFailedSchema,
-  provisioningScanFoundSchema,
   provisioningScanStartSchema
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
@@ -23,7 +18,12 @@ import type { MqttClient } from "mqtt";
 import {
   applyIdentifyDevice,
   applyProvisionDevice,
-  applyProvisioningScan
+  publishProvisioningScanLifecycle
+} from "./gateway";
+export {
+  createProvisioningScanCompletedPayload,
+  createProvisioningScanFailedPayload,
+  createProvisioningScanFoundPayload
 } from "./gateway";
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
@@ -132,21 +132,12 @@ async function main() {
 
   async function handleProvisioningScanPayload(payload: Buffer, source: GatewayMqttClient) {
     const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
-    try {
-      const nodes = await applyProvisioningScan(scannerAdapter, command);
-      for (const node of nodes) {
-        await publish(source, mqttTopicsV2.provisioningScanFound(command.siteId, command.gatewayId),
-          createProvisioningScanFoundPayload(command, node, { eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() })
-        );
-      }
-      await publish(source, mqttTopicsV2.provisioningScanCompleted(command.siteId, command.gatewayId),
-        createProvisioningScanCompletedPayload(command, nodes.length, { eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() })
-      );
-    } catch (error) {
-      await publish(source, mqttTopicsV2.provisioningScanFailed(command.siteId, command.gatewayId),
-        createProvisioningScanFailedPayload(command, error, { eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() })
-      );
-    }
+    await publishProvisioningScanLifecycle({
+      adapter: scannerAdapter,
+      command,
+      nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
+      publish: (topic, event) => publish(source, topic, event)
+    });
   }
 
   async function handleIdentifyPayload(payload: Buffer, _source: GatewayMqttClient) {
@@ -350,66 +341,6 @@ export function subscribeGatewayCommands(
       (error) => (error ? reject(error) : resolve())
     );
   });
-}
-
-type ProvisioningScanEnvelope = { eventId: string; sequence: number; occurredAt: string };
-
-export function createProvisioningScanFoundPayload(
-  command: ProvisioningScanStartPayload,
-  node: ProvisioningScanFoundDevice,
-  envelope: ProvisioningScanEnvelope
-) {
-  return provisioningScanFoundSchema.parse({
-    sessionId: command.sessionId,
-    scanCorrelationId: command.scanCorrelationId,
-    scanAttempt: command.scanAttempt,
-    siteId: command.siteId,
-    gatewayId: command.gatewayId,
-    ...envelope,
-    ...node
-  });
-}
-
-export function createProvisioningScanCompletedPayload(
-  command: ProvisioningScanStartPayload,
-  acceptedNodeCount: number,
-  envelope: ProvisioningScanEnvelope
-) {
-  return provisioningScanCompletedSchema.parse({
-    sessionId: command.sessionId,
-    scanCorrelationId: command.scanCorrelationId,
-    scanAttempt: command.scanAttempt,
-    siteId: command.siteId,
-    gatewayId: command.gatewayId,
-    ...envelope,
-    acceptedNodeCount
-  });
-}
-
-export function createProvisioningScanFailedPayload(
-  command: ProvisioningScanStartPayload,
-  error: unknown,
-  envelope: ProvisioningScanEnvelope
-) {
-  const failure = sanitizeProvisioningScanFailure(error);
-  return provisioningScanFailedSchema.parse({
-    sessionId: command.sessionId,
-    scanCorrelationId: command.scanCorrelationId,
-    scanAttempt: command.scanAttempt,
-    siteId: command.siteId,
-    gatewayId: command.gatewayId,
-    ...envelope,
-    ...failure
-  });
-}
-
-function sanitizeProvisioningScanFailure(error: unknown) {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  if (message.includes("bluetooth")) return { code: "bluetooth_unavailable" as const, message: "Bluetooth 기능을 사용할 수 없습니다." };
-  if (message.includes("mesh")) return { code: "mesh_unavailable" as const, message: "Mesh 네트워크를 사용할 수 없습니다." };
-  if (message.includes("timeout") || message.includes("timed out")) return { code: "scan_timeout" as const, message: "조명 검색 시간이 초과되었습니다." };
-  if (message.includes("start")) return { code: "scan_start_failed" as const, message: "조명 검색을 시작하지 못했습니다." };
-  return { code: "scan_runtime_failed" as const, message: "조명 검색 중 문제가 발생했습니다." };
 }
 
 export function createGatewayShutdownHandler(
