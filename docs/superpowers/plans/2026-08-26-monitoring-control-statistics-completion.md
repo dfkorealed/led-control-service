@@ -56,11 +56,11 @@
 
 **Produces:** gateway당 active scan 1개, retry endpoint, correlation된 found/completed/failed, 상태를 바꾸지 않는 identify 501.
 
-- [ ] 0건 완료, 실패, 지연 found 무시, retry 충돌과 identify 무상태 변경 테스트를 먼저 작성한다.
-- [ ] 테스트가 기존 무한 scanning·허위 identify 동작 때문에 실패하는지 확인한다.
-- [ ] API 행 잠금과 Gateway terminal event 발행을 구현한다.
-- [ ] API·Gateway 관련 테스트와 typecheck를 실행한다.
-- [ ] 모니터링 문서를 갱신하고 `feat(monitoring): complete device scan lifecycle`로 커밋한다.
+- [x] 0건 완료, 실패, 지연 found 무시, retry 충돌과 identify 무상태 변경 테스트를 먼저 작성한다.
+- [x] 테스트가 기존 무한 scanning·허위 identify 동작 때문에 실패하는지 확인한다.
+- [x] API 행 잠금과 Gateway terminal event 발행을 구현한다.
+- [x] API·Gateway 관련 테스트와 typecheck를 실행한다.
+- [x] 모니터링 문서를 갱신하고 `feat(monitoring): complete device scan lifecycle`로 커밋한다.
 
 #### Fix Round 4: 검색 terminal ingestion 확인
 
