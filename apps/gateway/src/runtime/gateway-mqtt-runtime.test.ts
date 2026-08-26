@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./gateway-mqtt-runtime";
 
 class FakeMqttClient extends EventEmitter {
+  connected = false;
   readonly end = vi.fn((_force?: boolean, callback?: (error?: Error) => void) => callback?.());
   readonly publish = vi.fn((_topic: string, _payload: string, _options?: unknown, callback?: (error?: Error) => void) => callback?.());
   readonly reconnect = vi.fn();
@@ -18,6 +19,34 @@ const topicHandlers = {
 describe("GatewayMqttRuntime", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("recovers an already-connected startup once after listeners and subscriptions are ready", async () => {
+    const client = new FakeMqttClient();
+    client.connected = true;
+    const order: string[] = [];
+    const subscribe = vi.fn(() => {
+      expect(client.listenerCount("connect")).toBe(1);
+      order.push("subscribed");
+    });
+    const onConnect = vi.fn(() => order.push("recovered"));
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 10_000,
+      subscribe,
+      publishHeartbeat: vi.fn(),
+      topicHandlers,
+      onMessageError: vi.fn(),
+      onConnect
+    });
+
+    runtime.start();
+    runtime.start();
+    await vi.waitFor(() => expect(onConnect).toHaveBeenCalledTimes(1));
+
+    expect(subscribe).toHaveBeenCalledWith(client, false, false);
+    expect(order).toEqual(["subscribed", "recovered"]);
+    await runtime.stop();
   });
 
   it("keeps one heartbeat timer and subscribes only for a new persistent session after reconnects", async () => {

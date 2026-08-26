@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   acceptanceAckV2Schema,
   applicationStateIngestedAckV2Schema,
+  applicationProvisioningScanTerminalIngestedAckV2Schema,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
   gatewayDimmingCommandDraftV2Schema,
@@ -36,6 +37,9 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(mqttTopicsV2.stateIngestedAck(siteId, gatewayId)).toBe(
       `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`
     );
+    expect(mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId)).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`
+    );
     expect(mqttTopicsV2.provisioningScanFound(siteId, gatewayId)).toBe(
       `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`
     );
@@ -65,6 +69,21 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(applicationStateIngestedAckV2Schema.parse(acknowledgement)).toEqual(acknowledgement);
     expect(() => applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, gatewayId })).toThrow();
     expect(() => applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, sequence: -1 })).toThrow();
+  });
+
+  it("strictly validates the application acknowledgement for a committed scan terminal", () => {
+    const acknowledgement = {
+      eventId,
+      sequence: 9,
+      sessionId: "55555555-5555-4555-8555-555555555555",
+      scanCorrelationId: "66666666-6666-4666-8666-666666666666",
+      scanAttempt: 2,
+      ingestedAt: occurredAt
+    };
+
+    expect(applicationProvisioningScanTerminalIngestedAckV2Schema.parse(acknowledgement)).toEqual(acknowledgement);
+    expect(() => applicationProvisioningScanTerminalIngestedAckV2Schema.parse({ ...acknowledgement, gatewayId })).toThrow();
+    expect(() => applicationProvisioningScanTerminalIngestedAckV2Schema.parse({ ...acknowledgement, scanAttempt: 0 })).toThrow();
   });
 
   it("strictly validates a scoped mesh group resync acknowledgement", () => {

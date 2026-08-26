@@ -151,6 +151,7 @@ export function renderMosquittoAcl(gatewayIds) {
     ...identities.flatMap((gatewayId) => [
       `user ${gatewayId}`,
       `topic read sites/+/gateways/${gatewayId}/commands/#`,
+      `topic read sites/+/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
       `topic write sites/+/gateways/${gatewayId}/acks/#`,
       `topic write sites/+/gateways/${gatewayId}/state/#`,
       `topic write sites/+/gateways/${gatewayId}/events/#`,

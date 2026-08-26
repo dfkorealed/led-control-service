@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import {
+  applicationProvisioningScanTerminalIngestedAckV2Schema,
   mqttTopicsV2,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema,
@@ -141,16 +142,15 @@ export class ProvisioningScanJournal {
     });
   }
 
-  markDelivered(terminal: ProvisioningScanTerminalEvent): Promise<boolean> {
+  acknowledgeTerminal(acknowledgement: unknown): Promise<boolean> {
     return this.exclusive(async () => {
       const state = await this.load();
-      const payload = terminal.payload;
-      const key = `${payload.sessionId}:${payload.scanCorrelationId}:${payload.scanAttempt}`;
+      const ack = applicationProvisioningScanTerminalIngestedAckV2Schema.parse(acknowledgement);
+      const key = `${ack.sessionId}:${ack.scanCorrelationId}:${ack.scanAttempt}`;
       const record = state.records[key];
       if (!record || record.state !== "terminal" || !record.terminal) return false;
-      const parsed = parseTerminal(record.command, terminal);
-      if (!sameTerminal(record.terminal, parsed) || record.deliveredAt) return false;
-      record.deliveredAt = this.now().toISOString();
+      if (!sameTerminalAcknowledgement(record.terminal, ack) || record.deliveredAt) return false;
+      record.deliveredAt = ack.ingestedAt;
       record.updatedAt = record.deliveredAt;
       await this.persist(state);
       return true;
@@ -187,15 +187,15 @@ export class ProvisioningScanJournal {
     const now = this.now().getTime();
     let changed = false;
     for (const [key, record] of Object.entries(state.records)) {
-      if (record.state === "terminal" && now - new Date(record.updatedAt).getTime() > this.retentionMs) {
+      if (record.state === "terminal" && record.deliveredAt && now - new Date(record.deliveredAt).getTime() > this.retentionMs) {
         delete state.records[key];
         changed = true;
       }
     }
     const terminalRecords = Object.entries(state.records)
-      .filter(([, record]) => record.state === "terminal")
+      .filter(([, record]) => record.state === "terminal" && Boolean(record.deliveredAt))
       .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt));
-    // Running entries are never evicted: losing one would permit a duplicate physical scan after restart.
+    // Running and unacknowledged terminal entries are never evicted: either loss can strand the API scan lifecycle.
     const limit = reserveSlot ? this.maxRecords - 1 : this.maxRecords;
     while (Object.keys(state.records).length > limit && terminalRecords.length > 0) {
       const oldest = terminalRecords.shift();
@@ -280,11 +280,15 @@ function sameCommand(left: ProvisioningScanStartPayload, right: ProvisioningScan
     left.floorId === right.floorId;
 }
 
-function sameTerminal(left: ProvisioningScanTerminalEvent, right: ProvisioningScanTerminalEvent) {
-  return left.topic === right.topic &&
-    left.payload.eventId === right.payload.eventId &&
-    left.payload.sequence === right.payload.sequence &&
-    left.payload.occurredAt === right.payload.occurredAt;
+function sameTerminalAcknowledgement(
+  terminal: ProvisioningScanTerminalEvent,
+  acknowledgement: ReturnType<typeof applicationProvisioningScanTerminalIngestedAckV2Schema.parse>
+) {
+  return terminal.payload.eventId === acknowledgement.eventId &&
+    terminal.payload.sequence === acknowledgement.sequence &&
+    terminal.payload.sessionId === acknowledgement.sessionId &&
+    terminal.payload.scanCorrelationId === acknowledgement.scanCorrelationId &&
+    terminal.payload.scanAttempt === acknowledgement.scanAttempt;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

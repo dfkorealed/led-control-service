@@ -62,6 +62,15 @@
 - [ ] API·Gateway 관련 테스트와 typecheck를 실행한다.
 - [ ] 모니터링 문서를 갱신하고 `feat(monitoring): complete device scan lifecycle`로 커밋한다.
 
+#### Fix Round 4: 검색 terminal ingestion 확인
+
+- [x] pre-connected startup recovery가 subscription 준비 뒤 정확히 한 번 실행되는 RED/GREEN을 확인한다.
+- [x] strict scan-terminal application ACK 계약과 API commit 이후 ACK·duplicate ACK RED/GREEN을 확인한다.
+- [x] Gateway가 exact application ACK에서만 terminal을 delivered 처리하고 PUBACK·offline·transaction failure에서는 보존하는 RED/GREEN을 확인한다.
+- [x] undelivered terminal retention/capacity 보호와 capacity fail-closed RED/GREEN을 확인한다.
+- [x] recovery publish timeout·disconnect cancellation·fresh reconnect·동시 drain 직렬화 RED/GREEN을 확인한다.
+- [x] Shared/API/Gateway 전체 검증과 문서·보고서·커밋을 완료한다.
+
 ### Task 3: 모니터링 Web과 실제 브라우저 QA
 
 **Files:**

@@ -912,7 +912,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - `POST /registration-sessions`와 retry는 `pending` session state, 새 correlation/attempt와 `ProvisioningScanOutbox` row를 하나의 transaction에서 만든다. partial unique index `ProvisioningSession_single_scanning_gateway_key`는 `status=active`인 Gateway 하나에만 `pending` 또는 `scanning` scan 하나를 허용한다.
 - `20260826150000_add_provisioning_scan_outbox` migration은 foundation migration이 남긴 모든 historical `pending/scanning` session을 `failed` (`legacy_scan_closed`) terminal state로 먼저 수렴시킨 뒤 active-only partial unique index를 만든다. 당시에는 durable scan-start outbox가 없었으므로 과거 active session도 재발행하지 않고 종료하는 fail-closed migration 정책이다.
 - publisher는 leased outbox를 처리할 때만 `pending -> scanning`으로 전이한 뒤 strict v2 scan-start payload를 발행한다. MQTT callback timeout은 기본 10초(`PROVISIONING_SCAN_OUTBOX_PUBLISH_TIMEOUT_MS`)로 30초 lease보다 짧아야 하며, timeout/reject는 attempt backoff로 기록한다. publish 전 process crash는 lease 만료 뒤 같은 correlation/attempt로 재시도하며, 최대 3회 또는 5분 실패는 outbox dead-letter와 `scan_start_publish_failed` terminal state를 같은 transaction에서 기록한다.
-- found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다. `ProcessedGatewayEvent`의 eventId 및 gateway/sequence/eventType 원장은 같은 transaction에서 중복·낮은 sequence를 차단한다.
+- found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다. `ProcessedGatewayEvent`의 eventId 및 gateway/sequence/eventType 원장은 같은 transaction에서 중복·낮은 sequence를 차단한다. completed/failed는 원장 생성과 `ProvisioningSession` terminal 변경 transaction이 commit된 뒤에만 scan-terminal application ACK를 발행한다. 동일 terminal event가 재전달되면 exact 원장과 terminal snapshot을 다시 확인해 ACK를 재발행한다.
 
 ### ProvisioningScanOutbox
 

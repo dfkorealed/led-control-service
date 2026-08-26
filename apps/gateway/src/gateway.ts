@@ -85,11 +85,20 @@ export async function applyProvisioningScan(adapter: ProvisioningScannerAdapter,
 
 export type ProvisioningScanEnvelope = { eventId: string; sequence: number; occurredAt: string };
 
+const PROVISIONING_SCAN_OUTBOX_LEASE_MS = 30_000;
+const DEFAULT_RECOVERY_PUBLISH_TIMEOUT_MS = 10_000;
+
 export class ProvisioningScanRecoveryPublisher {
   private preparation: Promise<void> | undefined;
-  private draining: Promise<void> | undefined;
+  private activeDrain: { promise: Promise<void>; controller: AbortController } | undefined;
+  private readonly publishTimeoutMs: number;
 
-  constructor(private readonly journal: ProvisioningScanJournal) {}
+  constructor(
+    private readonly journal: ProvisioningScanJournal,
+    options: { publishTimeoutMs?: number } = {}
+  ) {
+    this.publishTimeoutMs = boundedRecoveryPublishTimeout(options.publishTimeoutMs ?? DEFAULT_RECOVERY_PUBLISH_TIMEOUT_MS);
+  }
 
   prepare(createTerminal: (command: ProvisioningScanStartPayload) => Promise<ProvisioningScanTerminalEvent>) {
     this.preparation ??= this.journal.recoverRunning(createTerminal);
@@ -97,21 +106,27 @@ export class ProvisioningScanRecoveryPublisher {
   }
 
   drain(publish: (topic: string, payload: unknown) => Promise<void>) {
-    if (this.draining) return this.draining;
-    const draining = (async () => {
+    if (this.activeDrain) return this.activeDrain.promise;
+    const controller = new AbortController();
+    const promise = (async () => {
       for (const terminal of await this.journal.pendingTerminals()) {
-        await publish(terminal.topic, terminal.payload);
-        if (!await this.journal.markDelivered(terminal)) {
-          throw new Error("provisioning scan terminal delivery state changed");
-        }
+        await publishRecoveryTerminal(publish, terminal, this.publishTimeoutMs, controller.signal);
       }
     })();
-    this.draining = draining;
-    void draining.then(
-      () => { if (this.draining === draining) this.draining = undefined; },
-      () => { if (this.draining === draining) this.draining = undefined; }
+    const active = { promise, controller };
+    this.activeDrain = active;
+    void promise.then(
+      () => { if (this.activeDrain === active) this.activeDrain = undefined; },
+      () => { if (this.activeDrain === active) this.activeDrain = undefined; }
     );
-    return draining;
+    return promise;
+  }
+
+  disconnect() {
+    const active = this.activeDrain;
+    if (!active) return;
+    this.activeDrain = undefined;
+    active.controller.abort(new Error("provisioning scan terminal recovery disconnected"));
   }
 }
 
@@ -121,7 +136,6 @@ export async function publishProvisioningScanLifecycle(input: {
   nextEnvelope: () => Promise<ProvisioningScanEnvelope>;
   publish: (topic: string, payload: unknown) => Promise<void>;
   persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
-  markDelivered?: (terminal: ProvisioningScanTerminalEvent) => Promise<boolean>;
 }) {
   let nodes: ProvisioningScanFoundDevice[];
   try {
@@ -158,8 +172,7 @@ export async function handleDurableProvisioningScan(input: {
   if (started.kind === "terminal") {
     if (!started.delivered) {
       await publishScanTerminal({
-        publish: input.publish,
-        markDelivered: (terminal) => input.journal.markDelivered(terminal)
+        publish: input.publish
       }, started.terminal);
     }
     return;
@@ -168,8 +181,7 @@ export async function handleDurableProvisioningScan(input: {
   if (started.kind === "recovered") {
     await publishScanTerminal({
       publish: input.publish,
-      persistTerminal: (terminal) => input.journal.complete(input.command, terminal),
-      markDelivered: (terminal) => input.journal.markDelivered(terminal)
+      persistTerminal: (terminal) => input.journal.complete(input.command, terminal)
     }, {
       topic: mqttTopicsV2.provisioningScanFailed(input.command.siteId, input.command.gatewayId),
       payload: createProvisioningScanFailedPayload(input.command, new Error("gateway scan interrupted"), await input.nextEnvelope())
@@ -181,24 +193,60 @@ export async function handleDurableProvisioningScan(input: {
     command: input.command,
     nextEnvelope: input.nextEnvelope,
     publish: input.publish,
-    persistTerminal: (terminal) => input.journal.complete(input.command, terminal),
-    markDelivered: (terminal) => input.journal.markDelivered(terminal)
+    persistTerminal: (terminal) => input.journal.complete(input.command, terminal)
   });
 }
 
 async function publishScanTerminal(
   input: {
     persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
-    markDelivered?: (terminal: ProvisioningScanTerminalEvent) => Promise<boolean>;
     publish: (topic: string, payload: unknown) => Promise<void>;
   },
   terminal: ProvisioningScanTerminalEvent
 ) {
   const durable = input.persistTerminal ? await input.persistTerminal(terminal) : terminal;
   await input.publish(durable.topic, durable.payload);
-  if (input.markDelivered && !await input.markDelivered(durable)) {
-    throw new Error("provisioning scan terminal delivery state changed");
+}
+
+function publishRecoveryTerminal(
+  publish: (topic: string, payload: unknown) => Promise<void>,
+  terminal: ProvisioningScanTerminalEvent,
+  timeoutMs: number,
+  signal: AbortSignal
+) {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onAbort = () => finish(signal.reason instanceof Error
+      ? signal.reason
+      : new Error("provisioning scan terminal recovery disconnected"));
+    const timeout = setTimeout(
+      () => finish(new Error(`provisioning scan terminal recovery timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    void Promise.resolve()
+      .then(() => publish(terminal.topic, terminal.payload))
+      .then(() => finish(), finish);
+  });
+}
+
+function boundedRecoveryPublishTimeout(value: number) {
+  if (!Number.isInteger(value) || value < 1 || value >= PROVISIONING_SCAN_OUTBOX_LEASE_MS) {
+    throw new Error("invalid provisioning scan recovery publish timeout");
   }
+  return value;
 }
 
 export function createProvisioningScanFoundPayload(

@@ -106,6 +106,10 @@ test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () =
   assert.match(acl, /user api-service\ntopic readwrite sites\/#/);
   assert.match(acl, /user 00000000-0000-4000-8000-000000000004/);
   assert.match(acl, /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/commands\/#/);
+  assert.match(
+    acl,
+    /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/provisioning\/scan-terminal-ingested/
+  );
 });
 
 test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행하지 않는다", () => {

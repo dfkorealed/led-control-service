@@ -1,6 +1,9 @@
 import type { IConnackPacket, MqttClient } from "mqtt";
 
-export type GatewayMqttClient = Pick<MqttClient, "end" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe">;
+export type GatewayMqttClient = Pick<
+  MqttClient,
+  "connected" | "end" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe"
+>;
 type TopicHandler = (payload: Buffer, source: GatewayMqttClient) => unknown;
 type ErrorReporter = (error: unknown, context: string) => unknown;
 
@@ -69,6 +72,9 @@ export class GatewayMqttRuntime {
     this.started = true;
     this.stopping = false;
     this.addClientListeners(this.currentClient);
+    if (this.currentClient.connected && this.connectionEpoch === 0) {
+      this.handleConnect(this.currentClient, { sessionPresent: false });
+    }
   }
 
   stop() {
@@ -136,7 +142,7 @@ export class GatewayMqttRuntime {
     }
   }
 
-  private handleConnect(client: GatewayMqttClient, packet: IConnackPacket) {
+  private handleConnect(client: GatewayMqttClient, packet: Pick<IConnackPacket, "sessionPresent">) {
     if (this.currentClient !== client) return;
     const epoch = ++this.connectionEpoch;
     this.clearSubscriptionRetry();

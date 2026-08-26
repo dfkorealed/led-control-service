@@ -35,7 +35,7 @@
 - 일괄·개별 등록 요청에서 서버가 수락한 node만 선택 해제하고, `validation_failed`는 오류와 선택을 유지한다. 물리 provisioning 중인 node는 재등록할 수 없으며 이후 `failed` 또는 `reconcile_required`로 확인되면 검토 대상으로 다시 선택해 node 행에 원인을 표시한다.
 - Gateway는 여러 provision-device 명령을 FIFO로 직렬 처리해 BlueZ provisioning 작업이 겹치지 않게 한다. MQTT publish 오류 또는 provisioning failure event처럼 물리 적용 여부가 불명확하면 node를 `reconcile_required`로 전환하며 확인 없이 자동 재시도하지 않는다.
 - 등록 검색은 세션별 `pending/scanning/completed/failed` lifecycle, correlation ID와 attempt를 사용한다. 신규 검색과 retry는 `pending` session과 scan-start durable outbox를 같은 transaction에서 만들며 publisher가 lease 아래 `pending -> scanning` 전이 후 발행한다. 0건은 `completed`이며, 완료/실패/발견 이벤트는 session 행 잠금과 `ProcessedGatewayEvent` 원장 transaction 안에서 site, gateway, correlation, attempt, eventId, sequence가 현재 scan과 모두 일치할 때만 반영한다. 늦은 발견, 중복·낮은 sequence, 이전 시도 이벤트는 무시한다.
-- Gateway는 shared DFKLED UUID parser를 통과한 장치만 `scan-found` v2 topic으로 발행한다. `(sessionId, scanCorrelationId, scanAttempt)`별 0600 atomic journal은 running duplicate가 scanner를 다시 시작하지 않게 하고, terminal은 원래 eventId/sequence를 가진 동일 event로 재발행한다. restart에서 남은 running record는 새 scan 대신 정제된 failed terminal로 수렴하며, 손상·권한 오류 journal은 fail-closed 한다. journal은 terminal 24시간 보존과 최대 1,000 record를 넘지 않는다.
+- Gateway는 shared DFKLED UUID parser를 통과한 장치만 `scan-found` v2 topic으로 발행한다. `(sessionId, scanCorrelationId, scanAttempt)`별 0600 atomic journal은 running duplicate가 scanner를 다시 시작하지 않게 하고, terminal은 원래 eventId/sequence를 가진 동일 event로 재발행한다. restart에서 남은 running record는 새 scan 대신 정제된 failed terminal로 수렴하며, 손상·권한 오류 journal은 fail-closed 한다. application ACK를 받지 못한 terminal과 running은 retention·capacity eviction에서 제외하고, 이 보호 record 때문에 1,000개 한도를 채우면 새 scan을 fail-closed 한다. ACK를 받은 delivered terminal만 24시간 보존한다.
 - `POST /registration-sessions/:sessionId/scan/retry`는 terminal scan만 재시작한다. gateway별 `status=active`인 `pending/scanning` partial unique 제약으로 같은 gateway의 동시 검색을 막고, 신규·retry 충돌 모두 `gateway_scan_in_progress`를 반환한다. publisher MQTT timeout은 기본 10초로 30초 lease보다 짧으며 process crash는 lease 만료 뒤 같은 attempt를 재시도한다. timeout/reject는 backoff를 증가시키고 최대 3회 또는 5분 실패는 사용자용 고정 메시지와 함께 `failed`로 복구한다.
 - scanning 또는 pending scan은 registration session 완료를 `409 scan_session_not_terminal`로 거부한다. provisioning 전 identify API는 session site의 commission 권한과 404 경계를 확인한 뒤 `501 pre_provision_identify_unsupported`를 반환하며, 발견 node 상태를 바꾸거나 MQTT 명령을 발행하지 않는다.
 - 등록 batch transaction은 실제 provisioning publish 전에 해당 층의 `MeshControlGroup`을 선확보해 group address 소진이나 gateway/site 불일치를 미리 실패시킨다.
@@ -69,7 +69,8 @@
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
 - gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어간다. 시작 시에는 journal 추정 상태를 재발행하지 않고, 확인된 node의 AppKey/model bind/60초 publication 응답을 다시 확인·보정한 뒤 Generic OnOff, Lightness, Health 실제 상태를 조회한다.
-- Gateway provisioning scan journal은 `(sessionId, scanCorrelationId, scanAttempt)` 논리 실행을 `0600` atomic file에 보존한다. process restart 시 남은 `running`은 새 물리 scan 없이 정제된 `scan-failed` terminal로 먼저 수렴하고, MQTT command topic 구독이 준비된 connect-ready 시점에만 미전달 terminal을 site/gateway scoped v2 topic으로 직렬 발행한다. publish 실패는 다음 reconnect에서 같은 `eventId`/`sequence`로 재시도하며, 성공한 terminal은 `deliveredAt` marker로 구분해 재발행하지 않는다.
+- Gateway provisioning scan journal은 `(sessionId, scanCorrelationId, scanAttempt)` 논리 실행을 `0600` atomic file에 보존한다. process restart 시 남은 `running`은 새 물리 scan 없이 정제된 `scan-failed` terminal로 먼저 수렴한다. MQTT가 runtime listener보다 먼저 연결된 경우도 command/application ACK subscription 준비 뒤 connect recovery를 정확히 한 번 실행한다. recovery terminal publish는 기본 10초 timeout과 MQTT close cancellation을 적용하고 connection 안의 동시 drain을 하나로 직렬화하며, 실패한 drain은 다음 reconnect에서 journal을 다시 읽는다.
+- broker PUBACK만으로 terminal을 delivered 처리하지 않는다. API는 exact terminal의 `ProcessedGatewayEvent` 생성과 `ProvisioningSession` terminal 변경 transaction이 commit된 뒤 strict `acks/provisioning/scan-terminal-ingested` ACK를 발행하고, 동일 event 재전달에도 commit 원장과 terminal snapshot을 확인해 ACK를 재발행한다. Gateway는 ACK의 `eventId`, `sequence`, `sessionId`, `scanCorrelationId`, `scanAttempt`가 journal terminal과 모두 일치할 때만 `deliveredAt`을 기록한다. API offline, transaction 실패, ACK publish 실패에서는 journal을 유지한다.
 - startup resync는 4개 node 제한 queue와 busy 재시도를 사용한다. 구성 성공 뒤 같은 generation의 OnOff/Lightness pair가 오면 8초 resync `observed`로 집계하고, Health Current 미관측은 `healthPending`으로 별도 집계한다. `meshResync` health field와 구조화 log는 lighting pair가 전혀 없거나 전송이 모두 실패한 경우에만 unhealthy를 유지하며, 이후 heartbeat만으로 이를 healthy로 덮지 않는다. 늦은 Health Current publication은 pending을 회복한다. reconnect가 겹쳐도 하나의 resync만 수행하며, 응답이 없는 경우에는 offline 이벤트를 만들지 않는다.
 - BlueZ model status는 부분 관측으로 취급한다. Generic OnOff, Lightness, Health Current 실제 관측이 같은 generation의 65초 coherence window 안에 모두 모일 때만 fixture-state snapshot을 발행한다. 새 resync와 단일 model update는 새 generation을 시작하므로 Health-only, 역순, 누락 또는 stale counterpart가 밝기 `0`, power-off, online 상태로 DB를 오염시키지 않는다.
 - BlueZ 자발 status는 확인된 primary unicast address가 fixture mapping과 일치할 때만 처리한다. Health Current Fault(`0x04`)만 operational fault로 반영하며, Current를 실제 관측하기 전에는 online/fault snapshot을 확정하지 않는다. Registered Fault(`0x05`)와 no-fault byte `0x00`는 장애 상태를 만들지 않는다. gateway는 assignment의 site/gateway 범위를 payload에 주입해 MQTT v2 fixture-state로 발행하고, unknown address는 폐기한다.
@@ -108,7 +109,7 @@
 - 자사 UUID 검색, batch 등록, 실제 Health Current 수집을 포함한 Raspberry Pi/ESP32-H2 실장비 HIL은 아직 실행하지 않았다. 자동 route fixture 통과를 검색·등록·상태 수집의 실기 완료로 간주하지 않는다.
 - 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
 - 등록 패널은 1.5초 registration session polling으로 provisioning 결과를 반영한다. 실시간 push와 단계별 진행률은 명시적 보류 범위이며, `reconcile_required` 장비의 현장 확인·복구 workflow는 후속 구현이 필요하다.
-- scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker PUBACK 유실 뒤 outbox replay/journal terminal recovery drain, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
+- scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
 
@@ -146,6 +147,8 @@
 - `apps/gateway/src/identity/certificate-rotation.ts`
 - `apps/gateway/src/health/appliance-health.ts`
 - `apps/gateway/docker/healthcheck.sh`
+- `infra/mosquitto.acl.example`
+- `scripts/dev-runtime.mjs`
 - `packages/shared/src/schemas.ts`
 - `packages/shared/src/product-identity.ts`
 - `packages/shared/src/mqtt.ts`

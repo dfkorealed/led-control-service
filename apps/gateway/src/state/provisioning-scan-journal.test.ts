@@ -29,6 +29,7 @@ class FakeMqttClient extends EventEmitter {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -52,19 +53,28 @@ describe("ProvisioningScanJournal", () => {
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
-  it("does not replay a persisted terminal after a successful delivery", async () => {
+  it("does not replay a persisted terminal after application acknowledgement", async () => {
     const path = await journalPath();
     const firstPublish = vi.fn().mockResolvedValue(undefined);
     const envelope = {
       eventId: "66666666-6666-4666-8666-666666666666", sequence: 7, occurredAt: "2026-08-26T00:00:01.000Z"
     };
 
+    const firstJournal = new ProvisioningScanJournal(path);
     await handleDurableProvisioningScan({
       adapter: { scan: vi.fn().mockResolvedValue([]) },
-      journal: new ProvisioningScanJournal(path),
+      journal: firstJournal,
       command,
       nextEnvelope: vi.fn().mockResolvedValue(envelope),
       publish: firstPublish
+    });
+    await firstJournal.acknowledgeTerminal({
+      eventId: envelope.eventId,
+      sequence: envelope.sequence,
+      sessionId: command.sessionId,
+      scanCorrelationId: command.scanCorrelationId,
+      scanAttempt: command.scanAttempt,
+      ingestedAt: "2026-08-26T00:00:02.000Z"
     });
 
     const replayPublish = vi.fn().mockResolvedValue(undefined);
@@ -80,6 +90,46 @@ describe("ProvisioningScanJournal", () => {
     expect(replayScanner.scan).not.toHaveBeenCalled();
     expect(replayPublish).not.toHaveBeenCalled();
     expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps a PUBACKed terminal pending until an exact application acknowledgement arrives", async () => {
+    const journal = new ProvisioningScanJournal(await journalPath());
+    await journal.begin(command);
+    const terminal = {
+      topic: `sites/${command.siteId}/gateways/${command.gatewayId}/events/provisioning/scan-completed`,
+      payload: createProvisioningScanCompletedPayload(command, 0, {
+        eventId: "66666666-6666-4666-8666-666666666666",
+        sequence: 7,
+        occurredAt: "2026-08-26T00:00:01.000Z"
+      })
+    };
+    await journal.complete(command, terminal);
+    const recovery = new ProvisioningScanRecoveryPublisher(journal);
+
+    await recovery.drain(vi.fn().mockResolvedValue(undefined));
+    expect(await journal.pendingTerminals()).toEqual([terminal]);
+
+    const acknowledgement = {
+      eventId: terminal.payload.eventId,
+      sequence: terminal.payload.sequence,
+      sessionId: terminal.payload.sessionId,
+      scanCorrelationId: terminal.payload.scanCorrelationId,
+      scanAttempt: terminal.payload.scanAttempt,
+      ingestedAt: "2026-08-26T00:00:02.000Z"
+    };
+    const mismatchedAcknowledgements = [
+      { ...acknowledgement, eventId: "77777777-7777-4777-8777-777777777777" },
+      { ...acknowledgement, sequence: acknowledgement.sequence + 1 },
+      { ...acknowledgement, sessionId: "77777777-7777-4777-8777-777777777777" },
+      { ...acknowledgement, scanCorrelationId: "77777777-7777-4777-8777-777777777777" },
+      { ...acknowledgement, scanAttempt: acknowledgement.scanAttempt + 1 }
+    ];
+    for (const mismatched of mismatchedAcknowledgements) {
+      await expect(journal.acknowledgeTerminal(mismatched)).resolves.toBe(false);
+    }
+    expect(await journal.pendingTerminals()).toEqual([terminal]);
+    await expect(journal.acknowledgeTerminal(acknowledgement)).resolves.toBe(true);
+    expect(await journal.pendingTerminals()).toEqual([]);
   });
 
   it("converts a persisted running scan before connection and publishes its sanitized failure only when MQTT is ready", async () => {
@@ -128,7 +178,7 @@ describe("ProvisioningScanJournal", () => {
     await runtime.stop();
   });
 
-  it("replays an undelivered terminal on reconnect with its original eventId and sequence, serializes drains, and marks the success", async () => {
+  it("replays an undelivered terminal on reconnect with its original eventId and sequence and serializes drains", async () => {
     const path = await journalPath();
     const first = new ProvisioningScanJournal(path);
     await first.begin(command);
@@ -171,11 +221,59 @@ describe("ProvisioningScanJournal", () => {
     );
 
     release();
-    await vi.waitFor(async () => expect(await journal.pendingTerminals()).toEqual([]));
+    await vi.waitFor(async () => expect(await journal.pendingTerminals()).toHaveLength(1));
+    await journal.acknowledgeTerminal({
+      eventId: envelope.eventId,
+      sequence: envelope.sequence,
+      sessionId: command.sessionId,
+      scanCorrelationId: command.scanCorrelationId,
+      scanAttempt: command.scanAttempt,
+      ingestedAt: "2026-08-26T00:00:02.000Z"
+    });
     client.emit("connect", { sessionPresent: true });
     await Promise.resolve();
     expect(publish).toHaveBeenCalledTimes(2);
     await runtime.stop();
+  });
+
+  it("rejects a stalled drain on timeout and starts a fresh serialized drain on reconnect", async () => {
+    vi.useFakeTimers();
+    const journal = await journalWithPendingTerminal();
+    const recovery = new ProvisioningScanRecoveryPublisher(journal, { publishTimeoutMs: 100 });
+    const stalledPublish = vi.fn(() => new Promise<void>(() => undefined));
+
+    const stalled = recovery.drain(stalledPublish);
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(stalled).rejects.toThrow("timed out");
+
+    let release!: () => void;
+    const publish = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));
+    const first = recovery.drain(publish);
+    const concurrent = recovery.drain(publish);
+    expect(concurrent).toBe(first);
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+    release();
+    await expect(first).resolves.toBeUndefined();
+  });
+
+  it("rejects a recovery publish timeout that reaches the 30-second scan outbox lease", async () => {
+    const journal = new ProvisioningScanJournal(await journalPath());
+
+    expect(() => new ProvisioningScanRecoveryPublisher(journal, { publishTimeoutMs: 30_000 }))
+      .toThrow("invalid provisioning scan recovery publish timeout");
+  });
+
+  it("cancels a stalled drain on disconnect so reconnect uses a fresh drain", async () => {
+    const journal = await journalWithPendingTerminal();
+    const recovery = new ProvisioningScanRecoveryPublisher(journal, { publishTimeoutMs: 10_000 });
+    const stalled = recovery.drain(vi.fn(() => new Promise<void>(() => undefined)));
+
+    recovery.disconnect();
+    await expect(stalled).rejects.toThrow("disconnected");
+
+    const publish = vi.fn().mockResolvedValue(undefined);
+    await expect(recovery.drain(publish)).resolves.toBeUndefined();
+    expect(publish).toHaveBeenCalledTimes(1);
   });
 
   it("converges an interrupted running scan to one sanitized terminal without scanning after restart", async () => {
@@ -219,7 +317,7 @@ describe("ProvisioningScanJournal", () => {
     expect(scanner.scan).not.toHaveBeenCalled();
   });
 
-  it("retains only the configured number of terminal records while never evicting a running scan", async () => {
+  it("fails closed when an undelivered terminal consumes the configured capacity", async () => {
     const path = await journalPath();
     const journal = new ProvisioningScanJournal(path, { maxRecords: 1 });
     const first = await journal.begin(command);
@@ -237,11 +335,54 @@ describe("ProvisioningScanJournal", () => {
     });
     const nextCommand = { ...command, scanCorrelationId: "77777777-7777-4777-8777-777777777777", scanAttempt: 2 };
 
-    await expect(journal.begin(nextCommand)).resolves.toEqual({ kind: "new" });
-    await expect(journal.begin({ ...nextCommand, scanCorrelationId: "88888888-8888-4888-8888-888888888888", scanAttempt: 3 }))
+    await expect(journal.begin(nextCommand))
       .rejects.toThrow("provisioning scan journal exceeds the supported limit (1)");
   });
+
+  it("retains undelivered terminals past 24 hours and prunes only delivered terminals", async () => {
+    let now = new Date("2026-08-26T00:00:00.000Z");
+    const journal = new ProvisioningScanJournal(await journalPath(), { now: () => now, retentionMs: 24 * 60 * 60 * 1000 });
+    await journal.begin(command);
+    const terminal = {
+      topic: `sites/${command.siteId}/gateways/${command.gatewayId}/events/provisioning/scan-completed`,
+      payload: createProvisioningScanCompletedPayload(command, 0, {
+        eventId: "66666666-6666-4666-8666-666666666666",
+        sequence: 7,
+        occurredAt: "2026-08-26T00:00:01.000Z"
+      })
+    };
+    await journal.complete(command, terminal);
+
+    now = new Date("2026-08-27T00:00:00.001Z");
+    expect(await journal.pendingTerminals()).toEqual([terminal]);
+    await journal.acknowledgeTerminal({
+      eventId: terminal.payload.eventId,
+      sequence: terminal.payload.sequence,
+      sessionId: terminal.payload.sessionId,
+      scanCorrelationId: terminal.payload.scanCorrelationId,
+      scanAttempt: terminal.payload.scanAttempt,
+      ingestedAt: now.toISOString()
+    });
+    now = new Date("2026-08-28T00:00:00.002Z");
+
+    const nextCommand = { ...command, scanCorrelationId: "77777777-7777-4777-8777-777777777777", scanAttempt: 2 };
+    await expect(journal.begin(nextCommand)).resolves.toEqual({ kind: "new" });
+  });
 });
+
+async function journalWithPendingTerminal() {
+  const journal = new ProvisioningScanJournal(await journalPath());
+  await journal.begin(command);
+  await journal.complete(command, {
+    topic: `sites/${command.siteId}/gateways/${command.gatewayId}/events/provisioning/scan-completed`,
+    payload: createProvisioningScanCompletedPayload(command, 0, {
+      eventId: "66666666-6666-4666-8666-666666666666",
+      sequence: 7,
+      occurredAt: "2026-08-26T00:00:01.000Z"
+    })
+  });
+  return journal;
+}
 
 async function journalPath() {
   const directory = await mkdtemp(join(tmpdir(), "provisioning-scan-journal-"));

@@ -14,6 +14,8 @@ export const mqttTopicsV2 = {
   deviceStatusAck: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/acks/device-status`,
   stateIngestedAck: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`,
+  provisioningScanTerminalIngestedAck: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
   provisioningScanFound: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`,
   provisioningScanCompleted: (siteId: string, gatewayId: string) =>
@@ -172,6 +174,16 @@ export const applicationStateIngestedAckV2Schema = z.object({
   ingestedAt: z.string().datetime()
 }).strict();
 
+// Broker PUBACK only confirms transport; this acknowledgement confirms the terminal transaction committed.
+export const applicationProvisioningScanTerminalIngestedAckV2Schema = z.object({
+  eventId: z.string().uuid(),
+  sequence: z.number().int().nonnegative(),
+  sessionId: z.string().uuid(),
+  scanCorrelationId: z.string().uuid(),
+  scanAttempt: z.number().int().positive(),
+  ingestedAt: z.string().datetime()
+}).strict();
+
 export const healthFaultCodesSchema = z.array(z.number().int().min(0).max(0xff)).max(0xff);
 
 export const fixtureHealthSnapshotSchema = z.object({
@@ -214,6 +226,9 @@ export type GatewayDimmingCommandDraftV2 = z.infer<typeof gatewayDimmingCommandD
 export type AcceptanceAckV2 = z.infer<typeof acceptanceAckV2Schema>;
 export type DeviceStatusAckV2 = z.infer<typeof deviceStatusAckV2Schema>;
 export type ApplicationStateIngestedAckV2 = z.infer<typeof applicationStateIngestedAckV2Schema>;
+export type ApplicationProvisioningScanTerminalIngestedAckV2 = z.infer<
+  typeof applicationProvisioningScanTerminalIngestedAckV2Schema
+>;
 export type FixtureStateV2 = z.infer<typeof fixtureStateV2Schema>;
 export type GatewayHeartbeatV2 = z.infer<typeof gatewayHeartbeatV2Schema>;
 export type MeshGroupResyncRequestV2 = z.infer<typeof meshGroupResyncRequestV2Schema>;

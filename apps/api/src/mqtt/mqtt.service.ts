@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import {
   acceptanceAckV2Schema,
+  applicationProvisioningScanTerminalIngestedAckV2Schema,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
   GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
@@ -253,26 +254,33 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         ? provisioningScanCompletedSchema.parse(JSON.parse(payload.toString()))
         : provisioningScanFailedSchema.parse(JSON.parse(payload.toString()));
       if (event.siteId !== topicScope.siteId || event.gatewayId !== topicScope.gatewayId) return;
+      const eventType = "acceptedNodeCount" in event
+        ? "provisioning_scan_completed" as const
+        : "provisioning_scan_failed" as const;
+      let committed: boolean;
       try {
-        await this.prisma.$transaction(async (tx) => {
-          const session = await this.acceptCurrentScanEvent(
-            tx,
-            event,
-            topicScope,
-            "acceptedNodeCount" in event ? "provisioning_scan_completed" : "provisioning_scan_failed"
-          );
-          if (!session) return;
-          await tx.provisioningSession.update({
-          where: { id: session.id },
-          data: "acceptedNodeCount" in event
-            ? { scanStatus: "completed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: null, scanFailureMessage: null }
-            : { scanStatus: "failed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: event.code, scanFailureMessage: event.message }
-          });
-        });
+        committed = await this.prisma.$transaction((tx) =>
+          this.applyProvisioningScanTerminal(tx, event, topicScope, eventType)
+        );
       } catch (error) {
-        if (isUniqueConstraintError(error)) return;
-        throw error;
+        if (!isUniqueConstraintError(error)) throw error;
+        committed = await this.prisma.$transaction((tx) =>
+          this.applyProvisioningScanTerminal(tx, event, topicScope, eventType)
+        );
       }
+      if (!committed) return;
+      const acknowledgement = applicationProvisioningScanTerminalIngestedAckV2Schema.parse({
+        eventId: event.eventId,
+        sequence: event.sequence,
+        sessionId: event.sessionId,
+        scanCorrelationId: event.scanCorrelationId,
+        scanAttempt: event.scanAttempt,
+        ingestedAt: new Date().toISOString()
+      });
+      await this.publishTopic(
+        mqttTopicsV2.provisioningScanTerminalIngestedAck(event.siteId, event.gatewayId),
+        acknowledgement
+      );
       return;
     }
 
@@ -382,6 +390,72 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       }
     });
     return session;
+  }
+
+  private async applyProvisioningScanTerminal(
+    tx: Prisma.TransactionClient,
+    event: ReturnType<typeof provisioningScanCompletedSchema.parse> | ReturnType<typeof provisioningScanFailedSchema.parse>,
+    topicScope: { siteId: string; gatewayId: string },
+    eventType: "provisioning_scan_completed" | "provisioning_scan_failed"
+  ) {
+    await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${event.sessionId} FOR UPDATE`;
+    const session = await tx.provisioningSession.findUnique({ where: { id: event.sessionId } });
+    if (!session ||
+      event.siteId !== topicScope.siteId ||
+      event.gatewayId !== topicScope.gatewayId ||
+      session.siteId !== event.siteId ||
+      session.gatewayId !== event.gatewayId ||
+      session.scanCorrelationId !== event.scanCorrelationId ||
+      session.scanAttempt !== event.scanAttempt
+    ) return false;
+
+    const expectedStatus = "acceptedNodeCount" in event ? "completed" : "failed";
+    if (session.scanStatus === expectedStatus) {
+      const matchesTerminalSnapshot = session.scanCompletedAt?.getTime() === new Date(event.occurredAt).getTime() &&
+        ("acceptedNodeCount" in event
+          ? session.scanFailureCode === null && session.scanFailureMessage === null
+          : session.scanFailureCode === event.code && session.scanFailureMessage === event.message);
+      if (!matchesTerminalSnapshot) return false;
+      const processed = await tx.processedGatewayEvent.findFirst({
+        where: {
+          eventId: event.eventId,
+          gatewayId: event.gatewayId,
+          sequence: BigInt(event.sequence),
+          eventType,
+          occurredAt: new Date(event.occurredAt)
+        },
+        select: { eventId: true }
+      });
+      return Boolean(processed);
+    }
+    if (session.status !== "active" || session.scanStatus !== "scanning") return false;
+
+    const previous = await tx.processedGatewayEvent.findFirst({
+      where: { gatewayId: event.gatewayId, eventType, sequence: { gte: BigInt(event.sequence) } },
+      select: { eventId: true }
+    });
+    if (previous) return false;
+    await tx.processedGatewayEvent.create({
+      data: {
+        eventId: event.eventId,
+        gatewayId: event.gatewayId,
+        sequence: BigInt(event.sequence),
+        eventType,
+        occurredAt: new Date(event.occurredAt)
+      }
+    });
+    await tx.provisioningSession.update({
+      where: { id: session.id },
+      data: "acceptedNodeCount" in event
+        ? { scanStatus: "completed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: null, scanFailureMessage: null }
+        : {
+            scanStatus: "failed",
+            scanCompletedAt: new Date(event.occurredAt),
+            scanFailureCode: event.code,
+            scanFailureMessage: event.message
+          }
+    });
+    return true;
   }
 
   private async storeAcceptanceAck(ack: ReturnType<typeof acceptanceAckV2Schema.parse>) {

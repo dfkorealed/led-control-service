@@ -212,7 +212,9 @@ async function main() {
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device")]: handleProvisionDevicePayload,
       [`sites/${siteId}/gateways/${gatewayId}/commands/mesh-group/subscription-sync`]: (payload, source) => groupSubscriptionHandler.handle(payload, source),
       [mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)]: (payload) =>
-        groupResyncPublisher.acknowledge(JSON.parse(payload.toString()))
+        groupResyncPublisher.acknowledge(JSON.parse(payload.toString())),
+      [mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId)]: (payload) =>
+        provisioningScanJournal.acknowledgeTerminal(JSON.parse(payload.toString()))
     },
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
@@ -221,7 +223,10 @@ async function main() {
       await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
       await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
     },
-    onClose: () => health.unhealthy("mqtt_disconnected"),
+    onClose: () => {
+      provisioningScanRecovery.disconnect();
+      return health.unhealthy("mqtt_disconnected");
+    },
     onError: () => health.unhealthy("mqtt_error"),
     onRuntimeError: reportGatewayError
   });
@@ -353,7 +358,8 @@ export function subscribeGatewayCommands(
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/identify-device"),
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/provision-device"),
         mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId),
-        mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId)
+        mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId),
+        mqttTopicsV2.provisioningScanTerminalIngestedAck(assignment.siteId, assignment.gatewayId)
       ],
       { qos: 1 },
       (error) => (error ? reject(error) : resolve())
