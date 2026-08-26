@@ -35,11 +35,11 @@
 
 **Produces:** scan lifecycle event, desired group reconciliation, state-ingested ACK, command `clientRequestId`, energy·group lifecycle 모델.
 
-- [ ] 공유 schema에서 scan correlation, found/completed/failed와 application ACK 실패 테스트를 작성한다.
-- [ ] Prisma schema 검사에서 lifecycle·energy·멱등성 제약 부재로 실패를 확인한다.
-- [ ] Spec의 필드, enum, unique/index/check/trigger와 legacy backfill migration을 구현한다.
-- [ ] `pnpm --filter @led-control/shared test && pnpm --filter @led-control/api prisma:generate`를 실행한다.
-- [ ] `docs/database-schema.md`를 갱신하고 `feat(shared): define menu completion contracts`로 커밋한다.
+- [x] 공유 schema에서 scan correlation, found/completed/failed와 application ACK 실패 테스트를 작성한다.
+- [x] Prisma schema 검사에서 lifecycle·energy·멱등성 제약 부재로 실패를 확인한다.
+- [x] Spec의 필드, enum, unique/index/check/trigger와 legacy backfill migration을 구현한다.
+- [x] `pnpm --filter @led-control/shared test && pnpm --filter @led-control/api prisma:generate`를 실행한다.
+- [x] `docs/database-schema.md`를 갱신하고 `feat(shared): define menu completion contracts`로 커밋한다.
 
 ### Task 2: 검색 lifecycle API와 Gateway 계약
 
