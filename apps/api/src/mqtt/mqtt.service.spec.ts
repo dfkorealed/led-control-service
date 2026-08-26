@@ -1089,7 +1089,7 @@ describe("MqttService", () => {
     expect(prisma.fixture.updateMany).not.toHaveBeenCalled();
   });
 
-  it("stores unprovisioned device discovery events", async () => {
+  it("stores current scan identity for create and same-device update despite gateway clock skew", async () => {
     const prisma = {
       fixture: { update: jest.fn() },
       command: { update: jest.fn() },
@@ -1101,7 +1101,7 @@ describe("MqttService", () => {
           status: "active",
           scanStatus: "scanning",
           scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          scanAttempt: 1
+          scanAttempt: 2
         })
       },
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
@@ -1119,12 +1119,12 @@ describe("MqttService", () => {
         JSON.stringify({
           sessionId: "11111111-1111-4111-8111-111111111111",
           scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-          scanAttempt: 1,
+          scanAttempt: 2,
           siteId: "00000000-0000-4000-8000-000000000003",
           gatewayId: "00000000-0000-4000-8000-000000000004",
           eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
           sequence: 1,
-          occurredAt: "2026-07-01T00:00:01.000Z",
+          occurredAt: "2026-06-30T23:59:01.000Z",
           deviceUuid: "esp32h2-b2-001",
           serialNumber: "LC-B2-001",
           rssi: -54,
@@ -1148,13 +1148,17 @@ describe("MqttService", () => {
         rssi: -54,
         oobCapability: "static-oob",
         firmwareVersion: "mock-node-0.1.0",
-        discoveredAt: new Date("2026-07-01T00:00:01.000Z")
+        scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        scanAttempt: 2,
+        discoveredAt: new Date("2026-06-30T23:59:01.000Z")
       },
       update: {
         rssi: -54,
         oobCapability: "static-oob",
         firmwareVersion: "mock-node-0.1.0",
-        discoveredAt: new Date("2026-07-01T00:00:01.000Z"),
+        scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        scanAttempt: 2,
+        discoveredAt: new Date("2026-06-30T23:59:01.000Z"),
         errorMessage: null
       }
     });

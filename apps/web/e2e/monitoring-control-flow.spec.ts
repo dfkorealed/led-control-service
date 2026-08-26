@@ -88,7 +88,9 @@ const discoveredNode = {
   identifyState: "idle",
   meshAddress: null,
   errorMessage: null,
-  discoveredAt: "2026-08-26T00:02:01.000Z"
+  scanCorrelationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  scanAttempt: 2,
+  discoveredAt: "2026-08-26T00:01:59.000Z"
 };
 
 async function installBrowserContractFixture(page: Parameters<typeof installSettingsApiRoutes>[0]) {
@@ -145,6 +147,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     const initial = registrationSession("completed", null);
     const pending = {
       ...registrationSession("pending", null),
+      scanCorrelationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       scanAttempt: 2,
       scanStartedAt: null,
       scanCompletedAt: null,

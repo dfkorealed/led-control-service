@@ -216,28 +216,32 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           const session = await this.acceptCurrentScanEvent(tx, node, topicScope, "provisioning_scan_found");
           if (!session) return;
           await tx.discoveredMeshNode.upsert({
-          where: {
-            sessionId_deviceUuid: {
+            where: {
+              sessionId_deviceUuid: {
+                sessionId: node.sessionId,
+                deviceUuid: node.deviceUuid
+              }
+            },
+            create: {
               sessionId: node.sessionId,
-              deviceUuid: node.deviceUuid
+              deviceUuid: node.deviceUuid,
+              serialNumber: node.serialNumber,
+              rssi: node.rssi,
+              oobCapability: node.oobCapability,
+              firmwareVersion: node.firmwareVersion,
+              scanCorrelationId: node.scanCorrelationId,
+              scanAttempt: node.scanAttempt,
+              discoveredAt: new Date(node.occurredAt)
+            },
+            update: {
+              rssi: node.rssi,
+              oobCapability: node.oobCapability,
+              firmwareVersion: node.firmwareVersion,
+              scanCorrelationId: node.scanCorrelationId,
+              scanAttempt: node.scanAttempt,
+              discoveredAt: new Date(node.occurredAt),
+              errorMessage: null
             }
-          },
-          create: {
-            sessionId: node.sessionId,
-            deviceUuid: node.deviceUuid,
-            serialNumber: node.serialNumber,
-            rssi: node.rssi,
-            oobCapability: node.oobCapability,
-            firmwareVersion: node.firmwareVersion,
-            discoveredAt: new Date(node.occurredAt)
-          },
-          update: {
-            rssi: node.rssi,
-            oobCapability: node.oobCapability,
-            firmwareVersion: node.firmwareVersion,
-            discoveredAt: new Date(node.occurredAt),
-            errorMessage: null
-          }
           });
         });
       } catch (error) {

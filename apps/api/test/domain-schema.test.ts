@@ -11,6 +11,7 @@ const pendingDeviceCertificateStatusMigrationSuffix = "_add_pending_device_certi
 const pendingDeviceCertificateLifecycleMigrationSuffix = "_enforce_pending_device_certificate_lifecycle";
 const roleRevisionMigrationSuffix = "simplify_roles_and_floor_revisions";
 const menuCompletionFoundationMigrationSuffix = "menu_completion_foundation";
+const discoveredNodeScanIdentityMigrationSuffix = "add_discovered_node_scan_identity";
 
 const findPkiMigrationDirectory = (directoryNames: string[]) => {
   const matches = directoryNames.filter((name) => name.endsWith(pkiMigrationSuffix));
@@ -81,6 +82,18 @@ const prismaStorageFields = (schema: string): PrismaStorageField[] =>
   });
 
 describe("Prisma domain schema", () => {
+  it("adds nullable scan identity to discovered nodes through a new migration", () => {
+    const schema = readSchema();
+    const migration = readMigrationBySuffix(discoveredNodeScanIdentityMigrationSuffix);
+    const discoveredNode = prismaModelBody(schema, "DiscoveredMeshNode");
+
+    expect(discoveredNode).toMatch(/scanCorrelationId\s+String\?/);
+    expect(discoveredNode).toMatch(/scanAttempt\s+Int\?/);
+    expect(migration).toMatch(/ALTER TABLE "DiscoveredMeshNode"[\s\S]*ADD COLUMN "scanCorrelationId" TEXT/);
+    expect(migration).toMatch(/ADD COLUMN "scanAttempt" INTEGER/);
+    expect(migration).not.toMatch(/"scan(?:CorrelationId|Attempt)"[^,;]*NOT NULL/);
+  });
+
   it("declares the production tenant role and revision contract", () => {
     const schema = readSchema();
 

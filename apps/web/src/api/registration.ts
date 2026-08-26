@@ -16,6 +16,8 @@ export interface DiscoveredRegistrationNode {
   meshAddress: string | null;
   errorMessage: string | null;
   pendingFixtureSize?: number | null;
+  scanCorrelationId: string | null;
+  scanAttempt: number | null;
   discoveredAt: string;
 }
 

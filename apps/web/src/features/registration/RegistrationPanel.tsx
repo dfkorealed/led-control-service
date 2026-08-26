@@ -500,13 +500,12 @@ export function shouldPollRegistrationSession(session: RegistrationSession | nul
 }
 
 function currentScanNodes(session: RegistrationSession) {
-  if (!session.scanStartedAt) return [];
-  const scanStartedAt = Date.parse(session.scanStartedAt);
-  if (!Number.isFinite(scanStartedAt)) return [];
-  return (session.discoveredNodes ?? []).filter((node) => {
-    const discoveredAt = Date.parse(node.discoveredAt);
-    return Number.isFinite(discoveredAt) && discoveredAt >= scanStartedAt;
-  });
+  if (!session.scanCorrelationId) return [];
+  return (session.discoveredNodes ?? []).filter((node) =>
+    node.scanCorrelationId !== null
+    && node.scanAttempt !== null
+    && node.scanCorrelationId === session.scanCorrelationId
+    && node.scanAttempt === session.scanAttempt);
 }
 
 function scanStatusLabel(session: RegistrationSession | null) {

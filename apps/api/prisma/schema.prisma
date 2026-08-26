@@ -740,6 +740,8 @@ model DiscoveredMeshNode {
   rssi               Int
   oobCapability      String
   firmwareVersion    String
+  scanCorrelationId  String?
+  scanAttempt        Int?
   status             DiscoveredNodeStatus @default(discovered)
   identifyState      String               @default("idle")
   meshAddress        String?

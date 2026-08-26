@@ -944,6 +944,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `rssi` | `Int` | 예 |  | 발견 시 RSSI |
 | `oobCapability` | `String` | 예 |  | OOB capability |
 | `firmwareVersion` | `String` | 예 |  | 펌웨어 버전 |
+| `scanCorrelationId` | `String?` | 아니오 |  | API가 검증한 발견 이벤트의 scan correlation ID. legacy row는 `null` |
+| `scanAttempt` | `Int?` | 아니오 |  | API가 검증한 발견 이벤트의 scan 재시도 번호. legacy row는 `null` |
 | `status` | `DiscoveredNodeStatus` | 예 | `discovered` | 발견 노드 상태 |
 | `identifyState` | `String` | 예 | `idle` | 점멸 확인 상태 |
 | `meshAddress` | `String?` | 아니오 |  | 할당 예정 또는 할당된 mesh address |
@@ -960,6 +962,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 제약:
 
 - 복합 Unique: `sessionId`, `deviceUuid`
+- `scanCorrelationId`, `scanAttempt`는 새 migration에서 nullable로 추가한다. 신뢰할 수 있는 attempt identity가 없는 기존 row는 backfill하지 않으며 Web 후보 판정에서 fail-closed로 제외한다.
+- 같은 세션의 동일 `deviceUuid`가 다음 scan attempt에서 다시 발견되면 upsert update가 두 identity 필드를 현재 검증된 event 값으로 덮어쓴다. `discoveredAt`은 gateway 발생 시각이며 attempt 경계 판정에 사용하지 않는다.
 
 등록 동시성 및 복구 계약:
 
@@ -1090,7 +1094,7 @@ ProvisioningSession pending + ProvisioningScanOutbox 생성 transaction
 → leased publisher가 pending -> scanning 전이
 → gateway scan command 발행
 → gateway-scoped v2 `provisioning/scan-found` event
-→ DiscoveredMeshNode upsert
+→ 검증된 scanCorrelationId/scanAttempt와 함께 DiscoveredMeshNode upsert
 → identify 확인
 → register-batch 요청에서 node별 검증
 → 유효 node의 이름 순번·Mesh 주소 원자 예약과 pending fixture 정보 저장

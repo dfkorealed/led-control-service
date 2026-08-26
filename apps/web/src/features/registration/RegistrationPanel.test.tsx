@@ -164,11 +164,18 @@ describe("RegistrationPanel", () => {
   it("다시 검색 요청 즉시 이전 후보와 선택 및 개별 초안을 비운다", async () => {
     const retryRequest = deferred<typeof mockRegistrationSession>();
     const terminal = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
+    const retryCorrelationId = "55555555-5555-4555-8555-555555555555";
     const rediscovered = {
       ...terminal,
+      scanCorrelationId: retryCorrelationId,
       scanAttempt: 2,
       scanStartedAt: "2026-07-01T00:01:00.000Z",
-      discoveredNodes: [{ ...terminal.discoveredNodes[0], discoveredAt: "2026-07-01T00:01:01.000Z" }]
+      discoveredNodes: [{
+        ...terminal.discoveredNodes[0],
+        scanCorrelationId: retryCorrelationId,
+        scanAttempt: 2,
+        discoveredAt: "2026-07-01T00:01:01.000Z"
+      }]
     };
     createSessionMock.mockResolvedValue(terminal);
     getSessionMock.mockResolvedValue(terminal);
@@ -191,12 +198,14 @@ describe("RegistrationPanel", () => {
     expect(screen.getByLabelText("조명 1 이름")).toHaveValue("");
   });
 
-  it("새 attempt가 completed 되기 전에는 등록을 막고 completed 결과의 stale 후보를 제외한다", async () => {
-    const oldNodes = mockRegistrationSession.discoveredNodes.slice(0, 2);
+  it("새 attempt 완료 전 등록을 막고 wall clock 대신 exact identity로 후보를 고른다", async () => {
+    const oldNodes = mockRegistrationSession.discoveredNodes.slice(0, 3);
     const terminal = completedSession(oldNodes);
+    const currentCorrelationId = "55555555-5555-4555-8555-555555555555";
     const pending = {
       ...terminal,
       scanStatus: "pending" as const,
+      scanCorrelationId: currentCorrelationId,
       scanAttempt: 2,
       scanStartedAt: null,
       scanCompletedAt: null
@@ -215,14 +224,26 @@ describe("RegistrationPanel", () => {
       scanStartedAt: "2026-07-01T00:01:00.000Z",
       scanCompletedAt: "2026-07-01T00:01:10.000Z",
       discoveredNodes: [
-        oldNodes[0],
-        { ...oldNodes[1], discoveredAt: "2026-07-01T00:01:01.000Z" }
+        { ...oldNodes[0], discoveredAt: "2026-07-01T00:02:00.000Z" },
+        {
+          ...oldNodes[1],
+          scanCorrelationId: currentCorrelationId,
+          scanAttempt: 2,
+          discoveredAt: "2026-07-01T00:00:59.000Z"
+        },
+        {
+          ...oldNodes[2],
+          scanCorrelationId: null,
+          scanAttempt: null,
+          discoveredAt: "2026-07-01T00:02:01.000Z"
+        }
       ]
     };
     queryClient.setQueryData(["registration-session", terminal.id], completed);
 
     expect(await screen.findByText(oldNodes[1].serialNumber)).toBeInTheDocument();
     expect(screen.queryByText(oldNodes[0].serialNumber)).not.toBeInTheDocument();
+    expect(screen.queryByText(oldNodes[2].serialNumber)).not.toBeInTheDocument();
     expect(screen.getByLabelText("조명 1 선택")).toBeEnabled();
   });
 
