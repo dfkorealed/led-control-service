@@ -92,12 +92,12 @@
 
 **Produces:** 완료·0건·실패·재검색 UI, identify 제거, 등록 query invalidation, 지도 오류·재시도.
 
-- [ ] 등록·지도 상태 단위 테스트와 Playwright 시나리오를 먼저 실패시킨다.
-- [ ] React Query polling 종료·재시작과 invalidation을 구현한다.
-- [ ] 지도 오류와 이전 snapshot 유지, 재시도 UI를 구현한다.
-- [ ] Web test/typecheck/build를 실행한다.
+- [x] 등록·지도 상태 단위 테스트와 Playwright 시나리오를 먼저 실패시킨다.
+- [x] React Query polling 종료·재시작과 invalidation을 구현한다.
+- [x] 지도 오류와 이전 snapshot 유지, 재시도 UI를 구현한다.
+- [x] Web test/typecheck/build를 실행한다.
 - [ ] 로컬 API·DB·Web을 띄우고 Chromium에서 scan 0건, 실패, 성공 등록, 지도 오류 복구를 QA한다.
-- [ ] 문서와 증거를 갱신하고 `feat(web): finish monitoring registration states`로 커밋한다.
+- [x] 문서와 증거를 갱신하고 `feat(web): finish monitoring registration states`로 커밋한다.
 
 ### Task 4: 저장 구역 CRUD와 desired membership
 
