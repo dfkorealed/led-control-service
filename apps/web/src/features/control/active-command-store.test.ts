@@ -2,12 +2,24 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   activeCommandStorageKey,
   clearActiveCommandId,
+  loadActiveCommandRequest,
   loadActiveCommandId,
+  saveActiveCommandRequest,
   saveActiveCommandId
 } from "./active-command-store";
 
 const COMMAND_ID = "00000000-0000-4000-8000-000000000001";
 const OTHER_COMMAND_ID = "00000000-0000-4000-8000-000000000002";
+const CLIENT_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
+const REQUEST = {
+  siteId: "00000000-0000-4000-8000-000000000004",
+  clientRequestId: CLIENT_REQUEST_ID,
+  target: {
+    type: "fixtures" as const,
+    fixtureIds: ["00000000-0000-4000-8000-000000000006", "00000000-0000-4000-8000-000000000005"]
+  },
+  brightness: 30
+};
 
 describe("active command store", () => {
   beforeEach(() => {
@@ -19,6 +31,29 @@ describe("active command store", () => {
 
     expect(loadActiveCommandId("site-a")).toBe(COMMAND_ID);
     expect(sessionStorage.getItem(activeCommandStorageKey("site-a"))).toBe(JSON.stringify({ commandId: COMMAND_ID }));
+  });
+
+  it("stores the canonical request before POST and preserves it when the command ID arrives", () => {
+    saveActiveCommandRequest(REQUEST.siteId, REQUEST);
+
+    expect(loadActiveCommandRequest(REQUEST.siteId)).toEqual({
+      ...REQUEST,
+      target: { type: "fixtures", fixtureIds: [...REQUEST.target.fixtureIds].sort() }
+    });
+    saveActiveCommandId(REQUEST.siteId, COMMAND_ID);
+
+    expect(loadActiveCommandId(REQUEST.siteId)).toBe(COMMAND_ID);
+    expect(loadActiveCommandRequest(REQUEST.siteId)).toEqual({
+      ...REQUEST,
+      target: { type: "fixtures", fixtureIds: [...REQUEST.target.fixtureIds].sort() }
+    });
+  });
+
+  it("rejects a request whose payload site does not match its storage scope", () => {
+    saveActiveCommandRequest("site-a", REQUEST);
+
+    expect(loadActiveCommandRequest("site-a")).toBeNull();
+    expect(sessionStorage.getItem(activeCommandStorageKey("site-a"))).toBeNull();
   });
 
   it("isolates commands between sites", () => {

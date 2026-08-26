@@ -55,7 +55,20 @@ export function getCommandStatusRefetchInterval(
 }
 
 export function createDimmingCommand(input: CreateDimmingCommandInput) {
-  return apiPost<CreateDimmingCommandResponse>("/commands/dimming", input);
+  return apiPost<CreateDimmingCommandResponse>("/commands/dimming", canonicalizeDimmingCommandInput(input));
+}
+
+export function canonicalizeDimmingCommandInput(
+  input: CreateDimmingCommandInput
+): CreateDimmingCommandInput {
+  if (input.target.type !== "fixtures") return input;
+  return {
+    ...input,
+    target: {
+      ...input.target,
+      fixtureIds: [...input.target.fixtureIds].sort()
+    }
+  };
 }
 
 export function useCommandStatus(commandId: string | null) {

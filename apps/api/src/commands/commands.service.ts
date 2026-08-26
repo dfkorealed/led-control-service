@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import {
   CreateDimmingCommandInput,
   DimmingTarget,
@@ -58,6 +58,15 @@ const fixtureControlSelect = {
   }
 } satisfies Prisma.FixtureSelect;
 
+const idempotentCommandInclude = {
+  dispatches: {
+    orderBy: { createdAt: "asc" as const },
+    select: { deliveryMode: true }
+  }
+} satisfies Prisma.CommandInclude;
+
+type IdempotentCommand = Prisma.CommandGetPayload<{ include: typeof idempotentCommandInclude }>;
+
 @Injectable()
 export class CommandsService {
   constructor(
@@ -76,102 +85,155 @@ export class CommandsService {
     if (user.role === "viewer") throw new ForbiddenException("viewer users cannot control lights");
     await this.siteAccess.assert(user, input.siteId, "manage");
 
-    return this.prisma.$transaction(async (tx) => {
-      const mappings = await this.resolveTargetMappings(tx, input.siteId, input.target);
-      if (mappings.length === 0) {
-        throw new BadRequestException("control target not found in the user's site");
-      }
-      for (const mapping of mappings) this.assertControllable(mapping, input.target.type);
+    const requestFingerprint = createRequestFingerprint(input.target, input.brightness);
 
-      const dispatchTarget = this.dispatchService.resolveSingleGateway(mappings);
-      const resolved = await this.resolveDelivery(
-        tx,
-        input.siteId,
-        input.target,
-        mappings,
-        dispatchTarget.gatewayId,
-        dispatchTarget.fixtureIds
-      );
-      const targetId = this.targetId(input.target);
-      const command = await tx.command.create({
-        data: {
-          siteId: input.siteId,
-          requestedBy: user.id,
-          clientRequestId: input.clientRequestId,
-          requestFingerprint: createRequestFingerprint(input.target, input.brightness),
-          targetType: input.target.type,
-          targetId,
-          targetFixtureIds: resolved.fixtureIds,
-          brightness: input.brightness
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
+        if (existing) return existing;
+
+        const mappings = await this.resolveTargetMappings(tx, input.siteId, input.target);
+        if (mappings.length === 0) {
+          throw new BadRequestException("control target not found in the user's site");
         }
-      });
+        for (const mapping of mappings) this.assertControllable(mapping, input.target.type);
 
-      const gateway = await tx.gateway.update({
-        where: { id: resolved.gatewayId },
-        data: { nextCommandSequence: { increment: 1 } },
-        select: { id: true, siteId: true, nextCommandSequence: true }
-      });
-      if (gateway.siteId !== input.siteId) {
-        throw new BadRequestException("gateway does not belong to command site");
-      }
-      const sequence = Number(gateway.nextCommandSequence);
-      if (!Number.isSafeInteger(sequence)) throw new Error("gateway command sequence exceeded safe integer range");
+        const dispatchTarget = this.dispatchService.resolveSingleGateway(mappings);
+        const resolved = await this.resolveDelivery(
+          tx,
+          input.siteId,
+          input.target,
+          mappings,
+          dispatchTarget.gatewayId,
+          dispatchTarget.fixtureIds
+        );
+        const targetId = this.targetId(input.target);
+        const command = await tx.command.create({
+          data: {
+            siteId: input.siteId,
+            requestedBy: user.id,
+            clientRequestId: input.clientRequestId,
+            requestFingerprint,
+            targetType: input.target.type,
+            targetId,
+            targetFixtureIds: resolved.fixtureIds,
+            brightness: input.brightness
+          }
+        });
 
-      const idempotencyKey = randomUUID();
-      const dispatch = await tx.commandDispatch.create({
-        data: {
+        const gateway = await tx.gateway.update({
+          where: { id: resolved.gatewayId },
+          data: { nextCommandSequence: { increment: 1 } },
+          select: { id: true, siteId: true, nextCommandSequence: true }
+        });
+        if (gateway.siteId !== input.siteId) {
+          throw new BadRequestException("gateway does not belong to command site");
+        }
+        const sequence = Number(gateway.nextCommandSequence);
+        if (!Number.isSafeInteger(sequence)) throw new Error("gateway command sequence exceeded safe integer range");
+
+        const idempotencyKey = randomUUID();
+        const dispatch = await tx.commandDispatch.create({
+          data: {
+            commandId: command.id,
+            gatewayId: gateway.id,
+            idempotencyKey,
+            sequence,
+            deliveryMode: resolved.deliveryMode,
+            destinationAddress: resolved.destinationAddress ?? null,
+            meshControlGroupId: resolved.meshControlGroupId ?? null,
+            meshControlGroupVersion: resolved.meshControlGroupVersion ?? null
+          }
+        });
+        await tx.commandFixtureResult.createMany({
+          data: resolved.fixtureIds.map((fixtureId) => ({ dispatchId: dispatch.id, fixtureId }))
+        });
+        const payload = gatewayDimmingCommandDraftV2Schema.parse({
           commandId: command.id,
-          gatewayId: gateway.id,
+          dispatchId: dispatch.id,
           idempotencyKey,
           sequence,
+          siteId: command.siteId,
+          gatewayId: gateway.id,
+          targetType: command.targetType,
+          targetId: command.targetId,
+          targetFixtureIds: resolved.fixtureIds,
           deliveryMode: resolved.deliveryMode,
-          destinationAddress: resolved.destinationAddress ?? null,
-          meshControlGroupId: resolved.meshControlGroupId ?? null,
-          meshControlGroupVersion: resolved.meshControlGroupVersion ?? null
-        }
-      });
-      await tx.commandFixtureResult.createMany({
-        data: resolved.fixtureIds.map((fixtureId) => ({ dispatchId: dispatch.id, fixtureId }))
-      });
-      const payload = gatewayDimmingCommandDraftV2Schema.parse({
-        commandId: command.id,
-        dispatchId: dispatch.id,
-        idempotencyKey,
-        sequence,
-        siteId: command.siteId,
-        gatewayId: gateway.id,
-        targetType: command.targetType,
-        targetId: command.targetId,
-        targetFixtureIds: resolved.fixtureIds,
-        deliveryMode: resolved.deliveryMode,
-        ...(resolved.destinationAddress ? { destinationAddress: resolved.destinationAddress } : {}),
-        ...(resolved.meshControlGroupId
-          ? {
-            meshControlGroupId: resolved.meshControlGroupId,
-            meshControlGroupVersion: resolved.meshControlGroupVersion
+          ...(resolved.destinationAddress ? { destinationAddress: resolved.destinationAddress } : {}),
+          ...(resolved.meshControlGroupId
+            ? {
+              meshControlGroupId: resolved.meshControlGroupId,
+              meshControlGroupVersion: resolved.meshControlGroupVersion
+            }
+            : {}),
+          brightness: command.brightness,
+          requestedBy: command.requestedBy,
+          requestedAt: command.createdAt.toISOString()
+        });
+        await tx.mqttOutbox.create({
+          data: {
+            dispatchId: dispatch.id,
+            topic: mqttTopicsV2.gatewayCommand(command.siteId, gateway.id, "dimming"),
+            payload
           }
-          : {}),
-        brightness: command.brightness,
-        requestedBy: command.requestedBy,
-        requestedAt: command.createdAt.toISOString()
-      });
-      await tx.mqttOutbox.create({
-        data: {
-          dispatchId: dispatch.id,
-          topic: mqttTopicsV2.gatewayCommand(command.siteId, gateway.id, "dimming"),
-          payload
-        }
-      });
+        });
 
-      return {
-        ...command,
-        dispatchCount: 1,
-        selectedTargetCount: resolved.fixtureIds.length,
-        transmissionCount: resolved.deliveryMode === "mesh_group" ? 1 : resolved.fixtureIds.length,
-        deliveryMode: resolved.deliveryMode,
-        terminalStatusUrl: `/commands/${command.id}`
-      };
+        return this.toCreateResponse({
+          ...command,
+          dispatches: [{ deliveryMode: resolved.deliveryMode }]
+        });
+      });
+    } catch (error) {
+      if (!isClientRequestUniqueConflict(error)) throw error;
+
+      // A failed PostgreSQL transaction cannot be reused after P2002. Re-read in a fresh transaction.
+      return this.prisma.$transaction(async (tx) => {
+        const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
+        if (!existing) throw error;
+        return existing;
+      });
+    }
+  }
+
+  private async findIdempotentCommand(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    input: CreateDimmingCommandInput,
+    requestFingerprint: string
+  ) {
+    const existing = await tx.command.findUnique({
+      where: {
+        siteId_requestedBy_clientRequestId: {
+          siteId: input.siteId,
+          requestedBy: user.id,
+          clientRequestId: input.clientRequestId
+        }
+      },
+      include: idempotentCommandInclude
     });
+    if (!existing) return null;
+    if (existing.requestFingerprint !== requestFingerprint) {
+      throw new ConflictException({ code: "client_request_id_payload_conflict" });
+    }
+    return this.toCreateResponse(existing);
+  }
+
+  private toCreateResponse(command: IdempotentCommand) {
+    const { dispatches, ...storedCommand } = command;
+    const deliveryMode = dispatches[0]?.deliveryMode;
+    if (!isDeliveryMode(deliveryMode)) throw new Error("stored command delivery mode is invalid");
+    const fixtureIds = Array.isArray(command.targetFixtureIds)
+      ? command.targetFixtureIds.filter((fixtureId): fixtureId is string => typeof fixtureId === "string")
+      : [];
+
+    return {
+      ...storedCommand,
+      dispatchCount: dispatches.length,
+      selectedTargetCount: fixtureIds.length,
+      transmissionCount: deliveryMode === "mesh_group" ? dispatches.length : fixtureIds.length,
+      deliveryMode,
+      terminalStatusUrl: `/commands/${storedCommand.id}`
+    };
   }
 
   private async resolveTargetMappings(
@@ -372,4 +434,20 @@ function createRequestFingerprint(target: DimmingTarget, brightness: number) {
         ? [target.type, target.floorId]
         : [target.type, target.groupId];
   return createHash("sha256").update(JSON.stringify({ target: canonicalTarget, brightness })).digest("hex");
+}
+
+function isDeliveryMode(value: unknown): value is DeliveryMode {
+  return value === "unicast" || value === "parallel_unicast" || value === "mesh_group";
+}
+
+function isClientRequestUniqueConflict(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error) || error.code !== "P2002") return false;
+  const target = "meta" in error && error.meta && typeof error.meta === "object" && "target" in error.meta
+    ? error.meta.target
+    : null;
+  const fields = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+  return fields.some((field) => typeof field === "string" && (
+    field === "Command_siteId_requestedBy_clientRequestId_key"
+    || field.includes("siteId") && field.includes("requestedBy") && field.includes("clientRequestId")
+  )) || ["siteId", "requestedBy", "clientRequestId"].every((field) => fields.includes(field));
 }

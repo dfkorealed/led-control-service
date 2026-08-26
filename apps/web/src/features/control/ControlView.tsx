@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DimmingTarget } from "@led-control/shared";
+import type { CreateDimmingCommandInput, DimmingTarget } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthUser } from "../../api/auth";
 import {
+  canonicalizeDimmingCommandInput,
   createDimmingCommand,
   isTerminalCommandStage,
   useCommandStatus,
@@ -10,7 +11,13 @@ import {
   type CommandStatusResponse
 } from "../../api/commands";
 import { useControlDashboard, type DashboardFixture } from "../../api/queries";
-import { clearActiveCommandId, loadActiveCommandId, saveActiveCommandId } from "./active-command-store";
+import {
+  clearActiveCommandId,
+  loadActiveCommandId,
+  loadActiveCommandRequest,
+  saveActiveCommandId,
+  saveActiveCommandRequest
+} from "./active-command-store";
 import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicker";
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
@@ -24,9 +31,11 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [commandId, setCommandId] = useState<string | null>(null);
   const [commandSiteId, setCommandSiteId] = useState<string | null>(null);
+  const [activeRequest, setActiveRequest] = useState<CreateDimmingCommandInput | null>(null);
   const [terminalResult, setTerminalResult] = useState<{ siteId: string; status: CommandStatusResponse } | null>(null);
   const activeSiteId = data?.site.id ?? null;
   const scopedCommandId = activeSiteId && commandSiteId === activeSiteId ? commandId : null;
+  const scopedActiveRequest = activeSiteId && activeRequest?.siteId === activeSiteId ? activeRequest : null;
   const commandQuery = useCommandStatus(scopedCommandId);
   const matchingCommandStatus = commandQuery.data?.id === scopedCommandId ? commandQuery.data : null;
   const matchingCommandIsTerminal = isTerminalCommandStage(matchingCommandStatus?.stage);
@@ -42,7 +51,10 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     : null;
   const readOnly = userRole === "viewer";
   const target = selected.isValid ? toDimmingTarget(selection) : null;
-  const commandInProgress = Boolean(scopedCommandId && !matchingCommandIsTerminal);
+  const commandInProgress = Boolean(
+    scopedActiveRequest && !scopedCommandId
+    || scopedCommandId && !matchingCommandIsTerminal
+  );
   const restorePending = Boolean(activeSiteId && activeSiteId !== commandSiteId);
   const controlsLocked = readOnly || isSubmitting || restorePending || commandInProgress;
   const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !controlsLocked);
@@ -53,6 +65,7 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     setMessage("");
     setTerminalResult(null);
     setCommandSiteId(activeSiteId);
+    setActiveRequest(loadActiveCommandRequest(activeSiteId));
     setCommandId(loadActiveCommandId(activeSiteId));
   }, [activeSiteId]);
 
@@ -61,6 +74,7 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
 
     setTerminalResult({ siteId: activeSiteId, status: matchingCommandStatus });
     clearActiveCommandId(activeSiteId, scopedCommandId);
+    setActiveRequest(null);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
     setMessage("");
   }, [activeSiteId, matchingCommandIsTerminal, matchingCommandStatus, scopedCommandId]);
@@ -69,6 +83,7 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     if (!activeSiteId || !scopedCommandId || matchingCommandIsTerminal || !missingCommand) return;
 
     clearActiveCommandId(activeSiteId, scopedCommandId);
+    setActiveRequest(null);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
     setMessage("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다");
   }, [activeSiteId, matchingCommandIsTerminal, missingCommand, scopedCommandId]);
@@ -76,23 +91,31 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
   async function submitCommand() {
     if (!data || !target || !canSubmit) return;
 
+    const request = canonicalizeDimmingCommandInput({
+      siteId: data.site.id,
+      clientRequestId: crypto.randomUUID(),
+      target,
+      brightness
+    });
+    saveActiveCommandRequest(data.site.id, request);
+    setCommandSiteId(data.site.id);
+    setActiveRequest(request);
+    setTerminalResult(null);
+    await sendCommand(request);
+  }
+
+  async function sendCommand(request: CreateDimmingCommandInput) {
     setIsSubmitting(true);
     setMessage("");
     try {
-      const command = await createDimmingCommand({
-        siteId: data.site.id,
-        clientRequestId: crypto.randomUUID(),
-        target,
-        brightness
-      });
-      saveActiveCommandId(data.site.id, command.id);
-      setCommandSiteId(data.site.id);
+      const command = await createDimmingCommand(request);
+      saveActiveCommandId(request.siteId, command.id);
+      setCommandSiteId(request.siteId);
       setCommandId(command.id);
-      setTerminalResult(null);
       setMessage("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.");
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     } catch {
-      setMessage("명령 전송에 실패했습니다. 대상 상태와 게이트웨이 연결을 확인하세요.");
+      setMessage("명령 응답을 확인하지 못했습니다. 동일 요청으로 다시 전송하세요.");
     } finally {
       setIsSubmitting(false);
     }
@@ -184,6 +207,15 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
           <button className="primary-button" type="button" onClick={submitCommand} disabled={!canSubmit}>
             {controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
           </button>
+          {scopedActiveRequest && !scopedCommandId ? (
+            <button
+              type="button"
+              onClick={() => void sendCommand(scopedActiveRequest)}
+              disabled={isSubmitting}
+            >
+              동일 요청 다시 전송
+            </button>
+          ) : null}
           {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
           {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
           {matchingCommandStatus ? <CommandProgress status={matchingCommandStatus} /> : null}

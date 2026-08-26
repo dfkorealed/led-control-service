@@ -1,4 +1,5 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CommandDispatchService } from "./command-dispatch.service";
 import { CommandsService } from "./commands.service";
@@ -38,12 +39,14 @@ function createHarness(options: {
   exactGroups?: Array<{ id: string; groupFixtures: Array<{ fixtureId: string }> }>;
   readyAddress?: string;
   readyError?: Error;
+  concurrentCommand?: Record<string, unknown>;
 } = {}) {
   const command = {
     id: ids.command, siteId: ids.site, targetType: "fixture", targetId: ids.fixture1,
     targetFixtureIds: [ids.fixture1], brightness: 75, requestedBy: ids.user,
     createdAt: new Date("2026-07-01T00:00:00.000Z")
   };
+  let storedCommand: Record<string, unknown> | null = null;
   const tx: any = {
     fixture: { findMany: jest.fn().mockResolvedValue(options.fixtures ?? []) },
     floor: {
@@ -54,7 +57,20 @@ function createHarness(options: {
       findFirst: jest.fn().mockResolvedValue(options.group ?? null),
       findMany: jest.fn().mockResolvedValue(options.exactGroups ?? [])
     },
-    command: { create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...command, ...data })) },
+    command: {
+      findUnique: jest.fn().mockImplementation(() => Promise.resolve(storedCommand)),
+      create: jest.fn().mockImplementation(({ data }) => {
+        if (options.concurrentCommand) {
+          storedCommand = options.concurrentCommand;
+          return Promise.reject({
+            code: "P2002",
+            meta: { target: ["siteId", "requestedBy", "clientRequestId"] }
+          });
+        }
+        storedCommand = { ...command, ...data, dispatches: [{ deliveryMode: "unicast" }] };
+        return Promise.resolve(storedCommand);
+      })
+    },
     gateway: { update: jest.fn().mockImplementation(({ where }) => Promise.resolve({
       id: where.id, siteId: ids.site, nextCommandSequence: 1n
     })) },
@@ -81,6 +97,102 @@ function createHarness(options: {
 }
 
 describe("CommandsService", () => {
+  it("returns the existing command for the same client request and canonical payload", async () => {
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    const input = {
+      siteId: ids.site,
+      clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture" as const, fixtureId: ids.fixture1 },
+      brightness: 75
+    };
+
+    const first = await service.createDimmingCommand(operator, input);
+    const second = await service.createDimmingCommand(operator, input);
+
+    expect(second).toEqual(first);
+    expect(first).not.toHaveProperty("dispatches");
+    expect(tx.command.create).toHaveBeenCalledTimes(1);
+    expect(tx.gateway.update).toHaveBeenCalledTimes(1);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 409 when a client request ID is reused with a different payload", async () => {
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+    await service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 75
+    });
+
+    const rejection = service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 40
+    });
+    await expect(rejection).rejects.toBeInstanceOf(ConflictException);
+    await expect(rejection).rejects.toMatchObject({
+      response: { code: "client_request_id_payload_conflict" }
+    });
+    expect(tx.command.create).toHaveBeenCalledTimes(1);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a concurrent command unique conflict in a fresh transaction", async () => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const concurrentCommand = {
+      id: ids.command,
+      siteId: ids.site,
+      requestedBy: ids.user,
+      clientRequestId,
+      requestFingerprint: fingerprint({ type: "fixtures", fixtureIds: [ids.fixture1, ids.fixture2] }, 30),
+      targetType: "fixtures",
+      targetId: null,
+      targetFixtureIds: [ids.fixture1, ids.fixture2],
+      brightness: 30,
+      createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      dispatches: [{ deliveryMode: "parallel_unicast" }]
+    };
+    const { prisma, service, tx } = createHarness({
+      fixtures: [fixture(ids.fixture2), fixture(ids.fixture1)],
+      concurrentCommand
+    });
+
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixtures", fixtureIds: [ids.fixture2, ids.fixture1] },
+      brightness: 30
+    })).resolves.toMatchObject({
+      id: ids.command,
+      selectedTargetCount: 2,
+      transmissionCount: 2,
+      deliveryMode: "parallel_unicast"
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(tx.gateway.update).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("does not recover an unrelated unique constraint failure", async () => {
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    tx.command.create.mockRejectedValueOnce({
+      code: "P2002",
+      meta: { target: ["gatewayId", "sequence"] }
+    });
+
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 75
+    })).rejects.toMatchObject({ code: "P2002" });
+  });
+
   it("stores unicast delivery metadata and the authoritative fixture snapshot atomically", async () => {
     const { service, siteAccess, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
 
@@ -254,3 +366,21 @@ describe("CommandsService", () => {
     expect(offlineHarness.tx.command.create).not.toHaveBeenCalled();
   });
 });
+
+function fingerprint(
+  target:
+    | { type: "fixture"; fixtureId: string }
+    | { type: "fixtures"; fixtureIds: string[] }
+    | { type: "floor"; floorId: string }
+    | { type: "group"; groupId: string },
+  brightness: number
+) {
+  const canonicalTarget = target.type === "fixture"
+    ? [target.type, target.fixtureId]
+    : target.type === "fixtures"
+      ? [target.type, ...target.fixtureIds.slice().sort()]
+      : target.type === "floor"
+        ? [target.type, target.floorId]
+        : [target.type, target.groupId];
+  return createHash("sha256").update(JSON.stringify({ target: canonicalTarget, brightness })).digest("hex");
+}

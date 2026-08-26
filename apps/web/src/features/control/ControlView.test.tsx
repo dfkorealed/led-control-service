@@ -436,6 +436,34 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
   });
 
+  it("retries a lost POST response with the same client request ID and canonical payload", async () => {
+    mocks.apiPost
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce({
+        id: commandIds.retry,
+        dispatchCount: 1,
+        selectedTargetCount: 2,
+        transmissionCount: 2,
+        deliveryMode: "parallel_unicast"
+      });
+    renderControl();
+
+    fireEvent.click(screen.getByLabelText("B2-L002 선택"));
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+
+    expect(await screen.findByRole("button", { name: "동일 요청 다시 전송" })).toBeEnabled();
+    const firstPayload = mocks.apiPost.mock.calls[0][1];
+    expect(firstPayload.target.fixtureIds).toEqual([fixtureIds.b2First, fixtureIds.b2Second]);
+
+    fireEvent.click(screen.getByRole("button", { name: "동일 요청 다시 전송" }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+    expect(mocks.apiPost.mock.calls[1][1]).toEqual(firstPayload);
+    expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.retry);
+  });
+
   it("keeps controls locked when a terminal status belongs to a different command", async () => {
     const refetch = vi.fn();
     sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
