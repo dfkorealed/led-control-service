@@ -22,6 +22,7 @@ export interface CreateInitialSiteInput {
   siteName: string;
   address: string;
   tariffKwhRate: number;
+  timeZone?: string;
   floors: FloorInput[];
 }
 
@@ -53,7 +54,8 @@ export class SetupService {
             organizationId: organization.id,
             name: input.siteName.trim(),
             address: input.address.trim(),
-            tariffKwhRate: input.tariffKwhRate.toFixed(2)
+            tariffKwhRate: input.tariffKwhRate.toFixed(2),
+            ...(input.timeZone ? { timeZone: input.timeZone } : {})
           }
         });
 
@@ -116,7 +118,19 @@ export class SetupService {
     if (!Number.isFinite(input.tariffKwhRate) || input.tariffKwhRate <= 0 || input.tariffKwhRate > 100000) {
       throw new BadRequestException("tariffKwhRate must be greater than 0 and less than or equal to 100000");
     }
+    if (input.timeZone !== undefined) this.validateTimeZone(input.timeZone);
     this.validateFloors(input.floors);
+  }
+
+  private validateTimeZone(value: unknown) {
+    if (typeof value !== "string" || value.length === 0) {
+      throw new BadRequestException("timeZone must be a valid IANA timezone");
+    }
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date(0));
+    } catch {
+      throw new BadRequestException("timeZone must be a valid IANA timezone");
+    }
   }
 
   private validateFloors(floors: FloorInput[]) {

@@ -8,11 +8,13 @@ import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
+import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 
 @Module({
   imports: [PrismaModule, MeshControlGroupModule],
   providers: [
     MqttService,
+    FixtureStateIngestionService,
     FixtureFreshnessService,
     OutboxPublisherService,
     ProvisioningScanOutboxPublisherService,

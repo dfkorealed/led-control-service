@@ -180,6 +180,19 @@ describe("SetupService", () => {
     expect(prisma.gateway.create).not.toHaveBeenCalled();
   });
 
+  it("persists a validated IANA timezone when the installation specifies one", async () => {
+    const { service, prisma } = await createModule();
+
+    await service.createInitialSite(operator, { ...initialSiteInput, timeZone: "America/New_York" });
+
+    expect(prisma.site.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ timeZone: "America/New_York" })
+    });
+    await expect(service.createInitialSite(operator, { ...initialSiteInput, timeZone: "Invalid/Zone" })).rejects.toThrow(
+      "timeZone must be a valid IANA timezone"
+    );
+  });
+
   it("rejects duplicate floor names and levels in the same request", async () => {
     const { service } = await createModule();
 

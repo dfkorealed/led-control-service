@@ -41,6 +41,7 @@ export class ApplianceHealth {
   private lastHeartbeatPublishedAt: Date | null = null;
   private lastMeshResync: BleMeshResyncReport | null = null;
   private meshResyncFailure: string | undefined;
+  private readonly operationalBlockers = new Set<string>();
 
   constructor(
     private readonly path: string,
@@ -104,6 +105,13 @@ export class ApplianceHealth {
     return this.refresh(reason);
   }
 
+  setOperationalBlocker(reason: string, active: boolean) {
+    if (!reason) throw new Error("operational blocker reason is required");
+    if (active) this.operationalBlockers.add(reason);
+    else this.operationalBlockers.delete(reason);
+    return this.refresh();
+  }
+
   recordMeshResync(report: BleMeshResyncReport) {
     this.lastMeshResync = report;
     this.meshResyncFailure = meshResyncFailureReason(report);
@@ -121,7 +129,7 @@ export class ApplianceHealth {
     const mapping = mappingValid;
     const lastHeartbeatPublishedAt = this.lastHeartbeatPublishedAt?.toISOString() ?? null;
     const heartbeatFresh = this.isHeartbeatFresh();
-    const failure = reason ?? this.meshResyncFailure;
+    const failure = reason ?? this.operationalBlockers.values().next().value ?? this.meshResyncFailure;
     const status = !this.assignment
       ? "starting-unassigned"
       : this.mqtt && mesh && mapping && heartbeatFresh && !failure

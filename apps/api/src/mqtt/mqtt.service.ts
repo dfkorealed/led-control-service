@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import {
   acceptanceAckV2Schema,
+  applicationStateIngestedAckV2Schema,
   applicationProvisioningScanTerminalIngestedAckV2Schema,
   deriveDeviceStatusAckStatus,
   deviceStatusAckV2Schema,
@@ -9,7 +10,6 @@ import {
   gatewayHeartbeatV2Schema,
   IdentifyDevicePayload,
   identifyDeviceSchema,
-  mapHealthFaults,
   meshGroupResyncAckV2Schema,
   meshGroupResyncRequestV2Schema,
   meshGroupSubscriptionResultSchema,
@@ -22,7 +22,6 @@ import {
   provisioningFailedSchema,
   ProvisioningScanStartPayload,
   provisioningScanStartSchema,
-  statusFromHealth,
   provisioningScanFoundSchema,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema
@@ -32,6 +31,7 @@ import mqtt, { IClientOptions, MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
+import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
 
@@ -53,11 +53,15 @@ export class MqttService implements OnModuleInit {
   private messageListener: ((topic: string, payload: Buffer) => void) | null = null;
   private inboundStopped = false;
   private closing = false;
+  private readonly fixtureStateIngestion: Pick<FixtureStateIngestionService, "ingest">;
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly meshControlGroups: MeshControlGroupService
-  ) {}
+    private readonly meshControlGroups: MeshControlGroupService,
+    fixtureStateIngestion?: FixtureStateIngestionService
+  ) {
+    this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
+  }
 
   onModuleInit() {
     const client = this.getClient();
@@ -235,26 +239,55 @@ export class MqttService implements OnModuleInit {
     if (this.closing) throw new Error("MQTT client is closing");
     if (!this.client) {
       const connection = createMqttConnectionOptions(process.env);
-      this.client = mqtt.connect(connection.url, connection.options);
+      this.client = mqtt.connect(connection.url, {
+        ...connection.options,
+        customHandleAcks: this.createCustomHandleAcks()
+      });
     }
     return this.client;
   }
 
+  private createCustomHandleAcks(): NonNullable<IClientOptions["customHandleAcks"]> {
+    return (topic, payload, packet, done) => {
+      if (packet.qos !== 1 || !topic.endsWith("/state/fixtures")) {
+        done(0);
+        return;
+      }
+      void this.handleFixtureStatePacket(topic, payload)
+        .then(() => done(0))
+        .catch((error) => this.rejectFixtureStateDelivery(error));
+    };
+  }
+
+  private rejectFixtureStateDelivery(error: unknown) {
+    this.logger.error(`fixture state transaction failed before PUBACK (error=${this.errorKind(error)})`);
+    const client = this.client;
+    if (!client) return;
+    // Closing the transport without an MQTT PUBACK preserves the broker session's QoS 1 redelivery.
+    // Do not pass the database error to the stream: that can become an unhandled EventEmitter error.
+    client.stream.destroy();
+  }
+
+  async handleFixtureStatePacket(topic: string, payload: Buffer) {
+    const scope = parseGatewayTopic(topic);
+    const state = fixtureStateV2Schema.parse(JSON.parse(payload.toString()));
+    if (!scope || scope.siteId !== state.siteId || scope.gatewayId !== state.gatewayId) {
+      throw new Error("fixture state topic scope rejected");
+    }
+    const ingested = await this.fixtureStateIngestion.ingest(scope.gatewayId, state);
+    const acknowledgement = applicationStateIngestedAckV2Schema.parse({
+      ...ingested,
+      ingestedAt: new Date().toISOString()
+    });
+    await this.publishTopic(mqttTopicsV2.stateIngestedAck(scope.siteId, scope.gatewayId), acknowledgement, {
+      timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS
+    });
+    return acknowledgement;
+  }
+
   async handleMessage(topic: string, payload: Buffer) {
     if (topic.endsWith("/state/fixtures")) {
-      const scope = parseGatewayTopic(topic);
-      const state = fixtureStateV2Schema.parse(JSON.parse(payload.toString()));
-      if (!scope || scope.siteId !== state.siteId || scope.gatewayId !== state.gatewayId) return;
-      const fixture = await this.prisma.fixture.findFirst({
-        where: {
-          id: state.fixtureId,
-          floor: { siteId: scope.siteId },
-          meshNode: { gatewayId: scope.gatewayId }
-        },
-        select: { lastStateSequence: true }
-      });
-      if (!fixture || (fixture.lastStateSequence !== null && fixture.lastStateSequence >= BigInt(state.sequence))) return;
-      await this.storeFixtureStateV2(scope.gatewayId, state);
+      // MQTT 5 customHandleAcks owns this path so broker PUBACK follows the DB commit and application ACK.
       return;
     }
 
@@ -585,52 +618,6 @@ export class MqttService implements OnModuleInit {
         data: { status: "failed", errorMessage }
       });
     });
-  }
-
-  private async storeFixtureStateV2(gatewayId: string, state: ReturnType<typeof fixtureStateV2Schema.parse>) {
-    const health = state.health
-      ? { faultCodes: mapHealthFaults(state.health.faultCodes), observedAt: new Date(state.health.observedAt) }
-      : null;
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.processedGatewayEvent.create({
-          data: {
-            eventId: state.eventId,
-            gatewayId,
-            sequence: BigInt(state.sequence),
-            eventType: "fixture_state",
-            occurredAt: new Date(state.occurredAt)
-          }
-        });
-        const updated = await tx.fixture.updateMany({
-          where: {
-            id: state.fixtureId,
-            floor: { siteId: state.siteId },
-            meshNode: { gatewayId: state.gatewayId },
-            OR: [{ lastStateSequence: null }, { lastStateSequence: { lt: BigInt(state.sequence) } }]
-          },
-          data: {
-            brightness: state.brightness,
-            status: health ? statusFromHealth(health.faultCodes) : state.status,
-            statusReason: state.statusReason ?? "reported",
-            ...(health ? {
-              healthFaultCodes: health.faultCodes,
-              healthLastSeenAt: health.observedAt
-            } : {}),
-            rssi: state.rssi,
-            hopCount: state.hopCount,
-            lastSeenAt: new Date(state.occurredAt),
-            lastStateEventId: state.eventId,
-            lastStateSequence: BigInt(state.sequence),
-            lastStateOccurredAt: new Date(state.occurredAt)
-          }
-        });
-        if (updated.count !== 1) throw new Error("fixture state scope or sequence rejected");
-      });
-    } catch (error) {
-      if (isUniqueConstraintError(error)) return;
-      throw error;
-    }
   }
 
   private async storeHeartbeatV2(heartbeat: ReturnType<typeof gatewayHeartbeatV2Schema.parse>) {
@@ -1144,8 +1131,9 @@ export function createMqttConnectionOptions(env: NodeJS.ProcessEnv): { url: stri
       key: readFileSync(requiredMqttPath(env, "MQTT_CLIENT_KEY_PATH")),
       rejectUnauthorized: true,
       clientId: `api-service-${requiredMqttApiInstanceId(env)}`,
-      clean: true,
-      protocolVersion: 5
+      clean: false,
+      protocolVersion: 5,
+      properties: { sessionExpiryInterval: 86_400 }
     }
   };
 }

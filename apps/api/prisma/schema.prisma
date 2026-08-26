@@ -298,6 +298,8 @@ model Fixture {
   groupFixtures       GroupFixture[]
   energyUsages        EnergyUsage[]
   energyDailyAggregates FixtureEnergyDailyAggregate[]
+  energyStateCursor   FixtureEnergyStateCursor?
+  processedStateEvents ProcessedGatewayEvent[]
   commandResults      CommandFixtureResult[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
@@ -678,14 +680,17 @@ model MqttOutbox {
 model ProcessedGatewayEvent {
   eventId    String   @id
   gatewayId  String
+  fixtureId  String?
   sequence   BigInt
   eventType  String
   occurredAt DateTime
   gateway    Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  fixture    Fixture? @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
   createdAt  DateTime @default(now())
 
   @@unique([gatewayId, sequence, eventType])
   @@index([gatewayId, occurredAt])
+  @@index([fixtureId])
 }
 
 model Invitation {
@@ -819,4 +824,17 @@ model FixtureEnergyDailyAggregate {
 
   @@unique([fixtureId, localDate])
   @@index([localDate])
+}
+
+model FixtureEnergyStateCursor {
+  fixtureId               String    @id
+  aggregatedThrough       DateTime
+  observedStateOccurredAt DateTime?
+  brightness              Int
+  powerOn                 Boolean?
+  ratedWatt               Decimal   @db.Decimal(8, 2)
+  durationRemainders      Json
+  fixture                 Fixture   @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 }

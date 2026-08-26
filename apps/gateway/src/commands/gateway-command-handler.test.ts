@@ -90,6 +90,19 @@ describe("handleGatewayDimmingCommand", () => {
     vi.useRealTimers();
   });
 
+  it("reserves durable state capacity before acceptance or physical BLE execution", async () => {
+    const records = new Map<string, any>();
+    const adapter = new StubBleMeshAdapter();
+    const beforeExecution = vi.fn().mockRejectedValue(new Error("state event outbox capacity exceeded"));
+
+    const result = await handleGatewayDimmingCommand(adapter, memoryJournal(records), command, undefined, { beforeExecution });
+
+    expect(beforeExecution).toHaveBeenCalledTimes(1);
+    expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "STATE_OUTBOX_CAPACITY" });
+    expect(result.fixtureStateObserved).toBe(false);
+    expect(adapter.commands).toHaveLength(0);
+  });
+
   it("rejects after a delayed acceptance crosses expiry before BLE starts", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-11T00:00:07.999Z"));

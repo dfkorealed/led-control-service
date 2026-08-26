@@ -24,7 +24,7 @@ describe("MqttService", () => {
     ).toThrow("mqtts://");
   });
 
-  it("uses a deployment-specific clean MQTT 5 API session", () => {
+  it("uses a deployment-specific persistent MQTT 5 API session", () => {
     const { options } = createMqttConnectionOptions({
       MQTT_URL: "mqtts://broker:8883",
       MQTT_CA_PATH: "/certs/ca.crt",
@@ -35,10 +35,10 @@ describe("MqttService", () => {
 
     expect(options).toMatchObject({
       clientId: "api-service-api-blue-2",
-      clean: true,
+      clean: false,
       protocolVersion: 5
     });
-    expect(options.properties).toBeUndefined();
+    expect(options.properties).toEqual({ sessionExpiryInterval: 86_400 });
   });
 
   it("awaits the MQTT end callback and reuses one close promise", async () => {

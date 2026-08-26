@@ -46,6 +46,31 @@ it("records unassigned and probe-derived appliance states atomically", async () 
   });
 });
 
+it("keeps a state outbox capacity blocker sticky across heartbeats until explicitly cleared", async () => {
+  const file = path.join(await mkdtemp(path.join(tmpdir(), "gateway-health-")), "health.json");
+  const health = new ApplianceHealth(file, {
+    now: () => new Date("2026-08-26T00:00:00.000Z"),
+    heartbeatMs: 5_000,
+    probes: {
+      dbusOwner: async () => true,
+      bluezAttached: async () => true,
+      hciPowered: async () => true,
+      mappingValid: async () => true
+    }
+  });
+  await health.startingAssigned();
+  await health.mqttConnected();
+  await health.heartbeatPublished();
+
+  await health.setOperationalBlocker("state_outbox_capacity", true);
+  await health.heartbeatPublished();
+  await expect(health.read()).resolves.toMatchObject({ status: "unhealthy", reason: "state_outbox_capacity" });
+
+  await health.setOperationalBlocker("state_outbox_capacity", false);
+  await health.heartbeatPublished();
+  await expect(health.read()).resolves.toMatchObject({ status: "healthy" });
+});
+
 it("fails closed when the last successful heartbeat timestamp is in the future", async () => {
   let now = new Date("2026-07-13T00:00:10.000Z");
   const file = path.join(await mkdtemp(path.join(tmpdir(), "gateway-health-")), "health.json");

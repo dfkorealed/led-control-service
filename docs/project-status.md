@@ -14,11 +14,11 @@
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
-| 메뉴 완성 구현 | 진행 중 | Task 1 공용 계약, Task 2 검색 lifecycle, Task 3 Web 상태 구현, Task 4 저장 구역 API와 fix round 3를 완료했다. Task 3/6 병렬 Web 검증과 Task 5 장비 HIL이 다음 의존 단계다. |
+| 메뉴 완성 구현 | 진행 중 | Task 8b 상태 이벤트 적산과 durable state outbox까지 구현·자동 검증했다. 실제 Raspberry Pi/ESP32-H2 HIL과 상태 적산 통계 조회 UI는 남아 있다. |
 
 ## 다음 단계
 
-현재 작업은 **메뉴 완성 구현**이다. Task 4 fix round 3는 configuring desired 변경 시 version 증가와 stale ACK 무시, `first_run/state_missing/state_corrupt`의 영속 full-state reconciliation, retiring cloud-applied Delete 복구를 완료했다. 새 migration 포함 PostgreSQL 29개 migration deploy와 integration 2건, API/shared/gateway 전체 테스트 및 전체 typecheck/build는 통과했다. 병렬 작업 중인 Web command recovery 변경의 unit 25건은 현재 실패 상태이며 Task 4 파일에서 수정하지 않았다. Raspberry Pi/ESP32-H2 HIL은 남아 있다.
+현재 작업은 **메뉴 완성 구현**이다. Task 8b는 상태 이벤트 중복·역순·stale checkpoint 차단, 원자적 에너지 적산, DB commit 이후 application ACK, Gateway `0600` durable outbox와 재전송, 용량 fail-closed, 정격 전력 변경 checkpoint, site timezone 계약을 완료했다. PostgreSQL migration/integration, Nest `MqttModule` bootstrap smoke, shared/API/Gateway/Web 전체 테스트와 typecheck를 통과했다. Raspberry Pi/ESP32-H2 HIL은 남아 있다.
 
 ## 알려진 미해결 항목
 
@@ -35,7 +35,7 @@
 
 ### 통계
 
-- 현재 통계는 12시간 snapshot 계산이며, migration 시점 추적·첫 상태 이전 unknown·180초 투영·fixture별 forecast가 없다. Gateway durable state outbox와 DB commit 뒤 application ACK도 아직 구현되지 않았다.
+- 상태 이벤트 일별 적산 정본은 구현됐다. 통계 API/UI는 아직 기존 snapshot 추정치를 사용하므로 기간 조회, 첫 상태 이전 unknown/수집 공백 표시, 180초 투영, fixture별 forecast와 비용·절감량 연결이 남아 있다.
 
 ### 실장비 검증
 

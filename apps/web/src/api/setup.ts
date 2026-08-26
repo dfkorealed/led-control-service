@@ -16,6 +16,7 @@ export interface InitialSiteSetupRequest {
   siteName: string;
   address: string;
   tariffKwhRate: number;
+  timeZone?: string;
   floors: InitialFloorInput[];
 }
 

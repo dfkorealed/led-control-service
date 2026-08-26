@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { config } from "dotenv";
 import {
   type AcceptanceAckV2,
+  type FixtureStateV2,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
   identifyDeviceSchema,
@@ -33,6 +34,11 @@ import { CommandJournal } from "./commands/command-journal";
 import { handleGatewayDimmingCommand, parseCommandTimeout, type GatewayCommandResult } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { ProvisioningScanJournal } from "./state/provisioning-scan-journal";
+import {
+  StateEventOutbox,
+  StateEventOutboxPublisher,
+  type StateEventCapacityReservation
+} from "./state/state-event-outbox";
 import { createProductionAdapters } from "./adapters/adapter-factory";
 import { ApplianceHealth, parseHeartbeatInterval } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
@@ -49,6 +55,8 @@ import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
 import { GroupStateStore } from "./mesh/group-state-store";
 import { KeyedSerialTaskQueue } from "./runtime/keyed-serial-task-queue";
 import { MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
+
+const STATE_EVENT_RESERVATION_BYTES = 2_048;
 
 export { createMeshGroupResyncRequest, MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
 
@@ -84,6 +92,14 @@ async function main() {
     process.env.GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH ?? "/var/lib/led-control/provisioning-scan-journal.json"
   );
   await provisioningScanJournal.initialize();
+  const stateEventOutbox = new StateEventOutbox(
+    process.env.GATEWAY_STATE_EVENT_OUTBOX_PATH ?? "/var/lib/led-control/state-event-outbox.json",
+    { siteId, gatewayId }
+  );
+  await stateEventOutbox.initialize();
+  const stateEventPublisher = new StateEventOutboxPublisher(stateEventOutbox, {
+    onError: (error) => void reportGatewayError(error, "state_event_outbox_retry")
+  });
   const provisioningScanRecovery = new ProvisioningScanRecoveryPublisher(provisioningScanJournal);
   await provisioningScanRecovery.prepare(async (command) => ({
     topic: mqttTopicsV2.provisioningScanFailed(command.siteId, command.gatewayId),
@@ -108,36 +124,67 @@ async function main() {
   async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
     let acceptancePublished = false;
-    const result = await handleGatewayDimmingCommand(
-      adapter,
-      commandJournal,
-      command,
-      async (acceptance) => {
-        await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), acceptance);
-        acceptancePublished = true;
-      },
-      { timeoutMs: commandTimeoutMs, groupStateStore, groupQueue }
-    );
-    if (shouldPublishFinalAcceptance(acceptancePublished, result.acceptance.status)) {
-      await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
+    let stateReservation: StateEventCapacityReservation | undefined;
+    try {
+      const result = await handleGatewayDimmingCommand(
+        adapter,
+        commandJournal,
+        command,
+        async (acceptance) => {
+          await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), acceptance);
+          acceptancePublished = true;
+        },
+        {
+          timeoutMs: commandTimeoutMs,
+          groupStateStore,
+          groupQueue,
+          beforeExecution: async () => {
+            try {
+              stateReservation = await stateEventOutbox.reserve(command.targetFixtureIds.map((fixtureId) => ({
+                fixtureId,
+                payloadBytes: STATE_EVENT_RESERVATION_BYTES
+              })));
+              await health.setOperationalBlocker("state_outbox_capacity", false);
+            } catch (error) {
+              await health.setOperationalBlocker("state_outbox_capacity", true);
+              throw error;
+            }
+          }
+        }
+      );
+      if (shouldPublishFinalAcceptance(acceptancePublished, result.acceptance.status)) {
+        await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
+      }
+      await publish(source, mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
+      if (shouldPublishFixtureStates(result)) await publishDeviceStates(result, command.brightness, stateReservation);
+    } finally {
+      if (stateReservation) await stateEventOutbox.release(stateReservation);
     }
-    await publish(source, mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
-    if (shouldPublishFixtureStates(result)) await publishDeviceStates(source, result, command.brightness);
   }
 
   async function publishDeviceStates(
-    source: GatewayMqttClient,
     result: GatewayCommandResult,
-    fallbackBrightness: number
+    fallbackBrightness: number,
+    reservation?: StateEventCapacityReservation
   ) {
     await publishObservedDeviceStates({
       siteId,
       gatewayId,
       eventSequence,
-      publish: (topic, state) => publish(source, topic, state),
+      publish: (_topic, state) => enqueueFixtureState(state, reservation),
       result,
       fallbackBrightness
     });
+  }
+
+  async function enqueueFixtureState(state: FixtureStateV2, reservation?: StateEventCapacityReservation) {
+    try {
+      await stateEventOutbox.enqueue(state, reservation);
+      stateEventPublisher.wake();
+    } catch (error) {
+      await health.setOperationalBlocker("state_outbox_capacity", true);
+      throw error;
+    }
   }
 
   function publish(client: Pick<MqttClient, "publish">, topic: string, payload: unknown) {
@@ -219,7 +266,13 @@ async function main() {
       [mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)]: (payload) =>
         groupResyncPublisher.acknowledge(JSON.parse(payload.toString())),
       [mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId)]: (payload) =>
-        provisioningScanRecovery.acknowledgeTerminal(JSON.parse(payload.toString()))
+        provisioningScanRecovery.acknowledgeTerminal(JSON.parse(payload.toString())),
+      [mqttTopicsV2.stateIngestedAck(siteId, gatewayId)]: async (payload) => {
+        await stateEventPublisher.acknowledge(JSON.parse(payload.toString()));
+        if (await stateEventOutbox.canAcceptIntake()) {
+          await health.setOperationalBlocker("state_outbox_capacity", false);
+        }
+      }
     },
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: async () => {
@@ -228,11 +281,13 @@ async function main() {
         (topic, event) => publish(mqttRuntime.client, topic, event),
         (error) => reportGatewayError(error, "provisioning_scan_terminal_retry")
       );
+      await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
       await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
       await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
     },
     onClose: () => {
       provisioningScanRecovery.disconnect();
+      stateEventPublisher.disconnect();
       return health.unhealthy("mqtt_disconnected");
     },
     onError: () => health.unhealthy("mqtt_error"),
@@ -242,7 +297,7 @@ async function main() {
     siteId,
     gatewayId,
     eventSequence,
-    publish: (topic, state) => publish(mqttRuntime.client, topic, state)
+    publish: (_topic, state) => enqueueFixtureState(state)
   });
   adapter.onFixtureStatus((status) => {
     void publishFixtureStatus(status).catch((error) => void reportGatewayError(error, "mesh_fixture_status"));
@@ -252,7 +307,12 @@ async function main() {
   });
   mqttRuntime.start();
   const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
-  registerGatewayShutdownHandlers(mqttRuntime, rotation);
+  registerGatewayShutdownHandlers({
+    stop: async () => {
+      stateEventPublisher.disconnect();
+      await mqttRuntime.stop();
+    }
+  }, rotation);
 
   function reportGatewayError(error: unknown, context: string) {
     console.error(`Gateway MQTT ${context} failed`, error);
@@ -278,7 +338,7 @@ export async function publishObservedDeviceStates(input: {
   siteId: string;
   gatewayId: string;
   eventSequence: Pick<EventSequenceStore, "next">;
-  publish: (topic: string, payload: unknown) => Promise<void>;
+  publish: (topic: string, payload: FixtureStateV2) => Promise<void>;
   result: Pick<GatewayCommandResult, "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds">;
   fallbackBrightness: number;
 }) {
@@ -323,7 +383,7 @@ export function createFixtureStatusPublisher(input: {
   siteId: string;
   gatewayId: string;
   eventSequence: Pick<EventSequenceStore, "next">;
-  publish: (topic: string, payload: unknown) => Promise<void>;
+  publish: (topic: string, payload: FixtureStateV2) => Promise<void>;
   now?: () => string;
 }) {
   return async (status: BleMeshFixtureStatus) => {
@@ -367,7 +427,8 @@ export function subscribeGatewayCommands(
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/provision-device"),
         mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId),
-        mqttTopicsV2.provisioningScanTerminalIngestedAck(assignment.siteId, assignment.gatewayId)
+        mqttTopicsV2.provisioningScanTerminalIngestedAck(assignment.siteId, assignment.gatewayId),
+        mqttTopicsV2.stateIngestedAck(assignment.siteId, assignment.gatewayId)
       ],
       { qos: 1 },
       (error) => (error ? reject(error) : resolve())

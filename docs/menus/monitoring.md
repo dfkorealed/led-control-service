@@ -75,6 +75,8 @@
 - deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색과 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
+- 모든 production 상태 producer는 `0600` atomic durable outbox에 먼저 기록한다. 최대 `100,000건/100MiB` 용량을 예약할 수 없으면 물리 제어 전에 fail-closed하고 appliance health에 sticky capacity 장애를 남긴다.
+- Gateway는 QoS 1 PUBACK 이후에도 exact `state-ingested` application ACK를 받기 전에는 상태 이벤트를 삭제하지 않으며 reconnect/restart 후 재전송한다. API는 이벤트 원장, 최신 Fixture 상태, 에너지 cursor/checkpoint와 일별 집계를 같은 DB transaction으로 commit한 뒤에만 `ingested`, `duplicate`, `stale_sequence`, `reverse_time`, `stale_checkpoint` ACK를 발행한다.
 - gateway는 재시작 후에도 event sequence를 파일 권한 `0600`으로 이어간다. 시작 시에는 journal 추정 상태를 재발행하지 않고, 확인된 node의 AppKey/model bind/60초 publication 응답을 다시 확인·보정한 뒤 Generic OnOff, Lightness, Health 실제 상태를 조회한다.
 - Gateway provisioning scan journal은 `(sessionId, scanCorrelationId, scanAttempt)` 논리 실행을 `0600` atomic file에 보존한다. process restart 시 남은 `running`은 새 물리 scan 없이 정제된 `scan-failed` terminal로 먼저 수렴한다. MQTT가 runtime listener보다 먼저 연결된 경우도 command/application ACK subscription 준비 뒤 connect recovery를 정확히 한 번 실행한다. recovery terminal publish는 기본 10초 timeout을 적용하고 connection 안의 동시 drain을 single-flight로 직렬화한다. 연결 뒤 새 terminal은 durable 저장 직후 최초 publish 결과를 기다리기 전에 scheduler를 깨우며, ACK가 없으면 1초부터 최대 30초까지 exponential bounded backoff로 같은 event를 재발행한다. idle journal은 polling하지 않는다. MQTT close는 예약 timer와 active publish를 취소하고 reconnect는 새 connection generation에서 즉시 drain을 재시작한다.
 - broker PUBACK만으로 terminal을 delivered 처리하지 않는다. API는 exact terminal의 `ProcessedGatewayEvent` 생성과 `ProvisioningSession` terminal 변경 transaction이 commit된 뒤 strict `acks/provisioning/scan-terminal-ingested` ACK를 발행하고, transaction 실패 뒤 동일 event 재전달 또는 commit 뒤 ACK publish 실패에 따른 duplicate에도 commit 원장과 terminal snapshot을 확인해 ACK를 재발행한다. Gateway는 ACK의 `eventId`, `sequence`, `sessionId`, `scanCorrelationId`, `scanAttempt`가 journal terminal과 모두 일치할 때만 `deliveredAt`을 기록하고 retry timer를 정리한다. API offline, transaction 실패, ACK publish 실패에서는 journal을 유지한다. Gateway certificate의 ACK write 권한은 실제 producer topic인 `acks/acceptance`, `acks/device-status`로 제한하며 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested`는 read-only다.
@@ -107,6 +109,7 @@
 ## 부족하거나 개선이 필요한 기능
 
 - 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.
+- durable state outbox의 파일 권한·용량 차단과 application ACK 재전송은 자동 테스트로 검증했지만, 실제 broker/API 재시작과 Raspberry Pi 전원 차단을 포함한 HIL은 아직 실행하지 않았다.
 - Health 정보는 최신 Current snapshot만 보존하며 fault 이력, 발생 횟수와 해제 이력은 명시적 보류 범위다.
 - 조명 등록 완료 후 dashboard 반영은 session polling 관측 후 query invalidation에 의존하며 WebSocket/SSE push는 명시적으로 보류한다.
 - gateway offline 기준은 현재 90초, fixture stale 기준은 180초(60초 publication 3회 window) 고정값이다. 대규모 현장 검증 후 site/gateway별 정책 설정으로 분리해야 한다.

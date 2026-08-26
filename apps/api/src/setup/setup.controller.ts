@@ -23,6 +23,7 @@ interface InitialSiteSetupBody {
   siteName: string;
   address: string;
   tariffKwhRate: number;
+  timeZone?: string;
   floors: FloorBody[];
 }
 

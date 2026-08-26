@@ -1035,6 +1035,24 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - `knownSeconds`, `unknownSeconds`는 음수가 될 수 없다.
 - migration은 모든 기존 Fixture의 `energyTrackingStartedAt`에 적용 시각을 저장한다. 따라서 그 이전 구간을 추정하거나 `EnergyUsage`를 새 집계로 backfill하지 않는다.
 
+### FixtureEnergyStateCursor
+
+조명별 마지막 적산 checkpoint다. `aggregatedThrough` 이후 구간만 계산하고, 마지막 관측 상태와 정격 전력 및 duration remainder를 보존해 재시작·재전달에도 같은 결과를 만든다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `fixtureId` | `String` | 예 | PK, FK -> `Fixture.id`, delete cascade | 대상 조명 |
+| `aggregatedThrough` | `DateTime` | 예 |  | 적산 완료 checkpoint |
+| `observedStateOccurredAt` | `DateTime?` | 아니오 |  | 마지막 유효 상태 관측 시각 |
+| `brightness` | `Int` | 예 | DB check `0..100` | 마지막 밝기 |
+| `powerOn` | `Boolean?` | 아니오 |  | 마지막 전원 상태 |
+| `ratedWatt` | `Decimal(8,2)` | 예 |  | 해당 checkpoint 구간의 정격 전력 |
+| `durationRemainders` | `Json` | 예 |  | 날짜 분할 시 소수 시간 잔여값 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 갱신 시각 |
+
+`ProcessedGatewayEvent.fixtureId`는 상태 이벤트의 조명 원장 연결을 보존한다. API는 이벤트 원장, 이 cursor, `FixtureEnergyDailyAggregate`, Fixture 최신 상태를 하나의 transaction으로 갱신한다.
+
 ## 4. 주요 제약 조건 요약
 
 | 테이블 | 제약 | 설명 |
@@ -1050,6 +1068,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `CommandDispatch` | Unique `idempotencyKey`, `gatewayId + sequence` | 중복 명령과 순서 충돌 방지 |
 | `Command` | Unique `siteId + requestedBy + clientRequestId` | 사용자 재시도의 멱등성 보장 |
 | `FixtureEnergyDailyAggregate` | Unique `fixtureId + localDate`, localDate index, non-negative seconds check | 일별 idempotent upsert와 기간 조회 |
+| `FixtureEnergyStateCursor` | PK/FK `fixtureId`, brightness `0..100` check | 조명별 단일 적산 checkpoint와 밝기 범위 보장 |
 | `CommandFixtureResult` | PK `dispatchId + fixtureId` | dispatch별 조명 결과 중복 방지 |
 | `ProcessedGatewayEvent` | PK `eventId`, Unique `gatewayId + sequence + eventType` | QoS 중복·stale 이벤트 방지 |
 | `MeshNode` | Unique `deviceUuid` | BLE Mesh device UUID 중복 방지 |

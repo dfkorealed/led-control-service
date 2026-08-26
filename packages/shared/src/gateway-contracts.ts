@@ -182,6 +182,7 @@ export const applicationStateIngestedAckV2Schema = z.object({
   eventId: z.string().uuid(),
   sequence: z.number().int().nonnegative(),
   fixtureId: z.string().uuid(),
+  status: z.enum(["ingested", "duplicate", "stale_sequence", "reverse_time", "stale_checkpoint"]),
   ingestedAt: z.string().datetime()
 }).strict();
 

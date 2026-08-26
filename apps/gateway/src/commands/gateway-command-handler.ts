@@ -29,6 +29,7 @@ interface GatewayCommandOptions {
   timeoutMs?: number;
   groupStateStore?: Pick<GroupStateStore, "assertReady">;
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
+  beforeExecution?: () => Promise<void>;
 }
 
 const COMMAND_COMPLETION_GRACE_MS = 250;
@@ -83,6 +84,17 @@ async function executeGatewayDimmingCommand(
       const code = errorCode(error, "MESH_GROUP_NOT_READY");
       return rejectBeforeExecution(journal, command, code, error instanceof Error ? error.message : "mesh group is not ready");
     }
+  }
+
+  try {
+    await options.beforeExecution?.();
+  } catch {
+    return rejectBeforeExecution(
+      journal,
+      command,
+      "STATE_OUTBOX_CAPACITY",
+      "durable fixture state capacity is unavailable"
+    );
   }
 
   const identity = {

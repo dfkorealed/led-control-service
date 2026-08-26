@@ -16,6 +16,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { buildFloorEditorSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
+import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 
 interface UpdateFloorPlanInput {
   imageUrl?: string;
@@ -113,7 +114,8 @@ export class FloorEditorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly energyCheckpoint: FixtureEnergyCheckpointService = new FixtureEnergyCheckpointService()
   ) {}
 
   async getEditorState(floorId: string, user: AuthenticatedUser) {
@@ -141,8 +143,8 @@ export class FloorEditorService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.assertAtomicSaveTargets(tx, floorId, prepared);
-        await this.incrementRevision(tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence);
-        await this.applySaveChanges(tx, floorId, prepared);
+        const changedAt = await this.incrementRevision(tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence);
+        await this.applySaveChanges(tx, floorId, prepared, changedAt);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
         const snapshot = this.buildSnapshot(floor);
@@ -245,8 +247,8 @@ export class FloorEditorService {
           .filter((fixtureId) => !existingFixtureIds.has(fixtureId))
           .sort();
 
-        await this.incrementRevision(tx, floorId, input.expectedRevision, input.leaseToken, input.leaseFence);
-        await this.applySnapshot(tx, floorId, snapshot, existingFixtureIds);
+        const changedAt = await this.incrementRevision(tx, floorId, input.expectedRevision, input.leaseToken, input.leaseFence);
+        await this.applySnapshot(tx, floorId, snapshot, existingFixtureIds, changedAt);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
         const restoredSnapshot = this.buildSnapshot(floor);
@@ -521,6 +523,7 @@ export class FloorEditorService {
       where: { id: floorId },
       data: { mapRevision: { increment: 1 } }
     });
+    return floor.dbNow;
   }
 
   private async lockFloorLeaseAuthority(tx: Prisma.TransactionClient, floorId: string) {
@@ -540,7 +543,12 @@ export class FloorEditorService {
     return { ...row, dbNow: nowRows[0]!.dbNow };
   }
 
-  private async applySaveChanges(tx: Prisma.TransactionClient, floorId: string, input: PreparedSaveEditorState) {
+  private async applySaveChanges(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    input: PreparedSaveEditorState,
+    changedAt: Date
+  ) {
     if (input.floorPlan === null) {
       await tx.floorPlan.deleteMany({ where: { floorId } });
     } else if (input.floorPlan !== undefined) {
@@ -553,6 +561,14 @@ export class FloorEditorService {
     }
 
     for (const { id, data } of input.fixtureUpdates) {
+      if (data.ratedWatt !== undefined) {
+        await this.energyCheckpoint.closeRatedWattInterval(
+          tx,
+          id,
+          new Prisma.Decimal(data.ratedWatt as string | number),
+          changedAt
+        );
+      }
       await tx.fixture.update({ where: { id }, data });
     }
 
@@ -651,7 +667,8 @@ export class FloorEditorService {
     tx: Prisma.TransactionClient,
     floorId: string,
     snapshot: FloorEditorSnapshot,
-    existingFixtureIds: Set<string>
+    existingFixtureIds: Set<string>,
+    changedAt: Date
   ) {
     if (snapshot.floorPlan) {
       await tx.floorPlan.upsert({
@@ -666,6 +683,12 @@ export class FloorEditorService {
     for (const fixture of snapshot.fixtures) {
       if (!existingFixtureIds.has(fixture.id)) continue;
       const { id, ...data } = fixture;
+      await this.energyCheckpoint.closeRatedWattInterval(
+        tx,
+        id,
+        new Prisma.Decimal(data.ratedWatt),
+        changedAt
+      );
       await tx.fixture.update({ where: { id }, data });
     }
 

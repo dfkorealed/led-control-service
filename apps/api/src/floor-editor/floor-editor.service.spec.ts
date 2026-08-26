@@ -6,6 +6,7 @@ import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { FloorEditorService } from "./floor-editor.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
+import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 
 describe("FloorEditorService", () => {
   const ids = {
@@ -75,7 +76,8 @@ describe("FloorEditorService", () => {
             assert: jest.fn().mockResolvedValue({ id: ids.siteId, organizationId: ids.organizationId })
           }
         },
-        { provide: AuditService, useValue: { record: jest.fn() } }
+        { provide: AuditService, useValue: { record: jest.fn() } },
+        { provide: FixtureEnergyCheckpointService, useValue: { closeRatedWattInterval: jest.fn() } }
       ]
     }).compile();
 
@@ -295,15 +297,17 @@ describe("FloorEditorService atomic revisions", () => {
       assert: options.siteAccessAssert ?? jest.fn().mockResolvedValue({ id: siteId, organizationId: "customer-organization-1" })
     };
     const auditService = new AuditService(prisma);
+    const energyCheckpoint = { closeRatedWattInterval: jest.fn().mockResolvedValue(false) };
     const moduleRef = await Test.createTestingModule({
       providers: [
         FloorEditorService,
         { provide: PrismaService, useValue: prisma },
         { provide: SiteAccessService, useValue: siteAccess },
-        { provide: AuditService, useValue: auditService }
+        { provide: AuditService, useValue: auditService },
+        { provide: FixtureEnergyCheckpointService, useValue: energyCheckpoint }
       ]
     }).compile();
-    return { service: moduleRef.get(FloorEditorService) as any, prisma, siteAccess, tx };
+    return { service: moduleRef.get(FloorEditorService) as any, prisma, siteAccess, tx, energyCheckpoint };
   }
 
   it("rejects a stale save revision without committing normalized rows, revision, or audit", async () => {
@@ -355,6 +359,25 @@ describe("FloorEditorService atomic revisions", () => {
       })
     });
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("closes the previous rated-watt interval before updating the fixture", async () => {
+    const { service, tx, energyCheckpoint } = await createAtomicService();
+
+    await service.saveEditorState(user, floorId, {
+      ...saveInput,
+      fixtureUpdates: [{ id: fixtureId, ratedWatt: "55.50", x: 130, y: 250, size: 24 }]
+    });
+
+    expect(energyCheckpoint.closeRatedWattInterval).toHaveBeenCalledWith(
+      tx,
+      fixtureId,
+      new Prisma.Decimal("55.50"),
+      expect.any(Date)
+    );
+    expect(energyCheckpoint.closeRatedWattInterval.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.fixture.update.mock.invocationCallOrder[0]
+    );
   });
 
   it.each([

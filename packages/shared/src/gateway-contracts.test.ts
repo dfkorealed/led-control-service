@@ -75,12 +75,17 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       eventId,
       sequence: 9,
       fixtureId,
+      status: "ingested" as const,
       ingestedAt: occurredAt
     };
 
     expect(applicationStateIngestedAckV2Schema.parse(acknowledgement)).toEqual(acknowledgement);
     expect(() => applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, gatewayId })).toThrow();
     expect(() => applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, sequence: -1 })).toThrow();
+    expect(applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, status: "stale_checkpoint" }).status).toBe(
+      "stale_checkpoint"
+    );
+    expect(() => applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, status: "unknown" })).toThrow();
   });
 
   it("strictly validates the application acknowledgement for a committed scan terminal", () => {
