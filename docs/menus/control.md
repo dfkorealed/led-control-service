@@ -40,10 +40,10 @@
 - 명령 생성 응답은 `selectedTargetCount`, `transmissionCount`, `deliveryMode`, `terminalStatusUrl`을 제공하고 상태 응답은 nullable `targetId`, 확정 fixture snapshot과 dispatch의 delivery metadata를 반환한다. Mesh group dispatch에는 선택 당시 `meshControlGroupId`, `meshControlGroupVersion`, Group Address가 함께 보존된다.
 - 명령 생성 응답은 command ID와 gateway dispatch 수를 반환하고, `GET /commands/:commandId`는 command의 현장 read 권한이 있는 사용자에게만 조회를 허용한다. 존재하지 않는 command와 접근할 수 없는 command는 같은 `command not found` 404 응답으로 처리한다.
 - 제어 화면은 최근 명령을 1초 polling하며 접수, MQTT 발행, gateway 수신, 조명 적용 완료, 일부 실패, 실패, timeout 단계를 표시하고 종료 상태에서 polling을 중단한다.
-- 제어 화면은 명령 생성 직후 현장별 `sessionStorage`에 active command ID를 저장하고, 새로고침 후 같은 현장의 진행 명령을 복구한다. `activeCommandStorageKey`, `loadActiveCommandId`, `saveActiveCommandId`, `clearActiveCommandId` helper가 저장소 접근 불가·손상 데이터·잘못된 UUID를 안전하게 무시한다.
+- 제어 화면은 POST 전에 인증 사용자·현장별 `sessionStorage`에 canonical 요청을 저장하고, 명령 생성 직후 active command ID를 함께 보존해 새로고침 후 같은 사용자와 현장의 진행 명령만 복구한다. 로그아웃은 현재 사용자의 모든 복구 레코드만 제거하며 다른 사용자의 레코드는 건드리지 않는다. 저장소 helper는 접근 불가·손상 데이터·잘못된 UUID를 안전하게 무시한다.
 - `completed`, `partial_failed`, `failed`, `timed_out` terminal 상태를 확인하기 전까지 대상 선택, 검색·필터, 밝기 slider, preset, `밝기 적용` 버튼을 잠근다. 상태 응답의 command ID가 현재 추적 ID와 일치할 때만 terminal 결과로 반영하고 잠금을 해제한다. ID가 불일치하면 terminal로 처리하지 않고 1초 polling과 `명령 상태 다시 조회`를 유지한다.
 - terminal 결과는 화면에 유지하며, 네트워크 오류와 5xx는 명령 실패로 확정하지 않고 command ID를 보존해 `명령 상태 다시 조회`로 재조회한다. cached nonterminal 상태가 남아 있어도 최신 조회에서 인증된 404로 명령이 더 이상 존재하지 않음이 확인되면 저장된 active command를 CAS 방식으로 제거하고 잠금을 해제한다.
-- active command 저장·삭제는 RFC 4122 UUID 검증과 현장별 key 격리를 사용하며, 삭제 시 기대 command ID를 다시 비교해 오래된 명령이 새 명령의 저장값을 지우지 못하게 한다.
+- active command 저장·삭제는 RFC 4122 UUID 검증과 `(authenticated userId, siteId)` key 격리를 사용한다. terminal command 삭제는 기대 command ID, 확정 거부 요청 삭제는 기대 client request ID를 다시 비교해 오래된 비동기 결과가 새 저장값을 지우지 못하게 한다.
 - Playwright deterministic route fixture는 실제 Health snapshot 표시, 개별·다중 조명 명령 생성, 다중 unicast 전송 수, terminal 전 모든 제어 입력 잠금, `partial_failed`의 성공·timeout 조명별 결과, 동일 탭 새로고침 후 active command 복구와 terminal 완료 추적을 검증한다. 이는 브라우저와 API 계약 회귀이며 실제 BLE Mesh 전송 검증이 아니다.
 - 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
 - 대상 picker의 `개별/다중`, `층`, `구역` 버튼으로 제어 모드를 전환하고 각 모드에서 실제 전송 대상을 선택한다.
@@ -62,7 +62,7 @@
 - dashboard는 active 저장 구역에 lifecycle, floor/gateway, fixture count, MeshControlGroup status/version/error를 제공하고 층에도 gateway별 MeshControlGroup 상태를 제공한다. Web은 `ready`가 아닌 층·저장 구역을 제어 picker에서 비활성화하며 retired/invalid 구역은 dashboard 제어 target에 포함되지 않는다.
 - 비접근 site의 저장 구역 요청은 query/body 형식 검증보다 SiteAccess를 먼저 수행해 malformed 입력이어도 일관된 `404` 경계를 유지한다.
 - API command/scan outbox worker는 initial·interval batch의 transient DB 실패를 scheduler 경계에서 격리해 API process를 유지하고 다음 tick에서 회복한다. 각 batch와 Mesh group sync는 single-flight이며 종료가 시작되면 다음 record/group publish를 시작하지 않는다. `MqttShutdownCoordinator` 하나가 command/scan outbox와 `MeshGroupSyncWorker`의 멱등 `stopAndDrain()`, inbound MQTT listener 분리와 진행 중 handler drain을 모두 완료한 뒤에만 MQTT client close를 시작한다. inbound handler rejection은 payload·topic·오류 상세를 남기지 않는 최상위 오류 경계에서 격리한다. close는 MQTT.js graceful `end` callback을 await하고 5초 안에 완료되지 않으면 force close callback을 추가 1초간 기다린 뒤 종료를 계속한다.
-- 제어 생성은 `(siteId, requestedBy, clientRequestId)`와 안정 정렬한 target·brightness fingerprint로 멱등 처리한다. 동일 요청은 기존 command를 반환하고 다른 payload는 `409 client_request_id_payload_conflict`로 거부하며, 동시 unique 충돌은 새 transaction 재조회로 수렴한다. Web은 POST 전에 canonical 요청을 `sessionStorage`에 보존해 응답 유실 뒤 동일 요청을 재전송하고 장비 결과가 terminal일 때 제거한다.
+- 제어 생성은 `(siteId, requestedBy, clientRequestId)`와 안정 정렬한 target·brightness fingerprint로 멱등 처리한다. 동일 요청은 기존 command를 반환하고 다른 payload는 `409 client_request_id_payload_conflict`로 거부하며, 동시 unique 충돌은 새 transaction 재조회로 수렴한다. Web은 네트워크 오류·5xx·응답 유실에서만 같은 요청의 재전송을 제공하고, 4xx 확정 거부는 pending 요청을 제거해 UI를 즉시 잠금 해제한다. 전송 중 사용자·현장 전환 시 기존 요청을 abort하고 generation/scope가 다른 지연 성공·실패 결과를 현재 화면에 반영하지 않는다.
 - `viewer`가 제어 화면에 진입하면 읽기 전용 안내를 표시하고 밝기 슬라이더, 프리셋, 대상 선택과 `밝기 적용` 버튼을 모두 비활성화한다. 이 경우 브라우저는 `POST /commands/dimming`을 보내지 않으며 권한 오류를 장비 장애로 오인하지 않는다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 대상 선택과 `밝기 적용`을 차단하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.

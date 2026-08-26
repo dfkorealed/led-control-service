@@ -13,8 +13,12 @@ interface ActiveCommandRecord {
   request?: CreateDimmingCommandInput;
 }
 
-export function activeCommandStorageKey(siteId: string): string {
-  return `${STORAGE_PREFIX}${encodeURIComponent(siteId)}`;
+export function activeCommandStorageKey(userId: string, siteId: string): string {
+  return `${userStoragePrefix(userId)}${encodeURIComponent(siteId)}`;
+}
+
+function userStoragePrefix(userId: string): string {
+  return `${STORAGE_PREFIX}${encodeURIComponent(userId)}:`;
 }
 
 function getSessionStorage(): Storage | null {
@@ -27,47 +31,79 @@ function getSessionStorage(): Storage | null {
   }
 }
 
-export function loadActiveCommandId(siteId: string): string | null {
-  return loadRecord(siteId)?.commandId ?? null;
+export function loadActiveCommandId(userId: string, siteId: string): string | null {
+  return loadRecord(userId, siteId)?.commandId ?? null;
 }
 
-export function loadActiveCommandRequest(siteId: string): CreateDimmingCommandInput | null {
-  return loadRecord(siteId)?.request ?? null;
+export function loadActiveCommandRequest(userId: string, siteId: string): CreateDimmingCommandInput | null {
+  return loadRecord(userId, siteId)?.request ?? null;
 }
 
-export function saveActiveCommandRequest(siteId: string, request: CreateDimmingCommandInput): void {
+export function saveActiveCommandRequest(userId: string, siteId: string, request: CreateDimmingCommandInput): void {
   if (request.siteId !== siteId) return;
   const parsed = parseCommandRequest(request);
   if (!parsed) return;
-  saveRecord(siteId, { request: canonicalizeDimmingCommandInput(parsed) });
+  saveRecord(userId, siteId, { request: canonicalizeDimmingCommandInput(parsed) });
 }
 
-export function saveActiveCommandId(siteId: string, commandId: string): void {
+export function saveActiveCommandId(userId: string, siteId: string, commandId: string): void {
   if (!isCommandId(commandId)) return;
-  const current = loadRecord(siteId);
-  saveRecord(siteId, { ...(current?.request ? { request: current.request } : {}), commandId });
+  const current = loadRecord(userId, siteId);
+  saveRecord(userId, siteId, { ...(current?.request ? { request: current.request } : {}), commandId });
 }
 
-export function clearActiveCommandId(siteId: string, expectedCommandId: string): boolean {
+export function clearActiveCommandId(userId: string, siteId: string, expectedCommandId: string): boolean {
   if (!isCommandId(expectedCommandId)) return false;
 
   const storage = getSessionStorage();
-  if (!storage || loadActiveCommandId(siteId) !== expectedCommandId) return false;
+  if (!storage || loadActiveCommandId(userId, siteId) !== expectedCommandId) return false;
 
   try {
-    storage.removeItem(activeCommandStorageKey(siteId));
+    storage.removeItem(activeCommandStorageKey(userId, siteId));
     return true;
   } catch {
     return false;
   }
 }
 
-function loadRecord(siteId: string): ActiveCommandRecord | null {
+export function clearActiveCommandRequest(
+  userId: string,
+  siteId: string,
+  expectedClientRequestId: string
+): boolean {
+  if (!isCommandId(expectedClientRequestId)) return false;
+
+  const storage = getSessionStorage();
+  if (!storage || loadActiveCommandRequest(userId, siteId)?.clientRequestId !== expectedClientRequestId) return false;
+
+  try {
+    storage.removeItem(activeCommandStorageKey(userId, siteId));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearActiveCommandsForUser(userId: string): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+
+  try {
+    const prefix = userStoragePrefix(userId);
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index))
+      .filter((key): key is string => Boolean(key?.startsWith(prefix)));
+    keys.forEach((key) => storage.removeItem(key));
+  } catch {
+    // Storage can become unavailable between reads; logout must still complete.
+  }
+}
+
+function loadRecord(userId: string, siteId: string): ActiveCommandRecord | null {
   const storage = getSessionStorage();
   if (!storage) return null;
 
   try {
-    const raw = storage.getItem(activeCommandStorageKey(siteId));
+    const raw = storage.getItem(activeCommandStorageKey(userId, siteId));
     if (!raw) return null;
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== "object") return null;
@@ -130,11 +166,11 @@ function parseTarget(value: unknown): DimmingTarget | null {
   return null;
 }
 
-function saveRecord(siteId: string, record: ActiveCommandRecord): void {
+function saveRecord(userId: string, siteId: string, record: ActiveCommandRecord): void {
   const storage = getSessionStorage();
   if (!storage) return;
   try {
-    storage.setItem(activeCommandStorageKey(siteId), JSON.stringify(record));
+    storage.setItem(activeCommandStorageKey(userId, siteId), JSON.stringify(record));
   } catch {
     // Storage can be disabled or quota-limited; the current tab continues, but refresh recovery is unavailable.
   }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CreateDimmingCommandInput, DimmingTarget } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import type { AuthUser } from "../../api/auth";
@@ -13,6 +13,7 @@ import {
 import { useControlDashboard, type DashboardFixture } from "../../api/queries";
 import {
   clearActiveCommandId,
+  clearActiveCommandRequest,
   loadActiveCommandId,
   loadActiveCommandRequest,
   saveActiveCommandId,
@@ -22,7 +23,15 @@ import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicke
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 
-export function ControlView({ siteId, userRole }: { siteId?: string; userRole: AuthUser["role"] }) {
+export function ControlView({
+  siteId,
+  userId,
+  userRole
+}: {
+  siteId?: string;
+  userId: AuthUser["id"];
+  userRole: AuthUser["role"];
+}) {
   const { data, isLoading, error } = useControlDashboard(siteId);
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
@@ -31,11 +40,22 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [commandId, setCommandId] = useState<string | null>(null);
   const [commandSiteId, setCommandSiteId] = useState<string | null>(null);
+  const [commandUserId, setCommandUserId] = useState<string | null>(null);
   const [activeRequest, setActiveRequest] = useState<CreateDimmingCommandInput | null>(null);
   const [terminalResult, setTerminalResult] = useState<{ siteId: string; status: CommandStatusResponse } | null>(null);
+  const requestGeneration = useRef(0);
+  const activePostController = useRef<AbortController | null>(null);
+  const activeScope = useRef<{ generation: number; userId: string; siteId: string | null }>({
+    generation: 0,
+    userId,
+    siteId: null
+  });
   const activeSiteId = data?.site.id ?? null;
-  const scopedCommandId = activeSiteId && commandSiteId === activeSiteId ? commandId : null;
-  const scopedActiveRequest = activeSiteId && activeRequest?.siteId === activeSiteId ? activeRequest : null;
+  const commandScopeMatches = Boolean(
+    activeSiteId && commandUserId === userId && commandSiteId === activeSiteId
+  );
+  const scopedCommandId = commandScopeMatches ? commandId : null;
+  const scopedActiveRequest = commandScopeMatches && activeRequest?.siteId === activeSiteId ? activeRequest : null;
   const commandQuery = useCommandStatus(scopedCommandId);
   const matchingCommandStatus = commandQuery.data?.id === scopedCommandId ? commandQuery.data : null;
   const matchingCommandIsTerminal = isTerminalCommandStage(matchingCommandStatus?.stage);
@@ -55,38 +75,54 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
     scopedActiveRequest && !scopedCommandId
     || scopedCommandId && !matchingCommandIsTerminal
   );
-  const restorePending = Boolean(activeSiteId && activeSiteId !== commandSiteId);
+  const restorePending = Boolean(
+    activeSiteId && (activeSiteId !== commandSiteId || userId !== commandUserId)
+  );
   const controlsLocked = readOnly || isSubmitting || restorePending || commandInProgress;
   const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !controlsLocked);
 
-  useEffect(() => {
-    if (!activeSiteId) return;
+  useLayoutEffect(() => {
+    const generation = ++requestGeneration.current;
+    activePostController.current?.abort();
+    activePostController.current = null;
+    activeScope.current = { generation, userId, siteId: activeSiteId };
+    setIsSubmitting(false);
     setSelection(emptySelection);
     setMessage("");
     setTerminalResult(null);
+    setCommandUserId(userId);
     setCommandSiteId(activeSiteId);
-    setActiveRequest(loadActiveCommandRequest(activeSiteId));
-    setCommandId(loadActiveCommandId(activeSiteId));
-  }, [activeSiteId]);
+    setActiveRequest(activeSiteId ? loadActiveCommandRequest(userId, activeSiteId) : null);
+    setCommandId(activeSiteId ? loadActiveCommandId(userId, activeSiteId) : null);
+
+    return () => {
+      if (activeScope.current.generation === generation) {
+        requestGeneration.current += 1;
+        activeScope.current = { generation: requestGeneration.current, userId, siteId: null };
+      }
+      activePostController.current?.abort();
+      activePostController.current = null;
+    };
+  }, [activeSiteId, userId]);
 
   useEffect(() => {
     if (!activeSiteId || !scopedCommandId || !matchingCommandStatus || !matchingCommandIsTerminal) return;
 
     setTerminalResult({ siteId: activeSiteId, status: matchingCommandStatus });
-    clearActiveCommandId(activeSiteId, scopedCommandId);
+    clearActiveCommandId(userId, activeSiteId, scopedCommandId);
     setActiveRequest(null);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
     setMessage("");
-  }, [activeSiteId, matchingCommandIsTerminal, matchingCommandStatus, scopedCommandId]);
+  }, [activeSiteId, matchingCommandIsTerminal, matchingCommandStatus, scopedCommandId, userId]);
 
   useEffect(() => {
     if (!activeSiteId || !scopedCommandId || matchingCommandIsTerminal || !missingCommand) return;
 
-    clearActiveCommandId(activeSiteId, scopedCommandId);
+    clearActiveCommandId(userId, activeSiteId, scopedCommandId);
     setActiveRequest(null);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
     setMessage("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다");
-  }, [activeSiteId, matchingCommandIsTerminal, missingCommand, scopedCommandId]);
+  }, [activeSiteId, matchingCommandIsTerminal, missingCommand, scopedCommandId, userId]);
 
   async function submitCommand() {
     if (!data || !target || !canSubmit) return;
@@ -97,28 +133,50 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
       target,
       brightness
     });
-    saveActiveCommandRequest(data.site.id, request);
+    saveActiveCommandRequest(userId, data.site.id, request);
+    setCommandUserId(userId);
     setCommandSiteId(data.site.id);
     setActiveRequest(request);
     setTerminalResult(null);
-    await sendCommand(request);
+    await sendCommand(request, userId);
   }
 
-  async function sendCommand(request: CreateDimmingCommandInput) {
+  async function sendCommand(request: CreateDimmingCommandInput, requestUserId: string) {
+    const generation = activeScope.current.generation;
+    const controller = new AbortController();
+    activePostController.current?.abort();
+    activePostController.current = controller;
     setIsSubmitting(true);
     setMessage("");
     try {
-      const command = await createDimmingCommand(request);
-      saveActiveCommandId(request.siteId, command.id);
+      const command = await createDimmingCommand(request, controller.signal);
+      if (!ownsRequestScope(generation, requestUserId, request.siteId)) return;
+      saveActiveCommandId(requestUserId, request.siteId, command.id);
+      setCommandUserId(requestUserId);
       setCommandSiteId(request.siteId);
       setCommandId(command.id);
       setMessage("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.");
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-    } catch {
-      setMessage("명령 응답을 확인하지 못했습니다. 동일 요청으로 다시 전송하세요.");
+    } catch (error) {
+      if (!ownsRequestScope(generation, requestUserId, request.siteId)) return;
+      if (isDefinitiveCommandRejection(error)) {
+        clearActiveCommandRequest(requestUserId, request.siteId, request.clientRequestId);
+        setActiveRequest(null);
+        setCommandId(null);
+        setMessage(definitiveRejectionMessage(error));
+      } else {
+        setMessage("명령 응답을 확인하지 못했습니다. 동일 요청으로 다시 전송하세요.");
+      }
     } finally {
-      setIsSubmitting(false);
+      if (activePostController.current === controller) activePostController.current = null;
+      if (ownsRequestScope(generation, requestUserId, request.siteId)) setIsSubmitting(false);
     }
+  }
+
+  function ownsRequestScope(generation: number, requestUserId: string, requestSiteId: string) {
+    return activeScope.current.generation === generation
+      && activeScope.current.userId === requestUserId
+      && activeScope.current.siteId === requestSiteId;
   }
 
   if (isLoading && !data) {
@@ -210,7 +268,7 @@ export function ControlView({ siteId, userRole }: { siteId?: string; userRole: A
           {scopedActiveRequest && !scopedCommandId ? (
             <button
               type="button"
-              onClick={() => void sendCommand(scopedActiveRequest)}
+              onClick={() => void sendCommand(scopedActiveRequest, userId)}
               disabled={isSubmitting}
             >
               동일 요청 다시 전송
@@ -374,4 +432,16 @@ function isMissingCommandError(error: unknown): error is { status: number } {
     && "status" in error
     && (error as { status?: unknown }).status === 404
   );
+}
+
+function isDefinitiveCommandRejection(error: unknown): error is { status: number; body?: unknown } {
+  if (!error || typeof error !== "object" || !("status" in error)) return false;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" && status >= 400 && status < 500;
+}
+
+function definitiveRejectionMessage(error: { status: number; body?: unknown }): string {
+  if (error.status === 403) return "제어 권한이 없습니다. 권한을 확인한 뒤 다시 시도하세요.";
+  if (error.status === 409) return "동일 요청 ID가 다른 제어 내용과 충돌했습니다. 새 제어 요청을 실행하세요.";
+  return `제어 요청이 거부되었습니다(${error.status}). 입력과 권한을 확인하세요.`;
 }

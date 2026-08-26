@@ -9,6 +9,10 @@ import { mockDashboard, mockEnergyEstimate, mockRegistrationSession } from "./te
 import type { RegistrationSession } from "./api/registration";
 import { App } from "./App";
 import { settingsSectionsFor } from "./features/settings/settings-sections";
+import {
+  activeCommandStorageKey,
+  saveActiveCommandRequest
+} from "./features/control/active-command-store";
 
 const authState = vi.hoisted(() => ({
   user: {
@@ -693,7 +697,7 @@ describe("App", () => {
         },
         brightness: 30,
         clientRequestId: expect.any(String)
-      }))
+      }), { signal: expect.any(AbortSignal) })
     );
     expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
   });
@@ -744,7 +748,7 @@ describe("App", () => {
       },
       brightness: 70,
       clientRequestId: expect.any(String)
-    })));
+    }), { signal: expect.any(AbortSignal) }));
     expect(await screen.findByText("일부 조명 적용 실패", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
@@ -821,6 +825,32 @@ describe("App", () => {
     expect(apiPost).toHaveBeenCalledWith("/auth/logout", {});
     expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("removes only the authenticated user's command recovery records on logout", async () => {
+    const otherUserId = "user-2";
+    const request = {
+      siteId: mockDashboard.site.id,
+      clientRequestId: "00000000-0000-4000-8000-000000009099",
+      target: { type: "fixture" as const, fixtureId: mockDashboard.floors[0].fixtures[0].id },
+      brightness: 30
+    };
+    saveActiveCommandRequest(authState.user!.id, request.siteId, request);
+    saveActiveCommandRequest(otherUserId, request.siteId, {
+      ...request,
+      clientRequestId: "00000000-0000-4000-8000-000000009098"
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
+
+    await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey("user-1", request.siteId))).toBeNull());
+    expect(sessionStorage.getItem(activeCommandStorageKey(otherUserId, request.siteId))).not.toBeNull();
   });
 
   it("starts a lighting registration session from settings and shows discovered nodes", async () => {

@@ -40,6 +40,8 @@ const commandIds = {
   siteB: "00000000-0000-4000-8000-000000009011",
   cached404: "00000000-0000-4000-8000-000000009012"
 };
+const USER_A = "user-a";
+const USER_B = "user-b";
 
 const dashboard: Dashboard = {
   site: { id: "00000000-0000-4000-8000-000000000003", name: "테스트 현장" },
@@ -127,7 +129,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "fixture", fixtureId: fixtureIds.b2First },
       brightness: 70
-    }));
+    }, { signal: expect.any(AbortSignal) }));
   });
 
   it("syncs brightness from the fixture when exactly one light is selected", () => {
@@ -180,7 +182,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "fixtures", fixtureIds: [fixtureIds.b2First, fixtureIds.b2Second] },
       brightness: 30
-    }));
+    }, { signal: expect.any(AbortSignal) }));
     expect(screen.getByText("2개 선택 · 제어 불가 0개")).toBeInTheDocument();
   });
 
@@ -196,7 +198,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "floor", floorId: dashboard.floors[1].id },
       brightness: 70
-    }));
+    }, { signal: expect.any(AbortSignal) }));
 
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.default, "completed"),
@@ -215,7 +217,7 @@ describe("ControlView 대상 선택", () => {
       clientRequestId: expect.any(String),
       target: { type: "group", groupId: dashboard.groups[0].id },
       brightness: 70
-    }));
+    }, { signal: expect.any(AbortSignal) }));
   });
 
   it("does not expose configuring or failed mesh groups as selectable control targets", () => {
@@ -293,7 +295,7 @@ describe("ControlView 대상 선택", () => {
   });
 
   it("keeps fixture-level command failures visible while polling status", () => {
-    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
     mocks.useCommandStatus.mockReturnValue({
       error: null,
       data: {
@@ -456,6 +458,7 @@ describe("ControlView 대상 선택", () => {
     expect(await screen.findByRole("button", { name: "동일 요청 다시 전송" })).toBeEnabled();
     const firstPayload = mocks.apiPost.mock.calls[0][1];
     expect(firstPayload.target.fixtureIds).toEqual([fixtureIds.b2First, fixtureIds.b2Second]);
+    expect(mocks.apiPost.mock.calls[0][2]).toMatchObject({ signal: expect.any(AbortSignal) });
 
     fireEvent.click(screen.getByRole("button", { name: "동일 요청 다시 전송" }));
 
@@ -464,9 +467,75 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.retry);
   });
 
+  it.each([
+    [409, { code: "client_request_id_payload_conflict" }, "동일 요청 ID가 다른 제어 내용과 충돌했습니다"],
+    [403, { message: "forbidden" }, "제어 권한이 없습니다"]
+  ])("clears a pending request and unlocks controls after a definitive %s rejection", async (status, body, message) => {
+    mocks.apiPost.mockRejectedValueOnce(Object.assign(new Error("rejected"), { status, body }));
+    renderControl();
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+
+    expect(await screen.findByText(new RegExp(message))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "동일 요청 다시 전송" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
+  });
+
+  it("does not restore another user's pending request for the same site", async () => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({
+      request: {
+        siteId: dashboard.site.id,
+        clientRequestId: "00000000-0000-4000-8000-000000009099",
+        target: { type: "fixture", fixtureId: fixtureIds.b2First },
+        brightness: 30
+      }
+    }));
+
+    const { rerender } = renderControl("admin", dashboard.site.id, USER_A);
+    expect(await screen.findByRole("button", { name: "동일 요청 다시 전송" })).toBeInTheDocument();
+
+    rerender(controlElement(dashboard.site.id, "admin", USER_B));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "동일 요청 다시 전송" })).not.toBeInTheDocument());
+    expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
+  });
+
+  it.each(["success", "failure"])("ignores a delayed %s result after switching sites", async (result) => {
+    let resolveCommand: (value: unknown) => void = () => undefined;
+    let rejectCommand: (reason: unknown) => void = () => undefined;
+    mocks.apiPost.mockImplementationOnce(() => new Promise((resolve, reject) => {
+      resolveCommand = resolve;
+      rejectCommand = reject;
+    }));
+    const { rerender } = renderControl();
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    const originalSignal = mocks.apiPost.mock.calls[0][2]?.signal as AbortSignal;
+
+    const nextSiteId = "00000000-0000-4000-8000-000000000099";
+    const nextDashboard: Dashboard = { ...dashboard, site: { id: nextSiteId, name: "다음 현장" } };
+    mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
+    rerender(controlElement(nextSiteId));
+    expect(originalSignal.aborted).toBe(true);
+
+    if (result === "success") {
+      resolveCommand({ id: commandIds.siteA });
+    } else {
+      rejectCommand(new Error("response lost"));
+    }
+
+    await waitFor(() => expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "밝기 적용 중" })).not.toBeInTheDocument();
+    expect(screen.queryByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).not.toBeInTheDocument();
+    expect(screen.queryByText("명령 응답을 확인하지 못했습니다. 동일 요청으로 다시 전송하세요.")).not.toBeInTheDocument();
+  });
+
   it("keeps controls locked when a terminal status belongs to a different command", async () => {
     const refetch = vi.fn();
-    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.different, "completed"),
       error: null,
@@ -483,11 +552,11 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("명령 상태 응답의 식별자가 일치하지 않습니다");
     fireEvent.click(screen.getByRole("button", { name: "명령 상태 다시 조회" }));
     expect(refetch).toHaveBeenCalledTimes(1);
-    expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toContain(commandIds.expected);
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.expected);
   });
 
   it("releases only a missing active command when status lookup returns 404", async () => {
-    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.missing }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.missing }));
     mocks.useCommandStatus.mockReturnValue({
       data: undefined,
       error: Object.assign(new Error("not found"), { status: 404 }),
@@ -500,11 +569,11 @@ describe("ControlView 대상 선택", () => {
     expect(await screen.findByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).toBeInTheDocument();
     expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
     expect(screen.queryByRole("button", { name: "명령 상태 다시 조회" })).not.toBeInTheDocument();
-    expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toBeNull();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
   });
 
   it("releases a missing active command when a matching nonterminal status is cached", async () => {
-    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.cached404 }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.cached404 }));
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.cached404, "accepted"),
       error: Object.assign(new Error("not found"), { status: 404 }),
@@ -517,11 +586,11 @@ describe("ControlView 대상 선택", () => {
     expect(await screen.findByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).toBeInTheDocument();
     expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
     expect(screen.queryByRole("button", { name: "명령 상태 다시 조회" })).not.toBeInTheDocument();
-    expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toBeNull();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
   });
 
   it("hides a stale status error when matching terminal results arrive", async () => {
-    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.terminal }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.terminal }));
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.terminal, "completed"),
       error: Object.assign(new Error("not found"), { status: 404 }),
@@ -538,7 +607,7 @@ describe("ControlView 대상 선택", () => {
 
   it("locks the load-more action while restoring a command for a large site", async () => {
     const largeDashboard = createLargeDashboard(101);
-    sessionStorage.setItem(activeCommandStorageKey(largeDashboard.site.id), JSON.stringify({ commandId: commandIds.large }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, largeDashboard.site.id), JSON.stringify({ commandId: commandIds.large }));
     mocks.useControlDashboard.mockReturnValue({ data: largeDashboard, isLoading: false, error: null });
 
     renderControl("admin", largeDashboard.site.id);
@@ -561,11 +630,11 @@ describe("ControlView 대상 선택", () => {
 
     expect(await screen.findByText("일부 조명 적용 실패")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
-    await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toBeNull());
+    await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull());
   });
 
   it("restores the active command for the loaded site after a refresh", async () => {
-    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.restored }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.restored }));
     renderControl();
 
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.restored));
@@ -577,13 +646,13 @@ describe("ControlView 대상 선택", () => {
     ["5xx", Object.assign(new Error("server error"), { status: 500 })]
   ])("keeps the active command when a %s status lookup fails and retries on request", async (_label, queryError) => {
     const refetch = vi.fn();
-    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.retry }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.retry }));
     mocks.useCommandStatus.mockReturnValue({ data: undefined, error: queryError, isFetching: false, refetch });
     renderControl();
 
     expect(await screen.findByText("명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
-    expect(sessionStorage.getItem(activeCommandStorageKey(dashboard.site.id))).toContain(commandIds.retry);
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.retry);
 
     fireEvent.click(screen.getByRole("button", { name: "명령 상태 다시 조회" }));
     expect(refetch).toHaveBeenCalledTimes(1);
@@ -591,8 +660,8 @@ describe("ControlView 대상 선택", () => {
 
   it("isolates restored command state and results when the loaded site changes", async () => {
     const nextSiteId = "00000000-0000-4000-8000-000000000099";
-    sessionStorage.setItem(activeCommandStorageKey(dashboard.site.id), JSON.stringify({ commandId: commandIds.siteA }));
-    sessionStorage.setItem(activeCommandStorageKey(nextSiteId), JSON.stringify({ commandId: commandIds.siteB }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.siteA }));
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, nextSiteId), JSON.stringify({ commandId: commandIds.siteB }));
     const { rerender } = renderControl();
 
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.siteA));
@@ -607,15 +676,20 @@ describe("ControlView 대상 선택", () => {
 
 function renderControl(
   role: "operator" | "admin" | "viewer" = "admin",
-  siteId = dashboard.site.id
+  siteId = dashboard.site.id,
+  userId = USER_A
 ) {
-  return render(controlElement(siteId, role));
+  return render(controlElement(siteId, role, userId));
 }
 
-function controlElement(siteId: string, role: "operator" | "admin" | "viewer" = "admin") {
+function controlElement(
+  siteId: string,
+  role: "operator" | "admin" | "viewer" = "admin",
+  userId = USER_A
+) {
   return (
     <QueryClientProvider client={new QueryClient()}>
-      <ControlView siteId={siteId} userRole={role} />
+      <ControlView siteId={siteId} userId={userId} userRole={role} />
     </QueryClientProvider>
   );
 }

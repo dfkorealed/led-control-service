@@ -5,6 +5,7 @@ import { useCurrentUser, logout, type AuthUser } from "./api/auth";
 import { useDashboard } from "./api/queries";
 import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
+import { clearActiveCommandsForUser } from "./features/control/active-command-store";
 import { MonitoringView } from "./features/monitoring/MonitoringView";
 import { SettingsShell } from "./features/settings/SettingsShell";
 import { FloorEditorRoute } from "./features/settings/floor-plans/FloorEditorRoute";
@@ -65,6 +66,7 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
       discardEditorChanges();
     }
     await logout();
+    clearActiveCommandsForUser(user.id);
     queryClient.setQueryData(["auth", "me"], null);
     queryClient.removeQueries({
       predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] !== "auth"
@@ -118,7 +120,7 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
         </header>
         <Routes>
           <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
-          <Route path="/control" element={<ControlView siteId={siteId} userRole={user.role} />} />
+          <Route path="/control" element={<ControlView siteId={siteId} userId={user.id} userRole={user.role} />} />
           <Route path="/statistics" element={<StatisticsView siteId={siteId} />} />
           <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />

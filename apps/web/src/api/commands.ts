@@ -54,8 +54,12 @@ export function getCommandStatusRefetchInterval(
   return status?.id === requestedCommandId && isTerminalCommandStage(status.stage) ? false : 1000;
 }
 
-export function createDimmingCommand(input: CreateDimmingCommandInput) {
-  return apiPost<CreateDimmingCommandResponse>("/commands/dimming", canonicalizeDimmingCommandInput(input));
+export function createDimmingCommand(input: CreateDimmingCommandInput, signal?: AbortSignal) {
+  return apiPost<CreateDimmingCommandResponse>(
+    "/commands/dimming",
+    canonicalizeDimmingCommandInput(input),
+    { signal }
+  );
 }
 
 export function canonicalizeDimmingCommandInput(
