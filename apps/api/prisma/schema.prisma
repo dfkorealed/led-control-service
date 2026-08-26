@@ -124,12 +124,14 @@ model Organization {
 model User {
   id                   String                @id @default(uuid())
   organizationId       String
-  email                String                @unique
+  loginId              String                @unique
+  email                String?               @unique
   name                 String
   passwordHash         String
   role                 UserRole
   status               UserStatus            @default(active)
   organization         Organization          @relation(fields: [organizationId], references: [id])
+  administeredSite     Site?                 @relation("SiteAdmin")
   commands             Command[]
   sessions             Session[]
   provisioningSessions ProvisioningSession[]
@@ -143,11 +145,13 @@ model User {
 model Site {
   id                   String                @id @default(uuid())
   organizationId       String
+  adminUserId          String?               @unique
   name                 String
-  address              String
-  tariffKwhRate        Decimal               @db.Decimal(10, 2)
+  address              String?
+  tariffKwhRate        Decimal?              @db.Decimal(10, 2)
   timeZone             String                @default("Asia/Seoul")
   organization         Organization          @relation(fields: [organizationId], references: [id])
+  admin                User?                 @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
   floors               Floor[]
   gateways             Gateway[]
   groups               FixtureGroup[]

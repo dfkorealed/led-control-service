@@ -59,7 +59,7 @@
 - Produces: `User.loginId: string`, `User.email: string | null`, `Site.adminUserId: string | null`, `Site.address: string | null`, `Site.tariffKwhRate: Decimal | null`
 - Produces: `Site.admin`/`User.administeredSite` 일대일 Prisma relation
 
-- [ ] **Step 1: migration 실패 조건을 통합 테스트로 작성**
+- [x] **Step 1: migration 실패 조건을 통합 테스트로 작성**
 
 ```ts
 it("rejects normalized login id collisions before enforcing uniqueness", async () => {
@@ -74,12 +74,12 @@ it("backfills only an unambiguous one-admin one-site customer", async () => {
 });
 ```
 
-- [ ] **Step 2: RED 확인**
+- [x] **Step 2: RED 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/prisma/operator-admin-migration.integration.spec.ts --runInBand`
 Expected: 새 migration과 relation이 없어 실패
 
-- [ ] **Step 3: schema와 migration 구현**
+- [x] **Step 3: schema와 migration 구현**
 
 ```prisma
 model User {
@@ -98,7 +98,7 @@ model Site {
 
 Migration은 다음 순서를 한 파일에서 보장한다: nullable column 추가 → `lower(trim(email))` backfill → 허용 문자·길이·정규화 충돌·operator 중복·admin/현장 모호성 검사 → 명확한 customer의 admin 연결 → loginId NOT NULL/unique/check → `Site.adminUserId` unique/FK. 모호성이 있으면 PostgreSQL `RAISE EXCEPTION`으로 중단한다.
 
-- [ ] **Step 4: Prisma 및 migration 검증**
+- [x] **Step 4: Prisma 및 migration 검증**
 
 Run: `pnpm --filter @led-control/api exec prisma validate && pnpm --filter @led-control/api prisma:generate`
 Expected: PASS
@@ -106,7 +106,7 @@ Expected: PASS
 Run: `pnpm --filter @led-control/api exec jest src/prisma/operator-admin-migration.integration.spec.ts --runInBand`
 Expected: PASS 또는 테스트 DB 환경 미설정 시 명시적 skip
 
-- [ ] **Step 5: DB 문서와 상태판 갱신 후 커밋**
+- [x] **Step 5: DB 문서와 상태판 갱신 후 커밋**
 
 ```bash
 git add apps/api/prisma apps/api/src/prisma/operator-admin-migration.integration.spec.ts docs/database-schema.md docs/project-status.md docs/superpowers/plans/2026-08-27-operator-admin-account-flow.md

@@ -22,7 +22,7 @@
 Organization
   ├─ User ─ Session
   ├─ Invitation
-  └─ Site
+  └─ Site ─ admin -> User
       ├─ Floor
       │   ├─ FloorPlan
       │   ├─ FloorMapObject
@@ -191,13 +191,14 @@ Organization
 
 ### User
 
-서비스 사용자 계정이다. 로그인은 이메일/비밀번호 기반이며, 비밀번호는 hash로 저장한다.
+서비스 사용자 계정이다. DB 정본 로그인 식별자는 정규화된 `loginId`이며, 비밀번호는 hash로 저장한다. API 로그인 계약 전환은 후속 인증 작업에서 이 정본을 소비한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 사용자 ID |
 | `organizationId` | `String` | 예 | FK -> `Organization.id` | 소속 조직 |
-| `email` | `String` | 예 | Unique | 로그인 이메일 |
+| `loginId` | `String` | 예 | Unique, 4~100자 소문자 영문·숫자·`.`, `_`, `-`, `@` check | 전역 로그인 식별자. migration이 기존 `email`을 `lower(btrim(email))`으로 이전 |
+| `email` | `String?` | 아니오 | Unique | 연락용 이메일 호환 필드. 로그인 식별자로 사용하지 않음 |
 | `name` | `String` | 예 |  | 사용자 이름 |
 | `passwordHash` | `String` | 예 |  | 비밀번호 hash |
 | `role` | `UserRole` | 예 |  | 권한 |
@@ -208,11 +209,18 @@ Organization
 관계:
 
 - `organization`: `Organization`
+- `administeredSite`: `Site?` (`Site.adminUserId`와 1:1)
 - `commands`: `Command[]`
 - `sessions`: `Session[]`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `siteMemberships`: `SiteMembership[]`
 - `floorMapRevisions`: `FloorMapRevision[]`
+
+제약 및 migration 안전성:
+
+- `20260827090000_operator_admin_account_flow` migration은 nullable 컬럼 추가, `loginId` backfill, 형식·정규화 충돌·활성 operator 중복·기존 admin/현장 모호성 사전검증, 명확한 customer admin 연결, 최종 제약 추가를 하나의 PostgreSQL transaction에서 수행한다.
+- 정규화 충돌 또는 기존 admin이 있는 customer의 admin/현장 수가 각각 하나가 아니면 `RAISE EXCEPTION`으로 중단한다. 임의 loginId 보정이나 권한 확대는 하지 않는다.
+- 활성 `operator`는 PostgreSQL partial unique index로 한 명만 허용한다. 이 index는 Prisma schema에 표현되지 않으며 migration이 정본이다.
 
 ### Site
 
@@ -222,9 +230,10 @@ Organization
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 현장 ID |
 | `organizationId` | `String` | 예 | FK -> `Organization.id` | 소속 조직 |
+| `adminUserId` | `String?` | 아니오 | Unique, FK -> `User.id`, restrict delete | 이 현장을 직접 관리하는 단일 admin. admin 계정도 한 현장만 가질 수 있음 |
 | `name` | `String` | 예 |  | 현장명 |
-| `address` | `String` | 예 |  | 주소 |
-| `tariffKwhRate` | `Decimal(10,2)` | 예 |  | kWh 단가 |
+| `address` | `String?` | 아니오 |  | 주소. admin 최초 설치 전에는 비어 있을 수 있음 |
+| `tariffKwhRate` | `Decimal(10,2)?` | 아니오 |  | kWh 단가. admin 최초 설치 전에는 비어 있을 수 있음 |
 | `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -232,6 +241,7 @@ Organization
 관계:
 
 - `organization`: `Organization`
+- `admin`: `User?` (`User.administeredSite`와 1:1)
 - `floors`: `Floor[]`
 - `gateways`: `Gateway[]`
 - `groups`: `FixtureGroup[]`
