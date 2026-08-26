@@ -1,7 +1,13 @@
 const generationByUser = new Map<string, number>();
 const controllersByUser = new Map<string, Set<AbortController>>();
+const blockedUsers = new Set<string>();
 
 export function registerActiveCommandRequest(userId: string, controller: AbortController) {
+  if (isActiveCommandSessionBlocked(userId)) {
+    controller.abort();
+    return null;
+  }
+
   const generation = currentActiveCommandGeneration(userId);
   const controllers = controllersByUser.get(userId) ?? new Set<AbortController>();
   controllers.add(controller);
@@ -20,6 +26,19 @@ export function registerActiveCommandRequest(userId: string, controller: AbortCo
       release();
     }
   };
+}
+
+export function blockActiveCommandSession(userId: string): void {
+  blockedUsers.add(userId);
+  invalidateActiveCommandSession(userId);
+}
+
+export function unblockActiveCommandSession(userId: string): void {
+  blockedUsers.delete(userId);
+}
+
+export function isActiveCommandSessionBlocked(userId: string): boolean {
+  return blockedUsers.has(userId);
 }
 
 export function invalidateActiveCommandSession(userId: string): void {

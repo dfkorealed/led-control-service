@@ -909,6 +909,92 @@ describe("App", () => {
     }
   );
 
+  it("keeps command retry disabled while the logout API is pending", async () => {
+    let resolveLogout: () => void = () => undefined;
+    vi.mocked(apiPost)
+      .mockImplementationOnce((_path, _body, options) => new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveLogout = () => {
+          authState.user = null;
+          resolve({ ok: true });
+        };
+      }));
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
+      "/commands/dimming",
+      expect.anything(),
+      { signal: expect.any(AbortSignal) }
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+
+    const retryButton = await screen.findByRole("button", { name: "동일 요청 다시 전송" });
+    expect(retryButton).toBeDisabled();
+    fireEvent.click(retryButton);
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")).toHaveLength(1);
+
+    await act(async () => {
+      resolveLogout();
+      await Promise.resolve();
+    });
+    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+  });
+
+  it("unblocks command retry when logout fails", async () => {
+    let rejectLogout: (reason: unknown) => void = () => undefined;
+    vi.mocked(apiPost)
+      .mockImplementationOnce((_path, _body, options) => new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }))
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        rejectLogout = reject;
+      }));
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
+      "/commands/dimming",
+      expect.anything(),
+      { signal: expect.any(AbortSignal) }
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    expect(await screen.findByRole("button", { name: "동일 요청 다시 전송" })).toBeDisabled();
+
+    await act(async () => {
+      rejectLogout(new Error("logout unavailable"));
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    const retryButton = screen.getByRole("button", { name: "동일 요청 다시 전송" });
+    expect(retryButton).toBeEnabled();
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(
+      vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")
+    ).toHaveLength(2));
+    expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
+  });
+
   it("starts a lighting registration session from settings and shows discovered nodes", async () => {
     authState.user = { ...authState.user!, role: "operator" };
     const queryClient = new QueryClient();

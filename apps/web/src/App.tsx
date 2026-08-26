@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Activity, BarChart3, MapPin, Settings, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
@@ -5,7 +6,10 @@ import { useCurrentUser, logout, type AuthUser } from "./api/auth";
 import { useDashboard } from "./api/queries";
 import { AuthView } from "./features/auth/AuthView";
 import { ControlView } from "./features/control/ControlView";
-import { invalidateActiveCommandSession } from "./features/control/active-command-session";
+import {
+  blockActiveCommandSession,
+  unblockActiveCommandSession
+} from "./features/control/active-command-session";
 import { clearActiveCommandsForUser } from "./features/control/active-command-store";
 import { MonitoringView } from "./features/monitoring/MonitoringView";
 import { SettingsShell } from "./features/settings/SettingsShell";
@@ -54,25 +58,40 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
   const queryClient = useQueryClient();
   const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
   const { data: dashboard } = useDashboard(siteId);
   const gateway = dashboard?.gateways[0];
   const gatewayStatusLabel = gateway ? (gateway.connectionStatus === "online" ? "게이트웨이 정상" : "게이트웨이 오프라인") : "게이트웨이 미등록";
   const gatewayStatusClass = gateway?.connectionStatus === "online" ? "online" : "offline";
 
+  useEffect(() => {
+    unblockActiveCommandSession(user.id);
+  }, [user.id]);
+
   async function handleLogout() {
+    if (isLoggingOut) return;
     if (isEditorDirty || hasDirtyEditorSentinel()) {
       const confirmed = window.confirm("저장하지 않은 변경사항이 있습니다. 로그아웃하시겠습니까?");
       if (!confirmed) return;
       discardEditorChanges();
     }
-    invalidateActiveCommandSession(user.id);
-    await logout();
-    clearActiveCommandsForUser(user.id);
-    queryClient.setQueryData(["auth", "me"], null);
-    queryClient.removeQueries({
-      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] !== "auth"
-    });
+    setLogoutError("");
+    setIsLoggingOut(true);
+    blockActiveCommandSession(user.id);
+    try {
+      await logout();
+      clearActiveCommandsForUser(user.id);
+      queryClient.setQueryData(["auth", "me"], null);
+      queryClient.removeQueries({
+        predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] !== "auth"
+      });
+    } catch {
+      unblockActiveCommandSession(user.id);
+      setIsLoggingOut(false);
+      setLogoutError("로그아웃에 실패했습니다. 연결을 확인한 뒤 다시 시도하세요.");
+    }
   }
 
   return (
@@ -115,14 +134,25 @@ function AuthenticatedShell({ user }: { user: AuthUser }) {
             <span className={`status-pill ${gatewayStatusClass}`}>
               {gatewayStatusLabel}
             </span>
-            <button className="logout-button" onClick={handleLogout}>
-              로그아웃
+            <button className="logout-button" onClick={handleLogout} disabled={isLoggingOut}>
+              {isLoggingOut ? "로그아웃 중" : "로그아웃"}
             </button>
+            {logoutError ? <span className="danger-text" role="alert">{logoutError}</span> : null}
           </div>
         </header>
         <Routes>
           <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
-          <Route path="/control" element={<ControlView siteId={siteId} userId={user.id} userRole={user.role} />} />
+          <Route
+            path="/control"
+            element={(
+              <ControlView
+                siteId={siteId}
+                userId={user.id}
+                userRole={user.role}
+                commandSessionBlocked={isLoggingOut}
+              />
+            )}
+          />
           <Route path="/statistics" element={<StatisticsView siteId={siteId} />} />
           <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />

@@ -21,6 +21,7 @@ import {
 } from "./active-command-store";
 import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicker";
 import {
+  isActiveCommandSessionBlocked,
   ownsActiveCommandSession,
   registerActiveCommandRequest
 } from "./active-command-session";
@@ -30,11 +31,13 @@ const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 export function ControlView({
   siteId,
   userId,
-  userRole
+  userRole,
+  commandSessionBlocked = false
 }: {
   siteId?: string;
   userId: AuthUser["id"];
   userRole: AuthUser["role"];
+  commandSessionBlocked?: boolean;
 }) {
   const { data, isLoading, error } = useControlDashboard(siteId);
   const queryClient = useQueryClient();
@@ -82,7 +85,7 @@ export function ControlView({
   const restorePending = Boolean(
     activeSiteId && (activeSiteId !== commandSiteId || userId !== commandUserId)
   );
-  const controlsLocked = readOnly || isSubmitting || restorePending || commandInProgress;
+  const controlsLocked = readOnly || commandSessionBlocked || isSubmitting || restorePending || commandInProgress;
   const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !controlsLocked);
 
   useLayoutEffect(() => {
@@ -129,7 +132,7 @@ export function ControlView({
   }, [activeSiteId, matchingCommandIsTerminal, missingCommand, scopedCommandId, userId]);
 
   async function submitCommand() {
-    if (!data || !target || !canSubmit) return;
+    if (!data || !target || !canSubmit || isActiveCommandSessionBlocked(userId)) return;
 
     const request = canonicalizeDimmingCommandInput({
       siteId: data.site.id,
@@ -149,6 +152,7 @@ export function ControlView({
     const generation = activeScope.current.generation;
     const controller = new AbortController();
     const commandSession = registerActiveCommandRequest(requestUserId, controller);
+    if (!commandSession) return;
     activePostController.current?.abort();
     activePostController.current = controller;
     setIsSubmitting(true);
@@ -275,13 +279,13 @@ export function ControlView({
           </div>
 
           <button className="primary-button" type="button" onClick={submitCommand} disabled={!canSubmit}>
-            {controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
+            {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
           </button>
           {scopedActiveRequest && !scopedCommandId ? (
             <button
               type="button"
               onClick={() => void sendCommand(scopedActiveRequest, userId)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || commandSessionBlocked}
             >
               동일 요청 다시 전송
             </button>
