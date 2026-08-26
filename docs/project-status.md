@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**메뉴 완성 설계**: 모니터링과 제어의 감사 누락을 보완하고, 상태 기반 추정 통계를 양산 계약으로 고정한다.
+**계정·설치 주체 전환 설계**: 전역 단일 operator는 현장별 단일 admin 계정만 관리하고, admin이 최초 현장 설치와 고객 운영을 담당하도록 인증·권한·UI 경계를 전환한다. 재설치와 모바일 변경은 이번 범위에서 제외한다.
 
 ## 작업 상태
 
@@ -15,6 +15,9 @@
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
 | 메뉴 완성 구현 | 완료(소프트웨어) | Task 12까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
+| 계정·설치 주체 전환 설계 | 검토 대기 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했다. |
+| 계정·설치 주체 전환 구현 계획 | 대기 | 설계 승인 후 작은 검증·커밋 단위로 작성한다. |
+| 계정·설치 주체 전환 구현 | 대기 | 구현 계획 승인 후 시작한다. |
 
 ## 다음 단계
 
