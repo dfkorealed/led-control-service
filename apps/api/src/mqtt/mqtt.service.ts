@@ -282,20 +282,7 @@ export class MqttService implements OnModuleInit {
       const scope = parseGatewayScopedTopic(topic);
       const ack = deviceStatusAckV2Schema.parse(JSON.parse(payload.toString()));
       if (!scope || scope.siteId !== ack.siteId || scope.gatewayId !== ack.gatewayId) return;
-      const dispatch = await this.prisma.commandDispatch.findFirst({
-        where: {
-          id: ack.dispatchId,
-          commandId: ack.commandId,
-          gatewayId: ack.gatewayId,
-          idempotencyKey: ack.idempotencyKey,
-          sequence: BigInt(ack.sequence),
-          status: { in: ["pending", "published", "accepted"] },
-          command: { siteId: ack.siteId }
-        },
-        select: { id: true, commandId: true }
-      });
-      if (!dispatch) return;
-      await this.storeDeviceStatusAck(dispatch, ack);
+      await this.storeDeviceStatusAck(ack);
       return;
     }
 
@@ -681,15 +668,60 @@ export class MqttService implements OnModuleInit {
   }
 
   private async storeDeviceStatusAck(
-    dispatch: { id: string; commandId: string },
     ack: ReturnType<typeof deviceStatusAckV2Schema.parse>
   ) {
     await this.prisma.$transaction(async (tx) => {
+      const lockedDispatches = await tx.$queryRaw<Array<{ id: string; commandId: string }>>`
+        SELECT d."id", d."commandId"
+        FROM "CommandDispatch" d
+        INNER JOIN "Command" c ON c."id" = d."commandId"
+        WHERE d."id" = ${ack.dispatchId}
+          AND d."commandId" = ${ack.commandId}
+          AND d."gatewayId" = ${ack.gatewayId}
+          AND d."idempotencyKey" = ${ack.idempotencyKey}
+          AND d."sequence" = ${BigInt(ack.sequence)}
+          AND d."status" IN ('pending', 'published', 'accepted')
+          AND c."siteId" = ${ack.siteId}
+        FOR UPDATE OF d
+      `;
+      const dispatch = lockedDispatches[0];
+      if (!dispatch) return;
+
+      const expectedResults = await tx.$queryRaw<Array<{ fixtureId: string }>>`
+        SELECT r."fixtureId"
+        FROM "CommandFixtureResult" r
+        WHERE r."dispatchId" = ${dispatch.id}
+        ORDER BY r."fixtureId"
+        FOR UPDATE OF r
+      `;
+      const expectedFixtureIds = new Set(expectedResults.map((result) => result.fixtureId));
+      const actualFixtureIds = new Set(ack.results.map((result) => result.fixtureId));
+      const fixtureSetMatches =
+        expectedFixtureIds.size === expectedResults.length &&
+        actualFixtureIds.size === ack.results.length &&
+        expectedFixtureIds.size === actualFixtureIds.size &&
+        [...expectedFixtureIds].every((fixtureId) => actualFixtureIds.has(fixtureId));
+      if (!fixtureSetMatches) {
+        await this.failInvalidDeviceStatusAck(tx, dispatch, ack.occurredAt, "ack_fixture_set_mismatch", "device status ACK fixture set mismatch");
+        return;
+      }
+
+      const derivedStatus = deriveDeviceStatusAckStatus(ack.results);
+      if (derivedStatus !== ack.status) {
+        await this.failInvalidDeviceStatusAck(tx, dispatch, ack.occurredAt, "ack_status_mismatch", "device status ACK aggregate status mismatch");
+        return;
+      }
+
       const dispatchStatus =
         ack.status === "succeeded" ? "completed" : ack.status === "timed_out" ? "timed_out" : "failed";
       const completed = await tx.commandDispatch.updateMany({
         where: { id: dispatch.id, status: { in: ["pending", "published", "accepted"] } },
-        data: { status: dispatchStatus, completedAt: new Date(ack.occurredAt) }
+        data: {
+          status: dispatchStatus,
+          completedAt: new Date(ack.occurredAt),
+          errorCode: null,
+          errorMessage: null
+        }
       });
       if (completed.count !== 1) return;
 
@@ -709,18 +741,42 @@ export class MqttService implements OnModuleInit {
         if (updated.count !== 1) throw new Error(`fixture result is outside dispatch: ${result.fixtureId}`);
       }
 
-      const remaining = await tx.commandDispatch.count({
-        where: { commandId: dispatch.commandId, status: { notIn: ["completed", "failed", "timed_out"] } }
-      });
-      if (remaining === 0) {
-        const dispatches = await tx.commandDispatch.findMany({ where: { commandId: dispatch.commandId }, select: { status: true } });
-        await tx.command.updateMany({
-          where: { id: dispatch.commandId, status: "pending" },
-          data: {
-            status: dispatches.every((item) => item.status === "completed") ? "acknowledged" : "failed",
-            errorMessage: dispatches.every((item) => item.status === "completed") ? null : "one or more gateway dispatches failed"
-          }
-        });
+      await this.finishParentCommand(tx, dispatch.commandId);
+    });
+  }
+
+  private async failInvalidDeviceStatusAck(
+    tx: Prisma.TransactionClient,
+    dispatch: { id: string; commandId: string },
+    occurredAt: string,
+    errorCode: "ack_fixture_set_mismatch" | "ack_status_mismatch",
+    errorMessage: string
+  ) {
+    const completedAt = new Date(occurredAt);
+    const failed = await tx.commandDispatch.updateMany({
+      where: { id: dispatch.id, status: { in: ["pending", "published", "accepted"] } },
+      data: { status: "failed", completedAt, errorCode, errorMessage }
+    });
+    if (failed.count !== 1) return;
+    await tx.commandFixtureResult.updateMany({
+      where: { dispatchId: dispatch.id },
+      data: { status: "failed", errorMessage, occurredAt: completedAt }
+    });
+    await this.finishParentCommand(tx, dispatch.commandId);
+  }
+
+  private async finishParentCommand(tx: Prisma.TransactionClient, commandId: string) {
+    const remaining = await tx.commandDispatch.count({
+      where: { commandId, status: { notIn: ["completed", "failed", "timed_out"] } }
+    });
+    if (remaining !== 0) return;
+    const dispatches = await tx.commandDispatch.findMany({ where: { commandId }, select: { status: true } });
+    const succeeded = dispatches.every((item) => item.status === "completed");
+    await tx.command.updateMany({
+      where: { id: commandId, status: "pending" },
+      data: {
+        status: succeeded ? "acknowledged" : "failed",
+        errorMessage: succeeded ? null : "one or more gateway dispatches failed"
       }
     });
   }
@@ -1064,6 +1120,16 @@ export class MqttService implements OnModuleInit {
       }
     });
   }
+}
+
+function deriveDeviceStatusAckStatus(
+  results: Array<{ status: "succeeded" | "failed" | "timed_out" }>
+): "succeeded" | "partially_succeeded" | "failed" | "timed_out" {
+  const succeeded = results.filter((result) => result.status === "succeeded").length;
+  if (succeeded === results.length) return "succeeded";
+  if (succeeded > 0) return "partially_succeeded";
+  if (results.every((result) => result.status === "timed_out")) return "timed_out";
+  return "failed";
 }
 
 function meshSubscriptionOperationKey(operation: {

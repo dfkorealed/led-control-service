@@ -700,9 +700,11 @@ describe("MqttService", () => {
 
   it("does not process a device-status ACK for an already terminal dispatch", async () => {
     const prisma: any = {
-      commandDispatch: { findFirst: jest.fn().mockResolvedValue(null) },
+      commandDispatch: { updateMany: jest.fn() },
       commandFixtureResult: { updateMany: jest.fn() }
     };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
 
     await service.handleMessage(
@@ -710,33 +712,14 @@ describe("MqttService", () => {
       Buffer.from(JSON.stringify(deviceStatusAckPayload()))
     );
 
-    expect(prisma.commandDispatch.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: "66666666-6666-4666-8666-666666666666",
-        commandId: "11111111-1111-4111-8111-111111111111",
-        gatewayId: "55555555-5555-4555-8555-555555555555",
-        idempotencyKey: "33333333-3333-4333-8333-333333333333",
-        sequence: 1n,
-        status: { in: ["pending", "published", "accepted"] },
-        command: { siteId: "22222222-2222-4222-8222-222222222222" }
-      },
-      select: { id: true, commandId: true }
-    });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE OF d");
+    expect(prisma.commandDispatch.updateMany).not.toHaveBeenCalled();
     expect(prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
   });
 
   it("stores fixture results from a device status ACK", async () => {
-    const prisma: any = {
-      commandDispatch: {
-        findFirst: jest.fn().mockResolvedValue({ id: "66666666-6666-4666-8666-666666666666", commandId: "11111111-1111-4111-8111-111111111111" }),
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-        count: jest.fn().mockResolvedValue(1),
-        findMany: jest.fn()
-      },
-      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { updateMany: jest.fn() },
-      $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma))
-    };
+    const prisma = deviceAckPrisma(["99999999-9999-4999-8999-999999999999"]);
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
     await service.handleMessage(
       "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/device-status",
@@ -772,6 +755,89 @@ describe("MqttService", () => {
         occurredAt: new Date("2026-07-11T00:00:02.000Z")
       }
     });
+  });
+
+  it.each([
+    ["missing", [fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded")]],
+    ["duplicate", [
+      fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded"),
+      fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded")
+    ]],
+    ["outside", [
+      fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded"),
+      fixtureResult("aaaaaaaa-9999-4999-8999-999999999999", "succeeded")
+    ]]
+  ])("fails the entire dispatch for a %s fixture result set", async (_case, results) => {
+    const expectedFixtureIds = [
+      "99999999-9999-4999-8999-999999999999",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    ];
+    const prisma = deviceAckPrisma(expectedFixtureIds);
+    const service = new MqttService(prisma as never, createMeshGroupsMock() as never);
+
+    await service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({
+      ...deviceStatusAckPayload(),
+      status: results.every((result) => result.status === "succeeded") ? "succeeded" : "failed",
+      results
+    })));
+
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "failed",
+        errorCode: "ack_fixture_set_mismatch"
+      })
+    }));
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledWith({
+      where: { dispatchId: deviceStatusAckPayload().dispatchId },
+      data: expect.objectContaining({
+        status: "failed",
+        errorMessage: "device status ACK fixture set mismatch"
+      })
+    });
+  });
+
+  it.each([
+    ["succeeded", [fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded"), fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "failed")]],
+    ["partially_succeeded", [fixtureResult("99999999-9999-4999-8999-999999999999", "failed"), fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "timed_out")]],
+    ["timed_out", [fixtureResult("99999999-9999-4999-8999-999999999999", "timed_out"), fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "failed")]]
+  ])("fails the entire dispatch when aggregate status %s disagrees with fixture results", async (status, results) => {
+    const prisma = deviceAckPrisma(results.map((result) => result.fixtureId));
+    const service = new MqttService(prisma as never, createMeshGroupsMock() as never);
+
+    await service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({
+      ...deviceStatusAckPayload(),
+      status,
+      results
+    })));
+
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: "failed",
+        errorCode: "ack_status_mismatch"
+      })
+    }));
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a complete fixture set when its aggregate status is derived from the individual results", async () => {
+    const results = [
+      fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded"),
+      fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "timed_out")
+    ];
+    const prisma = deviceAckPrisma(results.map((result) => result.fixtureId));
+    const service = new MqttService(prisma as never, createMeshGroupsMock() as never);
+
+    await service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({
+      ...deviceStatusAckPayload(),
+      status: "partially_succeeded",
+      results
+    })));
+
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "failed", errorCode: null, errorMessage: null })
+    }));
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
   });
 
   it("handles a scoped mesh group resync request inside one database transaction", async () => {
@@ -2110,6 +2176,49 @@ function deviceStatusAckPayload() {
       { fixtureId: "99999999-9999-4999-8999-999999999999", status: "succeeded", brightness: 70, rssi: -60, hopCount: 1 }
     ]
   };
+}
+
+function deviceStatusTopic() {
+  return "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/device-status";
+}
+
+function fixtureResult(fixtureId: string, status: "succeeded" | "failed" | "timed_out") {
+  return {
+    fixtureId,
+    status,
+    ...(status === "succeeded" ? { brightness: 70 } : { errorMessage: `${status} result` })
+  };
+}
+
+function deviceAckPrisma(expectedFixtureIds: string[]) {
+  const prisma: any = {
+    commandDispatch: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: deviceStatusAckPayload().dispatchId,
+        commandId: deviceStatusAckPayload().commandId
+      }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      count: jest.fn().mockResolvedValue(1),
+      findMany: jest.fn().mockResolvedValue([{ status: "failed" }])
+    },
+    commandFixtureResult: {
+      findMany: jest.fn().mockResolvedValue(expectedFixtureIds.map((fixtureId) => ({ fixtureId }))),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 })
+    },
+    command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+  };
+  prisma.$queryRaw = jest.fn(async (query: TemplateStringsArray) => {
+    const sql = query.join("");
+    if (sql.includes('FROM "CommandDispatch"')) {
+      return [{ id: deviceStatusAckPayload().dispatchId, commandId: deviceStatusAckPayload().commandId }];
+    }
+    if (sql.includes('FROM "CommandFixtureResult"')) {
+      return expectedFixtureIds.map((fixtureId) => ({ fixtureId }));
+    }
+    throw new Error(`unexpected device ACK query: ${sql}`);
+  });
+  prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+  return prisma;
 }
 
 function acceptanceAckPayload() {

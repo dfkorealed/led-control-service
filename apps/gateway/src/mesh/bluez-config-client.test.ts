@@ -141,6 +141,36 @@ it("adds a Light Lightness Server subscription and validates source, element, gr
   });
 });
 
+it("deletes a Light Lightness Server subscription and validates its exact status tuple", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const unsubscribe = client.removeModelSubscription({ unicast: 0x0100, groupAddress: 0xc000 });
+
+  await waitForCallCount(transport, "DevKeySend", 1);
+  application.emit("devKeyMessageReceived", {
+    source: 0x0100,
+    data: Uint8Array.from([0x80, 0x1f, 0x00, 0x00, 0x01, 0x00, 0xc0, 0x00, 0x13])
+  });
+
+  await expect(unsubscribe).resolves.toEqual({
+    elementAddress: 0x0100,
+    groupAddress: 0xc000,
+    modelId: 0x1300
+  });
+  expect(transport.calls[0]).toEqual({
+    method: "DevKeySend",
+    args: [
+      BLUEZ_APPLICATION_PATHS.element,
+      0x0100,
+      true,
+      0,
+      [],
+      [0x80, 0x1c, 0x00, 0x01, 0x00, 0xc0, 0x00, 0x13]
+    ]
+  });
+});
+
 it("rejects a subscription status that does not confirm the requested target", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();

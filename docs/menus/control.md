@@ -96,6 +96,7 @@
 - 동일 idempotency key의 최종 결과가 journal에 있으면 실제 조명을 다시 제어하지 않고 기존 ACK를 재발행한다.
 - Broker가 명령을 받은 직후 API 프로세스가 종료되면 outbox에는 기존 draft/full payload와 lease만 남아 재시도될 수 있다. 이 at-least-once 경계에서 Gateway journal이 동일 idempotency key의 BLE 재실행을 차단한다.
 - API는 gateway/site/command/dispatch identity가 모두 일치하는 ACK만 반영한다. rejected acceptance는 같은 transaction에서 dispatch, 남은 조명별 결과, 상위 Command를 failed로 종료하며, acceptance 발행 뒤 만료된 rejection도 `accepted` dispatch를 같은 terminal 상태로 닫는다. terminal dispatch의 늦은 ACK는 무시한다.
+- API는 `device-status ACK` 처리 transaction에서 active dispatch와 해당 `CommandFixtureResult` 전체를 먼저 잠근다. ACK의 fixture ID 집합은 dispatch snapshot과 개수까지 정확히 같아야 하며 누락·중복·외부 fixture는 `ack_fixture_set_mismatch`로 전체 dispatch와 fixture 결과를 실패 처리한다. 개별 결과에서 유도한 상태는 모두 성공 `succeeded`, 모두 timeout `timed_out`, 성공이 포함된 혼합 `partially_succeeded`, 성공 없이 실패가 포함된 결과 `failed`이며 ACK status가 다르면 `ack_status_mismatch`로 fail-closed한다. 검증이 끝나기 전에는 개별 결과를 부분 반영하지 않는다.
 - BLE Mesh fixture status는 기본 8초 timeout을 적용하고 adapter가 반환하지 않아도 fixture별 `timed_out` 결과로 명령을 종료한다.
 - Gateway 재시작 후 accepted-only 명령은 실제 조명을 다시 제어하지 않고 `indeterminate after gateway restart` timeout 결과로 닫는다.
 - Gateway journal은 idempotency 결과를 24시간·최대 10,000건만 유지한다. restart resync는 journal 추정값을 상태로 발행하지 않고 확인된 node에 OnOff/Lightness/Health Get을 보내 실제 응답만 fixture-state로 반영한다.
