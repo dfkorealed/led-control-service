@@ -29,6 +29,16 @@ describeWithPostgres("menu completion foundation PostgreSQL rehearsal", () => {
 
     expect(runMigration(schema).status).toBe(0);
     expect(runScanOutboxMigration(schema).status).toBe(0);
+    expect(query(schema, `
+      SELECT string_agg("id" || ':' || "status"::text || ':' || "scanStatus"::text, ',' ORDER BY "id")
+      FROM "ProvisioningSession"
+      WHERE "id" LIKE 'historical-%';
+    `)).toBe([
+      "historical-active:active:failed",
+      "historical-cancelled:cancelled:failed",
+      "historical-completed:completed:failed",
+      "historical-failed:failed:failed"
+    ].join(","));
     expect(query(schema, `SELECT "lifecycleStatus" FROM "FixtureGroup" WHERE "id" = 'valid';`)).toBe("active");
     expect(query(schema, `SELECT COUNT(*) FROM "FixtureGroup" WHERE "id" LIKE 'over-%' AND "lifecycleStatus" = 'invalid';`)).toBe("16");
     expect(query(schema, `SELECT "lifecycleStatus" FROM "FixtureGroup" WHERE "id" = 'cross-boundary';`)).toBe("invalid");
@@ -82,7 +92,12 @@ function legacyTables() {
     CREATE TABLE "FixtureGroup" ("id" TEXT PRIMARY KEY, "siteId" TEXT NOT NULL, "name" TEXT NOT NULL);
     CREATE TABLE "GroupFixture" ("groupId" TEXT NOT NULL, "fixtureId" TEXT NOT NULL, PRIMARY KEY ("groupId", "fixtureId"));
     CREATE TABLE "MeshControlGroupMember" ("id" TEXT PRIMARY KEY);
-    CREATE TABLE "ProvisioningSession" ("id" TEXT PRIMARY KEY, "gatewayId" TEXT NOT NULL);
+    CREATE TYPE "ProvisioningSessionStatus" AS ENUM ('active', 'completed', 'failed', 'cancelled');
+    CREATE TABLE "ProvisioningSession" (
+      "id" TEXT PRIMARY KEY,
+      "gatewayId" TEXT NOT NULL,
+      "status" "ProvisioningSessionStatus" NOT NULL DEFAULT 'active'
+    );
     CREATE TABLE "Command" (
       "id" TEXT PRIMARY KEY, "siteId" TEXT NOT NULL, "requestedBy" TEXT NOT NULL,
       "targetType" TEXT NOT NULL, "targetId" TEXT, "targetFixtureIds" JSONB NOT NULL, "brightness" INTEGER NOT NULL
@@ -102,6 +117,11 @@ function legacyRows() {
     INSERT INTO "Fixture" VALUES ('fixture-a', 'floor-a', 'node-a'), ('fixture-b', 'floor-a', 'node-b'), ('fixture-over', 'floor-a', 'node-over'), ('fixture-cross', 'floor-cross', 'node-a');
     INSERT INTO "FixtureGroup" ("id", "siteId", "name") VALUES ('valid', 'site', 'valid'), ('cross-boundary', 'site', 'cross-boundary'), ${overLimitGroups};
     INSERT INTO "GroupFixture" VALUES ('valid', 'fixture-a'), ('cross-boundary', 'fixture-cross'), ${overLimitMemberships};
+    INSERT INTO "ProvisioningSession" ("id", "gatewayId", "status") VALUES
+      ('historical-completed', 'gateway-a', 'completed'),
+      ('historical-cancelled', 'gateway-a', 'cancelled'),
+      ('historical-failed', 'gateway-a', 'failed'),
+      ('historical-active', 'gateway-a', 'active');
   `;
 }
 

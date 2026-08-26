@@ -6,6 +6,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { MqttService } from "./mqtt.service";
 
 const LEASE_MS = 30_000;
+const PUBLISH_TIMEOUT_MS = 10_000;
 const MAX_ATTEMPTS = 3;
 const MAX_AGE_MS = 5 * 60_000;
 const PUBLISH_FAILURE_MESSAGE = "조명 검색 명령을 전송하지 못했습니다. 다시 시도해 주세요.";
@@ -15,6 +16,7 @@ type PublisherOptions = {
   random?: () => number;
   pollMs?: number;
   clock?: () => Date;
+  publishTimeoutMs?: number;
 };
 
 @Injectable()
@@ -23,6 +25,7 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
   private readonly random: () => number;
   private readonly pollMs: number;
   private readonly clock: () => Date;
+  private readonly publishTimeoutMs: number;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -34,6 +37,10 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
     this.random = options.random ?? Math.random;
     this.pollMs = options.pollMs ?? Number(process.env.PROVISIONING_SCAN_OUTBOX_POLL_MS ?? 1000);
     this.clock = options.clock ?? (() => new Date());
+    this.publishTimeoutMs = options.publishTimeoutMs ?? Number(process.env.PROVISIONING_SCAN_OUTBOX_PUBLISH_TIMEOUT_MS ?? PUBLISH_TIMEOUT_MS);
+    if (!Number.isInteger(this.publishTimeoutMs) || this.publishTimeoutMs <= 0 || this.publishTimeoutMs >= LEASE_MS) {
+      throw new Error(`PROVISIONING_SCAN_OUTBOX_PUBLISH_TIMEOUT_MS must be a positive integer below ${LEASE_MS}`);
+    }
   }
 
   onModuleInit() {
@@ -131,7 +138,7 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
       });
       if (publishable !== 1) return;
 
-      await this.mqtt.publishTopic(record.topic, payload);
+      await this.publishWithTimeout(record.topic, payload);
       await this.prisma.provisioningScanOutbox.updateMany({
         where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
         data: { publishedAt: this.clock(), lastError: null, lockedBy: null, lockedAt: null, leaseExpiresAt: null }
@@ -139,6 +146,27 @@ export class ProvisioningScanOutboxPublisherService implements OnModuleInit, OnM
     } catch (error) {
       await this.handleFailure(record, error);
     }
+  }
+
+  private async publishWithTimeout(topic: string, payload: ReturnType<typeof provisioningScanStartSchema.parse>) {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (error) reject(error);
+        else resolve();
+      };
+      const timeout = setTimeout(
+        () => finish(new Error(`provisioning scan publish timed out after ${this.publishTimeoutMs}ms`)),
+        this.publishTimeoutMs
+      );
+      void this.mqtt.publishTopic(topic, payload, { timeoutMs: this.publishTimeoutMs }).then(
+        () => finish(),
+        (error) => finish(error)
+      );
+    });
   }
 
   private async handleFailure(record: { id: string; sessionId: string; scanAttempt: number; attempts: number; createdAt: Date }, error: unknown) {

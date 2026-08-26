@@ -18,7 +18,7 @@ import type { MqttClient } from "mqtt";
 import {
   applyIdentifyDevice,
   applyProvisionDevice,
-  publishProvisioningScanLifecycle
+  handleDurableProvisioningScan
 } from "./gateway";
 export {
   createProvisioningScanCompletedPayload,
@@ -30,6 +30,7 @@ import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
 import { handleGatewayDimmingCommand, parseCommandTimeout, type GatewayCommandResult } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
+import { ProvisioningScanJournal } from "./state/provisioning-scan-journal";
 import { createProductionAdapters } from "./adapters/adapter-factory";
 import { ApplianceHealth, parseHeartbeatInterval } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
@@ -77,6 +78,10 @@ async function main() {
   const provisioningQueue = new SerialTaskQueue();
   const commandJournal = new CommandJournal(process.env.GATEWAY_COMMAND_JOURNAL_PATH ?? "/var/lib/led-control/command-journal.json");
   const eventSequence = new EventSequenceStore(process.env.GATEWAY_EVENT_SEQUENCE_PATH ?? "/var/lib/led-control/event-sequence.json");
+  const provisioningScanJournal = new ProvisioningScanJournal(
+    process.env.GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH ?? "/var/lib/led-control/provisioning-scan-journal.json"
+  );
+  await provisioningScanJournal.initialize();
   const groupStateStore = new GroupStateStore(
     process.env.GATEWAY_MESH_GROUP_STATE_PATH ?? "/var/lib/led-control/mesh-groups.json"
   );
@@ -132,8 +137,9 @@ async function main() {
 
   async function handleProvisioningScanPayload(payload: Buffer, source: GatewayMqttClient) {
     const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
-    await publishProvisioningScanLifecycle({
+    await handleDurableProvisioningScan({
       adapter: scannerAdapter,
+      journal: provisioningScanJournal,
       command,
       nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
       publish: (topic, event) => publish(source, topic, event)

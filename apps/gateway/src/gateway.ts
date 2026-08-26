@@ -15,6 +15,7 @@ import {
   provisioningScanFailedSchema,
   provisioningScanFoundSchema
 } from "@led-control/shared";
+import { ProvisioningScanJournal, type ProvisioningScanTerminalEvent } from "./state/provisioning-scan-journal";
 
 export interface BleMeshAdapter {
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
@@ -82,13 +83,14 @@ export async function applyProvisioningScan(adapter: ProvisioningScannerAdapter,
   return adapter.scan(command);
 }
 
-type ProvisioningScanEnvelope = { eventId: string; sequence: number; occurredAt: string };
+export type ProvisioningScanEnvelope = { eventId: string; sequence: number; occurredAt: string };
 
 export async function publishProvisioningScanLifecycle(input: {
   adapter: ProvisioningScannerAdapter;
   command: ProvisioningScanStartPayload;
   nextEnvelope: () => Promise<ProvisioningScanEnvelope>;
   publish: (topic: string, payload: unknown) => Promise<void>;
+  persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
 }) {
   let nodes: ProvisioningScanFoundDevice[];
   try {
@@ -101,17 +103,58 @@ export async function publishProvisioningScanLifecycle(input: {
       );
     }
   } catch (error) {
-    await input.publish(
-      mqttTopicsV2.provisioningScanFailed(input.command.siteId, input.command.gatewayId),
-      createProvisioningScanFailedPayload(input.command, error, await input.nextEnvelope())
-    );
+    await publishScanTerminal(input, {
+      topic: mqttTopicsV2.provisioningScanFailed(input.command.siteId, input.command.gatewayId),
+      payload: createProvisioningScanFailedPayload(input.command, error, await input.nextEnvelope())
+    });
     return;
   }
 
-  await input.publish(
-    mqttTopicsV2.provisioningScanCompleted(input.command.siteId, input.command.gatewayId),
-    createProvisioningScanCompletedPayload(input.command, nodes.length, await input.nextEnvelope())
-  );
+  await publishScanTerminal(input, {
+    topic: mqttTopicsV2.provisioningScanCompleted(input.command.siteId, input.command.gatewayId),
+    payload: createProvisioningScanCompletedPayload(input.command, nodes.length, await input.nextEnvelope())
+  });
+}
+
+export async function handleDurableProvisioningScan(input: {
+  adapter: ProvisioningScannerAdapter;
+  journal: ProvisioningScanJournal;
+  command: ProvisioningScanStartPayload;
+  nextEnvelope: () => Promise<ProvisioningScanEnvelope>;
+  publish: (topic: string, payload: unknown) => Promise<void>;
+}) {
+  const started = await input.journal.begin(input.command);
+  if (started.kind === "terminal") {
+    await input.publish(started.terminal.topic, started.terminal.payload);
+    return;
+  }
+  if (started.kind === "running") return;
+  if (started.kind === "recovered") {
+    const terminal = await input.journal.complete(input.command, {
+      topic: mqttTopicsV2.provisioningScanFailed(input.command.siteId, input.command.gatewayId),
+      payload: createProvisioningScanFailedPayload(input.command, new Error("gateway scan interrupted"), await input.nextEnvelope())
+    });
+    await input.publish(terminal.topic, terminal.payload);
+    return;
+  }
+  await publishProvisioningScanLifecycle({
+    adapter: input.adapter,
+    command: input.command,
+    nextEnvelope: input.nextEnvelope,
+    publish: input.publish,
+    persistTerminal: (terminal) => input.journal.complete(input.command, terminal)
+  });
+}
+
+async function publishScanTerminal(
+  input: {
+    persistTerminal?: (terminal: ProvisioningScanTerminalEvent) => Promise<ProvisioningScanTerminalEvent>;
+    publish: (topic: string, payload: unknown) => Promise<void>;
+  },
+  terminal: ProvisioningScanTerminalEvent
+) {
+  const durable = input.persistTerminal ? await input.persistTerminal(terminal) : terminal;
+  await input.publish(durable.topic, durable.payload);
 }
 
 export function createProvisioningScanFoundPayload(

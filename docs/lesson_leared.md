@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-26 / 검색 outbox 재발행과 Gateway 논리 실행 중복
+- **발생했던 문제/실수**: API durable outbox가 PUBACK 기록 전 crash 뒤 같은 scan-start를 재발행할 수 있는데 Gateway가 이를 새 BlueZ scan으로 매번 실행했고, callback이 멈춘 publish는 lease만 만료될 뿐 retry 횟수가 증가하지 않았다.
+- **원인**: broker 전달 멱등성과 물리 scanner 실행 멱등성을 같은 것으로 보았고, outbox lease보다 짧은 publish 종료 경계를 두지 않았다.
+- **해결 및 예방책**: API publisher는 30초 lease보다 짧은 10초 timeout으로 timeout/reject를 backoff/dead-letter terminal로 전환한다. Gateway는 logical scan key와 terminal payload를 0600 atomic journal에 보존해 running duplicate를 차단하고 terminal duplicate는 동일 eventId/sequence로 재발행한다. restart의 running record와 corrupt journal은 새 scan을 실행하지 않고 fail-closed 한다.
+- **반복 방지 체크**: migration rehearsal에는 historical session duplicate를 migration 전에 넣고, publisher에는 stalled callback/lease 경계 테스트를, Gateway에는 duplicate scan-start, restart terminal replay, interrupted running, corrupt journal 테스트를 유지한다.
+
 ## 2026-08-26 / 동일 membership row의 operation 실패 덮어쓰기
 - **발생했던 문제/실수**: 동일 `meshNodeId`의 주소 교체에서 old-address Delete 실패 뒤 new-address Add 성공을 같은 `MeshControlGroupMember` row에 순차 기록해, 마지막 성공이 실패를 지우고 group을 `ready`로 승격할 수 있었다.
 - **원인**: operation 단위 ACK와 member 단위 최신 상태를 같은 집계 근거로 사용했고, group 실패 여부를 최종 member row에서만 다시 계산했다.

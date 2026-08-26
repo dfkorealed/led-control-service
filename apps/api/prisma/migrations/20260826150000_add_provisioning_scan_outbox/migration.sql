@@ -2,9 +2,21 @@ BEGIN;
 
 DROP INDEX IF EXISTS "ProvisioningSession_single_scanning_gateway_key";
 
+-- This migration follows the foundation migration, which gave historical rows `pending` by default.
+-- No pre-outbox scan has a durable command, so terminate every legacy session before reserving active scan slots.
+UPDATE "ProvisioningSession"
+SET
+  "scanStatus" = 'failed',
+  "scanCompletedAt" = COALESCE("scanCompletedAt", CURRENT_TIMESTAMP),
+  "scanFailureCode" = COALESCE("scanFailureCode", 'legacy_scan_closed'),
+  "scanFailureMessage" = COALESCE("scanFailureMessage", '이전 검색 세션이 마이그레이션 중 종료되었습니다.')
+WHERE "status" IN ('completed', 'cancelled', 'failed')
+  OR ("status" = 'active' AND "scanStatus" IN ('pending', 'scanning'));
+
 CREATE UNIQUE INDEX "ProvisioningSession_single_scanning_gateway_key"
   ON "ProvisioningSession"("gatewayId")
-  WHERE "scanStatus" IN ('pending', 'scanning');
+  WHERE "status" = 'active'
+    AND "scanStatus" IN ('pending', 'scanning');
 
 CREATE TABLE "ProvisioningScanOutbox" (
   "id" TEXT NOT NULL,

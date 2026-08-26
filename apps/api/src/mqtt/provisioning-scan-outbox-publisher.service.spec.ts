@@ -44,8 +44,70 @@ describe("ProvisioningScanOutboxPublisherService", () => {
       data: { scanStatus: "scanning", scanStartedAt: now }
     });
     expect(mqtt.publishTopic).toHaveBeenCalledWith(
-      `sites/${payload.siteId}/gateways/${payload.gatewayId}/commands/provisioning/scan-start`, payload
+      `sites/${payload.siteId}/gateways/${payload.gatewayId}/commands/provisioning/scan-start`, payload,
+      expect.objectContaining({ timeoutMs: expect.any(Number) })
     );
+  });
+
+  it("times out a stalled MQTT callback before its lease expires and releases the record for backoff", async () => {
+    jest.useFakeTimers();
+    try {
+      const now = new Date("2026-08-26T00:00:00.000Z");
+      const prisma: any = {
+        provisioningSession: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: payload.sessionId, status: "active", scanStatus: "scanning",
+            scanCorrelationId: payload.scanCorrelationId, scanAttempt: payload.scanAttempt
+          }),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 })
+        },
+        provisioningScanOutbox: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          count: jest.fn().mockResolvedValue(1)
+        }
+      };
+      prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+      prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+      const mqtt = { publishTopic: jest.fn(() => new Promise<void>(() => undefined)) };
+      const service = new ProvisioningScanOutboxPublisherService(prisma, mqtt as never, {
+        workerId: "worker-1", clock: () => now, random: () => 0, publishTimeoutMs: 100
+      });
+
+      const publishing = service.publishClaimed({
+        id: "outbox-1", sessionId: payload.sessionId, scanAttempt: 1,
+        topic: `sites/${payload.siteId}/gateways/${payload.gatewayId}/commands/provisioning/scan-start`,
+        payload, attempts: 0, createdAt: now
+      });
+      await jest.advanceTimersByTimeAsync(100);
+      await publishing;
+
+      expect(mqtt.publishTopic).toHaveBeenCalledWith(expect.any(String), payload, { timeoutMs: 100 });
+      expect(prisma.provisioningScanOutbox.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ attempts: 1, nextAttemptAt: new Date(now.getTime() + 1_000), lockedBy: null })
+      }));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not reclaim a leased scan while its bounded publish is still pending", async () => {
+    const now = new Date("2026-08-26T00:00:00.000Z");
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      provisioningScanOutbox: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn()
+      }
+    };
+    const prisma: any = { $transaction: jest.fn(async (callback: (value: any) => Promise<unknown>) => callback(tx)) };
+    const service = new ProvisioningScanOutboxPublisherService(prisma, {} as never, {
+      workerId: "worker-2", clock: () => now, publishTimeoutMs: 10_000
+    });
+
+    await expect(service.claimBatch(new Date(now.getTime() + 9_999))).resolves.toEqual([]);
+
+    expect(tx.$queryRaw.mock.calls[0][0].strings.join("")).toContain('"leaseExpiresAt" <=');
+    expect(tx.provisioningScanOutbox.updateMany).not.toHaveBeenCalled();
   });
 
   it("reclaims an expired lease after a crash and retries the same correlation and attempt", async () => {
