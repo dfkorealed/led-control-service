@@ -34,10 +34,10 @@
 - 조명 등록 패널은 검색된 등록 가능 node의 개별/전체 checkbox 선택과 `일괄 설정`·`개별 설정` 전환을 지원한다. 일괄 설정은 선택 층 이름을 기본 prefix로 사용하고, 개별 설정은 조명별 이름·정격 전력·marker 크기와 선택적 좌표를 입력한다. X/Y를 모두 비우면 자동 배치하고 둘 다 입력하면 수동 배치하며 한쪽만 입력하면 해당 node에 검증 오류를 표시한다.
 - 일괄·개별 등록 요청에서 서버가 수락한 node만 선택 해제하고, `validation_failed`는 오류와 선택을 유지한다. 물리 provisioning 중인 node는 재등록할 수 없으며 이후 `failed` 또는 `reconcile_required`로 확인되면 검토 대상으로 다시 선택해 node 행에 원인을 표시한다.
 - Gateway는 여러 provision-device 명령을 FIFO로 직렬 처리해 BlueZ provisioning 작업이 겹치지 않게 한다. MQTT publish 오류 또는 provisioning failure event처럼 물리 적용 여부가 불명확하면 node를 `reconcile_required`로 전환하며 확인 없이 자동 재시도하지 않는다.
-- 등록 검색은 세션별 `pending/scanning/completed/failed` lifecycle, correlation ID와 attempt를 사용한다. 0건은 `completed`이며, 완료/실패/발견 이벤트는 session 행 잠금 안에서 site, gateway, correlation, attempt가 현재 scan과 모두 일치할 때만 반영한다. 늦은 발견 이벤트와 이전 시도 이벤트는 무시한다.
+- 등록 검색은 세션별 `pending/scanning/completed/failed` lifecycle, correlation ID와 attempt를 사용한다. 신규 검색과 retry는 `pending` session과 scan-start durable outbox를 같은 transaction에서 만들며 publisher가 lease 아래 `pending -> scanning` 전이 후 발행한다. 0건은 `completed`이며, 완료/실패/발견 이벤트는 session 행 잠금과 `ProcessedGatewayEvent` 원장 transaction 안에서 site, gateway, correlation, attempt, eventId, sequence가 현재 scan과 모두 일치할 때만 반영한다. 늦은 발견, 중복·낮은 sequence, 이전 시도 이벤트는 무시한다.
 - Gateway는 shared DFKLED UUID parser를 통과한 장치만 `scan-found` v2 topic으로 발행하고, 각 scan에는 `scan-completed` 또는 `scan-failed` terminal event를 정확히 하나만 시도한다. scan failure는 Bluetooth/Mesh/timeout 등의 고정 code와 비밀값 없는 한국어 메시지로 정제한다.
-- `POST /registration-sessions/:sessionId/scan/retry`는 terminal scan만 재시작한다. session 행 잠금과 gateway별 `scanning` partial unique 제약으로 같은 gateway의 동시 검색을 막고, 충돌 시 `gateway_scan_in_progress`를 반환한다. scan-start publish가 실패하면 해당 시도를 사용자용 고정 메시지와 함께 `failed`로 복구한다.
-- provisioning 전 identify API는 `501 pre_provision_identify_unsupported`를 반환한다. 이 요청은 발견 node 상태를 바꾸거나 MQTT 명령을 발행하지 않는다.
+- `POST /registration-sessions/:sessionId/scan/retry`는 terminal scan만 재시작한다. gateway별 `pending/scanning` partial unique 제약으로 같은 gateway의 동시 검색을 막고, 신규·retry 충돌 모두 `gateway_scan_in_progress`를 반환한다. publisher process crash는 lease 만료 뒤 같은 attempt를 재시도하고, 최대 3회 또는 5분 publish 실패는 사용자용 고정 메시지와 함께 `failed`로 복구한다.
+- scanning 또는 pending scan은 registration session 완료를 `409 scan_session_not_terminal`로 거부한다. provisioning 전 identify API는 session site의 commission 권한과 404 경계를 확인한 뒤 `501 pre_provision_identify_unsupported`를 반환하며, 발견 node 상태를 바꾸거나 MQTT 명령을 발행하지 않는다.
 - 등록 batch transaction은 실제 provisioning publish 전에 해당 층의 `MeshControlGroup`을 선확보해 group address 소진이나 gateway/site 불일치를 미리 실패시킨다.
 - 조명 등록 패널은 gateway scan/provisioning MQTT 흐름과 연결되어, 등록 완료 이벤트 후 dashboard polling으로 새 fixture를 표시할 수 있다. 이 시점의 fixture는 `offline + provisioning_waiting_state`이며 실제 offline과 구분해 `상태 확인 대기`로 표시한다.
 - provisioning 완료 transaction은 생성 또는 재사용한 `MeshNode`/`Fixture`를 같은 transaction 안에서 floor control group과 기존 `FixtureGroup` membership의 control group member에 연결한다. 이때 fixture group 대상은 요청 payload가 아니라 DB의 `GroupFixture` 관계를 권위 데이터로 조회한다.
@@ -123,6 +123,7 @@
 - `apps/api/src/fixtures/fixtures.service.ts`
 - `apps/api/src/fixtures/fixture-health.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
+- `apps/api/src/mqtt/provisioning-scan-outbox-publisher.service.ts`
 - `apps/api/src/mesh-control-groups/mesh-control-group.service.ts`
 - `apps/gateway/src/mesh/bluez-mesh-adapter.ts`
 - `packages/shared/src/gateway-contracts.ts`

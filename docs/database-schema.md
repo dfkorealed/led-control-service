@@ -14,7 +14,7 @@
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
 - 감사: `GatewayClaimAudit`, `AuditLog`
-- 조명 검색/등록: `ProvisioningSession`, `DiscoveredMeshNode`
+- 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `DiscoveredMeshNode`
 
 간단한 관계 흐름은 다음과 같다.
 
@@ -35,7 +35,8 @@ Organization
       │   └─ MeshControlGroup ─ MeshControlGroupMember
       │   └─ CommandDispatch ─ CommandFixtureResult
       ├─ Command ─ CommandDispatch ─ MqttOutbox
-      └─ ProvisioningSession ─ DiscoveredMeshNode
+      └─ ProvisioningSession ─ ProvisioningScanOutbox
+                             └─ DiscoveredMeshNode
 ```
 
 ## 2. Enum
@@ -903,11 +904,31 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - `gateway`: `Gateway`
 - `user`: `User`
 - `discoveredNodes`: `DiscoveredMeshNode[]`
+- `scanOutbox`: `ProvisioningScanOutbox[]`
 
 등록 시작 계약:
 
 - `POST /registration-sessions`는 `siteId`, `floorId`, `gatewayId`를 모두 명시적으로 받는다. Floor와 Gateway는 모두 해당 Site에 속해야 하고, Gateway의 `lastHeartbeatAt`은 API 현재 시각 기준 정확히 90초 전을 포함해 90초 이내여야 한다. dashboard/API/명령 판단은 공통 freshness helper를 사용한다.
-- partial unique index `ProvisioningSession_single_scanning_gateway_key`는 Gateway 하나에 `scanStatus = scanning` 세션 하나만 허용한다. found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다.
+- `POST /registration-sessions`와 retry는 `pending` session state, 새 correlation/attempt와 `ProvisioningScanOutbox` row를 하나의 transaction에서 만든다. partial unique index `ProvisioningSession_single_scanning_gateway_key`는 Gateway 하나에 `pending` 또는 `scanning` active scan 하나만 허용한다.
+- publisher는 leased outbox를 처리할 때만 `pending -> scanning`으로 전이한 뒤 strict v2 scan-start payload를 발행한다. publish 전 process crash는 lease 만료 뒤 같은 correlation/attempt로 재시도하며, 최대 3회 또는 5분 실패는 outbox dead-letter와 `scan_start_publish_failed` terminal state를 같은 transaction에서 기록한다.
+- found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다. `ProcessedGatewayEvent`의 eventId 및 gateway/sequence/eventType 원장은 같은 transaction에서 중복·낮은 sequence를 차단한다.
+
+### ProvisioningScanOutbox
+
+등록 search command의 durable transactional outbox다. CommandDispatch에 1:1로 결합된 `MqttOutbox`와 분리되어 있으며, `ProvisioningSession`의 scan attempt를 gateway MQTT publish와 원자적으로 연결한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | outbox ID |
+| `sessionId` | `String` | 예 | FK -> `ProvisioningSession.id`, delete cascade | 등록 세션 |
+| `scanAttempt` | `Int` | 예 | Unique with `sessionId` | scan 재시도 번호 |
+| `topic` | `String` | 예 |  | strict v2 scan-start MQTT topic |
+| `payload` | `Json` | 예 |  | correlation, scope, attempt를 가진 strict scan-start payload |
+| `attempts` | `Int` | 예 | `0` | publisher MQTT 실패 횟수 |
+| `nextAttemptAt` | `DateTime` | 예 | `now()` | retry 가능 시각 |
+| `lockedBy`, `lockedAt`, `leaseExpiresAt` | nullable | 아니오 | worker lease | crash 후 다른 worker의 reclaim 경계 |
+| `publishedAt`, `deadLetteredAt` | nullable | 아니오 | terminal marker | 성공 publish 또는 재시도 포기 시각 |
+| `lastError` | `String?` | 아니오 |  | 내부 publisher 오류. 사용자 API 응답에 그대로 노출하지 않음 |
 
 ### DiscoveredMeshNode
 
@@ -1016,7 +1037,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
 | `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |
 | `DiscoveredMeshNode` | Unique `sessionId`, `deviceUuid` | 같은 등록 세션 안에서 발견 노드 중복 방지 |
-| `ProvisioningSession` | Partial unique `gatewayId WHERE scanStatus = scanning` | Gateway당 동시 검색 1개 제한 |
+| `ProvisioningSession` | Partial unique `gatewayId WHERE scanStatus IN (pending, scanning)` | Gateway당 outbox 대기·실행 중 scan 1개 제한 |
+| `ProvisioningScanOutbox` | Unique `sessionId + scanAttempt`, retry/lease index | 같은 scan attempt의 중복 outbox 생성 방지와 crash-safe reclaim |
 | `FixtureGroup` | active boundary check, deferred group/member trigger, `siteId + floorId + gatewayId + lifecycleStatus` index | legacy 격리와 활성 구역 경계·member 수 제한 |
 
 ## 5. 현재 구현 기준으로 중요한 데이터 흐름
@@ -1063,7 +1085,8 @@ Gateway heartbeat MQTT event
 ### 조명 검색/등록
 
 ```text
-ProvisioningSession 생성
+ProvisioningSession pending + ProvisioningScanOutbox 생성 transaction
+→ leased publisher가 pending -> scanning 전이
 → gateway scan command 발행
 → gateway-scoped v2 `provisioning/scan-found` event
 → DiscoveredMeshNode upsert

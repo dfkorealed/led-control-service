@@ -39,9 +39,10 @@ describe("RegistrationService", () => {
           gatewayId: ids.gatewayId,
           requestedBy: ids.userId,
           status: "active",
-          scanStatus: "scanning",
+          scanStatus: "pending",
           scanCorrelationId: "99999999-9999-4999-8999-999999999999",
           scanAttempt: 1,
+          scanStartedAt: null,
           startedAt: new Date("2026-07-01T00:00:00.000Z"),
           completedAt: null,
           discoveredNodes: []
@@ -50,6 +51,7 @@ describe("RegistrationService", () => {
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
+      provisioningScanOutbox: { create: jest.fn() },
       discoveredMeshNode: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -373,7 +375,7 @@ describe("RegistrationService", () => {
     jest.useRealTimers();
   });
 
-  it("creates an active registration session and publishes a scan command", async () => {
+  it("creates a pending scan and its durable scan-start outbox in one transaction", async () => {
     const { service, prisma, mqtt } = await createModule();
 
     const session = await service.createSession(operator, {
@@ -390,26 +392,24 @@ describe("RegistrationService", () => {
         gatewayId: ids.gatewayId,
         requestedBy: ids.userId,
         status: "active",
-        scanStatus: "scanning",
+        scanStatus: "pending",
         scanCorrelationId: expect.any(String),
         scanAttempt: 1,
-        scanStartedAt: expect.any(Date)
+        scanStartedAt: null
       },
       include: { discoveredNodes: true }
     });
-    expect(mqtt.publishProvisioningScanStart).toHaveBeenCalledWith({
+    expect(prisma.provisioningScanOutbox.create).toHaveBeenCalledWith({ data: {
       sessionId: ids.sessionId,
-      siteId: ids.siteId,
-      gatewayId: ids.gatewayId,
-      floorId: ids.floorId,
-      scanCorrelationId: expect.any(String),
       scanAttempt: 1,
-      requestedAt: "2026-07-01T00:00:00.000Z"
-    });
+      topic: `sites/${ids.siteId}/gateways/${ids.gatewayId}/commands/provisioning/scan-start`,
+      payload: expect.objectContaining({ sessionId: ids.sessionId, scanCorrelationId: expect.any(String), scanAttempt: 1 })
+    } });
+    expect(mqtt.publishProvisioningScanStart).not.toHaveBeenCalled();
   });
 
-  it("marks the scan failed when publishing its start command fails so a retry is not blocked", async () => {
-    const { service, prisma } = await createModule({}, {
+  it("does not publish directly when creating a scan", async () => {
+    const { service, mqtt } = await createModule({}, {
       publishProvisioningScanStart: jest.fn().mockRejectedValue(new Error("broker unavailable"))
     });
 
@@ -417,20 +417,12 @@ describe("RegistrationService", () => {
       siteId: ids.siteId,
       floorId: ids.floorId,
       gatewayId: ids.gatewayId
-    })).rejects.toThrow("broker unavailable");
+    })).resolves.toEqual(expect.objectContaining({ id: ids.sessionId, scanStatus: "pending" }));
 
-    expect(prisma.provisioningSession.updateMany).toHaveBeenCalledWith({
-      where: { id: ids.sessionId, status: "active", scanStatus: "scanning" },
-      data: {
-        scanStatus: "failed",
-        scanCompletedAt: expect.any(Date),
-        scanFailureCode: "scan_start_publish_failed",
-        scanFailureMessage: "조명 검색 명령을 전송하지 못했습니다. 다시 시도해 주세요."
-      }
-    });
+    expect(mqtt.publishProvisioningScanStart).not.toHaveBeenCalled();
   });
 
-  it("retries only a terminal scan under a session row lock with a new correlation and attempt", async () => {
+  it("retries a terminal scan by creating its next pending outbox attempt under the session lock", async () => {
     const correlation = "88888888-8888-4888-8888-888888888888";
     const terminalSession = {
       id: ids.sessionId,
@@ -443,7 +435,7 @@ describe("RegistrationService", () => {
       scanCorrelationId: "77777777-7777-4777-8777-777777777777",
       startedAt: new Date("2026-07-01T00:00:00.000Z")
     };
-    const update = jest.fn().mockResolvedValue({ ...terminalSession, scanStatus: "scanning", scanAttempt: 2, scanCorrelationId: correlation });
+    const update = jest.fn().mockResolvedValue({ ...terminalSession, scanStatus: "pending", scanAttempt: 2, scanCorrelationId: correlation });
     const { service, prisma, mqtt } = await createModule({
       provisioningSession: {
         create: jest.fn(),
@@ -459,21 +451,33 @@ describe("RegistrationService", () => {
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
     expect(update).toHaveBeenCalledWith({
       where: { id: ids.sessionId },
-      data: {
-        scanStatus: "scanning",
+      data: expect.objectContaining({
+        scanStatus: "pending",
         scanCorrelationId: correlation,
         scanAttempt: 2,
-        scanStartedAt: expect.any(Date),
+        scanStartedAt: null,
         scanCompletedAt: null,
         scanFailureCode: null,
         scanFailureMessage: null
+      })
+    });
+    expect(prisma.provisioningScanOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      sessionId: ids.sessionId, scanAttempt: 2, payload: expect.objectContaining({ scanCorrelationId: correlation })
+    }) });
+    expect(mqtt.publishProvisioningScanStart).not.toHaveBeenCalled();
+  });
+
+  it("maps a new session partial unique conflict to gateway_scan_in_progress", async () => {
+    const { service } = await createModule({
+      provisioningSession: {
+        create: jest.fn().mockRejectedValue({ code: "P2002", meta: { target: ["ProvisioningSession_single_scanning_gateway_key"] } }),
+        findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn()
       }
     });
-    expect(mqtt.publishProvisioningScanStart).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: ids.sessionId,
-      scanCorrelationId: correlation,
-      scanAttempt: 2
-    }));
+
+    await expect(service.createSession(operator, {
+      siteId: ids.siteId, floorId: ids.floorId, gatewayId: ids.gatewayId
+    })).rejects.toEqual(new ConflictException({ code: "gateway_scan_in_progress" }));
   });
 
   it("returns gateway_scan_in_progress when retry conflicts with the gateway scanning unique index", async () => {
@@ -501,16 +505,29 @@ describe("RegistrationService", () => {
     );
   });
 
-  it("rejects pre-provision identify without reading or mutating node state or publishing MQTT", async () => {
-    const { service, prisma, mqtt } = await createModule();
+  it("checks session site commission access before returning stateless identify unsupported", async () => {
+    const { service, prisma, mqtt, siteAccess } = await createModule({
+      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue({ id: ids.sessionId, siteId: ids.siteId }), update: jest.fn() }
+    });
 
     await expect(service.identifyNode(operator, ids.sessionId, ids.nodeId)).rejects.toEqual(
       new HttpException({ code: "pre_provision_identify_unsupported" }, 501)
     );
 
+    expect(prisma.provisioningSession.findUnique).toHaveBeenCalledWith({ where: { id: ids.sessionId }, select: { siteId: true } });
+    expect(siteAccess.assert).toHaveBeenCalledWith(operator, ids.siteId, "commission");
     expect(prisma.discoveredMeshNode.findUnique).not.toHaveBeenCalled();
     expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
     expect(mqtt.publishIdentifyDevice).not.toHaveBeenCalled();
+  });
+
+  it("keeps the not-found boundary before identify unsupported", async () => {
+    const { service, siteAccess } = await createModule({
+      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() }
+    });
+
+    await expect(service.identifyNode(operator, ids.sessionId, ids.nodeId)).rejects.toBeInstanceOf(NotFoundException);
+    expect(siteAccess.assert).not.toHaveBeenCalled();
   });
 
 
@@ -605,13 +622,13 @@ describe("RegistrationService", () => {
     });
   });
 
-  it("completes an active registration session", async () => {
+  it("completes a registration session only after terminal scan state", async () => {
     const { service, prisma } = await createModule({
       provisioningSession: {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue({
           id: ids.sessionId,
-          status: "active",
+          status: "active", scanStatus: "completed", siteId: ids.siteId,
           site: { organizationId: ids.organizationId }
         }),
         update: jest.fn().mockResolvedValue({ id: ids.sessionId, status: "completed" })
@@ -621,11 +638,25 @@ describe("RegistrationService", () => {
     const result = await service.completeSession(operator, ids.sessionId);
 
     expect(result.status).toBe("completed");
-    expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
-      where: { id: ids.sessionId },
-      data: { status: "completed", completedAt: expect.any(Date) },
-      include: { discoveredNodes: true }
+    expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
+    expect(prisma.provisioningSession.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: ids.sessionId }, data: { status: "completed", completedAt: expect.any(Date) }, include: { discoveredNodes: true }
+    }));
+  });
+
+  it("rejects completion while a scan is pending or scanning", async () => {
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue({ id: ids.sessionId, siteId: ids.siteId, status: "active", scanStatus: "scanning" }),
+        update: jest.fn()
+      }
     });
+
+    await expect(service.completeSession(operator, ids.sessionId)).rejects.toEqual(
+      new ConflictException({ code: "scan_session_not_terminal" })
+    );
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
   });
 
   it("does not expose registration sessions across organizations", async () => {

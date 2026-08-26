@@ -82,6 +82,7 @@ describe("MqttService", () => {
         findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt: 1 }),
         update: jest.fn()
       },
+      processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: { upsert: jest.fn().mockResolvedValue(undefined) }
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
@@ -102,6 +103,84 @@ describe("MqttService", () => {
       where: { id: sessionId },
       data: { scanStatus: "completed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: null, scanFailureMessage: null }
     });
+    expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      eventId: "66666666-6666-4666-8666-666666666666", gatewayId, sequence: 2n, eventType: "provisioning_scan_completed"
+    }) });
+  });
+
+  it("stores a correlated scan failure and ignores wrong correlation, attempt, scope, duplicate, and lower sequence events", async () => {
+    const siteId = "22222222-2222-4222-8222-222222222222";
+    const gatewayId = "33333333-3333-4333-8333-333333333333";
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const scanCorrelationId = "44444444-4444-4444-8444-444444444444";
+    const session = { id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt: 2 };
+    const prisma: any = {
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      discoveredMeshNode: { upsert: jest.fn() }
+    };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    const topic = `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`;
+    const base = {
+      sessionId, siteId, gatewayId, scanCorrelationId, scanAttempt: 2,
+      eventId: "55555555-5555-4555-8555-555555555555", sequence: 8, occurredAt: "2026-08-26T00:00:08.000Z",
+      code: "scan_timeout", message: "조명 검색 시간이 초과되었습니다."
+    };
+
+    await service.handleMessage(topic, Buffer.from(JSON.stringify(base)));
+    expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
+      where: { id: sessionId },
+      data: { scanStatus: "failed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: "scan_timeout", scanFailureMessage: "조명 검색 시간이 초과되었습니다." }
+    });
+    expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ eventType: "provisioning_scan_failed", sequence: 8n }) });
+
+    prisma.provisioningSession.update.mockClear();
+    await service.handleMessage(topic, Buffer.from(JSON.stringify({ ...base, eventId: "66666666-6666-4666-8666-666666666666", scanCorrelationId: "77777777-7777-4777-8777-777777777777" })));
+    await service.handleMessage(topic, Buffer.from(JSON.stringify({ ...base, eventId: "77777777-7777-4777-8777-777777777777", scanAttempt: 1 })));
+    await service.handleMessage(`sites/${siteId}/gateways/88888888-8888-4888-8888-888888888888/events/provisioning/scan-failed`, Buffer.from(JSON.stringify({ ...base, eventId: "88888888-8888-4888-8888-888888888888" })));
+    prisma.processedGatewayEvent.findFirst.mockResolvedValueOnce({ eventId: "older-or-duplicate" });
+    await service.handleMessage(topic, Buffer.from(JSON.stringify({ ...base, eventId: "99999999-9999-4999-8999-999999999999", sequence: 7 })));
+
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the scan event marker when its state mutation fails", async () => {
+    const siteId = "22222222-2222-4222-8222-222222222222";
+    const gatewayId = "33333333-3333-4333-8333-333333333333";
+    const markers: string[] = [];
+    const prisma: any = {
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue({
+        id: "11111111-1111-4111-8111-111111111111", siteId, gatewayId, status: "active", scanStatus: "scanning",
+        scanCorrelationId: "44444444-4444-4444-8444-444444444444", scanAttempt: 1
+      }) },
+      processedGatewayEvent: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(async ({ data }) => { markers.push(data.eventId); })
+      },
+      discoveredMeshNode: { upsert: jest.fn().mockRejectedValue(new Error("database write failed")) }
+    };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => {
+      const checkpoint = [...markers];
+      try {
+        return await callback(prisma);
+      } catch (error) {
+        markers.splice(0, markers.length, ...checkpoint);
+        throw error;
+      }
+    });
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+
+    await expect(service.handleMessage(`sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`, Buffer.from(JSON.stringify({
+      sessionId: "11111111-1111-4111-8111-111111111111", siteId, gatewayId,
+      scanCorrelationId: "44444444-4444-4444-8444-444444444444", scanAttempt: 1,
+      eventId: "55555555-5555-4555-8555-555555555555", sequence: 1, occurredAt: "2026-08-26T00:00:01.000Z",
+      deviceUuid: "device-1", serialNumber: "serial-1", rssi: -50, oobCapability: "none", firmwareVersion: "1.0.0"
+    })))).rejects.toThrow("database write failed");
+
+    expect(markers).toEqual([]);
   });
 
   it("ignores a delayed found event after its scan is terminal", async () => {
@@ -113,6 +192,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId, status: "active", scanStatus: "completed", scanCorrelationId, scanAttempt: 1 })
       },
+      processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: { upsert: jest.fn() }
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
@@ -795,6 +875,7 @@ describe("MqttService", () => {
           scanAttempt: 1
         })
       },
+      processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: {
         upsert: jest.fn().mockResolvedValue(undefined)
       }

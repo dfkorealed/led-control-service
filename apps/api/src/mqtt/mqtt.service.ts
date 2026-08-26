@@ -210,10 +210,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       const node = provisioningScanFoundSchema.parse(JSON.parse(payload.toString()));
       const topicScope = parseGatewayScopedTopic(topic);
       if (!topicScope || topicScope.siteId !== node.siteId || topicScope.gatewayId !== node.gatewayId) return;
-      await this.prisma.$transaction(async (tx) => {
-        const session = await this.lockCurrentScan(tx, node, topicScope);
-        if (!session) return;
-        await tx.discoveredMeshNode.upsert({
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const session = await this.acceptCurrentScanEvent(tx, node, topicScope, "provisioning_scan_found");
+          if (!session) return;
+          await tx.discoveredMeshNode.upsert({
           where: {
             sessionId_deviceUuid: {
               sessionId: node.sessionId,
@@ -236,8 +237,12 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
             discoveredAt: new Date(node.occurredAt),
             errorMessage: null
           }
+          });
         });
-      });
+      } catch (error) {
+        if (isUniqueConstraintError(error)) return;
+        throw error;
+      }
       return;
     }
 
@@ -248,16 +253,26 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         ? provisioningScanCompletedSchema.parse(JSON.parse(payload.toString()))
         : provisioningScanFailedSchema.parse(JSON.parse(payload.toString()));
       if (event.siteId !== topicScope.siteId || event.gatewayId !== topicScope.gatewayId) return;
-      await this.prisma.$transaction(async (tx) => {
-        const session = await this.lockCurrentScan(tx, event, topicScope);
-        if (!session) return;
-        await tx.provisioningSession.update({
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const session = await this.acceptCurrentScanEvent(
+            tx,
+            event,
+            topicScope,
+            "acceptedNodeCount" in event ? "provisioning_scan_completed" : "provisioning_scan_failed"
+          );
+          if (!session) return;
+          await tx.provisioningSession.update({
           where: { id: session.id },
           data: "acceptedNodeCount" in event
             ? { scanStatus: "completed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: null, scanFailureMessage: null }
             : { scanStatus: "failed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: event.code, scanFailureMessage: event.message }
+          });
         });
-      });
+      } catch (error) {
+        if (isUniqueConstraintError(error)) return;
+        throw error;
+      }
       return;
     }
 
@@ -324,10 +339,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async lockCurrentScan(
+  private async acceptCurrentScanEvent(
     tx: Prisma.TransactionClient,
-    event: { sessionId: string; siteId: string; gatewayId: string; scanCorrelationId: string; scanAttempt: number },
-    topicScope: { siteId: string; gatewayId: string }
+    event: {
+      sessionId: string;
+      siteId: string;
+      gatewayId: string;
+      scanCorrelationId: string;
+      scanAttempt: number;
+      eventId: string;
+      sequence: number;
+      occurredAt: string;
+    },
+    topicScope: { siteId: string; gatewayId: string },
+    eventType: "provisioning_scan_found" | "provisioning_scan_completed" | "provisioning_scan_failed"
   ) {
     await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${event.sessionId} FOR UPDATE`;
     const session = await tx.provisioningSession.findUnique({ where: { id: event.sessionId } });
@@ -342,6 +367,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       session.scanCorrelationId !== event.scanCorrelationId ||
       session.scanAttempt !== event.scanAttempt
     ) return null;
+    const previous = await tx.processedGatewayEvent.findFirst({
+      where: { gatewayId: event.gatewayId, eventType, sequence: { gte: BigInt(event.sequence) } },
+      select: { eventId: true }
+    });
+    if (previous) return null;
+    await tx.processedGatewayEvent.create({
+      data: {
+        eventId: event.eventId,
+        gatewayId: event.gatewayId,
+        sequence: BigInt(event.sequence),
+        eventType,
+        occurredAt: new Date(event.occurredAt)
+      }
+    });
     return session;
   }
 

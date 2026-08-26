@@ -8,6 +8,10 @@ const migration = readFileSync(join(
   process.cwd(),
   "prisma/migrations/20260826_menu_completion_foundation/migration.sql"
 ), "utf8");
+const scanOutboxMigration = readFileSync(join(
+  process.cwd(),
+  "prisma/migrations/20260826150000_add_provisioning_scan_outbox/migration.sql"
+), "utf8");
 
 describeWithPostgres("menu completion foundation PostgreSQL rehearsal", () => {
   const schemas: string[] = [];
@@ -24,6 +28,7 @@ describeWithPostgres("menu completion foundation PostgreSQL rehearsal", () => {
     execute(schema, legacyRows());
 
     expect(runMigration(schema).status).toBe(0);
+    expect(runScanOutboxMigration(schema).status).toBe(0);
     expect(query(schema, `SELECT "lifecycleStatus" FROM "FixtureGroup" WHERE "id" = 'valid';`)).toBe("active");
     expect(query(schema, `SELECT COUNT(*) FROM "FixtureGroup" WHERE "id" LIKE 'over-%' AND "lifecycleStatus" = 'invalid';`)).toBe("16");
     expect(query(schema, `SELECT "lifecycleStatus" FROM "FixtureGroup" WHERE "id" = 'cross-boundary';`)).toBe("invalid");
@@ -57,6 +62,12 @@ describeWithPostgres("menu completion foundation PostgreSQL rehearsal", () => {
       INSERT INTO "ProvisioningSession" ("id", "gatewayId", "scanStatus") VALUES ('scan-two', 'gateway-a', 'scanning');`);
     expect(duplicateScanningSession.status).not.toBe(0);
     expect(duplicateScanningSession.stderr).toContain("ProvisioningSession_single_scanning_gateway_key");
+
+    const pendingSession = runSql(`SET search_path TO "${schema}";
+      INSERT INTO "ProvisioningSession" ("id", "gatewayId", "scanStatus") VALUES ('scan-pending', 'gateway-a', 'pending');`);
+    expect(pendingSession.status).not.toBe(0);
+    expect(pendingSession.stderr).toContain("ProvisioningSession_single_scanning_gateway_key");
+    expect(query(schema, `SELECT COUNT(*) FROM "ProvisioningScanOutbox";`)).toBe("0");
   });
 });
 
@@ -107,6 +118,10 @@ function query(schema: string, sql: string) {
 
 function runMigration(schema: string) {
   return runSql(`SET search_path TO "${schema}";\n${migration}`);
+}
+
+function runScanOutboxMigration(schema: string) {
+  return runSql(`SET search_path TO "${schema}";\n${scanOutboxMigration}`);
 }
 
 function runSql(sql: string, extraArgs: string[] = ["-q"]) {

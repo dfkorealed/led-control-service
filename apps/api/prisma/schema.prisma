@@ -701,12 +701,35 @@ model ProvisioningSession {
   gateway         Gateway                   @relation(fields: [gatewayId], references: [id])
   user            User                      @relation(fields: [requestedBy], references: [id])
   discoveredNodes DiscoveredMeshNode[]
+  scanOutbox      ProvisioningScanOutbox[]
   startedAt       DateTime                  @default(now())
   completedAt     DateTime?
   createdAt       DateTime                  @default(now())
   updatedAt       DateTime                  @updatedAt
 
   @@index([gatewayId, scanStatus])
+}
+
+model ProvisioningScanOutbox {
+  id             String               @id @default(uuid())
+  sessionId      String
+  scanAttempt    Int
+  topic          String
+  payload        Json
+  attempts       Int                  @default(0)
+  nextAttemptAt  DateTime             @default(now())
+  publishedAt    DateTime?
+  lockedBy       String?
+  lockedAt       DateTime?
+  leaseExpiresAt DateTime?
+  deadLetteredAt DateTime?
+  lastError      String?
+  session        ProvisioningSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([sessionId, scanAttempt])
+  @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
 }
 
 model DiscoveredMeshNode {
