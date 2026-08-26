@@ -667,6 +667,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       });
 
       const currentMembers = new Set(currentGroupMembers.map((member) => member.meshNodeId));
+      const failedOperation = event.operations.find((operation) => operation.status === "failed");
       for (const member of event.operations) {
         if (!currentMembers.has(member.meshNodeId)) continue;
         await tx.meshControlGroupMember.updateMany({
@@ -716,11 +717,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           gatewayId: group.gatewayId,
           configurationVersion: event.version
         },
-        data: failedMember
-          ? { status: "failed", lastError: failedMember.lastError }
-          : isReady
-            ? { status: "ready", lastError: null }
-            : { status: "configuring", lastError: null }
+        data: failedOperation
+          ? { status: "failed", lastError: failedOperation.error ?? "mesh group subscription failed" }
+          : failedMember
+            ? { status: "failed", lastError: failedMember.lastError }
+            : isReady
+              ? { status: "ready", lastError: null }
+              : { status: "configuring", lastError: null }
       });
     });
   }

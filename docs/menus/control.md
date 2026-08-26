@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-23
+기준일: 2026-08-26
 
 ## 확정 구현 범위
 
@@ -13,7 +13,7 @@
 - gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다. group은 `configurationVersion`으로 구성 버전을 관리하고, member는 `subscriptionStatus`/`appliedVersion`/`statusVersion`으로 실제 ACK 적용 여부와 마지막 결과 version을 분리한다.
 - API는 `configuring` 상태의 control group 중 현재 member가 1개 이상인 group만 10초 주기로 gateway-scoped MQTT subscription sync command를 발행한다.
 - gateway는 같은 group/version command를 다시 받아도 Light Lightness Server `0x1300`에 표준 Config Model Subscription Add를 안전하게 재적용하고 결과를 한 번 발행한다.
-- API는 `siteId`, `gatewayId`, `groupId`, `version`이 모두 현재 group과 일치하는 subscription result만 반영한다. 현재 group/gateway에 속하지 않는 member 결과는 무시하고, 외부 result의 `ready`를 내부 `subscriptionStatus="applied"`로 변환한다. 모든 현재 member가 해당 version의 `appliedVersion == configurationVersion` 및 `statusVersion == configurationVersion`일 때만 group을 `ready`, 같은 version의 member 하나라도 `failed`면 group을 `failed`로 집계한다.
+- API는 `siteId`, `gatewayId`, `groupId`, `version`이 모두 현재 group과 일치하는 subscription result만 반영한다. 현재 group/gateway에 속하지 않는 member row는 갱신하지 않고, 외부 result의 `ready`를 내부 `subscriptionStatus="applied"`로 변환한다. 동일 node의 주소 교체처럼 여러 operation이 한 member row를 순차 갱신하더라도 operation 결과 하나라도 실패하면 해당 error를 보존해 group을 `failed`로 유지하며, 모든 operation이 성공하고 모든 현재 member의 `appliedVersion == configurationVersion` 및 `statusVersion == configurationVersion`일 때만 group을 `ready`로 집계한다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
 

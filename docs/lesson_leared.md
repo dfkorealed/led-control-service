@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-26 / 동일 membership row의 operation 실패 덮어쓰기
+- **발생했던 문제/실수**: 동일 `meshNodeId`의 주소 교체에서 old-address Delete 실패 뒤 new-address Add 성공을 같은 `MeshControlGroupMember` row에 순차 기록해, 마지막 성공이 실패를 지우고 group을 `ready`로 승격할 수 있었다.
+- **원인**: operation 단위 ACK와 member 단위 최신 상태를 같은 집계 근거로 사용했고, group 실패 여부를 최종 member row에서만 다시 계산했다.
+- **해결 및 예방책**: 검증된 subscription result의 전체 operation을 별도로 집계해 하나라도 실패하면 member row의 마지막 write와 관계없이 group `failed`와 operation error를 보존한다. 모든 operation 성공과 현재 member version 일치를 함께 만족할 때만 `ready`로 전환한다.
+- **반복 방지 체크**: 동일 node의 old-address Delete 실패와 new-address Add 성공 조합을 API MQTT 회귀 테스트로 유지하고, Gateway의 `(action, meshNodeId, meshAddress)` exact diff 검증을 함께 실행한다.
+
 ## 2026-07-15 / Gateway PKI와 원자적 identity
 - **발생했던 문제/실수**: API server CA를 Device issuing CA처럼 사용했고, enrollment token을 빠른 hash로 저장했으며, OpenSSL key 생성 직후 권한 노출과 current pointer fsync 실패 시 dangling 가능성이 있었다.
 - **원인**: CA 용도, 1회용 secret lookup, multi-file identity 활성화를 각각 독립된 계약으로 분리하지 않고 정상 경로 테스트에 집중했다.
