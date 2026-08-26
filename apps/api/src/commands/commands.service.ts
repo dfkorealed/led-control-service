@@ -201,6 +201,7 @@ export class CommandsService {
       where: {
         id: target.groupId,
         siteId,
+        lifecycleStatus: "active",
         groupFixtures: { every: { fixture: { floor: { siteId } } } }
       },
       select: {
@@ -287,6 +288,7 @@ export class CommandsService {
     const groups = await tx.fixtureGroup.findMany({
       where: {
         siteId,
+        lifecycleStatus: "active",
         AND: [
           { groupFixtures: { some: { fixtureId: { in: fixtureIds } } } },
           { groupFixtures: { every: { fixture: { floor: { siteId } } } } }

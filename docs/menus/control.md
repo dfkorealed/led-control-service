@@ -11,11 +11,11 @@
 - 임의 선택이 기존 층 또는 구역 구성과 정확히 같으면 Group Address 경로를 사용한다.
 - 장비별 BLE Mesh Health Current의 현재 fault만 수집해 제어 가능 여부와 결과에 반영한다.
 - gateway별 영속 `MeshControlGroup`/`MeshControlGroupMember` 저장 구조와 `0xC000~0xFEFF` group address allocator를 둔다. group은 `configurationVersion`으로 구성 버전을 관리하고, member는 `subscriptionStatus`/`appliedVersion`/`statusVersion`으로 실제 ACK 적용 여부와 마지막 결과 version을 분리한다.
-- API는 `configuring` 상태의 control group 중 현재 member가 1개 이상인 group만 10초 주기로 gateway-scoped MQTT subscription sync command를 발행한다.
+- API는 `configuring` group의 전체 desired member set과 `retiring` group의 빈 desired set을 10초 주기로 gateway-scoped MQTT subscription sync command로 재발행한다.
 - gateway는 같은 group/version command를 다시 받아도 Light Lightness Server `0x1300`에 표준 Config Model Subscription Add를 안전하게 재적용하고 결과를 한 번 발행한다.
 - API는 `siteId`, `gatewayId`, `groupId`, `version`이 모두 현재 group과 일치하는 subscription result만 반영한다. 현재 group/gateway에 속하지 않는 member row는 갱신하지 않고, 외부 result의 `ready`를 내부 `subscriptionStatus="applied"`로 변환한다. 동일 node의 주소 교체처럼 여러 operation이 한 member row를 순차 갱신하더라도 operation 결과 하나라도 실패하면 해당 error를 보존해 group을 `failed`로 유지하며, 모든 operation이 성공하고 모든 현재 member의 `appliedVersion == configurationVersion` 및 `statusVersion == configurationVersion`일 때만 group을 `ready`로 집계한다.
 
-상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
+상세 계약은 `docs/superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md`를 따른다.
 
 ## 명시적 보류 범위
 
@@ -50,6 +50,11 @@
 - 백엔드는 SiteAccess `manage` 권한이 있는 operator/admin만 해당 현장의 fixture 또는 group을 제어 대상으로 허용하며, 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
 - `viewer` 권한 사용자는 배정 현장을 조회할 수 있지만 조명 제어 명령 생성은 `403`으로 거부한다.
 - 사용자 역할은 service-provider `operator`, customer `admin`, 조회 전용 `viewer` 세 가지다. operator/admin의 제어는 SiteAccess `manage` 범위로 한정되고, viewer는 화면 비활성화와 API `403` 양쪽에서 변경이 차단된다.
+- `GET /sites/:siteId/fixture-groups`, `POST /sites/:siteId/fixture-groups`, `PATCH /sites/:siteId/fixture-groups/:groupId`, `DELETE /sites/:siteId/fixture-groups/:groupId`, `POST /sites/:siteId/fixture-groups/:groupId/resync`를 제공한다. 목록은 read 권한의 viewer도 볼 수 있고, 생성·수정·삭제·재동기화는 SiteAccess `manage` 권한의 operator/admin만 수행한다.
+- 저장 구역 생성·수정은 이름, 한 floor, 한 gateway와 1~100개의 unique fixture 전체 set을 입력으로 받는다. transaction은 기존 group, floor, gateway, fixture ID 순으로 잠가 같은 조명의 active/retiring 사용자 구역 15개 한도를 직렬화하고, mesh node가 없거나 선택 경계를 벗어난 fixture를 거부한다.
+- 저장 구역 변경은 `GroupFixture`와 `MeshControlGroupMember.desired`를 전체 교체하고 configuration version을 증가시켜 `configuring`으로 전환한다. 실패한 active 구역은 같은 desired set으로 resync할 수 있다.
+- 삭제는 과거 `CommandDispatch`의 MeshControlGroup 참조를 보존하는 soft delete다. FixtureGroup은 `retiring`, member desired set은 빈 배열, MeshControlGroup은 `retiring`이 되며, 해당 version의 Delete ACK가 성공할 때 두 group 모두 `retired`가 된다. publish 실패, gateway 재시작 또는 ACK 실패에는 같은 version/set을 계속 재발행하며 resync는 version만 증가시킨다.
+- legacy `invalid`와 `retiring`/`retired` 저장 구역은 일반 명령 target과 exact-set mesh group 승격에서 제외한다. invalid/retired는 읽기 전용이며, 아직 retiring인 구역은 subscription 정리 완료 전 제어할 수 없다.
 - `viewer`가 제어 화면에 진입하면 읽기 전용 안내를 표시하고 밝기 슬라이더, 프리셋, 대상 선택과 `밝기 적용` 버튼을 모두 비활성화한다. 이 경우 브라우저는 `POST /commands/dimming`을 보내지 않으며 권한 오류를 장비 장애로 오인하지 않는다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 대상 선택과 `밝기 적용`을 차단하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
@@ -134,7 +139,7 @@
 - API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기, 신규 웹 target picker 연결까지 반영됐다.
 - 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 RF/HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
 - `sessionStorage` 새로고침 복구와 ACK terminal 전 입력 잠금의 브라우저 계약 검증은 Task 16에서 완료했다. Raspberry Pi Gateway, 실제 MQTT broker와 ESP32-H2를 연결한 E2E는 아직 실행하지 않았다.
-- zone 제어 실기는 `FixtureGroup` CRUD/UI가 없어 `not_executed` 상태다. 표준 Health Fault Clear callback 실기는 Gateway 프로세스 내부에서 BlueZ node owner 권한으로 전송할 API/IPC가 없어 `not_executed` 상태이며, 두 항목 모두 자동 fixture 통과로 완료 처리하지 않는다.
+- 저장 구역 API와 desired membership은 구현됐지만, 생성·수정·삭제·resync를 제공하는 Web 관리 dialog와 browser E2E는 Task 7 범위다. 따라서 zone 제어 실기는 `not_executed` 상태다. 표준 Health Fault Clear callback 실기도 Gateway 프로세스 내부에서 BlueZ node owner 권한으로 전송할 API/IPC가 없어 `not_executed` 상태이며, 두 항목 모두 자동 fixture 통과로 완료 처리하지 않는다.
 
 ## 관련 파일
 
@@ -143,6 +148,9 @@
 - `apps/web/src/features/control/ControlView.test.tsx`
 - `apps/api/src/commands/commands.controller.ts`
 - `apps/api/src/commands/commands.service.ts`
+- `apps/api/src/fixture-groups/fixture-groups.controller.ts`
+- `apps/api/src/fixture-groups/fixture-groups.service.ts`
+- `apps/api/src/fixture-groups/fixture-groups.service.spec.ts`
 - `apps/api/src/commands/command-dispatch.service.ts`
 - `apps/api/src/commands/command-status.service.ts`
 - `apps/web/src/api/commands.ts`

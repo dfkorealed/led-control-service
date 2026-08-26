@@ -35,7 +35,7 @@ describe("MeshGroupSyncWorker", () => {
     await worker.runOnce();
 
     expect(prisma.meshControlGroup.findMany).toHaveBeenCalledWith({
-      where: { status: "configuring" },
+      where: { status: { in: ["configuring", "retiring"] } },
       orderBy: [{ updatedAt: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,
@@ -70,6 +70,34 @@ describe("MeshGroupSyncWorker", () => {
     });
     expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenNthCalledWith(2, expect.objectContaining({
       groupId: "00000000-0000-4000-8000-000000000201",
+      desiredMembers: []
+    }));
+  });
+
+  it("publishes the empty cloud desired set for a retiring group until the delete ACK arrives", async () => {
+    const prisma: any = {
+      meshControlGroup: {
+        findMany: jest.fn().mockResolvedValue([{
+          id: "00000000-0000-4000-8000-000000000301",
+          gatewayId: "00000000-0000-4000-8000-000000000302",
+          groupAddress: "0xc002",
+          configurationVersion: 6,
+          gateway: { siteId: "00000000-0000-4000-8000-000000000303" },
+          members: []
+        }])
+      }
+    };
+    const mqtt = { publishMeshGroupSubscriptionSync: jest.fn().mockResolvedValue(undefined) };
+    const worker = new MeshGroupSyncWorker(prisma, mqtt as never);
+
+    await worker.runOnce();
+
+    expect(prisma.meshControlGroup.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: { in: ["configuring", "retiring"] } }
+    }));
+    expect(mqtt.publishMeshGroupSubscriptionSync).toHaveBeenCalledWith(expect.objectContaining({
+      groupId: "00000000-0000-4000-8000-000000000301",
+      version: 6,
       desiredMembers: []
     }));
   });

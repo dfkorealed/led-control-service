@@ -228,16 +228,28 @@ export class MeshControlGroupService {
       select: { nextMeshGroupAddress: true }
     });
 
-    return tx.meshControlGroup.create({
-      data: {
-        gatewayId,
-        targetType: target.targetType,
-        targetId: target.targetId,
-        groupAddress: this.formatAddress(address),
-        status: MeshControlGroupStatus.configuring,
-        configurationVersion: 1
-      }
-    });
+    try {
+      return await tx.meshControlGroup.create({
+        data: {
+          gatewayId,
+          targetType: target.targetType,
+          targetId: target.targetId,
+          groupAddress: this.formatAddress(address),
+          status: MeshControlGroupStatus.configuring,
+          configurationVersion: 1
+        }
+      });
+    } catch (error) {
+      // The gateway lock is the normal serialization path. A P2002 can still
+      // surface after a retry or a legacy concurrent writer; only reuse a row
+      // with the exact target and rethrow every other uniqueness collision.
+      if (!this.isUniqueConstraintError(error)) throw error;
+      const concurrentGroup = await tx.meshControlGroup.findFirst({
+        where: { gatewayId, targetType: target.targetType, targetId: target.targetId }
+      });
+      if (concurrentGroup) return concurrentGroup;
+      throw error;
+    }
   }
 
   private async lockGateway(tx: Prisma.TransactionClient, gatewayId: string) {
@@ -346,6 +358,7 @@ export class MeshControlGroupService {
     const fixtureGroup = await tx.fixtureGroup.findFirst({
       where: {
         id: input.fixtureGroupId,
+        lifecycleStatus: "active",
         site: { gateways: { some: { id: input.gatewayId } } }
       },
       select: { id: true }
@@ -444,5 +457,9 @@ export class MeshControlGroupService {
 
   private formatAddress(address: number) {
     return `0x${address.toString(16).padStart(4, "0")}`;
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
   }
 }

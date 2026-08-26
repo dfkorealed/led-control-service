@@ -28,7 +28,9 @@ export class MeshGroupSyncWorker implements OnModuleInit, OnModuleDestroy {
 
   async runOnce() {
     const groups = await this.prisma.meshControlGroup.findMany({
-      where: { status: "configuring" },
+      // A retiring group must keep publishing its empty cloud desired set until
+      // the gateway confirms every subscription delete for this exact version.
+      where: { status: { in: ["configuring", "retiring"] } },
       orderBy: [{ updatedAt: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,

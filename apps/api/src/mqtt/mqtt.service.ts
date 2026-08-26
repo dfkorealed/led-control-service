@@ -761,8 +761,11 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         id: string;
         gatewayId: string;
         configurationVersion: number;
+        targetType: "floor" | "fixture_group";
+        targetId: string;
+        status: "configuring" | "ready" | "failed" | "retiring" | "retired";
       }>>`
-        SELECT g."id", g."gatewayId", g."configurationVersion"
+        SELECT g."id", g."gatewayId", g."configurationVersion", g."targetType", g."targetId", g."status"
         FROM "MeshControlGroup" g
         INNER JOIN "Gateway" gw ON gw."id" = g."gatewayId"
         WHERE g."id" = ${event.groupId}
@@ -780,6 +783,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           groupId: true,
           gatewayId: true,
           meshNodeId: true,
+          desired: true,
           subscriptionStatus: true,
           appliedVersion: true,
           statusVersion: true
@@ -815,13 +819,16 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         where: { groupId: group.id, gatewayId: group.gatewayId },
         select: {
           meshNodeId: true,
+          desired: true,
           subscriptionStatus: true,
           appliedVersion: true,
           statusVersion: true,
           lastError: true
         }
       });
-      const relevantMembers = members.filter((member) => currentMembers.has(member.meshNodeId));
+      const relevantMembers = members.filter(
+        (member) => currentMembers.has(member.meshNodeId) && member.desired !== false
+      );
       const failedMember = relevantMembers.find(
         (member) => member.subscriptionStatus === "failed" && member.statusVersion === event.version
       );
@@ -831,20 +838,42 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
           member.appliedVersion === event.version &&
           member.statusVersion === event.version
       );
+      const retirementSucceeded =
+        group.status === "retiring" &&
+        group.targetType === "fixture_group" &&
+        relevantMembers.length === 0 &&
+        !failedOperation &&
+        !failedMember;
+      const nextStatus = failedOperation
+        ? "failed"
+        : failedMember
+          ? "failed"
+          : retirementSucceeded
+            ? "retired"
+            : isReady
+              ? "ready"
+              : group.status === "retiring"
+                ? "retiring"
+                : "configuring";
+      const nextError = failedOperation
+        ? failedOperation.error ?? "mesh group subscription failed"
+        : failedMember
+          ? failedMember.lastError
+          : null;
       await tx.meshControlGroup.updateMany({
         where: {
           id: group.id,
           gatewayId: group.gatewayId,
           configurationVersion: event.version
         },
-        data: failedOperation
-          ? { status: "failed", lastError: failedOperation.error ?? "mesh group subscription failed" }
-          : failedMember
-            ? { status: "failed", lastError: failedMember.lastError }
-            : isReady
-              ? { status: "ready", lastError: null }
-              : { status: "configuring", lastError: null }
+        data: { status: nextStatus, lastError: nextError }
       });
+      if (retirementSucceeded) {
+        await tx.fixtureGroup.updateMany({
+          where: { id: group.targetId, lifecycleStatus: "retiring" },
+          data: { lifecycleStatus: "retired" }
+        });
+      }
     });
   }
 }

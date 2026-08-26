@@ -153,6 +153,21 @@ describe("CommandsService", () => {
     expect(tx.command.create).not.toHaveBeenCalled();
   });
 
+  it("does not resolve an invalid legacy fixture group as a command target", async () => {
+    const target = fixture(ids.fixture1);
+    const { service, tx } = createHarness({
+      group: { id: ids.group, groupFixtures: [{ fixtureId: target.id, fixture: target }] }
+    });
+
+    await service.createDimmingCommand(operator, {
+      siteId: ids.site, target: { type: "group", groupId: ids.group }, brightness: 60
+    });
+
+    expect(tx.fixtureGroup.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ lifecycleStatus: "active" })
+    }));
+  });
+
   it("rejects a logical target spanning multiple gateways before any command write", async () => {
     const targets = [fixture(ids.fixture1, ids.gateway1), fixture(ids.fixture2, ids.gateway2)];
     const { service, tx } = createHarness({ floor: { id: ids.floor, fixtures: targets } });

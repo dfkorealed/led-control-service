@@ -292,6 +292,32 @@ describe("MeshControlGroupService", () => {
     });
   });
 
+  it("returns the concurrent winner after the target unique constraint races despite the gateway lock", async () => {
+    const winner = {
+      id: "group-winner",
+      gatewayId,
+      targetType: "fixture_group",
+      targetId: fixtureGroupId,
+      groupAddress: "0xc100",
+      status: "configuring",
+      configurationVersion: 1,
+      lastError: null
+    };
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: gatewayId, siteId: "site-1", nextMeshGroupAddress: 0xc100 }]),
+      meshControlGroup: {
+        findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(winner),
+        create: jest.fn().mockRejectedValue(Object.assign(new Error("concurrent target"), { code: "P2002" }))
+      },
+      gateway: { update: jest.fn().mockResolvedValue({ nextMeshGroupAddress: 0xc101 }) },
+      fixtureGroup: { findUnique: jest.fn().mockResolvedValue({ id: fixtureGroupId, siteId: "site-1" }) }
+    };
+    const service = new MeshControlGroupService();
+
+    await expect(service.ensureFixtureGroup(tx, gatewayId, fixtureGroupId)).resolves.toBe(winner);
+    expect(tx.meshControlGroup.findFirst).toHaveBeenCalledTimes(2);
+  });
+
   it("throws NotFoundException when the gateway does not exist", async () => {
     const tx: any = {
       $queryRaw: jest.fn().mockResolvedValue([]),

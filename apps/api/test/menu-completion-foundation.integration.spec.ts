@@ -126,22 +126,22 @@ function legacyRows() {
 }
 
 function execute(schema: string, sql: string) {
-  const result = runSql(`SET search_path TO "${schema}";\n${sql}`);
+  const result = runSql(`SET search_path TO "${schema}", public;\n${sql}`);
   if (result.status !== 0) throw new Error(result.stderr);
 }
 
 function query(schema: string, sql: string) {
-  const result = runSql(`SET search_path TO "${schema}";\n${sql}`, ["-qAt"]);
+  const result = runSql(`SET search_path TO "${schema}", public;\n${sql}`, ["-qAt"]);
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
 }
 
 function runMigration(schema: string) {
-  return runSql(`SET search_path TO "${schema}";\n${migration}`);
+  return runSql(`SET search_path TO "${schema}", public;\n${migration}`);
 }
 
 function runScanOutboxMigration(schema: string) {
-  return runSql(`SET search_path TO "${schema}";\n${scanOutboxMigration}`);
+  return runSql(`SET search_path TO "${schema}", public;\n${scanOutboxMigration}`);
 }
 
 function runSql(sql: string, extraArgs: string[] = ["-q"]) {

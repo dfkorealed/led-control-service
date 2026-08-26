@@ -860,6 +860,73 @@ describe("MqttService", () => {
     });
   });
 
+  it("retires a fixture group only after the retiring version acknowledges its empty desired set", async () => {
+    const groupId = "11111111-1111-4111-8111-111111111111";
+    const fixtureGroupId = "22222222-2222-4222-8222-222222222222";
+    const nodeId = "33333333-3333-4333-8333-333333333333";
+    const gatewayId = "55555555-5555-4555-8555-555555555555";
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: groupId,
+        gatewayId,
+        configurationVersion: 2,
+        targetType: "fixture_group",
+        targetId: fixtureGroupId,
+        status: "retiring"
+      }]),
+      meshControlGroupMember: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn()
+          .mockResolvedValueOnce([{
+            groupId,
+            gatewayId,
+            meshNodeId: nodeId,
+            desired: false,
+            subscriptionStatus: "pending",
+            appliedVersion: 1,
+            statusVersion: 0
+          }])
+          .mockResolvedValueOnce([{
+            meshNodeId: nodeId,
+            desired: false,
+            subscriptionStatus: "applied",
+            appliedVersion: 2,
+            statusVersion: 2,
+            lastError: null
+          }])
+      },
+      meshControlGroup: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      fixtureGroup: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    const prisma: any = { $transaction: jest.fn(async (callback: (client: any) => Promise<unknown>) => callback(tx)) };
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+
+    await (service as any).storeMeshGroupSubscriptionResult({
+      siteId: "44444444-4444-4444-8444-444444444444",
+      gatewayId,
+      groupId,
+      version: 2,
+      groupAddress: "0xc000",
+      operations: [{
+        operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8",
+        action: "delete",
+        meshNodeId: nodeId,
+        meshAddress: "0x0100",
+        status: "ready"
+      }],
+      occurredAt: "2026-08-20T09:00:01.000Z"
+    });
+
+    expect(tx.meshControlGroup.updateMany).toHaveBeenCalledWith({
+      where: { id: groupId, gatewayId, configurationVersion: 2 },
+      data: { status: "retired", lastError: null }
+    });
+    expect(tx.fixtureGroup.updateMany).toHaveBeenCalledWith({
+      where: { id: fixtureGroupId, lifecycleStatus: "retiring" },
+      data: { lifecycleStatus: "retired" }
+    });
+  });
+
   it("does not fail the current version from an omitted member that only failed in an older version", async () => {
     const groupId = "11111111-1111-4111-8111-111111111111";
     const nodeId1 = "22222222-2222-4222-8222-222222222222";
