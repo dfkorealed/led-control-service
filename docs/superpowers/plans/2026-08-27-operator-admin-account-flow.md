@@ -372,6 +372,10 @@ git add apps/api/src/access apps/api/src/sites apps/api/src/setup docs/menus/mon
 git commit -m "feat(api): move initial site setup to assigned admin"
 ```
 
+- [x] **Review fix round 1: 층 추가 transaction 내부 권한 재검증**
+
+`addFloors`도 Site row lock 뒤 assigned active customer admin을 transaction 내부에서 다시 검증하고, stale admin 재배정 경쟁에서는 Floor/FloorPlan mutation 없이 `404`로 종료한다. 격리 PostgreSQL race로 이를 검증하고, 설정·모니터링 문서의 기존 operator 현장 생성 흐름은 폐기된 증거로 구분해 현재 pending Site/admin 흐름과 혼동하지 않게 한다.
+
 ### Task 5: Gateway claim과 조명 등록 commissioning 이전
 
 **Files:**
