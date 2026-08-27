@@ -39,13 +39,6 @@ type Installation = { siteId: string; floorId: string; timeZone: string };
 
 export class RealBackendLab {
   readonly operator = { loginId: "task11_operator", password: "Task11-operator-password!" };
-  readonly admin = {
-    loginId: "task11_admin",
-    email: "task11-admin@example.com",
-    name: "Task 11 고객 관리자",
-    password: "Task11-admin-password!",
-    invitationToken: "task11-customer-admin-invitation"
-  };
   readonly viewer = {
     loginId: "task11_viewer",
     email: "task11-viewer@example.com",
@@ -141,17 +134,6 @@ export class RealBackendLab {
     await this.sql(`INSERT INTO "GatewayInventory" (id,"serialNumber","claimCodeHash","createdAt","updatedAt") VALUES ('${randomUUID()}','${this.gateway.serialNumber}','${hash}',now(),now())`);
   }
 
-  async seedCustomerAdminInvitation() {
-    const installation = this.requireInstallation();
-    await this.sql(`
-      INSERT INTO "Invitation" (id,"organizationId",email,role,"tokenHash","expiresAt","createdAt","updatedAt")
-      SELECT '${randomUUID()}',"organizationId",'${this.admin.email}','admin',
-             '${createHash("sha256").update(this.admin.invitationToken).digest("hex")}',
-             now() + interval '1 day',now(),now()
-      FROM "Site" WHERE id='${installation.siteId}';
-    `);
-  }
-
   async seedCustomerViewerInvitation() {
     const installation = this.requireInstallation();
     await this.sql(`
@@ -228,11 +210,11 @@ export class RealBackendLab {
 
   async assertEvidence() {
     if (this.backgroundError) throw this.backgroundError;
-    const requiredPaths = ["/api/setup/initial-site", "/api/gateways/claim", "/api/registration-sessions", "/api/commands/dimming", "/api/energy/sites/"];
+    const requiredPaths = ["/api/setup/initial-site", "/api/gateways/claim", "/api/registration-sessions", "/api/energy/sites/"];
     for (const path of requiredPaths) {
       if (!this.network.some((item) => item.path?.toString().includes(path))) throw new Error(`network evidence missing: ${path}`);
     }
-    const requiredMqtt = ["scan-completed", "provisioning-completed", "subscription-result", "acks/acceptance", "acks/device-status", "acks/state-ingested"];
+    const requiredMqtt = ["scan-completed", "provisioning-completed", "acks/acceptance", "acks/device-status", "acks/state-ingested"];
     for (const marker of requiredMqtt) {
       if (!this.mqttEvidence.some((item) => item.topic?.toString().includes(marker))) throw new Error(`MQTT evidence missing: ${marker}`);
     }

@@ -15,7 +15,7 @@ test.afterAll(async () => {
   await lab.stop();
 });
 
-test("운영자 설치부터 고객 관리자 운영까지 실제 API와 MQTT 계약으로 이어진다", async ({ browser }, testInfo) => {
+test("운영자 설치와 viewer 읽기 전용 운영이 실제 API와 MQTT 계약으로 이어진다", async ({ browser }, testInfo) => {
   test.setTimeout(240_000);
   const operator = await browser.newPage();
   lab.captureNetwork(operator);
@@ -65,54 +65,9 @@ test("운영자 설치부터 고객 관리자 운영까지 실제 API와 MQTT �
   await lab.screenshot(operator, testInfo, "01-operator-installation");
 
   await operator.getByRole("button", { name: "로그아웃" }).click();
-  await lab.seedCustomerAdminInvitation();
-  const admin = await browser.newPage();
-  lab.captureNetwork(admin);
-  await admin.goto("/monitoring");
-  await signup(admin, lab.admin);
-  await login(admin, lab.admin.loginId, lab.admin.password);
-
-  await admin.getByRole("link", { name: "통계" }).click();
-  // Provisioning 직후 실제 첫 publication이 적산되므로 이 journey의 초기 상태는 partial이다.
-  await expect(admin.getByText("수집 공백 있음").first()).toBeVisible();
-  await expect(admin.getByLabel("오늘 전력 사용량")).toBeVisible();
-  await expect(admin.getByRole("img", { name: /일별 상태 기반 추정/ })).toBeVisible();
+  // Operator-provisioned admin CRUD and its E2E belong to Task 3/7. Task 2
+  // rejects admin public signup, so this lab keeps only the supported viewer flow.
   await lab.publishEnergyHistory("available");
-  await admin.reload();
-  await expect(admin.getByLabel("오늘 전력 사용량")).toBeVisible();
-  await expect(admin.getByRole("img", { name: /일별 상태 기반 추정/ })).toBeVisible();
-  await expect(admin.getByText("이번 달 예상 비용")).toBeVisible();
-
-  await admin.getByRole("link", { name: "제어" }).click();
-  await admin.getByRole("button", { name: "구역 관리" }).click();
-  await admin.getByRole("button", { name: "새 구역" }).click();
-  await admin.getByLabel("구역 이름").fill("입구 구역");
-  await admin.getByLabel("층", { exact: true }).selectOption(installation.floorId);
-  await admin.getByLabel("게이트웨이", { exact: true }).selectOption(lab.gateway.id);
-  await admin.getByLabel("B1 조명-001 포함").check();
-  await admin.getByLabel("B1 조명-002 포함").check();
-  await admin.getByRole("button", { name: "구역 만들기" }).click();
-  await expect(admin.getByText("제어 준비 완료")).toBeVisible({ timeout: 20_000 });
-  await admin.getByRole("button", { name: "입구 구역 수정" }).click();
-  await admin.getByLabel("구역 이름").fill("입구 통로");
-  await admin.getByRole("button", { name: "변경 저장" }).click();
-  await expect(admin.getByText("입구 통로")).toBeVisible();
-  await admin.getByRole("button", { name: "구역 관리 닫기" }).click();
-
-  await runControl(admin, "fixture");
-  await runControl(admin, "fixtures");
-  await runControl(admin, "floor");
-  await runControl(admin, "group");
-  await lab.screenshot(admin, testInfo, "02-admin-control");
-
-  await admin.getByRole("button", { name: "구역 관리" }).click();
-  await admin.getByRole("button", { name: "입구 통로 삭제" }).click();
-  await admin.getByRole("button", { name: "삭제 확인" }).click();
-  await expect(admin.getByText(/구역 삭제를 시작했습니다/)).toBeVisible();
-  await lab.screenshot(admin, testInfo, "03-group-retirement");
-  await admin.getByRole("button", { name: "구역 관리 닫기" }).click();
-
-  await admin.getByRole("button", { name: "로그아웃" }).click();
   await lab.seedCustomerViewerInvitation();
   const viewer = await browser.newPage();
   lab.captureNetwork(viewer);
@@ -125,7 +80,7 @@ test("운영자 설치부터 고객 관리자 운영까지 실제 API와 MQTT �
   await expect(viewer.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   await viewer.getByRole("link", { name: "통계" }).click();
   await expect(viewer.getByLabel("오늘 전력 사용량")).toBeVisible();
-  await lab.screenshot(viewer, testInfo, "04-viewer-readonly");
+  await lab.screenshot(viewer, testInfo, "02-viewer-readonly");
 
   await lab.assertEvidence();
   await lab.writeEvidence(testInfo);
@@ -154,21 +109,4 @@ async function signup(
   await page.getByLabel("비밀번호").fill(user.password);
   await page.getByRole("button", { name: "가입하기" }).click();
   await expect(page.getByText("가입이 완료되었습니다. 설정한 계정으로 로그인해 주세요.")).toBeVisible();
-}
-
-async function runControl(page: import("@playwright/test").Page, mode: "fixture" | "fixtures" | "floor" | "group") {
-  if (mode === "fixture" || mode === "fixtures") {
-    await page.getByRole("button", { name: "개별/다중" }).click();
-    await page.getByLabel("B1 조명-001 선택").check();
-    if (mode === "fixtures") await page.getByLabel("B1 조명-002 선택").check();
-  } else if (mode === "floor") {
-    await page.getByRole("button", { name: "층" }).click();
-    await page.getByRole("button", { name: "B1" }).click();
-  } else {
-    await page.getByRole("button", { name: "구역", exact: true }).click();
-    await page.getByRole("button", { name: "입구 통로 선택" }).click();
-  }
-  await page.getByLabel("밝기").fill(mode === "fixture" ? "25" : mode === "fixtures" ? "50" : mode === "floor" ? "75" : "100");
-  await page.getByRole("button", { name: "밝기 적용" }).click();
-  await expect(page.getByText("조명 적용 완료")).toBeVisible({ timeout: 20_000 });
 }
