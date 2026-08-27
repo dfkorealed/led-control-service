@@ -29,7 +29,7 @@ describe("AuditService", () => {
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it.each(["claimCode", "password", "privateKey", "certificatePem"])("rejects %s in audit metadata", async (key) => {
+  it.each(["claimCode", "password", "passwordHash", "currentPassword", "newPassword", "privateKey", "certificatePem"])("rejects %s in audit metadata", async (key) => {
     const service = await createService();
 
     await expect(service.record({
@@ -59,4 +59,16 @@ describe("AuditService", () => {
     })).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
+
+  it.each(["PASSWORD", "PasswordHash", "CURRENTpassword", "newPASSWORD", "PRIVATEkey", "CLAIMcode", "CertificatePEM"])(
+    "rejects %s case-insensitively at any nesting depth",
+    async (key) => {
+      const service = await createService();
+
+      await expect(service.record({
+        action: "operator.site_admin_created", targetType: "User", outcome: "success", metadata: { outer: [{ inner: { [key]: "secret" } }] }
+      })).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -1,0 +1,7 @@
+BEGIN;
+
+ALTER TABLE "Site"
+  ALTER COLUMN "address" DROP NOT NULL,
+  ALTER COLUMN "tariffKwhRate" DROP NOT NULL;
+
+COMMIT;

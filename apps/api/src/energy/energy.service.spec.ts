@@ -100,6 +100,19 @@ describe("EnergyService", () => {
     expect(prisma.site.findFirstOrThrow).not.toHaveBeenCalled();
   });
 
+  it("rejects cost estimates when a pending site has no tariff", async () => {
+    const user: AuthenticatedUser = {
+      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", status: "active"
+    };
+    const prisma = {
+      site: { findFirstOrThrow: jest.fn().mockResolvedValue({ tariffKwhRate: null, floors: [] }) }
+    };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new EnergyService(prisma as never, siteAccess as never);
+
+    await expect(service.getSiteEstimate(user, "site-1")).rejects.toMatchObject({ status: 409 });
+  });
+
   it("returns an empty state-based summary without registered fixtures", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-08-26T03:00:00.000Z"));
     const { service } = createStateBasedService({ fixtures: [] });

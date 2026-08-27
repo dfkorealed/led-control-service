@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-08-26
+작성일: 2026-08-27
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -223,7 +223,7 @@ Organization
 - role이 `operator`인 행은 상태와 관계없이 PostgreSQL partial unique index로 한 명만 허용한다. 이 index는 Prisma schema에 표현되지 않으며 migration이 정본이다.
 - `20260827100000_login_id_contract` migration은 Task 1 expand 뒤 생성된 `loginId IS NULL AND email IS NOT NULL` 행을 다시 `lower(btrim(email))`으로 backfill한다. 기존 unique index를 같은 transaction 안에서 잠시 제거해 format·collision·NULL guard가 명시적 오류를 내게 하고, guard가 모두 통과한 뒤 `loginId NOT NULL`, `email` nullable과 unique index를 적용한다. 격리 PostgreSQL rehearsal은 fresh Task 1→Task 2, staged re-backfill, guard rollback, Task 1 trigger/index 보존을 실행한다.
 - fresh deploy는 `prisma migrate deploy`가 Task 1 expand와 이 contract migration을 순서대로 적용한다. staged deploy는 Task 1 expand 적용 후 Task 2의 loginId/email dual-write API를 먼저 배포하고, 모든 인스턴스가 그 API인 상태에서 contract migration을 적용한다. 이 저장소는 사용자 DB reset이나 파괴적 DB 명령을 자동 실행하지 않는다.
-- Task 3의 pending-site contract migration은 `Site.address`와 `Site.tariffKwhRate` nullable 전환과 해당 소비자·energy 처리까지 함께 소유한다.
+- `20260827110000_pending_site_contract` migration은 `Site.address`와 `Site.tariffKwhRate`의 NOT NULL을 제거한다. operator가 만든 설치 대기 Site는 두 값을 `NULL`로 저장하고, 설치 완료 전 energy 비용 API는 단가 부재를 `409`로 처리한다.
 
 ### Site
 
@@ -235,8 +235,8 @@ Organization
 | `organizationId` | `String` | 예 | FK -> `Organization.id` | 소속 조직 |
 | `adminUserId` | `String?` | 아니오 | Unique, FK -> `User.id`, restrict delete | 이 현장을 직접 관리하는 단일 admin. admin 계정도 한 현장만 가질 수 있음 |
 | `name` | `String` | 예 |  | 현장명 |
-| `address` | `String` | 예 |  | 주소. Task 3 pending-site contract migration이 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
-| `tariffKwhRate` | `Decimal(10,2)` | 예 |  | kWh 단가. Task 3 pending-site contract migration이 admin 설치 대기 계약과 함께 nullable 전환 여부를 최종화 |
+| `address` | `String?` | 아니오 |  | 주소. operator가 만든 설치 대기 현장에서는 `NULL`이고 admin 최초 설치에서 필수값으로 채운다. |
+| `tariffKwhRate` | `Decimal(10,2)?` | 아니오 |  | kWh 단가. 설치 대기 현장에서는 `NULL`이며, 단가가 없으면 energy 비용 산출을 요청할 수 없다. |
 | `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -261,6 +261,7 @@ admin 연결 제약:
 - Site의 `adminUserId`/`organizationId`, User의 `role`/`status`/`organizationId`, Organization의 `type`에 영향을 주는 INSERT/UPDATE는 각 테이블의 `BEFORE STATEMENT` trigger에서 동일한 transaction-scoped advisory lock을 먼저 얻는다. PostgreSQL이 target row를 잠그기 전에 세 write path를 직렬화하므로 서로 다른 target table에서 시작하는 UPDATE 사이의 row-lock 순환 대기를 막는다. 이 전역 직렬화는 저빈도 계정·현장 관리 작업의 처리량보다 교착 방지를 우선한 계약이다.
 - statement gate를 통과한 뒤 기존 row trigger는 stale snapshot write-skew를 막기 위해 관계 행을 `FOR UPDATE`로 잠그고 변경 후 상태를 검증한다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 transaction 종료까지 안정적으로 유지한다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
+- operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 비활성화는 Task 1 trigger를 만족하도록 Site 연결 해제, User `disabled`, Session revoke 순서로 실행하며, 현장과 감사 이력은 삭제하지 않는다.
 
 ### Floor
 

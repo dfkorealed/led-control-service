@@ -267,7 +267,7 @@ admin 제어 흐름 삭제 후 더 이상 생성되지 않는 `acks/acceptance`,
 - Consumes: `PasswordService`, `normalizeLoginId`, `AuditService`
 - Produces: `Site.address: string | null`, `Site.tariffKwhRate: Decimal | null`과 pending site 비용 산출 불가 처리
 
-- [ ] **Step 1: CRUD·격리·민감정보 RED 테스트 작성**
+- [x] **Step 1: CRUD·격리·민감정보 RED 테스트 작성**
 
 ```ts
 it("creates a customer, pending site and single admin atomically", async () => {
@@ -284,25 +284,25 @@ it("disables an admin, revokes sessions and leaves the site unassigned", async (
 });
 ```
 
-- [ ] **Step 2: RED 확인**
+- [x] **Step 2: RED 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/operator-site-admins --runInBand`
 Expected: module 미존재로 실패
 
-- [ ] **Step 3: controller/service 구현**
+- [x] **Step 3: controller/service 구현**
 
 pending-site migration이 `address`와 `tariffKwhRate`의 NOT NULL을 제거하고 Prisma schema를 nullable로 전환한다. energy service는 null 단가를 비용 산출 불가 상태로 안전하게 처리한다. 모든 route에 `SessionAuthGuard`, `RolesGuard`, `@Roles("operator")`를 적용하고 service에서도 `organizationType === "service_provider"`를 재검증한다. create/update/reset/disable은 Serializable transaction과 감사 로그를 함께 사용하고 P2002는 loginId conflict로 변환한다.
 
-- [ ] **Step 4: 감사 metadata 민감 키 검사 강화**
+- [x] **Step 4: 감사 metadata 민감 키 검사 강화**
 
 `password`, `passwordHash`, `currentPassword`, `newPassword`, `privateKey`, `claimCode`, `certificatePem`을 대소문자와 중첩 위치에 관계없이 거부한다.
 
-- [ ] **Step 5: GREEN 및 integration 확인**
+- [x] **Step 5: GREEN 및 integration 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/operator-site-admins src/audit --runInBand`
 Expected: PASS
 
-- [ ] **Step 6: 문서 갱신 후 커밋**
+- [x] **Step 6: 문서 갱신 후 커밋**
 
 ```bash
 git add apps/api/prisma apps/api/src/operator-site-admins apps/api/src/audit apps/api/src/energy apps/api/src/app.module.ts docs/database-schema.md docs/menus/settings.md docs/project-status.md

@@ -3,21 +3,23 @@ import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 const migrationPath = join(__dirname, "../../prisma/migrations/20260827090000_operator_admin_account_flow/migration.sql");
+const pendingSiteMigrationPath = join(__dirname, "../../prisma/migrations/20260827110000_pending_site_contract/migration.sql");
 const schemaPath = join(__dirname, "../../prisma/schema.prisma");
 const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
+const pendingSiteMigration = existsSync(pendingSiteMigrationPath) ? readFileSync(pendingSiteMigrationPath, "utf8") : "";
 const schema = readFileSync(schemaPath, "utf8");
 const databaseUrl = process.env.OPERATOR_ADMIN_MIGRATION_TEST_DATABASE_URL;
 const describeWithPostgres = databaseUrl ? describe : describe.skip;
 
 describe("operator/admin migration static contract", () => {
-  it("matches the final Task 2 Prisma contract while Task 1 remains SQL-expand-only", () => {
+  it("matches the final pending-site Prisma contract while Task 1 remains SQL-expand-only", () => {
     expect(schema).toMatch(/loginId\s+String\s+@unique/);
     expect(schema).toMatch(/email\s+String\?\s+@unique/);
     expect(schema).toMatch(/administeredSite\s+Site\?\s+@relation\("SiteAdmin"\)/);
     expect(schema).toMatch(/adminUserId\s+String\?\s+@unique/);
     expect(schema).toMatch(/admin\s+User\?\s+@relation\("SiteAdmin", fields: \[adminUserId\], references: \[id\], onDelete: Restrict\)/);
-    expect(schema).toMatch(/address\s+String\n/);
-    expect(schema).toMatch(/tariffKwhRate\s+Decimal\s+@db.Decimal\(10, 2\)/);
+    expect(schema).toMatch(/address\s+String\?/);
+    expect(schema).toMatch(/tariffKwhRate\s+Decimal\?\s+@db.Decimal\(10, 2\)/);
   });
 
   it("keeps legacy required columns while adding nullable login ids in one guarded transaction", () => {
@@ -38,6 +40,14 @@ describe("operator/admin migration static contract", () => {
     expect(migration).toContain('ADD CONSTRAINT "User_loginId_format_check" CHECK ("loginId" IS NULL OR "loginId" ~');
     expect(migration).toContain('CREATE UNIQUE INDEX "User_loginId_key"');
     expect(migration).toMatch(/JOIN "User" AS admin[\s\S]*?AND admin\."status" = 'active'/);
+  });
+
+  it("drops only pending-site setup requirements in its own transactional migration", () => {
+    expect(pendingSiteMigration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(pendingSiteMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
+    expect(pendingSiteMigration).toContain('ALTER COLUMN "address" DROP NOT NULL');
+    expect(pendingSiteMigration).toContain('ALTER COLUMN "tariffKwhRate" DROP NOT NULL');
+    expect(pendingSiteMigration).not.toContain('ALTER TABLE "User"');
   });
 
   it("enforces one operator record and active same-customer admin invariants across all owners", () => {

@@ -17,7 +17,7 @@
 | 메뉴 완성 구현 | 완료(소프트웨어) | Task 12까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
 | 계정·설치 주체 전환 설계 | 완료 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했고 재설치는 제외했다. |
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
-| 계정·설치 주체 전환 구현 | 진행 중 | Task 1 expand migration과 Task 2 loginId 인증 경계(Review Fix Round 5 포함)를 완료했다. `User.loginId`는 required unique 로그인 정본이고 `email`은 nullable 초대 연락처로만 남으며 public/session DTO에는 노출하지 않는다. viewer invitation signup만 유지하며 operator/admin signup은 거부한다. 비밀번호 변경은 원문 공백을 보존하고 현재 세션만 남기며 나머지 세션을 revoke하고 민감 metadata 없는 감사를 남긴다. Nest module 실제 DI 부팅 회귀를 추가했으며, 격리 PostgreSQL에서 fresh/staged contract migration과 세션 회귀를 실행하고 실백엔드 Playwright 2건을 통과했다. Task 3 pending-site contract migration과 operator admin 관리 API가 후속이다. |
+| 계정·설치 주체 전환 구현 | 진행 중 | Task 1 expand migration, Task 2 loginId 인증 경계(Review Fix Round 5 포함), Task 3 pending-site contract migration과 operator site-admin 관리 API를 완료했다. `User.loginId`는 required unique 로그인 정본이고 `email`은 nullable 초대 연락처로만 남으며 public/session DTO에는 노출하지 않는다. viewer invitation signup만 유지하며 operator/admin signup은 거부한다. operator는 `GET/POST /operator/site-admins`, 기존 미지정 현장 admin 생성, 수정, 비밀번호 재설정과 trigger-safe 비활성화를 사용할 수 있다. 생성 Site의 `address`/`tariffKwhRate`는 설치 대기 중 nullable이며, 단가 부재의 energy 비용 요청은 `409`로 차단한다. 격리 PostgreSQL fresh deploy에서 Task 3 생성·세션 revoke·연결 해제를 확인했다. operator 관리 웹 UI와 admin 최초 설치 API/UI는 아직 구현하지 않았다. 다음은 Task 4 현장 접근과 admin 최초 설치 계약이다. |
 
 ## 다음 단계
 

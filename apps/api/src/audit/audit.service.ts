@@ -2,7 +2,15 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
-const forbiddenMetadataKeys = new Set(["claimCode", "password", "privateKey", "certificatePem"]);
+const forbiddenMetadataKeys = new Set([
+  "password",
+  "passwordhash",
+  "currentpassword",
+  "newpassword",
+  "privatekey",
+  "claimcode",
+  "certificatepem"
+]);
 
 type AuditTransaction = {
   auditLog: Pick<Prisma.TransactionClient["auditLog"], "create">;
@@ -42,7 +50,7 @@ export class AuditService {
     if (!metadata) return;
 
     for (const [key, value] of Object.entries(metadata)) {
-      if (forbiddenMetadataKeys.has(key)) {
+      if (forbiddenMetadataKeys.has(key.toLowerCase())) {
         throw new BadRequestException(`audit metadata must not include ${key}`);
       }
       this.assertSafeMetadataValue(value);

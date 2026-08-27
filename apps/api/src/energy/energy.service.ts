@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
@@ -107,6 +107,7 @@ export class EnergyService {
       where: { id: siteId },
       include: { floors: { include: { fixtures: true } } }
     });
+    this.assertTariffAvailable(site.tariffKwhRate);
     const fixtures = site.floors.flatMap((floor) => floor.fixtures);
     const tariffKwhRate = Number(site.tariffKwhRate);
     const daily = fixtures.reduce((sum, fixture) => {
@@ -130,6 +131,7 @@ export class EnergyService {
     const generatedAt = new Date();
     await this.siteAccess.assert(user, siteId, "read");
     const site = await this.loadSite(siteId);
+    this.assertTariffAvailable(site.tariffKwhRate);
     const localNow = localDateAt(generatedAt, site.timeZone);
     const yearStart = { year: localNow.year, month: 1, day: 1 };
     const monthStart = { year: localNow.year, month: localNow.month, day: 1 };
@@ -188,6 +190,7 @@ export class EnergyService {
     await this.siteAccess.assert(user, siteId, "read");
     const query = parseSeriesQuery(rawQuery);
     const site = await this.loadSite(siteId);
+    this.assertTariffAvailable(site.tariffKwhRate);
     const generatedAt = new Date();
     const periods = query.granularity === "day"
       ? listDaysInclusive(query.fromDate, query.toDate)
@@ -229,6 +232,12 @@ export class EnergyService {
       where: { id: siteId },
       select: { id: true, timeZone: true, tariffKwhRate: true }
     });
+  }
+
+  private assertTariffAvailable(tariffKwhRate: Prisma.Decimal | null): asserts tariffKwhRate is Prisma.Decimal {
+    if (tariffKwhRate === null) {
+      throw new ConflictException("site tariff is unavailable until installation is complete");
+    }
   }
 
   private async loadFixtures(siteId: string, from: CalendarDate, toExclusive: CalendarDate) {

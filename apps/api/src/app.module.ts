@@ -10,6 +10,7 @@ import { FixturesModule } from "./fixtures/fixtures.module";
 import { FixtureGroupsModule } from "./fixture-groups/fixture-groups.module";
 import { GatewayOnboardingModule } from "./gateway-onboarding/gateway-onboarding.module";
 import { MeshControlGroupModule } from "./mesh-control-groups/mesh-control-group.module";
+import { OperatorSiteAdminsModule } from "./operator-site-admins/operator-site-admins.module";
 import { PkiModule } from "./pki/pki.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RegistrationModule } from "./registration/registration.module";
@@ -33,7 +34,8 @@ import { SitesModule } from "./sites/sites.module";
     GatewayOnboardingModule,
     PkiModule,
     FixturesModule,
-    FixtureGroupsModule
+    FixtureGroupsModule,
+    OperatorSiteAdminsModule
   ]
 })
 export class AppModule {}

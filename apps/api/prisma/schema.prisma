@@ -147,8 +147,8 @@ model Site {
   organizationId       String
   adminUserId          String?               @unique
   name                 String
-  address              String
-  tariffKwhRate        Decimal               @db.Decimal(10, 2)
+  address              String?
+  tariffKwhRate        Decimal?              @db.Decimal(10, 2)
   timeZone             String                @default("Asia/Seoul")
   organization         Organization          @relation(fields: [organizationId], references: [id])
   admin                User?                 @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
