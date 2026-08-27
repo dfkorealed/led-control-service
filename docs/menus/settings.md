@@ -71,7 +71,7 @@
 ## 구현 완료
 
 - Task 8에서 설정 메뉴를 현재 고객 운영 범위로 단순화했다. admin은 `설정 개요`, `도면 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `도면 관리`만 읽기 전용으로 사용한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
-- pending assigned admin은 customer route에서 `/settings?siteId=...`로 replace되어 배정된 고객사·현장명을 표시한 최초 설치 설정을 수행한다. `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송하며 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다.
+- operator가 만든 pending Site는 assigned admin이 customer route에서 `/settings?siteId=...`로 replace된 최초 설치 UI에서 address, tariff, timeZone, floors로 완성한다. CustomerShell은 installationStatus 확인 전 child route를 fail-closed하고, `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송한다. 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다. 재설치, 모바일, Task 9 실백엔드 E2E와 Raspberry Pi/ESP32-H2 HIL은 현재 미구현/후속이다.
 - 설치 완료 뒤 admin은 설정 개요에서 Gateway claim 또는 조명 등록을 수행할 수 있다. viewer는 claim, registration, setup mutation UI를 보지 않는다. operator는 전용 shell 때문에 customer 설정에 진입하지 않는다.
 - `POST /auth/change-password` 화면은 현재/새/확인 비밀번호, 8자 검증, 확인 불일치, 정확한 현재 비밀번호 오류, 일반 오류와 중복 제출 차단을 제공한다. 평문 비밀번호는 React Query mutation/cache에 넣지 않고 component-local state와 요청 본문에만 두며, 성공 또는 화면 이탈 시 제거하고 실패 시 재시도 입력을 유지한다.
 - 도면 목록과 편집 route의 편집 가능 역할은 assigned admin만이다. viewer는 목록과 저장된 도면을 읽기 전용으로 보고, operator는 customer shell을 mount하지 않는다.
@@ -190,7 +190,7 @@
 
 - 다중 Gateway 목록에서 이름, serial, heartbeat, 펌웨어, 인증서 만료, Mesh 품질과 담당 범위를 표시한다.
 - `GatewayFloorCoverage`로 층별 주·보조 Gateway를 지정한다.
-- assigned admin 전용 시운전 화면에서 Claim, 검색, provisioning, 임시 배치, 품질 검사를 순서대로 수행한다. 이 웹 화면 전환은 아직 미구현이며 현재 완료 범위는 API다.
+- 설치 완료 assigned admin은 설정 개요와 등록 조명 0개인 모니터링에서 Gateway claim 또는 `RegistrationPanel`을 사용할 수 있다. 순서형 시운전 보고서와 품질 검사 화면은 현재 미구현/후속이며, Task 9 실백엔드 E2E와 Raspberry Pi/ESP32-H2 HIL도 아직 실행하지 않았다.
 - 완료 시 등록 성공·실패, Mesh 주소, 펌웨어, RSSI, hop count, 명령 성공률과 작업자를 보고서로 보존한다.
 - claim code, private key와 Mesh key는 UI, DB 원문과 감사 로그에 노출하지 않는다.
 
@@ -289,7 +289,6 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 미구현
 
-- admin에게 배정된 설치 대기 현장의 주소·단가·시간대·층을 완료하는 최초 설치 웹 UI
 - 고객사 viewer 초대·비활성화와 viewer별 `SiteMembership` 현장 배정을 관리하는 설정 UI
 - 현장 정보 수정과 층 CRUD/archive UI
 - 비공개 도면 asset과 보안 처리 pipeline

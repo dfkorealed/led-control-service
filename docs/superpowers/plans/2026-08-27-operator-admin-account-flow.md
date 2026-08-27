@@ -598,6 +598,8 @@ git commit -m "feat(web): let admins install sites and manage passwords"
 
 **Task 8 Review Fix Round 1 실행 기록:** viewer의 `/settings/security` 직접 URL은 query string을 보존해 `/settings`로 replace하고 password 화면/API를 mount하지 않도록 App shell 회귀를 추가했다. CustomerShell은 admin dashboard의 `installationStatus`가 확인되기 전 loading/error(retry) gate를 반환해 monitoring/control/statistics/floor editor query와 lease를 fail-closed했으며 viewer read-only 흐름은 그대로 둔다. setup 성공 dashboard는 actual site key와 `['dashboard', 'default']` key를 함께 갱신한 뒤 prefix invalidate해 `/settings` 무선택 admin의 실패 refetch에도 installed 상태가 유지되는 것을 검증했다. 비밀번호 입력의 unmount/remount local-state 및 React Query cache 비보존 회귀도 추가했다. focused/full web test, typecheck, production build, diff check 결과는 이 round의 별도 commit과 보고서에 기록한다.
 
+**Task 8 Review Fix Round 2 실행 기록:** docs-only 정합성 수정으로 설정 문서의 과거 API-only commissioning 문장과 최초 설치 UI 미구현 항목을 현재 Task 8 상태로 갱신했다. 설치 완료 assigned admin의 SettingsView/조명 0개 MonitoringView Gateway claim·RegistrationPanel 노출과 pending Site 최초 설치 UI/fail-closed guard는 완료로 기록하고, 재설치·모바일·Task 9 실백엔드 E2E·Raspberry Pi/ESP32-H2 HIL은 미구현/후속으로 유지한다. Task 8 Step 1~6 checkbox는 이미 완료 상태라 변경하지 않는다.
+
 ### Task 9: 실백엔드 E2E, 전체 회귀와 최종 문서
 
 **Files:**
