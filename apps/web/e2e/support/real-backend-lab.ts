@@ -38,7 +38,7 @@ const ports = {
 type Installation = { siteId: string; floorId: string; timeZone: string };
 
 export class RealBackendLab {
-  readonly operator = { email: "task11-operator@example.com", password: "Task11-operator-password!" };
+  readonly operator = { loginId: "task11_operator", password: "Task11-operator-password!" };
   readonly admin = {
     email: "task11-admin@example.com",
     name: "Task 11 고객 관리자",
@@ -89,7 +89,7 @@ export class RealBackendLab {
     await this.run("pnpm", ["--filter", "@led-control/api", "auth:bootstrap-operator"], {
       ...this.apiEnv(),
       BOOTSTRAP_ORGANIZATION_NAME: "Task 11 서비스 운영사",
-      BOOTSTRAP_OPERATOR_EMAIL: this.operator.email,
+      BOOTSTRAP_OPERATOR_LOGIN_ID: this.operator.loginId,
       BOOTSTRAP_OPERATOR_NAME: "Task 11 운영자",
       BOOTSTRAP_OPERATOR_PASSWORD: this.operator.password
     });

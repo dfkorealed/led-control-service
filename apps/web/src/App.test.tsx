@@ -25,6 +25,7 @@ const authState = vi.hoisted(() => ({
     id: "user-1",
     organizationId: "organization-1",
     organizationType: "customer",
+    loginId: "demo_admin",
     email: "operator@example.com",
     name: "Demo Operator",
     role: "admin",
@@ -33,7 +34,8 @@ const authState = vi.hoisted(() => ({
     id: string;
     organizationId: string;
     organizationType: "service_provider" | "customer";
-    email: string;
+    loginId: string;
+    email: string | null;
     name: string;
     role: string;
     status: string;
@@ -236,6 +238,7 @@ describe("App", () => {
       id: "user-1",
       organizationId: "organization-1",
       organizationType: "customer",
+      loginId: "demo_admin",
       email: "operator@example.com",
       name: "Demo Operator",
       role: "admin",
@@ -281,6 +284,49 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "초대 코드를 가지고 회원가입" }));
 
     expect(screen.getByLabelText("초대 코드")).toHaveValue("");
+  });
+
+  it("submits the login id instead of an email login payload", async () => {
+    authState.user = null;
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    fireEvent.change(screen.getByLabelText("아이디"), { target: { value: " ADMIN_01 " } });
+    fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "correct horse battery staple" } });
+    fireEvent.click(screen.getByRole("button", { name: "로그인" }));
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/auth/login", {
+        loginId: " ADMIN_01 ",
+        password: "correct horse battery staple",
+        rememberMe: true
+      });
+    });
+  });
+
+  it("keeps public signup compatible by sending its id as both loginId and email", async () => {
+    authState.user = null;
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    fireEvent.click(screen.getByRole("button", { name: "초대 코드를 가지고 회원가입" }));
+    fireEvent.change(screen.getByLabelText("초대 코드"), { target: { value: "invite-token" } });
+    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "Viewer" } });
+    fireEvent.change(screen.getByLabelText("아이디"), { target: { value: "viewer@example.com" } });
+    fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "correct horse battery staple" } });
+    fireEvent.click(screen.getByRole("button", { name: "가입하기" }));
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/auth/signup", {
+        token: "invite-token",
+        loginId: "viewer@example.com",
+        email: "viewer@example.com",
+        name: "Viewer",
+        password: "correct horse battery staple"
+      });
+    });
   });
 
   it("renders the four primary navigation items", async () => {
@@ -593,6 +639,7 @@ describe("App", () => {
       id: "viewer-1",
       organizationId: "organization-1",
       organizationType: "customer",
+      loginId: "viewer_01",
       email: "viewer@example.com",
       name: "Demo Viewer",
       role: "viewer",
@@ -774,6 +821,7 @@ describe("App", () => {
       id: "viewer-1",
       organizationId: "organization-1",
       organizationType: "customer",
+      loginId: "viewer_01",
       email: "viewer@example.com",
       name: "Demo Viewer",
       role: "viewer",

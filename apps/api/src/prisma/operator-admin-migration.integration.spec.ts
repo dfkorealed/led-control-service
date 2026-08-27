@@ -10,9 +10,9 @@ const databaseUrl = process.env.OPERATOR_ADMIN_MIGRATION_TEST_DATABASE_URL;
 const describeWithPostgres = databaseUrl ? describe : describe.skip;
 
 describe("operator/admin migration static contract", () => {
-  it("keeps Task 1 as an expand-only Prisma change", () => {
-    expect(schema).toMatch(/loginId\s+String\?\s+@unique/);
-    expect(schema).toMatch(/email\s+String\s+@unique/);
+  it("matches the final Task 2 Prisma contract while Task 1 remains SQL-expand-only", () => {
+    expect(schema).toMatch(/loginId\s+String\s+@unique/);
+    expect(schema).toMatch(/email\s+String\?\s+@unique/);
     expect(schema).toMatch(/administeredSite\s+Site\?\s+@relation\("SiteAdmin"\)/);
     expect(schema).toMatch(/adminUserId\s+String\?\s+@unique/);
     expect(schema).toMatch(/admin\s+User\?\s+@relation\("SiteAdmin", fields: \[adminUserId\], references: \[id\], onDelete: Restrict\)/);

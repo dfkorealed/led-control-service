@@ -10,7 +10,7 @@ interface AuthViewProps {
 export function AuthView({ onAuthenticated }: AuthViewProps) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState("");
+  const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [token, setToken] = useState("");
@@ -39,10 +39,11 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
     event.preventDefault();
     setErrorMessage("");
     if (mode === "login") {
-      loginMutation.mutate({ email, password, rememberMe });
+      loginMutation.mutate({ loginId, password, rememberMe });
       return;
     }
-    signupMutation.mutate({ token, email, name, password });
+    // The Task 6 UI still has one identifier field; the backend keeps its contact-email check separate.
+    signupMutation.mutate({ token, loginId, email: loginId, name, password });
   }
 
   const isPending = loginMutation.isPending || signupMutation.isPending;
@@ -79,9 +80,9 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
           <label>
             아이디
             <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              type="text"
+              value={loginId}
+              onChange={(event) => setLoginId(event.target.value)}
               autoComplete="username"
               required
             />

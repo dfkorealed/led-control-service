@@ -125,6 +125,90 @@ describe("AuthService", () => {
     expect(prisma.session.create).not.toHaveBeenCalled();
   });
 
+  it("uses the same authentication error for an unknown login id and a wrong password", async () => {
+    const user = {
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash"
+    };
+    const missing = new (AuthService as any)({ user: { findUnique: jest.fn().mockResolvedValue(null) }, session: { create: jest.fn() } }, { verify: jest.fn() });
+    const wrongPassword = new (AuthService as any)({ user: { findUnique: jest.fn().mockResolvedValue(user) }, session: { create: jest.fn() } }, { verify: jest.fn().mockResolvedValue(false) });
+
+    const missingError = await missing.login({ loginId: "missing_01", password: "wrong-password", rememberMe: false }).catch((error: unknown) => error);
+    const wrongPasswordError = await wrongPassword.login({ loginId: "admin_01", password: "wrong-password", rememberMe: false }).catch((error: unknown) => error);
+    expect(missingError).toEqual(new UnauthorizedException("Invalid login id or password"));
+    expect(wrongPasswordError).toEqual(new UnauthorizedException("Invalid login id or password"));
+  });
+
+  it("creates a remember-me session with the public login id", async () => {
+    const prisma = { user: { findUnique: jest.fn() }, session: { create: jest.fn() } };
+    const passwords = { verify: jest.fn().mockResolvedValue(true) };
+    const service = new (AuthService as any)(prisma, passwords);
+    prisma.user.findUnique.mockResolvedValue({
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash"
+    });
+
+    const result = await service.login({ loginId: "ADMIN_01", password: "correct horse battery staple", rememberMe: true });
+
+    expect(result.user).toMatchObject({ loginId: "admin_01", email: null });
+    expect(result.expiresAt.toISOString()).toBe("2026-09-26T00:00:00.000Z");
+    expect(prisma.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({ rememberMe: true, expiresAt: new Date("2026-09-26T00:00:00.000Z") }) });
+  });
+
+  it("rejects missing, invalid, and cross-organization viewer invitation sites before consuming the invitation", async () => {
+    const cases = [
+      { label: "missing", siteId: null, site: null },
+      { label: "invalid", siteId: "missing-site", site: null },
+      { label: "cross-organization", siteId: "foreign-site", site: { id: "foreign-site", organizationId: "customer-org-2" } }
+    ];
+
+    for (const fixture of cases) {
+      const transaction = {
+        invitation: { updateMany: jest.fn() },
+        site: { findUnique: jest.fn().mockResolvedValue(fixture.site) },
+        user: { create: jest.fn() },
+        siteMembership: { create: jest.fn() }
+      };
+      const prisma = {
+        invitation: { findUnique: jest.fn().mockResolvedValue({
+          id: fixture.label, organizationId: "customer-org-1", siteId: fixture.siteId, email: "viewer@example.com", role: "viewer",
+          organization: { type: "customer" }, expiresAt: new Date("2026-09-01T00:00:00.000Z"), acceptedAt: null
+        }) },
+        user: { findUnique: jest.fn().mockResolvedValue(null) },
+        $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction))
+      };
+      const service = new (AuthService as any)(prisma, { hash: jest.fn().mockResolvedValue("hash") });
+
+      await expect(service.signup({ token: "token", loginId: `viewer_${fixture.label}`, email: "viewer@example.com", name: "Viewer", password: "correct horse battery staple" }))
+        .rejects.toThrow("viewer invitations require a valid customer site assignment");
+      expect(transaction.invitation.updateMany).not.toHaveBeenCalled();
+      expect(transaction.user.create).not.toHaveBeenCalled();
+      expect(transaction.siteMembership.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it("rejects a viewer signup when the invitation email does not match", async () => {
+    const prisma = {
+      invitation: { findUnique: jest.fn().mockResolvedValue({
+        id: "invitation-1", organizationId: "customer-org-1", siteId: "site-1", email: "viewer@example.com", role: "viewer",
+        organization: { type: "customer" }, expiresAt: new Date("2026-09-01T00:00:00.000Z"), acceptedAt: null
+      }) },
+      user: { findUnique: jest.fn() }
+    };
+    const service = new AuthService(prisma as unknown as PrismaService);
+
+    await expect(service.signup({ token: "token", loginId: "viewer_01", email: "other@example.com", name: "Viewer", password: "correct horse battery staple" } as any))
+      .rejects.toThrow("Invitation email does not match");
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed service inputs with controlled auth errors", async () => {
+    const service = new AuthService({} as PrismaService);
+
+    await expect(service.login({ loginId: null, password: "password", rememberMe: false } as any)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.signup({ token: "token", loginId: "viewer_01", email: null, name: "Viewer", password: "password" } as any)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("changes a password, retains the current session, and records non-sensitive audit metadata", async () => {
     const currentToken = "current-token";
     const user = {

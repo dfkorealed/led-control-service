@@ -28,6 +28,14 @@ describe("bootstrapFirstOperator", () => {
     await expect(bootstrapFirstOperator(bootstrapPrisma({ serviceProvider: { id: "provider-1" } }), input() as any, async () => "scrypt$hash"))
       .rejects.toThrow("BOOTSTRAP_REFUSED");
   });
+
+  it("normalizes a concurrent login id unique violation to BOOTSTRAP_REFUSED", async () => {
+    const prisma = bootstrapPrisma();
+    prisma.user.create.mockRejectedValue({ code: "P2002" });
+
+    await expect(bootstrapFirstOperator(prisma, input() as any, async () => "scrypt$hash"))
+      .rejects.toThrow("BOOTSTRAP_REFUSED");
+  });
 });
 
 const input = () => ({

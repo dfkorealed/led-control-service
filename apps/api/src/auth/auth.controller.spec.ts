@@ -1,3 +1,4 @@
+import { BadRequestException } from "@nestjs/common";
 import { AuthController } from "./auth.controller";
 
 describe("AuthController", () => {
@@ -24,5 +25,21 @@ describe("AuthController", () => {
       newPassword: "new password",
       newPasswordConfirmation: "new password"
     });
+  });
+
+  it("rejects malformed auth bodies before they reach service code", async () => {
+    const authService = { signup: jest.fn(), login: jest.fn(), changePassword: jest.fn() };
+    const controller = new AuthController(authService as any);
+    const request = { headers: { cookie: "led_session=current-token" }, user: { id: "admin-1", organizationId: "organization-1" } };
+
+    await expect(controller.signup({ token: "token", loginId: null, email: "viewer@example.com", name: "Viewer", password: "password" } as any))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(controller.login({ loginId: "admin_01", password: null } as any, request as any, {} as any))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect((controller as any).changePassword({ currentPassword: "old", newPassword: null, newPasswordConfirmation: "new" }, request))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(authService.signup).not.toHaveBeenCalled();
+    expect(authService.login).not.toHaveBeenCalled();
+    expect(authService.changePassword).not.toHaveBeenCalled();
   });
 });

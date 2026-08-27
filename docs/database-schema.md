@@ -221,7 +221,7 @@ Organization
 - `20260827090000_operator_admin_account_flow` migration은 nullable `loginId`/`adminUserId` 추가, `loginId` backfill, 형식·정규화 충돌·operator 중복·기존 active admin/현장 모호성 사전검증, 명확한 customer active admin 연결, 최종 제약 추가를 하나의 PostgreSQL transaction에서 수행한다. 기존 `email`, `Site.address`, `Site.tariffKwhRate`의 NOT NULL은 이 단계에서 변경하지 않는다.
 - 정규화 충돌 또는 active admin이 있는 customer의 active admin/현장 수가 각각 하나가 아니면 `RAISE EXCEPTION`으로 중단한다. disabled admin만 있는 customer 현장은 unassigned로 남기며, 임의 loginId 보정이나 권한 확대는 하지 않는다.
 - role이 `operator`인 행은 상태와 관계없이 PostgreSQL partial unique index로 한 명만 허용한다. 이 index는 Prisma schema에 표현되지 않으며 migration이 정본이다.
-- `20260827100000_login_id_contract` migration은 Task 1 expand 뒤 생성된 `loginId IS NULL AND email IS NOT NULL` 행을 다시 `lower(btrim(email))`으로 backfill한다. 기존 unique index를 같은 transaction 안에서 잠시 제거해 format·collision·NULL guard가 명시적 오류를 내게 하고, guard가 모두 통과한 뒤 `loginId NOT NULL`, `email` nullable과 unique index를 적용한다.
+- `20260827100000_login_id_contract` migration은 Task 1 expand 뒤 생성된 `loginId IS NULL AND email IS NOT NULL` 행을 다시 `lower(btrim(email))`으로 backfill한다. 기존 unique index를 같은 transaction 안에서 잠시 제거해 format·collision·NULL guard가 명시적 오류를 내게 하고, guard가 모두 통과한 뒤 `loginId NOT NULL`, `email` nullable과 unique index를 적용한다. 격리 PostgreSQL rehearsal은 fresh Task 1→Task 2, staged re-backfill, guard rollback, Task 1 trigger/index 보존을 실행한다.
 - fresh deploy는 `prisma migrate deploy`가 Task 1 expand와 이 contract migration을 순서대로 적용한다. staged deploy는 Task 1 expand 적용 후 Task 2의 loginId/email dual-write API를 먼저 배포하고, 모든 인스턴스가 그 API인 상태에서 contract migration을 적용한다. 이 저장소는 사용자 DB reset이나 파괴적 DB 명령을 자동 실행하지 않는다.
 - Task 3의 pending-site contract migration은 `Site.address`와 `Site.tariffKwhRate` nullable 전환과 해당 소비자·energy 처리까지 함께 소유한다.
 
@@ -1112,7 +1112,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 ### 로그인
 
 ```text
-User.email/password
+User.loginId/password
 → AuthService 비밀번호 검증
 → Session 생성
 → HttpOnly cookie 발급

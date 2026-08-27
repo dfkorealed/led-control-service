@@ -38,37 +38,44 @@ export async function bootstrapFirstOperator(
   if (!organizationName || !name) throw new Error("BOOTSTRAP_INPUT_REQUIRED");
   const passwordHash = await hashPassword(input.password);
 
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(80520260721)");
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(80520260721)");
 
-    const [serviceProvider, operator] = await Promise.all([
-      tx.organization.findFirst({
-        where: { type: "service_provider" },
-        select: { id: true }
-      }),
-      tx.user.findFirst({
-        where: { role: "operator" },
-        select: { id: true }
-      })
-    ]);
+      const [serviceProvider, operator] = await Promise.all([
+        tx.organization.findFirst({
+          where: { type: "service_provider" },
+          select: { id: true }
+        }),
+        tx.user.findFirst({
+          where: { role: "operator" },
+          select: { id: true }
+        })
+      ]);
 
-    if (serviceProvider || operator) {
-      throw new Error("BOOTSTRAP_REFUSED: a service provider organization or operator already exists");
-    }
-    const organization = await tx.organization.create({
-      data: { name: organizationName, type: "service_provider" }
-    });
-    const user = await tx.user.create({
-      data: {
-        organizationId: organization.id,
-        loginId,
-        email: null,
-        name,
-        passwordHash,
-        role: "operator",
-        status: "active"
+      if (serviceProvider || operator) {
+        throw new Error("BOOTSTRAP_REFUSED: a service provider organization or operator already exists");
       }
+      const organization = await tx.organization.create({
+        data: { name: organizationName, type: "service_provider" }
+      });
+      const user = await tx.user.create({
+        data: {
+          organizationId: organization.id,
+          loginId,
+          email: null,
+          name,
+          passwordHash,
+          role: "operator",
+          status: "active"
+        }
+      });
+      return { organizationId: organization.id, userId: user.id, loginId: user.loginId };
     });
-    return { organizationId: organization.id, userId: user.id, loginId: user.loginId };
-  });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002") {
+      throw new Error("BOOTSTRAP_REFUSED: a concurrent bootstrap already created the operator");
+    }
+    throw error;
+  }
 }

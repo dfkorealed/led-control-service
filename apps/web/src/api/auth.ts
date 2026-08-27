@@ -5,7 +5,8 @@ export interface AuthUser {
   id: string;
   organizationId: string;
   organizationType: "service_provider" | "customer";
-  email: string;
+  loginId: string;
+  email: string | null;
   name: string;
   role: "operator" | "admin" | "viewer";
   status: "active" | "disabled";
@@ -19,11 +20,11 @@ export function useCurrentUser() {
   });
 }
 
-export function login(input: { email: string; password: string; rememberMe: boolean }) {
+export function login(input: { loginId: string; password: string; rememberMe: boolean }) {
   return apiPost<{ user: AuthUser }>("/auth/login", input);
 }
 
-export function signup(input: { token: string; email: string; name: string; password: string }) {
+export function signup(input: { token: string; loginId: string; email: string; name: string; password: string }) {
   return apiPost<{ user: AuthUser }>("/auth/signup", input);
 }
 

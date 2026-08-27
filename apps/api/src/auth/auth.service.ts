@@ -57,8 +57,10 @@ export class AuthService {
   async signup(input: SignupInput) {
     const loginId = normalizeLoginId(input.loginId);
     const email = this.normalizeEmail(input.email);
+    const token = this.requiredString(input.token, "token");
+    const name = this.requiredString(input.name, "name");
     const invitation = await this.db().invitation.findUnique({
-      where: { tokenHash: this.hashToken(input.token) },
+      where: { tokenHash: this.hashToken(token) },
       include: { organization: { select: { type: true } } }
     });
 
@@ -97,7 +99,7 @@ export class AuthService {
             organizationId: invitation.organizationId,
             loginId,
             email,
-            name: input.name.trim(),
+            name,
             role: "viewer",
             status: "active",
             passwordHash
@@ -115,8 +117,10 @@ export class AuthService {
   }
 
   async login(input: LoginInput) {
+    if (typeof input?.rememberMe !== "boolean") throw new BadRequestException("rememberMe must be a boolean");
+    const loginId = normalizeLoginId(input.loginId);
     const user = await this.db().user.findUnique({
-      where: { loginId: normalizeLoginId(input.loginId) },
+      where: { loginId },
       include: { organization: { select: { type: true } } }
     });
     if (!user || user.status !== "active" || !user.passwordHash) {
@@ -142,18 +146,21 @@ export class AuthService {
   }
 
   async changePassword(user: Pick<StoredUser, "id" | "organizationId">, currentSessionToken: string, input: ChangePasswordInput) {
-    if (input.newPassword !== input.newPasswordConfirmation) {
+    const currentPassword = this.requiredString(input?.currentPassword, "currentPassword");
+    const newPassword = this.requiredString(input?.newPassword, "newPassword");
+    const newPasswordConfirmation = this.requiredString(input?.newPasswordConfirmation, "newPasswordConfirmation");
+    if (newPassword !== newPasswordConfirmation) {
       throw new BadRequestException("New password confirmation does not match");
     }
 
     const currentTokenHash = this.hashToken(currentSessionToken);
     await this.db().$transaction(async (tx: any) => {
       const storedUser = await tx.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } });
-      if (!storedUser?.passwordHash || !(await this.passwords.verify(input.currentPassword, storedUser.passwordHash))) {
+      if (!storedUser?.passwordHash || !(await this.passwords.verify(currentPassword, storedUser.passwordHash))) {
         throw new UnauthorizedException("Current password is incorrect");
       }
 
-      const passwordHash = await this.passwords.hash(input.newPassword);
+      const passwordHash = await this.passwords.hash(newPassword);
       await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
       const revokedSessions = await tx.session.updateMany({
         where: { userId: user.id, revokedAt: null, tokenHash: { not: currentTokenHash } },
@@ -212,8 +219,14 @@ export class AuthService {
     };
   }
 
-  private normalizeEmail(email: string) {
+  private normalizeEmail(email: unknown) {
+    if (typeof email !== "string" || !email.trim()) throw new BadRequestException("Invalid email");
     return email.trim().toLowerCase();
+  }
+
+  private requiredString(value: unknown, name: string) {
+    if (typeof value !== "string" || !value.trim()) throw new BadRequestException(`${name} is required`);
+    return value.trim();
   }
 
   private async validateViewerInvitationAssignment(tx: any, invitation: { siteId?: string | null; organizationId: string }) {
@@ -239,6 +252,7 @@ export class AuthService {
   }
 
   private isUniqueConstraintError(error: unknown) {
-    return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+    return (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+      || (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002");
   }
 }

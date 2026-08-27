@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { CurrentUser } from "./current-user.decorator";
 import { SessionAuthGuard } from "./session-auth.guard";
@@ -14,22 +14,18 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post("signup")
-  signup(
-    @Body() body: { token: string; loginId: string; email: string; name: string; password: string }
-  ) {
-    return this.authService.signup(body);
+  async signup(@Body() body: unknown) {
+    return this.authService.signup(this.signupBody(body));
   }
 
   @Post("login")
   async login(
-    @Body() body: { loginId: string; password: string; rememberMe?: boolean },
+    @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
     @Res({ passthrough: true }) response: CookieResponse
   ) {
     const result = await this.authService.login({
-      loginId: body.loginId,
-      password: body.password,
-      rememberMe: body.rememberMe === true,
+      ...this.loginBody(body),
       userAgent: this.readHeader(request.headers["user-agent"]),
       ipAddress: this.readHeader(request.headers["x-forwarded-for"])
     });
@@ -59,13 +55,13 @@ export class AuthController {
 
   @Post("change-password")
   @UseGuards(SessionAuthGuard)
-  changePassword(
-    @Body() body: { currentPassword: string; newPassword: string; newPasswordConfirmation: string },
+  async changePassword(
+    @Body() body: unknown,
     @Req() request: AuthenticatedRequest
   ) {
     const token = this.readCookie(request.headers.cookie, AuthService.sessionCookieName);
     if (!token || !request.user) throw new UnauthorizedException("Authentication required");
-    return this.authService.changePassword(request.user, token, body);
+    return this.authService.changePassword(request.user, token, this.changePasswordBody(body));
   }
 
   private setSessionCookie(response: CookieResponse, token: string, expiresAt: Date) {
@@ -86,6 +82,48 @@ export class AuthController {
 
   private readHeader(value: string | string[] | undefined) {
     return Array.isArray(value) ? value.join(", ") : value;
+  }
+
+  private signupBody(body: unknown) {
+    const value = this.record(body);
+    return {
+      token: this.requiredString(value.token, "token"),
+      loginId: this.requiredString(value.loginId, "loginId"),
+      email: this.requiredString(value.email, "email"),
+      name: this.requiredString(value.name, "name"),
+      password: this.requiredString(value.password, "password")
+    };
+  }
+
+  private loginBody(body: unknown) {
+    const value = this.record(body);
+    if (value.rememberMe !== undefined && typeof value.rememberMe !== "boolean") {
+      throw new BadRequestException("rememberMe must be a boolean");
+    }
+    return {
+      loginId: this.requiredString(value.loginId, "loginId"),
+      password: this.requiredString(value.password, "password"),
+      rememberMe: value.rememberMe === true
+    };
+  }
+
+  private changePasswordBody(body: unknown) {
+    const value = this.record(body);
+    return {
+      currentPassword: this.requiredString(value.currentPassword, "currentPassword"),
+      newPassword: this.requiredString(value.newPassword, "newPassword"),
+      newPasswordConfirmation: this.requiredString(value.newPasswordConfirmation, "newPasswordConfirmation")
+    };
+  }
+
+  private record(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new BadRequestException("Invalid request body");
+    return value as Record<string, unknown>;
+  }
+
+  private requiredString(value: unknown, name: string) {
+    if (typeof value !== "string" || !value.trim()) throw new BadRequestException(`${name} is required`);
+    return value;
   }
 
   private readCookie(cookieHeader: string | string[] | undefined, name: string) {

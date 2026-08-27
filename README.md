@@ -47,7 +47,7 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
 
    ```bash
    BOOTSTRAP_ORGANIZATION_NAME='DF Korea Service' \
-   BOOTSTRAP_OPERATOR_EMAIL='operator@example.com' \
+   BOOTSTRAP_OPERATOR_LOGIN_ID='operator_01' \
    BOOTSTRAP_OPERATOR_NAME='운영자' \
    BOOTSTRAP_OPERATOR_PASSWORD='demo-password-1234' \
    pnpm --filter @led-control/api auth:bootstrap-operator
@@ -105,7 +105,7 @@ scripts/dev-pki/create-ca.sh
 pnpm docker:up
 pnpm --filter @led-control/api prisma:generate
 pnpm --filter @led-control/api prisma:migrate --name auth
-BOOTSTRAP_ORGANIZATION_NAME='DF Korea Service' BOOTSTRAP_OPERATOR_EMAIL='operator@example.com' BOOTSTRAP_OPERATOR_NAME='운영자' BOOTSTRAP_OPERATOR_PASSWORD='demo-password-1234' pnpm --filter @led-control/api auth:bootstrap-operator
+BOOTSTRAP_ORGANIZATION_NAME='DF Korea Service' BOOTSTRAP_OPERATOR_LOGIN_ID='operator_01' BOOTSTRAP_OPERATOR_NAME='운영자' BOOTSTRAP_OPERATOR_PASSWORD='demo-password-1234' pnpm --filter @led-control/api auth:bootstrap-operator
 pnpm dev
 ```
 

@@ -147,6 +147,13 @@ git commit -m "feat(db): add site admin account ownership"
 - Modify: `apps/api/src/auth/auth.service.spec.ts`
 - Modify: `apps/api/src/auth/auth.integration.spec.ts`
 - Modify: `apps/api/src/auth/bootstrap-operator.spec.ts`
+- Modify: `apps/api/src/prisma/operator-admin-migration.integration.spec.ts`
+- Create: `apps/api/src/prisma/login-id-contract-migration.integration.spec.ts`
+- Modify: `apps/web/src/api/auth.ts`
+- Modify: `apps/web/src/features/auth/AuthView.tsx`
+- Modify: `apps/web/src/App.test.tsx`
+- Modify: `apps/web/e2e/support/real-backend-lab.ts`
+- Modify: `README.md`
 
 **Interfaces:**
 - Produces: `normalizeLoginId(value: string): string`
@@ -155,6 +162,7 @@ git commit -m "feat(db): add site admin account ownership"
 - Produces: `POST /auth/change-password { currentPassword, newPassword, newPasswordConfirmation }`
 - Produces: `AuthenticatedUser.loginId`
 - Produces: 최종 `User.loginId: string`, `User.email: string | null` Prisma/DB 계약
+- Produces: 현재 Web login/signup payload의 loginId 호환 전환. 공개 signup UI 제거는 Task 6이 소유한다.
 
 - [x] **Step 1: loginId와 비밀번호 변경 RED 테스트 작성**
 
@@ -209,9 +217,15 @@ Expected: PASS
 - [x] **Step 7: 문서 갱신 후 커밋**
 
 ```bash
-git add apps/api/src/auth apps/api/prisma/schema.prisma apps/api/prisma/bootstrap-operator.ts apps/api/prisma/migrations/20260827100000_login_id_contract docs/database-schema.md docs/menus/settings.md docs/project-status.md
+git add apps/api/src/auth apps/api/src/prisma apps/api/prisma/schema.prisma apps/api/prisma/bootstrap-operator.ts apps/api/prisma/migrations/20260827100000_login_id_contract apps/web/src/api/auth.ts apps/web/src/features/auth/AuthView.tsx apps/web/src/App.test.tsx apps/web/e2e/support/real-backend-lab.ts README.md docs/database-schema.md docs/menus/settings.md docs/project-status.md
 git commit -m "feat(auth): switch authentication to login ids"
 ```
+
+- [x] **Review fix round 1: loginId public/client contract and PostgreSQL proof**
+
+`AuthenticatedUser`와 웹 `AuthUser`는 `loginId`를 정본으로 반환하고 `email`은 nullable 연락처 호환 필드로 유지한다. 공개 signup UI는 Task 6까지 남기되 현재 하나의 아이디 입력을 viewer signup의 `loginId`와 `email`에 함께 전달한다. login/signup/change-password는 runtime body validation을 거쳐 잘못된 값이 500으로 흐르지 않는다.
+
+기존 invitation assignment/mismatch, remember-me, generic login failure, 실제 transaction P2002 race regression을 loginId 계약으로 복구했다. 격리 PostgreSQL에서 old/new password 로그인, current/other session revoke, wrong-current-password 무변경과 Task 1→Task 2 fresh/staged/guard migration rollback을 실행했다. bootstrap의 P2002는 `BOOTSTRAP_REFUSED`로 정규화한다.
 
 ### Task 3: Operator 현장 admin 관리 API
 
