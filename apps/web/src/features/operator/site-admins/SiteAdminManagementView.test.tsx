@@ -85,6 +85,44 @@ describe("SiteAdminManagementView", () => {
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
   });
 
+  it("requires an initial password of at least eight characters before create", async () => {
+    renderView();
+    await screen.findByText("인천 물류센터");
+    fireEvent.click(screen.getByRole("button", { name: "현장 및 관리자 생성" }));
+    fillSiteAdminForm({
+      customerName: "새 고객사",
+      siteName: "새 현장",
+      adminName: "신규 관리자",
+      loginId: "short_password_admin",
+      password: "short"
+    });
+    fireEvent.click(screen.getByRole("button", { name: "생성" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("비밀번호는 8자 이상이어야 합니다.");
+    expect(api.createSiteAdmin).not.toHaveBeenCalled();
+  });
+
+  it("shows a server password policy error clearly during initial account creation", async () => {
+    api.createSiteAdmin.mockRejectedValueOnce(new ApiError(
+      "POST failed",
+      400,
+      { message: "Password must be at least 8 characters" }
+    ));
+    renderView();
+    await screen.findByText("인천 물류센터");
+    fireEvent.click(screen.getByRole("button", { name: "현장 및 관리자 생성" }));
+    fillSiteAdminForm({
+      customerName: "새 고객사",
+      siteName: "새 현장",
+      adminName: "신규 관리자",
+      loginId: "policy_admin",
+      password: "valid-password"
+    });
+    fireEvent.click(screen.getByRole("button", { name: "생성" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("비밀번호는 8자 이상이어야 합니다.");
+  });
+
   it("assigns an administrator to an unassigned site with the existing site id", async () => {
     const queryClient = renderView();
     await screen.findByText("강남 주차장");
@@ -172,6 +210,36 @@ describe("SiteAdminManagementView", () => {
     expect(screen.queryByDisplayValue("new-password")).not.toBeInTheDocument();
     expect(JSON.stringify(queryClient.getQueryData(["operator", "site-admins"]))).not.toContain("new-password");
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+  });
+
+  it("requires a reset password of at least eight characters before the API call", async () => {
+    renderView();
+    await screen.findByText("customer_admin");
+    fireEvent.click(screen.getByRole("button", { name: "김관리 비밀번호 재설정" }));
+    const dialog = screen.getByRole("dialog", { name: "김관리 비밀번호 재설정" });
+    fireEvent.change(within(dialog).getByLabelText("새 비밀번호"), { target: { value: "short" } });
+    fireEvent.change(within(dialog).getByLabelText("비밀번호 확인"), { target: { value: "short" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "비밀번호 재설정" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("비밀번호는 8자 이상이어야 합니다.");
+    expect(api.resetSiteAdminPassword).not.toHaveBeenCalled();
+  });
+
+  it("shows a server password policy error clearly during password reset", async () => {
+    api.resetSiteAdminPassword.mockRejectedValueOnce(new ApiError(
+      "POST failed",
+      400,
+      { message: "Password must be at least 8 characters" }
+    ));
+    renderView();
+    await screen.findByText("customer_admin");
+    fireEvent.click(screen.getByRole("button", { name: "김관리 비밀번호 재설정" }));
+    const dialog = screen.getByRole("dialog", { name: "김관리 비밀번호 재설정" });
+    fireEvent.change(within(dialog).getByLabelText("새 비밀번호"), { target: { value: "valid-password" } });
+    fireEvent.change(within(dialog).getByLabelText("비밀번호 확인"), { target: { value: "valid-password" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "비밀번호 재설정" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("비밀번호는 8자 이상이어야 합니다.");
   });
 
   it("restores the reset trigger after a successful password reset", async () => {

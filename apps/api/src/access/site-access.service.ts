@@ -49,10 +49,26 @@ export class SiteAccessService {
     user: AuthenticatedUser,
     siteId: string
   ) {
+    return this.assertAssignedAdminInTransaction(tx, user, siteId);
+  }
+
+  async assertManageInTransaction(
+    tx: Pick<Prisma.TransactionClient, "$queryRaw" | "site">,
+    user: AuthenticatedUser,
+    siteId: string
+  ) {
+    return this.assertAssignedAdminInTransaction(tx, user, siteId);
+  }
+
+  private async assertAssignedAdminInTransaction(
+    tx: Pick<Prisma.TransactionClient, "$queryRaw" | "site">,
+    user: AuthenticatedUser,
+    siteId: string
+  ) {
     if (!this.isActiveCustomerAdmin(user)) throw new NotFoundException("site not found");
 
-    // Claiming mutates inventory, so authorization is read only after the target site lock.
-    // This prevents a reassigned or disabled admin from completing a stale claim request.
+    // Production writes authorize only after locking Site. Assignment and User
+    // status triggers share this lock order, blocking stale reassignment commits.
     const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE
     `);

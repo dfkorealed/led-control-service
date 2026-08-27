@@ -49,9 +49,11 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
    BOOTSTRAP_ORGANIZATION_NAME='DF Korea Service' \
    BOOTSTRAP_OPERATOR_LOGIN_ID='operator_01' \
    BOOTSTRAP_OPERATOR_NAME='운영자' \
-   BOOTSTRAP_OPERATOR_PASSWORD='demo-password-1234' \
+   BOOTSTRAP_OPERATOR_PASSWORD="$APPROVED_BOOTSTRAP_OPERATOR_PASSWORD" \
    pnpm --filter @led-control/api auth:bootstrap-operator
    ```
+
+   기존 운영 DB의 `loginId` 전환은 유지보수 창에서 write freeze → 구버전 API와 worker 완전 drain → expand, backfill, contract migration 완료 → 새 `loginId` API/Web 배포 → smoke 확인과 write 재개 순서로 수행합니다. 전환 중 실행 가능한 API 인스턴스를 남기지 않으므로 `loginId IS NULL` 사용자가 로그인해야 하는 구간이 없으며 email 로그인 fallback은 배포하지 않습니다. 빈 DB는 migration 전체 적용 후 새 API/Web만 시작합니다.
 
 4. API와 Web을 실제 장비 모드로 실행합니다. 이 명령은 누락된 개발용 PKI와 `.env`의 `DEV_GATEWAY_ID`용 인증서를 생성하고, 8883 mTLS broker를 시작하고, 대기 중인 DB migration을 적용합니다. Raspberry Pi gateway와 ESP32-H2가 동작하지 않으면 조명 검색 결과는 0개가 정상입니다.
 
@@ -67,24 +69,9 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
    http://localhost:5173
    ```
 
-   데모 로그인 정보:
+   bootstrap한 operator의 아이디 예시는 `operator_01`입니다. 비밀번호는 승인된 secret manager 또는 현재 shell의 runtime 환경 변수로만 전달합니다. 공개 회원가입·초대 UI와 제품용 데모 기본 계정은 제공하지 않습니다.
 
-   ```text
-   아이디: operator@example.com
-   비밀번호: demo-password-1234
-   초대 회원가입 코드: demo-invite-token
-   ```
-
-6. 제조 단계에서 발급한 gateway 인증서의 SHA-256 지문과 일회성 등록 코드를 원장에 적재합니다. 이 명령은 기존 원장을 덮어쓰지 않으며 같은 시리얼이나 인증서 지문이면 실패합니다.
-
-   ```bash
-   export ENROLL_GATEWAY_SERIAL='GW-RPI-001'
-   export ENROLL_GATEWAY_CLAIM_CODE='출고 시 밀봉 제공한 일회성 코드'
-   export ENROLL_GATEWAY_CERT_FINGERPRINT="$(openssl x509 -in /path/to/gateway.crt -noout -fingerprint -sha256 | cut -d= -f2)"
-   pnpm gateway:enroll-inventory
-   ```
-
-   Web에서 현장과 층을 먼저 생성한 뒤 `게이트웨이 등록` 화면에 같은 시리얼과 일회성 코드를 입력합니다. claim 성공 후에만 gateway가 현장에 연결되고 조명 검색 화면이 열린다.
+6. Gateway 제조 등록은 deprecated inventory 적재 CLI가 아니라 station mTLS, Pi 내부 key 생성, 제조 enrollment API와 Vault 서명 절차를 사용합니다. 명령과 secret 취급의 정본은 [device lab first install의 제조 station 절차](docs/runbooks/device-lab-first-install.md#6-제조-station으로-pi-identity-발급)입니다. Web claim에는 제조 label의 시리얼과 일회성 code를 한 번만 사용합니다.
 
 ## 검증 명령
 
@@ -107,7 +94,7 @@ pnpm --filter @led-control/web e2e:auth:real
 ## 현재 범위
 
 - PC 웹 관제 shell
-- 초대 기반 회원가입, 로그인, 자동 로그인 session
+- `loginId` 로그인, 자동 로그인 session, viewer 초대 소비 호환 API. 공개 signup·초대 UI는 제공하지 않음
 - 층별 2D 맵 기반 조명 상태 표시
 - 개별/그룹 조명 수동 밝기 제어 명령 API
 - Raspberry Pi gateway MQTT 실행 골격
@@ -129,10 +116,8 @@ pnpm --filter @led-control/web e2e:auth:real
 
 ## 임시 유지 항목과 제거 조건
 
-- 로그인 폼의 데모 이메일, 비밀번호, 초대 코드 기본값은 이번 작업의 명시적 제외 항목으로 유지한다. 외부 고객 배포 전 반드시 빈 값으로 바꾼다.
 - `apps/web/src/test`, `apps/gateway/test`, Playwright route interception은 자동 회귀 테스트에만 사용하며 제품 빌드와 Raspberry Pi image에는 포함하지 않는다. 이 항목은 양산 코드 우회가 아니므로 유지한다.
 - `*.spec.ts`의 `mock-node-*`, `GW-DEMO-*` 문자열은 메시지 파서와 tenant 검증용 불변 입력값이다. 실행 프로세스나 DB seed가 아니며 테스트에서만 유지한다.
-- `gateway:enroll-inventory`는 실험실과 소량 생산에서 쓰는 비파괴 제조 원장 적재 명령이다. 제조 PKI/ERP가 serial, 인증서 지문, 일회성 claim code hash를 직접 발급·감사하는 시점에 CLI를 제거한다.
 - 로컬 개발 CA와 `DEV_GATEWAY_ID` 인증서는 실험실 broker 전용이다. 운영에서는 제조 device certificate, gateway claim, bootstrap assignment, 운영 CA 발급으로 교체한다.
 - gateway journal의 과거 형식 migration은 배포된 모든 gateway가 새 형식으로 전환되고 24시간 idempotency 보존 기간이 지난 뒤 제거한다.
 - 예상 전력은 정격 전력, 현재 밝기, 일 12시간 점등 가정이다. 실제 전력 계측과 시간대별 적산이 도입되면 이 계산 경로를 교체한다.

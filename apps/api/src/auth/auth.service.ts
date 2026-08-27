@@ -5,10 +5,12 @@ import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizeLoginId, type OrganizationType, type UserRole } from "./auth.types";
 import { PasswordService } from "./password.service";
+import { lockUserForPasswordMutation } from "./user-password-lock";
 
 const SESSION_COOKIE_NAME = "led_session";
 const NORMAL_SESSION_DAYS = 1;
 const REMEMBER_ME_SESSION_DAYS = 30;
+const LOGIN_TRANSACTION_ATTEMPTS = 2;
 
 interface SignupInput {
   token: string;
@@ -119,30 +121,41 @@ export class AuthService {
   async login(input: LoginInput) {
     if (typeof input?.rememberMe !== "boolean") throw new BadRequestException("rememberMe must be a boolean");
     const loginId = normalizeLoginId(input.loginId);
-    const user = await this.db().user.findUnique({
-      where: { loginId },
-      include: { organization: { select: { type: true } } }
-    });
-    if (!user || user.status !== "active" || !user.passwordHash) {
-      throw new UnauthorizedException("Invalid login id or password");
-    }
-    if (!(await this.passwords.verify(input.password, user.passwordHash))) {
-      throw new UnauthorizedException("Invalid login id or password");
-    }
+    for (let attempt = 1; attempt <= LOGIN_TRANSACTION_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+          const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+            SELECT "id" FROM "User" WHERE "loginId" = ${loginId} FOR UPDATE
+          `);
+          if (locked.length === 0) throw this.invalidCredentials();
 
-    const sessionToken = this.generateToken();
-    const expiresAt = this.addDays(new Date(), input.rememberMe ? REMEMBER_ME_SESSION_DAYS : NORMAL_SESSION_DAYS);
-    await this.db().session.create({
-      data: {
-        userId: user.id,
-        tokenHash: this.hashToken(sessionToken),
-        rememberMe: input.rememberMe,
-        userAgent: input.userAgent ?? null,
-        ipAddress: input.ipAddress ?? null,
-        expiresAt
+          const user = await tx.user.findUnique({
+            where: { loginId },
+            include: { organization: { select: { type: true } } }
+          });
+          if (!user || user.status !== "active" || !user.passwordHash) throw this.invalidCredentials();
+          if (!(await this.passwords.verify(input.password, user.passwordHash))) throw this.invalidCredentials();
+
+          const sessionToken = this.generateToken();
+          const expiresAt = this.addDays(new Date(), input.rememberMe ? REMEMBER_ME_SESSION_DAYS : NORMAL_SESSION_DAYS);
+          await tx.session.create({
+            data: {
+              userId: user.id,
+              tokenHash: this.hashToken(sessionToken),
+              rememberMe: input.rememberMe,
+              userAgent: input.userAgent ?? null,
+              ipAddress: input.ipAddress ?? null,
+              expiresAt
+            }
+          });
+          return { user: this.publicUser(user), sessionToken, expiresAt };
+        });
+      } catch (error) {
+        if (!this.isTransactionConflictError(error)) throw error;
+        if (attempt === LOGIN_TRANSACTION_ATTEMPTS) throw this.invalidCredentials();
       }
-    });
-    return { user: this.publicUser(user), sessionToken, expiresAt };
+    }
+    throw this.invalidCredentials();
   }
 
   async changePassword(user: Pick<StoredUser, "id" | "organizationId">, currentSessionToken: string, input: ChangePasswordInput) {
@@ -155,6 +168,9 @@ export class AuthService {
 
     const currentTokenHash = this.hashToken(currentSessionToken);
     await this.db().$transaction(async (tx: any) => {
+      if (!await lockUserForPasswordMutation(tx, user.id)) {
+        throw new UnauthorizedException("Current password is incorrect");
+      }
       const storedUser = await tx.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } });
       if (!storedUser?.passwordHash || !(await this.passwords.verify(currentPassword, storedUser.passwordHash))) {
         throw new UnauthorizedException("Current password is incorrect");
@@ -258,5 +274,14 @@ export class AuthService {
   private isUniqueConstraintError(error: unknown) {
     return (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
       || (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002");
+  }
+
+  private isTransactionConflictError(error: unknown) {
+    return (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034")
+      || (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2034");
+  }
+
+  private invalidCredentials() {
+    return new UnauthorizedException("Invalid login id or password");
   }
 }

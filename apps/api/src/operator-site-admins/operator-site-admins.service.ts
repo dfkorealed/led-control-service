@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { normalizeLoginId, type AuthenticatedUser } from "../auth/auth.types";
 import { PasswordService } from "../auth/password.service";
+import { lockUserForPasswordMutation } from "../auth/user-password-lock";
 import { PrismaService } from "../prisma/prisma.service";
 
 export interface CreateSiteAdminInput {
@@ -209,7 +210,12 @@ export class OperatorSiteAdminsService {
     const adminId = this.requiredString(userId, "userId");
     const passwordHash = await this.passwords.hash(this.requiredPassword(newPassword, "newPassword"));
     try {
+      // READ COMMITTED refreshes the snapshot after a blocked login releases the
+      // User row, so the session created immediately before reset is revoked too.
       return await this.prisma.$transaction(async (tx) => {
+        if (!await lockUserForPasswordMutation(tx, adminId)) {
+          throw new NotFoundException("active assigned site admin not found");
+        }
         const admin = await this.findManagedAdmin(tx, adminId);
         await tx.user.update({ where: { id: admin.id }, data: { passwordHash } });
         const revokedSessions = await tx.session.updateMany({
@@ -228,7 +234,7 @@ export class OperatorSiteAdminsService {
           metadata: { revokedSessionCount: revokedSessions.count }
         });
         return { ok: true };
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     } catch (error) {
       this.throwMappedPrismaError(error);
     }

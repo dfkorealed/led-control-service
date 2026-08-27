@@ -207,7 +207,7 @@ export function normalizeLoginId(value: string) {
 
 - [x] **Step 5: loginId contract migration 구현**
 
-dual-write 인증 코드가 준비된 뒤 contract migration은 `loginId IS NULL AND email IS NOT NULL` 행을 다시 `lower(btrim(email))`으로 backfill하고 형식·충돌·NULL guard를 실행한 다음 `loginId NOT NULL`을 적용한다. Prisma schema는 `loginId String @unique`, `email String? @unique`로 전환한다. 배포 runbook은 Task 1 expand migration 적용 → 이 Task의 dual-write API 배포 → contract migration 적용 순서를 기록한다.
+운영 rollout은 계정 write freeze → 구버전 API/worker 완전 drain → Task 1 expand와 이 Task의 재-backfill·형식·충돌·NULL guard·`loginId NOT NULL` contract migration 완료 → 새 `loginId` API/Web 배포 순서다. 유지보수 중 로그인 API를 열지 않으며 email fallback이나 구·신 API 동시 운영을 허용하지 않는다. Prisma schema는 `loginId String @unique`, `email String? @unique`로 전환한다.
 
 - [x] **Step 6: GREEN 및 회귀 확인**
 
@@ -666,7 +666,7 @@ Expected: PASS
 
 개발 서버를 실행하고 operator/admin/viewer 역할로 deep link, 새로고침, CRUD 확인창, 설치 wizard, 맵 편집, 비밀번호 변경과 재로그인을 확인한다. Network에서 operator shell이 `/sites`와 `/dashboard`를 호출하지 않고 admin CRUD 응답에 password 계열 필드가 없는지 확인한다.
 
-Task 9 agent 범위에서는 Playwright 자동 검증과 수동 QA 계정·URL 체크리스트까지 준비했다. 실제 in-app browser 수동 QA는 controller가 Task review 뒤 수행한다.
+controller가 실제 in-app browser 수동 QA를 시도했으나 admin-enforced browser policy가 localhost 접근 전에 차단해 미실행으로 남았다. 이는 자동 Chromium E2E 결과와 별개다.
 
 - [x] **Step 5: 문서와 상태판을 실제 검증 결과로 확정**
 
@@ -689,4 +689,15 @@ git commit -m "test(e2e): verify admin-led site installation"
 - [x] helper 5, isolated auth 1, full Chromium 29 passed/3 skipped, final real journey 2 passed 및 workspace 전체 회귀
 - [x] report/ledger/menu/status/runbook 경계 정정과 잔여 process/listener/artifact 0건 확인
 
-이 round의 lab certificate/ACL은 software test configuration 증거이며 production Gateway certificate bootstrap·배포 broker ACL, 실제 `apps/gateway` BlueZ/RF 또는 Raspberry Pi/ESP32-H2 HIL 증거가 아니다. controller의 실제 in-app browser 수동 QA도 review 뒤 별도로 수행한다.
+이 round의 lab certificate/ACL은 software test configuration 증거이며 production Gateway certificate bootstrap·배포 broker ACL, 실제 `apps/gateway` BlueZ/RF 또는 Raspberry Pi/ESP32-H2 HIL 증거가 아니다. controller의 실제 in-app browser 수동 QA 시도는 이후 admin-enforced browser policy가 localhost 접근 전에 차단했다.
+
+**Final Review Fix (2026-08-27):**
+
+- [x] login User row lock, password verify와 Session create를 한 transaction에 묶고 operator reset/self change PostgreSQL barrier 회귀 추가
+- [x] AuthView login을 component-local async state로 전환하고 principal Query/Mutation cache 원자 교체·강제 revoke 정리 회귀 추가
+- [x] Site row lock 뒤 manage 재인가를 commands, fixture groups, floor editor save/restore transaction 첫 단계에 적용
+- [x] operator Web password 8자/400 정책 표시와 real-backend `/api/auth/*`·`/api/operator/*` allowlist 및 update/reset/disable journey 추가
+- [x] rollout, README, 메뉴/status/runbook/report와 plan 전용 ledger 정합화
+- [x] 전체 unit/typecheck/lint/build/Chromium/real journey/cleanup 최종 증거 확정
+
+수동 in-app browser QA는 controller가 시도했지만 admin-enforced browser policy가 localhost 접근 전에 차단해 미실행이다. 자동 Chromium E2E와 혼동하지 않는다.

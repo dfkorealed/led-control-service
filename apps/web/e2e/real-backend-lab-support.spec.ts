@@ -118,6 +118,26 @@ test("operator의 응답 없는 customer request도 request 시점에 기록한�
   expect(Object.keys(records[0]).sort()).toEqual(["actor", "id", "method", "outcome", "path", "status"]);
 });
 
+test("operator network isolation은 auth와 operator API만 허용한다", () => {
+  const page = new EventEmitter();
+  const lab = new RealBackendLab();
+  lab.captureNetwork(page as never, "operator");
+
+  for (const path of ["/api/auth/me", "/api/operator/site-admins"]) {
+    page.emit("request", {
+      method: () => "GET",
+      url: () => `http://127.0.0.1:15173${path}`
+    });
+  }
+  expect(() => lab.assertOperatorNetworkIsolation()).not.toThrow();
+
+  page.emit("request", {
+    method: () => "GET",
+    url: () => "http://127.0.0.1:15173/api/energy/sites/site-1/summary"
+  });
+  expect(() => lab.assertOperatorNetworkIsolation()).toThrow("operator requested a non-allowlisted API");
+});
+
 test("start 중간 실패는 TERM을 무시하는 descendant까지 종료하고 labDir을 지운다", async () => {
   const lab = new RealBackendLab({ ports: await allocateUnusedLabPorts() });
   const internal = lab as unknown as {

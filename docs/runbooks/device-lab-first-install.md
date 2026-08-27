@@ -113,11 +113,14 @@ BOOTSTRAP_OPERATOR_PASSWORD='교체할-긴-시험용-비밀번호' \
 pnpm --filter @led-control/api auth:bootstrap-operator
 ```
 
-계정 전환 migration은 사용자 DB를 reset하지 않고 다음 순서를 지킨다. 빈 DB의 fresh deploy는 `prisma migrate deploy`가 같은 순서로 모두 적용한다.
+계정 전환 migration은 사용자 DB를 reset하지 않으며 운영 DB에서는 유지보수 창을 잡아 다음 순서를 지킨다.
 
-1. `20260827090000_operator_admin_account_flow` expand migration을 적용한다.
-2. loginId/email dual-write 인증 API를 모든 인스턴스에 배포한다.
-3. `20260827100000_login_id_contract` migration을 적용해 재-backfill, 형식·충돌·NULL guard, `loginId NOT NULL`과 email nullable 계약을 완료한다.
+1. 계정·초대·세션 관련 write를 freeze한다.
+2. 구버전 API, worker와 배치 작업을 완전히 drain하고 실행 인스턴스가 0개임을 확인한다.
+3. `20260827090000_operator_admin_account_flow` expand와 `20260827100000_login_id_contract`의 재-backfill, 형식·충돌·NULL guard, `loginId NOT NULL` contract를 모두 완료한다.
+4. 새 `loginId` API/Web만 배포하고 smoke 확인 뒤 write freeze를 해제한다.
+
+이 유지보수 구간에는 로그인 API를 제공하지 않으므로 `loginId IS NULL` 사용자가 로그인해야 하는 공백이 없다. email 로그인 fallback이나 구·신 API 동시 운영은 허용하지 않는다. 빈 DB의 fresh deploy는 `prisma migrate deploy`로 전체 migration을 완료한 뒤 새 API/Web만 시작한다.
 
 생성된 환경을 현재 shell에 export한 뒤 개발 서버를 실행한다.
 

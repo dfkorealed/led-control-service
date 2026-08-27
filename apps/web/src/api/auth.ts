@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet, apiPost } from "./client";
+import { authMeQueryKey } from "./principal-cache";
 
 export interface AuthUser {
   id: string;
@@ -13,7 +14,7 @@ export interface AuthUser {
 
 export function useCurrentUser() {
   return useQuery({
-    queryKey: ["auth", "me"],
+    queryKey: authMeQueryKey,
     queryFn: () => apiGet<{ user: AuthUser }>("/auth/me"),
     retry: false
   });

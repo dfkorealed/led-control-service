@@ -77,6 +77,29 @@ describe("SiteAccessService", () => {
     await expect(service.assert(admin, customerSiteId, "manage")).resolves.toMatchObject({ id: customerSiteId });
   });
 
+  it("locks the site and reauthorizes the assigned active customer admin inside a manage transaction", async () => {
+    const service = await createService();
+    const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: customerSiteId }]),
+      site: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: customerSiteId,
+          organizationId: admin.organizationId,
+          adminUserId: admin.id,
+          admin: {
+            id: admin.id,
+            organizationId: admin.organizationId,
+            role: "admin",
+            status: "active",
+            organization: { type: "customer" }
+          }
+        })
+      }
+    };
+    await expect(service.assertManageInTransaction(transaction as never, admin, customerSiteId)).resolves.toMatchObject({ id: customerSiteId });
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
   it("hides an assigned site from a disabled customer admin", async () => {
     const service = await createService();
 

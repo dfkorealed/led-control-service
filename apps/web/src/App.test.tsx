@@ -148,6 +148,19 @@ vi.mock("./api/client", () => ({
     return Promise.reject(new Error(`No mock for ${path}`));
   }),
   apiPost: vi.fn((path: string, body?: unknown) => {
+    if (path === "/auth/login") {
+      const input = body as { loginId: string };
+      authState.user = {
+        id: `user-${input.loginId.trim()}`,
+        organizationId: `organization-${input.loginId.trim()}`,
+        organizationType: input.loginId.includes("operator") ? "service_provider" : "customer",
+        loginId: input.loginId.trim().toLowerCase(),
+        name: "Authenticated User",
+        role: input.loginId.includes("operator") ? "operator" : "admin",
+        status: "active"
+      };
+      return Promise.resolve({ user: authState.user });
+    }
     if (path === "/auth/logout") {
       authState.user = null;
       return Promise.resolve({ ok: true });
@@ -283,7 +296,12 @@ describe("App", () => {
 
   it("submits the login id and never renders public signup controls", async () => {
     authState.user = null;
-    const queryClient = new QueryClient();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    queryClient.setQueryData(["dashboard", "old-tenant"], { siteName: "이전 고객 현장", secret: "old-tenant-data" });
+    const oldMutation = queryClient.getMutationCache().build(queryClient, {
+      mutationFn: async (variables: { password: string }) => variables
+    });
+    await oldMutation.execute({ password: "old-principal-password" });
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
     await screen.findByRole("heading", { name: "LED Control 로그인" });
@@ -301,6 +319,51 @@ describe("App", () => {
         rememberMe: true
       });
     });
+    await waitFor(() => expect(queryClient.getQueryData(["auth", "me"])).toMatchObject({
+      user: { loginId: "admin_01", organizationId: "organization-ADMIN_01" }
+    }));
+    expect(queryClient.getQueryData(["dashboard", "old-tenant"])).toBeUndefined();
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+    expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("old-tenant-data");
+    expect(JSON.stringify(queryClient.getMutationCache().getAll().map((mutation) => mutation.state))).not.toContain("password");
+  });
+
+  it("keeps failed login plaintext out of React Query caches and exposes an alert", async () => {
+    authState.user = null;
+    vi.mocked(apiPost).mockRejectedValueOnce(new Error("unauthorized"));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    fireEvent.change(screen.getByLabelText("아이디"), { target: { value: "admin_01" } });
+    fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "failed-login-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "로그인" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("아이디 또는 비밀번호를 확인해 주세요.");
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+    expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("failed-login-password");
+  });
+
+  it("clears tenant query and mutation data when auth me is revoked before showing the next login", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    queryClient.setQueryData(["tenant", "dashboard"], { heading: "이전 고객 대시보드", tenantSecret: "tenant-a-private" });
+    const tenantMutation = queryClient.getMutationCache().build(queryClient, {
+      mutationFn: async (variables: { tenantSecret: string }) => variables
+    });
+    await tenantMutation.execute({ tenantSecret: "tenant-a-private" });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+    await screen.findByRole("link", { name: "모니터링" });
+
+    authState.user = null;
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+    });
+
+    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(screen.queryByText("이전 고객 대시보드")).not.toBeInTheDocument();
+    await waitFor(() => expect(queryClient.getQueryData(["tenant", "dashboard"])).toBeUndefined());
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+    expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("tenant-a-private");
   });
 
   it("renders the four primary navigation items", async () => {

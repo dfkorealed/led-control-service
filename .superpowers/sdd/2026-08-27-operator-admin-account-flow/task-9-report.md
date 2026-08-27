@@ -101,7 +101,7 @@
 
 - Raspberry Pi 실제 BlueZ adapter, ESP32-H2 2대의 RF scan/provisioning/model bind는 실행하지 않았다.
 - 실제 BLE Mesh unicast/group 전송, Lightness Status, Health Current, packet loss/timeout, 재부팅 복구를 실행하지 않았다.
-- controller의 실제 in-app browser 수동 QA는 Task review 뒤 남아 있다.
+- controller의 실제 in-app browser 수동 QA는 이후 시도했으나 admin-enforced browser policy가 localhost 접근 전에 차단해 미실행이다.
 - 모바일과 재설치는 Task 9 범위 밖이다.
 
 ## Fix Round 1 (2026-08-27)
@@ -151,8 +151,8 @@
 
 - 코드/설정: `apps/web/e2e/support/real-backend-lab.ts`, `real-backend-lab-support.spec.ts`, `auth-real.spec.ts`, `installation-customer-journey.spec.ts`, `apps/web/playwright.config.ts`, `apps/web/package.json`, `README.md`.
 - 문서/ledger: Task 9 report, operator-admin plan의 Task 6·Task 9 checklist, plan 전용 local progress ledger, project status, monitoring/control/settings 메뉴 문서와 first-install runbook.
-- controller 수동 QA URL과 역할 준비는 기존 `Controller 수동 브라우저 QA 준비` 절을 따른다. 실제 계정 secret은 승인된 runtime channel로만 전달하며 DevTools에서 operator customer path 0건과 admin 생성 응답 password field 0개를 다시 확인한다.
-- 남은 concern은 production Gateway identity/bootstrap/ACL deployment, Raspberry Pi BlueZ, ESP32-H2 2-node RF scan/provisioning/model bind/control/state, packet loss/timeout/reboot HIL과 controller 수동 QA다.
+- controller 수동 QA URL과 역할 준비는 기존 `Controller 수동 브라우저 QA 준비` 절을 따르지만, 이번 시도는 admin-enforced browser policy가 localhost 접근 전에 차단했다. 실제 계정 secret은 승인된 runtime channel로만 전달한다.
+- 남은 concern은 policy가 허용되는 환경의 수동 QA, production Gateway identity/bootstrap/ACL deployment, Raspberry Pi BlueZ, ESP32-H2 2-node RF scan/provisioning/model bind/control/state와 packet loss/timeout/reboot HIL이다.
 
 ## Fix Round 2 (2026-08-27)
 
@@ -185,7 +185,7 @@
 | `pnpm --filter @led-control/web test` | PASS: 28 files, 280 tests |
 | `git diff --check` | PASS |
 
-최종 cleanup audit에서 `.local/e2e-real-backend/task9-*`, `/tmp/lcs-e2e-pg-*`, lab/default port listener와 관련 process group은 모두 0개였다. controller 수동 in-app browser QA와 production Gateway/BlueZ/RF/ESP32-H2 HIL은 계속 미실행이다.
+최종 cleanup audit에서 `.local/e2e-real-backend/task9-*`, `/tmp/lcs-e2e-pg-*`, lab/default port listener와 관련 process group은 모두 0개였다. controller 수동 in-app browser QA는 admin-enforced policy가 localhost 접근 전에 차단해 미실행이고 production Gateway/BlueZ/RF/ESP32-H2 HIL도 미실행이다.
 
 ### 변경 파일
 
@@ -195,3 +195,29 @@
 - `.superpowers/sdd/2026-08-27-operator-admin-account-flow/progress.md` (plan 전용 local ledger append)
 
 별도 commit subject는 `fix(e2e): close failed MQTT lab clients`이며 push/merge는 수행하지 않는다.
+
+## Final Review Fix (2026-08-27)
+
+### RED와 구현
+
+- API focused RED는 login transaction/User lock과 manage transaction helper가 없어 5 suites에서 새 테스트 10개가 실패했다. 실제 PostgreSQL RED는 reassignment와 disable 뒤 stale floor write 2건이 commit되는 것을 재현했다.
+- Web focused RED는 login 평문/이전 tenant cache, 강제 revoke cache, login alert와 operator password policy 6건이 실패했다. reset 400 mapping 추가 RED도 일반 연결 오류로 표시됐다. Chromium allowlist RED는 operator의 `/api/energy/*` 요청을 허용했다.
+- login은 User `FOR UPDATE` 뒤 같은 transaction에서 재조회·verify·Session create를 수행한다. operator reset과 self change는 trigger advisory gate → User row 순서를 공유하며 reset은 blocked login 뒤 최신 session을 보는 `READ COMMITTED`로 revoke한다. P2034 retry 소진은 기존 generic Unauthorized 계약을 유지한다.
+- Web login은 component-local async state를 사용한다. 성공 직전에 이전 principal Query/Mutation cache를 clear하고 반환된 user를 `auth/me`에 직접 주입하며, auth revoke와 logout도 tenant mutation/query를 제거한다. 로그인 오류는 `role=alert`다.
+- dimming command, fixture-group create/update/delete/resync, floor-editor save/restore는 transaction 첫 단계에서 Site row lock과 assigned active customer admin 재인가를 수행한다.
+- operator 초기/reset password는 최소 8자 client validation과 password-policy 400 field alert를 사용한다. real-backend operator isolation은 `/api/auth/*`, `/api/operator/*` allowlist이며 journey 끝에서 update/reset/disable을 실제 UI/API로 검증한다.
+
+### 수동 QA 경계
+
+controller가 실제 in-app browser 수동 QA를 시도했으나 admin-enforced browser policy가 localhost 접근 전에 차단했다. 따라서 수동 QA는 미실행이며 자동 Chromium E2E 통과와 별개의 상태다.
+
+### 검증 상태
+
+- focused GREEN: auth unit 26, auth PostgreSQL 6, SiteAccess/commands/groups/floor unit 88, SiteAccess PostgreSQL race 2, Web App/operator dialogs 73, Chromium operator allowlist 1.
+- 최종 focused GREEN: API auth/access/commands/groups/floor/operator unit 114, auth+SiteAccess PostgreSQL race 8, 기존 operator PostgreSQL concurrency 5, Web App/operator dialogs 73.
+- `pnpm typecheck`, `pnpm lint`, `pnpm -r build`: PASS. build에는 기존 Web chunk-size warning만 남았다.
+- `pnpm test`: PASS. root 15, shared 53, mobile 1, Web 286, Gateway 289, API 603 passed; API 환경 조건부 73 skipped.
+- full Chromium: `32 passed, 3 skipped`. skip은 명시적 real-lab env 조건이다.
+- real-backend journey 첫 실행은 새 reset selector가 닫기 버튼까지 매칭해 strict-mode 실패했다. exact selector 수정 후 최종 `2 passed (48.5s)`이며 operator update/reset/disable과 allowlist를 검증했다.
+- auth/access/operator integration을 한 DB에 합친 추가 실행은 auth fixture의 전역 service-provider가 다음 suite setup과 충돌했다. 독립 cluster 재실행에서 auth+SiteAccess `8 passed`, operator concurrency `5 passed`다.
+- `git diff --check`: PASS. task9 lab/socket/final-test temp directory, default lab listener/process, 민감 Playwright artifact와 runtime secret pattern은 모두 0개다.

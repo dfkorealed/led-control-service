@@ -222,7 +222,7 @@ Organization
 - 정규화 충돌 또는 active admin이 있는 customer의 active admin/현장 수가 각각 하나가 아니면 `RAISE EXCEPTION`으로 중단한다. disabled admin만 있는 customer 현장은 unassigned로 남기며, 임의 loginId 보정이나 권한 확대는 하지 않는다.
 - role이 `operator`인 행은 상태와 관계없이 PostgreSQL partial unique index로 한 명만 허용한다. 이 index는 Prisma schema에 표현되지 않으며 migration이 정본이다.
 - `20260827100000_login_id_contract` migration은 Task 1 expand 뒤 생성된 `loginId IS NULL AND email IS NOT NULL` 행을 다시 `lower(btrim(email))`으로 backfill한다. 기존 unique index를 같은 transaction 안에서 잠시 제거해 format·collision·NULL guard가 명시적 오류를 내게 하고, guard가 모두 통과한 뒤 `loginId NOT NULL`, `email` nullable과 unique index를 적용한다. 격리 PostgreSQL rehearsal은 fresh Task 1→Task 2, staged re-backfill, guard rollback, Task 1 trigger/index 보존을 실행한다.
-- fresh deploy는 `prisma migrate deploy`가 Task 1 expand와 이 contract migration을 순서대로 적용한다. staged deploy는 Task 1 expand 적용 후 Task 2의 loginId/email dual-write API를 먼저 배포하고, 모든 인스턴스가 그 API인 상태에서 contract migration을 적용한다. 이 저장소는 사용자 DB reset이나 파괴적 DB 명령을 자동 실행하지 않는다.
+- fresh deploy는 `prisma migrate deploy`가 Task 1 expand와 이 contract migration을 순서대로 모두 적용한 뒤 새 `loginId` API/Web을 시작한다. 운영 staged deploy는 계정 write freeze와 구버전 API/worker 완전 drain 후 expand·재-backfill·contract migration을 모두 완료하고 새 API/Web만 배포한다. 유지보수 중 로그인 API를 열지 않으며 email fallback이나 구·신 API 동시 운영을 허용하지 않는다. 이 저장소는 사용자 DB reset이나 파괴적 DB 명령을 자동 실행하지 않는다.
 - `20260827110000_pending_site_contract` migration은 `Site.address`와 `Site.tariffKwhRate`의 NOT NULL을 제거한다. operator가 만든 설치 대기 Site는 두 값을 `NULL`로 저장하고, 설치 완료 전 energy 비용 API는 단가 부재를 `409`로 처리한다.
 
 ### Site

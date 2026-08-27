@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AssignSiteAdminInput, CreateSiteAdminInput, SiteAdminSummary, UpdateSiteAdminInput } from "../../../api/operator-site-admins";
 import { useDialogFocus } from "../../../components/ConfirmDialog";
+import { MIN_OPERATOR_PASSWORD_LENGTH, OPERATOR_PASSWORD_POLICY_MESSAGE, isPasswordPolicyError } from "./password-policy";
 
 type FormMode = "create" | "assign" | "edit";
 
@@ -44,12 +45,14 @@ export function SiteAdminFormDialog({
   const dialogRef = useRef<HTMLElement>(null);
   const initialFocusRef = useRef<HTMLInputElement>(null);
   const loginIdRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<FormState>(() => ({
     ...emptyForm,
     adminName: admin?.name ?? "",
     loginId: admin?.loginId ?? ""
   }));
   const [loginIdError, setLoginIdError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [generalError, setGeneralError] = useState("");
   const [isSubmittingPasswordFlow, setIsSubmittingPasswordFlow] = useState(false);
   const passwordSubmissionInFlightRef = useRef(false);
@@ -64,6 +67,7 @@ export function SiteAdminFormDialog({
     if (isPending) return;
     setForm(emptyForm);
     setLoginIdError("");
+    setPasswordError("");
     setGeneralError("");
     onClose();
   }
@@ -115,9 +119,15 @@ export function SiteAdminFormDialog({
 
   async function submitPasswordFlow() {
     if (passwordSubmissionInFlightRef.current) return;
+    if (form.initialPassword.length < MIN_OPERATOR_PASSWORD_LENGTH) {
+      setPasswordError(OPERATOR_PASSWORD_POLICY_MESSAGE);
+      passwordRef.current?.focus();
+      return;
+    }
     passwordSubmissionInFlightRef.current = true;
     const current = form;
     setLoginIdError("");
+    setPasswordError("");
     setGeneralError("");
     setIsSubmittingPasswordFlow(true);
 
@@ -150,6 +160,9 @@ export function SiteAdminFormDialog({
       setIsSubmittingPasswordFlow(false);
       if (isLoginIdDuplicate(error)) {
         setLoginIdError("이미 사용 중인 로그인 아이디입니다.");
+      } else if (isPasswordPolicyError(error)) {
+        setPasswordError(OPERATOR_PASSWORD_POLICY_MESSAGE);
+        passwordRef.current?.focus();
       } else {
         setGeneralError("관리자 계정 변경을 완료하지 못했습니다. 잠시 후 다시 시도하세요.");
       }
@@ -206,7 +219,19 @@ export function SiteAdminFormDialog({
           {needsPassword ? (
             <label className="form-field">
               <span>초기 비밀번호</span>
-              <input type="password" value={form.initialPassword} autoComplete="new-password" onChange={(event) => setForm({ ...form, initialPassword: event.target.value })} />
+              <input
+                ref={passwordRef}
+                type="password"
+                value={form.initialPassword}
+                aria-invalid={Boolean(passwordError)}
+                aria-describedby={passwordError ? "site-admin-password-error" : undefined}
+                autoComplete="new-password"
+                onChange={(event) => {
+                  setPasswordError("");
+                  setForm({ ...form, initialPassword: event.target.value });
+                }}
+              />
+              {passwordError ? <span id="site-admin-password-error" className="field-error" role="alert">{passwordError}</span> : null}
             </label>
           ) : null}
           {generalError ? <p className="danger-text" role="alert">{generalError}</p> : null}

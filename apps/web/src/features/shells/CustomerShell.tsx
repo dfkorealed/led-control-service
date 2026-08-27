@@ -3,6 +3,7 @@ import { Activity, BarChart3, MapPin, Settings, SlidersHorizontal } from "lucide
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
+import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { useDashboard } from "../../api/queries";
 import { ControlView } from "../control/ControlView";
 import {
@@ -62,10 +63,8 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     try {
       await logout();
       clearActiveCommandsForUser(user.id);
-      queryClient.setQueryData(["auth", "me"], null);
-      queryClient.removeQueries({
-        predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] !== "auth"
-      });
+      clearTenantCache(queryClient);
+      queryClient.setQueryData(authMeQueryKey, null);
     } catch {
       unblockActiveCommandSession(user.id);
       setIsLoggingOut(false);

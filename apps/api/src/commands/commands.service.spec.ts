@@ -80,7 +80,10 @@ function createHarness(options: {
   };
   const prisma: any = { ...tx };
   prisma.$transaction = jest.fn(async (callback: (client: any) => Promise<unknown>) => callback(tx));
-  const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.site }) };
+  const siteAccess = {
+    assert: jest.fn().mockResolvedValue({ id: ids.site }),
+    assertManageInTransaction: jest.fn().mockResolvedValue({ id: ids.site, organizationId: "org-1" })
+  };
   const meshControlGroups = {
     getReadyDestination: options.readyError
       ? jest.fn().mockRejectedValue(options.readyError)
@@ -97,6 +100,21 @@ function createHarness(options: {
 }
 
 describe("CommandsService", () => {
+  it("reauthorizes manage access as the first step of the dimming write transaction", async () => {
+    const { service, siteAccess, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+
+    await service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 75
+    });
+
+    expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(tx, operator, ids.site);
+    expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.command.findUnique.mock.invocationCallOrder[0]);
+  });
+
   it("returns the existing command for the same client request and canonical payload", async () => {
     const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
     const input = {

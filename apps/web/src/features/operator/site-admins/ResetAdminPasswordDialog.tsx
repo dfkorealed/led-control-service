@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { MIN_OPERATOR_PASSWORD_LENGTH, OPERATOR_PASSWORD_POLICY_MESSAGE, isPasswordPolicyError } from "./password-policy";
 
 interface ResetAdminPasswordDialogProps {
   admin: NonNullable<SiteAdminSummary["admin"]>;
@@ -46,10 +47,15 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
         setIsPending(false);
         onClose();
       }
-    } catch {
+    } catch (error) {
       submissionInFlightRef.current = false;
       setIsPending(false);
-      setGeneralError("비밀번호를 재설정하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.");
+      if (isPasswordPolicyError(error)) {
+        setValidationError(OPERATOR_PASSWORD_POLICY_MESSAGE);
+        passwordRef.current?.focus();
+      } else {
+        setGeneralError("비밀번호를 재설정하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.");
+      }
     }
   }
 
@@ -58,6 +64,11 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
     setGeneralError("");
     if (!newPassword) {
       setValidationError("새 비밀번호를 입력하세요.");
+      passwordRef.current?.focus();
+      return;
+    }
+    if (newPassword.length < MIN_OPERATOR_PASSWORD_LENGTH) {
+      setValidationError(OPERATOR_PASSWORD_POLICY_MESSAGE);
       passwordRef.current?.focus();
       return;
     }
@@ -83,7 +94,10 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
       onClose={clearAndClose}
     >
       <div className="operator-form">
-        <label className="form-field"><span>새 비밀번호</span><input ref={passwordRef} type="password" value={newPassword} autoComplete="new-password" onChange={(event) => setNewPassword(event.target.value)} /></label>
+        <label className="form-field"><span>새 비밀번호</span><input ref={passwordRef} type="password" value={newPassword} autoComplete="new-password" onChange={(event) => {
+          setValidationError("");
+          setNewPassword(event.target.value);
+        }} /></label>
         <label className="form-field"><span>비밀번호 확인</span><input type="password" value={confirmation} autoComplete="new-password" onChange={(event) => setConfirmation(event.target.value)} /></label>
         {validationError ? <p className="danger-text" role="alert">{validationError}</p> : null}
         {generalError ? <p className="danger-text" role="alert">{generalError}</p> : null}

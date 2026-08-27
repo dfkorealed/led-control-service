@@ -80,7 +80,7 @@ describe("FixtureGroupsService", () => {
   });
 
   it("creates a whole desired membership set at version one after stable floor, gateway, and fixture locks", async () => {
-    const { service, prisma, meshGroups } = createHarness({ fixtures: fixtureRows([ids.fixtureA, ids.fixtureB]) });
+    const { service, prisma, meshGroups, siteAccess } = createHarness({ fixtures: fixtureRows([ids.fixtureA, ids.fixtureB]) });
 
     await expect(service.create(admin, ids.site, input)).resolves.toMatchObject({
       id: ids.group,
@@ -99,6 +99,23 @@ describe("FixtureGroupsService", () => {
     });
     expect(meshGroups.ensureFixtureGroup).toHaveBeenCalledWith(prisma, ids.gateway, ids.group);
     expect(prisma.meshControlGroupMember.upsert).toHaveBeenCalledTimes(2);
+    expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(prisma, admin, ids.site);
+    expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.$queryRaw.mock.invocationCallOrder[0]);
+  });
+
+  it.each([
+    ["update", (service: FixtureGroupsService) => service.update(admin, ids.site, ids.group, input)],
+    ["delete", (service: FixtureGroupsService) => service.remove(admin, ids.site, ids.group)],
+    ["resync", (service: FixtureGroupsService) => service.resync(admin, ids.site, ids.group)]
+  ])("reauthorizes manage access before %s persistence locks", async (_label, invoke) => {
+    const { service, prisma, siteAccess } = createHarness();
+
+    await invoke(service);
+
+    expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(prisma, admin, ids.site);
+    expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.$queryRaw.mock.invocationCallOrder[0]);
   });
 
   it("rejects a fixture selection that crosses the requested floor or gateway boundary", async () => {
@@ -309,7 +326,10 @@ function createHarness(options: {
       count: jest.fn().mockResolvedValue(2)
     }
   };
-  const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.site }) };
+  const siteAccess = {
+    assert: jest.fn().mockResolvedValue({ id: ids.site }),
+    assertManageInTransaction: jest.fn().mockResolvedValue({ id: ids.site, organizationId: admin.organizationId })
+  };
   const meshGroups = {
     ensureFixtureGroup: jest.fn(async (_tx: unknown, gatewayId: string) => ({
       id: gatewayId === ids.otherGateway ? ids.meshGroupNew : ids.meshGroup,

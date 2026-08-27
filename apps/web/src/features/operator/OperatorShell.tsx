@@ -3,6 +3,7 @@ import { LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
+import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { SiteAdminManagementView } from "./site-admins/SiteAdminManagementView";
 
 export function OperatorShell({ user }: { user: AuthUser }) {
@@ -16,10 +17,8 @@ export function OperatorShell({ user }: { user: AuthUser }) {
     setIsLoggingOut(true);
     try {
       await logout();
-      queryClient.setQueryData(["auth", "me"], null);
-      queryClient.removeQueries({
-        predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] !== "auth"
-      });
+      clearTenantCache(queryClient);
+      queryClient.setQueryData(authMeQueryKey, null);
     } catch {
       setIsLoggingOut(false);
       setLogoutError("로그아웃에 실패했습니다. 연결을 확인한 뒤 다시 시도하세요.");

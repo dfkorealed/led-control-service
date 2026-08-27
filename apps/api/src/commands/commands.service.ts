@@ -89,6 +89,7 @@ export class CommandsService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await this.siteAccess.assertManageInTransaction(tx, user, input.siteId);
         const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
         if (existing) return existing;
 
@@ -188,6 +189,7 @@ export class CommandsService {
 
       // A failed PostgreSQL transaction cannot be reused after P2002. Re-read in a fresh transaction.
       return this.prisma.$transaction(async (tx) => {
+        await this.siteAccess.assertManageInTransaction(tx, user, input.siteId);
         const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
         if (!existing) throw error;
         return existing;

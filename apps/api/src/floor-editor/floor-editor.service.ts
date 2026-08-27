@@ -142,6 +142,7 @@ export class FloorEditorService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
         await this.assertAtomicSaveTargets(tx, floorId, prepared);
         const changedAt = await this.incrementRevision(tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence);
         await this.applySaveChanges(tx, floorId, prepared, changedAt);
@@ -157,8 +158,8 @@ export class FloorEditorService {
           changedBy: user.id
         });
         await this.auditService.record({
-          organizationId: access.organizationId,
-          siteId: access.siteId,
+          organizationId: authorizedSite.organizationId,
+          siteId: authorizedSite.id,
           actorId: user.id,
           action: "floor_editor.saved",
           targetType: "floor",
@@ -233,6 +234,7 @@ export class FloorEditorService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
         const source = await tx.floorMapRevision.findUnique({
           where: { floorId_revision: { floorId, revision: parsedRevision } },
           select: { revision: true, snapshot: true }
@@ -268,8 +270,8 @@ export class FloorEditorService {
           restoredFromRevision: parsedRevision
         });
         await this.auditService.record({
-          organizationId: access.organizationId,
-          siteId: access.siteId,
+          organizationId: authorizedSite.organizationId,
+          siteId: authorizedSite.id,
           actorId: user.id,
           action: "floor_editor.restored",
           targetType: "floor",

@@ -1,35 +1,31 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { LockKeyhole } from "lucide-react";
-import { login } from "../../api/auth";
+import { login, type AuthUser } from "../../api/auth";
 
 interface AuthViewProps {
-  onAuthenticated: () => void;
+  onAuthenticated: (auth: { user: AuthUser }) => Promise<void>;
 }
 
 export function AuthView({ onAuthenticated }: AuthViewProps) {
-  const queryClient = useQueryClient();
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isPending, setIsPending] = useState(false);
 
-  const loginMutation = useMutation({
-    mutationFn: login,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
-      onAuthenticated();
-    },
-    onError: () => setErrorMessage("아이디 또는 비밀번호를 확인해 주세요.")
-  });
-
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isPending) return;
     setErrorMessage("");
-    loginMutation.mutate({ loginId, password, rememberMe });
+    setIsPending(true);
+    try {
+      const auth = await login({ loginId, password, rememberMe });
+      await onAuthenticated(auth);
+    } catch {
+      setErrorMessage("아이디 또는 비밀번호를 확인해 주세요.");
+      setIsPending(false);
+    }
   }
-
-  const isPending = loginMutation.isPending;
 
   return (
     <main className="auth-shell">
@@ -82,7 +78,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
           </button>
         </form>
 
-        {errorMessage && <p className="danger-text">{errorMessage}</p>}
+        {errorMessage && <p className="danger-text" role="alert">{errorMessage}</p>}
       </section>
     </main>
   );

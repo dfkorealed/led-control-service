@@ -103,16 +103,13 @@ describe("AuthService", () => {
   });
 
   it("logs in with a normalized login id", async () => {
-    const prisma = {
-      user: { findUnique: jest.fn() },
-      session: { create: jest.fn().mockResolvedValue({ id: "session-1" }) }
-    };
+    const { prisma, transaction } = createLoginPrisma();
     const passwordService = { verify: jest.fn().mockResolvedValue(true) };
     const service = createAuthService(
       prisma as unknown as PrismaService,
       passwordService as unknown as PasswordService
     );
-    prisma.user.findUnique.mockResolvedValue({
+    transaction.user.findUnique.mockResolvedValue({
       id: "admin-1",
       organizationId: "organization-1",
       loginId: "admin_01",
@@ -126,19 +123,63 @@ describe("AuthService", () => {
 
     await service.login({ loginId: " ADMIN_01 ", password: "correct horse battery staple", rememberMe: false });
 
-    expect(prisma.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { loginId: "admin_01" } }));
+    expect(transaction.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { loginId: "admin_01" } }));
+  });
+
+  it("locks and re-reads the user before password verification and session creation in one transaction", async () => {
+    const storedUser = {
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash"
+    };
+    const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: storedUser.id }]),
+      user: { findUnique: jest.fn().mockResolvedValue(storedUser) },
+      session: { create: jest.fn().mockResolvedValue({ id: "session-1" }) }
+    };
+    const prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue(storedUser) },
+      session: { create: jest.fn().mockResolvedValue({ id: "outside-session" }) },
+      $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction))
+    };
+    const passwords = { verify: jest.fn().mockResolvedValue(true) };
+    const service = createAuthService(prisma as unknown as PrismaService, passwords as unknown as PasswordService);
+
+    await service.login({ loginId: "ADMIN_01", password: "old password", rememberMe: false });
+
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(transaction.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { loginId: "admin_01" } }));
+    expect(transaction.session.create).toHaveBeenCalledTimes(1);
+    expect(prisma.session.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps exhausted login transaction conflicts on the generic unauthorized contract", async () => {
+    const storedUser = {
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash"
+    };
+    const prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue(storedUser) },
+      session: { create: jest.fn().mockResolvedValue({ id: "outside-session" }) },
+      $transaction: jest.fn().mockRejectedValue({ code: "P2034" })
+    };
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      { verify: jest.fn().mockResolvedValue(true) } as unknown as PasswordService
+    );
+
+    await expect(service.login({ loginId: "admin_01", password: "old password", rememberMe: false }))
+      .rejects.toEqual(new UnauthorizedException("Invalid login id or password"));
+    expect(prisma.session.create).not.toHaveBeenCalled();
   });
 
   it("uses the same authentication error for an unknown login id", async () => {
-    const prisma = {
-      user: { findUnique: jest.fn().mockResolvedValue(null) },
-      session: { create: jest.fn() }
-    };
+    const { prisma, transaction } = createLoginPrisma();
+    transaction.$queryRaw.mockResolvedValue([]);
     const service = createAuthService(prisma as unknown as PrismaService);
 
     await expect(service.login({ loginId: "missing_01", password: "wrong-password", rememberMe: false } as any))
       .rejects.toEqual(new UnauthorizedException("Invalid login id or password"));
-    expect(prisma.session.create).not.toHaveBeenCalled();
+    expect(transaction.session.create).not.toHaveBeenCalled();
   });
 
   it("uses the same authentication error for an unknown login id and a wrong password", async () => {
@@ -146,12 +187,15 @@ describe("AuthService", () => {
       id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
       role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash"
     };
+    const missingPrisma = createLoginPrisma();
+    missingPrisma.transaction.$queryRaw.mockResolvedValue([]);
     const missing = createAuthService(
-      { user: { findUnique: jest.fn().mockResolvedValue(null) }, session: { create: jest.fn() } } as unknown as PrismaService,
+      missingPrisma.prisma as unknown as PrismaService,
       { verify: jest.fn() } as unknown as PasswordService
     );
+    const wrongPasswordPrisma = createLoginPrisma(user);
     const wrongPassword = createAuthService(
-      { user: { findUnique: jest.fn().mockResolvedValue(user) }, session: { create: jest.fn() } } as unknown as PrismaService,
+      wrongPasswordPrisma.prisma as unknown as PrismaService,
       { verify: jest.fn().mockResolvedValue(false) } as unknown as PasswordService
     );
 
@@ -162,13 +206,13 @@ describe("AuthService", () => {
   });
 
   it("creates a remember-me session with a public login id but no contact email", async () => {
-    const prisma = { user: { findUnique: jest.fn() }, session: { create: jest.fn() } };
+    const { prisma, transaction } = createLoginPrisma();
     const passwords = { verify: jest.fn().mockResolvedValue(true) };
     const service = createAuthService(
       prisma as unknown as PrismaService,
       passwords as unknown as PasswordService
     );
-    prisma.user.findUnique.mockResolvedValue({
+    transaction.user.findUnique.mockResolvedValue({
       id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
       role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash"
     });
@@ -178,7 +222,7 @@ describe("AuthService", () => {
     expect(result.user).toMatchObject({ loginId: "admin_01" });
     expect(result.user).not.toHaveProperty("email");
     expect(result.expiresAt.toISOString()).toBe("2026-09-26T00:00:00.000Z");
-    expect(prisma.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({ rememberMe: true, expiresAt: new Date("2026-09-26T00:00:00.000Z") }) });
+    expect(transaction.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({ rememberMe: true, expiresAt: new Date("2026-09-26T00:00:00.000Z") }) });
   });
 
   it("rejects missing, invalid, and cross-organization viewer invitation sites before consuming the invitation", async () => {
@@ -250,6 +294,8 @@ describe("AuthService", () => {
       status: "active" as const
     };
     const transaction = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
       user: {
         findUnique: jest.fn().mockResolvedValue({ passwordHash: "old-hash" }),
         update: jest.fn().mockResolvedValue({ id: user.id })
@@ -296,6 +342,8 @@ describe("AuthService", () => {
     const newPassword = "  replacement password  ";
     const user = { id: "admin-1", organizationId: "organization-1" };
     const transaction = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
       user: { findUnique: jest.fn().mockResolvedValue({ passwordHash: "old-hash" }), update: jest.fn() },
       session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       auditLog: { create: jest.fn() }
@@ -328,3 +376,15 @@ describe("AuthService", () => {
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 });
+
+function createLoginPrisma(storedUser: Record<string, unknown> | null = null) {
+  const transaction = {
+    $queryRaw: jest.fn().mockResolvedValue(storedUser ? [{ id: storedUser.id }] : [{ id: "admin-1" }]),
+    user: { findUnique: jest.fn().mockResolvedValue(storedUser) },
+    session: { create: jest.fn().mockResolvedValue({ id: "session-1" }) }
+  };
+  const prisma = {
+    $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction))
+  };
+  return { prisma, transaction };
+}

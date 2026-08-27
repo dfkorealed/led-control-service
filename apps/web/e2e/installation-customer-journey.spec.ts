@@ -208,6 +208,41 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(viewer.getByRole("link", { name: "B1 도면 편집" })).toHaveCount(0);
   await lab.screenshot(viewer, testInfo, "03-viewer-read-only");
 
+  await operator.bringToFront();
+  await login(operator, lab.operator.loginId, lab.operator.password);
+  const updatedAdminName = "Task 9 수정 관리자";
+  const updatedAdminLoginId = `${lab.admin.loginId}_updated`;
+  await operator.getByRole("button", { name: `${lab.admin.name} 수정` }).click();
+  await operator.getByLabel("관리자 이름").fill(updatedAdminName);
+  await operator.getByLabel("로그인 아이디").fill(updatedAdminLoginId);
+  const updateResponsePromise = operator.waitForResponse((response) => (
+    response.url().includes("/api/operator/site-admins/") && response.request().method() === "PATCH"
+  ));
+  await operator.getByRole("button", { name: "저장", exact: true }).click();
+  expect((await updateResponsePromise).status()).toBe(200);
+  await expect(operator.getByText(updatedAdminLoginId)).toBeVisible();
+
+  await operator.getByRole("button", { name: `${updatedAdminName} 비밀번호 재설정` }).click();
+  const resetDialog = operator.getByRole("dialog", { name: `${updatedAdminName} 비밀번호 재설정` });
+  await resetDialog.getByLabel("새 비밀번호").fill(lab.admin.password);
+  await resetDialog.getByLabel("비밀번호 확인").fill(lab.admin.password);
+  const resetResponsePromise = operator.waitForResponse((response) => (
+    response.url().endsWith("/reset-password") && response.request().method() === "POST"
+  ));
+  await resetDialog.getByRole("button", { name: "비밀번호 재설정", exact: true }).click();
+  expect((await resetResponsePromise).status()).toBe(201);
+  await expect(operator.getByRole("status")).toHaveText("관리자 비밀번호를 재설정했습니다.");
+
+  await operator.getByRole("button", { name: `${updatedAdminName} 비활성화` }).click();
+  const disableDialog = operator.getByRole("dialog", { name: `${updatedAdminName} 비활성화` });
+  const disableResponsePromise = operator.waitForResponse((response) => (
+    response.url().includes("/api/operator/site-admins/") && response.request().method() === "DELETE"
+  ));
+  await disableDialog.getByRole("button", { name: "비활성화", exact: true }).click();
+  expect((await disableResponsePromise).status()).toBe(200);
+  await expect(operator.getByText("관리자 미지정")).toBeVisible();
+  lab.assertOperatorNetworkIsolation();
+
   await lab.assertEvidence();
   await lab.writeEvidence(testInfo);
 });

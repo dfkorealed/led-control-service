@@ -294,7 +294,8 @@ describe("FloorEditorService atomic revisions", () => {
       $transaction: jest.fn(async (callback: (client: unknown) => unknown) => callback(tx))
     };
     const siteAccess = {
-      assert: options.siteAccessAssert ?? jest.fn().mockResolvedValue({ id: siteId, organizationId: "customer-organization-1" })
+      assert: options.siteAccessAssert ?? jest.fn().mockResolvedValue({ id: siteId, organizationId: "customer-organization-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: siteId, organizationId: "customer-organization-1" })
     };
     const auditService = new AuditService(prisma);
     const energyCheckpoint = { closeRatedWattInterval: jest.fn().mockResolvedValue(false) };
@@ -333,7 +334,7 @@ describe("FloorEditorService atomic revisions", () => {
   });
 
   it("saves normalized rows, revision, and audit in one Serializable transaction", async () => {
-    const { service, prisma, tx } = await createAtomicService();
+    const { service, prisma, siteAccess, tx } = await createAtomicService();
 
     const result = await service.saveEditorState(user, floorId, saveInput);
 
@@ -359,6 +360,9 @@ describe("FloorEditorService atomic revisions", () => {
       })
     });
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(tx, user, siteId);
+    expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.$queryRaw.mock.invocationCallOrder[0]);
   });
 
   it("closes the previous rated-watt interval before updating the fixture", async () => {
@@ -427,7 +431,7 @@ describe("FloorEditorService atomic revisions", () => {
     ["incomplete rectangle-to-line transition", { type: "line" }]
   ])("rejects merged object geometry for %s before optimistic mutation", async (_label, patch) => {
     const tx = createTransactionClient();
-    const { service, prisma } = await createAtomicService({ tx });
+    const { service, prisma, siteAccess } = await createAtomicService({ tx });
 
     await expect(service.saveEditorState(user, floorId, {
       ...saveInput,
@@ -742,7 +746,7 @@ describe("FloorEditorService atomic revisions", () => {
     const tx = createTransactionClient({
       floorMapRevision: { findUnique: jest.fn().mockResolvedValue({ revision: 1, snapshot }) }
     });
-    const { service, prisma } = await createAtomicService({ tx });
+    const { service, prisma, siteAccess } = await createAtomicService({ tx });
 
     const result = await service.restoreEditorRevision(user, floorId, 1, {
       expectedRevision: 3,
@@ -766,6 +770,9 @@ describe("FloorEditorService atomic revisions", () => {
       })
     });
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(tx, user, siteId);
+    expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.floorMapRevision.findUnique.mock.invocationCallOrder[0]);
   });
 
   it("restores legacy none floor plans and nullable object geometry", async () => {

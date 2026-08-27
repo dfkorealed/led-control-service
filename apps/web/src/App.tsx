@@ -1,29 +1,43 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { BrowserRouter } from "react-router-dom";
 import { useCurrentUser } from "./api/auth";
+import { clearTenantCache, replacePrincipalCache } from "./api/principal-cache";
 import { AuthView } from "./features/auth/AuthView";
 import { OperatorShell } from "./features/operator/OperatorShell";
 import { CustomerShell } from "./features/shells/CustomerShell";
 import "./styles.css";
 
 export function App() {
+  const queryClient = useQueryClient();
+  const [principalGeneration, setPrincipalGeneration] = useState(0);
+
+  async function handleAuthenticated(auth: Parameters<typeof replacePrincipalCache>[1]) {
+    await replacePrincipalCache(queryClient, auth);
+    setPrincipalGeneration((generation) => generation + 1);
+  }
+
   return (
     <BrowserRouter>
-      <AppContent />
+      <AppContent key={principalGeneration} onAuthenticated={handleAuthenticated} />
     </BrowserRouter>
   );
 }
 
-function AppContent() {
+function AppContent({ onAuthenticated }: { onAuthenticated: Parameters<typeof AuthView>[0]["onAuthenticated"] }) {
   const queryClient = useQueryClient();
   const { data: auth, isLoading: isAuthLoading, error: authError } = useCurrentUser();
+
+  useEffect(() => {
+    if (!isAuthLoading && (authError || !auth?.user)) clearTenantCache(queryClient);
+  }, [auth?.user, authError, isAuthLoading, queryClient]);
 
   if (isAuthLoading) {
     return <main className="auth-shell"><section className="auth-panel">인증 상태를 확인하는 중</section></main>;
   }
 
   if (authError || !auth?.user) {
-    return <AuthView onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ["auth", "me"] })} />;
+    return <AuthView onAuthenticated={onAuthenticated} />;
   }
 
   return auth.user.role === "operator"

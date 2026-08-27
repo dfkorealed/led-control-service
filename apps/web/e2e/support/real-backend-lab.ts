@@ -206,8 +206,10 @@ export class RealBackendLab {
   }
 
   assertOperatorNetworkIsolation() {
-    const customerRequests = this.network.filter((item) => item.actor === "operator" && isCustomerDataPath(String(item.path ?? "")));
-    if (customerRequests.length > 0) throw new Error("operator requested a customer site or dashboard endpoint");
+    const deniedRequests = this.network.filter((item) => (
+      item.actor === "operator" && !isAllowedOperatorApiPath(String(item.path ?? ""))
+    ));
+    if (deniedRequests.length > 0) throw new Error("operator requested a non-allowlisted API");
   }
 
   async readFixturePlacement(name: string) {
@@ -732,10 +734,9 @@ export function selectDfkScanCandidates<T extends ScanCandidate>(candidates: T[]
   return candidates.filter((candidate) => parseDfkDeviceUuid(candidate.deviceUuid) !== null);
 }
 
-function isCustomerDataPath(path: string) {
-  return path === "/api/sites"
-    || path.startsWith("/api/sites?")
-    || path.includes("/dashboard");
+function isAllowedOperatorApiPath(path: string) {
+  const pathname = path.split("?", 1)[0];
+  return pathname.startsWith("/api/auth/") || pathname.startsWith("/api/operator/");
 }
 
 function parseJson(value: Buffer) {

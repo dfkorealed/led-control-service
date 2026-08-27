@@ -162,6 +162,8 @@ describe("OperatorSiteAdminsService", () => {
 
 function createService(overrides: Record<string, jest.Mock> = {}) {
   const transaction = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $queryRaw: jest.fn().mockResolvedValue([{ id: "admin-1" }]),
     organization: { create: jest.fn().mockResolvedValue({ id: "customer-1", name: "Customer One" }) },
     site: { create: jest.fn().mockResolvedValue({ id: "site-1", name: "Pending Site", address: null, tariffKwhRate: null, floors: [] }), update: jest.fn() },
     user: {

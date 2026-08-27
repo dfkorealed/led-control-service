@@ -77,6 +77,7 @@ export class FixtureGroupsService {
     const input = this.parseInput(rawInput);
 
     return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertManageInTransaction(tx, user, siteId);
       const fixtures = await this.lockAndValidateBoundary(tx, siteId, input);
       await this.assertFixtureCapacity(tx, input.fixtureIds);
 
@@ -115,6 +116,7 @@ export class FixtureGroupsService {
     const input = this.parseInput(rawInput);
 
     return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertManageInTransaction(tx, user, siteId);
       const group = await this.lockFixtureGroup(tx, siteId, groupId);
       this.assertActive(group);
       const fixtures = await this.lockAndValidateBoundary(tx, siteId, input, group.gatewayId ?? undefined);
@@ -192,6 +194,7 @@ export class FixtureGroupsService {
     await this.siteAccess.assert(user, siteId, "manage");
 
     return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertManageInTransaction(tx, user, siteId);
       const group = await this.lockFixtureGroup(tx, siteId, groupId);
       this.assertActive(group);
       const { meshGroup } = await this.ensureAndLockFixtureMeshGroup(tx, group.id, group.gatewayId!);
@@ -224,6 +227,7 @@ export class FixtureGroupsService {
     await this.siteAccess.assert(user, siteId, "manage");
 
     return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertManageInTransaction(tx, user, siteId);
       const group = await this.lockFixtureGroup(tx, siteId, groupId);
       if (group.lifecycleStatus === "invalid" || group.lifecycleStatus === "retired") {
         throw new BadRequestException("fixture group is read-only");
