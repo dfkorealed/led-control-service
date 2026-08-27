@@ -7,7 +7,6 @@ describe("FloorEditorController", () => {
     organizationId: "service-provider-1",
     organizationType: "service_provider",
     loginId: "fixture_user",
-    email: "operator@example.com",
     name: "Operator",
     role: "operator",
     status: "active"

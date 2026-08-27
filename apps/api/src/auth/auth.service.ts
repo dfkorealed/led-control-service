@@ -146,9 +146,9 @@ export class AuthService {
   }
 
   async changePassword(user: Pick<StoredUser, "id" | "organizationId">, currentSessionToken: string, input: ChangePasswordInput) {
-    const currentPassword = this.requiredString(input?.currentPassword, "currentPassword");
-    const newPassword = this.requiredString(input?.newPassword, "newPassword");
-    const newPasswordConfirmation = this.requiredString(input?.newPasswordConfirmation, "newPasswordConfirmation");
+    const currentPassword = this.requiredPassword(input?.currentPassword, "currentPassword");
+    const newPassword = this.requiredPassword(input?.newPassword, "newPassword");
+    const newPasswordConfirmation = this.requiredPassword(input?.newPasswordConfirmation, "newPasswordConfirmation");
     if (newPassword !== newPasswordConfirmation) {
       throw new BadRequestException("New password confirmation does not match");
     }
@@ -212,7 +212,6 @@ export class AuthService {
       organizationId: user.organizationId,
       organizationType: user.organization.type,
       loginId: user.loginId,
-      email: user.email,
       name: user.name,
       role: user.role,
       status: user.status
@@ -227,6 +226,11 @@ export class AuthService {
   private requiredString(value: unknown, name: string) {
     if (typeof value !== "string" || !value.trim()) throw new BadRequestException(`${name} is required`);
     return value.trim();
+  }
+
+  private requiredPassword(value: unknown, name: string) {
+    if (typeof value !== "string" || !value.trim()) throw new BadRequestException(`${name} is required`);
+    return value;
   }
 
   private async validateViewerInvitationAssignment(tx: any, invitation: { siteId?: string | null; organizationId: string }) {

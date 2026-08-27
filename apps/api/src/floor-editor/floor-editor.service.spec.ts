@@ -19,7 +19,6 @@ describe("FloorEditorService", () => {
     organizationId: "service-provider-1",
     organizationType: "service_provider" as const,
     loginId: "fixture_user",
-    email: "operator@example.com",
     name: "Operator",
     role: "operator" as const,
     status: "active" as const
@@ -126,7 +125,6 @@ describe("FloorEditorService atomic revisions", () => {
     organizationId: "service-provider-1",
     organizationType: "service_provider" as const,
     loginId: "fixture_user",
-    email: "operator@example.com",
     name: "Operator",
     role: "operator" as const,
     status: "active" as const
@@ -660,7 +658,7 @@ describe("FloorEditorService atomic revisions", () => {
         changedBy: user.id,
         restoredFromRevision: null,
         createdAt: new Date("2026-07-22T00:00:00.000Z"),
-        user: { id: user.id, name: "Provider Operator", email: user.email, organizationId: "service-provider-1" }
+        user: { id: user.id, name: "Provider Operator", email: null, organizationId: "service-provider-1" }
       },
       {
         id: "revision-3",

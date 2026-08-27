@@ -56,7 +56,7 @@ describeWithDatabase("gateway PKI PostgreSQL E2E", () => {
     } });
     await prisma.siteMembership.create({ data: { userId: user.id, siteId: site.id } });
     const claimed = await onboarding.claimGateway(
-      { id: user.id, organizationId: provider.id, organizationType: "service_provider", loginId: "fixture_user", email: user.email, name: user.name, role: "operator", status: "active" },
+      { id: user.id, organizationId: provider.id, organizationType: "service_provider", loginId: "fixture_user", name: user.name, role: "operator", status: "active" },
       { siteId: site.id, serialNumber: "GW-E2E-001", claimCode: issued.claimCode, name: "E2E gateway" }
     );
 

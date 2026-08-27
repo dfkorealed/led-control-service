@@ -21,7 +21,7 @@ test("운영자 설치부터 고객 관리자 운영까지 실제 API와 MQTT �
   lab.captureNetwork(operator);
 
   await operator.goto("/monitoring");
-  await login(operator, lab.operator.email, lab.operator.password);
+  await login(operator, lab.operator.loginId, lab.operator.password);
   await expect(operator.getByRole("heading", { name: "초기 설치 설정" })).toBeVisible();
 
   await operator.getByLabel("고객사명").fill("Task 11 고객사");
@@ -70,7 +70,7 @@ test("운영자 설치부터 고객 관리자 운영까지 실제 API와 MQTT �
   lab.captureNetwork(admin);
   await admin.goto("/monitoring");
   await signup(admin, lab.admin);
-  await login(admin, lab.admin.email, lab.admin.password);
+  await login(admin, lab.admin.loginId, lab.admin.password);
 
   await admin.getByRole("link", { name: "통계" }).click();
   // Provisioning 직후 실제 첫 publication이 적산되므로 이 journey의 초기 상태는 partial이다.
@@ -118,7 +118,7 @@ test("운영자 설치부터 고객 관리자 운영까지 실제 API와 MQTT �
   lab.captureNetwork(viewer);
   await viewer.goto("/monitoring");
   await signup(viewer, lab.viewer);
-  await login(viewer, lab.viewer.email, lab.viewer.password);
+  await login(viewer, lab.viewer.loginId, lab.viewer.password);
   await expect(viewer.getByRole("heading", { name: "B1 운영 현황" })).toBeVisible();
   await viewer.getByRole("link", { name: "제어" }).click();
   await expect(viewer.getByText(/조회 전용 계정입니다/)).toBeVisible();
@@ -135,8 +135,8 @@ test("테스트 랩 지원 코드는 production Web bundle에 포함되지 않�
   await lab.assertProductionBundleIsolation();
 });
 
-async function login(page: import("@playwright/test").Page, email: string, password: string) {
-  await page.getByLabel("아이디").fill(email);
+async function login(page: import("@playwright/test").Page, loginId: string, password: string) {
+  await page.getByLabel("아이디").fill(loginId);
   await page.getByLabel("비밀번호").fill(password);
   await page.getByRole("button", { name: "로그인" }).click();
   await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
@@ -144,12 +144,13 @@ async function login(page: import("@playwright/test").Page, email: string, passw
 
 async function signup(
   page: import("@playwright/test").Page,
-  user: { invitationToken: string; name: string; email: string; password: string }
+  user: { invitationToken: string; name: string; loginId: string; email: string; password: string }
 ) {
   await page.getByRole("button", { name: "초대 코드를 가지고 회원가입" }).click();
   await page.getByLabel("초대 코드").fill(user.invitationToken);
   await page.getByLabel("이름").fill(user.name);
-  await page.getByLabel("아이디").fill(user.email);
+  await page.getByLabel("아이디").fill(user.loginId);
+  await page.getByLabel("초대 이메일").fill(user.email);
   await page.getByLabel("비밀번호").fill(user.password);
   await page.getByRole("button", { name: "가입하기" }).click();
   await expect(page.getByText("가입이 완료되었습니다. 설정한 계정으로 로그인해 주세요.")).toBeVisible();

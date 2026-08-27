@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
         id: "user-1",
         organizationId: "organization-1",
         organizationType: "customer",
-        email: "admin@example.com",
+        loginId: "demo_admin",
         name: "Customer Admin",
         role: "admin",
         status: "active"

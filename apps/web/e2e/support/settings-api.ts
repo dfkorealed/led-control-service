@@ -405,7 +405,7 @@ function currentUser(role: SettingsRole) {
     id: `${role}-user-1`,
     organizationId: role === "operator" ? "service-provider-1" : "customer-org-1",
     organizationType: role === "operator" ? "service_provider" : "customer",
-    email: `${role}@example.com`,
+    loginId: `${role}_user`,
     name: role === "operator" ? "설치 담당자" : role === "admin" ? "고객 관리자" : "고객 조회자",
     role,
     status: "active"

@@ -6,7 +6,6 @@ export interface AuthUser {
   organizationId: string;
   organizationType: "service_provider" | "customer";
   loginId: string;
-  email: string | null;
   name: string;
   role: "operator" | "admin" | "viewer";
   status: "active" | "disabled";

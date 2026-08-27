@@ -24,7 +24,6 @@ const admin: AuthenticatedUser = {
   organizationId: "customer-1",
   organizationType: "customer",
   loginId: "fixture_user",
-  email: "admin@example.com",
   name: "Admin",
   role: "admin",
   status: "active"
@@ -36,11 +35,10 @@ const operator: AuthenticatedUser = {
   organizationId: "provider-1",
   organizationType: "service_provider",
   loginId: "fixture_user",
-  email: "operator@example.com",
   role: "operator"
 };
 
-const viewer: AuthenticatedUser = { ...admin, id: "viewer-1", email: "viewer@example.com", role: "viewer" };
+const viewer: AuthenticatedUser = { ...admin, id: "viewer-1", role: "viewer" };
 
 const input = {
   name: "B2 entrance",

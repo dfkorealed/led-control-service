@@ -10,7 +10,6 @@ describe("AuthController", () => {
       organizationId: "organization-1",
       organizationType: "customer" as const,
       loginId: "admin_01",
-      email: null,
       name: "Admin",
       role: "admin" as const,
       status: "active" as const

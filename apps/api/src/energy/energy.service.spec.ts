@@ -28,7 +28,7 @@ describe("EnergyService", () => {
       }
     };
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", email: "admin@example.com", name: "Admin", role: "admin", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", status: "active"
     };
     const siteAccess = {
       assert: jest.fn().mockResolvedValue({ id: "site-1" }),
@@ -55,7 +55,7 @@ describe("EnergyService", () => {
       }
     };
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "service_provider", loginId: "fixture_user", email: "operator@example.com", name: "Operator", role: "operator", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "service_provider", loginId: "fixture_user", name: "Operator", role: "operator", status: "active"
     };
     const siteAccess = {
       assert: jest.fn().mockResolvedValue({ id: "site-a" }),
@@ -74,7 +74,7 @@ describe("EnergyService", () => {
 
   it("does not query fixtures for an unauthorized site-scoped estimate", async () => {
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", email: "viewer@example.com", name: "Viewer", role: "viewer", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Viewer", role: "viewer", status: "active"
     };
     const prisma = { site: { findFirstOrThrow: jest.fn() } };
     const siteAccess = {
@@ -89,7 +89,7 @@ describe("EnergyService", () => {
 
   it("does not return an estimate when the user has no accessible site", async () => {
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "service_provider", loginId: "fixture_user", email: "operator@example.com", name: "Operator", role: "operator", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "service_provider", loginId: "fixture_user", name: "Operator", role: "operator", status: "active"
     };
     const prisma = { site: { findFirstOrThrow: jest.fn() } };
     const siteAccess = { listAccessibleSiteIds: jest.fn().mockResolvedValue([]), assert: jest.fn() };
@@ -300,7 +300,7 @@ describe("EnergyService", () => {
 });
 
 const user: AuthenticatedUser = {
-  id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", email: "admin@example.com", name: "Admin", role: "admin", status: "active"
+  id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", status: "active"
 };
 
 function aggregate(localDate: string, kwh: number, knownSeconds: number, unknownSeconds: number) {

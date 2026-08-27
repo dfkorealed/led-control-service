@@ -40,12 +40,14 @@ type Installation = { siteId: string; floorId: string; timeZone: string };
 export class RealBackendLab {
   readonly operator = { loginId: "task11_operator", password: "Task11-operator-password!" };
   readonly admin = {
+    loginId: "task11_admin",
     email: "task11-admin@example.com",
     name: "Task 11 고객 관리자",
     password: "Task11-admin-password!",
     invitationToken: "task11-customer-admin-invitation"
   };
   readonly viewer = {
+    loginId: "task11_viewer",
     email: "task11-viewer@example.com",
     name: "Task 11 조회 사용자",
     password: "Task11-viewer-password!",

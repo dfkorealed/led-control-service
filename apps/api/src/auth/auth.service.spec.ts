@@ -139,7 +139,7 @@ describe("AuthService", () => {
     expect(wrongPasswordError).toEqual(new UnauthorizedException("Invalid login id or password"));
   });
 
-  it("creates a remember-me session with the public login id", async () => {
+  it("creates a remember-me session with a public login id but no contact email", async () => {
     const prisma = { user: { findUnique: jest.fn() }, session: { create: jest.fn() } };
     const passwords = { verify: jest.fn().mockResolvedValue(true) };
     const service = new (AuthService as any)(prisma, passwords);
@@ -150,7 +150,8 @@ describe("AuthService", () => {
 
     const result = await service.login({ loginId: "ADMIN_01", password: "correct horse battery staple", rememberMe: true });
 
-    expect(result.user).toMatchObject({ loginId: "admin_01", email: null });
+    expect(result.user).toMatchObject({ loginId: "admin_01" });
+    expect(result.user).not.toHaveProperty("email");
     expect(result.expiresAt.toISOString()).toBe("2026-09-26T00:00:00.000Z");
     expect(prisma.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({ rememberMe: true, expiresAt: new Date("2026-09-26T00:00:00.000Z") }) });
   });
@@ -216,7 +217,6 @@ describe("AuthService", () => {
       organizationId: "organization-1",
       organizationType: "customer",
       loginId: "admin_01",
-      email: null,
       name: "Admin",
       role: "admin" as const,
       status: "active" as const
@@ -256,6 +256,31 @@ describe("AuthService", () => {
       metadata: expect.not.objectContaining({ password: expect.anything(), currentPassword: expect.anything(), newPassword: expect.anything() }),
       transaction
     }));
+  });
+
+  it("preserves leading and trailing password whitespace when changing a password", async () => {
+    const currentToken = "current-token";
+    const currentPassword = "  existing password  ";
+    const newPassword = "  replacement password  ";
+    const user = { id: "admin-1", organizationId: "organization-1" };
+    const transaction = {
+      user: { findUnique: jest.fn().mockResolvedValue({ passwordHash: "old-hash" }), update: jest.fn() },
+      session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      auditLog: { create: jest.fn() }
+    };
+    const prisma = { $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)) };
+    const passwords = { verify: jest.fn().mockResolvedValue(true), hash: jest.fn().mockResolvedValue("new-hash") };
+    const audit = { record: jest.fn() };
+    const service = new (AuthService as any)(prisma, passwords, audit);
+
+    await service.changePassword(user, currentToken, {
+      currentPassword,
+      newPassword,
+      newPasswordConfirmation: newPassword
+    });
+
+    expect(passwords.verify).toHaveBeenCalledWith(currentPassword, "old-hash");
+    expect(passwords.hash).toHaveBeenCalledWith(newPassword);
   });
 
   it("rejects a password change when confirmation differs", async () => {

@@ -61,7 +61,7 @@ async function mockEditorApi(page: Page) {
     const path = pathname.replace(/^\/api/, "");
     if (path === "/auth/me") {
       return route.fulfill({ json: { user: {
-        id: "user-1", organizationId: "org-1", email: "admin@example.com",
+        id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "demo_admin",
         name: "관리자", role: "admin", status: "active"
       } } });
     }

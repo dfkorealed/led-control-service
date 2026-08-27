@@ -59,7 +59,8 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
       password: "correct horse battery staple"
     });
 
-    expect(result.user).toMatchObject({ loginId: `viewer_${siteId.slice(0, 8)}`, email, role: "viewer" });
+    expect(result.user).toMatchObject({ loginId: `viewer_${siteId.slice(0, 8)}`, role: "viewer" });
+    expect(result.user).not.toHaveProperty("email");
     await expect(prisma.siteMembership.findFirstOrThrow({ where: { userId: result.user.id, siteId } })).resolves.toBeTruthy();
     await expect(prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } })).resolves.toMatchObject({ acceptedAt: expect.any(Date) });
   });
@@ -113,8 +114,8 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     const userId = randomUUID();
     const loginId = `admin_${userId.slice(0, 8)}`;
     const passwords = new PasswordService();
-    const oldPassword = "old password for integration";
-    const newPassword = "new password for integration";
+    const oldPassword = "  old password for integration  ";
+    const newPassword = "  new password for integration  ";
     await prisma.organization.create({ data: { id: organizationId, name: `Password ${userId}`, type: "customer" } });
     await prisma.user.create({
       data: {

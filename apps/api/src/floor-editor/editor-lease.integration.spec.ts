@@ -26,7 +26,6 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     organizationId: ids.providerOrganizationId,
     organizationType: "service_provider" as const,
     loginId: "lease_operator_a",
-    email: "lease-a@example.com",
     name: "Lease Operator A",
     role: "operator" as const,
     status: "active" as const
@@ -36,7 +35,6 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     organizationId: ids.providerOrganizationId,
     organizationType: "service_provider" as const,
     loginId: "lease_operator_b",
-    email: "lease-b@example.com",
     name: "Lease Operator B",
     role: "operator" as const,
     status: "active" as const
@@ -87,7 +85,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
         id: operatorA.id,
         organizationId: operatorA.organizationId,
         loginId: operatorA.loginId,
-        email: operatorA.email,
+        email: null,
         name: operatorA.name,
         passwordHash: "test",
         role: operatorA.role,
@@ -96,7 +94,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       update: {
         organizationId: operatorA.organizationId,
         loginId: operatorA.loginId,
-        email: operatorA.email,
+        email: null,
         name: operatorA.name,
         role: operatorA.role,
         status: operatorA.status
@@ -108,7 +106,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
         id: operatorB.id,
         organizationId: operatorB.organizationId,
         loginId: operatorB.loginId,
-        email: operatorB.email,
+        email: null,
         name: operatorB.name,
         passwordHash: "test",
         role: operatorB.role,
@@ -117,7 +115,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       update: {
         organizationId: operatorB.organizationId,
         loginId: operatorB.loginId,
-        email: operatorB.email,
+        email: null,
         name: operatorB.name,
         role: operatorB.role,
         status: operatorB.status

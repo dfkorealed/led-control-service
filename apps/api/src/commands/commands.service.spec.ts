@@ -20,7 +20,7 @@ const ids = {
 
 const operator: AuthenticatedUser = {
   id: ids.user, organizationId: "org-1", organizationType: "service_provider",
-  loginId: "operator_01", email: "operator@example.com", name: "Operator", role: "operator", status: "active"
+  loginId: "operator_01", name: "Operator", role: "operator", status: "active"
 };
 const viewer: AuthenticatedUser = { ...operator, id: "viewer-1", role: "viewer" };
 

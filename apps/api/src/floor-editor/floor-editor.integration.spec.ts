@@ -31,7 +31,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     organizationId: ids.providerOrganizationId,
     organizationType: "service_provider" as const,
     loginId: "floor_editor_operator",
-    email: "floor-editor-operator@example.com",
     name: "Floor editor operator",
     role: "operator" as const,
     status: "active" as const
@@ -41,7 +40,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     organizationId: ids.customerOrganizationId,
     organizationType: "customer" as const,
     loginId: "floor_editor_viewer",
-    email: "floor-editor-viewer@example.com",
     name: "Floor editor viewer",
     role: "viewer" as const,
     status: "active" as const
@@ -51,7 +49,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     organizationId: ids.otherOrganizationId,
     organizationType: "customer" as const,
     loginId: "floor_editor_other_admin",
-    email: "floor-editor-other-admin@example.com",
     name: "Other admin",
     role: "admin" as const,
     status: "active" as const
@@ -60,7 +57,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     ...operator,
     id: ids.unassignedOperatorId,
     loginId: "floor_editor_unassigned_operator",
-    email: "unassigned-floor-editor-operator@example.com",
     name: "Unassigned floor editor operator"
   };
   const lease = {
@@ -121,7 +117,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         id: userRecord.id,
         organizationId: userRecord.organizationId,
         loginId: userRecord.loginId,
-        email: userRecord.email,
+        email: null,
           name: userRecord.name,
           passwordHash: "test",
           role: userRecord.role,
@@ -130,7 +126,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         update: {
         organizationId: userRecord.organizationId,
         loginId: userRecord.loginId,
-        email: userRecord.email,
+        email: null,
           name: userRecord.name,
           role: userRecord.role,
           status: userRecord.status

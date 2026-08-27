@@ -15,7 +15,6 @@ export interface AuthenticatedUser {
   organizationId: string;
   organizationType: OrganizationType;
   loginId: string;
-  email: string | null;
   name: string;
   role: UserRole;
   status: "active" | "disabled";

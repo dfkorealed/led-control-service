@@ -26,7 +26,6 @@ const authState = vi.hoisted(() => ({
     organizationId: "organization-1",
     organizationType: "customer",
     loginId: "demo_admin",
-    email: "operator@example.com",
     name: "Demo Operator",
     role: "admin",
     status: "active"
@@ -35,7 +34,6 @@ const authState = vi.hoisted(() => ({
     organizationId: string;
     organizationType: "service_provider" | "customer";
     loginId: string;
-    email: string | null;
     name: string;
     role: string;
     status: string;
@@ -239,7 +237,6 @@ describe("App", () => {
       organizationId: "organization-1",
       organizationType: "customer",
       loginId: "demo_admin",
-      email: "operator@example.com",
       name: "Demo Operator",
       role: "admin",
       status: "active"
@@ -305,7 +302,7 @@ describe("App", () => {
     });
   });
 
-  it("keeps public signup compatible by sending its id as both loginId and email", async () => {
+  it("sends separate login id and invitation contact email for viewer signup", async () => {
     authState.user = null;
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
@@ -314,14 +311,15 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "초대 코드를 가지고 회원가입" }));
     fireEvent.change(screen.getByLabelText("초대 코드"), { target: { value: "invite-token" } });
     fireEvent.change(screen.getByLabelText("이름"), { target: { value: "Viewer" } });
-    fireEvent.change(screen.getByLabelText("아이디"), { target: { value: "viewer@example.com" } });
+    fireEvent.change(screen.getByLabelText("아이디"), { target: { value: "viewer_01" } });
+    fireEvent.change(screen.getByLabelText("초대 이메일"), { target: { value: "viewer@example.com" } });
     fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "correct horse battery staple" } });
     fireEvent.click(screen.getByRole("button", { name: "가입하기" }));
 
     await waitFor(() => {
       expect(apiPost).toHaveBeenCalledWith("/auth/signup", {
         token: "invite-token",
-        loginId: "viewer@example.com",
+        loginId: "viewer_01",
         email: "viewer@example.com",
         name: "Viewer",
         password: "correct horse battery staple"
@@ -640,7 +638,6 @@ describe("App", () => {
       organizationId: "organization-1",
       organizationType: "customer",
       loginId: "viewer_01",
-      email: "viewer@example.com",
       name: "Demo Viewer",
       role: "viewer",
       status: "active"
@@ -822,7 +819,6 @@ describe("App", () => {
       organizationId: "organization-1",
       organizationType: "customer",
       loginId: "viewer_01",
-      email: "viewer@example.com",
       name: "Demo Viewer",
       role: "viewer",
       status: "active"

@@ -5,7 +5,6 @@ import type { EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 export const mockUser = {
   id: "00000000-0000-4000-8000-000000000002",
   organizationId: "00000000-0000-4000-8000-000000000001",
-  email: "operator@example.com",
   name: "Demo Operator",
   role: "admin",
   status: "active"

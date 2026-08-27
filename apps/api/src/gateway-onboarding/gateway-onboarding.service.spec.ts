@@ -9,7 +9,7 @@ describe("GatewayOnboardingService", () => {
   const siteId = "00000000-0000-4000-8000-000000000003";
   const gatewayId = "00000000-0000-4000-8000-000000000004";
   const user: AuthenticatedUser = {
-    id: "user-1", organizationId: "provider-org-1", organizationType: "service_provider", loginId: "fixture_user", email: "operator@example.com",
+    id: "user-1", organizationId: "provider-org-1", organizationType: "service_provider", loginId: "fixture_user",
     name: "Operator", role: "operator", status: "active"
   };
 

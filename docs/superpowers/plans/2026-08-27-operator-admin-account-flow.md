@@ -227,6 +227,12 @@ git commit -m "feat(auth): switch authentication to login ids"
 
 기존 invitation assignment/mismatch, remember-me, generic login failure, 실제 transaction P2002 race regression을 loginId 계약으로 복구했다. 격리 PostgreSQL에서 old/new password 로그인, current/other session revoke, wrong-current-password 무변경과 Task 1→Task 2 fresh/staged/guard migration rollback을 실행했다. bootstrap의 P2002는 `BOOTSTRAP_REFUSED`로 정규화한다.
 
+- [x] **Review fix round 2: public email removal and password fidelity**
+
+`AuthenticatedUser`, `AuthService.publicUser`, 웹 `AuthUser`에서 email을 제거해 session/public 응답은 `loginId`만 계정 식별자로 노출한다. DB의 `User.email`은 viewer invitation contact 검증과 저장에만 사용한다. password change는 타입과 비어 있지 않음만 검사하고 current/new/confirmation 문자열을 trim하지 않아 앞뒤 공백이 있는 기존 비밀번호와 새 비밀번호를 그대로 verify/hash한다.
+
+Task 6 전까지 유지하는 signup UI는 loginId와 invitation contact email을 별도 input으로 전송한다. App/E2E helper와 API AuthenticatedUser fixtures를 이 계약으로 갱신했고, 격리 PostgreSQL auth integration에서 공백 포함 password change를 실행했다.
+
 ### Task 3: Operator 현장 admin 관리 API
 
 **Files:**

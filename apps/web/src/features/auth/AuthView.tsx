@@ -11,6 +11,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [loginId, setLoginId] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [token, setToken] = useState("");
@@ -42,8 +43,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
       loginMutation.mutate({ loginId, password, rememberMe });
       return;
     }
-    // The Task 6 UI still has one identifier field; the backend keeps its contact-email check separate.
-    signupMutation.mutate({ token, loginId, email: loginId, name, password });
+    signupMutation.mutate({ token, loginId, email, name, password });
   }
 
   const isPending = loginMutation.isPending || signupMutation.isPending;
@@ -74,6 +74,16 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
               <label>
                 이름
                 <input value={name} onChange={(event) => setName(event.target.value)} required />
+              </label>
+              <label>
+                초대 이메일
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  required
+                />
               </label>
             </>
           )}
