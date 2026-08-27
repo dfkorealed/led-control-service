@@ -10,7 +10,7 @@
 - 기존 도면 에디터는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
 - 사용자/보안, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
 - BLE Mesh floor/zone Group Address와 subscription 동기화는 설정 화면 확장이 아니라 제어 기반 기능으로 구현한다. 기존 FixtureGroup 데이터만 사용하며 이번 범위에서 그룹 CRUD UI는 추가하지 않는다.
-- Task 3은 operator의 현장 admin 관리 **API**와 설치 대기 Site DB 계약만 완료했다. operator 관리 웹 화면과 admin 최초 설치 API/UI는 후속 Task 범위다.
+- Task 4까지 operator의 현장 admin 관리 API, 설치 대기 Site DB 계약과 assigned admin의 최초 설치 API를 완료했다. operator 관리 웹 화면과 admin 최초 설치 웹 UI는 후속 Task 범위다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
 
@@ -19,7 +19,7 @@
 - 설정 메뉴를 현장 구성, 도면 관리, 장비 시운전, 운영 정책, 보안, 유지보수의 관리 허브로 만든다.
 - 실시간 상태 확인은 모니터링, 조명 명령 실행은 제어, 에너지 분석은 통계에서 담당한다.
 - 도면 에디터는 설정의 `도면 관리`에서만 열고, 모니터링은 읽기 전용 상태 확인에 한정한다.
-- 최초 현장 설정, Gateway claim, 최초 provisioning은 서비스 운영사의 `operator`만 수행한다.
+- assigned customer `admin`이 자기 pending Site의 최초 주소·단가·시간대·층 설치를 수행한다. Gateway claim과 최초 provisioning은 이 Task에서 기존 service-provider `operator` 경계를 유지한다.
 - 설치 완료 후 고객사의 `admin`은 도면 배경, 도형, 조명 배치, 일반 조명 정보와 운영 정책을 직접 관리한다.
 - 설정값은 임의 JSON 한 필드에 모으지 않고 검증 가능한 명시적 모델과 컬럼으로 관리한다.
 
@@ -27,8 +27,8 @@
 
 | 기능 | operator | admin | viewer |
 | --- | --- | --- | --- |
-| 설정 조회 | 배정 현장 | 고객사 전체 현장 | 배정 현장 |
-| 최초 현장·층·Gateway 설치 | 허용 | 금지 | 금지 |
+| 설정 조회 | 고객 현장 capability 없음 | 직접 배정된 한 현장 | 배정 현장 |
+| 최초 현장·층 설치 | 금지 | 직접 배정된 pending 현장만 허용 | 금지 |
 | BLE Mesh 검색·provisioning | 허용 | 금지 | 금지 |
 | 현장 정보와 층 관리 | 허용 | 허용 | 금지 |
 | 도면 배경·도형 편집 | 허용 | 허용 | 금지 |
@@ -41,8 +41,8 @@
 | 편집 잠금 강제 해제 | 허용 | 허용 | 금지 |
 
 - 프론트의 버튼 노출과 무관하게 모든 변경 API가 서버에서 조직, 현장 접근 범위와 역할을 검사한다.
-- `operator`는 서비스 운영사 소속이며 `SiteMembership`으로 명시적으로 배정된 고객 현장만 접근한다. 역할만으로 모든 고객 현장에 접근하지 않는다.
-- `admin`은 자기 고객사 조직의 모든 현장을 관리하고 다른 고객사에는 접근할 수 없다.
+- `operator`는 서비스 운영사 소속이지만 고객 Site의 `read/manage/commission` capability와 Site 목록을 갖지 않는다.
+- `admin`은 `Site.adminUserId`로 직접 배정된 한 customer Site만 `read/manage/commission`할 수 있으며 같은 Organization의 다른 Site도 `404`다.
 - `viewer`는 자기 고객사 조직 안에서도 `SiteMembership`으로 배정된 현장만 조회한다.
 - 마지막 고객사 admin은 비활성화하거나 viewer로 낮출 수 없다.
 - operator 배정, 현장 초기화, Gateway 해제, 인증서 폐기, 전체 OTA에는 재인증과 감사 로그를 적용한다.
@@ -70,10 +70,10 @@
 
 ## 구현 완료
 
-- 현장이 없는 service-provider `operator`에게만 초기 설치 설정 마법사를 표시한다. customer `admin/viewer`는 `설치 담당자가 현장을 준비 중입니다` 상태를 본다.
-- 초기 설치에서 고객사명, 현장명, 주소, kWh 단가, 층 이름과 level을 등록하며 Gateway 레코드는 만들지 않는다.
-- `POST /setup/initial-site`는 service-provider operator만 호출할 수 있고, Serializable transaction으로 customer Organization, 첫 Site, Floors, operator의 SiteMembership을 함께 생성한다.
-- 현장 생성 후 해당 현장에 배정된 operator만 제조 원장의 시리얼과 일회성 claim code로 Gateway를 연결한다.
+- `POST /setup/initial-site`는 assigned active customer `admin`만 `{ siteId, address, tariffKwhRate, timeZone?, floors }`로 호출할 수 있다. transaction 안에서 target Site row를 `FOR UPDATE`로 잠그고 assigned admin 및 pending 상태를 재검증한 뒤 기존 Site와 Floors/FloorPlan만 갱신한다.
+- 최초 설치는 Organization, Site, SiteMembership을 새로 만들지 않으며 주소·단가·층 중 하나라도 없으면 `pending`, 모두 있으면 `installed`다. 재호출과 Serializable 충돌은 `409`로 반환한다.
+- `POST /setup/floors`도 assigned admin의 `commission` capability를 요구한다. 기존 floor 이름·level 중복과 floorPlan 생성 검증은 유지한다.
+- Gateway claim, 조명 검색·등록 commissioning은 이 Task에서 변경하지 않았다. 현장 생성 후 Gateway 연결은 다음 권한 전환 Task에서 별도로 변경한다.
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
 - 설정 화면에 현장, 층/도면, 그룹, Gateway 요약 카드를 표시한다.
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
@@ -106,7 +106,7 @@
 - bootstrap은 기존 customer 사용자가 있어도 `auth:bootstrap-operator`로 최초 service-provider operator를 만들 수 있다. `BOOTSTRAP_OPERATOR_LOGIN_ID`는 필수이며 잘못된 기존 email 환경 변수로 fallback하지 않는다. PostgreSQL advisory lock, 기존 service provider/operator 검사, `service_provider` partial Unique index로 둘 이상의 서비스 운영사를 차단하며, 로그인/session 응답은 `loginId`와 Organization 유형을 포함한다.
 - `POST /auth/login`은 `{ loginId, password, rememberMe }`만 받고 public/session 응답은 연락 이메일 없이 `loginId`만 계정 식별자로 포함한다. `POST /auth/change-password`는 현재 session cookie를 기준으로 현재 세션을 유지하면서 동일 사용자의 다른 활성 세션을 revoke하고, 공백을 포함한 비밀번호 원문을 trim하지 않는다. login/signup/change-password body는 누락·non-string 값을 controller에서 명시적으로 거부해 500으로 흘리지 않는다. 성공 감사 `auth.password_changed` metadata에는 비밀번호 또는 hash 계열 값을 기록하지 않는다.
 - 수정 전 legacy migration을 적용한 로컬 개발 DB는 checksum 충돌이 발생할 수 있다. 데이터가 불필요한 경우에만 reset을 선택하고, 보존이 필요하면 감사 후 수동 보정 migration을 사용한다. 설정 기능은 자동 reset이나 파괴적 DB 명령을 실행하지 않는다.
-- `POST /setup/floors`와 registration session 생성·조회·identify·register·complete는 operator 역할과 대상 현장의 `commission` 권한을 모두 확인한다.
+- `POST /setup/floors`는 assigned admin의 `commission` capability를 확인한다. registration session 생성·조회·identify·register·complete는 다음 Task에서 권한을 전환하기 전까지 기존 operator 계약을 유지한다.
 - `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
 - `/settings/floor-plans`는 새로고침과 직접 진입이 가능한 층별 도면 목록을 제공한다. `operator/admin`은 각 층의 `/settings/floor-plans/:floorId/edit` 링크로 이동할 수 있고, 목록·편집·저장·취소 이동에서 현재 `siteId` query를 보존한다.
@@ -283,7 +283,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 ## 미구현
 
 - operator의 현장 admin 생성·교체·수정·비밀번호 재설정·비활성화 웹 관리 화면
-- admin에게 배정된 설치 대기 현장의 주소·단가·시간대·층을 완료하는 최초 설치 API와 UI
+- admin에게 배정된 설치 대기 현장의 주소·단가·시간대·층을 완료하는 최초 설치 웹 UI
 - 고객사 사용자 초대·비활성화와 operator별 `SiteMembership` 현장 배정을 관리하는 설정 UI
 - 현장 정보 수정과 층 CRUD/archive UI
 - 비공개 도면 asset과 보안 처리 pipeline
@@ -314,7 +314,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현장 선택 아래 가로 스크롤 메뉴로 전환하며, 에디터 본문은 단일 열 전체 폭을 사용한다. 네이티브 상단 선택 메뉴와의 통합은 후속 UI 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
-- Gateway claim, inventory disable, provisioning action은 배정된 operator의 현장 시운전 범위로 제한된다. customer admin/viewer의 현장 설치 작업은 의도적으로 지원하지 않는다.
+- Gateway claim, inventory disable, provisioning action은 아직 기존 operator 중심 계약을 유지한다. assigned admin의 Gateway claim·검색·등록 commissioning 전환과 웹 UI는 다음 Task 범위다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
@@ -368,6 +368,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/api/src/floor-editor`
 - `apps/api/src/redis`
 - `apps/api/src/setup`
+- `apps/api/src/setup/setup.integration.spec.ts`
+- `apps/api/src/access/site-access.service.ts`
 - `apps/api/src/gateway-onboarding`
 - `apps/api/src/registration`
 - `apps/api/prisma/schema.prisma`

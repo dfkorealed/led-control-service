@@ -36,6 +36,10 @@ describe("SitesService", () => {
     prisma.site.findFirst.mockResolvedValue({
       id: "site-1",
       name: "Demo Site",
+      address: "Seoul",
+      tariffKwhRate: "160.00",
+      timeZone: "Asia/Seoul",
+      organization: { name: "Customer A" },
       gateways: [
         {
           id: "gateway-1",
@@ -154,6 +158,15 @@ describe("SitesService", () => {
     const dashboard = await (service as any).getDashboard(user, "site-1", true);
 
     expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "read");
+    expect(dashboard.site).toEqual({
+      id: "site-1",
+      name: "Demo Site",
+      customerName: "Customer A",
+      installationStatus: "installed",
+      address: "Seoul",
+      tariffKwhRate: 160,
+      timeZone: "Asia/Seoul"
+    });
     expect(dashboard.summary.totalFixtures).toBe(2);
     expect(dashboard.summary.onlineFixtures).toBe(1);
     expect(dashboard.summary.faultFixtures).toBe(1);
@@ -214,7 +227,15 @@ describe("SitesService", () => {
     expect(siteAccess.listAccessibleSiteIds).toHaveBeenCalledWith(user);
     expect(prisma.site.findFirst).not.toHaveBeenCalled();
     expect(dashboard).toEqual({
-      site: { id: "", name: "현장 미등록" },
+      site: {
+        id: "",
+        name: "현장 미등록",
+        customerName: "",
+        installationStatus: "pending",
+        address: null,
+        tariffKwhRate: null,
+        timeZone: "Asia/Seoul"
+      },
       summary: {
         totalFixtures: 0,
         onlineFixtures: 0,
@@ -235,6 +256,10 @@ describe("SitesService", () => {
         findFirst: jest.fn().mockResolvedValue({
           id: "site-1",
           name: "Boundary Site",
+          address: "Seoul",
+          tariffKwhRate: "160.00",
+          timeZone: "Asia/Seoul",
+          organization: { name: "Customer A" },
           gateways: [{ id: "gateway-1", name: "Gateway B2", serialNumber: "GW-1", firmwareVersion: "1.0", lastHeartbeatAt: heartbeatAtBoundary }],
           floors: [{ id: "floor-1", name: "B2", level: -2, floorPlan: null }],
           groups: []

@@ -332,7 +332,7 @@ git commit -m "feat(api): add operator site admin management"
 - Produces: dashboard `site.installationStatus`, `customerName`, `address`, `tariffKwhRate`, `timeZone`
 - Consumes: Task 3의 `Site.address: string | null`, `Site.tariffKwhRate: Decimal | null` Prisma/DB 계약
 
-- [ ] **Step 1: 권한 RED 테스트 작성**
+- [x] **Step 1: 권한 RED 테스트 작성**
 
 ```ts
 it("grants commission only to the site's assigned admin", async () => {
@@ -342,7 +342,7 @@ it("grants commission only to the site's assigned admin", async () => {
 });
 ```
 
-- [ ] **Step 2: 설치 RED 테스트 작성**
+- [x] **Step 2: 설치 RED 테스트 작성**
 
 ```ts
 it("completes the assigned pending site without creating another organization or site", async () => {
@@ -353,16 +353,16 @@ it("completes the assigned pending site without creating another organization or
 });
 ```
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/access src/sites src/setup --runInBand`
 Expected: 기존 operator 중심 기대와 충돌해 실패
 
-- [ ] **Step 4: 접근·dashboard·setup 구현**
+- [x] **Step 4: 접근·dashboard·setup 구현**
 
 `installationStatus`는 DB enum이 아니라 `address !== null && tariffKwhRate !== null && floors.length > 0`에서 `pending|installed`로 계산한다. setup은 assigned admin과 pending 상태를 잠근 뒤 site update와 floor create를 Serializable transaction으로 수행하고 재호출은 Conflict로 거부한다.
 
-- [ ] **Step 5: GREEN 확인 및 커밋**
+- [x] **Step 5: GREEN 확인 및 커밋**
 
 Run: `pnpm --filter @led-control/api exec jest src/access src/sites src/setup --runInBand && pnpm --filter @led-control/api typecheck`
 Expected: PASS

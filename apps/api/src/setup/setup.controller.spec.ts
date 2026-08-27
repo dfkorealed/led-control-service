@@ -13,7 +13,7 @@ describe("SetupController", () => {
 
   function createController() {
     const setupService = {
-      createInitialSite: jest.fn().mockRejectedValue(new BadRequestException("siteName is required")),
+      completeInitialSite: jest.fn().mockRejectedValue(new BadRequestException("siteId is required")),
       addFloors: jest.fn().mockRejectedValue(new BadRequestException("siteId is required"))
     };
 
@@ -23,18 +23,18 @@ describe("SetupController", () => {
     };
   }
 
-  it("requires the operator role for every setup route", () => {
+  it("requires the assigned admin role for every setup route", () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, SetupController)).toEqual(
       expect.arrayContaining([SessionAuthGuard, RolesGuard])
     );
-    expect(Reflect.getMetadata(rolesMetadataKey, SetupController)).toEqual(["operator"]);
+    expect(Reflect.getMetadata(rolesMetadataKey, SetupController)).toEqual(["admin"]);
   });
 
   it("passes a null initial site body to service validation without a raw TypeError", async () => {
     const { controller, setupService } = createController();
 
     await expect(controller.createInitialSite(user, null as any)).rejects.toBeInstanceOf(BadRequestException);
-    expect(setupService.createInitialSite).toHaveBeenCalledWith(user, null);
+    expect(setupService.completeInitialSite).toHaveBeenCalledWith(user, null);
   });
 
   it("passes a null add floors body to service validation without a raw TypeError", async () => {

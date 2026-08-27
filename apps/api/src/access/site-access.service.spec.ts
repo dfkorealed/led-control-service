@@ -10,6 +10,7 @@ describe("SiteAccessService", () => {
   const site = {
     id: customerSiteId,
     organizationId: "customer-org",
+    adminUserId: "admin-1",
     memberships: [] as { id: string }[],
     organization: { id: "customer-org" }
   };
@@ -52,31 +53,34 @@ describe("SiteAccessService", () => {
     return moduleRef.get(SiteAccessService);
   }
 
-  it("allows an assigned operator to commission a customer site", async () => {
-    site.memberships = [{ id: "membership-1" }];
+  it("grants commission only to the site's assigned admin", async () => {
+    const assignedAdmin = admin;
+    const otherAdmin: AuthenticatedUser = { ...admin, id: "admin-2" };
     const service = await createService();
 
-    await expect(service.assert(operator, customerSiteId, "commission")).resolves.toMatchObject({ id: customerSiteId });
+    await expect(service.assert(assignedAdmin, customerSiteId, "commission")).resolves.toMatchObject({ id: customerSiteId });
+    await expect(service.assert(otherAdmin, customerSiteId, "read")).rejects.toThrow("site not found");
+    await expect(service.assert(operator, customerSiteId, "read")).rejects.toThrow("site not found");
   });
 
-  it("hides a site from an unassigned operator", async () => {
-    site.memberships = [];
+  it("hides a site from an operator even when it has a membership", async () => {
+    site.memberships = [{ id: "membership-1" }];
     const service = await createService();
 
     await expect(service.assert(unassignedOperator, customerSiteId, "read")).rejects.toThrow("site not found");
   });
 
-  it("allows a customer admin to manage its own site", async () => {
+  it("allows the assigned customer admin to manage its own site", async () => {
     site.memberships = [];
     const service = await createService();
 
     await expect(service.assert(admin, customerSiteId, "manage")).resolves.toMatchObject({ id: customerSiteId });
   });
 
-  it("forbids a customer admin from commissioning its own site", async () => {
+  it("hides an assigned site from a disabled customer admin", async () => {
     const service = await createService();
 
-    await expect(service.assert(admin, customerSiteId, "commission")).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.assert({ ...admin, status: "disabled" }, customerSiteId, "read")).rejects.toThrow("site not found");
   });
 
   it("forbids a viewer from managing a readable site", async () => {
@@ -118,13 +122,13 @@ describe("SiteAccessService", () => {
     await expect(service.listAccessibleSiteIds(customerOperator)).resolves.toEqual([]);
   });
 
-  it("lists customer organization sites for an admin and memberships for other roles", async () => {
+  it("lists only the assigned site for an admin, viewer memberships, and no operator sites", async () => {
     prisma.site.findMany.mockResolvedValue([{ id: "customer-site" }]);
     prisma.siteMembership.findMany.mockResolvedValue([{ siteId: "assigned-site", site: { organizationId: "customer-org" } }]);
     const service = await createService();
 
     await expect(service.listAccessibleSiteIds(admin)).resolves.toEqual(["customer-site"]);
-    await expect(service.listAccessibleSiteIds(operator)).resolves.toEqual(["assigned-site"]);
+    await expect(service.listAccessibleSiteIds(operator)).resolves.toEqual([]);
     await expect(service.listAccessibleSiteIds(viewer)).resolves.toEqual(["assigned-site"]);
   });
 
@@ -138,11 +142,15 @@ describe("SiteAccessService", () => {
     await expect(service.listAccessibleSiteIds(viewer)).resolves.toEqual(["assigned-site"]);
   });
 
-  it("does not use site memberships when listing sites for a customer admin", async () => {
+  it("queries the admin's direct assignment instead of organization-wide sites", async () => {
     prisma.site.findMany.mockResolvedValue([{ id: "customer-site" }]);
     const service = await createService();
 
     await expect(service.listAccessibleSiteIds(admin)).resolves.toEqual(["customer-site"]);
+    expect(prisma.site.findMany).toHaveBeenCalledWith({
+      where: { adminUserId: admin.id },
+      select: { id: true }
+    });
     expect(prisma.siteMembership.findMany).not.toHaveBeenCalled();
   });
 });

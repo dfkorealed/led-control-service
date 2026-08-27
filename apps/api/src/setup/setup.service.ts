@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -18,8 +18,7 @@ interface FloorInput {
 }
 
 export interface CreateInitialSiteInput {
-  customerOrganizationName: string;
-  siteName: string;
+  siteId: string;
   address: string;
   tariffKwhRate: number;
   timeZone?: string;
@@ -39,37 +38,51 @@ export class SetupService {
     private readonly siteAccess: SiteAccessService
   ) {}
 
-  async createInitialSite(user: AuthenticatedUser, input: CreateInitialSiteInput) {
-    this.assertServiceProviderOperator(user);
+  async completeInitialSite(user: AuthenticatedUser, input: CreateInitialSiteInput) {
+    this.assertActiveCustomerAdmin(user);
     this.validateInitialSiteInput(input);
 
     try {
       const siteId = await this.prisma.$transaction(async (tx) => {
-        const organization = await tx.organization.create({
-          data: { name: input.customerOrganizationName.trim(), type: "customer" }
-        });
+        // The site row is locked before every authorization and pending-state read.
+        // This keeps two completion requests from both observing the same pending site.
+        const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+          SELECT "id" FROM "Site" WHERE "id" = ${input.siteId} FOR UPDATE
+        `);
+        if (locked.length === 0) throw new NotFoundException("site not found");
 
-        const createdSite = await tx.site.create({
+        const site = await tx.site.findUnique({
+          where: { id: input.siteId },
+          include: {
+            admin: { include: { organization: { select: { type: true } } } },
+            floors: { select: { name: true, level: true } }
+          }
+        });
+        if (!site || !this.isAssignedActiveCustomerAdmin(site, user)) {
+          throw new NotFoundException("site not found");
+        }
+        if (!this.isPendingSite(site)) {
+          throw new ConflictException("initial site setup is already complete");
+        }
+        this.assertNoExistingFloorDuplicates(input.floors, site.floors);
+
+        await tx.site.update({
+          where: { id: site.id },
           data: {
-            organizationId: organization.id,
-            name: input.siteName.trim(),
             address: input.address.trim(),
             tariffKwhRate: input.tariffKwhRate.toFixed(2),
             ...(input.timeZone ? { timeZone: input.timeZone } : {})
           }
         });
-
         await tx.floor.createMany({
           data: input.floors.map((floor) => ({
-            siteId: createdSite.id,
+            siteId: site.id,
             name: floor.name.trim(),
             level: floor.level
           }))
         });
-
-        await this.createFloorPlans(tx, createdSite.id, input.floors);
-        await tx.siteMembership.create({ data: { userId: user.id, siteId: createdSite.id } });
-        return createdSite.id;
+        await this.createFloorPlans(tx, site.id, input.floors);
+        return site.id;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       return this.sitesService.getDashboardById(siteId);
     } catch (error) {
@@ -80,7 +93,6 @@ export class SetupService {
   }
 
   async addFloors(user: AuthenticatedUser, input: AddFloorsInput) {
-    this.assertServiceProviderOperator(user);
     this.validateAddFloorsInput(input);
     await this.siteAccess.assert(user, input.siteId, "commission");
 
@@ -112,8 +124,7 @@ export class SetupService {
 
   private validateInitialSiteInput(input: CreateInitialSiteInput) {
     if (!this.isRecord(input)) throw new BadRequestException("setup payload must be an object");
-    this.requireString(input.customerOrganizationName, "customerOrganizationName is required");
-    this.requireString(input.siteName, "siteName is required");
+    this.requireString(input.siteId, "siteId is required");
     this.requireString(input.address, "address is required");
     if (!Number.isFinite(input.tariffKwhRate) || input.tariffKwhRate <= 0 || input.tariffKwhRate > 100000) {
       throw new BadRequestException("tariffKwhRate must be greater than 0 and less than or equal to 100000");
@@ -185,9 +196,16 @@ export class SetupService {
   }
 
   private throwMappedPrismaSetupError(error: unknown) {
-    if (this.isRecord(error) && error.code === "P2034") {
+    if (this.isRecord(error) && (error.code === "P2034" || this.isPostgresSerializationError(error))) {
       throw new ConflictException("setup transaction conflicted, please retry");
     }
+  }
+
+  private isPostgresSerializationError(error: Record<string, unknown>) {
+    return error.code === "P2010"
+      && typeof error.message === "string"
+      && error.message.includes("40001")
+      && error.message.includes("could not serialize");
   }
 
   private assertNoExistingFloorDuplicates(
@@ -202,14 +220,35 @@ export class SetupService {
     }
   }
 
-  private assertServiceProviderOperator(user: AuthenticatedUser) {
-    if (user.role !== "operator" || user.organizationType !== "service_provider") {
-      throw new ForbiddenException("setup requires a service-provider operator");
+  private assertActiveCustomerAdmin(user: AuthenticatedUser) {
+    if (user.role !== "admin" || user.status !== "active" || user.organizationType !== "customer") {
+      throw new ForbiddenException("setup requires an active customer admin");
     }
   }
 
+  private isAssignedActiveCustomerAdmin(
+    site: {
+      organizationId: string;
+      adminUserId: string | null;
+      admin: { id: string; organizationId: string; role: string; status: string; organization: { type: string } } | null;
+    },
+    user: AuthenticatedUser
+  ) {
+    return site.adminUserId === user.id
+      && site.organizationId === user.organizationId
+      && site.admin?.id === user.id
+      && site.admin.organizationId === user.organizationId
+      && site.admin.role === "admin"
+      && site.admin.status === "active"
+      && site.admin.organization.type === "customer";
+  }
+
+  private isPendingSite(site: { address: string | null; tariffKwhRate: Prisma.Decimal | null; floors: unknown[] }) {
+    return site.address === null || site.tariffKwhRate === null || site.floors.length === 0;
+  }
+
   private async createFloorPlans(
-    tx: Pick<Prisma.TransactionClient, "organization" | "site" | "siteMembership" | "floor" | "floorPlan">,
+    tx: Pick<Prisma.TransactionClient, "floor" | "floorPlan">,
     siteId: string,
     floors: FloorInput[]
   ) {

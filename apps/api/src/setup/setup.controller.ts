@@ -19,8 +19,7 @@ interface FloorBody {
 }
 
 interface InitialSiteSetupBody {
-  customerOrganizationName: string;
-  siteName: string;
+  siteId: string;
   address: string;
   tariffKwhRate: number;
   timeZone?: string;
@@ -33,14 +32,14 @@ interface AddFloorsBody {
 }
 
 @UseGuards(SessionAuthGuard, RolesGuard)
-@Roles("operator")
+@Roles("admin")
 @Controller("setup")
 export class SetupController {
   constructor(private readonly setupService: SetupService) {}
 
   @Post("initial-site")
   createInitialSite(@CurrentUser() user: AuthenticatedUser, @Body() body: InitialSiteSetupBody) {
-    return this.setupService.createInitialSite(user, body);
+    return this.setupService.completeInitialSite(user, body);
   }
 
   @Post("floors")

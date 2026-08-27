@@ -46,6 +46,7 @@ export class SitesService {
             floorPlan: true
           }
         },
+        organization: { select: { name: true } },
         groups: {
           where: { lifecycleStatus: "active" },
           include: { groupFixtures: true },
@@ -91,7 +92,15 @@ export class SitesService {
       : await this.getFixtureSummary(site.id);
 
     return {
-      site: { id: site.id, name: site.name },
+      site: {
+        id: site.id,
+        name: site.name,
+        customerName: site.organization.name,
+        installationStatus: site.address !== null && site.tariffKwhRate !== null && site.floors.length > 0 ? "installed" : "pending",
+        address: site.address,
+        tariffKwhRate: site.tariffKwhRate === null ? null : Number(site.tariffKwhRate),
+        timeZone: site.timeZone
+      },
       summary,
       floors: site.floors.map((floor) => ({
         id: floor.id,
@@ -210,7 +219,15 @@ export class SitesService {
 
 function emptyDashboard() {
   return {
-    site: { id: "", name: "현장 미등록" },
+    site: {
+      id: "",
+      name: "현장 미등록",
+      customerName: "",
+      installationStatus: "pending" as const,
+      address: null,
+      tariffKwhRate: null,
+      timeZone: "Asia/Seoul"
+    },
     summary: {
       totalFixtures: 0,
       onlineFixtures: 0,

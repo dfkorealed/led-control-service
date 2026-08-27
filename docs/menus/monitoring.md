@@ -21,11 +21,11 @@
 
 ## 구현 완료
 
-- `GET /sites`는 로그인 사용자가 SiteAccess 권한으로 접근 가능한 현장의 고객사명과 현장명만 반환한다.
-- `GET /sites/default/dashboard`는 접근 가능한 첫 현장을 반환하고, 접근 가능한 현장이 없을 때도 최초 설치 흐름을 위해 기존 빈 dashboard shape를 유지한다.
-- `GET /sites/:siteId/dashboard`, 층별 fixture 조회, 기본 에너지 추정은 `AuthenticatedUser + SiteAccessService`로 현장 read 권한을 확인하며 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
-- 현장이 없으면 service-provider `operator`에게 `초기 설치 설정` 마법사를 표시하고 customer `admin/viewer`에게는 `설치 담당자가 현장을 준비 중입니다` 상태를 표시한다.
-- 현장은 있으나 등록된 조명이 없으면 service-provider `operator`에게만 Gateway claim 또는 `조명 등록` 패널을 표시한다. customer `admin/viewer`에게는 설치 대기 상태를 표시하며 시운전 기능을 노출하지 않는다.
+- `GET /sites`는 assigned active customer `admin`의 정확히 한 현장과 유효한 `SiteMembership`을 가진 customer `viewer` 현장만 반환한다. service-provider `operator`의 고객 현장 목록은 빈 배열이다.
+- `GET /sites/default/dashboard`는 접근 가능한 첫 현장을 반환하고, 접근 가능한 현장이 없을 때도 빈 dashboard shape를 유지한다.
+- `GET /sites/:siteId/dashboard`, 층별 fixture 조회와 기본 에너지 추정은 `AuthenticatedUser + SiteAccessService`로 현장 read 권한을 확인한다. 다른 admin 현장, 미배정 viewer와 operator 고객 현장은 `404`로 숨긴다.
+- dashboard `site`는 `customerName`, nullable `address`/`tariffKwhRate`, `timeZone`, 그리고 주소·단가·층 존재 여부에서 계산한 `pending|installed` 설치 상태를 함께 반환한다.
+- assigned admin은 pending Site의 최초 주소·단가·시간대·층을 API로 완료할 수 있다. 이 Task에서는 기존 웹 설치 화면, Gateway claim과 조명 등록 권한을 변경하지 않았다.
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
 - ESP32-H2 unprovisioned UUID는 `DFKLED`, format version, 제품군, 모델, 하드웨어 revision과 6바이트 장치 식별자로 구성한다. Raspberry Pi Gateway는 shared parser로 현재 format의 자사 UUID만 scan 결과에 포함하고 타사 장치는 구조화 로그만 남긴다.
 - 등록용 자동 이름 순번은 층별 `Floor.nextFixtureSequence`, Mesh unicast 주소는 게이트웨이별 `Gateway.nextMeshUnicastAddress`에서 소유 행 잠금 후 연속 범위로 원자 예약한다. 삭제되거나 건너뛴 값은 재사용하지 않으며 Mesh 주소는 `0x0001~0x7fff`만 허용한다.
@@ -140,6 +140,7 @@
 - `apps/web/src/api/queries.ts`
 - `apps/api/src/sites/sites.controller.ts`
 - `apps/api/src/sites/sites.service.ts`
+- `apps/api/src/access/site-access.service.ts`
 - `apps/api/src/fixtures/fixtures.service.ts`
 - `apps/api/src/fixtures/fixture-health.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`
