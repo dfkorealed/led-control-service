@@ -21,6 +21,8 @@
 
 ## 구현 완료
 
+- Task 8에서 pending assigned admin이 `/monitoring`, `/control`, `/statistics`, 설정 하위 직접 URL로 들어오면 CustomerShell이 조회한 dashboard의 selected/default `siteId`를 유지해 `/settings?siteId=...`로 replace한다. `/settings`에서는 배정된 고객사·현장명을 읽기 전용으로 표시하고 주소·단가·층만 입력하는 최초 설치 화면을 제공한다.
+- 설치 완료 후 등록 조명이 0개인 모니터링은 admin에게 Gateway claim 또는 조명 등록 패널을 제공한다. viewer는 설치 대기 안내만 보며 claim, 등록, setup mutation UI를 볼 수 없다. operator는 customer shell을 mount하지 않는다.
 - `GET /sites`는 assigned active customer `admin`의 정확히 한 현장과 유효한 `SiteMembership`을 가진 customer `viewer` 현장만 반환한다. service-provider `operator`의 고객 현장 목록은 빈 배열이다.
 - `GET /sites/default/dashboard`는 접근 가능한 첫 현장을 반환하고, 접근 가능한 현장이 없을 때도 빈 dashboard shape를 유지한다.
 - `GET /sites/:siteId/dashboard`, 층별 fixture 조회와 기본 에너지 추정은 `AuthenticatedUser + SiteAccessService`로 현장 read 권한을 확인한다. 다른 admin 현장, 미배정 viewer와 operator 고객 현장은 `404`로 숨긴다.
@@ -111,6 +113,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- pending redirect와 admin commissioning 노출은 React/Vitest 브라우저 계약으로 검증했다. 모바일 레이아웃, 재설치, Task 9 실백엔드 E2E와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 검색 또는 provisioning 진행 중 브라우저를 새로고침하면 active registration session을 자동 복구하지 못한다. active session 조회 API와 화면 복구가 필요하다.
 
 - 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.

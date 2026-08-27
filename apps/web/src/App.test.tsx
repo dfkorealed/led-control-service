@@ -65,10 +65,10 @@ vi.mock("./api/client", () => ({
       return Promise.resolve(apiState.dashboard ?? mockDashboard);
     }
     if (path === "/sites/site-2/dashboard") {
-      return Promise.resolve({ ...mockDashboard, site: { id: "site-2", name: "물류센터" } });
+      return Promise.resolve(apiState.dashboard ?? { ...mockDashboard, site: { ...mockDashboard.site, id: "site-2", name: "물류센터" } });
     }
     if (path === "/sites/site-2/dashboard?includeFixtures=true") {
-      return Promise.resolve({ ...mockDashboard, site: { id: "site-2", name: "물류센터" } });
+      return Promise.resolve(apiState.dashboard ?? { ...mockDashboard, site: { ...mockDashboard.site, id: "site-2", name: "물류센터" } });
     }
     const fixturePageMatch = path.match(/^\/sites\/([^/]+)\/floors\/([^/]+)\/fixtures\?/);
     if (fixturePageMatch) {
@@ -162,7 +162,15 @@ vi.mock("./api/client", () => ({
     if (path === "/setup/initial-site") {
       const input = body as InitialSiteSetupRequest;
       const nextDashboard = {
-        site: { id: "site-onboarded-1", name: input.siteName },
+        site: {
+          id: input.siteId,
+          name: "설치 완료 현장",
+          customerName: "고객사",
+          installationStatus: "installed" as const,
+          address: input.address,
+          tariffKwhRate: input.tariffKwhRate,
+          timeZone: input.timeZone ?? "Asia/Seoul"
+        },
         summary: { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
         floors: input.floors.map((floor, index) => ({
           id: `floor-onboarded-${index + 1}`,
@@ -358,7 +366,7 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("heading", { name: section.label })).toBeInTheDocument();
-    expect(screen.getByText("이 설정 화면은 준비 중입니다.")).toBeInTheDocument();
+    expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
   });
 
   it.each(["/monitoring", "/control", "/statistics", "/settings", "/unrecognized-route"])(
@@ -403,6 +411,31 @@ describe("App", () => {
 
     expect(await screen.findByRole("link", { name: "모니터링" })).toHaveAttribute("href", "/monitoring?siteId=site-2");
     expect(screen.queryByRole("heading", { name: "현장 관리자 계정" })).not.toBeInTheDocument();
+  });
+
+  it("redirects a pending admin from monitoring to initial settings while preserving siteId", async () => {
+    window.history.pushState({}, "", "/monitoring?siteId=site-2");
+    apiState.dashboard = {
+      ...mockDashboard,
+      site: {
+        ...mockDashboard.site,
+        id: "site-2",
+        name: "물류센터",
+        customerName: "고객사 B",
+        installationStatus: "pending",
+        address: null,
+        tariffKwhRate: null,
+        timeZone: "Asia/Seoul"
+      },
+      floors: [],
+      gateways: []
+    };
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(await screen.findByRole("heading", { name: "초기 설치 설정" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings");
+    expect(window.location.search).toBe("?siteId=site-2");
   });
 
   it("redirects a viewer's unavailable settings URL to the settings overview", async () => {
@@ -1058,7 +1091,7 @@ describe("App", () => {
     expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
   });
 
-  it("hides commissioning controls from an admin for an existing site", async () => {
+  it("shows commissioning controls to an admin for an installed site without fixtures", async () => {
     apiState.dashboard = {
       ...mockDashboard,
       summary: { ...mockDashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
@@ -1072,19 +1105,33 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "조명 검색 시작" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "조명 등록" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
     await screen.findByRole("heading", { name: "운영 설정" });
-    expect(screen.queryByText("게이트웨이 등록")).not.toBeInTheDocument();
-    expect(screen.queryByText("조명 등록")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "조명 등록" })).toBeInTheDocument();
+  });
+
+  it("never shows commissioning controls to a viewer", async () => {
+    authState.user = { ...authState.user!, role: "viewer" };
+    apiState.dashboard = {
+      ...mockDashboard,
+      summary: { ...mockDashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
+      floors: mockDashboard.floors.map((floor) => ({ ...floor, fixtures: [] })),
+      groups: []
+    };
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "게이트웨이 등록" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "조명 등록" })).not.toBeInTheDocument();
   });
 
   it("shows installation pending instead of SetupWizard for an admin with no accessible site", async () => {
     apiState.dashboard = {
       ...mockDashboard,
-      site: { id: "", name: "" },
+      site: { id: "", name: "", customerName: "", installationStatus: "pending", address: null, tariffKwhRate: null, timeZone: "Asia/Seoul" },
       summary: { ...mockDashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
       floors: [],
       gateways: [],

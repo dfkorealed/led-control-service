@@ -28,6 +28,7 @@
 
 ## 구현 완료
 
+- pending assigned admin이 제어 직접 URL로 들어오면 CustomerShell이 제어 화면을 계속 열지 않고 selected/default `siteId`를 보존한 최초 설치 설정으로 replace한다. 설치 완료 전에는 제어 mutation UI가 노출되지 않는다.
 - dashboard의 fixture, 층, 저장 구역 목록을 기반으로 `개별/다중`, `층`, `구역` 제어 대상을 선택할 수 있다.
 - 개별/다중 조명 목록은 이름 검색, 상태·층 필터, checkbox 선택을 제공하고 선택 개수와 제어 불가 개수를 표시한다.
 - 개별/다중 조명은 최대 1,000개까지 선택할 수 있으며, 목록은 최초 100개를 렌더링하고 `더 보기`로 100개씩 추가해 대규모 현장의 브라우저 부하를 제한한다.
@@ -138,6 +139,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- pending redirect는 웹 mock 기반 회귀 테스트로 검증했으며, Task 9 실백엔드 E2E와 실제 Gateway/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - 스케줄 제어는 추후 구현 범위이며, 동작하지 않는 버튼은 양산 UI에서 제거했다.
 - 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.

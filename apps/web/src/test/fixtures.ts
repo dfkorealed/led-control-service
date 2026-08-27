@@ -11,7 +11,15 @@ export const mockUser = {
 };
 
 export const mockDashboard: Dashboard = {
-  site: { id: "00000000-0000-4000-8000-000000000003", name: "Demo Underground Parking" },
+  site: {
+    id: "00000000-0000-4000-8000-000000000003",
+    name: "Demo Underground Parking",
+    customerName: "Demo Customer",
+    installationStatus: "installed",
+    address: "서울시 강남구",
+    tariffKwhRate: 160,
+    timeZone: "Asia/Seoul"
+  },
   summary: {
     totalFixtures: 16,
     onlineFixtures: 14,

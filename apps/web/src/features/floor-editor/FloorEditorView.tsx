@@ -207,7 +207,7 @@ export function FloorEditorView({
           <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />
           <RevisionPanel
             revisions={revisions}
-            canRestore={!readOnly && (userRole === "operator" || userRole === "admin")}
+            canRestore={!readOnly && userRole === "admin"}
             isDirty={isDirty}
             restoringRevision={restoringRevision}
             isMutationPending={isSaveOrRestoreBlocked}

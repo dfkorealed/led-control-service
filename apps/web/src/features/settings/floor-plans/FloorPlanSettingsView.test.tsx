@@ -14,14 +14,14 @@ describe("FloorPlanSettingsView", () => {
     vi.clearAllMocks();
   });
 
-  it.each(["operator", "admin"] as const)("links an %s to the floor editor while preserving siteId", async (userRole) => {
+  it("links an admin to the floor editor while preserving siteId", async () => {
     const dashboard = { ...mockDashboard, floors: [mockDashboard.floors[0]] };
     useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
 
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-2"]}>
         <Routes>
-          <Route path="/settings/floor-plans" element={<FloorPlanSettingsView siteId="site-2" userRole={userRole} />} />
+          <Route path="/settings/floor-plans" element={<FloorPlanSettingsView siteId="site-2" userRole="admin" />} />
           <Route path="/settings/floor-plans/:floorId/edit" element={<h2>B2 도면 편집</h2>} />
         </Routes>
       </MemoryRouter>

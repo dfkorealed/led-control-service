@@ -9,14 +9,26 @@ vi.mock("../../api/setup", () => ({ createInitialSiteSetup: vi.fn() }));
 const createInitialSiteSetupMock = vi.mocked(createInitialSiteSetup);
 
 const dashboard: Dashboard = {
-  site: { id: "site-1", name: "A 주차장" },
+  site: {
+    id: "site-1",
+    name: "A 주차장",
+    customerName: "고객사 A",
+    installationStatus: "installed",
+    address: "서울시 강남구",
+    tariffKwhRate: 160,
+    timeZone: "Asia/Seoul"
+  },
   summary: { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
   floors: [], groups: [], gateways: []
 };
 
 function renderWizard(onComplete = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  render(<QueryClientProvider client={queryClient}><SetupWizard onComplete={onComplete} /></QueryClientProvider>);
+  render(
+    <QueryClientProvider client={queryClient}>
+      <SetupWizard siteId="site-1" customerName="고객사 A" siteName="A 주차장" onComplete={onComplete} />
+    </QueryClientProvider>
+  );
   return { queryClient, onComplete };
 }
 
@@ -41,26 +53,27 @@ describe("SetupWizard", () => {
     expect(screen.queryByLabelText("고객사명")).not.toBeInTheDocument();
   });
 
-  it("고객사명과 현장·층을 생성하며 수동 게이트웨이 정보를 전송하지 않는다", async () => {
+  it("assigned pending site를 고객사명·현장명 입력 없이 완료한다", async () => {
     createInitialSiteSetupMock.mockResolvedValue(dashboard);
-    const { onComplete } = renderWizard();
-    fireEvent.change(screen.getByLabelText("고객사명"), { target: { value: "고객사 A" } });
-    fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "A 주차장" } });
+    const { onComplete, queryClient } = renderWizard();
+    expect(screen.getByText("고객사 A")).toBeInTheDocument();
+    expect(screen.getByText("A 주차장")).toBeInTheDocument();
+    expect(screen.queryByLabelText("고객사명")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("현장명")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
     await waitFor(() => expect(createInitialSiteSetupMock).toHaveBeenCalledTimes(1));
     expect(createInitialSiteSetupMock).toHaveBeenCalledWith({
-      customerOrganizationName: "고객사 A", siteName: "A 주차장", address: "서울시 강남구", tariffKwhRate: 160,
+      siteId: "site-1", address: "서울시 강남구", tariffKwhRate: 160,
       floors: [{ name: "B2", level: -2 }, { name: "B1", level: -1 }]
     });
     expect(screen.queryByLabelText("게이트웨이 시리얼")).not.toBeInTheDocument();
     expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(["dashboard", "site-1"])).toEqual(dashboard);
   });
 
   it("주소가 없으면 제출을 막고 미입력 값을 선택할 수 있다", () => {
     renderWizard();
-    fireEvent.change(screen.getByLabelText("고객사명"), { target: { value: "고객사 A" } });
-    fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "주소 미정" } });
     expect(screen.getByRole("button", { name: "초기 설정 완료" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "주소 미입력" }));
     expect(screen.getByLabelText("주소")).toHaveValue("미입력");
@@ -68,8 +81,6 @@ describe("SetupWizard", () => {
 
   it("중복 층 이름을 거부한다", () => {
     renderWizard();
-    fireEvent.change(screen.getByLabelText("고객사명"), { target: { value: "고객사 A" } });
-    fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "중복 현장" } });
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울" } });
     fireEvent.change(screen.getByLabelText("층 이름 2"), { target: { value: "B2" } });
     expect(screen.getByText("층 이름은 중복될 수 없습니다.")).toHaveAttribute("role", "alert");
@@ -77,8 +88,6 @@ describe("SetupWizard", () => {
 
   it("과도한 단가와 층수를 거부한다", () => {
     renderWizard();
-    fireEvent.change(screen.getByLabelText("고객사명"), { target: { value: "고객사 A" } });
-    fireEvent.change(screen.getByLabelText("현장명"), { target: { value: "검증 현장" } });
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울" } });
     fireEvent.change(screen.getByLabelText("kWh 단가"), { target: { value: "Infinity" } });
     expect(screen.getByText("kWh 단가는 0보다 큰 100000 이하의 숫자여야 합니다.")).toBeInTheDocument();

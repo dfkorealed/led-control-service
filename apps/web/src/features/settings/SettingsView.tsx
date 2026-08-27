@@ -3,13 +3,23 @@ import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 
-export function SettingsView({ userRole = "operator", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
+export function SettingsView({ userRole, siteId }: { userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
   const { data } = useDashboard(siteId);
 
   if (!data?.site.id) {
     return (
       <section className="settings-screen">
-        {userRole === "operator" ? <SetupWizard /> : <InstallationPending />}
+        <InstallationPending />
+      </section>
+    );
+  }
+
+  if (data.site.installationStatus === "pending") {
+    return (
+      <section className="settings-screen">
+        {userRole === "admin"
+          ? <SetupWizard siteId={data.site.id} customerName={data.site.customerName} siteName={data.site.name} />
+          : <InstallationPending />}
       </section>
     );
   }
@@ -42,7 +52,7 @@ export function SettingsView({ userRole = "operator", siteId }: { userRole?: "op
           </div>
         ))}
       </div>
-      {userRole === "operator" ? (
+      {userRole === "admin" ? (
         data.gateways.length === 0
           ? <GatewayClaimPanel siteId={data.site.id} />
           : <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />

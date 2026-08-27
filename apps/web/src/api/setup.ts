@@ -12,8 +12,7 @@ export interface InitialFloorInput {
 }
 
 export interface InitialSiteSetupRequest {
-  customerOrganizationName: string;
-  siteName: string;
+  siteId: string;
   address: string;
   tariffKwhRate: number;
   timeZone?: string;

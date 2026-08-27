@@ -30,3 +30,11 @@ export function signup(input: { token: string; loginId: string; email: string; n
 export function logout() {
   return apiPost<{ ok: boolean }>("/auth/logout", {});
 }
+
+export function changePassword(input: {
+  currentPassword: string;
+  newPassword: string;
+  newPasswordConfirmation: string;
+}) {
+  return apiPost<{ ok: boolean }>("/auth/change-password", input);
+}

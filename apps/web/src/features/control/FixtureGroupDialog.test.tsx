@@ -205,7 +205,15 @@ function createDashboard(): Dashboard {
     controlBlockReason: null
   });
   return {
-    site: { id: ids.site, name: "테스트 현장" },
+    site: {
+      id: ids.site,
+      name: "테스트 현장",
+      customerName: "테스트 고객사",
+      installationStatus: "installed",
+      address: "서울시 강남구",
+      tariffKwhRate: 160,
+      timeZone: "Asia/Seoul"
+    },
     summary: { totalFixtures: 2, onlineFixtures: 2, faultFixtures: 0, averageBrightness: 70 },
     floors: [{
       id: ids.floor,

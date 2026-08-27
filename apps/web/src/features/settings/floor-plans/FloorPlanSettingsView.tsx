@@ -10,7 +10,7 @@ interface FloorPlanSettingsViewProps {
 export function FloorPlanSettingsView({ siteId, userRole }: FloorPlanSettingsViewProps) {
   const { data, isLoading, error } = useDashboard(siteId);
   const location = useLocation();
-  const canEdit = userRole === "operator" || userRole === "admin";
+  const canEdit = userRole === "admin";
 
   return (
     <section className="settings-screen">

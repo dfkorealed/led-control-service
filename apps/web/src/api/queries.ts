@@ -11,7 +11,15 @@ export const monitoringQueryPolicy = {
 } as const;
 
 export interface Dashboard {
-  site: { id: string; name: string };
+  site: {
+    id: string;
+    name: string;
+    customerName: string;
+    installationStatus: "pending" | "installed";
+    address: string | null;
+    tariffKwhRate: number | null;
+    timeZone: string;
+  };
   summary: {
     totalFixtures: number;
     onlineFixtures: number;

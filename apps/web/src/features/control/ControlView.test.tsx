@@ -44,7 +44,15 @@ const USER_A = "user-a";
 const USER_B = "user-b";
 
 const dashboard: Dashboard = {
-  site: { id: "00000000-0000-4000-8000-000000000003", name: "테스트 현장" },
+  site: {
+    id: "00000000-0000-4000-8000-000000000003",
+    name: "테스트 현장",
+    customerName: "테스트 고객사",
+    installationStatus: "installed",
+    address: "서울시 강남구",
+    tariffKwhRate: 160,
+    timeZone: "Asia/Seoul"
+  },
   summary: { totalFixtures: 4, onlineFixtures: 3, faultFixtures: 0, averageBrightness: 65 },
   floors: [
     {
@@ -469,7 +477,7 @@ describe("ControlView 대상 선택", () => {
 
     const nextDashboard: Dashboard = {
       ...dashboard,
-      site: { id: "00000000-0000-4000-8000-000000000099", name: "다음 현장" }
+      site: { ...dashboard.site, id: "00000000-0000-4000-8000-000000000099", name: "다음 현장" }
     };
     mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
     rerender(controlElement(nextDashboard.site.id));
@@ -615,7 +623,7 @@ describe("ControlView 대상 선택", () => {
     const originalSignal = mocks.apiPost.mock.calls[0][2]?.signal as AbortSignal;
 
     const nextSiteId = "00000000-0000-4000-8000-000000000099";
-    const nextDashboard: Dashboard = { ...dashboard, site: { id: nextSiteId, name: "다음 현장" } };
+    const nextDashboard: Dashboard = { ...dashboard, site: { ...dashboard.site, id: nextSiteId, name: "다음 현장" } };
     mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
     rerender(controlElement(nextSiteId));
     expect(originalSignal.aborted).toBe(true);
@@ -764,7 +772,7 @@ describe("ControlView 대상 선택", () => {
     const { rerender } = renderControl();
 
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.siteA));
-    const nextDashboard: Dashboard = { ...dashboard, site: { id: nextSiteId, name: "다음 현장" } };
+    const nextDashboard: Dashboard = { ...dashboard, site: { ...dashboard.site, id: nextSiteId, name: "다음 현장" } };
     mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
     rerender(controlElement(nextSiteId));
 
@@ -823,7 +831,7 @@ function createFixture(
 function createLargeDashboard(fixtureCount: number): Dashboard {
   return {
     ...dashboard,
-    site: { id: "00000000-0000-4000-8000-000000000088", name: "대규모 현장" },
+    site: { ...dashboard.site, id: "00000000-0000-4000-8000-000000000088", name: "대규모 현장" },
     summary: {
       totalFixtures: fixtureCount,
       onlineFixtures: fixtureCount,

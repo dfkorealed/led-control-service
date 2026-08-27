@@ -41,7 +41,7 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   const leaseTokenRef = useRef<string | null>(null);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
   const selectedSiteId = new URLSearchParams(location.search).get("siteId");
-  const canEdit = userRole === "operator" || userRole === "admin";
+  const canEdit = userRole === "admin";
   const editorQuery = useQuery({
     queryKey: ["floor-editor", selectedSiteId ?? "unresolved", floorId],
     queryFn: () => getFloorEditorState(floorId ?? ""),

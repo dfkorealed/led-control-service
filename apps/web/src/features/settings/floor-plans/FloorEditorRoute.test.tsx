@@ -378,7 +378,7 @@ describe("FloorEditorRoute", () => {
 
   it("scopes the editor query by site and floor", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
-    const { queryClient } = renderRoute("operator");
+    const { queryClient } = renderRoute("admin");
 
     await screen.findByRole("heading", { name: "B2 도면 편집" });
 
@@ -387,7 +387,7 @@ describe("FloorEditorRoute", () => {
 
   it("canonicalizes a direct editor URL without siteId from the editor response", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
-    const { queryClient } = renderRoute("operator", "/settings/floor-plans/floor-b2/edit");
+    const { queryClient } = renderRoute("admin", "/settings/floor-plans/floor-b2/edit");
 
     await waitFor(() => expect(queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toEqual(editorState));
     expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
@@ -431,7 +431,7 @@ describe("FloorEditorRoute", () => {
   it("requires confirmation for dirty cancel but not after save", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    renderRoute("operator");
+    renderRoute("admin");
     await screen.findByRole("heading", { name: "B2 도면 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
 

@@ -16,9 +16,8 @@ import { MonitoringView } from "../monitoring/MonitoringView";
 import { SettingsShell } from "../settings/SettingsShell";
 import { FloorEditorRoute } from "../settings/floor-plans/FloorEditorRoute";
 import { FloorPlanSettingsView } from "../settings/floor-plans/FloorPlanSettingsView";
-import { SettingsPlaceholderView } from "../settings/SettingsPlaceholderView";
 import { SettingsView } from "../settings/SettingsView";
-import { settingsPlaceholderSections } from "../settings/settings-sections";
+import { PasswordSettingsView } from "../settings/security/PasswordSettingsView";
 import { StatisticsView } from "../statistics/StatisticsView";
 
 const items = [
@@ -37,6 +36,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   const [logoutError, setLogoutError] = useState("");
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
   const { data: dashboard } = useDashboard(siteId);
+  const selectedSiteId = siteId ?? dashboard?.site.id;
   const gateway = dashboard?.gateways[0];
   const gatewayStatusLabel = gateway ? (gateway.connectionStatus === "online" ? "게이트웨이 정상" : "게이트웨이 오프라인") : "게이트웨이 미등록";
   const gatewayStatusClass = gateway?.connectionStatus === "online" ? "online" : "offline";
@@ -67,6 +67,14 @@ export function CustomerShell({ user }: { user: AuthUser }) {
       setIsLoggingOut(false);
       setLogoutError("로그아웃에 실패했습니다. 연결을 확인한 뒤 다시 시도하세요.");
     }
+  }
+
+  const mustCompleteInstallation = user.role === "admin"
+    && dashboard?.site.installationStatus === "pending"
+    && location.pathname !== "/settings";
+  if (mustCompleteInstallation) {
+    const settingsSearch = selectedSiteId ? `?siteId=${encodeURIComponent(selectedSiteId)}` : location.search;
+    return <Navigate to={`/settings${settingsSearch}`} replace />;
   }
 
   return (
@@ -130,16 +138,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           />
           <Route path="/statistics" element={<StatisticsView siteId={siteId ?? dashboard?.site.id} />} />
           <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
-            <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
+            <Route index element={<SettingsView userRole={user.role} siteId={selectedSiteId} />} />
             <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />
             <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={user.role} />} />
-            {settingsPlaceholderSections.map((section) => (
-              <Route
-                key={section.path}
-                path={section.path.replace("/settings/", "")}
-                element={<SettingsPlaceholderView section={section} userRole={user.role} />}
-              />
-            ))}
+            <Route path="security" element={<PasswordSettingsView />} />
             <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
           </Route>
           <Route path="*" element={<Navigate to={`/monitoring${location.search}`} replace />} />

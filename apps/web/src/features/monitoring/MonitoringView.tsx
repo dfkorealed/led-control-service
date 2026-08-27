@@ -2,7 +2,7 @@ import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
-import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
+import { InstallationPending } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 import { FloorMap } from "./FloorMap";
 
@@ -12,7 +12,7 @@ const statusLabels = {
   fault: "장애"
 } as const;
 
-export function MonitoringView({ userRole = "operator", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
+export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading, error } = dashboardQuery;
 
@@ -90,7 +90,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   if (!data.site.id) {
     return (
       <section className="screen-grid monitoring-screen">
-        {userRole === "operator" ? <SetupWizard /> : <InstallationPending />}
+        <InstallationPending />
       </section>
     );
   }
@@ -104,7 +104,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <h2>등록된 조명이 없습니다</h2>
           </div>
         </div>
-        {userRole === "operator" ? (
+        {userRole === "admin" ? (
           data.gateways.length === 0
             ? <GatewayClaimPanel siteId={data.site.id} />
             : <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
