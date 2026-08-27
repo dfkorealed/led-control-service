@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Pencil, Plus, UserPlus, UserRoundX } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   assignSiteAdmin,
   createSiteAdmin,
@@ -26,6 +26,7 @@ export function SiteAdminManagementView() {
   const queryClient = useQueryClient();
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [returnFocusElement, setReturnFocusElement] = useState<HTMLElement | null>(null);
+  const createCommandRef = useRef<HTMLButtonElement>(null);
   const [notice, setNotice] = useState("");
   const siteAdmins = useQuery({ queryKey: operatorSiteAdminsQueryKey, queryFn: listSiteAdmins });
 
@@ -51,7 +52,7 @@ export function SiteAdminManagementView() {
           <span className="eyebrow">서비스 운영</span>
           <h1 id="operator-site-admins-heading">현장 관리자 계정</h1>
         </div>
-        <button className="primary-button" type="button" onClick={(event) => openDialog({ type: "create" }, event.currentTarget)}>
+        <button ref={createCommandRef} className="primary-button" type="button" onClick={(event) => openDialog({ type: "create" }, event.currentTarget)}>
           <Plus size={16} aria-hidden="true" /> 현장 및 관리자 생성
         </button>
       </div>
@@ -81,11 +82,11 @@ export function SiteAdminManagementView() {
         </div>
       ) : null}
 
-      {dialog?.type === "create" ? <SiteAdminFormDialog mode="create" returnFocusElement={returnFocusElement} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
-      {dialog?.type === "assign" ? <SiteAdminFormDialog mode="assign" site={dialog.site} returnFocusElement={returnFocusElement} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
-      {dialog?.type === "edit" ? <SiteAdminFormDialog mode="edit" admin={dialog.admin} returnFocusElement={returnFocusElement} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
-      {dialog?.type === "reset" ? <ResetAdminPasswordDialog admin={dialog.admin} returnFocusElement={returnFocusElement} onReset={resetSiteAdminPassword} onSuccess={() => complete("관리자 비밀번호를 재설정했습니다.")} onClose={closeDialog} /> : null}
-      {dialog?.type === "disable" ? <DisableSiteAdminDialog admin={dialog.admin} returnFocusElement={returnFocusElement} onDisable={disableSiteAdmin} onSuccess={() => complete("관리자 계정을 비활성화했습니다.")} onClose={closeDialog} /> : null}
+      {dialog?.type === "create" ? <SiteAdminFormDialog mode="create" returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
+      {dialog?.type === "assign" ? <SiteAdminFormDialog mode="assign" site={dialog.site} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
+      {dialog?.type === "edit" ? <SiteAdminFormDialog mode="edit" admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
+      {dialog?.type === "reset" ? <ResetAdminPasswordDialog admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onReset={resetSiteAdminPassword} onSuccess={() => complete("관리자 비밀번호를 재설정했습니다.")} onClose={closeDialog} /> : null}
+      {dialog?.type === "disable" ? <DisableSiteAdminDialog admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onDisable={disableSiteAdmin} onSuccess={() => complete("관리자 계정을 비활성화했습니다.")} onClose={closeDialog} /> : null}
     </section>
   );
 }

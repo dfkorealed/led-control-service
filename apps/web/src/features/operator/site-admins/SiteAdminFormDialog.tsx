@@ -11,6 +11,7 @@ interface SiteAdminFormDialogProps {
   site?: SiteAdminSummary;
   admin?: NonNullable<SiteAdminSummary["admin"]>;
   returnFocusElement?: HTMLElement | null;
+  fallbackFocusElement?: HTMLElement | null;
   onCreate: (input: CreateSiteAdminInput) => Promise<unknown>;
   onAssign: (siteId: string, input: AssignSiteAdminInput) => Promise<unknown>;
   onUpdate: (userId: string, input: UpdateSiteAdminInput) => Promise<unknown>;
@@ -33,6 +34,7 @@ export function SiteAdminFormDialog({
   site,
   admin,
   returnFocusElement,
+  fallbackFocusElement,
   onCreate,
   onAssign,
   onUpdate,
@@ -47,65 +49,59 @@ export function SiteAdminFormDialog({
     adminName: admin?.name ?? "",
     loginId: admin?.loginId ?? ""
   }));
-  const formRef = useRef(form);
-  formRef.current = form;
   const [loginIdError, setLoginIdError] = useState("");
   const [generalError, setGeneralError] = useState("");
+  const [isSubmittingPasswordFlow, setIsSubmittingPasswordFlow] = useState(false);
+  const passwordSubmissionInFlightRef = useRef(false);
+  const successfulCloseRef = useRef(false);
+  const editInputRef = useRef<UpdateSiteAdminInput>({ adminName: admin?.name ?? "", loginId: admin?.loginId ?? "" });
+  editInputRef.current = { adminName: form.adminName.trim(), loginId: form.loginId.trim() };
 
   useEffect(() => {
     if (loginIdError) loginIdRef.current?.focus();
   }, [loginIdError]);
 
   function close() {
-    if (mutation.isPending) return;
+    if (isPending) return;
+    successfulCloseRef.current = false;
     setForm(emptyForm);
     setLoginIdError("");
     setGeneralError("");
     onClose();
   }
 
-  useDialogFocus({ open: true, dialogRef, returnFocusElement, onClose: close, initialFocusRef });
+  useDialogFocus({
+    open: true,
+    dialogRef,
+    returnFocusElement,
+    fallbackFocusElement,
+    preferFallbackRef: successfulCloseRef,
+    onClose: close,
+    initialFocusRef
+  });
 
-  const mutation = useMutation({
-    // Calling mutate() without variables keeps password fields out of React Query's mutation cache.
+  const editMutation = useMutation({
     mutationFn: () => {
-      const current = formRef.current;
-      if (mode === "create") {
-        return onCreate({
-          customerName: current.customerName.trim(),
-          siteName: current.siteName.trim(),
-          adminName: current.adminName.trim(),
-          loginId: current.loginId.trim(),
-          initialPassword: current.initialPassword
-        });
-      }
-      if (mode === "assign" && site) {
-        return onAssign(site.siteId, {
-          adminName: current.adminName.trim(),
-          loginId: current.loginId.trim(),
-          initialPassword: current.initialPassword
-        });
-      }
-      if (mode === "edit" && admin) {
-        return onUpdate(admin.id, { adminName: current.adminName.trim(), loginId: current.loginId.trim() });
-      }
-      throw new Error("관리자 계정 대상이 없습니다.");
+      if (!admin) throw new Error("관리자 계정 대상이 없습니다.");
+      return onUpdate(admin.id, editInputRef.current);
     },
     onSuccess: () => {
       setForm(emptyForm);
-      onSuccess(mode === "create" ? "현장과 관리자 계정을 생성했습니다." : mode === "assign" ? "현장 관리자를 지정했습니다." : "관리자 정보를 수정했습니다.");
+      successfulCloseRef.current = true;
+      onSuccess("관리자 정보를 수정했습니다.");
       onClose();
     },
     onError: (error) => {
-      if (isConflict(error)) {
+      if (isLoginIdDuplicate(error)) {
         setLoginIdError("이미 사용 중인 로그인 아이디입니다.");
       } else {
-        setGeneralError("관리자 계정 변경을 완료하지 못했습니다. 입력과 연결 상태를 확인해 주세요.");
+        setGeneralError("관리자 계정 변경을 완료하지 못했습니다. 잠시 후 다시 시도하세요.");
       }
     }
   });
 
   const needsPassword = mode !== "edit";
+  const isPending = needsPassword ? isSubmittingPasswordFlow : editMutation.isPending;
   const valid = Boolean(form.adminName.trim() && form.loginId.trim()
     && (!needsPassword || form.initialPassword)
     && (mode !== "create" || (form.customerName.trim() && form.siteName.trim())));
@@ -116,6 +112,57 @@ export function SiteAdminFormDialog({
       : `${admin?.name ?? "관리자"} 수정`;
   const submitLabel = mode === "create" ? "생성" : mode === "assign" ? "지정" : "저장";
 
+  async function submitPasswordFlow() {
+    if (passwordSubmissionInFlightRef.current) return;
+    passwordSubmissionInFlightRef.current = true;
+    const current = form;
+    setLoginIdError("");
+    setGeneralError("");
+    setIsSubmittingPasswordFlow(true);
+
+    try {
+      if (mode === "create") {
+        await onCreate({
+          customerName: current.customerName.trim(),
+          siteName: current.siteName.trim(),
+          adminName: current.adminName.trim(),
+          loginId: current.loginId.trim(),
+          initialPassword: current.initialPassword
+        });
+        setForm(emptyForm);
+        passwordSubmissionInFlightRef.current = false;
+        setIsSubmittingPasswordFlow(false);
+        successfulCloseRef.current = true;
+        onSuccess("현장과 관리자 계정을 생성했습니다.");
+        onClose();
+        return;
+      }
+      if (mode === "assign" && site) {
+        await onAssign(site.siteId, {
+          adminName: current.adminName.trim(),
+          loginId: current.loginId.trim(),
+          initialPassword: current.initialPassword
+        });
+        setForm(emptyForm);
+        passwordSubmissionInFlightRef.current = false;
+        setIsSubmittingPasswordFlow(false);
+        successfulCloseRef.current = true;
+        onSuccess("현장 관리자를 지정했습니다.");
+        onClose();
+        return;
+      }
+      throw new Error("관리자 계정 대상이 없습니다.");
+    } catch (error) {
+      passwordSubmissionInFlightRef.current = false;
+      setIsSubmittingPasswordFlow(false);
+      if (isLoginIdDuplicate(error)) {
+        setLoginIdError("이미 사용 중인 로그인 아이디입니다.");
+      } else {
+        setGeneralError("관리자 계정 변경을 완료하지 못했습니다. 잠시 후 다시 시도하세요.");
+      }
+    }
+  }
+
   return (
     <div className="operator-dialog-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.currentTarget === event.target) close();
@@ -123,13 +170,15 @@ export function SiteAdminFormDialog({
       <section ref={dialogRef} className="operator-dialog" role="dialog" aria-modal="true" aria-labelledby="site-admin-form-dialog-title" tabIndex={-1}>
         <header className="operator-dialog-header">
           <h2 id="site-admin-form-dialog-title">{title}</h2>
-          <button className="icon-button" type="button" aria-label={`${title} 닫기`} onClick={close} disabled={mutation.isPending}>
+          <button className="icon-button" type="button" aria-label={`${title} 닫기`} onClick={close} disabled={isPending}>
             <X size={18} aria-hidden="true" />
           </button>
         </header>
         <form className="operator-form" onSubmit={(event) => {
           event.preventDefault();
-          if (valid && !mutation.isPending) mutation.mutate();
+          if (!valid || isPending) return;
+          if (mode === "edit") editMutation.mutate();
+          else void submitPasswordFlow();
         }}>
           {mode === "create" ? (
             <div className="operator-form-grid">
@@ -157,8 +206,8 @@ export function SiteAdminFormDialog({
           ) : null}
           {generalError ? <p className="danger-text" role="alert">{generalError}</p> : null}
           <footer className="operator-dialog-actions">
-            <button type="button" onClick={close} disabled={mutation.isPending}>취소</button>
-            <button className="primary-button" type="submit" disabled={!valid || mutation.isPending}>{mutation.isPending ? "처리 중" : submitLabel}</button>
+            <button type="button" onClick={close} disabled={isPending}>취소</button>
+            <button className="primary-button" type="submit" disabled={!valid || isPending}>{isPending ? "처리 중" : submitLabel}</button>
           </footer>
         </form>
       </section>
@@ -166,6 +215,12 @@ export function SiteAdminFormDialog({
   );
 }
 
-function isConflict(error: unknown) {
-  return typeof error === "object" && error !== null && "status" in error && (error as { status?: unknown }).status === 409;
+function isLoginIdDuplicate(error: unknown) {
+  if (typeof error !== "object" || error === null || !("status" in error) || !("body" in error)) return false;
+  const apiError = error as { status?: unknown; body?: unknown };
+  return apiError.status === 409
+    && typeof apiError.body === "object"
+    && apiError.body !== null
+    && "message" in apiError.body
+    && (apiError.body as { message?: unknown }).message === "loginId already exists";
 }

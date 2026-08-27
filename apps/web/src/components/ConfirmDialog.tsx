@@ -14,12 +14,16 @@ export function useDialogFocus({
   open,
   dialogRef,
   returnFocusElement,
+  fallbackFocusElement,
+  preferFallbackRef,
   onClose,
   initialFocusRef
 }: {
   open: boolean;
   dialogRef: RefObject<HTMLElement | null>;
   returnFocusElement?: HTMLElement | null;
+  fallbackFocusElement?: HTMLElement | null;
+  preferFallbackRef?: RefObject<boolean>;
   onClose: () => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
 }) {
@@ -67,9 +71,14 @@ export function useDialogFocus({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      if (restoreTarget?.isConnected) restoreTarget.focus();
+      const target = preferFallbackRef?.current ? fallbackFocusElement : restoreTarget;
+      if (target?.isConnected) {
+        target.focus();
+      } else if (fallbackFocusElement?.isConnected) {
+        fallbackFocusElement.focus();
+      }
     };
-  }, [dialogRef, initialFocusRef, open, returnFocusElement]);
+  }, [dialogRef, fallbackFocusElement, initialFocusRef, open, preferFallbackRef, returnFocusElement]);
 }
 
 interface ConfirmDialogProps {
@@ -82,6 +91,8 @@ interface ConfirmDialogProps {
   confirmDisabled?: boolean;
   destructive?: boolean;
   returnFocusElement?: HTMLElement | null;
+  fallbackFocusElement?: HTMLElement | null;
+  preferFallbackRef?: RefObject<boolean>;
   initialFocusRef?: RefObject<HTMLElement | null>;
   children?: ReactNode;
   onConfirm: () => void;
@@ -98,13 +109,15 @@ export function ConfirmDialog({
   confirmDisabled = false,
   destructive = false,
   returnFocusElement,
+  fallbackFocusElement,
+  preferFallbackRef,
   initialFocusRef,
   children,
   onConfirm,
   onClose
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLElement>(null);
-  useDialogFocus({ open, dialogRef, returnFocusElement, onClose, initialFocusRef });
+  useDialogFocus({ open, dialogRef, returnFocusElement, fallbackFocusElement, preferFallbackRef, onClose, initialFocusRef });
 
   if (!open) return null;
   const titleId = "confirm-dialog-title";

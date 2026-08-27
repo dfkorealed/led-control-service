@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../api/client";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
 import { SiteAdminManagementView } from "./SiteAdminManagementView";
 
@@ -53,7 +54,7 @@ describe("SiteAdminManagementView", () => {
 
   afterEach(cleanup);
 
-  it("creates a site admin and never retains the plaintext password in query data or rendered output", async () => {
+  it("creates a site admin without creating a password-bearing React Query mutation", async () => {
     const queryClient = renderView();
     await screen.findByText("인천 물류센터");
 
@@ -79,11 +80,11 @@ describe("SiteAdminManagementView", () => {
     expect(screen.queryByText("plain-text-password")).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue("plain-text-password")).not.toBeInTheDocument();
     expect(JSON.stringify(queryClient.getQueryData(["operator", "site-admins"]))).not.toContain("plain-text-password");
-    expect(queryClient.getMutationCache().getAll().every((mutation) => mutation.state.variables === undefined)).toBe(true);
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
   });
 
   it("assigns an administrator to an unassigned site with the existing site id", async () => {
-    renderView();
+    const queryClient = renderView();
     await screen.findByText("강남 주차장");
 
     fireEvent.click(screen.getByRole("button", { name: "강남 주차장 관리자 지정" }));
@@ -95,6 +96,7 @@ describe("SiteAdminManagementView", () => {
       loginId: "parking_admin",
       initialPassword: "assign-password"
     }));
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
   });
 
   it("updates an assigned administrator without asking for or storing a password", async () => {
@@ -132,7 +134,7 @@ describe("SiteAdminManagementView", () => {
     expect(screen.queryByText("new-password")).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue("new-password")).not.toBeInTheDocument();
     expect(JSON.stringify(queryClient.getQueryData(["operator", "site-admins"]))).not.toContain("new-password");
-    expect(queryClient.getMutationCache().getAll().every((mutation) => mutation.state.variables === undefined)).toBe(true);
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
   });
 
   it("uses the shared destructive confirmation to disable an admin and states the access consequence", async () => {
@@ -148,7 +150,7 @@ describe("SiteAdminManagementView", () => {
   });
 
   it("maps a login id conflict to its field, focuses it, and restores trigger focus after Escape", async () => {
-    api.updateSiteAdmin.mockRejectedValue({ name: "ApiError", status: 409, body: { message: "loginId already exists" } });
+    api.updateSiteAdmin.mockRejectedValue(new ApiError("PATCH failed", 409, { message: "loginId already exists" }));
     renderView();
     await screen.findByText("customer_admin");
 
@@ -163,6 +165,59 @@ describe("SiteAdminManagementView", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("shows a retryable general alert for a non-duplicate 409 conflict", async () => {
+    api.updateSiteAdmin.mockRejectedValue(new ApiError(
+      "PATCH failed",
+      409,
+      { message: "operator site admin transaction conflicted, please retry" }
+    ));
+    renderView();
+    await screen.findByText("customer_admin");
+
+    fireEvent.click(screen.getByRole("button", { name: "김관리 수정" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(await screen.findByText("관리자 계정 변경을 완료하지 못했습니다. 잠시 후 다시 시도하세요.")).toHaveAttribute("role", "alert");
+    expect(screen.queryByText("이미 사용 중인 로그인 아이디입니다.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("로그인 아이디")).not.toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("restores focus to the stable create command after assigning an admin removes its trigger", async () => {
+    const assignedParkingAdmin = { ...assignedSite.admin, id: "admin-2", name: "박관리", loginId: "parking_admin" };
+    api.listSiteAdmins.mockReset();
+    api.listSiteAdmins
+      .mockResolvedValueOnce([assignedSite, unassignedSite])
+      .mockResolvedValueOnce([{ ...unassignedSite, admin: assignedParkingAdmin }, assignedSite]);
+    renderView();
+    await screen.findByText("강남 주차장");
+
+    const createCommand = screen.getByRole("button", { name: "현장 및 관리자 생성" });
+    fireEvent.click(screen.getByRole("button", { name: "강남 주차장 관리자 지정" }));
+    fillSiteAdminForm({ adminName: "박관리", loginId: "parking_admin", password: "assign-password" });
+    fireEvent.click(screen.getByRole("button", { name: "지정" }));
+
+    await screen.findByText("박관리");
+    expect(screen.queryByRole("button", { name: "강남 주차장 관리자 지정" })).not.toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(createCommand));
+  });
+
+  it("restores focus to the stable create command after disabling an admin removes its trigger", async () => {
+    api.listSiteAdmins.mockReset();
+    api.listSiteAdmins
+      .mockResolvedValueOnce([assignedSite])
+      .mockResolvedValueOnce([{ ...assignedSite, admin: null }]);
+    renderView();
+    await screen.findByText("customer_admin");
+
+    const createCommand = screen.getByRole("button", { name: "현장 및 관리자 생성" });
+    fireEvent.click(screen.getByRole("button", { name: "김관리 비활성화" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "김관리 비활성화" })).getByRole("button", { name: "비활성화" }));
+
+    await screen.findByText("관리자 미지정");
+    expect(screen.queryByRole("button", { name: "김관리 비활성화" })).not.toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(createCommand));
   });
 
   it("renders loading, retryable fetch failure, and the operator table column contract", async () => {

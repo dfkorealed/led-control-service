@@ -1,4 +1,3 @@
-import { useMutation } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
@@ -6,22 +5,25 @@ import { ConfirmDialog } from "../../../components/ConfirmDialog";
 interface ResetAdminPasswordDialogProps {
   admin: NonNullable<SiteAdminSummary["admin"]>;
   returnFocusElement?: HTMLElement | null;
+  fallbackFocusElement?: HTMLElement | null;
   onReset: (userId: string, newPassword: string) => Promise<unknown>;
   onSuccess: () => void;
   onClose: () => void;
 }
 
-export function ResetAdminPasswordDialog({ admin, returnFocusElement, onReset, onSuccess, onClose }: ResetAdminPasswordDialogProps) {
+export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFocusElement, onReset, onSuccess, onClose }: ResetAdminPasswordDialogProps) {
   const passwordRef = useRef<HTMLInputElement>(null);
   const [newPassword, setNewPassword] = useState("");
-  const passwordRefValue = useRef(newPassword);
-  passwordRefValue.current = newPassword;
   const [confirmation, setConfirmation] = useState("");
   const [validationError, setValidationError] = useState("");
   const [generalError, setGeneralError] = useState("");
+  const [isPending, setIsPending] = useState(false);
+  const submissionInFlightRef = useRef(false);
+  const successfulCloseRef = useRef(false);
 
   function clearAndClose() {
-    if (mutation.isPending) return;
+    if (isPending) return;
+    successfulCloseRef.current = false;
     setNewPassword("");
     setConfirmation("");
     setValidationError("");
@@ -29,17 +31,25 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, onReset, o
     onClose();
   }
 
-  const mutation = useMutation({
-    // No mutation variables: React Query must never retain a plaintext password.
-    mutationFn: () => onReset(admin.id, passwordRefValue.current),
-    onSuccess: () => {
+  async function resetPassword() {
+    if (submissionInFlightRef.current) return;
+    submissionInFlightRef.current = true;
+    setIsPending(true);
+    try {
+      await onReset(admin.id, newPassword);
       setNewPassword("");
       setConfirmation("");
+      submissionInFlightRef.current = false;
+      setIsPending(false);
+      successfulCloseRef.current = true;
       onSuccess();
       onClose();
-    },
-    onError: () => setGeneralError("비밀번호를 재설정하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.")
-  });
+    } catch {
+      submissionInFlightRef.current = false;
+      setIsPending(false);
+      setGeneralError("비밀번호를 재설정하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.");
+    }
+  }
 
   function confirm() {
     setValidationError("");
@@ -53,7 +63,7 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, onReset, o
       setValidationError("비밀번호 확인이 일치하지 않습니다.");
       return;
     }
-    mutation.mutate();
+    void resetPassword();
   }
 
   return (
@@ -63,8 +73,10 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, onReset, o
       description="새 비밀번호를 설정하면 현재 로그인된 세션이 종료됩니다."
       confirmLabel="비밀번호 재설정"
       confirmDisabled={!newPassword || !confirmation}
-      isPending={mutation.isPending}
+      isPending={isPending}
       returnFocusElement={returnFocusElement}
+      fallbackFocusElement={fallbackFocusElement}
+      preferFallbackRef={successfulCloseRef}
       initialFocusRef={passwordRef}
       onConfirm={confirm}
       onClose={clearAndClose}

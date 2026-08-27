@@ -94,7 +94,7 @@
 - `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다. legacy migration은 현장 유무로 서비스 운영사를 추론하지 않으며 기존 Organization을 모두 customer로, legacy owner/operator와 invitation을 admin으로 유지한다.
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
 - invitation signup은 viewer 초대 전용 호환 API다. `{ token, loginId, email, name, password }`에서 `Invitation.email`은 연락 이메일과만 비교하고 정규화한 `loginId`를 별도 로그인 식별자로 저장한다. 공개 signup UI는 Task 6에서 제거했으며 API 호환만 유지한다. operator/admin invitation signup은 거부하며 viewer는 자기 고객사 Organization에 속한 유효한 `Invitation.siteId`의 membership을 transaction으로 생성한다.
-- operator site-admin 관리 API는 `GET/POST /operator/site-admins`, `POST /operator/sites/:siteId/admin`, `PATCH /operator/site-admins/:userId`, `POST /operator/site-admins/:userId/reset-password`, `DELETE /operator/site-admins/:userId`를 제공한다. 생성·교체·수정·비밀번호 재설정·비활성화는 active service-provider operator만 호출할 수 있고, 비밀번호와 hash는 응답 및 audit metadata에 포함하지 않는다. Task 7의 operator 전용 웹 목록은 이 여섯 endpoint를 소비하며, 평문 비밀번호를 React Query cache나 완료 안내에 남기지 않고 성공·닫힘에서 입력을 비운다. 409 loginId 충돌은 필드 오류와 focus로, 다른 오류는 alert로 표시한다. 이는 mock 기반 view/API test 완료이며 실백엔드 E2E나 모바일 완료를 뜻하지 않는다.
+- operator site-admin 관리 API는 `GET/POST /operator/site-admins`, `POST /operator/sites/:siteId/admin`, `PATCH /operator/site-admins/:userId`, `POST /operator/site-admins/:userId/reset-password`, `DELETE /operator/site-admins/:userId`를 제공한다. 생성·교체·수정·비밀번호 재설정·비활성화는 active service-provider operator만 호출할 수 있고, 비밀번호와 hash는 응답 및 audit metadata에 포함하지 않는다. Task 7의 operator 전용 웹 목록은 이 여섯 endpoint를 소비한다. create/assign/reset의 평문 비밀번호는 component-local input state와 요청 실행 중인 local async 함수에만 존재하며 React Query mutation/cache를 만들지 않고 성공·닫힘·unmount에서 제거한다. `ApiError.body.message`가 정확히 `loginId already exists`인 409만 loginId field 오류와 focus로 연결하고, serialization 등 다른 409는 재시도 alert로 표시한다. 이는 mock 기반 view/API test 완료이며 실백엔드 E2E나 모바일 완료를 뜻하지 않는다.
 - `PUT /floors/:floorId/editor-state`는 `Floor.mapRevision` optimistic update, normalized row 변경, canonical `FloorMapRevision` snapshot/SHA-256과 `floor_editor.saved` 감사를 하나의 Serializable Prisma transaction으로 저장한다. fixture/object의 층 소속, 중복 ID와 준비되지 않은 asset은 optimistic mutation 전에 거부한다.
 - `GET /floors/:floorId/editor-revisions`는 현장 `read`, `POST /floors/:floorId/editor-revisions/:revision/restore`는 `manage` 권한을 요구한다. 복구는 `expectedRevision` 충돌을 `409`로 처리하고, 사라진 fixture를 생성하지 않고 `skippedFixtureIds`로 반환하며 새 revision과 `floor_editor.restored` 감사를 같은 transaction에 남긴다.
 - atomic save의 `floorPlan: null`만 배경 삭제를 뜻한다. non-null image/pdf는 source type, ready asset을 가리키는 non-empty `imageUrl`/`originalFileUrl`/`renderedImageUrl`, 양수 INT4 width/height를 모두 포함해야 하며 부분 create/default 값 우회는 `400`으로 거부한다.
@@ -110,7 +110,7 @@
 - **폐기된 Task 4 시점 기록:** 당시 registration session 생성·조회·identify·register·complete는 operator controller 계약이라 새 SiteAccess 완료 경로로 사용할 수 없었다. 현재 Task 5 API는 assigned admin controller/service 이중 검사와 mutation transaction 내부 재검증까지 완료했으며, admin 웹 commissioning UI만 후속 범위다.
 - `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 이 고객 shell은 admin/viewer만 mount하며 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
-- operator는 전용 `OperatorShell`만 mount한다. `/settings`와 하위 경로를 포함한 operator 직접 URL/새로고침은 history replace로 `/operator/site-admins`에 수렴하고 `/sites` 또는 dashboard query를 실행하지 않는다. 현재 route는 header, 로그인 아이디, 로그아웃과 현장 관리자 운영 테이블을 제공한다. dialog는 `role="dialog"`, `aria-modal`, Escape/취소, 최초 focus와 trigger focus 복원을 지원하며 작은 화면에서는 표를 가로 스크롤한다.
+- operator는 전용 `OperatorShell`만 mount한다. `/settings`와 하위 경로를 포함한 operator 직접 URL/새로고침은 history replace로 `/operator/site-admins`에 수렴하고 `/sites` 또는 dashboard query를 실행하지 않는다. 현재 route는 header, 로그인 아이디, 로그아웃과 현장 관리자 운영 테이블을 제공한다. dialog는 `role="dialog"`, `aria-modal`, Escape/취소, 최초 focus와 trigger focus 복원을 지원한다. assign/disable 성공처럼 기존 trigger가 목록 refetch에서 제거될 수 있는 경우에는 안정적인 `현장 및 관리자 생성` command로 focus를 복원하며, 작은 화면에서는 표를 가로 스크롤한다.
 - `/settings/floor-plans`는 admin/viewer가 새로고침과 직접 진입할 수 있는 층별 도면 목록을 제공한다. assigned admin만 서버 SiteAccess에 따라 실제 편집할 수 있다.
 - `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회한다. viewer의 직접 edit URL은 목록으로 redirect되고 assigned admin은 편집할 수 있다.
 - 웹 에디터는 shared `SaveEditorStateInput` 계약으로 baseline과 현재 상태를 O(n) 비교한다. 1,000개 fixture에서도 실제 변경된 fixture와 floor plan, object create/update/delete만 중복 없이 `PUT /floors/:floorId/editor-state` 한 번으로 전송한다. floor plan의 `null`/`none`, 기본 source type과 fallback asset URL은 API 의미 형태로 정규화해 unchanged 저장을 만들지 않으며 draft object ID는 UUID로 생성한다.
@@ -284,7 +284,6 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 미구현
 
-- operator의 현장 admin 생성·교체·수정·비밀번호 재설정·비활성화 웹 관리 화면
 - admin에게 배정된 설치 대기 현장의 주소·단가·시간대·층을 완료하는 최초 설치 웹 UI
 - 고객사 viewer 초대·비활성화와 viewer별 `SiteMembership` 현장 배정을 관리하는 설정 UI
 - 현장 정보 수정과 층 CRUD/archive UI
