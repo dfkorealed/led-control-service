@@ -118,6 +118,14 @@ Expected: PASS 또는 테스트 DB 환경 미설정 시 명시적 skip
 
 세 trigger는 관계 행을 잠근 뒤 변경 후 상태를 검증한다. 명시 잠금은 가능한 범위에서 `Site -> User -> Organization` 순서를 따르며, 현재 UPDATE 대상 행은 PostgreSQL이 trigger 전에 잠근다. rehearsal은 같은 `loginId`의 두 번째 INSERT와 기존 loginId 중복 UPDATE가 unique index로 거부되는 계약을 추가한다.
 
+- [x] **Review fix round 4: statement-level 직렬화 보정**
+
+Site/User/Organization 관련 DML은 target row lock 전에 동일한 transaction advisory lock을 얻는다. 기존 row trigger의 관계 검증은 유지하면서 역순 target-row 잠금으로 인한 `40P01`을 방지한다.
+
+- [x] **Review fix round 5: deadlock 회귀 fixture 보정**
+
+배정된 Site의 relevant no-op UPDATE와 User disable/Organization type 변경을 독립 session에서 겹쳐 Round 3 SQL의 실제 deadlock을 재현했다. 현재 SQL은 두 경합 모두 deadlock 없이 무효 변경만 거부하고 최종 불변식을 유지한다. 격리 PostgreSQL 16에서 정적 4건과 rehearsal 17건을 모두 통과했다.
+
 ```bash
 git add apps/api/prisma apps/api/src/prisma/operator-admin-migration.integration.spec.ts docs/database-schema.md docs/project-status.md docs/superpowers/plans/2026-08-27-operator-admin-account-flow.md
 git commit -m "feat(db): add site admin account ownership"

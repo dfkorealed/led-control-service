@@ -17,7 +17,7 @@
 | 메뉴 완성 구현 | 완료(소프트웨어) | Task 12까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
 | 계정·설치 주체 전환 설계 | 완료 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했고 재설치는 제외했다. |
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
-| 계정·설치 주체 전환 구현 | 진행 중 | Task 1 review fix round 3에서 Site/User/Organization trigger가 관련 관계 행을 `FOR UPDATE`로 잠근 뒤 active same-customer admin 불변식을 검증하도록 보강했다. 잠금은 가능한 범위에서 `Site -> User -> Organization` 순서를 따르며, post-migration loginId unique INSERT/UPDATE rehearsal도 추가했다. 전용 폐기 가능 PostgreSQL URL이 없어 rehearsal은 명시적으로 skip했고, 정적 계약·Prisma·API typecheck는 통과했다. Task 2 loginId 및 Task 3 pending-site contract migration이 후속 계약을 최종화한다. |
+| 계정·설치 주체 전환 구현 | 진행 중 | Task 1 expand migration을 완료했다. Site/User/Organization 관련 DML은 target row lock 전 statement-level advisory gate를 거치고 row trigger가 active same-customer admin 불변식을 검증한다. 격리 PostgreSQL 16에서 정적 4건과 migration·제약·deadlock rehearsal 17건을 통과했고 API typecheck와 Prisma 검증도 통과했다. Task 2 loginId 및 Task 3 pending-site contract migration이 후속 계약을 최종화한다. |
 
 ## 다음 단계
 
