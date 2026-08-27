@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { CertificateLifecycleService } from "../pki/certificate-lifecycle.service";
 import { SiteAccessService } from "../access/site-access.service";
@@ -35,6 +36,12 @@ interface BootstrapGatewayInput {
   certificateFingerprint: string;
 }
 
+type ClaimFailureReason = "invalid_claim_code" | "inventory_unavailable" | "already_consumed" | "rate_limited";
+
+type ClaimDecision =
+  | { outcome: "claimed"; value: { status: "claimed"; gatewayId: string; siteId: string; serialNumber: string } }
+  | { outcome: "failed"; reason: ClaimFailureReason };
+
 @Injectable()
 export class GatewayOnboardingService {
   constructor(
@@ -50,34 +57,45 @@ export class GatewayOnboardingService {
     const name = this.requireText(input.name, "gateway name is required");
     const claimCode = this.requireText(input.claimCode, "claimCode is required");
 
-    const recentFailures = await this.db().gatewayClaimAudit.count({
-      where: {
-        serialNumber,
-        outcome: "failed",
-        createdAt: { gte: new Date(Date.now() - CLAIM_WINDOW_MS) }
-      }
-    });
-    if (recentFailures >= CLAIM_FAILURE_LIMIT) {
-      throw new HttpException("too many gateway claim attempts", HttpStatus.TOO_MANY_REQUESTS);
-    }
-
-    const inventory = await this.db().gatewayInventory.findUnique({ where: { serialNumber } });
-    if (!inventory || inventory.disabledAt) return this.rejectClaim(input, user.id, "gateway inventory is unavailable");
-    if (inventory.claimedGatewayId || !inventory.claimCodeHash) throw new ConflictException("gateway is already claimed");
-    const claimCodeHash = inventory.claimCodeHash;
-    if (!(await this.verifyClaimCode(claimCode, claimCodeHash))) {
-      return this.rejectClaim(input, user.id, "invalid gateway claim code", inventory.id);
-    }
-
-    const claimed = await this.db().$transaction(async (tx: any) => {
+    const decision: ClaimDecision = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.$queryRaw`
+        SELECT true AS "locked"
+        FROM pg_advisory_xact_lock(hashtextextended(${serialNumber}::text, 0))
+      `;
       await this.siteAccess.assertCommissionInTransaction(tx, user, input.siteId);
-      const currentInventory = await tx.gatewayInventory.findUnique({ where: { id: inventory.id } });
-      if (!currentInventory || currentInventory.disabledAt) {
-        return null;
+
+      const recentFailures = await tx.gatewayClaimAudit.count({
+        where: {
+          serialNumber,
+          outcome: "failed",
+          createdAt: { gte: new Date(Date.now() - CLAIM_WINDOW_MS) }
+        }
+      });
+      if (recentFailures >= CLAIM_FAILURE_LIMIT) {
+        const rateLimitedInventory = await tx.gatewayInventory.findUnique({
+          where: { serialNumber },
+          select: { id: true }
+        });
+        await this.recordClaimAudit(tx, input, user.id, serialNumber, "rate_limited", rateLimitedInventory?.id);
+        return { outcome: "failed", reason: "rate_limited" };
       }
-      if (currentInventory.claimedGatewayId || !currentInventory.claimCodeHash) {
-        throw new ConflictException("gateway is already claimed");
+
+      await tx.$queryRaw`SELECT "id" FROM "GatewayInventory" WHERE "serialNumber" = ${serialNumber} FOR UPDATE`;
+      const inventory = await tx.gatewayInventory.findUnique({ where: { serialNumber } });
+      if (!inventory || inventory.disabledAt) {
+        await this.recordClaimAudit(tx, input, user.id, serialNumber, "inventory_unavailable", inventory?.id);
+        return { outcome: "failed", reason: "inventory_unavailable" };
       }
+      if (inventory.claimedGatewayId || !inventory.claimCodeHash) {
+        await this.recordClaimAudit(tx, input, user.id, serialNumber, "already_consumed", inventory.id);
+        return { outcome: "failed", reason: "already_consumed" };
+      }
+      const claimCodeHash = inventory.claimCodeHash;
+      if (!(await this.verifyClaimCode(claimCode, claimCodeHash))) {
+        await this.recordClaimAudit(tx, input, user.id, serialNumber, "invalid_claim_code", inventory.id);
+        return { outcome: "failed", reason: "invalid_claim_code" };
+      }
+
       const claimedAt = new Date();
       const gateway = await tx.gateway.create({
         data: {
@@ -95,20 +113,18 @@ export class GatewayOnboardingService {
         data: { claimedGatewayId: gateway.id, claimedAt, claimCodeHash: null }
       });
       if (consumed.count !== 1) throw new ConflictException("gateway claim was already consumed");
-      await tx.gatewayClaimAudit.create({
-        data: {
-          inventoryId: inventory.id,
-          siteId: input.siteId,
-          requestedBy: user.id,
-          serialNumber,
-          outcome: "claimed",
-          ipAddress: input.ipAddress ?? null
-        }
-      });
-      return { status: "claimed" as const, gatewayId: gateway.id, siteId: gateway.siteId, serialNumber: gateway.serialNumber };
+      await this.recordClaimAudit(tx, input, user.id, serialNumber, null, inventory.id, "claimed");
+      return {
+        outcome: "claimed",
+        value: { status: "claimed", gatewayId: gateway.id, siteId: gateway.siteId, serialNumber: gateway.serialNumber }
+      };
     });
-    if (!claimed) return this.rejectClaim(input, user.id, "gateway inventory is unavailable", inventory.id);
-    return claimed;
+    if (decision.outcome === "claimed") return decision.value;
+    if (decision.reason === "already_consumed") throw new ConflictException("gateway is already claimed");
+    if (decision.reason === "rate_limited") {
+      throw new HttpException("too many gateway claim attempts", HttpStatus.TOO_MANY_REQUESTS);
+    }
+    throw new UnauthorizedException("gateway claim failed");
   }
 
   async bootstrapGateway(input: BootstrapGatewayInput) {
@@ -168,19 +184,26 @@ export class GatewayOnboardingService {
     return stored.length === candidate.length && timingSafeEqual(stored, candidate);
   }
 
-  private async rejectClaim(input: ClaimGatewayInput, requestedBy: string, reason: string, inventoryId?: string): Promise<never> {
-    await this.db().gatewayClaimAudit.create({
+  private async recordClaimAudit(
+    tx: Pick<Prisma.TransactionClient, "gatewayClaimAudit">,
+    input: ClaimGatewayInput,
+    requestedBy: string,
+    serialNumber: string,
+    reason: ClaimFailureReason | null,
+    inventoryId?: string,
+    outcome: "claimed" | "failed" = "failed"
+  ) {
+    await tx.gatewayClaimAudit.create({
       data: {
         inventoryId: inventoryId ?? null,
         siteId: input.siteId || null,
         requestedBy,
-        serialNumber: input.serialNumber.trim(),
-        outcome: "failed",
+        serialNumber,
+        outcome,
         reason,
         ipAddress: input.ipAddress ?? null
       }
     });
-    throw new UnauthorizedException("gateway claim failed");
   }
 
   private requireText(value: string, message: string) {

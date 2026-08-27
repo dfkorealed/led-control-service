@@ -89,7 +89,10 @@ describe("RegistrationService", () => {
       }),
       ...meshGroupOverrides
     };
-    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.siteId }) };
+    const siteAccess = {
+      assert: jest.fn().mockResolvedValue({ id: ids.siteId }),
+      assertCommissionInTransaction: jest.fn().mockResolvedValue({ id: ids.siteId })
+    };
     const allocation = {
       reserveFixtureNumbers: jest.fn().mockResolvedValue([1]),
       reserveMeshAddresses: jest.fn().mockResolvedValue(["0x0100"])
@@ -113,6 +116,135 @@ describe("RegistrationService", () => {
       allocation
     }));
   }
+
+  function registrationSession() {
+    return {
+      id: ids.sessionId,
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId,
+      status: "active",
+      scanStatus: "completed",
+      floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
+    };
+  }
+
+  function discoveredNode() {
+    return {
+      id: ids.nodeId,
+      sessionId: ids.sessionId,
+      deviceUuid: "esp32h2-demo-001",
+      serialNumber: "LC-B2-001",
+      status: "discovered",
+      meshAddress: null
+    };
+  }
+
+  function registrationBatchInput() {
+    return {
+      mode: "batch" as const,
+      defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
+      nodes: [{ nodeId: ids.nodeId, placement: { mode: "auto" as const } }]
+    };
+  }
+
+  it("rechecks commission access inside createSession before creating a session or outbox", async () => {
+    const { service, prisma, siteAccess } = await createModule();
+    siteAccess.assertCommissionInTransaction.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service.createSession(admin, {
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
+    expect(prisma.provisioningSession.create).not.toHaveBeenCalled();
+    expect(prisma.provisioningScanOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("rechecks persisted session commission access inside retryScan before session or outbox mutation", async () => {
+    const session = {
+      id: ids.sessionId,
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId,
+      status: "active",
+      scanStatus: "failed",
+      scanAttempt: 1
+    };
+    const { service, prisma, siteAccess } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(session),
+        update: jest.fn(),
+        updateMany: jest.fn()
+      }
+    });
+    siteAccess.assertCommissionInTransaction.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service.retryScan(admin, ids.sessionId)).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+    expect(prisma.provisioningScanOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("rechecks persisted session commission access inside registerBatch before node mutation", async () => {
+    const session = registrationSession();
+    const node = discoveredNode();
+    const { service, prisma, mqtt, siteAccess } = await createModule({
+      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([node]),
+        update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+    siteAccess.assertCommissionInTransaction.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service.registerBatch(admin, ids.sessionId, registrationBatchInput()))
+      .rejects.toBeInstanceOf(NotFoundException);
+
+    expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
+  });
+
+  it("rechecks persisted session commission access for registerNode before node mutation", async () => {
+    const session = registrationSession();
+    const node = discoveredNode();
+    const { service, prisma, mqtt, siteAccess } = await createModule({
+      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findUnique: jest.fn().mockResolvedValue(node), findMany: jest.fn().mockResolvedValue([node]),
+        update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+    siteAccess.assertCommissionInTransaction.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service.registerNode(admin, ids.sessionId, ids.nodeId, {
+      fixtureName: "B2-L13", x: 420, y: 260
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
+  });
+
+  it("rechecks persisted session commission access inside completeSession before completion mutation", async () => {
+    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active", scanStatus: "completed" };
+    const { service, prisma, siteAccess } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+    siteAccess.assertCommissionInTransaction.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service.completeSession(admin, ids.sessionId)).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+  });
 
   it("atomically reserves valid batch nodes and returns node-level validation failures", async () => {
     const secondNodeId = "55555555-5555-4555-8555-555555555555";

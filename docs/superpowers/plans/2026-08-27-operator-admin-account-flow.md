@@ -427,6 +427,10 @@ git commit -m "feat(api): grant commissioning to site admins"
 
 **Task 5 실행 기록:** RED에서 기존 `operator` controller/service gate와 inventory disable의 customer `SiteAccess` 의존을 확인했다. `SiteAccessService.assertCommissionInTransaction`은 claim transaction 안에서 Site row를 잠그고 assigned active customer admin을 다시 확인한다. fresh disposable PostgreSQL에서 assigned admin claim/registration 성공, operator·다른 admin 차단, operator inventory disable과 deterministic claim reassignment race를 통과했다. 웹 역할 노출과 Task 9 E2E는 다음 Task 범위다.
 
+- [x] **Review fix round 1: registration mutation TOCTOU와 claim limiter/audit 선형화**
+
+create/retry/register/complete는 mutation transaction 첫 단계에서 Site를 잠그고 assigned admin을 다시 검증하며 `Site -> Gateway -> Session -> Node` 잠금 순서를 유지한다. claim은 정규화 serial별 transaction advisory lock 안에서 rolling failure count, 모든 terminal audit과 원자 claim을 완료하고 commit 뒤 기존 정제 응답으로 변환한다. disposable PostgreSQL의 barrier/concurrency test로 stale admin 무변경, 5회 verification 상한, 전 요청 audit, success 원자성과 serial별 독립 진행을 검증했다. admin commissioning 웹 UI와 Task 9 실백엔드 E2E는 아직 미구현이다.
+
 ### Task 6: loginId 로그인과 역할별 웹 shell
 
 **Files:**

@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { ConflictException, HttpException, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
@@ -23,6 +23,9 @@ describeWithDatabase("Gateway onboarding and registration PostgreSQL integration
 
   afterEach(async () => {
     for (const scenario of scenarios.splice(0)) {
+      await prisma.discoveredMeshNode.deleteMany({
+        where: { session: { site: { organizationId: scenario.organizationId } } }
+      });
       await prisma.provisioningSession.deleteMany({ where: { site: { organizationId: scenario.organizationId } } });
       await prisma.gatewayClaimAudit.deleteMany({ where: { site: { organizationId: scenario.organizationId } } });
       await prisma.gatewayInventory.updateMany({
@@ -130,12 +133,219 @@ describeWithDatabase("Gateway onboarding and registration PostgreSQL integration
     await expect(prisma.gateway.count({ where: { serialNumber: scenario.inventories[0].serialNumber } })).resolves.toBe(0);
   }, 15_000);
 
+  it("blocks every registration mutation after the assigned admin is reassigned and disabled", async () => {
+    const scenario = await createScenario("registration_reassignment", 0);
+    const gateways = await Promise.all(Array.from({ length: 4 }, (_, index) => prisma.gateway.create({
+      data: {
+        siteId: scenario.siteId,
+        name: `Race gateway ${index + 1}`,
+        serialNumber: `GW-REGISTRATION-RACE-${randomUUID()}`,
+        firmwareVersion: "1.0.0",
+        lastHeartbeatAt: new Date()
+      }
+    })));
+    const retrySession = await prisma.provisioningSession.create({
+      data: {
+        siteId: scenario.siteId,
+        floorId: scenario.floorId,
+        gatewayId: gateways[1].id,
+        requestedBy: scenario.admin.id,
+        status: "active",
+        scanStatus: "failed",
+        scanCorrelationId: randomUUID(),
+        scanAttempt: 1
+      }
+    });
+    const registerSession = await prisma.provisioningSession.create({
+      data: {
+        siteId: scenario.siteId,
+        floorId: scenario.floorId,
+        gatewayId: gateways[2].id,
+        requestedBy: scenario.admin.id,
+        status: "active",
+        scanStatus: "completed",
+        scanCorrelationId: randomUUID(),
+        scanAttempt: 1
+      }
+    });
+    const discoveredNode = await prisma.discoveredMeshNode.create({
+      data: {
+        sessionId: registerSession.id,
+        deviceUuid: randomUUID(),
+        serialNumber: `NODE-${randomUUID()}`,
+        rssi: -52,
+        oobCapability: "static_oob",
+        firmwareVersion: "1.0.0"
+      }
+    });
+    const completionSession = await prisma.provisioningSession.create({
+      data: {
+        siteId: scenario.siteId,
+        floorId: scenario.floorId,
+        gatewayId: gateways[3].id,
+        requestedBy: scenario.admin.id,
+        status: "active",
+        scanStatus: "completed",
+        scanCorrelationId: randomUUID(),
+        scanAttempt: 1
+      }
+    });
+
+    const realAccess = new SiteAccessService(prisma);
+    let releasePrechecks!: () => void;
+    let signalAllPrechecks!: () => void;
+    let precheckCount = 0;
+    const allPrechecks = new Promise<void>((resolve) => { signalAllPrechecks = resolve; });
+    const continueAfterPrechecks = new Promise<void>((resolve) => { releasePrechecks = resolve; });
+    const gatedAccess = {
+      assert: async (...args: Parameters<SiteAccessService["assert"]>) => {
+        const access = await realAccess.assert(...args);
+        precheckCount += 1;
+        if (precheckCount === 4) signalAllPrechecks();
+        await continueAfterPrechecks;
+        return access;
+      },
+      assertCommissionInTransaction: realAccess.assertCommissionInTransaction.bind(realAccess)
+    } as SiteAccessService;
+    const registration = new RegistrationService(
+      prisma,
+      { publishProvisionDevice: jest.fn() } as never,
+      gatedAccess,
+      new RegistrationAllocationService(),
+      { ensureFloorGroup: jest.fn().mockResolvedValue({ id: randomUUID() }) } as never
+    );
+
+    const mutations = [
+      registration.createSession(scenario.admin, {
+        siteId: scenario.siteId,
+        floorId: scenario.floorId,
+        gatewayId: gateways[0].id
+      }),
+      registration.retryScan(scenario.admin, retrySession.id),
+      registration.registerNode(scenario.admin, registerSession.id, discoveredNode.id, {
+        fixtureName: "Race fixture",
+        x: 100,
+        y: 100
+      }),
+      registration.completeSession(scenario.admin, completionSession.id)
+    ];
+
+    await allPrechecks;
+    await prisma.$transaction(async (tx) => {
+      await tx.site.update({ where: { id: scenario.siteId }, data: { adminUserId: scenario.otherAdmin.id } });
+      await tx.user.update({ where: { id: scenario.admin.id }, data: { status: "disabled" } });
+    });
+    releasePrechecks();
+
+    const results = await Promise.allSettled(mutations);
+    expect(results).toHaveLength(4);
+    for (const result of results) {
+      expect(result.status).toBe("rejected");
+      if (result.status === "rejected") expect(result.reason).toBeInstanceOf(NotFoundException);
+    }
+    await expect(prisma.provisioningSession.count({ where: { gatewayId: gateways[0].id } })).resolves.toBe(0);
+    await expect(prisma.provisioningScanOutbox.count({ where: { sessionId: retrySession.id } })).resolves.toBe(0);
+    await expect(prisma.provisioningSession.findUniqueOrThrow({ where: { id: retrySession.id } })).resolves.toMatchObject({
+      scanStatus: "failed",
+      scanAttempt: 1
+    });
+    await expect(prisma.discoveredMeshNode.findUniqueOrThrow({ where: { id: discoveredNode.id } })).resolves.toMatchObject({
+      status: "discovered",
+      meshAddress: null,
+      pendingFixtureName: null
+    });
+    await expect(prisma.provisioningSession.findUniqueOrThrow({ where: { id: completionSession.id } })).resolves.toMatchObject({
+      status: "active",
+      completedAt: null
+    });
+  }, 15_000);
+
+  it("serializes parallel invalid claims so verification is bounded and every request is audited", async () => {
+    const scenario = await createScenario("parallel_invalid", 1);
+    const onboarding = new GatewayOnboardingService(prisma, new SiteAccessService(prisma));
+    const verify = jest.spyOn(onboarding, "verifyClaimCode").mockResolvedValue(false);
+
+    const results = await Promise.allSettled(Array.from({ length: 6 }, () => onboarding.claimGateway(scenario.admin, {
+      siteId: scenario.siteId,
+      serialNumber: scenario.inventories[0].serialNumber,
+      claimCode: "wrong-claim-code",
+      name: "Rejected gateway"
+    })));
+
+    expect(verify).toHaveBeenCalledTimes(5);
+    expect(results.filter((result) => result.status === "rejected" && result.reason instanceof HttpException
+      && result.reason.getStatus() === 401)).toHaveLength(5);
+    expect(results.filter((result) => result.status === "rejected" && result.reason instanceof HttpException
+      && result.reason.getStatus() === 429)).toHaveLength(1);
+    const audits = await prisma.gatewayClaimAudit.findMany({
+      where: { inventoryId: scenario.inventories[0].id },
+      orderBy: { createdAt: "asc" }
+    });
+    expect(audits).toHaveLength(6);
+    expect(audits.filter((audit) => audit.reason === "invalid_claim_code")).toHaveLength(5);
+    expect(audits.filter((audit) => audit.reason === "rate_limited")).toHaveLength(1);
+  }, 15_000);
+
+  it("keeps a successful parallel claim atomic and audits the already-consumed terminal request", async () => {
+    const scenario = await createScenario("parallel_success", 1);
+    const onboarding = new GatewayOnboardingService(prisma, new SiteAccessService(prisma));
+
+    const results = await Promise.allSettled(Array.from({ length: 2 }, () => onboarding.claimGateway(scenario.admin, {
+      siteId: scenario.siteId,
+      serialNumber: scenario.inventories[0].serialNumber,
+      claimCode: scenario.inventories[0].claimCode,
+      name: "Atomic gateway"
+    })));
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected" && result.reason instanceof ConflictException)).toHaveLength(1);
+    await expect(prisma.gateway.count({ where: { serialNumber: scenario.inventories[0].serialNumber } })).resolves.toBe(1);
+    await expect(prisma.gatewayInventory.findUniqueOrThrow({ where: { id: scenario.inventories[0].id } })).resolves.toMatchObject({
+      claimCodeHash: null
+    });
+    const audits = await prisma.gatewayClaimAudit.findMany({ where: { inventoryId: scenario.inventories[0].id } });
+    expect(audits).toHaveLength(2);
+    expect(audits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ outcome: "claimed", reason: null }),
+      expect.objectContaining({ outcome: "failed", reason: "already_consumed" })
+    ]));
+  }, 15_000);
+
+  it("does not serialize claims for different normalized serials through a global lock", async () => {
+    const first = await createScenario("different_serial_first", 1);
+    const second = await createScenario("different_serial_second", 1);
+    const onboarding = new GatewayOnboardingService(prisma, new SiteAccessService(prisma));
+    let releaseVerifications!: () => void;
+    let signalBothVerifications!: () => void;
+    const reachedCodes = new Set<string>();
+    const bothVerifications = new Promise<void>((resolve) => { signalBothVerifications = resolve; });
+    const continueVerifications = new Promise<void>((resolve) => { releaseVerifications = resolve; });
+    jest.spyOn(onboarding, "verifyClaimCode").mockImplementation(async (claimCode) => {
+      reachedCodes.add(claimCode);
+      if (reachedCodes.size === 2) signalBothVerifications();
+      await continueVerifications;
+      return true;
+    });
+
+    const claims = [first, second].map((scenario) => onboarding.claimGateway(scenario.admin, {
+      siteId: scenario.siteId,
+      serialNumber: scenario.inventories[0].serialNumber,
+      claimCode: scenario.inventories[0].claimCode,
+      name: "Independent gateway"
+    }));
+    await bothVerifications;
+    releaseVerifications();
+
+    await expect(Promise.all(claims)).resolves.toHaveLength(2);
+  }, 15_000);
+
   async function createScenario(label: string, inventoryCount: number) {
     const suffix = `${label}_${randomUUID().slice(0, 8)}`;
     const organization = await prisma.organization.create({
       data: { id: randomUUID(), name: `${label} customer`, type: "customer" }
     });
-    scenarios.push({ organizationId: organization.id, inventoryIds: [] });
+    const customerScenario = { organizationId: organization.id, inventoryIds: [] as string[] };
+    scenarios.push(customerScenario);
     const adminRecord = await prisma.user.create({ data: userData(organization.id, `admin_${suffix}`, "admin") });
     const otherAdminRecord = await prisma.user.create({ data: userData(organization.id, `other_admin_${suffix}`, "admin") });
     const site = await prisma.site.create({
@@ -145,12 +355,14 @@ describeWithDatabase("Gateway onboarding and registration PostgreSQL integration
       }
     });
     const floor = await prisma.floor.create({ data: { siteId: site.id, name: "B2", level: -2 } });
-    const provider = await prisma.organization.create({
+    const existingProvider = await prisma.organization.findFirst({ where: { type: "service_provider" } });
+    const provider = existingProvider ?? await prisma.organization.create({
       data: { id: randomUUID(), name: `${label} provider`, type: "service_provider" }
     });
-    scenarios.push({ organizationId: provider.id, inventoryIds: [] });
-    const operatorRecord = await prisma.user.create({ data: userData(provider.id, `operator_${suffix}`, "operator") });
-    const inventoryIds = scenarios[scenarios.length - 2].inventoryIds;
+    if (!existingProvider) scenarios.push({ organizationId: provider.id, inventoryIds: [] });
+    const operatorRecord = await prisma.user.findFirst({ where: { role: "operator", status: "active" } })
+      ?? await prisma.user.create({ data: userData(provider.id, `operator_${suffix}`, "operator") });
+    const inventoryIds = customerScenario.inventoryIds;
     const inventories = await Promise.all(Array.from({ length: inventoryCount }, async (_, index) => {
       const serialNumber = `GW-${suffix}-${index + 1}`.toUpperCase();
       const claimCode = `claim-${suffix}-${index + 1}`;
@@ -159,7 +371,7 @@ describeWithDatabase("Gateway onboarding and registration PostgreSQL integration
         data: {
           serialNumber,
           claimCodeHash: await hashing.hashClaimCode(claimCode),
-          certificateFingerprint: `${(index + 1).toString(16).padStart(2, "0")}`.repeat(32).toUpperCase()
+          certificateFingerprint: randomUUID().replace(/-/g, "").repeat(2).toUpperCase()
         }
       });
       inventoryIds.push(inventory.id);

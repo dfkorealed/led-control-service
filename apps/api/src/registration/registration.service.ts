@@ -92,23 +92,25 @@ export class RegistrationService {
 
   async createSession(user: AuthenticatedUser, input: CreateRegistrationSessionInput) {
     await this.assertCommissionAccess(user, input.siteId);
-    const floor = await this.prisma.floor.findFirst({
-      where: { id: input.floorId, siteId: input.siteId }
-    });
-    if (!floor) throw new BadRequestException("floorId must reference a floor in the selected site");
-
-    const gateway = await this.prisma.gateway.findFirst({
-      where: {
-        id: input.gatewayId,
-        siteId: input.siteId,
-        lastHeartbeatAt: { gte: gatewayHeartbeatFreshSince(new Date()) }
-      }
-    });
-    if (!gateway) throw new BadRequestException("gatewayId must reference an online gateway in the selected site");
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await this.lockGatewayForScan(tx, gateway.id);
+        await this.siteAccess.assertCommissionInTransaction(tx, user, input.siteId);
+        const floor = await tx.floor.findFirst({
+          where: { id: input.floorId, siteId: input.siteId }
+        });
+        if (!floor) throw new BadRequestException("floorId must reference a floor in the selected site");
+
+        await this.lockGateway(tx, input.gatewayId);
+        const gateway = await tx.gateway.findFirst({
+          where: {
+            id: input.gatewayId,
+            siteId: input.siteId,
+            lastHeartbeatAt: { gte: gatewayHeartbeatFreshSince(new Date()) }
+          }
+        });
+        if (!gateway) throw new BadRequestException("gatewayId must reference an online gateway in the selected site");
+
         const scanCorrelationId = randomUUID();
         const session = await tx.provisioningSession.create({
           data: {
@@ -166,7 +168,8 @@ export class RegistrationService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await this.lockGatewayForScan(tx, accessSession.gatewayId);
+        await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
+        await this.lockGateway(tx, accessSession.gatewayId);
         await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
         const current = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
         if (!current) throw new NotFoundException("registration session not found");
@@ -228,12 +231,14 @@ export class RegistrationService {
   async registerBatch(user: AuthenticatedUser, sessionId: string, input: RegisterFixtureBatchInput) {
     const accessSession = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
-      select: { siteId: true }
+      select: { siteId: true, gatewayId: true }
     });
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
 
     const prepared = await this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
+      await this.lockGateway(tx, accessSession.gatewayId);
       await tx.$queryRaw`
         SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE
       `;
@@ -401,6 +406,7 @@ export class RegistrationService {
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
     return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
       await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
       if (!session) throw new NotFoundException("registration session not found");
@@ -420,7 +426,7 @@ export class RegistrationService {
     if (status !== "active") throw new BadRequestException("registration session is not active");
   }
 
-  private async lockGatewayForScan(tx: Prisma.TransactionClient, gatewayId: string) {
+  private async lockGateway(tx: Prisma.TransactionClient, gatewayId: string) {
     await tx.$queryRaw`SELECT "id" FROM "Gateway" WHERE "id" = ${gatewayId} FOR UPDATE`;
   }
 
