@@ -233,6 +233,18 @@ git commit -m "feat(auth): switch authentication to login ids"
 
 Task 6 전까지 유지하는 signup UI는 loginId와 invitation contact email을 별도 input으로 전송한다. App/E2E helper와 API AuthenticatedUser fixtures를 이 계약으로 갱신했고, 격리 PostgreSQL auth integration에서 공백 포함 password change를 실행했다.
 
+- [x] **Review fix round 3: 금지된 admin 공개 가입 E2E 제거**
+
+실백엔드 journey에서 admin invitation signup 성공을 기대하던 구 흐름을 제거하고, 허용된 viewer invitation signup만 유지한다. operator가 admin을 발급하는 실제 흐름은 이를 소유하는 Task 3·7·9에서 복구한다.
+
+- [x] **Review fix round 4: 제거된 제어 흐름의 MQTT 증거 정리**
+
+admin 제어 흐름 삭제 후 더 이상 생성되지 않는 `acks/acceptance`, `acks/device-status`를 Task 2 journey의 필수 MQTT 증거에서 제거한다. provisioning과 상태 적산 증거는 유지한다.
+
+- [x] **Review fix round 5: AuthService Nest DI 부팅 회귀 수정**
+
+기본값 생성자로 인해 `Object`로 emit되던 Nest 의존성 metadata를 명시적 `PasswordService`, `AuditService` 주입으로 고쳤다. 실제 `AuthModule` compile 회귀 테스트를 추가했고, 격리 PostgreSQL·Redis·MQTT·API·Web을 사용하는 real-backend Playwright journey 2건을 통과했다.
+
 ### Task 3: Operator 현장 admin 관리 API
 
 **Files:**
