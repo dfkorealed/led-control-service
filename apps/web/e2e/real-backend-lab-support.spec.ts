@@ -4,8 +4,12 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
-import { join } from "node:path";
-import { RealBackendLab, selectDfkScanCandidates } from "./support/real-backend-lab";
+import { dirname, join, resolve } from "node:path";
+import type { MqttClient } from "mqtt";
+import * as labSupport from "./support/real-backend-lab";
+
+const { connectMqttForLab, RealBackendLab, selectDfkScanCandidates } = labSupport;
+const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../..");
 
 test.describe.configure({ mode: "serial" });
 
@@ -19,6 +23,54 @@ test("scan simulator는 shared DFK identity parser로 타사 UUID를 제외한�
   expect(selectDfkScanCandidates(candidates)).toEqual([candidates[0], candidates[2]]);
 });
 
+test("최초 MQTT 연결 오류는 ownership 전달 전에 reconnect와 client를 정리한다", async () => {
+  const client = new EventEmitter() as EventEmitter & {
+    options: Record<string, unknown>;
+    end: (force: boolean, options: object, callback: () => void) => void;
+  };
+  client.options = {};
+  const forceEndCalls: boolean[] = [];
+  client.end = (force) => {
+    forceEndCalls.push(force);
+    // callback hang도 bounded cleanup으로 빠져나와야 한다.
+  };
+  let connectionOptions: Record<string, unknown> = {};
+  const connection = connectMqttForLab(
+    { host: "127.0.0.1", port: 1 },
+    (_url, options) => {
+      connectionOptions = options;
+      queueMicrotask(() => client.emit("error", new Error("injected TLS failure")));
+      return client as unknown as MqttClient;
+    },
+    20
+  );
+
+  const startedAt = Date.now();
+  await expect(connection).rejects.toThrow("injected TLS failure");
+  expect(Date.now() - startedAt).toBeLessThan(200);
+  expect(connectionOptions.reconnectPeriod).toBe(0);
+  expect(forceEndCalls).toEqual([true]);
+  expect(client.listenerCount("connect")).toBe(0);
+  expect(client.listenerCount("error")).toBe(0);
+});
+
+test("lab Mosquitto ACL은 infrastructure 정본과 정확히 일치한다", async () => {
+  const lab = new RealBackendLab();
+  const internal = lab as unknown as { labDir: string; writeMosquittoConfig: () => Promise<void> };
+  await mkdir(internal.labDir, { recursive: true });
+
+  try {
+    await internal.writeMosquittoConfig();
+    const [actual, canonical] = await Promise.all([
+      readFile(join(internal.labDir, "mosquitto.acl"), "utf8"),
+      readFile(join(ROOT, "infra/mosquitto.acl.example"), "utf8")
+    ]);
+    expect(actual).toBe(canonical);
+  } finally {
+    await lab.stop();
+  }
+});
+
 test("선점된 lab 포트는 build나 외부 fixture mutation 전에 실패하고 정리한다", async () => {
   const server = createServer((socket) => socket.on("data", () => {
     throw new Error("lab wrote to the external fixture");
@@ -26,7 +78,7 @@ test("선점된 lab 포트는 build나 외부 fixture mutation 전에 실패하�
   await new Promise<void>((resolve, reject) => server.listen(0, "127.0.0.1", resolve).once("error", reject));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("external fixture did not bind a TCP port");
-  const lab = new RealBackendLab({ ports: { web: address.port } });
+  const lab = new RealBackendLab({ ports: { ...await allocateUnusedLabPorts(), web: address.port } });
   const internal = lab as unknown as { labDir: string; run: () => Promise<void> };
   let mutationCapableSteps = 0;
   internal.run = async () => { mutationCapableSteps += 1; };
@@ -67,7 +119,7 @@ test("operator의 응답 없는 customer request도 request 시점에 기록한�
 });
 
 test("start 중간 실패는 TERM을 무시하는 descendant까지 종료하고 labDir을 지운다", async () => {
-  const lab = new RealBackendLab();
+  const lab = new RealBackendLab({ ports: await allocateUnusedLabPorts() });
   const internal = lab as unknown as {
     cleanupTimeoutMs: number;
     labDir: string;
@@ -173,4 +225,21 @@ function killPid(pid: number) {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function allocateUnusedLabPorts() {
+  const keys = ["postgres", "redis", "mqtt", "api", "web"] as const;
+  const servers = keys.map(() => createServer());
+  try {
+    await Promise.all(servers.map((server) => new Promise<void>((resolve, reject) => (
+      server.listen(0, "127.0.0.1", resolve).once("error", reject)
+    ))));
+    return Object.fromEntries(servers.map((server, index) => {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("dynamic lab port allocation failed");
+      return [keys[index], address.port];
+    })) as Record<(typeof keys)[number], number>;
+  } finally {
+    await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+  }
 }

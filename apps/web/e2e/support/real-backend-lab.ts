@@ -231,16 +231,18 @@ export class RealBackendLab {
     Object.assign(this.gateway, { id: gatewayId });
     await this.run(resolve(ROOT, "scripts/dev-pki/issue-gateway-cert.sh"), [gatewayId], { PKI_DIR: this.pkiDir });
     const certificateName = `gateway-${gatewayId.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`;
-    this.mqtt = await connectMqtt({
+    this.mqtt = await connectMqttForLab({
       host: "127.0.0.1", port: this.ports.mqtt, clientId: `task9-publisher-${this.runId}`,
       ca: await readFile(join(this.pkiDir, "ca.crt")),
       cert: await readFile(join(this.pkiDir, `${certificateName}.crt`)),
       key: await readFile(join(this.pkiDir, `${certificateName}.key`))
     });
+    this.mqtt.on("error", (error) => this.recordMqtt({ direction: "client-error", error: safeMessage(error) }));
     await this.assertGatewayAcl(this.mqtt, installation.siteId, gatewayId);
     await subscribe(this.mqtt, [
       `sites/${installation.siteId}/gateways/${gatewayId}/commands/#`,
-      `sites/${installation.siteId}/gateways/${gatewayId}/acks/#`
+      `sites/${installation.siteId}/gateways/${gatewayId}/acks/state-ingested`,
+      `sites/${installation.siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`
     ]);
     this.recordMqtt({ direction: "lab-principal", principal: gatewayId, scope: "own-gateway-topics" });
     this.mqtt.on("message", (topic, payload) => {
@@ -269,7 +271,29 @@ export class RealBackendLab {
         if (!safeMessage(error).toLowerCase().includes("not authorized")) throw error;
       }
     }
-    this.recordMqtt({ direction: "acl-negative", deniedPublishCount: deniedTopics.length });
+    const deniedReads = [
+      `sites/${siteId}/gateways/${randomUUID()}/commands/#`,
+      `sites/${siteId}/gateways/${gatewayId}/acks/#`
+    ];
+    const apiPublisher = await connectMqttForLab({
+      host: "127.0.0.1",
+      port: this.ports.mqtt,
+      clientId: `task9-acl-probe-${this.runId}`,
+      ca: await readFile(join(this.pkiDir, "ca.crt")),
+      cert: await readFile(join(this.pkiDir, "api.crt")),
+      key: await readFile(join(this.pkiDir, "api.key"))
+    });
+    apiPublisher.on("error", () => undefined);
+    try {
+      await expectReadsDenied(client, apiPublisher, deniedReads);
+    } finally {
+      await closeMqttWithin(apiPublisher, true, 1_000);
+    }
+    this.recordMqtt({
+      direction: "acl-negative",
+      deniedPublishCount: deniedTopics.length,
+      deniedReadCount: deniedReads.length
+    });
   }
 
   async publishEnergyHistory(mode: "partial" | "available") {
@@ -529,7 +553,7 @@ export class RealBackendLab {
       waitForRedisIdentity(redis, this.ports.redis),
       waitForOwnedPort(mqtt, this.ports.mqtt)
     ]);
-    const probe = await connectMqtt({
+    const probe = await connectMqttForLab({
       host: "127.0.0.1",
       port: this.ports.mqtt,
       clientId: `task9-broker-probe-${this.runId}`,
@@ -537,6 +561,7 @@ export class RealBackendLab {
       cert: await readFile(join(this.pkiDir, "api.crt")),
       key: await readFile(join(this.pkiDir, "api.key"))
     });
+    probe.on("error", () => undefined);
     await closeMqtt(probe, true);
   }
 
@@ -547,18 +572,7 @@ export class RealBackendLab {
   }
 
   private async writeMosquittoConfig() {
-    await writeFile(join(this.labDir, "mosquitto.acl"), [
-      "user api-service",
-      "topic readwrite sites/#",
-      "pattern read sites/+/gateways/%u/commands/#",
-      "pattern read sites/+/gateways/%u/acks/#",
-      "pattern write sites/+/gateways/%u/acks/acceptance",
-      "pattern write sites/+/gateways/%u/acks/device-status",
-      "pattern write sites/+/gateways/%u/events/#",
-      "pattern write sites/+/gateways/%u/state/#",
-      "pattern write sites/+/gateways/%u/heartbeat",
-      ""
-    ].join("\n"));
+    await writeFile(join(this.labDir, "mosquitto.acl"), await readFile(join(ROOT, "infra/mosquitto.acl.example")));
     chmodSync(join(this.labDir, "mosquitto.acl"), 0o600);
     await writeFile(join(this.labDir, "mosquitto.conf"), [
       `listener ${this.ports.mqtt} 127.0.0.1`, "allow_anonymous false", `cafile ${join(this.pkiDir, "ca.crt")}`,
@@ -840,16 +854,83 @@ function canConnect(port: number) {
   });
 }
 
-function connectMqtt(options: Parameters<typeof connect>[1]) {
+type MqttClientFactory = (brokerUrl: string, options: Parameters<typeof connect>[1]) => MqttClient;
+
+export function connectMqttForLab(
+  options: Parameters<typeof connect>[1],
+  createClient: MqttClientFactory = connect,
+  cleanupTimeoutMs = 1_000
+) {
+  const reconnectPeriod = options?.reconnectPeriod ?? 1_000;
   return new Promise<MqttClient>((resolvePromise, reject) => {
-    const client = connect(`mqtts://${options?.host}:${options?.port}`, { ...options, protocolVersion: 5, rejectUnauthorized: true });
-    client.once("connect", () => resolvePromise(client));
-    client.once("error", reject);
+    const client = createClient(`mqtts://${options?.host}:${options?.port}`, {
+      ...options,
+      protocolVersion: 5,
+      rejectUnauthorized: true,
+      reconnectPeriod: 0
+    });
+    const onConnect = () => {
+      client.removeListener("error", onError);
+      client.options.reconnectPeriod = reconnectPeriod;
+      resolvePromise(client);
+    };
+    const onError = (error: Error) => {
+      client.removeListener("connect", onConnect);
+      client.removeListener("error", onError);
+      client.options.reconnectPeriod = 0;
+      const suppressCleanupError = () => undefined;
+      client.on("error", suppressCleanupError);
+      void closeMqttWithin(client, true, cleanupTimeoutMs).finally(() => {
+        client.removeListener("error", suppressCleanupError);
+        reject(error);
+      });
+    };
+    client.once("connect", onConnect);
+    client.once("error", onError);
   });
 }
 
 function subscribe(client: MqttClient, topics: string[]) {
-  return new Promise<void>((resolvePromise, reject) => client.subscribe(topics, { qos: 1 }, (error) => error ? reject(error) : resolvePromise()));
+  return new Promise<void>((resolvePromise, reject) => client.subscribe(topics, { qos: 1 }, (error, granted) => {
+    if (error) return reject(error);
+    if (granted.some((grant) => grant.qos === 128)) return reject(new Error("MQTT subscription was not authorized"));
+    resolvePromise();
+  }));
+}
+
+async function expectReadsDenied(client: MqttClient, publisher: MqttClient, topics: string[]) {
+  const subscribed: string[] = [];
+  const marker = randomUUID();
+  let delivered = false;
+  const onMessage = (_topic: string, payload: Buffer) => {
+    if (payload.toString() === marker) delivered = true;
+  };
+  client.on("message", onMessage);
+  try {
+    for (const topic of topics) {
+      if (await subscribeForNegativeRead(client, topic)) subscribed.push(topic);
+    }
+    for (const topic of topics) await publish(publisher, topic.replace(/#$/, "review-probe"), marker, { qos: 1 });
+    await delay(250);
+    if (delivered) throw new Error("lab gateway ACL allowed an unauthorized read");
+  } finally {
+    client.removeListener("message", onMessage);
+    if (subscribed.length > 0) await unsubscribe(client, subscribed);
+  }
+}
+
+function subscribeForNegativeRead(client: MqttClient, topic: string) {
+  return new Promise<boolean>((resolvePromise, reject) => client.subscribe(topic, { qos: 1 }, (error, granted) => {
+    if (error && safeMessage(error).toLowerCase().includes("not authorized")) return resolvePromise(false);
+    if (error) return reject(error);
+    resolvePromise(granted.some((grant) => grant.qos !== 128));
+  }));
+}
+
+function unsubscribe(client: MqttClient, topics: string[]) {
+  return new Promise<void>((resolvePromise, reject) => client.unsubscribe(topics, (error) => (
+    error ? reject(error) : resolvePromise()
+  )));
 }
 
 function publish(client: MqttClient, topic: string, payload: string, options: IClientPublishOptions) {
@@ -859,6 +940,24 @@ function publish(client: MqttClient, topic: string, payload: string, options: IC
 function closeMqtt(client: MqttClient, force: boolean) {
   if (!client) return Promise.resolve();
   return new Promise<void>((resolvePromise) => client.end(force, {}, () => resolvePromise()));
+}
+
+function closeMqttWithin(client: MqttClient, force: boolean, timeoutMs: number) {
+  return new Promise<void>((resolvePromise) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolvePromise();
+    };
+    const timeout = setTimeout(finish, timeoutMs);
+    try {
+      client.end(force, {}, finish);
+    } catch {
+      finish();
+    }
+  });
 }
 
 async function stopProcessGroup(child: ChildProcess, timeoutMs: number) {

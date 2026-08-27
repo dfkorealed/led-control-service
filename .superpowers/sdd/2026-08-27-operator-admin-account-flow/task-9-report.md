@@ -57,7 +57,7 @@
 
 ## Network·Secret 처리
 
-- network evidence는 actor, method, path, status만 저장하고 request body, cookie, authorization header를 저장하지 않는다.
+- network evidence는 id, actor, method, path, status, outcome만 저장하고 request body, cookie, authorization header를 저장하지 않는다.
 - operator customer path 판정은 `/api/sites`, `/api/sites?...`, dashboard path를 포함하며 최종 결과는 0건이다.
 - operator/admin/viewer 비밀번호와 claim code는 실행마다 crypto random 값으로만 만든다. 문서와 소스에 실제 값이 없다.
 - real-backend lab과 real-auth 테스트는 Playwright trace/screenshot 자동 수집을 끈다.
@@ -153,3 +153,45 @@
 - 문서/ledger: Task 9 report, operator-admin plan의 Task 6·Task 9 checklist, plan 전용 local progress ledger, project status, monitoring/control/settings 메뉴 문서와 first-install runbook.
 - controller 수동 QA URL과 역할 준비는 기존 `Controller 수동 브라우저 QA 준비` 절을 따른다. 실제 계정 secret은 승인된 runtime channel로만 전달하며 DevTools에서 operator customer path 0건과 admin 생성 응답 password field 0개를 다시 확인한다.
 - 남은 concern은 production Gateway identity/bootstrap/ACL deployment, Raspberry Pi BlueZ, ESP32-H2 2-node RF scan/provisioning/model bind/control/state, packet loss/timeout/reboot HIL과 controller 수동 QA다.
+
+## Fix Round 2 (2026-08-27)
+
+### RED와 원인
+
+- 최초 MQTT 연결 오류 failure-injection test를 먼저 추가했다. 첫 RED는 `connectMqttForLab` export 부재로 실패했고, 기존 connector를 test seam으로 노출한 다음에는 `reconnectPeriod`가 기대값 `0`이 아니라 `undefined`여서 실패했다. 이 시점의 구현은 error reject 전에 client reconnect와 `end(true)`를 보장하지 않았다.
+- lab ACL byte-for-byte test는 기존 broad `acks/#` read와 별도 `heartbeat` write가 남아 있고 두 application ACK read topic이 명시되지 않아 `infra/mosquitto.acl.example`과의 diff로 실패했다.
+- 최초 ACL read negative probe는 Mosquitto가 read ACL을 delivery에서 적용하면서 금지 wildcard subscription에도 성공 SUBACK을 반환해 journey가 실패했다. probe를 API principal의 고유 marker publish 후 gateway 미수신 확인으로 고쳐 broker의 실제 read 차단을 검증했다.
+- start 중간 실패와 선점 port test는 default lab port 상태에 의존할 수 있었다. 각 test가 5개 lab port를 동적으로 배정하도록 바꿔 로컬 기본 listener 유무와 분리했다.
+
+### GREEN 구현과 증거
+
+- `connectMqttForLab`은 client를 성공 전부터 소유하고 handshake 동안 `reconnectPeriod: 0`을 강제한다. 최초 error에서는 connect/error listener를 제거하고 reconnect를 다시 차단한 뒤 `end(true)`를 호출하며, close callback이 오지 않아도 bounded timeout 후 원래 연결 오류로 reject한다. 연결 성공 후에만 원래 reconnect 설정을 복원하고 client ownership을 호출자에게 넘긴다.
+- lab ACL은 `infra/mosquitto.acl.example`을 그대로 복사해 생성하므로 API의 `sites/#` readwrite와 gateway의 own commands, 두 application ACK read, acceptance/device-status/state/events write만 허용한다. broad `acks/#`와 별도 heartbeat rule은 없다.
+- gateway simulator도 두 허용 ACK topic만 subscribe한다. negative probe는 다른 gateway state와 자기 command publish 2건 거부, 다른 gateway command와 자기 broad ACK read 2건 미전달을 확인했다. 최종 MQTT evidence는 `{ deniedPublishCount: 2, deniedReadCount: 2 }`다.
+- 최종 network evidence record는 `{ id, actor, method, path, status, outcome }`만 포함한다. header, cookie, authorization, body는 저장하지 않으며 operator customer path 결과는 0건이다.
+- 이는 lab CA가 발급한 test-only gateway certificate/CN과 software Mosquitto ACL 증거다. production Gateway certificate bootstrap/배포 ACL, 실제 `apps/gateway`, BlueZ/RF, Raspberry Pi/ESP32-H2 HIL을 검증한 결과가 아니다.
+
+### 검증 결과
+
+| 명령 | 결과 |
+| --- | --- |
+| focused helper RED | MQTT connector 미노출 후 `reconnectPeriod` 불일치 실패, ACL 정본 diff 실패 |
+| `pnpm --filter @led-control/web exec playwright test e2e/real-backend-lab-support.spec.ts --project=chromium` | PASS: 7 passed |
+| `pnpm --filter @led-control/web e2e:auth:real` | PASS: 1 passed, 15.3s |
+| `pnpm --filter @led-control/web e2e:journey:real` | PASS: 2 passed, 47.6s |
+| `pnpm --filter @led-control/web exec playwright test --project=chromium` | PASS: 31 passed, 3 explicit real-lab env skipped |
+| `pnpm --filter @led-control/web typecheck` | PASS |
+| `pnpm --filter @led-control/web lint` | PASS |
+| `pnpm --filter @led-control/web test` | PASS: 28 files, 280 tests |
+| `git diff --check` | PASS |
+
+최종 cleanup audit에서 `.local/e2e-real-backend/task9-*`, `/tmp/lcs-e2e-pg-*`, lab/default port listener와 관련 process group은 모두 0개였다. controller 수동 in-app browser QA와 production Gateway/BlueZ/RF/ESP32-H2 HIL은 계속 미실행이다.
+
+### 변경 파일
+
+- `apps/web/e2e/support/real-backend-lab.ts`
+- `apps/web/e2e/real-backend-lab-support.spec.ts`
+- `.superpowers/sdd/2026-08-27-operator-admin-account-flow/task-9-report.md`
+- `.superpowers/sdd/2026-08-27-operator-admin-account-flow/progress.md` (plan 전용 local ledger append)
+
+별도 commit subject는 `fix(e2e): close failed MQTT lab clients`이며 push/merge는 수행하지 않는다.
