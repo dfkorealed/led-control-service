@@ -266,44 +266,51 @@ describeWithPostgres("operator/admin migration PostgreSQL rehearsal", () => {
     expect(result.stderr).toContain("Site_adminUserId_key");
   });
 
-  it("serializes concurrent site assignment and user disable without deadlock", async () => {
-    const schemaName = createIsolatedSchema("concurrent_assignment_disable");
+  it("serializes concurrent assigned-site validation and user disable without deadlock", async () => {
+    const schemaName = createIsolatedSchema("concurrent_site_user_validation");
     installLegacyTables(schemaName);
     const { adminId, siteId } = seedLegacyCustomer(schemaName, { admins: 1, sites: 1 });
 
     expect(applyOperatorAdminMigration(schemaName).status).toBe(0);
-    execute(schemaName, `UPDATE "Site" SET "adminUserId" = NULL WHERE "id" = '${siteId}';`);
     installConcurrencyDelayTriggers(schemaName);
 
-    const [assignment, disable] = await Promise.all([
-      runSqlInSchemaAsync(schemaName, `UPDATE "Site" SET "adminUserId" = '${adminId}' WHERE "id" = '${siteId}';`),
+    const [siteValidation, disable] = await Promise.all([
+      runSqlInSchemaAsync(schemaName, `UPDATE "Site" SET "adminUserId" = "adminUserId" WHERE "id" = '${siteId}';`),
       runSqlInSchemaAsync(schemaName, `UPDATE "User" SET "status" = 'disabled' WHERE "id" = '${adminId}';`)
     ]);
-    const successful = [assignment, disable].filter((result) => result.status === 0);
-    const failed = [assignment, disable].filter((result) => result.status !== 0);
 
-    expect(successful).toHaveLength(1);
-    expect(failed).toHaveLength(1);
-    expect(failed[0].stderr).not.toMatch(/40P01|deadlock detected/i);
-    expect(failed[0].stderr).toMatch(
-      /site admin must be an active admin in the same customer organization|assigned site admin must remain an active admin in the same customer organization/
-    );
+    expect(siteValidation.status).toBe(0);
+    expect(disable.status).not.toBe(0);
+    expect(`${siteValidation.stderr}\n${disable.stderr}`).not.toMatch(/40P01|deadlock detected/i);
+    expect(disable.stderr).toContain("assigned site admin must remain an active admin in the same customer organization");
+    expect(readInvalidSiteAdminCount(schemaName)).toBe("0");
     expect(query(schemaName, `
-      SELECT COUNT(*)
-      FROM "Site" AS site
-      JOIN "User" AS admin ON admin."id" = site."adminUserId"
-      JOIN "Organization" AS organization ON organization."id" = site."organizationId"
-      WHERE admin."organizationId" <> site."organizationId"
-        OR admin."role" <> 'admin'
-        OR admin."status" <> 'active'
-        OR organization."type" <> 'customer';
-    `)).toBe("0");
-    expect(["admin-1|active", "|disabled"]).toContain(query(schemaName, `
       SELECT COALESCE(site."adminUserId", '') || '|' || admin."status"
       FROM "Site" AS site
       JOIN "User" AS admin ON admin."id" = '${adminId}'
       WHERE site."id" = '${siteId}';
-    `));
+    `)).toBe("admin-1|active");
+  }, 15_000);
+
+  it("serializes concurrent assigned-site validation and organization type change without deadlock", async () => {
+    const schemaName = createIsolatedSchema("concurrent_site_organization_validation");
+    installLegacyTables(schemaName);
+    const { siteId } = seedLegacyCustomer(schemaName, { admins: 1, sites: 1 });
+
+    expect(applyOperatorAdminMigration(schemaName).status).toBe(0);
+    installConcurrencyDelayTriggers(schemaName);
+
+    const [siteValidation, typeChange] = await Promise.all([
+      runSqlInSchemaAsync(schemaName, `UPDATE "Site" SET "adminUserId" = "adminUserId" WHERE "id" = '${siteId}';`),
+      runSqlInSchemaAsync(schemaName, `UPDATE "Organization" SET "type" = 'service_provider' WHERE "id" = 'customer-1';`)
+    ]);
+
+    expect(siteValidation.status).toBe(0);
+    expect(typeChange.status).not.toBe(0);
+    expect(`${siteValidation.stderr}\n${typeChange.stderr}`).not.toMatch(/40P01|deadlock detected/i);
+    expect(typeChange.stderr).toContain("organization with assigned site admins must remain a customer");
+    expect(readInvalidSiteAdminCount(schemaName)).toBe("0");
+    expect(query(schemaName, `SELECT "type" FROM "Organization" WHERE "id" = 'customer-1';`)).toBe("customer");
   }, 15_000);
 
   function expectMigrationFailure(schemaName: string, message: string) {
@@ -408,7 +415,9 @@ describeWithPostgres("operator/admin migration PostgreSQL rehearsal", () => {
       LANGUAGE plpgsql
       AS $$
       BEGIN
-        PERFORM pg_sleep(0.5);
+        -- The 00_ trigger names run before the production row validators. Each
+        -- session pauses only after PostgreSQL has locked its own target row.
+        PERFORM pg_sleep(1);
         RETURN NEW;
       END;
       $$;
@@ -420,6 +429,23 @@ describeWithPostgres("operator/admin migration PostgreSQL rehearsal", () => {
       CREATE TRIGGER "00_delay_user_admin_state"
       BEFORE UPDATE OF "status" ON "User"
       FOR EACH ROW EXECUTE FUNCTION "delay_admin_invariant_row_write"();
+
+      CREATE TRIGGER "00_delay_organization_type"
+      BEFORE UPDATE OF "type" ON "Organization"
+      FOR EACH ROW EXECUTE FUNCTION "delay_admin_invariant_row_write"();
+    `);
+  }
+
+  function readInvalidSiteAdminCount(schemaName: string) {
+    return query(schemaName, `
+      SELECT COUNT(*)
+      FROM "Site" AS site
+      JOIN "User" AS admin ON admin."id" = site."adminUserId"
+      JOIN "Organization" AS organization ON organization."id" = site."organizationId"
+      WHERE admin."organizationId" <> site."organizationId"
+        OR admin."role" <> 'admin'
+        OR admin."status" <> 'active'
+        OR organization."type" <> 'customer';
     `);
   }
 
