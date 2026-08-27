@@ -309,6 +309,10 @@ git add apps/api/prisma apps/api/src/operator-site-admins apps/api/src/audit app
 git commit -m "feat(api): add operator site admin management"
 ```
 
+- [x] **Review fix round 1: operator admin mutation 동시성 보강**
+
+비밀번호 재설정과 비활성화도 Serializable `P2034`를 `409 Conflict`로 변환한다. 격리 PostgreSQL에서 동일 미지정 현장의 교체 admin 생성 경쟁, reset/disable 경쟁, 중복 loginId 전체 생성 경쟁을 barrier 기반으로 실행해 loser transaction rollback, 세션 폐기와 Site/User 최종 불변식을 확인한다. 설치 상태 literal은 후속 dashboard 계약과 동일한 `pending|installed`를 사용한다.
+
 ### Task 4: 현장 접근과 admin 최초 설치 계약
 
 **Files:**
