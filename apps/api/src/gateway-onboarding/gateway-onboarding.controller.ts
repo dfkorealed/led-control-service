@@ -29,7 +29,7 @@ export class GatewayOnboardingController {
 
   @Post("gateways/claim")
   @UseGuards(SessionAuthGuard, RolesGuard)
-  @Roles("operator")
+  @Roles("admin")
   claimGateway(@CurrentUser() user: AuthenticatedUser, @Body() body: ClaimGatewayBody, @Req() request: ClaimRequest) {
     return this.service.claimGateway(user, { ...body, ipAddress: request.ip });
   }

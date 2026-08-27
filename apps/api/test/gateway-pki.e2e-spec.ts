@@ -46,17 +46,15 @@ describeWithDatabase("gateway PKI PostgreSQL E2E", () => {
       .rejects.toBeInstanceOf(UnauthorizedException);
 
     const organization = await prisma.organization.create({ data: { name: "E2E organization", type: "customer" } });
-    const provider = await prisma.organization.create({ data: { name: "E2E provider", type: "service_provider" } });
     const user = await prisma.user.create({ data: {
-      organizationId: provider.id, loginId: "pki_e2e", email: "pki-e2e@example.com", name: "E2E operator",
-      passwordHash: "not-used", role: "operator"
+      organizationId: organization.id, loginId: "pki_e2e", email: "pki-e2e@example.com", name: "E2E admin",
+      passwordHash: "not-used", role: "admin"
     } });
     const site = await prisma.site.create({ data: {
-      organizationId: organization.id, name: "E2E site", address: "E2E", tariffKwhRate: 100
+      organizationId: organization.id, adminUserId: user.id, name: "E2E site", address: "E2E", tariffKwhRate: 100
     } });
-    await prisma.siteMembership.create({ data: { userId: user.id, siteId: site.id } });
     const claimed = await onboarding.claimGateway(
-      { id: user.id, organizationId: provider.id, organizationType: "service_provider", loginId: "fixture_user", name: user.name, role: "operator", status: "active" },
+      { id: user.id, organizationId: organization.id, organizationType: "customer", loginId: "fixture_user", name: user.name, role: "admin", status: "active" },
       { siteId: site.id, serialNumber: "GW-E2E-001", claimCode: issued.claimCode, name: "E2E gateway" }
     );
 

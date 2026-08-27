@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing";
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, HttpException, NotFoundException } from "@nestjs/common";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -146,7 +146,7 @@ describe("RegistrationService", () => {
       fixture: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
     });
 
-    const result = await service.registerBatch(operator, ids.sessionId, {
+    const result = await service.registerBatch(admin, ids.sessionId, {
       mode: "batch",
       defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
       nodes: [
@@ -206,7 +206,7 @@ describe("RegistrationService", () => {
       fixture: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
     });
 
-    await service.registerBatch(operator, ids.sessionId, {
+    await service.registerBatch(admin, ids.sessionId, {
       mode: "batch",
       defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
       nodes: [{ nodeId: ids.nodeId, placement: { mode: "auto" } }]
@@ -251,7 +251,7 @@ describe("RegistrationService", () => {
       ensureFloorGroup: jest.fn().mockRejectedValue(new BadRequestException("mesh group address range exhausted"))
     });
 
-    await expect(service.registerBatch(operator, ids.sessionId, {
+    await expect(service.registerBatch(admin, ids.sessionId, {
       mode: "batch",
       defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
       nodes: [{ nodeId: ids.nodeId, placement: { mode: "auto" } }]
@@ -297,7 +297,7 @@ describe("RegistrationService", () => {
       publishProvisionDevice: jest.fn().mockRejectedValue(new Error("MQTT connection closed"))
     });
 
-    await expect(service.registerBatch(operator, ids.sessionId, {
+    await expect(service.registerBatch(admin, ids.sessionId, {
       mode: "batch",
       defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
       nodes: [{ nodeId: ids.nodeId, placement: { mode: "auto" } }]
@@ -317,7 +317,12 @@ describe("RegistrationService", () => {
       siteId: ids.siteId,
       floorId: ids.floorId,
       gatewayId: ids.gatewayId
-    })).rejects.toBeInstanceOf(ForbiddenException);
+    })).resolves.toMatchObject({ id: ids.sessionId });
+    await expect((service as any).createSession(operator, {
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId
+    })).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("rejects a gateway selected from another site instead of auto-selecting a local gateway", async () => {
@@ -325,7 +330,7 @@ describe("RegistrationService", () => {
       gateway: { findFirst: jest.fn().mockResolvedValue(null) }
     });
 
-    await expect(service.createSession(operator, {
+    await expect(service.createSession(admin, {
       siteId: ids.siteId,
       floorId: ids.floorId,
       gatewayId: "99999999-9999-4999-8999-999999999999"
@@ -346,7 +351,7 @@ describe("RegistrationService", () => {
       gateway: { findFirst: jest.fn().mockResolvedValue(null) }
     });
 
-    await expect(service.createSession(operator, {
+    await expect(service.createSession(admin, {
       siteId: ids.siteId,
       floorId: ids.floorId,
       gatewayId: ids.gatewayId
@@ -359,7 +364,7 @@ describe("RegistrationService", () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-07-11T00:05:00.000Z"));
     const { service, prisma } = await createModule();
 
-    await service.createSession(operator, {
+    await service.createSession(admin, {
       siteId: ids.siteId,
       floorId: ids.floorId,
       gatewayId: ids.gatewayId
@@ -378,7 +383,7 @@ describe("RegistrationService", () => {
   it("creates a pending scan and its durable scan-start outbox in one transaction", async () => {
     const { service, prisma, mqtt } = await createModule();
 
-    const session = await service.createSession(operator, {
+    const session = await service.createSession(admin, {
       siteId: ids.siteId,
       floorId: ids.floorId,
       gatewayId: ids.gatewayId
@@ -413,7 +418,7 @@ describe("RegistrationService", () => {
       publishProvisioningScanStart: jest.fn().mockRejectedValue(new Error("broker unavailable"))
     });
 
-    await expect(service.createSession(operator, {
+    await expect(service.createSession(admin, {
       siteId: ids.siteId,
       floorId: ids.floorId,
       gatewayId: ids.gatewayId
@@ -446,7 +451,7 @@ describe("RegistrationService", () => {
     });
     jest.spyOn(require("node:crypto"), "randomUUID").mockReturnValue(correlation);
 
-    await service.retryScan(operator, ids.sessionId);
+    await service.retryScan(admin, ids.sessionId);
 
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
     expect(update).toHaveBeenCalledWith({
@@ -475,7 +480,7 @@ describe("RegistrationService", () => {
       }
     });
 
-    await expect(service.createSession(operator, {
+    await expect(service.createSession(admin, {
       siteId: ids.siteId, floorId: ids.floorId, gatewayId: ids.gatewayId
     })).rejects.toEqual(new ConflictException({ code: "gateway_scan_in_progress" }));
   });
@@ -500,7 +505,7 @@ describe("RegistrationService", () => {
       }
     });
 
-    await expect(service.retryScan(operator, ids.sessionId)).rejects.toEqual(
+    await expect(service.retryScan(admin, ids.sessionId)).rejects.toEqual(
       new ConflictException({ code: "gateway_scan_in_progress" })
     );
   });
@@ -510,12 +515,12 @@ describe("RegistrationService", () => {
       provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue({ id: ids.sessionId, siteId: ids.siteId }), update: jest.fn() }
     });
 
-    await expect(service.identifyNode(operator, ids.sessionId, ids.nodeId)).rejects.toEqual(
+    await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).rejects.toEqual(
       new HttpException({ code: "pre_provision_identify_unsupported" }, 501)
     );
 
     expect(prisma.provisioningSession.findUnique).toHaveBeenCalledWith({ where: { id: ids.sessionId }, select: { siteId: true } });
-    expect(siteAccess.assert).toHaveBeenCalledWith(operator, ids.siteId, "commission");
+    expect(siteAccess.assert).toHaveBeenCalledWith(admin, ids.siteId, "commission");
     expect(prisma.discoveredMeshNode.findUnique).not.toHaveBeenCalled();
     expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
     expect(mqtt.publishIdentifyDevice).not.toHaveBeenCalled();
@@ -526,7 +531,7 @@ describe("RegistrationService", () => {
       provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() }
     });
 
-    await expect(service.identifyNode(operator, ids.sessionId, ids.nodeId)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).rejects.toBeInstanceOf(NotFoundException);
     expect(siteAccess.assert).not.toHaveBeenCalled();
   });
 
@@ -585,7 +590,7 @@ describe("RegistrationService", () => {
     });
 
     const result = await service.registerNode(
-      operator,
+      admin,
       ids.sessionId,
       ids.nodeId,
       {
@@ -635,7 +640,7 @@ describe("RegistrationService", () => {
       }
     });
 
-    const result = await service.completeSession(operator, ids.sessionId);
+    const result = await service.completeSession(admin, ids.sessionId);
 
     expect(result.status).toBe("completed");
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
@@ -653,7 +658,7 @@ describe("RegistrationService", () => {
       }
     });
 
-    await expect(service.completeSession(operator, ids.sessionId)).rejects.toEqual(
+    await expect(service.completeSession(admin, ids.sessionId)).rejects.toEqual(
       new ConflictException({ code: "scan_session_not_terminal" })
     );
     expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
@@ -673,6 +678,6 @@ describe("RegistrationService", () => {
     });
     siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
 
-    await expect(service.getSession(operator, ids.sessionId)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getSession(admin, ids.sessionId)).rejects.toBeInstanceOf(NotFoundException);
   });
 });

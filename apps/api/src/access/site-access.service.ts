@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -43,6 +44,43 @@ export class SiteAccessService {
     return site;
   }
 
+  async assertCommissionInTransaction(
+    tx: Pick<Prisma.TransactionClient, "$queryRaw" | "site">,
+    user: AuthenticatedUser,
+    siteId: string
+  ) {
+    if (!this.isActiveCustomerAdmin(user)) throw new NotFoundException("site not found");
+
+    // Claiming mutates inventory, so authorization is read only after the target site lock.
+    // This prevents a reassigned or disabled admin from completing a stale claim request.
+    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE
+    `);
+    if (locked.length === 0) throw new NotFoundException("site not found");
+
+    const site = await tx.site.findUnique({
+      where: { id: siteId },
+      select: {
+        id: true,
+        organizationId: true,
+        adminUserId: true,
+        admin: {
+          select: {
+            id: true,
+            organizationId: true,
+            role: true,
+            status: true,
+            organization: { select: { type: true } }
+          }
+        }
+      }
+    });
+    if (!site || !this.isAssignedActiveCustomerAdmin(site, user)) {
+      throw new NotFoundException("site not found");
+    }
+    return site;
+  }
+
   async listAccessibleSiteIds(user: AuthenticatedUser) {
     if (!this.hasValidOrganizationType(user)) {
       return [];
@@ -71,5 +109,27 @@ export class SiteAccessService {
     return user.status === "active"
       && ((user.role === "operator" && user.organizationType === "service_provider") ||
         ((user.role === "admin" || user.role === "viewer") && user.organizationType === "customer"));
+  }
+
+  private isActiveCustomerAdmin(user: AuthenticatedUser) {
+    return user.role === "admin" && user.status === "active" && user.organizationType === "customer";
+  }
+
+  private isAssignedActiveCustomerAdmin(
+    site: {
+      organizationId: string;
+      adminUserId: string | null;
+      admin: { id: string; organizationId: string; role: string; status: string; organization: { type: string } } | null;
+    },
+    user: AuthenticatedUser
+  ) {
+    return this.isActiveCustomerAdmin(user)
+      && site.adminUserId === user.id
+      && site.organizationId === user.organizationId
+      && site.admin?.id === user.id
+      && site.admin.organizationId === user.organizationId
+      && site.admin.role === "admin"
+      && site.admin.status === "active"
+      && site.admin.organization.type === "customer";
   }
 }

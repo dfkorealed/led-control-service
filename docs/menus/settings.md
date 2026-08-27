@@ -10,7 +10,7 @@
 - 기존 도면 에디터는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
 - 사용자/보안, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
 - BLE Mesh floor/zone Group Address와 subscription 동기화는 설정 화면 확장이 아니라 제어 기반 기능으로 구현한다. 기존 FixtureGroup 데이터만 사용하며 이번 범위에서 그룹 CRUD UI는 추가하지 않는다.
-- Task 4까지 operator의 현장 admin 관리 API, 설치 대기 Site DB 계약과 assigned admin의 최초 설치 API를 완료했다. operator 관리 웹 화면과 admin 최초 설치 웹 UI는 후속 Task 범위다.
+- Task 5까지 operator의 현장 admin 관리 API, 설치 대기 Site DB 계약, assigned admin의 최초 설치와 Gateway claim·조명 등록 commissioning API를 완료했다. operator 관리 웹 화면과 admin 최초 설치·commissioning 역할 노출은 후속 Task 범위다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
 
@@ -19,7 +19,7 @@
 - 설정 메뉴를 현장 구성, 도면 관리, 장비 시운전, 운영 정책, 보안, 유지보수의 관리 허브로 만든다.
 - 실시간 상태 확인은 모니터링, 조명 명령 실행은 제어, 에너지 분석은 통계에서 담당한다.
 - 도면 에디터는 설정의 `도면 관리`에서만 열고, 모니터링은 읽기 전용 상태 확인에 한정한다.
-- assigned customer `admin`이 자기 pending Site의 최초 주소·단가·시간대·층 설치를 수행한다. Gateway claim과 최초 provisioning의 controller 및 웹 UI는 이번 Task에서 변경하지 않았으며, 기존 operator 계약은 새 SiteAccess와 호환되지 않아 후속 권한 전환 전까지 완료 흐름으로 사용할 수 없다.
+- assigned customer `admin`이 자기 pending Site의 최초 주소·단가·시간대·층 설치와 Gateway claim·조명 검색·등록 commissioning API를 수행한다. Gateway claim은 Site row lock 뒤 할당·활성 상태·고객사 소속을 다시 확인하며, operator, 다른 admin, viewer는 고객 Site를 `404`로 접근할 수 없다. 웹 UI와 Task 9 실백엔드 E2E는 아직 이 역할 계약으로 전환하지 않았다.
 - 설치 완료 후 고객사의 `admin`은 도면 배경, 도형, 조명 배치, 일반 조명 정보와 운영 정책을 직접 관리한다.
 - 설정값은 임의 JSON 한 필드에 모으지 않고 검증 가능한 명시적 모델과 컬럼으로 관리한다.
 
@@ -73,13 +73,14 @@
 - `POST /setup/initial-site`는 assigned active customer `admin`만 `{ siteId, address, tariffKwhRate, timeZone?, floors }`로 호출할 수 있다. transaction 안에서 target Site row를 `FOR UPDATE`로 잠그고 assigned admin 및 pending 상태를 재검증한 뒤 기존 Site와 Floors/FloorPlan만 갱신한다.
 - 최초 설치는 Organization, Site, SiteMembership을 새로 만들지 않으며 주소·단가·층 중 하나라도 없으면 `pending`, 모두 있으면 `installed`다. 재호출과 Serializable 충돌은 `409`로 반환한다.
 - `POST /setup/floors`도 assigned admin의 `commission` capability를 요구한다. 기존 floor 이름·level 중복과 floorPlan 생성 검증은 유지한다.
-- Gateway claim, 조명 검색·등록 commissioning은 이 Task에서 변경하지 않았다. 현장 생성 후 Gateway 연결은 다음 권한 전환 Task에서 별도로 변경한다.
+- `POST /gateways/claim`과 모든 `registration-sessions` route는 `admin` controller role 및 service의 active customer admin + 대상 Site `commission` 검사를 함께 적용한다. registration은 create body 또는 저장된 session의 `siteId`를 권위 데이터로 사용한다.
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
 - 설정 화면에 현장, 층/도면, 그룹, Gateway 요약 카드를 표시한다.
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
 - 현장이 있으면 조명 등록 세션, BLE Mesh 후보 목록과 provisioning 요청 UI를 제공한다. 등록 패널은 층과 Gateway를 사용자가 명시적으로 선택하고 `siteId`, `floorId`, `gatewayId`를 함께 전송한다. 서버는 해당 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
 - provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 `MeshNode.deviceUuid` unique 경쟁만 해당 node 실패로 기록하며, 다른 unique/transaction 오류는 재전파한다.
-- 제조 장비 원장 기반 `POST /gateways/claim`과 장비 인증서 기반 `POST /gateway-bootstrap` 코드는 구현돼 있다. 다만 claim controller는 여전히 operator 역할과 현장 `commission`을 함께 요구하고, Task 4 SiteAccess에서 operator의 고객 Site capability를 제거했으므로 현재 계정 계약의 end-to-end 완료 경로가 아니다. assigned admin 전환은 후속 Task에서 수행한다.
+- 제조 장비 원장 기반 `POST /gateways/claim`은 assigned active customer admin만 수행한다. claim은 precheck 뒤 transaction 안에서 target Site를 `FOR UPDATE`로 잠그고 할당을 재검증하며, inventory mutation은 이 검증 뒤에만 발생한다. claim 실패 rate limit과 atomic claim-code 소비는 유지한다. device-certificate 기반 `POST /gateway-bootstrap`과 manufacturing enrollment 경계는 바꾸지 않았다.
+- `POST /gateway-inventories/:inventoryId/disable`은 고객 commissioning이 아닌 제조 보안 동작으로 active service-provider `operator`만 수행하며 customer SiteAccess를 요구하지 않는다. inventory disable 뒤 certificate revocation 동작도 유지한다.
 - Claim 성공·실패 감사 로그와 연속 실패 rate limit을 적용했다.
 - Raspberry Pi appliance가 실제 BlueZ scan/provisioning adapter와 영속 Mesh identity를 사용한다.
 - 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
@@ -301,7 +302,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 ## 작업 재개 지점
 
 - **폐기된 이전 계약:** 2026-07-21 Task 1~5는 operator SiteMembership과 operator 설치·시운전을 전제로 검증했다. 현재 Task 1~4 계정 전환의 구현 완료 증거로 사용하지 않는다.
-- Gateway claim·조명 registration controller와 웹 UI는 아직 새 assigned admin commissioning 계약으로 전환되지 않았다. 계정·설치 전환 Task 9 E2E도 아직 실행·갱신하지 않았다.
+- Gateway claim·조명 registration API controller와 service는 새 assigned admin commissioning 계약으로 전환됐다. 웹 UI 역할 노출과 계정·설치 전환 Task 9 E2E는 아직 실행·갱신하지 않았다.
 - 이전 통합 보안 리뷰의 Floor editor, invitation 원자 소비, legacy migration과 bootstrap 증거는 유지하지만 operator 고객 현장 접근 증거는 폐기됐다.
 - Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다.
 - Task 8 atomic save/revision API는 `d8d42f1`, `edde0a8`, `8d7aa2e`, `a3aa1b7`, `669be7e`, `d8041f6`, `63cd6fd`, `45336dc`, `f786d3f`에서 단계적으로 보정했다.
@@ -314,7 +315,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현장 선택 아래 가로 스크롤 메뉴로 전환하며, 에디터 본문은 단일 열 전체 폭을 사용한다. 네이티브 상단 선택 메뉴와의 통합은 후속 UI 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
-- Gateway claim, inventory disable, provisioning controller/UI에는 이전 operator 중심 계약이 남아 있으나 operator가 고객 Site capability를 잃었으므로 현재 계정 흐름에서는 완료 경로가 아니다. assigned admin의 Gateway claim·검색·등록 commissioning 전환과 웹 UI는 다음 Task 범위다.
+- Gateway claim과 registration API는 assigned admin commissioning으로 전환됐지만, 기존 웹 UI의 역할 노출은 아직 이전 operator 중심 계약을 전제한다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지하며, 웹 UI와 Task 9 E2E 전환은 다음 Task 범위다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.

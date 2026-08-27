@@ -44,7 +44,7 @@ export class GatewayOnboardingService {
   ) {}
 
   async claimGateway(user: AuthenticatedUser, input: ClaimGatewayInput) {
-    this.assertOperator(user);
+    this.assertActiveCustomerAdmin(user);
     await this.siteAccess.assert(user, input.siteId, "commission");
     const serialNumber = this.requireText(input.serialNumber, "serialNumber is required");
     const name = this.requireText(input.name, "gateway name is required");
@@ -64,11 +64,20 @@ export class GatewayOnboardingService {
     const inventory = await this.db().gatewayInventory.findUnique({ where: { serialNumber } });
     if (!inventory || inventory.disabledAt) return this.rejectClaim(input, user.id, "gateway inventory is unavailable");
     if (inventory.claimedGatewayId || !inventory.claimCodeHash) throw new ConflictException("gateway is already claimed");
-    if (!(await this.verifyClaimCode(claimCode, inventory.claimCodeHash))) {
+    const claimCodeHash = inventory.claimCodeHash;
+    if (!(await this.verifyClaimCode(claimCode, claimCodeHash))) {
       return this.rejectClaim(input, user.id, "invalid gateway claim code", inventory.id);
     }
 
-    return this.db().$transaction(async (tx: any) => {
+    const claimed = await this.db().$transaction(async (tx: any) => {
+      await this.siteAccess.assertCommissionInTransaction(tx, user, input.siteId);
+      const currentInventory = await tx.gatewayInventory.findUnique({ where: { id: inventory.id } });
+      if (!currentInventory || currentInventory.disabledAt) {
+        return null;
+      }
+      if (currentInventory.claimedGatewayId || !currentInventory.claimCodeHash) {
+        throw new ConflictException("gateway is already claimed");
+      }
       const claimedAt = new Date();
       const gateway = await tx.gateway.create({
         data: {
@@ -82,7 +91,7 @@ export class GatewayOnboardingService {
         }
       });
       const consumed = await tx.gatewayInventory.updateMany({
-        where: { id: inventory.id, claimedGatewayId: null, claimCodeHash: { not: null }, disabledAt: null },
+        where: { id: inventory.id, claimedGatewayId: null, claimCodeHash, disabledAt: null },
         data: { claimedGatewayId: gateway.id, claimedAt, claimCodeHash: null }
       });
       if (consumed.count !== 1) throw new ConflictException("gateway claim was already consumed");
@@ -98,6 +107,8 @@ export class GatewayOnboardingService {
       });
       return { status: "claimed" as const, gatewayId: gateway.id, siteId: gateway.siteId, serialNumber: gateway.serialNumber };
     });
+    if (!claimed) return this.rejectClaim(input, user.id, "gateway inventory is unavailable", inventory.id);
+    return claimed;
   }
 
   async bootstrapGateway(input: BootstrapGatewayInput) {
@@ -125,14 +136,8 @@ export class GatewayOnboardingService {
   }
 
   async disableInventory(user: AuthenticatedUser, inventoryId: string) {
-    this.assertOperator(user);
+    this.assertServiceProviderOperator(user);
     const id = this.requireText(inventoryId, "inventoryId is required");
-    const assignedInventory = await this.db().gatewayInventory.findUnique({
-      where: { id },
-      select: { claimedGateway: { select: { siteId: true } } }
-    });
-    if (!assignedInventory?.claimedGateway) throw new NotFoundException("inventory not found");
-    await this.siteAccess.assert(user, assignedInventory.claimedGateway.siteId, "commission");
     const inventory = await this.db().$transaction(async (tx: any) => {
       const current = await tx.gatewayInventory.findFirst({ where: { id } });
       if (!current) throw new NotFoundException("inventory not found");
@@ -191,7 +196,15 @@ export class GatewayOnboardingService {
     return this.prisma as any;
   }
 
-  private assertOperator(user: AuthenticatedUser) {
-    if (user.role !== "operator") throw new ForbiddenException("gateway commissioning requires operator role");
+  private assertActiveCustomerAdmin(user: AuthenticatedUser) {
+    if (user.role !== "admin" || user.status !== "active" || user.organizationType !== "customer") {
+      throw new NotFoundException("site not found");
+    }
+  }
+
+  private assertServiceProviderOperator(user: AuthenticatedUser) {
+    if (user.role !== "operator" || user.status !== "active" || user.organizationType !== "service_provider") {
+      throw new ForbiddenException("inventory disable requires an active service-provider operator");
+    }
   }
 }

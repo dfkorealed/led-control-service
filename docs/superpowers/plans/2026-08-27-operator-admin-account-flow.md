@@ -393,7 +393,7 @@ git commit -m "feat(api): move initial site setup to assigned admin"
 - Produces: assigned admin의 claim/scan/identify/register/complete
 - Preserves: `gateway-inventories/:inventoryId/disable`은 제조 보안 동작으로 operator 전용
 
-- [ ] **Step 1: controller와 service RED 테스트 작성**
+- [x] **Step 1: controller와 service RED 테스트 작성**
 
 ```ts
 it("allows the assigned admin to claim and rejects the global operator", async () => {
@@ -406,16 +406,16 @@ it("requires admin commission for every registration operation", async () => {
 });
 ```
 
-- [ ] **Step 2: RED 확인**
+- [x] **Step 2: RED 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/gateway-onboarding src/registration --runInBand`
 Expected: 기존 operator role 때문에 실패
 
-- [ ] **Step 3: controller/service 이중 권한 검사 전환**
+- [x] **Step 3: controller/service 이중 권한 검사 전환**
 
 claim과 registration controller는 `@Roles("admin")`을 사용하고 service의 `assertServiceProviderOperator`를 제거해 대상 site의 commission capability를 확인한다. inventory disable과 제조 enrollment는 operator/internal 경계를 유지한다.
 
-- [ ] **Step 4: GREEN 확인 및 커밋**
+- [x] **Step 4: GREEN 확인 및 커밋**
 
 Run: `pnpm --filter @led-control/api exec jest src/gateway-onboarding src/registration --runInBand && pnpm --filter @led-control/api typecheck`
 Expected: PASS
@@ -424,6 +424,8 @@ Expected: PASS
 git add apps/api/src/gateway-onboarding apps/api/src/registration docs/menus/monitoring.md docs/menus/settings.md docs/project-status.md
 git commit -m "feat(api): grant commissioning to site admins"
 ```
+
+**Task 5 실행 기록:** RED에서 기존 `operator` controller/service gate와 inventory disable의 customer `SiteAccess` 의존을 확인했다. `SiteAccessService.assertCommissionInTransaction`은 claim transaction 안에서 Site row를 잠그고 assigned active customer admin을 다시 확인한다. fresh disposable PostgreSQL에서 assigned admin claim/registration 성공, operator·다른 admin 차단, operator inventory disable과 deterministic claim reassignment race를 통과했다. 웹 역할 노출과 Task 9 E2E는 다음 Task 범위다.
 
 ### Task 6: loginId 로그인과 역할별 웹 shell
 

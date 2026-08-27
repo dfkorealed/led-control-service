@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { SiteAccessService } from "../access/site-access.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -8,8 +8,12 @@ import { GatewayOnboardingService } from "./gateway-onboarding.service";
 describe("GatewayOnboardingService", () => {
   const siteId = "00000000-0000-4000-8000-000000000003";
   const gatewayId = "00000000-0000-4000-8000-000000000004";
-  const user: AuthenticatedUser = {
-    id: "user-1", organizationId: "provider-org-1", organizationType: "service_provider", loginId: "fixture_user",
+  const admin: AuthenticatedUser = {
+    id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user",
+    name: "Admin", role: "admin", status: "active"
+  };
+  const operator: AuthenticatedUser = {
+    id: "operator-1", organizationId: "provider-org-1", organizationType: "service_provider", loginId: "operator_1",
     name: "Operator", role: "operator", status: "active"
   };
 
@@ -41,14 +45,17 @@ describe("GatewayOnboardingService", () => {
       inventory.claimedAt = new Date();
       return { count: 1 };
     });
-    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: siteId }) };
+    const siteAccess = {
+      assert: jest.fn().mockResolvedValue({ id: siteId }),
+      assertCommissionInTransaction: jest.fn().mockResolvedValue({ id: siteId })
+    };
     return { service: new GatewayOnboardingService(prisma, siteAccess as unknown as SiteAccessService), prisma, inventory, siteAccess };
   }
 
   it("claims a manufactured gateway once and consumes the claim code", async () => {
     const { service, inventory } = await createFixture();
 
-    const result = await service.claimGateway(user, {
+    const result = await service.claimGateway(admin, {
       siteId,
       serialNumber: "GW-PROD-001",
       claimCode: "claim-code-1234",
@@ -59,27 +66,30 @@ describe("GatewayOnboardingService", () => {
     expect(result).toMatchObject({ status: "claimed", gatewayId, siteId, serialNumber: "GW-PROD-001" });
     expect(inventory.claimCodeHash).toBeNull();
     await expect(
-      service.claimGateway(user, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2 Gateway" })
+      service.claimGateway(admin, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2 Gateway" })
     ).rejects.toThrow("gateway is already claimed");
   });
 
-  it("rejects customer admins and viewers from claiming a gateway", async () => {
+  it("allows only an active assigned customer admin to claim a gateway", async () => {
     const { service } = await createFixture();
 
     await expect(
-      service.claimGateway({ ...user, organizationType: "customer", organizationId: "customer-org", role: "admin" }, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2" })
-    ).rejects.toBeInstanceOf(ForbiddenException);
+      service.claimGateway(admin, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2" })
+    ).resolves.toMatchObject({ status: "claimed" });
     await expect(
-      service.claimGateway({ ...user, organizationType: "customer", organizationId: "customer-org", role: "viewer" }, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2" })
-    ).rejects.toBeInstanceOf(ForbiddenException);
+      service.claimGateway(operator, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2" })
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.claimGateway({ ...admin, status: "disabled" }, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2" })
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it("hides gateway claim from an unassigned operator", async () => {
+  it("hides gateway claim from an unassigned admin", async () => {
     const { service, siteAccess } = await createFixture();
     siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
 
     await expect(
-      service.claimGateway(user, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2" })
+      service.claimGateway(admin, { siteId, serialNumber: "GW-PROD-001", claimCode: "claim-code-1234", name: "B2" })
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -106,13 +116,15 @@ describe("GatewayOnboardingService", () => {
         .mockRejectedValueOnce(new Error("Vault unavailable"))
         .mockResolvedValueOnce({ revoked: 2 })
     } as unknown as CertificateLifecycleService;
-    const service = new GatewayOnboardingService(prisma, { assert: jest.fn().mockResolvedValue({ id: siteId }) } as unknown as SiteAccessService, lifecycle);
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: siteId }) };
+    const service = new GatewayOnboardingService(prisma, siteAccess as unknown as SiteAccessService, lifecycle);
 
-    await expect(service.disableInventory(user, "inventory-1")).rejects.toThrow("certificate revocation pending");
-    await expect(service.disableInventory(user, "inventory-1")).resolves.toEqual({ status: "disabled", revoked: 2 });
+    await expect(service.disableInventory(operator, "inventory-1")).rejects.toThrow("certificate revocation pending");
+    await expect(service.disableInventory(operator, "inventory-1")).resolves.toEqual({ status: "disabled", revoked: 2 });
 
     expect(prisma.gatewayInventory.update).toHaveBeenCalledTimes(1);
     expect(lifecycle.revokeInventoryCertificates).toHaveBeenCalledTimes(2);
+    expect(siteAccess.assert).not.toHaveBeenCalled();
   });
 
   it("rejects inventory disable outside the administrator organization", async () => {
@@ -122,7 +134,7 @@ describe("GatewayOnboardingService", () => {
     const lifecycle = { revokeInventoryCertificates: jest.fn() } as unknown as CertificateLifecycleService;
     const service = new GatewayOnboardingService(prisma, { assert: jest.fn().mockResolvedValue({ id: siteId }) } as unknown as SiteAccessService, lifecycle);
 
-    await expect(service.disableInventory(user, "inventory-1")).rejects.toThrow("inventory not found");
+    await expect(service.disableInventory(operator, "inventory-1")).rejects.toThrow("inventory not found");
 
     expect(lifecycle.revokeInventoryCertificates).not.toHaveBeenCalled();
   });

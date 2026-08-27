@@ -6,16 +6,18 @@ import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { GatewayOnboardingController } from "./gateway-onboarding.controller";
 
 describe("GatewayOnboardingController", () => {
-  it("requires the operator role for gateway claim and inventory disable", () => {
-    for (const handler of [
-      GatewayOnboardingController.prototype.claimGateway,
-      GatewayOnboardingController.prototype.disableInventory
-    ]) {
+  it("requires an assigned admin for gateway claim and keeps inventory disable operator-only", () => {
+    for (const handler of [GatewayOnboardingController.prototype.claimGateway]) {
       expect(Reflect.getMetadata(GUARDS_METADATA, handler)).toEqual(
         expect.arrayContaining([SessionAuthGuard, RolesGuard])
       );
-      expect(Reflect.getMetadata(rolesMetadataKey, handler)).toEqual(["operator"]);
+      expect(Reflect.getMetadata(rolesMetadataKey, handler)).toEqual(["admin"]);
     }
+
+    expect(Reflect.getMetadata(GUARDS_METADATA, GatewayOnboardingController.prototype.disableInventory)).toEqual(
+      expect.arrayContaining([SessionAuthGuard, RolesGuard])
+    );
+    expect(Reflect.getMetadata(rolesMetadataKey, GatewayOnboardingController.prototype.disableInventory)).toEqual(["operator"]);
   });
 
   it("passes the authenticated user and request IP to claim", async () => {

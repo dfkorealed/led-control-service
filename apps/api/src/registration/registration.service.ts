@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, HttpException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
 import {
   CreateRegistrationSessionInput,
   gatewayHeartbeatFreshSince,
@@ -475,7 +475,9 @@ export class RegistrationService {
   }
 
   private async assertCommissionAccess(user: AuthenticatedUser, siteId: string) {
-    if (user.role !== "operator") throw new ForbiddenException("registration requires operator role");
+    if (user.role !== "admin" || user.status !== "active" || user.organizationType !== "customer") {
+      throw new NotFoundException("site not found");
+    }
     await this.siteAccess.assert(user, siteId, "commission");
   }
 }

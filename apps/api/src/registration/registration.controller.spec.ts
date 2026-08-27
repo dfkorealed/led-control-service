@@ -7,11 +7,11 @@ import type { AuthenticatedUser } from "../auth/auth.types";
 import { RegistrationController } from "./registration.controller";
 
 describe("RegistrationController", () => {
-  it("requires the operator role for every registration route", () => {
+  it("requires the assigned admin role for every registration route", () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, RegistrationController)).toEqual(
       expect.arrayContaining([SessionAuthGuard, RolesGuard])
     );
-    expect(Reflect.getMetadata(rolesMetadataKey, RegistrationController)).toEqual(["operator"]);
+    expect(Reflect.getMetadata(rolesMetadataKey, RegistrationController)).toEqual(["admin"]);
   });
 
   it("passes a validated batch registration request to the service", async () => {

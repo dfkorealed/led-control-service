@@ -15,7 +15,7 @@ interface RegisterNodeBody {
 }
 
 @UseGuards(SessionAuthGuard, RolesGuard)
-@Roles("operator")
+@Roles("admin")
 @Controller("registration-sessions")
 export class RegistrationController {
   constructor(private readonly registrationService: RegistrationService) {}

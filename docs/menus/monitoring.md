@@ -25,7 +25,8 @@
 - `GET /sites/default/dashboard`는 접근 가능한 첫 현장을 반환하고, 접근 가능한 현장이 없을 때도 빈 dashboard shape를 유지한다.
 - `GET /sites/:siteId/dashboard`, 층별 fixture 조회와 기본 에너지 추정은 `AuthenticatedUser + SiteAccessService`로 현장 read 권한을 확인한다. 다른 admin 현장, 미배정 viewer와 operator 고객 현장은 `404`로 숨긴다.
 - dashboard `site`는 `customerName`, nullable `address`/`tariffKwhRate`, `timeZone`, 그리고 주소·단가·층 존재 여부에서 계산한 `pending|installed` 설치 상태를 함께 반환한다.
-- assigned admin은 pending Site의 최초 주소·단가·시간대·층을 API로 완료할 수 있다. 이 Task에서는 기존 웹 설치 화면, Gateway claim과 조명 등록 권한을 변경하지 않았다.
+- assigned admin은 pending Site의 최초 주소·단가·시간대·층을 API로 완료할 수 있으며, 설치가 끝난 뒤 자기 현장의 Gateway claim과 조명 검색·등록 commissioning API를 호출할 수 있다. `POST /gateways/claim`은 Site row 잠금 뒤 admin 할당·상태·고객사 일치를 다시 검증해 재배정된 admin의 stale claim을 `404`로 막고, claim code rate limit·단회 소비는 유지한다.
+- registration session 생성은 body `siteId`, 조회·재검색·identify·개별/일괄 등록·완료는 저장된 session `siteId`의 `commission` capability를 검사한다. assigned admin만 허용하고 operator, 다른 고객 admin, viewer는 `404` 경계로 숨긴다. 기존 durable scan outbox, allocator와 provisioning 상태 전이는 그대로 유지한다.
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
 - ESP32-H2 unprovisioned UUID는 `DFKLED`, format version, 제품군, 모델, 하드웨어 revision과 6바이트 장치 식별자로 구성한다. Raspberry Pi Gateway는 shared parser로 현재 format의 자사 UUID만 scan 결과에 포함하고 타사 장치는 구조화 로그만 남긴다.
 - 등록용 자동 이름 순번은 층별 `Floor.nextFixtureSequence`, Mesh unicast 주소는 게이트웨이별 `Gateway.nextMeshUnicastAddress`에서 소유 행 잠금 후 연속 범위로 원자 예약한다. 삭제되거나 건너뛴 값은 재사용하지 않으며 Mesh 주소는 `0x0001~0x7fff`만 허용한다.
@@ -73,7 +74,7 @@
 - 모니터링 수동 새로고침은 dashboard metadata, 현재 층 fixture 페이지와 현재 층 map snapshot 세 요청을 함께 갱신하며 일부 실패 시 기존 성공 데이터를 유지한다.
 - 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가하며, 수동 갱신 실패 상태는 해당 floor ID에 귀속되어 다른 층으로 전환할 때 누수되지 않는다.
 - deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색과 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
-- **폐기된 이전 계정 계약의 증거:** 기존 격리 Chromium E2E는 operator가 현장·층을 생성하고 Gateway claim·조명 등록을 수행하는 흐름을 검증했다. Task 1~4 전환 뒤 operator는 Task 3 API로 pending Site/admin만 provision하고 assigned admin이 최초 설치를 완료하므로, 이 E2E는 현재 계정 흐름의 완료 증거가 아니다. 새 Task 9 E2E는 아직 갱신·실행하지 않았으며 test-only publisher 증거도 Raspberry Pi/ESP32-H2 HIL을 대체하지 않는다.
+- **폐기된 이전 계정 계약의 증거:** 기존 격리 Chromium E2E는 operator가 현장·층을 생성하고 Gateway claim·조명 등록을 수행하는 흐름을 검증했다. Task 5 API는 assigned admin commissioning으로 전환했지만 웹 역할 노출과 Task 9 실백엔드 E2E는 아직 갱신·실행하지 않았으며, test-only publisher 증거도 Raspberry Pi/ESP32-H2 HIL을 대체하지 않는다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
 - 모든 production 상태 producer는 `0700` 전용 디렉터리의 `0600` atomic durable outbox에 먼저 기록한다. 별도 manifest가 최초 생성과 운영 중 파일 소실을 구분하며 missing/corrupt/unsafe permission은 `state_outbox_missing`, `state_outbox_corrupt`, `state_outbox_permissions` health로 시작을 차단한다. 최대 `100,000건/100MiB` 용량을 예약할 수 없으면 command·scan·identify·provision RF 작업 전에 공통 gate가 fail-closed하고 `state_outbox_capacity`를 sticky 상태로 남긴다.
