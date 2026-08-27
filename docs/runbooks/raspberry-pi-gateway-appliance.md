@@ -95,7 +95,7 @@ export STATION_CERT="$PWD/.local/manufacturing/station.crt"
 export STATION_KEY="$PWD/.local/manufacturing/station.key"
 export STATION_CA="$PWD/.local/manufacturing/api-ca.crt"
 
-pnpm gateway:manufacturing:enroll -- \
+pnpm gateway:manufacturing:enroll \
   --target dfkorea@dfkorea.local \
   --serial GW-RPI-000001 \
   --label-output "$PWD/.local/manufacturing/GW-RPI-000001.json"

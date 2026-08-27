@@ -174,7 +174,7 @@ ssh dfkorea@dfkorea.local \
 scp .local/lab-pki/services/current/api-ca.crt \
   dfkorea@dfkorea.local:/opt/led-control/gateway/data/factory-trust/api-ca.crt
 
-pnpm gateway:manufacturing:enroll -- \
+pnpm gateway:manufacturing:enroll \
   --target dfkorea@dfkorea.local \
   --serial GW-RPI-000001 \
   --label-output "$PWD/.local/manufacturing/GW-RPI-000001.json"

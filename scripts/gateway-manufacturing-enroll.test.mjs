@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const script = await readFile(new URL("./gateway-manufacturing-enroll.sh", import.meta.url), "utf8");
+const firstInstallRunbook = await readFile(new URL("../docs/runbooks/device-lab-first-install.md", import.meta.url), "utf8");
+const applianceRunbook = await readFile(new URL("../docs/runbooks/raspberry-pi-gateway-appliance.md", import.meta.url), "utf8");
 
 test("manufacturing enrollment keeps the token in a pipe and never in argv, temp files, or stdout", () => {
   assert.match(script, /manufacturing\/gateway-enrollments/);
@@ -28,4 +30,11 @@ test("Docker image contains the manufacturing enrollment bundle", async () => {
   const dockerfile = await readFile(new URL("../apps/gateway/docker/Dockerfile", import.meta.url), "utf8");
   assert.match(dockerfile, /manufacturing-enroll/);
   assert.match(dockerfile, /manufacturing-enroll\.mjs/);
+});
+
+test("manufacturing runbooks pass options directly to the pnpm script", () => {
+  for (const runbook of [firstInstallRunbook, applianceRunbook]) {
+    assert.match(runbook, /pnpm gateway:manufacturing:enroll \\\n\s+--target/);
+    assert.doesNotMatch(runbook, /pnpm gateway:manufacturing:enroll -- \\\n/);
+  }
 });

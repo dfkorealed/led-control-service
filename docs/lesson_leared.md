@@ -193,3 +193,10 @@
 - **원인**: MQTT.js packet 처리 callback 안에서 같은 연결의 후속 QoS 1 publish callback까지 await해 순환 대기를 만들었다.
 - **해결 및 예방책**: 상태 DB commit 뒤 수신 PUBACK을 먼저 완료하고 application ACK는 추적되는 후속 handler로 발행한다. application ACK가 실패하면 Gateway durable outbox가 같은 event를 재발행하고 API duplicate ACK로 수렴한다. 종료 시작 뒤 새 custom ACK 입력은 연결을 끊어 persistent session 재전달을 보존한다.
 - **반복 방지 체크**: custom ACK 테스트는 미완료 outgoing publish를 둔 상태에서도 수신 PUBACK이 먼저 호출되는지, shutdown drain 이후 새 입력이 DB에 들어가지 않는지 검증한다. 실제 mTLS broker E2E에서 상태를 2건 이상 연속 발행해 application ACK를 확인한다.
+
+## 2026-08-27 / pnpm script 인자 구분자 전달
+
+- **발생했던 문제/실수**: 제조 등록 런북의 `pnpm gateway:manufacturing:enroll -- --target ...` 명령이 단독 `--`까지 shell script에 전달해 `invalid arguments`로 종료됐다.
+- **원인**: 직접 실행하는 shell script의 엄격한 인자 parser와 pnpm 명령 구분자의 실제 전달 방식을 확인하지 않고 일반적인 `--` 예제를 사용했다.
+- **해결 및 예방책**: 옵션을 `pnpm gateway:manufacturing:enroll --target ...` 형태로 직접 전달하고, 두 실장비 런북에 단독 `--`가 다시 들어오지 않는 문서 회귀 테스트를 추가했다.
+- **반복 방지 체크**: pnpm script 예제는 문서에 넣기 전에 그대로 실행해 parser가 첫 인자로 무엇을 받는지 확인하고, 보안·제조 명령은 런북 문자열도 자동 검사한다.
