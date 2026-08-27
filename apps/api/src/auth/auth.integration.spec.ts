@@ -1,11 +1,16 @@
 import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthService } from "./auth.service";
 import { PasswordService } from "./password.service";
 
 const databaseUrl = process.env.AUTH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
+
+function createAuthService(prisma: PrismaService) {
+  return new AuthService(prisma, new PasswordService(), new AuditService(prisma));
+}
 
 describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
   let prisma: PrismaService;
@@ -29,7 +34,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     const siteId = randomUUID();
     const email = `viewer-${siteId}@example.com`;
     const rawToken = randomUUID();
-    const service = new AuthService(prisma);
+    const service = createAuthService(prisma);
     await prisma.organization.create({ data: { id: organizationId, name: `Customer ${siteId.slice(0, 8)}`, type: "customer" } });
     await prisma.site.create({
       data: { id: siteId, organizationId, name: "Customer site", address: "Seoul", tariffKwhRate: "123.45" }
@@ -49,7 +54,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
 
   it("stores loginId separately from the invitation contact email and grants viewer membership", async () => {
     const { siteId, email, rawToken, invitation } = await createViewerInvitation();
-    const service = new AuthService(prisma);
+    const service = createAuthService(prisma);
 
     const result = await service.signup({
       token: rawToken,
@@ -93,7 +98,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
         }
       }
     });
-    const service = new AuthService(racingPrisma as unknown as PrismaService);
+    const service = createAuthService(racingPrisma as unknown as PrismaService);
 
     await expect(service.signup({
       token: rawToken,
@@ -129,7 +134,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
         status: "active"
       }
     });
-    const service = new AuthService(prisma);
+    const service = createAuthService(prisma);
     const current = await service.login({ loginId, password: oldPassword, rememberMe: false });
     const other = await service.login({ loginId, password: oldPassword, rememberMe: true });
 
@@ -160,7 +165,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     const user = await prisma.user.create({
       data: { id: userId, organizationId, loginId, email: null, name: "Wrong Password", passwordHash: await passwords.hash(password), role: "admin", status: "active" }
     });
-    const service = new AuthService(prisma);
+    const service = createAuthService(prisma);
     const current = await service.login({ loginId, password, rememberMe: false });
     const other = await service.login({ loginId, password, rememberMe: false });
     const auditsBefore = await prisma.auditLog.count({ where: { actorId: userId, action: "auth.password_changed" } });

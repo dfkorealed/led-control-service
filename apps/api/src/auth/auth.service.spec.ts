@@ -1,6 +1,16 @@
 import { BadRequestException, UnauthorizedException } from "@nestjs/common";
+import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthService } from "./auth.service";
+import { PasswordService } from "./password.service";
+
+function createAuthService(
+  prisma: PrismaService,
+  passwords: PasswordService = new PasswordService(),
+  audit: AuditService = new AuditService(prisma)
+) {
+  return new AuthService(prisma, passwords, audit);
+}
 
 describe("AuthService", () => {
   const now = new Date("2026-08-27T00:00:00.000Z");
@@ -46,7 +56,10 @@ describe("AuthService", () => {
       $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction))
     };
     const passwordService = { hash: jest.fn().mockResolvedValue("scrypt$hash") };
-    const service = new (AuthService as any)(prisma as unknown as PrismaService, passwordService);
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      passwordService as unknown as PasswordService
+    );
 
     await service.signup({
       token: "viewer-token",
@@ -78,7 +91,7 @@ describe("AuthService", () => {
       },
       user: { findUnique: jest.fn() }
     };
-    const service = new AuthService(prisma as unknown as PrismaService);
+    const service = createAuthService(prisma as unknown as PrismaService);
 
     await expect(service.signup({
       token: "invitation-token",
@@ -95,7 +108,10 @@ describe("AuthService", () => {
       session: { create: jest.fn().mockResolvedValue({ id: "session-1" }) }
     };
     const passwordService = { verify: jest.fn().mockResolvedValue(true) };
-    const service = new (AuthService as any)(prisma as unknown as PrismaService, passwordService);
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      passwordService as unknown as PasswordService
+    );
     prisma.user.findUnique.mockResolvedValue({
       id: "admin-1",
       organizationId: "organization-1",
@@ -118,7 +134,7 @@ describe("AuthService", () => {
       user: { findUnique: jest.fn().mockResolvedValue(null) },
       session: { create: jest.fn() }
     };
-    const service = new AuthService(prisma as unknown as PrismaService);
+    const service = createAuthService(prisma as unknown as PrismaService);
 
     await expect(service.login({ loginId: "missing_01", password: "wrong-password", rememberMe: false } as any))
       .rejects.toEqual(new UnauthorizedException("Invalid login id or password"));
@@ -130,8 +146,14 @@ describe("AuthService", () => {
       id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
       role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash"
     };
-    const missing = new (AuthService as any)({ user: { findUnique: jest.fn().mockResolvedValue(null) }, session: { create: jest.fn() } }, { verify: jest.fn() });
-    const wrongPassword = new (AuthService as any)({ user: { findUnique: jest.fn().mockResolvedValue(user) }, session: { create: jest.fn() } }, { verify: jest.fn().mockResolvedValue(false) });
+    const missing = createAuthService(
+      { user: { findUnique: jest.fn().mockResolvedValue(null) }, session: { create: jest.fn() } } as unknown as PrismaService,
+      { verify: jest.fn() } as unknown as PasswordService
+    );
+    const wrongPassword = createAuthService(
+      { user: { findUnique: jest.fn().mockResolvedValue(user) }, session: { create: jest.fn() } } as unknown as PrismaService,
+      { verify: jest.fn().mockResolvedValue(false) } as unknown as PasswordService
+    );
 
     const missingError = await missing.login({ loginId: "missing_01", password: "wrong-password", rememberMe: false }).catch((error: unknown) => error);
     const wrongPasswordError = await wrongPassword.login({ loginId: "admin_01", password: "wrong-password", rememberMe: false }).catch((error: unknown) => error);
@@ -142,7 +164,10 @@ describe("AuthService", () => {
   it("creates a remember-me session with a public login id but no contact email", async () => {
     const prisma = { user: { findUnique: jest.fn() }, session: { create: jest.fn() } };
     const passwords = { verify: jest.fn().mockResolvedValue(true) };
-    const service = new (AuthService as any)(prisma, passwords);
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      passwords as unknown as PasswordService
+    );
     prisma.user.findUnique.mockResolvedValue({
       id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
       role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash"
@@ -178,7 +203,10 @@ describe("AuthService", () => {
         user: { findUnique: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction))
       };
-      const service = new (AuthService as any)(prisma, { hash: jest.fn().mockResolvedValue("hash") });
+      const service = createAuthService(
+        prisma as unknown as PrismaService,
+        { hash: jest.fn().mockResolvedValue("hash") } as unknown as PasswordService
+      );
 
       await expect(service.signup({ token: "token", loginId: `viewer_${fixture.label}`, email: "viewer@example.com", name: "Viewer", password: "correct horse battery staple" }))
         .rejects.toThrow("viewer invitations require a valid customer site assignment");
@@ -196,7 +224,7 @@ describe("AuthService", () => {
       }) },
       user: { findUnique: jest.fn() }
     };
-    const service = new AuthService(prisma as unknown as PrismaService);
+    const service = createAuthService(prisma as unknown as PrismaService);
 
     await expect(service.signup({ token: "token", loginId: "viewer_01", email: "other@example.com", name: "Viewer", password: "correct horse battery staple" } as any))
       .rejects.toThrow("Invitation email does not match");
@@ -204,7 +232,7 @@ describe("AuthService", () => {
   });
 
   it("rejects malformed service inputs with controlled auth errors", async () => {
-    const service = new AuthService({} as PrismaService);
+    const service = createAuthService({} as PrismaService);
 
     await expect(service.login({ loginId: null, password: "password", rememberMe: false } as any)).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.signup({ token: "token", loginId: "viewer_01", email: null, name: "Viewer", password: "password" } as any)).rejects.toBeInstanceOf(BadRequestException);
@@ -235,7 +263,11 @@ describe("AuthService", () => {
     };
     const passwordService = { verify: jest.fn().mockResolvedValue(true), hash: jest.fn().mockResolvedValue("new-hash") };
     const auditService = { record: jest.fn(async ({ transaction: auditTransaction, ...input }) => auditTransaction.auditLog.create({ data: input })) };
-    const service = new (AuthService as any)(prisma as unknown as PrismaService, passwordService, auditService);
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      passwordService as unknown as PasswordService,
+      auditService as unknown as AuditService
+    );
 
     await service.changePassword(user, currentToken, {
       currentPassword: "old password",
@@ -271,7 +303,11 @@ describe("AuthService", () => {
     const prisma = { $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)) };
     const passwords = { verify: jest.fn().mockResolvedValue(true), hash: jest.fn().mockResolvedValue("new-hash") };
     const audit = { record: jest.fn() };
-    const service = new (AuthService as any)(prisma, passwords, audit);
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      passwords as unknown as PasswordService,
+      audit as unknown as AuditService
+    );
 
     await service.changePassword(user, currentToken, {
       currentPassword,
@@ -284,7 +320,7 @@ describe("AuthService", () => {
   });
 
   it("rejects a password change when confirmation differs", async () => {
-    const service = new AuthService({} as PrismaService);
+    const service = createAuthService({} as PrismaService);
     await expect((service as any).changePassword({ id: "admin-1" }, "current-token", {
       currentPassword: "old password",
       newPassword: "new password",

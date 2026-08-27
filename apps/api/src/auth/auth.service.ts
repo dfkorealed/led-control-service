@@ -50,8 +50,8 @@ export class AuthService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly passwords = new PasswordService(),
-    private readonly audit = new AuditService(prisma)
+    private readonly passwords: PasswordService,
+    private readonly audit: AuditService
   ) {}
 
   async signup(input: SignupInput) {
