@@ -82,6 +82,30 @@ ALTER TABLE "Site"
   ADD CONSTRAINT "Site_adminUserId_fkey"
   FOREIGN KEY ("adminUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+CREATE FUNCTION "serialize_admin_assignment_writes"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- BEFORE STATEMENT runs before PostgreSQL starts locking target rows. The shared
+  -- transaction lock therefore serializes all three invariant-owning write paths.
+  PERFORM pg_advisory_xact_lock(80520260827090000);
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER "Site_serialize_admin_assignment_writes"
+BEFORE INSERT OR UPDATE OF "adminUserId", "organizationId" ON "Site"
+FOR EACH STATEMENT EXECUTE FUNCTION "serialize_admin_assignment_writes"();
+
+CREATE TRIGGER "User_serialize_admin_assignment_writes"
+BEFORE INSERT OR UPDATE OF "role", "status", "organizationId" ON "User"
+FOR EACH STATEMENT EXECUTE FUNCTION "serialize_admin_assignment_writes"();
+
+CREATE TRIGGER "Organization_serialize_admin_assignment_writes"
+BEFORE INSERT OR UPDATE OF "type" ON "Organization"
+FOR EACH STATEMENT EXECUTE FUNCTION "serialize_admin_assignment_writes"();
+
 CREATE FUNCTION "validate_site_admin_assignment"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -94,9 +118,8 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- The triggering Site row is already locked by the UPDATE/INSERT statement.
-  -- Lock related rows in Site -> User -> Organization order so concurrent
-  -- assignment, admin-state, and organization-type writes cannot pass stale checks.
+  -- The statement-level advisory gate already serialized cross-table target-row
+  -- locking. Keep the related User and Organization stable for this validation.
   SELECT * INTO locked_admin
   FROM "User"
   WHERE "id" = NEW."adminUserId"
@@ -138,8 +161,8 @@ DECLARE
   locked_site "Site"%ROWTYPE;
   locked_organization "Organization"%ROWTYPE;
 BEGIN
-  -- The updated User row is already locked. Lock its assigned Site first, then
-  -- Organization, preserving the Site -> User -> Organization validation order.
+  -- The statement-level advisory gate ran before this User target row was locked.
+  -- Keep the assigned Site and Organization stable for this validation.
   SELECT * INTO locked_site
   FROM "Site"
   WHERE "adminUserId" = NEW."id"
@@ -182,8 +205,8 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- The updated Organization row is already locked. Lock its assigned Site and
-  -- User in Site -> User order before validating the post-update organization type.
+  -- The statement-level advisory gate ran before this Organization target row was
+  -- locked. Keep the assigned Site and User stable for this validation.
   SELECT * INTO locked_site
   FROM "Site"
   WHERE "organizationId" = NEW."id"

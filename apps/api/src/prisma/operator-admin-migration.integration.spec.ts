@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 const migrationPath = join(__dirname, "../../prisma/migrations/20260827090000_operator_admin_account_flow/migration.sql");
@@ -55,12 +55,30 @@ describe("operator/admin migration static contract", () => {
     expect(migration).toMatch(/validate_site_admin_assignment[\s\S]*?FROM "User"[\s\S]*?FOR UPDATE[\s\S]*?FROM "Organization"[\s\S]*?FOR UPDATE/);
     expect(migration).toMatch(/validate_assigned_site_admin_user[\s\S]*?FROM "Site"[\s\S]*?FOR UPDATE[\s\S]*?FROM "Organization"[\s\S]*?FOR UPDATE/);
     expect(migration).toMatch(/validate_customer_organization_type[\s\S]*?FROM "Site"[\s\S]*?FOR UPDATE[\s\S]*?FROM "User"[\s\S]*?FOR UPDATE/);
-    expect(migration).toContain("Lock related rows in Site -> User -> Organization order");
+    expect(migration).not.toContain("Lock related rows in Site -> User -> Organization order");
+    expect(migration).toContain("statement-level advisory gate already serialized cross-table target-row");
     expect(migration).toContain('admin."role" = \'admin\'');
     expect(migration).toContain('admin."status" = \'active\'');
     expect(migration).toContain('organization."type" = \'customer\'');
     expect(migration).toContain('CREATE UNIQUE INDEX "Site_adminUserId_key"');
     expect(migration).toContain('ADD CONSTRAINT "Site_adminUserId_fkey"');
+  });
+
+  it("serializes invariant-affecting statements before PostgreSQL locks target rows", () => {
+    expect(migration).toContain('CREATE FUNCTION "serialize_admin_assignment_writes"()');
+    expect(migration).toContain("PERFORM pg_advisory_xact_lock(80520260827090000);");
+    expect(migration).toMatch(
+      /CREATE TRIGGER "Site_serialize_admin_assignment_writes"\s+BEFORE INSERT OR UPDATE OF "adminUserId", "organizationId" ON "Site"\s+FOR EACH STATEMENT EXECUTE FUNCTION "serialize_admin_assignment_writes"\(\);/
+    );
+    expect(migration).toMatch(
+      /CREATE TRIGGER "User_serialize_admin_assignment_writes"\s+BEFORE INSERT OR UPDATE OF "role", "status", "organizationId" ON "User"\s+FOR EACH STATEMENT EXECUTE FUNCTION "serialize_admin_assignment_writes"\(\);/
+    );
+    expect(migration).toMatch(
+      /CREATE TRIGGER "Organization_serialize_admin_assignment_writes"\s+BEFORE INSERT OR UPDATE OF "type" ON "Organization"\s+FOR EACH STATEMENT EXECUTE FUNCTION "serialize_admin_assignment_writes"\(\);/
+    );
+    expect(migration.indexOf('CREATE FUNCTION "serialize_admin_assignment_writes"()')).toBeLessThan(
+      migration.indexOf('CREATE FUNCTION "validate_site_admin_assignment"()')
+    );
   });
 });
 
@@ -248,6 +266,46 @@ describeWithPostgres("operator/admin migration PostgreSQL rehearsal", () => {
     expect(result.stderr).toContain("Site_adminUserId_key");
   });
 
+  it("serializes concurrent site assignment and user disable without deadlock", async () => {
+    const schemaName = createIsolatedSchema("concurrent_assignment_disable");
+    installLegacyTables(schemaName);
+    const { adminId, siteId } = seedLegacyCustomer(schemaName, { admins: 1, sites: 1 });
+
+    expect(applyOperatorAdminMigration(schemaName).status).toBe(0);
+    execute(schemaName, `UPDATE "Site" SET "adminUserId" = NULL WHERE "id" = '${siteId}';`);
+    installConcurrencyDelayTriggers(schemaName);
+
+    const [assignment, disable] = await Promise.all([
+      runSqlInSchemaAsync(schemaName, `UPDATE "Site" SET "adminUserId" = '${adminId}' WHERE "id" = '${siteId}';`),
+      runSqlInSchemaAsync(schemaName, `UPDATE "User" SET "status" = 'disabled' WHERE "id" = '${adminId}';`)
+    ]);
+    const successful = [assignment, disable].filter((result) => result.status === 0);
+    const failed = [assignment, disable].filter((result) => result.status !== 0);
+
+    expect(successful).toHaveLength(1);
+    expect(failed).toHaveLength(1);
+    expect(failed[0].stderr).not.toMatch(/40P01|deadlock detected/i);
+    expect(failed[0].stderr).toMatch(
+      /site admin must be an active admin in the same customer organization|assigned site admin must remain an active admin in the same customer organization/
+    );
+    expect(query(schemaName, `
+      SELECT COUNT(*)
+      FROM "Site" AS site
+      JOIN "User" AS admin ON admin."id" = site."adminUserId"
+      JOIN "Organization" AS organization ON organization."id" = site."organizationId"
+      WHERE admin."organizationId" <> site."organizationId"
+        OR admin."role" <> 'admin'
+        OR admin."status" <> 'active'
+        OR organization."type" <> 'customer';
+    `)).toBe("0");
+    expect(["admin-1|active", "|disabled"]).toContain(query(schemaName, `
+      SELECT COALESCE(site."adminUserId", '') || '|' || admin."status"
+      FROM "Site" AS site
+      JOIN "User" AS admin ON admin."id" = '${adminId}'
+      WHERE site."id" = '${siteId}';
+    `));
+  }, 15_000);
+
   function expectMigrationFailure(schemaName: string, message: string) {
     const result = applyOperatorAdminMigration(schemaName);
     expect(result.status).not.toBe(0);
@@ -343,6 +401,28 @@ describeWithPostgres("operator/admin migration PostgreSQL rehearsal", () => {
     return runSqlInSchema(schemaName, migration);
   }
 
+  function installConcurrencyDelayTriggers(schemaName: string) {
+    execute(schemaName, `
+      CREATE FUNCTION "delay_admin_invariant_row_write"()
+      RETURNS TRIGGER
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        PERFORM pg_sleep(0.5);
+        RETURN NEW;
+      END;
+      $$;
+
+      CREATE TRIGGER "00_delay_site_admin_assignment"
+      BEFORE UPDATE OF "adminUserId" ON "Site"
+      FOR EACH ROW EXECUTE FUNCTION "delay_admin_invariant_row_write"();
+
+      CREATE TRIGGER "00_delay_user_admin_state"
+      BEFORE UPDATE OF "status" ON "User"
+      FOR EACH ROW EXECUTE FUNCTION "delay_admin_invariant_row_write"();
+    `);
+  }
+
   function readSiteAdminId(schemaName: string, siteId: string) {
     return query(schemaName, `SELECT "adminUserId" FROM "Site" WHERE "id" = '${siteId}';`);
   }
@@ -364,6 +444,26 @@ describeWithPostgres("operator/admin migration PostgreSQL rehearsal", () => {
 
   function runSql(sql: string, extraArgs: string[] = ["-q"]) {
     return spawnSync("psql", [...extraArgs, "-v", "ON_ERROR_STOP=1", databaseUrl!], { encoding: "utf8", input: sql });
+  }
+
+  function runSqlInSchemaAsync(schemaName: string, sql: string) {
+    return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn("psql", ["-q", "-v", "ON_ERROR_STOP=1", databaseUrl!], { stdio: "pipe" });
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => {
+        stdout += chunk;
+      });
+      child.stderr.on("data", (chunk: string) => {
+        stderr += chunk;
+      });
+      child.on("error", reject);
+      child.on("close", (status) => resolve({ status, stdout, stderr }));
+      child.stdin.end(`\\set VERBOSITY verbose\nSET lock_timeout = '5s';\nSET search_path TO "${schemaName}";\n${sql}`);
+    });
   }
 });
 

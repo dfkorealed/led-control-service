@@ -256,7 +256,8 @@ admin 연결 제약:
 - `Site` trigger는 `adminUserId`가 null이 아니면 같은 customer Organization에 속한 `active` `admin`만 연결하도록 검증한다. viewer, operator, disabled admin 또는 다른 customer의 admin 연결은 거부한다.
 - `User` trigger는 이미 연결된 admin의 `role`, `status`, `organizationId` 변경이 위 관계를 무효화하면 거부한다. 현장에서 `adminUserId`를 먼저 null로 해제한 뒤 disabled 처리하는 순서는 허용한다.
 - `Organization` trigger는 연결된 site admin이 하나라도 있는 customer의 `type`을 `service_provider`로 바꾸는 변경을 거부한다. `name`처럼 관계와 무관한 변경은 허용한다.
-- 세 trigger는 stale snapshot write-skew를 막기 위해 관련 행을 잠근 뒤 변경 후 상태를 검증한다. 가능한 명시 잠금 순서는 `Site -> User -> Organization`이며, 현재 UPDATE 대상 행은 PostgreSQL이 trigger 호출 전에 이미 잠근다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 `FOR UPDATE`로 잠근다.
+- Site의 `adminUserId`/`organizationId`, User의 `role`/`status`/`organizationId`, Organization의 `type`에 영향을 주는 INSERT/UPDATE는 각 테이블의 `BEFORE STATEMENT` trigger에서 동일한 transaction-scoped advisory lock을 먼저 얻는다. PostgreSQL이 target row를 잠그기 전에 세 write path를 직렬화하므로 서로 다른 target table에서 시작하는 UPDATE 사이의 row-lock 순환 대기를 막는다. 이 전역 직렬화는 저빈도 계정·현장 관리 작업의 처리량보다 교착 방지를 우선한 계약이다.
+- statement gate를 통과한 뒤 기존 row trigger는 stale snapshot write-skew를 막기 위해 관계 행을 `FOR UPDATE`로 잠그고 변경 후 상태를 검증한다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 transaction 종료까지 안정적으로 유지한다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
 
 ### Floor
