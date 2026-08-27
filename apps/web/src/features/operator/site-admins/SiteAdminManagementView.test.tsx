@@ -256,6 +256,31 @@ describe("SiteAdminManagementView", () => {
     await waitFor(() => expect(document.activeElement).toBe(createCommand));
   });
 
+  it("waits for an unchanged assign trigger refetch before closing and restores that trigger", async () => {
+    const refetch = deferred<SiteAdminSummary[]>();
+    api.listSiteAdmins.mockReset();
+    api.listSiteAdmins
+      .mockResolvedValueOnce([assignedSite, unassignedSite])
+      .mockReturnValueOnce(refetch.promise);
+    renderView();
+    await screen.findByText("강남 주차장");
+
+    const trigger = screen.getByRole("button", { name: "강남 주차장 관리자 지정" });
+    fireEvent.click(trigger);
+    fillSiteAdminForm({ adminName: "박관리", loginId: "parking_admin", password: "assign-password" });
+    fireEvent.click(screen.getByRole("button", { name: "지정" }));
+
+    await waitFor(() => expect(api.assignSiteAdmin).toHaveBeenCalledTimes(1));
+    const pendingSubmit = await screen.findByRole("button", { name: "처리 중" });
+    expect(pendingSubmit).toBeDisabled();
+    fireEvent.click(pendingSubmit);
+    expect(api.assignSiteAdmin).toHaveBeenCalledTimes(1);
+
+    refetch.resolve([assignedSite, unassignedSite]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("restores focus to the stable create command after disabling an admin removes its trigger", async () => {
     api.listSiteAdmins.mockReset();
     api.listSiteAdmins
@@ -270,6 +295,49 @@ describe("SiteAdminManagementView", () => {
 
     await screen.findByText("관리자 미지정");
     expect(screen.queryByRole("button", { name: "김관리 비활성화" })).not.toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(createCommand));
+  });
+
+  it("restores the disable trigger when its refetch result keeps it connected", async () => {
+    api.listSiteAdmins.mockReset();
+    api.listSiteAdmins
+      .mockResolvedValueOnce([assignedSite])
+      .mockResolvedValueOnce([assignedSite]);
+    renderView();
+    await screen.findByText("customer_admin");
+
+    const trigger = screen.getByRole("button", { name: "김관리 비활성화" });
+    fireEvent.click(trigger);
+    fireEvent.click(within(screen.getByRole("dialog", { name: "김관리 비활성화" })).getByRole("button", { name: "비활성화" }));
+
+    await waitFor(() => expect(api.listSiteAdmins).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("closes a completed reset after its active refetch fails", async () => {
+    const refetch = deferred<SiteAdminSummary[]>();
+    api.listSiteAdmins.mockReset();
+    api.listSiteAdmins
+      .mockResolvedValueOnce([assignedSite])
+      .mockReturnValueOnce(refetch.promise);
+    renderView();
+    await screen.findByText("customer_admin");
+
+    const createCommand = screen.getByRole("button", { name: "현장 및 관리자 생성" });
+    const trigger = screen.getByRole("button", { name: "김관리 비밀번호 재설정" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "김관리 비밀번호 재설정" });
+    fireEvent.change(within(dialog).getByLabelText("새 비밀번호"), { target: { value: "new-password" } });
+    fireEvent.change(within(dialog).getByLabelText("비밀번호 확인"), { target: { value: "new-password" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "비밀번호 재설정" }));
+
+    await waitFor(() => expect(api.resetSiteAdminPassword).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("button", { name: "처리 중" })).toBeDisabled();
+    refetch.reject(new Error("offline"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger.isConnected).toBe(false);
     await waitFor(() => expect(document.activeElement).toBe(createCommand));
   });
 
@@ -317,7 +385,7 @@ function renderCreateDialogFocusHarness() {
           onCreate={api.createSiteAdmin}
           onAssign={api.assignSiteAdmin}
           onUpdate={api.updateSiteAdmin}
-          onSuccess={() => undefined}
+          onSuccess={async () => undefined}
           onClose={() => setOpen(false)}
         /> : null}
       </>
@@ -325,6 +393,16 @@ function renderCreateDialogFocusHarness() {
   }
 
   render(<QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 function fillSiteAdminForm(input: {

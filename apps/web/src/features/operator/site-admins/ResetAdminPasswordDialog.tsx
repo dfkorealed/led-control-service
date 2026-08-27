@@ -7,7 +7,7 @@ interface ResetAdminPasswordDialogProps {
   returnFocusElement?: HTMLElement | null;
   fallbackFocusElement?: HTMLElement | null;
   onReset: (userId: string, newPassword: string) => Promise<unknown>;
-  onSuccess: () => void;
+  onSuccess: () => Promise<unknown>;
   onClose: () => void;
 }
 
@@ -37,10 +37,15 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
       await onReset(admin.id, newPassword);
       setNewPassword("");
       setConfirmation("");
-      submissionInFlightRef.current = false;
-      setIsPending(false);
-      onSuccess();
-      onClose();
+      try {
+        await onSuccess();
+      } catch {
+        // A completed password reset must not remain open when its post-success refetch fails.
+      } finally {
+        submissionInFlightRef.current = false;
+        setIsPending(false);
+        onClose();
+      }
     } catch {
       submissionInFlightRef.current = false;
       setIsPending(false);

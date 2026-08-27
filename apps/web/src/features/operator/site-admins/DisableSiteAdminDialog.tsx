@@ -1,5 +1,4 @@
 import { useMutation } from "@tanstack/react-query";
-import { useRef } from "react";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 
@@ -8,24 +7,26 @@ interface DisableSiteAdminDialogProps {
   returnFocusElement?: HTMLElement | null;
   fallbackFocusElement?: HTMLElement | null;
   onDisable: (userId: string) => Promise<unknown>;
-  onSuccess: () => void;
+  onSuccess: () => Promise<unknown>;
   onClose: () => void;
 }
 
 export function DisableSiteAdminDialog({ admin, returnFocusElement, fallbackFocusElement, onDisable, onSuccess, onClose }: DisableSiteAdminDialogProps) {
-  const successfulCloseRef = useRef(false);
   const mutation = useMutation({
     mutationFn: () => onDisable(admin.id),
-    onSuccess: () => {
-      successfulCloseRef.current = true;
-      onSuccess();
-      onClose();
+    onSuccess: async () => {
+      try {
+        await onSuccess();
+      } catch {
+        // A completed disable mutation must not remain open when its post-success refetch fails.
+      } finally {
+        onClose();
+      }
     }
   });
 
   function close() {
     if (!mutation.isPending) {
-      successfulCloseRef.current = false;
       onClose();
     }
   }
@@ -40,7 +41,6 @@ export function DisableSiteAdminDialog({ admin, returnFocusElement, fallbackFocu
       isPending={mutation.isPending}
       returnFocusElement={returnFocusElement}
       fallbackFocusElement={fallbackFocusElement}
-      preferFallbackRef={successfulCloseRef}
       onConfirm={() => mutation.mutate()}
       onClose={close}
     >

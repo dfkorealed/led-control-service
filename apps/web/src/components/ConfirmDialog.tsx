@@ -15,7 +15,6 @@ export function useDialogFocus({
   dialogRef,
   returnFocusElement,
   fallbackFocusElement,
-  preferFallbackRef,
   onClose,
   initialFocusRef
 }: {
@@ -23,7 +22,6 @@ export function useDialogFocus({
   dialogRef: RefObject<HTMLElement | null>;
   returnFocusElement?: HTMLElement | null;
   fallbackFocusElement?: HTMLElement | null;
-  preferFallbackRef?: RefObject<boolean>;
   onClose: () => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
 }) {
@@ -71,14 +69,16 @@ export function useDialogFocus({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      const target = preferFallbackRef?.current ? fallbackFocusElement : restoreTarget;
-      if (target?.isConnected) {
-        target.focus();
-      } else if (fallbackFocusElement?.isConnected) {
-        fallbackFocusElement.focus();
-      }
+      // React removes sibling triggers after this cleanup, so resolve focus after the commit.
+      queueMicrotask(() => {
+        if (restoreTarget?.isConnected) {
+          restoreTarget.focus();
+        } else if (fallbackFocusElement?.isConnected) {
+          fallbackFocusElement.focus();
+        }
+      });
     };
-  }, [dialogRef, fallbackFocusElement, initialFocusRef, open, preferFallbackRef, returnFocusElement]);
+  }, [dialogRef, fallbackFocusElement, initialFocusRef, open, returnFocusElement]);
 }
 
 interface ConfirmDialogProps {
@@ -92,7 +92,6 @@ interface ConfirmDialogProps {
   destructive?: boolean;
   returnFocusElement?: HTMLElement | null;
   fallbackFocusElement?: HTMLElement | null;
-  preferFallbackRef?: RefObject<boolean>;
   initialFocusRef?: RefObject<HTMLElement | null>;
   children?: ReactNode;
   onConfirm: () => void;
@@ -110,14 +109,13 @@ export function ConfirmDialog({
   destructive = false,
   returnFocusElement,
   fallbackFocusElement,
-  preferFallbackRef,
   initialFocusRef,
   children,
   onConfirm,
   onClose
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLElement>(null);
-  useDialogFocus({ open, dialogRef, returnFocusElement, fallbackFocusElement, preferFallbackRef, onClose, initialFocusRef });
+  useDialogFocus({ open, dialogRef, returnFocusElement, fallbackFocusElement, onClose, initialFocusRef });
 
   if (!open) return null;
   const titleId = "confirm-dialog-title";

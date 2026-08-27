@@ -40,9 +40,9 @@ export function SiteAdminManagementView() {
     setDialog(null);
   }
 
-  function complete(message: string) {
+  async function complete(message: string) {
     setNotice(message);
-    void queryClient.invalidateQueries({ queryKey: operatorSiteAdminsQueryKey });
+    await queryClient.invalidateQueries({ queryKey: operatorSiteAdminsQueryKey });
   }
 
   return (

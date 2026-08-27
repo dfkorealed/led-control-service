@@ -15,7 +15,7 @@ interface SiteAdminFormDialogProps {
   onCreate: (input: CreateSiteAdminInput) => Promise<unknown>;
   onAssign: (siteId: string, input: AssignSiteAdminInput) => Promise<unknown>;
   onUpdate: (userId: string, input: UpdateSiteAdminInput) => Promise<unknown>;
-  onSuccess: (message: string) => void;
+  onSuccess: (message: string) => Promise<unknown>;
   onClose: () => void;
 }
 
@@ -53,7 +53,6 @@ export function SiteAdminFormDialog({
   const [generalError, setGeneralError] = useState("");
   const [isSubmittingPasswordFlow, setIsSubmittingPasswordFlow] = useState(false);
   const passwordSubmissionInFlightRef = useRef(false);
-  const successfulCloseRef = useRef(false);
   const editInputRef = useRef<UpdateSiteAdminInput>({ adminName: admin?.name ?? "", loginId: admin?.loginId ?? "" });
   editInputRef.current = { adminName: form.adminName.trim(), loginId: form.loginId.trim() };
 
@@ -63,7 +62,6 @@ export function SiteAdminFormDialog({
 
   function close() {
     if (isPending) return;
-    successfulCloseRef.current = false;
     setForm(emptyForm);
     setLoginIdError("");
     setGeneralError("");
@@ -75,7 +73,6 @@ export function SiteAdminFormDialog({
     dialogRef,
     returnFocusElement,
     fallbackFocusElement,
-    preferFallbackRef: successfulCloseRef,
     onClose: close,
     initialFocusRef
   });
@@ -85,10 +82,15 @@ export function SiteAdminFormDialog({
       if (!admin) throw new Error("관리자 계정 대상이 없습니다.");
       return onUpdate(admin.id, editInputRef.current);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       setForm(emptyForm);
-      onSuccess("관리자 정보를 수정했습니다.");
-      onClose();
+      try {
+        await onSuccess("관리자 정보를 수정했습니다.");
+      } catch {
+        // A completed account mutation must not remain open when its post-success refetch fails.
+      } finally {
+        onClose();
+      }
     },
     onError: (error) => {
       if (isLoginIdDuplicate(error)) {
@@ -129,10 +131,7 @@ export function SiteAdminFormDialog({
           initialPassword: current.initialPassword
         });
         setForm(emptyForm);
-        passwordSubmissionInFlightRef.current = false;
-        setIsSubmittingPasswordFlow(false);
-        onSuccess("현장과 관리자 계정을 생성했습니다.");
-        onClose();
+        await completePasswordSuccess("현장과 관리자 계정을 생성했습니다.");
         return;
       }
       if (mode === "assign" && site) {
@@ -142,11 +141,7 @@ export function SiteAdminFormDialog({
           initialPassword: current.initialPassword
         });
         setForm(emptyForm);
-        passwordSubmissionInFlightRef.current = false;
-        setIsSubmittingPasswordFlow(false);
-        successfulCloseRef.current = true;
-        onSuccess("현장 관리자를 지정했습니다.");
-        onClose();
+        await completePasswordSuccess("현장 관리자를 지정했습니다.");
         return;
       }
       throw new Error("관리자 계정 대상이 없습니다.");
@@ -158,6 +153,18 @@ export function SiteAdminFormDialog({
       } else {
         setGeneralError("관리자 계정 변경을 완료하지 못했습니다. 잠시 후 다시 시도하세요.");
       }
+    }
+  }
+
+  async function completePasswordSuccess(message: string) {
+    try {
+      await onSuccess(message);
+    } catch {
+      // A completed account mutation must not remain open when its post-success refetch fails.
+    } finally {
+      passwordSubmissionInFlightRef.current = false;
+      setIsSubmittingPasswordFlow(false);
+      onClose();
     }
   }
 
