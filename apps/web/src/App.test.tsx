@@ -366,6 +366,42 @@ describe("App", () => {
     expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("tenant-a-private");
   });
 
+  it("clears tenant caches before rendering a different principal from auth me", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+    await screen.findByRole("link", { name: "모니터링" });
+
+    queryClient.setQueryData(["dashboard", "default"], {
+      ...mockDashboard,
+      site: { ...mockDashboard.site, id: "tenant-a-private", name: "Tenant A Private" }
+    });
+    const tenantMutation = queryClient.getMutationCache().build(queryClient, {
+      mutationFn: async (variables: { tenantSecret: string }) => variables
+    });
+    await tenantMutation.execute({ tenantSecret: "tenant-a-private" });
+    vi.mocked(apiGet).mockClear();
+
+    authState.user = {
+      id: "user-2",
+      organizationId: "organization-2",
+      organizationType: "customer",
+      loginId: "tenant_b_admin",
+      name: "Tenant B Admin",
+      role: "admin",
+      status: "active"
+    };
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+    });
+
+    await waitFor(() => expect(queryClient.getQueryData(["auth", "me"])).toMatchObject({
+      user: { id: "user-2", organizationId: "organization-2" }
+    }));
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/sites/default/dashboard"));
+    expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("tenant-a-private");
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+  });
+
   it("renders the four primary navigation items", async () => {
     const queryClient = new QueryClient();
     render(

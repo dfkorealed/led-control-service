@@ -130,7 +130,7 @@ admin 설정에는 다음 실제 기능만 노출한다.
 - migration은 `User.loginId`, `Site.adminUserId`, nullable 설치 전 Site 필드를 추가하고 기존 데이터를 backfill한다.
 - 기존 customer admin이 관리하는 현장이 정확히 하나이면 자동 연결한다.
 - 현장이 없거나 둘 이상인 기존 customer admin이 있으면 모호한 권한 확대를 방지하기 위해 migration 적용 전 점검 스크립트에서 실패시킨다.
-- 애플리케이션 배포는 migration 호환 구간을 거친다. 먼저 새 필드를 읽고 기존 값을 fallback하는 버전, backfill과 제약 적용, 기존 email 로그인 제거 순서로 진행한다.
+- 이 프로젝트는 아직 운영 배포 전이므로 email 로그인 fallback을 제품 코드에 추가하지 않는다. 기존 개발·시험 DB를 전환할 때는 유지보수 창에서 계정 write를 freeze하고 구버전 API·worker를 완전히 drain한 뒤 expand, backfill, `loginId NOT NULL` contract migration을 모두 적용한다. 이후 새 `loginId` API/Web만 시작하고 smoke 확인 뒤 write를 재개한다.
 
 ## 테스트와 완료 조건
 

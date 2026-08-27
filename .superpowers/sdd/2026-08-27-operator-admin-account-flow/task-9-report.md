@@ -221,3 +221,8 @@ controller가 실제 in-app browser 수동 QA를 시도했으나 admin-enforced 
 - real-backend journey 첫 실행은 새 reset selector가 닫기 버튼까지 매칭해 strict-mode 실패했다. exact selector 수정 후 최종 `2 passed (48.5s)`이며 operator update/reset/disable과 allowlist를 검증했다.
 - auth/access/operator integration을 한 DB에 합친 추가 실행은 auth fixture의 전역 service-provider가 다음 suite setup과 충돌했다. 독립 cluster 재실행에서 auth+SiteAccess `8 passed`, operator concurrency `5 passed`다.
 - `git diff --check`: PASS. task9 lab/socket/final-test temp directory, default lab listener/process, 민감 Playwright artifact와 runtime secret pattern은 모두 0개다.
+
+### Final review residual 판정
+
+- 다른 탭에서 cookie principal이 A에서 B로 바뀌는 성공 전환 RED는 A의 fresh dashboard와 mutation cache가 남아 B shell이 이를 재사용하는 것으로 재현했다. `AppContent`는 이미 수용한 `user.id:organizationId`와 새 `auth/me` principal이 다르면 전환 화면만 렌더하고 layout effect에서 tenant Query/Mutation cache를 제거한 뒤 B shell을 연다.
+- migration 정본은 프로젝트가 아직 운영 배포 전이고 제품 요구가 `loginId` 전용이라는 조건에 따라 email fallback 호환 릴리스 대신 유지보수 창의 write freeze, 구버전 완전 drain, expand/backfill/contract 완료, 새 API/Web 시작 순서로 확정했다. Spec, plan, README와 runbook이 같은 결정을 사용한다.

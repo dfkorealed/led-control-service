@@ -695,9 +695,12 @@ git commit -m "test(e2e): verify admin-led site installation"
 
 - [x] login User row lock, password verify와 Session create를 한 transaction에 묶고 operator reset/self change PostgreSQL barrier 회귀 추가
 - [x] AuthView login을 component-local async state로 전환하고 principal Query/Mutation cache 원자 교체·강제 revoke 정리 회귀 추가
+- [x] 다른 탭의 `auth/me` principal A→B 성공 전환도 고객 shell 렌더 전에 tenant Query/Mutation cache를 제거
 - [x] Site row lock 뒤 manage 재인가를 commands, fixture groups, floor editor save/restore transaction 첫 단계에 적용
 - [x] operator Web password 8자/400 정책 표시와 real-backend `/api/auth/*`·`/api/operator/*` allowlist 및 update/reset/disable journey 추가
 - [x] rollout, README, 메뉴/status/runbook/report와 plan 전용 ledger 정합화
 - [x] 전체 unit/typecheck/lint/build/Chromium/real journey/cleanup 최종 증거 확정
 
 수동 in-app browser QA는 controller가 시도했지만 admin-enforced browser policy가 localhost 접근 전에 차단해 미실행이다. 자동 Chromium E2E와 혼동하지 않는다.
+
+**Final review residual ruling:** 아직 운영 배포 전이고 제품 요구가 `loginId` 전용이므로 email fallback 호환 릴리스 대신 승인된 유지보수 창 전환을 Spec 정본에 반영했다. 다중 탭 A→B principal 전환은 별도 RED/GREEN 회귀와 pre-render cache gate로 해결했다.
