@@ -3,6 +3,7 @@ import { LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
+import { SiteAdminManagementView } from "./site-admins/SiteAdminManagementView";
 
 export function OperatorShell({ user }: { user: AuthUser }) {
   const queryClient = useQueryClient();
@@ -46,19 +47,10 @@ export function OperatorShell({ user }: { user: AuthUser }) {
       <main className="operator-content">
         {logoutError ? <p className="danger-text" role="alert">{logoutError}</p> : null}
         <Routes>
-          <Route path="/operator/site-admins" element={<OperatorSiteAdminsRoute />} />
+          <Route path="/operator/site-admins" element={<SiteAdminManagementView />} />
           <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />
         </Routes>
       </main>
     </div>
-  );
-}
-
-function OperatorSiteAdminsRoute() {
-  return (
-    <section className="operator-page" aria-labelledby="operator-site-admins-heading">
-      <span className="eyebrow">서비스 운영</span>
-      <h1 id="operator-site-admins-heading">현장 관리자 계정</h1>
-    </section>
   );
 }

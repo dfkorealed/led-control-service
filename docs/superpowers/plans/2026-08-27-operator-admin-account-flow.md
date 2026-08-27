@@ -501,7 +501,7 @@ git commit -m "feat(web): separate operator and customer shells"
 - Consumes: Task 3의 `SiteAdminSummary`와 6개 endpoint
 - Produces: 목록, 신규 현장/admin 생성, 관리자 미지정 현장 admin 생성, 이름/loginId 수정, 비밀번호 재설정, 비활성화
 
-- [ ] **Step 1: 사용자 흐름 RED 테스트 작성**
+- [x] **Step 1: 사용자 흐름 RED 테스트 작성**
 
 ```tsx
 it("creates an admin and never displays a stored password", async () => {
@@ -514,16 +514,16 @@ it("creates an admin and never displays a stored password", async () => {
 });
 ```
 
-- [ ] **Step 2: RED 확인**
+- [x] **Step 2: RED 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/operator/site-admins/SiteAdminManagementView.test.tsx`
 Expected: 파일 미존재로 실패
 
-- [ ] **Step 3: API client와 화면 구현**
+- [x] **Step 3: API client와 화면 구현**
 
 React Query key는 `["operator", "site-admins"]`로 고정한다. mutation 중 버튼을 비활성화하고 성공 시 목록 invalidate, 409는 loginId 필드 오류, 그 외 오류는 화면 alert로 표시한다. 비밀번호 재설정과 비활성화에는 공통 `ConfirmDialog`를 사용한다.
 
-- [ ] **Step 4: GREEN·접근성 확인 및 커밋**
+- [x] **Step 4: GREEN·접근성 확인 및 커밋**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/operator/site-admins/SiteAdminManagementView.test.tsx && pnpm --filter @led-control/web typecheck`
 Expected: PASS

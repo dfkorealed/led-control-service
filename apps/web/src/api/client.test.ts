@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiGet, apiPost, apiPut } from "./client";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./client";
 
 describe("API client", () => {
   afterEach(() => {
@@ -38,6 +38,31 @@ describe("API client", () => {
         credentials: "include",
         body: JSON.stringify({ expectedRevision: 3 })
       })
+    );
+  });
+
+  it("sends JSON PATCH and credentialed DELETE requests", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: "admin-1" }) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiPatch("/operator/site-admins/admin-1", { loginId: "updated_admin" });
+    await apiDelete("/operator/site-admins/admin-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/operator/site-admins/admin-1",
+      expect.objectContaining({
+        method: "PATCH",
+        credentials: "include",
+        body: JSON.stringify({ loginId: "updated_admin" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/operator/site-admins/admin-1",
+      expect.objectContaining({ method: "DELETE", credentials: "include" })
     );
   });
 
