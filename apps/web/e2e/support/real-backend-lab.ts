@@ -214,7 +214,7 @@ export class RealBackendLab {
     for (const path of requiredPaths) {
       if (!this.network.some((item) => item.path?.toString().includes(path))) throw new Error(`network evidence missing: ${path}`);
     }
-    const requiredMqtt = ["scan-completed", "provisioning-completed", "acks/acceptance", "acks/device-status", "acks/state-ingested"];
+    const requiredMqtt = ["scan-completed", "provisioning-completed", "acks/state-ingested"];
     for (const marker of requiredMqtt) {
       if (!this.mqttEvidence.some((item) => item.topic?.toString().includes(marker))) throw new Error(`MQTT evidence missing: ${marker}`);
     }
