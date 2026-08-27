@@ -70,6 +70,7 @@ describe("SetupWizard", () => {
     expect(screen.queryByLabelText("게이트웨이 시리얼")).not.toBeInTheDocument();
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(queryClient.getQueryData(["dashboard", "site-1"])).toEqual(dashboard);
+    expect(queryClient.getQueryData(["dashboard", "default"])).toEqual(dashboard);
   });
 
   it("주소가 없으면 제출을 막고 미입력 값을 선택할 수 있다", () => {

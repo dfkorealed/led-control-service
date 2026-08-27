@@ -48,11 +48,11 @@
 - Playwright deterministic route fixture는 실제 Health snapshot 표시, 개별·다중 조명 명령 생성, 다중 unicast 전송 수, terminal 전 모든 제어 입력 잠금, `partial_failed`의 성공·timeout 조명별 결과, 동일 탭 새로고침 후 active command 복구와 terminal 완료 추적을 검증한다. 이는 브라우저와 API 계약 회귀이며 실제 BLE Mesh 전송 검증이 아니다.
 - 최근 명령의 전체/처리 조명 수와 조명별 실패 또는 timeout 사유를 표시한다.
 - 대상 picker의 `개별/다중`, `층`, `구역` 버튼으로 제어 모드를 전환하고 각 모드에서 실제 전송 대상을 선택한다.
-- 백엔드는 SiteAccess `manage` 권한이 있는 operator/admin만 해당 현장의 fixture 또는 group을 제어 대상으로 허용하며, 미배정 또는 다른 고객사 현장은 `404`로 숨긴다.
+- 백엔드는 SiteAccess `manage` 권한이 있는 assigned customer admin만 해당 현장의 fixture 또는 group을 제어 대상으로 허용하며, 미배정 또는 다른 고객사 현장은 `404`로 숨긴다. operator는 customer shell과 고객 Site capability를 갖지 않는다.
 - `viewer` 권한 사용자는 배정 현장을 조회할 수 있지만 조명 제어 명령 생성은 `403`으로 거부한다.
-- 사용자 역할은 service-provider `operator`, customer `admin`, 조회 전용 `viewer` 세 가지다. operator/admin의 제어는 SiteAccess `manage` 범위로 한정되고, viewer는 화면 비활성화와 API `403` 양쪽에서 변경이 차단된다.
-- `GET /sites/:siteId/fixture-groups`, `POST /sites/:siteId/fixture-groups`, `PATCH /sites/:siteId/fixture-groups/:groupId`, `DELETE /sites/:siteId/fixture-groups/:groupId`, `POST /sites/:siteId/fixture-groups/:groupId/resync`를 제공한다. 목록은 read 권한의 viewer도 볼 수 있고, 생성·수정·삭제·재동기화는 SiteAccess `manage` 권한의 operator/admin만 수행한다.
-- 제어 화면의 `구역 관리` dialog에서 operator/admin은 같은 층·gateway의 조명 1~100개를 선택해 저장 구역을 생성·수정하고, 확인 후 삭제하거나 실패한 Mesh 설정을 재동기화할 수 있다. viewer는 동일 dialog에서 lifecycle과 Mesh 상태만 조회한다.
+- 사용자 역할은 service-provider `operator`, customer `admin`, 조회 전용 `viewer` 세 가지다. customer control은 assigned admin의 SiteAccess `manage` 범위로 한정되고, viewer는 화면 비활성화와 API `403` 양쪽에서 변경이 차단된다. operator는 전용 shell로 customer control을 mount하지 않는다.
+- `GET /sites/:siteId/fixture-groups`, `POST /sites/:siteId/fixture-groups`, `PATCH /sites/:siteId/fixture-groups/:groupId`, `DELETE /sites/:siteId/fixture-groups/:groupId`, `POST /sites/:siteId/fixture-groups/:groupId/resync`를 제공한다. 목록은 read 권한의 viewer도 볼 수 있고, 생성·수정·삭제·재동기화는 assigned admin만 수행한다.
+- 제어 화면의 `구역 관리` dialog에서 assigned admin은 같은 층·gateway의 조명 1~100개를 선택해 저장 구역을 생성·수정하고, 확인 후 삭제하거나 실패한 Mesh 설정을 재동기화할 수 있다. viewer는 동일 dialog에서 lifecycle과 Mesh 상태만 조회한다.
 - 대상 picker는 층과 저장 구역의 `Mesh 설정 중`, `Mesh 설정 실패`, `제어 준비 완료` 상태를 표시한다. 층은 포함 조명의 모든 gateway별 Mesh group metadata가 존재하고 `ready`일 때만 선택할 수 있으며, 하나라도 누락되거나 준비되지 않으면 fail-closed한다.
 - 저장 구역 생성·수정은 이름, 한 floor, 한 gateway와 1~100개의 unique fixture 전체 set을 입력으로 받는다. transaction은 기존 group, floor, gateway, fixture ID 순으로 잠가 같은 조명의 active/retiring 사용자 구역 15개 한도를 직렬화하고, mesh node가 없거나 선택 경계를 벗어난 fixture를 거부한다.
 - 저장 구역 변경은 `GroupFixture`와 `MeshControlGroupMember.desired`를 전체 교체하고 configuration version을 증가시켜 `configuring`으로 전환한다. provisioning 중 configuring group에 새 desired member가 실제 삽입되는 경우도 version을 증가시켜 이미 발행된 이전 ACK를 stale로 무시하고 새 expected operation set으로 자동 수렴한다. 중복 member attach는 version을 바꾸지 않는다.

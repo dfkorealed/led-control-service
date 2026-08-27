@@ -56,6 +56,7 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
       }),
     onSuccess: (dashboard) => {
       queryClient.setQueryData(["dashboard", siteId], dashboard);
+      queryClient.setQueryData(["dashboard", "default"], dashboard);
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setSuccessMessage("초기 설정을 저장했습니다.");
       onComplete?.();

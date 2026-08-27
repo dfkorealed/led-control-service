@@ -35,7 +35,11 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
   const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
-  const { data: dashboard } = useDashboard(siteId);
+  const {
+    data: dashboard,
+    isLoading: isDashboardLoading,
+    refetch: refetchDashboard
+  } = useDashboard(siteId);
   const selectedSiteId = siteId ?? dashboard?.site.id;
   const gateway = dashboard?.gateways[0];
   const gatewayStatusLabel = gateway ? (gateway.connectionStatus === "online" ? "게이트웨이 정상" : "게이트웨이 오프라인") : "게이트웨이 미등록";
@@ -69,8 +73,32 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     }
   }
 
-  const mustCompleteInstallation = user.role === "admin"
-    && dashboard?.site.installationStatus === "pending"
+  const isAdmin = user.role === "admin";
+  const installationStatus = dashboard?.site.installationStatus;
+
+  // An admin's customer routes depend on the assigned site's installation state.
+  // Keep the shell closed until that state is known so child route queries cannot run early.
+  if (isAdmin && !installationStatus) {
+    if (isDashboardLoading) {
+      return (
+        <section className="settings-screen" aria-live="polite">
+          <p>설치 상태를 확인하는 중입니다.</p>
+        </section>
+      );
+    }
+
+    return (
+      <section className="settings-screen" aria-live="polite">
+        <p role="alert">설치 상태를 확인하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도하세요.</p>
+        <button type="button" className="secondary-button" onClick={() => void refetchDashboard()}>
+          다시 시도
+        </button>
+      </section>
+    );
+  }
+
+  const mustCompleteInstallation = isAdmin
+    && installationStatus === "pending"
     && location.pathname !== "/settings";
   if (mustCompleteInstallation) {
     const settingsSearch = selectedSiteId ? `?siteId=${encodeURIComponent(selectedSiteId)}` : location.search;
@@ -138,10 +166,13 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           />
           <Route path="/statistics" element={<StatisticsView siteId={siteId ?? dashboard?.site.id} />} />
           <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
-            <Route index element={<SettingsView userRole={user.role} siteId={selectedSiteId} />} />
+            <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
             <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />
             <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={user.role} />} />
-            <Route path="security" element={<PasswordSettingsView />} />
+            <Route
+              path="security"
+              element={isAdmin ? <PasswordSettingsView /> : <Navigate to={`/settings${location.search}`} replace />}
+            />
             <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
           </Route>
           <Route path="*" element={<Navigate to={`/monitoring${location.search}`} replace />} />

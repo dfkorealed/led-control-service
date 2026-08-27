@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
@@ -93,5 +94,29 @@ describe("PasswordSettingsView", () => {
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("비밀번호를 변경하지 못했습니다. 잠시 후 다시 시도하세요.");
+  });
+
+  it("clears plaintext inputs on unmount and remount without putting them in the query cache", () => {
+    const queryClient = new QueryClient();
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <PasswordSettingsView />
+      </QueryClientProvider>
+    );
+    fillPasswords("current-secret", "new-secret");
+
+    unmount();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PasswordSettingsView />
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByLabelText("현재 비밀번호")).toHaveValue("");
+    expect(screen.getByLabelText("새 비밀번호")).toHaveValue("");
+    expect(screen.getByLabelText("새 비밀번호 확인")).toHaveValue("");
+    expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain("current-secret");
+    expect(JSON.stringify(queryClient.getMutationCache().getAll())).not.toContain("new-secret");
+    expect(changePasswordMock).not.toHaveBeenCalled();
   });
 });

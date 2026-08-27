@@ -438,7 +438,7 @@ create/retry/register/complete는 mutation transaction 첫 단계에서 Site를 
 - Modify: `apps/web/src/features/auth/AuthView.tsx`
 - Create: `apps/web/src/features/shells/CustomerShell.tsx`
 - Create: `apps/web/src/features/operator/OperatorShell.tsx`
-- Modify: `apps/web/src/App.tsx`
+- Modify: `apps/web/src/features/shells/CustomerShell.tsx`
 - Modify: `apps/web/src/App.test.tsx`
 
 **Interfaces:**
@@ -553,7 +553,7 @@ git commit -m "feat(web): add site admin account management"
 - Produces: admin 설정 메뉴 `설정 개요`, `도면 관리`, `비밀번호 변경`
 - Produces: 설치 대기 admin이 고객 route에 진입하면 `/settings?siteId=...`로 이동하는 route guard
 
-- [ ] **Step 1: admin setup RED 테스트 작성**
+- [x] **Step 1: admin setup RED 테스트 작성**
 
 ```tsx
 it("completes the assigned pending site without customer or site name inputs", async () => {
@@ -571,30 +571,32 @@ it("redirects a pending admin from monitoring to initial settings", async () => 
 });
 ```
 
-- [ ] **Step 2: 비밀번호 변경 RED 테스트 작성**
+- [x] **Step 2: 비밀번호 변경 RED 테스트 작성**
 
 현재 비밀번호 오류, 확인값 불일치, 8자 미만, 중복 제출 차단, 성공 후 입력 초기화와 안내를 각각 독립 테스트로 작성한다.
 
-- [ ] **Step 3: RED 확인**
+- [x] **Step 3: RED 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/features/setup/SetupWizard.test.tsx src/features/settings/security/PasswordSettingsView.test.tsx src/features/settings/settings-sections.test.ts`
 Expected: 새 계약과 화면 미구현으로 실패
 
-- [ ] **Step 4: 설치 상태 분기와 설정 구현**
+- [x] **Step 4: 설치 상태 분기와 설정 구현**
 
 pending admin은 어떤 고객 route로 진입해도 query의 `siteId`를 유지하며 설정 개요로 replace 이동하고 SetupWizard를 수행한다. 설치 완료 후 Gateway claim/RegistrationPanel을 admin에게 표시한다. operator는 floor plan/editor route를 사용할 수 없고 admin은 기존 lease·atomic save 흐름을 유지한다. viewer의 도면 목록 read-only는 유지한다.
 
-- [ ] **Step 5: GREEN 및 회귀 확인**
+- [x] **Step 5: GREEN 및 회귀 확인**
 
 Run: `pnpm --filter @led-control/web test && pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/web build`
 Expected: PASS
 
-- [ ] **Step 6: 메뉴 문서 갱신 후 커밋**
+- [x] **Step 6: 메뉴 문서 갱신 후 커밋**
 
 ```bash
 git add apps/web/src docs/menus/monitoring.md docs/menus/control.md docs/menus/settings.md docs/project-status.md
 git commit -m "feat(web): let admins install sites and manage passwords"
 ```
+
+**Task 8 Review Fix Round 1 실행 기록:** viewer의 `/settings/security` 직접 URL은 query string을 보존해 `/settings`로 replace하고 password 화면/API를 mount하지 않도록 App shell 회귀를 추가했다. CustomerShell은 admin dashboard의 `installationStatus`가 확인되기 전 loading/error(retry) gate를 반환해 monitoring/control/statistics/floor editor query와 lease를 fail-closed했으며 viewer read-only 흐름은 그대로 둔다. setup 성공 dashboard는 actual site key와 `['dashboard', 'default']` key를 함께 갱신한 뒤 prefix invalidate해 `/settings` 무선택 admin의 실패 refetch에도 installed 상태가 유지되는 것을 검증했다. 비밀번호 입력의 unmount/remount local-state 및 React Query cache 비보존 회귀도 추가했다. focused/full web test, typecheck, production build, diff check 결과는 이 round의 별도 commit과 보고서에 기록한다.
 
 ### Task 9: 실백엔드 E2E, 전체 회귀와 최종 문서
 

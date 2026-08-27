@@ -41,12 +41,15 @@ const authState = vi.hoisted(() => ({
 }));
 const apiState = vi.hoisted(() => ({
   dashboard: null as null | unknown,
+  dashboardResponses: [] as Array<() => Promise<unknown>>,
   registrationSession: null as null | RegistrationSession,
   commandStatus: null as null | unknown
 }));
 
 vi.mock("./api/client", () => ({
   apiGet: vi.fn((path: string) => {
+    const dashboardResponse = (fallback: unknown) =>
+      apiState.dashboardResponses.shift()?.() ?? Promise.resolve(apiState.dashboard ?? fallback);
     if (path === "/auth/me") {
       return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
     }
@@ -56,19 +59,23 @@ vi.mock("./api/client", () => ({
         { id: "site-2", name: "물류센터", customerName: "고객사 B" }
       ]);
     }
-    if (path === "/sites/default/dashboard") return Promise.resolve(apiState.dashboard ?? mockDashboard);
-    if (path === "/sites/default/dashboard?includeFixtures=true") return Promise.resolve(apiState.dashboard ?? mockDashboard);
+    if (path === "/sites/default/dashboard") return dashboardResponse(mockDashboard);
+    if (path === "/sites/default/dashboard?includeFixtures=true") return dashboardResponse(mockDashboard);
     if (path === `/sites/${mockDashboard.site.id}/dashboard`) {
-      return Promise.resolve(apiState.dashboard ?? mockDashboard);
+      return dashboardResponse(mockDashboard);
     }
     if (path === `/sites/${mockDashboard.site.id}/dashboard?includeFixtures=true`) {
-      return Promise.resolve(apiState.dashboard ?? mockDashboard);
+      return dashboardResponse(mockDashboard);
     }
     if (path === "/sites/site-2/dashboard") {
-      return Promise.resolve(apiState.dashboard ?? { ...mockDashboard, site: { ...mockDashboard.site, id: "site-2", name: "물류센터" } });
+      return dashboardResponse({ ...mockDashboard, site: { ...mockDashboard.site, id: "site-2", name: "물류센터" } });
     }
     if (path === "/sites/site-2/dashboard?includeFixtures=true") {
-      return Promise.resolve(apiState.dashboard ?? { ...mockDashboard, site: { ...mockDashboard.site, id: "site-2", name: "물류센터" } });
+      return dashboardResponse({ ...mockDashboard, site: { ...mockDashboard.site, id: "site-2", name: "물류센터" } });
+    }
+    const dashboardMatch = path.match(/^\/sites\/([^/]+)\/dashboard(?:\?includeFixtures=true)?$/);
+    if (dashboardMatch) {
+      return dashboardResponse({ ...mockDashboard, site: { ...mockDashboard.site, id: dashboardMatch[1] } });
     }
     const fixturePageMatch = path.match(/^\/sites\/([^/]+)\/floors\/([^/]+)\/fixtures\?/);
     if (fixturePageMatch) {
@@ -250,6 +257,7 @@ describe("App", () => {
       status: "active"
     };
     apiState.dashboard = null;
+    apiState.dashboardResponses = [];
     apiState.registrationSession = null;
     apiState.commandStatus = null;
     window.sessionStorage.clear();
@@ -450,6 +458,114 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "운영 설정" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "현장 및 층" })).not.toBeInTheDocument();
+  });
+
+  it("replaces a viewer's password URL with settings while preserving the selected site", async () => {
+    window.history.pushState({}, "", "/settings/security?siteId=site-2");
+    authState.user = { ...authState.user!, role: "viewer" };
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(await screen.findByRole("heading", { name: "운영 설정" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings");
+    expect(window.location.search).toBe("?siteId=site-2");
+    expect(screen.queryByLabelText("현재 비밀번호")).not.toBeInTheDocument();
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/auth/change-password")).toHaveLength(0);
+  });
+
+  it.each([
+    ["/monitoring?siteId=site-2", (path: string) => /\/floors\/.*\/(fixtures|map-snapshot)/.test(path)],
+    ["/control?siteId=site-2", (path: string) => path.includes("dashboard?includeFixtures=true")],
+    ["/statistics?siteId=site-2", (path: string) => path.startsWith("/energy/sites/")]
+  ])("does not mount a pending admin customer child route before installation status resolves: %s", async (path, isChildRequest) => {
+    let resolveDashboard: ((dashboard: unknown) => void) | undefined;
+    apiState.dashboardResponses = [() => new Promise((resolve) => { resolveDashboard = resolve; })];
+    window.history.pushState({}, "", path);
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(await screen.findByText("설치 상태를 확인하는 중입니다.")).toBeInTheDocument();
+    expect(vi.mocked(apiGet).mock.calls.filter(([requestPath]) => isChildRequest(requestPath))).toHaveLength(0);
+    resolveDashboard?.({
+      ...mockDashboard,
+      site: {
+        ...mockDashboard.site,
+        id: "site-2",
+        installationStatus: "pending",
+        address: null,
+        tariffKwhRate: null
+      },
+      floors: [],
+      gateways: []
+    });
+  });
+
+  it("does not request floor editor state or a lease before a pending admin dashboard decision", async () => {
+    let resolveDashboard: ((dashboard: unknown) => void) | undefined;
+    apiState.dashboardResponses = [() => new Promise((resolve) => { resolveDashboard = resolve; })];
+    window.history.pushState({}, "", "/settings/floor-plans/floor-1/edit?siteId=site-2");
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(await screen.findByText("설치 상태를 확인하는 중입니다.")).toBeInTheDocument();
+    expect(vi.mocked(apiGet).mock.calls.filter(([path]) => /\/floors\/.*\/editor-state$/.test(path))).toHaveLength(0);
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => /\/editor-lease$/.test(path))).toHaveLength(0);
+    resolveDashboard?.({
+      ...mockDashboard,
+      site: {
+        ...mockDashboard.site,
+        id: "site-2",
+        installationStatus: "pending",
+        address: null,
+        tariffKwhRate: null
+      },
+      floors: [],
+      gateways: []
+    });
+  });
+
+  it("shows a retryable installation-status error before mounting an admin child route", async () => {
+    apiState.dashboardResponses = [
+      () => Promise.reject(new Error("dashboard unavailable")),
+      () => Promise.resolve({ ...mockDashboard, site: { ...mockDashboard.site, id: "site-2" } })
+    ];
+    window.history.pushState({}, "", "/control?siteId=site-2");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("설치 상태를 확인하지 못했습니다.");
+    expect(vi.mocked(apiGet).mock.calls.filter(([path]) => path.includes("dashboard?includeFixtures=true"))).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(vi.mocked(apiGet).mock.calls.filter(([path]) => path === "/sites/site-2/dashboard")).toHaveLength(2));
+  });
+
+  it("keeps an installed default dashboard after setup even when the invalidated refetch fails", async () => {
+    apiState.dashboardResponses = [
+      () => Promise.resolve({
+        ...mockDashboard,
+        site: {
+          ...mockDashboard.site,
+          installationStatus: "pending",
+          address: null,
+          tariffKwhRate: null
+        },
+        floors: [],
+        gateways: []
+      }),
+      () => Promise.reject(new Error("refetch unavailable"))
+    ];
+    window.history.pushState({}, "", "/settings");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(await screen.findByRole("heading", { name: "초기 설치 설정" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
+    fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
+
+    expect(await screen.findByRole("heading", { name: "운영 설정" })).toBeInTheDocument();
+    expect(queryClient.getQueryData(["dashboard", "default"])).toMatchObject({
+      site: { installationStatus: "installed", address: "서울시 강남구" }
+    });
   });
 
   it("renders the approved control center landmarks", async () => {
