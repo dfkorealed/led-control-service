@@ -1,6 +1,6 @@
 # Lab Vault 기반 최초 실장비 설치 시험
 
-> 현재 판정: Task 9 격리 software E2E는 production API·인증·claim·registration·MQTT ACK/state 경로를 통과했다. Raspberry Pi와 ESP32-H2를 포함한 실기 E2E 증거는 아직 없으므로 아래 절차를 모두 통과하기 전에는 양산 준비 완료로 판정하지 않는다.
+> 현재 판정: Task 9 격리 software E2E는 production API·인증·claim·registration·MQTT ACK/state 경로를 통과했다. test-support publisher는 shared `parseDfkDeviceUuid`로 invalid/타사 UUID를 제외하고 lab CA의 gateway별 CN/own-topic ACL을 사용하지만 실제 `apps/gateway` BlueZ/RF, production Gateway 인증서 발급·bootstrap·broker ACL 배포를 실행하지 않는다. Raspberry Pi와 ESP32-H2를 포함한 아래 실기 절차를 모두 통과하기 전에는 양산 준비 완료로 판정하지 않는다.
 
 이 문서는 개발 Mac에서 양산과 같은 신뢰 흐름을 반복 시험하는 단일 기준 절차다. Lab 전용 Root와 Vault를 사용하지만 제품 API의 제조 등록, 일회성 claim, 장비 bootstrap, MQTT mTLS 경로는 우회하지 않는다.
 
@@ -257,7 +257,7 @@ serial log의 `BLE Mesh node initialized ... uuid=` 값은 32자리 hex이고 `4
 
 ### 9.1 software E2E와 HIL을 분리한다
 
-다음 Playwright 명령은 로그인 이후의 모니터링·제어 route/UI 계약을 빠르게 회귀 검증하기 위한 것이다. 실제 Raspberry Pi, ESP32-H2, BLE Mesh 또는 MQTT mTLS를 사용하지 않으므로 이 결과만으로 실장비 설치 성공을 표시하지 않는다.
+다음 Playwright 명령은 로그인 이후의 모니터링·제어 route/UI 계약을 빠르게 회귀 검증하기 위한 것이다. 앞의 두 browser fixture는 실제 MQTT mTLS를 사용하지 않고, `e2e:journey:real`만 격리 lab CA/mTLS broker를 사용한다. 어느 명령도 실제 Raspberry Pi, ESP32-H2 또는 BLE Mesh RF를 사용하지 않으므로 이 결과만으로 실장비 설치 성공을 표시하지 않는다.
 
 ```bash
 pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts
@@ -265,7 +265,7 @@ pnpm --filter @led-control/web exec playwright test e2e/monitoring-1000.spec.ts
 pnpm --filter @led-control/web e2e:journey:real
 ```
 
-`e2e:journey:real`은 매 실행 임시 PostgreSQL DB, Redis, mTLS Mosquitto와 software Gateway simulator를 생성하고 종료 시 삭제한다. 사용자 개발 DB를 읽거나 reset하지 않으며 test fixture는 `apps/web/e2e/support`에만 있다. 이 시험은 production API, cookie 인증, Gateway claim, registration outbox, command MQTT acceptance/device-status ACK와 fixture-state ingestion을 통과하지만 Raspberry Pi의 BlueZ나 ESP32-H2 radio/firmware를 실행하지 않는다.
+`e2e:journey:real`은 매 실행 전용 PostgreSQL data directory/Unix socket, Redis, lab CA 기반 mTLS Mosquitto와 test-support software publisher를 생성하고 종료 시 삭제한다. PostgreSQL은 `SHOW data_directory`와 spawned postmaster PID, Redis/API/Web/Mosquitto는 spawned process의 포트 소유권을 확인한 뒤에만 진행하므로 사용자 개발 DB나 기존 서비스를 읽거나 reset하지 않는다. publisher는 shared `parseDfkDeviceUuid` 정본으로 3개 후보 중 invalid/타사 UUID 1개를 scan-found에서 제외하고 lab CA의 `CN=Gateway.id` 인증서와 own-gateway topic ACL을 사용한다. 이 시험은 production API, cookie 인증, Gateway claim, registration outbox, command MQTT acceptance/device-status ACK와 fixture-state ingestion을 통과하지만 production Gateway 인증서 발급·bootstrap·배포 ACL, 실제 `apps/gateway`, Raspberry Pi BlueZ 또는 ESP32-H2 radio/firmware를 실행하지 않는다.
 
 실제 장비 판정은 [양산 장비 2-노드 실험실 검증](./production-device-lab.md)의 Gate 1부터 Gate 7까지 순서대로 수행한다. 그 문서의 `목적`, `선행 조건`, `실행 명령과 화면 조작`, `기대 로그와 API/DB 상태`, `실패 판정`, `저장할 증거`를 생략하거나 자동 fixture 결과로 대체하지 않는다.
 

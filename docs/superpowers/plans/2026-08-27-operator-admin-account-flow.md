@@ -445,7 +445,7 @@ create/retry/register/complete는 mutation transaction 첫 단계에서 Site를 
 - Consumes: `AuthUser.loginId`, loginId login endpoint
 - Produces: operator는 `/operator/site-admins`, admin/viewer는 고객 shell
 
-- [ ] **Step 1: 로그인·route RED 테스트 작성**
+- [x] **Step 1: 로그인·route RED 테스트 작성**
 
 ```tsx
 it("submits loginId and never renders public signup", async () => {
@@ -464,16 +464,16 @@ it("does not request sites or dashboard for an operator", async () => {
 });
 ```
 
-- [ ] **Step 2: RED 확인**
+- [x] **Step 2: RED 확인**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/App.test.tsx`
 Expected: signup UI와 공용 shell 때문에 실패
 
-- [ ] **Step 3: 인증 화면과 shell 분리 구현**
+- [x] **Step 3: 인증 화면과 shell 분리 구현**
 
 `AppContent`에서 인증 후 role을 먼저 분기한다. `OperatorShell`은 dashboard/site query를 import하지 않고 전용 route 외 모든 경로를 replace한다. 기존 고객 shell 로직은 `CustomerShell`로 이동해 기능을 보존한다.
 
-- [ ] **Step 4: GREEN 확인 및 커밋**
+- [x] **Step 4: GREEN 확인 및 커밋**
 
 Run: `pnpm --filter @led-control/web exec vitest run src/App.test.tsx && pnpm --filter @led-control/web typecheck`
 Expected: PASS
@@ -678,3 +678,15 @@ Task 9 agent 범위에서는 Playwright 자동 검증과 수동 QA 계정·URL �
 git add apps/web/e2e docs
 git commit -m "test(e2e): verify admin-led site installation"
 ```
+
+**Task 9 Review Fix Round 1 실행 기록:**
+
+- [x] 선점 port failure-injection과 PostgreSQL/Redis/Mosquitto/API/Web spawned identity gate
+- [x] staged MQTT/background/process-group cleanup과 start 중간 실패·TERM 무시 descendant 검증
+- [x] request-first network correlation, `requestfailed`, operator customer path 0건
+- [x] shared `parseDfkDeviceUuid` 기반 invalid candidate 제외와 lab gateway별 CN/최소권한 ACL positive·negative 검증
+- [x] `e2e:auth:real` 격리 전환과 installation env explicit skip 집계
+- [x] helper 5, isolated auth 1, full Chromium 29 passed/3 skipped, final real journey 2 passed 및 workspace 전체 회귀
+- [x] report/ledger/menu/status/runbook 경계 정정과 잔여 process/listener/artifact 0건 확인
+
+이 round의 lab certificate/ACL은 software test configuration 증거이며 production Gateway certificate bootstrap·배포 broker ACL, 실제 `apps/gateway` BlueZ/RF 또는 Raspberry Pi/ESP32-H2 HIL 증거가 아니다. controller의 실제 in-app browser 수동 QA도 review 뒤 별도로 수행한다.

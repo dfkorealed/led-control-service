@@ -39,7 +39,7 @@
 1. operator `loginId` 로그인과 `/operator/site-admins` 도착
 2. UI에서 고객사, pending Site, assigned admin 생성
 3. 생성 응답에 password 계열 필드가 없고 operator customer deep link가 모두 전용 route로 복귀
-4. operator network 13건 중 `/api/sites`와 dashboard 0건
+4. operator customer path(`/api/sites`, `/api/sites?...`, dashboard) 0건
 5. logout 후 발급 admin 로그인, selected Site를 보존한 pending `/settings` redirect
 6. UI에서 주소, kWh 단가, `Asia/Seoul`, B1 층 설정
 7. 격리 제조 inventory의 serial/일회성 code로 production Gateway claim
@@ -103,3 +103,53 @@
 - 실제 BLE Mesh unicast/group 전송, Lightness Status, Health Current, packet loss/timeout, 재부팅 복구를 실행하지 않았다.
 - controller의 실제 in-app browser 수동 QA는 Task review 뒤 남아 있다.
 - 모바일과 재설치는 Task 9 범위 밖이다.
+
+## Fix Round 1 (2026-08-27)
+
+### 상태와 RED
+
+- review Critical C1과 Important I1~I5를 별도 수정 단위로 처리했다. 기존 Task 9 커밋은 `7c46207`이고 이번 round commit subject는 `fix(e2e): harden isolated backend lab`이다. push/merge는 수행하지 않는다.
+- failure-injection RED에서 선점된 Web port가 있어도 build/migration 단계가 4회 진입했고, 응답 없이 실패한 operator dashboard request가 isolation assertion에 잡히지 않았다.
+- start 중간 실패 RED에서 SIGTERM을 무시하는 descendant가 남았고, MQTT graceful close callback이 오지 않으면 `stop()`이 250ms 안에 끝나지 않았다.
+- shared DFK filter RED는 `selectDfkScanCandidates` 정본 연결이 없어 spec import 단계에서 실패했다.
+- 첫 격리 auth GREEN 시도에서 workspace 절대 경로가 PostgreSQL Unix socket 길이 제한을 넘는 문제를 확인해 짧고 무작위인 `/tmp/lcs-e2e-pg-*` 전용 socket으로 고쳤다. 종료 직후 macOS의 음수 PGID probe가 `EPERM`을 반환한 문제는 실제 `ps` process-group membership 조회로 재현 가능하게 해결했다.
+- gateway별 ACL 첫 journey는 acceptance/device-status ACK publish가 `Not authorized`로 거부돼 첫 dimming이 timeout되는 실패를 냈다. ACL에 이 두 gateway write topic만 추가한 뒤 전체 journey가 통과했다.
+
+### 격리 identity와 cleanup
+
+- lab은 어떤 build, `createdb`, migration보다 먼저 PostgreSQL/Redis/MQTT/API/Web port 선점을 확인한다. 선점 fixture test는 외부 listener에 payload를 보내지 않고 mutation-capable `run()` 0회, labDir 잔여 0개를 확인한다.
+- PostgreSQL은 TCP listener를 열지 않고 실행별 private Unix socket만 사용한다. read-only `SHOW data_directory`, `postmaster.pid`, spawned PID와 postmaster liveness를 전후로 비교한 뒤에만 `createdb`와 migration을 실행한다.
+- Redis는 spawned PID의 listener 소유권과 `INFO server`의 `process_id`가 일치해야 통과한다. Mosquitto는 실행별 lab CA/config/CRL과 spawned PID listener를 확인한 뒤 lab API certificate로 read-only 연결 probe를 한다.
+- API와 Web은 pnpm wrapper가 아니라 Node API entry와 Vite binary를 detached process-group leader로 직접 spawn한다. spawned PID가 각 port를 소유한 상태에서만 `/auth/me` 및 Web 응답을 health evidence로 인정하므로 기존 5173/API service를 재사용할 수 없다.
+- child spawn error와 identity 확인 전 early exit를 즉시 실패로 처리한다. `stop()`은 background/MQTT stage를 각각 bounded all-settled로 처리하고, graceful MQTT timeout에는 forced close를 적용한다. 이후 모든 process group을 TERM, timeout, KILL, 실제 membership 0 순서로 종료하며 앞 단계 실패와 무관하게 labDir과 private socket directory를 삭제한다.
+- focused test가 선점 port 외부 fixture 비침해, start 중간 실패, TERM 무시 descendant KILL, hung MQTT forced close를 검증했다. 최종 확인에서 `.local/e2e-real-backend/task9-*`, `/tmp/lcs-e2e-pg-*`, lab port listener와 관련 process group은 모두 0개였다.
+
+### Network와 secret evidence
+
+- network evidence는 `request` 시점에 `{ id, actor, method, path, status: null, outcome: pending }`만 만들고 `response`로 status를 correlation한다. `requestfailed`도 `failed`로 남으므로 취소·실패 request가 0건 assertion에서 빠지지 않는다.
+- header, cookie, authorization, request/response body는 수집하지 않는다. 최종 operator customer path(`/api/sites`, `/api/sites?...`, dashboard) 결과는 0건이며 이 값이 총 request 수와 무관한 정본이다.
+- runtime 비밀번호, claim code와 key는 source/docs에 쓰지 않고 trace와 자동 screenshot을 비활성화한다. 지정된 비-secret 화면 screenshot만 남기고 evidence/log 저장 전 runtime secret을 마스킹한다. 최종 artifact에는 `.key`, PEM, trace, HAR가 0개였다.
+
+### Simulator 범위와 증거
+
+- test-support publisher는 shared package의 production 정본 `parseDfkDeviceUuid`를 직접 호출한다. 각 scan attempt evidence는 후보 3개, 허용 2개, invalid/타사 UUID 제외 1개이며 scan-found는 허용 후보 2개에만 발행됐다. 판별 로직을 support에 복제하지 않았다.
+- simulator는 API service certificate를 사용하지 않는다. claim 후 lab CA가 `CN=Gateway.id`인 gateway 전용 client certificate를 발급하고 broker는 own-gateway commands read, application ACK read, 필요한 event/state/command ACK write만 허용한다. negative probe는 다른 gateway state와 자기 command topic publish 2건이 모두 거부됨을 확인했다.
+- 위 검증은 lab CA와 test-generated Mosquitto ACL의 software 범위다. production Gateway certificate API 발급·device mTLS bootstrap·배포 broker ACL, 실제 `apps/gateway` runtime, BlueZ scan/provisioning, RF와 ESP32-H2를 검증했다고 주장하지 않는다.
+- browser journey는 production API/auth/claim/registration/outbox/command ACK/state ingestion 경로를 통과하며 최종 `2 passed`다. Raspberry Pi/ESP32-H2 HIL과 controller in-app browser 수동 QA는 계속 미실행이다.
+
+### Real auth와 전체 검증
+
+- `e2e:auth:real`은 외부 `E2E_OPERATOR_*`, 개발 API/DB와 5173를 요구하지 않고 RealBackendLab에서 runtime operator를 bootstrap한다. `playwright.config.ts`의 installation `testIgnore`를 제거했으며 full Chromium에서는 real lab spec 3건이 명시적 환경 skip으로 집계된다. 일반 browser regression은 skip하지 않았다.
+- focused helper: `5 passed`; isolated `e2e:auth:real`: `1 passed`; focused/final `e2e:journey:real`: `2 passed`.
+- `pnpm typecheck`: PASS. `pnpm lint`: PASS.
+- `pnpm test`: PASS. root 15, shared 53, mobile 1, Web 280, Gateway 289, API 596 passed; API 환경 조건부 69 skipped.
+- full Chromium: `29 passed, 3 skipped`이며 skipped 3건은 `auth-real` 1건과 installation real lab 2건이다.
+- final real journey: `2 passed (48.3s)`. operator customer path 0건, scan filter 3/2/1, gateway ACL negative publish 2건 거부가 evidence에 남았다.
+- `git diff --check`: PASS.
+
+### 변경 파일과 남은 수동 검증
+
+- 코드/설정: `apps/web/e2e/support/real-backend-lab.ts`, `real-backend-lab-support.spec.ts`, `auth-real.spec.ts`, `installation-customer-journey.spec.ts`, `apps/web/playwright.config.ts`, `apps/web/package.json`, `README.md`.
+- 문서/ledger: Task 9 report, operator-admin plan의 Task 6·Task 9 checklist, plan 전용 local progress ledger, project status, monitoring/control/settings 메뉴 문서와 first-install runbook.
+- controller 수동 QA URL과 역할 준비는 기존 `Controller 수동 브라우저 QA 준비` 절을 따른다. 실제 계정 secret은 승인된 runtime channel로만 전달하며 DevTools에서 operator customer path 0건과 admin 생성 응답 password field 0개를 다시 확인한다.
+- 남은 concern은 production Gateway identity/bootstrap/ACL deployment, Raspberry Pi BlueZ, ESP32-H2 2-node RF scan/provisioning/model bind/control/state, packet loss/timeout/reboot HIL과 controller 수동 QA다.

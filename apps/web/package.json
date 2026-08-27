@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0 --port ${WEB_PORT:-5173} --strictPort",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "e2e:auth:real": "E2E_REAL_AUTH=true playwright test e2e/auth-real.spec.ts",
+    "e2e:auth:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/auth-real.spec.ts --project=chromium",
     "e2e:journey:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/installation-customer-journey.spec.ts --project=chromium",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"

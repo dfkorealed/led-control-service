@@ -96,31 +96,13 @@ pnpm --filter @led-control/web exec playwright test
 
 ## 실제 백엔드 로그인 E2E
 
-아래 검증은 mock API가 아니라 실제 NestJS API, PostgreSQL, Redis, mTLS MQTT broker를 사용한다.
-로컬에 Docker Desktop 또는 Homebrew 기반 PostgreSQL/Redis/Mosquitto가 먼저 준비되어 있어야 한다.
-
-```bash
-cp .env.example .env
-scripts/dev-pki/create-ca.sh
-pnpm docker:up
-pnpm --filter @led-control/api prisma:generate
-pnpm --filter @led-control/api prisma:migrate --name auth
-BOOTSTRAP_ORGANIZATION_NAME='DF Korea Service' BOOTSTRAP_OPERATOR_LOGIN_ID='operator_01' BOOTSTRAP_OPERATOR_NAME='운영자' BOOTSTRAP_OPERATOR_PASSWORD='demo-password-1234' pnpm --filter @led-control/api auth:bootstrap-operator
-pnpm dev
-```
-
-다른 터미널에서 실제 로그인 E2E를 실행한다.
+아래 검증은 mock API가 아니라 실제 NestJS API, 매 실행 새 PostgreSQL cluster, Redis와 lab CA 기반 mTLS Mosquitto를 사용한다. `initdb`, `postgres`, `psql`, `createdb`, `redis-server`, `redis-cli`, `mosquitto`, `openssl`, `lsof` 실행 파일이 PATH에 있어야 한다.
 
 ```bash
 pnpm --filter @led-control/web e2e:auth:real
 ```
 
-데모 로그인 정보:
-
-```text
-아이디: operator@example.com
-비밀번호: demo-password-1234
-```
+이 명령은 기존 5173/API/개발 DB를 재사용하지 않는다. 계정과 secret은 실행 중 임의 생성되고 trace/report에 원문을 남기지 않으며 종료 시 모든 전용 process group과 임시 데이터가 삭제된다.
 
 ## 현재 범위
 

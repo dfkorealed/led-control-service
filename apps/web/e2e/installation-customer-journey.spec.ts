@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { RealBackendLab } from "./support/real-backend-lab";
 
 test.describe.configure({ mode: "serial" });
+test.skip(process.env.E2E_REAL_BACKEND_LAB !== "1", "격리 RealBackendLab 실행은 e2e:journey:real에서 집계합니다.");
 test.use({ trace: "off", screenshot: "off" });
 
 const lab = new RealBackendLab();
@@ -9,9 +10,6 @@ const fixtureNames = ["B1 조명-001", "B1 조명-002"];
 
 test.beforeAll(async () => {
   test.setTimeout(180_000);
-  if (process.env.E2E_REAL_BACKEND_LAB !== "1") {
-    throw new Error("Use pnpm --filter @led-control/web e2e:journey:real to start the isolated backend lab.");
-  }
   await lab.start();
 });
 

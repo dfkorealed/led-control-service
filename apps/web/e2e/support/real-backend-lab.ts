@@ -1,4 +1,4 @@
-import type { Page, TestInfo } from "@playwright/test";
+import type { Page, Request, TestInfo } from "@playwright/test";
 import {
   acceptanceAckV2Schema,
   applicationStateIngestedAckV2Schema,
@@ -9,6 +9,7 @@ import {
   meshGroupSubscriptionSyncSchema,
   mqttTopics,
   mqttTopicsV2,
+  parseDfkDeviceUuid,
   provisionDeviceSchema,
   provisioningCompletedSchema,
   provisioningScanCompletedSchema,
@@ -17,7 +18,7 @@ import {
 } from "@led-control/shared";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
-import { appendFileSync, chmodSync, existsSync, openSync } from "node:fs";
+import { appendFileSync, chmodSync, closeSync, existsSync, openSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -27,16 +28,27 @@ import { connect, type IClientPublishOptions, type MqttClient } from "mqtt";
 const scrypt = promisify(scryptCallback);
 const LAB_SENTINEL = "LED_CONTROL_REAL_BACKEND_LAB_SUPPORT_ONLY";
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../../../");
-const ports = {
+const defaultPorts = {
   postgres: Number(process.env.E2E_LAB_POSTGRES_PORT ?? 15432),
   redis: Number(process.env.E2E_LAB_REDIS_PORT ?? 16379),
   mqtt: Number(process.env.E2E_LAB_MQTT_PORT ?? 18883),
   api: Number(process.env.E2E_LAB_API_PORT ?? 14000),
   web: Number(process.env.E2E_LAB_WEB_PORT ?? 15173)
 };
+const childStartupErrors = new WeakMap<ChildProcess, Error>();
 
 type Installation = { siteId: string; floorId: string; timeZone: string };
+type ScanCandidate = { serialNumber: string; deviceUuid: string };
 type Actor = "operator" | "admin" | "viewer";
+type LabPorts = typeof defaultPorts;
+type NetworkEvidence = {
+  id: number;
+  actor: Actor;
+  method: string;
+  path: string;
+  status: number | null;
+  outcome: "pending" | "responded" | "failed";
+};
 
 export class RealBackendLab {
   readonly operator = { loginId: runtimeLoginId("operator"), password: runtimePassword() };
@@ -52,12 +64,19 @@ export class RealBackendLab {
     { serialNumber: `DFK-T9-${randomBytes(5).toString("hex").toUpperCase()}-01`, deviceUuid: runtimeDfkDeviceUuid() },
     { serialNumber: `DFK-T9-${randomBytes(5).toString("hex").toUpperCase()}-02`, deviceUuid: runtimeDfkDeviceUuid() }
   ];
+  private readonly invalidScanCandidate = {
+    serialNumber: `OTHER-T9-${randomBytes(5).toString("hex").toUpperCase()}`,
+    deviceUuid: randomBytes(16).toString("hex")
+  };
 
   private readonly runId = `task9-${process.pid}-${Date.now()}-${randomBytes(4).toString("hex")}`;
   private readonly labDir = join(ROOT, ".local", "e2e-real-backend", this.runId);
   private readonly pkiDir = join(this.labDir, "pki");
+  private readonly postgresSocketDir = join("/tmp", `lcs-e2e-pg-${randomBytes(8).toString("hex")}`);
+  private readonly ports: LabPorts;
   private readonly processes: ChildProcess[] = [];
-  private readonly network: Array<Record<string, unknown>> = [];
+  private readonly network: NetworkEvidence[] = [];
+  private readonly networkByRequest = new WeakMap<Request, NetworkEvidence>();
   private readonly mqttEvidence: Array<Record<string, unknown>> = [];
   private readonly stateIngestedEventIds = new Set<string>();
   private mqtt?: MqttClient;
@@ -71,10 +90,18 @@ export class RealBackendLab {
   private readonly backgroundTasks = new Set<Promise<void>>();
   private backgroundError: unknown;
   private started = false;
+  private stopping?: Promise<void>;
+  private cleanupTimeoutMs: number;
+
+  constructor(options: { ports?: Partial<LabPorts>; cleanupTimeoutMs?: number } = {}) {
+    this.ports = { ...defaultPorts, ...options.ports };
+    this.cleanupTimeoutMs = options.cleanupTimeoutMs ?? 5_000;
+  }
 
   async start() {
     if (this.started) return;
     try {
+      await this.assertPortsAvailable();
       await mkdir(this.labDir, { recursive: true });
       await this.run("pnpm", ["--filter", "@led-control/shared", "build"]);
       await this.run("pnpm", ["--filter", "@led-control/api", "build"]);
@@ -90,38 +117,60 @@ export class RealBackendLab {
         BOOTSTRAP_OPERATOR_NAME: "Task 9 운영자",
         BOOTSTRAP_OPERATOR_PASSWORD: this.operator.password
       });
-      this.spawnLogged("api", "node", [join(ROOT, "apps/api/dist/src/main.js")], this.apiEnv());
-      this.spawnLogged("web", "pnpm", ["--filter", "@led-control/web", "dev"], {
-        WEB_PORT: String(ports.web), VITE_API_PROXY_TARGET: `http://127.0.0.1:${ports.api}`
-      });
+      const api = this.spawnLogged("api", process.execPath, [join(ROOT, "apps/api/dist/src/main.js")], this.apiEnv());
+      const web = this.spawnLogged("web", process.execPath, [join(ROOT, "apps/web/node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(this.ports.web), "--strictPort"], {
+        WEB_PORT: String(this.ports.web), VITE_API_PROXY_TARGET: `http://127.0.0.1:${this.ports.api}`
+      }, join(ROOT, "apps/web"));
       await Promise.all([
-        waitForHttp(`http://127.0.0.1:${ports.api}/auth/me`, [401]),
-        waitForHttp(`http://127.0.0.1:${ports.web}`, [200])
+        waitForOwnedHttp(api, this.ports.api, `http://127.0.0.1:${this.ports.api}/auth/me`, [401]),
+        waitForOwnedHttp(web, this.ports.web, `http://127.0.0.1:${this.ports.web}`, [200])
       ]);
       this.started = true;
     } catch (error) {
-      await this.stop();
+      try {
+        await this.stop();
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "real backend lab startup and cleanup failed");
+      }
       throw error;
     }
   }
 
-  async stop() {
-    clearInterval(this.heartbeat);
-    await Promise.allSettled([...this.backgroundTasks]);
-    await this.mqttHandlerChain;
-    await closeMqtt(this.mqtt);
-    for (const child of this.processes.reverse()) await stopProcess(child);
-    this.processes.length = 0;
-    await rm(this.labDir, { recursive: true, force: true });
-    this.started = false;
+  stop() {
+    this.stopping ??= this.stopStages().finally(() => {
+      this.started = false;
+    });
+    return this.stopping;
   }
 
   captureNetwork(page: Page, actor: Actor) {
+    const recordRequest = (request: Request) => {
+      const existing = this.networkByRequest.get(request);
+      if (existing) return existing;
+      const url = new URL(request.url());
+      if (!url.pathname.startsWith("/api/")) return undefined;
+      const record: NetworkEvidence = {
+        id: this.network.length + 1,
+        actor,
+        method: request.method(),
+        path: url.pathname + url.search,
+        status: null,
+        outcome: "pending"
+      };
+      this.network.push(record);
+      this.networkByRequest.set(request, record);
+      return record;
+    };
+    page.on("request", recordRequest);
     page.on("response", (response) => {
-      const url = new URL(response.url());
-      if (url.pathname.startsWith("/api/")) {
-        this.network.push({ actor, method: response.request().method(), path: url.pathname + url.search, status: response.status() });
-      }
+      const record = recordRequest(response.request());
+      if (!record) return;
+      record.status = response.status();
+      record.outcome = "responded";
+    });
+    page.on("requestfailed", (request) => {
+      const record = recordRequest(request);
+      if (record) record.outcome = "failed";
     });
   }
 
@@ -180,16 +229,20 @@ export class RealBackendLab {
     const installation = this.requireInstallation();
     const gatewayId = await this.scalar(`SELECT id FROM "Gateway" WHERE "serialNumber"='${this.gateway.serialNumber}'`);
     Object.assign(this.gateway, { id: gatewayId });
+    await this.run(resolve(ROOT, "scripts/dev-pki/issue-gateway-cert.sh"), [gatewayId], { PKI_DIR: this.pkiDir });
+    const certificateName = `gateway-${gatewayId.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`;
     this.mqtt = await connectMqtt({
-      host: "127.0.0.1", port: ports.mqtt, clientId: `task9-publisher-${this.runId}`,
+      host: "127.0.0.1", port: this.ports.mqtt, clientId: `task9-publisher-${this.runId}`,
       ca: await readFile(join(this.pkiDir, "ca.crt")),
-      cert: await readFile(join(this.pkiDir, "api.crt")),
-      key: await readFile(join(this.pkiDir, "api.key"))
+      cert: await readFile(join(this.pkiDir, `${certificateName}.crt`)),
+      key: await readFile(join(this.pkiDir, `${certificateName}.key`))
     });
+    await this.assertGatewayAcl(this.mqtt, installation.siteId, gatewayId);
     await subscribe(this.mqtt, [
       `sites/${installation.siteId}/gateways/${gatewayId}/commands/#`,
       `sites/${installation.siteId}/gateways/${gatewayId}/acks/#`
     ]);
+    this.recordMqtt({ direction: "lab-principal", principal: gatewayId, scope: "own-gateway-topics" });
     this.mqtt.on("message", (topic, payload) => {
       if (topic.endsWith("/acks/state-ingested")) {
         const acknowledgement = applicationStateIngestedAckV2Schema.parse(JSON.parse(payload.toString()));
@@ -201,6 +254,22 @@ export class RealBackendLab {
     });
     await this.publishHeartbeat();
     this.heartbeat = setInterval(() => void this.publishHeartbeat(), 5_000);
+  }
+
+  private async assertGatewayAcl(client: MqttClient, siteId: string, gatewayId: string) {
+    const deniedTopics = [
+      `sites/${siteId}/gateways/${randomUUID()}/state/heartbeat`,
+      `sites/${siteId}/gateways/${gatewayId}/commands/dimming`
+    ];
+    for (const topic of deniedTopics) {
+      try {
+        await publish(client, topic, "{}", { qos: 1 });
+        throw new Error(`lab gateway ACL unexpectedly allowed ${topic}`);
+      } catch (error) {
+        if (!safeMessage(error).toLowerCase().includes("not authorized")) throw error;
+      }
+    }
+    this.recordMqtt({ direction: "acl-negative", deniedPublishCount: deniedTopics.length });
   }
 
   async publishEnergyHistory(mode: "partial" | "available") {
@@ -280,8 +349,15 @@ export class RealBackendLab {
     if (topic.endsWith("/commands/provisioning/scan-start")) {
       const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
       this.scanCount += 1;
+      const candidates = selectDfkScanCandidates([...this.fixtures, this.invalidScanCandidate]);
+      this.recordMqtt({
+        direction: "scan-filter",
+        offeredCandidateCount: this.fixtures.length + 1,
+        acceptedCandidateCount: candidates.length,
+        rejectedCandidateCount: 1
+      });
       if (this.scanCount > 1) {
-        for (const fixture of this.fixtures) {
+        for (const fixture of candidates) {
           await this.publish(mqttTopicsV2.provisioningScanFound(command.siteId, command.gatewayId), provisioningScanFoundSchema.parse({
             sessionId: command.sessionId, scanCorrelationId: command.scanCorrelationId, scanAttempt: command.scanAttempt,
             siteId: command.siteId, gatewayId: command.gatewayId,
@@ -291,14 +367,14 @@ export class RealBackendLab {
         }
         await this.waitForDatabaseCount(
           `SELECT count(*) FROM "DiscoveredMeshNode" WHERE "sessionId"=${sqlString(command.sessionId)} AND "scanAttempt"=${command.scanAttempt}`,
-          this.fixtures.length
+          candidates.length
         );
       }
       await this.publish(mqttTopicsV2.provisioningScanCompleted(command.siteId, command.gatewayId), provisioningScanCompletedSchema.parse({
         siteId: command.siteId, gatewayId: command.gatewayId, sessionId: command.sessionId,
         scanCorrelationId: command.scanCorrelationId, scanAttempt: command.scanAttempt,
         eventId: randomUUID(), sequence: this.nextSequence(), occurredAt: new Date().toISOString(),
-        acceptedNodeCount: this.scanCount > 1 ? this.fixtures.length : 0
+        acceptedNodeCount: this.scanCount > 1 ? candidates.length : 0
       }));
       return;
     }
@@ -428,27 +504,64 @@ export class RealBackendLab {
   }
 
   private async startInfrastructure() {
-    for (const port of [ports.postgres, ports.redis, ports.mqtt, ports.api, ports.web]) {
+    const postgresData = join(this.labDir, "postgres");
+    await mkdir(this.postgresSocketDir, { recursive: true, mode: 0o700 });
+    await this.run("initdb", ["-D", postgresData, "--username=led", "--auth=trust", "--no-locale"]);
+    const postgres = this.spawnLogged("postgres", "postgres", [
+      "-D", postgresData,
+      "-h", "",
+      "-k", this.postgresSocketDir,
+      "-p", String(this.ports.postgres)
+    ], {});
+    await waitForPostgresIdentity(postgres, postgresData, this.postgresSocketDir, this.ports.postgres);
+    await this.run("createdb", ["-h", this.postgresSocketDir, "-p", String(this.ports.postgres), "-U", "led", "led_control"]);
+
+    const redis = this.spawnLogged("redis", "redis-server", [
+      "--bind", "127.0.0.1",
+      "--port", String(this.ports.redis),
+      "--save", "",
+      "--appendonly", "no",
+      "--pidfile", join(this.labDir, "redis.pid"),
+      "--dir", this.labDir
+    ], {});
+    const mqtt = this.spawnLogged("mqtt", "mosquitto", ["-c", join(this.labDir, "mosquitto.conf")], {});
+    await Promise.all([
+      waitForRedisIdentity(redis, this.ports.redis),
+      waitForOwnedPort(mqtt, this.ports.mqtt)
+    ]);
+    const probe = await connectMqtt({
+      host: "127.0.0.1",
+      port: this.ports.mqtt,
+      clientId: `task9-broker-probe-${this.runId}`,
+      ca: await readFile(join(this.pkiDir, "ca.crt")),
+      cert: await readFile(join(this.pkiDir, "api.crt")),
+      key: await readFile(join(this.pkiDir, "api.key"))
+    });
+    await closeMqtt(probe, true);
+  }
+
+  private async assertPortsAvailable() {
+    for (const port of Object.values(this.ports)) {
       if (await canConnect(port)) throw new Error(`Task 9 격리 포트 ${port}가 이미 사용 중입니다.`);
     }
-    const postgresData = join(this.labDir, "postgres");
-    await this.run("initdb", ["-D", postgresData, "--username=led", "--auth=trust", "--no-locale"]);
-    this.spawnLogged("postgres", "postgres", ["-D", postgresData, "-h", "127.0.0.1", "-p", String(ports.postgres)], {});
-    await waitForPort(ports.postgres);
-    await this.run("createdb", ["-h", "127.0.0.1", "-p", String(ports.postgres), "-U", "led", "led_control"]);
-
-    this.spawnLogged("redis", "redis-server", ["--bind", "127.0.0.1", "--port", String(ports.redis), "--save", "", "--appendonly", "no", "--dir", this.labDir], {});
-    this.spawnLogged("mqtt", "mosquitto", ["-c", join(this.labDir, "mosquitto.conf")], {});
-    await Promise.all([waitForPort(ports.redis), waitForPort(ports.mqtt)]);
   }
 
   private async writeMosquittoConfig() {
     await writeFile(join(this.labDir, "mosquitto.acl"), [
-      "user api-service", "topic readwrite sites/#", ""
+      "user api-service",
+      "topic readwrite sites/#",
+      "pattern read sites/+/gateways/%u/commands/#",
+      "pattern read sites/+/gateways/%u/acks/#",
+      "pattern write sites/+/gateways/%u/acks/acceptance",
+      "pattern write sites/+/gateways/%u/acks/device-status",
+      "pattern write sites/+/gateways/%u/events/#",
+      "pattern write sites/+/gateways/%u/state/#",
+      "pattern write sites/+/gateways/%u/heartbeat",
+      ""
     ].join("\n"));
     chmodSync(join(this.labDir, "mosquitto.acl"), 0o600);
     await writeFile(join(this.labDir, "mosquitto.conf"), [
-      `listener ${ports.mqtt} 127.0.0.1`, "allow_anonymous false", `cafile ${join(this.pkiDir, "ca.crt")}`,
+      `listener ${this.ports.mqtt} 127.0.0.1`, "allow_anonymous false", `cafile ${join(this.pkiDir, "ca.crt")}`,
       `certfile ${join(this.pkiDir, "broker.crt")}`, `keyfile ${join(this.pkiDir, "broker.key")}`, `crlfile ${join(this.pkiDir, "ca.crl")}`,
       "require_certificate true", "use_identity_as_username true", "tls_version tlsv1.2",
       `acl_file ${join(this.labDir, "mosquitto.acl")}`, "persistence false", "log_dest stdout", ""
@@ -456,22 +569,35 @@ export class RealBackendLab {
   }
 
   private apiEnv() {
+    const socket = encodeURIComponent(this.postgresSocketDir);
     return {
-      DATABASE_URL: `postgresql://led:led@127.0.0.1:${ports.postgres}/led_control?schema=public`,
-      REDIS_URL: `redis://127.0.0.1:${ports.redis}`,
-      MQTT_URL: `mqtts://localhost:${ports.mqtt}`,
-      MQTT_PUBLIC_URL: `mqtts://localhost:${ports.mqtt}`,
+      DATABASE_URL: `postgresql://led:led@localhost:${this.ports.postgres}/led_control?host=${socket}&schema=public`,
+      REDIS_URL: `redis://127.0.0.1:${this.ports.redis}`,
+      MQTT_URL: `mqtts://localhost:${this.ports.mqtt}`,
+      MQTT_PUBLIC_URL: `mqtts://localhost:${this.ports.mqtt}`,
       MQTT_CA_PATH: join(this.pkiDir, "ca.crt"), MQTT_CLIENT_CERT_PATH: join(this.pkiDir, "api.crt"),
       MQTT_CLIENT_KEY_PATH: join(this.pkiDir, "api.key"), MQTT_API_INSTANCE_ID: this.runId,
-      API_PORT: String(ports.api), WEB_PUBLIC_URL: `http://127.0.0.1:${ports.web}`,
+      API_PORT: String(this.ports.api), WEB_PUBLIC_URL: `http://127.0.0.1:${this.ports.web}`,
       PKI_PROVIDER: "unavailable", NODE_ENV: "test"
     };
   }
 
-  private spawnLogged(name: string, command: string, args: string[], env: NodeJS.ProcessEnv) {
+  private spawnLogged(name: string, command: string, args: string[], env: NodeJS.ProcessEnv, cwd = ROOT) {
     const log = openSync(join(this.labDir, `${name}.log`), "a");
-    const child = spawn(command, args, { cwd: ROOT, env: { ...process.env, ...env }, stdio: ["ignore", log, log] });
+    let child: ChildProcess;
+    try {
+      child = spawn(command, args, {
+        cwd,
+        detached: true,
+        env: { ...process.env, ...env },
+        stdio: ["ignore", log, log]
+      });
+    } finally {
+      closeSync(log);
+    }
+    child.once("error", (error) => childStartupErrors.set(child, error));
     this.processes.push(child);
+    return child;
   }
 
   private async run(command: string, args: string[], env: NodeJS.ProcessEnv = {}) {
@@ -480,12 +606,12 @@ export class RealBackendLab {
   }
 
   private async sql(statement: string) {
-    const result = spawnSync("psql", ["-h", "127.0.0.1", "-p", String(ports.postgres), "-v", "ON_ERROR_STOP=1", "-U", "led", "-d", "led_control", "-c", statement], { encoding: "utf8" });
+    const result = spawnSync("psql", ["-h", this.postgresSocketDir, "-p", String(this.ports.postgres), "-v", "ON_ERROR_STOP=1", "-U", "led", "-d", "led_control", "-c", statement], { encoding: "utf8" });
     if (result.status !== 0) throw new Error(`isolated DB statement failed: ${result.stderr}`);
   }
 
   private async scalar(statement: string) {
-    const result = spawnSync("psql", ["-h", "127.0.0.1", "-p", String(ports.postgres), "-At", "-U", "led", "-d", "led_control", "-c", statement], { encoding: "utf8" });
+    const result = spawnSync("psql", ["-h", this.postgresSocketDir, "-p", String(this.ports.postgres), "-At", "-U", "led", "-d", "led_control", "-c", statement], { encoding: "utf8" });
     if (result.status !== 0) throw new Error(`isolated DB query failed: ${result.stderr}`);
     return result.stdout.trim();
   }
@@ -510,6 +636,57 @@ export class RealBackendLab {
       await delay(100);
     }
     throw new Error("timed out waiting for isolated database ingestion");
+  }
+
+  private async stopStages() {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = undefined;
+    const errors: unknown[] = [];
+
+    try {
+      try {
+        const background = [...this.backgroundTasks, this.mqttHandlerChain];
+        if (background.length > 0) {
+          const settled = await settleWithin(background, this.cleanupTimeoutMs, "background task cleanup");
+          errors.push(...rejectedReasons(settled));
+        }
+      } catch (error) {
+        errors.push(error);
+      }
+      try {
+        if (this.mqtt) {
+          const graceful = await settleWithin([closeMqtt(this.mqtt, false)], this.cleanupTimeoutMs, "MQTT graceful close");
+          if (graceful.some((result) => result.status === "rejected")) {
+            const forced = await settleWithin([closeMqtt(this.mqtt, true)], this.cleanupTimeoutMs, "MQTT forced close");
+            errors.push(...rejectedReasons(forced));
+          }
+        }
+      } catch (error) {
+        errors.push(error);
+      }
+    } finally {
+      this.mqtt = undefined;
+      try {
+        const processResults = await Promise.allSettled(
+          [...this.processes].reverse().map((child) => stopProcessGroup(child, this.cleanupTimeoutMs))
+        );
+        errors.push(...rejectedReasons(processResults));
+      } finally {
+        this.processes.length = 0;
+        try {
+          await rm(this.labDir, { recursive: true, force: true });
+        } catch (error) {
+          errors.push(error);
+        }
+        try {
+          await rm(this.postgresSocketDir, { recursive: true, force: true });
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+    }
+
+    if (errors.length > 0) throw new AggregateError(errors, "real backend lab cleanup failed");
   }
 }
 
@@ -537,6 +714,10 @@ function runtimeDfkDeviceUuid() {
   return `44464b4c454401010101${randomBytes(6).toString("hex")}`;
 }
 
+export function selectDfkScanCandidates<T extends ScanCandidate>(candidates: T[]) {
+  return candidates.filter((candidate) => parseDfkDeviceUuid(candidate.deviceUuid) !== null);
+}
+
 function isCustomerDataPath(path: string) {
   return path === "/api/sites"
     || path.startsWith("/api/sites?")
@@ -547,13 +728,106 @@ function parseJson(value: Buffer) {
   try { return JSON.parse(value.toString()); } catch { return value.toString(); }
 }
 
-async function waitForPort(port: number, timeoutMs = 60_000) {
+async function waitForPostgresIdentity(
+  child: ChildProcess,
+  expectedDataDirectory: string,
+  socketDirectory: string,
+  port: number,
+  timeoutMs = 60_000
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await canConnect(port)) return;
+    assertChildRunning(child, "postgres");
+    const result = spawnSync("psql", [
+      "-h", socketDirectory,
+      "-p", String(port),
+      "-U", "led",
+      "-d", "postgres",
+      "-At",
+      "-v", "ON_ERROR_STOP=1",
+      "-c", "SHOW data_directory"
+    ], { encoding: "utf8" });
+    if (result.status === 0) {
+      const actualDataDirectory = resolve(result.stdout.trim());
+      const postmasterPid = Number((await readFile(join(expectedDataDirectory, "postmaster.pid"), "utf8")).split("\n")[0]);
+      assertChildRunning(child, "postgres");
+      if (actualDataDirectory !== resolve(expectedDataDirectory)) {
+        throw new Error(`PostgreSQL data_directory identity mismatch: ${actualDataDirectory}`);
+      }
+      if (postmasterPid !== child.pid) {
+        throw new Error(`PostgreSQL postmaster identity mismatch: expected ${child.pid}, got ${postmasterPid}`);
+      }
+      return;
+    }
     await delay(200);
   }
-  throw new Error(`port ${port} did not become ready`);
+  throw new Error("spawned PostgreSQL did not pass the lab identity check");
+}
+
+async function waitForRedisIdentity(child: ChildProcess, port: number, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    assertChildRunning(child, "redis");
+    if (ownsListeningPort(child, port)) {
+      const result = spawnSync("redis-cli", ["-h", "127.0.0.1", "-p", String(port), "INFO", "server"], { encoding: "utf8" });
+      const processId = /^process_id:(\d+)\r?$/m.exec(result.stdout)?.[1];
+      assertChildRunning(child, "redis");
+      if (result.status === 0 && Number(processId) === child.pid && ownsListeningPort(child, port)) return;
+      if (result.status === 0 && processId) {
+        throw new Error(`Redis process identity mismatch: expected ${child.pid}, got ${processId}`);
+      }
+    }
+    await delay(100);
+  }
+  throw new Error("spawned Redis did not pass the lab identity check");
+}
+
+async function waitForOwnedPort(child: ChildProcess, port: number, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    assertChildRunning(child, `service on port ${port}`);
+    if (ownsListeningPort(child, port)) return;
+    await delay(100);
+  }
+  throw new Error(`spawned process did not own port ${port}`);
+}
+
+async function waitForOwnedHttp(child: ChildProcess, port: number, url: string, accepted: number[], timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    assertChildRunning(child, url);
+    if (ownsListeningPort(child, port)) {
+      try {
+        const status = (await fetch(url)).status;
+        assertChildRunning(child, url);
+        if (accepted.includes(status) && ownsListeningPort(child, port)) return;
+      } catch {
+        assertChildRunning(child, url);
+      }
+    }
+    await delay(200);
+  }
+  throw new Error(`spawned process did not serve ${url}`);
+}
+
+function ownsListeningPort(child: ChildProcess, port: number) {
+  if (!child.pid) return false;
+  const result = spawnSync("lsof", [
+    "-nP", "-a",
+    "-p", String(child.pid),
+    `-iTCP:${port}`,
+    "-sTCP:LISTEN",
+    "-t"
+  ], { encoding: "utf8" });
+  return result.status === 0 && result.stdout.trim().split(/\s+/).includes(String(child.pid));
+}
+
+function assertChildRunning(child: ChildProcess, name: string) {
+  const startupError = childStartupErrors.get(child);
+  if (startupError) throw new Error(`${name} failed to spawn: ${startupError.message}`);
+  if (!child.pid || child.exitCode !== null || child.signalCode || !isPidAlive(child.pid)) {
+    throw new Error(`${name} exited before its identity was verified`);
+  }
 }
 
 function canConnect(port: number) {
@@ -564,15 +838,6 @@ function canConnect(port: number) {
     const fail = () => { socket.destroy(); resolvePromise(false); };
     socket.once("error", fail); socket.once("timeout", fail);
   });
-}
-
-async function waitForHttp(url: string, accepted: number[], timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try { if (accepted.includes((await fetch(url)).status)) return; } catch { /* startup */ }
-    await delay(250);
-  }
-  throw new Error(`${url} did not become ready`);
 }
 
 function connectMqtt(options: Parameters<typeof connect>[1]) {
@@ -591,20 +856,62 @@ function publish(client: MqttClient, topic: string, payload: string, options: IC
   return new Promise<void>((resolvePromise, reject) => client.publish(topic, payload, options, (error) => error ? reject(error) : resolvePromise()));
 }
 
-function closeMqtt(client?: MqttClient) {
+function closeMqtt(client: MqttClient, force: boolean) {
   if (!client) return Promise.resolve();
-  return new Promise<void>((resolvePromise) => client.end(false, {}, () => resolvePromise()));
+  return new Promise<void>((resolvePromise) => client.end(force, {}, () => resolvePromise()));
 }
 
-async function stopProcess(child: ChildProcess) {
-  if (child.exitCode !== null || child.signalCode) return;
-  child.kill("SIGTERM");
-  await Promise.race([new Promise<void>((resolvePromise) => child.once("exit", () => resolvePromise())), delay(5_000)]);
-  if (child.exitCode === null && !child.signalCode) {
-    const killed = new Promise<void>((resolvePromise) => child.once("exit", () => resolvePromise()));
-    child.kill("SIGKILL");
-    await Promise.race([killed, delay(1_000)]);
+async function stopProcessGroup(child: ChildProcess, timeoutMs: number) {
+  if (!child.pid) return;
+  signalProcessGroup(child.pid, "SIGTERM");
+  if (await waitForProcessGroupExit(child.pid, timeoutMs)) return;
+  signalProcessGroup(child.pid, "SIGKILL");
+  if (!await waitForProcessGroupExit(child.pid, timeoutMs)) {
+    throw new Error(`process group ${child.pid} did not exit after SIGKILL`);
   }
+}
+
+function signalProcessGroup(pid: number, signal: NodeJS.Signals) {
+  try {
+    process.kill(-pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
+async function waitForProcessGroupExit(pid: number, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessGroupAlive(pid)) return true;
+    await delay(20);
+  }
+  return !isProcessGroupAlive(pid);
+}
+
+function isProcessGroupAlive(pid: number) {
+  const result = spawnSync("ps", ["-axo", "pgid="], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`failed to inspect process groups: ${result.stderr}`);
+  return result.stdout.split("\n").some((value) => Number(value.trim()) === pid);
+}
+
+function isPidAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function settleWithin<T>(promises: Promise<T>[], timeoutMs: number, label: string): Promise<PromiseSettledResult<T>[]> {
+  return Promise.race([
+    Promise.allSettled(promises),
+    delay(timeoutMs).then(() => promises.map(() => ({ status: "rejected", reason: new Error(`${label} timed out`) }) as PromiseRejectedResult))
+  ]);
+}
+
+function rejectedReasons(results: PromiseSettledResult<unknown>[]) {
+  return results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
 }
 
 async function listFiles(directory: string): Promise<string[]> {

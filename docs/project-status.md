@@ -17,11 +17,11 @@
 | 메뉴 완성 구현 | 완료(소프트웨어) | Task 12까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
 | 계정·설치 주체 전환 설계 | 완료 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했고 재설치는 제외했다. |
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
-| 계정·설치 주체 전환 구현 | 완료(소프트웨어) | Task 1~9를 완료했다. service-global operator는 `/operator/site-admins`에서 현장별 assigned admin을 관리하고 고객 Site/dashboard를 조회하지 않는다. assigned admin은 pending Site의 주소·단가·시간대·층 설정, Gateway claim, 조명 검색·등록, 모니터링·제어·통계·도면·비밀번호 변경을 수행하며 viewer는 고객 화면을 읽기 전용으로 사용한다. Task 9 격리 실백엔드 Chromium journey는 매 실행 새 PostgreSQL/Redis/mTLS Mosquitto와 software Gateway simulator를 사용해 production API·인증·claim·registration·MQTT command ACK/state sync를 통과했고 operator customer network 0건, 0건 검색 후 재검색, 자사 node 2개 등록, 개별·다중·층·구역 제어, 24시간 통계, 도면 반영, 비밀번호 교체와 viewer 권한을 검증했다. 사용자 개발 DB는 읽거나 초기화하지 않는다. 모바일·재설치는 범위 밖이고 Raspberry Pi/ESP32-H2 HIL과 controller 수동 브라우저 QA는 별도 미실행 상태다. |
+| 계정·설치 주체 전환 구현 | 완료(소프트웨어) | Task 1~9를 완료했다. service-global operator는 `/operator/site-admins`에서 현장별 assigned admin을 관리하고 고객 Site/dashboard를 조회하지 않는다. assigned admin은 pending Site의 주소·단가·시간대·층 설정, Gateway claim, 조명 검색·등록, 모니터링·제어·통계·도면·비밀번호 변경을 수행하며 viewer는 고객 화면을 읽기 전용으로 사용한다. Task 9 격리 실백엔드 Chromium journey는 매 실행 새 PostgreSQL/Redis/mTLS Mosquitto와 test-support software simulator를 사용해 production API·인증·claim·registration·MQTT command ACK/state sync를 통과했고 operator customer path 0건, 0건 검색 후 재검색, 자사 node 2개 등록, 개별·다중·층·구역 제어, 24시간 통계, 도면 반영, 비밀번호 교체와 viewer 권한을 검증했다. 사용자 개발 DB는 읽거나 초기화하지 않는다. simulator는 shared `parseDfkDeviceUuid` 정본으로 3개 후보 중 invalid/타사 UUID 1개를 제외하고 lab CA의 gateway별 CN과 own-gateway topic ACL을 사용한다. 이는 실제 `apps/gateway` BlueZ/RF 실행, production Gateway 인증서 발급·bootstrap·broker ACL 배포 또는 Raspberry Pi/ESP32-H2 HIL 증거가 아니다. 모바일·재설치와 controller 수동 브라우저 QA도 별도 미실행 상태다. |
 
 ## 다음 단계
 
-**계정·설치 주체 전환의 소프트웨어 범위는 Task 9에서 완료했다.** 다음 단계는 controller의 실제 in-app browser 수동 QA와 Raspberry Pi/ESP32-H2 HIL이다. software Gateway simulator를 사용한 격리 E2E 결과를 실장비 완료로 확대 해석하지 않으며, 모바일과 재설치는 이번 범위 밖이다.
+**계정·설치 주체 전환의 브라우저·API 소프트웨어 범위는 Task 9에서 완료했다.** 다음 단계는 controller의 실제 in-app browser 수동 QA와 Raspberry Pi/ESP32-H2 HIL이다. test-support simulator의 shared UUID 필터 및 lab 인증서/ACL 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않으며, 모바일과 재설치는 이번 범위 밖이다.
 
 ## 알려진 미해결 항목
 
