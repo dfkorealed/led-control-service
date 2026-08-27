@@ -16,7 +16,7 @@ import {
   provisioningScanStartSchema
 } from "@led-control/shared";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createHash, randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
+import { randomBytes, randomUUID, scrypt as scryptCallback } from "node:crypto";
 import { appendFileSync, chmodSync, existsSync, openSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -36,23 +36,24 @@ const ports = {
 };
 
 type Installation = { siteId: string; floorId: string; timeZone: string };
+type Actor = "operator" | "admin" | "viewer";
 
 export class RealBackendLab {
-  readonly operator = { loginId: "task11_operator", password: "Task11-operator-password!" };
+  readonly operator = { loginId: runtimeLoginId("operator"), password: runtimePassword() };
+  readonly admin = { loginId: runtimeLoginId("admin"), name: "Task 9 현장 관리자", password: runtimePassword(), newPassword: runtimePassword() };
   readonly viewer = {
-    loginId: "task11_viewer",
-    email: "task11-viewer@example.com",
-    name: "Task 11 조회 사용자",
-    password: "Task11-viewer-password!",
-    invitationToken: "task11-customer-viewer-invitation"
+    loginId: runtimeLoginId("viewer"),
+    email: `${runtimeLoginId("viewer-mail")}@example.invalid`,
+    name: "Task 9 조회 사용자",
+    password: runtimePassword()
   };
-  readonly gateway = { id: "", serialNumber: "DFK-TASK11-GW-001", claimCode: "task11-one-time-claim-code" };
+  readonly gateway = { id: "", serialNumber: `DFK-TASK9-${randomBytes(6).toString("hex").toUpperCase()}`, claimCode: runtimeSecret("claim") };
   readonly fixtures = [
-    { serialNumber: "DFK-T11-LIGHT-001", deviceUuid: "44464b4c454401010101aabbccddeeff" },
-    { serialNumber: "DFK-T11-LIGHT-002", deviceUuid: "44464b4c454401010101aabbccddee00" }
+    { serialNumber: `DFK-T9-${randomBytes(5).toString("hex").toUpperCase()}-01`, deviceUuid: runtimeDfkDeviceUuid() },
+    { serialNumber: `DFK-T9-${randomBytes(5).toString("hex").toUpperCase()}-02`, deviceUuid: runtimeDfkDeviceUuid() }
   ];
 
-  private readonly runId = `task11-${process.pid}-${Date.now()}`;
+  private readonly runId = `task9-${process.pid}-${Date.now()}-${randomBytes(4).toString("hex")}`;
   private readonly labDir = join(ROOT, ".local", "e2e-real-backend", this.runId);
   private readonly pkiDir = join(this.labDir, "pki");
   private readonly processes: ChildProcess[] = [];
@@ -73,30 +74,35 @@ export class RealBackendLab {
 
   async start() {
     if (this.started) return;
-    await mkdir(this.labDir, { recursive: true });
-    await this.run("pnpm", ["--filter", "@led-control/shared", "build"]);
-    await this.run("pnpm", ["--filter", "@led-control/api", "build"]);
-    await this.run("pnpm", ["--filter", "@led-control/web", "build"]);
-    await this.run(resolve(ROOT, "scripts/dev-pki/create-ca.sh"), [], { PKI_DIR: this.pkiDir });
-    await this.writeMosquittoConfig();
-    await this.startInfrastructure();
-    await this.run("pnpm", ["--filter", "@led-control/api", "exec", "prisma", "migrate", "deploy"], this.apiEnv());
-    await this.run("pnpm", ["--filter", "@led-control/api", "auth:bootstrap-operator"], {
-      ...this.apiEnv(),
-      BOOTSTRAP_ORGANIZATION_NAME: "Task 11 서비스 운영사",
-      BOOTSTRAP_OPERATOR_LOGIN_ID: this.operator.loginId,
-      BOOTSTRAP_OPERATOR_NAME: "Task 11 운영자",
-      BOOTSTRAP_OPERATOR_PASSWORD: this.operator.password
-    });
-    this.spawnLogged("api", "node", [join(ROOT, "apps/api/dist/src/main.js")], this.apiEnv());
-    this.spawnLogged("web", "pnpm", ["--filter", "@led-control/web", "dev"], {
-      WEB_PORT: String(ports.web), VITE_API_PROXY_TARGET: `http://127.0.0.1:${ports.api}`
-    });
-    await Promise.all([
-      waitForHttp(`http://127.0.0.1:${ports.api}/auth/me`, [401]),
-      waitForHttp(`http://127.0.0.1:${ports.web}`, [200])
-    ]);
-    this.started = true;
+    try {
+      await mkdir(this.labDir, { recursive: true });
+      await this.run("pnpm", ["--filter", "@led-control/shared", "build"]);
+      await this.run("pnpm", ["--filter", "@led-control/api", "build"]);
+      await this.run("pnpm", ["--filter", "@led-control/web", "build"]);
+      await this.run(resolve(ROOT, "scripts/dev-pki/create-ca.sh"), [], { PKI_DIR: this.pkiDir });
+      await this.writeMosquittoConfig();
+      await this.startInfrastructure();
+      await this.run("pnpm", ["--filter", "@led-control/api", "exec", "prisma", "migrate", "deploy"], this.apiEnv());
+      await this.run("pnpm", ["--filter", "@led-control/api", "auth:bootstrap-operator"], {
+        ...this.apiEnv(),
+        BOOTSTRAP_ORGANIZATION_NAME: "Task 9 서비스 운영사",
+        BOOTSTRAP_OPERATOR_LOGIN_ID: this.operator.loginId,
+        BOOTSTRAP_OPERATOR_NAME: "Task 9 운영자",
+        BOOTSTRAP_OPERATOR_PASSWORD: this.operator.password
+      });
+      this.spawnLogged("api", "node", [join(ROOT, "apps/api/dist/src/main.js")], this.apiEnv());
+      this.spawnLogged("web", "pnpm", ["--filter", "@led-control/web", "dev"], {
+        WEB_PORT: String(ports.web), VITE_API_PROXY_TARGET: `http://127.0.0.1:${ports.api}`
+      });
+      await Promise.all([
+        waitForHttp(`http://127.0.0.1:${ports.api}/auth/me`, [401]),
+        waitForHttp(`http://127.0.0.1:${ports.web}`, [200])
+      ]);
+      this.started = true;
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
   }
 
   async stop() {
@@ -105,14 +111,16 @@ export class RealBackendLab {
     await this.mqttHandlerChain;
     await closeMqtt(this.mqtt);
     for (const child of this.processes.reverse()) await stopProcess(child);
+    this.processes.length = 0;
+    await rm(this.labDir, { recursive: true, force: true });
     this.started = false;
   }
 
-  captureNetwork(page: Page) {
+  captureNetwork(page: Page, actor: Actor) {
     page.on("response", (response) => {
       const url = new URL(response.url());
       if (url.pathname.startsWith("/api/")) {
-        this.network.push({ method: response.request().method(), path: url.pathname + url.search, status: response.status() });
+        this.network.push({ actor, method: response.request().method(), path: url.pathname + url.search, status: response.status() });
       }
     });
   }
@@ -134,15 +142,38 @@ export class RealBackendLab {
     await this.sql(`INSERT INTO "GatewayInventory" (id,"serialNumber","claimCodeHash","createdAt","updatedAt") VALUES ('${randomUUID()}','${this.gateway.serialNumber}','${hash}',now(),now())`);
   }
 
-  async seedCustomerViewerInvitation() {
+  async seedViewerAccount() {
     const installation = this.requireInstallation();
+    const organizationId = await this.scalar(`SELECT "organizationId" FROM "Site" WHERE id=${sqlString(installation.siteId)}`);
+    const userId = randomUUID();
+    const passwordHash = await hashSecret(this.viewer.password);
     await this.sql(`
-      INSERT INTO "Invitation" (id,"organizationId","siteId",email,role,"tokenHash","expiresAt","createdAt","updatedAt")
-      SELECT '${randomUUID()}',"organizationId",id,'${this.viewer.email}','viewer',
-             '${createHash("sha256").update(this.viewer.invitationToken).digest("hex")}',
-             now() + interval '1 day',now(),now()
-      FROM "Site" WHERE id='${installation.siteId}';
+      INSERT INTO "User" (id,"organizationId","loginId",email,name,"passwordHash",role,status,"createdAt","updatedAt")
+      VALUES (${sqlString(userId)},${sqlString(organizationId)},${sqlString(this.viewer.loginId)},${sqlString(this.viewer.email)},
+              ${sqlString(this.viewer.name)},${sqlString(passwordHash)},'viewer','active',now(),now());
+      INSERT INTO "SiteMembership" (id,"userId","siteId","createdAt")
+      VALUES (${sqlString(randomUUID())},${sqlString(userId)},${sqlString(installation.siteId)},now());
     `);
+  }
+
+  assertOperatorNetworkIsolation() {
+    const customerRequests = this.network.filter((item) => item.actor === "operator" && isCustomerDataPath(String(item.path ?? "")));
+    if (customerRequests.length > 0) throw new Error("operator requested a customer site or dashboard endpoint");
+  }
+
+  async readFixturePlacement(name: string) {
+    return this.queryJson<{ x: number; y: number }>(
+      `SELECT json_build_object('x',x,'y',y) FROM "Fixture" WHERE name=${sqlString(name)}`
+    );
+  }
+
+  dimmingCommandCount() {
+    return this.mqttEvidence.filter((item) => String(item.topic ?? "").endsWith("/commands/dimming")).length;
+  }
+
+  async waitForDimmingCommandCount(expected: number) {
+    await this.waitFor(() => this.dimmingCommandCount() >= expected, 15_000);
+    await this.mqttHandlerChain;
   }
 
   async attachGatewayPublisher() {
@@ -150,7 +181,7 @@ export class RealBackendLab {
     const gatewayId = await this.scalar(`SELECT id FROM "Gateway" WHERE "serialNumber"='${this.gateway.serialNumber}'`);
     Object.assign(this.gateway, { id: gatewayId });
     this.mqtt = await connectMqtt({
-      host: "127.0.0.1", port: ports.mqtt, clientId: `task11-publisher-${this.runId}`,
+      host: "127.0.0.1", port: ports.mqtt, clientId: `task9-publisher-${this.runId}`,
       ca: await readFile(join(this.pkiDir, "ca.crt")),
       cert: await readFile(join(this.pkiDir, "api.crt")),
       key: await readFile(join(this.pkiDir, "api.key"))
@@ -214,18 +245,20 @@ export class RealBackendLab {
     for (const path of requiredPaths) {
       if (!this.network.some((item) => item.path?.toString().includes(path))) throw new Error(`network evidence missing: ${path}`);
     }
-    const requiredMqtt = ["scan-completed", "provisioning-completed", "acks/state-ingested"];
+    const requiredMqtt = ["scan-completed", "provisioning-completed", "commands/mesh-group/subscription-sync", "acks/state-ingested"];
     for (const marker of requiredMqtt) {
       if (!this.mqttEvidence.some((item) => item.topic?.toString().includes(marker))) throw new Error(`MQTT evidence missing: ${marker}`);
     }
+    if (this.dimmingCommandCount() < 4) throw new Error("MQTT evidence missing: four dimming target commands");
+    this.assertOperatorNetworkIsolation();
   }
 
   async writeEvidence(testInfo: TestInfo) {
-    await writeFile(testInfo.outputPath("network-evidence.json"), JSON.stringify(this.network, null, 2));
-    await writeFile(testInfo.outputPath("mqtt-evidence.json"), JSON.stringify(this.mqttEvidence, null, 2));
+    await writeFile(testInfo.outputPath("network-evidence.json"), this.redact(JSON.stringify(this.network, null, 2)));
+    await writeFile(testInfo.outputPath("mqtt-evidence.json"), this.redact(JSON.stringify(this.mqttEvidence, null, 2)));
     for (const name of ["api.log", "web.log"]) {
       const source = join(this.labDir, name);
-      if (existsSync(source)) await writeFile(testInfo.outputPath(name), await readFile(source));
+      if (existsSync(source)) await writeFile(testInfo.outputPath(name), this.redact(await readFile(source, "utf8")));
     }
   }
 
@@ -256,6 +289,10 @@ export class RealBackendLab {
             ...fixture, rssi: -45, oobCapability: "static-oob", firmwareVersion: "1.0.0"
           }));
         }
+        await this.waitForDatabaseCount(
+          `SELECT count(*) FROM "DiscoveredMeshNode" WHERE "sessionId"=${sqlString(command.sessionId)} AND "scanAttempt"=${command.scanAttempt}`,
+          this.fixtures.length
+        );
       }
       await this.publish(mqttTopicsV2.provisioningScanCompleted(command.siteId, command.gatewayId), provisioningScanCompletedSchema.parse({
         siteId: command.siteId, gatewayId: command.gatewayId, sessionId: command.sessionId,
@@ -349,7 +386,7 @@ export class RealBackendLab {
     if (!this.mqtt || !this.gateway.id || !this.installation) return;
     await this.publish(mqttTopicsV2.heartbeat(this.installation.siteId, this.gateway.id), gatewayHeartbeatV2Schema.parse({
       siteId: this.installation.siteId, gatewayId: this.gateway.id, eventId: randomUUID(), sequence: this.nextSequence(),
-      occurredAt: new Date().toISOString(), gatewaySerial: this.gateway.serialNumber, firmwareVersion: "task11-lab-1.0.0", configVersion: 1
+      occurredAt: new Date().toISOString(), gatewaySerial: this.gateway.serialNumber, firmwareVersion: "task9-software-simulator-1.0.0", configVersion: 1
     }));
   }
 
@@ -370,6 +407,16 @@ export class RealBackendLab {
     appendFileSync(join(this.labDir, "mqtt-evidence.ndjson"), `${JSON.stringify(entry)}\n`);
   }
 
+  private redact(value: string) {
+    return [
+      this.operator.password,
+      this.admin.password,
+      this.admin.newPassword,
+      this.viewer.password,
+      this.gateway.claimCode
+    ].reduce((masked, secret) => masked.replaceAll(secret, "[REDACTED]"), value);
+  }
+
   private requireInstallation() {
     if (!this.installation) throw new Error("initial site must be created before this operation");
     return this.installation;
@@ -382,7 +429,7 @@ export class RealBackendLab {
 
   private async startInfrastructure() {
     for (const port of [ports.postgres, ports.redis, ports.mqtt, ports.api, ports.web]) {
-      if (await canConnect(port)) throw new Error(`Task 11 격리 포트 ${port}가 이미 사용 중입니다.`);
+      if (await canConnect(port)) throw new Error(`Task 9 격리 포트 ${port}가 이미 사용 중입니다.`);
     }
     const postgresData = join(this.labDir, "postgres");
     await this.run("initdb", ["-D", postgresData, "--username=led", "--auth=trust", "--no-locale"]);
@@ -455,6 +502,15 @@ export class RealBackendLab {
     }
     throw new Error("timed out waiting for real-backend evidence");
   }
+
+  private async waitForDatabaseCount(statement: string, expected: number) {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      if (Number(await this.scalar(statement)) >= expected) return;
+      await delay(100);
+    }
+    throw new Error("timed out waiting for isolated database ingestion");
+  }
 }
 
 async function hashSecret(secret: string) {
@@ -464,6 +520,28 @@ async function hashSecret(secret: string) {
 }
 
 function sqlString(value: string) { return `'${value.replaceAll("'", "''")}'`; }
+
+function runtimeLoginId(prefix: string) {
+  return `task9_${prefix.replaceAll("-", "_")}_${randomBytes(6).toString("hex")}`;
+}
+
+function runtimePassword() {
+  return `T9-${randomBytes(18).toString("base64url")}!`;
+}
+
+function runtimeSecret(prefix: string) {
+  return `${prefix}-${randomBytes(18).toString("base64url")}`;
+}
+
+function runtimeDfkDeviceUuid() {
+  return `44464b4c454401010101${randomBytes(6).toString("hex")}`;
+}
+
+function isCustomerDataPath(path: string) {
+  return path === "/api/sites"
+    || path.startsWith("/api/sites?")
+    || path.includes("/dashboard");
+}
 
 function parseJson(value: Buffer) {
   try { return JSON.parse(value.toString()); } catch { return value.toString(); }

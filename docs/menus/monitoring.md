@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-08-26
+기준일: 2026-08-27
 
 ## 확정 구현 범위
 
@@ -77,7 +77,7 @@
 - 모니터링 수동 새로고침은 dashboard metadata, 현재 층 fixture 페이지와 현재 층 map snapshot 세 요청을 함께 갱신하며 일부 실패 시 기존 성공 데이터를 유지한다.
 - 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가하며, 수동 갱신 실패 상태는 해당 floor ID에 귀속되어 다른 층으로 전환할 때 누수되지 않는다.
 - deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색과 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
-- **폐기된 이전 계정 계약의 증거:** 기존 격리 Chromium E2E는 operator가 현장·층을 생성하고 Gateway claim·조명 등록을 수행하는 흐름을 검증했다. Task 5 API와 Task 8 웹 역할 노출은 assigned admin commissioning으로 전환됐지만 Task 9 실백엔드 E2E는 아직 갱신·실행하지 않았으며, test-only publisher 증거도 Raspberry Pi/ESP32-H2 HIL을 대체하지 않는다.
+- Task 9 격리 실백엔드 Chromium E2E는 operator의 현장/admin 발급과 customer route 차단 뒤 assigned admin이 pending setup, Gateway claim, 0건 검색·재검색, 자사 node 2개 등록과 모니터링 진입을 수행하는 새 계약을 검증했다. test support의 software Gateway/MQTT publisher는 production API, 인증, claim, registration과 state-ingested ACK를 통과하지만 Raspberry Pi/ESP32-H2 HIL 증거는 아니다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
 - 모든 production 상태 producer는 `0700` 전용 디렉터리의 `0600` atomic durable outbox에 먼저 기록한다. 별도 manifest가 최초 생성과 운영 중 파일 소실을 구분하며 missing/corrupt/unsafe permission은 `state_outbox_missing`, `state_outbox_corrupt`, `state_outbox_permissions` health로 시작을 차단한다. 최대 `100,000건/100MiB` 용량을 예약할 수 없으면 command·scan·identify·provision RF 작업 전에 공통 gate가 fail-closed하고 `state_outbox_capacity`를 sticky 상태로 남긴다.
@@ -114,7 +114,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- pending redirect와 admin commissioning 노출은 React/Vitest 브라우저 계약으로 검증했다. 모바일 레이아웃, 재설치, Task 9 실백엔드 E2E와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
+- pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. 모바일 레이아웃과 재설치는 이번 범위 밖이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 검색 또는 provisioning 진행 중 브라우저를 새로고침하면 active registration session을 자동 복구하지 못한다. active session 조회 API와 화면 복구가 필요하다.
 
 - 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.

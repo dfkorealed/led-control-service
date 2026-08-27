@@ -22,7 +22,15 @@ test.beforeEach(async ({ page }) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        site: { id: "site-1", name: "Demo Underground Parking" },
+        site: {
+          id: "site-1",
+          name: "Demo Underground Parking",
+          customerName: "Demo Customer",
+          installationStatus: "installed",
+          address: "서울시 강남구",
+          tariffKwhRate: 160,
+          timeZone: "Asia/Seoul"
+        },
         summary: {
           totalFixtures: 12,
           onlineFixtures: 11,

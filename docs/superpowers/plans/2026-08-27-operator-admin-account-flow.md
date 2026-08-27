@@ -620,7 +620,7 @@ git commit -m "feat(web): let admins install sites and manage passwords"
 **Interfaces:**
 - Validates: operator 계정 발급 → admin 설치 → 장비 등록 → 관제 → 비밀번호 변경
 
-- [ ] **Step 1: 실백엔드 journey를 새 흐름으로 변경**
+- [x] **Step 1: 실백엔드 journey를 새 흐름으로 변경**
 
 ```text
 operator loginId 로그인
@@ -640,12 +640,12 @@ operator loginId 로그인
 
 viewer는 공개 signup UI를 사용하지 않고 격리 DB support에서 loginId·membership을 직접 준비한다. 이 fixture는 production bundle에 포함하지 않는다.
 
-- [ ] **Step 2: 브라우저 RED 확인**
+- [x] **Step 2: 브라우저 RED 확인**
 
 Run: `pnpm --filter @led-control/web e2e:journey:real`
 Expected: 기존 operator 설치 UI가 없어 새 assertion이 실패한 뒤 구현 완료 시 PASS
 
-- [ ] **Step 3: 전체 자동 검증**
+- [x] **Step 3: 전체 자동 검증**
 
 Run: `pnpm typecheck`
 Expected: PASS
@@ -666,11 +666,13 @@ Expected: PASS
 
 개발 서버를 실행하고 operator/admin/viewer 역할로 deep link, 새로고침, CRUD 확인창, 설치 wizard, 맵 편집, 비밀번호 변경과 재로그인을 확인한다. Network에서 operator shell이 `/sites`와 `/dashboard`를 호출하지 않고 admin CRUD 응답에 password 계열 필드가 없는지 확인한다.
 
-- [ ] **Step 5: 문서와 상태판을 실제 검증 결과로 확정**
+Task 9 agent 범위에서는 Playwright 자동 검증과 수동 QA 계정·URL 체크리스트까지 준비했다. 실제 in-app browser 수동 QA는 controller가 Task review 뒤 수행한다.
+
+- [x] **Step 5: 문서와 상태판을 실제 검증 결과로 확정**
 
 완료한 소프트웨어 기능과 남은 Raspberry Pi/ESP32-H2 HIL을 구분해 기록한다. 계획 체크박스와 `docs/project-status.md` 상태를 일치시킨다.
 
-- [ ] **Step 6: 최종 커밋**
+- [x] **Step 6: 최종 커밋**
 
 ```bash
 git add apps/web/e2e docs

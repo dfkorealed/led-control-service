@@ -984,7 +984,7 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    expect(await screen.findByText("조회 전용 계정입니다. 조명 제어는 operator 또는 admin 계정으로만 수행할 수 있습니다."))
+    expect(await screen.findByText("조회 전용 계정입니다. 조명 제어는 admin 계정으로만 수행할 수 있습니다."))
       .toBeInTheDocument();
     const fixtureModeButton = screen.getByRole("button", { name: "개별/다중" });
     expect(fixtureModeButton).toHaveAttribute("aria-pressed", "true");

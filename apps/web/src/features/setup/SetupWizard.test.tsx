@@ -61,10 +61,12 @@ describe("SetupWizard", () => {
     expect(screen.queryByLabelText("고객사명")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("현장명")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
+    fireEvent.change(screen.getByLabelText("시간대"), { target: { value: "UTC" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
     await waitFor(() => expect(createInitialSiteSetupMock).toHaveBeenCalledTimes(1));
     expect(createInitialSiteSetupMock).toHaveBeenCalledWith({
       siteId: "site-1", address: "서울시 강남구", tariffKwhRate: 160,
+      timeZone: "UTC",
       floors: [{ name: "B2", level: -2 }, { name: "B1", level: -1 }]
     });
     expect(screen.queryByLabelText("게이트웨이 시리얼")).not.toBeInTheDocument();

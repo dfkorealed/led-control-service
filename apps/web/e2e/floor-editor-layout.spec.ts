@@ -65,10 +65,18 @@ async function mockEditorApi(page: Page) {
         name: "관리자", role: "admin", status: "active"
       } } });
     }
-    if (path === "/sites") return route.fulfill({ json: [{ id: "site-2", name: "물류센터" }] });
+    if (path === "/sites") return route.fulfill({ json: [{ id: "site-2", name: "물류센터", customerName: "고객사" }] });
     if (path === "/sites/site-2/dashboard") {
       return route.fulfill({ json: {
-        site: { id: "site-2", name: "물류센터" },
+        site: {
+          id: "site-2",
+          name: "물류센터",
+          customerName: "고객사",
+          installationStatus: "installed",
+          address: "서울시 강남구",
+          tariffKwhRate: 160,
+          timeZone: "Asia/Seoul"
+        },
         summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, averageBrightness: 70 },
         floors: [{ id: "floor-b2", name: "B2", level: -2, floorPlan: editorState.floor.floorPlan, meshControlGroups: [], fixtures: [] }],
         groups: [],

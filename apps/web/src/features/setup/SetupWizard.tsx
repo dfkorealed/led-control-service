@@ -17,6 +17,7 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
   const queryClient = useQueryClient();
   const [address, setAddress] = useState("");
   const [tariffKwhRate, setTariffKwhRate] = useState("160");
+  const [timeZone, setTimeZone] = useState("Asia/Seoul");
   const [basementCount, setBasementCount] = useState("2");
   const [groundCount, setGroundCount] = useState("0");
   const [floors, setFloors] = useState<InitialFloorInput[]>(buildFloors(2, 0));
@@ -33,6 +34,7 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
     if (!Number.isFinite(tariff) || tariff <= 0 || tariff > MAX_TARIFF_KWH_RATE) {
       return `kWh 단가는 0보다 큰 ${MAX_TARIFF_KWH_RATE} 이하의 숫자여야 합니다.`;
     }
+    if (!isValidTimeZone(timeZone)) return "유효한 시간대를 선택하세요.";
     if (!isValidFloorCount(basement) || !isValidFloorCount(ground)) {
       return `층수는 지하와 지상 각각 ${MAX_FLOOR_COUNT}층 이하의 숫자여야 합니다.`;
     }
@@ -44,7 +46,7 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
     if (new Set(floorNames).size !== floorNames.length) return "층 이름은 중복될 수 없습니다.";
     if (new Set(floorLevels).size !== floorLevels.length) return "층 level은 중복될 수 없습니다.";
     return "";
-  }, [address, basementCount, floors, groundCount, tariffKwhRate]);
+  }, [address, basementCount, floors, groundCount, tariffKwhRate, timeZone]);
 
   const setupMutation = useMutation({
     mutationFn: () =>
@@ -52,6 +54,7 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
         siteId,
         address: address.trim(),
         tariffKwhRate: Number(tariffKwhRate),
+        timeZone,
         floors: floors.map((floor) => ({ name: floor.name.trim(), level: floor.level }))
       }),
     onSuccess: (dashboard) => {
@@ -104,6 +107,14 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
               value={tariffKwhRate}
               onChange={(event) => setTariffKwhRate(event.target.value)}
             />
+          </label>
+          <label>
+            시간대
+            <select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
+              <option value="Asia/Seoul">Asia/Seoul</option>
+              <option value="UTC">UTC</option>
+              <option value="Asia/Tokyo">Asia/Tokyo</option>
+            </select>
           </label>
         </div>
       </div>
@@ -247,4 +258,13 @@ function parseCount(value: string) {
 
 function isValidFloorCount(value: number) {
   return Number.isInteger(value) && value >= 0 && value <= MAX_FLOOR_COUNT;
+}
+
+function isValidTimeZone(value: string) {
+  try {
+    new Intl.DateTimeFormat("ko-KR", { timeZone: value }).format(new Date(0));
+    return true;
+  } catch {
+    return false;
+  }
 }

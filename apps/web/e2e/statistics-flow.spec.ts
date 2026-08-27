@@ -115,7 +115,15 @@ test("fits the report at a mobile viewport", async ({ page }) => {
 
 function dashboard(siteId: string) {
   return {
-    site: { id: siteId, name: "테스트 주차장" },
+    site: {
+      id: siteId,
+      name: "테스트 주차장",
+      customerName: "테스트 고객사",
+      installationStatus: "installed",
+      address: "서울시 강남구",
+      tariffKwhRate: 160,
+      timeZone: "Asia/Seoul"
+    },
     summary: { totalFixtures: 10, onlineFixtures: 10, faultFixtures: 0, averageBrightness: 60 },
     floors: [],
     groups: [],

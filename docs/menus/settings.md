@@ -19,7 +19,7 @@
 - 설정 메뉴를 현장 구성, 도면 관리, 장비 시운전, 운영 정책, 보안, 유지보수의 관리 허브로 만든다.
 - 실시간 상태 확인은 모니터링, 조명 명령 실행은 제어, 에너지 분석은 통계에서 담당한다.
 - 도면 에디터는 설정의 `도면 관리`에서만 열고, 모니터링은 읽기 전용 상태 확인에 한정한다.
-- assigned customer `admin`이 자기 pending Site의 최초 주소·단가·시간대·층 설치와 Gateway claim·조명 검색·등록 commissioning API를 수행한다. Gateway claim은 Site row lock 뒤 할당·활성 상태·고객사 소속을 다시 확인하며, operator, 다른 admin, viewer는 고객 Site를 `404`로 접근할 수 없다. 웹 UI는 이 역할 계약으로 전환됐고, Task 9 실백엔드 E2E는 현재 미구현/후속이다.
+- assigned customer `admin`이 자기 pending Site의 최초 주소·단가·시간대·층 설치와 Gateway claim·조명 검색·등록 commissioning API를 수행한다. Gateway claim은 Site row lock 뒤 할당·활성 상태·고객사 소속을 다시 확인하며, operator, 다른 admin, viewer는 고객 Site를 `404`로 접근할 수 없다. Task 9 격리 실백엔드 E2E가 이 웹/API 역할 계약을 검증했다.
 - 설치 완료 후 고객사의 `admin`은 도면 배경, 도형, 조명 배치, 일반 조명 정보와 운영 정책을 직접 관리한다.
 - 설정값은 임의 JSON 한 필드에 모으지 않고 검증 가능한 명시적 모델과 컬럼으로 관리한다.
 
@@ -71,7 +71,7 @@
 ## 구현 완료
 
 - Task 8에서 설정 메뉴를 현재 고객 운영 범위로 단순화했다. admin은 `설정 개요`, `도면 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `도면 관리`만 읽기 전용으로 사용한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
-- operator가 만든 pending Site는 assigned admin이 customer route에서 `/settings?siteId=...`로 replace된 최초 설치 UI에서 address, tariff, timeZone, floors로 완성한다. CustomerShell은 installationStatus 확인 전 child route를 fail-closed하고, `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송한다. 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다. 재설치, 모바일, Task 9 실백엔드 E2E와 Raspberry Pi/ESP32-H2 HIL은 현재 미구현/후속이다.
+- operator가 만든 pending Site는 assigned admin이 customer route에서 `/settings?siteId=...`로 replace된 최초 설치 UI에서 address, tariff, timeZone, floors로 완성한다. CustomerShell은 installationStatus 확인 전 child route를 fail-closed하고, `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송한다. 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다. Task 9 격리 실백엔드 E2E는 이 흐름과 password 교체 후 이전 비밀번호 실패/새 비밀번호 로그인을 검증했다. 재설치와 모바일은 범위 밖이고 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - 설치 완료 뒤 admin은 설정 개요에서 Gateway claim 또는 조명 등록을 수행할 수 있다. viewer는 claim, registration, setup mutation UI를 보지 않는다. operator는 전용 shell 때문에 customer 설정에 진입하지 않는다.
 - `POST /auth/change-password` 화면은 현재/새/확인 비밀번호, 8자 검증, 확인 불일치, 정확한 현재 비밀번호 오류, 일반 오류와 중복 제출 차단을 제공한다. 평문 비밀번호는 React Query mutation/cache에 넣지 않고 component-local state와 요청 본문에만 두며, 성공 또는 화면 이탈 시 제거하고 실패 시 재시도 입력을 유지한다.
 - 도면 목록과 편집 route의 편집 가능 역할은 assigned admin만이다. viewer는 목록과 저장된 도면을 읽기 전용으로 보고, operator는 customer shell을 mount하지 않는다.
@@ -82,7 +82,7 @@
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
 - 설정 화면에 현장, 층/도면, 그룹, Gateway 요약 카드를 표시한다.
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
-- **폐기된 이전 웹 계약 기록:** 등록 패널은 층과 Gateway를 명시적으로 선택해 `siteId`, `floorId`, `gatewayId`를 전송하고 BLE Mesh 후보·provisioning 요청을 제공한다. 현재 이 패널은 설치 완료 assigned admin에게만 노출되며 viewer와 operator는 볼 수 없다. Task 9 실백엔드 E2E는 아직 이 역할 흐름을 검증하지 않았다. API는 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
+- 등록 패널은 층과 Gateway를 명시적으로 선택해 `siteId`, `floorId`, `gatewayId`를 전송하고 BLE Mesh 후보·provisioning 요청을 제공한다. 설치 완료 assigned admin에게만 노출되며 viewer와 operator는 볼 수 없다. Task 9 격리 실백엔드 E2E는 0건 검색, 재검색, 자사 node 2개 일괄 등록을 검증했다. API는 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
 - provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 `MeshNode.deviceUuid` unique 경쟁만 해당 node 실패로 기록하며, 다른 unique/transaction 오류는 재전파한다.
 - 제조 장비 원장 기반 `POST /gateways/claim`은 assigned active customer admin만 수행한다. claim은 serial trim 정규화 뒤 serial별 PostgreSQL transaction advisory lock으로 같은 serial 시도를 직렬화하고, 같은 transaction에서 Site 잠금 재검증, 15분 실패 횟수 판정, terminal audit, inventory 잠금과 단회 claim-code 소비를 완료한다. invalid·unavailable·already-consumed·rate-limited·success를 모두 commit한 뒤 기존 정제된 `401/409/429`로 변환하며 claim code와 내부 reason을 응답에 노출하지 않는다. 다른 serial은 전역 잠금을 공유하지 않는다. device-certificate 기반 `POST /gateway-bootstrap`과 manufacturing enrollment 경계는 바꾸지 않았다.
 - `POST /gateway-inventories/:inventoryId/disable`은 고객 commissioning이 아닌 제조 보안 동작으로 active service-provider `operator`만 수행하며 customer SiteAccess를 요구하지 않는다. inventory disable 뒤 certificate revocation 동작도 유지한다.
@@ -92,7 +92,7 @@
 - 실제 Gateway scan은 shared DFK product identity 계약을 통과한 ESP32-H2 UUID만 등록 후보로 반환한다. UUID 필터는 제품 식별용이며 제조 원장, claim과 Gateway mTLS 인증을 대체하지 않는다.
 - 층별 자동 조명 이름 순번과 게이트웨이별 Mesh unicast 주소를 PostgreSQL 소유 행 잠금으로 원자 예약하는 기반을 구현했다. Mesh 주소는 `0x0001~0x7fff` 범위를 벗어나면 등록을 거부한다.
 - 일괄·개별 조명 등록 API는 유효한 node만 원자 예약하고 node별 검증 실패를 분리한다. 자동 배치는 도면 또는 기본 canvas의 빈 grid를 사용하며 불명확한 provisioning 결과는 `reconcile_required`로 격리한다.
-- **폐기된 이전 웹 계약 기록:** 조명 등록 화면의 검색 node 개별/전체 선택, 일괄·개별 설정 전환과 선택 조명 등록은 현재 설치 완료 assigned admin의 commissioning UI로 노출된다. viewer와 operator에는 mutation UI를 노출하지 않는다. Task 9 실백엔드 E2E와 실제 장비 연동은 현재 미구현/후속이다.
+- 조명 등록 화면의 검색 node 개별/전체 선택, 일괄·개별 설정 전환과 선택 조명 등록은 설치 완료 assigned admin의 commissioning UI로 노출된다. viewer와 operator에는 mutation UI를 노출하지 않는다. Task 9 software E2E는 production API/MQTT simulator 경로를 검증했고 실제 장비 연동 HIL은 미실행이다.
 - Konva 도면 에디터에 도면 업로드, 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 구현했다.
 - 설정 에디터와 모니터링 읽기 전용 지도는 `FloorMapObjectNode`의 사각형·삼각형·선·텍스트 geometry를 공유한다. Transformer, drag와 변경 callback은 설정 에디터에서만 활성화한다.
 - PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
@@ -127,7 +127,7 @@
 - `PUT /floors/:floorId/editor-state`와 `POST /floors/:floorId/editor-revisions/:revision/restore`는 `leaseToken`, `leaseFence`, `expectedRevision`을 모두 요구한다. 저장·복구 transaction 안에서 현재 `Floor` row의 token hash, fence, 만료 시각을 다시 검증해 lease가 만료되었거나 강제 해제된 stale client를 `409 floor editor lease is no longer active`로 거부하고, 그 뒤 `mapRevision`을 최종 optimistic guard로 검사한다.
 - 도면 편집 route는 진입 시 lease를 얻고 editable token이면 30초마다 single-flight heartbeat로 갱신한다. 클라이언트는 `performance.now()` 기반 80초 local deadline watchdog으로 fail-closed 동작을 유지하고, 서버는 PostgreSQL 만료 시각과 fence를 authoritative source로 사용한다. 충돌, 갱신 실패, token 상실, deadline 만료, lease 획득 실패와 floor 전환 중에는 저장/복구/도구/캔버스/배경/속성 변경을 막는 읽기 전용으로 전환한다. 정상 route 이탈은 아직 보유한 token의 release를 요청하고, 브라우저 종료 같은 비정상 종료의 회수는 서버 만료 시각과 Redis TTL에 맡긴다.
 - Task 11 완료 후 legacy `PATCH /floors/:floorId/floor-plan`, `PATCH /fixtures/:fixtureId`, `POST/PATCH/DELETE /floor-map-objects` 경로와 웹 export를 제거했다. 이제 도면 변경은 revision·audit·lease fence가 모두 걸린 atomic save/restore 경로로만 가능하며, stale legacy client가 `mapRevision`을 우회해 normalized row를 덮어쓸 경로는 없다.
-- 기존 Playwright browser 회귀는 이전 계약의 operator 시운전 메뉴 노출, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403` fixture를 검증했다. operator 노출 증거는 현재 계정 계약에서 폐기됐고 Task 9 E2E는 아직 갱신하지 않았다. 1,000 fixture editor는 navigation 시작부터 marker 색상 표시와 Konva hit selection까지 8초 이내여야 한다. fixture route는 `apps/web/e2e/support`에만 있으며 assigned `site-1` 밖의 `404`는 test-fixture isolation 검증일 뿐 production tenant E2E 증거는 아니다.
+- Playwright browser 회귀는 operator의 customer 설정 직접 URL이 `/operator/site-admins`로 수렴하고 `/sites`를 호출하지 않는 것, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403`을 검증한다. Task 9 격리 실백엔드 journey도 map save와 모니터링 좌표 반영을 검증했다. 1,000 fixture editor는 navigation 시작부터 marker 색상 표시와 Konva hit selection까지 8초 이내여야 한다. fixture route는 `apps/web/e2e/support`에만 있으며 assigned `site-1` 밖의 `404`는 test-fixture isolation 검증일 뿐 production tenant E2E 증거는 아니다.
 - Task 16의 별도 Playwright route fixture는 저장된 지도 객체가 모니터링의 실제 Konva canvas에 표시되는 계약까지 검증한다. 설정 에디터 저장 기능이나 Raspberry Pi/ESP32-H2 실장비 연동을 추가로 완료했다는 의미는 아니다.
 - operator는 고객 설정 shell을 mount하지 않으며 고객 Site 목록과 capability를 갖지 않는다. assigned admin과 viewer만 허용된 범위의 Site API를 사용한다. Task 8은 pending admin 최초 설치 UI와 설치 완료 admin의 Gateway/registration 역할 노출을 연결했다.
 - 현장 선택기는 `GET /sites` 응답의 `customerName`과 `name`을 함께 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. operator에게 배정 현장을 표시하던 설명은 폐기됐으며 현재 `GET /sites`는 operator에게 고객 Site를 반환하지 않는다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard, floor fixture, statistics query key는 모두 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`, `/sites/:siteId/floors/:floorId/fixtures`, `/energy/sites/:siteId/estimate`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
@@ -190,7 +190,7 @@
 
 - 다중 Gateway 목록에서 이름, serial, heartbeat, 펌웨어, 인증서 만료, Mesh 품질과 담당 범위를 표시한다.
 - `GatewayFloorCoverage`로 층별 주·보조 Gateway를 지정한다.
-- 설치 완료 assigned admin은 설정 개요와 등록 조명 0개인 모니터링에서 Gateway claim 또는 `RegistrationPanel`을 사용할 수 있다. 순서형 시운전 보고서와 품질 검사 화면은 현재 미구현/후속이며, Task 9 실백엔드 E2E와 Raspberry Pi/ESP32-H2 HIL도 아직 실행하지 않았다.
+- 설치 완료 assigned admin은 설정 개요와 등록 조명 0개인 모니터링에서 Gateway claim 또는 `RegistrationPanel`을 사용할 수 있다. 순서형 시운전 보고서와 품질 검사 화면은 현재 미구현/후속이다. Task 9 software E2E는 완료했고 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 완료 시 등록 성공·실패, Mesh 주소, 펌웨어, RSSI, hop count, 명령 성공률과 작업자를 보고서로 보존한다.
 - claim code, private key와 Mesh key는 UI, DB 원문과 감사 로그에 노출하지 않는다.
 
@@ -306,7 +306,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 ## 작업 재개 지점
 
 - **폐기된 이전 계약:** 2026-07-21 Task 1~5는 operator SiteMembership과 operator 설치·시운전을 전제로 검증했다. 현재 Task 1~4 계정 전환의 구현 완료 증거로 사용하지 않는다.
-- Gateway claim·조명 registration API controller와 service는 새 assigned admin commissioning 계약으로 전환됐고, Task 8 웹 UI도 설치 완료 admin에게 이를 노출한다. 계정·설치 전환 Task 9 실백엔드 E2E는 현재 미구현/후속이다.
+- Gateway claim·조명 registration API controller와 service는 assigned admin commissioning 계약으로 전환됐고, Task 8 웹 UI와 Task 9 격리 실백엔드 E2E까지 완료했다.
 - 이전 통합 보안 리뷰의 Floor editor, invitation 원자 소비, legacy migration과 bootstrap 증거는 유지하지만 operator 고객 현장 접근 증거는 폐기됐다.
 - Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다.
 - Task 8 atomic save/revision API는 `d8d42f1`, `edde0a8`, `8d7aa2e`, `a3aa1b7`, `669be7e`, `d8041f6`, `63cd6fd`, `45336dc`, `f786d3f`에서 단계적으로 보정했다.
@@ -316,11 +316,11 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
-- 비밀번호 변경과 setup/commissioning visibility는 mock 기반 웹 회귀 테스트로 검증했다. 모바일 레이아웃, 재설치, Task 9 실백엔드 E2E와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
+- 비밀번호 변경과 setup/commissioning visibility는 mock 기반 웹 회귀와 Task 9 격리 실백엔드 E2E로 검증했다. 모바일 레이아웃과 재설치는 이번 범위 밖이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
 - 모바일 WebView용 설정 navigation은 현장 선택 아래 가로 스크롤 메뉴로 전환하며, 에디터 본문은 단일 열 전체 폭을 사용한다. 네이티브 상단 선택 메뉴와의 통합은 후속 UI 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
-- Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. Task 9 실백엔드 E2E와 실제 장비 검증은 현재 미구현/후속이다.
+- Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.

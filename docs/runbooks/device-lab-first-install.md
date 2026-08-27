@@ -1,6 +1,6 @@
 # Lab Vault 기반 최초 실장비 설치 시험
 
-> 현재 판정: 자동화 코드와 로컬 인증 계약 시험은 완료됐지만 Raspberry Pi와 ESP32-H2를 포함한 실기 E2E 증거는 아직 없다. 아래 절차를 모두 통과하기 전에는 양산 준비 완료로 판정하지 않는다.
+> 현재 판정: Task 9 격리 software E2E는 production API·인증·claim·registration·MQTT ACK/state 경로를 통과했다. Raspberry Pi와 ESP32-H2를 포함한 실기 E2E 증거는 아직 없으므로 아래 절차를 모두 통과하기 전에는 양산 준비 완료로 판정하지 않는다.
 
 이 문서는 개발 Mac에서 양산과 같은 신뢰 흐름을 반복 시험하는 단일 기준 절차다. Lab 전용 Root와 Vault를 사용하지만 제품 API의 제조 등록, 일회성 claim, 장비 bootstrap, MQTT mTLS 경로는 우회하지 않는다.
 
@@ -185,13 +185,14 @@ jq '{serialNumber, fingerprint, hasClaimCode: (.claimCode | length > 20)}' \
 ssh dfkorea@dfkorea.local 'find /opt/led-control/gateway/data/identity/device -maxdepth 3 -type f -ls'
 ```
 
-## 7. 웹에서 현장 생성과 일회성 claim
+## 7. 웹에서 현장·admin 생성과 일회성 claim
 
-1. `http://localhost:5173`에서 operator 계정으로 로그인한다.
-2. 초기 설정에서 고객사와 현장을 만들고 층 이름, 층 번호 등 기본 정보를 입력한다.
-3. `게이트웨이 등록`에서 이름과 `GW-RPI-000001`을 입력한다.
-4. label JSON의 `claimCode`를 비밀번호 입력란에 한 번만 입력한다.
-5. 성공 응답의 `gatewayId`를 기록한다. Gateway는 현장에 귀속되며, 이후 조명 검색 세션에서 대상 층과 Gateway를 각각 선택한다.
+1. `http://localhost:5173`에서 operator의 `loginId`로 로그인하고 `/operator/site-admins`에서 **현장 및 관리자 생성**을 연다.
+2. 고객사명, 현장명과 assigned admin의 이름·`loginId`·초기 비밀번호를 입력한다. operator 화면에서 고객 모니터링·제어·통계·설정 URL을 열면 `/operator/site-admins`로 돌아와야 한다.
+3. operator에서 로그아웃하고 발급한 admin으로 로그인한다. pending Site는 `/settings?siteId=...`의 **초기 설치 설정**으로 이동해야 한다.
+4. admin이 주소, kWh 단가, IANA 시간대와 층 구성을 저장한다.
+5. `게이트웨이 등록`에서 이름과 `GW-RPI-000001`을 입력하고 label JSON의 `claimCode`를 비밀번호 입력란에 한 번만 입력한다.
+6. 성공 응답의 `gatewayId`를 기록한다. Gateway는 현장에 귀속되며, 이후 admin이 조명 검색 세션에서 대상 층과 Gateway를 각각 선택한다.
 
 claim code는 성공 즉시 hash까지 폐기되므로 같은 코드의 두 번째 사용은 실패해야 정상이다. 제조 원장을 직접 수정하거나 Gateway row를 SQL로 만들면 device identity 소유권 검증을 우회하므로 금지한다.
 
@@ -254,14 +255,17 @@ scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
 
 serial log의 `BLE Mesh node initialized ... uuid=` 값은 32자리 hex이고 `44464b4c4544`로 시작해야 한다. 검색 전 보드는 unprovisioned 상태여야 한다. 이미 provisioned된 보드는 NetKey와 unicast address를 보존하므로 검색되지 않으며, 새 설치 시험에서는 firmware README의 `erase-flash` 절차로 초기화한 뒤 다시 flash한다.
 
-### 9.1 자동 브라우저 계약과 HIL을 분리한다
+### 9.1 software E2E와 HIL을 분리한다
 
 다음 Playwright 명령은 로그인 이후의 모니터링·제어 route/UI 계약을 빠르게 회귀 검증하기 위한 것이다. 실제 Raspberry Pi, ESP32-H2, BLE Mesh 또는 MQTT mTLS를 사용하지 않으므로 이 결과만으로 실장비 설치 성공을 표시하지 않는다.
 
 ```bash
 pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts
 pnpm --filter @led-control/web exec playwright test e2e/monitoring-1000.spec.ts
+pnpm --filter @led-control/web e2e:journey:real
 ```
+
+`e2e:journey:real`은 매 실행 임시 PostgreSQL DB, Redis, mTLS Mosquitto와 software Gateway simulator를 생성하고 종료 시 삭제한다. 사용자 개발 DB를 읽거나 reset하지 않으며 test fixture는 `apps/web/e2e/support`에만 있다. 이 시험은 production API, cookie 인증, Gateway claim, registration outbox, command MQTT acceptance/device-status ACK와 fixture-state ingestion을 통과하지만 Raspberry Pi의 BlueZ나 ESP32-H2 radio/firmware를 실행하지 않는다.
 
 실제 장비 판정은 [양산 장비 2-노드 실험실 검증](./production-device-lab.md)의 Gate 1부터 Gate 7까지 순서대로 수행한다. 그 문서의 `목적`, `선행 조건`, `실행 명령과 화면 조작`, `기대 로그와 API/DB 상태`, `실패 판정`, `저장할 증거`를 생략하거나 자동 fixture 결과로 대체하지 않는다.
 

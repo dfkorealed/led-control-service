@@ -1,11 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { installSettingsApiRoutes } from "./support/settings-api";
 
-test("operator commissioning is visible and admin floor changes are reflected in monitoring", async ({ browser }) => {
+test("operator customer routes are blocked and admin floor changes are reflected in monitoring", async ({ browser }) => {
   const operatorPage = await browser.newPage();
-  await installSettingsApiRoutes(operatorPage, "operator");
+  const operatorApi = await installSettingsApiRoutes(operatorPage, "operator");
   await operatorPage.goto("/settings/commissioning?siteId=site-1");
-  await expect(operatorPage.getByRole("heading", { name: "설치 및 시운전" })).toBeVisible();
+  await expect(operatorPage).toHaveURL(/\/operator\/site-admins$/);
+  await expect(operatorPage.getByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
+  expect(operatorApi.requests.filter((request) => request.includes("/sites"))).toEqual([]);
 
   const adminPage = await browser.newPage();
   const adminApi = await installSettingsApiRoutes(adminPage, "admin");

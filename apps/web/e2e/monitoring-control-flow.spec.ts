@@ -169,7 +169,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       discoveredNodes: [discoveredNode]
     };
     const { discoveredNodes: _omitted, ...retryResponse } = pending;
-    const api = await installSettingsApiRoutes(page, "operator", {
+    const api = await installSettingsApiRoutes(page, "admin", {
       fixtures: [],
       ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
       registrationSession: initial,
@@ -199,7 +199,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
   });
 
   test("검색 실패 원인은 정제된 메시지만 표시한다", async ({ page }) => {
-    await installSettingsApiRoutes(page, "operator", {
+    await installSettingsApiRoutes(page, "admin", {
       fixtures: [],
       ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
       registrationSession: registrationSession("failed", "Bluetooth 어댑터를 사용할 수 없습니다."),
@@ -532,7 +532,15 @@ async function installReadyMeshControlRoutes(page: Page) {
     const url = new URL(request.url());
     if (url.pathname === `/api/sites/${ids.site}/dashboard`) {
       return route.fulfill({ json: {
-        site: { id: ids.site, name: "고객사 B2 현장" },
+        site: {
+          id: ids.site,
+          name: "고객사 B2 현장",
+          customerName: "고객사",
+          installationStatus: "installed",
+          address: "서울시 강남구",
+          tariffKwhRate: 160,
+          timeZone: "Asia/Seoul"
+        },
         summary: { totalFixtures: 2, onlineFixtures: 2, faultFixtures: 0, averageBrightness: 70 },
         floors: [{
           id: ids.floor,

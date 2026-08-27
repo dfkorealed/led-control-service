@@ -230,8 +230,11 @@ export async function installSettingsApiRoutes(
       state.logoutRequests += 1;
       return route.fulfill({ json: { ok: true } });
     }
+    if (path === "/operator/site-admins" && role === "operator") {
+      return route.fulfill({ json: [] });
+    }
     if (path === "/sites") {
-      return route.fulfill({ json: [{ id: ids.siteId, name: "고객사 B2 현장" }] });
+      return route.fulfill({ json: [{ id: ids.siteId, name: "고객사 B2 현장", customerName: "고객사" }] });
     }
     if (path === "/registration-sessions" && request.method() === "POST") {
       if (!initialRegistrationSession) return route.fulfill({ status: 404, json: { message: "registration fixture not configured" } });
@@ -419,7 +422,15 @@ function dashboard(
   includeFixtures = false
 ) {
   return {
-    site: { id: runtimeFloor.siteId, name: "고객사 B2 현장" },
+    site: {
+      id: runtimeFloor.siteId,
+      name: "고객사 B2 현장",
+      customerName: "고객사",
+      installationStatus: "installed",
+      address: "서울시 강남구",
+      tariffKwhRate: 160,
+      timeZone: "Asia/Seoul"
+    },
     summary: {
       totalFixtures: fixtures.length,
       onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,

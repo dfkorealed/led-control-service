@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-26
+기준일: 2026-08-27
 
 ## 확정 구현 범위
 
@@ -67,6 +67,7 @@
 - API command/scan outbox worker는 initial·interval batch의 transient DB 실패를 scheduler 경계에서 격리해 API process를 유지하고 다음 tick에서 회복한다. 각 batch와 Mesh group sync는 single-flight이며 종료가 시작되면 다음 record/group publish를 시작하지 않는다. `MqttShutdownCoordinator` 하나가 command/scan outbox와 `MeshGroupSyncWorker`의 멱등 `stopAndDrain()`, inbound MQTT listener 분리와 진행 중 handler drain을 모두 완료한 뒤에만 MQTT client close를 시작한다. Mesh subscription sync와 inbound application ACK는 PUBACK이 없으면 10초에 해당 packet ID를 취소하므로 drain이 무기한 대기하지 않으며, timeout rejection은 payload·topic·오류 상세를 남기지 않는 최상위 오류 경계에서 격리한다. 이후 close는 MQTT.js graceful `end` callback을 await하고 5초 안에 완료되지 않으면 force close callback을 추가 1초간 기다린 뒤 종료를 계속한다.
 - 제어 생성은 `(siteId, requestedBy, clientRequestId)`와 안정 정렬한 target·brightness fingerprint로 멱등 처리한다. 동일 요청은 기존 command를 반환하고 다른 payload는 `409 client_request_id_payload_conflict`로 거부하며, 동시 unique 충돌은 새 transaction 재조회로 수렴한다. Web은 네트워크 오류·5xx·응답 유실에서만 같은 요청의 재전송을 제공하고, 4xx 확정 거부는 pending 요청을 제거해 UI를 즉시 잠금 해제한다. 전송 중 사용자·현장 전환 시 기존 요청을 abort하고 generation/scope가 다른 지연 성공·실패 결과를 현재 화면에 반영하지 않는다.
 - `viewer`가 제어 화면에 진입하면 읽기 전용 안내를 표시하고 밝기 슬라이더, 프리셋, 대상 선택과 `밝기 적용` 버튼을 모두 비활성화한다. 이 경우 브라우저는 `POST /commands/dimming`을 보내지 않으며 권한 오류를 장비 장애로 오인하지 않는다.
+- Task 9 격리 실백엔드 Chromium E2E는 assigned admin이 개별, 임의 다중, 층, 저장 구역 밝기 명령을 production command API로 전송하고 software Gateway simulator가 MQTT acceptance/device-status ACK와 fixture-state를 반환해 각 명령이 terminal 상태로 수렴하는 것을 검증했다. operator는 customer route를 mount하지 않고 viewer는 읽기 전용이다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 대상 선택과 `밝기 적용`을 차단하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
 - 초기 데이터가 없으면 loading 또는 empty state를 구분해 표시한다. 기존 캐시가 있는 상태에서 dashboard 백그라운드 갱신이 실패해도 제어 화면과 캐시 데이터를 유지한다.
@@ -139,7 +140,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- pending redirect는 웹 mock 기반 회귀 테스트로 검증했으며, Task 9 실백엔드 E2E와 실제 Gateway/ESP32-H2 HIL은 아직 실행하지 않았다.
+- pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - 스케줄 제어는 추후 구현 범위이며, 동작하지 않는 버튼은 양산 UI에서 제거했다.
 - 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.

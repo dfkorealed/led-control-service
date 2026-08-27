@@ -56,11 +56,12 @@ describe("ProvisioningScanJournal", () => {
   it("does not replay a persisted terminal after application acknowledgement", async () => {
     const path = await journalPath();
     const firstPublish = vi.fn().mockResolvedValue(undefined);
+    const journalOptions = { now: () => new Date("2026-08-26T00:00:03.000Z") };
     const envelope = {
       eventId: "66666666-6666-4666-8666-666666666666", sequence: 7, occurredAt: "2026-08-26T00:00:01.000Z"
     };
 
-    const firstJournal = new ProvisioningScanJournal(path);
+    const firstJournal = new ProvisioningScanJournal(path, journalOptions);
     await handleDurableProvisioningScan({
       adapter: { scan: vi.fn().mockResolvedValue([]) },
       journal: firstJournal,
@@ -81,7 +82,7 @@ describe("ProvisioningScanJournal", () => {
     const replayScanner = { scan: vi.fn() };
     await handleDurableProvisioningScan({
       adapter: replayScanner,
-      journal: new ProvisioningScanJournal(path),
+      journal: new ProvisioningScanJournal(path, journalOptions),
       command,
       nextEnvelope: vi.fn(),
       publish: replayPublish

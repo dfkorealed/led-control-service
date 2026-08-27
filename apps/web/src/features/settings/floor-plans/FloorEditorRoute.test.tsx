@@ -156,6 +156,22 @@ describe("FloorEditorRoute", () => {
     await waitFor(() => expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "lease-token"));
   });
 
+  it("retries a transient initial lease request failure", async () => {
+    vi.useFakeTimers();
+    getFloorEditorState.mockResolvedValue(editorState);
+    acquireFloorEditorLease
+      .mockRejectedValueOnce(new Error("serialization conflict"))
+      .mockResolvedValueOnce({ editable: true, token: "lease-token", holderName: "김관리" });
+    renderRoute("admin");
+
+    await act(async () => {});
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+  });
+
   it("serializes pending heartbeats and keeps a lost lease read-only", async () => {
     vi.useFakeTimers();
     getFloorEditorState.mockResolvedValue(editorState);

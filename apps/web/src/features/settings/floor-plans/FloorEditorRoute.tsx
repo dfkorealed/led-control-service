@@ -215,7 +215,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
         publish(acquired);
         heartbeat = window.setInterval(() => void renewLease(), leaseHeartbeatMs);
       } catch {
-        if (!disposed && !leaseLost && !acquiredToken) publish({ editable: false });
+        if (!disposed && !leaseLost && !acquiredToken) scheduleInitialRetry({ editable: false });
       } finally {
         initialAcquireInFlight = false;
       }
