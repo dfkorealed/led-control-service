@@ -81,7 +81,7 @@ assert_secret_file() {
   [[ -f "$path" ]] || die "$label 파일이 없거나 안전하지 않습니다: $path"
   resolved="$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$path")" || die "$label 실제 경로를 확인할 수 없습니다."
   [[ "$resolved" == "$boundary/"* || "$resolved" == "$boundary" ]] || die "${label}이 Lab PKI 경계를 벗어났습니다."
-  [[ "$(file_mode "$path")" == "600" ]] || die "$label 권한은 0600이어야 합니다."
+  [[ "$(file_mode "$resolved")" == "600" ]] || die "$label 권한은 0600이어야 합니다."
 }
 
 assert_public_file() {

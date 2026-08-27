@@ -232,6 +232,8 @@ if [[ "$1 $2" == "write -field=csr" ]]; then
   openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$key" >/dev/null 2>&1
   openssl req -new -key "$key" -subj "/CN=Lab Intermediate" 2>/dev/null
   rm -f "$key"
+elif [[ "$1 $2" == "write -format=json" && "$3" == */intermediate/set-signed ]]; then
+  printf '%s\\n' '{"data":{"mapping":{"issuer-with-key":"key-id","root-without-key":""}}}'
 fi
 `);
     chmodSync(vault, 0o755);

@@ -45,7 +45,12 @@ for name in device.crl mqtt-client.crl; do printf '%s\n' crl > "$generation/$nam
 echo station >> "$LAB_TEST_LOG"
 mkdir -p "$LAB_MANUFACTURING_DIR"
 for name in manufacturing-ca.crt station.crt manufacturing.crl; do printf '%s\n' certificate > "$LAB_MANUFACTURING_DIR/$name"; chmod 0644 "$LAB_MANUFACTURING_DIR/$name"; done
-printf '%s\n' private > "$LAB_MANUFACTURING_DIR/station.key"; chmod 0600 "$LAB_MANUFACTURING_DIR/station.key"`
+printf '%s\n' private > "$LAB_MANUFACTURING_DIR/station.key"; chmod 0600 "$LAB_MANUFACTURING_DIR/station.key"
+if [[ "${'${LAB_TEST_STATION_KEY_SYMLINK:-0}'}" == 1 ]]; then
+  mkdir -p "$LAB_MANUFACTURING_DIR/generations/test"
+  mv "$LAB_MANUFACTURING_DIR/station.key" "$LAB_MANUFACTURING_DIR/generations/test/station.key"
+  ln -s "generations/test/station.key" "$LAB_MANUFACTURING_DIR/station.key"
+fi`
   })) {
     const path = join(scriptDirectory, name);
     writeFileSync(path, `#!/usr/bin/env bash\nset -euo pipefail\n${body}\n`);
@@ -165,6 +170,20 @@ test("Vault bootstrap 순서와 제한 token, CRL, 절대 경로 lab.env를 생�
     assert.match(env, /NODE_EXTRA_CA_CERTS="[^"]+\/services\/current\/api-ca\.crt"/);
     for (const name of ["device.crl", "mqtt-client.crl"]) assert.equal(existsSync(join(pki, "services", "current", name)), true);
     assert.equal(existsSync(join(pki, "manufacturing", "manufacturing.crl")), true);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("Lab 경계 내부 0600 대상에 연결된 station key symlink를 허용한다", () => {
+  const fixture = makeSandbox();
+  try {
+    mkdirSync(join(fixture.directory, ".local", "lab-vault"), { recursive: true });
+    writeFileSync(join(fixture.directory, ".local", "lab-vault", "root-token"), "root-token\n", { mode: 0o600 });
+
+    const result = run(fixture, { LAB_TEST_STATION_KEY_SYMLINK: "1" });
+
+    assert.equal(result.status, 0, result.stderr);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }

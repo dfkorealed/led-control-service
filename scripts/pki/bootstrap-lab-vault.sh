@@ -56,7 +56,9 @@ write_csr_if_missing() {
   local common_name="$2"
   local artifact_name="${mount%-pki}"
   local destination="$PKI_CSR_DIR/${artifact_name}-intermediate.csr"
-  [[ -s "$destination" ]] && return
+  if [[ -s "$destination" ]] && openssl req -in "$destination" -noout -verify >/dev/null 2>&1; then
+    return
+  fi
 
   local temporary
   temporary="$(mktemp "$PKI_CSR_DIR/.${mount}.csr.XXXXXX")"
@@ -68,26 +70,12 @@ write_csr_if_missing() {
     rm -f "$temporary"
     die "Vault could not create the $mount intermediate CSR"
   fi
-  grep -Fq -- "-----BEGIN CERTIFICATE REQUEST-----" "$temporary" || {
+  if ! openssl req -in "$temporary" -noout -verify >/dev/null 2>&1; then
     rm -f "$temporary"
     die "Vault returned an invalid intermediate CSR for $mount"
-  }
+  fi
   chmod 0644 "$temporary"
   mv -f "$temporary" "$destination"
-}
-
-single_issuer_id() {
-  local mount="$1"
-  "$VAULT_BIN" list -format=json "$mount/issuers" |
-    node -e '
-      let source = "";
-      process.stdin.on("data", (chunk) => { source += chunk; });
-      process.stdin.on("end", () => {
-        const issuers = JSON.parse(source);
-        if (!Array.isArray(issuers) || issuers.length !== 1 || typeof issuers[0] !== "string") process.exit(1);
-        process.stdout.write(issuers[0]);
-      });
-    ' || die "$mount must contain exactly one issuer"
 }
 
 publish_certificate() {
@@ -124,9 +112,14 @@ import_intermediate() {
   local label="$2"
   local certificate="$3"
   [[ -s "$certificate" ]] || die "$label intermediate certificate is required"
-  "$VAULT_BIN" write "$mount/intermediate/set-signed" "certificate=@$certificate" >/dev/null
-  local issuer
-  issuer="$(single_issuer_id "$mount")"
+  local response issuer
+  response="$("$VAULT_BIN" write -format=json "$mount/intermediate/set-signed" "certificate=@$certificate")" || die "$label intermediate certificate import failed"
+  issuer="$(printf '%s' "$response" | jq -er '
+    .data.mapping
+    | to_entries
+    | map(select((.value | type) == "string" and (.value | length) > 0))
+    | if length == 1 then .[0].key else empty end
+  ')" || die "$mount signed chain must map exactly one issuer to a private key"
   "$VAULT_BIN" write "$mount/config/issuers" "default=$issuer" >/dev/null
   publish_certificate "$label-ca" "$certificate"
 }
@@ -135,6 +128,8 @@ configure_roles_and_policy() {
   "$VAULT_BIN" write "$DEVICE_MOUNT/roles/gateway-device" \
     allow_any_name=true \
     allowed_uri_sans="urn:dfkorea:gateway:*" \
+    key_type=ec \
+    key_bits=256 \
     client_flag=true \
     server_flag=false \
     max_ttl=8760h \
@@ -148,6 +143,8 @@ configure_roles_and_policy() {
     allow_any_name=false \
     allow_localhost=false \
     allowed_uri_sans="urn:dfkorea:gateway:*" \
+    key_type=ec \
+    key_bits=256 \
     client_flag=true \
     server_flag=false \
     max_ttl=2160h \
@@ -159,6 +156,8 @@ configure_roles_and_policy() {
     allow_glob_domains=false \
     allow_any_name=false \
     allow_ip_sans=true \
+    key_type=ec \
+    key_bits=256 \
     client_flag=false \
     server_flag=true \
     max_ttl=2160h \
@@ -170,6 +169,8 @@ configure_roles_and_policy() {
     allow_glob_domains=false \
     allow_any_name=false \
     allowed_uri_sans="spiffe://led-control/mqtt/api-service" \
+    key_type=ec \
+    key_bits=256 \
     client_flag=true \
     server_flag=false \
     max_ttl=2160h \
@@ -181,6 +182,8 @@ configure_roles_and_policy() {
     allow_glob_domains=false \
     allow_any_name=false \
     allow_ip_sans=true \
+    key_type=ec \
+    key_bits=256 \
     client_flag=false \
     server_flag=true \
     max_ttl=2160h \
@@ -212,6 +215,7 @@ install() {
 }
 
 [[ -x "$(command -v "$VAULT_BIN")" || -f "$VAULT_BIN" ]] || die "Vault executable is not available"
+command -v openssl >/dev/null 2>&1 || die "OpenSSL executable is not available"
 [[ -r "$POLICY_PATH" ]] || die "Vault policy file is not readable"
 validate_vault_environment
 

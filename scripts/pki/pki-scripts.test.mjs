@@ -59,6 +59,10 @@ function writeMockVault(directory, crlMaterial = {}, storageType = "inmem") {
   const crlPath = typeof crlMaterial === "string" ? crlMaterial : crlMaterial.crl ?? "";
   const caPath = typeof crlMaterial === "string" ? "" : crlMaterial.ca ?? "";
   const caKeyPath = typeof crlMaterial === "string" ? "" : crlMaterial.caKey ?? "";
+  const intermediateKey = join(directory, "mock-intermediate.key");
+  const intermediateCsr = join(directory, "mock-intermediate.csr");
+  execFileSync("openssl", ["genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", intermediateKey]);
+  execFileSync("openssl", ["req", "-new", "-key", intermediateKey, "-subj", "/CN=Mock Intermediate", "-out", intermediateCsr]);
   const executable = join(directory, "vault");
   writeFileSync(
     executable,
@@ -79,7 +83,9 @@ elif [[ "$1 $2" == "write -field=certificate" ]]; then
   for argument in "$@"; do [[ "$argument" == csr=@* ]] && csr="\${argument#csr=@}"; done
   openssl x509 -req -in "$csr" -CA "${caPath}" -CAkey "${caKeyPath}" -set_serial "$RANDOM" -days 1
 elif [[ "$1 $2" == "write -field=csr" ]]; then
-  printf '%s\\n' '-----BEGIN CERTIFICATE REQUEST-----' 'CSR' '-----END CERTIFICATE REQUEST-----'
+  cat "${intermediateCsr}"
+elif [[ "$1 $2" == "write -format=json" && "$3" == */intermediate/set-signed ]]; then
+  printf '%s\\n' '{"data":{"imported_issuers":["issuer-with-key","root-without-key"],"mapping":{"issuer-with-key":"key-id","root-without-key":""}}}'
 fi
 `
   );
@@ -181,6 +187,32 @@ test("bootstrap prepare creates only purpose CSR artifacts with Vault-generated 
   }
 });
 
+test("bootstrap prepare replaces an interrupted invalid CSR artifact", () => {
+  const directory = temporaryDirectory();
+  const vault = writeMockVault(directory);
+  const output = join(directory, "csrs");
+  try {
+    mkdirSync(output, { recursive: true });
+    writeFileSync(
+      join(output, "gateway-device-intermediate.csr"),
+      "-----BEGIN CERTIFICATE REQUEST-----\n\n-----END CERTIFICATE REQUEST-----\n"
+    );
+
+    run(bootstrap, ["prepare"], {
+      VAULT_BIN: vault,
+      VAULT_ADDR: "https://vault.internal:8200",
+      PKI_ENV: "lab",
+      PKI_CSR_DIR: output
+    });
+
+    execFileSync("openssl", ["req", "-in", join(output, "gateway-device-intermediate.csr"), "-noout", "-verify"]);
+    const log = readFileSync(join(directory, "vault.log"), "utf8");
+    assert.match(log, /gateway-device-pki\/intermediate\/generate\/internal/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("bootstrap install imports externally signed intermediates and configures isolated least-privilege roles", () => {
   const directory = temporaryDirectory();
   const vault = writeMockVault(directory);
@@ -203,7 +235,14 @@ test("bootstrap install imports externally signed intermediates and configures i
     assert.match(log, /gateway-device-pki\/intermediate\/set-signed/);
     assert.match(log, /gateway-mqtt-pki\/intermediate\/set-signed/);
     assert.match(log, /api-server-pki\/intermediate\/set-signed/);
+    assert.match(log, /gateway-device-pki\/config\/issuers default=issuer-with-key/);
+    assert.doesNotMatch(log, /config\/issuers default=root-without-key/);
     assert.match(log, /gateway-device-pki\/roles\/gateway-device.*client_flag=true.*server_flag=false.*max_ttl=8760h/);
+    for (const role of ["gateway-device", "gateway-mqtt", "mqtt-server", "api-mqtt-client", "api-server"]) {
+      const roleLine = log.split("\n").find((line) => line.includes(`/roles/${role} `)) ?? "";
+      assert.match(roleLine, /key_type=ec/);
+      assert.match(roleLine, /key_bits=256/);
+    }
     const gatewayRole = log.match(/gateway-mqtt-pki\/roles\/gateway-mqtt[^\n]*/)?.[0] ?? "";
     const gatewayUuidGlob = "????????-????-????-????-????????????";
     assert.match(gatewayRole, /allow_any_name=false/);

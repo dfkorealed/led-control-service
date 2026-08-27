@@ -200,3 +200,10 @@
 - **원인**: 직접 실행하는 shell script의 엄격한 인자 parser와 pnpm 명령 구분자의 실제 전달 방식을 확인하지 않고 일반적인 `--` 예제를 사용했다.
 - **해결 및 예방책**: 옵션을 `pnpm gateway:manufacturing:enroll --target ...` 형태로 직접 전달하고, 두 실장비 런북에 단독 `--`가 다시 들어오지 않는 문서 회귀 테스트를 추가했다.
 - **반복 방지 체크**: pnpm script 예제는 문서에 넣기 전에 그대로 실행해 parser가 첫 인자로 무엇을 받는지 확인하고, 보안·제조 명령은 런북 문자열도 자동 검사한다.
+
+## 2026-08-27 / 중단된 Lab PKI 산출물과 macOS symlink 권한 검사
+
+- **발생했던 문제/실수**: Docker Desktop 내부 VM 정지 뒤 Lab PKI 실행이 중단되면서 헤더와 푸터만 남은 CSR을 재사용했고, 정상 발급된 station key도 macOS에서 symlink 자체 권한을 검사해 거부했다.
+- **원인**: 파일 존재 여부를 유효성으로 간주했고, 인증서 chain을 가져오면 Root와 intermediate issuer가 함께 생기는 Vault 동작 및 BSD `stat`의 symlink 처리를 반영하지 않았다.
+- **해결 및 예방책**: 기존·신규 CSR을 OpenSSL로 검증하고, Vault import 응답에서 개인키에 연결된 issuer만 기본값으로 선택한다. secret 권한은 경계 검증을 마친 실제 대상 경로에서 확인하며 모든 발급 역할을 EC P-256으로 고정한다.
+- **반복 방지 체크**: PKI 재실행 테스트에 손상 CSR, 다중 issuer mapping, 경계 내부 symlink와 EC CSR 발급을 포함하고, Docker API 500이 발생하면 먼저 Docker 엔진 응답과 Desktop VM 상태를 확인한다.
