@@ -87,7 +87,6 @@ export function SiteAdminFormDialog({
     },
     onSuccess: () => {
       setForm(emptyForm);
-      successfulCloseRef.current = true;
       onSuccess("관리자 정보를 수정했습니다.");
       onClose();
     },
@@ -132,7 +131,6 @@ export function SiteAdminFormDialog({
         setForm(emptyForm);
         passwordSubmissionInFlightRef.current = false;
         setIsSubmittingPasswordFlow(false);
-        successfulCloseRef.current = true;
         onSuccess("현장과 관리자 계정을 생성했습니다.");
         onClose();
         return;

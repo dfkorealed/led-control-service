@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
+import { SiteAdminFormDialog } from "./SiteAdminFormDialog";
 import { SiteAdminManagementView } from "./SiteAdminManagementView";
 
 const api = vi.hoisted(() => ({
@@ -115,6 +117,41 @@ describe("SiteAdminManagementView", () => {
     }));
   });
 
+  it("restores the original create trigger instead of a fallback after creation succeeds", async () => {
+    renderCreateDialogFocusHarness();
+
+    const trigger = screen.getByRole("button", { name: "원 생성 trigger" });
+    const fallback = screen.getByRole("button", { name: "fallback command" });
+    fireEvent.click(trigger);
+    fillSiteAdminForm({
+      customerName: "새 고객사",
+      siteName: "새 현장",
+      adminName: "신규 관리자",
+      loginId: "new_admin",
+      password: "create-password"
+    });
+    fireEvent.click(screen.getByRole("button", { name: "생성" }));
+
+    await waitFor(() => expect(api.createSiteAdmin).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(trigger);
+    expect(document.activeElement).not.toBe(fallback);
+  });
+
+  it("restores the edit trigger after a successful update", async () => {
+    renderView();
+    await screen.findByText("customer_admin");
+
+    const trigger = screen.getByRole("button", { name: "김관리 수정" });
+    fireEvent.click(trigger);
+    fireEvent.change(screen.getByLabelText("관리자 이름"), { target: { value: "김수정" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(api.updateSiteAdmin).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("validates reset password confirmation before sending the new password", async () => {
     const queryClient = renderView();
     await screen.findByText("customer_admin");
@@ -135,6 +172,22 @@ describe("SiteAdminManagementView", () => {
     expect(screen.queryByDisplayValue("new-password")).not.toBeInTheDocument();
     expect(JSON.stringify(queryClient.getQueryData(["operator", "site-admins"]))).not.toContain("new-password");
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
+  });
+
+  it("restores the reset trigger after a successful password reset", async () => {
+    renderView();
+    await screen.findByText("customer_admin");
+
+    const trigger = screen.getByRole("button", { name: "김관리 비밀번호 재설정" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "김관리 비밀번호 재설정" });
+    fireEvent.change(within(dialog).getByLabelText("새 비밀번호"), { target: { value: "new-password" } });
+    fireEvent.change(within(dialog).getByLabelText("비밀번호 확인"), { target: { value: "new-password" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "비밀번호 재설정" }));
+
+    await waitFor(() => expect(api.resetSiteAdminPassword).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("uses the shared destructive confirmation to disable an admin and states the access consequence", async () => {
@@ -241,6 +294,37 @@ function renderView() {
   });
   render(<QueryClientProvider client={queryClient}><SiteAdminManagementView /></QueryClientProvider>);
   return queryClient;
+}
+
+function renderCreateDialogFocusHarness() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
+  });
+
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const fallbackRef = useRef<HTMLButtonElement>(null);
+
+    return (
+      <>
+        <button ref={triggerRef} type="button" onClick={() => setOpen(true)}>원 생성 trigger</button>
+        <button ref={fallbackRef} type="button">fallback command</button>
+        {open ? <SiteAdminFormDialog
+          mode="create"
+          returnFocusElement={triggerRef.current}
+          fallbackFocusElement={fallbackRef.current}
+          onCreate={api.createSiteAdmin}
+          onAssign={api.assignSiteAdmin}
+          onUpdate={api.updateSiteAdmin}
+          onSuccess={() => undefined}
+          onClose={() => setOpen(false)}
+        /> : null}
+      </>
+    );
+  }
+
+  render(<QueryClientProvider client={queryClient}><Harness /></QueryClientProvider>);
 }
 
 function fillSiteAdminForm(input: {

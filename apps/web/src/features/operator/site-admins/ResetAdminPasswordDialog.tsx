@@ -19,11 +19,9 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
   const [generalError, setGeneralError] = useState("");
   const [isPending, setIsPending] = useState(false);
   const submissionInFlightRef = useRef(false);
-  const successfulCloseRef = useRef(false);
 
   function clearAndClose() {
     if (isPending) return;
-    successfulCloseRef.current = false;
     setNewPassword("");
     setConfirmation("");
     setValidationError("");
@@ -41,7 +39,6 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
       setConfirmation("");
       submissionInFlightRef.current = false;
       setIsPending(false);
-      successfulCloseRef.current = true;
       onSuccess();
       onClose();
     } catch {
@@ -76,7 +73,6 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
       isPending={isPending}
       returnFocusElement={returnFocusElement}
       fallbackFocusElement={fallbackFocusElement}
-      preferFallbackRef={successfulCloseRef}
       initialFocusRef={passwordRef}
       onConfirm={confirm}
       onClose={clearAndClose}
