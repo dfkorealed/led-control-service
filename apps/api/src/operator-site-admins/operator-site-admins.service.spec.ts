@@ -100,6 +100,58 @@ describe("OperatorSiteAdminsService", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it("maps a reset-password serialization failure to the existing conflict contract", async () => {
+    const { service } = createService({
+      prismaTransaction: jest.fn().mockRejectedValue({ code: "P2034" })
+    });
+
+    await expect(service.resetPassword(operator, "admin-1", "replacement password")).rejects.toEqual(
+      new ConflictException("operator site admin transaction conflicted, please retry")
+    );
+  });
+
+  it("maps a disable serialization failure to the existing conflict contract", async () => {
+    const { service } = createService({
+      prismaTransaction: jest.fn().mockRejectedValue({ code: "P2034" })
+    });
+
+    await expect(service.disable(operator, "admin-1")).rejects.toEqual(
+      new ConflictException("operator site admin transaction conflicted, please retry")
+    );
+  });
+
+  it("keeps non-Prisma reset and disable errors unchanged", async () => {
+    const resetError = new Error("reset dependency failed");
+    const disableError = new Error("disable dependency failed");
+    const resetService = createService({ prismaTransaction: jest.fn().mockRejectedValue(resetError) }).service;
+    const disableService = createService({ prismaTransaction: jest.fn().mockRejectedValue(disableError) }).service;
+
+    await expect(resetService.resetPassword(operator, "admin-1", "replacement password")).rejects.toBe(resetError);
+    await expect(disableService.disable(operator, "admin-1")).rejects.toBe(disableError);
+  });
+
+  it("returns the shared installed status for a site with address, tariff, and floors", async () => {
+    const { service } = createService({
+      siteFindMany: jest.fn().mockResolvedValue([{
+        id: "site-installed",
+        name: "Installed Site",
+        address: "Seoul",
+        tariffKwhRate: "160.00",
+        organization: { name: "Customer One" },
+        admin: null,
+        _count: { floors: 1 }
+      }])
+    });
+
+    await expect(service.list(operator)).resolves.toEqual([{
+      siteId: "site-installed",
+      customerName: "Customer One",
+      siteName: "Installed Site",
+      installationStatus: "installed",
+      admin: null
+    }]);
+  });
+
   it("requires a session-authenticated operator role for every operator site-admin endpoint", () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, OperatorSiteAdminsController)).toEqual(
       expect.arrayContaining([SessionAuthGuard, RolesGuard])
@@ -129,8 +181,9 @@ function createService(overrides: Record<string, jest.Mock> = {}) {
   if (overrides.sessionUpdateMany) transaction.session.updateMany = overrides.sessionUpdateMany;
 
   const prisma = {
-    $transaction: jest.fn(async (callback: (tx: typeof transaction) => unknown) => callback(transaction)),
-    site: { findMany: jest.fn() }
+    $transaction: overrides.prismaTransaction
+      ?? jest.fn(async (callback: (tx: typeof transaction) => unknown) => callback(transaction)),
+    site: { findMany: overrides.siteFindMany ?? jest.fn() }
   };
   const audit = { record: jest.fn().mockResolvedValue({ id: "audit-1" }) };
   const service = new OperatorSiteAdminsService(prisma as never, new PasswordService(), audit as never);

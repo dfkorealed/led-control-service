@@ -28,7 +28,7 @@ export interface SiteAdminSummary {
   siteId: string;
   customerName: string;
   siteName: string;
-  installationStatus: "pending" | "complete";
+  installationStatus: "pending" | "installed";
   admin: {
     id: string;
     loginId: string;
@@ -208,53 +208,61 @@ export class OperatorSiteAdminsService {
     this.assertOperator(user);
     const adminId = this.requiredString(userId, "userId");
     const passwordHash = await this.passwords.hash(this.requiredPassword(newPassword, "newPassword"));
-    return this.prisma.$transaction(async (tx) => {
-      const admin = await this.findManagedAdmin(tx, adminId);
-      await tx.user.update({ where: { id: admin.id }, data: { passwordHash } });
-      const revokedSessions = await tx.session.updateMany({
-        where: { userId: admin.id, revokedAt: null },
-        data: { revokedAt: new Date() }
-      });
-      await this.audit.record({
-        transaction: tx,
-        organizationId: admin.organizationId,
-        siteId: admin.administeredSite!.id,
-        actorId: user.id,
-        action: "operator.site_admin_password_reset",
-        targetType: "User",
-        targetId: admin.id,
-        outcome: "success",
-        metadata: { revokedSessionCount: revokedSessions.count }
-      });
-      return { ok: true };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const admin = await this.findManagedAdmin(tx, adminId);
+        await tx.user.update({ where: { id: admin.id }, data: { passwordHash } });
+        const revokedSessions = await tx.session.updateMany({
+          where: { userId: admin.id, revokedAt: null },
+          data: { revokedAt: new Date() }
+        });
+        await this.audit.record({
+          transaction: tx,
+          organizationId: admin.organizationId,
+          siteId: admin.administeredSite!.id,
+          actorId: user.id,
+          action: "operator.site_admin_password_reset",
+          targetType: "User",
+          targetId: admin.id,
+          outcome: "success",
+          metadata: { revokedSessionCount: revokedSessions.count }
+        });
+        return { ok: true };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      this.throwMappedPrismaError(error);
+    }
   }
 
   async disable(user: AuthenticatedUser, userId: string) {
     this.assertOperator(user);
     const adminId = this.requiredString(userId, "userId");
-    return this.prisma.$transaction(async (tx) => {
-      const admin = await this.findManagedAdmin(tx, adminId);
-      // Task 1's trigger rejects a disabled user still assigned to a Site.
-      await tx.site.update({ where: { id: admin.administeredSite!.id }, data: { adminUserId: null } });
-      await tx.user.update({ where: { id: admin.id }, data: { status: "disabled" } });
-      const revokedSessions = await tx.session.updateMany({
-        where: { userId: admin.id, revokedAt: null },
-        data: { revokedAt: new Date() }
-      });
-      await this.audit.record({
-        transaction: tx,
-        organizationId: admin.organizationId,
-        siteId: admin.administeredSite!.id,
-        actorId: user.id,
-        action: "operator.site_admin_disabled",
-        targetType: "User",
-        targetId: admin.id,
-        outcome: "success",
-        metadata: { revokedSessionCount: revokedSessions.count }
-      });
-      return { ok: true };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const admin = await this.findManagedAdmin(tx, adminId);
+        // Task 1's trigger rejects a disabled user still assigned to a Site.
+        await tx.site.update({ where: { id: admin.administeredSite!.id }, data: { adminUserId: null } });
+        await tx.user.update({ where: { id: admin.id }, data: { status: "disabled" } });
+        const revokedSessions = await tx.session.updateMany({
+          where: { userId: admin.id, revokedAt: null },
+          data: { revokedAt: new Date() }
+        });
+        await this.audit.record({
+          transaction: tx,
+          organizationId: admin.organizationId,
+          siteId: admin.administeredSite!.id,
+          actorId: user.id,
+          action: "operator.site_admin_disabled",
+          targetType: "User",
+          targetId: admin.id,
+          outcome: "success",
+          metadata: { revokedSessionCount: revokedSessions.count }
+        });
+        return { ok: true };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      this.throwMappedPrismaError(error);
+    }
   }
 
   private async findManagedAdmin(tx: Prisma.TransactionClient, userId: string) {
@@ -285,7 +293,7 @@ export class OperatorSiteAdminsService {
       siteId: site.id,
       customerName: site.organization.name,
       siteName: site.name,
-      installationStatus: site.address !== null && site.tariffKwhRate !== null && site._count.floors > 0 ? "complete" : "pending",
+      installationStatus: site.address !== null && site.tariffKwhRate !== null && site._count.floors > 0 ? "installed" : "pending",
       admin: site.admin
     };
   }
