@@ -73,7 +73,7 @@
 - 모니터링 수동 새로고침은 dashboard metadata, 현재 층 fixture 페이지와 현재 층 map snapshot 세 요청을 함께 갱신하며 일부 실패 시 기존 성공 데이터를 유지한다.
 - 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가하며, 수동 갱신 실패 상태는 해당 floor ID에 귀속되어 다른 층으로 전환할 때 누수되지 않는다.
 - deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색과 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
-- 격리 실백엔드 Chromium E2E는 운영자 현장·층 생성, Gateway claim, 실제 MQTT 0건 검색과 재검색, 자사 UUID 조명 2개 일괄 등록, 등록 화면 유지, 완료 후 지도와 Health 표시를 검증한다. test-only publisher를 사용하므로 Raspberry Pi/ESP32-H2 HIL을 대체하지 않는다.
+- **폐기된 이전 계정 계약의 증거:** 기존 격리 Chromium E2E는 operator가 현장·층을 생성하고 Gateway claim·조명 등록을 수행하는 흐름을 검증했다. Task 1~4 전환 뒤 operator는 Task 3 API로 pending Site/admin만 provision하고 assigned admin이 최초 설치를 완료하므로, 이 E2E는 현재 계정 흐름의 완료 증거가 아니다. 새 Task 9 E2E는 아직 갱신·실행하지 않았으며 test-only publisher 증거도 Raspberry Pi/ESP32-H2 HIL을 대체하지 않는다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
 - 모든 production 상태 producer는 `0700` 전용 디렉터리의 `0600` atomic durable outbox에 먼저 기록한다. 별도 manifest가 최초 생성과 운영 중 파일 소실을 구분하며 missing/corrupt/unsafe permission은 `state_outbox_missing`, `state_outbox_corrupt`, `state_outbox_permissions` health로 시작을 차단한다. 최대 `100,000건/100MiB` 용량을 예약할 수 없으면 command·scan·identify·provision RF 작업 전에 공통 gate가 fail-closed하고 `state_outbox_capacity`를 sticky 상태로 남긴다.

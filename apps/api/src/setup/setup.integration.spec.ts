@@ -106,6 +106,50 @@ describeWithDatabase("SetupService PostgreSQL integration", () => {
     });
   }, 15_000);
 
+  it("prevents stale admin floor creation after reassignment and disable", async () => {
+    const scenario = await createPendingSite("add_floor_race");
+    const replacement = await prisma.user.create({
+      data: userData(scenario.organizationId, `replacement_${randomUUID().slice(0, 8)}`, "admin")
+    });
+    const realAccess = new SiteAccessService(prisma);
+    let releasePrecheck!: () => void;
+    let markPrecheckReached!: () => void;
+    const precheckReached = new Promise<void>((resolve) => { markPrecheckReached = resolve; });
+    const reassignmentComplete = new Promise<void>((resolve) => { releasePrecheck = resolve; });
+    const gatedAccess = {
+      assert: async (user: AuthenticatedUser, siteId: string, capability: "commission") => {
+        const site = await realAccess.assert(user, siteId, capability);
+        markPrecheckReached();
+        await reassignmentComplete;
+        return site;
+      }
+    } as SiteAccessService;
+    const staleAttempt = createService(prisma, gatedAccess).addFloors(scenario.admin, {
+      siteId: scenario.siteId,
+      floors: [{ name: "B1", level: -1 }]
+    });
+
+    await precheckReached;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.site.update({ where: { id: scenario.siteId }, data: { adminUserId: null } });
+        await tx.user.update({ where: { id: scenario.admin.id }, data: { status: "disabled" } });
+        await tx.site.update({ where: { id: scenario.siteId }, data: { adminUserId: replacement.id } });
+      });
+    } finally {
+      releasePrecheck();
+    }
+
+    await expect(staleAttempt).rejects.toBeInstanceOf(NotFoundException);
+    await expect(prisma.floor.count({ where: { siteId: scenario.siteId } })).resolves.toBe(0);
+    await expect(prisma.site.findUniqueOrThrow({ where: { id: scenario.siteId } })).resolves.toMatchObject({
+      adminUserId: replacement.id
+    });
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: scenario.admin.id } })).resolves.toMatchObject({
+      status: "disabled"
+    });
+  }, 15_000);
+
   async function createPendingSite(label: string) {
     const suffix = `${label}_${randomUUID().slice(0, 8)}`;
     const organization = await prisma.organization.create({ data: { id: randomUUID(), name: `${label} customer`, type: "customer" } });
@@ -126,11 +170,11 @@ describeWithDatabase("SetupService PostgreSQL integration", () => {
   }
 });
 
-function createService(prisma: PrismaService) {
+function createService(prisma: PrismaService, siteAccess = new SiteAccessService(prisma)) {
   return new SetupService(
     prisma,
     { getDashboardById: jest.fn().mockResolvedValue({}) } as never,
-    new SiteAccessService(prisma)
+    siteAccess
   );
 }
 

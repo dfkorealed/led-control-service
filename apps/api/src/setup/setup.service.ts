@@ -44,23 +44,7 @@ export class SetupService {
 
     try {
       const siteId = await this.prisma.$transaction(async (tx) => {
-        // The site row is locked before every authorization and pending-state read.
-        // This keeps two completion requests from both observing the same pending site.
-        const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
-          SELECT "id" FROM "Site" WHERE "id" = ${input.siteId} FOR UPDATE
-        `);
-        if (locked.length === 0) throw new NotFoundException("site not found");
-
-        const site = await tx.site.findUnique({
-          where: { id: input.siteId },
-          include: {
-            admin: { include: { organization: { select: { type: true } } } },
-            floors: { select: { name: true, level: true } }
-          }
-        });
-        if (!site || !this.isAssignedActiveCustomerAdmin(site, user)) {
-          throw new NotFoundException("site not found");
-        }
+        const site = await this.lockAndReadAssignedSite(tx, user, input.siteId);
         if (!this.isPendingSite(site)) {
           throw new ConflictException("initial site setup is already complete");
         }
@@ -98,21 +82,18 @@ export class SetupService {
 
     try {
       await this.prisma.$transaction(async (tx) => {
-        const existingFloors = await tx.floor.findMany({
-          where: { siteId: input.siteId },
-          select: { name: true, level: true }
-        });
-        this.assertNoExistingFloorDuplicates(input.floors, existingFloors);
+        const site = await this.lockAndReadAssignedSite(tx, user, input.siteId);
+        this.assertNoExistingFloorDuplicates(input.floors, site.floors);
 
         await tx.floor.createMany({
           data: input.floors.map((floor) => ({
-            siteId: input.siteId,
+            siteId: site.id,
             name: floor.name.trim(),
             level: floor.level
           }))
         });
 
-        await this.createFloorPlans(tx, input.siteId, input.floors);
+        await this.createFloorPlans(tx, site.id, input.floors);
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       this.throwMappedPrismaSetupError(error);
@@ -226,6 +207,31 @@ export class SetupService {
     }
   }
 
+  private async lockAndReadAssignedSite(
+    tx: Pick<Prisma.TransactionClient, "$queryRaw" | "site">,
+    user: AuthenticatedUser,
+    siteId: string
+  ) {
+    // Authorization and mutable site state are read only after this row lock.
+    // The lock closes the gap between an outer capability precheck and mutation.
+    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE
+    `);
+    if (locked.length === 0) throw new NotFoundException("site not found");
+
+    const site = await tx.site.findUnique({
+      where: { id: siteId },
+      include: {
+        admin: { include: { organization: { select: { type: true } } } },
+        floors: { select: { name: true, level: true } }
+      }
+    });
+    if (!site || !this.isAssignedActiveCustomerAdmin(site, user)) {
+      throw new NotFoundException("site not found");
+    }
+    return site;
+  }
+
   private isAssignedActiveCustomerAdmin(
     site: {
       organizationId: string;
@@ -234,7 +240,10 @@ export class SetupService {
     },
     user: AuthenticatedUser
   ) {
-    return site.adminUserId === user.id
+    return user.role === "admin"
+      && user.status === "active"
+      && user.organizationType === "customer"
+      && site.adminUserId === user.id
       && site.organizationId === user.organizationId
       && site.admin?.id === user.id
       && site.admin.organizationId === user.organizationId

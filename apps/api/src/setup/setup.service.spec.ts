@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { Test } from "@nestjs/testing";
 import { SiteAccessService } from "../access/site-access.service";
@@ -178,5 +178,31 @@ describe("SetupService", () => {
     expect(prisma.floorPlan.create).toHaveBeenCalledWith({
       data: { floorId: "floor-1", imageUrl: "/b1.svg", width: 1200, height: 800 }
     });
+  });
+
+  it("rejects stale add-floors authorization after the site is reassigned", async () => {
+    const replacementAdmin = {
+      id: "admin-2",
+      organizationId: admin.organizationId,
+      role: "admin",
+      status: "active",
+      organization: { type: "customer" }
+    };
+    const { service, prisma, siteAccess } = await createModule();
+    siteAccess.assert.mockImplementationOnce(async () => {
+      prisma.site.findUnique.mockResolvedValueOnce(pendingSite({
+        adminUserId: replacementAdmin.id,
+        admin: replacementAdmin
+      }));
+    });
+
+    await expect(service.addFloors(admin, {
+      siteId: "site-1",
+      floors: [{ name: "B1", level: -1 }]
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.floor.createMany).not.toHaveBeenCalled();
+    expect(prisma.floorPlan.create).not.toHaveBeenCalled();
   });
 });

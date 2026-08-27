@@ -21,7 +21,7 @@
 
 ## 다음 단계
 
-**메뉴 완성 소프트웨어 범위는 완료했다.** 모니터링, 수동 제어, 상태 기반 통계와 격리 PostgreSQL·Redis·mTLS Mosquitto·API·Web을 사용하는 Chromium E2E를 완료했다. E2E는 운영자 현장 생성, Gateway claim, 0건 검색과 재검색, 조명 2개 등록, 모니터링/Health, 고객 관리자·viewer 초대 가입, 통계, 저장 구역 CRUD, 개별·다중·층·구역 제어와 viewer 제어 차단을 실제 HTTP/MQTT 계약으로 검증한다. 실제 Raspberry Pi/ESP32-H2 HIL은 남아 있다.
+**메뉴 완성 소프트웨어 범위는 이전 계정 계약에서 완료했다.** 해당 Chromium E2E의 operator 현장·층 생성과 commissioning 흐름은 현재 Task 1~4 계정 전환의 완료 증거로 사용하지 않는다. 현재 계약은 operator가 Task 3 API로 pending Site/admin을 provision하고 assigned admin이 Task 4 API로 최초 설치하는 단계까지 구현됐으며, Gateway claim/registration과 Task 9 실백엔드 E2E 전환은 아직 남아 있다. 실제 Raspberry Pi/ESP32-H2 HIL도 남아 있다.
 
 ## 알려진 미해결 항목
 

@@ -19,7 +19,7 @@
 - 설정 메뉴를 현장 구성, 도면 관리, 장비 시운전, 운영 정책, 보안, 유지보수의 관리 허브로 만든다.
 - 실시간 상태 확인은 모니터링, 조명 명령 실행은 제어, 에너지 분석은 통계에서 담당한다.
 - 도면 에디터는 설정의 `도면 관리`에서만 열고, 모니터링은 읽기 전용 상태 확인에 한정한다.
-- assigned customer `admin`이 자기 pending Site의 최초 주소·단가·시간대·층 설치를 수행한다. Gateway claim과 최초 provisioning은 이 Task에서 기존 service-provider `operator` 경계를 유지한다.
+- assigned customer `admin`이 자기 pending Site의 최초 주소·단가·시간대·층 설치를 수행한다. Gateway claim과 최초 provisioning의 controller 및 웹 UI는 이번 Task에서 변경하지 않았으며, 기존 operator 계약은 새 SiteAccess와 호환되지 않아 후속 권한 전환 전까지 완료 흐름으로 사용할 수 없다.
 - 설치 완료 후 고객사의 `admin`은 도면 배경, 도형, 조명 배치, 일반 조명 정보와 운영 정책을 직접 관리한다.
 - 설정값은 임의 JSON 한 필드에 모으지 않고 검증 가능한 명시적 모델과 컬럼으로 관리한다.
 
@@ -29,16 +29,16 @@
 | --- | --- | --- | --- |
 | 설정 조회 | 고객 현장 capability 없음 | 직접 배정된 한 현장 | 배정 현장 |
 | 최초 현장·층 설치 | 금지 | 직접 배정된 pending 현장만 허용 | 금지 |
-| BLE Mesh 검색·provisioning | 허용 | 금지 | 금지 |
-| 현장 정보와 층 관리 | 허용 | 허용 | 금지 |
-| 도면 배경·도형 편집 | 허용 | 허용 | 금지 |
-| 조명 이름·정격전력·위치 편집 | 허용 | 허용 | 금지 |
-| 그룹 관리와 운영 정책 | 허용 | 허용 | 금지 |
-| 도면 버전 복구 | 허용 | 허용 | 금지 |
-| Gateway 해제·장비 교체·초기화 | 허용 | 금지 | 금지 |
+| BLE Mesh 검색·provisioning | 금지 | 후속 controller/UI 전환 대기 | 금지 |
+| 현장 정보와 층 관리 | 금지 | 허용 | 금지 |
+| 도면 배경·도형 편집 | 금지 | 허용 | 금지 |
+| 조명 이름·정격전력·위치 편집 | 금지 | 허용 | 금지 |
+| 그룹 관리와 운영 정책 | 금지 | 허용 | 금지 |
+| 도면 버전 복구 | 금지 | 허용 | 금지 |
+| Gateway 해제·장비 교체·초기화 | 후속 계약 확정 대기 | 후속 계약 확정 대기 | 금지 |
 | 알림 규칙과 고객사 사용자 관리 | 허용 | 허용 | 금지 |
 | operator 배정·인증서·OTA 변경 | 허용 | 금지 | 금지 |
-| 편집 잠금 강제 해제 | 허용 | 허용 | 금지 |
+| 편집 잠금 강제 해제 | 금지 | 허용 | 금지 |
 
 - 프론트의 버튼 노출과 무관하게 모든 변경 API가 서버에서 조직, 현장 접근 범위와 역할을 검사한다.
 - `operator`는 서비스 운영사 소속이지만 고객 Site의 `read/manage/commission` capability와 Site 목록을 갖지 않는다.
@@ -79,7 +79,7 @@
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
 - 현장이 있으면 조명 등록 세션, BLE Mesh 후보 목록과 provisioning 요청 UI를 제공한다. 등록 패널은 층과 Gateway를 사용자가 명시적으로 선택하고 `siteId`, `floorId`, `gatewayId`를 함께 전송한다. 서버는 해당 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
 - provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 `MeshNode.deviceUuid` unique 경쟁만 해당 node 실패로 기록하며, 다른 unique/transaction 오류는 재전파한다.
-- 제조 장비 원장 기반 `POST /gateways/claim`과 장비 인증서 기반 `POST /gateway-bootstrap`을 구현했다. claim과 assigned inventory disable은 operator 역할과 현장 `commission` 권한이 필요하며 admin/viewer는 `403`, 미배정 operator는 `404`를 받는다.
+- 제조 장비 원장 기반 `POST /gateways/claim`과 장비 인증서 기반 `POST /gateway-bootstrap` 코드는 구현돼 있다. 다만 claim controller는 여전히 operator 역할과 현장 `commission`을 함께 요구하고, Task 4 SiteAccess에서 operator의 고객 Site capability를 제거했으므로 현재 계정 계약의 end-to-end 완료 경로가 아니다. assigned admin 전환은 후속 Task에서 수행한다.
 - Claim 성공·실패 감사 로그와 연속 실패 rate limit을 적용했다.
 - Raspberry Pi appliance가 실제 BlueZ scan/provisioning adapter와 영속 Mesh identity를 사용한다.
 - 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
@@ -106,24 +106,24 @@
 - bootstrap은 기존 customer 사용자가 있어도 `auth:bootstrap-operator`로 최초 service-provider operator를 만들 수 있다. `BOOTSTRAP_OPERATOR_LOGIN_ID`는 필수이며 잘못된 기존 email 환경 변수로 fallback하지 않는다. PostgreSQL advisory lock, 기존 service provider/operator 검사, `service_provider` partial Unique index로 둘 이상의 서비스 운영사를 차단하며, 로그인/session 응답은 `loginId`와 Organization 유형을 포함한다.
 - `POST /auth/login`은 `{ loginId, password, rememberMe }`만 받고 public/session 응답은 연락 이메일 없이 `loginId`만 계정 식별자로 포함한다. `POST /auth/change-password`는 현재 session cookie를 기준으로 현재 세션을 유지하면서 동일 사용자의 다른 활성 세션을 revoke하고, 공백을 포함한 비밀번호 원문을 trim하지 않는다. login/signup/change-password body는 누락·non-string 값을 controller에서 명시적으로 거부해 500으로 흘리지 않는다. 성공 감사 `auth.password_changed` metadata에는 비밀번호 또는 hash 계열 값을 기록하지 않는다.
 - 수정 전 legacy migration을 적용한 로컬 개발 DB는 checksum 충돌이 발생할 수 있다. 데이터가 불필요한 경우에만 reset을 선택하고, 보존이 필요하면 감사 후 수동 보정 migration을 사용한다. 설정 기능은 자동 reset이나 파괴적 DB 명령을 실행하지 않는다.
-- `POST /setup/floors`는 assigned admin의 `commission` capability를 확인한다. registration session 생성·조회·identify·register·complete는 다음 Task에서 권한을 전환하기 전까지 기존 operator 계약을 유지한다.
+- `POST /setup/floors`는 transaction 안에서 Site row를 잠그고 assigned active customer admin의 `commission` 조건을 다시 확인한다. registration session 생성·조회·identify·register·complete는 아직 기존 operator controller 계약이어서 새 SiteAccess 아래 완료 경로로 사용할 수 없으며 다음 Task에서 assigned admin 권한으로 전환한다.
 - `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
-- `/settings/floor-plans`는 새로고침과 직접 진입이 가능한 층별 도면 목록을 제공한다. `operator/admin`은 각 층의 `/settings/floor-plans/:floorId/edit` 링크로 이동할 수 있고, 목록·편집·저장·취소 이동에서 현재 `siteId` query를 보존한다.
-- `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회한다. `operator/admin`만 편집 route를 사용하며 `viewer`의 직접 edit URL은 목록으로 redirect된다. URL에 `siteId`가 없으면 응답 floor의 현장으로 canonicalize하고, 선택 현장과 floor 현장이 다르면 편집기를 표시하지 않고 선택 현장의 목록으로 이동한다.
+- `/settings/floor-plans`는 새로고침과 직접 진입이 가능한 층별 도면 목록을 제공한다. 웹에는 이전 계약의 `operator/admin` 편집 링크 노출이 남아 있지만 서버의 현재 SiteAccess에서 operator는 고객 Site를 조회·편집할 수 없으며, assigned admin만 실제 API를 사용할 수 있다. 웹 역할 노출 정리는 후속 Task 범위다.
+- `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회한다. viewer의 직접 edit URL은 목록으로 redirect되고 assigned admin은 편집할 수 있다. operator 편집 route 노출은 이전 UI 계약으로 남아 있을 뿐 현재 서버 권한의 완료 증거가 아니다.
 - 웹 에디터는 shared `SaveEditorStateInput` 계약으로 baseline과 현재 상태를 O(n) 비교한다. 1,000개 fixture에서도 실제 변경된 fixture와 floor plan, object create/update/delete만 중복 없이 `PUT /floors/:floorId/editor-state` 한 번으로 전송한다. floor plan의 `null`/`none`, 기본 source type과 fallback asset URL은 API 의미 형태로 정규화해 unchanged 저장을 만들지 않으며 draft object ID는 UUID로 생성한다.
 - atomic save와 revision 복구는 하나의 동기 ref lock으로 상호 배제한다. 요청 중 도구, 캔버스, 배경 입력과 속성 입력을 disabled/read-only로 유지하고, 이미 시작된 배경 asset upload가 끝날 때까지 save/restore도 막아 요청 이후 로컬 수정이 성공 응답에 덮이지 않게 한다. 성공 응답은 새 baseline과 `mapRevision`으로 채택하고 네트워크 오류는 현재 편집 상태를 유지하며, `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
-- 버전 패널은 cursor pagination으로 수정자 display name, 시각과 숫자 변경 수 및 `floorPlanChanged`를 합산해 표시한다. loading/error/empty 상태를 구분하고 오류에는 announcement와 재시도를 제공한다. 복구 버튼은 `operator/admin`에게만 제공하고 현재 baseline의 `mapRevision`을 `expectedRevision`으로 전송하며, 현재 존재하지 않아 건너뛴 조명 안내는 같은 floor query refetch 뒤에도 유지한다.
+- 버전 패널은 cursor pagination으로 수정자 display name, 시각과 숫자 변경 수 및 `floorPlanChanged`를 합산해 표시한다. loading/error/empty 상태를 구분하고 오류에는 announcement와 재시도를 제공한다. 복구 버튼의 operator 노출은 이전 UI 계약이며 현재 서버에서는 assigned admin만 복구할 수 있다. 요청은 baseline의 `mapRevision`을 `expectedRevision`으로 전송하고, 현재 존재하지 않아 건너뛴 조명 안내는 같은 floor query refetch 뒤에도 유지한다.
 - dirty 상태에서는 앱 내부 링크 이동, 현장 전환, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. dirty 진입 시 현재 URL과 같은 history sentinel을 추가해 첫 back이 editor route를 벗어나기 전에 확인하며, 취소는 sentinel을 복원한다. 저장 또는 승인된 내부 이동·현장 전환·취소는 sentinel entry를 목적지로 replace하고, 같은 editor에서 clean 상태가 되거나 unmount되면 sentinel을 소비해 back stack에 editor가 중복으로 남지 않는다. listener는 unmount에서 정리하고 저장 후 back에는 폐기 확인을 표시하지 않는다.
 - `POST /floors/:floorId/editor-lease`는 Redis key `floor-editor:lease:{floorId}`를 캐시·경합 완화에 사용하지만, 실제 편집 권한의 정본은 PostgreSQL `Floor.editorLease*` 컬럼이다. 획득은 같은 transaction에서 만료 여부를 확인하고 monotonic `editorLeaseFence`를 증가시키며, `editorLeaseTokenHash`, `editorLeaseHolderId`, `editorLeaseHolderName`, `editorLeaseAcquiredAt`, `editorLeaseExpiresAt`를 함께 기록한다. 같은 token의 POST는 이 정본을 연장한 뒤 Redis를 best-effort로 갱신하고, `DELETE`와 강제 해제는 fence를 다시 증가시켜 이전 토큰을 무효화한다.
-- operator/admin 강제 해제는 먼저 durable `floor_editor.lease_force_release_requested`/`attempted` audit을 기록한 뒤, PostgreSQL 정본의 token hash와 fence를 기준으로 successor를 덮지 않도록 무효화한다. Redis 삭제는 후속 cache cleanup일 뿐 성공 조건이 아니며, stale predecessor를 되살릴 수 없다.
+- assigned admin의 강제 해제는 먼저 durable `floor_editor.lease_force_release_requested`/`attempted` audit을 기록한 뒤, PostgreSQL 정본의 token hash와 fence를 기준으로 successor를 덮지 않도록 무효화한다. operator는 현재 고객 Site capability가 없어 이 API를 사용할 수 없으며, 웹의 operator 노출은 후속 정리 대상이다. Redis 삭제는 후속 cache cleanup일 뿐 성공 조건이 아니며 stale predecessor를 되살릴 수 없다.
 - `PUT /floors/:floorId/editor-state`와 `POST /floors/:floorId/editor-revisions/:revision/restore`는 `leaseToken`, `leaseFence`, `expectedRevision`을 모두 요구한다. 저장·복구 transaction 안에서 현재 `Floor` row의 token hash, fence, 만료 시각을 다시 검증해 lease가 만료되었거나 강제 해제된 stale client를 `409 floor editor lease is no longer active`로 거부하고, 그 뒤 `mapRevision`을 최종 optimistic guard로 검사한다.
 - 도면 편집 route는 진입 시 lease를 얻고 editable token이면 30초마다 single-flight heartbeat로 갱신한다. 클라이언트는 `performance.now()` 기반 80초 local deadline watchdog으로 fail-closed 동작을 유지하고, 서버는 PostgreSQL 만료 시각과 fence를 authoritative source로 사용한다. 충돌, 갱신 실패, token 상실, deadline 만료, lease 획득 실패와 floor 전환 중에는 저장/복구/도구/캔버스/배경/속성 변경을 막는 읽기 전용으로 전환한다. 정상 route 이탈은 아직 보유한 token의 release를 요청하고, 브라우저 종료 같은 비정상 종료의 회수는 서버 만료 시각과 Redis TTL에 맡긴다.
 - Task 11 완료 후 legacy `PATCH /floors/:floorId/floor-plan`, `PATCH /fixtures/:fixtureId`, `POST/PATCH/DELETE /floor-map-objects` 경로와 웹 export를 제거했다. 이제 도면 변경은 revision·audit·lease fence가 모두 걸린 atomic save/restore 경로로만 가능하며, stale legacy client가 `mapRevision`을 우회해 normalized row를 덮어쓸 경로는 없다.
-- Playwright browser 회귀는 operator의 시운전 메뉴 노출, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403` fixture를 검증한다. 1,000 fixture editor는 navigation 시작부터 marker 색상 표시와 Konva hit selection까지 8초 이내여야 한다. fixture route는 `apps/web/e2e/support`에만 있으며 assigned `site-1` 밖의 `404`는 test-fixture isolation 검증일 뿐 production tenant E2E 증거는 아니다.
+- 기존 Playwright browser 회귀는 이전 계약의 operator 시운전 메뉴 노출, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403` fixture를 검증했다. operator 노출 증거는 현재 계정 계약에서 폐기됐고 Task 9 E2E는 아직 갱신하지 않았다. 1,000 fixture editor는 navigation 시작부터 marker 색상 표시와 Konva hit selection까지 8초 이내여야 한다. fixture route는 `apps/web/e2e/support`에만 있으며 assigned `site-1` 밖의 `404`는 test-fixture isolation 검증일 뿐 production tenant E2E 증거는 아니다.
 - Task 16의 별도 Playwright route fixture는 저장된 지도 객체가 모니터링의 실제 Konva canvas에 표시되는 계약까지 검증한다. 설정 에디터 저장 기능이나 Raspberry Pi/ESP32-H2 실장비 연동을 추가로 완료했다는 의미는 아니다.
-- 설정 shell은 `operator`에 전체 설정 section, `admin`에 설치·시운전과 펌웨어·유지보수를 제외한 운영 section, `viewer`에 설정 개요·도면 관리·장비 상태만 표시한다. 이는 UI 노출 기준이며 서버 권한 검사는 기존 API guard가 계속 담당한다.
-- 현장 선택기는 `GET /sites` 응답의 `customerName`과 `name`을 함께 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. 서비스 운영사 operator가 동일한 현장명을 여러 고객사에서 배정받은 경우 `고객사명 · 현장명`으로 구분해 오조작 가능성을 줄인다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard, floor fixture, statistics query key는 모두 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`, `/sites/:siteId/floors/:floorId/fixtures`, `/energy/sites/:siteId/estimate`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
+- 설정 shell의 역할별 section 노출은 이전 웹 계약이 남아 있다. 현재 서버 계약에서는 operator가 고객 Site 목록과 capability를 갖지 않고 assigned admin과 viewer만 허용된 범위의 Site API를 사용한다. admin 최초 설치 UI와 Gateway/registration 역할 노출은 후속 Task에서 전환한다.
+- 현장 선택기는 `GET /sites` 응답의 `customerName`과 `name`을 함께 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. operator에게 배정 현장을 표시하던 설명은 폐기됐으며 현재 `GET /sites`는 operator에게 고객 Site를 반환하지 않는다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard, floor fixture, statistics query key는 모두 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`, `/sites/:siteId/floors/:floorId/fixtures`, `/energy/sites/:siteId/estimate`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - dirty editor에서 상단 `로그아웃` 버튼을 눌러도 동일한 폐기 확인을 거친다. 취소하면 session과 draft를 유지하고, 승인한 뒤에만 draft를 버리고 `/auth/logout` 후 auth query를 로그인 화면으로 전환한다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.
 - 웹 Dockerfile은 production API 요청을 same-origin `/api`로 빌드한다. nginx official template entrypoint가 `API_UPSTREAM`(기본 `http://api:4000`)을 주입하고 `/api/*`를 reverse proxy하며, SPA fallback으로 `/settings/floor-plans` 같은 deep route 새로고침을 `index.html`로 응답한다. Vite 개발 서버는 `/api`를 기본 `http://localhost:4000` upstream으로 proxy해 로컬 API 개발 동작을 유지한다.
@@ -196,12 +196,12 @@
 
 ### 사용자, 보안과 감사
 
-- `SiteMembership`으로 operator와 viewer의 현장 접근 범위를 제한한다.
+- `SiteMembership`은 customer `viewer`의 현장 read 범위에만 사용한다. assigned `admin`은 `Site.adminUserId`로 직접 연결되고 operator는 고객 Site capability를 갖지 않는다.
 - 이메일 초대, 역할 변경, 비활성화, 세션 강제 종료와 operator/admin MFA를 제공한다.
-- 서비스 운영사 Organization과 고객사 Organization을 구분하고 operator의 고객 현장 배정은 서비스 운영사 권한으로만 변경한다.
+- 서비스 운영사 Organization과 고객사 Organization을 구분한다. operator는 Task 3 관리 API로 customer Organization, pending Site와 assigned admin 계정을 provision하지만 해당 고객 Site에 접근 권한을 얻지 않는다.
 - 최초 서비스 계정은 `auth:bootstrap-operator`로 서비스 운영사 Organization에 생성한다.
-- operator가 고객사 Organization과 첫 현장·층을 생성하면 자기 계정의 SiteMembership을 함께 만든다.
-- operator가 고객사 admin을 초대하고, 이후 고객사 admin은 자기 Organization의 admin/viewer만 초대한다.
+- operator의 Task 3 API는 customer Organization, Floor가 없는 pending Site와 assigned admin을 원자 생성하며 operator SiteMembership을 만들지 않는다. assigned admin이 Task 4 API로 주소·단가·시간대·Floor/FloorPlan을 완료한다.
+- operator는 Task 3 API로 assigned admin 계정을 직접 생성·교체한다. 공개 operator/admin signup은 거부하고, 현재 invitation signup은 viewer membership 생성에만 사용한다.
 - 공통 `AuditLog`에 작업자, 현장, action, 대상, 변경 요약, 결과, IP, User-Agent와 관련 revision을 기록한다.
 - 비밀번호, claim code, private key와 인증서 원문은 감사 로그에 저장하지 않는다.
 
@@ -273,7 +273,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 백엔드 단위 테스트: 역할, 현장 범위, 입력 검증, 층 archive 조건, revision 충돌
 - DB 통합 테스트: 원자 저장 rollback, revision 생성·복구, 다른 조직 격리
 - 프론트 테스트: 역할별 메뉴, 읽기 전용, 편집 dirty state, API 오류와 충돌 UI
-- 웹 E2E: operator 설치 후 admin 도면 편집, 모니터링 반영, viewer 변경 차단
+- 웹 E2E: operator의 Task 3 pending Site/admin provision, assigned admin 최초 설치와 후속 도면 편집, 모니터링 반영, viewer 변경 차단
 - 동시성 테스트: 동일 층의 두 사용자, lease 만료, 강제 해제와 `409`
 - 성능 테스트: 조명 1,000개 로딩·이동·선택·변경분 저장
 - 보안 테스트: 다른 조직 IDOR, 직접 API 호출, 악성 파일, private asset URL 만료
@@ -284,7 +284,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - operator의 현장 admin 생성·교체·수정·비밀번호 재설정·비활성화 웹 관리 화면
 - admin에게 배정된 설치 대기 현장의 주소·단가·시간대·층을 완료하는 최초 설치 웹 UI
-- 고객사 사용자 초대·비활성화와 operator별 `SiteMembership` 현장 배정을 관리하는 설정 UI
+- 고객사 viewer 초대·비활성화와 viewer별 `SiteMembership` 현장 배정을 관리하는 설정 UI
 - 현장 정보 수정과 층 CRUD/archive UI
 - 비공개 도면 asset과 보안 처리 pipeline
 - 조명 정보·그룹 CRUD 관리 화면
@@ -300,9 +300,9 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 작업 재개 지점
 
-- 2026-07-21 기준 Task 1~5의 역할·현장 접근·설치 시운전 기반 구현을 완료했다.
-- Task 5 최종 보완으로 기존 현장이 있는 경우에도 Gateway claim과 조명 provisioning UI를 service-provider `operator`에게만 노출한다. customer `admin/viewer`의 직접 API 호출은 백엔드에서도 계속 차단한다.
-- Task 1~5 통합 보안 리뷰와 보완 재리뷰를 완료했다. Floor editor SiteAccess, invitation 원자 소비, legacy migration 역할 보존과 bootstrap singleton을 검증했다.
+- **폐기된 이전 계약:** 2026-07-21 Task 1~5는 operator SiteMembership과 operator 설치·시운전을 전제로 검증했다. 현재 Task 1~4 계정 전환의 구현 완료 증거로 사용하지 않는다.
+- Gateway claim·조명 registration controller와 웹 UI는 아직 새 assigned admin commissioning 계약으로 전환되지 않았다. 계정·설치 전환 Task 9 E2E도 아직 실행·갱신하지 않았다.
+- 이전 통합 보안 리뷰의 Floor editor, invitation 원자 소비, legacy migration과 bootstrap 증거는 유지하지만 operator 고객 현장 접근 증거는 폐기됐다.
 - Task 6 URL 기반 설정 shell과 현장 선택은 `b5a92bd`, `8b53420`, `7e75f1f`로 완료하고 재리뷰 APPROVED를 받았다.
 - Task 8 atomic save/revision API는 `d8d42f1`, `edde0a8`, `8d7aa2e`, `a3aa1b7`, `669be7e`, `d8041f6`, `63cd6fd`, `45336dc`, `f786d3f`에서 단계적으로 보정했다.
 - Task 9 웹 변경분 생성, atomic save 전환, 충돌·revision 복구 UI와 dirty navigation guard는 `c43ff85`, `7b1fae0`, `f103f7c`, `d67e27e`, `f0c9e3a`, `3c8bd02`, `1a8bce3`에서 보정했다.
@@ -314,7 +314,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 설정 shell은 역할별 navigation과 도면 목록 골격까지만 제공한다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태의 route는 명확한 placeholder view만 제공하며 CRUD, 실시간 진단, 권한별 상세 workflow는 아직 없다.
 - 모바일 WebView용 설정 navigation은 현장 선택 아래 가로 스크롤 메뉴로 전환하며, 에디터 본문은 단일 열 전체 폭을 사용한다. 네이티브 상단 선택 메뉴와의 통합은 후속 UI 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
-- Gateway claim, inventory disable, provisioning action은 아직 기존 operator 중심 계약을 유지한다. assigned admin의 Gateway claim·검색·등록 commissioning 전환과 웹 UI는 다음 Task 범위다.
+- Gateway claim, inventory disable, provisioning controller/UI에는 이전 operator 중심 계약이 남아 있으나 operator가 고객 Site capability를 잃었으므로 현재 계정 흐름에서는 완료 경로가 아니다. assigned admin의 Gateway claim·검색·등록 commissioning 전환과 웹 UI는 다음 Task 범위다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
