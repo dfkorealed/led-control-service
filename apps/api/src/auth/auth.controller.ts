@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { CurrentUser } from "./current-user.decorator";
 import { SessionAuthGuard } from "./session-auth.guard";
@@ -15,19 +15,19 @@ export class AuthController {
 
   @Post("signup")
   signup(
-    @Body() body: { token: string; email: string; name: string; password: string }
+    @Body() body: { token: string; loginId: string; email: string; name: string; password: string }
   ) {
     return this.authService.signup(body);
   }
 
   @Post("login")
   async login(
-    @Body() body: { email: string; password: string; rememberMe?: boolean },
+    @Body() body: { loginId: string; password: string; rememberMe?: boolean },
     @Req() request: AuthenticatedRequest,
     @Res({ passthrough: true }) response: CookieResponse
   ) {
     const result = await this.authService.login({
-      email: body.email,
+      loginId: body.loginId,
       password: body.password,
       rememberMe: body.rememberMe === true,
       userAgent: this.readHeader(request.headers["user-agent"]),
@@ -55,6 +55,17 @@ export class AuthController {
     }
     response.clearCookie(AuthService.sessionCookieName, this.cookieBaseOptions());
     return { ok: true };
+  }
+
+  @Post("change-password")
+  @UseGuards(SessionAuthGuard)
+  changePassword(
+    @Body() body: { currentPassword: string; newPassword: string; newPasswordConfirmation: string },
+    @Req() request: AuthenticatedRequest
+  ) {
+    const token = this.readCookie(request.headers.cookie, AuthService.sessionCookieName);
+    if (!token || !request.user) throw new UnauthorizedException("Authentication required");
+    return this.authService.changePassword(request.user, token, body);
   }
 
   private setSessionCookie(response: CookieResponse, token: string, expiresAt: Date) {

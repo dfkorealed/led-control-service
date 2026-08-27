@@ -9,6 +9,7 @@ describe("FloorMapService", () => {
     id: "00000000-0000-4000-8000-000000000001",
     organizationId: "org-1",
     organizationType: "customer",
+    loginId: "fixture_user",
     email: "admin@example.com",
     name: "Admin",
     role: "admin",

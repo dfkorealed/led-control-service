@@ -25,6 +25,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     id: ids.operatorAId,
     organizationId: ids.providerOrganizationId,
     organizationType: "service_provider" as const,
+    loginId: "lease_operator_a",
     email: "lease-a@example.com",
     name: "Lease Operator A",
     role: "operator" as const,
@@ -34,6 +35,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     id: ids.operatorBId,
     organizationId: ids.providerOrganizationId,
     organizationType: "service_provider" as const,
+    loginId: "lease_operator_b",
     email: "lease-b@example.com",
     name: "Lease Operator B",
     role: "operator" as const,
@@ -84,6 +86,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       create: {
         id: operatorA.id,
         organizationId: operatorA.organizationId,
+        loginId: operatorA.loginId,
         email: operatorA.email,
         name: operatorA.name,
         passwordHash: "test",
@@ -92,6 +95,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       },
       update: {
         organizationId: operatorA.organizationId,
+        loginId: operatorA.loginId,
         email: operatorA.email,
         name: operatorA.name,
         role: operatorA.role,
@@ -103,6 +107,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       create: {
         id: operatorB.id,
         organizationId: operatorB.organizationId,
+        loginId: operatorB.loginId,
         email: operatorB.email,
         name: operatorB.name,
         passwordHash: "test",
@@ -111,6 +116,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       },
       update: {
         organizationId: operatorB.organizationId,
+        loginId: operatorB.loginId,
         email: operatorB.email,
         name: operatorB.name,
         role: operatorB.role,

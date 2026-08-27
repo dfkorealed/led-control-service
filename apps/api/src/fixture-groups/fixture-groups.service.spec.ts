@@ -23,6 +23,7 @@ const admin: AuthenticatedUser = {
   id: "admin-1",
   organizationId: "customer-1",
   organizationType: "customer",
+  loginId: "fixture_user",
   email: "admin@example.com",
   name: "Admin",
   role: "admin",
@@ -34,6 +35,7 @@ const operator: AuthenticatedUser = {
   id: "operator-1",
   organizationId: "provider-1",
   organizationType: "service_provider",
+  loginId: "fixture_user",
   email: "operator@example.com",
   role: "operator"
 };

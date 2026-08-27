@@ -101,6 +101,7 @@ describe("SetupService", () => {
     id: "operator-1",
     organizationId: "provider-organization-1",
     organizationType: "service_provider",
+    loginId: "fixture_user",
     email: "operator@example.com",
     name: "Operator",
     role: "operator",
@@ -110,6 +111,7 @@ describe("SetupService", () => {
     ...operator,
     organizationId: "customer-organization-1",
     organizationType: "customer",
+    loginId: "fixture_user",
     role: "admin"
   };
 

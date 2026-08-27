@@ -4,7 +4,7 @@ import { FixturesService } from "./fixtures.service";
 
 describe("FixturesService", () => {
   const user: AuthenticatedUser = {
-    id: "user-1", organizationId: "org-1", organizationType: "customer", email: "admin@example.com", name: "Admin", role: "admin", status: "active"
+    id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", email: "admin@example.com", name: "Admin", role: "admin", status: "active"
   };
 
   it("returns an accessible site cursor page with gateway readiness", async () => {

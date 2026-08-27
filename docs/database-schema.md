@@ -191,14 +191,14 @@ Organization
 
 ### User
 
-서비스 사용자 계정이다. Task 1은 기존 이메일 로그인 계약을 유지한 채 정규화된 `loginId`를 nullable 확장 필드로 추가한다. 활성 계획의 loginId contract migration이 API 로그인 계약을 `loginId`로 전환하고 email nullable 여부를 최종화한다. 비밀번호는 hash로 저장한다.
+서비스 사용자 계정이다. 로그인 정본은 정규화된 `loginId`이며 이메일은 viewer 초대 연락처를 보존하는 선택 값이다. 비밀번호는 hash로만 저장한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 사용자 ID |
 | `organizationId` | `String` | 예 | FK -> `Organization.id` | 소속 조직 |
-| `loginId` | `String?` | 아니오 | Unique, null 허용 4~100자 소문자 영문·숫자·`.`, `_`, `-`, `@` check | 호환 확장 필드. migration이 기존 `email`을 `lower(btrim(email))`으로 이전하며 후속 loginId contract migration이 로그인 정본으로 전환 |
-| `email` | `String` | 예 | Unique | Task 1의 기존 로그인·소비자 호환 필드. 후속 loginId contract migration이 최종 계약을 정함 |
+| `loginId` | `String` | 예 | Unique, 4~100자 소문자 영문·숫자·`.`, `_`, `-`, `@` check | 로그인 식별자. 입력은 trim/lower 정규화 후 저장하며 이메일 형식을 요구하지 않음 |
+| `email` | `String?` | 아니오 | Unique | viewer invitation의 연락 이메일을 보존하는 선택 값. 로그인 조회에는 사용하지 않음 |
 | `name` | `String` | 예 |  | 사용자 이름 |
 | `passwordHash` | `String` | 예 |  | 비밀번호 hash |
 | `role` | `UserRole` | 예 |  | 권한 |
@@ -221,7 +221,9 @@ Organization
 - `20260827090000_operator_admin_account_flow` migration은 nullable `loginId`/`adminUserId` 추가, `loginId` backfill, 형식·정규화 충돌·operator 중복·기존 active admin/현장 모호성 사전검증, 명확한 customer active admin 연결, 최종 제약 추가를 하나의 PostgreSQL transaction에서 수행한다. 기존 `email`, `Site.address`, `Site.tariffKwhRate`의 NOT NULL은 이 단계에서 변경하지 않는다.
 - 정규화 충돌 또는 active admin이 있는 customer의 active admin/현장 수가 각각 하나가 아니면 `RAISE EXCEPTION`으로 중단한다. disabled admin만 있는 customer 현장은 unassigned로 남기며, 임의 loginId 보정이나 권한 확대는 하지 않는다.
 - role이 `operator`인 행은 상태와 관계없이 PostgreSQL partial unique index로 한 명만 허용한다. 이 index는 Prisma schema에 표현되지 않으며 migration이 정본이다.
-- Task 2의 loginId contract migration은 dual-write API 배포 뒤 `loginId`를 재backfill·검증하고 `NOT NULL` 및 email nullable 계약을 적용한다. Task 3의 pending-site contract migration은 `Site.address`와 `Site.tariffKwhRate` nullable 전환과 해당 소비자·energy 처리까지 함께 소유한다.
+- `20260827100000_login_id_contract` migration은 Task 1 expand 뒤 생성된 `loginId IS NULL AND email IS NOT NULL` 행을 다시 `lower(btrim(email))`으로 backfill한다. 기존 unique index를 같은 transaction 안에서 잠시 제거해 format·collision·NULL guard가 명시적 오류를 내게 하고, guard가 모두 통과한 뒤 `loginId NOT NULL`, `email` nullable과 unique index를 적용한다.
+- fresh deploy는 `prisma migrate deploy`가 Task 1 expand와 이 contract migration을 순서대로 적용한다. staged deploy는 Task 1 expand 적용 후 Task 2의 loginId/email dual-write API를 먼저 배포하고, 모든 인스턴스가 그 API인 상태에서 contract migration을 적용한다. 이 저장소는 사용자 DB reset이나 파괴적 DB 명령을 자동 실행하지 않는다.
+- Task 3의 pending-site contract migration은 `Site.address`와 `Site.tariffKwhRate` nullable 전환과 해당 소비자·energy 처리까지 함께 소유한다.
 
 ### Site
 

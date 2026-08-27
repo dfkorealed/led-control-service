@@ -156,7 +156,7 @@ git commit -m "feat(db): add site admin account ownership"
 - Produces: `AuthenticatedUser.loginId`
 - Produces: 최종 `User.loginId: string`, `User.email: string | null` Prisma/DB 계약
 
-- [ ] **Step 1: loginId와 비밀번호 변경 RED 테스트 작성**
+- [x] **Step 1: loginId와 비밀번호 변경 RED 테스트 작성**
 
 ```ts
 it("logs in with a normalized login id", async () => {
@@ -176,12 +176,12 @@ it("changes an admin password and revokes every other session", async () => {
 });
 ```
 
-- [ ] **Step 2: RED 확인**
+- [x] **Step 2: RED 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/auth --runInBand`
 Expected: loginId 및 change-password 미구현으로 실패
 
-- [ ] **Step 3: 최소 인증 구현**
+- [x] **Step 3: 최소 인증 구현**
 
 ```ts
 export function normalizeLoginId(value: string) {
@@ -193,20 +193,20 @@ export function normalizeLoginId(value: string) {
 
 `AuthService.signup`은 operator/admin invitation을 거부하고 viewer 호환 가입에서 `loginId = normalizeLoginId(input.loginId)`를 저장한다. `changePassword`는 현재 cookie token hash를 제외한 대상 user의 활성 Session을 transaction에서 revoke하고 `auth.password_changed` 감사를 기록한다.
 
-- [ ] **Step 4: bootstrap 계약 전환**
+- [x] **Step 4: bootstrap 계약 전환**
 
 `BOOTSTRAP_OPERATOR_EMAIL` 대신 `BOOTSTRAP_OPERATOR_LOGIN_ID`를 필수로 받고 반환값도 `{ organizationId, userId, loginId }`로 바꾼다. operator partial unique 위반은 기존과 같은 bootstrap 거부 오류로 정규화한다.
 
-- [ ] **Step 5: loginId contract migration 구현**
+- [x] **Step 5: loginId contract migration 구현**
 
 dual-write 인증 코드가 준비된 뒤 contract migration은 `loginId IS NULL AND email IS NOT NULL` 행을 다시 `lower(btrim(email))`으로 backfill하고 형식·충돌·NULL guard를 실행한 다음 `loginId NOT NULL`을 적용한다. Prisma schema는 `loginId String @unique`, `email String? @unique`로 전환한다. 배포 runbook은 Task 1 expand migration 적용 → 이 Task의 dual-write API 배포 → contract migration 적용 순서를 기록한다.
 
-- [ ] **Step 6: GREEN 및 회귀 확인**
+- [x] **Step 6: GREEN 및 회귀 확인**
 
 Run: `pnpm --filter @led-control/api exec jest src/auth --runInBand && pnpm --filter @led-control/api typecheck`
 Expected: PASS
 
-- [ ] **Step 7: 문서 갱신 후 커밋**
+- [x] **Step 7: 문서 갱신 후 커밋**
 
 ```bash
 git add apps/api/src/auth apps/api/prisma/schema.prisma apps/api/prisma/bootstrap-operator.ts apps/api/prisma/migrations/20260827100000_login_id_contract docs/database-schema.md docs/menus/settings.md docs/project-status.md

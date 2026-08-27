@@ -5,7 +5,7 @@ import { FloorAssetsService } from "./floor-assets.service";
 
 describe("FloorAssetsService", () => {
   const admin: AuthenticatedUser = {
-    id: "admin-1", organizationId: "customer-org", organizationType: "customer", email: "admin@example.com",
+    id: "admin-1", organizationId: "customer-org", organizationType: "customer", loginId: "fixture_user", email: "admin@example.com",
     name: "Admin", role: "admin", status: "active"
   };
   const viewer: AuthenticatedUser = { ...admin, id: "viewer-1", role: "viewer" };

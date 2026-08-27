@@ -17,6 +17,7 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
     id: "22000000-0000-4000-8000-000000000005",
     organizationId: ids.organizationId,
     organizationType: "customer" as const,
+    loginId: "fixture_user",
     email: "energy@example.com",
     name: "Energy Admin",
     role: "admin" as const,

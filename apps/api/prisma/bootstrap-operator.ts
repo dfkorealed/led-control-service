@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { AuthService } from "../src/auth/auth.service";
+import { PasswordService } from "../src/auth/password.service";
 import { bootstrapFirstOperator, type BootstrapDatabase } from "../src/auth/bootstrap-operator";
 
 const prisma = new PrismaClient();
@@ -11,16 +11,16 @@ function required(name: string) {
 }
 
 async function main() {
-  const auth = new AuthService(prisma as never);
+  const passwords = new PasswordService();
   const result = await bootstrapFirstOperator(
     prisma as unknown as BootstrapDatabase,
     {
       organizationName: required("BOOTSTRAP_ORGANIZATION_NAME"),
-      email: required("BOOTSTRAP_OPERATOR_EMAIL"),
+      loginId: required("BOOTSTRAP_OPERATOR_LOGIN_ID"),
       name: required("BOOTSTRAP_OPERATOR_NAME"),
       password: required("BOOTSTRAP_OPERATOR_PASSWORD")
     },
-    (password) => auth.hashPassword(password)
+    (password) => passwords.hash(password)
   );
   console.log(JSON.stringify(result));
 }

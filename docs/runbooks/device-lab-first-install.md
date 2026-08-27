@@ -107,11 +107,17 @@ pnpm --filter @led-control/api exec prisma migrate deploy
 
 ```bash
 BOOTSTRAP_ORGANIZATION_NAME='DF Korea Service' \
-BOOTSTRAP_OPERATOR_EMAIL='operator@example.com' \
+BOOTSTRAP_OPERATOR_LOGIN_ID='operator_01' \
 BOOTSTRAP_OPERATOR_NAME='운영자' \
 BOOTSTRAP_OPERATOR_PASSWORD='교체할-긴-시험용-비밀번호' \
 pnpm --filter @led-control/api auth:bootstrap-operator
 ```
+
+계정 전환 migration은 사용자 DB를 reset하지 않고 다음 순서를 지킨다. 빈 DB의 fresh deploy는 `prisma migrate deploy`가 같은 순서로 모두 적용한다.
+
+1. `20260827090000_operator_admin_account_flow` expand migration을 적용한다.
+2. loginId/email dual-write 인증 API를 모든 인스턴스에 배포한다.
+3. `20260827100000_login_id_contract` migration을 적용해 재-backfill, 형식·충돌·NULL guard, `loginId NOT NULL`과 email nullable 계약을 완료한다.
 
 생성된 환경을 현재 shell에 export한 뒤 개발 서버를 실행한다.
 

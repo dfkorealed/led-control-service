@@ -22,9 +22,9 @@ describe("RegistrationService", () => {
   };
   const operator: AuthenticatedUser = {
     id: "00000000-0000-4000-8000-000000000002", organizationId: "provider-org", organizationType: "service_provider",
-    email: "operator@example.com", name: "Operator", role: "operator", status: "active"
+    loginId: "operator_01", email: "operator@example.com", name: "Operator", role: "operator", status: "active"
   };
-  const admin: AuthenticatedUser = { ...operator, organizationId: ids.organizationId, organizationType: "customer", role: "admin" };
+  const admin: AuthenticatedUser = { ...operator, organizationId: ids.organizationId, organizationType: "customer", loginId: "fixture_user", role: "admin" };
 
   function createModule(prismaOverrides = {}, mqttOverrides = {}, meshGroupOverrides = {}) {
     const prisma: any = {

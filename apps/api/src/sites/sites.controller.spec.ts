@@ -7,6 +7,7 @@ describe("SitesController", () => {
     id: "user-1",
     organizationId: "org-1",
     organizationType: "customer",
+    loginId: "fixture_user",
     email: "admin@example.com",
     name: "Admin",
     role: "admin",

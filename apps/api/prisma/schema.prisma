@@ -124,8 +124,8 @@ model Organization {
 model User {
   id                   String                @id @default(uuid())
   organizationId       String
-  loginId              String?               @unique
-  email                String                @unique
+  loginId              String                @unique
+  email                String?               @unique
   name                 String
   passwordHash         String
   role                 UserRole

@@ -30,6 +30,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     id: ids.operatorId,
     organizationId: ids.providerOrganizationId,
     organizationType: "service_provider" as const,
+    loginId: "floor_editor_operator",
     email: "floor-editor-operator@example.com",
     name: "Floor editor operator",
     role: "operator" as const,
@@ -39,6 +40,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     id: ids.viewerId,
     organizationId: ids.customerOrganizationId,
     organizationType: "customer" as const,
+    loginId: "floor_editor_viewer",
     email: "floor-editor-viewer@example.com",
     name: "Floor editor viewer",
     role: "viewer" as const,
@@ -48,6 +50,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     id: ids.otherAdminId,
     organizationId: ids.otherOrganizationId,
     organizationType: "customer" as const,
+    loginId: "floor_editor_other_admin",
     email: "floor-editor-other-admin@example.com",
     name: "Other admin",
     role: "admin" as const,
@@ -56,6 +59,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
   const unassignedOperator = {
     ...operator,
     id: ids.unassignedOperatorId,
+    loginId: "floor_editor_unassigned_operator",
     email: "unassigned-floor-editor-operator@example.com",
     name: "Unassigned floor editor operator"
   };
@@ -114,17 +118,19 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       await prisma.user.upsert({
         where: { id: userRecord.id },
         create: {
-          id: userRecord.id,
-          organizationId: userRecord.organizationId,
-          email: userRecord.email,
+        id: userRecord.id,
+        organizationId: userRecord.organizationId,
+        loginId: userRecord.loginId,
+        email: userRecord.email,
           name: userRecord.name,
           passwordHash: "test",
           role: userRecord.role,
           status: userRecord.status
         },
         update: {
-          organizationId: userRecord.organizationId,
-          email: userRecord.email,
+        organizationId: userRecord.organizationId,
+        loginId: userRecord.loginId,
+        email: userRecord.email,
           name: userRecord.name,
           role: userRecord.role,
           status: userRecord.status
