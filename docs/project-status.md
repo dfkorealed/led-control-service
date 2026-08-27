@@ -17,11 +17,11 @@
 | 메뉴 완성 구현 | 완료(소프트웨어) | Task 12까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
 | 계정·설치 주체 전환 설계 | 완료 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했고 재설치는 제외했다. |
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
-| 계정·설치 주체 전환 구현 | 진행 중 | Task 1~5와 Task 5 review fix round 1을 완료했다. `User.loginId`는 required unique 로그인 정본이고 `email`은 nullable 초대 연락처로만 남으며 public/session DTO에는 노출하지 않는다. viewer invitation signup만 유지하며 operator/admin signup은 거부한다. operator는 `GET/POST /operator/site-admins`, 기존 미지정 현장 admin 생성, 수정, 비밀번호 재설정과 trigger-safe 비활성화를 사용할 수 있다. assigned active customer admin은 정확히 하나의 `Site.adminUserId` 현장에만 `read/manage/commission`을 가지며 viewer는 membership `read` 전용, operator는 고객 현장 capability와 목록이 없다. `POST /setup/initial-site`와 `POST /setup/floors`는 row lock과 transaction 내부 재검증으로 stale admin mutation을 막는다. `POST /gateways/claim`은 serial별 PostgreSQL transaction advisory lock 안에서 Site 재검증, rolling failure count, 모든 terminal audit과 원자 claim을 완료한 뒤 정제된 응답을 반환한다. registration create/retry/register/complete mutation도 transaction 첫 단계에서 Site를 재검증하고 `Site -> Gateway -> Session -> Node` 잠금 순서를 지켜 stale admin의 session/outbox/node/complete mutation을 차단한다. durable outbox·allocator·provisioning state transition과 device certificate bootstrap/manufacturing enrollment 경계는 유지했고, inventory disable은 customer SiteAccess 없이 active service-provider operator만 수행한다. disposable PostgreSQL에서 병렬 invalid 5회 제한과 전 요청 audit, success/already-consumed 원자성, serial별 독립 진행, claim 및 registration reassignment race를 검증했다. operator/admin 관리 웹 UI, admin 최초 설치·commissioning 웹 UI, Task 9 실백엔드 E2E는 아직 구현하지 않았다. |
+| 계정·설치 주체 전환 구현 | 진행 중 | Task 1~6을 완료했다. `User.loginId`는 required unique 로그인 정본이고 `email`은 nullable 초대 연락처로만 남으며 public/session DTO에는 노출하지 않는다. 공개 signup UI는 제거하고 viewer invitation signup API 호환만 유지하며 operator/admin signup은 거부한다. Task 6에서 operator/customer shell을 분리해 operator는 `/operator/site-admins` 전용 route로 수렴하고 customer site/dashboard query를 실행하지 않으며 admin/viewer는 기존 고객 메뉴를 유지한다. operator는 `GET/POST /operator/site-admins`, 기존 미지정 현장 admin 생성, 수정, 비밀번호 재설정과 trigger-safe 비활성화를 사용할 수 있다. assigned active customer admin은 정확히 하나의 `Site.adminUserId` 현장에만 `read/manage/commission`을 가지며 viewer는 membership `read` 전용, operator는 고객 현장 capability와 목록이 없다. `POST /setup/initial-site`와 `POST /setup/floors`는 row lock과 transaction 내부 재검증으로 stale admin mutation을 막는다. `POST /gateways/claim`은 serial별 PostgreSQL transaction advisory lock 안에서 Site 재검증, rolling failure count, 모든 terminal audit과 원자 claim을 완료한 뒤 정제된 응답을 반환한다. registration create/retry/register/complete mutation도 transaction 첫 단계에서 Site를 재검증하고 `Site -> Gateway -> Session -> Node` 잠금 순서를 지켜 stale admin의 session/outbox/node/complete mutation을 차단한다. durable outbox·allocator·provisioning state transition과 device certificate bootstrap/manufacturing enrollment 경계는 유지했고, inventory disable은 customer SiteAccess 없이 active service-provider operator만 수행한다. disposable PostgreSQL에서 병렬 invalid 5회 제한과 전 요청 audit, success/already-consumed 원자성, serial별 독립 진행, claim 및 registration reassignment race를 검증했다. Task 7 operator 현장 관리자 CRUD 웹 UI, Task 8 admin 최초 설치·commissioning 웹 UI, Task 9 실백엔드 E2E와 모바일은 아직 구현하지 않았다. |
 
 ## 다음 단계
 
-**메뉴 완성 소프트웨어 범위는 이전 계정 계약에서 완료했다.** 해당 Chromium E2E의 operator 현장·층 생성과 commissioning 흐름은 현재 Task 1~5 계정 전환의 완료 증거로 사용하지 않는다. 현재 API 계약은 operator가 Task 3 API로 pending Site/admin을 provision하고 assigned admin이 Task 4 설치와 Task 5 Gateway claim/registration commissioning을 수행하는 단계까지 구현됐으며, 웹 역할 노출과 Task 9 실백엔드 E2E 전환은 아직 남아 있다. 실제 Raspberry Pi/ESP32-H2 HIL도 남아 있다.
+**메뉴 완성 소프트웨어 범위는 이전 계정 계약에서 완료했다.** 해당 Chromium E2E의 operator 현장·층 생성과 commissioning 흐름은 현재 Task 1~6 계정 전환의 완료 증거로 사용하지 않는다. 현재 API 계약은 operator가 Task 3 API로 pending Site/admin을 provision하고 assigned admin이 Task 4 설치와 Task 5 Gateway claim/registration commissioning을 수행하는 단계까지 구현됐으며, Task 6은 operator/customer web shell 경계를 적용했다. Task 7/8 웹 기능과 Task 9 실백엔드 E2E 전환은 아직 남아 있다. 실제 Raspberry Pi/ESP32-H2 HIL도 남아 있다.
 
 ## 알려진 미해결 항목
 
@@ -41,7 +41,7 @@
 
 ### 계정 인계
 
-- 초대 토큰 소비와 고객 관리자 회원가입은 구현·E2E 검증됐다. 운영자용 고객 관리자 초대 발급 API/UI는 설정 메뉴 보류 범위이며 현재 제조·운영 절차에서 초대 record를 준비해야 한다.
+- viewer 초대 토큰 소비 API는 호환으로 유지하지만 공개 회원가입 UI는 제거됐다. 운영자용 고객 관리자 CRUD 웹 UI와 viewer 초대 발급 UI는 후속 범위이며 현재 제조·운영 절차에서 필요한 record를 준비해야 한다.
 
 ### 실장비 검증
 

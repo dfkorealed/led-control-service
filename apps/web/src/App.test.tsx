@@ -265,30 +265,15 @@ describe("App", () => {
     expect(screen.getByLabelText("자동 로그인")).toBeInTheDocument();
   });
 
-  it("starts login and invitation inputs with empty values", async () => {
-    authState.user = null;
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    );
-
-    await screen.findByRole("heading", { name: "LED Control 로그인" });
-    expect(screen.getByLabelText("아이디")).toHaveValue("");
-    expect(screen.getByLabelText("비밀번호")).toHaveValue("");
-
-    fireEvent.click(screen.getByRole("button", { name: "초대 코드를 가지고 회원가입" }));
-
-    expect(screen.getByLabelText("초대 코드")).toHaveValue("");
-  });
-
-  it("submits the login id instead of an email login payload", async () => {
+  it("submits the login id and never renders public signup controls", async () => {
     authState.user = null;
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
     await screen.findByRole("heading", { name: "LED Control 로그인" });
+    expect(screen.getByLabelText("아이디")).toHaveValue("");
+    expect(screen.getByLabelText("비밀번호")).toHaveValue("");
+    expect(screen.queryByText(/회원\s*가입|초대 코드/)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("아이디"), { target: { value: " ADMIN_01 " } });
     fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "correct horse battery staple" } });
     fireEvent.click(screen.getByRole("button", { name: "로그인" }));
@@ -298,31 +283,6 @@ describe("App", () => {
         loginId: " ADMIN_01 ",
         password: "correct horse battery staple",
         rememberMe: true
-      });
-    });
-  });
-
-  it("sends separate login id and invitation contact email for viewer signup", async () => {
-    authState.user = null;
-    const queryClient = new QueryClient();
-    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
-
-    await screen.findByRole("heading", { name: "LED Control 로그인" });
-    fireEvent.click(screen.getByRole("button", { name: "초대 코드를 가지고 회원가입" }));
-    fireEvent.change(screen.getByLabelText("초대 코드"), { target: { value: "invite-token" } });
-    fireEvent.change(screen.getByLabelText("이름"), { target: { value: "Viewer" } });
-    fireEvent.change(screen.getByLabelText("아이디"), { target: { value: "viewer_01" } });
-    fireEvent.change(screen.getByLabelText("초대 이메일"), { target: { value: "viewer@example.com" } });
-    fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "correct horse battery staple" } });
-    fireEvent.click(screen.getByRole("button", { name: "가입하기" }));
-
-    await waitFor(() => {
-      expect(apiPost).toHaveBeenCalledWith("/auth/signup", {
-        token: "invite-token",
-        loginId: "viewer_01",
-        email: "viewer@example.com",
-        name: "Viewer",
-        password: "correct horse battery staple"
       });
     });
   });
@@ -386,10 +346,10 @@ describe("App", () => {
   });
 
   it.each(
-    settingsSectionsFor("operator").filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
-  )("renders a destination for the $label settings link", async (section) => {
+    settingsSectionsFor("admin").filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
+  )("renders an admin destination for the $label settings link", async (section) => {
     window.history.pushState({}, "", `${section.path}?siteId=site-1`);
-    authState.user = { ...authState.user!, role: "operator" };
+    authState.user = { ...authState.user!, role: "admin" };
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -399,6 +359,50 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: section.label })).toBeInTheDocument();
     expect(screen.getByText("이 설정 화면은 준비 중입니다.")).toBeInTheDocument();
+  });
+
+  it.each(["/monitoring", "/control", "/statistics", "/settings", "/unrecognized-route"])(
+    "replaces operator deep links to the site admin account route without customer queries: %s",
+    async (path) => {
+      window.history.pushState({}, "", `${path}?siteId=site-2`);
+      authState.user = {
+        id: "operator-1",
+        organizationId: "service-provider-1",
+        organizationType: "service_provider",
+        loginId: "operator_01",
+        name: "Service Operator",
+        role: "operator",
+        status: "active"
+      };
+      const queryClient = new QueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      );
+
+      expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeInTheDocument();
+      await waitFor(() => expect(window.location.pathname).toBe("/operator/site-admins"));
+      expect(screen.getByText("operator_01")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "모니터링" })).not.toBeInTheDocument();
+      expect(vi.mocked(apiGet).mock.calls.filter(([requestPath]) => (
+        requestPath === "/sites" || requestPath.includes("/dashboard")
+      ))).toEqual([]);
+    }
+  );
+
+  it.each(["admin", "viewer"] as const)("keeps the customer shell routes for %s", async (role) => {
+    window.history.pushState({}, "", "/monitoring?siteId=site-2");
+    authState.user = { ...authState.user!, role };
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("link", { name: "모니터링" })).toHaveAttribute("href", "/monitoring?siteId=site-2");
+    expect(screen.queryByRole("heading", { name: "현장 관리자 계정" })).not.toBeInTheDocument();
   });
 
   it("redirects a viewer's unavailable settings URL to the settings overview", async () => {
@@ -1054,65 +1058,6 @@ describe("App", () => {
     expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
   });
 
-  it("starts a lighting registration session from settings and shows discovered nodes", async () => {
-    authState.user = { ...authState.user!, role: "operator" };
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(await screen.findByRole("link", { name: "설정" }));
-    expect(await screen.findByText("조명 등록")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
-
-    fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: mockDashboard.floors[0].id } });
-    fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: mockDashboard.gateways[0].id } });
-
-    fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
-
-    expect(await screen.findByText("LC-B2-001")).toBeInTheDocument();
-    expect(screen.getByText("RSSI -54 dBm")).toBeInTheDocument();
-    expect(apiPost).toHaveBeenCalledWith("/registration-sessions", {
-      siteId: mockDashboard.site.id,
-      floorId: mockDashboard.floors[0].id,
-      gatewayId: mockDashboard.gateways[0].id
-    });
-
-    fireEvent.click(screen.getByLabelText("조명 1 선택"));
-    fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
-
-    await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
-      `/registration-sessions/${mockRegistrationSession.id}/nodes/register-batch`,
-      expect.objectContaining({
-        mode: "batch",
-        nodes: [{ nodeId: mockRegistrationSession.discoveredNodes[0].id, placement: { mode: "auto" } }]
-      })
-    ));
-    expect(await screen.findByText("등록 완료")).toBeInTheDocument();
-  });
-
-  it("shows lighting registration as the first action when no fixtures are registered", async () => {
-    authState.user = { ...authState.user!, role: "operator" };
-    apiState.dashboard = {
-      ...mockDashboard,
-      summary: { ...mockDashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
-      floors: mockDashboard.floors.map((floor) => ({ ...floor, fixtures: [] })),
-      groups: []
-    };
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(await screen.findByRole("link", { name: "모니터링" }));
-    expect(await screen.findByText("등록된 조명이 없습니다")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeInTheDocument();
-  });
-
   it("hides commissioning controls from an admin for an existing site", async () => {
     apiState.dashboard = {
       ...mockDashboard,
@@ -1156,39 +1101,6 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "초기 설치 설정" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "조명 검색 시작" })).not.toBeInTheDocument();
-  });
-
-  it("moves from initial setup through gateway claim to lighting registration", async () => {
-    authState.user = { ...authState.user!, role: "operator" };
-    apiState.dashboard = {
-      ...mockDashboard,
-      site: { id: "", name: "" },
-      summary: { ...mockDashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
-      floors: [],
-      gateways: [],
-      groups: []
-    };
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(await screen.findByRole("link", { name: "모니터링" }));
-    fireEvent.change(await screen.findByLabelText("고객사명"), { target: { value: "고객사 A" } });
-    fireEvent.change(await screen.findByLabelText("현장명"), { target: { value: "온보딩 주차장" } });
-    fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 중구" } });
-    fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
-
-    fireEvent.change(await screen.findByLabelText("제품 시리얼"), { target: { value: "GW-ONBOARD-001" } });
-    fireEvent.change(screen.getByLabelText("일회성 등록 코드"), { target: { value: "claim-once" } });
-    fireEvent.click(screen.getByRole("button", { name: "게이트웨이 등록" }));
-
-    await screen.findByRole("button", { name: "조명 검색 시작" });
-    fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: "floor-onboarded-1" } });
-    fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: "gateway-onboarded-1" } });
-    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeEnabled();
   });
 
 });

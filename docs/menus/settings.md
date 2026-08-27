@@ -10,7 +10,7 @@
 - 기존 도면 에디터는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
 - 사용자/보안, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
 - BLE Mesh floor/zone Group Address와 subscription 동기화는 설정 화면 확장이 아니라 제어 기반 기능으로 구현한다. 기존 FixtureGroup 데이터만 사용하며 이번 범위에서 그룹 CRUD UI는 추가하지 않는다.
-- Task 5까지 operator의 현장 admin 관리 API, 설치 대기 Site DB 계약, assigned admin의 최초 설치와 Gateway claim·조명 등록 commissioning API를 완료했다. operator 관리 웹 화면과 admin 최초 설치·commissioning 역할 노출은 후속 Task 범위다.
+- Task 6에서 로그인 화면을 `loginId` 전용으로 정리하고 operator/customer shell을 분리했다. operator는 설정을 포함한 고객 메뉴에 진입하지 않고 `/operator/site-admins` route 뼈대로 replace되며, 현장 관리자 CRUD 화면은 Task 7, assigned admin 최초 설치·commissioning 역할 노출은 Task 8 이후 범위다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
 
@@ -93,7 +93,7 @@
 - PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
 - `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다. legacy migration은 현장 유무로 서비스 운영사를 추론하지 않으며 기존 Organization을 모두 customer로, legacy owner/operator와 invitation을 admin으로 유지한다.
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
-- invitation signup은 viewer 초대 전용 호환 API다. `{ token, loginId, email, name, password }`에서 `Invitation.email`은 연락 이메일과만 비교하고 정규화한 `loginId`를 별도 로그인 식별자로 저장한다. Task 6 전까지 공개 signup UI도 아이디와 초대 이메일을 별도 입력으로 받는다. operator/admin invitation signup은 거부하며 viewer는 자기 고객사 Organization에 속한 유효한 `Invitation.siteId`의 membership을 transaction으로 생성한다.
+- invitation signup은 viewer 초대 전용 호환 API다. `{ token, loginId, email, name, password }`에서 `Invitation.email`은 연락 이메일과만 비교하고 정규화한 `loginId`를 별도 로그인 식별자로 저장한다. 공개 signup UI는 Task 6에서 제거했으며 API 호환만 유지한다. operator/admin invitation signup은 거부하며 viewer는 자기 고객사 Organization에 속한 유효한 `Invitation.siteId`의 membership을 transaction으로 생성한다.
 - operator site-admin 관리 API는 `GET/POST /operator/site-admins`, `POST /operator/sites/:siteId/admin`, `PATCH /operator/site-admins/:userId`, `POST /operator/site-admins/:userId/reset-password`, `DELETE /operator/site-admins/:userId`를 제공한다. 생성·교체·수정·비밀번호 재설정·비활성화는 active service-provider operator만 호출할 수 있고, 비밀번호와 hash는 응답 및 audit metadata에 포함하지 않는다. 이 항목은 API 완료이며 설정 메뉴의 operator 관리 웹 UI 완료를 뜻하지 않는다.
 - `PUT /floors/:floorId/editor-state`는 `Floor.mapRevision` optimistic update, normalized row 변경, canonical `FloorMapRevision` snapshot/SHA-256과 `floor_editor.saved` 감사를 하나의 Serializable Prisma transaction으로 저장한다. fixture/object의 층 소속, 중복 ID와 준비되지 않은 asset은 optimistic mutation 전에 거부한다.
 - `GET /floors/:floorId/editor-revisions`는 현장 `read`, `POST /floors/:floorId/editor-revisions/:revision/restore`는 `manage` 권한을 요구한다. 복구는 `expectedRevision` 충돌을 `409`로 처리하고, 사라진 fixture를 생성하지 않고 `skippedFixtureIds`로 반환하며 새 revision과 `floor_editor.restored` 감사를 같은 transaction에 남긴다.
@@ -109,9 +109,10 @@
 - 수정 전 legacy migration을 적용한 로컬 개발 DB는 checksum 충돌이 발생할 수 있다. 데이터가 불필요한 경우에만 reset을 선택하고, 보존이 필요하면 감사 후 수동 보정 migration을 사용한다. 설정 기능은 자동 reset이나 파괴적 DB 명령을 실행하지 않는다.
 - **폐기된 Task 4 시점 기록:** 당시 registration session 생성·조회·identify·register·complete는 operator controller 계약이라 새 SiteAccess 완료 경로로 사용할 수 없었다. 현재 Task 5 API는 assigned admin controller/service 이중 검사와 mutation transaction 내부 재검증까지 완료했으며, admin 웹 commissioning UI만 후속 범위다.
 - `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
-- 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
-- `/settings/floor-plans`는 새로고침과 직접 진입이 가능한 층별 도면 목록을 제공한다. 웹에는 이전 계약의 `operator/admin` 편집 링크 노출이 남아 있지만 서버의 현재 SiteAccess에서 operator는 고객 Site를 조회·편집할 수 없으며, assigned admin만 실제 API를 사용할 수 있다. 웹 역할 노출 정리는 후속 Task 범위다.
-- `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회한다. viewer의 직접 edit URL은 목록으로 redirect되고 assigned admin은 편집할 수 있다. operator 편집 route 노출은 이전 UI 계약으로 남아 있을 뿐 현재 서버 권한의 완료 증거가 아니다.
+- 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 이 고객 shell은 admin/viewer만 mount하며 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
+- operator는 전용 `OperatorShell`만 mount한다. `/settings`와 하위 경로를 포함한 operator 직접 URL/새로고침은 history replace로 `/operator/site-admins`에 수렴하고 `/sites` 또는 dashboard query를 실행하지 않는다. 현재 route는 header, 로그인 아이디, 로그아웃, `현장 관리자 계정` heading만 제공하며 CRUD는 Task 7 범위다.
+- `/settings/floor-plans`는 admin/viewer가 새로고침과 직접 진입할 수 있는 층별 도면 목록을 제공한다. assigned admin만 서버 SiteAccess에 따라 실제 편집할 수 있다.
+- `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회한다. viewer의 직접 edit URL은 목록으로 redirect되고 assigned admin은 편집할 수 있다.
 - 웹 에디터는 shared `SaveEditorStateInput` 계약으로 baseline과 현재 상태를 O(n) 비교한다. 1,000개 fixture에서도 실제 변경된 fixture와 floor plan, object create/update/delete만 중복 없이 `PUT /floors/:floorId/editor-state` 한 번으로 전송한다. floor plan의 `null`/`none`, 기본 source type과 fallback asset URL은 API 의미 형태로 정규화해 unchanged 저장을 만들지 않으며 draft object ID는 UUID로 생성한다.
 - atomic save와 revision 복구는 하나의 동기 ref lock으로 상호 배제한다. 요청 중 도구, 캔버스, 배경 입력과 속성 입력을 disabled/read-only로 유지하고, 이미 시작된 배경 asset upload가 끝날 때까지 save/restore도 막아 요청 이후 로컬 수정이 성공 응답에 덮이지 않게 한다. 성공 응답은 새 baseline과 `mapRevision`으로 채택하고 네트워크 오류는 현재 편집 상태를 유지하며, `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
 - 버전 패널은 cursor pagination으로 수정자 display name, 시각과 숫자 변경 수 및 `floorPlanChanged`를 합산해 표시한다. loading/error/empty 상태를 구분하고 오류에는 announcement와 재시도를 제공한다. 복구 버튼의 operator 노출은 이전 UI 계약이며 현재 서버에서는 assigned admin만 복구할 수 있다. 요청은 baseline의 `mapRevision`을 `expectedRevision`으로 전송하고, 현재 존재하지 않아 건너뛴 조명 안내는 같은 floor query refetch 뒤에도 유지한다.
@@ -123,7 +124,7 @@
 - Task 11 완료 후 legacy `PATCH /floors/:floorId/floor-plan`, `PATCH /fixtures/:fixtureId`, `POST/PATCH/DELETE /floor-map-objects` 경로와 웹 export를 제거했다. 이제 도면 변경은 revision·audit·lease fence가 모두 걸린 atomic save/restore 경로로만 가능하며, stale legacy client가 `mapRevision`을 우회해 normalized row를 덮어쓸 경로는 없다.
 - 기존 Playwright browser 회귀는 이전 계약의 operator 시운전 메뉴 노출, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403` fixture를 검증했다. operator 노출 증거는 현재 계정 계약에서 폐기됐고 Task 9 E2E는 아직 갱신하지 않았다. 1,000 fixture editor는 navigation 시작부터 marker 색상 표시와 Konva hit selection까지 8초 이내여야 한다. fixture route는 `apps/web/e2e/support`에만 있으며 assigned `site-1` 밖의 `404`는 test-fixture isolation 검증일 뿐 production tenant E2E 증거는 아니다.
 - Task 16의 별도 Playwright route fixture는 저장된 지도 객체가 모니터링의 실제 Konva canvas에 표시되는 계약까지 검증한다. 설정 에디터 저장 기능이나 Raspberry Pi/ESP32-H2 실장비 연동을 추가로 완료했다는 의미는 아니다.
-- 설정 shell의 역할별 section 노출은 이전 웹 계약이 남아 있다. 현재 서버 계약에서는 operator가 고객 Site 목록과 capability를 갖지 않고 assigned admin과 viewer만 허용된 범위의 Site API를 사용한다. admin 최초 설치 UI와 Gateway/registration 역할 노출은 후속 Task에서 전환한다.
+- operator는 고객 설정 shell을 mount하지 않으며 고객 Site 목록과 capability를 갖지 않는다. assigned admin과 viewer만 허용된 범위의 Site API를 사용한다. admin 최초 설치 UI와 Gateway/registration 역할 노출은 후속 Task에서 전환한다.
 - 현장 선택기는 `GET /sites` 응답의 `customerName`과 `name`을 함께 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. operator에게 배정 현장을 표시하던 설명은 폐기됐으며 현재 `GET /sites`는 operator에게 고객 Site를 반환하지 않는다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard, floor fixture, statistics query key는 모두 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`, `/sites/:siteId/floors/:floorId/fixtures`, `/energy/sites/:siteId/estimate`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - dirty editor에서 상단 `로그아웃` 버튼을 눌러도 동일한 폐기 확인을 거친다. 취소하면 session과 draft를 유지하고, 승인한 뒤에만 draft를 버리고 `/auth/logout` 후 auth query를 로그인 화면으로 전환한다.
 - 역할별 설정 navigation의 모든 링크에 실제 route를 제공한다. 아직 구현하지 않은 현장 및 층, 조명 및 그룹, Gateway, 시운전, 정책, 알림, 보안, 펌웨어, 외부 연동, 장비 상태는 공통 placeholder view를 표시하며, 역할에 없는 section의 직접 URL은 설정 개요로 제한한다.

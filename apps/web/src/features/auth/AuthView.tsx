@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
-import { LockKeyhole, UserPlus } from "lucide-react";
-import { login, signup } from "../../api/auth";
+import { LockKeyhole } from "lucide-react";
+import { login } from "../../api/auth";
 
 interface AuthViewProps {
   onAuthenticated: () => void;
@@ -9,12 +9,8 @@ interface AuthViewProps {
 
 export function AuthView({ onAuthenticated }: AuthViewProps) {
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"login" | "signup">("login");
   const [loginId, setLoginId] = useState("");
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [token, setToken] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -27,26 +23,13 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
     onError: () => setErrorMessage("아이디 또는 비밀번호를 확인해 주세요.")
   });
 
-  const signupMutation = useMutation({
-    mutationFn: signup,
-    onSuccess: () => {
-      setMode("login");
-      setErrorMessage("가입이 완료되었습니다. 설정한 계정으로 로그인해 주세요.");
-    },
-    onError: () => setErrorMessage("초대 정보 또는 입력값을 확인해 주세요.")
-  });
-
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage("");
-    if (mode === "login") {
-      loginMutation.mutate({ loginId, password, rememberMe });
-      return;
-    }
-    signupMutation.mutate({ token, loginId, email, name, password });
+    loginMutation.mutate({ loginId, password, rememberMe });
   }
 
-  const isPending = loginMutation.isPending || signupMutation.isPending;
+  const isPending = loginMutation.isPending;
 
   return (
     <main className="auth-shell">
@@ -60,33 +43,11 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
         </div>
 
         <div className="auth-heading">
-          <span className="eyebrow">{mode === "login" ? "계정 로그인" : "초대 기반 회원가입"}</span>
-          <h1>{mode === "login" ? "LED Control 로그인" : "회원 가입"}</h1>
+          <span className="eyebrow">계정 로그인</span>
+          <h1>LED Control 로그인</h1>
         </div>
 
         <form className="auth-form" onSubmit={submit}>
-          {mode === "signup" && (
-            <>
-              <label>
-                초대 코드
-                <input value={token} onChange={(event) => setToken(event.target.value)} required />
-              </label>
-              <label>
-                이름
-                <input value={name} onChange={(event) => setName(event.target.value)} required />
-              </label>
-              <label>
-                초대 이메일
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  autoComplete="email"
-                  required
-                />
-              </label>
-            </>
-          )}
           <label>
             아이디
             <input
@@ -103,31 +64,25 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              autoComplete="current-password"
               required
             />
           </label>
-          {mode === "login" && (
-            <label className="check-field">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(event) => setRememberMe(event.target.checked)}
-              />
-              자동 로그인
-            </label>
-          )}
+          <label className="check-field">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(event) => setRememberMe(event.target.checked)}
+            />
+            자동 로그인
+          </label>
           <button className="primary-button auth-submit" disabled={isPending}>
-            {mode === "login" ? <LockKeyhole size={18} /> : <UserPlus size={18} />}
-            {mode === "login" ? "로그인" : "가입하기"}
+            <LockKeyhole size={18} />
+            로그인
           </button>
         </form>
 
-        {errorMessage && <p className={errorMessage.includes("완료") ? "success-text" : "danger-text"}>{errorMessage}</p>}
-
-        <button className="link-button" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
-          {mode === "login" ? "초대 코드를 가지고 회원가입" : "이미 계정이 있으면 로그인"}
-        </button>
+        {errorMessage && <p className="danger-text">{errorMessage}</p>}
       </section>
     </main>
   );
