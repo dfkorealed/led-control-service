@@ -62,6 +62,34 @@ describe("schedule DTO validation", () => {
     expect(() => parseScheduleListQuery({ cursor }, SITE_ID)).toThrow(BadRequestException);
   });
 
+  it("allows a 512-character cursor through the size gate before rejecting its malformed payload", () => {
+    const bufferFrom = jest.spyOn(Buffer, "from");
+    const jsonParse = jest.spyOn(JSON, "parse");
+    try {
+      expect(() => parseScheduleListQuery({ cursor: "A".repeat(512) }, SITE_ID))
+        .toThrow(BadRequestException);
+      expect(bufferFrom).toHaveBeenCalled();
+      expect(jsonParse).toHaveBeenCalled();
+    } finally {
+      bufferFrom.mockRestore();
+      jsonParse.mockRestore();
+    }
+  });
+
+  it("rejects a 513-character cursor before decoding or parsing it", () => {
+    const bufferFrom = jest.spyOn(Buffer, "from");
+    const jsonParse = jest.spyOn(JSON, "parse");
+    try {
+      expect(() => parseScheduleListQuery({ cursor: "A".repeat(513) }, SITE_ID))
+        .toThrow(BadRequestException);
+      expect(bufferFrom).not.toHaveBeenCalled();
+      expect(jsonParse).not.toHaveBeenCalled();
+    } finally {
+      bufferFrom.mockRestore();
+      jsonParse.mockRestore();
+    }
+  });
+
   it("rejects a cursor scoped to another Site", () => {
     const cursor = encodeScheduleListCursor({
       siteId: "00000000-0000-4000-8000-000000000012",

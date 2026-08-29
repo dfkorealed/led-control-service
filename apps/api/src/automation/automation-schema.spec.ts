@@ -78,7 +78,11 @@ describe("automation Prisma schema contract", () => {
   });
 
   it("preflights equal-time schedules and pending snapshots before enforcing the DB inequality", () => {
+    const lockStatement = 'LOCK TABLE "LightingSchedule", "MqttOutbox" IN SHARE MODE;';
+
     expect(prismaSchema).toContain("DB CHECK requires localStartTime and localEndTime to differ");
+    expect(equalTimeMigration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(equalTimeMigration).toContain(lockStatement);
     expect(equalTimeMigration).toContain('FROM "LightingSchedule"');
     expect(equalTimeMigration).toContain("jsonb_array_elements");
     expect(equalTimeMigration).toContain('outbox."publishedAt" IS NULL');
@@ -93,6 +97,13 @@ describe("automation Prisma schema contract", () => {
     expect(equalTimeMigration.indexOf("jsonb_array_elements")).toBeLessThan(
       equalTimeMigration.indexOf('CHECK ("localStartTime" <> "localEndTime")')
     );
+    expect(equalTimeMigration.indexOf(lockStatement)).toBeLessThan(
+      equalTimeMigration.indexOf('FROM "LightingSchedule"')
+    );
+    expect(equalTimeMigration.indexOf('CHECK ("localStartTime" <> "localEndTime")')).toBeLessThan(
+      equalTimeMigration.lastIndexOf("COMMIT;")
+    );
+    expect(equalTimeMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
   it("enforces automation ranges and recurrence shape in PostgreSQL", () => {
@@ -392,6 +403,89 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("LightingSchedule_recurrence_check");
   });
+
+  it.each(["schedule", "outbox"] as const)(
+    "blocks a concurrent %s-first invalid writer until the migration commits, then rolls its transaction back",
+    async (firstWrite) => {
+      const schemaName = `automation_equal_time_${firstWrite}_race`;
+      const migrationMarker = `${firstWrite}-migration-lock-held`;
+      const writerMarker = `${firstWrite}-writer-started`;
+      const writerApplicationName = `automation-equal-time-${firstWrite}-writer`;
+      const lockStatement = 'LOCK TABLE "LightingSchedule", "MqttOutbox" IN SHARE MODE;';
+      const migrationWithBarrier = equalTimeMigration.replace(
+        lockStatement,
+        `${lockStatement}\nSELECT '${migrationMarker}';\nSELECT pg_sleep(1);`
+      );
+
+      executeSql(equalTimeMigrationTestSchemaSql(schemaName));
+      try {
+        const migrationSession = startSqlSession(`
+          SET application_name = 'automation-equal-time-${firstWrite}-migration';
+          SET search_path TO "${schemaName}";
+          ${migrationWithBarrier}
+        `);
+        await migrationSession.waitForOutput(migrationMarker);
+
+        const invalidScheduleInsert = `
+          INSERT INTO "LightingSchedule" (
+            "id", "siteId", "gatewayId", "localStartTime", "localEndTime"
+          ) VALUES (
+            '${firstWrite}-schedule', 'site', 'gateway', '10:00', '10:00'
+          );
+        `;
+        const invalidOutboxInsert = `
+          INSERT INTO "MqttOutbox" (
+            "id", "dispatchId", "gatewayId", "revision", "payloadHash",
+            "payload", "publishedAt", "deadLetteredAt"
+          ) VALUES (
+            '${firstWrite}-outbox', NULL, 'gateway', 1, 'sha256:test',
+            '{"schedules":[{"id":"${firstWrite}-snapshot","localStartTime":"10:00","localEndTime":"10:00"}]}'::jsonb,
+            NULL, NULL
+          );
+        `;
+        const writerSession = startSqlSession(`
+          SET application_name = '${writerApplicationName}';
+          SET search_path TO "${schemaName}";
+          BEGIN;
+          SET LOCAL lock_timeout = '3s';
+          SELECT '${writerMarker}';
+          ${firstWrite === "schedule" ? invalidScheduleInsert : invalidOutboxInsert}
+          ${firstWrite === "outbox" ? invalidScheduleInsert : ""}
+          COMMIT;
+        `);
+        await writerSession.waitForOutput(writerMarker);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        expect(querySql(`
+          SELECT COALESCE(wait_event_type || ':' || wait_event, 'not-waiting')
+          FROM pg_stat_activity
+          WHERE application_name = '${writerApplicationName}';
+        `)).toBe("Lock:relation");
+
+        const [migrationResult, writerResult] = await Promise.all([
+          migrationSession.completion,
+          writerSession.completion
+        ]);
+        expect(migrationResult).toMatchObject({ status: 0, stderr: "" });
+        expect(writerResult.status).not.toBe(0);
+        expect(writerResult.stderr).toContain("LightingSchedule_local_time_distinct_check");
+        expect(querySql(`
+          SET search_path TO "${schemaName}";
+          SELECT
+            (SELECT COUNT(*) FROM "LightingSchedule") || ':' ||
+            (SELECT COUNT(*) FROM "MqttOutbox") || ':' ||
+            (SELECT COUNT(*)
+             FROM pg_constraint AS constraint_row
+             JOIN pg_class AS relation ON relation.oid = constraint_row.conrelid
+             JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+             WHERE namespace.nspname = '${schemaName}'
+               AND constraint_row.conname = 'LightingSchedule_local_time_distinct_check');
+        `)).toBe("0:0:1");
+      } finally {
+        executeSql(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;`);
+      }
+    }
+  );
 
   it("enforces synchronization state invariants while allowing the revision-zero initial row", () => {
     executeSql(configurationInsert("automation-schema-gateway-config", "PENDING", 0, 0, "NULL", "NULL", "NULL"));
@@ -1544,6 +1638,30 @@ function fixtureResultInsert(
 
 function sqlNullable(value?: string) {
   return value === undefined ? "NULL" : `'${value}'`;
+}
+
+function equalTimeMigrationTestSchemaSql(schemaName: string) {
+  return `
+    DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;
+    CREATE SCHEMA "${schemaName}";
+    CREATE TABLE "${schemaName}"."LightingSchedule" (
+      "id" TEXT PRIMARY KEY,
+      "siteId" TEXT NOT NULL,
+      "gatewayId" TEXT NOT NULL,
+      "localStartTime" TEXT NOT NULL,
+      "localEndTime" TEXT NOT NULL
+    );
+    CREATE TABLE "${schemaName}"."MqttOutbox" (
+      "id" TEXT PRIMARY KEY,
+      "dispatchId" TEXT,
+      "gatewayId" TEXT,
+      "revision" INTEGER,
+      "payloadHash" TEXT,
+      "payload" JSONB NOT NULL,
+      "publishedAt" TIMESTAMP,
+      "deadLetteredAt" TIMESTAMP
+    );
+  `;
 }
 
 function executeSql(sql: string) {

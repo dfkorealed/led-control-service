@@ -99,7 +99,7 @@ export function encodeScheduleListCursor(cursor: ScheduleListCursor) {
 }
 
 function decodeScheduleListCursor(rawCursor: string): ScheduleListCursor {
-  if (!/^[A-Za-z0-9_-]+$/.test(rawCursor)) {
+  if (rawCursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(rawCursor)) {
     throw new BadRequestException("invalid schedule list cursor");
   }
   try {

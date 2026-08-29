@@ -1,3 +1,31 @@
+BEGIN;
+
+LOCK TABLE "LightingSchedule", "MqttOutbox" IN SHARE MODE;
+
+CREATE TEMP TABLE "EqualTimeMigrationFailure" (
+  "detail" TEXT NOT NULL
+) ON COMMIT DROP;
+
+CREATE FUNCTION pg_temp."raise_equal_time_migration_failure"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $failure$
+BEGIN
+  RAISE EXCEPTION USING
+    ERRCODE = '23514',
+    MESSAGE = 'Operator remediation required before migration: equal local schedule times detected',
+    DETAIL = NEW."detail",
+    HINT = 'Set each listed schedule to explicit non-equal local times. Regenerate each listed Gateway full snapshot, then remove only the superseded invalid pending outbox row under the automation recovery runbook. No rows were modified.';
+  RETURN NEW;
+END;
+$failure$;
+
+CREATE CONSTRAINT TRIGGER "EqualTimeMigrationFailure_raise_at_commit"
+AFTER INSERT ON "EqualTimeMigrationFailure"
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE FUNCTION pg_temp."raise_equal_time_migration_failure"();
+
 DO $migration$
 DECLARE
   invalid_schedule_rows TEXT;
@@ -54,10 +82,8 @@ BEGIN
   ) AS invalid;
 
   IF invalid_schedule_rows IS NOT NULL OR invalid_pending_outbox_rows IS NOT NULL THEN
-    RAISE EXCEPTION USING
-      ERRCODE = '23514',
-      MESSAGE = 'Operator remediation required before migration: equal local schedule times detected',
-      DETAIL = concat_ws(
+    INSERT INTO "EqualTimeMigrationFailure" ("detail")
+    VALUES (concat_ws(
         E'\n',
         CASE
           WHEN invalid_schedule_rows IS NOT NULL
@@ -67,12 +93,15 @@ BEGIN
           WHEN invalid_pending_outbox_rows IS NOT NULL
             THEN 'Pending automation-config MqttOutbox rows: ' || invalid_pending_outbox_rows
         END
-      ),
-      HINT = 'Set each listed schedule to explicit non-equal local times. Regenerate each listed Gateway full snapshot, then remove only the superseded invalid pending outbox row under the automation recovery runbook. No rows were modified.';
+      ));
+  ELSE
+    EXECUTE $ddl$
+      ALTER TABLE "LightingSchedule"
+        ADD CONSTRAINT "LightingSchedule_local_time_distinct_check"
+        CHECK ("localStartTime" <> "localEndTime")
+    $ddl$;
   END IF;
 END;
 $migration$;
 
-ALTER TABLE "LightingSchedule"
-  ADD CONSTRAINT "LightingSchedule_local_time_distinct_check"
-  CHECK ("localStartTime" <> "localEndTime");
+COMMIT;
