@@ -1,13 +1,13 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-29
+기준일: 2026-08-30
 
 ## 다음 구현 범위
 
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
-- 구현 순서는 현재 미커밋 Gateway/PKI 실장비 수정 정리, shared/DB 계약, API·MQTT 동기화, Gateway 규칙 엔진, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL이다.
-- 설계만 완료했으며 코드, migration, 자동 테스트와 실장비 검증은 아직 시작하지 않았다.
+- shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API CRUD, exact Fixture snapshot, overlap 직렬화와 full-snapshot outbox 저장을 구현했다.
+- 다음 구현은 차량 이벤트 API, MQTT publisher/application ACK, Gateway 규칙 엔진, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
 
 ## 확정 구현 범위
 
@@ -35,6 +35,11 @@
 
 ## 구현 완료
 
+- `GET/POST/PATCH/DELETE /sites/:siteId/automation/schedules`를 제공한다. assigned active customer admin만 생성·수정·삭제할 수 있고 viewer는 목록만 조회하며 operator와 다른 Site 요청은 `404`로 숨긴다.
+- schedule mutation은 같은 transaction에서 Site row를 잠근 뒤 assigned admin을 다시 인가한다. fixture·fixture set·floor·active group 선택은 저장 시점의 등록 완료 Fixture ID 전체 set으로 고정하고 한 Gateway 대상만 허용한다.
+- enabled schedule은 공통 automation engine의 실제 recurrence occurrence와 Fixture 교집합으로 충돌을 검사한다. disabled schedule은 충돌에서 제외하고 enable 시 다시 검사하며, 같은 Site의 concurrent create/update/enable은 Site lock 아래 하나만 성공한다.
+- schedule parent, deferred cardinality를 만족하는 child snapshot, Gateway `desiredRevision`, 전체 automation snapshot `MqttOutbox`를 원자 저장한다. Gateway 이동 update는 이전 Gateway의 제거 snapshot과 새 Gateway의 추가 snapshot을 함께 만들고 새 Gateway의 `appliedRevision`은 0으로 초기화한다.
+- `dimmingEnabled=false` action은 DB와 Gateway snapshot 모두 `brightnessPercent=100`으로 정규화한다. 목록은 공통 engine의 다음 occurrence, desired/applied revision, sync status와 최근 실행을 반환한다.
 - pending assigned admin이 제어 직접 URL로 들어오면 CustomerShell이 제어 화면을 계속 열지 않고 selected/default `siteId`를 보존한 최초 설치 설정으로 replace한다. 설치 완료 전에는 제어 mutation UI가 노출되지 않는다.
 - dashboard의 fixture, 층, 저장 구역 목록을 기반으로 `개별/다중`, `층`, `구역` 제어 대상을 선택할 수 있다.
 - 개별/다중 조명 목록은 이름 검색, 상태·층 필터, checkbox 선택을 제공하고 선택 개수와 제어 불가 개수를 표시한다.
@@ -134,7 +139,7 @@
 
 ## 미구현
 
-- 설계된 스케줄 제어 생성, 수정, 삭제와 Gateway 무중단 offline 실행
+- 스케줄 제어 Web CRUD와 Gateway 무중단 offline 실행
 - 설계된 차량 감지 이벤트 규칙 CRUD와 ESP32-H2 센서 이벤트 전달
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
@@ -147,6 +152,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- Task 7은 automation full snapshot을 durable `MqttOutbox`에 저장하지만 실제 MQTT publish와 exact revision application ACK 처리는 Task 9 범위다. 따라서 API 저장 성공은 Gateway 적용 완료를 의미하지 않는다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - 스케줄 제어는 추후 구현 범위이며, 동작하지 않는 버튼은 양산 UI에서 제거했다.
@@ -164,6 +170,13 @@
 
 ## 관련 파일
 
+- `apps/api/src/automation/automation.controller.ts`
+- `apps/api/src/automation/automation.module.ts`
+- `apps/api/src/automation/schedules.service.ts`
+- `apps/api/src/automation/target-snapshot.service.ts`
+- `apps/api/src/automation/dto/schedule.dto.ts`
+- `apps/api/src/automation/schedules.service.spec.ts`
+- `apps/api/test/automation-schedules.e2e-spec.ts`
 - `apps/web/src/features/control/ControlView.tsx`
 - `apps/web/src/features/control/ControlTargetPicker.tsx`
 - `apps/web/src/features/control/ControlView.test.tsx`

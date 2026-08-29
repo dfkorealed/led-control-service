@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AccessModule } from "./access/access.module";
 import { AuditModule } from "./audit/audit.module";
+import { AutomationModule } from "./automation/automation.module";
 import { AuthModule } from "./auth/auth.module";
 import { CommandsModule } from "./commands/commands.module";
 import { EnergyModule } from "./energy/energy.module";
@@ -23,6 +24,7 @@ import { SitesModule } from "./sites/sites.module";
     AuthModule,
     AccessModule,
     AuditModule,
+    AutomationModule,
     SitesModule,
     CommandsModule,
     EnergyModule,
