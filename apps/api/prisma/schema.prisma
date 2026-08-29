@@ -643,51 +643,52 @@ model MeshControlGroupMember {
 }
 
 model Command {
-  id           String            @id @default(uuid())
-  siteId       String
-  requestedBy  String
-  clientRequestId String
+  id                 String            @id @default(uuid())
+  siteId             String
+  requestedBy        String
+  clientRequestId    String
   requestFingerprint String
-  targetType   String
-  targetId     String?
-  targetFixtureIds Json               @default("[]")
-  brightness   Int
-  status       CommandStatus     @default(pending)
-  errorMessage String?
-  site         Site              @relation(fields: [siteId], references: [id])
-  user         User              @relation(fields: [requestedBy], references: [id])
-  dispatches   CommandDispatch[]
-  manualOverride ManualOverride?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  targetType         String
+  targetId           String?
+  targetFixtureIds   Json              @default("[]")
+  brightness         Int
+  status             CommandStatus     @default(pending)
+  errorMessage       String?
+  site               Site              @relation(fields: [siteId], references: [id])
+  user               User              @relation(fields: [requestedBy], references: [id])
+  dispatches         CommandDispatch[]
+  manualOverride     ManualOverride?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
-  @@index([siteId, createdAt])
   @@unique([siteId, requestedBy, clientRequestId])
+  @@unique([id, siteId, requestedBy])
+  @@index([siteId, createdAt])
 }
 
 model CommandDispatch {
-  id             String                 @id @default(uuid())
-  commandId      String
-  gatewayId      String
-  idempotencyKey String                 @unique
-  sequence       BigInt
-  deliveryMode   String                 @default("unicast")
-  destinationAddress String?
-  meshControlGroupId String?
+  id                      String                 @id @default(uuid())
+  commandId               String
+  gatewayId               String
+  idempotencyKey          String                 @unique
+  sequence                BigInt
+  deliveryMode            String                 @default("unicast")
+  destinationAddress      String?
+  meshControlGroupId      String?
   meshControlGroupVersion Int?
-  status         CommandDispatchStatus  @default(pending)
-  publishedAt    DateTime?
-  acceptedAt     DateTime?
-  completedAt    DateTime?
-  errorCode      String?
-  errorMessage   String?
-  command        Command                @relation(fields: [commandId], references: [id])
-  gateway        Gateway                @relation(fields: [gatewayId], references: [id])
-  meshControlGroup MeshControlGroup?     @relation(fields: [meshControlGroupId, gatewayId], references: [id, gatewayId], onDelete: Restrict)
-  fixtureResults CommandFixtureResult[]
-  outbox         MqttOutbox?
-  createdAt      DateTime               @default(now())
-  updatedAt      DateTime               @updatedAt
+  status                  CommandDispatchStatus  @default(pending)
+  publishedAt             DateTime?
+  acceptedAt              DateTime?
+  completedAt             DateTime?
+  errorCode               String?
+  errorMessage            String?
+  command                 Command                @relation(fields: [commandId], references: [id])
+  gateway                 Gateway                @relation(fields: [gatewayId], references: [id])
+  meshControlGroup        MeshControlGroup?      @relation(fields: [meshControlGroupId, gatewayId], references: [id, gatewayId], onDelete: Restrict)
+  fixtureResults          CommandFixtureResult[]
+  outbox                  MqttOutbox?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
 
   @@unique([gatewayId, sequence])
   @@index([commandId])
@@ -749,8 +750,8 @@ model GatewayAutomationConfiguration {
   payloadHash     String?
   lastErrorCode   String?
   lastAppliedAt   DateTime?
-  gateway         Gateway              @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade)
-  site            Site                 @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  gateway         Gateway              @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+  site            Site                 @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
   updatedAt       DateTime             @updatedAt
 
   @@unique([gatewayId, siteId])
@@ -758,35 +759,36 @@ model GatewayAutomationConfiguration {
 }
 
 model LightingSchedule {
-  id                String                 @id @default(uuid())
+  id                String                    @id @default(uuid())
   siteId            String
   gatewayId         String
   name              String
-  status            AutomationRuleStatus   @default(enabled)
+  status            AutomationRuleStatus      @default(enabled)
   activeFrom        DateTime
   activeUntil       DateTime
   localStartTime    String
   localEndTime      String
   recurrenceKind    ScheduleRecurrenceKind
-  weeklyDays        Int[]                  @default([])
+  weeklyDays        Int[]                     @default([])
   monthlyDay        Int?
   yearlyMonth       Int?
   yearlyDay         Int?
   dimmingEnabled    Boolean
   brightnessPercent Int
-  desiredRevision   Int                    @default(0)
-  appliedRevision   Int                    @default(0)
+  desiredRevision   Int                       @default(0)
+  appliedRevision   Int                       @default(0)
   createdById       String
   updatedById       String
-  site              Site                   @relation(fields: [siteId], references: [id], onDelete: Restrict)
-  gateway           Gateway                @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict)
-  createdBy         User                   @relation("LightingScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy         User                   @relation("LightingScheduleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  site              Site                      @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gateway           Gateway                   @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  createdBy         User                      @relation("LightingScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  updatedBy         User                      @relation("LightingScheduleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   fixtures          LightingScheduleFixture[]
-  executions        AutomationExecution[]  @relation("LightingScheduleExecutions")
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
+  executions        AutomationExecution[]     @relation("LightingScheduleExecutions")
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
 
+  @@unique([id, siteId, gatewayId])
   @@index([siteId, status, createdAt])
   @@index([gatewayId, status])
 }
@@ -794,37 +796,41 @@ model LightingSchedule {
 model LightingScheduleFixture {
   scheduleId String
   fixtureId  String
-  schedule   LightingSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-  fixture    Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict)
+  siteId     String
+  gatewayId  String
+  schedule   LightingSchedule @relation(fields: [scheduleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
+  fixture    Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdAt  DateTime         @default(now())
 
   @@id([scheduleId, fixtureId])
   @@index([fixtureId])
+  @@index([siteId, gatewayId])
 }
 
 model VehicleEventRule {
-  id                String               @id @default(uuid())
+  id                String                @id @default(uuid())
   siteId            String
   gatewayId         String
   name              String
-  status            AutomationRuleStatus @default(enabled)
+  status            AutomationRuleStatus  @default(enabled)
   dimmingEnabled    Boolean
   brightnessPercent Int
-  holdSeconds       Int                  @default(60)
-  desiredRevision   Int                  @default(0)
-  appliedRevision   Int                  @default(0)
+  holdSeconds       Int                   @default(60)
+  desiredRevision   Int                   @default(0)
+  appliedRevision   Int                   @default(0)
   createdById       String
   updatedById       String
-  site              Site                 @relation(fields: [siteId], references: [id], onDelete: Restrict)
-  gateway           Gateway              @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict)
-  createdBy         User                 @relation("VehicleEventRuleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedBy         User                 @relation("VehicleEventRuleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  site              Site                  @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gateway           Gateway               @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  createdBy         User                  @relation("VehicleEventRuleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  updatedBy         User                  @relation("VehicleEventRuleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   sources           VehicleEventSource[]
   targets           VehicleEventTarget[]
   executions        AutomationExecution[] @relation("VehicleEventRuleExecutions")
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
+  @@unique([id, siteId, gatewayId])
   @@index([siteId, status, createdAt])
   @@index([gatewayId, status])
 }
@@ -832,44 +838,52 @@ model VehicleEventRule {
 model VehicleEventSource {
   ruleId    String
   fixtureId String
-  rule      VehicleEventRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  fixture   Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict)
+  siteId    String
+  gatewayId String
+  rule      VehicleEventRule @relation(fields: [ruleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
+  fixture   Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdAt DateTime         @default(now())
 
   @@id([ruleId, fixtureId])
   @@index([fixtureId])
+  @@index([siteId, gatewayId])
 }
 
 model VehicleEventTarget {
   ruleId    String
   fixtureId String
-  rule      VehicleEventRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
-  fixture   Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict)
+  siteId    String
+  gatewayId String
+  rule      VehicleEventRule @relation(fields: [ruleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
+  fixture   Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdAt DateTime         @default(now())
 
   @@id([ruleId, fixtureId])
   @@index([fixtureId])
+  @@index([siteId, gatewayId])
 }
 
 model ManualOverride {
-  id                String       @id @default(uuid())
+  id                String                  @id @default(uuid())
   siteId            String
   gatewayId         String
-  commandId         String       @unique
+  commandId         String                  @unique
   requestedById     String
   brightnessPercent Int
   startedAt         DateTime
   overrideUntil     DateTime
   endedAt           DateTime?
-  site              Site         @relation(fields: [siteId], references: [id], onDelete: Restrict)
-  gateway           Gateway      @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict)
-  command           Command      @relation(fields: [commandId], references: [id], onDelete: Restrict)
-  requestedBy       User         @relation("ManualOverrideRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  site              Site                    @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gateway           Gateway                 @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  command           Command                 @relation(fields: [commandId, siteId, requestedById], references: [id, siteId, requestedBy], onDelete: Restrict, onUpdate: Restrict)
+  requestedBy       User                    @relation("ManualOverrideRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   fixtures          ManualOverrideFixture[]
-  executions        AutomationExecution[] @relation("ManualOverrideExecutions")
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  executions        AutomationExecution[]   @relation("ManualOverrideExecutions")
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
+  @@unique([commandId, siteId, requestedById])
+  @@unique([id, siteId, gatewayId])
   @@index([siteId, overrideUntil])
   @@index([gatewayId, overrideUntil])
   @@index([requestedById, createdAt])
@@ -878,12 +892,15 @@ model ManualOverride {
 model ManualOverrideFixture {
   manualOverrideId String
   fixtureId        String
-  manualOverride   ManualOverride @relation(fields: [manualOverrideId], references: [id], onDelete: Cascade)
-  fixture          Fixture        @relation(fields: [fixtureId], references: [id], onDelete: Restrict)
+  siteId           String
+  gatewayId        String
+  manualOverride   ManualOverride @relation(fields: [manualOverrideId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
+  fixture          Fixture        @relation(fields: [fixtureId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   createdAt        DateTime       @default(now())
 
   @@id([manualOverrideId, fixtureId])
   @@index([fixtureId])
+  @@index([siteId, gatewayId])
 }
 
 model AutomationExecution {
@@ -900,14 +917,14 @@ model AutomationExecution {
   occurrenceKey      String?
   kind               AutomationExecutionKind
   occurredAt         DateTime
-  payload             Json
-  site               Site                    @relation(fields: [siteId], references: [id], onDelete: Restrict)
-  gateway            Gateway                 @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict)
-  lightingSchedule   LightingSchedule?       @relation("LightingScheduleExecutions", fields: [lightingScheduleId], references: [id], onDelete: SetNull)
-  vehicleEventRule   VehicleEventRule?       @relation("VehicleEventRuleExecutions", fields: [vehicleEventRuleId], references: [id], onDelete: SetNull)
-  manualOverride     ManualOverride?         @relation("ManualOverrideExecutions", fields: [manualOverrideId], references: [id], onDelete: SetNull)
+  payload            Json
+  site               Site                               @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gateway            Gateway                            @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  lightingSchedule   LightingSchedule?                  @relation("LightingScheduleExecutions", fields: [lightingScheduleId], references: [id], onDelete: SetNull, onUpdate: Restrict)
+  vehicleEventRule   VehicleEventRule?                  @relation("VehicleEventRuleExecutions", fields: [vehicleEventRuleId], references: [id], onDelete: SetNull, onUpdate: Restrict)
+  manualOverride     ManualOverride?                    @relation("ManualOverrideExecutions", fields: [manualOverrideId], references: [id], onDelete: SetNull, onUpdate: Restrict)
   fixtureResults     AutomationExecutionFixtureResult[]
-  createdAt          DateTime                @default(now())
+  createdAt          DateTime                           @default(now())
 
   @@unique([gatewayId, eventId, sequence])
   @@index([siteId, occurredAt])
@@ -927,8 +944,8 @@ model AutomationExecutionFixtureResult {
   faultCode          String?
   errorCode          String?
   occurredAt         DateTime
-  execution          AutomationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
-  fixture            Fixture?            @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
+  execution          AutomationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  fixture            Fixture?            @relation(fields: [fixtureId], references: [id], onDelete: SetNull, onUpdate: Restrict)
   createdAt          DateTime            @default(now())
 
   @@id([executionId, fixtureSnapshotId])
