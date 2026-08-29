@@ -699,15 +699,15 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION "lock_automation_membership_mutation"() IS
-  'Serializes schedule target, vehicle source/target, and manual target membership mutations with advisory key (1279607873, 1296387394).';
+  'Serializes automation parent and membership mutations with advisory key (1279607873, 1296387394).';
 
 CREATE FUNCTION "lock_automation_membership_statement"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  -- Top-level statement triggers run before PostgreSQL locks any target tuple.
-  -- A nested RI cascade is already serialized by the parent DELETE and must not reverse that lock order.
+  -- Top-level parent and membership statements acquire the lock before PostgreSQL locks a target tuple.
+  -- Nested counter-parent updates and RI cascades are already serialized by their outer trigger path.
   IF pg_trigger_depth() = 1 THEN
     PERFORM "lock_automation_membership_mutation"();
   END IF;
@@ -715,8 +715,16 @@ BEGIN
 END;
 $$;
 
+CREATE TRIGGER "LightingSchedule_membership_statement_lock"
+BEFORE INSERT OR UPDATE OR DELETE ON "LightingSchedule"
+FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
+
 CREATE TRIGGER "LightingScheduleFixture_membership_statement_lock"
 BEFORE INSERT OR UPDATE OR DELETE ON "LightingScheduleFixture"
+FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
+
+CREATE TRIGGER "VehicleEventRule_membership_statement_lock"
+BEFORE INSERT OR UPDATE OR DELETE ON "VehicleEventRule"
 FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
 
 CREATE TRIGGER "VehicleEventSource_membership_statement_lock"
@@ -725,6 +733,10 @@ FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
 
 CREATE TRIGGER "VehicleEventTarget_membership_statement_lock"
 BEFORE INSERT OR UPDATE OR DELETE ON "VehicleEventTarget"
+FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
+
+CREATE TRIGGER "ManualOverride_membership_statement_lock"
+BEFORE INSERT OR UPDATE OR DELETE ON "ManualOverride"
 FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
 
 CREATE TRIGGER "ManualOverrideFixture_membership_statement_lock"

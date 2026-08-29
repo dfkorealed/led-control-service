@@ -159,9 +159,12 @@ describe("automation Prisma schema contract", () => {
       /CREATE FUNCTION "lock_automation_membership_statement"\(\)[\s\S]*?pg_trigger_depth\(\) = 1[\s\S]*?PERFORM "lock_automation_membership_mutation"\(\)/
     );
     for (const tableName of [
+      "LightingSchedule",
       "LightingScheduleFixture",
+      "VehicleEventRule",
       "VehicleEventSource",
       "VehicleEventTarget",
+      "ManualOverride",
       "ManualOverrideFixture"
     ]) {
       expect(migration).toMatch(
@@ -438,6 +441,46 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       `BEGIN; ${manualOverrideInsert("automation-schema-empty-manual", "automation-schema-command-a")} COMMIT;`,
       "manual override requires at least one target fixture"
     );
+  });
+
+  it("installs one shared statement lock protocol on automation parents and memberships", () => {
+    expect(querySql(`
+      SELECT
+        string_agg(table_name, ',' ORDER BY table_name) || '|' ||
+        bool_and(function_name = 'lock_automation_membership_statement') || '|' ||
+        bool_and(is_before_statement AND covers_all_mutations)
+      FROM (
+        SELECT
+          relation.relname AS table_name,
+          procedure.proname AS function_name,
+          (trigger.tgtype & 1) = 0 AND (trigger.tgtype & 2) = 2 AS is_before_statement,
+          (trigger.tgtype & 28) = 28 AS covers_all_mutations
+        FROM pg_trigger AS trigger
+        JOIN pg_class AS relation ON relation.oid = trigger.tgrelid
+        JOIN pg_proc AS procedure ON procedure.oid = trigger.tgfoid
+        WHERE trigger.tgname IN (
+          'LightingSchedule_membership_statement_lock',
+          'LightingScheduleFixture_membership_statement_lock',
+          'VehicleEventRule_membership_statement_lock',
+          'VehicleEventSource_membership_statement_lock',
+          'VehicleEventTarget_membership_statement_lock',
+          'ManualOverride_membership_statement_lock',
+          'ManualOverrideFixture_membership_statement_lock'
+        )
+      ) AS installed_statement_locks;
+    `)).toBe(
+      "LightingSchedule,LightingScheduleFixture,ManualOverride,ManualOverrideFixture," +
+      "VehicleEventRule,VehicleEventSource,VehicleEventTarget|true|true"
+    );
+    expect(querySql(`
+      SELECT
+        (pg_get_functiondef('lock_automation_membership_statement()'::regprocedure)
+          LIKE '%pg_trigger_depth() = 1%') || '|' ||
+        (pg_get_functiondef('lock_automation_membership_statement()'::regprocedure)
+          LIKE '%lock_automation_membership_mutation%') || '|' ||
+        (pg_get_functiondef('lock_automation_membership_mutation()'::regprocedure)
+          LIKE '%pg_advisory_xact_lock(1279607873, 1296387394)%');
+    `)).toBe("true|true|true");
   });
 
   it("allows required parents and children to be created together and parent cascades to remove snapshots", () => {
@@ -876,6 +919,154 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     );
   });
 
+  it.each([
+    {
+      parentKind: "schedule",
+      setupSql: `
+        BEGIN;
+        ${scheduleInsert("automation-schema-parent-first-schedule")}
+        ${scheduleFixtureInsert("automation-schema-parent-first-schedule", "automation-schema-fixture-a")}
+        COMMIT;
+      `,
+      parentUpdateSql: `
+        UPDATE "LightingSchedule"
+        SET "name" = "name" || '-updated'
+        WHERE "id" = 'automation-schema-parent-first-schedule';
+      `,
+      firstMembershipSql: scheduleFixtureInsert(
+        "automation-schema-parent-first-schedule",
+        "automation-schema-fixture-a-extra"
+      ),
+      secondMembershipSql: scheduleFixtureInsert(
+        "automation-schema-parent-first-schedule",
+        "automation-schema-fixture-a-third"
+      ),
+      counterSql: `
+        SELECT schedule."targetCount" || ':' || COUNT(target.*)
+        FROM "LightingSchedule" AS schedule
+        LEFT JOIN "LightingScheduleFixture" AS target ON target."scheduleId" = schedule."id"
+        WHERE schedule."id" = 'automation-schema-parent-first-schedule'
+        GROUP BY schedule."id";
+      `,
+      expectedCounters: "3:3",
+      cleanupSql: `DELETE FROM "LightingSchedule" WHERE "id" = 'automation-schema-parent-first-schedule';`
+    },
+    {
+      parentKind: "vehicle event",
+      setupSql: `
+        BEGIN;
+        ${vehicleRuleInsert("automation-schema-parent-first-vehicle")}
+        ${vehicleSourceInsert("automation-schema-parent-first-vehicle", "automation-schema-fixture-a")}
+        ${vehicleTargetInsert("automation-schema-parent-first-vehicle", "automation-schema-fixture-a-extra")}
+        COMMIT;
+      `,
+      parentUpdateSql: `
+        UPDATE "VehicleEventRule"
+        SET "name" = "name" || '-updated'
+        WHERE "id" = 'automation-schema-parent-first-vehicle';
+      `,
+      firstMembershipSql: vehicleSourceInsert(
+        "automation-schema-parent-first-vehicle",
+        "automation-schema-fixture-a-third"
+      ),
+      secondMembershipSql: vehicleTargetInsert(
+        "automation-schema-parent-first-vehicle",
+        "automation-schema-fixture-a-fourth"
+      ),
+      counterSql: `
+        SELECT
+          rule."sourceCount" || ':' || COUNT(DISTINCT source."fixtureId") || ':' ||
+          rule."targetCount" || ':' || COUNT(DISTINCT target."fixtureId")
+        FROM "VehicleEventRule" AS rule
+        JOIN "VehicleEventSource" AS source ON source."ruleId" = rule."id"
+        JOIN "VehicleEventTarget" AS target ON target."ruleId" = rule."id"
+        WHERE rule."id" = 'automation-schema-parent-first-vehicle'
+        GROUP BY rule."id";
+      `,
+      expectedCounters: "2:2:2:2",
+      cleanupSql: `DELETE FROM "VehicleEventRule" WHERE "id" = 'automation-schema-parent-first-vehicle';`
+    },
+    {
+      parentKind: "manual override",
+      setupSql: `
+        BEGIN;
+        ${manualOverrideInsert("automation-schema-parent-first-manual", "automation-schema-command-a")}
+        ${manualFixtureInsert("automation-schema-parent-first-manual", "automation-schema-fixture-a")}
+        COMMIT;
+      `,
+      parentUpdateSql: `
+        UPDATE "ManualOverride"
+        SET "brightnessPercent" = 51
+        WHERE "id" = 'automation-schema-parent-first-manual';
+      `,
+      firstMembershipSql: manualFixtureInsert(
+        "automation-schema-parent-first-manual",
+        "automation-schema-fixture-a-extra"
+      ),
+      secondMembershipSql: manualFixtureInsert(
+        "automation-schema-parent-first-manual",
+        "automation-schema-fixture-a-third"
+      ),
+      counterSql: `
+        SELECT override."targetCount" || ':' || COUNT(target.*)
+        FROM "ManualOverride" AS override
+        LEFT JOIN "ManualOverrideFixture" AS target ON target."manualOverrideId" = override."id"
+        WHERE override."id" = 'automation-schema-parent-first-manual'
+        GROUP BY override."id";
+      `,
+      expectedCounters: "3:3",
+      cleanupSql: `DELETE FROM "ManualOverride" WHERE "id" = 'automation-schema-parent-first-manual';`
+    }
+  ])(
+    "serializes a $parentKind parent update before concurrent membership DML",
+    async ({
+      parentKind,
+      setupSql,
+      parentUpdateSql,
+      firstMembershipSql,
+      secondMembershipSql,
+      counterSql,
+      expectedCounters,
+      cleanupSql
+    }) => {
+      executeSql(setupSql);
+
+      const parentFirstConnection = startSqlSession(`
+        BEGIN;
+        SET LOCAL deadlock_timeout = '100ms';
+        SET LOCAL lock_timeout = '2s';
+        ${parentUpdateSql}
+        SELECT 'automation-parent-first-${parentKind}';
+        SELECT pg_sleep(0.5);
+        ${firstMembershipSql}
+        COMMIT;
+      `);
+      await parentFirstConnection.waitForOutput(`automation-parent-first-${parentKind}`);
+
+      const membershipFirstConnection = startSqlSession(`
+        BEGIN;
+        SET LOCAL deadlock_timeout = '100ms';
+        SET LOCAL lock_timeout = '2s';
+        ${secondMembershipSql}
+        COMMIT;
+      `);
+      const [parentFirstResult, membershipFirstResult] = await Promise.all([
+        parentFirstConnection.completion,
+        membershipFirstConnection.completion
+      ]);
+      const actualCounters = querySql(counterSql);
+      executeSql(cleanupSql);
+
+      const concurrencyErrors = `${parentFirstResult.stderr}\n${membershipFirstResult.stderr}`;
+      expect(concurrencyErrors).not.toMatch(/deadlock detected|canceling statement due to lock timeout/);
+      expect(parentFirstResult.status).toBe(0);
+      expect(parentFirstResult.stderr).toBe("");
+      expect(membershipFirstResult.status).toBe(0);
+      expect(membershipFirstResult.stderr).toBe("");
+      expect(actualCounters).toBe(expectedCounters);
+    }
+  );
+
   it("does not deadlock a membership transaction against a concurrent parent cascade delete", async () => {
     const retainedScheduleId = "automation-schema-cascade-race-retained";
     const deletedScheduleId = "automation-schema-cascade-race-deleted";
@@ -895,7 +1086,8 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       ${scheduleFixtureInsert(retainedScheduleId, "automation-schema-fixture-a-extra")}
       SELECT 'automation-membership-before-parent-cascade';
       SELECT pg_sleep(0.5);
-      DELETE FROM "LightingScheduleFixture"
+      UPDATE "LightingScheduleFixture"
+      SET "fixtureId" = 'automation-schema-fixture-a-fourth'
       WHERE "scheduleId" = '${deletedScheduleId}'
         AND "fixtureId" = 'automation-schema-fixture-a-third';
       COMMIT;
