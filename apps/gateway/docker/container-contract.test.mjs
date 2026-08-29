@@ -47,10 +47,12 @@ test("appliance runtime은 Debian Bookworm OpenSSL 3.0 계열을 설치하고 bu
   assert.match(runtime, /apt-get install[^;]*\bcurl\b/s);
 });
 
-test("healthcheck는 커널에서 제거된 hci address 파일에 의존하지 않는다", async () => {
+test("healthcheck는 configured HCI presence만 진단하고 kernel hci attribute를 readiness로 쓰지 않는다", async () => {
   const healthcheck = await readFile(path.join(dockerDir, "healthcheck.sh"), "utf8");
 
-  assert.match(healthcheck, /test -d \/sys\/class\/bluetooth\/hci0/);
+  assert.match(healthcheck, /GATEWAY_BLUEZ_ADAPTER_PATH:-\/org\/bluez\/hci0/);
+  assert.match(healthcheck, /HCI_NAME="\$\{BLUEZ_ADAPTER_PATH##\*\/\}"/);
+  assert.match(healthcheck, /test -d "\/sys\/class\/bluetooth\/\$HCI_NAME"/);
   assert.doesNotMatch(healthcheck, /\/sys\/class\/bluetooth\/hci0\/(address|flags)/);
 });
 

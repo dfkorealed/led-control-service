@@ -9,6 +9,22 @@ import { promisify } from "node:util";
 const execute = promisify(execFile);
 const stateScript = path.resolve(import.meta.dirname, "healthcheck-state.cjs");
 
+test("healthcheck state keeps an unassigned appliance observable but unhealthy", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "gateway-healthcheck-"));
+
+  await assert.rejects(check(directory, {
+    status: "starting-unassigned",
+    assignment: false,
+    mqtt: false,
+    dbusOwner: false,
+    bluezAttached: false,
+    hciPowered: false,
+    mappingValid: false,
+    heartbeatFresh: false,
+    lastHeartbeatPublishedAt: null
+  }), /healthcheck failed/);
+});
+
 test("healthcheck state rejects stale, future, and malformed heartbeat intervals", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "gateway-healthcheck-"));
   const now = Date.now();

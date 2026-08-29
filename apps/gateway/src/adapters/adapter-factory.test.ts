@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createBluezHealthProbes, createProductionAdapters, isHciControllerReady } from "./adapter-factory";
+import {
+  createBluezHealthProbes,
+  createProductionAdapters,
+  isBluezAdapterPowered,
+  isHciRfkillUnblocked
+} from "./adapter-factory";
 
 describe("createProductionAdapters", () => {
   it("rejects stub and command adapters in every environment", async () => {
@@ -63,14 +68,39 @@ describe("createProductionAdapters", () => {
     );
   });
 
-  it("uses the Bluetooth rfkill state instead of removed hci flags files", async () => {
+  it("does not treat an unblocked rfkill controller as a powered BlueZ adapter", async () => {
     const root = await mkdtemp(join(tmpdir(), "gateway-hci-"));
     await mkdir(join(root, "rfkill7"));
     await writeFile(join(root, "rfkill7", "type"), "bluetooth\n");
     await writeFile(join(root, "rfkill7", "state"), "1\n");
+    const transport = { call: vi.fn().mockResolvedValue(false) };
 
-    await expect(isHciControllerReady(root)).resolves.toBe(true);
-    await writeFile(join(root, "rfkill7", "state"), "0\n");
-    await expect(isHciControllerReady(root)).resolves.toBe(false);
+    await expect(isHciRfkillUnblocked(root)).resolves.toBe(true);
+    await expect(isBluezAdapterPowered(transport, "/org/bluez/hci7")).resolves.toBe(false);
+    expect(transport.call).toHaveBeenCalledWith(
+      "org.bluez",
+      "/org/bluez/hci7",
+      "org.freedesktop.DBus.Properties",
+      "Get",
+      ["org.bluez.Adapter1", "Powered"]
+    );
+  });
+
+  it("fails closed when BlueZ cannot read the configured adapter power state", async () => {
+    const transport = { call: vi.fn().mockRejectedValue(new Error("D-Bus unavailable")) };
+
+    await expect(isBluezAdapterPowered(transport, "/org/bluez/hci7")).resolves.toBe(false);
+  });
+
+  it("accepts only a true Powered value from the configured BlueZ adapter", async () => {
+    const transport = { call: vi.fn().mockResolvedValue(true) };
+
+    await expect(isBluezAdapterPowered(transport, "/org/bluez/hci7")).resolves.toBe(true);
+  });
+
+  it("accepts the boolean variant shape returned by dbus-native", async () => {
+    const transport = { call: vi.fn().mockResolvedValue([[{ type: "b", child: [] }], [true]]) };
+
+    await expect(isBluezAdapterPowered(transport, "/org/bluez/hci7")).resolves.toBe(true);
   });
 });

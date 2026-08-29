@@ -11,6 +11,8 @@ import { MeshAddressStore } from "../mesh/mesh-address-store";
 import { MeshIdentityStore } from "../mesh/mesh-identity-store";
 import { MeshTransactionStore } from "../mesh/mesh-transaction-store";
 
+const DEFAULT_BLUEZ_ADAPTER_PATH = "/org/bluez/hci0";
+
 export interface GatewayAdapters {
   dimming: BleMeshAdapter;
   scanner: ProvisioningScannerAdapter;
@@ -58,14 +60,20 @@ async function createBluezAdapter(env: NodeJS.ProcessEnv) {
   );
   await adapter.start();
   return Object.assign(adapter, {
-    healthProbes: createBluezHealthProbes(transport, provisioner, addressStore)
+    healthProbes: createBluezHealthProbes(
+      transport,
+      provisioner,
+      addressStore,
+      env.GATEWAY_BLUEZ_ADAPTER_PATH ?? DEFAULT_BLUEZ_ADAPTER_PATH
+    )
   });
 }
 
 export function createBluezHealthProbes(
   transport: Pick<BluezTransport, "call">,
   provisioner: Pick<BluezProvisioner, "nodePath">,
-  addressStore: Pick<MeshAddressStore, "validate">
+  addressStore: Pick<MeshAddressStore, "validate">,
+  adapterPath = DEFAULT_BLUEZ_ADAPTER_PATH
 ): ApplianceHealthProbes {
   return {
     dbusOwner: async () => await transport.call<boolean>(
@@ -87,21 +95,58 @@ export function createBluezHealthProbes(
       );
       return typeof introspection === "string" && introspection.includes('interface name="org.bluez.mesh.Node1"');
     },
-    hciPowered: async () => await isHciControllerReady(),
+    hciPowered: async () => await isBluezAdapterPowered(transport, adapterPath),
     mappingValid: async () => { await addressStore.validate(); return true; }
   };
 }
 
-export async function isHciControllerReady(root = "/sys/class/bluetooth/hci0") {
-  const rfkillEntries = (await readdir(root, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory() && /^rfkill\d+$/.test(entry.name));
-  for (const entry of rfkillEntries) {
-    const rfkillRoot = join(root, entry.name);
-    const [type, state] = await Promise.all([
-      readFile(join(rfkillRoot, "type"), "utf8"),
-      readFile(join(rfkillRoot, "state"), "utf8")
-    ]);
-    if (type.trim() === "bluetooth" && state.trim() === "1") return true;
+export async function isBluezAdapterPowered(
+  transport: Pick<BluezTransport, "call">,
+  adapterPath = DEFAULT_BLUEZ_ADAPTER_PATH
+) {
+  try {
+    const powered = await transport.call<unknown>(
+      "org.bluez",
+      adapterPath,
+      "org.freedesktop.DBus.Properties",
+      "Get",
+      ["org.bluez.Adapter1", "Powered"]
+    );
+    return powered === true || isTrueBluezBooleanVariant(powered);
+  } catch {
+    return false;
+  }
+}
+
+function isTrueBluezBooleanVariant(value: unknown) {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const [signature, variantValue] = value;
+  if (signature === "b") return variantValue === true;
+  if (!Array.isArray(signature) || signature.length !== 1 || !Array.isArray(variantValue) || variantValue.length !== 1) {
+    return false;
+  }
+  const signatureType = signature[0] && typeof signature[0] === "object"
+    ? (signature[0] as { type?: unknown }).type
+    : undefined;
+  return signatureType === "b" && variantValue[0] === true;
+}
+
+// rfkill reports a Linux radio-block state, not BlueZ controller readiness.
+// Keep it available for diagnostics, but never use it for appliance health.
+export async function isHciRfkillUnblocked(root = "/sys/class/bluetooth/hci0") {
+  try {
+    const rfkillEntries = (await readdir(root, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && /^rfkill\d+$/.test(entry.name));
+    for (const entry of rfkillEntries) {
+      const rfkillRoot = join(root, entry.name);
+      const [type, state] = await Promise.all([
+        readFile(join(rfkillRoot, "type"), "utf8"),
+        readFile(join(rfkillRoot, "state"), "utf8")
+      ]);
+      if (type.trim() === "bluetooth" && state.trim() === "1") return true;
+    }
+  } catch {
+    return false;
   }
   return false;
 }

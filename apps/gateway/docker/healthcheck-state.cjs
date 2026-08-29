@@ -4,7 +4,6 @@ const path = process.env.GATEWAY_HEALTH_PATH || "/var/run/led-control/health.jso
 
 try {
   const health = JSON.parse(fs.readFileSync(path, "utf8"));
-  if (health.status === "starting-unassigned" && health.assignment === false) process.exit(0);
   if (
     health.status !== "healthy" ||
     !health.assignment ||
