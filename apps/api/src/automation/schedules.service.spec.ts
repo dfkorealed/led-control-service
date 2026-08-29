@@ -1,4 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
+import { encodeScheduleListCursor } from "./dto/schedule.dto";
 import { SchedulesService } from "./schedules.service";
 import { TargetSnapshotService } from "./target-snapshot.service";
 
@@ -174,32 +175,46 @@ describe("TargetSnapshotService", () => {
 
 describe("SchedulesService", () => {
   it("lists one deterministic bounded page and returns total plus next cursor", async () => {
-    const prisma = {
-      site: { findUnique: jest.fn().mockResolvedValue({ timeZone: "Asia/Seoul" }) },
+    const createdAt = new Date("2026-08-30T01:02:03.456Z");
+    const tx = {
       lightingSchedule: {
         count: jest.fn().mockResolvedValue(37),
         findMany: jest.fn().mockResolvedValue([])
       }
     };
+    const prisma = {
+      $transaction: jest.fn((callback, _options) => callback(tx))
+    };
+    const siteAccess = {
+      assertReadInTransaction: jest.fn().mockResolvedValue({ id: SITE_ID, timeZone: "Asia/Seoul" })
+    };
     const service = new SchedulesService(
       prisma as never,
-      { assert: jest.fn().mockResolvedValue({ id: SITE_ID }) } as never,
+      siteAccess as never,
       {} as never,
       { now: jest.fn().mockReturnValue(new Date("2026-08-31T23:00:00.000Z")) } as never,
       {} as never
     );
+    const cursor = encodeScheduleListCursor({ siteId: SITE_ID, createdAt, id: SCHEDULE_ID });
 
     await expect(service.list(SITE_ID, admin, {
-      cursor: SCHEDULE_ID,
-      limit: 25
-    } as never)).resolves.toEqual({ items: [], total: 37, nextCursor: null });
-    expect(prisma.lightingSchedule.count).toHaveBeenCalledWith({ where: { siteId: SITE_ID } });
-    expect(prisma.lightingSchedule.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      cursor: { id: SCHEDULE_ID },
-      skip: 1,
+      cursor,
+      limit: "25"
+    })).resolves.toEqual({ items: [], total: 37, nextCursor: null });
+    expect(siteAccess.assertReadInTransaction).toHaveBeenCalledWith(tx, admin, SITE_ID);
+    expect(tx.lightingSchedule.count).toHaveBeenCalledWith({ where: { siteId: SITE_ID } });
+    expect(tx.lightingSchedule.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        siteId: SITE_ID,
+        OR: [
+          { createdAt: { lt: createdAt } },
+          { createdAt, id: { gt: SCHEDULE_ID } }
+        ]
+      },
       take: 26,
       orderBy: [{ createdAt: "desc" }, { id: "asc" }]
     }));
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead" });
   });
 
   it("rejects an enabled exact overlap with the stable schedule_overlap code", async () => {

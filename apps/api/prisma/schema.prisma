@@ -772,6 +772,7 @@ model LightingSchedule {
   status            AutomationRuleStatus      @default(enabled)
   activeFrom        DateTime
   activeUntil       DateTime
+  /// DB CHECK requires localStartTime and localEndTime to differ; equal times are not an implicit full-day schedule.
   localStartTime    String
   localEndTime      String
   recurrenceKind    ScheduleRecurrenceKind

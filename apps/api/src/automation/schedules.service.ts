@@ -20,9 +20,10 @@ import {
 } from "./automation-snapshot.service";
 import {
   type CreateScheduleInput,
+  encodeScheduleListCursor,
   parseCreateScheduleInput,
+  parseScheduleListQuery,
   parseUpdateScheduleInput,
-  type ScheduleListQuery,
   type UpdateScheduleInput
 } from "./dto/schedule.dto";
 import { TargetSnapshotService } from "./target-snapshot.service";
@@ -69,32 +70,38 @@ export class SchedulesService {
     private readonly automationSnapshot: AutomationSnapshotService
   ) {}
 
-  async list(siteId: string, actor: AuthenticatedUser, query: ScheduleListQuery) {
-    await this.siteAccess.assert(actor, siteId, "read");
-    const site = await this.prisma.site.findUnique({
-      where: { id: siteId },
-      select: { timeZone: true }
-    });
-    if (!site) throw new NotFoundException("site not found");
-
-    const [total, rows] = await Promise.all([
-      this.prisma.lightingSchedule.count({ where: { siteId } }),
-      this.prisma.lightingSchedule.findMany({
-        where: { siteId },
+  async list(siteId: string, actor: AuthenticatedUser, rawQuery: unknown) {
+    return this.prisma.$transaction(async (tx) => {
+      const site = await this.siteAccess.assertReadInTransaction(tx, actor, siteId);
+      const query = parseScheduleListQuery(rawQuery, siteId);
+      const pageWhere: Prisma.LightingScheduleWhereInput = query.cursor
+        ? {
+          siteId,
+          OR: [
+            { createdAt: { lt: query.cursor.createdAt } },
+            { createdAt: query.cursor.createdAt, id: { gt: query.cursor.id } }
+          ]
+        }
+        : { siteId };
+      const total = await tx.lightingSchedule.count({ where: { siteId } });
+      const rows = await tx.lightingSchedule.findMany({
+        where: pageWhere,
         orderBy: [{ createdAt: "desc" }, { id: "asc" }],
         include: responseInclude,
-        take: query.limit + 1,
-        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {})
-      })
-    ]);
-    const hasNextPage = rows.length > query.limit;
-    const schedules = rows.slice(0, query.limit);
-    const now = this.clock.now();
-    return {
-      items: schedules.map((schedule) => this.toResponse(schedule, site.timeZone, now)),
-      total,
-      nextCursor: hasNextPage ? schedules[schedules.length - 1]?.id ?? null : null
-    };
+        take: query.limit + 1
+      });
+      const hasNextPage = rows.length > query.limit;
+      const schedules = rows.slice(0, query.limit);
+      const now = this.clock.now();
+      const lastSchedule = schedules[schedules.length - 1];
+      return {
+        items: schedules.map((schedule) => this.toResponse(schedule, site.timeZone, now)),
+        total,
+        nextCursor: hasNextPage && lastSchedule
+          ? encodeScheduleListCursor({ siteId, createdAt: lastSchedule.createdAt, id: lastSchedule.id })
+          : null
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async create(siteId: string, actor: AuthenticatedUser, rawInput: unknown) {

@@ -10,15 +10,33 @@ export class SiteAccessService {
   constructor(private readonly prisma: PrismaService) {}
 
   async assert(user: AuthenticatedUser, siteId: string, capability: SiteCapability) {
+    return this.assertCapability(this.prisma, user, siteId, capability);
+  }
+
+  async assertReadInTransaction(
+    tx: Pick<Prisma.TransactionClient, "site">,
+    user: AuthenticatedUser,
+    siteId: string
+  ) {
+    return this.assertCapability(tx, user, siteId, "read");
+  }
+
+  private async assertCapability(
+    client: Pick<Prisma.TransactionClient, "site">,
+    user: AuthenticatedUser,
+    siteId: string,
+    capability: SiteCapability
+  ) {
     if (!this.hasValidOrganizationType(user)) {
       throw new NotFoundException("site not found");
     }
 
     const usesMembership = user.role === "viewer";
-    const site = await this.prisma.site.findUnique({
+    const site = await client.site.findUnique({
       where: { id: siteId },
       select: {
         id: true,
+        timeZone: true,
         organizationId: true,
         adminUserId: true,
         ...(usesMembership ? { memberships: { where: { userId: user.id }, select: { id: true } } } : {})

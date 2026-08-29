@@ -15,6 +15,13 @@ const scheduleListIndexMigrationPath = join(
 const scheduleListIndexMigration = existsSync(scheduleListIndexMigrationPath)
   ? readFileSync(scheduleListIndexMigrationPath, "utf8")
   : "";
+const equalTimeMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260830_reject_equal_schedule_times/migration.sql"
+);
+const equalTimeMigration = existsSync(equalTimeMigrationPath)
+  ? readFileSync(equalTimeMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -67,6 +74,24 @@ describe("automation Prisma schema contract", () => {
     );
     expect(scheduleListIndexMigration).toContain(
       '("lightingScheduleId", "occurredAt" DESC, "sequence" DESC)'
+    );
+  });
+
+  it("preflights equal-time schedules and pending snapshots before enforcing the DB inequality", () => {
+    expect(prismaSchema).toContain("DB CHECK requires localStartTime and localEndTime to differ");
+    expect(equalTimeMigration).toContain('FROM "LightingSchedule"');
+    expect(equalTimeMigration).toContain("jsonb_array_elements");
+    expect(equalTimeMigration).toContain('outbox."publishedAt" IS NULL');
+    expect(equalTimeMigration).toContain('outbox."deadLetteredAt" IS NULL');
+    expect(equalTimeMigration).toContain("ERRCODE = '23514'");
+    expect(equalTimeMigration).toContain("Operator remediation required before migration");
+    expect(equalTimeMigration).toContain("No rows were modified");
+    expect(equalTimeMigration).toContain('CHECK ("localStartTime" <> "localEndTime")');
+    expect(equalTimeMigration.indexOf('FROM "LightingSchedule"')).toBeLessThan(
+      equalTimeMigration.indexOf('CHECK ("localStartTime" <> "localEndTime")')
+    );
+    expect(equalTimeMigration.indexOf("jsonb_array_elements")).toBeLessThan(
+      equalTimeMigration.indexOf('CHECK ("localStartTime" <> "localEndTime")')
     );
   });
 
@@ -448,6 +473,15 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     expectSqlFailure(
       `${scheduleInsert("automation-schema-duplicate-weekdays", "ARRAY[1, 1]::INTEGER[]")}`,
       "LightingSchedule_recurrence_check"
+    );
+    expectSqlFailure(
+      scheduleInsert(
+        "automation-schema-equal-local-times",
+        "ARRAY[1]::INTEGER[]",
+        "10:00",
+        "10:00"
+      ),
+      "LightingSchedule_local_time_distinct_check"
     );
     expectSqlFailure(
       `BEGIN; ${scheduleInsert("automation-schema-empty-schedule")} COMMIT;`,
@@ -1381,7 +1415,12 @@ function configurationInsert(
   `;
 }
 
-function scheduleInsert(id: string, weeklyDays = "ARRAY[1]::INTEGER[]") {
+function scheduleInsert(
+  id: string,
+  weeklyDays = "ARRAY[1]::INTEGER[]",
+  localStartTime = "10:00",
+  localEndTime = "11:00"
+) {
   return `
     INSERT INTO "LightingSchedule" (
       "id", "siteId", "gatewayId", "name", "status", "activeFrom", "activeUntil",
@@ -1390,7 +1429,8 @@ function scheduleInsert(id: string, weeklyDays = "ARRAY[1]::INTEGER[]") {
       "createdAt", "updatedAt"
     ) VALUES (
       '${id}', 'automation-schema-site-a', 'automation-schema-gateway-a', '${id}', 'enabled',
-      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '1 day', '10:00', '11:00', 'weekly', ${weeklyDays},
+      CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '1 day',
+      '${localStartTime}', '${localEndTime}', 'weekly', ${weeklyDays},
       true, 50, 1, 0, 'automation-schema-user-a', 'automation-schema-user-a', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     );
   `;

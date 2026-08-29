@@ -6,6 +6,7 @@ import { request } from "node:http";
 import { SiteAccessService } from "../src/access/site-access.service";
 import { AutomationClock } from "../src/automation/automation-clock";
 import { AutomationModule } from "../src/automation/automation.module";
+import { SchedulesService } from "../src/automation/schedules.service";
 import { SessionAuthGuard } from "../src/auth/session-auth.guard";
 import type { AuthenticatedUser } from "../src/auth/auth.types";
 import { PrismaService } from "../src/prisma/prisma.service";
@@ -594,15 +595,22 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
     const expected = await prisma.lightingSchedule.findMany({
       where: { siteId: scenario.siteId },
       orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      select: { id: true }
+      select: { id: true, createdAt: true }
     });
 
     const first = await api("GET", `/sites/${scenario.siteId}/automation/schedules?limit=10`, "viewer");
     expect(first.status).toBe(200);
-    expect(first.body).toMatchObject({ total: 27, nextCursor: expected[9].id });
+    const firstCursor = (first.body as { nextCursor: string }).nextCursor;
+    expect(first.body).toMatchObject({ total: 27, nextCursor: expect.any(String) });
+    expect(decodeCursor(firstCursor)).toEqual({
+      v: 1,
+      siteId: scenario.siteId,
+      createdAt: expected[9].createdAt.toISOString(),
+      id: expected[9].id
+    });
     const second = await api(
       "GET",
-      `/sites/${scenario.siteId}/automation/schedules?limit=10&cursor=${(first.body as { nextCursor: string }).nextCursor}`,
+      `/sites/${scenario.siteId}/automation/schedules?limit=10&cursor=${firstCursor}`,
       "viewer"
     );
     const third = await api(
@@ -617,6 +625,129 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
     expect(third.body).toMatchObject({ total: 27, nextCursor: null });
     expect((await api("GET", `/sites/${scenario.siteId}/automation/schedules?limit=101`, "viewer")).status)
       .toBe(400);
+  });
+
+  it("keeps tied timestamps stable and continues after a deleted anchor", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const tiedAt = new Date("2026-08-30T02:00:00.000Z");
+    const ids = [21, 22, 23, 24, 25].map((suffix) => `00000000-0000-4000-8000-${suffix.toString().padStart(12, "0")}`);
+    await insertDirectSchedules(prisma, scenario, ids.map((id, index) => ({
+      id,
+      name: `Tied ${index}`,
+      createdAt: tiedAt
+    })));
+
+    const first = await api(
+      "GET",
+      `/sites/${scenario.siteId}/automation/schedules?limit=2`,
+      scenario.actorKeys.viewer
+    );
+    expect((first.body as { items: Array<{ id: string }> }).items.map(({ id }) => id)).toEqual(ids.slice(0, 2));
+    const deletedAnchorCursor = (first.body as { nextCursor: string }).nextCursor;
+    await prisma.lightingSchedule.delete({ where: { id: ids[1] } });
+
+    const second = await api(
+      "GET",
+      `/sites/${scenario.siteId}/automation/schedules?limit=2&cursor=${deletedAnchorCursor}`,
+      scenario.actorKeys.viewer
+    );
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ total: 4, nextCursor: expect.any(String) });
+    expect((second.body as { items: Array<{ id: string }> }).items.map(({ id }) => id)).toEqual(ids.slice(2, 4));
+    const third = await api(
+      "GET",
+      `/sites/${scenario.siteId}/automation/schedules?limit=2&cursor=${(second.body as { nextCursor: string }).nextCursor}`,
+      scenario.actorKeys.viewer
+    );
+    expect(third.body).toMatchObject({ total: 4, nextCursor: null });
+    expect((third.body as { items: Array<{ id: string }> }).items.map(({ id }) => id)).toEqual(ids.slice(4));
+  });
+
+  it("authorizes the requested Site before parsing malformed or foreign-site cursors", async () => {
+    const firstSite = await createScenario(prisma, actors);
+    await insertDirectSchedules(prisma, firstSite, [
+      { id: randomUUID(), name: "Cursor A", createdAt: new Date("2026-08-30T03:00:00.000Z") },
+      { id: randomUUID(), name: "Cursor B", createdAt: new Date("2026-08-30T02:00:00.000Z") }
+    ]);
+    const firstPage = await api(
+      "GET",
+      `/sites/${firstSite.siteId}/automation/schedules?limit=1`,
+      firstSite.actorKeys.viewer
+    );
+    const foreignCursor = (firstPage.body as { nextCursor: string }).nextCursor;
+    const secondSite = await createScenario(prisma, actors);
+
+    expect((await api(
+      "GET",
+      `/sites/${secondSite.siteId}/automation/schedules?cursor=${foreignCursor}`,
+      secondSite.actorKeys.viewer
+    )).status).toBe(400);
+    expect((await api(
+      "GET",
+      `/sites/${secondSite.siteId}/automation/schedules?cursor=malformed`,
+      secondSite.actorKeys.viewer
+    )).status).toBe(400);
+    expect((await api(
+      "GET",
+      `/sites/${secondSite.siteId}/automation/schedules?limit=invalid`,
+      secondSite.actorKeys.operator
+    )).status).toBe(404);
+    expect((await api(
+      "GET",
+      `/sites/${secondSite.siteId}/automation/schedules?limit=invalid`,
+      secondSite.actorKeys.foreignAdmin
+    )).status).toBe(404);
+    expect((await api(
+      "GET",
+      `/sites/${secondSite.siteId}/automation/schedules?cursor=malformed`,
+      firstSite.actorKeys.viewer
+    )).status).toBe(404);
+    expect((await api(
+      "GET",
+      `/sites/${randomUUID()}/automation/schedules?limit=invalid`,
+      secondSite.actorKeys.admin
+    )).status).toBe(404);
+  });
+
+  it("keeps total and page on one RepeatableRead snapshot during a concurrent insert", async () => {
+    const scenario = await createScenario(prisma, actors);
+    await insertDirectSchedules(prisma, scenario, [{
+      id: randomUUID(),
+      name: "Before insert",
+      createdAt: new Date("2026-08-30T04:00:00.000Z")
+    }]);
+    const barrier = createCountBarrier();
+    const service = createBarrierListService(prisma, barrier.waitAfterCount);
+    const list = service.list(scenario.siteId, actors.get(scenario.actorKeys.viewer)!, { limit: "100" });
+    await barrier.counted;
+    await insertDirectSchedules(prisma, scenario, [{
+      id: randomUUID(),
+      name: "Concurrent insert",
+      createdAt: new Date("2026-08-30T05:00:00.000Z")
+    }]);
+    barrier.release();
+
+    await expect(list).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ name: "Before insert" })] });
+  });
+
+  it("keeps total and page on one RepeatableRead snapshot during a concurrent delete", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const deletedId = randomUUID();
+    await insertDirectSchedules(prisma, scenario, [
+      { id: deletedId, name: "Concurrent delete", createdAt: new Date("2026-08-30T06:00:00.000Z") },
+      { id: randomUUID(), name: "Retained", createdAt: new Date("2026-08-30T05:00:00.000Z") }
+    ]);
+    const barrier = createCountBarrier();
+    const service = createBarrierListService(prisma, barrier.waitAfterCount);
+    const list = service.list(scenario.siteId, actors.get(scenario.actorKeys.viewer)!, { limit: "100" });
+    await barrier.counted;
+    await prisma.lightingSchedule.delete({ where: { id: deletedId } });
+    barrier.release();
+
+    const result = await list;
+    expect(result.total).toBe(2);
+    expect(result.items.map(({ id }) => id)).toContain(deletedId);
+    expect(result.items).toHaveLength(2);
   });
 
   it("rolls back parent, targets, revision, and outbox when snapshot persistence fails", async () => {
@@ -753,16 +884,110 @@ async function createScenario(prisma: PrismaService, actors: Map<string, Authent
     fixtureIds.push(fixture.id);
   }
 
-  actors.set("admin", actor(admin, customer.id, "customer"));
-  actors.set("viewer", actor(viewer, customer.id, "customer"));
-  actors.set("operator", actor(operator, operator.organizationId, "service_provider"));
-  actors.set("foreign-admin", actor(foreignAdmin, customer.id, "customer"));
+  const actorKeys = {
+    admin: `admin-${suffix}`,
+    viewer: `viewer-${suffix}`,
+    operator: `operator-${suffix}`,
+    foreignAdmin: `foreign-admin-${suffix}`
+  };
+  const scenarioActors = {
+    admin: actor(admin, customer.id, "customer"),
+    viewer: actor(viewer, customer.id, "customer"),
+    operator: actor(operator, operator.organizationId, "service_provider"),
+    foreignAdmin: actor(foreignAdmin, customer.id, "customer")
+  };
+  actors.set("admin", scenarioActors.admin);
+  actors.set("viewer", scenarioActors.viewer);
+  actors.set("operator", scenarioActors.operator);
+  actors.set("foreign-admin", scenarioActors.foreignAdmin);
+  actors.set(actorKeys.admin, scenarioActors.admin);
+  actors.set(actorKeys.viewer, scenarioActors.viewer);
+  actors.set(actorKeys.operator, scenarioActors.operator);
+  actors.set(actorKeys.foreignAdmin, scenarioActors.foreignAdmin);
   return {
     siteId: site.id,
     gatewayId: gateway.id,
     floorId: floor.id,
     adminId: admin.id,
-    fixtureIds
+    fixtureIds,
+    actorKeys
+  };
+}
+
+async function insertDirectSchedules(
+  prisma: PrismaService,
+  scenario: {
+    siteId: string;
+    gatewayId: string;
+    adminId: string;
+    fixtureIds: string[];
+  },
+  schedules: Array<{ id: string; name: string; createdAt: Date }>
+) {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(Prisma.sql`SELECT "lock_automation_membership_mutation"()`);
+    for (const schedule of schedules) {
+      await tx.lightingSchedule.create({ data: {
+        ...directScheduleData(schedule.id, scenario, { name: schedule.name, status: "disabled" }),
+        createdAt: schedule.createdAt,
+        updatedAt: schedule.createdAt
+      } });
+      await tx.lightingScheduleFixture.create({ data: {
+        scheduleId: schedule.id,
+        fixtureId: scenario.fixtureIds[0],
+        siteId: scenario.siteId,
+        gatewayId: scenario.gatewayId
+      } });
+    }
+  });
+}
+
+function createCountBarrier() {
+  let signalCounted!: () => void;
+  const counted = new Promise<void>((resolve) => { signalCounted = resolve; });
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  return {
+    counted,
+    release,
+    waitAfterCount: async () => {
+      signalCounted();
+      await released;
+    }
+  };
+}
+
+function createBarrierListService(prisma: PrismaService, waitAfterCount: () => Promise<void>) {
+  const adapter = {
+    $transaction: (callback: (tx: unknown) => Promise<unknown>, options: unknown) =>
+      prisma.$transaction(async (tx) => callback({
+        site: tx.site,
+        lightingSchedule: {
+          count: async (args: Parameters<typeof tx.lightingSchedule.count>[0]) => {
+            const total = await tx.lightingSchedule.count(args);
+            await waitAfterCount();
+            return total;
+          },
+          findMany: (args: Parameters<typeof tx.lightingSchedule.findMany>[0]) =>
+            tx.lightingSchedule.findMany(args)
+        }
+      }), options as never)
+  };
+  return new SchedulesService(
+    adapter as never,
+    new SiteAccessService(adapter as never),
+    {} as never,
+    { now: () => new Date(FIXED_NOW) } as never,
+    {} as never
+  );
+}
+
+function decodeCursor(cursor: string) {
+  return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
+    v: number;
+    siteId: string;
+    createdAt: string;
+    id: string;
   };
 }
 

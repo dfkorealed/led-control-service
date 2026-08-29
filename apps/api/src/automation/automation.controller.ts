@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
-import { parseScheduleListQuery } from "./dto/schedule.dto";
 import { SchedulesService } from "./schedules.service";
 
 @UseGuards(SessionAuthGuard)
@@ -16,7 +15,7 @@ export class AutomationController {
     @Query() query: unknown,
     @CurrentUser() actor: AuthenticatedUser
   ) {
-    return this.schedules.list(siteId, actor, parseScheduleListQuery(query));
+    return this.schedules.list(siteId, actor, query);
   }
 
   @Post()

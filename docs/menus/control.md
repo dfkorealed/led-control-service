@@ -39,7 +39,7 @@
 - schedule mutation은 같은 transaction의 첫 statement에서 공통 automation advisory lock을 획득한 뒤 Site row를 잠그고 assigned admin을 다시 인가한다. fixture·fixture set·floor·active group 선택은 저장 시점의 등록 완료 Fixture ID 전체 set으로 고정하고 한 Gateway 대상만 허용한다.
 - enabled schedule은 공통 automation engine의 실제 recurrence occurrence와 Fixture 교집합으로 충돌을 검사한다. disabled schedule은 충돌에서 제외하고 enable 시 다시 검사하며, 같은 Site에서 동시에 쓰는 서로 충돌하는 enabled schedule만 Site lock 아래 하나가 성공한다. 종료와 시작 경계가 맞닿지만 겹치지 않는 schedule은 함께 허용한다.
 - schedule parent, deferred cardinality를 만족하는 child snapshot, Gateway `desiredRevision`, 전체 automation snapshot `MqttOutbox`를 원자 저장한다. Gateway 이동 update는 이전 Gateway의 제거 snapshot과 새 Gateway의 추가 snapshot을 함께 만들고 새 Gateway의 `appliedRevision`은 0으로 초기화한다.
-- `dimmingEnabled=false` action은 DB와 Gateway snapshot 모두 `brightnessPercent=100`으로 정규화한다. 같은 local start/end는 full-day로 해석하지 않고 거부한다. 목록은 기본 25개·최대 100개의 안정 cursor page와 전체 수, 다음 cursor, 공통 engine의 다음 occurrence, desired/applied revision, sync status와 최근 실행을 반환한다.
+- `dimmingEnabled=false` action은 DB와 Gateway snapshot 모두 `brightnessPercent=100`으로 정규화한다. 같은 local start/end는 full-day로 해석하지 않고 거부한다. 목록은 기본 25개·최대 100개이며 Site/생성 시각/ID를 담은 versioned base64url keyset cursor를 사용한다. Site 인가, 전체 수, page는 하나의 `REPEATABLE READ` snapshot에서 읽고 다음 occurrence, desired/applied revision, sync status와 최근 실행을 page row에만 결합한다.
 - pending assigned admin이 제어 직접 URL로 들어오면 CustomerShell이 제어 화면을 계속 열지 않고 selected/default `siteId`를 보존한 최초 설치 설정으로 replace한다. 설치 완료 전에는 제어 mutation UI가 노출되지 않는다.
 - dashboard의 fixture, 층, 저장 구역 목록을 기반으로 `개별/다중`, `층`, `구역` 제어 대상을 선택할 수 있다.
 - 개별/다중 조명 목록은 이름 검색, 상태·층 필터, checkbox 선택을 제공하고 선택 개수와 제어 불가 개수를 표시한다.
@@ -155,7 +155,7 @@
 - Task 7은 automation full snapshot을 durable `MqttOutbox`에 저장하지만 실제 MQTT publish와 exact revision application ACK 처리는 Task 9 범위다. 따라서 API 저장 성공은 Gateway 적용 완료를 의미하지 않는다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
-- 스케줄 제어는 추후 구현 범위이며, 동작하지 않는 버튼은 양산 UI에서 제거했다.
+- schedule API CRUD는 구현 완료했다. schedule Web CRUD와 Gateway schedule 실행은 후속 범위이며, 아직 동작하지 않는 Web 버튼은 양산 UI에서 제거했다.
 - 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.
 - Health Current는 최신 snapshot만 사용하며 fault 이력과 제품별 code 설명은 아직 제공하지 않는다.
 - viewer의 읽기 전용 안내는 구현됐지만, 향후 명령 이력 화면에서도 동일한 권한 설명을 재사용하도록 공통화할 수 있다.

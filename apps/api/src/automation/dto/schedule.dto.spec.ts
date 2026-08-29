@@ -1,5 +1,13 @@
 import { BadRequestException } from "@nestjs/common";
-import { parseCreateScheduleInput, parseScheduleListQuery } from "./schedule.dto";
+import {
+  encodeScheduleListCursor,
+  parseCreateScheduleInput,
+  parseScheduleListQuery
+} from "./schedule.dto";
+
+const SITE_ID = "00000000-0000-4000-8000-000000000010";
+const SCHEDULE_ID = "00000000-0000-4000-8000-000000000011";
+const CREATED_AT = new Date("2026-08-30T01:02:03.456Z");
 
 const input = {
   name: "Daily schedule",
@@ -28,21 +36,39 @@ describe("schedule DTO validation", () => {
   });
 
   it("applies bounded schedule-list pagination defaults", () => {
-    expect(parseScheduleListQuery({})).toEqual({ limit: 25 });
+    const cursor = encodeScheduleListCursor({ siteId: SITE_ID, createdAt: CREATED_AT, id: SCHEDULE_ID });
+    expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(parseScheduleListQuery({}, SITE_ID)).toEqual({ limit: 25 });
     expect(parseScheduleListQuery({
-      cursor: "00000000-0000-4000-8000-000000000002",
+      cursor,
       limit: "100"
-    })).toEqual({
-      cursor: "00000000-0000-4000-8000-000000000002",
+    }, SITE_ID)).toEqual({
+      cursor: { siteId: SITE_ID, createdAt: CREATED_AT, id: SCHEDULE_ID },
       limit: 100
     });
   });
 
   it.each(["0", "101", "1.5", "not-a-number"])("rejects invalid list limit %s", (limit) => {
-    expect(() => parseScheduleListQuery({ limit })).toThrow(BadRequestException);
+    expect(() => parseScheduleListQuery({ limit }, SITE_ID)).toThrow(BadRequestException);
   });
 
-  it("rejects an invalid list cursor", () => {
-    expect(() => parseScheduleListQuery({ cursor: "not-a-cursor" })).toThrow(BadRequestException);
+  it.each([
+    "not-a-cursor",
+    Buffer.from(JSON.stringify({ v: 2, siteId: SITE_ID, createdAt: CREATED_AT.toISOString(), id: SCHEDULE_ID }))
+      .toString("base64url"),
+    Buffer.from(JSON.stringify({ v: 1, siteId: SITE_ID, createdAt: "not-a-date", id: SCHEDULE_ID }))
+      .toString("base64url")
+  ])("rejects malformed or unsupported list cursor %s", (cursor) => {
+    expect(() => parseScheduleListQuery({ cursor }, SITE_ID)).toThrow(BadRequestException);
+  });
+
+  it("rejects a cursor scoped to another Site", () => {
+    const cursor = encodeScheduleListCursor({
+      siteId: "00000000-0000-4000-8000-000000000012",
+      createdAt: CREATED_AT,
+      id: SCHEDULE_ID
+    });
+
+    expect(() => parseScheduleListQuery({ cursor }, SITE_ID)).toThrow(BadRequestException);
   });
 });

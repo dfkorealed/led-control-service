@@ -941,7 +941,7 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 | `name` | `String` | 예 | DB check `btrim(name) <> ''` |
 | `status` | `AutomationRuleStatus` | 예 | `enabled` |
 | `activeFrom`, `activeUntil` | `DateTime` | 예 | DB check `activeFrom <= activeUntil` |
-| `localStartTime`, `localEndTime` | `String` | 예 | DB check `HH:mm`, `00:00..23:59` |
+| `localStartTime`, `localEndTime` | `String` | 예 | DB check `HH:mm`, `00:00..23:59`, 두 값은 서로 달라야 함 |
 | `recurrenceKind` | `ScheduleRecurrenceKind` | 예 | 반복 enum |
 | `weeklyDays` | `Int[]` | 예 | `[]`; weekly에서 비어 있지 않고 모든 값이 고유한 `1..7` |
 | `monthlyDay` | `Int?` | 아니오 | monthly에서만 `1..31` |
@@ -953,7 +953,7 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 | `createdById`, `updatedById` | `String` | 예 | named FK -> `User.id`, delete restrict |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` |
 
-`automation_weekly_days_are_unique(INTEGER[])`는 `IMMUTABLE` SQL helper이며 recurrence CHECK가 중복 요일을 API와 독립적으로 거부한다. `LightingSchedule`은 owner-bearing child FK 기준인 `(id, siteId, gatewayId)` Unique도 가진다.
+`automation_weekly_days_are_unique(INTEGER[])`는 `IMMUTABLE` SQL helper이며 recurrence CHECK가 중복 요일을 API와 독립적으로 거부한다. `localStartTime <> localEndTime` CHECK는 같은 시각을 암묵적인 24시간 schedule로 해석하지 않고 API와 독립적으로 거부한다. `LightingSchedule`은 owner-bearing child FK 기준인 `(id, siteId, gatewayId)` Unique도 가진다.
 
 `LightingScheduleFixture`의 컬럼은 `scheduleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`이다. `(scheduleId, fixtureId)`가 복합 PK이고 `(scheduleId, siteId, gatewayId)`는 부모 owner Unique를 `ON DELETE CASCADE, ON UPDATE RESTRICT`로 참조한다. `(fixtureId, siteId, gatewayId)`는 투영된 `Fixture(id, siteId, gatewayId)`를 delete/update restrict로 참조하며 `(fixtureId)`, `(siteId, gatewayId)` index가 있다.
 
@@ -1051,6 +1051,8 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 - 실행 원장은 trigger로 source owner와 kind/rule coherence를 확인한다. Site/Gateway 삭제를 restrict하고 원본 규칙/override 및 Fixture의 물리 삭제는 nullable FK를 `SET NULL`로 바꾸면서 raw ID snapshot과 payload를 유지한다.
 
 `20260829_add_lighting_automation`은 배포 이력을 보존하는 released Task 6 migration으로 수정하지 않는다. 이 migration은 기존 Fixture의 `siteId`를 Floor에서 backfill하고, MeshNode가 연결된 Fixture만 `gatewayId`를 backfill한 뒤 `siteId NOT NULL`과 owner FK를 적용한다. MeshNode 없는 기존 Fixture는 `gatewayId = NULL`로 보존된다. 기존 Command와 command형 `MqttOutbox` row는 신규 owner Unique와 command/config row-shape check를 그대로 만족한다. Task 7 목록의 최신 실행 조회 index는 별도 순방향 migration `20260830_add_schedule_execution_list_index`가 기존 단독 index를 `(lightingScheduleId, occurredAt DESC, sequence DESC)`로 교체한다.
+
+순방향 migration `20260830_reject_equal_schedule_times`는 CHECK를 추가하기 전에 같은 local start/end를 가진 live `LightingSchedule`과 아직 publish/dead-letter되지 않은 automation-config `MqttOutbox` snapshot entry를 모두 검사한다. 하나라도 발견하면 schedule 또는 outbox 식별자와 Gateway/revision/time을 포함한 `23514` operator-remediation 오류로 중단하며 어떤 row도 자동 수정하거나 삭제하지 않는다. 운영자가 schedule 시간을 명시적으로 교정하고 Gateway full snapshot을 재생성한 뒤 superseded pending outbox만 recovery runbook에 따라 제거해야 migration을 다시 적용할 수 있다.
 
 ### ProcessedGatewayEvent
 
@@ -1300,7 +1302,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `ProvisioningScanOutbox` | Unique `sessionId + scanAttempt`, retry/lease index | 같은 scan attempt의 중복 outbox 생성 방지와 crash-safe reclaim |
 | `FixtureGroup` | active boundary check, deferred group/member trigger, `siteId + floorId + gatewayId + lifecycleStatus` index | legacy 격리와 활성 구역 경계·member 수 제한 |
 | `GatewayAutomationConfiguration` | PK `gatewayId`, Unique/FK `gatewayId + siteId`, ordered revisions, state-dependent check | Gateway별 단일 full snapshot 적용 상태와 PENDING/APPLIED/REJECTED coherence |
-| `LightingSchedule` | active/time/unique recurrence/brightness/revision checks, non-negative `targetCount`, Unique `id + siteId + gatewayId` | 반복 스케줄 범위, child owner 기준, 실제 target 수 reconciliation 강제 |
+| `LightingSchedule` | active/time/distinct local times/unique recurrence/brightness/revision checks, non-negative `targetCount`, Unique `id + siteId + gatewayId` | 반복 스케줄 범위, 암묵적 full-day 차단, child owner 기준, 실제 target 수 reconciliation 강제 |
 | `LightingScheduleFixture` | PK `scheduleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 스케줄 대상 snapshot 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
 | `VehicleEventRule` | brightness `0..100`, hold `5..1800`, ordered revisions, non-negative source/target counters, Unique `id + siteId + gatewayId` | 차량 감지 action 범위와 실제 source/target 수 reconciliation 강제 |
 | `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | source/target 중복·tenant/Gateway·isolation-safe 각 최소 1개 강제 |
