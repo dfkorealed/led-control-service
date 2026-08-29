@@ -17,6 +17,14 @@ test("appliance image는 고정된 BlueZ 5.82 소스를 검증해 빌드한다",
   assert.match(dockerfile, /--disable-udev/);
 });
 
+test("appliance image는 bluetoothd 없이 kernel management btmgmt를 포함한다", async () => {
+  const dockerfile = await readFile(path.join(dockerDir, "Dockerfile"), "utf8");
+
+  assert.match(dockerfile, /make -j"\$\(nproc\)" mesh\/bluetooth-meshd tools\/btmgmt/);
+  assert.match(dockerfile, /COPY --from=bluez-builder .*\/tools\/btmgmt \/usr\/local\/bin\/btmgmt/);
+  assert.doesNotMatch(dockerfile, /bluetoothd/);
+});
+
 test("appliance runtime은 Node 22와 전용 non-root gateway 사용자를 사용한다", async () => {
   const dockerfile = await readFile(path.join(dockerDir, "Dockerfile"), "utf8");
   const entrypoint = await readFile(path.join(dockerDir, "entrypoint.sh"), "utf8");

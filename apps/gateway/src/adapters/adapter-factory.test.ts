@@ -8,9 +8,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createBluezHealthProbes,
   createProductionAdapters,
-  isBluezAdapterPowered,
+  isBtmgmtControllerPowered,
   isHciRfkillUnblocked
 } from "./adapter-factory";
+
+type BtmgmtRunner = Parameters<typeof isBtmgmtControllerPowered>[1] extends infer Runner ? Exclude<Runner, undefined> : never;
 
 describe("createProductionAdapters", () => {
   it("rejects stub and command adapters in every environment", async () => {
@@ -68,39 +70,42 @@ describe("createProductionAdapters", () => {
     );
   });
 
-  it("does not treat an unblocked rfkill controller as a powered BlueZ adapter", async () => {
+  it("accepts a selected btmgmt controller only when current settings include powered", async () => {
+    const runner = vi.fn<BtmgmtRunner>().mockResolvedValue({ stdout: [
+      "hci7: Primary controller",
+      "\tcurrent settings: powered connectable ssp br/edr le"
+    ].join("\n") });
+
+    await expect(isBtmgmtControllerPowered("/org/bluez/hci7", runner)).resolves.toBe(true);
+    expect(runner).toHaveBeenCalledWith(["--index", "7", "info"], { timeout: 2_000 });
+  });
+
+  it("rejects an unblocked rfkill controller when btmgmt omits powered", async () => {
     const root = await mkdtemp(join(tmpdir(), "gateway-hci-"));
     await mkdir(join(root, "rfkill7"));
     await writeFile(join(root, "rfkill7", "type"), "bluetooth\n");
     await writeFile(join(root, "rfkill7", "state"), "1\n");
-    const transport = { call: vi.fn().mockResolvedValue(false) };
+    const runner = vi.fn<BtmgmtRunner>().mockResolvedValue({ stdout: [
+      "hci7: Primary controller",
+      "\tcurrent settings: connectable ssp br/edr le"
+    ].join("\n") });
 
     await expect(isHciRfkillUnblocked(root)).resolves.toBe(true);
-    await expect(isBluezAdapterPowered(transport, "/org/bluez/hci7")).resolves.toBe(false);
-    expect(transport.call).toHaveBeenCalledWith(
-      "org.bluez",
-      "/org/bluez/hci7",
-      "org.freedesktop.DBus.Properties",
-      "Get",
-      ["org.bluez.Adapter1", "Powered"]
-    );
+    await expect(isBtmgmtControllerPowered("/org/bluez/hci7", runner)).resolves.toBe(false);
   });
 
-  it("fails closed when BlueZ cannot read the configured adapter power state", async () => {
-    const transport = { call: vi.fn().mockRejectedValue(new Error("D-Bus unavailable")) };
+  it.each([
+    ["malformed output", { stdout: "current settings: powered" }],
+    ["a different controller", { stdout: "hci6: Primary controller\n\tcurrent settings: powered" }]
+  ])("rejects %s from btmgmt", async (_label, result) => {
+    const runner = vi.fn<BtmgmtRunner>().mockResolvedValue(result);
 
-    await expect(isBluezAdapterPowered(transport, "/org/bluez/hci7")).resolves.toBe(false);
+    await expect(isBtmgmtControllerPowered("/org/bluez/hci7", runner)).resolves.toBe(false);
   });
 
-  it("accepts only a true Powered value from the configured BlueZ adapter", async () => {
-    const transport = { call: vi.fn().mockResolvedValue(true) };
+  it.each(["command missing", "nonzero exit", "timeout"])("fails closed when btmgmt reports %s", async (failure) => {
+    const runner = vi.fn<BtmgmtRunner>().mockRejectedValue(new Error(failure));
 
-    await expect(isBluezAdapterPowered(transport, "/org/bluez/hci7")).resolves.toBe(true);
-  });
-
-  it("accepts the boolean variant shape returned by dbus-native", async () => {
-    const transport = { call: vi.fn().mockResolvedValue([[{ type: "b", child: [] }], [true]]) };
-
-    await expect(isBluezAdapterPowered(transport, "/org/bluez/hci7")).resolves.toBe(true);
+    await expect(isBtmgmtControllerPowered("/org/bluez/hci7", runner)).resolves.toBe(false);
   });
 });

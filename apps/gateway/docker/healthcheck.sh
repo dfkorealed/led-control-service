@@ -12,7 +12,7 @@ dbus-send --system --print-reply --dest=org.freedesktop.DBus \
   /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner \
   string:org.bluez.mesh | grep -q 'boolean true'
 pgrep -f '/opt/led-control/gateway.mjs' >/dev/null
-# The Gateway health state verifies Adapter1.Powered through BlueZ D-Bus.
+# The Gateway health state verifies the current powered setting through btmgmt.
 # This remains only a configured-controller presence diagnostic.
 test -d "/sys/class/bluetooth/$HCI_NAME"
 

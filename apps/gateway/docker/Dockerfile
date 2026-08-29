@@ -14,9 +14,9 @@ RUN curl -fsSLO "https://www.kernel.org/pub/linux/bluetooth/bluez-${BLUEZ_VERSIO
     && tar -xf "bluez-${BLUEZ_VERSION}.tar.xz" \
     && cd "bluez-${BLUEZ_VERSION}" \
     && ./configure --enable-mesh --disable-obex --disable-udev --disable-cups \
-      --disable-tools --disable-monitor --disable-client --disable-datafiles \
+      --disable-monitor --disable-client --disable-datafiles \
       --disable-systemd --disable-manpages \
-    && make -j"$(nproc)" mesh/bluetooth-meshd
+    && make -j"$(nproc)" mesh/bluetooth-meshd tools/btmgmt
 
 FROM node:22-bookworm-slim AS app-builder
 ENV PNPM_HOME=/pnpm
@@ -53,6 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --system --gid gateway --home-dir /var/lib/led-control --shell /usr/sbin/nologin gateway
 
 COPY --from=bluez-builder /src/bluez-5.82/mesh/bluetooth-meshd /usr/local/sbin/bluetooth-meshd
+COPY --from=bluez-builder /src/bluez-5.82/tools/btmgmt /usr/local/bin/btmgmt
 COPY --from=app-builder /tmp/gateway.mjs /opt/led-control/gateway.mjs
 COPY --from=app-builder /tmp/manufacturing-enroll.mjs /usr/local/bin/manufacturing-enroll.mjs
 COPY --from=app-builder /tmp/gateway-runtime/node_modules /opt/led-control/node_modules
@@ -63,7 +64,7 @@ COPY apps/gateway/docker/healthcheck.sh /usr/local/bin/gateway-healthcheck
 COPY apps/gateway/docker/healthcheck-state.cjs /usr/local/lib/gateway-healthcheck-state.cjs
 
 RUN chmod 0755 /usr/local/bin/gateway-entrypoint /usr/local/bin/gateway-healthcheck \
-    && chmod 0755 /usr/local/bin/manufacturing-enroll.mjs \
+    && chmod 0755 /usr/local/bin/btmgmt /usr/local/bin/manufacturing-enroll.mjs \
     && mkdir -p /var/lib/led-control/identity /var/lib/bluetooth/mesh /run/dbus \
     && chown -R gateway:gateway /var/lib/led-control
 
