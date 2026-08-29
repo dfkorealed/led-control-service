@@ -6,9 +6,14 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "build:dependencies": "pnpm --filter @led-control/shared build",
+    "prebuild": "pnpm run build:dependencies",
     "build": "tsc",
+    "pretest": "pnpm run build:dependencies",
     "test": "vitest run",
+    "prelint": "pnpm run build:dependencies",
     "lint": "tsc --noEmit",
+    "pretypecheck": "pnpm run build:dependencies",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

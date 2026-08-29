@@ -29,27 +29,6 @@ function earlierDate(left: Temporal.PlainDate, right: Temporal.PlainDate): Tempo
   return Temporal.PlainDate.compare(left, right) <= 0 ? left : right;
 }
 
-function occursOnDate(rule: LightingScheduleSnapshotV1, date: Temporal.PlainDate, activeFrom: Temporal.PlainDate): boolean {
-  switch (rule.recurrence.kind) {
-    case "once":
-      return date.equals(activeFrom);
-    case "daily":
-      return true;
-    case "weekly":
-      return rule.recurrence.weeklyDays.includes(date.dayOfWeek);
-    case "monthly":
-      return rule.recurrence.monthlyDay !== null
-        && rule.recurrence.monthlyDay <= date.daysInMonth
-        && date.day === rule.recurrence.monthlyDay;
-    case "yearly":
-      return rule.recurrence.yearlyMonth !== null
-        && rule.recurrence.yearlyDay !== null
-        && date.month === rule.recurrence.yearlyMonth
-        && rule.recurrence.yearlyDay <= date.daysInMonth
-        && date.day === rule.recurrence.yearlyDay;
-  }
-}
-
 function occurrenceOnDate(
   rule: LightingScheduleSnapshotV1,
   date: Temporal.PlainDate,
@@ -76,34 +55,107 @@ function occurrenceOnDate(
   };
 }
 
-function occurrencesBetweenDates(
+function isDateInRange(
+  date: Temporal.PlainDate,
+  firstDate: Temporal.PlainDate,
+  lastDate: Temporal.PlainDate
+): boolean {
+  return Temporal.PlainDate.compare(firstDate, date) <= 0
+    && Temporal.PlainDate.compare(date, lastDate) <= 0;
+}
+
+function* candidateDates(
+  rule: LightingScheduleSnapshotV1,
+  firstDate: Temporal.PlainDate,
+  lastDate: Temporal.PlainDate,
+  activeFrom: Temporal.PlainDate
+): Generator<Temporal.PlainDate> {
+  switch (rule.recurrence.kind) {
+    case "once": {
+      if (isDateInRange(activeFrom, firstDate, lastDate)) {
+        yield activeFrom;
+      }
+      return;
+    }
+    case "daily": {
+      for (let date = firstDate; Temporal.PlainDate.compare(date, lastDate) <= 0; date = date.add({ days: 1 })) {
+        yield date;
+      }
+      return;
+    }
+    case "weekly": {
+      const weekdays = [...rule.recurrence.weeklyDays].sort((left, right) => left - right);
+      let weekStart = firstDate.subtract({ days: firstDate.dayOfWeek - 1 });
+
+      while (Temporal.PlainDate.compare(weekStart, lastDate) <= 0) {
+        for (const weekday of weekdays) {
+          const date = weekStart.add({ days: weekday - 1 });
+          if (isDateInRange(date, firstDate, lastDate)) {
+            yield date;
+          }
+        }
+        weekStart = weekStart.add({ weeks: 1 });
+      }
+      return;
+    }
+    case "monthly": {
+      if (rule.recurrence.monthlyDay === null) {
+        return;
+      }
+
+      let month = firstDate.toPlainYearMonth();
+      const lastMonth = lastDate.toPlainYearMonth();
+      while (Temporal.PlainYearMonth.compare(month, lastMonth) <= 0) {
+        if (rule.recurrence.monthlyDay <= month.daysInMonth) {
+          const date = month.toPlainDate({ day: rule.recurrence.monthlyDay });
+          if (isDateInRange(date, firstDate, lastDate)) {
+            yield date;
+          }
+        }
+        month = month.add({ months: 1 });
+      }
+      return;
+    }
+    case "yearly": {
+      if (rule.recurrence.yearlyMonth === null || rule.recurrence.yearlyDay === null) {
+        return;
+      }
+
+      let month = Temporal.PlainYearMonth.from({ year: firstDate.year, month: rule.recurrence.yearlyMonth });
+      while (month.year <= lastDate.year) {
+        if (rule.recurrence.yearlyDay <= month.daysInMonth) {
+          const date = month.toPlainDate({ day: rule.recurrence.yearlyDay });
+          if (isDateInRange(date, firstDate, lastDate)) {
+            yield date;
+          }
+        }
+        month = month.add({ years: 1 });
+      }
+    }
+  }
+}
+
+export function* iterateScheduleOccurrences(
   rule: LightingScheduleSnapshotV1,
   firstDate: Temporal.PlainDate,
   lastDate: Temporal.PlainDate,
   timeZone: string
-): ScheduleOccurrence[] {
+): Generator<ScheduleOccurrence> {
   if (rule.status !== "enabled" || Temporal.PlainDate.compare(firstDate, lastDate) > 0) {
-    return [];
+    return;
   }
 
   const activeFrom = instantDate(rule.activeFrom, timeZone);
   const activeUntil = instantDate(rule.activeUntil, timeZone);
   const start = laterDate(firstDate, activeFrom);
   const end = earlierDate(lastDate, activeUntil);
-  const occurrences: ScheduleOccurrence[] = [];
 
-  for (let date = start; Temporal.PlainDate.compare(date, end) <= 0; date = date.add({ days: 1 })) {
-    if (!occursOnDate(rule, date, activeFrom)) {
-      continue;
-    }
-
+  for (const date of candidateDates(rule, start, end, activeFrom)) {
     const occurrence = occurrenceOnDate(rule, date, timeZone);
     if (occurrence !== null) {
-      occurrences.push(occurrence);
+      yield occurrence;
     }
   }
-
-  return occurrences;
 }
 
 export function getOccurrences(
@@ -115,13 +167,19 @@ export function getOccurrences(
     return [];
   }
 
-  const firstDate = epochDate(range.startsAtEpochMs, timeZone).subtract({ days: 2 });
+  const firstDate = epochDate(range.startsAtEpochMs, timeZone).subtract({ days: 1 });
   const lastDate = epochDate(range.endsAtEpochMs, timeZone).add({ days: 1 });
 
-  return occurrencesBetweenDates(rule, firstDate, lastDate, timeZone).filter((occurrence) => (
-    occurrence.startsAtEpochMs < range.endsAtEpochMs
-    && range.startsAtEpochMs < occurrence.endsAtEpochMs
-  ));
+  const occurrences: ScheduleOccurrence[] = [];
+  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, lastDate, timeZone)) {
+    if (
+      occurrence.startsAtEpochMs < range.endsAtEpochMs
+      && range.startsAtEpochMs < occurrence.endsAtEpochMs
+    ) {
+      occurrences.push(occurrence);
+    }
+  }
+  return occurrences;
 }
 
 export function getActiveOccurrence(
@@ -130,11 +188,12 @@ export function getActiveOccurrence(
   timeZone: string
 ): ScheduleOccurrence | null {
   const localDate = epochDate(epochMs, timeZone);
-  const occurrences = occurrencesBetweenDates(rule, localDate.subtract({ days: 2 }), localDate, timeZone);
-
-  return occurrences.find((occurrence) => (
-    occurrence.startsAtEpochMs <= epochMs && epochMs < occurrence.endsAtEpochMs
-  )) ?? null;
+  for (const occurrence of iterateScheduleOccurrences(rule, localDate.subtract({ days: 1 }), localDate, timeZone)) {
+    if (occurrence.startsAtEpochMs <= epochMs && epochMs < occurrence.endsAtEpochMs) {
+      return occurrence;
+    }
+  }
+  return null;
 }
 
 export function getNextOccurrence(
@@ -149,7 +208,10 @@ export function getNextOccurrence(
   const activeFrom = instantDate(rule.activeFrom, timeZone);
   const activeUntil = instantDate(rule.activeUntil, timeZone);
   const firstDate = laterDate(epochDate(epochMs, timeZone), activeFrom);
-  const occurrences = occurrencesBetweenDates(rule, firstDate, activeUntil, timeZone);
-
-  return occurrences.find((occurrence) => occurrence.startsAtEpochMs > epochMs) ?? null;
+  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, activeUntil, timeZone)) {
+    if (occurrence.startsAtEpochMs > epochMs) {
+      return occurrence;
+    }
+  }
+  return null;
 }

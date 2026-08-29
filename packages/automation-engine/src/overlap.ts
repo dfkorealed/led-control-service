@@ -1,6 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { LightingScheduleSnapshotV1 } from "@led-control/shared";
-import { getOccurrences, type ScheduleOccurrence } from "./recurrence";
+import { iterateScheduleOccurrences, type ScheduleOccurrence } from "./recurrence";
 
 function activeDate(instant: string, timeZone: string): Temporal.PlainDate {
   return Temporal.Instant.from(instant).toZonedDateTimeISO(timeZone).toPlainDate();
@@ -14,27 +14,21 @@ function earlierDate(left: Temporal.PlainDate, right: Temporal.PlainDate): Tempo
   return Temporal.PlainDate.compare(left, right) <= 0 ? left : right;
 }
 
-function startsAtEpochMs(date: Temporal.PlainDate, timeZone: string): number {
-  return date
-    .toPlainDateTime(Temporal.PlainTime.from("00:00"))
-    .toZonedDateTime(timeZone, { disambiguation: "compatible" })
-    .epochMilliseconds;
-}
-
 function hasCommonFixture(left: LightingScheduleSnapshotV1, right: LightingScheduleSnapshotV1): boolean {
   const leftFixtures = new Set(left.fixtureIds);
   return right.fixtureIds.some((fixtureId) => leftFixtures.has(fixtureId));
 }
 
-function intervalsOverlap(left: ScheduleOccurrence[], right: ScheduleOccurrence[]): boolean {
-  const leftSorted = [...left].sort((a, b) => a.startsAtEpochMs - b.startsAtEpochMs);
-  const rightSorted = [...right].sort((a, b) => a.startsAtEpochMs - b.startsAtEpochMs);
-  let leftIndex = 0;
-  let rightIndex = 0;
+function intervalsOverlap(
+  left: Generator<ScheduleOccurrence>,
+  right: Generator<ScheduleOccurrence>
+): boolean {
+  let leftResult = left.next();
+  let rightResult = right.next();
 
-  while (leftIndex < leftSorted.length && rightIndex < rightSorted.length) {
-    const leftOccurrence = leftSorted[leftIndex];
-    const rightOccurrence = rightSorted[rightIndex];
+  while (!leftResult.done && !rightResult.done) {
+    const leftOccurrence = leftResult.value;
+    const rightOccurrence = rightResult.value;
 
     if (
       leftOccurrence.startsAtEpochMs < rightOccurrence.endsAtEpochMs
@@ -44,9 +38,9 @@ function intervalsOverlap(left: ScheduleOccurrence[], right: ScheduleOccurrence[
     }
 
     if (leftOccurrence.endsAtEpochMs <= rightOccurrence.endsAtEpochMs) {
-      leftIndex += 1;
+      leftResult = left.next();
     } else {
-      rightIndex += 1;
+      rightResult = right.next();
     }
   }
 
@@ -75,19 +69,8 @@ export function schedulesOverlap(
     return false;
   }
 
-  const needsGregorianCycle = [left.recurrence.kind, right.recurrence.kind]
-    .some((kind) => kind === "monthly" || kind === "yearly");
-  const periodicEnd = needsGregorianCycle
-    ? comparisonStart.add({ years: 400 })
-    : comparisonStart.add({ months: 14 });
-  const horizonEnd = earlierDate(comparisonEnd, periodicEnd);
-  const range = {
-    startsAtEpochMs: startsAtEpochMs(comparisonStart, timeZone),
-    endsAtEpochMs: startsAtEpochMs(horizonEnd.add({ days: 2 }), timeZone)
-  };
-
   return intervalsOverlap(
-    getOccurrences(left, range, timeZone),
-    getOccurrences(right, range, timeZone)
+    iterateScheduleOccurrences(left, comparisonStart, comparisonEnd, timeZone),
+    iterateScheduleOccurrences(right, comparisonStart, comparisonEnd, timeZone)
   );
 }

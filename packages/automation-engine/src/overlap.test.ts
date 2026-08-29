@@ -168,4 +168,42 @@ describe("schedule overlap", () => {
 
     expect(schedulesOverlap(leapMorning, marchMorning, "UTC")).toBe(false);
   });
+
+  it("finds a timezone transition beyond an initial 400-year window", () => {
+    const shiftedByFirstDstGap = schedule("shifted-by-gap", {
+      activeFrom: "1000-01-01T00:00:00Z",
+      activeUntil: "1918-12-31T23:59:59Z",
+      localStartTime: "02:30",
+      localEndTime: "02:45",
+      recurrence: { kind: "yearly", yearlyMonth: 3, yearlyDay: 31 }
+    });
+    const afterGap = schedule("after-gap", {
+      activeFrom: "1000-01-01T00:00:00Z",
+      activeUntil: "1918-12-31T23:59:59Z",
+      localStartTime: "03:30",
+      localEndTime: "03:45",
+      recurrence: { kind: "yearly", yearlyMonth: 3, yearlyDay: 31 }
+    });
+
+    expect(schedulesOverlap(shiftedByFirstDstGap, afterGap, "America/New_York")).toBe(true);
+  }, 20_000);
+
+  it("returns immediately when huge finite ranges overlap on their first occurrence", () => {
+    const left = schedule("left", {
+      activeFrom: "1000-01-01T00:00:00Z",
+      activeUntil: "9999-12-31T23:59:59Z",
+      recurrence: { kind: "yearly", yearlyMonth: 1, yearlyDay: 1 }
+    });
+    const right = schedule("right", {
+      activeFrom: "1000-01-01T00:00:00Z",
+      activeUntil: "9999-12-31T23:59:59Z",
+      localStartTime: "10:30",
+      localEndTime: "11:30",
+      recurrence: { kind: "yearly", yearlyMonth: 1, yearlyDay: 1 }
+    });
+    const startedAt = performance.now();
+
+    expect(schedulesOverlap(left, right, "UTC")).toBe(true);
+    expect(performance.now() - startedAt).toBeLessThan(250);
+  }, 20_000);
 });

@@ -133,4 +133,17 @@ describe("schedule recurrence", () => {
     expect(getActiveOccurrence(rule, Date.parse("2026-06-11T10:30:00Z"), "UTC")).toBeNull();
     expect(getNextOccurrence(rule, Date.parse("2026-06-11T00:00:00Z"), "UTC")).toBeNull();
   });
+
+  it("returns the next occurrence without traversing a far-future active tail", () => {
+    const rule = schedule({
+      activeFrom: "2026-01-01T00:00:00Z",
+      activeUntil: "3000-12-31T23:59:59Z"
+    });
+    const startedAt = performance.now();
+
+    const occurrence = getNextOccurrence(rule, Date.parse("2026-06-11T00:00:00Z"), "UTC");
+
+    expect(occurrence?.localDate).toBe("2026-06-11");
+    expect(performance.now() - startedAt).toBeLessThan(250);
+  }, 20_000);
 });
