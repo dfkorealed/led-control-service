@@ -16,5 +16,13 @@ export const mqttTopics = {
   meshGroupResyncRequest: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`,
   meshNodeMetrics: (siteId: string, gatewayId: string) =>
-    `sites/${siteId}/gateways/${gatewayId}/events/mesh-node-metrics`
+    `sites/${siteId}/gateways/${gatewayId}/events/mesh-node-metrics`,
+  automationConfig: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/commands/automation/config-sync`,
+  automationConfigApplied: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/automation/config-applied`,
+  automationExecution: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/automation/execution`,
+  automationExecutionIngested: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/acks/automation/execution-ingested`
 } as const;

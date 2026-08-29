@@ -1,4 +1,5 @@
 export * from "./command-delivery";
+export * from "./automation-contracts";
 export * from "./domain";
 export * from "./freshness";
 export * from "./gateway-contracts";
