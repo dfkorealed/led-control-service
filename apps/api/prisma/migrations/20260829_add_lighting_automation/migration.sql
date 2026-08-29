@@ -701,6 +701,36 @@ $$;
 COMMENT ON FUNCTION "lock_automation_membership_mutation"() IS
   'Serializes schedule target, vehicle source/target, and manual target membership mutations with advisory key (1279607873, 1296387394).';
 
+CREATE FUNCTION "lock_automation_membership_statement"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Top-level statement triggers run before PostgreSQL locks any target tuple.
+  -- A nested RI cascade is already serialized by the parent DELETE and must not reverse that lock order.
+  IF pg_trigger_depth() = 1 THEN
+    PERFORM "lock_automation_membership_mutation"();
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER "LightingScheduleFixture_membership_statement_lock"
+BEFORE INSERT OR UPDATE OR DELETE ON "LightingScheduleFixture"
+FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
+
+CREATE TRIGGER "VehicleEventSource_membership_statement_lock"
+BEFORE INSERT OR UPDATE OR DELETE ON "VehicleEventSource"
+FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
+
+CREATE TRIGGER "VehicleEventTarget_membership_statement_lock"
+BEFORE INSERT OR UPDATE OR DELETE ON "VehicleEventTarget"
+FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
+
+CREATE TRIGGER "ManualOverrideFixture_membership_statement_lock"
+BEFORE INSERT OR UPDATE OR DELETE ON "ManualOverrideFixture"
+FOR EACH STATEMENT EXECUTE FUNCTION "lock_automation_membership_statement"();
+
 CREATE FUNCTION "maintain_lighting_schedule_target_count"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -709,13 +739,21 @@ DECLARE
   old_parent_id TEXT;
   new_parent_id TEXT;
 BEGIN
-  PERFORM "lock_automation_membership_mutation"();
-
   IF TG_OP IN ('DELETE', 'UPDATE') THEN
     old_parent_id := OLD."scheduleId";
   END IF;
   IF TG_OP IN ('INSERT', 'UPDATE') THEN
     new_parent_id := NEW."scheduleId";
+  END IF;
+
+  IF pg_trigger_depth() > 1 THEN
+    IF TG_OP = 'DELETE'
+      AND NOT EXISTS (SELECT 1 FROM "LightingSchedule" WHERE "id" = old_parent_id)
+    THEN
+      RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'nested schedule membership mutation is only allowed for parent cascade deletion'
+      USING ERRCODE = '23514';
   END IF;
 
   IF old_parent_id IS NOT NULL
@@ -769,6 +807,7 @@ BEGIN
   WHERE "id" = schedule_id;
 
   IF NOT FOUND THEN
+    -- Deferred cascade events run at depth 1 after the parent has disappeared.
     RETURN;
   END IF;
 
@@ -824,8 +863,6 @@ DECLARE
   counter_column TEXT;
   affected_rows INTEGER;
 BEGIN
-  PERFORM "lock_automation_membership_mutation"();
-
   counter_column := CASE TG_TABLE_NAME
     WHEN 'VehicleEventSource' THEN 'sourceCount'
     WHEN 'VehicleEventTarget' THEN 'targetCount'
@@ -836,6 +873,16 @@ BEGIN
   END IF;
   IF TG_OP IN ('INSERT', 'UPDATE') THEN
     new_parent_id := NEW."ruleId";
+  END IF;
+
+  IF pg_trigger_depth() > 1 THEN
+    IF TG_OP = 'DELETE'
+      AND NOT EXISTS (SELECT 1 FROM "VehicleEventRule" WHERE "id" = old_parent_id)
+    THEN
+      RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'nested vehicle membership mutation is only allowed for parent cascade deletion'
+      USING ERRCODE = '23514';
   END IF;
 
   IF old_parent_id IS NOT NULL
@@ -899,6 +946,7 @@ BEGIN
   WHERE "id" = rule_id;
 
   IF NOT FOUND THEN
+    -- Deferred cascade events run at depth 1 after the parent has disappeared.
     RETURN;
   END IF;
 
@@ -962,13 +1010,21 @@ DECLARE
   old_parent_id TEXT;
   new_parent_id TEXT;
 BEGIN
-  PERFORM "lock_automation_membership_mutation"();
-
   IF TG_OP IN ('DELETE', 'UPDATE') THEN
     old_parent_id := OLD."manualOverrideId";
   END IF;
   IF TG_OP IN ('INSERT', 'UPDATE') THEN
     new_parent_id := NEW."manualOverrideId";
+  END IF;
+
+  IF pg_trigger_depth() > 1 THEN
+    IF TG_OP = 'DELETE'
+      AND NOT EXISTS (SELECT 1 FROM "ManualOverride" WHERE "id" = old_parent_id)
+    THEN
+      RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'nested manual membership mutation is only allowed for parent cascade deletion'
+      USING ERRCODE = '23514';
   END IF;
 
   IF old_parent_id IS NOT NULL
@@ -1022,6 +1078,7 @@ BEGIN
   WHERE "id" = manual_override_id;
 
   IF NOT FOUND THEN
+    -- Deferred cascade events run at depth 1 after the parent has disappeared.
     RETURN;
   END IF;
 

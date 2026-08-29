@@ -155,18 +155,31 @@ describe("automation Prisma schema contract", () => {
     expect(migration).toContain('CREATE FUNCTION "maintain_vehicle_event_fixture_counts"');
     expect(migration).toContain('CREATE FUNCTION "maintain_manual_override_target_count"');
     expect(migration).toContain('SELECT pg_advisory_xact_lock(1279607873, 1296387394)');
-    for (const functionName of [
-      "maintain_lighting_schedule_target_count",
-      "maintain_vehicle_event_fixture_counts",
-      "maintain_manual_override_target_count"
+    expect(migration).toMatch(
+      /CREATE FUNCTION "lock_automation_membership_statement"\(\)[\s\S]*?pg_trigger_depth\(\) = 1[\s\S]*?PERFORM "lock_automation_membership_mutation"\(\)/
+    );
+    for (const tableName of [
+      "LightingScheduleFixture",
+      "VehicleEventSource",
+      "VehicleEventTarget",
+      "ManualOverrideFixture"
     ]) {
       expect(migration).toMatch(
         new RegExp(
-          `CREATE FUNCTION "${functionName}"\\(\\)[\\s\\S]*?BEGIN\\s+` +
-          `PERFORM "lock_automation_membership_mutation"\\(\\);`
+          `CREATE TRIGGER "${tableName}_membership_statement_lock"[\\s\\S]*?` +
+          `BEFORE INSERT OR UPDATE OR DELETE ON "${tableName}"[\\s\\S]*?FOR EACH STATEMENT`
         )
       );
     }
+    expect(migration).toMatch(
+      /CREATE FUNCTION "maintain_lighting_schedule_target_count"\(\)[\s\S]*?pg_trigger_depth\(\) > 1/
+    );
+    expect(migration).toMatch(
+      /CREATE FUNCTION "maintain_vehicle_event_fixture_counts"\(\)[\s\S]*?pg_trigger_depth\(\) > 1/
+    );
+    expect(migration).toMatch(
+      /CREATE FUNCTION "maintain_manual_override_target_count"\(\)[\s\S]*?pg_trigger_depth\(\) > 1/
+    );
     expect(migration).toContain('ORDER BY "id"');
   });
 
@@ -774,7 +787,7 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     }
   );
 
-  it("serializes opposite multi-row membership moves and deletes without deadlock", async () => {
+  it("serializes opposite top-level multi-row membership moves with exact counters", async () => {
     const firstScheduleId = "automation-schema-multi-row-schedule-a";
     const secondScheduleId = "automation-schema-multi-row-schedule-b";
     const thirdScheduleId = "automation-schema-multi-row-schedule-c";
@@ -784,15 +797,15 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       ${scheduleInsert(firstScheduleId)}
       ${scheduleFixtureInsert(firstScheduleId, "automation-schema-fixture-a")}
       ${scheduleFixtureInsert(firstScheduleId, "automation-schema-fixture-a-extra")}
-      ${scheduleFixtureInsert(firstScheduleId, "automation-schema-fixture-a-fourth")}
       ${scheduleInsert(secondScheduleId)}
       ${scheduleFixtureInsert(secondScheduleId, "automation-schema-fixture-a-third")}
+      ${scheduleFixtureInsert(secondScheduleId, "automation-schema-fixture-a-fourth")}
       ${scheduleInsert(thirdScheduleId)}
-      ${scheduleFixtureInsert(thirdScheduleId, "automation-schema-fixture-a")}
-      ${scheduleFixtureInsert(thirdScheduleId, "automation-schema-fixture-a-extra")}
       ${scheduleFixtureInsert(thirdScheduleId, "automation-schema-fixture-a-third")}
+      ${scheduleFixtureInsert(thirdScheduleId, "automation-schema-fixture-a-fourth")}
       ${scheduleInsert(fourthScheduleId)}
-      ${scheduleFixtureInsert(fourthScheduleId, "automation-schema-fixture-a-fourth")}
+      ${scheduleFixtureInsert(fourthScheduleId, "automation-schema-fixture-a")}
+      ${scheduleFixtureInsert(fourthScheduleId, "automation-schema-fixture-a-extra")}
       COMMIT;
     `);
 
@@ -801,14 +814,16 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       SET LOCAL deadlock_timeout = '100ms';
       SET LOCAL lock_timeout = '2s';
       UPDATE "LightingScheduleFixture"
-      SET "scheduleId" = '${secondScheduleId}'
-      WHERE "scheduleId" = '${firstScheduleId}'
-        AND "fixtureId" = 'automation-schema-fixture-a';
+      SET "scheduleId" = CASE "scheduleId"
+        WHEN '${firstScheduleId}' THEN '${secondScheduleId}'
+        WHEN '${thirdScheduleId}' THEN '${fourthScheduleId}'
+      END
+      WHERE ("scheduleId", "fixtureId") IN (
+        ('${firstScheduleId}', 'automation-schema-fixture-a'),
+        ('${thirdScheduleId}', 'automation-schema-fixture-a-third')
+      );
       SELECT 'automation-multi-row-first-ready';
       SELECT pg_sleep(0.5);
-      DELETE FROM "LightingScheduleFixture"
-      WHERE "scheduleId" = '${thirdScheduleId}'
-        AND "fixtureId" = 'automation-schema-fixture-a-extra';
       COMMIT;
     `);
     await firstConnection.waitForOutput("automation-multi-row-first-ready");
@@ -818,13 +833,14 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       SET LOCAL deadlock_timeout = '100ms';
       SET LOCAL lock_timeout = '2s';
       UPDATE "LightingScheduleFixture"
-      SET "scheduleId" = '${fourthScheduleId}'
-      WHERE "scheduleId" = '${thirdScheduleId}'
-        AND "fixtureId" = 'automation-schema-fixture-a-third';
-      SELECT pg_sleep(0.5);
-      DELETE FROM "LightingScheduleFixture"
-      WHERE "scheduleId" = '${firstScheduleId}'
-        AND "fixtureId" = 'automation-schema-fixture-a-fourth';
+      SET "scheduleId" = CASE "scheduleId"
+        WHEN '${secondScheduleId}' THEN '${firstScheduleId}'
+        WHEN '${fourthScheduleId}' THEN '${thirdScheduleId}'
+      END
+      WHERE ("scheduleId", "fixtureId") IN (
+        ('${secondScheduleId}', 'automation-schema-fixture-a-third'),
+        ('${fourthScheduleId}', 'automation-schema-fixture-a')
+      );
       COMMIT;
     `);
     const [firstResult, secondResult] = await Promise.all([
@@ -855,9 +871,153 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     expect(secondResult.status).toBe(0);
     expect(secondResult.stderr).toBe("");
     expect(actualCounts).toBe(
-      `${firstScheduleId}:1:1\n${secondScheduleId}:2:2\n` +
-      `${thirdScheduleId}:1:1\n${fourthScheduleId}:2:2`
+      `${firstScheduleId}:2:2\n${secondScheduleId}:2:2\n` +
+      `${thirdScheduleId}:2:2\n${fourthScheduleId}:2:2`
     );
+  });
+
+  it("does not deadlock a membership transaction against a concurrent parent cascade delete", async () => {
+    const retainedScheduleId = "automation-schema-cascade-race-retained";
+    const deletedScheduleId = "automation-schema-cascade-race-deleted";
+    executeSql(`
+      BEGIN;
+      ${scheduleInsert(retainedScheduleId)}
+      ${scheduleFixtureInsert(retainedScheduleId, "automation-schema-fixture-a")}
+      ${scheduleInsert(deletedScheduleId)}
+      ${scheduleFixtureInsert(deletedScheduleId, "automation-schema-fixture-a-third")}
+      COMMIT;
+    `);
+
+    const membershipConnection = startSqlSession(`
+      BEGIN;
+      SET LOCAL deadlock_timeout = '100ms';
+      SET LOCAL lock_timeout = '2s';
+      ${scheduleFixtureInsert(retainedScheduleId, "automation-schema-fixture-a-extra")}
+      SELECT 'automation-membership-before-parent-cascade';
+      SELECT pg_sleep(0.5);
+      DELETE FROM "LightingScheduleFixture"
+      WHERE "scheduleId" = '${deletedScheduleId}'
+        AND "fixtureId" = 'automation-schema-fixture-a-third';
+      COMMIT;
+    `);
+    await membershipConnection.waitForOutput("automation-membership-before-parent-cascade");
+
+    const parentConnection = startSqlSession(`
+      BEGIN;
+      SET LOCAL deadlock_timeout = '100ms';
+      SET LOCAL lock_timeout = '2s';
+      DELETE FROM "LightingSchedule" WHERE "id" = '${deletedScheduleId}';
+      COMMIT;
+    `);
+    const [membershipResult, parentResult] = await Promise.all([
+      membershipConnection.completion,
+      parentConnection.completion
+    ]);
+    const retainedCounts = querySql(`
+      SELECT schedule."targetCount" || ':' || COUNT(target.*)
+      FROM "LightingSchedule" AS schedule
+      LEFT JOIN "LightingScheduleFixture" AS target ON target."scheduleId" = schedule."id"
+      WHERE schedule."id" = '${retainedScheduleId}'
+      GROUP BY schedule."id";
+    `);
+    const deletedParentCount = querySql(`
+      SELECT COUNT(*) FROM "LightingSchedule" WHERE "id" = '${deletedScheduleId}';
+    `);
+    executeSql(`DELETE FROM "LightingSchedule" WHERE "id" = '${retainedScheduleId}';`);
+
+    const concurrencyErrors = `${membershipResult.stderr}\n${parentResult.stderr}`;
+    expect(concurrencyErrors).not.toMatch(/deadlock detected|canceling statement due to lock timeout/);
+    expect(membershipResult.status).toBe(0);
+    expect(membershipResult.stderr).toBe("");
+    expect(parentResult.status).toBe(0);
+    expect(parentResult.stderr).toBe("");
+    expect(retainedCounts).toBe("2:2");
+    expect(deletedParentCount).toBe("0");
+  });
+
+  it("keeps direct child deletes counted and rejects every final membership delete", () => {
+    const scheduleId = "automation-schema-direct-delete-schedule";
+    const vehicleRuleId = "automation-schema-direct-delete-vehicle";
+    const manualOverrideId = "automation-schema-direct-delete-manual";
+    executeSql(`
+      BEGIN;
+      ${scheduleInsert(scheduleId)}
+      ${scheduleFixtureInsert(scheduleId, "automation-schema-fixture-a")}
+      ${scheduleFixtureInsert(scheduleId, "automation-schema-fixture-a-extra")}
+      ${vehicleRuleInsert(vehicleRuleId)}
+      ${vehicleSourceInsert(vehicleRuleId, "automation-schema-fixture-a")}
+      ${vehicleSourceInsert(vehicleRuleId, "automation-schema-fixture-a-extra")}
+      ${vehicleTargetInsert(vehicleRuleId, "automation-schema-fixture-a-third")}
+      ${vehicleTargetInsert(vehicleRuleId, "automation-schema-fixture-a-fourth")}
+      ${manualOverrideInsert(manualOverrideId, "automation-schema-command-a")}
+      ${manualFixtureInsert(manualOverrideId, "automation-schema-fixture-a")}
+      ${manualFixtureInsert(manualOverrideId, "automation-schema-fixture-a-extra")}
+      COMMIT;
+      DELETE FROM "LightingScheduleFixture"
+      WHERE "scheduleId" = '${scheduleId}' AND "fixtureId" = 'automation-schema-fixture-a-extra';
+      DELETE FROM "VehicleEventSource"
+      WHERE "ruleId" = '${vehicleRuleId}' AND "fixtureId" = 'automation-schema-fixture-a-extra';
+      DELETE FROM "VehicleEventTarget"
+      WHERE "ruleId" = '${vehicleRuleId}' AND "fixtureId" = 'automation-schema-fixture-a-fourth';
+      DELETE FROM "ManualOverrideFixture"
+      WHERE "manualOverrideId" = '${manualOverrideId}' AND "fixtureId" = 'automation-schema-fixture-a-extra';
+    `);
+
+    expect(querySql(`
+      SELECT
+        schedule."targetCount" || ':' || COUNT(DISTINCT schedule_target."fixtureId") || ':' ||
+        rule."sourceCount" || ':' || COUNT(DISTINCT source."fixtureId") || ':' ||
+        rule."targetCount" || ':' || COUNT(DISTINCT rule_target."fixtureId") || ':' ||
+        override."targetCount" || ':' || COUNT(DISTINCT override_target."fixtureId")
+      FROM "LightingSchedule" AS schedule
+      JOIN "LightingScheduleFixture" AS schedule_target ON schedule_target."scheduleId" = schedule."id"
+      CROSS JOIN "VehicleEventRule" AS rule
+      JOIN "VehicleEventSource" AS source ON source."ruleId" = rule."id"
+      JOIN "VehicleEventTarget" AS rule_target ON rule_target."ruleId" = rule."id"
+      CROSS JOIN "ManualOverride" AS override
+      JOIN "ManualOverrideFixture" AS override_target ON override_target."manualOverrideId" = override."id"
+      WHERE schedule."id" = '${scheduleId}'
+        AND rule."id" = '${vehicleRuleId}'
+        AND override."id" = '${manualOverrideId}'
+      GROUP BY schedule."targetCount", rule."sourceCount", rule."targetCount", override."targetCount";
+    `)).toBe("1:1:1:1:1:1:1:1");
+
+    for (const [deleteSql, expectedError] of [
+      [
+        `DELETE FROM "LightingScheduleFixture" WHERE "scheduleId" = '${scheduleId}';`,
+        "lighting schedule requires at least one target fixture"
+      ],
+      [
+        `DELETE FROM "VehicleEventSource" WHERE "ruleId" = '${vehicleRuleId}';`,
+        "vehicle event rule requires at least one source and target fixture"
+      ],
+      [
+        `DELETE FROM "VehicleEventTarget" WHERE "ruleId" = '${vehicleRuleId}';`,
+        "vehicle event rule requires at least one source and target fixture"
+      ],
+      [
+        `DELETE FROM "ManualOverrideFixture" WHERE "manualOverrideId" = '${manualOverrideId}';`,
+        "manual override requires at least one target fixture"
+      ]
+    ]) {
+      expectSqlFailure(`BEGIN; ${deleteSql} COMMIT;`, expectedError);
+    }
+
+    expect(querySql(`
+      SELECT schedule."targetCount" || ':' || rule."sourceCount" || ':' || rule."targetCount" || ':' || override."targetCount"
+      FROM "LightingSchedule" AS schedule
+      CROSS JOIN "VehicleEventRule" AS rule
+      CROSS JOIN "ManualOverride" AS override
+      WHERE schedule."id" = '${scheduleId}'
+        AND rule."id" = '${vehicleRuleId}'
+        AND override."id" = '${manualOverrideId}';
+    `)).toBe("1:1:1:1");
+
+    executeSql(`
+      DELETE FROM "LightingSchedule" WHERE "id" = '${scheduleId}';
+      DELETE FROM "VehicleEventRule" WHERE "id" = '${vehicleRuleId}';
+      DELETE FROM "ManualOverride" WHERE "id" = '${manualOverrideId}';
+    `);
   });
 
   it("maintains exact counters, rejects reconciliation drift, and permits parent cascades", () => {
