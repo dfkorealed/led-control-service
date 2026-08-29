@@ -123,11 +123,7 @@ const fixtureIdsSchema = z.array(identifierSchema).min(1).superRefine((fixtureId
 export const automationActionV1Schema = z.object({
   dimmingEnabled: z.boolean(),
   brightnessPercent: z.number().int().min(0).max(100)
-}).strict().superRefine((action, context) => {
-  if (!action.dimmingEnabled && action.brightnessPercent !== 100) {
-    addIssue(context, "brightnessPercent", "brightnessPercent must be 100 when dimming is disabled");
-  }
-});
+}).strict();
 
 export const scheduleRecurrenceV1Schema = z.object({
   kind: z.enum(["once", "daily", "weekly", "monthly", "yearly"]),

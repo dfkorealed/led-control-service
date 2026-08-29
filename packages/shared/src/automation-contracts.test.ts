@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  automationActionV1Schema,
   automationConfigAppliedV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
@@ -55,6 +56,13 @@ const snapshot = {
 };
 
 describe("automation shared contracts", () => {
+  it("accepts disabled dimming with any valid brightness percentage", () => {
+    expect(automationActionV1Schema.parse({ dimmingEnabled: false, brightnessPercent: 37 })).toEqual({
+      dimmingEnabled: false,
+      brightnessPercent: 37
+    });
+  });
+
   it("strictly validates a complete automation snapshot", () => {
     expect(automationSnapshotV1Schema.parse(snapshot)).toEqual(snapshot);
     expect(() => automationSnapshotV1Schema.parse({ ...snapshot, extra: true })).toThrow();
