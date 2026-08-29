@@ -202,6 +202,75 @@ ARM64 multi-stage Dockerfile은 BlueZ 5.82 source를 고정 checksum으로 빌�
 
 Compose에는 image digest, restart policy, healthcheck, read-only mounts, persistent volumes와 resource limit을 명시한다. `latest` tag는 사용하지 않는다. 이전 digest를 보관해 실패 시 Compose image reference만 되돌린다.
 
+## Lab HIL 단일 준비 명령
+
+### 목적과 진입점
+
+개발자가 여러 PKI·Gateway·ESP-IDF 명령을 수동으로 조합하지 않아도 되도록 다음 단일 진입점을 제공한다.
+
+```bash
+pnpm hardware:e2e:prepare -- \
+  --pi-target dfkorea@192.168.45.177 \
+  --serial GW-RPI-000001
+```
+
+최초 실행에서 검증된 Pi target과 제조 serial은 비밀정보가 아닌 설정으로 `.local/hardware-e2e/config.json`에 저장한다. 이후 같은 장비는 `pnpm hardware:e2e:prepare`만으로 재실행한다. 오케스트레이터는 PKI, host 준비, appliance build/deploy와 firmware build 로직을 다시 구현하지 않고 기존 검증 스크립트를 자식 프로세스로 호출한다.
+
+### 자동 준비 순서
+
+1. macOS 필수 도구, Docker engine, LAN 주소, SSH와 repository 상태를 검사한다.
+2. Raspberry Pi에서 Docker Compose, Bluetooth, rfkill과 controller powered 상태를 검사·준비한다.
+3. Mac과 Pi에서 `api.led.lan`, `mqtt.led.lan`이 현재 Mac LAN IP로 해석되는지 검증한다. 시스템 파일 수정에는 사용자 sudo 승인이 필요하다.
+4. Lab Vault, 목적별 intermediate, API/MQTT 인증서, CRL, 제조 station과 제한된 application token을 준비한다.
+5. PostgreSQL, Redis와 필요한 저장소를 기동하고 DB migration을 적용한다.
+6. API, Web과 mTLS MQTT를 기동한다. 오케스트레이터가 실행되는 동안 자식 프로세스로 유지한다.
+7. commit 기반 ARM64 Gateway image를 빌드해 Pi에 전송하고 공개 API CA trust를 설치한다.
+8. Pi 내부에서 device private key와 CSR을 생성하고 제조 enrollment를 완료한다.
+9. Gateway `.env.appliance`를 serial과 Lab endpoint로 생성하고 unclaimed bootstrap 대기 상태로 컨테이너를 실행한다.
+10. ESP32-H2 firmware를 ESP-IDF `v5.5.1`, `esp32h2` target으로 빌드하고 산출물을 검증한다.
+11. 콘솔에 `Gateway Serial`과 아직 소비되지 않은 `One-time Claim Code`를 표시하고 사용자의 Web claim을 기다린다.
+12. claim 후 Pi의 `/var/lib/led-control/assignment.json`을 감지하면 해당 Gateway ID로 로컬 MQTT ACL을 재생성하고 API/Web/MQTT를 한 번 재시작한다.
+13. Gateway heartbeat와 container health가 정상인지 확인하되 UI 조명 검색·등록·제어는 실행하지 않는다.
+
+### 상태와 재실행
+
+- 완료 단계와 비밀정보가 아닌 입력 fingerprint를 `.local/hardware-e2e/state.json`에 `0600`으로 기록한다.
+- 재실행 시 각 단계의 실제 산출물을 다시 검증한 뒤 유효한 단계만 건너뛴다. 상태 파일만 보고 성공 처리하지 않는다.
+- 제조 label JSON은 기존 `0600` 파일을 사용하며 serial, fingerprint와 claim code 형식을 다시 검증한다.
+- claim code가 이미 소비된 장비는 원문 파일이 남아 있어도 유효한 코드로 다시 표시하지 않는다. 새 code 자동 재발급이나 inventory 초기화는 하지 않는다.
+- `Ctrl+C`는 Mac의 API, Web과 MQTT 자식 프로세스를 정상 종료한다. DB volume, Vault·PKI, Pi identity, assignment와 build 산출물은 보존한다.
+- dirty worktree의 Gateway image build는 기본 거부한다. 임시 검증용 dirty build는 명시적 옵션과 결과 경고가 있을 때만 허용한다.
+
+### 출력과 비밀정보
+
+준비 완료 시 사용자가 Web claim에 입력할 값만 다음 형식으로 출력한다.
+
+```text
+Gateway Serial: GW-RPI-000001
+One-time Claim Code: <일회성 코드>
+```
+
+claim code는 사용자가 명시적으로 요구한 최종 콘솔 출력과 권한 `0600` 제조 label에만 존재한다. 일반 진행 로그, 상태 파일, command argument, Git, API audit metadata와 Gateway journald에는 기록하지 않는다. application token, Vault root token, station private key, device private key는 어떤 경우에도 출력하지 않는다.
+
+### 자동화 안전 경계
+
+오케스트레이터는 ESP32-H2 build까지만 수행한다. 다음 작업은 자동화하지 않는다.
+
+- ESP32 flash, flash erase, factory reset과 serial monitor reset
+- LED 컨버터, 디밍 보조전원, DIM 단자 또는 LED 부하 연결과 통전
+- DB 초기화, 계정·현장·층 생성 또는 기존 claim 해제
+- Web claim, 조명 검색·등록·제어와 성공 판정
+
+특히 ESP32 GPIO와 컨버터 DIM 단자의 전기적 호환성은 별도 절연 interface 회로와 해당 컨버터 datasheet로 승인해야 한다. 준비 스크립트 성공은 배선 안전성이나 실장비 HIL 성공을 증명하지 않는다.
+
+### 검증 계약
+
+- child command 순서, 입력 검증, 재개와 실패 전파를 fake process runner로 단위 검증한다.
+- secret redaction, label 권한, 소비된 claim code 비출력과 dirty build 차단을 회귀 검증한다.
+- `--dry-run`은 파일·DB·Pi·Docker를 변경하지 않고 실행 예정 단계만 표시한다.
+- 기존 PKI, Gateway host, appliance build/deploy, manufacturing enrollment와 ESP32 target build 테스트를 함께 실행한다.
+- 실제 장비가 없는 환경에서는 software orchestration까지만 완료로 기록한다. 새 Raspberry Pi와 승인된 절연 interface를 갖춘 ESP32-H2가 준비된 뒤에만 Phase 0과 서비스 E2E를 별도로 판정한다.
+
 ## Healthcheck
 
 컨테이너 healthcheck는 프로세스 존재가 아니라 다음 상태를 모두 확인한다.
