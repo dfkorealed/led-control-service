@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -135,6 +135,17 @@ describe("automation Prisma schema contract", () => {
         new RegExp(`CREATE CONSTRAINT TRIGGER "${trigger}"[\\s\\S]*?DEFERRABLE INITIALLY DEFERRED`)
       );
     }
+
+    for (const validator of [
+      "assert_lighting_schedule_has_target",
+      "assert_vehicle_event_rule_has_source_and_target",
+      "assert_manual_override_has_target"
+    ]) {
+      const functionStart = migration.indexOf(`CREATE FUNCTION "${validator}"`);
+      const functionSql = migration.slice(functionStart, migration.indexOf("$$;", functionStart));
+      expect(functionSql).toContain("FOR UPDATE");
+      expect(functionSql).toContain("IF NOT FOUND THEN");
+    }
   });
 
   it("guards Gateway reassignment and fixture ownership changes in PostgreSQL", () => {
@@ -143,6 +154,8 @@ describe("automation Prisma schema contract", () => {
     expect(migration).toMatch(/MqttOutbox[\s\S]*?"publishedAt" IS NULL/);
     expect(migration).toContain('CREATE FUNCTION "validate_automation_fixture_scope"');
     expect(migration).toContain('CREATE TRIGGER "Fixture_automation_scope_change_guard"');
+    expect(migration).toContain('CREATE TRIGGER "Floor_automation_scope_change_guard"');
+    expect(migration).toContain('CREATE TRIGGER "MeshNode_automation_scope_change_guard"');
     expect(migration).not.toMatch(
       /(?:GatewayAutomationConfiguration|LightingSchedule|VehicleEventRule|ManualOverride|AutomationExecution)_gatewayId_siteId_fkey[\s\S]*?ON UPDATE CASCADE/
     );
@@ -200,6 +213,7 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       ) VALUES
         ('automation-schema-gateway-a', 'automation-schema-site-a', 'Gateway A', 'AUTOMATION-SCHEMA-GATEWAY-A', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-gateway-a2', 'automation-schema-site-a', 'Gateway A2', 'AUTOMATION-SCHEMA-GATEWAY-A2', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-gateway-move', 'automation-schema-site-a', 'Gateway move', 'AUTOMATION-SCHEMA-GATEWAY-MOVE', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-gateway-b', 'automation-schema-site-b', 'Gateway B', 'AUTOMATION-SCHEMA-GATEWAY-B', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-gateway-config', 'automation-schema-site-a', 'Gateway config', 'AUTOMATION-SCHEMA-GATEWAY-CONFIG', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-gateway-history', 'automation-schema-site-a', 'Gateway history', 'AUTOMATION-SCHEMA-GATEWAY-HISTORY', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -207,17 +221,21 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
         ('automation-schema-gateway-free', 'automation-schema-site-a', 'Gateway free', 'AUTOMATION-SCHEMA-GATEWAY-FREE', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "Floor" ("id", "siteId", "name", "level", "createdAt", "updatedAt") VALUES
         ('automation-schema-floor-a', 'automation-schema-site-a', 'Floor A', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-floor-free', 'automation-schema-site-a', 'Floor free', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-floor-b', 'automation-schema-site-b', 'Floor B', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "MeshNode" (
         "id", "gatewayId", "meshAddress", "firmwareVersion", "createdAt", "updatedAt"
       ) VALUES
         ('automation-schema-node-a', 'automation-schema-gateway-a', '0101', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a-extra', 'automation-schema-gateway-a', '0102', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-node-a2', 'automation-schema-gateway-a2', '0101', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-free', 'automation-schema-gateway-a', '0103', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-node-b', 'automation-schema-gateway-b', '0101', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "Fixture" (
         "id", "floorId", "meshNodeId", "name", "ratedWatt", "x", "y", "createdAt", "updatedAt"
       ) VALUES
         ('automation-schema-fixture-a', 'automation-schema-floor-a', 'automation-schema-node-a', 'Fixture A', 30, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-fixture-a-extra', 'automation-schema-floor-a', 'automation-schema-node-a-extra', 'Fixture A extra', 30, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-fixture-a2', 'automation-schema-floor-a', 'automation-schema-node-a2', 'Fixture A2', 30, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-fixture-b', 'automation-schema-floor-b', 'automation-schema-node-b', 'Fixture B', 30, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-fixture-unassigned', 'automation-schema-floor-a', NULL, 'Fixture unassigned', 30, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
@@ -364,6 +382,47 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       DELETE FROM "ManualOverride" WHERE "id" = 'automation-schema-cardinality-manual';
       COMMIT;
     `);
+  });
+
+  it("serializes concurrent deletions of the final two required schedule targets", async () => {
+    executeSql(`
+      BEGIN;
+      ${scheduleInsert("automation-schema-concurrent-schedule")}
+      ${scheduleFixtureInsert("automation-schema-concurrent-schedule", "automation-schema-fixture-a")}
+      ${scheduleFixtureInsert("automation-schema-concurrent-schedule", "automation-schema-fixture-a-extra")}
+      COMMIT;
+    `);
+
+    const firstConnection = startSqlSession(`
+      BEGIN;
+      DELETE FROM "LightingScheduleFixture"
+      WHERE "scheduleId" = 'automation-schema-concurrent-schedule'
+        AND "fixtureId" = 'automation-schema-fixture-a';
+      SET CONSTRAINTS "LightingScheduleFixture_target_cardinality" IMMEDIATE;
+      SELECT 'automation-first-connection-ready';
+      SELECT pg_sleep(1);
+      COMMIT;
+    `);
+    await firstConnection.waitForOutput("automation-first-connection-ready");
+
+    const secondConnection = runSql(`
+      BEGIN;
+      DELETE FROM "LightingScheduleFixture"
+      WHERE "scheduleId" = 'automation-schema-concurrent-schedule'
+        AND "fixtureId" = 'automation-schema-fixture-a-extra';
+      COMMIT;
+    `);
+    const firstResult = await firstConnection.completion;
+
+    expect(firstResult.status).toBe(0);
+    expect(firstResult.stderr).toBe("");
+    expect(secondConnection.status).not.toBe(0);
+    expect(secondConnection.stderr).toContain("lighting schedule requires at least one target fixture");
+    expect(querySql(`
+      SELECT COUNT(*)
+      FROM "LightingScheduleFixture"
+      WHERE "scheduleId" = 'automation-schema-concurrent-schedule';
+    `)).toBe("1");
   });
 
   it("rejects fixture snapshots outside the parent Site or Gateway", () => {
@@ -581,6 +640,31 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       fixtureResultInsert("automation-schema-fixture-a", "automation-schema-fixture-a", "timed_out")
     );
   });
+
+  it("allows harmless and unreferenced indirect ownership updates", () => {
+    executeSql(`
+      UPDATE "Floor" SET "siteId" = 'automation-schema-site-a' WHERE "id" = 'automation-schema-floor-a';
+      UPDATE "MeshNode" SET "gatewayId" = 'automation-schema-gateway-a' WHERE "id" = 'automation-schema-node-a';
+      UPDATE "Floor" SET "siteId" = 'automation-schema-site-b' WHERE "id" = 'automation-schema-floor-free';
+      UPDATE "Floor" SET "siteId" = 'automation-schema-site-a' WHERE "id" = 'automation-schema-floor-free';
+      UPDATE "MeshNode" SET "gatewayId" = 'automation-schema-gateway-move' WHERE "id" = 'automation-schema-node-free';
+      UPDATE "MeshNode" SET "gatewayId" = 'automation-schema-gateway-a' WHERE "id" = 'automation-schema-node-free';
+    `);
+  });
+
+  it("blocks a Floor Site change that indirectly invalidates automation references", () => {
+    expectSqlFailure(
+      `UPDATE "Floor" SET "siteId" = 'automation-schema-site-b' WHERE "id" = 'automation-schema-floor-a';`,
+      "Floor Site change would invalidate automation references"
+    );
+  });
+
+  it("blocks a MeshNode Gateway change that indirectly invalidates automation references", () => {
+    expectSqlFailure(
+      `UPDATE "MeshNode" SET "gatewayId" = 'automation-schema-gateway-move' WHERE "id" = 'automation-schema-node-a';`,
+      "MeshNode Gateway change would invalidate automation references"
+    );
+  });
 });
 
 const validPayloadHash = `sha256:${"a".repeat(64)}`;
@@ -745,6 +829,46 @@ function querySql(sql: string) {
   const result = runSql(sql, ["-qAt"]);
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
+}
+
+function startSqlSession(sql: string) {
+  const child = spawn("psql", ["-qAt", "-v", "ON_ERROR_STOP=1", psqlDatabaseUrl!], {
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  child.stdin.end(sql);
+
+  return {
+    completion: new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+      child.on("close", (status) => resolve({ status, stdout, stderr }));
+    }),
+    waitForOutput(marker: string) {
+      if (stdout.includes(marker)) return Promise.resolve();
+
+      return new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timed out waiting for PostgreSQL marker: ${marker}\n${stderr}`));
+        }, 3000);
+        const onData = () => {
+          if (!stdout.includes(marker)) return;
+          clearTimeout(timeout);
+          child.stdout.off("data", onData);
+          resolve();
+        };
+        child.stdout.on("data", onData);
+      });
+    }
+  };
 }
 
 function runSql(sql: string, extraArgs: string[] = ["-q"]) {

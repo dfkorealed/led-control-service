@@ -946,7 +946,7 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 
 `automation_weekly_days_are_unique(INTEGER[])`는 `IMMUTABLE` SQL helper이며 recurrence CHECK가 중복 요일을 API와 독립적으로 거부한다. `LightingSchedule`은 owner-bearing child FK 기준인 `(id, siteId, gatewayId)` Unique도 가진다.
 
-`LightingScheduleFixture`의 컬럼은 `scheduleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`이다. `(scheduleId, fixtureId)`가 복합 PK이고 `(scheduleId, siteId, gatewayId)`는 부모 owner Unique를 `ON DELETE CASCADE, ON UPDATE RESTRICT`로 참조한다. `fixtureId`는 `Fixture.id`를 delete/update restrict로 참조하며 `(fixtureId)`, `(siteId, gatewayId)` index가 있다. DEFERRABLE INITIALLY DEFERRED constraint trigger가 commit 시 부모별 대상 1개 이상을 요구하므로 parent와 child를 같은 transaction에서 만들거나 snapshot 전체를 교체할 수 있고, 부모 삭제 cascade는 차단하지 않는다.
+`LightingScheduleFixture`의 컬럼은 `scheduleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`이다. `(scheduleId, fixtureId)`가 복합 PK이고 `(scheduleId, siteId, gatewayId)`는 부모 owner Unique를 `ON DELETE CASCADE, ON UPDATE RESTRICT`로 참조한다. `fixtureId`는 `Fixture.id`를 delete/update restrict로 참조하며 `(fixtureId)`, `(siteId, gatewayId)` index가 있다. DEFERRABLE INITIALLY DEFERRED constraint trigger가 commit 시 부모별 대상 1개 이상을 요구하므로 parent와 child를 같은 transaction에서 만들거나 snapshot 전체를 교체할 수 있고, 부모 삭제 cascade는 차단하지 않는다. 검증은 존재하는 `LightingSchedule` parent를 `FOR UPDATE`로 먼저 잠근 뒤 현재 snapshot에서 child를 세어 동시 마지막-target 삭제를 직렬화한다.
 
 ### VehicleEventRule / VehicleEventSource / VehicleEventTarget
 
@@ -964,7 +964,7 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 | `createdById`, `updatedById` | `String` | 예 | named FK -> `User.id`, delete restrict |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` |
 
-`VehicleEventRule`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique를 가진다. `VehicleEventSource`와 `VehicleEventTarget`은 각각 `ruleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장하고 `(ruleId, fixtureId)` 복합 PK로 source/target 중복을 차단한다. `(ruleId, siteId, gatewayId)`는 부모 owner를 delete cascade/update restrict로 참조하고 Fixture FK는 delete/update restrict다. 두 테이블 모두 `(fixtureId)`, `(siteId, gatewayId)` index가 있다. DEFERRABLE INITIALLY DEFERRED constraint trigger가 commit 시 source와 target을 각각 1개 이상 요구하며 부모+child 생성과 부모 cascade 삭제를 허용한다.
+`VehicleEventRule`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique를 가진다. `VehicleEventSource`와 `VehicleEventTarget`은 각각 `ruleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장하고 `(ruleId, fixtureId)` 복합 PK로 source/target 중복을 차단한다. `(ruleId, siteId, gatewayId)`는 부모 owner를 delete cascade/update restrict로 참조하고 Fixture FK는 delete/update restrict다. 두 테이블 모두 `(fixtureId)`, `(siteId, gatewayId)` index가 있다. DEFERRABLE INITIALLY DEFERRED constraint trigger가 commit 시 source와 target을 각각 1개 이상 요구하며 부모+child 생성과 부모 cascade 삭제를 허용한다. 검증은 존재하는 `VehicleEventRule` parent를 `FOR UPDATE`로 먼저 잠근 뒤 source/target을 세어 동시 마지막-child 삭제를 직렬화한다.
 
 ### ManualOverride / ManualOverrideFixture
 
@@ -980,7 +980,7 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 | `endedAt` | `DateTime?` | 아니오 | DB check `startedAt <= endedAt <= overrideUntil` |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` |
 
-`ManualOverride`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique와 Prisma 1:1 Command relation 기준인 `(commandId, siteId, requestedById)` Unique를 가진다. `ManualOverrideFixture`는 `manualOverrideId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장한다. `(manualOverrideId, fixtureId)` 복합 PK, `(fixtureId)`, `(siteId, gatewayId)` index, owner-aware override delete cascade/update restrict와 Fixture delete/update restrict를 사용한다. DEFERRABLE INITIALLY DEFERRED constraint trigger는 commit 시 target 1개 이상을 요구하고 부모 cascade 삭제는 허용한다. Command/User/Fixture 관계를 restrict해 이미 실행된 수동 override 원장이 참조 대상 삭제로 유실되지 않게 한다.
+`ManualOverride`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique와 Prisma 1:1 Command relation 기준인 `(commandId, siteId, requestedById)` Unique를 가진다. `ManualOverrideFixture`는 `manualOverrideId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장한다. `(manualOverrideId, fixtureId)` 복합 PK, `(fixtureId)`, `(siteId, gatewayId)` index, owner-aware override delete cascade/update restrict와 Fixture delete/update restrict를 사용한다. DEFERRABLE INITIALLY DEFERRED constraint trigger는 commit 시 target 1개 이상을 요구하고 부모 cascade 삭제는 허용한다. 검증은 존재하는 `ManualOverride` parent를 `FOR UPDATE`로 먼저 잠근 뒤 target을 세어 동시 마지막-target 삭제를 직렬화한다. Command/User/Fixture 관계를 restrict해 이미 실행된 수동 override 원장이 참조 대상 삭제로 유실되지 않게 한다.
 
 ### AutomationExecution / AutomationExecutionFixtureResult
 
@@ -1027,8 +1027,8 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 ### 자동 제어 tenant 경계와 lifecycle
 
 - `Gateway.id + Gateway.siteId`를 Unique로 만들고 구성, 규칙, override, 실행 원장이 `(gatewayId, siteId)` 복합 FK를 사용한다. Owner FK는 `ON UPDATE RESTRICT`다. `Gateway_automation_site_reassignment_guard`는 기존 Site가 `NULL`이면 dependency 생성 전 최초 assignment를 허용하지만, 구성/규칙/override/실행 원장 또는 `publishedAt IS NULL` config outbox가 있으면 Site 변경을 거부한다.
-- Fixture target/source join은 owner `siteId/gatewayId`를 직접 저장하고 복합 FK로 부모 owner를 참조한다. `validate_automation_fixture_scope` trigger는 `Fixture -> Floor -> Site`와 `Fixture -> MeshNode -> Gateway`를 조회해 같은 owner인지, MeshNode가 배정됐는지 강제한다. `Fixture_automation_scope_change_guard`는 참조 중인 Fixture의 `floorId` 또는 `meshNodeId` 변경이 어느 snapshot owner라도 무효화하면 거부한다.
-- Schedule target, vehicle source/target, manual target 최소 cardinality는 모두 DEFERRABLE INITIALLY DEFERRED constraint trigger다. Parent+children을 같은 transaction에서 저장할 수 있고 parent cascade 삭제 시 commit 검사에서 이미 삭제된 parent는 건너뛴다.
+- Fixture target/source join은 owner `siteId/gatewayId`를 직접 저장하고 복합 FK로 부모 owner를 참조한다. `validate_automation_fixture_scope` trigger는 `Fixture -> Floor -> Site`와 `Fixture -> MeshNode -> Gateway`를 조회해 같은 owner인지, MeshNode가 배정됐는지 강제하며 읽은 Fixture/Floor/MeshNode row를 `FOR SHARE`로 잠근다. `Fixture_automation_scope_change_guard`는 참조 중인 Fixture의 `floorId` 또는 `meshNodeId` 변경이 어느 snapshot owner라도 무효화하면 거부한다. `Floor_automation_scope_change_guard`와 `MeshNode_automation_scope_change_guard`는 각각 `Floor.siteId`, `MeshNode.gatewayId`의 간접 변경도 모든 schedule/event/manual join owner와 비교해 거부한다. 같은 owner 값의 update와 automation에서 참조하지 않는 Floor/MeshNode 이동은 허용한다.
+- Schedule target, vehicle source/target, manual target 최소 cardinality는 모두 DEFERRABLE INITIALLY DEFERRED constraint trigger다. Parent+children을 같은 transaction에서 저장할 수 있고 parent cascade 삭제 시 commit 검사에서 이미 삭제된 parent는 건너뛴다. Parent가 존재하면 먼저 `FOR UPDATE` lock을 얻고 별도 current-snapshot count를 실행하므로 서로 다른 마지막 child를 지우는 동시 transaction 중 하나는 commit에서 실패한다.
 - 구성 row와 config outbox는 owner 삭제 시 cascade하는 현재 상태다. 규칙 target/source는 규칙 삭제 시 cascade하지만 Fixture 삭제는 restrict한다.
 - Manual override는 `(commandId, siteId, requestedById)` 복합 FK로 source Command의 tenant/requester를 고정하고 요청 `User`, 대상 `Fixture` 삭제를 restrict해 감사 연결을 보존한다.
 - 실행 원장은 trigger로 source owner와 kind/rule coherence를 확인한다. Site/Gateway 삭제를 restrict하고 원본 규칙/override 및 Fixture의 물리 삭제는 nullable FK를 `SET NULL`로 바꾸면서 raw ID snapshot과 payload를 유지한다.
@@ -1259,6 +1259,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `Fixture` | Unique `meshNodeId` | 하나의 메시 노드는 하나의 조명에만 연결 |
 | `Gateway` | Unique `serialNumber` | 게이트웨이 시리얼 중복 방지 |
 | `Gateway` | Unique `id + siteId` | 자동 제어 owner의 Gateway/Site 복합 FK 기준 제공 |
+| `Floor`, `MeshNode` | automation indirect scope change guards | 참조 중인 Fixture의 Site/Gateway owner를 간접 변경하는 update 차단 |
 | `GatewayInventory` | Unique `serialNumber`, nullable `certificateFingerprint`, `claimedGatewayId` | 인증서 발급 전 제조 identity 생성과 발급 후 fingerprint 확정 지원 |
 | `GatewayEnrollment` | Unique `tokenHash`, partial unique `serialNumber WHERE usedAt IS NULL`, Index `serialNumber + createdAt` | secret hash 중복, serial별 미사용 enrollment 단일성, token 재사용 방지와 제조 이력 조회 |
 | `GatewayCertificate` | DB enum purpose/status; Unique `fingerprint`, `replacedById`, `issuer + certificateSerial`; partial unique `inventoryId WHERE purpose = mqtt AND status = active`; self-replacement Check; inventory/replacement delete Restrict | 인증서 수명주기와 inventory별 단일 active MQTT 인증서, 감사 가능한 1:1 교체 체인 추적 |
@@ -1283,11 +1284,11 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `FixtureGroup` | active boundary check, deferred group/member trigger, `siteId + floorId + gatewayId + lifecycleStatus` index | legacy 격리와 활성 구역 경계·member 수 제한 |
 | `GatewayAutomationConfiguration` | PK `gatewayId`, Unique/FK `gatewayId + siteId`, ordered revisions, state-dependent check | Gateway별 단일 full snapshot 적용 상태와 PENDING/APPLIED/REJECTED coherence |
 | `LightingSchedule` | active/time/unique recurrence/brightness/revision checks, Unique `id + siteId + gatewayId` | 반복 스케줄 범위와 child owner 기준 강제 |
-| `LightingScheduleFixture` | PK `scheduleId + fixtureId`, owner composite FK/scope trigger, deferred nonempty trigger | 스케줄 대상 snapshot 중복·tenant/Gateway·최소 1개 강제 |
+| `LightingScheduleFixture` | PK `scheduleId + fixtureId`, owner composite FK/scope trigger, parent-locking deferred nonempty trigger | 스케줄 대상 snapshot 중복·tenant/Gateway·동시성 안전 최소 1개 강제 |
 | `VehicleEventRule` | brightness `0..100`, hold `5..1800`, ordered revisions, Unique `id + siteId + gatewayId` | 차량 감지 action 범위와 child owner 기준 강제 |
-| `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, owner composite FK/scope trigger, deferred nonempty trigger | source/target 중복·tenant/Gateway·각 최소 1개 강제 |
+| `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, owner composite FK/scope trigger, parent-locking deferred nonempty trigger | source/target 중복·tenant/Gateway·동시성 안전 각 최소 1개 강제 |
 | `ManualOverride` | Unique `commandId`, composite Command owner FK, brightness/time checks | command별 단일 수동 override와 source tenant/requester 강제 |
-| `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, owner composite FK/scope trigger, deferred nonempty trigger | 수동 대상 중복·tenant/Gateway·최소 1개 강제 |
+| `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, owner composite FK/scope trigger, parent-locking deferred nonempty trigger | 수동 대상 중복·tenant/Gateway·동시성 안전 최소 1개 강제 |
 | `MqttOutbox` | command/config row-shape check, Unique `gatewayId + revision + payloadHash` | 기존 command outbox 재사용과 미발행 config의 Gateway reassignment 차단 |
 | `AutomationExecution` | Unique `gatewayId + eventId + sequence`, source owner/kind/rule trigger | Gateway lifecycle event 멱등성과 tenant-consistent history 원장 |
 | `AutomationExecutionFixtureResult` | PK `executionId + fixtureSnapshotId`, identity/terminal-status checks | Fixture 삭제 뒤 snapshot ID 보존과 terminal 결과만 저장 |

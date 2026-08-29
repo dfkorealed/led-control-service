@@ -462,19 +462,30 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
   fixture_site_id TEXT;
+  fixture_mesh_node_id TEXT;
   fixture_gateway_id TEXT;
 BEGIN
-  SELECT floor."siteId", node."gatewayId"
-  INTO fixture_site_id, fixture_gateway_id
+  SELECT floor."siteId", fixture."meshNodeId"
+  INTO fixture_site_id, fixture_mesh_node_id
   FROM "Fixture" AS fixture
   JOIN "Floor" AS floor ON floor."id" = fixture."floorId"
-  LEFT JOIN "MeshNode" AS node ON node."id" = fixture."meshNodeId"
-  WHERE fixture."id" = NEW."fixtureId";
+  WHERE fixture."id" = NEW."fixtureId"
+  FOR SHARE OF fixture, floor;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'automation fixture does not exist' USING ERRCODE = '23514';
   END IF;
-  IF fixture_gateway_id IS NULL THEN
+  IF fixture_mesh_node_id IS NULL THEN
+    RAISE EXCEPTION 'fixture must be assigned to a MeshNode' USING ERRCODE = '23514';
+  END IF;
+
+  SELECT "gatewayId"
+  INTO fixture_gateway_id
+  FROM "MeshNode"
+  WHERE "id" = fixture_mesh_node_id
+  FOR SHARE;
+
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'fixture must be assigned to a MeshNode' USING ERRCODE = '23514';
   END IF;
   IF fixture_site_id IS DISTINCT FROM NEW."siteId" THEN
@@ -512,8 +523,8 @@ DECLARE
   fixture_site_id TEXT;
   fixture_gateway_id TEXT;
 BEGIN
-  SELECT "siteId" INTO fixture_site_id FROM "Floor" WHERE "id" = NEW."floorId";
-  SELECT "gatewayId" INTO fixture_gateway_id FROM "MeshNode" WHERE "id" = NEW."meshNodeId";
+  SELECT "siteId" INTO fixture_site_id FROM "Floor" WHERE "id" = NEW."floorId" FOR SHARE;
+  SELECT "gatewayId" INTO fixture_gateway_id FROM "MeshNode" WHERE "id" = NEW."meshNodeId" FOR SHARE;
 
   IF EXISTS (
     SELECT 1
@@ -556,6 +567,72 @@ BEFORE UPDATE OF "floorId", "meshNodeId" ON "Fixture"
 FOR EACH ROW
 WHEN (OLD."floorId" IS DISTINCT FROM NEW."floorId" OR OLD."meshNodeId" IS DISTINCT FROM NEW."meshNodeId")
 EXECUTE FUNCTION "prevent_fixture_automation_scope_change"();
+
+CREATE FUNCTION "prevent_floor_automation_scope_change"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "Fixture" AS fixture
+    JOIN (
+      SELECT "fixtureId", "siteId" FROM "LightingScheduleFixture"
+      UNION ALL
+      SELECT "fixtureId", "siteId" FROM "VehicleEventSource"
+      UNION ALL
+      SELECT "fixtureId", "siteId" FROM "VehicleEventTarget"
+      UNION ALL
+      SELECT "fixtureId", "siteId" FROM "ManualOverrideFixture"
+    ) AS automation_reference ON automation_reference."fixtureId" = fixture."id"
+    WHERE fixture."floorId" = OLD."id"
+      AND automation_reference."siteId" IS DISTINCT FROM NEW."siteId"
+  ) THEN
+    RAISE EXCEPTION 'Floor Site change would invalidate automation references' USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "Floor_automation_scope_change_guard"
+BEFORE UPDATE OF "siteId" ON "Floor"
+FOR EACH ROW
+WHEN (OLD."siteId" IS DISTINCT FROM NEW."siteId")
+EXECUTE FUNCTION "prevent_floor_automation_scope_change"();
+
+CREATE FUNCTION "prevent_mesh_node_automation_scope_change"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "Fixture" AS fixture
+    JOIN (
+      SELECT "fixtureId", "gatewayId" FROM "LightingScheduleFixture"
+      UNION ALL
+      SELECT "fixtureId", "gatewayId" FROM "VehicleEventSource"
+      UNION ALL
+      SELECT "fixtureId", "gatewayId" FROM "VehicleEventTarget"
+      UNION ALL
+      SELECT "fixtureId", "gatewayId" FROM "ManualOverrideFixture"
+    ) AS automation_reference ON automation_reference."fixtureId" = fixture."id"
+    WHERE fixture."meshNodeId" = OLD."id"
+      AND automation_reference."gatewayId" IS DISTINCT FROM NEW."gatewayId"
+  ) THEN
+    RAISE EXCEPTION 'MeshNode Gateway change would invalidate automation references' USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "MeshNode_automation_scope_change_guard"
+BEFORE UPDATE OF "gatewayId" ON "MeshNode"
+FOR EACH ROW
+WHEN (OLD."gatewayId" IS DISTINCT FROM NEW."gatewayId")
+EXECUTE FUNCTION "prevent_mesh_node_automation_scope_change"();
 
 CREATE FUNCTION "validate_automation_execution_source"()
 RETURNS TRIGGER
@@ -677,9 +754,12 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM "LightingSchedule" WHERE "id" = schedule_id)
-    AND NOT EXISTS (SELECT 1 FROM "LightingScheduleFixture" WHERE "scheduleId" = schedule_id)
-  THEN
+  PERFORM 1 FROM "LightingSchedule" WHERE "id" = schedule_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM "LightingScheduleFixture" WHERE "scheduleId" = schedule_id) THEN
     RAISE EXCEPTION 'lighting schedule requires at least one target fixture' USING ERRCODE = '23514';
   END IF;
 END;
@@ -719,11 +799,13 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM "VehicleEventRule" WHERE "id" = rule_id)
-    AND (
-      NOT EXISTS (SELECT 1 FROM "VehicleEventSource" WHERE "ruleId" = rule_id)
-      OR NOT EXISTS (SELECT 1 FROM "VehicleEventTarget" WHERE "ruleId" = rule_id)
-    )
+  PERFORM 1 FROM "VehicleEventRule" WHERE "id" = rule_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM "VehicleEventSource" WHERE "ruleId" = rule_id)
+    OR NOT EXISTS (SELECT 1 FROM "VehicleEventTarget" WHERE "ruleId" = rule_id)
   THEN
     RAISE EXCEPTION 'vehicle event rule requires at least one source and target fixture' USING ERRCODE = '23514';
   END IF;
@@ -769,9 +851,12 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM "ManualOverride" WHERE "id" = manual_override_id)
-    AND NOT EXISTS (SELECT 1 FROM "ManualOverrideFixture" WHERE "manualOverrideId" = manual_override_id)
-  THEN
+  PERFORM 1 FROM "ManualOverride" WHERE "id" = manual_override_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM "ManualOverrideFixture" WHERE "manualOverrideId" = manual_override_id) THEN
     RAISE EXCEPTION 'manual override requires at least one target fixture' USING ERRCODE = '23514';
   END IF;
 END;
