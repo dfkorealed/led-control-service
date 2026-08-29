@@ -53,12 +53,14 @@ describeWithPostgres("vehicle sensor capability PostgreSQL invariants", () => {
       VALUES ('${ids.floor}', '${ids.site}', 'B1', -1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "MeshNode" (
         "id", "gatewayId", "meshAddress", "firmwareVersion",
-        "vehicleSensorCapabilityStatus", "vehicleSensorCapabilityVerifiedAt", "createdAt", "updatedAt"
+        "vehicleSensorCapabilityStatus", "vehicleSensorCapabilityVerifiedAt",
+        "vehicleSensorCapabilityRevision", "vehicleSensorServerBound", "vehicleVendorEventModelBound",
+        "createdAt", "updatedAt"
       ) VALUES
-        ('${ids.primaryNode}', '${ids.gateway}', '0A01', 'test', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('${ids.candidateNode}', '${ids.gateway}', '0A02', 'test', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('${ids.unknownNode}', '${ids.gateway}', '0A03', 'test', 'unknown', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('${ids.freeUnknownNode}', '${ids.gateway}', '0A04', 'test', 'unknown', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+        ('${ids.primaryNode}', '${ids.gateway}', '0A01', 'test', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('${ids.candidateNode}', '${ids.gateway}', '0A02', 'test', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('${ids.unknownNode}', '${ids.gateway}', '0A03', 'test', 'unknown', NULL, 0, false, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('${ids.freeUnknownNode}', '${ids.gateway}', '0A04', 'test', 'unknown', NULL, 0, false, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "Fixture" (
         "id", "floorId", "meshNodeId", "name", "ratedWatt", "x", "y", "createdAt", "updatedAt"
       ) VALUES
@@ -157,7 +159,10 @@ describeWithPostgres("vehicle sensor capability PostgreSQL invariants", () => {
     const downgrade = runSql(`
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'unsupported',
-          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP,
+          "vehicleSensorCapabilityRevision" = 2,
+          "vehicleSensorServerBound" = false,
+          "vehicleVendorEventModelBound" = false
       WHERE "id" = '${ids.primaryNode}';
     `);
     expect(downgrade.status).not.toBe(0);
@@ -167,7 +172,10 @@ describeWithPostgres("vehicle sensor capability PostgreSQL invariants", () => {
       UPDATE "VehicleEventRule" SET "status" = 'disabled' WHERE "id" = '${ids.rule}';
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'unsupported',
-          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP,
+          "vehicleSensorCapabilityRevision" = 2,
+          "vehicleSensorServerBound" = false,
+          "vehicleVendorEventModelBound" = false
       WHERE "id" = '${ids.primaryNode}';
     `);
     const reenable = runSql(`UPDATE "VehicleEventRule" SET "status" = 'enabled' WHERE "id" = '${ids.rule}';`);
@@ -178,7 +186,10 @@ describeWithPostgres("vehicle sensor capability PostgreSQL invariants", () => {
       executeSql(`
         UPDATE "MeshNode"
         SET "vehicleSensorCapabilityStatus" = 'supported',
-            "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+            "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP,
+            "vehicleSensorCapabilityRevision" = 1,
+            "vehicleSensorServerBound" = true,
+            "vehicleVendorEventModelBound" = true
         WHERE "id" = '${ids.primaryNode}';
         UPDATE "VehicleEventRule" SET "status" = 'enabled' WHERE "id" = '${ids.rule}';
       `);
@@ -218,7 +229,10 @@ describeWithPostgres("vehicle sensor capability PostgreSQL invariants", () => {
         SET LOCAL lock_timeout = '3s';
         UPDATE "MeshNode"
         SET "vehicleSensorCapabilityStatus" = 'unsupported',
-            "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+            "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP,
+            "vehicleSensorCapabilityRevision" = 2,
+            "vehicleSensorServerBound" = false,
+            "vehicleVendorEventModelBound" = false
         WHERE "id" = '${ids.candidateNode}';
         COMMIT;
       `);
@@ -253,7 +267,10 @@ describeWithPostgres("vehicle sensor capability PostgreSQL invariants", () => {
         BEGIN ISOLATION LEVEL ${isolationLevel};
         UPDATE "MeshNode"
         SET "vehicleSensorCapabilityStatus" = 'unsupported',
-            "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+            "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP,
+            "vehicleSensorCapabilityRevision" = 2,
+            "vehicleSensorServerBound" = false,
+            "vehicleVendorEventModelBound" = false
         WHERE "id" = '${ids.candidateNode}';
         SELECT '${firstMarker}';
         SELECT pg_sleep(1);
@@ -307,7 +324,10 @@ describeWithPostgres("vehicle sensor capability PostgreSQL invariants", () => {
       WHERE "ruleId" = '${ids.rule}' AND "fixtureId" = '${ids.candidateFixture}';
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'supported',
-          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP,
+          "vehicleSensorCapabilityRevision" = 1,
+          "vehicleSensorServerBound" = true,
+          "vehicleVendorEventModelBound" = true
       WHERE "id" = '${ids.candidateNode}';
       COMMIT;
     `);

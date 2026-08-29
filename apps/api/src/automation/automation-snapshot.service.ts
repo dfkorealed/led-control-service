@@ -6,8 +6,8 @@ import {
   type VehicleEventRuleSnapshotV1
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
-import { createHash } from "node:crypto";
 import { AutomationClock } from "./automation-clock";
+import { canonicalPayloadHash } from "./automation-payload-hash";
 
 interface LightingScheduleSnapshotRow {
   id: string;
@@ -85,9 +85,7 @@ export class AutomationSnapshotService {
         .sort((left, right) => compareAutomationIds(left.id, right.id)),
       generatedAt: this.clock.now().toISOString()
     };
-    const payloadHash = `sha256:${createHash("sha256")
-      .update(canonicalAutomationJson(snapshotWithoutHash))
-      .digest("hex")}` as const;
+    const payloadHash = canonicalPayloadHash(snapshotWithoutHash);
     const payload = automationSnapshotV1Schema.parse({ ...snapshotWithoutHash, payloadHash });
 
     const configuration = await tx.gatewayAutomationConfiguration.upsert({
@@ -173,20 +171,6 @@ export function toVehicleEventRuleSnapshot(rule: {
     }),
     holdSeconds: rule.holdSeconds
   };
-}
-
-function canonicalAutomationJson(value: unknown): string {
-  return JSON.stringify(sortJson(value));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => compareAutomationIds(left, right))
-      .map(([key, child]) => [key, sortJson(child)])
-  );
 }
 
 export function compareAutomationIds(left: string, right: string) {

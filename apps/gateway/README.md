@@ -175,6 +175,14 @@ connect recovery는 아직 application ACK를 받지 못한 terminal을 original
 
 Gateway MQTT certificate는 ACK namespace에서 Gateway가 실제 생성하는 `acks/acceptance`, `acks/device-status`만 publish할 수 있다. API transaction commit을 증명하는 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested`는 Gateway read-only이며 self-publish는 Mosquitto ACL에서 거부한다.
 
+## 차량 센서 capability report handoff
+
+Task 14 Gateway 구현은 MeshNode마다 `capabilityRevision`, `eventId`, complete `VehicleSensorCapabilityReportV1` payload를 gateway volume에 원자 저장한다. `capabilityRevision`은 Sensor Server와 vendor vehicle event model의 실제 bound 상태가 바뀔 때만 1 증가한다. 새 report는 두 model boolean을 모두 포함하고 `supported`는 둘 다 true일 때만 사용한다.
+
+Gateway는 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`에 저장된 report를 발행하고 broker PUBACK만으로 delivered 처리하지 않는다. API의 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested` ACK가 같은 `eventId`, `gatewayId`, `meshNodeId`, `capabilityRevision`을 확인할 때까지 같은 payload를 재시도한다. reconnect에서도 revision이나 eventId를 바꾸지 않고 현재 저장 report를 다시 발행한다. `applied`, `stale`, `duplicate`는 일치하는 ACK일 때 전송 완료로 기록하고 `rejected`는 journal을 보존한 채 conflict를 운영 오류로 노출한다.
+
+Task 9 API consumer는 broker가 확인한 mTLS/ACL Gateway identity와 topic/payload의 site/gateway가 DB의 active claimed Gateway identity와 모두 일치할 때만 report service를 호출한다. 이 report에는 unauthenticated direct API route가 없으며 ACK는 API durable outbox가 발행한다. 이 절은 Task 9/14의 정확한 구현 계약이고 현재 Gateway runtime에 아직 연결되지 않았다.
+
 SIG model codec과 실제 BlueZ adapter는 scan, provisioning, AppKey 추가, Generic OnOff/Light Lightness bind, status publication, acknowledged Lightness Status 처리를 구현했다. fixture ID와 unicast mapping은 gateway volume에 원자 저장하며 실제 Status 전에는 제어 성공으로 처리하지 않는다.
 
 `BleMeshAdapter.setBrightness()`는 fixture별 결과를 반환해야 한다.

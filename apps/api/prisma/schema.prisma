@@ -543,6 +543,9 @@ model MeshNode {
   firmwareVersion                   String
   vehicleSensorCapabilityStatus     VehicleSensorCapabilityStatus @default(unknown)
   vehicleSensorCapabilityVerifiedAt DateTime?
+  vehicleSensorCapabilityRevision   BigInt                          @default(0)
+  vehicleSensorServerBound          Boolean                         @default(false)
+  vehicleVendorEventModelBound      Boolean                         @default(false)
   gateway                           Gateway                         @relation(fields: [gatewayId], references: [id])
   fixture                           Fixture?
   controlGroupMemberships           MeshControlGroupMember[]
@@ -972,15 +975,16 @@ model AutomationExecutionFixtureResult {
 }
 
 model ProcessedGatewayEvent {
-  eventId    String   @id
-  gatewayId  String
-  fixtureId  String?
-  sequence   BigInt
-  eventType  String
-  occurredAt DateTime
-  gateway    Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  fixture    Fixture? @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
-  createdAt  DateTime @default(now())
+  eventId     String   @id
+  gatewayId   String
+  fixtureId   String?
+  sequence    BigInt
+  eventType   String
+  payloadHash String?
+  occurredAt  DateTime
+  gateway     Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  fixture     Fixture? @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
 
   @@unique([gatewayId, sequence, eventType])
   @@index([gatewayId, occurredAt])

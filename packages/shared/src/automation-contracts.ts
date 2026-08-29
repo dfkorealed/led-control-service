@@ -95,10 +95,22 @@ export interface VehicleSensorCapabilityReportV1 {
   siteId: string;
   gatewayId: string;
   meshNodeId: string;
+  capabilityRevision: number;
   status: "supported" | "unsupported";
   verifiedAt: string;
   sensorServerBound: boolean;
   vendorVehicleEventModelBound: boolean;
+}
+
+export interface VehicleSensorCapabilityIngestedAckV1 {
+  schemaVersion: 1;
+  eventId: string;
+  gatewayId: string;
+  meshNodeId: string;
+  capabilityRevision: number;
+  status: "applied" | "stale" | "duplicate" | "rejected";
+  errorCode: string | null;
+  ingestedAt: string;
 }
 
 export interface ManualOverrideWindow {
@@ -111,6 +123,7 @@ export interface ManualOverrideWindow {
 const identifierSchema = z.string().uuid();
 const timestampSchema = z.string().datetime();
 const payloadHashSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const positiveSafeIntegerSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const localTimeSchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 
 function isIanaTimeZone(value: string) {
@@ -269,6 +282,7 @@ export const vehicleSensorCapabilityReportV1Schema = z.object({
   siteId: identifierSchema,
   gatewayId: identifierSchema,
   meshNodeId: identifierSchema,
+  capabilityRevision: positiveSafeIntegerSchema,
   status: z.enum(["supported", "unsupported"]),
   verifiedAt: z.string().datetime({ offset: true }),
   sensorServerBound: z.boolean(),
@@ -282,6 +296,17 @@ export const vehicleSensorCapabilityReportV1Schema = z.object({
     addIssue(context, "status", "unsupported capability requires at least one unbound vehicle sensor model");
   }
 });
+
+export const vehicleSensorCapabilityIngestedAckV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  eventId: identifierSchema,
+  gatewayId: identifierSchema,
+  meshNodeId: identifierSchema,
+  capabilityRevision: positiveSafeIntegerSchema,
+  status: z.enum(["applied", "stale", "duplicate", "rejected"]),
+  errorCode: z.string().trim().min(1).nullable(),
+  ingestedAt: z.string().datetime({ offset: true })
+}).strict();
 
 export const manualOverrideWindowSchema = z.object({
   fixtureIds: fixtureIdsSchema,

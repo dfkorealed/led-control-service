@@ -6,6 +6,7 @@ import {
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
   manualOverrideWindowSchema,
+  vehicleSensorCapabilityIngestedAckV1Schema,
   vehicleSensorCapabilityReportV1Schema
 } from "./automation-contracts";
 
@@ -162,6 +163,7 @@ describe("automation shared contracts", () => {
       siteId,
       gatewayId,
       meshNodeId: fixtureId,
+      capabilityRevision: 7,
       status: "supported" as const,
       verifiedAt: occurredAt,
       sensorServerBound: true,
@@ -177,6 +179,50 @@ describe("automation shared contracts", () => {
     expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, sensorServerBound: false })).toThrow();
     expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, status: "unsupported" })).toThrow();
     expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, status: "unknown" })).toThrow();
+    expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, capabilityRevision: 0 })).toThrow();
+    expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, capabilityRevision: 1.5 })).toThrow();
+    expect(() => vehicleSensorCapabilityReportV1Schema.parse({
+      ...report,
+      capabilityRevision: Number.MAX_SAFE_INTEGER + 1
+    })).toThrow();
     expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, extra: true })).toThrow();
+  });
+
+  it("strictly validates vehicle sensor capability ingested acknowledgements", () => {
+    const acknowledgement = {
+      schemaVersion: 1 as const,
+      eventId,
+      gatewayId,
+      meshNodeId: fixtureId,
+      capabilityRevision: 7,
+      status: "applied" as const,
+      errorCode: null,
+      ingestedAt: occurredAt
+    };
+
+    for (const status of ["applied", "stale", "duplicate"] as const) {
+      expect(vehicleSensorCapabilityIngestedAckV1Schema.parse({
+        ...acknowledgement,
+        status
+      })).toMatchObject({ status, errorCode: null });
+    }
+    expect(vehicleSensorCapabilityIngestedAckV1Schema.parse({
+      ...acknowledgement,
+      status: "rejected",
+      errorCode: "capability_event_conflict"
+    })).toMatchObject({ status: "rejected", errorCode: "capability_event_conflict" });
+    expect(() => vehicleSensorCapabilityIngestedAckV1Schema.parse({
+      ...acknowledgement,
+      capabilityRevision: 0
+    })).toThrow();
+    expect(() => vehicleSensorCapabilityIngestedAckV1Schema.parse({
+      ...acknowledgement,
+      status: "rejected",
+      errorCode: ""
+    })).toThrow();
+    expect(() => vehicleSensorCapabilityIngestedAckV1Schema.parse({
+      ...acknowledgement,
+      extra: true
+    })).toThrow();
   });
 });

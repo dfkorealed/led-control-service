@@ -26,5 +26,7 @@ export const mqttTopics = {
   automationExecutionIngested: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/acks/automation/execution-ingested`,
   vehicleSensorCapabilityReport: (siteId: string, gatewayId: string) =>
-    `sites/${siteId}/gateways/${gatewayId}/events/automation/vehicle-sensor-capability`
+    `sites/${siteId}/gateways/${gatewayId}/events/automation/vehicle-sensor-capability`,
+  vehicleSensorCapabilityIngested: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/acks/automation/vehicle-sensor-capability-ingested`
 } as const;

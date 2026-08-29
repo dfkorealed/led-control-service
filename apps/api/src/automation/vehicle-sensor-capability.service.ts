@@ -1,32 +1,51 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
+  type VehicleSensorCapabilityIngestedAckV1,
   type VehicleSensorCapabilityReportV1,
+  vehicleSensorCapabilityIngestedAckV1Schema,
   vehicleSensorCapabilityReportV1Schema
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { AutomationClock } from "./automation-clock";
+import { canonicalPayloadHash } from "./automation-payload-hash";
 import { AutomationSnapshotService, compareAutomationIds } from "./automation-snapshot.service";
+
+export const VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE = "vehicle_sensor_capability";
 
 interface LockedCapabilityNode {
   id: string;
   vehicleSensorCapabilityStatus: "unknown" | "supported" | "unsupported";
   vehicleSensorCapabilityVerifiedAt: Date | null;
+  vehicleSensorCapabilityRevision: bigint;
+  vehicleSensorServerBound: boolean;
+  vehicleVendorEventModelBound: boolean;
   fixtureId: string | null;
+}
+
+interface CapabilityLedgerRow {
+  eventId: string;
+  gatewayId: string;
+  sequence: bigint;
+  eventType: string;
+  payloadHash: string | null;
 }
 
 @Injectable()
 export class VehicleSensorCapabilityService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly automationSnapshot: AutomationSnapshotService
+    private readonly automationSnapshot: AutomationSnapshotService,
+    private readonly clock: AutomationClock
   ) {}
 
-  async applyReport(rawReport: unknown) {
+  async applyReport(rawReport: unknown): Promise<VehicleSensorCapabilityIngestedAckV1> {
     const parsed = vehicleSensorCapabilityReportV1Schema.safeParse(rawReport);
     if (!parsed.success) {
       throw new BadRequestException("invalid vehicle sensor capability report");
     }
     const report = parsed.data;
+    const payloadHash = canonicalPayloadHash(report);
 
     return this.prisma.$transaction(async (tx) => {
       await this.automationSnapshot.lockMutation(tx);
@@ -35,44 +54,73 @@ export class VehicleSensorCapabilityService {
         throw new BadRequestException("vehicle sensor capability report scope rejected");
       }
 
-      const verifiedAt = new Date(report.verifiedAt);
-      const metadataChanged = node.vehicleSensorCapabilityStatus !== report.status
-        || node.vehicleSensorCapabilityVerifiedAt?.getTime() !== verifiedAt.getTime();
-
-      if (report.status === "supported") {
-        if (metadataChanged) await this.updateMetadata(tx, node.id, report.status, verifiedAt);
-        return { changed: metadataChanged, disabledRuleCount: 0, desiredRevision: null };
+      const capabilityRevision = BigInt(report.capabilityRevision);
+      const [eventById, eventByRevision] = await Promise.all([
+        tx.processedGatewayEvent.findUnique({ where: { eventId: report.eventId } }),
+        tx.processedGatewayEvent.findUnique({
+          where: {
+            gatewayId_sequence_eventType: {
+              gatewayId: report.gatewayId,
+              sequence: capabilityRevision,
+              eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
+            }
+          }
+        })
+      ]);
+      const existing = distinctLedgerRows(eventById, eventByRevision);
+      if (existing.some((row) => !sameCapabilityLedger(row, report, payloadHash))) {
+        return this.ack(report, "rejected", "capability_event_conflict");
+      }
+      if (existing.length > 0) {
+        if (capabilityRevision === node.vehicleSensorCapabilityRevision && !sameCapabilityState(node, report)) {
+          return this.ack(report, "rejected", "capability_state_conflict");
+        }
+        return this.ack(report, "duplicate", null);
       }
 
-      const enabledRules = node.fixtureId
-        ? await tx.vehicleEventRule.findMany({
-          where: {
-            gatewayId: report.gatewayId,
-            status: "enabled",
-            sources: { some: { fixtureId: node.fixtureId } }
-          },
-          select: { id: true },
-          orderBy: { id: "asc" }
-        })
-        : [];
-      const ruleIds = enabledRules.map(({ id }) => id).sort(compareAutomationIds);
-      const disabledRuleCount = ruleIds.length === 0
-        ? 0
-        : (await tx.vehicleEventRule.updateMany({
-          where: { id: { in: ruleIds }, status: "enabled" },
-          data: { status: "disabled" }
-        })).count;
-      const configuration = disabledRuleCount > 0
-        ? await this.automationSnapshot.incrementDesiredRevision(tx, report.gatewayId)
-        : null;
+      if (capabilityRevision < node.vehicleSensorCapabilityRevision) {
+        await this.createLedger(tx, node, report, payloadHash);
+        return this.ack(report, "stale", null);
+      }
+      if (capabilityRevision === node.vehicleSensorCapabilityRevision) {
+        return this.ack(report, "rejected", "capability_state_conflict");
+      }
 
-      if (metadataChanged) await this.updateMetadata(tx, node.id, report.status, verifiedAt);
-      return {
-        changed: metadataChanged || disabledRuleCount > 0,
-        disabledRuleCount,
-        desiredRevision: configuration?.desiredRevision ?? null
-      };
+      if (report.status === "unsupported") {
+        await this.disableAffectedRules(tx, node, report.gatewayId);
+      }
+      await this.updateMetadata(tx, node.id, report);
+      await this.createLedger(tx, node, report, payloadHash);
+      return this.ack(report, "applied", null);
     }, { timeout: 10_000 });
+  }
+
+  private async disableAffectedRules(
+    tx: Prisma.TransactionClient,
+    node: LockedCapabilityNode,
+    gatewayId: string
+  ) {
+    const enabledRules = node.fixtureId
+      ? await tx.vehicleEventRule.findMany({
+        where: {
+          gatewayId,
+          status: "enabled",
+          sources: { some: { fixtureId: node.fixtureId } }
+        },
+        select: { id: true },
+        orderBy: { id: "asc" }
+      })
+      : [];
+    const ruleIds = enabledRules.map(({ id }) => id).sort(compareAutomationIds);
+    if (ruleIds.length === 0) return;
+
+    const disabledRuleCount = (await tx.vehicleEventRule.updateMany({
+      where: { id: { in: ruleIds }, status: "enabled" },
+      data: { status: "disabled" }
+    })).count;
+    if (disabledRuleCount > 0) {
+      await this.automationSnapshot.incrementDesiredRevision(tx, gatewayId);
+    }
   }
 
   private async lockOwnedNode(
@@ -84,6 +132,9 @@ export class VehicleSensorCapabilityService {
         node."id",
         node."vehicleSensorCapabilityStatus",
         node."vehicleSensorCapabilityVerifiedAt",
+        node."vehicleSensorCapabilityRevision",
+        node."vehicleSensorServerBound",
+        node."vehicleVendorEventModelBound",
         fixture."id" AS "fixtureId"
       FROM "MeshNode" AS node
       INNER JOIN "Gateway" AS gateway ON gateway."id" = node."gatewayId"
@@ -99,15 +150,80 @@ export class VehicleSensorCapabilityService {
   private updateMetadata(
     tx: Prisma.TransactionClient,
     meshNodeId: string,
-    status: "supported" | "unsupported",
-    verifiedAt: Date
+    report: VehicleSensorCapabilityReportV1
   ) {
     return tx.meshNode.update({
       where: { id: meshNodeId },
       data: {
-        vehicleSensorCapabilityStatus: status,
-        vehicleSensorCapabilityVerifiedAt: verifiedAt
+        vehicleSensorCapabilityStatus: report.status,
+        vehicleSensorCapabilityVerifiedAt: new Date(report.verifiedAt),
+        vehicleSensorCapabilityRevision: BigInt(report.capabilityRevision),
+        vehicleSensorServerBound: report.sensorServerBound,
+        vehicleVendorEventModelBound: report.vendorVehicleEventModelBound
       }
     });
   }
+
+  private createLedger(
+    tx: Prisma.TransactionClient,
+    node: LockedCapabilityNode,
+    report: VehicleSensorCapabilityReportV1,
+    payloadHash: `sha256:${string}`
+  ) {
+    return tx.processedGatewayEvent.create({
+      data: {
+        eventId: report.eventId,
+        gatewayId: report.gatewayId,
+        fixtureId: node.fixtureId,
+        sequence: BigInt(report.capabilityRevision),
+        eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE,
+        payloadHash,
+        occurredAt: new Date(report.verifiedAt)
+      }
+    });
+  }
+
+  private ack(
+    report: VehicleSensorCapabilityReportV1,
+    status: VehicleSensorCapabilityIngestedAckV1["status"],
+    errorCode: string | null
+  ) {
+    return vehicleSensorCapabilityIngestedAckV1Schema.parse({
+      schemaVersion: 1,
+      eventId: report.eventId,
+      gatewayId: report.gatewayId,
+      meshNodeId: report.meshNodeId,
+      capabilityRevision: report.capabilityRevision,
+      status,
+      errorCode,
+      ingestedAt: this.clock.now().toISOString()
+    });
+  }
+}
+
+function distinctLedgerRows(
+  eventById: CapabilityLedgerRow | null,
+  eventByRevision: CapabilityLedgerRow | null
+) {
+  if (!eventById) return eventByRevision ? [eventByRevision] : [];
+  if (!eventByRevision || eventByRevision.eventId === eventById.eventId) return [eventById];
+  return [eventById, eventByRevision];
+}
+
+function sameCapabilityLedger(
+  row: CapabilityLedgerRow,
+  report: VehicleSensorCapabilityReportV1,
+  payloadHash: string
+) {
+  return row.gatewayId === report.gatewayId
+    && row.sequence === BigInt(report.capabilityRevision)
+    && row.eventType === VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
+    && row.payloadHash === payloadHash;
+}
+
+function sameCapabilityState(node: LockedCapabilityNode, report: VehicleSensorCapabilityReportV1) {
+  return node.vehicleSensorCapabilityStatus === report.status
+    && node.vehicleSensorCapabilityVerifiedAt?.getTime() === new Date(report.verifiedAt).getTime()
+    && node.vehicleSensorServerBound === report.sensorServerBound
+    && node.vehicleVendorEventModelBound === report.vendorVehicleEventModelBound;
 }

@@ -709,6 +709,9 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 | `firmwareVersion` | `String` | 예 |  | 노드 펌웨어 버전 |
 | `vehicleSensorCapabilityStatus` | `VehicleSensorCapabilityStatus` | 예 | `unknown` | 차량 감지 source capability 상태 |
 | `vehicleSensorCapabilityVerifiedAt` | `DateTime?` | 아니오 | capability coherence DB CHECK | 모델 capability 검증 시각 |
+| `vehicleSensorCapabilityRevision` | `BigInt` | 예 | `0`, capability coherence DB CHECK | Gateway가 영속 관리하는 capability 단조 revision |
+| `vehicleSensorServerBound` | `Boolean` | 예 | `false`, capability coherence DB CHECK | SIG Sensor Server 모델 바인딩 여부 |
+| `vehicleVendorEventModelBound` | `Boolean` | 예 | `false`, capability coherence DB CHECK | vendor vehicle event 모델 바인딩 여부 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -717,10 +720,12 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 - Unique: `deviceUuid`
 - 복합 Unique: `id`, `gatewayId`
 - 복합 Unique: `gatewayId`, `meshAddress`
-- `supported`는 `vehicleSensorCapabilityVerifiedAt`이 반드시 있어야 하고 `unknown`은 반드시 `NULL`이어야 한다. `unsupported`는 검증 여부에 따라 시각을 보존할 수 있다.
-- 순방향 migration은 기존 노드를 모두 `unknown`/`NULL`로 backfill해 일반 조명이 암묵적으로 차량 이벤트 source가 되지 않게 한다. 차량 이벤트 CRUD source resolver는 `supported`이면서 검증 시각이 있는 등록 Fixture만 허용한다. Task 14 Gateway 모델 바인딩이 실제 장비 metadata를 설정하며, CRUD validation 계약은 이 단계에서 완료됐다.
-- capability 변경은 `VehicleSensorCapabilityReportV1`만 API service 경계에서 받는다. Gateway-scoped topic은 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`이고 payload는 strict object인 `schemaVersion=1`, UUID `eventId/siteId/gatewayId/meshNodeId`, `supported|unsupported` status, offset 포함 ISO instant `verifiedAt`, `sensorServerBound`, `vendorVehicleEventModelBound`를 가진다. `supported`는 두 모델이 모두 bound일 때만 유효하고 `unsupported`는 하나 이상 false여야 한다.
-- injectable `VehicleSensorCapabilityService.applyReport`는 공통 automation global lock을 첫 DB 작업으로 획득하고 Site/Gateway/MeshNode owner scope를 식별자 비노출 오류로 검증한다. `supported` report는 metadata만 갱신한다. `unsupported` report는 같은 transaction에서 해당 node Fixture를 source로 쓰는 모든 enabled rule을 먼저 disabled로 바꾸고, 변경된 rule이 있을 때만 `AutomationSnapshotService`로 Gateway revision을 정확히 한 번 올려 complete snapshot/outbox를 만든 뒤 metadata를 저장한다. 이미 같은 current state인 report는 재작성이나 revision을 만들지 않는다. MQTT event-level `eventId` 멱등 consumer는 Task 9, 이 payload의 실제 Gateway 발행은 Task 14 범위다.
+- `unknown`은 revision `0`, 검증 시각 `NULL`, 두 model flag `false`인 초기 상태로만 존재한다. `supported`는 양수 revision, 검증 시각, 두 model flag `true`를 모두 요구한다. `unsupported`는 양수 revision이며 검증 시각을 보존할 수 있지만, verified이면서 두 model flag가 모두 true인 조합은 허용하지 않는다.
+- 최초 capability migration은 모든 기존 노드를 fail-closed `unknown`/`NULL`로 만들었다. ordering migration은 그 뒤 운영자가 검증한 기존 `supported`/`unsupported`를 baseline revision `1`로, 기존 `unknown`을 revision `0`으로 backfill한다. 차량 이벤트 CRUD source resolver는 `supported`이면서 검증 시각과 두 model flag가 모두 유효한 등록 Fixture만 허용한다.
+- capability 변경은 strict `VehicleSensorCapabilityReportV1`만 API service 경계에서 받는다. report topic은 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`이고 payload는 `schemaVersion=1`, UUID `eventId/siteId/gatewayId/meshNodeId`, positive safe integer `capabilityRevision`, `supported|unsupported` status, offset 포함 ISO instant `verifiedAt`, `sensorServerBound`, `vendorVehicleEventModelBound`를 가진다. `supported`는 두 model flag가 모두 true일 때만 유효하고 `unsupported`는 하나 이상 false여야 한다.
+- `VehicleSensorCapabilityService.applyReport`는 complete report를 canonical JSON으로 직렬화해 `sha256:<64 lowercase hex>`를 만들고 공통 automation global lock을 첫 DB 작업으로 획득한 뒤 Gateway와 MeshNode를 `FOR UPDATE`로 잠그며 Site/Gateway/MeshNode owner scope를 식별자 비노출 오류로 검증한다. `eventId`와 `(gatewayId, capabilityRevision, vehicle_sensor_capability)`를 함께 dedupe한다. 동일 key/hash는 `duplicate`, 낮은 새 revision은 원장만 남기고 `stale`, 동일 revision의 state/hash 불일치와 동일 key의 다른 hash는 mutation 없이 `rejected`, 높은 revision만 `applied`다.
+- 높은 `supported` report는 capability metadata만 갱신한다. 높은 `unsupported` report는 같은 transaction에서 해당 node Fixture를 source로 쓰는 모든 enabled rule을 먼저 disabled로 바꾸고, 하나 이상 바뀐 경우에만 `AutomationSnapshotService`로 complete Gateway snapshot/outbox와 automation revision을 정확히 하나 만든 뒤 metadata를 저장한다. replay, stale, conflict는 automation revision을 만들지 않는다.
+- ACK topic은 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`다. strict `VehicleSensorCapabilityIngestedAckV1`은 report의 `eventId/gatewayId/meshNodeId/capabilityRevision`, `applied|stale|duplicate|rejected`, nullable `errorCode`, API `ingestedAt`을 돌려준다. Task 9가 인증된 MQTT consumer와 durable ACK publication을 연결하고 Task 14가 실제 모델 바인딩과 report journal/publish를 연결한다. CRUD와 API ordering validation 자체는 완료됐다.
 
 관계:
 
@@ -1065,11 +1070,24 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 
 순방향 migration `20260830_vehicle_sensor_source_invariants`는 적용 전에 모든 기존 `VehicleEventSource`를 Fixture와 MeshNode까지 해석한다. `supported`+verified가 아닌 source가 하나라도 있으면 rule/node/fixture/status/verifiedAt을 포함한 operator-remediation `23514`로 전체 migration을 중단하며 row를 자동 수정하지 않는다. 통과 후에는 source INSERT/변경, MeshNode capability 변경, enabled rule re-enable, source Fixture의 node 변경에 capability guard를 설치하고 MeshNode/Fixture 변경도 기존 automation statement lock protocol에 참여시킨다. 양방향 source-insert/downgrade 경쟁은 READ COMMITTED, REPEATABLE READ, SERIALIZABLE 두 연결 test로 직렬화 또는 serialization failure를 검증한다.
 
+순방향 migration `20260830_vehicle_sensor_state_ordering`은 MeshNode에 capability revision과 두 model-binding flag를 추가하고 기존 `supported`/`unsupported`를 revision `1`, `unknown`을 revision `0`으로 보수적으로 backfill한다. coherence CHECK와 MeshNode statement/row trigger를 새 컬럼 전체에 다시 연결하며, `ProcessedGatewayEvent.payloadHash`를 nullable로 추가해 기존 원장은 그대로 허용하고 새 hash는 `sha256:<64 lowercase hex>`만 허용한다.
+
 순방향 migration `20260830_reject_equal_schedule_times`는 하나의 명시적 PostgreSQL transaction에서 `LightingSchedule`과 `MqttOutbox`에 `SHARE` table lock을 먼저 획득한다. 이 lock은 조회를 허용하면서 두 table의 concurrent INSERT/UPDATE/DELETE를 막으므로, 같은 local start/end를 가진 live `LightingSchedule`과 아직 publish/dead-letter되지 않은 automation-config `MqttOutbox` snapshot entry의 preflight와 CHECK 적용 사이에 invalid row가 들어올 수 없다. 하나라도 발견하면 deferred commit-time trigger가 schedule 또는 outbox 식별자와 Gateway/revision/time을 포함한 `23514` operator-remediation 오류를 발생시켜 transaction 전체를 rollback하며 어떤 row도 자동 수정하거나 삭제하지 않는다. 운영자가 schedule 시간을 명시적으로 교정하고 Gateway full snapshot을 재생성한 뒤 superseded pending outbox만 recovery runbook에 따라 제거해야 migration을 다시 적용할 수 있다.
 
 ### ProcessedGatewayEvent
 
 MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eventId`를 PK로 사용하고 `(gatewayId, sequence, eventType)`을 unique로 둔다. 이벤트를 Fixture/Gateway snapshot에 반영하기 전에 이 테이블과 마지막 sequence를 확인한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `eventId` | `String` | 예 | PK | Gateway event UUID |
+| `gatewayId` | `String` | 예 | FK -> `Gateway.id`, unique tuple | owner Gateway |
+| `fixtureId` | `String?` | 아니오 | FK -> `Fixture.id`, delete set null | 연결 Fixture snapshot |
+| `sequence` | `BigInt` | 예 | unique tuple | event type별 영속 순서, capability에는 `capabilityRevision` 저장 |
+| `eventType` | `String` | 예 | unique tuple | 이벤트 계약 식별자 |
+| `payloadHash` | `String?` | 아니오 | `NULL` 또는 `sha256:<64 lowercase hex>` CHECK | canonical complete payload hash; legacy event는 null 허용 |
+| `occurredAt` | `DateTime` | 예 |  | Gateway 발생/검증 시각 |
+| `createdAt` | `DateTime` | 예 | `now()` | API ingestion 시각 |
 
 ### Invitation
 

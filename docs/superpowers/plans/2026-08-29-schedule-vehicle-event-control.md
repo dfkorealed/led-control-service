@@ -588,6 +588,15 @@ git commit -m "feat(api): add vehicle event rule management"
 - [x] supported/forged/downgrade/re-enable PostgreSQL E2E
 - [x] fresh/seeded migration, shared/API focused/full 검증, lint/typecheck/build, 보고서와 별도 커밋
 
+#### Task 8 fix round 3 (진행 중)
+
+- [x] report `capabilityRevision`과 strict ingested ACK payload/topic 계약
+- [x] MeshNode revision/model binding과 ProcessedGatewayEvent hash forward migration/coherence
+- [x] canonical complete-report hash, eventId/revision dedupe, conflict/stale/equal/higher ordering
+- [x] out-of-order unsupported/supported와 다중 rule 단일 snapshot revision PostgreSQL E2E
+- [x] Task 9 authenticated consumer/durable ACK와 Task 14 durable revision/retry handoff 문서
+- [x] fresh/seeded migration, shared/API/Gateway 검증, 보고서와 별도 커밋
+
 ### Task 9: automation snapshot 발행·ACK·실행 원장 수집
 
 **Files:**
@@ -601,6 +610,8 @@ git commit -m "feat(api): add vehicle event rule management"
 **Interfaces:**
 - Consumes: shared automation schema/topics, existing MQTT outbox publisher and processed-event idempotency pattern.
 - Produces: canonical hash full snapshot, exact revision applied/rejected 처리, `eventId+sequence` 멱등 원장, ingested ACK.
+- Capability report consumer는 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`를 subscribe한다. broker가 확인한 mTLS/ACL Gateway identity, topic site/gateway, payload site/gateway, DB의 active claimed Gateway identity가 모두 같을 때만 `VehicleSensorCapabilityService.applyReport`를 호출한다. unauthenticated HTTP/direct route는 만들지 않는다.
+- service가 반환한 strict `VehicleSensorCapabilityIngestedAckV1`을 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`에 durable outbox로 발행한다. ACK publish 실패는 이미 commit된 ingestion 결과를 되돌리지 않으며 outbox retry가 같은 ACK를 재발행한다.
 
 - [ ] **Step 1: out-of-order ACK와 중복 execution 실패 테스트를 작성한다**
 
@@ -850,6 +861,7 @@ git commit -m "feat(gateway): execute vehicle sensor events"
 **Interfaces:**
 - Consumes: Sensor Status 현재 Presence/Motion property, vendor payload `{bootId,sequence,eventKind,level}`.
 - Produces: dedupe key `(sourceUnicast,bootId,sequence)`, vendor application ACK, startup Sensor Get, normalized sensor events.
+- Produces: node별 durable `VehicleSensorCapabilityReportV1` journal과 report topic publish. journal은 `capabilityRevision`, `eventId`, complete report payload를 함께 저장한다.
 
 - [ ] **Step 1: 중복·재부팅·startup query 테스트를 작성한다**
 
@@ -867,6 +879,8 @@ expect(sentAcks).toHaveLength(2);
 - [ ] **Step 3: dedupe 영속화와 startup Sensor Get을 구현한다**
 
 bootId가 바뀌면 sequence가 작아져도 새 session으로 처리한다. 각 configured source에 Gateway startup/reconnect 후 Sensor Get을 보내고 Status High/Low를 runtime current-state로 반영한다.
+
+Sensor Server와 vendor vehicle event model의 bound 상태가 실제로 바뀔 때만 node의 `capabilityRevision`을 1 증가시키고 새 `eventId`와 두 model boolean을 포함한 complete report를 원자 저장한다. broker PUBACK만으로 delivered 처리하지 않고 capability ingested ACK가 올 때까지 같은 eventId/revision/payload를 재시도한다. reconnect에서는 저장한 현재 report를 revision 증가 없이 그대로 재발행한다. `applied|stale|duplicate` ACK는 matching identity/revision일 때 terminal로 처리하고 `rejected`는 journal을 보존한 채 정제된 conflict 진단으로 fail-closed 한다.
 
 - [ ] **Step 4: 검증하고 커밋한다**
 

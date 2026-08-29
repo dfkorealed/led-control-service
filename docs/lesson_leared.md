@@ -105,6 +105,12 @@
 - **발생했던 문제/실수**: 기존 상태 이벤트는 topic의 site ID보다 payload의 fixture ID를 중심으로 갱신해, 인증된 gateway라도 다른 현장 식별자를 섞은 이벤트를 보낼 여지가 있었다.
 - **원인**: broker ACL과 topic 문자열을 애플리케이션의 최종 권한 검증으로 간주했다.
 - **해결 및 예방책**: topic의 site/gateway, payload의 site/gateway, DB의 Site-Gateway-MeshNode-Fixture 관계가 모두 일치할 때만 이벤트를 반영한다. `eventId`와 영속 sequence로 QoS 1 중복 및 역전도 차단한다.
+
+### Capability 컬럼 추가는 기존 supported fixture까지 함께 이관해야 한다
+
+- **문제**: MeshNode capability에 revision/model flag coherence를 추가하자 기존 DB E2E fixture의 `supported + verifiedAt` seed가 새 기본값 `revision=0`, model flag `false`와 결합해 CHECK를 위반했다.
+- **원인**: 새 컬럼의 안전한 create 기본값과 이미 검증된 legacy row의 migration backfill 상태가 다르다는 점을 테스트 fixture가 표현하지 않았다.
+- **해결 및 예방책**: 새 노드는 항상 `unknown/revision 0/unverified/unbound`로 시작하고, 검증된 fixture는 status/verifiedAt/revision/model flag를 한 묶음으로 생성한다. forward migration은 fresh replay뿐 아니라 직전 migration까지 적용한 seeded DB에서 supported/unsupported/unknown과 nullable legacy event hash를 각각 확인한다.
 - **반복 방지 체크**: 모든 장비 이벤트 테스트에 정상 범위, 다른 tenant 위조, 중복 event ID, 낮은 sequence를 포함한다.
 
 ## 2026-07-11 / 제조 credential 원문 저장 금지

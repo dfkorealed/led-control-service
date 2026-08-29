@@ -29,6 +29,13 @@ const equalTimeMigrationPath = join(
 const equalTimeMigration = existsSync(equalTimeMigrationPath)
   ? readFileSync(equalTimeMigrationPath, "utf8")
   : "";
+const capabilityOrderingMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260830_vehicle_sensor_state_ordering/migration.sql"
+);
+const capabilityOrderingMigration = existsSync(capabilityOrderingMigrationPath)
+  ? readFileSync(capabilityOrderingMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -80,13 +87,33 @@ describe("automation Prisma schema contract", () => {
 
     expect(meshNode?.fields.map((field) => field.name)).toEqual(expect.arrayContaining([
       "vehicleSensorCapabilityStatus",
-      "vehicleSensorCapabilityVerifiedAt"
+      "vehicleSensorCapabilityVerifiedAt",
+      "vehicleSensorCapabilityRevision",
+      "vehicleSensorServerBound",
+      "vehicleVendorEventModelBound"
     ]));
     expect(capabilityEnum?.values.map(({ name }) => name)).toEqual([
       "unknown",
       "supported",
       "unsupported"
     ]);
+  });
+
+  it("persists ordered capability state and optional gateway event hashes through a forward migration", () => {
+    const processedEvent = Prisma.dmmf.datamodel.models.find(
+      (model) => model.name === "ProcessedGatewayEvent"
+    );
+
+    expect(processedEvent?.fields.map((field) => field.name)).toContain("payloadHash");
+    expect(capabilityOrderingMigration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(capabilityOrderingMigration).toContain('ADD COLUMN "vehicleSensorCapabilityRevision" BIGINT');
+    expect(capabilityOrderingMigration).toContain('ADD COLUMN "vehicleSensorServerBound" BOOLEAN');
+    expect(capabilityOrderingMigration).toContain('ADD COLUMN "vehicleVendorEventModelBound" BOOLEAN');
+    expect(capabilityOrderingMigration).toContain('ADD COLUMN "payloadHash" TEXT');
+    expect(capabilityOrderingMigration).toContain('CONSTRAINT "MeshNode_vehicle_sensor_capability_check"');
+    expect(capabilityOrderingMigration).toContain('CONSTRAINT "ProcessedGatewayEvent_payload_hash_check"');
+    expect(capabilityOrderingMigration).toContain("^sha256:[0-9a-f]{64}$");
+    expect(capabilityOrderingMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
   it("indexes each schedule's latest execution in list order through a forward migration", () => {
@@ -371,16 +398,18 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
         ('automation-schema-floor-b', 'automation-schema-site-b', 'Floor B', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "MeshNode" (
         "id", "gatewayId", "meshAddress", "firmwareVersion",
-        "vehicleSensorCapabilityStatus", "vehicleSensorCapabilityVerifiedAt", "createdAt", "updatedAt"
+        "vehicleSensorCapabilityStatus", "vehicleSensorCapabilityVerifiedAt",
+        "vehicleSensorCapabilityRevision", "vehicleSensorServerBound", "vehicleVendorEventModelBound",
+        "createdAt", "updatedAt"
       ) VALUES
-        ('automation-schema-node-a', 'automation-schema-gateway-a', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-a-extra', 'automation-schema-gateway-a', '0102', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-a-third', 'automation-schema-gateway-a', '0104', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-a-fourth', 'automation-schema-gateway-a', '0105', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-a2', 'automation-schema-gateway-a2', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-free', 'automation-schema-gateway-a', '0103', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-move', 'automation-schema-gateway-move', '0201', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-b', 'automation-schema-gateway-b', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+        ('automation-schema-node-a', 'automation-schema-gateway-a', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a-extra', 'automation-schema-gateway-a', '0102', '1.0.0', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a-third', 'automation-schema-gateway-a', '0104', '1.0.0', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a-fourth', 'automation-schema-gateway-a', '0105', '1.0.0', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a2', 'automation-schema-gateway-a2', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-free', 'automation-schema-gateway-a', '0103', '1.0.0', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-move', 'automation-schema-gateway-move', '0201', '1.0.0', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-b', 'automation-schema-gateway-b', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, 1, true, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "Fixture" (
         "id", "floorId", "meshNodeId", "name", "ratedWatt", "x", "y", "createdAt", "updatedAt"
       ) VALUES
@@ -432,17 +461,51 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     executeSql(`
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'supported',
-          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP,
+          "vehicleSensorCapabilityRevision" = 1,
+          "vehicleSensorServerBound" = true,
+          "vehicleVendorEventModelBound" = true
       WHERE "id" = 'automation-schema-node-a';
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'unknown',
-          "vehicleSensorCapabilityVerifiedAt" = NULL
+          "vehicleSensorCapabilityVerifiedAt" = NULL,
+          "vehicleSensorCapabilityRevision" = 0,
+          "vehicleSensorServerBound" = false,
+          "vehicleVendorEventModelBound" = false
       WHERE "id" = 'automation-schema-node-a';
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'supported',
-          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP,
+          "vehicleSensorCapabilityRevision" = 1,
+          "vehicleSensorServerBound" = true,
+          "vehicleVendorEventModelBound" = true
       WHERE "id" = 'automation-schema-node-a';
     `);
+
+    expectSqlFailure(`
+      UPDATE "MeshNode"
+      SET "vehicleSensorServerBound" = false
+      WHERE "id" = 'automation-schema-node-a';
+    `, "MeshNode_vehicle_sensor_capability_check");
+    expectSqlFailure(`
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityRevision" = 0
+      WHERE "id" = 'automation-schema-node-a';
+    `, "MeshNode_vehicle_sensor_capability_check");
+
+    executeSql(`
+      INSERT INTO "ProcessedGatewayEvent" (
+        "eventId", "gatewayId", "sequence", "eventType", "payloadHash", "occurredAt"
+      ) VALUES (
+        'automation-schema-capability-event', 'automation-schema-gateway-a', 9001,
+        'vehicle_sensor_capability', NULL, CURRENT_TIMESTAMP
+      );
+    `);
+    expectSqlFailure(`
+      UPDATE "ProcessedGatewayEvent"
+      SET "payloadHash" = 'sha256:not-a-digest'
+      WHERE "eventId" = 'automation-schema-capability-event';
+    `, "ProcessedGatewayEvent_payload_hash_check");
 
     const indexDefinition = querySql(`
       SELECT indexdef
