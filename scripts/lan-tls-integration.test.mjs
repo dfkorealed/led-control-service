@@ -55,9 +55,10 @@ const { readFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "status") {
   process.stdout.write('{"storage_type":"raft"}\\n');
-} else if (args[0] === "read" && args[1] === "-field=ca_chain") {
-  process.stdout.write(readFileSync(process.env.FAKE_VAULT_CA_CERT));
-} else if (args[0] === "read" && args[1] === "-format=raw") {
+} else if (args[0] === "read" && args[1] === "-format=json" && args[2].endsWith("/cert/ca_chain")) {
+  const certificate = readFileSync(process.env.FAKE_VAULT_CA_CERT, "utf8");
+  process.stdout.write(JSON.stringify({ data: { certificate, ca_chain: [certificate] } }));
+} else if (args[0] === "read" && args[1] === "-format=raw" && args[2].endsWith("/crl/pem")) {
   process.stdout.write(readFileSync(process.env.FAKE_VAULT_CRL));
 } else if (args[0] === "write" && args[1] === "-field=certificate") {
   const csr = args.find((argument) => argument.startsWith("csr=@"));

@@ -94,8 +94,22 @@ cleanup() {
 trap cleanup EXIT
 
 read_ca() {
-  local mount="$1" destination="$2"
-  "$VAULT_BIN" read -field=ca_chain "$mount/cert/ca_chain" >"$destination"
+  local mount="$1" destination="$2" response
+  response="$("$VAULT_BIN" read -format=json "$mount/cert/ca_chain")" || die "Vault CA chain 조회에 실패했습니다."
+  printf '%s' "$response" | node -e '
+    let source = "";
+    process.stdin.on("data", chunk => source += chunk);
+    process.stdin.on("end", () => {
+      try {
+        const data = JSON.parse(source).data;
+        if (typeof data?.certificate !== "string" || !data.certificate.trim() ||
+          !Array.isArray(data.ca_chain) || data.ca_chain.some(item => typeof item !== "string" || !item.trim())) process.exit(1);
+        process.stdout.write(data.certificate);
+      } catch {
+        process.exit(1);
+      }
+    });
+  ' >"$destination" || die "Vault returned an invalid CA chain"
   openssl x509 -in "$destination" -noout >/dev/null 2>&1 || die "Vault returned an invalid CA certificate"
   chmod 0644 "$destination"
 }

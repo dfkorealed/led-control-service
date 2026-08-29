@@ -41,24 +41,50 @@ function createValidCrl(directory) {
   writeFileSync(join(caDirectory, "index.txt"), "");
   writeFileSync(join(caDirectory, "serial"), "1000\n");
   writeFileSync(join(caDirectory, "crlnumber"), "1000\n");
-  execFileSync("openssl", ["genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", join(caDirectory, "ca.key")]);
-  execFileSync("openssl", ["req", "-x509", "-new", "-key", join(caDirectory, "ca.key"), "-out", join(caDirectory, "ca.crt"), "-days", "1", "-subj", "/CN=test-ca"]);
+  const rootKey = join(caDirectory, "root.key");
+  const rootCertificate = join(caDirectory, "root.crt");
+  const intermediateKey = join(caDirectory, "ca.key");
+  const intermediateCsr = join(caDirectory, "ca.csr");
+  const intermediateCertificate = join(caDirectory, "ca.crt");
+  execFileSync("openssl", ["genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", rootKey]);
+  execFileSync("openssl", ["req", "-x509", "-new", "-key", rootKey, "-out", rootCertificate, "-days", "1", "-subj", "/CN=test-root", "-addext", "basicConstraints=critical,CA:true,pathlen:1", "-addext", "keyUsage=critical,keyCertSign,cRLSign"]);
+  execFileSync("openssl", ["genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", intermediateKey]);
+  execFileSync("openssl", ["req", "-new", "-key", intermediateKey, "-out", intermediateCsr, "-subj", "/CN=test-intermediate"]);
+  const intermediateExtensions = join(caDirectory, "intermediate.cnf");
+  writeFileSync(intermediateExtensions, ["[ intermediate_ca ]", "basicConstraints=critical,CA:true,pathlen:0", "keyUsage=critical,keyCertSign,cRLSign", "subjectKeyIdentifier=hash", "authorityKeyIdentifier=keyid,issuer", ""].join("\n"));
+  execFileSync("openssl", ["x509", "-req", "-in", intermediateCsr, "-CA", rootCertificate, "-CAkey", rootKey, "-CAcreateserial", "-out", intermediateCertificate, "-days", "1", "-extfile", intermediateExtensions, "-extensions", "intermediate_ca"]);
   writeFileSync(join(caDirectory, "openssl.cnf"), [
     "[ ca ]", "default_ca = test_ca", "[ test_ca ]", "database = " + join(caDirectory, "index.txt"),
-    "new_certs_dir = " + join(caDirectory, "newcerts"), "certificate = " + join(caDirectory, "ca.crt"),
-    "private_key = " + join(caDirectory, "ca.key"), "serial = " + join(caDirectory, "serial"),
+    "new_certs_dir = " + join(caDirectory, "newcerts"), "certificate = " + intermediateCertificate,
+    "private_key = " + intermediateKey, "serial = " + join(caDirectory, "serial"),
     "crlnumber = " + join(caDirectory, "crlnumber"), "default_md = sha256", "default_days = 1",
     "default_crl_days = 1", ""
   ].join("\n"));
-  const crl = join(caDirectory, "mqtt-client.crl");
+  const crl = join(caDirectory, "intermediate.crl");
   execFileSync("openssl", ["ca", "-config", join(caDirectory, "openssl.cnf"), "-gencrl", "-out", crl], { stdio: "ignore" });
-  return { crl, ca: join(caDirectory, "ca.crt"), caKey: join(caDirectory, "ca.key") };
+  const rootConfig = join(caDirectory, "root-openssl.cnf");
+  writeFileSync(rootConfig, [
+    "[ ca ]", "default_ca = test_ca", "[ test_ca ]", "database = " + join(caDirectory, "root-index.txt"),
+    "new_certs_dir = " + join(caDirectory, "root-newcerts"), "certificate = " + rootCertificate,
+    "private_key = " + rootKey, "serial = " + join(caDirectory, "root-serial"),
+    "crlnumber = " + join(caDirectory, "root-crlnumber"), "default_md = sha256", "default_crl_days = 1", ""
+  ].join("\n"));
+  mkdirSync(join(caDirectory, "root-newcerts"));
+  writeFileSync(join(caDirectory, "root-index.txt"), "");
+  writeFileSync(join(caDirectory, "root-serial"), "1000\n");
+  writeFileSync(join(caDirectory, "root-crlnumber"), "1000\n");
+  const rootCrl = join(caDirectory, "root.crl");
+  execFileSync("openssl", ["ca", "-config", rootConfig, "-gencrl", "-out", rootCrl], { stdio: "ignore" });
+  const caChain = join(caDirectory, "ca-chain.crt");
+  writeFileSync(caChain, `${readFileSync(intermediateCertificate, "utf8")}\n${readFileSync(rootCertificate, "utf8")}`);
+  return { crl, rootCrl, ca: intermediateCertificate, caKey: intermediateKey, caChain };
 }
 
 function writeMockVault(directory, crlMaterial = {}, storageType = "inmem") {
   const crlPath = typeof crlMaterial === "string" ? crlMaterial : crlMaterial.crl ?? "";
   const caPath = typeof crlMaterial === "string" ? "" : crlMaterial.ca ?? "";
   const caKeyPath = typeof crlMaterial === "string" ? "" : crlMaterial.caKey ?? "";
+  const caChainPath = typeof crlMaterial === "string" ? "" : crlMaterial.caChain ?? "";
   const intermediateKey = join(directory, "mock-intermediate.key");
   const intermediateCsr = join(directory, "mock-intermediate.csr");
   execFileSync("openssl", ["genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", intermediateKey]);
@@ -73,9 +99,9 @@ if [[ "$1" == "list" ]]; then
   printf '%s\\n' '["issuer"]'
 elif [[ "$1" == "status" ]]; then
   printf '%s\\n' '{"storage_type":"${storageType}"}'
-	elif [[ "$1 $2" == "read -field=ca_chain" ]]; then
-  if [[ -n "${caPath}" ]]; then cat "${caPath}"; else printf '%s\\n' '-----BEGIN CERTIFICATE-----' 'INTERMEDIATE' '-----END CERTIFICATE-----'; fi
-elif [[ "$1 $2" == "read -format=raw" ]]; then
+elif [[ "$1 $2" == "read -format=json" && "$3" == */cert/ca_chain ]]; then
+  node -e 'const source = require("node:fs").readFileSync(process.argv[1], "utf8"); const ca_chain = source.match(/-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----/g); process.stdout.write(JSON.stringify({ data: { certificate: source, ca_chain } }));' "${caChainPath}"
+elif [[ "$1 $2" == "read -format=raw" && "$3" == */crl/pem ]]; then
   [[ "\${LAB_TEST_FAIL_CRL:-0}" != 1 ]] || exit 44
   cat "${crlPath}"
 elif [[ "$1 $2" == "write -field=certificate" ]]; then
@@ -286,7 +312,7 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
       LAB_API_IP: "192.168.1.10",
       LAB_MQTT_DNS: "mqtt.lan",
       LAB_MQTT_IP: "192.168.1.11",
-      PKI_ROOT_CRL_PATH: crlMaterial.crl,
+      PKI_ROOT_CRL_PATH: crlMaterial.rootCrl,
       PKI_SERVICE_CERT_DIR: output
     });
     const log = readFileSync(join(directory, "vault.log"), "utf8");
@@ -295,7 +321,7 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
     assert.match(log, /gateway-mqtt-pki\/sign\/mqtt-server.*common_name=mqtt\.lan.*alt_names=mqtt\.lan.*ip_sans=192\.168\.1\.11/);
     assert.match(log, /gateway-mqtt-pki\/sign\/api-mqtt-client.*common_name=api-service.*uri_sans=spiffe:\/\/led-control\/mqtt\/api-service/);
     for (const mount of ["api-server-pki", "gateway-mqtt-pki", "gateway-device-pki"]) {
-      assert.match(log, new RegExp(`read -field=ca_chain ${mount}\\/cert\\/ca_chain`));
+      assert.match(log, new RegExp(`read -format=json ${mount}\\/cert\\/ca_chain`));
     }
     for (const name of ["api", "mqtt-server", "api-mqtt-client"]) {
       assert.equal(mode(join(current, `${name}.key`)), 0o600);
@@ -305,7 +331,7 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
     }
     for (const name of ["api-ca", "mqtt-ca", "device-ca"]) {
       assert.equal(mode(join(current, `${name}.crt`)), 0o644);
-      assert.match(readFileSync(join(current, `${name}.crt`), "utf8"), /BEGIN CERTIFICATE/);
+      assert.equal(readFileSync(join(current, `${name}.crt`), "utf8"), readFileSync(crlMaterial.caChain, "utf8"));
     }
     assert.equal(readFileSync(join(current, "format-version"), "utf8").trim(), "3");
     assert.equal(mode(join(current, "mqtt-client.crl")), 0o644);
@@ -332,7 +358,7 @@ test("service bundle은 동일 SAN 재실행에 멱등이고 CRL 실패 시 기�
     LAB_API_IP: "192.168.1.10",
     LAB_MQTT_DNS: "mqtt.lan",
     LAB_MQTT_IP: "192.168.1.11",
-    PKI_ROOT_CRL_PATH: crlMaterial.crl,
+    PKI_ROOT_CRL_PATH: crlMaterial.rootCrl,
     PKI_SERVICE_CERT_DIR: output
   };
   try {
