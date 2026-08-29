@@ -110,6 +110,36 @@ enum GatewayCertificateStatus {
   expired
 }
 
+enum AutomationSyncStatus {
+  PENDING
+  APPLIED
+  REJECTED
+}
+
+enum AutomationRuleStatus {
+  enabled
+  disabled
+}
+
+enum ScheduleRecurrenceKind {
+  once
+  daily
+  weekly
+  monthly
+  yearly
+}
+
+enum AutomationExecutionKind {
+  schedule_started
+  schedule_ended
+  vehicle_detected
+  event_started
+  event_extended
+  event_ended
+  action_result
+  telemetry_gap
+}
+
 model Organization {
   id          String       @id @default(uuid())
   name        String
@@ -138,6 +168,11 @@ model User {
   gatewayClaimAudits   GatewayClaimAudit[]
   siteMemberships      SiteMembership[]
   floorMapRevisions    FloorMapRevision[]
+  createdLightingSchedules LightingSchedule[] @relation("LightingScheduleCreatedBy")
+  updatedLightingSchedules LightingSchedule[] @relation("LightingScheduleUpdatedBy")
+  createdVehicleEventRules VehicleEventRule[] @relation("VehicleEventRuleCreatedBy")
+  updatedVehicleEventRules VehicleEventRule[] @relation("VehicleEventRuleUpdatedBy")
+  manualOverrides      ManualOverride[]       @relation("ManualOverrideRequestedBy")
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 }
@@ -160,6 +195,11 @@ model Site {
   provisioningSessions ProvisioningSession[]
   gatewayClaimAudits   GatewayClaimAudit[]
   memberships          SiteMembership[]
+  automationConfigurations GatewayAutomationConfiguration[]
+  lightingSchedules    LightingSchedule[]
+  vehicleEventRules    VehicleEventRule[]
+  manualOverrides      ManualOverride[]
+  automationExecutions AutomationExecution[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -305,6 +345,11 @@ model Fixture {
   energyStateCursor   FixtureEnergyStateCursor?
   processedStateEvents ProcessedGatewayEvent[]
   commandResults      CommandFixtureResult[]
+  lightingScheduleTargets LightingScheduleFixture[]
+  vehicleEventSources VehicleEventSource[]
+  vehicleEventTargets VehicleEventTarget[]
+  manualOverrideTargets ManualOverrideFixture[]
+  automationExecutionResults AutomationExecutionFixtureResult[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -389,10 +434,17 @@ model Gateway {
   commandDispatches       CommandDispatch[]
   processedEvents         ProcessedGatewayEvent[]
   certificates            GatewayCertificate[]
+  automationConfiguration GatewayAutomationConfiguration?
+  lightingSchedules       LightingSchedule[]
+  vehicleEventRules       VehicleEventRule[]
+  manualOverrides         ManualOverride[]
+  automationExecutions    AutomationExecution[]
+  automationOutboxEntries MqttOutbox[]             @relation("AutomationConfigOutboxGateway")
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
 
   @@index([siteId])
+  @@unique([id, siteId])
 }
 
 model GatewayInventory {
@@ -605,6 +657,7 @@ model Command {
   site         Site              @relation(fields: [siteId], references: [id])
   user         User              @relation(fields: [requestedBy], references: [id])
   dispatches   CommandDispatch[]
+  manualOverride ManualOverride?
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
@@ -663,7 +716,10 @@ model CommandFixtureResult {
 
 model MqttOutbox {
   id            String          @id @default(uuid())
-  dispatchId    String          @unique
+  dispatchId    String?         @unique
+  gatewayId     String?
+  revision      Int?
+  payloadHash   String?
   topic         String
   payload       Json
   attempts      Int             @default(0)
@@ -674,11 +730,209 @@ model MqttOutbox {
   leaseExpiresAt DateTime?
   deadLetteredAt DateTime?
   lastError     String?
-  dispatch      CommandDispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  dispatch      CommandDispatch? @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  gateway       Gateway?         @relation("AutomationConfigOutboxGateway", fields: [gatewayId], references: [id], onDelete: Cascade)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
   @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
+  @@unique([gatewayId, revision, payloadHash])
+  @@index([gatewayId, publishedAt, deadLetteredAt, nextAttemptAt])
+}
+
+model GatewayAutomationConfiguration {
+  gatewayId       String               @id
+  siteId          String
+  desiredRevision Int                  @default(0)
+  appliedRevision Int                  @default(0)
+  syncStatus      AutomationSyncStatus @default(PENDING)
+  payloadHash     String?
+  lastErrorCode   String?
+  lastAppliedAt   DateTime?
+  gateway         Gateway              @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade)
+  site            Site                 @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  updatedAt       DateTime             @updatedAt
+
+  @@unique([gatewayId, siteId])
+  @@index([siteId, syncStatus])
+}
+
+model LightingSchedule {
+  id                String                 @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  name              String
+  status            AutomationRuleStatus   @default(enabled)
+  activeFrom        DateTime
+  activeUntil       DateTime
+  localStartTime    String
+  localEndTime      String
+  recurrenceKind    ScheduleRecurrenceKind
+  weeklyDays        Int[]                  @default([])
+  monthlyDay        Int?
+  yearlyMonth       Int?
+  yearlyDay         Int?
+  dimmingEnabled    Boolean
+  brightnessPercent Int
+  desiredRevision   Int                    @default(0)
+  appliedRevision   Int                    @default(0)
+  createdById       String
+  updatedById       String
+  site              Site                   @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  gateway           Gateway                @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict)
+  createdBy         User                   @relation("LightingScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User                   @relation("LightingScheduleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  fixtures          LightingScheduleFixture[]
+  executions        AutomationExecution[]  @relation("LightingScheduleExecutions")
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([siteId, status, createdAt])
+  @@index([gatewayId, status])
+}
+
+model LightingScheduleFixture {
+  scheduleId String
+  fixtureId  String
+  schedule   LightingSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  fixture    Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict)
+  createdAt  DateTime         @default(now())
+
+  @@id([scheduleId, fixtureId])
+  @@index([fixtureId])
+}
+
+model VehicleEventRule {
+  id                String               @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  name              String
+  status            AutomationRuleStatus @default(enabled)
+  dimmingEnabled    Boolean
+  brightnessPercent Int
+  holdSeconds       Int                  @default(60)
+  desiredRevision   Int                  @default(0)
+  appliedRevision   Int                  @default(0)
+  createdById       String
+  updatedById       String
+  site              Site                 @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  gateway           Gateway              @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict)
+  createdBy         User                 @relation("VehicleEventRuleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy         User                 @relation("VehicleEventRuleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict)
+  sources           VehicleEventSource[]
+  targets           VehicleEventTarget[]
+  executions        AutomationExecution[] @relation("VehicleEventRuleExecutions")
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([siteId, status, createdAt])
+  @@index([gatewayId, status])
+}
+
+model VehicleEventSource {
+  ruleId    String
+  fixtureId String
+  rule      VehicleEventRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  fixture   Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict)
+  createdAt DateTime         @default(now())
+
+  @@id([ruleId, fixtureId])
+  @@index([fixtureId])
+}
+
+model VehicleEventTarget {
+  ruleId    String
+  fixtureId String
+  rule      VehicleEventRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  fixture   Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict)
+  createdAt DateTime         @default(now())
+
+  @@id([ruleId, fixtureId])
+  @@index([fixtureId])
+}
+
+model ManualOverride {
+  id                String       @id @default(uuid())
+  siteId            String
+  gatewayId         String
+  commandId         String       @unique
+  requestedById     String
+  brightnessPercent Int
+  startedAt         DateTime
+  overrideUntil     DateTime
+  endedAt           DateTime?
+  site              Site         @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  gateway           Gateway      @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict)
+  command           Command      @relation(fields: [commandId], references: [id], onDelete: Restrict)
+  requestedBy       User         @relation("ManualOverrideRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  fixtures          ManualOverrideFixture[]
+  executions        AutomationExecution[] @relation("ManualOverrideExecutions")
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([siteId, overrideUntil])
+  @@index([gatewayId, overrideUntil])
+  @@index([requestedById, createdAt])
+}
+
+model ManualOverrideFixture {
+  manualOverrideId String
+  fixtureId        String
+  manualOverride   ManualOverride @relation(fields: [manualOverrideId], references: [id], onDelete: Cascade)
+  fixture          Fixture        @relation(fields: [fixtureId], references: [id], onDelete: Restrict)
+  createdAt        DateTime       @default(now())
+
+  @@id([manualOverrideId, fixtureId])
+  @@index([fixtureId])
+}
+
+model AutomationExecution {
+  id                 String                  @id @default(uuid())
+  siteId             String
+  gatewayId          String
+  eventId            String
+  sequence           BigInt
+  revision           Int
+  ruleId             String?
+  lightingScheduleId String?
+  vehicleEventRuleId String?
+  manualOverrideId   String?
+  occurrenceKey      String?
+  kind               AutomationExecutionKind
+  occurredAt         DateTime
+  payload             Json
+  site               Site                    @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  gateway            Gateway                 @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict)
+  lightingSchedule   LightingSchedule?       @relation("LightingScheduleExecutions", fields: [lightingScheduleId], references: [id], onDelete: SetNull)
+  vehicleEventRule   VehicleEventRule?       @relation("VehicleEventRuleExecutions", fields: [vehicleEventRuleId], references: [id], onDelete: SetNull)
+  manualOverride     ManualOverride?         @relation("ManualOverrideExecutions", fields: [manualOverrideId], references: [id], onDelete: SetNull)
+  fixtureResults     AutomationExecutionFixtureResult[]
+  createdAt          DateTime                @default(now())
+
+  @@unique([gatewayId, eventId, sequence])
+  @@index([siteId, occurredAt])
+  @@index([gatewayId, sequence])
+  @@index([ruleId, occurredAt])
+  @@index([lightingScheduleId])
+  @@index([vehicleEventRuleId])
+  @@index([manualOverrideId])
+}
+
+model AutomationExecutionFixtureResult {
+  executionId        String
+  fixtureSnapshotId  String
+  fixtureId          String?
+  status             CommandFixtureResultStatus
+  brightnessPercent  Int?
+  faultCode          String?
+  errorCode          String?
+  occurredAt         DateTime
+  execution          AutomationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  fixture            Fixture?            @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
+  createdAt          DateTime            @default(now())
+
+  @@id([executionId, fixtureSnapshotId])
+  @@index([fixtureId, status])
 }
 
 model ProcessedGatewayEvent {

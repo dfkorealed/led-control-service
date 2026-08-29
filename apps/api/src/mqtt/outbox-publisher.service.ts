@@ -91,6 +91,7 @@ export class OutboxPublisherService implements OnModuleInit {
         FROM "MqttOutbox"
         WHERE "publishedAt" IS NULL
           AND "deadLetteredAt" IS NULL
+          AND "dispatchId" IS NOT NULL
           AND "nextAttemptAt" <= ${now}
           AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= ${now})
         ORDER BY "createdAt" ASC
@@ -104,8 +105,8 @@ export class OutboxPublisherService implements OnModuleInit {
         where: { id: { in: ids }, OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
         data: { lockedBy: this.workerId, lockedAt: now, leaseExpiresAt: new Date(now.getTime() + LEASE_MS) }
       });
-      return tx.mqttOutbox.findMany({
-        where: { id: { in: ids }, lockedBy: this.workerId },
+      const records = await tx.mqttOutbox.findMany({
+        where: { id: { in: ids }, dispatchId: { not: null }, lockedBy: this.workerId },
         include: {
           dispatch: {
             select: {
@@ -119,6 +120,13 @@ export class OutboxPublisherService implements OnModuleInit {
           }
         },
         orderBy: { createdAt: "asc" }
+      });
+      return records.map((record) => {
+        // The command publisher owns only the dispatch-backed MqttOutbox variant; keep the lease update transactional if DB integrity is broken.
+        if (record.dispatchId === null || record.dispatch === null) {
+          throw new Error("command outbox row is missing its dispatch relation");
+        }
+        return { ...record, dispatchId: record.dispatchId, dispatch: record.dispatch };
       });
     });
   }

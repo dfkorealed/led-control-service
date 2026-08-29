@@ -390,6 +390,7 @@ describe("OutboxPublisherService", () => {
     const now = new Date("2026-07-11T00:00:00.000Z");
 
     await expect(service.claimBatch(now)).resolves.toEqual([{ id: "outbox-1", lockedBy: "worker-1" }]);
+    expect(tx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain('"dispatchId" IS NOT NULL');
     expect(tx.mqttOutbox.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["outbox-1"] }, OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }] },
       data: { lockedBy: "worker-1", lockedAt: now, leaseExpiresAt: new Date("2026-07-11T00:00:30.000Z") }
