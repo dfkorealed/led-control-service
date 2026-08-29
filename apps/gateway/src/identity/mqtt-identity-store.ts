@@ -286,6 +286,10 @@ export class MqttIdentityStore {
     for (const name of ["pending-generations", "generations"]) {
       const path = join(this.options.identityRoot, name);
       await mkdir(path, { recursive: true, mode: 0o750 });
+      const metadata = await lstat(path);
+      if (metadata.isDirectory() && !metadata.isSymbolicLink() && (metadata.mode & 0o777) === 0o700) {
+        await chmod(path, 0o750);
+      }
       await assertPlainDirectory(path, "MQTT identity storage directory is invalid", 0o750);
     }
   }

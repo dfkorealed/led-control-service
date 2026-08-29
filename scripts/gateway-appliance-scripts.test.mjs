@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -24,6 +25,14 @@ test("deploy script는 image를 먼저 load하고 제조 identity 검증 뒤 Com
   assert.doesNotMatch(source, /data\/certs\/gateway\.crt/);
   assert.match(source, /docker compose/);
   assert.match(source, /--remove-orphans/);
+  assert.match(source, /seccomp-bluez-mesh\.json/);
   assert.doesNotMatch(source, /chown -R[^\n]*\$REMOTE_DIR/);
-  assert.match(source, /install -d/);
+  assert.match(source, /install -d -m 0750/);
+});
+
+test("deploy script는 잘못된 CLI 인자를 exit 2로 거부한다", () => {
+  for (const args of [[], ["gateway@example.test", "image.tar", "unexpected"]]) {
+    const result = spawnSync(path.join(root, "scripts/gateway-appliance-deploy.sh"), args, { encoding: "utf8" });
+    assert.equal(result.status, 2);
+  }
 });

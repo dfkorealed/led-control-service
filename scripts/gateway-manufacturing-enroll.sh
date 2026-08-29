@@ -5,10 +5,20 @@ umask 077
 SERIAL_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
 TARGET_PATTERN='^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$'
 PATH_PATTERN='^/[A-Za-z0-9._/-]+$'
-URL_PATTERN='^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]*)?$'
+URL_PATTERN='^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~:/?@!%+,;=&()-]*)?$'
 TARGET= SERIAL= LABEL_OUTPUT=
-while (($#)); do case "$1" in --target) TARGET=${2-}; shift 2;; --serial) SERIAL=${2-}; shift 2;; --label-output) LABEL_OUTPUT=${2-}; shift 2;; *) printf '%s\n' 'invalid arguments' >&2; exit 2;; esac; done
-: "${TARGET:?--target is required}"; : "${SERIAL:?--serial is required}"; : "${LABEL_OUTPUT:?--label-output is required}"
+usage() { printf '%s\n' "$1" >&2; exit 2; }
+while (($#)); do
+  case "$1" in
+    --target) (($# >= 2)) || usage '--target requires a value'; TARGET=$2; shift 2;;
+    --serial) (($# >= 2)) || usage '--serial requires a value'; SERIAL=$2; shift 2;;
+    --label-output) (($# >= 2)) || usage '--label-output requires a value'; LABEL_OUTPUT=$2; shift 2;;
+    *) usage 'invalid arguments';;
+  esac
+done
+[[ -n "$TARGET" ]] || usage '--target is required'
+[[ -n "$SERIAL" ]] || usage '--serial is required'
+[[ -n "$LABEL_OUTPUT" ]] || usage '--label-output is required'
 : "${MANUFACTURING_API_URL:?MANUFACTURING_API_URL is required}"
 : "${STATION_CERT:?STATION_CERT is required}"
 : "${STATION_KEY:?STATION_KEY is required}"
@@ -19,8 +29,11 @@ GATEWAY_FACTORY_TRUST_HOST_ROOT=${GATEWAY_FACTORY_TRUST_HOST_ROOT:-/opt/led-cont
 [[ "$SERIAL" =~ $SERIAL_PATTERN && "$TARGET" =~ $TARGET_PATTERN && "$LABEL_OUTPUT" =~ $PATH_PATTERN && "$MANUFACTURING_API_URL" =~ $URL_PATTERN ]] || { printf '%s\n' 'invalid enrollment input' >&2; exit 2; }
 [[ "$GATEWAY_IDENTITY_HOST_ROOT" =~ $PATH_PATTERN && "$GATEWAY_FACTORY_TRUST_HOST_ROOT" =~ $PATH_PATTERN ]] || { printf '%s\n' 'invalid enrollment path' >&2; exit 2; }
 [[ "$GATEWAY_IMAGE" =~ ^[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+$ ]] || { printf '%s\n' 'invalid gateway image' >&2; exit 2; }
-for file in "$STATION_CERT" "$STATION_KEY" "$STATION_CA"; do
-  [[ -f "$file" && ! -L "$file" ]] || { printf '%s\n' 'invalid station credential path' >&2; exit 2; }
+for variable in STATION_CERT STATION_KEY STATION_CA; do
+  file=${!variable}
+  resolved=$(realpath "$file" 2>/dev/null || true)
+  [[ -n "$resolved" && -f "$resolved" && ! -L "$resolved" ]] || { printf '%s\n' 'invalid station credential path' >&2; exit 2; }
+  printf -v "$variable" '%s' "$resolved"
 done
 KEY_MODE=$(stat -f '%Lp' "$STATION_KEY" 2>/dev/null || stat -c '%a' "$STATION_KEY")
 [[ "$KEY_MODE" == 600 ]] || { printf '%s\n' 'invalid station key permissions' >&2; exit 2; }

@@ -9,6 +9,25 @@ import { MqttIdentityStore } from "./mqtt-identity-store";
 const execFile = promisify(execFileCallback);
 
 describe("MqttIdentityStore", () => {
+  it("normalizes newly created layout directories after a restrictive appliance umask", async () => {
+    const fixture = await createFixture();
+    await mkdir(fixture.identityRoot, { recursive: true, mode: 0o750 });
+    await chmod(fixture.identityRoot, 0o750);
+    for (const name of ["pending-generations", "generations"]) {
+      const path = join(fixture.identityRoot, name);
+      await mkdir(path, { mode: 0o700 });
+      await chmod(path, 0o700);
+    }
+
+    await expect(fixture.store.ensure("gateway-27", fixture.mqttCaPem, async (csrPem) => ({
+      gatewayId: "gateway-27",
+      ...(await signCsr(fixture.directory, csrPem, "gateway-27"))
+    }))).resolves.toBe(true);
+
+    expect((await stat(join(fixture.identityRoot, "pending-generations"))).mode & 0o777).toBe(0o750);
+    expect((await stat(join(fixture.identityRoot, "generations"))).mode & 0o777).toBe(0o750);
+  });
+
   it("creates an ECDSA MQTT generation with the assigned gateway CN and hardened permissions", async () => {
     const fixture = await createFixture();
     const gatewayId = "gateway-27";
