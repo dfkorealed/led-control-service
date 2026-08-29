@@ -6,7 +6,7 @@
 
 제어 메뉴에 스케줄 제어와 차량 감지 이벤트 제어를 추가한다. 클라우드는 규칙 관리와 배포 상태의 정본이고 Raspberry Pi Gateway는 현장 실행의 정본이다. 인터넷이 끊겨도 마지막으로 승인된 규칙을 실행하며, ESP32-H2는 통합 센서의 감지 이벤트를 전달하고 기존 Light Lightness/PWM 경로로 밝기를 적용한다.
 
-이번 범위에는 Web CRUD, NestJS API와 PostgreSQL, durable MQTT 동기화, Gateway 현장 규칙 엔진, ESP32-H2 센서 이벤트 계약과 software/HIL 검증 경계를 포함한다. 실제 센서의 GPIO polarity, 전압, UART/I2C 규격은 센서 하드웨어 계약이 확정된 뒤 driver binding으로 추가한다. 센서 입력 디바운스는 수행하지 않는다.
+이번 범위에는 Web CRUD, NestJS API와 PostgreSQL, durable MQTT 동기화, Gateway 현장 규칙 엔진, ESP32-H2 센서 이벤트 계약과 software/HIL 검증 경계를 포함한다. 차량 감지 센서는 ESP32-H2와 GND를 공유하는 3.3V Active High GPIO 출력의 마이크로웨이브 센서로 확정한다. 센서 입력 디바운스는 수행하지 않는다.
 
 ## 확정 결정
 
@@ -16,7 +16,8 @@
 - 겹치는 기간과 공통 대상 조명이 있는 활성 스케줄은 저장하지 않는다.
 - 디밍 ON은 지정 밝기, 디밍 OFF는 100%를 의미한다. 완전 소등은 밝기 0%로 지정한다.
 - 스케줄 종료 시 시작 직전 밝기로 복귀한다.
-- 차량 감지는 한 규칙의 센서 중 하나만 감지해도 실행하며 추가 감지마다 유지시간을 연장한다.
+- 차량 감지는 한 규칙의 센서 중 하나만 High여도 실행하며 유지시간 중 새 High가 들어오면 복귀 timer를 취소한다.
+- 센서 출력이 High인 동안 이벤트를 계속 활성 상태로 유지하고 High에서 Low로 바뀐 시점부터 유지시간을 계산한다.
 - 여러 차량 이벤트가 같은 조명에서 겹치면 가장 높은 밝기를 적용한다.
 - 차량 이벤트 종료 시 활성 스케줄로 복귀하고 활성 스케줄이 없으면 최초 이벤트 직전 밝기로 복귀한다.
 - 실행 우선순위는 `만료되지 않은 수동 override > 차량 이벤트 > 활성 스케줄 > 현재 밝기 유지`다.
@@ -46,9 +47,11 @@ Gateway는 다음 책임을 가진다.
 
 ### ESP32-H2
 
-펌웨어는 `vehicle_sensor_driver` 경계에서 감지 callback만 받는다. 센서의 실제 전기·통신 규격은 이 경계의 driver가 소유하며 자동제어 규칙은 ESP32에 저장하지 않는다.
+펌웨어는 `vehicle_sensor_driver` 경계에서 3.3V Active High GPIO의 현재 상태를 받으며 자동제어 규칙은 ESP32에 저장하지 않는다. GPIO 번호는 ESP-IDF 설정으로 분리하고 strapping, 내장 flash와 USB-Serial-JTAG 용도의 pin은 허용하지 않는다. 입력에는 pull-down과 ESP32-H2 hardware hysteresis를 사용하지만 시간 기반 디바운스는 사용하지 않는다.
 
-표준 Sensor Server는 현재 센서 상태 조회·표현에 사용한다. 순간 감지의 application 전달 보장을 위해 자사 Vendor Event 모델에 `bootId`, 증가하는 `sequence`와 event kind를 포함한다. Gateway ACK 전까지 제한된 시간과 횟수로 재전송하고 Gateway는 `(sourceUnicast, bootId, sequence)`로 한 번만 실행한다. 센서 입력 자체에는 디바운스를 추가하지 않는다.
+GPIO 양쪽 edge interrupt를 사용하되 ISR에서는 level과 monotonic timestamp만 고정 크기 queue에 넣고 BLE Mesh 전송은 일반 task에서 수행한다. `Low → High`는 `detected`, `High → Low`는 `cleared` event다. 부팅 직후 GPIO를 읽어 이미 High면 현재 boot session의 첫 `detected`를 전송한다.
+
+표준 Sensor Server는 현재 센서 상태 조회·표현과 60초 deterministic jitter publication에 사용한다. edge event의 application 전달 보장을 위해 자사 Vendor Event 모델에 `bootId`, 증가하는 `sequence`, event kind와 현재 level을 포함한다. Gateway ACK 전까지 제한된 시간과 횟수로 재전송하고 Gateway는 `(sourceUnicast, bootId, sequence)`로 한 번만 적용한다. 주기 Sensor Status와 Gateway startup Sensor Get은 Gateway 재시작과 시작·해제 event 유실 뒤 현재 High/Low 상태를 복구한다.
 
 ## 무중단 규칙 적용
 
@@ -97,7 +100,7 @@ Gateway는 occurrence 시작 직전 대상 밝기를 durable state에 보존한�
 - 유지시간: 기본 60초, 허용 범위 5초~30분
 - 소유 Gateway, desired/applied revision, 생성자·수정자와 시각
 
-한 source라도 감지되면 규칙을 활성화하고 추가 감지마다 마지막 감지 시점부터 만료 시각을 다시 계산한다. 여러 활성 이벤트가 같은 target을 포함하면 최대 밝기를 적용한다. 디밍 OFF는 100%이므로 최대 밝기 계산에서 100%로 취급한다.
+한 source라도 High이면 규칙을 활성화한다. source가 `detected`를 보내거나 주기 상태에서 High로 확인되면 활성 source set에 넣고, `cleared` 또는 주기 Low 상태를 받으면 제거한다. 마지막 source가 Low로 확인된 시점부터 유지시간을 계산하며 유지시간 중 새 High가 들어오면 만료를 취소하고 활성 상태로 돌아간다. 여러 활성 이벤트가 같은 target을 포함하면 최대 밝기를 적용한다. 디밍 OFF는 100%이므로 최대 밝기 계산에서 100%로 취급한다.
 
 첫 이벤트가 시작될 때 활성 스케줄이 없다면 직전 밝기를 durable state에 저장한다. 마지막 이벤트가 끝나면 현재 활성 스케줄을 우선 적용하고, 없으면 저장한 직전 밝기로 복귀한다. 규칙 변경·삭제 시 현재 이벤트 source와 target을 새 snapshot으로 다시 계산하고 더 이상 유효하지 않은 이벤트 상태는 종료한다.
 
@@ -140,6 +143,7 @@ assigned admin은 자기 Site의 규칙을 추가·수정·삭제·활성화할 
 - 활성 스케줄은 상태 publication과 desired state를 주기적으로 비교하고 이탈한 fixture만 제한적으로 재적용한다.
 - 실행 이력 저장공간이 상한에 도달해도 주차장 로컬 스케줄·차량 감지 제어는 계속한다. Gateway는 반복 연장 이벤트를 먼저 병합하고, 그래도 공간이 부족하면 유실된 실행 이력의 최초·최종 시각과 건수를 별도 `telemetry_gap` 메타데이터에 영속 기록해 재연결 후 API와 운영 화면에 보고한다. 이력 손실을 정상 동기화로 표시하지 않는다.
 - ESP sensor event retry가 모두 실패하면 로컬 fault counter를 증가시키며 다음 감지를 막지 않는다.
+- 비정상적으로 긴 High는 강제로 종료하지 않고 sensor 상태 경고로 보고한다. 마이크로웨이브 센서의 실제 감지 상태를 software timeout으로 임의 해제하지 않는다.
 
 ## 데이터 모델 방향
 
@@ -159,24 +163,25 @@ assigned admin은 자기 Site의 규칙을 추가·수정·삭제·활성화할 
 - Web: 탭, CRUD, 달력·반복 입력, 대상 선택, overlap 오류, 동기화 상태와 viewer read-only
 - API: tenant/role 경계, 월말·윤년·자정·DST, exact target snapshot, 동시 overlap, outbox와 application ACK
 - Gateway: fake wall/monotonic clock, 무중단 hot reload, invalid snapshot rollback, 재시작 복구, 우선순위와 이벤트 중첩·복귀
-- Firmware: sensor driver callback, boot/sequence, ACK·재전송과 ESP-IDF `esp32h2` build
+- Firmware: 3.3V Active High GPIO 양쪽 edge, boot-time level 복구, ISR queue, Sensor Status, boot/sequence, ACK·재전송과 ESP-IDF `esp32h2` build
 - Software E2E: PostgreSQL, Redis, mTLS MQTT, production API/Gateway runtime과 Chromium CRUD·적용 상태
 
 ### 실제 장비 검증
 
-- 센서 입력 1회가 BLE Mesh를 거쳐 정확히 한 이벤트 실행으로 수렴
-- 추가 감지가 hold timer를 연장하고 마지막 만료 뒤 정확한 밝기로 복귀
+- GPIO High가 BLE Mesh를 거쳐 정확히 한 활성 이벤트 실행으로 수렴하고 High 동안 밝기를 유지
+- GPIO Low 뒤 hold timer가 시작되고 새 High가 timer를 취소하며 마지막 만료 뒤 정확한 밝기로 복귀
+- ESP32-H2 또는 Gateway 재시작과 edge event 유실 뒤 주기 Sensor Status로 실제 GPIO 상태 복구
 - 규칙 CRUD 중 Gateway process, MQTT, heartbeat와 기존 조명 제어가 중단되지 않음
 - Cloud 단절 중 스케줄과 이벤트 실행, 재연결 뒤 실행 원장 재전달
 - Gateway와 ESP32-H2 재시작 뒤 규칙, occurrence와 중복 제거 상태 복구
 - 두 센서 규칙과 겹치는 target에서 최대 밝기 및 마지막 이벤트 종료 복귀
 
-센서 전기 인터페이스와 절연 회로가 승인되기 전에는 센서 포함 HIL을 실행하지 않는다. software simulator 결과는 실제 BLE Mesh 센서 전달 완료로 표시하지 않는다.
+센서 HIL 전에 3.3V 출력, Active High, 공통 GND, GPIO pin 제한과 PCB 입력 보호를 실측 확인한다. LED 컨버터 DIM interface는 이 센서 GPIO와 별도 회로이며 승인된 절연·레벨 변환 없이 ESP32-H2에 연결하지 않는다. software simulator 결과는 실제 BLE Mesh 센서 전달 완료로 표시하지 않는다.
 
 ## 명시적 제외
 
 - 다중 Gateway에 걸친 하나의 규칙과 최종 결과 집계
-- 센서 신호 분석, 차량 방향·속도·대수 판정
+- 센서 신호 분석, 시간 기반 debounce, 차량 방향·속도·대수 판정
 - 장면, 인체 감지와 외부 BMS event source
 - 규칙 우선순위 사용자 설정과 겹치는 스케줄 허용
 - ESP32 노드 내부 Scheduler Server 기반 분산 규칙 실행
@@ -184,4 +189,4 @@ assigned admin은 자기 Site의 규칙을 추가·수정·삭제·활성화할 
 
 ## 구현 선행 조건
 
-현재 working tree의 Gateway/PKI 실장비 수정사항을 테스트하고 작업 단위별로 먼저 커밋한다. 그 뒤 shared 계약과 DB migration, API 규칙 관리·동기화, Gateway engine, firmware event, Web UI, software E2E, HIL 순서로 구현한다.
+현재 working tree의 Gateway/PKI 실장비 수정사항을 테스트하고 작업 단위별로 먼저 커밋한다. 그 뒤 shared 계약과 DB migration, API 규칙 관리·동기화, Gateway engine, firmware GPIO sensor event, Web UI, software E2E, HIL 순서로 구현한다.

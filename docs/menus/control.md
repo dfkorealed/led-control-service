@@ -5,7 +5,7 @@
 ## 다음 구현 범위
 
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
-- 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 통합 센서 감지 이벤트와 밝기 적용을 담당한다.
+- 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - 구현 순서는 현재 미커밋 Gateway/PKI 실장비 수정 정리, shared/DB 계약, API·MQTT 동기화, Gateway 규칙 엔진, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL이다.
 - 설계만 완료했으며 코드, migration, 자동 테스트와 실장비 검증은 아직 시작하지 않았다.
 
