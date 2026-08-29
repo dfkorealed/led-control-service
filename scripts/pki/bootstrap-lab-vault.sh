@@ -14,7 +14,9 @@ POLICY_PATH="$ROOT_DIR/infra/vault/policies/gateway-pki.hcl"
 DEVICE_MOUNT="gateway-device-pki"
 MQTT_MOUNT="gateway-mqtt-pki"
 API_MOUNT="api-server-pki"
-GATEWAY_UUID_CN_GLOB="????????-????-????-????-????????????"
+# Vault PKI domain globs support `*`, but do not treat `?` as a single-character wildcard.
+# The API remains the authoritative boundary and submits only the claimed UUID v4 gateway ID.
+GATEWAY_UUID_CN_GLOB="*-*-4*-*-*"
 
 die() {
   printf '%s\n' "$*" >&2
@@ -142,6 +144,7 @@ configure_roles_and_policy() {
     allow_wildcard_certificates=false \
     allow_any_name=false \
     allow_localhost=false \
+    enforce_hostnames=true \
     allowed_uri_sans="urn:dfkorea:gateway:*" \
     key_type=ec \
     key_bits=256 \

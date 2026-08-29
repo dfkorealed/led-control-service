@@ -80,6 +80,8 @@ test("creates an EC P-256 Lab Root and pathlen zero intermediate chains with res
     assert.doesNotMatch(stdout, /PRIVATE KEY|token/i);
     assert.equal(mode(join(output.root, "root.key")), 0o600);
     assert.equal(mode(join(output.root, "root.crt")), 0o644);
+    assert.equal(mode(join(output.root, "root.crl")), 0o644);
+    execFileSync("openssl", ["crl", "-in", join(output.root, "root.crl"), "-noout", "-verify", "-CAfile", join(output.root, "root.crt")]);
     assert.match(execFileSync("openssl", ["x509", "-in", join(output.root, "root.crt"), "-text", "-noout"], { encoding: "utf8" }), /id-ecPublicKey/);
 
     for (const purpose of purposes) {

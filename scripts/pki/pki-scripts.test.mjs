@@ -73,7 +73,7 @@ if [[ "$1" == "list" ]]; then
   printf '%s\\n' '["issuer"]'
 elif [[ "$1" == "status" ]]; then
   printf '%s\\n' '{"storage_type":"${storageType}"}'
-elif [[ "$1 $2" == "read -field=certificate" ]]; then
+	elif [[ "$1 $2" == "read -field=ca_chain" ]]; then
   if [[ -n "${caPath}" ]]; then cat "${caPath}"; else printf '%s\\n' '-----BEGIN CERTIFICATE-----' 'INTERMEDIATE' '-----END CERTIFICATE-----'; fi
 elif [[ "$1 $2" == "read -format=raw" ]]; then
   [[ "\${LAB_TEST_FAIL_CRL:-0}" != 1 ]] || exit 44
@@ -96,7 +96,6 @@ fi
 function matchesVaultGlob(pattern, value) {
   const expression = [...pattern].map((character) => {
     if (character === "*") return ".*";
-    if (character === "?") return ".";
     return character.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&");
   }).join("");
   return new RegExp(`^${expression}$`).test(value);
@@ -244,12 +243,14 @@ test("bootstrap install imports externally signed intermediates and configures i
       assert.match(roleLine, /key_bits=256/);
     }
     const gatewayRole = log.match(/gateway-mqtt-pki\/roles\/gateway-mqtt[^\n]*/)?.[0] ?? "";
-    const gatewayUuidGlob = "????????-????-????-????-????????????";
+    const gatewayUuidGlob = "*-*-4*-*-*";
     assert.match(gatewayRole, /allow_any_name=false/);
-    assert.match(gatewayRole, new RegExp(`allowed_domains=${gatewayUuidGlob.replace(/\?/g, "\\?")}`));
+    assert.match(gatewayRole, new RegExp(`allowed_domains=${gatewayUuidGlob.replace(/\*/g, "\\*")}`));
     assert.match(gatewayRole, /allow_bare_domains=true.*allow_subdomains=false.*allow_glob_domains=true.*allow_wildcard_certificates=false/);
+    assert.match(gatewayRole, /enforce_hostnames=true/);
     assert.match(gatewayRole, /allowed_uri_sans=urn:dfkorea:gateway:\*/);
     assert.equal(matchesVaultGlob(gatewayUuidGlob, "550e8400-e29b-41d4-a716-446655440000"), true);
+    assert.equal(matchesVaultGlob(gatewayUuidGlob, "550e8400-e29b-11d4-a716-446655440000"), false);
     assert.equal(matchesVaultGlob(gatewayUuidGlob, "api-service"), false);
     assert.match(log, /gateway-mqtt-pki\/roles\/mqtt-server.*client_flag=false.*server_flag=true/);
     assert.match(log, /gateway-mqtt-pki\/roles\/api-mqtt-client.*allowed_domains=api-service.*allow_bare_domains=true.*client_flag=true.*server_flag=false/);
@@ -265,7 +266,8 @@ test("bootstrap install imports externally signed intermediates and configures i
 
 test("service issuance requires every SAN input and publishes separate API, MQTT, and API MQTT client credentials", () => {
   const directory = temporaryDirectory();
-  const vault = writeMockVault(directory, createValidCrl(directory));
+  const crlMaterial = createValidCrl(directory);
+  const vault = writeMockVault(directory, crlMaterial);
   const output = join(directory, "bundle");
   try {
     const missingSan = runFailure(issue, [], {
@@ -284,6 +286,7 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
       LAB_API_IP: "192.168.1.10",
       LAB_MQTT_DNS: "mqtt.lan",
       LAB_MQTT_IP: "192.168.1.11",
+      PKI_ROOT_CRL_PATH: crlMaterial.crl,
       PKI_SERVICE_CERT_DIR: output
     });
     const log = readFileSync(join(directory, "vault.log"), "utf8");
@@ -291,6 +294,9 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
     assert.match(log, /api-server-pki\/sign\/api-server.*common_name=api\.lan.*alt_names=api\.lan.*ip_sans=192\.168\.1\.10/);
     assert.match(log, /gateway-mqtt-pki\/sign\/mqtt-server.*common_name=mqtt\.lan.*alt_names=mqtt\.lan.*ip_sans=192\.168\.1\.11/);
     assert.match(log, /gateway-mqtt-pki\/sign\/api-mqtt-client.*common_name=api-service.*uri_sans=spiffe:\/\/led-control\/mqtt\/api-service/);
+    for (const mount of ["api-server-pki", "gateway-mqtt-pki", "gateway-device-pki"]) {
+      assert.match(log, new RegExp(`read -field=ca_chain ${mount}\\/cert\\/ca_chain`));
+    }
     for (const name of ["api", "mqtt-server", "api-mqtt-client"]) {
       assert.equal(mode(join(current, `${name}.key`)), 0o600);
       assert.equal(mode(join(current, `${name}.crt`)), 0o644);
@@ -301,10 +307,11 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
       assert.equal(mode(join(current, `${name}.crt`)), 0o644);
       assert.match(readFileSync(join(current, `${name}.crt`), "utf8"), /BEGIN CERTIFICATE/);
     }
+    assert.equal(readFileSync(join(current, "format-version"), "utf8").trim(), "3");
     assert.equal(mode(join(current, "mqtt-client.crl")), 0o644);
-    assert.match(readFileSync(join(current, "mqtt-client.crl"), "utf8"), /BEGIN X509 CRL/);
+    assert.equal((readFileSync(join(current, "mqtt-client.crl"), "utf8").match(/BEGIN X509 CRL/g) ?? []).length, 2);
     assert.equal(mode(join(current, "device.crl")), 0o644);
-    assert.match(readFileSync(join(current, "device.crl"), "utf8"), /BEGIN X509 CRL/);
+    assert.equal((readFileSync(join(current, "device.crl"), "utf8").match(/BEGIN X509 CRL/g) ?? []).length, 2);
     assert.match(log, /read -format=raw gateway-mqtt-pki\/crl\/pem/);
     assert.match(log, /read -format=raw gateway-device-pki\/crl\/pem/);
     assert.doesNotMatch(stdout, /token|BEGIN .*PRIVATE KEY/i);
@@ -315,7 +322,8 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
 
 test("service bundle은 동일 SAN 재실행에 멱등이고 CRL 실패 시 기존 generation을 보존한다", () => {
   const directory = temporaryDirectory();
-  const vault = writeMockVault(directory, createValidCrl(directory));
+  const crlMaterial = createValidCrl(directory);
+  const vault = writeMockVault(directory, crlMaterial);
   const output = join(directory, "bundle");
   const environment = {
     VAULT_BIN: vault,
@@ -324,6 +332,7 @@ test("service bundle은 동일 SAN 재실행에 멱등이고 CRL 실패 시 기�
     LAB_API_IP: "192.168.1.10",
     LAB_MQTT_DNS: "mqtt.lan",
     LAB_MQTT_IP: "192.168.1.11",
+    PKI_ROOT_CRL_PATH: crlMaterial.crl,
     PKI_SERVICE_CERT_DIR: output
   };
   try {

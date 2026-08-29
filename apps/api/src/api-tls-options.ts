@@ -8,6 +8,7 @@ const TLS_PATH_KEYS = [
   "API_DEVICE_CRL_PATH",
   "API_MANUFACTURING_CRL_PATH"
 ] as const;
+const CRL_PEM_PATTERN = /-----BEGIN X509 CRL-----[\s\S]*?-----END X509 CRL-----/g;
 
 type TlsPathKey = (typeof TLS_PATH_KEYS)[number];
 type ReadFile = (path: string) => Buffer;
@@ -30,19 +31,26 @@ export function createApiHttpsOptions(env: NodeJS.ProcessEnv, readFile: ReadFile
   const key = readRequired(values.API_TLS_KEY_PATH, "API_TLS_KEY_PATH", readFile);
   const deviceCa = readRequired(values.API_DEVICE_CLIENT_CA_PATH, "API_DEVICE_CLIENT_CA_PATH", readFile);
   const manufacturingCa = readRequired(values.API_MANUFACTURING_CLIENT_CA_PATH, "API_MANUFACTURING_CLIENT_CA_PATH", readFile);
-  const deviceCrl = readRequired(values.API_DEVICE_CRL_PATH, "API_DEVICE_CRL_PATH", readFile);
-  const manufacturingCrl = readRequired(values.API_MANUFACTURING_CRL_PATH, "API_MANUFACTURING_CRL_PATH", readFile);
+  const deviceCrl = readCrlBundle(values.API_DEVICE_CRL_PATH, "API_DEVICE_CRL_PATH", readFile);
+  const manufacturingCrl = readCrlBundle(values.API_MANUFACTURING_CRL_PATH, "API_MANUFACTURING_CRL_PATH", readFile);
 
   return {
     httpsOptions: {
       cert,
       key,
       ca: [deviceCa, manufacturingCa],
-      crl: [deviceCrl, manufacturingCrl],
+      crl: [...deviceCrl, ...manufacturingCrl],
       requestCert: true,
-      rejectUnauthorized: false
+      rejectUnauthorized: true
     }
   };
+}
+
+function readCrlBundle(path: string | undefined, key: TlsPathKey, readFile: ReadFile) {
+  const source = readRequired(path, key, readFile).toString("utf8");
+  const blocks = source.match(CRL_PEM_PATTERN);
+  if (!blocks?.length) throw new Error(`${key} does not contain a CRL PEM block`);
+  return blocks.map((block) => Buffer.from(`${block}\n`));
 }
 
 function readRequired(path: string | undefined, key: TlsPathKey, readFile: ReadFile) {

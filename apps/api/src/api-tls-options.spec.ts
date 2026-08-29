@@ -1,14 +1,17 @@
 import { createApiHttpsOptions } from "./api-tls-options";
 
 describe("createApiHttpsOptions", () => {
-  it("trusts both device and manufacturing client CAs", () => {
+  it("trusts both client CAs and expands every CRL PEM block for Node TLS", () => {
+    const deviceIntermediateCrl = pemCrl("DEVICE-INTERMEDIATE");
+    const rootCrl = pemCrl("ROOT");
+    const manufacturingCrl = pemCrl("MANUFACTURING");
     const files: Record<string, Buffer> = {
       "/tls/api.crt": Buffer.from("api-cert"),
       "/tls/api.key": Buffer.from("api-key"),
       "/tls/device-ca.crt": Buffer.from("device-ca"),
       "/tls/manufacturing-ca.crt": Buffer.from("manufacturing-ca"),
-      "/tls/device.crl": Buffer.from("device-crl"),
-      "/tls/manufacturing.crl": Buffer.from("manufacturing-crl")
+      "/tls/device.crl": Buffer.from(`${deviceIntermediateCrl}\n${rootCrl}`),
+      "/tls/manufacturing.crl": Buffer.from(manufacturingCrl)
     };
     const result = createApiHttpsOptions(completeEnvironment(), (path: string) => files[path]);
 
@@ -17,9 +20,9 @@ describe("createApiHttpsOptions", () => {
         cert: files["/tls/api.crt"],
         key: files["/tls/api.key"],
         ca: [files["/tls/device-ca.crt"], files["/tls/manufacturing-ca.crt"]],
-        crl: [files["/tls/device.crl"], files["/tls/manufacturing.crl"]],
+        crl: [Buffer.from(deviceIntermediateCrl), Buffer.from(rootCrl), Buffer.from(manufacturingCrl)],
         requestCert: true,
-        rejectUnauthorized: false
+        rejectUnauthorized: true
       }
     });
   });
@@ -48,6 +51,10 @@ describe("createApiHttpsOptions", () => {
     expect(() => createApiHttpsOptions(env, jest.fn())).toThrow(`${missingKey} is required in production`);
   });
 });
+
+function pemCrl(body: string) {
+  return `-----BEGIN X509 CRL-----\n${body}\n-----END X509 CRL-----\n`;
+}
 
 function completeEnvironment(): NodeJS.ProcessEnv {
   return {

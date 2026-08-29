@@ -14,6 +14,10 @@ ROOT_KEY_PATH="$LAB_ROOT_DIR/root.key"
 ROOT_CERT_PATH="$LAB_ROOT_DIR/root.crt"
 ROOT_CONFIG_PATH="$LAB_ROOT_DIR/openssl.cnf"
 ROOT_SERIAL_PATH="$LAB_ROOT_DIR/intermediate.srl"
+ROOT_CRL_PATH="$LAB_ROOT_DIR/root.crl"
+ROOT_INDEX_PATH="$LAB_ROOT_DIR/index.txt"
+ROOT_CRL_NUMBER_PATH="$LAB_ROOT_DIR/crlnumber"
+ROOT_NEWCERTS_DIR="$LAB_ROOT_DIR/newcerts"
 FILE_HELPER="$ROOT_DIR/scripts/pki/lab-pki-files.mjs"
 GENERATION_DIR="$LAB_SIGNED_INTERMEDIATE_DIR/generations"
 PURPOSES=(gateway-device gateway-mqtt api-server)
@@ -88,11 +92,24 @@ cleanup_own_temporary_generations() {
 write_root_config() {
   local temporary
   temporary="$(mktemp "$LAB_ROOT_DIR/.openssl.XXXXXX")"
-  cat >"$temporary" <<'EOF'
+  cat >"$temporary" <<EOF
 [ req ]
 distinguished_name = subject
 x509_extensions = root_ca
 prompt = no
+
+[ ca ]
+default_ca = root_ca_db
+
+[ root_ca_db ]
+database = $ROOT_INDEX_PATH
+new_certs_dir = $ROOT_NEWCERTS_DIR
+certificate = $ROOT_CERT_PATH
+private_key = $ROOT_KEY_PATH
+serial = $ROOT_SERIAL_PATH
+crlnumber = $ROOT_CRL_NUMBER_PATH
+default_md = sha256
+default_crl_days = 30
 
 [ subject ]
 CN = LED Control Lab Root CA
@@ -165,10 +182,41 @@ EOF
 ensure_root() {
   if [[ -e "$LAB_ROOT_DIR" ]]; then
     [[ -d "$LAB_ROOT_DIR" && ! -L "$LAB_ROOT_DIR" ]] || die "Lab Root 경로가 안전하지 않습니다."
+    write_root_config
     verify_root
   else
     create_root
   fi
+}
+
+generate_root_crl() {
+  mkdir -p "$ROOT_NEWCERTS_DIR"
+  [[ -d "$ROOT_NEWCERTS_DIR" && ! -L "$ROOT_NEWCERTS_DIR" ]] || die "Lab Root newcerts 경로가 안전하지 않습니다."
+  if [[ ! -e "$ROOT_INDEX_PATH" ]]; then : >"$ROOT_INDEX_PATH"; fi
+  if [[ ! -e "$ROOT_CRL_NUMBER_PATH" ]]; then printf '1000\n' >"$ROOT_CRL_NUMBER_PATH"; fi
+  assert_regular_file "$ROOT_INDEX_PATH" "Lab Root index"
+  assert_regular_file "$ROOT_CRL_NUMBER_PATH" "Lab Root CRL number"
+  chmod 0700 "$ROOT_NEWCERTS_DIR"
+  chmod 0600 "$ROOT_INDEX_PATH" "$ROOT_CRL_NUMBER_PATH"
+
+  if [[ -e "$ROOT_CRL_PATH" ]]; then
+    assert_regular_file "$ROOT_CRL_PATH" "Lab Root CRL"
+    [[ "$(file_mode "$ROOT_CRL_PATH")" == "644" ]] || die "Lab Root CRL 권한은 0644이어야 합니다."
+    if openssl crl -in "$ROOT_CRL_PATH" -noout -verify -CAfile "$ROOT_CERT_PATH" >/dev/null 2>&1 &&
+      openssl crl -in "$ROOT_CRL_PATH" -noout -checkend 604800 >/dev/null 2>&1; then
+      return
+    fi
+  fi
+
+  local temporary
+  temporary="$(mktemp "$LAB_ROOT_DIR/.root.crl.XXXXXX")"
+  if ! openssl ca -batch -config "$ROOT_CONFIG_PATH" -gencrl -out "$temporary" >/dev/null 2>&1 ||
+    ! openssl crl -in "$temporary" -noout -verify -CAfile "$ROOT_CERT_PATH" >/dev/null 2>&1; then
+    rm -f "$temporary"
+    die "Lab Root CRL 발급 또는 검증에 실패했습니다."
+  fi
+  chmod 0644 "$temporary"
+  mv -f "$temporary" "$ROOT_CRL_PATH"
 }
 
 preflight_root_material() {
@@ -280,6 +328,7 @@ main() {
   for purpose in "${PURPOSES[@]}"; do
     write_intermediate "$purpose"
   done
+  generate_root_crl
   printf 'Lab Root와 3개 intermediate chain을 준비했습니다.\n'
 }
 

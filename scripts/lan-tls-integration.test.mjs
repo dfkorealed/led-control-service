@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { checkServerIdentity, connect, createServer } from "node:tls";
+import { checkServerIdentity, connect, createSecureContext, createServer } from "node:tls";
 
 const root = join(dirname(new URL(import.meta.url).pathname), "..");
 const issue = join(root, "scripts", "pki", "issue-lab-service-cert.sh");
@@ -55,14 +55,14 @@ const { readFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "status") {
   process.stdout.write('{"storage_type":"raft"}\\n');
-} else if (args[0] === "read" && args[1] === "-field=certificate") {
+} else if (args[0] === "read" && args[1] === "-field=ca_chain") {
   process.stdout.write(readFileSync(process.env.FAKE_VAULT_CA_CERT));
 } else if (args[0] === "read" && args[1] === "-format=raw") {
   process.stdout.write(readFileSync(process.env.FAKE_VAULT_CRL));
 } else if (args[0] === "write" && args[1] === "-field=certificate") {
   const csr = args.find((argument) => argument.startsWith("csr=@"));
   if (!csr) process.exit(2);
-  process.stdout.write(execFileSync("openssl", ["ca", "-batch", "-config", process.env.FAKE_VAULT_CA_CONFIG, "-in", csr.slice(5), "-out", "/dev/stdout", "-notext"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+  process.stdout.write(execFileSync("openssl", ["ca", "-batch", "-config", process.env.FAKE_VAULT_CA_CONFIG, "-in", csr.slice(5), "-out", "/dev/stdout", "-notext"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trimEnd());
 } else {
   process.exit(2);
 }
@@ -110,6 +110,7 @@ test("Vault-issued LAN bundle enforces MQTT mTLS, CRL, DNS/IP SAN, and productio
       LAB_API_IP: "192.0.2.9",
       LAB_MQTT_DNS: "mqtt.lan",
       LAB_MQTT_IP: "192.0.2.10",
+      PKI_ROOT_CRL_PATH: ca.crl,
       PKI_SERVICE_CERT_DIR: bundle,
       FAKE_VAULT_CA_CERT: ca.certificate,
       FAKE_VAULT_CA_CONFIG: ca.config,
@@ -120,6 +121,10 @@ test("Vault-issued LAN bundle enforces MQTT mTLS, CRL, DNS/IP SAN, and productio
     for (const name of ["mqtt-server.crt", "mqtt-server.key", "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key", "mqtt-client.crl", "device-ca.crt", "device.crl"]) {
       assert.match(readFileSync(join(currentBundle, name), "utf8"), /-----BEGIN/);
     }
+    assert.doesNotThrow(() => createSecureContext({
+      cert: readFileSync(join(currentBundle, "api.chain.crt")),
+      key: readFileSync(join(currentBundle, "api.key"))
+    }));
 
     assert.match(runOpenSsl(["verify", "-CAfile", join(currentBundle, "mqtt-ca.crt"), join(currentBundle, "mqtt-server.crt")], directory), /OK/);
     assert.match(runOpenSsl(["verify", "-CAfile", join(currentBundle, "mqtt-ca.crt"), join(currentBundle, "api-mqtt-client.crt")], directory), /OK/);

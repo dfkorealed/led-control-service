@@ -15,6 +15,8 @@ DEVICE_MOUNT="gateway-device-pki"
 API_MOUNT="api-server-pki"
 MQTT_MOUNT="gateway-mqtt-pki"
 API_MQTT_URI_SAN="spiffe://led-control/mqtt/api-service"
+SERVICE_BUNDLE_FORMAT_VERSION="3"
+ROOT_CRL_PATH="${PKI_ROOT_CRL_PATH:-$ROOT_DIR/.local/lab-pki/root/root.crl}"
 
 STAGE=""
 SCRATCH=""
@@ -93,7 +95,7 @@ trap cleanup EXIT
 
 read_ca() {
   local mount="$1" destination="$2"
-  "$VAULT_BIN" read -field=certificate "$mount/cert/ca" >"$destination"
+  "$VAULT_BIN" read -field=ca_chain "$mount/cert/ca_chain" >"$destination"
   openssl x509 -in "$destination" -noout >/dev/null 2>&1 || die "Vault returned an invalid CA certificate"
   chmod 0644 "$destination"
 }
@@ -103,6 +105,22 @@ read_crl() {
   "$VAULT_BIN" read -format=raw "$mount/crl/pem" >"$destination" || die "$label CRL 조회에 실패했습니다."
   openssl crl -in "$destination" -noout -verify -CAfile "$ca" >/dev/null 2>&1 || die "Vault returned an invalid $label CRL"
   chmod 0644 "$destination"
+}
+
+crl_from_bundle() {
+  local bundle="$1" target="$2"
+  awk -v target="$target" '
+    /-----BEGIN X509 CRL-----/ { current++ }
+    current == target { print }
+    /-----END X509 CRL-----/ && current == target { exit }
+  ' "$bundle"
+}
+
+verify_crl_bundle() {
+  local bundle="$1" ca="$2" label="$3"
+  [[ "$(grep -c 'BEGIN X509 CRL' "$bundle")" == "2" ]] || die "$label CRL bundle은 intermediate와 Root CRL을 모두 포함해야 합니다."
+  openssl crl -in <(crl_from_bundle "$bundle" 1) -noout -verify -CAfile "$ca" >/dev/null 2>&1 || die "$label intermediate CRL 검증에 실패했습니다."
+  openssl crl -in <(crl_from_bundle "$bundle" 2) -noout -verify -CAfile "$ca" >/dev/null 2>&1 || die "$label Root CRL 검증에 실패했습니다."
 }
 
 public_key_digest() {
@@ -129,14 +147,18 @@ issue_leaf() {
   fi
   chmod 0600 "$key" "$csr"
   chmod 0644 "$certificate"
-  cat "$certificate" "$directory/${mount}.ca" >"$directory/${name}.chain.crt"
+  {
+    cat "$certificate"
+    printf '\n'
+    cat "$directory/${mount}.ca"
+  } >"$directory/${name}.chain.crt"
   chmod 0644 "$directory/${name}.chain.crt"
   verify_key_pair "$key" "$certificate" "$name"
 }
 
 input_hash() {
   {
-    printf '%s\0' "$LAB_API_DNS" "$LAB_API_IP" "$LAB_MQTT_DNS" "$LAB_MQTT_IP" "$API_MQTT_URI_SAN"
+    printf '%s\0' "$SERVICE_BUNDLE_FORMAT_VERSION" "$LAB_API_DNS" "$LAB_API_IP" "$LAB_MQTT_DNS" "$LAB_MQTT_IP" "$API_MQTT_URI_SAN"
     cat "$SCRATCH/api-ca.crt" "$SCRATCH/mqtt-ca.crt" "$SCRATCH/device-ca.crt"
   } | openssl dgst -sha256 | awk '{print $NF}'
 }
@@ -160,11 +182,12 @@ verify_generation() {
     [[ -f "$generation/$name.chain.crt" && ! -L "$generation/$name.chain.crt" && "$(file_mode "$generation/$name.chain.crt")" == 644 ]] || die "$name chain이 안전하지 않습니다."
     verify_key_pair "$generation/$name.key" "$generation/$name.crt" "$name"
   done
-  for name in api-ca.crt mqtt-ca.crt device-ca.crt mqtt-client.crl device.crl input-hash; do
+  for name in api-ca.crt mqtt-ca.crt device-ca.crt mqtt-client.crl device.crl input-hash format-version; do
     [[ -f "$generation/$name" && ! -L "$generation/$name" && "$(file_mode "$generation/$name")" == 644 ]] || die "$name 파일이 안전하지 않습니다."
   done
-  openssl crl -in "$generation/mqtt-client.crl" -noout -verify -CAfile "$generation/mqtt-ca.crt" >/dev/null 2>&1 || die "MQTT CRL 검증에 실패했습니다."
-  openssl crl -in "$generation/device.crl" -noout -verify -CAfile "$generation/device-ca.crt" >/dev/null 2>&1 || die "device CRL 검증에 실패했습니다."
+  [[ "$(tr -d '[:space:]' <"$generation/format-version")" == "$SERVICE_BUNDLE_FORMAT_VERSION" ]] || die "service bundle format version이 올바르지 않습니다."
+  verify_crl_bundle "$generation/mqtt-client.crl" "$generation/mqtt-ca.crt" MQTT
+  verify_crl_bundle "$generation/device.crl" "$generation/device-ca.crt" device
 }
 
 publish_current() {
@@ -175,6 +198,7 @@ publish_current() {
 
 for name in LAB_API_DNS LAB_API_IP LAB_MQTT_DNS LAB_MQTT_IP; do require_environment "$name"; done
 validate_vault_environment
+if [[ "$PKI_ENV" == "production" ]]; then require_environment PKI_ROOT_CRL_PATH; fi
 validate_dns "$LAB_API_DNS"
 validate_dns "$LAB_MQTT_DNS"
 validate_ipv4 "$LAB_API_IP"
@@ -192,11 +216,26 @@ chmod 0700 "$SCRATCH"
 read_ca "$API_MOUNT" "$SCRATCH/api-ca.crt"
 read_ca "$MQTT_MOUNT" "$SCRATCH/mqtt-ca.crt"
 read_ca "$DEVICE_MOUNT" "$SCRATCH/device-ca.crt"
-read_crl "$MQTT_MOUNT" "$SCRATCH/mqtt-ca.crt" "$SCRATCH/mqtt-client.crl" MQTT
-read_crl "$DEVICE_MOUNT" "$SCRATCH/device-ca.crt" "$SCRATCH/device.crl" device
+[[ -f "$ROOT_CRL_PATH" && ! -L "$ROOT_CRL_PATH" ]] || die "Root CRL 파일이 없거나 안전하지 않습니다."
+cp "$ROOT_CRL_PATH" "$SCRATCH/root.crl"
+chmod 0644 "$SCRATCH/root.crl"
+openssl crl -in "$SCRATCH/root.crl" -noout -verify -CAfile "$SCRATCH/device-ca.crt" >/dev/null 2>&1 || die "Root CRL 검증에 실패했습니다."
+read_crl "$MQTT_MOUNT" "$SCRATCH/mqtt-ca.crt" "$SCRATCH/mqtt-intermediate.crl" MQTT
+read_crl "$DEVICE_MOUNT" "$SCRATCH/device-ca.crt" "$SCRATCH/device-intermediate.crl" device
+for purpose in mqtt-client device; do
+  intermediate="$SCRATCH/${purpose%%-*}-intermediate.crl"
+  if [[ "$purpose" == "device" ]]; then intermediate="$SCRATCH/device-intermediate.crl"; fi
+  { cat "$intermediate"; printf '\n'; cat "$SCRATCH/root.crl"; } >"$SCRATCH/$purpose.crl"
+  chmod 0644 "$SCRATCH/$purpose.crl"
+done
+verify_crl_bundle "$SCRATCH/mqtt-client.crl" "$SCRATCH/mqtt-ca.crt" MQTT
+verify_crl_bundle "$SCRATCH/device.crl" "$SCRATCH/device-ca.crt" device
 
 INPUT_HASH="$(input_hash)"
 CURRENT="$(current_generation || true)"
+if [[ -n "$CURRENT" ]] && { [[ ! -f "$CURRENT/format-version" ]] || [[ "$(tr -d '[:space:]' <"$CURRENT/format-version")" != "$SERVICE_BUNDLE_FORMAT_VERSION" ]]; }; then
+  CURRENT=""
+fi
 if [[ -n "$CURRENT" ]]; then
   verify_generation "$CURRENT"
   if [[ "$(cat "$CURRENT/input-hash")" == "$INPUT_HASH" ]] &&
@@ -219,7 +258,8 @@ cp "$SCRATCH/api-ca.crt" "$STAGE/${API_MOUNT}.ca"
 cp "$SCRATCH/mqtt-ca.crt" "$STAGE/${MQTT_MOUNT}.ca"
 chmod 0644 "$STAGE"/*.crt "$STAGE"/*.crl "$STAGE"/*.ca
 printf '%s\n' "$INPUT_HASH" >"$STAGE/input-hash"
-chmod 0644 "$STAGE/input-hash"
+printf '%s\n' "$SERVICE_BUNDLE_FORMAT_VERSION" >"$STAGE/format-version"
+chmod 0644 "$STAGE/input-hash" "$STAGE/format-version"
 
 if [[ -n "$CURRENT" && "$(cat "$CURRENT/input-hash")" == "$INPUT_HASH" ]]; then
   for name in api mqtt-server api-mqtt-client; do
@@ -232,10 +272,10 @@ else
 fi
 rm -f "$STAGE/${API_MOUNT}.ca" "$STAGE/${MQTT_MOUNT}.ca"
 chmod 0600 "$STAGE"/*.key "$STAGE"/*.csr
-chmod 0644 "$STAGE"/*.crt "$STAGE"/*.crl "$STAGE/input-hash"
+chmod 0644 "$STAGE"/*.crt "$STAGE"/*.crl "$STAGE/input-hash" "$STAGE/format-version"
 verify_generation "$STAGE"
 
-BUNDLE_HASH="$(cat "$STAGE"/*.crt "$STAGE"/*.crl "$STAGE/input-hash" | openssl dgst -sha256 | awk '{print $NF}')"
+BUNDLE_HASH="$(cat "$STAGE"/*.crt "$STAGE"/*.crl "$STAGE/input-hash" "$STAGE/format-version" | openssl dgst -sha256 | awk '{print $NF}')"
 FINAL="$GENERATIONS_DIR/bundle-$BUNDLE_HASH"
 if [[ -e "$FINAL" ]]; then
   verify_generation "$FINAL"
