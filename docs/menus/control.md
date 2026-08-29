@@ -1,6 +1,13 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-27
+기준일: 2026-08-29
+
+## 다음 구현 범위
+
+- 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
+- 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 통합 센서 감지 이벤트와 밝기 적용을 담당한다.
+- 구현 순서는 현재 미커밋 Gateway/PKI 실장비 수정 정리, shared/DB 계약, API·MQTT 동기화, Gateway 규칙 엔진, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL이다.
+- 설계만 완료했으며 코드, migration, 자동 테스트와 실장비 검증은 아직 시작하지 않았다.
 
 ## 확정 구현 범위
 
@@ -22,7 +29,7 @@
 - 다중 gateway command 최종 집계 고도화
 - ACK 계약 전면 개편과 API MQTT 소비 내구성 재설계
 - 명령 재시도, 취소, rollback과 명령 이력 전용 화면
-- 스케줄 제어와 이벤트 제어
+- 스케줄 제어와 차량 감지 이벤트 제어 외의 센서·장면 자동제어
 - RSSI, hop count와 제품별 상세 diagnostics
 - 자동 HIL 판정. 실제 하드웨어 검증은 단일 gateway 기준으로 수동 수행한다.
 
@@ -127,9 +134,9 @@
 
 ## 미구현
 
-- 스케줄 제어 생성, 수정, 삭제
-- 이벤트 기반 제어 규칙 생성
-- 차량 감지, 인체 감지, 시간대 조건 등 rule builder
+- 설계된 스케줄 제어 생성, 수정, 삭제와 Gateway 무중단 offline 실행
+- 설계된 차량 감지 이벤트 규칙 CRUD와 ESP32-H2 센서 이벤트 전달
+- 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
 - 조명 on/off 전용 토글
