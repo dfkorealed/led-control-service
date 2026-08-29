@@ -38,11 +38,19 @@ done
 KEY_MODE=$(stat -f '%Lp' "$STATION_KEY" 2>/dev/null || stat -c '%a' "$STATION_KEY")
 [[ "$KEY_MODE" == 600 ]] || { printf '%s\n' 'invalid station key permissions' >&2; exit 2; }
 
+is_valid_label() {
+  jq -e --arg serial "$SERIAL" '
+    .serialNumber == $serial
+    and (.claimCode | type == "string" and test("^[A-Za-z0-9_-]{43}$"))
+    and (.fingerprint | type == "string" and test("^[0-9A-F]{64}$"))
+  ' "$1" >/dev/null
+}
+
 if [[ -e "$LABEL_OUTPUT" ]]; then
   [[ -f "$LABEL_OUTPUT" && ! -L "$LABEL_OUTPUT" ]] || { printf '%s\n' 'invalid label path' >&2; exit 2; }
   MODE=$(stat -f '%Lp' "$LABEL_OUTPUT" 2>/dev/null || stat -c '%a' "$LABEL_OUTPUT")
   [[ "$MODE" == 600 ]] || { printf '%s\n' 'invalid label permissions' >&2; exit 2; }
-  jq -e --arg serial "$SERIAL" '.serialNumber == $serial and (.claimCode|type)=="string" and (.fingerprint|type)=="string"' "$LABEL_OUTPUT" >/dev/null && exit 0
+  is_valid_label "$LABEL_OUTPUT" && exit 0
   printf '%s\n' 'existing label does not match the gateway' >&2
   exit 2
 fi
@@ -63,7 +71,7 @@ curl --fail-with-body --silent --show-error --max-time 30 \
       "$SERIAL" "$MANUFACTURING_API_URL/gateway-manufacturing/enroll" \
       /var/lib/led-control/identity/device /etc/led-control/factory-trust/api-ca.crt \
   > "$TMP_LABEL"
-jq -e --arg serial "$SERIAL" '.serialNumber == $serial and (.claimCode|type)=="string" and (.claimCode|length)>20 and (.fingerprint|test("^[0-9A-F]{64}$"))' "$TMP_LABEL" >/dev/null
+is_valid_label "$TMP_LABEL"
 chmod 0600 "$TMP_LABEL"
 mv "$TMP_LABEL" "$LABEL_OUTPUT"
 trap - EXIT

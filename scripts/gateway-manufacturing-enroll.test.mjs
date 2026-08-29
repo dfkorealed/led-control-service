@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,8 @@ import test from "node:test";
 
 const script = await readFile(new URL("./gateway-manufacturing-enroll.sh", import.meta.url), "utf8");
 const enrollmentRunner = await readFile(new URL("../apps/gateway/scripts/manufacturing-enroll.ts", import.meta.url), "utf8");
+const enrollmentRunnerPath = fileURLToPath(new URL("../apps/gateway/scripts/manufacturing-enroll.ts", import.meta.url));
+const tsxPath = fileURLToPath(new URL("../apps/gateway/node_modules/.bin/tsx", import.meta.url));
 const firstInstallRunbook = await readFile(new URL("../docs/runbooks/device-lab-first-install.md", import.meta.url), "utf8");
 const applianceRunbook = await readFile(new URL("../docs/runbooks/raspberry-pi-gateway-appliance.md", import.meta.url), "utf8");
 
@@ -39,6 +41,20 @@ test("manufacturing enrollment rejects missing or incomplete CLI options with ex
     });
     assert.equal(result.status, 2);
   }
+});
+
+test("manufacturing runner rejects trailing positional arguments with exit 2", () => {
+  const result = spawnSync(tsxPath, [
+    enrollmentRunnerPath,
+    "GW-RPI-000001",
+    "https://example.test",
+    "/tmp/identity",
+    "/tmp/api-ca.crt",
+    "unexpected"
+  ], { encoding: "utf8", input: "" });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /stage=input/);
 });
 
 test("manufacturing enrollment accepts a valid HTTPS URL and canonical station symlinks", () => {
@@ -90,7 +106,7 @@ test("manufacturing enrollment re-run accepts an existing restricted label witho
     const labelOutput = join(directory, "label.json");
     writeFileSync(labelOutput, JSON.stringify({
       serialNumber: "GW-RPI-000001",
-      claimCode: "C".repeat(21),
+      claimCode: "C".repeat(43),
       fingerprint: "A".repeat(64)
     }));
     chmodSync(labelOutput, 0o600);
@@ -122,6 +138,23 @@ test("manufacturing enrollment re-run accepts an existing restricted label witho
   }
 });
 
+test("manufacturing enrollment rejects corrupt restricted labels without replacing them", () => {
+  for (const label of [
+    { claimCode: "C".repeat(42), fingerprint: "A".repeat(64) },
+    { claimCode: `${"C".repeat(42)}!`, fingerprint: "A".repeat(64) },
+    { claimCode: "C".repeat(43), fingerprint: "a".repeat(64) }
+  ]) {
+    const fixture = runExistingLabel(label);
+    try {
+      assert.equal(fixture.result.status, 2);
+      assert.match(fixture.result.stderr, /existing label does not match the gateway/);
+      assert.equal(readFileSync(fixture.labelOutput, "utf8"), fixture.contents);
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  }
+});
+
 test("Docker image contains the manufacturing enrollment bundle", async () => {
   const dockerfile = await readFile(new URL("../apps/gateway/docker/Dockerfile", import.meta.url), "utf8");
   assert.match(dockerfile, /manufacturing-enroll/);
@@ -149,3 +182,36 @@ test("manufacturing runbooks pass options directly to the pnpm script", () => {
     assert.doesNotMatch(runbook, /pnpm gateway:manufacturing:enroll -- \\\n/);
   }
 });
+
+function runExistingLabel(label) {
+  const directory = mkdtempSync(join(tmpdir(), "gateway-enroll-corrupt-label-"));
+  const stationCert = join(directory, "station.crt");
+  const stationKey = join(directory, "station.key");
+  const stationCa = join(directory, "ca.crt");
+  for (const path of [stationCert, stationKey, stationCa]) writeFileSync(path, "placeholder\n");
+  chmodSync(stationKey, 0o600);
+  const labelOutput = join(directory, "label.json");
+  const contents = JSON.stringify({ serialNumber: "GW-RPI-000001", ...label });
+  writeFileSync(labelOutput, contents);
+  chmodSync(labelOutput, 0o600);
+  const binDirectory = join(directory, "bin");
+  mkdirSync(binDirectory);
+  writeFileSync(join(binDirectory, "curl"), "#!/usr/bin/env bash\nexit 99\n", { mode: 0o700 });
+  const result = spawnSync(fileURLToPath(new URL("./gateway-manufacturing-enroll.sh", import.meta.url)), [
+    "--target", "gateway@127.0.0.1",
+    "--serial", "GW-RPI-000001",
+    "--label-output", labelOutput
+  ], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${binDirectory}:${process.env.PATH}`,
+      MANUFACTURING_API_URL: "https://127.0.0.1:9",
+      STATION_CERT: stationCert,
+      STATION_KEY: stationKey,
+      STATION_CA: stationCa,
+      GATEWAY_IMAGE: "led-control-gateway:test"
+    }
+  });
+  return { directory, labelOutput, contents, result };
+}

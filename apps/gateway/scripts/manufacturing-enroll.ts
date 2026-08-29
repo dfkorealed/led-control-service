@@ -13,7 +13,9 @@ const MAX_ENROLLMENT_TOKEN_BYTES = 2048;
 let stage = "input";
 
 async function main() {
-  const [serial, endpoint, identityRoot, apiCaPath] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  if (args.length !== 4) throw new Error("invalid enrollment input");
+  const [serial, endpoint, identityRoot, apiCaPath] = args;
   if (!serial || !SERIAL.test(serial) || !endpoint || !URL.test(endpoint) || !identityRoot || !PATH.test(identityRoot) || !apiCaPath || !PATH.test(apiCaPath)) {
     throw new Error("invalid enrollment input");
   }
