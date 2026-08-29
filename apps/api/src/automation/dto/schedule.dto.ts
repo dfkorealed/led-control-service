@@ -7,21 +7,20 @@ import {
   scheduleRecurrenceV1Schema
 } from "@led-control/shared";
 import { z } from "zod";
+import {
+  type AutomationListCursor,
+  type AutomationListQuery,
+  encodeAutomationListCursor,
+  parseAutomationListQuery
+} from "./automation-list.dto";
 
 export type CreateScheduleInput = Omit<LightingScheduleSnapshotV1, "id" | "fixtureIds"> & {
   target: DimmingTarget;
 };
 
 export type UpdateScheduleInput = Partial<CreateScheduleInput>;
-export interface ScheduleListCursor {
-  siteId: string;
-  createdAt: Date;
-  id: string;
-}
-export interface ScheduleListQuery {
-  cursor?: ScheduleListCursor;
-  limit: number;
-}
+export type ScheduleListCursor = AutomationListCursor;
+export type ScheduleListQuery = AutomationListQuery;
 
 const createScheduleSchema = z.object({
   name: z.string().trim().min(1),
@@ -55,18 +54,6 @@ const updateScheduleSchema = createScheduleSchema.innerType().partial().refine(
   "schedule update must contain at least one field"
 );
 
-const scheduleListQuerySchema = z.object({
-  cursor: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(25)
-}).strict();
-
-const scheduleListCursorV1Schema = z.object({
-  v: z.literal(1),
-  siteId: z.string().uuid(),
-  createdAt: z.string().datetime(),
-  id: z.string().uuid()
-}).strict();
-
 export function parseCreateScheduleInput(rawInput: unknown): CreateScheduleInput {
   const parsed = createScheduleSchema.safeParse(rawInput);
   if (!parsed.success) throw new BadRequestException("invalid automation schedule");
@@ -80,40 +67,9 @@ export function parseUpdateScheduleInput(rawInput: unknown): UpdateScheduleInput
 }
 
 export function parseScheduleListQuery(rawQuery: unknown, siteId: string): ScheduleListQuery {
-  const parsed = scheduleListQuerySchema.safeParse(rawQuery);
-  if (!parsed.success) throw new BadRequestException("invalid schedule list query");
-  if (!parsed.data.cursor) return { limit: parsed.data.limit };
-
-  const cursor = decodeScheduleListCursor(parsed.data.cursor);
-  if (cursor.siteId !== siteId) throw new BadRequestException("invalid schedule list cursor");
-  return { limit: parsed.data.limit, cursor };
+  return parseAutomationListQuery(rawQuery, siteId, "schedule");
 }
 
 export function encodeScheduleListCursor(cursor: ScheduleListCursor) {
-  return Buffer.from(JSON.stringify({
-    v: 1,
-    siteId: cursor.siteId,
-    createdAt: cursor.createdAt.toISOString(),
-    id: cursor.id
-  }), "utf8").toString("base64url");
-}
-
-function decodeScheduleListCursor(rawCursor: string): ScheduleListCursor {
-  if (rawCursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(rawCursor)) {
-    throw new BadRequestException("invalid schedule list cursor");
-  }
-  try {
-    const decoded = JSON.parse(Buffer.from(rawCursor, "base64url").toString("utf8"));
-    const parsed = scheduleListCursorV1Schema.safeParse(decoded);
-    if (!parsed.success) throw new Error("invalid cursor shape");
-    const cursor = {
-      siteId: parsed.data.siteId,
-      createdAt: new Date(parsed.data.createdAt),
-      id: parsed.data.id
-    };
-    if (encodeScheduleListCursor(cursor) !== rawCursor) throw new Error("non-canonical cursor");
-    return cursor;
-  } catch {
-    throw new BadRequestException("invalid schedule list cursor");
-  }
+  return encodeAutomationListCursor(cursor);
 }

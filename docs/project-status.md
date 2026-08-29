@@ -21,7 +21,7 @@
 | 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
 | 스케줄·차량 이벤트 제어 설계 | 완료(설계) | 반복 일정, overlap 차단, 수동 override·차량 이벤트·스케줄 우선순위, Gateway full snapshot 무중단 적용, offline 실행과 ESP32-H2 차량 감지 event 계약을 확정했다. Task 7 schedule API와 Task 8 차량 이벤트 규칙 API CRUD를 구현했고 Web과 Gateway 실행은 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
-| 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | `GET/POST/PATCH/DELETE /sites/:siteId/automation/vehicle-event-rules`, source/target exact Fixture snapshot, 5~1800초 hold와 기본 60초, false dimming 100% 정규화, 단일 Site/Gateway 검증, bounded keyset 목록과 최근 감지/실행, revision/full-snapshot outbox 원자성을 구현했다. PostgreSQL E2E는 role/tenant, rollback, stale admin 재인가와 동시 revision 직렬화를 검증한다. 실제 MQTT publish/application ACK, Gateway/센서 실행과 Web UI는 후속 Task다. |
+| 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | 1차 review 보완으로 fail-closed MeshNode 차량 센서 capability와 source-only 검증, 최신 감지 partial index, schedule 보존·혼합 동시성 E2E, resource별 list cursor 오류를 완료했다. CRUD validation은 완료됐고 실제 capability를 설정하는 Gateway 모델 바인딩은 Task 14, MQTT ACK·센서 실행과 Web UI는 후속 Task다. |
 
 ## 다음 단계
 

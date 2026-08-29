@@ -72,6 +72,23 @@ describe("automation Prisma schema contract", () => {
     expect(modelFields.ManualOverride).toContain("targetCount");
   });
 
+  it("exposes fail-closed vehicle sensor capability metadata on MeshNode", () => {
+    const meshNode = Prisma.dmmf.datamodel.models.find((model) => model.name === "MeshNode");
+    const capabilityEnum = Prisma.dmmf.datamodel.enums.find(
+      (enumDefinition) => enumDefinition.name === "VehicleSensorCapabilityStatus"
+    );
+
+    expect(meshNode?.fields.map((field) => field.name)).toEqual(expect.arrayContaining([
+      "vehicleSensorCapabilityStatus",
+      "vehicleSensorCapabilityVerifiedAt"
+    ]));
+    expect(capabilityEnum?.values.map(({ name }) => name)).toEqual([
+      "unknown",
+      "supported",
+      "unsupported"
+    ]);
+  });
+
   it("indexes each schedule's latest execution in list order through a forward migration", () => {
     expect(prismaSchema).toContain(
       "@@index([lightingScheduleId, occurredAt(sort: Desc), sequence(sort: Desc)])"
@@ -381,6 +398,60 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
         ('automation-schema-command-b', 'automation-schema-site-b', 'automation-schema-user-b', 'automation-schema-command-b', 'fingerprint-b', 'fixture', '["automation-schema-fixture-b"]', 50, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-command-user-b', 'automation-schema-site-a', 'automation-schema-user-b', 'automation-schema-command-user-b', 'fingerprint-user-b', 'fixture', '["automation-schema-fixture-a"]', 50, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
     `);
+  });
+
+  it("enforces vehicle sensor capability coherence and catalogs the partial latest-detection index", () => {
+    expect(querySql(`
+      SELECT string_agg(enum_value.enumlabel, ',' ORDER BY enum_value.enumsortorder)
+      FROM pg_type AS enum_type
+      JOIN pg_enum AS enum_value ON enum_value.enumtypid = enum_type.oid
+      WHERE enum_type.typname = 'VehicleSensorCapabilityStatus';
+    `)).toBe("unknown,supported,unsupported");
+
+    expect(querySql(`
+      SELECT pg_get_constraintdef(constraint_row.oid)
+      FROM pg_constraint AS constraint_row
+      JOIN pg_class AS relation ON relation.oid = constraint_row.conrelid
+      WHERE relation.relname = 'MeshNode'
+        AND constraint_row.conname = 'MeshNode_vehicle_sensor_capability_check';
+    `)).toContain("vehicleSensorCapabilityVerifiedAt");
+
+    expectSqlFailure(`
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'supported',
+          "vehicleSensorCapabilityVerifiedAt" = NULL
+      WHERE "id" = 'automation-schema-node-a';
+    `, "MeshNode_vehicle_sensor_capability_check");
+    expectSqlFailure(`
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'unknown',
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = 'automation-schema-node-a';
+    `, "MeshNode_vehicle_sensor_capability_check");
+    executeSql(`
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'supported',
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = 'automation-schema-node-a';
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'unknown',
+          "vehicleSensorCapabilityVerifiedAt" = NULL
+      WHERE "id" = 'automation-schema-node-a';
+    `);
+
+    const indexDefinition = querySql(`
+      SELECT indexdef
+      FROM pg_indexes
+      WHERE schemaname = current_schema()
+        AND tablename = 'AutomationExecution'
+        AND indexname = 'AutomationExecution_vehicleEventRuleId_latest_detection_idx';
+    `);
+    expect(indexDefinition).toContain(
+      '("vehicleEventRuleId", "occurredAt" DESC, sequence DESC)'
+    );
+    expect(indexDefinition).toContain(
+      "WHERE (kind = 'vehicle_detected'::\"AutomationExecutionKind\")"
+    );
   });
 
   afterAll(() => {

@@ -140,6 +140,12 @@ enum AutomationExecutionKind {
   telemetry_gap
 }
 
+enum VehicleSensorCapabilityStatus {
+  unknown
+  supported
+  unsupported
+}
+
 model Organization {
   id          String       @id @default(uuid())
   name        String
@@ -529,17 +535,19 @@ model GatewayClaimAudit {
 }
 
 model MeshNode {
-  id              String   @id @default(uuid())
-  gatewayId       String
-  deviceUuid      String?  @unique
-  serialNumber    String?
-  meshAddress     String
-  firmwareVersion String
-  gateway         Gateway  @relation(fields: [gatewayId], references: [id])
-  fixture         Fixture?
-  controlGroupMemberships MeshControlGroupMember[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                                String                          @id @default(uuid())
+  gatewayId                         String
+  deviceUuid                        String?                         @unique
+  serialNumber                      String?
+  meshAddress                       String
+  firmwareVersion                   String
+  vehicleSensorCapabilityStatus     VehicleSensorCapabilityStatus @default(unknown)
+  vehicleSensorCapabilityVerifiedAt DateTime?
+  gateway                           Gateway                         @relation(fields: [gatewayId], references: [id])
+  fixture                           Fixture?
+  controlGroupMemberships           MeshControlGroupMember[]
+  createdAt                         DateTime                        @default(now())
+  updatedAt                         DateTime                        @updatedAt
 
   @@unique([id, gatewayId])
   @@unique([gatewayId, meshAddress])

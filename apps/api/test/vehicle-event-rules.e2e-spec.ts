@@ -87,11 +87,15 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
       `/sites/${first.siteId}/automation/vehicle-event-rules?limit=invalid`,
       first.actorKeys.operator
     )).status).toBe(404);
-    expect((await api(
+    const malformedViewerQuery = await api(
       "GET",
       `/sites/${first.siteId}/automation/vehicle-event-rules?limit=invalid`,
       first.actorKeys.viewer
-    )).status).toBe(400);
+    );
+    expect(malformedViewerQuery.status).toBe(400);
+    expect(malformedViewerQuery.body).toMatchObject({
+      message: "invalid vehicle event rule list query"
+    });
 
     const ruleId = (created.body as { id: string }).id;
     expect((await api(
@@ -105,6 +109,138 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
       `/sites/${second.siteId}/automation/vehicle-event-rules/${ruleId}`,
       second.actorKeys.admin
     )).status).toBe(404);
+  });
+
+  it("accepts only verified supported vehicle sensor sources without exposing foreign fixture IDs", async () => {
+    const scenario = await createScenario(prisma, actors, "unknown");
+    const path = `/sites/${scenario.siteId}/automation/vehicle-event-rules`;
+
+    const unknown = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, {
+      name: "Unknown source"
+    }));
+    expect(unknown.status).toBe(400);
+    expect(JSON.stringify(unknown.body)).not.toContain(scenario.fixtureIds[0]);
+
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'supported',
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${scenario.meshNodeIds[0]}
+    `);
+    const capable = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, {
+      name: "Verified source"
+    }));
+    expect(capable.status).toBe(201);
+
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'unsupported',
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${scenario.meshNodeIds[0]}
+    `);
+    const unsupported = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, {
+      name: "Unsupported source"
+    }));
+    expect(unsupported.status).toBe(400);
+    expect(JSON.stringify(unsupported.body)).not.toContain(scenario.fixtureIds[0]);
+
+    const foreign = await createScenario(prisma, actors);
+    const foreignSource = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, {
+      name: "Foreign source",
+      sourceFixtureIds: [foreign.fixtureIds[0]]
+    }));
+    expect(foreignSource.status).toBe(400);
+    expect(JSON.stringify(foreignSource.body)).not.toContain(foreign.fixtureIds[0]);
+  });
+
+  it("preserves an existing schedule while disabling and re-enabling an event rule snapshot", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const schedule = await api(
+      "POST",
+      `/sites/${scenario.siteId}/automation/schedules`,
+      scenario.actorKeys.admin,
+      scheduleBody([scenario.fixtureIds[2]])
+    );
+    expect(schedule.status).toBe(201);
+    const scheduleId = (schedule.body as { id: string }).id;
+
+    const created = await api(
+      "POST",
+      `/sites/${scenario.siteId}/automation/vehicle-event-rules`,
+      scenario.actorKeys.admin,
+      ruleBody(scenario, { name: "Toggle event" })
+    );
+    expect(created.status).toBe(201);
+    const ruleId = (created.body as { id: string }).id;
+    expect((await prisma.mqttOutbox.findFirstOrThrow({
+      where: { gatewayId: scenario.gatewayId, revision: 2 }
+    })).payload).toMatchObject({
+      schedules: [expect.objectContaining({ id: scheduleId })],
+      vehicleEventRules: [expect.objectContaining({ id: ruleId, status: "enabled" })]
+    });
+
+    const disabled = await api(
+      "PATCH",
+      `/sites/${scenario.siteId}/automation/vehicle-event-rules/${ruleId}`,
+      scenario.actorKeys.admin,
+      { status: "disabled" }
+    );
+    expect(disabled.status).toBe(200);
+    expect((await prisma.mqttOutbox.findFirstOrThrow({
+      where: { gatewayId: scenario.gatewayId, revision: 3 }
+    })).payload).toMatchObject({
+      schedules: [expect.objectContaining({ id: scheduleId })],
+      vehicleEventRules: [expect.objectContaining({ id: ruleId, status: "disabled" })]
+    });
+
+    const reenabled = await api(
+      "PATCH",
+      `/sites/${scenario.siteId}/automation/vehicle-event-rules/${ruleId}`,
+      scenario.actorKeys.admin,
+      { status: "enabled" }
+    );
+    expect(reenabled.status).toBe(200);
+    expect((await prisma.mqttOutbox.findFirstOrThrow({
+      where: { gatewayId: scenario.gatewayId, revision: 4 }
+    })).payload).toMatchObject({
+      schedules: [expect.objectContaining({ id: scheduleId })],
+      vehicleEventRules: [expect.objectContaining({ id: ruleId, status: "enabled" })]
+    });
+  });
+
+  it("serializes concurrent schedule and event creates into complete consecutive snapshots", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const [schedule, eventRule] = await Promise.all([
+      api(
+        "POST",
+        `/sites/${scenario.siteId}/automation/schedules`,
+        scenario.actorKeys.admin,
+        scheduleBody([scenario.fixtureIds[2]], { name: "Concurrent schedule" })
+      ),
+      api(
+        "POST",
+        `/sites/${scenario.siteId}/automation/vehicle-event-rules`,
+        scenario.actorKeys.admin,
+        ruleBody(scenario, { name: "Concurrent event" })
+      )
+    ]);
+
+    expect([schedule.status, eventRule.status]).toEqual([201, 201]);
+    expect([
+      (schedule.body as { desiredRevision: number }).desiredRevision,
+      (eventRule.body as { desiredRevision: number }).desiredRevision
+    ].sort()).toEqual([1, 2]);
+    expect(await prisma.gatewayAutomationConfiguration.findUniqueOrThrow({
+      where: { gatewayId: scenario.gatewayId }
+    })).toMatchObject({ desiredRevision: 2, syncStatus: "PENDING" });
+    const latest = await prisma.mqttOutbox.findFirstOrThrow({
+      where: { gatewayId: scenario.gatewayId, revision: 2 }
+    });
+    expect(latest.payload).toMatchObject({
+      revision: 2,
+      schedules: [expect.objectContaining({ id: (schedule.body as { id: string }).id })],
+      vehicleEventRules: [expect.objectContaining({ id: (eventRule.body as { id: string }).id })]
+    });
   });
 
   it("validates hold, brightness, distinct registered source/target fixtures, and one shared Gateway", async () => {
@@ -326,7 +462,11 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
       const node = await prisma.meshNode.create({ data: {
         gatewayId: secondGateway.id,
         meshAddress,
-        firmwareVersion: "test"
+        firmwareVersion: "test",
+        ...(index === 0 ? {
+          vehicleSensorCapabilityStatus: "supported" as const,
+          vehicleSensorCapabilityVerifiedAt: new Date()
+        } : {})
       } });
       const fixture = await prisma.fixture.create({ data: {
         floorId: scenario.floorId,
@@ -568,7 +708,11 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
   }
 });
 
-async function createScenario(prisma: PrismaService, actors: Map<string, AuthenticatedUser>) {
+async function createScenario(
+  prisma: PrismaService,
+  actors: Map<string, AuthenticatedUser>,
+  sourceCapability: "supported" | "unknown" = "supported"
+) {
   const suffix = randomUUID().slice(0, 8);
   const customer = await prisma.organization.create({ data: { name: `Vehicle customer ${suffix}`, type: "customer" } });
   const serviceProvider = await prisma.organization.findFirst({ where: { type: "service_provider" } })
@@ -621,12 +765,14 @@ async function createScenario(prisma: PrismaService, actors: Map<string, Authent
     firmwareVersion: "test"
   } });
   const fixtureIds: string[] = [];
+  const meshNodeIds: string[] = [];
   for (const [index, meshAddress] of ["0100", "0101", "0102"].entries()) {
     const meshNode = await prisma.meshNode.create({ data: {
       gatewayId: gateway.id,
       meshAddress,
       firmwareVersion: "test"
     } });
+    meshNodeIds.push(meshNode.id);
     const fixture = await prisma.fixture.create({ data: {
       floorId: floor.id,
       meshNodeId: meshNode.id,
@@ -637,6 +783,14 @@ async function createScenario(prisma: PrismaService, actors: Map<string, Authent
       status: "online"
     } });
     fixtureIds.push(fixture.id);
+  }
+  if (sourceCapability === "supported") {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'supported',
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
+      WHERE "id" IN (${Prisma.join(meshNodeIds.slice(0, 2))})
+    `);
   }
 
   const actorKeys = {
@@ -655,6 +809,7 @@ async function createScenario(prisma: PrismaService, actors: Map<string, Authent
     floorId: floor.id,
     adminId: admin.id,
     fixtureIds,
+    meshNodeIds,
     actorKeys
   };
 }
@@ -707,6 +862,27 @@ function ruleBody(scenario: Scenario, overrides: Record<string, unknown> = {}) {
     targetFixtureIds: [scenario.fixtureIds[1]],
     action: { dimmingEnabled: true, brightnessPercent: 70 },
     holdSeconds: 60,
+    ...overrides
+  };
+}
+
+function scheduleBody(fixtureIds: string[], overrides: Record<string, unknown> = {}) {
+  return {
+    name: "Vehicle companion schedule",
+    status: "enabled",
+    activeFrom: "2026-09-01T00:00:00.000Z",
+    activeUntil: "2026-09-30T00:00:00.000Z",
+    localStartTime: "09:00",
+    localEndTime: "10:00",
+    recurrence: {
+      kind: "daily",
+      weeklyDays: [],
+      monthlyDay: null,
+      yearlyMonth: null,
+      yearlyDay: null
+    },
+    action: { dimmingEnabled: true, brightnessPercent: 40 },
+    target: { type: "fixtures", fixtureIds },
     ...overrides
   };
 }

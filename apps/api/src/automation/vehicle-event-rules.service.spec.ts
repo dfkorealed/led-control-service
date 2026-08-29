@@ -59,9 +59,8 @@ describe("VehicleEventRulesService", () => {
       })
     };
     const targetSnapshot = {
-      resolve: jest.fn()
-        .mockResolvedValueOnce([SOURCE_ID])
-        .mockResolvedValueOnce([TARGET_ID]),
+      resolveVehicleSources: jest.fn().mockResolvedValue([SOURCE_ID]),
+      resolve: jest.fn().mockResolvedValue([TARGET_ID]),
       assertSingleGateway: jest.fn().mockRejectedValue({
         status: 409,
         response: { code: "single_gateway_required" }
@@ -85,14 +84,12 @@ describe("VehicleEventRulesService", () => {
       response: { code: "single_gateway_required" }
     });
     expect(calls).toEqual(["automation-lock", "site-lock"]);
-    expect(targetSnapshot.resolve).toHaveBeenNthCalledWith(
-      1,
+    expect(targetSnapshot.resolveVehicleSources).toHaveBeenCalledWith(
       tx,
       SITE_ID,
-      { type: "fixtures", fixtureIds: [SOURCE_ID] }
+      [SOURCE_ID]
     );
-    expect(targetSnapshot.resolve).toHaveBeenNthCalledWith(
-      2,
+    expect(targetSnapshot.resolve).toHaveBeenCalledWith(
       tx,
       SITE_ID,
       { type: "fixtures", fixtureIds: [TARGET_ID] }

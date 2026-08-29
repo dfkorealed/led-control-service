@@ -11,9 +11,9 @@ import {
   toVehicleEventRuleSnapshot
 } from "./automation-snapshot.service";
 import {
-  encodeScheduleListCursor,
-  parseScheduleListQuery
-} from "./dto/schedule.dto";
+  encodeAutomationListCursor,
+  parseAutomationListQuery
+} from "./dto/automation-list.dto";
 import {
   type CreateVehicleEventRuleInput,
   parseCreateVehicleEventRuleInput,
@@ -71,7 +71,7 @@ export class VehicleEventRulesService {
   async list(siteId: string, actor: AuthenticatedUser, rawQuery: unknown) {
     return this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertReadInTransaction(tx, actor, siteId);
-      const query = parseScheduleListQuery(rawQuery, siteId);
+      const query = parseAutomationListQuery(rawQuery, siteId, "vehicle event rule");
       const pageWhere: Prisma.VehicleEventRuleWhereInput = query.cursor
         ? {
           siteId,
@@ -96,7 +96,7 @@ export class VehicleEventRulesService {
         items: rules.map((rule) => this.toResponse(rule, executions)),
         total,
         nextCursor: hasNextPage && lastRule
-          ? encodeScheduleListCursor({ siteId, createdAt: lastRule.createdAt, id: lastRule.id })
+          ? encodeAutomationListCursor({ siteId, createdAt: lastRule.createdAt, id: lastRule.id })
           : null
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
@@ -231,10 +231,11 @@ export class VehicleEventRulesService {
     siteId: string,
     input: Pick<CreateVehicleEventRuleInput, "sourceFixtureIds" | "targetFixtureIds">
   ) {
-    const sourceFixtureIds = await this.targetSnapshot.resolve(tx, siteId, {
-      type: "fixtures",
-      fixtureIds: input.sourceFixtureIds
-    });
+    const sourceFixtureIds = await this.targetSnapshot.resolveVehicleSources(
+      tx,
+      siteId,
+      input.sourceFixtureIds
+    );
     const targetFixtureIds = await this.targetSnapshot.resolve(tx, siteId, {
       type: "fixtures",
       fixtureIds: input.targetFixtureIds

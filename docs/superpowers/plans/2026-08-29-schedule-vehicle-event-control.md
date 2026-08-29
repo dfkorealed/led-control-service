@@ -571,6 +571,14 @@ git add apps/api/src/automation apps/api/test/vehicle-event-rules.e2e-spec.ts
 git commit -m "feat(api): add vehicle event rule management"
 ```
 
+#### Task 8 fix round 1 (완료)
+
+- [x] MeshNode 차량 센서 capability metadata와 source-only resolver 검증
+- [x] 최신 `vehicle_detected` partial index forward migration과 catalog 계약
+- [x] disable/re-enable, 기존 schedule 보존, schedule+event 동시 mutation E2E
+- [x] 중립 automation list query/cursor helper와 event 전용 오류 문구
+- [x] fresh/seeded migration, focused/full 회귀, lint/typecheck/build, 보고서와 별도 커밋
+
 ### Task 9: automation snapshot 발행·ACK·실행 원장 수집
 
 **Files:**

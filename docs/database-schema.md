@@ -81,6 +81,7 @@ Organization
 | `AutomationRuleStatus` | `enabled`, `disabled` | 스케줄·차량 이벤트 규칙 활성 상태 |
 | `ScheduleRecurrenceKind` | `once`, `daily`, `weekly`, `monthly`, `yearly` | 현장 timezone 기준 반복 방식 |
 | `AutomationExecutionKind` | `schedule_started`, `schedule_ended`, `vehicle_detected`, `event_started`, `event_extended`, `event_ended`, `action_result`, `telemetry_gap` | Gateway가 전달한 lifecycle 원장 종류 |
+| `VehicleSensorCapabilityStatus` | `unknown`, `supported`, `unsupported` | MeshNode의 검증된 차량 센서 source capability |
 
 ### MeshControlTargetType / MeshControlGroupStatus
 
@@ -706,6 +707,8 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 | `serialNumber` | `String?` | 아니오 |  | 장비 시리얼 |
 | `meshAddress` | `String` | 예 | Unique with `gatewayId` | BLE Mesh unicast address |
 | `firmwareVersion` | `String` | 예 |  | 노드 펌웨어 버전 |
+| `vehicleSensorCapabilityStatus` | `VehicleSensorCapabilityStatus` | 예 | `unknown` | 차량 감지 source capability 상태 |
+| `vehicleSensorCapabilityVerifiedAt` | `DateTime?` | 아니오 | capability coherence DB CHECK | 모델 capability 검증 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -714,6 +717,8 @@ ESP32-H2 BLE Mesh 노드다. 한 노드는 최대 하나의 `Fixture`와 매핑�
 - Unique: `deviceUuid`
 - 복합 Unique: `id`, `gatewayId`
 - 복합 Unique: `gatewayId`, `meshAddress`
+- `supported`는 `vehicleSensorCapabilityVerifiedAt`이 반드시 있어야 하고 `unknown`은 반드시 `NULL`이어야 한다. `unsupported`는 검증 여부에 따라 시각을 보존할 수 있다.
+- 순방향 migration은 기존 노드를 모두 `unknown`/`NULL`로 backfill해 일반 조명이 암묵적으로 차량 이벤트 source가 되지 않게 한다. 차량 이벤트 CRUD source resolver는 `supported`이면서 검증 시각이 있는 등록 Fixture만 허용한다. Task 14 Gateway 모델 바인딩이 실제 장비 metadata를 설정하며, CRUD validation 계약은 이 단계에서 완료됐다.
 
 관계:
 
@@ -1019,7 +1024,7 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 | `payload` | `Json` | 예 | 종류별 원본 메타데이터 |
 | `createdAt` | `DateTime` | 예 | `now()` |
 
-`lightingScheduleId`와 `vehicleEventRuleId`는 각각 최신 실행 조회 순서인 `(sourceId, occurredAt DESC, sequence DESC)` 복합 index를 사용하고, `manualOverrideId`는 단독 index를 사용한다. 차량 이벤트 목록은 같은 vehicle index로 최신 전체 실행과 최신 `vehicle_detected`를 page 범위에서 조회한다. `(gatewayId, eventId, sequence)` Unique가 QoS 재전달을 멱등 처리한다. `AutomationExecution_source_check` trigger가 INSERT와 source/owner/kind 변경에서 source 부모의 `siteId/gatewayId`를 실행 owner와 비교하고 다음 coherence를 강제한다.
+`lightingScheduleId`와 `vehicleEventRuleId`는 각각 최신 실행 조회 순서인 `(sourceId, occurredAt DESC, sequence DESC)` 일반 복합 index를 사용하고, `manualOverrideId`는 단독 index를 사용한다. 차량 이벤트 목록의 최신 전체 실행은 일반 vehicle index를 사용하고, 최신 감지는 migration/catalog 전용 partial index `(vehicleEventRuleId, occurredAt DESC, sequence DESC) WHERE kind = 'vehicle_detected'`를 사용한다. Prisma schema가 partial predicate를 표현하지 못하므로 일반 index만 schema에 유지하며 partial index를 중복된 일반 index처럼 선언하지 않는다. `(gatewayId, eventId, sequence)` Unique가 QoS 재전달을 멱등 처리한다. `AutomationExecution_source_check` trigger가 INSERT와 source/owner/kind 변경에서 source 부모의 `siteId/gatewayId`를 실행 owner와 비교하고 다음 coherence를 강제한다.
 
 - `schedule_started`, `schedule_ended`: `lightingScheduleId` 필수, `ruleId = lightingScheduleId`
 - `vehicle_detected`, `event_started`, `event_extended`, `event_ended`: `vehicleEventRuleId` 필수, `ruleId = vehicleEventRuleId`
@@ -1051,6 +1056,8 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 - 실행 원장은 trigger로 source owner와 kind/rule coherence를 확인한다. Site/Gateway 삭제를 restrict하고 원본 규칙/override 및 Fixture의 물리 삭제는 nullable FK를 `SET NULL`로 바꾸면서 raw ID snapshot과 payload를 유지한다.
 
 `20260829_add_lighting_automation`은 배포 이력을 보존하는 released Task 6 migration으로 수정하지 않는다. 이 migration은 기존 Fixture의 `siteId`를 Floor에서 backfill하고, MeshNode가 연결된 Fixture만 `gatewayId`를 backfill한 뒤 `siteId NOT NULL`과 owner FK를 적용한다. MeshNode 없는 기존 Fixture는 `gatewayId = NULL`로 보존된다. 기존 Command와 command형 `MqttOutbox` row는 신규 owner Unique와 command/config row-shape check를 그대로 만족한다. Task 7 목록의 최신 실행 조회 index는 별도 순방향 migration `20260830_add_schedule_execution_list_index`가 기존 단독 index를 `(lightingScheduleId, occurredAt DESC, sequence DESC)`로 교체한다.
+
+순방향 migration `20260830_vehicle_sensor_capability_and_detection_index`는 `VehicleSensorCapabilityStatus`, MeshNode capability 두 컬럼과 coherence CHECK를 추가하고 모든 기존 노드를 fail-closed `unknown`/`NULL`로 backfill한다. 같은 migration이 최신 감지 조회용 partial index `AutomationExecution_vehicleEventRuleId_latest_detection_idx`를 생성한다. 이 index의 predicate와 정렬 컬럼은 PostgreSQL catalog contract test로 관리한다.
 
 순방향 migration `20260830_reject_equal_schedule_times`는 하나의 명시적 PostgreSQL transaction에서 `LightingSchedule`과 `MqttOutbox`에 `SHARE` table lock을 먼저 획득한다. 이 lock은 조회를 허용하면서 두 table의 concurrent INSERT/UPDATE/DELETE를 막으므로, 같은 local start/end를 가진 live `LightingSchedule`과 아직 publish/dead-letter되지 않은 automation-config `MqttOutbox` snapshot entry의 preflight와 CHECK 적용 사이에 invalid row가 들어올 수 없다. 하나라도 발견하면 deferred commit-time trigger가 schedule 또는 outbox 식별자와 Gateway/revision/time을 포함한 `23514` operator-remediation 오류를 발생시켜 transaction 전체를 rollback하며 어떤 row도 자동 수정하거나 삭제하지 않는다. 운영자가 schedule 시간을 명시적으로 교정하고 Gateway full snapshot을 재생성한 뒤 superseded pending outbox만 recovery runbook에 따라 제거해야 migration을 다시 적용할 수 있다.
 
@@ -1290,6 +1297,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `ProcessedGatewayEvent` | PK `eventId`, Unique `gatewayId + sequence + eventType` | QoS 중복·stale 이벤트 방지 |
 | `MeshNode` | Unique `deviceUuid` | BLE Mesh device UUID 중복 방지 |
 | `MeshNode` | Unique `gatewayId`, `meshAddress` | 같은 게이트웨이 내 mesh address 중복 방지 |
+| `MeshNode` | vehicle sensor capability status/verifiedAt CHECK | 검증된 지원 노드만 차량 이벤트 source로 사용하고 기존·미확인 노드는 fail-closed |
 | `MeshControlGroup` | Unique `gatewayId + targetType + targetId`, Unique `gatewayId + groupAddress` | gateway별 영속 제어 group 중복과 주소 충돌 방지 |
 | `MeshControlGroupMember` | PK `groupId + meshNodeId`, Index `groupId + gatewayId`, Index `meshNodeId + gatewayId` | 같은 group/node membership 중복 방지, cross-gateway group/node FK 검증, gateway 내부 membership 조회 가속 |
 | `MeshControlGroupExpectedOperation` | PK `operationId`, Unique `groupId + configurationVersion + action + meshNodeId + meshAddress` | version별 exact ACK와 동일 node address replacement 2-operation 보존 |
@@ -1309,7 +1317,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `ManualOverride` | Unique `commandId`, composite Command owner FK, brightness/time checks, non-negative `targetCount` | command별 단일 수동 override, source tenant/requester, 실제 target 수 reconciliation 강제 |
 | `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 수동 대상 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
 | `MqttOutbox` | command/config row-shape check, Unique `gatewayId + revision + payloadHash` | 기존 command outbox 재사용과 미발행 config의 Gateway reassignment 차단 |
-| `AutomationExecution` | Unique `gatewayId + eventId + sequence`, Index `lightingScheduleId + occurredAt DESC + sequence DESC`, source owner/kind/rule trigger | Gateway lifecycle event 멱등성, schedule 최신 실행 조회와 tenant-consistent history 원장 |
+| `AutomationExecution` | Unique `gatewayId + eventId + sequence`, ordered schedule/vehicle general indexes, partial vehicle-detected index, source owner/kind/rule trigger | Gateway lifecycle event 멱등성, 최신 실행·감지 조회와 tenant-consistent history 원장 |
 | `AutomationExecutionFixtureResult` | PK `executionId + fixtureSnapshotId`, identity/terminal-status checks | Fixture 삭제 뒤 snapshot ID 보존과 terminal 결과만 저장 |
 
 ## 5. 현재 구현 기준으로 중요한 데이터 흐름

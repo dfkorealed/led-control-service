@@ -7,13 +7,23 @@ type TargetFixture = {
   siteId: string;
   meshNodeId: string | null;
   gatewayId: string | null;
+  meshNode: {
+    vehicleSensorCapabilityStatus: "unknown" | "supported" | "unsupported";
+    vehicleSensorCapabilityVerifiedAt: Date | null;
+  } | null;
 };
 
 const targetFixtureSelect = {
   id: true,
   siteId: true,
   meshNodeId: true,
-  gatewayId: true
+  gatewayId: true,
+  meshNode: {
+    select: {
+      vehicleSensorCapabilityStatus: true,
+      vehicleSensorCapabilityVerifiedAt: true
+    }
+  }
 } satisfies Prisma.FixtureSelect;
 
 @Injectable()
@@ -25,6 +35,22 @@ export class TargetSnapshotService {
       throw new BadRequestException("automation target contains a fixture from another site");
     }
     this.assertRegistered(fixtures);
+    return [...new Set(fixtures.map((fixture) => fixture.id))].sort(compareIds);
+  }
+
+  async resolveVehicleSources(
+    tx: Prisma.TransactionClient,
+    siteId: string,
+    fixtureIds: string[]
+  ): Promise<string[]> {
+    const fixtures = await this.loadSelection(tx, siteId, { type: "fixtures", fixtureIds });
+    this.assertRegistered(fixtures);
+    if (fixtures.some((fixture) =>
+      fixture.meshNode?.vehicleSensorCapabilityStatus !== "supported"
+      || fixture.meshNode.vehicleSensorCapabilityVerifiedAt === null
+    )) {
+      throw new BadRequestException("vehicle event source is unavailable");
+    }
     return [...new Set(fixtures.map((fixture) => fixture.id))].sort(compareIds);
   }
 
