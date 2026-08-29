@@ -8,11 +8,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createBluezHealthProbes,
   createProductionAdapters,
-  isBtmgmtControllerPowered,
   isHciRfkillUnblocked
 } from "./adapter-factory";
-
-type BtmgmtRunner = Parameters<typeof isBtmgmtControllerPowered>[1] extends infer Runner ? Exclude<Runner, undefined> : never;
 
 describe("createProductionAdapters", () => {
   it("rejects stub and command adapters in every environment", async () => {
@@ -50,6 +47,13 @@ describe("createProductionAdapters", () => {
     expect(source).toContain("mqttTopics.meshGroupSubscriptionSync");
   });
 
+  it("does not let the non-root Gateway runtime invoke btmgmt", () => {
+    const source = readFileSync(resolve(import.meta.dirname, "adapter-factory.ts"), "utf8");
+
+    expect(source).not.toContain("btmgmt");
+    expect(source).not.toContain("node:child_process");
+  });
+
   it("verifies the attached node through D-Bus instead of trusting a cached node path", async () => {
     const transport = { call: vi.fn().mockResolvedValue('<node><interface name="org.bluez.mesh.Node1"/></node>') };
     const probes = createBluezHealthProbes(
@@ -70,42 +74,12 @@ describe("createProductionAdapters", () => {
     );
   });
 
-  it("accepts a selected btmgmt controller only when current settings include powered", async () => {
-    const runner = vi.fn<BtmgmtRunner>().mockResolvedValue({ stdout: [
-      "hci7: Primary controller",
-      "\tcurrent settings: powered connectable ssp br/edr le"
-    ].join("\n") });
-
-    await expect(isBtmgmtControllerPowered("/org/bluez/hci7", runner)).resolves.toBe(true);
-    expect(runner).toHaveBeenCalledWith(["--index", "7", "info"], { timeout: 2_000 });
-  });
-
-  it("rejects an unblocked rfkill controller when btmgmt omits powered", async () => {
+  it("retains rfkill only as an optional diagnostic", async () => {
     const root = await mkdtemp(join(tmpdir(), "gateway-hci-"));
     await mkdir(join(root, "rfkill7"));
     await writeFile(join(root, "rfkill7", "type"), "bluetooth\n");
     await writeFile(join(root, "rfkill7", "state"), "1\n");
-    const runner = vi.fn<BtmgmtRunner>().mockResolvedValue({ stdout: [
-      "hci7: Primary controller",
-      "\tcurrent settings: connectable ssp br/edr le"
-    ].join("\n") });
 
     await expect(isHciRfkillUnblocked(root)).resolves.toBe(true);
-    await expect(isBtmgmtControllerPowered("/org/bluez/hci7", runner)).resolves.toBe(false);
-  });
-
-  it.each([
-    ["malformed output", { stdout: "current settings: powered" }],
-    ["a different controller", { stdout: "hci6: Primary controller\n\tcurrent settings: powered" }]
-  ])("rejects %s from btmgmt", async (_label, result) => {
-    const runner = vi.fn<BtmgmtRunner>().mockResolvedValue(result);
-
-    await expect(isBtmgmtControllerPowered("/org/bluez/hci7", runner)).resolves.toBe(false);
-  });
-
-  it.each(["command missing", "nonzero exit", "timeout"])("fails closed when btmgmt reports %s", async (failure) => {
-    const runner = vi.fn<BtmgmtRunner>().mockRejectedValue(new Error(failure));
-
-    await expect(isBtmgmtControllerPowered("/org/bluez/hci7", runner)).resolves.toBe(false);
   });
 });

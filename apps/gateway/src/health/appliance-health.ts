@@ -10,7 +10,6 @@ export interface ApplianceHealthState {
   mapping: boolean;
   dbusOwner: boolean;
   bluezAttached: boolean;
-  hciPowered: boolean;
   mappingValid: boolean;
   heartbeatFresh: boolean;
   lastHeartbeatPublishedAt: string | null;
@@ -22,7 +21,6 @@ export interface ApplianceHealthState {
 export interface ApplianceHealthProbes {
   dbusOwner: () => Promise<boolean>;
   bluezAttached: () => Promise<boolean>;
-  hciPowered: () => Promise<boolean>;
   mappingValid: () => Promise<boolean>;
 }
 
@@ -68,7 +66,6 @@ export class ApplianceHealth {
       mapping: false,
       dbusOwner: false,
       bluezAttached: false,
-      hciPowered: false,
       mappingValid: false,
       heartbeatFresh: false,
       lastHeartbeatPublishedAt: null,
@@ -119,13 +116,12 @@ export class ApplianceHealth {
   }
 
   async refresh(reason?: string) {
-    const [dbusOwner, bluezAttached, hciPowered, mappingValid] = await Promise.all([
+    const [dbusOwner, bluezAttached, mappingValid] = await Promise.all([
       probe(this.probes.dbusOwner),
       probe(this.probes.bluezAttached),
-      probe(this.probes.hciPowered),
       probe(this.probes.mappingValid)
     ]);
-    const mesh = dbusOwner && bluezAttached && hciPowered;
+    const mesh = dbusOwner && bluezAttached;
     const mapping = mappingValid;
     const lastHeartbeatPublishedAt = this.lastHeartbeatPublishedAt?.toISOString() ?? null;
     const heartbeatFresh = this.isHeartbeatFresh();
@@ -145,12 +141,11 @@ export class ApplianceHealth {
       mapping,
       dbusOwner,
       bluezAttached,
-      hciPowered,
       mappingValid,
       heartbeatFresh,
       lastHeartbeatPublishedAt,
       meshResync: this.lastMeshResync,
-      ...(status === "unhealthy" ? { reason: failure ?? healthFailureReason({ dbusOwner, bluezAttached, hciPowered, mappingValid, heartbeatFresh }) } : {})
+      ...(status === "unhealthy" ? { reason: failure ?? healthFailureReason({ dbusOwner, bluezAttached, mappingValid, heartbeatFresh }) } : {})
     });
   }
 
@@ -180,7 +175,6 @@ export function parseHeartbeatInterval(value: number | undefined) {
 const unavailableProbes: ApplianceHealthProbes = {
   dbusOwner: async () => false,
   bluezAttached: async () => false,
-  hciPowered: async () => false,
   mappingValid: async () => false
 };
 
@@ -195,13 +189,11 @@ async function probe(check: () => Promise<boolean>) {
 function healthFailureReason(state: {
   dbusOwner: boolean;
   bluezAttached: boolean;
-  hciPowered: boolean;
   mappingValid: boolean;
   heartbeatFresh: boolean;
 }) {
   if (!state.dbusOwner) return "dbus_owner_missing";
   if (!state.bluezAttached) return "bluez_not_attached";
-  if (!state.hciPowered) return "hci_not_powered";
   if (!state.mappingValid) return "mapping_invalid";
   return "heartbeat_stale";
 }

@@ -13,7 +13,6 @@ it("records unassigned and probe-derived appliance states atomically", async () 
     probes: {
       dbusOwner: async () => dbusOwner,
       bluezAttached: async () => true,
-      hciPowered: async () => true,
       mappingValid: async () => true
     }
   });
@@ -30,7 +29,6 @@ it("records unassigned and probe-derived appliance states atomically", async () 
     mapping: true,
     dbusOwner: true,
     bluezAttached: true,
-    hciPowered: true,
     mappingValid: true,
     heartbeatFresh: true,
     lastHeartbeatPublishedAt: "2026-07-13T00:00:00.000Z"
@@ -46,6 +44,27 @@ it("records unassigned and probe-derived appliance states atomically", async () 
   });
 });
 
+it("keeps HCI power out of the non-root application health state", async () => {
+  const file = path.join(await mkdtemp(path.join(tmpdir(), "gateway-health-")), "health.json");
+  const health = new ApplianceHealth(file, {
+    now: () => new Date("2026-08-30T00:00:00.000Z"),
+    probes: {
+      dbusOwner: async () => true,
+      bluezAttached: async () => true,
+      mappingValid: async () => true
+    }
+  });
+
+  await health.startingAssigned();
+  await health.heartbeatPublished();
+
+  await expect(health.read()).resolves.toMatchObject({
+    status: "healthy",
+    mesh: true
+  });
+  await expect(health.read()).resolves.not.toHaveProperty("hciPowered");
+});
+
 it("keeps a state outbox capacity blocker sticky across heartbeats until explicitly cleared", async () => {
   const file = path.join(await mkdtemp(path.join(tmpdir(), "gateway-health-")), "health.json");
   const health = new ApplianceHealth(file, {
@@ -54,7 +73,6 @@ it("keeps a state outbox capacity blocker sticky across heartbeats until explici
     probes: {
       dbusOwner: async () => true,
       bluezAttached: async () => true,
-      hciPowered: async () => true,
       mappingValid: async () => true
     }
   });
@@ -81,7 +99,6 @@ it("fails closed when the last successful heartbeat timestamp is in the future",
     probes: {
       dbusOwner: async () => true,
       bluezAttached: async () => true,
-      hciPowered: async () => true,
       mappingValid: async () => true
     }
   });
@@ -103,7 +120,6 @@ it.each([
     probes: {
       dbusOwner: async () => true,
       bluezAttached: async () => true,
-      hciPowered: async () => true,
       mappingValid: async () => true
     }
   });
@@ -128,7 +144,6 @@ it("records a healthy lighting resync while late Health Current clears its pendi
     probes: {
       dbusOwner: async () => true,
       bluezAttached: async () => true,
-      hciPowered: async () => true,
       mappingValid: async () => true
     }
   });

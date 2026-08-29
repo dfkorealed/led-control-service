@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 
@@ -55,13 +56,35 @@ test("appliance runtime은 Debian Bookworm OpenSSL 3.0 계열을 설치하고 bu
   assert.match(runtime, /apt-get install[^;]*\bcurl\b/s);
 });
 
-test("healthcheck는 configured HCI presence만 진단하고 kernel hci attribute를 readiness로 쓰지 않는다", async () => {
+test("root healthcheck가 configured controller의 btmgmt powered 상태를 Gateway health와 결합한다", async () => {
   const healthcheck = await readFile(path.join(dockerDir, "healthcheck.sh"), "utf8");
+  const healthcheckState = await readFile(path.join(dockerDir, "healthcheck-state.cjs"), "utf8");
 
   assert.match(healthcheck, /GATEWAY_BLUEZ_ADAPTER_PATH:-\/org\/bluez\/hci0/);
   assert.match(healthcheck, /HCI_NAME="\$\{BLUEZ_ADAPTER_PATH##\*\/\}"/);
+  assert.match(healthcheck, /HCI_INDEX="\$\{HCI_NAME#hci\}"/);
+  assert.match(healthcheck, /timeout 2s \/usr\/local\/bin\/btmgmt --index "\$HCI_INDEX" info/);
+  assert.match(healthcheck, /if ! BTMGMT_OUTPUT=/);
+  assert.match(healthcheck, /node \/usr\/local\/lib\/gateway-btmgmt-powered\.cjs "\$HCI_NAME"/);
+  assert.match(healthcheck, /GATEWAY_HCI_POWERED=1 node \/usr\/local\/lib\/gateway-healthcheck-state\.cjs/);
   assert.match(healthcheck, /test -d "\/sys\/class\/bluetooth\/\$HCI_NAME"/);
   assert.doesNotMatch(healthcheck, /\/sys\/class\/bluetooth\/hci0\/(address|flags)/);
+  assert.match(healthcheckState, /process\.env\.GATEWAY_HCI_POWERED !== "1"/);
+  assert.doesNotMatch(healthcheckState, /!health\.hciPowered/);
+});
+
+test("root healthcheck btmgmt verifier accepts only selected powered controllers", async () => {
+  await assert.doesNotReject(checkBtmgmt("hci7", [
+    "hci7: Primary controller",
+    "\tcurrent settings: powered connectable ssp br/edr le"
+  ].join("\n")));
+  await assert.rejects(checkBtmgmt("hci7", [
+    "hci7: Primary controller",
+    "\tcurrent settings: connectable ssp br/edr le"
+  ].join("\n")), /btmgmt check failed/);
+  await assert.rejects(checkBtmgmt("hci7", "hci7:\n\tcurrent settings: powered"), /btmgmt check failed/);
+  await assert.rejects(checkBtmgmt("hci7", "current settings: powered"), /btmgmt check failed/);
+  await assert.rejects(checkBtmgmt("hci7", "hci6: Primary controller\n\tcurrent settings: powered"), /btmgmt check failed/);
 });
 
 test("image build context에 인증서나 private key를 복사하지 않는다", async () => {
@@ -91,4 +114,17 @@ test("gateway D-Bus policy는 daemon 요청과 응답을 모두 최소 허용한
 function expectOrder(source, first, second) {
   assert.ok(source.indexOf(first) >= 0, `${first} is missing`);
   assert.ok(source.indexOf(second) > source.indexOf(first), `${second} must appear after ${first}`);
+}
+
+function checkBtmgmt(controller, output) {
+  const verifier = path.join(dockerDir, "btmgmt-powered.cjs");
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", [verifier, controller]);
+    child.stdin.end(output);
+    child.on("error", (error) => reject(new Error(`btmgmt check failed: ${error.message}`)));
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`btmgmt check failed: exit ${code}`));
+    });
+  });
 }

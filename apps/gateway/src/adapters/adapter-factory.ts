@@ -1,8 +1,6 @@
 import type { BleMeshAdapter, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
-import { execFile as execFileCallback } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import type { ApplianceHealthProbes } from "../health/appliance-health";
 import { BluezDbusApplication } from "../mesh/bluez-dbus-application";
 import { BluezConfigClient } from "../mesh/bluez-config-client";
@@ -12,12 +10,6 @@ import { createNativeSystemBus, BluezTransport } from "../mesh/bluez-transport";
 import { MeshAddressStore } from "../mesh/mesh-address-store";
 import { MeshIdentityStore } from "../mesh/mesh-identity-store";
 import { MeshTransactionStore } from "../mesh/mesh-transaction-store";
-
-const DEFAULT_BLUEZ_ADAPTER_PATH = "/org/bluez/hci0";
-const BTMGMT_TIMEOUT_MS = 2_000;
-const execFile = promisify(execFileCallback);
-
-export type BtmgmtRunner = (args: string[], options: { timeout: number }) => Promise<{ stdout: string }>;
 
 export interface GatewayAdapters {
   dimming: BleMeshAdapter;
@@ -66,20 +58,14 @@ async function createBluezAdapter(env: NodeJS.ProcessEnv) {
   );
   await adapter.start();
   return Object.assign(adapter, {
-    healthProbes: createBluezHealthProbes(
-      transport,
-      provisioner,
-      addressStore,
-      env.GATEWAY_BLUEZ_ADAPTER_PATH ?? DEFAULT_BLUEZ_ADAPTER_PATH
-    )
+    healthProbes: createBluezHealthProbes(transport, provisioner, addressStore)
   });
 }
 
 export function createBluezHealthProbes(
   transport: Pick<BluezTransport, "call">,
   provisioner: Pick<BluezProvisioner, "nodePath">,
-  addressStore: Pick<MeshAddressStore, "validate">,
-  adapterPath = DEFAULT_BLUEZ_ADAPTER_PATH
+  addressStore: Pick<MeshAddressStore, "validate">
 ): ApplianceHealthProbes {
   return {
     dbusOwner: async () => await transport.call<boolean>(
@@ -101,49 +87,8 @@ export function createBluezHealthProbes(
       );
       return typeof introspection === "string" && introspection.includes('interface name="org.bluez.mesh.Node1"');
     },
-    hciPowered: async () => await isBtmgmtControllerPowered(adapterPath),
     mappingValid: async () => { await addressStore.validate(); return true; }
   };
-}
-
-export async function isBtmgmtControllerPowered(
-  adapterPath = DEFAULT_BLUEZ_ADAPTER_PATH,
-  runner: BtmgmtRunner = runBtmgmt
-) {
-  const adapterIndex = parseBluezAdapterIndex(adapterPath);
-  if (adapterIndex === undefined) return false;
-  try {
-    const { stdout } = await runner(["--index", String(adapterIndex), "info"], { timeout: BTMGMT_TIMEOUT_MS });
-    return hasPoweredBtmgmtController(stdout, adapterIndex);
-  } catch {
-    return false;
-  }
-}
-
-async function runBtmgmt(args: string[], options: { timeout: number }) {
-  const { stdout } = await execFile("/usr/local/bin/btmgmt", args, { timeout: options.timeout, encoding: "utf8" });
-  return { stdout };
-}
-
-function parseBluezAdapterIndex(adapterPath: string) {
-  const match = /^\/org\/bluez\/hci(\d+)$/.exec(adapterPath);
-  return match ? Number(match[1]) : undefined;
-}
-
-// btmgmt reads one kernel controller at a time. Do not accept an unrelated
-// controller's settings or partial output as proof that the selected HCI is ready.
-function hasPoweredBtmgmtController(stdout: string, adapterIndex: number) {
-  const lines = stdout.split(/\r?\n/);
-  const controllerIndex = lines.findIndex((line) => line.trimStart().startsWith(`hci${adapterIndex}:`));
-  if (controllerIndex < 0) return false;
-
-  for (const line of lines.slice(controllerIndex + 1)) {
-    const trimmed = line.trim();
-    if (/^hci\d+:/.test(trimmed)) return false;
-    const settings = /^current settings:\s+(.+)$/.exec(trimmed);
-    if (settings) return settings[1].split(/\s+/).includes("powered");
-  }
-  return false;
 }
 
 // rfkill reports a Linux radio-block state, not BlueZ controller readiness.

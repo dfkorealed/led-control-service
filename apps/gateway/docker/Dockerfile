@@ -61,6 +61,7 @@ COPY apps/gateway/docker/dbus-system.conf /etc/dbus-1/gateway-system.conf
 COPY apps/gateway/docker/bluetooth-mesh.conf /etc/dbus-1/system.d/bluetooth-mesh.conf
 COPY apps/gateway/docker/entrypoint.sh /usr/local/bin/gateway-entrypoint
 COPY apps/gateway/docker/healthcheck.sh /usr/local/bin/gateway-healthcheck
+COPY apps/gateway/docker/btmgmt-powered.cjs /usr/local/lib/gateway-btmgmt-powered.cjs
 COPY apps/gateway/docker/healthcheck-state.cjs /usr/local/lib/gateway-healthcheck-state.cjs
 
 RUN chmod 0755 /usr/local/bin/gateway-entrypoint /usr/local/bin/gateway-healthcheck \
