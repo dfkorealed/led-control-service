@@ -21,7 +21,7 @@
 | 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
 | 스케줄·차량 이벤트 제어 설계 | 완료(설계) | 반복 일정, overlap 차단, 수동 override·차량 이벤트·스케줄 우선순위, Gateway full snapshot 무중단 적용, offline 실행과 ESP32-H2 차량 감지 event 계약을 확정했다. Task 7 schedule API와 Task 8 차량 이벤트 규칙 API CRUD를 구현했고 Web과 Gateway 실행은 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
-| 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | 1차 review 보완으로 fail-closed MeshNode 차량 센서 capability와 source-only 검증, 최신 감지 partial index, schedule 보존·혼합 동시성 E2E, resource별 list cursor 오류를 완료했다. CRUD validation은 완료됐고 실제 capability를 설정하는 Gateway 모델 바인딩은 Task 14, MQTT ACK·센서 실행과 Web UI는 후속 Task다. |
+| 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | 기존 invalid source를 자동 수정 없이 중단하는 preflight, direct SQL capability/source/re-enable guard, source insert와 downgrade 직렬화, strict Gateway capability report 계약과 injectable apply service를 구현했다. Unsupported report는 enabled rule 전체를 원자 disable하고 변경 시 Gateway revision/full snapshot을 정확히 한 번 생성한다. Task 9 MQTT consumer/eventId 멱등 ingestion과 Task 14 실제 모델 바인딩/report 발행은 후속 경계다. |
 
 ## 다음 단계
 
@@ -38,6 +38,7 @@
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
 - 스케줄 및 차량 이벤트 규칙 API CRUD와 durable full-snapshot outbox 저장은 완료했다. 실제 MQTT publish/application ACK, Gateway 무중단 규칙 동기화, offline 실행, sensor event와 Web CRUD는 아직 구현되지 않았다.
+- 차량 센서 capability payload/topic과 API 적용 service 및 DB invariant는 완료했다. production MQTT consumer와 event-level idempotency는 Task 9, Gateway Sensor Server/vendor model 검증과 report 발행은 Task 14까지 연결되지 않는다.
 
 ### 통계
 

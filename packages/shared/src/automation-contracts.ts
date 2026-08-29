@@ -89,6 +89,18 @@ export interface AutomationExecutionIngestedAckV1 {
   ingestedAt: string;
 }
 
+export interface VehicleSensorCapabilityReportV1 {
+  schemaVersion: 1;
+  eventId: string;
+  siteId: string;
+  gatewayId: string;
+  meshNodeId: string;
+  status: "supported" | "unsupported";
+  verifiedAt: string;
+  sensorServerBound: boolean;
+  vendorVehicleEventModelBound: boolean;
+}
+
 export interface ManualOverrideWindow {
   fixtureIds: string[];
   brightnessPercent: number;
@@ -250,6 +262,26 @@ export const automationExecutionIngestedAckV1Schema = z.object({
   sequence: z.number().int().nonnegative(),
   ingestedAt: timestampSchema
 }).strict();
+
+export const vehicleSensorCapabilityReportV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  eventId: identifierSchema,
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  meshNodeId: identifierSchema,
+  status: z.enum(["supported", "unsupported"]),
+  verifiedAt: z.string().datetime({ offset: true }),
+  sensorServerBound: z.boolean(),
+  vendorVehicleEventModelBound: z.boolean()
+}).strict().superRefine((report, context) => {
+  const bothModelsBound = report.sensorServerBound && report.vendorVehicleEventModelBound;
+  if (report.status === "supported" && !bothModelsBound) {
+    addIssue(context, "status", "supported capability requires both vehicle sensor models");
+  }
+  if (report.status === "unsupported" && bothModelsBound) {
+    addIssue(context, "status", "unsupported capability requires at least one unbound vehicle sensor model");
+  }
+});
 
 export const manualOverrideWindowSchema = z.object({
   fixtureIds: fixtureIdsSchema,

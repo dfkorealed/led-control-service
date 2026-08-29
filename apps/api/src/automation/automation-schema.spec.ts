@@ -370,16 +370,17 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
         ('automation-schema-floor-free', 'automation-schema-site-a', 'Floor free', 2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
         ('automation-schema-floor-b', 'automation-schema-site-b', 'Floor B', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "MeshNode" (
-        "id", "gatewayId", "meshAddress", "firmwareVersion", "createdAt", "updatedAt"
+        "id", "gatewayId", "meshAddress", "firmwareVersion",
+        "vehicleSensorCapabilityStatus", "vehicleSensorCapabilityVerifiedAt", "createdAt", "updatedAt"
       ) VALUES
-        ('automation-schema-node-a', 'automation-schema-gateway-a', '0101', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-a-extra', 'automation-schema-gateway-a', '0102', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-a-third', 'automation-schema-gateway-a', '0104', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-a-fourth', 'automation-schema-gateway-a', '0105', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-a2', 'automation-schema-gateway-a2', '0101', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-free', 'automation-schema-gateway-a', '0103', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-move', 'automation-schema-gateway-move', '0201', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-        ('automation-schema-node-b', 'automation-schema-gateway-b', '0101', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+        ('automation-schema-node-a', 'automation-schema-gateway-a', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a-extra', 'automation-schema-gateway-a', '0102', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a-third', 'automation-schema-gateway-a', '0104', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a-fourth', 'automation-schema-gateway-a', '0105', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-a2', 'automation-schema-gateway-a2', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-free', 'automation-schema-gateway-a', '0103', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-move', 'automation-schema-gateway-move', '0201', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('automation-schema-node-b', 'automation-schema-gateway-b', '0101', '1.0.0', 'supported', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
       INSERT INTO "Fixture" (
         "id", "floorId", "meshNodeId", "name", "ratedWatt", "x", "y", "createdAt", "updatedAt"
       ) VALUES
@@ -421,13 +422,13 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       SET "vehicleSensorCapabilityStatus" = 'supported',
           "vehicleSensorCapabilityVerifiedAt" = NULL
       WHERE "id" = 'automation-schema-node-a';
-    `, "MeshNode_vehicle_sensor_capability_check");
+    `, "supported vehicle sensor capability requires verifiedAt");
     expectSqlFailure(`
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'unknown',
           "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
       WHERE "id" = 'automation-schema-node-a';
-    `, "MeshNode_vehicle_sensor_capability_check");
+    `, "unknown vehicle sensor capability requires null verifiedAt");
     executeSql(`
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'supported',
@@ -436,6 +437,10 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       UPDATE "MeshNode"
       SET "vehicleSensorCapabilityStatus" = 'unknown',
           "vehicleSensorCapabilityVerifiedAt" = NULL
+      WHERE "id" = 'automation-schema-node-a';
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'supported',
+          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
       WHERE "id" = 'automation-schema-node-a';
     `);
 

@@ -5,7 +5,8 @@ import {
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
-  manualOverrideWindowSchema
+  manualOverrideWindowSchema,
+  vehicleSensorCapabilityReportV1Schema
 } from "./automation-contracts";
 
 const siteId = "00000000-0000-4000-8000-000000000003";
@@ -152,5 +153,30 @@ describe("automation shared contracts", () => {
     expect(manualOverrideWindowSchema.parse(override)).toEqual(override);
     expect(() => manualOverrideWindowSchema.parse({ ...override, fixtureIds: [fixtureId, fixtureId] })).toThrow();
     expect(() => manualOverrideWindowSchema.parse({ ...override, overrideUntil: "not-an-instant" })).toThrow();
+  });
+
+  it("strictly validates supported and unsupported vehicle sensor capability reports", () => {
+    const report = {
+      schemaVersion: 1 as const,
+      eventId,
+      siteId,
+      gatewayId,
+      meshNodeId: fixtureId,
+      status: "supported" as const,
+      verifiedAt: occurredAt,
+      sensorServerBound: true,
+      vendorVehicleEventModelBound: true
+    };
+
+    expect(vehicleSensorCapabilityReportV1Schema.parse(report)).toEqual(report);
+    expect(vehicleSensorCapabilityReportV1Schema.parse({
+      ...report,
+      status: "unsupported",
+      sensorServerBound: false
+    })).toMatchObject({ status: "unsupported", sensorServerBound: false });
+    expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, sensorServerBound: false })).toThrow();
+    expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, status: "unsupported" })).toThrow();
+    expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, status: "unknown" })).toThrow();
+    expect(() => vehicleSensorCapabilityReportV1Schema.parse({ ...report, extra: true })).toThrow();
   });
 });

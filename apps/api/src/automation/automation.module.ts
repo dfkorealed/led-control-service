@@ -7,6 +7,7 @@ import { AutomationSnapshotService } from "./automation-snapshot.service";
 import { SchedulesService } from "./schedules.service";
 import { TargetSnapshotService } from "./target-snapshot.service";
 import { VehicleEventRulesService } from "./vehicle-event-rules.service";
+import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.service";
 
 @Module({
   imports: [PrismaModule, AccessModule],
@@ -16,14 +17,16 @@ import { VehicleEventRulesService } from "./vehicle-event-rules.service";
     AutomationSnapshotService,
     SchedulesService,
     TargetSnapshotService,
-    VehicleEventRulesService
+    VehicleEventRulesService,
+    VehicleSensorCapabilityService
   ],
   exports: [
     AutomationClock,
     AutomationSnapshotService,
     SchedulesService,
     TargetSnapshotService,
-    VehicleEventRulesService
+    VehicleEventRulesService,
+    VehicleSensorCapabilityService
   ]
 })
 export class AutomationModule {}

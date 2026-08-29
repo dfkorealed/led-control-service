@@ -40,7 +40,8 @@
 - hold는 기본 60초, 5~1800 정수 범위이고 밝기는 0~100 정수다. `dimmingEnabled=false`는 입력 밝기를 저장하지 않고 DB/API/Gateway snapshot 모두 100%로 정규화한다.
 - 차량 이벤트 parent/source/target과 Gateway `desiredRevision`, 전체 automation snapshot `MqttOutbox`를 하나의 transaction에 저장한다. write transaction은 공통 automation advisory lock을 먼저 획득한 뒤 Site row `FOR UPDATE` 재인가를 수행하며 Gateway 이동은 이전 제거 snapshot과 새 추가 snapshot을 함께 생성한다.
 - 차량 이벤트 목록은 schedule과 같은 기본 25개·최대 100개 versioned keyset cursor와 `REPEATABLE READ` total/page snapshot을 사용한다. source/target 수, desired/applied revision, sync status, 최신 `vehicle_detected`와 최신 실행을 제공한다. 최신 전체 실행은 일반 ordered index, 최신 감지는 `kind='vehicle_detected'` partial ordered index를 사용한다.
-- MeshNode 차량 센서 capability와 source-only CRUD 검증은 완료됐다. 실제 Gateway 모델 바인딩이 capability status와 검증 시각을 설정하는 작업은 Task 14 범위다.
+- MeshNode 차량 센서 capability와 source-only CRUD 검증에 더해 direct SQL source 삽입, Fixture node 변경, enabled rule re-enable, capability downgrade DB guard를 구현했다. source 삽입과 downgrade는 공통 automation statement lock으로 직렬화되고, migration은 기존 invalid source를 rule/node 단위 remediation 오류로 중단한다.
+- strict `VehicleSensorCapabilityReportV1`와 Gateway-scoped `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability` topic, injectable `VehicleSensorCapabilityService.applyReport`를 구현했다. supported report는 metadata만 갱신하고 unsupported report는 해당 node를 쓰는 모든 enabled rule을 원자 disable한 뒤 변경이 있을 때만 complete Gateway snapshot/outbox revision을 정확히 하나 만든다. 실제 MQTT consumer와 `eventId` ingestion 멱등성은 Task 9, Gateway 모델 바인딩 및 이 payload 발행은 Task 14 범위다.
 - `GET/POST/PATCH/DELETE /sites/:siteId/automation/schedules`를 제공한다. assigned active customer admin만 생성·수정·삭제할 수 있고 viewer는 목록만 조회하며 operator와 다른 Site 요청은 `404`로 숨긴다.
 - schedule mutation은 같은 transaction의 첫 statement에서 공통 automation advisory lock을 획득한 뒤 Site row를 잠그고 assigned admin을 다시 인가한다. fixture·fixture set·floor·active group 선택은 저장 시점의 등록 완료 Fixture ID 전체 set으로 고정하고 한 Gateway 대상만 허용한다.
 - enabled schedule은 공통 automation engine의 실제 recurrence occurrence와 Fixture 교집합으로 충돌을 검사한다. disabled schedule은 충돌에서 제외하고 enable 시 다시 검사하며, 같은 Site에서 동시에 쓰는 서로 충돌하는 enabled schedule만 Site lock 아래 하나가 성공한다. 종료와 시작 경계가 맞닿지만 겹치지 않는 schedule은 함께 허용한다.
@@ -160,6 +161,7 @@
 
 - Task 7은 automation full snapshot을 durable `MqttOutbox`에 저장하지만 실제 MQTT publish와 exact revision application ACK 처리는 Task 9 범위다. 따라서 API 저장 성공은 Gateway 적용 완료를 의미하지 않는다.
 - Task 8 차량 이벤트 규칙 API도 같은 durable full-snapshot outbox까지만 구현했다. 최근 감지/실행 필드는 실행 원장이 수집된 경우에만 채워지며 실제 센서 감지와 Gateway 실행 완료를 의미하지 않는다.
+- capability report의 strict shared payload/topic과 원자 적용 service는 연결 준비가 끝났지만 MQTT subscription/consumer는 아직 없다. Task 9가 `eventId` 멱등 ingestion을 연결하고 Task 14가 Sensor Server와 vendor vehicle event model 실제 바인딩 결과를 이 payload로 발행하기 전까지 production Gateway가 capability metadata를 자동 설정하지 않는다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - schedule API CRUD는 구현 완료했다. schedule Web CRUD와 Gateway schedule 실행은 후속 범위이며, 아직 동작하지 않는 Web 버튼은 양산 UI에서 제거했다.
@@ -181,6 +183,7 @@
 - `apps/api/src/automation/automation.module.ts`
 - `apps/api/src/automation/schedules.service.ts`
 - `apps/api/src/automation/vehicle-event-rules.service.ts`
+- `apps/api/src/automation/vehicle-sensor-capability.service.ts`
 - `apps/api/src/automation/target-snapshot.service.ts`
 - `apps/api/src/automation/automation-snapshot.service.ts`
 - `apps/api/src/automation/dto/schedule.dto.ts`
@@ -189,7 +192,11 @@
 - `apps/api/src/automation/vehicle-event-rules.service.spec.ts`
 - `apps/api/test/automation-schedules.e2e-spec.ts`
 - `apps/api/test/vehicle-event-rules.e2e-spec.ts`
+- `apps/api/src/automation/vehicle-sensor-capability-schema.spec.ts`
+- `apps/api/prisma/migrations/20260830_vehicle_sensor_source_invariants/migration.sql`
 - `apps/api/prisma/migrations/20260830_add_vehicle_event_execution_list_index/migration.sql`
+- `packages/shared/src/automation-contracts.ts`
+- `packages/shared/src/mqtt.ts`
 - `apps/web/src/features/control/ControlView.tsx`
 - `apps/web/src/features/control/ControlTargetPicker.tsx`
 - `apps/web/src/features/control/ControlView.test.tsx`

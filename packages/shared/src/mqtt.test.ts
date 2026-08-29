@@ -21,5 +21,8 @@ describe("mqttTopics", () => {
     expect(mqttTopics.automationExecutionIngested("site-1", "gateway-1")).toBe(
       "sites/site-1/gateways/gateway-1/acks/automation/execution-ingested"
     );
+    expect(mqttTopics.vehicleSensorCapabilityReport("site-1", "gateway-1")).toBe(
+      "sites/site-1/gateways/gateway-1/events/automation/vehicle-sensor-capability"
+    );
   });
 });

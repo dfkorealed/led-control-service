@@ -1,4 +1,5 @@
-import { type CanActivate, type ExecutionContext, type INestApplication } from "@nestjs/common";
+import { BadRequestException, type CanActivate, type ExecutionContext, type INestApplication } from "@nestjs/common";
+import type { VehicleSensorCapabilityReportV1 } from "@led-control/shared";
 import { Test } from "@nestjs/testing";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -6,6 +7,7 @@ import { request } from "node:http";
 import { SiteAccessService } from "../src/access/site-access.service";
 import { AutomationClock } from "../src/automation/automation-clock";
 import { AutomationModule } from "../src/automation/automation.module";
+import { VehicleSensorCapabilityService } from "../src/automation/vehicle-sensor-capability.service";
 import type { AuthenticatedUser } from "../src/auth/auth.types";
 import { SessionAuthGuard } from "../src/auth/session-auth.guard";
 import { PrismaService } from "../src/prisma/prisma.service";
@@ -17,6 +19,7 @@ const FIXED_NOW = new Date("2026-08-31T23:00:00.000Z");
 describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let capabilityService: VehicleSensorCapabilityService;
   let baseUrl: string;
   const actors = new Map<string, AuthenticatedUser>();
 
@@ -43,6 +46,7 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
     if (!address || typeof address === "string") throw new Error("test server did not bind a TCP port");
     baseUrl = `http://127.0.0.1:${address.port}`;
     prisma = app.get(PrismaService);
+    capabilityService = app.get(VehicleSensorCapabilityService);
   });
 
   afterAll(async () => {
@@ -121,23 +125,13 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
     expect(unknown.status).toBe(400);
     expect(JSON.stringify(unknown.body)).not.toContain(scenario.fixtureIds[0]);
 
-    await prisma.$executeRaw(Prisma.sql`
-      UPDATE "MeshNode"
-      SET "vehicleSensorCapabilityStatus" = 'supported',
-          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
-      WHERE "id" = ${scenario.meshNodeIds[0]}
-    `);
+    await capabilityService.applyReport(capabilityReport(scenario, scenario.meshNodeIds[0], "supported"));
     const capable = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, {
       name: "Verified source"
     }));
     expect(capable.status).toBe(201);
 
-    await prisma.$executeRaw(Prisma.sql`
-      UPDATE "MeshNode"
-      SET "vehicleSensorCapabilityStatus" = 'unsupported',
-          "vehicleSensorCapabilityVerifiedAt" = CURRENT_TIMESTAMP
-      WHERE "id" = ${scenario.meshNodeIds[0]}
-    `);
+    await capabilityService.applyReport(capabilityReport(scenario, scenario.meshNodeIds[0], "unsupported"));
     const unsupported = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, {
       name: "Unsupported source"
     }));
@@ -151,6 +145,97 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
     }));
     expect(foreignSource.status).toBe(400);
     expect(JSON.stringify(foreignSource.body)).not.toContain(foreign.fixtureIds[0]);
+  });
+
+  it("applies supported reports without a revision and hides forged ownership", async () => {
+    const scenario = await createScenario(prisma, actors, "unknown");
+    const supportedReport = capabilityReport(scenario, scenario.meshNodeIds[0], "supported");
+
+    await expect(capabilityService.applyReport(supportedReport)).resolves.toEqual({
+      changed: true,
+      disabledRuleCount: 0,
+      desiredRevision: null
+    });
+    expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: scenario.meshNodeIds[0] } }))
+      .toMatchObject({
+        vehicleSensorCapabilityStatus: "supported",
+        vehicleSensorCapabilityVerifiedAt: new Date(supportedReport.verifiedAt)
+      });
+    expect(await prisma.gatewayAutomationConfiguration.findUnique({ where: { gatewayId: scenario.gatewayId } }))
+      .toBeNull();
+    expect(await prisma.mqttOutbox.count({ where: { gatewayId: scenario.gatewayId } })).toBe(0);
+
+    const foreign = await createScenario(prisma, actors, "unknown");
+    const forged = capabilityReport(scenario, foreign.meshNodeIds[0], "supported");
+    const error: unknown = await capabilityService.applyReport(forged).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(BadRequestException);
+    const response = (error as BadRequestException).getResponse();
+    expect(JSON.stringify(response)).not.toContain(foreign.meshNodeIds[0]);
+    expect(JSON.stringify(response)).not.toContain(scenario.siteId);
+    expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: foreign.meshNodeIds[0] } }))
+      .toMatchObject({ vehicleSensorCapabilityStatus: "unknown", vehicleSensorCapabilityVerifiedAt: null });
+  });
+
+  it("atomically disables enabled source rules once and requires support before re-enable", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const path = `/sites/${scenario.siteId}/automation/vehicle-event-rules`;
+    const first = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, { name: "Downgrade A" }));
+    const second = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, { name: "Downgrade B" }));
+    expect([first.status, second.status]).toEqual([201, 201]);
+    const ruleIds = [(first.body as { id: string }).id, (second.body as { id: string }).id].sort();
+    const unsupportedReport = capabilityReport(scenario, scenario.meshNodeIds[0], "unsupported");
+
+    await expect(capabilityService.applyReport(unsupportedReport)).resolves.toEqual({
+      changed: true,
+      disabledRuleCount: 2,
+      desiredRevision: 3
+    });
+    expect(await prisma.vehicleEventRule.findMany({
+      where: { id: { in: ruleIds } },
+      select: { id: true, status: true },
+      orderBy: { id: "asc" }
+    })).toEqual(ruleIds.map((id) => ({ id, status: "disabled" })));
+    expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: scenario.meshNodeIds[0] } }))
+      .toMatchObject({
+        vehicleSensorCapabilityStatus: "unsupported",
+        vehicleSensorCapabilityVerifiedAt: new Date(unsupportedReport.verifiedAt)
+      });
+    expect(await prisma.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId: scenario.gatewayId } }))
+      .toMatchObject({ desiredRevision: 3, syncStatus: "PENDING" });
+    expect((await prisma.mqttOutbox.findFirstOrThrow({
+      where: { gatewayId: scenario.gatewayId, revision: 3 }
+    })).payload).toMatchObject({
+      revision: 3,
+      vehicleEventRules: ruleIds.map((id) => expect.objectContaining({ id, status: "disabled" }))
+    });
+
+    await expect(capabilityService.applyReport(unsupportedReport)).resolves.toEqual({
+      changed: false,
+      disabledRuleCount: 0,
+      desiredRevision: null
+    });
+    expect(await prisma.mqttOutbox.count({ where: { gatewayId: scenario.gatewayId } })).toBe(3);
+    expect((await api(
+      "PATCH",
+      `${path}/${ruleIds[0]}`,
+      scenario.actorKeys.admin,
+      { status: "enabled" }
+    )).status).toBe(400);
+
+    await expect(capabilityService.applyReport(capabilityReport(
+      scenario,
+      scenario.meshNodeIds[0],
+      "supported"
+    ))).resolves.toMatchObject({ changed: true, disabledRuleCount: 0, desiredRevision: null });
+    expect(await prisma.mqttOutbox.count({ where: { gatewayId: scenario.gatewayId } })).toBe(3);
+    const reenabled = await api(
+      "PATCH",
+      `${path}/${ruleIds[0]}`,
+      scenario.actorKeys.admin,
+      { status: "enabled" }
+    );
+    expect(reenabled.status).toBe(200);
+    expect(reenabled.body).toMatchObject({ status: "enabled", desiredRevision: 4 });
   });
 
   it("preserves an existing schedule while disabling and re-enabling an event rule snapshot", async () => {
@@ -884,6 +969,24 @@ function scheduleBody(fixtureIds: string[], overrides: Record<string, unknown> =
     action: { dimmingEnabled: true, brightnessPercent: 40 },
     target: { type: "fixtures", fixtureIds },
     ...overrides
+  };
+}
+
+function capabilityReport(
+  scenario: Pick<Scenario, "siteId" | "gatewayId">,
+  meshNodeId: string,
+  status: "supported" | "unsupported"
+): VehicleSensorCapabilityReportV1 {
+  return {
+    schemaVersion: 1,
+    eventId: randomUUID(),
+    siteId: scenario.siteId,
+    gatewayId: scenario.gatewayId,
+    meshNodeId,
+    status,
+    verifiedAt: "2026-08-30T01:02:03.456Z",
+    sensorServerBound: status === "supported",
+    vendorVehicleEventModelBound: status === "supported"
   };
 }
 

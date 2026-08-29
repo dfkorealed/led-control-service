@@ -579,6 +579,15 @@ git commit -m "feat(api): add vehicle event rule management"
 - [x] 중립 automation list query/cursor helper와 event 전용 오류 문구
 - [x] fresh/seeded migration, focused/full 회귀, lint/typecheck/build, 보고서와 별도 커밋
 
+#### Task 8 fix round 2 (완료)
+
+- [x] 기존 source preflight와 direct SQL source/capability/re-enable DB invariant
+- [x] MeshNode/source 공통 automation statement lock과 양방향·공통 isolation race E2E
+- [x] strict `VehicleSensorCapabilityReportV1`와 Gateway-scoped MQTT topic
+- [x] `VehicleSensorCapabilityService.applyReport` ownership, downgrade disable/snapshot, state idempotency
+- [x] supported/forged/downgrade/re-enable PostgreSQL E2E
+- [x] fresh/seeded migration, shared/API focused/full 검증, lint/typecheck/build, 보고서와 별도 커밋
+
 ### Task 9: automation snapshot 발행·ACK·실행 원장 수집
 
 **Files:**
