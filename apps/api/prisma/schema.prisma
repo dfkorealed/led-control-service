@@ -230,6 +230,7 @@ model Floor {
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
+  @@unique([id, siteId])
   @@index([siteId])
 }
 
@@ -317,6 +318,8 @@ model Fixture {
   id                  String                 @id @default(uuid())
   floorId             String
   meshNodeId          String?                @unique
+  siteId              String                 @default(dbgenerated())
+  gatewayId           String?
   name                String
   ratedWatt           Decimal                @db.Decimal(8, 2)
   x                   Float
@@ -337,8 +340,8 @@ model Fixture {
   energyTrackingStartedAt DateTime           @default(now())
   firstStateOccurredAt DateTime?
   powerOn             Boolean?
-  floor               Floor                  @relation(fields: [floorId], references: [id])
-  meshNode            MeshNode?              @relation(fields: [meshNodeId], references: [id])
+  floor               Floor                  @relation(fields: [floorId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Cascade)
+  meshNode            MeshNode?              @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: SetNull, onUpdate: Cascade)
   groupFixtures       GroupFixture[]
   energyUsages        EnergyUsage[]
   energyDailyAggregates FixtureEnergyDailyAggregate[]
@@ -353,8 +356,11 @@ model Fixture {
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
+  @@unique([id, siteId, gatewayId])
+  @@unique([meshNodeId, gatewayId])
   @@index([floorId, status])
   @@index([floorId, id])
+  @@index([floorId, siteId])
 }
 
 model FloorMapObject {
@@ -777,6 +783,7 @@ model LightingSchedule {
   brightnessPercent Int
   desiredRevision   Int                       @default(0)
   appliedRevision   Int                       @default(0)
+  targetCount       Int                       @default(0)
   createdById       String
   updatedById       String
   site              Site                      @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -799,7 +806,7 @@ model LightingScheduleFixture {
   siteId     String
   gatewayId  String
   schedule   LightingSchedule @relation(fields: [scheduleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture    Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  fixture    Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
   createdAt  DateTime         @default(now())
 
   @@id([scheduleId, fixtureId])
@@ -818,6 +825,8 @@ model VehicleEventRule {
   holdSeconds       Int                   @default(60)
   desiredRevision   Int                   @default(0)
   appliedRevision   Int                   @default(0)
+  sourceCount       Int                   @default(0)
+  targetCount       Int                   @default(0)
   createdById       String
   updatedById       String
   site              Site                  @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -841,7 +850,7 @@ model VehicleEventSource {
   siteId    String
   gatewayId String
   rule      VehicleEventRule @relation(fields: [ruleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture   Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  fixture   Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
   createdAt DateTime         @default(now())
 
   @@id([ruleId, fixtureId])
@@ -855,7 +864,7 @@ model VehicleEventTarget {
   siteId    String
   gatewayId String
   rule      VehicleEventRule @relation(fields: [ruleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture   Fixture          @relation(fields: [fixtureId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  fixture   Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
   createdAt DateTime         @default(now())
 
   @@id([ruleId, fixtureId])
@@ -873,6 +882,7 @@ model ManualOverride {
   startedAt         DateTime
   overrideUntil     DateTime
   endedAt           DateTime?
+  targetCount       Int                     @default(0)
   site              Site                    @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   gateway           Gateway                 @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
   command           Command                 @relation(fields: [commandId, siteId, requestedById], references: [id, siteId, requestedBy], onDelete: Restrict, onUpdate: Restrict)
@@ -895,7 +905,7 @@ model ManualOverrideFixture {
   siteId           String
   gatewayId        String
   manualOverride   ManualOverride @relation(fields: [manualOverrideId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture          Fixture        @relation(fields: [fixtureId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  fixture          Fixture        @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
   createdAt        DateTime       @default(now())
 
   @@id([manualOverrideId, fixtureId])

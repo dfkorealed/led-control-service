@@ -26,6 +26,111 @@ $$;
 
 CREATE UNIQUE INDEX "Gateway_id_siteId_key" ON "Gateway"("id", "siteId");
 CREATE UNIQUE INDEX "Command_id_siteId_requestedBy_key" ON "Command"("id", "siteId", "requestedBy");
+CREATE UNIQUE INDEX "Floor_id_siteId_key" ON "Floor"("id", "siteId");
+
+ALTER TABLE "Fixture"
+  ADD COLUMN "siteId" TEXT,
+  ADD COLUMN "gatewayId" TEXT;
+
+UPDATE "Fixture" AS fixture
+SET
+  "siteId" = floor."siteId",
+  "gatewayId" = (
+    SELECT mesh_node."gatewayId"
+    FROM "MeshNode" AS mesh_node
+    WHERE mesh_node."id" = fixture."meshNodeId"
+  )
+FROM "Floor" AS floor
+WHERE floor."id" = fixture."floorId";
+
+ALTER TABLE "Fixture"
+  DROP CONSTRAINT "Fixture_floorId_fkey",
+  DROP CONSTRAINT "Fixture_meshNodeId_fkey",
+  ALTER COLUMN "siteId" SET NOT NULL,
+  ADD CONSTRAINT "Fixture_mesh_owner_shape_check"
+    CHECK (
+      ("meshNodeId" IS NULL AND "gatewayId" IS NULL)
+      OR ("meshNodeId" IS NOT NULL AND "gatewayId" IS NOT NULL)
+    );
+
+CREATE UNIQUE INDEX "Fixture_id_siteId_gatewayId_key"
+  ON "Fixture"("id", "siteId", "gatewayId");
+CREATE UNIQUE INDEX "Fixture_meshNodeId_gatewayId_key"
+  ON "Fixture"("meshNodeId", "gatewayId");
+CREATE INDEX "Fixture_floorId_siteId_idx" ON "Fixture"("floorId", "siteId");
+
+ALTER TABLE "Fixture"
+  ADD CONSTRAINT "Fixture_floorId_siteId_fkey"
+  FOREIGN KEY ("floorId", "siteId")
+  REFERENCES "Floor"("id", "siteId") ON DELETE RESTRICT ON UPDATE CASCADE,
+  ADD CONSTRAINT "Fixture_meshNodeId_gatewayId_fkey"
+  FOREIGN KEY ("meshNodeId", "gatewayId")
+  REFERENCES "MeshNode"("id", "gatewayId") ON DELETE SET NULL ON UPDATE CASCADE;
+
+CREATE FUNCTION "project_fixture_owner"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  derived_site_id TEXT;
+  derived_gateway_id TEXT;
+BEGIN
+  SELECT "siteId" INTO derived_site_id
+  FROM "Floor"
+  WHERE "id" = NEW."floorId";
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Fixture Floor does not exist' USING ERRCODE = '23503';
+  END IF;
+
+  IF NEW."siteId" IS NOT NULL AND NEW."siteId" IS DISTINCT FROM derived_site_id THEN
+    IF TG_OP = 'INSERT'
+      OR NEW."floorId" IS NOT DISTINCT FROM OLD."floorId"
+      OR NEW."siteId" IS DISTINCT FROM OLD."siteId"
+    THEN
+      RAISE EXCEPTION 'Fixture Site does not match Floor owner' USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  NEW."siteId" := derived_site_id;
+
+  IF NEW."meshNodeId" IS NULL THEN
+    IF NEW."gatewayId" IS NOT NULL THEN
+      IF TG_OP = 'INSERT'
+        OR NEW."meshNodeId" IS NOT DISTINCT FROM OLD."meshNodeId"
+        OR NEW."gatewayId" IS DISTINCT FROM OLD."gatewayId"
+      THEN
+        RAISE EXCEPTION 'Fixture Gateway must be null without MeshNode' USING ERRCODE = '23514';
+      END IF;
+    END IF;
+    NEW."gatewayId" := NULL;
+    RETURN NEW;
+  END IF;
+
+  SELECT "gatewayId" INTO derived_gateway_id
+  FROM "MeshNode"
+  WHERE "id" = NEW."meshNodeId";
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Fixture MeshNode does not exist' USING ERRCODE = '23503';
+  END IF;
+
+  IF NEW."gatewayId" IS NOT NULL AND NEW."gatewayId" IS DISTINCT FROM derived_gateway_id THEN
+    IF TG_OP = 'INSERT'
+      OR NEW."meshNodeId" IS NOT DISTINCT FROM OLD."meshNodeId"
+      OR NEW."gatewayId" IS DISTINCT FROM OLD."gatewayId"
+    THEN
+      RAISE EXCEPTION 'Fixture Gateway does not match MeshNode owner' USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  NEW."gatewayId" := derived_gateway_id;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "Fixture_owner_projection"
+BEFORE INSERT OR UPDATE OF "floorId", "meshNodeId", "siteId", "gatewayId" ON "Fixture"
+FOR EACH ROW EXECUTE FUNCTION "project_fixture_owner"();
 
 ALTER TABLE "MqttOutbox"
   ALTER COLUMN "dispatchId" DROP NOT NULL,
@@ -121,6 +226,7 @@ CREATE TABLE "LightingSchedule" (
   "brightnessPercent" INTEGER NOT NULL,
   "desiredRevision" INTEGER NOT NULL DEFAULT 0,
   "appliedRevision" INTEGER NOT NULL DEFAULT 0,
+  "targetCount" INTEGER NOT NULL DEFAULT 0,
   "createdById" TEXT NOT NULL,
   "updatedById" TEXT NOT NULL,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -135,6 +241,7 @@ CREATE TABLE "LightingSchedule" (
       AND "appliedRevision" <= "desiredRevision"
     ),
   CONSTRAINT "LightingSchedule_brightness_check" CHECK ("brightnessPercent" BETWEEN 0 AND 100),
+  CONSTRAINT "LightingSchedule_target_count_check" CHECK ("targetCount" >= 0),
   CONSTRAINT "LightingSchedule_active_range_check" CHECK ("activeFrom" <= "activeUntil"),
   CONSTRAINT "LightingSchedule_local_time_check"
     CHECK (
@@ -203,6 +310,8 @@ CREATE TABLE "VehicleEventRule" (
   "holdSeconds" INTEGER NOT NULL DEFAULT 60,
   "desiredRevision" INTEGER NOT NULL DEFAULT 0,
   "appliedRevision" INTEGER NOT NULL DEFAULT 0,
+  "sourceCount" INTEGER NOT NULL DEFAULT 0,
+  "targetCount" INTEGER NOT NULL DEFAULT 0,
   "createdById" TEXT NOT NULL,
   "updatedById" TEXT NOT NULL,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -217,7 +326,9 @@ CREATE TABLE "VehicleEventRule" (
       AND "appliedRevision" <= "desiredRevision"
     ),
   CONSTRAINT "VehicleEventRule_brightness_check" CHECK ("brightnessPercent" BETWEEN 0 AND 100),
-  CONSTRAINT "VehicleEventRule_hold_check" CHECK ("holdSeconds" BETWEEN 5 AND 1800)
+  CONSTRAINT "VehicleEventRule_hold_check" CHECK ("holdSeconds" BETWEEN 5 AND 1800),
+  CONSTRAINT "VehicleEventRule_source_count_check" CHECK ("sourceCount" >= 0),
+  CONSTRAINT "VehicleEventRule_target_count_check" CHECK ("targetCount" >= 0)
 );
 
 CREATE TABLE "VehicleEventSource" (
@@ -250,11 +361,13 @@ CREATE TABLE "ManualOverride" (
   "startedAt" TIMESTAMP(3) NOT NULL,
   "overrideUntil" TIMESTAMP(3) NOT NULL,
   "endedAt" TIMESTAMP(3),
+  "targetCount" INTEGER NOT NULL DEFAULT 0,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
 
   CONSTRAINT "ManualOverride_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "ManualOverride_brightness_check" CHECK ("brightnessPercent" BETWEEN 0 AND 100),
+  CONSTRAINT "ManualOverride_target_count_check" CHECK ("targetCount" >= 0),
   CONSTRAINT "ManualOverride_time_range_check"
     CHECK (
       "overrideUntil" > "startedAt"
@@ -393,8 +506,9 @@ ALTER TABLE "LightingScheduleFixture"
   ADD CONSTRAINT "LightingScheduleFixture_scheduleId_siteId_gatewayId_fkey"
   FOREIGN KEY ("scheduleId", "siteId", "gatewayId")
   REFERENCES "LightingSchedule"("id", "siteId", "gatewayId") ON DELETE CASCADE ON UPDATE RESTRICT,
-  ADD CONSTRAINT "LightingScheduleFixture_fixtureId_fkey"
-  FOREIGN KEY ("fixtureId") REFERENCES "Fixture"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+  ADD CONSTRAINT "LightingScheduleFixture_fixtureId_siteId_gatewayId_fkey"
+  FOREIGN KEY ("fixtureId", "siteId", "gatewayId")
+  REFERENCES "Fixture"("id", "siteId", "gatewayId") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 ALTER TABLE "VehicleEventRule"
   ADD CONSTRAINT "VehicleEventRule_gatewayId_siteId_fkey"
@@ -410,15 +524,17 @@ ALTER TABLE "VehicleEventSource"
   ADD CONSTRAINT "VehicleEventSource_ruleId_siteId_gatewayId_fkey"
   FOREIGN KEY ("ruleId", "siteId", "gatewayId")
   REFERENCES "VehicleEventRule"("id", "siteId", "gatewayId") ON DELETE CASCADE ON UPDATE RESTRICT,
-  ADD CONSTRAINT "VehicleEventSource_fixtureId_fkey"
-  FOREIGN KEY ("fixtureId") REFERENCES "Fixture"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+  ADD CONSTRAINT "VehicleEventSource_fixtureId_siteId_gatewayId_fkey"
+  FOREIGN KEY ("fixtureId", "siteId", "gatewayId")
+  REFERENCES "Fixture"("id", "siteId", "gatewayId") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 ALTER TABLE "VehicleEventTarget"
   ADD CONSTRAINT "VehicleEventTarget_ruleId_siteId_gatewayId_fkey"
   FOREIGN KEY ("ruleId", "siteId", "gatewayId")
   REFERENCES "VehicleEventRule"("id", "siteId", "gatewayId") ON DELETE CASCADE ON UPDATE RESTRICT,
-  ADD CONSTRAINT "VehicleEventTarget_fixtureId_fkey"
-  FOREIGN KEY ("fixtureId") REFERENCES "Fixture"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+  ADD CONSTRAINT "VehicleEventTarget_fixtureId_siteId_gatewayId_fkey"
+  FOREIGN KEY ("fixtureId", "siteId", "gatewayId")
+  REFERENCES "Fixture"("id", "siteId", "gatewayId") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 ALTER TABLE "ManualOverride"
   ADD CONSTRAINT "ManualOverride_gatewayId_siteId_fkey"
@@ -435,8 +551,9 @@ ALTER TABLE "ManualOverrideFixture"
   ADD CONSTRAINT "ManualOverrideFixture_manualOverrideId_siteId_gatewayId_fkey"
   FOREIGN KEY ("manualOverrideId", "siteId", "gatewayId")
   REFERENCES "ManualOverride"("id", "siteId", "gatewayId") ON DELETE CASCADE ON UPDATE RESTRICT,
-  ADD CONSTRAINT "ManualOverrideFixture_fixtureId_fkey"
-  FOREIGN KEY ("fixtureId") REFERENCES "Fixture"("id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+  ADD CONSTRAINT "ManualOverrideFixture_fixtureId_siteId_gatewayId_fkey"
+  FOREIGN KEY ("fixtureId", "siteId", "gatewayId")
+  REFERENCES "Fixture"("id", "siteId", "gatewayId") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 ALTER TABLE "AutomationExecution"
   ADD CONSTRAINT "AutomationExecution_gatewayId_siteId_fkey"
@@ -455,184 +572,6 @@ ALTER TABLE "AutomationExecutionFixtureResult"
   FOREIGN KEY ("executionId") REFERENCES "AutomationExecution"("id") ON DELETE CASCADE ON UPDATE RESTRICT,
   ADD CONSTRAINT "AutomationExecutionFixtureResult_fixtureId_fkey"
   FOREIGN KEY ("fixtureId") REFERENCES "Fixture"("id") ON DELETE SET NULL ON UPDATE RESTRICT;
-
-CREATE FUNCTION "validate_automation_fixture_scope"()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  fixture_site_id TEXT;
-  fixture_mesh_node_id TEXT;
-  fixture_gateway_id TEXT;
-BEGIN
-  SELECT floor."siteId", fixture."meshNodeId"
-  INTO fixture_site_id, fixture_mesh_node_id
-  FROM "Fixture" AS fixture
-  JOIN "Floor" AS floor ON floor."id" = fixture."floorId"
-  WHERE fixture."id" = NEW."fixtureId"
-  FOR SHARE OF fixture, floor;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'automation fixture does not exist' USING ERRCODE = '23514';
-  END IF;
-  IF fixture_mesh_node_id IS NULL THEN
-    RAISE EXCEPTION 'fixture must be assigned to a MeshNode' USING ERRCODE = '23514';
-  END IF;
-
-  SELECT "gatewayId"
-  INTO fixture_gateway_id
-  FROM "MeshNode"
-  WHERE "id" = fixture_mesh_node_id
-  FOR SHARE;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'fixture must be assigned to a MeshNode' USING ERRCODE = '23514';
-  END IF;
-  IF fixture_site_id IS DISTINCT FROM NEW."siteId" THEN
-    RAISE EXCEPTION 'fixture Site does not match automation owner' USING ERRCODE = '23514';
-  END IF;
-  IF fixture_gateway_id IS DISTINCT FROM NEW."gatewayId" THEN
-    RAISE EXCEPTION 'fixture Gateway does not match automation owner' USING ERRCODE = '23514';
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER "LightingScheduleFixture_scope_check"
-BEFORE INSERT OR UPDATE OF "fixtureId", "siteId", "gatewayId" ON "LightingScheduleFixture"
-FOR EACH ROW EXECUTE FUNCTION "validate_automation_fixture_scope"();
-
-CREATE TRIGGER "VehicleEventSource_scope_check"
-BEFORE INSERT OR UPDATE OF "fixtureId", "siteId", "gatewayId" ON "VehicleEventSource"
-FOR EACH ROW EXECUTE FUNCTION "validate_automation_fixture_scope"();
-
-CREATE TRIGGER "VehicleEventTarget_scope_check"
-BEFORE INSERT OR UPDATE OF "fixtureId", "siteId", "gatewayId" ON "VehicleEventTarget"
-FOR EACH ROW EXECUTE FUNCTION "validate_automation_fixture_scope"();
-
-CREATE TRIGGER "ManualOverrideFixture_scope_check"
-BEFORE INSERT OR UPDATE OF "fixtureId", "siteId", "gatewayId" ON "ManualOverrideFixture"
-FOR EACH ROW EXECUTE FUNCTION "validate_automation_fixture_scope"();
-
-CREATE FUNCTION "prevent_fixture_automation_scope_change"()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  fixture_site_id TEXT;
-  fixture_gateway_id TEXT;
-BEGIN
-  SELECT "siteId" INTO fixture_site_id FROM "Floor" WHERE "id" = NEW."floorId" FOR SHARE;
-  SELECT "gatewayId" INTO fixture_gateway_id FROM "MeshNode" WHERE "id" = NEW."meshNodeId" FOR SHARE;
-
-  IF EXISTS (
-    SELECT 1
-    FROM (
-      SELECT "siteId", "gatewayId" FROM "LightingScheduleFixture" WHERE "fixtureId" = OLD."id"
-      UNION ALL
-      SELECT "siteId", "gatewayId" FROM "VehicleEventSource" WHERE "fixtureId" = OLD."id"
-      UNION ALL
-      SELECT "siteId", "gatewayId" FROM "VehicleEventTarget" WHERE "fixtureId" = OLD."id"
-      UNION ALL
-      SELECT "siteId", "gatewayId" FROM "ManualOverrideFixture" WHERE "fixtureId" = OLD."id"
-    ) AS automation_reference
-    WHERE automation_reference."siteId" IS DISTINCT FROM fixture_site_id
-  ) THEN
-    RAISE EXCEPTION 'fixture Site change would invalidate automation references' USING ERRCODE = '23514';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1
-    FROM (
-      SELECT "siteId", "gatewayId" FROM "LightingScheduleFixture" WHERE "fixtureId" = OLD."id"
-      UNION ALL
-      SELECT "siteId", "gatewayId" FROM "VehicleEventSource" WHERE "fixtureId" = OLD."id"
-      UNION ALL
-      SELECT "siteId", "gatewayId" FROM "VehicleEventTarget" WHERE "fixtureId" = OLD."id"
-      UNION ALL
-      SELECT "siteId", "gatewayId" FROM "ManualOverrideFixture" WHERE "fixtureId" = OLD."id"
-    ) AS automation_reference
-    WHERE automation_reference."gatewayId" IS DISTINCT FROM fixture_gateway_id
-  ) THEN
-    RAISE EXCEPTION 'fixture Gateway change would invalidate automation references' USING ERRCODE = '23514';
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER "Fixture_automation_scope_change_guard"
-BEFORE UPDATE OF "floorId", "meshNodeId" ON "Fixture"
-FOR EACH ROW
-WHEN (OLD."floorId" IS DISTINCT FROM NEW."floorId" OR OLD."meshNodeId" IS DISTINCT FROM NEW."meshNodeId")
-EXECUTE FUNCTION "prevent_fixture_automation_scope_change"();
-
-CREATE FUNCTION "prevent_floor_automation_scope_change"()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM "Fixture" AS fixture
-    JOIN (
-      SELECT "fixtureId", "siteId" FROM "LightingScheduleFixture"
-      UNION ALL
-      SELECT "fixtureId", "siteId" FROM "VehicleEventSource"
-      UNION ALL
-      SELECT "fixtureId", "siteId" FROM "VehicleEventTarget"
-      UNION ALL
-      SELECT "fixtureId", "siteId" FROM "ManualOverrideFixture"
-    ) AS automation_reference ON automation_reference."fixtureId" = fixture."id"
-    WHERE fixture."floorId" = OLD."id"
-      AND automation_reference."siteId" IS DISTINCT FROM NEW."siteId"
-  ) THEN
-    RAISE EXCEPTION 'Floor Site change would invalidate automation references' USING ERRCODE = '23514';
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER "Floor_automation_scope_change_guard"
-BEFORE UPDATE OF "siteId" ON "Floor"
-FOR EACH ROW
-WHEN (OLD."siteId" IS DISTINCT FROM NEW."siteId")
-EXECUTE FUNCTION "prevent_floor_automation_scope_change"();
-
-CREATE FUNCTION "prevent_mesh_node_automation_scope_change"()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM "Fixture" AS fixture
-    JOIN (
-      SELECT "fixtureId", "gatewayId" FROM "LightingScheduleFixture"
-      UNION ALL
-      SELECT "fixtureId", "gatewayId" FROM "VehicleEventSource"
-      UNION ALL
-      SELECT "fixtureId", "gatewayId" FROM "VehicleEventTarget"
-      UNION ALL
-      SELECT "fixtureId", "gatewayId" FROM "ManualOverrideFixture"
-    ) AS automation_reference ON automation_reference."fixtureId" = fixture."id"
-    WHERE fixture."meshNodeId" = OLD."id"
-      AND automation_reference."gatewayId" IS DISTINCT FROM NEW."gatewayId"
-  ) THEN
-    RAISE EXCEPTION 'MeshNode Gateway change would invalidate automation references' USING ERRCODE = '23514';
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER "MeshNode_automation_scope_change_guard"
-BEFORE UPDATE OF "gatewayId" ON "MeshNode"
-FOR EACH ROW
-WHEN (OLD."gatewayId" IS DISTINCT FROM NEW."gatewayId")
-EXECUTE FUNCTION "prevent_mesh_node_automation_scope_change"();
 
 CREATE FUNCTION "validate_automation_execution_source"()
 RETURNS TRIGGER
@@ -749,17 +688,83 @@ BEFORE INSERT OR UPDATE OF
 ON "AutomationExecution"
 FOR EACH ROW EXECUTE FUNCTION "validate_automation_execution_source"();
 
+CREATE FUNCTION "maintain_lighting_schedule_target_count"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  old_parent_id TEXT;
+  new_parent_id TEXT;
+BEGIN
+  IF TG_OP IN ('DELETE', 'UPDATE') THEN
+    old_parent_id := OLD."scheduleId";
+  END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    new_parent_id := NEW."scheduleId";
+  END IF;
+
+  IF old_parent_id IS NOT NULL
+    AND new_parent_id IS NOT NULL
+    AND old_parent_id IS DISTINCT FROM new_parent_id
+  THEN
+    PERFORM 1
+    FROM "LightingSchedule"
+    WHERE "id" IN (old_parent_id, new_parent_id)
+    ORDER BY "id"
+    FOR UPDATE;
+  END IF;
+
+  IF old_parent_id IS NOT NULL AND old_parent_id IS DISTINCT FROM new_parent_id THEN
+    UPDATE "LightingSchedule"
+    SET "targetCount" = "targetCount" - 1
+    WHERE "id" = old_parent_id AND "targetCount" > 0;
+
+    IF NOT FOUND AND EXISTS (SELECT 1 FROM "LightingSchedule" WHERE "id" = old_parent_id) THEN
+      RAISE EXCEPTION 'lighting schedule target counter cannot underflow' USING ERRCODE = '23514';
+    END IF;
+  END IF;
+
+  IF new_parent_id IS NOT NULL AND new_parent_id IS DISTINCT FROM old_parent_id THEN
+    UPDATE "LightingSchedule"
+    SET "targetCount" = "targetCount" + 1
+    WHERE "id" = new_parent_id;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "LightingScheduleFixture_target_count_maintenance"
+BEFORE INSERT OR UPDATE OR DELETE ON "LightingScheduleFixture"
+FOR EACH ROW EXECUTE FUNCTION "maintain_lighting_schedule_target_count"();
+
 CREATE FUNCTION "assert_lighting_schedule_has_target"(schedule_id TEXT)
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  stored_count INTEGER;
+  actual_count INTEGER;
 BEGIN
-  PERFORM 1 FROM "LightingSchedule" WHERE "id" = schedule_id FOR UPDATE;
+  SELECT "targetCount" INTO stored_count
+  FROM "LightingSchedule"
+  WHERE "id" = schedule_id;
+
   IF NOT FOUND THEN
     RETURN;
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM "LightingScheduleFixture" WHERE "scheduleId" = schedule_id) THEN
+  SELECT COUNT(*)::INTEGER INTO actual_count
+  FROM "LightingScheduleFixture"
+  WHERE "scheduleId" = schedule_id;
+
+  IF stored_count IS DISTINCT FROM actual_count THEN
+    RAISE EXCEPTION 'lighting schedule target counter does not match fixture rows' USING ERRCODE = '23514';
+  END IF;
+  IF stored_count < 1 THEN
     RAISE EXCEPTION 'lighting schedule requires at least one target fixture' USING ERRCODE = '23514';
   END IF;
 END;
@@ -794,19 +799,105 @@ AFTER INSERT OR UPDATE OR DELETE ON "LightingScheduleFixture"
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION "enforce_lighting_schedule_target_cardinality"();
 
+CREATE FUNCTION "maintain_vehicle_event_fixture_counts"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  old_parent_id TEXT;
+  new_parent_id TEXT;
+  counter_column TEXT;
+  affected_rows INTEGER;
+BEGIN
+  counter_column := CASE TG_TABLE_NAME
+    WHEN 'VehicleEventSource' THEN 'sourceCount'
+    WHEN 'VehicleEventTarget' THEN 'targetCount'
+  END;
+
+  IF TG_OP IN ('DELETE', 'UPDATE') THEN
+    old_parent_id := OLD."ruleId";
+  END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    new_parent_id := NEW."ruleId";
+  END IF;
+
+  IF old_parent_id IS NOT NULL
+    AND new_parent_id IS NOT NULL
+    AND old_parent_id IS DISTINCT FROM new_parent_id
+  THEN
+    PERFORM 1
+    FROM "VehicleEventRule"
+    WHERE "id" IN (old_parent_id, new_parent_id)
+    ORDER BY "id"
+    FOR UPDATE;
+  END IF;
+
+  IF old_parent_id IS NOT NULL AND old_parent_id IS DISTINCT FROM new_parent_id THEN
+    EXECUTE format(
+      'UPDATE "VehicleEventRule" SET %1$I = %1$I - 1 WHERE "id" = $1 AND %1$I > 0',
+      counter_column
+    ) USING old_parent_id;
+    GET DIAGNOSTICS affected_rows = ROW_COUNT;
+
+    IF affected_rows = 0 AND EXISTS (SELECT 1 FROM "VehicleEventRule" WHERE "id" = old_parent_id) THEN
+      RAISE EXCEPTION 'vehicle event % counter cannot underflow', counter_column USING ERRCODE = '23514';
+    END IF;
+  END IF;
+
+  IF new_parent_id IS NOT NULL AND new_parent_id IS DISTINCT FROM old_parent_id THEN
+    EXECUTE format(
+      'UPDATE "VehicleEventRule" SET %1$I = %1$I + 1 WHERE "id" = $1',
+      counter_column
+    ) USING new_parent_id;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "VehicleEventSource_count_maintenance"
+BEFORE INSERT OR UPDATE OR DELETE ON "VehicleEventSource"
+FOR EACH ROW EXECUTE FUNCTION "maintain_vehicle_event_fixture_counts"();
+
+CREATE TRIGGER "VehicleEventTarget_count_maintenance"
+BEFORE INSERT OR UPDATE OR DELETE ON "VehicleEventTarget"
+FOR EACH ROW EXECUTE FUNCTION "maintain_vehicle_event_fixture_counts"();
+
 CREATE FUNCTION "assert_vehicle_event_rule_has_source_and_target"(rule_id TEXT)
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  stored_source_count INTEGER;
+  stored_target_count INTEGER;
+  actual_source_count INTEGER;
+  actual_target_count INTEGER;
 BEGIN
-  PERFORM 1 FROM "VehicleEventRule" WHERE "id" = rule_id FOR UPDATE;
+  SELECT "sourceCount", "targetCount"
+  INTO stored_source_count, stored_target_count
+  FROM "VehicleEventRule"
+  WHERE "id" = rule_id;
+
   IF NOT FOUND THEN
     RETURN;
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM "VehicleEventSource" WHERE "ruleId" = rule_id)
-    OR NOT EXISTS (SELECT 1 FROM "VehicleEventTarget" WHERE "ruleId" = rule_id)
+  SELECT COUNT(*)::INTEGER INTO actual_source_count
+  FROM "VehicleEventSource"
+  WHERE "ruleId" = rule_id;
+  SELECT COUNT(*)::INTEGER INTO actual_target_count
+  FROM "VehicleEventTarget"
+  WHERE "ruleId" = rule_id;
+
+  IF stored_source_count IS DISTINCT FROM actual_source_count
+    OR stored_target_count IS DISTINCT FROM actual_target_count
   THEN
+    RAISE EXCEPTION 'vehicle event counters do not match fixture rows' USING ERRCODE = '23514';
+  END IF;
+  IF stored_source_count < 1 OR stored_target_count < 1 THEN
     RAISE EXCEPTION 'vehicle event rule requires at least one source and target fixture' USING ERRCODE = '23514';
   END IF;
 END;
@@ -846,17 +937,83 @@ AFTER INSERT OR UPDATE OR DELETE ON "VehicleEventTarget"
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION "enforce_vehicle_event_rule_cardinality"();
 
+CREATE FUNCTION "maintain_manual_override_target_count"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  old_parent_id TEXT;
+  new_parent_id TEXT;
+BEGIN
+  IF TG_OP IN ('DELETE', 'UPDATE') THEN
+    old_parent_id := OLD."manualOverrideId";
+  END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    new_parent_id := NEW."manualOverrideId";
+  END IF;
+
+  IF old_parent_id IS NOT NULL
+    AND new_parent_id IS NOT NULL
+    AND old_parent_id IS DISTINCT FROM new_parent_id
+  THEN
+    PERFORM 1
+    FROM "ManualOverride"
+    WHERE "id" IN (old_parent_id, new_parent_id)
+    ORDER BY "id"
+    FOR UPDATE;
+  END IF;
+
+  IF old_parent_id IS NOT NULL AND old_parent_id IS DISTINCT FROM new_parent_id THEN
+    UPDATE "ManualOverride"
+    SET "targetCount" = "targetCount" - 1
+    WHERE "id" = old_parent_id AND "targetCount" > 0;
+
+    IF NOT FOUND AND EXISTS (SELECT 1 FROM "ManualOverride" WHERE "id" = old_parent_id) THEN
+      RAISE EXCEPTION 'manual override target counter cannot underflow' USING ERRCODE = '23514';
+    END IF;
+  END IF;
+
+  IF new_parent_id IS NOT NULL AND new_parent_id IS DISTINCT FROM old_parent_id THEN
+    UPDATE "ManualOverride"
+    SET "targetCount" = "targetCount" + 1
+    WHERE "id" = new_parent_id;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "ManualOverrideFixture_target_count_maintenance"
+BEFORE INSERT OR UPDATE OR DELETE ON "ManualOverrideFixture"
+FOR EACH ROW EXECUTE FUNCTION "maintain_manual_override_target_count"();
+
 CREATE FUNCTION "assert_manual_override_has_target"(manual_override_id TEXT)
 RETURNS VOID
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  stored_count INTEGER;
+  actual_count INTEGER;
 BEGIN
-  PERFORM 1 FROM "ManualOverride" WHERE "id" = manual_override_id FOR UPDATE;
+  SELECT "targetCount" INTO stored_count
+  FROM "ManualOverride"
+  WHERE "id" = manual_override_id;
+
   IF NOT FOUND THEN
     RETURN;
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM "ManualOverrideFixture" WHERE "manualOverrideId" = manual_override_id) THEN
+  SELECT COUNT(*)::INTEGER INTO actual_count
+  FROM "ManualOverrideFixture"
+  WHERE "manualOverrideId" = manual_override_id;
+
+  IF stored_count IS DISTINCT FROM actual_count THEN
+    RAISE EXCEPTION 'manual override target counter does not match fixture rows' USING ERRCODE = '23514';
+  END IF;
+  IF stored_count < 1 THEN
     RAISE EXCEPTION 'manual override requires at least one target fixture' USING ERRCODE = '23514';
   END IF;
 END;
