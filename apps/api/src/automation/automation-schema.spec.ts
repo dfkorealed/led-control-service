@@ -154,6 +154,19 @@ describe("automation Prisma schema contract", () => {
     expect(migration).toContain('CREATE FUNCTION "maintain_lighting_schedule_target_count"');
     expect(migration).toContain('CREATE FUNCTION "maintain_vehicle_event_fixture_counts"');
     expect(migration).toContain('CREATE FUNCTION "maintain_manual_override_target_count"');
+    expect(migration).toContain('SELECT pg_advisory_xact_lock(1279607873, 1296387394)');
+    for (const functionName of [
+      "maintain_lighting_schedule_target_count",
+      "maintain_vehicle_event_fixture_counts",
+      "maintain_manual_override_target_count"
+    ]) {
+      expect(migration).toMatch(
+        new RegExp(
+          `CREATE FUNCTION "${functionName}"\\(\\)[\\s\\S]*?BEGIN\\s+` +
+          `PERFORM "lock_automation_membership_mutation"\\(\\);`
+        )
+      );
+    }
     expect(migration).toContain('ORDER BY "id"');
   });
 
@@ -761,62 +774,90 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     }
   );
 
-  it("moves children between opposite parents without deadlock", async () => {
-    const firstScheduleId = "automation-schema-move-schedule-a";
-    const secondScheduleId = "automation-schema-move-schedule-b";
+  it("serializes opposite multi-row membership moves and deletes without deadlock", async () => {
+    const firstScheduleId = "automation-schema-multi-row-schedule-a";
+    const secondScheduleId = "automation-schema-multi-row-schedule-b";
+    const thirdScheduleId = "automation-schema-multi-row-schedule-c";
+    const fourthScheduleId = "automation-schema-multi-row-schedule-d";
     executeSql(`
       BEGIN;
       ${scheduleInsert(firstScheduleId)}
       ${scheduleFixtureInsert(firstScheduleId, "automation-schema-fixture-a")}
       ${scheduleFixtureInsert(firstScheduleId, "automation-schema-fixture-a-extra")}
+      ${scheduleFixtureInsert(firstScheduleId, "automation-schema-fixture-a-fourth")}
       ${scheduleInsert(secondScheduleId)}
       ${scheduleFixtureInsert(secondScheduleId, "automation-schema-fixture-a-third")}
-      ${scheduleFixtureInsert(secondScheduleId, "automation-schema-fixture-a-fourth")}
+      ${scheduleInsert(thirdScheduleId)}
+      ${scheduleFixtureInsert(thirdScheduleId, "automation-schema-fixture-a")}
+      ${scheduleFixtureInsert(thirdScheduleId, "automation-schema-fixture-a-extra")}
+      ${scheduleFixtureInsert(thirdScheduleId, "automation-schema-fixture-a-third")}
+      ${scheduleInsert(fourthScheduleId)}
+      ${scheduleFixtureInsert(fourthScheduleId, "automation-schema-fixture-a-fourth")}
       COMMIT;
     `);
 
     const firstConnection = startSqlSession(`
       BEGIN;
-      SET LOCAL deadlock_timeout = '200ms';
-      SET LOCAL lock_timeout = '3s';
+      SET LOCAL deadlock_timeout = '100ms';
+      SET LOCAL lock_timeout = '2s';
       UPDATE "LightingScheduleFixture"
       SET "scheduleId" = '${secondScheduleId}'
       WHERE "scheduleId" = '${firstScheduleId}'
         AND "fixtureId" = 'automation-schema-fixture-a';
-      SELECT 'automation-opposite-move-ready';
+      SELECT 'automation-multi-row-first-ready';
       SELECT pg_sleep(0.5);
+      DELETE FROM "LightingScheduleFixture"
+      WHERE "scheduleId" = '${thirdScheduleId}'
+        AND "fixtureId" = 'automation-schema-fixture-a-extra';
       COMMIT;
     `);
-    await firstConnection.waitForOutput("automation-opposite-move-ready");
+    await firstConnection.waitForOutput("automation-multi-row-first-ready");
 
-    const secondResult = runSql(`
+    const secondConnection = startSqlSession(`
       BEGIN;
-      SET LOCAL deadlock_timeout = '200ms';
-      SET LOCAL lock_timeout = '3s';
+      SET LOCAL deadlock_timeout = '100ms';
+      SET LOCAL lock_timeout = '2s';
       UPDATE "LightingScheduleFixture"
-      SET "scheduleId" = '${firstScheduleId}'
-      WHERE "scheduleId" = '${secondScheduleId}'
+      SET "scheduleId" = '${fourthScheduleId}'
+      WHERE "scheduleId" = '${thirdScheduleId}'
         AND "fixtureId" = 'automation-schema-fixture-a-third';
+      SELECT pg_sleep(0.5);
+      DELETE FROM "LightingScheduleFixture"
+      WHERE "scheduleId" = '${firstScheduleId}'
+        AND "fixtureId" = 'automation-schema-fixture-a-fourth';
       COMMIT;
     `);
-    const firstResult = await firstConnection.completion;
+    const [firstResult, secondResult] = await Promise.all([
+      firstConnection.completion,
+      secondConnection.completion
+    ]);
     const actualCounts = querySql(`
-      SELECT "scheduleId" || ':' || COUNT(*)
-      FROM "LightingScheduleFixture"
-      WHERE "scheduleId" IN ('${firstScheduleId}', '${secondScheduleId}')
-      GROUP BY "scheduleId"
-      ORDER BY "scheduleId";
+      SELECT schedule."id" || ':' || schedule."targetCount" || ':' || COUNT(target.*)
+      FROM "LightingSchedule" AS schedule
+      LEFT JOIN "LightingScheduleFixture" AS target ON target."scheduleId" = schedule."id"
+      WHERE schedule."id" IN (
+        '${firstScheduleId}', '${secondScheduleId}', '${thirdScheduleId}', '${fourthScheduleId}'
+      )
+      GROUP BY schedule."id"
+      ORDER BY schedule."id";
     `);
     executeSql(`
       DELETE FROM "LightingSchedule"
-      WHERE "id" IN ('${firstScheduleId}', '${secondScheduleId}');
+      WHERE "id" IN (
+        '${firstScheduleId}', '${secondScheduleId}', '${thirdScheduleId}', '${fourthScheduleId}'
+      );
     `);
 
+    const concurrencyErrors = `${firstResult.stderr}\n${secondResult.stderr}`;
+    expect(concurrencyErrors).not.toMatch(/deadlock detected|canceling statement due to lock timeout/);
     expect(firstResult.status).toBe(0);
     expect(firstResult.stderr).toBe("");
     expect(secondResult.status).toBe(0);
     expect(secondResult.stderr).toBe("");
-    expect(actualCounts).toBe(`${firstScheduleId}:2\n${secondScheduleId}:2`);
+    expect(actualCounts).toBe(
+      `${firstScheduleId}:1:1\n${secondScheduleId}:2:2\n` +
+      `${thirdScheduleId}:1:1\n${fourthScheduleId}:2:2`
+    );
   });
 
   it("maintains exact counters, rejects reconciliation drift, and permits parent cascades", () => {

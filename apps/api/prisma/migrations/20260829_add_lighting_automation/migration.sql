@@ -688,6 +688,19 @@ BEFORE INSERT OR UPDATE OF
 ON "AutomationExecution"
 FOR EACH ROW EXECUTE FUNCTION "validate_automation_execution_source"();
 
+CREATE FUNCTION "lock_automation_membership_mutation"()
+RETURNS VOID
+LANGUAGE SQL
+VOLATILE
+PARALLEL UNSAFE
+AS $$
+  -- LEDA/MEMB is a fixed namespace for low-frequency automation membership writes.
+  SELECT pg_advisory_xact_lock(1279607873, 1296387394);
+$$;
+
+COMMENT ON FUNCTION "lock_automation_membership_mutation"() IS
+  'Serializes schedule target, vehicle source/target, and manual target membership mutations with advisory key (1279607873, 1296387394).';
+
 CREATE FUNCTION "maintain_lighting_schedule_target_count"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -696,6 +709,8 @@ DECLARE
   old_parent_id TEXT;
   new_parent_id TEXT;
 BEGIN
+  PERFORM "lock_automation_membership_mutation"();
+
   IF TG_OP IN ('DELETE', 'UPDATE') THEN
     old_parent_id := OLD."scheduleId";
   END IF;
@@ -809,6 +824,8 @@ DECLARE
   counter_column TEXT;
   affected_rows INTEGER;
 BEGIN
+  PERFORM "lock_automation_membership_mutation"();
+
   counter_column := CASE TG_TABLE_NAME
     WHEN 'VehicleEventSource' THEN 'sourceCount'
     WHEN 'VehicleEventTarget' THEN 'targetCount'
@@ -945,6 +962,8 @@ DECLARE
   old_parent_id TEXT;
   new_parent_id TEXT;
 BEGIN
+  PERFORM "lock_automation_membership_mutation"();
+
   IF TG_OP IN ('DELETE', 'UPDATE') THEN
     old_parent_id := OLD."manualOverrideId";
   END IF;
