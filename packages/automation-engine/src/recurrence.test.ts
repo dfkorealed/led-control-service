@@ -62,6 +62,38 @@ describe("schedule recurrence", () => {
     });
   });
 
+  it("finds an active occurrence across Apia's skipped local date", () => {
+    const rule = schedule({
+      activeFrom: "2011-12-29T10:00:00Z",
+      activeUntil: "2011-12-30T09:59:59Z",
+      localStartTime: "23:00",
+      localEndTime: "02:00"
+    });
+
+    expect(getActiveOccurrence(rule, Date.parse("2011-12-30T11:00:00Z"), "Pacific/Apia")).toMatchObject({
+      localDate: "2011-12-29",
+      startsAtEpochMs: Date.parse("2011-12-30T09:00:00Z"),
+      endsAtEpochMs: Date.parse("2011-12-30T12:00:00Z")
+    });
+  });
+
+  it("lists spill-in occurrences across Apia's skipped local date", () => {
+    const rule = schedule({
+      activeFrom: "2011-12-29T10:00:00Z",
+      activeUntil: "2011-12-30T09:59:59Z",
+      localStartTime: "23:00",
+      localEndTime: "02:00"
+    });
+
+    const occurrences = getOccurrences(rule, {
+      startsAtEpochMs: Date.parse("2011-12-30T10:30:00Z"),
+      endsAtEpochMs: Date.parse("2011-12-30T11:30:00Z")
+    }, "Pacific/Apia");
+
+    expect(occurrences).toHaveLength(1);
+    expect(occurrences[0]?.localDate).toBe("2011-12-29");
+  });
+
   it("uses compatible disambiguation once for a repeated local time", () => {
     const rule = schedule({
       activeFrom: "2026-11-01T00:00:00Z",

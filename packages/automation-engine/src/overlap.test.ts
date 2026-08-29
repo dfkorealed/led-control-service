@@ -65,6 +65,23 @@ describe("schedule overlap", () => {
     expect(schedulesOverlap(left, right, "UTC")).toBe(true);
   });
 
+  it("detects overlap across Apia's skipped local date", () => {
+    const left = schedule("left", {
+      activeFrom: "2011-12-29T10:00:00Z",
+      activeUntil: "2011-12-30T09:59:59Z",
+      localStartTime: "23:00",
+      localEndTime: "02:00"
+    });
+    const right = schedule("right", {
+      activeFrom: "2011-12-30T10:00:00Z",
+      activeUntil: "2011-12-31T09:59:59Z",
+      localStartTime: "01:00",
+      localEndTime: "03:00"
+    });
+
+    expect(schedulesOverlap(left, right, "Pacific/Apia")).toBe(true);
+  });
+
   it("finds a leap-day overlap in 2104 without sampling current dates", () => {
     const leapDay = schedule("leap-day", {
       activeFrom: "2099-01-01T00:00:00Z",

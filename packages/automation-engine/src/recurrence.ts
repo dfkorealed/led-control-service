@@ -13,6 +13,11 @@ export interface OccurrenceRange {
   endsAtEpochMs: number;
 }
 
+// Schedule wall-clock windows are shorter than 24 hours, but an IANA zone can
+// jump forward by 24 hours. A spill-in occurrence can therefore start up to two
+// local dates before the date containing the inspected instant.
+export const OCCURRENCE_SPILL_LOOKBACK_DAYS = 2;
+
 function instantDate(instant: string, timeZone: string): Temporal.PlainDate {
   return Temporal.Instant.from(instant).toZonedDateTimeISO(timeZone).toPlainDate();
 }
@@ -167,7 +172,9 @@ export function getOccurrences(
     return [];
   }
 
-  const firstDate = epochDate(range.startsAtEpochMs, timeZone).subtract({ days: 1 });
+  const firstDate = epochDate(range.startsAtEpochMs, timeZone).subtract({
+    days: OCCURRENCE_SPILL_LOOKBACK_DAYS
+  });
   const lastDate = epochDate(range.endsAtEpochMs, timeZone).add({ days: 1 });
 
   const occurrences: ScheduleOccurrence[] = [];
@@ -188,7 +195,8 @@ export function getActiveOccurrence(
   timeZone: string
 ): ScheduleOccurrence | null {
   const localDate = epochDate(epochMs, timeZone);
-  for (const occurrence of iterateScheduleOccurrences(rule, localDate.subtract({ days: 1 }), localDate, timeZone)) {
+  const firstDate = localDate.subtract({ days: OCCURRENCE_SPILL_LOOKBACK_DAYS });
+  for (const occurrence of iterateScheduleOccurrences(rule, firstDate, localDate, timeZone)) {
     if (occurrence.startsAtEpochMs <= epochMs && epochMs < occurrence.endsAtEpochMs) {
       return occurrence;
     }

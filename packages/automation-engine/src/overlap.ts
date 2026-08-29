@@ -1,6 +1,10 @@
 import { Temporal } from "@js-temporal/polyfill";
 import type { LightingScheduleSnapshotV1 } from "@led-control/shared";
-import { iterateScheduleOccurrences, type ScheduleOccurrence } from "./recurrence";
+import {
+  iterateScheduleOccurrences,
+  OCCURRENCE_SPILL_LOOKBACK_DAYS,
+  type ScheduleOccurrence
+} from "./recurrence";
 
 function activeDate(instant: string, timeZone: string): Temporal.PlainDate {
   return Temporal.Instant.from(instant).toZonedDateTimeISO(timeZone).toPlainDate();
@@ -61,10 +65,15 @@ export function schedulesOverlap(
   const rightFrom = activeDate(right.activeFrom, timeZone);
   const rightUntil = activeDate(right.activeUntil, timeZone);
 
-  // A local interval can end only on its start date or the following date.
-  // Expanding by one day preserves overlaps between adjacent active ranges.
-  const comparisonStart = laterDate(leftFrom, rightFrom).subtract({ days: 1 });
-  const comparisonEnd = earlierDate(leftUntil, rightUntil).add({ days: 1 });
+  // Expand both sides by the maximum spill distance so schedules whose active
+  // start-date ranges are separated by a skipped local date can still meet.
+  // Each iterator continues to clamp candidates to its own active date range.
+  const comparisonStart = laterDate(leftFrom, rightFrom).subtract({
+    days: OCCURRENCE_SPILL_LOOKBACK_DAYS
+  });
+  const comparisonEnd = earlierDate(leftUntil, rightUntil).add({
+    days: OCCURRENCE_SPILL_LOOKBACK_DAYS
+  });
   if (Temporal.PlainDate.compare(comparisonStart, comparisonEnd) > 0) {
     return false;
   }
