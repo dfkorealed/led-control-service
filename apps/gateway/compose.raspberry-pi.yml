@@ -15,8 +15,10 @@ services:
       - SETGID
       - CHOWN
       - DAC_OVERRIDE
+      - FOWNER
     security_opt:
       - no-new-privileges:true
+      - seccomp=./docker/seccomp-bluez-mesh.json
     tmpfs:
       - /run:rw,nosuid,nodev,size=16m
       - /tmp:rw,nosuid,nodev,noexec,size=32m

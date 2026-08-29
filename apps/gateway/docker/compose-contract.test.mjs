@@ -17,6 +17,17 @@ test("Raspberry Pi compose는 host network와 read-only runtime을 사용한다"
   assert.match(compose, /init:\s*true/);
   assert.match(compose, /restart:\s*unless-stopped/);
   assert.match(compose, /tmpfs:/);
+  assert.match(compose, /seccomp=\.\/docker\/seccomp-bluez-mesh\.json/);
+  assert.doesNotMatch(compose, /seccomp=unconfined/);
+});
+
+test("BlueZ Mesh seccomp profile은 Docker 기본 차단을 유지하고 AF_ALG만 추가 허용한다", async () => {
+  const profile = JSON.parse(await readFile(path.join(gatewayDir, "docker/seccomp-bluez-mesh.json"), "utf8"));
+  const socketRules = profile.syscalls.filter((rule) => rule.names.includes("socket") && rule.action === "SCMP_ACT_ALLOW");
+
+  assert.equal(profile.defaultAction, "SCMP_ACT_ERRNO");
+  assert.equal(matchesSocketDomain(socketRules, 38), true, "BlueZ ELL crypto에 필요한 AF_ALG가 허용되어야 한다");
+  assert.equal(matchesSocketDomain(socketRules, 40), false, "AF_VSOCK은 Docker 기본 프로필처럼 차단되어야 한다");
 });
 
 test("Raspberry Pi compose는 최소 capability와 명시적 영속 mount만 사용한다", async () => {
@@ -24,12 +35,23 @@ test("Raspberry Pi compose는 최소 capability와 명시적 영속 mount만 사
 
   assert.match(compose, /cap_drop:\s*\n\s*- ALL/);
   assert.match(compose, /cap_add:\s*\n\s*- NET_ADMIN\s*\n\s*- NET_RAW/);
+  assert.match(compose, /- FOWNER\b/, "bind mount 권한 정규화를 위한 FOWNER capability가 필요하다");
   assert.match(compose, /\/var\/lib\/led-control/);
   assert.match(compose, /\/var\/lib\/bluetooth\/mesh/);
   assert.doesNotMatch(compose, /privileged:\s*true/);
   assert.doesNotMatch(compose, /\/var\/run\/docker\.sock/);
   assert.doesNotMatch(compose, /-\s*\/dev(?::|\/)/);
 });
+
+function matchesSocketDomain(rules, domain) {
+  return rules.some((rule) => rule.args?.every(({ index, value, op }) => {
+    if (index !== 0) return true;
+    if (op === "SCMP_CMP_LT") return domain < value;
+    if (op === "SCMP_CMP_EQ") return domain === value;
+    if (op === "SCMP_CMP_GT") return domain > value;
+    return false;
+  }) ?? true);
+}
 
 test("device identity와 Task 27 MQTT identity 경로를 분리하고 factory trust는 read-only로 둔다", async () => {
   const compose = await readFile(path.join(gatewayDir, "compose.raspberry-pi.yml"), "utf8");

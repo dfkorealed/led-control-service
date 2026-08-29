@@ -4,14 +4,19 @@ umask 077
 
 mkdir -p /run/dbus /var/run/led-control /var/lib/bluetooth/mesh /var/lib/led-control \
   /var/lib/led-control/identity/device /var/lib/led-control/identity/mqtt
+chmod 0755 /run/dbus
 chmod 0750 /var/lib/led-control/identity /var/lib/led-control/identity/device /var/lib/led-control/identity/mqtt
 chmod 0700 /var/lib/led-control
 chown gateway:gateway /var/lib/led-control /var/lib/led-control/identity \
   /var/lib/led-control/identity/device /var/lib/led-control/identity/mqtt /var/run/led-control
 rm -f /run/dbus/system_bus_socket
 
+# The gateway process runs without root. Keep only the D-Bus runtime socket
+# accessible while preserving umask 077 for all persistent identity material.
+umask 011
 dbus-daemon --config-file=/etc/dbus-1/gateway-system.conf --nofork --nopidfile &
 DBUS_PID=$!
+umask 077
 MESH_PID=""
 GATEWAY_PID=""
 

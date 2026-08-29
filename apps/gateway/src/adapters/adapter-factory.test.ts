@@ -1,7 +1,11 @@
+import { mkdir, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createBluezHealthProbes, createProductionAdapters } from "./adapter-factory";
+import { createBluezHealthProbes, createProductionAdapters, isHciControllerReady } from "./adapter-factory";
 
 describe("createProductionAdapters", () => {
   it("rejects stub and command adapters in every environment", async () => {
@@ -57,5 +61,16 @@ describe("createProductionAdapters", () => {
       "Introspect",
       []
     );
+  });
+
+  it("uses the Bluetooth rfkill state instead of removed hci flags files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gateway-hci-"));
+    await mkdir(join(root, "rfkill7"));
+    await writeFile(join(root, "rfkill7", "type"), "bluetooth\n");
+    await writeFile(join(root, "rfkill7", "state"), "1\n");
+
+    await expect(isHciControllerReady(root)).resolves.toBe(true);
+    await writeFile(join(root, "rfkill7", "state"), "0\n");
+    await expect(isHciControllerReady(root)).resolves.toBe(false);
   });
 });

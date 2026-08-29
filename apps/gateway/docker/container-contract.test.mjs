@@ -27,17 +27,31 @@ test("appliance runtime은 Node 22와 전용 non-root gateway 사용자를 사�
   assert.match(dockerfile, /ENTRYPOINT \["\/usr\/local\/bin\/gateway-entrypoint"\]/);
   assert.match(entrypoint, /-S \/run\/dbus\/system_bus_socket/);
   assert.match(entrypoint, /^umask 077$/m);
+  assert.match(entrypoint, /^chmod 0755 \/run\/dbus$/m);
+  assert.match(entrypoint, /^umask 011$/m);
   assert.match(entrypoint, /chmod 0700 \/var\/lib\/led-control/);
   expectOrder(entrypoint, "umask 077", "mkdir -p");
+  expectOrder(entrypoint, "chmod 0755 /run/dbus", "umask 011");
+  expectOrder(entrypoint, "umask 011", "dbus-daemon --config-file");
+  assert.match(entrypoint, /umask 011\ndbus-daemon[^\n]+\nDBUS_PID=\$!\numask 077/);
   expectOrder(entrypoint, "-S /run/dbus/system_bus_socket", "bluetooth-meshd --nodetach");
 });
 
 test("appliance runtime은 Debian Bookworm OpenSSL 3.0 계열을 설치하고 build-time에 확인한다", async () => {
   const dockerfile = await readFile(path.join(dockerDir, "Dockerfile"), "utf8");
+  const runtime = dockerfile.slice(dockerfile.indexOf("FROM node:22-bookworm-slim AS runtime"));
 
   assert.match(dockerfile, /apt-get install[^;]*\bopenssl\b/s);
   assert.match(dockerfile, /openssl version[^\n]*OpenSSL 3\\\.0/);
   assert.match(dockerfile, /exact patch|snapshot/i);
+  assert.match(runtime, /apt-get install[^;]*\bcurl\b/s);
+});
+
+test("healthcheck는 커널에서 제거된 hci address 파일에 의존하지 않는다", async () => {
+  const healthcheck = await readFile(path.join(dockerDir, "healthcheck.sh"), "utf8");
+
+  assert.match(healthcheck, /test -d \/sys\/class\/bluetooth\/hci0/);
+  assert.doesNotMatch(healthcheck, /\/sys\/class\/bluetooth\/hci0\/(address|flags)/);
 });
 
 test("image build context에 인증서나 private key를 복사하지 않는다", async () => {
@@ -59,6 +73,9 @@ test("gateway D-Bus policy는 daemon 요청과 응답을 모두 최소 허용한
   assert.match(config, /receive_sender="org\.freedesktop\.DBus"/);
   assert.match(config, /send_destination="org\.bluez\.mesh"/);
   assert.match(config, /receive_sender="org\.bluez\.mesh"/);
+  assert.match(config, /send_type="method_return"\s+send_requested_reply="true"/);
+  assert.match(config, /send_type="error"\s+send_requested_reply="true"/);
+  assert.doesNotMatch(config, /send_requested_reply="false"/);
 });
 
 function expectOrder(source, first, second) {

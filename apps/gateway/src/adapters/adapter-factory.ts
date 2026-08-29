@@ -1,5 +1,6 @@
 import type { BleMeshAdapter, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ApplianceHealthProbes } from "../health/appliance-health";
 import { BluezDbusApplication } from "../mesh/bluez-dbus-application";
 import { BluezConfigClient } from "../mesh/bluez-config-client";
@@ -86,9 +87,23 @@ export function createBluezHealthProbes(
       );
       return typeof introspection === "string" && introspection.includes('interface name="org.bluez.mesh.Node1"');
     },
-    hciPowered: async () => (Number.parseInt(await readFile("/sys/class/bluetooth/hci0/flags", "utf8"), 16) & 1) === 1,
+    hciPowered: async () => await isHciControllerReady(),
     mappingValid: async () => { await addressStore.validate(); return true; }
   };
+}
+
+export async function isHciControllerReady(root = "/sys/class/bluetooth/hci0") {
+  const rfkillEntries = (await readdir(root, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && /^rfkill\d+$/.test(entry.name));
+  for (const entry of rfkillEntries) {
+    const rfkillRoot = join(root, entry.name);
+    const [type, state] = await Promise.all([
+      readFile(join(rfkillRoot, "type"), "utf8"),
+      readFile(join(rfkillRoot, "state"), "utf8")
+    ]);
+    if (type.trim() === "bluetooth" && state.trim() === "1") return true;
+  }
+  return false;
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number) {

@@ -5,7 +5,10 @@ import { installDbusMultiReturnCompatibility } from "./bluez-transport";
 export interface DbusInterfaceDefinition {
   name: string;
   methods: Record<string, [inputSignature: string, outputSignature: string]>;
-  properties?: Record<string, [signature: string, access: "read" | "write" | "readwrite"]>;
+  // @homebridge/dbus-native 0.7.x expects the property value itself to be a
+  // D-Bus signature string. Passing an access tuple is later marshalled as a
+  // signature (`g`) value and crashes when BlueZ reads provisioning metadata.
+  properties?: Record<string, string>;
   signals?: Record<string, [signature: string]>;
 }
 
@@ -52,10 +55,10 @@ const applicationDefinition: DbusInterfaceDefinition = {
   name: "org.bluez.mesh.Application1",
   methods: { JoinComplete: ["t", ""], JoinFailed: ["s", ""] },
   properties: {
-    CompanyID: ["q", "read"],
-    ProductID: ["q", "read"],
-    VersionID: ["q", "read"],
-    CRPL: ["q", "read"]
+    CompanyID: "q",
+    ProductID: "q",
+    VersionID: "q",
+    CRPL: "q"
   }
 };
 
@@ -80,7 +83,7 @@ const agentDefinition: DbusInterfaceDefinition = {
     PromptStatic: ["s", "ay"],
     Cancel: ["", ""]
   },
-  properties: { Capabilities: ["as", "read"], OutOfBandInfo: ["as", "read"] }
+  properties: { Capabilities: "as", OutOfBandInfo: "as" }
 };
 
 const elementDefinition: DbusInterfaceDefinition = {
@@ -91,9 +94,9 @@ const elementDefinition: DbusInterfaceDefinition = {
     UpdateModelConfiguration: ["qa{sv}", ""]
   },
   properties: {
-    Index: ["y", "read"],
-    Models: ["a(qa{sv})", "read"],
-    VendorModels: ["a(qqa{sv})", "read"]
+    Index: "y",
+    Models: "a(qa{sv})",
+    VendorModels: "a(qqa{sv})"
   }
 };
 
@@ -192,7 +195,7 @@ function createManagedObjects(
 }
 
 function properties(implementation: Record<string, unknown>, definition: DbusInterfaceDefinition): PropertyDictionary {
-  return Object.entries(definition.properties ?? {}).map(([name, [signature]]) => [name, [signature, implementation[name]]]);
+  return Object.entries(definition.properties ?? {}).map(([name, signature]) => [name, [signature, implementation[name]]]);
 }
 
 function unsupportedOob(method: string): never {

@@ -46,7 +46,7 @@ FROM node:22-bookworm-slim AS runtime
 # Bookworm is the OpenSSL 3.0 minor-version contract. Without a Debian snapshot,
 # an exact patch pin would disappear as security repositories advance.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      dbus dbus-bin libdbus-1-3 libell0 libjson-c5 libreadline8 libudev1 openssl procps util-linux \
+      curl dbus dbus-bin libdbus-1-3 libell0 libjson-c5 libreadline8 libudev1 openssl procps util-linux \
     && openssl version | grep -Eq '^OpenSSL 3\.0\.' \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system gateway \

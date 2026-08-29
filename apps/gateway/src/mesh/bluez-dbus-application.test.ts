@@ -38,6 +38,23 @@ describe("BluezDbusApplication", () => {
     expect(provisioner.methods.AddNodeComplete).toEqual(["ayqy", ""]);
   });
 
+  it("dbus-native가 직렬화할 수 있는 문자열 property signature를 export한다", async () => {
+    const bus = new FakeExportBus();
+    const application = new BluezDbusApplication(bus, async () => [0, 0x0100]);
+
+    await application.start();
+
+    for (const { definition } of bus.exports.values()) {
+      for (const signature of Object.values(definition.properties ?? {})) {
+        expect(typeof signature).toBe("string");
+      }
+    }
+    const agent = bus.exports.get(
+      `${BLUEZ_APPLICATION_PATHS.agent}:org.bluez.mesh.ProvisionAgent1`
+    )!.definition;
+    expect(agent.properties).toEqual({ Capabilities: "as", OutOfBandInfo: "as" });
+  });
+
   it("RequestProvData는 예약 저장소가 선택한 net index와 unicast를 반환한다", async () => {
     const bus = new FakeExportBus();
     const reserve = vi.fn(async (count: number) => [0, 0x120] as [number, number]);
