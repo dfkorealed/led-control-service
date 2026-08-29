@@ -151,7 +151,7 @@ export function toLightingScheduleSnapshot(
   };
 }
 
-function toVehicleEventRuleSnapshot(rule: {
+export function toVehicleEventRuleSnapshot(rule: {
   id: string;
   name: string;
   status: "enabled" | "disabled";

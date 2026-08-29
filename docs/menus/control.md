@@ -6,8 +6,8 @@
 
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
-- shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API CRUD, exact Fixture snapshot, overlap 직렬화와 full-snapshot outbox 저장을 구현했다.
-- schedule API CRUD는 완료했지만 schedule Web CRUD와 Gateway schedule 실행은 아직 구현되지 않았다. 다음 구현은 차량 이벤트 API, MQTT publisher/application ACK, Gateway 규칙 엔진, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
+- shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
+- schedule/차량 이벤트 API CRUD는 완료했지만 Web CRUD와 Gateway 현장 실행은 아직 구현되지 않았다. 다음 구현은 MQTT publisher/application ACK, Gateway 규칙 엔진, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
 
 ## 확정 구현 범위
 
@@ -35,6 +35,11 @@
 
 ## 구현 완료
 
+- `GET/POST/PATCH/DELETE /sites/:siteId/automation/vehicle-event-rules`를 제공한다. viewer는 assigned Site 목록을 조회하고 assigned active customer admin만 생성·수정·삭제할 수 있으며 operator와 다른 Site의 규칙은 `404`로 숨긴다. 목록 query는 Site 읽기 인가 뒤 파싱한다.
+- 차량 이벤트 규칙은 distinct source와 target Fixture를 각각 한 개 이상 요구하고 등록 완료 Fixture만 저장 시점의 exact ID set으로 고정한다. source와 target 전체가 같은 Site와 한 Gateway에 속해야 하며 다중 Gateway는 stable `single_gateway_required`로 거부한다.
+- hold는 기본 60초, 5~1800 정수 범위이고 밝기는 0~100 정수다. `dimmingEnabled=false`는 입력 밝기를 저장하지 않고 DB/API/Gateway snapshot 모두 100%로 정규화한다.
+- 차량 이벤트 parent/source/target과 Gateway `desiredRevision`, 전체 automation snapshot `MqttOutbox`를 하나의 transaction에 저장한다. write transaction은 공통 automation advisory lock을 먼저 획득한 뒤 Site row `FOR UPDATE` 재인가를 수행하며 Gateway 이동은 이전 제거 snapshot과 새 추가 snapshot을 함께 생성한다.
+- 차량 이벤트 목록은 schedule과 같은 기본 25개·최대 100개 versioned keyset cursor와 `REPEATABLE READ` total/page snapshot을 사용한다. source/target 수, desired/applied revision, sync status, 최신 `vehicle_detected`와 최신 실행을 제공하며 `(vehicleEventRuleId, occurredAt DESC, sequence DESC)` index로 page 범위 조회를 지원한다.
 - `GET/POST/PATCH/DELETE /sites/:siteId/automation/schedules`를 제공한다. assigned active customer admin만 생성·수정·삭제할 수 있고 viewer는 목록만 조회하며 operator와 다른 Site 요청은 `404`로 숨긴다.
 - schedule mutation은 같은 transaction의 첫 statement에서 공통 automation advisory lock을 획득한 뒤 Site row를 잠그고 assigned admin을 다시 인가한다. fixture·fixture set·floor·active group 선택은 저장 시점의 등록 완료 Fixture ID 전체 set으로 고정하고 한 Gateway 대상만 허용한다.
 - enabled schedule은 공통 automation engine의 실제 recurrence occurrence와 Fixture 교집합으로 충돌을 검사한다. disabled schedule은 충돌에서 제외하고 enable 시 다시 검사하며, 같은 Site에서 동시에 쓰는 서로 충돌하는 enabled schedule만 Site lock 아래 하나가 성공한다. 종료와 시작 경계가 맞닿지만 겹치지 않는 schedule은 함께 허용한다.
@@ -140,7 +145,7 @@
 ## 미구현
 
 - 스케줄 제어 Web CRUD와 Gateway 무중단 offline 실행
-- 설계된 차량 감지 이벤트 규칙 CRUD와 ESP32-H2 센서 이벤트 전달
+- 차량 이벤트 규칙 Web CRUD와 ESP32-H2 센서 이벤트 전달
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
@@ -153,6 +158,7 @@
 ## 부족하거나 개선이 필요한 기능
 
 - Task 7은 automation full snapshot을 durable `MqttOutbox`에 저장하지만 실제 MQTT publish와 exact revision application ACK 처리는 Task 9 범위다. 따라서 API 저장 성공은 Gateway 적용 완료를 의미하지 않는다.
+- Task 8 차량 이벤트 규칙 API도 같은 durable full-snapshot outbox까지만 구현했다. 최근 감지/실행 필드는 실행 원장이 수집된 경우에만 채워지며 실제 센서 감지와 Gateway 실행 완료를 의미하지 않는다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - schedule API CRUD는 구현 완료했다. schedule Web CRUD와 Gateway schedule 실행은 후속 범위이며, 아직 동작하지 않는 Web 버튼은 양산 UI에서 제거했다.
@@ -173,10 +179,16 @@
 - `apps/api/src/automation/automation.controller.ts`
 - `apps/api/src/automation/automation.module.ts`
 - `apps/api/src/automation/schedules.service.ts`
+- `apps/api/src/automation/vehicle-event-rules.service.ts`
 - `apps/api/src/automation/target-snapshot.service.ts`
+- `apps/api/src/automation/automation-snapshot.service.ts`
 - `apps/api/src/automation/dto/schedule.dto.ts`
+- `apps/api/src/automation/dto/vehicle-event-rule.dto.ts`
 - `apps/api/src/automation/schedules.service.spec.ts`
+- `apps/api/src/automation/vehicle-event-rules.service.spec.ts`
 - `apps/api/test/automation-schedules.e2e-spec.ts`
+- `apps/api/test/vehicle-event-rules.e2e-spec.ts`
+- `apps/api/prisma/migrations/20260830_add_vehicle_event_execution_list_index/migration.sql`
 - `apps/web/src/features/control/ControlView.tsx`
 - `apps/web/src/features/control/ControlTargetPicker.tsx`
 - `apps/web/src/features/control/ControlView.test.tsx`

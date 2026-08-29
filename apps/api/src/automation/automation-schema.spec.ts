@@ -15,6 +15,13 @@ const scheduleListIndexMigrationPath = join(
 const scheduleListIndexMigration = existsSync(scheduleListIndexMigrationPath)
   ? readFileSync(scheduleListIndexMigrationPath, "utf8")
   : "";
+const vehicleEventListIndexMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260830_add_vehicle_event_execution_list_index/migration.sql"
+);
+const vehicleEventListIndexMigration = existsSync(vehicleEventListIndexMigrationPath)
+  ? readFileSync(vehicleEventListIndexMigrationPath, "utf8")
+  : "";
 const equalTimeMigrationPath = join(
   __dirname,
   "../../prisma/migrations/20260830_reject_equal_schedule_times/migration.sql"
@@ -74,6 +81,18 @@ describe("automation Prisma schema contract", () => {
     );
     expect(scheduleListIndexMigration).toContain(
       '("lightingScheduleId", "occurredAt" DESC, "sequence" DESC)'
+    );
+  });
+
+  it("indexes each vehicle rule's latest execution in list order through a forward migration", () => {
+    expect(prismaSchema).toContain(
+      "@@index([vehicleEventRuleId, occurredAt(sort: Desc), sequence(sort: Desc)])"
+    );
+    expect(vehicleEventListIndexMigration).toContain(
+      'CREATE INDEX "AutomationExecution_vehicleEventRuleId_occurredAt_sequence_idx"'
+    );
+    expect(vehicleEventListIndexMigration).toContain(
+      '("vehicleEventRuleId", "occurredAt" DESC, "sequence" DESC)'
     );
   });
 

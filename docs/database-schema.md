@@ -1019,7 +1019,7 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 | `payload` | `Json` | 예 | 종류별 원본 메타데이터 |
 | `createdAt` | `DateTime` | 예 | `now()` |
 
-`lightingScheduleId`는 최신 실행 조회 순서인 `(lightingScheduleId, occurredAt DESC, sequence DESC)` 복합 index를 사용하고, 나머지 원본 FK는 단독 index를 사용한다. `(gatewayId, eventId, sequence)` Unique가 QoS 재전달을 멱등 처리한다. `AutomationExecution_source_check` trigger가 INSERT와 source/owner/kind 변경에서 source 부모의 `siteId/gatewayId`를 실행 owner와 비교하고 다음 coherence를 강제한다.
+`lightingScheduleId`와 `vehicleEventRuleId`는 각각 최신 실행 조회 순서인 `(sourceId, occurredAt DESC, sequence DESC)` 복합 index를 사용하고, `manualOverrideId`는 단독 index를 사용한다. 차량 이벤트 목록은 같은 vehicle index로 최신 전체 실행과 최신 `vehicle_detected`를 page 범위에서 조회한다. `(gatewayId, eventId, sequence)` Unique가 QoS 재전달을 멱등 처리한다. `AutomationExecution_source_check` trigger가 INSERT와 source/owner/kind 변경에서 source 부모의 `siteId/gatewayId`를 실행 owner와 비교하고 다음 coherence를 강제한다.
 
 - `schedule_started`, `schedule_ended`: `lightingScheduleId` 필수, `ruleId = lightingScheduleId`
 - `vehicle_detected`, `event_started`, `event_extended`, `event_ended`: `vehicleEventRuleId` 필수, `ruleId = vehicleEventRuleId`

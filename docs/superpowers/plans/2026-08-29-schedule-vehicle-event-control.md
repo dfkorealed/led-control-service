@@ -520,7 +520,7 @@ git add apps/api/src/automation apps/api/src/app.module.ts
 git commit -m "feat(api): add lighting schedule management"
 ```
 
-### Task 8: API 차량 이벤트 규칙 CRUD 구현
+### Task 8: API 차량 이벤트 규칙 CRUD 구현 (완료)
 
 **Files:**
 - Create: `apps/api/src/automation/vehicle-event-rules.service.ts`
@@ -534,7 +534,7 @@ git commit -m "feat(api): add lighting schedule management"
 - Consumes: Task 7 target snapshot/revision/outbox transaction helper.
 - Produces: `GET/POST/PATCH/DELETE /sites/:siteId/automation/vehicle-event-rules`.
 
-- [ ] **Step 1: source/target/Gateway/hold validation 실패 테스트를 작성한다**
+- [x] **Step 1: source/target/Gateway/hold validation 실패 테스트를 작성한다**
 
 ```ts
 await expect(service.create(siteId, admin, invalidHoldDurationInput)).rejects.toMatchObject({ status: 400 });
@@ -544,15 +544,15 @@ await expect(service.create(siteId, admin, crossGatewayInput)).rejects.toMatchOb
 });
 ```
 
-- [ ] **Step 2: 테스트 실패를 확인한다**
+- [x] **Step 2: 테스트 실패를 확인한다**
 
 Run: `pnpm --filter @led-control/api test -- vehicle-event-rules.service.spec.ts vehicle-event-rules.e2e-spec.ts --runInBand`
 
-- [ ] **Step 3: OR source와 고정 target CRUD를 구현한다**
+- [x] **Step 3: OR source와 고정 target CRUD를 구현한다**
 
 source와 target은 각각 1개 이상, 중복 없음, 같은 Site/Gateway, 등록 완료 Fixture만 허용한다. `dimmingEnabled=false`이면 snapshot action brightness를 100으로 정규화하되 사용자가 입력한 값은 저장하지 않는다.
 
-- [ ] **Step 4: revision/outbox 원자성을 검증한다**
+- [x] **Step 4: revision/outbox 원자성을 검증한다**
 
 ```ts
 expect(await prisma.gatewayAutomationConfiguration.findUnique({ where: { gatewayId } })).toMatchObject({
@@ -562,7 +562,7 @@ expect(await prisma.gatewayAutomationConfiguration.findUnique({ where: { gateway
 expect(outbox.payload.revision).toBe(2);
 ```
 
-- [ ] **Step 5: 전체 API 검증 후 커밋한다**
+- [x] **Step 5: 전체 API 검증 후 커밋한다**
 
 Run: `pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/api test -- vehicle-event-rules.service.spec.ts vehicle-event-rules.e2e-spec.ts --runInBand`
 
