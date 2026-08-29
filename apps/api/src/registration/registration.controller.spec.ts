@@ -44,4 +44,33 @@ describe("RegistrationController", () => {
 
     expect(retryScan).toHaveBeenCalledWith(user, "11111111-1111-4111-8111-111111111111");
   });
+
+  it("delegates active session lookup with the requested site", async () => {
+    const listActiveSessions = jest.fn().mockResolvedValue([]);
+    const controller = new RegistrationController({ listActiveSessions } as never);
+    const user = { id: "00000000-0000-4000-8000-000000000002", role: "admin" } as AuthenticatedUser;
+
+    await expect(controller.listActiveSessions("00000000-0000-4000-8000-000000000003", user))
+      .resolves.toEqual([]);
+
+    expect(listActiveSessions).toHaveBeenCalledWith(
+      user,
+      "00000000-0000-4000-8000-000000000003"
+    );
+  });
+
+  it("delegates reconciliation exclusion and session cancellation", async () => {
+    const excludeNode = jest.fn().mockResolvedValue({ id: "node-1", status: "failed" });
+    const cancelSession = jest.fn().mockResolvedValue({ id: "session-1", status: "cancelled", discoveredNodes: [] });
+    const controller = new RegistrationController({ excludeNode, cancelSession } as never);
+    const user = { id: "00000000-0000-4000-8000-000000000002", role: "admin" } as AuthenticatedUser;
+
+    await expect(controller.excludeNode("session-1", "node-1", user))
+      .resolves.toEqual({ id: "node-1", status: "failed" });
+    await expect(controller.cancelSession("session-1", user))
+      .resolves.toEqual({ id: "session-1", status: "cancelled", discoveredNodes: [] });
+
+    expect(excludeNode).toHaveBeenCalledWith(user, "session-1", "node-1");
+    expect(cancelSession).toHaveBeenCalledWith(user, "session-1");
+  });
 });

@@ -35,6 +35,7 @@ interface InstallSettingsApiOptions {
   mapObjects?: SettingsMapObject[];
   mapSnapshotFailuresBeforeSuccess?: number;
   registrationSession?: RegistrationSession;
+  activeRegistrationSessions?: RegistrationSession[];
   registrationRetrySession?: RegistrationScanRetryResult;
   registrationPollingSessions?: RegistrationSession[];
   ids?: Partial<SettingsApiIds>;
@@ -154,6 +155,7 @@ export async function installSettingsApiRoutes(
     mapObjects = [],
     mapSnapshotFailuresBeforeSuccess = 0,
     registrationSession,
+    activeRegistrationSessions = [],
     registrationRetrySession,
     registrationPollingSessions = [],
     ids: idOverrides
@@ -235,6 +237,9 @@ export async function installSettingsApiRoutes(
     }
     if (path === "/sites") {
       return route.fulfill({ json: [{ id: ids.siteId, name: "고객사 B2 현장", customerName: "고객사" }] });
+    }
+    if (path === "/registration-sessions/active" && request.method() === "GET") {
+      return route.fulfill({ json: structuredClone(activeRegistrationSessions) });
     }
     if (path === "/registration-sessions" && request.method() === "POST") {
       if (!initialRegistrationSession) return route.fulfill({ status: 404, json: { message: "registration fixture not configured" } });

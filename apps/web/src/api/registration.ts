@@ -61,6 +61,17 @@ export function getRegistrationSession(sessionId: string) {
   return apiGet<RegistrationSession>(`/registration-sessions/${sessionId}`);
 }
 
+export function getActiveRegistrationSessions(siteId: string) {
+  return apiGet<RegistrationSession[]>(`/registration-sessions/active?siteId=${encodeURIComponent(siteId)}`);
+}
+
+export function excludeRegistrationNode(sessionId: string, nodeId: string) {
+  return apiPost<DiscoveredRegistrationNode>(
+    `/registration-sessions/${sessionId}/nodes/${nodeId}/exclude`,
+    {}
+  );
+}
+
 export function registerRegistrationNode(sessionId: string, nodeId: string, fixtureName: string, x: number, y: number) {
   return apiPost<{ fixture: { id: string; name: string } | null; discoveredNode: DiscoveredRegistrationNode }>(
     `/registration-sessions/${sessionId}/nodes/${nodeId}/register`,
@@ -74,6 +85,10 @@ export function registerFixtureBatch(sessionId: string, input: RegisterFixtureBa
 
 export function completeRegistrationSession(sessionId: string) {
   return apiPost<RegistrationSession>(`/registration-sessions/${sessionId}/complete`, {});
+}
+
+export function cancelRegistrationSession(sessionId: string) {
+  return apiPost<RegistrationSession>(`/registration-sessions/${sessionId}/cancel`, {});
 }
 
 export function retryRegistrationScan(sessionId: string) {

@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**계정·설치 주체 전환 설계**: 전역 단일 operator는 현장별 단일 admin 계정만 관리하고, admin이 최초 현장 설치와 고객 운영을 담당하도록 인증·권한·UI 경계를 전환한다. 재설치와 모바일 변경은 이번 범위에서 제외한다.
+**모니터링 등록 흐름 보완**: 진행 중인 조명 등록 세션 복구, 불확실한 provisioning 결과의 안전한 운영 처리, 조명 조회 벤치마크 경로 수정을 완료했다.
 
 ## 작업 상태
 
@@ -18,6 +18,7 @@
 | 계정·설치 주체 전환 설계 | 완료 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했고 재설치는 제외했다. |
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
 | 계정·설치 주체 전환 구현 | 완료(소프트웨어) | Task 1~9와 final review fix를 완료했다. login/reset/change는 User row lock과 실제 PostgreSQL barrier로 old credential session race를 차단하고, 일반 admin의 command/group/floor write는 transaction 내부 Site lock 재인가를 사용한다. Web은 login 평문을 React Query cache에 넣지 않으며 principal 전환·강제 revoke에서 tenant Query/Mutation cache를 제거한다. service-global operator는 `/operator/site-admins`에서 현장별 assigned admin을 create/update/reset/disable하고 network allowlist는 `/api/auth/*`, `/api/operator/*`뿐이다. 격리 실백엔드 Chromium journey는 새 PostgreSQL/Redis/mTLS Mosquitto와 test-support simulator로 설치·claim·registration·제어·통계·도면·비밀번호·viewer 권한을 검증하며 사용자 개발 DB를 읽거나 초기화하지 않는다. 이는 production Gateway/BlueZ/RF 또는 Raspberry Pi/ESP32-H2 HIL 증거가 아니다. 모바일·재설치는 범위 밖이다. controller가 수동 in-app browser QA를 시도했지만 admin-enforced browser policy가 localhost 접근 전에 차단해 미실행이며 자동 Chromium E2E와 별개다. |
+| 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
 
 ## 다음 단계
 
@@ -27,7 +28,7 @@
 
 ### 모니터링
 
-- 진행 중인 조명 검색·등록 세션은 브라우저 새로고침 뒤 자동 복구되지 않는다. 현재 세션 ID가 화면 상태에만 있으므로 active session 조회·복구 API와 UI가 후속으로 필요하다.
+- 진행 중인 조명 검색·등록 세션은 브라우저 새로고침 뒤 자동 복구된다. `reconcile_required`는 자동 재시도하지 않으며 실제 장비 상태의 자동 질의·정리는 Raspberry Pi/ESP32-H2 HIL과 함께 후속 검증해야 한다.
 
 ### 제어
 

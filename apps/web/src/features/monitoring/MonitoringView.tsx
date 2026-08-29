@@ -188,6 +188,10 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
         </div>
       </div>
 
+      {userRole === "admin" && data.gateways.length > 0 ? (
+        <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
+      ) : null}
+
       <div className="summary-row">
         <div className="metric primary">
           <span>전체 조명</span>

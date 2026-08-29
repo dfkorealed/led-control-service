@@ -9,13 +9,16 @@ const queryMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/queries", () => queryMocks);
+vi.mock("../registration/RegistrationPanel", () => ({
+  RegistrationPanel: () => <section aria-label="조명 등록 패널">조명 등록 패널</section>
+}));
 
 const dashboard = {
   site: { id: "site-1", name: "테스트 현장" },
   summary: { totalFixtures: 1, onlineFixtures: 1, faultFixtures: 0, averageBrightness: 70 },
   floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: null, fixtures: [] }],
   groups: [],
-  gateways: []
+  gateways: [{ id: "gateway-1", name: "GW-1", connectionStatus: "online" }]
 };
 
 const fixture = {
@@ -119,6 +122,12 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText("장비 Health")).toBeInTheDocument();
     expect(screen.getByText("장애 (0x04)")).toBeInTheDocument();
     expect(screen.getByText("Health 수신")).toBeInTheDocument();
+  });
+
+  it("이미 등록된 조명이 있어도 관리자는 진행 중 등록 세션에 접근할 수 있다", () => {
+    render(<MonitoringView siteId="site-1" userRole="admin" />);
+
+    expect(screen.getByRole("region", { name: "조명 등록 패널" })).toBeInTheDocument();
   });
 
   it("지도 최초 조회 실패에는 빈 캔버스 대신 오류와 재시도를 표시한다", () => {

@@ -812,23 +812,38 @@ export class MqttService implements OnModuleInit {
   ) {
     try {
       await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`
+          SELECT "id" FROM "ProvisioningSession"
+          WHERE "id" = ${event.sessionId}
+          FOR UPDATE
+        `;
+        await tx.$queryRaw`
+          SELECT "id" FROM "DiscoveredMeshNode"
+          WHERE "id" = ${event.nodeId} AND "sessionId" = ${event.sessionId}
+          FOR UPDATE
+        `;
+
+        const session = await tx.provisioningSession.findUnique({ where: { id: event.sessionId } });
+        if (
+          !session ||
+          session.status !== "active" ||
+          session.siteId !== topicScope.siteId ||
+          session.gatewayId !== topicScope.gatewayId
+        ) return;
+
         const node = await tx.discoveredMeshNode.findFirst({
           where: {
             id: event.nodeId,
             sessionId: event.sessionId,
             deviceUuid: event.deviceUuid,
-            session: {
-              siteId: topicScope.siteId,
-              gatewayId: topicScope.gatewayId,
-              status: "active"
-            }
-          },
-          include: { session: true }
+            status: { in: ["provisioning", "reconcile_required"] }
+          }
         });
-        if (!node || !node.pendingFixtureName || node.pendingFixtureX === null || node.pendingFixtureY === null) return;
+        if (!node || (node.status !== "provisioning" && node.status !== "reconcile_required")) return;
+        if (!node.pendingFixtureName || node.pendingFixtureX === null || node.pendingFixtureY === null) return;
 
         const existingMeshNode = await tx.meshNode.findUnique({ where: { deviceUuid: event.deviceUuid } });
-        if (existingMeshNode && existingMeshNode.gatewayId !== node.session.gatewayId) {
+        if (existingMeshNode && existingMeshNode.gatewayId !== session.gatewayId) {
           await tx.discoveredMeshNode.update({
             where: { id: node.id },
             data: { status: "failed", errorMessage: DEVICE_UUID_CONFLICT_ERROR }
@@ -838,7 +853,7 @@ export class MqttService implements OnModuleInit {
 
         const meshNode = existingMeshNode ?? await tx.meshNode.create({
           data: {
-            gatewayId: node.session.gatewayId,
+            gatewayId: session.gatewayId,
             deviceUuid: event.deviceUuid,
             serialNumber: node.serialNumber,
             meshAddress: event.meshAddress,
@@ -850,7 +865,7 @@ export class MqttService implements OnModuleInit {
           where: { meshNodeId: meshNode.id },
           select: { id: true, floorId: true }
         });
-        if (existingFixture && existingFixture.floorId !== node.session.floorId) {
+        if (existingFixture && existingFixture.floorId !== session.floorId) {
           await tx.discoveredMeshNode.update({
             where: { id: node.id },
             data: { status: "failed", errorMessage: FIXTURE_FLOOR_CONFLICT_ERROR }
@@ -861,7 +876,7 @@ export class MqttService implements OnModuleInit {
         const fixture = existingFixture ?? await tx.fixture.create({
             data: {
               id: node.id,
-              floorId: node.session.floorId,
+              floorId: session.floorId,
               meshNodeId: meshNode.id,
               name: node.pendingFixtureName,
               ratedWatt: node.pendingRatedWatt ?? "40.00",
@@ -884,8 +899,8 @@ export class MqttService implements OnModuleInit {
         });
         await this.meshControlGroups.attachProvisionedNode(tx, {
           meshNodeId: meshNode.id,
-          gatewayId: node.session.gatewayId,
-          floorId: node.session.floorId,
+          gatewayId: session.gatewayId,
+          floorId: session.floorId,
           fixtureGroupIds: fixtureGroups.map((membership) => membership.groupId)
         });
 
@@ -916,7 +931,7 @@ export class MqttService implements OnModuleInit {
         id: event.nodeId,
         sessionId: event.sessionId,
         deviceUuid: event.deviceUuid,
-        status: { in: ["discovered", "identifying", "provisioning"] },
+        status: { in: ["discovered", "identifying", "provisioning", "reconcile_required"] },
         session: {
           siteId: topicScope.siteId,
           gatewayId: topicScope.gatewayId,

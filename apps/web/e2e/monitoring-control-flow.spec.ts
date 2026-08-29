@@ -198,6 +198,28 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     expect(api.registrationSessionRequests).toBe(terminalRequestCount);
   });
 
+  test("페이지 재진입 시 진행 중인 등록 세션과 대상을 자동 복구한다", async ({ page }) => {
+    const active = {
+      ...registrationSession("completed", null),
+      scanCorrelationId: discoveredNode.scanCorrelationId,
+      scanAttempt: discoveredNode.scanAttempt ?? 1,
+      discoveredNodes: [discoveredNode]
+    };
+    await installSettingsApiRoutes(page, "admin", {
+      fixtures,
+      ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
+      registrationSession: active,
+      activeRegistrationSessions: [active]
+    });
+
+    await page.goto(`/monitoring?siteId=${ids.site}`);
+
+    await expect(page.getByText(discoveredNode.serialNumber)).toBeVisible();
+    await expect(page.getByLabel("등록 층")).toHaveValue(ids.floor);
+    await expect(page.getByLabel("등록 게이트웨이")).toHaveValue(ids.gateway);
+    await expect(page.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
+  });
+
   test("검색 실패 원인은 정제된 메시지만 표시한다", async ({ page }) => {
     await installSettingsApiRoutes(page, "admin", {
       fixtures: [],

@@ -1649,6 +1649,9 @@ describe("MqttService", () => {
       }
     };
     const prisma: any = {
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
+      },
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue(null),
@@ -1670,6 +1673,7 @@ describe("MqttService", () => {
         create: jest.fn().mockResolvedValue({ id: "33333333-3333-4333-8333-333333333333" })
       }
     };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma as never, meshGroups as never);
 
@@ -1698,6 +1702,14 @@ describe("MqttService", () => {
         firmwareVersion: "esp32h2-0.1.0"
       }
     });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      'FROM "ProvisioningSession" WHERE "id" = FOR UPDATE'
+    );
+    expect((prisma.$queryRaw.mock.calls[1][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      'FROM "DiscoveredMeshNode" WHERE "id" = AND "sessionId" = FOR UPDATE'
+    );
+    expect(prisma.$queryRaw.mock.calls[1].slice(1)).toEqual([node.id, node.sessionId]);
     expect(prisma.fixture.create).toHaveBeenCalledWith({
       data: {
         id: "22222222-2222-4222-8222-222222222222",
@@ -1770,6 +1782,9 @@ describe("MqttService", () => {
       }
     };
     const prisma: any = {
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
+      },
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue({
@@ -1792,6 +1807,7 @@ describe("MqttService", () => {
         create: jest.fn()
       }
     };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma as never, meshGroups as never);
 
@@ -1845,6 +1861,9 @@ describe("MqttService", () => {
       }
     };
     const prisma: any = {
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
+      },
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue({
@@ -1867,6 +1886,7 @@ describe("MqttService", () => {
         create: jest.fn()
       }
     };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma as never, meshGroups as never);
 
@@ -1907,6 +1927,7 @@ describe("MqttService", () => {
       serialNumber: "LC-B2-001",
       rssi: -61,
       firmwareVersion: "mock-node-0.1.0",
+      status: "provisioning",
       pendingFixtureName: "B2-L13",
       pendingFixtureX: 420,
       pendingFixtureY: 260,
@@ -1918,6 +1939,9 @@ describe("MqttService", () => {
       }
     };
     const prisma: any = {
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
+      },
       fixture: { update: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
       command: { update: jest.fn() },
       discoveredMeshNode: {
@@ -1932,6 +1956,7 @@ describe("MqttService", () => {
         create: jest.fn()
       }
     };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
 
@@ -1961,6 +1986,7 @@ describe("MqttService", () => {
       serialNumber: "LC-B2-001",
       rssi: -61,
       firmwareVersion: "mock-node-0.1.0",
+      status: "provisioning",
       pendingFixtureName: "B2-L13",
       pendingFixtureX: 420,
       pendingFixtureY: 260,
@@ -1972,6 +1998,9 @@ describe("MqttService", () => {
       }
     };
     const prisma: any = {
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
+      },
       fixture: { update: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
       command: { update: jest.fn() },
       discoveredMeshNode: {
@@ -1984,6 +2013,7 @@ describe("MqttService", () => {
         create: jest.fn().mockRejectedValue({ code: "P2002", meta: { target: ["deviceUuid"] } })
       }
     };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
 
@@ -2004,7 +2034,7 @@ describe("MqttService", () => {
         id: node.id,
         sessionId: node.sessionId,
         deviceUuid: node.deviceUuid,
-        status: { in: ["discovered", "identifying", "provisioning"] },
+        status: { in: ["discovered", "identifying", "provisioning", "reconcile_required"] },
         session: {
           siteId: node.session.siteId,
           gatewayId: node.session.gatewayId,
@@ -2013,6 +2043,72 @@ describe("MqttService", () => {
       },
       data: { status: "failed", errorMessage: "device UUID is already registered by another site" }
     });
+  });
+
+  it.each([
+    ["failed", "active"],
+    ["provisioned", "active"],
+    ["provisioning", "cancelled"],
+    ["reconcile_required", "completed"]
+  ])("ignores late provisioning completion for node %s in session %s", async (nodeStatus, sessionStatus) => {
+    const session = {
+      id: "11111111-1111-4111-8111-111111111111",
+      siteId: "00000000-0000-4000-8000-000000000003",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      status: sessionStatus
+    };
+    const prisma: any = {
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "22222222-2222-4222-8222-222222222222",
+          sessionId: session.id,
+          deviceUuid: "esp32h2-b2-001",
+          serialNumber: "LC-B2-001",
+          status: nodeStatus,
+          pendingFixtureName: "B2-L001",
+          pendingFixtureX: 100,
+          pendingFixtureY: 200,
+          session
+        }),
+        update: jest.fn()
+      },
+      meshNode: { findUnique: jest.fn(), create: jest.fn() },
+      fixture: { findFirst: jest.fn(), create: jest.fn() }
+    };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+
+    await (service as any).completeProvisioning(
+      { siteId: session.siteId, gatewayId: session.gatewayId },
+      {
+        sessionId: session.id,
+        nodeId: "22222222-2222-4222-8222-222222222222",
+        deviceUuid: "esp32h2-b2-001",
+        meshAddress: "0x0101",
+        completedAt: "2026-07-01T00:00:05.000Z"
+      }
+    );
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.meshNode.findUnique).not.toHaveBeenCalled();
+    expect(prisma.meshNode.create).not.toHaveBeenCalled();
+    expect(prisma.fixture.create).not.toHaveBeenCalled();
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    if (sessionStatus === "active") {
+      expect(prisma.discoveredMeshNode.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: "22222222-2222-4222-8222-222222222222",
+          sessionId: session.id,
+          deviceUuid: "esp32h2-b2-001",
+          status: { in: ["provisioning", "reconcile_required"] }
+        }
+      });
+    } else {
+      expect(prisma.discoveredMeshNode.findFirst).not.toHaveBeenCalled();
+    }
   });
 
   async function expectProvisioningErrorToRethrow(error: unknown) {

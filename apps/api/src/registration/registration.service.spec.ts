@@ -48,6 +48,7 @@ describe("RegistrationService", () => {
           discoveredNodes: []
         }),
         findUnique: jest.fn(),
+        findMany: jest.fn(),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
@@ -56,6 +57,7 @@ describe("RegistrationService", () => {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
@@ -147,6 +149,204 @@ describe("RegistrationService", () => {
       nodes: [{ nodeId: ids.nodeId, placement: { mode: "auto" as const } }]
     };
   }
+
+  it("lists active site sessions newest first with discovered nodes oldest first", async () => {
+    const sessions = [{ id: ids.sessionId, discoveredNodes: [] }];
+    const { service, prisma, siteAccess } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue(sessions),
+        update: jest.fn(),
+        updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.listActiveSessions(admin, ids.siteId)).resolves.toEqual(sessions);
+
+    expect(siteAccess.assert).toHaveBeenCalledWith(admin, ids.siteId, "commission");
+    expect(prisma.provisioningSession.findMany).toHaveBeenCalledWith({
+      where: { siteId: ids.siteId, status: "active" },
+      orderBy: { startedAt: "desc" },
+      include: { discoveredNodes: { orderBy: { discoveredAt: "asc" } } }
+    });
+  });
+
+  it("excludes only a reconciliation node while preserving provisioning evidence", async () => {
+    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active" };
+    const node = {
+      ...discoveredNode(),
+      status: "reconcile_required",
+      meshAddress: "0x0100",
+      pendingFixtureName: "B2-L001",
+      pendingFixtureX: 100,
+      pendingFixtureY: 200,
+      pendingFixtureSize: 20,
+      pendingRatedWatt: "40.00",
+      errorMessage: "MQTT connection closed"
+    };
+    const updated = { ...node, status: "failed", errorMessage: "MQTT connection closed; 현재 세션에서 제외됨" };
+    const { service, prisma, siteAccess, mqtt } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), findMany: jest.fn(),
+        update: jest.fn(), updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue(node), findMany: jest.fn(), findUnique: jest.fn(),
+        count: jest.fn(), update: jest.fn().mockResolvedValue(updated), updateMany: jest.fn()
+      }
+    });
+
+    const lockOrder: string[] = [];
+    siteAccess.assertCommissionInTransaction.mockImplementation(async () => {
+      lockOrder.push("site");
+      return { id: ids.siteId };
+    });
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+      lockOrder.push(strings.join("").includes("ProvisioningSession") ? "session" : "node");
+      return [];
+    });
+
+    await expect(service.excludeNode(admin, ids.sessionId, ids.nodeId)).resolves.toEqual(updated);
+
+    expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(lockOrder).toEqual(["site", "session", "node"]);
+    expect((prisma.$queryRaw.mock.calls[1][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      'WHERE "id" = AND "sessionId" = FOR UPDATE'
+    );
+    expect(prisma.$queryRaw.mock.calls[1].slice(1)).toEqual([ids.nodeId, ids.sessionId]);
+    expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
+      where: { id: ids.nodeId },
+      data: { status: "failed", errorMessage: "MQTT connection closed; 현재 세션에서 제외됨" }
+    });
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
+  });
+
+  it("rejects exclusion when the node does not belong to the locked session", async () => {
+    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active" };
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), findMany: jest.fn(),
+        update: jest.fn(), updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn().mockResolvedValue(null),
+        count: jest.fn(), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.excludeNode(admin, ids.sessionId, ids.nodeId)).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects exclusion when the locked session site differs from the authorized site", async () => {
+    const otherSiteId = "99999999-9999-4999-8999-999999999999";
+    const findUnique = jest.fn()
+      .mockResolvedValueOnce({ siteId: ids.siteId })
+      .mockResolvedValueOnce({ id: ids.sessionId, siteId: otherSiteId, status: "active" });
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique, findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.excludeNode(admin, ids.sessionId, ids.nodeId)).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.discoveredMeshNode.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("rejects exclusion unless the node requires reconciliation", async () => {
+    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active" };
+    const node = { ...discoveredNode(), status: "discovered" };
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), findMany: jest.fn(),
+        update: jest.fn(), updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue(node), findMany: jest.fn(), findUnique: jest.fn(),
+        count: jest.fn(), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.excludeNode(admin, ids.sessionId, ids.nodeId)).rejects.toEqual(
+      new ConflictException({ code: "node_exclusion_requires_reconciliation" })
+    );
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+  });
+
+  it("cancels an empty terminal session and returns its discovered nodes", async () => {
+    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active", scanStatus: "completed" };
+    const cancelled = { ...session, status: "cancelled", completedAt: new Date(), discoveredNodes: [] };
+    const count = jest.fn().mockResolvedValue(0);
+    const { service, prisma, siteAccess } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), findMany: jest.fn(),
+        update: jest.fn().mockResolvedValue(cancelled), updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), count,
+        update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    const lockOrder: string[] = [];
+    siteAccess.assertCommissionInTransaction.mockImplementation(async () => {
+      lockOrder.push("site");
+      return { id: ids.siteId };
+    });
+    prisma.$queryRaw.mockImplementation(async () => {
+      lockOrder.push("session");
+      return [];
+    });
+
+    await expect(service.cancelSession(admin, ids.sessionId)).resolves.toEqual(cancelled);
+
+    expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
+    expect(lockOrder).toEqual(["site", "session"]);
+    expect(count).toHaveBeenCalledWith({
+      where: { sessionId: ids.sessionId, status: { in: ["provisioning", "reconcile_required", "provisioned"] } }
+    });
+    expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
+      where: { id: ids.sessionId },
+      data: { status: "cancelled", completedAt: expect.any(Date) },
+      include: { discoveredNodes: true }
+    });
+  });
+
+  it("rejects cancellation when unresolved or provisioned nodes exist", async () => {
+    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active", scanStatus: "failed" };
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), findMany: jest.fn(),
+        update: jest.fn(), updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(),
+        count: jest.fn().mockResolvedValue(1), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.cancelSession(admin, ids.sessionId)).rejects.toEqual(
+      new ConflictException({ code: "registration_session_not_empty" })
+    );
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects cancellation while the scan is not terminal", async () => {
+    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active", scanStatus: "scanning" };
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), findMany: jest.fn(),
+        update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.cancelSession(admin, ids.sessionId)).rejects.toEqual(
+      new ConflictException({ code: "scan_session_not_terminal" })
+    );
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+  });
 
   it("rechecks commission access inside createSession before creating a session or outbox", async () => {
     const { service, prisma, siteAccess } = await createModule();
@@ -604,6 +804,41 @@ describe("RegistrationService", () => {
     expect(mqtt.publishProvisioningScanStart).not.toHaveBeenCalled();
   });
 
+  it("rejects scan retry while provisioning or reconciliation nodes remain unresolved", async () => {
+    const terminalSession = {
+      id: ids.sessionId,
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId,
+      status: "active",
+      scanStatus: "completed",
+      scanAttempt: 1,
+      startedAt: new Date("2026-07-01T00:00:00.000Z")
+    };
+    const count = jest.fn().mockResolvedValue(1);
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(terminalSession), findMany: jest.fn(),
+        update: jest.fn().mockResolvedValue({ ...terminalSession, scanStatus: "pending", scanAttempt: 2 }),
+        updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), count,
+        update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.retryScan(admin, ids.sessionId)).rejects.toEqual(
+      new ConflictException({ code: "scan_retry_has_unresolved_nodes" })
+    );
+
+    expect(count).toHaveBeenCalledWith({
+      where: { sessionId: ids.sessionId, status: { in: ["provisioning", "reconcile_required"] } }
+    });
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+    expect(prisma.provisioningScanOutbox.create).not.toHaveBeenCalled();
+  });
+
   it("maps a new session partial unique conflict to gateway_scan_in_progress", async () => {
     const { service } = await createModule({
       provisioningSession: {
@@ -769,6 +1004,11 @@ describe("RegistrationService", () => {
           site: { organizationId: ids.organizationId }
         }),
         update: jest.fn().mockResolvedValue({ id: ids.sessionId, status: "completed" })
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(),
+        count: jest.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1),
+        update: jest.fn(), updateMany: jest.fn()
       }
     });
 
@@ -792,6 +1032,55 @@ describe("RegistrationService", () => {
 
     await expect(service.completeSession(admin, ids.sessionId)).rejects.toEqual(
       new ConflictException({ code: "scan_session_not_terminal" })
+    );
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects completion while provisioning or reconciliation nodes remain unresolved", async () => {
+    const count = jest.fn().mockResolvedValue(1);
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue({
+          id: ids.sessionId, siteId: ids.siteId, status: "active", scanStatus: "completed"
+        }),
+        findMany: jest.fn(),
+        update: jest.fn().mockResolvedValue({ id: ids.sessionId, status: "completed" }),
+        updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(),
+        count, update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.completeSession(admin, ids.sessionId)).rejects.toEqual(
+      new ConflictException({ code: "registration_session_has_unresolved_nodes" })
+    );
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(count).toHaveBeenCalledWith({
+      where: { sessionId: ids.sessionId, status: { in: ["provisioning", "reconcile_required"] } }
+    });
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects completion when no node was provisioned", async () => {
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue({
+          id: ids.sessionId, siteId: ids.siteId, status: "active", scanStatus: "completed"
+        }),
+        findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(),
+        count: jest.fn().mockResolvedValue(0), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.completeSession(admin, ids.sessionId)).rejects.toEqual(
+      new ConflictException({ code: "registration_session_requires_provisioned_node" })
     );
     expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
   });

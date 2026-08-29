@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { createRegistrationSessionSchema, registerFixtureBatchSchema } from "@led-control/shared";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -23,6 +23,11 @@ export class RegistrationController {
   @Post()
   createSession(@Body() body: unknown, @CurrentUser() user: AuthenticatedUser) {
     return this.registrationService.createSession(user, createRegistrationSessionSchema.parse(body));
+  }
+
+  @Get("active")
+  listActiveSessions(@Query("siteId") siteId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.registrationService.listActiveSessions(user, siteId);
   }
 
   @Get(":sessionId")
@@ -54,6 +59,15 @@ export class RegistrationController {
     return this.registrationService.registerNode(user, sessionId, nodeId, body);
   }
 
+  @Post(":sessionId/nodes/:nodeId/exclude")
+  excludeNode(
+    @Param("sessionId") sessionId: string,
+    @Param("nodeId") nodeId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.registrationService.excludeNode(user, sessionId, nodeId);
+  }
+
   @Post(":sessionId/nodes/register-batch")
   registerBatch(
     @Param("sessionId") sessionId: string,
@@ -66,5 +80,10 @@ export class RegistrationController {
   @Post(":sessionId/complete")
   completeSession(@Param("sessionId") sessionId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.registrationService.completeSession(user, sessionId);
+  }
+
+  @Post(":sessionId/cancel")
+  cancelSession(@Param("sessionId") sessionId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.registrationService.cancelSession(user, sessionId);
   }
 }

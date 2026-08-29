@@ -2626,6 +2626,27 @@ button.group-card {
   background: #f7fbff;
 }
 
+.reconcile-actions {
+  min-width: 240px;
+  justify-items: start;
+}
+
+.reconcile-actions label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.reconcile-actions input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
 .node-identity {
   min-width: 0;
 }
@@ -3027,9 +3048,14 @@ button.group-card {
   }
 
   .node-row .node-status,
-  .node-row .secondary-button {
+  .node-row > .secondary-button,
+  .node-row > .reconcile-actions {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .reconcile-actions {
+    min-width: 0;
   }
 
   .registration-mode-toggle,

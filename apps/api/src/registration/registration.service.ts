@@ -147,6 +147,15 @@ export class RegistrationService {
     return session;
   }
 
+  async listActiveSessions(user: AuthenticatedUser, siteId: string) {
+    await this.assertCommissionAccess(user, siteId);
+    return this.prisma.provisioningSession.findMany({
+      where: { siteId, status: "active" },
+      orderBy: { startedAt: "desc" },
+      include: { discoveredNodes: { orderBy: { discoveredAt: "asc" } } }
+    });
+  }
+
   async identifyNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
     const session = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
@@ -176,6 +185,15 @@ export class RegistrationService {
         this.assertActiveSession(current.status);
         if (current.scanStatus !== "completed" && current.scanStatus !== "failed") {
           throw new ConflictException({ code: "scan_retry_requires_terminal_scan" });
+        }
+        const unresolvedNodeCount = await tx.discoveredMeshNode.count({
+          where: {
+            sessionId,
+            status: { in: ["provisioning", "reconcile_required"] }
+          }
+        });
+        if (unresolvedNodeCount > 0) {
+          throw new ConflictException({ code: "scan_retry_has_unresolved_nodes" });
         }
 
         const scanCorrelationId = randomUUID();
@@ -401,6 +419,45 @@ export class RegistrationService {
     return { items: prepared.items };
   }
 
+  async excludeNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
+    const accessSession = await this.prisma.provisioningSession.findUnique({
+      where: { id: sessionId },
+      select: { siteId: true }
+    });
+    if (!accessSession) throw new NotFoundException("registration session not found");
+    await this.assertCommissionAccess(user, accessSession.siteId);
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
+      await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
+      if (!session || session.siteId !== accessSession.siteId) {
+        throw new NotFoundException("registration session not found");
+      }
+      this.assertActiveSession(session.status);
+
+      await tx.$queryRaw`
+        SELECT "id" FROM "DiscoveredMeshNode"
+        WHERE "id" = ${nodeId} AND "sessionId" = ${sessionId}
+        FOR UPDATE
+      `;
+      const node = await tx.discoveredMeshNode.findFirst({ where: { id: nodeId, sessionId } });
+      if (!node) throw new NotFoundException("discovered node not found");
+      if (node.status !== "reconcile_required") {
+        throw new ConflictException({ code: "node_exclusion_requires_reconciliation" });
+      }
+
+      const excludedMessage = "현재 세션에서 제외됨";
+      const errorMessage = node.errorMessage
+        ? `${node.errorMessage}; ${excludedMessage}`
+        : excludedMessage;
+      return tx.discoveredMeshNode.update({
+        where: { id: nodeId },
+        data: { status: "failed", errorMessage }
+      });
+    });
+  }
+
   async completeSession(user: AuthenticatedUser, sessionId: string) {
     const accessSession = await this.prisma.provisioningSession.findUnique({ where: { id: sessionId }, select: { siteId: true } });
     if (!accessSession) throw new NotFoundException("registration session not found");
@@ -414,9 +471,62 @@ export class RegistrationService {
       if (session.scanStatus !== "completed" && session.scanStatus !== "failed") {
         throw new ConflictException({ code: "scan_session_not_terminal" });
       }
+      const unresolvedNodeCount = await tx.discoveredMeshNode.count({
+        where: {
+          sessionId,
+          status: { in: ["provisioning", "reconcile_required"] }
+        }
+      });
+      if (unresolvedNodeCount > 0) {
+        throw new ConflictException({ code: "registration_session_has_unresolved_nodes" });
+      }
+      const provisionedCount = await tx.discoveredMeshNode.count({
+        where: { sessionId, status: "provisioned" }
+      });
+      if (provisionedCount < 1) {
+        throw new ConflictException({ code: "registration_session_requires_provisioned_node" });
+      }
       return tx.provisioningSession.update({
         where: { id: sessionId },
         data: { status: "completed", completedAt: new Date() },
+        include: { discoveredNodes: true }
+      });
+    });
+  }
+
+  async cancelSession(user: AuthenticatedUser, sessionId: string) {
+    const accessSession = await this.prisma.provisioningSession.findUnique({
+      where: { id: sessionId },
+      select: { siteId: true }
+    });
+    if (!accessSession) throw new NotFoundException("registration session not found");
+    await this.assertCommissionAccess(user, accessSession.siteId);
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
+      await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
+      if (!session || session.siteId !== accessSession.siteId) {
+        throw new NotFoundException("registration session not found");
+      }
+      this.assertActiveSession(session.status);
+      if (session.scanStatus !== "completed" && session.scanStatus !== "failed") {
+        throw new ConflictException({ code: "scan_session_not_terminal" });
+      }
+
+      const blockingNodeCount = await tx.discoveredMeshNode.count({
+        where: {
+          sessionId,
+          status: { in: ["provisioning", "reconcile_required", "provisioned"] }
+        }
+      });
+      if (blockingNodeCount > 0) {
+        throw new ConflictException({ code: "registration_session_not_empty" });
+      }
+
+      return tx.provisioningSession.update({
+        where: { id: sessionId },
+        data: { status: "cancelled", completedAt: new Date() },
         include: { discoveredNodes: true }
       });
     });

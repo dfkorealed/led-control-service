@@ -3,8 +3,11 @@ import { Loader2, Radar } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dashboard } from "../../api/queries";
 import {
+  cancelRegistrationSession,
   completeRegistrationSession,
   createRegistrationSession,
+  excludeRegistrationNode,
+  getActiveRegistrationSessions,
   getRegistrationSession,
   registerFixtureBatch,
   retryRegistrationScan,
@@ -71,12 +74,19 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
   const [individualDefaults, setIndividualDefaults] = useState(initialIndividualDefaults);
   const [individualDrafts, setIndividualDrafts] = useState<Record<string, FixtureIndividualDraft>>({});
   const [nodeErrors, setNodeErrors] = useState<Record<string, string>>({});
+  const [reconcileConfirmations, setReconcileConfirmations] = useState<string[]>([]);
   const [isRestartingScan, setIsRestartingScan] = useState(false);
   const invalidatedProvisionedNodes = useRef(new Set<string>());
   const invalidatedSessionId = useRef<string | null>(null);
   const floor = dashboard?.floors.find((item) => item.id === selectedFloorId);
   const gateway = dashboard?.gateways.find((item) => item.id === selectedGatewayId);
   const hasFixtures = (dashboard?.summary.totalFixtures ?? 0) > 0;
+
+  const activeSessionsQuery = useQuery({
+    queryKey: ["registration-sessions", "active", dashboard?.site.id],
+    queryFn: () => getActiveRegistrationSessions(dashboard!.site.id),
+    enabled: Boolean(dashboard?.site.id)
+  });
 
   const sessionQuery = useQuery<RegistrationSession, Error, RegistrationSession, readonly ["registration-session", string | undefined]>({
     queryKey: ["registration-session", session?.id],
@@ -86,8 +96,18 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
   });
   const sessionSnapshot = sessionQuery.data ?? session;
 
+  useEffect(() => {
+    if (session?.status === "active" || !activeSessionsQuery.data?.[0]) return;
+    restoreSession(activeSessionsQuery.data[0]);
+  }, [activeSessionsQuery.data, session]);
+
   const nodes = useMemo(() => {
-    if (isRestartingScan || sessionSnapshot?.scanStatus !== "completed") return [];
+    if (isRestartingScan || !sessionSnapshot) return [];
+    const historicUnresolvedNodes = (sessionSnapshot.discoveredNodes ?? []).filter((node) =>
+      (node.status === "provisioning" || node.status === "reconcile_required")
+      && (node.scanCorrelationId !== sessionSnapshot.scanCorrelationId || node.scanAttempt !== sessionSnapshot.scanAttempt)
+    );
+    if (sessionSnapshot.scanStatus !== "completed") return historicUnresolvedNodes;
     const remoteNodes = currentScanNodes(sessionSnapshot);
     const currentNodeIds = new Set(remoteNodes.map((node) => node.id));
     const byId = new Map(
@@ -97,7 +117,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
       const localNode = byId.get(node.id);
       if (!localNode || statusProgress[node.status] >= statusProgress[localNode.status]) byId.set(node.id, node);
     }
-    return Array.from(byId.values());
+    const currentNodes = Array.from(byId.values());
+    return [...currentNodes, ...historicUnresolvedNodes.filter((node) => !currentNodeIds.has(node.id))];
   }, [isRestartingScan, localNodes, sessionSnapshot]);
 
   useEffect(() => {
@@ -148,7 +169,12 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
       setSelectedNodeIds([]);
       setSubmittedNodeIds([]);
       setNodeErrors({});
+      setReconcileConfirmations([]);
       queryClient.setQueryData(["registration-session", created.id], created);
+      queryClient.setQueryData<RegistrationSession[]>(
+        ["registration-sessions", "active", created.siteId],
+        (current = []) => [created, ...current.filter((item) => item.id !== created.id)]
+      );
     }
   });
 
@@ -208,7 +234,9 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
   const completeMutation = useMutation({
     mutationFn: () => completeRegistrationSession(session!.id),
     onSuccess: (completed) => {
-      setSession(completed);
+      queryClient.setQueryData(["registration-session", completed.id], completed);
+      continueWithRemainingSession(completed);
+      void queryClient.invalidateQueries({ queryKey: ["registration-sessions", "active", completed.siteId] });
       const dashboardQueryKeys = new Set([completed.siteId, dashboardQuerySiteId ?? "default"]);
       void Promise.all([
         ...Array.from(dashboardQueryKeys, (siteKey) => queryClient.invalidateQueries({ queryKey: ["dashboard", siteKey] })),
@@ -218,7 +246,38 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
     }
   });
 
-  const canStart = Boolean(dashboard?.site.id && floor?.id && gateway?.id) && !startMutation.isPending;
+  const excludeMutation = useMutation({
+    mutationFn: (nodeId: string) => excludeRegistrationNode(session!.id, nodeId),
+    onSuccess: (updatedNode) => {
+      setLocalNodes((current) => replaceNode(current, updatedNode));
+      setSession((current) => current
+        ? { ...current, discoveredNodes: replaceNode(current.discoveredNodes, updatedNode) }
+        : current);
+      queryClient.setQueryData<RegistrationSession>(
+        ["registration-session", session?.id],
+        (current) => current
+          ? { ...current, discoveredNodes: replaceNode(current.discoveredNodes, updatedNode) }
+          : current
+      );
+      setReconcileConfirmations((current) => current.filter((id) => id !== updatedNode.id));
+    }
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelRegistrationSession(session!.id),
+    onSuccess: (cancelled) => {
+      queryClient.setQueryData(["registration-session", cancelled.id], cancelled);
+      continueWithRemainingSession(cancelled);
+      void queryClient.invalidateQueries({ queryKey: ["registration-sessions", "active", cancelled.siteId] });
+    }
+  });
+
+  const hasActiveSession = sessionSnapshot?.status === "active";
+  const canStart = Boolean(dashboard?.site.id && floor?.id && gateway?.id)
+    && !activeSessionsQuery.isPending
+    && !activeSessionsQuery.isError
+    && !hasActiveSession
+    && !startMutation.isPending;
   const selectedNodes = nodes.filter((node) => selectedNodeIds.includes(node.id));
   const actionableNodes = selectedNodes.filter((node) => isRegisterableNode(node, sessionSnapshot));
   const selectableNodes = nodes.filter((node) => isRegisterableNode(node, sessionSnapshot));
@@ -233,6 +292,10 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
       error: nodeErrors[node.id] ?? node.errorMessage ?? undefined
     };
   });
+  const sessionNodes = sessionSnapshot?.discoveredNodes ?? [];
+  const hasProvisionedNode = sessionNodes.some((node) => node.status === "provisioned");
+  const hasUnresolvedNode = sessionNodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required");
+  const isTerminalScan = sessionSnapshot?.scanStatus === "completed" || sessionSnapshot?.scanStatus === "failed";
 
   function toggleNode(nodeId: string) {
     setSelectedNodeIds((current) => current.includes(nodeId)
@@ -267,6 +330,32 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
     setSubmittedNodeIds([]);
     setIndividualDrafts({});
     setNodeErrors({});
+    setReconcileConfirmations([]);
+  }
+
+  function restoreSession(restored: RegistrationSession) {
+    setSession(restored);
+    setLocalNodes(restored.discoveredNodes);
+    setSelectedFloorId(restored.floorId);
+    setSelectedGatewayId(restored.gatewayId);
+    setSelectedNodeIds([]);
+    setSubmittedNodeIds([]);
+    setNodeErrors({});
+    setReconcileConfirmations([]);
+  }
+
+  function selectRestoredSession(sessionId: string) {
+    const restored = activeSessionsQuery.data?.find((item) => item.id === sessionId);
+    if (restored) restoreSession(restored);
+  }
+
+  function continueWithRemainingSession(terminalSession: RegistrationSession) {
+    const activeKey = ["registration-sessions", "active", terminalSession.siteId] as const;
+    const remaining = (queryClient.getQueryData<RegistrationSession[]>(activeKey) ?? activeSessionsQuery.data ?? [])
+      .filter((item) => item.id !== terminalSession.id);
+    queryClient.setQueryData(activeKey, remaining);
+    if (remaining[0]) restoreSession(remaining[0]);
+    else setSession(terminalSession);
   }
 
   function submitRegistration() {
@@ -320,16 +409,26 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
           {!floor || !gateway ? <small>층과 게이트웨이를 선택해야 조명 검색을 시작할 수 있습니다.</small> : null}
         </div>
         <div className="registration-targets">
+          {(activeSessionsQuery.data?.length ?? 0) > 1 ? (
+            <label>
+              진행 중인 세션
+              <select value={session?.id ?? ""} onChange={(event) => selectRestoredSession(event.target.value)}>
+                {activeSessionsQuery.data?.map((item) => (
+                  <option key={item.id} value={item.id}>{item.id.slice(0, 8)}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label>
             등록 층
-            <select value={selectedFloorId} onChange={(event) => setSelectedFloorId(event.target.value)}>
+            <select disabled={hasActiveSession} value={selectedFloorId} onChange={(event) => setSelectedFloorId(event.target.value)}>
               <option value="">층 선택</option>
               {dashboard?.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select>
           </label>
           <label>
             등록 게이트웨이
-            <select value={selectedGatewayId} onChange={(event) => setSelectedGatewayId(event.target.value)}>
+            <select disabled={hasActiveSession} value={selectedGatewayId} onChange={(event) => setSelectedGatewayId(event.target.value)}>
               <option value="">게이트웨이 선택</option>
               {dashboard?.gateways.map((item) => (
                 <option key={item.id} value={item.id}>{item.name}{item.connectionStatus === "online" ? "" : " (오프라인)"}</option>
@@ -344,6 +443,12 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
       </div>
 
       {startMutation.error ? <p className="danger-text">조명 검색 세션을 시작하지 못했습니다.</p> : null}
+      {activeSessionsQuery.error ? (
+        <p className="danger-text">
+          진행 중인 등록 세션을 확인하지 못했습니다.
+          <button className="link-button" onClick={() => activeSessionsQuery.refetch()}>다시 시도</button>
+        </p>
+      ) : null}
 
       {session && sessionSnapshot ? (
         <div className="registration-session">
@@ -351,7 +456,17 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
             <span>등록 세션</span>
             <strong>{session.id.slice(0, 8)}</strong>
             <small>{nodes.length}개 후보 발견</small>
-            {sessionSnapshot.scanStatus === "completed" && nodes.length > 0 ? (
+            {nodes.some((node) => node.status === "reconcile_required") ? (
+              <button
+                className="secondary-button"
+                disabled={sessionQuery.isFetching}
+                onClick={() => sessionQuery.refetch()}
+              >
+                {sessionQuery.isFetching ? <Loader2 size={15} /> : null}
+                상태 다시 확인
+              </button>
+            ) : null}
+            {sessionSnapshot.scanStatus === "completed" && nodes.length > 0 && !hasUnresolvedNode ? (
               <button className="secondary-button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate()}>
                 {retryMutation.isPending ? <Loader2 size={15} /> : <Radar size={15} />}
                 다시 검색
@@ -414,6 +529,33 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
                       {rowError ? <small className="danger-text">{rowError}</small> : null}
                     </div>
                     <span className={`node-status ${node.status}`}>{statusLabels[node.status]}</span>
+                    {node.status === "reconcile_required" ? (
+                      <div className="reconcile-actions">
+                        <small>장비의 실제 등록 상태를 확인하기 전에는 다시 등록하지 마세요.</small>
+                        <label>
+                          <input
+                            type="checkbox"
+                            aria-label="장비 상태를 확인했으며 현재 세션에서 제외"
+                            checked={reconcileConfirmations.includes(node.id)}
+                            onChange={(event) => setReconcileConfirmations((current) => event.target.checked
+                              ? [...current, node.id]
+                              : current.filter((id) => id !== node.id))}
+                          />
+                          장비가 등록되지 않았거나 초기화된 상태임을 확인
+                        </label>
+                        <button
+                          className="secondary-button"
+                          disabled={
+                            !reconcileConfirmations.includes(node.id)
+                            || excludeMutation.isPending
+                            || sessionQuery.isError
+                          }
+                          onClick={() => excludeMutation.mutate(node.id)}
+                        >
+                          현재 세션에서 제외
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })
@@ -465,18 +607,18 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
               {registerMutation.error ? <p className="danger-text">선택한 조명 등록 요청을 처리하지 못했습니다.</p> : null}
             </div>
           ) : null}
-          <button
-            className="link-button"
-            disabled={
-              !nodes.some((node) => node.status === "provisioned")
-              || nodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required")
-              || (sessionSnapshot.scanStatus !== "completed" && sessionSnapshot.scanStatus !== "failed")
-              || completeMutation.isPending
-            }
-            onClick={() => completeMutation.mutate()}
-          >
-            등록 세션 완료
-          </button>
+          {sessionSnapshot.status === "active" ? (
+            <button
+              className="link-button"
+              disabled={!isTerminalScan || hasUnresolvedNode || completeMutation.isPending || cancelMutation.isPending}
+              onClick={() => hasProvisionedNode ? completeMutation.mutate() : cancelMutation.mutate()}
+            >
+              {hasProvisionedNode ? "등록 세션 완료" : "등록 세션 취소"}
+            </button>
+          ) : null}
+          {excludeMutation.error ? <p className="danger-text">노드를 현재 세션에서 제외하지 못했습니다.</p> : null}
+          {cancelMutation.error ? <p className="danger-text">등록 세션을 취소하지 못했습니다.</p> : null}
+          {sessionQuery.error ? <p className="danger-text">등록 세션 상태를 다시 확인하지 못했습니다.</p> : null}
         </div>
       ) : null}
     </section>
@@ -487,6 +629,10 @@ function markNodesProvisioning(nodes: DiscoveredRegistrationNode[], accepted: Se
   return nodes.map((node): DiscoveredRegistrationNode => accepted.has(node.id)
     ? { ...node, status: "provisioning", errorMessage: null }
     : node);
+}
+
+function replaceNode(nodes: DiscoveredRegistrationNode[], updatedNode: DiscoveredRegistrationNode) {
+  return nodes.map((node) => node.id === updatedNode.id ? updatedNode : node);
 }
 
 function createIndividualDraft(): FixtureIndividualDraft {

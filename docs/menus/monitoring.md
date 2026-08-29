@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-08-27
+기준일: 2026-08-29
 
 ## 확정 구현 범위
 
@@ -30,6 +30,8 @@
 - dashboard `site`는 `customerName`, nullable `address`/`tariffKwhRate`, `timeZone`, 그리고 주소·단가·층 존재 여부에서 계산한 `pending|installed` 설치 상태를 함께 반환한다.
 - assigned admin은 pending Site의 최초 주소·단가·시간대·층을 API로 완료할 수 있으며, 설치가 끝난 뒤 자기 현장의 Gateway claim과 조명 검색·등록 commissioning API를 호출할 수 있다. `POST /gateways/claim`은 정규화한 serial별 transaction advisory lock 아래 Site row 재검증, rolling failure count, terminal audit와 inventory claim을 한 decision boundary에서 처리한다. 병렬 invalid 요청은 최대 5회의 claim-code 검증만 수행하고 invalid·unavailable·already-consumed·rate-limited·success를 모두 commit한 뒤 정제된 응답을 반환하며, 다른 serial은 전역 잠금을 공유하지 않는다.
 - registration session 생성은 body `siteId`, 조회·재검색·identify·개별/일괄 등록·완료는 저장된 session `siteId`의 `commission` capability를 검사한다. create/retry/register/register-batch/complete mutation은 transaction 첫 단계에서 Site를 잠그고 assigned admin을 다시 확인한 뒤 `Site -> Gateway -> Session -> Node` 순서로 잠가 재배정·비활성화된 stale admin의 session/outbox/node/complete mutation을 차단한다. get/identify는 read-only service 권한 검사만 수행한다. 기존 durable scan outbox, allocator와 provisioning 상태 전이는 그대로 유지한다.
+- `GET /registration-sessions/active?siteId=...`는 현장 commission 권한을 검사하고 active 세션을 최신순으로 반환한다. 웹은 페이지 재진입과 새로고침 시 가장 최근 세션의 층, 게이트웨이, 검색 attempt와 발견 노드를 자동 복구하며 여러 세션이 있으면 사용자가 전환할 수 있다. active 조회가 끝나거나 실패 복구되기 전에는 새 검색을 시작하지 않는다.
+- admin의 조명 등록 패널은 조명이 1개 이상 생성된 일반 모니터링 화면에서도 유지한다. 따라서 provisioning 완료로 dashboard 조명 수가 증가한 뒤 새로고침해도 active 세션을 완료·취소할 수 있으며 추가 조명 검색에도 같은 진입점을 사용한다.
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
 - ESP32-H2 unprovisioned UUID는 `DFKLED`, format version, 제품군, 모델, 하드웨어 revision과 6바이트 장치 식별자로 구성한다. Raspberry Pi Gateway는 shared parser로 현재 format의 자사 UUID만 scan 결과에 포함하고 타사 장치는 구조화 로그만 남긴다.
 - 등록용 자동 이름 순번은 층별 `Floor.nextFixtureSequence`, Mesh unicast 주소는 게이트웨이별 `Gateway.nextMeshUnicastAddress`에서 소유 행 잠금 후 연속 범위로 원자 예약한다. 삭제되거나 건너뛴 값은 재사용하지 않으며 Mesh 주소는 `0x0001~0x7fff`만 허용한다.
@@ -38,13 +40,16 @@
 - 조명 등록 패널은 검색된 등록 가능 node의 개별/전체 checkbox 선택과 `일괄 설정`·`개별 설정` 전환을 지원한다. 일괄 설정은 선택 층 이름을 기본 prefix로 사용하고, 개별 설정은 조명별 이름·정격 전력·marker 크기와 선택적 좌표를 입력한다. X/Y를 모두 비우면 자동 배치하고 둘 다 입력하면 수동 배치하며 한쪽만 입력하면 해당 node에 검증 오류를 표시한다.
 - 일괄·개별 등록 요청에서 서버가 수락한 node만 선택 해제하고, `validation_failed`는 오류와 선택을 유지한다. 물리 provisioning 중인 node는 재등록할 수 없으며 이후 `failed` 또는 `reconcile_required`로 확인되면 검토 대상으로 다시 선택해 node 행에 원인을 표시한다.
 - Gateway는 여러 provision-device 명령을 FIFO로 직렬 처리해 BlueZ provisioning 작업이 겹치지 않게 한다. MQTT publish 오류 또는 provisioning failure event처럼 물리 적용 여부가 불명확하면 node를 `reconcile_required`로 전환하며 확인 없이 자동 재시도하지 않는다.
+- `reconcile_required` 노드는 `상태 다시 확인`으로 늦게 도착한 provisioning 완료를 먼저 조회한다. 여전히 불확실하면 관리자가 장비가 미등록 또는 초기화 상태임을 확인한 뒤 `POST /registration-sessions/:sessionId/nodes/:nodeId/exclude`로 현재 세션에서만 제외할 수 있다. 이 동작은 Mesh 주소와 pending 정보를 감사 증거로 보존하며 재프로비저닝 명령을 발행하지 않는다.
+- 이전 scan attempt에 남은 `provisioning/reconcile_required`도 현재 후보와 함께 복구 화면에 표시해 숨은 상태로 세션을 차단하지 않는다. 상태 재조회가 실패하면 오류를 표시하고 제외 동작을 잠근다. 여러 active 세션 중 하나를 종료하면 다음 세션을 즉시 복구한다.
+- provisioning 완료 MQTT 처리는 `Session -> Node` 행 잠금 뒤 active session과 `provisioning/reconcile_required` 상태를 재검증한다. 제외·취소가 먼저 commit되면 늦은 완료 이벤트는 fixture를 만들지 않고, MQTT 완료가 먼저 commit되면 뒤따른 제외·취소가 상태 재검증에서 거부되어 명시적 운영 결정과 장비 이벤트가 경합해도 상태가 뒤집히지 않는다.
 - 등록 검색은 세션별 `pending/scanning/completed/failed` lifecycle, correlation ID와 attempt를 사용한다. 신규 검색과 retry는 `pending` session과 scan-start durable outbox를 같은 transaction에서 만들며 publisher가 lease 아래 `pending -> scanning` 전이 후 발행한다. 0건은 `completed`이며, 완료/실패/발견 이벤트는 session 행 잠금과 `ProcessedGatewayEvent` 원장 transaction 안에서 site, gateway, correlation, attempt, eventId, sequence가 현재 scan과 모두 일치할 때만 반영한다. 검증된 발견 이벤트의 correlation ID와 attempt는 `DiscoveredMeshNode` create/update 양쪽에 저장해 동일 장치가 다음 attempt에서 재발견되면 최신 identity로 덮어쓴다. 늦은 발견, 중복·낮은 sequence, 이전 시도 이벤트는 무시한다.
 - Gateway는 shared DFKLED UUID parser를 통과한 장치만 `scan-found` v2 topic으로 발행한다. `(sessionId, scanCorrelationId, scanAttempt)`별 0600 atomic journal은 running duplicate가 scanner를 다시 시작하지 않게 하고, terminal은 원래 eventId/sequence를 가진 동일 event로 재발행한다. restart에서 남은 running record는 새 scan 대신 정제된 failed terminal로 수렴하며, 손상·권한 오류 journal은 fail-closed 한다. application ACK를 받지 못한 terminal과 running은 retention·capacity eviction에서 제외하고, 이 보호 record 때문에 1,000개 한도를 채우면 새 scan을 fail-closed 한다. ACK를 받은 delivered terminal만 24시간 보존한다.
-- `POST /registration-sessions/:sessionId/scan/retry`는 terminal scan만 재시작한다. gateway별 `status=active`인 `pending/scanning` partial unique 제약으로 같은 gateway의 동시 검색을 막고, 신규·retry 충돌 모두 `gateway_scan_in_progress`를 반환한다. publisher MQTT timeout은 기본 10초로 30초 lease보다 짧으며 process crash는 lease 만료 뒤 같은 attempt를 재시도한다. timeout/reject는 backoff를 증가시키고 최대 3회 또는 5분 실패는 사용자용 고정 메시지와 함께 `failed`로 복구한다.
+- `POST /registration-sessions/:sessionId/scan/retry`는 terminal scan이며 `provisioning` 또는 `reconcile_required` 노드가 없을 때만 재시작한다. gateway별 `status=active`인 `pending/scanning` partial unique 제약으로 같은 gateway의 동시 검색을 막고, 신규·retry 충돌 모두 `gateway_scan_in_progress`를 반환한다. publisher MQTT timeout은 기본 10초로 30초 lease보다 짧으며 process crash는 lease 만료 뒤 같은 attempt를 재시도한다. timeout/reject는 backoff를 증가시키고 최대 3회 또는 5분 실패는 사용자용 고정 메시지와 함께 `failed`로 복구한다.
 - API provisioning scan/command outbox worker는 initial·interval batch의 transient DB 실패를 scheduler 경계에서 격리하고 worker별 single-flight로 실행한다. Mesh group sync도 single-flight로 실행하며 종료가 시작되면 다음 record/group publish를 시작하지 않는다. `MqttShutdownCoordinator`가 두 outbox worker와 `MeshGroupSyncWorker`를 멱등 drain하고, inbound MQTT listener를 분리한 뒤 진행 중 handler와 ACK publish를 모두 기다린 다음에만 `MqttService.close()`를 호출한다. Mesh subscription sync, provisioning terminal ACK와 mesh resync ACK는 PUBACK 무응답 시 10초에 packet ID를 취소해 active drain을 끝내며 timeout rejection은 payload·topic·오류 상세를 노출하지 않는 최상위 오류 경계에서 격리한다. MQTT close는 graceful `end` callback을 await하고 5초 timeout에 force close callback을 추가 1초간 기다려 영구 hang 없이 Nest module 종료를 마친다.
-- scanning 또는 pending scan은 registration session 완료를 `409 scan_session_not_terminal`로 거부한다. provisioning 전 identify API는 session site의 commission 권한과 404 경계를 확인한 뒤 `501 pre_provision_identify_unsupported`를 반환하며, 발견 node 상태를 바꾸거나 MQTT 명령을 발행하지 않는다.
+- scanning 또는 pending scan, 미해결 `provisioning/reconcile_required`, 등록 성공 조명 0개는 registration session 완료를 거부한다. 성공 조명이 없고 미해결 노드도 없는 terminal session은 `POST /registration-sessions/:sessionId/cancel`로 `cancelled` 종료한다. provisioning 전 identify API는 session site의 commission 권한과 404 경계를 확인한 뒤 `501 pre_provision_identify_unsupported`를 반환하며, 발견 node 상태를 바꾸거나 MQTT 명령을 발행하지 않는다.
 - 웹 등록 패널은 `completed` 0건에서 검색 결과 없음과 `다시 검색`을, `failed`에서 API가 제공한 정제된 실패 메시지와 `다시 검색`을 표시한다. provisioning 전 점멸 확인 UI와 호출 경로는 제거했다.
-- 등록 세션 polling은 `pending/scanning` 또는 provisioning node가 있을 때만 1.5초 간격으로 수행한다. terminal scan에서 중지하며, 등록 요청 또는 서버 응답이 provisioning을 관측하면 다시 시작한다. 다시 검색 요청을 시작하는 즉시 이전 후보, 선택, 제출 상태와 개별 초안을 비우고 POST 응답은 relation이 없는 상태 전이 응답으로 취급한 뒤 canonical session GET으로 수렴한다.
+- 등록 세션 polling은 `pending/scanning` 또는 provisioning node가 있을 때만 1.5초 간격으로 수행한다. terminal scan과 `reconcile_required`에서는 자동 polling을 중지하고 사용자가 상태를 다시 확인한다. 등록 요청 또는 서버 응답이 provisioning을 관측하면 polling을 다시 시작한다. 다시 검색 요청을 시작하는 즉시 이전 후보, 선택, 제출 상태와 개별 초안을 비우고 POST 응답은 relation이 없는 상태 전이 응답으로 취급한 뒤 canonical session GET으로 수렴한다.
 - 등록 후보는 현재 scan이 `completed`이고 node의 `scanCorrelationId`와 `scanAttempt`가 session의 현재 identity와 모두 exact match일 때만 노출하고 등록할 수 있다. 서로 다른 API/Gateway wall-clock의 `scanStartedAt`과 `discoveredAt`은 attempt 판정에 사용하지 않으며, identity가 `null`인 legacy row와 이전 attempt relation은 fail-closed로 숨긴다.
 - provisioning 완료를 session polling으로 관측하면 현재 층 `floor-fixtures`, `floor-map`과 해당 `registration-session`을 갱신해 등록 화면을 유지한다. 사용자가 `등록 세션 완료`를 누른 뒤 현 화면 `dashboard`와 기본/현장별 dashboard cache를 갱신해 운영 화면으로 전환한다. 새 fixture는 첫 실제 상태 전까지 기존 API 계약대로 `상태 확인 대기`로 표시한다.
 - 등록 batch transaction은 실제 provisioning publish 전에 해당 층의 `MeshControlGroup`을 선확보해 group address 소진이나 gateway/site 불일치를 미리 실패시킨다.
@@ -69,14 +74,14 @@
 - 모니터링 fixture snapshot은 `GET /sites/:siteId/floors/:floorId/fixtures`에서 현장 read 권한을 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다. 존재하지 않는 층과 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
 - Playwright deterministic route fixture는 Chromium에서 수동 새로고침과 마지막 갱신 시각 변경, 10분 자동 갱신 경계, 5페이지로 나뉜 조명 1,000개의 마지막 페이지 상태 반영, 저장된 지도 객체의 실제 Konva canvas pixel 렌더링을 검증한다. 이 fixture는 브라우저와 API 계약 회귀용이며 실제 Raspberry Pi/ESP32-H2 하드웨어 E2E 증거가 아니다.
-- `pnpm benchmark:fixtures`는 실제 인증 cookie와 floor ID로 100회 측정해 API p95가 1초를 넘으면 실패한다.
+- `pnpm benchmark:fixtures`는 `API_BENCH_SITE_ID`, `API_BENCH_FLOOR_ID`, 실제 인증 cookie로 현장 범위 fixture API를 기본 100회 측정해 p95가 1초를 넘으면 실패한다. site/floor ID는 URL encoding하며 스크립트 계약은 `node --test scripts/benchmark-fixture-api.test.mjs`로 검증한다.
 - 모니터링의 층 도면은 모든 역할에 읽기 전용으로 표시한다. 편집 버튼, editor state 조회와 editor 분기는 제공하지 않으며, 도면 변경과 version 복구는 설정 메뉴가 소유한다.
 - `GET /sites/:siteId/floors/:floorId/map-snapshot`은 현장 read 권한을 확인한 뒤 지도 revision, 선택적 도면 배경과 visible 도형만 반환한다. fixture runtime 상태는 기존 cursor API가 담당하며, 배경이 없으면 `1200x800` 기본 canvas를 사용한다.
 - 층 지도 snapshot은 도형을 `zIndex`, 생성 시각 순으로 고정해 반환한다. 존재하지 않거나 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - 웹은 `useFloorMapSnapshot`으로 선택 층의 저장된 배경과 도형을 10분마다 조회하고, 설정 에디터와 공통 `FloorMapObjectNode` geometry를 사용해 Konva scene에 읽기 전용으로 합성한다. 조명 marker는 같은 좌표계의 접근 가능한 HTML 버튼으로 표시한다.
 - 모니터링 수동 새로고침은 dashboard metadata, 현재 층 fixture 페이지와 현재 층 map snapshot 세 요청을 함께 갱신하며 일부 실패 시 기존 성공 데이터를 유지한다.
 - 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가하며, 수동 갱신 실패 상태는 해당 floor ID에 귀속되어 다른 층으로 전환할 때 누수되지 않는다.
-- deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색과 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
+- deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색, 등록 조명이 존재하는 상태의 active 세션 자동 복구와 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
 - Task 9 격리 실백엔드 Chromium E2E는 operator의 현장/admin 발급과 customer route 차단 뒤 assigned admin이 pending setup, Gateway claim, 0건 검색·재검색, 자사 node 2개 등록과 모니터링 진입을 수행하는 새 계약을 검증했다. test support의 software MQTT publisher는 production API, 인증, claim, registration과 state-ingested ACK를 통과하고 shared `parseDfkDeviceUuid` 정본으로 invalid/타사 UUID 1개를 제외한다. 다만 실제 `apps/gateway`의 BlueZ scan/RF, production Gateway certificate principal·bootstrap·broker ACL 배포, Raspberry Pi/ESP32-H2 HIL 증거는 아니다.
 - gateway scoped v2 fixture state와 heartbeat는 topic/payload/DB의 site·gateway 관계가 모두 일치할 때만 반영한다.
 - v2 상태 이벤트는 영속 `eventId`와 gateway sequence를 사용하며 QoS 1 중복과 낮은 sequence 역전을 폐기한다.
@@ -115,8 +120,6 @@
 ## 부족하거나 개선이 필요한 기능
 
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. 모바일 레이아웃과 재설치는 이번 범위 밖이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
-- 검색 또는 provisioning 진행 중 브라우저를 새로고침하면 active registration session을 자동 복구하지 못한다. active session 조회 API와 화면 복구가 필요하다.
-
 - 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.
 - durable state outbox의 파일 권한·용량 차단과 application ACK 재전송은 자동 테스트로 검증했지만, 실제 broker/API 재시작과 Raspberry Pi 전원 차단을 포함한 HIL은 아직 실행하지 않았다.
 - Health 정보는 최신 Current snapshot만 보존하며 fault 이력, 발생 횟수와 해제 이력은 명시적 보류 범위다.
@@ -127,7 +130,7 @@
 - 1,000개 marker 조회/렌더링 기준은 자동 검증하지만, 더 큰 현장에는 공간 클러스터링과 검색이 추가로 필요하다.
 - 자사 UUID 검색, batch 등록, 실제 Health Current 수집을 포함한 Raspberry Pi/ESP32-H2 실장비 HIL은 아직 실행하지 않았다. 자동 route fixture 통과를 검색·등록·상태 수집의 실기 완료로 간주하지 않는다.
 - 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
-- 등록 패널은 `pending/scanning` 또는 provisioning 중에만 1.5초 registration session polling으로 결과를 반영한다. 실시간 push와 단계별 진행률은 명시적 보류 범위이며, `reconcile_required` 장비의 현장 확인·복구 workflow는 후속 구현이 필요하다.
+- 등록 패널은 `pending/scanning` 또는 provisioning 중에만 1.5초 registration session polling으로 결과를 반영한다. `reconcile_required`의 서버 상태 재조회, 명시적 제외와 세션 취소는 구현했지만 장비가 실제로 provisioned 되었는지 Gateway/BlueZ에 질의하고 자동 정리하는 기능은 없다. 현장 관리자가 장비를 확인·초기화하지 않은 채 제외하면 안 되며 이 절차는 Raspberry Pi/ESP32-H2 HIL로 검증해야 한다.
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. Docker 전용 broker persistence 재시작 test는 현재 로컬 Docker daemon 부재로 skip됐다. 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
@@ -165,6 +168,8 @@
 - `apps/api/src/registration/registration-allocation.service.ts`
 - `apps/api/src/registration/registration.service.ts`
 - `apps/api/src/registration/registration.controller.ts`
+- `scripts/benchmark-fixture-api.mjs`
+- `scripts/benchmark-fixture-api.test.mjs`
 - `apps/api/src/floor-map/floor-map.service.ts`
 - `apps/api/src/floor-map/floor-map.controller.ts`
 - `apps/api/src/mqtt/mqtt.service.ts`

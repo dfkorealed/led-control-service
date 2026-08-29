@@ -2,8 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  cancelRegistrationSession,
   completeRegistrationSession,
   createRegistrationSession,
+  excludeRegistrationNode,
+  getActiveRegistrationSessions,
   getRegistrationSession,
   registerFixtureBatch,
   retryRegistrationScan
@@ -14,29 +17,173 @@ import { RegistrationPanel, shouldPollRegistrationSession } from "./Registration
 vi.mock("../../api/registration", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../api/registration")>(),
   completeRegistrationSession: vi.fn(),
+  cancelRegistrationSession: vi.fn(),
   createRegistrationSession: vi.fn(),
+  excludeRegistrationNode: vi.fn(),
+  getActiveRegistrationSessions: vi.fn(),
   getRegistrationSession: vi.fn(),
   registerFixtureBatch: vi.fn(),
   retryRegistrationScan: vi.fn()
 }));
 
 const createSessionMock = vi.mocked(createRegistrationSession);
+const activeSessionsMock = vi.mocked(getActiveRegistrationSessions);
 const getSessionMock = vi.mocked(getRegistrationSession);
+const excludeNodeMock = vi.mocked(excludeRegistrationNode);
+const cancelSessionMock = vi.mocked(cancelRegistrationSession);
 const registerBatchMock = vi.mocked(registerFixtureBatch);
 const retryScanMock = vi.mocked(retryRegistrationScan);
 
 describe("RegistrationPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    activeSessionsMock.mockResolvedValue([]);
     createSessionMock.mockResolvedValue(completedSession(mockRegistrationSession.discoveredNodes));
     getSessionMock.mockResolvedValue(completedSession(mockRegistrationSession.discoveredNodes));
     retryScanMock.mockResolvedValue(scanningSession());
     vi.mocked(completeRegistrationSession).mockResolvedValue({ ...mockRegistrationSession, status: "completed" });
+    cancelSessionMock.mockResolvedValue({ ...mockRegistrationSession, status: "cancelled" });
   });
 
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it("새로고침 뒤 현장의 최근 active 등록 세션을 자동 복구한다", async () => {
+    const activeSession = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValue(activeSession);
+
+    renderPanel();
+
+    expect(await screen.findByText(/1개 후보 발견/)).toBeInTheDocument();
+    expect(screen.getByLabelText("등록 층")).toHaveValue(activeSession.floorId);
+    expect(screen.getByLabelText("등록 게이트웨이")).toHaveValue(activeSession.gatewayId);
+    expect(getSessionMock).toHaveBeenCalledWith(activeSession.id);
+    expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
+  });
+
+  it("확인 필요 노드는 명시적 확인 후 세션에서 제외하고 성공 장비가 없으면 세션을 취소한다", async () => {
+    const reconcileNode = {
+      ...mockRegistrationSession.discoveredNodes[0],
+      status: "reconcile_required" as const,
+      errorMessage: "게이트웨이 ACK를 확인하지 못했습니다."
+    };
+    const activeSession = completedSession([reconcileNode]);
+    const excludedNode = { ...reconcileNode, status: "failed" as const, errorMessage: "현재 세션에서 제외됨" };
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValue(activeSession);
+    excludeNodeMock.mockResolvedValue(excludedNode);
+    cancelSessionMock.mockResolvedValue({ ...activeSession, status: "cancelled", discoveredNodes: [excludedNode] });
+
+    renderPanel();
+
+    expect(await screen.findByText("확인 필요")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 검색" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "현재 세션에서 제외" })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("장비 상태를 확인했으며 현재 세션에서 제외"));
+    fireEvent.click(screen.getByRole("button", { name: "현재 세션에서 제외" }));
+    await waitFor(() => expect(excludeNodeMock).toHaveBeenCalledWith(activeSession.id, reconcileNode.id));
+
+    fireEvent.click(await screen.findByRole("button", { name: "등록 세션 취소" }));
+    await waitFor(() => expect(cancelSessionMock).toHaveBeenCalledWith(activeSession.id));
+  });
+
+  it("확인 필요 노드의 서버 상태를 사용자가 다시 조회할 수 있다", async () => {
+    const reconcileNode = { ...mockRegistrationSession.discoveredNodes[0], status: "reconcile_required" as const };
+    const activeSession = completedSession([reconcileNode]);
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValueOnce(activeSession).mockResolvedValue({
+      ...activeSession,
+      discoveredNodes: [{ ...reconcileNode, status: "provisioned" as const }]
+    });
+
+    renderPanel();
+    const refreshButton = await screen.findByRole("button", { name: "상태 다시 확인" });
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(refreshButton);
+
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("등록 완료")).toBeInTheDocument();
+  });
+
+  it("이전 검색 attempt의 등록 완료 노드가 있으면 현재 검색이 0건이어도 세션을 완료한다", async () => {
+    const previousNode = {
+      ...mockRegistrationSession.discoveredNodes[0],
+      status: "provisioned" as const,
+      scanCorrelationId: "55555555-5555-4555-8555-555555555555",
+      scanAttempt: 1
+    };
+    const activeSession = {
+      ...completedSession([previousNode]),
+      scanCorrelationId: "66666666-6666-4666-8666-666666666666",
+      scanAttempt: 2
+    };
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValue(activeSession);
+
+    renderPanel();
+
+    expect(await screen.findByText("검색된 미등록 조명이 없습니다.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "등록 세션 완료" }));
+    await waitFor(() => expect(completeRegistrationSession).toHaveBeenCalledWith(activeSession.id));
+    expect(cancelSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("이전 검색 attempt의 확인 필요 노드도 숨기지 않고 복구 동작을 제공한다", async () => {
+    const previousNode = {
+      ...mockRegistrationSession.discoveredNodes[0],
+      status: "reconcile_required" as const,
+      scanCorrelationId: "55555555-5555-4555-8555-555555555555",
+      scanAttempt: 1
+    };
+    const activeSession = {
+      ...completedSession([previousNode]),
+      scanCorrelationId: "66666666-6666-4666-8666-666666666666",
+      scanAttempt: 2
+    };
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValue(activeSession);
+
+    renderPanel();
+
+    expect(await screen.findByText(previousNode.serialNumber)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "현재 세션에서 제외" })).toBeDisabled();
+  });
+
+  it("상태 다시 확인 실패를 표시하고 확인 전 제외를 차단한다", async () => {
+    const reconcileNode = { ...mockRegistrationSession.discoveredNodes[0], status: "reconcile_required" as const };
+    const activeSession = completedSession([reconcileNode]);
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValueOnce(activeSession).mockRejectedValue(new Error("network unavailable"));
+
+    renderPanel();
+    const refreshButton = await screen.findByRole("button", { name: "상태 다시 확인" });
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
+    fireEvent.click(refreshButton);
+
+    expect(await screen.findByText("등록 세션 상태를 다시 확인하지 못했습니다.")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("장비 상태를 확인했으며 현재 세션에서 제외"));
+    expect(screen.getByRole("button", { name: "현재 세션에서 제외" })).toBeDisabled();
+  });
+
+  it("여러 active 세션 중 현재 세션을 취소하면 다음 세션을 바로 복구한다", async () => {
+    const current = completedSession([]);
+    const next = {
+      ...completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1)),
+      id: "99999999-9999-4999-8999-999999999999",
+      floorId: mockDashboard.floors[1].id
+    };
+    activeSessionsMock.mockResolvedValue([current, next]);
+    getSessionMock.mockImplementation(async (sessionId) => sessionId === next.id ? next : current);
+    cancelSessionMock.mockResolvedValue({ ...current, status: "cancelled" });
+
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "등록 세션 취소" }));
+
+    await waitFor(() => expect(screen.getByLabelText("등록 층")).toHaveValue(next.floorId));
+    expect(screen.getByText(next.id.slice(0, 8), { selector: ".session-meta strong" })).toBeInTheDocument();
   });
 
   it("선택한 여러 조명을 일괄 설정 payload로 등록한다", async () => {
@@ -267,6 +414,7 @@ describe("RegistrationPanel", () => {
         <RegistrationPanel dashboard={mockDashboard} />
       </QueryClientProvider>
     );
+    await waitFor(() => expect(activeSessionsMock).toHaveBeenCalledWith(mockDashboard.site.id));
     fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: mockDashboard.floors[0].id } });
     fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: mockDashboard.gateways[0].id } });
     fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
@@ -349,6 +497,18 @@ async function renderStartedPanel() {
 }
 
 async function renderStartedPanelWithoutWaiting() {
+  const queryClient = renderPanel();
+  await act(async () => {
+    await activeSessionsMock.mock.results.at(-1)?.value;
+  });
+  fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: mockDashboard.floors[0].id } });
+  fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: mockDashboard.gateways[0].id } });
+  fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
+  await act(async () => { await Promise.resolve(); });
+  return queryClient;
+}
+
+function renderPanel() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
   });
@@ -357,10 +517,6 @@ async function renderStartedPanelWithoutWaiting() {
       <RegistrationPanel dashboard={mockDashboard} />
     </QueryClientProvider>
   );
-  fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: mockDashboard.floors[0].id } });
-  fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: mockDashboard.gateways[0].id } });
-  fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
-  await act(async () => { await Promise.resolve(); });
   return queryClient;
 }
 
