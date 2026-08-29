@@ -179,6 +179,9 @@ export const lightingScheduleSnapshotV1Schema = z.object({
   if (Date.parse(schedule.activeFrom) > Date.parse(schedule.activeUntil)) {
     addIssue(context, "activeUntil", "activeUntil must not precede activeFrom");
   }
+  if (schedule.localStartTime === schedule.localEndTime) {
+    addIssue(context, "localEndTime", "localEndTime must differ from localStartTime");
+  }
 });
 
 export const vehicleEventRuleSnapshotV1Schema = z.object({

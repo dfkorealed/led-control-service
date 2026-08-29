@@ -173,8 +173,42 @@ describe("TargetSnapshotService", () => {
 });
 
 describe("SchedulesService", () => {
+  it("lists one deterministic bounded page and returns total plus next cursor", async () => {
+    const prisma = {
+      site: { findUnique: jest.fn().mockResolvedValue({ timeZone: "Asia/Seoul" }) },
+      lightingSchedule: {
+        count: jest.fn().mockResolvedValue(37),
+        findMany: jest.fn().mockResolvedValue([])
+      }
+    };
+    const service = new SchedulesService(
+      prisma as never,
+      { assert: jest.fn().mockResolvedValue({ id: SITE_ID }) } as never,
+      {} as never,
+      { now: jest.fn().mockReturnValue(new Date("2026-08-31T23:00:00.000Z")) } as never,
+      {} as never
+    );
+
+    await expect(service.list(SITE_ID, admin, {
+      cursor: SCHEDULE_ID,
+      limit: 25
+    } as never)).resolves.toEqual({ items: [], total: 37, nextCursor: null });
+    expect(prisma.lightingSchedule.count).toHaveBeenCalledWith({ where: { siteId: SITE_ID } });
+    expect(prisma.lightingSchedule.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      cursor: { id: SCHEDULE_ID },
+      skip: 1,
+      take: 26,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }]
+    }));
+  });
+
   it("rejects an enabled exact overlap with the stable schedule_overlap code", async () => {
+    const transactionCalls: string[] = [];
     const tx = {
+      $queryRaw: jest.fn().mockImplementation(() => {
+        transactionCalls.push("automation-lock");
+        return Promise.resolve([{ lock_automation_membership_mutation: null }]);
+      }),
       site: { findUnique: jest.fn().mockResolvedValue({ id: SITE_ID, timeZone: "Asia/Seoul" }) },
       lightingSchedule: {
         findMany: jest.fn().mockResolvedValue([{
@@ -200,7 +234,10 @@ describe("SchedulesService", () => {
     const prisma = { $transaction: jest.fn((callback) => callback(tx)) };
     const siteAccess = {
       assert: jest.fn().mockResolvedValue({ id: SITE_ID }),
-      assertManageInTransaction: jest.fn().mockResolvedValue({ id: SITE_ID })
+      assertManageInTransaction: jest.fn().mockImplementation(() => {
+        transactionCalls.push("site-lock");
+        return Promise.resolve({ id: SITE_ID });
+      })
     };
     const targetSnapshot = {
       resolve: jest.fn().mockResolvedValue([FIXTURE_1, FIXTURE_2]),
@@ -209,7 +246,14 @@ describe("SchedulesService", () => {
     const service = new SchedulesService(
       prisma as never,
       siteAccess as never,
-      targetSnapshot as never
+      targetSnapshot as never,
+      { now: jest.fn().mockReturnValue(new Date("2026-08-31T23:00:00.000Z")) } as never,
+      {
+        lockMutation: jest.fn().mockImplementation(() => {
+          transactionCalls.push("automation-lock");
+          return Promise.resolve();
+        })
+      } as never
     );
 
     await expect(service.create(SITE_ID, admin, scheduleInput())).rejects.toMatchObject({
@@ -217,5 +261,88 @@ describe("SchedulesService", () => {
       response: { code: "schedule_overlap" }
     });
     expect(tx.lightingSchedule.create).not.toHaveBeenCalled();
+    expect(transactionCalls.slice(0, 2)).toEqual(["automation-lock", "site-lock"]);
+  });
+
+  it("rejects a PATCH whose merged local times are equal", async () => {
+    const transactionCalls: string[] = [];
+    const existing = {
+      id: SCHEDULE_ID,
+      siteId: SITE_ID,
+      gatewayId: GATEWAY_ID,
+      name: "Existing",
+      status: "enabled",
+      activeFrom: new Date("2026-09-01T00:00:00.000Z"),
+      activeUntil: new Date("2026-09-30T00:00:00.000Z"),
+      localStartTime: "09:00",
+      localEndTime: "10:00",
+      recurrenceKind: "daily",
+      weeklyDays: [],
+      monthlyDay: null,
+      yearlyMonth: null,
+      yearlyDay: null,
+      dimmingEnabled: true,
+      brightnessPercent: 80,
+      fixtures: [{ fixtureId: FIXTURE_1 }]
+    };
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ lock_automation_membership_mutation: null }]),
+      site: { findUnique: jest.fn().mockResolvedValue({ id: SITE_ID, timeZone: "Asia/Seoul" }) },
+      lightingSchedule: {
+        findFirst: jest.fn().mockResolvedValue(existing),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn()
+      }
+    };
+    const service = new SchedulesService(
+      { $transaction: jest.fn((callback) => callback(tx)) } as never,
+      {
+        assert: jest.fn().mockResolvedValue({ id: SITE_ID }),
+        assertManageInTransaction: jest.fn().mockImplementation(() => {
+          transactionCalls.push("site-lock");
+          return Promise.resolve({ id: SITE_ID });
+        })
+      } as never,
+      {
+        resolve: jest.fn(),
+        assertSingleGateway: jest.fn()
+      } as never,
+      { now: jest.fn().mockReturnValue(new Date("2026-08-31T23:00:00.000Z")) } as never,
+      { lockMutation: jest.fn().mockImplementation(() => {
+        transactionCalls.push("automation-lock");
+        return Promise.resolve();
+      }) } as never
+    );
+
+    await expect(service.update(SITE_ID, SCHEDULE_ID, admin, { localEndTime: "09:00" }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.lightingSchedule.update).not.toHaveBeenCalled();
+    expect(transactionCalls.slice(0, 2)).toEqual(["automation-lock", "site-lock"]);
+  });
+
+  it("locks automation before Site reauthorization on delete", async () => {
+    const transactionCalls: string[] = [];
+    const tx = {
+      lightingSchedule: { findFirst: jest.fn().mockResolvedValue(null) }
+    };
+    const service = new SchedulesService(
+      { $transaction: jest.fn((callback) => callback(tx)) } as never,
+      {
+        assert: jest.fn().mockResolvedValue({ id: SITE_ID }),
+        assertManageInTransaction: jest.fn().mockImplementation(() => {
+          transactionCalls.push("site-lock");
+          return Promise.resolve({ id: SITE_ID });
+        })
+      } as never,
+      {} as never,
+      { now: jest.fn() } as never,
+      { lockMutation: jest.fn().mockImplementation(() => {
+        transactionCalls.push("automation-lock");
+        return Promise.resolve();
+      }) } as never
+    );
+
+    await expect(service.remove(SITE_ID, SCHEDULE_ID, admin)).rejects.toMatchObject({ status: 404 });
+    expect(transactionCalls).toEqual(["automation-lock", "site-lock"]);
   });
 });

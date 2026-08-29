@@ -2,26 +2,27 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  InternalServerErrorException,
   NotFoundException
 } from "@nestjs/common";
 import { getNextOccurrence, schedulesOverlap } from "@led-control/automation-engine";
-import {
-  automationSnapshotV1Schema,
-  type LightingScheduleSnapshotV1,
-  lightingScheduleSnapshotV1Schema,
-  mqttTopics,
-  type VehicleEventRuleSnapshotV1
-} from "@led-control/shared";
+import { type LightingScheduleSnapshotV1, lightingScheduleSnapshotV1Schema } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { AutomationClock } from "./automation-clock";
+import {
+  AutomationSnapshotService,
+  compareAutomationIds,
+  normalizeAutomationAction,
+  toLightingScheduleSnapshot
+} from "./automation-snapshot.service";
 import {
   type CreateScheduleInput,
   parseCreateScheduleInput,
   parseUpdateScheduleInput,
+  type ScheduleListQuery,
   type UpdateScheduleInput
 } from "./dto/schedule.dto";
 import { TargetSnapshotService } from "./target-snapshot.service";
@@ -63,10 +64,12 @@ export class SchedulesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
-    private readonly targetSnapshot: TargetSnapshotService
+    private readonly targetSnapshot: TargetSnapshotService,
+    private readonly clock: AutomationClock,
+    private readonly automationSnapshot: AutomationSnapshotService
   ) {}
 
-  async list(siteId: string, actor: AuthenticatedUser, now = new Date()) {
+  async list(siteId: string, actor: AuthenticatedUser, query: ScheduleListQuery) {
     await this.siteAccess.assert(actor, siteId, "read");
     const site = await this.prisma.site.findUnique({
       where: { id: siteId },
@@ -74,14 +77,23 @@ export class SchedulesService {
     });
     if (!site) throw new NotFoundException("site not found");
 
-    const schedules = await this.prisma.lightingSchedule.findMany({
-      where: { siteId },
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      include: responseInclude
-    });
+    const [total, rows] = await Promise.all([
+      this.prisma.lightingSchedule.count({ where: { siteId } }),
+      this.prisma.lightingSchedule.findMany({
+        where: { siteId },
+        orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        include: responseInclude,
+        take: query.limit + 1,
+        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {})
+      })
+    ]);
+    const hasNextPage = rows.length > query.limit;
+    const schedules = rows.slice(0, query.limit);
+    const now = this.clock.now();
     return {
       items: schedules.map((schedule) => this.toResponse(schedule, site.timeZone, now)),
-      total: schedules.length
+      total,
+      nextCursor: hasNextPage ? schedules[schedules.length - 1]?.id ?? null : null
     };
   }
 
@@ -90,6 +102,7 @@ export class SchedulesService {
     const input = normalizeCreateInput(parseCreateScheduleInput(rawInput));
 
     return this.prisma.$transaction(async (tx) => {
+      await this.automationSnapshot.lockMutation(tx);
       await this.siteAccess.assertManageInTransaction(tx, actor, siteId);
       const site = await this.requireSiteTimeZone(tx, siteId);
       const fixtureIds = await this.targetSnapshot.resolve(tx, siteId, input.target);
@@ -113,10 +126,10 @@ export class SchedulesService {
       await tx.lightingScheduleFixture.createMany({
         data: fixtureIds.map((fixtureId) => ({ scheduleId, fixtureId, siteId, gatewayId }))
       });
-      await incrementDesiredRevision(tx, gatewayId);
+      await this.automationSnapshot.incrementDesiredRevision(tx, gatewayId);
 
       const created = await this.findResponseRow(tx, siteId, scheduleId);
-      return this.toResponse(created, site.timeZone);
+      return this.toResponse(created, site.timeZone, this.clock.now());
     });
   }
 
@@ -125,6 +138,7 @@ export class SchedulesService {
     const input = normalizeUpdateInput(parseUpdateScheduleInput(rawInput));
 
     return this.prisma.$transaction(async (tx) => {
+      await this.automationSnapshot.lockMutation(tx);
       await this.siteAccess.assertManageInTransaction(tx, actor, siteId);
       const site = await this.requireSiteTimeZone(tx, siteId);
       const existing = await tx.lightingSchedule.findFirst({
@@ -135,7 +149,7 @@ export class SchedulesService {
 
       const fixtureIds = input.target
         ? await this.targetSnapshot.resolve(tx, siteId, input.target)
-        : existing.fixtures.map((fixture) => fixture.fixtureId).sort(compareIds);
+        : existing.fixtures.map((fixture) => fixture.fixtureId).sort(compareAutomationIds);
       const gatewayId = input.target
         ? await this.targetSnapshot.assertSingleGateway(tx, fixtureIds)
         : existing.gatewayId;
@@ -160,12 +174,12 @@ export class SchedulesService {
         });
       }
 
-      for (const affectedGatewayId of [...new Set([existing.gatewayId, gatewayId])].sort(compareIds)) {
-        await incrementDesiredRevision(tx, affectedGatewayId);
+      for (const affectedGatewayId of [...new Set([existing.gatewayId, gatewayId])].sort(compareAutomationIds)) {
+        await this.automationSnapshot.incrementDesiredRevision(tx, affectedGatewayId);
       }
 
       const updated = await this.findResponseRow(tx, siteId, scheduleId);
-      return this.toResponse(updated, site.timeZone);
+      return this.toResponse(updated, site.timeZone, this.clock.now());
     });
   }
 
@@ -173,6 +187,7 @@ export class SchedulesService {
     await this.siteAccess.assert(actor, siteId, "manage");
 
     return this.prisma.$transaction(async (tx) => {
+      await this.automationSnapshot.lockMutation(tx);
       await this.siteAccess.assertManageInTransaction(tx, actor, siteId);
       const schedule = await tx.lightingSchedule.findFirst({
         where: { id: scheduleId, siteId },
@@ -181,7 +196,7 @@ export class SchedulesService {
       if (!schedule) throw new NotFoundException("schedule not found");
 
       await tx.lightingSchedule.delete({ where: { id: schedule.id } });
-      const revision = await incrementDesiredRevision(tx, schedule.gatewayId);
+      const revision = await this.automationSnapshot.incrementDesiredRevision(tx, schedule.gatewayId);
       return { id: schedule.id, deleted: true, ...revision };
     });
   }
@@ -206,7 +221,7 @@ export class SchedulesService {
       },
       include: overlapInclude
     });
-    if (schedules.some((schedule) => schedulesOverlap(candidate, toScheduleSnapshot(schedule), site.timeZone))) {
+    if (schedules.some((schedule) => schedulesOverlap(candidate, toLightingScheduleSnapshot(schedule), site.timeZone))) {
       throw new ConflictException({ code: "schedule_overlap" });
     }
   }
@@ -226,8 +241,8 @@ export class SchedulesService {
     return schedule;
   }
 
-  private toResponse(schedule: ScheduleResponseRow, timeZone: string, now = new Date()) {
-    const snapshot = toScheduleSnapshot(schedule);
+  private toResponse(schedule: ScheduleResponseRow, timeZone: string, now: Date) {
+    const snapshot = toLightingScheduleSnapshot(schedule);
     const occurrence = getNextOccurrence(snapshot, now.getTime(), timeZone);
     const configuration = schedule.gateway.automationConfiguration;
     const execution = schedule.executions[0] ?? null;
@@ -262,98 +277,15 @@ export class SchedulesService {
   }
 }
 
-export async function incrementDesiredRevision(
-  tx: Prisma.TransactionClient,
-  gatewayId: string,
-  generatedAt = new Date()
-) {
-  const gateway = await tx.gateway.findUnique({
-    where: { id: gatewayId },
-    select: {
-      id: true,
-      siteId: true,
-      site: { select: { timeZone: true } },
-      automationConfiguration: { select: { desiredRevision: true, appliedRevision: true } }
-    }
-  });
-  if (!gateway) throw new NotFoundException("gateway not found");
-  const desiredRevision = (gateway.automationConfiguration?.desiredRevision ?? 0) + 1;
-  if (!Number.isSafeInteger(desiredRevision)) {
-    throw new InternalServerErrorException("automation revision exhausted");
-  }
-
-  await tx.lightingSchedule.updateMany({ where: { gatewayId }, data: { desiredRevision } });
-  await tx.vehicleEventRule.updateMany({ where: { gatewayId }, data: { desiredRevision } });
-
-  const schedules = await tx.lightingSchedule.findMany({
-    where: { gatewayId },
-    include: overlapInclude,
-    orderBy: { id: "asc" }
-  });
-  const eventRules = await tx.vehicleEventRule.findMany({
-    where: { gatewayId },
-    include: {
-      sources: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" } },
-      targets: { select: { fixtureId: true }, orderBy: { fixtureId: "asc" } }
-    },
-    orderBy: { id: "asc" }
-  });
-  const snapshotWithoutHash = {
-    schemaVersion: 1 as const,
-    siteId: gateway.siteId,
-    gatewayId,
-    revision: desiredRevision,
-    timeZone: gateway.site.timeZone,
-    schedules: schedules.map(toScheduleSnapshot),
-    vehicleEventRules: eventRules.map(toVehicleEventRuleSnapshot),
-    generatedAt: generatedAt.toISOString()
-  };
-  const payloadHash = `sha256:${createHash("sha256").update(stableJson(snapshotWithoutHash)).digest("hex")}` as const;
-  const payload = automationSnapshotV1Schema.parse({ ...snapshotWithoutHash, payloadHash });
-
-  const configuration = await tx.gatewayAutomationConfiguration.upsert({
-    where: { gatewayId },
-    create: {
-      gatewayId,
-      siteId: gateway.siteId,
-      desiredRevision,
-      appliedRevision: 0,
-      syncStatus: "PENDING",
-      payloadHash
-    },
-    update: {
-      desiredRevision,
-      syncStatus: "PENDING",
-      payloadHash,
-      lastErrorCode: null
-    },
-    select: { desiredRevision: true, appliedRevision: true, syncStatus: true }
-  });
-  await tx.mqttOutbox.create({
-    data: {
-      gatewayId,
-      revision: desiredRevision,
-      payloadHash,
-      topic: mqttTopics.automationConfig(gateway.siteId, gatewayId),
-      payload: payload as unknown as Prisma.InputJsonValue
-    }
-  });
-  return configuration;
-}
-
 function normalizeCreateInput(input: CreateScheduleInput): CreateScheduleInput {
   return {
     ...input,
-    action: normalizeAction(input.action)
+    action: normalizeAutomationAction(input.action)
   };
 }
 
 function normalizeUpdateInput(input: UpdateScheduleInput): UpdateScheduleInput {
-  return input.action ? { ...input, action: normalizeAction(input.action) } : input;
-}
-
-function normalizeAction(action: LightingScheduleSnapshotV1["action"]) {
-  return action.dimmingEnabled ? action : { dimmingEnabled: false, brightnessPercent: 100 };
+  return input.action ? { ...input, action: normalizeAutomationAction(input.action) } : input;
 }
 
 function toCandidate(
@@ -370,7 +302,7 @@ function mergeCandidate(
   input: UpdateScheduleInput,
   fixtureIds: string[]
 ): LightingScheduleSnapshotV1 {
-  const current = toScheduleSnapshot(existing);
+  const current = toLightingScheduleSnapshot(existing);
   return {
     ...current,
     ...(input.name === undefined ? {} : { name: input.name }),
@@ -407,70 +339,4 @@ function scheduleData(schedule: LightingScheduleSnapshotV1) {
     dimmingEnabled: schedule.action.dimmingEnabled,
     brightnessPercent: schedule.action.brightnessPercent
   };
-}
-
-function toScheduleSnapshot(schedule: ScheduleOverlapRow): LightingScheduleSnapshotV1 {
-  return {
-    id: schedule.id,
-    name: schedule.name,
-    status: schedule.status,
-    activeFrom: schedule.activeFrom.toISOString(),
-    activeUntil: schedule.activeUntil.toISOString(),
-    localStartTime: schedule.localStartTime,
-    localEndTime: schedule.localEndTime,
-    recurrence: {
-      kind: schedule.recurrenceKind,
-      weeklyDays: [...schedule.weeklyDays].sort((left, right) => left - right),
-      monthlyDay: schedule.monthlyDay,
-      yearlyMonth: schedule.yearlyMonth,
-      yearlyDay: schedule.yearlyDay
-    },
-    action: normalizeAction({
-      dimmingEnabled: schedule.dimmingEnabled,
-      brightnessPercent: schedule.brightnessPercent
-    }),
-    fixtureIds: schedule.fixtures.map((fixture) => fixture.fixtureId).sort(compareIds)
-  };
-}
-
-function toVehicleEventRuleSnapshot(rule: {
-  id: string;
-  name: string;
-  status: "enabled" | "disabled";
-  dimmingEnabled: boolean;
-  brightnessPercent: number;
-  holdSeconds: number;
-  sources: Array<{ fixtureId: string }>;
-  targets: Array<{ fixtureId: string }>;
-}): VehicleEventRuleSnapshotV1 {
-  return {
-    id: rule.id,
-    name: rule.name,
-    status: rule.status,
-    sourceFixtureIds: rule.sources.map(({ fixtureId }) => fixtureId).sort(compareIds),
-    targetFixtureIds: rule.targets.map(({ fixtureId }) => fixtureId).sort(compareIds),
-    action: normalizeAction({
-      dimmingEnabled: rule.dimmingEnabled,
-      brightnessPercent: rule.brightnessPercent
-    }),
-    holdSeconds: rule.holdSeconds
-  };
-}
-
-function stableJson(value: unknown): string {
-  return JSON.stringify(sortJson(value));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => compareIds(left, right))
-      .map(([key, child]) => [key, sortJson(child)])
-  );
-}
-
-function compareIds(left: string, right: string) {
-  return left < right ? -1 : left > right ? 1 : 0;
 }

@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
+import { parseScheduleListQuery } from "./dto/schedule.dto";
 import { SchedulesService } from "./schedules.service";
 
 @UseGuards(SessionAuthGuard)
@@ -10,8 +11,12 @@ export class AutomationController {
   constructor(private readonly schedules: SchedulesService) {}
 
   @Get()
-  list(@Param("siteId") siteId: string, @CurrentUser() actor: AuthenticatedUser) {
-    return this.schedules.list(siteId, actor);
+  list(
+    @Param("siteId") siteId: string,
+    @Query() query: unknown,
+    @CurrentUser() actor: AuthenticatedUser
+  ) {
+    return this.schedules.list(siteId, actor, parseScheduleListQuery(query));
   }
 
   @Post()
@@ -43,4 +48,3 @@ export class AutomationController {
     return this.schedules.remove(siteId, scheduleId, actor);
   }
 }
-

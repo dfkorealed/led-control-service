@@ -940,7 +940,7 @@ model AutomationExecution {
   @@index([siteId, occurredAt])
   @@index([gatewayId, sequence])
   @@index([ruleId, occurredAt])
-  @@index([lightingScheduleId])
+  @@index([lightingScheduleId, occurredAt(sort: Desc), sequence(sort: Desc)])
   @@index([vehicleEventRuleId])
   @@index([manualOverrideId])
 }

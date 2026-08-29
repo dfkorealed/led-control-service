@@ -8,6 +8,14 @@ const migrationPath = join(
   "../../prisma/migrations/20260829_add_lighting_automation/migration.sql"
 );
 const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
+const scheduleListIndexMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260830_add_schedule_execution_list_index/migration.sql"
+);
+const scheduleListIndexMigration = existsSync(scheduleListIndexMigrationPath)
+  ? readFileSync(scheduleListIndexMigrationPath, "utf8")
+  : "";
+const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
 const psqlDatabaseUrl = databaseUrl?.replace(/\?schema=[^&]+$/, "");
@@ -48,6 +56,18 @@ describe("automation Prisma schema contract", () => {
     expect(modelFields.LightingSchedule).toContain("targetCount");
     expect(modelFields.VehicleEventRule).toEqual(expect.arrayContaining(["sourceCount", "targetCount"]));
     expect(modelFields.ManualOverride).toContain("targetCount");
+  });
+
+  it("indexes each schedule's latest execution in list order through a forward migration", () => {
+    expect(prismaSchema).toContain(
+      "@@index([lightingScheduleId, occurredAt(sort: Desc), sequence(sort: Desc)])"
+    );
+    expect(scheduleListIndexMigration).toContain(
+      'CREATE INDEX "AutomationExecution_lightingScheduleId_occurredAt_sequence_idx"'
+    );
+    expect(scheduleListIndexMigration).toContain(
+      '("lightingScheduleId", "occurredAt" DESC, "sequence" DESC)'
+    );
   });
 
   it("enforces automation ranges and recurrence shape in PostgreSQL", () => {

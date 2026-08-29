@@ -83,6 +83,16 @@ describe("automation shared contracts", () => {
     expect(automationSnapshotV1Schema.safeParse({ ...snapshot, schedules: [schedule] }).success).toBe(false);
   });
 
+  it("rejects a schedule whose local start and end times are equal", () => {
+    const schedule = {
+      ...snapshot.schedules[0],
+      localStartTime: "08:00",
+      localEndTime: "08:00"
+    };
+
+    expect(automationSnapshotV1Schema.safeParse({ ...snapshot, schedules: [schedule] }).success).toBe(false);
+  });
+
   it("requires valid, unique ISO weekdays for weekly recurrence", () => {
     const recurrence = { ...snapshot.schedules[0].recurrence, weeklyDays: [1, 1] };
     const schedule = { ...snapshot.schedules[0], recurrence };

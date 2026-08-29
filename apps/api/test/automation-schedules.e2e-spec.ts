@@ -1,7 +1,10 @@
 import { type CanActivate, type ExecutionContext, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { randomUUID } from "node:crypto";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { createHash, randomUUID } from "node:crypto";
 import { request } from "node:http";
+import { SiteAccessService } from "../src/access/site-access.service";
+import { AutomationClock } from "../src/automation/automation-clock";
 import { AutomationModule } from "../src/automation/automation.module";
 import { SessionAuthGuard } from "../src/auth/session-auth.guard";
 import type { AuthenticatedUser } from "../src/auth/auth.types";
@@ -9,6 +12,7 @@ import { PrismaService } from "../src/prisma/prisma.service";
 
 const databaseUrl = process.env.AUTOMATION_SCHEDULES_TEST_DATABASE_URL;
 const describeWithPostgres = databaseUrl ? describe : describe.skip;
+const FIXED_NOW = new Date("2026-08-31T23:00:00.000Z");
 
 describeWithPostgres("automation schedules PostgreSQL E2E", () => {
   let app: INestApplication;
@@ -30,6 +34,8 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
     const module = await Test.createTestingModule({ imports: [AutomationModule] })
       .overrideGuard(SessionAuthGuard)
       .useValue(authGuard)
+      .overrideProvider(AutomationClock)
+      .useValue({ now: () => new Date(FIXED_NOW) })
       .compile();
     app = module.createNestApplication();
     await app.listen(0, "127.0.0.1");
@@ -165,6 +171,18 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
         fixtureIds: [...scenario.fixtureIds].sort()
       })]
     });
+    const payload = outbox.payload as Record<string, unknown>;
+    const { payloadHash, ...payloadWithoutHash } = payload;
+    expect(payloadHash).toBe(`sha256:${createHash("sha256")
+      .update(independentCanonicalJson(payloadWithoutHash))
+      .digest("hex")}`);
+    await expect(prisma.mqttOutbox.create({ data: {
+      gatewayId: scenario.gatewayId,
+      revision: outbox.revision,
+      payloadHash: outbox.payloadHash,
+      topic: outbox.topic,
+      payload: outbox.payload as Prisma.InputJsonValue
+    } })).rejects.toMatchObject({ code: "P2002" });
 
     const scheduleId = (created.body as { id: string }).id;
     await prisma.automationExecution.create({ data: {
@@ -185,7 +203,12 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
     expect(listed.body).toMatchObject({
       items: [expect.objectContaining({
         id: scheduleId,
-        nextOccurrence: expect.objectContaining({ startsAt: expect.any(String), endsAt: expect.any(String) }),
+        nextOccurrence: {
+          key: `${scheduleId}:2026-09-01`,
+          localDate: "2026-09-01",
+          startsAt: "2026-09-01T00:00:00.000Z",
+          endsAt: "2026-09-01T01:00:00.000Z"
+        },
         lastExecution: expect.objectContaining({ kind: "schedule_started", sequence: "1" })
       })]
     });
@@ -302,6 +325,338 @@ describeWithPostgres("automation schedules PostgreSQL E2E", () => {
     expect(await prisma.mqttOutbox.count({ where: { gatewayId: scenario.gatewayId } })).toBe(1);
   });
 
+  it("rejects equal local times on create and after merging a PATCH", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const equalCreate = await api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+      scenario.fixtureIds,
+      { localEndTime: "09:00" }
+    ));
+    expect(equalCreate.status).toBe(400);
+
+    const created = await api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+      scenario.fixtureIds,
+      { name: "Merged local time" }
+    ));
+    const equalPatch = await api(
+      "PATCH",
+      `/sites/${scenario.siteId}/automation/schedules/${(created.body as { id: string }).id}`,
+      "admin",
+      { localEndTime: "09:00" }
+    );
+    expect(equalPatch.status).toBe(400);
+    expect(await prisma.gatewayAutomationConfiguration.findUniqueOrThrow({ where: { gatewayId: scenario.gatewayId } }))
+      .toMatchObject({ desiredRevision: 1 });
+  });
+
+  it("reauthorizes a stale assigned admin after the automation lock barrier", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const lockClient = new PrismaClient({ datasourceUrl: databaseUrl });
+    const siteAccess = app.get(SiteAccessService);
+    const originalAssert = siteAccess.assert.bind(siteAccess);
+    let signalOuterCheck!: () => void;
+    const outerCheck = new Promise<void>((resolve) => { signalOuterCheck = resolve; });
+    let releaseLock!: () => void;
+    const holdLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+    let signalLockHeld!: () => void;
+    const lockHeld = new Promise<void>((resolve) => { signalLockHeld = resolve; });
+    const assertSpy = jest.spyOn(siteAccess, "assert").mockImplementation(async (...args) => {
+      const result = await originalAssert(...args);
+      if (args[1] === scenario.siteId && args[2] === "manage") signalOuterCheck();
+      return result;
+    });
+    const blocker = lockClient.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`SELECT "lock_automation_membership_mutation"()`);
+      signalLockHeld();
+      await holdLock;
+    });
+
+    try {
+      await lockHeld;
+      const mutation = api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+        scenario.fixtureIds,
+        { name: "Stale admin" }
+      ));
+      await outerCheck;
+      const site = await prisma.site.findUniqueOrThrow({
+        where: { id: scenario.siteId },
+        select: { organizationId: true }
+      });
+      const replacement = await prisma.user.create({ data: {
+        organizationId: site.organizationId,
+        loginId: `replacement_${randomUUID()}`,
+        email: `replacement-${randomUUID()}@example.com`,
+        name: "Replacement admin",
+        passwordHash: "not-used",
+        role: "admin"
+      } });
+      await prisma.site.update({
+        where: { id: scenario.siteId },
+        data: { adminUserId: replacement.id }
+      });
+      releaseLock();
+
+      expect((await mutation).status).toBe(404);
+      expect(await prisma.lightingSchedule.count({ where: { siteId: scenario.siteId } })).toBe(0);
+    } finally {
+      releaseLock();
+      await blocker;
+      assertSpy.mockRestore();
+      await lockClient.$disconnect();
+    }
+  });
+
+  it("does not deadlock a same-site API create against a direct parent transaction", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const directClient = new PrismaClient({ datasourceUrl: databaseUrl });
+    const siteAccess = app.get(SiteAccessService);
+    const originalAssert = siteAccess.assertManageInTransaction.bind(siteAccess);
+    let signalSiteLocked!: () => void;
+    const siteLocked = new Promise<void>((resolve) => { signalSiteLocked = resolve; });
+    let releaseApi!: () => void;
+    const holdApi = new Promise<void>((resolve) => { releaseApi = resolve; });
+    let armed = true;
+    const assertSpy = jest.spyOn(siteAccess, "assertManageInTransaction").mockImplementation(async (...args) => {
+      const result = await originalAssert(...args);
+      if (armed && args[2] === scenario.siteId) {
+        armed = false;
+        signalSiteLocked();
+        await holdApi;
+      }
+      return result;
+    });
+
+    try {
+      const apiCreate = api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+        [scenario.fixtureIds[0]],
+        { name: "API lock order", localStartTime: "11:00", localEndTime: "12:00" }
+      ));
+      await siteLocked;
+      const directScheduleId = randomUUID();
+      const directCreate = directClient.$transaction(async (tx) => {
+        await tx.lightingSchedule.create({ data: directScheduleData(
+          directScheduleId,
+          scenario,
+          { name: "Direct parent", status: "disabled" }
+        ) });
+        await tx.lightingScheduleFixture.create({ data: {
+          scheduleId: directScheduleId,
+          fixtureId: scenario.fixtureIds[0],
+          siteId: scenario.siteId,
+          gatewayId: scenario.gatewayId
+        } });
+      });
+      await sleep(150);
+      releaseApi();
+
+      const [apiResult] = await withTimeout(Promise.all([apiCreate, directCreate]), 5_000);
+      expect(apiResult.status).toBe(201);
+      expect(await prisma.lightingSchedule.count({ where: { siteId: scenario.siteId } })).toBe(2);
+    } finally {
+      releaseApi();
+      assertSpy.mockRestore();
+      await directClient.$disconnect();
+    }
+  });
+
+  it("resolves floor and group snapshots and rejects empty, unregistered, and mixed-gateway targets", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const group = await prisma.fixtureGroup.create({ data: {
+      siteId: scenario.siteId,
+      floorId: scenario.floorId,
+      gatewayId: scenario.gatewayId,
+      name: "Schedule group",
+      groupFixtures: { create: [{ fixtureId: scenario.fixtureIds[1] }] }
+    } });
+
+    const floorSchedule = await api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+      scenario.fixtureIds,
+      { name: "Floor snapshot", status: "disabled", target: { type: "floor", floorId: scenario.floorId } }
+    ));
+    expect(floorSchedule.status).toBe(201);
+    expect((floorSchedule.body as { targets: Array<{ fixtureId: string }> }).targets)
+      .toEqual(scenario.fixtureIds.slice().sort().map((fixtureId) => ({ fixtureId })));
+
+    const groupSchedule = await api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+      scenario.fixtureIds,
+      { name: "Group snapshot", status: "disabled", target: { type: "group", groupId: group.id } }
+    ));
+    expect(groupSchedule.status).toBe(201);
+    expect((groupSchedule.body as { targets: Array<{ fixtureId: string }> }).targets)
+      .toEqual([{ fixtureId: scenario.fixtureIds[1] }]);
+
+    const emptyFloor = await prisma.floor.create({ data: {
+      siteId: scenario.siteId,
+      name: "Empty floor",
+      level: 2
+    } });
+    const unregistered = await prisma.fixture.create({ data: {
+      floorId: scenario.floorId,
+      name: "Unregistered",
+      ratedWatt: 20,
+      x: 90,
+      y: 0,
+      status: "online"
+    } });
+    const secondGateway = await prisma.gateway.create({ data: {
+      siteId: scenario.siteId,
+      name: "Second gateway",
+      serialNumber: `SCHEDULE-MATRIX-${randomUUID()}`,
+      firmwareVersion: "test"
+    } });
+    const secondNode = await prisma.meshNode.create({ data: {
+      gatewayId: secondGateway.id,
+      meshAddress: "0300",
+      firmwareVersion: "test"
+    } });
+    const secondGatewayFixture = await prisma.fixture.create({ data: {
+      floorId: scenario.floorId,
+      meshNodeId: secondNode.id,
+      name: "Other gateway fixture",
+      ratedWatt: 20,
+      x: 100,
+      y: 0,
+      status: "online"
+    } });
+
+    const rejected = await Promise.all([
+      api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody([], {
+        name: "Empty floor",
+        status: "disabled",
+        target: { type: "floor", floorId: emptyFloor.id }
+      })),
+      api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody([unregistered.id], {
+        name: "Unregistered",
+        status: "disabled"
+      })),
+      api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody([
+        scenario.fixtureIds[0], secondGatewayFixture.id
+      ], { name: "Mixed gateway", status: "disabled" }))
+    ]);
+    expect(rejected.map((result) => result.status).sort()).toEqual([400, 400, 409]);
+  });
+
+  it("allows touching enabled boundaries and normalizes false dimming on PATCH", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const first = await api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+      [scenario.fixtureIds[0]],
+      { name: "First boundary", localStartTime: "09:00", localEndTime: "10:00" }
+    ));
+    const second = await api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+      [scenario.fixtureIds[0]],
+      { name: "Second boundary", localStartTime: "10:00", localEndTime: "11:00" }
+    ));
+    expect([first.status, second.status]).toEqual([201, 201]);
+
+    const patched = await api(
+      "PATCH",
+      `/sites/${scenario.siteId}/automation/schedules/${(second.body as { id: string }).id}`,
+      "admin",
+      { action: { dimmingEnabled: false, brightnessPercent: 3 } }
+    );
+    expect(patched.status).toBe(200);
+    expect(patched.body).toMatchObject({ action: { dimmingEnabled: false, brightnessPercent: 100 } });
+    expect(await prisma.lightingSchedule.findUniqueOrThrow({
+      where: { id: (second.body as { id: string }).id },
+      select: { dimmingEnabled: true, brightnessPercent: true }
+    })).toEqual({ dimmingEnabled: false, brightnessPercent: 100 });
+    const latestOutbox = await prisma.mqttOutbox.findFirstOrThrow({
+      where: { gatewayId: scenario.gatewayId },
+      orderBy: { revision: "desc" }
+    });
+    expect(latestOutbox.payload).toMatchObject({
+      schedules: expect.arrayContaining([expect.objectContaining({
+        id: (second.body as { id: string }).id,
+        action: { dimmingEnabled: false, brightnessPercent: 100 }
+      })])
+    });
+  });
+
+  it("paginates schedules with a stable cursor, bounded limit, and full site total", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const createdAt = new Date("2026-08-30T00:00:00.000Z");
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`SELECT "lock_automation_membership_mutation"()`);
+      for (let index = 0; index < 27; index += 1) {
+        const id = randomUUID();
+        await tx.lightingSchedule.create({ data: {
+          ...directScheduleData(id, scenario, { name: `Page ${index}`, status: "disabled" }),
+          createdAt: new Date(createdAt.getTime() + index * 1_000),
+          updatedAt: new Date(createdAt.getTime() + index * 1_000)
+        } });
+        await tx.lightingScheduleFixture.create({ data: {
+          scheduleId: id,
+          fixtureId: scenario.fixtureIds[0],
+          siteId: scenario.siteId,
+          gatewayId: scenario.gatewayId
+        } });
+      }
+    });
+    const expected = await prisma.lightingSchedule.findMany({
+      where: { siteId: scenario.siteId },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      select: { id: true }
+    });
+
+    const first = await api("GET", `/sites/${scenario.siteId}/automation/schedules?limit=10`, "viewer");
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ total: 27, nextCursor: expected[9].id });
+    const second = await api(
+      "GET",
+      `/sites/${scenario.siteId}/automation/schedules?limit=10&cursor=${(first.body as { nextCursor: string }).nextCursor}`,
+      "viewer"
+    );
+    const third = await api(
+      "GET",
+      `/sites/${scenario.siteId}/automation/schedules?limit=10&cursor=${(second.body as { nextCursor: string }).nextCursor}`,
+      "viewer"
+    );
+    const ids = [first, second, third].flatMap((page) =>
+      (page.body as { items: Array<{ id: string }> }).items.map(({ id }) => id)
+    );
+    expect(ids).toEqual(expected.map(({ id }) => id));
+    expect(third.body).toMatchObject({ total: 27, nextCursor: null });
+    expect((await api("GET", `/sites/${scenario.siteId}/automation/schedules?limit=101`, "viewer")).status)
+      .toBe(400);
+  });
+
+  it("rolls back parent, targets, revision, and outbox when snapshot persistence fails", async () => {
+    const scenario = await createScenario(prisma, actors);
+    const suffix = randomUUID().replaceAll("-", "");
+    const triggerName = `schedule_outbox_failure_${suffix}`;
+    const functionName = `raise_schedule_outbox_failure_${suffix}`;
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION "${functionName}"() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW."gatewayId" = '${scenario.gatewayId}' THEN
+          RAISE EXCEPTION 'injected schedule outbox failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$;
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER "${triggerName}"
+      BEFORE INSERT ON "MqttOutbox"
+      FOR EACH ROW EXECUTE FUNCTION "${functionName}"();
+    `);
+
+    try {
+      const failed = await api("POST", `/sites/${scenario.siteId}/automation/schedules`, "admin", scheduleBody(
+        scenario.fixtureIds,
+        { name: "Rollback injection" }
+      ));
+      expect(failed.status).toBe(500);
+      expect(await prisma.lightingSchedule.count({ where: { siteId: scenario.siteId } })).toBe(0);
+      expect(await prisma.lightingScheduleFixture.count({ where: { siteId: scenario.siteId } })).toBe(0);
+      expect(await prisma.gatewayAutomationConfiguration.findUnique({ where: { gatewayId: scenario.gatewayId } }))
+        .toBeNull();
+      expect(await prisma.mqttOutbox.count({ where: { gatewayId: scenario.gatewayId } })).toBe(0);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER "${triggerName}" ON "MqttOutbox";`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION "${functionName}"();`);
+    }
+  });
+
   async function api(method: string, path: string, actor: string, body?: unknown) {
     const url = new URL(path, baseUrl);
     const payload = body === undefined ? undefined : JSON.stringify(body);
@@ -402,7 +757,75 @@ async function createScenario(prisma: PrismaService, actors: Map<string, Authent
   actors.set("viewer", actor(viewer, customer.id, "customer"));
   actors.set("operator", actor(operator, operator.organizationId, "service_provider"));
   actors.set("foreign-admin", actor(foreignAdmin, customer.id, "customer"));
-  return { siteId: site.id, gatewayId: gateway.id, fixtureIds };
+  return {
+    siteId: site.id,
+    gatewayId: gateway.id,
+    floorId: floor.id,
+    adminId: admin.id,
+    fixtureIds
+  };
+}
+
+function directScheduleData(
+  id: string,
+  scenario: {
+    siteId: string;
+    gatewayId: string;
+    adminId: string;
+  },
+  overrides: { name: string; status: "enabled" | "disabled" }
+) {
+  return {
+    id,
+    siteId: scenario.siteId,
+    gatewayId: scenario.gatewayId,
+    name: overrides.name,
+    status: overrides.status,
+    activeFrom: new Date("2026-09-01T00:00:00.000Z"),
+    activeUntil: new Date("2026-09-30T00:00:00.000Z"),
+    localStartTime: "13:00",
+    localEndTime: "14:00",
+    recurrenceKind: "daily" as const,
+    weeklyDays: [],
+    monthlyDay: null,
+    yearlyMonth: null,
+    yearlyDay: null,
+    dimmingEnabled: true,
+    brightnessPercent: 70,
+    desiredRevision: 0,
+    appliedRevision: 0,
+    createdById: scenario.adminId,
+    updatedById: scenario.adminId
+  };
+}
+
+function sleep(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(`operation exceeded ${milliseconds}ms`)), milliseconds);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function independentCanonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(independentCanonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${independentCanonicalJson(child)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function actor(

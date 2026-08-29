@@ -13,6 +13,10 @@ export type CreateScheduleInput = Omit<LightingScheduleSnapshotV1, "id" | "fixtu
 };
 
 export type UpdateScheduleInput = Partial<CreateScheduleInput>;
+export interface ScheduleListQuery {
+  cursor?: string;
+  limit: number;
+}
 
 const createScheduleSchema = z.object({
   name: z.string().trim().min(1),
@@ -32,12 +36,24 @@ const createScheduleSchema = z.object({
       message: "activeUntil must not precede activeFrom"
     });
   }
+  if (schedule.localStartTime === schedule.localEndTime) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["localEndTime"],
+      message: "localEndTime must differ from localStartTime"
+    });
+  }
 });
 
 const updateScheduleSchema = createScheduleSchema.innerType().partial().refine(
   (input) => Object.keys(input).length > 0,
   "schedule update must contain at least one field"
 );
+
+const scheduleListQuerySchema = z.object({
+  cursor: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25)
+}).strict();
 
 export function parseCreateScheduleInput(rawInput: unknown): CreateScheduleInput {
   const parsed = createScheduleSchema.safeParse(rawInput);
@@ -48,5 +64,11 @@ export function parseCreateScheduleInput(rawInput: unknown): CreateScheduleInput
 export function parseUpdateScheduleInput(rawInput: unknown): UpdateScheduleInput {
   const parsed = updateScheduleSchema.safeParse(rawInput);
   if (!parsed.success) throw new BadRequestException("invalid automation schedule update");
+  return parsed.data;
+}
+
+export function parseScheduleListQuery(rawQuery: unknown): ScheduleListQuery {
+  const parsed = scheduleListQuerySchema.safeParse(rawQuery);
+  if (!parsed.success) throw new BadRequestException("invalid schedule list query");
   return parsed.data;
 }

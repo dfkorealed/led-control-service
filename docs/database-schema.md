@@ -1019,7 +1019,7 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 | `payload` | `Json` | 예 | 종류별 원본 메타데이터 |
 | `createdAt` | `DateTime` | 예 | `now()` |
 
-원본 FK 세 컬럼은 각각 단독 index가 있고 `(gatewayId, eventId, sequence)` Unique가 QoS 재전달을 멱등 처리한다. `AutomationExecution_source_check` trigger가 INSERT와 source/owner/kind 변경에서 source 부모의 `siteId/gatewayId`를 실행 owner와 비교하고 다음 coherence를 강제한다.
+`lightingScheduleId`는 최신 실행 조회 순서인 `(lightingScheduleId, occurredAt DESC, sequence DESC)` 복합 index를 사용하고, 나머지 원본 FK는 단독 index를 사용한다. `(gatewayId, eventId, sequence)` Unique가 QoS 재전달을 멱등 처리한다. `AutomationExecution_source_check` trigger가 INSERT와 source/owner/kind 변경에서 source 부모의 `siteId/gatewayId`를 실행 owner와 비교하고 다음 coherence를 강제한다.
 
 - `schedule_started`, `schedule_ended`: `lightingScheduleId` 필수, `ruleId = lightingScheduleId`
 - `vehicle_detected`, `event_started`, `event_extended`, `event_ended`: `vehicleEventRuleId` 필수, `ruleId = vehicleEventRuleId`
@@ -1050,7 +1050,7 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 - Manual override는 `(commandId, siteId, requestedById)` 복합 FK로 source Command의 tenant/requester를 고정하고 요청 `User`, 대상 `Fixture` 삭제를 restrict해 감사 연결을 보존한다.
 - 실행 원장은 trigger로 source owner와 kind/rule coherence를 확인한다. Site/Gateway 삭제를 restrict하고 원본 규칙/override 및 Fixture의 물리 삭제는 nullable FK를 `SET NULL`로 바꾸면서 raw ID snapshot과 payload를 유지한다.
 
-`20260829_add_lighting_automation`은 아직 배포 환경에 적용되지 않은 Task 6 신규 migration이라는 전제에서 review fix를 같은 transaction 파일에 반영했다. Migration은 기존 Fixture의 `siteId`를 Floor에서 backfill하고, MeshNode가 연결된 Fixture만 `gatewayId`를 backfill한 뒤 `siteId NOT NULL`과 owner FK를 적용한다. MeshNode 없는 기존 Fixture는 `gatewayId = NULL`로 보존된다. 기존 Command와 command형 `MqttOutbox` row는 신규 owner Unique와 command/config row-shape check를 그대로 만족한다. 이전 checksum의 Task 6 migration을 이미 적용한 환경이 생긴 뒤에는 이 파일을 다시 사용하지 말고 별도 순방향 보정 migration을 추가한다.
+`20260829_add_lighting_automation`은 배포 이력을 보존하는 released Task 6 migration으로 수정하지 않는다. 이 migration은 기존 Fixture의 `siteId`를 Floor에서 backfill하고, MeshNode가 연결된 Fixture만 `gatewayId`를 backfill한 뒤 `siteId NOT NULL`과 owner FK를 적용한다. MeshNode 없는 기존 Fixture는 `gatewayId = NULL`로 보존된다. 기존 Command와 command형 `MqttOutbox` row는 신규 owner Unique와 command/config row-shape check를 그대로 만족한다. Task 7 목록의 최신 실행 조회 index는 별도 순방향 migration `20260830_add_schedule_execution_list_index`가 기존 단독 index를 `(lightingScheduleId, occurredAt DESC, sequence DESC)`로 교체한다.
 
 ### ProcessedGatewayEvent
 
@@ -1307,7 +1307,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `ManualOverride` | Unique `commandId`, composite Command owner FK, brightness/time checks, non-negative `targetCount` | command별 단일 수동 override, source tenant/requester, 실제 target 수 reconciliation 강제 |
 | `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 수동 대상 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
 | `MqttOutbox` | command/config row-shape check, Unique `gatewayId + revision + payloadHash` | 기존 command outbox 재사용과 미발행 config의 Gateway reassignment 차단 |
-| `AutomationExecution` | Unique `gatewayId + eventId + sequence`, source owner/kind/rule trigger | Gateway lifecycle event 멱등성과 tenant-consistent history 원장 |
+| `AutomationExecution` | Unique `gatewayId + eventId + sequence`, Index `lightingScheduleId + occurredAt DESC + sequence DESC`, source owner/kind/rule trigger | Gateway lifecycle event 멱등성, schedule 최신 실행 조회와 tenant-consistent history 원장 |
 | `AutomationExecutionFixtureResult` | PK `executionId + fixtureSnapshotId`, identity/terminal-status checks | Fixture 삭제 뒤 snapshot ID 보존과 terminal 결과만 저장 |
 
 ## 5. 현재 구현 기준으로 중요한 데이터 흐름
