@@ -152,3 +152,36 @@ Commit: self (`fix(gateway): retain initial telemetry gaps`)
 
 - Raspberry Pi filesystem exhaustion, sudden power loss, fixed-block durability and flash wear remain unmeasured on hardware; automated tests inject `ENOSPC`, journal I/O failure, commit uncertainty, restart and interleaving against local files.
 - ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 4.
+
+## Fix Round 5
+
+Status: DONE_WITH_CONCERNS
+
+Commit: self (`fix(gateway): converge telemetry gap baselines`)
+
+### Delivered
+
+- Added a fixed-journal accepted baseline with the durable outbox acceptance handoff ID and records hash. Journal reimport now applies only `aggregate droppedCount - accepted baseline`; bounded last/cumulative source receipts remain replay identities and no longer drive aggregate delta arithmetic.
+- Kept one stable aggregate handoff ID until journal clear. An outbox commit followed by failed or uncertain baseline persistence can therefore recover the durable cumulative receipt after restart even when a later general source replaces the journal's bounded source metadata.
+- Ordered recovery as outbox cumulative acceptance, in-place baseline commit, then compare-and-clear. Baseline and clear uncertainty converge for either previous or next visible journal block without changing the pending `telemetry_gap` event ID, sequence or final canonical payload hash.
+- Preserved the two preallocated 4 KiB blocks, fixed inode/block allocation and bounded source metadata. Also retained tombstone generation after clear so a post-clear source is newer than the durable null block rather than disappearing on restart.
+- Preserved cumulative state-source bootstrap, exact source replay receipts, RF independence, application-ACK retention and the existing 64 MiB regular outbox/headroom contracts.
+
+### TDD Evidence
+
+- Reproduced RED with cumulative `C=5`, general `A=1`, successful import, failed clear, replacement `B=1`: the old implementation emitted count 8.
+- GREEN covers exact count 7, crash/restart identity convergence, accepted-baseline and clear commit uncertainty with both previous/next blocks visible, and 32 repeated source replacements with unchanged 8 KiB inode/block allocation.
+
+### Verification
+
+- Gateway Task 13 focused regression: 8 files, 175/175 tests passed.
+- Gateway full regression: 56 files, 494/494 tests passed.
+- Shared full regression: 7 files, 74/74 tests passed.
+- Docker contract suite: 17/17 tests passed.
+- Required Docker/mTLS Mosquitto integration: 2/2 tests passed.
+- Shared and Gateway typecheck, lint and production build passed; `git diff --check` passed.
+
+### Remaining Concerns
+
+- Raspberry Pi filesystem exhaustion, sudden power loss, fixed-block durability and flash wear remain unmeasured on hardware; automated tests use local files and injected previous/next visibility at outbox, baseline and clear boundaries.
+- ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 5.

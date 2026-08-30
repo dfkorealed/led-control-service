@@ -704,6 +704,7 @@ async function gapAcceptanceFixture() {
     record: (input) => journalFailure
       ? Promise.reject(Object.assign(new Error("journal unavailable"), { code: "EIO" }))
       : journal.record(input),
+    commitAcceptedBaseline: (baseline) => journal.commitAcceptedBaseline(baseline),
     clear: (handoffId, recordsHash) => journal.clear(handoffId, recordsHash)
   };
   const headroom = new StorageHeadroomManager(`${outboxPath}.reserve`, 32_768, {

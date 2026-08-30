@@ -938,6 +938,15 @@ git commit -m "feat(gateway): execute vehicle sensor events"
 
 검증: Task 13 focused 8파일 161/161, Gateway 전체 56파일 488/488, shared 74/74, Docker 계약 17/17, 필수 Mosquitto 2/2와 Shared/Gateway typecheck·lint·build를 통과했다. 실제 Raspberry Pi storage exhaustion·power loss·flash wear와 ESP32-H2/BlueZ RF HIL은 별도 검증이다.
 
+**Fix round 5 (2026-08-30, 완료):**
+
+- [x] Fixed journal aggregate에 outbox가 durable 수용한 누적 baseline과 acceptance handoff ID/hash를 고정 필드로 저장하고, clear까지 aggregate identity를 유지한다.
+- [x] Reimport count는 bounded last/cumulative source metadata가 아니라 `aggregate - acceptedBaseline`으로만 계산하며 source receipt는 state replay identity 용도로만 사용한다.
+- [x] Outbox commit 뒤 baseline commit과 clear의 failure/uncertainty에서 previous·next visible block을 모두 재시작 복구하고 동일 `telemetry_gap` event ID/sequence/final hash로 수렴한다.
+- [x] General source 교체를 32회 반복해 exact cumulative count와 8 KiB preallocated inode/block 고정을 검증하고 clear tombstone 뒤 새 source generation도 보존한다.
+
+검증: Task 13 focused 8파일 175/175, Gateway 전체 56파일 494/494, shared 74/74, Docker 계약 17/17, 필수 Mosquitto 2/2와 Shared/Gateway typecheck·lint·build를 통과했다. 실제 Raspberry Pi storage exhaustion·power loss·flash wear와 ESP32-H2/BlueZ RF HIL은 별도 검증이다.
+
 ### Task 14: Gateway BLE Mesh Sensor Client와 vendor ACK 처리
 
 **Files:**

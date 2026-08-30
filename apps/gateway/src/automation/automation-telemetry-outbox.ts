@@ -32,6 +32,7 @@ import {
   AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES,
   AutomationTelemetryGapJournal,
   type AutomationTelemetryGapInput,
+  type AutomationTelemetryGapJournalState,
   type AutomationTelemetryGapJournalLike
 } from "./automation-telemetry-gap-journal";
 
@@ -538,63 +539,77 @@ export class AutomationTelemetryOutbox {
 
   private async importGapJournal() {
     if (!this.gapJournalAvailable || !this.state || !this.available) return false;
-    const journal = await this.gapJournal.read();
+    let journal = await this.gapJournal.read();
     if (!journal) return false;
     const current = this.state;
-    // The source handoff can still be pending in automation state when this journal is imported.
-    // Move its bounded receipts with the aggregate gap and subtract counts already accepted by the regular outbox.
-    const sourceReceipts = [{
-      handoffId: journal.lastSourceHandoffId,
-      recordsHash: journal.lastSourceRecordsHash,
-      droppedCount: journal.lastSourceDroppedCount,
-      provenance: journal.provenance
-    }];
-    if (journal.cumulativeSourceHandoffId &&
-      journal.cumulativeSourceHandoffId !== journal.lastSourceHandoffId) {
-      sourceReceipts.push({
-        handoffId: journal.cumulativeSourceHandoffId,
-        recordsHash: journal.cumulativeSourceRecordsHash!,
-        droppedCount: journal.cumulativeSourceDroppedCount,
-        provenance: journal.cumulativeSourceProvenance!
-      });
-    }
-    let alreadyAcceptedCount = 0;
-    for (const source of sourceReceipts) {
-      const sourceReceipt = current.acceptedHandoffs[source.handoffId];
-      if (!sourceReceipt) continue;
-      if (sourceReceipt.outcome !== "gap" || sourceReceipt.provenance !== source.provenance ||
-        sourceReceipt.droppedCount > source.droppedCount) {
-        throw new Error("automation telemetry journal source handoff conflict");
+    let acceptedBaseline = journal.acceptedBaselineDroppedCount;
+    let aggregateReceipt = current.acceptedHandoffs[journal.gapHandoffId];
+
+    // A cumulative state source can predate the fixed-journal fallback. Convert
+    // that exact durable receipt into the journal baseline once; general/last
+    // source metadata is never used to derive the aggregate delta.
+    if (acceptedBaseline === 0 && !aggregateReceipt && journal.cumulativeSourceHandoffId) {
+      const cumulativeReceipt = current.acceptedHandoffs[journal.cumulativeSourceHandoffId];
+      if (cumulativeReceipt) {
+        if (cumulativeReceipt.outcome !== "gap" ||
+          cumulativeReceipt.provenance !== journal.cumulativeSourceProvenance ||
+          cumulativeReceipt.droppedCount > journal.cumulativeSourceDroppedCount) {
+          throw new Error("automation telemetry journal cumulative source conflict");
+        }
+        if (cumulativeReceipt.droppedCount > 0) {
+          const committed = await this.gapJournal.commitAcceptedBaseline({
+            gapHandoffId: journal.gapHandoffId,
+            acceptedDroppedCount: cumulativeReceipt.droppedCount,
+            acceptanceHandoffId: journal.cumulativeSourceHandoffId,
+            acceptanceRecordsHash: cumulativeReceipt.recordsHash
+          });
+          if (!committed) throw new Error("automation telemetry journal changed during baseline commit");
+          journal = committed;
+          acceptedBaseline = committed.acceptedBaselineDroppedCount;
+        }
       }
-      alreadyAcceptedCount += sourceReceipt.droppedCount;
     }
-    const unacceptedCount = journal.droppedCount - alreadyAcceptedCount;
-    if (!Number.isSafeInteger(unacceptedCount) || unacceptedCount < 0) {
+
+    validateJournalBaselineReceipt(current, journal);
+    aggregateReceipt = current.acceptedHandoffs[journal.gapHandoffId];
+    if (aggregateReceipt && (
+      aggregateReceipt.outcome !== "gap" || aggregateReceipt.provenance !== "automation_state_gap" ||
+      aggregateReceipt.droppedCount > journal.droppedCount
+    )) {
+      throw new Error("automation telemetry journal aggregate handoff conflict");
+    }
+    const outboxAcceptedCount = Math.max(acceptedBaseline, aggregateReceipt?.droppedCount ?? 0);
+    if (outboxAcceptedCount > journal.droppedCount) {
       throw new Error("automation telemetry journal count conflict");
     }
-    const next = unacceptedCount === 0
-      ? structuredClone(current)
-      : applyGapToState(current, {
+
+    let next = structuredClone(current);
+    if (!aggregateReceipt && outboxAcceptedCount > 0) {
+      next.acceptedHandoffs[journal.gapHandoffId] = {
+        recordsHash: outboxAcceptedCount === journal.droppedCount
+          ? journal.gapRecordsHash
+          : journal.acceptedBaselineRecordsHash!,
+        outcome: "gap",
+        provenance: "automation_state_gap",
+        droppedCount: outboxAcceptedCount
+      };
+    }
+    if (outboxAcceptedCount < journal.droppedCount) {
+      next = applyGapToState(next, {
         handoffId: journal.gapHandoffId,
         recordsHash: journal.gapRecordsHash,
         provenance: "automation_state_gap",
         revision: journal.revision,
         firstDroppedAt: journal.firstDroppedAt,
         lastDroppedAt: journal.lastDroppedAt,
-        droppedCount: unacceptedCount
+        droppedCount: journal.droppedCount
       }, this.createEventId);
-    if (unacceptedCount === 0) {
-      const aggregateReceipt = next.acceptedHandoffs[journal.gapHandoffId];
-      if (aggregateReceipt && aggregateReceipt.recordsHash !== journal.gapRecordsHash) {
-        throw new Error("automation telemetry journal aggregate handoff conflict");
-      }
-      next.acceptedHandoffs[journal.gapHandoffId] = {
-        recordsHash: journal.gapRecordsHash,
-        outcome: "gap",
-        provenance: "automation_state_gap",
-        droppedCount: 0
-      };
     }
+
+    // Source receipts remain bounded replay identities only. They prevent an
+    // uncleared state handoff becoming an exact record after its count entered
+    // the aggregate, but they do not participate in delta arithmetic.
+    const sourceReceipts = journalSourceReceipts(journal);
     for (const source of sourceReceipts) {
       const sourceReceipt = next.acceptedHandoffs[source.handoffId];
       if (sourceReceipt && (
@@ -611,10 +626,64 @@ export class AutomationTelemetryOutbox {
         droppedCount: source.droppedCount
       };
     }
-    await this.commit(current, next);
-    await this.gapJournal.clear(journal.gapHandoffId, journal.gapRecordsHash);
+    if (!isDeepStrictEqual(current, next)) await this.commit(current, next);
+
+    const acceptance = this.state!.acceptedHandoffs[journal.gapHandoffId];
+    if (!acceptance || acceptance.outcome !== "gap" ||
+      acceptance.provenance !== "automation_state_gap" ||
+      acceptance.droppedCount !== journal.droppedCount) {
+      throw new Error("automation telemetry journal acceptance conflict");
+    }
+    const committedBaseline = await this.gapJournal.commitAcceptedBaseline({
+      gapHandoffId: journal.gapHandoffId,
+      acceptedDroppedCount: journal.droppedCount,
+      acceptanceHandoffId: journal.gapHandoffId,
+      acceptanceRecordsHash: acceptance.recordsHash
+    });
+    if (!committedBaseline || committedBaseline.droppedCount !== journal.droppedCount) {
+      throw new Error("automation telemetry journal changed during baseline commit");
+    }
+    if (!await this.gapJournal.clear(
+      committedBaseline.gapHandoffId,
+      committedBaseline.gapRecordsHash
+    )) {
+      throw new Error("automation telemetry journal changed before clear");
+    }
     return true;
   }
+}
+
+function validateJournalBaselineReceipt(
+  outbox: StoredAutomationTelemetryOutbox,
+  journal: AutomationTelemetryGapJournalState
+) {
+  if (journal.acceptedBaselineDroppedCount === 0) return;
+  const receipt = outbox.acceptedHandoffs[journal.acceptedBaselineHandoffId!];
+  if (!receipt || receipt.outcome !== "gap" ||
+    receipt.droppedCount < journal.acceptedBaselineDroppedCount ||
+    (receipt.droppedCount === journal.acceptedBaselineDroppedCount &&
+      receipt.recordsHash !== journal.acceptedBaselineRecordsHash)) {
+    throw new Error("automation telemetry journal accepted baseline conflict");
+  }
+}
+
+function journalSourceReceipts(journal: AutomationTelemetryGapJournalState) {
+  const receipts = [{
+    handoffId: journal.lastSourceHandoffId,
+    recordsHash: journal.lastSourceRecordsHash,
+    droppedCount: journal.lastSourceDroppedCount,
+    provenance: journal.provenance
+  }];
+  if (journal.cumulativeSourceHandoffId &&
+    journal.cumulativeSourceHandoffId !== journal.lastSourceHandoffId) {
+    receipts.push({
+      handoffId: journal.cumulativeSourceHandoffId,
+      recordsHash: journal.cumulativeSourceRecordsHash!,
+      droppedCount: journal.cumulativeSourceDroppedCount,
+      provenance: journal.cumulativeSourceProvenance!
+    });
+  }
+  return receipts;
 }
 
 export class AutomationTelemetryRecorder {

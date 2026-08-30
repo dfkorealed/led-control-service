@@ -45,12 +45,25 @@ export interface AutomationTelemetryGapJournalState {
   cumulativeSourceRecordsHash: string | null;
   cumulativeSourceDroppedCount: number;
   cumulativeSourceProvenance: AutomationTelemetryGapProvenance | null;
+  acceptedBaselineDroppedCount: number;
+  acceptedBaselineHandoffId: string | null;
+  acceptedBaselineRecordsHash: string | null;
+}
+
+export interface AutomationTelemetryGapJournalBaseline {
+  gapHandoffId: string;
+  acceptedDroppedCount: number;
+  acceptanceHandoffId: string;
+  acceptanceRecordsHash: string;
 }
 
 export interface AutomationTelemetryGapJournalLike {
   initialize(): Promise<void>;
   read(): Promise<AutomationTelemetryGapJournalState | null>;
   record(input: AutomationTelemetryGapInput): Promise<AutomationTelemetryGapJournalState>;
+  commitAcceptedBaseline(
+    baseline: AutomationTelemetryGapJournalBaseline
+  ): Promise<AutomationTelemetryGapJournalState | null>;
   clear(gapHandoffId: string, gapRecordsHash: string): Promise<boolean>;
 }
 
@@ -58,6 +71,7 @@ export class AutomationTelemetryGapJournal implements AutomationTelemetryGapJour
   private readonly queue = new SerialTaskQueue();
   private state: AutomationTelemetryGapJournalState | null | undefined;
   private activeSlot = -1;
+  private generation = 0;
 
   constructor(
     private readonly path: string,
@@ -91,8 +105,10 @@ export class AutomationTelemetryGapJournal implements AutomationTelemetryGapJour
       const cumulativeSource = isCumulativeGapProvenance(input.provenance);
       const nextWithoutHash = {
         version: 1 as const,
-        generation: (current?.generation ?? 0) + 1,
-        gapHandoffId: this.createHandoffId(),
+        generation: this.generation + 1,
+        // Keep one aggregate identity until clear. It lets restart reconcile an
+        // outbox commit even when a later source replaced the bounded metadata.
+        gapHandoffId: current?.gapHandoffId ?? this.createHandoffId(),
         revision: current ? Math.max(current.revision, input.revision) : input.revision,
         firstDroppedAt: current ? earlierTimestamp(current.firstDroppedAt, input.firstDroppedAt) : input.firstDroppedAt,
         lastDroppedAt: current ? laterTimestamp(current.lastDroppedAt, input.lastDroppedAt) : input.lastDroppedAt,
@@ -112,7 +128,44 @@ export class AutomationTelemetryGapJournal implements AutomationTelemetryGapJour
           : current?.cumulativeSourceDroppedCount ?? 0,
         cumulativeSourceProvenance: cumulativeSource
           ? input.provenance
-          : current?.cumulativeSourceProvenance ?? null
+          : current?.cumulativeSourceProvenance ?? null,
+        acceptedBaselineDroppedCount: current?.acceptedBaselineDroppedCount ?? 0,
+        acceptedBaselineHandoffId: current?.acceptedBaselineHandoffId ?? null,
+        acceptedBaselineRecordsHash: current?.acceptedBaselineRecordsHash ?? null
+      };
+      const next: AutomationTelemetryGapJournalState = {
+        ...nextWithoutHash,
+        gapRecordsHash: gapRecordsHash(nextWithoutHash)
+      };
+      await this.writeState(next);
+      return structuredClone(next);
+    });
+  }
+
+  commitAcceptedBaseline(baseline: AutomationTelemetryGapJournalBaseline) {
+    return this.queue.run(async () => {
+      validateBaseline(baseline);
+      const current = await this.load();
+      if (!current || current.gapHandoffId !== baseline.gapHandoffId) return null;
+      if (baseline.acceptedDroppedCount > current.droppedCount) {
+        throw new Error("automation telemetry gap baseline exceeds aggregate");
+      }
+      if (baseline.acceptedDroppedCount < current.acceptedBaselineDroppedCount) {
+        return structuredClone(current);
+      }
+      if (baseline.acceptedDroppedCount === current.acceptedBaselineDroppedCount) {
+        if (current.acceptedBaselineHandoffId !== baseline.acceptanceHandoffId ||
+          current.acceptedBaselineRecordsHash !== baseline.acceptanceRecordsHash) {
+          throw new Error("automation telemetry gap baseline conflict");
+        }
+        return structuredClone(current);
+      }
+      const nextWithoutHash = {
+        ...current,
+        generation: current.generation + 1,
+        acceptedBaselineDroppedCount: baseline.acceptedDroppedCount,
+        acceptedBaselineHandoffId: baseline.acceptanceHandoffId,
+        acceptedBaselineRecordsHash: baseline.acceptanceRecordsHash
       };
       const next: AutomationTelemetryGapJournalState = {
         ...nextWithoutHash,
@@ -156,12 +209,14 @@ export class AutomationTelemetryGapJournal implements AutomationTelemetryGapJour
         if (nonzeroBlocks > 0) throw new Error("automation telemetry gap journal is corrupt");
         this.state = null;
         this.activeSlot = -1;
+        this.generation = 0;
         return this.state;
       }
       candidates.sort((left, right) => right.generation - left.generation);
       const latest = candidates[0]!;
       this.state = latest.state;
       this.activeSlot = latest.slot;
+      this.generation = latest.generation;
       return this.state;
     } finally {
       await file.close();
@@ -180,6 +235,7 @@ export class AutomationTelemetryGapJournal implements AutomationTelemetryGapJour
     }
     this.state = state;
     this.activeSlot = nextSlot;
+    this.generation = generation;
   }
 }
 
@@ -241,8 +297,10 @@ function parseJournalState(value: unknown, generation: number): AutomationTeleme
     droppedCount: parsed.lastSourceDroppedCount
   });
   const cumulativeSource = parseCumulativeSource(value);
+  const acceptedBaseline = parseAcceptedBaseline(value);
   if (parsed.droppedCount < parsed.lastSourceDroppedCount ||
     parsed.droppedCount < cumulativeSource.droppedCount ||
+    parsed.droppedCount < acceptedBaseline.droppedCount ||
     parsed.gapRecordsHash !== gapRecordsHash({
       ...parsed,
       gapRecordsHash: undefined
@@ -254,7 +312,36 @@ function parseJournalState(value: unknown, generation: number): AutomationTeleme
     cumulativeSourceHandoffId: cumulativeSource.handoffId,
     cumulativeSourceRecordsHash: cumulativeSource.recordsHash,
     cumulativeSourceDroppedCount: cumulativeSource.droppedCount,
-    cumulativeSourceProvenance: cumulativeSource.provenance
+    cumulativeSourceProvenance: cumulativeSource.provenance,
+    acceptedBaselineDroppedCount: acceptedBaseline.droppedCount,
+    acceptedBaselineHandoffId: acceptedBaseline.handoffId,
+    acceptedBaselineRecordsHash: acceptedBaseline.recordsHash
+  };
+}
+
+function parseAcceptedBaseline(value: Record<string, unknown>) {
+  const fields = [
+    value.acceptedBaselineDroppedCount,
+    value.acceptedBaselineHandoffId,
+    value.acceptedBaselineRecordsHash
+  ];
+  if (fields.every((field) => field === undefined) || (
+    value.acceptedBaselineDroppedCount === 0 && value.acceptedBaselineHandoffId === null &&
+    value.acceptedBaselineRecordsHash === null
+  )) {
+    return { droppedCount: 0, handoffId: null, recordsHash: null };
+  }
+  if (!Number.isSafeInteger(value.acceptedBaselineDroppedCount) ||
+    Number(value.acceptedBaselineDroppedCount) <= 0 ||
+    typeof value.acceptedBaselineHandoffId !== "string" ||
+    value.acceptedBaselineHandoffId.length === 0 || value.acceptedBaselineHandoffId.length > 512 ||
+    !/^sha256:[a-f0-9]{64}$/.test(String(value.acceptedBaselineRecordsHash))) {
+    throw new Error("invalid automation telemetry gap accepted baseline");
+  }
+  return {
+    droppedCount: value.acceptedBaselineDroppedCount as number,
+    handoffId: value.acceptedBaselineHandoffId,
+    recordsHash: value.acceptedBaselineRecordsHash as string
   };
 }
 
@@ -299,6 +386,15 @@ function validateGapInput(input: AutomationTelemetryGapInput) {
     Date.parse(input.firstDroppedAt) > Date.parse(input.lastDroppedAt) ||
     !Number.isSafeInteger(input.droppedCount) || input.droppedCount <= 0) {
     throw new Error("invalid automation telemetry gap");
+  }
+}
+
+function validateBaseline(input: AutomationTelemetryGapJournalBaseline) {
+  if (input.gapHandoffId.length === 0 || input.gapHandoffId.length > 512 ||
+    !Number.isSafeInteger(input.acceptedDroppedCount) || input.acceptedDroppedCount <= 0 ||
+    input.acceptanceHandoffId.length === 0 || input.acceptanceHandoffId.length > 512 ||
+    !/^sha256:[a-f0-9]{64}$/.test(input.acceptanceRecordsHash)) {
+    throw new Error("invalid automation telemetry gap accepted baseline");
   }
 }
 

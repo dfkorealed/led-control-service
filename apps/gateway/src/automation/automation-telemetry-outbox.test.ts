@@ -10,7 +10,10 @@ import {
   type StorageHeadroomBackgroundTask
 } from "../storage/storage-headroom-manager";
 import { automationTelemetryRecordsHash } from "./automation-telemetry-handoff";
-import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journal";
+import {
+  AutomationTelemetryGapJournal,
+  type AutomationTelemetryGapJournalLike
+} from "./automation-telemetry-gap-journal";
 import {
   AutomationTelemetryCommitUncertainError,
   AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES,
@@ -344,7 +347,183 @@ describe("AutomationTelemetryOutbox", () => {
       cumulativeSourceHandoffId: null,
       cumulativeSourceRecordsHash: null,
       cumulativeSourceDroppedCount: 0,
-      cumulativeSourceProvenance: null
+      cumulativeSourceProvenance: null,
+      acceptedBaselineDroppedCount: 0,
+      acceptedBaselineHandoffId: null,
+      acceptedBaselineRecordsHash: null
+    });
+  });
+
+  it("does not recount an imported general source after journal clear failure replaces its metadata", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-baseline-"));
+    directories.push(directory);
+    const path = join(directory, "outbox.json");
+    const journalPath = `${path}.gap`;
+    const journal = new AutomationTelemetryGapJournal(journalPath);
+    let failClear = true;
+    const fallibleJournal: AutomationTelemetryGapJournalLike = {
+      initialize: () => journal.initialize(),
+      read: () => journal.read(),
+      record: (input) => journal.record(input),
+      commitAcceptedBaseline: (baseline) => journal.commitAcceptedBaseline(baseline),
+      clear: (handoffId, recordsHash) => failClear
+        ? Promise.reject(new Error("injected journal clear failure"))
+        : journal.clear(handoffId, recordsHash)
+    };
+    const outbox = new AutomationTelemetryOutbox(path, automationScope, {
+      headroomBytes: 32_768,
+      gapJournal: fallibleJournal
+    });
+    await outbox.initialize();
+    await journal.record(gapInput("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "c", 5, "fixture_state_outbox"));
+    await journal.record(gapInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "a", 1));
+
+    await expect(outbox.recoverGapJournal()).rejects.toThrow("injected journal clear failure");
+    const accepted = (await outbox.inspect()).gap!;
+    expect(accepted.droppedCount).toBe(6);
+    await expect(journal.read()).resolves.toMatchObject({
+      droppedCount: 6,
+      acceptedBaselineDroppedCount: 6,
+      acceptedBaselineHandoffId: expect.any(String),
+      acceptedBaselineRecordsHash: expect.stringMatching(/^sha256:/)
+    });
+
+    await journal.record(gapInput("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "b", 1));
+    failClear = false;
+    const restarted = new AutomationTelemetryOutbox(path, automationScope, {
+      headroomBytes: 32_768,
+      gapJournal: new AutomationTelemetryGapJournal(journalPath)
+    });
+    await restarted.initialize();
+
+    const pending = await restarted.pending();
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.event).toMatchObject({
+      eventId: accepted.eventId,
+      sequence: accepted.sequence,
+      kind: "telemetry_gap",
+      payload: { droppedCount: 7 }
+    });
+  });
+
+  it.each(["previous", "next"] as const)(
+    "converges after an accepted-baseline commit uncertainty with the %s journal block visible",
+    async (visibility) => {
+      const test = await uncertainGapImportFixture("baseline", visibility);
+
+      await expect(test.outbox.recoverGapJournal()).rejects.toThrow("injected baseline uncertainty");
+      const accepted = (await test.outbox.inspect()).gap!;
+      expect(accepted.droppedCount).toBe(6);
+      const postCrashJournal = new AutomationTelemetryGapJournal(test.journalPath);
+      await postCrashJournal.record(gapInput("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "b", 1));
+
+      const restarted = new AutomationTelemetryOutbox(test.path, automationScope, {
+        headroomBytes: 32_768,
+        gapJournal: new AutomationTelemetryGapJournal(test.journalPath)
+      });
+      await restarted.initialize();
+      const pending = await restarted.pending();
+
+      expect(pending).toHaveLength(1);
+      expect(pending[0]!.event).toMatchObject({
+        eventId: accepted.eventId,
+        sequence: accepted.sequence,
+        payload: { droppedCount: 7 }
+      });
+      const finalIdentity = telemetryIdentity(pending[0]!);
+      const restartedAgain = new AutomationTelemetryOutbox(test.path, automationScope, {
+        headroomBytes: 32_768,
+        gapJournal: new AutomationTelemetryGapJournal(test.journalPath)
+      });
+      await restartedAgain.initialize();
+      expect((await restartedAgain.pending()).map(telemetryIdentity)).toEqual([finalIdentity]);
+    }
+  );
+
+  it.each(["previous", "next"] as const)(
+    "converges after a clear commit uncertainty with the %s journal block visible",
+    async (visibility) => {
+      const test = await uncertainGapImportFixture("clear", visibility);
+
+      await expect(test.outbox.recoverGapJournal()).rejects.toThrow("injected clear uncertainty");
+      const accepted = (await test.outbox.inspect()).gap!;
+      expect(accepted.droppedCount).toBe(6);
+      const postCrashJournal = new AutomationTelemetryGapJournal(test.journalPath);
+      await postCrashJournal.record(gapInput("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "b", 1));
+
+      const restarted = new AutomationTelemetryOutbox(test.path, automationScope, {
+        headroomBytes: 32_768,
+        gapJournal: new AutomationTelemetryGapJournal(test.journalPath)
+      });
+      await restarted.initialize();
+      const pending = await restarted.pending();
+
+      expect(pending).toHaveLength(1);
+      expect(pending[0]!.event).toMatchObject({
+        eventId: accepted.eventId,
+        sequence: accepted.sequence,
+        payload: { droppedCount: 7 }
+      });
+      const finalIdentity = telemetryIdentity(pending[0]!);
+      const restartedAgain = new AutomationTelemetryOutbox(test.path, automationScope, {
+        headroomBytes: 32_768,
+        gapJournal: new AutomationTelemetryGapJournal(test.journalPath)
+      });
+      await restartedAgain.initialize();
+      expect((await restartedAgain.pending()).map(telemetryIdentity)).toEqual([finalIdentity]);
+    }
+  );
+
+  it("keeps fixed journal storage constant across repeated source replacement and imports the exact count", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-replacement-"));
+    directories.push(directory);
+    const path = join(directory, "outbox.json");
+    const journalPath = `${path}.gap`;
+    const journal = new AutomationTelemetryGapJournal(journalPath);
+    let failClear = true;
+    const fallibleJournal: AutomationTelemetryGapJournalLike = {
+      initialize: () => journal.initialize(),
+      read: () => journal.read(),
+      record: (input) => journal.record(input),
+      commitAcceptedBaseline: (baseline) => journal.commitAcceptedBaseline(baseline),
+      clear: (handoffId, recordsHash) => failClear
+        ? Promise.reject(new Error("injected repeated clear failure"))
+        : journal.clear(handoffId, recordsHash)
+    };
+    const outbox = new AutomationTelemetryOutbox(path, automationScope, {
+      headroomBytes: 32_768,
+      gapJournal: fallibleJournal
+    });
+    await outbox.initialize();
+    const before = await stat(journalPath);
+    let firstEventId: string | undefined;
+
+    for (let index = 0; index < 32; index += 1) {
+      const hashCharacter = "0123456789abcdef"[index % 16]!;
+      await journal.record(gapInput(`general-source-${index}`, hashCharacter, 1));
+      await expect(outbox.recoverGapJournal()).rejects.toThrow("injected repeated clear failure");
+      firstEventId ??= (await outbox.inspect()).gap!.eventId;
+    }
+
+    const after = await stat(journalPath);
+    expect(after).toMatchObject({
+      size: AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES,
+      ino: before.ino,
+      blocks: before.blocks
+    });
+    await expect(journal.read()).resolves.toMatchObject({
+      droppedCount: 32,
+      acceptedBaselineDroppedCount: 32,
+      lastSourceHandoffId: "general-source-31"
+    });
+
+    failClear = false;
+    const pending = await outbox.pending();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.event).toMatchObject({
+      eventId: firstEventId,
+      payload: { droppedCount: 32 }
     });
   });
 
@@ -534,6 +713,43 @@ async function outboxFixture(options: { maxBytes?: number } = {}) {
   return { path, outbox };
 }
 
+async function uncertainGapImportFixture(
+  stage: "baseline" | "clear",
+  visibility: "previous" | "next"
+) {
+  const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-uncertainty-"));
+  directories.push(directory);
+  const path = join(directory, "outbox.json");
+  const journalPath = `${path}.gap`;
+  const journal = new AutomationTelemetryGapJournal(journalPath);
+  let injected = false;
+  const uncertainJournal: AutomationTelemetryGapJournalLike = {
+    initialize: () => journal.initialize(),
+    read: () => journal.read(),
+    record: (input) => journal.record(input),
+    commitAcceptedBaseline: async (baseline) => {
+      if (stage !== "baseline" || injected) return journal.commitAcceptedBaseline(baseline);
+      injected = true;
+      if (visibility === "next") await journal.commitAcceptedBaseline(baseline);
+      throw new Error("injected baseline uncertainty");
+    },
+    clear: async (handoffId, recordsHash) => {
+      if (stage !== "clear" || injected) return journal.clear(handoffId, recordsHash);
+      injected = true;
+      if (visibility === "next") await journal.clear(handoffId, recordsHash);
+      throw new Error("injected clear uncertainty");
+    }
+  };
+  const outbox = new AutomationTelemetryOutbox(path, automationScope, {
+    headroomBytes: 32_768,
+    gapJournal: uncertainJournal
+  });
+  await outbox.initialize();
+  await journal.record(gapInput("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "c", 5, "fixture_state_outbox"));
+  await journal.record(gapInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "a", 1));
+  return { path, journalPath, journal, outbox };
+}
+
 function eventInput(kind: "vehicle_detected" | "event_started" | "event_extended", payload: Record<string, unknown>, occurrenceKey: string | null = null) {
   return {
     revision: 1,
@@ -543,6 +759,31 @@ function eventInput(kind: "vehicle_detected" | "event_started" | "event_extended
     occurredAt: "2026-08-30T01:00:00.000Z",
     payload
   } as const;
+}
+
+function gapInput(
+  handoffId: string,
+  hashCharacter: string,
+  droppedCount: number,
+  provenance: "automation_state_storage" | "fixture_state_outbox" = "automation_state_storage"
+) {
+  return {
+    handoffId,
+    recordsHash: `sha256:${hashCharacter.repeat(64)}`,
+    provenance,
+    revision: 7,
+    firstDroppedAt: "2026-08-30T01:00:00.000Z",
+    lastDroppedAt: "2026-08-30T01:00:00.000Z",
+    droppedCount
+  } as const;
+}
+
+function telemetryIdentity(record: Awaited<ReturnType<AutomationTelemetryOutbox["pending"]>>[number]) {
+  return {
+    eventId: record.event.eventId,
+    sequence: record.event.sequence,
+    reportPayloadHash: record.reportPayloadHash
+  };
 }
 
 function mqttClient() {
