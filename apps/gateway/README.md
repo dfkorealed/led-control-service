@@ -53,7 +53,10 @@ GATEWAY_SERIAL=GW-LOCAL-001
 GATEWAY_FIRMWARE_VERSION=gateway-dev-local
 GATEWAY_HEARTBEAT_MS=5000
 GATEWAY_ADAPTER=bluez
+GATEWAY_BLUETOOTH_COMPANY_ID=<Bluetooth SIG 자사 할당 Company Identifier>
 ```
+
+`GATEWAY_BLUETOOTH_COMPANY_ID`는 필수이며 10진수 또는 `0x` 16진수로 설정한다. 누락, 미할당 `0`, Espressif 할당값 `0x02E5`, 테스트/내부용 `0xFFFF`는 시작 단계에서 거부한다. 같은 제품의 ESP32-H2 빌드는 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID`에 정확히 같은 값을 사용한다.
 
 ### 3. 게이트웨이 실행
 

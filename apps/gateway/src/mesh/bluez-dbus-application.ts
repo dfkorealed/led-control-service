@@ -3,7 +3,6 @@ import { systemBus, type MessageBus } from "@homebridge/dbus-native";
 import { installDbusMultiReturnCompatibility } from "./bluez-transport";
 import {
   BLUETOOTH_MESH_MODELS,
-  LED_CONTROL_COMPANY_ID,
   VEHICLE_SENSOR_VENDOR_MODEL
 } from "./bluez-mesh-model-config";
 
@@ -114,7 +113,8 @@ export class BluezDbusApplication extends EventEmitter {
     requestProvisioningData: (elementCount: number) => Promise<[netIndex: number, unicast: number]> =
       async () => {
         throw new Error("Provisioning address provider is not configured");
-      }
+      },
+    private readonly options: { companyId: number }
   ) {
     super();
     this.requestProvisioningData = requestProvisioningData;
@@ -129,7 +129,7 @@ export class BluezDbusApplication extends EventEmitter {
   async start() {
     if (this.started) return;
     const application = {
-      CompanyID: LED_CONTROL_COMPANY_ID,
+      CompanyID: this.options.companyId,
       ProductID: 0x0001,
       VersionID: 0x0001,
       CRPL: 64,
@@ -161,7 +161,7 @@ export class BluezDbusApplication extends EventEmitter {
     const element = {
       Index: 0,
       Models: models,
-      VendorModels: [[LED_CONTROL_COMPANY_ID, VEHICLE_SENSOR_VENDOR_MODEL.clientModelId, []]],
+      VendorModels: [[this.options.companyId, VEHICLE_SENSOR_VENDOR_MODEL.clientModelId, []]],
       MessageReceived: async (source: number, keyIndex: number, destination: Variant, data: number[]) =>
         this.emit("messageReceived", { source, keyIndex, destination, data: Uint8Array.from(data) }),
       DevKeyMessageReceived: async (source: number, remote: boolean, netIndex: number, data: number[]) =>

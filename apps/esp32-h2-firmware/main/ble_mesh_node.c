@@ -26,7 +26,14 @@
 #include "mesh_transaction_cache.h"
 #include "persistent_state.h"
 
-#define LED_CONTROL_COMPANY_ID 0x02E5
+#if !defined(CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID) || \
+    CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0 || \
+    CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0x02E5 || \
+    CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0xFFFF
+#error "A Bluetooth SIG company identifier assigned to this product owner is required"
+#endif
+
+#define LED_CONTROL_COMPANY_ID CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID
 #define LED_CONTROL_UNPROV_NAME "DFK-LED-H2"
 #define LED_CONTROL_HEALTH_TEST_ID 0x01
 

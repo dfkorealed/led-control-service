@@ -18,7 +18,6 @@ import {
 } from "./bluez-config-codec";
 import {
   BLUETOOTH_MESH_MODELS,
-  LED_CONTROL_COMPANY_ID,
   VEHICLE_SENSOR_VENDOR_MODEL
 } from "./bluez-mesh-model-config";
 
@@ -46,14 +45,16 @@ export interface NodeComposition {
 
 export class BluezConfigClient {
   private readonly responseTimeoutMs: number;
+  private readonly companyId: number;
 
   constructor(
     private readonly transport: ConfigTransport,
     private readonly application: EventEmitter,
     private readonly nodePath: string,
-    options: { responseTimeoutMs?: number } = {}
+    options: { responseTimeoutMs?: number; companyId: number }
   ) {
     this.responseTimeoutMs = options.responseTimeoutMs ?? 10_000;
+    this.companyId = options.companyId;
   }
 
   async configureNode(input: { unicast: number; elementCount: number }): Promise<NodeComposition> {
@@ -122,7 +123,7 @@ export class BluezConfigClient {
     const models = parsePrimaryElementCompositionModels(composition.data);
     const hasSensorServer = models.sigModelIds.includes(BLUETOOTH_MESH_MODELS.sensorServer);
     const hasVendorServer = models.vendorModels.some(({ companyId, modelId }) =>
-      companyId === LED_CONTROL_COMPANY_ID && modelId === VEHICLE_SENSOR_VENDOR_MODEL.serverModelId
+      companyId === this.companyId && modelId === VEHICLE_SENSOR_VENDOR_MODEL.serverModelId
     );
 
     if (hasSensorServer) {
@@ -164,14 +165,14 @@ export class BluezConfigClient {
           input.unicast,
           APP_KEY_INDEX,
           VEHICLE_SENSOR_VENDOR_MODEL.serverModelId,
-          LED_CONTROL_COMPANY_ID
+          this.companyId
         ),
         CONFIG_OPCODES.modelAppStatus,
         parseModelAppStatus
       );
       if (binding.elementAddress !== input.unicast || binding.appKeyIndex !== APP_KEY_INDEX ||
         binding.modelId !== VEHICLE_SENSOR_VENDOR_MODEL.serverModelId ||
-        !("companyId" in binding) || binding.companyId !== LED_CONTROL_COMPANY_ID) {
+        !("companyId" in binding) || binding.companyId !== this.companyId) {
         throw new Error("Vehicle sensor vendor model App binding does not match the request");
       }
       const publication = await this.sendDevKeyAndWait(
@@ -182,7 +183,7 @@ export class BluezConfigClient {
           appKeyIndex: APP_KEY_INDEX,
           ttl: 5,
           modelId: VEHICLE_SENSOR_VENDOR_MODEL.serverModelId,
-          companyId: LED_CONTROL_COMPANY_ID
+          companyId: this.companyId
         }),
         CONFIG_OPCODES.modelPublicationStatus,
         parseModelPublicationStatus
@@ -190,7 +191,7 @@ export class BluezConfigClient {
       if (publication.elementAddress !== input.unicast || publication.publishAddress !== PROVISIONER_ADDRESS ||
         publication.appKeyIndex !== APP_KEY_INDEX || publication.ttl !== 5 || publication.period !== 0 ||
         publication.modelId !== VEHICLE_SENSOR_VENDOR_MODEL.serverModelId || !("companyId" in publication) ||
-        publication.companyId !== LED_CONTROL_COMPANY_ID) {
+        publication.companyId !== this.companyId) {
         throw new Error("Vehicle sensor vendor model publication does not match the request");
       }
     }

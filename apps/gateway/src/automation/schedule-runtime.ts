@@ -15,7 +15,8 @@ import {
 import type { ClockTrustProvider } from "./clock-trust-provider";
 import {
   FileAutomationStateStore,
-  type PersistedAutomationStateV4
+  type PersistedAutomationStateV4,
+  type VehicleSensorEventIdentity
 } from "./automation-state-store";
 import type { DesiredLightingState } from "./automation-runtime";
 import {
@@ -469,6 +470,33 @@ export class ScheduleRuntime {
       this.vehicleRuntime.restore(holdDeadlines!);
       await this.captureMissingBases(this.snapshot);
       await this.applyComputed(this.computeDesired(this.snapshot, this.state(), lifecycleEvents));
+    });
+  }
+
+  recordVehicleSensorEvent(
+    input: Exclude<VehicleSensorInput, { type: "current-state" }>,
+    identity: VehicleSensorEventIdentity
+  ): Promise<boolean> {
+    return this.runExternal(async () => {
+      await this.ensureInitialized();
+      if (!this.snapshot) return false;
+      let lifecycleEvents: VehicleLifecycleEvent[] = [];
+      let holdDeadlines: Array<[string, number]> | undefined;
+      const result = await this.options.store.updateVehicleSensorEvent(identity, (state) => {
+        const planned = this.vehicleRuntime.planRecordInput(state, this.snapshot!, input);
+        lifecycleEvents = planned.events;
+        holdDeadlines = planned.holdDeadlines;
+        this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({
+          revision: this.snapshot!.revision,
+          events: lifecycleEvents
+        }));
+        return state;
+      });
+      if (!result.applied) return false;
+      this.vehicleRuntime.restore(holdDeadlines!);
+      await this.captureMissingBases(this.snapshot);
+      await this.applyComputed(this.computeDesired(this.snapshot, this.state(), lifecycleEvents));
+      return true;
     });
   }
 

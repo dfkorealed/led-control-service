@@ -6,6 +6,10 @@ export interface AtomicJsonWriteOptions {
   syncParentDirectory?: (directory: string) => Promise<void>;
 }
 
+export interface JsonReadOptions {
+  maxBytes?: number;
+}
+
 export class AtomicJsonCommitUncertainError extends Error {
   readonly code = "atomic_json_commit_uncertain";
 
@@ -15,12 +19,35 @@ export class AtomicJsonCommitUncertainError extends Error {
   }
 }
 
-export async function readJsonFile(path: string): Promise<unknown | null> {
+export async function readJsonFile(path: string, options: JsonReadOptions = {}): Promise<unknown | null> {
   try {
-    return JSON.parse(await readFile(path, "utf8"));
+    const text = options.maxBytes === undefined
+      ? await readFile(path, "utf8")
+      : await readFileBounded(path, options.maxBytes);
+    return JSON.parse(text);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
+  }
+}
+
+async function readFileBounded(path: string, maxBytes: number) {
+  if (!Number.isInteger(maxBytes) || maxBytes < 1) throw new Error("invalid_json_file_size_limit");
+  const file = await open(path, "r");
+  try {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    while (totalBytes <= maxBytes) {
+      const buffer = Buffer.alloc(Math.min(64 * 1024, maxBytes + 1 - totalBytes));
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, totalBytes);
+      if (bytesRead === 0) break;
+      chunks.push(buffer.subarray(0, bytesRead));
+      totalBytes += bytesRead;
+    }
+    if (totalBytes > maxBytes) throw new Error("json_file_size_limit_exceeded");
+    return Buffer.concat(chunks, totalBytes).toString("utf8");
+  } finally {
+    await file.close();
   }
 }
 

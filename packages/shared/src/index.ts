@@ -6,3 +6,4 @@ export * from "./gateway-contracts";
 export * from "./mqtt";
 export * from "./product-identity";
 export * from "./schemas";
+export * from "./vehicle-sensor-protocol";

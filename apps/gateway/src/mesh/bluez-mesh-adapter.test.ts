@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BluezMeshAdapter } from "./bluez-mesh-adapter";
+import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
 
 function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?: number; now?: () => number } = {}) {
   const application = new EventEmitter();
@@ -39,6 +40,7 @@ function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?:
     adapter: new BluezMeshAdapter(transport, application, provisioner, addresses, () => config, transactions, {
       responseTimeoutMs: options.responseTimeoutMs ?? 100,
       scanSeconds: 1,
+      companyId: TEST_BLUETOOTH_COMPANY_ID,
       observationCoherenceMs: options.observationCoherenceMs,
       now: options.now
     })
@@ -604,7 +606,7 @@ describe("BluezMeshAdapter", () => {
     expect(f.config.configureNode).toHaveBeenCalledWith({ unicast: 0x0100, elementCount: 1 });
     expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3);
     expect(f.transport.calls.filter((call) => call.method === "Send").map((call) => call.args[4])).toEqual([
-      [0x82, 0x01], [0x82, 0x4b], [0x80, 0x31, 0xe5, 0x02]
+      [0x82, 0x01], [0x82, 0x4b], [0x80, 0x31, 0xff, 0xff]
     ]);
   });
 

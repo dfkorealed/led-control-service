@@ -22,18 +22,10 @@ import {
   percentToLightness
 } from "./bluez-model-codec";
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
-import { LED_CONTROL_COMPANY_ID } from "./bluez-mesh-model-config";
-
 const BLUEZ_SERVICE = "org.bluez.mesh";
 const NODE_INTERFACE = "org.bluez.mesh.Node1";
 const GENERIC_ONOFF_GET = Uint8Array.from([0x82, 0x01]);
 const LIGHT_LIGHTNESS_GET = Uint8Array.from([0x82, 0x4b]);
-const HEALTH_FAULT_GET = Uint8Array.from([
-  0x80,
-  0x31,
-  LED_CONTROL_COMPANY_ID & 0xff,
-  LED_CONTROL_COMPANY_ID >> 8
-]);
 
 interface AdapterTransport {
   call(service: string, path: string, interfaceName: string, method: string, args: unknown[]): Promise<unknown>;
@@ -73,6 +65,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private readonly resyncSendAttempts: number;
   private readonly observationCoherenceMs: number;
   private readonly now: () => number;
+  private readonly healthFaultGet: Uint8Array;
   private readonly fixtureStatuses = new Set<(status: FixtureMeshStatus) => void>();
   private readonly lightingObservations = new Set<(observation: BleMeshLightingObservation) => void>();
   private readonly fixtureLightingPairs = new Set<(fixtureId: string, generation: number) => void>();
@@ -99,8 +92,9 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       resyncRetryMs?: number;
       resyncSendAttempts?: number;
       observationCoherenceMs?: number;
+      companyId: number;
       now?: () => number;
-    } = {}
+    }
   ) {
     this.responseTimeoutMs = options.responseTimeoutMs ?? 8_000;
     this.scanSeconds = options.scanSeconds ?? 10;
@@ -109,6 +103,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     this.resyncSendAttempts = options.resyncSendAttempts ?? 3;
     this.observationCoherenceMs = options.observationCoherenceMs ?? 65_000;
     this.now = options.now ?? Date.now;
+    this.healthFaultGet = Uint8Array.from([0x80, 0x31, options.companyId & 0xff, options.companyId >> 8]);
     this.application.on("messageReceived", this.receiveFixtureStatus);
   }
 
@@ -562,7 +557,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         await Promise.all([
           this.sendStatusGetWithRetry(mapping.primaryUnicast, GENERIC_ONOFF_GET, signal),
           this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET, signal),
-          this.sendStatusGetWithRetry(mapping.primaryUnicast, HEALTH_FAULT_GET, signal)
+          this.sendStatusGetWithRetry(mapping.primaryUnicast, this.healthFaultGet, signal)
         ]);
       } catch {
         observation.cancel();

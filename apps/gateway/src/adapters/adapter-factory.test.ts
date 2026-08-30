@@ -10,11 +10,23 @@ import {
   createProductionAdapters,
   isHciRfkillUnblocked
 } from "./adapter-factory";
+import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
 
 describe("createProductionAdapters", () => {
   it("rejects stub and command adapters in every environment", async () => {
     await expect(createProductionAdapters({ GATEWAY_ADAPTER: "stub" })).rejects.toThrow("PRODUCTION_ADAPTER_REQUIRED");
     await expect(createProductionAdapters({ GATEWAY_ADAPTER: "command" })).rejects.toThrow("PRODUCTION_ADAPTER_REQUIRED");
+  });
+
+  it("fails closed without a deployment-owned Company Identifier", async () => {
+    const createBluezAdapter = vi.fn();
+    for (const value of [undefined, "0", "0x02e5", String(TEST_BLUETOOTH_COMPANY_ID)]) {
+      await expect(createProductionAdapters(
+        { GATEWAY_ADAPTER: "bluez", GATEWAY_BLUETOOTH_COMPANY_ID: value },
+        { createBluezAdapter }
+      )).rejects.toThrow("owned_bluetooth_company_id_required");
+    }
+    expect(createBluezAdapter).not.toHaveBeenCalled();
   });
 
   it("constructs one real BlueZ adapter for all production capabilities", async () => {
@@ -37,11 +49,13 @@ describe("createProductionAdapters", () => {
       send: vi.fn(async () => undefined),
       onMessage: vi.fn(() => () => undefined)
     };
+    const createBluezAdapter = vi.fn(async () => Object.assign(adapter, { vehicleSensors }));
     const result = await createProductionAdapters(
-      { GATEWAY_ADAPTER: "bluez" },
-      { createBluezAdapter: async () => Object.assign(adapter, { vehicleSensors }) }
+      { GATEWAY_ADAPTER: "bluez", GATEWAY_BLUETOOTH_COMPANY_ID: "0x1234" },
+      { createBluezAdapter }
     );
     expect(result).toEqual({ dimming: adapter, scanner: adapter, provisioning: adapter, vehicleSensors });
+    expect(createBluezAdapter).toHaveBeenCalledWith(0x1234);
   });
 
   it("keeps stub adapter construction out of the gateway entrypoint", () => {

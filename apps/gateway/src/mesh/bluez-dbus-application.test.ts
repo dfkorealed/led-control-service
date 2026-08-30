@@ -7,9 +7,11 @@ import {
 } from "./bluez-dbus-application";
 import {
   BLUETOOTH_MESH_MODELS,
-  LED_CONTROL_COMPANY_ID,
   VEHICLE_SENSOR_VENDOR_MODEL
 } from "./bluez-mesh-model-config";
+import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
+
+const OPTIONS = { companyId: TEST_BLUETOOTH_COMPANY_ID };
 
 class FakeExportBus implements DbusExportBus {
   readonly exports = new Map<string, { implementation: Record<string, unknown>; definition: DbusInterfaceDefinition }>();
@@ -22,7 +24,7 @@ class FakeExportBus implements DbusExportBus {
 describe("BluezDbusApplication", () => {
   it("BlueZ가 요구하는 application hierarchy와 정확한 callback signature를 export한다", async () => {
     const bus = new FakeExportBus();
-    const application = new BluezDbusApplication(bus, async () => [0, 0x0100]);
+    const application = new BluezDbusApplication(bus, async () => [0, 0x0100], OPTIONS);
 
     await application.start();
 
@@ -45,7 +47,7 @@ describe("BluezDbusApplication", () => {
 
   it("dbus-native가 직렬화할 수 있는 문자열 property signature를 export한다", async () => {
     const bus = new FakeExportBus();
-    const application = new BluezDbusApplication(bus, async () => [0, 0x0100]);
+    const application = new BluezDbusApplication(bus, async () => [0, 0x0100], OPTIONS);
 
     await application.start();
 
@@ -63,7 +65,7 @@ describe("BluezDbusApplication", () => {
   it("RequestProvData는 예약 저장소가 선택한 net index와 unicast를 반환한다", async () => {
     const bus = new FakeExportBus();
     const reserve = vi.fn(async (count: number) => [0, 0x120] as [number, number]);
-    const application = new BluezDbusApplication(bus, reserve);
+    const application = new BluezDbusApplication(bus, reserve, OPTIONS);
     await application.start();
     const provisioner = bus.exports.get(
       `${BLUEZ_APPLICATION_PATHS.application}:org.bluez.mesh.Provisioner1`
@@ -78,7 +80,7 @@ describe("BluezDbusApplication", () => {
 
   it("BlueZ callback을 gateway event로 전달한다", async () => {
     const bus = new FakeExportBus();
-    const application = new BluezDbusApplication(bus, async () => [0, 0x0100]);
+    const application = new BluezDbusApplication(bus, async () => [0, 0x0100], OPTIONS);
     const scanListener = vi.fn();
     const messageListener = vi.fn();
     application.on("scanResult", scanListener);
@@ -98,7 +100,7 @@ describe("BluezDbusApplication", () => {
 
   it("exports the SIG Sensor Client and product vendor client on the production element", async () => {
     const bus = new FakeExportBus();
-    const application = new BluezDbusApplication(bus, async () => [0, 0x0100]);
+    const application = new BluezDbusApplication(bus, async () => [0, 0x0100], OPTIONS);
 
     await application.start();
 
@@ -109,7 +111,7 @@ describe("BluezDbusApplication", () => {
     const properties = Object.fromEntries(element.map(([name, [, value]]) => [name, value]));
     expect(properties.Models).toContainEqual([BLUETOOTH_MESH_MODELS.sensorClient, []]);
     expect(properties.VendorModels).toContainEqual([
-      LED_CONTROL_COMPANY_ID,
+      TEST_BLUETOOTH_COMPANY_ID,
       VEHICLE_SENSOR_VENDOR_MODEL.clientModelId,
       []
     ]);

@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import { BLUEZ_APPLICATION_PATHS } from "./bluez-dbus-application";
 import { CONFIG_OPCODES } from "./bluez-config-codec";
 import { BluezConfigClient } from "./bluez-config-client";
+import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
+
+const CONFIG_OPTIONS = { responseTimeoutMs: 100, companyId: TEST_BLUETOOTH_COMPANY_ID };
 
 class FakeTransport {
   calls: Array<{ method: string; args: unknown[] }> = [];
@@ -15,7 +18,7 @@ class FakeTransport {
 it("configures composition, AppKey, Health/OnOff/Lightness bindings, and 60-second publications in order", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureNode({ unicast: 0x1201, elementCount: 1 });
 
   await waitForCall(transport, "AddAppKey");
@@ -51,7 +54,7 @@ it("configures composition, AppKey, Health/OnOff/Lightness bindings, and 60-seco
 it("rejects a publication status that does not confirm the requested 60-second configuration", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureNode({ unicast: 0x1201, elementCount: 1 });
 
   await waitForCall(transport, "AddAppKey");
@@ -82,8 +85,8 @@ it("rejects a publication status that does not confirm the requested 60-second c
 it("correlates concurrent AppKey Status messages to their target unicast addresses", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const first = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 500 });
-  const second = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 500 });
+  const first = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { ...CONFIG_OPTIONS, responseTimeoutMs: 500 });
+  const second = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { ...CONFIG_OPTIONS, responseTimeoutMs: 500 });
   const firstConfigure = first.configureNode({ unicast: 0x1201, elementCount: 1 });
   const secondConfigure = second.configureNode({ unicast: 0x1202, elementCount: 1 });
   void secondConfigure.catch(() => undefined);
@@ -101,7 +104,7 @@ it("correlates concurrent AppKey Status messages to their target unicast address
 it("rejects an AppKey Status with unexpected key indexes", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureNode({ unicast: 0x1201, elementCount: 1 });
   await waitForCall(transport, "AddAppKey");
 
@@ -114,7 +117,7 @@ it("rejects an AppKey Status with unexpected key indexes", async () => {
 it("adds a Light Lightness Server subscription and validates source, element, group, and model", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const subscribe = client.addModelSubscription({ unicast: 0x0100, groupAddress: 0xc000 });
 
   await waitForCallCount(transport, "DevKeySend", 1);
@@ -144,7 +147,7 @@ it("adds a Light Lightness Server subscription and validates source, element, gr
 it("deletes a Light Lightness Server subscription and validates its exact status tuple", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const unsubscribe = client.removeModelSubscription({ unicast: 0x0100, groupAddress: 0xc000 });
 
   await waitForCallCount(transport, "DevKeySend", 1);
@@ -174,7 +177,7 @@ it("deletes a Light Lightness Server subscription and validates its exact status
 it("rejects a subscription status that does not confirm the requested target", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const subscribe = client.addModelSubscription({ unicast: 0x0100, groupAddress: 0xc000 });
 
   await waitForCallCount(transport, "DevKeySend", 1);
@@ -189,7 +192,7 @@ it("rejects a subscription status that does not confirm the requested target", a
 it("correlates concurrent subscription statuses by requested group address even when responses arrive in reverse order", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const first = client.addModelSubscription({ unicast: 0x0100, groupAddress: 0xc000 });
   const second = client.addModelSubscription({ unicast: 0x0100, groupAddress: 0xc001 });
 
@@ -218,7 +221,7 @@ it("correlates concurrent subscription statuses by requested group address even 
 it("binds present Sensor Server and vendor vehicle event models and confirms Sensor publication", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
 
   await waitForCall(transport, "AddAppKey");
@@ -231,10 +234,10 @@ it("binds present Sensor Server and vendor vehicle event models and confirms Sen
     source: 0x1201,
     data: Uint8Array.from([
       0x02, 0x00,
-      0xe5, 0x02, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
+      0xff, 0xff, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x01, 0x01,
       0x00, 0x11,
-      0xe5, 0x02, 0x00, 0x00
+      0xff, 0xff, 0x00, 0x00
     ])
   });
   await waitForCallCount(transport, "DevKeySend", 2);
@@ -250,14 +253,14 @@ it("binds present Sensor Server and vendor vehicle event models and confirms Sen
   await waitForCallCount(transport, "DevKeySend", 4);
   application.emit("devKeyMessageReceived", {
     source: 0x1201,
-    data: Uint8Array.from([0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, 0xe5, 0x02, 0x00, 0x00])
+    data: Uint8Array.from([0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00])
   });
   await waitForCallCount(transport, "DevKeySend", 5);
   application.emit("devKeyMessageReceived", {
     source: 0x1201,
     data: Uint8Array.from([
       0x80, 0x19, 0x00, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
-      0xe5, 0x02, 0x00, 0x00
+      0xff, 0xff, 0x00, 0x00
     ])
   });
 
@@ -269,15 +272,15 @@ it("binds present Sensor Server and vendor vehicle event models and confirms Sen
     [0x80, 0x08, 0x00],
     [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0x00, 0x11],
     [0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x86, 0x00, 0x00, 0x11],
-    [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0xe5, 0x02, 0x00, 0x00],
-    [0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0xe5, 0x02, 0x00, 0x00]
+    [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00],
+    [0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00]
   ]);
 });
 
 it("reports absent vehicle sensor models as unsupported without issuing model configuration", async () => {
   const transport = new FakeTransport();
   const application = new EventEmitter();
-  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
 
   await waitForCall(transport, "AddAppKey");
@@ -290,7 +293,7 @@ it("reports absent vehicle sensor models as unsupported without issuing model co
     source: 0x1201,
     data: Uint8Array.from([
       0x02, 0x00,
-      0xe5, 0x02, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
+      0xff, 0xff, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00
     ])
   });

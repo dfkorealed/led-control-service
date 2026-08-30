@@ -8,6 +8,7 @@ import {
   encodeLightnessSetUnacknowledged,
   percentToLightness
 } from "./bluez-model-codec";
+import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
 
 describe("BlueZ SIG model codec", () => {
   it("encodes acknowledged Light Lightness Set in little endian", () => {
@@ -38,16 +39,16 @@ describe("BlueZ SIG model codec", () => {
       target: true,
       remainingTime: 5
     });
-    expect(decodeHealthStatus(Buffer.from([0x04, 0x01, 0xe5, 0x02, 0x00]))).toEqual({
+    expect(decodeHealthStatus(Buffer.from([0x04, 0x01, 0xff, 0xff, 0x00]))).toEqual({
       kind: "current",
       testId: 1,
-      companyId: 0x02e5,
+      companyId: TEST_BLUETOOTH_COMPANY_ID,
       faults: []
     });
-    expect(decodeHealthStatus(Buffer.from([0x05, 0x01, 0xe5, 0x02, 0x01, 0x02]))).toEqual({
+    expect(decodeHealthStatus(Buffer.from([0x05, 0x01, 0xff, 0xff, 0x01, 0x02]))).toEqual({
       kind: "registered",
       testId: 1,
-      companyId: 0x02e5,
+      companyId: TEST_BLUETOOTH_COMPANY_ID,
       faults: [1, 2]
     });
   });

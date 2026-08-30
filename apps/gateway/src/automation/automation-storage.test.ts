@@ -27,7 +27,7 @@ describe("createAutomationStorage", () => {
     await expect(storage.initialize()).resolves.toMatchObject({
       headroom: { mode: "ready" },
       telemetry: { mode: "ready" },
-      state: { schemaVersion: 4 }
+      state: { schemaVersion: 5 }
     });
     await storage.stateStore.updateControlState((state) => {
       state.currentByFixture["00000000-0000-4000-8000-000000000101"] = 20;

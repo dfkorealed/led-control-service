@@ -31,6 +31,14 @@ PATH="/opt/homebrew/opt/python@3.12/libexec/bin:/opt/homebrew/bin:$PATH" "$HOME/
 
 ## 빌드
 
+Gateway와 센서 펌웨어는 Bluetooth SIG가 자사에 할당한 하나의 Company Identifier를 공유한다. 펌웨어 빌드 전 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=<10진수 식별자>`를 site별 보안 빌드 설정에 주입하고, Gateway에는 같은 값을 `GATEWAY_BLUETOOTH_COMPANY_ID`로 배포한다. 값이 없거나 `0`, Espressif 할당값 `0x02E5`, 테스트/내부용 `0xFFFF`이면 빌드 또는 Gateway 시작이 fail-closed된다. 저장소에는 양산 식별자나 테스트 기본값을 커밋하지 않는다.
+
+```bash
+test "$CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID" = "$GATEWAY_BLUETOOTH_COMPANY_ID"
+```
+
+Task 16 vendor event model의 composition, 3-byte opcode, ACK opcode는 이 Kconfig 값을 사용해야 하며 Gateway의 shared protocol 계약 `BLUETOOTH_COMPANY_ID_CONFIG`와 이름을 임의로 바꾸지 않는다.
+
 저장소 경로에 공백과 한글이 포함되어 있어 ESP-IDF 빌드 안정성을 위해 firmware 파일을 `~/esp/led-control-esp32-h2-build`로 동기화한 뒤 빌드한다.
 
 ```bash
@@ -124,6 +132,7 @@ CONFIG_LED_CONTROL_FACTORY_RESET_HOLD_MS=8000
 CONFIG_DFK_PRODUCT_FAMILY=1
 CONFIG_DFK_MODEL_CODE=1
 CONFIG_DFK_HARDWARE_REVISION=1
+CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=<Bluetooth SIG 자사 할당값의 10진수>
 CONFIG_BLE_MESH_MODEL_GROUP_COUNT=16
 ```
 

@@ -36,6 +36,34 @@ afterEach(async () => {
 });
 
 describe("ScheduleRuntime", () => {
+  it("applies a normalized vendor event exactly once in the same durable inbox transaction", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 5)] }));
+    const identity = { sourceUnicast: 0x1201, bootId: 7, sequence: 9 };
+
+    await expect(test.runtime.recordVehicleSensorEvent(
+      { type: "detected", sourceFixtureId },
+      identity
+    )).resolves.toBe(true);
+    await expect(test.runtime.recordVehicleSensorEvent(
+      { type: "detected", sourceFixtureId },
+      identity
+    )).resolves.toBe(false);
+
+    expect(test.execute).toHaveBeenCalledTimes(1);
+    expect(test.store.read().vehicleRules[vehicleRuleId]?.activeSourceFixtureIds).toEqual([sourceFixtureId]);
+    expect(test.store.read().vehicleSensorInbox).toHaveLength(1);
+
+    await expect(test.runtime.recordVehicleSensorEvent(
+      { type: "cleared", sourceFixtureId },
+      { ...identity, sequence: 10 }
+    )).resolves.toBe(true);
+    expect(test.store.read().vehicleRules[vehicleRuleId]).toMatchObject({
+      activeSourceFixtureIds: [],
+      holdUntil: "2026-08-30T01:00:05.000Z"
+    });
+  });
   it("continues local RF from in-memory state when ENOSPC happens before initial state temp allocation", async () => {
     const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-full-state-disk-"));
     directories.push(directory);

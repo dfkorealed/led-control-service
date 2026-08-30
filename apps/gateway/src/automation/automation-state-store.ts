@@ -58,8 +58,24 @@ export interface PersistedAutomationTransitionState {
   terminalAt: string | null;
 }
 
+export interface VehicleSensorEventIdentity {
+  sourceUnicast: number;
+  bootId: number;
+  sequence: number;
+}
+
+export interface PersistedVehicleSensorInboxSource {
+  sourceUnicast: number;
+  current: { bootId: number; highWaterSequence: number };
+  recentBoots: Array<{ bootId: number; highWaterSequence: number }>;
+}
+
+const MAX_VEHICLE_SENSOR_INBOX_SOURCES = 10_000;
+const MAX_RECENT_VEHICLE_SENSOR_BOOTS = 8;
+const MAX_AUTOMATION_STATE_BYTES = 64 * 1024 * 1024;
+
 export interface PersistedAutomationStateV4 {
-  schemaVersion: 4;
+  schemaVersion: 5;
   activeOccurrences: Record<string, PersistedOccurrenceState>;
   manualOverrides: Record<string, PersistedManualOverrideState>;
   vehicleRules: Record<string, PersistedVehicleRuleState>;
@@ -70,6 +86,7 @@ export interface PersistedAutomationStateV4 {
   transitionsByFixture: Record<string, PersistedAutomationTransitionState>;
   telemetryGap: PersistedAutomationTelemetryGap | null;
   pendingTelemetryHandoffs: PersistedAutomationTelemetryHandoff[];
+  vehicleSensorInbox: PersistedVehicleSensorInboxSource[];
 }
 
 export type PersistedAutomationStateV3 = PersistedAutomationStateV4;
@@ -168,17 +185,32 @@ export class FileAutomationStateStore {
     return this.mutate(mutation, false);
   }
 
+  updateVehicleSensorEvent(
+    identity: VehicleSensorEventIdentity,
+    mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4
+  ): Promise<AutomationStateMutationResult & { durability: "durable"; applied: boolean }> {
+    assertVehicleSensorIdentity(identity);
+    let applied = false;
+    return this.mutate((state) => {
+      applied = recordVehicleSensorReceipt(state, identity);
+      return applied ? mutation(state) : state;
+    }, false, "adopt-next").then((result) => ({ ...result, applied }));
+  }
+
   private mutate(
     mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4,
-    allowMemoryOnly: false
+    allowMemoryOnly: false,
+    uncertainPolicy?: "rollback" | "adopt-next"
   ): Promise<AutomationStateMutationResult & { durability: "durable" }>;
   private mutate(
     mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4,
-    allowMemoryOnly: true
+    allowMemoryOnly: true,
+    uncertainPolicy?: "rollback" | "adopt-next"
   ): Promise<AutomationStateMutationResult>;
   private async mutate(
     mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4,
-    allowMemoryOnly: boolean
+    allowMemoryOnly: boolean,
+    uncertainPolicy: "rollback" | "adopt-next" = "rollback"
   ): Promise<AutomationStateMutationResult> {
     await this.initialize();
     return this.exclusive(async () => {
@@ -198,6 +230,9 @@ export class FileAutomationStateStore {
         if (!(error instanceof AtomicJsonCommitUncertainError)) {
           throw new AutomationStateStoreError("automation_state_store_failed", { cause: error });
         }
+        if (uncertainPolicy === "adopt-next" && await this.reconcileAdoptNext(previous, next, error)) {
+          return { state: structuredClone(next), durability: "durable" as const };
+        }
         if (allowMemoryOnly) await this.reconcileUncertainCommit(previous, next, error);
         else await this.reconcileDurableRequiredUncertainCommit(previous, next, error);
         throw new AutomationStateCommitUncertainError({ cause: error });
@@ -212,6 +247,35 @@ export class FileAutomationStateStore {
       }
       return { state: structuredClone(next), durability: "durable" as const };
     });
+  }
+
+  private async reconcileAdoptNext(
+    previous: PersistedAutomationStateV4,
+    next: PersistedAutomationStateV4,
+    commitError: AtomicJsonCommitUncertainError
+  ) {
+    const visible = await this.readVisibleState();
+    if (isDeepStrictEqual(visible, previous)) {
+      this.state = previous;
+      this.available = true;
+      return false;
+    }
+    if (!isDeepStrictEqual(visible, next)) {
+      this.available = false;
+      throw new AutomationStateCommitUncertainError({ cause: commitError });
+    }
+    try {
+      await this.writeState(next);
+    } catch (error) {
+      this.state = next;
+      this.available = true;
+      this.setDurability("degraded", "atomic_json_commit_uncertain");
+      throw new AutomationStateCommitUncertainError({ cause: error });
+    }
+    this.state = next;
+    this.available = true;
+    this.setDurability("ready", null);
+    return true;
   }
 
   recordTelemetryGap(
@@ -346,7 +410,7 @@ export class FileAutomationStateStore {
   private async restore(): Promise<PersistedAutomationStateV4> {
     let raw: unknown | null;
     try {
-      raw = await readJsonFile(this.path);
+      raw = await readJsonFile(this.path, { maxBytes: MAX_AUTOMATION_STATE_BYTES });
     } catch (error) {
       throw new AutomationStateStoreError("automation_state_corrupt", { cause: error });
     }
@@ -439,7 +503,7 @@ export class FileAutomationStateStore {
 
   private async readVisibleState() {
     try {
-      const raw = await readJsonFile(this.path);
+      const raw = await readJsonFile(this.path, { maxBytes: MAX_AUTOMATION_STATE_BYTES });
       return raw === null ? null : parseAutomationState(raw);
     } catch {
       return null;
@@ -560,7 +624,7 @@ function isEnospc(error: unknown): error is NodeJS.ErrnoException {
 
 export function emptyAutomationState(): PersistedAutomationStateV4 {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     activeOccurrences: {},
     manualOverrides: {},
     vehicleRules: {},
@@ -570,7 +634,8 @@ export function emptyAutomationState(): PersistedAutomationStateV4 {
     unverifiedDesiredByFixture: {},
     transitionsByFixture: {},
     telemetryGap: null,
-    pendingTelemetryHandoffs: []
+    pendingTelemetryHandoffs: [],
+    vehicleSensorInbox: []
   };
 }
 
@@ -639,7 +704,7 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
       []
     );
   }
-  if (!hasExactKeys(value, [
+  if (hasExactKeys(value, [
     "schemaVersion",
     "activeOccurrences",
     "manualOverrides",
@@ -651,14 +716,39 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV4
     "transitionsByFixture",
     "telemetryGap",
     "pendingTelemetryHandoffs"
-  ]) || value.schemaVersion !== 4) throw new Error("invalid automation state");
+  ]) && value.schemaVersion === 4) {
+    return parseAutomationStateFields(
+      value,
+      parseBrightnessRecord(value.lastDesiredByFixture),
+      parseBrightnessRecord(value.unverifiedDesiredByFixture),
+      parseRecord(value.transitionsByFixture, parseTransition),
+      parseTelemetryGap(value.telemetryGap),
+      parseTelemetryHandoffs(value.pendingTelemetryHandoffs),
+      []
+    );
+  }
+  if (!hasExactKeys(value, [
+    "schemaVersion",
+    "activeOccurrences",
+    "manualOverrides",
+    "vehicleRules",
+    "currentByFixture",
+    "baseBrightnessByFixture",
+    "lastDesiredByFixture",
+    "unverifiedDesiredByFixture",
+    "transitionsByFixture",
+    "telemetryGap",
+    "pendingTelemetryHandoffs",
+    "vehicleSensorInbox"
+  ]) || value.schemaVersion !== 5) throw new Error("invalid automation state");
   return parseAutomationStateFields(
     value,
     parseBrightnessRecord(value.lastDesiredByFixture),
     parseBrightnessRecord(value.unverifiedDesiredByFixture),
     parseRecord(value.transitionsByFixture, parseTransition),
     parseTelemetryGap(value.telemetryGap),
-    parseTelemetryHandoffs(value.pendingTelemetryHandoffs)
+    parseTelemetryHandoffs(value.pendingTelemetryHandoffs),
+    parseVehicleSensorInbox(value.vehicleSensorInbox)
   );
 }
 
@@ -681,10 +771,11 @@ function parseAutomationStateFields(
   unverifiedDesiredByFixture: Record<string, number>,
   transitionsByFixture: Record<string, PersistedAutomationTransitionState>,
   telemetryGap: PersistedAutomationTelemetryGap | null,
-  pendingTelemetryHandoffs: PersistedAutomationTelemetryHandoff[]
+  pendingTelemetryHandoffs: PersistedAutomationTelemetryHandoff[],
+  vehicleSensorInbox: PersistedVehicleSensorInboxSource[] = []
 ): PersistedAutomationStateV4 {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
     manualOverrides: parseRecord(value.manualOverrides, parseManualOverride),
     vehicleRules: parseRecord(value.vehicleRules, parseVehicleRule),
@@ -694,8 +785,89 @@ function parseAutomationStateFields(
     unverifiedDesiredByFixture,
     transitionsByFixture,
     telemetryGap,
-    pendingTelemetryHandoffs
+    pendingTelemetryHandoffs,
+    vehicleSensorInbox
   };
+}
+
+function recordVehicleSensorReceipt(
+  state: PersistedAutomationStateV4,
+  identity: VehicleSensorEventIdentity
+) {
+  let source = state.vehicleSensorInbox.find((candidate) => candidate.sourceUnicast === identity.sourceUnicast);
+  if (!source) {
+    if (state.vehicleSensorInbox.length >= MAX_VEHICLE_SENSOR_INBOX_SOURCES) {
+      throw new Error("vehicle_sensor_inbox_capacity");
+    }
+    source = {
+      sourceUnicast: identity.sourceUnicast,
+      current: { bootId: identity.bootId, highWaterSequence: identity.sequence },
+      recentBoots: []
+    };
+    state.vehicleSensorInbox.push(source);
+    state.vehicleSensorInbox.sort((left, right) => left.sourceUnicast - right.sourceUnicast);
+    return true;
+  }
+  if (source.current.bootId === identity.bootId) {
+    if (identity.sequence <= source.current.highWaterSequence) return false;
+    source.current.highWaterSequence = identity.sequence;
+    return true;
+  }
+  const recent = source.recentBoots.find((boot) => boot.bootId === identity.bootId);
+  if (recent) {
+    recent.highWaterSequence = Math.max(recent.highWaterSequence, identity.sequence);
+    return false;
+  }
+  source.recentBoots.unshift(source.current);
+  source.recentBoots = source.recentBoots.slice(0, MAX_RECENT_VEHICLE_SENSOR_BOOTS);
+  source.current = { bootId: identity.bootId, highWaterSequence: identity.sequence };
+  return true;
+}
+
+function parseVehicleSensorInbox(value: unknown): PersistedVehicleSensorInboxSource[] {
+  if (!Array.isArray(value) || value.length > MAX_VEHICLE_SENSOR_INBOX_SOURCES) {
+    throw new Error("invalid vehicle sensor inbox");
+  }
+  const sources = value.map((candidate) => {
+    if (!hasExactKeys(candidate, ["sourceUnicast", "current", "recentBoots"]) ||
+      !isVehicleSensorUnicast(candidate.sourceUnicast) || !Array.isArray(candidate.recentBoots) ||
+      candidate.recentBoots.length > MAX_RECENT_VEHICLE_SENSOR_BOOTS) {
+      throw new Error("invalid vehicle sensor inbox");
+    }
+    const current = parseVehicleSensorBoot(candidate.current);
+    const recentBoots = candidate.recentBoots.map(parseVehicleSensorBoot);
+    if (recentBoots.some((boot) => boot.bootId === current.bootId) ||
+      new Set(recentBoots.map((boot) => boot.bootId)).size !== recentBoots.length) {
+      throw new Error("invalid vehicle sensor inbox");
+    }
+    return { sourceUnicast: candidate.sourceUnicast, current, recentBoots };
+  });
+  if (new Set(sources.map((source) => source.sourceUnicast)).size !== sources.length) {
+    throw new Error("invalid vehicle sensor inbox");
+  }
+  return sources.sort((left, right) => left.sourceUnicast - right.sourceUnicast);
+}
+
+function parseVehicleSensorBoot(value: unknown) {
+  if (!hasExactKeys(value, ["bootId", "highWaterSequence"]) ||
+    !isUint32(value.bootId) || !isUint32(value.highWaterSequence)) {
+    throw new Error("invalid vehicle sensor inbox");
+  }
+  return { bootId: value.bootId, highWaterSequence: value.highWaterSequence };
+}
+
+function assertVehicleSensorIdentity(identity: VehicleSensorEventIdentity) {
+  if (!isVehicleSensorUnicast(identity.sourceUnicast) || !isUint32(identity.bootId) || !isUint32(identity.sequence)) {
+    throw new Error("invalid_vehicle_sensor_identity");
+  }
+}
+
+function isVehicleSensorUnicast(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 0x7fff;
+}
+
+function isUint32(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff;
 }
 
 function parseTransition(value: unknown): PersistedAutomationTransitionState {

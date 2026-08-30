@@ -24,6 +24,95 @@ afterEach(async () => {
 });
 
 describe("FileAutomationStateStore", () => {
+  it("keeps a durable current boot and bounded recent boot high-water across oscillation and restart", async () => {
+    const path = await statePath();
+    const store = new FileAutomationStateStore(path);
+    await store.initialize();
+    const mutate = (bootId: number, sequence: number) => store.updateVehicleSensorEvent(
+      { sourceUnicast: 0x1201, bootId, sequence },
+      (state) => {
+        state.currentByFixture[fixtureId] = (state.currentByFixture[fixtureId] ?? 0) + 1;
+        return state;
+      }
+    );
+
+    await expect(mutate(7, 9)).resolves.toMatchObject({ applied: true });
+    await expect(mutate(8, 1)).resolves.toMatchObject({ applied: true });
+    await expect(mutate(7, 10)).resolves.toMatchObject({ applied: false });
+    expect(store.read().currentByFixture[fixtureId]).toBe(2);
+
+    const restarted = new FileAutomationStateStore(path);
+    await restarted.initialize();
+    await expect(restarted.updateVehicleSensorEvent(
+      { sourceUnicast: 0x1201, bootId: 7, sequence: 11 },
+      (state) => {
+        state.currentByFixture[fixtureId] = 99;
+        return state;
+      }
+    )).resolves.toMatchObject({ applied: false });
+    expect(restarted.read().currentByFixture[fixtureId]).toBe(2);
+    expect(restarted.read().vehicleSensorInbox[0]).toMatchObject({
+      sourceUnicast: 0x1201,
+      current: { bootId: 8, highWaterSequence: 1 }
+    });
+    expect(restarted.read().vehicleSensorInbox[0]?.recentBoots).toContainEqual({
+      bootId: 7,
+      highWaterSequence: 11
+    });
+  });
+
+  it("adopts a rename-visible sensor transaction uncertainty without replaying after restart", async () => {
+    const path = await statePath();
+    await writeJsonAtomic(path, emptyAutomationState());
+    let writes = 0;
+    const store = new FileAutomationStateStore(path, async (target, value) => {
+      writes += 1;
+      await writeJsonAtomic(target, value);
+      if (writes === 1) throw new AtomicJsonCommitUncertainError(target);
+    });
+    await store.initialize();
+
+    await expect(store.updateVehicleSensorEvent(
+      { sourceUnicast: 0x1201, bootId: 7, sequence: 9 },
+      (state) => {
+        state.currentByFixture[fixtureId] = 40;
+        return state;
+      }
+    )).resolves.toMatchObject({ applied: true, durability: "durable" });
+
+    const restarted = new FileAutomationStateStore(path);
+    await restarted.initialize();
+    await expect(restarted.updateVehicleSensorEvent(
+      { sourceUnicast: 0x1201, bootId: 7, sequence: 9 },
+      (state) => {
+        state.currentByFixture[fixtureId] = 99;
+        return state;
+      }
+    )).resolves.toMatchObject({ applied: false });
+    expect(restarted.read().currentByFixture[fixtureId]).toBe(40);
+  });
+
+  it("does not accept or receipt a sensor event after a definite commit failure", async () => {
+    const path = await statePath();
+    await writeJsonAtomic(path, emptyAutomationState());
+    let fail = true;
+    const store = new FileAutomationStateStore(path, async (target, value) => {
+      if (fail) throw new Error("definite sensor commit failure");
+      await writeJsonAtomic(target, value);
+    });
+    await store.initialize();
+    const operation = () => store.updateVehicleSensorEvent(
+      { sourceUnicast: 0x1201, bootId: 7, sequence: 9 },
+      (state) => {
+        state.currentByFixture[fixtureId] = 40;
+        return state;
+      }
+    );
+
+    await expect(operation()).rejects.toThrow("automation_state_store_failed");
+    fail = false;
+    await expect(operation()).resolves.toMatchObject({ applied: true });
+  });
   it("atomically persists source pre-state and desired suppression across restart", async () => {
     const path = await statePath();
     const store = new FileAutomationStateStore(path);
@@ -47,7 +136,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -341,7 +430,7 @@ describe("FileAutomationStateStore", () => {
     await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
 
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       telemetryGap: {
         firstDroppedAt: "2026-08-30T01:00:01.000Z",
         lastDroppedAt: "2026-08-30T01:00:02.000Z",
@@ -386,15 +475,16 @@ describe("FileAutomationStateStore", () => {
       recordsHash: automationTelemetryRecordsHash(records),
       records
     };
+    const { vehicleSensorInbox: _vehicleSensorInbox, ...v4 } = emptyAutomationState();
     await writeJsonAtomic(path, {
-      ...emptyAutomationState(),
+      ...v4,
       schemaVersion: 4,
       pendingTelemetryHandoffs: [handoff]
     });
 
     const store = new FileAutomationStateStore(path);
     await expect(store.initialize()).resolves.toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       pendingTelemetryHandoffs: [handoff]
     });
     await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toEqual({

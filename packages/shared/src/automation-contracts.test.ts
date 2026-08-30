@@ -9,6 +9,10 @@ import {
   vehicleSensorCapabilityIngestedAckV1Schema,
   vehicleSensorCapabilityReportV1Schema
 } from "./automation-contracts";
+import {
+  BLUETOOTH_COMPANY_ID_CONFIG,
+  parseOwnedBluetoothCompanyId
+} from "./vehicle-sensor-protocol";
 
 const siteId = "00000000-0000-4000-8000-000000000003";
 const gatewayId = "00000000-0000-4000-8000-000000000004";
@@ -58,6 +62,17 @@ const snapshot = {
 };
 
 describe("automation shared contracts", () => {
+  it("requires one deployment-owned Bluetooth Company Identifier for Gateway and firmware builds", () => {
+    expect(BLUETOOTH_COMPANY_ID_CONFIG).toEqual({
+      gatewayEnvironment: "GATEWAY_BLUETOOTH_COMPANY_ID",
+      firmwareSdkConfig: "CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID"
+    });
+    expect(parseOwnedBluetoothCompanyId("0x1234")).toBe(0x1234);
+    expect(parseOwnedBluetoothCompanyId("4660")).toBe(0x1234);
+    for (const rejected of [undefined, "", "0", "0x02e5", "65535", "0x10000", "12.5", "garbage"]) {
+      expect(() => parseOwnedBluetoothCompanyId(rejected)).toThrow("owned_bluetooth_company_id_required");
+    }
+  });
   it("accepts disabled dimming with any valid brightness percentage", () => {
     expect(automationActionV1Schema.parse({ dimmingEnabled: false, brightnessPercent: 37 })).toEqual({
       dimmingEnabled: false,

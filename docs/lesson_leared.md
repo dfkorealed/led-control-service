@@ -269,3 +269,15 @@
 - **원인**: 원자 rewrite와 정상 restart만 검증하고, 한 번 생성된 durable 파일의 소실을 first run과 구분하는 marker를 두지 않았다.
 - **해결 및 예방책**: dedupe와 capability journal에 별도 manifest를 먼저 원자 저장한다. Manifest가 있는데 state가 없거나 둘의 구조가 손상되면 자동 초기화하지 않고 startup을 fail-closed한다. 새 event는 runtime durable commit, dedupe atomic commit, application ACK 순서로 처리하며 duplicate는 상태를 바꾸지 않고 ACK만 재전송한다.
 - **반복 방지 체크**: durable input/outbox 파일에는 최초 실행, 정상 restart, target 삭제, manifest 삭제·손상, atomic write 실패와 process restart 테스트를 함께 둔다.
+
+## 2026-08-30 / Exactly-once 입력 receipt는 도메인 상태와 같은 transaction에 둔다
+- **발생했던 문제/실수**: 차량 runtime state와 별도 dedupe 파일 사이 crash에서 같은 이벤트가 재적용될 수 있었고, 마지막 boot만 보존해 `A -> B -> A` oscillation도 새 session으로 오인했다.
+- **원인**: 중복 방지를 transport client 책임으로 분리하고 source session history를 current 한 건으로 축약했다.
+- **해결 및 예방책**: normalized sensor identity를 automation state v5의 bounded inbox receipt로 옮겨 active/hold transition과 같은 durable mutation에 저장한다. Source별 current boot와 최근 8개 boot high-water를 보존해 관측한 이전 boot는 ACK만 한다.
+- **반복 방지 체크**: definite failure, previous/next/unknown uncertainty, restart, boot oscillation, duplicate ACK와 active/hold 회귀를 함께 검증한다.
+
+## 2026-08-30 / Bluetooth Company Identifier는 소유권 있는 배포 입력이다
+- **발생했던 문제/실수**: ESP-IDF 예제의 Espressif Company Identifier를 제품 vendor opcode와 Health composition에 하드코딩했다.
+- **원인**: 테스트 fixture와 제품 소유 assigned number를 같은 상수로 취급했다.
+- **해결 및 예방책**: Gateway와 firmware가 명시적 배포/Kconfig 입력으로 동일 자사 할당값을 받고, 누락·미할당·타사 기존값·테스트 예약값을 fail-closed한다. 테스트 fixture는 test 전용 모듈에만 둔다.
+- **반복 방지 체크**: production factory의 dependency injection 경로도 설정 검증을 우회하지 않는지와 Gateway/firmware 설정 키 계약을 shared 테스트로 유지한다.

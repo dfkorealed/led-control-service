@@ -1,4 +1,5 @@
 import type { BleMeshAdapter, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
+import { BLUETOOTH_COMPANY_ID_CONFIG, parseOwnedBluetoothCompanyId } from "@led-control/shared";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ApplianceHealthProbes } from "../health/appliance-health";
@@ -21,7 +22,7 @@ export interface GatewayAdapters {
 }
 
 interface AdapterFactoryDependencies {
-  createBluezAdapter?: () => Promise<BleMeshAdapter & ProvisioningScannerAdapter & ProvisioningAdapter & {
+  createBluezAdapter?: (companyId: number) => Promise<BleMeshAdapter & ProvisioningScannerAdapter & ProvisioningAdapter & {
     healthProbes?: ApplianceHealthProbes;
     vehicleSensors: VehicleSensorMeshPort;
   }>;
@@ -34,8 +35,9 @@ export async function createProductionAdapters(
   if (env.GATEWAY_ADAPTER !== "bluez") {
     throw new Error("PRODUCTION_ADAPTER_REQUIRED: GATEWAY_ADAPTER must be bluez");
   }
+  const companyId = parseOwnedBluetoothCompanyId(env[BLUETOOTH_COMPANY_ID_CONFIG.gatewayEnvironment]);
 
-  const adapter = await (dependencies.createBluezAdapter ?? (() => createBluezAdapter(env)))();
+  const adapter = await (dependencies.createBluezAdapter ?? ((ownedCompanyId) => createBluezAdapter(env, ownedCompanyId)))(companyId);
   return {
     dimming: adapter,
     scanner: adapter,
@@ -45,12 +47,12 @@ export async function createProductionAdapters(
   };
 }
 
-async function createBluezAdapter(env: NodeJS.ProcessEnv) {
+async function createBluezAdapter(env: NodeJS.ProcessEnv, companyId: number) {
   const bus = createNativeSystemBus();
   const transport = new BluezTransport(() => bus);
   const addressStore = new MeshAddressStore(env.GATEWAY_MESH_ADDRESS_PATH ?? "/var/lib/led-control/mesh-addresses.json");
   const identityStore = new MeshIdentityStore(env.GATEWAY_MESH_IDENTITY_PATH ?? "/var/lib/led-control/mesh-identity.json");
-  const application = new BluezDbusApplication(bus);
+  const application = new BluezDbusApplication(bus, undefined, { companyId });
   const provisioner = new BluezProvisioner(transport, application, identityStore, addressStore);
   const transactions = new MeshTransactionStore(env.GATEWAY_MESH_TRANSACTION_PATH ?? "/var/lib/led-control/mesh-transactions.json");
   const adapter = new BluezMeshAdapter(
@@ -58,11 +60,12 @@ async function createBluezAdapter(env: NodeJS.ProcessEnv) {
     application,
     provisioner,
     addressStore,
-    (nodePath) => new BluezConfigClient(transport, application, nodePath),
+    (nodePath) => new BluezConfigClient(transport, application, nodePath, { companyId }),
     transactions,
     {
       responseTimeoutMs: parsePositiveInteger(env.GATEWAY_BLE_STATUS_TIMEOUT_MS, 8_000),
-      scanSeconds: parsePositiveInteger(env.GATEWAY_BLE_SCAN_SECONDS, 10)
+      scanSeconds: parsePositiveInteger(env.GATEWAY_BLE_SCAN_SECONDS, 10),
+      companyId
     }
   );
   await adapter.start();
@@ -72,7 +75,7 @@ async function createBluezAdapter(env: NodeJS.ProcessEnv) {
       application,
       provisioner,
       addressStore,
-      createConfigClient: (nodePath) => new BluezConfigClient(transport, application, nodePath)
+      createConfigClient: (nodePath) => new BluezConfigClient(transport, application, nodePath, { companyId })
     }),
     healthProbes: createBluezHealthProbes(transport, provisioner, addressStore)
   });

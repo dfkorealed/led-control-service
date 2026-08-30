@@ -1,5 +1,12 @@
 menu "LED Control Node"
 
+config LED_CONTROL_BLUETOOTH_COMPANY_ID
+    int "Bluetooth SIG assigned company identifier"
+    range 1 65534
+    help
+        Bluetooth SIG가 자사에 할당한 Company Identifier를 10진수로 지정한다.
+        Gateway의 GATEWAY_BLUETOOTH_COMPANY_ID와 반드시 같은 값이어야 한다.
+
 config DFK_PRODUCT_FAMILY
     int "DFK product family code"
     default 1

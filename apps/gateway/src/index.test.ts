@@ -28,6 +28,7 @@ import {
   shouldPublishFixtureStates,
   stateEventOutboxHealthReason,
   handoffPersistedAutomationTelemetryGap,
+  handleProvisionDeviceCommand,
   recordAndHandoffAutomationTelemetryGap,
   startGatewayRuntime,
   subscribeGatewayCommands
@@ -45,6 +46,46 @@ import {
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
 const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
+
+it("publishes provisioning completion before isolating capability refresh failure", async () => {
+  const command = {
+    sessionId: "00000000-0000-4000-8000-000000000010",
+    siteId: scopedSiteId,
+    gatewayId: scopedGatewayId,
+    nodeId: "00000000-0000-4000-8000-000000000011",
+    deviceUuid: "00112233445566778899aabbccddeeff",
+    meshAddress: "0x1201",
+    requestedAt: "2026-08-30T00:00:00.000Z"
+  };
+  const completed = {
+    sessionId: command.sessionId,
+    nodeId: command.nodeId,
+    deviceUuid: command.deviceUuid,
+    meshAddress: command.meshAddress,
+    completedAt: "2026-08-30T00:00:01.000Z"
+  };
+  let releasePublish!: () => void;
+  const publishTerminal = vi.fn(() => new Promise<void>((resolve) => { releasePublish = resolve; }));
+  const requestCapabilityRefresh = vi.fn(async () => { throw new Error("private config failure"); });
+  const onCapabilityRefreshError = vi.fn();
+  const handling = handleProvisionDeviceCommand({
+    adapter: { provision: vi.fn(async () => completed), identify: vi.fn(async () => undefined) },
+    command,
+    publishTerminal,
+    requestCapabilityRefresh,
+    onCapabilityRefreshError
+  });
+  await vi.waitFor(() => expect(publishTerminal).toHaveBeenCalledWith(
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/events/provisioning-completed`,
+    completed
+  ));
+  expect(requestCapabilityRefresh).not.toHaveBeenCalled();
+  releasePublish();
+  await handling;
+  await vi.waitFor(() => expect(onCapabilityRefreshError).toHaveBeenCalledTimes(1));
+  expect(requestCapabilityRefresh).toHaveBeenCalledWith(command.nodeId);
+  expect(JSON.stringify(onCapabilityRefreshError.mock.calls)).not.toContain("private config failure");
+});
 
 const assignment = {
   siteId: "site-27",

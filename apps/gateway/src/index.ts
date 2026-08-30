@@ -8,10 +8,15 @@ import {
   type AutomationExecutionFixtureResultV1,
   type DeviceStatusAckV2,
   type FixtureStateV2,
+  type ProvisionDevicePayload,
+  type ProvisioningCompletedPayload,
+  type ProvisioningFailedPayload,
   gatewayDimmingCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
   automationExecutionIngestedAckV1Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
+  BLUETOOTH_COMPANY_ID_CONFIG,
+  parseOwnedBluetoothCompanyId,
   identifyDeviceSchema,
   isGatewayCommandExpired,
   mqttTopicsV2,
@@ -75,7 +80,7 @@ import {
   startControlPlaneWithBackgroundMeshResync
 } from "./runtime/background-mesh-resync";
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
-import type { BleMeshAdapter, BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
+import type { BleMeshAdapter, BleMeshFixtureStatus, BleMeshResyncReport, ProvisioningAdapter } from "./gateway";
 import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
 import { GroupStateStore } from "./mesh/group-state-store";
 import { KeyedSerialTaskQueue } from "./runtime/keyed-serial-task-queue";
@@ -107,12 +112,12 @@ import {
   type AutomationTelemetryRecordInput
 } from "./automation/automation-telemetry-handoff";
 import {
-  FileVehicleSensorDedupeStore,
   VehicleSensorCapabilityJournal,
   VehicleSensorCapabilityPublisher,
   VehicleSensorClient,
   VehicleSensorGatewayController
 } from "./mesh/vehicle-sensor-client";
+import { createVehicleSensorVendorModel } from "./mesh/bluez-mesh-model-config";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
 
@@ -233,6 +238,35 @@ export function requeuePendingFixtureObservations(
   return targeted.requeuePendingFixtures(runtime.pendingObservationFixtureIds());
 }
 
+export async function handleProvisionDeviceCommand(input: {
+  adapter: ProvisioningAdapter;
+  command: ProvisionDevicePayload;
+  publishTerminal: (
+    topic: string,
+    payload: ProvisioningCompletedPayload | ProvisioningFailedPayload
+  ) => Promise<void>;
+  requestCapabilityRefresh: (meshNodeId: string) => Promise<void>;
+  onCapabilityRefreshError?: () => void;
+}) {
+  const result = await applyProvisionDevice(input.adapter, input.command);
+  if (result.completed) {
+    await input.publishTerminal(
+      mqttTopics.provisioningCompleted(input.command.siteId, input.command.gatewayId),
+      result.completed
+    );
+    void input.requestCapabilityRefresh(input.command.nodeId).catch(() => {
+      input.onCapabilityRefreshError?.();
+    });
+    return;
+  }
+  if (result.failed) {
+    await input.publishTerminal(
+      mqttTopics.provisioningFailed(input.command.siteId, input.command.gatewayId),
+      result.failed
+    );
+  }
+}
+
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
 
@@ -254,6 +288,9 @@ async function main() {
   const gatewayFirmwareVersion = process.env.GATEWAY_FIRMWARE_VERSION || "gateway-dev-local";
   const commandTimeoutMs = parseCommandTimeout(process.env.GATEWAY_BLE_STATUS_TIMEOUT_MS);
   const adapters = runtime.adapters;
+  const vehicleSensorVendorModel = createVehicleSensorVendorModel(
+    parseOwnedBluetoothCompanyId(process.env[BLUETOOTH_COMPANY_ID_CONFIG.gatewayEnvironment])
+  );
   await health.meshReady();
   const adapter = adapters.dimming;
   const scannerAdapter = adapters.scanner;
@@ -440,14 +477,13 @@ async function main() {
     { onError: (error) => void reportGatewayError(error, "vehicle_sensor_capability_publish") }
   );
   const vehicleSensorClient = new VehicleSensorClient({
-    dedupeStore: new FileVehicleSensorDedupeStore(
-      process.env.GATEWAY_VEHICLE_SENSOR_DEDUPE_PATH ?? "/var/lib/led-control/vehicle-sensor-dedupe.json"
-    ),
+    vendorModel: vehicleSensorVendorModel,
     listConfiguredSourceFixtureIds: () =>
       configuredVehicleSensorSourceFixtureIds(scheduleRuntime.currentSnapshot),
     resolveByFixtureId: (fixtureId) => adapters.vehicleSensors.resolveByFixtureId(fixtureId),
     resolveBySourceUnicast: (sourceUnicast) => adapters.vehicleSensors.resolveBySourceUnicast(sourceUnicast),
     recordInput: (input) => scheduleRuntime.recordVehicleSensorInput(input),
+    recordVendorInput: (input, identity) => scheduleRuntime.recordVehicleSensorEvent(input, identity),
     send: (destination, payload) => adapters.vehicleSensors.send(destination, payload),
     warn: (warning) => console.warn("Gateway vehicle sensor input rejected", warning)
   });
@@ -460,6 +496,10 @@ async function main() {
       console.warn("Gateway vehicle sensor diagnostic", diagnostic);
       if (diagnostic.event === "vehicle_sensor_capability_ack_rejected") {
         void reportGatewayError(new Error(diagnostic.event), "vehicle_sensor_capability_ack");
+      } else if (diagnostic.event === "vehicle_sensor_capability_configuration_failed") {
+        void health.setOperationalBlocker("vehicle_sensor_capability_refresh_pending", true);
+      } else if (diagnostic.event === "vehicle_sensor_capability_refresh_recovered") {
+        void health.setOperationalBlocker("vehicle_sensor_capability_refresh_pending", false);
       }
     }
   });
@@ -603,15 +643,19 @@ async function main() {
     return provisioningQueue.run(async () => {
       const command = provisionDeviceSchema.parse(JSON.parse(payload.toString()));
       return stateEventCapacity.run(["*"], async () => {
-        const result = await applyProvisionDevice(provisioningAdapter, command);
-        if (result.completed) {
-          await vehicleSensorController.refreshCapabilities(command.nodeId);
-          source.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
-          return;
-        }
-        if (result.failed) {
-          source.publish(mqttTopics.provisioningFailed(command.siteId, command.gatewayId), JSON.stringify(result.failed), { qos: 1 });
-        }
+        await handleProvisionDeviceCommand({
+          adapter: provisioningAdapter,
+          command,
+          publishTerminal: (topic, terminal) => publish(source, topic, terminal),
+          requestCapabilityRefresh: (meshNodeId) => vehicleSensorController.requestCapabilityRefresh(meshNodeId),
+          onCapabilityRefreshError: () => {
+            void health.setOperationalBlocker("vehicle_sensor_capability_refresh_pending", true);
+            void reportGatewayError(
+              new Error("vehicle_sensor_capability_refresh_pending"),
+              "vehicle_sensor_capability_configuration"
+            );
+          }
+        });
       });
     });
   }

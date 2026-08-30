@@ -1001,6 +1001,8 @@ git commit -m "feat(gateway): ingest BLE Mesh vehicle sensors"
 
 검증: Gateway focused 7파일 94/94, Gateway 전체 57파일 523/523, shared 74/74, Docker 계약 17/17, 필수 mTLS Mosquitto 2/2와 Shared/Gateway typecheck·lint·build 및 diff-check를 통과했다. 실제 Raspberry Pi/ESP32-H2 RF, packet loss, power-loss와 flash-wear HIL은 별도 검증이다.
 
+Fix Round 1에서는 production Company ID 명시 설정, automation state v5 atomic sensor inbox와 bounded recent boot high-water, provisioning terminal-first/durable capability refresh retry, Percentage 8 decode, capability uncertainty target reconciliation, sensor intake bounded drain을 추가했다. 단일 sensor 모듈은 codec/controller/capability failure boundary로 분리했다. 상세 RED/GREEN 근거와 HIL 한계는 `.superpowers/sdd/2026-08-29-schedule-vehicle-event-control/task-14-report.md`를 따른다.
+
 ### Task 15: ESP32-H2 GPIO vehicle sensor driver
 
 **Files:**

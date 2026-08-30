@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  FileVehicleSensorDedupeStore,
   BluezVehicleSensorMeshPort,
   VehicleSensorGatewayController,
   VehicleSensorCapabilityJournal,
@@ -14,10 +13,14 @@ import {
   decodeSensorStatus,
   decodeVendorVehicleEvent
 } from "./vehicle-sensor-client";
+import { createVehicleSensorVendorModel } from "./bluez-mesh-model-config";
+import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
+import { AtomicJsonCommitUncertainError, writeJsonAtomic } from "./mesh-store-file";
 
 const SOURCE_FIXTURE_ID = "00000000-0000-4000-8000-000000000102";
 const SOURCE_NODE_ID = "00000000-0000-4000-8000-000000000202";
 const SOURCE_UNICAST = 0x1201;
+const VENDOR_MODEL = createVehicleSensorVendorModel(TEST_BLUETOOTH_COMPANY_ID);
 
 describe("vehicle sensor wire decoders", () => {
   it("decodes Presence Detected and Motion Sensed Sensor Status properties", () => {
@@ -29,24 +32,31 @@ describe("vehicle sensor wire decoders", () => {
       { property: "presence_detected", active: true },
       { property: "motion_sensed", active: false }
     ]);
+    expect(decodeSensorStatus(Uint8Array.from([0x52, 0x40, 0x08, 0x64])))
+      .toEqual([{ property: "motion_sensed", active: true }]);
+    expect(() => decodeSensorStatus(Uint8Array.from([0x52, 0x40, 0x08, 0x65])))
+      .toThrow("malformed_vehicle_sensor_status");
+    expect(() => decodeSensorStatus(Uint8Array.from([0x52, 0xa0, 0x09, 0x02])))
+      .toThrow("malformed_vehicle_sensor_status");
+    expect(() => decodeSensorStatus(new Uint8Array(129))).toThrow("malformed_vehicle_sensor_status");
   });
 
   it("strictly decodes the versioned vendor event payload", () => {
     expect(decodeVendorVehicleEvent(Uint8Array.from([
-      0xc1, 0xe5, 0x02,
+      ...VENDOR_MODEL.eventOpcode,
       0x01,
       0x07, 0x00, 0x00, 0x00,
       0x09, 0x00, 0x00, 0x00,
       0x01,
       0x01
-    ]))).toEqual({ bootId: 7, sequence: 9, eventKind: "detected", level: true });
+    ]), VENDOR_MODEL)).toEqual({ bootId: 7, sequence: 9, eventKind: "detected", level: true });
 
     expect(() => decodeVendorVehicleEvent(Uint8Array.from([
-      0xc1, 0xe5, 0x02, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01
-    ]))).toThrow("malformed_vehicle_sensor_vendor_event");
+      ...VENDOR_MODEL.eventOpcode, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01
+    ]), VENDOR_MODEL)).toThrow("malformed_vehicle_sensor_vendor_event");
     expect(() => decodeVendorVehicleEvent(Uint8Array.from([
-      0xc1, 0xe5, 0x02, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01, 0x00
-    ]))).toThrow("malformed_vehicle_sensor_vendor_event");
+      ...VENDOR_MODEL.eventOpcode, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01, 0x00
+    ]), VENDOR_MODEL)).toThrow("malformed_vehicle_sensor_vendor_event");
   });
 });
 
@@ -55,14 +65,14 @@ describe("VehicleSensorClient", () => {
   let sent: Array<{ destination: number; payload: number[] }>;
   let warnings: unknown[];
   let configured: Set<string>;
-  let dedupePath: string;
+  let vendorReceipts: Set<string>;
 
   beforeEach(async () => {
     runtimeEvents = [];
     sent = [];
     warnings = [];
     configured = new Set([SOURCE_FIXTURE_ID]);
-    dedupePath = join(await mkdtemp(join(tmpdir(), "vehicle-sensor-client-")), "dedupe.json");
+    vendorReceipts = new Set();
   });
 
   it("applies one vendor event and retransmits the ACK for its duplicate", async () => {
@@ -84,8 +94,8 @@ describe("VehicleSensorClient", () => {
 
     expect(runtimeEvents).toEqual([{ type: "detected", sourceFixtureId: SOURCE_FIXTURE_ID }]);
     expect(sent.slice(-2)).toEqual([
-      { destination: SOURCE_UNICAST, payload: [0xc2, 0xe5, 0x02, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00] },
-      { destination: SOURCE_UNICAST, payload: [0xc2, 0xe5, 0x02, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00] }
+      { destination: SOURCE_UNICAST, payload: [0xc2, 0xff, 0xff, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00] },
+      { destination: SOURCE_UNICAST, payload: [0xc2, 0xff, 0xff, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00] }
     ]);
   });
 
@@ -137,26 +147,17 @@ describe("VehicleSensorClient", () => {
     expect(sent.at(-1)?.destination).toBe(SOURCE_UNICAST);
   });
 
-  it("fails closed when an initialized dedupe file disappears", async () => {
-    const store = new FileVehicleSensorDedupeStore(dedupePath);
-    await store.initialize();
-    await store.markProcessed(SOURCE_UNICAST, { bootId: 7, sequence: 9 });
-    await rm(dedupePath);
-
-    await expect(new FileVehicleSensorDedupeStore(dedupePath).initialize())
-      .rejects.toThrow("vehicle_sensor_dedupe_store_missing");
-  });
-
-  it("does not commit dedupe or ACK before the runtime input is durable", async () => {
-    const recordInput = vi.fn()
+  it("does not ACK before the atomic runtime input and inbox receipt are durable", async () => {
+    const recordVendorInput = vi.fn()
       .mockRejectedValueOnce(new Error("runtime state fsync failed"))
-      .mockImplementationOnce(async (event) => { runtimeEvents.push(event); });
+      .mockImplementationOnce(async (event) => { runtimeEvents.push(event); return true; });
     const client = new VehicleSensorClient({
-      dedupeStore: new FileVehicleSensorDedupeStore(dedupePath),
+      vendorModel: VENDOR_MODEL,
       listConfiguredSourceFixtureIds: () => [SOURCE_FIXTURE_ID],
       resolveByFixtureId: async () => ({ fixtureId: SOURCE_FIXTURE_ID, meshNodeId: SOURCE_NODE_ID, primaryUnicast: SOURCE_UNICAST }),
       resolveBySourceUnicast: async () => ({ fixtureId: SOURCE_FIXTURE_ID, meshNodeId: SOURCE_NODE_ID, primaryUnicast: SOURCE_UNICAST }),
-      recordInput,
+      recordInput: async () => undefined,
+      recordVendorInput,
       send: async (destination, payload) => { sent.push({ destination, payload: [...payload] }); }
     });
     await client.initialize();
@@ -165,7 +166,7 @@ describe("VehicleSensorClient", () => {
     await expect(client.onVendorEvent(SOURCE_UNICAST, event)).rejects.toThrow("runtime state fsync failed");
     await client.onVendorEvent(SOURCE_UNICAST, event);
 
-    expect(recordInput).toHaveBeenCalledTimes(2);
+    expect(recordVendorInput).toHaveBeenCalledTimes(2);
     expect(runtimeEvents).toEqual([{ type: "detected", sourceFixtureId: SOURCE_FIXTURE_ID }]);
     expect(sent.filter(({ payload }) => payload[0] === 0xc2)).toHaveLength(1);
   });
@@ -191,11 +192,11 @@ describe("VehicleSensorClient", () => {
     await client.initialize();
 
     await client.onMeshMessage(0x1301, Uint8Array.from([
-      0xc1, 0xe5, 0x02, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01, 0x01
+      ...VENDOR_MODEL.eventOpcode, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01, 0x01
     ]));
     configured.clear();
     await client.onMeshMessage(SOURCE_UNICAST, Uint8Array.from([
-      0xc1, 0xe5, 0x02, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01, 0x01
+      ...VENDOR_MODEL.eventOpcode, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x01, 0x01
     ]));
     configured.add(SOURCE_FIXTURE_ID);
     await client.onMeshMessage(SOURCE_UNICAST, Uint8Array.from([0x52, 0xa0]));
@@ -215,7 +216,7 @@ describe("VehicleSensorClient", () => {
   it("continues startup queries when one configured source cannot be reached", async () => {
     configured.add("00000000-0000-4000-8000-000000000103");
     const client = new VehicleSensorClient({
-      dedupeStore: new FileVehicleSensorDedupeStore(dedupePath),
+      vendorModel: VENDOR_MODEL,
       listConfiguredSourceFixtureIds: () => [...configured],
       resolveByFixtureId: async (fixtureId) => ({
         fixtureId,
@@ -224,6 +225,7 @@ describe("VehicleSensorClient", () => {
       }),
       resolveBySourceUnicast: async () => null,
       recordInput: async () => undefined,
+      recordVendorInput: async () => true,
       send: async (destination, payload) => {
         if (destination === SOURCE_UNICAST) throw new Error("private transport failure");
         sent.push({ destination, payload: [...payload] });
@@ -246,7 +248,7 @@ describe("VehicleSensorClient", () => {
 
   function createClient() {
     return new VehicleSensorClient({
-      dedupeStore: new FileVehicleSensorDedupeStore(dedupePath),
+      vendorModel: VENDOR_MODEL,
       listConfiguredSourceFixtureIds: () => [...configured],
       resolveByFixtureId: async (fixtureId) => fixtureId === SOURCE_FIXTURE_ID
         ? { fixtureId: SOURCE_FIXTURE_ID, meshNodeId: SOURCE_NODE_ID, primaryUnicast: SOURCE_UNICAST }
@@ -255,6 +257,13 @@ describe("VehicleSensorClient", () => {
         ? { fixtureId: SOURCE_FIXTURE_ID, meshNodeId: SOURCE_NODE_ID, primaryUnicast: SOURCE_UNICAST }
         : null,
       recordInput: async (event) => { runtimeEvents.push(event); },
+      recordVendorInput: async (event, identity) => {
+        const key = `${identity.sourceUnicast}:${identity.bootId}:${identity.sequence}`;
+        if (vendorReceipts.has(key)) return false;
+        vendorReceipts.add(key);
+        runtimeEvents.push(event);
+        return true;
+      },
       send: async (destination, payload) => { sent.push({ destination, payload: [...payload] }); },
       warn: (warning) => { warnings.push(warning); }
     });
@@ -325,7 +334,6 @@ describe("BluezVehicleSensorMeshPort", () => {
 describe("VehicleSensorGatewayController", () => {
   it("configures confirmed nodes, journals capability, and routes BlueZ input without exposing raw payloads", async () => {
     const path = await journalPath();
-    const dedupePath = join(await mkdtemp(join(tmpdir(), "vehicle-sensor-controller-")), "dedupe.json");
     let listener: ((source: number, data: Uint8Array) => void) | undefined;
     let completeConfiguration: (() => void) | undefined;
     const diagnostics: unknown[] = [];
@@ -352,11 +360,12 @@ describe("VehicleSensorGatewayController", () => {
     const publisher = new VehicleSensorCapabilityPublisher(journal, { siteId: "00000000-0000-4000-8000-000000000001", gatewayId: "00000000-0000-4000-8000-000000000002" });
     const recordInput = vi.fn(async () => undefined);
     const client = new VehicleSensorClient({
-      dedupeStore: new FileVehicleSensorDedupeStore(dedupePath),
+      vendorModel: VENDOR_MODEL,
       listConfiguredSourceFixtureIds: () => [SOURCE_FIXTURE_ID],
       resolveByFixtureId: port.resolveByFixtureId,
       resolveBySourceUnicast: port.resolveBySourceUnicast,
       recordInput,
+      recordVendorInput: async () => true,
       send: port.send
     });
     const controller = new VehicleSensorGatewayController({
@@ -392,9 +401,85 @@ describe("VehicleSensorGatewayController", () => {
       event: "vehicle_sensor_capability_configuration_failed",
       meshNodeId: SOURCE_NODE_ID
     }]);
+    expect(await journal.pendingRefreshNodeIds()).toEqual([SOURCE_NODE_ID]);
     expect(JSON.stringify(diagnostics)).not.toContain("secret");
     await controller.stopAndDrain();
     expect(listener).toBeUndefined();
+  });
+
+  it("stops intake and drains every accepted sensor promise before shutdown", async () => {
+    const path = await journalPath();
+    let listener: ((source: number, data: Uint8Array) => void) | undefined;
+    const pending = deferred<boolean>();
+    const client = {
+      initialize: vi.fn(async () => undefined),
+      onMeshMessage: vi.fn(() => pending.promise),
+      queryConfiguredSources: vi.fn(async () => undefined),
+      reconnect: vi.fn(async () => undefined)
+    };
+    const journal = new VehicleSensorCapabilityJournal(path, { siteId: SOURCE_FIXTURE_ID, gatewayId: SOURCE_NODE_ID });
+    const publisher = new VehicleSensorCapabilityPublisher(journal, { siteId: SOURCE_FIXTURE_ID, gatewayId: SOURCE_NODE_ID });
+    const controller = new VehicleSensorGatewayController({
+      port: {
+        listConfirmedSources: vi.fn(async () => []),
+        resolveByFixtureId: vi.fn(async () => null),
+        resolveBySourceUnicast: vi.fn(async () => null),
+        configureSource: vi.fn(),
+        send: vi.fn(async () => undefined),
+        onMessage: vi.fn((next) => { listener = next; return () => { listener = undefined; }; })
+      },
+      client: client as unknown as VehicleSensorClient,
+      journal,
+      publisher,
+      sensorDrainTimeoutMs: 100
+    });
+    await controller.initialize();
+    listener?.(SOURCE_UNICAST, Uint8Array.from([0x52]));
+    const stopping = controller.stopAndDrain();
+    let stopped = false;
+    void stopping.then(() => { stopped = true; });
+    await Promise.resolve();
+
+    expect(listener).toBeUndefined();
+    expect(stopped).toBe(false);
+    pending.resolve(true);
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
+  it("bounds sensor drain timeout and emits only sanitized pending diagnostics", async () => {
+    vi.useFakeTimers();
+    try {
+      const path = await journalPath();
+      let listener: ((source: number, data: Uint8Array) => void) | undefined;
+      const diagnostics: unknown[] = [];
+      const journal = new VehicleSensorCapabilityJournal(path, { siteId: SOURCE_FIXTURE_ID, gatewayId: SOURCE_NODE_ID });
+      const controller = new VehicleSensorGatewayController({
+        port: {
+          listConfirmedSources: vi.fn(async () => []), resolveByFixtureId: vi.fn(async () => null),
+          resolveBySourceUnicast: vi.fn(async () => null), configureSource: vi.fn(), send: vi.fn(async () => undefined),
+          onMessage: vi.fn((next) => { listener = next; return () => { listener = undefined; }; })
+        },
+        client: {
+          initialize: vi.fn(async () => undefined),
+          onMeshMessage: vi.fn(() => new Promise<boolean>(() => undefined))
+        } as unknown as VehicleSensorClient,
+        journal,
+        publisher: new VehicleSensorCapabilityPublisher(journal, { siteId: SOURCE_FIXTURE_ID, gatewayId: SOURCE_NODE_ID }),
+        sensorDrainTimeoutMs: 10,
+        diagnose: (diagnostic) => { diagnostics.push(diagnostic); }
+      });
+      await controller.initialize();
+      listener?.(SOURCE_UNICAST, Uint8Array.from([0x52, 0xaa, 0xbb]));
+      const stopping = controller.stopAndDrain();
+      await vi.advanceTimersByTimeAsync(10);
+      await stopping;
+
+      expect(diagnostics).toContainEqual({ event: "vehicle_sensor_intake_drain_timeout", pendingCount: 1 });
+      expect(JSON.stringify(diagnostics)).not.toContain("170");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -457,6 +542,21 @@ describe("vehicle sensor capability journal and publisher", () => {
     const restarted = new VehicleSensorCapabilityJournal(path, { siteId: SITE_ID, gatewayId: GATEWAY_ID });
     await restarted.initialize();
     expect(await restarted.current(NODE_ID)).toEqual(changed.record);
+  });
+
+  it("durably retains capability refresh work until model configuration succeeds", async () => {
+    const path = await journalPath();
+    const journal = new VehicleSensorCapabilityJournal(path, { siteId: SITE_ID, gatewayId: GATEWAY_ID });
+    await journal.initialize();
+
+    await journal.requestRefresh(NODE_ID);
+    expect(await journal.pendingRefreshNodeIds()).toEqual([NODE_ID]);
+
+    const restarted = new VehicleSensorCapabilityJournal(path, { siteId: SITE_ID, gatewayId: GATEWAY_ID });
+    await restarted.initialize();
+    expect(await restarted.pendingRefreshNodeIds()).toEqual([NODE_ID]);
+    await restarted.completeRefresh(NODE_ID);
+    expect(await restarted.pendingRefreshNodeIds()).toEqual([]);
   });
 
   it("uses exact report identity for terminal ACK and preserves rejected or hash-mismatched reports", async () => {
@@ -627,6 +727,75 @@ describe("vehicle sensor capability journal and publisher", () => {
     expect(JSON.parse(await readFile(path, "utf8")).records[0].report.capabilityRevision).toBe(1);
     expect(writes.length).toBeGreaterThan(0);
   });
+
+  it("adopts the exact next capability identity after a rename-visible uncertain commit", async () => {
+    const path = await journalPath();
+    let uncertain = false;
+    const journal = new VehicleSensorCapabilityJournal(path, { siteId: SITE_ID, gatewayId: GATEWAY_ID }, {
+      createEventId: () => EVENT_1,
+      now: () => new Date("2026-08-30T00:00:00.000Z"),
+      write: async (target, value) => {
+        await writeJsonAtomic(target, value);
+        if (uncertain && target === path) throw new AtomicJsonCommitUncertainError(target);
+      }
+    });
+    await journal.initialize();
+    uncertain = true;
+
+    const result = await journal.recordBinding({
+      meshNodeId: NODE_ID,
+      sensorServerBound: true,
+      vendorVehicleEventModelBound: true
+    });
+
+    expect(result.changed).toBe(true);
+    expect(await journal.current(NODE_ID)).toEqual(result.record);
+    await expect(new VehicleSensorCapabilityJournal(path, { siteId: SITE_ID, gatewayId: GATEWAY_ID })
+      .initialize()).resolves.toBeUndefined();
+  });
+
+  it("retains previous capability state when uncertainty reads back the previous target", async () => {
+    const path = await journalPath();
+    const journal = new VehicleSensorCapabilityJournal(path, { siteId: SITE_ID, gatewayId: GATEWAY_ID }, {
+      createEventId: () => EVENT_1,
+      write: async (target, value) => {
+        if (target === path && (value as { records?: unknown[] }).records?.length) {
+          throw new AtomicJsonCommitUncertainError(target);
+        }
+        await writeJsonAtomic(target, value);
+      }
+    });
+    await journal.initialize();
+
+    await expect(journal.recordBinding({
+      meshNodeId: NODE_ID,
+      sensorServerBound: true,
+      vendorVehicleEventModelBound: true
+    })).rejects.toThrow("vehicle_sensor_capability_commit_uncertain");
+    expect(await journal.current(NODE_ID)).toBeNull();
+  });
+
+  it("fences an ambiguous capability journal target", async () => {
+    const path = await journalPath();
+    const journal = new VehicleSensorCapabilityJournal(path, { siteId: SITE_ID, gatewayId: GATEWAY_ID }, {
+      createEventId: () => EVENT_1,
+      write: async (target, value) => {
+        if (target === path && (value as { records?: unknown[] }).records?.length) {
+          await writeJsonAtomic(target, { version: 99 });
+          throw new AtomicJsonCommitUncertainError(target);
+        }
+        await writeJsonAtomic(target, value);
+      }
+    });
+    await journal.initialize();
+
+    await expect(journal.recordBinding({
+      meshNodeId: NODE_ID,
+      sensorServerBound: true,
+      vendorVehicleEventModelBound: true
+    })).rejects.toThrow("vehicle_sensor_capability_commit_ambiguous");
+    await expect(journal.current(NODE_ID)).rejects.toThrow("vehicle_sensor_capability_journal_unavailable");
+  });
 });
 
 async function journalPath() {
@@ -640,4 +809,14 @@ function canonicalHash(value: unknown) {
       ? Object.fromEntries(Object.entries(candidate).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, sort(child)]))
       : candidate;
   return `sha256:${createHash("sha256").update(JSON.stringify(sort(value))).digest("hex")}`;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
