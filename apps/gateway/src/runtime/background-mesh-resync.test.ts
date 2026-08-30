@@ -50,6 +50,86 @@ describe("BackgroundMeshResyncWorker", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
+  it("retries a failed full resync with capped exponential backoff", async () => {
+    vi.useFakeTimers();
+    try {
+      const run = vi.fn()
+        .mockRejectedValueOnce(new Error("BlueZ busy"))
+        .mockRejectedValueOnce(new Error("BlueZ still busy"))
+        .mockRejectedValueOnce(new Error("fixture status timeout"))
+        .mockResolvedValueOnce(completeReport);
+      const worker = new BackgroundMeshResyncWorker({
+        run,
+        onReport: vi.fn(),
+        onError: vi.fn(),
+        retryBaseMs: 100,
+        retryMaxMs: 200
+      });
+
+      worker.schedule();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(run).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(run).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(199);
+      expect(run).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(run).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(run).toHaveBeenCalledTimes(4);
+      expect(worker.readiness).toBe("ready");
+      await worker.stopAndDrain();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["timed out", { ...completeReport, observed: 999, timedOut: 1 }],
+    ["failed", { ...completeReport, observed: 999, failed: 1 }]
+  ])("reruns a full resync whose report contains %s fixtures", async (_case, incompleteReport) => {
+    vi.useFakeTimers();
+    try {
+      const run = vi.fn()
+        .mockResolvedValueOnce(incompleteReport)
+        .mockResolvedValueOnce(completeReport);
+      const worker = new BackgroundMeshResyncWorker({ run, onReport: vi.fn() });
+
+      worker.schedule();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(run).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(249);
+      expect(run).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(worker.readiness).toBe("ready");
+      await worker.stopAndDrain();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels an armed full-resync retry when shutdown starts", async () => {
+    vi.useFakeTimers();
+    try {
+      const run = vi.fn().mockResolvedValue({ ...completeReport, observed: 999, timedOut: 1 });
+      const worker = new BackgroundMeshResyncWorker({ run, onReport: vi.fn() });
+      worker.schedule();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(run).toHaveBeenCalledTimes(1);
+
+      await worker.stopAndDrain();
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(worker.schedule()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("drains an in-flight resync on shutdown and rejects new work", async () => {
     const resync = deferred<typeof completeReport>();
     const run = vi.fn(() => resync.promise);
@@ -232,6 +312,53 @@ describe("TargetedLightingResyncQueue", () => {
     expect(queue.pendingCount).toBe(1);
     expect(fullResync.schedule).toHaveBeenCalledWith(true);
     await queue.stopAndDrain();
+  });
+
+  it("requeues a durable pending snapshot by capacity window so overflow fixtures are not starved", async () => {
+    vi.useFakeTimers();
+    try {
+      let durablePending = ["offline-1", "offline-2", "online-3", "online-4"];
+      let queue!: TargetedLightingResyncQueue;
+      const run = vi.fn(async (fixtureIds: string[]) => {
+        const observed = fixtureIds.filter((fixtureId) => fixtureId.startsWith("online"));
+        for (const fixtureId of observed) {
+          durablePending = durablePending.filter((candidate) => candidate !== fixtureId);
+          queue.markObserved(fixtureId);
+        }
+        return {
+          ...completeReport,
+          total: fixtureIds.length,
+          configured: fixtureIds.length,
+          observed: observed.length,
+          healthPending: 0,
+          timedOut: fixtureIds.length - observed.length
+        };
+      });
+      queue = new TargetedLightingResyncQueue({
+        run,
+        maxPendingFixtures: 2,
+        maxBatchSize: 1,
+        retryBaseMs: 100,
+        retryMaxMs: 200,
+        onPassComplete: () => {
+          queue.requeuePendingFixtures(durablePending);
+        }
+      });
+
+      expect(queue.request(durablePending)).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(run.mock.calls[0]?.[0]).toEqual(["offline-1"]);
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(run.mock.calls[1]?.[0]).toEqual(["online-3"]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(run.mock.calls.some(([fixtureIds]) => fixtureIds.includes("online-4"))).toBe(true);
+      expect(durablePending).toEqual(["offline-1", "offline-2"]);
+      expect(queue.pendingCount).toBe(2);
+      await queue.stopAndDrain();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

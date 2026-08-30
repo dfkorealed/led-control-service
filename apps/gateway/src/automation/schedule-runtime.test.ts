@@ -307,12 +307,14 @@ describe("ScheduleRuntime", () => {
       execute: restartedExecute
     });
     await restarted.initialize();
+    expect(restarted.pendingObservationFixtureIds()).toEqual([fixtureId]);
     await activate(restarted, snapshot({ schedules: [dailySchedule()] }));
 
     expect(restartedExecute).not.toHaveBeenCalled();
     await restarted.recordFixtureState(fixtureId, 40);
     expect(restartedExecute).not.toHaveBeenCalled();
     expect(restarted.state().lastDesiredByFixture[fixtureId]).toBe(40);
+    expect(restarted.pendingObservationFixtureIds()).toEqual([]);
   });
 
   it.each([
@@ -373,18 +375,19 @@ describe("ScheduleRuntime", () => {
     }
   );
 
-  it("promotes a 4,097-fixture terminal commit overflow to a bounded full resync until the later fence is observed", async () => {
+  it("requeues 4,098 durable fences after the first full pass fails so overflow fixtures are observed on retry", async () => {
     const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-overflow-fence-"));
     directories.push(directory);
     const path = join(directory, "state.json");
-    const fixtureIds = Array.from({ length: 4_097 }, (_, index) => fixtureUuid(index + 1));
-    const laterFixtureId = fixtureIds.at(-1)!;
+    const fixtureIds = Array.from({ length: 4_098 }, (_, index) => fixtureUuid(index + 1));
+    const overflowFixtureIds = fixtureIds.slice(-2);
     const wall = fakeWall("2026-08-30T00:59:00.000Z");
-    const allowLaterObservation = deferred<void>();
-    const laterFixtureVisited = deferred<void>();
     const fullBatches: string[][] = [];
+    const targetedBatches: string[][] = [];
     let injectTerminalFailure = false;
+    let fullPasses = 0;
     let runtime!: ScheduleRuntime;
+    let targetedResync!: TargetedLightingResyncQueue;
     const store = new FileAutomationStateStore(path, async (target, value) => {
       const transitions = Object.values(
         (value as { transitionsByFixture?: Record<string, { phase?: string }> }).transitionsByFixture ?? {}
@@ -397,37 +400,52 @@ describe("ScheduleRuntime", () => {
     });
     const fullResync = new BackgroundMeshResyncWorker({
       run: async (signal) => {
+        fullPasses += 1;
         for (let index = 0; index < fixtureIds.length && !signal.aborted; index += 64) {
           const batch = fixtureIds.slice(index, index + 64);
           fullBatches.push(batch);
-          if (batch.includes(laterFixtureId)) {
-            laterFixtureVisited.resolve();
-            await allowLaterObservation.promise;
-            if (!signal.aborted) await runtime.recordFixtureState(laterFixtureId, 40);
-          }
         }
+        if (fullPasses === 1) throw new Error("injected first full resync failure");
         return {
           total: fixtureIds.length,
           configured: fixtureIds.length,
-          observed: signal.aborted ? 0 : 1,
+          observed: signal.aborted ? 0 : fixtureIds.length,
           healthPending: 0,
-          timedOut: fixtureIds.length - 1,
+          timedOut: 0,
           failed: 0
         };
       },
-      onReport: vi.fn()
-    });
-    const targetedResync = new TargetedLightingResyncQueue({
-      run: async (batch) => ({
-        total: batch.length,
-        configured: batch.length,
-        observed: 0,
-        healthPending: 0,
-        timedOut: batch.length,
-        failed: 0
-      }),
+      onReport: () => {
+        targetedResync.requeuePendingFixtures(runtime.pendingObservationFixtureIds());
+      },
+      onError: () => {
+        targetedResync.requeuePendingFixtures(runtime.pendingObservationFixtureIds());
+      },
       retryBaseMs: 60_000,
       retryMaxMs: 60_000
+    });
+    targetedResync = new TargetedLightingResyncQueue({
+      run: async (batch) => {
+        targetedBatches.push(batch);
+        const observed = batch.filter((fixtureId) => overflowFixtureIds.includes(fixtureId));
+        for (const fixtureId of observed) {
+          await runtime.recordFixtureState(fixtureId, 40);
+          targetedResync.markObserved(fixtureId);
+        }
+        return {
+          total: batch.length,
+          configured: batch.length,
+          observed: observed.length,
+          healthPending: 0,
+          timedOut: batch.length - observed.length,
+          failed: 0
+        };
+      },
+      onPassComplete: () => {
+        targetedResync.requeuePendingFixtures(runtime.pendingObservationFixtureIds());
+      },
+      retryBaseMs: 10,
+      retryMaxMs: 10
     });
     const execute = vi.fn(executeSuccessfully);
     runtime = new ScheduleRuntime({
@@ -457,25 +475,32 @@ describe("ScheduleRuntime", () => {
       injectTerminalFailure = true;
 
       await expect(runtime.tick()).rejects.toMatchObject({ code: "automation_state_store_failed" });
-      await laterFixtureVisited.promise;
+      await vi.waitFor(() => expect(fullPasses).toBe(1));
       expect(targetedResync.pendingCount).toBe(4_096);
-      expect(runtime.state().transitionsByFixture[laterFixtureId]).toMatchObject({ phase: "pending" });
+      expect(runtime.pendingObservationFixtureIds()).toHaveLength(4_098);
 
       await runtime.tick();
       expect(execute).toHaveBeenCalledTimes(1);
 
-      allowLaterObservation.resolve();
-      await vi.waitFor(() => expect(runtime.state().transitionsByFixture[laterFixtureId]).toMatchObject({
-        phase: "terminal",
-        status: "succeeded"
-      }));
+      await vi.waitFor(() => expect(targetedBatches.length).toBeGreaterThanOrEqual(2));
+      expect(targetedBatches[0]).toEqual(fixtureIds.slice(0, 64));
+      expect(targetedBatches[1]).toEqual(expect.arrayContaining(overflowFixtureIds));
+      await vi.waitFor(() => {
+        for (const fixtureId of overflowFixtureIds) {
+          expect(runtime.state().transitionsByFixture[fixtureId]).toMatchObject({
+            phase: "terminal",
+            status: "succeeded"
+          });
+        }
+      });
       await runtime.tick();
 
       expect(execute).toHaveBeenCalledTimes(1);
+      expect(runtime.pendingObservationFixtureIds()).not.toEqual(expect.arrayContaining(overflowFixtureIds));
+      expect(runtime.pendingObservationFixtureIds()).toContain(fixtureIds[0]);
       expect(fullBatches.every((batch) => batch.length <= 64)).toBe(true);
       expect(fullBatches.flat()).toEqual(fixtureIds);
     } finally {
-      allowLaterObservation.resolve();
       await Promise.all([targetedResync.stopAndDrain(), fullResync.stopAndDrain()]);
     }
   }, 30_000);

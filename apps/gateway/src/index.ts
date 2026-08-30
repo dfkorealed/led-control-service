@@ -196,6 +196,13 @@ export function observeAutomationFixtureStatuses(
   });
 }
 
+export function requeuePendingFixtureObservations(
+  runtime: Pick<ScheduleRuntime, "pendingObservationFixtureIds">,
+  targeted: Pick<TargetedLightingResyncQueue, "requeuePendingFixtures">
+) {
+  return targeted.requeuePendingFixtures(runtime.pendingObservationFixtureIds());
+}
+
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
 
@@ -271,9 +278,13 @@ async function main() {
     process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json"
   );
   const clockTrust = new SystemClockTrustProvider();
-  const targetedLightingResync = new TargetedLightingResyncQueue({
+  let scheduleRuntime!: ScheduleRuntime;
+  const targetedLightingResync: TargetedLightingResyncQueue = new TargetedLightingResyncQueue({
     run: (fixtureIds, signal) => adapter.resyncLightingFixtures(fixtureIds, signal),
-    onError: (error) => reportGatewayError(error, "automation_targeted_lighting_resync")
+    onError: (error) => reportGatewayError(error, "automation_targeted_lighting_resync"),
+    onPassComplete: () => {
+      requeuePendingFixtureObservations(scheduleRuntime, targetedLightingResync);
+    }
   });
   let meshResyncWorker!: BackgroundMeshResyncWorker;
   let fullResyncRerunPending = false;
@@ -286,7 +297,7 @@ async function main() {
       return meshResyncWorker.schedule(rerunIfActive);
     }
   };
-  const { scheduleRuntime, automationRuntime } = createGatewayAutomationServices({
+  const automationServices = createGatewayAutomationServices({
     configStore: new FileAutomationConfigStore(
       process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
       { siteId, gatewayId }
@@ -319,6 +330,8 @@ async function main() {
     }),
     onError: (error) => void reportGatewayError(error, "automation_runtime")
   });
+  scheduleRuntime = automationServices.scheduleRuntime;
+  const { automationRuntime } = automationServices;
   try {
     await scheduleRuntime.initialize();
   } catch (error) {
@@ -341,16 +354,19 @@ async function main() {
   meshResyncWorker = new BackgroundMeshResyncWorker({
     run: (signal) => adapter.resyncFixtureStates(signal),
     onReport: async (report) => {
+      requeuePendingFixtureObservations(scheduleRuntime, targetedLightingResync);
       await recordMeshResyncOutcome(health, report);
       await health.setOperationalBlocker("mesh_resync_failed", false);
       await health.setOperationalBlocker("mesh_resync_pending", false);
     },
     onError: async (error) => {
+      requeuePendingFixtureObservations(scheduleRuntime, targetedLightingResync);
       console.error("Gateway background Mesh resync failed", error);
       await health.setOperationalBlocker("mesh_resync_pending", false);
       await health.setOperationalBlocker("mesh_resync_failed", true);
     }
   });
+  requeuePendingFixtureObservations(scheduleRuntime, targetedLightingResync);
   if (fullResyncRerunPending) meshResyncWorker.schedule(true);
   scheduleRuntime.start();
   const automationAckOutbox = new AutomationConfigAckOutbox(

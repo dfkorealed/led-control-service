@@ -118,6 +118,10 @@ export class ScheduleRuntime {
     return this.options.store.read();
   }
 
+  pendingObservationFixtureIds() {
+    return [...this.pendingObservationFixtures];
+  }
+
   get currentSnapshot() {
     return this.snapshot ? structuredClone(this.snapshot) : null;
   }

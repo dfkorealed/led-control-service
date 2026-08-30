@@ -6,6 +6,7 @@ import {
   createGatewayAutomationServices,
   initializeAutomationBeforeManualRecovery,
   observeAutomationFixtureStatuses,
+  requeuePendingFixtureObservations,
   createDurableAutomationTerminalHandoff,
   executeAutomationWithBestEffortTelemetry,
   enqueueAutomationFixtureStates,
@@ -430,6 +431,19 @@ describe("startGatewayRuntime", () => {
 
     await vi.waitFor(() => expect(onError).toHaveBeenCalled());
     expect(onObserved).not.toHaveBeenCalled();
+  });
+
+  it("seeds durable restart observation fences into the targeted background queue", () => {
+    const runtime = {
+      pendingObservationFixtureIds: vi.fn(() => ["fixture-recovered-1", "fixture-recovered-2"])
+    };
+    const targeted = { requeuePendingFixtures: vi.fn(() => true) };
+
+    expect(requeuePendingFixtureObservations(runtime, targeted)).toBe(true);
+    expect(targeted.requeuePendingFixtures).toHaveBeenCalledWith([
+      "fixture-recovered-1",
+      "fixture-recovered-2"
+    ]);
   });
 
   it("keeps local automation RF successful when terminal telemetry capacity is exhausted", async () => {
