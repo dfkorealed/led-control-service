@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRODUCTION_POLICY="$REPO_ROOT/apps/esp32-h2-firmware/manufacturing/production-trust-policy.conf"
+IDF_PATCH_GATE="$REPO_ROOT/scripts/esp32-h2-idf-patch.sh"
 MIN_RELEASE_FREE_BYTES=$((256 * 1024))
 
 usage() {
@@ -82,13 +83,19 @@ load_build() {
   OTA_DATA="$BUILD_DIR/ota_data_initial.bin"
   MAP="$BUILD_DIR/led_control_node.map"
   FLASH_ARGS="$BUILD_DIR/flash_args"
+  IDF_PATCH_IDENTITY="$BUILD_WORKDIR/esp-idf-patch.identity"
   TEST_MANIFEST="$BUILD_DIR/led-control-artifact.manifest"
   ATTESTATION="$BUILD_DIR/led-control-artifact.attestation"
   ATTESTATION_SIGNATURE="$BUILD_DIR/led-control-artifact.attestation.sig"
 
-  for file in "$SDKCONFIG" "$PARTITIONS" "$BINARY" "$BOOTLOADER" "$PARTITION_TABLE" "$OTA_DATA" "$MAP" "$FLASH_ARGS"; do
+  for file in "$SDKCONFIG" "$PARTITIONS" "$BINARY" "$BOOTLOADER" "$PARTITION_TABLE" "$OTA_DATA" "$MAP" "$FLASH_ARGS" "$IDF_PATCH_IDENTITY"; do
     require_file "$file"
   done
+  "$IDF_PATCH_GATE" verify-identity "$IDF_PATCH_IDENTITY"
+  ESP_IDF_VERSION="$(single_value esp_idf_version "$IDF_PATCH_IDENTITY" "ESP-IDF patch identity")"
+  ESP_IDF_COMMIT="$(single_value esp_idf_commit "$IDF_PATCH_IDENTITY" "ESP-IDF patch identity")"
+  ESP_IDF_PATCH_SHA256="$(single_value patch_sha256 "$IDF_PATCH_IDENTITY" "ESP-IDF patch identity")"
+  ESP_IDF_NETWORKING_SHA256="$(single_value networking_api_patched_sha256 "$IDF_PATCH_IDENTITY" "ESP-IDF patch identity")"
 }
 
 audit_layout() {
@@ -181,6 +188,11 @@ write_payload() {
     "mode=$mode" \
     "company_id=$company_id" \
     "source_commit=$source_commit" \
+    "esp_idf_version=$ESP_IDF_VERSION" \
+    "esp_idf_commit=$ESP_IDF_COMMIT" \
+    "esp_idf_patch_sha256=$ESP_IDF_PATCH_SHA256" \
+    "esp_idf_networking_api_sha256=$ESP_IDF_NETWORKING_SHA256" \
+    "esp_idf_patch_identity_sha256=$(hash_file "$IDF_PATCH_IDENTITY")" \
     "approval_manifest_sha256=$approval_manifest_sha256" \
     "approval_signature_sha256=$approval_signature_sha256" \
     "approval_signer_sha256=$approval_signer_sha256" \
@@ -229,7 +241,7 @@ case "$ACTION" in
     }
     SOURCE_COMMIT="${5:-test-build-uncommitted}"
     if [ "$ACTION" = "create" ]; then
-      write_payload "$TEST_MANIFEST.tmp" led-control-test-artifact-v2 test "$4" "$SOURCE_COMMIT" none none none
+      write_payload "$TEST_MANIFEST.tmp" led-control-test-artifact-v3 test "$4" "$SOURCE_COMMIT" none none none
       mv "$TEST_MANIFEST.tmp" "$TEST_MANIFEST"
       rm -f "$ATTESTATION" "$ATTESTATION_SIGNATURE"
       echo "Artifact manifest: $TEST_MANIFEST"
@@ -237,7 +249,7 @@ case "$ACTION" in
     else
       require_file "$TEST_MANIFEST"
       expected="$(mktemp)"
-      write_payload "$expected" led-control-test-artifact-v2 test "$4" "$SOURCE_COMMIT" none none none
+      write_payload "$expected" led-control-test-artifact-v3 test "$4" "$SOURCE_COMMIT" none none none
       cmp -s "$expected" "$TEST_MANIFEST" || {
         rm -f "$expected"
         echo "test artifact manifest mismatch" >&2
@@ -304,7 +316,7 @@ if [[ "$ACTION" == *attestation ]]; then
       echo "attestation private key does not match fixed trust policy" >&2
       exit 1
     }
-    write_payload "$ATTESTATION.tmp" led-control-artifact-attestation-v1 production "$COMPANY_ID" "$SOURCE_COMMIT" "$approval_manifest_sha256" "$approval_signature_sha256" "$approval_signer_sha256"
+    write_payload "$ATTESTATION.tmp" led-control-artifact-attestation-v2 production "$COMPANY_ID" "$SOURCE_COMMIT" "$approval_manifest_sha256" "$approval_signature_sha256" "$approval_signer_sha256"
     openssl dgst -sha256 -sign "$ATTESTATION_PRIVATE_KEY" -out "$ATTESTATION_SIGNATURE.tmp" "$ATTESTATION.tmp"
     mv "$ATTESTATION.tmp" "$ATTESTATION"
     mv "$ATTESTATION_SIGNATURE.tmp" "$ATTESTATION_SIGNATURE"
@@ -325,7 +337,7 @@ if [[ "$ACTION" == *attestation ]]; then
   verify_recorded_hash partition_table_sha256 "$PARTITION_TABLE" "partition table"
   verify_recorded_hash ota_data_sha256 "$OTA_DATA" "OTA data"
   expected="$(mktemp)"
-  write_payload "$expected" led-control-artifact-attestation-v1 production "$COMPANY_ID" "$SOURCE_COMMIT" "$approval_manifest_sha256" "$approval_signature_sha256" "$approval_signer_sha256"
+  write_payload "$expected" led-control-artifact-attestation-v2 production "$COMPANY_ID" "$SOURCE_COMMIT" "$approval_manifest_sha256" "$approval_signature_sha256" "$approval_signer_sha256"
   cmp -s "$expected" "$ATTESTATION" || {
     rm -f "$expected"
     echo "artifact attestation does not exactly match build and approval inputs" >&2

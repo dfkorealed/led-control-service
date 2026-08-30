@@ -1,0 +1,51 @@
+diff --git a/components/bt/esp_ble_mesh/api/core/esp_ble_mesh_networking_api.c b/components/bt/esp_ble_mesh/api/core/esp_ble_mesh_networking_api.c
+--- a/components/bt/esp_ble_mesh/api/core/esp_ble_mesh_networking_api.c
++++ b/components/bt/esp_ble_mesh/api/core/esp_ble_mesh_networking_api.c
+@@ -26,0 +27 @@ static esp_err_t ble_mesh_model_send_msg(esp_ble_mesh_model_t *model,
++    esp_ble_mesh_msg_ctx_t *msg_ctx = NULL;
+@@ -28,0 +30 @@ static esp_err_t ble_mesh_model_send_msg(esp_ble_mesh_model_t *model,
++    bt_status_t transfer_status = BT_STATUS_FAIL;
+@@ -89,0 +92,9 @@ static esp_err_t ble_mesh_model_send_msg(esp_ble_mesh_model_t *model,
++    if (act == BTC_BLE_MESH_ACT_SERVER_MODEL_SEND) {
++        msg_ctx = bt_mesh_malloc(sizeof(esp_ble_mesh_msg_ctx_t));
++        if (msg_ctx == NULL) {
++            bt_mesh_free(msg_data);
++            return ESP_ERR_NO_MEM;
++        }
++        memcpy(msg_ctx, ctx, sizeof(esp_ble_mesh_msg_ctx_t));
++    }
++
+@@ -98 +109,2 @@ static esp_err_t ble_mesh_model_send_msg(esp_ble_mesh_model_t *model,
+-        arg.model_send.ctx = ctx;
++        arg.model_send.ctx = act == BTC_BLE_MESH_ACT_SERVER_MODEL_SEND ?
++                             msg_ctx : ctx;
+@@ -106,2 +118,18 @@ static esp_err_t ble_mesh_model_send_msg(esp_ble_mesh_model_t *model,
+-    status = (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_model_args_t), btc_ble_mesh_model_arg_deep_copy,
+-                btc_ble_mesh_model_arg_deep_free) == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
++    if (act == BTC_BLE_MESH_ACT_SERVER_MODEL_SEND) {
++        /* Payload and context already belong to the queued argument. Passing no
++         * callbacks keeps queue-post failure ownership with this caller. */
++        transfer_status = btc_transfer_context(&msg, &arg,
++                            sizeof(btc_ble_mesh_model_args_t), NULL, NULL);
++    } else {
++        transfer_status = btc_transfer_context(&msg, &arg,
++                            sizeof(btc_ble_mesh_model_args_t),
++                            btc_ble_mesh_model_arg_deep_copy,
++                            btc_ble_mesh_model_arg_deep_free);
++    }
++
++    if (act == BTC_BLE_MESH_ACT_SERVER_MODEL_SEND &&
++        transfer_status == BT_STATUS_SUCCESS) {
++        /* The BTC handler releases both snapshots with the existing deep-free. */
++        msg_data = NULL;
++        msg_ctx = NULL;
++    }
+@@ -108,0 +137 @@ static esp_err_t ble_mesh_model_send_msg(esp_ble_mesh_model_t *model,
++    bt_mesh_free(msg_ctx);
+@@ -110,0 +140,6 @@ static esp_err_t ble_mesh_model_send_msg(esp_ble_mesh_model_t *model,
++    status = transfer_status == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL;
++    if (act == BTC_BLE_MESH_ACT_SERVER_MODEL_SEND &&
++        transfer_status == BT_STATUS_NOMEM) {
++        status = ESP_ERR_NO_MEM;
++    }
++

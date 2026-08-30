@@ -12,6 +12,7 @@ BUILD_DIR="$BUILD_ROOT/build"
 APPROVAL="$FIXTURE_ROOT/approval.manifest"
 APPROVAL_SIGNATURE="$FIXTURE_ROOT/approval.sig"
 TEST_POLICY="$FIXTURE_ROOT/test-trust-policy.conf"
+PATCH_GATE="$REPO_ROOT/scripts/esp32-h2-idf-patch.sh"
 
 mkdir -p "$BUILD_DIR/bootloader" "$BUILD_DIR/partition_table"
 printf 'firmware\n' >"$BUILD_DIR/led_control_node.bin"
@@ -33,6 +34,7 @@ cat >"$BUILD_DIR/flash_args" <<'EOF'
 EOF
 printf 'CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y\nCONFIG_BLE_MESH_SETTINGS=y\nCONFIG_LED_CONTROL_TEST_BUILD=n\nCONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=%s\n' "$COMPANY_ID" >"$BUILD_ROOT/sdkconfig"
 cp "$REPO_ROOT/apps/esp32-h2-firmware/partitions.csv" "$BUILD_ROOT/partitions.csv"
+"$PATCH_GATE" write-identity "$BUILD_ROOT/esp-idf-patch.identity"
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$FIXTURE_ROOT/approval.key.pem" >/dev/null 2>&1
 openssl pkey -in "$FIXTURE_ROOT/approval.key.pem" -pubout -out "$FIXTURE_ROOT/approval.pub.pem" >/dev/null 2>&1
@@ -73,14 +75,14 @@ audit_fixture() {
     "$APPROVAL_SIGNATURE"
 }
 
-printf 'schema=led-control-test-artifact-v2\nmode=test\n' >"$BUILD_DIR/led-control-artifact.manifest"
+printf 'schema=led-control-test-artifact-v3\nmode=test\n' >"$BUILD_DIR/led-control-artifact.manifest"
 audit_fixture create
 test ! -e "$BUILD_DIR/led-control-artifact.manifest"
 audit_fixture verify
 
 ATTESTATION="$BUILD_DIR/led-control-artifact.attestation"
 ATTESTATION_SIGNATURE="$BUILD_DIR/led-control-artifact.attestation.sig"
-grep -q '^schema=led-control-artifact-attestation-v1$' "$ATTESTATION"
+grep -q '^schema=led-control-artifact-attestation-v2$' "$ATTESTATION"
 grep -q '^approval_manifest_sha256=' "$ATTESTATION"
 grep -q '^approval_signature_sha256=' "$ATTESTATION"
 grep -q '^approval_signer_sha256=' "$ATTESTATION"
@@ -88,7 +90,20 @@ grep -q '^binary_sha256=' "$ATTESTATION"
 grep -q '^bootloader_sha256=' "$ATTESTATION"
 grep -q '^partition_table_sha256=' "$ATTESTATION"
 grep -q '^ota_data_sha256=' "$ATTESTATION"
+grep -q '^esp_idf_version=v5.5.1$' "$ATTESTATION"
+grep -Eq '^esp_idf_patch_sha256=[0-9a-f]{64}$' "$ATTESTATION"
+grep -Eq '^esp_idf_patch_identity_sha256=[0-9a-f]{64}$' "$ATTESTATION"
 openssl dgst -sha256 -verify "$FIXTURE_ROOT/attestation.pub.pem" -signature "$ATTESTATION_SIGNATURE" "$ATTESTATION" >/dev/null
+
+cp "$BUILD_ROOT/esp-idf-patch.identity" "$FIXTURE_ROOT/esp-idf-patch.identity.valid"
+sed 's/^patch_sha256=.*/patch_sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' \
+  "$FIXTURE_ROOT/esp-idf-patch.identity.valid" >"$BUILD_ROOT/esp-idf-patch.identity"
+if audit_fixture verify >"$FIXTURE_ROOT/patch-identity.out" 2>&1; then
+  echo "attestation unexpectedly accepted a tampered ESP-IDF patch identity" >&2
+  exit 1
+fi
+grep -q 'ESP-IDF patch identity patch_sha256 mismatch' "$FIXTURE_ROOT/patch-identity.out"
+mv "$FIXTURE_ROOT/esp-idf-patch.identity.valid" "$BUILD_ROOT/esp-idf-patch.identity"
 
 cp "$BUILD_DIR/led_control_node.bin" "$FIXTURE_ROOT/firmware.valid"
 dd if=/dev/zero of="$BUILD_DIR/led_control_node.bin" bs=1 count=1700000 2>/dev/null

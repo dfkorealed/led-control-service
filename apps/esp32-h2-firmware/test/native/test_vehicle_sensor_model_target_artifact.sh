@@ -9,14 +9,24 @@ fi
 BUILD_WORKDIR="$1"
 SDKCONFIG="$BUILD_WORKDIR/sdkconfig"
 MAP="$BUILD_WORKDIR/build/led_control_node.map"
+COMPILE_COMMANDS="$BUILD_WORKDIR/build/compile_commands.json"
 MAIN_ROOT="$BUILD_WORKDIR/main"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+PATCHED_NETWORKING_SOURCE="$BUILD_WORKDIR/components/bt/esp_ble_mesh/api/core/esp_ble_mesh_networking_api.c"
 
-for file in "$SDKCONFIG" "$MAP"; do
+for file in "$SDKCONFIG" "$MAP" "$COMPILE_COMMANDS"; do
   if [ ! -f "$file" ]; then
     echo "vehicle sensor target audit missing $file" >&2
     exit 1
   fi
 done
+
+"$REPO_ROOT/scripts/esp32-h2-idf-patch.sh" verify-staged "$BUILD_WORKDIR"
+if ! jq -e --arg source "$PATCHED_NETWORKING_SOURCE" \
+    'any(.[]; .file == $source)' "$COMPILE_COMMANDS" >/dev/null; then
+  echo "vehicle sensor target audit did not compile the patched networking source" >&2
+  exit 1
+fi
 
 grep -q '^CONFIG_BLE_MESH_SENSOR_SERVER=y$' "$SDKCONFIG" || {
   echo "vehicle sensor target audit requires CONFIG_BLE_MESH_SENSOR_SERVER=y" >&2

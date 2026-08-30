@@ -333,3 +333,10 @@
 - **원인**: 동기 `ESP_OK`를 enqueue 수락뿐 아니라 호출 시점 payload snapshot 보장으로 확대 해석했고, fake가 API 인자의 payload를 즉시 복사해 ESP-IDF의 `model->pub->msg -> delayed BTC model pointer` 경계를 생략했다.
 - **해결 및 예방책**: Application-driven Sensor Status와 vendor event를 payload/context를 `btc_transfer_context()`에서 deep-copy하는 `esp_ble_mesh_server_model_send_msg()`로 전환한다. Destination/AppKey/TTL/credential/SZMIC는 publication 설정을 그대로 사용하고 프로젝트 provisioning 계약의 NetKey `0`을 적용한다. Period/retransmit `0`과 binding/address가 다르면 전송 직전에도 fail-closed한다.
 - **반복 방지 체크**: Production-like fake는 model publish shared buffer와 server-send deep-copy를 서로 다르게 모델링한다. BTC 소비를 지연한 sequence 1/2, 16 pending의 같은 deadline retry, Sensor false/true와 failure recovery snapshot, exact context를 검증하고 API call count만 wire 전달 증거로 사용하지 않는다.
+
+## 2026-08-31 / `void` deep-copy callback은 allocation 성공을 transaction처럼 보장할 수 없다
+
+- **발생했던 문제/실수**: `esp_ble_mesh_server_model_send_msg()`가 payload/context를 BTC deep-copy한다고 확인한 뒤 allocation failure도 동기 API error일 것으로 간주했다. 실제 ESP-IDF v5.5.1 callback은 `void`라 nested payload 또는 context allocation 실패를 caller에 전달하지 못했고, API가 `ESP_OK`를 반환한 채 NULL pointer가 handler에 도달할 수 있었다.
+- **원인**: 비동기 envelope allocation 성공과 그 내부 ownership snapshot 성공을 하나의 수락 경계로 보지 않았다. Success path의 copy 동작만 읽고 allocator failure, queue-post cleanup과 handler deep-free까지 end-to-end ownership graph를 검증하지 않았다.
+- **해결 및 예방책**: Pinned ESP-IDF server-send만 public API thread에서 payload/context를 all-or-nothing 할당하고, queue 수락 전 failure는 caller가 exact cleanup한 뒤 동기 오류를 반환한다. Queue 수락 후에만 ownership을 queued argument로 이동하고 기존 handler deep-free가 한 번 해제한다. Patch는 사용자 SDK가 아닌 build-only component overlay에 적용하며 exact revision/source/patch hash와 artifact identity로 고정한다.
+- **반복 방지 체크**: 비동기 API가 nested memory를 복사하면 first allocation, 각 nested allocation, envelope와 queue post를 모두 fault-inject한다. 각 failure의 API 결과, queued handler 0회, free count와 success delayed-handler exact one-free를 검증하고, unrelated action의 기존 동작도 회귀한다. SDK patch는 wrong revision/hash fail-closed, 멱등 적용, 실제 compile source와 signed artifact digest까지 함께 검사한다.

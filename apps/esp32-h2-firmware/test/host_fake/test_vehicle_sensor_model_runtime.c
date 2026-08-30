@@ -27,6 +27,14 @@ typedef enum {
   FAKE_BTC_SERVER_SEND,
 } fake_btc_send_kind_t;
 
+typedef enum {
+  FAKE_BTC_FAILURE_NONE = 0,
+  FAKE_BTC_FAILURE_PAYLOAD,
+  FAKE_BTC_FAILURE_CONTEXT,
+  FAKE_BTC_FAILURE_ENVELOPE,
+  FAKE_BTC_FAILURE_QUEUE_POST,
+} fake_btc_failure_t;
+
 typedef struct {
   fake_btc_send_kind_t kind;
   esp_ble_mesh_model_t *model;
@@ -34,6 +42,8 @@ typedef struct {
   uint32_t opcode;
   uint8_t payload[16];
   size_t size;
+  bool payload_snapshot_valid;
+  bool context_snapshot_valid;
 } fake_btc_send_t;
 
 #define FAKE_BTC_SEND_CAPACITY 256U
@@ -57,6 +67,7 @@ static fake_btc_send_t fake_btc_sends[FAKE_BTC_SEND_CAPACITY];
 static size_t fake_btc_send_count;
 static fake_btc_send_t wire_sends[FAKE_BTC_SEND_CAPACITY];
 static size_t wire_send_count;
+static fake_btc_failure_t vendor_failure_by_sequence[VEHICLE_SENSOR_PENDING_CAPACITY + 1U];
 static vehicle_sensor_mesh_adapter_t adapter;
 static esp_ble_mesh_model_pub_t sensor_pub;
 static esp_ble_mesh_model_pub_t vendor_pub;
@@ -130,6 +141,8 @@ static void fake_btc_enqueue(
   }
   send->opcode = opcode;
   send->size = size;
+  send->context_snapshot_valid = context != NULL;
+  send->payload_snapshot_valid = payload != NULL || size == 0U;
   if (payload != NULL) {
     memcpy(send->payload, payload, size);
   }
@@ -159,6 +172,8 @@ static void fake_btc_drain(void) {
   for (size_t index = 0; index < fake_btc_send_count; index++) {
     fake_btc_send_t *send = &fake_btc_sends[index];
     if (send->kind == FAKE_BTC_SERVER_SEND) {
+      assert(send->payload_snapshot_valid);
+      assert(send->context_snapshot_valid);
       fake_wire_record(
           send->model,
           &send->context,
@@ -181,6 +196,19 @@ static void fake_btc_drain(void) {
         message->len - opcode_size);
   }
   fake_btc_send_count = 0;
+}
+
+static size_t fake_send_count_for_model(
+    const fake_btc_send_t *sends,
+    size_t count,
+    const esp_ble_mesh_model_t *model) {
+  size_t matches = 0;
+  for (size_t index = 0; index < count; index++) {
+    if (sends[index].model == model) {
+      matches += 1;
+    }
+  }
+  return matches;
 }
 
 static bool fake_is_sensor_publication(
@@ -208,6 +236,20 @@ static void fake_record_application_send(
       sizeof(vendor_publish_sequences[0]));
   vendor_publish_sequences[vendor_publish_count] = read_le32(data + 5);
   vendor_publish_count += 1;
+}
+
+static fake_btc_failure_t fake_vendor_failure(
+    esp_ble_mesh_model_t *model,
+    const uint8_t *data,
+    uint16_t length) {
+  if (model != &vendor_model || length != VEHICLE_SENSOR_PACKET_SIZE) {
+    return FAKE_BTC_FAILURE_NONE;
+  }
+  const uint32_t sequence = read_le32(data + 5);
+  if (sequence > VEHICLE_SENSOR_PENDING_CAPACITY) {
+    return FAKE_BTC_FAILURE_NONE;
+  }
+  return vendor_failure_by_sequence[sequence];
 }
 
 bool vehicle_sensor_driver_get_current_level(bool *level) {
@@ -248,6 +290,16 @@ esp_err_t esp_ble_mesh_server_model_send_msg(
         sensor_publish_result : vendor_publish_result;
     if (result != ESP_OK) {
       return result;
+    }
+    const fake_btc_failure_t failure =
+        fake_vendor_failure(model, data, length);
+    if (failure == FAKE_BTC_FAILURE_PAYLOAD ||
+        failure == FAKE_BTC_FAILURE_CONTEXT) {
+      return ESP_ERR_NO_MEM;
+    }
+    if (failure == FAKE_BTC_FAILURE_ENVELOPE ||
+        failure == FAKE_BTC_FAILURE_QUEUE_POST) {
+      return ESP_FAIL;
     }
     if (fake_btc_backlog_enabled) {
       fake_btc_enqueue(
@@ -377,6 +429,7 @@ static void reset_fixture(bool configured, bool level) {
   wire_send_count = 0;
   memset(fake_btc_sends, 0, sizeof(fake_btc_sends));
   memset(wire_sends, 0, sizeof(wire_sends));
+  memset(vendor_failure_by_sequence, 0, sizeof(vendor_failure_by_sequence));
   memset(&fault_log, 0, sizeof(fault_log));
   memset(health_server_current_faults, 0, sizeof(health_server_current_faults));
   memset(health_server_registered_faults, 0, sizeof(health_server_registered_faults));
@@ -799,6 +852,72 @@ static void test_sixteen_same_deadline_retries_preserve_each_payload(void) {
   stop_fixture();
 }
 
+static void test_sixteen_burst_retries_synchronous_allocation_failures(void) {
+  static const uint32_t expected_initial_sequences[] = {
+      1, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16,
+  };
+  reset_fixture(true, true);
+  fake_btc_backlog_enabled = true;
+  vendor_failure_by_sequence[2] = FAKE_BTC_FAILURE_PAYLOAD;
+  vendor_failure_by_sequence[5] = FAKE_BTC_FAILURE_CONTEXT;
+  vendor_failure_by_sequence[9] = FAKE_BTC_FAILURE_ENVELOPE;
+  vendor_failure_by_sequence[13] = FAKE_BTC_FAILURE_QUEUE_POST;
+
+  for (size_t index = 0; index < VEHICLE_SENSOR_PENDING_CAPACITY; index++) {
+    assert(vehicle_sensor_model_runtime_submit_event(
+        &(vehicle_sensor_event_t){
+            .kind = index % 2U == 0U ?
+                VEHICLE_SENSOR_DETECTED : VEHICLE_SENSOR_CLEARED,
+            .level = index % 2U == 0U,
+        }));
+  }
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(fake_send_count_for_model(
+      fake_btc_sends, fake_btc_send_count, &vendor_model) ==
+      sizeof(expected_initial_sequences) / sizeof(expected_initial_sequences[0]));
+  fake_btc_drain();
+
+  const uint32_t boot_id = vehicle_sensor_model_runtime_test_boot_id();
+  assert(fake_send_count_for_model(wire_sends, wire_send_count, &vendor_model) ==
+      sizeof(expected_initial_sequences) / sizeof(expected_initial_sequences[0]));
+  size_t vendor_index = 0;
+  for (size_t index = 0; index < wire_send_count; index++) {
+    if (wire_sends[index].model != &vendor_model) {
+      continue;
+    }
+    assert(read_le32(wire_sends[index].payload + 1) == boot_id);
+    assert(read_le32(wire_sends[index].payload + 5) ==
+        expected_initial_sequences[vendor_index]);
+    vendor_index += 1;
+  }
+
+  memset(vendor_failure_by_sequence, 0, sizeof(vendor_failure_by_sequence));
+  fake_esp_idf_set_time_us(250000);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(fake_send_count_for_model(
+      fake_btc_sends, fake_btc_send_count, &vendor_model) ==
+      VEHICLE_SENSOR_PENDING_CAPACITY);
+  fake_btc_drain();
+  assert(fake_send_count_for_model(wire_sends, wire_send_count, &vendor_model) ==
+      VEHICLE_SENSOR_PENDING_CAPACITY +
+      sizeof(expected_initial_sequences) / sizeof(expected_initial_sequences[0]));
+  vendor_index = 0;
+  for (size_t index = 0; index < wire_send_count; index++) {
+    if (wire_sends[index].model != &vendor_model) {
+      continue;
+    }
+    if (vendor_index >=
+        sizeof(expected_initial_sequences) / sizeof(expected_initial_sequences[0])) {
+      const size_t retry_index = vendor_index -
+          sizeof(expected_initial_sequences) / sizeof(expected_initial_sequences[0]);
+      assert(read_le32(wire_sends[index].payload + 1) == boot_id);
+      assert(read_le32(wire_sends[index].payload + 5) == retry_index + 1U);
+    }
+    vendor_index += 1;
+  }
+  stop_fixture();
+}
+
 static void test_sensor_status_backlog_and_recovery_preserve_each_snapshot(void) {
   reset_fixture(true, false);
   fake_btc_backlog_enabled = true;
@@ -1137,6 +1256,11 @@ int main(void) {
   const char *fix3_test = getenv("VEHICLE_SENSOR_FIX3_TEST");
   const char *fix4_test = getenv("VEHICLE_SENSOR_FIX4_TEST");
   const char *fix5_test = getenv("VEHICLE_SENSOR_FIX5_TEST");
+  const char *breaker_test = getenv("VEHICLE_SENSOR_BREAKER_TEST");
+  if (breaker_test != NULL && strcmp(breaker_test, "allocation-burst") == 0) {
+    test_sixteen_burst_retries_synchronous_allocation_failures();
+    return 0;
+  }
   if (fix5_test != NULL && strcmp(fix5_test, "shared-overwrite") == 0) {
     test_deep_copied_vendor_sends_preserve_back_to_back_payloads();
     return 0;
@@ -1188,6 +1312,7 @@ int main(void) {
   test_vendor_publishes_each_initial_and_retry_without_completions();
   test_deep_copied_vendor_sends_preserve_back_to_back_payloads();
   test_sixteen_same_deadline_retries_preserve_each_payload();
+  test_sixteen_burst_retries_synchronous_allocation_failures();
   test_sensor_status_backlog_and_recovery_preserve_each_snapshot();
   test_publication_context_and_readiness_match_gateway_contract();
   test_lost_sensor_completion_does_not_block_the_next_cadence();

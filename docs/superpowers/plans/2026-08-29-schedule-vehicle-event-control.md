@@ -1202,6 +1202,20 @@ Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Ta
 
 검증: Production 변경 전 sequence 1/2, 16 pending, Sensor snapshot과 publication context focused test가 각각 exit `134`, Gateway nonzero retransmit test가 1건 실패했다. Deep-copy 전환 뒤 Fix 5 isolated 4종, Fix 3/4 isolated 6종과 host 전체가 GREEN이 됐다. Gateway 전체 59파일 547/547, shared 7파일 75/75, typecheck/lint/build와 build/trust/artifact/attestation gate를 통과했다. ESP-IDF v5.5.1 fullclean test binary는 `0xef9f0`(`981,488`) 바이트, OTA free는 `0x100610`(`1,050,128`, 52%)이다. Production valid CID는 trust root 미등록으로 정상 fail-closed했고 `0xFFFF` test image flash와 실제 HIL은 실행하지 않았다.
 
+#### Task 16 Breaker (Fix Round 5 P2-15)
+
+- [x] Actual ESP-IDF v5.5.1 `btc_transfer_context`, networking public API와 BLE Mesh model deep-copy/free 경계를 읽고 nested `void` allocation failure가 API에 전파되지 않는 RED를 재현한다.
+- [x] `SERVER_MODEL_SEND`만 API thread에서 payload/context를 all-or-nothing snapshot하고 queue 수락 전 failure는 동기 오류와 exact caller cleanup, 수락 후에는 기존 handler deep-free 1회를 보장한다.
+- [x] Client send와 다른 ESP-IDF action을 변경하지 않고 first payload/context/envelope/queue-post fault, delayed success와 NULL handler input 금지를 faithful compiled boundary harness로 검증한다.
+- [x] 16 burst에 네 deterministic allocation/queue failure를 주입해 failed event가 pending에 남고 accepted/retry snapshot이 exact함을 production-source host fake로 검증한다.
+- [x] Exact ESP-IDF v5.5.1 commit/tag와 `btc_task.c`, networking API, `btc_ble_mesh_prov.c` hash를 고정한 repository patch/metadata와 build-only `components/bt` overlay를 구현한다.
+- [x] Patch stage/apply를 멱등화하고 wrong revision/hash, unpatched/tampered overlay를 overwrite 없이 fail-closed한다. Build/flash wrapper는 사용자 global checkout을 수정하지 않는다.
+- [x] Test manifest v3와 production signed attestation v2에 ESP-IDF version/commit, patch/patched-source/identity digest를 결속하고 target compile source를 audit한다.
+- [x] Firmware native/host, Gateway 547/547, Shared 75/75, typecheck/lint/build, patch/build/trust/artifact/attestation gate와 patched ESP-IDF fullclean target build를 완료한다.
+- [x] 한글 breaker/누적 보고서, firmware patch maintenance, 메뉴 현황, project status와 lesson learned를 갱신한다.
+
+검증: Pristine actual networking source는 context allocation fault에서 `ESP_OK`를 반환해 boundary test가 exit `134`로 실패했고, production-source 16 burst도 failed event를 accepted해 exit `134`로 실패했다. Patched source는 payload/context/envelope/queue-post failure의 handler 0회와 exact free, delayed success snapshot/deep-free 1회, client-send 비변경을 만족했다. Patch idempotency/wrong-source gate, 전체 Task 14~16 회귀와 ESP-IDF v5.5.1 fullclean build를 통과했다. Test binary는 `0xefa30`(`981,552`) 바이트, OTA free는 `0x1005d0`(`1,050,064`, 52%)다. Production은 trust root 미등록으로 IDF 실행 전 정상 fail-closed했고 global ESP-IDF checkout은 pristine이다. `0xFFFF` image flash와 실제 RF/HIL은 실행하지 않았다.
+
 ### Task 17: Web 제어 탭과 스케줄 CRUD UI
 
 **Files:**

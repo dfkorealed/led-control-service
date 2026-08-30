@@ -5,6 +5,8 @@ PORT="${1:-}"
 IDF_PATH="${IDF_PATH:-$HOME/esp/esp-idf}"
 BUILD_WORKDIR="${ESP32_H2_BUILD_WORKDIR:-$HOME/esp/led-control-esp32-h2-build}"
 PYTHON_312_BIN="/opt/homebrew/opt/python@3.12/libexec/bin"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IDF_PATCH_GATE="$SCRIPT_DIR/esp32-h2-idf-patch.sh"
 
 if [ -z "$PORT" ]; then
   echo "Usage: scripts/esp32-h2-flash.sh /dev/tty.usbmodemXXXX" >&2
@@ -45,7 +47,6 @@ if ! [[ "$COMPANY_ID" =~ ^[0-9]+$ ]] ||
   exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_COMMIT="$(sed -n 's/^source_commit=//p' "$ATTESTATION")"
 APPROVAL_MANIFEST="${LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST:-}"
 APPROVAL_SIGNATURE="${LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE:-}"
@@ -65,6 +66,8 @@ APPROVAL_SIGNATURE="${LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE:-}"
   "$SOURCE_COMMIT" \
   "$APPROVAL_MANIFEST" \
   "$APPROVAL_SIGNATURE"
+"$IDF_PATCH_GATE" stage "$IDF_PATH" "$BUILD_WORKDIR"
+"$IDF_PATCH_GATE" report "$BUILD_WORKDIR"
 
 if [ -d "$PYTHON_312_BIN" ]; then
   export PATH="$PYTHON_312_BIN:$PATH"

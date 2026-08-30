@@ -4,8 +4,20 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 FIXTURE_ROOT="$(mktemp -d)"
 trap 'rm -rf "$FIXTURE_ROOT"' EXIT
+UPSTREAM_IDF_ROOT="${ESP32_H2_TEST_UPSTREAM_IDF_PATH:-$HOME/esp/esp-idf}"
+PINNED_IDF_COMMIT=fcae32885b0296b32044cb99ecbdc50d98dddb83
+NETWORKING_PATH=components/bt/esp_ble_mesh/api/core/esp_ble_mesh_networking_api.c
+BTC_TASK_PATH=components/bt/common/btc/core/btc_task.c
+PROV_PATH=components/bt/esp_ble_mesh/btc/btc_ble_mesh_prov.c
 
-mkdir -p "$FIXTURE_ROOT/idf"
+mkdir -p \
+  "$FIXTURE_ROOT/idf/$(dirname "$NETWORKING_PATH")" \
+  "$FIXTURE_ROOT/idf/$(dirname "$BTC_TASK_PATH")" \
+  "$FIXTURE_ROOT/idf/$(dirname "$PROV_PATH")" \
+  "$FIXTURE_ROOT/bin"
+cp "$UPSTREAM_IDF_ROOT/$NETWORKING_PATH" "$FIXTURE_ROOT/idf/$NETWORKING_PATH"
+cp "$UPSTREAM_IDF_ROOT/$BTC_TASK_PATH" "$FIXTURE_ROOT/idf/$BTC_TASK_PATH"
+cp "$UPSTREAM_IDF_ROOT/$PROV_PATH" "$FIXTURE_ROOT/idf/$PROV_PATH"
 cat >"$FIXTURE_ROOT/idf/export.sh" <<'EOF'
 idf.py() {
   printf '%s\n' "$*" >>"$ESP32_H2_BUILD_GATE_CALLS"
@@ -49,12 +61,35 @@ MAP
 0xd000 ota_data_initial.bin
 0x10000 led_control_node.bin
 ARGS
+    printf '[{"file":"%s/components/bt/esp_ble_mesh/api/core/esp_ble_mesh_networking_api.c"}]\n' \
+      "$PWD" >build/compile_commands.json
   fi
 }
 EOF
 
+REAL_GIT="$(command -v git)"
+cat >"$FIXTURE_ROOT/bin/git" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = "-C" ] && [ "\${2:-}" = "$FIXTURE_ROOT/idf" ]; then
+  if [ "\${3:-}" = "rev-parse" ] && [ "\${4:-}" = "HEAD" ]; then
+    printf '%s\n' "$PINNED_IDF_COMMIT"
+    exit 0
+  fi
+  if [ "\${3:-}" = "describe" ]; then
+    printf '%s\n' v5.5.1
+    exit 0
+  fi
+  if [ "\${3:-}" = "diff" ] || [ "\${3:-}" = "ls-files" ]; then
+    exit 0
+  fi
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$FIXTURE_ROOT/bin/git"
+
 run_build() {
   env \
+    PATH="$FIXTURE_ROOT/bin:$PATH" \
     IDF_PATH="$FIXTURE_ROOT/idf" \
     ESP32_H2_BUILD_WORKDIR="$FIXTURE_ROOT/build-workdir" \
     ESP32_H2_BUILD_GATE_CALLS="$FIXTURE_ROOT/idf-calls" \
@@ -111,13 +146,27 @@ grep -q '^CONFIG_LED_CONTROL_TEST_BUILD=y$' "$FIXTURE_ROOT/build-workdir/sdkconf
 grep -q '^CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=65535$' "$FIXTURE_ROOT/build-workdir/sdkconfig.build-gate"
 grep -q '^CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y$' "$FIXTURE_ROOT/build-workdir/sdkconfig"
 grep -q '^CONFIG_BLE_MESH_SETTINGS=y$' "$FIXTURE_ROOT/build-workdir/sdkconfig"
-grep -q '^schema=led-control-test-artifact-v2$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -q '^schema=led-control-test-artifact-v3$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
 grep -q '^mode=test$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
 grep -q '^company_id=65535$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
 grep -q '^bootloader_sha256=' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
 grep -q '^partition_table_sha256=' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
 grep -q '^ota_data_sha256=' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -q '^esp_idf_version=v5.5.1$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -q "^esp_idf_commit=$PINNED_IDF_COMMIT$" "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -Eq '^esp_idf_patch_sha256=[0-9a-f]{64}$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -Eq '^esp_idf_patch_identity_sha256=[0-9a-f]{64}$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -q 'ESP-IDF v5.5.1' "$FIXTURE_ROOT/test-build.out"
 grep -q "must not be flashed for HIL or production" "$FIXTURE_ROOT/test-build.out"
+
+CALLS_BEFORE_WRONG_SOURCE="$(wc -l <"$FIXTURE_ROOT/idf-calls" | tr -d ' ')"
+printf '\nwrong source\n' >>"$FIXTURE_ROOT/idf/$BTC_TASK_PATH"
+if run_build --test-build >"$FIXTURE_ROOT/wrong-idf-source.out" 2>&1; then
+  echo "build unexpectedly accepted a wrong ESP-IDF source hash" >&2
+  exit 1
+fi
+grep -q 'btc_task.c upstream SHA-256 mismatch' "$FIXTURE_ROOT/wrong-idf-source.out"
+test "$(wc -l <"$FIXTURE_ROOT/idf-calls" | tr -d ' ')" = "$CALLS_BEFORE_WRONG_SOURCE"
 
 if env \
   IDF_PATH="$FIXTURE_ROOT/idf" \

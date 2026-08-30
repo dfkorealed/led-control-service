@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 FIXTURE_ROOT="$(mktemp -d)"
 trap 'rm -rf "$FIXTURE_ROOT"' EXIT
+PATCH_GATE="$REPO_ROOT/scripts/esp32-h2-idf-patch.sh"
 
 mkdir -p "$FIXTURE_ROOT/build/bootloader" "$FIXTURE_ROOT/build/partition_table"
 cat >"$FIXTURE_ROOT/sdkconfig" <<'EOF'
@@ -12,6 +13,7 @@ CONFIG_BLE_MESH_SETTINGS=y
 CONFIG_LED_CONTROL_TEST_BUILD=y
 CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=65535
 EOF
+"$PATCH_GATE" write-identity "$FIXTURE_ROOT/esp-idf-patch.identity"
 printf 'fixture binary\n' >"$FIXTURE_ROOT/build/led_control_node.bin"
 printf 'bootloader fixture\n' >"$FIXTURE_ROOT/build/bootloader/bootloader.bin"
 printf 'partition fixture\n' >"$FIXTURE_ROOT/build/partition_table/partition-table.bin"
@@ -66,8 +68,22 @@ grep -q '^binary_size=15$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
 grep -q '^bootloader_sha256=' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
 grep -q '^partition_table_sha256=' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
 grep -q '^ota_data_sha256=' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
+grep -q '^schema=led-control-test-artifact-v3$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
+grep -q '^esp_idf_version=v5.5.1$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
+grep -Eq '^esp_idf_patch_sha256=[0-9a-f]{64}$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
+grep -Eq '^esp_idf_patch_identity_sha256=[0-9a-f]{64}$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
 grep -q '^app_partition_size=2031616$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
 grep -q '^release_required_free=406324$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
+
+cp "$FIXTURE_ROOT/esp-idf-patch.identity" "$FIXTURE_ROOT/esp-idf-patch.identity.valid"
+sed 's/^patch_sha256=.*/patch_sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/' \
+  "$FIXTURE_ROOT/esp-idf-patch.identity.valid" >"$FIXTURE_ROOT/esp-idf-patch.identity"
+if "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" verify "$FIXTURE_ROOT" test 65535 >"$FIXTURE_ROOT/patch-identity.out" 2>&1; then
+  echo "audit unexpectedly accepted a tampered ESP-IDF patch identity" >&2
+  exit 1
+fi
+grep -q 'ESP-IDF patch identity patch_sha256 mismatch' "$FIXTURE_ROOT/patch-identity.out"
+mv "$FIXTURE_ROOT/esp-idf-patch.identity.valid" "$FIXTURE_ROOT/esp-idf-patch.identity"
 
 sed -i.bak '/CONFIG_GPIO_CTRL_FUNC_IN_IRAM/d' "$FIXTURE_ROOT/sdkconfig"
 printf 'fixture binary\n' >"$FIXTURE_ROOT/build/led_control_node.bin"

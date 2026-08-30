@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-08-29
+기준일: 2026-08-31
 
 ## 확정 구현 범위
 
@@ -96,7 +96,7 @@
 - BlueZ 자발 status는 확인된 primary unicast address가 fixture mapping과 일치할 때만 처리한다. Health Current Fault(`0x04`)만 operational fault로 반영하며, Current를 실제 관측하기 전에는 online/fault snapshot을 확정하지 않는다. Registered Fault(`0x05`)와 no-fault byte `0x00`는 장애 상태를 만들지 않는다. gateway는 assignment의 site/gateway 범위를 payload에 주입해 MQTT v2 fixture-state로 발행하고, unknown address는 폐기한다.
 - gateway는 Health Current의 숫자 fault code와 실제 관측 시각을 MQTT v2 `health` 객체로 전달한다. API는 `0x00` 제거, 중복 제거와 정렬 후 `Fixture.healthFaultCodes`, `Fixture.healthLastSeenAt` 최신 snapshot에 저장하며 Health가 없는 명령 결과 이벤트는 기존 snapshot을 지우지 않는다.
 - 층별 fixture API와 dashboard는 Health snapshot을 `{ faultCodes, observedAt }` 또는 `null`로 반환한다. fault가 하나라도 있으면 조명 상태와 제어 가능 여부를 장애로 취급하고, 모니터링 상세 패널은 `정상`, `장애 (fault code)`, `확인 대기`와 Health 수신 시각을 표시한다.
-- ESP32-H2의 application-driven Sensor Status는 shared publication buffer가 아니라 payload/context deep-copy server-send 경로를 사용한다. 연속 current/recovery Status는 호출별 snapshot을 보존하며 Gateway가 설정한 NetKey/AppKey, publication address, TTL, credential, SZMIC를 사용한다. Stack period/retransmit가 `0`이 아니면 firmware readiness가 fail-closed하므로 잘못된 Config에서 상태 전송을 시도하지 않는다.
+- ESP32-H2의 application-driven Sensor Status는 shared publication buffer가 아니라 pinned ESP-IDF v5.5.1의 repository-patched server-send 경로를 사용한다. Payload/context를 API thread에서 all-or-nothing snapshot하므로 allocation/envelope/queue-post 실패는 handler 실행 없이 동기 오류가 되고, queue 수락 후에는 기존 BTC handler가 두 snapshot을 한 번 해제한다. 연속 current/recovery Status는 호출별 snapshot을 보존하며 Gateway가 설정한 NetKey/AppKey, publication address, TTL, credential, SZMIC를 사용한다. Stack period/retransmit가 `0`이 아니면 firmware readiness가 fail-closed하므로 잘못된 Config에서 상태 전송을 시도하지 않는다.
 - heartbeat가 90초를 초과해 없으면 연결된 조명을 `gateway_offline`, fixture state가 180초(60초 publication 3회 window) 이상 없으면 해당 조명을 `fixture_stale` 사유로 offline 처리한다. 정확히 90초 전 heartbeat는 fresh로 유지한다.
 - freshness worker는 `provisioning_waiting_state` fixture를 gateway offline/stale 재집계에서 제외한다. 또한 한 실행에서 기록한 `gateway_offline`을 일반 `fixture_stale`이 덮어쓰지 않는다. 첫 실제 `fixture-state`가 대기 사유를 지운 뒤에만 일반 freshness 대상이 된다.
 - dashboard gateway 연결 상태 기준을 등록 API와 동일한 inclusive 90초(`<= 90초`)로 통일하고 fixture의 `statusReason`을 API 응답에 포함한다.
@@ -130,6 +130,7 @@
 - RSSI, hop count, 명령 성공률은 표시만 하며, 품질 등급이나 설치 가이드로 연결되지 않는다.
 - 1,000개 marker 조회/렌더링 기준은 자동 검증하지만, 더 큰 현장에는 공간 클러스터링과 검색이 추가로 필요하다.
 - 자사 UUID 검색, batch 등록, 실제 Health Current 수집을 포함한 Raspberry Pi/ESP32-H2 실장비 HIL은 아직 실행하지 않았다. 자동 route fixture 통과를 검색·등록·상태 수집의 실기 완료로 간주하지 않는다.
+- Sensor server-send breaker는 actual patched source allocator fault harness와 fullclean target compile로 검증했다. 실제 device heap pressure, BTC queue saturation과 Sensor Status RF 전달은 HIL에서 확인해야 하며 software allocation test를 실장비 완료로 간주하지 않는다.
 - 현재 선택 로직은 첫 장애 조명 또는 첫 조명을 자동 선택하므로, 사용자가 이전에 보던 조명을 유지하는 정책을 더 정교하게 만들 수 있다.
 - 등록 패널은 `pending/scanning` 또는 provisioning 중에만 1.5초 registration session polling으로 결과를 반영한다. `reconcile_required`의 서버 상태 재조회, 명시적 제외와 세션 취소는 구현했지만 장비가 실제로 provisioned 되었는지 Gateway/BlueZ에 질의하고 자동 정리하는 기능은 없다. 현장 관리자가 장비를 확인·초기화하지 않은 채 제외하면 안 되며 이 절차는 Raspberry Pi/ESP32-H2 HIL로 검증해야 한다.
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. Docker 전용 broker persistence 재시작 test는 현재 로컬 Docker daemon 부재로 skip됐다. 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
@@ -187,6 +188,13 @@
 - `apps/gateway/src/identity/certificate-rotation.ts`
 - `apps/gateway/src/health/appliance-health.ts`
 - `apps/gateway/docker/healthcheck.sh`
+- `apps/esp32-h2-firmware/patches/esp-idf-v5.5.1-server-send-ownership.patch`
+- `apps/esp32-h2-firmware/patches/esp-idf-v5.5.1-server-send-ownership.conf`
+- `apps/esp32-h2-firmware/test/native/test_esp_idf_server_send_boundary.sh`
+- `apps/esp32-h2-firmware/test/native/test_esp32_h2_idf_patch_gate.sh`
+- `scripts/esp32-h2-idf-patch.sh`
+- `scripts/esp32-h2-build.sh`
+- `scripts/esp32-h2-artifact-audit.sh`
 - `infra/mosquitto.acl.example`
 - `scripts/dev-runtime.mjs`
 - `packages/shared/src/schemas.ts`
