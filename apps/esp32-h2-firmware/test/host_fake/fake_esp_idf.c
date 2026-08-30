@@ -35,6 +35,8 @@ static bool preempting_task_create;
 static jmp_buf task_create_scheduler;
 static bool run_task_on_next_delay;
 static unsigned int queue_delete_count;
+static unsigned int task_create_count;
+static unsigned int task_delete_count;
 
 static void dispatch_interrupt(void) {
   if (!interrupt_enabled || gpio_handler == NULL) {
@@ -71,6 +73,22 @@ void fake_esp_idf_reset(bool initial_level) {
   preempting_task_create = false;
   run_task_on_next_delay = false;
   queue_delete_count = 0;
+  task_create_count = 0;
+  task_delete_count = 0;
+}
+
+void fake_esp_idf_reset_preserving_rtos(bool initial_level) {
+  TaskHandle_t task = created_task;
+  QueueHandle_t queue = created_queue;
+  unsigned int preserved_queue_delete_count = queue_delete_count;
+  unsigned int preserved_task_create_count = task_create_count;
+  unsigned int preserved_task_delete_count = task_delete_count;
+  fake_esp_idf_reset(initial_level);
+  created_task = task;
+  created_queue = queue;
+  queue_delete_count = preserved_queue_delete_count;
+  task_create_count = preserved_task_create_count;
+  task_delete_count = preserved_task_delete_count;
 }
 
 void fake_esp_idf_fail_next(fake_failure_t failure) {
@@ -123,6 +141,14 @@ void fake_esp_idf_set_time_us(int64_t value) {
 
 unsigned int fake_esp_idf_queue_delete_count(void) {
   return queue_delete_count;
+}
+
+unsigned int fake_esp_idf_task_create_count(void) {
+  return task_create_count;
+}
+
+unsigned int fake_esp_idf_task_delete_count(void) {
+  return task_delete_count;
 }
 
 bool fake_esp_idf_interrupt_enabled(void) {
@@ -337,6 +363,7 @@ TaskHandle_t xTaskCreateStatic(
   task_storage->active = true;
   task_storage->notifications = 0;
   created_task = task_storage;
+  task_create_count += 1;
   if (preempt_task_create_once) {
     preempt_task_create_once = false;
     preempting_task_create = true;
@@ -352,6 +379,7 @@ TaskHandle_t xTaskCreateStatic(
 
 void vTaskDelete(TaskHandle_t task) {
   assert(task != NULL);
+  task_delete_count += 1;
   task->active = false;
   if (created_task == task) {
     created_task = NULL;
@@ -391,7 +419,11 @@ void vTaskDelay(TickType_t ticks) {
     run_task_on_next_delay = false;
     TaskHandle_t caller = current_task;
     current_task = created_task;
-    created_task->function(created_task->argument);
+    preempting_task_create = true;
+    if (setjmp(task_create_scheduler) == 0) {
+      created_task->function(created_task->argument);
+    }
+    preempting_task_create = false;
     current_task = caller;
   }
 }

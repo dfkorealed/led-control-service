@@ -26,6 +26,11 @@ typedef struct {
   void *fault_context;
 } vehicle_sensor_model_runtime_config_t;
 
+typedef enum {
+  VEHICLE_SENSOR_SEND_CHANNEL_SENSOR = 0,
+  VEHICLE_SENSOR_SEND_CHANNEL_VENDOR,
+} vehicle_sensor_send_channel_t;
+
 esp_err_t vehicle_sensor_model_runtime_start(const vehicle_sensor_model_runtime_config_t *config);
 esp_err_t vehicle_sensor_model_runtime_activate(void);
 esp_err_t vehicle_sensor_model_runtime_stop(void);
@@ -39,7 +44,9 @@ bool vehicle_sensor_model_runtime_receive_ack(const uint8_t *payload, size_t pay
 void vehicle_sensor_model_runtime_provisioned(void);
 void vehicle_sensor_model_runtime_reset(void);
 void vehicle_sensor_model_runtime_configuration_changed(void);
-void vehicle_sensor_model_runtime_record_send_error(void);
+void vehicle_sensor_model_runtime_record_send_result(
+    vehicle_sensor_send_channel_t channel,
+    bool successful);
 void vehicle_sensor_model_runtime_clear_fault_history(void);
 uint32_t vehicle_sensor_model_runtime_queue_dropped_count(void);
 

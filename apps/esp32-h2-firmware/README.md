@@ -8,7 +8,7 @@
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령과 차량 센서의 Sensor Server/vendor reliable event를 처리하는 단계까지 빌드 검증했다.
-- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개, 차량 센서 GPIO driver와 Sensor/vendor model 포함 후 Fix Round 1 test-build `led_control_node.bin` 크기는 `0xef710`(`980,752`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x1008f0`(`1,050,864`, 약 52%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
+- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개, 차량 센서 GPIO driver와 Sensor/vendor model 포함 후 Fix Round 2 test-build `led_control_node.bin` 크기는 `0xef980`(`981,376`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x100680`(`1,050,240`, 약 52%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
 
 ## ESP-IDF 설치
 
@@ -77,7 +77,7 @@ scripts/esp32-h2-build.sh --test-build
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation` (production provision 후 생성)
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation.sig` (production provision 후 생성)
 
-build 후 audit는 `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`, `CONFIG_BLE_MESH_SETTINGS=y`와 linker map의 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR`가 ESP32-H2 IRAM/ROM 주소인지 확인한다. Task 16 target audit는 Sensor Server callback, 분리된 runtime/adapter/Health 심볼, Sensor/vendor composition과 4 KiB static worker stack도 확인한다. Production attestation은 mode/CID/source commit, approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, `sdkconfig`, linker map, generated `flash_args`, custom partition hash와 size를 fixed policy의 release key로 서명한다. Flash wrapper는 signature와 exact payload를 모두 재생성·비교한다.
+build 후 audit는 `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`, `CONFIG_BLE_MESH_SETTINGS=y`와 linker map의 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR`가 ESP32-H2 IRAM/ROM 주소인지 확인한다. Task 16 target audit는 Sensor Server callback, 분리된 runtime/adapter/Health 심볼, Sensor/vendor composition, 4 KiB static worker stack, worker create 1개와 runtime self-delete 부재도 확인한다. Production attestation은 mode/CID/source commit, approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, `sdkconfig`, linker map, generated `flash_args`, custom partition hash와 size를 fixed policy의 release key로 서명한다. Flash wrapper는 signature와 exact payload를 모두 재생성·비교한다.
 
 ## 실제 보드 플래시
 
@@ -134,8 +134,8 @@ Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 
 - 최대 16개 pending slot에서 최초 송신 후 `250ms, 500ms, 1s, 2s, 4s, 8s` 간격으로 6회 retry한다. 마지막 retry 뒤 8초 ACK grace까지 exact `(bootId, sequence)` ACK가 없으면 slot을 해제하고 retry-exhausted fault를 기록하므로 다음 event는 계속 진행한다.
 - Driver callback은 BLE API나 log를 호출하지 않고 static worker queue에 nonblocking handoff만 수행한다. Event admission은 24개, 전체 command queue는 32개이며 포화 시 bounded dropped fault와 authoritative current-state recovery를 예약한다. BLE send, retry, ACK, Sensor 응답과 publication은 4 KiB static worker에서 직렬화하고 event별 heap allocation은 없다.
 - `CONFIG_BLE_MESH_SETTINGS=y`로 provisioning credentials, AppKey binding과 publication을 재부팅 뒤 복원한다. Queue와 독립된 atomic configuration generation을 모든 command/timer 경계와 idle poll에서 적용하므로 queue 포화 중 마지막 Config 변경도 수렴한다. AppKey/model bind, publication address와 stack period 0이 모두 맞아야 publication ready다.
-- Provisioning reset은 lifecycle epoch와 pending을 재설정한다. Shutdown은 intake를 atomic close하고 in-flight producer를 drain한 뒤 worker를 종료하며 static queue handle은 삭제하지 않아 timeout 뒤 재호출과 stop/start가 결정적으로 수렴한다.
-- dropped, retry exhausted, send error, publication unconfigured와 sequence exhausted를 vendor Health fault `0x80~0x84`로 연결한다. Active condition과 registered history를 분리해 복구 가능한 fault는 current에서 제거하고 history에 남긴다. Fault Clear는 history만 지우며 permanent sequence exhaustion current는 유지한다.
+- Provisioning reset은 lifecycle epoch와 pending을 재설정한다. Model worker와 queue는 최초 start에서 한 번만 생성하고 삭제하지 않는다. Shutdown은 intake를 atomic close하고 in-flight producer를 drain한 뒤 worker가 해당 generation queue를 reset하고 parked ack를 공개할 때까지 기다린다. Restart는 parked 상태에서 session core와 새 boot ID만 초기화한 뒤 같은 worker를 깨운다.
+- dropped, retry exhausted, send error, publication unconfigured와 sequence exhausted를 vendor Health fault `0x80~0x84`로 연결한다. Sensor/vendor send active flag를 분리해 한 채널 성공이 다른 채널 장애를 지우지 않으며 exact ACK는 vendor 채널만 회복한다. Health Current는 두 send flag 중 하나라도 active면 `0x82`를 유지하고 history는 Fault Clear 전까지 보존한다. Clear는 history만 지우며 permanent sequence exhaustion current는 유지한다.
 
 ## 현재 구현 범위
 

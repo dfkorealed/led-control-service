@@ -312,3 +312,10 @@
 - **원인**: native codec/retry 테스트만으로 ESP-IDF generated config, model publication timer, callback/worker 동시성과 Health current/history 의미까지 검증했다고 간주했다. 하나의 큰 translation unit 때문에 transport, lifecycle과 fault recovery를 host에서 독립 실행하기 어려웠다.
 - **해결 및 예방책**: `CONFIG_BLE_MESH_SETTINGS=y`와 Sensor period 0을 Gateway/firmware/artifact의 exact 계약으로 만들었다. Config/stop/fault는 queue 독립 atomic latch로 전달하고 codec/retry, runtime, Mesh adapter, Health를 분리해 production C를 host fake로 실행했다. Sensor current는 Task 15 getter 하나만 source of truth로 사용한다.
 - **반복 방지 체크**: BLE Mesh model 변경은 generated `sdkconfig`, composition, binding/publication exact Status, reboot 복원, 단일 timer 소유권, queue saturation, callback 중 stop, active/history 회복을 native가 아닌 production-source host/target test까지 포함해 검증한다.
+
+## 2026-08-31 / 정적 task 재시작과 공유 fault bit는 원인별 상태가 필요하다
+
+- **발생했던 문제/실수**: worker가 self-delete 완료 전에 stopped를 공개해 같은 static TCB/stack을 재사용할 수 있었고, Sensor Status 성공이 계속 실패 중인 vendor send의 공용 Health fault까지 지웠다.
+- **원인**: lifecycle 완료를 task memory reclamation과 동일시했고, 하나의 외부 fault code를 내부 원인 상태 하나로도 표현했다.
+- **해결 및 예방책**: 정적 worker는 한 번만 생성해 stop generation마다 queue reset과 parked ack 뒤 start gate에서 기다린다. Sensor/vendor send active flag는 따로 유지하고 Health Current는 OR로 계산하며 exact ACK는 vendor flag만 회복한다.
+- **반복 방지 체크**: 정적 task lifecycle은 100회 즉시 stop/start에서 create/delete 횟수와 stale command를 검증하고, 공유 Health code는 채널별 failure/success 교차 순서와 history Clear를 함께 테스트한다.

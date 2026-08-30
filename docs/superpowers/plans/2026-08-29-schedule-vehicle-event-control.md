@@ -1142,7 +1142,7 @@ git add apps/esp32-h2-firmware/main apps/esp32-h2-firmware/test/native/test_vehi
 git commit -m "feat(firmware): publish reliable vehicle sensor events"
 ```
 
-Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Task 15 actual-driver host fake와 test-build runtime fail-stop, trust/artifact gate, ESP-IDF v5.5.1 `--test-build` fullclean으로 수행했다. 당시 test binary는 `0xeacd0`(`961,744`) 바이트, app slot free는 `0x105330`(`1,069,872`, 약 53%)였다. 아래 Fix Round 1 검증과 수치가 현재 authoritative 결과다.
+Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Task 15 actual-driver host fake와 test-build runtime fail-stop, trust/artifact gate, ESP-IDF v5.5.1 `--test-build` fullclean으로 수행했다. 당시 test binary는 `0xeacd0`(`961,744`) 바이트, app slot free는 `0x105330`(`1,069,872`, 약 53%)였다. 이후 Fix Round의 검증과 수치를 순서대로 기록한다.
 
 #### Task 16 Fix Round 1
 
@@ -1163,6 +1163,15 @@ Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Ta
 - [x] 별도 Fix Round 1 커밋을 만들고 binary/free/HIL 및 7 finding 매핑을 보고한다.
 
 검증: Gateway focused 39/39, 전체 59파일 546/546, shared 75/75, native codec/retry·adapter·Health·Task 15 driver, production-source host fake, build/trust/artifact/attestation gate를 통과했다. ESP-IDF v5.5.1 fullclean test binary는 `0xef710`(`980,752`) 바이트, OTA free는 `0x1008f0`(`1,050,864`, 52%)이며 production 최소 free `406,324` 바이트를 만족한다. Production은 고정 trust root가 `unprovisioned`라 IDF 실행 전 의도대로 fail-closed했고 실제 flash/RF/HIL은 실행하지 않았다.
+
+#### Task 16 Fix Round 2
+
+- [x] Static model worker와 queue를 한 번만 생성하고 self-delete 없이 generation별 parked/start gate로 stop/start한다.
+- [x] 100회 즉시 stop/start에서 task create 1회, delete 0회, 새 boot ID와 stale command 부재를 production-source host fake로 검증한다.
+- [x] Sensor/vendor send active flag를 분리하고 Sensor 성공, vendor 성공, wrong/exact ACK의 채널별 recovery와 history Clear를 검증한다.
+- [x] Native/host/Gateway/shared/trust/artifact/ESP-IDF fullclean/diff-check와 한글 문서·별도 커밋을 완료한다.
+
+검증: Gateway focused 3파일 44/44, 전체 59파일 546/546, shared 75/75, strict native와 production-source host fake, build/trust/artifact/attestation gate를 통과했다. ESP-IDF v5.5.1 fullclean test binary는 `0xef980`(`981,376`) 바이트, OTA free는 `0x100680`(`1,050,240`, 52%)이며 실제 flash/RF/HIL은 실행하지 않았다.
 
 ### Task 17: Web 제어 탭과 스케줄 CRUD UI
 

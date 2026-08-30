@@ -46,6 +46,15 @@ if grep -Rqs 'vehicle_sensor_model_current_level' \
   echo "vehicle sensor target audit forbids the retry-core cache as a current-state source" >&2
   exit 1
 fi
+if grep -q 'vTaskDelete' "$MAIN_ROOT/vehicle_sensor_runtime.c"; then
+  echo "vehicle sensor target audit forbids deleting the one-time static model worker" >&2
+  exit 1
+fi
+if [ "$(grep -c 'xTaskCreateStatic(' "$MAIN_ROOT/vehicle_sensor_runtime.c")" -ne 1 ] ||
+   ! grep -q 'parked_generation' "$MAIN_ROOT/vehicle_sensor_runtime.c"; then
+  echo "vehicle sensor target audit requires one-time worker creation and parked generation ack" >&2
+  exit 1
+fi
 if [ "$(wc -l <"$MAIN_ROOT/vehicle_sensor_model.c" | tr -d ' ')" -gt 400 ]; then
   echo "vehicle sensor codec/retry core must stay below 400 lines" >&2
   exit 1

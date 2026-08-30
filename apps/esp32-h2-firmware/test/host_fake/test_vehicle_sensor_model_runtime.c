@@ -41,6 +41,7 @@ static struct net_buf_simple sensor_raw;
 static uint8_t sensor_raw_storage[1];
 static fault_log_t fault_log;
 static esp_err_t nested_stop_result;
+static bool fake_runtime_initialized;
 
 bool vehicle_sensor_driver_get_current_level(bool *level) {
   if (!driver_available || level == NULL) {
@@ -122,7 +123,12 @@ static void set_configured(bool configured) {
 }
 
 static void reset_fixture(bool configured, bool level) {
-  fake_esp_idf_reset(level);
+  if (fake_runtime_initialized) {
+    fake_esp_idf_reset_preserving_rtos(level);
+  } else {
+    fake_esp_idf_reset(level);
+    fake_runtime_initialized = true;
+  }
   mesh_provisioned = false;
   driver_available = true;
   driver_level = level;
@@ -363,13 +369,108 @@ static void test_worker_context_stop_is_rejected_without_closing_intake(void) {
   stop_fixture();
 }
 
+static void test_static_worker_parks_and_restarts_one_hundred_times_without_stale_commands(void) {
+  esp_ble_mesh_msg_ctx_t context = {.addr = 0x0001};
+  reset_fixture(true, false);
+  const unsigned int creates_before = fake_esp_idf_task_create_count();
+  assert(creates_before == 1);
+
+  for (size_t iteration = 0; iteration < 100; iteration++) {
+    const size_t responses_before = response_count;
+    const uint32_t boot_before = vehicle_sensor_model_runtime_test_boot_id();
+    assert(vehicle_sensor_model_runtime_request(
+        &context, VEHICLE_SENSOR_REQUEST_DESCRIPTOR, false, 0));
+
+    fake_esp_idf_run_task_on_next_delay();
+    assert(vehicle_sensor_model_runtime_stop() == ESP_OK);
+    assert(vehicle_sensor_model_runtime_start(
+               &(vehicle_sensor_model_runtime_config_t){
+                   .mesh_adapter = &adapter,
+                   .fault_handler = record_faults,
+                   .fault_context = &fault_log,
+               }) == ESP_OK);
+    assert(vehicle_sensor_model_runtime_activate() == ESP_OK);
+    vehicle_sensor_model_runtime_test_process_once();
+
+    assert(response_count == responses_before);
+    assert(vehicle_sensor_model_runtime_test_boot_id() != boot_before);
+  }
+
+  assert(fake_esp_idf_task_create_count() == creates_before);
+  assert(fake_esp_idf_task_delete_count() == 0);
+  stop_fixture();
+}
+
+static void test_vendor_send_fault_survives_sensor_success_until_vendor_recovers(void) {
+  reset_fixture(true, true);
+  vendor_publish_result = ESP_FAIL;
+
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 1);
+  assert(sensor_publish_count == 1);
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+  assert((fault_log.history & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  vehicle_sensor_model_runtime_record_send_result(
+      VEHICLE_SENSOR_SEND_CHANNEL_SENSOR, true);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  vendor_publish_result = ESP_OK;
+  fake_esp_idf_set_time_us(250000);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 2);
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+  assert((fault_log.history & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  vehicle_sensor_model_runtime_clear_fault_history();
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(fault_log.active == 0);
+  assert(fault_log.history == 0);
+  stop_fixture();
+}
+
+static void write_le32(uint8_t *output, uint32_t value) {
+  output[0] = (uint8_t)value;
+  output[1] = (uint8_t)(value >> 8U);
+  output[2] = (uint8_t)(value >> 16U);
+  output[3] = (uint8_t)(value >> 24U);
+}
+
+static void test_only_exact_ack_recovers_the_vendor_send_fault(void) {
+  uint8_t ack[VEHICLE_SENSOR_ACK_SIZE] = {VEHICLE_SENSOR_PROTOCOL_VERSION};
+  reset_fixture(true, true);
+  vendor_publish_result = ESP_FAIL;
+
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  write_le32(ack + 1, vehicle_sensor_model_runtime_test_boot_id());
+  write_le32(ack + 5, 2);
+  assert(vehicle_sensor_model_runtime_receive_ack(ack, sizeof(ack)));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  write_le32(ack + 5, 1);
+  assert(vehicle_sensor_model_runtime_receive_ack(ack, sizeof(ack)));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+  assert((fault_log.history & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+  stop_fixture();
+}
+
 static void test_health_recovers_async_send_drop_and_retry_faults(void) {
   static const uint64_t retry_deadlines_ms[] = {
       250, 750, 1750, 3750, 7750, 15750, 23750,
   };
   reset_fixture(true, true);
 
-  vehicle_sensor_model_runtime_record_send_error();
+  vehicle_sensor_model_runtime_record_send_result(
+      VEHICLE_SENSOR_SEND_CHANNEL_SENSOR, false);
   vehicle_sensor_model_runtime_test_process_once();
   assert((fault_log.seen_active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
   assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
@@ -432,6 +533,9 @@ int main(void) {
   test_exact_model_configuration_and_reprovision_lifecycle();
   test_shutdown_closes_intake_drains_producers_and_restarts();
   test_worker_context_stop_is_rejected_without_closing_intake();
+  test_static_worker_parks_and_restarts_one_hundred_times_without_stale_commands();
+  test_vendor_send_fault_survives_sensor_success_until_vendor_recovers();
+  test_only_exact_ack_recovers_the_vendor_send_fault();
   test_health_recovers_async_send_drop_and_retry_faults();
   test_health_recovers_transient_faults_and_keeps_sequence_exhaustion();
   return 0;

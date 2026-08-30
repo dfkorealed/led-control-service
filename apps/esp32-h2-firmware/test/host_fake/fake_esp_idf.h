@@ -11,6 +11,7 @@ typedef enum {
 } fake_failure_t;
 
 void fake_esp_idf_reset(bool initial_level);
+void fake_esp_idf_reset_preserving_rtos(bool initial_level);
 void fake_esp_idf_fail_next(fake_failure_t failure);
 void fake_esp_idf_transition_during_gpio_read(unsigned int read_number, bool level);
 void fake_esp_idf_transition_on_next_gpio_read(bool level);
@@ -22,6 +23,8 @@ void fake_esp_idf_run_task_on_next_delay(void);
 void fake_esp_idf_set_created_task_as_current(bool current);
 void fake_esp_idf_set_time_us(int64_t value);
 unsigned int fake_esp_idf_queue_delete_count(void);
+unsigned int fake_esp_idf_task_create_count(void);
+unsigned int fake_esp_idf_task_delete_count(void);
 bool fake_esp_idf_interrupt_enabled(void);
 bool fake_esp_idf_gpio_configured(void);
 bool fake_esp_idf_isr_service_installed(void);
