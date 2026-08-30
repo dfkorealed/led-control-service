@@ -7,7 +7,7 @@
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
-- schedule/차량 이벤트 API CRUD는 완료했지만 Web CRUD와 Gateway 현장 실행은 아직 구현되지 않았다. 다음 구현은 MQTT publisher/application ACK, Gateway 규칙 엔진, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
+- schedule/차량 이벤트 API CRUD와 production API MQTT 동기화는 완료했지만 Web CRUD와 Gateway 현장 실행은 아직 구현되지 않았다. 다음 구현은 수동 명령 `overrideUntil`, Gateway 규칙 snapshot hot reload/실행, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
 
 ## 확정 구현 범위
 
@@ -43,6 +43,10 @@
 - MeshNode 차량 센서 capability와 source-only CRUD 검증에 더해 direct SQL source 삽입, Fixture node 변경, enabled rule re-enable, capability downgrade DB guard를 구현했다. source 삽입과 downgrade는 공통 automation statement lock으로 직렬화되고, migration은 기존 invalid source를 rule/node 단위 remediation 오류로 중단한다.
 - strict `VehicleSensorCapabilityReportV1`에 positive safe integer `capabilityRevision`과 complete-report canonical SHA-256를 적용했다. `VehicleSensorCapabilityService.applyReport`는 전역 `eventId`와 node-local Gateway/MeshNode/revision/eventType 원장을 함께 확인해 duplicate/stale/conflict/out-of-order report를 mutation 전에 분류하고, 높은 revision만 적용한다. 같은 Gateway의 두 node는 같은 revision을 순차·동시에 각각 저장할 수 있고 같은 node 충돌은 거부한다. supported는 metadata만 갱신하고 unsupported는 해당 node를 쓰는 모든 enabled rule을 원자 disable한 뒤 변경이 있을 때만 complete Gateway snapshot/outbox revision을 정확히 하나 만든다.
 - capability report topic은 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`, strict ACK topic은 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`다. ACK는 report identity/revision, `applied|stale|duplicate|rejected`, nullable error code와 ingestion 시각을 담는다. Service는 분류 transaction 안에서 deterministic `applicationAckKey`의 ACK `MqttOutbox`를 저장하고 정상 재전달에는 최초 payload/ingestion 시각을 재사용한다. Capability ACK row는 integer `revision`을 쓰지 않아 safe integer 최대 capability revision도 보존한다. MeshNode는 revision, 두 model-binding flag, status/verifiedAt coherence를 DB CHECK로 보존하고 legacy `ProcessedGatewayEvent`는 nullable hash로 호환한다.
+- `MqttService`는 config applied, execution, vehicle capability의 세 Gateway-scoped automation event filter를 MQTT QoS 1로 구독한다. `AutomationMqttConsumerService`는 exact topic에서 Site/Gateway를 추출하고 strict payload ID, 현재 Gateway Site assignment, active claim과 active MQTT certificate를 함께 잠가 검증한다. 알 수 없거나 재배정·비활성·topic spoof인 identity는 상태와 ACK를 만들지 않는다. Broker mTLS ACL은 publisher 인증을 담당하고 API는 이 topic/payload/DB identity 결합을 추가로 강제한다.
+- Config applied/rejected ACK는 해당 Gateway에 저장된 config outbox의 exact revision/hash/full snapshot과 일치할 때만 반영한다. Applied revision은 감소하지 않고 desired보다 낮은 성공은 `PENDING`, exact desired 성공은 `APPLIED`가 된다. Exact desired reject만 정제된 code로 `REJECTED`가 되며 오래된 reject나 future/hash mismatch ACK는 현재 상태를 덮지 않는다.
+- Execution ingest는 strict event와 source tenant/rule/Fixture snapshot을 검증하고 `(gatewayId,eventId,sequence)` 및 canonical payload hash로 exact replay와 conflicting replay를 구분한다. 실행 원장, terminal fixture 결과와 `AutomationExecutionIngestedAckV1` durable outbox를 같은 transaction에 저장하며 exact replay는 최초 ACK payload/hash/`ingestedAt`을 보존해 delivery 상태만 되살린다.
+- `AutomationOutboxPublisherService`는 command publisher와 분리된 config/application-ACK claim SQL, `FOR UPDATE SKIP LOCKED` 30초 lease, publish 전 renewal/ownership fence와 10초 MQTT QoS 1 timeout을 사용한다. 저장 payload는 command expiry 없이 그대로 발행한다. Config는 최신 desired full snapshot만 남기고 이전 미발행 revision을 retained superseded로 전환한 뒤 1~60초 backoff로 무기한 재시도한다. Application ACK는 같은 backoff 후 10회 또는 15분에 retained deadletter로 전환되며 exact report 재전달로 되살릴 수 있다. 종료 coordinator는 active automation batch를 bounded drain한 뒤 MQTT를 닫는다.
 - `GET/POST/PATCH/DELETE /sites/:siteId/automation/schedules`를 제공한다. assigned active customer admin만 생성·수정·삭제할 수 있고 viewer는 목록만 조회하며 operator와 다른 Site 요청은 `404`로 숨긴다.
 - schedule mutation은 같은 transaction의 첫 statement에서 공통 automation advisory lock을 획득한 뒤 Site row를 잠그고 assigned admin을 다시 인가한다. fixture·fixture set·floor·active group 선택은 저장 시점의 등록 완료 Fixture ID 전체 set으로 고정하고 한 Gateway 대상만 허용한다.
 - enabled schedule은 공통 automation engine의 실제 recurrence occurrence와 Fixture 교집합으로 충돌을 검사한다. disabled schedule은 충돌에서 제외하고 enable 시 다시 검사하며, 같은 Site에서 동시에 쓰는 서로 충돌하는 enabled schedule만 Site lock 아래 하나가 성공한다. 종료와 시작 경계가 맞닿지만 겹치지 않는 schedule은 함께 허용한다.
@@ -160,9 +164,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- Task 7은 automation full snapshot을 durable `MqttOutbox`에 저장하지만 실제 MQTT publish와 exact revision application ACK 처리는 Task 9 범위다. 따라서 API 저장 성공은 Gateway 적용 완료를 의미하지 않는다.
-- Task 8 차량 이벤트 규칙 API도 같은 durable full-snapshot outbox까지만 구현했다. 최근 감지/실행 필드는 실행 원장이 수집된 경우에만 채워지며 실제 센서 감지와 Gateway 실행 완료를 의미하지 않는다.
-- capability report/ACK shared 계약, node-local ordered/idempotent 원자 적용 service와 durable ACK outbox 생성은 완료했다. ACK의 필수 `reportPayloadHash`와 identity `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`가 exact report를 구분하므로 cross-node eventId 충돌과 same-node altered payload 모두 원본을 덮지 않는 별도 rejected ACK가 된다. Exact report 재전달은 해당 hash row의 최초 payload/hash/`ingestedAt`을 유지하고 published/deadletter/expired lease delivery 상태만 즉시 재큐잉하며 live lease는 보호한다. MQTT subscription/consumer와 publisher는 아직 없다. Task 9는 mTLS/broker ACL identity, topic/payload scope, active claimed Gateway를 검증한 뒤 service를 호출하고, config와 application-ACK를 variant별 `FOR UPDATE SKIP LOCKED` 30초 lease로 claim해 저장 payload를 재계산 없이 QoS 1으로 발행해야 한다. 실패는 1초~60초 backoff 후 10회 또는 15분에 retained deadletter로 남기고, single-flight `stopAndDrain()` 뒤 MQTT를 닫는다. Unauthenticated direct route는 만들지 않는다.
+- Automation full snapshot의 production MQTT publish, exact config ACK, capability/execution ingest와 application ACK publisher는 API에 연결됐다. 다만 Gateway의 snapshot 원자 저장/hot reload/offline scheduler와 capability/execution report journal은 Task 11~14 범위이므로 API의 `PENDING` 상태나 비어 있는 실행 원장을 장비 적용 실패로 해석하면 안 된다.
+- Capability ACK의 필수 `reportPayloadHash`와 identity `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`는 cross-node eventId 충돌과 same-node altered payload를 원본과 분리한다. Exact report 재전달은 최초 payload/hash/`ingestedAt`을 유지하고 published/deadletter/expired lease delivery 상태만 재큐잉하며 live lease를 보호한다. 이 API 계약은 unit/PostgreSQL migration test로 검증했지만 실제 production broker ACL과 Gateway certificate로 report 왕복을 수행한 HIL 증거는 아직 없다.
 - Task 14는 실제 Sensor Server/vendor vehicle event model 바인딩을 수행하고 node별 `capabilityRevision`, `eventId`, complete report payload와 canonical `reportPayloadHash`를 영속화해야 한다. revision은 model-binding state가 바뀔 때만 증가하고 ACK 전에는 같은 event/payload/hash를 재시도하며 reconnect 시에도 revision을 올리지 않고 현재 report를 재발행한다. Terminal ACK는 event/gateway/node/revision/hash가 모두 일치해야 하고 다른 payload hash ACK는 무시한다. 이 연결 전까지 production Gateway가 capability metadata를 자동 설정하지 않는다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
@@ -186,6 +189,9 @@
 - `apps/api/src/automation/schedules.service.ts`
 - `apps/api/src/automation/vehicle-event-rules.service.ts`
 - `apps/api/src/automation/vehicle-sensor-capability.service.ts`
+- `apps/api/src/automation/automation-mqtt-consumer.service.ts`
+- `apps/api/src/automation/automation-outbox-publisher.service.ts`
+- `apps/api/src/automation/automation-runtime.module.ts`
 - `apps/api/src/automation/target-snapshot.service.ts`
 - `apps/api/src/automation/automation-snapshot.service.ts`
 - `apps/api/src/automation/dto/schedule.dto.ts`
@@ -197,6 +203,7 @@
 - `apps/api/src/automation/vehicle-sensor-capability-schema.spec.ts`
 - `apps/api/prisma/migrations/20260830_vehicle_sensor_source_invariants/migration.sql`
 - `apps/api/prisma/migrations/20260830_add_vehicle_event_execution_list_index/migration.sql`
+- `apps/api/prisma/migrations/20260901_automation_mqtt_delivery/migration.sql`
 - `packages/shared/src/automation-contracts.ts`
 - `packages/shared/src/mqtt.ts`
 - `apps/web/src/features/control/ControlView.tsx`

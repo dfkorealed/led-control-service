@@ -875,7 +875,9 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 
 `CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
 
-`MqttOutbox`는 command dispatch, automation full snapshot, application ACK 발행을 함께 담당한다. Command row는 `dispatchId`만 가지고 나머지 identity는 `NULL`이다. Automation config row는 `gatewayId`, integer `revision`, `payloadHash`를 가지고 `dispatchId/applicationAckKey`는 `NULL`이다. Application ACK row는 `gatewayId`, unique report-hash-scoped `applicationAckKey`, ACK JSON의 canonical `payloadHash`를 가지고 `dispatchId/revision`은 `NULL`이다. 최장 UUID와 `sha256:` hash를 포함한 capability key는 ASCII 208 bytes로 255-byte safety bound 안이며 PostgreSQL B-tree unique key 한도보다 충분히 작다. `MqttOutbox_row_shape_check`가 이 세 형태 외의 row를 거부하고, `MqttOutbox_payload_hash_check`는 `sha256:` 뒤 소문자 64자리 hex 형식을 강제한다. `(gatewayId, revision, payloadHash)` Unique는 config snapshot을, `applicationAckKey` Unique는 application ACK를 exact report별 dedupe한다. Capability revision은 safe integer 최대값까지 허용되므로 ACK identity에 PostgreSQL `INTEGER revision`을 재사용하지 않는다. Task 9 publisher는 config와 ACK를 별도 row-shape predicate와 `FOR UPDATE SKIP LOCKED` 30초 lease로 claim해 저장된 topic/payload를 재계산 없이 QoS 1로 발행하고, 1초~60초 bounded exponential backoff와 10회 또는 15분 terminal deadletter를 적용한다. Deadletter row는 삭제하지 않으며 exact capability report 재전달만 해당 hash의 ACK row를 lease-safe하게 되살린다.
+`MqttOutbox`는 command dispatch, automation full snapshot, application ACK 발행을 함께 담당한다. Command row는 `dispatchId`만 가지고 나머지 identity는 `NULL`이다. Automation config row는 `gatewayId`, integer `revision`, `payloadHash`를 가지고 `dispatchId/applicationAckKey`는 `NULL`이다. Application ACK row는 `gatewayId`, unique report-hash-scoped `applicationAckKey`, ACK JSON의 canonical `payloadHash`를 가지고 `dispatchId/revision`은 `NULL`이다. 최장 UUID와 `sha256:` hash를 포함한 capability key는 ASCII 208 bytes로 255-byte safety bound 안이며 PostgreSQL B-tree unique key 한도보다 충분히 작다. `MqttOutbox_row_shape_check`가 이 세 형태 외의 row를 거부하고, `MqttOutbox_payload_hash_check`는 `sha256:` 뒤 소문자 64자리 hex 형식을 강제한다. `(gatewayId, revision, payloadHash)` Unique는 config snapshot을, `applicationAckKey` Unique는 application ACK를 exact report별 dedupe한다. Capability revision은 safe integer 최대값까지 허용되므로 ACK identity에 PostgreSQL `INTEGER revision`을 재사용하지 않는다.
+
+Task 9 publisher는 config와 application ACK를 별도 row-shape predicate와 `FOR UPDATE SKIP LOCKED` 30초 lease로 claim해 저장된 topic/payload를 재계산 없이 MQTT QoS 1로 발행한다. Config는 1초~60초 bounded exponential backoff와 0~20% jitter로 무기한 재시도한다. Application ACK만 같은 backoff 뒤 10회 또는 15분에 retained deadletter로 전환하며 row/topic/payload/hash를 삭제하거나 다시 만들지 않는다. Exact capability 또는 execution report 재전달은 해당 hash의 최초 ACK payload와 `ingestedAt`을 보존한 채 published/deadletter/expired-lease delivery 상태만 되살리고 active lease는 건드리지 않는다. Config claim과 publish 직전에는 현재 `desiredRevision`보다 오래된 미발행 full snapshot을 `supersededAt`으로 보존 종료해 최신 snapshot만 발행한다. Automation variant는 command expiry나 command terminal 전이를 사용하지 않는다.
 
 Gateway의 Site를 바꿀 때 `publishedAt IS NULL`인 config outbox가 하나라도 남아 있으면 `Gateway_automation_site_reassignment_guard`가 변경을 거부한다. Dead-letter 여부와 무관하게 아직 publish되지 않은 old-tenant payload를 새 Site의 Gateway로 보낼 수 없게 하는 경계다. 이미 publish된 row만 있고 다른 automation 의존성이 없으면 reassignment를 막지 않는다.
 
@@ -912,10 +914,11 @@ Pending delivery timeout은 Dispatch보다 `MqttOutbox`를 먼저 조건부 dead
 | `lockedAt` | `DateTime?` | lease 획득 시각 |
 | `leaseExpiresAt` | `DateTime?` | 장애 발생 시 다른 worker가 회수할 수 있는 시각 |
 | `deadLetteredAt` | `DateTime?` | 재시도 한도를 초과해 자동 발행을 중단한 시각 |
+| `supersededAt` | `DateTime?` | 더 최신 desired revision 때문에 미발행 config snapshot을 보존 종료한 시각 |
 | `lastError` | `String?` | 마지막 publish 오류 |
 | `createdAt`, `updatedAt` | `DateTime` | `now()`, `@updatedAt` |
 
-Automation config reclaim index는 `(gatewayId, publishedAt, deadLetteredAt, nextAttemptAt)`이며 기존 공용 reclaim index `(publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt)`도 유지한다.
+Automation config reclaim index는 `(gatewayId, publishedAt, deadLetteredAt, nextAttemptAt)`이며 기존 공용 reclaim index `(publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt)`도 유지한다. Task 9 partial delivery index는 dispatch가 없고 미발행·non-deadletter·non-superseded인 automation row를 `(nextAttemptAt, createdAt)` 순으로 찾는다.
 
 ### GatewayAutomationConfiguration
 
@@ -1034,9 +1037,10 @@ Site/Gateway별 full snapshot revision과 ACK 상태의 현재값이다.
 | `kind` | `AutomationExecutionKind` | 예 | lifecycle 종류 |
 | `occurredAt` | `DateTime` | 예 | Gateway 발생 시각 |
 | `payload` | `Json` | 예 | 종류별 원본 메타데이터 |
+| `payloadHash` | `String?` | 아니오 | 신규 MQTT ingest는 canonical `sha256:<64 lowercase hex>`, legacy row는 `NULL` 허용 |
 | `createdAt` | `DateTime` | 예 | `now()` |
 
-`lightingScheduleId`와 `vehicleEventRuleId`는 각각 최신 실행 조회 순서인 `(sourceId, occurredAt DESC, sequence DESC)` 일반 복합 index를 사용하고, `manualOverrideId`는 단독 index를 사용한다. 차량 이벤트 목록의 최신 전체 실행은 일반 vehicle index를 사용하고, 최신 감지는 migration/catalog 전용 partial index `(vehicleEventRuleId, occurredAt DESC, sequence DESC) WHERE kind = 'vehicle_detected'`를 사용한다. Prisma schema가 partial predicate를 표현하지 못하므로 일반 index만 schema에 유지하며 partial index를 중복된 일반 index처럼 선언하지 않는다. `(gatewayId, eventId, sequence)` Unique가 QoS 재전달을 멱등 처리한다. `AutomationExecution_source_check` trigger가 INSERT와 source/owner/kind 변경에서 source 부모의 `siteId/gatewayId`를 실행 owner와 비교하고 다음 coherence를 강제한다.
+`lightingScheduleId`와 `vehicleEventRuleId`는 각각 최신 실행 조회 순서인 `(sourceId, occurredAt DESC, sequence DESC)` 일반 복합 index를 사용하고, `manualOverrideId`는 단독 index를 사용한다. 차량 이벤트 목록의 최신 전체 실행은 일반 vehicle index를 사용하고, 최신 감지는 migration/catalog 전용 partial index `(vehicleEventRuleId, occurredAt DESC, sequence DESC) WHERE kind = 'vehicle_detected'`를 사용한다. Prisma schema가 partial predicate를 표현하지 못하므로 일반 index만 schema에 유지하며 partial index를 중복된 일반 index처럼 선언하지 않는다. `(gatewayId, eventId, sequence)` Unique와 canonical `payloadHash`가 MQTT QoS 1 exact replay를 멱등 처리하고 같은 identity의 변조 replay를 거부한다. Action result hash는 fixture ID 순으로 terminal result를 정규화하므로 집합 순서만 다른 재전달은 같은 report다. `AutomationExecution_source_check` trigger가 INSERT와 source/owner/kind 변경에서 source 부모의 `siteId/gatewayId`를 실행 owner와 비교하고 다음 coherence를 강제한다.
 
 - `schedule_started`, `schedule_ended`: `lightingScheduleId` 필수, `ruleId = lightingScheduleId`
 - `vehicle_detected`, `event_started`, `event_extended`, `event_ended`: `vehicleEventRuleId` 필수, `ruleId = vehicleEventRuleId`
@@ -1076,6 +1080,8 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 순방향 migration `20260830_vehicle_sensor_state_ordering`은 MeshNode에 capability revision과 두 model-binding flag를 추가하고 기존 `supported`/`unsupported`를 revision `1`, `unknown`을 revision `0`으로 보수적으로 backfill한다. coherence CHECK와 MeshNode statement/row trigger를 새 컬럼 전체에 다시 연결하며, `ProcessedGatewayEvent.payloadHash`를 nullable로 추가해 기존 원장은 그대로 허용하고 새 hash는 `sha256:<64 lowercase hex>`만 허용한다.
 
 순방향 migration `20260831_node_local_capability_ack_outbox`은 기존 capability 원장의 `fixtureId`를 현재 같은 Gateway의 Fixture/MeshNode 관계로 해석해 `meshNodeId`를 backfill한다. 해석할 수 없는 capability 행이 하나라도 있으면 event/gateway/fixture/sequence와 remediation 지침을 포함한 `23514`로 transaction 전체를 중단하고 신규 컬럼과 UPDATE를 모두 rollback한다. 기존 global `(gatewayId, sequence, eventType)` Unique를 non-capability event 전용 partial unique index로 교체하고, capability에는 `(gatewayId, meshNodeId, sequence, eventType)` partial unique index와 non-null node CHECK를 적용한다. 같은 migration이 `MqttOutbox.applicationAckKey` Unique와 command/config/application-ACK 3종 row-shape CHECK를 설치하고 unsupported capability가 검증 시각과 무관하게 model flag 하나 이상 false이도록 coherence CHECK를 교정한다.
+
+순방향 migration `20260901_automation_mqtt_delivery`는 legacy 실행 원장을 유지하기 위해 nullable `AutomationExecution.payloadHash`와 canonical hash CHECK를 추가하고, `MqttOutbox.supersededAt` 및 automation delivery partial index를 설치한다. 신규 production MQTT ingest만 non-null canonical hash를 기록하며 이전 row를 임의 backfill하지 않는다.
 
 순방향 migration `20260830_reject_equal_schedule_times`는 하나의 명시적 PostgreSQL transaction에서 `LightingSchedule`과 `MqttOutbox`에 `SHARE` table lock을 먼저 획득한다. 이 lock은 조회를 허용하면서 두 table의 concurrent INSERT/UPDATE/DELETE를 막으므로, 같은 local start/end를 가진 live `LightingSchedule`과 아직 publish/dead-letter되지 않은 automation-config `MqttOutbox` snapshot entry의 preflight와 CHECK 적용 사이에 invalid row가 들어올 수 없다. 하나라도 발견하면 deferred commit-time trigger가 schedule 또는 outbox 식별자와 Gateway/revision/time을 포함한 `23514` operator-remediation 오류를 발생시켜 transaction 전체를 rollback하며 어떤 row도 자동 수정하거나 삭제하지 않는다. 운영자가 schedule 시간을 명시적으로 교정하고 Gateway full snapshot을 재생성한 뒤 superseded pending outbox만 recovery runbook에 따라 제거해야 migration을 다시 적용할 수 있다.
 
@@ -1346,8 +1352,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger; source는 verified-supported MeshNode trigger | source/target 중복·tenant/Gateway·isolation-safe 각 최소 1개와 source capability 강제 |
 | `ManualOverride` | Unique `commandId`, composite Command owner FK, brightness/time checks, non-negative `targetCount` | command별 단일 수동 override, source tenant/requester, 실제 target 수 reconciliation 강제 |
 | `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 수동 대상 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
-| `MqttOutbox` | command/config/application-ACK row-shape check, Unique `gatewayId + revision + payloadHash`, Unique `applicationAckKey` | 기존 command outbox 재사용, 미발행 config Gateway reassignment 차단, durable application ACK dedupe |
-| `AutomationExecution` | Unique `gatewayId + eventId + sequence`, ordered schedule/vehicle general indexes, partial vehicle-detected index, source owner/kind/rule trigger | Gateway lifecycle event 멱등성, 최신 실행·감지 조회와 tenant-consistent history 원장 |
+| `MqttOutbox` | command/config/application-ACK row-shape check, Unique `gatewayId + revision + payloadHash`, Unique `applicationAckKey`, non-superseded automation delivery partial index | 기존 command outbox 재사용, 최신 config snapshot만 발행, durable application ACK dedupe |
+| `AutomationExecution` | Unique `gatewayId + eventId + sequence`, canonical payload hash CHECK, ordered schedule/vehicle general indexes, partial vehicle-detected index, source owner/kind/rule trigger | Gateway lifecycle exact replay 멱등성·conflict 거부, 최신 실행·감지 조회와 tenant-consistent history 원장 |
 | `AutomationExecutionFixtureResult` | PK `executionId + fixtureSnapshotId`, identity/terminal-status checks | Fixture 삭제 뒤 snapshot ID 보존과 terminal 결과만 저장 |
 
 ## 5. 현재 구현 기준으로 중요한 데이터 흐름

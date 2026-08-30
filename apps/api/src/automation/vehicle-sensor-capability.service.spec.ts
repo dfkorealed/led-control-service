@@ -232,6 +232,22 @@ describe("VehicleSensorCapabilityService", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it("locks the active claimed inventory identity inside authenticated MQTT ingestion", async () => {
+    const { service, tx } = testContext();
+
+    await service.applyReport(report(), {
+      siteId: SITE_ID,
+      gatewayId: GATEWAY_ID,
+      requireActiveClaim: true
+    });
+
+    const sql = tx.$queryRaw.mock.calls[0][0].strings.join(" ");
+    expect(sql).toContain('INNER JOIN "GatewayInventory" AS inventory');
+    expect(sql).toContain('certificate."purpose" = \'mqtt\'');
+    expect(sql).toContain('certificate."status" = \'active\'');
+    expect(sql).toContain("FOR UPDATE OF node, gateway, inventory");
+  });
+
   it("acquires the automation lock before rejecting a forged scope without identifiers", async () => {
     const { service, tx, calls } = testContext({ node: null });
     const forged = report({ siteId: "00000000-0000-4000-8000-000000000099" });

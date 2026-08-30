@@ -26,6 +26,7 @@ describe("MeshControlGroup schema contract", () => {
   const operationPlanMigration = readFileSync(operationPlanMigrationPath, "utf8");
   const fullReconciliationMigration = readFileSync(fullReconciliationMigrationPath, "utf8");
   const meshControlGroupModel = schema.match(/model MeshControlGroup \{[\s\S]*?\n\}/)?.[0] ?? "";
+  const meshControlGroupMemberModel = schema.match(/model MeshControlGroupMember \{[\s\S]*?\n\}/)?.[0] ?? "";
 
   it("persists a version-bound operation plan and the cloud applied membership snapshot", () => {
     expect(meshControlGroupModel).toMatch(/operationPlanVersion\s+Int\s+@default\(0\)/);
@@ -64,17 +65,17 @@ describe("MeshControlGroup schema contract", () => {
   });
 
   it("binds members to the same gateway as both the group and the mesh node without limiting one group to one node", () => {
-    expect(schema).toContain("gatewayId       String");
+    expect(meshControlGroupMemberModel).toMatch(/gatewayId\s+String/);
     expect(schema).toContain("@@unique([id, gatewayId])");
     expect(schema).toContain("@@unique([id, gatewayId])");
-    expect(schema).not.toContain("@@unique([groupId, gatewayId])");
-    expect(schema).not.toContain("@@unique([meshNodeId, gatewayId])");
-    expect(schema).toContain("@@index([groupId, gatewayId])");
-    expect(schema).toContain("@@index([meshNodeId, gatewayId])");
-    expect(schema).toMatch(
+    expect(meshControlGroupMemberModel).not.toContain("@@unique([groupId, gatewayId])");
+    expect(meshControlGroupMemberModel).not.toContain("@@unique([meshNodeId, gatewayId])");
+    expect(meshControlGroupMemberModel).toContain("@@index([groupId, gatewayId])");
+    expect(meshControlGroupMemberModel).toContain("@@index([meshNodeId, gatewayId])");
+    expect(meshControlGroupMemberModel).toMatch(
       /group\s+MeshControlGroup\s+@relation\(fields: \[groupId, gatewayId\], references: \[id, gatewayId\], onDelete: Cascade\)/
     );
-    expect(schema).toMatch(
+    expect(meshControlGroupMemberModel).toMatch(
       /meshNode\s+MeshNode\s+@relation\(fields: \[meshNodeId, gatewayId\], references: \[id, gatewayId\], onDelete: Cascade\)/
     );
     expect(migration).toContain('CREATE UNIQUE INDEX "MeshControlGroup_id_gatewayId_key"');
@@ -88,8 +89,8 @@ describe("MeshControlGroup schema contract", () => {
   });
 
   it("allows one mesh node to keep multiple memberships such as floor and fixture_group within the same gateway", () => {
-    expect(schema).not.toContain("@@unique([meshNodeId, gatewayId])");
+    expect(meshControlGroupMemberModel).not.toContain("@@unique([meshNodeId, gatewayId])");
     expect(migration).not.toContain('CREATE UNIQUE INDEX "MeshControlGroupMember_meshNodeId_gatewayId_key"');
-    expect(schema).toContain("@@id([groupId, meshNodeId])");
+    expect(meshControlGroupMemberModel).toContain("@@id([groupId, meshNodeId])");
   });
 });

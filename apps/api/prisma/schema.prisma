@@ -749,6 +749,7 @@ model MqttOutbox {
   lockedAt      DateTime?
   leaseExpiresAt DateTime?
   deadLetteredAt DateTime?
+  supersededAt   DateTime?
   lastError     String?
   dispatch      CommandDispatch? @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
   gateway       Gateway?         @relation("AutomationConfigOutboxGateway", fields: [gatewayId], references: [id], onDelete: Cascade)
@@ -942,6 +943,8 @@ model AutomationExecution {
   kind               AutomationExecutionKind
   occurredAt         DateTime
   payload            Json
+  /// Nullable only for execution history created before canonical MQTT ingestion hashes were introduced.
+  payloadHash        String?
   site               Site                               @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   gateway            Gateway                            @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
   lightingSchedule   LightingSchedule?                  @relation("LightingScheduleExecutions", fields: [lightingScheduleId], references: [id], onDelete: SetNull, onUpdate: Restrict)

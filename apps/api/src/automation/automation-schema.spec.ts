@@ -43,6 +43,13 @@ const nodeLocalCapabilityMigrationPath = join(
 const nodeLocalCapabilityMigration = existsSync(nodeLocalCapabilityMigrationPath)
   ? readFileSync(nodeLocalCapabilityMigrationPath, "utf8")
   : "";
+const automationMqttDeliveryMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260901_automation_mqtt_delivery/migration.sql"
+);
+const automationMqttDeliveryMigration = existsSync(automationMqttDeliveryMigrationPath)
+  ? readFileSync(automationMqttDeliveryMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -158,6 +165,27 @@ describe("automation Prisma schema contract", () => {
     );
     expect(nodeLocalCapabilityMigration).toContain('CONSTRAINT "MqttOutbox_row_shape_check"');
     expect(nodeLocalCapabilityMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
+  });
+
+  it("persists canonical execution hashes and retained config supersession state", () => {
+    const models = Object.fromEntries(
+      Prisma.dmmf.datamodel.models.map((model) => [model.name, model.fields.map((field) => field.name)])
+    );
+
+    expect(models.AutomationExecution).toContain("payloadHash");
+    expect(models.MqttOutbox).toContain("supersededAt");
+    expect(automationMqttDeliveryMigration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(automationMqttDeliveryMigration).toContain('ADD COLUMN "payloadHash" TEXT');
+    expect(automationMqttDeliveryMigration).toContain(
+      'CONSTRAINT "AutomationExecution_payload_hash_check"'
+    );
+    expect(automationMqttDeliveryMigration).toContain("^sha256:[0-9a-f]{64}$");
+    expect(automationMqttDeliveryMigration).toContain('ADD COLUMN "supersededAt" TIMESTAMP(3)');
+    expect(automationMqttDeliveryMigration).toContain(
+      'CREATE INDEX "MqttOutbox_automation_delivery_idx"'
+    );
+    expect(automationMqttDeliveryMigration).toContain('"supersededAt" IS NULL');
+    expect(automationMqttDeliveryMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
   it("indexes each schedule's latest execution in list order through a forward migration", () => {

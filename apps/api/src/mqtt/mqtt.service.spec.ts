@@ -145,6 +145,25 @@ describe("MqttService", () => {
     );
   });
 
+  it("publishes durable automation payloads without command message expiry", async () => {
+    const publish = jest.fn((_topic, _payload, _options, callback) => callback());
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).client = { publish };
+
+    await service.publishTopic(
+      "sites/s/gateways/g/acks/automation/execution-ingested",
+      { stored: true },
+      { messageExpiryInterval: null, timeoutMs: 10_000 }
+    );
+
+    expect(publish).toHaveBeenCalledWith(
+      "sites/s/gateways/g/acks/automation/execution-ingested",
+      JSON.stringify({ stored: true }),
+      { qos: 1 },
+      expect.any(Function)
+    );
+  });
+
   it("publishes every provisioning command on the v2 provisioning command namespace", async () => {
     const service = new MqttService({} as never, createMeshGroupsMock() as never);
     const publishTopic = jest.spyOn(service, "publishTopic").mockResolvedValue(undefined);
@@ -464,7 +483,7 @@ describe("MqttService", () => {
     expect(prisma.discoveredMeshNode.upsert).not.toHaveBeenCalled();
   });
 
-  it("subscribes to gateway mesh group resync requests at startup", () => {
+  it("subscribes to gateway mesh group and automation inbound topics at startup", () => {
     const subscribe = jest.fn();
     const on = jest.fn((event: string, listener: () => void) => {
       if (event === "connect") listener();
@@ -477,6 +496,44 @@ describe("MqttService", () => {
     expect(subscribe).toHaveBeenCalledWith(
       expect.arrayContaining(["sites/+/gateways/+/events/mesh-group/resync-request"]),
       { qos: 1 }
+    );
+    expect(subscribe).toHaveBeenCalledWith(
+      [
+        "sites/+/gateways/+/events/automation/config-applied",
+        "sites/+/gateways/+/events/automation/execution",
+        "sites/+/gateways/+/events/automation/vehicle-sensor-capability"
+      ],
+      { qos: 1 }
+    );
+  });
+
+  it("delegates exact automation channels without accepting suffix-spoofed topics", async () => {
+    const automation = { handleMessage: jest.fn().mockResolvedValue(undefined) };
+    const service = new MqttService(
+      {} as never,
+      createMeshGroupsMock() as never,
+      undefined,
+      automation as never
+    );
+    const payload = Buffer.from("{}");
+
+    await service.handleMessage(
+      "prefix/sites/site/gateways/gateway/events/automation/execution",
+      payload
+    );
+    await service.handleMessage(
+      "sites/site/gateways/gateway/events/automation/execution/forged-suffix",
+      payload
+    );
+    expect(automation.handleMessage).not.toHaveBeenCalled();
+
+    await service.handleMessage(
+      "sites/site/gateways/gateway/events/automation/execution",
+      payload
+    );
+    expect(automation.handleMessage).toHaveBeenCalledWith(
+      "sites/site/gateways/gateway/events/automation/execution",
+      payload
     );
   });
 

@@ -41,17 +41,23 @@ export class VehicleSensorCapabilityService {
     private readonly clock: AutomationClock
   ) {}
 
-  async applyReport(rawReport: unknown): Promise<VehicleSensorCapabilityIngestedAckV1> {
+  async applyReport(
+    rawReport: unknown,
+    scope?: { siteId: string; gatewayId: string; requireActiveClaim: boolean }
+  ): Promise<VehicleSensorCapabilityIngestedAckV1> {
     const parsed = vehicleSensorCapabilityReportV1Schema.safeParse(rawReport);
     if (!parsed.success) {
       throw new BadRequestException("invalid vehicle sensor capability report");
     }
     const report = parsed.data;
+    if (scope && (scope.siteId !== report.siteId || scope.gatewayId !== report.gatewayId)) {
+      throw new BadRequestException("vehicle sensor capability report scope rejected");
+    }
     const payloadHash = canonicalPayloadHash(report);
 
     return this.prisma.$transaction(async (tx) => {
       await this.automationSnapshot.lockMutation(tx);
-      const node = await this.lockOwnedNode(tx, report);
+      const node = await this.lockOwnedNode(tx, report, scope?.requireActiveClaim === true);
       if (!node) {
         throw new BadRequestException("vehicle sensor capability report scope rejected");
       }
@@ -130,8 +136,26 @@ export class VehicleSensorCapabilityService {
 
   private async lockOwnedNode(
     tx: Prisma.TransactionClient,
-    report: VehicleSensorCapabilityReportV1
+    report: VehicleSensorCapabilityReportV1,
+    requireActiveClaim: boolean
   ) {
+    const activeClaimJoin = requireActiveClaim ? Prisma.sql`
+      INNER JOIN "GatewayInventory" AS inventory
+        ON inventory."claimedGatewayId" = gateway."id"
+        AND inventory."claimedAt" IS NOT NULL
+        AND inventory."disabledAt" IS NULL
+        AND EXISTS (
+          SELECT 1 FROM "GatewayCertificate" AS certificate
+          WHERE certificate."inventoryId" = inventory."id"
+            AND certificate."gatewayId" = gateway."id"
+            AND certificate."purpose" = 'mqtt'
+            AND certificate."status" = 'active'
+            AND certificate."revokedAt" IS NULL
+        )
+    ` : Prisma.empty;
+    const lockTargets = requireActiveClaim
+      ? Prisma.sql`FOR UPDATE OF node, gateway, inventory`
+      : Prisma.sql`FOR UPDATE OF node, gateway`;
     const [node] = await tx.$queryRaw<LockedCapabilityNode[]>(Prisma.sql`
       SELECT
         node."id",
@@ -143,11 +167,12 @@ export class VehicleSensorCapabilityService {
         fixture."id" AS "fixtureId"
       FROM "MeshNode" AS node
       INNER JOIN "Gateway" AS gateway ON gateway."id" = node."gatewayId"
+      ${activeClaimJoin}
       LEFT JOIN "Fixture" AS fixture ON fixture."meshNodeId" = node."id"
       WHERE node."id" = ${report.meshNodeId}
         AND node."gatewayId" = ${report.gatewayId}
         AND gateway."siteId" = ${report.siteId}
-      FOR UPDATE OF node, gateway
+      ${lockTargets}
     `);
     return node;
   }

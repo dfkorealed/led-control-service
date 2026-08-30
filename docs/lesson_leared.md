@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-30 / MQTT runtime module과 HTTP module 의존성 분리
+- **발생했던 문제/실수**: production `MqttModule`에 automation consumer를 연결하면서 controller까지 가진 `AutomationModule` 전체를 import해 standalone MQTT module compile test가 HTTP session guard 의존성 누락으로 실패했다.
+- **원인**: MQTT background runtime이 필요한 service provider와 HTTP route/controller 조립 경계를 같은 Nest module로 묶었다.
+- **해결 및 예방책**: controller 없는 `AutomationRuntimeModule`에 clock, snapshot, capability와 MQTT consumer만 모아 export하고 HTTP `AutomationModule`과 `MqttModule`이 이 runtime module을 각각 import한다. Publisher는 MQTT service를 필요로 하므로 순환을 피하기 위해 `MqttModule`이 직접 소유한다.
+- **반복 방지 체크**: background worker를 production module에 추가할 때 standalone module compile test로 controller/guard 의존성이 유입되지 않는지 확인하고, lifecycle/shutdown coordinator provider 존재도 함께 검증한다.
+
 ## 2026-08-30 / application ACK exact-report identity와 publisher lease 소유권
 - **발생했던 문제/실수**: ACK key가 처음에는 Gateway/event, 이후 Gateway/node/event까지만 포함해 cross-node overwrite는 고쳤지만 same-node 동일 eventId의 altered payload가 원본 applied ACK를 받았다. Published/deadletter ACK도 exact report가 다시 와도 발행 가능 상태로 돌아오지 않았다.
 - **원인**: report의 실제 idempotency identity인 complete canonical payload hash보다 ACK key와 Gateway terminal matching이 좁았고, ingestion replay와 outbox publisher가 같은 row의 delivery 상태를 바꾸는 경합에서 lease 소유권 조건이 빠졌다.

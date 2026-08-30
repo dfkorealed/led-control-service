@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence와 production schema에 이어 schedule 및 차량 이벤트 규칙 API CRUD, exact Fixture snapshot, 직렬화와 durable full-snapshot outbox까지 완료했다.
+**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD와 Task 9 production MQTT automation 동기화를 완료했다. 다음 구현은 수동 명령 override와 Gateway snapshot hot reload다.
 
 ## 작업 상태
 
@@ -21,11 +21,12 @@
 | 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
 | 스케줄·차량 이벤트 제어 설계 | 완료(설계) | 반복 일정, overlap 차단, 수동 override·차량 이벤트·스케줄 우선순위, Gateway full snapshot 무중단 적용, offline 실행과 ESP32-H2 차량 감지 event 계약을 확정했다. Task 7 schedule API와 Task 8 차량 이벤트 규칙 API CRUD를 구현했고 Web과 Gateway 실행은 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
-| 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape, node-scoped durable ACK identity와 lease-safe exact replay revival까지 5차 review fix를 완료했다. Production MQTT consumer/config·ACK publisher와 Gateway report journal은 후속 Task 범위다. |
+| 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape, node-scoped durable ACK identity와 lease-safe exact replay revival까지 5차 review fix를 완료했다. Production Gateway report journal은 후속 Task 범위다. |
+| 스케줄·차량 이벤트 제어 Task 9 | 완료(소프트웨어) | exact MQTT topic/payload/current active claimed Gateway identity 결합, config applied/rejected ordering, canonical execution 원장과 immutable ingest ACK의 동일 transaction 저장, config/application-ACK 전용 `SKIP LOCKED` lease·retry·deadletter·revival·supersession·shutdown drain을 strict TDD로 구현했다. 실제 broker/Gateway/HIL은 후속 검증이다. |
 
 ## 다음 단계
 
-**다음 구현은 automation MQTT 동기화다.** Task 7~8의 schedule/vehicle full snapshot outbox를 publisher와 exact revision application ACK에 연결한 뒤 Gateway 규칙 엔진, ESP32-H2 sensor event, Web CRUD, software E2E와 HIL 순서로 진행한다. test-support simulator 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
+**다음 구현은 Task 10 수동 명령 `overrideUntil` 계약과 저장이다.** 이후 Gateway snapshot 원자 저장/hot reload, scheduler/priority arbiter, ESP32-H2 sensor event, Web CRUD, software E2E와 HIL 순서로 진행한다. Unit 및 격리 PostgreSQL 결과를 production broker·Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 
@@ -37,8 +38,8 @@
 
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
-- 스케줄 및 차량 이벤트 규칙 API CRUD와 durable full-snapshot outbox 저장은 완료했다. 실제 MQTT publish/application ACK, Gateway 무중단 규칙 동기화, offline 실행, sensor event와 Web CRUD는 아직 구현되지 않았다.
-- 차량 센서 capability report/ACK payload와 topic, node-local API ordering/idempotency service, DB invariant, report-hash-scoped immutable ACK identity와 published/deadletter/expired-lease revival은 완료했다. Same-node altered payload는 원본과 분리된 rejected ACK를 받고 exact replay는 각 hash의 최초 ACK를 유지한다. Production MQTT consumer, mTLS/ACL identity 검증과 config/application-ACK variant별 `SKIP LOCKED` lease·exact stored QoS 1 publish·retry/deadletter·shutdown drain publisher는 Task 9, Gateway Sensor Server/vendor model 검증과 durable revision/report/hash retry 및 hash-aware terminal ACK matching은 Task 14까지 연결되지 않는다.
+- 스케줄 및 차량 이벤트 규칙 API CRUD, durable full-snapshot outbox, production MQTT publish와 exact config/application ACK 처리는 완료했다. Gateway 무중단 규칙 동기화, offline 실행, sensor event와 Web CRUD는 아직 구현되지 않았다.
+- 차량 센서 capability report/ACK의 node-local ordering/idempotency, DB invariant, report-hash-scoped immutable ACK, production MQTT consumer와 application-ACK publisher는 완료했다. Same-node altered payload는 원본과 분리된 rejected ACK를 받고 exact replay는 각 hash의 최초 ACK를 유지한다. 실제 Gateway Sensor Server/vendor model 검증과 durable revision/report/hash retry 및 hash-aware terminal ACK matching은 Task 14까지 연결되지 않으며 production broker/Gateway certificate 왕복 HIL도 아직 실행하지 않았다.
 
 ### 통계
 

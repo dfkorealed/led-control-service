@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { AutomationOutboxPublisherService } from "../automation/automation-outbox-publisher.service";
+import { AutomationRuntimeModule } from "../automation/automation-runtime.module";
 import { MeshControlGroupModule } from "../mesh-control-groups/mesh-control-group.module";
 import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.worker";
 import { PrismaModule } from "../prisma/prisma.module";
@@ -11,12 +13,13 @@ import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 
 @Module({
-  imports: [PrismaModule, MeshControlGroupModule],
+  imports: [PrismaModule, MeshControlGroupModule, AutomationRuntimeModule],
   providers: [
     MqttService,
     FixtureStateIngestionService,
     FixtureFreshnessService,
     OutboxPublisherService,
+    AutomationOutboxPublisherService,
     ProvisioningScanOutboxPublisherService,
     MqttShutdownCoordinator,
     CommandTimeoutService,

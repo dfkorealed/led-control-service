@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
 import {
   acceptanceAckV2Schema,
   applicationStateIngestedAckV2Schema,
@@ -32,6 +32,7 @@ import mqtt, { IClientOptions, MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
+import { AutomationMqttConsumerService } from "../automation/automation-mqtt-consumer.service";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
@@ -59,7 +60,8 @@ export class MqttService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly meshControlGroups: MeshControlGroupService,
-    fixtureStateIngestion?: FixtureStateIngestionService
+    fixtureStateIngestion?: FixtureStateIngestionService,
+    @Optional() private readonly automationConsumer?: AutomationMqttConsumerService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
   }
@@ -81,6 +83,11 @@ export class MqttService implements OnModuleInit {
       );
       client.subscribe(["sites/+/gateways/+/acks/acceptance", "sites/+/gateways/+/acks/device-status"], { qos: 1 });
       client.subscribe(["sites/+/gateways/+/state/fixtures", "sites/+/gateways/+/state/heartbeat"], { qos: 1 });
+      client.subscribe([
+        "sites/+/gateways/+/events/automation/config-applied",
+        "sites/+/gateways/+/events/automation/execution",
+        "sites/+/gateways/+/events/automation/vehicle-sensor-capability"
+      ], { qos: 1 });
     };
     this.messageListener = (topic, payload) => this.startInboundHandler(topic, payload);
     client.on("connect", this.connectListener);
@@ -114,7 +121,7 @@ export class MqttService implements OnModuleInit {
   async publishTopic(
     topic: string,
     payload: unknown,
-    options: { messageExpiryInterval?: number; timeoutMs?: number } = {}
+    options: { messageExpiryInterval?: number | null; timeoutMs?: number } = {}
   ) {
     await new Promise<void>((resolve, reject) => {
       const client = this.getClient();
@@ -131,12 +138,15 @@ export class MqttService implements OnModuleInit {
         resolve();
       };
 
-      client.publish(topic, JSON.stringify(payload), {
-        qos: 1,
-        properties: {
-          messageExpiryInterval: options.messageExpiryInterval ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000
-        }
-      }, (error) => {
+      const publishOptions = options.messageExpiryInterval === null
+        ? { qos: 1 as const }
+        : {
+            qos: 1 as const,
+            properties: {
+              messageExpiryInterval: options.messageExpiryInterval ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS / 1000
+            }
+          };
+      client.publish(topic, JSON.stringify(payload), publishOptions, (error) => {
         finish(error ?? undefined);
       });
 
@@ -314,6 +324,16 @@ export class MqttService implements OnModuleInit {
   }
 
   async handleMessage(topic: string, payload: Buffer) {
+    const gatewayScope = parseGatewayTopic(topic);
+    if (gatewayScope && [
+      "events/automation/config-applied",
+      "events/automation/execution",
+      "events/automation/vehicle-sensor-capability"
+    ].includes(gatewayScope.channel)) {
+      await this.automationConsumer?.handleMessage(topic, payload);
+      return;
+    }
+
     if (topic.endsWith("/state/fixtures")) {
       // MQTT 5 customHandleAcks owns this path so broker PUBACK follows the database commit.
       return;

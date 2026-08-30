@@ -131,15 +131,59 @@ describe("automation shared contracts", () => {
       occurrenceKey: null,
       kind: "event_started" as const,
       occurredAt,
-      payload: { fixtureIds: [fixtureId2] }
+      payload: { activeSourceFixtureIds: [fixtureId] }
     };
-    const acknowledgement = { eventId, sequence: 9, ingestedAt: occurredAt };
+    const actionResult = {
+      ...execution,
+      sequence: 10,
+      kind: "action_result" as const,
+      payload: {
+        sourceType: "vehicle_event_rule" as const,
+        sourceId: vehicleRuleId,
+        results: [{
+          fixtureId: fixtureId2,
+          status: "succeeded" as const,
+          brightnessPercent: 100,
+          faultCode: null,
+          errorCode: null,
+          occurredAt
+        }]
+      }
+    };
+    const acknowledgement = {
+      schemaVersion: 1 as const,
+      gatewayId,
+      eventId,
+      sequence: 9,
+      reportPayloadHash: payloadHash,
+      ingestedAt: occurredAt
+    };
 
     expect(automationConfigAppliedV1Schema.parse(applied)).toEqual(applied);
     expect(automationExecutionEventV1Schema.parse(execution)).toEqual(execution);
+    expect(automationExecutionEventV1Schema.parse(actionResult)).toEqual(actionResult);
     expect(automationExecutionIngestedAckV1Schema.parse(acknowledgement)).toEqual(acknowledgement);
     expect(() => automationConfigAppliedV1Schema.parse({ ...applied, errorCode: "" })).toThrow();
     expect(() => automationExecutionEventV1Schema.parse({ ...execution, sequence: -1, extra: true })).toThrow();
+    expect(() => automationExecutionEventV1Schema.parse({
+      ...actionResult,
+      ruleId: scheduleId
+    })).toThrow();
+    expect(() => automationExecutionEventV1Schema.parse({
+      ...actionResult,
+      payload: { ...actionResult.payload, results: [] }
+    })).toThrow();
+    expect(() => automationExecutionEventV1Schema.parse({
+      ...actionResult,
+      payload: {
+        ...actionResult.payload,
+        results: [actionResult.payload.results[0], actionResult.payload.results[0]]
+      }
+    })).toThrow();
+    expect(() => automationExecutionIngestedAckV1Schema.parse({
+      ...acknowledgement,
+      reportPayloadHash: `sha256:${"A".repeat(64)}`
+    })).toThrow();
     expect(() => automationExecutionIngestedAckV1Schema.parse({ ...acknowledgement, extra: true })).toThrow();
   });
 

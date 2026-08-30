@@ -83,9 +83,27 @@ export interface AutomationExecutionEventV1 {
   payload: Record<string, unknown>;
 }
 
+export interface AutomationExecutionFixtureResultV1 {
+  fixtureId: string;
+  status: "succeeded" | "failed" | "timed_out";
+  brightnessPercent: number | null;
+  faultCode: string | null;
+  errorCode: string | null;
+  occurredAt: string;
+}
+
+export interface AutomationExecutionActionResultPayloadV1 {
+  sourceType: "schedule" | "vehicle_event_rule" | "manual_override";
+  sourceId: string;
+  results: AutomationExecutionFixtureResultV1[];
+}
+
 export interface AutomationExecutionIngestedAckV1 {
+  schemaVersion: 1;
+  gatewayId: string;
   eventId: string;
   sequence: number;
+  reportPayloadHash: `sha256:${string}`;
   ingestedAt: string;
 }
 
@@ -249,6 +267,26 @@ export const automationConfigAppliedV1Schema = z.object({
   }
 });
 
+export const automationExecutionFixtureResultV1Schema = z.object({
+  fixtureId: identifierSchema,
+  status: z.enum(["succeeded", "failed", "timed_out"]),
+  brightnessPercent: z.number().int().min(0).max(100).nullable(),
+  faultCode: z.string().trim().min(1).max(128).nullable(),
+  errorCode: z.string().trim().min(1).max(128).nullable(),
+  occurredAt: timestampSchema
+}).strict();
+
+export const automationExecutionActionResultPayloadV1Schema = z.object({
+  sourceType: z.enum(["schedule", "vehicle_event_rule", "manual_override"]),
+  sourceId: identifierSchema,
+  results: z.array(automationExecutionFixtureResultV1Schema).min(1)
+}).strict().superRefine((payload, context) => {
+  const fixtureIds = payload.results.map((result) => result.fixtureId);
+  if (new Set(fixtureIds).size !== fixtureIds.length) {
+    addIssue(context, "results", "action results must contain unique fixture IDs");
+  }
+});
+
 export const automationExecutionEventV1Schema = z.object({
   schemaVersion: z.literal(1),
   eventId: identifierSchema,
@@ -269,11 +307,33 @@ export const automationExecutionEventV1Schema = z.object({
   ]),
   occurredAt: timestampSchema,
   payload: z.record(z.unknown())
-}).strict();
+}).strict().superRefine((event, context) => {
+  if (event.kind === "action_result") {
+    const parsedPayload = automationExecutionActionResultPayloadV1Schema.safeParse(event.payload);
+    if (!parsedPayload.success) {
+      addIssue(context, "payload", "action_result requires a valid source and terminal fixture results");
+      return;
+    }
+    const expectsRuleId = parsedPayload.data.sourceType !== "manual_override";
+    if ((expectsRuleId && event.ruleId !== parsedPayload.data.sourceId) || (!expectsRuleId && event.ruleId !== null)) {
+      addIssue(context, "ruleId", "action_result ruleId must match its source");
+    }
+    return;
+  }
+
+  if (["schedule_started", "schedule_ended", "vehicle_detected", "event_started", "event_extended", "event_ended"].includes(event.kind)) {
+    if (event.ruleId === null) addIssue(context, "ruleId", "rule execution requires ruleId");
+    return;
+  }
+  if (event.ruleId !== null) addIssue(context, "ruleId", "telemetry_gap cannot include ruleId");
+});
 
 export const automationExecutionIngestedAckV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  gatewayId: identifierSchema,
   eventId: identifierSchema,
   sequence: z.number().int().nonnegative(),
+  reportPayloadHash: payloadHashSchema,
   ingestedAt: timestampSchema
 }).strict();
 

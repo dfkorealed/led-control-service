@@ -1,5 +1,6 @@
 import { Test } from "@nestjs/testing";
 import { EventEmitter } from "node:events";
+import { AutomationOutboxPublisherService } from "../automation/automation-outbox-publisher.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.worker";
@@ -11,9 +12,10 @@ import { OutboxPublisherService } from "./outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
 
 describe("MqttShutdownCoordinator", () => {
-  it("drains both active outbox publishes before closing the MQTT client during Nest module close", async () => {
+  it("drains command, scan, and automation outbox publishes before closing MQTT during Nest module close", async () => {
     const commandPublish = deferred<void>();
     const scanPublish = deferred<void>();
+    const automationPublish = deferred<void>();
     const order: string[] = [];
     const mqtt = new MqttService({} as never, {} as never);
     const client: any = {
@@ -62,6 +64,10 @@ describe("MqttShutdownCoordinator", () => {
         { provide: MqttService, useValue: mqtt },
         { provide: OutboxPublisherService, useValue: commandWorker },
         { provide: ProvisioningScanOutboxPublisherService, useValue: scanWorker },
+        {
+          provide: AutomationOutboxPublisherService,
+          useValue: { stopAndDrain: jest.fn(() => automationPublish.promise) }
+        },
         { provide: MeshGroupSyncWorker, useValue: { stopAndDrain: jest.fn().mockResolvedValue(undefined) } }
       ]
     }).compile();
@@ -81,6 +87,10 @@ describe("MqttShutdownCoordinator", () => {
       expect(client.end).not.toHaveBeenCalled();
 
       scanPublish.resolve();
+      await waitForTurn();
+      expect(client.end).not.toHaveBeenCalled();
+
+      automationPublish.resolve();
       await closing;
 
       expect(order).toEqual(["command-drained", "scan-drained", "client-end"]);
@@ -89,6 +99,7 @@ describe("MqttShutdownCoordinator", () => {
     } finally {
       commandPublish.resolve();
       scanPublish.resolve();
+      automationPublish.resolve();
       await closing?.catch(() => undefined);
     }
   });
@@ -170,10 +181,13 @@ describe("MqttShutdownCoordinator", () => {
     const meshWorker = moduleRef.get(MeshGroupSyncWorker);
     const commandWorker = moduleRef.get(OutboxPublisherService);
     const scanWorker = moduleRef.get(ProvisioningScanOutboxPublisherService);
+    const automationWorker = moduleRef.get(AutomationOutboxPublisherService);
     const commandTimeout = moduleRef.get(CommandTimeoutService);
     (mqtt as any).client = client;
     jest.spyOn(commandWorker, "claimBatch").mockResolvedValue([]);
     jest.spyOn(scanWorker, "claimBatch").mockResolvedValue([]);
+    jest.spyOn(automationWorker, "claimConfigBatch").mockResolvedValue([]);
+    jest.spyOn(automationWorker, "claimApplicationAckBatch").mockResolvedValue([]);
     jest.spyOn(commandTimeout, "closeExpired").mockResolvedValue({ timedOut: 0 });
     const loggerError = jest.spyOn((mqtt as any).logger, "error").mockImplementation(() => undefined);
     const meshLoggerError = jest.spyOn((meshWorker as any).logger, "error").mockImplementation(() => undefined);

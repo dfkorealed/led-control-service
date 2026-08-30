@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.worker";
+import { AutomationOutboxPublisherService } from "../automation/automation-outbox-publisher.service";
 import { MqttService } from "./mqtt.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
@@ -11,6 +12,7 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
   constructor(
     private readonly commandOutbox: OutboxPublisherService,
     private readonly scanOutbox: ProvisioningScanOutboxPublisherService,
+    private readonly automationOutbox: AutomationOutboxPublisherService,
     private readonly meshGroupSync: MeshGroupSyncWorker,
     private readonly mqtt: MqttService
   ) {}
@@ -19,11 +21,13 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
     if (!this.shutdownPromise) {
       const commandDrain = this.commandOutbox.stopAndDrain();
       const scanDrain = this.scanOutbox.stopAndDrain();
+      const automationDrain = this.automationOutbox.stopAndDrain();
       const meshGroupDrain = this.meshGroupSync.stopAndDrain();
       const inboundDrain = this.mqtt.stopInboundAndDrain();
       this.shutdownPromise = Promise.all([
         commandDrain,
         scanDrain,
+        automationDrain,
         meshGroupDrain,
         inboundDrain
       ]).then(() => this.mqtt.close());
