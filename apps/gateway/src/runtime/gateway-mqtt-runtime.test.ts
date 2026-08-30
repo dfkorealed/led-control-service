@@ -327,6 +327,31 @@ describe("GatewayMqttRuntime", () => {
     expect(client.end).toHaveBeenCalledWith(true, expect.any(Function));
   });
 
+  it("drains durable publishers before ending the active MQTT client", async () => {
+    const client = new FakeMqttClient();
+    let release!: () => void;
+    const draining = new Promise<void>((resolve) => { release = resolve; });
+    const onBeforeStop = vi.fn(() => draining);
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers,
+      onMessageError: vi.fn(),
+      onBeforeStop
+    });
+    runtime.start();
+
+    const stopping = runtime.stop();
+    await vi.waitFor(() => expect(onBeforeStop).toHaveBeenCalledTimes(1));
+    expect(client.end).not.toHaveBeenCalled();
+
+    release();
+    await stopping;
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
   it("reports an MQTT client shutdown failure to its caller", async () => {
     const client = new FakeMqttClient();
     client.end.mockImplementationOnce((_force, callback) => callback?.(new Error("MQTT shutdown failed")));

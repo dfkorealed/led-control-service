@@ -7,6 +7,7 @@ import {
   initializeAutomationBeforeManualRecovery,
   observeAutomationFixtureStatuses,
   requeuePendingFixtureObservations,
+  createDurableAutomationLifecycleHandoff,
   createDurableAutomationTerminalHandoff,
   executeAutomationWithBestEffortTelemetry,
   enqueueAutomationFixtureStates,
@@ -26,12 +27,15 @@ import {
   shouldPublishFinalAcceptance,
   shouldPublishFixtureStates,
   stateEventOutboxHealthReason,
+  handoffPersistedAutomationTelemetryGap,
+  recordAndHandoffAutomationTelemetryGap,
   startGatewayRuntime,
   subscribeGatewayCommands
 } from "./index";
 import { StateEventOutboxError } from "./state/state-event-outbox";
 import { provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
+import { AutomationTelemetryOutbox } from "./automation/automation-telemetry-outbox";
 import { automationScope, automationSnapshot } from "./automation/automation-test-fixtures";
 import {
   handleGatewayDimmingCommand,
@@ -518,6 +522,79 @@ describe("startGatewayRuntime", () => {
     );
   });
 
+  it("records a durable gap when lifecycle telemetry persistence fails after local RF", async () => {
+    const recordGap = vi.fn().mockResolvedValue(undefined);
+    const handoff = createDurableAutomationLifecycleHandoff({
+      enqueue: vi.fn().mockRejectedValue(new Error("telemetry commit uncertain")),
+      recordGap,
+      onError: vi.fn()
+    });
+
+    await handoff({
+      revision: 3,
+      events: [{
+        kind: "event_started",
+        ruleId: "00000000-0000-4000-8000-000000000103",
+        occurrenceKey: "event-1",
+        occurredAt: "2026-08-30T01:00:00.000Z",
+        payload: {}
+      }, {
+        kind: "event_extended",
+        ruleId: "00000000-0000-4000-8000-000000000103",
+        occurrenceKey: "event-1",
+        occurredAt: "2026-08-30T01:00:03.000Z",
+        payload: { holdUntil: "2026-08-30T01:01:03.000Z" }
+      }]
+    });
+
+    expect(recordGap).toHaveBeenCalledWith(
+      "2026-08-30T01:00:00.000Z",
+      2,
+      "2026-08-30T01:00:03.000Z"
+    );
+  });
+
+  it("hands Task 12 persisted gaps to the new outbox before exact state clear", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-gap-handoff-"));
+    try {
+      const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
+      const outbox = new AutomationTelemetryOutbox(join(directory, "telemetry.json"), automationScope);
+      await stateStore.initialize();
+      await outbox.initialize();
+      await stateStore.recordTelemetryGap("2026-08-30T01:00:00.000Z", 4, "2026-08-30T01:00:05.000Z");
+
+      await expect(handoffPersistedAutomationTelemetryGap(stateStore, outbox, 9)).resolves.toBe(true);
+      expect(stateStore.read().telemetryGap).toBeNull();
+      expect((await outbox.inspect()).gap).toMatchObject({ revision: 9, droppedCount: 4 });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("immediately hands a runtime telemetry drop to the outbox when a revision is active", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-live-gap-handoff-"));
+    try {
+      const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
+      const outbox = new AutomationTelemetryOutbox(join(directory, "telemetry.json"), automationScope);
+      await stateStore.initialize();
+      await outbox.initialize();
+
+      await recordAndHandoffAutomationTelemetryGap(
+        stateStore,
+        outbox,
+        11,
+        "2026-08-30T01:00:00.000Z",
+        3,
+        "2026-08-30T01:00:02.000Z"
+      );
+
+      expect(stateStore.read().telemetryGap).toBeNull();
+      expect((await outbox.inspect()).gap).toMatchObject({ revision: 11, droppedCount: 3 });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("counts only terminal fixture telemetry that actually failed after a partial enqueue", async () => {
     const secondFixtureId = "00000000-0000-4000-8000-000000000006";
     const actions = [scopedFixtureId, secondFixtureId].map((fixtureId) => ({
@@ -739,7 +816,8 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
-        "sites/site-27/gateways/gateway-27/acks/state-ingested"
+        "sites/site-27/gateways/gateway-27/acks/state-ingested",
+        "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested"
       ],
       { qos: 1 },
       expect.any(Function)

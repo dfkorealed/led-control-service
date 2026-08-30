@@ -891,7 +891,7 @@ git commit -m "feat(gateway): execute durable lighting schedules"
 - Consumes: normalized sensor `detected|cleared|current-state`, monotonic clock, arbiter.
 - Produces: OR source set, Low 이후 hold expiry, max-brightness aggregation, application-ACK telemetry outbox.
 
-- [ ] **Step 1: 센서 OR/hold/retrigger/overlap 테스트를 작성한다**
+- [x] **Step 1: 센서 OR/hold/retrigger/overlap 테스트를 작성한다**
 
 ```ts
 runtime.onDetected("sensor-a", 1000);
@@ -904,22 +904,22 @@ expect(runtime.getDesiredBrightness("fixture-1")).toBe(80);
 
 High 장기 유지 시 timeout 해제되지 않음, 마지막 Low부터 60초, event 중 manual override가 출력을 가림, override 만료 후 event 즉시 적용을 포함한다.
 
-- [ ] **Step 2: event 상태와 복귀를 구현한다**
+- [x] **Step 2: event 상태와 복귀를 구현한다**
 
 활성 source set이 비지 않으면 hold timer를 취소한다. 마지막 source가 빠질 때 monotonic expiry와 복구용 UTC expiry를 함께 저장한다. event 종료 시 현재 schedule이 있으면 schedule, 없으면 첫 event 직전 밝기를 arbiter에 제공한다.
 
-- [ ] **Step 3: telemetry outbox와 공간 상한을 구현한다**
+- [x] **Step 3: telemetry outbox와 공간 상한을 구현한다**
 
 `schedule_started`, `schedule_ended`, `vehicle_detected`, `event_started`, `event_extended`, `event_ended`, `action_result`를 저장한다. 동일 active event의 `event_extended`는 최신 expiry로 upsert한다. pending payload 총량은 64 MiB로 제한하고 상한에 도달하면 먼저 모든 active event의 연장 record를 병합한다. 그래도 공간이 없으면 새 telemetry payload 대신 고정 크기 `telemetry_gap { firstDroppedAt, lastDroppedAt, droppedCount }`를 원자 갱신하며 로컬 제어는 계속한다.
 
-- [ ] **Step 4: application ACK 삭제와 재전달을 검증한다**
+- [x] **Step 4: application ACK 삭제와 재전달을 검증한다**
 
 ```ts
 await outbox.markIngested(eventId, sequence);
 expect(await outbox.pending()).not.toContainEqual(expect.objectContaining({ eventId, sequence }));
 ```
 
-- [ ] **Step 5: 검증하고 커밋한다**
+- [x] **Step 5: 검증하고 커밋한다**
 
 Run: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway test -- vehicle-event-runtime.test.ts automation-telemetry-outbox.test.ts`
 

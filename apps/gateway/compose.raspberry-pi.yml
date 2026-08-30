@@ -39,6 +39,7 @@ services:
       GATEWAY_AUTOMATION_CONFIG_PATH: /var/lib/led-control/automation-snapshot.json
       GATEWAY_AUTOMATION_STATE_PATH: /var/lib/led-control/automation-state.json
       GATEWAY_AUTOMATION_ACK_OUTBOX_PATH: /var/lib/led-control/automation-config-acks.json
+      GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH: /var/lib/led-control/automation-telemetry.json
       GATEWAY_MESH_IDENTITY_PATH: /var/lib/led-control/mesh-identity.json
       GATEWAY_MESH_ADDRESS_PATH: /var/lib/led-control/mesh-addresses.json
       GATEWAY_MESH_TRANSACTION_PATH: /var/lib/led-control/mesh-transactions.json

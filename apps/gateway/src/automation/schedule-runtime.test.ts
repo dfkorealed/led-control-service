@@ -548,6 +548,90 @@ describe("ScheduleRuntime", () => {
     ]);
   });
 
+  it("hands off normalized vehicle lifecycle in durable order without blocking RF on telemetry failure", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-lifecycle-"));
+    directories.push(directory);
+    const wall = fakeWall("2026-08-30T01:00:00.000Z");
+    const monotonic = fakeMonotonic();
+    const execute = vi.fn(executeSuccessfully);
+    const onLifecycleEvents = vi.fn().mockRejectedValue(new Error("telemetry disk unavailable"));
+    const onError = vi.fn();
+    const runtime = new ScheduleRuntime({
+      store: new FileAutomationStateStore(join(directory, "state.json")),
+      wallClock: wall.now,
+      monotonicClock: monotonic.now,
+      clockTrust: { isTrusted: async () => true },
+      execute,
+      onLifecycleEvents,
+      onError
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    await activate(runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 5)] }));
+
+    await runtime.recordVehicleSensorInput({ type: "detected", sourceFixtureId });
+    expect(execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 80 })
+    ]);
+    expect(onLifecycleEvents).toHaveBeenLastCalledWith({
+      revision: 1,
+      events: [
+        expect.objectContaining({ kind: "vehicle_detected", ruleId: vehicleRuleId }),
+        expect.objectContaining({ kind: "event_started", ruleId: vehicleRuleId })
+      ]
+    });
+    expect(onError).toHaveBeenCalledWith(new Error("telemetry disk unavailable"));
+
+    onLifecycleEvents.mockResolvedValue(undefined);
+    await runtime.recordVehicleSensorInput({ type: "cleared", sourceFixtureId });
+    monotonic.advance(5_001);
+    await runtime.tick();
+    expect(onLifecycleEvents).toHaveBeenLastCalledWith({
+      revision: 1,
+      events: [expect.objectContaining({ kind: "event_ended", ruleId: vehicleRuleId })]
+    });
+  });
+
+  it("hands off schedule start and end lifecycle with the occurrence key", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-schedule-lifecycle-"));
+    directories.push(directory);
+    const wall = fakeWall("2026-08-30T00:59:00.000Z");
+    const onLifecycleEvents = vi.fn().mockResolvedValue(undefined);
+    const runtime = new ScheduleRuntime({
+      store: new FileAutomationStateStore(join(directory, "state.json")),
+      wallClock: wall.now,
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute: executeSuccessfully,
+      onLifecycleEvents
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    await activate(runtime, snapshot({ schedules: [dailySchedule()] }));
+
+    wall.set("2026-08-30T01:00:00.000Z");
+    await runtime.tick();
+    expect(onLifecycleEvents).toHaveBeenLastCalledWith({
+      revision: 1,
+      events: [expect.objectContaining({
+        kind: "schedule_started",
+        ruleId: scheduleId,
+        occurrenceKey: `${scheduleId}:2026-08-30`
+      })]
+    });
+
+    wall.set("2026-08-30T02:00:00.000Z");
+    await runtime.tick();
+    expect(onLifecycleEvents).toHaveBeenLastCalledWith({
+      revision: 1,
+      events: [expect.objectContaining({
+        kind: "schedule_ended",
+        ruleId: scheduleId,
+        occurrenceKey: `${scheduleId}:2026-08-30`
+      })]
+    });
+  });
+
   it("ignores an initial or repeated vehicle Low instead of creating or extending a hold", async () => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
@@ -1053,6 +1137,38 @@ describe("ScheduleRuntime", () => {
       expect.objectContaining({ fixtureId, brightnessPercent: 20, sourceType: "current" })
     ]);
     expect(test.runtime.state().vehicleRules).toEqual({});
+  });
+
+  it("attributes a config-disabled event end to the previous snapshot revision", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vehicle-disabled-revision-"));
+    directories.push(directory);
+    const onLifecycleEvents = vi.fn().mockResolvedValue(undefined);
+    const runtime = new ScheduleRuntime({
+      store: new FileAutomationStateStore(join(directory, "state.json")),
+      wallClock: () => new Date("2026-08-30T01:00:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute: executeSuccessfully,
+      onLifecycleEvents
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    await activate(runtime, automationSnapshot(1, { vehicleEventRules: [vehicleRule(80, 60)] }));
+    await runtime.recordVehicleSensorState(sourceFixtureId, true);
+    onLifecycleEvents.mockClear();
+
+    await activate(runtime, automationSnapshot(2, {
+      vehicleEventRules: [{ ...vehicleRule(80, 60), status: "disabled" }]
+    }));
+
+    expect(onLifecycleEvents).toHaveBeenCalledWith({
+      revision: 2,
+      events: [expect.objectContaining({
+        kind: "event_ended",
+        ruleId: vehicleRuleId,
+        revision: 1
+      })]
+    });
   });
 
   it("restores the scheduler snapshot and source state when config activation rolls back", async () => {

@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload와 Task 12 offline scheduler·priority arbiter·재시작 복구를 완료했다. 다음 구현은 Gateway durable execution telemetry와 ESP32-H2 sensor event 연결이다.
+**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구와 Task 13 vehicle runtime·durable execution telemetry를 완료했다. 다음 구현은 ESP32-H2 sensor event 연결이다.
 
 ## 작업 상태
 
@@ -14,7 +14,7 @@
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
 | 메뉴 완성 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-26-monitoring-control-statistics-completion.md)을 12개 검증·커밋 단위로 작성했다. |
-| 메뉴 완성 구현 | 완료(소프트웨어) | Task 12까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
+| 메뉴 완성 구현 | 완료(소프트웨어) | Task 13까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
 | 계정·설치 주체 전환 설계 | 완료 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했고 재설치는 제외했다. |
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
 | 계정·설치 주체 전환 구현 | 완료(소프트웨어) | Task 1~9와 final review fix를 완료했다. login/reset/change는 User row lock과 실제 PostgreSQL barrier로 old credential session race를 차단하고, 일반 admin의 command/group/floor write는 transaction 내부 Site lock 재인가를 사용한다. Web은 login 평문을 React Query cache에 넣지 않으며 principal 전환·강제 revoke에서 tenant Query/Mutation cache를 제거한다. service-global operator는 `/operator/site-admins`에서 현장별 assigned admin을 create/update/reset/disable하고 network allowlist는 `/api/auth/*`, `/api/operator/*`뿐이다. 격리 실백엔드 Chromium journey는 새 PostgreSQL/Redis/mTLS Mosquitto와 test-support simulator로 설치·claim·registration·제어·통계·도면·비밀번호·viewer 권한을 검증하며 사용자 개발 DB를 읽거나 초기화하지 않는다. 이는 production Gateway/BlueZ/RF 또는 Raspberry Pi/ESP32-H2 HIL 증거가 아니다. 모바일·재설치는 범위 밖이다. controller가 수동 in-app browser QA를 시도했지만 admin-enforced browser policy가 localhost 접근 전에 차단해 미실행이며 자동 Chromium E2E와 별개다. |
@@ -26,10 +26,11 @@
 | 스케줄·차량 이벤트 제어 Task 10 | 완료(소프트웨어) | 수동 dimming 명령의 optional ISO `overrideUntil`을 API clock 기준 기본 `now + 1 hour`, 미래·30일 이내로 검증한다. Command, `ManualOverride`, 모든 fixture snapshot과 direct Gateway payload/outbox를 automation advisory lock 및 Site 재인가가 있는 한 transaction에 저장하며, Web API 타입·생성 응답도 확정 시각을 전달한다. Gateway durable 적용·만료 arbiter는 Task 12에서 완료했고 Web 입력 UI와 HIL은 후속 범위다. |
 | 스케줄·차량 이벤트 제어 Task 11 | 완료(소프트웨어) | Gateway가 full snapshot을 strict schema/scope/canonical hash/revision으로 검증하고 temp write·file fsync·rename·directory fsync 뒤 serial hot reload한다. 재시작 복구, exact idempotency/conflict/old rejection과 durable applied/rejected ACK 재전송을 production MQTT runtime에 연결했다. Scheduler·priority arbiter와 실제 BLE Mesh action은 Task 12에서 완료했고 broker/실장비 HIL은 후속 범위다. |
 | 스케줄·차량 이벤트 제어 Task 12 | 완료(소프트웨어, fix round 5) | Fix round 4 re-review의 active P1 3건을 TDD로 수정했다. Clock-untrusted restart에서 recovered manual 현재 출력/최고 우선순위를 유지하고, targeted resync unresolved batch를 tail로 회전하며, broker-fresh legacy timed wire에 요청 duration 기반 monotonic deadline과 version 1 진단/30일 상한을 적용했다. Shared 74/74, API 727 passed, Gateway 417/417, Docker 17/17, Mosquitto 2/2 및 typecheck/lint/build로 검증했다. API publisher 선배포가 필수이며 Raspberry Pi/ESP32-H2 RF HIL은 별도다. |
+| 스케줄·차량 이벤트 제어 Task 13 | 완료(소프트웨어) | Normalized 차량 source OR, High 무기한 유지, 마지막 Low monotonic hold/retrigger/restart UTC trust 복구와 max-brightness arbiter를 production runtime에 연결했다. Execution telemetry는 event identity/sequence/hash atomic file, metadata 포함 strict 64 MiB, 미게시 extension coalescing, fixed gap, QoS 1 reconnect retry, exact application ACK 삭제/conflict 보존과 shutdown drain을 사용한다. Focused 135/135, Gateway 448/448, Docker 17/17, 인증서 Mosquitto 2/2, shared 74/74 및 typecheck/lint/build를 통과했다. 실제 ESP32-H2 sensor model과 RF HIL은 Task 14다. |
 
 ## 다음 단계
 
-**다음 구현은 Gateway durable automation execution telemetry와 ESP32-H2 sensor event 입력이다.** 이후 Web CRUD, software E2E와 HIL 순서로 진행한다. Unit과 Docker Mosquitto 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
+**다음 구현은 ESP32-H2 sensor event 입력과 Gateway Sensor Client/vendor model 연결이다.** 이후 Web CRUD, software E2E와 HIL 순서로 진행한다. Unit과 Docker Mosquitto 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 
@@ -41,7 +42,7 @@
 
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
-- 스케줄 및 차량 이벤트 규칙 API CRUD, durable full-snapshot outbox, production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK와 offline scheduler·priority arbiter 실행은 완료했다. Durable execution telemetry/application ACK, 실제 Sensor Client event 입력과 Web CRUD는 아직 구현되지 않았다.
+- 스케줄 및 차량 이벤트 규칙 API CRUD, durable full-snapshot outbox, production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK, offline scheduler·priority arbiter와 durable execution telemetry/application ACK는 완료했다. 실제 Sensor Client event 입력과 Web CRUD는 아직 구현되지 않았다.
 - 차량 센서 capability report/ACK의 node-local ordering/idempotency, DB invariant, report-hash-scoped immutable ACK, production MQTT consumer와 application-ACK publisher는 완료했다. Same-node altered payload는 원본과 분리된 rejected ACK를 받고 exact replay는 각 hash의 최초 ACK를 유지한다. 실제 Gateway Sensor Server/vendor model 검증과 durable revision/report/hash retry 및 hash-aware terminal ACK matching은 Task 14까지 연결되지 않으며 production broker/Gateway certificate 왕복 HIL도 아직 실행하지 않았다.
 
 ### 통계

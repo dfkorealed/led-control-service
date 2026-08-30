@@ -166,6 +166,21 @@ describe("FileAutomationStateStore", () => {
       }
     });
   });
+
+  it("clears a handed-off telemetry gap only when no newer drop was merged", async () => {
+    const path = await statePath();
+    const store = new FileAutomationStateStore(path);
+    await store.initialize();
+    await store.recordTelemetryGap("2026-08-30T01:00:00.000Z", 2);
+    const handedOff = store.read().telemetryGap!;
+    await store.recordTelemetryGap("2026-08-30T01:01:00.000Z", 1);
+
+    await expect(store.clearTelemetryGap(handedOff)).resolves.toBe(false);
+    expect(store.read().telemetryGap?.droppedCount).toBe(3);
+
+    await expect(store.clearTelemetryGap(store.read().telemetryGap!)).resolves.toBe(true);
+    expect(store.read().telemetryGap).toBeNull();
+  });
 });
 
 async function statePath() {

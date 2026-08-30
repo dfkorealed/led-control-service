@@ -155,6 +155,17 @@ export class FileAutomationStateStore {
     });
   }
 
+  async clearTelemetryGap(expected: PersistedAutomationTelemetryGap) {
+    let cleared = false;
+    await this.update((state) => {
+      if (!isDeepStrictEqual(state.telemetryGap, expected)) return state;
+      state.telemetryGap = null;
+      cleared = true;
+      return state;
+    });
+    return cleared;
+  }
+
   private async restore(): Promise<PersistedAutomationStateV3> {
     let raw: unknown | null;
     try {

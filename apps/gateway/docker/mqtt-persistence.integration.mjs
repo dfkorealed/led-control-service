@@ -95,6 +95,7 @@ test("Mosquitto rejects application ACK publishes from a Gateway certificate", a
   const port = await unusedPort();
   const containerName = `led-mqtt-acl-${randomUUID()}`;
   let gateway;
+  let api;
   let hostBroker;
 
   try {
@@ -130,17 +131,37 @@ test("Mosquitto rejects application ACK publishes from a Gateway certificate", a
       key: await readFile(join(certificatesDirectory, "gateway.key")),
       rejectUnauthorized: true
     }));
+    ({ client: api } = await connectEventually(`mqtts://127.0.0.1:${port}`, {
+      clientId: `api-acl-${randomUUID()}`,
+      protocolVersion: 5,
+      clean: true,
+      reconnectPeriod: 0,
+      ca: await readFile(join(certificatesDirectory, "ca.crt")),
+      cert: await readFile(join(certificatesDirectory, "api.crt")),
+      key: await readFile(join(certificatesDirectory, "api.key")),
+      rejectUnauthorized: true
+    }));
 
     const base = `sites/site-1/gateways/${gatewayId}/acks`;
+    const automationAckTopic = `${base}/automation/execution-ingested`;
     await assert.doesNotReject(publish(gateway, `${base}/acceptance`, "{}"));
     await assert.doesNotReject(publish(gateway, `${base}/device-status`, "{}"));
+    await assert.doesNotReject(subscribe(gateway, automationAckTopic));
+    const receivedAutomationAck = waitForMessage(gateway, automationAckTopic);
+    await publish(api, automationAckTopic, JSON.stringify({ status: "ingested" }));
+    await assert.doesNotReject(receivedAutomationAck);
     await assert.rejects(publish(gateway, `${base}/state-ingested`, "{}"), /not authorized/i);
+    await assert.rejects(
+      publish(gateway, automationAckTopic, "{}"),
+      /not authorized/i
+    );
     await assert.rejects(
       publish(gateway, `${base}/provisioning/scan-terminal-ingested`, "{}"),
       /not authorized/i
     );
   } finally {
     await end(gateway);
+    await end(api);
     if (useDocker) await execFile("docker", ["rm", "-f", containerName]).catch(() => undefined);
     await stopHostBroker(hostBroker);
     await rm(directory, { recursive: true, force: true });
@@ -264,6 +285,7 @@ async function createTestCertificates(directory, gatewayId) {
     "extendedKeyUsage=serverAuth"
   ]);
   await createSignedCertificate(directory, "gateway", gatewayId, ["extendedKeyUsage=clientAuth"]);
+  await createSignedCertificate(directory, "api", "api-service", ["extendedKeyUsage=clientAuth"]);
   await chmod(join(directory, "server.key"), 0o644);
 }
 
@@ -316,13 +338,35 @@ function waitForConnect(client) {
 
 function subscribe(client, topic) {
   return new Promise((resolve, reject) => {
-    client.subscribe(topic, { qos: 1 }, (error) => (error ? reject(error) : resolve()));
+    client.subscribe(topic, { qos: 1 }, (error, granted) => {
+      if (error) return reject(error);
+      if (granted?.some((entry) => entry.qos === 128)) {
+        return reject(new Error(`subscription not authorized: ${topic}`));
+      }
+      resolve();
+    });
   });
 }
 
 function publish(client, topic, payload) {
   return new Promise((resolve, reject) => {
     client.publish(topic, payload, { qos: 1, properties: { messageExpiryInterval: 10 } }, (error) => (error ? reject(error) : resolve()));
+  });
+}
+
+function waitForMessage(client, topic) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      client.removeListener("message", onMessage);
+      reject(new Error(`MQTT message was not delivered: ${topic}`));
+    }, 2_000);
+    const onMessage = (receivedTopic, payload) => {
+      if (receivedTopic !== topic) return;
+      clearTimeout(timeout);
+      client.removeListener("message", onMessage);
+      resolve(payload.toString());
+    };
+    client.on("message", onMessage);
   });
 }
 

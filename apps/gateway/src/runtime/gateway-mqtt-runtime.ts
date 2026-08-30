@@ -24,6 +24,7 @@ export interface GatewayMqttRuntimeOptions {
   onMessageError: ErrorReporter;
   onConnect?: () => unknown;
   onClose?: () => unknown;
+  onBeforeStop?: () => Promise<unknown> | unknown;
   onError?: (error: Error) => unknown;
   onRuntimeError?: ErrorReporter;
 }
@@ -87,11 +88,27 @@ export class GatewayMqttRuntime {
     this.stopping = true;
     this.activeCandidate?.cancel(new Error("MQTT runtime is stopping"));
     return this.enqueue(async () => {
+      let drainError: unknown;
+      try {
+        await this.options.onBeforeStop?.();
+      } catch (error) {
+        drainError = error;
+      }
       this.started = false;
       this.clearHeartbeatTimer();
       this.clearSubscriptionRetry();
       this.removeClientListeners(this.currentClient);
-      await this.endClient(this.currentClient);
+      let shutdownError: unknown;
+      try {
+        await this.endClient(this.currentClient);
+      } catch (error) {
+        shutdownError = error;
+      }
+      if (drainError && shutdownError) {
+        throw new AggregateError([drainError, shutdownError], "MQTT drain and shutdown failed");
+      }
+      if (drainError) throw drainError;
+      if (shutdownError) throw shutdownError;
     });
   }
 

@@ -15,10 +15,14 @@ import {
 import type { ClockTrustProvider } from "./clock-trust-provider";
 import {
   FileAutomationStateStore,
-  type PersistedAutomationStateV3,
-  type PersistedVehicleRuleState
+  type PersistedAutomationStateV3
 } from "./automation-state-store";
 import type { DesiredLightingState } from "./automation-runtime";
+import {
+  VehicleEventRuntime,
+  type VehicleLifecycleEvent,
+  type VehicleSensorInput
+} from "./vehicle-event-runtime";
 
 export interface DesiredLightingAction {
   fixtureId: string;
@@ -43,6 +47,20 @@ export interface AutomationTerminalHandoff {
   revision: number;
   actions: DesiredLightingAction[];
   results: AutomationExecutionFixtureResultV1[];
+  causes?: AutomationLifecycleEvent[];
+}
+
+export type AutomationLifecycleEvent = (VehicleLifecycleEvent | {
+  kind: "schedule_started" | "schedule_ended";
+  ruleId: string;
+  occurrenceKey: string;
+  occurredAt: string;
+  payload: Record<string, unknown>;
+}) & { revision?: number };
+
+export interface AutomationLifecycleHandoff {
+  revision: number;
+  events: AutomationLifecycleEvent[];
 }
 
 export interface ScheduleRuntimeOptions {
@@ -52,6 +70,7 @@ export interface ScheduleRuntimeOptions {
   clockTrust: ClockTrustProvider;
   execute: (actions: DesiredLightingAction[]) => Promise<AutomationExecutionFixtureResultV1[]>;
   requestFixtureObservation?: (fixtureIds: string[]) => Promise<void> | void;
+  onLifecycleEvents?: (handoff: AutomationLifecycleHandoff) => Promise<void>;
   onTerminalResults?: (handoff: AutomationTerminalHandoff) => Promise<void>;
   onError?: (error: unknown) => void;
   tickIntervalMs?: number;
@@ -60,6 +79,7 @@ export interface ScheduleRuntimeOptions {
 interface ComputedDesiredState {
   desired: DesiredLightingState;
   actions: Map<string, DesiredLightingAction>;
+  lifecycleEvents: AutomationLifecycleEvent[];
 }
 
 interface ActivationCheckpoint {
@@ -76,10 +96,10 @@ export class ScheduleRuntime {
   private readonly queue = new SerialTaskQueue();
   private readonly wallClock: () => Date;
   private readonly monotonicClock: () => number;
+  private readonly vehicleRuntime: VehicleEventRuntime;
   private snapshot: AutomationSnapshotV1 | null = null;
   private initialized = false;
   private timer: NodeJS.Timeout | null = null;
-  private readonly vehicleHoldDeadlines = new Map<string, number>();
   private readonly manualOverrideDeadlines = new Map<string, number>();
   private readonly recoveredManualPendingTrust = new Set<string>();
   private readonly manualCommandsInFlight = new Set<string>();
@@ -90,10 +110,15 @@ export class ScheduleRuntime {
   private stopping = false;
   private stopPromise: Promise<void> | null = null;
   private readonly acceptedOperations = new Set<Promise<unknown>>();
+  private pendingActivationLifecycle: AutomationLifecycleEvent[] = [];
 
   constructor(private readonly options: ScheduleRuntimeOptions) {
     this.wallClock = options.wallClock ?? (() => new Date());
     this.monotonicClock = options.monotonicClock ?? (() => performance.now());
+    this.vehicleRuntime = new VehicleEventRuntime({
+      wallClock: this.wallClock,
+      monotonicClock: this.monotonicClock
+    });
   }
 
   initialize() {
@@ -132,6 +157,7 @@ export class ScheduleRuntime {
       if (this.activationCheckpoint) throw new Error("automation config activation is already pending");
       this.beginActivation();
       const computed = await this.reconcile(snapshot);
+      this.pendingActivationLifecycle = computed.lifecycleEvents;
       this.snapshot = snapshot;
       return computed.desired;
     });
@@ -150,10 +176,7 @@ export class ScheduleRuntime {
       try {
         await this.options.store.update(() => structuredClone(checkpoint.state));
         this.snapshot = checkpoint.snapshot ? structuredClone(checkpoint.snapshot) : null;
-        this.vehicleHoldDeadlines.clear();
-        for (const [ruleId, deadline] of checkpoint.vehicleHoldDeadlines) {
-          this.vehicleHoldDeadlines.set(ruleId, deadline);
-        }
+        this.vehicleRuntime.restore(checkpoint.vehicleHoldDeadlines);
         this.manualOverrideDeadlines.clear();
         for (const [fixtureId, deadline] of checkpoint.manualOverrideDeadlines) {
           this.manualOverrideDeadlines.set(fixtureId, deadline);
@@ -172,7 +195,12 @@ export class ScheduleRuntime {
     return this.enqueue(async () => {
       await this.ensureInitialized();
       if (!this.snapshot) return;
-      await this.applyComputed(this.computeDesired(this.snapshot, this.state()));
+      await this.applyComputed(this.computeDesired(
+        this.snapshot,
+        this.state(),
+        this.pendingActivationLifecycle
+      ));
+      this.pendingActivationLifecycle = [];
     }, Boolean(this.activationCheckpoint));
   }
 
@@ -396,43 +424,29 @@ export class ScheduleRuntime {
   }
 
   recordVehicleSensorState(sourceFixtureId: string, active: boolean): Promise<void> {
+    return this.recordVehicleSensorInput({ type: "current-state", sourceFixtureId, active });
+  }
+
+  recordVehicleSensorInput(input: VehicleSensorInput): Promise<void> {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       if (!this.snapshot) return;
-      const now = this.wallClock();
-      const monotonicNow = this.monotonicClock();
-      const rules = this.snapshot.vehicleEventRules.filter((rule) =>
-        rule.status === "enabled" && rule.sourceFixtureIds.includes(sourceFixtureId)
-      );
+      let lifecycleEvents: VehicleLifecycleEvent[] = [];
       await this.options.store.update((state) => {
-        for (const rule of rules) {
-          const existing = state.vehicleRules[rule.id];
-          if (!active && !existing?.activeSourceFixtureIds.includes(sourceFixtureId)) continue;
-          const sources = new Set(existing?.activeSourceFixtureIds ?? []);
-          if (active) sources.add(sourceFixtureId);
-          else sources.delete(sourceFixtureId);
-
-          const next = vehicleState(rule, existing, [...sources].sort(), now, state);
-          if (!active && sources.size === 0) {
-            next.holdUntil = new Date(now.getTime() + rule.holdSeconds * 1_000).toISOString();
-            this.vehicleHoldDeadlines.set(rule.id, monotonicNow + rule.holdSeconds * 1_000);
-          } else if (active) {
-            next.holdUntil = null;
-            this.vehicleHoldDeadlines.delete(rule.id);
-          }
-          state.vehicleRules[rule.id] = next;
-        }
+        lifecycleEvents = this.vehicleRuntime.recordInput(state, this.snapshot!, input);
         return state;
       });
       await this.captureMissingBases(this.snapshot);
-      await this.applyComputed(this.computeDesired(this.snapshot, this.state()));
+      await this.applyComputed(this.computeDesired(this.snapshot, this.state(), lifecycleEvents));
     });
   }
 
   private async reconcile(snapshot: AutomationSnapshotV1): Promise<ComputedDesiredState> {
+    const previousSnapshot = this.snapshot;
     const now = this.wallClock();
     const trusted = await this.options.clockTrust.isTrusted(now);
     const monotonicNow = this.monotonicClock();
+    const lifecycleEvents: AutomationLifecycleEvent[] = [];
     await this.options.store.update((state) => {
       reconcileManualOverrides(
         state,
@@ -442,12 +456,16 @@ export class ScheduleRuntime {
         this.manualOverrideDeadlines,
         this.recoveredManualPendingTrust
       );
-      reconcileVehicleRules(state, snapshot, now, monotonicNow, trusted, this.vehicleHoldDeadlines);
-      reconcileSchedules(state, snapshot, now, trusted);
+      lifecycleEvents.push(...this.vehicleRuntime.reconcile(state, snapshot, trusted));
+      lifecycleEvents.push(...reconcileSchedules(state, snapshot, now, trusted));
       return state;
     });
     await this.captureMissingBases(snapshot);
-    return this.computeDesired(snapshot, this.state());
+    return this.computeDesired(
+      snapshot,
+      this.state(),
+      lifecycleEvents.map((event) => tagLifecycleRevision(event, snapshot, previousSnapshot))
+    );
   }
 
   private async captureMissingBases(snapshot: AutomationSnapshotV1) {
@@ -470,7 +488,11 @@ export class ScheduleRuntime {
     });
   }
 
-  private computeDesired(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV3): ComputedDesiredState {
+  private computeDesired(
+    snapshot: AutomationSnapshotV1,
+    state: PersistedAutomationStateV3,
+    lifecycleEvents: AutomationLifecycleEvent[] = []
+  ): ComputedDesiredState {
     const actions = new Map<string, DesiredLightingAction>();
     const desired: Record<string, number> = {};
     const fixtures = relevantFixtures(snapshot, state);
@@ -515,7 +537,8 @@ export class ScheduleRuntime {
 
     return {
       desired: Object.fromEntries(Object.entries(desired).sort(([left], [right]) => left.localeCompare(right))),
-      actions
+      actions,
+      lifecycleEvents
     };
   }
 
@@ -534,7 +557,10 @@ export class ScheduleRuntime {
       )
       .map((action) => action.fixtureId);
 
-    if (changed.length === 0 && settledBaseFixtures.length === 0) return;
+    if (changed.length === 0 && settledBaseFixtures.length === 0) {
+      await this.handoffLifecycle(computed.lifecycleEvents);
+      return;
+    }
     const pendingAt = this.wallClock().toISOString();
     await this.options.store.update((next) => {
       for (const action of changed) {
@@ -556,7 +582,10 @@ export class ScheduleRuntime {
       }
       return next;
     });
-    if (changed.length === 0) return;
+    if (changed.length === 0) {
+      await this.handoffLifecycle(computed.lifecycleEvents);
+      return;
+    }
 
     let results: AutomationExecutionFixtureResultV1[];
     try {
@@ -611,13 +640,27 @@ export class ScheduleRuntime {
       }
       throw error;
     }
-    await this.handoff(changed, results);
+    await this.handoffLifecycle(computed.lifecycleEvents);
+    await this.handoff(changed, results, computed.lifecycleEvents);
   }
 
-  private async handoff(actions: DesiredLightingAction[], results: AutomationExecutionFixtureResultV1[]) {
+  private async handoffLifecycle(events: AutomationLifecycleEvent[]) {
+    if (!this.options.onLifecycleEvents || !this.snapshot || events.length === 0) return;
+    try {
+      await this.options.onLifecycleEvents({ revision: this.snapshot.revision, events });
+    } catch (error) {
+      this.options.onError?.(error);
+    }
+  }
+
+  private async handoff(
+    actions: DesiredLightingAction[],
+    results: AutomationExecutionFixtureResultV1[],
+    causes: AutomationLifecycleEvent[] = []
+  ) {
     if (!this.options.onTerminalResults || !this.snapshot || actions.length === 0) return;
     try {
-      await this.options.onTerminalResults({ revision: this.snapshot.revision, actions, results });
+      await this.options.onTerminalResults({ revision: this.snapshot.revision, actions, results, causes });
     } catch (error) {
       this.options.onError?.(error);
     }
@@ -632,7 +675,7 @@ export class ScheduleRuntime {
     this.activationCheckpoint = {
       snapshot: this.snapshot ? structuredClone(this.snapshot) : null,
       state: this.state(),
-      vehicleHoldDeadlines: [...this.vehicleHoldDeadlines],
+      vehicleHoldDeadlines: this.vehicleRuntime.checkpoint(),
       manualOverrideDeadlines: [...this.manualOverrideDeadlines],
       recoveredManualPendingTrust: [...this.recoveredManualPendingTrust]
     };
@@ -641,6 +684,7 @@ export class ScheduleRuntime {
 
   private finishActivation() {
     this.activationCheckpoint = null;
+    this.pendingActivationLifecycle = [];
     this.settleActivation?.();
     this.settleActivation = null;
     this.activationSettled = Promise.resolve();
@@ -721,18 +765,24 @@ function reconcileSchedules(
   now: Date,
   trusted: boolean
 ) {
+  const events: AutomationLifecycleEvent[] = [];
   const schedules = new Map(snapshot.schedules.map((schedule) => [schedule.id, schedule]));
   for (const scheduleId of Object.keys(state.activeOccurrences)) {
+    const occurrence = state.activeOccurrences[scheduleId]!;
     const schedule = schedules.get(scheduleId);
     if (!schedule || schedule.status !== "enabled") {
       delete state.activeOccurrences[scheduleId];
+      events.push(scheduleLifecycle("schedule_ended", scheduleId, occurrence, now, "configuration_changed"));
       continue;
     }
     if (!trusted) continue;
     const active = getActiveOccurrence(schedule, now.getTime(), snapshot.timeZone);
-    if (!active || active.key !== state.activeOccurrences[scheduleId]?.key) delete state.activeOccurrences[scheduleId];
+    if (!active || active.key !== occurrence.key) {
+      delete state.activeOccurrences[scheduleId];
+      events.push(scheduleLifecycle("schedule_ended", scheduleId, occurrence, now, "occurrence_ended"));
+    }
   }
-  if (!trusted) return;
+  if (!trusted) return events;
 
   for (const schedule of snapshot.schedules) {
     const active = getActiveOccurrence(schedule, now.getTime(), snapshot.timeZone);
@@ -754,73 +804,48 @@ function reconcileSchedules(
       endsAt: new Date(active.endsAtEpochMs).toISOString(),
       preBrightness
     };
+    events.push(scheduleLifecycle(
+      "schedule_started",
+      schedule.id,
+      state.activeOccurrences[schedule.id]!,
+      now,
+      "occurrence_started"
+    ));
   }
+  return events;
 }
 
-function reconcileVehicleRules(
-  state: PersistedAutomationStateV3,
-  snapshot: AutomationSnapshotV1,
+function scheduleLifecycle(
+  kind: "schedule_started" | "schedule_ended",
+  ruleId: string,
+  occurrence: PersistedAutomationStateV3["activeOccurrences"][string],
   now: Date,
-  monotonicNow: number,
-  trusted: boolean,
-  deadlines: Map<string, number>
-) {
-  const rules = new Map(snapshot.vehicleEventRules.map((rule) => [rule.id, rule]));
-  for (const [ruleId, vehicle] of Object.entries(state.vehicleRules)) {
-    const rule = rules.get(ruleId);
-    if (!rule || rule.status !== "enabled") {
-      delete state.vehicleRules[ruleId];
-      deadlines.delete(ruleId);
-      continue;
-    }
-    const hadActiveSource = vehicle.activeSourceFixtureIds.length > 0;
-    vehicle.activeSourceFixtureIds = vehicle.activeSourceFixtureIds
-      .filter((fixtureId) => rule.sourceFixtureIds.includes(fixtureId));
-    vehicle.targetFixtureIds = [...rule.targetFixtureIds];
-    vehicle.brightnessPercent = actionBrightness(rule);
-
-    if (hadActiveSource && vehicle.activeSourceFixtureIds.length === 0 && vehicle.holdUntil === null) {
-      delete state.vehicleRules[ruleId];
-      deadlines.delete(ruleId);
-      continue;
-    }
-    if (vehicle.activeSourceFixtureIds.length > 0 || vehicle.holdUntil === null) continue;
-    let deadline = deadlines.get(ruleId);
-    if (deadline === undefined && trusted) {
-      const remaining = Date.parse(vehicle.holdUntil) - now.getTime();
-      if (remaining <= 0) {
-        delete state.vehicleRules[ruleId];
-        continue;
-      }
-      deadline = monotonicNow + remaining;
-      deadlines.set(ruleId, deadline);
-    }
-    if (deadline !== undefined && monotonicNow >= deadline) {
-      delete state.vehicleRules[ruleId];
-      deadlines.delete(ruleId);
-    }
-  }
-}
-
-function vehicleState(
-  rule: VehicleEventRuleSnapshotV1,
-  existing: PersistedVehicleRuleState | undefined,
-  activeSourceFixtureIds: string[],
-  now: Date,
-  state: PersistedAutomationStateV3
-): PersistedVehicleRuleState {
-  const preBrightness = { ...(existing?.preBrightness ?? {}) };
-  for (const fixtureId of rule.targetFixtureIds) {
-    const base = captureBase(state, fixtureId);
-    if (base !== null) preBrightness[fixtureId] = base;
-  }
+  reason: string
+): AutomationLifecycleEvent {
   return {
-    activeSourceFixtureIds,
-    targetFixtureIds: [...rule.targetFixtureIds],
-    brightnessPercent: actionBrightness(rule),
-    startedAt: existing?.startedAt ?? now.toISOString(),
-    holdUntil: existing?.holdUntil ?? null,
-    preBrightness
+    kind,
+    ruleId,
+    occurrenceKey: occurrence.key,
+    occurredAt: now.toISOString(),
+    payload: {
+      startedAt: occurrence.startedAt,
+      endsAt: occurrence.endsAt,
+      targetFixtureIds: Object.keys(occurrence.preBrightness).sort(),
+      reason
+    }
+  };
+}
+
+function tagLifecycleRevision(
+  event: AutomationLifecycleEvent,
+  snapshot: AutomationSnapshotV1,
+  previousSnapshot: AutomationSnapshotV1 | null
+): AutomationLifecycleEvent {
+  const configurationEnded = (event.kind === "event_ended" || event.kind === "schedule_ended") &&
+    event.payload.reason === "configuration_changed";
+  return {
+    ...event,
+    revision: configurationEnded && previousSnapshot ? previousSnapshot.revision : snapshot.revision
   };
 }
 

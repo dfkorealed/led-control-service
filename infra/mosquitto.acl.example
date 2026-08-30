@@ -6,6 +6,7 @@ topic readwrite sites/#
 pattern read sites/+/gateways/%u/commands/#
 pattern read sites/+/gateways/%u/acks/state-ingested
 pattern read sites/+/gateways/%u/acks/provisioning/scan-terminal-ingested
+pattern read sites/+/gateways/%u/acks/automation/execution-ingested
 pattern write sites/+/gateways/%u/acks/acceptance
 pattern write sites/+/gateways/%u/acks/device-status
 pattern write sites/+/gateways/%u/state/#

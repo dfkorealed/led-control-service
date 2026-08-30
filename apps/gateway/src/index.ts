@@ -10,6 +10,7 @@ import {
   type FixtureStateV2,
   gatewayDimmingCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
+  automationExecutionIngestedAckV1Schema,
   identifyDeviceSchema,
   isGatewayCommandExpired,
   mqttTopicsV2,
@@ -85,8 +86,18 @@ import {
 import { AutomationRuntime } from "./automation/automation-runtime";
 import { AutomationConfigAckOutbox, AutomationConfigAckPublisher } from "./automation/automation-config-ack-outbox";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
-import { ScheduleRuntime, type AutomationTerminalHandoff, type ScheduleRuntimeOptions } from "./automation/schedule-runtime";
+import {
+  ScheduleRuntime,
+  type AutomationLifecycleHandoff,
+  type AutomationTerminalHandoff,
+  type ScheduleRuntimeOptions
+} from "./automation/schedule-runtime";
 import { SystemClockTrustProvider, type ClockTrustProvider } from "./automation/clock-trust-provider";
+import {
+  AutomationTelemetryOutbox,
+  AutomationTelemetryPublisher,
+  AutomationTelemetryRecorder
+} from "./automation/automation-telemetry-outbox";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
 
@@ -102,6 +113,7 @@ export function createGatewayAutomationServices(options: {
   wallClock?: () => Date;
   monotonicClock?: () => number;
   onTerminalResults?: ScheduleRuntimeOptions["onTerminalResults"];
+  onLifecycleEvents?: ScheduleRuntimeOptions["onLifecycleEvents"];
   onError?: ScheduleRuntimeOptions["onError"];
 }) {
   const scheduleRuntime = new ScheduleRuntime({
@@ -111,6 +123,7 @@ export function createGatewayAutomationServices(options: {
     ...(options.requestFixtureObservation ? { requestFixtureObservation: options.requestFixtureObservation } : {}),
     ...(options.wallClock ? { wallClock: options.wallClock } : {}),
     ...(options.monotonicClock ? { monotonicClock: options.monotonicClock } : {}),
+    ...(options.onLifecycleEvents ? { onLifecycleEvents: options.onLifecycleEvents } : {}),
     ...(options.onTerminalResults ? { onTerminalResults: options.onTerminalResults } : {}),
     ...(options.onError ? { onError: options.onError } : {})
   });
@@ -277,8 +290,42 @@ async function main() {
   const automationStateStore = new FileAutomationStateStore(
     process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json"
   );
+  const automationTelemetryOutbox = new AutomationTelemetryOutbox(
+    process.env.GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH ?? "/var/lib/led-control/automation-telemetry.json",
+    { siteId, gatewayId }
+  );
+  try {
+    await automationTelemetryOutbox.initialize();
+  } catch (error) {
+    await health.setOperationalBlocker("automation_telemetry_unavailable", true);
+    throw error;
+  }
+  const automationTelemetryRecorder = new AutomationTelemetryRecorder(automationTelemetryOutbox);
+  const automationTelemetryPublisher = new AutomationTelemetryPublisher(
+    automationTelemetryOutbox,
+    { siteId, gatewayId },
+    { onError: (error) => void reportGatewayError(error, "automation_telemetry_retry") }
+  );
   const clockTrust = new SystemClockTrustProvider();
   let scheduleRuntime!: ScheduleRuntime;
+  let automationRuntime!: AutomationRuntime;
+  const recordRuntimeTelemetryGap = async (
+    firstDroppedAt: string,
+    droppedCount: number,
+    lastDroppedAt: string
+  ) => {
+    const handedOff = await recordAndHandoffAutomationTelemetryGap(
+      automationStateStore,
+      automationTelemetryOutbox,
+      automationRuntime?.currentRevision ?? null,
+      firstDroppedAt,
+      droppedCount,
+      lastDroppedAt
+    );
+    if (handedOff) void automationTelemetryPublisher.wake()
+      .catch((error) => void reportGatewayError(error, "automation_gap_publish"));
+    return handedOff;
+  };
   const targetedLightingResync: TargetedLightingResyncQueue = new TargetedLightingResyncQueue({
     run: (fixtureIds, signal) => adapter.resyncLightingFixtures(fixtureIds, signal),
     onError: (error) => reportGatewayError(error, "automation_targeted_lighting_resync"),
@@ -318,20 +365,27 @@ async function main() {
         results,
         enqueue: (state) => enqueueFixtureState(state)
       }),
-      recordGap: (firstDroppedAt, droppedCount, lastDroppedAt) =>
-        automationStateStore.recordTelemetryGap(firstDroppedAt, droppedCount, lastDroppedAt),
+      recordGap: recordRuntimeTelemetryGap,
       onError: (error) => void reportGatewayError(error, "automation_terminal_telemetry")
     }),
+    onLifecycleEvents: createDurableAutomationLifecycleHandoff({
+      enqueue: (handoff) => automationTelemetryRecorder.recordLifecycle(handoff),
+      recordGap: recordRuntimeTelemetryGap,
+      onPersisted: () => { void automationTelemetryPublisher.wake()
+        .catch((error) => void reportGatewayError(error, "automation_lifecycle_publish")); },
+      onError: (error) => void reportGatewayError(error, "automation_lifecycle_handoff")
+    }),
     onTerminalResults: createDurableAutomationTerminalHandoff({
-      enqueue: (handoff) => reportAutomationTerminalHandoff(handoff),
-      recordGap: (firstDroppedAt, droppedCount, lastDroppedAt) =>
-        automationStateStore.recordTelemetryGap(firstDroppedAt, droppedCount, lastDroppedAt),
+      enqueue: (handoff) => automationTelemetryRecorder.recordTerminal(handoff),
+      recordGap: recordRuntimeTelemetryGap,
+      onPersisted: () => { void automationTelemetryPublisher.wake()
+        .catch((error) => void reportGatewayError(error, "automation_action_result_publish")); },
       onError: (error) => void reportGatewayError(error, "automation_terminal_handoff")
     }),
     onError: (error) => void reportGatewayError(error, "automation_runtime")
   });
   scheduleRuntime = automationServices.scheduleRuntime;
-  const { automationRuntime } = automationServices;
+  automationRuntime = automationServices.automationRuntime;
   try {
     await scheduleRuntime.initialize();
   } catch (error) {
@@ -344,6 +398,13 @@ async function main() {
     automationRuntime,
     () => recoverPendingManualAutomationHandoffs(commandJournal, manualOverrideCoordinator)
   );
+  if (automationRuntime.currentRevision !== null) {
+    await handoffPersistedAutomationTelemetryGap(
+      automationStateStore,
+      automationTelemetryOutbox,
+      automationRuntime.currentRevision
+    );
+  }
   const stopAutomationFixtureStatusIntake = observeAutomationFixtureStatuses(
     adapter,
     scheduleRuntime,
@@ -499,6 +560,15 @@ async function main() {
       void automationAckPublisher.wake()
         .catch((error) => void reportGatewayError(error, "automation_config_ack_publish"));
     });
+    if (automationRuntime.currentRevision !== null) {
+      await handoffPersistedAutomationTelemetryGap(
+        automationStateStore,
+        automationTelemetryOutbox,
+        automationRuntime.currentRevision
+      );
+      void automationTelemetryPublisher.wake()
+        .catch((error) => void reportGatewayError(error, "automation_gap_publish"));
+    }
   }
 
   const fixtureStatusReservation = new StateEventReservationSlot(stateEventOutbox);
@@ -592,13 +662,25 @@ async function main() {
             meshResyncWorker.schedule(true);
           }
         }
+      },
+      [mqttTopics.automationExecutionIngested(siteId, gatewayId)]: async (payload) => {
+        const acknowledgement = automationExecutionIngestedAckV1Schema.parse(JSON.parse(payload.toString()));
+        if (acknowledgement.gatewayId !== gatewayId) throw new Error("automation execution ACK scope mismatch");
+        const result = await automationTelemetryOutbox.markIngested(acknowledgement);
+        if (result === "conflict") throw new Error("automation execution ACK hash conflict");
+        if (result === "deleted") void automationTelemetryPublisher.wake()
+          .catch((error) => void reportGatewayError(error, "automation_telemetry_publish"));
       }
     },
     deferredPubackTopics: [mqttTopics.automationConfig(siteId, gatewayId)],
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
     onConnect: () => connectGatewayServices({
-      connectAutomationAcks: () => automationAckPublisher
-        .connect((topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement)),
+      connectAutomationAcks: () => Promise.all([
+        automationAckPublisher.connect(
+          (topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement)
+        ),
+        automationTelemetryPublisher.connect(mqttRuntime.client)
+      ]),
       connectOperationalServices: async () => {
         await health.mqttConnected();
         await provisioningScanRecovery.connect(
@@ -615,8 +697,10 @@ async function main() {
       provisioningScanRecovery.disconnect();
       stateEventPublisher.disconnect();
       automationAckPublisher.disconnect();
+      automationTelemetryPublisher.disconnect();
       return health.unhealthy("mqtt_disconnected");
     },
+    onBeforeStop: () => automationTelemetryPublisher.stopAndDrain(),
     onError: () => health.unhealthy("mqtt_error"),
     onRuntimeError: reportGatewayError
   });
@@ -713,13 +797,15 @@ export async function executeAutomationWithBestEffortTelemetry(input: {
 }
 
 export function createDurableAutomationTerminalHandoff(input: {
-  enqueue: (handoff: AutomationTerminalHandoff) => Promise<void>;
+  enqueue: (handoff: AutomationTerminalHandoff) => Promise<unknown>;
   recordGap: (firstDroppedAt: string, droppedCount: number, lastDroppedAt: string) => Promise<unknown>;
+  onPersisted?: () => void;
   onError?: (error: unknown) => void;
 }) {
   return async (handoff: AutomationTerminalHandoff) => {
     try {
       await input.enqueue(handoff);
+      input.onPersisted?.();
     } catch (error) {
       input.onError?.(error);
       const timestamps = handoff.results.map((result) => result.occurredAt).sort();
@@ -730,6 +816,52 @@ export function createDurableAutomationTerminalHandoff(input: {
       }
     }
   };
+}
+
+export function createDurableAutomationLifecycleHandoff(input: {
+  enqueue: (handoff: AutomationLifecycleHandoff) => Promise<unknown>;
+  recordGap: (firstDroppedAt: string, droppedCount: number, lastDroppedAt: string) => Promise<unknown>;
+  onPersisted?: () => void;
+  onError?: (error: unknown) => void;
+}) {
+  return async (handoff: AutomationLifecycleHandoff) => {
+    try {
+      await input.enqueue(handoff);
+      input.onPersisted?.();
+    } catch (error) {
+      input.onError?.(error);
+      const timestamps = handoff.events.map((event) => event.occurredAt).sort();
+      try {
+        await input.recordGap(timestamps[0]!, handoff.events.length, timestamps.at(-1)!);
+      } catch (gapError) {
+        input.onError?.(gapError);
+      }
+    }
+  };
+}
+
+export async function handoffPersistedAutomationTelemetryGap(
+  stateStore: FileAutomationStateStore,
+  outbox: Pick<AutomationTelemetryOutbox, "recordGap">,
+  revision: number
+) {
+  const gap = stateStore.read().telemetryGap;
+  if (!gap) return false;
+  await outbox.recordGap({ revision, ...gap });
+  return stateStore.clearTelemetryGap(gap);
+}
+
+export async function recordAndHandoffAutomationTelemetryGap(
+  stateStore: FileAutomationStateStore,
+  outbox: Pick<AutomationTelemetryOutbox, "recordGap">,
+  revision: number | null,
+  firstDroppedAt: string,
+  droppedCount: number,
+  lastDroppedAt: string
+) {
+  await stateStore.recordTelemetryGap(firstDroppedAt, droppedCount, lastDroppedAt);
+  if (revision === null) return false;
+  return handoffPersistedAutomationTelemetryGap(stateStore, outbox, revision);
 }
 
 export async function enqueueAutomationFixtureStates(input: {
@@ -779,14 +911,6 @@ export class AutomationTerminalTelemetryEnqueueError extends Error {
     });
     this.name = "AutomationTerminalTelemetryEnqueueError";
   }
-}
-
-export function reportAutomationTerminalHandoff(
-  handoff: AutomationTerminalHandoff,
-  logger: Pick<Console, "info"> = console
-) {
-  logger.info(JSON.stringify({ event: "automation_terminal_handoff", ...handoff }));
-  return Promise.resolve();
 }
 
 export function automationStateHealthReason(error: unknown) {
@@ -905,7 +1029,8 @@ export function subscribeGatewayCommands(
         mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.provisioningScanTerminalIngestedAck(assignment.siteId, assignment.gatewayId),
-        mqttTopicsV2.stateIngestedAck(assignment.siteId, assignment.gatewayId)
+        mqttTopicsV2.stateIngestedAck(assignment.siteId, assignment.gatewayId),
+        mqttTopics.automationExecutionIngested(assignment.siteId, assignment.gatewayId)
       ],
       { qos: 1 },
       (error) => (error ? reject(error) : resolve())
