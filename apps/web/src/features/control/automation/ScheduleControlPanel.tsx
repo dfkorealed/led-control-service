@@ -1,17 +1,21 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared";
 import { CalendarPlus, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   createSchedule,
   deleteSchedule,
+  isScheduleUnauthorized,
   listSchedules,
   scheduleMutationErrorMessage,
+  scheduleQueryErrorMessage,
   scheduleQueryKey,
   updateSchedule,
   type CreateScheduleInput,
   type ScheduleResponse
 } from "../../../api/automation";
 import type { AuthUser } from "../../../api/auth";
+import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
@@ -29,8 +33,12 @@ export function ScheduleControlPanel({
 }) {
   const queryClient = useQueryClient();
   const addButtonRef = useRef<HTMLButtonElement>(null);
-  const currentScope = useRef(scopeKey);
-  currentScope.current = scopeKey;
+  const currentScope = useRef({ key: scopeKey, generation: 0 });
+  if (currentScope.current.key !== scopeKey) {
+    currentScope.current = { key: scopeKey, generation: currentScope.current.generation + 1 };
+  }
+  const currentScopeGeneration = currentScope.current.generation;
+  const expiredPrincipalGeneration = useRef<number | null>(null);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleResponse | null>(null);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [dialogReturnFocus, setDialogReturnFocus] = useState<HTMLElement | null>(null);
@@ -50,6 +58,29 @@ export function ScheduleControlPanel({
     refetchInterval: 3000
   });
   const schedules = schedulesQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const queryFailure = schedulesQuery.isLoadingError
+    ? {
+        message: scheduleQueryErrorMessage(schedulesQuery.error),
+        retryLabel: "다시 시도",
+        retry: () => schedulesQuery.refetch()
+      }
+    : schedulesQuery.isFetchNextPageError
+      ? {
+          message: isScheduleUnauthorized(schedulesQuery.error)
+            ? scheduleQueryErrorMessage(schedulesQuery.error)
+            : "다음 스케줄을 불러오지 못했습니다.",
+          retryLabel: "다음 페이지 다시 시도",
+          retry: () => schedulesQuery.fetchNextPage()
+        }
+      : schedulesQuery.isRefetchError
+        ? {
+            message: isScheduleUnauthorized(schedulesQuery.error)
+              ? scheduleQueryErrorMessage(schedulesQuery.error)
+              : "Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다.",
+            retryLabel: "상태 다시 조회",
+            retry: () => schedulesQuery.refetch()
+          }
+        : null;
 
   const saveMutation = useMutation({
     mutationFn: ({ scheduleId, input }: { scheduleId: string | null; input: CreateScheduleInput }) => scheduleId
@@ -66,12 +97,29 @@ export function ScheduleControlPanel({
   const isMutating = saveMutation.isPending || toggleMutation.isPending || removeMutation.isPending;
 
   useEffect(() => {
+    expiredPrincipalGeneration.current = null;
     setScheduleDialogOpen(false);
     setEditingSchedule(null);
     setDeleteCandidate(null);
     setMessage("");
     setMutationError("");
   }, [scopeKey]);
+
+  useEffect(() => {
+    expirePrincipal(schedulesQuery.error, scopeKey, currentScopeGeneration);
+  }, [currentScopeGeneration, schedulesQuery.error, schedulesQuery.errorUpdatedAt, scopeKey]);
+
+  function isCurrentOperation(operationScope: string, operationGeneration: number) {
+    return currentScope.current.key === operationScope
+      && currentScope.current.generation === operationGeneration;
+  }
+
+  function expirePrincipal(error: unknown, operationScope: string, operationGeneration: number) {
+    if (!isScheduleUnauthorized(error) || !isCurrentOperation(operationScope, operationGeneration)) return;
+    if (expiredPrincipalGeneration.current === operationGeneration) return;
+    expiredPrincipalGeneration.current = operationGeneration;
+    void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
+  }
 
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: scheduleQueryKey(siteId) });
@@ -96,36 +144,42 @@ export function ScheduleControlPanel({
 
   function save(input: CreateScheduleInput) {
     const operationScope = scopeKey;
+    const operationGeneration = currentScopeGeneration;
     const scheduleId = editingSchedule?.id ?? null;
     setMutationError("");
     saveMutation.mutate({ scheduleId, input }, {
       onSuccess: () => {
         invalidate();
-        if (currentScope.current !== operationScope) return;
+        if (!isCurrentOperation(operationScope, operationGeneration)) return;
         setScheduleDialogOpen(false);
         setEditingSchedule(null);
         setMessage(scheduleId ? "스케줄을 수정했습니다." : "스케줄을 만들었습니다. Gateway 적용 상태를 확인해 주세요.");
       },
       onError: (error) => {
-        if (currentScope.current === operationScope) setMutationError(scheduleMutationErrorMessage(error));
+        if (!isCurrentOperation(operationScope, operationGeneration)) return;
+        expirePrincipal(error, operationScope, operationGeneration);
+        setMutationError(scheduleMutationErrorMessage(error));
       }
     });
   }
 
   function toggle(schedule: ScheduleResponse) {
     const operationScope = scopeKey;
+    const operationGeneration = currentScopeGeneration;
     const status = schedule.status === "enabled" ? "disabled" : "enabled";
     setMutationError("");
     setMessage("");
     toggleMutation.mutate({ scheduleId: schedule.id, status }, {
       onSuccess: () => {
         invalidate();
-        if (currentScope.current === operationScope) {
+        if (isCurrentOperation(operationScope, operationGeneration)) {
           setMessage(status === "enabled" ? "스케줄을 활성화했습니다." : "스케줄을 비활성화했습니다.");
         }
       },
       onError: (error) => {
-        if (currentScope.current === operationScope) setMutationError(scheduleMutationErrorMessage(error));
+        if (!isCurrentOperation(operationScope, operationGeneration)) return;
+        expirePrincipal(error, operationScope, operationGeneration);
+        setMutationError(scheduleMutationErrorMessage(error));
       }
     });
   }
@@ -133,17 +187,20 @@ export function ScheduleControlPanel({
   function remove() {
     if (!deleteCandidate) return;
     const operationScope = scopeKey;
+    const operationGeneration = currentScopeGeneration;
     const scheduleId = deleteCandidate.id;
     setMutationError("");
     removeMutation.mutate(scheduleId, {
       onSuccess: () => {
         invalidate();
-        if (currentScope.current !== operationScope) return;
+        if (!isCurrentOperation(operationScope, operationGeneration)) return;
         setDeleteCandidate(null);
         setMessage("스케줄을 삭제했습니다.");
       },
       onError: (error) => {
-        if (currentScope.current === operationScope) setMutationError(scheduleMutationErrorMessage(error));
+        if (!isCurrentOperation(operationScope, operationGeneration)) return;
+        expirePrincipal(error, operationScope, operationGeneration);
+        setMutationError(scheduleMutationErrorMessage(error));
       }
     });
   }
@@ -181,14 +238,14 @@ export function ScheduleControlPanel({
       ) : null}
 
       {schedulesQuery.isLoading ? <p className="muted-text" role="status">스케줄을 불러오는 중입니다.</p> : null}
-      {schedulesQuery.error && schedules.length === 0 ? (
+      {queryFailure ? (
         <div className="schedule-query-error" role="alert">
-          <p className="danger-text">스케줄 목록을 불러오지 못했습니다.</p>
-          <button type="button" onClick={() => void schedulesQuery.refetch()}>다시 시도</button>
+          <p className="danger-text">{queryFailure.message}</p>
+          <button type="button" onClick={() => void queryFailure.retry()}>{queryFailure.retryLabel}</button>
         </div>
       ) : null}
 
-      {!schedulesQuery.isLoading && !(schedulesQuery.error && schedules.length === 0) ? (
+      {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError ? (
         <div className="schedule-table-wrap">
           <table className="schedule-table">
             <thead>
@@ -269,7 +326,7 @@ export function ScheduleControlPanel({
         </div>
       ) : null}
 
-      {schedulesQuery.hasNextPage ? (
+      {schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError ? (
         <button
           className="control-load-more"
           type="button"
@@ -368,7 +425,28 @@ function formatLastExecution(schedule: ScheduleResponse, timeZone: string) {
     action_result: "조명 적용 결과",
     telemetry_gap: "실행 기록 일부 누락"
   };
-  return `${labels[schedule.lastExecution.kind]} · ${formatDateTime(schedule.lastExecution.occurredAt, timeZone)}`;
+  const label = schedule.lastExecution.kind === "action_result"
+    ? formatActionResult(schedule.lastExecution.payload)
+    : labels[schedule.lastExecution.kind];
+  return `${label} · ${formatDateTime(schedule.lastExecution.occurredAt, timeZone)}`;
+}
+
+function formatActionResult(payload: unknown) {
+  const parsed = automationExecutionActionResultPayloadV1Schema.safeParse(payload);
+  if (!parsed.success) return "결과 상세를 확인할 수 없음";
+
+  const counts = { succeeded: 0, failed: 0, timed_out: 0 };
+  for (const result of parsed.data.results) counts[result.status] += 1;
+  if (counts.failed === 0 && counts.timed_out === 0) {
+    return `모두 성공 · 성공 ${counts.succeeded}개`;
+  }
+
+  const details = [
+    counts.succeeded > 0 ? `성공 ${counts.succeeded}개` : null,
+    counts.failed > 0 ? `실패 ${counts.failed}개` : null,
+    counts.timed_out > 0 ? `시간 초과 ${counts.timed_out}개` : null
+  ].filter((detail): detail is string => Boolean(detail));
+  return `${counts.succeeded > 0 ? "일부 실패" : "실패"} · ${details.join(" · ")}`;
 }
 
 function formatDate(iso: string, timeZone: string) {

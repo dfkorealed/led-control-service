@@ -13,6 +13,15 @@
 - `schedule_overlap`, `single_gateway_required`, 입력·권한·not found와 일반 연결 실패를 서버 원문 대신 안전한 한글 메시지로 표시한다. 직접 fixture 선택은 기존 picker의 최대 1,000개 제한을 재사용한다.
 - 이벤트 탭은 Task 18 전의 준비 상태만 표시하고 차량 이벤트 CRUD를 앞당겨 구현하지 않았다.
 
+## Fix Round 1 보완
+
+- 매년 반복의 월·일을 Gregorian 달력 조합으로 검증해 4월 31일, 2월 30일처럼 영구히 실행되지 않는 입력을 거부하고 2월 29일은 유지했다. 매월 29~31일 허용 계약은 바꾸지 않았다.
+- 최근 `action_result.payload`를 `@led-control/shared` production schema로 `safeParse`하고 fixture 결과를 모두 성공·일부 실패·실패와 성공/실패/시간 초과 건수로 표시한다. legacy 또는 unknown payload는 `결과 상세를 확인할 수 없음`으로 표시한다.
+- infinite query의 첫 페이지, 다음 페이지, background refetch 오류를 분리했다. 기존 행을 보존한 채 다음 cursor 재시도 또는 Gateway 상태 재조회를 제공하고 stale 적용 상태임을 `role=alert`로 알린다.
+- 제어 탭에 선택 탭만 `tabIndex=0`인 roving focus, 좌우 방향키 순환과 Home/End를 구현했다. 키보드 선택은 focus·URL mode를 함께 바꾸며 browser back/forward 뒤 tabIndex도 현재 mode와 다시 일치한다.
+- list, poll, mutation `401`은 세션 만료 문구와 `authMeQueryKey` invalidate로 App principal 만료 흐름을 작동시킨다. 사용자·Site scope 세대를 확인해 A→B→A 왕복 뒤 과거 요청의 지연된 `401`을 무시하고, 현재 세대의 반복 오류는 invalidate 1회로 제한한다.
+- 편집 dialog의 기간·시간·반복·밝기·status·전체 target DTO 왕복, pagination 실패/동일 cursor 재시도, dialog Escape/focus wrap/return과 기존 수동 제어 회귀를 추가 검증했다.
+
 ## TDD RED
 
 1. `automation.test.ts`, `schedule-form.test.ts`를 먼저 추가하고 실행해 `automation.ts`, `schedule-form.ts`가 없어 2개 suite가 실패하는 것을 확인했다.
@@ -23,8 +32,8 @@
 
 ## GREEN 검증
 
-- `pnpm --filter @led-control/web test -- ScheduleControlPanel.test.tsx ControlView.test.tsx automation.test.ts schedule-form.test.ts`: 4파일 67/67 통과
-- `pnpm --filter @led-control/web test`: 31파일 321/321 통과
+- `pnpm --filter @led-control/web test -- ScheduleControlPanel.test.tsx ControlView.test.tsx automation.test.ts schedule-form.test.ts`: Fix Round 1 기준 4파일 78/78 통과
+- `pnpm --filter @led-control/web test`: Fix Round 1 기준 31파일 332/332 통과
 - `pnpm --filter @led-control/web typecheck`: 통과
 - `pnpm --filter @led-control/web lint`: 통과
 - `pnpm --filter @led-control/web build`: 통과. 기존 500 kB 초과 chunk 경고는 유지된다.

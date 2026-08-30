@@ -115,15 +115,19 @@ export function validateScheduleForm(values: ScheduleFormValues): ScheduleFormEr
       : "반복할 날짜를 입력해 주세요.";
   }
   if (values.recurrenceKind === "yearly") {
-    if (!integerInRange(values.yearlyMonth, 1, 12)) {
+    const validMonth = integerInRange(values.yearlyMonth, 1, 12);
+    const validDay = integerInRange(values.yearlyDay, 1, 31);
+    if (!validMonth) {
       errors.yearlyMonth = values.yearlyMonth
         ? "월은 1~12 사이의 정수여야 합니다."
         : "반복할 월을 입력해 주세요.";
     }
-    if (!integerInRange(values.yearlyDay, 1, 31)) {
+    if (!validDay) {
       errors.yearlyDay = values.yearlyDay
         ? "날짜는 1~31 사이의 정수여야 합니다."
         : "반복할 날짜를 입력해 주세요.";
+    } else if (validMonth && !isValidYearlyDate(Number(values.yearlyMonth), Number(values.yearlyDay))) {
+      errors.yearlyDay = "해당 월에 존재하는 날짜를 입력해 주세요.";
     }
   }
 
@@ -193,6 +197,12 @@ function integerInRange(value: string, minimum: number, maximum: number) {
   if (!/^\d+$/.test(value)) return false;
   const number = Number(value);
   return Number.isSafeInteger(number) && number >= minimum && number <= maximum;
+}
+
+function isValidYearlyDate(month: number, day: number) {
+  // Leap year 2000 keeps February 29 valid while rejecting dates that never occur.
+  const date = new Date(Date.UTC(2000, month - 1, day));
+  return date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 function dateInTimeZone(isoInstant: string, timeZone: string) {

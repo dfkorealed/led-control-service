@@ -3,6 +3,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    commonjsOptions: {
+      include: [/node_modules/, /packages\/shared\/dist/]
+    }
+  },
   server: {
     proxy: {
       "/api": {

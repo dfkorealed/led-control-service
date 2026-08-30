@@ -97,6 +97,7 @@ export function scheduleMutationErrorMessage(error: unknown): string {
     return "스케줄 변경을 완료하지 못했습니다. 연결 상태를 확인해 주세요.";
   }
 
+  if (error.status === 401) return "로그인 세션이 만료되었습니다.";
   const code = errorCode(error.body);
   if (code === "schedule_overlap") {
     return "같은 대상과 시간대에 겹치는 활성 스케줄이 있습니다.";
@@ -109,6 +110,16 @@ export function scheduleMutationErrorMessage(error: unknown): string {
   if (error.status === 404) return "스케줄 또는 현장을 찾을 수 없습니다.";
   if (error.status === 409) return "스케줄 변경이 현재 상태와 충돌했습니다.";
   return "스케줄 변경을 완료하지 못했습니다. 연결 상태를 확인해 주세요.";
+}
+
+export function isScheduleUnauthorized(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 401;
+}
+
+export function scheduleQueryErrorMessage(error: unknown): string {
+  return isScheduleUnauthorized(error)
+    ? "로그인 세션이 만료되었습니다."
+    : "스케줄 목록을 불러오지 못했습니다.";
 }
 
 function scheduleCollectionPath(siteId: string) {

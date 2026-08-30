@@ -59,6 +59,23 @@ describe("schedule form validation", () => {
     }))).toEqual({});
   });
 
+  it("rejects yearly month and day combinations that never occur", () => {
+    expect(validateScheduleForm(validForm({
+      recurrenceKind: "yearly",
+      yearlyMonth: "4",
+      yearlyDay: "31"
+    }))).toMatchObject({
+      yearlyDay: "해당 월에 존재하는 날짜를 입력해 주세요."
+    });
+    expect(validateScheduleForm(validForm({
+      recurrenceKind: "yearly",
+      yearlyMonth: "2",
+      yearlyDay: "30"
+    }))).toMatchObject({
+      yearlyDay: "해당 월에 존재하는 날짜를 입력해 주세요."
+    });
+  });
+
   it("requires an integer brightness from 0 through 100 and at least one target", () => {
     expect(validateScheduleForm(validForm({ brightnessPercent: "101" }))).toMatchObject({
       brightnessPercent: "밝기는 0~100 사이의 정수여야 합니다."

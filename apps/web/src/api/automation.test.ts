@@ -83,11 +83,18 @@ describe("schedule API", () => {
   });
 
   it.each([
+    [401, { message: "unauthorized" }, "로그인 세션이 만료되었습니다."],
     [409, { code: "schedule_overlap" }, "같은 대상과 시간대에 겹치는 활성 스케줄이 있습니다."],
     [409, { code: "single_gateway_required" }, "같은 Gateway에 연결된 조명만 선택해 주세요."],
     [400, { message: "invalid automation schedule" }, "스케줄 입력과 대상을 확인해 주세요."],
     [403, { message: "forbidden" }, "스케줄을 변경할 권한이 없습니다."]
   ])("maps API mutation error %s to safe Korean copy", (status, body, expected) => {
     expect(scheduleMutationErrorMessage(new ApiError("failed", status, body))).toBe(expected);
+  });
+
+  it("keeps network failures separate from authentication and authorization failures", () => {
+    expect(scheduleMutationErrorMessage(new Error("network"))).toBe(
+      "스케줄 변경을 완료하지 못했습니다. 연결 상태를 확인해 주세요."
+    );
   });
 });

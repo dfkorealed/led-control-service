@@ -36,10 +36,11 @@
 
 ## 구현 완료
 
-- 제어 페이지에 `수동 제어 | 스케줄 제어 | 이벤트 제어` 탭을 추가했다. 선택 상태는 `mode=manual|schedule|event` URL query로 유지하고 누락되거나 잘못된 값은 기존 `siteId`를 보존한 채 `manual`로 정규화한다. Site 또는 사용자 scope가 바뀌면 열린 스케줄 dialog와 mutation 표시 상태를 새 scope로 넘기지 않는다.
-- schedule 목록은 서버 `schedules.service.ts`의 실제 응답 형태를 사용해 이름, 활성 상태, 현장 시간대의 다음 실행, 반복·시간, 밝기, 대상 수, Gateway `PENDING|APPLIED|REJECTED` 상태와 최근 실행 결과를 표시한다. 100개 bounded cursor page를 이어 불러오며 목록은 3초 polling한다.
+- 제어 페이지에 `수동 제어 | 스케줄 제어 | 이벤트 제어` 탭을 추가했다. 선택 상태는 `mode=manual|schedule|event` URL query로 유지하고 누락되거나 잘못된 값은 기존 `siteId`를 보존한 채 `manual`로 정규화한다. 선택 탭만 일반 Tab 순서에 두고 좌우 방향키 순환, Home/End에서 focus·선택·URL을 함께 갱신하며 browser back/forward 뒤에도 roving focus 상태를 복원한다. Site 또는 사용자 scope가 바뀌면 열린 스케줄 dialog와 mutation 표시 상태를 새 scope로 넘기지 않는다.
+- schedule 목록은 서버 `schedules.service.ts`의 실제 응답 형태를 사용해 이름, 활성 상태, 현장 시간대의 다음 실행, 반복·시간, 밝기, 대상 수, Gateway `PENDING|APPLIED|REJECTED` 상태와 최근 실행 결과를 표시한다. 최근 `action_result`는 shared production schema로 검증한 뒤 fixture별 성공·실패·시간 초과를 집계하고 legacy/unknown payload는 상세 확인 불가로 표시한다. 100개 bounded cursor page를 이어 불러오며 목록은 3초 polling한다. 첫 페이지, 다음 페이지, background 상태 갱신 오류를 구분하고 기존 행을 유지한 비차단 경고와 오류 종류에 맞는 재시도를 제공한다.
 - admin은 schedule 추가·수정·삭제·활성화/비활성화를 수행할 수 있고 viewer는 같은 목록과 상태만 조회한다. mutation 성공 시 중앙 schedule query key와 dashboard query를 invalidate한다. `schedule_overlap`, `single_gateway_required`, 권한·입력 오류는 서버 원문을 노출하지 않는 한글 메시지로 표시한다.
-- schedule dialog는 1회·매일·매주·매월·매년 반복, 하나의 자정 통과 가능 시간 구간, 적용 날짜 기간, 디밍 ON 밝기 0~100·디밍 OFF 100%, 개별/다중·층·구역 target을 지원한다. 날짜는 Site IANA timezone의 달력 날짜를 ISO instant로 변환하며 브라우저 local timezone과 분리한다. 직접 선택은 최대 1,000개이고 월 29~31일 및 매년 2월 29일의 건너뛰기 의미를 안내한다.
+- schedule dialog는 1회·매일·매주·매월·매년 반복, 하나의 자정 통과 가능 시간 구간, 적용 날짜 기간, 디밍 ON 밝기 0~100·디밍 OFF 100%, 개별/다중·층·구역 target을 지원한다. 날짜는 Site IANA timezone의 달력 날짜를 ISO instant로 변환하며 브라우저 local timezone과 분리한다. 직접 선택은 최대 1,000개이고 월 29~31일 및 매년 2월 29일의 건너뛰기 의미를 안내한다. 매월 29~31일은 허용하지만 매년 4월 31일·2월 30일처럼 Gregorian 달력에 영구히 존재하지 않는 조합은 저장 전에 거부한다.
+- schedule list/poll/mutation의 `401`은 로그인 세션 만료로 안내하고 중앙 `auth/me` query를 현재 사용자·Site 세대당 한 번만 invalidate한다. scope가 바뀌었다가 같은 값으로 돌아온 경우에도 과거 세대의 지연된 `401`이 새 principal을 만료시키지 않으며 `403` 권한 오류와 network 오류는 별도 문구를 유지한다.
 - 이벤트 탭은 Task 18 전의 최소 준비 상태만 렌더링하며 source/target/hold CRUD command는 아직 제공하지 않는다.
 - Gateway production runtime은 Task 11의 snapshot activation callback을 실제 offline scheduler와 priority arbiter에 연결했다. `@led-control/automation-engine` recurrence로 wall-clock schedule occurrence를 계산하고 fixture별 `active manual override > 활성 차량 event 중 최대 brightness > schedule > 마지막 실제 관측/current 또는 source 시작 전 default` 순으로 desired brightness를 선택한다. Source 종료는 저장된 pre-state를 base로 다시 arbitrate하므로 현재 더 높은 source를 덮지 않는다.
 - Gateway는 automation state schema v5에 실제 관측 또는 성공 terminal로 확인된 desired, restart observation이 필요한 legacy desired, 차량 센서 bounded inbox를 함께 저장한다. V1~V4는 v5로 migration하며 lifecycle/terminal transition, telemetry handoff, `(sourceUnicast,bootId,sequence)` receipt를 각 상태 변경과 같은 atomic mutation에 저장한다. Restart pending/unverified desired는 lighting observation까지 RF를 보류하고 target과 다를 때만 RF를 전송한다.
@@ -196,7 +197,7 @@
 - Task 14 Gateway Sensor/vendor client, Task 15 GPIO driver와 Task 16 ESP32-H2 model은 native exact wire/retry, actual production-source host fake와 patched ESP-IDF fullclean target build로 검증했다. Model host fake는 config queue 포화와 reboot 복원, period/AppKey/reprovision, 네 Sensor 요청, authoritative current unavailable, 단일 timer, stop race/restart, event별 initial+6 retry 실제 publish, Sensor/vendor completion 영구 유실, duplicate-after-reuse, 이전 generation completion 무해성과 외부 Health 배열 재구성을 실행한다. Breaker test는 payload/context/envelope/queue-post deterministic failure의 동기 오류, handler 0회/exact free와 16 burst pending retry를 실행한다. 실제 RF, device heap/queue timing, cache-disabled ISR, 센서 전기 신호, packet loss, 전원 차단은 증명하지 않으며 HIL은 아직 실행하지 않았다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
-- schedule API CRUD, Gateway offline schedule 실행과 Schedule Web CRUD는 구현 완료했다. Web 검증은 Vitest 기반 목록·폼·CRUD·권한·URL·기존 수동 제어 회귀까지이며 production API/Gateway를 연결한 Chromium software E2E와 실제 Raspberry Pi/ESP32-H2 HIL은 후속 범위다.
+- schedule API CRUD, Gateway offline schedule 실행과 Schedule Web CRUD는 구현 완료했다. Web 검증은 Vitest 기반 목록·폼·CRUD·권한·URL·pagination/polling 오류·키보드 탭·세션 만료·기존 수동 제어 회귀 332건까지이며 production API/Gateway를 연결한 Chromium software E2E와 실제 Raspberry Pi/ESP32-H2 HIL은 후속 범위다.
 - 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.
 - Health Current는 최신 snapshot만 사용하며 fault 이력과 제품별 code 설명은 아직 제공하지 않는다.
 - viewer의 읽기 전용 안내는 구현됐지만, 향후 명령 이력 화면에서도 동일한 권한 설명을 재사용하도록 공통화할 수 있다.
@@ -254,6 +255,7 @@
 - `apps/web/src/features/control/automation/schedule-form.test.ts`
 - `apps/web/src/api/automation.ts`
 - `apps/web/src/api/automation.test.ts`
+- `apps/web/vite.config.ts`
 - `apps/web/src/features/control/FixtureGroupDialog.tsx`
 - `apps/web/src/features/control/FixtureGroupDialog.test.tsx`
 - `apps/web/src/api/fixture-groups.ts`

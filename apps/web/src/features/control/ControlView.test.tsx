@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandStage } from "../../api/commands";
 import type { Dashboard } from "../../api/queries";
@@ -809,6 +809,53 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByText("이벤트 제어는 다음 작업에서 제공됩니다.")).toBeInTheDocument();
   });
 
+  it("uses roving tab focus and selects modes with circular arrow, Home, and End keys", async () => {
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=manual`);
+    const manualTab = screen.getByRole("tab", { name: "수동 제어" });
+    const scheduleTab = screen.getByRole("tab", { name: "스케줄 제어" });
+    const eventTab = screen.getByRole("tab", { name: "이벤트 제어" });
+
+    expect(manualTab).toHaveAttribute("tabindex", "0");
+    expect(scheduleTab).toHaveAttribute("tabindex", "-1");
+    expect(eventTab).toHaveAttribute("tabindex", "-1");
+
+    manualTab.focus();
+    fireEvent.keyDown(manualTab, { key: "ArrowLeft" });
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=event"));
+    expect(eventTab).toHaveFocus();
+    expect(eventTab).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(eventTab, { key: "Home" });
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
+    expect(manualTab).toHaveFocus();
+
+    fireEvent.keyDown(manualTab, { key: "End" });
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=event"));
+    expect(eventTab).toHaveFocus();
+
+    fireEvent.keyDown(eventTab, { key: "ArrowRight" });
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
+    expect(manualTab).toHaveFocus();
+  });
+
+  it("restores the selected roving tab after browser back and forward navigation", async () => {
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=manual`);
+
+    fireEvent.click(screen.getByRole("tab", { name: "스케줄 제어" }));
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=schedule"));
+    fireEvent.click(screen.getByRole("tab", { name: "이벤트 제어" }));
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=event"));
+
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 뒤로" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: "이벤트 제어" })).toHaveAttribute("tabindex", "-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 앞으로" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "이벤트 제어" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByRole("tab", { name: "이벤트 제어" })).toHaveAttribute("tabindex", "0");
+  });
+
   it("normalizes an invalid mode to manual while preserving the selected site", async () => {
     renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=unknown`);
 
@@ -867,7 +914,14 @@ function controlElement(
 
 function ControlLocation() {
   const location = useLocation();
-  return <output data-testid="control-location">{`${location.pathname}${location.search}`}</output>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="control-location">{`${location.pathname}${location.search}`}</output>
+      <button type="button" onClick={() => void navigate(-1)}>브라우저 뒤로</button>
+      <button type="button" onClick={() => void navigate(1)}>브라우저 앞으로</button>
+    </>
+  );
 }
 
 function createFixture(
