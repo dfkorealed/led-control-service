@@ -165,6 +165,45 @@ describe("TargetedLightingResyncQueue", () => {
     }
   });
 
+  it("rotates an offline first batch so a later fixture can be observed", async () => {
+    vi.useFakeTimers();
+    try {
+      const offlineFixtureIds = Array.from({ length: 64 }, (_, index) => `offline-${index + 1}`);
+      const laterFixtureId = "online-65";
+      let queue!: TargetedLightingResyncQueue;
+      const run = vi.fn(async (fixtureIds: string[]) => {
+        if (fixtureIds.includes(laterFixtureId)) queue.markObserved(laterFixtureId);
+        return {
+          ...completeReport,
+          total: fixtureIds.length,
+          configured: fixtureIds.length,
+          observed: fixtureIds.includes(laterFixtureId) ? 1 : 0,
+          healthPending: 0,
+          timedOut: fixtureIds.includes(laterFixtureId) ? fixtureIds.length - 1 : fixtureIds.length
+        };
+      });
+      queue = new TargetedLightingResyncQueue({
+        run,
+        maxBatchSize: 64,
+        retryBaseMs: 100,
+        retryMaxMs: 1_000
+      });
+
+      expect(queue.request([...offlineFixtureIds, laterFixtureId])).toBe(true);
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+      expect(run.mock.calls[0]?.[0]).toEqual(offlineFixtureIds);
+
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+
+      expect(run.mock.calls[1]?.[0]).toContain(laterFixtureId);
+      expect(queue.pendingCount).toBe(64);
+      await queue.stopAndDrain();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("bounds pending fixture requests", () => {
     const queue = new TargetedLightingResyncQueue({
       run: vi.fn(),

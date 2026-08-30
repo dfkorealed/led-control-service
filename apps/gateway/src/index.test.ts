@@ -100,7 +100,7 @@ describe("startGatewayRuntime", () => {
     }
   });
 
-  it("maps timed manual command terminal results into the scheduler handoff", async () => {
+  it("keeps new-generation timing metadata strict while mapping terminal results", async () => {
     const scheduleRuntime = {
       prepareManualOverride: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
@@ -148,6 +148,82 @@ describe("startGatewayRuntime", () => {
         occurredAt: "2026-08-30T01:00:01.000Z"
       }]
     );
+  });
+
+  it.each([
+    ["one hour immediately", "2026-08-30T02:00:00.000Z", 10_000, 3_600_000],
+    ["30 days immediately", "2026-09-29T01:00:00.000Z", 10_000, 30 * 24 * 60 * 60 * 1_000],
+    ["one hour after three seconds in transit", "2026-08-30T02:00:00.000Z", 7_000, 3_597_000]
+  ])("preserves a broker-fresh legacy timed override for %s", async (
+    _case,
+    overrideUntil,
+    brokerRemainingTtlMs,
+    expectedRemainingMs
+  ) => {
+    const scheduleRuntime = {
+      prepareManualOverride: vi.fn().mockResolvedValue(undefined),
+      handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const coordinator = createManualOverrideCoordinator(scheduleRuntime, () => 5_000);
+    const command = {
+      ...timedGatewayCommand(),
+      requestedAt: "2026-08-30T01:00:00.000Z",
+      overrideUntil,
+      expiresAt: "2026-08-30T01:00:10.000Z"
+    };
+
+    try {
+      await coordinator.prepare(command as never, {
+        receivedAtMonotonicMs: 5_000,
+        brokerRemainingTtlMs
+      });
+
+      expect(scheduleRuntime.prepareManualOverride).toHaveBeenCalledWith(expect.objectContaining({
+        sourceId: command.commandId,
+        startedAt: command.requestedAt,
+        overrideUntil,
+        deliveryWindowMs: brokerRemainingTtlMs,
+        overrideRemainingMs: expectedRemainingMs
+      }));
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(warn.mock.calls[0]?.[0]))).toMatchObject({
+        event: "legacy_timed_manual_wire_compatibility",
+        compatibilityVersion: 1,
+        commandId: command.commandId,
+        packetTransitAgeMs: 10_000 - brokerRemainingTtlMs,
+        requestedDurationMs: Date.parse(overrideUntil) - Date.parse(command.requestedAt),
+        maxDurationMs: 30 * 24 * 60 * 60 * 1_000
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("bounds legacy timed compatibility at the API maximum duration", async () => {
+    const scheduleRuntime = {
+      prepareManualOverride: vi.fn().mockResolvedValue(undefined),
+      handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const coordinator = createManualOverrideCoordinator(scheduleRuntime, () => 5_000);
+    const command = {
+      ...timedGatewayCommand(),
+      requestedAt: "2026-08-30T01:00:00.000Z",
+      overrideUntil: "2026-09-29T01:00:00.001Z",
+      expiresAt: "2026-08-30T01:00:10.000Z"
+    };
+
+    try {
+      await expect(coordinator.prepare(command as never, {
+        receivedAtMonotonicMs: 5_000,
+        brokerRemainingTtlMs: 10_000
+      })).rejects.toThrow("legacy timed manual override exceeds the compatibility duration limit");
+      expect(scheduleRuntime.prepareManualOverride).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("initializes the real snapshot runtime before replaying a pending manual terminal handoff", async () => {

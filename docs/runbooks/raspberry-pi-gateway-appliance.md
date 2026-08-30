@@ -142,6 +142,15 @@ scripts/gateway-appliance-deploy.sh \
 
 스크립트는 checksum 검증, `docker image load`, Compose 적용, health 대기를 수행한다. `.env.appliance` 또는 인증서가 없으면 image를 실행하지 않고 누락 파일을 출력한다.
 
+Timed manual wire를 포함한 rolling upgrade는 다음 순서를 고정한다.
+
+1. 새 API publisher를 모든 API instance에 먼저 배포한다.
+2. Publisher가 기존 legacy outbox를 strict delivery generation으로 normalize하고, 이미 `overrideUntil`이 지난 row를 `MANUAL_OVERRIDE_EXPIRED`로 종료했는지 확인한다.
+3. 그 다음 Gateway image를 배포한다.
+4. Gateway log의 `legacy_timed_manual_wire_compatibility` event를 확인한다. Compatibility version 1은 mTLS broker가 전달한 최대 10초 freshness packet과 최대 30일 요청 duration에만 적용되며, 새 API 배포 뒤에도 event가 계속 발생하면 남은 old publisher/outbox를 먼저 제거한다.
+
+Gateway를 먼저 배포하면 clock-untrusted 현장에서 old payload만으로 API outbox 지연 시간을 복구할 수 없어 요청 duration을 새로 시작할 수 있다. 따라서 이 배포 순서는 선택 사항이 아니다.
+
 ## 8. Pi에서 직접 실행
 
 이미 image가 로드된 경우 다음 명령을 사용한다.

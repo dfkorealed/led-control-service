@@ -471,7 +471,15 @@ export class ScheduleRuntime {
       const recoveredManual = this.recoveredManualPendingTrust.has(fixtureId)
         ? state.manualOverrides[fixtureId]
         : undefined;
-      const manual = recoveredManual ? undefined : state.manualOverrides[fixtureId];
+      const manual = state.manualOverrides[fixtureId];
+      // A recovered override has unknown absolute remaining time until wall-clock trust returns.
+      // Keep the output already observed before restart as the manual candidate so lower-priority
+      // automatic sources cannot take over or trigger duplicate RF during that uncertainty.
+      const recoveredManualBrightness = recoveredManual
+        ? state.currentByFixture[fixtureId] ??
+          state.lastDesiredByFixture[fixtureId] ??
+          recoveredManual.brightnessPercent
+        : undefined;
       const events = Object.entries(state.vehicleRules)
         .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId))
         .map(([ruleId, vehicle]) => ({ sourceId: ruleId, brightness: vehicle.brightnessPercent }));
@@ -485,7 +493,10 @@ export class ScheduleRuntime {
         ?? state.lastDesiredByFixture[fixtureId]
         ?? null;
       const resolved = resolveDesiredState({
-        manual: manual ? { sourceId: manual.sourceId, brightness: manual.brightnessPercent } : null,
+        manual: manual ? {
+          sourceId: manual.sourceId,
+          brightness: recoveredManualBrightness ?? manual.brightnessPercent
+        } : null,
         events,
         schedule,
         current

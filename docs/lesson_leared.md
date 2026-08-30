@@ -244,3 +244,10 @@
 - **원인**: 파일 존재 여부를 유효성으로 간주했고, 인증서 chain을 가져오면 Root와 intermediate issuer가 함께 생기는 Vault 동작 및 BSD `stat`의 symlink 처리를 반영하지 않았다.
 - **해결 및 예방책**: 기존·신규 CSR을 OpenSSL로 검증하고, Vault import 응답에서 개인키에 연결된 issuer만 기본값으로 선택한다. secret 권한은 경계 검증을 마친 실제 대상 경로에서 확인하며 모든 발급 역할을 EC P-256으로 고정한다.
 - **반복 방지 체크**: PKI 재실행 테스트에 손상 CSR, 다중 issuer mapping, 경계 내부 symlink와 EC CSR 발급을 포함하고, Docker API 500이 발생하면 먼저 Docker 엔진 응답과 Desktop VM 상태를 확인한다.
+
+## 2026-08-30 / 복구 안전성은 우선순위와 queue 진행성을 함께 검증한다
+
+- **발생했던 문제/실수**: Clock-untrusted restart에서 만료를 판단할 수 없는 manual을 arbiter에서 제거해 event/schedule이 실제 출력을 덮었고, targeted resync는 offline 선두 64개만 반복해 뒤 fixture fence를 해제하지 못했다. Rolling old API wire는 broker 전달 TTL을 override 수명으로 오인해 정상 1시간/30일 manual을 수 초로 줄였다.
+- **원인**: 불확실한 상태를 제외하는 fail-safe가 `manual > event > schedule` 우선순위를 깨뜨렸고, bounded batch가 전체 pending set의 공정성을 자동 보장한다고 가정했다. Delivery freshness와 요청 lifetime도 하나의 deadline으로 합쳤다.
+- **해결 및 예방책**: Trust 회복 전에는 recovered manual의 관측된 현재 출력을 manual 후보로 유지한다. Targeted queue는 unresolved batch를 tail로 회전하고 retry/backoff/abort를 보존한다. Legacy timed compatibility는 인증된 10초 broker freshness 안에서만 요청 duration에서 transit age를 빼고, version 1 구조화 진단과 30일 상한을 적용한다. 새 API publisher를 먼저 배포해 stale legacy outbox를 종료한다.
+- **반복 방지 체크**: 복구 테스트에는 active event와 active schedule, RF 0회, batch 크기보다 큰 offline/online 혼합, old API 1시간/30일 immediate와 delayed packet, new generation 불변 경로를 함께 넣는다.

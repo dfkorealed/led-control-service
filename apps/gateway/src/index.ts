@@ -88,6 +88,8 @@ import { ScheduleRuntime, type AutomationTerminalHandoff, type ScheduleRuntimeOp
 import { SystemClockTrustProvider, type ClockTrustProvider } from "./automation/clock-trust-provider";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
+const LEGACY_TIMED_MANUAL_COMPATIBILITY_VERSION = 1;
+const LEGACY_TIMED_MANUAL_MAX_DURATION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 export { createMeshGroupResyncRequest, MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
 
@@ -130,7 +132,7 @@ export function createManualOverrideCoordinator(
   monotonicClock?: () => number
 ): ManualOverrideCoordinator {
   return {
-    prepare: (command, receipt) => {
+    prepare: async (command, receipt) => {
       const elapsedSinceReceiptMs = receipt && monotonicClock
         ? Math.max(0, Math.floor(monotonicClock() - receipt.receivedAtMonotonicMs))
         : 0;
@@ -141,10 +143,29 @@ export function createManualOverrideCoordinator(
       const transitAgeMs = "deliveryWindowMs" in command
         ? Math.max(0, command.deliveryWindowMs - (receipt?.brokerRemainingTtlMs ?? command.deliveryWindowMs))
         : 0;
-      const overrideRemainingMs = "overrideRemainingMs" in command && command.overrideRemainingMs !== undefined
+      let overrideRemainingMs = "overrideRemainingMs" in command && command.overrideRemainingMs !== undefined
         ? Math.max(1, command.overrideRemainingMs - transitAgeMs - elapsedSinceReceiptMs)
         : undefined;
-      return runtime.prepareManualOverride({
+      if (overrideRemainingMs === undefined && receiptIsFreshLegacyDelivery(receipt)) {
+        const requestedDurationMs = Date.parse(command.overrideUntil!) - Date.parse(command.requestedAt);
+        if (requestedDurationMs > LEGACY_TIMED_MANUAL_MAX_DURATION_MS) {
+          throw new Error("legacy timed manual override exceeds the compatibility duration limit");
+        }
+        const initialBrokerWindowMs = Math.min(
+          requestedDurationMs,
+          GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS
+        );
+        const packetTransitAgeMs = Math.max(0, initialBrokerWindowMs - brokerRemainingTtlMs);
+        overrideRemainingMs = requestedDurationMs - packetTransitAgeMs;
+        reportLegacyTimedManualCompatibility({
+          commandId: command.commandId,
+          siteId: command.siteId,
+          gatewayId: command.gatewayId,
+          packetTransitAgeMs,
+          requestedDurationMs
+        });
+      }
+      await runtime.prepareManualOverride({
         sourceId: command.commandId,
         fixtureIds: command.targetFixtureIds,
         brightnessPercent: command.brightness,
@@ -159,6 +180,31 @@ export function createManualOverrideCoordinator(
       manualTerminalResults(terminal)
     )
   };
+}
+
+function receiptIsFreshLegacyDelivery(receipt: GatewayCommandReceipt | undefined) {
+  return receipt !== undefined &&
+    receipt.brokerRemainingTtlMs > 0 &&
+    receipt.brokerRemainingTtlMs <= GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS;
+}
+
+export function reportLegacyTimedManualCompatibility(
+  input: {
+    commandId: string;
+    siteId: string;
+    gatewayId: string;
+    packetTransitAgeMs: number;
+    requestedDurationMs: number;
+  },
+  logger: Pick<Console, "warn"> = console
+) {
+  logger.warn(JSON.stringify({
+    event: "legacy_timed_manual_wire_compatibility",
+    compatibilityVersion: LEGACY_TIMED_MANUAL_COMPATIBILITY_VERSION,
+    maxDurationMs: LEGACY_TIMED_MANUAL_MAX_DURATION_MS,
+    maxBrokerFreshnessMs: GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
+    ...input
+  }));
 }
 
 export function createGatewayCommandReceipt(

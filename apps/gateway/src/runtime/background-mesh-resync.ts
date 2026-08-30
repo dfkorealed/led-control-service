@@ -159,8 +159,14 @@ export class TargetedLightingResyncQueue {
       if (this.controller === controller) this.controller = null;
     }
     if (this.stopping) return;
-    const unresolved = failed || fixtureIds.some((fixtureId) => this.pending.has(fixtureId));
-    if (unresolved) this.armRetry();
+    const unresolvedFixtureIds = fixtureIds.filter((fixtureId) => this.pending.has(fixtureId));
+    // Set iteration is insertion ordered. Reinsert only unresolved members so an offline batch
+    // cannot keep every later recovery fence behind the same first 64 fixtures.
+    for (const fixtureId of unresolvedFixtureIds) {
+      this.pending.delete(fixtureId);
+      this.pending.add(fixtureId);
+    }
+    if (failed || unresolvedFixtureIds.length > 0) this.armRetry();
     else this.retryAttempt = 0;
   }
 

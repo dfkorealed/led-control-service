@@ -523,7 +523,7 @@ describe("ScheduleRuntime", () => {
     ]);
   });
 
-  it("does not reactivate a recovered manual while wall time is untrusted and preserves its existing output", async () => {
+  it("keeps a recovered manual above an active event while wall time is untrusted without duplicate RF", async () => {
     const directory = await mkdtemp(join(tmpdir(), "manual-untrusted-restart-"));
     directories.push(directory);
     const path = join(directory, "state.json");
@@ -562,15 +562,61 @@ describe("ScheduleRuntime", () => {
     expect(restarted.state().currentByFixture[fixtureId]).toBe(60);
 
     await restarted.recordVehicleSensorState(sourceFixtureId, true);
-    expect(execute).toHaveBeenLastCalledWith([
-      expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
-    ]);
+    expect(execute).not.toHaveBeenCalled();
+    expect(restarted.state()).toMatchObject({
+      manualOverrides: { [fixtureId]: { brightnessPercent: 60 } },
+      currentByFixture: { [fixtureId]: 60 },
+      lastDesiredByFixture: { [fixtureId]: 60 }
+    });
 
     trust.trusted = true;
     await restarted.tick();
-    expect(execute).toHaveBeenLastCalledWith([
-      expect.objectContaining({ fixtureId, brightnessPercent: 60, sourceType: "manual_override" })
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("keeps a recovered manual above an active schedule while wall time is untrusted without duplicate RF", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "manual-untrusted-schedule-restart-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    const activeSnapshot = snapshot({ schedules: [dailySchedule()] });
+    const first = new ScheduleRuntime({
+      store: new FileAutomationStateStore(path),
+      wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute: vi.fn(executeSuccessfully)
+    });
+    await first.initialize();
+    await first.recordFixtureState(fixtureId, 20);
+    await activate(first, activeSnapshot);
+    await first.prepareManualOverride({
+      ...manualOverride(60, "2026-08-30T02:30:00.000Z"),
+      startedAt: "2026-08-30T01:30:00.000Z",
+      overrideRemainingMs: 3_597_000,
+      deliveryWindowMs: 7_000
+    });
+    await first.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
     ]);
+
+    const execute = vi.fn(executeSuccessfully);
+    const restarted = new ScheduleRuntime({
+      store: new FileAutomationStateStore(path),
+      wallClock: () => new Date("2026-08-30T01:30:10.000Z"),
+      monotonicClock: () => 2_000,
+      clockTrust: { isTrusted: async () => false },
+      execute
+    });
+    await restarted.initialize();
+    await activate(restarted, activeSnapshot);
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(restarted.state()).toMatchObject({
+      manualOverrides: { [fixtureId]: { brightnessPercent: 60 } },
+      activeOccurrences: { [scheduleId]: { preBrightness: { [fixtureId]: 20 } } },
+      currentByFixture: { [fixtureId]: 60 },
+      lastDesiredByFixture: { [fixtureId]: 60 }
+    });
   });
 
   it("keeps the last successful manual brightness when its override expires without an automatic source", async () => {
