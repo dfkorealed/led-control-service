@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   SYSTEMD_TIMESYNC_MARKER,
   SystemClockTrustProvider
@@ -39,5 +42,36 @@ describe("SystemClockTrustProvider", () => {
     await provider.isTrusted(new Date("2026-08-30T01:10:00.000Z"));
 
     await expect(provider.isTrusted(new Date("2026-08-30T01:05:00.001Z"))).resolves.toBe(true);
+  });
+
+  it("fences the marker observed at rollback even when it advanced before rollback detection", async () => {
+    let markerMtimeMs = 100;
+    const provider = new SystemClockTrustProvider(SYSTEMD_TIMESYNC_MARKER, {
+      stat: async () => ({ mtimeMs: markerMtimeMs, isFile: () => true })
+    });
+    await expect(provider.isTrusted(new Date("2026-08-30T01:10:00.000Z"))).resolves.toBe(true);
+
+    markerMtimeMs = 110;
+    await expect(provider.isTrusted(new Date("2026-08-30T01:04:00.000Z"))).resolves.toBe(false);
+    await expect(provider.isTrusted(new Date("2026-08-30T01:04:01.000Z"))).resolves.toBe(false);
+
+    markerMtimeMs = 111;
+    await expect(provider.isTrusted(new Date("2026-08-30T01:04:02.000Z"))).resolves.toBe(true);
+  });
+
+  it("recovers after a cold-boot marker appears inside an already mounted timesync directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "timesync-marker-"));
+    const directory = join(root, "timesync");
+    const marker = join(directory, "synchronized");
+    try {
+      await mkdir(directory);
+      const provider = new SystemClockTrustProvider(marker);
+
+      await expect(provider.isTrusted(new Date("2026-08-30T01:00:00.000Z"))).resolves.toBe(false);
+      await writeFile(marker, "");
+      await expect(provider.isTrusted(new Date("2026-08-30T01:00:01.000Z"))).resolves.toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

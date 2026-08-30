@@ -92,16 +92,17 @@ Gateway는 `sites/{siteId}/gateways/{gatewayId}/commands/automation/config-sync`
 경로는 `GATEWAY_AUTOMATION_CONFIG_PATH`와 `GATEWAY_AUTOMATION_ACK_OUTBOX_PATH`로 변경할 수 있다. Task 12 production runtime은 Task 11의 `recompute/applyDesiredState` activation 경계에 offline scheduler와 priority arbiter를 연결한다.
 
 - 반복 일정은 `@led-control/automation-engine`의 wall-clock recurrence를 사용한다. 활성 수동 override, 활성 차량 이벤트 중 최대 밝기, schedule, 마지막 실제 관측값 또는 source 시작 전 base 순으로 fixture별 desired brightness를 계산한다.
-- `/var/lib/led-control/automation-state.json`에는 활성 occurrence, 수동 override 종료 시각, 차량 이벤트 source/hold 상태, source 시작 전 밝기와 마지막 reserved desired를 temp write, fsync, rename, parent fsync 순으로 저장한다. 상태가 durable하기 전에는 RF를 시작하지 않고 commit 여부가 불명확하면 previous visible state를 복구한 뒤 config inbound PUBACK을 보류한다.
-- 재시작은 durable desired가 이미 예약된 fixture에 같은 mesh command를 다시 보내지 않는다. 같은 desired brightness도 억제하며 새 output은 단일 fixture unicast 또는 동시성 8의 제한된 parallel unicast를 기존 BLE Mesh executor로 실행한다. fixture별 terminal 결과는 `automation_terminal_handoff` 구조화 로그로 넘긴다. durable cloud execution telemetry outbox는 Task 13 범위다.
-- schedule occurrence와 override/event 종료 시 source 시작 전 밝기로 복귀하되, arbiter를 다시 계산해 현재 더 높은 우선순위 source를 덮지 않는다. 실제 fixture status publication은 `currentByFixture`와 base를 갱신한다.
-- system clock은 `/run/systemd/timesync/synchronized` marker와 5분 이상 역행 여부로 신뢰한다. marker는 Compose에서 read-only bind mount한다. untrusted 동안 새 schedule 경계와 재시작 UTC expiry 전이는 보류하지만 MQTT 수동 override와 현재 process의 monotonic 차량 event hold 처리는 계속한다.
-- timed manual command는 acceptance와 실행 직전 expiry 검사를 통과한 뒤 override를 먼저 durable 저장하고 RF를 실행한다. journal의 terminal 결과가 확정된 뒤 한 번만 scheduler에 handoff하므로 broker redelivery와 process restart가 같은 mesh command를 중복 실행하지 않는다.
+- `/var/lib/led-control/automation-state.json`에는 활성 source와 pre-state, `pending|terminal` fixture transition, 성공한 마지막 desired, `telemetryGap { firstDroppedAt, lastDroppedAt, droppedCount }`를 temp write, fsync, rename, parent fsync 순으로 저장한다. RF 전에 pending을 commit하고 성공 terminal commit만 동일 desired 억제 근거로 사용한다. Pre-send 실패, terminal 실패, RF 뒤 terminal commit uncertainty는 다음 tick/restart에서 brightness 명령을 at-least-once로 안전 재시도한다.
+- 새 output은 단일 fixture unicast 또는 동시성 8의 제한된 parallel unicast를 기존 BLE Mesh executor로 실행한다. RF는 fixture-state telemetry capacity reservation과 분리되어 outbox 포화나 부분 enqueue 실패에도 계속되며, 누락된 terminal telemetry의 최초/최종 시각과 정확한 건수를 `telemetryGap`에 합친다. fixture별 terminal handoff seam은 Task 13 durable execution outbox가 이어받는다.
+- schedule occurrence와 override/event 종료 시 저장한 pre-state를 기준으로 다시 arbitrate해 현재 더 높은 source를 덮지 않는다. 성공한 manual-only override가 만료되면 마지막 수동 밝기를 유지하고, 활성 event/schedule이 있으면 그 source로 복귀한 뒤 종료 시 마지막 수동 밝기로 돌아온다.
+- system clock은 `/run/systemd/timesync/synchronized` marker와 5분 이상 역행 여부로 신뢰한다. Compose는 marker가 cold boot 뒤 생성될 수 있도록 `/run/systemd/timesync` 디렉터리를 read-only mount한다. Rollback 순간 marker mtime을 recovery fence로 잡아 최소 한 번 untrusted를 보장하고 이후 marker 갱신만 trust를 회복한다. Untrusted 동안 새 schedule 경계와 재시작 UTC expiry 전이는 보류하지만 MQTT 수동 입력과 현재 process의 monotonic manual/event hold는 계속 처리한다.
+- timed manual command는 acceptance와 실행 직전 expiry 검사를 통과한 뒤 override를 먼저 durable 저장하고 RF를 실행한다. Command journal은 terminal과 scheduler handoff 사이를 `pending|completed` phase로 저장해 prepare-before-RF restart는 indeterminate terminal로 닫고 completed-before-handoff restart는 RF 없이 handoff를 재생한다.
+- 종료 시 `stopAndDrain()`이 새 automation intake를 차단하고 queued/in-flight tick, RF, state commit, terminal handoff를 모두 마친 뒤 MQTT runtime을 닫는다.
 
 Task 12는 차량 sensor state를 받는 runtime API와 monotonic hold까지 구현한다. 실제 ESP32-H2 Sensor Client/vendor event 입력과 application-ACK telemetry 전송은 Task 13~14에서 연결하므로 해당 입력이 없는 장비에서 차량 규칙이 스스로 활성화되지는 않는다.
 
 ```bash
-pnpm --filter @led-control/gateway test -- automation-state-store.test.ts automation-arbiter.test.ts schedule-runtime.test.ts clock-trust-provider.test.ts automation-runtime.test.ts gateway-command-handler.test.ts index.test.ts
+pnpm --filter @led-control/gateway test -- automation-state-store.test.ts automation-arbiter.test.ts schedule-runtime.test.ts clock-trust-provider.test.ts automation-runtime.test.ts command-journal.test.ts gateway-command-handler.test.ts index.test.ts
 pnpm --filter @led-control/gateway build
 ```
 

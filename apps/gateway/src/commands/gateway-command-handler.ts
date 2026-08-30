@@ -6,6 +6,7 @@ import {
   acceptanceAckV2Schema,
   deriveDeviceStatusAckStatus,
   deviceStatusAckV2Schema,
+  gatewayDimmingCommandV2Schema,
   isGatewayCommandExpired
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
@@ -14,9 +15,19 @@ import type { GroupStateIdentity, GroupStateStore } from "../mesh/group-state-st
 import type { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 
 interface JournalLike {
-  get(key: string): Promise<{ state: "accepted" | "completed"; command: unknown; result?: unknown } | null>;
+  get(key: string): Promise<{
+    state: "accepted" | "completed";
+    command: unknown;
+    result?: unknown;
+    automationHandoff?: "pending" | "completed";
+  } | null>;
   accept(key: string, command: unknown): Promise<boolean>;
-  complete(key: string, result: unknown): Promise<void>;
+  complete(
+    key: string,
+    result: unknown,
+    options?: { automationHandoffPending?: boolean }
+  ): Promise<void>;
+  markAutomationHandoffComplete?(key: string): Promise<void>;
 }
 
 export interface GatewayCommandResult {
@@ -29,6 +40,21 @@ export interface GatewayCommandResult {
 export interface ManualOverrideCoordinator {
   prepare(command: GatewayDimmingCommandV2): Promise<void>;
   handoff(command: GatewayDimmingCommandV2, terminal: DeviceStatusAckV2): Promise<void>;
+}
+
+interface ManualAutomationRecoveryJournal {
+  pendingAutomationRecoveries(): Promise<Array<{
+    idempotencyKey: string;
+    state: "accepted" | "completed";
+    command: unknown;
+    result?: unknown;
+  }>>;
+  complete(
+    key: string,
+    result: unknown,
+    options?: { automationHandoffPending?: boolean }
+  ): Promise<void>;
+  markAutomationHandoffComplete(key: string): Promise<void>;
 }
 
 export interface GatewayCommandOptions {
@@ -70,6 +96,25 @@ export function handleGatewayDimmingCommand(
   return options.groupQueue.run(groupId, () => executeGatewayDimmingCommand(adapter, journal, command, onAccepted, options));
 }
 
+export async function recoverPendingManualAutomationHandoffs(
+  journal: ManualAutomationRecoveryJournal,
+  automation: ManualOverrideCoordinator
+) {
+  for (const recovery of await journal.pendingAutomationRecoveries()) {
+    const wrapper = recovery.command as { command?: unknown };
+    const command = gatewayDimmingCommandV2Schema.parse(wrapper.command);
+    if (!command.overrideUntil) continue;
+    const result = recovery.state === "completed"
+      ? recovery.result as GatewayCommandResult
+      : createIndeterminateResult(command);
+    if (recovery.state === "accepted") {
+      await journal.complete(recovery.idempotencyKey, result, { automationHandoffPending: true });
+    }
+    await automation.handoff(command, result.deviceStatus);
+    await journal.markAutomationHandoffComplete(recovery.idempotencyKey);
+  }
+}
+
 async function executeGatewayDimmingCommand(
   adapter: BleMeshAdapter,
   journal: JournalLike,
@@ -78,11 +123,17 @@ async function executeGatewayDimmingCommand(
   options: GatewayCommandOptions
 ): Promise<GatewayCommandResult> {
   const existing = await journal.get(command.idempotencyKey);
-  if (existing?.state === "completed") return existing.result as GatewayCommandResult;
+  if (existing?.state === "completed") {
+    const result = existing.result as GatewayCommandResult;
+    if (existing.automationHandoff === "pending") {
+      await replayAutomationHandoff(journal, command, result, options);
+    }
+    return result;
+  }
   if (existing?.state === "accepted") {
     const stored = existing.command as { acceptance?: AcceptanceAckV2 };
     const result = createIndeterminateResult(command, stored.acceptance);
-    await journal.complete(command.idempotencyKey, result);
+    await completeWithAutomationHandoff(journal, command, result, options);
     return result;
   }
 
@@ -198,15 +249,34 @@ async function executeGatewayDimmingCommand(
   }
 
   const result = { acceptance, deviceStatus, fixtureStateObserved, observedFixtureIds };
-  await journal.complete(command.idempotencyKey, result);
-  if (command.overrideUntil && options.automation) {
-    try {
-      await options.automation.handoff(command, deviceStatus);
-    } catch (error) {
-      options.onAutomationError?.(error);
-    }
-  }
+  await completeWithAutomationHandoff(journal, command, result, options);
   return result;
+}
+
+async function completeWithAutomationHandoff(
+  journal: JournalLike,
+  command: GatewayDimmingCommandV2,
+  result: GatewayCommandResult,
+  options: GatewayCommandOptions
+) {
+  const pending = Boolean(command.overrideUntil && options.automation);
+  await journal.complete(command.idempotencyKey, result, { automationHandoffPending: pending });
+  if (pending) await replayAutomationHandoff(journal, command, result, options);
+}
+
+async function replayAutomationHandoff(
+  journal: JournalLike,
+  command: GatewayDimmingCommandV2,
+  result: GatewayCommandResult,
+  options: GatewayCommandOptions
+) {
+  if (!command.overrideUntil || !options.automation) return;
+  try {
+    await options.automation.handoff(command, result.deviceStatus);
+    await journal.markAutomationHandoffComplete?.(command.idempotencyKey);
+  } catch (error) {
+    options.onAutomationError?.(error);
+  }
 }
 
 export async function executeAutomationDimmingActions(

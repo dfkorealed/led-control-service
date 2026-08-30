@@ -12,7 +12,7 @@
 - 장비별 mTLS 인증서
 - 영속 데이터 디렉터리
 
-컨테이너는 private system D-Bus, BlueZ 5.82 `bluetooth-meshd`, Node.js 22 gateway를 순서대로 실행한다. `/var/lib/bluetooth/mesh`의 BlueZ network DB와 `/var/lib/led-control`의 token·주소 mapping·명령 상태·automation source state는 재부팅 후에도 유지한다. 호스트 systemd timesync marker는 `/run/systemd/timesync/synchronized`에 read-only bind mount한다.
+컨테이너는 private system D-Bus, BlueZ 5.82 `bluetooth-meshd`, Node.js 22 gateway를 순서대로 실행한다. `/var/lib/bluetooth/mesh`의 BlueZ network DB와 `/var/lib/led-control`의 token·주소 mapping·명령 상태·automation source state는 재부팅 후에도 유지한다. Cold boot 뒤 host가 marker를 생성할 수 있도록 호스트 `/run/systemd/timesync` 디렉터리 전체를 컨테이너의 같은 경로에 read-only bind mount한다.
 
 ## 2. 현재 검증 상태
 
@@ -163,10 +163,11 @@ docker exec led-control-gateway cat /var/run/led-control/health.json
 docker inspect --format '{{json .State.Health}}' led-control-gateway
 ```
 
-Automation config와 실행 상태는 각각 `/var/lib/led-control/automation-snapshot.json`, `/var/lib/led-control/automation-state.json`에 있다. 두 파일을 수동 편집하지 않는다. Clock marker mount와 파일 권한은 다음처럼 확인한다.
+Automation config와 실행 상태는 각각 `/var/lib/led-control/automation-snapshot.json`, `/var/lib/led-control/automation-state.json`에 있고 timed manual handoff phase는 `/var/lib/led-control/command-journal.json`에 있다. 파일을 수동 편집하지 않는다. Clock directory mount와 파일 권한은 다음처럼 확인한다.
 
 ```bash
 docker inspect --format '{{range .Mounts}}{{println .Source "->" .Destination .Mode}}{{end}}' led-control-gateway
+docker exec led-control-gateway test -d /run/systemd/timesync
 docker exec led-control-gateway test -f /run/systemd/timesync/synchronized
 docker exec led-control-gateway stat -c '%a %U:%G %n' /var/lib/led-control/automation-state.json
 ```
@@ -269,8 +270,9 @@ docker exec led-control-gateway dbus-send --system --print-reply \
 - `dbus_owner_missing`, `bluez_not_attached`, `hci_not_powered`, `mapping_invalid`, `heartbeat_stale`: `health.json`의 probe 필드를 먼저 확인한다. `hci_not_powered`이면 `bluetoothctl show`와 `rfkill list bluetooth`를 확인하고, mapping 오류면 파일을 수동 편집하지 말고 backup 복원 또는 명시적 재-provision 절차를 따른다.
 - `state_outbox_capacity`: 미ACK 상태 이벤트가 `100,000건` 또는 `100MiB` 한도에 도달했다. MQTT/API를 먼저 복구해 application ACK drain을 완료한다. 공간이 회복되면 Gateway가 Mesh publication listener를 다시 열고 강제 상태 resync를 수행하므로 outbox 파일을 삭제하지 않는다.
 - `state_outbox_missing`, `state_outbox_corrupt`, `state_outbox_permissions`: 조명 제어와 provisioning을 계속하지 않는다. `/var/lib/led-control/state-event-outbox.json`과 `.manifest.json`을 같은 시점의 `data/gateway` 백업에서 함께 복원하고, 상위 디렉터리 `0700`, 두 파일 `0600`, 소유자 `gateway`를 확인한 뒤 재시작한다.
-- `automation_state_corrupt`, `automation_state_unavailable`, `automation_state_commit_uncertain`: 자동·수동 RF 실행을 계속하지 않는다. 현재 `automation-state.json`을 별도 보관하고 같은 시점의 `gateway` 백업을 복원한다. 파일만 삭제해 first-run 처리하면 source 시작 전 brightness와 duplicate suppression 근거를 잃으므로 운영 승인 없이 초기화하지 않는다.
-- Schedule이 경계에서 실행되지 않음: 호스트와 컨테이너의 `/run/systemd/timesync/synchronized`가 regular file인지, `timedatectl show -p NTPSynchronized --value`가 `yes`인지, 로그에 clock rollback이 있는지 확인한다. Clock untrusted는 새 schedule 전이만 멈추며 timed manual 명령과 현재 process의 vehicle monotonic hold는 계속돼야 한다.
+- `automation_state_corrupt`, `automation_state_unavailable`, `automation_state_commit_uncertain`: 자동·수동 RF 실행을 계속하지 않는다. 현재 `automation-state.json`을 별도 보관하고 같은 시점의 `gateway` 백업을 복원한다. 파일만 삭제해 first-run 처리하면 source pre-state, pending transition과 성공 terminal duplicate suppression 근거를 잃으므로 운영 승인 없이 초기화하지 않는다. Pending/failed transition의 restart 재전송은 brightness idempotency를 이용한 정상 at-least-once 복구다.
+- `automation-state.json`의 `telemetryGap`이 `null`이 아님: 해당 최초/최종 시각과 건수의 terminal telemetry가 유실됐다. 로컬 RF는 계속된 상태이므로 현장 밝기를 확인하고 파일을 지우거나 gap을 수동 수정하지 않는다. Task 13 execution outbox/application ACK 연결 뒤 이 seam으로 운영 화면과 API에 인계한다.
+- Schedule이 경계에서 실행되지 않음: Compose mount가 exact marker file이 아니라 `/run/systemd/timesync -> /run/systemd/timesync ro`인지, 호스트와 컨테이너 marker가 regular file인지, `timedatectl show -p NTPSynchronized --value`가 `yes`인지 확인한다. Rollback 뒤에는 marker mtime이 다시 갱신될 때까지 clock-untrusted가 정상이다. 이 상태는 새 schedule 전이와 restart UTC expiry만 멈추며 timed manual 입력과 현재 process의 manual/vehicle monotonic hold는 계속돼야 한다.
 - token/mesh DB 손상: 임의 재생성하지 말고 같은 시점 백업을 복원하거나 현장 전체를 명시적으로 재-provision한다.
 
 outbox 백업이 없어 복원이 불가능하면 담당 운영자의 데이터 유실 승인과 장애 기록이 필요하다. 컨테이너를 중지하고 현재 파일을 별도 보관한 뒤 **두 파일을 함께** 제거해야만 새 first-run으로 초기화할 수 있다. 이 절차는 미ACK 이벤트를 복구하지 못하며 API 통계에는 마지막 정상 상태 이후 구간이 unknown으로 남는다. 재시작 후 강제 resync 결과와 현장 조명 상태를 대조하기 전에는 제어·등록을 재개하지 않는다.

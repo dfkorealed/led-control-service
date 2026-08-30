@@ -29,14 +29,34 @@ export interface PersistedVehicleRuleState {
   preBrightness: Record<string, number>;
 }
 
-export interface PersistedAutomationStateV1 {
-  schemaVersion: 1;
+export interface PersistedAutomationTelemetryGap {
+  firstDroppedAt: string;
+  lastDroppedAt: string;
+  droppedCount: number;
+}
+
+export interface PersistedAutomationTransitionState {
+  phase: "pending" | "terminal";
+  brightnessPercent: number;
+  sourceType: "manual_override" | "vehicle_event_rule" | "schedule" | "current" | "default";
+  sourceId: string | null;
+  occurrenceKey: string | null;
+  attempt: number;
+  startedAt: string;
+  status: "succeeded" | "failed" | "timed_out" | null;
+  terminalAt: string | null;
+}
+
+export interface PersistedAutomationStateV2 {
+  schemaVersion: 2;
   activeOccurrences: Record<string, PersistedOccurrenceState>;
   manualOverrides: Record<string, PersistedManualOverrideState>;
   vehicleRules: Record<string, PersistedVehicleRuleState>;
   currentByFixture: Record<string, number>;
   baseBrightnessByFixture: Record<string, number>;
   lastDesiredByFixture: Record<string, number>;
+  transitionsByFixture: Record<string, PersistedAutomationTransitionState>;
+  telemetryGap: PersistedAutomationTelemetryGap | null;
 }
 
 type StateWriter = (path: string, value: unknown) => Promise<void>;
@@ -61,9 +81,9 @@ export class AutomationStateCommitUncertainError extends Error {
 }
 
 export class FileAutomationStateStore {
-  private state: PersistedAutomationStateV1 | null = null;
+  private state: PersistedAutomationStateV2 | null = null;
   private available = false;
-  private initialization: Promise<PersistedAutomationStateV1> | undefined;
+  private initialization: Promise<PersistedAutomationStateV2> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -76,7 +96,7 @@ export class FileAutomationStateStore {
     return this.initialization;
   }
 
-  read(): PersistedAutomationStateV1 {
+  read(): PersistedAutomationStateV2 {
     if (!this.available || !this.state) {
       throw new AutomationStateStoreError("automation_state_unavailable");
     }
@@ -84,8 +104,8 @@ export class FileAutomationStateStore {
   }
 
   async update(
-    mutation: (state: PersistedAutomationStateV1) => PersistedAutomationStateV1
-  ): Promise<PersistedAutomationStateV1> {
+    mutation: (state: PersistedAutomationStateV2) => PersistedAutomationStateV2
+  ): Promise<PersistedAutomationStateV2> {
     await this.initialize();
     return this.exclusive(async () => {
       const previous = this.read();
@@ -108,7 +128,33 @@ export class FileAutomationStateStore {
     });
   }
 
-  private async restore(): Promise<PersistedAutomationStateV1> {
+  recordTelemetryGap(firstDroppedAt: string, droppedCount: number, lastDroppedAt = firstDroppedAt) {
+    const firstTimestamp = parseTimestamp(firstDroppedAt);
+    const lastTimestamp = parseTimestamp(lastDroppedAt);
+    if (Date.parse(firstTimestamp) > Date.parse(lastTimestamp)) throw new Error("invalid telemetry gap interval");
+    if (!Number.isSafeInteger(droppedCount) || droppedCount <= 0) {
+      throw new Error("invalid telemetry gap count");
+    }
+    return this.update((state) => {
+      const current = state.telemetryGap;
+      state.telemetryGap = current ? {
+        firstDroppedAt: Date.parse(firstTimestamp) < Date.parse(current.firstDroppedAt)
+          ? firstTimestamp
+          : current.firstDroppedAt,
+        lastDroppedAt: Date.parse(lastTimestamp) > Date.parse(current.lastDroppedAt)
+          ? lastTimestamp
+          : current.lastDroppedAt,
+        droppedCount: Math.min(Number.MAX_SAFE_INTEGER, current.droppedCount + droppedCount)
+      } : {
+        firstDroppedAt: firstTimestamp,
+        lastDroppedAt: lastTimestamp,
+        droppedCount
+      };
+      return state;
+    });
+  }
+
+  private async restore(): Promise<PersistedAutomationStateV2> {
     let raw: unknown | null;
     try {
       raw = await readJsonFile(this.path);
@@ -140,7 +186,7 @@ export class FileAutomationStateStore {
     }
   }
 
-  private async recoverPrevious(previous: PersistedAutomationStateV1, commitError: unknown) {
+  private async recoverPrevious(previous: PersistedAutomationStateV2, commitError: unknown) {
     let rollbackError: unknown;
     try {
       await this.write(this.path, previous);
@@ -148,7 +194,7 @@ export class FileAutomationStateStore {
       rollbackError = error;
     }
 
-    let visible: PersistedAutomationStateV1 | null = null;
+    let visible: PersistedAutomationStateV2 | null = null;
     let readbackError: unknown;
     try {
       const raw = await readJsonFile(this.path);
@@ -177,20 +223,22 @@ export class FileAutomationStateStore {
   }
 }
 
-export function emptyAutomationState(): PersistedAutomationStateV1 {
+export function emptyAutomationState(): PersistedAutomationStateV2 {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     activeOccurrences: {},
     manualOverrides: {},
     vehicleRules: {},
     currentByFixture: {},
     baseBrightnessByFixture: {},
-    lastDesiredByFixture: {}
+    lastDesiredByFixture: {},
+    transitionsByFixture: {},
+    telemetryGap: null
   };
 }
 
-export function parseAutomationState(value: unknown): PersistedAutomationStateV1 {
-  if (!hasExactKeys(value, [
+export function parseAutomationState(value: unknown): PersistedAutomationStateV2 {
+  if (hasExactKeys(value, [
     "schemaVersion",
     "activeOccurrences",
     "manualOverrides",
@@ -198,16 +246,93 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV1
     "currentByFixture",
     "baseBrightnessByFixture",
     "lastDesiredByFixture"
-  ]) || value.schemaVersion !== 1) throw new Error("invalid automation state");
+  ]) && value.schemaVersion === 1) {
+    return parseAutomationStateFields(value, {}, null);
+  }
+  if (!hasExactKeys(value, [
+    "schemaVersion",
+    "activeOccurrences",
+    "manualOverrides",
+    "vehicleRules",
+    "currentByFixture",
+    "baseBrightnessByFixture",
+    "lastDesiredByFixture",
+    "transitionsByFixture",
+    "telemetryGap"
+  ]) || value.schemaVersion !== 2) throw new Error("invalid automation state");
+  return parseAutomationStateFields(
+    value,
+    parseRecord(value.transitionsByFixture, parseTransition),
+    parseTelemetryGap(value.telemetryGap)
+  );
+}
+
+function parseAutomationStateFields(
+  value: Record<string, unknown>,
+  transitionsByFixture: Record<string, PersistedAutomationTransitionState>,
+  telemetryGap: PersistedAutomationTelemetryGap | null
+): PersistedAutomationStateV2 {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
     manualOverrides: parseRecord(value.manualOverrides, parseManualOverride),
     vehicleRules: parseRecord(value.vehicleRules, parseVehicleRule),
     currentByFixture: parseBrightnessRecord(value.currentByFixture),
     baseBrightnessByFixture: parseBrightnessRecord(value.baseBrightnessByFixture),
-    lastDesiredByFixture: parseBrightnessRecord(value.lastDesiredByFixture)
+    lastDesiredByFixture: parseBrightnessRecord(value.lastDesiredByFixture),
+    transitionsByFixture,
+    telemetryGap
   };
+}
+
+function parseTransition(value: unknown): PersistedAutomationTransitionState {
+  if (!hasExactKeys(value, [
+    "phase",
+    "brightnessPercent",
+    "sourceType",
+    "sourceId",
+    "occurrenceKey",
+    "attempt",
+    "startedAt",
+    "status",
+    "terminalAt"
+  ])) throw new Error("invalid automation transition");
+  if (value.phase !== "pending" && value.phase !== "terminal") throw new Error("invalid transition phase");
+  if (!isLightingSource(value.sourceType)) throw new Error("invalid transition source");
+  if (!Number.isSafeInteger(value.attempt) || (value.attempt as number) <= 0) throw new Error("invalid transition attempt");
+  const status = value.status;
+  if (status !== null && status !== "succeeded" && status !== "failed" && status !== "timed_out") {
+    throw new Error("invalid transition status");
+  }
+  if ((value.phase === "pending" && (status !== null || value.terminalAt !== null)) ||
+    (value.phase === "terminal" && (status === null || value.terminalAt === null))) {
+    throw new Error("invalid transition terminal state");
+  }
+  return {
+    phase: value.phase,
+    brightnessPercent: parseBrightness(value.brightnessPercent),
+    sourceType: value.sourceType,
+    sourceId: value.sourceId === null ? null : parseString(value.sourceId),
+    occurrenceKey: value.occurrenceKey === null ? null : parseString(value.occurrenceKey),
+    attempt: value.attempt as number,
+    startedAt: parseTimestamp(value.startedAt),
+    status,
+    terminalAt: value.terminalAt === null ? null : parseTimestamp(value.terminalAt)
+  };
+}
+
+function parseTelemetryGap(value: unknown): PersistedAutomationTelemetryGap | null {
+  if (value === null) return null;
+  if (!hasExactKeys(value, ["firstDroppedAt", "lastDroppedAt", "droppedCount"])) {
+    throw new Error("invalid automation telemetry gap");
+  }
+  const firstDroppedAt = parseTimestamp(value.firstDroppedAt);
+  const lastDroppedAt = parseTimestamp(value.lastDroppedAt);
+  if (Date.parse(firstDroppedAt) > Date.parse(lastDroppedAt) ||
+    !Number.isSafeInteger(value.droppedCount) || (value.droppedCount as number) <= 0) {
+    throw new Error("invalid automation telemetry gap");
+  }
+  return { firstDroppedAt, lastDroppedAt, droppedCount: value.droppedCount as number };
 }
 
 function parseOccurrence(value: unknown): PersistedOccurrenceState {
@@ -294,6 +419,11 @@ function parseString(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isLightingSource(value: unknown): value is PersistedAutomationTransitionState["sourceType"] {
+  return value === "manual_override" || value === "vehicle_event_rule" || value === "schedule" ||
+    value === "current" || value === "default";
 }
 
 function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {

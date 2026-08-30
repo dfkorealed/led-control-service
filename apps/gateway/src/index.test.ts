@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createGatewayAutomationServices,
+  createDurableAutomationTerminalHandoff,
+  executeAutomationWithBestEffortTelemetry,
+  enqueueAutomationFixtureStates,
   createManualOverrideCoordinator,
   createFixtureStatusPublisher,
   createProvisioningScanCompletedPayload,
@@ -131,6 +134,121 @@ describe("startGatewayRuntime", () => {
         errorCode: "status_timeout",
         occurredAt: "2026-08-30T01:00:01.000Z"
       }]
+    );
+  });
+
+  it("keeps local automation RF successful when terminal telemetry capacity is exhausted", async () => {
+    const actions = [{
+      fixtureId: scopedFixtureId,
+      brightnessPercent: 70,
+      sourceType: "schedule" as const,
+      sourceId: "00000000-0000-4000-8000-000000000103",
+      occurrenceKey: "occurrence-1"
+    }];
+    const terminal = [{
+      fixtureId: scopedFixtureId,
+      status: "succeeded" as const,
+      brightnessPercent: 70,
+      faultCode: null,
+      errorCode: null,
+      occurredAt: "2026-08-30T01:00:00.000Z"
+    }];
+    const order: string[] = [];
+    const recordGap = vi.fn(async () => { order.push("gap"); });
+
+    await expect(executeAutomationWithBestEffortTelemetry({
+      actions,
+      execute: async () => { order.push("rf"); return terminal; },
+      enqueueTelemetry: async () => {
+        order.push("telemetry");
+        throw new StateEventOutboxError("STATE_OUTBOX_CAPACITY", "full");
+      },
+      recordGap,
+      onError: vi.fn()
+    })).resolves.toEqual(terminal);
+
+    expect(order).toEqual(["rf", "telemetry", "gap"]);
+    expect(recordGap).toHaveBeenCalledWith(
+      "2026-08-30T01:00:00.000Z",
+      1,
+      "2026-08-30T01:00:00.000Z"
+    );
+  });
+
+  it("records a durable gap when the Task 13 terminal handoff seam cannot enqueue", async () => {
+    const recordGap = vi.fn().mockResolvedValue(undefined);
+    const handoff = createDurableAutomationTerminalHandoff({
+      enqueue: vi.fn().mockRejectedValue(new Error("telemetry outbox full")),
+      recordGap,
+      onError: vi.fn()
+    });
+
+    await expect(handoff({
+      revision: 3,
+      actions: [{
+        fixtureId: scopedFixtureId,
+        brightnessPercent: 70,
+        sourceType: "schedule",
+        sourceId: "00000000-0000-4000-8000-000000000103",
+        occurrenceKey: "occurrence-1"
+      }],
+      results: [{
+        fixtureId: scopedFixtureId,
+        status: "failed",
+        brightnessPercent: null,
+        faultCode: null,
+        errorCode: "status_timeout",
+        occurredAt: "2026-08-30T01:00:02.000Z"
+      }]
+    })).resolves.toBeUndefined();
+
+    expect(recordGap).toHaveBeenCalledWith(
+      "2026-08-30T01:00:02.000Z",
+      1,
+      "2026-08-30T01:00:02.000Z"
+    );
+  });
+
+  it("counts only terminal fixture telemetry that actually failed after a partial enqueue", async () => {
+    const secondFixtureId = "00000000-0000-4000-8000-000000000006";
+    const actions = [scopedFixtureId, secondFixtureId].map((fixtureId) => ({
+      fixtureId,
+      brightnessPercent: 70,
+      sourceType: "schedule" as const,
+      sourceId: "00000000-0000-4000-8000-000000000103",
+      occurrenceKey: "occurrence-1"
+    }));
+    const results = actions.map((action, index) => ({
+      fixtureId: action.fixtureId,
+      status: "succeeded" as const,
+      brightnessPercent: 70,
+      faultCode: null,
+      errorCode: null,
+      occurredAt: `2026-08-30T01:00:0${index + 1}.000Z`
+    }));
+    let sequence = 0;
+    const enqueue = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new StateEventOutboxError("STATE_OUTBOX_CAPACITY", "full"));
+    const recordGap = vi.fn().mockResolvedValue(undefined);
+
+    await executeAutomationWithBestEffortTelemetry({
+      actions,
+      execute: async () => results,
+      enqueueTelemetry: (terminal) => enqueueAutomationFixtureStates({
+        siteId: scopedSiteId,
+        gatewayId: scopedGatewayId,
+        eventSequence: { next: async () => ++sequence },
+        results: terminal,
+        enqueue
+      }),
+      recordGap
+    });
+
+    expect(recordGap).toHaveBeenCalledWith(
+      "2026-08-30T01:00:02.000Z",
+      1,
+      "2026-08-30T01:00:02.000Z"
     );
   });
 

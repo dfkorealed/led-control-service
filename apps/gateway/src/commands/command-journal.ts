@@ -1,10 +1,11 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { writeJsonAtomic } from "../mesh/mesh-store-file";
 
 interface JournalRecord {
   state: "accepted" | "completed";
   command: unknown;
   result?: unknown;
+  automationHandoff: "not_required" | "pending" | "completed";
   updatedAt: string;
 }
 
@@ -20,7 +21,7 @@ interface FixtureSnapshot {
 }
 
 interface JournalData {
-  version: 2;
+  version: 3;
   records: Record<string, JournalRecord>;
   fixtureSnapshots: Record<string, FixtureSnapshot>;
 }
@@ -50,7 +51,12 @@ export class CommandJournal {
     const data = await this.readData();
     const record = data.records[idempotencyKey];
     if (!record || this.isExpired(record)) return null;
-    return { state: record.state, command: record.command, ...(record.result === undefined ? {} : { result: record.result }) };
+    return {
+      state: record.state,
+      command: record.command,
+      ...(record.result === undefined ? {} : { result: record.result }),
+      ...(record.automationHandoff === "not_required" ? {} : { automationHandoff: record.automationHandoff })
+    };
   }
 
   async latestFixtureSnapshots() {
@@ -62,21 +68,77 @@ export class CommandJournal {
       const data = await this.readData();
       this.prune(data);
       if (data.records[idempotencyKey]) return false;
-      data.records[idempotencyKey] = { state: "accepted", command, updatedAt: this.now().toISOString() };
+      data.records[idempotencyKey] = {
+        state: "accepted",
+        command,
+        automationHandoff: "not_required",
+        updatedAt: this.now().toISOString()
+      };
       this.prune(data);
       await this.writeData(data);
       return true;
     });
   }
 
-  async complete(idempotencyKey: string, result: unknown) {
+  async complete(
+    idempotencyKey: string,
+    result: unknown,
+    options: { automationHandoffPending?: boolean } = {}
+  ) {
     await this.enqueue(async () => {
       const data = await this.readData();
       const existing = data.records[idempotencyKey];
       if (!existing) throw new Error("command must be accepted before completion");
-      data.records[idempotencyKey] = { ...existing, state: "completed", result, updatedAt: this.now().toISOString() };
+      data.records[idempotencyKey] = {
+        ...existing,
+        state: "completed",
+        result,
+        automationHandoff: options.automationHandoffPending ? "pending" : "not_required",
+        updatedAt: this.now().toISOString()
+      };
       this.updateSnapshots(data, result);
       this.prune(data);
+      await this.writeData(data);
+    });
+  }
+
+  async pendingAutomationHandoffs() {
+    const data = await this.readData();
+    return Object.entries(data.records)
+      .filter(([, record]) => record.state === "completed" && record.automationHandoff === "pending" && !this.isExpired(record))
+      .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt))
+      .map(([idempotencyKey, record]) => ({
+        idempotencyKey,
+        command: record.command,
+        result: record.result
+      }));
+  }
+
+  async pendingAutomationRecoveries() {
+    const data = await this.readData();
+    return Object.entries(data.records)
+      .filter(([, record]) => !this.isExpired(record) && (
+        (record.state === "completed" && record.automationHandoff === "pending") ||
+        (record.state === "accepted" && isTimedCommandWrapper(record.command))
+      ))
+      .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt))
+      .map(([idempotencyKey, record]) => ({
+        idempotencyKey,
+        state: record.state,
+        command: record.command,
+        ...(record.result === undefined ? {} : { result: record.result })
+      }));
+  }
+
+  async markAutomationHandoffComplete(idempotencyKey: string) {
+    await this.enqueue(async () => {
+      const data = await this.readData();
+      const existing = data.records[idempotencyKey];
+      if (!existing || existing.state !== "completed") throw new Error("command must be completed before automation handoff");
+      if (existing.automationHandoff === "completed") return;
+      if (existing.automationHandoff !== "pending") throw new Error("automation handoff is not pending");
+      existing.automationHandoff = "completed";
+      existing.updatedAt = this.now().toISOString();
       await this.writeData(data);
     });
   }
@@ -123,10 +185,27 @@ export class CommandJournal {
     try {
       const parsed = JSON.parse(await readFile(this.path, "utf8")) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid command journal");
-      const row = parsed as Partial<JournalData>;
-      if (row.version === 2 && row.records && row.fixtureSnapshots) return row as JournalData;
+      const row = parsed as {
+        version?: number;
+        records?: Record<string, Omit<JournalRecord, "automationHandoff"> & {
+          automationHandoff?: JournalRecord["automationHandoff"];
+        }>;
+        fixtureSnapshots?: Record<string, FixtureSnapshot>;
+      };
+      if (row.version === 3 && row.records && row.fixtureSnapshots) return row as JournalData;
 
-      const migrated: JournalData = { version: 2, records: {}, fixtureSnapshots: {} };
+      if (row.version === 2 && row.records && row.fixtureSnapshots) {
+        return {
+          version: 3,
+          fixtureSnapshots: row.fixtureSnapshots,
+          records: Object.fromEntries(Object.entries(row.records).map(([key, record]) => [key, {
+            ...record,
+            automationHandoff: needsConservativeHandoff(record) ? "pending" : "not_required"
+          }]))
+        };
+      }
+
+      const migrated: JournalData = { version: 3, records: {}, fixtureSnapshots: {} };
       for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
         if (!value || typeof value !== "object") continue;
         const legacy = value as { state?: unknown; command?: unknown; result?: unknown };
@@ -135,34 +214,20 @@ export class CommandJournal {
           state: legacy.state,
           command: legacy.command,
           ...(legacy.result === undefined ? {} : { result: legacy.result }),
+          automationHandoff: "not_required",
           updatedAt: this.now().toISOString()
         };
         if (legacy.result !== undefined) this.updateSnapshots(migrated, legacy.result);
       }
       return migrated;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 2, records: {}, fixtureSnapshots: {} };
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 3, records: {}, fixtureSnapshots: {} };
       throw error;
     }
   }
 
   private async writeData(data: JournalData) {
-    const directory = dirname(this.path);
-    const temporaryPath = `${this.path}.${process.pid}.${Date.now()}.tmp`;
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    try {
-      const file = await open(temporaryPath, "wx", 0o600);
-      try {
-        await file.writeFile(`${JSON.stringify(data)}\n`, "utf8");
-        await file.sync();
-      } finally {
-        await file.close();
-      }
-      await rename(temporaryPath, this.path);
-    } catch (error) {
-      await rm(temporaryPath, { force: true });
-      throw error;
-    }
+    await writeJsonAtomic(this.path, data);
   }
 
   private enqueue<T>(mutation: () => Promise<T>): Promise<T> {
@@ -173,4 +238,14 @@ export class CommandJournal {
     );
     return result;
   }
+}
+
+function needsConservativeHandoff(record: Pick<JournalRecord, "state" | "command">) {
+  if (record.state !== "completed") return false;
+  return isTimedCommandWrapper(record.command);
+}
+
+function isTimedCommandWrapper(value: unknown) {
+  const wrapper = value as { command?: { overrideUntil?: unknown } };
+  return typeof wrapper?.command?.overrideUntil === "string";
 }

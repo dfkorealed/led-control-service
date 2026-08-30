@@ -3,7 +3,8 @@ import { StubBleMeshAdapter } from "../../test/stub-adapters";
 import {
   executeAutomationDimmingActions,
   handleGatewayDimmingCommand,
-  parseCommandTimeout
+  parseCommandTimeout,
+  recoverPendingManualAutomationHandoffs
 } from "./gateway-command-handler";
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 
@@ -79,6 +80,102 @@ describe("handleGatewayDimmingCommand", () => {
     expect(automation.handoff).toHaveBeenCalledWith(timed, first.deviceStatus);
     expect(duplicate).toEqual(first);
     expect(adapter.commands).toHaveLength(1);
+  });
+
+  it("replays a completed command whose durable automation handoff was interrupted", async () => {
+    const adapter = new StubBleMeshAdapter();
+    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+    const records = new Map<string, any>();
+    const automation = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      handoff: vi.fn()
+        .mockRejectedValueOnce(new Error("crash before handoff commit"))
+        .mockResolvedValueOnce(undefined)
+    };
+
+    const first = await handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(records),
+      timed,
+      undefined,
+      { automation, onAutomationError: vi.fn() }
+    );
+    expect(records.get(command.idempotencyKey)).toMatchObject({
+      state: "completed",
+      automationHandoff: "pending"
+    });
+
+    const duplicate = await handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(records),
+      timed,
+      undefined,
+      { automation }
+    );
+
+    expect(duplicate).toEqual(first);
+    expect(adapter.commands).toHaveLength(1);
+    expect(automation.handoff).toHaveBeenCalledTimes(2);
+    expect(records.get(command.idempotencyKey)).toMatchObject({ automationHandoff: "completed" });
+  });
+
+  it("closes a prepared accepted-only command through a replayable indeterminate handoff without RF", async () => {
+    const adapter = new StubBleMeshAdapter();
+    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+    const records = new Map<string, any>([[command.idempotencyKey, {
+      state: "accepted",
+      command: { command: timed },
+      automationHandoff: "not_required"
+    }]]);
+    const automation = {
+      prepare: vi.fn(),
+      handoff: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const recovered = await handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(records),
+      timed,
+      undefined,
+      { automation }
+    );
+
+    expect(recovered.deviceStatus.status).toBe("timed_out");
+    expect(adapter.commands).toHaveLength(0);
+    expect(automation.prepare).not.toHaveBeenCalled();
+    expect(automation.handoff).toHaveBeenCalledWith(timed, recovered.deviceStatus);
+    expect(records.get(command.idempotencyKey)).toMatchObject({
+      state: "completed",
+      automationHandoff: "completed"
+    });
+  });
+
+  it("replays accepted-only manual preparation during startup without waiting for broker redelivery", async () => {
+    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+    const completed: unknown[] = [];
+    const marked: string[] = [];
+    const journal = {
+      pendingAutomationRecoveries: async () => [{
+        idempotencyKey: command.idempotencyKey,
+        state: "accepted" as const,
+        command: { command: timed }
+      }],
+      complete: async (_key: string, result: unknown, options?: unknown) => { completed.push({ result, options }); },
+      markAutomationHandoffComplete: async (key: string) => { marked.push(key); }
+    };
+    const automation = { prepare: vi.fn(), handoff: vi.fn().mockResolvedValue(undefined) };
+
+    await recoverPendingManualAutomationHandoffs(journal, automation);
+
+    expect(completed).toEqual([expect.objectContaining({
+      result: expect.objectContaining({ deviceStatus: expect.objectContaining({ status: "timed_out" }) }),
+      options: { automationHandoffPending: true }
+    })]);
+    expect(automation.handoff).toHaveBeenCalledWith(
+      timed,
+      expect.objectContaining({ status: "timed_out" })
+    );
+    expect(marked).toEqual([command.idempotencyKey]);
   });
 
   it("closes a durable manual prepare failure without starting RF", async () => {
@@ -620,8 +717,16 @@ function memoryJournal(records: Map<string, any>) {
       records.set(key, { state: "accepted", command: value });
       return true;
     },
-    complete: async (key: string, result: unknown) => {
-      records.set(key, { ...records.get(key), state: "completed", result });
+    complete: async (key: string, result: unknown, options: { automationHandoffPending?: boolean } = {}) => {
+      records.set(key, {
+        ...records.get(key),
+        state: "completed",
+        result,
+        automationHandoff: options.automationHandoffPending ? "pending" : "not_required"
+      });
+    },
+    markAutomationHandoffComplete: async (key: string) => {
+      records.set(key, { ...records.get(key), automationHandoff: "completed" });
     }
   };
 }

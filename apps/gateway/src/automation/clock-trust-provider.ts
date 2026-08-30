@@ -18,7 +18,6 @@ interface ClockTrustDependencies {
 
 export class SystemClockTrustProvider implements ClockTrustProvider {
   private lastTrustedWallMs: number | null = null;
-  private lastMarkerMtimeMs: number | null = null;
   private markerRefreshFenceMs: number | null = null;
   private readonly stat: (path: string) => Promise<MarkerStat>;
 
@@ -40,7 +39,6 @@ export class SystemClockTrustProvider implements ClockTrustProvider {
       if (marker.mtimeMs <= this.markerRefreshFenceMs) return false;
       this.markerRefreshFenceMs = null;
       this.lastTrustedWallMs = wallMs;
-      this.lastMarkerMtimeMs = marker.mtimeMs;
       return true;
     }
 
@@ -48,15 +46,13 @@ export class SystemClockTrustProvider implements ClockTrustProvider {
       this.lastTrustedWallMs !== null &&
       this.lastTrustedWallMs - wallMs >= MAX_WALL_CLOCK_ROLLBACK_MS
     ) {
-      const previousMarker = this.lastMarkerMtimeMs ?? marker.mtimeMs;
-      if (marker.mtimeMs <= previousMarker) {
-        this.markerRefreshFenceMs = previousMarker;
-        return false;
-      }
+      // The marker visible at rollback may have changed before this poll. Fence
+      // that exact mtime and require a later refresh to prove post-rollback sync.
+      this.markerRefreshFenceMs = marker.mtimeMs;
+      return false;
     }
 
     this.lastTrustedWallMs = wallMs;
-    this.lastMarkerMtimeMs = marker.mtimeMs;
     return true;
   }
 

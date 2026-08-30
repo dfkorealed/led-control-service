@@ -77,6 +77,33 @@ describe("CommandJournal", () => {
     expect(await journal.get("legacy")).toMatchObject({ state: "completed", command: { commandId: "old" } });
     expect(await journal.latestFixtureSnapshots()).toEqual([expect.objectContaining({ fixtureId: "fixture-1", brightness: 40 })]);
   });
+
+  it("persists a replayable automation handoff phase across completed-command restart", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-handoff-")), "journal.json");
+    const command = { command: { commandId: "command-1", overrideUntil: "2026-08-30T02:00:00.000Z" } };
+    const result = commandResult("fixture-1", 60, "2026-08-30T01:00:01.000Z");
+    const journal = new CommandJournal(path);
+    await journal.accept("key-1", command);
+    await journal.complete("key-1", result, { automationHandoffPending: true });
+
+    const restarted = new CommandJournal(path);
+    await expect(restarted.pendingAutomationHandoffs()).resolves.toEqual([{
+      idempotencyKey: "key-1",
+      command,
+      result
+    }]);
+
+    await restarted.markAutomationHandoffComplete("key-1");
+    await expect(restarted.pendingAutomationHandoffs()).resolves.toEqual([]);
+    await expect(restarted.get("key-1")).resolves.toMatchObject({ automationHandoff: "completed" });
+
+    await restarted.accept("key-2", {
+      command: { commandId: "command-2", overrideUntil: "2026-08-30T03:00:00.000Z" }
+    });
+    await expect(restarted.pendingAutomationRecoveries()).resolves.toEqual([
+      expect.objectContaining({ idempotencyKey: "key-2", state: "accepted" })
+    ]);
+  });
 });
 
 function commandResult(fixtureId: string, brightness: number, occurredAt: string) {

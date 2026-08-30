@@ -14,7 +14,7 @@ import {
 import type { ClockTrustProvider } from "./clock-trust-provider";
 import {
   FileAutomationStateStore,
-  type PersistedAutomationStateV1,
+  type PersistedAutomationStateV2,
   type PersistedVehicleRuleState
 } from "./automation-state-store";
 import type { DesiredLightingState } from "./automation-runtime";
@@ -59,8 +59,9 @@ interface ComputedDesiredState {
 
 interface ActivationCheckpoint {
   snapshot: AutomationSnapshotV1 | null;
-  state: PersistedAutomationStateV1;
+  state: PersistedAutomationStateV2;
   vehicleHoldDeadlines: Array<[string, number]>;
+  manualOverrideDeadlines: Array<[string, number]>;
 }
 
 const DEFAULT_TICK_INTERVAL_MS = 1_000;
@@ -73,9 +74,14 @@ export class ScheduleRuntime {
   private initialized = false;
   private timer: NodeJS.Timeout | null = null;
   private readonly vehicleHoldDeadlines = new Map<string, number>();
+  private readonly manualOverrideDeadlines = new Map<string, number>();
+  private readonly manualCommandsInFlight = new Set<string>();
   private activationCheckpoint: ActivationCheckpoint | null = null;
   private activationSettled: Promise<void> = Promise.resolve();
   private settleActivation: (() => void) | null = null;
+  private stopping = false;
+  private stopPromise: Promise<void> | null = null;
+  private readonly acceptedOperations = new Set<Promise<unknown>>();
 
   constructor(private readonly options: ScheduleRuntimeOptions) {
     this.wallClock = options.wallClock ?? (() => new Date());
@@ -83,7 +89,7 @@ export class ScheduleRuntime {
   }
 
   initialize() {
-    return this.queue.run(async () => {
+    return this.enqueue(async () => {
       if (this.initialized) return this.state();
       const state = await this.options.store.initialize();
       this.initialized = true;
@@ -100,7 +106,7 @@ export class ScheduleRuntime {
   }
 
   recompute(snapshot: AutomationSnapshotV1): Promise<DesiredLightingState> {
-    return this.queue.run(async () => {
+    return this.enqueue(async () => {
       await this.ensureInitialized();
       if (this.activationCheckpoint) throw new Error("automation config activation is already pending");
       this.beginActivation();
@@ -111,13 +117,13 @@ export class ScheduleRuntime {
   }
 
   commitActivation(): Promise<void> {
-    return this.queue.run(async () => {
+    return this.enqueue(async () => {
       this.finishActivation();
-    });
+    }, Boolean(this.activationCheckpoint));
   }
 
   rollbackActivation(): Promise<void> {
-    return this.queue.run(async () => {
+    return this.enqueue(async () => {
       const checkpoint = this.activationCheckpoint;
       if (!checkpoint) return;
       try {
@@ -127,23 +133,27 @@ export class ScheduleRuntime {
         for (const [ruleId, deadline] of checkpoint.vehicleHoldDeadlines) {
           this.vehicleHoldDeadlines.set(ruleId, deadline);
         }
+        this.manualOverrideDeadlines.clear();
+        for (const [fixtureId, deadline] of checkpoint.manualOverrideDeadlines) {
+          this.manualOverrideDeadlines.set(fixtureId, deadline);
+        }
       } finally {
         this.finishActivation();
       }
-    });
+    }, Boolean(this.activationCheckpoint));
   }
 
   applyDesiredState(_next: DesiredLightingState, _previous: DesiredLightingState): Promise<void> {
-    return this.queue.run(async () => {
+    return this.enqueue(async () => {
       await this.ensureInitialized();
       if (!this.snapshot) return;
       await this.applyComputed(this.computeDesired(this.snapshot, this.state()));
-    });
+    }, Boolean(this.activationCheckpoint));
   }
 
   tick(): Promise<void> {
-    if (this.activationCheckpoint) return Promise.resolve();
-    return this.queue.run(async () => {
+    if (this.activationCheckpoint || this.stopping) return Promise.resolve();
+    return this.enqueue(async () => {
       await this.ensureInitialized();
       if (!this.snapshot) return;
       const computed = await this.reconcile(this.snapshot);
@@ -152,6 +162,7 @@ export class ScheduleRuntime {
   }
 
   start() {
+    if (this.stopping) throw new Error("automation_runtime_stopping");
     if (this.timer) return;
     const interval = this.options.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
     if (!Number.isInteger(interval) || interval < 250) throw new Error("automation tick interval must be at least 250ms");
@@ -161,10 +172,21 @@ export class ScheduleRuntime {
     this.timer.unref();
   }
 
-  stop() {
-    if (!this.timer) return;
-    clearInterval(this.timer);
-    this.timer = null;
+  stopAndDrain() {
+    if (this.stopPromise) return this.stopPromise;
+    this.stopping = true;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.stopPromise = (async () => {
+      await this.activationSettled;
+      while (this.acceptedOperations.size > 0) {
+        await Promise.allSettled([...this.acceptedOperations]);
+      }
+      await this.queue.run(async () => undefined);
+    })();
+    return this.stopPromise;
   }
 
   recordFixtureState(fixtureId: string, brightness: number): Promise<void> {
@@ -173,7 +195,10 @@ export class ScheduleRuntime {
       validateBrightness(brightness);
       await this.options.store.update((state) => {
         state.currentByFixture[fixtureId] = brightness;
-        state.lastDesiredByFixture[fixtureId] = brightness;
+        const transition = state.transitionsByFixture[fixtureId];
+        if (!transition || (transition.phase === "terminal" && transition.status === "succeeded")) {
+          state.lastDesiredByFixture[fixtureId] = brightness;
+        }
         if (!hasActiveSource(state, fixtureId)) delete state.baseBrightnessByFixture[fixtureId];
         return state;
       });
@@ -187,6 +212,9 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       validateManualOverride(input);
+      const now = this.wallClock();
+      const monotonicNow = this.monotonicClock();
+      const trusted = await this.options.clockTrust.isTrusted(now);
       await this.options.store.update((state) => {
         for (const fixtureId of input.fixtureIds) {
           const base = captureBase(state, fixtureId);
@@ -198,12 +226,30 @@ export class ScheduleRuntime {
             overrideUntil: input.overrideUntil,
             preBrightness: base
           };
-          // The existing manual command handler owns this RF send. Reserve its
-          // desired value first so restart/config recompute cannot send it again.
-          state.lastDesiredByFixture[fixtureId] = input.brightnessPercent;
+          const previous = state.transitionsByFixture[fixtureId];
+          state.transitionsByFixture[fixtureId] = {
+            phase: "pending",
+            brightnessPercent: input.brightnessPercent,
+            sourceType: "manual_override",
+            sourceId: input.sourceId,
+            occurrenceKey: null,
+            attempt: previous?.sourceId === input.sourceId ? previous.attempt + 1 : 1,
+            startedAt: input.startedAt,
+            status: null,
+            terminalAt: null
+          };
         }
         return state;
       });
+      for (const fixtureId of input.fixtureIds) {
+        this.manualCommandsInFlight.add(fixtureId);
+        if (trusted) {
+          const remaining = Date.parse(input.overrideUntil) - now.getTime();
+          if (remaining > 0) this.manualOverrideDeadlines.set(fixtureId, monotonicNow + remaining);
+        } else {
+          this.manualOverrideDeadlines.delete(fixtureId);
+        }
+      }
     });
   }
 
@@ -225,9 +271,31 @@ export class ScheduleRuntime {
             sourceId,
             occurrenceKey: null
           });
+          const pending = state.transitionsByFixture[result.fixtureId];
+          state.transitionsByFixture[result.fixtureId] = {
+            ...(pending ?? {
+              brightnessPercent: override.brightnessPercent,
+              sourceType: "manual_override",
+              sourceId,
+              occurrenceKey: null,
+              attempt: 1,
+              startedAt: override.startedAt
+            }),
+            phase: "terminal",
+            status: result.status,
+            terminalAt: result.occurredAt
+          };
+          this.manualCommandsInFlight.delete(result.fixtureId);
           if (result.brightnessPercent !== null) {
             state.currentByFixture[result.fixtureId] = result.brightnessPercent;
-            if (result.status === "succeeded") state.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
+            if (result.status === "succeeded") {
+              state.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
+              state.baseBrightnessByFixture[result.fixtureId] = result.brightnessPercent;
+            }
+          }
+          if (result.status !== "succeeded") {
+            delete state.manualOverrides[result.fixtureId];
+            this.manualOverrideDeadlines.delete(result.fixtureId);
           }
         }
         return state;
@@ -275,7 +343,7 @@ export class ScheduleRuntime {
     const trusted = await this.options.clockTrust.isTrusted(now);
     const monotonicNow = this.monotonicClock();
     await this.options.store.update((state) => {
-      reconcileManualOverrides(state, now);
+      reconcileManualOverrides(state, now, monotonicNow, trusted, this.manualOverrideDeadlines);
       reconcileVehicleRules(state, snapshot, now, monotonicNow, trusted, this.vehicleHoldDeadlines);
       reconcileSchedules(state, snapshot, now, trusted);
       return state;
@@ -304,7 +372,7 @@ export class ScheduleRuntime {
     });
   }
 
-  private computeDesired(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV1): ComputedDesiredState {
+  private computeDesired(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV2): ComputedDesiredState {
     const actions = new Map<string, DesiredLightingAction>();
     const desired: Record<string, number> = {};
     const fixtures = relevantFixtures(snapshot, state);
@@ -340,7 +408,8 @@ export class ScheduleRuntime {
   private async applyComputed(computed: ComputedDesiredState) {
     const state = this.state();
     const changed = [...computed.actions.values()].filter((action) =>
-      state.lastDesiredByFixture[action.fixtureId] !== action.brightnessPercent
+      state.lastDesiredByFixture[action.fixtureId] !== action.brightnessPercent &&
+      !(action.sourceType === "manual_override" && this.manualCommandsInFlight.has(action.fixtureId))
     );
     const settledBaseFixtures = [...computed.actions.values()]
       .filter((action) =>
@@ -351,11 +420,23 @@ export class ScheduleRuntime {
       .map((action) => action.fixtureId);
 
     if (changed.length === 0 && settledBaseFixtures.length === 0) return;
+    const pendingAt = this.wallClock().toISOString();
     await this.options.store.update((next) => {
-      for (const action of changed) next.lastDesiredByFixture[action.fixtureId] = action.brightnessPercent;
-      for (const fixtureId of [...settledBaseFixtures, ...changed
-        .filter((action) => action.sourceType === "current")
-        .map((action) => action.fixtureId)]) {
+      for (const action of changed) {
+        const previous = next.transitionsByFixture[action.fixtureId];
+        next.transitionsByFixture[action.fixtureId] = {
+          phase: "pending",
+          brightnessPercent: action.brightnessPercent,
+          sourceType: action.sourceType,
+          sourceId: action.sourceId,
+          occurrenceKey: action.occurrenceKey,
+          attempt: previous && sameTransition(previous, action) ? previous.attempt + 1 : 1,
+          startedAt: pendingAt,
+          status: null,
+          terminalAt: null
+        };
+      }
+      for (const fixtureId of settledBaseFixtures) {
         if (!hasActiveSource(next, fixtureId)) delete next.baseBrightnessByFixture[fixtureId];
       }
       return next;
@@ -370,10 +451,30 @@ export class ScheduleRuntime {
     }
 
     await this.options.store.update((next) => {
-      for (const result of results) {
+      for (const [index, result] of results.entries()) {
+        const action = changed[index]!;
+        const pending = next.transitionsByFixture[result.fixtureId];
+        next.transitionsByFixture[result.fixtureId] = {
+          ...(pending ?? {
+            brightnessPercent: action.brightnessPercent,
+            sourceType: action.sourceType,
+            sourceId: action.sourceId,
+            occurrenceKey: action.occurrenceKey,
+            attempt: 1,
+            startedAt: result.occurredAt
+          }),
+          phase: "terminal",
+          status: result.status,
+          terminalAt: result.occurredAt
+        };
         if (result.brightnessPercent === null) continue;
         next.currentByFixture[result.fixtureId] = result.brightnessPercent;
-        if (result.status !== "succeeded") next.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
+        if (result.status === "succeeded") {
+          next.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
+        }
+        if (result.status === "succeeded" && action.sourceType === "current" && !hasActiveSource(next, result.fixtureId)) {
+          delete next.baseBrightnessByFixture[result.fixtureId];
+        }
       }
       return next;
     });
@@ -398,7 +499,8 @@ export class ScheduleRuntime {
     this.activationCheckpoint = {
       snapshot: this.snapshot ? structuredClone(this.snapshot) : null,
       state: this.state(),
-      vehicleHoldDeadlines: [...this.vehicleHoldDeadlines]
+      vehicleHoldDeadlines: [...this.vehicleHoldDeadlines],
+      manualOverrideDeadlines: [...this.manualOverrideDeadlines]
     };
     this.activationSettled = new Promise<void>((resolve) => { this.settleActivation = resolve; });
   }
@@ -411,9 +513,33 @@ export class ScheduleRuntime {
   }
 
   private async runExternal<T>(operation: () => Promise<T>): Promise<T> {
-    await this.activationSettled;
-    return this.queue.run(operation);
+    if (this.stopping) throw new Error("automation_runtime_stopping");
+    return this.track(this.activationSettled.then(() => this.queue.run(operation)));
   }
+
+  private enqueue<T>(operation: () => Promise<T>, allowWhileStopping = false) {
+    if (this.stopping && !allowWhileStopping) {
+      return Promise.reject(new Error("automation_runtime_stopping"));
+    }
+    return this.track(this.queue.run(operation));
+  }
+
+  private track<T>(operation: Promise<T>): Promise<T> {
+    this.acceptedOperations.add(operation);
+    void operation.then(
+      () => this.acceptedOperations.delete(operation),
+      () => this.acceptedOperations.delete(operation)
+    );
+    return operation;
+  }
+}
+
+function sameTransition(
+  previous: PersistedAutomationStateV2["transitionsByFixture"][string],
+  action: DesiredLightingAction
+) {
+  return previous.brightnessPercent === action.brightnessPercent && previous.sourceType === action.sourceType &&
+    previous.sourceId === action.sourceId && previous.occurrenceKey === action.occurrenceKey;
 }
 
 export class ScheduleRuntimeError extends Error {
@@ -423,14 +549,33 @@ export class ScheduleRuntimeError extends Error {
   }
 }
 
-function reconcileManualOverrides(state: PersistedAutomationStateV1, now: Date) {
+function reconcileManualOverrides(
+  state: PersistedAutomationStateV2,
+  now: Date,
+  monotonicNow: number,
+  trusted: boolean,
+  deadlines: Map<string, number>
+) {
   for (const [fixtureId, override] of Object.entries(state.manualOverrides)) {
-    if (Date.parse(override.overrideUntil) <= now.getTime()) delete state.manualOverrides[fixtureId];
+    let deadline = deadlines.get(fixtureId);
+    if (deadline === undefined && trusted) {
+      const remaining = Date.parse(override.overrideUntil) - now.getTime();
+      if (remaining <= 0) {
+        delete state.manualOverrides[fixtureId];
+        continue;
+      }
+      deadline = monotonicNow + remaining;
+      deadlines.set(fixtureId, deadline);
+    }
+    if (deadline !== undefined && monotonicNow >= deadline) {
+      delete state.manualOverrides[fixtureId];
+      deadlines.delete(fixtureId);
+    }
   }
 }
 
 function reconcileSchedules(
-  state: PersistedAutomationStateV1,
+  state: PersistedAutomationStateV2,
   snapshot: AutomationSnapshotV1,
   now: Date,
   trusted: boolean
@@ -472,7 +617,7 @@ function reconcileSchedules(
 }
 
 function reconcileVehicleRules(
-  state: PersistedAutomationStateV1,
+  state: PersistedAutomationStateV2,
   snapshot: AutomationSnapshotV1,
   now: Date,
   monotonicNow: number,
@@ -521,7 +666,7 @@ function vehicleState(
   existing: PersistedVehicleRuleState | undefined,
   activeSourceFixtureIds: string[],
   now: Date,
-  state: PersistedAutomationStateV1
+  state: PersistedAutomationStateV2
 ): PersistedVehicleRuleState {
   const preBrightness = { ...(existing?.preBrightness ?? {}) };
   for (const fixtureId of rule.targetFixtureIds) {
@@ -540,7 +685,7 @@ function vehicleState(
 
 function activeScheduleCandidate(
   snapshot: AutomationSnapshotV1,
-  state: PersistedAutomationStateV1,
+  state: PersistedAutomationStateV2,
   fixtureId: string
 ) {
   for (const [scheduleId, occurrence] of Object.entries(state.activeOccurrences)) {
@@ -562,7 +707,7 @@ function actionBrightness(rule: LightingScheduleSnapshotV1 | VehicleEventRuleSna
   return rule.action.dimmingEnabled ? rule.action.brightnessPercent : 100;
 }
 
-function captureBase(state: PersistedAutomationStateV1, fixtureId: string): number | null {
+function captureBase(state: PersistedAutomationStateV2, fixtureId: string): number | null {
   const existing = state.baseBrightnessByFixture[fixtureId];
   if (existing !== undefined) return existing;
   const current = state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId];
@@ -571,7 +716,7 @@ function captureBase(state: PersistedAutomationStateV1, fixtureId: string): numb
   return current;
 }
 
-function relevantFixtures(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV1) {
+function relevantFixtures(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV2) {
   const fixtures = new Set([
     ...Object.keys(state.currentByFixture),
     ...Object.keys(state.baseBrightnessByFixture),
@@ -583,7 +728,7 @@ function relevantFixtures(snapshot: AutomationSnapshotV1, state: PersistedAutoma
   return [...fixtures].sort();
 }
 
-function hasActiveSource(state: PersistedAutomationStateV1, fixtureId: string) {
+function hasActiveSource(state: PersistedAutomationStateV2, fixtureId: string) {
   if (state.manualOverrides[fixtureId]) return true;
   if (Object.values(state.activeOccurrences).some((occurrence) => occurrence.preBrightness[fixtureId] !== undefined)) return true;
   return Object.values(state.vehicleRules).some((vehicle) => vehicle.targetFixtureIds.includes(fixtureId));

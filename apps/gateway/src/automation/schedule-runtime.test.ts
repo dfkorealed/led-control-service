@@ -8,7 +8,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { writeJsonAtomic } from "../mesh/mesh-store-file";
 import { FileAutomationStateStore } from "./automation-state-store";
+import { SystemClockTrustProvider } from "./clock-trust-provider";
 import { automationSnapshot } from "./automation-test-fixtures";
 import {
   ScheduleRuntime,
@@ -84,6 +86,139 @@ describe("ScheduleRuntime", () => {
     expect(restarted.state().activeOccurrences[scheduleId]?.key).toBe(`${scheduleId}:2026-08-30`);
   });
 
+  it("retries a transition after a pre-send failure and deduplicates only its successful terminal commit", async () => {
+    const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    test.execute.mockRejectedValueOnce(new Error("adapter unavailable before send"));
+
+    await activate(test.runtime, snapshot({ schedules: [dailySchedule()] }));
+
+    expect(test.runtime.state()).toMatchObject({
+      lastDesiredByFixture: { [fixtureId]: 20 },
+      transitionsByFixture: {
+        [fixtureId]: { phase: "terminal", status: "failed", brightnessPercent: 40 }
+      }
+    });
+
+    await test.runtime.tick();
+    expect(test.execute).toHaveBeenCalledTimes(2);
+    expect(test.runtime.state()).toMatchObject({
+      lastDesiredByFixture: { [fixtureId]: 40 },
+      transitionsByFixture: {
+        [fixtureId]: { phase: "terminal", status: "succeeded", brightnessPercent: 40 }
+      }
+    });
+
+    await test.runtime.tick();
+    expect(test.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a persisted pending transition after a process restart", async () => {
+    const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await test.store.update((state) => {
+      state.transitionsByFixture[fixtureId] = {
+        phase: "pending",
+        brightnessPercent: 40,
+        sourceType: "schedule",
+        sourceId: scheduleId,
+        occurrenceKey: `${scheduleId}:2026-08-30`,
+        attempt: 1,
+        startedAt: "2026-08-30T01:30:00.000Z",
+        status: null,
+        terminalAt: null
+      };
+      return state;
+    });
+    const execute = vi.fn(executeSuccessfully);
+    const restarted = new ScheduleRuntime({
+      store: new FileAutomationStateStore(test.path),
+      wallClock: test.wall.now,
+      monotonicClock: test.monotonic.now,
+      clockTrust: test.trust,
+      execute
+    });
+
+    await restarted.initialize();
+    await activate(restarted, snapshot({ schedules: [dailySchedule()] }));
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(restarted.state().transitionsByFixture[fixtureId]).toMatchObject({
+      phase: "terminal",
+      status: "succeeded",
+      attempt: 2
+    });
+  });
+
+  it("does not deduplicate a failed terminal even when it observed the requested brightness", async () => {
+    const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    test.execute.mockResolvedValueOnce([{
+      fixtureId,
+      status: "failed",
+      brightnessPercent: 40,
+      faultCode: "state_mismatch",
+      errorCode: "state_mismatch",
+      occurredAt: "2026-08-30T01:30:00.000Z"
+    }]);
+
+    await activate(test.runtime, snapshot({ schedules: [dailySchedule()] }));
+    expect(test.runtime.state().lastDesiredByFixture[fixtureId]).toBe(20);
+
+    await test.runtime.tick();
+    expect(test.execute).toHaveBeenCalledTimes(2);
+    expect(test.runtime.state().lastDesiredByFixture[fixtureId]).toBe(40);
+  });
+
+  it("prefers an at-least-once retry when terminal durability is uncertain after RF", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-uncertain-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    let injectTerminalUncertainty = true;
+    const store = new FileAutomationStateStore(path, async (target, value) => {
+      const transition = (value as { transitionsByFixture?: Record<string, { phase?: string }> })
+        .transitionsByFixture?.[fixtureId];
+      if (injectTerminalUncertainty && transition?.phase === "terminal") {
+        injectTerminalUncertainty = false;
+        await writeJsonAtomic(target, value, {
+          syncParentDirectory: async () => { throw new Error("injected terminal fsync uncertainty"); }
+        });
+        return;
+      }
+      await writeJsonAtomic(target, value);
+    });
+    const execute = vi.fn(executeSuccessfully);
+    const runtime = new ScheduleRuntime({
+      store,
+      wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    const desired = await runtime.recompute(snapshot({ schedules: [dailySchedule()] }));
+
+    await expect(runtime.applyDesiredState(desired, {})).rejects.toMatchObject({
+      code: "automation_state_commit_uncertain"
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    const restartedExecute = vi.fn(executeSuccessfully);
+    const restarted = new ScheduleRuntime({
+      store: new FileAutomationStateStore(path),
+      wallClock: () => new Date("2026-08-30T01:30:01.000Z"),
+      monotonicClock: () => 2_000,
+      clockTrust: { isTrusted: async () => true },
+      execute: restartedExecute
+    });
+    await restarted.initialize();
+    await activate(restarted, snapshot({ schedules: [dailySchedule()] }));
+
+    expect(restartedExecute).toHaveBeenCalledTimes(1);
+    expect(restarted.state().lastDesiredByFixture[fixtureId]).toBe(40);
+  });
+
   it("freezes only new schedule boundaries while the wall clock is untrusted", async () => {
     const test = await runtimeFixture("2026-08-30T00:59:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
@@ -98,7 +233,10 @@ describe("ScheduleRuntime", () => {
 
     await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:30:00.000Z"));
     expect(test.store.read().manualOverrides[fixtureId]).toMatchObject({ brightnessPercent: 60 });
-    expect(test.store.read().lastDesiredByFixture[fixtureId]).toBe(60);
+    expect(test.store.read()).toMatchObject({
+      lastDesiredByFixture: { [fixtureId]: 20 },
+      transitionsByFixture: { [fixtureId]: { phase: "pending", brightnessPercent: 60 } }
+    });
   });
 
   it("expires vehicle hold from monotonic time even while the wall clock is untrusted", async () => {
@@ -151,10 +289,14 @@ describe("ScheduleRuntime", () => {
     await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
     await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
     await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:00:10.000Z"));
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
     test.execute.mockClear();
 
     test.trust.trusted = false;
     test.wall.set("2026-08-30T01:00:10.000Z");
+    test.monotonic.advance(10_000);
     await test.runtime.tick();
 
     expect(test.execute).toHaveBeenLastCalledWith([
@@ -162,15 +304,157 @@ describe("ScheduleRuntime", () => {
     ]);
   });
 
-  it("returns to an active event when manual expires and then to the first persisted pre-state", async () => {
+  it("keeps the last successful manual brightness when its override expires without an automatic source", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({}));
+    await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:00:10.000Z"));
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
+    test.execute.mockClear();
+
+    test.wall.set("2026-08-30T01:00:10.000Z");
+    test.monotonic.advance(10_000);
+    await test.runtime.tick();
+
+    expect(test.execute).not.toHaveBeenCalled();
+    expect(test.runtime.state()).toMatchObject({
+      manualOverrides: {},
+      currentByFixture: { [fixtureId]: 60 },
+      lastDesiredByFixture: { [fixtureId]: 60 },
+      baseBrightnessByFixture: {}
+    });
+  });
+
+  it("persists manual pending before RF and marks desired complete only after a successful terminal handoff", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({}));
+
+    await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:10:00.000Z"));
+    expect(test.runtime.state()).toMatchObject({
+      lastDesiredByFixture: { [fixtureId]: 20 },
+      transitionsByFixture: {
+        [fixtureId]: {
+          phase: "pending",
+          sourceType: "manual_override",
+          brightnessPercent: 60
+        }
+      }
+    });
+
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
+    expect(test.runtime.state()).toMatchObject({
+      lastDesiredByFixture: { [fixtureId]: 60 },
+      transitionsByFixture: {
+        [fixtureId]: {
+          phase: "terminal",
+          status: "succeeded",
+          brightnessPercent: 60
+        }
+      }
+    });
+  });
+
+  it("clears a prepared manual source after a failed terminal handoff", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({}));
+    await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:10:00.000Z"));
+
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [{
+      fixtureId,
+      status: "failed",
+      brightnessPercent: null,
+      faultCode: null,
+      errorCode: "mesh_command_failed",
+      occurredAt: "2026-08-30T01:00:01.000Z"
+    }]);
+
+    expect(test.runtime.state()).toMatchObject({
+      manualOverrides: {},
+      lastDesiredByFixture: { [fixtureId]: 20 },
+      transitionsByFixture: {
+        [fixtureId]: { phase: "terminal", status: "failed", brightnessPercent: 60 }
+      }
+    });
+  });
+
+  it("restores the last successful manual brightness after an underlying schedule also ends", async () => {
+    const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({ schedules: [dailySchedule()] }));
+    await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:45:00.000Z"));
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
+
+    test.wall.set("2026-08-30T01:45:00.000Z");
+    test.monotonic.advance(15 * 60 * 1_000);
+    await test.runtime.tick();
+    expect(test.execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 40, sourceType: "schedule" })
+    ]);
+
+    test.wall.set("2026-08-30T02:00:00.000Z");
+    test.monotonic.advance(15 * 60 * 1_000);
+    await test.runtime.tick();
+    expect(test.execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 60, sourceType: "current" })
+    ]);
+  });
+
+  it("expires a current-process manual override by monotonic deadline after an actual wall rollback", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "manual-rollback-"));
+    directories.push(directory);
+    const wall = fakeWall("2026-08-30T01:00:00.000Z");
+    const monotonic = fakeMonotonic();
+    const trust = new SystemClockTrustProvider(undefined, {
+      stat: async () => ({ mtimeMs: 100, isFile: () => true })
+    });
+    const execute = vi.fn(executeSuccessfully);
+    const runtime = new ScheduleRuntime({
+      store: new FileAutomationStateStore(join(directory, "state.json")),
+      wallClock: wall.now,
+      monotonicClock: monotonic.now,
+      clockTrust: trust,
+      execute
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    await activate(runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
+    await runtime.recordVehicleSensorState(sourceFixtureId, true);
+    await runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:02:00.000Z"));
+    await runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
+    execute.mockClear();
+
+    wall.set("2026-08-30T00:50:00.000Z");
+    monotonic.advance(120_001);
+    await runtime.tick();
+
+    expect(execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
+    ]);
+  });
+
+  it("returns to an active event when manual expires and then keeps the last manual brightness", async () => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
     await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 5)] }));
     await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
     await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:00:10.000Z"));
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
     test.execute.mockClear();
 
     test.wall.set("2026-08-30T01:00:10.000Z");
+    test.monotonic.advance(10_000);
     await test.runtime.tick();
     expect(test.execute).toHaveBeenLastCalledWith([
       expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
@@ -180,7 +464,7 @@ describe("ScheduleRuntime", () => {
     test.monotonic.advance(5_001);
     await test.runtime.tick();
     expect(test.execute).toHaveBeenLastCalledWith([
-      expect.objectContaining({ fixtureId, brightnessPercent: 20, sourceType: "current" })
+      expect.objectContaining({ fixtureId, brightnessPercent: 60, sourceType: "current" })
     ]);
   });
 
@@ -256,7 +540,50 @@ describe("ScheduleRuntime", () => {
 
     expect(test.execute).not.toHaveBeenCalled();
     expect(test.runtime.state().manualOverrides[fixtureId]).toMatchObject({ brightnessPercent: 60 });
-    expect(test.runtime.state().lastDesiredByFixture[fixtureId]).toBe(60);
+    expect(test.runtime.state()).toMatchObject({
+      lastDesiredByFixture: { [fixtureId]: 40 },
+      transitionsByFixture: { [fixtureId]: { phase: "pending", brightnessPercent: 60 } }
+    });
+  });
+
+  it("blocks new intake and drains queued RF, terminal state, and handoff before shutdown returns", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-drain-"));
+    directories.push(directory);
+    const rf = deferred<AutomationExecutionFixtureResultV1[]>();
+    const handoff = deferred<void>();
+    const onTerminalResults = vi.fn(() => handoff.promise);
+    const runtime = new ScheduleRuntime({
+      store: new FileAutomationStateStore(join(directory, "state.json")),
+      wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute: () => rf.promise,
+      onTerminalResults
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    const desired = await runtime.recompute(snapshot({ schedules: [dailySchedule()] }));
+    const applying = runtime.applyDesiredState(desired, {}).then(() => runtime.commitActivation());
+    await vi.waitFor(() => expect(runtime.state().transitionsByFixture[fixtureId]?.phase).toBe("pending"));
+
+    let drained = false;
+    const stopping = runtime.stopAndDrain().then(() => { drained = true; });
+    await expect(runtime.recordFixtureState(fixtureId, 30)).rejects.toThrow("automation_runtime_stopping");
+    expect(drained).toBe(false);
+
+    rf.resolve([successfulTerminal(fixtureId, 40)]);
+    await vi.waitFor(() => expect(onTerminalResults).toHaveBeenCalledTimes(1));
+    expect(drained).toBe(false);
+
+    handoff.resolve();
+    await applying;
+    await stopping;
+    expect(runtime.state().transitionsByFixture[fixtureId]).toMatchObject({
+      phase: "terminal",
+      status: "succeeded"
+    });
+    await runtime.tick();
+    expect(onTerminalResults).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -344,6 +671,17 @@ async function executeSuccessfully(actions: DesiredLightingAction[]): Promise<Au
   }));
 }
 
+function successfulTerminal(targetFixtureId: string, brightnessPercent: number): AutomationExecutionFixtureResultV1 {
+  return {
+    fixtureId: targetFixtureId,
+    status: "succeeded",
+    brightnessPercent,
+    faultCode: null,
+    errorCode: null,
+    occurredAt: "2026-08-30T01:00:01.000Z"
+  };
+}
+
 function fakeWall(initial: string) {
   let value = new Date(initial);
   return {
@@ -358,4 +696,14 @@ function fakeMonotonic() {
     now: () => value,
     advance: (milliseconds: number) => { value += milliseconds; }
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

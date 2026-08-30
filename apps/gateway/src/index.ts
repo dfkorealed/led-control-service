@@ -38,6 +38,7 @@ import {
   executeAutomationDimmingActions,
   handleGatewayDimmingCommand,
   parseCommandTimeout,
+  recoverPendingManualAutomationHandoffs,
   type GatewayCommandResult,
   type ManualOverrideCoordinator
 } from "./commands/gateway-command-handler";
@@ -203,28 +204,37 @@ async function main() {
   );
   await groupResyncStore.initialize(groupRestore.reason);
   const groupResyncPublisher = new MeshGroupResyncPublisher({ siteId, gatewayId }, groupResyncStore);
+  const automationStateStore = new FileAutomationStateStore(
+    process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json"
+  );
   const { scheduleRuntime, automationRuntime } = createGatewayAutomationServices({
     configStore: new FileAutomationConfigStore(
       process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
       { siteId, gatewayId }
     ),
-    stateStore: new FileAutomationStateStore(
-      process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json"
-    ),
+    stateStore: automationStateStore,
     scope: { siteId, gatewayId },
     clockTrust: new SystemClockTrustProvider(),
-    execute: (actions) => stateEventCapacity.run(actions.map((action) => action.fixtureId), async (reservation) => {
-      const results = await executeAutomationDimmingActions(adapter, actions, { timeoutMs: commandTimeoutMs });
-      await enqueueAutomationFixtureStates({
+    execute: (actions) => executeAutomationWithBestEffortTelemetry({
+      actions,
+      execute: (requested) => executeAutomationDimmingActions(adapter, requested, { timeoutMs: commandTimeoutMs }),
+      enqueueTelemetry: (results) => enqueueAutomationFixtureStates({
         siteId,
         gatewayId,
         eventSequence,
         results,
-        enqueue: (state) => enqueueFixtureState(state, reservation)
-      });
-      return results;
+        enqueue: (state) => enqueueFixtureState(state)
+      }),
+      recordGap: (firstDroppedAt, droppedCount, lastDroppedAt) =>
+        automationStateStore.recordTelemetryGap(firstDroppedAt, droppedCount, lastDroppedAt),
+      onError: (error) => void reportGatewayError(error, "automation_terminal_telemetry")
     }),
-    onTerminalResults: (handoff) => reportAutomationTerminalHandoff(handoff),
+    onTerminalResults: createDurableAutomationTerminalHandoff({
+      enqueue: (handoff) => reportAutomationTerminalHandoff(handoff),
+      recordGap: (firstDroppedAt, droppedCount, lastDroppedAt) =>
+        automationStateStore.recordTelemetryGap(firstDroppedAt, droppedCount, lastDroppedAt),
+      onError: (error) => void reportGatewayError(error, "automation_terminal_handoff")
+    }),
     onError: (error) => void reportGatewayError(error, "automation_runtime")
   });
   try {
@@ -233,9 +243,10 @@ async function main() {
     await health.setOperationalBlocker(automationStateHealthReason(error), true);
     throw error;
   }
+  const manualOverrideCoordinator = createManualOverrideCoordinator(scheduleRuntime);
+  await recoverPendingManualAutomationHandoffs(commandJournal, manualOverrideCoordinator);
   await automationRuntime.initialize();
   scheduleRuntime.start();
-  const manualOverrideCoordinator = createManualOverrideCoordinator(scheduleRuntime);
   const automationAckOutbox = new AutomationConfigAckOutbox(
     process.env.GATEWAY_AUTOMATION_ACK_OUTBOX_PATH ?? "/var/lib/led-control/automation-config-acks.json",
     { siteId, gatewayId }
@@ -488,9 +499,10 @@ async function main() {
   const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
   registerGatewayShutdownHandlers({
     stop: async () => {
-      scheduleRuntime.stop();
+      const schedulerDrain = scheduleRuntime.stopAndDrain();
       stopFixtureStatusIntake?.();
       await fixtureStatusReservation.release();
+      await schedulerDrain;
       stateEventPublisher.disconnect();
       automationAckPublisher.disconnect();
       await mqttRuntime.stop();
@@ -544,6 +556,51 @@ export function manualTerminalResults(terminal: DeviceStatusAckV2): AutomationEx
   }));
 }
 
+export async function executeAutomationWithBestEffortTelemetry(input: {
+  actions: Parameters<ScheduleRuntimeOptions["execute"]>[0];
+  execute: ScheduleRuntimeOptions["execute"];
+  enqueueTelemetry: (results: AutomationExecutionFixtureResultV1[]) => Promise<void>;
+  recordGap: (firstDroppedAt: string, droppedCount: number, lastDroppedAt: string) => Promise<unknown>;
+  onError?: (error: unknown) => void;
+}) {
+  const results = await input.execute(input.actions);
+  try {
+    await input.enqueueTelemetry(results);
+  } catch (error) {
+    input.onError?.(error);
+    const dropped = error instanceof AutomationTerminalTelemetryEnqueueError
+      ? error.droppedResults
+      : results;
+    const timestamps = dropped.map((result) => result.occurredAt).sort();
+    try {
+      await input.recordGap(timestamps[0]!, dropped.length, timestamps.at(-1)!);
+    } catch (gapError) {
+      input.onError?.(gapError);
+    }
+  }
+  return results;
+}
+
+export function createDurableAutomationTerminalHandoff(input: {
+  enqueue: (handoff: AutomationTerminalHandoff) => Promise<void>;
+  recordGap: (firstDroppedAt: string, droppedCount: number, lastDroppedAt: string) => Promise<unknown>;
+  onError?: (error: unknown) => void;
+}) {
+  return async (handoff: AutomationTerminalHandoff) => {
+    try {
+      await input.enqueue(handoff);
+    } catch (error) {
+      input.onError?.(error);
+      const timestamps = handoff.results.map((result) => result.occurredAt).sort();
+      try {
+        await input.recordGap(timestamps[0]!, handoff.results.length, timestamps.at(-1)!);
+      } catch (gapError) {
+        input.onError?.(gapError);
+      }
+    }
+  };
+}
+
 export async function enqueueAutomationFixtureStates(input: {
   siteId: string;
   gatewayId: string;
@@ -551,25 +608,45 @@ export async function enqueueAutomationFixtureStates(input: {
   results: AutomationExecutionFixtureResultV1[];
   enqueue: (state: FixtureStateV2) => Promise<void>;
 }) {
+  const droppedResults: AutomationExecutionFixtureResultV1[] = [];
+  const errors: unknown[] = [];
   for (const result of input.results) {
     if (result.brightnessPercent === null ||
       (result.status !== "succeeded" && result.faultCode !== "state_mismatch")) continue;
     const brightness = result.brightnessPercent;
-    await input.enqueue(fixtureStateV2Schema.parse({
-      siteId: input.siteId,
-      gatewayId: input.gatewayId,
-      eventId: randomUUID(),
-      sequence: await input.eventSequence.next(),
-      occurredAt: result.occurredAt,
-      fixtureId: result.fixtureId,
-      brightness,
-      powerOn: brightness > 0,
-      status: result.status === "succeeded" ? "online" : "fault",
-      statusReason: result.status === "succeeded" ? "reported" : "command_failed",
-      ...(result.faultCode ? { faultCode: result.faultCode } : {}),
-      rssi: null,
-      hopCount: null
-    }));
+    try {
+      await input.enqueue(fixtureStateV2Schema.parse({
+        siteId: input.siteId,
+        gatewayId: input.gatewayId,
+        eventId: randomUUID(),
+        sequence: await input.eventSequence.next(),
+        occurredAt: result.occurredAt,
+        fixtureId: result.fixtureId,
+        brightness,
+        powerOn: brightness > 0,
+        status: result.status === "succeeded" ? "online" : "fault",
+        statusReason: result.status === "succeeded" ? "reported" : "command_failed",
+        ...(result.faultCode ? { faultCode: result.faultCode } : {}),
+        rssi: null,
+        hopCount: null
+      }));
+    } catch (error) {
+      droppedResults.push(result);
+      errors.push(error);
+    }
+  }
+  if (droppedResults.length > 0) throw new AutomationTerminalTelemetryEnqueueError(droppedResults, errors);
+}
+
+export class AutomationTerminalTelemetryEnqueueError extends Error {
+  constructor(
+    readonly droppedResults: AutomationExecutionFixtureResultV1[],
+    errors: unknown[]
+  ) {
+    super("automation_terminal_telemetry_enqueue_failed", {
+      cause: new AggregateError(errors, "automation terminal telemetry enqueue failed")
+    });
+    this.name = "AutomationTerminalTelemetryEnqueueError";
   }
 }
 

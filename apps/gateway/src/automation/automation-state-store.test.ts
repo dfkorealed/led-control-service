@@ -7,7 +7,7 @@ import {
   AutomationStateCommitUncertainError,
   FileAutomationStateStore,
   emptyAutomationState,
-  type PersistedAutomationStateV1
+  type PersistedAutomationStateV2
 } from "./automation-state-store";
 
 const directories: string[] = [];
@@ -39,7 +39,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -48,6 +48,25 @@ describe("FileAutomationStateStore", () => {
       },
       baseBrightnessByFixture: { [fixtureId]: 20 },
       lastDesiredByFixture: { [fixtureId]: 40 }
+    });
+  });
+
+  it("migrates the exact Task 12 v1 state without inventing completed transitions", async () => {
+    const path = await statePath();
+    await writeJsonAtomic(path, {
+      schemaVersion: 1,
+      activeOccurrences: {},
+      manualOverrides: {},
+      vehicleRules: {},
+      currentByFixture: { [fixtureId]: 20 },
+      baseBrightnessByFixture: {},
+      lastDesiredByFixture: { [fixtureId]: 20 }
+    });
+
+    await expect(new FileAutomationStateStore(path).initialize()).resolves.toEqual({
+      ...emptyAutomationState(),
+      currentByFixture: { [fixtureId]: 20 },
+      lastDesiredByFixture: { [fixtureId]: 20 }
     });
   });
 
@@ -102,10 +121,28 @@ describe("FileAutomationStateStore", () => {
     const store = new FileAutomationStateStore(path);
     await store.initialize();
 
-    const leaked = store.read() as PersistedAutomationStateV1;
+    const leaked = store.read() as PersistedAutomationStateV2;
     leaked.lastDesiredByFixture[fixtureId] = 99;
 
     expect(store.read().lastDesiredByFixture).toEqual({});
+  });
+
+  it("durably merges dropped terminal telemetry into one bounded gap", async () => {
+    const path = await statePath();
+    const store = new FileAutomationStateStore(path);
+    await store.initialize();
+
+    await store.recordTelemetryGap("2026-08-30T01:00:02.000Z", 2);
+    await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
+
+    await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
+      schemaVersion: 2,
+      telemetryGap: {
+        firstDroppedAt: "2026-08-30T01:00:01.000Z",
+        lastDroppedAt: "2026-08-30T01:00:02.000Z",
+        droppedCount: 5
+      }
+    });
   });
 });
 

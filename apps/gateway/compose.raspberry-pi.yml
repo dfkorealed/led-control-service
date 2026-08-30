@@ -48,7 +48,7 @@ services:
       - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/identity:/var/lib/led-control/identity"
       - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/mesh:/var/lib/bluetooth/mesh"
       - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/factory-trust:/etc/led-control/factory-trust:ro"
-      - /run/systemd/timesync/synchronized:/run/systemd/timesync/synchronized:ro
+      - /run/systemd/timesync:/run/systemd/timesync:ro
     healthcheck:
       test: ["CMD", "/usr/local/bin/gateway-healthcheck"]
       interval: 15s

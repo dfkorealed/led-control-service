@@ -844,6 +844,15 @@ git add apps/gateway/src/automation apps/gateway/src/commands/command-handler.ts
 git commit -m "feat(gateway): execute durable lighting schedules"
 ```
 
+**Fix round 1 (2026-08-30):**
+
+- [x] RF를 telemetry capacity와 분리하고 terminal enqueue 실패를 durable `telemetryGap`으로 인계한다.
+- [x] Fixture transition을 `pending -> terminal`로 저장하고 성공 terminal만 dedup하며 불확실성은 at-least-once로 재시도한다.
+- [x] Manual-only 만료의 마지막 수동 밝기 유지, current-process monotonic expiry와 restart trusted UTC 복구를 적용한다.
+- [x] Timesync directory read-only mount와 rollback marker recovery fence를 적용한다.
+- [x] Command journal terminal/handoff phase를 재생 가능하게 만들고 prepare/completed crash fault test를 추가한다.
+- [x] Scheduler `stopAndDrain()`으로 intake 차단과 RF/state/handoff drain을 production shutdown에 연결한다.
+
 ### Task 13: Gateway 차량 이벤트 상태와 durable telemetry
 
 **Files:**
