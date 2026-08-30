@@ -11,6 +11,10 @@ import {
   writeJsonAtomic
 } from "../mesh/mesh-store-file";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
+import {
+  StorageHeadroomManager,
+  type StorageHeadroom
+} from "../storage/storage-headroom-manager";
 import type { AutomationScope } from "./automation-config-store";
 import type {
   AutomationLifecycleHandoff,
@@ -26,9 +30,7 @@ import {
 } from "./automation-telemetry-handoff";
 import {
   AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES,
-  AutomationTelemetryFilesystemReserve,
   AutomationTelemetryGapJournal,
-  type AutomationTelemetryFilesystemReserveLike,
   type AutomationTelemetryGapInput,
   type AutomationTelemetryGapJournalLike
 } from "./automation-telemetry-gap-journal";
@@ -105,13 +107,13 @@ export class AutomationTelemetryOutbox {
   private readonly maxBytes: number;
   private readonly write: AtomicJsonWriter;
   private readonly createEventId: () => string;
-  private readonly reserve: AutomationTelemetryFilesystemReserveLike;
+  private readonly headroom: StorageHeadroom;
   private readonly gapJournal: AutomationTelemetryGapJournalLike;
   private state: StoredAutomationTelemetryOutbox | undefined;
   private initialized = false;
   private available = true;
-  private writable = false;
   private gapJournalAvailable = false;
+  private unresolvedCommit: AutomationTelemetryCommitUncertainError | undefined;
 
   constructor(
     private readonly path: string,
@@ -120,17 +122,17 @@ export class AutomationTelemetryOutbox {
       maxBytes?: number;
       write?: AtomicJsonWriter;
       createEventId?: () => string;
-      reserveBytes?: number;
-      reserve?: AutomationTelemetryFilesystemReserveLike;
+      headroomBytes?: number;
+      headroom?: StorageHeadroom;
       gapJournal?: AutomationTelemetryGapJournalLike;
     } = {}
   ) {
     this.maxBytes = options.maxBytes ?? AUTOMATION_TELEMETRY_MAX_BYTES;
     this.write = options.write ?? writeJsonAtomic;
     this.createEventId = options.createEventId ?? randomUUID;
-    this.reserve = options.reserve ?? new AutomationTelemetryFilesystemReserve(
+    this.headroom = options.headroom ?? new StorageHeadroomManager(
       `${path}.reserve`,
-      options.reserveBytes ?? this.maxBytes
+      options.headroomBytes ?? this.maxBytes
     );
     this.gapJournal = options.gapJournal ?? new AutomationTelemetryGapJournal(`${path}.gap`);
     if (!Number.isSafeInteger(this.maxBytes) || this.maxBytes <= 2 * GAP_SLOT_BYTES) {
@@ -152,6 +154,7 @@ export class AutomationTelemetryOutbox {
   appendBatch(handoff: PersistedAutomationTelemetryHandoff): Promise<AutomationTelemetryAppendBatchResult> {
     return this.queue.run(async () => {
       await this.ensureInitialized();
+      this.assertCommitResolved();
       validateHandoff(handoff);
       const current = this.state;
       const receipt = current?.acceptedHandoffs[handoff.handoffId];
@@ -165,7 +168,7 @@ export class AutomationTelemetryOutbox {
           droppedRecords: receipt.outcome === "gap" ? structuredClone(handoff.records) : []
         };
       }
-      if (!current || !this.writable) return this.journalDroppedHandoff(handoff, "automation_handoff_storage");
+      if (!current || !this.available) return this.journalDroppedHandoff(handoff, "automation_handoff_storage");
 
       const next = structuredClone(current);
       const records: StoredAutomationTelemetryRecord[] = [];
@@ -203,7 +206,6 @@ export class AutomationTelemetryOutbox {
         await this.commit(current, next);
       } catch (error) {
         if (error instanceof AutomationTelemetryStoreError) {
-          this.writable = false;
           return this.journalDroppedHandoff(handoff, "automation_handoff_storage");
         }
         throw error;
@@ -223,8 +225,9 @@ export class AutomationTelemetryOutbox {
   }) {
     return this.queue.run(async () => {
       await this.ensureInitialized();
+      this.assertCommitResolved();
       const normalized = normalizeGapInput(input);
-      if (!this.state || !this.writable) return this.gapJournal.record(normalized);
+      if (!this.state || !this.available) return this.gapJournal.record(normalized);
       const current = this.state;
       const receipt = current.acceptedHandoffs[normalized.handoffId];
       if (receipt?.recordsHash === normalized.recordsHash) return structuredClone(current.gap);
@@ -234,7 +237,6 @@ export class AutomationTelemetryOutbox {
         await this.commit(current, next);
       } catch (error) {
         if (error instanceof AutomationTelemetryStoreError) {
-          this.writable = false;
           return this.gapJournal.record(normalized);
         }
         throw error;
@@ -246,6 +248,7 @@ export class AutomationTelemetryOutbox {
   pending() {
     return this.queue.run(async () => {
       await this.ensureInitialized();
+      this.assertCommitResolved();
       if (!this.state) throw new AutomationTelemetryStoreError();
       await this.importGapJournal();
       let current = this.state;
@@ -280,6 +283,7 @@ export class AutomationTelemetryOutbox {
   inspect() {
     return this.queue.run(async () => {
       await this.ensureInitialized();
+      this.assertCommitResolved();
       if (!this.state) throw new AutomationTelemetryStoreError();
       const snapshot = structuredClone(this.state);
       if (!snapshot.gap && this.gapJournalAvailable) {
@@ -346,7 +350,7 @@ export class AutomationTelemetryOutbox {
       await this.ensureInitialized();
       const current = this.state;
       const receipt = current?.acceptedHandoffs[handoffId];
-      if (!current || !receipt || receipt.recordsHash !== recordsHash || !this.writable) return false;
+      if (!current || !receipt || receipt.recordsHash !== recordsHash || !this.available) return false;
       const next = structuredClone(current);
       delete next.acceptedHandoffs[handoffId];
       await this.commit(current, next);
@@ -358,7 +362,7 @@ export class AutomationTelemetryOutbox {
     return this.queue.run(async () => {
       await this.ensureInitialized();
       const current = this.state;
-      if (!current || !this.writable) return false;
+      if (!current || !this.available) return false;
       const active = new Set(activeHandoffIds);
       const stale = Object.keys(current.acceptedHandoffs).filter((handoffId) => !active.has(handoffId));
       if (stale.length === 0) return false;
@@ -370,7 +374,13 @@ export class AutomationTelemetryOutbox {
   }
 
   private async initializeUnlocked() {
-    if (this.initialized) return { mode: this.available && this.writable ? "ready" as const : "degraded" as const };
+    if (this.initialized) {
+      return {
+        mode: this.available && this.headroom.snapshot().status === "available"
+          ? "ready" as const
+          : "degraded" as const
+      };
+    }
     const reasons: string[] = [];
     try {
       await this.gapJournal.initialize();
@@ -378,24 +388,21 @@ export class AutomationTelemetryOutbox {
     } catch (error) {
       reasons.push(errorCode(error, "gap_journal_unavailable"));
     }
-    try {
-      await this.reserve.initialize();
-      this.writable = true;
-    } catch (error) {
-      reasons.push(errorCode(error, "headroom_unavailable"));
-    }
+    const headroom = await this.headroom.initialize();
+    if (headroom.mode === "degraded") reasons.push("headroom_unavailable");
     try {
       await this.load();
     } catch (error) {
       this.available = false;
-      this.writable = false;
       reasons.push(errorCode(error, "outbox_unavailable"));
     }
     if (!this.gapJournalAvailable && !reasons.includes("gap_journal_unavailable")) {
       reasons.push("gap_journal_unavailable");
     }
     if (!this.available && !reasons.includes("outbox_unavailable")) reasons.push("outbox_unavailable");
-    if (!this.writable && !reasons.includes("headroom_unavailable")) reasons.push("headroom_unavailable");
+    if (this.headroom.snapshot().status !== "available" && !reasons.includes("headroom_unavailable")) {
+      reasons.push("headroom_unavailable");
+    }
     this.initialized = true;
     return reasons.length === 0
       ? { mode: "ready" as const, reasons }
@@ -408,8 +415,8 @@ export class AutomationTelemetryOutbox {
 
   private async ensureWritable() {
     await this.ensureInitialized();
+    this.assertCommitResolved();
     if (!this.available || !this.state) throw new AutomationTelemetryStoreError();
-    if (!this.writable) throw new AutomationTelemetryStoreError({ cause: new Error("telemetry headroom unavailable") });
   }
 
   private async load() {
@@ -432,7 +439,6 @@ export class AutomationTelemetryOutbox {
       };
       if (!this.fitsNormalBudget(initial)) throw new Error("automation telemetry outbox byte limit is too small");
       try {
-        if (!this.writable) throw new Error("automation telemetry headroom unavailable");
         await this.writeWithHeadroom(initial);
       } catch (error) {
         if (error instanceof AtomicJsonCommitUncertainError) {
@@ -466,53 +472,46 @@ export class AutomationTelemetryOutbox {
       if (!(error instanceof AtomicJsonCommitUncertainError)) {
         throw new AutomationTelemetryStoreError({ cause: error });
       }
-      await this.recoverPrevious(previous, error);
-      throw new AutomationTelemetryCommitUncertainError({ cause: error });
+      await this.reconcileVisible(previous, next, error);
     }
   }
 
-  private async recoverPrevious(previous: StoredAutomationTelemetryOutbox, commitError: unknown) {
-    const errors = [commitError];
-    try {
-      await this.writeWithHeadroom(previous);
-    } catch (error) {
-      errors.push(error);
-    }
+  private async reconcileVisible(
+    previous: StoredAutomationTelemetryOutbox,
+    next: StoredAutomationTelemetryOutbox,
+    commitError: AtomicJsonCommitUncertainError
+  ): Promise<never> {
     try {
       const visible = await readJsonFile(this.path);
-      if (isDeepStrictEqual(visible, previous)) {
+      if (isDeepStrictEqual(visible, next)) {
+        this.state = next;
+        this.available = true;
+        this.unresolvedCommit = undefined;
+      } else if (isDeepStrictEqual(visible, previous)) {
         this.state = previous;
         this.available = true;
-        return;
+        this.unresolvedCommit = undefined;
+      } else {
+        this.state = undefined;
+        this.available = false;
       }
-    } catch (error) {
-      errors.push(error);
+    } catch {
+      this.state = undefined;
+      this.available = false;
     }
-    this.state = undefined;
-    this.available = false;
-    throw new AutomationTelemetryCommitUncertainError({
-      cause: new AggregateError(errors, "automation telemetry visibility recovery failed")
+    const uncertain = new AutomationTelemetryCommitUncertainError({
+      cause: commitError
     });
+    if (!this.available) this.unresolvedCommit = uncertain;
+    throw uncertain;
+  }
+
+  private assertCommitResolved() {
+    if (this.unresolvedCommit) throw this.unresolvedCommit;
   }
 
   private async writeWithHeadroom(value: StoredAutomationTelemetryOutbox) {
-    if (!this.writable) throw new AutomationTelemetryStoreError({ cause: new Error("telemetry headroom unavailable") });
-    await this.reserve.release();
-    let writeError: unknown;
-    try {
-      await this.write(this.path, value);
-    } catch (error) {
-      writeError = error;
-    }
-    try {
-      await this.reserve.restore();
-      this.writable = true;
-    } catch (reserveError) {
-      this.writable = false;
-      if (!writeError) return;
-      throw new AggregateError([writeError, reserveError], "automation telemetry write and reserve restore failed");
-    }
-    if (writeError) throw writeError;
+    await this.headroom.runWithHeadroom(() => this.write(this.path, value));
   }
 
   private async journalDroppedHandoff(
@@ -534,7 +533,7 @@ export class AutomationTelemetryOutbox {
   }
 
   private async importGapJournal() {
-    if (!this.gapJournalAvailable || !this.state || !this.writable) return false;
+    if (!this.gapJournalAvailable || !this.state || !this.available) return false;
     const journal = await this.gapJournal.read();
     if (!journal) return false;
     const current = this.state;

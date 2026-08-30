@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import {
+  StorageHeadroomManager,
+  type StorageHeadroomBackgroundTask
+} from "../storage/storage-headroom-manager";
 import { automationTelemetryRecordsHash } from "./automation-telemetry-handoff";
 import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journal";
 import {
@@ -90,14 +94,29 @@ describe("AutomationTelemetryOutbox", () => {
     });
   });
 
-  it("restores the previous visible file and fences the uncertain append", async () => {
+  it("preserves rename-success uncertainty through ENOSPC and failed background replenishment without recording a gap", async () => {
     const test = await outboxFixture();
     const stable = await test.outbox.append(eventInput("event_started", {}));
-    let inject = true;
+    const tasks: StorageHeadroomBackgroundTask[] = [];
+    let allocations = 0;
+    const headroom = new StorageHeadroomManager(`${test.path}.shared-reserve`, 32_768, {
+      preallocate: async (_path, bytes) => {
+        allocations += 1;
+        if (allocations > 1) throw Object.assign(new Error("replenish still full"), { code: "ENOSPC" });
+        return bytes;
+      },
+      release: async () => undefined,
+      getFreeBytes: async () => 128 * 1024,
+      scheduleBackground: (task) => { tasks.push(task); return tasks.length; },
+      cancelBackground: () => undefined
+    });
+    let writes = 0;
     const uncertain = new AutomationTelemetryOutbox(test.path, automationScope, {
+      headroom,
       write: async (path, value) => {
-        if (inject) {
-          inject = false;
+        writes += 1;
+        if (writes === 1) throw Object.assign(new Error("disk full before temp allocation"), { code: "ENOSPC" });
+        if (writes === 2) {
           await writeJsonAtomic(path, value, {
             syncParentDirectory: async () => { throw new Error("injected directory fsync failure"); }
           });
@@ -110,7 +129,55 @@ describe("AutomationTelemetryOutbox", () => {
 
     await expect(uncertain.append(eventInput("vehicle_detected", {})))
       .rejects.toBeInstanceOf(AutomationTelemetryCommitUncertainError);
-    expect(await uncertain.pending()).toEqual([stable]);
+    await expect(tasks[0]!()).resolves.toBeUndefined();
+    expect((await uncertain.inspect()).gap).toBeNull();
+    expect((await uncertain.inspect()).records.map((record) => record.event.kind)).toEqual([
+      stable.event.kind,
+      "vehicle_detected"
+    ]);
+    expect(headroom.snapshot()).toMatchObject({
+      status: "released",
+      counters: { releaseCount: 1, retryCount: 1, replenishFailureCount: 1 }
+    });
+
+    const restarted = new AutomationTelemetryOutbox(test.path, automationScope, { headroomBytes: 32_768 });
+    await restarted.initialize();
+    expect((await restarted.pending()).map((record) => record.event.kind)).toEqual([
+      "event_started",
+      "vehicle_detected"
+    ]);
+    headroom.stop();
+  });
+
+  it("fences repeated handoff attempts instead of recording a gap when uncertain target visibility cannot be reconciled", async () => {
+    const test = await outboxFixture();
+    let inject = true;
+    const uncertain = new AutomationTelemetryOutbox(test.path, automationScope, {
+      headroomBytes: 32_768,
+      write: async (path, value) => {
+        if (!inject) return writeJsonAtomic(path, value);
+        inject = false;
+        try {
+          await writeJsonAtomic(path, value, {
+            syncParentDirectory: async () => { throw new Error("injected directory fsync failure"); }
+          });
+        } catch (error) {
+          await rm(path, { force: true });
+          throw error;
+        }
+      }
+    });
+    await uncertain.initialize();
+    const records = [eventInput("vehicle_detected", {})];
+    const handoff = {
+      handoffId: "77777777-7777-4777-8777-777777777777",
+      recordsHash: automationTelemetryRecordsHash(records),
+      records
+    };
+
+    await expect(uncertain.appendBatch(handoff)).rejects.toBeInstanceOf(AutomationTelemetryCommitUncertainError);
+    await expect(uncertain.appendBatch(handoff)).rejects.toBeInstanceOf(AutomationTelemetryCommitUncertainError);
+    await expect(new AutomationTelemetryGapJournal(`${test.path}.gap`).read()).resolves.toBeNull();
   });
 
   it("imports an exact pre-outbox telemetry gap without expanding it per dropped event", async () => {
@@ -135,7 +202,7 @@ describe("AutomationTelemetryOutbox", () => {
     directories.push(directory);
     const path = join(directory, "outbox.json");
     const outbox = new AutomationTelemetryOutbox(path, automationScope, {
-      reserveBytes: 8_192,
+      headroomBytes: 8_192,
       write: async (target, value) => {
         if (Array.isArray((value as { records?: unknown }).records) &&
           ((value as { records: unknown[] }).records.length === 2)) {
@@ -194,8 +261,14 @@ describe("AutomationTelemetryOutbox", () => {
     directories.push(directory);
     const path = join(directory, "outbox.json");
     const enospc = Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    const headroom = new StorageHeadroomManager(`${path}.reserve`, 8_192, {
+      preallocate: async () => { throw enospc; },
+      scheduleBackground: () => 1,
+      cancelBackground: () => undefined
+    });
     const outbox = new AutomationTelemetryOutbox(path, automationScope, {
-      reserve: { initialize: async () => { throw enospc; }, release: async () => undefined, restore: async () => undefined }
+      headroom,
+      write: async () => { throw enospc; }
     });
 
     await expect(outbox.initialize()).resolves.toMatchObject({ mode: "degraded" });
@@ -208,6 +281,7 @@ describe("AutomationTelemetryOutbox", () => {
 
     expect(result.droppedRecords).toEqual([eventInput("event_started", {})]);
     await expect(stat(`${path}.gap`)).resolves.toMatchObject({ size: AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES });
+    headroom.stop();
   });
 
   it("updates the preallocated gap journal in place and recovers its last fsynced block", async () => {
@@ -239,11 +313,27 @@ describe("AutomationTelemetryOutbox", () => {
     });
   });
 
-  it("preallocates regular atomic-rewrite headroom outside the strict outbox byte cap", async () => {
-    const test = await outboxFixture({ maxBytes: 8_192 });
+  it("keeps shared regular atomic-rewrite headroom untouched across normal outbox commits", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-headroom-"));
+    directories.push(directory);
+    const path = join(directory, "outbox.json");
+    const reservePath = join(directory, "automation-storage.reserve");
+    const headroom = new StorageHeadroomManager(reservePath, 8_192);
+    const outbox = new AutomationTelemetryOutbox(path, automationScope, { maxBytes: 8_192, headroom });
+    await outbox.initialize();
+    const before = await stat(reservePath);
 
-    await expect(stat(`${test.path}.reserve`)).resolves.toMatchObject({ size: 8_192 });
-    expect((await stat(test.path)).size).toBeLessThanOrEqual(8_192);
+    await outbox.append(eventInput("event_started", {}));
+    await outbox.append(eventInput("vehicle_detected", {}));
+
+    const after = await stat(reservePath);
+    expect(after).toMatchObject({ size: 8_192, ino: before.ino, blocks: before.blocks });
+    expect((await stat(path)).size).toBeLessThanOrEqual(8_192);
+    expect(headroom.snapshot()).toMatchObject({
+      status: "available",
+      counters: { preallocatedBytes: 8_192, releaseCount: 0, retryCount: 0 }
+    });
+    headroom.stop();
   });
 });
 
@@ -383,7 +473,7 @@ async function outboxFixture(options: { maxBytes?: number } = {}) {
   const path = join(directory, "outbox.json");
   const outbox = new AutomationTelemetryOutbox(path, automationScope, {
     ...options,
-    reserveBytes: options.maxBytes ?? 32_768
+    headroomBytes: options.maxBytes ?? 32_768
   });
   await outbox.initialize();
   return { path, outbox };

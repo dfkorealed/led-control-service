@@ -12,6 +12,7 @@ export const AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES = GAP_BLOCK_BYTES * GAP_BLOC
 export type AutomationTelemetryGapProvenance =
   | "automation_handoff_capacity"
   | "automation_handoff_storage"
+  | "automation_state_storage"
   | "automation_state_gap"
   | "fixture_state_outbox";
 
@@ -162,58 +163,6 @@ export class AutomationTelemetryGapJournal implements AutomationTelemetryGapJour
   }
 }
 
-export interface AutomationTelemetryFilesystemReserveLike {
-  initialize(): Promise<void>;
-  release(): Promise<void>;
-  restore(): Promise<void>;
-}
-
-export class AutomationTelemetryFilesystemReserve implements AutomationTelemetryFilesystemReserveLike {
-  constructor(
-    private readonly path: string,
-    private readonly bytes: number
-  ) {
-    if (!Number.isSafeInteger(bytes) || bytes <= 0) throw new Error("invalid automation telemetry reserve size");
-  }
-
-  initialize() {
-    return this.restore();
-  }
-
-  async release() {
-    await rm(this.path, { force: true });
-    await syncDirectory(dirname(this.path));
-  }
-
-  async restore() {
-    const directory = dirname(this.path);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    try {
-      const metadata = await stat(this.path);
-      if (metadata.size === this.bytes) return;
-      await rm(this.path, { force: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-
-    const file = await open(this.path, "wx", 0o600);
-    try {
-      const chunk = Buffer.alloc(Math.min(this.bytes, 1024 * 1024));
-      for (let position = 0; position < this.bytes; position += chunk.length) {
-        const length = Math.min(chunk.length, this.bytes - position);
-        await writeAll(file, chunk.subarray(0, length), position);
-      }
-      await file.sync();
-    } catch (error) {
-      await file.close();
-      await rm(this.path, { force: true });
-      throw error;
-    }
-    await file.close();
-    await syncDirectory(directory);
-  }
-}
-
 function encodeBlock(state: AutomationTelemetryGapJournalState | null, generation: number) {
   const payload = Buffer.from(JSON.stringify(state), "utf8");
   if (payload.length > GAP_BLOCK_BYTES - GAP_HEADER_BYTES) {
@@ -359,7 +308,8 @@ function laterTimestamp(left: string, right: string) {
 
 function isGapProvenance(value: unknown): value is AutomationTelemetryGapProvenance {
   return value === "automation_handoff_capacity" || value === "automation_handoff_storage" ||
-    value === "automation_state_gap" || value === "fixture_state_outbox";
+    value === "automation_state_storage" || value === "automation_state_gap" ||
+    value === "fixture_state_outbox";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

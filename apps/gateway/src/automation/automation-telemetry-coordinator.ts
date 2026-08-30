@@ -17,7 +17,7 @@ export class AutomationTelemetryCoordinator {
   flush(revision: number | null = null) {
     return this.queue.run(async () => {
       const results: AutomationTelemetryAppendBatchResult[] = [];
-      await this.outbox.recoverGapJournal();
+      let changed = await this.outbox.recoverGapJournal();
 
       while (true) {
         const handoff = this.stateStore.read().pendingTelemetryHandoffs[0];
@@ -26,6 +26,7 @@ export class AutomationTelemetryCoordinator {
         await this.stateStore.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash);
         await this.outbox.releaseHandoff(handoff.handoffId, handoff.recordsHash);
         results.push(result);
+        changed = true;
       }
 
       if (revision !== null) {
@@ -35,15 +36,16 @@ export class AutomationTelemetryCoordinator {
           await this.outbox.recordGap({ revision, recordsHash, ...gap });
           await this.stateStore.clearTelemetryGap(gap);
           await this.outbox.releaseHandoff(gap.handoffId, recordsHash);
+          changed = true;
         }
       }
 
       const active = this.stateStore.read();
-      await this.outbox.reconcileHandoffReceipts([
+      const reconciled = await this.outbox.reconcileHandoffReceipts([
         ...active.pendingTelemetryHandoffs.map((handoff) => handoff.handoffId),
         ...(active.telemetryGap ? [active.telemetryGap.handoffId] : [])
       ]);
-      return results;
+      return { handoffs: results, changed: changed || reconciled };
     });
   }
 

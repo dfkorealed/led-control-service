@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import { StorageHeadroomManager } from "../storage/storage-headroom-manager";
 import {
   BackgroundMeshResyncWorker,
   TargetedLightingResyncQueue,
@@ -17,6 +18,7 @@ import {
 import { FileAutomationStateStore } from "./automation-state-store";
 import { SystemClockTrustProvider } from "./clock-trust-provider";
 import { automationSnapshot } from "./automation-test-fixtures";
+import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journal";
 import {
   ScheduleRuntime,
   type DesiredLightingAction,
@@ -34,6 +36,59 @@ afterEach(async () => {
 });
 
 describe("ScheduleRuntime", () => {
+  it("continues local RF from in-memory state when ENOSPC happens before initial state temp allocation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-full-state-disk-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    const journal = new AutomationTelemetryGapJournal(`${path}.gap`);
+    await journal.initialize();
+    const headroom = new StorageHeadroomManager(`${path}.reserve`, 8_192, {
+      preallocate: async (_target, bytes) => bytes,
+      release: async () => undefined,
+      scheduleBackground: () => 1,
+      cancelBackground: () => undefined
+    });
+    await headroom.initialize();
+    const store = new FileAutomationStateStore(
+      path,
+      async () => { throw Object.assign(new Error("disk full"), { code: "ENOSPC" }); },
+      undefined,
+      { headroom, gapJournal: journal }
+    );
+    const execute = vi.fn(executeSuccessfully);
+    const runtime = new ScheduleRuntime({
+      store,
+      wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute
+    });
+
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    await activate(runtime, snapshot({ schedules: [dailySchedule()], vehicleEventRules: [vehicleRule(80, 5)] }));
+    await runtime.recordVehicleSensorState(sourceFixtureId, true);
+    await expect(runtime.prepareManualOverride(
+      manualOverride(60, "2026-08-30T01:40:00.000Z")
+    )).resolves.toBeUndefined();
+
+    expect(execute).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({ fixtureId, brightnessPercent: 40, sourceType: "schedule" })
+    ]);
+    expect(execute).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
+    ]);
+    expect(store.read().manualOverrides[fixtureId]).toMatchObject({ brightnessPercent: 60 });
+    expect(store.durability()).toEqual({ mode: "degraded", reason: "ENOSPC" });
+    expect(store.read().pendingTelemetryHandoffs).toEqual([]);
+    await expect(journal.read()).resolves.toMatchObject({
+      droppedCount: 5,
+      lastSourceDroppedCount: 1,
+      provenance: "automation_state_storage"
+    });
+    headroom.stop();
+  });
+
   it("starts a common-engine occurrence and restores its persisted pre-state at the end", async () => {
     const test = await runtimeFixture("2026-08-30T00:59:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);

@@ -98,6 +98,7 @@ import {
   AutomationTelemetryPublisher
 } from "./automation/automation-telemetry-outbox";
 import { AutomationTelemetryCoordinator } from "./automation/automation-telemetry-coordinator";
+import { createAutomationStorage } from "./automation/automation-storage";
 import {
   lifecycleTelemetryRecords,
   terminalTelemetryRecords,
@@ -294,16 +295,32 @@ async function main() {
   );
   await groupResyncStore.initialize(groupRestore.reason);
   const groupResyncPublisher = new MeshGroupResyncPublisher({ siteId, gatewayId }, groupResyncStore);
-  const automationStateStore = new FileAutomationStateStore(
-    process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json"
-  );
-  const automationTelemetryOutbox = new AutomationTelemetryOutbox(
-    process.env.GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH ?? "/var/lib/led-control/automation-telemetry.json",
-    { siteId, gatewayId }
-  );
-  const telemetryInitialization = await automationTelemetryOutbox.initialize();
-  if (telemetryInitialization.mode === "degraded") {
+  const automationStorage = createAutomationStorage({
+    statePath: process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json",
+    telemetryOutboxPath: process.env.GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH ??
+      "/var/lib/led-control/automation-telemetry.json",
+    scope: { siteId, gatewayId },
+    onStateDurabilityChange: (mode) => {
+      void health.setOperationalBlocker("automation_state_durability_degraded", mode === "degraded")
+        .catch((error) => void reportGatewayError(error, "automation_state_durability_health"));
+    },
+    onStorageError: (error) => void reportGatewayError(error, "automation_storage")
+  });
+  let automationStorageInitialization: Awaited<ReturnType<typeof automationStorage.initialize>>;
+  try {
+    automationStorageInitialization = await automationStorage.initialize();
+  } catch (error) {
+    await health.setOperationalBlocker(automationStateHealthReason(error), true);
+    throw error;
+  }
+  const automationStateStore = automationStorage.stateStore;
+  const automationTelemetryOutbox = automationStorage.telemetryOutbox;
+  if (automationStorageInitialization.telemetry.mode === "degraded" ||
+    automationStorageInitialization.headroom.mode === "degraded") {
     await health.setOperationalBlocker("automation_telemetry_unavailable", true);
+  }
+  if (automationStateStore.durability().mode === "degraded") {
+    await health.setOperationalBlocker("automation_state_durability_degraded", true);
   }
   const automationTelemetryCoordinator = new AutomationTelemetryCoordinator(
     automationStateStore,
@@ -375,8 +392,8 @@ async function main() {
       onError: (error) => void reportGatewayError(error, "automation_terminal_telemetry")
     }),
     flushTelemetryHandoffs: async () => {
-      const results = await automationTelemetryCoordinator.flush(automationRuntime?.currentRevision ?? null);
-      if (results.length > 0) void automationTelemetryPublisher.wake()
+      const result = await automationTelemetryCoordinator.flush(automationRuntime?.currentRevision ?? null);
+      if (result.changed) void automationTelemetryPublisher.wake()
         .catch((error) => void reportGatewayError(error, "automation_telemetry_publish"));
     },
     onError: (error) => void reportGatewayError(error, "automation_runtime")
@@ -709,6 +726,7 @@ async function main() {
       const targetedResyncDrain = targetedLightingResync.stopAndDrain();
       stopAutomationFixtureStatusIntake();
       stopFixtureStatusIntake?.();
+      automationStorage.headroom.stop();
       await fixtureStatusReservation.release();
       await Promise.all([schedulerDrain, meshResyncDrain, targetedResyncDrain]);
       stateEventPublisher.disconnect();

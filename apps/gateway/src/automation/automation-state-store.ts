@@ -5,12 +5,14 @@ import {
   readJsonFile,
   writeJsonAtomic
 } from "../mesh/mesh-store-file";
+import type { StorageHeadroom } from "../storage/storage-headroom-manager";
 import {
   automationTelemetryRecordsHash,
   createAutomationTelemetryHandoff,
   type AutomationTelemetryRecordInput,
   type PersistedAutomationTelemetryHandoff
 } from "./automation-telemetry-handoff";
+import type { AutomationTelemetryGapJournalLike } from "./automation-telemetry-gap-journal";
 
 export interface PersistedOccurrenceState {
   key: string;
@@ -74,6 +76,13 @@ export type PersistedAutomationStateV3 = PersistedAutomationStateV4;
 
 type StateWriter = (path: string, value: unknown) => Promise<void>;
 
+interface AutomationStateStoreOptions {
+  headroom?: StorageHeadroom;
+  gapJournal?: AutomationTelemetryGapJournalLike;
+  onDurabilityChange?: (mode: "ready" | "degraded", reason: string | null) => void;
+  onGapJournalError?: (error: unknown) => void;
+}
+
 export class AutomationStateStoreError extends Error {
   constructor(
     readonly code: "automation_state_corrupt" | "automation_state_unavailable" | "automation_state_store_failed",
@@ -98,11 +107,16 @@ export class FileAutomationStateStore {
   private available = false;
   private initialization: Promise<PersistedAutomationStateV4> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
+  private durabilityState: { mode: "ready" | "degraded"; reason: string | null } = {
+    mode: "ready",
+    reason: null
+  };
 
   constructor(
     private readonly path: string,
     private readonly write: StateWriter = writeJsonAtomic,
-    private readonly createHandoffId: () => string = randomUUID
+    private readonly createHandoffId: () => string = randomUUID,
+    private readonly options: AutomationStateStoreOptions = {}
   ) {}
 
   initialize() {
@@ -117,6 +131,10 @@ export class FileAutomationStateStore {
     return structuredClone(this.state);
   }
 
+  durability() {
+    return { ...this.durabilityState };
+  }
+
   async update(
     mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4
   ): Promise<PersistedAutomationStateV4> {
@@ -124,20 +142,24 @@ export class FileAutomationStateStore {
     return this.exclusive(async () => {
       const previous = this.read();
       const next = parseAutomationState(mutation(structuredClone(previous)));
-      if (isDeepStrictEqual(previous, next)) return previous;
+      if (isDeepStrictEqual(previous, next) && this.durabilityState.mode === "ready") return previous;
 
       try {
-        await this.write(this.path, next);
+        await this.writeState(next);
       } catch (error) {
+        if (isEnospc(error) && this.options.gapJournal) {
+          return this.commitInMemoryAfterEnospc(previous, next, error);
+        }
         if (!(error instanceof AtomicJsonCommitUncertainError)) {
           throw new AutomationStateStoreError("automation_state_store_failed", { cause: error });
         }
-        await this.recoverPrevious(previous, error);
+        await this.reconcileUncertainCommit(previous, next, error);
         throw new AutomationStateCommitUncertainError({ cause: error });
       }
 
       this.state = next;
       this.available = true;
+      this.setDurability("ready", null);
       return structuredClone(next);
     });
   }
@@ -212,8 +234,14 @@ export class FileAutomationStateStore {
     if (raw === null) {
       const initial = emptyAutomationState();
       try {
-        await this.write(this.path, initial);
+        await this.writeState(initial);
       } catch (error) {
+        if (isEnospc(error) && this.options.gapJournal) {
+          this.state = initial;
+          this.available = true;
+          this.setDurability("degraded", "ENOSPC");
+          return structuredClone(initial);
+        }
         if (error instanceof AtomicJsonCommitUncertainError) {
           throw new AutomationStateCommitUncertainError({ cause: error });
         }
@@ -221,46 +249,104 @@ export class FileAutomationStateStore {
       }
       this.state = initial;
       this.available = true;
+      this.setDurability("ready", null);
       return structuredClone(initial);
     }
 
     try {
       this.state = parseAutomationState(raw);
       this.available = true;
+      this.setDurability("ready", null);
       return structuredClone(this.state);
     } catch (error) {
       throw new AutomationStateStoreError("automation_state_corrupt", { cause: error });
     }
   }
 
-  private async recoverPrevious(previous: PersistedAutomationStateV4, commitError: unknown) {
-    let rollbackError: unknown;
-    try {
-      await this.write(this.path, previous);
-    } catch (error) {
-      rollbackError = error;
+  private async reconcileUncertainCommit(
+    previous: PersistedAutomationStateV4,
+    next: PersistedAutomationStateV4,
+    commitError: AtomicJsonCommitUncertainError
+  ) {
+    let visible = await this.readVisibleState();
+    if (isDeepStrictEqual(visible, next)) {
+      try {
+        await this.writeState(previous);
+      } catch {
+        // The visible target below is authoritative for process state. The original
+        // atomic uncertainty remains the caller-facing taxonomy even if rollback storage is full.
+      }
+      visible = await this.readVisibleState();
     }
+    if (isDeepStrictEqual(visible, previous)) {
+      this.state = previous;
+      this.available = true;
+      this.setDurability("ready", null);
+      return;
+    }
+    if (isDeepStrictEqual(visible, next)) {
+      this.state = next;
+      this.available = true;
+      this.setDurability("degraded", commitError.code);
+      return;
+    }
+    this.available = false;
+    throw new AutomationStateCommitUncertainError({ cause: commitError });
+  }
 
-    let visible: PersistedAutomationStateV4 | null = null;
-    let readbackError: unknown;
+  private async readVisibleState() {
     try {
       const raw = await readJsonFile(this.path);
-      visible = raw === null ? null : parseAutomationState(raw);
-    } catch (error) {
-      readbackError = error;
+      return raw === null ? null : parseAutomationState(raw);
+    } catch {
+      return null;
     }
+  }
 
-    if (!isDeepStrictEqual(visible, previous)) {
-      this.available = false;
-      throw new AutomationStateCommitUncertainError({
-        cause: new AggregateError(
-          [commitError, rollbackError, readbackError].filter(Boolean),
-          "automation state visibility recovery failed"
-        )
-      });
+  private writeState(value: PersistedAutomationStateV4) {
+    const operation = () => this.write(this.path, value);
+    return this.options.headroom ? this.options.headroom.runWithHeadroom(operation) : operation();
+  }
+
+  private async commitInMemoryAfterEnospc(
+    previous: PersistedAutomationStateV4,
+    next: PersistedAutomationStateV4,
+    error: NodeJS.ErrnoException
+  ) {
+    const memoryState = structuredClone(next);
+    const previousHandoffs = new Set(previous.pendingTelemetryHandoffs.map(handoffIdentity));
+    const dropped = new Set<string>();
+    for (const handoff of memoryState.pendingTelemetryHandoffs) {
+      const identity = handoffIdentity(handoff);
+      if (previousHandoffs.has(identity)) continue;
+      const timestamps = handoff.records.map((record) => record.occurredAt).sort();
+      try {
+        await this.options.gapJournal!.record({
+          handoffId: handoff.handoffId,
+          recordsHash: handoff.recordsHash,
+          provenance: "automation_state_storage",
+          revision: Math.max(...handoff.records.map((record) => record.revision)),
+          firstDroppedAt: timestamps[0]!,
+          lastDroppedAt: timestamps.at(-1)!,
+          droppedCount: handoff.records.length
+        });
+        dropped.add(identity);
+      } catch (journalError) {
+        this.options.onGapJournalError?.(journalError);
+      }
     }
-    this.state = previous;
+    memoryState.pendingTelemetryHandoffs = memoryState.pendingTelemetryHandoffs
+      .filter((handoff) => !dropped.has(handoffIdentity(handoff)));
+    this.state = memoryState;
     this.available = true;
+    this.setDurability("degraded", error.code ?? "ENOSPC");
+    return structuredClone(memoryState);
+  }
+
+  private setDurability(mode: "ready" | "degraded", reason: string | null) {
+    if (this.durabilityState.mode === mode && this.durabilityState.reason === reason) return;
+    this.durabilityState = { mode, reason };
+    this.options.onDurabilityChange?.(mode, reason);
   }
 
   private exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -268,6 +354,14 @@ export class FileAutomationStateStore {
     this.queue = result.then(() => undefined, () => undefined);
     return result;
   }
+}
+
+function handoffIdentity(handoff: PersistedAutomationTelemetryHandoff) {
+  return `${handoff.handoffId}:${handoff.recordsHash}`;
+}
+
+function isEnospc(error: unknown): error is NodeJS.ErrnoException {
+  return error !== null && typeof error === "object" && "code" in error && error.code === "ENOSPC";
 }
 
 export function emptyAutomationState(): PersistedAutomationStateV4 {

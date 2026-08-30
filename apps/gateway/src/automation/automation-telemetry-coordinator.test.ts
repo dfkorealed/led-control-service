@@ -2,8 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { StorageHeadroomManager } from "../storage/storage-headroom-manager";
 import { FileAutomationStateStore } from "./automation-state-store";
 import { AutomationTelemetryCoordinator } from "./automation-telemetry-coordinator";
+import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journal";
 import { AutomationTelemetryOutbox } from "./automation-telemetry-outbox";
 import { createAutomationTelemetryHandoff } from "./automation-telemetry-handoff";
 import { automationScope, automationSnapshot } from "./automation-test-fixtures";
@@ -30,7 +32,7 @@ describe("AutomationTelemetryCoordinator", () => {
     const restartedOutbox = new AutomationTelemetryOutbox(
       stateOnly.outboxPath,
       automationScope,
-      { reserveBytes: 32_768 }
+      { headroomBytes: 32_768 }
     );
     await restartedStateStore.initialize();
     await restartedOutbox.initialize();
@@ -90,6 +92,35 @@ describe("AutomationTelemetryCoordinator", () => {
     expect((await test.outbox.inspect()).gap).toMatchObject({ droppedCount: 4 });
   });
 
+  it("reports a journal-only state-storage recovery as changed so the publisher can surface telemetry_gap", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-shared-journal-"));
+    directories.push(directory);
+    const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
+    const outboxPath = join(directory, "outbox.json");
+    const journal = new AutomationTelemetryGapJournal(`${outboxPath}.gap`);
+    await journal.initialize();
+    const outbox = new AutomationTelemetryOutbox(outboxPath, automationScope, {
+      headroomBytes: 32_768,
+      gapJournal: journal
+    });
+    await stateStore.initialize();
+    await outbox.initialize();
+    await journal.record({
+      handoffId: "99999999-9999-4999-8999-999999999999",
+      recordsHash: `sha256:${"9".repeat(64)}`,
+      provenance: "automation_state_storage",
+      revision: 7,
+      firstDroppedAt: "2026-08-30T01:00:00.000Z",
+      lastDroppedAt: "2026-08-30T01:00:01.000Z",
+      droppedCount: 2
+    });
+
+    const result = await new AutomationTelemetryCoordinator(stateStore, outbox).flush(7);
+
+    expect(result).toMatchObject({ changed: true, handoffs: [] });
+    expect((await outbox.pending()).map((record) => record.event.kind)).toEqual(["telemetry_gap"]);
+  });
+
   it("transfers a journaled source receipt before replaying state after storage recovery", async () => {
     const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-journal-replay-"));
     directories.push(directory);
@@ -103,18 +134,20 @@ describe("AutomationTelemetryCoordinator", () => {
       return state;
     });
     const enospc = Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    const degradedHeadroom = new StorageHeadroomManager(`${outboxPath}.reserve`, 32_768, {
+      preallocate: async () => { throw enospc; },
+      scheduleBackground: () => 1,
+      cancelBackground: () => undefined
+    });
     const degradedOutbox = new AutomationTelemetryOutbox(outboxPath, automationScope, {
-      reserve: {
-        initialize: async () => { throw enospc; },
-        release: async () => undefined,
-        restore: async () => undefined
-      }
+      headroom: degradedHeadroom,
+      write: async () => { throw enospc; }
     });
     await degradedOutbox.initialize();
     await degradedOutbox.appendBatch(handoff);
 
     const restartedStateStore = new FileAutomationStateStore(statePath);
-    const restartedOutbox = new AutomationTelemetryOutbox(outboxPath, automationScope, { reserveBytes: 32_768 });
+    const restartedOutbox = new AutomationTelemetryOutbox(outboxPath, automationScope, { headroomBytes: 32_768 });
     await restartedStateStore.initialize();
     await restartedOutbox.initialize();
     await new AutomationTelemetryCoordinator(restartedStateStore, restartedOutbox).flush(7);
@@ -132,7 +165,7 @@ describe("AutomationTelemetryCoordinator", () => {
     const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
     const outboxPath = join(directory, "outbox.json");
     await writeFile(outboxPath, "{ corrupt", "utf8");
-    const outbox = new AutomationTelemetryOutbox(outboxPath, automationScope, { reserveBytes: 32_768 });
+    const outbox = new AutomationTelemetryOutbox(outboxPath, automationScope, { headroomBytes: 32_768 });
     await expect(outbox.initialize()).resolves.toMatchObject({ mode: "degraded" });
     const coordinator = new AutomationTelemetryCoordinator(stateStore, outbox);
     const execute = vi.fn(async (actions: Array<{ fixtureId: string; brightnessPercent: number }>) => actions.map((action) => ({
@@ -183,7 +216,7 @@ async function fixture() {
   const statePath = join(directory, "state.json");
   const outboxPath = join(directory, "outbox.json");
   const stateStore = new FileAutomationStateStore(statePath);
-  const outbox = new AutomationTelemetryOutbox(outboxPath, automationScope, { reserveBytes: 32_768 });
+  const outbox = new AutomationTelemetryOutbox(outboxPath, automationScope, { headroomBytes: 32_768 });
   await stateStore.initialize();
   await outbox.initialize();
   return { statePath, outboxPath, stateStore, outbox };

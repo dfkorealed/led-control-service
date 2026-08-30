@@ -59,3 +59,31 @@ Commit: self (`fix(gateway): harden automation telemetry handoffs`)
 
 - Raspberry Pi filesystem exhaustion, power-cut behavior and flash wear were not measured on hardware. The fault suite injects `ENOSPC`, corruption and commit uncertainty against real local files.
 - ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 1.
+
+## Fix Round 2
+
+Status: DONE
+
+Commit: self (`fix(gateway): share automation storage headroom`)
+
+### Delivered
+
+- Replaced per-outbox reserve churn with one `StorageHeadroomManager` shared by automation state and telemetry outbox. The 64 MiB reserve is preallocated once; normal commits perform no reserve I/O.
+- Restricted reserve release/retry to actual top-level `ENOSPC`. Replenishment runs only as a background task after free space is verified at twice the reserve size, with counters for normal writes, ENOSPC, retry, release, allocation bytes and replenish failures.
+- Continued schedule, vehicle and manual control from in-memory committed state when shared-headroom state retry remains full. Exact newly-created pending handoffs move to the preallocated in-place journal and are removed from the memory queue so they cannot also become regular records.
+- Added `automation_state_durability_degraded` health and full in-memory snapshot reconciliation on a later successful write. Journal-only recovery now wakes the publisher so `telemetry_gap` is surfaced without waiting for reconnect.
+- Preserved atomic commit uncertainty through headroom and replenish failures. Outbox reconciles exact visible previous/next targets, fences unknown visibility until restart, and never converts typed uncertainty into a dropped gap. State rollback failure likewise retains the original atomic cause and reconciles the visible target.
+
+### Verification
+
+- Gateway focused regression: 8 files, 130/130 tests passed.
+- Gateway full regression: 56 files, 475/475 tests passed.
+- Shared full regression: 7 files, 74/74 tests passed.
+- Docker contract suite: 17/17 tests passed.
+- Required Mosquitto integration: 2/2 tests passed.
+- Shared and Gateway typecheck, lint and production build passed; `git diff --check` passed.
+
+### Remaining Concerns
+
+- Raspberry Pi filesystem exhaustion, sudden power loss and flash wear remain unmeasured on hardware; the test suite uses real temp files plus injected `ENOSPC`, rename/fsync uncertainty and replenish failures.
+- ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 2.
