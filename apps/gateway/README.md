@@ -83,16 +83,16 @@ pnpm gateway:smoke
 
 Gateway는 `sites/{siteId}/gateways/{gatewayId}/commands/automation/config-sync`의 `AutomationSnapshotV1` full snapshot을 MQTT QoS 1로 구독한다. 수신 snapshot은 schema, Site/Gateway scope, canonical SHA-256, revision 순서를 검증하며 다음 규칙을 적용한다.
 
-- 높은 revision은 단일 automation queue에서 검증한 뒤 `/var/lib/led-control/automation-snapshot.json`에 temp write, file fsync, rename, parent directory fsync 순으로 저장한다. 이 과정이 끝난 뒤에만 메모리 snapshot을 교체하고 desired state를 재계산한다.
+- 높은 revision은 단일 automation queue에서 검증한 뒤 `/var/lib/led-control/automation-snapshot.json`에 temp write, file fsync, rename, parent directory fsync 순으로 저장한다. rename 뒤 parent fsync가 실패하면 target을 exact read-back하고 parent fsync를 다시 통과해야 commit으로 취급한다. 저장 뒤 desired state 재계산 또는 적용이 실패하면 active 파일과 메모리를 모두 직전 snapshot으로 원자 복구하므로 재시작해도 rejected revision이 활성화되지 않는다.
 - 같은 revision/hash는 파일 저장과 재계산을 반복하지 않고 idempotent `applied` ACK를 만든다. 낮은 revision과 같은 revision의 다른 유효 hash는 기존 snapshot을 유지하고 각각 `snapshot_old_revision`, `snapshot_revision_conflict`로 거부한다.
 - 재시작 시 원자 교체가 끝난 마지막 snapshot만 복구하고 남은 temp 파일은 제거한다. snapshot이 없으면 자동제어 snapshot 없이 시작하며 손상되거나 scope/hash가 맞지 않는 파일은 fail-closed한다.
-- `applied|rejected` ACK는 exact revision/hash와 함께 `/var/lib/led-control/automation-config-acks.json`에 먼저 저장한다. MQTT publish/PUBACK 실패 시 같은 payload를 지수 backoff로 재시도하고 reconnect나 process 재시작 뒤에도 재발행한다.
+- `applied|rejected` ACK는 exact revision/hash와 함께 `/var/lib/led-control/automation-config-acks.json`에 먼저 저장한다. MQTT.js의 QoS 1 `handleMessage` backpressure 경계가 hot reload와 ACK outbox fsync 완료까지 broker PUBACK을 보류한다. MQTT ACK publish/PUBACK 실패 시 같은 payload를 지수 backoff로 재시도하고 reconnect나 process 재시작 뒤에도 재발행하며, reconnect는 이전 generation publish가 아직 끝나지 않았어도 새 generation drain을 즉시 시작한다. ACK drain startup은 health, provisioning, state, mesh resync startup과 독립되어 한 경로의 실패가 다른 경로를 막지 않는다.
 - hot reload는 Gateway process, MQTT client, heartbeat, BLE Mesh adapter를 재시작하지 않는다.
 
 경로는 `GATEWAY_AUTOMATION_CONFIG_PATH`와 `GATEWAY_AUTOMATION_ACK_OUTBOX_PATH`로 변경할 수 있다. 현재 Task 11 production 경로는 snapshot 적용과 ACK까지 담당한다. schedule/event occurrence 계산, priority arbiter, durable 실행 상태와 실제 BLE Mesh action은 Task 12 이후 연결되므로 snapshot `applied`를 조명 동작 완료로 해석하지 않는다.
 
 ```bash
-pnpm --filter @led-control/gateway test -- automation-config-store.test.ts automation-runtime.test.ts automation-config-ack-outbox.test.ts
+pnpm --filter @led-control/gateway test -- automation-config-store.test.ts automation-runtime.test.ts automation-config-ack-outbox.test.ts automation-config-production-path.test.ts gateway-mqtt-runtime.test.ts
 pnpm --filter @led-control/gateway build
 ```
 

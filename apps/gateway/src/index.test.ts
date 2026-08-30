@@ -8,6 +8,7 @@ import {
   observedFixtureResults,
   publishObservedDeviceStates,
   createMqttIdentityActivation,
+  connectGatewayServices,
   parseGatewayHeartbeatInterval,
   recordMeshResyncOutcome,
   registerGatewayShutdownHandlers,
@@ -33,6 +34,33 @@ const assignment = {
 };
 
 describe("startGatewayRuntime", () => {
+  it("starts automation ACK recovery even when unrelated connect work fails", async () => {
+    const connectAutomationAcks = vi.fn().mockResolvedValue(undefined);
+    const connectOperationalServices = vi.fn().mockRejectedValue(new Error("health failed"));
+
+    await expect(connectGatewayServices({
+      connectAutomationAcks,
+      connectOperationalServices,
+      onAutomationAckError: vi.fn()
+    })).rejects.toThrow("health failed");
+
+    expect(connectAutomationAcks).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports automation ACK connect failure without blocking operational connect work", async () => {
+    const onAutomationAckError = vi.fn();
+    const connectOperationalServices = vi.fn().mockResolvedValue(undefined);
+
+    await connectGatewayServices({
+      connectAutomationAcks: vi.fn().mockRejectedValue(new Error("ACK broker failure")),
+      connectOperationalServices,
+      onAutomationAckError
+    });
+    await vi.waitFor(() => expect(onAutomationAckError).toHaveBeenCalledWith(new Error("ACK broker failure")));
+
+    expect(connectOperationalServices).toHaveBeenCalledTimes(1);
+  });
+
   it("builds strict v2 scan found, completed, and sanitized failed payloads", () => {
     const command = {
       sessionId: "11111111-1111-4111-8111-111111111111",

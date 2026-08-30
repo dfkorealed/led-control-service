@@ -20,7 +20,8 @@ export type AutomationRuntimeErrorCode =
   | "snapshot_old_revision"
   | "snapshot_revision_conflict"
   | "snapshot_store_failed"
-  | "snapshot_recompute_failed";
+  | "snapshot_recompute_failed"
+  | "snapshot_rollback_failed";
 
 export class AutomationRuntimeError extends Error {
   constructor(
@@ -28,7 +29,8 @@ export class AutomationRuntimeError extends Error {
     message: string,
     readonly revision?: number,
     readonly payloadHash?: `sha256:${string}`,
-    options?: ErrorOptions
+    options?: ErrorOptions,
+    readonly acknowledgeable = true
   ) {
     super(message, options);
     this.name = "AutomationRuntimeError";
@@ -102,7 +104,23 @@ export class AutomationRuntime {
           { cause: error }
         );
       }
-      await this.activate(snapshot, true);
+      try {
+        await this.activate(snapshot, true);
+      } catch (error) {
+        try {
+          await this.options.store.restore(current);
+        } catch (rollbackError) {
+          throw new AutomationRuntimeError(
+            "snapshot_rollback_failed",
+            "snapshot_rollback_failed",
+            snapshot.revision,
+            snapshot.payloadHash,
+            { cause: new AggregateError([error, rollbackError], "snapshot rollback failed") },
+            false
+          );
+        }
+        throw error;
+      }
       this.initialized = true;
       return this.applied(snapshot);
     });

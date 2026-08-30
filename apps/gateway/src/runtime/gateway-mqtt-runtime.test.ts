@@ -4,6 +4,7 @@ import { GatewayMqttRuntime, type GatewayMqttClient } from "./gateway-mqtt-runti
 
 class FakeMqttClient extends EventEmitter {
   connected = false;
+  handleMessage = vi.fn((_packet: unknown, callback: (error?: Error) => void) => callback());
   readonly end = vi.fn((_force?: boolean, callback?: (error?: Error) => void) => callback?.());
   readonly publish = vi.fn((_topic: string, _payload: string, _options?: unknown, callback?: (error?: Error) => void) => callback?.());
   readonly reconnect = vi.fn();
@@ -233,6 +234,64 @@ describe("GatewayMqttRuntime", () => {
     expect(client.end).not.toHaveBeenCalled();
 
     process.removeListener("unhandledRejection", unhandledRejection);
+    await runtime.stop();
+  });
+
+  it("holds the config QoS1 PUBACK boundary until its durable handler completes", async () => {
+    const client = new FakeMqttClient();
+    const order: string[] = [];
+    let release!: () => void;
+    const durable = new Promise<void>((resolve) => { release = resolve; });
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: {
+        "commands/automation/config-sync": async () => {
+          await durable;
+          order.push("ack-fsynced");
+        },
+        "commands/dimming": vi.fn()
+      },
+      deferredPubackTopics: ["commands/automation/config-sync"],
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+    const packet = { cmd: "publish", qos: 1, messageId: 17 };
+
+    client.emit("message", "commands/automation/config-sync", Buffer.from("{}"), packet);
+    client.handleMessage(packet, () => order.push("puback"));
+    await Promise.resolve();
+    expect(order).toEqual([]);
+
+    release();
+    await vi.waitFor(() => expect(order).toEqual(["ack-fsynced", "puback"]));
+    await runtime.stop();
+  });
+
+  it("leaves existing command PUBACK behavior immediate", async () => {
+    const client = new FakeMqttClient();
+    let release!: () => void;
+    const handler = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: { "commands/dimming": handler },
+      deferredPubackTopics: ["commands/automation/config-sync"],
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+    const packet = { cmd: "publish", qos: 1, messageId: 18 };
+    const puback = vi.fn();
+
+    client.emit("message", "commands/dimming", Buffer.from("{}"), packet);
+    client.handleMessage(packet, puback);
+
+    expect(puback).toHaveBeenCalledTimes(1);
+    release();
     await runtime.stop();
   });
 

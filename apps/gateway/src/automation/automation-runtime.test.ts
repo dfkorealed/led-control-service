@@ -94,6 +94,25 @@ describe("AutomationRuntime", () => {
     expect(recompute).not.toHaveBeenCalled();
   });
 
+  it("restores the persisted and in-memory snapshot when recompute fails", async () => {
+    const current = automationSnapshot(4);
+    const store = memoryStore(current);
+    const runtime = createRuntime(store, {
+      recompute: vi.fn(async (snapshot) => {
+        if (snapshot.revision === 5) throw new Error("scheduler failed");
+        return {};
+      })
+    });
+    await runtime.initialize();
+
+    await expect(runtime.hotReload(automationSnapshot(5)))
+      .rejects.toMatchObject({ code: "snapshot_recompute_failed" });
+
+    expect(runtime.currentRevision).toBe(4);
+    expect(await store.load()).toEqual(current);
+    expect(store.restore).toHaveBeenCalledWith(current);
+  });
+
   it("requests mesh work only when recomputation changes the desired state", async () => {
     const applyDesiredState = vi.fn().mockResolvedValue(undefined);
     const runtime = createRuntime(memoryStore(), {
@@ -127,10 +146,12 @@ function createRuntime(
 
 function memoryStore(initial: AutomationSnapshotV1 | null = null): AutomationConfigStore & {
   apply: ReturnType<typeof vi.fn<(snapshot: AutomationSnapshotV1) => Promise<void>>>;
+  restore: ReturnType<typeof vi.fn<(snapshot: AutomationSnapshotV1 | null) => Promise<void>>>;
 } {
   let stored = initial;
   return {
     load: vi.fn(async () => stored),
-    apply: vi.fn(async (snapshot: AutomationSnapshotV1) => { stored = snapshot; })
+    apply: vi.fn(async (snapshot: AutomationSnapshotV1) => { stored = snapshot; }),
+    restore: vi.fn(async (snapshot: AutomationSnapshotV1 | null) => { stored = snapshot; })
   };
 }

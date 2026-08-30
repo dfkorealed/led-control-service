@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FileAutomationConfigStore } from "./automation-config-store";
+import { writeJsonAtomic } from "../mesh/mesh-store-file";
 import { automationScope, automationSnapshot } from "./automation-test-fixtures";
 
 const directories: string[] = [];
@@ -56,6 +57,28 @@ describe("FileAutomationConfigStore", () => {
 
     await expect(new FileAutomationConfigStore(path, automationScope).load())
       .rejects.toMatchObject({ code: "snapshot_invalid" });
+  });
+
+  it("recovers an uncertain rename by reading back and durably syncing the parent", async () => {
+    const path = await snapshotPath();
+    const snapshot = automationSnapshot(4);
+    let syncAttempts = 0;
+    const syncParentDirectory = async (directory: string) => {
+      syncAttempts += 1;
+      if (syncAttempts === 1) throw new Error("injected parent fsync failure");
+      const handle = await open(directory, "r");
+      try { await handle.sync(); } finally { await handle.close(); }
+    };
+    const store = new FileAutomationConfigStore(
+      path,
+      automationScope,
+      (target, value) => writeJsonAtomic(target, value, { syncParentDirectory })
+    );
+
+    await store.apply(snapshot);
+
+    expect(syncAttempts).toBe(2);
+    expect(await store.load()).toEqual(snapshot);
   });
 });
 

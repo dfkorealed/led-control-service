@@ -17,13 +17,16 @@ interface StoredAutomationConfigAcks {
   records: AutomationConfigAppliedV1[];
 }
 
+type AtomicJsonWriter = (path: string, value: unknown) => Promise<void>;
+
 export class AutomationConfigAckOutbox {
   private state: StoredAutomationConfigAcks | undefined;
   private readonly queue = new SerialTaskQueue();
 
   constructor(
     private readonly path: string,
-    private readonly scope: AutomationScope
+    private readonly scope: AutomationScope,
+    private readonly write: AtomicJsonWriter = writeJsonAtomic
   ) {}
 
   initialize() {
@@ -44,7 +47,7 @@ export class AutomationConfigAckOutbox {
       try {
         await this.persist(state);
       } catch (error) {
-        state.records.pop();
+        await this.reloadFromDisk();
         throw error;
       }
       return { ...acknowledgement };
@@ -60,7 +63,7 @@ export class AutomationConfigAckOutbox {
       try {
         await this.persist(state);
       } catch (error) {
-        state.records.splice(index, 0, removed);
+        await this.reloadFromDisk();
         throw error;
       }
       return true;
@@ -91,13 +94,19 @@ export class AutomationConfigAckOutbox {
   }
 
   private persist(state: StoredAutomationConfigAcks) {
-    return writeJsonAtomic(this.path, state);
+    return this.write(this.path, state);
+  }
+
+  private async reloadFromDisk() {
+    this.state = undefined;
+    await this.load();
   }
 }
 
 export class AutomationConfigAckPublisher {
   private publish: ((topic: string, payload: AutomationConfigAppliedV1) => Promise<void>) | undefined;
   private drainPromise: Promise<void> | undefined;
+  private drainGeneration: number | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private retryDelayMs: number;
@@ -144,11 +153,16 @@ export class AutomationConfigAckPublisher {
   }
 
   private drain(generation: number): Promise<void> {
-    if (this.drainPromise) return this.drainPromise;
-    this.drainPromise = this.drainOnce(generation).finally(() => {
-      this.drainPromise = undefined;
+    if (this.drainPromise && this.drainGeneration === generation) return this.drainPromise;
+    const drain = this.drainOnce(generation).finally(() => {
+      if (this.drainPromise === drain) {
+        this.drainPromise = undefined;
+        this.drainGeneration = undefined;
+      }
     });
-    return this.drainPromise;
+    this.drainPromise = drain;
+    this.drainGeneration = generation;
+    return drain;
   }
 
   private async drainOnce(generation: number) {
@@ -162,6 +176,7 @@ export class AutomationConfigAckPublisher {
           publish(mqttTopics.automationConfigApplied(this.scope.siteId, this.scope.gatewayId), head),
           this.publishTimeoutMs
         );
+        if (publish !== this.publish || generation !== this.generation) return;
         await this.outbox.markPublished(head);
         this.retryDelayMs = this.retryInitialDelayMs;
       }

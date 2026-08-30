@@ -103,7 +103,8 @@ export async function handleAutomationConfigPayload(
   try {
     acknowledgement = await runtime.hotReload(value);
   } catch (error) {
-    if (!(error instanceof AutomationRuntimeError) || error.revision === undefined || error.payloadHash === undefined) {
+    if (!(error instanceof AutomationRuntimeError) || !error.acknowledgeable ||
+      error.revision === undefined || error.payloadHash === undefined) {
       throw error;
     }
     acknowledgement = automationConfigAppliedV1Schema.parse({

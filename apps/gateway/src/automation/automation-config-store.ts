@@ -5,7 +5,7 @@ import {
   automationSnapshotV1Schema,
   type AutomationSnapshotV1
 } from "@led-control/shared";
-import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
+import { readJsonFile, removeFileDurable, writeJsonAtomic } from "../mesh/mesh-store-file";
 
 export interface AutomationScope {
   siteId: string;
@@ -15,7 +15,10 @@ export interface AutomationScope {
 export interface AutomationConfigStore {
   load(): Promise<AutomationSnapshotV1 | null>;
   apply(snapshot: AutomationSnapshotV1): Promise<void>;
+  restore(snapshot: AutomationSnapshotV1 | null): Promise<void>;
 }
+
+type AtomicJsonWriter = (path: string, value: unknown) => Promise<void>;
 
 export type AutomationConfigStoreErrorCode =
   | "snapshot_invalid"
@@ -36,7 +39,8 @@ export class AutomationConfigStoreError extends Error {
 export class FileAutomationConfigStore implements AutomationConfigStore {
   constructor(
     private readonly path: string,
-    private readonly scope: AutomationScope
+    private readonly scope: AutomationScope,
+    private readonly write: AtomicJsonWriter = writeJsonAtomic
   ) {}
 
   async load(): Promise<AutomationSnapshotV1 | null> {
@@ -52,7 +56,15 @@ export class FileAutomationConfigStore implements AutomationConfigStore {
 
   async apply(snapshot: AutomationSnapshotV1): Promise<void> {
     const parsed = parseAutomationSnapshot(snapshot, this.scope);
-    await writeJsonAtomic(this.path, parsed);
+    await this.write(this.path, parsed);
+  }
+
+  async restore(snapshot: AutomationSnapshotV1 | null): Promise<void> {
+    if (snapshot) {
+      await this.apply(snapshot);
+      return;
+    }
+    await removeFileDurable(this.path);
   }
 
   private async removeInterruptedWrites() {

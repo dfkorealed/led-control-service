@@ -1,8 +1,8 @@
-import type { IConnackPacket, MqttClient } from "mqtt";
+import type { IConnackPacket, IPublishPacket, MqttClient } from "mqtt";
 
 export type GatewayMqttClient = Pick<
   MqttClient,
-  "connected" | "end" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe"
+  "connected" | "end" | "handleMessage" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe"
 >;
 type TopicHandler = (payload: Buffer, source: GatewayMqttClient) => unknown;
 type ErrorReporter = (error: unknown, context: string) => unknown;
@@ -20,6 +20,7 @@ export interface GatewayMqttRuntimeOptions {
   subscribe: (client: GatewayMqttClient, sessionPresent: boolean, force: boolean) => unknown;
   publishHeartbeat: () => unknown;
   topicHandlers: Record<string, TopicHandler>;
+  deferredPubackTopics?: readonly string[];
   onMessageError: ErrorReporter;
   onConnect?: () => unknown;
   onClose?: () => unknown;
@@ -48,8 +49,11 @@ export class GatewayMqttRuntime {
     connect: (packet: IConnackPacket) => void;
     close: () => void;
     error: (error: Error) => void;
-    message: (topic: string, payload: Buffer) => void;
+    message: (topic: string, payload: Buffer, packet?: IPublishPacket) => void;
   }>();
+  private readonly originalHandleMessage = new Map<GatewayMqttClient, GatewayMqttClient["handleMessage"]>();
+  private readonly deferredHandlers = new WeakMap<object, Promise<void>>();
+  private readonly deferredPubackTopics: ReadonlySet<string>;
   private readonly candidateReadyTimeoutMs: number;
   private connectionEpoch = 0;
   private subscriptionRetryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -61,6 +65,7 @@ export class GatewayMqttRuntime {
     this.currentClient = options.client;
     this.candidateReadyTimeoutMs = boundedCandidateReadyTimeout(options.candidateReadyTimeoutMs ?? DEFAULT_CANDIDATE_READY_TIMEOUT_MS);
     this.subscriptionRetryBaseMs = boundedSubscriptionRetry(options.subscriptionRetryBaseMs ?? 1_000);
+    this.deferredPubackTopics = new Set(options.deferredPubackTopics ?? []);
   }
 
   get client() {
@@ -219,11 +224,17 @@ export class GatewayMqttRuntime {
     this.run(() => this.options.onError?.(error), "mqtt_error");
   }
 
-  private handleMessage(client: GatewayMqttClient, topic: string, payload: Buffer) {
-    this.dispatchMessage(topic, payload, client);
+  private handleMessage(client: GatewayMqttClient, topic: string, payload: Buffer, packet?: IPublishPacket) {
+    const handled = this.dispatchMessage(topic, payload, client);
+    if (packet?.qos === 1 && this.deferredPubackTopics.has(topic)) {
+      this.deferredHandlers.set(packet, handled);
+      return;
+    }
+    void handled.catch(() => undefined);
   }
 
   private prepareCandidate(client: GatewayMqttClient): CandidateAttempt {
+    this.installDeferredPubackBoundary(client);
     let settled = false;
     let connected = false;
     let resolveReady!: () => void;
@@ -240,6 +251,7 @@ export class GatewayMqttRuntime {
       client.removeListener("error", onError);
       client.removeListener("close", onClose);
       client.removeListener("message", onMessage);
+      this.restoreHandleMessage(client);
     };
     const finish = (error?: Error) => {
       if (settled) return;
@@ -258,10 +270,10 @@ export class GatewayMqttRuntime {
     };
     const onError = (error: Error) => finish(error);
     const onClose = () => finish(new Error("replacement MQTT client closed before subscriptions were ready"));
-    const onMessage = (topic: string, payload: Buffer) => {
+    const onMessage = (topic: string, payload: Buffer, packet?: IPublishPacket) => {
       // MQTT.js may PUBACK immediately after this event. Dispatch through the normal
       // journal-backed handler now; do not synthesize a second local delivery later.
-      this.handleMessage(client, topic, payload);
+      this.handleMessage(client, topic, payload, packet);
     };
     const timeout = setTimeout(() => finish(new Error("replacement MQTT client timed out")), this.candidateReadyTimeoutMs);
     client.on("message", onMessage);
@@ -337,13 +349,20 @@ export class GatewayMqttRuntime {
     return result;
   }
 
-  private dispatchMessage(topic: string, payload: Buffer, source: GatewayMqttClient) {
+  private dispatchMessage(topic: string, payload: Buffer, source: GatewayMqttClient): Promise<void> {
     const handler = this.options.topicHandlers[topic];
-    if (!handler) return;
+    if (!handler) return Promise.resolve();
     try {
-      void Promise.resolve(handler(payload, source)).catch((error) => this.report(this.options.onMessageError, error, topic));
+      return Promise.resolve(handler(payload, source)).then(
+        () => undefined,
+        (error) => {
+          this.report(this.options.onMessageError, error, topic);
+          throw error;
+        }
+      );
     } catch (error) {
       this.report(this.options.onMessageError, error, topic);
+      return Promise.reject(error);
     }
   }
 
@@ -361,11 +380,12 @@ export class GatewayMqttRuntime {
 
   private addClientListeners(client: GatewayMqttClient) {
     if (this.clientListeners.has(client)) return;
+    this.installDeferredPubackBoundary(client);
     const listeners = {
       connect: (packet: IConnackPacket) => this.handleConnect(client, packet),
       close: () => this.handleClose(client),
       error: (error: Error) => this.handleError(client, error),
-      message: (topic: string, payload: Buffer) => this.handleMessage(client, topic, payload)
+      message: (topic: string, payload: Buffer, packet?: IPublishPacket) => this.handleMessage(client, topic, payload, packet)
     };
     this.clientListeners.set(client, listeners);
     client.on("connect", listeners.connect);
@@ -382,6 +402,32 @@ export class GatewayMqttRuntime {
     client.removeListener("error", listeners.error);
     client.removeListener("message", listeners.message);
     this.clientListeners.delete(client);
+    this.restoreHandleMessage(client);
+  }
+
+  private installDeferredPubackBoundary(client: GatewayMqttClient) {
+    if (this.originalHandleMessage.has(client) || this.deferredPubackTopics.size === 0) return;
+    const original = client.handleMessage;
+    this.originalHandleMessage.set(client, original);
+    client.handleMessage = (packet, callback) => {
+      const deferred = this.deferredHandlers.get(packet);
+      if (!deferred) {
+        original.call(client, packet, callback);
+        return;
+      }
+      this.deferredHandlers.delete(packet);
+      void deferred.then(
+        () => original.call(client, packet, callback),
+        (error) => callback(error instanceof Error ? error : new Error(String(error)))
+      );
+    };
+  }
+
+  private restoreHandleMessage(client: GatewayMqttClient) {
+    const original = this.originalHandleMessage.get(client);
+    if (!original) return;
+    client.handleMessage = original;
+    this.originalHandleMessage.delete(client);
   }
 
   private endClient(client: GatewayMqttClient) {

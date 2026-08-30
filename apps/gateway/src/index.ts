@@ -267,7 +267,8 @@ async function main() {
   async function handleAutomationPayload(payload: Buffer) {
     await handleAutomationConfigPayload(payload, automationRuntime, async (acknowledgement) => {
       await automationAckOutbox.enqueue(acknowledgement);
-      await automationAckPublisher.wake();
+      void automationAckPublisher.wake()
+        .catch((error) => void reportGatewayError(error, "automation_config_ack_publish"));
     });
   }
 
@@ -337,7 +338,7 @@ async function main() {
     await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
   }
 
-  const mqttRuntime = new GatewayMqttRuntime({
+  const mqttRuntime: GatewayMqttRuntime = new GatewayMqttRuntime({
     client: runtime.client,
     heartbeatMs,
     subscribe: (client, sessionPresent, force) => subscribeGatewayCommands(client, assignment, sessionPresent, force),
@@ -364,18 +365,23 @@ async function main() {
         }
       }
     },
+    deferredPubackTopics: [mqttTopics.automationConfig(siteId, gatewayId)],
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
-    onConnect: async () => {
-      await health.mqttConnected();
-      await provisioningScanRecovery.connect(
-        (topic, event) => publish(mqttRuntime.client, topic, event),
-        (error) => reportGatewayError(error, "provisioning_scan_terminal_retry")
-      );
-      await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
-      await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
-      await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
-      await automationAckPublisher.connect((topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement));
-    },
+    onConnect: () => connectGatewayServices({
+      connectAutomationAcks: () => automationAckPublisher
+        .connect((topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement)),
+      connectOperationalServices: async () => {
+        await health.mqttConnected();
+        await provisioningScanRecovery.connect(
+          (topic, event) => publish(mqttRuntime.client, topic, event),
+          (error) => reportGatewayError(error, "provisioning_scan_terminal_retry")
+        );
+        await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
+        await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
+        await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
+      },
+      onAutomationAckError: (error) => reportGatewayError(error, "automation_config_ack_connect")
+    }),
     onClose: () => {
       provisioningScanRecovery.disconnect();
       stateEventPublisher.disconnect();
@@ -419,6 +425,19 @@ export function stateEventOutboxHealthReason(error: unknown) {
     case "STATE_OUTBOX_MANIFEST_CORRUPT":
       return "state_outbox_corrupt";
   }
+}
+
+export function connectGatewayServices(options: {
+  connectAutomationAcks: () => Promise<unknown>;
+  connectOperationalServices: () => Promise<unknown>;
+  onAutomationAckError: (error: unknown) => unknown;
+}) {
+  try {
+    void options.connectAutomationAcks().catch((error) => void options.onAutomationAckError(error));
+  } catch (error) {
+    void options.onAutomationAckError(error);
+  }
+  return options.connectOperationalServices();
 }
 
 export function observedFixtureResults(result: Pick<GatewayCommandResult, "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds">) {

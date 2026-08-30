@@ -35,8 +35,8 @@
 
 ## 구현 완료
 
-- Raspberry Pi Gateway production runtime은 `AutomationSnapshotV1` config topic을 MQTT QoS 1로 구독한다. Snapshot은 strict schema, assigned Site/Gateway scope, Task 9와 같은 canonical SHA-256를 검증하고 단일 automation serial queue에서 처리한다. 높은 revision은 temp write, file fsync, rename, parent directory fsync가 모두 끝난 뒤 메모리 참조를 바꾸고 desired state를 재계산한다. 같은 revision/hash는 저장·재계산 없이 idempotent applied 처리하며 낮은 revision과 같은 revision의 다른 유효 hash는 기존 snapshot을 유지한 채 각각 `snapshot_old_revision`, `snapshot_revision_conflict`로 거부한다.
-- Gateway는 재시작 시 마지막 원자 교체 snapshot을 복구하고 중단된 temp 파일을 제거한다. Config `applied|rejected` ACK는 local Gateway ID와 수신한 exact revision/hash를 포함해 별도 `0600` file outbox에 publish 전에 저장한다. MQTT publish/PUBACK 실패는 같은 payload를 지수 backoff로 재시도하고 reconnect/process restart 뒤에도 재발행한다. Snapshot hot reload와 handler rejection은 MQTT connection, heartbeat, BLE Mesh process를 종료하지 않는다.
+- Raspberry Pi Gateway production runtime은 `AutomationSnapshotV1` config topic을 MQTT QoS 1로 구독한다. Snapshot은 strict schema, assigned Site/Gateway scope, Task 9와 같은 canonical SHA-256를 검증하고 단일 automation serial queue에서 처리한다. 높은 revision은 temp write, file fsync, rename, parent directory fsync를 거치며 rename 뒤 fsync fault는 exact disk read-back과 parent 재-fsync로 commit 여부를 확정한다. 저장 뒤 desired state 재계산/적용 실패 시 active file과 memory를 직전 revision으로 원자 복구한다. 같은 revision/hash는 저장·재계산 없이 idempotent applied 처리하며 낮은 revision과 같은 revision의 다른 유효 hash는 기존 snapshot을 유지한 채 각각 `snapshot_old_revision`, `snapshot_revision_conflict`로 거부한다.
+- Gateway는 재시작 시 마지막 원자 교체 snapshot을 복구하고 중단된 temp 파일을 제거한다. Config `applied|rejected` ACK는 local Gateway ID와 수신한 exact revision/hash를 포함해 별도 `0600` file outbox에 publish 전에 저장하며 MQTT.js `handleMessage` backpressure가 이 fsync와 hot reload 완료 전 broker PUBACK을 막는다. ACK publish 실패는 같은 payload를 지수 backoff로 재시도하고 reconnect/process restart 뒤에도 재발행한다. reconnect는 이전 generation drain이 남아도 새 exact ACK drain을 즉시 시작하며 ACK connect/retry는 health, provisioning, state, mesh resync 실패와 분리된다. Production-like handler 검증은 valid, invalid, old, conflict, store/recompute failure 전후 current revision, durable ACK, MQTT/heartbeat/BLE Mesh 무중단을 함께 확인한다.
 - `POST /commands/dimming`은 optional ISO instant `overrideUntil`을 받고, 없으면 API `AutomationClock` 기준 `now + 1 hour`를 서버에서 확정한다. 명시 시각은 현재보다 미래이고 최대 30일 이내여야 하며 viewer는 기존과 같이 `403`으로 거부된다. Command, `ManualOverride`, 모든 `ManualOverrideFixture`, dispatch와 MQTT outbox는 공통 automation advisory lock 후 Site row 재인가를 거친 하나의 transaction에 저장한다. API 생성 응답과 새 Gateway dimming payload에는 확정된 `overrideUntil`이 포함된다. 이전 durable outbox payload는 필드 없이도 publisher가 처리하지만 새 API 생성 경로는 항상 포함한다. Gateway의 durable override 적용·만료 후 priority arbiter 복귀와 Web 종료 시각 입력은 후속 범위다.
 - `GET/POST/PATCH/DELETE /sites/:siteId/automation/vehicle-event-rules`를 제공한다. viewer는 assigned Site 목록을 조회하고 assigned active customer admin만 생성·수정·삭제할 수 있으며 operator와 다른 Site의 규칙은 `404`로 숨긴다. 목록 query는 Site 읽기 인가 뒤 파싱한다.
 - 차량 이벤트 규칙은 distinct source와 target Fixture를 각각 한 개 이상 요구하고 등록 완료 Fixture만 저장 시점의 exact ID set으로 고정한다. source는 MeshNode capability가 `supported`이고 검증 시각이 있는 Fixture만 허용하며 unknown/unsupported/다른 tenant 식별자는 일반화된 validation 오류로 거부한다. target capability 검증은 하지 않는다. source와 target 전체가 같은 Site와 한 Gateway에 속해야 하며 다중 Gateway는 stable `single_gateway_required`로 거부한다.
@@ -242,6 +242,8 @@
 - `apps/gateway/src/automation/automation-config-store.ts`
 - `apps/gateway/src/automation/automation-runtime.ts`
 - `apps/gateway/src/automation/automation-config-ack-outbox.ts`
+- `apps/gateway/src/automation/automation-config-production-path.test.ts`
+- `apps/gateway/src/runtime/gateway-mqtt-runtime.ts`
 - `apps/gateway/src/commands/gateway-command-handler.ts`
 - `packages/shared/src/command-delivery.ts`
 - `packages/shared/src/gateway-contracts.ts`
