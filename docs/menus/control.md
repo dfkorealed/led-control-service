@@ -1,13 +1,13 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-30
+기준일: 2026-08-31
 
 ## 다음 구현 범위
 
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
-- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry와 Gateway BLE Mesh Sensor Client를 완료했다. 다음 구현은 ESP32-H2 센서 드라이버·모델, Web CRUD, software E2E와 HIL 순서다.
+- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client와 ESP32-H2 GPIO sensor driver를 완료했다. 다음 구현은 Sensor Server/vendor event model, Web CRUD, software E2E와 HIL 순서다.
 
 ## 확정 구현 범위
 
@@ -49,6 +49,7 @@
 - Node별 capability journal은 model binding 결과가 실제로 달라질 때만 revision과 event ID를 새로 만든다. Startup/reconnect는 전체 pending ID를 한 번 저장하고 Config 결과를 직렬 수집한 뒤 성공 binding과 pending 완료를 한 번에 저장하므로 journal rewrite는 source 수와 무관하게 최대 2회이고 총 write bytes는 O(N)이다. Partial Config failure는 실패 node만 pending에 남기며 성공 node의 unchanged binding은 revision/event ID를 유지한다. 두 batch의 commit uncertainty는 target이 previous면 이전 identity 유지, next면 같은 revision/eventId/hash 채택, unknown이면 journal을 fence한다.
 - Provisioning completed terminal은 QoS1 callback을 먼저 보장한다. 최초 refresh journal write가 definite failure여도 controller가 최대 10,000개 volatile pending ID를 보존하고 1초~30초 capped backoff로 같은 serial batch를 재시도하며 health를 degraded로 유지한다. Shutdown은 retry timer를 취소하고 이미 시작한 enqueue/Config batch를 drain한다. Volatile set은 process crash를 넘지 않으며, 재시작 시 confirmed/configured source 전체 startup refresh가 source of truth로 복구한다. Broker PUBACK 뒤에도 capability report를 유지하고 exact application ACK만 terminal로 만든다.
 - Production Gateway와 Task 16 firmware는 Bluetooth SIG 자사 할당 Company Identifier를 각각 `GATEWAY_BLUETOOTH_COMPANY_ID`, `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID`로 같은 값에 설정해야 한다. 누락·미할당·Espressif `0x02E5`·테스트 예약값은 fail-closed하며 저장소에는 양산 기본값을 두지 않는다.
+- ESP32-H2 차량 센서 driver는 configurable safe GPIO의 3.3V Active High 양 edge와 boot level을 32개 static queue에 보존한다. ISR은 level/timestamp enqueue와 queue-full atomic dropped counter만 수행하고 일반 task가 동일 level만 제거한다. Pull-down과 hardware hysteresis만 사용하며 software debounce, timing filter와 High timeout은 없다. GPIO allowlist와 PWM/factory-reset/strapping/flash/package/USB 충돌은 compile/runtime에서 fail-closed한다.
 - Gateway execution telemetry `appendBatch`는 handoff 전체를 한 atomic rewrite로 수락하거나 실제 dropped record set 전부를 반환해 prefix success를 만들지 않는다. Grouped `action_result` 한 payload의 여러 fixture result는 dropped count 1이다. Pretty JSON metadata를 포함한 regular outbox는 strict 64 MiB다. Automation state와 outbox는 startup에 한 번 실제 할당한 공용 64 MiB headroom을 사용하며 정상 commit은 reserve I/O를 만들지 않는다. 실제 `ENOSPC`에서만 reserve를 한 번 release/retry하고 verified free space 뒤 background로 복원한다. State mutation은 `durable|memory_only` outcome을 반환하고 schedule/vehicle/manual local transition만 memory-only fallback을 사용한다. Handoff/gap clear는 durable-required라 실패 시 memory/disk pending과 outbox receipt를 그대로 두고 coordinator batch를 중단해 1초~30초 bounded backoff로 같은 handoff를 재시도한다. Fixed journal은 마지막 일반 source와 cumulative source receipt 외에 outbox accepted aggregate baseline과 acceptance identity/hash를 고정 필드로 유지한다. Aggregate identity는 clear까지 유지하고 reimport는 `aggregate - acceptedBaseline`만 처리한다. Baseline에 이미 흡수되고 state/journal에서 재생 불가능한 general source receipt는 같은 outbox import commit에서 제거하되 현재 state pending handoff/gap, current journal source, cumulative source, aggregate와 active baseline identity는 보호하므로 clear 장기 실패와 restart에서도 recovery metadata가 O(1)이다. Cleanup commit의 definite failure와 previous·next uncertainty도 기존 visible target reconciliation으로 동일 event ID/sequence/final hash와 정확한 count에 수렴한다. 두 4 KiB block과 inode allocation은 고정이며 clear tombstone generation 뒤 기록한 새 source도 restart에서 보존한다. Durable clear 뒤에만 source receipt를 release하고, retry에서 처음 outbox work가 생기면 publisher를 깨우며, 미게시 `event_extended`는 latest record로 교체하고 MQTT application ACK exact match 전 record를 유지한다.
 - Raspberry Pi Gateway production runtime은 `AutomationSnapshotV1` config topic을 MQTT QoS 1로 구독한다. Snapshot은 strict schema, assigned Site/Gateway scope, Task 9와 같은 canonical SHA-256를 검증하고 단일 automation serial queue에서 처리한다. 높은 revision은 temp write, file fsync, rename, parent directory fsync를 거치며 rename 뒤 fsync fault는 exact disk read-back과 parent 재-fsync로 commit 여부를 확정한다. 재-fsync까지 실패하면 이전 visible snapshot을 복구하고 non-acknowledgeable `snapshot_commit_uncertain`으로 전파해 durable rejected ACK와 inbound PUBACK을 만들지 않으며 broker redelivery/restart가 이전 durable revision 또는 같은 revision/hash applied 상태로 수렴하게 한다. 저장 뒤 desired state 재계산/적용 실패 시 active file과 memory를 직전 revision으로 원자 복구한다. 같은 revision/hash는 저장·재계산 없이 idempotent applied 처리하며 낮은 revision과 같은 revision의 다른 유효 hash는 기존 snapshot을 유지한 채 각각 `snapshot_old_revision`, `snapshot_revision_conflict`로 거부한다.
 - Gateway는 재시작 시 마지막 원자 교체 snapshot을 복구하고 중단된 temp 파일을 제거한다. Config `applied|rejected` ACK는 local Gateway ID와 수신한 exact revision/hash를 포함해 별도 `0600` file outbox에 publish 전에 저장하며 MQTT.js `handleMessage` backpressure가 이 fsync와 hot reload 완료 전 broker PUBACK을 막는다. ACK publish 실패는 같은 payload를 지수 backoff로 재시도하고 reconnect/process restart 뒤에도 재발행한다. reconnect는 이전 generation drain이 남아도 새 exact ACK drain을 즉시 시작하며 ACK connect/retry는 health, provisioning, state, mesh resync 실패와 분리된다. Production-like handler 검증은 valid, invalid, old, conflict, store/recompute failure 전후 current revision, durable ACK, MQTT/heartbeat/BLE Mesh 무중단을 함께 확인한다.
@@ -170,7 +171,7 @@
 ## 미구현
 
 - 스케줄 제어 Web CRUD
-- 차량 이벤트 규칙 Web CRUD와 ESP32-H2 센서 driver/vendor event 송신
+- 차량 이벤트 규칙 Web CRUD와 ESP32-H2 Sensor Server/vendor event 송신
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
@@ -184,7 +185,7 @@
 
 - Automation full snapshot의 production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK, Task 12 offline scheduler·priority arbiter, Task 13 execution outbox/application ACK와 Task 14 Sensor Client/vendor ACK 입력은 연결됐다. Snapshot activation과 production shutdown은 필요한 BLE Mesh terminal state/handoff, execution/capability queue와 in-flight QoS 1 publish를 순서대로 drain한다.
 - Capability ACK의 필수 `reportPayloadHash`와 identity `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`는 cross-node eventId 충돌과 same-node altered payload를 원본과 분리한다. Exact report 재전달은 최초 payload/hash/`ingestedAt`을 유지하고 published/deadletter/expired lease delivery 상태만 재큐잉하며 live lease를 보호한다. 이 API 계약은 unit/PostgreSQL migration test로 검증했지만 실제 production broker ACL과 Gateway certificate로 report 왕복을 수행한 HIL 증거는 아직 없다.
-- Task 14의 Sensor Server/vendor model binding·publication, node별 durable capability report와 exact ACK 처리는 자동 테스트와 mTLS Mosquitto ACL 계약으로 검증했다. ESP32-H2 firmware의 실제 Sensor Server/vendor event 송신은 Task 15/16 범위이며 Raspberry Pi/ESP32-H2 사이의 packet loss, 재전송, ACK와 전원 차단 HIL은 아직 실행하지 않았다.
+- Task 14의 Sensor Server/vendor model binding·publication, node별 durable capability report와 exact ACK 처리 및 Task 15의 ESP32-H2 GPIO edge driver는 자동 테스트와 target build로 검증했다. Sensor Server/vendor event 송신은 Task 16 범위이며 Raspberry Pi/ESP32-H2 사이의 packet loss, 재전송, ACK와 전원 차단 HIL은 아직 실행하지 않았다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - schedule API CRUD와 Gateway offline schedule 실행은 구현 완료했다. Schedule Web CRUD는 후속 범위이며, 아직 동작하지 않는 Web 버튼은 양산 UI에서 제거했다.
@@ -300,6 +301,11 @@
 - `apps/esp32-h2-firmware/main/ble_mesh_platform.c`
 - `apps/esp32-h2-firmware/main/control_state.c`
 - `apps/esp32-h2-firmware/main/led_driver.c`
+- `apps/esp32-h2-firmware/main/vehicle_sensor_driver.c`
+- `apps/esp32-h2-firmware/main/vehicle_sensor_driver.h`
+- `apps/esp32-h2-firmware/test/native/test_vehicle_sensor_driver.c`
+- `scripts/esp32-h2-build.sh`
+- `.superpowers/sdd/2026-08-29-schedule-vehicle-event-control/task-15-report.md`
 - `apps/esp32-h2-firmware/main/mesh_state.c`
 - `apps/esp32-h2-firmware/main/mesh_transaction_cache.c`
 - `apps/esp32-h2-firmware/README.md`

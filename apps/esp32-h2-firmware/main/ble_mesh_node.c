@@ -26,7 +26,11 @@
 #include "mesh_transaction_cache.h"
 #include "persistent_state.h"
 
-#if !defined(CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID) || \
+#if defined(CONFIG_LED_CONTROL_TEST_BUILD)
+#if !defined(CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID) || CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID != 0xFFFF
+#error "Test builds must use only the reserved 0xFFFF Company ID fixture"
+#endif
+#elif !defined(CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID) || \
     CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0 || \
     CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0x02E5 || \
     CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0xFFFF

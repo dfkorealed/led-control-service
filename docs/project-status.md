@@ -1,10 +1,10 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-08-30
+기준일: 2026-08-31
 
 ## 현재 마일스톤
 
-**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry와 Task 14 Gateway BLE Mesh Sensor Client를 완료했다. 다음 구현은 ESP32-H2 sensor driver와 Sensor Server/vendor event model이다.
+**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry, Task 14 Gateway BLE Mesh Sensor Client와 Task 15 ESP32-H2 GPIO sensor driver를 완료했다. 다음 구현은 ESP32-H2 Sensor Server/vendor event model이다.
 
 ## 작업 상태
 
@@ -28,10 +28,11 @@
 | 스케줄·차량 이벤트 제어 Task 12 | 완료(소프트웨어, fix round 5) | Fix round 4 re-review의 active P1 3건을 TDD로 수정했다. Clock-untrusted restart에서 recovered manual 현재 출력/최고 우선순위를 유지하고, targeted resync unresolved batch를 tail로 회전하며, broker-fresh legacy timed wire에 요청 duration 기반 monotonic deadline과 version 1 진단/30일 상한을 적용했다. Shared 74/74, API 727 passed, Gateway 417/417, Docker 17/17, Mosquitto 2/2 및 typecheck/lint/build로 검증했다. API publisher 선배포가 필수이며 Raspberry Pi/ESP32-H2 RF HIL은 별도다. |
 | 스케줄·차량 이벤트 제어 Task 13 | 완료(소프트웨어, fix round 5 breaker) | Fixed journal aggregate의 durable accepted baseline을 기준으로 reimport하고, baseline에 흡수된 뒤 state/journal에서 재생 불가능한 general source receipt를 같은 outbox import commit에서 제거한다. 현재 state pending handoff/gap, current journal source, cumulative source, aggregate와 active baseline identity는 보호한다. Clear 100회 실패와 source 교체, 중간 restart, cleanup definite failure 및 previous·next commit uncertainty에서도 receipt metadata는 O(1)이고 동일 `telemetry_gap` event identity/sequence/final hash와 정확한 count로 수렴한다. 두 4 KiB block, 64 MiB outbox/headroom, local RF 독립성과 application ACK 계약은 유지한다. Gateway 499/499, shared 74/74, Docker 17/17, Mosquitto 2/2 및 Shared/Gateway typecheck·lint·build를 통과했으며 실제 Raspberry Pi power-loss/storage-wear와 ESP32-H2 RF HIL은 별도다. |
 | 스케줄·차량 이벤트 제어 Task 14 | 완료(소프트웨어) | Gateway BlueZ application에 Sensor/vendor client를 등록하고 confirmed node의 Sensor Server/vendor server bind와 publication을 exact Config Status로 확인한다. Presence/Motion Status와 strict vendor event를 normalized runtime 입력으로 연결하고 manifest 기반 durable dedupe 뒤 application ACK를 보낸다. Node별 capability report는 실제 binding 상태 변경 때만 revision을 올리며 broker PUBACK과 분리된 exact application ACK 전까지 동일 event/revision/payload/hash를 bounded retry한다. Rejected/hash mismatch는 journal을 보존한다. 실제 ESP32-H2 firmware와 Raspberry Pi/BlueZ RF HIL은 별도다. |
+| 스케줄·차량 이벤트 제어 Task 15 | 완료(소프트웨어/target build) | ESP32-H2 3.3V Active High GPIO 양 edge와 boot level을 static queue/task로 전달하고 task에서 동일 level만 제거한다. ISR은 level/time/enqueue와 queue-full lock-free atomic counter로 제한하며 software debounce/timing filter는 없다. Safe GPIO allowlist와 PWM/reset/strapping/flash/package/USB 충돌을 fail-closed하고 Task 16 callback/current/drop/start/stop API를 app lifecycle에 연결했다. 실제 Company ID 없는 자동 build는 명시적 non-flashable `0xFFFF` test gate로만 통과하며 production은 실제 자사 ID가 없으면 실패한다. 실제 센서 전기/RF/HIL은 미실행이다. |
 
 ## 다음 단계
 
-**다음 구현은 ESP32-H2 sensor driver와 Sensor Server/vendor event model이다.** 이후 Web CRUD, software E2E와 HIL 순서로 진행한다. Unit과 Docker Mosquitto 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
+**다음 구현은 ESP32-H2 Sensor Server/vendor event model이다.** 이후 Web CRUD, software E2E와 HIL 순서로 진행한다. Native/target build와 Docker Mosquitto 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 
@@ -44,7 +45,7 @@
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
 - 스케줄 및 차량 이벤트 규칙 API CRUD, durable full-snapshot outbox, production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK, offline scheduler·priority arbiter, durable execution telemetry/application ACK와 Sensor Client event 입력은 완료했다. Web CRUD는 아직 구현되지 않았다.
-- 차량 센서 capability report/ACK의 API·Gateway durable ordering/idempotency, report-hash-scoped immutable ACK, production MQTT consumer/publisher와 Gateway exact ACK matching은 연결됐다. 실제 ESP32-H2 Sensor Server/vendor model firmware와 production Raspberry Pi/ESP32-H2 RF 왕복 HIL은 아직 실행하지 않았다.
+- 차량 센서 capability report/ACK의 API·Gateway durable ordering/idempotency, report-hash-scoped immutable ACK, production MQTT consumer/publisher, Gateway exact ACK matching과 ESP32-H2 GPIO edge driver는 연결됐다. 실제 Sensor Server/vendor model firmware와 production Raspberry Pi/ESP32-H2 RF 왕복 HIL은 아직 실행하지 않았다.
 
 ### 통계
 

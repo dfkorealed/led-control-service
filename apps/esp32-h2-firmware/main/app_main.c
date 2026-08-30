@@ -5,12 +5,24 @@
 #include "identify.h"
 #include "led_driver.h"
 #include "persistent_state.h"
+#include "vehicle_sensor_driver.h"
 
+#include <inttypes.h>
 #include "esp_log.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 
 static const char *TAG = "led_control_node";
+
+static void handle_vehicle_sensor_event(const vehicle_sensor_event_t *event, void *context) {
+  (void)context;
+  ESP_LOGI(
+      TAG,
+      "Vehicle sensor %s level=%s monotonic_us=%" PRIu64,
+      event->kind == VEHICLE_SENSOR_DETECTED ? "detected" : "cleared",
+      event->level ? "high" : "low",
+      event->monotonic_us);
+}
 
 void app_main(void) {
   esp_err_t error = nvs_flash_init();
@@ -34,7 +46,13 @@ void app_main(void) {
 
   ESP_ERROR_CHECK(ble_mesh_platform_bluetooth_init());
   ESP_ERROR_CHECK(ble_mesh_node_init());
+  ESP_ERROR_CHECK(vehicle_sensor_driver_start(handle_vehicle_sensor_event, NULL));
+  ESP_ERROR_CHECK(esp_register_shutdown_handler(vehicle_sensor_driver_stop));
   ESP_ERROR_CHECK(factory_reset_init());
+
+#if defined(CONFIG_LED_CONTROL_TEST_BUILD)
+  ESP_LOGE(TAG, "TEST BUILD: reserved Company ID fixture; HIL and production flash are prohibited");
+#endif
 
   ESP_LOGI(TAG, "ESP32-H2 LED node started, brightness=%u%% power_on=%s restored=%s reset_reason=%d",
            state.brightness_percent,

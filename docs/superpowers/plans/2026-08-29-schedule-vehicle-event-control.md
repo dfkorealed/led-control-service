@@ -1014,12 +1014,18 @@ Fix Round 2에서는 최초 refresh journal write definite failure를 bounded vo
 - Modify: `apps/esp32-h2-firmware/main/Kconfig.projbuild`
 - Modify: `apps/esp32-h2-firmware/main/CMakeLists.txt`
 - Modify: `apps/esp32-h2-firmware/main/app_main.c`
+- Modify: `apps/esp32-h2-firmware/main/ble_mesh_node.c`
+- Modify: `scripts/esp32-h2-build.sh`
+- Modify: `scripts/esp32-h2-flash.sh`
+- Modify: `apps/esp32-h2-firmware/README.md`
+- Modify: `docs/menus/control.md`
+- Create: `.superpowers/sdd/2026-08-29-schedule-vehicle-event-control/task-15-report.md`
 
 **Interfaces:**
 - Consumes: configurable safe GPIO, 3.3V Active High microwave sensor.
 - Produces: fixed queue `vehicle_sensor_edge_t { level, monotonic_us }`, boot level event, dropped-edge fault counter.
 
-- [ ] **Step 1: native GPIO state-machine 실패 테스트를 작성한다**
+- [x] **Step 1: native GPIO state-machine 실패 테스트를 작성한다**
 
 ```c
 assert(vehicle_sensor_process_level(&state, true, 1000, &event));
@@ -1029,30 +1035,32 @@ assert(vehicle_sensor_process_level(&state, false, 3000, &event));
 assert(event.kind == VEHICLE_SENSOR_CLEARED);
 ```
 
-- [ ] **Step 2: native test 실패를 확인한다**
+- [x] **Step 2: native test 실패를 확인한다**
 
 Run: `cc -std=c11 -Wall -Wextra -Werror -I apps/esp32-h2-firmware/main apps/esp32-h2-firmware/test/native/test_vehicle_sensor_driver.c apps/esp32-h2-firmware/main/vehicle_sensor_driver.c -o /tmp/test_vehicle_sensor_driver && /tmp/test_vehicle_sensor_driver`
 
 Expected: driver 파일/함수가 없어 FAIL한다.
 
-- [ ] **Step 3: ISR-safe driver와 pin validation을 구현한다**
+- [x] **Step 3: ISR-safe driver와 pin validation을 구현한다**
 
 ISR은 `gpio_get_level`, `esp_timer_get_time`, `xQueueSendFromISR`만 수행한다. task가 중복 level을 제거한다. Kconfig pin validation은 ESP32-H2 strapping, flash, USB-Serial-JTAG 사용 pin을 build/config 단계에서 거부하고 pull-down과 hardware hysteresis를 설정한다.
 
-- [ ] **Step 4: boot High와 queue full fault를 검증한다**
+- [x] **Step 4: boot High와 queue full fault를 검증한다**
 
 boot 직후 pin을 읽어 High면 detected를 queue에 한 번 넣는다. queue full이면 dropped counter만 증가시키고 ISR에서 block/log/BLE 호출을 하지 않는다.
 
-- [ ] **Step 5: native와 ESP-IDF build 후 커밋한다**
+- [x] **Step 5: native와 ESP-IDF build 후 커밋한다**
 
 Run: `cc -std=c11 -Wall -Wextra -Werror -I apps/esp32-h2-firmware/main apps/esp32-h2-firmware/test/native/test_vehicle_sensor_driver.c apps/esp32-h2-firmware/main/vehicle_sensor_driver.c -o /tmp/test_vehicle_sensor_driver && /tmp/test_vehicle_sensor_driver`
 
-Run: `scripts/esp32-h2-build.sh`
+Run: `scripts/esp32-h2-build.sh --test-build` (실제 자사 Company ID가 없는 자동 compile 전용이며 flash 금지)
 
 ```bash
 git add apps/esp32-h2-firmware/main apps/esp32-h2-firmware/test/native/test_vehicle_sensor_driver.c
 git commit -m "feat(firmware): add microwave sensor GPIO driver"
 ```
+
+검증: native driver state/pin/counter test와 production/test build-gate test를 통과했다. ESP-IDF v5.5.1 `esp32h2` test-build binary는 `0xe6370` 바이트이고 app partition `0x19c90` 바이트가 남는다. 실제 센서 전압/noise/ESD, queue overflow, Raspberry Pi RF와 HIL은 미실행이며 reserved `0xFFFF` test binary는 flash 금지다.
 
 ### Task 16: ESP32-H2 Sensor Server와 reliable vendor event
 

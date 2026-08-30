@@ -16,6 +16,26 @@ if [ ! -f "$IDF_PATH/export.sh" ]; then
   exit 1
 fi
 
+SDKCONFIG="$BUILD_WORKDIR/sdkconfig"
+if [ ! -f "$SDKCONFIG" ]; then
+  echo "Refusing to flash: flash requires a verified production sdkconfig." >&2
+  exit 1
+fi
+
+if grep -q '^CONFIG_LED_CONTROL_TEST_BUILD=y$' "$SDKCONFIG"; then
+  echo "Refusing to flash a test-build binary. Build production firmware with the owner's Bluetooth SIG Company ID." >&2
+  exit 1
+fi
+
+COMPANY_ID="$(sed -n 's/^CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=//p' "$SDKCONFIG")"
+if ! [[ "$COMPANY_ID" =~ ^[0-9]+$ ]] ||
+    [ "$COMPANY_ID" -le 0 ] ||
+    [ "$COMPANY_ID" -ge 65535 ] ||
+    [ "$COMPANY_ID" -eq 741 ]; then
+  echo "Refusing to flash: flash requires the owner's Bluetooth SIG Company ID." >&2
+  exit 1
+fi
+
 if [ -d "$PYTHON_312_BIN" ]; then
   export PATH="$PYTHON_312_BIN:$PATH"
 fi

@@ -8,7 +8,7 @@
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령을 받아 PWM 밝기에 반영하는 단계까지 빌드 검증했다.
-- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개 설정 포함 후 `led_control_node.bin` 크기는 `0xe5570` 바이트이며, 1MB OTA app partition 기준 `0x1aa90` 바이트(약 10%)가 남는다. DIRAM은 112,156바이트(43.47%)를 사용하고 145,844바이트가 남는다. OTA 기능을 추가할 때는 파티션 크기 재검토가 필요하다.
+- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개와 차량 센서 GPIO driver 포함 후 test-build `led_control_node.bin` 크기는 `0xe6370` 바이트이며, 1MB OTA app partition 기준 `0x19c90` 바이트(약 10%)가 남는다. OTA 기능을 추가할 때는 파티션 크기 재검토가 필요하다.
 
 ## ESP-IDF 설치
 
@@ -39,11 +39,17 @@ test "$CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID" = "$GATEWAY_BLUETOOTH_COMPANY_ID
 
 Task 16 vendor event model의 composition, 3-byte opcode, ACK opcode는 이 Kconfig 값을 사용해야 하며 Gateway의 shared protocol 계약 `BLUETOOTH_COMPANY_ID_CONFIG`와 이름을 임의로 바꾸지 않는다.
 
-저장소 경로에 공백과 한글이 포함되어 있어 ESP-IDF 빌드 안정성을 위해 firmware 파일을 `~/esp/led-control-esp32-h2-build`로 동기화한 뒤 빌드한다.
+checkout 경로와 무관하게 ESP-IDF 빌드 안정성을 위해 firmware 파일을 `~/esp/led-control-esp32-h2-build`로 동기화한 뒤 빌드한다. 기본 실행은 production build이며 실제 자사 Company ID가 없으면 ESP-IDF 실행 전에 실패한다.
 
 ```bash
-cd "/Users/kim-jh/Documents/led 조명 관제 서비스"
-scripts/esp32-h2-build.sh
+cd "/Users/kim-jh/Documents/led-control-service"
+CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=<Bluetooth SIG 자사 할당값의 10진수> scripts/esp32-h2-build.sh
+```
+
+실제 ID가 아직 없는 자동 compile 검증만 아래 명시적 gate를 사용한다. 이 모드는 Bluetooth SIG internal-use 값 `0xFFFF`를 build workdir의 임시 설정에만 주입하며 저장소 기본값으로 두지 않는다. 생성된 binary와 `sdkconfig`에는 test-build marker가 남고 `scripts/esp32-h2-flash.sh`가 test marker, 누락/잘못된 production 설정과 owner ID 부재를 모두 거부한다. 실제 장비 HIL과 양산에는 절대 사용하지 않는다.
+
+```bash
+scripts/esp32-h2-build.sh --test-build
 ```
 
 성공 시 주요 산출물은 아래와 같다.
@@ -66,7 +72,7 @@ ls /dev/tty.usbmodem* /dev/cu.usbmodem* 2>/dev/null
 4. 플래시와 시리얼 모니터를 실행한다.
 
 ```bash
-cd "/Users/kim-jh/Documents/led 조명 관제 서비스"
+cd "/Users/kim-jh/Documents/led-control-service"
 scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
 ```
 
@@ -85,6 +91,17 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 - 개발 보드 LED 또는 절연된 LED driver의 PWM 입력에 연결해 검증한다.
 - 주차장 LED 부하를 ESP32-H2 GPIO에 직접 연결하면 안 된다.
 - 외부 LED driver를 사용할 때는 PWM 입력 전압, 공통 GND, 절연 요구사항을 먼저 확인한다.
+
+## 차량 감지 센서 GPIO와 전기 안전
+
+- 입력 계약은 **3.3V Active High digital output**인 마이크로웨이브 센서다. 5V, 12V, 24V 신호나 open collector 출력을 level 확인 없이 직접 연결하지 않는다.
+- 비절연 연결은 ESP32-H2와 센서가 같은 기준 GND를 사용해야 한다. 서로 다른 전원 계통, 긴 배선, surge 또는 ground potential 차이가 있으면 승인된 절연기나 level shifter와 ESD/서지 보호를 사용한다.
+- LED converter의 DIM+/DIM-, 0-10V, PWM DIM, 보조전원 출력은 센서 GPIO 또는 ESP32-H2 3.3V rail에 직접 연결하지 않는다. converter 매뉴얼의 절연/전압/전류 조건에 맞는 별도 interface 회로가 필요하다.
+- 기본 센서 입력은 `GPIO 4`다. fail-closed allowlist는 GPIO `0, 1, 4, 5, 10~14, 22~24`이며 PWM, factory reset, strapping, flash/package와 USB-Serial-JTAG pin은 compile 시 거부한다.
+- 입력은 내부 pull-down과 ESP32-H2 hardware hysteresis를 사용한다. software debounce, 시간 filter, High timeout 또는 임의 Low 보정은 넣지 않는다. 센서 출력 chatter가 있으면 모든 실제 level 전환이 event가 되므로 PCB와 센서 자체의 전기적 품질로 해결한다.
+- 양산 PCB에서는 외부 pull-down, 입력 직렬 저항, ESD/서지, isolation, 센서 소비전류와 전원 sequencing을 회로 검토와 실측으로 확정한다. ESP32-H2 3.3V pin을 검증되지 않은 센서/컨버터 보조전원 공급원으로 사용하지 않는다.
+
+driver는 boot level을 한 번 queue에 넣고 양 edge ISR에서 `{level, monotonic_us}`만 32개 static queue로 전달한다. ISR 호출은 `gpio_get_level`, `esp_timer_get_time`, `xQueueSendFromISR`로 제한된다. queue가 가득 차면 lock-free saturating dropped counter만 증가하며 log, BLE, block을 수행하지 않는다. 일반 task는 시간 간격과 무관하게 동일 level만 제거하고 Task 16 consumer callback을 호출한다.
 
 ## 현재 구현 범위
 
@@ -108,6 +125,7 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 - GPIO active-low 8초 길게 누르기를 통한 앱 NVS 및 BLE Mesh credential factory reset
 - panic/watchdog reset reason을 Health fault `0x01`로 기록
 - ESP-IDF task watchdog 10초 설정
+- 3.3V Active High 차량 센서 GPIO 양 edge, boot level event, static queue/task와 Task 16 callback/start/stop lifecycle
 
 ## 후속 구현
 
@@ -129,6 +147,7 @@ idf.py -p /dev/cu.usbmodemXXXX flash monitor
 CONFIG_LED_CONTROL_PWM_GPIO=8
 CONFIG_LED_CONTROL_FACTORY_RESET_GPIO=9
 CONFIG_LED_CONTROL_FACTORY_RESET_HOLD_MS=8000
+CONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO=4
 CONFIG_DFK_PRODUCT_FAMILY=1
 CONFIG_DFK_MODEL_CODE=1
 CONFIG_DFK_HARDWARE_REVISION=1
@@ -197,6 +216,10 @@ ESP-IDF 빌드와 지터 계산 단위 테스트만으로는 아래 항목을 �
 - relay/retransmit가 있는 주차장 RF 환경에서 노드 수 증가에 따른 충돌률과 8초 Gateway 수집 timeout의 적정성
 - 패킷 손실, 노드 재부팅, 연속 명령에서 Gateway가 누락 또는 상태 불일치를 정확히 판정하는지
 - 100개 이상 실제 노드 soak에서 heap, watchdog, Mesh replay/TID 동작에 회귀가 없는지
+- 실제 센서의 Low/High 전압, rise/fall time, 출력 방식과 공통 GND/절연 조건이 ESP32-H2 입력 정격에 맞는지
+- boot High/Low, 빠른 양 edge, 장시간 High와 queue overflow에서 edge/current level 및 dropped counter가 예상대로 관측되는지
+- 전원 인가/차단, 긴 배선, LED converter switching noise와 ESD 조건에서 false edge나 GPIO 손상이 없는지
+- Task 16 Sensor Server/vendor event와 Raspberry Pi Gateway를 연결했을 때 packet loss, ACK retry와 restart current-state 복구가 수렴하는지
 
 ## DFK BLE Mesh device UUID
 

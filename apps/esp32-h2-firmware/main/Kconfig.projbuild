@@ -1,11 +1,19 @@
 menu "LED Control Node"
 
+config LED_CONTROL_TEST_BUILD
+    bool "Enable non-flashable automated test build"
+    default n
+    help
+        scripts/esp32-h2-build.sh --test-build가 자동 target compile 검증에만 사용한다.
+        이 설정의 binary는 HIL 또는 양산 장비에 flash하면 안 된다.
+
 config LED_CONTROL_BLUETOOTH_COMPANY_ID
     int "Bluetooth SIG assigned company identifier"
-    range 1 65534
+    range 1 65535
     help
         Bluetooth SIG가 자사에 할당한 Company Identifier를 10진수로 지정한다.
         Gateway의 GATEWAY_BLUETOOTH_COMPANY_ID와 반드시 같은 값이어야 한다.
+        65535는 LED_CONTROL_TEST_BUILD 전용 reserved fixture다.
 
 config DFK_PRODUCT_FAMILY
     int "DFK product family code"
@@ -29,6 +37,14 @@ config LED_CONTROL_PWM_GPIO
 config LED_CONTROL_FACTORY_RESET_GPIO
     int "Factory reset active-low GPIO"
     default 9
+
+config LED_CONTROL_VEHICLE_SENSOR_GPIO
+    int "3.3V Active High microwave sensor GPIO"
+    default 4
+    range 0 27
+    help
+        안전 후보는 GPIO 0, 1, 4, 5, 10~14, 22~24다. PWM과 factory reset,
+        strapping, flash, package 전용 및 USB-Serial-JTAG pin 충돌은 compile 시 거부한다.
 
 config LED_CONTROL_FACTORY_RESET_HOLD_MS
     int "Factory reset hold duration (ms)"
