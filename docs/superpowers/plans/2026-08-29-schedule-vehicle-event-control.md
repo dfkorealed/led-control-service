@@ -626,7 +626,7 @@ git commit -m "feat(api): add vehicle event rule management"
 
 ### Task 9: automation snapshot 발행·ACK·실행 원장 수집
 
-**상태:** 완료(소프트웨어) (2026-08-30). Production MQTT 보안·실패 계약을 strict TDD로 구현했다. Config는 bounded backoff로 무기한 재시도하고 application ACK만 retained deadletter를 사용하며, execution 원장과 immutable ingested ACK outbox는 같은 transaction에 저장한다. 실제 Gateway 규칙 적용과 Raspberry Pi/ESP32-H2 HIL은 후속 Task다.
+**상태:** 완료(소프트웨어, fix round 1) (2026-08-30). Production MQTT 보안·실패 계약을 strict TDD로 구현했다. Config와 application ACK는 bounded backoff 뒤 공통 10회/15분 retained deadletter를 사용하며, execution 원장과 immutable ingested ACK outbox는 같은 transaction에 저장한다. Fix round 1은 execution을 `event.revision`의 immutable config snapshot으로 검증하고 rejected desired 상태의 out-of-order ACK 보존을 추가했다. 실제 Gateway 규칙 적용과 Raspberry Pi/ESP32-H2 HIL은 후속 Task다.
 
 **Files:**
 - Create: `apps/api/src/automation/automation-outbox-publisher.service.ts`
@@ -646,7 +646,7 @@ git commit -m "feat(api): add vehicle event rule management"
 - Capability report consumer는 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`를 subscribe한다. broker가 확인한 mTLS/ACL Gateway identity, topic site/gateway, payload site/gateway, DB의 active claimed Gateway identity가 모두 같을 때만 `VehicleSensorCapabilityService.applyReport`를 호출한다. unauthenticated HTTP/direct route는 만들지 않는다.
 - Automation publisher는 config와 application-ACK를 **서로 다른 claim SQL**로 가져온다. Config predicate는 `dispatchId IS NULL AND applicationAckKey IS NULL AND gatewayId IS NOT NULL AND revision IS NOT NULL`, ACK predicate는 `dispatchId IS NULL AND applicationAckKey IS NOT NULL AND gatewayId IS NOT NULL AND revision IS NULL`이다. 두 query 모두 `publishedAt IS NULL`, `deadLetteredAt IS NULL`, `nextAttemptAt <= now`, lease null/만료 조건과 `FOR UPDATE SKIP LOCKED LIMIT 50`을 사용하고 같은 transaction에서 `lockedBy/lockedAt/leaseExpiresAt=now+30s`를 기록한다.
 - Claim한 config와 ACK는 row의 `topic`과 저장된 JSON `payload`를 생성 시각·revision·hash 변경 없이 `MqttService.publishTopic(..., { timeoutMs: 10_000 })`로 MQTT QoS 1 발행한다. 특히 application ACK는 claim/publish 시 payload나 `reportPayloadHash`를 재계산·재구성하지 않는다. 성공 갱신과 실패 갱신은 `id + lockedBy + live lease + unpublished + non-deadletter` ownership predicate를 다시 확인한다.
-- 실패는 `attempts+1`, 1초부터 최대 60초 exponential backoff와 0~20% jitter를 적용하고 lease를 해제한다. Config는 cloud outage 동안 deadletter 없이 무기한 재시도한다. Application ACK만 10회 또는 생성 후 15분에 `deadLetteredAt/lastError`를 기록하며 row, topic, payload, hash를 삭제·변경하지 않는다. 두 variant 모두 command relation을 조회하거나 command terminal row를 갱신하지 않는다.
+- 실패는 `attempts+1`, 1초부터 최대 60초 exponential backoff와 0~20% jitter를 적용하고 lease를 해제한다. Config와 application ACK 모두 10회 또는 생성 후 15분에 `deadLetteredAt/lastError`를 기록하며 row, topic, payload, hash를 삭제·변경하지 않는다. 두 variant 모두 command relation을 조회하거나 command terminal row를 갱신하지 않는다.
 - Service가 같은 transaction에 저장한 application-ACK를 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`에 발행한다. Identity는 `applicationAckKey=vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`이고 `dispatchId/revision=NULL`이다. Same-node altered payload는 altered hash의 별도 rejected ACK row를 가지며, exact report 재전달은 Task 8 service가 해당 hash row의 최초 ACK payload/hash/`ingestedAt`을 유지한 채 published/deadletter/expired-lease 상태만 즉시 재큐잉한다. `leaseExpiresAt > now`인 row는 active publisher 소유이므로 reset하지 않는다.
 - Publisher scheduler는 single-flight batch만 실행한다. `stopAndDrain()`은 timer를 중지하고 진행 중 publish를 bounded timeout까지 기다리며, batch는 shutdown 시작 뒤 다음 row를 publish하지 않는다. `MqttShutdownCoordinator`는 command/config/application-ACK/scan publisher와 mesh sync/inbound handler를 모두 drain한 뒤 MQTT client를 close한다.
 
@@ -677,7 +677,7 @@ const payloadHash = `sha256:${createHash("sha256").update(stableJson(snapshotWit
 
 - [x] **Step 4: config/application-ACK publisher와 ACK·실행 원장을 구현한다**
 
-위 variant별 claim/lease/publish/retry/deadletter 계약을 `AutomationOutboxPublisherService`에 구현한다. Rejected config ACK는 desiredRevision을 낮추지 않고 `syncStatus=REJECTED`, 정제된 error code를 저장한다. Execution은 unique `(gatewayId,eventId,sequence)`와 canonical payload hash로 dedupe하고 terminal fixture 결과 및 immutable application ACK outbox와 같은 transaction에 저장한다.
+위 variant별 claim/lease/publish/retry/deadletter 계약을 `AutomationOutboxPublisherService`에 구현한다. Rejected config ACK는 desiredRevision을 낮추지 않고 `syncStatus=REJECTED`, 정제된 error code를 저장하며 이후 lower applied ACK는 applied revision만 전진시키고 current rejection을 보존한다. Execution은 unique `(gatewayId,eventId,sequence)`와 canonical payload hash로 dedupe하고, `event.revision`에 해당하는 stored full snapshot으로 source/target을 검증한 뒤 terminal fixture 결과 및 immutable application ACK outbox와 같은 transaction에 저장한다.
 
 - [x] **Step 5: shutdown drain을 연결하고 검증 후 커밋한다**
 

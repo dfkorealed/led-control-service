@@ -104,11 +104,9 @@ describe("AutomationOutboxPublisherService", () => {
     expect(supersedeSql.values).toEqual(expect.arrayContaining([record.id, "automation-worker", NOW]));
   });
 
-  it("retries config indefinitely with capped backoff instead of command deadletter behavior", async () => {
-    const record = configRecord({
-      attempts: 99,
-      createdAt: new Date("2026-08-01T00:00:00.000Z")
-    });
+  it("moves config to retained deadletter on its tenth publish failure", async () => {
+    const record = configRecord({ attempts: 9 });
+    const stored = structuredClone(record);
     const prisma = publishPrisma();
     const mqtt = { publishTopic: jest.fn().mockRejectedValue(new Error("broker unavailable")) };
     const service = new AutomationOutboxPublisherService(prisma as never, mqtt as never, {
@@ -119,15 +117,18 @@ describe("AutomationOutboxPublisherService", () => {
 
     await service.publishClaimed(record as never);
 
-    const retry = prisma.mqttOutbox.updateMany.mock.calls.at(-1)?.[0];
-    expect(retry.data).toMatchObject({
-      attempts: 100,
-      nextAttemptAt: new Date("2026-08-30T02:01:00.000Z"),
+    const deadletter = prisma.mqttOutbox.updateMany.mock.calls.at(-1)?.[0];
+    expect(deadletter.data).toMatchObject({
+      attempts: 10,
+      deadLetteredAt: NOW,
       lastError: "mqtt_publish_failed",
       lockedBy: null,
       leaseExpiresAt: null
     });
-    expect(retry.data).not.toHaveProperty("deadLetteredAt");
+    expect(deadletter.data).not.toHaveProperty("topic");
+    expect(deadletter.data).not.toHaveProperty("payload");
+    expect(deadletter.data).not.toHaveProperty("payloadHash");
+    expect(record).toEqual(stored);
     expect(prisma.commandDispatch).toBeUndefined();
   });
 
@@ -154,6 +155,37 @@ describe("AutomationOutboxPublisherService", () => {
     expect(deadletter.data).not.toHaveProperty("payload");
     expect(deadletter.data).not.toHaveProperty("payloadHash");
     expect(JSON.stringify(deadletter)).not.toContain("private payload detail");
+    expect(prisma.commandDispatch).toBeUndefined();
+  });
+
+  it.each([
+    ["config", () => configRecord({ createdAt: new Date("2026-08-30T01:45:00.000Z") })],
+    ["application ACK", () => ackRecord({ createdAt: new Date("2026-08-30T01:45:00.000Z") })]
+  ])("moves %s to retained deadletter at the 15 minute age boundary", async (_variant, createRecord) => {
+    const record = createRecord();
+    const stored = structuredClone(record);
+    const prisma = publishPrisma();
+    const mqtt = { publishTopic: jest.fn().mockRejectedValue(new Error("offline")) };
+    const service = new AutomationOutboxPublisherService(prisma as never, mqtt as never, {
+      workerId: "automation-worker",
+      random: () => 0,
+      clock: () => NOW
+    });
+
+    await service.publishClaimed(record as never);
+
+    const deadletter = prisma.mqttOutbox.updateMany.mock.calls.at(-1)?.[0];
+    expect(deadletter.data).toMatchObject({
+      attempts: 1,
+      deadLetteredAt: NOW,
+      lastError: "mqtt_publish_failed",
+      lockedBy: null,
+      leaseExpiresAt: null
+    });
+    expect(deadletter.data).not.toHaveProperty("topic");
+    expect(deadletter.data).not.toHaveProperty("payload");
+    expect(deadletter.data).not.toHaveProperty("payloadHash");
+    expect(record).toEqual(stored);
     expect(prisma.commandDispatch).toBeUndefined();
   });
 

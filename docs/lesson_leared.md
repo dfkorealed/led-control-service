@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-30 / 비동기 실행 보고의 검증 기준은 현재 rule이 아니라 applied revision snapshot
+- **발생했던 문제/실수**: Gateway가 이전 revision을 실행한 정상 report를 현재 mutable rule의 source/target으로 검증해, cloud 수정·이동·삭제 직후 execution 원장과 application ACK를 영구 누락했다. Exact desired rejection 뒤 lower applied ACK가 rejection을 지웠고 config retry 정책도 brief와 반대로 무기한이었다.
+- **원인**: Cloud desired state와 Gateway가 실제 실행한 immutable revision을 같은 시점으로 가정했고, out-of-order ACK 전이와 config/application-ACK failure matrix를 양방향 순서·경계로 고정하지 않았다.
+- **해결 및 예방책**: Execution authorization은 `event.revision`의 stored config outbox full snapshot과 canonical hash로 검증하고 live relation은 nullable 감사 FK 연결에만 사용한다. Lower applied ACK는 applied revision만 전진시키며 current rejection을 보존한다. Config와 application ACK 모두 10회 또는 15분에 stored payload를 유지한 retained deadletter로 전환한다.
+- **반복 방지 체크**: Rule target 변경·이동·삭제 뒤 old revision report, rejected-then-lower-applied 순서, config/ACK 각각의 10번째 실패와 정확한 15분 age 경계를 RED/GREEN 및 live PostgreSQL trigger test로 유지한다.
+
 ## 2026-08-30 / MQTT runtime module과 HTTP module 의존성 분리
 - **발생했던 문제/실수**: production `MqttModule`에 automation consumer를 연결하면서 controller까지 가진 `AutomationModule` 전체를 import해 standalone MQTT module compile test가 HTTP session guard 의존성 누락으로 실패했다.
 - **원인**: MQTT background runtime이 필요한 service provider와 HTTP route/controller 조립 경계를 같은 Nest module로 묶었다.

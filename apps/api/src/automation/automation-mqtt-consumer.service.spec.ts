@@ -116,6 +116,26 @@ describe("AutomationMqttConsumerService", () => {
     });
   });
 
+  it("keeps an exact desired rejection when a lower applied revision arrives later", async () => {
+    const harness = createHarness();
+
+    await harness.service.onConfigApplied(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      configAck(5, "rejected", snapshot(5).payloadHash, "config_invalid")
+    );
+    await harness.service.onConfigApplied(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      configAck(4, "applied", snapshot(4).payloadHash)
+    );
+
+    expect(harness.state.configuration).toMatchObject({
+      desiredRevision: 5,
+      appliedRevision: 4,
+      syncStatus: "REJECTED",
+      lastErrorCode: "config_invalid"
+    });
+  });
+
   it("atomically stores one canonical execution, terminal fixture results, and an immutable durable ACK", async () => {
     const harness = createHarness();
     const event = executionEvent();
@@ -153,6 +173,44 @@ describe("AutomationMqttConsumerService", () => {
       publishedAt: null,
       attempts: 0
     });
+  });
+
+  it("ingests a previous revision execution from its immutable snapshot after the current rule targets change", async () => {
+    const harness = createHarness();
+    harness.state.currentVehicleRule = { id: RULE_ID, targetFixtureIds: [FIXTURE_ID_2] };
+
+    await harness.service.onExecution(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      executionEvent({ revision: 4 })
+    );
+
+    expect(harness.state.executions).toEqual([expect.objectContaining({
+      revision: 4,
+      ruleId: RULE_ID,
+      vehicleEventRuleId: RULE_ID
+    })]);
+    expect(harness.state.fixtureResults).toEqual([expect.objectContaining({
+      fixtureSnapshotId: FIXTURE_ID
+    })]);
+    expect(harness.state.applicationAcks).toHaveLength(1);
+  });
+
+  it("ingests a previous revision execution and immutable ACK after its rule is deleted", async () => {
+    const harness = createHarness();
+    harness.state.currentVehicleRule = null;
+
+    await harness.service.onExecution(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      executionEvent({ revision: 4 })
+    );
+
+    expect(harness.state.executions).toEqual([expect.objectContaining({
+      revision: 4,
+      ruleId: RULE_ID,
+      vehicleEventRuleId: null
+    })]);
+    expect(harness.state.fixtureResults).toHaveLength(1);
+    expect(harness.state.applicationAcks).toHaveLength(1);
   });
 
   it("rejects a conflicting replay without changing the original execution or ACK", async () => {
@@ -231,6 +289,7 @@ function createHarness() {
       applicationAckKey: null,
       payload: snapshot(revision)
     })),
+    currentVehicleRule: { id: RULE_ID, targetFixtureIds: [FIXTURE_ID, FIXTURE_ID_2] },
     executions: [],
     fixtureResults: [],
     applicationAcks: []
@@ -260,6 +319,10 @@ function createPrisma(state: State) {
         row.gatewayId === where.gatewayId && row.revision === where.revision &&
         row.payloadHash === where.payloadHash && row.dispatchId === null && row.applicationAckKey === null
       ) ?? null),
+      findMany: jest.fn(async ({ where }: any) => state.configOutboxes.filter((row) =>
+        row.gatewayId === where.gatewayId && row.revision === where.revision &&
+        row.dispatchId === null && row.applicationAckKey === null
+      ).map(({ payloadHash, payload }) => ({ payloadHash, payload }))),
       findUnique: jest.fn(async ({ where }: any) => state.applicationAcks.find((row) =>
         row.applicationAckKey === where.applicationAckKey
       ) ?? null),
@@ -298,10 +361,16 @@ function createPrisma(state: State) {
     lightingSchedule: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findFirst: jest.fn() },
     vehicleEventRule: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-      findFirst: jest.fn(async ({ where }: any) => where.id === RULE_ID && where.siteId === SITE_ID &&
-        where.gatewayId === GATEWAY_ID
-        ? { id: RULE_ID, targets: [{ fixtureId: FIXTURE_ID }, { fixtureId: FIXTURE_ID_2 }] }
-        : null)
+      findFirst: jest.fn(async ({ where }: any) => {
+        if (
+          where.id !== RULE_ID || where.siteId !== SITE_ID || where.gatewayId !== GATEWAY_ID ||
+          !state.currentVehicleRule
+        ) return null;
+        return {
+          id: state.currentVehicleRule.id,
+          targets: state.currentVehicleRule.targetFixtureIds.map((fixtureId) => ({ fixtureId }))
+        };
+      })
     },
     manualOverride: { findFirst: jest.fn() },
     automationExecution: {
@@ -345,7 +414,15 @@ function snapshot(revision: number) {
     revision,
     timeZone: "Asia/Seoul",
     schedules: [],
-    vehicleEventRules: [],
+    vehicleEventRules: [{
+      id: RULE_ID,
+      name: "Vehicle rule",
+      status: "enabled" as const,
+      sourceFixtureIds: [FIXTURE_ID_2],
+      targetFixtureIds: [FIXTURE_ID, FIXTURE_ID_2],
+      action: { dimmingEnabled: true, brightnessPercent: 80 },
+      holdSeconds: 60
+    }],
     generatedAt: `2026-08-30T00:0${revision}:00.000Z`
   };
   return { ...withoutHash, payloadHash: canonicalPayloadHash(withoutHash) };
@@ -424,6 +501,7 @@ interface State {
   failAckCreate: boolean;
   configuration: any;
   configOutboxes: any[];
+  currentVehicleRule: { id: string; targetFixtureIds: string[] } | null;
   executions: any[];
   fixtureResults: any[];
   applicationAcks: any[];

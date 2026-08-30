@@ -36,6 +36,8 @@ type ExecutionSource = {
   allowedFixtureIds: Set<string>;
 };
 
+type StoredAutomationSnapshot = ReturnType<typeof automationSnapshotV1Schema.parse>;
+
 @Injectable()
 export class AutomationMqttConsumerService {
   constructor(
@@ -114,12 +116,13 @@ export class AutomationMqttConsumerService {
 
       if (ack.revision <= configuration.appliedRevision) return;
       const isCurrentDesired = ack.revision === configuration.desiredRevision;
+      const preserveCurrentRejection = !isCurrentDesired && configuration.syncStatus === "REJECTED";
       await tx.gatewayAutomationConfiguration.update({
         where: { gatewayId: scope.gatewayId },
         data: {
           appliedRevision: ack.revision,
-          syncStatus: isCurrentDesired ? "APPLIED" : "PENDING",
-          lastErrorCode: null,
+          syncStatus: preserveCurrentRejection ? "REJECTED" : isCurrentDesired ? "APPLIED" : "PENDING",
+          lastErrorCode: preserveCurrentRejection ? configuration.lastErrorCode : null,
           lastAppliedAt: new Date(ack.appliedAt)
         }
       });
@@ -176,7 +179,9 @@ export class AutomationMqttConsumerService {
       return this.reviveExecutionAck(tx, scope, event, reportPayloadHash);
     }
 
-    const source = await this.resolveExecutionSource(tx, scope, event);
+    const snapshot = await this.loadExecutionSnapshot(tx, scope, event.revision);
+    if (!snapshot) return;
+    const source = await this.resolveExecutionSource(tx, scope, snapshot, event);
     if (!source) return;
     const actionPayload = event.kind === "action_result"
       ? automationExecutionActionResultPayloadV1Schema.parse(event.payload)
@@ -224,21 +229,26 @@ export class AutomationMqttConsumerService {
   private async resolveExecutionSource(
     tx: Prisma.TransactionClient,
     scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
+    snapshot: StoredAutomationSnapshot,
     event: AutomationExecutionEventV1
   ): Promise<ExecutionSource | null> {
     if (event.kind === "telemetry_gap") {
       return emptyExecutionSource();
     }
     if (event.kind === "schedule_started" || event.kind === "schedule_ended") {
-      return this.resolveSchedule(tx, scope, event.ruleId);
+      return this.resolveSnapshotSchedule(tx, scope, snapshot, event.ruleId);
     }
     if (["vehicle_detected", "event_started", "event_extended", "event_ended"].includes(event.kind)) {
-      return this.resolveVehicleRule(tx, scope, event.ruleId);
+      return this.resolveSnapshotVehicleRule(tx, scope, snapshot, event.ruleId);
     }
 
     const payload = automationExecutionActionResultPayloadV1Schema.parse(event.payload);
-    if (payload.sourceType === "schedule") return this.resolveSchedule(tx, scope, payload.sourceId);
-    if (payload.sourceType === "vehicle_event_rule") return this.resolveVehicleRule(tx, scope, payload.sourceId);
+    if (payload.sourceType === "schedule") {
+      return this.resolveSnapshotSchedule(tx, scope, snapshot, payload.sourceId);
+    }
+    if (payload.sourceType === "vehicle_event_rule") {
+      return this.resolveSnapshotVehicleRule(tx, scope, snapshot, payload.sourceId);
+    }
     const manualOverride = await tx.manualOverride.findFirst({
       where: { id: payload.sourceId, siteId: scope.siteId, gatewayId: scope.gatewayId },
       select: { id: true, fixtures: { select: { fixtureId: true } } }
@@ -250,38 +260,72 @@ export class AutomationMqttConsumerService {
     } : null;
   }
 
-  private async resolveSchedule(
+  private async resolveSnapshotSchedule(
     tx: Prisma.TransactionClient,
     scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
+    snapshot: StoredAutomationSnapshot,
     ruleId: string | null
   ): Promise<ExecutionSource | null> {
     if (!ruleId) return null;
+    const snapshotSchedule = snapshot.schedules.find((schedule) => schedule.id === ruleId && schedule.status === "enabled");
+    if (!snapshotSchedule) return null;
     const schedule = await tx.lightingSchedule.findFirst({
       where: { id: ruleId, siteId: scope.siteId, gatewayId: scope.gatewayId },
-      select: { id: true, fixtures: { select: { fixtureId: true } } }
+      select: { id: true }
     });
-    return schedule ? {
+    return {
       ...emptyExecutionSource(),
-      lightingScheduleId: schedule.id,
-      allowedFixtureIds: new Set(schedule.fixtures.map(({ fixtureId }) => fixtureId))
-    } : null;
+      lightingScheduleId: schedule?.id ?? null,
+      allowedFixtureIds: new Set(snapshotSchedule.fixtureIds)
+    };
   }
 
-  private async resolveVehicleRule(
+  private async resolveSnapshotVehicleRule(
     tx: Prisma.TransactionClient,
     scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
+    snapshot: StoredAutomationSnapshot,
     ruleId: string | null
   ): Promise<ExecutionSource | null> {
     if (!ruleId) return null;
+    const snapshotRule = snapshot.vehicleEventRules.find((rule) => rule.id === ruleId && rule.status === "enabled");
+    if (!snapshotRule) return null;
     const rule = await tx.vehicleEventRule.findFirst({
       where: { id: ruleId, siteId: scope.siteId, gatewayId: scope.gatewayId },
-      select: { id: true, targets: { select: { fixtureId: true } } }
+      select: { id: true }
     });
-    return rule ? {
+    return {
       ...emptyExecutionSource(),
-      vehicleEventRuleId: rule.id,
-      allowedFixtureIds: new Set(rule.targets.map(({ fixtureId }) => fixtureId))
-    } : null;
+      vehicleEventRuleId: rule?.id ?? null,
+      allowedFixtureIds: new Set(snapshotRule.targetFixtureIds)
+    };
+  }
+
+  private async loadExecutionSnapshot(
+    tx: Prisma.TransactionClient,
+    scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
+    revision: number
+  ): Promise<StoredAutomationSnapshot | null> {
+    const rows = await tx.mqttOutbox.findMany({
+      where: {
+        gatewayId: scope.gatewayId,
+        revision,
+        dispatchId: null,
+        applicationAckKey: null
+      },
+      select: { payloadHash: true, payload: true }
+    });
+    const snapshots = rows.flatMap((row) => {
+      const parsed = automationSnapshotV1Schema.safeParse(row.payload);
+      if (!parsed.success) return [];
+      const { payloadHash, ...withoutHash } = parsed.data;
+      if (
+        row.payloadHash !== payloadHash || canonicalPayloadHash(withoutHash) !== payloadHash ||
+        parsed.data.siteId !== scope.siteId || parsed.data.gatewayId !== scope.gatewayId ||
+        parsed.data.revision !== revision
+      ) return [];
+      return [parsed.data];
+    });
+    return snapshots.length === 1 ? snapshots[0] : null;
   }
 
   private async createExecutionAck(

@@ -6,8 +6,8 @@ import { PrismaService } from "../prisma/prisma.service";
 
 const LEASE_MS = 30_000;
 const MQTT_PUBLISH_TIMEOUT_MS = 10_000;
-const ACK_MAX_ATTEMPTS = 10;
-const ACK_MAX_AGE_MS = 15 * 60_000;
+const MAX_DELIVERY_ATTEMPTS = 10;
+const MAX_DELIVERY_AGE_MS = 15 * 60_000;
 const MAX_BACKOFF_MS = 60_000;
 const DEFAULT_DRAIN_TIMEOUT_MS = 15_000;
 
@@ -302,9 +302,8 @@ export class AutomationOutboxPublisherService implements OnModuleInit {
 
   private async recordFailure(record: AutomationOutboxRecord, variant: OutboxVariant, failedAt: Date) {
     const attempts = record.attempts + 1;
-    const exhausted = variant === "application_ack" && (
-      attempts >= ACK_MAX_ATTEMPTS || failedAt.getTime() - record.createdAt.getTime() >= ACK_MAX_AGE_MS
-    );
+    const exhausted = attempts >= MAX_DELIVERY_ATTEMPTS
+      || failedAt.getTime() - record.createdAt.getTime() >= MAX_DELIVERY_AGE_MS;
     if (exhausted) {
       await this.prisma.mqttOutbox.updateMany({
         where: {

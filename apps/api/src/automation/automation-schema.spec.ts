@@ -50,6 +50,13 @@ const automationMqttDeliveryMigrationPath = join(
 const automationMqttDeliveryMigration = existsSync(automationMqttDeliveryMigrationPath)
   ? readFileSync(automationMqttDeliveryMigrationPath, "utf8")
   : "";
+const snapshotBackedExecutionMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260902_snapshot_backed_automation_execution/migration.sql"
+);
+const snapshotBackedExecutionMigration = existsSync(snapshotBackedExecutionMigrationPath)
+  ? readFileSync(snapshotBackedExecutionMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -186,6 +193,18 @@ describe("automation Prisma schema contract", () => {
     );
     expect(automationMqttDeliveryMigration).toContain('"supersededAt" IS NULL');
     expect(automationMqttDeliveryMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
+  });
+
+  it("allows deleted execution sources only when the immutable revision snapshot proves their scope", () => {
+    expect(snapshotBackedExecutionMigration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(snapshotBackedExecutionMigration).toContain(
+      'CREATE OR REPLACE FUNCTION "validate_automation_execution_source"()'
+    );
+    expect(snapshotBackedExecutionMigration).toContain('FROM "MqttOutbox" AS outbox');
+    expect(snapshotBackedExecutionMigration).toContain('outbox."revision" = NEW."revision"');
+    expect(snapshotBackedExecutionMigration).toContain("jsonb_array_elements");
+    expect(snapshotBackedExecutionMigration).toContain("execution source is absent from immutable snapshot");
+    expect(snapshotBackedExecutionMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
   it("indexes each schedule's latest execution in list order through a forward migration", () => {
@@ -1185,6 +1204,72 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     `)).toBe("t");
   });
 
+  it("accepts a new execution for a deleted source only through its immutable config revision", () => {
+    executeSql(`
+      BEGIN;
+      ${vehicleRuleInsert("automation-schema-snapshot-history-vehicle")}
+      ${vehicleSourceInsert("automation-schema-snapshot-history-vehicle", "automation-schema-fixture-a")}
+      ${vehicleTargetInsert("automation-schema-snapshot-history-vehicle", "automation-schema-fixture-a")}
+      INSERT INTO "MqttOutbox" (
+        "id", "dispatchId", "gatewayId", "revision", "payloadHash", "topic", "payload",
+        "attempts", "nextAttemptAt", "createdAt", "updatedAt"
+      ) VALUES (
+        'automation-schema-snapshot-history-outbox', NULL, 'automation-schema-gateway-a', 7,
+        '${validPayloadHash}', 'sites/automation-schema-site-a/gateways/automation-schema-gateway-a/automation/config',
+        jsonb_build_object(
+          'schemaVersion', 1,
+          'siteId', 'automation-schema-site-a',
+          'gatewayId', 'automation-schema-gateway-a',
+          'revision', 7,
+          'schedules', '[]'::jsonb,
+          'vehicleEventRules', jsonb_build_array(jsonb_build_object(
+            'id', 'automation-schema-snapshot-history-vehicle',
+            'status', 'enabled',
+            'targetFixtureIds', jsonb_build_array('automation-schema-fixture-a')
+          )),
+          'payloadHash', '${validPayloadHash}'
+        ),
+        0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      DELETE FROM "VehicleEventRule" WHERE "id" = 'automation-schema-snapshot-history-vehicle';
+      INSERT INTO "AutomationExecution" (
+        "id", "siteId", "gatewayId", "eventId", "sequence", "revision", "ruleId",
+        "lightingScheduleId", "vehicleEventRuleId", "manualOverrideId", "kind", "occurredAt",
+        "payload", "payloadHash", "createdAt"
+      ) VALUES (
+        'automation-schema-snapshot-history-execution', 'automation-schema-site-a',
+        'automation-schema-gateway-a', 'automation-schema-snapshot-history-event', 7, 7,
+        'automation-schema-snapshot-history-vehicle', NULL, NULL, NULL, 'action_result',
+        CURRENT_TIMESTAMP,
+        jsonb_build_object(
+          'sourceType', 'vehicle_event_rule',
+          'sourceId', 'automation-schema-snapshot-history-vehicle',
+          'results', '[]'::jsonb
+        ),
+        '${validPayloadHash}', CURRENT_TIMESTAMP
+      );
+      COMMIT;
+    `);
+
+    expect(querySql(`
+      SELECT "ruleId" || ':' || COALESCE("vehicleEventRuleId", 'deleted')
+      FROM "AutomationExecution"
+      WHERE "id" = 'automation-schema-snapshot-history-execution';
+    `)).toBe("automation-schema-snapshot-history-vehicle:deleted");
+
+    expectSqlFailure(`
+      INSERT INTO "AutomationExecution" (
+        "id", "siteId", "gatewayId", "eventId", "sequence", "revision", "ruleId",
+        "kind", "occurredAt", "payload", "payloadHash", "createdAt"
+      ) VALUES (
+        'automation-schema-unproven-history-execution', 'automation-schema-site-a',
+        'automation-schema-gateway-a', 'automation-schema-unproven-history-event', 8, 8,
+        'automation-schema-missing-rule', 'event_started', CURRENT_TIMESTAMP, '{}'::jsonb,
+        '${validPayloadHash}', CURRENT_TIMESTAMP
+      );
+    `, "execution source is absent from immutable snapshot");
+  });
+
   it("blocks Gateway Site reassignment for automation rows, history, and unpublished config outbox", () => {
     executeSql(configurationInsert("automation-schema-gateway-config", "PENDING", 0, 0, "NULL", "NULL", "NULL"));
     expectSqlFailure(
@@ -1934,6 +2019,13 @@ function executionInsert(options: {
   manualOverrideId?: string;
 }) {
   const gatewayId = options.gatewayId ?? "automation-schema-gateway-a";
+  const payload = options.kind === "action_result" && options.manualOverrideId
+    ? `'${JSON.stringify({
+        sourceType: "manual_override",
+        sourceId: options.manualOverrideId,
+        results: []
+      })}'::jsonb`
+    : "'{}'::jsonb";
   return `
     INSERT INTO "AutomationExecution" (
       "id", "siteId", "gatewayId", "eventId", "sequence", "revision", "ruleId",
@@ -1942,7 +2034,7 @@ function executionInsert(options: {
       '${options.id}', 'automation-schema-site-a', '${gatewayId}', '${options.eventId}', 1, 1,
       ${sqlNullable(options.ruleId)}, ${sqlNullable(options.lightingScheduleId)},
       ${sqlNullable(options.vehicleEventRuleId)}, ${sqlNullable(options.manualOverrideId)},
-      '${options.kind}', CURRENT_TIMESTAMP, '{}'::jsonb, CURRENT_TIMESTAMP
+      '${options.kind}', CURRENT_TIMESTAMP, ${payload}, CURRENT_TIMESTAMP
     );
   `;
 }
