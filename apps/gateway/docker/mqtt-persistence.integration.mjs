@@ -144,17 +144,25 @@ test("Mosquitto rejects application ACK publishes from a Gateway certificate", a
 
     const base = `sites/site-1/gateways/${gatewayId}/acks`;
     const automationAckTopic = `${base}/automation/execution-ingested`;
+    const capabilityAckTopic = `${base}/automation/vehicle-sensor-capability-ingested`;
+    const capabilityReportTopic = `sites/site-1/gateways/${gatewayId}/events/automation/vehicle-sensor-capability`;
     await assert.doesNotReject(publish(gateway, `${base}/acceptance`, "{}"));
     await assert.doesNotReject(publish(gateway, `${base}/device-status`, "{}"));
     await assert.doesNotReject(subscribe(gateway, automationAckTopic));
     const receivedAutomationAck = waitForMessage(gateway, automationAckTopic);
     await publish(api, automationAckTopic, JSON.stringify({ status: "ingested" }));
     await assert.doesNotReject(receivedAutomationAck);
+    await assert.doesNotReject(publish(gateway, capabilityReportTopic, "{}"));
+    await assert.doesNotReject(subscribe(gateway, capabilityAckTopic));
+    const receivedCapabilityAck = waitForMessage(gateway, capabilityAckTopic);
+    await publish(api, capabilityAckTopic, JSON.stringify({ status: "applied" }));
+    await assert.doesNotReject(receivedCapabilityAck);
     await assert.rejects(publish(gateway, `${base}/state-ingested`, "{}"), /not authorized/i);
     await assert.rejects(
       publish(gateway, automationAckTopic, "{}"),
       /not authorized/i
     );
+    await assert.rejects(publish(gateway, capabilityAckTopic, "{}"), /not authorized/i);
     await assert.rejects(
       publish(gateway, `${base}/provisioning/scan-terminal-ingested`, "{}"),
       /not authorized/i

@@ -215,6 +215,93 @@ it("correlates concurrent subscription statuses by requested group address even 
   });
 });
 
+it("binds present Sensor Server and vendor vehicle event models and confirms Sensor publication", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
+
+  await waitForCall(transport, "AddAppKey");
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0])
+  });
+  await waitForCallCount(transport, "DevKeySend", 1);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([
+      0x02, 0x00,
+      0xe5, 0x02, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x01, 0x01,
+      0x00, 0x11,
+      0xe5, 0x02, 0x00, 0x00
+    ])
+  });
+  await waitForCallCount(transport, "DevKeySend", 2);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, 0x00, 0x11])
+  });
+  await waitForCallCount(transport, "DevKeySend", 3);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([0x80, 0x19, 0, 0x01, 0x12, 0x01, 0, 0, 0, 5, 0x86, 0, 0x00, 0x11])
+  });
+  await waitForCallCount(transport, "DevKeySend", 4);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, 0xe5, 0x02, 0x00, 0x00])
+  });
+  await waitForCallCount(transport, "DevKeySend", 5);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([
+      0x80, 0x19, 0x00, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
+      0xe5, 0x02, 0x00, 0x00
+    ])
+  });
+
+  await expect(configure).resolves.toEqual({
+    sensorServerBound: true,
+    vendorVehicleEventModelBound: true
+  });
+  expect(transport.calls.filter(({ method }) => method === "DevKeySend").map(({ args }) => args[5])).toEqual([
+    [0x80, 0x08, 0x00],
+    [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0x00, 0x11],
+    [0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x86, 0x00, 0x00, 0x11],
+    [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0xe5, 0x02, 0x00, 0x00],
+    [0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0xe5, 0x02, 0x00, 0x00]
+  ]);
+});
+
+it("reports absent vehicle sensor models as unsupported without issuing model configuration", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", { responseTimeoutMs: 100 });
+  const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
+
+  await waitForCall(transport, "AddAppKey");
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0])
+  });
+  await waitForCallCount(transport, "DevKeySend", 1);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([
+      0x02, 0x00,
+      0xe5, 0x02, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00
+    ])
+  });
+
+  await expect(configure).resolves.toEqual({
+    sensorServerBound: false,
+    vendorVehicleEventModelBound: false
+  });
+  expect(transport.calls.filter(({ method }) => method === "DevKeySend")).toHaveLength(1);
+});
+
 async function waitForCall(transport: FakeTransport, method: string) {
   await expect.poll(() => transport.calls.some((call) => call.method === method)).toBe(true);
 }

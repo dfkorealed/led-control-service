@@ -8,6 +8,7 @@ import {
 import { StubProvisioningAdapter, StubProvisioningScannerAdapter } from "../test/stub-adapters";
 import { AutomationRuntimeError } from "./automation/automation-runtime";
 import { automationSnapshot } from "./automation/automation-test-fixtures";
+import { configuredVehicleSensorSourceFixtureIds } from "./gateway";
 
 describe("gateway provisioning", () => {
   it("creates discovered node events from provisioning scan commands", async () => {
@@ -130,6 +131,30 @@ describe("gateway provisioning", () => {
 
     expect(publish).toHaveBeenCalledTimes(1);
     expect(publish.mock.calls[0][1]).toMatchObject({ acceptedNodeCount: 0 });
+  });
+});
+
+describe("configuredVehicleSensorSourceFixtureIds", () => {
+  it("returns unique sources from enabled vehicle rules only", () => {
+    const snapshot = automationSnapshot(4);
+    const rule = {
+      id: "00000000-0000-4000-8000-000000000098",
+      name: "entrance vehicle sensor",
+      status: "enabled" as const,
+      sourceFixtureIds: ["source-b", "source-a"],
+      targetFixtureIds: ["target-a"],
+      action: { dimmingEnabled: true, brightnessPercent: 80 },
+      holdSeconds: 60
+    };
+    snapshot.vehicleEventRules = [rule, {
+      ...rule,
+      id: "00000000-0000-4000-8000-000000000099",
+      sourceFixtureIds: ["source-a"],
+      status: "disabled"
+    }];
+
+    expect(configuredVehicleSensorSourceFixtureIds(snapshot)).toEqual(["source-a", "source-b"]);
+    expect(configuredVehicleSensorSourceFixtureIds(null)).toEqual([]);
   });
 });
 

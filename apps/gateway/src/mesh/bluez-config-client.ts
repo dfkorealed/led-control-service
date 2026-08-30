@@ -13,8 +13,14 @@ import {
   parseModelAppStatus,
   parseModelSubscriptionStatus,
   parseModelPublicationStatus,
+  parsePrimaryElementCompositionModels,
   startsWithOpcode
 } from "./bluez-config-codec";
+import {
+  BLUETOOTH_MESH_MODELS,
+  LED_CONTROL_COMPANY_ID,
+  VEHICLE_SENSOR_VENDOR_MODEL
+} from "./bluez-mesh-model-config";
 
 const BLUEZ_SERVICE = "org.bluez.mesh";
 const NODE_INTERFACE = "org.bluez.mesh.Node1";
@@ -52,19 +58,7 @@ export class BluezConfigClient {
 
   async configureNode(input: { unicast: number; elementCount: number }): Promise<NodeComposition> {
     await this.ensureLocalAppKey();
-    await this.sendAndWait(
-      "AddAppKey",
-      [BLUEZ_APPLICATION_PATHS.element, input.unicast, APP_KEY_INDEX, NET_KEY_INDEX, false],
-      CONFIG_OPCODES.appKeyStatus,
-      (data) => {
-        const status = parseAppKeyStatus(data, { allowAlreadyStored: true });
-        if (status.netKeyIndex !== NET_KEY_INDEX || status.appKeyIndex !== APP_KEY_INDEX) {
-          throw new Error("Config AppKey Status does not match the request");
-        }
-        return status;
-      },
-      input.unicast
-    );
+    await this.ensureRemoteAppKey(input.unicast);
     const composition = await this.sendDevKeyAndWait(
       input.unicast,
       encodeCompositionDataGet(0),
@@ -115,6 +109,97 @@ export class BluezConfigClient {
     };
   }
 
+  async configureVehicleSensorModels(input: { unicast: number; elementCount: number }) {
+    await this.ensureLocalAppKey();
+    await this.ensureRemoteAppKey(input.unicast);
+    const composition = await this.sendDevKeyAndWait(
+      input.unicast,
+      encodeCompositionDataGet(0),
+      CONFIG_OPCODES.compositionDataStatus,
+      parseCompositionDataStatus
+    );
+    if (composition.page !== 0) throw new Error("Vehicle sensor capability requires Composition Page 0");
+    const models = parsePrimaryElementCompositionModels(composition.data);
+    const hasSensorServer = models.sigModelIds.includes(BLUETOOTH_MESH_MODELS.sensorServer);
+    const hasVendorServer = models.vendorModels.some(({ companyId, modelId }) =>
+      companyId === LED_CONTROL_COMPANY_ID && modelId === VEHICLE_SENSOR_VENDOR_MODEL.serverModelId
+    );
+
+    if (hasSensorServer) {
+      const binding = await this.sendDevKeyAndWait(
+        input.unicast,
+        encodeModelAppBind(input.unicast, APP_KEY_INDEX, BLUETOOTH_MESH_MODELS.sensorServer),
+        CONFIG_OPCODES.modelAppStatus,
+        parseModelAppStatus
+      );
+      if (binding.elementAddress !== input.unicast || binding.appKeyIndex !== APP_KEY_INDEX ||
+        binding.modelId !== BLUETOOTH_MESH_MODELS.sensorServer || "companyId" in binding) {
+        throw new Error("Vehicle Sensor Server App binding does not match the request");
+      }
+      const publication = await this.sendDevKeyAndWait(
+        input.unicast,
+        encodeModelPublicationSet({
+          elementAddress: input.unicast,
+          publishAddress: PROVISIONER_ADDRESS,
+          appKeyIndex: APP_KEY_INDEX,
+          ttl: 5,
+          modelId: BLUETOOTH_MESH_MODELS.sensorServer,
+          period: STATUS_PUBLICATION_PERIOD
+        }),
+        CONFIG_OPCODES.modelPublicationStatus,
+        parseModelPublicationStatus
+      );
+      if (publication.elementAddress !== input.unicast || publication.publishAddress !== PROVISIONER_ADDRESS ||
+        publication.appKeyIndex !== APP_KEY_INDEX || publication.ttl !== 5 ||
+        publication.period !== STATUS_PUBLICATION_PERIOD || publication.modelId !== BLUETOOTH_MESH_MODELS.sensorServer ||
+        "companyId" in publication) {
+        throw new Error("Vehicle Sensor Server publication does not match the request");
+      }
+    }
+
+    if (hasVendorServer) {
+      const binding = await this.sendDevKeyAndWait(
+        input.unicast,
+        encodeModelAppBind(
+          input.unicast,
+          APP_KEY_INDEX,
+          VEHICLE_SENSOR_VENDOR_MODEL.serverModelId,
+          LED_CONTROL_COMPANY_ID
+        ),
+        CONFIG_OPCODES.modelAppStatus,
+        parseModelAppStatus
+      );
+      if (binding.elementAddress !== input.unicast || binding.appKeyIndex !== APP_KEY_INDEX ||
+        binding.modelId !== VEHICLE_SENSOR_VENDOR_MODEL.serverModelId ||
+        !("companyId" in binding) || binding.companyId !== LED_CONTROL_COMPANY_ID) {
+        throw new Error("Vehicle sensor vendor model App binding does not match the request");
+      }
+      const publication = await this.sendDevKeyAndWait(
+        input.unicast,
+        encodeModelPublicationSet({
+          elementAddress: input.unicast,
+          publishAddress: PROVISIONER_ADDRESS,
+          appKeyIndex: APP_KEY_INDEX,
+          ttl: 5,
+          modelId: VEHICLE_SENSOR_VENDOR_MODEL.serverModelId,
+          companyId: LED_CONTROL_COMPANY_ID
+        }),
+        CONFIG_OPCODES.modelPublicationStatus,
+        parseModelPublicationStatus
+      );
+      if (publication.elementAddress !== input.unicast || publication.publishAddress !== PROVISIONER_ADDRESS ||
+        publication.appKeyIndex !== APP_KEY_INDEX || publication.ttl !== 5 || publication.period !== 0 ||
+        publication.modelId !== VEHICLE_SENSOR_VENDOR_MODEL.serverModelId || !("companyId" in publication) ||
+        publication.companyId !== LED_CONTROL_COMPANY_ID) {
+        throw new Error("Vehicle sensor vendor model publication does not match the request");
+      }
+    }
+    return {
+      sensorServerBound: hasSensorServer,
+      vendorVehicleEventModelBound: hasVendorServer
+    };
+  }
+
   async addModelSubscription(input: { unicast: number; groupAddress: number; modelId?: number }) {
     const modelId = input.modelId ?? LIGHT_LIGHTNESS_SERVER_MODEL_ID;
     const status = await this.sendDevKeyAndWait(
@@ -159,6 +244,22 @@ export class BluezConfigClient {
     } catch (error) {
       if (!errorChainIncludes(error, "AlreadyExists")) throw error;
     }
+  }
+
+  private ensureRemoteAppKey(destination: number) {
+    return this.sendAndWait(
+      "AddAppKey",
+      [BLUEZ_APPLICATION_PATHS.element, destination, APP_KEY_INDEX, NET_KEY_INDEX, false],
+      CONFIG_OPCODES.appKeyStatus,
+      (data) => {
+        const status = parseAppKeyStatus(data, { allowAlreadyStored: true });
+        if (status.netKeyIndex !== NET_KEY_INDEX || status.appKeyIndex !== APP_KEY_INDEX) {
+          throw new Error("Config AppKey Status does not match the request");
+        }
+        return status;
+      },
+      destination
+    );
   }
 
   private sendDevKeyAndWait<T>(

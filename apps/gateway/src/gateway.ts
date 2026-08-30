@@ -1,4 +1,5 @@
 import type {
+  AutomationSnapshotV1,
   AutomationConfigAppliedV1,
   IdentifyDevicePayload,
   MeshGroupSubscriptionResultPayload,
@@ -43,6 +44,13 @@ export interface BleMeshAdapter {
   resyncFixtureStates(signal?: AbortSignal): Promise<BleMeshResyncReport>;
   resyncLightingFixtures(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshResyncReport>;
   syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload, appliedMembers?: MeshGroupSubscriptionSyncPayload["desiredMembers"]): Promise<MeshGroupSubscriptionResultPayload>;
+}
+
+export function configuredVehicleSensorSourceFixtureIds(snapshot: AutomationSnapshotV1 | null) {
+  if (!snapshot) return [];
+  return [...new Set(snapshot.vehicleEventRules
+    .filter(({ status }) => status === "enabled")
+    .flatMap(({ sourceFixtureIds }) => sourceFixtureIds))].sort();
 }
 
 export interface BleMeshLightingObservation {

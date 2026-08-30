@@ -29,11 +29,19 @@ describe("createProductionAdapters", () => {
       identify: vi.fn(),
       provision: vi.fn()
     };
+    const vehicleSensors = {
+      listConfirmedSources: vi.fn(async () => []),
+      resolveByFixtureId: vi.fn(async () => null),
+      resolveBySourceUnicast: vi.fn(async () => null),
+      configureSource: vi.fn(),
+      send: vi.fn(async () => undefined),
+      onMessage: vi.fn(() => () => undefined)
+    };
     const result = await createProductionAdapters(
       { GATEWAY_ADAPTER: "bluez" },
-      { createBluezAdapter: async () => adapter }
+      { createBluezAdapter: async () => Object.assign(adapter, { vehicleSensors }) }
     );
-    expect(result).toEqual({ dimming: adapter, scanner: adapter, provisioning: adapter });
+    expect(result).toEqual({ dimming: adapter, scanner: adapter, provisioning: adapter, vehicleSensors });
   });
 
   it("keeps stub adapter construction out of the gateway entrypoint", () => {

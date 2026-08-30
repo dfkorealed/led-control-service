@@ -10,17 +10,20 @@ import { createNativeSystemBus, BluezTransport } from "../mesh/bluez-transport";
 import { MeshAddressStore } from "../mesh/mesh-address-store";
 import { MeshIdentityStore } from "../mesh/mesh-identity-store";
 import { MeshTransactionStore } from "../mesh/mesh-transaction-store";
+import { BluezVehicleSensorMeshPort, type VehicleSensorMeshPort } from "../mesh/vehicle-sensor-client";
 
 export interface GatewayAdapters {
   dimming: BleMeshAdapter;
   scanner: ProvisioningScannerAdapter;
   provisioning: ProvisioningAdapter;
+  vehicleSensors: VehicleSensorMeshPort;
   healthProbes?: ApplianceHealthProbes;
 }
 
 interface AdapterFactoryDependencies {
   createBluezAdapter?: () => Promise<BleMeshAdapter & ProvisioningScannerAdapter & ProvisioningAdapter & {
     healthProbes?: ApplianceHealthProbes;
+    vehicleSensors: VehicleSensorMeshPort;
   }>;
 }
 
@@ -33,7 +36,13 @@ export async function createProductionAdapters(
   }
 
   const adapter = await (dependencies.createBluezAdapter ?? (() => createBluezAdapter(env)))();
-  return { dimming: adapter, scanner: adapter, provisioning: adapter, healthProbes: adapter.healthProbes };
+  return {
+    dimming: adapter,
+    scanner: adapter,
+    provisioning: adapter,
+    vehicleSensors: adapter.vehicleSensors,
+    ...(adapter.healthProbes ? { healthProbes: adapter.healthProbes } : {})
+  };
 }
 
 async function createBluezAdapter(env: NodeJS.ProcessEnv) {
@@ -58,6 +67,13 @@ async function createBluezAdapter(env: NodeJS.ProcessEnv) {
   );
   await adapter.start();
   return Object.assign(adapter, {
+    vehicleSensors: new BluezVehicleSensorMeshPort({
+      transport,
+      application,
+      provisioner,
+      addressStore,
+      createConfigClient: (nodePath) => new BluezConfigClient(transport, application, nodePath)
+    }),
     healthProbes: createBluezHealthProbes(transport, provisioner, addressStore)
   });
 }

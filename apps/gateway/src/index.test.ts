@@ -851,7 +851,8 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/state-ingested",
-        "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested"
+        "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested",
+        "sites/site-27/gateways/gateway-27/acks/automation/vehicle-sensor-capability-ingested"
       ],
       { qos: 1 },
       expect.any(Function)

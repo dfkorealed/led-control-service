@@ -16,14 +16,16 @@ export function encodeCompositionDataGet(page = 0) {
   return Uint8Array.from([...CONFIG_OPCODES.compositionDataGet, page]);
 }
 
-export function encodeModelAppBind(elementAddress: number, appKeyIndex: number, modelId: number) {
+export function encodeModelAppBind(elementAddress: number, appKeyIndex: number, modelId: number, companyId?: number) {
   assertUnicast(elementAddress);
   assertKeyIndex(appKeyIndex);
   assertUint16(modelId, "model id");
+  if (companyId !== undefined) assertUint16(companyId, "company id");
   return Uint8Array.from([
     ...CONFIG_OPCODES.modelAppBind,
     ...uint16Le(elementAddress),
     ...uint16Le(appKeyIndex),
+    ...(companyId === undefined ? [] : uint16Le(companyId)),
     ...uint16Le(modelId)
   ]);
 }
@@ -34,6 +36,7 @@ export function encodeModelPublicationSet(input: {
   appKeyIndex: number;
   ttl: number;
   modelId: number;
+  companyId?: number;
   period?: number;
   retransmit?: number;
   friendshipCredential?: boolean;
@@ -43,6 +46,7 @@ export function encodeModelPublicationSet(input: {
   assertKeyIndex(input.appKeyIndex);
   assertByte(input.ttl, "ttl");
   assertUint16(input.modelId, "model id");
+  if (input.companyId !== undefined) assertUint16(input.companyId, "company id");
   const appKeyAndCredential = input.appKeyIndex | (input.friendshipCredential ? 0x1000 : 0);
   return Uint8Array.from([
     ...CONFIG_OPCODES.modelPublicationSet,
@@ -52,6 +56,7 @@ export function encodeModelPublicationSet(input: {
     input.ttl,
     input.period ?? 0,
     input.retransmit ?? 0,
+    ...(input.companyId === undefined ? [] : uint16Le(input.companyId)),
     ...uint16Le(input.modelId)
   ]);
 }
@@ -108,28 +113,58 @@ export function parseAppKeyStatus(data: Uint8Array, options: { allowAlreadyStore
 
 export function parseModelAppStatus(data: Uint8Array) {
   const offset = expectOpcode(data, CONFIG_OPCODES.modelAppStatus, 9);
+  if (data.length !== 9 && data.length !== 11) throw new Error("Malformed Bluetooth Mesh Config status");
   assertSuccess(data[offset]);
-  return {
+  const base = {
     elementAddress: readUint16Le(data, offset + 1),
-    appKeyIndex: readUint16Le(data, offset + 3) & 0x0fff,
-    modelId: readUint16Le(data, offset + 5)
+    appKeyIndex: readUint16Le(data, offset + 3) & 0x0fff
   };
+  return data.length === 9
+    ? { ...base, modelId: readUint16Le(data, offset + 5) }
+    : { ...base, companyId: readUint16Le(data, offset + 5), modelId: readUint16Le(data, offset + 7) };
 }
 
 export function parseModelPublicationStatus(data: Uint8Array) {
   const offset = expectOpcode(data, CONFIG_OPCODES.modelPublicationStatus, 14);
+  if (data.length !== 14 && data.length !== 16) throw new Error("Malformed Bluetooth Mesh Config status");
   assertSuccess(data[offset]);
   const appKeyAndCredential = readUint16Le(data, offset + 5);
-  return {
+  const base = {
     elementAddress: readUint16Le(data, offset + 1),
     publishAddress: readUint16Le(data, offset + 3),
     appKeyIndex: appKeyAndCredential & 0x0fff,
     friendshipCredential: Boolean(appKeyAndCredential & 0x1000),
     ttl: data[offset + 7],
     period: data[offset + 8],
-    retransmit: data[offset + 9],
-    modelId: readUint16Le(data, offset + 10)
+    retransmit: data[offset + 9]
   };
+  return data.length === 14
+    ? { ...base, modelId: readUint16Le(data, offset + 10) }
+    : { ...base, companyId: readUint16Le(data, offset + 10), modelId: readUint16Le(data, offset + 12) };
+}
+
+export function parsePrimaryElementCompositionModels(data: Uint8Array) {
+  if (data.length < 14) throw new Error("Malformed Bluetooth Mesh Composition Data");
+  let offset = 10;
+  let primary: { sigModelIds: number[]; vendorModels: Array<{ companyId: number; modelId: number }> } | undefined;
+  while (offset < data.length) {
+    if (offset + 4 > data.length) throw new Error("Malformed Bluetooth Mesh Composition Data");
+    const sigCount = data[offset + 2]!;
+    const vendorCount = data[offset + 3]!;
+    offset += 4;
+    const modelsLength = sigCount * 2 + vendorCount * 4;
+    if (offset + modelsLength > data.length) throw new Error("Malformed Bluetooth Mesh Composition Data");
+    const sigModelIds = Array.from({ length: sigCount }, (_, index) => readUint16Le(data, offset + index * 2));
+    const vendorOffset = offset + sigCount * 2;
+    const vendorModels = Array.from({ length: vendorCount }, (_, index) => ({
+      companyId: readUint16Le(data, vendorOffset + index * 4),
+      modelId: readUint16Le(data, vendorOffset + index * 4 + 2)
+    }));
+    primary ??= { sigModelIds, vendorModels };
+    offset += modelsLength;
+  }
+  if (!primary || offset !== data.length) throw new Error("Malformed Bluetooth Mesh Composition Data");
+  return primary;
 }
 
 export function parseModelSubscriptionStatus(data: Uint8Array) {

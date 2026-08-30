@@ -263,3 +263,9 @@
 - **원인**: 불확실한 상태를 제외하는 fail-safe가 `manual > event > schedule` 우선순위를 깨뜨렸고, bounded queue 자체를 recovery source-of-truth로 취급해 durable pending ID와 pass 실패 뒤 재삽입 경로를 연결하지 않았다. Broker remaining TTL이 증명하는 범위를 broker 체류 이후로 한정하지 않고 pre-broker delay까지 추정했다.
 - **해결 및 예방책**: Trust 회복 전에는 recovered manual의 관측된 현재 출력을 manual 후보로 유지한다. Scheduler의 durable pending fixture snapshot을 queryable source로 두고, full/targeted pass마다 아직 관측되지 않은 ID를 회전된 capacity window로 다시 넣는다. Full error와 incomplete report도 capped backoff로 재예약하며 restart에서 source를 targeted worker에 seed한다. Untrusted Gateway는 legacy timed wire를 `legacy_timing_unverifiable` terminal로 거부하고 RF를 실행하지 않는다. 배포는 새 API publisher 가동, old publisher 종료, broker 최대 expiry 10초 drain, Gateway 순서로 고정한다.
 - **반복 방지 체크**: 복구 테스트에는 active event/schedule RF 0회, 4,098개 terminal commit failure에서 첫 full pass 실패 후 두 번째 targeted batch의 overflow 관측과 fence 해제, 영구 offline fence 유지 및 다른 fixture의 starvation 방지, full `timedOut`/`failed` rerun, shutdown timer 취소, old API 1시간/30일 untrusted RF 0회, trusted legacy와 untrusted new-generation 성공 경로를 함께 넣는다.
+
+## 2026-08-30 / 입력 dedupe도 상태 파일 소실을 첫 실행과 구분한다
+- **발생했던 문제/실수**: 차량 event dedupe 파일이 처리 후 삭제돼도 다음 시작에서 빈 최초 상태로 해석하면 이미 적용한 vendor event가 다시 runtime에 들어갈 수 있었다.
+- **원인**: 원자 rewrite와 정상 restart만 검증하고, 한 번 생성된 durable 파일의 소실을 first run과 구분하는 marker를 두지 않았다.
+- **해결 및 예방책**: dedupe와 capability journal에 별도 manifest를 먼저 원자 저장한다. Manifest가 있는데 state가 없거나 둘의 구조가 손상되면 자동 초기화하지 않고 startup을 fail-closed한다. 새 event는 runtime durable commit, dedupe atomic commit, application ACK 순서로 처리하며 duplicate는 상태를 바꾸지 않고 ACK만 재전송한다.
+- **반복 방지 체크**: durable input/outbox 파일에는 최초 실행, 정상 restart, target 삭제, manifest 삭제·손상, atomic write 실패와 process restart 테스트를 함께 둔다.

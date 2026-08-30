@@ -971,7 +971,7 @@ git commit -m "feat(gateway): execute vehicle sensor events"
 - Produces: dedupe key `(sourceUnicast,bootId,sequence)`, vendor application ACK, startup Sensor Get, normalized sensor events.
 - Produces: node별 durable `VehicleSensorCapabilityReportV1` journal과 report topic publish. journal은 `capabilityRevision`, `eventId`, complete report payload와 그 canonical `reportPayloadHash`를 함께 저장한다.
 
-- [ ] **Step 1: 중복·재부팅·startup query 테스트를 작성한다**
+- [x] **Step 1: 중복·재부팅·startup query 테스트를 작성한다**
 
 ```ts
 await client.onVendorEvent(source, { bootId: 7, sequence: 9, eventKind: "detected", level: true });
@@ -980,17 +980,17 @@ expect(runtimeEvents).toHaveLength(1);
 expect(sentAcks).toHaveLength(2);
 ```
 
-- [ ] **Step 2: Sensor Status와 vendor opcode decoder를 구현한다**
+- [x] **Step 2: Sensor Status와 vendor opcode decoder를 구현한다**
 
 표준 property ID는 ESP-IDF/공식 Bluetooth assigned-number header의 `Presence Detected` 상수를 사용하고 숫자를 중복 하드코딩하지 않는다. 잘못된 length, 알려지지 않은 source, 현재 Gateway 규칙에 없는 sensor는 상태 변경 없이 정제 로그만 남긴다.
 
-- [ ] **Step 3: dedupe 영속화와 startup Sensor Get을 구현한다**
+- [x] **Step 3: dedupe 영속화와 startup Sensor Get을 구현한다**
 
 bootId가 바뀌면 sequence가 작아져도 새 session으로 처리한다. 각 configured source에 Gateway startup/reconnect 후 Sensor Get을 보내고 Status High/Low를 runtime current-state로 반영한다.
 
 Sensor Server와 vendor vehicle event model의 bound 상태가 실제로 바뀔 때만 node의 `capabilityRevision`을 1 증가시키고 새 `eventId`와 두 model boolean을 포함한 complete report, canonical `reportPayloadHash`를 원자 저장한다. broker PUBACK만으로 delivered 처리하지 않고 capability ingested ACK가 올 때까지 같은 eventId/revision/payload/hash를 재시도한다. reconnect에서는 저장한 현재 report를 revision 증가 없이 그대로 재발행한다. ACK의 `eventId`, `gatewayId`, `meshNodeId`, `capabilityRevision`, `reportPayloadHash`가 journal과 모두 일치할 때만 `applied|stale|duplicate`를 terminal로 처리하고 `rejected`는 journal을 보존한 채 정제된 conflict 진단으로 fail-closed 한다. Event/node/revision이 같아도 다른 report hash의 ACK는 현재 journal에 적용하지 않고 무시한다.
 
-- [ ] **Step 4: 검증하고 커밋한다**
+- [x] **Step 4: 검증하고 커밋한다**
 
 Run: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway test -- vehicle-sensor-client.test.ts bluez-dbus-application.test.ts`
 
@@ -998,6 +998,8 @@ Run: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control
 git add apps/gateway/src/mesh apps/gateway/src/gateway.ts
 git commit -m "feat(gateway): ingest BLE Mesh vehicle sensors"
 ```
+
+검증: Gateway focused 7파일 94/94, Gateway 전체 57파일 523/523, shared 74/74, Docker 계약 17/17, 필수 mTLS Mosquitto 2/2와 Shared/Gateway typecheck·lint·build 및 diff-check를 통과했다. 실제 Raspberry Pi/ESP32-H2 RF, packet loss, power-loss와 flash-wear HIL은 별도 검증이다.
 
 ### Task 15: ESP32-H2 GPIO vehicle sensor driver
 

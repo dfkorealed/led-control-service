@@ -11,6 +11,7 @@ import {
   gatewayDimmingCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
   automationExecutionIngestedAckV1Schema,
+  vehicleSensorCapabilityIngestedAckV1Schema,
   identifyDeviceSchema,
   isGatewayCommandExpired,
   mqttTopicsV2,
@@ -25,6 +26,7 @@ import {
   applyIdentifyDevice,
   applyProvisionDevice,
   createProvisioningScanFailedPayload,
+  configuredVehicleSensorSourceFixtureIds,
   handleAutomationConfigPayload,
   ProvisioningScanRecoveryPublisher,
   handleDurableProvisioningScan
@@ -104,6 +106,13 @@ import {
   terminalTelemetryRecords,
   type AutomationTelemetryRecordInput
 } from "./automation/automation-telemetry-handoff";
+import {
+  FileVehicleSensorDedupeStore,
+  VehicleSensorCapabilityJournal,
+  VehicleSensorCapabilityPublisher,
+  VehicleSensorClient,
+  VehicleSensorGatewayController
+} from "./mesh/vehicle-sensor-client";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
 
@@ -420,6 +429,43 @@ async function main() {
   if (automationRuntime.currentRevision !== null) {
     await automationTelemetryCoordinator.flush(automationRuntime.currentRevision);
   }
+  const vehicleSensorCapabilityJournal = new VehicleSensorCapabilityJournal(
+    process.env.GATEWAY_VEHICLE_SENSOR_CAPABILITY_JOURNAL_PATH ??
+      "/var/lib/led-control/vehicle-sensor-capabilities.json",
+    { siteId, gatewayId }
+  );
+  const vehicleSensorCapabilityPublisher = new VehicleSensorCapabilityPublisher(
+    vehicleSensorCapabilityJournal,
+    { siteId, gatewayId },
+    { onError: (error) => void reportGatewayError(error, "vehicle_sensor_capability_publish") }
+  );
+  const vehicleSensorClient = new VehicleSensorClient({
+    dedupeStore: new FileVehicleSensorDedupeStore(
+      process.env.GATEWAY_VEHICLE_SENSOR_DEDUPE_PATH ?? "/var/lib/led-control/vehicle-sensor-dedupe.json"
+    ),
+    listConfiguredSourceFixtureIds: () =>
+      configuredVehicleSensorSourceFixtureIds(scheduleRuntime.currentSnapshot),
+    resolveByFixtureId: (fixtureId) => adapters.vehicleSensors.resolveByFixtureId(fixtureId),
+    resolveBySourceUnicast: (sourceUnicast) => adapters.vehicleSensors.resolveBySourceUnicast(sourceUnicast),
+    recordInput: (input) => scheduleRuntime.recordVehicleSensorInput(input),
+    send: (destination, payload) => adapters.vehicleSensors.send(destination, payload),
+    warn: (warning) => console.warn("Gateway vehicle sensor input rejected", warning)
+  });
+  const vehicleSensorController = new VehicleSensorGatewayController({
+    port: adapters.vehicleSensors,
+    client: vehicleSensorClient,
+    journal: vehicleSensorCapabilityJournal,
+    publisher: vehicleSensorCapabilityPublisher,
+    diagnose: (diagnostic) => {
+      console.warn("Gateway vehicle sensor diagnostic", diagnostic);
+      if (diagnostic.event === "vehicle_sensor_capability_ack_rejected") {
+        void reportGatewayError(new Error(diagnostic.event), "vehicle_sensor_capability_ack");
+      }
+    }
+  });
+  await vehicleSensorController.initialize();
+  const initialVehicleSensorCapabilityRefresh = vehicleSensorController.refreshCapabilities()
+    .catch((error) => reportGatewayError(error, "vehicle_sensor_capability_configuration"));
   const stopAutomationFixtureStatusIntake = observeAutomationFixtureStatuses(
     adapter,
     scheduleRuntime,
@@ -559,6 +605,7 @@ async function main() {
       return stateEventCapacity.run(["*"], async () => {
         const result = await applyProvisionDevice(provisioningAdapter, command);
         if (result.completed) {
+          await vehicleSensorController.refreshCapabilities(command.nodeId);
           source.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), JSON.stringify(result.completed), { qos: 1 });
           return;
         }
@@ -580,6 +627,7 @@ async function main() {
       if (result.changed) void automationTelemetryPublisher.wake()
         .catch((error) => void reportGatewayError(error, "automation_gap_publish"));
     }
+    await vehicleSensorController.refreshConfiguration();
   }
 
   const fixtureStatusReservation = new StateEventReservationSlot(stateEventOutbox);
@@ -681,7 +729,11 @@ async function main() {
         if (result === "conflict") throw new Error("automation execution ACK hash conflict");
         if (result === "deleted") void automationTelemetryPublisher.wake()
           .catch((error) => void reportGatewayError(error, "automation_telemetry_publish"));
-      }
+      },
+      [mqttTopics.vehicleSensorCapabilityIngested(siteId, gatewayId)]: (payload) =>
+        vehicleSensorController.acknowledge(
+          vehicleSensorCapabilityIngestedAckV1Schema.parse(JSON.parse(payload.toString()))
+        )
     },
     deferredPubackTopics: [mqttTopics.automationConfig(siteId, gatewayId)],
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
@@ -690,7 +742,10 @@ async function main() {
         automationAckPublisher.connect(
           (topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement)
         ),
-        automationTelemetryPublisher.connect(mqttRuntime.client)
+        automationTelemetryPublisher.connect(mqttRuntime.client),
+        vehicleSensorController.reconnect(
+          (topic, report) => publish(mqttRuntime.client, topic, report)
+        )
       ]),
       connectOperationalServices: async () => {
         await health.mqttConnected();
@@ -700,6 +755,7 @@ async function main() {
         );
         await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
         await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
+        await initialVehicleSensorCapabilityRefresh;
         meshResyncWorker.schedule();
       },
       onAutomationAckError: (error) => reportGatewayError(error, "automation_config_ack_connect")
@@ -709,9 +765,13 @@ async function main() {
       stateEventPublisher.disconnect();
       automationAckPublisher.disconnect();
       automationTelemetryPublisher.disconnect();
+      vehicleSensorController.disconnect();
       return health.unhealthy("mqtt_disconnected");
     },
-    onBeforeStop: () => automationTelemetryPublisher.stopAndDrain(),
+    onBeforeStop: () => Promise.all([
+      automationTelemetryPublisher.stopAndDrain(),
+      vehicleSensorController.stopAndDrain()
+    ]),
     onError: () => health.unhealthy("mqtt_error"),
     onRuntimeError: reportGatewayError
   });
@@ -725,12 +785,13 @@ async function main() {
       const schedulerDrain = scheduleRuntime.stopAndDrain();
       const meshResyncDrain = meshResyncWorker.stopAndDrain();
       const targetedResyncDrain = targetedLightingResync.stopAndDrain();
+      const vehicleSensorDrain = vehicleSensorController.stopAndDrain();
       stopAutomationFixtureStatusIntake();
       stopFixtureStatusIntake?.();
       automationTelemetryCoordinator.stop();
       automationStorage.headroom.stop();
       await fixtureStatusReservation.release();
-      await Promise.all([schedulerDrain, meshResyncDrain, targetedResyncDrain]);
+      await Promise.all([schedulerDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
       stateEventPublisher.disconnect();
       automationAckPublisher.disconnect();
       await mqttRuntime.stop();
@@ -1060,7 +1121,8 @@ export function subscribeGatewayCommands(
         mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.provisioningScanTerminalIngestedAck(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.stateIngestedAck(assignment.siteId, assignment.gatewayId),
-        mqttTopics.automationExecutionIngested(assignment.siteId, assignment.gatewayId)
+        mqttTopics.automationExecutionIngested(assignment.siteId, assignment.gatewayId),
+        mqttTopics.vehicleSensorCapabilityIngested(assignment.siteId, assignment.gatewayId)
       ],
       { qos: 1 },
       (error) => (error ? reject(error) : resolve())

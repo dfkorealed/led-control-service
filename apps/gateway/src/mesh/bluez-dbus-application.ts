@@ -1,6 +1,11 @@
 import { EventEmitter } from "node:events";
 import { systemBus, type MessageBus } from "@homebridge/dbus-native";
 import { installDbusMultiReturnCompatibility } from "./bluez-transport";
+import {
+  BLUETOOTH_MESH_MODELS,
+  LED_CONTROL_COMPANY_ID,
+  VEHICLE_SENSOR_VENDOR_MODEL
+} from "./bluez-mesh-model-config";
 
 export interface DbusInterfaceDefinition {
   name: string;
@@ -124,7 +129,7 @@ export class BluezDbusApplication extends EventEmitter {
   async start() {
     if (this.started) return;
     const application = {
-      CompanyID: 0xffff,
+      CompanyID: LED_CONTROL_COMPANY_ID,
       ProductID: 0x0001,
       VersionID: 0x0001,
       CRPL: 64,
@@ -151,11 +156,12 @@ export class BluezDbusApplication extends EventEmitter {
       PromptStatic: async () => unsupportedOob("PromptStatic"),
       Cancel: async () => this.emit("agentCancelled")
     };
-    const models = [0x0001, 0x0003, 0x1001, 0x1302].map((modelId) => [modelId, []]);
+    const models = [0x0001, 0x0003, 0x1001, 0x1302, BLUETOOTH_MESH_MODELS.sensorClient]
+      .map((modelId) => [modelId, []]);
     const element = {
       Index: 0,
       Models: models,
-      VendorModels: [],
+      VendorModels: [[LED_CONTROL_COMPANY_ID, VEHICLE_SENSOR_VENDOR_MODEL.clientModelId, []]],
       MessageReceived: async (source: number, keyIndex: number, destination: Variant, data: number[]) =>
         this.emit("messageReceived", { source, keyIndex, destination, data: Uint8Array.from(data) }),
       DevKeyMessageReceived: async (source: number, remote: boolean, netIndex: number, data: number[]) =>

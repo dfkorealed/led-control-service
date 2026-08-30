@@ -22,13 +22,18 @@ import {
   percentToLightness
 } from "./bluez-model-codec";
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
+import { LED_CONTROL_COMPANY_ID } from "./bluez-mesh-model-config";
 
 const BLUEZ_SERVICE = "org.bluez.mesh";
 const NODE_INTERFACE = "org.bluez.mesh.Node1";
-const HEALTH_COMPANY_ID = 0x02e5;
 const GENERIC_ONOFF_GET = Uint8Array.from([0x82, 0x01]);
 const LIGHT_LIGHTNESS_GET = Uint8Array.from([0x82, 0x4b]);
-const HEALTH_FAULT_GET = Uint8Array.from([0x80, 0x31, HEALTH_COMPANY_ID & 0xff, HEALTH_COMPANY_ID >> 8]);
+const HEALTH_FAULT_GET = Uint8Array.from([
+  0x80,
+  0x31,
+  LED_CONTROL_COMPANY_ID & 0xff,
+  LED_CONTROL_COMPANY_ID >> 8
+]);
 
 interface AdapterTransport {
   call(service: string, path: string, interfaceName: string, method: string, args: unknown[]): Promise<unknown>;

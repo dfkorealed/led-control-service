@@ -5,6 +5,11 @@ import {
   type DbusExportBus,
   type DbusInterfaceDefinition
 } from "./bluez-dbus-application";
+import {
+  BLUETOOTH_MESH_MODELS,
+  LED_CONTROL_COMPANY_ID,
+  VEHICLE_SENSOR_VENDOR_MODEL
+} from "./bluez-mesh-model-config";
 
 class FakeExportBus implements DbusExportBus {
   readonly exports = new Map<string, { implementation: Record<string, unknown>; definition: DbusInterfaceDefinition }>();
@@ -89,5 +94,24 @@ describe("BluezDbusApplication", () => {
 
     expect(scanListener).toHaveBeenCalledWith(expect.objectContaining({ rssi: -55 }));
     expect(messageListener).toHaveBeenCalledWith(expect.objectContaining({ source: 0x0100 }));
+  });
+
+  it("exports the SIG Sensor Client and product vendor client on the production element", async () => {
+    const bus = new FakeExportBus();
+    const application = new BluezDbusApplication(bus, async () => [0, 0x0100]);
+
+    await application.start();
+
+    const managed = await (bus.exports.get(
+      `${BLUEZ_APPLICATION_PATHS.root}:org.freedesktop.DBus.ObjectManager`
+    )!.implementation.GetManagedObjects as () => Promise<unknown>)() as Array<[string, Array<[string, Array<[string, [string, unknown]]>]>]>;
+    const element = managed.find(([path]) => path === BLUEZ_APPLICATION_PATHS.element)![1][0]![1];
+    const properties = Object.fromEntries(element.map(([name, [, value]]) => [name, value]));
+    expect(properties.Models).toContainEqual([BLUETOOTH_MESH_MODELS.sensorClient, []]);
+    expect(properties.VendorModels).toContainEqual([
+      LED_CONTROL_COMPANY_ID,
+      VEHICLE_SENSOR_VENDOR_MODEL.clientModelId,
+      []
+    ]);
   });
 });
