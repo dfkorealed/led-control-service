@@ -27,8 +27,6 @@ idf.py() {
                 0x40800200     0x1000 fixture
  .bss.command_queue_buffer
                 0x40801200      0x600 fixture
- .bss.publish_completions
-                0x40801800       0x28 fixture
                 0x40801000                vehicle_sensor_gpio_isr
                 0x40802000                gpio_get_level
                 0x40803000                esp_timer_get_time

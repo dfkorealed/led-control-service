@@ -1182,6 +1182,16 @@ Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Ta
 
 검증: 신규 production-source host RED는 이전 generation success가 새 vendor `0x82`를 지우는 실패와 restart가 stale 외부 `0x82` 배열을 갱신하지 않는 실패를 각각 재현한 뒤 GREEN으로 전환했다. Gateway 전체 59파일 546/546, shared 7파일 75/75, strict native/host, typecheck/lint/build, build/trust/artifact/attestation gate와 ESP-IDF v5.5.1 fullclean을 통과했다. Test binary는 `0xefc70`(`982,128`) 바이트, OTA free는 `0x100390`(`1,049,488`, 52%)이며 `0xFFFF` test image flash와 실제 HIL은 실행하지 않았다.
 
+#### Task 16 Fix Round 4
+
+- [x] Same-model vendor event 2개의 initial publish와 event별 6회 retry가 completion 보류 중에도 모두 실제 transport API를 호출하는 RED를 추가한다.
+- [x] Sensor/vendor completion 영구 유실과 A slot 재사용 뒤 duplicate success/failure가 후속 cadence, pending, fault, retry와 exact ACK를 바꾸지 않는 RED를 추가한다.
+- [x] 비상관 completion ledger와 same-model in-flight 차단을 제거하고 Sensor는 동기 API 결과, vendor는 동기 API 결과와 exact ACK/retry exhaustion만 신뢰한다.
+- [x] 이전 generation completion 무해성과 restart Health zero snapshot, 16 pending, initial+6 retry, 60초+jitter, fixed memory와 trust/CID/OTA 정책을 회귀 검증한다.
+- [x] Native/production-source host fake, Gateway 546/546, shared 75/75, typecheck/lint/build, build/trust/artifact/attestation gate와 ESP-IDF v5.5.1 fullclean target build를 완료한다.
+
+검증: 기존 ledger에서 vendor initial `1/2`, Sensor cadence `1/2`, duplicate failure의 B fault 오염, accepted Sensor API call 뒤 fault 미회복 assertion을 각각 RED로 확인했다. Ledger 제거와 동기 결과 기반 channel recovery 뒤 네 isolated test, Fix Round 3 generation/Health test와 host 전체가 GREEN이 됐다. ESP-IDF test binary는 `0xef920`(`981,280`) 바이트, OTA free는 `0x1006e0`(`1,050,336`, 52%)이고 target map에 completion ledger가 없다. Production valid CID는 trust root 미등록으로 정상 fail-closed했으며 `0xFFFF` test image flash와 실제 HIL은 실행하지 않았다.
+
 ### Task 17: Web 제어 탭과 스케줄 CRUD UI
 
 **Files:**

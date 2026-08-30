@@ -33,6 +33,7 @@ static bool sensor_publish_auto_complete;
 static bool vendor_publish_auto_complete;
 static size_t sensor_publish_count;
 static size_t vendor_publish_count;
+static uint32_t vendor_publish_sequences[128];
 static response_log_t responses[64];
 static size_t response_count;
 static vehicle_sensor_mesh_adapter_t adapter;
@@ -47,6 +48,13 @@ static uint8_t health_server_current_faults[5];
 static uint8_t health_server_registered_faults[5];
 static esp_err_t nested_stop_result;
 static bool fake_runtime_initialized;
+
+static uint32_t read_le32(const uint8_t *input) {
+  return (uint32_t)input[0] |
+         ((uint32_t)input[1] << 8U) |
+         ((uint32_t)input[2] << 16U) |
+         ((uint32_t)input[3] << 24U);
+}
 
 bool vehicle_sensor_driver_get_current_level(bool *level) {
   if (!driver_available || level == NULL) {
@@ -107,6 +115,10 @@ esp_err_t esp_ble_mesh_model_publish(
     return sensor_publish_result;
   }
   assert(model == &vendor_model);
+  assert(length == VEHICLE_SENSOR_PACKET_SIZE);
+  assert(vendor_publish_count < sizeof(vendor_publish_sequences) /
+      sizeof(vendor_publish_sequences[0]));
+  vendor_publish_sequences[vendor_publish_count] = read_le32(data + 5);
   vendor_publish_count += 1;
   if (vendor_publish_result == ESP_OK && vendor_publish_auto_complete) {
     vehicle_sensor_model_runtime_record_send_result(
@@ -163,6 +175,7 @@ static void reset_fixture(bool configured, bool level) {
   vendor_publish_auto_complete = true;
   sensor_publish_count = 0;
   vendor_publish_count = 0;
+  memset(vendor_publish_sequences, 0, sizeof(vendor_publish_sequences));
   response_count = 0;
   memset(&fault_log, 0, sizeof(fault_log));
   memset(health_server_current_faults, 0, sizeof(health_server_current_faults));
@@ -459,6 +472,7 @@ static void test_vendor_send_fault_survives_sensor_success_until_vendor_recovers
   assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
 
   vendor_publish_result = ESP_OK;
+  vendor_publish_auto_complete = false;
   fake_esp_idf_set_time_us(250000);
   vehicle_sensor_model_runtime_test_process_once();
   assert(vendor_publish_count == 2);
@@ -469,6 +483,63 @@ static void test_vendor_send_fault_survives_sensor_success_until_vendor_recovers
   vehicle_sensor_model_runtime_test_process_once();
   assert(fault_log.active == 0);
   assert(fault_log.history == 0);
+  stop_fixture();
+}
+
+static size_t vendor_publish_count_for_sequence(uint32_t sequence) {
+  size_t count = 0;
+  for (size_t index = 0; index < vendor_publish_count; index++) {
+    count += vendor_publish_sequences[index] == sequence ? 1U : 0U;
+  }
+  return count;
+}
+
+static void test_vendor_publishes_each_initial_and_retry_without_completions(void) {
+  static const uint64_t retry_deadlines_ms[] = {
+      250, 750, 1750, 3750, 7750, 15750,
+  };
+  reset_fixture(true, true);
+  vendor_publish_auto_complete = false;
+
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_CLEARED, .level = false}));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 2);
+  assert(vendor_publish_count_for_sequence(1) == 1);
+  assert(vendor_publish_count_for_sequence(2) == 1);
+
+  for (size_t index = 0;
+       index < sizeof(retry_deadlines_ms) / sizeof(retry_deadlines_ms[0]);
+       index++) {
+    fake_esp_idf_set_time_us((int64_t)(retry_deadlines_ms[index] * 1000U));
+    vehicle_sensor_model_runtime_test_process_once();
+    assert(vendor_publish_count == 2U + (2U * (index + 1U)));
+  }
+  assert(vendor_publish_count_for_sequence(1) == 7);
+  assert(vendor_publish_count_for_sequence(2) == 7);
+
+  fake_esp_idf_set_time_us(23750000);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 14);
+  stop_fixture();
+}
+
+static void test_lost_sensor_completion_does_not_block_the_next_cadence(void) {
+  reset_fixture(true, false);
+  sensor_publish_auto_complete = false;
+
+  const uint64_t first_deadline = vehicle_sensor_model_runtime_test_next_publication_ms();
+  fake_esp_idf_set_time_us((int64_t)(first_deadline * 1000U));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(sensor_publish_count == 1);
+
+  const uint64_t second_deadline = vehicle_sensor_model_runtime_test_next_publication_ms();
+  fake_esp_idf_set_time_us((int64_t)(second_deadline * 1000U));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(sensor_publish_count == 2);
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
   stop_fixture();
 }
 
@@ -503,26 +574,77 @@ static void test_only_exact_ack_recovers_the_vendor_send_fault(void) {
   stop_fixture();
 }
 
-static void test_health_recovers_async_send_drop_and_retry_faults(void) {
+static void test_duplicate_completion_after_reuse_does_not_change_the_next_event(void) {
+  uint8_t ack[VEHICLE_SENSOR_ACK_SIZE] = {VEHICLE_SENSOR_PROTOCOL_VERSION};
+  reset_fixture(true, true);
+  vendor_publish_auto_complete = false;
+
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 1);
+  vehicle_sensor_model_runtime_record_send_result(&vendor_model, true);
+
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_CLEARED, .level = false}));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 2);
+
+  write_le32(ack + 1, vehicle_sensor_model_runtime_test_boot_id());
+  write_le32(ack + 5, 1);
+  assert(vehicle_sensor_model_runtime_receive_ack(ack, sizeof(ack)));
+  vehicle_sensor_model_runtime_test_process_once();
+
+  vehicle_sensor_model_runtime_record_send_result(&vendor_model, false);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+  vehicle_sensor_model_runtime_record_send_result(&vendor_model, true);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+
+  fake_esp_idf_set_time_us(250000);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 3);
+  assert(vendor_publish_count_for_sequence(1) == 1);
+  assert(vendor_publish_count_for_sequence(2) == 2);
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+
+  write_le32(ack + 5, 2);
+  assert(vehicle_sensor_model_runtime_receive_ack(ack, sizeof(ack)));
+  vehicle_sensor_model_runtime_test_process_once();
+  fake_esp_idf_set_time_us(750000);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 3);
+  stop_fixture();
+}
+
+static void test_health_recovers_immediate_send_drop_and_retry_faults(void) {
   static const uint64_t retry_offsets_ms[] = {
       250, 750, 1750, 3750, 7750, 15750, 23750,
   };
   reset_fixture(true, true);
 
+  sensor_publish_result = ESP_FAIL;
   sensor_publish_auto_complete = false;
   const uint64_t publication_deadline_ms =
       vehicle_sensor_model_runtime_test_next_publication_ms();
   fake_esp_idf_set_time_us((int64_t)(publication_deadline_ms * 1000U));
   vehicle_sensor_model_runtime_test_process_once();
   assert(sensor_publish_count == 1);
-  vehicle_sensor_model_runtime_record_send_result(
-      &sensor_model, false);
-  sensor_publish_auto_complete = true;
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+  assert((fault_log.history & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  sensor_publish_result = ESP_OK;
+  fake_esp_idf_set_time_us((int64_t)((publication_deadline_ms + 1000U) * 1000U));
   vehicle_sensor_model_runtime_test_process_once();
   assert((fault_log.seen_active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
   assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
   assert((fault_log.history & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
   assert(sensor_publish_count == 2);
+
+  vehicle_sensor_model_runtime_record_send_result(&sensor_model, false);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
 
   driver_dropped = 1;
   vehicle_sensor_model_runtime_test_process_once();
@@ -531,7 +653,7 @@ static void test_health_recovers_async_send_drop_and_retry_faults(void) {
   assert((fault_log.history & VEHICLE_SENSOR_FAULT_DROPPED) != 0);
   assert(sensor_publish_count == 3);
 
-  const uint64_t retry_base_ms = publication_deadline_ms + 1U;
+  const uint64_t retry_base_ms = publication_deadline_ms + 1001U;
   fake_esp_idf_set_time_us((int64_t)(retry_base_ms * 1000U));
   assert(vehicle_sensor_model_runtime_submit_event(
       &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
@@ -647,6 +769,23 @@ static void test_restart_clears_stale_external_health_fault_arrays(void) {
 
 int main(void) {
   const char *fix3_test = getenv("VEHICLE_SENSOR_FIX3_TEST");
+  const char *fix4_test = getenv("VEHICLE_SENSOR_FIX4_TEST");
+  if (fix4_test != NULL && strcmp(fix4_test, "vendor-liveness") == 0) {
+    test_vendor_publishes_each_initial_and_retry_without_completions();
+    return 0;
+  }
+  if (fix4_test != NULL && strcmp(fix4_test, "sensor-liveness") == 0) {
+    test_lost_sensor_completion_does_not_block_the_next_cadence();
+    return 0;
+  }
+  if (fix4_test != NULL && strcmp(fix4_test, "duplicate") == 0) {
+    test_duplicate_completion_after_reuse_does_not_change_the_next_event();
+    return 0;
+  }
+  if (fix4_test != NULL && strcmp(fix4_test, "immediate-failure") == 0) {
+    test_health_recovers_immediate_send_drop_and_retry_faults();
+    return 0;
+  }
   if (fix3_test != NULL && strcmp(fix3_test, "generation") == 0) {
     test_old_generation_publish_completions_do_not_change_new_fault_state();
     return 0;
@@ -663,8 +802,11 @@ int main(void) {
   test_worker_context_stop_is_rejected_without_closing_intake();
   test_static_worker_parks_and_restarts_one_hundred_times_without_stale_commands();
   test_vendor_send_fault_survives_sensor_success_until_vendor_recovers();
+  test_vendor_publishes_each_initial_and_retry_without_completions();
+  test_lost_sensor_completion_does_not_block_the_next_cadence();
   test_only_exact_ack_recovers_the_vendor_send_fault();
-  test_health_recovers_async_send_drop_and_retry_faults();
+  test_duplicate_completion_after_reuse_does_not_change_the_next_event();
+  test_health_recovers_immediate_send_drop_and_retry_faults();
   test_health_recovers_transient_faults_and_keeps_sequence_exhaustion();
   test_old_generation_publish_completions_do_not_change_new_fault_state();
   test_restart_clears_stale_external_health_fault_arrays();

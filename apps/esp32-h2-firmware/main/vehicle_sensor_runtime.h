@@ -44,6 +44,7 @@ bool vehicle_sensor_model_runtime_receive_ack(const uint8_t *payload, size_t pay
 void vehicle_sensor_model_runtime_provisioned(void);
 void vehicle_sensor_model_runtime_reset(void);
 void vehicle_sensor_model_runtime_configuration_changed(void);
+/* ESP-IDF v5.5.1 completion lacks per-publish identity; this is advisory only. */
 void vehicle_sensor_model_runtime_record_send_result(
     esp_ble_mesh_model_t *model,
     bool successful);

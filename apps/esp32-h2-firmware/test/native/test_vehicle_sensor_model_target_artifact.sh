@@ -55,9 +55,12 @@ if [ "$(grep -c 'xTaskCreateStatic(' "$MAIN_ROOT/vehicle_sensor_runtime.c")" -ne
   echo "vehicle sensor target audit requires one-time worker creation and parked generation ack" >&2
   exit 1
 fi
-if ! grep -q 'publish_completions\[2\]' "$MAIN_ROOT/vehicle_sensor_runtime.c" ||
-   ! grep -q 'notify_faults(true)' "$MAIN_ROOT/vehicle_sensor_runtime.c"; then
-  echo "vehicle sensor target audit requires fixed publish completion ledger and restart Health sync" >&2
+if ! grep -q 'notify_faults(true)' "$MAIN_ROOT/vehicle_sensor_runtime.c"; then
+  echo "vehicle sensor target audit requires restart Health sync" >&2
+  exit 1
+fi
+if grep -q 'publish_completions' "$MAIN_ROOT/vehicle_sensor_runtime.c"; then
+  echo "vehicle sensor target audit forbids an uncorrelatable publish completion ledger" >&2
   exit 1
 fi
 if [ "$(wc -l <"$MAIN_ROOT/vehicle_sensor_model.c" | tr -d ' ')" -gt 400 ]; then
@@ -69,6 +72,14 @@ require_symbol() {
   local symbol="$1"
   if ! awk -v symbol="$symbol" '$1 ~ /^0x[0-9A-Fa-f]+$/ && $2 == symbol { found = 1 } END { exit !found }' "$MAP"; then
     echo "vehicle sensor target audit missing linked symbol $symbol" >&2
+    exit 1
+  fi
+}
+
+forbid_symbol() {
+  local symbol="$1"
+  if awk -v symbol="$symbol" '$1 ~ /^0x[0-9A-Fa-f]+$/ && $2 == symbol { found = 1 } END { exit !found }' "$MAP"; then
+    echo "vehicle sensor target audit found forbidden linked symbol $symbol" >&2
     exit 1
   fi
 }
@@ -105,4 +116,4 @@ done
 require_section_size .data.vehicle_sensor_server 0xc
 require_section_size .data.vendor_models 0x44
 require_section_size .bss.model_task_stack 0x1000
-require_section_size .bss.publish_completions 0x28
+forbid_symbol publish_completions

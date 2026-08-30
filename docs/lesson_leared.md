@@ -319,3 +319,10 @@
 - **원인**: lifecycle 완료를 task memory reclamation과 동일시했고, 하나의 외부 fault code를 내부 원인 상태 하나로도 표현했다.
 - **해결 및 예방책**: 정적 worker는 한 번만 생성해 stop generation마다 queue reset과 parked ack 뒤 start gate에서 기다린다. Sensor/vendor send active flag는 따로 유지하고 Health Current는 OR로 계산하며 exact ACK는 vendor flag만 회복한다.
 - **반복 방지 체크**: 정적 task lifecycle은 100회 즉시 stop/start에서 create/delete 횟수와 stale command를 검증하고, 공유 Health code는 채널별 failure/success 교차 순서와 history Clear를 함께 테스트한다.
+
+## 2026-08-31 / 식별자가 없는 async completion은 개별 송신 상태의 근거가 될 수 없다
+
+- **발생했던 문제/실수**: ESP-IDF publish completion을 generation ledger에 결속하면서 같은 model의 후속 initial/retry를 `BUSY`로 막았고, callback 유실 시 영구 정체하거나 slot 재사용 뒤 이전 duplicate가 새 publish fault를 바꿀 수 있었다.
+- **원인**: ESP-IDF v5.5.1 completion이 model/error만 제공하는데도 호출 순서와 단일 in-flight 제약으로 개별 publish 상관관계를 복원할 수 있다고 가정했다. Callback enqueue 자체가 유실될 수 있는 경계도 liveness dependency로 만들었다.
+- **해결 및 예방책**: completion ledger를 제거하고 callback을 무상태 advisory no-op로 제한했다. Sensor는 publish API 동기 수락/거부만, reliable vendor event는 동기 결과와 exact bootId/sequence ACK 및 retry exhaustion만 신뢰한다.
+- **반복 방지 체크**: 같은 model에 두 event를 연속 제출해 event별 initial+6 wire call을 세고, callback 영구 유실, previous generation, duplicate-after-reuse success/failure, immediate API failure 뒤 accepted call/exact ACK recovery를 production-source host fake에서 함께 검증한다.
