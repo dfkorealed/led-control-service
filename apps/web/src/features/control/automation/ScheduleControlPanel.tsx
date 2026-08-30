@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared";
+import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared/automation-contracts";
 import { CalendarPlus, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {

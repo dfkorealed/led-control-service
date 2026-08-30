@@ -1,4 +1,14 @@
 import { z } from "zod";
+import { automationExecutionActionResultPayloadV1Schema } from "./automation-action-result-contracts";
+
+export {
+  automationExecutionActionResultPayloadV1Schema,
+  automationExecutionFixtureResultV1Schema
+} from "./automation-action-result-contracts";
+export type {
+  AutomationExecutionActionResultPayloadV1,
+  AutomationExecutionFixtureResultV1
+} from "./automation-action-result-contracts";
 
 export type AutomationRuleStatus = "enabled" | "disabled";
 export type ScheduleRecurrenceKind = "once" | "daily" | "weekly" | "monthly" | "yearly";
@@ -81,21 +91,6 @@ export interface AutomationExecutionEventV1 {
   kind: AutomationExecutionKind;
   occurredAt: string;
   payload: Record<string, unknown>;
-}
-
-export interface AutomationExecutionFixtureResultV1 {
-  fixtureId: string;
-  status: "succeeded" | "failed" | "timed_out";
-  brightnessPercent: number | null;
-  faultCode: string | null;
-  errorCode: string | null;
-  occurredAt: string;
-}
-
-export interface AutomationExecutionActionResultPayloadV1 {
-  sourceType: "schedule" | "vehicle_event_rule" | "manual_override";
-  sourceId: string;
-  results: AutomationExecutionFixtureResultV1[];
 }
 
 export interface AutomationExecutionIngestedAckV1 {
@@ -264,26 +259,6 @@ export const automationConfigAppliedV1Schema = z.object({
   }
   if (configuration.status === "rejected" && configuration.errorCode === null) {
     addIssue(context, "errorCode", "rejected configuration requires an errorCode");
-  }
-});
-
-export const automationExecutionFixtureResultV1Schema = z.object({
-  fixtureId: identifierSchema,
-  status: z.enum(["succeeded", "failed", "timed_out"]),
-  brightnessPercent: z.number().int().min(0).max(100).nullable(),
-  faultCode: z.string().trim().min(1).max(128).nullable(),
-  errorCode: z.string().trim().min(1).max(128).nullable(),
-  occurredAt: timestampSchema
-}).strict();
-
-export const automationExecutionActionResultPayloadV1Schema = z.object({
-  sourceType: z.enum(["schedule", "vehicle_event_rule", "manual_override"]),
-  sourceId: identifierSchema,
-  results: z.array(automationExecutionFixtureResultV1Schema).min(1)
-}).strict().superRefine((payload, context) => {
-  const fixtureIds = payload.results.map((result) => result.fixtureId);
-  if (new Set(fixtureIds).size !== fixtureIds.length) {
-    addIssue(context, "results", "action results must contain unique fixture IDs");
   }
 });
 

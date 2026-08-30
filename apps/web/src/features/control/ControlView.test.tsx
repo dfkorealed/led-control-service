@@ -798,7 +798,7 @@ describe("ControlView 대상 선택", () => {
     renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=schedule`);
 
     expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText(`스케줄 패널 ${dashboard.site.id}`)).toBeInTheDocument();
+    expect(await screen.findByText(`스케줄 패널 ${dashboard.site.id}`)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "수동 제어" }));
     await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));

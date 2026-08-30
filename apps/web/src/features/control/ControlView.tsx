@@ -1,5 +1,5 @@
 import { Layers3 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -28,13 +28,17 @@ import {
 } from "./ControlTargetPicker";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
-import { ScheduleControlPanel } from "./automation/ScheduleControlPanel";
 import { floorMeshReadiness } from "./control-readiness";
 import {
   isActiveCommandSessionBlocked,
   ownsActiveCommandSession,
   registerActiveCommandRequest
 } from "./active-command-session";
+
+const ScheduleControlPanel = lazy(async () => {
+  const module = await import("./automation/ScheduleControlPanel");
+  return { default: module.ScheduleControlPanel };
+});
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 
@@ -255,13 +259,25 @@ export function ControlView({
       <section className="control-screen">
         {modeTabs}
         {scheduleSiteId ? (
-          <ScheduleControlPanel
-            key={`${userId}:${scheduleSiteId}`}
-            siteId={scheduleSiteId}
-            role={userRole}
-            dashboard={data}
-            scopeKey={`${userId}:${scheduleSiteId}`}
-          />
+          <Suspense
+            fallback={(
+              <div
+                id="control-mode-panel-schedule"
+                role="tabpanel"
+                aria-labelledby="control-mode-schedule"
+              >
+                <p className="muted-text" role="status">스케줄 화면을 불러오는 중입니다.</p>
+              </div>
+            )}
+          >
+            <ScheduleControlPanel
+              key={`${userId}:${scheduleSiteId}`}
+              siteId={scheduleSiteId}
+              role={userRole}
+              dashboard={data}
+              scopeKey={`${userId}:${scheduleSiteId}`}
+            />
+          </Suspense>
         ) : isLoading ? (
           <p className="muted-text" role="status">현장 정보를 불러오는 중입니다.</p>
         ) : (
