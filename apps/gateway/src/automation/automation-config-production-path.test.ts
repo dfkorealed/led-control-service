@@ -116,7 +116,107 @@ describe("automation config production path", () => {
     publisher.disconnect();
     await runtime.stop();
   });
+
+  it("withholds rejected ACK and broker PUBACK for an uncertain commit, then converges after restart redelivery", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-uncertain-commit-"));
+    directories.push(directory);
+    const snapshotPath = join(directory, "snapshot.json");
+    const outboxPath = join(directory, "acks.json");
+    const current = automationSnapshot(4);
+    const incoming = automationSnapshot(5);
+    await new FileAutomationConfigStore(snapshotPath, automationScope).apply(current);
+    let syncAttempts = 0;
+    const syncParentDirectory = async (_parent: string) => {
+      syncAttempts += 1;
+      throw new Error(`injected parent fsync failure ${syncAttempts}`);
+    };
+    const uncertainStore = new FileAutomationConfigStore(
+      snapshotPath,
+      automationScope,
+      (path, value) => writeJsonAtomic(path, value, { syncParentDirectory })
+    );
+    const automation = createAutomationRuntime(uncertainStore);
+    await automation.initialize();
+    const outbox = new AutomationConfigAckOutbox(outboxPath, automationScope);
+    await outbox.initialize();
+    const mqtt = new ProductionLikeMqttClient();
+    const onMessageError = vi.fn();
+    const runtime = createMqttRuntime(mqtt, automation, outbox, onMessageError);
+    runtime.start();
+    const packet = { cmd: "publish", qos: 1, messageId: 21 } as IPublishPacket;
+    let brokerPubackCompleted = false;
+    let boundaryError: Error | undefined;
+
+    mqtt.emit("message", configTopic, Buffer.from(JSON.stringify(incoming)), packet);
+    mqtt.handleMessage(packet, (error) => {
+      boundaryError = error;
+      if (!error) brokerPubackCompleted = true;
+    });
+    await vi.waitFor(() => expect(onMessageError).toHaveBeenCalledTimes(1));
+
+    expect(boundaryError).toMatchObject({ code: "snapshot_commit_uncertain", acknowledgeable: false });
+    expect(syncAttempts).toBe(4);
+    expect(brokerPubackCompleted).toBe(false);
+    expect(await outbox.pending()).toEqual([]);
+    expect(automation.currentRevision).toBe(4);
+    expect(await new FileAutomationConfigStore(snapshotPath, automationScope).load()).toEqual(current);
+    await runtime.stop();
+
+    const restartedAutomation = createAutomationRuntime(new FileAutomationConfigStore(snapshotPath, automationScope));
+    await restartedAutomation.initialize();
+    expect(restartedAutomation.currentRevision).toBe(4);
+    const restartedMqtt = new ProductionLikeMqttClient();
+    const restartedRuntime = createMqttRuntime(restartedMqtt, restartedAutomation, outbox, vi.fn());
+    restartedRuntime.start();
+
+    await deliver(restartedMqtt, incoming, 22);
+
+    expect(restartedAutomation.currentRevision).toBe(5);
+    expect(await new FileAutomationConfigStore(snapshotPath, automationScope).load()).toEqual(incoming);
+    expect(await outbox.pending()).toEqual([
+      expect.objectContaining({
+        revision: incoming.revision,
+        payloadHash: incoming.payloadHash,
+        status: "applied",
+        errorCode: null
+      })
+    ]);
+    await restartedRuntime.stop();
+  });
 });
+
+function createAutomationRuntime(store: FileAutomationConfigStore) {
+  return new AutomationRuntime({
+    store,
+    scope: automationScope,
+    now: () => new Date("2026-08-30T01:02:03.000Z"),
+    recompute: async () => ({}),
+    applyDesiredState: async () => undefined
+  });
+}
+
+function createMqttRuntime(
+  mqtt: ProductionLikeMqttClient,
+  automation: AutomationRuntime,
+  outbox: AutomationConfigAckOutbox,
+  onMessageError: ReturnType<typeof vi.fn>
+) {
+  return new GatewayMqttRuntime({
+    client: mqtt as never,
+    heartbeatMs: 10_000,
+    subscribe: vi.fn(),
+    publishHeartbeat: vi.fn(),
+    topicHandlers: {
+      [configTopic]: (payload) => handleAutomationConfigPayload(
+        payload,
+        automation,
+        (acknowledgement) => outbox.enqueue(acknowledgement)
+      )
+    },
+    deferredPubackTopics: [configTopic],
+    onMessageError
+  });
+}
 
 async function deliver(client: ProductionLikeMqttClient, value: unknown, messageId: number) {
   const packet = { cmd: "publish", qos: 1, messageId } as IPublishPacket;

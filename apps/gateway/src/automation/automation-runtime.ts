@@ -6,6 +6,7 @@ import {
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import {
   AutomationConfigStoreError,
+  AutomationConfigCommitUncertainError,
   parseAutomationSnapshot,
   type AutomationConfigStore,
   type AutomationScope
@@ -19,6 +20,7 @@ export type AutomationRuntimeErrorCode =
   | "snapshot_hash_mismatch"
   | "snapshot_old_revision"
   | "snapshot_revision_conflict"
+  | "snapshot_commit_uncertain"
   | "snapshot_store_failed"
   | "snapshot_recompute_failed"
   | "snapshot_rollback_failed";
@@ -96,6 +98,16 @@ export class AutomationRuntime {
       try {
         await this.options.store.apply(snapshot);
       } catch (error) {
+        if (error instanceof AutomationConfigCommitUncertainError) {
+          throw new AutomationRuntimeError(
+            "snapshot_commit_uncertain",
+            "snapshot_commit_uncertain",
+            snapshot.revision,
+            snapshot.payloadHash,
+            { cause: error },
+            false
+          );
+        }
         throw new AutomationRuntimeError(
           "snapshot_store_failed",
           "snapshot_store_failed",

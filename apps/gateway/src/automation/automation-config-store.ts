@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
 import { readdir, rm } from "node:fs/promises";
 import { basename, dirname } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   automationSnapshotV1Schema,
   type AutomationSnapshotV1
 } from "@led-control/shared";
-import { readJsonFile, removeFileDurable, writeJsonAtomic } from "../mesh/mesh-store-file";
+import {
+  AtomicJsonCommitUncertainError,
+  readJsonFile,
+  removeFileDurable,
+  writeJsonAtomic
+} from "../mesh/mesh-store-file";
 
 export interface AutomationScope {
   siteId: string;
@@ -36,6 +42,15 @@ export class AutomationConfigStoreError extends Error {
   }
 }
 
+export class AutomationConfigCommitUncertainError extends Error {
+  readonly code = "snapshot_commit_uncertain";
+
+  constructor(options?: ErrorOptions) {
+    super("snapshot_commit_uncertain", options);
+    this.name = "AutomationConfigCommitUncertainError";
+  }
+}
+
 export class FileAutomationConfigStore implements AutomationConfigStore {
   constructor(
     private readonly path: string,
@@ -56,12 +71,41 @@ export class FileAutomationConfigStore implements AutomationConfigStore {
 
   async apply(snapshot: AutomationSnapshotV1): Promise<void> {
     const parsed = parseAutomationSnapshot(snapshot, this.scope);
-    await this.write(this.path, parsed);
+    const previous = await this.load();
+    try {
+      await this.write(this.path, parsed);
+    } catch (error) {
+      if (!(error instanceof AtomicJsonCommitUncertainError)) throw error;
+      let rollbackError: unknown;
+      try {
+        await this.restore(previous);
+      } catch (caught) {
+        rollbackError = caught;
+      }
+      let visible: AutomationSnapshotV1 | null;
+      try {
+        visible = await this.load();
+      } catch (readbackError) {
+        throw new AutomationConfigCommitUncertainError({
+          cause: new AggregateError([error, rollbackError, readbackError].filter(Boolean), "snapshot visibility recovery failed")
+        });
+      }
+      if (!isDeepStrictEqual(visible, previous)) {
+        throw new AutomationConfigCommitUncertainError({
+          cause: new AggregateError([error, rollbackError].filter(Boolean), "snapshot target differs from runtime state")
+        });
+      }
+      throw new AutomationConfigCommitUncertainError({
+        cause: rollbackError
+          ? new AggregateError([error, rollbackError], "snapshot durability and rollback barriers failed")
+          : error
+      });
+    }
   }
 
   async restore(snapshot: AutomationSnapshotV1 | null): Promise<void> {
     if (snapshot) {
-      await this.apply(snapshot);
+      await this.write(this.path, parseAutomationSnapshot(snapshot, this.scope));
       return;
     }
     await removeFileDurable(this.path);

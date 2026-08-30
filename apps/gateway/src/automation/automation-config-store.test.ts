@@ -80,6 +80,28 @@ describe("FileAutomationConfigStore", () => {
     expect(syncAttempts).toBe(2);
     expect(await store.load()).toEqual(snapshot);
   });
+
+  it("restores the previous visible snapshot and reports commit uncertainty after consecutive parent fsync failures", async () => {
+    const path = await snapshotPath();
+    const current = automationSnapshot(4);
+    await new FileAutomationConfigStore(path, automationScope).apply(current);
+    let syncAttempts = 0;
+    const syncParentDirectory = async (_directory: string) => {
+      syncAttempts += 1;
+      throw new Error(`injected parent fsync failure ${syncAttempts}`);
+    };
+    const store = new FileAutomationConfigStore(
+      path,
+      automationScope,
+      (target, value) => writeJsonAtomic(target, value, { syncParentDirectory })
+    );
+
+    await expect(store.apply(automationSnapshot(5)))
+      .rejects.toMatchObject({ code: "snapshot_commit_uncertain" });
+
+    expect(syncAttempts).toBe(4);
+    expect(await store.load()).toEqual(current);
+  });
 });
 
 async function snapshotPath() {

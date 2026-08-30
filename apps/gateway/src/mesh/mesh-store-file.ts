@@ -6,6 +6,15 @@ export interface AtomicJsonWriteOptions {
   syncParentDirectory?: (directory: string) => Promise<void>;
 }
 
+export class AtomicJsonCommitUncertainError extends Error {
+  readonly code = "atomic_json_commit_uncertain";
+
+  constructor(readonly path: string, options?: ErrorOptions) {
+    super("atomic JSON commit is uncertain", options);
+    this.name = "AtomicJsonCommitUncertainError";
+  }
+}
+
 export async function readJsonFile(path: string): Promise<unknown | null> {
   try {
     return JSON.parse(await readFile(path, "utf8"));
@@ -31,11 +40,21 @@ export async function writeJsonAtomic(path: string, value: unknown, options: Ato
     await rename(temporaryPath, path);
     try {
       await syncParentDirectory(directory);
-    } catch (error) {
+    } catch (firstSyncError) {
       // rename may already have committed. Confirm the exact target and retry the
       // durability barrier before allowing callers to swap in-memory state.
-      if (!isDeepStrictEqual(await readJsonFile(path), value)) throw error;
-      await syncParentDirectory(directory);
+      let target: unknown;
+      try {
+        target = await readJsonFile(path);
+      } catch (readbackError) {
+        throw uncertainCommit(path, firstSyncError, readbackError);
+      }
+      if (!isDeepStrictEqual(target, value)) throw uncertainCommit(path, firstSyncError);
+      try {
+        await syncParentDirectory(directory);
+      } catch (retrySyncError) {
+        throw uncertainCommit(path, firstSyncError, retrySyncError);
+      }
     }
   } catch (error) {
     await rm(temporaryPath, { force: true });
@@ -49,10 +68,20 @@ export async function removeFileDurable(path: string, options: AtomicJsonWriteOp
   await rm(path, { force: true });
   try {
     await syncParentDirectory(directory);
-  } catch (error) {
-    if (await readJsonFile(path) !== null) throw error;
-    await syncParentDirectory(directory);
+  } catch (firstSyncError) {
+    if (await readJsonFile(path) !== null) throw uncertainCommit(path, firstSyncError);
+    try {
+      await syncParentDirectory(directory);
+    } catch (retrySyncError) {
+      throw uncertainCommit(path, firstSyncError, retrySyncError);
+    }
   }
+}
+
+function uncertainCommit(path: string, ...causes: unknown[]) {
+  return new AtomicJsonCommitUncertainError(path, {
+    cause: causes.length === 1 ? causes[0] : new AggregateError(causes, "atomic JSON durability barriers failed")
+  });
 }
 
 async function syncDirectory(directory: string) {
