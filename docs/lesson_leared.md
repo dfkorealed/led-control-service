@@ -113,6 +113,13 @@
 - **해결 및 예방책**: 새 노드는 항상 `unknown/revision 0/unverified/unbound`로 시작하고, 검증된 fixture는 status/verifiedAt/revision/model flag를 한 묶음으로 생성한다. forward migration은 fresh replay뿐 아니라 직전 migration까지 적용한 seeded DB에서 supported/unsupported/unknown과 nullable legacy event hash를 각각 확인한다.
 - **반복 방지 체크**: 모든 장비 이벤트 테스트에 정상 범위, 다른 tenant 위조, 중복 event ID, 낮은 sequence를 포함한다.
 
+### Node-local 원장 migration은 이름 순서와 legacy 식별 복구를 함께 rehearsal한다
+
+- **문제**: node-local capability migration의 최초 디렉터리 이름이 같은 날짜의 `vehicle_sensor_state_ordering`보다 사전순으로 앞서 fresh replay에서 선행 constraint를 찾지 못했고, 기존 원장에는 직접 `meshNodeId`가 없어 node identity를 무조건 채울 수 없었다.
+- **원인**: migration 이름의 날짜가 같으면 설명 문자열까지 실제 적용 순서를 결정한다는 점과, 신규 uniqueness key에 필요한 identity가 legacy row에서 복구 가능한지 여부를 별도로 검증하지 않았다.
+- **해결 및 예방책**: migration을 기존 ordering migration 뒤인 `20260831_node_local_capability_ack_outbox`으로 배치하고, capability row는 같은 Gateway의 `fixtureId -> meshNodeId` 관계로만 backfill한다. 해석 불가능한 행은 event/gateway/fixture/sequence를 포함한 remediation 오류로 transaction 전체를 중단하며 자동 삭제하거나 임의 node를 선택하지 않는다.
+- **반복 방지 체크**: 새 migration마다 빈 DB 전체 replay, 직전 커밋 migration만 적용한 valid seeded upgrade, 해석 불가능한 invalid seed rollback을 모두 실행하고 실제 적용 로그의 순서를 확인한다.
+
 ## 2026-07-11 / 제조 credential 원문 저장 금지
 - **발생했던 문제/실수**: 기존 수동 gateway 등록은 serial만 알면 DB Gateway를 만들 수 있어 제조 identity 소유권과 실제 장비를 연결하지 못했다.
 - **원인**: 개발용 환경변수의 site/gateway ID 입력 방식을 양산 흐름에도 확장하려 했다.

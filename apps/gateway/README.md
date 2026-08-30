@@ -181,7 +181,7 @@ Task 14 Gateway 구현은 MeshNode마다 `capabilityRevision`, `eventId`, comple
 
 Gateway는 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`에 저장된 report를 발행하고 broker PUBACK만으로 delivered 처리하지 않는다. API의 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested` ACK가 같은 `eventId`, `gatewayId`, `meshNodeId`, `capabilityRevision`을 확인할 때까지 같은 payload를 재시도한다. reconnect에서도 revision이나 eventId를 바꾸지 않고 현재 저장 report를 다시 발행한다. `applied`, `stale`, `duplicate`는 일치하는 ACK일 때 전송 완료로 기록하고 `rejected`는 journal을 보존한 채 conflict를 운영 오류로 노출한다.
 
-Task 9 API consumer는 broker가 확인한 mTLS/ACL Gateway identity와 topic/payload의 site/gateway가 DB의 active claimed Gateway identity와 모두 일치할 때만 report service를 호출한다. 이 report에는 unauthenticated direct API route가 없으며 ACK는 API durable outbox가 발행한다. 이 절은 Task 9/14의 정확한 구현 계약이고 현재 Gateway runtime에 아직 연결되지 않았다.
+Task 9 API consumer는 broker가 확인한 mTLS/ACL Gateway identity와 topic/payload의 site/gateway가 DB의 active claimed Gateway identity와 모두 일치할 때만 report service를 호출한다. 이 report에는 unauthenticated direct API route가 없다. Service는 ingestion transaction에 `vehicle-sensor-capability:<gatewayId>:<eventId>` key의 ACK outbox row를 이미 저장하며, Task 9 publisher는 integer revision을 사용하지 않는 이 application-ACK variant를 발행한다. 이 절은 Task 9/14의 정확한 구현 계약이고 현재 Gateway runtime에 아직 연결되지 않았다.
 
 SIG model codec과 실제 BlueZ adapter는 scan, provisioning, AppKey 추가, Generic OnOff/Light Lightness bind, status publication, acknowledged Lightness Status 처리를 구현했다. fixture ID와 unicast mapping은 gateway volume에 원자 저장하며 실제 Status 전에는 제어 성공으로 처리하지 않는다.
 

@@ -36,6 +36,13 @@ const capabilityOrderingMigrationPath = join(
 const capabilityOrderingMigration = existsSync(capabilityOrderingMigrationPath)
   ? readFileSync(capabilityOrderingMigrationPath, "utf8")
   : "";
+const nodeLocalCapabilityMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260831_node_local_capability_ack_outbox/migration.sql"
+);
+const nodeLocalCapabilityMigration = existsSync(nodeLocalCapabilityMigrationPath)
+  ? readFileSync(nodeLocalCapabilityMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -114,6 +121,43 @@ describe("automation Prisma schema contract", () => {
     expect(capabilityOrderingMigration).toContain('CONSTRAINT "ProcessedGatewayEvent_payload_hash_check"');
     expect(capabilityOrderingMigration).toContain("^sha256:[0-9a-f]{64}$");
     expect(capabilityOrderingMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
+  });
+
+  it("scopes capability ledgers to MeshNode and adds a durable application ACK outbox variant", () => {
+    const models = Object.fromEntries(
+      Prisma.dmmf.datamodel.models.map((model) => [model.name, model.fields.map((field) => field.name)])
+    );
+
+    expect(models.ProcessedGatewayEvent).toContain("meshNodeId");
+    expect(models.MqttOutbox).toContain("applicationAckKey");
+    expect(nodeLocalCapabilityMigration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(nodeLocalCapabilityMigration).toContain('ADD COLUMN "meshNodeId" TEXT');
+    expect(nodeLocalCapabilityMigration).toContain('fixture."meshNodeId"');
+    expect(nodeLocalCapabilityMigration).toContain("Operator remediation required before migration");
+    expect(nodeLocalCapabilityMigration).toContain(
+      'DROP INDEX "ProcessedGatewayEvent_gatewayId_sequence_eventType_key"'
+    );
+    expect(nodeLocalCapabilityMigration).toContain(
+      'CREATE UNIQUE INDEX "ProcessedGatewayEvent_legacy_sequence_key"'
+    );
+    expect(nodeLocalCapabilityMigration).toContain(
+      "WHERE \"eventType\" <> 'vehicle_sensor_capability'"
+    );
+    expect(nodeLocalCapabilityMigration).toContain(
+      'CREATE UNIQUE INDEX "ProcessedGatewayEvent_capability_node_sequence_key"'
+    );
+    expect(nodeLocalCapabilityMigration).toContain(
+      'ON "ProcessedGatewayEvent"("gatewayId", "meshNodeId", "sequence", "eventType")'
+    );
+    expect(nodeLocalCapabilityMigration).toContain(
+      "WHERE \"eventType\" = 'vehicle_sensor_capability'"
+    );
+    expect(nodeLocalCapabilityMigration).toContain('ADD COLUMN "applicationAckKey" TEXT');
+    expect(nodeLocalCapabilityMigration).toContain(
+      'CREATE UNIQUE INDEX "MqttOutbox_applicationAckKey_key"'
+    );
+    expect(nodeLocalCapabilityMigration).toContain('CONSTRAINT "MqttOutbox_row_shape_check"');
+    expect(nodeLocalCapabilityMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
   it("indexes each schedule's latest execution in list order through a forward migration", () => {
@@ -492,20 +536,104 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
       SET "vehicleSensorCapabilityRevision" = 0
       WHERE "id" = 'automation-schema-node-a';
     `, "MeshNode_vehicle_sensor_capability_check");
+    expectSqlFailure(`
+      BEGIN;
+      UPDATE "MeshNode"
+      SET "vehicleSensorCapabilityStatus" = 'unsupported',
+          "vehicleSensorCapabilityVerifiedAt" = NULL,
+          "vehicleSensorCapabilityRevision" = 2,
+          "vehicleSensorServerBound" = true,
+          "vehicleVendorEventModelBound" = true
+      WHERE "id" = 'automation-schema-node-a';
+      ROLLBACK;
+    `, "MeshNode_vehicle_sensor_capability_check");
 
     executeSql(`
       INSERT INTO "ProcessedGatewayEvent" (
-        "eventId", "gatewayId", "sequence", "eventType", "payloadHash", "occurredAt"
+        "eventId", "gatewayId", "meshNodeId", "sequence", "eventType", "payloadHash", "occurredAt"
       ) VALUES (
-        'automation-schema-capability-event', 'automation-schema-gateway-a', 9001,
+        'automation-schema-capability-event', 'automation-schema-gateway-a', 'automation-schema-node-a', 9001,
+        'vehicle_sensor_capability', NULL, CURRENT_TIMESTAMP
+      ), (
+        'automation-schema-capability-event-node-extra', 'automation-schema-gateway-a', 'automation-schema-node-a-extra', 9001,
         'vehicle_sensor_capability', NULL, CURRENT_TIMESTAMP
       );
     `);
+    expectSqlFailure(`
+      INSERT INTO "ProcessedGatewayEvent" (
+        "eventId", "gatewayId", "meshNodeId", "sequence", "eventType", "occurredAt"
+      ) VALUES (
+        'automation-schema-capability-event-conflict', 'automation-schema-gateway-a',
+        'automation-schema-node-a', 9001, 'vehicle_sensor_capability', CURRENT_TIMESTAMP
+      );
+    `, "ProcessedGatewayEvent_capability_node_sequence_key");
+    executeSql(`
+      INSERT INTO "ProcessedGatewayEvent" (
+        "eventId", "gatewayId", "sequence", "eventType", "occurredAt"
+      ) VALUES (
+        'automation-schema-legacy-event', 'automation-schema-gateway-a', 9002,
+        'legacy_schema_event', CURRENT_TIMESTAMP
+      );
+    `);
+    expectSqlFailure(`
+      INSERT INTO "ProcessedGatewayEvent" (
+        "eventId", "gatewayId", "sequence", "eventType", "occurredAt"
+      ) VALUES (
+        'automation-schema-legacy-event-conflict', 'automation-schema-gateway-a', 9002,
+        'legacy_schema_event', CURRENT_TIMESTAMP
+      );
+    `, "ProcessedGatewayEvent_legacy_sequence_key");
     expectSqlFailure(`
       UPDATE "ProcessedGatewayEvent"
       SET "payloadHash" = 'sha256:not-a-digest'
       WHERE "eventId" = 'automation-schema-capability-event';
     `, "ProcessedGatewayEvent_payload_hash_check");
+
+    executeSql(`
+      INSERT INTO "MqttOutbox" (
+        "id", "dispatchId", "gatewayId", "applicationAckKey", "revision", "payloadHash",
+        "topic", "payload", "attempts", "nextAttemptAt", "createdAt", "updatedAt"
+      ) VALUES (
+        'automation-schema-capability-ack', NULL, 'automation-schema-gateway-a',
+        'vehicle-sensor-capability:automation-schema-gateway-a:automation-schema-capability-event',
+        NULL, '${validPayloadHash}', 'sites/site/gateways/gateway/acks/capability', '{}'::jsonb,
+        0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+    `);
+    expectSqlFailure(`
+      INSERT INTO "MqttOutbox" (
+        "id", "dispatchId", "gatewayId", "applicationAckKey", "revision", "payloadHash",
+        "topic", "payload", "attempts", "nextAttemptAt", "createdAt", "updatedAt"
+      ) VALUES (
+        'automation-schema-invalid-capability-ack', NULL, 'automation-schema-gateway-a',
+        'vehicle-sensor-capability:automation-schema-gateway-a:invalid',
+        900719925, '${validPayloadHash}', 'sites/site/gateways/gateway/acks/capability', '{}'::jsonb,
+        0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+    `, "MqttOutbox_row_shape_check");
+
+    const capabilityIndexes = querySql(`
+      SELECT string_agg(indexname || ':' || indexdef, E'\n' ORDER BY indexname)
+      FROM pg_indexes
+      WHERE schemaname = current_schema()
+        AND tablename = 'ProcessedGatewayEvent'
+        AND indexname IN (
+          'ProcessedGatewayEvent_legacy_sequence_key',
+          'ProcessedGatewayEvent_capability_node_sequence_key'
+        );
+    `);
+    expect(capabilityIndexes).toContain(
+      'ProcessedGatewayEvent_capability_node_sequence_key:CREATE UNIQUE INDEX'
+    );
+    expect(capabilityIndexes).toContain(
+      '("gatewayId", "meshNodeId", sequence, "eventType") WHERE ("eventType" = \'vehicle_sensor_capability\'::text)'
+    );
+    expect(capabilityIndexes).toContain(
+      'ProcessedGatewayEvent_legacy_sequence_key:CREATE UNIQUE INDEX'
+    );
+    expect(capabilityIndexes).toContain(
+      '("gatewayId", sequence, "eventType") WHERE ("eventType" <> \'vehicle_sensor_capability\'::text)'
+    );
 
     const indexDefinition = querySql(`
       SELECT indexdef
@@ -520,11 +648,22 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
     expect(indexDefinition).toContain(
       "WHERE (kind = 'vehicle_detected'::\"AutomationExecutionKind\")"
     );
+
+    executeSql(`
+      DELETE FROM "ProcessedGatewayEvent"
+      WHERE "eventId" IN (
+        'automation-schema-capability-event',
+        'automation-schema-capability-event-node-extra',
+        'automation-schema-legacy-event'
+      );
+      DELETE FROM "MqttOutbox" WHERE "id" = 'automation-schema-capability-ack';
+    `);
   });
 
   afterAll(() => {
     executeSql(`
       BEGIN;
+      DELETE FROM "ProcessedGatewayEvent" WHERE "eventId" LIKE 'automation-schema-%';
       DELETE FROM "AutomationExecution" WHERE "id" LIKE 'automation-schema-%';
       DELETE FROM "LightingSchedule" WHERE "id" LIKE 'automation-schema-%';
       DELETE FROM "VehicleEventRule" WHERE "id" LIKE 'automation-schema-%';

@@ -548,6 +548,7 @@ model MeshNode {
   vehicleVendorEventModelBound      Boolean                         @default(false)
   gateway                           Gateway                         @relation(fields: [gatewayId], references: [id])
   fixture                           Fixture?
+  processedEvents                   ProcessedGatewayEvent[]
   controlGroupMemberships           MeshControlGroupMember[]
   createdAt                         DateTime                        @default(now())
   updatedAt                         DateTime                        @updatedAt
@@ -736,6 +737,7 @@ model MqttOutbox {
   id            String          @id @default(uuid())
   dispatchId    String?         @unique
   gatewayId     String?
+  applicationAckKey String?     @unique
   revision      Int?
   payloadHash   String?
   topic         String
@@ -977,17 +979,19 @@ model AutomationExecutionFixtureResult {
 model ProcessedGatewayEvent {
   eventId     String   @id
   gatewayId   String
+  meshNodeId  String?
   fixtureId   String?
   sequence    BigInt
   eventType   String
   payloadHash String?
   occurredAt  DateTime
   gateway     Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  meshNode    MeshNode? @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Restrict, onUpdate: Restrict)
   fixture     Fixture? @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
-  @@unique([gatewayId, sequence, eventType])
   @@index([gatewayId, occurredAt])
+  @@index([meshNodeId])
   @@index([fixtureId])
 }
 

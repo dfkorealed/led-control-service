@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
+  mqttTopics,
   type VehicleSensorCapabilityIngestedAckV1,
   type VehicleSensorCapabilityReportV1,
   vehicleSensorCapabilityIngestedAckV1Schema,
@@ -26,6 +27,7 @@ interface LockedCapabilityNode {
 interface CapabilityLedgerRow {
   eventId: string;
   gatewayId: string;
+  meshNodeId: string | null;
   sequence: bigint;
   eventType: string;
   payloadHash: string | null;
@@ -57,33 +59,36 @@ export class VehicleSensorCapabilityService {
       const capabilityRevision = BigInt(report.capabilityRevision);
       const [eventById, eventByRevision] = await Promise.all([
         tx.processedGatewayEvent.findUnique({ where: { eventId: report.eventId } }),
-        tx.processedGatewayEvent.findUnique({
+        tx.processedGatewayEvent.findFirst({
           where: {
-            gatewayId_sequence_eventType: {
-              gatewayId: report.gatewayId,
-              sequence: capabilityRevision,
-              eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
-            }
+            gatewayId: report.gatewayId,
+            meshNodeId: report.meshNodeId,
+            sequence: capabilityRevision,
+            eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
           }
         })
       ]);
       const existing = distinctLedgerRows(eventById, eventByRevision);
       if (existing.some((row) => !sameCapabilityLedger(row, report, payloadHash))) {
-        return this.ack(report, "rejected", "capability_event_conflict");
+        return this.persistAck(tx, report, "rejected", "capability_event_conflict");
       }
       if (existing.length > 0) {
         if (capabilityRevision === node.vehicleSensorCapabilityRevision && !sameCapabilityState(node, report)) {
-          return this.ack(report, "rejected", "capability_state_conflict");
+          return this.persistAck(tx, report, "rejected", "capability_state_conflict");
         }
-        return this.ack(report, "duplicate", null);
+        return this.persistAck(tx, report, "duplicate", null);
       }
 
       if (capabilityRevision < node.vehicleSensorCapabilityRevision) {
         await this.createLedger(tx, node, report, payloadHash);
-        return this.ack(report, "stale", null);
+        return this.persistAck(tx, report, "stale", null);
       }
       if (capabilityRevision === node.vehicleSensorCapabilityRevision) {
-        return this.ack(report, "rejected", "capability_state_conflict");
+        if (!sameCapabilityState(node, report)) {
+          return this.persistAck(tx, report, "rejected", "capability_state_conflict");
+        }
+        await this.createLedger(tx, node, report, payloadHash);
+        return this.persistAck(tx, report, "duplicate", null);
       }
 
       if (report.status === "unsupported") {
@@ -91,7 +96,7 @@ export class VehicleSensorCapabilityService {
       }
       await this.updateMetadata(tx, node.id, report);
       await this.createLedger(tx, node, report, payloadHash);
-      return this.ack(report, "applied", null);
+      return this.persistAck(tx, report, "applied", null);
     }, { timeout: 10_000 });
   }
 
@@ -174,6 +179,7 @@ export class VehicleSensorCapabilityService {
       data: {
         eventId: report.eventId,
         gatewayId: report.gatewayId,
+        meshNodeId: report.meshNodeId,
         fixtureId: node.fixtureId,
         sequence: BigInt(report.capabilityRevision),
         eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE,
@@ -186,7 +192,8 @@ export class VehicleSensorCapabilityService {
   private ack(
     report: VehicleSensorCapabilityReportV1,
     status: VehicleSensorCapabilityIngestedAckV1["status"],
-    errorCode: string | null
+    errorCode: string | null,
+    ingestedAt: string
   ) {
     return vehicleSensorCapabilityIngestedAckV1Schema.parse({
       schemaVersion: 1,
@@ -196,8 +203,58 @@ export class VehicleSensorCapabilityService {
       capabilityRevision: report.capabilityRevision,
       status,
       errorCode,
-      ingestedAt: this.clock.now().toISOString()
+      ingestedAt
     });
+  }
+
+  private async persistAck(
+    tx: Prisma.TransactionClient,
+    report: VehicleSensorCapabilityReportV1,
+    status: VehicleSensorCapabilityIngestedAckV1["status"],
+    errorCode: string | null
+  ) {
+    const applicationAckKey = `vehicle-sensor-capability:${report.gatewayId}:${report.eventId}`;
+    const existingOutbox = await tx.mqttOutbox.findUnique({
+      where: { applicationAckKey }
+    });
+    const existingAck = existingOutbox
+      ? vehicleSensorCapabilityIngestedAckV1Schema.parse(existingOutbox.payload)
+      : null;
+    const now = this.clock.now();
+    const ack = this.ack(report, status, errorCode, existingAck?.ingestedAt ?? now.toISOString());
+    const payloadHash = canonicalPayloadHash(ack);
+    const topic = mqttTopics.vehicleSensorCapabilityIngested(report.siteId, report.gatewayId);
+    const replaceWithRejectedAck = status === "rejected"
+      && existingOutbox !== null
+      && existingOutbox.payloadHash !== payloadHash;
+    const update = replaceWithRejectedAck
+      ? {
+        payloadHash,
+        topic,
+        payload: ack,
+        attempts: 0,
+        nextAttemptAt: now,
+        publishedAt: null,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        deadLetteredAt: null,
+        lastError: null
+      }
+      : {};
+    const stored = await tx.mqttOutbox.upsert({
+      where: { applicationAckKey },
+      create: {
+        gatewayId: report.gatewayId,
+        applicationAckKey,
+        revision: null,
+        payloadHash,
+        topic,
+        payload: ack
+      },
+      update
+    });
+    return vehicleSensorCapabilityIngestedAckV1Schema.parse(stored.payload);
   }
 }
 
@@ -216,6 +273,7 @@ function sameCapabilityLedger(
   payloadHash: string
 ) {
   return row.gatewayId === report.gatewayId
+    && row.meshNodeId === report.meshNodeId
     && row.sequence === BigInt(report.capabilityRevision)
     && row.eventType === VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
     && row.payloadHash === payloadHash;

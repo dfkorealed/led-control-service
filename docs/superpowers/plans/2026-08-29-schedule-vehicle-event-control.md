@@ -588,7 +588,7 @@ git commit -m "feat(api): add vehicle event rule management"
 - [x] supported/forged/downgrade/re-enable PostgreSQL E2E
 - [x] fresh/seeded migration, shared/API focused/full 검증, lint/typecheck/build, 보고서와 별도 커밋
 
-#### Task 8 fix round 3 (진행 중)
+#### Task 8 fix round 3 (완료)
 
 - [x] report `capabilityRevision`과 strict ingested ACK payload/topic 계약
 - [x] MeshNode revision/model binding과 ProcessedGatewayEvent hash forward migration/coherence
@@ -596,6 +596,15 @@ git commit -m "feat(api): add vehicle event rule management"
 - [x] out-of-order unsupported/supported와 다중 rule 단일 snapshot revision PostgreSQL E2E
 - [x] Task 9 authenticated consumer/durable ACK와 Task 14 durable revision/retry handoff 문서
 - [x] fresh/seeded migration, shared/API/Gateway 검증, 보고서와 별도 커밋
+
+#### Task 8 fix round 4 (완료)
+
+- [x] `ProcessedGatewayEvent.meshNodeId` 관계/backfill과 legacy/capability partial unique index
+- [x] 두 node의 동일 revision 순차·동시 적용, 같은 node conflict와 migration baseline reconciliation
+- [x] unsupported model flag direct-DML coherence 교정
+- [x] `MqttOutbox.applicationAckKey`와 command/config/application-ACK 3종 row shape
+- [x] classification transaction의 deterministic ACK upsert, 최초 payload/시각 재사용과 conflict rejected ACK
+- [x] capability safe integer 최대값, fresh/seeded/invalid migration, focused/shared/full API 검증과 보고서/문서/별도 커밋
 
 ### Task 9: automation snapshot 발행·ACK·실행 원장 수집
 
@@ -611,7 +620,7 @@ git commit -m "feat(api): add vehicle event rule management"
 - Consumes: shared automation schema/topics, existing MQTT outbox publisher and processed-event idempotency pattern.
 - Produces: canonical hash full snapshot, exact revision applied/rejected 처리, `eventId+sequence` 멱등 원장, ingested ACK.
 - Capability report consumer는 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`를 subscribe한다. broker가 확인한 mTLS/ACL Gateway identity, topic site/gateway, payload site/gateway, DB의 active claimed Gateway identity가 모두 같을 때만 `VehicleSensorCapabilityService.applyReport`를 호출한다. unauthenticated HTTP/direct route는 만들지 않는다.
-- service가 반환한 strict `VehicleSensorCapabilityIngestedAckV1`을 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`에 durable outbox로 발행한다. ACK publish 실패는 이미 commit된 ingestion 결과를 되돌리지 않으며 outbox retry가 같은 ACK를 재발행한다.
+- service가 같은 transaction에 저장한 `MqttOutbox` application-ACK variant를 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`에 발행한다. Identity는 `applicationAckKey=vehicle-sensor-capability:<gatewayId>:<eventId>`이고 `dispatchId/revision=NULL`이며, ACK publish 실패는 이미 commit된 ingestion 결과를 되돌리지 않고 outbox retry가 저장된 최초 payload를 재발행한다.
 
 - [ ] **Step 1: out-of-order ACK와 중복 execution 실패 테스트를 작성한다**
 
