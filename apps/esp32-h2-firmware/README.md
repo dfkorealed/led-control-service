@@ -8,7 +8,7 @@
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령과 차량 센서의 Sensor Server/vendor reliable event를 처리하는 단계까지 빌드 검증했다.
-- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개, 차량 센서 GPIO driver와 Sensor/vendor model 포함 후 Fix Round 2 test-build `led_control_node.bin` 크기는 `0xef980`(`981,376`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x100680`(`1,050,240`, 약 52%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
+- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개, 차량 센서 GPIO driver와 Sensor/vendor model 포함 후 Task 16 Fix Round 3 test-build `led_control_node.bin` 크기는 `0xefc70`(`982,128`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x100390`(`1,049,488`, 약 52%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
 
 ## ESP-IDF 설치
 
@@ -77,7 +77,7 @@ scripts/esp32-h2-build.sh --test-build
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation` (production provision 후 생성)
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation.sig` (production provision 후 생성)
 
-build 후 audit는 `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`, `CONFIG_BLE_MESH_SETTINGS=y`와 linker map의 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR`가 ESP32-H2 IRAM/ROM 주소인지 확인한다. Task 16 target audit는 Sensor Server callback, 분리된 runtime/adapter/Health 심볼, Sensor/vendor composition, 4 KiB static worker stack, worker create 1개와 runtime self-delete 부재도 확인한다. Production attestation은 mode/CID/source commit, approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, `sdkconfig`, linker map, generated `flash_args`, custom partition hash와 size를 fixed policy의 release key로 서명한다. Flash wrapper는 signature와 exact payload를 모두 재생성·비교한다.
+build 후 audit는 `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`, `CONFIG_BLE_MESH_SETTINGS=y`와 linker map의 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR`가 ESP32-H2 IRAM/ROM 주소인지 확인한다. Task 16 target audit는 Sensor Server callback, 분리된 runtime/adapter/Health 심볼, Sensor/vendor composition, 4 KiB static worker stack, worker create 1개와 runtime self-delete 부재, generation-bound publish completion bridge와 2-slot ledger `.bss` `0x28`도 확인한다. Production attestation은 mode/CID/source commit, approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, `sdkconfig`, linker map, generated `flash_args`, custom partition hash와 size를 fixed policy의 release key로 서명한다. Flash wrapper는 signature와 exact payload를 모두 재생성·비교한다.
 
 ## 실제 보드 플래시
 
@@ -161,7 +161,7 @@ Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 
 - panic/watchdog reset reason을 Health fault `0x01`로 기록
 - ESP-IDF task watchdog 10초 설정
 - 3.3V Active High 차량 센서 GPIO 양 edge, boot level event, static queue/task와 Task 16 callback/start/stop lifecycle
-- Sensor Descriptor/Get/Column/Series Status, 단일 60초+주소 hash 지터 publication, 16-slot vendor event ACK/retry와 active/history Health fault 연결
+- Sensor Descriptor/Get/Column/Series Status, 단일 60초+주소 hash 지터 publication, 16-slot vendor event ACK/retry, generation-bound publish completion과 restart 시 exact Health snapshot 재구성
 
 ## 후속 구현
 

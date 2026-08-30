@@ -1173,6 +1173,15 @@ Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Ta
 
 검증: Gateway focused 3파일 44/44, 전체 59파일 546/546, shared 75/75, strict native와 production-source host fake, build/trust/artifact/attestation gate를 통과했다. ESP-IDF v5.5.1 fullclean test binary는 `0xef980`(`981,376`) 바이트, OTA free는 `0x100680`(`1,050,240`, 52%)이며 실제 flash/RF/HIL은 실행하지 않았다.
 
+#### Task 16 Fix Round 3
+
+- [x] ESP-IDF publish completion의 model-only 계약을 production source에서 확인하고 Sensor/vendor model/opcode/runtime generation을 2-slot fixed ledger에 예약한다.
+- [x] 같은 model의 publish를 completion 전까지 직렬화하고 이전 generation success/failure completion이 새 session send fault active/history를 변경하지 않음을 host fake로 검증한다.
+- [x] Restart에서 내부 Health active/history zero source를 외부 ESP BLE Mesh Health Server current/registered 배열에 강제 동기화한다.
+- [x] 기존 100회 worker lifecycle, Task 14~16 native/host/Gateway/shared/trust/artifact와 ESP-IDF fullclean target build를 회귀 검증한다.
+
+검증: 신규 production-source host RED는 이전 generation success가 새 vendor `0x82`를 지우는 실패와 restart가 stale 외부 `0x82` 배열을 갱신하지 않는 실패를 각각 재현한 뒤 GREEN으로 전환했다. Gateway 전체 59파일 546/546, shared 7파일 75/75, strict native/host, typecheck/lint/build, build/trust/artifact/attestation gate와 ESP-IDF v5.5.1 fullclean을 통과했다. Test binary는 `0xefc70`(`982,128`) 바이트, OTA free는 `0x100390`(`1,049,488`, 52%)이며 `0xFFFF` test image flash와 실제 HIL은 실행하지 않았다.
+
 ### Task 17: Web 제어 탭과 스케줄 CRUD UI
 
 **Files:**

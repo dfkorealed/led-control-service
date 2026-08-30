@@ -578,14 +578,10 @@ static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_m
     return;
   }
   if (event == ESP_BLE_MESH_MODEL_PUBLISH_COMP_EVT) {
-    if (param->model_publish_comp.model == &vendor_models[0]) {
+    if (param->model_publish_comp.model == &vendor_models[0] ||
+        param->model_publish_comp.model == &root_models[ROOT_MODEL_SENSOR_SERVER]) {
       vehicle_sensor_model_runtime_record_send_result(
-          VEHICLE_SENSOR_SEND_CHANNEL_VENDOR,
-          param->model_publish_comp.err_code == 0);
-    } else if (param->model_publish_comp.model ==
-               &root_models[ROOT_MODEL_SENSOR_SERVER]) {
-      vehicle_sensor_model_runtime_record_send_result(
-          VEHICLE_SENSOR_SEND_CHANNEL_SENSOR,
+          param->model_publish_comp.model,
           param->model_publish_comp.err_code == 0);
     }
     return;

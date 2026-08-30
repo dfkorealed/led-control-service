@@ -45,7 +45,7 @@ void vehicle_sensor_model_runtime_provisioned(void);
 void vehicle_sensor_model_runtime_reset(void);
 void vehicle_sensor_model_runtime_configuration_changed(void);
 void vehicle_sensor_model_runtime_record_send_result(
-    vehicle_sensor_send_channel_t channel,
+    esp_ble_mesh_model_t *model,
     bool successful);
 void vehicle_sensor_model_runtime_clear_fault_history(void);
 uint32_t vehicle_sensor_model_runtime_queue_dropped_count(void);

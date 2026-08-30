@@ -6,6 +6,7 @@
 #include <stdatomic.h>
 #include <string.h>
 
+#include "esp_ble_mesh_sensor_model_api.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
@@ -52,6 +53,14 @@ typedef enum {
 } vehicle_sensor_runtime_state_t;
 
 typedef struct {
+  bool occupied;
+  vehicle_sensor_send_channel_t channel;
+  esp_ble_mesh_model_t *model;
+  uint32_t opcode;
+  uint32_t generation;
+} vehicle_sensor_publish_completion_t;
+
+typedef struct {
   vehicle_sensor_model_runtime_config_t config;
   vehicle_sensor_model_t model;
   vehicle_sensor_health_t health;
@@ -92,6 +101,8 @@ static uint8_t command_queue_buffer[
     VEHICLE_SENSOR_COMMAND_QUEUE_LENGTH * sizeof(vehicle_sensor_command_t)];
 static StaticTask_t model_task_storage;
 static StackType_t model_task_stack[VEHICLE_SENSOR_MODEL_TASK_STACK_DEPTH];
+static portMUX_TYPE publish_completion_mux = portMUX_INITIALIZER_UNLOCKED;
+static vehicle_sensor_publish_completion_t publish_completions[2];
 
 #ifdef VEHICLE_SENSOR_HOST_TEST
 static void (*after_acquire_hook)(void);
@@ -116,10 +127,11 @@ static void atomic_increment_saturating(_Atomic uint32_t *value) {
   }
 }
 
-static void notify_faults_if_changed(void) {
+static void notify_faults(bool force) {
   uint32_t active = vehicle_sensor_health_active_mask(&runtime.health);
   uint32_t history = vehicle_sensor_health_history_mask(&runtime.health);
-  if (active == runtime.reported_active_mask && history == runtime.reported_history_mask) {
+  if (!force && active == runtime.reported_active_mask &&
+      history == runtime.reported_history_mask) {
     return;
   }
   runtime.reported_active_mask = active;
@@ -127,6 +139,10 @@ static void notify_faults_if_changed(void) {
   if (runtime.config.fault_handler != NULL) {
     runtime.config.fault_handler(active, history, runtime.config.fault_context);
   }
+}
+
+static void notify_faults_if_changed(void) {
+  notify_faults(false);
 }
 
 static void activate_fault(uint32_t mask) {
@@ -158,6 +174,75 @@ static void set_send_channel_fault(vehicle_sensor_send_channel_t channel, bool a
       &runtime.sensor_send_fault_active : &runtime.vendor_send_fault_active;
   atomic_store_explicit(channel_fault, active, memory_order_release);
   sync_send_fault_health();
+}
+
+static bool publication_identity(
+    vehicle_sensor_send_channel_t channel,
+    esp_ble_mesh_model_t **model,
+    uint32_t *opcode) {
+  if (runtime.config.mesh_adapter == NULL || model == NULL || opcode == NULL) {
+    return false;
+  }
+  if (channel == VEHICLE_SENSOR_SEND_CHANNEL_SENSOR) {
+    *model = runtime.config.mesh_adapter->config.sensor_model;
+    *opcode = ESP_BLE_MESH_MODEL_OP_SENSOR_STATUS;
+  } else if (channel == VEHICLE_SENSOR_SEND_CHANNEL_VENDOR) {
+    *model = runtime.config.mesh_adapter->config.vendor_model;
+    *opcode = runtime.config.mesh_adapter->config.vendor_event_opcode;
+  } else {
+    return false;
+  }
+  return *model != NULL;
+}
+
+static bool reserve_publish_completion(vehicle_sensor_send_channel_t channel) {
+  esp_ble_mesh_model_t *model = NULL;
+  uint32_t opcode = 0;
+  if (!publication_identity(channel, &model, &opcode)) {
+    return false;
+  }
+
+  bool reserved = false;
+  portENTER_CRITICAL(&publish_completion_mux);
+  vehicle_sensor_publish_completion_t *completion = &publish_completions[channel];
+  bool model_in_flight = false;
+  for (size_t index = 0; index < sizeof(publish_completions) / sizeof(publish_completions[0]); index++) {
+    model_in_flight = model_in_flight ||
+        (publish_completions[index].occupied && publish_completions[index].model == model);
+  }
+  if (!completion->occupied && !model_in_flight) {
+    /* The IDF callback omits opcode/context, so one in-flight publish per model
+       makes this stored channel/opcode/generation tuple unambiguous. */
+    *completion = (vehicle_sensor_publish_completion_t){
+        .occupied = true,
+        .channel = channel,
+        .model = model,
+        .opcode = opcode,
+        .generation = atomic_load_explicit(&runtime.run_generation, memory_order_relaxed),
+    };
+    reserved = true;
+  }
+  portEXIT_CRITICAL(&publish_completion_mux);
+  return reserved;
+}
+
+static bool publish_completion_matches_current_identity(
+    const vehicle_sensor_publish_completion_t *completion) {
+  esp_ble_mesh_model_t *model = NULL;
+  uint32_t opcode = 0;
+  return completion != NULL &&
+      publication_identity(completion->channel, &model, &opcode) &&
+      completion->model == model && completion->opcode == opcode;
+}
+
+static void cancel_publish_completion(vehicle_sensor_send_channel_t channel) {
+  portENTER_CRITICAL(&publish_completion_mux);
+  vehicle_sensor_publish_completion_t *completion = &publish_completions[channel];
+  if (completion->occupied && completion->generation ==
+      atomic_load_explicit(&runtime.run_generation, memory_order_relaxed)) {
+    memset(completion, 0, sizeof(*completion));
+  }
+  portEXIT_CRITICAL(&publish_completion_mux);
 }
 
 static void wake_worker(void) {
@@ -221,12 +306,21 @@ static vehicle_sensor_send_result_t send_vendor_event(
     const uint8_t payload[VEHICLE_SENSOR_PACKET_SIZE],
     void *context) {
   (void)context;
-  vehicle_sensor_send_result_t result = vehicle_sensor_mesh_adapter_publish_event(
-      runtime.config.mesh_adapter,
-      runtime.vendor_ready,
-      payload);
+  vehicle_sensor_send_result_t result = VEHICLE_SENSOR_SEND_UNCONFIGURED;
+  if (runtime.vendor_ready) {
+    if (!reserve_publish_completion(VEHICLE_SENSOR_SEND_CHANNEL_VENDOR)) {
+      result = VEHICLE_SENSOR_SEND_ERROR;
+    } else {
+      result = vehicle_sensor_mesh_adapter_publish_event(
+          runtime.config.mesh_adapter,
+          true,
+          payload);
+      if (result != VEHICLE_SENSOR_SEND_OK) {
+        cancel_publish_completion(VEHICLE_SENSOR_SEND_CHANNEL_VENDOR);
+      }
+    }
+  }
   if (result == VEHICLE_SENSOR_SEND_OK) {
-    set_send_channel_fault(VEHICLE_SENSOR_SEND_CHANNEL_VENDOR, false);
     if (runtime.sensor_ready && runtime.vendor_ready) {
       recover_fault(VEHICLE_SENSOR_FAULT_PUBLICATION_UNCONFIGURED);
     }
@@ -253,18 +347,25 @@ static bool publish_authoritative_current(uint64_t now_ms) {
     atomic_store_explicit(&runtime.recovery_needed, true, memory_order_release);
     return false;
   }
-  esp_err_t error = vehicle_sensor_mesh_adapter_publish_current(runtime.config.mesh_adapter, level);
-  if (error != ESP_OK) {
+  if (!reserve_publish_completion(VEHICLE_SENSOR_SEND_CHANNEL_SENSOR)) {
     vehicle_sensor_model_record_send_error(&runtime.model);
     set_send_channel_fault(VEHICLE_SENSOR_SEND_CHANNEL_SENSOR, true);
     atomic_store_explicit(&runtime.recovery_needed, true, memory_order_release);
     runtime.next_publication_ms = now_ms + VEHICLE_SENSOR_CURRENT_RETRY_MS;
     return false;
   }
-  set_send_channel_fault(VEHICLE_SENSOR_SEND_CHANNEL_SENSOR, false);
+  atomic_store_explicit(&runtime.recovery_needed, false, memory_order_release);
+  esp_err_t error = vehicle_sensor_mesh_adapter_publish_current(runtime.config.mesh_adapter, level);
+  if (error != ESP_OK) {
+    cancel_publish_completion(VEHICLE_SENSOR_SEND_CHANNEL_SENSOR);
+    vehicle_sensor_model_record_send_error(&runtime.model);
+    set_send_channel_fault(VEHICLE_SENSOR_SEND_CHANNEL_SENSOR, true);
+    atomic_store_explicit(&runtime.recovery_needed, true, memory_order_release);
+    runtime.next_publication_ms = now_ms + VEHICLE_SENSOR_CURRENT_RETRY_MS;
+    return false;
+  }
   runtime.next_publication_ms = now_ms +
       vehicle_sensor_publication_interval_ms(runtime.primary_unicast);
-  atomic_store_explicit(&runtime.recovery_needed, false, memory_order_release);
   recover_fault(
       VEHICLE_SENSOR_FAULT_DROPPED |
       VEHICLE_SENSOR_FAULT_RETRY_EXHAUSTED);
@@ -526,10 +627,9 @@ static void reset_runtime_session(
   runtime.applied_configuration_generation = 0;
   runtime.applied_reset_generation = 0;
   runtime.observed_driver_drop_count = 0;
-  runtime.reported_active_mask = 0;
-  runtime.reported_history_mask = 0;
   (void)xQueueReset(runtime.queue);
   vehicle_sensor_health_init(&runtime.health);
+  notify_faults(true);
   vehicle_sensor_model_init(&runtime.model, esp_random(), send_vendor_event, NULL);
   atomic_store_explicit(&runtime.producers, 0, memory_order_relaxed);
   atomic_store_explicit(&runtime.configuration_generation, 1, memory_order_relaxed);
@@ -563,8 +663,8 @@ esp_err_t vehicle_sensor_model_runtime_start(const vehicle_sensor_model_runtime_
   }
   generation += 1U;
   reset_runtime_session(config, generation);
-  atomic_store_explicit(&runtime.state, VEHICLE_SENSOR_RUNTIME_OPEN, memory_order_release);
   atomic_store_explicit(&runtime.run_generation, generation, memory_order_release);
+  atomic_store_explicit(&runtime.state, VEHICLE_SENSOR_RUNTIME_OPEN, memory_order_release);
   wake_worker();
   ESP_LOGI(RUNTIME_TAG, "Vehicle sensor runtime started");
   return ESP_OK;
@@ -696,13 +796,38 @@ void vehicle_sensor_model_runtime_configuration_changed(void) {
 }
 
 void vehicle_sensor_model_runtime_record_send_result(
-    vehicle_sensor_send_channel_t channel,
+    esp_ble_mesh_model_t *model,
     bool successful) {
-  if ((channel != VEHICLE_SENSOR_SEND_CHANNEL_SENSOR &&
-       channel != VEHICLE_SENSOR_SEND_CHANNEL_VENDOR) ||
+  if (model == NULL) {
+    return;
+  }
+
+  vehicle_sensor_publish_completion_t completed = {0};
+  portENTER_CRITICAL(&publish_completion_mux);
+  for (size_t index = 0; index < sizeof(publish_completions) / sizeof(publish_completions[0]); index++) {
+    if (publish_completions[index].occupied && publish_completions[index].model == model) {
+      completed = publish_completions[index];
+      memset(&publish_completions[index], 0, sizeof(publish_completions[index]));
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&publish_completion_mux);
+
+  if (!completed.occupied || completed.generation !=
+      atomic_load_explicit(&runtime.run_generation, memory_order_acquire) ||
       !producer_acquire()) {
     return;
   }
+  if (completed.generation !=
+      atomic_load_explicit(&runtime.run_generation, memory_order_acquire)) {
+    producer_release();
+    return;
+  }
+  if (!publish_completion_matches_current_identity(&completed)) {
+    producer_release();
+    return;
+  }
+  const vehicle_sensor_send_channel_t channel = completed.channel;
   _Atomic bool *channel_fault = channel == VEHICLE_SENSOR_SEND_CHANNEL_SENSOR ?
       &runtime.sensor_send_fault_active : &runtime.vendor_send_fault_active;
   atomic_store_explicit(channel_fault, !successful, memory_order_release);

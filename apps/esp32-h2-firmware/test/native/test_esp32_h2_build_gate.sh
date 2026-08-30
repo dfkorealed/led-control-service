@@ -27,6 +27,8 @@ idf.py() {
                 0x40800200     0x1000 fixture
  .bss.command_queue_buffer
                 0x40801200      0x600 fixture
+ .bss.publish_completions
+                0x40801800       0x28 fixture
                 0x40801000                vehicle_sensor_gpio_isr
                 0x40802000                gpio_get_level
                 0x40803000                esp_timer_get_time
@@ -37,6 +39,7 @@ idf.py() {
                 0x42004000                vehicle_sensor_model_runtime_submit_event
                 0x42005000                vehicle_sensor_model_runtime_request
                 0x42006000                vehicle_sensor_model_runtime_receive_ack
+                0x42006500                vehicle_sensor_model_runtime_record_send_result
                 0x42007000                vehicle_sensor_mesh_adapter_send_response
                 0x42008000                vehicle_sensor_health_build_current
                 0x42009000                vehicle_sensor_model_runtime_clear_fault_history

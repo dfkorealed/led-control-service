@@ -55,6 +55,11 @@ if [ "$(grep -c 'xTaskCreateStatic(' "$MAIN_ROOT/vehicle_sensor_runtime.c")" -ne
   echo "vehicle sensor target audit requires one-time worker creation and parked generation ack" >&2
   exit 1
 fi
+if ! grep -q 'publish_completions\[2\]' "$MAIN_ROOT/vehicle_sensor_runtime.c" ||
+   ! grep -q 'notify_faults(true)' "$MAIN_ROOT/vehicle_sensor_runtime.c"; then
+  echo "vehicle sensor target audit requires fixed publish completion ledger and restart Health sync" >&2
+  exit 1
+fi
 if [ "$(wc -l <"$MAIN_ROOT/vehicle_sensor_model.c" | tr -d ' ')" -gt 400 ]; then
   echo "vehicle sensor codec/retry core must stay below 400 lines" >&2
   exit 1
@@ -85,7 +90,8 @@ for symbol in \
   vehicle_sensor_model_runtime_stop \
   vehicle_sensor_model_runtime_submit_event \
   vehicle_sensor_model_runtime_request \
-  vehicle_sensor_model_runtime_receive_ack; do
+  vehicle_sensor_model_runtime_receive_ack \
+  vehicle_sensor_model_runtime_record_send_result; do
   require_symbol "$symbol"
 done
 
@@ -99,3 +105,4 @@ done
 require_section_size .data.vehicle_sensor_server 0xc
 require_section_size .data.vendor_models 0x44
 require_section_size .bss.model_task_stack 0x1000
+require_section_size .bss.publish_completions 0x28

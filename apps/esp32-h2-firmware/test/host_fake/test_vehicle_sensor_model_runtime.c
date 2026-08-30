@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -28,6 +29,8 @@ static uint32_t driver_dropped;
 static uint32_t random_value;
 static esp_err_t sensor_publish_result;
 static esp_err_t vendor_publish_result;
+static bool sensor_publish_auto_complete;
+static bool vendor_publish_auto_complete;
 static size_t sensor_publish_count;
 static size_t vendor_publish_count;
 static response_log_t responses[64];
@@ -40,6 +43,8 @@ static esp_ble_mesh_model_t vendor_model;
 static struct net_buf_simple sensor_raw;
 static uint8_t sensor_raw_storage[1];
 static fault_log_t fault_log;
+static uint8_t health_server_current_faults[5];
+static uint8_t health_server_registered_faults[5];
 static esp_err_t nested_stop_result;
 static bool fake_runtime_initialized;
 
@@ -95,10 +100,18 @@ esp_err_t esp_ble_mesh_model_publish(
   assert(role == ROLE_NODE);
   if (model == &sensor_model) {
     sensor_publish_count += 1;
+    if (sensor_publish_result == ESP_OK && sensor_publish_auto_complete) {
+      vehicle_sensor_model_runtime_record_send_result(
+          &sensor_model, true);
+    }
     return sensor_publish_result;
   }
   assert(model == &vendor_model);
   vendor_publish_count += 1;
+  if (vendor_publish_result == ESP_OK && vendor_publish_auto_complete) {
+    vehicle_sensor_model_runtime_record_send_result(
+        &vendor_model, true);
+  }
   return vendor_publish_result;
 }
 
@@ -108,6 +121,17 @@ static void record_faults(uint32_t active, uint32_t history, void *context) {
   log->history = history;
   log->seen_active |= active;
   log->changes += 1;
+
+  const vehicle_sensor_health_t health = {
+      .active_mask = active,
+      .history_mask = history,
+  };
+  memset(health_server_current_faults, 0, sizeof(health_server_current_faults));
+  memset(health_server_registered_faults, 0, sizeof(health_server_registered_faults));
+  (void)vehicle_sensor_health_build_current(
+      &health, health_server_current_faults, sizeof(health_server_current_faults));
+  (void)vehicle_sensor_health_build_registered(
+      &health, health_server_registered_faults, sizeof(health_server_registered_faults));
 }
 
 static void set_configured(bool configured) {
@@ -135,10 +159,14 @@ static void reset_fixture(bool configured, bool level) {
   driver_dropped = 0;
   sensor_publish_result = ESP_OK;
   vendor_publish_result = ESP_OK;
+  sensor_publish_auto_complete = true;
+  vendor_publish_auto_complete = true;
   sensor_publish_count = 0;
   vendor_publish_count = 0;
   response_count = 0;
   memset(&fault_log, 0, sizeof(fault_log));
+  memset(health_server_current_faults, 0, sizeof(health_server_current_faults));
+  memset(health_server_registered_faults, 0, sizeof(health_server_registered_faults));
   memset(&sensor_pub, 0, sizeof(sensor_pub));
   memset(&vendor_pub, 0, sizeof(vendor_pub));
   memset(&sensor_model, 0, sizeof(sensor_model));
@@ -161,6 +189,18 @@ static void reset_fixture(bool configured, bool level) {
           .sensor_raw_value = &sensor_raw,
           .vendor_event_opcode = 0xc1ffffU,
       });
+  fake_esp_idf_preempt_task_create_once();
+  assert(vehicle_sensor_model_runtime_start(
+             &(vehicle_sensor_model_runtime_config_t){
+                 .mesh_adapter = &adapter,
+                 .fault_handler = record_faults,
+                 .fault_context = &fault_log,
+             }) == ESP_OK);
+  assert(vehicle_sensor_model_runtime_activate() == ESP_OK);
+  vehicle_sensor_model_runtime_test_process_once();
+}
+
+static void restart_fixture_without_reset(void) {
   fake_esp_idf_preempt_task_create_once();
   assert(vehicle_sensor_model_runtime_start(
              &(vehicle_sensor_model_runtime_config_t){
@@ -414,7 +454,7 @@ static void test_vendor_send_fault_survives_sensor_success_until_vendor_recovers
   assert((fault_log.history & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
 
   vehicle_sensor_model_runtime_record_send_result(
-      VEHICLE_SENSOR_SEND_CHANNEL_SENSOR, true);
+      &sensor_model, true);
   vehicle_sensor_model_runtime_test_process_once();
   assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
 
@@ -464,37 +504,47 @@ static void test_only_exact_ack_recovers_the_vendor_send_fault(void) {
 }
 
 static void test_health_recovers_async_send_drop_and_retry_faults(void) {
-  static const uint64_t retry_deadlines_ms[] = {
+  static const uint64_t retry_offsets_ms[] = {
       250, 750, 1750, 3750, 7750, 15750, 23750,
   };
   reset_fixture(true, true);
 
+  sensor_publish_auto_complete = false;
+  const uint64_t publication_deadline_ms =
+      vehicle_sensor_model_runtime_test_next_publication_ms();
+  fake_esp_idf_set_time_us((int64_t)(publication_deadline_ms * 1000U));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(sensor_publish_count == 1);
   vehicle_sensor_model_runtime_record_send_result(
-      VEHICLE_SENSOR_SEND_CHANNEL_SENSOR, false);
+      &sensor_model, false);
+  sensor_publish_auto_complete = true;
   vehicle_sensor_model_runtime_test_process_once();
   assert((fault_log.seen_active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
   assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
   assert((fault_log.history & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
-  assert(sensor_publish_count == 1);
+  assert(sensor_publish_count == 2);
 
   driver_dropped = 1;
   vehicle_sensor_model_runtime_test_process_once();
   assert((fault_log.seen_active & VEHICLE_SENSOR_FAULT_DROPPED) != 0);
   assert((fault_log.active & VEHICLE_SENSOR_FAULT_DROPPED) == 0);
   assert((fault_log.history & VEHICLE_SENSOR_FAULT_DROPPED) != 0);
-  assert(sensor_publish_count == 2);
+  assert(sensor_publish_count == 3);
 
+  const uint64_t retry_base_ms = publication_deadline_ms + 1U;
+  fake_esp_idf_set_time_us((int64_t)(retry_base_ms * 1000U));
   assert(vehicle_sensor_model_runtime_submit_event(
       &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
   vehicle_sensor_model_runtime_test_process_once();
-  for (size_t index = 0; index < sizeof(retry_deadlines_ms) / sizeof(retry_deadlines_ms[0]); index++) {
-    fake_esp_idf_set_time_us((int64_t)(retry_deadlines_ms[index] * 1000U) - 1);
+  for (size_t index = 0; index < sizeof(retry_offsets_ms) / sizeof(retry_offsets_ms[0]); index++) {
+    fake_esp_idf_set_time_us(
+        (int64_t)((retry_base_ms + retry_offsets_ms[index]) * 1000U) - 1);
     vehicle_sensor_model_runtime_test_process_once();
   }
   assert((fault_log.seen_active & VEHICLE_SENSOR_FAULT_RETRY_EXHAUSTED) != 0);
   assert((fault_log.active & VEHICLE_SENSOR_FAULT_RETRY_EXHAUSTED) == 0);
   assert((fault_log.history & VEHICLE_SENSOR_FAULT_RETRY_EXHAUSTED) != 0);
-  assert(sensor_publish_count == 3);
+  assert(sensor_publish_count == 4);
   stop_fixture();
 }
 
@@ -526,7 +576,85 @@ static void test_health_recovers_transient_faults_and_keeps_sequence_exhaustion(
   stop_fixture();
 }
 
+static void test_old_generation_publish_completions_do_not_change_new_fault_state(void) {
+  reset_fixture(true, true);
+  vendor_publish_auto_complete = false;
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(vendor_publish_count == 1);
+
+  stop_fixture();
+  restart_fixture_without_reset();
+  vendor_publish_result = ESP_FAIL;
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_CLEARED, .level = false}));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  vehicle_sensor_model_runtime_record_send_result(
+      &vendor_model, true);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  vehicle_sensor_model_runtime_record_send_result(
+      &vendor_model, false);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) != 0);
+
+  vendor_publish_result = ESP_OK;
+  vendor_publish_auto_complete = true;
+  fake_esp_idf_set_time_us(250000);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+  stop_fixture();
+
+  reset_fixture(true, true);
+  vendor_publish_auto_complete = false;
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
+  vehicle_sensor_model_runtime_test_process_once();
+  stop_fixture();
+  restart_fixture_without_reset();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+
+  vehicle_sensor_model_runtime_record_send_result(
+      &vendor_model, false);
+  vehicle_sensor_model_runtime_test_process_once();
+  assert((fault_log.active & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+  assert((fault_log.history & VEHICLE_SENSOR_FAULT_SEND_ERROR) == 0);
+  stop_fixture();
+}
+
+static void test_restart_clears_stale_external_health_fault_arrays(void) {
+  static const uint8_t no_faults[5] = {0};
+  reset_fixture(true, true);
+  vendor_publish_result = ESP_FAIL;
+  assert(vehicle_sensor_model_runtime_submit_event(
+      &(vehicle_sensor_event_t){.kind = VEHICLE_SENSOR_DETECTED, .level = true}));
+  vehicle_sensor_model_runtime_test_process_once();
+  assert(health_server_current_faults[0] == VEHICLE_SENSOR_HEALTH_CODE_SEND_ERROR);
+  assert(health_server_registered_faults[0] == VEHICLE_SENSOR_HEALTH_CODE_SEND_ERROR);
+
+  stop_fixture();
+  const uint32_t changes_before_restart = fault_log.changes;
+  restart_fixture_without_reset();
+  assert(fault_log.changes > changes_before_restart);
+  assert(memcmp(health_server_current_faults, no_faults, sizeof(no_faults)) == 0);
+  assert(memcmp(health_server_registered_faults, no_faults, sizeof(no_faults)) == 0);
+  stop_fixture();
+}
+
 int main(void) {
+  const char *fix3_test = getenv("VEHICLE_SENSOR_FIX3_TEST");
+  if (fix3_test != NULL && strcmp(fix3_test, "generation") == 0) {
+    test_old_generation_publish_completions_do_not_change_new_fault_state();
+    return 0;
+  }
+  if (fix3_test != NULL && strcmp(fix3_test, "health") == 0) {
+    test_restart_clears_stale_external_health_fault_arrays();
+    return 0;
+  }
   test_config_latch_converges_after_command_queue_saturation_and_reboot();
   test_custom_publication_is_single_and_uses_authoritative_current();
   test_sensor_requests_use_official_status_semantics_and_authoritative_current();
@@ -538,5 +666,7 @@ int main(void) {
   test_only_exact_ack_recovers_the_vendor_send_fault();
   test_health_recovers_async_send_drop_and_retry_faults();
   test_health_recovers_transient_faults_and_keeps_sequence_exhaustion();
+  test_old_generation_publish_completions_do_not_change_new_fault_state();
+  test_restart_clears_stale_external_health_fault_arrays();
   return 0;
 }
