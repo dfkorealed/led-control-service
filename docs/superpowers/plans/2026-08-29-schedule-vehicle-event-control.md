@@ -1108,7 +1108,7 @@ Fix Round 3 clean test-build는 binary `0xe6790`(`944,016`) 바이트, app slot 
 - Consumes: driver edge/current level, provisioned node unicast, ESP-IDF Sensor Server/vendor model API.
 - Produces: Sensor Status 60초 deterministic jitter publication, vendor event retry/ACK, 부팅 session별 bootId와 증가 sequence.
 
-- [ ] **Step 1: encode/decode·ACK retry 실패 테스트를 작성한다**
+- [x] **Step 1: encode/decode·ACK retry 실패 테스트를 작성한다**
 
 ```c
 vehicle_sensor_packet_t packet = vehicle_sensor_packet_make(boot_id, 41, VEHICLE_SENSOR_DETECTED, true);
@@ -1119,19 +1119,19 @@ vehicle_sensor_on_ack(&model, boot_id, 41);
 assert(!vehicle_sensor_has_pending(&model));
 ```
 
-- [ ] **Step 2: Sensor Server 현재 상태와 publication을 구현한다**
+- [x] **Step 2: Sensor Server 현재 상태와 publication을 구현한다**
 
 Sensor Get은 현재 GPIO level을 즉시 Status로 응답한다. publication 주기는 `60s + hash(unicast) % 5000ms`로 node별 deterministic jitter를 적용한다.
 
-- [ ] **Step 3: vendor event ACK/retry를 구현한다**
+- [x] **Step 3: vendor event ACK/retry를 구현한다**
 
 payload는 protocol version, bootId, uint32 sequence, detected/cleared, level을 포함한다. `bootId`는 매 부팅마다 `esp_random()`으로 새로 만들고 sequence는 1부터 증가시킨다. pending event는 16개 고정 크기 queue에 저장하고 최초 전송 뒤 250ms, 500ms, 1s, 2s, 4s, 8s 간격으로 최대 6회 재전송한다. 마지막 retry 후에도 ACK가 없으면 fault counter를 증가시키고 해당 pending slot을 해제하되 다음 event를 막지 않는다.
 
-- [ ] **Step 4: 모델 composition과 provisioning lifecycle에 연결한다**
+- [x] **Step 4: 모델 composition과 provisioning lifecycle에 연결한다**
 
 Sensor Server와 vendor server model을 기존 node composition에 추가하고 provisioning 완료 뒤 publication address/app key binding 상태를 확인한다. ACK opcode는 수신 `(bootId,sequence)`와 일치할 때만 pending을 제거한다.
 
-- [ ] **Step 5: native test와 ESP-IDF build 후 커밋한다**
+- [x] **Step 5: native test와 ESP-IDF build 후 커밋한다**
 
 Run: `cc -std=c11 -Wall -Wextra -Werror -I apps/esp32-h2-firmware/main apps/esp32-h2-firmware/test/native/test_vehicle_sensor_model.c apps/esp32-h2-firmware/main/vehicle_sensor_model.c -o /tmp/test_vehicle_sensor_model && /tmp/test_vehicle_sensor_model`
 
@@ -1141,6 +1141,8 @@ Run: `scripts/esp32-h2-build.sh`
 git add apps/esp32-h2-firmware/main apps/esp32-h2-firmware/test/native/test_vehicle_sensor_model.c
 git commit -m "feat(firmware): publish reliable vehicle sensor events"
 ```
+
+Task 16 완료 검증은 native exact wire/ACK/retry/16-slot/overflow, Task 15 actual-driver host fake와 test-build runtime fail-stop, trust/artifact gate, ESP-IDF v5.5.1 `--test-build` fullclean으로 수행했다. Test binary는 `0xeacd0`(`961,744`) 바이트, app slot free는 `0x105330`(`1,069,872`, 약 53%)이고 production 최소 free `406,324` 바이트를 통과한다. Production trust root는 아직 `unprovisioned`라 production build가 IDF 실행 전에 의도대로 fail-closed했으며 실제 flash와 Raspberry Pi/ESP32-H2 RF HIL은 실행하지 않았다.
 
 ### Task 17: Web 제어 탭과 스케줄 CRUD UI
 

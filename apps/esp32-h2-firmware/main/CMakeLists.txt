@@ -13,6 +13,7 @@ idf_component_register(
     "mesh_transaction_cache.c"
     "persistent_state.c"
     "vehicle_sensor_driver.c"
+    "vehicle_sensor_model.c"
   INCLUDE_DIRS "."
   REQUIRES bt driver nvs_flash esp_timer esp_system
 )

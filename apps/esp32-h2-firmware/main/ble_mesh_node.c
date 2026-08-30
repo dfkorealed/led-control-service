@@ -15,16 +15,20 @@
 #include "esp_ble_mesh_local_data_operation_api.h"
 #include "esp_ble_mesh_networking_api.h"
 #include "esp_ble_mesh_provisioning_api.h"
+#include "esp_ble_mesh_sensor_model_api.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
 #include "identify.h"
 #include "led_driver.h"
+#include "mesh/device_property.h"
 #include "mesh_publication_jitter.h"
 #include "mesh_state.h"
 #include "mesh_transaction_cache.h"
 #include "persistent_state.h"
+#include "vehicle_sensor_model.h"
 
 #if defined(CONFIG_LED_CONTROL_TEST_BUILD)
 #if !defined(CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID) || CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID != 0xFFFF
@@ -40,6 +44,33 @@
 #define LED_CONTROL_COMPANY_ID CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID
 #define LED_CONTROL_UNPROV_NAME "DFK-LED-H2"
 #define LED_CONTROL_HEALTH_TEST_ID 0x01
+#define LED_CONTROL_HEALTH_FAULT_SENSOR_DROPPED 0x80
+#define LED_CONTROL_HEALTH_FAULT_SENSOR_RETRY_EXHAUSTED 0x81
+#define LED_CONTROL_HEALTH_FAULT_SENSOR_SEND_ERROR 0x82
+#define LED_CONTROL_HEALTH_FAULT_SENSOR_PUBLICATION_UNCONFIGURED 0x83
+#define LED_CONTROL_HEALTH_FAULT_SENSOR_SEQUENCE_EXHAUSTED 0x84
+#define VEHICLE_SENSOR_VENDOR_EVENT_OPCODE \
+  ESP_BLE_MESH_MODEL_OP_3(VEHICLE_SENSOR_VENDOR_EVENT_OPCODE_BYTE & 0x3FU, LED_CONTROL_COMPANY_ID)
+#define VEHICLE_SENSOR_VENDOR_ACK_OPCODE \
+  ESP_BLE_MESH_MODEL_OP_3(VEHICLE_SENSOR_VENDOR_ACK_OPCODE_BYTE & 0x3FU, LED_CONTROL_COMPANY_ID)
+
+_Static_assert(
+    (VEHICLE_SENSOR_VENDOR_EVENT_OPCODE >> 16U) == VEHICLE_SENSOR_VENDOR_EVENT_OPCODE_BYTE,
+    "vendor event opcode must match the Gateway wire contract");
+_Static_assert(
+    (VEHICLE_SENSOR_VENDOR_ACK_OPCODE >> 16U) == VEHICLE_SENSOR_VENDOR_ACK_OPCODE_BYTE,
+    "vendor ACK opcode must match the Gateway wire contract");
+_Static_assert(BLE_MESH_PRESENCE_DETECTED_LEN == 1, "Presence Detected must be one byte");
+
+enum root_model_index {
+  ROOT_MODEL_CONFIG_SERVER = 0,
+  ROOT_MODEL_HEALTH_SERVER,
+  ROOT_MODEL_ONOFF_SERVER,
+  ROOT_MODEL_LIGHTNESS_SERVER,
+  ROOT_MODEL_LIGHTNESS_SETUP_SERVER,
+  ROOT_MODEL_SENSOR_SERVER,
+  ROOT_MODEL_SENSOR_SETUP_SERVER,
+};
 
 static const char *TAG = "ble_mesh_node";
 
@@ -48,6 +79,7 @@ static uint8_t health_test_ids[] = {LED_CONTROL_HEALTH_TEST_ID};
 static control_state_t mesh_control_state;
 static esp_timer_handle_t group_lightness_publish_timer;
 static mesh_lightness_transaction_cache_t lightness_transaction_cache;
+static portMUX_TYPE health_fault_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static esp_ble_mesh_cfg_srv_t config_server = {
     .net_transmit = ESP_BLE_MESH_TRANSMIT(2, 20),
@@ -67,7 +99,7 @@ static esp_ble_mesh_cfg_srv_t config_server = {
     .default_ttl = 7,
 };
 
-ESP_BLE_MESH_HEALTH_PUB_DEFINE(health_pub, 4, ROLE_NODE);
+ESP_BLE_MESH_HEALTH_PUB_DEFINE(health_pub, 8, ROLE_NODE);
 static esp_ble_mesh_health_srv_t health_server = {
     .health_test = {
         .id_count = 1,
@@ -107,16 +139,75 @@ static esp_ble_mesh_light_lightness_setup_srv_t lightness_setup_server = {
     .state = &lightness_state,
 };
 
+NET_BUF_SIMPLE_DEFINE_STATIC(vehicle_presence_raw, BLE_MESH_PRESENCE_DETECTED_LEN);
+static esp_ble_mesh_sensor_state_t vehicle_sensor_states[] = {
+    {
+        .sensor_property_id = BLE_MESH_PRESENCE_DETECTED,
+        .descriptor = {
+            .positive_tolerance = ESP_BLE_MESH_SENSOR_UNSPECIFIED_POS_TOLERANCE,
+            .negative_tolerance = ESP_BLE_MESH_SENSOR_UNSPECIFIED_NEG_TOLERANCE,
+            .sampling_function = ESP_BLE_MESH_SAMPLE_FUNC_INSTANTANEOUS,
+            .measure_period = ESP_BLE_MESH_SENSOR_NOT_APPL_MEASURE_PERIOD,
+            .update_interval = ESP_BLE_MESH_SENSOR_NOT_APPL_UPDATE_INTERVAL,
+        },
+        .sensor_data = {
+            .format = ESP_BLE_MESH_SENSOR_DATA_FORMAT_A,
+            .length = 0,
+            .raw_value = &vehicle_presence_raw,
+        },
+    },
+};
+
+ESP_BLE_MESH_MODEL_PUB_DEFINE(vehicle_sensor_pub, 1 + VEHICLE_SENSOR_STATUS_SIZE, ROLE_NODE);
+static esp_ble_mesh_sensor_srv_t vehicle_sensor_server = {
+    .rsp_ctrl = {
+        .get_auto_rsp = ESP_BLE_MESH_SERVER_RSP_BY_APP,
+        .set_auto_rsp = ESP_BLE_MESH_SERVER_RSP_BY_APP,
+    },
+    .state_count = ARRAY_SIZE(vehicle_sensor_states),
+    .states = vehicle_sensor_states,
+};
+
+ESP_BLE_MESH_MODEL_PUB_DEFINE(vehicle_sensor_setup_pub, 8, ROLE_NODE);
+static esp_ble_mesh_sensor_setup_srv_t vehicle_sensor_setup_server = {
+    .rsp_ctrl = {
+        .get_auto_rsp = ESP_BLE_MESH_SERVER_RSP_BY_APP,
+        .set_auto_rsp = ESP_BLE_MESH_SERVER_RSP_BY_APP,
+    },
+    .state_count = ARRAY_SIZE(vehicle_sensor_states),
+    .states = vehicle_sensor_states,
+};
+
 static esp_ble_mesh_model_t root_models[] = {
     ESP_BLE_MESH_MODEL_CFG_SRV(&config_server),
     ESP_BLE_MESH_MODEL_HEALTH_SRV(&health_server, &health_pub),
     ESP_BLE_MESH_MODEL_GEN_ONOFF_SRV(&onoff_pub, &onoff_server),
     ESP_BLE_MESH_MODEL_LIGHT_LIGHTNESS_SRV(&lightness_pub, &lightness_server),
     ESP_BLE_MESH_MODEL_LIGHT_LIGHTNESS_SETUP_SRV(&lightness_setup_pub, &lightness_setup_server),
+    ESP_BLE_MESH_MODEL_SENSOR_SRV(&vehicle_sensor_pub, &vehicle_sensor_server),
+    ESP_BLE_MESH_MODEL_SENSOR_SETUP_SRV(&vehicle_sensor_setup_pub, &vehicle_sensor_setup_server),
+};
+
+static esp_ble_mesh_model_op_t vehicle_sensor_vendor_ops[] = {
+    ESP_BLE_MESH_MODEL_OP(VEHICLE_SENSOR_VENDOR_ACK_OPCODE, VEHICLE_SENSOR_ACK_SIZE),
+    ESP_BLE_MESH_MODEL_OP_END,
+};
+
+ESP_BLE_MESH_MODEL_PUB_DEFINE(
+    vehicle_sensor_vendor_pub,
+    3 + VEHICLE_SENSOR_PACKET_SIZE,
+    ROLE_NODE);
+static esp_ble_mesh_model_t vendor_models[] = {
+    ESP_BLE_MESH_VENDOR_MODEL(
+        LED_CONTROL_COMPANY_ID,
+        VEHICLE_SENSOR_VENDOR_SERVER_MODEL_ID,
+        vehicle_sensor_vendor_ops,
+        &vehicle_sensor_vendor_pub,
+        NULL),
 };
 
 static esp_ble_mesh_elem_t elements[] = {
-    ESP_BLE_MESH_ELEMENT(0, root_models, ESP_BLE_MESH_MODEL_NONE),
+    ESP_BLE_MESH_ELEMENT(0, root_models, vendor_models),
 };
 
 static esp_ble_mesh_comp_t composition = {
@@ -154,8 +245,8 @@ static void apply_control_state(void) {
 static void publish_control_state(esp_ble_mesh_model_t *model) {
   uint8_t onoff = onoff_server.state.onoff;
   uint16_t lightness = lightness_state.lightness_actual;
-  esp_ble_mesh_model_publish(&root_models[2], ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_STATUS, sizeof(onoff), &onoff, ROLE_NODE);
-  esp_ble_mesh_model_publish(model != NULL ? model : &root_models[3], ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS, sizeof(lightness), (uint8_t *)&lightness, ROLE_NODE);
+  esp_ble_mesh_model_publish(&root_models[ROOT_MODEL_ONOFF_SERVER], ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_STATUS, sizeof(onoff), &onoff, ROLE_NODE);
+  esp_ble_mesh_model_publish(model != NULL ? model : &root_models[ROOT_MODEL_LIGHTNESS_SERVER], ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS, sizeof(lightness), (uint8_t *)&lightness, ROLE_NODE);
 }
 
 static void apply_control_state_and_publish(esp_ble_mesh_model_t *model) {
@@ -167,7 +258,7 @@ static void publish_group_lightness_status(void *argument) {
   (void)argument;
   uint16_t lightness = lightness_state.lightness_actual;
   esp_err_t error = esp_ble_mesh_model_publish(
-      &root_models[3],
+      &root_models[ROOT_MODEL_LIGHTNESS_SERVER],
       ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS,
       sizeof(lightness),
       (uint8_t *)&lightness,
@@ -223,10 +314,12 @@ static void provisioning_cb(esp_ble_mesh_prov_cb_event_t event, esp_ble_mesh_pro
              param->node_prov_complete.addr,
              param->node_prov_complete.flags,
              param->node_prov_complete.iv_index);
-    apply_control_state_and_publish(&root_models[3]);
+    apply_control_state_and_publish(&root_models[ROOT_MODEL_LIGHTNESS_SERVER]);
+    vehicle_sensor_model_runtime_provisioned();
     break;
   case ESP_BLE_MESH_NODE_PROV_RESET_EVT:
     ESP_LOGW(TAG, "Provisioning reset requested");
+    vehicle_sensor_model_runtime_reset();
     esp_ble_mesh_node_prov_enable((esp_ble_mesh_prov_bearer_t)(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT));
     break;
   case ESP_BLE_MESH_NODE_SET_UNPROV_DEV_NAME_COMP_EVT:
@@ -268,6 +361,7 @@ static void config_server_cb(esp_ble_mesh_cfg_server_cb_event_t event, esp_ble_m
   default:
     break;
   }
+  vehicle_sensor_model_runtime_configuration_changed();
 }
 
 static void generic_server_cb(esp_ble_mesh_generic_server_cb_event_t event, esp_ble_mesh_generic_server_cb_param_t *param) {
@@ -281,7 +375,7 @@ static void generic_server_cb(esp_ble_mesh_generic_server_cb_event_t event, esp_
     if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET ||
         param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET_UNACK) {
       mesh_state_apply_onoff(&mesh_control_state, param->value.set.onoff.onoff);
-      apply_control_state_and_publish(&root_models[3]);
+      apply_control_state_and_publish(&root_models[ROOT_MODEL_LIGHTNESS_SERVER]);
       if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET) {
         send_onoff_status(param->model, &param->ctx);
       }
@@ -291,7 +385,7 @@ static void generic_server_cb(esp_ble_mesh_generic_server_cb_event_t event, esp_
     if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET ||
         param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_SET_UNACK) {
       mesh_state_apply_onoff(&mesh_control_state, param->value.state_change.onoff_set.onoff);
-      apply_control_state_and_publish(&root_models[3]);
+      apply_control_state_and_publish(&root_models[ROOT_MODEL_LIGHTNESS_SERVER]);
     }
     break;
   default:
@@ -353,14 +447,14 @@ static void lighting_server_cb(esp_ble_mesh_lighting_server_cb_event_t event, es
 static void health_server_cb(esp_ble_mesh_health_server_cb_event_t event, esp_ble_mesh_health_server_cb_param_t *param) {
   switch (event) {
   case ESP_BLE_MESH_HEALTH_SERVER_FAULT_CLEAR_EVT:
-    memset(health_server.health_test.current_faults, 0, sizeof(health_server.health_test.current_faults));
+    portENTER_CRITICAL(&health_fault_mux);
     memset(health_server.health_test.registered_faults, 0, sizeof(health_server.health_test.registered_faults));
-    ESP_LOGI(TAG, "Health faults cleared");
+    portEXIT_CRITICAL(&health_fault_mux);
+    ESP_LOGI(TAG, "Health registered faults cleared; active faults retained");
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_health_server_fault_update(&elements[0]));
     break;
   case ESP_BLE_MESH_HEALTH_SERVER_FAULT_TEST_EVT:
     health_server.health_test.prev_test_id = param->fault_test.test_id;
-    health_server.health_test.current_faults[0] = ESP_BLE_MESH_NO_FAULT;
     ESP_LOGI(TAG, "Health fault test executed, test_id=0x%02x", param->fault_test.test_id);
     esp_ble_mesh_health_server_fault_update(&elements[0]);
     break;
@@ -380,21 +474,103 @@ static void health_server_cb(esp_ble_mesh_health_server_cb_event_t event, esp_bl
   }
 }
 
+static void append_health_fault(uint8_t *faults, size_t capacity, uint8_t fault) {
+  for (size_t i = 0; i < capacity; i++) {
+    if (faults[i] == fault) {
+      return;
+    }
+    if (faults[i] == ESP_BLE_MESH_NO_FAULT) {
+      faults[i] = fault;
+      return;
+    }
+  }
+}
+
+static void vehicle_sensor_health_faults_changed(uint32_t fault_mask, void *context) {
+  (void)context;
+  static const struct {
+    uint32_t mask;
+    uint8_t code;
+  } fault_codes[] = {
+      {VEHICLE_SENSOR_FAULT_DROPPED, LED_CONTROL_HEALTH_FAULT_SENSOR_DROPPED},
+      {VEHICLE_SENSOR_FAULT_RETRY_EXHAUSTED, LED_CONTROL_HEALTH_FAULT_SENSOR_RETRY_EXHAUSTED},
+      {VEHICLE_SENSOR_FAULT_SEND_ERROR, LED_CONTROL_HEALTH_FAULT_SENSOR_SEND_ERROR},
+      {VEHICLE_SENSOR_FAULT_PUBLICATION_UNCONFIGURED, LED_CONTROL_HEALTH_FAULT_SENSOR_PUBLICATION_UNCONFIGURED},
+      {VEHICLE_SENSOR_FAULT_SEQUENCE_EXHAUSTED, LED_CONTROL_HEALTH_FAULT_SENSOR_SEQUENCE_EXHAUSTED},
+  };
+
+  portENTER_CRITICAL(&health_fault_mux);
+  for (size_t i = 0; i < ARRAY_SIZE(fault_codes); i++) {
+    if ((fault_mask & fault_codes[i].mask) == 0) {
+      continue;
+    }
+    append_health_fault(
+        health_server.health_test.current_faults,
+        sizeof(health_server.health_test.current_faults),
+        fault_codes[i].code);
+    append_health_fault(
+        health_server.health_test.registered_faults,
+        sizeof(health_server.health_test.registered_faults),
+        fault_codes[i].code);
+  }
+  portEXIT_CRITICAL(&health_fault_mux);
+
+  if (esp_ble_mesh_node_is_provisioned()) {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_health_server_fault_update(&elements[0]));
+  }
+}
+
+static void sensor_server_cb(
+    esp_ble_mesh_sensor_server_cb_event_t event,
+    esp_ble_mesh_sensor_server_cb_param_t *param) {
+  if (event != ESP_BLE_MESH_SENSOR_SERVER_RECV_GET_MSG_EVT ||
+      param->ctx.recv_op != ESP_BLE_MESH_MODEL_OP_SENSOR_GET) {
+    return;
+  }
+  if (!vehicle_sensor_model_runtime_request_status(
+          &param->ctx,
+          param->value.get.sensor_data.op_en,
+          param->value.get.sensor_data.property_id)) {
+    ESP_LOGW(TAG, "Vehicle Sensor Get dropped because the model queue is full");
+  }
+}
+
 /* ESP-IDF asks us to refresh the publication buffer; the Mesh stack sends it after this callback returns. */
 static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_model_cb_param_t *param) {
   esp_ble_mesh_model_t *model;
 
+  if (event == ESP_BLE_MESH_MODEL_OPERATION_EVT) {
+    if (param->model_operation.model == &vendor_models[0] &&
+        param->model_operation.opcode == VEHICLE_SENSOR_VENDOR_ACK_OPCODE &&
+        !vehicle_sensor_model_runtime_receive_ack(
+            param->model_operation.msg,
+            param->model_operation.length)) {
+      ESP_LOGW(TAG, "Ignored malformed or unqueueable vehicle sensor ACK");
+    }
+    return;
+  }
+  if (event == ESP_BLE_MESH_MODEL_PUBLISH_COMP_EVT) {
+    if ((param->model_publish_comp.model == &vendor_models[0] ||
+         param->model_publish_comp.model == &root_models[ROOT_MODEL_SENSOR_SERVER]) &&
+        param->model_publish_comp.err_code != 0) {
+      vehicle_sensor_model_runtime_record_send_error();
+    }
+    return;
+  }
   if (event != ESP_BLE_MESH_MODEL_PUBLISH_UPDATE_EVT) {
     return;
   }
   model = param->model_publish_update.model;
-  if (model == &root_models[1]) {
+  if (model == &root_models[ROOT_MODEL_HEALTH_SERVER]) {
+    return;
+  }
+  if (vehicle_sensor_model_runtime_prepare_publication(model)) {
     return;
   }
   if (model->pub == NULL || model->pub->msg == NULL) {
     return;
   }
-  if (model == &root_models[2]) {
+  if (model == &root_models[ROOT_MODEL_ONOFF_SERVER]) {
     uint8_t onoff = onoff_server.state.onoff;
     net_buf_simple_reset(model->pub->msg);
     net_buf_simple_add_u8(model->pub->msg, 0x82);
@@ -402,7 +578,7 @@ static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_m
     net_buf_simple_add_u8(model->pub->msg, onoff);
     return;
   }
-  if (model == &root_models[3]) {
+  if (model == &root_models[ROOT_MODEL_LIGHTNESS_SERVER]) {
     uint16_t lightness = lightness_state.lightness_actual;
     net_buf_simple_reset(model->pub->msg);
     net_buf_simple_add_u8(model->pub->msg, 0x82);
@@ -429,6 +605,9 @@ esp_err_t ble_mesh_node_init(void) {
   }
   update_bound_mesh_state();
 
+  net_buf_simple_reset(&vehicle_presence_raw);
+  net_buf_simple_add_u8(&vehicle_presence_raw, 0);
+
   device_identity_build(dev_uuid);
 
   ESP_ERROR_CHECK(esp_ble_mesh_register_prov_callback(provisioning_cb));
@@ -436,11 +615,26 @@ esp_err_t ble_mesh_node_init(void) {
   ESP_ERROR_CHECK(esp_ble_mesh_register_generic_server_callback(generic_server_cb));
   ESP_ERROR_CHECK(esp_ble_mesh_register_lighting_server_callback(lighting_server_cb));
   ESP_ERROR_CHECK(esp_ble_mesh_register_health_server_callback(health_server_cb));
+  ESP_ERROR_CHECK(esp_ble_mesh_register_sensor_server_callback(sensor_server_cb));
   ESP_ERROR_CHECK(esp_ble_mesh_register_custom_model_callback(model_publish_cb));
 
   esp_err_t err = esp_ble_mesh_init(&provision, &composition);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to initialize BLE Mesh, err=%d", err);
+    return err;
+  }
+
+  const vehicle_sensor_model_runtime_config_t sensor_model_config = {
+      .sensor_model = &root_models[ROOT_MODEL_SENSOR_SERVER],
+      .vendor_model = &vendor_models[0],
+      .sensor_raw_value = &vehicle_presence_raw,
+      .vendor_event_opcode = VEHICLE_SENSOR_VENDOR_EVENT_OPCODE,
+      .fault_handler = vehicle_sensor_health_faults_changed,
+      .fault_context = NULL,
+  };
+  err = vehicle_sensor_model_runtime_start(&sensor_model_config);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to start vehicle sensor model runtime, err=%d", err);
     return err;
   }
 
@@ -452,6 +646,7 @@ esp_err_t ble_mesh_node_init(void) {
   err = esp_ble_mesh_node_prov_enable((esp_ble_mesh_prov_bearer_t)(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT));
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to enable provisioning, err=%d", err);
+    ESP_ERROR_CHECK_WITHOUT_ABORT(vehicle_sensor_model_runtime_stop());
     return err;
   }
 
@@ -481,4 +676,12 @@ esp_err_t ble_mesh_node_init(void) {
            dev_uuid[14],
            dev_uuid[15]);
   return ESP_OK;
+}
+
+bool ble_mesh_node_submit_vehicle_sensor_event(const vehicle_sensor_event_t *event) {
+  return vehicle_sensor_model_runtime_submit_event(event);
+}
+
+esp_err_t ble_mesh_node_shutdown(void) {
+  return vehicle_sensor_model_runtime_stop();
 }

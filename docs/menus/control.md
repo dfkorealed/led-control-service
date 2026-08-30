@@ -7,7 +7,7 @@
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
-- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client와 ESP32-H2 GPIO sensor driver를 완료했다. 다음 구현은 Sensor Server/vendor event model, Web CRUD, software E2E와 HIL 순서다.
+- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. 다음 구현은 Web CRUD, software E2E와 HIL 순서다.
 
 ## 확정 구현 범위
 
@@ -166,13 +166,15 @@
 - Gateway는 group ID/address/version별 `configuring | ready | failed` 상태를 임시 파일 저장, 파일 fsync, rename, 디렉터리 fsync 순으로 영속화한다. 첫 subscription 요청 전에 `configuring`을 저장하고 전체 member 결과가 정확히 일치한 경우에만 `ready`를 저장한다. 같은 group의 sync/control은 직렬화하고 다른 group은 병렬 실행한다.
 - Gateway 재시작 시 정상적인 durable group state는 그대로 복원한다. state 파일이 없거나 state/manifest revision이 다르거나 손상됐을 때는 로컬 applied membership을 신뢰하지 않고 빈 상태로 fail-closed하며, 같은 `eventId`의 `first_run/state_missing/state_corrupt` resync 요청을 영속화한다. API가 DB 반영 후 보낸 애플리케이션 ACK의 `requestEventId`를 확인할 때까지 재시작·재연결·heartbeat에서도 재전송한다. API는 cloud applied snapshot을 삭제하지 않고 full-state Add와 retiring Delete 근거로 사용하며, gateway는 성공 결과를 새 durable membership snapshot으로 원자 저장한다. cloud에도 gateway에도 남지 않은 미확인 물리 subscription address는 자동 복구할 수 없으므로 HIL/운영 감사 위험으로 남긴다.
 - MQTT command subscribe 실패는 현재 연결에서 최대 30초 backoff로 재시도한다. 직전 SUBACK가 실패했다면 persistent session 재연결의 `sessionPresent`와 관계없이 command 및 resync ACK topic을 강제 재구독한다. subscription 결과에 member 누락, 중복 또는 미등록 node가 있으면 group을 `failed`로 저장한다.
+- ESP32-H2 primary element는 Presence Detected Sensor/Setup Server와 Task 14 공통 Company ID의 vendor event server를 제공한다. Sensor Get은 worker queue에서 현재 GPIO를 즉시 Status로 응답하고 Sensor publication은 `60s + FNV-1a(primary unicast) % 5000ms`로 분산한다. Vendor payload는 version, per-boot random `bootId`, 1부터 증가하는 uint32 sequence, detected/cleared와 exact level의 11바이트 계약이다.
+- 센서 event는 16개 static pending slot에서 최초 송신 후 250ms, 500ms, 1s, 2s, 4s, 8s 간격으로 6회 retry한다. Exact bootId/sequence ACK만 slot을 제거하고 duplicate/out-of-order ACK는 무시한다. Queue full은 current GPIO recovery를 예약하며 dropped/retry exhausted/send/unconfigured/sequence exhausted를 Health fault에 기록한다. Driver callback은 BLE API와 log 없이 static model worker에만 nonblocking handoff한다.
 - ESP32-H2는 group Light Lightness Set Unacknowledged를 PWM에 즉시 반영하고 primary unicast 기반 `64~5,179ms` 결정적 지터 뒤 실제 Lightness Status를 publication한다. `(source, destination, TID)` 6초 cache가 중복 적용과 publication 재예약을 막는다.
 - 펌웨어의 모델별 group subscription 상한은 16개이며, 서비스 계약은 조명 한 대당 층 group 1개와 사용자 fixture group 최대 15개다. API도 provisioning member 연결 시 같은 사용자 group 상한을 검증한다.
 
 ## 미구현
 
 - 스케줄 제어 Web CRUD
-- 차량 이벤트 규칙 Web CRUD와 ESP32-H2 Sensor Server/vendor event 송신
+- 차량 이벤트 규칙 Web CRUD
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
@@ -186,7 +188,7 @@
 
 - Automation full snapshot의 production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK, Task 12 offline scheduler·priority arbiter, Task 13 execution outbox/application ACK와 Task 14 Sensor Client/vendor ACK 입력은 연결됐다. Snapshot activation과 production shutdown은 필요한 BLE Mesh terminal state/handoff, execution/capability queue와 in-flight QoS 1 publish를 순서대로 drain한다.
 - Capability ACK의 필수 `reportPayloadHash`와 identity `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`는 cross-node eventId 충돌과 same-node altered payload를 원본과 분리한다. Exact report 재전달은 최초 payload/hash/`ingestedAt`을 유지하고 published/deadletter/expired lease delivery 상태만 재큐잉하며 live lease를 보호한다. 이 API 계약은 unit/PostgreSQL migration test로 검증했지만 실제 production broker ACL과 Gateway certificate로 report 왕복을 수행한 HIL 증거는 아직 없다.
-- Task 14의 Sensor Server/vendor model binding·publication, node별 durable capability report와 exact ACK 처리 및 Task 15의 ESP32-H2 GPIO edge driver는 native/host-fake 테스트와 linked-section audit가 포함된 target build로 검증했다. Host fake는 boot/ISR interleaving, 실제 static queue overflow/resync, queue-empty 직후 2개 ISR의 timestamp/High-Low ordering과 반복 lifecycle을 실행하지만 cache-disabled ISR, 실제 전기 신호와 RF는 증명하지 않는다. Sensor Server/vendor event 송신은 Task 16 범위이며 Raspberry Pi/ESP32-H2 사이의 packet loss, 재전송, ACK와 전원 차단 HIL은 아직 실행하지 않았다.
+- Task 14의 Gateway Sensor/vendor client, Task 15 GPIO driver와 Task 16 ESP32-H2 Sensor/vendor model은 native exact wire/retry 테스트, actual-driver host fake, Sensor callback/runtime/composition/static-memory linker-map gate와 ESP-IDF fullclean target build로 검증했다. Host fake는 boot/ISR interleaving, 실제 static queue overflow/resync, queue-empty 직후 2개 ISR ordering과 반복 driver lifecycle을 실행하지만 model worker의 실제 RF 실행, cache-disabled ISR, 센서 전기 신호와 전원 차단은 증명하지 않는다. Raspberry Pi/ESP32-H2 사이 packet loss, 6회 재전송, exact ACK, publication 지터, reprovision/reboot current-state와 Health fault HIL은 아직 실행하지 않았다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - schedule API CRUD와 Gateway offline schedule 실행은 구현 완료했다. Schedule Web CRUD는 후속 범위이며, 아직 동작하지 않는 Web 버튼은 양산 UI에서 제거했다.
@@ -195,7 +197,7 @@
 - viewer의 읽기 전용 안내는 구현됐지만, 향후 명령 이력 화면에서도 동일한 권한 설명을 재사용하도록 공통화할 수 있다.
 - Raspberry Pi Phase 0의 daemon/HCI/network/token 재연결은 통과했지만 ESP32-H2 provisioning과 0/25/50/100% 왕복, 2-node HIL은 아직 실기 검증이 필요하다.
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
-- ESP32-H2 custom two-OTA partition은 각 slot `0x1f0000` 바이트다. Task 15 Fix Round 3 clean test-build binary는 `0xe6790` 바이트, free는 `0x109870` 바이트(약 54%)다. Production release gate는 free가 slot 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 build를 거부하며 Task 16 추가 뒤에도 같은 gate를 유지한다.
+- ESP32-H2 custom two-OTA partition은 각 slot `0x1f0000` 바이트다. Task 16 clean test-build binary는 `0xeacd0`(`961,744`) 바이트, free는 `0x105330`(`1,069,872`, 약 53%)다. Production release gate는 free가 slot 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 build를 거부한다. 실제 production trust root는 미등록이라 production build는 IDF 실행 전에 정상적으로 fail-closed한다.
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
 - API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기, 신규 웹 target picker 연결까지 반영됐다.
 - 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 RF/HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
@@ -304,10 +306,14 @@
 - `apps/esp32-h2-firmware/main/led_driver.c`
 - `apps/esp32-h2-firmware/main/vehicle_sensor_driver.c`
 - `apps/esp32-h2-firmware/main/vehicle_sensor_driver.h`
+- `apps/esp32-h2-firmware/main/vehicle_sensor_model.c`
+- `apps/esp32-h2-firmware/main/vehicle_sensor_model.h`
 - `apps/esp32-h2-firmware/partitions.csv`
 - `apps/esp32-h2-firmware/manufacturing/production-trust-policy.conf`
 - `apps/esp32-h2-firmware/sdkconfig.defaults`
 - `apps/esp32-h2-firmware/test/native/test_vehicle_sensor_driver.c`
+- `apps/esp32-h2-firmware/test/native/test_vehicle_sensor_model.c`
+- `apps/esp32-h2-firmware/test/native/test_vehicle_sensor_model_target_artifact.sh`
 - `apps/esp32-h2-firmware/test/host_fake/test_vehicle_sensor_driver_integration.c`
 - `apps/esp32-h2-firmware/test/host_fake/test_vehicle_sensor_host_fake.sh`
 - `apps/esp32-h2-firmware/test/native/test_esp32_h2_artifact_audit.sh`

@@ -84,6 +84,7 @@ if [ "$BUILD_MODE" = "production" ]; then
     >/dev/null
 fi
 idf.py build
+"$FIRMWARE_DIR/test/native/test_vehicle_sensor_model_target_artifact.sh" "$BUILD_WORKDIR"
 if [ "$BUILD_MODE" = "production" ]; then
   "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" \
     create-production-attestation \

@@ -8,7 +8,6 @@
 #include "vehicle_sensor_driver.h"
 
 #include <stdbool.h>
-#include <inttypes.h>
 #include "esp_log.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
@@ -21,16 +20,12 @@ static const char *TAG = "led_control_node";
 
 static void handle_vehicle_sensor_event(const vehicle_sensor_event_t *event, void *context) {
   (void)context;
-  ESP_LOGI(
-      TAG,
-      "Vehicle sensor %s level=%s monotonic_us=%" PRIu64,
-      event->kind == VEHICLE_SENSOR_DETECTED ? "detected" : "cleared",
-      event->level ? "high" : "low",
-      event->monotonic_us);
+  (void)ble_mesh_node_submit_vehicle_sensor_event(event);
 }
 
 static void stop_vehicle_sensor_on_shutdown(void) {
   (void)vehicle_sensor_driver_stop();
+  (void)ble_mesh_node_shutdown();
 }
 
 void app_main(void) {

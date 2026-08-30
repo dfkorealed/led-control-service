@@ -87,6 +87,17 @@ esp_err_t ble_mesh_node_init(void) {
   return ESP_OK;
 }
 
+bool ble_mesh_node_submit_vehicle_sensor_event(const vehicle_sensor_event_t *event) {
+  (void)event;
+  side_effect_count += 1;
+  return true;
+}
+
+esp_err_t ble_mesh_node_shutdown(void) {
+  side_effect_count += 1;
+  return ESP_OK;
+}
+
 esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, void *context) {
   (void)handler;
   (void)context;

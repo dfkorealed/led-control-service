@@ -299,3 +299,9 @@
 - **원인**: node 단위 API를 transaction 경계로 사용했고 durable enqueue 전에 controller가 작업 identity를 소유하지 않았다.
 - **해결 및 예방책**: controller가 먼저 bounded volatile pending set에 batch identity를 보존한다. Journal은 `requestRefreshBatch` 한 commit과 `recordBindingsAndCompleteBatch` 한 commit만 수행하고 Config 실패 node는 pending에 남긴다. 두 commit 모두 exact previous/next/unknown read-back을 사용하며 volatile retry는 1초~30초 backoff와 shutdown drain에 포함한다.
 - **반복 방지 체크**: 100/1,000 node에서 journal write count 상수, bytes 선형, 첫 enqueue ENOSPC 자동 회복, partial failure 뒤 later node 진행, restart, unchanged revision과 stale retry timer 중복 방지를 함께 검증한다.
+
+## 2026-08-31 / ESP-IDF model API header와 component Kconfig는 함께 활성화한다
+- **발생했던 문제/실수**: Sensor Server 공식 타입과 callback API를 사용한 application source는 컴파일됐지만 최종 링크에서 `esp_ble_mesh_register_sensor_server_callback`이 없었다. 별도로 `esp_random()`도 기존 umbrella header에 의존해 첫 target compile에서 선언되지 않았다.
+- **원인**: 공개 header에 선언이 있다는 사실을 해당 ESP-IDF component implementation이 build에 포함된다는 뜻으로 간주했고, v5.5.1에서 random API가 전용 `esp_random.h`로 분리된 계약을 확인하지 않았다.
+- **해결 및 예방책**: 로컬 ESP-IDF v5.5.1 header와 implementation guard를 함께 추적해 `CONFIG_BLE_MESH_SENSOR_SERVER=y`를 `sdkconfig.defaults`에 고정하고 `esp_random.h`를 직접 include했다. 매 변경은 `set-target`이 포함된 `scripts/esp32-h2-build.sh --test-build` fullclean으로 링크까지 확인했다.
+- **반복 방지 체크**: 새 ESP-IDF model/driver API를 추가할 때 선언 header, source의 `CONFIG_*` guard, Kconfig 의존성과 generated `sdkconfig`를 한 세트로 확인하고 incremental build만으로 완료 처리하지 않는다.

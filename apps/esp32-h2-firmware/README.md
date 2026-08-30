@@ -7,8 +7,8 @@
 - 2026-07-08 기준 macOS 개발 환경에 ESP-IDF `v5.5.1`을 설치했다.
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
-- 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령을 받아 PWM 밝기에 반영하는 단계까지 빌드 검증했다.
-- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개와 차량 센서 GPIO driver 포함 후 test-build `led_control_node.bin` 크기는 `0xe6790`(`944,016`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x109870`(`1,087,600`, 약 54%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
+- 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령과 차량 센서의 Sensor Server/vendor reliable event를 처리하는 단계까지 빌드 검증했다.
+- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개, 차량 센서 GPIO driver와 Sensor/vendor model 포함 후 test-build `led_control_node.bin` 크기는 `0xeacd0`(`961,744`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x105330`(`1,069,872`, 약 53%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
 
 ## ESP-IDF 설치
 
@@ -77,7 +77,7 @@ scripts/esp32-h2-build.sh --test-build
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation` (production provision 후 생성)
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation.sig` (production provision 후 생성)
 
-build 후 audit는 `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`와 linker map의 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR`가 ESP32-H2 IRAM/ROM 주소인지 확인한다. Production attestation은 mode/CID/source commit, approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, `sdkconfig`, linker map, generated `flash_args`, custom partition hash와 size를 fixed policy의 release key로 서명한다. Flash wrapper는 signature와 exact payload를 모두 재생성·비교한다.
+build 후 audit는 `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`와 linker map의 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR`가 ESP32-H2 IRAM/ROM 주소인지 확인한다. Task 16 target audit는 Sensor Server callback과 model runtime start/stop/event/Get/ACK 심볼, Sensor/vendor composition, 4 KiB static worker stack과 고정 command queue section도 확인한다. Production attestation은 mode/CID/source commit, approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, `sdkconfig`, linker map, generated `flash_args`, custom partition hash와 size를 fixed policy의 release key로 서명한다. Flash wrapper는 signature와 exact payload를 모두 재생성·비교한다.
 
 ## 실제 보드 플래시
 
@@ -125,6 +125,16 @@ driver는 interrupt가 비활성인 상태에서 boot level을 32개 static queu
 
 Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 priority task가 `xTaskCreateStatic()` 반환 전에 선점해도 callback을 실행할 수 없고, controller가 `driver.task` handle을 publish한 뒤 gate를 연다. 따라서 callback 안의 `vehicle_sensor_driver_stop()`은 항상 `ESP_ERR_INVALID_STATE`로 거부되며 외부 control/shutdown context의 stop만 완전 cleanup과 restart를 수행한다.
 
+## 차량 센서 BLE Mesh model
+
+- primary element에 표준 Sensor Server `0x1100`, 필수 Sensor Setup Server와 자사 vendor server `0x0000`을 구성한다. Presence Detected property는 ESP-IDF v5.5.1 공식 `BLE_MESH_PRESENCE_DETECTED(0x004D)`와 Format A MPID macro를 사용한다.
+- Sensor Get은 model worker의 우선 queue를 거쳐 현재 GPIO level을 Sensor Status로 응답한다. 설정된 Sensor publication은 `60,000ms + FNV-1a(primary unicast) % 5,000ms` 간격으로 분산한다. Mesh 설정의 60초 period는 Gateway 확인용으로 유지하되 ESP-IDF 내장 timer는 중복 publication 방지를 위해 취소하고 worker가 실제 publication을 소유한다.
+- vendor event payload는 Task 14 Gateway 계약과 같은 11바이트 `version(1), bootId LE uint32, sequence LE uint32, kind(1 detected/2 cleared), level(0/1)`이다. `bootId`는 부팅마다 `esp_random()`, sequence는 1부터 시작하며 `UINT32_MAX`를 한 번 사용한 뒤 새 event를 fail-safe로 거부하고 Health fault를 기록한다.
+- 최대 16개 pending slot에서 최초 송신 후 `250ms, 500ms, 1s, 2s, 4s, 8s` 간격으로 6회 retry한다. 마지막 retry 뒤 8초 ACK grace까지 exact `(bootId, sequence)` ACK가 없으면 slot을 해제하고 retry-exhausted fault를 기록하므로 다음 event는 계속 진행한다.
+- Driver callback은 BLE API나 log를 호출하지 않고 lock-free current state 갱신과 static worker queue handoff만 수행한다. Queue full은 dropped fault와 authoritative current-state recovery를 예약한다. BLE send, retry, ACK, Sensor Get, publication과 provisioning/config lifecycle은 단일 static worker에서 직렬화한다.
+- AppKey/model bind와 publication address를 모두 확인해야 event/status publication을 보낸다. Provisioning reset은 pending을 비우고 이전 lifecycle event를 폐기하며, 재provision/config 변경과 reboot에서는 저장된 Mesh 설정을 다시 확인한다.
+- dropped, retry exhausted, send error, publication unconfigured와 sequence exhausted를 vendor Health fault `0x80~0x84`로 current/registered fault에 연결한다. Fault Clear는 ESP-IDF 계약대로 registered fault만 지우며 active current fault는 유지한다.
+
 ## 현재 구현 범위
 
 - ESP-IDF 프로젝트 구조
@@ -134,6 +144,7 @@ Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 
 - BLE Mesh provisioning advertisement 활성화
 - device UUID와 unprovisioned device name(`DFK-LED-H2`) 기반 node identity 설정
 - Config Server, Health Server, Generic OnOff Server, Light Lightness Server, Light Lightness Setup Server composition 구성
+- Presence Detected Sensor/Setup Server와 차량 event vendor server composition 구성
 - Generic OnOff Set/Get 수신 후 0% 또는 100% PWM 반영
 - Light Lightness Set/Get 수신 후 0~65535 lightness 값을 0~100% 밝기로 변환해 PWM 반영
 - OnOff/Lightness status publication
@@ -148,6 +159,7 @@ Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 
 - panic/watchdog reset reason을 Health fault `0x01`로 기록
 - ESP-IDF task watchdog 10초 설정
 - 3.3V Active High 차량 센서 GPIO 양 edge, boot level event, static queue/task와 Task 16 callback/start/stop lifecycle
+- Sensor Get current Status, 60초+주소 hash 지터 publication, 16-slot vendor event ACK/retry와 Health fault 연결
 
 ## 후속 구현
 
@@ -175,6 +187,7 @@ CONFIG_DFK_MODEL_CODE=1
 CONFIG_DFK_HARDWARE_REVISION=1
 CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=<Bluetooth SIG 자사 할당값의 10진수>
 CONFIG_BLE_MESH_MODEL_GROUP_COUNT=16
+CONFIG_BLE_MESH_SENSOR_SERVER=y
 ```
 
 factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 외부 pull-up, switch debounce, ESD와 부팅 strap 충돌 여부를 반드시 검토한다. 8초가 충족되면 앱 상태 NVS와 BLE Mesh provisioning 정보를 삭제하고 재부팅해 unprovisioned beacon 상태로 돌아간다.
@@ -188,7 +201,8 @@ factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 �
 5. provisioner가 NetKey/AppKey를 주입하고 model bind/group subscription을 설정한다.
 6. gateway가 Generic OnOff 또는 Light Lightness client message를 보낸다.
 7. 펌웨어는 PWM 밝기를 변경하고 OnOff/Lightness status를 publish한다. group Lightness Set Unacknowledged는 PWM을 먼저 변경하고 아래 지터 후 Lightness status만 publish한다.
-8. Health fault test/clear 요청은 Health Server callback에서 처리하고 fault update를 publish한다.
+8. 차량 센서 edge는 model worker에서 vendor event로 송신하고 exact ACK까지 bounded retry하며, Sensor Get과 주기 publication은 현재 GPIO 상태를 Status로 제공한다.
+9. Health fault test/clear 요청은 Health Server callback에서 처리하고 sensor dropped/retry/send/config/sequence fault update를 publish한다.
 
 웹의 `조명 검색`에 잡히려면 보드가 반드시 unprovisioned 상태여야 한다. 한 번 provisioning된 보드는 NetKey/AppKey와 mesh address를 NVS에 보관하므로 unprovisioned beacon을 내보내지 않는다. 재검색 테스트 전에는 `erase-flash`를 실행하거나 후속 factory reset 기능을 통해 mesh 설정을 삭제한다.
 
@@ -200,8 +214,9 @@ factory reset 입력은 내부 pull-up을 사용한다. 양산 회로에서는 �
 - NetKey를 주입하고 unicast address를 할당한다.
 - AppKey를 추가한다.
 - primary element의 Generic OnOff Server, Light Lightness Server, Health Server에 AppKey를 bind한다.
+- primary element의 Sensor Server `0x1100`과 자사 vendor server `0x0000`에 같은 AppKey를 bind한다.
 - 층/구역별 group address를 Light Lightness Server와 Generic OnOff Server에 subscribe한다.
-- 상태 publication 주소와 주기를 설정한다.
+- Sensor Server publication은 Gateway unicast, TTL 5, 60초로 설정하고 vendor server publication은 같은 주소/AppKey, TTL 5, period 0으로 설정한다.
 
 `CONFIG_BLE_MESH_MODEL_GROUP_COUNT=16`은 모델별 subscription 상한이다. 양산 계약은 각 조명 모델에 층 group 1개와 사용자 fixture group 최대 15개다. 17번째 주소를 추가하려고 상한을 임의로 높이면 모델별 RAM 사용량도 증가하므로 제품 요구사항과 메모리 측정을 함께 갱신해야 한다.
 
@@ -241,7 +256,7 @@ Native/actual-driver host fake와 ESP-IDF clean target build만으로는 아래 
 - 실제 센서의 Low/High 전압, rise/fall time, 출력 방식과 공통 GND/절연 조건이 ESP32-H2 입력 정격에 맞는지
 - boot High/Low, 빠른 양 edge, 장시간 High와 queue overflow에서 edge/current level 및 dropped counter가 예상대로 관측되는지
 - 전원 인가/차단, 긴 배선, LED converter switching noise와 ESD 조건에서 false edge나 GPIO 손상이 없는지
-- Task 16 Sensor Server/vendor event와 Raspberry Pi Gateway를 연결했을 때 packet loss, ACK retry와 restart current-state 복구가 수렴하는지
+- Task 16 Sensor Server/vendor event를 Raspberry Pi Gateway와 연결했을 때 exact wire, packet loss, ACK retry, AppKey 재바인딩, reprovision/reboot current-state 복구와 Health fault가 수렴하는지
 
 ## DFK BLE Mesh device UUID
 

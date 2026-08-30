@@ -19,10 +19,24 @@ idf.py() {
     printf 'partition fixture\n' >build/partition_table/partition-table.bin
     printf 'ota fixture\n' >build/ota_data_initial.bin
     cat >build/led_control_node.map <<'MAP'
+ .data.vendor_models
+                0x40800100       0x44 fixture
+ .data.vehicle_sensor_server
+                0x40800144        0xc fixture
+ .bss.model_task_stack
+                0x40800200     0x1000 fixture
+ .bss.command_queue_buffer
+                0x40801200      0x600 fixture
                 0x40801000                vehicle_sensor_gpio_isr
                 0x40802000                gpio_get_level
                 0x40803000                esp_timer_get_time
                 0x40804000                xQueueGenericSendFromISR
+                0x42001000                esp_ble_mesh_register_sensor_server_callback
+                0x42002000                vehicle_sensor_model_runtime_start
+                0x42003000                vehicle_sensor_model_runtime_stop
+                0x42004000                vehicle_sensor_model_runtime_submit_event
+                0x42005000                vehicle_sensor_model_runtime_request_status
+                0x42006000                vehicle_sensor_model_runtime_receive_ack
 MAP
     cat >build/flash_args <<'ARGS'
 --flash_mode dio --flash_freq 48m --flash_size 4MB
