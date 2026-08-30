@@ -93,8 +93,6 @@ export class CommandsService {
     if (user.role === "viewer") throw new ForbiddenException("viewer users cannot control lights");
     await this.siteAccess.assert(user, input.siteId, "manage");
 
-    const now = this.clock.now();
-    const overrideUntil = resolveOverrideUntil(input.overrideUntil, now);
     const requestFingerprint = createRequestFingerprint(input.target, input.brightness, input.overrideUntil);
 
     try {
@@ -103,6 +101,9 @@ export class CommandsService {
         await this.siteAccess.assertManageInTransaction(tx, user, input.siteId);
         const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
         if (existing) return existing;
+
+        const now = this.clock.now();
+        const overrideUntil = resolveOverrideUntil(input.overrideUntil, now);
 
         const mappings = await this.resolveTargetMappings(tx, input.siteId, input.target);
         if (mappings.length === 0) {
@@ -248,7 +249,12 @@ export class CommandsService {
       include: idempotentCommandInclude
     });
     if (!existing) return null;
-    if (existing.requestFingerprint !== requestFingerprint) {
+    // Pre-Task 10 commands have no ManualOverride and hash only target/brightness.
+    // Limit this fallback to omitted overrides so a timed payload cannot reuse a legacy request ID.
+    const matchesLegacyFingerprint = !existing.manualOverride
+      && input.overrideUntil === undefined
+      && existing.requestFingerprint === createLegacyRequestFingerprint(input.target, input.brightness);
+    if (existing.requestFingerprint !== requestFingerprint && !matchesLegacyFingerprint) {
       throw new ConflictException({ code: "client_request_id_payload_conflict" });
     }
     return this.toCreateResponse(existing);
@@ -258,7 +264,6 @@ export class CommandsService {
     const { dispatches, manualOverride, ...storedCommand } = command;
     const deliveryMode = dispatches[0]?.deliveryMode;
     if (!isDeliveryMode(deliveryMode)) throw new Error("stored command delivery mode is invalid");
-    if (!manualOverride) throw new Error("stored command manual override is missing");
     const fixtureIds = Array.isArray(command.targetFixtureIds)
       ? command.targetFixtureIds.filter((fixtureId): fixtureId is string => typeof fixtureId === "string")
       : [];
@@ -269,7 +274,7 @@ export class CommandsService {
       selectedTargetCount: fixtureIds.length,
       transmissionCount: deliveryMode === "mesh_group" ? dispatches.length : fixtureIds.length,
       deliveryMode,
-      overrideUntil: manualOverride.overrideUntil.toISOString(),
+      ...(manualOverride ? { overrideUntil: manualOverride.overrideUntil.toISOString() } : {}),
       terminalStatusUrl: `/commands/${storedCommand.id}`
     };
   }
@@ -464,6 +469,14 @@ export class CommandsService {
 }
 
 function createRequestFingerprint(target: DimmingTarget, brightness: number, requestedOverrideUntil?: string) {
+  return createFingerprint(target, brightness, requestedOverrideUntil ?? null);
+}
+
+function createLegacyRequestFingerprint(target: DimmingTarget, brightness: number) {
+  return createFingerprint(target, brightness);
+}
+
+function createFingerprint(target: DimmingTarget, brightness: number, overrideUntil?: string | null) {
   const canonicalTarget = target.type === "fixture"
     ? [target.type, target.fixtureId]
     : target.type === "fixtures"
@@ -471,11 +484,10 @@ function createRequestFingerprint(target: DimmingTarget, brightness: number, req
       : target.type === "floor"
         ? [target.type, target.floorId]
         : [target.type, target.groupId];
-  return createHash("sha256").update(JSON.stringify({
-    target: canonicalTarget,
-    brightness,
-    overrideUntil: requestedOverrideUntil ?? null
-  })).digest("hex");
+  const payload = overrideUntil === undefined
+    ? { target: canonicalTarget, brightness }
+    : { target: canonicalTarget, brightness, overrideUntil };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
 function resolveOverrideUntil(rawOverrideUntil: unknown, now: Date) {

@@ -6,7 +6,7 @@ export type CommandDeliveryMode = "unicast" | "parallel_unicast" | "mesh_group";
 
 export interface CreateDimmingCommandResponse {
   id: string;
-  overrideUntil: string;
+  overrideUntil?: string;
   dispatchCount: number;
   selectedTargetCount: number;
   transmissionCount: number;

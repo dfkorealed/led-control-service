@@ -40,6 +40,7 @@ function createHarness(options: {
   readyAddress?: string;
   readyError?: Error;
   concurrentCommand?: Record<string, unknown>;
+  existingCommand?: Record<string, unknown>;
   now?: Date;
 } = {}) {
   let now = options.now ?? new Date("2026-08-29T00:00:00.000Z");
@@ -48,7 +49,7 @@ function createHarness(options: {
     targetFixtureIds: [ids.fixture1], brightness: 75, requestedBy: ids.user,
     createdAt: new Date("2026-07-01T00:00:00.000Z")
   };
-  let storedCommand: Record<string, unknown> | null = null;
+  let storedCommand: Record<string, unknown> | null = options.existingCommand ?? null;
   const tx: any = {
     fixture: { findMany: jest.fn().mockResolvedValue(options.fixtures ?? []) },
     floor: {
@@ -161,6 +162,58 @@ describe("CommandsService", () => {
 
     await expect(service.createDimmingCommand(operator, input)).resolves.toEqual(created);
     expect(tx.command.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a legacy command without a ManualOverride for an exact idempotent retry", async () => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { service, tx } = createHarness({
+      existingCommand: {
+        id: ids.command,
+        siteId: ids.site,
+        requestedBy: ids.user,
+        clientRequestId,
+        requestFingerprint: legacyFingerprint({ type: "fixture", fixtureId: ids.fixture1 }, 75),
+        targetType: "fixture",
+        targetId: ids.fixture1,
+        targetFixtureIds: [ids.fixture1],
+        brightness: 75,
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+        dispatches: [{ deliveryMode: "unicast" }]
+      }
+    });
+
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 75
+    })).resolves.toMatchObject({ id: ids.command, deliveryMode: "unicast" });
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 75
+    })).resolves.not.toHaveProperty("overrideUntil");
+    expect(tx.command.create).not.toHaveBeenCalled();
+    expect(tx.manualOverride.create).not.toHaveBeenCalled();
+  });
+
+  it("returns an existing explicit override after its end time passes", async () => {
+    const { service, setNow, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    const input = {
+      siteId: ids.site,
+      clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture" as const, fixtureId: ids.fixture1 },
+      brightness: 75,
+      overrideUntil: "2026-08-29T00:30:00.000Z"
+    };
+
+    const created = await service.createDimmingCommand(operator, input);
+    setNow(new Date("2026-08-29T00:30:01.000Z"));
+
+    await expect(service.createDimmingCommand(operator, input)).resolves.toEqual(created);
+    expect(tx.command.create).toHaveBeenCalledTimes(1);
+    expect(tx.manualOverride.create).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -488,4 +541,22 @@ function fingerprint(
     brightness,
     overrideUntil: overrideUntil ?? null
   })).digest("hex");
+}
+
+function legacyFingerprint(
+  target:
+    | { type: "fixture"; fixtureId: string }
+    | { type: "fixtures"; fixtureIds: string[] }
+    | { type: "floor"; floorId: string }
+    | { type: "group"; groupId: string },
+  brightness: number
+) {
+  const canonicalTarget = target.type === "fixture"
+    ? [target.type, target.fixtureId]
+    : target.type === "fixtures"
+      ? [target.type, ...target.fixtureIds.slice().sort()]
+      : target.type === "floor"
+        ? [target.type, target.floorId]
+        : [target.type, target.groupId];
+  return createHash("sha256").update(JSON.stringify({ target: canonicalTarget, brightness })).digest("hex");
 }
