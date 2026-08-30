@@ -242,6 +242,36 @@ describe("handleGatewayDimmingCommand", () => {
     vi.useRealTimers();
   });
 
+  it("accepts a broker-bounded manual command when the wall clock is untrusted", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:20.000Z"));
+    const adapter = new StubBleMeshAdapter();
+    const automation = {
+      prepare: vi.fn().mockResolvedValue(undefined),
+      handoff: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const result = await handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(new Map()),
+      {
+        ...command,
+        overrideUntil: "2026-07-11T01:00:00.000Z",
+        expiresAt: "2026-07-11T00:00:10.000Z"
+      },
+      undefined,
+      {
+        automation,
+        isCommandExpired: vi.fn().mockResolvedValue(false)
+      }
+    );
+
+    expect(result.acceptance.status).toBe("accepted");
+    expect(adapter.commands).toHaveLength(1);
+    expect(automation.prepare).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it("reserves durable state capacity before acceptance or physical BLE execution", async () => {
     const records = new Map<string, any>();
     const adapter = new StubBleMeshAdapter();
@@ -296,6 +326,7 @@ describe("handleGatewayDimmingCommand", () => {
     const pendingAdapter = {
       setBrightness: vi.fn(() => new Promise<never>(() => undefined)),
       onFixtureStatus: vi.fn(() => () => undefined),
+      onLightingObservation: vi.fn(() => () => undefined),
       resyncFixtureStates: vi.fn(async () => ({ total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 })),
       syncGroupSubscriptions: vi.fn(async () => ({
         siteId: command.siteId,

@@ -522,9 +522,12 @@ describe("BluezMeshAdapter", () => {
   });
 
   it("counts an actual OnOff and Lightness resync pair as observed while Health Current remains pending", async () => {
-    const f = fixture();
+    const observedAt = Date.parse("2026-08-30T01:00:00.000Z");
+    const f = fixture({ now: () => observedAt });
     const listener = vi.fn();
+    const lighting = vi.fn();
     f.adapter.onFixtureStatus(listener);
+    f.adapter.onLightingObservation(lighting);
     const resync = f.adapter.resyncFixtureStates();
     await vi.waitFor(() => expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3));
 
@@ -534,6 +537,13 @@ describe("BluezMeshAdapter", () => {
 
     await expect(resync).resolves.toMatchObject({ total: 1, configured: 1, observed: 1, healthPending: 1, timedOut: 0, failed: 0 });
     expect(listener).not.toHaveBeenCalled();
+    expect(lighting).toHaveBeenCalledTimes(1);
+    expect(lighting).toHaveBeenCalledWith({
+      fixtureId: "fixture-1",
+      brightness: 100,
+      powerOn: true,
+      observedAt: "2026-08-30T01:00:00.000Z"
+    });
   });
 
   it("publishes a late Current Fault and clears the pending resync health report", async () => {
@@ -576,6 +586,47 @@ describe("BluezMeshAdapter", () => {
     expect(f.transport.calls.filter((call) => call.method === "Send").map((call) => call.args[4])).toEqual([
       [0x82, 0x01], [0x82, 0x4b], [0x80, 0x31, 0xe5, 0x02]
     ]);
+  });
+
+  it("isolates one fixture configuration failure while other lighting observations complete", async () => {
+    const f = fixture();
+    configureGroupFixtures(f);
+    f.addresses.listConfirmed.mockResolvedValue([
+      { fixtureId: "fixture-1", primaryUnicast: 0x0100, elementCount: 1, status: "confirmed" },
+      { fixtureId: "fixture-2", primaryUnicast: 0x0101, elementCount: 1, status: "confirmed" }
+    ]);
+    (f.config.configureNode as any).mockImplementation(async ({ unicast }: { unicast: number }) => {
+      if (unicast === 0x0100) throw new Error("fixture configuration failed");
+      return { compositionPage: 0 };
+    });
+    f.transport.call.mockImplementation(async (_service, _path, _interfaceName, method, args) => {
+      f.transport.calls.push({ method, args });
+      const destination = args[1] as number;
+      const payload = args[4] as number[];
+      if (destination !== 0x0101) return;
+      if (payload[0] === 0x82 && payload[1] === 0x01) {
+        queueMicrotask(() => f.application.emit("messageReceived", {
+          source: destination,
+          data: Uint8Array.from([0x82, 0x04, 0x01])
+        }));
+      }
+      if (payload[0] === 0x82 && payload[1] === 0x4b) {
+        queueMicrotask(() => f.application.emit("messageReceived", {
+          source: destination,
+          data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff])
+        }));
+      }
+    });
+    const lighting = vi.fn();
+    f.adapter.onLightingObservation(lighting);
+
+    await expect(f.adapter.resyncFixtureStates()).resolves.toMatchObject({
+      total: 2,
+      observed: 1,
+      healthPending: 1,
+      failed: 1
+    });
+    expect(lighting).toHaveBeenCalledWith(expect.objectContaining({ fixtureId: "fixture-2", brightness: 100 }));
   });
 
   it("reapplies a Light Lightness Server group subscription for each member and reports failures individually", async () => {

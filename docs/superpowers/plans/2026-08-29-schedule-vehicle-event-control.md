@@ -862,6 +862,13 @@ git commit -m "feat(gateway): execute durable lighting schedules"
 - [x] Pending manual recovery를 TTL/일반 eviction에서 보호하고 별도 bounded capacity error를 적용한다.
 - [x] Process-local manual guard/deadline/observation fence를 atomic state 성공 뒤 변경하고 fault-injection tick으로 검증한다.
 
+**Fix round 3 (2026-08-30):**
+
+- [x] BlueZ OnOff/Lightness observation을 Health completion과 분리해 automation recovery fence에 직접 전달한다.
+- [x] RF success 뒤 terminal state write failure/commit uncertainty에 same-process observation fence를 세운다.
+- [x] MQTT control plane을 먼저 시작하고 full Mesh resync를 bounded background worker/readiness/shutdown drain으로 전환한다.
+- [x] API outbox absolute override expiry와 Gateway trusted remaining/untrusted 10초 fail-safe 정책으로 stale manual 부활을 차단한다.
+
 ### Task 13: Gateway 차량 이벤트 상태와 durable telemetry
 
 **Files:**

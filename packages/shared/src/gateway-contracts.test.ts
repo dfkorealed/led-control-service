@@ -206,6 +206,11 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(gatewayDimmingCommandV2Schema.parse({ ...draft, expiresAt: "2026-07-11T00:00:10.000Z" }).expiresAt).toBe(
       "2026-07-11T00:00:10.000Z"
     );
+    expect(() => gatewayDimmingCommandV2Schema.parse({
+      ...draft,
+      overrideUntil: "2026-07-11T00:00:05.000Z",
+      expiresAt: "2026-07-11T00:00:10.000Z"
+    })).toThrow();
   });
 
   it("requires a destination address only for mesh group delivery", () => {

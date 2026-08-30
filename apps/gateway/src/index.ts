@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { config } from "dotenv";
 import {
+  GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   type AcceptanceAckV2,
   type AutomationExecutionFixtureResultV1,
   type DeviceStatusAckV2,
@@ -10,6 +11,7 @@ import {
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
   identifyDeviceSchema,
+  isGatewayCommandExpired,
   mqttTopicsV2,
   mqttTopics,
   fixtureStateV2Schema,
@@ -62,6 +64,7 @@ import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
 import { createGatewayCertificateRotation, type CertificateRotation } from "./identity/certificate-rotation";
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mqtt-runtime";
+import { BackgroundMeshResyncWorker, startControlPlaneWithBackgroundMeshResync } from "./runtime/background-mesh-resync";
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
 import type { BleMeshAdapter, BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
 import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
@@ -124,7 +127,8 @@ export function createManualOverrideCoordinator(
       fixtureIds: command.targetFixtureIds,
       brightnessPercent: command.brightness,
       startedAt: command.requestedAt,
-      overrideUntil: command.overrideUntil!
+      overrideUntil: command.overrideUntil!,
+      deliveryWindowMs: GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS
     }),
     handoff: (command, terminal) => runtime.handoffManualTerminal(
       command.commandId,
@@ -142,12 +146,13 @@ export async function initializeAutomationBeforeManualRecovery(
 }
 
 export function observeAutomationFixtureStatuses(
-  adapter: Pick<BleMeshAdapter, "onFixtureStatus">,
+  adapter: Pick<BleMeshAdapter, "onLightingObservation">,
   runtime: Pick<ScheduleRuntime, "recordFixtureState">,
   onError?: (error: unknown) => void
 ) {
-  return adapter.onFixtureStatus((status) => {
-    void runtime.recordFixtureState(status.fixtureId, status.brightness, status.health.observedAt)
+  return adapter.onLightingObservation((status) => {
+    const effectiveBrightness = status.powerOn ? status.brightness : 0;
+    void runtime.recordFixtureState(status.fixtureId, effectiveBrightness, status.observedAt)
       .catch((error) => onError?.(error));
   });
 }
@@ -226,6 +231,7 @@ async function main() {
   const automationStateStore = new FileAutomationStateStore(
     process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json"
   );
+  const clockTrust = new SystemClockTrustProvider();
   const { scheduleRuntime, automationRuntime } = createGatewayAutomationServices({
     configStore: new FileAutomationConfigStore(
       process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
@@ -233,7 +239,7 @@ async function main() {
     ),
     stateStore: automationStateStore,
     scope: { siteId, gatewayId },
-    clockTrust: new SystemClockTrustProvider(),
+    clockTrust,
     execute: (actions) => executeAutomationWithBestEffortTelemetry({
       actions,
       execute: (requested) => executeAutomationDimmingActions(adapter, requested, { timeoutMs: commandTimeoutMs }),
@@ -272,7 +278,20 @@ async function main() {
     scheduleRuntime,
     (error) => void reportGatewayError(error, "automation_fixture_status")
   );
-  await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
+  await health.setOperationalBlocker("mesh_resync_pending", true);
+  const meshResyncWorker = new BackgroundMeshResyncWorker({
+    run: () => adapter.resyncFixtureStates(),
+    onReport: async (report) => {
+      await recordMeshResyncOutcome(health, report);
+      await health.setOperationalBlocker("mesh_resync_failed", false);
+      await health.setOperationalBlocker("mesh_resync_pending", false);
+    },
+    onError: async (error) => {
+      console.error("Gateway background Mesh resync failed", error);
+      await health.setOperationalBlocker("mesh_resync_pending", false);
+      await health.setOperationalBlocker("mesh_resync_failed", true);
+    }
+  });
   scheduleRuntime.start();
   const automationAckOutbox = new AutomationConfigAckOutbox(
     process.env.GATEWAY_AUTOMATION_ACK_OUTBOX_PATH ?? "/var/lib/led-control/automation-config-acks.json",
@@ -306,6 +325,10 @@ async function main() {
             } catch (error) {
               throw error;
             }
+          },
+          isCommandExpired: async (expiresAt) => {
+            const now = new Date();
+            return await clockTrust.isTrusted(now) && isGatewayCommandExpired(expiresAt, now);
           },
           automation: manualOverrideCoordinator,
           onAutomationError: (error) => void reportGatewayError(error, "automation_manual_handoff")
@@ -487,7 +510,7 @@ async function main() {
           const reservation = await stateEventCapacity.recoverAndReserve(["*"]);
           if (reservation) {
             await armFixtureStatusIntake(reservation);
-            await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
+            meshResyncWorker.schedule(true);
           }
         }
       }
@@ -505,7 +528,7 @@ async function main() {
         );
         await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
         await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
-        await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
+        meshResyncWorker.schedule();
       },
       onAutomationAckError: (error) => reportGatewayError(error, "automation_config_ack_connect")
     }),
@@ -521,15 +544,16 @@ async function main() {
   adapter.onResyncReport?.((report) => {
     void recordMeshResyncOutcome(health, report).catch((error) => void reportGatewayError(error, "mesh_resync"));
   });
-  mqttRuntime.start();
+  startControlPlaneWithBackgroundMeshResync(() => mqttRuntime.start(), meshResyncWorker);
   const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
   registerGatewayShutdownHandlers({
     stop: async () => {
       const schedulerDrain = scheduleRuntime.stopAndDrain();
+      const meshResyncDrain = meshResyncWorker.stopAndDrain();
       stopAutomationFixtureStatusIntake();
       stopFixtureStatusIntake?.();
       await fixtureStatusReservation.release();
-      await schedulerDrain;
+      await Promise.all([schedulerDrain, meshResyncDrain]);
       stateEventPublisher.disconnect();
       automationAckPublisher.disconnect();
       await mqttRuntime.stop();

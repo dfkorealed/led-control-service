@@ -62,6 +62,7 @@ export interface GatewayCommandOptions {
   groupStateStore?: Pick<GroupStateStore, "assertReady">;
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
   beforeExecution?: () => Promise<void>;
+  isCommandExpired?: (expiresAt: string) => Promise<boolean> | boolean;
   automation?: ManualOverrideCoordinator;
   onAutomationError?: (error: unknown) => void;
 }
@@ -138,7 +139,7 @@ async function executeGatewayDimmingCommand(
   }
 
   // Broker expiry is primary; this verifies the API's publish-relative deadline before BLE execution.
-  if (isGatewayCommandExpired(command.expiresAt)) {
+  if (await commandExpired(command.expiresAt, options)) {
     return rejectExpiredCommand(journal, command);
   }
 
@@ -189,7 +190,7 @@ async function executeGatewayDimmingCommand(
   await onAccepted?.(acceptance);
 
   // Journal fsync and the acceptance PUBACK can consume the remaining delivery window.
-  if (isGatewayCommandExpired(command.expiresAt)) {
+  if (await commandExpired(command.expiresAt, options)) {
     return rejectExpiredCommand(journal, command, true);
   }
 
@@ -251,6 +252,12 @@ async function executeGatewayDimmingCommand(
   const result = { acceptance, deviceStatus, fixtureStateObserved, observedFixtureIds };
   await completeWithAutomationHandoff(journal, command, result, options);
   return result;
+}
+
+async function commandExpired(expiresAt: string, options: GatewayCommandOptions) {
+  return options.isCommandExpired
+    ? options.isCommandExpired(expiresAt)
+    : isGatewayCommandExpired(expiresAt);
 }
 
 async function completeWithAutomationHandoff(

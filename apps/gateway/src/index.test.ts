@@ -125,7 +125,8 @@ describe("startGatewayRuntime", () => {
       fixtureIds: [scopedFixtureId],
       brightnessPercent: 60,
       startedAt: "2026-08-30T01:00:00.000Z",
-      overrideUntil: "2026-08-30T02:00:00.000Z"
+      overrideUntil: "2026-08-30T02:00:00.000Z",
+      deliveryWindowMs: 10_000
     });
     expect(scheduleRuntime.handoffManualTerminal).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
@@ -213,9 +214,9 @@ describe("startGatewayRuntime", () => {
   });
 
   it("feeds fixture observations to automation independently of telemetry intake", async () => {
-    let listener: ((status: { fixtureId: string; brightness: number; health: { observedAt: string } }) => void) | undefined;
+    let listener: ((status: { fixtureId: string; brightness: number; powerOn: boolean; observedAt: string }) => void) | undefined;
     const adapter = {
-      onFixtureStatus: vi.fn((next) => { listener = next; return vi.fn(); })
+      onLightingObservation: vi.fn((next) => { listener = next; return vi.fn(); })
     };
     const runtime = { recordFixtureState: vi.fn().mockResolvedValue(undefined) };
 
@@ -223,11 +224,12 @@ describe("startGatewayRuntime", () => {
     listener?.({
       fixtureId: scopedFixtureId,
       brightness: 40,
-      health: { observedAt: "2026-08-30T01:00:00.000Z" }
+      powerOn: false,
+      observedAt: "2026-08-30T01:00:00.000Z"
     });
     await vi.waitFor(() => expect(runtime.recordFixtureState).toHaveBeenCalledWith(
       scopedFixtureId,
-      40,
+      0,
       "2026-08-30T01:00:00.000Z"
     ));
   });

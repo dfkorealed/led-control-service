@@ -1,9 +1,10 @@
 import { getActiveOccurrence } from "@led-control/automation-engine";
-import type {
-  AutomationExecutionFixtureResultV1,
-  AutomationSnapshotV1,
-  LightingScheduleSnapshotV1,
-  VehicleEventRuleSnapshotV1
+import {
+  GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
+  type AutomationExecutionFixtureResultV1,
+  type AutomationSnapshotV1,
+  type LightingScheduleSnapshotV1,
+  type VehicleEventRuleSnapshotV1
 } from "@led-control/shared";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import {
@@ -33,6 +34,7 @@ export interface ManualOverrideInput {
   brightnessPercent: number;
   startedAt: string;
   overrideUntil: string;
+  deliveryWindowMs: number;
 }
 
 export interface AutomationTerminalHandoff {
@@ -266,8 +268,14 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       validateManualOverride(input);
+      const wallNow = this.wallClock();
       const monotonicNow = this.monotonicClock();
       const durationMs = Date.parse(input.overrideUntil) - Date.parse(input.startedAt);
+      const trusted = await this.options.clockTrust.isTrusted(wallNow);
+      const remainingMs = trusted
+        ? Date.parse(input.overrideUntil) - wallNow.getTime()
+        : Math.min(durationMs, input.deliveryWindowMs, GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS);
+      if (remainingMs <= 0) throw new ScheduleRuntimeError("manual_override_expired");
       await this.options.store.update((state) => {
         for (const fixtureId of input.fixtureIds) {
           const base = captureBase(state, fixtureId);
@@ -296,7 +304,7 @@ export class ScheduleRuntime {
       });
       for (const fixtureId of input.fixtureIds) {
         this.manualCommandsInFlight.add(fixtureId);
-        this.manualOverrideDeadlines.set(fixtureId, monotonicNow + durationMs);
+        this.manualOverrideDeadlines.set(fixtureId, monotonicNow + remainingMs);
       }
     });
   }
@@ -506,34 +514,41 @@ export class ScheduleRuntime {
       results = failedResults(changed, this.wallClock(), error);
     }
 
-    await this.options.store.update((next) => {
-      for (const [index, result] of results.entries()) {
-        const action = changed[index]!;
-        const pending = next.transitionsByFixture[result.fixtureId];
-        next.transitionsByFixture[result.fixtureId] = {
-          ...(pending ?? {
-            brightnessPercent: action.brightnessPercent,
-            sourceType: action.sourceType,
-            sourceId: action.sourceId,
-            occurrenceKey: action.occurrenceKey,
-            attempt: 1,
-            startedAt: result.occurredAt
-          }),
-          phase: "terminal",
-          status: result.status,
-          terminalAt: result.occurredAt
-        };
-        if (result.brightnessPercent === null) continue;
-        next.currentByFixture[result.fixtureId] = result.brightnessPercent;
-        if (result.status === "succeeded") {
-          next.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
+    try {
+      await this.options.store.update((next) => {
+        for (const [index, result] of results.entries()) {
+          const action = changed[index]!;
+          const pending = next.transitionsByFixture[result.fixtureId];
+          next.transitionsByFixture[result.fixtureId] = {
+            ...(pending ?? {
+              brightnessPercent: action.brightnessPercent,
+              sourceType: action.sourceType,
+              sourceId: action.sourceId,
+              occurrenceKey: action.occurrenceKey,
+              attempt: 1,
+              startedAt: result.occurredAt
+            }),
+            phase: "terminal",
+            status: result.status,
+            terminalAt: result.occurredAt
+          };
+          if (result.brightnessPercent === null) continue;
+          next.currentByFixture[result.fixtureId] = result.brightnessPercent;
+          if (result.status === "succeeded") {
+            next.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
+          }
+          if (result.status === "succeeded" && action.sourceType === "current" && !hasActiveSource(next, result.fixtureId)) {
+            delete next.baseBrightnessByFixture[result.fixtureId];
+          }
         }
-        if (result.status === "succeeded" && action.sourceType === "current" && !hasActiveSource(next, result.fixtureId)) {
-          delete next.baseBrightnessByFixture[result.fixtureId];
-        }
+        return next;
+      });
+    } catch (error) {
+      for (const result of results) {
+        if (result.status === "succeeded") this.pendingObservationFixtures.add(result.fixtureId);
       }
-      return next;
-    });
+      throw error;
+    }
     await this.handoff(changed, results);
   }
 
@@ -599,7 +614,7 @@ function sameTransition(
 }
 
 export class ScheduleRuntimeError extends Error {
-  constructor(readonly code: "automation_current_state_unavailable") {
+  constructor(readonly code: "automation_current_state_unavailable" | "manual_override_expired") {
     super(code);
     this.name = "ScheduleRuntimeError";
   }
@@ -847,6 +862,9 @@ function validateManualOverride(input: ManualOverrideInput) {
   }
   if (Date.parse(input.startedAt) >= Date.parse(input.overrideUntil)) {
     throw new Error("manual override must end after it starts");
+  }
+  if (!Number.isSafeInteger(input.deliveryWindowMs) || input.deliveryWindowMs <= 0) {
+    throw new Error("manual override delivery window must be a positive safe integer");
   }
 }
 

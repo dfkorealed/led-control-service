@@ -38,9 +38,17 @@ export interface BleMeshAdapter {
     deadlineAt?: number
   ): Promise<BleMeshCommandReport[]>;
   onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
+  onLightingObservation(listener: (observation: BleMeshLightingObservation) => void): () => void;
   onResyncReport?(listener: (report: BleMeshResyncReport) => void): () => void;
   resyncFixtureStates(): Promise<BleMeshResyncReport>;
   syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload, appliedMembers?: MeshGroupSubscriptionSyncPayload["desiredMembers"]): Promise<MeshGroupSubscriptionResultPayload>;
+}
+
+export interface BleMeshLightingObservation {
+  fixtureId: string;
+  brightness: number;
+  powerOn: boolean;
+  observedAt: string;
 }
 
 export interface BleMeshFixtureStatus {

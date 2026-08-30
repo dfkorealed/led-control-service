@@ -9,7 +9,7 @@ import {
   type ProvisioningScanStartPayload,
   type ProvisioningScanFoundDevice
 } from "@led-control/shared";
-import type { BleMeshAdapter, BleMeshCommandReport, BleMeshFixtureStatus, BleMeshResyncReport, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
+import type { BleMeshAdapter, BleMeshCommandReport, BleMeshFixtureStatus, BleMeshLightingObservation, BleMeshResyncReport, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
 import { BLUEZ_APPLICATION_PATHS } from "./bluez-dbus-application";
 import type { BluezConfigClient } from "./bluez-config-client";
 import {
@@ -69,6 +69,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private readonly observationCoherenceMs: number;
   private readonly now: () => number;
   private readonly fixtureStatuses = new Set<(status: FixtureMeshStatus) => void>();
+  private readonly lightingObservations = new Set<(observation: BleMeshLightingObservation) => void>();
   private readonly fixtureLightingPairs = new Set<(fixtureId: string, generation: number) => void>();
   private readonly resyncReportListeners = new Set<(report: BleMeshResyncReport) => void>();
   private readonly latestObservations = new Map<string, FixtureObservation>();
@@ -113,6 +114,11 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   onFixtureStatus(listener: (status: FixtureMeshStatus) => void) {
     this.fixtureStatuses.add(listener);
     return () => this.fixtureStatuses.delete(listener);
+  }
+
+  onLightingObservation(listener: (observation: BleMeshLightingObservation) => void) {
+    this.lightingObservations.add(listener);
+    return () => this.lightingObservations.delete(listener);
   }
 
   onResyncReport(listener: (report: BleMeshResyncReport) => void) {
@@ -453,8 +459,24 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       };
     }
     this.latestObservations.set(mapping.fixtureId, observation);
-    if (hasLightingPair(observation)) {
+    if (hasLightingPair(observation) && !observation.lightingCompleted &&
+      isLightingCoherent(observation, this.observationCoherenceMs)) {
+      observation.lightingCompleted = true;
+      const observedAt = Math.max(observation.powerOn.observedAt, observation.brightness.observedAt);
+      const lighting: BleMeshLightingObservation = {
+        fixtureId: mapping.fixtureId,
+        brightness: observation.brightness.value,
+        powerOn: observation.powerOn.value,
+        observedAt: new Date(observedAt).toISOString()
+      };
       for (const listener of this.fixtureLightingPairs) listener(mapping.fixtureId, observation.generation);
+      for (const listener of this.lightingObservations) {
+        try {
+          listener(lighting);
+        } catch {
+          // A consumer cannot prevent the adapter's own resync observation from completing.
+        }
+      }
     }
     if (!observation.powerOn || !observation.brightness || !observation.currentFault) return;
     if (!isCoherent(observation, this.observationCoherenceMs)) return;
@@ -610,7 +632,8 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     const observation: FixtureObservation = {
       generation: ++this.nextObservationGeneration,
       startedAt,
-      completed: false
+      completed: false,
+      lightingCompleted: false
     };
     this.latestObservations.set(fixtureId, observation);
     return observation;
@@ -640,6 +663,7 @@ interface FixtureObservation {
   generation: number;
   startedAt: number;
   completed: boolean;
+  lightingCompleted: boolean;
   brightness?: TimedObservation<number>;
   powerOn?: TimedObservation<boolean>;
   currentFault?: TimedObservation<{ companyId: number; faultCodes: number[] }>;
@@ -656,12 +680,20 @@ interface ResyncFixtureResult {
   healthPending?: boolean;
 }
 
-function hasLightingPair(observation: FixtureObservation) {
+function hasLightingPair(observation: FixtureObservation): observation is FixtureObservation & {
+  powerOn: TimedObservation<boolean>;
+  brightness: TimedObservation<number>;
+} {
   return observation.powerOn !== undefined && observation.brightness !== undefined;
 }
 
 function hasAnyObservation(observation: FixtureObservation) {
   return observation.powerOn !== undefined || observation.brightness !== undefined || observation.currentFault !== undefined;
+}
+
+function isLightingCoherent(observation: FixtureObservation, coherenceMs: number) {
+  if (!observation.powerOn || !observation.brightness) return false;
+  return Math.abs(observation.powerOn.observedAt - observation.brightness.observedAt) <= coherenceMs;
 }
 
 function isCoherent(observation: FixtureObservation, coherenceMs: number) {

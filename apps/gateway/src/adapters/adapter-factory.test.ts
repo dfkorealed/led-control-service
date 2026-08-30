@@ -21,6 +21,7 @@ describe("createProductionAdapters", () => {
     const adapter = {
       setBrightness: vi.fn(),
       onFixtureStatus: vi.fn(() => () => undefined),
+      onLightingObservation: vi.fn(() => () => undefined),
       resyncFixtureStates: vi.fn(),
       syncGroupSubscriptions: vi.fn(),
       scan: vi.fn(),

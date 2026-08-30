@@ -310,6 +310,61 @@ describe("ScheduleRuntime", () => {
     expect(restarted.state().lastDesiredByFixture[fixtureId]).toBe(40);
   });
 
+  it.each([
+    ["write_failed", 40, 1],
+    ["write_failed", 20, 2],
+    ["commit_uncertain", 40, 1],
+    ["commit_uncertain", 20, 2]
+  ] as const)(
+    "fences same-process RF after %s terminal persistence until brightness %s is observed",
+    async (failure, observedBrightness, expectedRf) => {
+      const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-terminal-fence-"));
+      directories.push(directory);
+      const path = join(directory, "state.json");
+      const wall = fakeWall("2026-08-30T00:59:00.000Z");
+      let inject = true;
+      const store = new FileAutomationStateStore(path, async (target, value) => {
+        const transition = (value as { transitionsByFixture?: Record<string, { phase?: string }> })
+          .transitionsByFixture?.[fixtureId];
+        if (inject && transition?.phase === "terminal") {
+          inject = false;
+          if (failure === "write_failed") throw new Error("injected terminal write failure");
+          await writeJsonAtomic(target, value, {
+            syncParentDirectory: async () => { throw new Error("injected terminal fsync uncertainty"); }
+          });
+          return;
+        }
+        await writeJsonAtomic(target, value);
+      });
+      const execute = vi.fn(executeSuccessfully);
+      const runtime = new ScheduleRuntime({
+        store,
+        wallClock: wall.now,
+        monotonicClock: () => 1_000,
+        clockTrust: { isTrusted: async () => true },
+        execute
+      });
+      await runtime.initialize();
+      await runtime.recordFixtureState(fixtureId, 20);
+      await activate(runtime, snapshot({ schedules: [dailySchedule()] }));
+      wall.set("2026-08-30T01:30:00.000Z");
+
+      await expect(runtime.tick()).rejects.toBeDefined();
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      await runtime.tick();
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      await runtime.recordFixtureState(fixtureId, observedBrightness);
+      expect(execute).toHaveBeenCalledTimes(expectedRf);
+      expect(runtime.state().transitionsByFixture[fixtureId]).toMatchObject({
+        phase: "terminal",
+        status: "succeeded",
+        brightnessPercent: 40
+      });
+    }
+  );
+
   it("freezes only new schedule boundaries while the wall clock is untrusted", async () => {
     const test = await runtimeFixture("2026-08-30T00:59:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
@@ -414,6 +469,44 @@ describe("ScheduleRuntime", () => {
     test.monotonic.advance(10_001);
     await test.runtime.tick();
 
+    expect(test.execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
+    ]);
+  });
+
+  it("rejects a manual override whose absolute end is already past on a trusted clock", async () => {
+    const test = await runtimeFixture("2026-08-30T01:10:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({}));
+
+    await expect(test.runtime.prepareManualOverride({
+      ...manualOverride(60, "2026-08-30T01:05:00.000Z"),
+      startedAt: "2026-08-30T01:00:00.000Z"
+    })).rejects.toMatchObject({ code: "manual_override_expired" });
+
+    expect(test.runtime.state().manualOverrides).toEqual({});
+    expect(test.execute).not.toHaveBeenCalled();
+  });
+
+  it("bounds an untrusted long manual override to the broker delivery window", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
+    await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
+    test.trust.trusted = false;
+    await test.runtime.prepareManualOverride({
+      ...manualOverride(60, "2026-09-29T01:00:00.000Z"),
+      startedAt: "2026-08-30T01:00:00.000Z"
+    });
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
+    test.execute.mockClear();
+
+    test.monotonic.advance(10_001);
+    await test.runtime.tick();
+
+    expect(test.runtime.state().manualOverrides).toEqual({});
     expect(test.execute).toHaveBeenLastCalledWith([
       expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
     ]);
@@ -852,7 +945,8 @@ function manualOverride(brightnessPercent: number, overrideUntil: string): Manua
     fixtureIds: [fixtureId],
     brightnessPercent,
     startedAt: "2026-08-30T01:00:01.000Z",
-    overrideUntil
+    overrideUntil,
+    deliveryWindowMs: 10_000
   };
 }
 

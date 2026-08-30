@@ -237,6 +237,108 @@ describe("OutboxPublisherService", () => {
     expect(stored.payload.expiresAt).toBe("2026-07-11T00:02:10.000Z");
   });
 
+  it("terminally rejects a delayed outbox command after its stored overrideUntil", async () => {
+    const now = new Date("2026-07-11T00:02:00.000Z");
+    const prisma: any = {
+      mqttOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn() };
+    const service = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "worker-1",
+      clock: () => now
+    });
+
+    await service.publishClaimed({
+      id: "outbox-1",
+      dispatchId: "dispatch-1",
+      topic: "sites/s/gateways/g/commands/dimming",
+      payload: { ...dimmingPayload, overrideUntil: "2026-07-11T00:01:00.000Z" },
+      attempts: 0,
+      createdAt: new Date("2026-07-11T00:00:00.000Z"),
+      dispatch: { commandId: "command-1" }
+    } as never);
+
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "failed", errorCode: "MANUAL_OVERRIDE_EXPIRED" })
+    }));
+  });
+
+  it("caps MQTT and command expiry at a near absolute override end", async () => {
+    const now = new Date("2026-07-11T00:01:00.000Z");
+    const prisma: any = {
+      mqttOutbox: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        count: jest.fn().mockResolvedValue(1)
+      },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };
+    const service = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "worker-1",
+      clock: () => now
+    });
+
+    await service.publishClaimed({
+      id: "outbox-1",
+      dispatchId: "dispatch-1",
+      topic: "sites/s/gateways/g/commands/dimming",
+      payload: { ...dimmingPayload, overrideUntil: "2026-07-11T00:01:03.500Z" },
+      attempts: 0,
+      createdAt: new Date("2026-07-11T00:00:00.000Z"),
+      dispatch: { commandId: "command-1" }
+    } as never);
+
+    expect(mqtt.publishTopic).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ expiresAt: "2026-07-11T00:01:03.500Z" }),
+      { messageExpiryInterval: 3, timeoutMs: 20_000 }
+    );
+  });
+
+  it("does not republish a timed command after its absolute override expires between attempts", async () => {
+    let now = new Date("2026-07-11T00:01:00.000Z");
+    const prisma: any = {
+      mqttOutbox: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        count: jest.fn().mockResolvedValue(1)
+      },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn().mockRejectedValue(new Error("PUBACK unavailable")) };
+    const service = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "worker-1",
+      random: () => 0,
+      clock: () => now
+    });
+    const record = {
+      id: "outbox-1",
+      dispatchId: "dispatch-1",
+      topic: "sites/s/gateways/g/commands/dimming",
+      payload: { ...dimmingPayload, overrideUntil: "2026-07-11T00:01:05.000Z" },
+      attempts: 0,
+      createdAt: new Date("2026-07-11T00:00:00.000Z"),
+      dispatch: { commandId: "command-1" }
+    };
+
+    await service.publishClaimed(record as never);
+    now = new Date("2026-07-11T00:01:06.000Z");
+    await service.publishClaimed({ ...record, attempts: 1 } as never);
+
+    expect(mqtt.publishTopic).toHaveBeenCalledTimes(1);
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ errorCode: "MANUAL_OVERRIDE_EXPIRED" })
+    }));
+  });
+
   it("rejects a stored payload with arbitrary keys instead of treating it as a retryable full payload", async () => {
     const prisma: any = { mqttOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
     const mqtt = { publishTopic: jest.fn() };

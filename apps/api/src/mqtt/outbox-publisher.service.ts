@@ -160,6 +160,7 @@ export class OutboxPublisherService implements OnModuleInit {
   ) {
     try {
       const draft = parseStoredDimmingDraft(record.payload);
+      assertManualOverridePublishable(draft, this.clock());
       const prepared = await this.prisma.$transaction(async (tx) => {
         await this.assertMeshGroupSnapshot(tx, record, draft);
         const preparedAt = this.clock();
@@ -190,7 +191,8 @@ export class OutboxPublisherService implements OnModuleInit {
 
       const publishAt = this.clock();
       if (prepared.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
-      const expiry = createGatewayCommandExpiry(publishAt);
+      assertManualOverridePublishable(prepared.draft, publishAt);
+      const expiry = createGatewayCommandExpiry(publishAt, prepared.draft.overrideUntil);
       const payload = gatewayDimmingCommandV2Schema.parse({
         ...prepared.draft,
         expiresAt: expiry.expiresAt
@@ -218,6 +220,10 @@ export class OutboxPublisherService implements OnModuleInit {
       const attempts = record.attempts + 1;
       if (error instanceof StaleMeshGroupError) {
         await this.moveToTerminalFailure(record, attempts, message, failedAt, "MESH_GROUP_STALE");
+        return;
+      }
+      if (error instanceof ManualOverrideExpiredError) {
+        await this.moveToTerminalFailure(record, attempts, message, failedAt, "MANUAL_OVERRIDE_EXPIRED");
         return;
       }
       const exhausted = attempts >= MAX_ATTEMPTS || failedAt.getTime() - record.createdAt.getTime() >= MAX_AGE_MS;
@@ -296,7 +302,7 @@ export class OutboxPublisherService implements OnModuleInit {
     attempts: number,
     message: string,
     now: Date,
-    errorCode: "MQTT_DEAD_LETTER" | "MESH_GROUP_STALE"
+    errorCode: "MQTT_DEAD_LETTER" | "MESH_GROUP_STALE" | "MANUAL_OVERRIDE_EXPIRED"
   ) {
     await this.prisma.$transaction(async (tx) => {
       const released = await tx.mqttOutbox.updateMany({
@@ -337,6 +343,12 @@ function parseStoredDimmingDraft(payload: Prisma.JsonValue): GatewayDimmingComma
   return gatewayDimmingCommandDraftV2Schema.parse(withoutExpiry);
 }
 
+function assertManualOverridePublishable(draft: GatewayDimmingCommandDraftV2, now: Date) {
+  if (draft.overrideUntil && Date.parse(draft.overrideUntil) <= now.getTime()) {
+    throw new ManualOverrideExpiredError();
+  }
+}
+
 class MeshGroupConfiguringError extends Error {
   constructor() {
     super("mesh control group configuration is not ready");
@@ -346,5 +358,12 @@ class MeshGroupConfiguringError extends Error {
 class StaleMeshGroupError extends Error {
   constructor(reason: string) {
     super(`Mesh 그룹 명령 스냅샷이 만료되었습니다: ${reason}`);
+  }
+}
+
+class ManualOverrideExpiredError extends Error {
+  constructor() {
+    super("manual override expired before MQTT publish");
+    this.name = "ManualOverrideExpiredError";
   }
 }

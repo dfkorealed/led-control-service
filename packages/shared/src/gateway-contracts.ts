@@ -141,7 +141,16 @@ export const gatewayDimmingCommandDraftV2Schema = gatewayDimmingCommandDraftV2Ba
 
 export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
   expiresAt: z.string().datetime()
-}).strict().superRefine(validateDimmingDelivery);
+}).strict().superRefine((command, context) => {
+  validateDimmingDelivery(command, context);
+  if (command.overrideUntil && Date.parse(command.expiresAt) > Date.parse(command.overrideUntil)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["expiresAt"],
+      message: "expiresAt must not exceed overrideUntil"
+    });
+  }
+});
 
 export const acceptanceAckV2Schema = commandIdentitySchema.extend({
   eventId: z.string().uuid(),
