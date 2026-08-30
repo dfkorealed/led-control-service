@@ -4,17 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @led-control/shared build && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/gateway.mjs",
-    "dev": "pnpm --filter @led-control/shared build && tsx src/index.ts",
+    "build": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/gateway.mjs",
+    "dev": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && tsx src/index.ts",
     "bluez:probe": "tsx scripts/bluez-capability-probe.ts",
-    "test": "pnpm --filter @led-control/shared build && vitest run",
+    "test": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && vitest run",
     "test:contracts": "node --test docker/*.test.mjs",
     "test:mqtt-integration": "node --test docker/mqtt-persistence.integration.mjs",
     "lint": "tsc --noEmit",
-    "typecheck": "pnpm --filter @led-control/shared build && tsc --noEmit"
+    "typecheck": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && tsc --noEmit"
   },
   "dependencies": {
     "@homebridge/dbus-native": "^0.7.7",
+    "@led-control/automation-engine": "workspace:*",
     "@led-control/shared": "workspace:*",
     "dotenv": "^16.4.7",
     "mqtt": "^5.10.3"

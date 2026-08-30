@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { StubBleMeshAdapter } from "../../test/stub-adapters";
-import { handleGatewayDimmingCommand, parseCommandTimeout } from "./gateway-command-handler";
+import {
+  executeAutomationDimmingActions,
+  handleGatewayDimmingCommand,
+  parseCommandTimeout
+} from "./gateway-command-handler";
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 
 const command = {
@@ -49,6 +53,57 @@ describe("handleGatewayDimmingCommand", () => {
     expect(first.deviceStatus).toMatchObject({ status: "succeeded", results: [{ status: "succeeded", brightness: 65 }] });
     expect(duplicate).toEqual(first);
     expect(adapter.commands).toHaveLength(1);
+  });
+
+  it("durably prepares a timed manual override before RF and hands off its terminal fixture results once", async () => {
+    const events: string[] = [];
+    const adapter = new StubBleMeshAdapter();
+    const automation = {
+      prepare: vi.fn(async () => { events.push("prepared"); }),
+      handoff: vi.fn(async () => { events.push("handoff"); })
+    };
+    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+    const records = new Map<string, any>();
+
+    const first = await handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(records),
+      timed,
+      async () => { events.push("accepted"); },
+      { automation }
+    );
+    const duplicate = await handleGatewayDimmingCommand(adapter, memoryJournal(records), timed, undefined, { automation });
+
+    expect(events).toEqual(["accepted", "prepared", "handoff"]);
+    expect(automation.prepare).toHaveBeenCalledWith(timed);
+    expect(automation.handoff).toHaveBeenCalledWith(timed, first.deviceStatus);
+    expect(duplicate).toEqual(first);
+    expect(adapter.commands).toHaveLength(1);
+  });
+
+  it("closes a durable manual prepare failure without starting RF", async () => {
+    const adapter = new StubBleMeshAdapter();
+    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+    const automation = {
+      prepare: vi.fn(async () => { throw Object.assign(new Error("state unavailable"), { code: "automation_state_unavailable" }); }),
+      handoff: vi.fn()
+    };
+
+    const result = await handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(new Map()),
+      timed,
+      undefined,
+      { automation }
+    );
+
+    expect(result.acceptance.status).toBe("accepted");
+    expect(result.deviceStatus).toMatchObject({
+      status: "failed",
+      results: [{ fixtureId: command.targetFixtureIds[0], status: "failed" }]
+    });
+    expect(adapter.commands).toHaveLength(0);
+    expect(automation.handoff).toHaveBeenCalledWith(timed, result.deviceStatus);
   });
 
   it("rejects a command whose publish-relative expiry passed without calling BLE or observing fixture state", async () => {
@@ -226,6 +281,47 @@ describe("handleGatewayDimmingCommand", () => {
       expect.any(Number)
     );
     expect(adapter.setBrightness).not.toHaveBeenCalled();
+  });
+
+  it("reuses limited parallel unicast and returns terminal automation results per fixture", async () => {
+    const fixtures = [command.targetFixtureIds[0], "66666666-6666-4666-8666-666666666667"];
+    const applyParallelUnicast = vi.fn(async (fixtureIds: string[], brightness: number, concurrency: number) =>
+      fixtureIds.map((fixtureId, index) => ({
+        fixtureId,
+        acknowledged: index === 0,
+        outcome: index === 0 ? "applied" as const : "timed_out" as const,
+        brightness,
+        ...(index === 0 ? {} : { faultCode: "status_timeout" }),
+        rssi: null,
+        hopCount: null
+      }))
+    );
+
+    const results = await executeAutomationDimmingActions(
+      { setBrightness: vi.fn(), applyParallelUnicast } as any,
+      fixtures.map((fixtureId) => ({ fixtureId, brightnessPercent: 70 })),
+      { now: () => new Date("2026-08-30T01:00:00.000Z") }
+    );
+
+    expect(applyParallelUnicast).toHaveBeenCalledWith(fixtures, 70, 8, expect.any(AbortSignal), expect.any(Number));
+    expect(results).toEqual([
+      {
+        fixtureId: fixtures[0],
+        status: "succeeded",
+        brightnessPercent: 70,
+        faultCode: null,
+        errorCode: null,
+        occurredAt: "2026-08-30T01:00:00.000Z"
+      },
+      {
+        fixtureId: fixtures[1],
+        status: "timed_out",
+        brightnessPercent: null,
+        faultCode: "status_timeout",
+        errorCode: "status_timeout",
+        occurredAt: "2026-08-30T01:00:00.000Z"
+      }
+    ]);
   });
 
   it("validates an exact durable ready snapshot before accepting and sending one mesh group command", async () => {

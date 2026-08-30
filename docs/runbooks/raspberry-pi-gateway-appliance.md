@@ -12,7 +12,7 @@
 - 장비별 mTLS 인증서
 - 영속 데이터 디렉터리
 
-컨테이너는 private system D-Bus, BlueZ 5.82 `bluetooth-meshd`, Node.js 22 gateway를 순서대로 실행한다. `/var/lib/bluetooth/mesh`의 BlueZ network DB와 `/var/lib/led-control`의 token·주소 mapping·명령 상태는 재부팅 후에도 유지한다.
+컨테이너는 private system D-Bus, BlueZ 5.82 `bluetooth-meshd`, Node.js 22 gateway를 순서대로 실행한다. `/var/lib/bluetooth/mesh`의 BlueZ network DB와 `/var/lib/led-control`의 token·주소 mapping·명령 상태·automation source state는 재부팅 후에도 유지한다. 호스트 systemd timesync marker는 `/run/systemd/timesync/synchronized`에 read-only bind mount한다.
 
 ## 2. 현재 검증 상태
 
@@ -46,9 +46,10 @@ docker version
 docker compose version
 rfkill list bluetooth
 bluetoothctl show
+test -f /run/systemd/timesync/synchronized
 ```
 
-`Soft blocked: no`, `Hard blocked: no`, `Powered: yes`가 모두 필요하다.
+`Soft blocked: no`, `Hard blocked: no`, `Powered: yes`가 모두 필요하다. Timesync marker가 없으면 Gateway는 시작할 수 있지만 clock을 untrusted로 보고 새 schedule boundary를 실행하지 않는다. `timedatectl status`와 `systemd-time-wait-sync.service`를 복구한 뒤 marker가 생성되는지 확인한다.
 
 ## 4. ARM64 이미지 생성
 
@@ -162,6 +163,14 @@ docker exec led-control-gateway cat /var/run/led-control/health.json
 docker inspect --format '{{json .State.Health}}' led-control-gateway
 ```
 
+Automation config와 실행 상태는 각각 `/var/lib/led-control/automation-snapshot.json`, `/var/lib/led-control/automation-state.json`에 있다. 두 파일을 수동 편집하지 않는다. Clock marker mount와 파일 권한은 다음처럼 확인한다.
+
+```bash
+docker inspect --format '{{range .Mounts}}{{println .Source "->" .Destination .Mode}}{{end}}' led-control-gateway
+docker exec led-control-gateway test -f /run/systemd/timesync/synchronized
+docker exec led-control-gateway stat -c '%a %U:%G %n' /var/lib/led-control/automation-state.json
+```
+
 claim 전에는 `starting-unassigned`가 정상이다. claim 후 `healthy`는 선언값이 아니라 다음 실제 probe가 모두 통과하고 마지막 heartbeat publish가 `max(30초, GATEWAY_HEARTBEAT_MS x 3)` 이내일 때만 기록된다.
 
 - private D-Bus의 `org.bluez.mesh` owner
@@ -219,7 +228,7 @@ docker compose -f compose.yml restart gateway-appliance
 sudo reboot
 ```
 
-재부팅 후 같은 fixture ID와 unicast address로 재-provision 없이 제어돼야 한다. Compose가 실제 mount에 사용하는 `.env.appliance`를 로드한 뒤 gateway와 mesh 디렉터리를 같은 archive로 백업한다.
+재부팅 후 같은 fixture ID와 unicast address로 재-provision 없이 제어돼야 한다. 재시작 시 활성 schedule/manual/event의 desired brightness가 이미 durable state와 같으면 같은 Mesh 명령을 다시 보내지 않아야 한다. Override 또는 occurrence 종료 뒤에는 현재 더 높은 source를 유지하고, 모두 끝난 경우 저장한 시작 전 brightness로 복귀해야 한다. Compose가 실제 mount에 사용하는 `.env.appliance`를 로드한 뒤 gateway와 mesh 디렉터리를 같은 archive로 백업한다.
 
 ```bash
 cd /opt/led-control/gateway
@@ -229,7 +238,7 @@ set +a
 GATEWAY_DATA_DIR="${GATEWAY_DATA_DIR:-/opt/led-control/data}"
 BACKUP_PATH="/opt/led-control/gateway-data-backup-$(date +%Y%m%d%H%M%S).tgz"
 sudo tar -C "$GATEWAY_DATA_DIR" -czf "$BACKUP_PATH" gateway mesh
-sudo tar -tzf "$BACKUP_PATH" | grep -E 'gateway/state-event-outbox.json(.manifest.json)?|^mesh/'
+sudo tar -tzf "$BACKUP_PATH" | grep -E 'gateway/(automation-state|automation-snapshot|state-event-outbox).json(.manifest.json)?|^mesh/'
 ```
 
 `gateway`와 `mesh` 중 하나만 복원하면 token과 BlueZ DB가 불일치할 수 있으므로 항상 같은 시점의 묶음으로 복원한다. 복원할 때도 같은 `GATEWAY_DATA_DIR`을 사용한다.
@@ -260,6 +269,8 @@ docker exec led-control-gateway dbus-send --system --print-reply \
 - `dbus_owner_missing`, `bluez_not_attached`, `hci_not_powered`, `mapping_invalid`, `heartbeat_stale`: `health.json`의 probe 필드를 먼저 확인한다. `hci_not_powered`이면 `bluetoothctl show`와 `rfkill list bluetooth`를 확인하고, mapping 오류면 파일을 수동 편집하지 말고 backup 복원 또는 명시적 재-provision 절차를 따른다.
 - `state_outbox_capacity`: 미ACK 상태 이벤트가 `100,000건` 또는 `100MiB` 한도에 도달했다. MQTT/API를 먼저 복구해 application ACK drain을 완료한다. 공간이 회복되면 Gateway가 Mesh publication listener를 다시 열고 강제 상태 resync를 수행하므로 outbox 파일을 삭제하지 않는다.
 - `state_outbox_missing`, `state_outbox_corrupt`, `state_outbox_permissions`: 조명 제어와 provisioning을 계속하지 않는다. `/var/lib/led-control/state-event-outbox.json`과 `.manifest.json`을 같은 시점의 `data/gateway` 백업에서 함께 복원하고, 상위 디렉터리 `0700`, 두 파일 `0600`, 소유자 `gateway`를 확인한 뒤 재시작한다.
+- `automation_state_corrupt`, `automation_state_unavailable`, `automation_state_commit_uncertain`: 자동·수동 RF 실행을 계속하지 않는다. 현재 `automation-state.json`을 별도 보관하고 같은 시점의 `gateway` 백업을 복원한다. 파일만 삭제해 first-run 처리하면 source 시작 전 brightness와 duplicate suppression 근거를 잃으므로 운영 승인 없이 초기화하지 않는다.
+- Schedule이 경계에서 실행되지 않음: 호스트와 컨테이너의 `/run/systemd/timesync/synchronized`가 regular file인지, `timedatectl show -p NTPSynchronized --value`가 `yes`인지, 로그에 clock rollback이 있는지 확인한다. Clock untrusted는 새 schedule 전이만 멈추며 timed manual 명령과 현재 process의 vehicle monotonic hold는 계속돼야 한다.
 - token/mesh DB 손상: 임의 재생성하지 말고 같은 시점 백업을 복원하거나 현장 전체를 명시적으로 재-provision한다.
 
 outbox 백업이 없어 복원이 불가능하면 담당 운영자의 데이터 유실 승인과 장애 기록이 필요하다. 컨테이너를 중지하고 현재 파일을 별도 보관한 뒤 **두 파일을 함께** 제거해야만 새 first-run으로 초기화할 수 있다. 이 절차는 미ACK 이벤트를 복구하지 못하며 API 통계에는 마지막 정상 상태 이후 구간이 unknown으로 남는다. 재시작 후 강제 resync 결과와 현장 조명 상태를 대조하기 전에는 제어·등록을 재개하지 않는다.
@@ -288,5 +299,7 @@ docker compose --env-file .env.appliance -f compose.yml up -d gateway-appliance
 - 한 노드 전원 차단 시 부분 실패와 나머지 노드 성공 확인
 - MQTT 단절·재연결과 QoS 1 중복 명령 idempotency 확인
 - Pi/container/ESP32 재부팅 복구 확인
+- MQTT 단절 중 schedule 시작·종료, override/event overlap, 동일 desired와 재시작 duplicate RF 억제 확인
+- NTP marker 제거와 5분 이상 wall-clock rollback에서 새 schedule boundary만 보류되는지 확인
 - 72시간 soak 동안 메모리 증가, D-Bus 단절, sequence 역전 없음
 - 실제 주차장 층별 RF walk와 음영 지역 기록

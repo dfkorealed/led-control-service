@@ -2,6 +2,7 @@ import type { AutomationSnapshotV1 } from "@led-control/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { AutomationConfigStore } from "./automation-config-store";
 import { AutomationRuntime } from "./automation-runtime";
+import { AutomationStateCommitUncertainError } from "./automation-state-store";
 import { automationScope, automationSnapshot } from "./automation-test-fixtures";
 
 describe("AutomationRuntime", () => {
@@ -111,6 +112,47 @@ describe("AutomationRuntime", () => {
     expect(runtime.currentRevision).toBe(4);
     expect(await store.load()).toEqual(current);
     expect(store.restore).toHaveBeenCalledWith(current);
+  });
+
+  it("restores config but does not acknowledge an uncertain automation state commit", async () => {
+    const current = automationSnapshot(4);
+    const store = memoryStore(current);
+    const onActivationFailed = vi.fn().mockResolvedValue(undefined);
+    const runtime = createRuntime(store, {
+      recompute: vi.fn(async (snapshot) => {
+        if (snapshot.revision === 5) throw new AutomationStateCommitUncertainError();
+        return {};
+      }),
+      onActivationFailed
+    });
+    await runtime.initialize();
+
+    await expect(runtime.hotReload(automationSnapshot(5))).rejects.toMatchObject({
+      code: "automation_state_commit_uncertain",
+      acknowledgeable: false
+    });
+
+    expect(runtime.currentRevision).toBe(4);
+    expect(await store.load()).toEqual(current);
+    expect(store.restore).toHaveBeenCalledWith(current);
+    expect(onActivationFailed).toHaveBeenCalledWith(current);
+  });
+
+  it("commits every activated snapshot even when desired mesh work is suppressed", async () => {
+    const onActivated = vi.fn().mockResolvedValue(undefined);
+    const applyDesiredState = vi.fn().mockResolvedValue(undefined);
+    const runtime = createRuntime(memoryStore(), {
+      recompute: async () => ({ "fixture-1": 40 }),
+      applyDesiredState,
+      onActivated
+    });
+
+    await runtime.hotReload(automationSnapshot(3));
+    await runtime.hotReload(automationSnapshot(4));
+
+    expect(applyDesiredState).toHaveBeenCalledTimes(1);
+    expect(onActivated).toHaveBeenNthCalledWith(1, automationSnapshot(3));
+    expect(onActivated).toHaveBeenNthCalledWith(2, automationSnapshot(4));
   });
 
   it("requests mesh work only when recomputation changes the desired state", async () => {

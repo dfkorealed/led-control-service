@@ -9,6 +9,7 @@ apps/api/dist/
 apps/gateway/dist/
 apps/web/dist/
 packages/shared/dist/
+packages/automation-engine/dist/
 .aider*
 .local/pki/
 .local/mosquitto.acl

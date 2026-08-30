@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  createGatewayAutomationServices,
+  createManualOverrideCoordinator,
   createFixtureStatusPublisher,
   createProvisioningScanCompletedPayload,
   createProvisioningScanFailedPayload,
@@ -20,6 +25,8 @@ import {
 } from "./index";
 import { StateEventOutboxError } from "./state/state-event-outbox";
 import { provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
+import { FileAutomationStateStore } from "./automation/automation-state-store";
+import { automationScope, automationSnapshot } from "./automation/automation-test-fixtures";
 
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
@@ -34,6 +41,99 @@ const assignment = {
 };
 
 describe("startGatewayRuntime", () => {
+  it("connects Task 11 hot reload to the durable scheduler and executor", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-automation-wiring-"));
+    try {
+      let stored = null as ReturnType<typeof automationSnapshot> | null;
+      const execute = vi.fn(async (actions: Array<{ fixtureId: string; brightnessPercent: number }>) => actions.map((action) => ({
+        fixtureId: action.fixtureId,
+        status: "succeeded" as const,
+        brightnessPercent: action.brightnessPercent,
+        faultCode: null,
+        errorCode: null,
+        occurredAt: "2026-08-30T01:30:00.000Z"
+      })));
+      const services = createGatewayAutomationServices({
+        configStore: {
+          load: async () => stored,
+          apply: async (snapshot) => { stored = snapshot; },
+          restore: async (snapshot) => { stored = snapshot; }
+        },
+        stateStore: new FileAutomationStateStore(join(directory, "state.json")),
+        scope: automationScope,
+        wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+        monotonicClock: () => 1_000,
+        clockTrust: { isTrusted: async () => true },
+        execute
+      });
+      await services.scheduleRuntime.initialize();
+      await services.scheduleRuntime.recordFixtureState(scopedFixtureId, 20);
+
+      await services.automationRuntime.hotReload(automationSnapshot(1, {
+        timeZone: "UTC",
+        schedules: [{
+          id: "00000000-0000-4000-8000-000000000103",
+          name: "Active",
+          status: "enabled",
+          activeFrom: "2026-08-01T00:00:00.000Z",
+          activeUntil: "2026-09-30T23:59:59.000Z",
+          localStartTime: "01:00",
+          localEndTime: "02:00",
+          recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+          action: { dimmingEnabled: true, brightnessPercent: 40 },
+          fixtureIds: [scopedFixtureId]
+        }]
+      }));
+
+      expect(execute).toHaveBeenCalledWith([
+        expect.objectContaining({ fixtureId: scopedFixtureId, brightnessPercent: 40, sourceType: "schedule" })
+      ]);
+      expect(services.scheduleRuntime.state().lastDesiredByFixture[scopedFixtureId]).toBe(40);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("maps timed manual command terminal results into the scheduler handoff", async () => {
+    const scheduleRuntime = {
+      prepareManualOverride: vi.fn().mockResolvedValue(undefined),
+      handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
+    };
+    const coordinator = createManualOverrideCoordinator(scheduleRuntime);
+    const command = {
+      commandId: "11111111-1111-4111-8111-111111111111",
+      targetFixtureIds: [scopedFixtureId],
+      brightness: 60,
+      requestedAt: "2026-08-30T01:00:00.000Z",
+      overrideUntil: "2026-08-30T02:00:00.000Z"
+    } as never;
+
+    await coordinator.prepare(command);
+    await coordinator.handoff(command, {
+      occurredAt: "2026-08-30T01:00:01.000Z",
+      results: [{ fixtureId: scopedFixtureId, status: "timed_out", errorMessage: "private adapter detail" }]
+    } as never);
+
+    expect(scheduleRuntime.prepareManualOverride).toHaveBeenCalledWith({
+      sourceId: "11111111-1111-4111-8111-111111111111",
+      fixtureIds: [scopedFixtureId],
+      brightnessPercent: 60,
+      startedAt: "2026-08-30T01:00:00.000Z",
+      overrideUntil: "2026-08-30T02:00:00.000Z"
+    });
+    expect(scheduleRuntime.handoffManualTerminal).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      [{
+        fixtureId: scopedFixtureId,
+        status: "timed_out",
+        brightnessPercent: null,
+        faultCode: null,
+        errorCode: "status_timeout",
+        occurredAt: "2026-08-30T01:00:01.000Z"
+      }]
+    );
+  });
+
   it("starts automation ACK recovery even when unrelated connect work fails", async () => {
     const connectAutomationAcks = vi.fn().mockResolvedValue(undefined);
     const connectOperationalServices = vi.fn().mockRejectedValue(new Error("health failed"));

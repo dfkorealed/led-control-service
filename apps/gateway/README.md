@@ -79,7 +79,7 @@ pnpm gateway:smoke
 
 웹/API/MQTT/DB 등록 파이프라인은 실제 Raspberry Pi와 ESP32-H2를 사용하는 HIL 절차로 검증한다. 자동 테스트용 adapter는 `apps/gateway/test`에만 있고 배포 산출물에는 포함되지 않는다.
 
-## Automation snapshot hot reload
+## Automation snapshot hot reload와 offline 실행
 
 Gateway는 `sites/{siteId}/gateways/{gatewayId}/commands/automation/config-sync`의 `AutomationSnapshotV1` full snapshot을 MQTT QoS 1로 구독한다. 수신 snapshot은 schema, Site/Gateway scope, canonical SHA-256, revision 순서를 검증하며 다음 규칙을 적용한다.
 
@@ -89,10 +89,19 @@ Gateway는 `sites/{siteId}/gateways/{gatewayId}/commands/automation/config-sync`
 - `applied|rejected` ACK는 exact revision/hash와 함께 `/var/lib/led-control/automation-config-acks.json`에 먼저 저장한다. MQTT.js의 QoS 1 `handleMessage` backpressure 경계가 hot reload와 ACK outbox fsync 완료까지 broker PUBACK을 보류한다. MQTT ACK publish/PUBACK 실패 시 같은 payload를 지수 backoff로 재시도하고 reconnect나 process 재시작 뒤에도 재발행하며, reconnect는 이전 generation publish가 아직 끝나지 않았어도 새 generation drain을 즉시 시작한다. ACK drain startup은 health, provisioning, state, mesh resync startup과 독립되어 한 경로의 실패가 다른 경로를 막지 않는다.
 - hot reload는 Gateway process, MQTT client, heartbeat, BLE Mesh adapter를 재시작하지 않는다.
 
-경로는 `GATEWAY_AUTOMATION_CONFIG_PATH`와 `GATEWAY_AUTOMATION_ACK_OUTBOX_PATH`로 변경할 수 있다. 현재 Task 11 production 경로는 snapshot 적용과 ACK까지 담당한다. schedule/event occurrence 계산, priority arbiter, durable 실행 상태와 실제 BLE Mesh action은 Task 12 이후 연결되므로 snapshot `applied`를 조명 동작 완료로 해석하지 않는다.
+경로는 `GATEWAY_AUTOMATION_CONFIG_PATH`와 `GATEWAY_AUTOMATION_ACK_OUTBOX_PATH`로 변경할 수 있다. Task 12 production runtime은 Task 11의 `recompute/applyDesiredState` activation 경계에 offline scheduler와 priority arbiter를 연결한다.
+
+- 반복 일정은 `@led-control/automation-engine`의 wall-clock recurrence를 사용한다. 활성 수동 override, 활성 차량 이벤트 중 최대 밝기, schedule, 마지막 실제 관측값 또는 source 시작 전 base 순으로 fixture별 desired brightness를 계산한다.
+- `/var/lib/led-control/automation-state.json`에는 활성 occurrence, 수동 override 종료 시각, 차량 이벤트 source/hold 상태, source 시작 전 밝기와 마지막 reserved desired를 temp write, fsync, rename, parent fsync 순으로 저장한다. 상태가 durable하기 전에는 RF를 시작하지 않고 commit 여부가 불명확하면 previous visible state를 복구한 뒤 config inbound PUBACK을 보류한다.
+- 재시작은 durable desired가 이미 예약된 fixture에 같은 mesh command를 다시 보내지 않는다. 같은 desired brightness도 억제하며 새 output은 단일 fixture unicast 또는 동시성 8의 제한된 parallel unicast를 기존 BLE Mesh executor로 실행한다. fixture별 terminal 결과는 `automation_terminal_handoff` 구조화 로그로 넘긴다. durable cloud execution telemetry outbox는 Task 13 범위다.
+- schedule occurrence와 override/event 종료 시 source 시작 전 밝기로 복귀하되, arbiter를 다시 계산해 현재 더 높은 우선순위 source를 덮지 않는다. 실제 fixture status publication은 `currentByFixture`와 base를 갱신한다.
+- system clock은 `/run/systemd/timesync/synchronized` marker와 5분 이상 역행 여부로 신뢰한다. marker는 Compose에서 read-only bind mount한다. untrusted 동안 새 schedule 경계와 재시작 UTC expiry 전이는 보류하지만 MQTT 수동 override와 현재 process의 monotonic 차량 event hold 처리는 계속한다.
+- timed manual command는 acceptance와 실행 직전 expiry 검사를 통과한 뒤 override를 먼저 durable 저장하고 RF를 실행한다. journal의 terminal 결과가 확정된 뒤 한 번만 scheduler에 handoff하므로 broker redelivery와 process restart가 같은 mesh command를 중복 실행하지 않는다.
+
+Task 12는 차량 sensor state를 받는 runtime API와 monotonic hold까지 구현한다. 실제 ESP32-H2 Sensor Client/vendor event 입력과 application-ACK telemetry 전송은 Task 13~14에서 연결하므로 해당 입력이 없는 장비에서 차량 규칙이 스스로 활성화되지는 않는다.
 
 ```bash
-pnpm --filter @led-control/gateway test -- automation-config-store.test.ts automation-runtime.test.ts automation-config-ack-outbox.test.ts automation-config-production-path.test.ts gateway-mqtt-runtime.test.ts
+pnpm --filter @led-control/gateway test -- automation-state-store.test.ts automation-arbiter.test.ts schedule-runtime.test.ts clock-trust-provider.test.ts automation-runtime.test.ts gateway-command-handler.test.ts index.test.ts
 pnpm --filter @led-control/gateway build
 ```
 
@@ -167,8 +176,8 @@ scripts/dev-pki/revoke-gateway-cert.sh .local/pki/gateway-<gatewayId>.crt
 ```ini
 [Unit]
 Description=LED Control Gateway
-After=network-online.target
-Wants=network-online.target
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
 
 [Service]
 WorkingDirectory=/opt/led-control-service

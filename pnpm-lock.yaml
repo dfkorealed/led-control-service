@@ -93,6 +93,9 @@ importers:
       '@homebridge/dbus-native':
         specifier: ^0.7.7
         version: 0.7.7
+      '@led-control/automation-engine':
+        specifier: workspace:*
+        version: link:../../packages/automation-engine
       '@led-control/shared':
         specifier: workspace:*
         version: link:../../packages/shared

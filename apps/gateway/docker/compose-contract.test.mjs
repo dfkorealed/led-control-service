@@ -43,6 +43,17 @@ test("Raspberry Pi compose는 최소 capability와 명시적 영속 mount만 사
   assert.doesNotMatch(compose, /-\s*\/dev(?::|\/)/);
 });
 
+test("automation state는 persistent volume에 두고 systemd timesync marker만 read-only로 bind한다", async () => {
+  const compose = await readFile(path.join(gatewayDir, "compose.raspberry-pi.yml"), "utf8");
+
+  assert.match(compose, /GATEWAY_AUTOMATION_STATE_PATH:\s*\/var\/lib\/led-control\/automation-state\.json/);
+  assert.match(
+    compose,
+    /-\s*\/run\/systemd\/timesync\/synchronized:\/run\/systemd\/timesync\/synchronized:ro/
+  );
+  assert.doesNotMatch(compose, /\/run\/systemd:\/run\/systemd(?!\/timesync\/synchronized)/);
+});
+
 function matchesSocketDomain(rules, domain) {
   return rules.some((rule) => rule.args?.every(({ index, value, op }) => {
     if (index !== 0) return true;

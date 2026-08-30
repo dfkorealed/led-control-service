@@ -785,6 +785,8 @@ git commit -m "feat(gateway): hot reload automation snapshots"
 
 ### Task 12: Gateway scheduler·priority arbiter·재시작 복구
 
+**상태:** 완료 (2026-08-30)
+
 **Files:**
 - Create: `apps/gateway/src/automation/automation-state-store.ts`
 - Create: `apps/gateway/src/automation/automation-state-store.test.ts`
@@ -794,14 +796,14 @@ git commit -m "feat(gateway): hot reload automation snapshots"
 - Create: `apps/gateway/src/automation/schedule-runtime.test.ts`
 - Create: `apps/gateway/src/automation/clock-trust-provider.ts`
 - Create: `apps/gateway/src/automation/clock-trust-provider.test.ts`
-- Modify: `apps/gateway/src/commands/command-handler.ts`
+- Modify: `apps/gateway/src/commands/gateway-command-handler.ts`
 - Modify: `apps/gateway/compose.raspberry-pi.yml`
 
 **Interfaces:**
 - Consumes: common recurrence engine, applied snapshot, existing mesh dimming executor, manual `overrideUntil`.
 - Produces: fixture별 `DesiredLightingState`, occurrence key, pre-schedule/pre-event brightness, persisted timers.
 
-- [ ] **Step 1: fake wall/monotonic clock 기반 우선순위 테스트를 작성한다**
+- [x] **Step 1: fake wall/monotonic clock 기반 우선순위 테스트를 작성한다**
 
 ```ts
 expect(resolveDesiredState({ manual: activeManual, events: [80], schedule: 40, current: 20 }).brightness).toBe(60);
@@ -811,7 +813,7 @@ expect(resolveDesiredState({ manual: null, events: [], schedule: 40, current: 20
 
 첫 assertion의 `activeManual.brightness`는 60이다. 추가로 override 만료 후 event 복귀, schedule 종료 전 밝기 복귀, 재시작 중 occurrence 중복 명령 없음, system clock 불신 시 새 경계 중단을 검증한다.
 
-- [ ] **Step 2: durable state schema를 구현한다**
+- [x] **Step 2: durable state schema를 구현한다**
 
 ```ts
 export interface PersistedAutomationStateV1 {
@@ -823,17 +825,17 @@ export interface PersistedAutomationStateV1 {
 }
 ```
 
-- [ ] **Step 3: scheduler와 arbiter를 구현한다**
+- [x] **Step 3: scheduler와 arbiter를 구현한다**
 
 wall clock은 recurrence 경계 계산에만, monotonic clock은 현재 process의 event hold에 사용한다. restart 시 persisted UTC expiry를 wall clock과 비교해 복구하되 clock 신뢰 검사가 실패하면 새 schedule transition을 실행하지 않는다.
 
 production `ClockTrustProvider`는 container에 read-only mount한 `/run/systemd/timesync/synchronized` 존재 여부를 확인하고, 실행 중 wall clock이 마지막 관측값보다 5분 이상 뒤로 이동하면 다시 동기화 marker가 갱신될 때까지 untrusted로 전환한다. test는 fake provider를 사용한다. 시계가 untrusted여도 MQTT, 수동 제어, sensor current state와 monotonic hold 처리는 계속한다.
 
-- [ ] **Step 4: 같은 desired brightness 중복 전송을 억제한다**
+- [x] **Step 4: 같은 desired brightness 중복 전송을 억제한다**
 
 기존 상태와 값이 다를 때만 기존 unicast/limited parallel/group 전송기를 호출하며 fixture별 terminal result를 execution telemetry로 전달한다.
 
-- [ ] **Step 5: 검증하고 커밋한다**
+- [x] **Step 5: 검증하고 커밋한다**
 
 Run: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway test -- automation-state-store.test.ts automation-arbiter.test.ts schedule-runtime.test.ts clock-trust-provider.test.ts`
 

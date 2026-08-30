@@ -37,6 +37,7 @@ services:
       GATEWAY_COMMAND_JOURNAL_PATH: /var/lib/led-control/command-journal.json
       GATEWAY_EVENT_SEQUENCE_PATH: /var/lib/led-control/event-sequence.json
       GATEWAY_AUTOMATION_CONFIG_PATH: /var/lib/led-control/automation-snapshot.json
+      GATEWAY_AUTOMATION_STATE_PATH: /var/lib/led-control/automation-state.json
       GATEWAY_AUTOMATION_ACK_OUTBOX_PATH: /var/lib/led-control/automation-config-acks.json
       GATEWAY_MESH_IDENTITY_PATH: /var/lib/led-control/mesh-identity.json
       GATEWAY_MESH_ADDRESS_PATH: /var/lib/led-control/mesh-addresses.json
@@ -47,6 +48,7 @@ services:
       - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/identity:/var/lib/led-control/identity"
       - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/mesh:/var/lib/bluetooth/mesh"
       - "${GATEWAY_DATA_DIR:-/opt/led-control/data}/factory-trust:/etc/led-control/factory-trust:ro"
+      - /run/systemd/timesync/synchronized:/run/systemd/timesync/synchronized:ro
     healthcheck:
       test: ["CMD", "/usr/local/bin/gateway-healthcheck"]
       interval: 15s

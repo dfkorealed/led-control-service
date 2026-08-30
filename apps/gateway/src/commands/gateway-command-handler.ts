@@ -1,5 +1,6 @@
 import {
   AcceptanceAckV2,
+  AutomationExecutionFixtureResultV1,
   DeviceStatusAckV2,
   GatewayDimmingCommandV2,
   acceptanceAckV2Schema,
@@ -25,11 +26,28 @@ export interface GatewayCommandResult {
   observedFixtureIds?: string[];
 }
 
-interface GatewayCommandOptions {
+export interface ManualOverrideCoordinator {
+  prepare(command: GatewayDimmingCommandV2): Promise<void>;
+  handoff(command: GatewayDimmingCommandV2, terminal: DeviceStatusAckV2): Promise<void>;
+}
+
+export interface GatewayCommandOptions {
   timeoutMs?: number;
   groupStateStore?: Pick<GroupStateStore, "assertReady">;
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
   beforeExecution?: () => Promise<void>;
+  automation?: ManualOverrideCoordinator;
+  onAutomationError?: (error: unknown) => void;
+}
+
+interface AutomationDimmingAction {
+  fixtureId: string;
+  brightnessPercent: number;
+}
+
+interface AutomationDimmingOptions {
+  timeoutMs?: number;
+  now?: () => Date;
 }
 
 const COMMAND_COMPLETION_GRACE_MS = 250;
@@ -128,6 +146,7 @@ async function executeGatewayDimmingCommand(
   let fixtureStateObserved = false;
   let observedFixtureIds: string[] = [];
   try {
+    if (command.overrideUntil) await options.automation?.prepare(command);
     const timeoutMs = validateTimeout(options.timeoutMs ?? 8000);
     const deadlineAt = Date.now() + timeoutMs;
     const controller = new AbortController();
@@ -180,7 +199,78 @@ async function executeGatewayDimmingCommand(
 
   const result = { acceptance, deviceStatus, fixtureStateObserved, observedFixtureIds };
   await journal.complete(command.idempotencyKey, result);
+  if (command.overrideUntil && options.automation) {
+    try {
+      await options.automation.handoff(command, deviceStatus);
+    } catch (error) {
+      options.onAutomationError?.(error);
+    }
+  }
   return result;
+}
+
+export async function executeAutomationDimmingActions(
+  adapter: BleMeshAdapter,
+  actions: AutomationDimmingAction[],
+  options: AutomationDimmingOptions = {}
+): Promise<AutomationExecutionFixtureResultV1[]> {
+  validateAutomationActions(actions);
+  const timeoutMs = validateTimeout(options.timeoutMs ?? 8000);
+  const now = options.now ?? (() => new Date());
+  const grouped = new Map<number, string[]>();
+  for (const action of actions) {
+    const fixtures = grouped.get(action.brightnessPercent) ?? [];
+    fixtures.push(action.fixtureId);
+    grouped.set(action.brightnessPercent, fixtures);
+  }
+
+  const results = new Map<string, AutomationExecutionFixtureResultV1>();
+  for (const [brightness, fixtureIds] of grouped) {
+    const deadlineAt = Date.now() + timeoutMs;
+    const controller = new AbortController();
+    try {
+      const reports = validateReports(
+        fixtureIds,
+        await withTimeout(
+          applyAutomationBatch(adapter, fixtureIds, brightness, controller.signal, deadlineAt),
+          deadlineAt + COMMAND_COMPLETION_GRACE_MS,
+          timeoutMs,
+          () => controller.abort()
+        )
+      );
+      const occurredAt = now().toISOString();
+      for (const report of reports) {
+        const status = report.acknowledged
+          ? "succeeded" as const
+          : report.outcome === "timed_out"
+            ? "timed_out" as const
+            : "failed" as const;
+        const observed = report.acknowledged || report.faultCode === "state_mismatch";
+        results.set(report.fixtureId, {
+          fixtureId: report.fixtureId,
+          status,
+          brightnessPercent: observed ? report.brightness : null,
+          faultCode: report.faultCode ?? null,
+          errorCode: status === "succeeded" ? null : report.faultCode ?? "mesh_command_failed",
+          occurredAt
+        });
+      }
+    } catch (error) {
+      const timedOut = error instanceof MeshStatusTimeoutError;
+      const occurredAt = now().toISOString();
+      for (const fixtureId of fixtureIds) {
+        results.set(fixtureId, {
+          fixtureId,
+          status: timedOut ? "timed_out" : "failed",
+          brightnessPercent: null,
+          faultCode: null,
+          errorCode: timedOut ? "status_timeout" : "mesh_command_failed",
+          occurredAt
+        });
+      }
+    }
+  }
+  return actions.map((action) => results.get(action.fixtureId)!);
 }
 
 function applyCommand(
@@ -209,6 +299,22 @@ function applyCommand(
   }
 }
 
+function applyAutomationBatch(
+  adapter: BleMeshAdapter,
+  fixtureIds: string[],
+  brightness: number,
+  signal: AbortSignal,
+  deadlineAt: number
+) {
+  if (fixtureIds.length === 1 && adapter.applyUnicast) {
+    return adapter.applyUnicast(fixtureIds[0], brightness, signal, deadlineAt).then((report) => [report]);
+  }
+  if (fixtureIds.length > 1 && adapter.applyParallelUnicast) {
+    return adapter.applyParallelUnicast(fixtureIds, brightness, 8, signal, deadlineAt);
+  }
+  return adapter.setBrightness(fixtureIds, brightness);
+}
+
 function validateReports(expectedFixtureIds: string[], reports: Awaited<ReturnType<BleMeshAdapter["setBrightness"]>>) {
   const expected = new Set(expectedFixtureIds);
   if (
@@ -220,6 +326,17 @@ function validateReports(expectedFixtureIds: string[], reports: Awaited<ReturnTy
   }
   const byFixture = new Map(reports.map((report) => [report.fixtureId, report]));
   return expectedFixtureIds.map((fixtureId) => byFixture.get(fixtureId)!);
+}
+
+function validateAutomationActions(actions: AutomationDimmingAction[]) {
+  if (actions.length === 0 || new Set(actions.map((action) => action.fixtureId)).size !== actions.length) {
+    throw new Error("automation actions must contain unique fixtures");
+  }
+  for (const action of actions) validateBrightness(action.brightnessPercent);
+}
+
+function validateBrightness(value: number) {
+  if (!Number.isInteger(value) || value < 0 || value > 100) throw new Error("invalid automation brightness");
 }
 
 function meshGroupIdentity(command: GatewayDimmingCommandV2): GroupStateIdentity {

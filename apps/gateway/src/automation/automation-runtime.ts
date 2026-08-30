@@ -11,6 +11,7 @@ import {
   type AutomationConfigStore,
   type AutomationScope
 } from "./automation-config-store";
+import { AutomationStateCommitUncertainError } from "./automation-state-store";
 
 export type DesiredLightingState = Readonly<Record<string, number>>;
 
@@ -22,6 +23,7 @@ export type AutomationRuntimeErrorCode =
   | "snapshot_revision_conflict"
   | "snapshot_commit_uncertain"
   | "snapshot_store_failed"
+  | "automation_state_commit_uncertain"
   | "snapshot_recompute_failed"
   | "snapshot_rollback_failed";
 
@@ -44,6 +46,8 @@ interface AutomationRuntimeOptions {
   scope: AutomationScope;
   recompute: (snapshot: AutomationSnapshotV1) => Promise<DesiredLightingState>;
   applyDesiredState: (next: DesiredLightingState, previous: DesiredLightingState) => Promise<void>;
+  onActivated?: (snapshot: AutomationSnapshotV1) => Promise<void>;
+  onActivationFailed?: (previous: AutomationSnapshotV1 | null) => Promise<void>;
   now?: () => Date;
 }
 
@@ -74,7 +78,14 @@ export class AutomationRuntime {
     return this.queue.run(async () => {
       if (this.initialized) return;
       const recovered = await this.options.store.load();
-      if (recovered) await this.activate(recovered, false);
+      if (recovered) {
+        try {
+          await this.activate(recovered, false);
+        } catch (error) {
+          await this.rollbackActivation(null, recovered, error, false);
+          throw error;
+        }
+      }
       this.initialized = true;
     });
   }
@@ -119,18 +130,7 @@ export class AutomationRuntime {
       try {
         await this.activate(snapshot, true);
       } catch (error) {
-        try {
-          await this.options.store.restore(current);
-        } catch (rollbackError) {
-          throw new AutomationRuntimeError(
-            "snapshot_rollback_failed",
-            "snapshot_rollback_failed",
-            snapshot.revision,
-            snapshot.payloadHash,
-            { cause: new AggregateError([error, rollbackError], "snapshot rollback failed") },
-            false
-          );
-        }
+        await this.rollbackActivation(current, snapshot, error, true);
         throw error;
       }
       this.initialized = true;
@@ -158,16 +158,58 @@ export class AutomationRuntime {
       if (!sameDesiredState(this.desiredState, nextDesired)) {
         await this.options.applyDesiredState(nextDesired, this.desiredState);
       }
+      await this.options.onActivated?.(snapshot);
       this.desiredState = nextDesired;
       this.snapshot = snapshot;
     } catch (error) {
       this.snapshot = previousSnapshot;
+      if (error instanceof AutomationStateCommitUncertainError) {
+        throw new AutomationRuntimeError(
+          "automation_state_commit_uncertain",
+          "automation_state_commit_uncertain",
+          snapshot.revision,
+          snapshot.payloadHash,
+          { cause: error },
+          false
+        );
+      }
       throw new AutomationRuntimeError(
         "snapshot_recompute_failed",
         "snapshot_recompute_failed",
         snapshot.revision,
         snapshot.payloadHash,
         { cause: error }
+      );
+    }
+  }
+
+  private async rollbackActivation(
+    previous: AutomationSnapshotV1 | null,
+    attempted: AutomationSnapshotV1,
+    activationError: unknown,
+    restoreConfig: boolean
+  ) {
+    const rollbackErrors: unknown[] = [];
+    if (restoreConfig) {
+      try {
+        await this.options.store.restore(previous);
+      } catch (error) {
+        rollbackErrors.push(error);
+      }
+    }
+    try {
+      await this.options.onActivationFailed?.(previous);
+    } catch (error) {
+      rollbackErrors.push(error);
+    }
+    if (rollbackErrors.length > 0) {
+      throw new AutomationRuntimeError(
+        "snapshot_rollback_failed",
+        "snapshot_rollback_failed",
+        attempted.revision,
+        attempted.payloadHash,
+        { cause: new AggregateError([activationError, ...rollbackErrors], "snapshot rollback failed") },
+        false
       );
     }
   }

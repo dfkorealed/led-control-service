@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { config } from "dotenv";
 import {
   type AcceptanceAckV2,
+  type AutomationExecutionFixtureResultV1,
+  type DeviceStatusAckV2,
   type FixtureStateV2,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
@@ -32,7 +34,13 @@ export {
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
-import { handleGatewayDimmingCommand, parseCommandTimeout, type GatewayCommandResult } from "./commands/gateway-command-handler";
+import {
+  executeAutomationDimmingActions,
+  handleGatewayDimmingCommand,
+  parseCommandTimeout,
+  type GatewayCommandResult,
+  type ManualOverrideCoordinator
+} from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { ProvisioningScanJournal } from "./state/provisioning-scan-journal";
 import {
@@ -59,13 +67,70 @@ import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
 import { GroupStateStore } from "./mesh/group-state-store";
 import { KeyedSerialTaskQueue } from "./runtime/keyed-serial-task-queue";
 import { MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
-import { FileAutomationConfigStore } from "./automation/automation-config-store";
+import {
+  FileAutomationConfigStore,
+  type AutomationConfigStore,
+  type AutomationScope
+} from "./automation/automation-config-store";
 import { AutomationRuntime } from "./automation/automation-runtime";
 import { AutomationConfigAckOutbox, AutomationConfigAckPublisher } from "./automation/automation-config-ack-outbox";
+import { FileAutomationStateStore } from "./automation/automation-state-store";
+import { ScheduleRuntime, type AutomationTerminalHandoff, type ScheduleRuntimeOptions } from "./automation/schedule-runtime";
+import { SystemClockTrustProvider, type ClockTrustProvider } from "./automation/clock-trust-provider";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
 
 export { createMeshGroupResyncRequest, MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
+
+export function createGatewayAutomationServices(options: {
+  configStore: AutomationConfigStore;
+  stateStore: FileAutomationStateStore;
+  scope: AutomationScope;
+  clockTrust: ClockTrustProvider;
+  execute: ScheduleRuntimeOptions["execute"];
+  wallClock?: () => Date;
+  monotonicClock?: () => number;
+  onTerminalResults?: ScheduleRuntimeOptions["onTerminalResults"];
+  onError?: ScheduleRuntimeOptions["onError"];
+}) {
+  const scheduleRuntime = new ScheduleRuntime({
+    store: options.stateStore,
+    clockTrust: options.clockTrust,
+    execute: options.execute,
+    ...(options.wallClock ? { wallClock: options.wallClock } : {}),
+    ...(options.monotonicClock ? { monotonicClock: options.monotonicClock } : {}),
+    ...(options.onTerminalResults ? { onTerminalResults: options.onTerminalResults } : {}),
+    ...(options.onError ? { onError: options.onError } : {})
+  });
+  const automationRuntime = new AutomationRuntime({
+    store: options.configStore,
+    scope: options.scope,
+    recompute: (snapshot) => scheduleRuntime.recompute(snapshot),
+    applyDesiredState: (next, previous) => scheduleRuntime.applyDesiredState(next, previous),
+    onActivated: () => scheduleRuntime.commitActivation(),
+    onActivationFailed: () => scheduleRuntime.rollbackActivation(),
+    ...(options.wallClock ? { now: options.wallClock } : {})
+  });
+  return { scheduleRuntime, automationRuntime };
+}
+
+export function createManualOverrideCoordinator(
+  runtime: Pick<ScheduleRuntime, "prepareManualOverride" | "handoffManualTerminal">
+): ManualOverrideCoordinator {
+  return {
+    prepare: (command) => runtime.prepareManualOverride({
+      sourceId: command.commandId,
+      fixtureIds: command.targetFixtureIds,
+      brightnessPercent: command.brightness,
+      startedAt: command.requestedAt,
+      overrideUntil: command.overrideUntil!
+    }),
+    handoff: (command, terminal) => runtime.handoffManualTerminal(
+      command.commandId,
+      manualTerminalResults(terminal)
+    )
+  };
+}
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
@@ -138,17 +203,39 @@ async function main() {
   );
   await groupResyncStore.initialize(groupRestore.reason);
   const groupResyncPublisher = new MeshGroupResyncPublisher({ siteId, gatewayId }, groupResyncStore);
-  const automationRuntime = new AutomationRuntime({
-    store: new FileAutomationConfigStore(
+  const { scheduleRuntime, automationRuntime } = createGatewayAutomationServices({
+    configStore: new FileAutomationConfigStore(
       process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
       { siteId, gatewayId }
     ),
+    stateStore: new FileAutomationStateStore(
+      process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json"
+    ),
     scope: { siteId, gatewayId },
-    // Task 12 supplies scheduler/arbiter state; Task 11 keeps the production hot-reload path live without issuing speculative mesh work.
-    recompute: async () => ({}),
-    applyDesiredState: async () => undefined
+    clockTrust: new SystemClockTrustProvider(),
+    execute: (actions) => stateEventCapacity.run(actions.map((action) => action.fixtureId), async (reservation) => {
+      const results = await executeAutomationDimmingActions(adapter, actions, { timeoutMs: commandTimeoutMs });
+      await enqueueAutomationFixtureStates({
+        siteId,
+        gatewayId,
+        eventSequence,
+        results,
+        enqueue: (state) => enqueueFixtureState(state, reservation)
+      });
+      return results;
+    }),
+    onTerminalResults: (handoff) => reportAutomationTerminalHandoff(handoff),
+    onError: (error) => void reportGatewayError(error, "automation_runtime")
   });
+  try {
+    await scheduleRuntime.initialize();
+  } catch (error) {
+    await health.setOperationalBlocker(automationStateHealthReason(error), true);
+    throw error;
+  }
   await automationRuntime.initialize();
+  scheduleRuntime.start();
+  const manualOverrideCoordinator = createManualOverrideCoordinator(scheduleRuntime);
   const automationAckOutbox = new AutomationConfigAckOutbox(
     process.env.GATEWAY_AUTOMATION_ACK_OUTBOX_PATH ?? "/var/lib/led-control/automation-config-acks.json",
     { siteId, gatewayId }
@@ -181,7 +268,9 @@ async function main() {
             } catch (error) {
               throw error;
             }
-          }
+          },
+          automation: manualOverrideCoordinator,
+          onAutomationError: (error) => void reportGatewayError(error, "automation_manual_handoff")
         }
       );
       if (shouldPublishFinalAcceptance(acceptancePublished, result.acceptance.status)) {
@@ -298,6 +387,7 @@ async function main() {
           publish: (_topic, state) => enqueueFixtureState(state, currentReservation)
         });
         void publishFixtureStatus(status)
+          .then(() => scheduleRuntime.recordFixtureState(status.fixtureId, status.brightness))
           .then(() => armFixtureStatusIntake())
           .catch(async (error) => {
             await stateEventOutbox.release(currentReservation);
@@ -398,6 +488,7 @@ async function main() {
   const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
   registerGatewayShutdownHandlers({
     stop: async () => {
+      scheduleRuntime.stop();
       stopFixtureStatusIntake?.();
       await fixtureStatusReservation.release();
       stateEventPublisher.disconnect();
@@ -438,6 +529,63 @@ export function connectGatewayServices(options: {
     void options.onAutomationAckError(error);
   }
   return options.connectOperationalServices();
+}
+
+export function manualTerminalResults(terminal: DeviceStatusAckV2): AutomationExecutionFixtureResultV1[] {
+  return terminal.results.map((result) => ({
+    fixtureId: result.fixtureId,
+    status: result.status,
+    brightnessPercent: result.brightness ?? null,
+    faultCode: result.faultCode ?? null,
+    errorCode: result.status === "succeeded"
+      ? null
+      : result.faultCode ?? (result.status === "timed_out" ? "status_timeout" : "manual_command_failed"),
+    occurredAt: terminal.occurredAt
+  }));
+}
+
+export async function enqueueAutomationFixtureStates(input: {
+  siteId: string;
+  gatewayId: string;
+  eventSequence: Pick<EventSequenceStore, "next">;
+  results: AutomationExecutionFixtureResultV1[];
+  enqueue: (state: FixtureStateV2) => Promise<void>;
+}) {
+  for (const result of input.results) {
+    if (result.brightnessPercent === null ||
+      (result.status !== "succeeded" && result.faultCode !== "state_mismatch")) continue;
+    const brightness = result.brightnessPercent;
+    await input.enqueue(fixtureStateV2Schema.parse({
+      siteId: input.siteId,
+      gatewayId: input.gatewayId,
+      eventId: randomUUID(),
+      sequence: await input.eventSequence.next(),
+      occurredAt: result.occurredAt,
+      fixtureId: result.fixtureId,
+      brightness,
+      powerOn: brightness > 0,
+      status: result.status === "succeeded" ? "online" : "fault",
+      statusReason: result.status === "succeeded" ? "reported" : "command_failed",
+      ...(result.faultCode ? { faultCode: result.faultCode } : {}),
+      rssi: null,
+      hopCount: null
+    }));
+  }
+}
+
+export function reportAutomationTerminalHandoff(
+  handoff: AutomationTerminalHandoff,
+  logger: Pick<Console, "info"> = console
+) {
+  logger.info(JSON.stringify({ event: "automation_terminal_handoff", ...handoff }));
+  return Promise.resolve();
+}
+
+export function automationStateHealthReason(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error) || typeof error.code !== "string") {
+    return "automation_state_unavailable";
+  }
+  return error.code;
 }
 
 export function observedFixtureResults(result: Pick<GatewayCommandResult, "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds">) {
