@@ -281,3 +281,9 @@
 - **원인**: 테스트 fixture와 제품 소유 assigned number를 같은 상수로 취급했다.
 - **해결 및 예방책**: Gateway와 firmware가 명시적 배포/Kconfig 입력으로 동일 자사 할당값을 받고, 누락·미할당·타사 기존값·테스트 예약값을 fail-closed한다. 테스트 fixture는 test 전용 모듈에만 둔다.
 - **반복 방지 체크**: production factory의 dependency injection 경로도 설정 검증을 우회하지 않는지와 Gateway/firmware 설정 키 계약을 shared 테스트로 유지한다.
+
+## 2026-08-30 / 전체 상태 journal은 노드별이 아니라 operation batch로 갱신한다
+- **발생했던 문제/실수**: capability startup refresh가 source마다 pending 추가, binding 기록, pending 완료를 각각 atomic rewrite해 N개 node에서 3N번 journal 전체를 다시 쓰고 O(N²) bytes를 만들었다. 최초 pending write가 실패하면 retry identity도 남지 않았다.
+- **원인**: node 단위 API를 transaction 경계로 사용했고 durable enqueue 전에 controller가 작업 identity를 소유하지 않았다.
+- **해결 및 예방책**: controller가 먼저 bounded volatile pending set에 batch identity를 보존한다. Journal은 `requestRefreshBatch` 한 commit과 `recordBindingsAndCompleteBatch` 한 commit만 수행하고 Config 실패 node는 pending에 남긴다. 두 commit 모두 exact previous/next/unknown read-back을 사용하며 volatile retry는 1초~30초 backoff와 shutdown drain에 포함한다.
+- **반복 방지 체크**: 100/1,000 node에서 journal write count 상수, bytes 선형, 첫 enqueue ENOSPC 자동 회복, partial failure 뒤 later node 진행, restart, unchanged revision과 stale retry timer 중복 방지를 함께 검증한다.

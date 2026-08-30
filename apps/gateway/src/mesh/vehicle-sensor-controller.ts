@@ -21,6 +21,7 @@ import {
   type VendorVehicleEvent
 } from "./vehicle-sensor-codec";
 import {
+  MAX_VEHICLE_SENSOR_CAPABILITY_NODES,
   VehicleSensorCapabilityJournal,
   VehicleSensorCapabilityPublisher
 } from "./vehicle-sensor-capability";
@@ -213,6 +214,7 @@ export class VehicleSensorClient {
 
 export type VehicleSensorDiagnostic =
   | { event: "vehicle_sensor_capability_configuration_failed"; meshNodeId: string }
+  | { event: "vehicle_sensor_capability_refresh_failed"; meshNodeId: string }
   | { event: "vehicle_sensor_processing_failed"; sourceUnicast: number }
   | { event: "vehicle_sensor_capability_ack_rejected"; meshNodeId: string }
   | { event: "vehicle_sensor_capability_ack_ignored"; meshNodeId: string }
@@ -225,8 +227,12 @@ export class VehicleSensorGatewayController {
   private stopping = false;
   private capabilityQueue: Promise<unknown> = Promise.resolve();
   private readonly acceptedSensorOperations = new Set<Promise<unknown>>();
+  private readonly volatileRefreshNodeIds = new Set<string>();
   private readonly capabilityRefreshFailures = new Set<string>();
   private readonly sensorDrainTimeoutMs: number;
+  private readonly capabilityRetryInitialDelayMs: number;
+  private readonly capabilityRetryMaxDelayMs: number;
+  private capabilityRetryDelayMs: number;
   private capabilityRetryTimer: ReturnType<typeof setTimeout> | undefined;
   constructor(private readonly options: {
     port: VehicleSensorMeshPort;
@@ -234,11 +240,21 @@ export class VehicleSensorGatewayController {
     journal: VehicleSensorCapabilityJournal;
     publisher: VehicleSensorCapabilityPublisher;
     sensorDrainTimeoutMs?: number;
+    capabilityRetryInitialDelayMs?: number;
+    capabilityRetryMaxDelayMs?: number;
     diagnose?: (diagnostic: VehicleSensorDiagnostic) => void;
   }) {
     this.sensorDrainTimeoutMs = options.sensorDrainTimeoutMs ?? 5_000;
+    this.capabilityRetryInitialDelayMs = options.capabilityRetryInitialDelayMs ?? 1_000;
+    this.capabilityRetryMaxDelayMs = options.capabilityRetryMaxDelayMs ?? 30_000;
+    this.capabilityRetryDelayMs = this.capabilityRetryInitialDelayMs;
     if (!Number.isInteger(this.sensorDrainTimeoutMs) || this.sensorDrainTimeoutMs < 1) {
       throw new Error("invalid_vehicle_sensor_drain_timeout");
+    }
+    if (!Number.isInteger(this.capabilityRetryInitialDelayMs) || this.capabilityRetryInitialDelayMs < 1 ||
+      !Number.isInteger(this.capabilityRetryMaxDelayMs) ||
+      this.capabilityRetryMaxDelayMs < this.capabilityRetryInitialDelayMs) {
+      throw new Error("invalid_vehicle_sensor_capability_retry_options");
     }
   }
   async initialize() {
@@ -246,6 +262,7 @@ export class VehicleSensorGatewayController {
     this.stopping = false;
     await this.options.journal.initialize();
     const pendingRefreshNodeIds = await this.options.journal.pendingRefreshNodeIds();
+    this.rememberRefreshTargets(pendingRefreshNodeIds);
     for (const meshNodeId of pendingRefreshNodeIds) this.capabilityRefreshFailures.add(meshNodeId);
     this.unsubscribe = this.options.port.onMessage((sourceUnicast, data) => {
       if (this.stopping) return;
@@ -258,23 +275,30 @@ export class VehicleSensorGatewayController {
     try {
       await this.options.client.initialize();
       this.initialized = true;
-      if (pendingRefreshNodeIds.length > 0) this.scheduleCapabilityRetry(0);
+      if (pendingRefreshNodeIds.length > 0) this.scheduleCapabilityRetry();
     } catch (error) {
       this.unsubscribe?.(); this.unsubscribe = undefined; throw error;
     }
   }
   refreshCapabilities(meshNodeId?: string): Promise<void> {
+    return this.queueCapabilityRefresh(meshNodeId ? [meshNodeId] : undefined);
+  }
+  private queueCapabilityRefresh(meshNodeIds?: string[]): Promise<void> {
     if (this.stopping) return Promise.resolve();
+    if (this.capabilityRetryTimer) clearTimeout(this.capabilityRetryTimer);
+    this.capabilityRetryTimer = undefined;
+    if (meshNodeIds) this.rememberRefreshTargets(meshNodeIds);
     const operation = async () => {
+      if (this.capabilityRetryTimer) clearTimeout(this.capabilityRetryTimer);
+      this.capabilityRetryTimer = undefined;
       try {
-        await this.performCapabilityRefresh(meshNodeId);
+        await this.performCapabilityRefresh(meshNodeIds);
       } catch (error) {
-        for (const pendingNodeId of await this.options.journal.pendingRefreshNodeIds()) {
-          this.capabilityRefreshFailures.add(pendingNodeId);
-        }
+        const failedNodeIds = meshNodeIds ?? [...this.volatileRefreshNodeIds];
+        this.markRefreshFailure(failedNodeIds);
         throw error;
       } finally {
-        if ((await this.options.journal.pendingRefreshNodeIds()).length > 0) this.scheduleCapabilityRetry();
+        await this.updateCapabilityRetrySchedule();
       }
     };
     const result = this.capabilityQueue.then(operation, operation);
@@ -282,17 +306,29 @@ export class VehicleSensorGatewayController {
     return result;
   }
   async requestCapabilityRefresh(meshNodeId: string) {
-    await this.options.journal.requestRefresh(meshNodeId);
-    await this.refreshCapabilities(meshNodeId);
-    if ((await this.options.journal.pendingRefreshNodeIds()).includes(meshNodeId)) {
-      this.scheduleCapabilityRetry();
+    if (this.stopping) throw new Error("vehicle_sensor_capability_controller_stopping");
+    this.rememberRefreshTargets([meshNodeId]);
+    try {
+      await this.queueCapabilityRefresh([meshNodeId]);
+    } catch {
+      throw new Error("vehicle_sensor_capability_refresh_pending");
+    }
+    if ((await this.pendingRefreshTargets()).includes(meshNodeId)) {
       throw new Error("vehicle_sensor_capability_refresh_pending");
     }
   }
-  private async performCapabilityRefresh(meshNodeId?: string) {
+  private async performCapabilityRefresh(requestedNodeIds?: string[]) {
+    const requested = requestedNodeIds ? new Set(requestedNodeIds) : null;
     const sources = (await this.options.port.listConfirmedSources())
-      .filter((source) => !meshNodeId || source.meshNodeId === meshNodeId);
-    for (const source of sources) await this.options.journal.requestRefresh(source.meshNodeId);
+      .filter((source) => !requested || requested.has(source.meshNodeId));
+    const targetNodeIds = requestedNodeIds ?? sources.map(({ meshNodeId }) => meshNodeId);
+    this.rememberRefreshTargets(targetNodeIds);
+    await this.options.journal.requestRefreshBatch(targetNodeIds);
+    const successfulBindings: Array<{
+      meshNodeId: string;
+      sensorServerBound: boolean;
+      vendorVehicleEventModelBound: boolean;
+    }> = [];
     for (const source of sources) {
       if (this.stopping) return;
       let binding: Awaited<ReturnType<VehicleSensorMeshPort["configureSource"]>>;
@@ -301,19 +337,27 @@ export class VehicleSensorGatewayController {
         this.diagnose({ event: "vehicle_sensor_capability_configuration_failed", meshNodeId: source.meshNodeId });
         continue;
       }
-      const result = await this.options.journal.recordBinding({ meshNodeId: source.meshNodeId, ...binding });
-      if ((await this.options.journal.pendingRefreshNodeIds()).includes(source.meshNodeId)) {
-        await this.options.journal.completeRefresh(source.meshNodeId);
-        if (this.capabilityRefreshFailures.delete(source.meshNodeId)) {
-          this.diagnose({ event: "vehicle_sensor_capability_refresh_recovered", meshNodeId: source.meshNodeId });
-        }
-      }
-      if (result.changed) void this.options.publisher.wake();
+      successfulBindings.push({ meshNodeId: source.meshNodeId, ...binding });
     }
+    if (successfulBindings.length === 0) return;
+    const result = await this.options.journal.recordBindingsAndCompleteBatch(successfulBindings);
+    let recoveredNodeId: string | undefined;
+    for (const { meshNodeId } of successfulBindings) {
+      this.volatileRefreshNodeIds.delete(meshNodeId);
+      if (this.capabilityRefreshFailures.delete(meshNodeId)) recoveredNodeId = meshNodeId;
+    }
+    if (recoveredNodeId && (await this.pendingRefreshTargets()).length === 0) {
+      this.diagnose({ event: "vehicle_sensor_capability_refresh_recovered", meshNodeId: recoveredNodeId });
+    }
+    if (result.changedNodeIds.length > 0) void this.options.publisher.wake();
   }
   refreshConfiguration() { return this.options.client.queryConfiguredSources(); }
   reconnect(publish: (topic: string, payload: VehicleSensorCapabilityReportV1) => Promise<void>) {
-    return Promise.all([this.options.client.reconnect(), this.options.publisher.connect(publish)]);
+    return Promise.all([
+      this.options.client.reconnect(),
+      this.options.publisher.connect(publish),
+      this.refreshCapabilities()
+    ]);
   }
   disconnect() { this.options.publisher.disconnect(); }
   async acknowledge(value: unknown) {
@@ -339,18 +383,52 @@ export class VehicleSensorGatewayController {
   private diagnose(diagnostic: VehicleSensorDiagnostic) {
     try { this.options.diagnose?.(diagnostic); } catch { /* diagnostics never own progress */ }
   }
-  private scheduleCapabilityRetry(delayMs = 1_000) {
+  private scheduleCapabilityRetry() {
     if (this.stopping || this.capabilityRetryTimer) return;
+    const delayMs = this.capabilityRetryDelayMs;
+    this.capabilityRetryDelayMs = Math.min(
+      this.capabilityRetryDelayMs * 2,
+      this.capabilityRetryMaxDelayMs
+    );
     this.capabilityRetryTimer = setTimeout(() => {
       this.capabilityRetryTimer = undefined;
-      void this.retryPendingCapabilityRefreshes().catch(() => this.scheduleCapabilityRetry());
+      void this.retryPendingCapabilityRefreshes().catch(() => undefined);
     }, delayMs);
   }
   private async retryPendingCapabilityRefreshes() {
-    for (const meshNodeId of await this.options.journal.pendingRefreshNodeIds()) {
-      await this.refreshCapabilities(meshNodeId);
+    const pendingNodeIds = await this.pendingRefreshTargets();
+    if (pendingNodeIds.length > 0) await this.queueCapabilityRefresh(pendingNodeIds);
+  }
+  private rememberRefreshTargets(meshNodeIds: string[]) {
+    const nextSize = new Set([...this.volatileRefreshNodeIds, ...meshNodeIds]).size;
+    if (nextSize > MAX_VEHICLE_SENSOR_CAPABILITY_NODES) {
+      throw new Error("vehicle_sensor_capability_refresh_capacity");
     }
-    if ((await this.options.journal.pendingRefreshNodeIds()).length > 0) this.scheduleCapabilityRetry();
+    for (const meshNodeId of meshNodeIds) this.volatileRefreshNodeIds.add(meshNodeId);
+  }
+  private markRefreshFailure(meshNodeIds: string[]) {
+    for (const meshNodeId of meshNodeIds) {
+      this.capabilityRefreshFailures.add(meshNodeId);
+      this.diagnose({ event: "vehicle_sensor_capability_refresh_failed", meshNodeId });
+    }
+  }
+  private async pendingRefreshTargets() {
+    const pending = new Set(this.volatileRefreshNodeIds);
+    try {
+      for (const meshNodeId of await this.options.journal.pendingRefreshNodeIds()) pending.add(meshNodeId);
+    } catch {
+      // A fenced journal keeps volatile work alive for fail-closed retries.
+    }
+    return [...pending].sort();
+  }
+  private async updateCapabilityRetrySchedule() {
+    if ((await this.pendingRefreshTargets()).length > 0) {
+      this.scheduleCapabilityRetry();
+      return;
+    }
+    if (this.capabilityRetryTimer) clearTimeout(this.capabilityRetryTimer);
+    this.capabilityRetryTimer = undefined;
+    this.capabilityRetryDelayMs = this.capabilityRetryInitialDelayMs;
   }
 }
 

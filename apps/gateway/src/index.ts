@@ -496,7 +496,8 @@ async function main() {
       console.warn("Gateway vehicle sensor diagnostic", diagnostic);
       if (diagnostic.event === "vehicle_sensor_capability_ack_rejected") {
         void reportGatewayError(new Error(diagnostic.event), "vehicle_sensor_capability_ack");
-      } else if (diagnostic.event === "vehicle_sensor_capability_configuration_failed") {
+      } else if (diagnostic.event === "vehicle_sensor_capability_configuration_failed" ||
+        diagnostic.event === "vehicle_sensor_capability_refresh_failed") {
         void health.setOperationalBlocker("vehicle_sensor_capability_refresh_pending", true);
       } else if (diagnostic.event === "vehicle_sensor_capability_refresh_recovered") {
         void health.setOperationalBlocker("vehicle_sensor_capability_refresh_pending", false);

@@ -9,7 +9,7 @@ import {
 } from "@led-control/shared";
 import { AtomicJsonCommitUncertainError, readJsonFile, writeJsonAtomic } from "./mesh-store-file";
 
-const MAX_NODES = 10_000;
+export const MAX_VEHICLE_SENSOR_CAPABILITY_NODES = 10_000;
 const MAX_JOURNAL_BYTES = 16 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 4 * 1024;
 
@@ -22,6 +22,12 @@ export interface StoredVehicleSensorCapabilityRecord {
   report: VehicleSensorCapabilityReportV1;
   reportPayloadHash: `sha256:${string}`;
   delivery: VehicleSensorCapabilityDelivery;
+}
+
+export interface VehicleSensorCapabilityBinding {
+  meshNodeId: string;
+  sensorServerBound: boolean;
+  vendorVehicleEventModelBound: boolean;
 }
 
 interface JournalState {
@@ -73,46 +79,32 @@ export class VehicleSensorCapabilityJournal {
     this.initialized = true;
   }
 
-  recordBinding(input: {
-    meshNodeId: string;
-    sensorServerBound: boolean;
-    vendorVehicleEventModelBound: boolean;
-  }): Promise<{ changed: boolean; record: StoredVehicleSensorCapabilityRecord }> {
+  recordBinding(input: VehicleSensorCapabilityBinding): Promise<{
+    changed: boolean;
+    record: StoredVehicleSensorCapabilityRecord;
+  }> {
     return this.exclusive(async () => {
       await this.initialize();
       this.requireAvailable();
-      const current = this.state.records.find(({ report }) => report.meshNodeId === input.meshNodeId);
-      if (current && current.report.sensorServerBound === input.sensorServerBound &&
-        current.report.vendorVehicleEventModelBound === input.vendorVehicleEventModelBound) {
-        return { changed: false, record: structuredClone(current) };
-      }
-      if (!current && this.state.records.length >= MAX_NODES) throw new Error("vehicle_sensor_capability_capacity");
-      const capabilityRevision = (current?.report.capabilityRevision ?? 0) + 1;
-      if (!Number.isSafeInteger(capabilityRevision)) throw new Error("vehicle_sensor_capability_revision_exhausted");
-      const report = vehicleSensorCapabilityReportV1Schema.parse({
-        schemaVersion: 1,
-        eventId: this.createEventId(),
-        siteId: this.scope.siteId,
-        gatewayId: this.scope.gatewayId,
-        meshNodeId: input.meshNodeId,
-        capabilityRevision,
-        status: input.sensorServerBound && input.vendorVehicleEventModelBound ? "supported" : "unsupported",
-        verifiedAt: this.now().toISOString(),
-        sensorServerBound: input.sensorServerBound,
-        vendorVehicleEventModelBound: input.vendorVehicleEventModelBound
-      }) as VehicleSensorCapabilityReportV1;
-      const record: StoredVehicleSensorCapabilityRecord = {
-        report,
-        reportPayloadHash: canonicalHash(report),
-        delivery: { state: "pending" }
+      const result = this.prepareBindings([input], []);
+      if (!isDeepStrictEqual(result.next, this.state)) await this.commit(result.next);
+      return {
+        changed: result.changedNodeIds.includes(input.meshNodeId),
+        record: structuredClone(result.recordsByNodeId.get(input.meshNodeId)!)
       };
-      const next: JournalState = {
-        ...this.state,
-        records: [...this.state.records.filter(({ report: stored }) => stored.meshNodeId !== input.meshNodeId), record]
-          .sort((left, right) => left.report.meshNodeId.localeCompare(right.report.meshNodeId))
-      };
-      await this.commitBinding(next);
-      return { changed: true, record: structuredClone(record) };
+    });
+  }
+
+  recordBindingsAndCompleteBatch(inputs: VehicleSensorCapabilityBinding[]): Promise<{
+    changedNodeIds: string[];
+  }> {
+    return this.exclusive(async () => {
+      await this.initialize();
+      this.requireAvailable();
+      const nodeIds = inputs.map(({ meshNodeId }) => meshNodeId);
+      const result = this.prepareBindings(inputs, nodeIds);
+      if (!isDeepStrictEqual(result.next, this.state)) await this.commit(result.next);
+      return { changedNodeIds: result.changedNodeIds };
     });
   }
 
@@ -133,11 +125,20 @@ export class VehicleSensorCapabilityJournal {
   }
 
   requestRefresh(meshNodeId: string) {
-    return this.updateRefresh((pending) => pending.includes(meshNodeId) ? pending : [...pending, meshNodeId].sort());
+    return this.requestRefreshBatch([meshNodeId]);
+  }
+
+  requestRefreshBatch(meshNodeIds: string[]) {
+    return this.updateRefresh((pending) => [...new Set([...pending, ...meshNodeIds])].sort());
   }
 
   completeRefresh(meshNodeId: string) {
-    return this.updateRefresh((pending) => pending.filter((candidate) => candidate !== meshNodeId));
+    return this.completeRefreshBatch([meshNodeId]);
+  }
+
+  completeRefreshBatch(meshNodeIds: string[]) {
+    const completed = new Set(meshNodeIds);
+    return this.updateRefresh((pending) => pending.filter((candidate) => !completed.has(candidate)));
   }
 
   pendingRefreshNodeIds() {
@@ -170,7 +171,56 @@ export class VehicleSensorCapabilityJournal {
     });
   }
 
-  private async commitBinding(next: JournalState) {
+  private prepareBindings(inputs: VehicleSensorCapabilityBinding[], completedNodeIds: string[]) {
+    if (inputs.length > MAX_VEHICLE_SENSOR_CAPABILITY_NODES ||
+      new Set(inputs.map(({ meshNodeId }) => meshNodeId)).size !== inputs.length) {
+      throw new Error("invalid_vehicle_sensor_capability_binding_batch");
+    }
+    const recordsByNodeId = new Map(this.state.records.map((record) => [record.report.meshNodeId, record]));
+    const changedNodeIds: string[] = [];
+    for (const input of [...inputs].sort((left, right) => left.meshNodeId.localeCompare(right.meshNodeId))) {
+      const current = recordsByNodeId.get(input.meshNodeId);
+      if (current && current.report.sensorServerBound === input.sensorServerBound &&
+        current.report.vendorVehicleEventModelBound === input.vendorVehicleEventModelBound) continue;
+      if (!current && recordsByNodeId.size >= MAX_VEHICLE_SENSOR_CAPABILITY_NODES) {
+        throw new Error("vehicle_sensor_capability_capacity");
+      }
+      const capabilityRevision = (current?.report.capabilityRevision ?? 0) + 1;
+      if (!Number.isSafeInteger(capabilityRevision)) throw new Error("vehicle_sensor_capability_revision_exhausted");
+      const report = vehicleSensorCapabilityReportV1Schema.parse({
+        schemaVersion: 1,
+        eventId: this.createEventId(),
+        siteId: this.scope.siteId,
+        gatewayId: this.scope.gatewayId,
+        meshNodeId: input.meshNodeId,
+        capabilityRevision,
+        status: input.sensorServerBound && input.vendorVehicleEventModelBound ? "supported" : "unsupported",
+        verifiedAt: this.now().toISOString(),
+        sensorServerBound: input.sensorServerBound,
+        vendorVehicleEventModelBound: input.vendorVehicleEventModelBound
+      }) as VehicleSensorCapabilityReportV1;
+      recordsByNodeId.set(input.meshNodeId, {
+        report,
+        reportPayloadHash: canonicalHash(report),
+        delivery: { state: "pending" }
+      });
+      changedNodeIds.push(input.meshNodeId);
+    }
+    const completed = new Set(completedNodeIds);
+    return {
+      changedNodeIds,
+      recordsByNodeId,
+      next: {
+        ...this.state,
+        records: [...recordsByNodeId.values()]
+          .sort((left, right) => left.report.meshNodeId.localeCompare(right.report.meshNodeId)),
+        refreshPendingNodeIds: this.state.refreshPendingNodeIds
+          .filter((meshNodeId) => !completed.has(meshNodeId))
+      }
+    };
+  }
+
+  private async commit(next: JournalState) {
     try {
       await this.write(this.path, next);
     } catch (error) {
@@ -198,11 +248,13 @@ export class VehicleSensorCapabilityJournal {
     return this.exclusive(async () => {
       await this.initialize(); this.requireAvailable();
       const pending = change(this.state.refreshPendingNodeIds);
-      if (pending.length > MAX_NODES) throw new Error("vehicle_sensor_capability_refresh_capacity");
+      if (pending.length > MAX_VEHICLE_SENSOR_CAPABILITY_NODES) {
+        throw new Error("vehicle_sensor_capability_refresh_capacity");
+      }
+      parsePending(pending);
       if (isDeepStrictEqual(pending, this.state.refreshPendingNodeIds)) return;
       const next = { ...this.state, refreshPendingNodeIds: pending };
-      await this.write(this.path, next);
-      this.state = next;
+      await this.commit(next);
     });
   }
 
@@ -334,7 +386,7 @@ function parseManifest(value: unknown, scope: { siteId: string; gatewayId: strin
 
 function parseJournal(value: unknown, scope: { siteId: string; gatewayId: string }): JournalState {
   if (!isRecord(value) || (value.version !== 1 && value.version !== 2) || !sameScope(value.scope, scope) ||
-    !Array.isArray(value.records) || value.records.length > MAX_NODES) {
+    !Array.isArray(value.records) || value.records.length > MAX_VEHICLE_SENSOR_CAPABILITY_NODES) {
     throw new Error("invalid_vehicle_sensor_capability_journal");
   }
   const legacy = value.version === 1;
@@ -382,7 +434,7 @@ function parseDelivery(value: unknown): VehicleSensorCapabilityDelivery {
 }
 
 function parsePending(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length > MAX_NODES ||
+  if (!Array.isArray(value) || value.length > MAX_VEHICLE_SENSOR_CAPABILITY_NODES ||
     value.some((nodeId) => typeof nodeId !== "string" || nodeId.length < 1 || nodeId.length > 128) ||
     new Set(value).size !== value.length) throw new Error("invalid_vehicle_sensor_capability_journal");
   return [...value].sort() as string[];

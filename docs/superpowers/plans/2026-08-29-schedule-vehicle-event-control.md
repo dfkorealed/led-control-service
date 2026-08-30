@@ -1003,6 +1003,8 @@ git commit -m "feat(gateway): ingest BLE Mesh vehicle sensors"
 
 Fix Round 1에서는 production Company ID 명시 설정, automation state v5 atomic sensor inbox와 bounded recent boot high-water, provisioning terminal-first/durable capability refresh retry, Percentage 8 decode, capability uncertainty target reconciliation, sensor intake bounded drain을 추가했다. 단일 sensor 모듈은 codec/controller/capability failure boundary로 분리했다. 상세 RED/GREEN 근거와 HIL 한계는 `.superpowers/sdd/2026-08-29-schedule-vehicle-event-control/task-14-report.md`를 따른다.
 
+Fix Round 2에서는 최초 refresh journal write definite failure를 bounded volatile pending set과 1초~30초 retry로 보존하고 active retry를 shutdown drain에 포함한다. Startup/reconnect와 개별 provisioning refresh는 공통 batch API로 pending enqueue 1회, Config 성공 binding/completion 1회만 commit해 rewrite count O(1), total bytes O(N)을 보장한다. Partial failure는 해당 node만 pending에 남고 batch uncertainty는 previous/next/unknown read-back으로 수렴하거나 fence한다.
+
 ### Task 15: ESP32-H2 GPIO vehicle sensor driver
 
 **Files:**

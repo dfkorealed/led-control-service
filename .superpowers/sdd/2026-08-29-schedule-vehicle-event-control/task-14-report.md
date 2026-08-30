@@ -6,6 +6,8 @@
 
 Fix Round 1 커밋: self (`fix(gateway): close vehicle sensor review gaps`)
 
+Fix Round 2 커밋: self (`fix(gateway): batch capability refresh journal writes`)
+
 ## 구현 내용
 
 - Bluetooth Mesh Presence Detected와 Motion Sensed Sensor Status MPID를 strict decode하고 startup, reconnect, automation hot reload에서 enabled source마다 Presence Sensor Get을 보낸다.
@@ -52,3 +54,12 @@ Fix Round 1 커밋: self (`fix(gateway): close vehicle sensor review gaps`)
 - Shared/Gateway typecheck, lint, build와 `git diff --check` passed.
 - DB schema 변경은 없다.
 - 실제 assigned value를 주입한 Raspberry Pi/ESP32-H2 RF, packet loss, sudden power loss, bootId entropy/oscillation, flash wear HIL은 미실행이다.
+
+## Fix Round 2 (2026-08-30)
+
+- Remaining P2 enqueue failure: controller가 durable write 전에 refresh node ID를 최대 10,000개 volatile set에 보존한다. 최초 ENOSPC/I/O definite failure부터 health degraded 진단과 1초~30초 capped retry를 유지하고, shutdown은 timer를 취소한 뒤 active queue를 drain한다. Process crash 뒤에는 confirmed/configured source 전체 startup refresh가 복구한다.
+- Remaining P2 O(N²) I/O: `requestRefreshBatch`가 전체 pending ID를 한 commit에 저장하고, Config 결과를 모두 수집한 `recordBindingsAndCompleteBatch`가 성공 binding과 completion을 한 commit에 반영한다. 100/1,000 node 모두 journal rewrite 2회이며 serialized Config로 retry starvation과 parallel duplicate를 막는다.
+- Partial failure와 atomicity: Config 실패 node는 pending에 남고 뒤 node의 성공은 같은 batch에 반영된다. Retry/restart에서 unchanged binding은 기존 revision/eventId/hash를 유지하고 마지막 pending이 끝날 때만 전역 health를 복구한다. Batch commit uncertainty는 exact next를 채택하고 exact previous는 유지 후 retry하며 unknown target은 journal을 fence한다.
+- TDD RED에서 최초 enqueue ENOSPC 뒤 retry attempt 1회 정지, active retry shutdown 누락, 3번째 journal rewrite, batch API 부재와 startup retry timer duplicate Config를 재현했다.
+- 검증: focused vehicle-sensor/BlueZ/automation/production wiring 199/199, Gateway 전체 545/545, Shared 75/75, Docker 17/17, Mosquitto 2/2 passed. Shared/Gateway typecheck, lint, build와 diff-check도 통과했다.
+- DB schema 변경은 없다. 실제 Raspberry Pi filesystem ENOSPC/power-loss와 BlueZ/ESP32-H2 RF HIL은 미실행이다.
