@@ -57,6 +57,13 @@ const snapshotBackedExecutionMigrationPath = join(
 const snapshotBackedExecutionMigration = existsSync(snapshotBackedExecutionMigrationPath)
   ? readFileSync(snapshotBackedExecutionMigrationPath, "utf8")
   : "";
+const executionUpdateTriggerMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260903_revalidate_automation_execution_updates/migration.sql"
+);
+const executionUpdateTriggerMigration = existsSync(executionUpdateTriggerMigrationPath)
+  ? readFileSync(executionUpdateTriggerMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -205,6 +212,20 @@ describe("automation Prisma schema contract", () => {
     expect(snapshotBackedExecutionMigration).toContain("jsonb_array_elements");
     expect(snapshotBackedExecutionMigration).toContain("execution source is absent from immutable snapshot");
     expect(snapshotBackedExecutionMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
+  });
+
+  it("revalidates immutable execution proof when its revision or payload changes", () => {
+    expect(executionUpdateTriggerMigration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(executionUpdateTriggerMigration).toContain(
+      'DROP TRIGGER "AutomationExecution_source_check" ON "AutomationExecution"'
+    );
+    expect(executionUpdateTriggerMigration).toMatch(
+      /BEFORE INSERT OR UPDATE OF[\s\S]*"revision"[\s\S]*"payload"[\s\S]*ON "AutomationExecution"/
+    );
+    expect(executionUpdateTriggerMigration).toContain(
+      'EXECUTE FUNCTION "validate_automation_execution_source"()'
+    );
+    expect(executionUpdateTriggerMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
   it("indexes each schedule's latest execution in list order through a forward migration", () => {
@@ -1268,6 +1289,36 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
         '${validPayloadHash}', CURRENT_TIMESTAMP
       );
     `, "execution source is absent from immutable snapshot");
+  });
+
+  it("rejects a revision-only update that invalidates a snapshot-backed execution", () => {
+    expectSqlFailure(`
+      BEGIN;
+      UPDATE "AutomationExecution"
+      SET "revision" = 8
+      WHERE "id" = 'automation-schema-snapshot-history-execution';
+      ROLLBACK;
+    `, "execution source is absent from immutable snapshot");
+  });
+
+  it("rejects a payload sourceType-only update that invalidates a snapshot-backed execution", () => {
+    expectSqlFailure(`
+      BEGIN;
+      UPDATE "AutomationExecution"
+      SET "payload" = jsonb_set("payload", '{sourceType}', '"schedule"'::jsonb)
+      WHERE "id" = 'automation-schema-snapshot-history-execution';
+      ROLLBACK;
+    `, "execution source is absent from immutable snapshot");
+  });
+
+  it("rejects a payload sourceId-only update that invalidates a snapshot-backed execution", () => {
+    expectSqlFailure(`
+      BEGIN;
+      UPDATE "AutomationExecution"
+      SET "payload" = jsonb_set("payload", '{sourceId}', '"automation-schema-missing-rule"'::jsonb)
+      WHERE "id" = 'automation-schema-snapshot-history-execution';
+      ROLLBACK;
+    `, "execution ruleId does not match source");
   });
 
   it("blocks Gateway Site reassignment for automation rows, history, and unpublished config outbox", () => {

@@ -626,12 +626,14 @@ git commit -m "feat(api): add vehicle event rule management"
 
 ### Task 9: automation snapshot 발행·ACK·실행 원장 수집
 
-**상태:** 완료(소프트웨어, fix round 1) (2026-08-30). Production MQTT 보안·실패 계약을 strict TDD로 구현했다. Config와 application ACK는 bounded backoff 뒤 공통 10회/15분 retained deadletter를 사용하며, execution 원장과 immutable ingested ACK outbox는 같은 transaction에 저장한다. Fix round 1은 execution을 `event.revision`의 immutable config snapshot으로 검증하고 rejected desired 상태의 out-of-order ACK 보존을 추가했다. 실제 Gateway 규칙 적용과 Raspberry Pi/ESP32-H2 HIL은 후속 Task다.
+**상태:** 완료(소프트웨어, fix round 2) (2026-08-30). Production MQTT 보안·실패 계약을 strict TDD로 구현했다. Config와 application ACK는 bounded backoff 뒤 공통 10회/15분 retained deadletter를 사용하며, execution 원장과 immutable ingested ACK outbox는 같은 transaction에 저장한다. Fix round 1은 execution을 `event.revision`의 immutable config snapshot으로 검증하고 rejected desired 상태의 out-of-order ACK 보존을 추가했다. Fix round 2는 DB source trigger가 `revision`과 `payload` 단독 UPDATE에도 발화하도록 순방향 migration으로 재생성했다. 실제 Gateway 규칙 적용과 Raspberry Pi/ESP32-H2 HIL은 후속 Task다.
 
 **Files:**
+- Create: `apps/api/prisma/migrations/20260903_revalidate_automation_execution_updates/migration.sql`
 - Create: `apps/api/src/automation/automation-outbox-publisher.service.ts`
 - Create: `apps/api/src/automation/automation-mqtt-consumer.service.ts`
 - Create: `apps/api/src/automation/automation-runtime.module.ts`
+- Test: `apps/api/src/automation/automation-schema.spec.ts`
 - Test: `apps/api/src/automation/automation-outbox-publisher.service.spec.ts`
 - Test: `apps/api/src/automation/automation-mqtt-consumer.service.spec.ts`
 - Modify: `apps/api/src/automation/vehicle-sensor-capability.service.ts`

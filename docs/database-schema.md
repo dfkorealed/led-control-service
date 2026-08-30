@@ -1087,6 +1087,8 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 
 순방향 migration `20260902_snapshot_backed_automation_execution`은 `validate_automation_execution_source`를 교체한다. Current schedule/event source FK가 이미 `NULL`인 신규 history INSERT는 같은 Site/Gateway/revision의 config outbox payload와 row hash가 일치하고 enabled source ID가 해당 immutable snapshot array에 있을 때만 허용한다. Snapshot으로 증명되지 않은 deleted/moved source, 잘못된 kind/rule/sourceType/sourceId는 `23514`로 거부하며 기존 live source owner 검증과 delete 후 `SET NULL` history 보존은 유지한다.
 
+순방향 migration `20260903_revalidate_automation_execution_updates`는 `AutomationExecution_source_check` trigger를 재생성해 기존 owner/source/kind 열에 더해 `revision`과 `payload` UPDATE에도 같은 source 검증 함수를 실행한다. 따라서 snapshot-backed 실행의 revision만 다른 snapshot으로 바꾸거나 action payload의 `sourceType`/`sourceId`만 바꿔 immutable proof를 무효화하는 UPDATE는 `23514`로 거부된다. 기존 정상 INSERT/UPDATE, live source owner 검증과 source 삭제 시 `SET NULL` history 보존 경로는 유지한다.
+
 순방향 migration `20260830_reject_equal_schedule_times`는 하나의 명시적 PostgreSQL transaction에서 `LightingSchedule`과 `MqttOutbox`에 `SHARE` table lock을 먼저 획득한다. 이 lock은 조회를 허용하면서 두 table의 concurrent INSERT/UPDATE/DELETE를 막으므로, 같은 local start/end를 가진 live `LightingSchedule`과 아직 publish/dead-letter되지 않은 automation-config `MqttOutbox` snapshot entry의 preflight와 CHECK 적용 사이에 invalid row가 들어올 수 없다. 하나라도 발견하면 deferred commit-time trigger가 schedule 또는 outbox 식별자와 Gateway/revision/time을 포함한 `23514` operator-remediation 오류를 발생시켜 transaction 전체를 rollback하며 어떤 row도 자동 수정하거나 삭제하지 않는다. 운영자가 schedule 시간을 명시적으로 교정하고 Gateway full snapshot을 재생성한 뒤 superseded pending outbox만 recovery runbook에 따라 제거해야 migration을 다시 적용할 수 있다.
 
 ### ProcessedGatewayEvent
