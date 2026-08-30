@@ -68,6 +68,7 @@ import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mq
 import {
   BackgroundMeshResyncWorker,
   TargetedLightingResyncQueue,
+  requestFixtureObservationResync,
   startControlPlaneWithBackgroundMeshResync
 } from "./runtime/background-mesh-resync";
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
@@ -88,8 +89,6 @@ import { ScheduleRuntime, type AutomationTerminalHandoff, type ScheduleRuntimeOp
 import { SystemClockTrustProvider, type ClockTrustProvider } from "./automation/clock-trust-provider";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
-const LEGACY_TIMED_MANUAL_COMPATIBILITY_VERSION = 1;
-const LEGACY_TIMED_MANUAL_MAX_DURATION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 export { createMeshGroupResyncRequest, MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
 
@@ -143,28 +142,9 @@ export function createManualOverrideCoordinator(
       const transitAgeMs = "deliveryWindowMs" in command
         ? Math.max(0, command.deliveryWindowMs - (receipt?.brokerRemainingTtlMs ?? command.deliveryWindowMs))
         : 0;
-      let overrideRemainingMs = "overrideRemainingMs" in command && command.overrideRemainingMs !== undefined
+      const overrideRemainingMs = "overrideRemainingMs" in command && command.overrideRemainingMs !== undefined
         ? Math.max(1, command.overrideRemainingMs - transitAgeMs - elapsedSinceReceiptMs)
         : undefined;
-      if (overrideRemainingMs === undefined && receiptIsFreshLegacyDelivery(receipt)) {
-        const requestedDurationMs = Date.parse(command.overrideUntil!) - Date.parse(command.requestedAt);
-        if (requestedDurationMs > LEGACY_TIMED_MANUAL_MAX_DURATION_MS) {
-          throw new Error("legacy timed manual override exceeds the compatibility duration limit");
-        }
-        const initialBrokerWindowMs = Math.min(
-          requestedDurationMs,
-          GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS
-        );
-        const packetTransitAgeMs = Math.max(0, initialBrokerWindowMs - brokerRemainingTtlMs);
-        overrideRemainingMs = requestedDurationMs - packetTransitAgeMs;
-        reportLegacyTimedManualCompatibility({
-          commandId: command.commandId,
-          siteId: command.siteId,
-          gatewayId: command.gatewayId,
-          packetTransitAgeMs,
-          requestedDurationMs
-        });
-      }
       await runtime.prepareManualOverride({
         sourceId: command.commandId,
         fixtureIds: command.targetFixtureIds,
@@ -172,7 +152,8 @@ export function createManualOverrideCoordinator(
         startedAt: command.requestedAt,
         overrideUntil: command.overrideUntil!,
         deliveryWindowMs: brokerRemainingTtlMs,
-        ...(overrideRemainingMs === undefined ? {} : { overrideRemainingMs })
+        ...(overrideRemainingMs === undefined ? {} : { overrideRemainingMs }),
+        ...("deliveryGeneration" in command ? {} : { timingSource: "legacy_wire" as const })
       });
     },
     handoff: (command, terminal) => runtime.handoffManualTerminal(
@@ -180,31 +161,6 @@ export function createManualOverrideCoordinator(
       manualTerminalResults(terminal)
     )
   };
-}
-
-function receiptIsFreshLegacyDelivery(receipt: GatewayCommandReceipt | undefined) {
-  return receipt !== undefined &&
-    receipt.brokerRemainingTtlMs > 0 &&
-    receipt.brokerRemainingTtlMs <= GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS;
-}
-
-export function reportLegacyTimedManualCompatibility(
-  input: {
-    commandId: string;
-    siteId: string;
-    gatewayId: string;
-    packetTransitAgeMs: number;
-    requestedDurationMs: number;
-  },
-  logger: Pick<Console, "warn"> = console
-) {
-  logger.warn(JSON.stringify({
-    event: "legacy_timed_manual_wire_compatibility",
-    compatibilityVersion: LEGACY_TIMED_MANUAL_COMPATIBILITY_VERSION,
-    maxDurationMs: LEGACY_TIMED_MANUAL_MAX_DURATION_MS,
-    maxBrokerFreshnessMs: GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
-    ...input
-  }));
 }
 
 export function createGatewayCommandReceipt(
@@ -319,6 +275,17 @@ async function main() {
     run: (fixtureIds, signal) => adapter.resyncLightingFixtures(fixtureIds, signal),
     onError: (error) => reportGatewayError(error, "automation_targeted_lighting_resync")
   });
+  let meshResyncWorker!: BackgroundMeshResyncWorker;
+  let fullResyncRerunPending = false;
+  const fullResyncFallback = {
+    schedule: (rerunIfActive = false) => {
+      if (!meshResyncWorker) {
+        fullResyncRerunPending = true;
+        return true;
+      }
+      return meshResyncWorker.schedule(rerunIfActive);
+    }
+  };
   const { scheduleRuntime, automationRuntime } = createGatewayAutomationServices({
     configStore: new FileAutomationConfigStore(
       process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
@@ -328,9 +295,7 @@ async function main() {
     scope: { siteId, gatewayId },
     clockTrust,
     requestFixtureObservation: (fixtureIds) => {
-      if (!targetedLightingResync.request(fixtureIds)) {
-        throw new Error("targeted lighting resync queue capacity is unavailable");
-      }
+      requestFixtureObservationResync(fixtureIds, targetedLightingResync, fullResyncFallback);
     },
     execute: (actions) => executeAutomationWithBestEffortTelemetry({
       actions,
@@ -373,7 +338,7 @@ async function main() {
     (fixtureId) => targetedLightingResync.markObserved(fixtureId)
   );
   await health.setOperationalBlocker("mesh_resync_pending", true);
-  const meshResyncWorker = new BackgroundMeshResyncWorker({
+  meshResyncWorker = new BackgroundMeshResyncWorker({
     run: (signal) => adapter.resyncFixtureStates(signal),
     onReport: async (report) => {
       await recordMeshResyncOutcome(health, report);
@@ -386,6 +351,7 @@ async function main() {
       await health.setOperationalBlocker("mesh_resync_failed", true);
     }
   });
+  if (fullResyncRerunPending) meshResyncWorker.schedule(true);
   scheduleRuntime.start();
   const automationAckOutbox = new AutomationConfigAckOutbox(
     process.env.GATEWAY_AUTOMATION_ACK_OUTBOX_PATH ?? "/var/lib/led-control/automation-config-acks.json",

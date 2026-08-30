@@ -247,7 +247,7 @@
 
 ## 2026-08-30 / 복구 안전성은 우선순위와 queue 진행성을 함께 검증한다
 
-- **발생했던 문제/실수**: Clock-untrusted restart에서 만료를 판단할 수 없는 manual을 arbiter에서 제거해 event/schedule이 실제 출력을 덮었고, targeted resync는 offline 선두 64개만 반복해 뒤 fixture fence를 해제하지 못했다. Rolling old API wire는 broker 전달 TTL을 override 수명으로 오인해 정상 1시간/30일 manual을 수 초로 줄였다.
-- **원인**: 불확실한 상태를 제외하는 fail-safe가 `manual > event > schedule` 우선순위를 깨뜨렸고, bounded batch가 전체 pending set의 공정성을 자동 보장한다고 가정했다. Delivery freshness와 요청 lifetime도 하나의 deadline으로 합쳤다.
-- **해결 및 예방책**: Trust 회복 전에는 recovered manual의 관측된 현재 출력을 manual 후보로 유지한다. Targeted queue는 unresolved batch를 tail로 회전하고 retry/backoff/abort를 보존한다. Legacy timed compatibility는 인증된 10초 broker freshness 안에서만 요청 duration에서 transit age를 빼고, version 1 구조화 진단과 30일 상한을 적용한다. 새 API publisher를 먼저 배포해 stale legacy outbox를 종료한다.
-- **반복 방지 체크**: 복구 테스트에는 active event와 active schedule, RF 0회, batch 크기보다 큰 offline/online 혼합, old API 1시간/30일 immediate와 delayed packet, new generation 불변 경로를 함께 넣는다.
+- **발생했던 문제/실수**: Clock-untrusted restart에서 만료를 판단할 수 없는 manual을 arbiter에서 제거해 event/schedule이 실제 출력을 덮었고, targeted resync는 offline 선두 batch를 회전해도 4,096개 capacity 초과 요청을 전부 거부해 뒤 fixture fence를 고립시켰다. Rolling old API wire는 broker 이전 outbox 지연을 증명할 metadata가 없는데도 전체 요청 duration을 새 monotonic lifetime으로 만들었다.
+- **원인**: 불확실한 상태를 제외하는 fail-safe가 `manual > event > schedule` 우선순위를 깨뜨렸고, batch 공정성과 queue capacity 초과 진행성을 별개로 검증하지 않았다. Broker remaining TTL이 증명하는 범위를 broker 체류 이후로 한정하지 않고 pre-broker delay까지 추정했다.
+- **해결 및 예방책**: Trust 회복 전에는 recovered manual의 관측된 현재 출력을 manual 후보로 유지한다. Targeted queue는 unresolved batch를 tail로 회전하고 capacity까지 부분 수용하며 overflow를 모든 confirmed fixture의 guaranteed full-resync rerun으로 승격한다. Untrusted Gateway는 legacy timed wire를 `legacy_timing_unverifiable` terminal로 거부하고 RF를 실행하지 않는다. 배포는 새 API publisher 가동, old publisher 종료, broker 최대 expiry 10초 drain, Gateway 순서로 고정한다.
+- **반복 방지 체크**: 복구 테스트에는 active event/schedule RF 0회, 4,097개 terminal commit failure의 마지막 fixture 관측과 fence 해제, old API 1시간/30일 untrusted RF 0회, trusted legacy와 untrusted new-generation 성공 경로를 함께 넣는다.

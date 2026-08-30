@@ -104,14 +104,12 @@ export class TargetedLightingResyncQueue {
   request(fixtureIds: string[]) {
     if (this.stopping) return false;
     const unique = [...new Set(fixtureIds)];
+    if (unique.length === 0 || unique.some((fixtureId) => fixtureId.length === 0)) return false;
     const additions = unique.filter((fixtureId) => !this.pending.has(fixtureId));
-    if (unique.length === 0 || unique.some((fixtureId) => fixtureId.length === 0) ||
-      this.pending.size + additions.length > this.maxPendingFixtures) {
-      return false;
-    }
-    for (const fixtureId of additions) this.pending.add(fixtureId);
-    this.kick();
-    return true;
+    const accepted = additions.slice(0, Math.max(0, this.maxPendingFixtures - this.pending.size));
+    for (const fixtureId of accepted) this.pending.add(fixtureId);
+    if (accepted.length > 0) this.kick();
+    return accepted.length === additions.length;
   }
 
   markObserved(fixtureId: string) {
@@ -186,6 +184,16 @@ export class TargetedLightingResyncQueue {
     clearTimeout(this.retryTimer);
     this.retryTimer = null;
   }
+}
+
+export function requestFixtureObservationResync(
+  fixtureIds: string[],
+  targeted: Pick<TargetedLightingResyncQueue, "request">,
+  full: Pick<BackgroundMeshResyncWorker, "schedule">
+) {
+  if (targeted.request(fixtureIds)) return true;
+  if (full.schedule(true)) return true;
+  throw new Error("fixture observation resync is unavailable");
 }
 
 export function startControlPlaneWithBackgroundMeshResync(

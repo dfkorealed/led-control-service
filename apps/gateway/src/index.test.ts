@@ -32,7 +32,10 @@ import { StateEventOutboxError } from "./state/state-event-outbox";
 import { provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
 import { automationScope, automationSnapshot } from "./automation/automation-test-fixtures";
-import { recoverPendingManualAutomationHandoffs } from "./commands/gateway-command-handler";
+import {
+  handleGatewayDimmingCommand,
+  recoverPendingManualAutomationHandoffs
+} from "./commands/gateway-command-handler";
 
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
@@ -150,79 +153,166 @@ describe("startGatewayRuntime", () => {
     );
   });
 
-  it.each([
-    ["one hour immediately", "2026-08-30T02:00:00.000Z", 10_000, 3_600_000],
-    ["30 days immediately", "2026-09-29T01:00:00.000Z", 10_000, 30 * 24 * 60 * 60 * 1_000],
-    ["one hour after three seconds in transit", "2026-08-30T02:00:00.000Z", 7_000, 3_597_000]
-  ])("preserves a broker-fresh legacy timed override for %s", async (
-    _case,
-    overrideUntil,
-    brokerRemainingTtlMs,
-    expectedRemainingMs
-  ) => {
+  it("marks a legacy timed wire without inventing absolute remaining metadata", async () => {
     const scheduleRuntime = {
       prepareManualOverride: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
     };
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const coordinator = createManualOverrideCoordinator(scheduleRuntime, () => 5_000);
     const command = {
       ...timedGatewayCommand(),
       requestedAt: "2026-08-30T01:00:00.000Z",
-      overrideUntil,
+      overrideUntil: "2026-08-30T02:00:00.000Z",
       expiresAt: "2026-08-30T01:00:10.000Z"
     };
 
-    try {
-      await coordinator.prepare(command as never, {
-        receivedAtMonotonicMs: 5_000,
-        brokerRemainingTtlMs
-      });
+    await coordinator.prepare(command as never, {
+      receivedAtMonotonicMs: 5_000,
+      brokerRemainingTtlMs: 7_000
+    });
 
-      expect(scheduleRuntime.prepareManualOverride).toHaveBeenCalledWith(expect.objectContaining({
-        sourceId: command.commandId,
-        startedAt: command.requestedAt,
-        overrideUntil,
-        deliveryWindowMs: brokerRemainingTtlMs,
-        overrideRemainingMs: expectedRemainingMs
-      }));
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(JSON.parse(String(warn.mock.calls[0]?.[0]))).toMatchObject({
-        event: "legacy_timed_manual_wire_compatibility",
-        compatibilityVersion: 1,
-        commandId: command.commandId,
-        packetTransitAgeMs: 10_000 - brokerRemainingTtlMs,
-        requestedDurationMs: Date.parse(overrideUntil) - Date.parse(command.requestedAt),
-        maxDurationMs: 30 * 24 * 60 * 60 * 1_000
+    expect(scheduleRuntime.prepareManualOverride).toHaveBeenCalledWith({
+      sourceId: command.commandId,
+      fixtureIds: command.targetFixtureIds,
+      brightnessPercent: command.brightness,
+      startedAt: command.requestedAt,
+      overrideUntil: command.overrideUntil,
+      deliveryWindowMs: 7_000,
+      timingSource: "legacy_wire"
+    });
+  });
+
+  it.each([
+    ["one hour", "2026-08-30T02:00:00.000Z"],
+    ["30 days", "2026-09-29T01:00:00.000Z"]
+  ])("rejects an old-publisher %s timed wire on an untrusted Gateway without RF", async (_case, overrideUntil) => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-untrusted-legacy-wire-"));
+    try {
+      const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
+      const services = createGatewayAutomationServices({
+        configStore: {
+          load: async () => null,
+          apply: async () => undefined,
+          restore: async () => undefined
+        },
+        stateStore,
+        scope: automationScope,
+        wallClock: () => new Date("2026-08-30T01:00:00.000Z"),
+        monotonicClock: () => 5_000,
+        clockTrust: { isTrusted: async () => false },
+        execute: vi.fn()
       });
+      await services.scheduleRuntime.initialize();
+      await services.scheduleRuntime.recordFixtureState(scopedFixtureId, 20);
+      const command = {
+        ...timedGatewayCommand(),
+        overrideUntil,
+        expiresAt: "2026-08-30T01:00:10.000Z"
+      };
+      const setBrightness = vi.fn();
+
+      const result = await handleGatewayDimmingCommand(
+        { setBrightness } as never,
+        memoryGatewayJournal(),
+        command,
+        undefined,
+        {
+          automation: createManualOverrideCoordinator(services.scheduleRuntime, () => 5_000),
+          receipt: {
+            receivedAtMonotonicMs: 5_000,
+            brokerRemainingTtlMs: 10_000
+          },
+          monotonicClock: () => 5_000,
+          isCommandExpired: () => false
+        }
+      );
+
+      expect(setBrightness).not.toHaveBeenCalled();
+      expect(result.deviceStatus).toMatchObject({
+        status: "failed",
+        results: [{
+          fixtureId: scopedFixtureId,
+          status: "failed",
+          errorMessage: "legacy_timing_unverifiable"
+        }]
+      });
+      expect(services.scheduleRuntime.state().manualOverrides).toEqual({});
     } finally {
-      warn.mockRestore();
+      await rm(directory, { recursive: true, force: true });
     }
   });
 
-  it("bounds legacy timed compatibility at the API maximum duration", async () => {
-    const scheduleRuntime = {
-      prepareManualOverride: vi.fn().mockResolvedValue(undefined),
-      handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
-    };
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const coordinator = createManualOverrideCoordinator(scheduleRuntime, () => 5_000);
-    const command = {
-      ...timedGatewayCommand(),
-      requestedAt: "2026-08-30T01:00:00.000Z",
-      overrideUntil: "2026-09-29T01:00:00.001Z",
-      expiresAt: "2026-08-30T01:00:10.000Z"
-    };
-
+  it.each([
+    ["trusted legacy", true, false, "2026-08-30T02:00:00.000Z", 3_600_000],
+    ["untrusted new-generation", false, true, "2026-09-29T01:00:00.000Z", 30 * 24 * 60 * 60 * 1_000]
+  ] as const)("executes a %s timed wire with verifiable remaining time", async (
+    _case,
+    trusted,
+    newGeneration,
+    overrideUntil,
+    overrideRemainingMs
+  ) => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-verifiable-timed-wire-"));
     try {
-      await expect(coordinator.prepare(command as never, {
-        receivedAtMonotonicMs: 5_000,
-        brokerRemainingTtlMs: 10_000
-      })).rejects.toThrow("legacy timed manual override exceeds the compatibility duration limit");
-      expect(scheduleRuntime.prepareManualOverride).not.toHaveBeenCalled();
-      expect(warn).not.toHaveBeenCalled();
+      const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
+      const services = createGatewayAutomationServices({
+        configStore: {
+          load: async () => null,
+          apply: async () => undefined,
+          restore: async () => undefined
+        },
+        stateStore,
+        scope: automationScope,
+        wallClock: () => new Date("2026-08-30T01:00:00.000Z"),
+        monotonicClock: () => 5_000,
+        clockTrust: { isTrusted: async () => trusted },
+        execute: vi.fn()
+      });
+      await services.scheduleRuntime.initialize();
+      await services.scheduleRuntime.recordFixtureState(scopedFixtureId, 20);
+      const command = {
+        ...timedGatewayCommand(),
+        overrideUntil,
+        expiresAt: "2026-08-30T01:00:10.000Z",
+        ...(newGeneration ? {
+          deliveryGeneration: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          deliveryGeneratedAt: "2026-08-30T01:00:00.000Z",
+          deliveryWindowMs: 10_000,
+          overrideRemainingMs
+        } : {})
+      };
+      const setBrightness = vi.fn(async (fixtureIds: string[], brightness: number) => fixtureIds.map((targetFixtureId) => ({
+        fixtureId: targetFixtureId,
+        acknowledged: true,
+        brightness,
+        rssi: null,
+        hopCount: null
+      })));
+
+      const result = await handleGatewayDimmingCommand(
+        { setBrightness } as never,
+        memoryGatewayJournal(),
+        command as never,
+        undefined,
+        {
+          automation: createManualOverrideCoordinator(services.scheduleRuntime, () => 5_000),
+          receipt: {
+            receivedAtMonotonicMs: 5_000,
+            brokerRemainingTtlMs: 10_000
+          },
+          monotonicClock: () => 5_000,
+          isCommandExpired: () => false
+        }
+      );
+
+      expect(setBrightness).toHaveBeenCalledWith([scopedFixtureId], 60);
+      expect(result.deviceStatus.status).toBe("succeeded");
+      expect(services.scheduleRuntime.state().manualOverrides[scopedFixtureId]).toMatchObject({
+        brightnessPercent: 60,
+        overrideUntil
+      });
     } finally {
-      warn.mockRestore();
+      await rm(directory, { recursive: true, force: true });
     }
   });
 
@@ -796,5 +886,35 @@ function successfulGatewayCommandResult(command: ReturnType<typeof timedGatewayC
     },
     fixtureStateObserved: true,
     observedFixtureIds: [scopedFixtureId]
+  };
+}
+
+function memoryGatewayJournal() {
+  const records = new Map<string, {
+    state: "accepted" | "completed";
+    command: unknown;
+    result?: unknown;
+    automationHandoff?: "pending" | "completed";
+  }>();
+  return {
+    get: async (key: string) => records.get(key) ?? null,
+    accept: async (key: string, command: unknown) => {
+      if (records.has(key)) return false;
+      records.set(key, { state: "accepted", command });
+      return true;
+    },
+    complete: async (key: string, result: unknown, options: { automationHandoffPending?: boolean } = {}) => {
+      const accepted = records.get(key)!;
+      records.set(key, {
+        ...accepted,
+        state: "completed",
+        result,
+        ...(options.automationHandoffPending ? { automationHandoff: "pending" as const } : {})
+      });
+    },
+    markAutomationHandoffComplete: async (key: string) => {
+      const completed = records.get(key)!;
+      records.set(key, { ...completed, automationHandoff: "completed" });
+    }
   };
 }

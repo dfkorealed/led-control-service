@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BackgroundMeshResyncWorker,
   TargetedLightingResyncQueue,
+  requestFixtureObservationResync,
   startControlPlaneWithBackgroundMeshResync
 } from "./background-mesh-resync";
 
@@ -77,6 +78,22 @@ describe("BackgroundMeshResyncWorker", () => {
     await vi.waitFor(() => expect(worker.readiness).toBe("ready"));
 
     expect(run).toHaveBeenCalledTimes(1);
+    await worker.stopAndDrain();
+  });
+
+  it("runs one requested full rerun after the active resync completes", async () => {
+    const first = deferred<typeof completeReport>();
+    const run = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockResolvedValueOnce(completeReport);
+    const worker = new BackgroundMeshResyncWorker({ run, onReport: vi.fn() });
+
+    expect(worker.schedule()).toBe(true);
+    expect(worker.schedule(true)).toBe(true);
+    first.resolve(completeReport);
+
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(worker.readiness).toBe("ready"));
     await worker.stopAndDrain();
   });
 
@@ -204,14 +221,17 @@ describe("TargetedLightingResyncQueue", () => {
     }
   });
 
-  it("bounds pending fixture requests", () => {
+  it("partially queues a request at capacity and reports the required full-resync fallback", async () => {
     const queue = new TargetedLightingResyncQueue({
       run: vi.fn(),
       maxPendingFixtures: 1
     });
+    const fullResync = { schedule: vi.fn(() => true) };
 
-    expect(queue.request(["fixture-1", "fixture-2"])).toBe(false);
-    expect(queue.pendingCount).toBe(0);
+    expect(requestFixtureObservationResync(["fixture-1", "fixture-2"], queue, fullResync)).toBe(true);
+    expect(queue.pendingCount).toBe(1);
+    expect(fullResync.schedule).toHaveBeenCalledWith(true);
+    await queue.stopAndDrain();
   });
 });
 

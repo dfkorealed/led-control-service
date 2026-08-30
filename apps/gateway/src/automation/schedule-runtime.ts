@@ -36,6 +36,7 @@ export interface ManualOverrideInput {
   overrideUntil: string;
   deliveryWindowMs: number;
   overrideRemainingMs?: number;
+  timingSource?: "legacy_wire";
 }
 
 export interface AutomationTerminalHandoff {
@@ -283,6 +284,9 @@ export class ScheduleRuntime {
       const monotonicNow = this.monotonicClock();
       const durationMs = Date.parse(input.overrideUntil) - Date.parse(input.startedAt);
       const trusted = await this.options.clockTrust.isTrusted(wallNow);
+      if (!trusted && input.timingSource === "legacy_wire") {
+        throw new ScheduleRuntimeError("legacy_timing_unverifiable");
+      }
       const remainingMs = trusted
         ? Math.min(
           Date.parse(input.overrideUntil) - wallNow.getTime(),
@@ -669,7 +673,10 @@ function sameTransition(
 }
 
 export class ScheduleRuntimeError extends Error {
-  constructor(readonly code: "automation_current_state_unavailable" | "manual_override_expired") {
+  constructor(readonly code:
+    | "automation_current_state_unavailable"
+    | "manual_override_expired"
+    | "legacy_timing_unverifiable") {
     super(code);
     this.name = "ScheduleRuntimeError";
   }

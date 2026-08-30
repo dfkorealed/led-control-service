@@ -144,12 +144,12 @@ scripts/gateway-appliance-deploy.sh \
 
 Timed manual wire를 포함한 rolling upgrade는 다음 순서를 고정한다.
 
-1. 새 API publisher를 모든 API instance에 먼저 배포한다.
-2. Publisher가 기존 legacy outbox를 strict delivery generation으로 normalize하고, 이미 `overrideUntil`이 지난 row를 `MANUAL_OVERRIDE_EXPIRED`로 종료했는지 확인한다.
-3. 그 다음 Gateway image를 배포한다.
-4. Gateway log의 `legacy_timed_manual_wire_compatibility` event를 확인한다. Compatibility version 1은 mTLS broker가 전달한 최대 10초 freshness packet과 최대 30일 요청 duration에만 적용되며, 새 API 배포 뒤에도 event가 계속 발생하면 남은 old publisher/outbox를 먼저 제거한다.
+1. Strict delivery generation을 발행하는 새 API publisher를 먼저 가동하고 기존 legacy outbox를 normalize한다. 이미 `overrideUntil`이 지난 row가 `MANUAL_OVERRIDE_EXPIRED`로 종료되는지 확인한다.
+2. Legacy wire를 만들 수 있는 old publisher instance와 worker를 모두 종료한다. 새 publisher가 동작 중이라는 이유로 old publisher 종료를 생략하지 않는다.
+3. 마지막 old publisher 종료 시점부터 broker 최대 message expiry인 10초를 온전히 기다려 persistent session과 queued QoS 1 legacy packet을 drain한다.
+4. 10초 drain이 끝난 뒤에만 Gateway image를 배포한다.
 
-Gateway를 먼저 배포하면 clock-untrusted 현장에서 old payload만으로 API outbox 지연 시간을 복구할 수 없어 요청 duration을 새로 시작할 수 있다. 따라서 이 배포 순서는 선택 사항이 아니다.
+Gateway를 먼저 배포하거나 10초 drain을 생략하면 clock-untrusted 현장의 legacy timed command는 `legacy_timing_unverifiable` terminal 실패로 기록되고 RF를 실행하지 않는다. Legacy wire에는 pre-broker delay를 증명할 generation metadata가 없으므로 이 배포 순서는 선택 사항이 아니다. Clock-trusted Gateway의 legacy command와 새 generation을 받은 clock-untrusted Gateway command는 정상 처리한다.
 
 ## 8. Pi에서 직접 실행
 
@@ -285,7 +285,8 @@ docker exec led-control-gateway dbus-send --system --print-reply \
 - `COMMAND_AUTOMATION_HANDOFF_CAPACITY`: 완료되지 않은 timed manual recovery가 별도 10,000건 상한에 도달해 새 명령 intake를 fail-closed했다. Pending record는 24시간 TTL, 30일 override 경과와 일반 command eviction으로 삭제되지 않는다. MQTT/API와 automation state 오류를 복구해 handoff를 완료한 뒤 journal record가 `automationHandoff=completed`로 바뀌는지 확인하며 파일을 삭제하거나 pending을 수동 완료 처리하지 않는다.
 - `automation-state.json`의 `telemetryGap`이 `null`이 아님: 해당 최초/최종 시각과 건수의 terminal telemetry가 유실됐다. 로컬 RF는 계속된 상태이므로 현장 밝기를 확인하고 파일을 지우거나 gap을 수동 수정하지 않는다. Task 13 execution outbox/application ACK 연결 뒤 이 seam으로 운영 화면과 API에 인계한다.
 - Schedule이 경계에서 실행되지 않음: Compose mount가 exact marker file이 아니라 `/run/systemd/timesync -> /run/systemd/timesync ro`인지, 호스트와 컨테이너 marker가 regular file인지, `timedatectl show -p NTPSynchronized --value`가 `yes`인지 확인한다. Rollback 뒤에는 marker mtime이 다시 갱신될 때까지 clock-untrusted가 정상이다. 이 상태는 새 schedule 전이와 restart UTC expiry만 멈추며 timed manual 입력과 현재 process의 manual/vehicle monotonic hold는 계속돼야 한다.
-- `MANUAL_OVERRIDE_EXPIRED`: API outbox의 stored override end가 발행 또는 재발행 전에 지났다. 해당 command는 의도적으로 MQTT/RF로 보내지 않으므로 outbox를 되살리지 말고 새 제어 명령을 생성한다. Clock-untrusted Gateway는 신뢰할 수 없는 wall time으로 command를 거부하지 않고 broker retention 상한에 의존하며, 수신한 manual에는 최대 10초 fail-safe window만 적용한다.
+- `MANUAL_OVERRIDE_EXPIRED`: API outbox의 stored override end가 발행 또는 재발행 전에 지났다. 해당 command는 의도적으로 MQTT/RF로 보내지 않으므로 outbox를 되살리지 말고 새 제어 명령을 생성한다.
+- `legacy_timing_unverifiable`: Clock-untrusted Gateway가 delivery generation/remaining metadata가 없는 legacy timed wire를 받았다. Acceptance 뒤 fixture별 terminal failure를 기록하지만 RF와 manual state 생성은 수행하지 않는다. 같은 old payload를 재발행하지 말고 old publisher가 모두 종료됐는지 확인한 뒤 broker expiry 10초 drain을 다시 수행한다. 현장 clock trust를 복구하거나 새 API publisher가 만든 generation wire로 새 명령을 생성한다.
 - token/mesh DB 손상: 임의 재생성하지 말고 같은 시점 백업을 복원하거나 현장 전체를 명시적으로 재-provision한다.
 
 outbox 백업이 없어 복원이 불가능하면 담당 운영자의 데이터 유실 승인과 장애 기록이 필요하다. 컨테이너를 중지하고 현재 파일을 별도 보관한 뒤 **두 파일을 함께** 제거해야만 새 first-run으로 초기화할 수 있다. 이 절차는 미ACK 이벤트를 복구하지 못하며 API 통계에는 마지막 정상 상태 이후 구간이 unknown으로 남는다. 재시작 후 강제 resync 결과와 현장 조명 상태를 대조하기 전에는 제어·등록을 재개하지 않는다.

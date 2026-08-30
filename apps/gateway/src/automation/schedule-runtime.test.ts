@@ -9,6 +9,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import {
+  BackgroundMeshResyncWorker,
+  TargetedLightingResyncQueue,
+  requestFixtureObservationResync
+} from "../runtime/background-mesh-resync";
 import { FileAutomationStateStore } from "./automation-state-store";
 import { SystemClockTrustProvider } from "./clock-trust-provider";
 import { automationSnapshot } from "./automation-test-fixtures";
@@ -368,6 +373,113 @@ describe("ScheduleRuntime", () => {
     }
   );
 
+  it("promotes a 4,097-fixture terminal commit overflow to a bounded full resync until the later fence is observed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-overflow-fence-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    const fixtureIds = Array.from({ length: 4_097 }, (_, index) => fixtureUuid(index + 1));
+    const laterFixtureId = fixtureIds.at(-1)!;
+    const wall = fakeWall("2026-08-30T00:59:00.000Z");
+    const allowLaterObservation = deferred<void>();
+    const laterFixtureVisited = deferred<void>();
+    const fullBatches: string[][] = [];
+    let injectTerminalFailure = false;
+    let runtime!: ScheduleRuntime;
+    const store = new FileAutomationStateStore(path, async (target, value) => {
+      const transitions = Object.values(
+        (value as { transitionsByFixture?: Record<string, { phase?: string }> }).transitionsByFixture ?? {}
+      );
+      if (injectTerminalFailure && transitions.some((transition) => transition.phase === "terminal")) {
+        injectTerminalFailure = false;
+        throw new Error("injected 4,097-fixture terminal write failure");
+      }
+      await writeJsonAtomic(target, value);
+    });
+    const fullResync = new BackgroundMeshResyncWorker({
+      run: async (signal) => {
+        for (let index = 0; index < fixtureIds.length && !signal.aborted; index += 64) {
+          const batch = fixtureIds.slice(index, index + 64);
+          fullBatches.push(batch);
+          if (batch.includes(laterFixtureId)) {
+            laterFixtureVisited.resolve();
+            await allowLaterObservation.promise;
+            if (!signal.aborted) await runtime.recordFixtureState(laterFixtureId, 40);
+          }
+        }
+        return {
+          total: fixtureIds.length,
+          configured: fixtureIds.length,
+          observed: signal.aborted ? 0 : 1,
+          healthPending: 0,
+          timedOut: fixtureIds.length - 1,
+          failed: 0
+        };
+      },
+      onReport: vi.fn()
+    });
+    const targetedResync = new TargetedLightingResyncQueue({
+      run: async (batch) => ({
+        total: batch.length,
+        configured: batch.length,
+        observed: 0,
+        healthPending: 0,
+        timedOut: batch.length,
+        failed: 0
+      }),
+      retryBaseMs: 60_000,
+      retryMaxMs: 60_000
+    });
+    const execute = vi.fn(executeSuccessfully);
+    runtime = new ScheduleRuntime({
+      store,
+      wallClock: wall.now,
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute,
+      requestFixtureObservation: (requested) => {
+        requestFixtureObservationResync(requested, targetedResync, fullResync);
+      }
+    });
+
+    try {
+      await runtime.initialize();
+      await store.update((state) => {
+        for (const targetFixtureId of fixtureIds) {
+          state.currentByFixture[targetFixtureId] = 20;
+          state.lastDesiredByFixture[targetFixtureId] = 20;
+        }
+        return state;
+      });
+      await activate(runtime, snapshot({
+        schedules: [{ ...dailySchedule(), fixtureIds }]
+      }));
+      wall.set("2026-08-30T01:30:00.000Z");
+      injectTerminalFailure = true;
+
+      await expect(runtime.tick()).rejects.toMatchObject({ code: "automation_state_store_failed" });
+      await laterFixtureVisited.promise;
+      expect(targetedResync.pendingCount).toBe(4_096);
+      expect(runtime.state().transitionsByFixture[laterFixtureId]).toMatchObject({ phase: "pending" });
+
+      await runtime.tick();
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      allowLaterObservation.resolve();
+      await vi.waitFor(() => expect(runtime.state().transitionsByFixture[laterFixtureId]).toMatchObject({
+        phase: "terminal",
+        status: "succeeded"
+      }));
+      await runtime.tick();
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(fullBatches.every((batch) => batch.length <= 64)).toBe(true);
+      expect(fullBatches.flat()).toEqual(fixtureIds);
+    } finally {
+      allowLaterObservation.resolve();
+      await Promise.all([targetedResync.stopAndDrain(), fullResync.stopAndDrain()]);
+    }
+  }, 30_000);
+
   it("freezes only new schedule boundaries while the wall clock is untrusted", async () => {
     const test = await runtimeFixture("2026-08-30T00:59:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
@@ -521,6 +633,42 @@ describe("ScheduleRuntime", () => {
     expect(test.execute).toHaveBeenLastCalledWith([
       expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
     ]);
+  });
+
+  it("rejects a legacy timed wire on an untrusted clock before creating manual state", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({}));
+    test.trust.trusted = false;
+
+    await expect(test.runtime.prepareManualOverride({
+      ...manualOverride(60, "2026-08-30T02:00:00.000Z"),
+      timingSource: "legacy_wire"
+    })).rejects.toMatchObject({
+      code: "legacy_timing_unverifiable",
+      message: "legacy_timing_unverifiable"
+    });
+
+    expect(test.runtime.state().manualOverrides).toEqual({});
+    expect(test.runtime.state().transitionsByFixture).toEqual({});
+    expect(test.execute).not.toHaveBeenCalled();
+  });
+
+  it("uses absolute remaining time for a legacy timed wire when the wall clock is trusted", async () => {
+    const test = await runtimeFixture("2026-08-30T01:10:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({}));
+
+    await test.runtime.prepareManualOverride({
+      ...manualOverride(60, "2026-08-30T02:00:00.000Z"),
+      startedAt: "2026-08-30T01:00:00.000Z",
+      timingSource: "legacy_wire"
+    });
+
+    expect(test.runtime.state().manualOverrides[fixtureId]).toMatchObject({
+      brightnessPercent: 60,
+      overrideUntil: "2026-08-30T02:00:00.000Z"
+    });
   });
 
   it("keeps a recovered manual above an active event while wall time is untrusted without duplicate RF", async () => {
@@ -1151,6 +1299,10 @@ function fakeMonotonic() {
     now: () => value,
     advance: (milliseconds: number) => { value += milliseconds; }
   };
+}
+
+function fixtureUuid(index: number) {
+  return `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
 }
 
 function deferred<T>() {
