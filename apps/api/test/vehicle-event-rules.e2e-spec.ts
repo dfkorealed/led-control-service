@@ -257,50 +257,229 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
       .toBeNull();
   });
 
-  it("deduplicates the capability ACK outbox and reuses its first payload timestamp", async () => {
+  it("keeps original and same-Gateway cross-node conflict ACKs immutable across both replays", async () => {
     const scenario = await createScenario(prisma, actors, "unknown");
-    const input = capabilityReport(scenario, scenario.meshNodeIds[0], "supported", 1);
+    const original = capabilityReport(scenario, scenario.meshNodeIds[0], "supported", 1);
+    const conflicting = {
+      ...capabilityReport(scenario, scenario.meshNodeIds[1], "supported", 1),
+      eventId: original.eventId
+    };
     const firstIngestedAt = new Date("2026-08-31T20:00:00.000Z");
     automationNow = firstIngestedAt;
 
     try {
-      const firstAck = await capabilityService.applyReport(input);
+      const originalAck = await capabilityService.applyReport(original);
       automationNow = new Date("2026-08-31T21:00:00.000Z");
-      await expect(capabilityService.applyReport(input)).resolves.toEqual(firstAck);
+      const conflictAck = await capabilityService.applyReport(conflicting);
+      expect(conflictAck).toMatchObject({
+        eventId: original.eventId,
+        meshNodeId: scenario.meshNodeIds[1],
+        status: "rejected",
+        errorCode: "capability_event_conflict",
+        ingestedAt: automationNow.toISOString()
+      });
 
-      const rows = await prisma.$queryRaw<Array<{
-        applicationAckKey: string | null;
-        dispatchId: string | null;
-        gatewayId: string | null;
-        revision: number | null;
-        payloadHash: string | null;
-        topic: string;
-        payload: unknown;
-      }>>(Prisma.sql`
-        SELECT
-          "applicationAckKey", "dispatchId", "gatewayId", "revision", "payloadHash", "topic", "payload"
-        FROM "MqttOutbox"
-        WHERE "applicationAckKey" = ${`vehicle-sensor-capability:${scenario.gatewayId}:${input.eventId}`}
-      `);
-      expect(rows).toEqual([{
-        applicationAckKey: `vehicle-sensor-capability:${scenario.gatewayId}:${input.eventId}`,
+      const originalKey = capabilityAckKey(original);
+      const conflictKey = capabilityAckKey(conflicting);
+      const beforeOriginal = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: originalKey } });
+      const beforeConflict = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: conflictKey } });
+      expect(beforeOriginal).toMatchObject({
+        applicationAckKey: originalKey,
         dispatchId: null,
         gatewayId: scenario.gatewayId,
         revision: null,
         payloadHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
         topic: `sites/${scenario.siteId}/gateways/${scenario.gatewayId}/acks/automation/vehicle-sensor-capability-ingested`,
         payload: expect.objectContaining({
-          eventId: input.eventId,
+          eventId: original.eventId,
+          meshNodeId: scenario.meshNodeIds[0],
           status: "applied",
           ingestedAt: firstIngestedAt.toISOString()
         })
-      }]);
+      });
+      expect(beforeConflict).toMatchObject({
+        applicationAckKey: conflictKey,
+        payload: expect.objectContaining({
+          eventId: original.eventId,
+          meshNodeId: scenario.meshNodeIds[1],
+          status: "rejected",
+          ingestedAt: conflictAck.ingestedAt
+        })
+      });
+      await prisma.mqttOutbox.update({
+        where: { applicationAckKey: conflictKey },
+        data: {
+          attempts: 10,
+          deadLetteredAt: new Date("2026-08-31T21:30:00.000Z"),
+          lastError: "conflict ACK publish exhausted"
+        }
+      });
+
+      automationNow = new Date("2026-08-31T22:00:00.000Z");
+      await expect(capabilityService.applyReport(original)).resolves.toEqual(originalAck);
+      await expect(capabilityService.applyReport(conflicting)).resolves.toEqual(conflictAck);
+
+      const afterOriginal = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: originalKey } });
+      const afterConflict = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: conflictKey } });
+      expect({ payload: afterOriginal.payload, payloadHash: afterOriginal.payloadHash })
+        .toEqual({ payload: beforeOriginal.payload, payloadHash: beforeOriginal.payloadHash });
+      expect({ payload: afterConflict.payload, payloadHash: afterConflict.payloadHash })
+        .toEqual({ payload: beforeConflict.payload, payloadHash: beforeConflict.payloadHash });
+      expect(afterConflict).toMatchObject({
+        attempts: 0,
+        nextAttemptAt: automationNow,
+        deadLetteredAt: null,
+        lastError: null
+      });
+      expect(await prisma.processedGatewayEvent.count({ where: { eventId: original.eventId } })).toBe(1);
+      expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: scenario.meshNodeIds[1] } }))
+        .toMatchObject({
+          vehicleSensorCapabilityStatus: "unknown",
+          vehicleSensorCapabilityRevision: 0n
+        });
     } finally {
       automationNow = FIXED_NOW;
     }
   });
 
-  it("orders reports, rejects conflicts, and snapshots multiple disabled rules exactly once", async () => {
+  it("revives published-lost and dead-lettered exact ACKs without changing payload identity", async () => {
+    const scenario = await createScenario(prisma, actors, "unknown");
+    const publishedReport = capabilityReport(scenario, scenario.meshNodeIds[0], "supported", 1);
+    const deadLetteredReport = capabilityReport(scenario, scenario.meshNodeIds[1], "supported", 1);
+    automationNow = new Date("2026-08-31T20:00:00.000Z");
+
+    try {
+      const publishedAck = await capabilityService.applyReport(publishedReport);
+      const deadLetteredAck = await capabilityService.applyReport(deadLetteredReport);
+      const publishedKey = capabilityAckKey(publishedReport);
+      const deadLetteredKey = capabilityAckKey(deadLetteredReport);
+      const beforePublished = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: publishedKey } });
+      const beforeDeadLettered = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: deadLetteredKey } });
+      await prisma.mqttOutbox.update({
+        where: { applicationAckKey: publishedKey },
+        data: {
+          attempts: 4,
+          nextAttemptAt: new Date("2026-09-01T04:00:00.000Z"),
+          publishedAt: new Date("2026-08-31T20:01:00.000Z"),
+          lastError: "application ACK may have been lost"
+        }
+      });
+      await prisma.mqttOutbox.update({
+        where: { applicationAckKey: deadLetteredKey },
+        data: {
+          attempts: 10,
+          nextAttemptAt: new Date("2026-09-01T04:00:00.000Z"),
+          deadLetteredAt: new Date("2026-08-31T20:02:00.000Z"),
+          lastError: "MQTT publish exhausted"
+        }
+      });
+
+      const revivedAt = new Date("2026-08-31T21:00:00.000Z");
+      automationNow = revivedAt;
+      await expect(capabilityService.applyReport(publishedReport)).resolves.toEqual(publishedAck);
+      await expect(capabilityService.applyReport(deadLetteredReport)).resolves.toEqual(deadLetteredAck);
+
+      const afterPublished = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: publishedKey } });
+      const afterDeadLettered = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: deadLetteredKey } });
+      for (const [before, after] of [
+        [beforePublished, afterPublished],
+        [beforeDeadLettered, afterDeadLettered]
+      ] as const) {
+        expect(after).toMatchObject({
+          attempts: 0,
+          nextAttemptAt: revivedAt,
+          publishedAt: null,
+          lockedBy: null,
+          lockedAt: null,
+          leaseExpiresAt: null,
+          deadLetteredAt: null,
+          lastError: null,
+          payload: before.payload,
+          payloadHash: before.payloadHash
+        });
+      }
+    } finally {
+      automationNow = FIXED_NOW;
+    }
+  });
+
+  it("does not steal a live ACK publisher lease and revives an expired lease", async () => {
+    const scenario = await createScenario(prisma, actors, "unknown");
+    const activeReport = capabilityReport(scenario, scenario.meshNodeIds[0], "supported", 1);
+    const expiredReport = capabilityReport(scenario, scenario.meshNodeIds[1], "supported", 1);
+    automationNow = new Date("2026-08-31T20:00:00.000Z");
+
+    try {
+      const activeAck = await capabilityService.applyReport(activeReport);
+      const expiredAck = await capabilityService.applyReport(expiredReport);
+      const activeKey = capabilityAckKey(activeReport);
+      const expiredKey = capabilityAckKey(expiredReport);
+      const activeLeaseExpiresAt = new Date("2026-08-31T21:00:30.000Z");
+      const activePublishedAt = new Date("2026-08-31T20:59:30.000Z");
+      const expiredLeaseExpiresAt = new Date("2026-08-31T20:59:59.999Z");
+      const delayedRetryAt = new Date("2026-09-01T04:00:00.000Z");
+      await prisma.mqttOutbox.update({
+        where: { applicationAckKey: activeKey },
+        data: {
+          attempts: 3,
+          nextAttemptAt: delayedRetryAt,
+          publishedAt: activePublishedAt,
+          lockedBy: "active-publisher",
+          lockedAt: new Date("2026-08-31T20:59:00.000Z"),
+          leaseExpiresAt: activeLeaseExpiresAt,
+          lastError: "publisher owns completion"
+        }
+      });
+      await prisma.mqttOutbox.update({
+        where: { applicationAckKey: expiredKey },
+        data: {
+          attempts: 5,
+          nextAttemptAt: delayedRetryAt,
+          lockedBy: "expired-publisher",
+          lockedAt: new Date("2026-08-31T20:59:00.000Z"),
+          leaseExpiresAt: expiredLeaseExpiresAt,
+          lastError: "publisher crashed"
+        }
+      });
+      const beforeActive = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: activeKey } });
+      const beforeExpired = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: expiredKey } });
+
+      const replayedAt = new Date("2026-08-31T21:00:00.000Z");
+      automationNow = replayedAt;
+      await expect(capabilityService.applyReport(activeReport)).resolves.toEqual(activeAck);
+      await expect(capabilityService.applyReport(expiredReport)).resolves.toEqual(expiredAck);
+
+      const afterActive = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: activeKey } });
+      const afterExpired = await prisma.mqttOutbox.findUniqueOrThrow({ where: { applicationAckKey: expiredKey } });
+      expect(afterActive).toMatchObject({
+        attempts: 3,
+        nextAttemptAt: delayedRetryAt,
+        publishedAt: activePublishedAt,
+        lockedBy: "active-publisher",
+        lockedAt: new Date("2026-08-31T20:59:00.000Z"),
+        leaseExpiresAt: activeLeaseExpiresAt,
+        lastError: "publisher owns completion",
+        payload: beforeActive.payload,
+        payloadHash: beforeActive.payloadHash
+      });
+      expect(afterExpired).toMatchObject({
+        attempts: 0,
+        nextAttemptAt: replayedAt,
+        publishedAt: null,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        deadLetteredAt: null,
+        lastError: null,
+        payload: beforeExpired.payload,
+        payloadHash: beforeExpired.payloadHash
+      });
+    } finally {
+      automationNow = FIXED_NOW;
+    }
+  });
+
+  it("orders reports, preserves the first ACK on same-identity conflicts, and snapshots once", async () => {
     const scenario = await createScenario(prisma, actors);
     const path = `/sites/${scenario.siteId}/automation/vehicle-event-rules`;
     const first = await api("POST", path, scenario.actorKeys.admin, ruleBody(scenario, { name: "Downgrade A" }));
@@ -309,7 +488,8 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
     const ruleIds = [(first.body as { id: string }).id, (second.body as { id: string }).id].sort();
     const unsupportedReport = capabilityReport(scenario, scenario.meshNodeIds[0], "unsupported", 2);
 
-    await expect(capabilityService.applyReport(unsupportedReport)).resolves.toMatchObject({
+    const unsupportedAck = await capabilityService.applyReport(unsupportedReport);
+    expect(unsupportedAck).toMatchObject({
       eventId: unsupportedReport.eventId,
       capabilityRevision: 2,
       status: "applied",
@@ -337,10 +517,7 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
       vehicleEventRules: ruleIds.map((id) => expect.objectContaining({ id, status: "disabled" }))
     });
 
-    await expect(capabilityService.applyReport(unsupportedReport)).resolves.toMatchObject({
-      status: "applied",
-      errorCode: null
-    });
+    await expect(capabilityService.applyReport(unsupportedReport)).resolves.toEqual(unsupportedAck);
     expect(await prisma.mqttOutbox.count({
       where: { gatewayId: scenario.gatewayId, revision: { not: null } }
     })).toBe(3);
@@ -351,10 +528,7 @@ describeWithPostgres("vehicle event rules PostgreSQL E2E", () => {
       sensorServerBound: true,
       vendorVehicleEventModelBound: true
     };
-    await expect(capabilityService.applyReport(conflictingReplay)).resolves.toMatchObject({
-      status: "rejected",
-      errorCode: "capability_event_conflict"
-    });
+    await expect(capabilityService.applyReport(conflictingReplay)).resolves.toEqual(unsupportedAck);
     expect(await prisma.mqttOutbox.count({
       where: { gatewayId: scenario.gatewayId, revision: { not: null } }
     })).toBe(3);
@@ -1171,6 +1345,10 @@ function capabilityReport(
     sensorServerBound: status === "supported",
     vendorVehicleEventModelBound: status === "supported"
   };
+}
+
+function capabilityAckKey(report: Pick<VehicleSensorCapabilityReportV1, "gatewayId" | "meshNodeId" | "eventId">) {
+  return `vehicle-sensor-capability:${report.gatewayId}:${report.meshNodeId}:${report.eventId}`;
 }
 
 function executionData(

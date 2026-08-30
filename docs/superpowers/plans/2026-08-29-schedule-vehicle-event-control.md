@@ -606,23 +606,44 @@ git commit -m "feat(api): add vehicle event rule management"
 - [x] classification transaction의 deterministic ACK upsert, 최초 payload/시각 재사용과 conflict rejected ACK
 - [x] capability safe integer 최대값, fresh/seeded/invalid migration, focused/shared/full API 검증과 보고서/문서/별도 커밋
 
+#### Task 8 fix round 5 (완료)
+
+- [x] `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>` node-scoped ACK identity
+- [x] 같은 Gateway의 cross-node eventId conflict를 별도 rejected ACK row로 보존하고 원본/충돌 양쪽 replay 검증
+- [x] exact replay의 최초 payload/hash/`ingestedAt` 불변과 published-lost/deadletter revival
+- [x] live unexpired publisher lease 보호와 expired lease 원자 requeue
+- [x] Task 9 config/application-ACK publisher claim, QoS 1, retry/deadletter, shutdown handoff 구체화
+- [x] focused PostgreSQL/shared/API/migration, lint/typecheck/build 검증과 보고서/별도 커밋
+
 ### Task 9: automation snapshot 발행·ACK·실행 원장 수집
 
 **Files:**
-- Create: `apps/api/src/automation/automation-snapshot.service.ts`
+- Modify: `apps/api/src/automation/automation-snapshot.service.ts`
+- Create: `apps/api/src/automation/automation-outbox-publisher.service.ts`
 - Create: `apps/api/src/automation/automation-mqtt-consumer.service.ts`
 - Create: `apps/api/src/automation/automation-execution.service.ts`
 - Test: `apps/api/src/automation/automation-snapshot.service.spec.ts`
+- Test: `apps/api/src/automation/automation-outbox-publisher.service.spec.ts`
 - Test: `apps/api/src/automation/automation-mqtt-consumer.service.spec.ts`
 - Modify: `apps/api/src/mqtt/mqtt.module.ts`
+- Modify: `apps/api/src/mqtt/mqtt-shutdown-coordinator.service.ts`
+- Modify: `apps/api/src/mqtt/mqtt-shutdown-coordinator.spec.ts`
 
 **Interfaces:**
-- Consumes: shared automation schema/topics, existing MQTT outbox publisher and processed-event idempotency pattern.
+- Consumes: shared automation schema/topics, Task 7/8의 세 가지 `MqttOutbox` row shape와 processed-event idempotency pattern. Command publisher는 `dispatchId IS NOT NULL` row만 계속 소유하며 Task 9 publisher와 claim 범위를 공유하지 않는다.
 - Produces: canonical hash full snapshot, exact revision applied/rejected 처리, `eventId+sequence` 멱등 원장, ingested ACK.
 - Capability report consumer는 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`를 subscribe한다. broker가 확인한 mTLS/ACL Gateway identity, topic site/gateway, payload site/gateway, DB의 active claimed Gateway identity가 모두 같을 때만 `VehicleSensorCapabilityService.applyReport`를 호출한다. unauthenticated HTTP/direct route는 만들지 않는다.
-- service가 같은 transaction에 저장한 `MqttOutbox` application-ACK variant를 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`에 발행한다. Identity는 `applicationAckKey=vehicle-sensor-capability:<gatewayId>:<eventId>`이고 `dispatchId/revision=NULL`이며, ACK publish 실패는 이미 commit된 ingestion 결과를 되돌리지 않고 outbox retry가 저장된 최초 payload를 재발행한다.
+- Automation publisher는 config와 application-ACK를 **서로 다른 claim SQL**로 가져온다. Config predicate는 `dispatchId IS NULL AND applicationAckKey IS NULL AND gatewayId IS NOT NULL AND revision IS NOT NULL`, ACK predicate는 `dispatchId IS NULL AND applicationAckKey IS NOT NULL AND gatewayId IS NOT NULL AND revision IS NULL`이다. 두 query 모두 `publishedAt IS NULL`, `deadLetteredAt IS NULL`, `nextAttemptAt <= now`, lease null/만료 조건과 `FOR UPDATE SKIP LOCKED LIMIT 50`을 사용하고 같은 transaction에서 `lockedBy/lockedAt/leaseExpiresAt=now+30s`를 기록한다.
+- Claim한 config와 ACK는 row의 `topic`과 저장된 JSON `payload`를 생성 시각·revision·hash 변경 없이 `MqttService.publishTopic(..., { timeoutMs: 10_000 })`로 MQTT QoS 1 발행한다. 성공 갱신과 실패 갱신은 `id + lockedBy + live lease + unpublished + non-deadletter` ownership predicate를 다시 확인한다.
+- 실패는 `attempts+1`, 1초부터 최대 60초 exponential backoff와 0~20% jitter를 적용하고 lease를 해제한다. 10회 또는 생성 후 15분에 도달하면 `deadLetteredAt/lastError`를 기록하고 row, topic, payload, hash를 삭제·변경하지 않는다. Config와 ACK deadletter는 command relation을 조회하거나 command terminal row를 갱신하지 않는다.
+- Service가 같은 transaction에 저장한 application-ACK를 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`에 발행한다. Identity는 `applicationAckKey=vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>`이고 `dispatchId/revision=NULL`이다. Exact report 재전달은 Task 8 service가 최초 ACK payload/hash/`ingestedAt`을 유지한 채 published/deadletter/expired-lease row를 즉시 재큐잉한다. `leaseExpiresAt > now`인 row는 active publisher 소유이므로 reset하지 않는다.
+- Publisher scheduler는 single-flight batch만 실행한다. `stopAndDrain()`은 timer를 중지하고 진행 중 publish를 bounded timeout까지 기다리며, batch는 shutdown 시작 뒤 다음 row를 publish하지 않는다. `MqttShutdownCoordinator`는 command/config/application-ACK/scan publisher와 mesh sync/inbound handler를 모두 drain한 뒤 MQTT client를 close한다.
 
-- [ ] **Step 1: out-of-order ACK와 중복 execution 실패 테스트를 작성한다**
+- [ ] **Step 1: variant claim, lease race, exact publish와 retry/deadletter 실패 테스트를 작성한다**
+
+Config/ACK query가 각자 자기 row만 `FOR UPDATE SKIP LOCKED`로 claim하고 command row를 claim하지 않는지, 두 worker가 같은 row를 얻지 않는지 검증한다. 저장 payload/topic의 QoS 1 exact publish, 10초 timeout, backoff/jitter, retained deadletter, ownership 상실 시 no-op을 각각 RED로 확인한다. Published/deadletter ACK의 exact report revival, active lease 보호, expired lease reclaim은 Task 8 PostgreSQL 회귀를 그대로 유지한다.
+
+- [ ] **Step 2: out-of-order ACK와 중복 execution 실패 테스트를 작성한다**
 
 ```ts
 await consumer.onConfigApplied({ gatewayId, revision: 4, status: "applied", payloadHash });
@@ -635,7 +656,7 @@ expect(await prisma.automationExecution.count()).toBe(1);
 expect(publishedIngestedAcks).toHaveLength(2);
 ```
 
-- [ ] **Step 2: canonical payload hash와 full snapshot을 구현한다**
+- [ ] **Step 3: canonical payload hash와 full snapshot을 구현한다**
 
 ```ts
 const payloadHash = `sha256:${createHash("sha256").update(stableJson(snapshotWithoutHash)).digest("hex")}` as const;
@@ -643,16 +664,18 @@ const payloadHash = `sha256:${createHash("sha256").update(stableJson(snapshotWit
 
 배열은 ID 기준 정렬하고 object key는 stable serializer로 정렬해 같은 revision의 hash가 process마다 달라지지 않게 한다.
 
-- [ ] **Step 3: ACK와 실행 원장을 transaction으로 구현한다**
+- [ ] **Step 4: config/application-ACK publisher와 ACK·실행 원장을 구현한다**
 
-rejected ACK는 desiredRevision을 낮추지 않고 `syncStatus=REJECTED`, 정제된 error code를 저장한다. execution은 unique `(gatewayId,eventId,sequence)`로 dedupe한 뒤 commit 후 application ACK를 durable outbox로 발행한다.
+위 variant별 claim/lease/publish/retry/deadletter 계약을 `AutomationOutboxPublisherService`에 구현한다. Rejected config ACK는 desiredRevision을 낮추지 않고 `syncStatus=REJECTED`, 정제된 error code를 저장한다. Execution은 unique `(gatewayId,eventId,sequence)`로 dedupe한 뒤 commit 후 application ACK를 durable outbox로 저장한다.
 
-- [ ] **Step 4: 검증하고 커밋한다**
+- [ ] **Step 5: shutdown drain을 연결하고 검증 후 커밋한다**
 
-Run: `pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/api test -- automation-snapshot.service.spec.ts automation-mqtt-consumer.service.spec.ts --runInBand`
+`MqttShutdownCoordinator`에 automation publisher `stopAndDrain()`을 등록하고 active publish 완료 전 MQTT close가 호출되지 않으며 shutdown 뒤 다음 row를 시작하지 않는지 검증한다.
+
+Run: `pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/api test -- automation-snapshot.service.spec.ts automation-outbox-publisher.service.spec.ts automation-mqtt-consumer.service.spec.ts mqtt-shutdown-coordinator.spec.ts --runInBand`
 
 ```bash
-git add apps/api/src/automation apps/api/src/mqtt/mqtt.module.ts
+git add apps/api/src/automation apps/api/src/mqtt/mqtt.module.ts apps/api/src/mqtt/mqtt-shutdown-coordinator.service.ts apps/api/src/mqtt/mqtt-shutdown-coordinator.spec.ts
 git commit -m "feat(api): synchronize gateway automation snapshots"
 ```
 

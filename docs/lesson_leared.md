@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-30 / application ACK identity와 publisher lease 소유권
+- **발생했던 문제/실수**: ACK key가 Gateway와 eventId만 포함해 같은 Gateway의 다른 node 충돌 ACK가 원본을 덮었고, published/deadletter ACK는 exact report가 다시 와도 발행 가능 상태로 돌아오지 않았다.
+- **원인**: report의 실제 idempotency scope보다 ACK identity가 좁았고, ingestion replay와 outbox publisher가 같은 row의 delivery 상태를 바꾸는 경합에서 lease 소유권 조건이 빠졌다.
+- **해결 및 예방책**: ACK key를 Gateway/node/event로 고정하고 최초 payload/hash/ingestion 시각을 불변으로 유지한다. Exact replay는 published, deadletter 또는 만료 lease만 조건부 `updateMany`로 재큐잉하며 `leaseExpiresAt > now`인 active publisher는 상태를 마칠 때까지 row를 소유한다.
+- **반복 방지 체크**: 원본 node 적용 후 cross-node 동일 eventId 충돌과 양쪽 replay, published-lost, deadletter, live/expired lease, payload/hash/timestamp 불변을 실제 PostgreSQL 세트로 유지한다. Publisher 구현은 variant별 `SKIP LOCKED` claim과 shutdown drain을 함께 검증한다.
+
 ## 2026-08-29 / 물리 작업 세션 복구와 불확실 결과 처리
 - **발생했던 문제/실수**: 진행 중인 조명 등록 session ID를 브라우저 상태에만 두어 새로고침 시 작업이 사라졌고, provisioning 결과가 불확실한 노드가 있어도 새 scan을 시작할 수 있었다.
 - **원인**: 장기 작업의 정본을 서버가 아닌 화면 수명에 의존했고, terminal scan과 물리 작업 완료를 같은 의미로 취급했다.

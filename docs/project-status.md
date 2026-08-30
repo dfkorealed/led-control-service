@@ -21,7 +21,7 @@
 | 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
 | 스케줄·차량 이벤트 제어 설계 | 완료(설계) | 반복 일정, overlap 차단, 수동 override·차량 이벤트·스케줄 우선순위, Gateway full snapshot 무중단 적용, offline 실행과 ESP32-H2 차량 감지 event 계약을 확정했다. Task 7 schedule API와 Task 8 차량 이벤트 규칙 API CRUD를 구현했고 Web과 Gateway 실행은 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
-| 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape 및 deterministic durable ACK까지 4차 review fix를 완료했다. production MQTT consumer/ACK publisher와 Gateway report journal은 후속 Task 범위다. |
+| 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape, node-scoped durable ACK identity와 lease-safe exact replay revival까지 5차 review fix를 완료했다. Production MQTT consumer/config·ACK publisher와 Gateway report journal은 후속 Task 범위다. |
 
 ## 다음 단계
 
@@ -38,7 +38,7 @@
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
 - 스케줄 및 차량 이벤트 규칙 API CRUD와 durable full-snapshot outbox 저장은 완료했다. 실제 MQTT publish/application ACK, Gateway 무중단 규칙 동기화, offline 실행, sensor event와 Web CRUD는 아직 구현되지 않았다.
-- 차량 센서 capability report/ACK payload와 topic, node-local API ordering/idempotency service, DB invariant와 durable ACK outbox 생성은 완료했다. production MQTT consumer, mTLS/ACL identity 검증과 ACK outbox publication은 Task 9, Gateway Sensor Server/vendor model 검증과 durable revision/report retry는 Task 14까지 연결되지 않는다.
+- 차량 센서 capability report/ACK payload와 topic, node-local API ordering/idempotency service, DB invariant, cross-node-safe ACK identity와 published/deadletter/expired-lease revival은 완료했다. Production MQTT consumer, mTLS/ACL identity 검증과 config/application-ACK variant별 `SKIP LOCKED` lease·QoS 1·retry/deadletter·shutdown drain publisher는 Task 9, Gateway Sensor Server/vendor model 검증과 durable revision/report retry는 Task 14까지 연결되지 않는다.
 
 ### 통계
 

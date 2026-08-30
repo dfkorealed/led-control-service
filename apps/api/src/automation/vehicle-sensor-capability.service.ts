@@ -213,46 +213,52 @@ export class VehicleSensorCapabilityService {
     status: VehicleSensorCapabilityIngestedAckV1["status"],
     errorCode: string | null
   ) {
-    const applicationAckKey = `vehicle-sensor-capability:${report.gatewayId}:${report.eventId}`;
+    const applicationAckKey =
+      `vehicle-sensor-capability:${report.gatewayId}:${report.meshNodeId}:${report.eventId}`;
     const existingOutbox = await tx.mqttOutbox.findUnique({
       where: { applicationAckKey }
     });
-    const existingAck = existingOutbox
-      ? vehicleSensorCapabilityIngestedAckV1Schema.parse(existingOutbox.payload)
-      : null;
     const now = this.clock.now();
-    const ack = this.ack(report, status, errorCode, existingAck?.ingestedAt ?? now.toISOString());
+    if (existingOutbox) {
+      const existingAck = vehicleSensorCapabilityIngestedAckV1Schema.parse(existingOutbox.payload);
+      await tx.mqttOutbox.updateMany({
+        where: {
+          id: existingOutbox.id,
+          OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }],
+          AND: [{
+            OR: [
+              { publishedAt: { not: null } },
+              { deadLetteredAt: { not: null } },
+              { leaseExpiresAt: { lte: now } }
+            ]
+          }]
+        },
+        data: {
+          attempts: 0,
+          nextAttemptAt: now,
+          publishedAt: null,
+          lockedBy: null,
+          lockedAt: null,
+          leaseExpiresAt: null,
+          deadLetteredAt: null,
+          lastError: null
+        }
+      });
+      return existingAck;
+    }
+
+    const ack = this.ack(report, status, errorCode, now.toISOString());
     const payloadHash = canonicalPayloadHash(ack);
     const topic = mqttTopics.vehicleSensorCapabilityIngested(report.siteId, report.gatewayId);
-    const replaceWithRejectedAck = status === "rejected"
-      && existingOutbox !== null
-      && existingOutbox.payloadHash !== payloadHash;
-    const update = replaceWithRejectedAck
-      ? {
-        payloadHash,
-        topic,
-        payload: ack,
-        attempts: 0,
-        nextAttemptAt: now,
-        publishedAt: null,
-        lockedBy: null,
-        lockedAt: null,
-        leaseExpiresAt: null,
-        deadLetteredAt: null,
-        lastError: null
-      }
-      : {};
-    const stored = await tx.mqttOutbox.upsert({
-      where: { applicationAckKey },
-      create: {
+    const stored = await tx.mqttOutbox.create({
+      data: {
         gatewayId: report.gatewayId,
         applicationAckKey,
         revision: null,
         payloadHash,
         topic,
         payload: ack
-      },
-      update
+      }
     });
     return vehicleSensorCapabilityIngestedAckV1Schema.parse(stored.payload);
   }
