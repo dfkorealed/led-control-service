@@ -586,6 +586,15 @@ static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_m
     }
     return;
   }
+  if (event == ESP_BLE_MESH_MODEL_SEND_COMP_EVT) {
+    if (param->model_send_comp.model == &vendor_models[0] ||
+        param->model_send_comp.model == &root_models[ROOT_MODEL_SENSOR_SERVER]) {
+      vehicle_sensor_model_runtime_record_send_result(
+          param->model_send_comp.model,
+          param->model_send_comp.err_code == 0);
+    }
+    return;
+  }
   if (event != ESP_BLE_MESH_MODEL_PUBLISH_UPDATE_EVT) {
     return;
   }

@@ -1192,6 +1192,16 @@ Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Ta
 
 검증: 기존 ledger에서 vendor initial `1/2`, Sensor cadence `1/2`, duplicate failure의 B fault 오염, accepted Sensor API call 뒤 fault 미회복 assertion을 각각 RED로 확인했다. Ledger 제거와 동기 결과 기반 channel recovery 뒤 네 isolated test, Fix Round 3 generation/Health test와 host 전체가 GREEN이 됐다. ESP-IDF test binary는 `0xef920`(`981,280`) 바이트, OTA free는 `0x1006e0`(`1,050,336`, 52%)이고 target map에 completion ledger가 없다. Production valid CID는 trust root 미등록으로 정상 fail-closed했으며 `0xFFFF` test image flash와 실제 HIL은 실행하지 않았다.
 
+#### Task 16 Fix Round 5
+
+- [x] Production-like fake에서 `esp_ble_mesh_model_publish()`의 shared `model->pub->msg`와 delayed BTC model-pointer 소비를 재현하고 sequence 1/2 overwrite를 RED로 확인한다.
+- [x] Sensor Status와 vendor event를 payload/context deep-copy `esp_ble_mesh_server_model_send_msg()`로 전환해 back-to-back, 16-slot same-deadline retry와 Sensor recovery snapshot을 보존한다.
+- [x] NetKey index `0`, publication AppKey/address/TTL/credential/SZMIC exact context와 period/retransmit `0` readiness fail-closed를 firmware host fake로 검증한다.
+- [x] Gateway가 NetKey/AppKey `0`, period/retransmit `0`을 요청하고 nonzero retransmit Config Status를 거부하도록 계약 테스트를 고정한다.
+- [x] Immediate server-send failure/recovery, callback 유실·지연·중복 no-op, exact ACK/retry exhaustion, old generation, restart Health와 native/host/Gateway/shared/trust/artifact/ESP-IDF fullclean을 회귀 검증한다.
+
+검증: Production 변경 전 sequence 1/2, 16 pending, Sensor snapshot과 publication context focused test가 각각 exit `134`, Gateway nonzero retransmit test가 1건 실패했다. Deep-copy 전환 뒤 Fix 5 isolated 4종, Fix 3/4 isolated 6종과 host 전체가 GREEN이 됐다. Gateway 전체 59파일 547/547, shared 7파일 75/75, typecheck/lint/build와 build/trust/artifact/attestation gate를 통과했다. ESP-IDF v5.5.1 fullclean test binary는 `0xef9f0`(`981,488`) 바이트, OTA free는 `0x100610`(`1,050,128`, 52%)이다. Production valid CID는 trust root 미등록으로 정상 fail-closed했고 `0xFFFF` test image flash와 실제 HIL은 실행하지 않았다.
+
 ### Task 17: Web 제어 탭과 스케줄 CRUD UI
 
 **Files:**

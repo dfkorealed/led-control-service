@@ -28,6 +28,8 @@
 #define SENSOR_SAMPLE_FUNCTION 0x01U
 #endif
 
+#define VEHICLE_SENSOR_NET_KEY_INDEX 0U
+
 static void write_le16(uint8_t *output, uint16_t value) {
   output[0] = (uint8_t)value;
   output[1] = (uint8_t)(value >> 8U);
@@ -129,7 +131,26 @@ static bool model_has_key(const esp_ble_mesh_model_t *model, uint16_t app_idx) {
 static bool model_publication_ready(const esp_ble_mesh_model_t *model) {
   return model != NULL && model->pub != NULL &&
          model->pub->publish_addr != ESP_BLE_MESH_ADDR_UNASSIGNED &&
-         model->pub->period == 0 && model_has_key(model, model->pub->app_idx);
+         model->pub->period == 0 && model->pub->retransmit == 0 &&
+         model_has_key(model, model->pub->app_idx);
+}
+
+static bool model_publication_context(
+    const esp_ble_mesh_model_t *model,
+    esp_ble_mesh_msg_ctx_t *context) {
+  if (!model_publication_ready(model) || context == NULL) {
+    return false;
+  }
+  memset(context, 0, sizeof(*context));
+  /* Gateway provisioning reserves NetKey 0; the remaining fields mirror the
+     live publication config so application sends preserve its wire context. */
+  context->net_idx = VEHICLE_SENSOR_NET_KEY_INDEX;
+  context->app_idx = model->pub->app_idx;
+  context->addr = model->pub->publish_addr;
+  context->send_ttl = model->pub->ttl;
+  context->send_cred = model->pub->cred;
+  context->send_szmic = model->pub->send_szmic;
+  return true;
 }
 
 static void update_raw_value(vehicle_sensor_mesh_adapter_t *adapter, bool level) {
@@ -212,12 +233,16 @@ esp_err_t vehicle_sensor_mesh_adapter_publish_current(
     return ESP_ERR_INVALID_STATE;
   }
   update_raw_value(adapter, current_level);
-  return esp_ble_mesh_model_publish(
+  esp_ble_mesh_msg_ctx_t context;
+  if (!model_publication_context(adapter->config.sensor_model, &context)) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  return esp_ble_mesh_server_model_send_msg(
       adapter->config.sensor_model,
+      &context,
       ESP_BLE_MESH_MODEL_OP_SENSOR_STATUS,
       size,
-      status,
-      ROLE_NODE);
+      status);
 }
 
 vehicle_sensor_send_result_t vehicle_sensor_mesh_adapter_publish_event(
@@ -227,12 +252,16 @@ vehicle_sensor_send_result_t vehicle_sensor_mesh_adapter_publish_event(
   if (adapter == NULL || payload == NULL || !configured) {
     return VEHICLE_SENSOR_SEND_UNCONFIGURED;
   }
-  esp_err_t error = esp_ble_mesh_model_publish(
+  esp_ble_mesh_msg_ctx_t context;
+  if (!model_publication_context(adapter->config.vendor_model, &context)) {
+    return VEHICLE_SENSOR_SEND_UNCONFIGURED;
+  }
+  esp_err_t error = esp_ble_mesh_server_model_send_msg(
       adapter->config.vendor_model,
+      &context,
       adapter->config.vendor_event_opcode,
       VEHICLE_SENSOR_PACKET_SIZE,
-      (uint8_t *)payload,
-      ROLE_NODE);
+      (uint8_t *)payload);
   return error == ESP_OK ? VEHICLE_SENSOR_SEND_OK : VEHICLE_SENSOR_SEND_ERROR;
 }
 #endif

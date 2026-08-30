@@ -708,7 +708,7 @@ void vehicle_sensor_model_runtime_record_send_result(
   (void)model;
   (void)successful;
   /* ESP-IDF v5.5.1 exposes only model/error here, so this callback cannot be
-     correlated to an individual publish. Delivery state comes from the
+     correlated to an individual application send. Delivery state comes from the
      synchronous API result and, for vendor events, exact ACK/retry exhaustion. */
 }
 

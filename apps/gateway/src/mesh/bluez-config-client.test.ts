@@ -268,6 +268,8 @@ it("binds vehicle sensor models with stack Sensor and vendor publication periods
     sensorServerBound: true,
     vendorVehicleEventModelBound: true
   });
+  expect(transport.calls.find(({ method }) => method === "CreateAppKey")?.args).toEqual([0, 0]);
+  expect(transport.calls.find(({ method }) => method === "AddAppKey")?.args.slice(2, 4)).toEqual([0, 0]);
   expect(transport.calls.filter(({ method }) => method === "DevKeySend").map(({ args }) => args[5])).toEqual([
     [0x80, 0x08, 0x00],
     [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0x00, 0x11],
@@ -307,6 +309,41 @@ it("rejects a nonzero stack publication period for the vehicle Sensor Server", a
   application.emit("devKeyMessageReceived", {
     source: 0x1201,
     data: Uint8Array.from([0x80, 0x19, 0, 0x01, 0x12, 0x01, 0, 0, 0, 5, 0x86, 0, 0x00, 0x11])
+  });
+
+  await expect(configure).rejects.toThrow("Vehicle Sensor Server publication does not match the request");
+});
+
+it("rejects a nonzero publication retransmit for the vehicle Sensor Server", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
+  const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
+
+  await waitForCall(transport, "AddAppKey");
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0])
+  });
+  await waitForCallCount(transport, "DevKeySend", 1);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([
+      0x02, 0x00,
+      0xff, 0xff, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x01, 0x00,
+      0x00, 0x11
+    ])
+  });
+  await waitForCallCount(transport, "DevKeySend", 2);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, 0x00, 0x11])
+  });
+  await waitForCallCount(transport, "DevKeySend", 3);
+  application.emit("devKeyMessageReceived", {
+    source: 0x1201,
+    data: Uint8Array.from([0x80, 0x19, 0, 0x01, 0x12, 0x01, 0, 0, 0, 5, 0, 1, 0x00, 0x11])
   });
 
   await expect(configure).rejects.toThrow("Vehicle Sensor Server publication does not match the request");

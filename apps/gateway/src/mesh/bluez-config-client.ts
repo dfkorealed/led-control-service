@@ -31,6 +31,7 @@ const SERVER_MODELS = [0x0002, 0x1000, 0x1300] as const;
 const LIGHT_LIGHTNESS_SERVER_MODEL_ID = 0x1300;
 const STATUS_PUBLICATION_PERIOD = encodePublicationPeriod(60_000);
 const VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD = 0;
+const VEHICLE_SENSOR_PUBLICATION_RETRANSMIT = 0;
 type RawStatusMatcher = (data: Uint8Array) => boolean;
 
 interface ConfigTransport {
@@ -146,7 +147,8 @@ export class BluezConfigClient {
           appKeyIndex: APP_KEY_INDEX,
           ttl: 5,
           modelId: BLUETOOTH_MESH_MODELS.sensorServer,
-          period: VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD
+          period: VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD,
+          retransmit: VEHICLE_SENSOR_PUBLICATION_RETRANSMIT
         }),
         CONFIG_OPCODES.modelPublicationStatus,
         parseModelPublicationStatus
@@ -154,6 +156,7 @@ export class BluezConfigClient {
       if (publication.elementAddress !== input.unicast || publication.publishAddress !== PROVISIONER_ADDRESS ||
         publication.appKeyIndex !== APP_KEY_INDEX || publication.ttl !== 5 ||
         publication.period !== VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD ||
+        publication.retransmit !== VEHICLE_SENSOR_PUBLICATION_RETRANSMIT ||
         publication.modelId !== BLUETOOTH_MESH_MODELS.sensorServer ||
         "companyId" in publication) {
         throw new Error("Vehicle Sensor Server publication does not match the request");
@@ -185,13 +188,17 @@ export class BluezConfigClient {
           appKeyIndex: APP_KEY_INDEX,
           ttl: 5,
           modelId: VEHICLE_SENSOR_VENDOR_MODEL.serverModelId,
-          companyId: this.companyId
+          companyId: this.companyId,
+          period: VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD,
+          retransmit: VEHICLE_SENSOR_PUBLICATION_RETRANSMIT
         }),
         CONFIG_OPCODES.modelPublicationStatus,
         parseModelPublicationStatus
       );
       if (publication.elementAddress !== input.unicast || publication.publishAddress !== PROVISIONER_ADDRESS ||
-        publication.appKeyIndex !== APP_KEY_INDEX || publication.ttl !== 5 || publication.period !== 0 ||
+        publication.appKeyIndex !== APP_KEY_INDEX || publication.ttl !== 5 ||
+        publication.period !== VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD ||
+        publication.retransmit !== VEHICLE_SENSOR_PUBLICATION_RETRANSMIT ||
         publication.modelId !== VEHICLE_SENSOR_VENDOR_MODEL.serverModelId || !("companyId" in publication) ||
         publication.companyId !== this.companyId) {
         throw new Error("Vehicle sensor vendor model publication does not match the request");

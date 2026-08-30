@@ -326,3 +326,10 @@
 - **원인**: ESP-IDF v5.5.1 completion이 model/error만 제공하는데도 호출 순서와 단일 in-flight 제약으로 개별 publish 상관관계를 복원할 수 있다고 가정했다. Callback enqueue 자체가 유실될 수 있는 경계도 liveness dependency로 만들었다.
 - **해결 및 예방책**: completion ledger를 제거하고 callback을 무상태 advisory no-op로 제한했다. Sensor는 publish API 동기 수락/거부만, reliable vendor event는 동기 결과와 exact bootId/sequence ACK 및 retry exhaustion만 신뢰한다.
 - **반복 방지 체크**: 같은 model에 두 event를 연속 제출해 event별 initial+6 wire call을 세고, callback 영구 유실, previous generation, duplicate-after-reuse success/failure, immediate API failure 뒤 accepted call/exact ACK recovery를 production-source host fake에서 함께 검증한다.
+
+## 2026-08-31 / 비동기 API의 동기 수락은 payload snapshot을 보장하지 않는다
+
+- **발생했던 문제/실수**: Completion 의존성을 제거한 뒤 같은 model에 여러 `esp_ble_mesh_model_publish()` 호출을 연속 허용했지만, API가 BTC queue에 model pointer만 넣어 첫 event의 shared publication buffer가 다음 event payload로 덮였다. API call 수는 event별 initial/retry 수와 맞아도 실제 BTC 소비 payload는 마지막 sequence로 중복될 수 있었다.
+- **원인**: 동기 `ESP_OK`를 enqueue 수락뿐 아니라 호출 시점 payload snapshot 보장으로 확대 해석했고, fake가 API 인자의 payload를 즉시 복사해 ESP-IDF의 `model->pub->msg -> delayed BTC model pointer` 경계를 생략했다.
+- **해결 및 예방책**: Application-driven Sensor Status와 vendor event를 payload/context를 `btc_transfer_context()`에서 deep-copy하는 `esp_ble_mesh_server_model_send_msg()`로 전환한다. Destination/AppKey/TTL/credential/SZMIC는 publication 설정을 그대로 사용하고 프로젝트 provisioning 계약의 NetKey `0`을 적용한다. Period/retransmit `0`과 binding/address가 다르면 전송 직전에도 fail-closed한다.
+- **반복 방지 체크**: Production-like fake는 model publish shared buffer와 server-send deep-copy를 서로 다르게 모델링한다. BTC 소비를 지연한 sequence 1/2, 16 pending의 같은 deadline retry, Sensor false/true와 failure recovery snapshot, exact context를 검증하고 API call count만 wire 전달 증거로 사용하지 않는다.

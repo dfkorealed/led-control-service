@@ -39,7 +39,11 @@ typedef struct {
   esp_ble_mesh_model_t *model;
   uint16_t publish_addr;
   uint16_t app_idx;
+  uint8_t cred;
+  uint8_t send_rel;
+  uint8_t send_szmic;
   uint8_t ttl;
+  uint8_t retransmit;
   uint8_t period;
   struct net_buf_simple *msg;
 } esp_ble_mesh_model_pub_t;
@@ -54,6 +58,14 @@ typedef struct {
   uint16_t app_idx;
   uint16_t addr;
   uint16_t recv_dst;
+  int8_t recv_rssi;
   uint32_t recv_op;
+  uint8_t recv_ttl;
+  uint8_t recv_cred;
+  uint8_t recv_tag;
+  uint8_t send_rel;
+  uint8_t send_szmic;
   uint8_t send_ttl;
+  uint8_t send_cred;
+  uint8_t send_tag;
 } esp_ble_mesh_msg_ctx_t;
