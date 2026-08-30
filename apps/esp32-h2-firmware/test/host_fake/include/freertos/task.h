@@ -7,6 +7,7 @@ typedef struct {
   TaskFunction_t function;
   void *argument;
   int active;
+  uint32_t notifications;
 } StaticTask_t;
 typedef StaticTask_t *TaskHandle_t;
 
@@ -20,3 +21,5 @@ TaskHandle_t xTaskCreateStatic(
     StaticTask_t *task_storage);
 void vTaskDelete(TaskHandle_t task);
 TaskHandle_t xTaskGetCurrentTaskHandle(void);
+BaseType_t xTaskNotifyGive(TaskHandle_t task);
+uint32_t ulTaskNotifyTake(BaseType_t clear_on_exit, TickType_t ticks_to_wait);

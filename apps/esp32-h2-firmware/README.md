@@ -8,7 +8,7 @@
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령을 받아 PWM 밝기에 반영하는 단계까지 빌드 검증했다.
-- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개와 차량 센서 GPIO driver 포함 후 test-build `led_control_node.bin` 크기는 `0xe64f0`(`943,344`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x109b10`(`1,088,272`, 약 54%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
+- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개와 차량 센서 GPIO driver 포함 후 test-build `led_control_node.bin` 크기는 `0xe67b0`(`944,048`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x109850`(`1,087,568`, 약 54%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
 
 ## ESP-IDF 설치
 
@@ -39,25 +39,26 @@ test "$CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID" = "$GATEWAY_BLUETOOTH_COMPANY_ID
 
 Task 16 vendor event model의 composition, 3-byte opcode, ACK opcode는 이 Kconfig 값을 사용해야 하며 Gateway의 shared protocol 계약 `BLUETOOTH_COMPANY_ID_CONFIG`와 이름을 임의로 바꾸지 않는다.
 
-checkout 경로와 무관하게 ESP-IDF 빌드 안정성을 위해 firmware 파일을 `~/esp/led-control-esp32-h2-build`로 동기화한 뒤 빌드한다. 기본 실행은 production build다. 실제 자사 Company ID, exact CID를 승인한 제조 manifest와 signature, protected deployment가 신뢰하는 public-key SHA-256가 모두 없으면 ESP-IDF 실행 전에 실패한다. 현재 실제 승인 자료가 없으므로 production build는 의도적으로 실행할 수 없다.
+checkout 경로와 무관하게 ESP-IDF 빌드 안정성을 위해 firmware 파일을 `~/esp/led-control-esp32-h2-build`로 동기화한 뒤 빌드한다. 기본 실행은 production build다. Production trust anchor와 fingerprint는 caller 환경변수가 아니라 repository/CI security policy의 고정 경로 `apps/esp32-h2-firmware/manufacturing/production-trust-policy.conf`만 사용한다. 현재 policy는 `state=unprovisioned`이고 실제 root, 자사 Company ID와 승인 자료가 없으므로 production build는 ESP-IDF 실행 전에 의도적으로 실패한다.
 
 ```bash
 cd "/Users/kim-jh/Documents/led-control-service"
 CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=<Bluetooth SIG 자사 할당값의 10진수> \
 LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST=<승인 manifest 경로> \
 LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE=<detached signature 경로> \
-LED_CONTROL_MANUFACTURING_APPROVAL_PUBLIC_KEY=<승인 public key 경로> \
-LED_CONTROL_MANUFACTURING_APPROVAL_PUBLIC_KEY_SHA256=<보호된 trust anchor> \
 scripts/esp32-h2-build.sh
 ```
 
-승인 manifest는 아래 네 줄의 exact payload이며 detached signature가 trusted public key로 검증돼야 한다. 저장소에는 실제 ID, 승인 manifest, key 또는 signature를 기본값으로 두지 않는다.
+승인 manifest는 아래 일곱 줄의 exact payload이며 fixed policy의 approval public key로 detached signature를 검증한다. Source commit은 clean tracked/untracked 상태에서 확정하고, `sdkconfig`는 `idf.py set-target`이 생성한 파일을 사용한다. Caller가 public key, fingerprint 또는 trust policy 경로를 환경변수로 바꿀 수 없다.
 
 ```text
-schema=led-control-manufacturing-approval-v1
+schema=led-control-manufacturing-approval-v2
 product=led-control-esp32-h2
 mode=production
 company_id=<Bluetooth SIG 자사 할당값의 10진수>
+source_commit=<승인한 Git commit>
+sdkconfig_sha256=<생성된 sdkconfig SHA-256>
+partitions_sha256=<partitions.csv SHA-256>
 ```
 
 실제 ID가 아직 없는 자동 compile 검증만 아래 명시적 gate를 사용한다. 이 모드는 Bluetooth SIG internal-use 값 `0xFFFF`를 build workdir의 임시 설정에만 주입하며 저장소 기본값으로 두지 않는다. 생성된 test binary는 부팅 첫 분기에서 `esp_system_abort`해 NVS, LED, Bluetooth/BLE Mesh, sensor와 factory-reset 초기화를 실행하지 않는다. 따라서 wrapper를 우회해 raw `esptool`로 잘못 flash해도 RF와 센서는 시작하지 않는다. 실제 장비 HIL과 양산에는 절대 사용하지 않는다.
@@ -72,9 +73,11 @@ scripts/esp32-h2-build.sh --test-build
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/partition_table/partition-table.bin`
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/ota_data_initial.bin`
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led_control_node.bin`
-- `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.manifest`
+- `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.manifest` (test build 전용 unsigned marker)
+- `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation` (production provision 후 생성)
+- `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation.sig` (production provision 후 생성)
 
-build 후 audit는 `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`와 linker map의 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR`가 ESP32-H2 IRAM/ROM 주소인지 확인한다. Artifact manifest는 binary, `sdkconfig`, linker map, generated `flash_args`, custom partition, 제조 승인 manifest hash와 mode/CID/size를 결속한다.
+build 후 audit는 `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`와 linker map의 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR`가 ESP32-H2 IRAM/ROM 주소인지 확인한다. Production attestation은 mode/CID/source commit, approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, `sdkconfig`, linker map, generated `flash_args`, custom partition hash와 size를 fixed policy의 release key로 서명한다. Flash wrapper는 signature와 exact payload를 모두 재생성·비교한다.
 
 ## 실제 보드 플래시
 
@@ -92,14 +95,12 @@ ls /dev/tty.usbmodem* /dev/cu.usbmodem* 2>/dev/null
 cd "/Users/kim-jh/Documents/led-control-service"
 LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST=<승인 manifest 경로> \
 LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE=<detached signature 경로> \
-LED_CONTROL_MANUFACTURING_APPROVAL_PUBLIC_KEY=<승인 public key 경로> \
-LED_CONTROL_MANUFACTURING_APPROVAL_PUBLIC_KEY_SHA256=<보호된 trust anchor> \
 scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
 ```
 
 자동 다운로드 모드 진입이 실패하면 보드의 `BOOT` 버튼을 누른 상태에서 `RESET`을 눌렀다 떼고, 그 다음 `BOOT` 버튼을 놓은 뒤 다시 플래시한다.
 
-flash wrapper는 signed approval과 artifact manifest의 모든 hash를 다시 검증한 뒤 ESP-IDF가 생성한 `flash_args`를 사용하는 `idf.py flash`를 호출한다. ESP-IDF build 출력의 raw `idf.py`/`esptool` 명령은 이 검증을 우회하므로 production 절차에서 직접 실행하지 않는다.
+flash wrapper는 fixed production policy로 signed approval과 signed artifact attestation의 exact identity 및 모든 flash image hash를 다시 검증한 뒤 ESP-IDF가 생성한 `flash_args`를 사용하는 `idf.py flash`를 호출한다. 현재 unprovisioned policy에서는 항상 실패한다. ESP-IDF build 출력의 raw `idf.py`/`esptool` 명령은 이 검증을 우회하므로 production 절차에서 직접 실행하지 않는다.
 
 ## LED 드라이버 연결 주의
 
@@ -120,7 +121,9 @@ flash wrapper는 signed approval과 artifact manifest의 모든 hash를 다시 �
 
 driver는 interrupt가 비활성인 상태에서 boot level을 32개 static queue에 먼저 넣는다. 이어 critical section 안에서 interrupt를 enable하고 즉시 level을 재확인하므로 ISR edge가 boot event보다 앞서지 않는다. Driver start 이전에 발생하고 원래 level로 돌아온 짧은 pulse는 보장 범위 밖이며, start가 반환할 때 current level은 마지막 reconciliation 또는 ISR 관측값으로 초기화된다.
 
-양 edge ISR은 `{level, monotonic_us}`를 전달하며 외부 호출은 `gpio_get_level`, `esp_timer_get_time`, `xQueueSendFromISR`로 제한된다. queue가 가득 차면 lock-free saturating dropped counter와 atomic resync-needed만 갱신하고 log, BLE, block을 수행하지 않는다. 일반 task는 queued edge를 먼저 모두 처리한 뒤 GPIO를 authoritative하게 다시 읽고, resync와 경합한 더 최신 queued edge까지 반복 drain해 High가 유지되는 경우에도 current level을 수렴시킨다. 시간 간격과 무관하게 동일 level만 제거하며 software debounce/timing filter는 없다. Callback 안의 `vehicle_sensor_driver_stop()`은 `ESP_ERR_INVALID_STATE`로 거부하고 외부 control/shutdown context에서 stop해야 완전 cleanup과 restart를 보장한다.
+양 edge ISR은 `{level, monotonic_us}`를 전달하며 외부 호출은 `gpio_get_level`, `esp_timer_get_time`, `xQueueSendFromISR`로 제한된다. queue가 가득 차면 lock-free saturating dropped counter와 atomic resync-needed만 갱신하고 log, BLE, block을 수행하지 않는다. 일반 task는 queued edge를 먼저 모두 처리한 뒤 `timestamp -> GPIO level` 순서로 authoritative sample을 만든다. ISR generation을 sample 전후에 비교하고 critical section에서 안정된 경우에만 current/event를 갱신하며, newer ISR과 경합하면 stale sample을 버리고 queue를 다시 drain한다. 시간 간격과 무관하게 동일 level만 제거하며 software debounce/timing filter는 없다.
+
+Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 priority task가 `xTaskCreateStatic()` 반환 전에 선점해도 callback을 실행할 수 없고, controller가 `driver.task` handle을 publish한 뒤 gate를 연다. 따라서 callback 안의 `vehicle_sensor_driver_stop()`은 항상 `ESP_ERR_INVALID_STATE`로 거부되며 외부 control/shutdown context의 stop만 완전 cleanup과 restart를 수행한다.
 
 ## 현재 구현 범위
 

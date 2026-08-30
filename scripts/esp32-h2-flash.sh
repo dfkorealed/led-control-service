@@ -17,20 +17,22 @@ if [ ! -f "$IDF_PATH/export.sh" ]; then
 fi
 
 SDKCONFIG="$BUILD_WORKDIR/sdkconfig"
-ARTIFACT_MANIFEST="$BUILD_WORKDIR/build/led-control-artifact.manifest"
+TEST_MANIFEST="$BUILD_WORKDIR/build/led-control-artifact.manifest"
+ATTESTATION="$BUILD_WORKDIR/build/led-control-artifact.attestation"
+ATTESTATION_SIGNATURE="$BUILD_WORKDIR/build/led-control-artifact.attestation.sig"
 if [ ! -f "$SDKCONFIG" ]; then
   echo "Refusing to flash: flash requires a verified production sdkconfig." >&2
   exit 1
 fi
 
-if [ ! -f "$ARTIFACT_MANIFEST" ]; then
-  echo "Refusing to flash: verified artifact manifest is missing." >&2
+if grep -q '^CONFIG_LED_CONTROL_TEST_BUILD=y$' "$SDKCONFIG" ||
+    { [ -f "$TEST_MANIFEST" ] && grep -q '^mode=test$' "$TEST_MANIFEST"; }; then
+  echo "Refusing to flash a test-build binary. Build production firmware with the owner's Bluetooth SIG Company ID." >&2
   exit 1
 fi
 
-ARTIFACT_MODE="$(sed -n 's/^mode=//p' "$ARTIFACT_MANIFEST")"
-if [ "$ARTIFACT_MODE" = "test" ] || grep -q '^CONFIG_LED_CONTROL_TEST_BUILD=y$' "$SDKCONFIG"; then
-  echo "Refusing to flash a test-build binary. Build production firmware with the owner's Bluetooth SIG Company ID." >&2
+if [ ! -f "$ATTESTATION" ] || [ ! -f "$ATTESTATION_SIGNATURE" ]; then
+  echo "Refusing to flash: signed production artifact attestation is missing." >&2
   exit 1
 fi
 
@@ -44,13 +46,25 @@ if ! [[ "$COMPANY_ID" =~ ^[0-9]+$ ]] ||
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"$SCRIPT_DIR/esp32-h2-manufacturing-approval.sh" "$COMPANY_ID" >/dev/null
-"$SCRIPT_DIR/esp32-h2-artifact-audit.sh" \
-  verify \
-  "$BUILD_WORKDIR" \
-  production \
+SOURCE_COMMIT="$(sed -n 's/^source_commit=//p' "$ATTESTATION")"
+APPROVAL_MANIFEST="${LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST:-}"
+APPROVAL_SIGNATURE="${LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE:-}"
+"$SCRIPT_DIR/esp32-h2-manufacturing-approval.sh" \
+  verify-production \
   "$COMPANY_ID" \
-  "${LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST:-}"
+  "$SOURCE_COMMIT" \
+  "$SDKCONFIG" \
+  "$BUILD_WORKDIR/partitions.csv" \
+  "$APPROVAL_MANIFEST" \
+  "$APPROVAL_SIGNATURE" \
+  >/dev/null
+"$SCRIPT_DIR/esp32-h2-artifact-audit.sh" \
+  verify-production-attestation \
+  "$BUILD_WORKDIR" \
+  "$COMPANY_ID" \
+  "$SOURCE_COMMIT" \
+  "$APPROVAL_MANIFEST" \
+  "$APPROVAL_SIGNATURE"
 
 if [ -d "$PYTHON_312_BIN" ]; then
   export PATH="$PYTHON_312_BIN:$PATH"

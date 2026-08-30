@@ -1075,6 +1075,17 @@ git commit -m "feat(firmware): add microwave sensor GPIO driver"
 
 Fix Round 1 clean test-build는 binary `0xe64f0`(`943,344`) 바이트, app slot `0x1f0000`(`2,031,616`) 바이트, free `0x109b10`(`1,088,272`, 약 54%)이며 현재 production 최소 free gate는 `406,324` 바이트다. Software debounce/timing filter는 추가하지 않았다. 실제 센서 전압/noise/ESD, cache-disabled edge, raw flash 동작, Raspberry Pi RF와 HIL은 미실행이다.
 
+#### Task 15 Fix Round 2
+
+- [x] Production trust policy 경로와 key fingerprint를 repository/CI policy에 고정하고 caller env override를 제거했다. 현재 `unprovisioned` root에서는 production build가 IDF 실행 전에 실패한다.
+- [x] Manufacturing approval v2가 CID, clean source commit, generated sdkconfig와 partition digest를 exact 서명하도록 변경했다.
+- [x] Signed production artifact attestation이 approval identity와 app/bootloader/partition-table/blank-otadata hash를 포함하고 flash wrapper가 exact signature/hash를 재검증하도록 연결했다. 자체 생성 key는 별도 test-only policy에서만 검증한다.
+- [x] Sensor task가 notification start gate에서 대기하고 controller가 task handle을 publish한 뒤 gate를 열도록 변경했다. Create-before-return preemption에서도 callback 0회와 self-stop invalid-state를 검증했다.
+- [x] Overflow resync를 generation-before, timestamp-before-level, critical generation-after 순서로 승인하고 newer ISR 경합 후보는 publish하지 않은 채 queue를 재drain한다. Callback timestamp 단조성과 getter terminal correctness를 검증했다.
+- [x] 실수로 force-track된 `.superpowers/.../progress.md`를 index에서 제거하고 ignored local file은 보존한다.
+
+Fix Round 2 clean test-build는 binary `0xe67b0`(`944,048`) 바이트, app slot `0x1f0000`(`2,031,616`) 바이트, free `0x109850`(`1,087,568`, 약 54%)이며 production 최소 free gate는 `406,324` 바이트다. 기존 IRAM/boot/UART/OTA/test fail-stop 및 no-debounce 계약은 유지된다. 실제 production trust root/CID, flash, 센서 전기/noise/ESD, cache-disabled edge, Raspberry Pi RF와 HIL은 미실행이다.
+
 ### Task 16: ESP32-H2 Sensor Server와 reliable vendor event
 
 **Files:**

@@ -1,6 +1,7 @@
 #include "fake_esp_idf.h"
 
 #include <assert.h>
+#include <setjmp.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -26,6 +27,9 @@ static fake_failure_t next_failure;
 static TaskHandle_t created_task;
 static TaskHandle_t current_task;
 static QueueHandle_t created_queue;
+static bool preempt_task_create_once;
+static bool preempting_task_create;
+static jmp_buf task_create_scheduler;
 
 static void dispatch_interrupt(void) {
   if (!interrupt_enabled || gpio_handler == NULL) {
@@ -55,6 +59,8 @@ void fake_esp_idf_reset(bool initial_level) {
   created_task = NULL;
   current_task = NULL;
   created_queue = NULL;
+  preempt_task_create_once = false;
+  preempting_task_create = false;
 }
 
 void fake_esp_idf_fail_next(fake_failure_t failure) {
@@ -69,6 +75,10 @@ void fake_esp_idf_transition_during_gpio_read(unsigned int read_number, bool lev
 void fake_esp_idf_transition_on_next_gpio_read(bool level) {
   transition_read_number = gpio_read_count + 1;
   transition_read_level = level;
+}
+
+void fake_esp_idf_preempt_task_create_once(void) {
+  preempt_task_create_once = true;
 }
 
 void fake_esp_idf_fire_edge(bool level) {
@@ -262,7 +272,18 @@ TaskHandle_t xTaskCreateStatic(
   task_storage->function = function;
   task_storage->argument = argument;
   task_storage->active = true;
+  task_storage->notifications = 0;
   created_task = task_storage;
+  if (preempt_task_create_once) {
+    preempt_task_create_once = false;
+    preempting_task_create = true;
+    current_task = task_storage;
+    if (setjmp(task_create_scheduler) == 0) {
+      task_storage->function(task_storage->argument);
+    }
+    current_task = NULL;
+    preempting_task_create = false;
+  }
   return task_storage;
 }
 
@@ -276,4 +297,27 @@ void vTaskDelete(TaskHandle_t task) {
 
 TaskHandle_t xTaskGetCurrentTaskHandle(void) {
   return current_task;
+}
+
+BaseType_t xTaskNotifyGive(TaskHandle_t task) {
+  assert(task != NULL && task->active);
+  task->notifications += 1;
+  return pdTRUE;
+}
+
+uint32_t ulTaskNotifyTake(BaseType_t clear_on_exit, TickType_t ticks_to_wait) {
+  assert(current_task != NULL && current_task->active);
+  if (current_task->notifications > 0) {
+    const uint32_t notifications = current_task->notifications;
+    if (clear_on_exit == pdTRUE) {
+      current_task->notifications = 0;
+    } else {
+      current_task->notifications -= 1;
+    }
+    return notifications;
+  }
+  if (preempting_task_create && ticks_to_wait == portMAX_DELAY) {
+    longjmp(task_create_scheduler, 1);
+  }
+  return 0;
 }

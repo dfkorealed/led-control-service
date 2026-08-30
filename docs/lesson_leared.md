@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-31 / Caller가 key와 fingerprint를 함께 주면 trust anchor가 아니다
+- **발생했던 문제/실수**: Production caller가 approval public key와 그 fingerprint를 같은 환경에서 선택할 수 있어 self-signed 임의 CID가 wrapper를 통과했고, unsigned artifact manifest는 flash image provenance를 증명하지 못했다.
+- **원인**: Signature 유효성 검증과 신뢰 루트 고정을 혼동했고, app binary만 hash로 묶으면 generated flash set 전체가 승인된다고 확대 해석했다.
+- **해결 및 예방책**: Production trust policy 경로를 repository/CI policy에 고정하고 env override를 제거했다. 실제 root 미provision 상태는 명시적으로 실패한다. Approval은 CID/source commit/sdkconfig/partition digest를, signed attestation은 approval identity와 app/bootloader/partition-table/otadata hash를 결속한다.
+- **반복 방지 체크**: Trust 검토 시 누가 key/fingerprint/path를 선택하는지부터 확인하고, flash wrapper가 실제 generated args에 포함된 모든 image를 fixed root 또는 승인 release key로 exact 검증하는지 변조 테스트한다.
+
 ## 2026-08-31 / ISR symbol 이름 확인과 IRAM 안전은 같은 검증이 아니다
 - **발생했던 문제/실수**: ISR object disassembly에서 허용한 외부 symbol 세 개만 보인다는 사실로 cache-disabled 안전까지 통과했다고 기록했지만 `gpio_get_level`은 flash text에 링크되어 있었다. Build metadata와 분리된 editable `sdkconfig`만으로 test flash를 막아 binary 자체의 mode/CID도 증명하지 못했다.
 - **원인**: 호출 집합 검증과 최종 linked address/section 검증을 같은 것으로 취급했고, compile 성공과 wrapper 입력을 artifact provenance로 확대 해석했다.

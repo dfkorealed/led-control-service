@@ -13,6 +13,7 @@ void fake_esp_idf_reset(bool initial_level);
 void fake_esp_idf_fail_next(fake_failure_t failure);
 void fake_esp_idf_transition_during_gpio_read(unsigned int read_number, bool level);
 void fake_esp_idf_transition_on_next_gpio_read(bool level);
+void fake_esp_idf_preempt_task_create_once(void);
 void fake_esp_idf_fire_edge(bool level);
 void fake_esp_idf_run_sensor_task(void);
 bool fake_esp_idf_interrupt_enabled(void);

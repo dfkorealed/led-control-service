@@ -176,6 +176,8 @@ typedef struct {
   _Atomic bool current_level_valid;
   _Atomic bool current_level;
   _Atomic bool resync_needed;
+  _Atomic uint32_t isr_generation;
+  bool task_gate_open;
 } vehicle_sensor_driver_t;
 
 static vehicle_sensor_driver_t driver;
@@ -187,6 +189,7 @@ static portMUX_TYPE startup_mux = portMUX_INITIALIZER_UNLOCKED;
 
 void IRAM_ATTR vehicle_sensor_gpio_isr(void *argument) {
   vehicle_sensor_driver_t *sensor = argument;
+  atomic_fetch_add_explicit(&sensor->isr_generation, 1, memory_order_release);
   vehicle_sensor_edge_t edge = {
       .level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0,
       .monotonic_us = (uint64_t)esp_timer_get_time(),
@@ -213,8 +216,6 @@ static void vehicle_sensor_publish_edge(
     vehicle_sensor_driver_t *sensor,
     const vehicle_sensor_edge_t *edge) {
   vehicle_sensor_event_t event;
-  atomic_store_explicit(&sensor->current_level, edge->level, memory_order_relaxed);
-  atomic_store_explicit(&sensor->current_level_valid, true, memory_order_release);
   if (vehicle_sensor_process_level(&sensor->state, edge->level, edge->monotonic_us, &event)) {
     sensor->handler(&event, sensor->handler_context);
   }
@@ -224,24 +225,48 @@ static void vehicle_sensor_task(void *argument) {
   vehicle_sensor_driver_t *sensor = argument;
   vehicle_sensor_edge_t edge;
 
+  if (!sensor->task_gate_open) {
+    if (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == 0) {
+      return;
+    }
+    sensor->task_gate_open = true;
+  }
+
   for (;;) {
     if (xQueueReceive(sensor->queue, &edge, portMAX_DELAY) != pdTRUE) {
       return;
     }
 
-    for (;;) {
+    vehicle_sensor_publish_edge(sensor, &edge);
+    while (xQueueReceive(sensor->queue, &edge, 0) == pdTRUE) {
       vehicle_sensor_publish_edge(sensor, &edge);
+    }
+
+    while (atomic_exchange_explicit(&sensor->resync_needed, false, memory_order_acq_rel)) {
+      const uint32_t generation_before =
+          atomic_load_explicit(&sensor->isr_generation, memory_order_acquire);
+      vehicle_sensor_edge_t sampled_edge = {
+          .monotonic_us = (uint64_t)esp_timer_get_time(),
+      };
+      sampled_edge.level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0;
+
+      bool generation_stable = false;
+      portENTER_CRITICAL(&startup_mux);
+      if (generation_before ==
+          atomic_load_explicit(&sensor->isr_generation, memory_order_acquire)) {
+        atomic_store_explicit(&sensor->current_level, sampled_edge.level, memory_order_relaxed);
+        atomic_store_explicit(&sensor->current_level_valid, true, memory_order_release);
+        generation_stable = true;
+      }
+      portEXIT_CRITICAL(&startup_mux);
+
+      if (generation_stable) {
+        vehicle_sensor_publish_edge(sensor, &sampled_edge);
+      }
+      // A changed generation rejects the stale sample; drain the newer ISR edge before retrying.
       while (xQueueReceive(sensor->queue, &edge, 0) == pdTRUE) {
         vehicle_sensor_publish_edge(sensor, &edge);
       }
-
-      if (!atomic_exchange_explicit(&sensor->resync_needed, false, memory_order_acq_rel)) {
-        break;
-      }
-
-      // A dropped edge makes GPIO authoritative. The next loop drains any ISR edge that raced this read.
-      edge.level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0;
-      edge.monotonic_us = (uint64_t)esp_timer_get_time();
     }
   }
 }
@@ -274,6 +299,8 @@ static void vehicle_sensor_driver_cleanup(void) {
   driver.handler_context = NULL;
   atomic_store_explicit(&driver.current_level_valid, false, memory_order_release);
   atomic_store_explicit(&driver.resync_needed, false, memory_order_release);
+  atomic_store_explicit(&driver.isr_generation, 0, memory_order_release);
+  driver.task_gate_open = false;
 }
 
 esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, void *context) {
@@ -298,6 +325,8 @@ esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, vo
   atomic_init(&driver.current_level_valid, false);
   atomic_init(&driver.current_level, false);
   atomic_init(&driver.resync_needed, false);
+  atomic_init(&driver.isr_generation, 0);
+  driver.task_gate_open = false;
   driver.queue = xQueueCreateStatic(
       VEHICLE_SENSOR_QUEUE_LENGTH,
       sizeof(vehicle_sensor_edge_t),
@@ -372,7 +401,7 @@ esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, vo
     goto fail;
   }
 
-  driver.task = xTaskCreateStatic(
+  TaskHandle_t created_task = xTaskCreateStatic(
       vehicle_sensor_task,
       "vehicle_sensor",
       VEHICLE_SENSOR_TASK_STACK_DEPTH,
@@ -380,10 +409,12 @@ esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, vo
       VEHICLE_SENSOR_TASK_PRIORITY,
       sensor_task_stack,
       &sensor_task_storage);
-  if (driver.task == NULL) {
+  if (created_task == NULL) {
     error = ESP_ERR_NO_MEM;
     goto fail;
   }
+  driver.task = created_task;
+  xTaskNotifyGive(driver.task);
   return ESP_OK;
 
 fail:

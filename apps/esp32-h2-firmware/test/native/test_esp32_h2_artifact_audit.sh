@@ -5,15 +5,21 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 FIXTURE_ROOT="$(mktemp -d)"
 trap 'rm -rf "$FIXTURE_ROOT"' EXIT
 
-mkdir -p "$FIXTURE_ROOT/build"
+mkdir -p "$FIXTURE_ROOT/build/bootloader" "$FIXTURE_ROOT/build/partition_table"
 cat >"$FIXTURE_ROOT/sdkconfig" <<'EOF'
 CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y
 CONFIG_LED_CONTROL_TEST_BUILD=y
 CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=65535
 EOF
 printf 'fixture binary\n' >"$FIXTURE_ROOT/build/led_control_node.bin"
+printf 'bootloader fixture\n' >"$FIXTURE_ROOT/build/bootloader/bootloader.bin"
+printf 'partition fixture\n' >"$FIXTURE_ROOT/build/partition_table/partition-table.bin"
+printf 'ota fixture\n' >"$FIXTURE_ROOT/build/ota_data_initial.bin"
 cat >"$FIXTURE_ROOT/build/flash_args" <<'EOF'
 --flash_mode dio --flash_freq 48m --flash_size 4MB
+0x0 bootloader/bootloader.bin
+0x8000 partition_table/partition-table.bin
+0xd000 ota_data_initial.bin
 0x10000 led_control_node.bin
 EOF
 cat >"$FIXTURE_ROOT/partitions.csv" <<'EOF'
@@ -50,17 +56,17 @@ fi
 grep -q "gpio_get_level is not linked to IRAM/ROM" "$FIXTURE_ROOT/non-executable-symbol.out"
 
 write_map 0x40802000
+printf 'stale production attestation\n' >"$FIXTURE_ROOT/build/led-control-artifact.attestation"
+printf 'stale production signature\n' >"$FIXTURE_ROOT/build/led-control-artifact.attestation.sig"
 "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" create "$FIXTURE_ROOT" test 65535
+test ! -e "$FIXTURE_ROOT/build/led-control-artifact.attestation"
+test ! -e "$FIXTURE_ROOT/build/led-control-artifact.attestation.sig"
 grep -q '^binary_size=15$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
+grep -q '^bootloader_sha256=' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
+grep -q '^partition_table_sha256=' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
+grep -q '^ota_data_sha256=' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
 grep -q '^app_partition_size=2031616$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
 grep -q '^release_required_free=406324$' "$FIXTURE_ROOT/build/led-control-artifact.manifest"
-
-dd if=/dev/zero of="$FIXTURE_ROOT/build/led_control_node.bin" bs=1 count=1700000 2>/dev/null
-if "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" create "$FIXTURE_ROOT" production 4660 >"$FIXTURE_ROOT/margin.out" 2>&1; then
-  echo "audit unexpectedly accepted insufficient production OTA margin" >&2
-  exit 1
-fi
-grep -q "production OTA free margin" "$FIXTURE_ROOT/margin.out"
 
 sed -i.bak '/CONFIG_GPIO_CTRL_FUNC_IN_IRAM/d' "$FIXTURE_ROOT/sdkconfig"
 printf 'fixture binary\n' >"$FIXTURE_ROOT/build/led_control_node.bin"

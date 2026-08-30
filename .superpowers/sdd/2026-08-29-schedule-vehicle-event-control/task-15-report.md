@@ -1,12 +1,23 @@
 # Task 15 보고서: ESP32-H2 차량 센서 GPIO driver
 
-상태: Fix Round 1 완료(소프트웨어/clean target build, HIL 미실행)
+상태: Fix Round 2 완료(소프트웨어/clean target build, HIL 미실행)
 
-## Fix Round 1 finding 매핑
+## Fix Round 2 잔존 finding 매핑
 
 | Finding | 수정 및 검증 |
 | --- | --- |
-| P1-1 ISR IRAM | `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`를 defaults와 compile guard에 고정했다. Build audit가 linker map에서 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR` 주소를 확인해 IRAM/ROM 밖이면 실패한다. Clean build 주소는 각각 `0x40801b4c`, `0x4080871c`, `0x4080196e`, `0x4080b828`이다. |
+| P1-1 production trust | Production trust policy를 repository의 고정 경로로 제한하고 caller env의 public key/fingerprint/policy override를 읽지 않는다. 현재 policy는 `unprovisioned`라 실제 production build가 IDF 실행 전에 의도적으로 실패한다. 별도 `verify-test-only` fixture만 자체 생성 key로 v2 approval의 CID/source commit/sdkconfig/partition exact binding을 검증한다. |
+| P1-2 task-create race | Sensor task entry가 notification gate에서 먼저 block한다. `xTaskCreateStatic()` 반환 전에 priority preemption을 재현하는 fake scheduler에서도 callback은 0회이고, controller가 handle을 publish하고 gate를 연 뒤 callback self-stop은 항상 `ESP_ERR_INVALID_STATE`다. 외부 stop cleanup과 repeated lifecycle은 유지된다. |
+| P2-3 resync ordering | ISR generation을 모든 ISR entry에서 lock-free 증가시킨다. Task resync는 generation snapshot, timestamp, GPIO level, critical generation recheck 순으로 처리하며 newer ISR과 경합한 stale sample은 current/event에 publish하지 않고 queue를 다시 drain한다. Callback timestamp 단조 증가와 terminal getter Low를 host fake로 검증했다. |
+| P2-4 progress tracking | 실수로 force-track한 `.superpowers/.../progress.md`는 `git rm --cached`로 index에서 삭제하고 ignored local coordination file은 보존한다. |
+
+Production approval v2는 CID, source commit, generated `sdkconfig`와 `partitions.csv` digest를 fixed approval key로 서명한다. Production artifact attestation은 approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, sdkconfig, linker map, generated flash args와 partition digest를 fixed release key로 서명하고 flash wrapper가 signature와 exact payload를 재검증한다. Test image의 app-entry fail-stop은 그대로 유지된다.
+
+## Fix Round 1 finding 매핑(회귀 유지)
+
+| Finding | 수정 및 검증 |
+| --- | --- |
+| P1-1 ISR IRAM | `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`를 defaults와 compile guard에 고정했다. Build audit가 linker map에서 ISR, `gpio_get_level`, `esp_timer_get_time`, `xQueueGenericSendFromISR` 주소를 확인해 IRAM/ROM 밖이면 실패한다. Fix Round 2 clean build 주소는 각각 `0x40801b4c`, `0x40808726`, `0x4080196e`, `0x4080b832`다. |
 | P1-2 boot ordering | Interrupt-disabled 상태에서 boot sample을 queue에 먼저 넣고 critical section 안에서 interrupt enable과 immediate reconciliation을 수행한다. Deferred ISR은 critical exit 뒤 enqueue되므로 boot보다 앞설 수 없고 start current도 마지막 reconcile/ISR 관측으로 초기화된다. Start 전에 발생하고 원래 level로 돌아온 짧은 pulse는 보장 범위 밖이다. |
 | P1-3 overflow current | Queue-full ISR은 saturating dropped counter와 lock-free `resync_needed`만 갱신한다. Task는 queued edge를 drain한 뒤 GPIO를 authoritative하게 읽고, resync read와 경합해 enqueue된 더 최신 edge까지 반복 drain한다. 33번째 terminal High drop과 resync-read 중 ISR race를 host fake로 검증했다. |
 | P1-4 Company ID trust | Production은 exact CID의 signed manufacturing approval, detached signature, trusted public-key SHA-256를 모두 검증해야 한다. 실제 승인 자료가 없어 현재 production build는 의도적으로 실패한다. Build artifact manifest가 binary/CID/mode/sdkconfig/map/generated flash args/partition/approval hash를 결속하고 flash wrapper가 재검증한다. Test image는 app 첫 분기에서 `esp_system_abort`해 raw flash 우회에도 NVS/Bluetooth/sensor를 시작하지 않는다. |
@@ -27,14 +38,14 @@
 
 - RED: UART-aware pin API와 `esp_err_t stop` 부재, side-effectful test `app_main`, unsigned production CID 통과, artifact audit script 부재를 각각 실패로 확인했다.
 - Native test: boot High/Low, 동일 level 제거, 동일 timestamp/1 us edge 보존, timestamp wrap, atomic counter와 GPIO allowlist를 검증했다.
-- Actual-driver host fake: boot sample/ISR interleaving, start current, 32-slot queue와 33번째 dropped High resync, resync read 중 최신 ISR ordering, callback self-stop 거부, handler/task failure cleanup과 repeated lifecycle을 검증했다.
-- Build/artifact tests: signed approval exact CID/key/signature, unsigned CID 거부, test runtime marker, binary/sdkconfig/artifact tamper, IRAM map fixture와 production OTA margin을 검증했다.
-- ESP-IDF v5.5.1 clean `esp32h2` test-build와 post-build audit를 통과했다. Binary는 `0xe64f0`(`943,344`) 바이트, app slot은 `0x1f0000`(`2,031,616`) 바이트, free는 `0x109b10`(`1,088,272`, 약 54%), production minimum free는 `406,324` 바이트다.
+- Actual-driver host fake: boot sample/ISR interleaving, start current, 32-slot queue와 33번째 dropped High resync, generation 경합 중 stale publish 제거와 timestamp 단조성, create-before-return preemption gate, callback self-stop 거부, handler/task failure cleanup과 repeated lifecycle을 검증했다.
+- Build/trust/artifact tests: caller-selected key/fingerprint production 거부, unprovisioned production fail-closed, 별도 test-only fixed policy의 v2 approval exact binding, signed attestation과 app/bootloader/partition-table/otadata 변조, test runtime marker, IRAM map fixture와 production OTA margin을 검증했다. 자체 생성 key로 production success를 주장하지 않는다.
+- ESP-IDF v5.5.1 clean `esp32h2` test-build와 post-build audit를 통과했다. Binary는 `0xe67b0`(`944,048`) 바이트, app slot은 `0x1f0000`(`2,031,616`) 바이트, free는 `0x109850`(`1,087,568`, 약 54%), production minimum free는 `406,324` 바이트다.
 
 ## 전기 안전 및 HIL 한계
 
 - 센서는 3.3V Active High 출력과 기준 GND를 확인한 뒤 연결한다. 5/12/24V, LED converter DIM/보조전원, 서로 다른 ground 계통은 GPIO나 3.3V rail에 직접 연결하지 않고 승인된 level shift/절연/ESD·서지 보호 회로를 사용한다.
 - Host fake와 target build는 실제 입력 전압, rise/fall time, sensor chatter, 긴 배선 noise, ESD/surge, hardware queue timing과 GPIO 손상을 증명하지 않는다.
 - Cache-disabled 구간의 실제 edge, boot 전 짧은 pulse, 실제 32개 queue overflow, callback 실행시간과 power-cycle은 보드 HIL에서 확인해야 한다.
-- 실제 ESP32-H2 flash는 실행하지 않았다. `0xFFFF` test-build는 runtime fail-stop하지만 HIL/양산 flash가 금지된다.
+- 실제 production root/release key와 자사 CID는 provision되지 않았다. 실제 ESP32-H2 flash는 실행하지 않았고 `0xFFFF` test-build는 runtime fail-stop하지만 HIL/양산 flash가 금지된다.
 - Sensor Server, vendor event, ACK/retry와 Raspberry Pi RF 왕복은 Task 16 및 별도 HIL 범위다.

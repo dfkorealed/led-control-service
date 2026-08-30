@@ -9,6 +9,8 @@ PYTHON_312_BIN="/opt/homebrew/opt/python@3.12/libexec/bin"
 BUILD_MODE="production"
 TEST_COMPANY_ID=65535
 APPROVAL_MANIFEST=""
+APPROVAL_SIGNATURE=""
+SOURCE_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 
 if [ "${1:-}" = "--test-build" ]; then
   BUILD_MODE="test"
@@ -30,7 +32,12 @@ if [ "$BUILD_MODE" = "production" ]; then
     exit 1
   fi
   APPROVAL_MANIFEST="${LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST:-}"
-  "$REPO_ROOT/scripts/esp32-h2-manufacturing-approval.sh" "$COMPANY_ID" >/dev/null
+  APPROVAL_SIGNATURE="${LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE:-}"
+  "$REPO_ROOT/scripts/esp32-h2-manufacturing-approval.sh" check-production-policy >/dev/null
+  if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all)" ]; then
+    echo "production build requires a clean source commit" >&2
+    exit 1
+  fi
 else
   COMPANY_ID="$TEST_COMPANY_ID"
 fi
@@ -65,13 +72,34 @@ rm -f "$BUILD_WORKDIR/sdkconfig" "$BUILD_WORKDIR/sdkconfig.old"
 . "$IDF_PATH/export.sh"
 cd "$BUILD_WORKDIR"
 idf.py -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.build-gate" set-target esp32h2
+if [ "$BUILD_MODE" = "production" ]; then
+  "$REPO_ROOT/scripts/esp32-h2-manufacturing-approval.sh" \
+    verify-production \
+    "$COMPANY_ID" \
+    "$SOURCE_COMMIT" \
+    "$BUILD_WORKDIR/sdkconfig" \
+    "$BUILD_WORKDIR/partitions.csv" \
+    "$APPROVAL_MANIFEST" \
+    "$APPROVAL_SIGNATURE" \
+    >/dev/null
+fi
 idf.py build
-"$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" \
-  create \
-  "$BUILD_WORKDIR" \
-  "$BUILD_MODE" \
-  "$COMPANY_ID" \
-  "$APPROVAL_MANIFEST"
+if [ "$BUILD_MODE" = "production" ]; then
+  "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" \
+    create-production-attestation \
+    "$BUILD_WORKDIR" \
+    "$COMPANY_ID" \
+    "$SOURCE_COMMIT" \
+    "$APPROVAL_MANIFEST" \
+    "$APPROVAL_SIGNATURE"
+else
+  "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" \
+    create \
+    "$BUILD_WORKDIR" \
+    test \
+    "$COMPANY_ID" \
+    "$SOURCE_COMMIT"
+fi
 
 if [ "$BUILD_MODE" = "test" ]; then
   echo "TEST BUILD ONLY: reserved Company ID 0xFFFF; this binary must not be flashed for HIL or production." >&2
