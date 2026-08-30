@@ -9,6 +9,8 @@ import {
 import { Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
+import { AutomationClock } from "../automation/automation-clock";
+import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -59,6 +61,7 @@ const fixtureControlSelect = {
 } satisfies Prisma.FixtureSelect;
 
 const idempotentCommandInclude = {
+  manualOverride: { select: { overrideUntil: true } },
   dispatches: {
     orderBy: { createdAt: "asc" as const },
     select: { deliveryMode: true }
@@ -67,13 +70,18 @@ const idempotentCommandInclude = {
 
 type IdempotentCommand = Prisma.CommandGetPayload<{ include: typeof idempotentCommandInclude }>;
 
+const DEFAULT_OVERRIDE_DURATION_MS = 60 * 60 * 1000;
+const MAX_OVERRIDE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class CommandsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly dispatchService: CommandDispatchService,
     private readonly siteAccess: SiteAccessService,
-    private readonly meshControlGroups: MeshControlGroupService
+    private readonly meshControlGroups: MeshControlGroupService,
+    private readonly automationSnapshot: AutomationSnapshotService,
+    private readonly clock: AutomationClock
   ) {}
 
   async createDimmingCommand(user: AuthenticatedUser, input: CreateDimmingCommandInput) {
@@ -85,10 +93,13 @@ export class CommandsService {
     if (user.role === "viewer") throw new ForbiddenException("viewer users cannot control lights");
     await this.siteAccess.assert(user, input.siteId, "manage");
 
-    const requestFingerprint = createRequestFingerprint(input.target, input.brightness);
+    const now = this.clock.now();
+    const overrideUntil = resolveOverrideUntil(input.overrideUntil, now);
+    const requestFingerprint = createRequestFingerprint(input.target, input.brightness, input.overrideUntil);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await this.automationSnapshot.lockMutation(tx);
         await this.siteAccess.assertManageInTransaction(tx, user, input.siteId);
         const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
         if (existing) return existing;
@@ -119,6 +130,26 @@ export class CommandsService {
             targetId,
             targetFixtureIds: resolved.fixtureIds,
             brightness: input.brightness
+          }
+        });
+        const manualOverride = await tx.manualOverride.create({
+          data: {
+            siteId: input.siteId,
+            gatewayId: resolved.gatewayId,
+            commandId: command.id,
+            requestedById: user.id,
+            brightnessPercent: input.brightness,
+            startedAt: now,
+            overrideUntil,
+            fixtures: {
+              createMany: {
+                data: resolved.fixtureIds.map((fixtureId) => ({
+                  fixtureId,
+                  siteId: input.siteId,
+                  gatewayId: resolved.gatewayId
+                }))
+              }
+            }
           }
         });
 
@@ -169,7 +200,8 @@ export class CommandsService {
             : {}),
           brightness: command.brightness,
           requestedBy: command.requestedBy,
-          requestedAt: command.createdAt.toISOString()
+          requestedAt: command.createdAt.toISOString(),
+          overrideUntil: manualOverride.overrideUntil.toISOString()
         });
         await tx.mqttOutbox.create({
           data: {
@@ -181,6 +213,7 @@ export class CommandsService {
 
         return this.toCreateResponse({
           ...command,
+          manualOverride,
           dispatches: [{ deliveryMode: resolved.deliveryMode }]
         });
       });
@@ -189,6 +222,7 @@ export class CommandsService {
 
       // A failed PostgreSQL transaction cannot be reused after P2002. Re-read in a fresh transaction.
       return this.prisma.$transaction(async (tx) => {
+        await this.automationSnapshot.lockMutation(tx);
         await this.siteAccess.assertManageInTransaction(tx, user, input.siteId);
         const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
         if (!existing) throw error;
@@ -221,9 +255,10 @@ export class CommandsService {
   }
 
   private toCreateResponse(command: IdempotentCommand) {
-    const { dispatches, ...storedCommand } = command;
+    const { dispatches, manualOverride, ...storedCommand } = command;
     const deliveryMode = dispatches[0]?.deliveryMode;
     if (!isDeliveryMode(deliveryMode)) throw new Error("stored command delivery mode is invalid");
+    if (!manualOverride) throw new Error("stored command manual override is missing");
     const fixtureIds = Array.isArray(command.targetFixtureIds)
       ? command.targetFixtureIds.filter((fixtureId): fixtureId is string => typeof fixtureId === "string")
       : [];
@@ -234,6 +269,7 @@ export class CommandsService {
       selectedTargetCount: fixtureIds.length,
       transmissionCount: deliveryMode === "mesh_group" ? dispatches.length : fixtureIds.length,
       deliveryMode,
+      overrideUntil: manualOverride.overrideUntil.toISOString(),
       terminalStatusUrl: `/commands/${storedCommand.id}`
     };
   }
@@ -427,7 +463,7 @@ export class CommandsService {
   }
 }
 
-function createRequestFingerprint(target: DimmingTarget, brightness: number) {
+function createRequestFingerprint(target: DimmingTarget, brightness: number, requestedOverrideUntil?: string) {
   const canonicalTarget = target.type === "fixture"
     ? [target.type, target.fixtureId]
     : target.type === "fixtures"
@@ -435,7 +471,36 @@ function createRequestFingerprint(target: DimmingTarget, brightness: number) {
       : target.type === "floor"
         ? [target.type, target.floorId]
         : [target.type, target.groupId];
-  return createHash("sha256").update(JSON.stringify({ target: canonicalTarget, brightness })).digest("hex");
+  return createHash("sha256").update(JSON.stringify({
+    target: canonicalTarget,
+    brightness,
+    overrideUntil: requestedOverrideUntil ?? null
+  })).digest("hex");
+}
+
+function resolveOverrideUntil(rawOverrideUntil: unknown, now: Date) {
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) throw new Error("clock returned an invalid current time");
+  if (rawOverrideUntil === undefined) return new Date(nowMs + DEFAULT_OVERRIDE_DURATION_MS);
+  if (typeof rawOverrideUntil !== "string" || !isIsoInstant(rawOverrideUntil)) {
+    throw new BadRequestException("overrideUntil must be an ISO instant");
+  }
+
+  const overrideUntil = new Date(rawOverrideUntil);
+  if (!Number.isFinite(overrideUntil.getTime()) || overrideUntil.toISOString().slice(0, 10) !== rawOverrideUntil.slice(0, 10)) {
+    throw new BadRequestException("overrideUntil must be an ISO instant");
+  }
+  if (overrideUntil.getTime() <= nowMs) {
+    throw new BadRequestException("overrideUntil must be in the future");
+  }
+  if (overrideUntil.getTime() > nowMs + MAX_OVERRIDE_DURATION_MS) {
+    throw new BadRequestException("overrideUntil must be within 30 days");
+  }
+  return overrideUntil;
+}
+
+function isIsoInstant(value: string) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value);
 }
 
 function isDeliveryMode(value: unknown): value is DeliveryMode {

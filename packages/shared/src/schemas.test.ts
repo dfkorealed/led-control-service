@@ -50,8 +50,12 @@ describe("shared schemas", () => {
       siteId,
       clientRequestId: "33333333-3333-4333-8333-333333333333",
       target: { type: "fixtures", fixtureIds: [fixture1, fixture2] },
-      brightness: 70
-    }).target.type).toBe("fixtures");
+      brightness: 70,
+      overrideUntil: "2026-08-29T01:00:00.000Z"
+    })).toMatchObject({
+      target: { type: "fixtures" },
+      overrideUntil: "2026-08-29T01:00:00.000Z"
+    });
     expect(createDimmingCommandSchema.parse({
       siteId,
       clientRequestId: "33333333-3333-4333-8333-333333333333",

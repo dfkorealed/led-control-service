@@ -706,14 +706,14 @@ git commit -m "feat(api): synchronize gateway automation snapshots"
 - Consumes: 기존 synchronous dimming command와 fixture terminal result.
 - Produces: ISO instant `overrideUntil`, 서버 기본값 `now+1h`, Gateway 대상별 durable manual override.
 
-- [ ] **Step 1: 기본값·과거 시각·viewer 실패 테스트를 작성한다**
+- [x] **Step 1: 기본값·과거 시각·viewer 실패 테스트를 작성한다**
 
 ```ts
 expect(created.overrideUntil).toBe("2026-08-29T01:00:00.000Z");
 await expect(create({ overrideUntil: "2026-08-28T23:59:59.000Z" })).rejects.toMatchObject({ status: 400 });
 ```
 
-- [ ] **Step 2: 공유 command schema와 API 저장을 구현한다**
+- [x] **Step 2: 공유 command schema와 API 저장을 구현한다**
 
 ```ts
 const overrideUntil = input.overrideUntil ?? new Date(clock.now() + 60 * 60 * 1000).toISOString();
@@ -721,7 +721,7 @@ const overrideUntil = input.overrideUntil ?? new Date(clock.now() + 60 * 60 * 10
 
 요청 시각보다 미래이고 최대 30일 이내인 ISO instant만 허용하며 command와 `ManualOverride`/fixture rows를 기존 Site lock transaction 안에서 함께 저장한다.
 
-- [ ] **Step 3: 기존 동기 ACK 회귀 검증 후 커밋한다**
+- [x] **Step 3: 기존 동기 ACK 회귀 검증 후 커밋한다**
 
 Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/api test -- commands.service.spec.ts --runInBand && pnpm --filter @led-control/api typecheck`
 

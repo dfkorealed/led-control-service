@@ -151,6 +151,7 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt,
+      overrideUntil: "2026-08-29T01:00:00.000Z",
       expiresAt: "2026-07-11T00:00:10.000Z"
     });
     const acceptance = acceptanceAckV2Schema.parse({
@@ -178,6 +179,7 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     });
 
     expect(acceptance.status).toBe("accepted");
+    expect(command.overrideUntil).toBe("2026-08-29T01:00:00.000Z");
     expect(deviceStatus.results[0]).toMatchObject({ fixtureId, brightness: 70 });
   });
 
@@ -195,7 +197,8 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       deliveryMode: "unicast" as const,
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
-      requestedAt: occurredAt
+      requestedAt: occurredAt,
+      overrideUntil: "2026-08-29T01:00:00.000Z"
     };
 
     expect(gatewayDimmingCommandDraftV2Schema.parse(draft)).toMatchObject(draft);
@@ -218,7 +221,8 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetFixtureIds: [fixtureId],
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
-      requestedAt: occurredAt
+      requestedAt: occurredAt,
+      overrideUntil: "2026-08-29T01:00:00.000Z"
     };
 
     expect(gatewayDimmingCommandDraftV2Schema.parse({
@@ -258,7 +262,8 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       deliveryMode: "unicast" as const,
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
-      requestedAt: occurredAt
+      requestedAt: occurredAt,
+      overrideUntil: "2026-08-29T01:00:00.000Z"
     };
 
     expect(() => gatewayDimmingCommandDraftV2Schema.parse({
@@ -321,7 +326,8 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       deliveryMode: "unicast" as const,
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
-      requestedAt: occurredAt
+      requestedAt: occurredAt,
+      overrideUntil: "2026-08-29T01:00:00.000Z"
     };
 
     expect(() => gatewayDimmingCommandDraftV2Schema.parse({ ...base, ...patch })).toThrow();
@@ -344,7 +350,8 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       meshControlGroupVersion: 2,
       brightness: 70,
       requestedBy: "55555555-5555-4555-8555-555555555555",
-      requestedAt: occurredAt
+      requestedAt: occurredAt,
+      overrideUntil: "2026-08-29T01:00:00.000Z"
     };
 
     for (const field of ["destinationAddress", "meshControlGroupId", "meshControlGroupVersion"] as const) {

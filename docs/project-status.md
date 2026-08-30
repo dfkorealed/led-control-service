@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD와 Task 9 production MQTT automation 동기화를 완료했다. 다음 구현은 수동 명령 override와 Gateway snapshot hot reload다.
+**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화와 Task 10 timed manual override 저장을 완료했다. 다음 구현은 Gateway snapshot hot reload다.
 
 ## 작업 상태
 
@@ -23,10 +23,11 @@
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape, node-scoped durable ACK identity와 lease-safe exact replay revival까지 5차 review fix를 완료했다. Production Gateway report journal은 후속 Task 범위다. |
 | 스케줄·차량 이벤트 제어 Task 9 | 완료(소프트웨어, fix round 2) | exact MQTT topic/payload/current active claimed Gateway identity 결합, immutable revision snapshot 기반 execution 검증과 revision/payload 단독 UPDATE DB 재검증, rejected desired의 lower applied ACK 보존, canonical execution 원장과 immutable ingest ACK의 동일 transaction 저장, config/application-ACK 공통 10회·15분 retained deadletter와 `SKIP LOCKED` lease·revival·supersession·shutdown drain을 strict TDD로 구현했다. 실제 broker/Gateway/HIL은 후속 검증이다. |
+| 스케줄·차량 이벤트 제어 Task 10 | 완료(소프트웨어) | 수동 dimming 명령의 optional ISO `overrideUntil`을 API clock 기준 기본 `now + 1 hour`, 미래·30일 이내로 검증한다. Command, `ManualOverride`, 모든 fixture snapshot과 direct Gateway payload/outbox를 automation advisory lock 및 Site 재인가가 있는 한 transaction에 저장하며, Web API 타입·생성 응답도 확정 시각을 전달한다. Gateway durable 적용·만료 arbiter와 Web 입력 UI, HIL은 후속 Task 범위다. |
 
 ## 다음 단계
 
-**다음 구현은 Task 10 수동 명령 `overrideUntil` 계약과 저장이다.** 이후 Gateway snapshot 원자 저장/hot reload, scheduler/priority arbiter, ESP32-H2 sensor event, Web CRUD, software E2E와 HIL 순서로 진행한다. Unit 및 격리 PostgreSQL 결과를 production broker·Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
+**다음 구현은 Gateway snapshot 원자 저장/hot reload다.** 이후 scheduler/priority arbiter, ESP32-H2 sensor event, Web CRUD, software E2E와 HIL 순서로 진행한다. Unit 및 격리 PostgreSQL 결과를 production broker·Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 

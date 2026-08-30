@@ -7,7 +7,7 @@
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
-- schedule/차량 이벤트 API CRUD와 production API MQTT 동기화는 완료했지만 Web CRUD와 Gateway 현장 실행은 아직 구현되지 않았다. 다음 구현은 수동 명령 `overrideUntil`, Gateway 규칙 snapshot hot reload/실행, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
+- schedule/차량 이벤트 API CRUD와 production API MQTT 동기화, 수동 명령 timed override 저장은 완료했지만 Web CRUD와 Gateway 현장 실행은 아직 구현되지 않았다. 다음 구현은 Gateway 규칙 snapshot hot reload/실행, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
 
 ## 확정 구현 범위
 
@@ -35,6 +35,7 @@
 
 ## 구현 완료
 
+- `POST /commands/dimming`은 optional ISO instant `overrideUntil`을 받고, 없으면 API `AutomationClock` 기준 `now + 1 hour`를 서버에서 확정한다. 명시 시각은 현재보다 미래이고 최대 30일 이내여야 하며 viewer는 기존과 같이 `403`으로 거부된다. Command, `ManualOverride`, 모든 `ManualOverrideFixture`, dispatch와 MQTT outbox는 공통 automation advisory lock 후 Site row 재인가를 거친 하나의 transaction에 저장한다. API 생성 응답과 새 Gateway dimming payload에는 확정된 `overrideUntil`이 포함된다. 이전 durable outbox payload는 필드 없이도 publisher가 처리하지만 새 API 생성 경로는 항상 포함한다. Gateway의 durable override 적용·만료 후 priority arbiter 복귀와 Web 종료 시각 입력은 후속 범위다.
 - `GET/POST/PATCH/DELETE /sites/:siteId/automation/vehicle-event-rules`를 제공한다. viewer는 assigned Site 목록을 조회하고 assigned active customer admin만 생성·수정·삭제할 수 있으며 operator와 다른 Site의 규칙은 `404`로 숨긴다. 목록 query는 Site 읽기 인가 뒤 파싱한다.
 - 차량 이벤트 규칙은 distinct source와 target Fixture를 각각 한 개 이상 요구하고 등록 완료 Fixture만 저장 시점의 exact ID set으로 고정한다. source는 MeshNode capability가 `supported`이고 검증 시각이 있는 Fixture만 허용하며 unknown/unsupported/다른 tenant 식별자는 일반화된 validation 오류로 거부한다. target capability 검증은 하지 않는다. source와 target 전체가 같은 Site와 한 Gateway에 속해야 하며 다중 Gateway는 stable `single_gateway_required`로 거부한다.
 - hold는 기본 60초, 5~1800 정수 범위이고 밝기는 0~100 정수다. `dimmingEnabled=false`는 입력 밝기를 저장하지 않고 DB/API/Gateway snapshot 모두 100%로 정규화한다.

@@ -66,7 +66,9 @@ const gatewayDimmingCommandFields = {
   meshControlGroupVersion: z.number().int().positive().optional(),
   brightness: z.number().int().min(0).max(100),
   requestedBy: z.string().uuid(),
-  requestedAt: z.string().datetime()
+  requestedAt: z.string().datetime(),
+  // Old durable outbox rows predate timed overrides; new API commands always set this field.
+  overrideUntil: z.string().datetime().optional()
 };
 
 function validateDimmingDelivery(

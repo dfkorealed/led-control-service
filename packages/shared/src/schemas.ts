@@ -692,7 +692,8 @@ export const dimmingTargetSchema = z.union([
 const createDimmingCommandFields = {
   siteId: z.string().uuid(),
   clientRequestId: z.string().uuid(),
-  brightness: z.number().int().min(0).max(100)
+  brightness: z.number().int().min(0).max(100),
+  overrideUntil: z.string().datetime().optional()
 };
 
 export const createDimmingCommandSchema = z.object({
@@ -710,7 +711,8 @@ const legacyCreateDimmingCommandSchema = z.object({
   target: input.targetType === "fixture"
     ? { type: "fixture" as const, fixtureId: input.targetId }
     : { type: "group" as const, groupId: input.targetId },
-  brightness: input.brightness
+  brightness: input.brightness,
+  ...(input.overrideUntil ? { overrideUntil: input.overrideUntil } : {})
 }));
 
 // Task 14 전까지 현재 웹 요청만 controller 경계에서 신규 target 계약으로 변환한다.
