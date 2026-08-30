@@ -95,9 +95,14 @@ import {
 import { SystemClockTrustProvider, type ClockTrustProvider } from "./automation/clock-trust-provider";
 import {
   AutomationTelemetryOutbox,
-  AutomationTelemetryPublisher,
-  AutomationTelemetryRecorder
+  AutomationTelemetryPublisher
 } from "./automation/automation-telemetry-outbox";
+import { AutomationTelemetryCoordinator } from "./automation/automation-telemetry-coordinator";
+import {
+  lifecycleTelemetryRecords,
+  terminalTelemetryRecords,
+  type AutomationTelemetryRecordInput
+} from "./automation/automation-telemetry-handoff";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
 
@@ -114,6 +119,7 @@ export function createGatewayAutomationServices(options: {
   monotonicClock?: () => number;
   onTerminalResults?: ScheduleRuntimeOptions["onTerminalResults"];
   onLifecycleEvents?: ScheduleRuntimeOptions["onLifecycleEvents"];
+  flushTelemetryHandoffs?: ScheduleRuntimeOptions["flushTelemetryHandoffs"];
   onError?: ScheduleRuntimeOptions["onError"];
 }) {
   const scheduleRuntime = new ScheduleRuntime({
@@ -125,6 +131,7 @@ export function createGatewayAutomationServices(options: {
     ...(options.monotonicClock ? { monotonicClock: options.monotonicClock } : {}),
     ...(options.onLifecycleEvents ? { onLifecycleEvents: options.onLifecycleEvents } : {}),
     ...(options.onTerminalResults ? { onTerminalResults: options.onTerminalResults } : {}),
+    ...(options.flushTelemetryHandoffs ? { flushTelemetryHandoffs: options.flushTelemetryHandoffs } : {}),
     ...(options.onError ? { onError: options.onError } : {})
   });
   const automationRuntime = new AutomationRuntime({
@@ -294,13 +301,14 @@ async function main() {
     process.env.GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH ?? "/var/lib/led-control/automation-telemetry.json",
     { siteId, gatewayId }
   );
-  try {
-    await automationTelemetryOutbox.initialize();
-  } catch (error) {
+  const telemetryInitialization = await automationTelemetryOutbox.initialize();
+  if (telemetryInitialization.mode === "degraded") {
     await health.setOperationalBlocker("automation_telemetry_unavailable", true);
-    throw error;
   }
-  const automationTelemetryRecorder = new AutomationTelemetryRecorder(automationTelemetryOutbox);
+  const automationTelemetryCoordinator = new AutomationTelemetryCoordinator(
+    automationStateStore,
+    automationTelemetryOutbox
+  );
   const automationTelemetryPublisher = new AutomationTelemetryPublisher(
     automationTelemetryOutbox,
     { siteId, gatewayId },
@@ -314,9 +322,7 @@ async function main() {
     droppedCount: number,
     lastDroppedAt: string
   ) => {
-    const handedOff = await recordAndHandoffAutomationTelemetryGap(
-      automationStateStore,
-      automationTelemetryOutbox,
+    const handedOff = await automationTelemetryCoordinator.recordGap(
       automationRuntime?.currentRevision ?? null,
       firstDroppedAt,
       droppedCount,
@@ -368,20 +374,11 @@ async function main() {
       recordGap: recordRuntimeTelemetryGap,
       onError: (error) => void reportGatewayError(error, "automation_terminal_telemetry")
     }),
-    onLifecycleEvents: createDurableAutomationLifecycleHandoff({
-      enqueue: (handoff) => automationTelemetryRecorder.recordLifecycle(handoff),
-      recordGap: recordRuntimeTelemetryGap,
-      onPersisted: () => { void automationTelemetryPublisher.wake()
-        .catch((error) => void reportGatewayError(error, "automation_lifecycle_publish")); },
-      onError: (error) => void reportGatewayError(error, "automation_lifecycle_handoff")
-    }),
-    onTerminalResults: createDurableAutomationTerminalHandoff({
-      enqueue: (handoff) => automationTelemetryRecorder.recordTerminal(handoff),
-      recordGap: recordRuntimeTelemetryGap,
-      onPersisted: () => { void automationTelemetryPublisher.wake()
-        .catch((error) => void reportGatewayError(error, "automation_action_result_publish")); },
-      onError: (error) => void reportGatewayError(error, "automation_terminal_handoff")
-    }),
+    flushTelemetryHandoffs: async () => {
+      const results = await automationTelemetryCoordinator.flush(automationRuntime?.currentRevision ?? null);
+      if (results.length > 0) void automationTelemetryPublisher.wake()
+        .catch((error) => void reportGatewayError(error, "automation_telemetry_publish"));
+    },
     onError: (error) => void reportGatewayError(error, "automation_runtime")
   });
   scheduleRuntime = automationServices.scheduleRuntime;
@@ -399,11 +396,7 @@ async function main() {
     () => recoverPendingManualAutomationHandoffs(commandJournal, manualOverrideCoordinator)
   );
   if (automationRuntime.currentRevision !== null) {
-    await handoffPersistedAutomationTelemetryGap(
-      automationStateStore,
-      automationTelemetryOutbox,
-      automationRuntime.currentRevision
-    );
+    await automationTelemetryCoordinator.flush(automationRuntime.currentRevision);
   }
   const stopAutomationFixtureStatusIntake = observeAutomationFixtureStatuses(
     adapter,
@@ -803,17 +796,15 @@ export function createDurableAutomationTerminalHandoff(input: {
   onError?: (error: unknown) => void;
 }) {
   return async (handoff: AutomationTerminalHandoff) => {
+    const records = terminalTelemetryRecords(handoff);
     try {
-      await input.enqueue(handoff);
-      input.onPersisted?.();
+      const result = await input.enqueue(handoff);
+      const dropped = droppedTelemetryRecords(result);
+      if (dropped.length === 0) input.onPersisted?.();
+      else await recordDroppedAutomationRecords(dropped, input.recordGap, input.onError);
     } catch (error) {
       input.onError?.(error);
-      const timestamps = handoff.results.map((result) => result.occurredAt).sort();
-      try {
-        await input.recordGap(timestamps[0]!, handoff.results.length, timestamps.at(-1)!);
-      } catch (gapError) {
-        input.onError?.(gapError);
-      }
+      await recordDroppedAutomationRecords(records, input.recordGap, input.onError);
     }
   };
 }
@@ -825,19 +816,38 @@ export function createDurableAutomationLifecycleHandoff(input: {
   onError?: (error: unknown) => void;
 }) {
   return async (handoff: AutomationLifecycleHandoff) => {
+    const records = lifecycleTelemetryRecords(handoff);
     try {
-      await input.enqueue(handoff);
-      input.onPersisted?.();
+      const result = await input.enqueue(handoff);
+      const dropped = droppedTelemetryRecords(result);
+      if (dropped.length === 0) input.onPersisted?.();
+      else await recordDroppedAutomationRecords(dropped, input.recordGap, input.onError);
     } catch (error) {
       input.onError?.(error);
-      const timestamps = handoff.events.map((event) => event.occurredAt).sort();
-      try {
-        await input.recordGap(timestamps[0]!, handoff.events.length, timestamps.at(-1)!);
-      } catch (gapError) {
-        input.onError?.(gapError);
-      }
+      await recordDroppedAutomationRecords(records, input.recordGap, input.onError);
     }
   };
+}
+
+function droppedTelemetryRecords(value: unknown): AutomationTelemetryRecordInput[] {
+  if (!value || typeof value !== "object" || !("droppedRecords" in value) || !Array.isArray(value.droppedRecords)) {
+    return [];
+  }
+  return value.droppedRecords as AutomationTelemetryRecordInput[];
+}
+
+async function recordDroppedAutomationRecords(
+  records: AutomationTelemetryRecordInput[],
+  recordGap: (firstDroppedAt: string, droppedCount: number, lastDroppedAt: string) => Promise<unknown>,
+  onError?: (error: unknown) => void
+) {
+  if (records.length === 0) return;
+  const timestamps = records.map((record) => record.occurredAt).sort();
+  try {
+    await recordGap(timestamps[0]!, records.length, timestamps.at(-1)!);
+  } catch (error) {
+    onError?.(error);
+  }
 }
 
 export async function handoffPersistedAutomationTelemetryGap(

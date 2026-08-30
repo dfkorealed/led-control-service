@@ -7,8 +7,9 @@ import {
   AutomationStateCommitUncertainError,
   FileAutomationStateStore,
   emptyAutomationState,
-  type PersistedAutomationStateV3
+  type PersistedAutomationStateV4
 } from "./automation-state-store";
+import { automationTelemetryRecordsHash } from "./automation-telemetry-handoff";
 
 const directories: string[] = [];
 const fixtureId = "00000000-0000-4000-8000-000000000101";
@@ -39,7 +40,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -143,7 +144,7 @@ describe("FileAutomationStateStore", () => {
     const store = new FileAutomationStateStore(path);
     await store.initialize();
 
-    const leaked = store.read() as PersistedAutomationStateV3;
+    const leaked = store.read() as PersistedAutomationStateV4;
     leaked.lastDesiredByFixture[fixtureId] = 99;
 
     expect(store.read().lastDesiredByFixture).toEqual({});
@@ -158,7 +159,7 @@ describe("FileAutomationStateStore", () => {
     await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
 
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       telemetryGap: {
         firstDroppedAt: "2026-08-30T01:00:01.000Z",
         lastDroppedAt: "2026-08-30T01:00:02.000Z",
@@ -180,6 +181,66 @@ describe("FileAutomationStateStore", () => {
 
     await expect(store.clearTelemetryGap(store.read().telemetryGap!)).resolves.toBe(true);
     expect(store.read().telemetryGap).toBeNull();
+  });
+
+  it("restores schema v4 pending telemetry handoffs with exact identity and records", async () => {
+    const path = await statePath();
+    const records = [{
+      revision: 7,
+      ruleId: "22222222-2222-4222-8222-222222222222",
+      occurrenceKey: "occurrence-1",
+      kind: "event_started" as const,
+      occurredAt: "2026-08-30T01:00:00.000Z",
+      payload: { targetFixtureIds: [fixtureId] }
+    }];
+    const handoff = {
+      handoffId: "11111111-1111-4111-8111-111111111111",
+      recordsHash: automationTelemetryRecordsHash(records),
+      records
+    };
+    await writeJsonAtomic(path, {
+      ...emptyAutomationState(),
+      schemaVersion: 4,
+      pendingTelemetryHandoffs: [handoff]
+    });
+
+    const store = new FileAutomationStateStore(path);
+    await expect(store.initialize()).resolves.toMatchObject({
+      schemaVersion: 4,
+      pendingTelemetryHandoffs: [handoff]
+    });
+    await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toBe(true);
+    expect(store.read().pendingTelemetryHandoffs).toEqual([]);
+  });
+
+  it("migrates a v3 telemetry gap to stable handoff identity and provenance across restarts", async () => {
+    const path = await statePath();
+    await writeJsonAtomic(path, {
+      schemaVersion: 3,
+      activeOccurrences: {},
+      manualOverrides: {},
+      vehicleRules: {},
+      currentByFixture: {},
+      baseBrightnessByFixture: {},
+      lastDesiredByFixture: {},
+      unverifiedDesiredByFixture: {},
+      transitionsByFixture: {},
+      telemetryGap: {
+        firstDroppedAt: "2026-08-30T01:00:00.000Z",
+        lastDroppedAt: "2026-08-30T01:00:03.000Z",
+        droppedCount: 4
+      }
+    });
+
+    const first = await new FileAutomationStateStore(path).initialize();
+    const second = await new FileAutomationStateStore(path).initialize();
+
+    expect(first.telemetryGap).toMatchObject({
+      handoffId: expect.stringMatching(/^legacy-gap-/),
+      provenance: "fixture_state_outbox",
+      droppedCount: 4
+    });
+    expect(second.telemetryGap?.handoffId).toBe(first.telemetryGap?.handoffId);
   });
 });
 

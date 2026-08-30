@@ -522,6 +522,40 @@ describe("startGatewayRuntime", () => {
     );
   });
 
+  it("counts one dropped action_result payload rather than its two fixture results", async () => {
+    const secondFixtureId = "00000000-0000-4000-8000-000000000006";
+    const recordGap = vi.fn().mockResolvedValue(undefined);
+    const handoff = createDurableAutomationTerminalHandoff({
+      enqueue: vi.fn().mockRejectedValue(new Error("telemetry outbox unavailable")),
+      recordGap
+    });
+
+    await handoff({
+      revision: 3,
+      actions: [scopedFixtureId, secondFixtureId].map((fixtureId) => ({
+        fixtureId,
+        brightnessPercent: 70,
+        sourceType: "schedule" as const,
+        sourceId: "00000000-0000-4000-8000-000000000103",
+        occurrenceKey: "occurrence-1"
+      })),
+      results: [scopedFixtureId, secondFixtureId].map((fixtureId, index) => ({
+        fixtureId,
+        status: "succeeded" as const,
+        brightnessPercent: 70,
+        faultCode: null,
+        errorCode: null,
+        occurredAt: `2026-08-30T01:00:0${index + 1}.000Z`
+      }))
+    });
+
+    expect(recordGap).toHaveBeenCalledWith(
+      "2026-08-30T01:00:02.000Z",
+      1,
+      "2026-08-30T01:00:02.000Z"
+    );
+  });
+
   it("records a durable gap when lifecycle telemetry persistence fails after local RF", async () => {
     const recordGap = vi.fn().mockResolvedValue(undefined);
     const handoff = createDurableAutomationLifecycleHandoff({

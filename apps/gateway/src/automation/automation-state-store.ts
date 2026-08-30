@@ -1,9 +1,16 @@
+import { createHash, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
   AtomicJsonCommitUncertainError,
   readJsonFile,
   writeJsonAtomic
 } from "../mesh/mesh-store-file";
+import {
+  automationTelemetryRecordsHash,
+  createAutomationTelemetryHandoff,
+  type AutomationTelemetryRecordInput,
+  type PersistedAutomationTelemetryHandoff
+} from "./automation-telemetry-handoff";
 
 export interface PersistedOccurrenceState {
   key: string;
@@ -30,6 +37,8 @@ export interface PersistedVehicleRuleState {
 }
 
 export interface PersistedAutomationTelemetryGap {
+  handoffId: string;
+  provenance: "fixture_state_outbox";
   firstDroppedAt: string;
   lastDroppedAt: string;
   droppedCount: number;
@@ -47,8 +56,8 @@ export interface PersistedAutomationTransitionState {
   terminalAt: string | null;
 }
 
-export interface PersistedAutomationStateV3 {
-  schemaVersion: 3;
+export interface PersistedAutomationStateV4 {
+  schemaVersion: 4;
   activeOccurrences: Record<string, PersistedOccurrenceState>;
   manualOverrides: Record<string, PersistedManualOverrideState>;
   vehicleRules: Record<string, PersistedVehicleRuleState>;
@@ -58,7 +67,10 @@ export interface PersistedAutomationStateV3 {
   unverifiedDesiredByFixture: Record<string, number>;
   transitionsByFixture: Record<string, PersistedAutomationTransitionState>;
   telemetryGap: PersistedAutomationTelemetryGap | null;
+  pendingTelemetryHandoffs: PersistedAutomationTelemetryHandoff[];
 }
+
+export type PersistedAutomationStateV3 = PersistedAutomationStateV4;
 
 type StateWriter = (path: string, value: unknown) => Promise<void>;
 
@@ -82,14 +94,15 @@ export class AutomationStateCommitUncertainError extends Error {
 }
 
 export class FileAutomationStateStore {
-  private state: PersistedAutomationStateV3 | null = null;
+  private state: PersistedAutomationStateV4 | null = null;
   private available = false;
-  private initialization: Promise<PersistedAutomationStateV3> | undefined;
+  private initialization: Promise<PersistedAutomationStateV4> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly path: string,
-    private readonly write: StateWriter = writeJsonAtomic
+    private readonly write: StateWriter = writeJsonAtomic,
+    private readonly createHandoffId: () => string = randomUUID
   ) {}
 
   initialize() {
@@ -97,7 +110,7 @@ export class FileAutomationStateStore {
     return this.initialization;
   }
 
-  read(): PersistedAutomationStateV3 {
+  read(): PersistedAutomationStateV4 {
     if (!this.available || !this.state) {
       throw new AutomationStateStoreError("automation_state_unavailable");
     }
@@ -105,8 +118,8 @@ export class FileAutomationStateStore {
   }
 
   async update(
-    mutation: (state: PersistedAutomationStateV3) => PersistedAutomationStateV3
-  ): Promise<PersistedAutomationStateV3> {
+    mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4
+  ): Promise<PersistedAutomationStateV4> {
     await this.initialize();
     return this.exclusive(async () => {
       const previous = this.read();
@@ -139,6 +152,8 @@ export class FileAutomationStateStore {
     return this.update((state) => {
       const current = state.telemetryGap;
       state.telemetryGap = current ? {
+        handoffId: current.handoffId,
+        provenance: current.provenance,
         firstDroppedAt: Date.parse(firstTimestamp) < Date.parse(current.firstDroppedAt)
           ? firstTimestamp
           : current.firstDroppedAt,
@@ -147,12 +162,32 @@ export class FileAutomationStateStore {
           : current.lastDroppedAt,
         droppedCount: Math.min(Number.MAX_SAFE_INTEGER, current.droppedCount + droppedCount)
       } : {
+        handoffId: this.createHandoffId(),
+        provenance: "fixture_state_outbox",
         firstDroppedAt: firstTimestamp,
         lastDroppedAt: lastTimestamp,
         droppedCount
       };
       return state;
     });
+  }
+
+  createTelemetryHandoff(records: AutomationTelemetryRecordInput[]) {
+    return createAutomationTelemetryHandoff(records, this.createHandoffId);
+  }
+
+  async completeTelemetryHandoff(handoffId: string, recordsHash: string) {
+    let completed = false;
+    await this.update((state) => {
+      const index = state.pendingTelemetryHandoffs.findIndex((handoff) =>
+        handoff.handoffId === handoffId && handoff.recordsHash === recordsHash
+      );
+      if (index < 0) return state;
+      state.pendingTelemetryHandoffs.splice(index, 1);
+      completed = true;
+      return state;
+    });
+    return completed;
   }
 
   async clearTelemetryGap(expected: PersistedAutomationTelemetryGap) {
@@ -166,7 +201,7 @@ export class FileAutomationStateStore {
     return cleared;
   }
 
-  private async restore(): Promise<PersistedAutomationStateV3> {
+  private async restore(): Promise<PersistedAutomationStateV4> {
     let raw: unknown | null;
     try {
       raw = await readJsonFile(this.path);
@@ -198,7 +233,7 @@ export class FileAutomationStateStore {
     }
   }
 
-  private async recoverPrevious(previous: PersistedAutomationStateV3, commitError: unknown) {
+  private async recoverPrevious(previous: PersistedAutomationStateV4, commitError: unknown) {
     let rollbackError: unknown;
     try {
       await this.write(this.path, previous);
@@ -206,7 +241,7 @@ export class FileAutomationStateStore {
       rollbackError = error;
     }
 
-    let visible: PersistedAutomationStateV3 | null = null;
+    let visible: PersistedAutomationStateV4 | null = null;
     let readbackError: unknown;
     try {
       const raw = await readJsonFile(this.path);
@@ -235,9 +270,9 @@ export class FileAutomationStateStore {
   }
 }
 
-export function emptyAutomationState(): PersistedAutomationStateV3 {
+export function emptyAutomationState(): PersistedAutomationStateV4 {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     activeOccurrences: {},
     manualOverrides: {},
     vehicleRules: {},
@@ -246,11 +281,12 @@ export function emptyAutomationState(): PersistedAutomationStateV3 {
     lastDesiredByFixture: {},
     unverifiedDesiredByFixture: {},
     transitionsByFixture: {},
-    telemetryGap: null
+    telemetryGap: null,
+    pendingTelemetryHandoffs: []
   };
 }
 
-export function parseAutomationState(value: unknown): PersistedAutomationStateV3 {
+export function parseAutomationState(value: unknown): PersistedAutomationStateV4 {
   if (hasExactKeys(value, [
     "schemaVersion",
     "activeOccurrences",
@@ -265,7 +301,8 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV3
       {},
       parseBrightnessRecord(value.lastDesiredByFixture),
       {},
-      null
+      null,
+      []
     );
   }
   if (hasExactKeys(value, [
@@ -289,7 +326,29 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV3
       desired.confirmed,
       desired.unverified,
       transitionsByFixture,
-      parseTelemetryGap(value.telemetryGap)
+      parseLegacyTelemetryGap(value.telemetryGap),
+      []
+    );
+  }
+  if (hasExactKeys(value, [
+    "schemaVersion",
+    "activeOccurrences",
+    "manualOverrides",
+    "vehicleRules",
+    "currentByFixture",
+    "baseBrightnessByFixture",
+    "lastDesiredByFixture",
+    "unverifiedDesiredByFixture",
+    "transitionsByFixture",
+    "telemetryGap"
+  ]) && value.schemaVersion === 3) {
+    return parseAutomationStateFields(
+      value,
+      parseBrightnessRecord(value.lastDesiredByFixture),
+      parseBrightnessRecord(value.unverifiedDesiredByFixture),
+      parseRecord(value.transitionsByFixture, parseTransition),
+      parseLegacyTelemetryGap(value.telemetryGap),
+      []
     );
   }
   if (!hasExactKeys(value, [
@@ -302,14 +361,16 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV3
     "lastDesiredByFixture",
     "unverifiedDesiredByFixture",
     "transitionsByFixture",
-    "telemetryGap"
-  ]) || value.schemaVersion !== 3) throw new Error("invalid automation state");
+    "telemetryGap",
+    "pendingTelemetryHandoffs"
+  ]) || value.schemaVersion !== 4) throw new Error("invalid automation state");
   return parseAutomationStateFields(
     value,
     parseBrightnessRecord(value.lastDesiredByFixture),
     parseBrightnessRecord(value.unverifiedDesiredByFixture),
     parseRecord(value.transitionsByFixture, parseTransition),
-    parseTelemetryGap(value.telemetryGap)
+    parseTelemetryGap(value.telemetryGap),
+    parseTelemetryHandoffs(value.pendingTelemetryHandoffs)
   );
 }
 
@@ -331,10 +392,11 @@ function parseAutomationStateFields(
   lastDesiredByFixture: Record<string, number>,
   unverifiedDesiredByFixture: Record<string, number>,
   transitionsByFixture: Record<string, PersistedAutomationTransitionState>,
-  telemetryGap: PersistedAutomationTelemetryGap | null
-): PersistedAutomationStateV3 {
+  telemetryGap: PersistedAutomationTelemetryGap | null,
+  pendingTelemetryHandoffs: PersistedAutomationTelemetryHandoff[]
+): PersistedAutomationStateV4 {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
     manualOverrides: parseRecord(value.manualOverrides, parseManualOverride),
     vehicleRules: parseRecord(value.vehicleRules, parseVehicleRule),
@@ -343,7 +405,8 @@ function parseAutomationStateFields(
     lastDesiredByFixture,
     unverifiedDesiredByFixture,
     transitionsByFixture,
-    telemetryGap
+    telemetryGap,
+    pendingTelemetryHandoffs
   };
 }
 
@@ -385,6 +448,28 @@ function parseTransition(value: unknown): PersistedAutomationTransitionState {
 
 function parseTelemetryGap(value: unknown): PersistedAutomationTelemetryGap | null {
   if (value === null) return null;
+  if (!hasExactKeys(value, [
+    "handoffId", "provenance", "firstDroppedAt", "lastDroppedAt", "droppedCount"
+  ]) || value.provenance !== "fixture_state_outbox") {
+    throw new Error("invalid automation telemetry gap");
+  }
+  const firstDroppedAt = parseTimestamp(value.firstDroppedAt);
+  const lastDroppedAt = parseTimestamp(value.lastDroppedAt);
+  if (Date.parse(firstDroppedAt) > Date.parse(lastDroppedAt) ||
+    !Number.isSafeInteger(value.droppedCount) || (value.droppedCount as number) <= 0) {
+    throw new Error("invalid automation telemetry gap");
+  }
+  return {
+    handoffId: parseString(value.handoffId),
+    provenance: value.provenance,
+    firstDroppedAt,
+    lastDroppedAt,
+    droppedCount: value.droppedCount as number
+  };
+}
+
+function parseLegacyTelemetryGap(value: unknown): PersistedAutomationTelemetryGap | null {
+  if (value === null) return null;
   if (!hasExactKeys(value, ["firstDroppedAt", "lastDroppedAt", "droppedCount"])) {
     throw new Error("invalid automation telemetry gap");
   }
@@ -394,7 +479,55 @@ function parseTelemetryGap(value: unknown): PersistedAutomationTelemetryGap | nu
     !Number.isSafeInteger(value.droppedCount) || (value.droppedCount as number) <= 0) {
     throw new Error("invalid automation telemetry gap");
   }
-  return { firstDroppedAt, lastDroppedAt, droppedCount: value.droppedCount as number };
+  const identity = JSON.stringify({ firstDroppedAt, lastDroppedAt, droppedCount: value.droppedCount });
+  return {
+    handoffId: `legacy-gap-${createHash("sha256").update(identity).digest("hex")}`,
+    provenance: "fixture_state_outbox",
+    firstDroppedAt,
+    lastDroppedAt,
+    droppedCount: value.droppedCount as number
+  };
+}
+
+function parseTelemetryHandoffs(value: unknown): PersistedAutomationTelemetryHandoff[] {
+  if (!Array.isArray(value) || value.length > 10_000) throw new Error("invalid telemetry handoffs");
+  const ids = new Set<string>();
+  return value.map((candidate) => {
+    if (!hasExactKeys(candidate, ["handoffId", "recordsHash", "records"]) || !Array.isArray(candidate.records) ||
+      candidate.records.length === 0 || candidate.records.length > 1_000) {
+      throw new Error("invalid telemetry handoff");
+    }
+    const handoffId = parseString(candidate.handoffId);
+    if (ids.has(handoffId)) throw new Error("duplicate telemetry handoff");
+    ids.add(handoffId);
+    const records = candidate.records.map(parseTelemetryRecord);
+    const recordsHash = automationTelemetryRecordsHash(records);
+    if (candidate.recordsHash !== recordsHash) throw new Error("invalid telemetry handoff hash");
+    return { handoffId, recordsHash, records };
+  });
+}
+
+function parseTelemetryRecord(value: unknown): AutomationTelemetryRecordInput {
+  if (!hasExactKeys(value, [
+    "revision", "ruleId", "occurrenceKey", "kind", "occurredAt", "payload"
+  ]) || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0 ||
+    !isAutomationExecutionKind(value.kind) || !isRecord(value.payload)) {
+    throw new Error("invalid telemetry record");
+  }
+  return {
+    revision: value.revision as number,
+    ruleId: value.ruleId === null ? null : parseString(value.ruleId),
+    occurrenceKey: value.occurrenceKey === null ? null : parseString(value.occurrenceKey),
+    kind: value.kind,
+    occurredAt: parseTimestamp(value.occurredAt),
+    payload: structuredClone(value.payload)
+  };
+}
+
+function isAutomationExecutionKind(value: unknown): value is AutomationTelemetryRecordInput["kind"] {
+  return value === "schedule_started" || value === "schedule_ended" || value === "vehicle_detected" ||
+    value === "event_started" || value === "event_extended" || value === "event_ended" ||
+    value === "action_result" || value === "telemetry_gap";
 }
 
 function parseOccurrence(value: unknown): PersistedOccurrenceState {

@@ -1213,6 +1213,122 @@ describe("ScheduleRuntime", () => {
     ]);
   });
 
+  it("keeps the monotonic hold deadline when the expiry state commit fails", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-hold-rollback-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    let failNextWrite = false;
+    const store = new FileAutomationStateStore(path, async (target, value) => {
+      if (failNextWrite) {
+        failNextWrite = false;
+        throw new Error("injected state write failure");
+      }
+      await writeJsonAtomic(target, value);
+    });
+    const wall = fakeWall("2026-08-30T01:00:00.000Z");
+    const monotonic = fakeMonotonic();
+    const trust = { trusted: true, async isTrusted() { return this.trusted; } };
+    const runtime = new ScheduleRuntime({
+      store,
+      wallClock: wall.now,
+      monotonicClock: monotonic.now,
+      clockTrust: trust,
+      execute: executeSuccessfully
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    await activate(runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
+    await runtime.recordVehicleSensorState(sourceFixtureId, true);
+    await runtime.recordVehicleSensorState(sourceFixtureId, false);
+
+    trust.trusted = false;
+    monotonic.advance(60_001);
+    failNextWrite = true;
+    await expect(runtime.tick()).rejects.toMatchObject({ code: "automation_state_store_failed" });
+    expect(runtime.state().vehicleRules[vehicleRuleId]).toBeDefined();
+
+    await runtime.tick();
+    expect(runtime.state().vehicleRules[vehicleRuleId]).toBeUndefined();
+  });
+
+  it("restores the monotonic hold deadline after commit uncertainty rolls state back", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-hold-uncertain-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    let failNextWrite = false;
+    const store = new FileAutomationStateStore(path, async (target, value) => {
+      if (failNextWrite) {
+        failNextWrite = false;
+        await writeJsonAtomic(target, value, {
+          syncParentDirectory: async () => { throw new Error("injected directory fsync failure"); }
+        });
+        return;
+      }
+      await writeJsonAtomic(target, value);
+    });
+    const wall = fakeWall("2026-08-30T01:00:00.000Z");
+    const monotonic = fakeMonotonic();
+    const trust = { trusted: true, async isTrusted() { return this.trusted; } };
+    const runtime = new ScheduleRuntime({
+      store,
+      wallClock: wall.now,
+      monotonicClock: monotonic.now,
+      clockTrust: trust,
+      execute: executeSuccessfully
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    await activate(runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
+    await runtime.recordVehicleSensorState(sourceFixtureId, true);
+    await runtime.recordVehicleSensorState(sourceFixtureId, false);
+
+    trust.trusted = false;
+    monotonic.advance(60_001);
+    failNextWrite = true;
+    await expect(runtime.tick()).rejects.toMatchObject({ code: "automation_state_commit_uncertain" });
+    expect(runtime.state().vehicleRules[vehicleRuleId]).toBeDefined();
+
+    await runtime.tick();
+    expect(runtime.state().vehicleRules[vehicleRuleId]).toBeUndefined();
+  });
+
+  it("persists lifecycle and grouped action-result handoffs in the same state commits", async () => {
+    const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({ schedules: [dailySchedule()] }));
+
+    const handoffs = test.runtime.state().pendingTelemetryHandoffs;
+    expect(handoffs.map((handoff) => handoff.records.map((record) => record.kind))).toEqual([
+      ["schedule_started"],
+      ["action_result"]
+    ]);
+    expect(handoffs[1]?.records[0]?.payload).toMatchObject({
+      sourceType: "schedule",
+      results: [expect.objectContaining({ fixtureId, status: "succeeded" })]
+    });
+  });
+
+  it("persists manual action-result telemetry with the manual terminal transition", async () => {
+    const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({}));
+    await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T02:10:00.000Z"));
+
+    await test.runtime.handoffManualTerminal(
+      "00000000-0000-4000-8000-000000000105",
+      [successfulTerminal(fixtureId, 60)]
+    );
+
+    expect(test.runtime.state().pendingTelemetryHandoffs).toEqual([
+      expect.objectContaining({
+        records: [expect.objectContaining({
+          kind: "action_result",
+          payload: expect.objectContaining({ sourceType: "manual_override" })
+        })]
+      })
+    ]);
+  });
+
   it("does not let a schedule end overwrite a still-active manual source", async () => {
     const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);

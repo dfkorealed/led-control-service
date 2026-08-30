@@ -1,6 +1,6 @@
 import type { AutomationSnapshotV1, VehicleEventRuleSnapshotV1 } from "@led-control/shared";
 import type {
-  PersistedAutomationStateV3,
+  PersistedAutomationStateV4,
   PersistedVehicleRuleState
 } from "./automation-state-store";
 
@@ -33,9 +33,30 @@ export class VehicleEventRuntime {
   }
 
   recordInput(
-    state: PersistedAutomationStateV3,
+    state: PersistedAutomationStateV4,
     snapshot: AutomationSnapshotV1,
     input: VehicleSensorInput
+  ): VehicleLifecycleEvent[] {
+    const planned = this.planRecordInput(state, snapshot, input);
+    this.restore(planned.holdDeadlines);
+    return planned.events;
+  }
+
+  planRecordInput(
+    state: PersistedAutomationStateV4,
+    snapshot: AutomationSnapshotV1,
+    input: VehicleSensorInput
+  ) {
+    const deadlines = new Map(this.holdDeadlines);
+    const events = this.recordInputWithDeadlines(state, snapshot, input, deadlines);
+    return { events, holdDeadlines: [...deadlines] as Array<[string, number]> };
+  }
+
+  private recordInputWithDeadlines(
+    state: PersistedAutomationStateV4,
+    snapshot: AutomationSnapshotV1,
+    input: VehicleSensorInput,
+    deadlines: Map<string, number>
   ): VehicleLifecycleEvent[] {
     const active = input.type === "detected" || (input.type === "current-state" && input.active);
     const now = this.wallClock();
@@ -59,7 +80,7 @@ export class VehicleEventRuntime {
 
       if (active) {
         next.holdUntil = null;
-        this.holdDeadlines.delete(rule.id);
+        deadlines.delete(rule.id);
         if (!sourceWasActive) {
           events.push(lifecycle("vehicle_detected", rule.id, occurrenceKey, now, {
             sourceFixtureId: input.sourceFixtureId,
@@ -81,7 +102,7 @@ export class VehicleEventRuntime {
         }
       } else if (sources.size === 0) {
         next.holdUntil = new Date(now.getTime() + rule.holdSeconds * 1_000).toISOString();
-        this.holdDeadlines.set(rule.id, monotonicNow + rule.holdSeconds * 1_000);
+        deadlines.set(rule.id, monotonicNow + rule.holdSeconds * 1_000);
         events.push(lifecycle("event_extended", rule.id, occurrenceKey, now, {
           holdUntil: next.holdUntil,
           reason: "last_source_cleared"
@@ -93,9 +114,30 @@ export class VehicleEventRuntime {
   }
 
   reconcile(
-    state: PersistedAutomationStateV3,
+    state: PersistedAutomationStateV4,
     snapshot: AutomationSnapshotV1,
     trustedUtc: boolean
+  ): VehicleLifecycleEvent[] {
+    const planned = this.planReconcile(state, snapshot, trustedUtc);
+    this.restore(planned.holdDeadlines);
+    return planned.events;
+  }
+
+  planReconcile(
+    state: PersistedAutomationStateV4,
+    snapshot: AutomationSnapshotV1,
+    trustedUtc: boolean
+  ) {
+    const deadlines = new Map(this.holdDeadlines);
+    const events = this.reconcileWithDeadlines(state, snapshot, trustedUtc, deadlines);
+    return { events, holdDeadlines: [...deadlines] as Array<[string, number]> };
+  }
+
+  private reconcileWithDeadlines(
+    state: PersistedAutomationStateV4,
+    snapshot: AutomationSnapshotV1,
+    trustedUtc: boolean,
+    deadlines: Map<string, number>
   ): VehicleLifecycleEvent[] {
     const now = this.wallClock();
     const monotonicNow = this.monotonicClock();
@@ -107,7 +149,7 @@ export class VehicleEventRuntime {
       const occurrenceKey = vehicleOccurrenceKey(ruleId, vehicle.startedAt);
       if (!rule || rule.status !== "enabled") {
         delete state.vehicleRules[ruleId];
-        this.holdDeadlines.delete(ruleId);
+        deadlines.delete(ruleId);
         events.push(lifecycle("event_ended", ruleId, occurrenceKey, now, {
           reason: "configuration_changed",
           targetFixtureIds: vehicle.targetFixtureIds
@@ -123,7 +165,7 @@ export class VehicleEventRuntime {
 
       if (hadActiveSource && vehicle.activeSourceFixtureIds.length === 0 && vehicle.holdUntil === null) {
         delete state.vehicleRules[ruleId];
-        this.holdDeadlines.delete(ruleId);
+        deadlines.delete(ruleId);
         events.push(lifecycle("event_ended", ruleId, occurrenceKey, now, {
           reason: "source_removed",
           targetFixtureIds: vehicle.targetFixtureIds
@@ -133,7 +175,7 @@ export class VehicleEventRuntime {
 
       // A real High is authoritative and intentionally has no software timeout.
       if (vehicle.activeSourceFixtureIds.length > 0 || vehicle.holdUntil === null) continue;
-      let deadline = this.holdDeadlines.get(ruleId);
+      let deadline = deadlines.get(ruleId);
       if (deadline === undefined && trustedUtc) {
         const remainingMs = Date.parse(vehicle.holdUntil) - now.getTime();
         if (remainingMs <= 0) {
@@ -145,11 +187,11 @@ export class VehicleEventRuntime {
           continue;
         }
         deadline = monotonicNow + remainingMs;
-        this.holdDeadlines.set(ruleId, deadline);
+        deadlines.set(ruleId, deadline);
       }
       if (deadline !== undefined && monotonicNow >= deadline) {
         delete state.vehicleRules[ruleId];
-        this.holdDeadlines.delete(ruleId);
+        deadlines.delete(ruleId);
         events.push(lifecycle("event_ended", ruleId, occurrenceKey, now, {
           reason: "hold_expired",
           targetFixtureIds: vehicle.targetFixtureIds
@@ -159,7 +201,7 @@ export class VehicleEventRuntime {
     return events;
   }
 
-  desiredBrightness(state: PersistedAutomationStateV3, fixtureId: string) {
+  desiredBrightness(state: PersistedAutomationStateV4, fixtureId: string) {
     const brightness = Object.values(state.vehicleRules)
       .filter((vehicle) => vehicle.targetFixtureIds.includes(fixtureId))
       .map((vehicle) => vehicle.brightnessPercent);
@@ -181,7 +223,7 @@ function createVehicleState(
   existing: PersistedVehicleRuleState | undefined,
   activeSourceFixtureIds: string[],
   now: Date,
-  state: PersistedAutomationStateV3
+  state: PersistedAutomationStateV4
 ): PersistedVehicleRuleState {
   const preBrightness = { ...(existing?.preBrightness ?? {}) };
   for (const fixtureId of rule.targetFixtureIds) {
@@ -198,7 +240,7 @@ function createVehicleState(
   };
 }
 
-function captureBase(state: PersistedAutomationStateV3, fixtureId: string) {
+function captureBase(state: PersistedAutomationStateV4, fixtureId: string) {
   const existing = state.baseBrightnessByFixture[fixtureId];
   if (existing !== undefined) return existing;
   const current = state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId];

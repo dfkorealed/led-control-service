@@ -1,11 +1,14 @@
-import { readFile, rm, stat } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import { automationTelemetryRecordsHash } from "./automation-telemetry-handoff";
+import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journal";
 import {
   AutomationTelemetryCommitUncertainError,
+  AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES,
   AutomationTelemetryOutbox,
   AutomationTelemetryPublisher,
   AutomationTelemetryRecorder
@@ -82,7 +85,9 @@ describe("AutomationTelemetryOutbox", () => {
     const debug = await test.outbox.inspect();
     expect(debug.gap).toMatchObject({ droppedCount: expect.any(Number) });
     expect(debug.gap!.droppedCount).toBeGreaterThan(0);
-    expect(await readFile(test.path, "utf8")).toContain("firstDroppedAt");
+    await expect(stat(`${test.path}.gap`)).resolves.toMatchObject({
+      size: AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES
+    });
   });
 
   it("restores the previous visible file and fences the uncertain append", async () => {
@@ -123,6 +128,122 @@ describe("AutomationTelemetryOutbox", () => {
       lastDroppedAt: "2026-08-30T01:05:00.000Z",
       droppedCount: 42
     });
+  });
+
+  it("commits a lifecycle handoff as one batch with no persisted prefix", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-batch-"));
+    directories.push(directory);
+    const path = join(directory, "outbox.json");
+    const outbox = new AutomationTelemetryOutbox(path, automationScope, {
+      reserveBytes: 8_192,
+      write: async (target, value) => {
+        if (Array.isArray((value as { records?: unknown }).records) &&
+          ((value as { records: unknown[] }).records.length === 2)) {
+          throw new Error("injected batch commit failure");
+        }
+        await writeJsonAtomic(target, value);
+      }
+    });
+    await outbox.initialize();
+    const recorder = new AutomationTelemetryRecorder(outbox);
+
+    const result = await recorder.recordLifecycle({
+      revision: 3,
+      events: [
+        {
+          kind: "vehicle_detected",
+          ruleId,
+          occurrenceKey: "occurrence-1",
+          occurredAt: "2026-08-30T01:00:00.000Z",
+          payload: { sourceFixtureId: "00000000-0000-4000-8000-000000000102" }
+        },
+        {
+          kind: "event_started",
+          ruleId,
+          occurrenceKey: "occurrence-1",
+          occurredAt: "2026-08-30T01:00:00.000Z",
+          payload: {}
+        }
+      ]
+    });
+
+    expect((await outbox.inspect()).records).toEqual([]);
+    expect(result.droppedRecords).toHaveLength(2);
+  });
+
+  it("deduplicates an exact persisted gap handoff across the outbox commit and state-clear boundary", async () => {
+    const test = await outboxFixture();
+    const input = {
+      handoffId: "11111111-1111-4111-8111-111111111111",
+      recordsHash: `sha256:${"b".repeat(64)}`,
+      provenance: "automation_state_gap" as const,
+      revision: 7,
+      firstDroppedAt: "2026-08-30T01:00:00.000Z",
+      lastDroppedAt: "2026-08-30T01:05:00.000Z",
+      droppedCount: 4
+    };
+
+    await test.outbox.recordGap(input);
+    await test.outbox.recordGap(input);
+
+    expect((await test.outbox.inspect()).gap).toMatchObject({ droppedCount: 4 });
+  });
+
+  it("preallocates a fixed gap journal and accepts drops after ENOSPC degrades regular storage", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-enospc-"));
+    directories.push(directory);
+    const path = join(directory, "outbox.json");
+    const enospc = Object.assign(new Error("disk full"), { code: "ENOSPC" });
+    const outbox = new AutomationTelemetryOutbox(path, automationScope, {
+      reserve: { initialize: async () => { throw enospc; }, release: async () => undefined, restore: async () => undefined }
+    });
+
+    await expect(outbox.initialize()).resolves.toMatchObject({ mode: "degraded" });
+    const records = [eventInput("event_started", {})];
+    const result = await outbox.appendBatch({
+      handoffId: "33333333-3333-4333-8333-333333333333",
+      recordsHash: automationTelemetryRecordsHash(records),
+      records
+    });
+
+    expect(result.droppedRecords).toEqual([eventInput("event_started", {})]);
+    await expect(stat(`${path}.gap`)).resolves.toMatchObject({ size: AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES });
+  });
+
+  it("updates the preallocated gap journal in place and recovers its last fsynced block", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-journal-"));
+    directories.push(directory);
+    const path = join(directory, "gap.bin");
+    const journal = new AutomationTelemetryGapJournal(path, () => "44444444-4444-4444-8444-444444444444");
+    await journal.initialize();
+    const before = await stat(path);
+    await journal.record({
+      handoffId: "55555555-5555-4555-8555-555555555555",
+      recordsHash: `sha256:${"e".repeat(64)}`,
+      provenance: "automation_handoff_storage",
+      revision: 8,
+      firstDroppedAt: "2026-08-30T01:00:00.000Z",
+      lastDroppedAt: "2026-08-30T01:00:02.000Z",
+      droppedCount: 3
+    });
+    const after = await stat(path);
+    const restarted = new AutomationTelemetryGapJournal(path);
+
+    expect(after.size).toBe(AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES);
+    expect(after.ino).toBe(before.ino);
+    expect(after.blocks).toBe(before.blocks);
+    await expect(restarted.read()).resolves.toMatchObject({
+      gapHandoffId: "44444444-4444-4444-8444-444444444444",
+      droppedCount: 3,
+      lastSourceHandoffId: "55555555-5555-4555-8555-555555555555"
+    });
+  });
+
+  it("preallocates regular atomic-rewrite headroom outside the strict outbox byte cap", async () => {
+    const test = await outboxFixture({ maxBytes: 8_192 });
+
+    await expect(stat(`${test.path}.reserve`)).resolves.toMatchObject({ size: 8_192 });
+    expect((await stat(test.path)).size).toBeLessThanOrEqual(8_192);
   });
 });
 
@@ -260,7 +381,10 @@ async function outboxFixture(options: { maxBytes?: number } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-outbox-"));
   directories.push(directory);
   const path = join(directory, "outbox.json");
-  const outbox = new AutomationTelemetryOutbox(path, automationScope, options);
+  const outbox = new AutomationTelemetryOutbox(path, automationScope, {
+    ...options,
+    reserveBytes: options.maxBytes ?? 32_768
+  });
   await outbox.initialize();
   return { path, outbox };
 }
