@@ -5,7 +5,7 @@ import { build } from "vite";
 const MAX_MAIN_BYTES = 1_070_000;
 const MAX_MAIN_GZIP_BYTES = 325_000;
 const ROOT_RUNTIME_SUFFIX = "/packages/shared/dist/index.js";
-const BROWSER_CONTRACT_SUFFIX = "/packages/shared/src/automation-action-result-contracts.ts";
+const BROWSER_CONTRACT_SUFFIX = "/packages/shared/dist/esm/automation-action-result-contracts.js";
 const SCHEDULE_PANEL_SUFFIX = "/apps/web/src/features/control/automation/ScheduleControlPanel.tsx";
 const UNRELATED_GATEWAY_MESSAGE =
   "destinationAddress must be a BLE Mesh group address from 0xc000 to 0xfeff";

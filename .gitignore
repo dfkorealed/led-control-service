@@ -9,6 +9,7 @@ apps/api/dist/
 apps/gateway/dist/
 apps/web/dist/
 packages/shared/dist/
+packages/shared/.build-output-manifest.json
 packages/automation-engine/dist/
 .aider*
 .local/pki/

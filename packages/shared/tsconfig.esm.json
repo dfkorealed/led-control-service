@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "rootDir": "src",
+    "outDir": "dist/esm"
+  },
+  "include": ["src/automation-action-result-contracts.ts"],
+  "exclude": []
+}

@@ -4,25 +4,28 @@
   "private": true,
   "type": "commonjs",
   "main": "dist/index.js",
-  "types": "src/index.ts",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "require": "./dist/index.js",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./automation-contracts": {
-      "types": "./src/automation-action-result-contracts.ts",
-      "browser": "./src/automation-action-result-contracts.ts",
+      "types": "./dist/esm/automation-action-result-contracts.d.ts",
+      "browser": "./dist/esm/automation-action-result-contracts.js",
       "require": "./dist/automation-action-result-contracts.js",
-      "import": "./src/automation-action-result-contracts.ts",
+      "import": "./dist/esm/automation-action-result-contracts.js",
       "default": "./dist/automation-action-result-contracts.js"
     }
   },
   "scripts": {
-    "build": "tsc",
-    "test": "vitest run",
+    "build": "node scripts/build.mjs",
+    "test": "pnpm run build && vitest run",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },

@@ -4,14 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port ${WEB_PORT:-5173} --strictPort",
-    "build": "tsc --noEmit && vite build",
-    "test": "vitest run",
-    "test:bundle-audit": "node scripts/audit-schedule-bundle.mjs",
+    "build:shared": "pnpm --filter @led-control/shared build",
+    "dev": "pnpm run build:shared && vite --host 0.0.0.0 --port ${WEB_PORT:-5173} --strictPort",
+    "build": "pnpm run build:shared && tsc --noEmit && vite build",
+    "test": "pnpm run build:shared && vitest run",
+    "test:bundle-audit": "pnpm run build:shared && node scripts/audit-schedule-bundle.mjs",
     "e2e:auth:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/auth-real.spec.ts --project=chromium",
     "e2e:journey:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/installation-customer-journey.spec.ts --project=chromium",
-    "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "lint": "pnpm run build:shared && tsc --noEmit",
+    "typecheck": "pnpm run build:shared && tsc --noEmit"
   },
   "dependencies": {
     "@led-control/shared": "workspace:*",
