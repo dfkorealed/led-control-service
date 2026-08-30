@@ -87,3 +87,35 @@ Commit: self (`fix(gateway): share automation storage headroom`)
 
 - Raspberry Pi filesystem exhaustion, sudden power loss and flash wear remain unmeasured on hardware; the test suite uses real temp files plus injected `ENOSPC`, rename/fsync uncertainty and replenish failures.
 - ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 2.
+
+## Fix Round 3
+
+Status: DONE
+
+Commit: self (`fix(gateway): require durable telemetry cleanup`)
+
+### Delivered
+
+- Split automation-state mutation into explicit `updateControlState` and `updateDurable` APIs. Every mutation result exposes `durable|memory_only`; only schedule, vehicle and manual local-control transitions can use memory-only progress.
+- Made persisted telemetry gap creation, exact handoff completion and gap clear durable-required. Exhausted `ENOSPC` leaves both in-memory and on-disk sources pending, and commit uncertainty also preserves the current process source until a later confirmed full-state write.
+- Changed coordinator ordering to append idempotently, durably clear the source, then release the acceptance receipt. A non-durable clear stops the current batch and schedules the same stable handoff with 1-second to 30-second bounded exponential backoff.
+- Retained source receipts across failed cleanup and crash/restart. Replayed handoff IDs resolve to the original event ID, sequence and report payload hash without duplicate records or gap inflation; recovery releases the receipt only after durable source clear.
+- Connected cleanup retry errors and shutdown timer cancellation to the production Gateway lifecycle, and routed config-triggered gap handling through the same coordinator.
+
+### TDD Evidence
+
+- Added RED/GREEN coverage for outbox acceptance followed by state-clear `ENOSPC`, memory/disk pending preservation, crash/restart exact identity, disk recovery clear-before-release, bounded backoff, gap cleanup, retry starvation, commit-uncertain in-memory invariance and full-disk local RF continuation.
+
+### Verification
+
+- Gateway focused regression: 8 files, 136/136 tests passed.
+- Gateway full regression: 56 files, 481/481 tests passed.
+- Shared full regression: 7 files, 74/74 tests passed.
+- Docker contract suite: 17/17 tests passed.
+- Required Mosquitto integration: 2/2 tests passed.
+- Shared and Gateway typecheck, lint and production build passed; `git diff --check` passed.
+
+### Remaining Concerns
+
+- Raspberry Pi filesystem exhaustion, sudden power loss and flash wear remain unmeasured on hardware; automated tests use real temp files with injected `ENOSPC`, rename/fsync uncertainty and restart boundaries.
+- ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 3.

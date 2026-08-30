@@ -324,7 +324,8 @@ async function main() {
   }
   const automationTelemetryCoordinator = new AutomationTelemetryCoordinator(
     automationStateStore,
-    automationTelemetryOutbox
+    automationTelemetryOutbox,
+    { onError: (error) => void reportGatewayError(error, "automation_telemetry_cleanup") }
   );
   const automationTelemetryPublisher = new AutomationTelemetryPublisher(
     automationTelemetryOutbox,
@@ -571,12 +572,8 @@ async function main() {
         .catch((error) => void reportGatewayError(error, "automation_config_ack_publish"));
     });
     if (automationRuntime.currentRevision !== null) {
-      await handoffPersistedAutomationTelemetryGap(
-        automationStateStore,
-        automationTelemetryOutbox,
-        automationRuntime.currentRevision
-      );
-      void automationTelemetryPublisher.wake()
+      const result = await automationTelemetryCoordinator.flush(automationRuntime.currentRevision);
+      if (result.changed) void automationTelemetryPublisher.wake()
         .catch((error) => void reportGatewayError(error, "automation_gap_publish"));
     }
   }
@@ -726,6 +723,7 @@ async function main() {
       const targetedResyncDrain = targetedLightingResync.stopAndDrain();
       stopAutomationFixtureStatusIntake();
       stopFixtureStatusIntake?.();
+      automationTelemetryCoordinator.stop();
       automationStorage.headroom.stop();
       await fixtureStatusReservation.release();
       await Promise.all([schedulerDrain, meshResyncDrain, targetedResyncDrain]);
@@ -876,7 +874,7 @@ export async function handoffPersistedAutomationTelemetryGap(
   const gap = stateStore.read().telemetryGap;
   if (!gap) return false;
   await outbox.recordGap({ revision, ...gap });
-  return stateStore.clearTelemetryGap(gap);
+  return (await stateStore.clearTelemetryGap(gap)).cleared;
 }
 
 export async function recordAndHandoffAutomationTelemetryGap(

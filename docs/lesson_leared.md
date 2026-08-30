@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-30 / Local control의 memory-only 예외를 protocol cleanup에 전파하지 않기
+- **발생했던 문제/실수**: Full disk에서 RF를 계속하기 위해 도입한 automation state의 in-memory commit이 telemetry handoff/gap clear에도 적용되어, coordinator가 durable source는 pending인데 outbox receipt를 먼저 제거할 수 있었다. Crash 뒤 같은 handoff가 새 event ID와 sequence로 다시 저장되거나 gap count가 늘어날 수 있었다.
+- **원인**: 물리 제어 진행성과 cross-file protocol ordering이 같은 generic mutation 성공값을 공유했고, state mutation 결과에 durability가 드러나지 않았다.
+- **해결 및 예방책**: State API를 `updateControlState`와 `updateDurable`로 분리하고 모든 결과에 `durable|memory_only`를 명시한다. Memory-only는 schedule/vehicle/manual local transition에만 허용한다. Handoff/gap clear 실패는 memory와 disk를 바꾸지 않고 coordinator batch를 중단하며, source clear가 durable해질 때까지 outbox receipt를 보존하고 bounded backoff로 stable handoff를 재시도한다.
+- **반복 방지 체크**: Outbox accepted 뒤 state clear ENOSPC, commit-uncertain rollback 실패, crash/restart exact event identity, disk recovery 뒤 clear-before-release, 다른 gap 성공에 의한 retry starvation과 full-disk local RF 지속을 한 회귀 세트로 유지한다.
+
 ## 2026-08-30 / 비동기 실행 보고의 검증 기준은 현재 rule이 아니라 applied revision snapshot
 - **발생했던 문제/실수**: Gateway가 이전 revision을 실행한 정상 report를 현재 mutable rule의 source/target으로 검증해, cloud 수정·이동·삭제 직후 execution 원장과 application ACK를 영구 누락했다. Exact desired rejection 뒤 lower applied ACK가 rejection을 지웠고 config retry 정책도 brief와 반대로 무기한이었다. Snapshot 검증 함수 교체 뒤에는 함수가 참조하는 `revision`과 `payload`가 trigger의 `UPDATE OF` 목록에서 빠져 단독 변경이 검증을 우회했다.
 - **원인**: Cloud desired state와 Gateway가 실제 실행한 immutable revision을 같은 시점으로 가정했고, out-of-order ACK 전이와 config/application-ACK failure matrix를 양방향 순서·경계로 고정하지 않았다. Trigger 함수의 입력 의존성을 바꾸면서 발화 열 계약을 함께 갱신하지 않았다.

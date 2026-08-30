@@ -29,7 +29,7 @@ describe("createAutomationStorage", () => {
       telemetry: { mode: "ready" },
       state: { schemaVersion: 4 }
     });
-    await storage.stateStore.update((state) => {
+    await storage.stateStore.updateControlState((state) => {
       state.currentByFixture["00000000-0000-4000-8000-000000000101"] = 20;
       return state;
     });

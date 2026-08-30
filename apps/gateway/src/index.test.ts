@@ -326,7 +326,7 @@ describe("startGatewayRuntime", () => {
     try {
       const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
       await stateStore.initialize();
-      await stateStore.update((state) => {
+      await stateStore.updateDurable((state) => {
         state.currentByFixture[scopedFixtureId] = 20;
         state.baseBrightnessByFixture[scopedFixtureId] = 20;
         state.lastDesiredByFixture[scopedFixtureId] = 20;

@@ -181,7 +181,7 @@ export class ScheduleRuntime {
       const checkpoint = this.activationCheckpoint;
       if (!checkpoint) return;
       try {
-        await this.options.store.update(() => structuredClone(checkpoint.state));
+        await this.options.store.updateControlState(() => structuredClone(checkpoint.state));
         this.snapshot = checkpoint.snapshot ? structuredClone(checkpoint.snapshot) : null;
         this.vehicleRuntime.restore(checkpoint.vehicleHoldDeadlines);
         this.manualOverrideDeadlines.clear();
@@ -255,7 +255,7 @@ export class ScheduleRuntime {
       validateBrightness(brightness);
       let recoveredAction: DesiredLightingAction | null = null;
       let recoveredResult: AutomationExecutionFixtureResultV1 | null = null;
-      await this.options.store.update((state) => {
+      await this.options.store.updateControlState((state) => {
         state.currentByFixture[fixtureId] = brightness;
         const transition = state.transitionsByFixture[fixtureId];
         const legacyDesired = state.unverifiedDesiredByFixture[fixtureId];
@@ -345,7 +345,7 @@ export class ScheduleRuntime {
           GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS
         );
       if (remainingMs <= 0) throw new ScheduleRuntimeError("manual_override_expired");
-      await this.options.store.update((state) => {
+      await this.options.store.updateControlState((state) => {
         for (const fixtureId of input.fixtureIds) {
           const base = captureBase(state, fixtureId);
           if (base === null) throw new ScheduleRuntimeError("automation_current_state_unavailable");
@@ -387,7 +387,7 @@ export class ScheduleRuntime {
       await this.ensureInitialized();
       const actions: DesiredLightingAction[] = [];
       const settledFixtures: Array<{ fixtureId: string; failed: boolean }> = [];
-      await this.options.store.update((state) => {
+      await this.options.store.updateControlState((state) => {
         for (const result of results) {
           const override = state.manualOverrides[result.fixtureId];
           if (override?.sourceId !== sourceId) continue;
@@ -456,7 +456,7 @@ export class ScheduleRuntime {
       if (!this.snapshot) return;
       let lifecycleEvents: VehicleLifecycleEvent[] = [];
       let holdDeadlines: Array<[string, number]> | undefined;
-      await this.options.store.update((state) => {
+      await this.options.store.updateControlState((state) => {
         const planned = this.vehicleRuntime.planRecordInput(state, this.snapshot!, input);
         lifecycleEvents = planned.events;
         holdDeadlines = planned.holdDeadlines;
@@ -481,7 +481,7 @@ export class ScheduleRuntime {
     const manualOverrideDeadlines = new Map(this.manualOverrideDeadlines);
     const recoveredManualPendingTrust = new Set(this.recoveredManualPendingTrust);
     let vehicleHoldDeadlines: Array<[string, number]> | undefined;
-    await this.options.store.update((state) => {
+    await this.options.store.updateControlState((state) => {
       reconcileManualOverrides(
         state,
         now,
@@ -510,7 +510,7 @@ export class ScheduleRuntime {
   }
 
   private async captureMissingBases(snapshot: AutomationSnapshotV1) {
-    await this.options.store.update((state) => {
+    await this.options.store.updateControlState((state) => {
       for (const [scheduleId, occurrence] of Object.entries(state.activeOccurrences)) {
         const schedule = snapshot.schedules.find((candidate) => candidate.id === scheduleId);
         if (!schedule) continue;
@@ -604,7 +604,7 @@ export class ScheduleRuntime {
       return;
     }
     const pendingAt = this.wallClock().toISOString();
-    await this.options.store.update((next) => {
+    await this.options.store.updateControlState((next) => {
       for (const action of changed) {
         const previous = next.transitionsByFixture[action.fixtureId];
         next.transitionsByFixture[action.fixtureId] = {
@@ -638,7 +638,7 @@ export class ScheduleRuntime {
     }
 
     try {
-      await this.options.store.update((next) => {
+      await this.options.store.updateControlState((next) => {
         for (const [index, result] of results.entries()) {
           const action = changed[index]!;
           const pending = next.transitionsByFixture[result.fixtureId];

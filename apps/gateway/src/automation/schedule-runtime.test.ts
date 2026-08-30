@@ -176,7 +176,7 @@ describe("ScheduleRuntime", () => {
   it("resolves a post-send persisted pending transition from matching observed state without duplicate RF", async () => {
     const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
-    await test.store.update((state) => {
+    await test.store.updateControlState((state) => {
       state.transitionsByFixture[fixtureId] = {
         phase: "pending",
         brightnessPercent: 40,
@@ -516,7 +516,7 @@ describe("ScheduleRuntime", () => {
 
     try {
       await runtime.initialize();
-      await store.update((state) => {
+      await store.updateControlState((state) => {
         for (const targetFixtureId of fixtureIds) {
           state.currentByFixture[targetFixtureId] = 20;
           state.lastDesiredByFixture[targetFixtureId] = 20;
@@ -1540,7 +1540,7 @@ function successfulTerminal(targetFixtureId: string, brightnessPercent: number):
 }
 
 async function persistPendingSchedule(store: FileAutomationStateStore) {
-  await store.update((state) => {
+  await store.updateControlState((state) => {
     state.transitionsByFixture[fixtureId] = {
       phase: "pending",
       brightnessPercent: 40,

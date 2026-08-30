@@ -83,6 +83,13 @@ interface AutomationStateStoreOptions {
   onGapJournalError?: (error: unknown) => void;
 }
 
+export type AutomationStateDurabilityOutcome = "durable" | "memory_only";
+
+export interface AutomationStateMutationResult {
+  state: PersistedAutomationStateV4;
+  durability: AutomationStateDurabilityOutcome;
+}
+
 export class AutomationStateStoreError extends Error {
   constructor(
     readonly code: "automation_state_corrupt" | "automation_state_unavailable" | "automation_state_store_failed",
@@ -135,32 +142,56 @@ export class FileAutomationStateStore {
     return { ...this.durabilityState };
   }
 
-  async update(
+  updateControlState(
     mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4
-  ): Promise<PersistedAutomationStateV4> {
+  ): Promise<AutomationStateMutationResult> {
+    return this.mutate(mutation, true);
+  }
+
+  updateDurable(
+    mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4
+  ): Promise<AutomationStateMutationResult & { durability: "durable" }> {
+    return this.mutate(mutation, false);
+  }
+
+  private mutate(
+    mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4,
+    allowMemoryOnly: false
+  ): Promise<AutomationStateMutationResult & { durability: "durable" }>;
+  private mutate(
+    mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4,
+    allowMemoryOnly: true
+  ): Promise<AutomationStateMutationResult>;
+  private async mutate(
+    mutation: (state: PersistedAutomationStateV4) => PersistedAutomationStateV4,
+    allowMemoryOnly: boolean
+  ): Promise<AutomationStateMutationResult> {
     await this.initialize();
     return this.exclusive(async () => {
       const previous = this.read();
       const next = parseAutomationState(mutation(structuredClone(previous)));
-      if (isDeepStrictEqual(previous, next) && this.durabilityState.mode === "ready") return previous;
+      if (isDeepStrictEqual(previous, next) && this.durabilityState.mode === "ready") {
+        return { state: previous, durability: "durable" as const };
+      }
 
       try {
         await this.writeState(next);
       } catch (error) {
-        if (isEnospc(error) && this.options.gapJournal) {
+        if (isEnospc(error) && allowMemoryOnly && this.options.gapJournal) {
           return this.commitInMemoryAfterEnospc(previous, next, error);
         }
         if (!(error instanceof AtomicJsonCommitUncertainError)) {
           throw new AutomationStateStoreError("automation_state_store_failed", { cause: error });
         }
-        await this.reconcileUncertainCommit(previous, next, error);
+        if (allowMemoryOnly) await this.reconcileUncertainCommit(previous, next, error);
+        else await this.reconcileDurableRequiredUncertainCommit(previous, next, error);
         throw new AutomationStateCommitUncertainError({ cause: error });
       }
 
       this.state = next;
       this.available = true;
       this.setDurability("ready", null);
-      return structuredClone(next);
+      return { state: structuredClone(next), durability: "durable" as const };
     });
   }
 
@@ -171,7 +202,7 @@ export class FileAutomationStateStore {
     if (!Number.isSafeInteger(droppedCount) || droppedCount <= 0) {
       throw new Error("invalid telemetry gap count");
     }
-    return this.update((state) => {
+    return this.updateDurable((state) => {
       const current = state.telemetryGap;
       state.telemetryGap = current ? {
         handoffId: current.handoffId,
@@ -200,7 +231,7 @@ export class FileAutomationStateStore {
 
   async completeTelemetryHandoff(handoffId: string, recordsHash: string) {
     let completed = false;
-    await this.update((state) => {
+    const result = await this.updateDurable((state) => {
       const index = state.pendingTelemetryHandoffs.findIndex((handoff) =>
         handoff.handoffId === handoffId && handoff.recordsHash === recordsHash
       );
@@ -209,18 +240,18 @@ export class FileAutomationStateStore {
       completed = true;
       return state;
     });
-    return completed;
+    return { completed, durability: result.durability };
   }
 
   async clearTelemetryGap(expected: PersistedAutomationTelemetryGap) {
     let cleared = false;
-    await this.update((state) => {
+    const result = await this.updateDurable((state) => {
       if (!isDeepStrictEqual(state.telemetryGap, expected)) return state;
       state.telemetryGap = null;
       cleared = true;
       return state;
     });
-    return cleared;
+    return { cleared, durability: result.durability };
   }
 
   private async restore(): Promise<PersistedAutomationStateV4> {
@@ -294,6 +325,29 @@ export class FileAutomationStateStore {
     throw new AutomationStateCommitUncertainError({ cause: commitError });
   }
 
+  private async reconcileDurableRequiredUncertainCommit(
+    previous: PersistedAutomationStateV4,
+    next: PersistedAutomationStateV4,
+    commitError: AtomicJsonCommitUncertainError
+  ) {
+    let visible = await this.readVisibleState();
+    if (isDeepStrictEqual(visible, next)) {
+      try {
+        await this.writeState(previous);
+      } catch {
+        // The durable protocol source stays pending in memory and its outbox receipt
+        // remains authoritative until a later full-state write is confirmed.
+      }
+      visible = await this.readVisibleState();
+    }
+    this.state = previous;
+    this.available = true;
+    this.setDurability(
+      isDeepStrictEqual(visible, previous) ? "ready" : "degraded",
+      isDeepStrictEqual(visible, previous) ? null : commitError.code
+    );
+  }
+
   private async readVisibleState() {
     try {
       const raw = await readJsonFile(this.path);
@@ -340,7 +394,10 @@ export class FileAutomationStateStore {
     this.state = memoryState;
     this.available = true;
     this.setDurability("degraded", error.code ?? "ENOSPC");
-    return structuredClone(memoryState);
+    return {
+      state: structuredClone(memoryState),
+      durability: "memory_only" as const
+    };
   }
 
   private setDurability(mode: "ready" | "degraded", reason: string | null) {

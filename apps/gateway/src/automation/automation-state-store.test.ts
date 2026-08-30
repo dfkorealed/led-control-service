@@ -29,7 +29,7 @@ describe("FileAutomationStateStore", () => {
     const store = new FileAutomationStateStore(path);
     await store.initialize();
 
-    await store.update((state) => ({
+    const result = await store.updateControlState((state) => ({
       ...state,
       activeOccurrences: {
         "schedule-1": {
@@ -42,6 +42,8 @@ describe("FileAutomationStateStore", () => {
       baseBrightnessByFixture: { [fixtureId]: 20 },
       lastDesiredByFixture: { [fixtureId]: 40 }
     }));
+
+    expect(result.durability).toBe("durable");
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
@@ -135,7 +137,7 @@ describe("FileAutomationStateStore", () => {
     });
     await store.initialize();
 
-    await expect(store.update((state) => ({
+    await expect(store.updateControlState((state) => ({
       ...state,
       lastDesiredByFixture: { [fixtureId]: 80 }
     }))).rejects.toBeInstanceOf(AutomationStateCommitUncertainError);
@@ -196,11 +198,14 @@ describe("FileAutomationStateStore", () => {
     ];
     const handoff = store.createTelemetryHandoff(records)!;
 
-    await expect(store.update((state) => {
+    await expect(store.updateControlState((state) => {
       state.currentByFixture[fixtureId] = 40;
       state.pendingTelemetryHandoffs.push(handoff);
       return state;
-    })).resolves.toMatchObject({ currentByFixture: { [fixtureId]: 40 }, pendingTelemetryHandoffs: [] });
+    })).resolves.toMatchObject({
+      durability: "memory_only",
+      state: { currentByFixture: { [fixtureId]: 40 }, pendingTelemetryHandoffs: [] }
+    });
 
     expect(writes).toBe(2);
     expect(store.durability()).toEqual({ mode: "degraded", reason: "ENOSPC" });
@@ -214,7 +219,9 @@ describe("FileAutomationStateStore", () => {
     expect((await new FileAutomationStateStore(path).initialize()).currentByFixture[fixtureId]).toBe(20);
 
     diskFull = false;
-    await store.update((state) => state);
+    await expect(store.updateControlState((state) => state)).resolves.toMatchObject({
+      durability: "durable"
+    });
 
     expect(store.durability()).toEqual({ mode: "ready", reason: null });
     expect(durability).toEqual(["degraded", "ready"]);
@@ -256,7 +263,7 @@ describe("FileAutomationStateStore", () => {
     }, undefined, { headroom });
     await store.initialize();
 
-    const error = await store.update((state) => ({
+    const error = await store.updateControlState((state) => ({
       ...state,
       lastDesiredByFixture: { [fixtureId]: 80 }
     })).catch((caught) => caught);
@@ -270,6 +277,48 @@ describe("FileAutomationStateStore", () => {
       lastDesiredByFixture: { [fixtureId]: 80 }
     });
     headroom.stop();
+  });
+
+  it("keeps the in-memory handoff pending when a durable-required clear is commit-uncertain", async () => {
+    const path = await statePath();
+    const records = [{
+      revision: 7,
+      ruleId: "22222222-2222-4222-8222-222222222222",
+      occurrenceKey: "occurrence-1",
+      kind: "event_started" as const,
+      occurredAt: "2026-08-30T01:00:00.000Z",
+      payload: { targetFixtureIds: [fixtureId] }
+    }];
+    const handoff = {
+      handoffId: "11111111-1111-4111-8111-111111111111",
+      recordsHash: automationTelemetryRecordsHash(records),
+      records
+    };
+    const initial = { ...emptyAutomationState(), pendingTelemetryHandoffs: [handoff] };
+    await writeJsonAtomic(path, initial);
+    let writes = 0;
+    const store = new FileAutomationStateStore(path, async (target, value) => {
+      writes += 1;
+      if (writes === 1) {
+        await writeJsonAtomic(target, value, {
+          syncParentDirectory: async () => { throw new Error("injected parent fsync failure"); }
+        });
+        return;
+      }
+      throw Object.assign(new Error("rollback disk full"), { code: "ENOSPC" });
+    });
+    await store.initialize();
+
+    await expect(store.completeTelemetryHandoff(
+      handoff.handoffId,
+      handoff.recordsHash
+    )).rejects.toBeInstanceOf(AutomationStateCommitUncertainError);
+
+    expect(store.read()).toEqual(initial);
+    expect(store.durability()).toEqual({
+      mode: "degraded",
+      reason: "atomic_json_commit_uncertain"
+    });
   });
 
   it("returns defensive snapshots so callers cannot bypass durable updates", async () => {
@@ -309,10 +358,16 @@ describe("FileAutomationStateStore", () => {
     const handedOff = store.read().telemetryGap!;
     await store.recordTelemetryGap("2026-08-30T01:01:00.000Z", 1);
 
-    await expect(store.clearTelemetryGap(handedOff)).resolves.toBe(false);
+    await expect(store.clearTelemetryGap(handedOff)).resolves.toEqual({
+      cleared: false,
+      durability: "durable"
+    });
     expect(store.read().telemetryGap?.droppedCount).toBe(3);
 
-    await expect(store.clearTelemetryGap(store.read().telemetryGap!)).resolves.toBe(true);
+    await expect(store.clearTelemetryGap(store.read().telemetryGap!)).resolves.toEqual({
+      cleared: true,
+      durability: "durable"
+    });
     expect(store.read().telemetryGap).toBeNull();
   });
 
@@ -342,7 +397,10 @@ describe("FileAutomationStateStore", () => {
       schemaVersion: 4,
       pendingTelemetryHandoffs: [handoff]
     });
-    await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toBe(true);
+    await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toEqual({
+      completed: true,
+      durability: "durable"
+    });
     expect(store.read().pendingTelemetryHandoffs).toEqual([]);
   });
 

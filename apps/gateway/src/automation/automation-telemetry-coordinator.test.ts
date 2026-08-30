@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { writeJsonAtomic } from "../mesh/mesh-store-file";
 import { StorageHeadroomManager } from "../storage/storage-headroom-manager";
 import { FileAutomationStateStore } from "./automation-state-store";
 import { AutomationTelemetryCoordinator } from "./automation-telemetry-coordinator";
@@ -20,10 +21,142 @@ afterEach(async () => {
 });
 
 describe("AutomationTelemetryCoordinator", () => {
+  it("keeps an accepted handoff pending in memory and on disk when durable state clear hits ENOSPC", async () => {
+    const test = await cleanupFixture();
+    const handoff = createAutomationTelemetryHandoff([eventRecord()])!;
+    await test.stateStore.updateDurable((state) => {
+      state.pendingTelemetryHandoffs.push(handoff);
+      return state;
+    });
+    const accepted = await test.outbox.appendBatch(handoff);
+    test.setStateDiskFull(true);
+
+    const result = await test.coordinator.flush(7);
+
+    expect(result).toMatchObject({ changed: true, retryScheduled: true });
+    expect(test.stateStore.read().pendingTelemetryHandoffs).toEqual([handoff]);
+    const restartedState = new FileAutomationStateStore(test.statePath);
+    await expect(restartedState.initialize()).resolves.toMatchObject({
+      pendingTelemetryHandoffs: [handoff]
+    });
+    expect((await test.outbox.inspect()).acceptedHandoffs[handoff.handoffId]).toMatchObject({
+      recordsHash: handoff.recordsHash,
+      outcome: "records"
+    });
+    expect(accepted.storedRecords).toHaveLength(1);
+    expect(test.retryDelays).toEqual([10]);
+  });
+
+  it("restarts an uncleared handoff with the same event identity, sequence, and hash without gap inflation", async () => {
+    const test = await cleanupFixture();
+    const handoff = createAutomationTelemetryHandoff([eventRecord()])!;
+    await test.stateStore.updateDurable((state) => {
+      state.pendingTelemetryHandoffs.push(handoff);
+      return state;
+    });
+    await test.outbox.appendBatch(handoff);
+    const before = (await test.outbox.pending()).map(storedIdentity);
+    test.setStateDiskFull(true);
+    await test.coordinator.flush(7);
+    test.coordinator.stop();
+
+    const restartedState = new FileAutomationStateStore(test.statePath);
+    const restartedOutbox = new AutomationTelemetryOutbox(
+      test.outboxPath,
+      automationScope,
+      { headroomBytes: 32_768 }
+    );
+    await restartedState.initialize();
+    await restartedOutbox.initialize();
+    await new AutomationTelemetryCoordinator(restartedState, restartedOutbox).flush(7);
+
+    expect((await restartedOutbox.pending()).map(storedIdentity)).toEqual(before);
+    expect((await restartedOutbox.inspect()).gap).toBeNull();
+    expect(restartedState.read().pendingTelemetryHandoffs).toEqual([]);
+  });
+
+  it("retries durable cleanup with bounded backoff and releases the receipt only after disk recovery", async () => {
+    const test = await cleanupFixture();
+    const handoff = createAutomationTelemetryHandoff([eventRecord()])!;
+    await test.stateStore.updateDurable((state) => {
+      state.pendingTelemetryHandoffs.push(handoff);
+      return state;
+    });
+    await test.outbox.appendBatch(handoff);
+    test.setStateDiskFull(true);
+
+    await test.coordinator.flush(7);
+    await test.runRetry();
+    expect(test.retryDelays).toEqual([10, 20]);
+    expect(test.stateStore.read().pendingTelemetryHandoffs).toEqual([handoff]);
+    expect((await test.outbox.inspect()).acceptedHandoffs[handoff.handoffId]).toBeDefined();
+
+    test.setStateDiskFull(false);
+    await test.runRetry();
+
+    expect(test.stateStore.read().pendingTelemetryHandoffs).toEqual([]);
+    const restartedState = new FileAutomationStateStore(test.statePath);
+    await expect(restartedState.initialize()).resolves.toMatchObject({ pendingTelemetryHandoffs: [] });
+    expect((await test.outbox.inspect()).acceptedHandoffs[handoff.handoffId]).toBeUndefined();
+    expect((await test.outbox.pending()).map(storedIdentity)).toHaveLength(1);
+    test.coordinator.stop();
+  });
+
+  it("does not cancel a pending handoff cleanup retry when a later gap handoff succeeds", async () => {
+    const test = await cleanupFixture();
+    const handoff = createAutomationTelemetryHandoff([eventRecord()])!;
+    await test.stateStore.updateDurable((state) => {
+      state.pendingTelemetryHandoffs.push(handoff);
+      return state;
+    });
+    await test.outbox.appendBatch(handoff);
+    test.setStateDiskFull(true);
+    await test.coordinator.flush(7);
+
+    test.setStateDiskFull(false);
+    await test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:01:00.000Z",
+      1,
+      "2026-08-30T01:01:00.000Z"
+    );
+
+    expect(test.cancelledRetries).toEqual([]);
+    await test.runRetry();
+    expect(test.stateStore.read().pendingTelemetryHandoffs).toEqual([]);
+    test.coordinator.stop();
+  });
+
+  it("keeps a persisted gap pending until its clear is durable and then releases its receipt", async () => {
+    const test = await cleanupFixture();
+    await test.stateStore.recordTelemetryGap(
+      "2026-08-30T01:02:00.000Z",
+      3,
+      "2026-08-30T01:02:02.000Z"
+    );
+    const gap = test.stateStore.read().telemetryGap!;
+    test.setStateDiskFull(true);
+
+    await test.coordinator.flush(7);
+
+    expect(test.stateStore.read().telemetryGap).toEqual(gap);
+    expect((await test.outbox.inspect()).acceptedHandoffs[gap.handoffId]).toBeDefined();
+    const restartedFull = new FileAutomationStateStore(test.statePath);
+    await expect(restartedFull.initialize()).resolves.toMatchObject({ telemetryGap: gap });
+
+    test.setStateDiskFull(false);
+    await test.runRetry();
+
+    expect(test.stateStore.read().telemetryGap).toBeNull();
+    expect((await test.outbox.inspect()).acceptedHandoffs[gap.handoffId]).toBeUndefined();
+    expect((await test.outbox.inspect()).gap).toMatchObject({ droppedCount: 3 });
+    test.coordinator.stop();
+  });
+
   it("replays one immutable handoff across every state/outbox crash boundary and retains it until ACK", async () => {
     const handoff = createAutomationTelemetryHandoff([eventRecord()])!;
     const stateOnly = await fixture();
-    await stateOnly.stateStore.update((state) => {
+    await stateOnly.stateStore.updateDurable((state) => {
       state.currentByFixture[fixtureId] = 40;
       state.pendingTelemetryHandoffs.push(handoff);
       return state;
@@ -41,7 +174,7 @@ describe("AutomationTelemetryCoordinator", () => {
     expect(await restartedOutbox.pending()).toHaveLength(1);
 
     const outboxCommitted = await fixture();
-    await outboxCommitted.stateStore.update((state) => {
+    await outboxCommitted.stateStore.updateDurable((state) => {
       state.pendingTelemetryHandoffs.push(handoff);
       return state;
     });
@@ -56,7 +189,7 @@ describe("AutomationTelemetryCoordinator", () => {
     expect(outboxCommitted.stateStore.read().pendingTelemetryHandoffs).toEqual([]);
 
     const stateCleared = await fixture();
-    await stateCleared.stateStore.update((state) => {
+    await stateCleared.stateStore.updateDurable((state) => {
       state.pendingTelemetryHandoffs.push(handoff);
       return state;
     });
@@ -129,7 +262,7 @@ describe("AutomationTelemetryCoordinator", () => {
     const stateStore = new FileAutomationStateStore(statePath);
     await stateStore.initialize();
     const handoff = createAutomationTelemetryHandoff([eventRecord()])!;
-    await stateStore.update((state) => {
+    await stateStore.updateDurable((state) => {
       state.pendingTelemetryHandoffs.push(handoff);
       return state;
     });
@@ -220,6 +353,74 @@ async function fixture() {
   await stateStore.initialize();
   await outbox.initialize();
   return { statePath, outboxPath, stateStore, outbox };
+}
+
+async function cleanupFixture() {
+  const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-durable-cleanup-"));
+  directories.push(directory);
+  const statePath = join(directory, "state.json");
+  const outboxPath = join(directory, "outbox.json");
+  const journal = new AutomationTelemetryGapJournal(`${outboxPath}.gap`);
+  const headroom = new StorageHeadroomManager(`${outboxPath}.reserve`, 32_768, {
+    preallocate: async (_target, bytes) => bytes,
+    release: async () => undefined,
+    scheduleBackground: () => 1,
+    cancelBackground: () => undefined
+  });
+  await journal.initialize();
+  await headroom.initialize();
+  let stateDiskFull = false;
+  const stateStore = new FileAutomationStateStore(
+    statePath,
+    async (target, value) => {
+      if (stateDiskFull) throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+      await writeJsonAtomic(target, value);
+    },
+    undefined,
+    { headroom, gapJournal: journal }
+  );
+  const outbox = new AutomationTelemetryOutbox(outboxPath, automationScope, {
+    headroom,
+    gapJournal: journal
+  });
+  await stateStore.initialize();
+  await outbox.initialize();
+  const retryTasks: Array<() => Promise<void>> = [];
+  const retryDelays: number[] = [];
+  const cancelledRetries: unknown[] = [];
+  const coordinator = new AutomationTelemetryCoordinator(stateStore, outbox, {
+    retryInitialDelayMs: 10,
+    retryMaxDelayMs: 20,
+    scheduleRetry: (task, delayMs) => {
+      retryTasks.push(task);
+      retryDelays.push(delayMs);
+      return retryTasks.length;
+    },
+    cancelRetry: (handle) => { cancelledRetries.push(handle); }
+  });
+  return {
+    statePath,
+    outboxPath,
+    stateStore,
+    outbox,
+    coordinator,
+    retryDelays,
+    cancelledRetries,
+    setStateDiskFull(value: boolean) { stateDiskFull = value; },
+    async runRetry() {
+      const task = retryTasks.shift();
+      if (!task) throw new Error("expected a scheduled telemetry cleanup retry");
+      await task();
+    }
+  };
+}
+
+function storedIdentity(record: Awaited<ReturnType<AutomationTelemetryOutbox["pending"]>>[number]) {
+  return {
+    eventId: record.event.eventId,
+    sequence: record.event.sequence,
+    reportPayloadHash: record.reportPayloadHash
+  };
 }
 
 function eventRecord() {
