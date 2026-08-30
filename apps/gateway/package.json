@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "pnpm --filter @led-control/shared build && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/gateway.mjs",
     "dev": "pnpm --filter @led-control/shared build && tsx src/index.ts",
     "bluez:probe": "tsx scripts/bluez-capability-probe.ts",
     "test": "pnpm --filter @led-control/shared build && vitest run",

@@ -79,6 +79,23 @@ pnpm gateway:smoke
 
 웹/API/MQTT/DB 등록 파이프라인은 실제 Raspberry Pi와 ESP32-H2를 사용하는 HIL 절차로 검증한다. 자동 테스트용 adapter는 `apps/gateway/test`에만 있고 배포 산출물에는 포함되지 않는다.
 
+## Automation snapshot hot reload
+
+Gateway는 `sites/{siteId}/gateways/{gatewayId}/commands/automation/config-sync`의 `AutomationSnapshotV1` full snapshot을 MQTT QoS 1로 구독한다. 수신 snapshot은 schema, Site/Gateway scope, canonical SHA-256, revision 순서를 검증하며 다음 규칙을 적용한다.
+
+- 높은 revision은 단일 automation queue에서 검증한 뒤 `/var/lib/led-control/automation-snapshot.json`에 temp write, file fsync, rename, parent directory fsync 순으로 저장한다. 이 과정이 끝난 뒤에만 메모리 snapshot을 교체하고 desired state를 재계산한다.
+- 같은 revision/hash는 파일 저장과 재계산을 반복하지 않고 idempotent `applied` ACK를 만든다. 낮은 revision과 같은 revision의 다른 유효 hash는 기존 snapshot을 유지하고 각각 `snapshot_old_revision`, `snapshot_revision_conflict`로 거부한다.
+- 재시작 시 원자 교체가 끝난 마지막 snapshot만 복구하고 남은 temp 파일은 제거한다. snapshot이 없으면 자동제어 snapshot 없이 시작하며 손상되거나 scope/hash가 맞지 않는 파일은 fail-closed한다.
+- `applied|rejected` ACK는 exact revision/hash와 함께 `/var/lib/led-control/automation-config-acks.json`에 먼저 저장한다. MQTT publish/PUBACK 실패 시 같은 payload를 지수 backoff로 재시도하고 reconnect나 process 재시작 뒤에도 재발행한다.
+- hot reload는 Gateway process, MQTT client, heartbeat, BLE Mesh adapter를 재시작하지 않는다.
+
+경로는 `GATEWAY_AUTOMATION_CONFIG_PATH`와 `GATEWAY_AUTOMATION_ACK_OUTBOX_PATH`로 변경할 수 있다. 현재 Task 11 production 경로는 snapshot 적용과 ACK까지 담당한다. schedule/event occurrence 계산, priority arbiter, durable 실행 상태와 실제 BLE Mesh action은 Task 12 이후 연결되므로 snapshot `applied`를 조명 동작 완료로 해석하지 않는다.
+
+```bash
+pnpm --filter @led-control/gateway test -- automation-config-store.test.ts automation-runtime.test.ts automation-config-ack-outbox.test.ts
+pnpm --filter @led-control/gateway build
+```
+
 ## 라즈베리파이 배포
 
 라즈베리파이 양산 이미지에는 현장 `siteId`와 DB의 `gatewayId`를 미리 넣지 않는다. 제조 시 주입한 serial과 1회용 enrollment token으로 장비 내부 key에 대한 device certificate를 발급받고, 이후 device mTLS bootstrap을 호출한다. 사용자가 웹에서 claim을 완료하면 서버가 assignment를 반환한다. 게이트웨이는 이를 기본 `/var/lib/led-control/assignment.json`에 원자적으로 저장하며 파일 권한은 `0600`이다.

@@ -13,7 +13,8 @@ const topicHandlers = {
   "commands/dimming": vi.fn(),
   "commands/provisioning/scan-start": vi.fn(),
   "commands/provisioning/identify-device": vi.fn(),
-  "commands/provisioning/provision-device": vi.fn()
+  "commands/provisioning/provision-device": vi.fn(),
+  "commands/automation/config-sync": vi.fn()
 };
 
 describe("GatewayMqttRuntime", () => {
@@ -229,6 +230,7 @@ describe("GatewayMqttRuntime", () => {
 
     expect(onMessageError).toHaveBeenCalledWith(new Error(`${topic} failed`), topic);
     expect(unhandledRejection).not.toHaveBeenCalled();
+    expect(client.end).not.toHaveBeenCalled();
 
     process.removeListener("unhandledRejection", unhandledRejection);
     await runtime.stop();

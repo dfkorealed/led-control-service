@@ -6,6 +6,7 @@ test-results/
 .DS_Store
 .env
 apps/api/dist/
+apps/gateway/dist/
 apps/web/dist/
 packages/shared/dist/
 .aider*

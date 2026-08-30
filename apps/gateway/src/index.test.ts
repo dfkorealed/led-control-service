@@ -180,6 +180,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning/scan-start",
         "sites/site-27/gateways/gateway-27/commands/provisioning/identify-device",
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
+        "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",

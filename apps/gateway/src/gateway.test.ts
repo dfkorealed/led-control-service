@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyProvisionDevice,
   applyProvisioningScan,
+  handleAutomationConfigPayload,
   publishProvisioningScanLifecycle
 } from "./gateway";
 import { StubProvisioningAdapter, StubProvisioningScannerAdapter } from "../test/stub-adapters";
+import { AutomationRuntimeError } from "./automation/automation-runtime";
+import { automationSnapshot } from "./automation/automation-test-fixtures";
 
 describe("gateway provisioning", () => {
   it("creates discovered node events from provisioning scan commands", async () => {
@@ -127,5 +130,74 @@ describe("gateway provisioning", () => {
 
     expect(publish).toHaveBeenCalledTimes(1);
     expect(publish.mock.calls[0][1]).toMatchObject({ acceptedNodeCount: 0 });
+  });
+});
+
+describe("gateway automation config", () => {
+  it("passes the applied ACK returned by hot reload to the durable recorder", async () => {
+    const snapshot = automationSnapshot(4);
+    const acknowledgement = {
+      schemaVersion: 1 as const,
+      gatewayId: snapshot.gatewayId,
+      revision: 4,
+      payloadHash: snapshot.payloadHash,
+      status: "applied" as const,
+      errorCode: null,
+      appliedAt: "2026-08-30T01:02:03.000Z"
+    };
+    const hotReload = vi.fn().mockResolvedValue(acknowledgement);
+    const recordAcknowledgement = vi.fn().mockResolvedValue(undefined);
+
+    await expect(handleAutomationConfigPayload(
+      Buffer.from(JSON.stringify(snapshot)),
+      { gatewayId: snapshot.gatewayId, hotReload },
+      recordAcknowledgement
+    )).resolves.toEqual(acknowledgement);
+
+    expect(recordAcknowledgement).toHaveBeenCalledWith(acknowledgement);
+  });
+
+  it.each([
+    ["snapshot_old_revision", "snapshot_old_revision"],
+    ["snapshot_revision_conflict", "snapshot_revision_conflict"],
+    ["snapshot_invalid", "snapshot_invalid"]
+  ] as const)("records an exact rejected ACK for %s", async (_case, code) => {
+    const snapshot = automationSnapshot(4);
+    const hotReload = vi.fn().mockRejectedValue(new AutomationRuntimeError(
+      code,
+      code,
+      snapshot.revision,
+      snapshot.payloadHash
+    ));
+    const recordAcknowledgement = vi.fn().mockResolvedValue(undefined);
+
+    await expect(handleAutomationConfigPayload(
+      Buffer.from(JSON.stringify(snapshot)),
+      { gatewayId: snapshot.gatewayId, hotReload },
+      recordAcknowledgement,
+      () => new Date("2026-08-30T01:02:03.000Z")
+    )).resolves.toEqual({
+      schemaVersion: 1,
+      gatewayId: snapshot.gatewayId,
+      revision: 4,
+      payloadHash: snapshot.payloadHash,
+      status: "rejected",
+      errorCode: code,
+      appliedAt: "2026-08-30T01:02:03.000Z"
+    });
+  });
+
+  it("does not invent an ACK identity for malformed JSON", async () => {
+    const hotReload = vi.fn();
+    const recordAcknowledgement = vi.fn();
+
+    await expect(handleAutomationConfigPayload(
+      Buffer.from("{not-json}"),
+      { gatewayId: "00000000-0000-4000-8000-000000000004", hotReload },
+      recordAcknowledgement
+    )).rejects.toMatchObject({ code: "snapshot_invalid" });
+
+    expect(hotReload).not.toHaveBeenCalled();
+    expect(recordAcknowledgement).not.toHaveBeenCalled();
   });
 });

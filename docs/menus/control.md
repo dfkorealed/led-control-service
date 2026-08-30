@@ -7,7 +7,7 @@
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
-- schedule/차량 이벤트 API CRUD와 production API MQTT 동기화, 수동 명령 timed override 저장은 완료했지만 Web CRUD와 Gateway 현장 실행은 아직 구현되지 않았다. 다음 구현은 Gateway 규칙 snapshot hot reload/실행, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
+- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장과 Gateway snapshot 원자 저장/hot reload는 완료했다. 다음 구현은 Gateway scheduler·priority arbiter·실행 원장, ESP32-H2 센서 이벤트, Web CRUD, software E2E와 HIL 순서다.
 
 ## 확정 구현 범위
 
@@ -35,6 +35,8 @@
 
 ## 구현 완료
 
+- Raspberry Pi Gateway production runtime은 `AutomationSnapshotV1` config topic을 MQTT QoS 1로 구독한다. Snapshot은 strict schema, assigned Site/Gateway scope, Task 9와 같은 canonical SHA-256를 검증하고 단일 automation serial queue에서 처리한다. 높은 revision은 temp write, file fsync, rename, parent directory fsync가 모두 끝난 뒤 메모리 참조를 바꾸고 desired state를 재계산한다. 같은 revision/hash는 저장·재계산 없이 idempotent applied 처리하며 낮은 revision과 같은 revision의 다른 유효 hash는 기존 snapshot을 유지한 채 각각 `snapshot_old_revision`, `snapshot_revision_conflict`로 거부한다.
+- Gateway는 재시작 시 마지막 원자 교체 snapshot을 복구하고 중단된 temp 파일을 제거한다. Config `applied|rejected` ACK는 local Gateway ID와 수신한 exact revision/hash를 포함해 별도 `0600` file outbox에 publish 전에 저장한다. MQTT publish/PUBACK 실패는 같은 payload를 지수 backoff로 재시도하고 reconnect/process restart 뒤에도 재발행한다. Snapshot hot reload와 handler rejection은 MQTT connection, heartbeat, BLE Mesh process를 종료하지 않는다.
 - `POST /commands/dimming`은 optional ISO instant `overrideUntil`을 받고, 없으면 API `AutomationClock` 기준 `now + 1 hour`를 서버에서 확정한다. 명시 시각은 현재보다 미래이고 최대 30일 이내여야 하며 viewer는 기존과 같이 `403`으로 거부된다. Command, `ManualOverride`, 모든 `ManualOverrideFixture`, dispatch와 MQTT outbox는 공통 automation advisory lock 후 Site row 재인가를 거친 하나의 transaction에 저장한다. API 생성 응답과 새 Gateway dimming payload에는 확정된 `overrideUntil`이 포함된다. 이전 durable outbox payload는 필드 없이도 publisher가 처리하지만 새 API 생성 경로는 항상 포함한다. Gateway의 durable override 적용·만료 후 priority arbiter 복귀와 Web 종료 시각 입력은 후속 범위다.
 - `GET/POST/PATCH/DELETE /sites/:siteId/automation/vehicle-event-rules`를 제공한다. viewer는 assigned Site 목록을 조회하고 assigned active customer admin만 생성·수정·삭제할 수 있으며 operator와 다른 Site의 규칙은 `404`로 숨긴다. 목록 query는 Site 읽기 인가 뒤 파싱한다.
 - 차량 이벤트 규칙은 distinct source와 target Fixture를 각각 한 개 이상 요구하고 등록 완료 Fixture만 저장 시점의 exact ID set으로 고정한다. source는 MeshNode capability가 `supported`이고 검증 시각이 있는 Fixture만 허용하며 unknown/unsupported/다른 tenant 식별자는 일반화된 validation 오류로 거부한다. target capability 검증은 하지 않는다. source와 target 전체가 같은 Site와 한 Gateway에 속해야 하며 다중 Gateway는 stable `single_gateway_required`로 거부한다.
@@ -152,7 +154,7 @@
 
 ## 미구현
 
-- 스케줄 제어 Web CRUD와 Gateway 무중단 offline 실행
+- 스케줄 제어 Web CRUD와 Gateway offline scheduler·priority arbiter 실행
 - 차량 이벤트 규칙 Web CRUD와 ESP32-H2 센서 이벤트 전달
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
@@ -165,7 +167,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- Automation full snapshot의 production MQTT publish, exact config ACK, capability/execution ingest와 application ACK publisher는 API에 연결됐다. 다만 Gateway의 snapshot 원자 저장/hot reload/offline scheduler와 capability/execution report journal은 Task 11~14 범위이므로 API의 `PENDING` 상태나 비어 있는 실행 원장을 장비 적용 실패로 해석하면 안 된다.
+- Automation full snapshot의 production MQTT publish와 Gateway 원자 저장/hot reload/exact durable config ACK는 연결됐다. 다만 Task 11의 production recompute callback은 Task 12 scheduler·priority arbiter가 연결되기 전까지 빈 desired state를 반환하므로 snapshot `APPLIED`는 규칙 파일 적용 완료만 뜻하며 실제 schedule/event 조명 동작 완료가 아니다. Capability/execution report journal도 Task 13~14 범위이므로 비어 있는 실행 원장을 장비 적용 실패로 해석하면 안 된다.
 - Capability ACK의 필수 `reportPayloadHash`와 identity `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`는 cross-node eventId 충돌과 same-node altered payload를 원본과 분리한다. Exact report 재전달은 최초 payload/hash/`ingestedAt`을 유지하고 published/deadletter/expired lease delivery 상태만 재큐잉하며 live lease를 보호한다. 이 API 계약은 unit/PostgreSQL migration test로 검증했지만 실제 production broker ACL과 Gateway certificate로 report 왕복을 수행한 HIL 증거는 아직 없다.
 - Task 14는 실제 Sensor Server/vendor vehicle event model 바인딩을 수행하고 node별 `capabilityRevision`, `eventId`, complete report payload와 canonical `reportPayloadHash`를 영속화해야 한다. revision은 model-binding state가 바뀔 때만 증가하고 ACK 전에는 같은 event/payload/hash를 재시도하며 reconnect 시에도 revision을 올리지 않고 현재 report를 재발행한다. Terminal ACK는 event/gateway/node/revision/hash가 모두 일치해야 하고 다른 payload hash ACK는 무시한다. 이 연결 전까지 production Gateway가 capability metadata를 자동 설정하지 않는다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
@@ -237,6 +239,9 @@
 - `apps/api/src/mqtt/outbox-publisher.service.spec.ts`
 - `apps/gateway/src/gateway.ts`
 - `apps/gateway/src/index.ts`
+- `apps/gateway/src/automation/automation-config-store.ts`
+- `apps/gateway/src/automation/automation-runtime.ts`
+- `apps/gateway/src/automation/automation-config-ack-outbox.ts`
 - `apps/gateway/src/commands/gateway-command-handler.ts`
 - `packages/shared/src/command-delivery.ts`
 - `packages/shared/src/gateway-contracts.ts`

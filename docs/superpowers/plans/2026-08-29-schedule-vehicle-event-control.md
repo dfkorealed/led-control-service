@@ -511,7 +511,7 @@ await this.assertNoOverlap(tx, siteId, gatewayId, fixtureIds, candidate, schedul
 
 목록 응답에는 `syncStatus`, `desiredRevision`, `appliedRevision`, `nextOccurrence`, `lastExecution`을 포함한다. create는 201, update/delete는 200, tenant 은닉은 404를 사용한다.
 
-- [ ] **Step 5: 검증하고 커밋한다**
+- [x] **Step 5: 검증하고 커밋한다**
 
 Run: `pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/api test -- schedules.service.spec.ts automation-schedules.e2e-spec.ts --runInBand`
 
@@ -745,7 +745,7 @@ git commit -m "feat(control): add timed manual overrides"
 - Consumes: `AutomationSnapshotV1`, exact revision/hash, MQTT config topic.
 - Produces: `AutomationConfigStore.load/apply`, `AutomationRuntime.hotReload`, applied/rejected ACK.
 
-- [ ] **Step 1: invalid/old snapshot rollback과 process 무중단 테스트를 작성한다**
+- [x] **Step 1: invalid/old snapshot rollback과 process 무중단 테스트를 작성한다**
 
 ```ts
 await runtime.hotReload(validRevision4);
@@ -755,11 +755,11 @@ expect(mqttConnection.disconnect).not.toHaveBeenCalled();
 expect(meshAdapter.stop).not.toHaveBeenCalled();
 ```
 
-- [ ] **Step 2: 테스트 실패를 확인한다**
+- [x] **Step 2: 테스트 실패를 확인한다**
 
 Run: `pnpm --filter @led-control/gateway test -- automation-config-store.test.ts automation-runtime.test.ts`
 
-- [ ] **Step 3: 원자 file 교체를 구현한다**
+- [x] **Step 3: 원자 file 교체를 구현한다**
 
 ```ts
 export interface AutomationConfigStore {
@@ -770,7 +770,7 @@ export interface AutomationConfigStore {
 
 temp write → file fsync → rename → parent directory fsync 후에만 메모리 참조를 교체한다. revision이 낮거나 같은데 hash가 다르면 거부하고 같은 revision/hash는 idempotent ACK한다.
 
-- [ ] **Step 4: runtime queue에서 hot reload를 직렬화한다**
+- [x] **Step 4: runtime queue에서 hot reload를 직렬화한다**
 
 snapshot validation/storage/reference swap/recompute를 하나의 automation serial queue로 실행한다. 재계산 결과가 현재 desired state와 다를 때만 mesh action을 요청한다.
 

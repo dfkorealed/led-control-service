@@ -1,4 +1,5 @@
 import type {
+  AutomationConfigAppliedV1,
   IdentifyDevicePayload,
   MeshGroupSubscriptionResultPayload,
   MeshGroupSubscriptionSyncPayload,
@@ -9,6 +10,7 @@ import type {
   ProvisioningScanFoundDevice
 } from "@led-control/shared";
 import {
+  automationConfigAppliedV1Schema,
   mqttTopicsV2,
   parseDfkDeviceUuid,
   provisioningScanCompletedSchema,
@@ -16,6 +18,7 @@ import {
   provisioningScanFoundSchema
 } from "@led-control/shared";
 import { ProvisioningScanJournal, type ProvisioningScanTerminalEvent } from "./state/provisioning-scan-journal";
+import { AutomationRuntimeError, type AutomationRuntime } from "./automation/automation-runtime";
 
 export interface BleMeshAdapter {
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
@@ -81,6 +84,40 @@ export interface BleMeshCommandReport {
 
 export async function applyProvisioningScan(adapter: ProvisioningScannerAdapter, command: ProvisioningScanStartPayload) {
   return adapter.scan(command);
+}
+
+export async function handleAutomationConfigPayload(
+  payload: Buffer,
+  runtime: Pick<AutomationRuntime, "gatewayId" | "hotReload">,
+  recordAcknowledgement: (acknowledgement: AutomationConfigAppliedV1) => Promise<unknown>,
+  now: () => Date = () => new Date()
+) {
+  let value: unknown;
+  try {
+    value = JSON.parse(payload.toString());
+  } catch (error) {
+    throw new AutomationRuntimeError("snapshot_invalid", "snapshot_invalid", undefined, undefined, { cause: error });
+  }
+
+  let acknowledgement: AutomationConfigAppliedV1;
+  try {
+    acknowledgement = await runtime.hotReload(value);
+  } catch (error) {
+    if (!(error instanceof AutomationRuntimeError) || error.revision === undefined || error.payloadHash === undefined) {
+      throw error;
+    }
+    acknowledgement = automationConfigAppliedV1Schema.parse({
+      schemaVersion: 1,
+      gatewayId: runtime.gatewayId,
+      revision: error.revision,
+      payloadHash: error.payloadHash,
+      status: "rejected",
+      errorCode: error.code,
+      appliedAt: now().toISOString()
+    }) as AutomationConfigAppliedV1;
+  }
+  await recordAcknowledgement(acknowledgement);
+  return acknowledgement;
 }
 
 export type ProvisioningScanEnvelope = { eventId: string; sequence: number; occurredAt: string };

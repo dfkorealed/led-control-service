@@ -20,6 +20,7 @@ import {
   applyIdentifyDevice,
   applyProvisionDevice,
   createProvisioningScanFailedPayload,
+  handleAutomationConfigPayload,
   ProvisioningScanRecoveryPublisher,
   handleDurableProvisioningScan
 } from "./gateway";
@@ -58,6 +59,9 @@ import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
 import { GroupStateStore } from "./mesh/group-state-store";
 import { KeyedSerialTaskQueue } from "./runtime/keyed-serial-task-queue";
 import { MeshGroupResyncPublisher, MeshGroupResyncStore } from "./mesh/group-resync-store";
+import { FileAutomationConfigStore } from "./automation/automation-config-store";
+import { AutomationRuntime } from "./automation/automation-runtime";
+import { AutomationConfigAckOutbox, AutomationConfigAckPublisher } from "./automation/automation-config-ack-outbox";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
 
@@ -134,6 +138,25 @@ async function main() {
   );
   await groupResyncStore.initialize(groupRestore.reason);
   const groupResyncPublisher = new MeshGroupResyncPublisher({ siteId, gatewayId }, groupResyncStore);
+  const automationRuntime = new AutomationRuntime({
+    store: new FileAutomationConfigStore(
+      process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
+      { siteId, gatewayId }
+    ),
+    scope: { siteId, gatewayId },
+    // Task 12 supplies scheduler/arbiter state; Task 11 keeps the production hot-reload path live without issuing speculative mesh work.
+    recompute: async () => ({}),
+    applyDesiredState: async () => undefined
+  });
+  await automationRuntime.initialize();
+  const automationAckOutbox = new AutomationConfigAckOutbox(
+    process.env.GATEWAY_AUTOMATION_ACK_OUTBOX_PATH ?? "/var/lib/led-control/automation-config-acks.json",
+    { siteId, gatewayId }
+  );
+  await automationAckOutbox.initialize();
+  const automationAckPublisher = new AutomationConfigAckPublisher(automationAckOutbox, { siteId, gatewayId }, {
+    onError: (error) => void reportGatewayError(error, "automation_config_ack_retry")
+  });
 
   async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient) {
     const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
@@ -241,6 +264,13 @@ async function main() {
     });
   }
 
+  async function handleAutomationPayload(payload: Buffer) {
+    await handleAutomationConfigPayload(payload, automationRuntime, async (acknowledgement) => {
+      await automationAckOutbox.enqueue(acknowledgement);
+      await automationAckPublisher.wake();
+    });
+  }
+
   const fixtureStatusReservation = new StateEventReservationSlot(stateEventOutbox);
   let stopFixtureStatusIntake: (() => void) | undefined;
 
@@ -317,6 +347,7 @@ async function main() {
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start")]: handleProvisioningScanPayload,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device")]: handleIdentifyPayload,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device")]: handleProvisionDevicePayload,
+      [mqttTopics.automationConfig(siteId, gatewayId)]: handleAutomationPayload,
       [`sites/${siteId}/gateways/${gatewayId}/commands/mesh-group/subscription-sync`]: (payload, source) => groupSubscriptionHandler.handle(payload, source),
       [mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId)]: (payload) =>
         groupResyncPublisher.acknowledge(JSON.parse(payload.toString())),
@@ -343,10 +374,12 @@ async function main() {
       await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
       await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
       await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
+      await automationAckPublisher.connect((topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement));
     },
     onClose: () => {
       provisioningScanRecovery.disconnect();
       stateEventPublisher.disconnect();
+      automationAckPublisher.disconnect();
       return health.unhealthy("mqtt_disconnected");
     },
     onError: () => health.unhealthy("mqtt_error"),
@@ -362,6 +395,7 @@ async function main() {
       stopFixtureStatusIntake?.();
       await fixtureStatusReservation.release();
       stateEventPublisher.disconnect();
+      automationAckPublisher.disconnect();
       await mqttRuntime.stop();
     }
   }, rotation);
@@ -492,6 +526,7 @@ export function subscribeGatewayCommands(
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/scan-start"),
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/identify-device"),
         mqttTopicsV2.gatewayCommand(assignment.siteId, assignment.gatewayId, "provisioning/provision-device"),
+        mqttTopics.automationConfig(assignment.siteId, assignment.gatewayId),
         mqttTopics.meshGroupSubscriptionSync(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.provisioningScanTerminalIngestedAck(assignment.siteId, assignment.gatewayId),
