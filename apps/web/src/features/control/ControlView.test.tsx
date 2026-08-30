@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandStage } from "../../api/commands";
 import type { Dashboard } from "../../api/queries";
@@ -17,6 +19,18 @@ vi.mock("../../api/queries", () => ({ useControlDashboard: mocks.useControlDashb
 vi.mock("../../api/commands", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/commands")>()),
   useCommandStatus: mocks.useCommandStatus
+}));
+vi.mock("./automation/ScheduleControlPanel", () => ({
+  ScheduleControlPanel: ({ siteId }: { siteId: string }) => {
+    const [dialogOpen, setDialogOpen] = useState(false);
+    return (
+      <div>
+        <p>스케줄 패널 {siteId}</p>
+        <button type="button" onClick={() => setDialogOpen(true)}>테스트 스케줄 dialog 열기</button>
+        {dialogOpen ? <p>테스트 스케줄 dialog 열림</p> : null}
+      </div>
+    );
+  }
 }));
 
 const fixtureIds = {
@@ -779,26 +793,81 @@ describe("ControlView 대상 선택", () => {
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.siteB));
     expect(screen.queryByText("명령 접수 완료")).not.toBeInTheDocument();
   });
+
+  it("persists control mode in the URL and restores the selected tab", async () => {
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=schedule`);
+
+    expect(screen.getByRole("tab", { name: "스케줄 제어" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText(`스케줄 패널 ${dashboard.site.id}`)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "수동 제어" }));
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
+    expect(screen.getByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "이벤트 제어" }));
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=event"));
+    expect(screen.getByText("이벤트 제어는 다음 작업에서 제공됩니다.")).toBeInTheDocument();
+  });
+
+  it("normalizes an invalid mode to manual while preserving the selected site", async () => {
+    renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=unknown`);
+
+    expect(screen.getByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent(
+      `?siteId=${dashboard.site.id}&mode=manual`
+    ));
+  });
+
+  it("drops schedule dialog state when the site or user scope changes", async () => {
+    const { rerender } = renderControl(
+      "admin",
+      dashboard.site.id,
+      USER_A,
+      `/control?siteId=${dashboard.site.id}&mode=schedule`
+    );
+    fireEvent.click(screen.getByRole("button", { name: "테스트 스케줄 dialog 열기" }));
+    expect(screen.getByText("테스트 스케줄 dialog 열림")).toBeInTheDocument();
+
+    const nextSiteId = "00000000-0000-4000-8000-000000000099";
+    const nextDashboard: Dashboard = { ...dashboard, site: { ...dashboard.site, id: nextSiteId, name: "다음 현장" } };
+    mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
+    rerender(controlElement(nextSiteId, "admin", USER_A, `/control?siteId=${dashboard.site.id}&mode=schedule`));
+    expect(screen.queryByText("테스트 스케줄 dialog 열림")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "테스트 스케줄 dialog 열기" }));
+    rerender(controlElement(nextSiteId, "admin", USER_B, `/control?siteId=${dashboard.site.id}&mode=schedule`));
+    expect(screen.queryByText("테스트 스케줄 dialog 열림")).not.toBeInTheDocument();
+  });
 });
 
 function renderControl(
   role: "operator" | "admin" | "viewer" = "admin",
   siteId = dashboard.site.id,
-  userId = USER_A
+  userId = USER_A,
+  initialEntry = `/control?siteId=${siteId}`
 ) {
-  return render(controlElement(siteId, role, userId));
+  return render(controlElement(siteId, role, userId, initialEntry));
 }
 
 function controlElement(
   siteId: string,
   role: "operator" | "admin" | "viewer" = "admin",
-  userId = USER_A
+  userId = USER_A,
+  initialEntry = `/control?siteId=${siteId}`
 ) {
   return (
     <QueryClientProvider client={new QueryClient()}>
-      <ControlView siteId={siteId} userId={userId} userRole={role} />
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <ControlView siteId={siteId} userId={userId} userRole={role} />
+        <ControlLocation />
+      </MemoryRouter>
     </QueryClientProvider>
   );
+}
+
+function ControlLocation() {
+  const location = useLocation();
+  return <output data-testid="control-location">{`${location.pathname}${location.search}`}</output>;
 }
 
 function createFixture(

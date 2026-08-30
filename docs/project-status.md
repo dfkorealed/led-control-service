@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry, Task 14 Gateway BLE Mesh Sensor Client, Task 15 ESP32-H2 GPIO sensor driver와 Task 16 Sensor Server/reliable vendor event를 완료했다. 다음 구현은 Task 17 Web 제어 탭과 스케줄 CRUD UI다.
+**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry, Task 14 Gateway BLE Mesh Sensor Client, Task 15 ESP32-H2 GPIO sensor driver, Task 16 Sensor Server/reliable vendor event와 Task 17 Web 제어 탭·스케줄 CRUD UI를 완료했다. 다음 구현은 Task 18 Web 차량 이벤트 CRUD와 수동 override UI다.
 
 ## 작업 상태
 
@@ -30,10 +30,11 @@
 | 스케줄·차량 이벤트 제어 Task 14 | 완료(소프트웨어) | Gateway BlueZ application에 Sensor/vendor client를 등록하고 confirmed node의 Sensor Server/vendor server bind와 publication을 exact Config Status로 확인한다. Presence/Motion Status와 strict vendor event를 normalized runtime 입력으로 연결하고 manifest 기반 durable dedupe 뒤 application ACK를 보낸다. Node별 capability report는 실제 binding 상태 변경 때만 revision을 올리며 broker PUBACK과 분리된 exact application ACK 전까지 동일 event/revision/payload/hash를 bounded retry한다. Rejected/hash mismatch는 journal을 보존한다. 실제 ESP32-H2 firmware와 Raspberry Pi/BlueZ RF HIL은 별도다. |
 | 스케줄·차량 이벤트 제어 Task 15 | 완료(소프트웨어/target build, fix round 3) | Production trust는 caller env override가 불가능한 고정 unprovisioned policy에서 fail-closed하고, v2 approval과 signed artifact attestation test-only fixture로 CID/source/config/partition 및 app/bootloader/partition-table/otadata exact binding을 검증한다. Sensor task notification gate, queue-empty 재확인과 stable GPIO resync가 create-before-return callback 및 stale timestamp/current overwrite를 막는다. Task 15 clean test-build는 `0xe6790`, free `0x109870`이며 실제 production root, flash, 센서 전기/cache-disabled/RF/HIL은 미실행이다. |
 | 스케줄·차량 이벤트 제어 Task 16 | 완료(소프트웨어/target build, breaker) | Pinned ESP-IDF v5.5.1의 server-send 경계를 repository-managed build-only patch로 보완했다. `SERVER_MODEL_SEND` payload/context는 API thread에서 all-or-nothing snapshot하고 allocation/envelope/queue-post 실패는 handler 없이 동기 오류와 exact cleanup, queue 수락은 기존 handler deep-free 1회를 보장한다. Wrong revision/hash와 tampered overlay는 overwrite 없이 fail-closed하며 patch digest를 test manifest v3/production attestation v2에 결속한다. Client send는 유지했고 P2-14 burst/retry와 four-point allocation fault를 actual patched source/production host fake로 검증했다. Gateway 547/547, shared 75/75와 patched ESP-IDF fullclean test-build를 통과했으며 binary `0xefa30`, OTA free `0x1005d0`이다. Global IDF checkout은 pristine이고 production trust는 정상 fail-closed, 실제 flash/RF/HIL은 미실행이다. |
+| 스케줄·차량 이벤트 제어 Task 17 | 완료(소프트웨어/Web unit) | `mode=manual|schedule|event` 제어 탭, admin schedule CRUD·활성화, viewer read-only 목록, 현장 timezone 날짜·once/daily/weekly/monthly/yearly·자정 통과 한 구간·dimming·최대 1,000개 target form, Gateway sync/최근 결과와 안전한 API 오류 매핑을 구현했다. Focused 67/67, Web 전체 321/321, typecheck/lint/build를 통과했다. Production API/Gateway Chromium E2E와 Raspberry Pi/ESP32-H2 HIL은 미실행이고 이벤트 탭은 Task 18 준비 상태다. |
 
 ## 다음 단계
 
-**다음 구현은 Task 17 Web 제어 탭과 스케줄 CRUD UI다.** 이후 차량 이벤트 규칙 Web CRUD, software E2E와 HIL 순서로 진행한다. Native/target build와 Docker Mosquitto 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
+**다음 구현은 Task 18 Web 차량 이벤트 CRUD와 수동 override UI다.** 이후 software E2E와 HIL 순서로 진행한다. Native/target build와 Docker Mosquitto, Web unit 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 
@@ -45,7 +46,7 @@
 
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
-- 스케줄 및 차량 이벤트 규칙 API CRUD, durable full-snapshot outbox, production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK, offline scheduler·priority arbiter, durable execution telemetry/application ACK와 Sensor Client event 입력은 완료했다. Web CRUD는 아직 구현되지 않았다.
+- 스케줄 규칙은 Web admin CRUD·활성화와 viewer read-only, Gateway 동기화·최근 결과까지 연결했다. 차량 이벤트 규칙 Web CRUD와 수동 override 종료 시각 입력은 Task 18 범위로 아직 구현되지 않았다.
 - 차량 센서 capability report/ACK, Gateway exact ACK와 ESP32-H2 GPIO/Sensor/vendor model은 소프트웨어와 target build에서 연결됐다. 실제 Raspberry Pi/BlueZ와 ESP32-H2 사이 provisioning, Sensor Get/Status, vendor packet loss·retry·ACK, reboot/reprovision 및 Health fault RF 왕복 HIL은 아직 실행하지 않았다.
 
 ### 통계

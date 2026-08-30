@@ -1,7 +1,8 @@
 import { Layers3 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CreateDimmingCommandInput, DimmingTarget } from "@led-control/shared";
+import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
 import {
   canonicalizeDimmingCommandInput,
@@ -20,8 +21,14 @@ import {
   saveActiveCommandId,
   saveActiveCommandRequest
 } from "./active-command-store";
-import { ControlTargetPicker, type ControlSelection } from "./ControlTargetPicker";
+import {
+  ControlTargetPicker,
+  controlSelectionToDimmingTarget,
+  type ControlSelection
+} from "./ControlTargetPicker";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
+import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
+import { ScheduleControlPanel } from "./automation/ScheduleControlPanel";
 import { floorMeshReadiness } from "./control-readiness";
 import {
   isActiveCommandSessionBlocked,
@@ -42,6 +49,10 @@ export function ControlView({
   userRole: AuthUser["role"];
   commandSessionBlocked?: boolean;
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const requestedMode = new URLSearchParams(location.search).get("mode");
+  const mode: ControlPageMode = isControlPageMode(requestedMode) ? requestedMode : "manual";
   const { data, isLoading, error } = useControlDashboard(siteId);
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
@@ -82,7 +93,7 @@ export function ControlView({
     ? formatControlBlockReason(blockedFixture.controlBlockReason, blockedFixture.name)
     : null;
   const readOnly = userRole === "viewer";
-  const target = selected.isValid ? toDimmingTarget(selection) : null;
+  const target = selected.isValid ? controlSelectionToDimmingTarget(selection) : null;
   const commandInProgress = Boolean(
     scopedActiveRequest && !scopedCommandId
     || scopedCommandId && !matchingCommandIsTerminal
@@ -92,6 +103,17 @@ export function ControlView({
   );
   const controlsLocked = readOnly || commandSessionBlocked || isSubmitting || restorePending || commandInProgress;
   const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !controlsLocked);
+
+  useEffect(() => {
+    if (requestedMode === mode) return;
+    const search = new URLSearchParams(location.search);
+    search.set("mode", mode);
+    void navigate({ pathname: location.pathname, search: `?${search.toString()}` }, { replace: true });
+  }, [location.pathname, location.search, mode, navigate, requestedMode]);
+
+  useEffect(() => {
+    if (mode !== "manual") setGroupDialogOpen(false);
+  }, [mode]);
 
   useLayoutEffect(() => {
     const generation = ++requestGeneration.current;
@@ -201,20 +223,70 @@ export function ControlView({
       && activeScope.current.siteId === requestSiteId;
   }
 
+  function selectMode(nextMode: ControlPageMode) {
+    const search = new URLSearchParams(location.search);
+    search.set("mode", nextMode);
+    void navigate({ pathname: location.pathname, search: `?${search.toString()}` });
+  }
+
+  const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} />;
+
+  if (mode === "event") {
+    return (
+      <section className="control-screen">
+        {modeTabs}
+        <div
+          id="control-mode-panel-event"
+          className="control-mode-placeholder"
+          role="tabpanel"
+          aria-labelledby="control-mode-event"
+        >
+          <span className="eyebrow">차량 감지 자동제어</span>
+          <h2>이벤트 제어</h2>
+          <p>이벤트 제어는 다음 작업에서 제공됩니다.</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (mode === "schedule") {
+    const scheduleSiteId = data?.site.id ?? siteId;
+    return (
+      <section className="control-screen">
+        {modeTabs}
+        {scheduleSiteId ? (
+          <ScheduleControlPanel
+            key={`${userId}:${scheduleSiteId}`}
+            siteId={scheduleSiteId}
+            role={userRole}
+            dashboard={data}
+            scopeKey={`${userId}:${scheduleSiteId}`}
+          />
+        ) : isLoading ? (
+          <p className="muted-text" role="status">현장 정보를 불러오는 중입니다.</p>
+        ) : (
+          <p className="danger-text" role="alert">스케줄 현장을 확인하지 못했습니다.</p>
+        )}
+      </section>
+    );
+  }
+
   if (isLoading && !data) {
-    return <section className="control-screen"><p className="muted-text" role="status">제어 대상을 불러오는 중입니다.</p></section>;
+    return <section className="control-screen">{modeTabs}<p className="muted-text" role="status">제어 대상을 불러오는 중입니다.</p></section>;
   }
 
   if (error && !data) {
-    return <section className="control-screen"><p className="danger-text" role="alert">제어 대상을 불러오지 못했습니다.</p></section>;
+    return <section className="control-screen">{modeTabs}<p className="danger-text" role="alert">제어 대상을 불러오지 못했습니다.</p></section>;
   }
 
   if (!data) {
-    return <section className="control-screen"><p className="muted-text" role="status">제어 대상 데이터가 없습니다.</p></section>;
+    return <section className="control-screen">{modeTabs}<p className="muted-text" role="status">제어 대상 데이터가 없습니다.</p></section>;
   }
 
   return (
     <section className="control-screen">
+      {modeTabs}
+      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="control-manual-panel">
       <div className="screen-heading">
         <div>
           <span className="eyebrow">수동 제어</span>
@@ -337,6 +409,7 @@ export function ControlView({
         returnFocusRef={groupDialogOpenerRef}
         onClose={() => setGroupDialogOpen(false)}
       />
+      </div>
     </section>
   );
 }
@@ -398,22 +471,15 @@ function selectionResult(name: string, fixtures: DashboardFixture[], isValid: bo
   };
 }
 
-function toDimmingTarget(selection: ControlSelection): DimmingTarget | null {
-  if (selection.mode === "fixtures") {
-    if (selection.fixtureIds.length === 0) return null;
-    return selection.fixtureIds.length === 1
-      ? { type: "fixture", fixtureId: selection.fixtureIds[0] }
-      : { type: "fixtures", fixtureIds: selection.fixtureIds };
-  }
-  if (selection.mode === "floor") return selection.floorId ? { type: "floor", floorId: selection.floorId } : null;
-  return selection.groupId ? { type: "group", groupId: selection.groupId } : null;
-}
-
 function deliveryLabel(selection: ControlSelection, fixtureCount: number) {
   if (selection.mode === "floor" || selection.mode === "group") return "BLE Mesh 그룹 전송";
   if (fixtureCount === 1) return "BLE Mesh 개별 전송";
   if (fixtureCount > 1) return "BLE Mesh 다중 대상 전송";
   return "대상을 선택하세요";
+}
+
+function isControlPageMode(value: string | null): value is ControlPageMode {
+  return value === "manual" || value === "schedule" || value === "event";
 }
 
 function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof useCommandStatus>["data"]> }) {

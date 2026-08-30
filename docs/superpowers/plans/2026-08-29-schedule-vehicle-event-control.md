@@ -1232,7 +1232,7 @@ Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Ta
 - Consumes: schedule API, existing `ControlTargetPicker`, React Query and common Button/Dialog/Input components.
 - Produces: 수동/스케줄/이벤트 탭, schedule list/create/edit/delete/enable, sync status.
 
-- [ ] **Step 1: admin CRUD와 viewer read-only 실패 테스트를 작성한다**
+- [x] **Step 1: admin CRUD와 viewer read-only 실패 테스트를 작성한다**
 
 ```tsx
 render(<ScheduleControlPanel siteId="site-1" role="viewer" />);
@@ -1240,19 +1240,19 @@ expect(screen.queryByRole("button", { name: "스케줄 추가" })).not.toBeInThe
 expect(screen.getByText("Gateway 동기화 중")).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: 탭과 API query/mutation을 구현한다**
+- [x] **Step 2: 탭과 API query/mutation을 구현한다**
 
 탭은 `수동 제어`, `스케줄 제어`, `이벤트 제어`를 사용하고 URL query `mode=manual|schedule|event`로 새로고침 뒤 선택을 유지한다. mutation 성공 시 schedule list와 control dashboard query를 invalidate한다.
 
-- [ ] **Step 3: schedule form validation을 구현한다**
+- [x] **Step 3: schedule form validation을 구현한다**
 
 기간, 한 시간 구간, 반복별 필수값, 밝기 0~100, target 1개 이상을 client에서 검증한다. 월 29~31일과 2월 29일은 허용하고 건너뛰기 의미를 짧은 보조 문구로 표시한다. 서버 `schedule_overlap`은 대상/시간 충돌 메시지로 표시한다.
 
-- [ ] **Step 4: 목록과 동기화 상태를 구현한다**
+- [x] **Step 4: 목록과 동기화 상태를 구현한다**
 
 이름, enabled, 다음 실행, 반복·시간, 밝기, 대상 수, `동기화 중|적용됨|적용 실패`, 최근 결과를 table로 표시한다. viewer에게 edit/delete/toggle command를 렌더링하지 않는다.
 
-- [ ] **Step 5: Web 검증 후 커밋한다**
+- [x] **Step 5: Web 검증 후 커밋한다**
 
 Run: `pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/web test -- ScheduleControlPanel.test.tsx && pnpm --filter @led-control/web build`
 
@@ -1260,6 +1260,8 @@ Run: `pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/web
 git add apps/web/src/features/control apps/web/src/api/automation.ts apps/web/src/styles.css
 git commit -m "feat(web): add schedule control interface"
 ```
+
+검증: API·form 최초 RED는 새 모듈 부재로 2 suite가 실패했고, panel/URL RED에서는 기존 수동 제어 41개가 통과한 상태로 새 mode 테스트 3개와 panel suite가 실패했다. 다중 fixture canonical order와 삭제 실패 dialog 표시도 각각 RED를 확인했다. 구현 뒤 focused 4파일 67/67, Web 전체 31파일 321/321, typecheck, lint와 production build를 통과했다. Production API/Gateway Chromium E2E와 실제 Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
 
 ### Task 18: Web 이벤트 CRUD와 수동 override UI
 

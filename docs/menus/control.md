@@ -7,7 +7,7 @@
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
-- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. 다음 구현은 Web CRUD, software E2E와 HIL 순서다.
+- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. Task 17에서 schedule Web CRUD를 연결했으며 다음 구현은 Task 18 차량 이벤트 Web CRUD, software E2E와 HIL 순서다.
 
 ## 확정 구현 범위
 
@@ -36,6 +36,11 @@
 
 ## 구현 완료
 
+- 제어 페이지에 `수동 제어 | 스케줄 제어 | 이벤트 제어` 탭을 추가했다. 선택 상태는 `mode=manual|schedule|event` URL query로 유지하고 누락되거나 잘못된 값은 기존 `siteId`를 보존한 채 `manual`로 정규화한다. Site 또는 사용자 scope가 바뀌면 열린 스케줄 dialog와 mutation 표시 상태를 새 scope로 넘기지 않는다.
+- schedule 목록은 서버 `schedules.service.ts`의 실제 응답 형태를 사용해 이름, 활성 상태, 현장 시간대의 다음 실행, 반복·시간, 밝기, 대상 수, Gateway `PENDING|APPLIED|REJECTED` 상태와 최근 실행 결과를 표시한다. 100개 bounded cursor page를 이어 불러오며 목록은 3초 polling한다.
+- admin은 schedule 추가·수정·삭제·활성화/비활성화를 수행할 수 있고 viewer는 같은 목록과 상태만 조회한다. mutation 성공 시 중앙 schedule query key와 dashboard query를 invalidate한다. `schedule_overlap`, `single_gateway_required`, 권한·입력 오류는 서버 원문을 노출하지 않는 한글 메시지로 표시한다.
+- schedule dialog는 1회·매일·매주·매월·매년 반복, 하나의 자정 통과 가능 시간 구간, 적용 날짜 기간, 디밍 ON 밝기 0~100·디밍 OFF 100%, 개별/다중·층·구역 target을 지원한다. 날짜는 Site IANA timezone의 달력 날짜를 ISO instant로 변환하며 브라우저 local timezone과 분리한다. 직접 선택은 최대 1,000개이고 월 29~31일 및 매년 2월 29일의 건너뛰기 의미를 안내한다.
+- 이벤트 탭은 Task 18 전의 최소 준비 상태만 렌더링하며 source/target/hold CRUD command는 아직 제공하지 않는다.
 - Gateway production runtime은 Task 11의 snapshot activation callback을 실제 offline scheduler와 priority arbiter에 연결했다. `@led-control/automation-engine` recurrence로 wall-clock schedule occurrence를 계산하고 fixture별 `active manual override > 활성 차량 event 중 최대 brightness > schedule > 마지막 실제 관측/current 또는 source 시작 전 default` 순으로 desired brightness를 선택한다. Source 종료는 저장된 pre-state를 base로 다시 arbitrate하므로 현재 더 높은 source를 덮지 않는다.
 - Gateway는 automation state schema v5에 실제 관측 또는 성공 terminal로 확인된 desired, restart observation이 필요한 legacy desired, 차량 센서 bounded inbox를 함께 저장한다. V1~V4는 v5로 migration하며 lifecycle/terminal transition, telemetry handoff, `(sourceUnicast,bootId,sequence)` receipt를 각 상태 변경과 같은 atomic mutation에 저장한다. Restart pending/unverified desired는 lighting observation까지 RF를 보류하고 target과 다를 때만 RF를 전송한다.
 - Automation fixture observation은 Health Current telemetry와 분리된 OnOff/Lightness callback으로 수집한다. Health timeout이어도 밝기 recovery는 완료된다. Full resync는 MQTT/heartbeat/ACK/manual control startup 뒤 모든 confirmed fixture를 bounded-concurrency worker로 순회하고 fixture 실패를 격리한다. Error 또는 `timedOut`/`failed`가 있는 full report는 250ms~30초 capped exponential backoff로 자동 rerun하며, restart pending source도 observation listener 설치 뒤 targeted worker에 즉시 seed한다. Full/targeted worker는 fixture 경계, 관측 대기, busy retry에 `AbortSignal`을 전달하고 production shutdown은 timer를 취소한 뒤 기본 5초 상한으로 drain한다. Readiness는 full resync의 `mesh_resync_pending|mesh_resync_failed` blocker로 노출한다.
@@ -174,7 +179,6 @@
 
 ## 미구현
 
-- 스케줄 제어 Web CRUD
 - 차량 이벤트 규칙 Web CRUD
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
@@ -192,7 +196,7 @@
 - Task 14 Gateway Sensor/vendor client, Task 15 GPIO driver와 Task 16 ESP32-H2 model은 native exact wire/retry, actual production-source host fake와 patched ESP-IDF fullclean target build로 검증했다. Model host fake는 config queue 포화와 reboot 복원, period/AppKey/reprovision, 네 Sensor 요청, authoritative current unavailable, 단일 timer, stop race/restart, event별 initial+6 retry 실제 publish, Sensor/vendor completion 영구 유실, duplicate-after-reuse, 이전 generation completion 무해성과 외부 Health 배열 재구성을 실행한다. Breaker test는 payload/context/envelope/queue-post deterministic failure의 동기 오류, handler 0회/exact free와 16 burst pending retry를 실행한다. 실제 RF, device heap/queue timing, cache-disabled ISR, 센서 전기 신호, packet loss, 전원 차단은 증명하지 않으며 HIL은 아직 실행하지 않았다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
-- schedule API CRUD와 Gateway offline schedule 실행은 구현 완료했다. Schedule Web CRUD는 후속 범위이며, 아직 동작하지 않는 Web 버튼은 양산 UI에서 제거했다.
+- schedule API CRUD, Gateway offline schedule 실행과 Schedule Web CRUD는 구현 완료했다. Web 검증은 Vitest 기반 목록·폼·CRUD·권한·URL·기존 수동 제어 회귀까지이며 production API/Gateway를 연결한 Chromium software E2E와 실제 Raspberry Pi/ESP32-H2 HIL은 후속 범위다.
 - 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.
 - Health Current는 최신 snapshot만 사용하며 fault 이력과 제품별 code 설명은 아직 제공하지 않는다.
 - viewer의 읽기 전용 안내는 구현됐지만, 향후 명령 이력 화면에서도 동일한 권한 설명을 재사용하도록 공통화할 수 있다.
@@ -242,6 +246,14 @@
 - `apps/web/src/features/control/ControlView.tsx`
 - `apps/web/src/features/control/ControlTargetPicker.tsx`
 - `apps/web/src/features/control/ControlView.test.tsx`
+- `apps/web/src/features/control/automation/ControlModeTabs.tsx`
+- `apps/web/src/features/control/automation/ScheduleControlPanel.tsx`
+- `apps/web/src/features/control/automation/ScheduleControlPanel.test.tsx`
+- `apps/web/src/features/control/automation/ScheduleDialog.tsx`
+- `apps/web/src/features/control/automation/schedule-form.ts`
+- `apps/web/src/features/control/automation/schedule-form.test.ts`
+- `apps/web/src/api/automation.ts`
+- `apps/web/src/api/automation.test.ts`
 - `apps/web/src/features/control/FixtureGroupDialog.tsx`
 - `apps/web/src/features/control/FixtureGroupDialog.test.tsx`
 - `apps/web/src/api/fixture-groups.ts`

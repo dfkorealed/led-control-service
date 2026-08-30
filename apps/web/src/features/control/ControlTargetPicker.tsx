@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { DimmingTarget } from "@led-control/shared";
 import type { Dashboard, DashboardFixture } from "../../api/queries";
 import { fixtureGroupReadiness, floorMeshReadiness } from "./control-readiness";
 
@@ -12,6 +13,19 @@ export type ControlSelection =
   | { mode: "fixtures"; fixtureIds: string[] }
   | { mode: "floor"; floorId: string }
   | { mode: "group"; groupId: string };
+
+export function controlSelectionToDimmingTarget(selection: ControlSelection): DimmingTarget | null {
+  if (selection.mode === "fixtures") {
+    if (selection.fixtureIds.length === 0) return null;
+    return selection.fixtureIds.length === 1
+      ? { type: "fixture", fixtureId: selection.fixtureIds[0] }
+      : { type: "fixtures", fixtureIds: selection.fixtureIds };
+  }
+  if (selection.mode === "floor") {
+    return selection.floorId ? { type: "floor", floorId: selection.floorId } : null;
+  }
+  return selection.groupId ? { type: "group", groupId: selection.groupId } : null;
+}
 
 interface ControlTargetPickerProps {
   dashboard: Dashboard;
