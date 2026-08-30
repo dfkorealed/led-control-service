@@ -237,36 +237,37 @@ static void vehicle_sensor_task(void *argument) {
       return;
     }
 
-    vehicle_sensor_publish_edge(sensor, &edge);
-    while (xQueueReceive(sensor->queue, &edge, 0) == pdTRUE) {
+    for (;;) {
       vehicle_sensor_publish_edge(sensor, &edge);
-    }
-
-    while (atomic_exchange_explicit(&sensor->resync_needed, false, memory_order_acq_rel)) {
-      const uint32_t generation_before =
-          atomic_load_explicit(&sensor->isr_generation, memory_order_acquire);
-      vehicle_sensor_edge_t sampled_edge = {
-          .monotonic_us = (uint64_t)esp_timer_get_time(),
-      };
-      sampled_edge.level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0;
-
-      bool generation_stable = false;
-      portENTER_CRITICAL(&startup_mux);
-      if (generation_before ==
-          atomic_load_explicit(&sensor->isr_generation, memory_order_acquire)) {
-        atomic_store_explicit(&sensor->current_level, sampled_edge.level, memory_order_relaxed);
-        atomic_store_explicit(&sensor->current_level_valid, true, memory_order_release);
-        generation_stable = true;
-      }
-      portEXIT_CRITICAL(&startup_mux);
-
-      if (generation_stable) {
-        vehicle_sensor_publish_edge(sensor, &sampled_edge);
-      }
-      // A changed generation rejects the stale sample; drain the newer ISR edge before retrying.
       while (xQueueReceive(sensor->queue, &edge, 0) == pdTRUE) {
         vehicle_sensor_publish_edge(sensor, &edge);
       }
+
+      bool queue_edge_pending = false;
+      bool sampled = false;
+      vehicle_sensor_edge_t sampled_edge;
+
+      // Serialize the final empty check and authoritative sample with ISR dispatch.
+      portENTER_CRITICAL(&startup_mux);
+      if (xQueueReceive(sensor->queue, &edge, 0) == pdTRUE) {
+        queue_edge_pending = true;
+      } else if (atomic_exchange_explicit(
+                     &sensor->resync_needed, false, memory_order_acq_rel)) {
+        sampled_edge.monotonic_us = (uint64_t)esp_timer_get_time();
+        sampled_edge.level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0;
+        atomic_store_explicit(&sensor->current_level, sampled_edge.level, memory_order_relaxed);
+        atomic_store_explicit(&sensor->current_level_valid, true, memory_order_release);
+        sampled = true;
+      }
+      portEXIT_CRITICAL(&startup_mux);
+
+      if (queue_edge_pending) {
+        continue;
+      }
+      if (sampled) {
+        vehicle_sensor_publish_edge(sensor, &sampled_edge);
+      }
+      break;
     }
   }
 }

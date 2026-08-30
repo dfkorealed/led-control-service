@@ -23,6 +23,9 @@ static int64_t monotonic_us;
 static unsigned int gpio_read_count;
 static unsigned int transition_read_number;
 static bool transition_read_level;
+static bool fire_edges_after_empty_receive;
+static bool empty_receive_first_level;
+static bool empty_receive_second_level;
 static fake_failure_t next_failure;
 static TaskHandle_t created_task;
 static TaskHandle_t current_task;
@@ -55,6 +58,9 @@ void fake_esp_idf_reset(bool initial_level) {
   gpio_read_count = 0;
   transition_read_number = 0;
   transition_read_level = false;
+  fire_edges_after_empty_receive = false;
+  empty_receive_first_level = false;
+  empty_receive_second_level = false;
   next_failure = FAKE_FAIL_NONE;
   created_task = NULL;
   current_task = NULL;
@@ -75,6 +81,12 @@ void fake_esp_idf_transition_during_gpio_read(unsigned int read_number, bool lev
 void fake_esp_idf_transition_on_next_gpio_read(bool level) {
   transition_read_number = gpio_read_count + 1;
   transition_read_level = level;
+}
+
+void fake_esp_idf_fire_edges_after_next_empty_receive(bool first_level, bool second_level) {
+  fire_edges_after_empty_receive = true;
+  empty_receive_first_level = first_level;
+  empty_receive_second_level = second_level;
 }
 
 void fake_esp_idf_preempt_task_create_once(void) {
@@ -238,6 +250,11 @@ BaseType_t xQueueSendFromISR(QueueHandle_t queue, const void *item, BaseType_t *
 BaseType_t xQueueReceive(QueueHandle_t queue, void *item, TickType_t ticks_to_wait) {
   (void)ticks_to_wait;
   if (queue == NULL || !queue->active || queue->count == 0) {
+    if (queue != NULL && queue->active && fire_edges_after_empty_receive) {
+      fire_edges_after_empty_receive = false;
+      fake_esp_idf_fire_edge(empty_receive_first_level);
+      fake_esp_idf_fire_edge(empty_receive_second_level);
+    }
     return pdFALSE;
   }
   memcpy(item, queue->storage + queue->head * queue->item_size, queue->item_size);

@@ -8,7 +8,7 @@
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령을 받아 PWM 밝기에 반영하는 단계까지 빌드 검증했다.
-- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개와 차량 센서 GPIO driver 포함 후 test-build `led_control_node.bin` 크기는 `0xe67b0`(`944,048`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x109850`(`1,087,568`, 약 54%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
+- BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개와 차량 센서 GPIO driver 포함 후 test-build `led_control_node.bin` 크기는 `0xe6790`(`944,016`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x109870`(`1,087,600`, 약 54%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
 
 ## ESP-IDF 설치
 
@@ -121,7 +121,7 @@ flash wrapper는 fixed production policy로 signed approval과 signed artifact a
 
 driver는 interrupt가 비활성인 상태에서 boot level을 32개 static queue에 먼저 넣는다. 이어 critical section 안에서 interrupt를 enable하고 즉시 level을 재확인하므로 ISR edge가 boot event보다 앞서지 않는다. Driver start 이전에 발생하고 원래 level로 돌아온 짧은 pulse는 보장 범위 밖이며, start가 반환할 때 current level은 마지막 reconciliation 또는 ISR 관측값으로 초기화된다.
 
-양 edge ISR은 `{level, monotonic_us}`를 전달하며 외부 호출은 `gpio_get_level`, `esp_timer_get_time`, `xQueueSendFromISR`로 제한된다. queue가 가득 차면 lock-free saturating dropped counter와 atomic resync-needed만 갱신하고 log, BLE, block을 수행하지 않는다. 일반 task는 queued edge를 먼저 모두 처리한 뒤 `timestamp -> GPIO level` 순서로 authoritative sample을 만든다. ISR generation을 sample 전후에 비교하고 critical section에서 안정된 경우에만 current/event를 갱신하며, newer ISR과 경합하면 stale sample을 버리고 queue를 다시 drain한다. 시간 간격과 무관하게 동일 level만 제거하며 software debounce/timing filter는 없다.
+양 edge ISR은 `{level, monotonic_us}`를 전달하며 외부 호출은 `gpio_get_level`, `esp_timer_get_time`, `xQueueSendFromISR`로 제한된다. queue가 가득 차면 lock-free saturating dropped counter와 atomic resync-needed만 갱신하고 log, BLE, block을 수행하지 않는다. 일반 task는 queued edge를 모두 처리한 뒤 critical section에서 queue empty를 다시 확인한다. Pending edge가 있으면 section을 나와 다시 drain하고, empty일 때만 resync-needed consume과 `timestamp -> GPIO level` authoritative sample을 같은 section에서 수행한다. Callback은 section 밖에서 실행되므로 sample 이후 ISR은 더 늦은 queue event로 처리된다. 시간 간격과 무관하게 동일 level만 제거하며 software debounce/timing filter는 없다.
 
 Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 priority task가 `xTaskCreateStatic()` 반환 전에 선점해도 callback을 실행할 수 없고, controller가 `driver.task` handle을 publish한 뒤 gate를 연다. 따라서 callback 안의 `vehicle_sensor_driver_stop()`은 항상 `ESP_ERR_INVALID_STATE`로 거부되며 외부 control/shutdown context의 stop만 완전 cleanup과 restart를 수행한다.
 

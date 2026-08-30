@@ -60,6 +60,13 @@ static void fill_queue_and_drop_terminal_high(void) {
   fake_esp_idf_fire_edge(true);
 }
 
+static void fill_queue_and_drop_terminal_low(void) {
+  for (unsigned int index = 0; index < 32; index += 1) {
+    fake_esp_idf_fire_edge(index % 2 != 0);
+  }
+  fake_esp_idf_fire_edge(false);
+}
+
 static void test_queue_overflow_resyncs_a_held_high_level(void) {
   event_log_t log = {0};
   bool current = false;
@@ -97,9 +104,36 @@ static void test_newer_isr_edge_wins_a_resync_read_race(void) {
   fake_esp_idf_transition_on_next_gpio_read(false);
   fake_esp_idf_run_sensor_task();
 
-  assert(log.count == 32);
+  assert(log.count == 34);
   for (size_t index = 1; index < log.count; index += 1) {
     assert(log.events[index - 1].monotonic_us <= log.events[index].monotonic_us);
+  }
+  assert(log.events[log.count - 2].level);
+  assert(!log.events[log.count - 1].level);
+  assert(vehicle_sensor_driver_get_current_level(&current));
+  assert(!current);
+  assert(vehicle_sensor_driver_stop() == ESP_OK);
+}
+
+static void test_two_isr_edges_after_queue_empty_precede_resync_sample(void) {
+  event_log_t log = {0};
+  bool current = true;
+
+  fake_esp_idf_reset(false);
+  assert(vehicle_sensor_driver_start(record_event, &log) == ESP_OK);
+  fake_esp_idf_run_sensor_task();
+  log.count = 0;
+
+  fill_queue_and_drop_terminal_low();
+  fake_esp_idf_fire_edges_after_next_empty_receive(true, false);
+  fake_esp_idf_run_sensor_task();
+
+  for (size_t index = 1; index < log.count; index += 1) {
+    assert(log.events[index - 1].monotonic_us <= log.events[index].monotonic_us);
+  }
+  assert(log.count == 32);
+  for (size_t index = 0; index < log.count; index += 1) {
+    assert(log.events[index].level == (index % 2 == 0));
   }
   assert(vehicle_sensor_driver_get_current_level(&current));
   assert(!current);
@@ -160,6 +194,7 @@ int main(void) {
   test_boot_sample_precedes_deferred_isr_and_current_is_ready();
   test_queue_overflow_resyncs_a_held_high_level();
   test_newer_isr_edge_wins_a_resync_read_race();
+  test_two_isr_edges_after_queue_empty_precede_resync_sample();
   test_task_create_preemption_blocks_until_handle_is_published();
   test_callback_self_stop_is_rejected_and_external_stop_completes();
   test_repeated_start_stop_and_failed_start_cleanup();

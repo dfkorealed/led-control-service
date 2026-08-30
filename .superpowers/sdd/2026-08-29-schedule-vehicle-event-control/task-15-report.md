@@ -1,6 +1,14 @@
 # Task 15 보고서: ESP32-H2 차량 센서 GPIO driver
 
-상태: Fix Round 2 완료(소프트웨어/clean target build, HIL 미실행)
+상태: Fix Round 3 완료(소프트웨어/clean target build, HIL 미실행)
+
+## Fix Round 3 잔존 finding 매핑
+
+| Finding | 수정 및 검증 |
+| --- | --- |
+| P2-1 queue-empty/resync ordering | Queue drain 뒤 task가 critical section에서 queue empty를 다시 확인한다. Pending edge가 있으면 section을 나와 drain으로 복귀하고, empty일 때만 resync-needed consume, monotonic timestamp와 GPIO level sample을 같은 section에서 수행한다. Callback은 section 밖에서 실행하므로 sample 이후 ISR은 더 늦은 queue event가 된다. Host fake가 empty 반환 직후 `High -> Low` 두 ISR을 재현해 callback timestamp 단조성, exact level 순서와 terminal getter Low를 검증한다. |
+
+Fix Round 3 clean build의 ISR/GPIO/timer/queue-send 주소는 `0x40801b4c`, `0x40808726`, `0x4080196e`, `0x4080b832`다. Task objdump는 `vPortEnterCritical -> queue recheck -> timer -> GPIO -> vPortExitCritical -> callback` 순서를 확인했다.
 
 ## Fix Round 2 잔존 finding 매핑
 
@@ -8,7 +16,7 @@
 | --- | --- |
 | P1-1 production trust | Production trust policy를 repository의 고정 경로로 제한하고 caller env의 public key/fingerprint/policy override를 읽지 않는다. 현재 policy는 `unprovisioned`라 실제 production build가 IDF 실행 전에 의도적으로 실패한다. 별도 `verify-test-only` fixture만 자체 생성 key로 v2 approval의 CID/source commit/sdkconfig/partition exact binding을 검증한다. |
 | P1-2 task-create race | Sensor task entry가 notification gate에서 먼저 block한다. `xTaskCreateStatic()` 반환 전에 priority preemption을 재현하는 fake scheduler에서도 callback은 0회이고, controller가 handle을 publish하고 gate를 연 뒤 callback self-stop은 항상 `ESP_ERR_INVALID_STATE`다. 외부 stop cleanup과 repeated lifecycle은 유지된다. |
-| P2-3 resync ordering | ISR generation을 모든 ISR entry에서 lock-free 증가시킨다. Task resync는 generation snapshot, timestamp, GPIO level, critical generation recheck 순으로 처리하며 newer ISR과 경합한 stale sample은 current/event에 publish하지 않고 queue를 다시 drain한다. Callback timestamp 단조 증가와 terminal getter Low를 host fake로 검증했다. |
+| P2-3 resync ordering | ISR generation과 timestamp-before-level 기반 경합 검사를 추가했다. Fix Round 3에서는 generation snapshot 전에 이미 enqueue된 edge까지 보장하도록 queue-empty 재확인과 authoritative sample을 하나의 critical section으로 강화했다. |
 | P2-4 progress tracking | 실수로 force-track한 `.superpowers/.../progress.md`는 `git rm --cached`로 index에서 삭제하고 ignored local coordination file은 보존한다. |
 
 Production approval v2는 CID, source commit, generated `sdkconfig`와 `partitions.csv` digest를 fixed approval key로 서명한다. Production artifact attestation은 approval manifest/signature/signer identity, app binary, bootloader, partition table, blank otadata, sdkconfig, linker map, generated flash args와 partition digest를 fixed release key로 서명하고 flash wrapper가 signature와 exact payload를 재검증한다. Test image의 app-entry fail-stop은 그대로 유지된다.
@@ -36,11 +44,12 @@ Production approval v2는 CID, source commit, generated `sdkconfig`와 `partitio
 
 ## TDD 및 자동 검증
 
+- Fix Round 3 RED: Queue drain의 empty 반환 직후 `High -> Low` 두 ISR을 넣자 기존 generation-only resync가 더 늦은 Low sample을 먼저 callback한 뒤 더 이른 High ISR edge를 처리해 timestamp 단조 assertion이 실패하는 것을 확인했다.
 - RED: UART-aware pin API와 `esp_err_t stop` 부재, side-effectful test `app_main`, unsigned production CID 통과, artifact audit script 부재를 각각 실패로 확인했다.
 - Native test: boot High/Low, 동일 level 제거, 동일 timestamp/1 us edge 보존, timestamp wrap, atomic counter와 GPIO allowlist를 검증했다.
-- Actual-driver host fake: boot sample/ISR interleaving, start current, 32-slot queue와 33번째 dropped High resync, generation 경합 중 stale publish 제거와 timestamp 단조성, create-before-return preemption gate, callback self-stop 거부, handler/task failure cleanup과 repeated lifecycle을 검증했다.
+- Actual-driver host fake: boot sample/ISR interleaving, start current, 32-slot queue와 33번째 dropped High/Low resync, queue-empty 직후 2개 ISR ordering과 timestamp 단조성, create-before-return preemption gate, callback self-stop 거부, handler/task failure cleanup과 repeated lifecycle을 검증했다.
 - Build/trust/artifact tests: caller-selected key/fingerprint production 거부, unprovisioned production fail-closed, 별도 test-only fixed policy의 v2 approval exact binding, signed attestation과 app/bootloader/partition-table/otadata 변조, test runtime marker, IRAM map fixture와 production OTA margin을 검증했다. 자체 생성 key로 production success를 주장하지 않는다.
-- ESP-IDF v5.5.1 clean `esp32h2` test-build와 post-build audit를 통과했다. Binary는 `0xe67b0`(`944,048`) 바이트, app slot은 `0x1f0000`(`2,031,616`) 바이트, free는 `0x109850`(`1,087,568`, 약 54%), production minimum free는 `406,324` 바이트다.
+- ESP-IDF v5.5.1 clean `esp32h2` test-build와 post-build audit를 통과했다. Binary는 `0xe6790`(`944,016`) 바이트, app slot은 `0x1f0000`(`2,031,616`) 바이트, free는 `0x109870`(`1,087,600`, 약 54%), production minimum free는 `406,324` 바이트다.
 
 ## 전기 안전 및 HIL 한계
 

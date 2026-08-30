@@ -1086,6 +1086,14 @@ Fix Round 1 clean test-build는 binary `0xe64f0`(`943,344`) 바이트, app slot 
 
 Fix Round 2 clean test-build는 binary `0xe67b0`(`944,048`) 바이트, app slot `0x1f0000`(`2,031,616`) 바이트, free `0x109850`(`1,087,568`, 약 54%)이며 production 최소 free gate는 `406,324` 바이트다. 기존 IRAM/boot/UART/OTA/test fail-stop 및 no-debounce 계약은 유지된다. 실제 production trust root/CID, flash, 센서 전기/noise/ESD, cache-disabled edge, Raspberry Pi RF와 HIL은 미실행이다.
 
+#### Task 15 Fix Round 3
+
+- [x] Queue drain 뒤 task critical section에서 queue empty를 재확인하고 pending edge가 있으면 sample 없이 drain으로 복귀한다.
+- [x] Empty일 때 resync-needed consume, timestamp, GPIO level sample을 같은 critical section에서 수행하고 callback은 section 밖에서 실행한다.
+- [x] Host fake가 queue-empty 직후 `High -> Low` 2개 ISR을 주입해 callback level 순서, timestamp 단조성과 terminal getter Low를 검증한다.
+
+Fix Round 3 clean test-build는 binary `0xe6790`(`944,016`) 바이트, app slot `0x1f0000`(`2,031,616`) 바이트, free `0x109870`(`1,087,600`, 약 54%)이며 production 최소 free gate는 `406,324` 바이트다. ISR/GPIO/timer/queue-send는 모두 `0x408...` IRAM이고 기존 trust/boot/UART/OTA/task gate/no-debounce 계약은 유지된다.
+
 ### Task 16: ESP32-H2 Sensor Server와 reliable vendor event
 
 **Files:**
