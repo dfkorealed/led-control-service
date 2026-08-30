@@ -33,6 +33,8 @@ static QueueHandle_t created_queue;
 static bool preempt_task_create_once;
 static bool preempting_task_create;
 static jmp_buf task_create_scheduler;
+static bool run_task_on_next_delay;
+static unsigned int queue_delete_count;
 
 static void dispatch_interrupt(void) {
   if (!interrupt_enabled || gpio_handler == NULL) {
@@ -67,6 +69,8 @@ void fake_esp_idf_reset(bool initial_level) {
   created_queue = NULL;
   preempt_task_create_once = false;
   preempting_task_create = false;
+  run_task_on_next_delay = false;
+  queue_delete_count = 0;
 }
 
 void fake_esp_idf_fail_next(fake_failure_t failure) {
@@ -103,6 +107,22 @@ void fake_esp_idf_run_sensor_task(void) {
   current_task = created_task;
   created_task->function(created_task->argument);
   current_task = NULL;
+}
+
+void fake_esp_idf_run_task_on_next_delay(void) {
+  run_task_on_next_delay = true;
+}
+
+void fake_esp_idf_set_created_task_as_current(bool make_current) {
+  current_task = make_current ? created_task : NULL;
+}
+
+void fake_esp_idf_set_time_us(int64_t value) {
+  monotonic_us = value;
+}
+
+unsigned int fake_esp_idf_queue_delete_count(void) {
+  return queue_delete_count;
 }
 
 bool fake_esp_idf_interrupt_enabled(void) {
@@ -242,6 +262,17 @@ BaseType_t xQueueSend(QueueHandle_t queue, const void *item, TickType_t ticks_to
   return pdTRUE;
 }
 
+BaseType_t xQueueSendToFront(QueueHandle_t queue, const void *item, TickType_t ticks_to_wait) {
+  (void)ticks_to_wait;
+  if (queue == NULL || !queue->active || queue->count == queue->length) {
+    return pdFALSE;
+  }
+  queue->head = (queue->head + queue->length - 1) % queue->length;
+  memcpy(queue->storage + queue->head * queue->item_size, item, queue->item_size);
+  queue->count += 1;
+  return pdTRUE;
+}
+
 BaseType_t xQueueSendFromISR(QueueHandle_t queue, const void *item, BaseType_t *higher_priority_woken) {
   (void)higher_priority_woken;
   return xQueueSend(queue, item, 0);
@@ -268,6 +299,21 @@ void vQueueDelete(QueueHandle_t queue) {
     queue->active = false;
   }
   created_queue = NULL;
+  queue_delete_count += 1;
+}
+
+BaseType_t xQueueReset(QueueHandle_t queue) {
+  if (queue == NULL || !queue->active) {
+    return pdFALSE;
+  }
+  queue->head = 0;
+  queue->tail = 0;
+  queue->count = 0;
+  return pdTRUE;
+}
+
+UBaseType_t uxQueueMessagesWaiting(QueueHandle_t queue) {
+  return queue == NULL || !queue->active ? 0 : queue->count;
 }
 
 TaskHandle_t xTaskCreateStatic(
@@ -337,4 +383,15 @@ uint32_t ulTaskNotifyTake(BaseType_t clear_on_exit, TickType_t ticks_to_wait) {
     longjmp(task_create_scheduler, 1);
   }
   return 0;
+}
+
+void vTaskDelay(TickType_t ticks) {
+  (void)ticks;
+  if (run_task_on_next_delay && created_task != NULL && created_task->active) {
+    run_task_on_next_delay = false;
+    TaskHandle_t caller = current_task;
+    current_task = created_task;
+    created_task->function(created_task->argument);
+    current_task = caller;
+  }
 }

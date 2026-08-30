@@ -8,6 +8,7 @@ trap 'rm -rf "$FIXTURE_ROOT"' EXIT
 mkdir -p "$FIXTURE_ROOT/build/bootloader" "$FIXTURE_ROOT/build/partition_table"
 cat >"$FIXTURE_ROOT/sdkconfig" <<'EOF'
 CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y
+CONFIG_BLE_MESH_SETTINGS=y
 CONFIG_LED_CONTROL_TEST_BUILD=y
 CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=65535
 EOF
@@ -75,3 +76,12 @@ if "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" create "$FIXTURE_ROOT" test 6
   exit 1
 fi
 grep -q "CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y" "$FIXTURE_ROOT/config.out"
+
+printf 'CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y\n' >>"$FIXTURE_ROOT/sdkconfig"
+sed -i.bak '/CONFIG_BLE_MESH_SETTINGS/d' "$FIXTURE_ROOT/sdkconfig"
+printf 'fixture binary\n' >"$FIXTURE_ROOT/build/led_control_node.bin"
+if "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" create "$FIXTURE_ROOT" test 65535 >"$FIXTURE_ROOT/mesh-settings.out" 2>&1; then
+  echo "audit unexpectedly accepted disabled BLE Mesh settings persistence" >&2
+  exit 1
+fi
+grep -q "CONFIG_BLE_MESH_SETTINGS=y" "$FIXTURE_ROOT/mesh-settings.out"

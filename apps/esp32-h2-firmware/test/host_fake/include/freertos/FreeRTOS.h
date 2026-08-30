@@ -14,6 +14,7 @@ typedef struct {
 #define pdTRUE 1
 #define pdFALSE 0
 #define portMAX_DELAY UINT32_MAX
+#define pdMS_TO_TICKS(milliseconds) ((TickType_t)(milliseconds))
 
 void fake_port_enter_critical(portMUX_TYPE *mux);
 void fake_port_exit_critical(portMUX_TYPE *mux);

@@ -23,3 +23,4 @@ void vTaskDelete(TaskHandle_t task);
 TaskHandle_t xTaskGetCurrentTaskHandle(void);
 BaseType_t xTaskNotifyGive(TaskHandle_t task);
 uint32_t ulTaskNotifyTake(BaseType_t clear_on_exit, TickType_t ticks_to_wait);
+void vTaskDelay(TickType_t ticks);

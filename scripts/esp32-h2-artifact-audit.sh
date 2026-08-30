@@ -96,6 +96,10 @@ audit_layout() {
     echo "artifact audit requires CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y" >&2
     exit 1
   fi
+  if ! grep -q '^CONFIG_BLE_MESH_SETTINGS=y$' "$SDKCONFIG"; then
+    echo "artifact audit requires CONFIG_BLE_MESH_SETTINGS=y" >&2
+    exit 1
+  fi
 
   symbol_address() {
     local symbol="$1"

@@ -305,3 +305,10 @@
 - **원인**: 공개 header에 선언이 있다는 사실을 해당 ESP-IDF component implementation이 build에 포함된다는 뜻으로 간주했고, v5.5.1에서 random API가 전용 `esp_random.h`로 분리된 계약을 확인하지 않았다.
 - **해결 및 예방책**: 로컬 ESP-IDF v5.5.1 header와 implementation guard를 함께 추적해 `CONFIG_BLE_MESH_SENSOR_SERVER=y`를 `sdkconfig.defaults`에 고정하고 `esp_random.h`를 직접 include했다. 매 변경은 `set-target`이 포함된 `scripts/esp32-h2-build.sh --test-build` fullclean으로 링크까지 확인했다.
 - **반복 방지 체크**: 새 ESP-IDF model/driver API를 추가할 때 선언 header, source의 `CONFIG_*` guard, Kconfig 의존성과 generated `sdkconfig`를 한 세트로 확인하고 incremental build만으로 완료 처리하지 않는다.
+
+## 2026-08-31 / BLE Mesh 상태 복원과 publication 소유권은 target 설정부터 검증한다
+
+- **발생했던 문제/실수**: Sensor/vendor runtime 자체는 동작했지만 Mesh settings persistence가 꺼져 재부팅 후 provisioning과 binding이 사라질 수 있었고, Sensor publication은 firmware custom deadline과 ESP-IDF stack period가 동시에 소유했다. Config sync와 stop도 일반 command queue에 섞여 포화·삭제 경계에서 유실 또는 race가 가능했다.
+- **원인**: native codec/retry 테스트만으로 ESP-IDF generated config, model publication timer, callback/worker 동시성과 Health current/history 의미까지 검증했다고 간주했다. 하나의 큰 translation unit 때문에 transport, lifecycle과 fault recovery를 host에서 독립 실행하기 어려웠다.
+- **해결 및 예방책**: `CONFIG_BLE_MESH_SETTINGS=y`와 Sensor period 0을 Gateway/firmware/artifact의 exact 계약으로 만들었다. Config/stop/fault는 queue 독립 atomic latch로 전달하고 codec/retry, runtime, Mesh adapter, Health를 분리해 production C를 host fake로 실행했다. Sensor current는 Task 15 getter 하나만 source of truth로 사용한다.
+- **반복 방지 체크**: BLE Mesh model 변경은 generated `sdkconfig`, composition, binding/publication exact Status, reboot 복원, 단일 timer 소유권, queue saturation, callback 중 stop, active/history 회복을 native가 아닌 production-source host/target test까지 포함해 검증한다.

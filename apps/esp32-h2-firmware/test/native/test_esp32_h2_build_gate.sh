@@ -35,8 +35,11 @@ idf.py() {
                 0x42002000                vehicle_sensor_model_runtime_start
                 0x42003000                vehicle_sensor_model_runtime_stop
                 0x42004000                vehicle_sensor_model_runtime_submit_event
-                0x42005000                vehicle_sensor_model_runtime_request_status
+                0x42005000                vehicle_sensor_model_runtime_request
                 0x42006000                vehicle_sensor_model_runtime_receive_ack
+                0x42007000                vehicle_sensor_mesh_adapter_send_response
+                0x42008000                vehicle_sensor_health_build_current
+                0x42009000                vehicle_sensor_model_runtime_clear_fault_history
 MAP
     cat >build/flash_args <<'ARGS'
 --flash_mode dio --flash_freq 48m --flash_size 4MB
@@ -106,6 +109,7 @@ run_build --test-build >"$FIXTURE_ROOT/test-build.out" 2>&1
 grep -q '^CONFIG_LED_CONTROL_TEST_BUILD=y$' "$FIXTURE_ROOT/build-workdir/sdkconfig.build-gate"
 grep -q '^CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=65535$' "$FIXTURE_ROOT/build-workdir/sdkconfig.build-gate"
 grep -q '^CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y$' "$FIXTURE_ROOT/build-workdir/sdkconfig"
+grep -q '^CONFIG_BLE_MESH_SETTINGS=y$' "$FIXTURE_ROOT/build-workdir/sdkconfig"
 grep -q '^schema=led-control-test-artifact-v2$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
 grep -q '^mode=test$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
 grep -q '^company_id=65535$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"

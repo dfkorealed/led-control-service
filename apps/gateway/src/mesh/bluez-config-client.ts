@@ -30,6 +30,7 @@ const PROVISIONER_ADDRESS = 0x0001;
 const SERVER_MODELS = [0x0002, 0x1000, 0x1300] as const;
 const LIGHT_LIGHTNESS_SERVER_MODEL_ID = 0x1300;
 const STATUS_PUBLICATION_PERIOD = encodePublicationPeriod(60_000);
+const VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD = 0;
 type RawStatusMatcher = (data: Uint8Array) => boolean;
 
 interface ConfigTransport {
@@ -145,14 +146,15 @@ export class BluezConfigClient {
           appKeyIndex: APP_KEY_INDEX,
           ttl: 5,
           modelId: BLUETOOTH_MESH_MODELS.sensorServer,
-          period: STATUS_PUBLICATION_PERIOD
+          period: VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD
         }),
         CONFIG_OPCODES.modelPublicationStatus,
         parseModelPublicationStatus
       );
       if (publication.elementAddress !== input.unicast || publication.publishAddress !== PROVISIONER_ADDRESS ||
         publication.appKeyIndex !== APP_KEY_INDEX || publication.ttl !== 5 ||
-        publication.period !== STATUS_PUBLICATION_PERIOD || publication.modelId !== BLUETOOTH_MESH_MODELS.sensorServer ||
+        publication.period !== VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD ||
+        publication.modelId !== BLUETOOTH_MESH_MODELS.sensorServer ||
         "companyId" in publication) {
         throw new Error("Vehicle Sensor Server publication does not match the request");
       }

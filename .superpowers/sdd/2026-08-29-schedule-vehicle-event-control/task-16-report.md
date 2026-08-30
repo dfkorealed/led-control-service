@@ -1,55 +1,62 @@
-# Task 16 보고서: ESP32-H2 Sensor Server와 reliable vendor event
+# Task 16 Fix Round 1 보고서
 
-상태: 완료(소프트웨어/native·host fake·ESP-IDF target build, HIL 미실행)
+상태: 완료(소프트웨어/native·production-source host fake·ESP-IDF target build, HIL 미실행)
 
-## 구현 계약
+기준: `task-16-review.md` P1 2건/P2 5건과 ignored local coordination file `progress.md`의 Fix Round 1 ruling을 authoritative로 적용했다.
 
-- ESP-IDF v5.5.1 공식 `BLE_MESH_PRESENCE_DETECTED(0x004D)`와 Format A MPID macro를 사용해 Sensor Status를 `52 a0 09 <0|1>` wire로 만든다. Sensor Get은 model worker 우선 queue에서 현재 GPIO를 응답한다.
-- primary element에 Sensor Server `0x1100`, 필수 Sensor Setup Server와 Task 14 공통 Company ID의 vendor server `0x0000`을 추가했다. Sensor publication은 Gateway가 설정한 address/AppKey/TTL/60초 계약을 확인한 뒤 worker가 `60s + FNV-1a(primary unicast) % 5000ms` 간격으로 실제 model publication을 보낸다.
-- Vendor event payload는 Task 14와 byte-for-byte 같은 11바이트 `version=1, bootId LE uint32, sequence LE uint32, kind, level`이다. Opcode는 wire `C1 <company low> <company high>`, ACK는 `C2`와 9바이트 payload를 사용한다.
-- `bootId`는 부팅마다 `esp_random()`, sequence는 1부터 시작한다. `UINT32_MAX` event까지 송신한 뒤 wrap하지 않고 후속 event를 거부하며 Health sequence fault를 기록한다.
-- 16개 고정 pending slot에서 최초 전송 후 250ms, 500ms, 1s, 2s, 4s, 8s로 최대 6회 retry한다. 마지막 retry 뒤 8초 ACK grace에도 exact `(bootId, sequence)` ACK가 없으면 retry-exhausted counter를 올리고 slot을 해제한다. Duplicate, 다른 boot와 out-of-order ACK는 pending을 제거하지 않는다.
+## 7개 finding 처리
 
-## Worker와 lifecycle
+| Review finding | 수정 | 회귀 증거 |
+| --- | --- | --- |
+| P1-1 Mesh 설정 미영속 | `CONFIG_BLE_MESH_SETTINGS=y`를 defaults와 artifact/target audit에 강제했다. Provisioning credentials, AppKey binding과 publication 복원을 전제로 새 runtime이 reboot 시 실제 model state를 다시 읽는다. | settings 누락 artifact RED, build/attestation fixture, host fake stop/start에서 동일 model config 복원과 새 `bootId` 검증 |
+| P1-2 queue full에서 config sync 유실 | command queue와 독립된 atomic configuration generation을 두고 callback이 generation 증가와 worker notify만 수행한다. Worker는 command, timer, idle poll 경계마다 적용 generation까지 수렴한다. | 32-slot request queue 포화 중 config 변경 후 Sensor/vendor readiness와 current publication 수렴 |
+| P2-3 이중 publication cadence | Gateway Sensor Config Publication Set/Status period를 exact `0`으로 변경했다. Firmware readiness도 period 0만 허용하며 custom worker만 `60s + FNV-1a(unicast)%5000ms` deadline을 소유한다. | Gateway nonzero period rejection, host fake deadline 당 1회 publication, target source audit에서 stack timer 취소 경로 부재 |
+| P2-4 Sensor 상호운용성 | 지원하지 않는 Sensor Setup Server를 composition에서 제거했다. `RSP_BY_APP` Sensor Server가 Descriptor/Get/Column/Series를 모두 응답하고 unknown property의 official zero-length/property-only 의미를 구현했다. | native exact bytes와 production-source host fake 네 opcode 응답, target composition audit |
+| P2-5 stale/default Low | Task 15 driver를 Mesh init/provisioning bearer보다 먼저 시작한다. Get과 periodic Status는 매번 `vehicle_sensor_driver_get_current_level()`을 호출하며 unavailable이면 응답을 보류하고 recovery를 예약한다. Get 응답 시 ESP-IDF Sensor state DB도 같은 값으로 갱신한다. | worker-time High 응답, unavailable no-response/no-false-Low, periodic authoritative High/Low와 state DB 테스트 |
+| P2-6 shutdown race | intake state를 atomic `OPEN -> CLOSING`으로 먼저 닫고 in-flight producer를 drain한 뒤 worker stop latch를 처리한다. Static queue는 delete하지 않고 worker 종료 후 reset하며 timeout 뒤 stop 재호출과 restart를 지원한다. Worker-context stop은 intake를 닫지 않고 거부한다. | in-flight stop timeout, 새 intake 거부, 후속 stop 성공, queue delete 0회, restart와 worker-context 거부 테스트 |
+| P2-7 Health latch | Health state를 active mask와 registered history mask로 분리했다. dropped/retry/send/unconfigured는 정상 current publication/config 복구 시 active에서 제거되고 history에 남는다. Clear는 history만 지우며 sequence exhaustion은 permanent active다. 배열은 매 변경마다 zero부터 exact rebuild한다. | native array 제거/clear, host fake send/drop/retry/unconfigured 회복과 permanent sequence 테스트 |
 
-- Task 15 callback은 log/BLE API 없이 lock-free current level 갱신과 길이 32 static command queue handoff만 수행한다. Sensor event admission을 24개로 제한해 ACK, Sensor Get과 lifecycle command 공간을 남기며 queue full은 saturating dropped counter와 current-state recovery를 예약한다.
-- Static model task가 vendor send/retry, ACK, Sensor Get response, current Status publication, configuration sync와 reset을 직렬화한다. Event별 heap allocation은 없다.
-- Provision complete/config state change/reboot에서 Sensor/vendor AppKey bind와 publication address를 다시 확인한다. Provision reset은 lifecycle epoch를 올리고 pending을 비우며 reset 이전 queued event를 폐기한다. Shutdown은 driver를 먼저 중지한 뒤 model worker를 bounded stop한다.
-- Send error, publication unconfigured, queue/driver/pending drop, retry exhausted와 sequence exhausted는 Health vendor fault `0x80~0x84`에 연결했다. Fault Clear는 registered fault만 지우며 active current fault는 유지한다.
+## 구조와 계약
+
+- `vehicle_sensor_model.*`: Task 14 byte-for-byte event/ACK wire, official Presence MPID와 16-slot retry core만 소유한다.
+- `vehicle_sensor_runtime.*`: 32-slot static command queue, 24-event admission, atomic config/reset/fault/stop latch, 4 KiB static worker, custom cadence와 lifecycle을 소유한다.
+- `vehicle_sensor_mesh_adapter.*`: ESP-IDF model readiness, Sensor 응답/state DB, Sensor/vendor publication만 소유한다.
+- `vehicle_sensor_health.*`: active/history 상태와 Health fault `0x80~0x84` exact 배열 변환만 소유한다.
+- Task 15 callback은 log/BLE API 없이 nonblocking queue handoff만 한다. 모든 Sensor/vendor BLE 호출은 model worker에서 직렬화하며 event별 동적 allocation은 없다.
+- Vendor event는 `version=1, bootId LE32, sequence LE32, kind, level` 11바이트이고 ACK는 `version, bootId LE32, sequence LE32` 9바이트다. Company ID/opcode/model ID는 Task 14 공통 config와 일치한다.
+- `bootId`는 runtime start마다 `esp_random()`, sequence는 1부터 시작한다. `UINT32_MAX` event 전송 뒤 wrap 없이 fail-stop한다.
+- 최초 전송 뒤 250ms, 500ms, 1s, 2s, 4s, 8s 최대 6회 retry하고 마지막 8초 grace 뒤 retry fault를 기록하며 slot을 해제한다. Exact `(bootId, sequence)` ACK만 제거하고 duplicate/old/out-of-order ACK는 무해하다.
 
 ## TDD와 검증
 
-- RED: `vehicle_sensor_model.c`가 없는 상태에서 native compile 실패를 먼저 확인했다. Exact event/ACK/Presence bytes, deterministic jitter, exact ACK, 6회 retry와 timeout release, 16-slot full/current recovery, send error/unconfigured와 uint32 overflow를 구현해 GREEN으로 전환했다.
-- Native model은 detected sequence 1 뒤 cleared sequence 2의 exact wire와 terminal current Low도 검증한다. Task 15 native driver와 actual-driver host fake는 boot/ISR ordering, queue overflow/resync, repeated lifecycle을 유지한다.
-- Test-build runtime fail-stop host fake는 새 handoff/shutdown 심볼을 포함해 예약 `0xFFFF` image가 NVS, LED, Bluetooth, sensor보다 먼저 abort함을 재검증했다.
-- Trust, build gate, unsigned test artifact와 signed production attestation fixture test를 통과했다. 실제 production 명령은 고정 policy가 `unprovisioned`라 `production trust root is not provisioned`로 ESP-IDF 실행 전에 실패했다. 이는 의도한 fail-closed 결과다.
-- ESP-IDF v5.5.1 `scripts/esp32-h2-build.sh --test-build` fullclean compile/link를 통과했다. Build-integrated target audit가 Sensor Server Kconfig/callback과 runtime start/stop/event/Get/ACK symbol, Sensor/vendor composition, 4 KiB worker stack과 `0x600` command queue section을 linker map에서 확인한다.
-- 실제 build manifest의 binary/bootloader/partition/blank otadata/sdkconfig/map/flash args hash, ISR/GPIO/timer/queue-send IRAM/ROM 주소와 OTA margin audit를 통과했다.
+- RED: Gateway가 Sensor period `0x86`을 보내고 수락하던 focused test 2건 실패를 확인한 뒤 period 0으로 전환했다.
+- RED: settings 누락 artifact, 신규 adapter/Health/runtime production source 부재, config saturation/lifecycle 경계를 먼저 실패시켰다.
+- RED: 추가 host fake에서 provisioned-but-invalid model config가 Health에 나타나지 않는 문제와 Get 응답 후 Sensor state DB가 비어 있는 문제를 재현한 뒤 GREEN으로 수정했다.
+- Native: codec/retry, Sensor response adapter, Health active/history, Task 15 driver 모두 strict C11 `-Wall -Wextra -Werror -pedantic` 통과.
+- Host fake: actual driver + test-build fail-stop + actual model/runtime/adapter/Health production C 통과.
+- Gateway focused 3파일 39/39, Gateway 전체 59파일 546/546, shared 7파일 75/75 통과.
+- Build gate, trust policy, artifact audit와 signed attestation fixture 통과. `git diff --check` 통과.
+- ESP-IDF v5.5.1 `scripts/esp32-h2-build.sh --test-build`가 dependency fullclean, compile/link, target map audit, artifact/OTA audit를 통과했다.
+- Production은 고정 trust root가 `unprovisioned`라 `production trust root is not provisioned`로 IDF 실행 전에 정상 fail-closed했다.
 
-## 산출물과 크기
+## 산출물
 
-- `led_control_node.bin`: `0xeacd0`(`961,744`) 바이트
+- `led_control_node.bin`: `0xef710`(`980,752`) 바이트
 - OTA app slot: `0x1f0000`(`2,031,616`) 바이트
-- OTA free: `0x105330`(`1,069,872`, 약 53%)
+- OTA free: `0x1008f0`(`1,050,864`, 약 52%)
 - Production minimum free gate: `406,324` 바이트
-- 최종 커밋 뒤 같은 fullclean build를 재실행해 test artifact manifest의 source commit과 실제 checkout을 일치시킨다.
+- Test image Company ID: reserved `0xFFFF`, flash/HIL/production 사용 금지
 
-## 변경 파일
+## 변경 파일 범위
 
-- `apps/esp32-h2-firmware/main/vehicle_sensor_model.h`
-- `apps/esp32-h2-firmware/main/vehicle_sensor_model.c`
-- `apps/esp32-h2-firmware/test/native/test_vehicle_sensor_model.c`
-- `apps/esp32-h2-firmware/main/ble_mesh_node.c`
-- `apps/esp32-h2-firmware/main/ble_mesh_node.h`
-- `apps/esp32-h2-firmware/main/app_main.c`
-- `apps/esp32-h2-firmware/main/CMakeLists.txt`
-- `apps/esp32-h2-firmware/sdkconfig.defaults`
-- `apps/esp32-h2-firmware/test/native/test_vehicle_sensor_model_target_artifact.sh`
-- `scripts/esp32-h2-build.sh`
-- Task 15 host fake fail-stop 지원 파일과 관련 문서
+- Firmware: `vehicle_sensor_model.*`, 새 `vehicle_sensor_runtime.*`, `vehicle_sensor_mesh_adapter.*`, `vehicle_sensor_health.*`, node/app/CMake/sdkconfig
+- Tests: native model/adapter/Health, production-source host fake와 ESP-IDF fake headers, build/artifact/target audit fixtures
+- Gateway: `bluez-config-client.ts`와 exact period test
+- Docs: firmware README, `docs/menus/control.md`, project status/plan, lesson learned, 이 보고서
 
 ## HIL 한계
 
-- 실제 ESP32-H2에 flash하지 않았고 Raspberry Pi/BlueZ와 RF를 연결하지 않았다. 예약 Company ID test image는 runtime fail-stop이라 HIL/양산 flash에 사용할 수 없다.
-- Sensor Get/Status 실제 왕복, 60초+jitter air timing, AppKey bind/unbind와 publication 재설정, packet loss 0~6회 retry/late ACK, queue/pending overflow, reboot/reprovision, Health Current/Fault Clear, 전원 차단은 미실행이다.
-- 실제 센서 전압, 긴 배선 noise, ESD/surge, cache-disabled ISR과 concurrent BLE stack timing은 native/host/target build로 증명하지 않는다. 실제 자사 Company ID, production root/release key와 승인 자료 provision 후 별도 HIL이 필요하다.
+- 실제 ESP32-H2 flash, Raspberry Pi/BlueZ provisioning과 RF 연결은 실행하지 않았다.
+- 실제 power-cycle settings 복원, AppKey bind/unbind, reprovision, Sensor Descriptor/Get/Column/Series air packet, 60초+jitter 장시간 cadence, packet loss 0~6회 retry/late ACK와 Health Fault Clear 왕복은 미실행이다.
+- 실제 센서 전압/noise/ESD/surge, cache-disabled ISR과 concurrent BLE stack timing은 software/build 결과로 증명하지 않는다.
+- Production Company ID, trust root/release key와 제조 승인 자료가 provision되기 전 production image 생성은 의도적으로 불가능하다.

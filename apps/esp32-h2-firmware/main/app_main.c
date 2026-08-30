@@ -5,7 +5,6 @@
 #include "identify.h"
 #include "led_driver.h"
 #include "persistent_state.h"
-#include "vehicle_sensor_driver.h"
 
 #include <stdbool.h>
 #include "esp_log.h"
@@ -18,13 +17,7 @@ static volatile bool test_build_must_fail_stop = true;
 
 static const char *TAG = "led_control_node";
 
-static void handle_vehicle_sensor_event(const vehicle_sensor_event_t *event, void *context) {
-  (void)context;
-  (void)ble_mesh_node_submit_vehicle_sensor_event(event);
-}
-
 static void stop_vehicle_sensor_on_shutdown(void) {
-  (void)vehicle_sensor_driver_stop();
   (void)ble_mesh_node_shutdown();
 }
 
@@ -56,7 +49,6 @@ void app_main(void) {
 
   ESP_ERROR_CHECK(ble_mesh_platform_bluetooth_init());
   ESP_ERROR_CHECK(ble_mesh_node_init());
-  ESP_ERROR_CHECK(vehicle_sensor_driver_start(handle_vehicle_sensor_event, NULL));
   ESP_ERROR_CHECK(esp_register_shutdown_handler(stop_vehicle_sensor_on_shutdown));
   ESP_ERROR_CHECK(factory_reset_init());
 

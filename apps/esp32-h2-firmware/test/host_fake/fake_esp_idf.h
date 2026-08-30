@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef enum {
   FAKE_FAIL_NONE = 0,
@@ -17,6 +18,10 @@ void fake_esp_idf_fire_edges_after_next_empty_receive(bool first_level, bool sec
 void fake_esp_idf_preempt_task_create_once(void);
 void fake_esp_idf_fire_edge(bool level);
 void fake_esp_idf_run_sensor_task(void);
+void fake_esp_idf_run_task_on_next_delay(void);
+void fake_esp_idf_set_created_task_as_current(bool current);
+void fake_esp_idf_set_time_us(int64_t value);
+unsigned int fake_esp_idf_queue_delete_count(void);
 bool fake_esp_idf_interrupt_enabled(void);
 bool fake_esp_idf_gpio_configured(void);
 bool fake_esp_idf_isr_service_installed(void);

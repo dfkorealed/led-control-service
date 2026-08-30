@@ -36,6 +36,17 @@ cc "${COMMON_FLAGS[@]}" \
   -o /tmp/test_test_build_fail_stop
 /tmp/test_test_build_fail_stop
 
+cc "${COMMON_FLAGS[@]}" \
+  -DVEHICLE_SENSOR_HOST_TEST=1 \
+  "$FAKE_ROOT/test_vehicle_sensor_model_runtime.c" \
+  "$FAKE_ROOT/fake_esp_idf.c" \
+  "$MAIN_ROOT/vehicle_sensor_model.c" \
+  "$MAIN_ROOT/vehicle_sensor_health.c" \
+  "$MAIN_ROOT/vehicle_sensor_mesh_adapter.c" \
+  "$MAIN_ROOT/vehicle_sensor_runtime.c" \
+  -o /tmp/test_vehicle_sensor_model_runtime
+/tmp/test_vehicle_sensor_model_runtime
+
 if cc "${COMMON_FLAGS[@]}" \
   -DCONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO=23 \
   -DCONFIG_LED_CONTROL_PWM_GPIO=8 \

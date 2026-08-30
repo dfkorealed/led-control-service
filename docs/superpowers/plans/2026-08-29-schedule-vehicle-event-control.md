@@ -1142,7 +1142,27 @@ git add apps/esp32-h2-firmware/main apps/esp32-h2-firmware/test/native/test_vehi
 git commit -m "feat(firmware): publish reliable vehicle sensor events"
 ```
 
-Task 16 완료 검증은 native exact wire/ACK/retry/16-slot/overflow, Task 15 actual-driver host fake와 test-build runtime fail-stop, trust/artifact gate, ESP-IDF v5.5.1 `--test-build` fullclean으로 수행했다. Test binary는 `0xeacd0`(`961,744`) 바이트, app slot free는 `0x105330`(`1,069,872`, 약 53%)이고 production 최소 free `406,324` 바이트를 통과한다. Production trust root는 아직 `unprovisioned`라 production build가 IDF 실행 전에 의도대로 fail-closed했으며 실제 flash와 Raspberry Pi/ESP32-H2 RF HIL은 실행하지 않았다.
+Task 16 최초 구현 검증은 native exact wire/ACK/retry/16-slot/overflow, Task 15 actual-driver host fake와 test-build runtime fail-stop, trust/artifact gate, ESP-IDF v5.5.1 `--test-build` fullclean으로 수행했다. 당시 test binary는 `0xeacd0`(`961,744`) 바이트, app slot free는 `0x105330`(`1,069,872`, 약 53%)였다. 아래 Fix Round 1 검증과 수치가 현재 authoritative 결과다.
+
+#### Task 16 Fix Round 1
+
+**파일 책임:**
+- `vehicle_sensor_model.*`: Task 14 exact codec와 16-slot retry core만 유지한다.
+- `vehicle_sensor_runtime.*`: fixed command queue, queue 독립 config/stop latch, producer drain과 current-state recovery를 소유한다.
+- `vehicle_sensor_mesh_adapter.*`: ESP-IDF Sensor mandatory 응답과 custom publication 전송을 소유한다.
+- `vehicle_sensor_health.*`: transient active mask와 registered history의 exact 배열 변환을 소유한다.
+
+- [x] Gateway Sensor publication period를 exact `0`으로 요청·검증하고 focused/full 회귀를 통과한다.
+- [x] `CONFIG_BLE_MESH_SETTINGS=y` RED/audit와 reboot configuration recovery host test를 추가한다.
+- [x] queue 포화와 무관한 atomic config latch, worker wake/poll, final convergence host test를 구현한다.
+- [x] Sensor Setup Server를 제거하고 Presence descriptor/current 및 unknown property Descriptor/Get/Column/Series 응답을 host fake로 검증한다.
+- [x] driver를 Mesh 수신 전에 ready로 만들고 Get/periodic Status가 매번 Task 15 current getter를 사용하며 unavailable이면 거짓 Low 대신 defer하는 테스트를 통과한다.
+- [x] intake close, producer drain, queue 독립 STOP, timeout/restart lifecycle을 production-source host fake로 검증한다.
+- [x] Health active/history를 분리하고 transient recovery, history clear, permanent sequence fault와 exact array 제거를 검증한다.
+- [x] native/host fake/Gateway focused+full/trust/artifact/ESP-IDF fullclean/diff-check를 실행하고 한글 문서·Task 16 report를 갱신한다.
+- [x] 별도 Fix Round 1 커밋을 만들고 binary/free/HIL 및 7 finding 매핑을 보고한다.
+
+검증: Gateway focused 39/39, 전체 59파일 546/546, shared 75/75, native codec/retry·adapter·Health·Task 15 driver, production-source host fake, build/trust/artifact/attestation gate를 통과했다. ESP-IDF v5.5.1 fullclean test binary는 `0xef710`(`980,752`) 바이트, OTA free는 `0x1008f0`(`1,050,864`, 52%)이며 production 최소 free `406,324` 바이트를 만족한다. Production은 고정 trust root가 `unprovisioned`라 IDF 실행 전 의도대로 fail-closed했고 실제 flash/RF/HIL은 실행하지 않았다.
 
 ### Task 17: Web 제어 탭과 스케줄 CRUD UI
 
