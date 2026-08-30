@@ -67,7 +67,11 @@ export class AutomationTelemetryCoordinator {
         }
         changed = true;
       }
-      changed = await this.outbox.recoverGapJournal() || changed;
+      const activeState = this.stateStore.read();
+      changed = await this.outbox.recoverGapJournal([
+        ...activeState.pendingTelemetryHandoffs.map((handoff) => handoff.handoffId),
+        ...(activeState.telemetryGap ? [activeState.telemetryGap.handoffId] : [])
+      ]) || changed;
 
       while (true) {
         const handoff = this.stateStore.read().pendingTelemetryHandoffs[0];

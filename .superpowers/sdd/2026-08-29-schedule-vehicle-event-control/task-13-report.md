@@ -185,3 +185,35 @@ Commit: self (`fix(gateway): converge telemetry gap baselines`)
 
 - Raspberry Pi filesystem exhaustion, sudden power loss, fixed-block durability and flash wear remain unmeasured on hardware; automated tests use local files and injected previous/next visibility at outbox, baseline and clear boundaries.
 - ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 5.
+
+## Fix Round 5 Breaker
+
+Status: DONE
+
+Commit: self (`fix(gateway): bound telemetry recovery receipts`)
+
+### Delivered
+
+- Retired displaced general-source receipts in the same durable outbox commit that advances an already accepted journal aggregate. Receipts for current state handoffs/gaps, the current journal source, the cumulative source, the aggregate handoff and its active baseline identity remain protected.
+- Kept journal import metadata O(1) during prolonged clear failure. One hundred general-source replacements retain only the aggregate and current-source receipts while the two 4 KiB journal blocks and strict 64 MiB regular outbox contract remain unchanged.
+- Reused the existing outbox visible-target reconciliation for cleanup commits. Definite failure and commit uncertainty with either the previous or next target visible converge after retry/restart without changing cumulative count, event ID, sequence or final canonical payload hash.
+- Passed the current durable state replay identities from the coordinator into journal recovery, so receipt cleanup cannot turn an uncleared pending handoff back into exact telemetry records.
+
+### TDD Evidence
+
+- RED reproduced 101 accepted receipts after 100 clear failures, 101 after a midpoint restart, one leaked displaced receipt beside all four protected identities, and three receipts after each definite/previous/next cleanup interruption.
+- GREEN covers the same boundaries with at most two receipts in the general replacement case, exact total 100 across restart, exact protected identity retention, cleanup retry convergence and normal publication after clear recovery.
+
+### Verification
+
+- Gateway focused regression: 2 files, 42/42 tests passed.
+- Gateway full regression: 56 files, 499/499 tests passed.
+- Shared full regression: 7 files, 74/74 tests passed.
+- Docker contract suite: 17/17 tests passed.
+- Required Docker/mTLS Mosquitto integration: 2/2 tests passed.
+- Shared and Gateway typecheck, lint and production build passed; `git diff --check` passed.
+
+### Remaining Concerns
+
+- Raspberry Pi filesystem exhaustion, sudden power loss and flash wear remain unmeasured on hardware; automated coverage uses real local files with injected outbox and journal failures.
+- ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside this breaker fix.

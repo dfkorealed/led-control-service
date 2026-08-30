@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import { AtomicJsonCommitUncertainError, writeJsonAtomic } from "../mesh/mesh-store-file";
 import {
   StorageHeadroomManager,
   type StorageHeadroomBackgroundTask
@@ -475,7 +475,7 @@ describe("AutomationTelemetryOutbox", () => {
     }
   );
 
-  it("keeps fixed journal storage constant across repeated source replacement and imports the exact count", async () => {
+  it("bounds accepted receipts across 100 clear failures and converges when clear recovers", async () => {
     const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-replacement-"));
     directories.push(directory);
     const path = join(directory, "outbox.json");
@@ -498,12 +498,18 @@ describe("AutomationTelemetryOutbox", () => {
     await outbox.initialize();
     const before = await stat(journalPath);
     let firstEventId: string | undefined;
+    let maxAcceptedReceipts = 0;
 
-    for (let index = 0; index < 32; index += 1) {
+    for (let index = 0; index < 100; index += 1) {
       const hashCharacter = "0123456789abcdef"[index % 16]!;
       await journal.record(gapInput(`general-source-${index}`, hashCharacter, 1));
       await expect(outbox.recoverGapJournal()).rejects.toThrow("injected repeated clear failure");
-      firstEventId ??= (await outbox.inspect()).gap!.eventId;
+      const snapshot = await outbox.inspect();
+      firstEventId ??= snapshot.gap!.eventId;
+      maxAcceptedReceipts = Math.max(
+        maxAcceptedReceipts,
+        Object.keys(snapshot.acceptedHandoffs).length
+      );
     }
 
     const after = await stat(journalPath);
@@ -513,19 +519,185 @@ describe("AutomationTelemetryOutbox", () => {
       blocks: before.blocks
     });
     await expect(journal.read()).resolves.toMatchObject({
-      droppedCount: 32,
-      acceptedBaselineDroppedCount: 32,
-      lastSourceHandoffId: "general-source-31"
+      droppedCount: 100,
+      acceptedBaselineDroppedCount: 100,
+      lastSourceHandoffId: "general-source-99"
     });
+    expect(maxAcceptedReceipts).toBeLessThanOrEqual(2);
 
     failClear = false;
     const pending = await outbox.pending();
     expect(pending).toHaveLength(1);
     expect(pending[0]!.event).toMatchObject({
       eventId: firstEventId,
-      payload: { droppedCount: 32 }
+      payload: { droppedCount: 100 }
     });
   });
+
+  it("keeps receipts bounded and the total exact across a midpoint restart", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-restart-bound-"));
+    directories.push(directory);
+    const path = join(directory, "outbox.json");
+    const journalPath = `${path}.gap`;
+    let failClear = true;
+    let journal = new AutomationTelemetryGapJournal(journalPath);
+    let outbox = new AutomationTelemetryOutbox(path, automationScope, {
+      headroomBytes: 32_768,
+      gapJournal: controlledClearJournal(journal, () => failClear)
+    });
+    await outbox.initialize();
+    let firstGap: Awaited<ReturnType<AutomationTelemetryOutbox["inspect"]>>["gap"] | undefined;
+
+    for (let index = 0; index < 50; index += 1) {
+      const hashCharacter = "0123456789abcdef"[index % 16]!;
+      await journal.record(gapInput(`restart-source-${index}`, hashCharacter, 1));
+      await expect(outbox.recoverGapJournal()).rejects.toThrow("injected clear failure");
+      firstGap ??= (await outbox.inspect()).gap;
+    }
+
+    journal = new AutomationTelemetryGapJournal(journalPath);
+    outbox = new AutomationTelemetryOutbox(path, automationScope, {
+      headroomBytes: 32_768,
+      gapJournal: controlledClearJournal(journal, () => failClear)
+    });
+    await outbox.initialize();
+    for (let index = 50; index < 100; index += 1) {
+      const hashCharacter = "0123456789abcdef"[index % 16]!;
+      await journal.record(gapInput(`restart-source-${index}`, hashCharacter, 1));
+      await expect(outbox.recoverGapJournal()).rejects.toThrow("injected clear failure");
+    }
+
+    const beforeRecovery = await outbox.inspect();
+    expect(Object.keys(beforeRecovery.acceptedHandoffs)).toHaveLength(2);
+    expect(beforeRecovery.gap).toMatchObject({
+      eventId: firstGap!.eventId,
+      sequence: firstGap!.sequence,
+      droppedCount: 100
+    });
+
+    failClear = false;
+    const pending = await outbox.pending();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.event).toMatchObject({
+      eventId: firstGap!.eventId,
+      sequence: firstGap!.sequence,
+      payload: { droppedCount: 100 }
+    });
+    const finalIdentity = telemetryIdentity(pending[0]!);
+
+    const restarted = new AutomationTelemetryOutbox(path, automationScope, {
+      headroomBytes: 32_768,
+      gapJournal: new AutomationTelemetryGapJournal(journalPath)
+    });
+    await restarted.initialize();
+    expect((await restarted.pending()).map(telemetryIdentity)).toEqual([finalIdentity]);
+  });
+
+  it("retires only displaced general receipts while protecting active recovery identities", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-protected-receipts-"));
+    directories.push(directory);
+    const path = join(directory, "outbox.json");
+    const journal = new AutomationTelemetryGapJournal(`${path}.gap`);
+    const outbox = new AutomationTelemetryOutbox(path, automationScope, {
+      headroomBytes: 32_768,
+      gapJournal: controlledClearJournal(journal, () => true)
+    });
+    const cumulativeSource = "cumulative-source";
+    const pendingSource = "pending-source";
+    const displacedSource = "displaced-source";
+    const currentSource = "current-source";
+    await outbox.initialize();
+    await journal.record(gapInput(cumulativeSource, "c", 5, "fixture_state_outbox"));
+    await journal.record(gapInput(pendingSource, "a", 1));
+    await expect(outbox.recoverGapJournal([pendingSource])).rejects.toThrow("injected clear failure");
+    const aggregateSource = (await journal.read())!.gapHandoffId;
+
+    await journal.record(gapInput(displacedSource, "d", 1));
+    await expect(outbox.recoverGapJournal([pendingSource])).rejects.toThrow("injected clear failure");
+    await journal.record(gapInput(currentSource, "e", 1));
+    await expect(outbox.recoverGapJournal([pendingSource])).rejects.toThrow("injected clear failure");
+
+    const receipts = (await outbox.inspect()).acceptedHandoffs;
+    expect(Object.keys(receipts).sort()).toEqual([
+      aggregateSource,
+      cumulativeSource,
+      currentSource,
+      pendingSource
+    ].sort());
+    expect(receipts[displacedSource]).toBeUndefined();
+  });
+
+  it.each(["definite", "previous", "next"] as const)(
+    "recovers exact cleanup after a %s outbox commit failure",
+    async (visibility) => {
+      const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-cleanup-commit-"));
+      directories.push(directory);
+      const path = join(directory, "outbox.json");
+      const journalPath = `${path}.gap`;
+      let failClear = true;
+      const journal = new AutomationTelemetryGapJournal(journalPath);
+      const initial = new AutomationTelemetryOutbox(path, automationScope, {
+        headroomBytes: 32_768,
+        gapJournal: controlledClearJournal(journal, () => failClear)
+      });
+      await initial.initialize();
+      await journal.record(gapInput("cleanup-source-a", "a", 1));
+      await expect(initial.recoverGapJournal()).rejects.toThrow("injected clear failure");
+      const firstGap = (await initial.inspect()).gap!;
+      await journal.record(gapInput("cleanup-source-b", "b", 1));
+
+      let injected = false;
+      const interrupted = new AutomationTelemetryOutbox(path, automationScope, {
+        headroomBytes: 32_768,
+        gapJournal: controlledClearJournal(journal, () => failClear),
+        write: async (target, value) => {
+          if (injected) return writeJsonAtomic(target, value);
+          injected = true;
+          if (visibility === "definite") throw new Error("injected cleanup failure");
+          if (visibility === "next") await writeJsonAtomic(target, value);
+          throw new AtomicJsonCommitUncertainError(target);
+        }
+      });
+      await interrupted.initialize();
+
+      await expect(interrupted.recoverGapJournal()).rejects.toThrow(
+        visibility === "definite"
+          ? "automation_telemetry_store_failed"
+          : "automation_telemetry_commit_uncertain"
+      );
+
+      const restartedJournal = new AutomationTelemetryGapJournal(journalPath);
+      const restarted = new AutomationTelemetryOutbox(path, automationScope, {
+        headroomBytes: 32_768,
+        gapJournal: controlledClearJournal(restartedJournal, () => failClear)
+      });
+      await restarted.initialize();
+      await expect(restarted.recoverGapJournal()).rejects.toThrow("injected clear failure");
+      const recovered = await restarted.inspect();
+      expect(Object.keys(recovered.acceptedHandoffs)).toHaveLength(2);
+      expect(recovered.gap).toMatchObject({
+        eventId: firstGap.eventId,
+        sequence: firstGap.sequence,
+        droppedCount: 2
+      });
+
+      failClear = false;
+      const pending = await restarted.pending();
+      expect(pending).toHaveLength(1);
+      expect(pending[0]!.event).toMatchObject({
+        eventId: firstGap.eventId,
+        sequence: firstGap.sequence,
+        payload: { droppedCount: 2 }
+      });
+      const finalIdentity = telemetryIdentity(pending[0]!);
+      const restartedAgain = new AutomationTelemetryOutbox(path, automationScope, {
+        headroomBytes: 32_768,
+        gapJournal: new AutomationTelemetryGapJournal(journalPath)
+      });
+      await restartedAgain.initialize();
+      expect((await restartedAgain.pending()).map(telemetryIdentity)).toEqual([finalIdentity]);
+    }
+  );
 
   it("keeps shared regular atomic-rewrite headroom untouched across normal outbox commits", async () => {
     const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-headroom-"));
@@ -748,6 +920,21 @@ async function uncertainGapImportFixture(
   await journal.record(gapInput("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "c", 5, "fixture_state_outbox"));
   await journal.record(gapInput("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "a", 1));
   return { path, journalPath, journal, outbox };
+}
+
+function controlledClearJournal(
+  journal: AutomationTelemetryGapJournal,
+  shouldFail: () => boolean
+): AutomationTelemetryGapJournalLike {
+  return {
+    initialize: () => journal.initialize(),
+    read: () => journal.read(),
+    record: (input) => journal.record(input),
+    commitAcceptedBaseline: (baseline) => journal.commitAcceptedBaseline(baseline),
+    clear: (handoffId, recordsHash) => shouldFail()
+      ? Promise.reject(new Error("injected clear failure"))
+      : journal.clear(handoffId, recordsHash)
+  };
 }
 
 function eventInput(kind: "vehicle_detected" | "event_started" | "event_extended", payload: Record<string, unknown>, occurrenceKey: string | null = null) {

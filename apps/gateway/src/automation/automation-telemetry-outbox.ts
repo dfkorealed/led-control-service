@@ -343,10 +343,10 @@ export class AutomationTelemetryOutbox {
     return this.queue.run(async () => undefined);
   }
 
-  recoverGapJournal() {
+  recoverGapJournal(activeHandoffIds: readonly string[] = []) {
     return this.queue.run(async () => {
       await this.ensureInitialized();
-      return this.importGapJournal();
+      return this.importGapJournal(activeHandoffIds);
     });
   }
 
@@ -537,7 +537,7 @@ export class AutomationTelemetryOutbox {
     return { status: "accepted", storedRecords: [], droppedRecords: structuredClone(handoff.records) };
   }
 
-  private async importGapJournal() {
+  private async importGapJournal(activeHandoffIds?: readonly string[]) {
     if (!this.gapJournalAvailable || !this.state || !this.available) return false;
     let journal = await this.gapJournal.read();
     if (!journal) return false;
@@ -626,6 +626,11 @@ export class AutomationTelemetryOutbox {
         droppedCount: source.droppedCount
       };
     }
+    if (activeHandoffIds) retireDisplacedJournalSourceReceipts(
+      next,
+      journal,
+      activeHandoffIds
+    );
     if (!isDeepStrictEqual(current, next)) await this.commit(current, next);
 
     const acceptance = this.state!.acceptedHandoffs[journal.gapHandoffId];
@@ -684,6 +689,38 @@ function journalSourceReceipts(journal: AutomationTelemetryGapJournalState) {
     });
   }
   return receipts;
+}
+
+function retireDisplacedJournalSourceReceipts(
+  outbox: StoredAutomationTelemetryOutbox,
+  journal: AutomationTelemetryGapJournalState,
+  activeHandoffIds: readonly string[]
+) {
+  if (journal.acceptedBaselineDroppedCount === 0) return;
+  // A general source receipt is committed atomically with the aggregate that
+  // absorbs it. Once displaced from both state and the bounded journal, only
+  // the aggregate is replayable; retaining that receipt would grow O(n).
+  const protectedHandoffIds = new Set([
+    ...activeHandoffIds,
+    journal.gapHandoffId,
+    journal.lastSourceHandoffId,
+    journal.cumulativeSourceHandoffId,
+    journal.acceptedBaselineHandoffId
+  ].filter((handoffId): handoffId is string => handoffId !== null));
+
+  for (const [handoffId, receipt] of Object.entries(outbox.acceptedHandoffs)) {
+    if (!protectedHandoffIds.has(handoffId) && isGeneralJournalSourceReceipt(receipt)) {
+      delete outbox.acceptedHandoffs[handoffId];
+    }
+  }
+}
+
+function isGeneralJournalSourceReceipt(receipt: AcceptedTelemetryHandoff) {
+  return receipt.outcome === "gap" && (
+    receipt.provenance === "automation_handoff_capacity" ||
+    receipt.provenance === "automation_handoff_storage" ||
+    receipt.provenance === "automation_state_storage"
+  );
 }
 
 export class AutomationTelemetryRecorder {
