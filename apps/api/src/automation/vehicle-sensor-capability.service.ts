@@ -70,25 +70,25 @@ export class VehicleSensorCapabilityService {
       ]);
       const existing = distinctLedgerRows(eventById, eventByRevision);
       if (existing.some((row) => !sameCapabilityLedger(row, report, payloadHash))) {
-        return this.persistAck(tx, report, "rejected", "capability_event_conflict");
+        return this.persistAck(tx, report, payloadHash, "rejected", "capability_event_conflict");
       }
       if (existing.length > 0) {
         if (capabilityRevision === node.vehicleSensorCapabilityRevision && !sameCapabilityState(node, report)) {
-          return this.persistAck(tx, report, "rejected", "capability_state_conflict");
+          return this.persistAck(tx, report, payloadHash, "rejected", "capability_state_conflict");
         }
-        return this.persistAck(tx, report, "duplicate", null);
+        return this.persistAck(tx, report, payloadHash, "duplicate", null);
       }
 
       if (capabilityRevision < node.vehicleSensorCapabilityRevision) {
         await this.createLedger(tx, node, report, payloadHash);
-        return this.persistAck(tx, report, "stale", null);
+        return this.persistAck(tx, report, payloadHash, "stale", null);
       }
       if (capabilityRevision === node.vehicleSensorCapabilityRevision) {
         if (!sameCapabilityState(node, report)) {
-          return this.persistAck(tx, report, "rejected", "capability_state_conflict");
+          return this.persistAck(tx, report, payloadHash, "rejected", "capability_state_conflict");
         }
         await this.createLedger(tx, node, report, payloadHash);
-        return this.persistAck(tx, report, "duplicate", null);
+        return this.persistAck(tx, report, payloadHash, "duplicate", null);
       }
 
       if (report.status === "unsupported") {
@@ -96,7 +96,7 @@ export class VehicleSensorCapabilityService {
       }
       await this.updateMetadata(tx, node.id, report);
       await this.createLedger(tx, node, report, payloadHash);
-      return this.persistAck(tx, report, "applied", null);
+      return this.persistAck(tx, report, payloadHash, "applied", null);
     }, { timeout: 10_000 });
   }
 
@@ -191,6 +191,7 @@ export class VehicleSensorCapabilityService {
 
   private ack(
     report: VehicleSensorCapabilityReportV1,
+    reportPayloadHash: `sha256:${string}`,
     status: VehicleSensorCapabilityIngestedAckV1["status"],
     errorCode: string | null,
     ingestedAt: string
@@ -201,6 +202,7 @@ export class VehicleSensorCapabilityService {
       gatewayId: report.gatewayId,
       meshNodeId: report.meshNodeId,
       capabilityRevision: report.capabilityRevision,
+      reportPayloadHash,
       status,
       errorCode,
       ingestedAt
@@ -210,11 +212,12 @@ export class VehicleSensorCapabilityService {
   private async persistAck(
     tx: Prisma.TransactionClient,
     report: VehicleSensorCapabilityReportV1,
+    reportPayloadHash: `sha256:${string}`,
     status: VehicleSensorCapabilityIngestedAckV1["status"],
     errorCode: string | null
   ) {
     const applicationAckKey =
-      `vehicle-sensor-capability:${report.gatewayId}:${report.meshNodeId}:${report.eventId}`;
+      `vehicle-sensor-capability:${report.gatewayId}:${report.meshNodeId}:${report.eventId}:${reportPayloadHash}`;
     const existingOutbox = await tx.mqttOutbox.findUnique({
       where: { applicationAckKey }
     });
@@ -247,7 +250,7 @@ export class VehicleSensorCapabilityService {
       return existingAck;
     }
 
-    const ack = this.ack(report, status, errorCode, now.toISOString());
+    const ack = this.ack(report, reportPayloadHash, status, errorCode, now.toISOString());
     const payloadHash = canonicalPayloadHash(ack);
     const topic = mqttTopics.vehicleSensorCapabilityIngested(report.siteId, report.gatewayId);
     const stored = await tx.mqttOutbox.create({

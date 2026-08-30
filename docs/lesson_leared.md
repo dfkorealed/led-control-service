@@ -1,10 +1,10 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
-## 2026-08-30 / application ACK identity와 publisher lease 소유권
-- **발생했던 문제/실수**: ACK key가 Gateway와 eventId만 포함해 같은 Gateway의 다른 node 충돌 ACK가 원본을 덮었고, published/deadletter ACK는 exact report가 다시 와도 발행 가능 상태로 돌아오지 않았다.
-- **원인**: report의 실제 idempotency scope보다 ACK identity가 좁았고, ingestion replay와 outbox publisher가 같은 row의 delivery 상태를 바꾸는 경합에서 lease 소유권 조건이 빠졌다.
-- **해결 및 예방책**: ACK key를 Gateway/node/event로 고정하고 최초 payload/hash/ingestion 시각을 불변으로 유지한다. Exact replay는 published, deadletter 또는 만료 lease만 조건부 `updateMany`로 재큐잉하며 `leaseExpiresAt > now`인 active publisher는 상태를 마칠 때까지 row를 소유한다.
-- **반복 방지 체크**: 원본 node 적용 후 cross-node 동일 eventId 충돌과 양쪽 replay, published-lost, deadletter, live/expired lease, payload/hash/timestamp 불변을 실제 PostgreSQL 세트로 유지한다. Publisher 구현은 variant별 `SKIP LOCKED` claim과 shutdown drain을 함께 검증한다.
+## 2026-08-30 / application ACK exact-report identity와 publisher lease 소유권
+- **발생했던 문제/실수**: ACK key가 처음에는 Gateway/event, 이후 Gateway/node/event까지만 포함해 cross-node overwrite는 고쳤지만 same-node 동일 eventId의 altered payload가 원본 applied ACK를 받았다. Published/deadletter ACK도 exact report가 다시 와도 발행 가능 상태로 돌아오지 않았다.
+- **원인**: report의 실제 idempotency identity인 complete canonical payload hash보다 ACK key와 Gateway terminal matching이 좁았고, ingestion replay와 outbox publisher가 같은 row의 delivery 상태를 바꾸는 경합에서 lease 소유권 조건이 빠졌다.
+- **해결 및 예방책**: ACK에 필수 `reportPayloadHash`를 넣고 key를 Gateway/node/event/report-hash로 고정해 최초 payload/outbox hash/ingestion 시각을 exact report별 불변으로 유지한다. Exact replay는 해당 hash row의 published, deadletter 또는 만료 lease만 조건부 `updateMany`로 재큐잉하며 `leaseExpiresAt > now`인 active publisher는 상태를 마칠 때까지 row를 소유한다. Gateway는 event/node/revision이 같아도 payload hash가 다르면 ACK를 무시한다.
+- **반복 방지 체크**: 원본 node 적용 후 cross-node 동일 eventId 충돌, same-node altered payload와 양 replay 순서, published-lost, deadletter, live/expired lease, payload/hash/timestamp 불변을 실제 PostgreSQL 세트로 유지한다. Publisher 구현은 저장 ACK exact publish, variant별 `SKIP LOCKED` claim과 shutdown drain을 함께 검증한다.
 
 ## 2026-08-29 / 물리 작업 세션 복구와 불확실 결과 처리
 - **발생했던 문제/실수**: 진행 중인 조명 등록 session ID를 브라우저 상태에만 두어 새로고침 시 작업이 사라졌고, provisioning 결과가 불확실한 노드가 있어도 새 scan을 시작할 수 있었다.

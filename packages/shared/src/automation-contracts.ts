@@ -108,6 +108,7 @@ export interface VehicleSensorCapabilityIngestedAckV1 {
   gatewayId: string;
   meshNodeId: string;
   capabilityRevision: number;
+  reportPayloadHash: string;
   status: "applied" | "stale" | "duplicate" | "rejected";
   errorCode: string | null;
   ingestedAt: string;
@@ -303,6 +304,7 @@ export const vehicleSensorCapabilityIngestedAckV1Schema = z.object({
   gatewayId: identifierSchema,
   meshNodeId: identifierSchema,
   capabilityRevision: positiveSafeIntegerSchema,
+  reportPayloadHash: payloadHashSchema,
   status: z.enum(["applied", "stale", "duplicate", "rejected"]),
   errorCode: z.string().trim().min(1).nullable(),
   ingestedAt: z.string().datetime({ offset: true })

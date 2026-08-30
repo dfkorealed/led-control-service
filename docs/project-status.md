@@ -38,7 +38,7 @@
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
 - 스케줄 및 차량 이벤트 규칙 API CRUD와 durable full-snapshot outbox 저장은 완료했다. 실제 MQTT publish/application ACK, Gateway 무중단 규칙 동기화, offline 실행, sensor event와 Web CRUD는 아직 구현되지 않았다.
-- 차량 센서 capability report/ACK payload와 topic, node-local API ordering/idempotency service, DB invariant, cross-node-safe ACK identity와 published/deadletter/expired-lease revival은 완료했다. Production MQTT consumer, mTLS/ACL identity 검증과 config/application-ACK variant별 `SKIP LOCKED` lease·QoS 1·retry/deadletter·shutdown drain publisher는 Task 9, Gateway Sensor Server/vendor model 검증과 durable revision/report retry는 Task 14까지 연결되지 않는다.
+- 차량 센서 capability report/ACK payload와 topic, node-local API ordering/idempotency service, DB invariant, report-hash-scoped immutable ACK identity와 published/deadletter/expired-lease revival은 완료했다. Same-node altered payload는 원본과 분리된 rejected ACK를 받고 exact replay는 각 hash의 최초 ACK를 유지한다. Production MQTT consumer, mTLS/ACL identity 검증과 config/application-ACK variant별 `SKIP LOCKED` lease·exact stored QoS 1 publish·retry/deadletter·shutdown drain publisher는 Task 9, Gateway Sensor Server/vendor model 검증과 durable revision/report/hash retry 및 hash-aware terminal ACK matching은 Task 14까지 연결되지 않는다.
 
 ### 통계
 

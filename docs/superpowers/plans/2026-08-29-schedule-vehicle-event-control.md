@@ -608,11 +608,20 @@ git commit -m "feat(api): add vehicle event rule management"
 
 #### Task 8 fix round 5 (완료)
 
-- [x] `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>` node-scoped ACK identity
+- [x] Gateway/node/event 범위의 interim cross-node-safe ACK identity (breaker fix에서 report hash까지 확장)
 - [x] 같은 Gateway의 cross-node eventId conflict를 별도 rejected ACK row로 보존하고 원본/충돌 양쪽 replay 검증
 - [x] exact replay의 최초 payload/hash/`ingestedAt` 불변과 published-lost/deadletter revival
 - [x] live unexpired publisher lease 보호와 expired lease 원자 requeue
 - [x] Task 9 config/application-ACK publisher claim, QoS 1, retry/deadletter, shutdown handoff 구체화
+- [x] focused PostgreSQL/shared/API/migration, lint/typecheck/build 검증과 보고서/별도 커밋
+
+#### Task 8 breaker fix (완료)
+
+- [x] strict ACK의 필수 `reportPayloadHash=sha256:<64 lowercase hex>` 계약
+- [x] `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>` exact-report ACK identity와 255-byte 이내 key 안전성
+- [x] same-node/same-event altered payload의 별도 immutable rejected ACK와 원본/충돌 양방향 replay
+- [x] report hash별 published/deadletter/expired-lease revival, live lease 보호, payload/hash/`ingestedAt` 불변
+- [x] Task 9 exact stored ACK publish와 Task 14 hash-aware terminal matching handoff
 - [x] focused PostgreSQL/shared/API/migration, lint/typecheck/build 검증과 보고서/별도 커밋
 
 ### Task 9: automation snapshot 발행·ACK·실행 원장 수집
@@ -634,9 +643,9 @@ git commit -m "feat(api): add vehicle event rule management"
 - Produces: canonical hash full snapshot, exact revision applied/rejected 처리, `eventId+sequence` 멱등 원장, ingested ACK.
 - Capability report consumer는 `sites/{siteId}/gateways/{gatewayId}/events/automation/vehicle-sensor-capability`를 subscribe한다. broker가 확인한 mTLS/ACL Gateway identity, topic site/gateway, payload site/gateway, DB의 active claimed Gateway identity가 모두 같을 때만 `VehicleSensorCapabilityService.applyReport`를 호출한다. unauthenticated HTTP/direct route는 만들지 않는다.
 - Automation publisher는 config와 application-ACK를 **서로 다른 claim SQL**로 가져온다. Config predicate는 `dispatchId IS NULL AND applicationAckKey IS NULL AND gatewayId IS NOT NULL AND revision IS NOT NULL`, ACK predicate는 `dispatchId IS NULL AND applicationAckKey IS NOT NULL AND gatewayId IS NOT NULL AND revision IS NULL`이다. 두 query 모두 `publishedAt IS NULL`, `deadLetteredAt IS NULL`, `nextAttemptAt <= now`, lease null/만료 조건과 `FOR UPDATE SKIP LOCKED LIMIT 50`을 사용하고 같은 transaction에서 `lockedBy/lockedAt/leaseExpiresAt=now+30s`를 기록한다.
-- Claim한 config와 ACK는 row의 `topic`과 저장된 JSON `payload`를 생성 시각·revision·hash 변경 없이 `MqttService.publishTopic(..., { timeoutMs: 10_000 })`로 MQTT QoS 1 발행한다. 성공 갱신과 실패 갱신은 `id + lockedBy + live lease + unpublished + non-deadletter` ownership predicate를 다시 확인한다.
+- Claim한 config와 ACK는 row의 `topic`과 저장된 JSON `payload`를 생성 시각·revision·hash 변경 없이 `MqttService.publishTopic(..., { timeoutMs: 10_000 })`로 MQTT QoS 1 발행한다. 특히 application ACK는 claim/publish 시 payload나 `reportPayloadHash`를 재계산·재구성하지 않는다. 성공 갱신과 실패 갱신은 `id + lockedBy + live lease + unpublished + non-deadletter` ownership predicate를 다시 확인한다.
 - 실패는 `attempts+1`, 1초부터 최대 60초 exponential backoff와 0~20% jitter를 적용하고 lease를 해제한다. 10회 또는 생성 후 15분에 도달하면 `deadLetteredAt/lastError`를 기록하고 row, topic, payload, hash를 삭제·변경하지 않는다. Config와 ACK deadletter는 command relation을 조회하거나 command terminal row를 갱신하지 않는다.
-- Service가 같은 transaction에 저장한 application-ACK를 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`에 발행한다. Identity는 `applicationAckKey=vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>`이고 `dispatchId/revision=NULL`이다. Exact report 재전달은 Task 8 service가 최초 ACK payload/hash/`ingestedAt`을 유지한 채 published/deadletter/expired-lease row를 즉시 재큐잉한다. `leaseExpiresAt > now`인 row는 active publisher 소유이므로 reset하지 않는다.
+- Service가 같은 transaction에 저장한 application-ACK를 `sites/{siteId}/gateways/{gatewayId}/acks/automation/vehicle-sensor-capability-ingested`에 발행한다. Identity는 `applicationAckKey=vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`이고 `dispatchId/revision=NULL`이다. Same-node altered payload는 altered hash의 별도 rejected ACK row를 가지며, exact report 재전달은 Task 8 service가 해당 hash row의 최초 ACK payload/hash/`ingestedAt`을 유지한 채 published/deadletter/expired-lease 상태만 즉시 재큐잉한다. `leaseExpiresAt > now`인 row는 active publisher 소유이므로 reset하지 않는다.
 - Publisher scheduler는 single-flight batch만 실행한다. `stopAndDrain()`은 timer를 중지하고 진행 중 publish를 bounded timeout까지 기다리며, batch는 shutdown 시작 뒤 다음 row를 publish하지 않는다. `MqttShutdownCoordinator`는 command/config/application-ACK/scan publisher와 mesh sync/inbound handler를 모두 drain한 뒤 MQTT client를 close한다.
 
 - [ ] **Step 1: variant claim, lease race, exact publish와 retry/deadletter 실패 테스트를 작성한다**
@@ -893,7 +902,7 @@ git commit -m "feat(gateway): execute vehicle sensor events"
 **Interfaces:**
 - Consumes: Sensor Status 현재 Presence/Motion property, vendor payload `{bootId,sequence,eventKind,level}`.
 - Produces: dedupe key `(sourceUnicast,bootId,sequence)`, vendor application ACK, startup Sensor Get, normalized sensor events.
-- Produces: node별 durable `VehicleSensorCapabilityReportV1` journal과 report topic publish. journal은 `capabilityRevision`, `eventId`, complete report payload를 함께 저장한다.
+- Produces: node별 durable `VehicleSensorCapabilityReportV1` journal과 report topic publish. journal은 `capabilityRevision`, `eventId`, complete report payload와 그 canonical `reportPayloadHash`를 함께 저장한다.
 
 - [ ] **Step 1: 중복·재부팅·startup query 테스트를 작성한다**
 
@@ -912,7 +921,7 @@ expect(sentAcks).toHaveLength(2);
 
 bootId가 바뀌면 sequence가 작아져도 새 session으로 처리한다. 각 configured source에 Gateway startup/reconnect 후 Sensor Get을 보내고 Status High/Low를 runtime current-state로 반영한다.
 
-Sensor Server와 vendor vehicle event model의 bound 상태가 실제로 바뀔 때만 node의 `capabilityRevision`을 1 증가시키고 새 `eventId`와 두 model boolean을 포함한 complete report를 원자 저장한다. broker PUBACK만으로 delivered 처리하지 않고 capability ingested ACK가 올 때까지 같은 eventId/revision/payload를 재시도한다. reconnect에서는 저장한 현재 report를 revision 증가 없이 그대로 재발행한다. `applied|stale|duplicate` ACK는 matching identity/revision일 때 terminal로 처리하고 `rejected`는 journal을 보존한 채 정제된 conflict 진단으로 fail-closed 한다.
+Sensor Server와 vendor vehicle event model의 bound 상태가 실제로 바뀔 때만 node의 `capabilityRevision`을 1 증가시키고 새 `eventId`와 두 model boolean을 포함한 complete report, canonical `reportPayloadHash`를 원자 저장한다. broker PUBACK만으로 delivered 처리하지 않고 capability ingested ACK가 올 때까지 같은 eventId/revision/payload/hash를 재시도한다. reconnect에서는 저장한 현재 report를 revision 증가 없이 그대로 재발행한다. ACK의 `eventId`, `gatewayId`, `meshNodeId`, `capabilityRevision`, `reportPayloadHash`가 journal과 모두 일치할 때만 `applied|stale|duplicate`를 terminal로 처리하고 `rejected`는 journal을 보존한 채 정제된 conflict 진단으로 fail-closed 한다. Event/node/revision이 같아도 다른 report hash의 ACK는 현재 journal에 적용하지 않고 무시한다.
 
 - [ ] **Step 4: 검증하고 커밋한다**
 

@@ -15,7 +15,9 @@ const VERIFIED_AT = "2026-08-30T00:00:00.000Z";
 const INGESTED_AT = new Date("2026-08-30T00:01:00.000Z");
 const FIRST_INGESTED_AT = "2026-08-30T00:00:30.000Z";
 const CAPABILITY_EVENT_TYPE = "vehicle_sensor_capability";
-const APPLICATION_ACK_KEY = `vehicle-sensor-capability:${GATEWAY_ID}:${NODE_ID}:${EVENT_ID}`;
+const REPORT_PAYLOAD_HASH = capabilityHash(report());
+const APPLICATION_ACK_KEY =
+  `vehicle-sensor-capability:${GATEWAY_ID}:${NODE_ID}:${EVENT_ID}:${REPORT_PAYLOAD_HASH}`;
 const APPLICATION_ACK_TOPIC =
   `sites/${SITE_ID}/gateways/${GATEWAY_ID}/acks/automation/vehicle-sensor-capability-ingested`;
 
@@ -92,6 +94,7 @@ function acknowledgement(
     gatewayId: input.gatewayId,
     meshNodeId: input.meshNodeId,
     capabilityRevision: input.capabilityRevision,
+    reportPayloadHash: capabilityHash(input),
     status,
     errorCode,
     ingestedAt
@@ -253,6 +256,7 @@ describe("VehicleSensorCapabilityService", () => {
       gatewayId: GATEWAY_ID,
       meshNodeId: NODE_ID,
       capabilityRevision: 7,
+      reportPayloadHash: REPORT_PAYLOAD_HASH,
       status: "applied",
       errorCode: null,
       ingestedAt: INGESTED_AT.toISOString()
@@ -290,6 +294,7 @@ describe("VehicleSensorCapabilityService", () => {
         payload: appliedAck
       }
     });
+    expect(APPLICATION_ACK_KEY.length).toBeLessThanOrEqual(255);
     expect(automationSnapshot.incrementDesiredRevision).not.toHaveBeenCalled();
     expect(calls).toEqual([
       "lock",
@@ -354,6 +359,7 @@ describe("VehicleSensorCapabilityService", () => {
       gatewayId: GATEWAY_ID,
       meshNodeId: NODE_B_ID,
       capabilityRevision: 7,
+      reportPayloadHash: capabilityHash(input),
       status: "rejected",
       errorCode: "capability_event_conflict",
       ingestedAt: INGESTED_AT.toISOString()
@@ -363,15 +369,58 @@ describe("VehicleSensorCapabilityService", () => {
     expect(automationSnapshot.incrementDesiredRevision).not.toHaveBeenCalled();
     expect(tx.mqttOutbox.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        applicationAckKey: `vehicle-sensor-capability:${GATEWAY_ID}:${NODE_B_ID}:${EVENT_ID}`,
+        applicationAckKey:
+          `vehicle-sensor-capability:${GATEWAY_ID}:${NODE_B_ID}:${EVENT_ID}:${capabilityHash(input)}`,
         payload: expect.objectContaining({
           meshNodeId: NODE_B_ID,
+          reportPayloadHash: capabilityHash(input),
           status: "rejected",
           errorCode: "capability_event_conflict",
           ingestedAt: INGESTED_AT.toISOString()
         })
       })
     });
+  });
+
+  it("stores a same-node altered report conflict under its own report-hash ACK key", async () => {
+    const original = report();
+    const altered = report({
+      status: "unsupported",
+      sensorServerBound: false,
+      vendorVehicleEventModelBound: false
+    });
+    const { service, tx, automationSnapshot } = testContext({
+      eventById: processedEvent(original),
+      eventByRevision: processedEvent(original),
+      node: scopeRow({
+        vehicleSensorCapabilityStatus: "supported",
+        vehicleSensorCapabilityVerifiedAt: new Date(VERIFIED_AT),
+        vehicleSensorCapabilityRevision: 7n,
+        vehicleSensorServerBound: true,
+        vehicleVendorEventModelBound: true
+      })
+    });
+
+    await expect(service.applyReport(altered)).resolves.toEqual(
+      acknowledgement(altered, "rejected", "capability_event_conflict")
+    );
+    expect(tx.mqttOutbox.findUnique).toHaveBeenCalledWith({
+      where: {
+        applicationAckKey:
+          `vehicle-sensor-capability:${GATEWAY_ID}:${NODE_ID}:${EVENT_ID}:${capabilityHash(altered)}`
+      }
+    });
+    expect(tx.mqttOutbox.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        applicationAckKey:
+          `vehicle-sensor-capability:${GATEWAY_ID}:${NODE_ID}:${EVENT_ID}:${capabilityHash(altered)}`,
+        payload: acknowledgement(altered, "rejected", "capability_event_conflict")
+      })
+    });
+    expect(capabilityHash(altered)).not.toBe(capabilityHash(original));
+    expect(tx.meshNode.update).not.toHaveBeenCalled();
+    expect(tx.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(automationSnapshot.incrementDesiredRevision).not.toHaveBeenCalled();
   });
 
   it.each([

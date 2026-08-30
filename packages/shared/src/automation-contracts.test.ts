@@ -195,6 +195,7 @@ describe("automation shared contracts", () => {
       gatewayId,
       meshNodeId: fixtureId,
       capabilityRevision: 7,
+      reportPayloadHash: payloadHash,
       status: "applied" as const,
       errorCode: null,
       ingestedAt: occurredAt
@@ -220,6 +221,20 @@ describe("automation shared contracts", () => {
       status: "rejected",
       errorCode: ""
     })).toThrow();
+    expect(() => vehicleSensorCapabilityIngestedAckV1Schema.parse({
+      ...acknowledgement,
+      reportPayloadHash: undefined
+    })).toThrow();
+    for (const reportPayloadHash of [
+      `sha256:${"A".repeat(64)}`,
+      `sha256:${"a".repeat(63)}`,
+      "sha256:not-hex"
+    ]) {
+      expect(() => vehicleSensorCapabilityIngestedAckV1Schema.parse({
+        ...acknowledgement,
+        reportPayloadHash
+      })).toThrow();
+    }
     expect(() => vehicleSensorCapabilityIngestedAckV1Schema.parse({
       ...acknowledgement,
       extra: true
