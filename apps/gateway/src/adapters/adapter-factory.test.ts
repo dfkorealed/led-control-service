@@ -23,6 +23,7 @@ describe("createProductionAdapters", () => {
       onFixtureStatus: vi.fn(() => () => undefined),
       onLightingObservation: vi.fn(() => () => undefined),
       resyncFixtureStates: vi.fn(),
+      resyncLightingFixtures: vi.fn(),
       syncGroupSubscriptions: vi.fn(),
       scan: vi.fn(),
       identify: vi.fn(),

@@ -7,6 +7,8 @@ import {
   deriveDeviceStatusAckStatus,
   fixtureStateV2Schema,
   gatewayDimmingCommandDraftV2Schema,
+  gatewayDimmingCommandV2CompatibilitySchema,
+  gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2Schema,
   gatewayHeartbeatV2Schema,
   meshGroupResyncAckV2Schema,
@@ -211,6 +213,69 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       overrideUntil: "2026-07-11T00:00:05.000Z",
       expiresAt: "2026-07-11T00:00:10.000Z"
     })).toThrow();
+  });
+
+  it("reads a legacy near-expiry wire command without weakening new producer validation", () => {
+    const legacy = {
+      commandId,
+      dispatchId,
+      siteId,
+      gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`,
+      sequence: 7,
+      targetType: "fixture" as const,
+      targetId: fixtureId,
+      targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast" as const,
+      brightness: 70,
+      requestedBy: "55555555-5555-4555-8555-555555555555",
+      requestedAt: "2026-07-11T00:00:00.000Z",
+      overrideUntil: "2026-07-11T00:00:05.000Z",
+      expiresAt: "2026-07-11T00:00:10.000Z"
+    };
+
+    expect(gatewayDimmingCommandV2CompatibilitySchema.parse(legacy)).toEqual(legacy);
+    expect(() => gatewayDimmingCommandV2Schema.parse(legacy)).toThrow("expiresAt must not exceed overrideUntil");
+  });
+
+  it("authenticates one durable publish generation and its exact override lifetime metadata", () => {
+    const published = {
+      commandId,
+      dispatchId,
+      siteId,
+      gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`,
+      sequence: 7,
+      targetType: "fixture" as const,
+      targetId: fixtureId,
+      targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast" as const,
+      brightness: 70,
+      requestedBy: "55555555-5555-4555-8555-555555555555",
+      requestedAt: "2026-07-11T00:00:00.000Z",
+      overrideUntil: "2026-07-11T01:00:00.000Z",
+      deliveryGeneration: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      deliveryGeneratedAt: "2026-07-11T00:00:00.000Z",
+      deliveryWindowMs: 10_000,
+      overrideRemainingMs: 3_600_000,
+      expiresAt: "2026-07-11T00:00:10.000Z"
+    };
+
+    expect(gatewayDimmingCommandPublishedV2Schema.parse(published)).toEqual(published);
+    expect(gatewayDimmingCommandV2CompatibilitySchema.parse(published)).toEqual(published);
+    expect(() => gatewayDimmingCommandPublishedV2Schema.parse({
+      ...published,
+      overrideRemainingMs: published.overrideRemainingMs - 1
+    })).toThrow("overrideRemainingMs must match overrideUntil at delivery generation");
+    expect(() => gatewayDimmingCommandPublishedV2Schema.parse({
+      ...published,
+      expiresAt: "2026-07-11T00:00:09.000Z"
+    })).toThrow("expiresAt must match the delivery window");
+    expect(() => gatewayDimmingCommandPublishedV2Schema.parse({
+      ...published,
+      deliveryWindowMs: 11_000,
+      expiresAt: "2026-07-11T00:00:11.000Z"
+    })).toThrow("less than or equal to 10000");
   });
 
   it("requires a destination address only for mesh group delivery", () => {

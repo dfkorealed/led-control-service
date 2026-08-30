@@ -4,7 +4,7 @@ export type GatewayMqttClient = Pick<
   MqttClient,
   "connected" | "end" | "handleMessage" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe"
 >;
-type TopicHandler = (payload: Buffer, source: GatewayMqttClient) => unknown;
+type TopicHandler = (payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket) => unknown;
 type ErrorReporter = (error: unknown, context: string) => unknown;
 
 export interface GatewayMqttIdentityTransaction {
@@ -225,7 +225,7 @@ export class GatewayMqttRuntime {
   }
 
   private handleMessage(client: GatewayMqttClient, topic: string, payload: Buffer, packet?: IPublishPacket) {
-    const handled = this.dispatchMessage(topic, payload, client);
+    const handled = this.dispatchMessage(topic, payload, client, packet);
     if (packet?.qos === 1 && this.deferredPubackTopics.has(topic)) {
       this.deferredHandlers.set(packet, handled);
       return;
@@ -349,11 +349,16 @@ export class GatewayMqttRuntime {
     return result;
   }
 
-  private dispatchMessage(topic: string, payload: Buffer, source: GatewayMqttClient): Promise<void> {
+  private dispatchMessage(
+    topic: string,
+    payload: Buffer,
+    source: GatewayMqttClient,
+    packet?: IPublishPacket
+  ): Promise<void> {
     const handler = this.options.topicHandlers[topic];
     if (!handler) return Promise.resolve();
     try {
-      return Promise.resolve(handler(payload, source)).then(
+      return Promise.resolve(handler(payload, source, packet)).then(
         () => undefined,
         (error) => {
           this.report(this.options.onMessageError, error, topic);

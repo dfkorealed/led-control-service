@@ -178,6 +178,38 @@ describe("handleGatewayDimmingCommand", () => {
     expect(marked).toEqual([command.idempotencyKey]);
   });
 
+  it("replays a legacy near-expiry manual journal record during a mixed-version restart", async () => {
+    const legacy = {
+      ...command,
+      requestedAt: "2026-07-11T00:00:00.000Z",
+      overrideUntil: "2026-07-11T00:00:05.000Z",
+      expiresAt: "2026-07-11T00:00:10.000Z"
+    };
+    const journal = {
+      pendingAutomationRecoveries: async () => [{
+        idempotencyKey: legacy.idempotencyKey,
+        state: "accepted" as const,
+        command: { command: legacy }
+      }],
+      complete: vi.fn().mockResolvedValue(undefined),
+      markAutomationHandoffComplete: vi.fn().mockResolvedValue(undefined)
+    };
+    const automation = { prepare: vi.fn(), handoff: vi.fn().mockResolvedValue(undefined) };
+
+    await recoverPendingManualAutomationHandoffs(journal, automation);
+
+    expect(journal.complete).toHaveBeenCalledWith(
+      legacy.idempotencyKey,
+      expect.objectContaining({ deviceStatus: expect.objectContaining({ status: "timed_out" }) }),
+      { automationHandoffPending: true }
+    );
+    expect(automation.handoff).toHaveBeenCalledWith(
+      legacy,
+      expect.objectContaining({ status: "timed_out" })
+    );
+    expect(journal.markAutomationHandoffComplete).toHaveBeenCalledWith(legacy.idempotencyKey);
+  });
+
   it("closes a durable manual prepare failure without starting RF", async () => {
     const adapter = new StubBleMeshAdapter();
     const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
@@ -319,6 +351,57 @@ describe("handleGatewayDimmingCommand", () => {
     vi.useRealTimers();
   });
 
+  it("rejects after acceptance exhausts the broker receipt deadline even when wall time is untrusted", async () => {
+    let monotonicNow = 1_000;
+    const adapter = new StubBleMeshAdapter();
+
+    const result = await handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(new Map()),
+      { ...command, expiresAt: "2026-07-11T00:00:10.000Z" },
+      async () => { monotonicNow = 3_001; },
+      {
+        isCommandExpired: vi.fn().mockResolvedValue(false),
+        receipt: { receivedAtMonotonicMs: 1_000, brokerRemainingTtlMs: 2_000 },
+        monotonicClock: () => monotonicNow
+      }
+    );
+
+    expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "COMMAND_EXPIRED" });
+    expect(result.fixtureStateObserved).toBe(false);
+    expect(adapter.commands).toHaveLength(0);
+  });
+
+  it("rechecks the broker receipt deadline after manual persistence immediately before RF", async () => {
+    let monotonicNow = 1_000;
+    const adapter = new StubBleMeshAdapter();
+    const automation = {
+      prepare: vi.fn(async () => { monotonicNow = 3_001; }),
+      handoff: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const result = await handleGatewayDimmingCommand(
+      adapter,
+      memoryJournal(new Map()),
+      { ...command, overrideUntil: "2026-07-11T01:00:00.000Z" },
+      undefined,
+      {
+        isCommandExpired: vi.fn().mockResolvedValue(false),
+        receipt: { receivedAtMonotonicMs: 1_000, brokerRemainingTtlMs: 2_000 },
+        monotonicClock: () => monotonicNow,
+        automation
+      }
+    );
+
+    expect(automation.prepare).toHaveBeenCalledTimes(1);
+    expect(result.acceptance).toMatchObject({ status: "rejected", errorCode: "COMMAND_EXPIRED" });
+    expect(adapter.commands).toHaveLength(0);
+    expect(automation.handoff).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ status: "failed" })
+    );
+  });
+
   it("times out a BLE adapter that never returns", async () => {
     vi.useFakeTimers();
     const records = new Map<string, any>();
@@ -328,6 +411,7 @@ describe("handleGatewayDimmingCommand", () => {
       onFixtureStatus: vi.fn(() => () => undefined),
       onLightingObservation: vi.fn(() => () => undefined),
       resyncFixtureStates: vi.fn(async () => ({ total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 })),
+      resyncLightingFixtures: vi.fn(async () => ({ total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 })),
       syncGroupSubscriptions: vi.fn(async () => ({
         siteId: command.siteId,
         gatewayId: command.gatewayId,

@@ -127,13 +127,29 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   }
 
   /** Reconfigures confirmed nodes and waits for actual state without treating a missing reply as offline. */
-  resyncFixtureStates() {
+  resyncFixtureStates(signal?: AbortSignal) {
     if (!this.resyncInFlight) {
-      this.resyncInFlight = this.performResync().finally(() => {
+      this.resyncInFlight = this.performResync(signal).finally(() => {
         this.resyncInFlight = undefined;
       });
     }
     return this.resyncInFlight;
+  }
+
+  async resyncLightingFixtures(fixtureIds: string[], signal?: AbortSignal) {
+    if (fixtureIds.length === 0 || fixtureIds.length > 64 || new Set(fixtureIds).size !== fixtureIds.length) {
+      throw new Error("targeted lighting resync requires 1 to 64 unique fixtures");
+    }
+    await this.start();
+    if (signal?.aborted) return emptyResyncReport();
+    const results = await mapWithConcurrency(fixtureIds, this.resyncConcurrency, async (fixtureId) => {
+      const mapping = await this.addressStore.findByFixtureId(fixtureId);
+      if (signal?.aborted || !mapping || mapping.status !== "confirmed") {
+        return { fixtureId, status: "failed" as const };
+      }
+      return this.resyncLightingFixture({ fixtureId, primaryUnicast: mapping.primaryUnicast }, signal);
+    }, signal);
+    return summarizeResync(results);
   }
 
   async scan(_command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]> {
@@ -502,41 +518,46 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     this.markHealthPendingRecovered(mapping.fixtureId);
   }
 
-  private async performResync(): Promise<BleMeshResyncReport> {
+  private async performResync(signal?: AbortSignal): Promise<BleMeshResyncReport> {
     await this.start();
+    if (signal?.aborted) return emptyResyncReport();
     const mappings = await this.addressStore.listConfirmed();
+    if (signal?.aborted) return emptyResyncReport();
     this.healthPendingFixtures.clear();
-    const results = await mapWithConcurrency(mappings, this.resyncConcurrency, (mapping) => this.resyncFixture(mapping));
+    const results = await mapWithConcurrency(
+      mappings,
+      this.resyncConcurrency,
+      (mapping) => this.resyncFixture(mapping, signal),
+      signal
+    );
     for (const result of results) {
       if (result.healthPending) this.healthPendingFixtures.add(result.fixtureId);
     }
-    const report = results.reduce<BleMeshResyncReport>((summary, result) => ({
-      total: summary.total + 1,
-      configured: summary.configured + (result.status === "observed" || result.status === "timed_out" ? 1 : 0),
-      observed: summary.observed + (result.status === "observed" ? 1 : 0),
-      healthPending: summary.healthPending + (result.healthPending ? 1 : 0),
-      timedOut: summary.timedOut + (result.status === "timed_out" ? 1 : 0),
-      failed: summary.failed + (result.status === "failed" ? 1 : 0)
-    }), { total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 });
+    const report = summarizeResync(results);
     this.lastResyncReport = report;
     return report;
   }
 
-  private async resyncFixture(mapping: { fixtureId: string; primaryUnicast: number; elementCount: number }): Promise<ResyncFixtureResult> {
+  private async resyncFixture(
+    mapping: { fixtureId: string; primaryUnicast: number; elementCount: number },
+    signal?: AbortSignal
+  ): Promise<ResyncFixtureResult> {
     try {
+      if (signal?.aborted) return { fixtureId: mapping.fixtureId, status: "failed" };
       await this.retryBusy(() => this.createConfigClient(this.requireNodePath()).configureNode({
         unicast: mapping.primaryUnicast,
         elementCount: mapping.elementCount
-      }));
+      }), signal);
+      if (signal?.aborted) return { fixtureId: mapping.fixtureId, status: "failed" };
       // Start the observation window when this bounded-queue item actually runs. Large
       // sites may wait longer than one coherence window before reaching this point.
       const generation = this.beginObservationGeneration(mapping.fixtureId, this.now()).generation;
-      const observation = this.waitForFixtureLightingPair(mapping.fixtureId, generation);
+      const observation = this.waitForFixtureLightingPair(mapping.fixtureId, generation, signal);
       try {
         await Promise.all([
-          this.sendStatusGetWithRetry(mapping.primaryUnicast, GENERIC_ONOFF_GET),
-          this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET),
-          this.sendStatusGetWithRetry(mapping.primaryUnicast, HEALTH_FAULT_GET)
+          this.sendStatusGetWithRetry(mapping.primaryUnicast, GENERIC_ONOFF_GET, signal),
+          this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET, signal),
+          this.sendStatusGetWithRetry(mapping.primaryUnicast, HEALTH_FAULT_GET, signal)
         ]);
       } catch {
         observation.cancel();
@@ -558,7 +579,32 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     }
   }
 
-  private waitForFixtureLightingPair(fixtureId: string, generation: number) {
+  private async resyncLightingFixture(
+    mapping: { fixtureId: string; primaryUnicast: number },
+    signal?: AbortSignal
+  ): Promise<ResyncFixtureResult> {
+    if (signal?.aborted) return { fixtureId: mapping.fixtureId, status: "failed" };
+    const generation = this.beginObservationGeneration(mapping.fixtureId, this.now()).generation;
+    const observation = this.waitForFixtureLightingPair(mapping.fixtureId, generation, signal);
+    try {
+      await Promise.all([
+        this.sendStatusGetWithRetry(mapping.primaryUnicast, GENERIC_ONOFF_GET, signal),
+        this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET, signal)
+      ]);
+    } catch {
+      observation.cancel();
+      return { fixtureId: mapping.fixtureId, status: "failed" };
+    }
+    observation.startDeadline();
+    try {
+      await observation.promise;
+      return { fixtureId: mapping.fixtureId, status: "observed" };
+    } catch {
+      return { fixtureId: mapping.fixtureId, status: signal?.aborted ? "failed" : "timed_out" };
+    }
+  }
+
+  private waitForFixtureLightingPair(fixtureId: string, generation: number, signal?: AbortSignal) {
     let settled = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let resolvePromise: () => void = () => undefined;
@@ -566,6 +612,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     const cleanup = () => {
       if (timeout) clearTimeout(timeout);
       unsubscribe();
+      signal?.removeEventListener("abort", cancel);
     };
     const onPair = (observedFixtureId: string, observedGeneration: number) => {
       if (settled || observedFixtureId !== fixtureId || observedGeneration !== generation) return;
@@ -582,6 +629,14 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     // The observer starts before requests are sent so a fast reply cannot be lost.
     // Attaching a handler now also prevents a timeout during retry from becoming unhandled.
     void promise.catch(() => undefined);
+    const cancel = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      rejectPromise(new Error("Fixture resync observation cancelled"));
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
     return {
       promise,
       startDeadline: () => {
@@ -593,32 +648,29 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
           rejectPromise(new Error("Fixture resync observation timed out"));
         }, this.responseTimeoutMs);
       },
-      cancel: () => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        rejectPromise(new Error("Fixture resync observation cancelled"));
-      }
+      cancel
     };
   }
 
-  private sendStatusGetWithRetry(destination: number, payload: Uint8Array) {
-    return this.retryBusy(() => this.sendStatusGet(destination, payload));
+  private sendStatusGetWithRetry(destination: number, payload: Uint8Array, signal?: AbortSignal) {
+    return this.retryBusy(() => this.sendStatusGet(destination, payload, signal), signal);
   }
 
-  private async retryBusy<T>(operation: () => Promise<T>) {
+  private async retryBusy<T>(operation: () => Promise<T>, signal?: AbortSignal) {
     for (let attempt = 0; attempt < this.resyncSendAttempts; attempt += 1) {
+      throwIfAborted(signal);
       try {
         return await operation();
       } catch (error) {
         if (attempt + 1 === this.resyncSendAttempts || !isBusyError(error)) throw error;
-        await new Promise((resolve) => setTimeout(resolve, this.resyncRetryMs * (attempt + 1)));
+        await abortableDelay(this.resyncRetryMs * (attempt + 1), signal);
       }
     }
     throw new Error("Mesh resync retry exhausted");
   }
 
-  private async sendStatusGet(destination: number, payload: Uint8Array) {
+  private async sendStatusGet(destination: number, payload: Uint8Array, signal?: AbortSignal) {
+    throwIfAborted(signal);
     await this.transport.call(BLUEZ_SERVICE, this.requireNodePath(), NODE_INTERFACE, "Send", [
       BLUEZ_APPLICATION_PATHS.element,
       destination,
@@ -678,6 +730,40 @@ interface ResyncFixtureResult {
   fixtureId: string;
   status: "observed" | "timed_out" | "failed";
   healthPending?: boolean;
+}
+
+function emptyResyncReport(): BleMeshResyncReport {
+  return { total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 };
+}
+
+function summarizeResync(results: ResyncFixtureResult[]): BleMeshResyncReport {
+  return results.reduce<BleMeshResyncReport>((summary, result) => ({
+    total: summary.total + 1,
+    configured: summary.configured + (result.status === "observed" || result.status === "timed_out" ? 1 : 0),
+    observed: summary.observed + (result.status === "observed" ? 1 : 0),
+    healthPending: summary.healthPending + (result.healthPending ? 1 : 0),
+    timedOut: summary.timedOut + (result.status === "timed_out" ? 1 : 0),
+    failed: summary.failed + (result.status === "failed" ? 1 : 0)
+  }), emptyResyncReport());
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new Error("Mesh resync aborted");
+}
+
+function abortableDelay(delayMs: number, signal?: AbortSignal) {
+  throwIfAborted(signal);
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new Error("Mesh resync aborted"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function hasLightingPair(observation: FixtureObservation): observation is FixtureObservation & {

@@ -8,7 +8,7 @@ import {
   type AutomationExecutionFixtureResultV1,
   type DeviceStatusAckV2,
   type FixtureStateV2,
-  gatewayDimmingCommandV2Schema,
+  gatewayDimmingCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
   identifyDeviceSchema,
   isGatewayCommandExpired,
@@ -19,7 +19,7 @@ import {
   provisioningScanStartSchema
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
-import type { MqttClient } from "mqtt";
+import type { IPublishPacket, MqttClient } from "mqtt";
 import {
   applyIdentifyDevice,
   applyProvisionDevice,
@@ -41,6 +41,7 @@ import {
   handleGatewayDimmingCommand,
   parseCommandTimeout,
   recoverPendingManualAutomationHandoffs,
+  type GatewayCommandReceipt,
   type GatewayCommandResult,
   type ManualOverrideCoordinator
 } from "./commands/gateway-command-handler";
@@ -64,7 +65,11 @@ import { KeyMaterialStore } from "./identity/key-material-store";
 import { DeviceCertificateClient } from "./identity/device-certificate-client";
 import { createGatewayCertificateRotation, type CertificateRotation } from "./identity/certificate-rotation";
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mqtt-runtime";
-import { BackgroundMeshResyncWorker, startControlPlaneWithBackgroundMeshResync } from "./runtime/background-mesh-resync";
+import {
+  BackgroundMeshResyncWorker,
+  TargetedLightingResyncQueue,
+  startControlPlaneWithBackgroundMeshResync
+} from "./runtime/background-mesh-resync";
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
 import type { BleMeshAdapter, BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
 import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
@@ -92,6 +97,7 @@ export function createGatewayAutomationServices(options: {
   scope: AutomationScope;
   clockTrust: ClockTrustProvider;
   execute: ScheduleRuntimeOptions["execute"];
+  requestFixtureObservation?: ScheduleRuntimeOptions["requestFixtureObservation"];
   wallClock?: () => Date;
   monotonicClock?: () => number;
   onTerminalResults?: ScheduleRuntimeOptions["onTerminalResults"];
@@ -101,6 +107,7 @@ export function createGatewayAutomationServices(options: {
     store: options.stateStore,
     clockTrust: options.clockTrust,
     execute: options.execute,
+    ...(options.requestFixtureObservation ? { requestFixtureObservation: options.requestFixtureObservation } : {}),
     ...(options.wallClock ? { wallClock: options.wallClock } : {}),
     ...(options.monotonicClock ? { monotonicClock: options.monotonicClock } : {}),
     ...(options.onTerminalResults ? { onTerminalResults: options.onTerminalResults } : {}),
@@ -119,22 +126,50 @@ export function createGatewayAutomationServices(options: {
 }
 
 export function createManualOverrideCoordinator(
-  runtime: Pick<ScheduleRuntime, "prepareManualOverride" | "handoffManualTerminal">
+  runtime: Pick<ScheduleRuntime, "prepareManualOverride" | "handoffManualTerminal">,
+  monotonicClock?: () => number
 ): ManualOverrideCoordinator {
   return {
-    prepare: (command) => runtime.prepareManualOverride({
-      sourceId: command.commandId,
-      fixtureIds: command.targetFixtureIds,
-      brightnessPercent: command.brightness,
-      startedAt: command.requestedAt,
-      overrideUntil: command.overrideUntil!,
-      deliveryWindowMs: GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS
-    }),
+    prepare: (command, receipt) => {
+      const elapsedSinceReceiptMs = receipt && monotonicClock
+        ? Math.max(0, Math.floor(monotonicClock() - receipt.receivedAtMonotonicMs))
+        : 0;
+      const brokerRemainingTtlMs = Math.max(
+        1,
+        (receipt?.brokerRemainingTtlMs ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS) - elapsedSinceReceiptMs
+      );
+      const transitAgeMs = "deliveryWindowMs" in command
+        ? Math.max(0, command.deliveryWindowMs - (receipt?.brokerRemainingTtlMs ?? command.deliveryWindowMs))
+        : 0;
+      const overrideRemainingMs = "overrideRemainingMs" in command && command.overrideRemainingMs !== undefined
+        ? Math.max(1, command.overrideRemainingMs - transitAgeMs - elapsedSinceReceiptMs)
+        : undefined;
+      return runtime.prepareManualOverride({
+        sourceId: command.commandId,
+        fixtureIds: command.targetFixtureIds,
+        brightnessPercent: command.brightness,
+        startedAt: command.requestedAt,
+        overrideUntil: command.overrideUntil!,
+        deliveryWindowMs: brokerRemainingTtlMs,
+        ...(overrideRemainingMs === undefined ? {} : { overrideRemainingMs })
+      });
+    },
     handoff: (command, terminal) => runtime.handoffManualTerminal(
       command.commandId,
       manualTerminalResults(terminal)
     )
   };
+}
+
+export function createGatewayCommandReceipt(
+  packet: Pick<IPublishPacket, "properties"> | undefined,
+  monotonicClock: () => number = () => performance.now()
+): GatewayCommandReceipt {
+  const remainingSeconds = packet?.properties?.messageExpiryInterval;
+  const brokerRemainingTtlMs = Number.isSafeInteger(remainingSeconds) && remainingSeconds! > 0
+    ? remainingSeconds! * 1_000
+    : 0;
+  return { receivedAtMonotonicMs: monotonicClock(), brokerRemainingTtlMs };
 }
 
 export async function initializeAutomationBeforeManualRecovery(
@@ -148,11 +183,13 @@ export async function initializeAutomationBeforeManualRecovery(
 export function observeAutomationFixtureStatuses(
   adapter: Pick<BleMeshAdapter, "onLightingObservation">,
   runtime: Pick<ScheduleRuntime, "recordFixtureState">,
-  onError?: (error: unknown) => void
+  onError?: (error: unknown) => void,
+  onObserved?: (fixtureId: string) => void
 ) {
   return adapter.onLightingObservation((status) => {
     const effectiveBrightness = status.powerOn ? status.brightness : 0;
     void runtime.recordFixtureState(status.fixtureId, effectiveBrightness, status.observedAt)
+      .then(() => onObserved?.(status.fixtureId))
       .catch((error) => onError?.(error));
   });
 }
@@ -232,6 +269,10 @@ async function main() {
     process.env.GATEWAY_AUTOMATION_STATE_PATH ?? "/var/lib/led-control/automation-state.json"
   );
   const clockTrust = new SystemClockTrustProvider();
+  const targetedLightingResync = new TargetedLightingResyncQueue({
+    run: (fixtureIds, signal) => adapter.resyncLightingFixtures(fixtureIds, signal),
+    onError: (error) => reportGatewayError(error, "automation_targeted_lighting_resync")
+  });
   const { scheduleRuntime, automationRuntime } = createGatewayAutomationServices({
     configStore: new FileAutomationConfigStore(
       process.env.GATEWAY_AUTOMATION_CONFIG_PATH ?? "/var/lib/led-control/automation-snapshot.json",
@@ -240,6 +281,11 @@ async function main() {
     stateStore: automationStateStore,
     scope: { siteId, gatewayId },
     clockTrust,
+    requestFixtureObservation: (fixtureIds) => {
+      if (!targetedLightingResync.request(fixtureIds)) {
+        throw new Error("targeted lighting resync queue capacity is unavailable");
+      }
+    },
     execute: (actions) => executeAutomationWithBestEffortTelemetry({
       actions,
       execute: (requested) => executeAutomationDimmingActions(adapter, requested, { timeoutMs: commandTimeoutMs }),
@@ -268,7 +314,8 @@ async function main() {
     await health.setOperationalBlocker(automationStateHealthReason(error), true);
     throw error;
   }
-  const manualOverrideCoordinator = createManualOverrideCoordinator(scheduleRuntime);
+  const gatewayMonotonicClock = () => performance.now();
+  const manualOverrideCoordinator = createManualOverrideCoordinator(scheduleRuntime, gatewayMonotonicClock);
   await initializeAutomationBeforeManualRecovery(
     automationRuntime,
     () => recoverPendingManualAutomationHandoffs(commandJournal, manualOverrideCoordinator)
@@ -276,11 +323,12 @@ async function main() {
   const stopAutomationFixtureStatusIntake = observeAutomationFixtureStatuses(
     adapter,
     scheduleRuntime,
-    (error) => void reportGatewayError(error, "automation_fixture_status")
+    (error) => void reportGatewayError(error, "automation_fixture_status"),
+    (fixtureId) => targetedLightingResync.markObserved(fixtureId)
   );
   await health.setOperationalBlocker("mesh_resync_pending", true);
   const meshResyncWorker = new BackgroundMeshResyncWorker({
-    run: () => adapter.resyncFixtureStates(),
+    run: (signal) => adapter.resyncFixtureStates(signal),
     onReport: async (report) => {
       await recordMeshResyncOutcome(health, report);
       await health.setOperationalBlocker("mesh_resync_failed", false);
@@ -302,8 +350,9 @@ async function main() {
     onError: (error) => void reportGatewayError(error, "automation_config_ack_retry")
   });
 
-  async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient) {
-    const command = gatewayDimmingCommandV2Schema.parse(JSON.parse(payload.toString()));
+  async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket) {
+    const receipt = createGatewayCommandReceipt(packet, gatewayMonotonicClock);
+    const command = gatewayDimmingCommandV2CompatibilitySchema.parse(JSON.parse(payload.toString()));
     let acceptancePublished = false;
     let stateReservation: StateEventCapacityReservation | undefined;
     try {
@@ -330,6 +379,8 @@ async function main() {
             const now = new Date();
             return await clockTrust.isTrusted(now) && isGatewayCommandExpired(expiresAt, now);
           },
+          receipt,
+          monotonicClock: gatewayMonotonicClock,
           automation: manualOverrideCoordinator,
           onAutomationError: (error) => void reportGatewayError(error, "automation_manual_handoff")
         }
@@ -550,10 +601,11 @@ async function main() {
     stop: async () => {
       const schedulerDrain = scheduleRuntime.stopAndDrain();
       const meshResyncDrain = meshResyncWorker.stopAndDrain();
+      const targetedResyncDrain = targetedLightingResync.stopAndDrain();
       stopAutomationFixtureStatusIntake();
       stopFixtureStatusIntake?.();
       await fixtureStatusReservation.release();
-      await Promise.all([schedulerDrain, meshResyncDrain]);
+      await Promise.all([schedulerDrain, meshResyncDrain, targetedResyncDrain]);
       stateEventPublisher.disconnect();
       automationAckPublisher.disconnect();
       await mqttRuntime.stop();

@@ -546,6 +546,26 @@ describe("BluezMeshAdapter", () => {
     });
   });
 
+  it("targeted fence recovery requires only a coherent OnOff and Lightness pair", async () => {
+    const f = fixture();
+    const resync = f.adapter.resyncLightingFixtures(["fixture-1"]);
+    await vi.waitFor(() => expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(2));
+
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x04, 0x01]) });
+    f.application.emit("messageReceived", { source: 0x0100, data: Uint8Array.from([0x82, 0x4e, 0xff, 0xff]) });
+
+    await expect(resync).resolves.toMatchObject({
+      total: 1,
+      configured: 1,
+      observed: 1,
+      healthPending: 0,
+      timedOut: 0,
+      failed: 0
+    });
+    expect(f.transport.calls.map((call) => call.args[4])).toEqual([[0x82, 0x01], [0x82, 0x4b]]);
+    expect(f.config.configureNode).not.toHaveBeenCalled();
+  });
+
   it("publishes a late Current Fault and clears the pending resync health report", async () => {
     const f = fixture();
     const listener = vi.fn();
@@ -866,6 +886,33 @@ describe("BluezMeshAdapter", () => {
     expect(maximumActiveConfigures).toBeLessThanOrEqual(4);
     expect(f.transport.call).toHaveBeenCalledTimes(3001);
   }, 10_000);
+
+  it("does not cross another fixture boundary after a 1,000-node resync is aborted", async () => {
+    const f = fixture();
+    const mappings = Array.from({ length: 1_000 }, (_, index) => ({
+      fixtureId: `fixture-${index}`,
+      primaryUnicast: index + 0x0100,
+      elementCount: 1,
+      status: "confirmed" as const
+    }));
+    f.addresses.listConfirmed.mockResolvedValue(mappings);
+    let releaseConfig!: () => void;
+    const configGate = new Promise<void>((resolve) => { releaseConfig = resolve; });
+    f.config.configureNode.mockImplementation(async () => {
+      await configGate;
+      return { compositionPage: 0 };
+    });
+    const controller = new AbortController();
+    const resync = f.adapter.resyncFixtureStates(controller.signal);
+    await vi.waitFor(() => expect(f.config.configureNode).toHaveBeenCalledTimes(4));
+
+    controller.abort();
+    releaseConfig();
+    await resync;
+
+    expect(f.config.configureNode.mock.calls.length).toBeLessThan(1_000);
+    expect(f.transport.call).not.toHaveBeenCalled();
+  });
 });
 
 function configureGroupFixtures(f: ReturnType<typeof fixture>) {

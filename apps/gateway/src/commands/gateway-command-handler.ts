@@ -2,11 +2,11 @@ import {
   AcceptanceAckV2,
   AutomationExecutionFixtureResultV1,
   DeviceStatusAckV2,
-  GatewayDimmingCommandV2,
+  GatewayDimmingCommandV2Compatible,
   acceptanceAckV2Schema,
   deriveDeviceStatusAckStatus,
   deviceStatusAckV2Schema,
-  gatewayDimmingCommandV2Schema,
+  gatewayDimmingCommandV2CompatibilitySchema,
   isGatewayCommandExpired
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
@@ -38,8 +38,13 @@ export interface GatewayCommandResult {
 }
 
 export interface ManualOverrideCoordinator {
-  prepare(command: GatewayDimmingCommandV2): Promise<void>;
-  handoff(command: GatewayDimmingCommandV2, terminal: DeviceStatusAckV2): Promise<void>;
+  prepare(command: GatewayDimmingCommandV2Compatible, receipt?: GatewayCommandReceipt): Promise<void>;
+  handoff(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2): Promise<void>;
+}
+
+export interface GatewayCommandReceipt {
+  receivedAtMonotonicMs: number;
+  brokerRemainingTtlMs: number;
 }
 
 interface ManualAutomationRecoveryJournal {
@@ -65,6 +70,8 @@ export interface GatewayCommandOptions {
   isCommandExpired?: (expiresAt: string) => Promise<boolean> | boolean;
   automation?: ManualOverrideCoordinator;
   onAutomationError?: (error: unknown) => void;
+  receipt?: GatewayCommandReceipt;
+  monotonicClock?: () => number;
 }
 
 interface AutomationDimmingAction {
@@ -83,7 +90,7 @@ const MAX_BLE_STATUS_TIMEOUT_MS = 29_000;
 export function handleGatewayDimmingCommand(
   adapter: BleMeshAdapter,
   journal: JournalLike,
-  command: GatewayDimmingCommandV2,
+  command: GatewayDimmingCommandV2Compatible,
   onAccepted?: (acceptance: AcceptanceAckV2) => Promise<void>,
   options: GatewayCommandOptions = {}
 ): Promise<GatewayCommandResult> {
@@ -103,7 +110,7 @@ export async function recoverPendingManualAutomationHandoffs(
 ) {
   for (const recovery of await journal.pendingAutomationRecoveries()) {
     const wrapper = recovery.command as { command?: unknown };
-    const command = gatewayDimmingCommandV2Schema.parse(wrapper.command);
+    const command = gatewayDimmingCommandV2CompatibilitySchema.parse(wrapper.command);
     if (!command.overrideUntil) continue;
     const result = recovery.state === "completed"
       ? recovery.result as GatewayCommandResult
@@ -119,7 +126,7 @@ export async function recoverPendingManualAutomationHandoffs(
 async function executeGatewayDimmingCommand(
   adapter: BleMeshAdapter,
   journal: JournalLike,
-  command: GatewayDimmingCommandV2,
+  command: GatewayDimmingCommandV2Compatible,
   onAccepted: ((acceptance: AcceptanceAckV2) => Promise<void>) | undefined,
   options: GatewayCommandOptions
 ): Promise<GatewayCommandResult> {
@@ -191,15 +198,23 @@ async function executeGatewayDimmingCommand(
 
   // Journal fsync and the acceptance PUBACK can consume the remaining delivery window.
   if (await commandExpired(command.expiresAt, options)) {
-    return rejectExpiredCommand(journal, command, true);
+    return rejectExpiredCommand(journal, command, true, options);
   }
 
   let deviceStatus: DeviceStatusAckV2;
   let fixtureStateObserved = false;
   let observedFixtureIds: string[] = [];
   try {
-    if (command.overrideUntil) await options.automation?.prepare(command);
-    const timeoutMs = validateTimeout(options.timeoutMs ?? 8000);
+    if (command.overrideUntil) {
+      if (options.receipt) await options.automation?.prepare(command, options.receipt);
+      else await options.automation?.prepare(command);
+    }
+    // Automation persistence can consume the last part of the broker delivery window.
+    if (await commandExpired(command.expiresAt, options)) {
+      return rejectExpiredCommand(journal, command, true, options);
+    }
+    const configuredTimeoutMs = validateTimeout(options.timeoutMs ?? 8000);
+    const timeoutMs = Math.min(configuredTimeoutMs, Math.max(1, receiptRemainingMs(options)));
     const deadlineAt = Date.now() + timeoutMs;
     const controller = new AbortController();
     const reports = validateReports(
@@ -255,14 +270,21 @@ async function executeGatewayDimmingCommand(
 }
 
 async function commandExpired(expiresAt: string, options: GatewayCommandOptions) {
+  if (receiptRemainingMs(options) <= 0) return true;
   return options.isCommandExpired
     ? options.isCommandExpired(expiresAt)
     : isGatewayCommandExpired(expiresAt);
 }
 
+function receiptRemainingMs(options: GatewayCommandOptions) {
+  if (!options.receipt) return Number.POSITIVE_INFINITY;
+  const monotonicNow = options.monotonicClock?.() ?? performance.now();
+  return options.receipt.receivedAtMonotonicMs + options.receipt.brokerRemainingTtlMs - monotonicNow;
+}
+
 async function completeWithAutomationHandoff(
   journal: JournalLike,
-  command: GatewayDimmingCommandV2,
+  command: GatewayDimmingCommandV2Compatible,
   result: GatewayCommandResult,
   options: GatewayCommandOptions
 ) {
@@ -273,7 +295,7 @@ async function completeWithAutomationHandoff(
 
 async function replayAutomationHandoff(
   journal: JournalLike,
-  command: GatewayDimmingCommandV2,
+  command: GatewayDimmingCommandV2Compatible,
   result: GatewayCommandResult,
   options: GatewayCommandOptions
 ) {
@@ -352,7 +374,7 @@ export async function executeAutomationDimmingActions(
 
 function applyCommand(
   adapter: BleMeshAdapter,
-  command: GatewayDimmingCommandV2,
+  command: GatewayDimmingCommandV2Compatible,
   signal: AbortSignal,
   deadlineAt: number
 ) {
@@ -416,7 +438,7 @@ function validateBrightness(value: number) {
   if (!Number.isInteger(value) || value < 0 || value > 100) throw new Error("invalid automation brightness");
 }
 
-function meshGroupIdentity(command: GatewayDimmingCommandV2): GroupStateIdentity {
+function meshGroupIdentity(command: GatewayDimmingCommandV2Compatible): GroupStateIdentity {
   if (!command.meshControlGroupId || !command.meshControlGroupVersion || !command.destinationAddress) {
     throw new Error("mesh group command metadata is incomplete");
   }
@@ -480,7 +502,7 @@ export function parseCommandTimeout(value: string | undefined) {
   return validateTimeout(value === undefined ? 8000 : Number(value));
 }
 
-function createIndeterminateResult(command: GatewayDimmingCommandV2, acceptance?: AcceptanceAckV2): GatewayCommandResult {
+function createIndeterminateResult(command: GatewayDimmingCommandV2Compatible, acceptance?: AcceptanceAckV2): GatewayCommandResult {
   const identity = {
     commandId: command.commandId,
     dispatchId: command.dispatchId,
@@ -508,8 +530,9 @@ function createIndeterminateResult(command: GatewayDimmingCommandV2, acceptance?
 
 async function rejectExpiredCommand(
   journal: JournalLike,
-  command: GatewayDimmingCommandV2,
-  alreadyAccepted = false
+  command: GatewayDimmingCommandV2Compatible,
+  alreadyAccepted = false,
+  options?: GatewayCommandOptions
 ): Promise<GatewayCommandResult> {
   const identity = {
     commandId: command.commandId,
@@ -542,7 +565,8 @@ async function rejectExpiredCommand(
     fixtureStateObserved: false
   };
   if (alreadyAccepted) {
-    await journal.complete(command.idempotencyKey, result);
+    if (options) await completeWithAutomationHandoff(journal, command, result, options);
+    else await journal.complete(command.idempotencyKey, result);
     return result;
   }
   const reserved = await journal.accept(command.idempotencyKey, { command, acceptance: result.acceptance });
@@ -557,7 +581,7 @@ async function rejectExpiredCommand(
 
 async function rejectBeforeExecution(
   journal: JournalLike,
-  command: GatewayDimmingCommandV2,
+  command: GatewayDimmingCommandV2Compatible,
   code: string,
   message: string
 ): Promise<GatewayCommandResult> {

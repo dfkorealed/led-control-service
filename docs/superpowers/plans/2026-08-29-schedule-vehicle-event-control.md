@@ -869,6 +869,14 @@ git commit -m "feat(gateway): execute durable lighting schedules"
 - [x] MQTT control plane을 먼저 시작하고 full Mesh resync를 bounded background worker/readiness/shutdown drain으로 전환한다.
 - [x] API outbox absolute override expiry와 Gateway trusted remaining/untrusted 10초 fail-safe 정책으로 stale manual 부활을 차단한다.
 
+**Fix round 4 (2026-08-30, 완료):**
+
+- [x] Legacy persisted journal/old API wire를 compatibility parser로 복구하고 strict expiry invariant는 새 producer output에만 적용한다.
+- [x] Command publish transaction에서 override remaining/delivery generation을 durable payload로 확정하고 exact retry와 broker TTL을 일치시킨다.
+- [x] Broker remaining TTL 기반 receipt-relative monotonic deadline과 untrusted restart manual 보류 정책을 적용한다.
+- [x] Terminal commit observation fence가 bounded targeted lighting resync와 retry/backoff를 즉시 요청하게 한다.
+- [x] Full/targeted resync에 fixture-boundary cancellation과 production bounded shutdown을 적용한다.
+
 ### Task 13: Gateway 차량 이벤트 상태와 durable telemetry
 
 **Files:**

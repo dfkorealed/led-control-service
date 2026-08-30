@@ -25,6 +25,9 @@ export class StubBleMeshAdapter implements BleMeshAdapter {
   async resyncFixtureStates() {
     return { total: 0, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: 0 };
   }
+  async resyncLightingFixtures(fixtureIds: string[]) {
+    return { total: fixtureIds.length, configured: 0, observed: 0, healthPending: 0, timedOut: 0, failed: fixtureIds.length };
+  }
   async syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload): Promise<MeshGroupSubscriptionResultPayload> {
     return {
       siteId: command.siteId,

@@ -133,11 +133,15 @@ function validateDimmingDelivery(
   }
 }
 
-// An outbox record is completed immediately before MQTT publish so its expiry starts at the real publish time.
+// The API stores this draft until the publisher durably fixes one delivery generation.
 const gatewayDimmingCommandDraftV2BaseSchema = commandIdentitySchema.extend(gatewayDimmingCommandFields).strict();
 export const gatewayDimmingCommandDraftV2Schema = gatewayDimmingCommandDraftV2BaseSchema.superRefine(
   validateDimmingDelivery
 );
+
+const gatewayDimmingCommandLegacyV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime()
+}).strict().superRefine(validateDimmingDelivery);
 
 export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
   expiresAt: z.string().datetime()
@@ -151,6 +155,63 @@ export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2BaseSch
     });
   }
 });
+
+export const gatewayDimmingCommandPublishedV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime(),
+  deliveryGeneration: z.string().uuid(),
+  deliveryGeneratedAt: z.string().datetime(),
+  deliveryWindowMs: z.number().int().positive().max(10_000),
+  overrideRemainingMs: z.number().int().positive().optional()
+}).strict().superRefine((command, context) => {
+  validateDimmingDelivery(command, context);
+  const generatedAt = Date.parse(command.deliveryGeneratedAt);
+  const expectedExpiresAt = generatedAt + command.deliveryWindowMs;
+  if (command.deliveryWindowMs % 1_000 !== 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["deliveryWindowMs"],
+      message: "deliveryWindowMs must use whole MQTT seconds"
+    });
+  }
+  if (Date.parse(command.expiresAt) !== expectedExpiresAt) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["expiresAt"],
+      message: "expiresAt must match the delivery window"
+    });
+  }
+  if (command.overrideUntil) {
+    const expectedRemaining = Date.parse(command.overrideUntil) - generatedAt;
+    if (command.overrideRemainingMs !== expectedRemaining) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["overrideRemainingMs"],
+        message: "overrideRemainingMs must match overrideUntil at delivery generation"
+      });
+    }
+    if (command.deliveryWindowMs > expectedRemaining) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["deliveryWindowMs"],
+        message: "deliveryWindowMs must not exceed overrideRemainingMs"
+      });
+    }
+  } else if (command.overrideRemainingMs !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["overrideRemainingMs"],
+      message: "overrideRemainingMs requires overrideUntil"
+    });
+  }
+});
+
+// Persisted journals and rolling deployments can still contain the pre-invariant wire shape.
+// Keep this parser at compatibility boundaries only; new producers must use gatewayDimmingCommandPublishedV2Schema.
+export const gatewayDimmingCommandV2CompatibilitySchema = z.union([
+  gatewayDimmingCommandPublishedV2Schema,
+  gatewayDimmingCommandV2Schema,
+  gatewayDimmingCommandLegacyV2Schema
+]);
 
 export const acceptanceAckV2Schema = commandIdentitySchema.extend({
   eventId: z.string().uuid(),
@@ -245,6 +306,8 @@ export const meshGroupResyncAckV2Schema = gatewayScopeSchema.extend({
 }).strict();
 
 export type GatewayDimmingCommandV2 = z.infer<typeof gatewayDimmingCommandV2Schema>;
+export type GatewayDimmingCommandPublishedV2 = z.infer<typeof gatewayDimmingCommandPublishedV2Schema>;
+export type GatewayDimmingCommandV2Compatible = z.infer<typeof gatewayDimmingCommandV2CompatibilitySchema>;
 export type GatewayDimmingCommandDraftV2 = z.infer<typeof gatewayDimmingCommandDraftV2Schema>;
 export type AcceptanceAckV2 = z.infer<typeof acceptanceAckV2Schema>;
 export type DeviceStatusAckV2 = z.infer<typeof deviceStatusAckV2Schema>;

@@ -337,12 +337,14 @@ describe("ScheduleRuntime", () => {
         await writeJsonAtomic(target, value);
       });
       const execute = vi.fn(executeSuccessfully);
+      const requestFixtureObservation = vi.fn();
       const runtime = new ScheduleRuntime({
         store,
         wallClock: wall.now,
         monotonicClock: () => 1_000,
         clockTrust: { isTrusted: async () => true },
-        execute
+        execute,
+        requestFixtureObservation
       });
       await runtime.initialize();
       await runtime.recordFixtureState(fixtureId, 20);
@@ -351,6 +353,7 @@ describe("ScheduleRuntime", () => {
 
       await expect(runtime.tick()).rejects.toBeDefined();
       expect(execute).toHaveBeenCalledTimes(1);
+      expect(requestFixtureObservation).toHaveBeenCalledWith([fixtureId]);
 
       await runtime.tick();
       expect(execute).toHaveBeenCalledTimes(1);
@@ -488,7 +491,7 @@ describe("ScheduleRuntime", () => {
     expect(test.execute).not.toHaveBeenCalled();
   });
 
-  it("bounds an untrusted long manual override to the broker delivery window", async () => {
+  it("keeps an untrusted long manual override for its transit-adjusted monotonic lifetime", async () => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
     await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
@@ -496,7 +499,9 @@ describe("ScheduleRuntime", () => {
     test.trust.trusted = false;
     await test.runtime.prepareManualOverride({
       ...manualOverride(60, "2026-09-29T01:00:00.000Z"),
-      startedAt: "2026-08-30T01:00:00.000Z"
+      startedAt: "2026-08-30T01:00:00.000Z",
+      deliveryWindowMs: 7_000,
+      overrideRemainingMs: 30 * 24 * 60 * 60 * 1_000 - 3_000
     });
     await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
       successfulTerminal(fixtureId, 60)
@@ -506,9 +511,65 @@ describe("ScheduleRuntime", () => {
     test.monotonic.advance(10_001);
     await test.runtime.tick();
 
+    expect(test.runtime.state().manualOverrides[fixtureId]).toMatchObject({ brightnessPercent: 60 });
+    expect(test.execute).not.toHaveBeenCalled();
+
+    test.monotonic.advance(30 * 24 * 60 * 60 * 1_000 - 13_000);
+    await test.runtime.tick();
+
     expect(test.runtime.state().manualOverrides).toEqual({});
     expect(test.execute).toHaveBeenLastCalledWith([
       expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
+    ]);
+  });
+
+  it("does not reactivate a recovered manual while wall time is untrusted and preserves its existing output", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "manual-untrusted-restart-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    const first = new ScheduleRuntime({
+      store: new FileAutomationStateStore(path),
+      wallClock: () => new Date("2026-08-30T01:00:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute: vi.fn(executeSuccessfully)
+    });
+    await first.initialize();
+    await first.recordFixtureState(fixtureId, 20);
+    await activate(first, snapshot({}));
+    await first.prepareManualOverride({
+      ...manualOverride(60, "2026-08-30T02:00:00.000Z"),
+      overrideRemainingMs: 3_597_000,
+      deliveryWindowMs: 7_000
+    });
+    await first.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
+
+    const trust = { trusted: false };
+    const execute = vi.fn(executeSuccessfully);
+    const restarted = new ScheduleRuntime({
+      store: new FileAutomationStateStore(path),
+      wallClock: () => new Date("2026-08-30T01:00:10.000Z"),
+      monotonicClock: () => 2_000,
+      clockTrust: { isTrusted: async () => trust.trusted },
+      execute
+    });
+    await restarted.initialize();
+    await activate(restarted, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(restarted.state().currentByFixture[fixtureId]).toBe(60);
+
+    await restarted.recordVehicleSensorState(sourceFixtureId, true);
+    expect(execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
+    ]);
+
+    trust.trusted = true;
+    await restarted.tick();
+    expect(execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 60, sourceType: "manual_override" })
     ]);
   });
 

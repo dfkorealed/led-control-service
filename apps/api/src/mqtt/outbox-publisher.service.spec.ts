@@ -17,6 +17,7 @@ const dimmingPayload = {
   requestedBy: "77777777-7777-4777-8777-777777777777",
   requestedAt: "2026-07-11T00:00:00.000Z"
 };
+const deliveryGeneration = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 const meshControlGroupId = "88888888-8888-4888-8888-888888888888";
 const meshDimmingPayload = {
@@ -181,13 +182,8 @@ describe("OutboxPublisherService", () => {
     }
   });
 
-  it("retries a pre-existing strict full payload while only persisting a new full payload after success", async () => {
-    const firstAttemptAt = new Date("2026-07-11T00:01:00.000Z");
-    const secondAttemptAt = new Date("2026-07-11T00:02:00.000Z");
-    const clock = sequenceClock(
-      firstAttemptAt, firstAttemptAt, firstAttemptAt,
-      secondAttemptAt, secondAttemptAt, secondAttemptAt
-    );
+  it("durably fixes one wire generation before publish and retries the exact payload with remaining MQTT TTL", async () => {
+    let now = new Date("2026-07-11T00:01:00.000Z");
     const stored = {
       payload: { ...dimmingPayload, expiresAt: "2026-07-11T00:00:10.000Z" } as Record<string, unknown>,
       attempts: 0
@@ -195,8 +191,8 @@ describe("OutboxPublisherService", () => {
     const prisma: any = {
       mqttOutbox: {
         updateMany: jest.fn().mockImplementation(({ data }) => {
-          if (data.payload) stored.payload = data.payload;
-          if (data.attempts) stored.attempts = data.attempts;
+          if (data.payload) stored.payload = structuredClone(data.payload);
+          if (typeof data.attempts === "number") stored.attempts = data.attempts;
           return Promise.resolve({ count: 1 });
         }),
         count: jest.fn().mockResolvedValue(1)
@@ -206,13 +202,17 @@ describe("OutboxPublisherService", () => {
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const mqtt = {
       publishTopic: jest.fn()
-        .mockRejectedValueOnce(new Error("simulated PUBACK loss"))
+        .mockImplementationOnce(async (_topic, payload) => {
+          expect(stored.payload).toEqual(payload);
+          throw new Error("simulated PUBACK loss");
+        })
         .mockResolvedValueOnce(undefined)
     };
     const service = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "worker-1",
       random: () => 0,
-      clock
+      clock: () => now,
+      deliveryGeneration: () => deliveryGeneration
     } as never);
     const baseRecord = {
       id: "outbox-1",
@@ -224,8 +224,16 @@ describe("OutboxPublisherService", () => {
     };
 
     await service.publishClaimed({ ...baseRecord, payload: stored.payload } as never);
-    expect(stored.payload.expiresAt).toBe("2026-07-11T00:00:10.000Z");
+    const preparedPayload = structuredClone(stored.payload);
+    expect(preparedPayload).toEqual({
+      ...dimmingPayload,
+      deliveryGeneration,
+      deliveryGeneratedAt: "2026-07-11T00:01:00.000Z",
+      deliveryWindowMs: 10_000,
+      expiresAt: "2026-07-11T00:01:10.000Z"
+    });
 
+    now = new Date("2026-07-11T00:01:03.200Z");
     await service.publishClaimed({
       ...baseRecord,
       payload: stored.payload,
@@ -233,8 +241,9 @@ describe("OutboxPublisherService", () => {
     } as never);
 
     expect(mqtt.publishTopic).toHaveBeenCalledTimes(2);
-    expect(mqtt.publishTopic.mock.calls[1][1].expiresAt).toBe("2026-07-11T00:02:10.000Z");
-    expect(stored.payload.expiresAt).toBe("2026-07-11T00:02:10.000Z");
+    expect(mqtt.publishTopic.mock.calls[1][1]).toEqual(preparedPayload);
+    expect(mqtt.publishTopic.mock.calls[1][2]).toEqual({ messageExpiryInterval: 6, timeoutMs: 20_000 });
+    expect(stored.payload).toEqual(preparedPayload);
   });
 
   it("terminally rejects a delayed outbox command after its stored overrideUntil", async () => {
@@ -278,17 +287,32 @@ describe("OutboxPublisherService", () => {
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
-    const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };
+    let durablePayload: unknown;
+    const mqtt = {
+      publishTopic: jest.fn().mockImplementation(async (_topic, payload) => {
+        expect(durablePayload).toEqual(payload);
+      })
+    };
+    prisma.mqttOutbox.updateMany.mockImplementation(({ data }: { data: { payload?: unknown } }) => {
+      if (data.payload) durablePayload = structuredClone(data.payload);
+      return Promise.resolve({ count: 1 });
+    });
     const service = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "worker-1",
-      clock: () => now
-    });
+      clock: () => now,
+      deliveryGeneration: () => deliveryGeneration
+    } as never);
 
     await service.publishClaimed({
       id: "outbox-1",
       dispatchId: "dispatch-1",
       topic: "sites/s/gateways/g/commands/dimming",
-      payload: { ...dimmingPayload, overrideUntil: "2026-07-11T00:01:03.500Z" },
+      payload: {
+        ...dimmingPayload,
+        overrideUntil: "2026-07-11T00:01:03.500Z",
+        // Round 2 publishers used publish + 10s even when the override ended sooner.
+        expiresAt: "2026-07-11T00:01:10.000Z"
+      },
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
       dispatch: { commandId: "command-1" }
@@ -296,7 +320,13 @@ describe("OutboxPublisherService", () => {
 
     expect(mqtt.publishTopic).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ expiresAt: "2026-07-11T00:01:03.500Z" }),
+      expect.objectContaining({
+        deliveryGeneration,
+        deliveryGeneratedAt: "2026-07-11T00:01:00.000Z",
+        deliveryWindowMs: 3_000,
+        overrideRemainingMs: 3_500,
+        expiresAt: "2026-07-11T00:01:03.000Z"
+      }),
       { messageExpiryInterval: 3, timeoutMs: 20_000 }
     );
   });
@@ -552,7 +582,7 @@ describe("OutboxPublisherService", () => {
     });
   });
 
-  it("creates expiry after a short final fence delay and stores the full payload with publish success", async () => {
+  it("durably creates expiry before a short final fence delay and publishes only the remaining window", async () => {
     const preparedAt = new Date("2026-07-11T00:01:00.000Z");
     const fenceReturnedAt = new Date("2026-07-11T00:01:05.000Z");
     const publishedAt = new Date("2026-07-11T00:01:06.000Z");
@@ -575,8 +605,9 @@ describe("OutboxPublisherService", () => {
     };
     const service = new OutboxPublisherService(prisma, mqtt as never, {
       workerId: "worker-1",
-      clock: () => current
-    });
+      clock: () => current,
+      deliveryGeneration: () => deliveryGeneration
+    } as never);
     const record = {
       id: "outbox-1",
       dispatchId: "dispatch-1",
@@ -588,7 +619,13 @@ describe("OutboxPublisherService", () => {
     };
     await service.publishClaimed(record as never);
 
-    const expectedPayload = { ...dimmingPayload, expiresAt: "2026-07-11T00:01:15.000Z" };
+    const expectedPayload = {
+      ...dimmingPayload,
+      deliveryGeneration,
+      deliveryGeneratedAt: "2026-07-11T00:01:00.000Z",
+      deliveryWindowMs: 10_000,
+      expiresAt: "2026-07-11T00:01:10.000Z"
+    };
     expect(prisma.mqttOutbox.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         id: "outbox-1",
@@ -597,10 +634,10 @@ describe("OutboxPublisherService", () => {
         deadLetteredAt: null,
         leaseExpiresAt: { gt: preparedAt }
       },
-      data: { leaseExpiresAt: new Date("2026-07-11T00:01:30.000Z") }
+      data: { leaseExpiresAt: new Date("2026-07-11T00:01:30.000Z"), payload: expectedPayload }
     });
     expect(mqtt.publishTopic).toHaveBeenCalledWith(record.topic, expectedPayload, {
-      messageExpiryInterval: 10,
+      messageExpiryInterval: 5,
       timeoutMs: 20_000
     });
     expect(prisma.mqttOutbox.updateMany).toHaveBeenNthCalledWith(2, {

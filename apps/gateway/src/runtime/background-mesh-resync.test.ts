@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { BackgroundMeshResyncWorker, startControlPlaneWithBackgroundMeshResync } from "./background-mesh-resync";
+import {
+  BackgroundMeshResyncWorker,
+  TargetedLightingResyncQueue,
+  startControlPlaneWithBackgroundMeshResync
+} from "./background-mesh-resync";
 
 const completeReport = {
   total: 1_000,
@@ -74,6 +78,101 @@ describe("BackgroundMeshResyncWorker", () => {
 
     expect(run).toHaveBeenCalledTimes(1);
     await worker.stopAndDrain();
+  });
+
+  it("aborts a never-settling resync and bounds shutdown drain time", async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      const worker = new BackgroundMeshResyncWorker({
+        run: (nextSignal) => {
+          signal = nextSignal;
+          return new Promise<never>(() => undefined);
+        },
+        onReport: vi.fn(),
+        stopTimeoutMs: 100
+      });
+      worker.schedule();
+
+      const stopping = worker.stopAndDrain();
+      expect(signal?.aborted).toBe(true);
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(stopping).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops a 1,000-fixture offline resync at a fixture boundary on shutdown", async () => {
+    vi.useFakeTimers();
+    try {
+      let started = 0;
+      const worker = new BackgroundMeshResyncWorker({
+        run: async (signal) => {
+          for (let index = 0; index < 1_000; index += 1) {
+            if (signal.aborted) break;
+            started += 1;
+            await new Promise((resolve) => setTimeout(resolve, 1));
+          }
+          return { ...completeReport, configured: started, observed: 0, timedOut: started };
+        },
+        onReport: vi.fn(),
+        stopTimeoutMs: 100
+      });
+      worker.schedule();
+      await vi.advanceTimersByTimeAsync(1);
+
+      const stopping = worker.stopAndDrain();
+      await vi.advanceTimersByTimeAsync(1);
+      await stopping;
+
+      expect(started).toBeLessThan(1_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("TargetedLightingResyncQueue", () => {
+  it("retries with backoff until a lighting observation releases the fence", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixtureId = "00000000-0000-4000-8000-000000000101";
+      let queue!: TargetedLightingResyncQueue;
+      const run = vi.fn()
+        .mockRejectedValueOnce(new Error("BlueZ temporarily unavailable"))
+        .mockImplementationOnce(async (fixtureIds: string[]) => {
+          queue.markObserved(fixtureIds[0]);
+          return { ...completeReport, total: 1, configured: 1, observed: 1, healthPending: 0 };
+        });
+      queue = new TargetedLightingResyncQueue({
+        run,
+        retryBaseMs: 100,
+        retryMaxMs: 1_000,
+        onError: vi.fn()
+      });
+
+      expect(queue.request([fixtureId])).toBe(true);
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+      expect(queue.pendingCount).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+      expect(queue.pendingCount).toBe(0);
+      await queue.stopAndDrain();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds pending fixture requests", () => {
+    const queue = new TargetedLightingResyncQueue({
+      run: vi.fn(),
+      maxPendingFixtures: 1
+    });
+
+    expect(queue.request(["fixture-1", "fixture-2"])).toBe(false);
+    expect(queue.pendingCount).toBe(0);
   });
 });
 

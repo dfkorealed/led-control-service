@@ -284,13 +284,19 @@ describe("GatewayMqttRuntime", () => {
       onMessageError: vi.fn()
     });
     runtime.start();
-    const packet = { cmd: "publish", qos: 1, messageId: 18 };
+    const packet = {
+      cmd: "publish",
+      qos: 1,
+      messageId: 18,
+      properties: { messageExpiryInterval: 7 }
+    };
     const puback = vi.fn();
 
     client.emit("message", "commands/dimming", Buffer.from("{}"), packet);
     client.handleMessage(packet, puback);
 
     expect(puback).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(Buffer.from("{}"), client, packet);
     release();
     await runtime.stop();
   });

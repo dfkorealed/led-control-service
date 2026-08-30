@@ -35,6 +35,7 @@ export interface ManualOverrideInput {
   startedAt: string;
   overrideUntil: string;
   deliveryWindowMs: number;
+  overrideRemainingMs?: number;
 }
 
 export interface AutomationTerminalHandoff {
@@ -49,6 +50,7 @@ export interface ScheduleRuntimeOptions {
   monotonicClock?: () => number;
   clockTrust: ClockTrustProvider;
   execute: (actions: DesiredLightingAction[]) => Promise<AutomationExecutionFixtureResultV1[]>;
+  requestFixtureObservation?: (fixtureIds: string[]) => Promise<void> | void;
   onTerminalResults?: (handoff: AutomationTerminalHandoff) => Promise<void>;
   onError?: (error: unknown) => void;
   tickIntervalMs?: number;
@@ -64,6 +66,7 @@ interface ActivationCheckpoint {
   state: PersistedAutomationStateV3;
   vehicleHoldDeadlines: Array<[string, number]>;
   manualOverrideDeadlines: Array<[string, number]>;
+  recoveredManualPendingTrust: string[];
 }
 
 const DEFAULT_TICK_INTERVAL_MS = 1_000;
@@ -77,6 +80,7 @@ export class ScheduleRuntime {
   private timer: NodeJS.Timeout | null = null;
   private readonly vehicleHoldDeadlines = new Map<string, number>();
   private readonly manualOverrideDeadlines = new Map<string, number>();
+  private readonly recoveredManualPendingTrust = new Set<string>();
   private readonly manualCommandsInFlight = new Set<string>();
   private readonly pendingObservationFixtures = new Set<string>();
   private activationCheckpoint: ActivationCheckpoint | null = null;
@@ -95,6 +99,9 @@ export class ScheduleRuntime {
     return this.enqueue(async () => {
       if (this.initialized) return this.state();
       const state = await this.options.store.initialize();
+      for (const fixtureId of Object.keys(state.manualOverrides)) {
+        this.recoveredManualPendingTrust.add(fixtureId);
+      }
       for (const fixtureId of Object.keys(state.unverifiedDesiredByFixture)) {
         this.pendingObservationFixtures.add(fixtureId);
       }
@@ -145,6 +152,10 @@ export class ScheduleRuntime {
         this.manualOverrideDeadlines.clear();
         for (const [fixtureId, deadline] of checkpoint.manualOverrideDeadlines) {
           this.manualOverrideDeadlines.set(fixtureId, deadline);
+        }
+        this.recoveredManualPendingTrust.clear();
+        for (const fixtureId of checkpoint.recoveredManualPendingTrust) {
+          this.recoveredManualPendingTrust.add(fixtureId);
         }
       } finally {
         this.finishActivation();
@@ -273,8 +284,15 @@ export class ScheduleRuntime {
       const durationMs = Date.parse(input.overrideUntil) - Date.parse(input.startedAt);
       const trusted = await this.options.clockTrust.isTrusted(wallNow);
       const remainingMs = trusted
-        ? Date.parse(input.overrideUntil) - wallNow.getTime()
-        : Math.min(durationMs, input.deliveryWindowMs, GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS);
+        ? Math.min(
+          Date.parse(input.overrideUntil) - wallNow.getTime(),
+          input.overrideRemainingMs ?? Number.POSITIVE_INFINITY
+        )
+        : input.overrideRemainingMs ?? Math.min(
+          durationMs,
+          input.deliveryWindowMs,
+          GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS
+        );
       if (remainingMs <= 0) throw new ScheduleRuntimeError("manual_override_expired");
       await this.options.store.update((state) => {
         for (const fixtureId of input.fixtureIds) {
@@ -303,6 +321,7 @@ export class ScheduleRuntime {
         return state;
       });
       for (const fixtureId of input.fixtureIds) {
+        this.recoveredManualPendingTrust.delete(fixtureId);
         this.manualCommandsInFlight.add(fixtureId);
         this.manualOverrideDeadlines.set(fixtureId, monotonicNow + remainingMs);
       }
@@ -359,6 +378,7 @@ export class ScheduleRuntime {
         return state;
       });
       for (const settled of settledFixtures) {
+        this.recoveredManualPendingTrust.delete(settled.fixtureId);
         this.manualCommandsInFlight.delete(settled.fixtureId);
         this.pendingObservationFixtures.delete(settled.fixtureId);
         if (settled.failed) this.manualOverrideDeadlines.delete(settled.fixtureId);
@@ -406,7 +426,14 @@ export class ScheduleRuntime {
     const trusted = await this.options.clockTrust.isTrusted(now);
     const monotonicNow = this.monotonicClock();
     await this.options.store.update((state) => {
-      reconcileManualOverrides(state, now, monotonicNow, trusted, this.manualOverrideDeadlines);
+      reconcileManualOverrides(
+        state,
+        now,
+        monotonicNow,
+        trusted,
+        this.manualOverrideDeadlines,
+        this.recoveredManualPendingTrust
+      );
       reconcileVehicleRules(state, snapshot, now, monotonicNow, trusted, this.vehicleHoldDeadlines);
       reconcileSchedules(state, snapshot, now, trusted);
       return state;
@@ -441,14 +468,19 @@ export class ScheduleRuntime {
     const fixtures = relevantFixtures(snapshot, state);
 
     for (const fixtureId of fixtures) {
-      const manual = state.manualOverrides[fixtureId];
+      const recoveredManual = this.recoveredManualPendingTrust.has(fixtureId)
+        ? state.manualOverrides[fixtureId]
+        : undefined;
+      const manual = recoveredManual ? undefined : state.manualOverrides[fixtureId];
       const events = Object.entries(state.vehicleRules)
         .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId))
         .map(([ruleId, vehicle]) => ({ sourceId: ruleId, brightness: vehicle.brightnessPercent }));
       const schedule = activeScheduleCandidate(snapshot, state, fixtureId);
       const hasSource = Boolean(manual || events.length > 0 || schedule);
       if (hasSource && state.baseBrightnessByFixture[fixtureId] === undefined) continue;
-      const current = state.baseBrightnessByFixture[fixtureId]
+      const current = (recoveredManual
+        ? state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId]
+        : state.baseBrightnessByFixture[fixtureId])
         ?? state.currentByFixture[fixtureId]
         ?? state.lastDesiredByFixture[fixtureId]
         ?? null;
@@ -544,8 +576,19 @@ export class ScheduleRuntime {
         return next;
       });
     } catch (error) {
+      const fencedFixtureIds: string[] = [];
       for (const result of results) {
-        if (result.status === "succeeded") this.pendingObservationFixtures.add(result.fixtureId);
+        if (result.status !== "succeeded") continue;
+        this.pendingObservationFixtures.add(result.fixtureId);
+        fencedFixtureIds.push(result.fixtureId);
+      }
+      if (fencedFixtureIds.length > 0) {
+        try {
+          void Promise.resolve(this.options.requestFixtureObservation?.(fencedFixtureIds))
+            .catch((requestError) => this.options.onError?.(requestError));
+        } catch (requestError) {
+          this.options.onError?.(requestError);
+        }
       }
       throw error;
     }
@@ -571,7 +614,8 @@ export class ScheduleRuntime {
       snapshot: this.snapshot ? structuredClone(this.snapshot) : null,
       state: this.state(),
       vehicleHoldDeadlines: [...this.vehicleHoldDeadlines],
-      manualOverrideDeadlines: [...this.manualOverrideDeadlines]
+      manualOverrideDeadlines: [...this.manualOverrideDeadlines],
+      recoveredManualPendingTrust: [...this.recoveredManualPendingTrust]
     };
     this.activationSettled = new Promise<void>((resolve) => { this.settleActivation = resolve; });
   }
@@ -625,7 +669,8 @@ function reconcileManualOverrides(
   now: Date,
   monotonicNow: number,
   trusted: boolean,
-  deadlines: Map<string, number>
+  deadlines: Map<string, number>,
+  recoveredPendingTrust: Set<string>
 ) {
   for (const [fixtureId, override] of Object.entries(state.manualOverrides)) {
     let deadline = deadlines.get(fixtureId);
@@ -633,14 +678,17 @@ function reconcileManualOverrides(
       const remaining = Date.parse(override.overrideUntil) - now.getTime();
       if (remaining <= 0) {
         delete state.manualOverrides[fixtureId];
+        recoveredPendingTrust.delete(fixtureId);
         continue;
       }
       deadline = monotonicNow + remaining;
       deadlines.set(fixtureId, deadline);
+      recoveredPendingTrust.delete(fixtureId);
     }
     if (deadline !== undefined && monotonicNow >= deadline) {
       delete state.manualOverrides[fixtureId];
       deadlines.delete(fixtureId);
+      recoveredPendingTrust.delete(fixtureId);
     }
   }
 }
@@ -865,6 +913,10 @@ function validateManualOverride(input: ManualOverrideInput) {
   }
   if (!Number.isSafeInteger(input.deliveryWindowMs) || input.deliveryWindowMs <= 0) {
     throw new Error("manual override delivery window must be a positive safe integer");
+  }
+  if (input.overrideRemainingMs !== undefined &&
+    (!Number.isSafeInteger(input.overrideRemainingMs) || input.overrideRemainingMs <= 0)) {
+    throw new Error("manual override remaining duration must be a positive safe integer");
   }
 }
 

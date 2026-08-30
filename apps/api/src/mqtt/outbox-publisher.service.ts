@@ -3,8 +3,11 @@ import { Prisma } from "@prisma/client";
 import {
   createGatewayCommandExpiry,
   GatewayDimmingCommandDraftV2,
+  GatewayDimmingCommandPublishedV2,
   gatewayDimmingCommandDraftV2Schema,
-  gatewayDimmingCommandV2Schema
+  gatewayDimmingCommandPublishedV2Schema,
+  gatewayDimmingCommandV2CompatibilitySchema,
+  remainingGatewayCommandMessageExpiry
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
@@ -20,6 +23,7 @@ type PublisherOptions = {
   random?: () => number;
   pollMs?: number;
   clock?: () => Date;
+  deliveryGeneration?: () => string;
 };
 
 @Injectable()
@@ -29,6 +33,7 @@ export class OutboxPublisherService implements OnModuleInit {
   private readonly random: () => number;
   private readonly pollMs: number;
   private readonly clock: () => Date;
+  private readonly deliveryGeneration: () => string;
   private timer: NodeJS.Timeout | null = null;
   private activeBatch: Promise<void> | null = null;
   private stopPromise: Promise<void> | null = null;
@@ -43,6 +48,7 @@ export class OutboxPublisherService implements OnModuleInit {
     this.random = options.random ?? Math.random;
     this.pollMs = options.pollMs ?? Number(process.env.MQTT_OUTBOX_POLL_MS ?? 1000);
     this.clock = options.clock ?? (() => new Date());
+    this.deliveryGeneration = options.deliveryGeneration ?? randomUUID;
   }
 
   onModuleInit() {
@@ -159,12 +165,19 @@ export class OutboxPublisherService implements OnModuleInit {
     }
   ) {
     try {
-      const draft = parseStoredDimmingDraft(record.payload);
+      const stored = parseStoredDimmingCommand(record.payload);
+      const draft = stored.draft;
       assertManualOverridePublishable(draft, this.clock());
       const prepared = await this.prisma.$transaction(async (tx) => {
         await this.assertMeshGroupSnapshot(tx, record, draft);
         const preparedAt = this.clock();
+        assertManualOverridePublishable(draft, preparedAt);
         const leaseExpiresAt = new Date(preparedAt.getTime() + LEASE_MS);
+        const payload = stored.payload ?? createPublishedDimmingCommand(
+          draft,
+          preparedAt,
+          this.deliveryGeneration()
+        );
         const updated = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,
@@ -173,9 +186,12 @@ export class OutboxPublisherService implements OnModuleInit {
             deadLetteredAt: null,
             leaseExpiresAt: { gt: preparedAt }
           },
-          data: { leaseExpiresAt }
+          data: {
+            leaseExpiresAt,
+            ...(stored.payload ? {} : { payload })
+          }
         });
-        return updated.count === 1 ? { draft, leaseExpiresAt } : null;
+        return updated.count === 1 ? { payload, leaseExpiresAt } : null;
       });
       if (!prepared) return;
 
@@ -191,22 +207,25 @@ export class OutboxPublisherService implements OnModuleInit {
 
       const publishAt = this.clock();
       if (prepared.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
-      assertManualOverridePublishable(prepared.draft, publishAt);
-      const expiry = createGatewayCommandExpiry(publishAt, prepared.draft.overrideUntil);
-      const payload = gatewayDimmingCommandV2Schema.parse({
-        ...prepared.draft,
-        expiresAt: expiry.expiresAt
-      });
+      assertManualOverridePublishable(toDimmingDraft(prepared.payload), publishAt);
+      const messageExpiryInterval = currentMessageExpiry(prepared.payload, publishAt);
 
-      await this.mqtt.publishTopic(record.topic, payload, {
-        messageExpiryInterval: expiry.messageExpiryInterval,
+      await this.mqtt.publishTopic(record.topic, prepared.payload, {
+        messageExpiryInterval,
         timeoutMs: MQTT_PUBLISH_TIMEOUT_MS
       });
       const publishedAt = this.clock();
       await this.prisma.$transaction(async (tx) => {
         const released = await tx.mqttOutbox.updateMany({
           where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
-          data: { payload, publishedAt, lastError: null, lockedBy: null, lockedAt: null, leaseExpiresAt: null }
+          data: {
+            payload: prepared.payload,
+            publishedAt,
+            lastError: null,
+            lockedBy: null,
+            lockedAt: null,
+            leaseExpiresAt: null
+          }
         });
         if (released.count !== 1) return;
         await tx.commandDispatch.updateMany({
@@ -224,6 +243,10 @@ export class OutboxPublisherService implements OnModuleInit {
       }
       if (error instanceof ManualOverrideExpiredError) {
         await this.moveToTerminalFailure(record, attempts, message, failedAt, "MANUAL_OVERRIDE_EXPIRED");
+        return;
+      }
+      if (error instanceof CommandDeliveryExpiredError) {
+        await this.moveToTerminalFailure(record, attempts, message, failedAt, "COMMAND_DELIVERY_EXPIRED");
         return;
       }
       const exhausted = attempts >= MAX_ATTEMPTS || failedAt.getTime() - record.createdAt.getTime() >= MAX_AGE_MS;
@@ -302,7 +325,7 @@ export class OutboxPublisherService implements OnModuleInit {
     attempts: number,
     message: string,
     now: Date,
-    errorCode: "MQTT_DEAD_LETTER" | "MESH_GROUP_STALE" | "MANUAL_OVERRIDE_EXPIRED"
+    errorCode: "MQTT_DEAD_LETTER" | "MESH_GROUP_STALE" | "MANUAL_OVERRIDE_EXPIRED" | "COMMAND_DELIVERY_EXPIRED"
   ) {
     await this.prisma.$transaction(async (tx) => {
       const released = await tx.mqttOutbox.updateMany({
@@ -333,14 +356,50 @@ export class OutboxPublisherService implements OnModuleInit {
   }
 }
 
-function parseStoredDimmingDraft(payload: Prisma.JsonValue): GatewayDimmingCommandDraftV2 {
-  const draft = gatewayDimmingCommandDraftV2Schema.safeParse(payload);
-  if (draft.success) return draft.data;
+function parseStoredDimmingCommand(payload: Prisma.JsonValue): {
+  draft: GatewayDimmingCommandDraftV2;
+  payload?: GatewayDimmingCommandPublishedV2;
+} {
+  const published = gatewayDimmingCommandPublishedV2Schema.safeParse(payload);
+  if (published.success) return { draft: toDimmingDraft(published.data), payload: published.data };
 
-  const full = gatewayDimmingCommandV2Schema.safeParse(payload);
-  if (!full.success) throw draft.error;
-  const { expiresAt: _expiredPublishDeadline, ...withoutExpiry } = full.data;
-  return gatewayDimmingCommandDraftV2Schema.parse(withoutExpiry);
+  const draft = gatewayDimmingCommandDraftV2Schema.safeParse(payload);
+  if (draft.success) return { draft: draft.data };
+
+  const compatible = gatewayDimmingCommandV2CompatibilitySchema.safeParse(payload);
+  if (!compatible.success) throw draft.error;
+  return { draft: toDimmingDraft(compatible.data) };
+}
+
+function toDimmingDraft(payload: Record<string, unknown>): GatewayDimmingCommandDraftV2 {
+  const draft = { ...payload };
+  delete draft.expiresAt;
+  delete draft.deliveryGeneration;
+  delete draft.deliveryGeneratedAt;
+  delete draft.deliveryWindowMs;
+  delete draft.overrideRemainingMs;
+  return gatewayDimmingCommandDraftV2Schema.parse(draft);
+}
+
+function createPublishedDimmingCommand(
+  draft: GatewayDimmingCommandDraftV2,
+  generatedAt: Date,
+  deliveryGeneration: string
+) {
+  const { messageExpiryInterval: _messageExpiryInterval, ...delivery } = createGatewayCommandExpiry(
+    generatedAt,
+    draft.overrideUntil,
+    deliveryGeneration
+  );
+  return gatewayDimmingCommandPublishedV2Schema.parse({ ...draft, ...delivery });
+}
+
+function currentMessageExpiry(payload: GatewayDimmingCommandPublishedV2, now: Date) {
+  try {
+    return remainingGatewayCommandMessageExpiry(payload, now);
+  } catch (error) {
+    throw new CommandDeliveryExpiredError(error);
+  }
 }
 
 function assertManualOverridePublishable(draft: GatewayDimmingCommandDraftV2, now: Date) {
@@ -365,5 +424,12 @@ class ManualOverrideExpiredError extends Error {
   constructor() {
     super("manual override expired before MQTT publish");
     this.name = "ManualOverrideExpiredError";
+  }
+}
+
+class CommandDeliveryExpiredError extends Error {
+  constructor(cause: unknown) {
+    super("gateway command delivery generation expired before MQTT publish", { cause });
+    this.name = "CommandDeliveryExpiredError";
   }
 }

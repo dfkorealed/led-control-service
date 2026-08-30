@@ -111,10 +111,18 @@ describe("startGatewayRuntime", () => {
       targetFixtureIds: [scopedFixtureId],
       brightness: 60,
       requestedAt: "2026-08-30T01:00:00.000Z",
-      overrideUntil: "2026-08-30T02:00:00.000Z"
+      overrideUntil: "2026-08-30T02:00:00.000Z",
+      deliveryGeneration: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      deliveryGeneratedAt: "2026-08-30T01:00:00.000Z",
+      deliveryWindowMs: 10_000,
+      overrideRemainingMs: 3_600_000,
+      expiresAt: "2026-08-30T01:00:10.000Z"
     } as never;
 
-    await coordinator.prepare(command);
+    await coordinator.prepare(command, {
+      receivedAtMonotonicMs: 5_000,
+      brokerRemainingTtlMs: 7_000
+    });
     await coordinator.handoff(command, {
       occurredAt: "2026-08-30T01:00:01.000Z",
       results: [{ fixtureId: scopedFixtureId, status: "timed_out", errorMessage: "private adapter detail" }]
@@ -126,7 +134,8 @@ describe("startGatewayRuntime", () => {
       brightnessPercent: 60,
       startedAt: "2026-08-30T01:00:00.000Z",
       overrideUntil: "2026-08-30T02:00:00.000Z",
-      deliveryWindowMs: 10_000
+      deliveryWindowMs: 7_000,
+      overrideRemainingMs: 3_597_000
     });
     expect(scheduleRuntime.handoffManualTerminal).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
@@ -219,8 +228,9 @@ describe("startGatewayRuntime", () => {
       onLightingObservation: vi.fn((next) => { listener = next; return vi.fn(); })
     };
     const runtime = { recordFixtureState: vi.fn().mockResolvedValue(undefined) };
+    const onObserved = vi.fn();
 
-    observeAutomationFixtureStatuses(adapter as never, runtime, vi.fn());
+    observeAutomationFixtureStatuses(adapter as never, runtime, vi.fn(), onObserved);
     listener?.({
       fixtureId: scopedFixtureId,
       brightness: 40,
@@ -232,6 +242,28 @@ describe("startGatewayRuntime", () => {
       0,
       "2026-08-30T01:00:00.000Z"
     ));
+    expect(onObserved).toHaveBeenCalledWith(scopedFixtureId);
+  });
+
+  it("keeps targeted observation retry armed when fixture state persistence fails", async () => {
+    let listener: ((status: { fixtureId: string; brightness: number; powerOn: boolean; observedAt: string }) => void) | undefined;
+    const adapter = {
+      onLightingObservation: vi.fn((next) => { listener = next; return vi.fn(); })
+    };
+    const runtime = { recordFixtureState: vi.fn().mockRejectedValue(new Error("state write failed")) };
+    const onError = vi.fn();
+    const onObserved = vi.fn();
+
+    observeAutomationFixtureStatuses(adapter as never, runtime, onError, onObserved);
+    listener?.({
+      fixtureId: scopedFixtureId,
+      brightness: 40,
+      powerOn: true,
+      observedAt: "2026-08-30T01:00:00.000Z"
+    });
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(onObserved).not.toHaveBeenCalled();
   });
 
   it("keeps local automation RF successful when terminal telemetry capacity is exhausted", async () => {
