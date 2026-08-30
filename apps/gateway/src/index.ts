@@ -63,7 +63,7 @@ import { DeviceCertificateClient } from "./identity/device-certificate-client";
 import { createGatewayCertificateRotation, type CertificateRotation } from "./identity/certificate-rotation";
 import { GatewayMqttRuntime, type GatewayMqttClient } from "./runtime/gateway-mqtt-runtime";
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
-import type { BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
+import type { BleMeshAdapter, BleMeshFixtureStatus, BleMeshResyncReport } from "./gateway";
 import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
 import { GroupStateStore } from "./mesh/group-state-store";
 import { KeyedSerialTaskQueue } from "./runtime/keyed-serial-task-queue";
@@ -131,6 +131,25 @@ export function createManualOverrideCoordinator(
       manualTerminalResults(terminal)
     )
   };
+}
+
+export async function initializeAutomationBeforeManualRecovery(
+  automationRuntime: Pick<AutomationRuntime, "initialize">,
+  recoverManualHandoffs: () => Promise<void>
+) {
+  await automationRuntime.initialize();
+  await recoverManualHandoffs();
+}
+
+export function observeAutomationFixtureStatuses(
+  adapter: Pick<BleMeshAdapter, "onFixtureStatus">,
+  runtime: Pick<ScheduleRuntime, "recordFixtureState">,
+  onError?: (error: unknown) => void
+) {
+  return adapter.onFixtureStatus((status) => {
+    void runtime.recordFixtureState(status.fixtureId, status.brightness, status.health.observedAt)
+      .catch((error) => onError?.(error));
+  });
 }
 
 config({ path: resolve(process.cwd(), "../../.env") });
@@ -244,8 +263,16 @@ async function main() {
     throw error;
   }
   const manualOverrideCoordinator = createManualOverrideCoordinator(scheduleRuntime);
-  await recoverPendingManualAutomationHandoffs(commandJournal, manualOverrideCoordinator);
-  await automationRuntime.initialize();
+  await initializeAutomationBeforeManualRecovery(
+    automationRuntime,
+    () => recoverPendingManualAutomationHandoffs(commandJournal, manualOverrideCoordinator)
+  );
+  const stopAutomationFixtureStatusIntake = observeAutomationFixtureStatuses(
+    adapter,
+    scheduleRuntime,
+    (error) => void reportGatewayError(error, "automation_fixture_status")
+  );
+  await recordMeshResyncOutcome(health, await adapter.resyncFixtureStates());
   scheduleRuntime.start();
   const automationAckOutbox = new AutomationConfigAckOutbox(
     process.env.GATEWAY_AUTOMATION_ACK_OUTBOX_PATH ?? "/var/lib/led-control/automation-config-acks.json",
@@ -398,7 +425,6 @@ async function main() {
           publish: (_topic, state) => enqueueFixtureState(state, currentReservation)
         });
         void publishFixtureStatus(status)
-          .then(() => scheduleRuntime.recordFixtureState(status.fixtureId, status.brightness))
           .then(() => armFixtureStatusIntake())
           .catch(async (error) => {
             await stateEventOutbox.release(currentReservation);
@@ -500,6 +526,7 @@ async function main() {
   registerGatewayShutdownHandlers({
     stop: async () => {
       const schedulerDrain = scheduleRuntime.stopAndDrain();
+      stopAutomationFixtureStatusIntake();
       stopFixtureStatusIntake?.();
       await fixtureStatusReservation.release();
       await schedulerDrain;

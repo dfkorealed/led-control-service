@@ -7,7 +7,7 @@ import {
   AutomationStateCommitUncertainError,
   FileAutomationStateStore,
   emptyAutomationState,
-  type PersistedAutomationStateV2
+  type PersistedAutomationStateV3
 } from "./automation-state-store";
 
 const directories: string[] = [];
@@ -39,7 +39,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -51,7 +51,7 @@ describe("FileAutomationStateStore", () => {
     });
   });
 
-  it("migrates the exact Task 12 v1 state without inventing completed transitions", async () => {
+  it("migrates Task 12 v1 lastDesired into observation-required state instead of completion evidence", async () => {
     const path = await statePath();
     await writeJsonAtomic(path, {
       schemaVersion: 1,
@@ -66,7 +66,29 @@ describe("FileAutomationStateStore", () => {
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toEqual({
       ...emptyAutomationState(),
       currentByFixture: { [fixtureId]: 20 },
-      lastDesiredByFixture: { [fixtureId]: 20 }
+      unverifiedDesiredByFixture: { [fixtureId]: 20 }
+    });
+  });
+
+  it("requires observation for a v2 desired without successful terminal evidence", async () => {
+    const path = await statePath();
+    const v2 = {
+      schemaVersion: 2,
+      activeOccurrences: {},
+      manualOverrides: {},
+      vehicleRules: {},
+      currentByFixture: { [fixtureId]: 20 },
+      baseBrightnessByFixture: {},
+      lastDesiredByFixture: { [fixtureId]: 40 },
+      transitionsByFixture: {},
+      telemetryGap: null
+    };
+    await writeJsonAtomic(path, v2);
+
+    await expect(new FileAutomationStateStore(path).initialize()).resolves.toEqual({
+      ...emptyAutomationState(),
+      currentByFixture: { [fixtureId]: 20 },
+      unverifiedDesiredByFixture: { [fixtureId]: 40 }
     });
   });
 
@@ -121,7 +143,7 @@ describe("FileAutomationStateStore", () => {
     const store = new FileAutomationStateStore(path);
     await store.initialize();
 
-    const leaked = store.read() as PersistedAutomationStateV2;
+    const leaked = store.read() as PersistedAutomationStateV3;
     leaked.lastDesiredByFixture[fixtureId] = 99;
 
     expect(store.read().lastDesiredByFixture).toEqual({});
@@ -136,7 +158,7 @@ describe("FileAutomationStateStore", () => {
     await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
 
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       telemetryGap: {
         firstDroppedAt: "2026-08-30T01:00:01.000Z",
         lastDroppedAt: "2026-08-30T01:00:02.000Z",

@@ -2,7 +2,7 @@ import { mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CommandJournal } from "./command-journal";
+import { CommandJournal, CommandJournalAutomationCapacityError } from "./command-journal";
 
 describe("CommandJournal", () => {
   it("persists accepted and terminal records with owner-only permissions", async () => {
@@ -104,6 +104,63 @@ describe("CommandJournal", () => {
       expect.objectContaining({ idempotencyKey: "key-2", state: "accepted" })
     ]);
   });
+
+  it("retains accepted and pending manual recoveries beyond command TTL and a 30-day override", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-long-manual-")), "journal.json");
+    let now = new Date("2026-08-01T00:00:00.000Z");
+    const journal = new CommandJournal(path, { now: () => now, ttlMs: 24 * 60 * 60 * 1000 });
+    await journal.accept("accepted", timedCommand("command-1", "2026-08-31T00:00:00.000Z"));
+    await journal.accept("pending", timedCommand("command-2", "2026-08-31T00:00:00.000Z"));
+    await journal.complete("pending", commandResult("fixture-1", 60, now.toISOString()), {
+      automationHandoffPending: true
+    });
+
+    now = new Date("2026-09-02T00:00:00.000Z");
+
+    await expect(journal.pendingAutomationRecoveries()).resolves.toEqual([
+      expect.objectContaining({ idempotencyKey: "accepted", state: "accepted" }),
+      expect.objectContaining({ idempotencyKey: "pending", state: "completed" })
+    ]);
+    await expect(journal.get("accepted")).resolves.toMatchObject({ state: "accepted" });
+    await expect(journal.get("pending")).resolves.toMatchObject({ automationHandoff: "pending" });
+  });
+
+  it("protects pending automation recovery records from ordinary max-record eviction", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-pending-eviction-")), "journal.json");
+    const journal = new CommandJournal(path, { maxRecords: 1, maxPendingAutomationRecords: 2 });
+    await journal.accept("pending", timedCommand("command-pending", "2026-08-31T00:00:00.000Z"));
+    await journal.complete("pending", commandResult("fixture-1", 60, "2026-08-01T00:00:00.000Z"), {
+      automationHandoffPending: true
+    });
+    await journal.accept("ordinary-1", { commandId: "ordinary-1" });
+    await journal.complete("ordinary-1", { status: "succeeded" });
+    await journal.accept("ordinary-2", { commandId: "ordinary-2" });
+    await journal.complete("ordinary-2", { status: "succeeded" });
+
+    await expect(journal.pendingAutomationRecoveries()).resolves.toEqual([
+      expect.objectContaining({ idempotencyKey: "pending" })
+    ]);
+    await expect(journal.get("ordinary-1")).resolves.toBeNull();
+    await expect(journal.get("ordinary-2")).resolves.not.toBeNull();
+  });
+
+  it("fails intake explicitly when the separate pending automation capacity is full", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-pending-capacity-")), "journal.json");
+    const journal = new CommandJournal(path, { maxPendingAutomationRecords: 1 });
+    await journal.accept("pending", timedCommand("command-1", "2026-08-31T00:00:00.000Z"));
+
+    await expect(journal.accept(
+      "overflow",
+      timedCommand("command-2", "2026-08-31T00:00:00.000Z")
+    )).rejects.toMatchObject({
+      name: "CommandJournalAutomationCapacityError",
+      code: "COMMAND_AUTOMATION_HANDOFF_CAPACITY",
+      limit: 1
+    } satisfies Partial<CommandJournalAutomationCapacityError>);
+    await expect(journal.pendingAutomationRecoveries()).resolves.toEqual([
+      expect.objectContaining({ idempotencyKey: "pending" })
+    ]);
+  });
 });
 
 function commandResult(fixtureId: string, brightness: number, occurredAt: string) {
@@ -116,4 +173,8 @@ function commandResult(fixtureId: string, brightness: number, occurredAt: string
       results: [{ fixtureId, status: "succeeded", brightness, rssi: -60, hopCount: 1 }]
     }
   };
+}
+
+function timedCommand(commandId: string, overrideUntil: string) {
+  return { command: { commandId, overrideUntil } };
 }

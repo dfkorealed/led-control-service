@@ -113,7 +113,7 @@ describe("ScheduleRuntime", () => {
     expect(test.execute).toHaveBeenCalledTimes(2);
   });
 
-  it("retries a persisted pending transition after a process restart", async () => {
+  it("resolves a post-send persisted pending transition from matching observed state without duplicate RF", async () => {
     const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
     await test.store.update((state) => {
@@ -142,12 +142,101 @@ describe("ScheduleRuntime", () => {
     await restarted.initialize();
     await activate(restarted, snapshot({ schedules: [dailySchedule()] }));
 
+    expect(execute).not.toHaveBeenCalled();
+    await restarted.recordFixtureState(fixtureId, 40);
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(restarted.state().transitionsByFixture[fixtureId]).toMatchObject({
+      phase: "terminal",
+      status: "succeeded",
+      attempt: 1
+    });
+  });
+
+  it("retries a pre-send persisted pending transition only after observed state differs", async () => {
+    const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await persistPendingSchedule(test.store);
+    const execute = vi.fn(executeSuccessfully);
+    const restarted = new ScheduleRuntime({
+      store: new FileAutomationStateStore(test.path),
+      wallClock: test.wall.now,
+      monotonicClock: test.monotonic.now,
+      clockTrust: test.trust,
+      execute
+    });
+
+    await restarted.initialize();
+    await activate(restarted, snapshot({ schedules: [dailySchedule()] }));
+    expect(execute).not.toHaveBeenCalled();
+
+    await restarted.recordFixtureState(fixtureId, 20);
+
     expect(execute).toHaveBeenCalledTimes(1);
     expect(restarted.state().transitionsByFixture[fixtureId]).toMatchObject({
       phase: "terminal",
       status: "succeeded",
       attempt: 2
     });
+  });
+
+  it.each([
+    ["post-send", 40, 0],
+    ["pre-send", 20, 1]
+  ] as const)("classifies a migrated v2 %s pending transition from observed state", async (_case, observed, expectedRf) => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-v2-pending-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    await writeJsonAtomic(path, legacyV2PendingScheduleState());
+    const execute = vi.fn(executeSuccessfully);
+    const runtime = new ScheduleRuntime({
+      store: new FileAutomationStateStore(path),
+      wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute
+    });
+
+    await runtime.initialize();
+    await activate(runtime, snapshot({ schedules: [dailySchedule()] }));
+    expect(execute).not.toHaveBeenCalled();
+
+    await runtime.recordFixtureState(fixtureId, observed);
+
+    expect(execute).toHaveBeenCalledTimes(expectedRf);
+    expect(runtime.state().transitionsByFixture[fixtureId]).toMatchObject({
+      phase: "terminal",
+      status: "succeeded",
+      brightnessPercent: 40
+    });
+  });
+
+  it.each([
+    ["matching", 40, 0],
+    ["different", 20, 1]
+  ] as const)("classifies v1 desired from %s observed state before RF", async (_case, observed, expectedRf) => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-v1-"));
+    directories.push(directory);
+    const path = join(directory, "state.json");
+    await writeJsonAtomic(path, legacyActiveScheduleState());
+    const execute = vi.fn(executeSuccessfully);
+    const runtime = new ScheduleRuntime({
+      store: new FileAutomationStateStore(path),
+      wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute
+    });
+
+    await runtime.initialize();
+    await activate(runtime, snapshot({ schedules: [dailySchedule()] }));
+    expect(execute).not.toHaveBeenCalled();
+
+    await runtime.recordFixtureState(fixtureId, observed);
+
+    expect(execute).toHaveBeenCalledTimes(expectedRf);
+    expect(runtime.state().unverifiedDesiredByFixture).toEqual({});
+    expect(runtime.state().lastDesiredByFixture[fixtureId]).toBe(40);
   });
 
   it("does not deduplicate a failed terminal even when it observed the requested brightness", async () => {
@@ -170,7 +259,7 @@ describe("ScheduleRuntime", () => {
     expect(test.runtime.state().lastDesiredByFixture[fixtureId]).toBe(40);
   });
 
-  it("prefers an at-least-once retry when terminal durability is uncertain after RF", async () => {
+  it("uses observed state after terminal durability uncertainty to avoid duplicate post-send RF", async () => {
     const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-uncertain-"));
     directories.push(directory);
     const path = join(directory, "state.json");
@@ -215,7 +304,9 @@ describe("ScheduleRuntime", () => {
     await restarted.initialize();
     await activate(restarted, snapshot({ schedules: [dailySchedule()] }));
 
-    expect(restartedExecute).toHaveBeenCalledTimes(1);
+    expect(restartedExecute).not.toHaveBeenCalled();
+    await restarted.recordFixtureState(fixtureId, 40);
+    expect(restartedExecute).not.toHaveBeenCalled();
     expect(restarted.state().lastDesiredByFixture[fixtureId]).toBe(40);
   });
 
@@ -304,6 +395,30 @@ describe("ScheduleRuntime", () => {
     ]);
   });
 
+  it("gives an untrusted-arrival manual override a monotonic duration deadline", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 60)] }));
+    await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
+    test.trust.trusted = false;
+    await test.runtime.prepareManualOverride({
+      ...manualOverride(60, "2026-08-30T01:00:10.000Z"),
+      startedAt: "2026-08-30T01:00:00.000Z"
+    });
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
+    test.execute.mockClear();
+
+    test.wall.set("2026-08-30T00:50:00.000Z");
+    test.monotonic.advance(10_001);
+    await test.runtime.tick();
+
+    expect(test.execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
+    ]);
+  });
+
   it("keeps the last successful manual brightness when its override expires without an automatic source", async () => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
@@ -383,11 +498,14 @@ describe("ScheduleRuntime", () => {
     });
   });
 
-  it("restores the last successful manual brightness after an underlying schedule also ends", async () => {
+  it("preserves the schedule pre-state when manual control overlaps an already-active occurrence", async () => {
     const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
     await activate(test.runtime, snapshot({ schedules: [dailySchedule()] }));
-    await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:45:00.000Z"));
+    await test.runtime.prepareManualOverride({
+      ...manualOverride(60, "2026-08-30T01:45:00.000Z"),
+      startedAt: "2026-08-30T01:30:00.000Z"
+    });
     await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
       successfulTerminal(fixtureId, 60)
     ]);
@@ -403,9 +521,87 @@ describe("ScheduleRuntime", () => {
     test.monotonic.advance(15 * 60 * 1_000);
     await test.runtime.tick();
     expect(test.execute).toHaveBeenLastCalledWith([
-      expect.objectContaining({ fixtureId, brightnessPercent: 60, sourceType: "current" })
+      expect.objectContaining({ fixtureId, brightnessPercent: 20, sourceType: "current" })
     ]);
   });
+
+  it("preserves the vehicle-event pre-state when manual control overlaps an active event", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 5)] }));
+    await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
+    await test.runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:00:03.000Z"));
+    await test.runtime.handoffManualTerminal("00000000-0000-4000-8000-000000000105", [
+      successfulTerminal(fixtureId, 60)
+    ]);
+
+    test.monotonic.advance(3_001);
+    await test.runtime.tick();
+    expect(test.execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
+    ]);
+
+    await test.runtime.recordVehicleSensorState(sourceFixtureId, false);
+    test.monotonic.advance(5_001);
+    await test.runtime.tick();
+    expect(test.execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 20, sourceType: "current" })
+    ]);
+  });
+
+  it.each(["write_failed", "commit_uncertain"] as const)(
+    "keeps the manual RF guard when terminal state is %s and a tick is queued",
+    async (failure) => {
+      const directory = await mkdtemp(join(tmpdir(), "manual-terminal-store-failure-"));
+      directories.push(directory);
+      const path = join(directory, "state.json");
+      let inject = true;
+      const store = new FileAutomationStateStore(path, async (target, value) => {
+        const transition = (value as { transitionsByFixture?: Record<string, { phase?: string; sourceType?: string }> })
+          .transitionsByFixture?.[fixtureId];
+        if (inject && transition?.phase === "terminal" && transition.sourceType === "manual_override") {
+          inject = false;
+          if (failure === "write_failed") throw new Error("injected terminal write failure");
+          await writeJsonAtomic(target, value, {
+            syncParentDirectory: async () => { throw new Error("injected terminal fsync uncertainty"); }
+          });
+          return;
+        }
+        await writeJsonAtomic(target, value);
+      });
+      const execute = vi.fn(executeSuccessfully);
+      const monotonic = fakeMonotonic();
+      const runtime = new ScheduleRuntime({
+        store,
+        wallClock: () => new Date("2026-08-30T01:00:00.000Z"),
+        monotonicClock: monotonic.now,
+        clockTrust: { isTrusted: async () => true },
+        execute
+      });
+      await runtime.initialize();
+      await runtime.recordFixtureState(fixtureId, 20);
+      await activate(runtime, snapshot({}));
+      await runtime.prepareManualOverride(manualOverride(60, "2026-08-30T01:10:00.000Z"));
+
+      const handoff = runtime.handoffManualTerminal(
+        "00000000-0000-4000-8000-000000000105",
+        [successfulTerminal(fixtureId, 60)]
+      );
+      const tick = runtime.tick();
+
+      await expect(handoff).rejects.toBeDefined();
+      await tick;
+      expect(execute).not.toHaveBeenCalled();
+      expect(runtime.state().transitionsByFixture[fixtureId]).toMatchObject({
+        phase: "pending",
+        sourceType: "manual_override"
+      });
+
+      monotonic.advance(10 * 60 * 1_000);
+      await runtime.tick();
+      expect(runtime.state().manualOverrides).toEqual({});
+    }
+  );
 
   it("expires a current-process manual override by monotonic deadline after an actual wall rollback", async () => {
     const directory = await mkdtemp(join(tmpdir(), "manual-rollback-"));
@@ -442,7 +638,7 @@ describe("ScheduleRuntime", () => {
     ]);
   });
 
-  it("returns to an active event when manual expires and then keeps the last manual brightness", async () => {
+  it("returns to an active event when manual expires and then restores the event pre-state", async () => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
     await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 5)] }));
@@ -464,7 +660,7 @@ describe("ScheduleRuntime", () => {
     test.monotonic.advance(5_001);
     await test.runtime.tick();
     expect(test.execute).toHaveBeenLastCalledWith([
-      expect.objectContaining({ fixtureId, brightnessPercent: 60, sourceType: "current" })
+      expect.objectContaining({ fixtureId, brightnessPercent: 20, sourceType: "current" })
     ]);
   });
 
@@ -679,6 +875,64 @@ function successfulTerminal(targetFixtureId: string, brightnessPercent: number):
     faultCode: null,
     errorCode: null,
     occurredAt: "2026-08-30T01:00:01.000Z"
+  };
+}
+
+async function persistPendingSchedule(store: FileAutomationStateStore) {
+  await store.update((state) => {
+    state.transitionsByFixture[fixtureId] = {
+      phase: "pending",
+      brightnessPercent: 40,
+      sourceType: "schedule",
+      sourceId: scheduleId,
+      occurrenceKey: `${scheduleId}:2026-08-30`,
+      attempt: 1,
+      startedAt: "2026-08-30T01:30:00.000Z",
+      status: null,
+      terminalAt: null
+    };
+    return state;
+  });
+}
+
+function legacyActiveScheduleState() {
+  return {
+    schemaVersion: 1,
+    activeOccurrences: {
+      [scheduleId]: {
+        key: `${scheduleId}:2026-08-30`,
+        startedAt: "2026-08-30T01:00:00.000Z",
+        endsAt: "2026-08-30T02:00:00.000Z",
+        preBrightness: { [fixtureId]: 20 }
+      }
+    },
+    manualOverrides: {},
+    vehicleRules: {},
+    currentByFixture: { [fixtureId]: 20 },
+    baseBrightnessByFixture: { [fixtureId]: 20 },
+    lastDesiredByFixture: { [fixtureId]: 40 }
+  };
+}
+
+function legacyV2PendingScheduleState() {
+  return {
+    ...legacyActiveScheduleState(),
+    schemaVersion: 2,
+    lastDesiredByFixture: { [fixtureId]: 20 },
+    transitionsByFixture: {
+      [fixtureId]: {
+        phase: "pending",
+        brightnessPercent: 40,
+        sourceType: "schedule",
+        sourceId: scheduleId,
+        occurrenceKey: `${scheduleId}:2026-08-30`,
+        attempt: 1,
+        startedAt: "2026-08-30T01:30:00.000Z",
+        status: null,
+        terminalAt: null
+      }
+    },
+    telemetryGap: null
   };
 }
 

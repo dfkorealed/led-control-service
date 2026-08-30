@@ -14,7 +14,7 @@ import {
 import type { ClockTrustProvider } from "./clock-trust-provider";
 import {
   FileAutomationStateStore,
-  type PersistedAutomationStateV2,
+  type PersistedAutomationStateV3,
   type PersistedVehicleRuleState
 } from "./automation-state-store";
 import type { DesiredLightingState } from "./automation-runtime";
@@ -59,7 +59,7 @@ interface ComputedDesiredState {
 
 interface ActivationCheckpoint {
   snapshot: AutomationSnapshotV1 | null;
-  state: PersistedAutomationStateV2;
+  state: PersistedAutomationStateV3;
   vehicleHoldDeadlines: Array<[string, number]>;
   manualOverrideDeadlines: Array<[string, number]>;
 }
@@ -76,6 +76,7 @@ export class ScheduleRuntime {
   private readonly vehicleHoldDeadlines = new Map<string, number>();
   private readonly manualOverrideDeadlines = new Map<string, number>();
   private readonly manualCommandsInFlight = new Set<string>();
+  private readonly pendingObservationFixtures = new Set<string>();
   private activationCheckpoint: ActivationCheckpoint | null = null;
   private activationSettled: Promise<void> = Promise.resolve();
   private settleActivation: (() => void) | null = null;
@@ -92,6 +93,12 @@ export class ScheduleRuntime {
     return this.enqueue(async () => {
       if (this.initialized) return this.state();
       const state = await this.options.store.initialize();
+      for (const fixtureId of Object.keys(state.unverifiedDesiredByFixture)) {
+        this.pendingObservationFixtures.add(fixtureId);
+      }
+      for (const [fixtureId, transition] of Object.entries(state.transitionsByFixture)) {
+        if (transition.phase === "pending") this.pendingObservationFixtures.add(fixtureId);
+      }
       this.initialized = true;
       return state;
     });
@@ -189,19 +196,66 @@ export class ScheduleRuntime {
     return this.stopPromise;
   }
 
-  recordFixtureState(fixtureId: string, brightness: number): Promise<void> {
+  recordFixtureState(fixtureId: string, brightness: number, observedAt = this.wallClock().toISOString()): Promise<void> {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       validateBrightness(brightness);
+      let recoveredAction: DesiredLightingAction | null = null;
+      let recoveredResult: AutomationExecutionFixtureResultV1 | null = null;
       await this.options.store.update((state) => {
         state.currentByFixture[fixtureId] = brightness;
         const transition = state.transitionsByFixture[fixtureId];
-        if (!transition || (transition.phase === "terminal" && transition.status === "succeeded")) {
+        const legacyDesired = state.unverifiedDesiredByFixture[fixtureId];
+        if (this.pendingObservationFixtures.has(fixtureId) &&
+          (legacyDesired !== undefined || transition?.phase === "pending")) {
+          const expected = transition?.phase === "pending" ? transition.brightnessPercent : legacyDesired!;
+          const matched = brightness === expected;
+          recoveredAction = transition?.phase === "pending" ? {
+            fixtureId,
+            brightnessPercent: transition.brightnessPercent,
+            sourceType: transition.sourceType,
+            sourceId: transition.sourceId,
+            occurrenceKey: transition.occurrenceKey
+          } : {
+            fixtureId,
+            brightnessPercent: expected,
+            sourceType: "current",
+            sourceId: null,
+            occurrenceKey: null
+          };
+          recoveredResult = {
+            fixtureId,
+            status: matched ? "succeeded" : "failed",
+            brightnessPercent: brightness,
+            faultCode: matched ? null : "state_mismatch",
+            errorCode: matched ? null : "state_mismatch",
+            occurredAt: observedAt
+          };
+          state.transitionsByFixture[fixtureId] = {
+            ...(transition?.phase === "pending" ? transition : {
+              brightnessPercent: expected,
+              sourceType: "current" as const,
+              sourceId: null,
+              occurrenceKey: null,
+              attempt: 1,
+              startedAt: observedAt
+            }),
+            phase: "terminal",
+            status: matched ? "succeeded" : "failed",
+            terminalAt: observedAt
+          };
+          delete state.unverifiedDesiredByFixture[fixtureId];
+          state.lastDesiredByFixture[fixtureId] = brightness;
+        } else if (!transition || (transition.phase === "terminal" && transition.status === "succeeded")) {
           state.lastDesiredByFixture[fixtureId] = brightness;
         }
         if (!hasActiveSource(state, fixtureId)) delete state.baseBrightnessByFixture[fixtureId];
         return state;
       });
+      if (recoveredAction && recoveredResult) {
+        this.pendingObservationFixtures.delete(fixtureId);
+        await this.handoff([recoveredAction], [recoveredResult]);
+      }
       if (!this.snapshot) return;
       await this.captureMissingBases(this.snapshot);
       await this.applyComputed(this.computeDesired(this.snapshot, this.state()));
@@ -212,9 +266,8 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       validateManualOverride(input);
-      const now = this.wallClock();
       const monotonicNow = this.monotonicClock();
-      const trusted = await this.options.clockTrust.isTrusted(now);
+      const durationMs = Date.parse(input.overrideUntil) - Date.parse(input.startedAt);
       await this.options.store.update((state) => {
         for (const fixtureId of input.fixtureIds) {
           const base = captureBase(state, fixtureId);
@@ -243,12 +296,7 @@ export class ScheduleRuntime {
       });
       for (const fixtureId of input.fixtureIds) {
         this.manualCommandsInFlight.add(fixtureId);
-        if (trusted) {
-          const remaining = Date.parse(input.overrideUntil) - now.getTime();
-          if (remaining > 0) this.manualOverrideDeadlines.set(fixtureId, monotonicNow + remaining);
-        } else {
-          this.manualOverrideDeadlines.delete(fixtureId);
-        }
+        this.manualOverrideDeadlines.set(fixtureId, monotonicNow + durationMs);
       }
     });
   }
@@ -260,6 +308,7 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       const actions: DesiredLightingAction[] = [];
+      const settledFixtures: Array<{ fixtureId: string; failed: boolean }> = [];
       await this.options.store.update((state) => {
         for (const result of results) {
           const override = state.manualOverrides[result.fixtureId];
@@ -285,21 +334,27 @@ export class ScheduleRuntime {
             status: result.status,
             terminalAt: result.occurredAt
           };
-          this.manualCommandsInFlight.delete(result.fixtureId);
           if (result.brightnessPercent !== null) {
             state.currentByFixture[result.fixtureId] = result.brightnessPercent;
             if (result.status === "succeeded") {
               state.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
-              state.baseBrightnessByFixture[result.fixtureId] = result.brightnessPercent;
+              if (!hasActiveAutomaticSource(state, result.fixtureId)) {
+                state.baseBrightnessByFixture[result.fixtureId] = result.brightnessPercent;
+              }
             }
           }
           if (result.status !== "succeeded") {
             delete state.manualOverrides[result.fixtureId];
-            this.manualOverrideDeadlines.delete(result.fixtureId);
           }
+          settledFixtures.push({ fixtureId: result.fixtureId, failed: result.status !== "succeeded" });
         }
         return state;
       });
+      for (const settled of settledFixtures) {
+        this.manualCommandsInFlight.delete(settled.fixtureId);
+        this.pendingObservationFixtures.delete(settled.fixtureId);
+        if (settled.failed) this.manualOverrideDeadlines.delete(settled.fixtureId);
+      }
       await this.handoff(actions, results);
     });
   }
@@ -372,7 +427,7 @@ export class ScheduleRuntime {
     });
   }
 
-  private computeDesired(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV2): ComputedDesiredState {
+  private computeDesired(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV3): ComputedDesiredState {
     const actions = new Map<string, DesiredLightingAction>();
     const desired: Record<string, number> = {};
     const fixtures = relevantFixtures(snapshot, state);
@@ -409,6 +464,7 @@ export class ScheduleRuntime {
     const state = this.state();
     const changed = [...computed.actions.values()].filter((action) =>
       state.lastDesiredByFixture[action.fixtureId] !== action.brightnessPercent &&
+      !this.pendingObservationFixtures.has(action.fixtureId) &&
       !(action.sourceType === "manual_override" && this.manualCommandsInFlight.has(action.fixtureId))
     );
     const settledBaseFixtures = [...computed.actions.values()]
@@ -535,7 +591,7 @@ export class ScheduleRuntime {
 }
 
 function sameTransition(
-  previous: PersistedAutomationStateV2["transitionsByFixture"][string],
+  previous: PersistedAutomationStateV3["transitionsByFixture"][string],
   action: DesiredLightingAction
 ) {
   return previous.brightnessPercent === action.brightnessPercent && previous.sourceType === action.sourceType &&
@@ -550,7 +606,7 @@ export class ScheduleRuntimeError extends Error {
 }
 
 function reconcileManualOverrides(
-  state: PersistedAutomationStateV2,
+  state: PersistedAutomationStateV3,
   now: Date,
   monotonicNow: number,
   trusted: boolean,
@@ -575,7 +631,7 @@ function reconcileManualOverrides(
 }
 
 function reconcileSchedules(
-  state: PersistedAutomationStateV2,
+  state: PersistedAutomationStateV3,
   snapshot: AutomationSnapshotV1,
   now: Date,
   trusted: boolean
@@ -617,7 +673,7 @@ function reconcileSchedules(
 }
 
 function reconcileVehicleRules(
-  state: PersistedAutomationStateV2,
+  state: PersistedAutomationStateV3,
   snapshot: AutomationSnapshotV1,
   now: Date,
   monotonicNow: number,
@@ -666,7 +722,7 @@ function vehicleState(
   existing: PersistedVehicleRuleState | undefined,
   activeSourceFixtureIds: string[],
   now: Date,
-  state: PersistedAutomationStateV2
+  state: PersistedAutomationStateV3
 ): PersistedVehicleRuleState {
   const preBrightness = { ...(existing?.preBrightness ?? {}) };
   for (const fixtureId of rule.targetFixtureIds) {
@@ -685,7 +741,7 @@ function vehicleState(
 
 function activeScheduleCandidate(
   snapshot: AutomationSnapshotV1,
-  state: PersistedAutomationStateV2,
+  state: PersistedAutomationStateV3,
   fixtureId: string
 ) {
   for (const [scheduleId, occurrence] of Object.entries(state.activeOccurrences)) {
@@ -707,7 +763,7 @@ function actionBrightness(rule: LightingScheduleSnapshotV1 | VehicleEventRuleSna
   return rule.action.dimmingEnabled ? rule.action.brightnessPercent : 100;
 }
 
-function captureBase(state: PersistedAutomationStateV2, fixtureId: string): number | null {
+function captureBase(state: PersistedAutomationStateV3, fixtureId: string): number | null {
   const existing = state.baseBrightnessByFixture[fixtureId];
   if (existing !== undefined) return existing;
   const current = state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId];
@@ -716,11 +772,12 @@ function captureBase(state: PersistedAutomationStateV2, fixtureId: string): numb
   return current;
 }
 
-function relevantFixtures(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV2) {
+function relevantFixtures(snapshot: AutomationSnapshotV1, state: PersistedAutomationStateV3) {
   const fixtures = new Set([
     ...Object.keys(state.currentByFixture),
     ...Object.keys(state.baseBrightnessByFixture),
     ...Object.keys(state.lastDesiredByFixture),
+    ...Object.keys(state.unverifiedDesiredByFixture),
     ...Object.keys(state.manualOverrides),
     ...snapshot.schedules.flatMap((schedule) => schedule.fixtureIds),
     ...Object.values(state.vehicleRules).flatMap((vehicle) => vehicle.targetFixtureIds)
@@ -728,8 +785,12 @@ function relevantFixtures(snapshot: AutomationSnapshotV1, state: PersistedAutoma
   return [...fixtures].sort();
 }
 
-function hasActiveSource(state: PersistedAutomationStateV2, fixtureId: string) {
+function hasActiveSource(state: PersistedAutomationStateV3, fixtureId: string) {
   if (state.manualOverrides[fixtureId]) return true;
+  return hasActiveAutomaticSource(state, fixtureId);
+}
+
+function hasActiveAutomaticSource(state: PersistedAutomationStateV3, fixtureId: string) {
   if (Object.values(state.activeOccurrences).some((occurrence) => occurrence.preBrightness[fixtureId] !== undefined)) return true;
   return Object.values(state.vehicleRules).some((vehicle) => vehicle.targetFixtureIds.includes(fixtureId));
 }

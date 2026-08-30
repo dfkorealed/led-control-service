@@ -853,6 +853,15 @@ git commit -m "feat(gateway): execute durable lighting schedules"
 - [x] Command journal terminal/handoff phase를 재생 가능하게 만들고 prepare/completed crash fault test를 추가한다.
 - [x] Scheduler `stopAndDrain()`으로 intake 차단과 RF/state/handoff drain을 production shutdown에 연결한다.
 
+**Fix round 2 (2026-08-30):**
+
+- [x] V1/V2 migration과 pending restart를 fixture observed-state resync로 분류해 target mismatch에만 RF를 전송한다.
+- [x] 이미 활성인 schedule/event의 pre-state를 manual terminal이 덮지 않도록 layered base 복귀를 수정한다.
+- [x] Clock-untrusted 중 수신한 manual도 server-confirmed duration으로 current-process monotonic deadline을 만든다.
+- [x] Persisted snapshot activation 뒤 pending manual handoff를 재생하고 실제 `ScheduleRuntime` 통합으로 검증한다.
+- [x] Pending manual recovery를 TTL/일반 eviction에서 보호하고 별도 bounded capacity error를 적용한다.
+- [x] Process-local manual guard/deadline/observation fence를 atomic state 성공 뒤 변경하고 fault-injection tick으로 검증한다.
+
 ### Task 13: Gateway 차량 이벤트 상태와 durable telemetry
 
 **Files:**

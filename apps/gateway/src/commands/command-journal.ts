@@ -30,6 +30,16 @@ interface JournalOptions {
   now?: () => Date;
   ttlMs?: number;
   maxRecords?: number;
+  maxPendingAutomationRecords?: number;
+}
+
+export class CommandJournalAutomationCapacityError extends Error {
+  readonly code = "COMMAND_AUTOMATION_HANDOFF_CAPACITY";
+
+  constructor(readonly limit: number) {
+    super("pending automation handoff capacity is full");
+    this.name = "CommandJournalAutomationCapacityError";
+  }
 }
 
 export class CommandJournal {
@@ -37,6 +47,7 @@ export class CommandJournal {
   private readonly now: () => Date;
   private readonly ttlMs: number;
   private readonly maxRecords: number;
+  private readonly maxPendingAutomationRecords: number;
 
   constructor(
     private readonly path: string,
@@ -45,12 +56,16 @@ export class CommandJournal {
     this.now = options.now ?? (() => new Date());
     this.ttlMs = options.ttlMs ?? 24 * 60 * 60 * 1000;
     this.maxRecords = options.maxRecords ?? 10_000;
+    this.maxPendingAutomationRecords = positiveLimit(
+      options.maxPendingAutomationRecords ?? 10_000,
+      "maxPendingAutomationRecords"
+    );
   }
 
   async get(idempotencyKey: string) {
     const data = await this.readData();
     const record = data.records[idempotencyKey];
-    if (!record || this.isExpired(record)) return null;
+    if (!record || (!isPendingAutomationRecovery(record) && this.isExpired(record))) return null;
     return {
       state: record.state,
       command: record.command,
@@ -68,6 +83,7 @@ export class CommandJournal {
       const data = await this.readData();
       this.prune(data);
       if (data.records[idempotencyKey]) return false;
+      if (isTimedCommandWrapper(command)) this.assertAutomationCapacity(data);
       data.records[idempotencyKey] = {
         state: "accepted",
         command,
@@ -89,6 +105,9 @@ export class CommandJournal {
       const data = await this.readData();
       const existing = data.records[idempotencyKey];
       if (!existing) throw new Error("command must be accepted before completion");
+      if (options.automationHandoffPending && !isPendingAutomationRecovery(existing)) {
+        this.assertAutomationCapacity(data);
+      }
       data.records[idempotencyKey] = {
         ...existing,
         state: "completed",
@@ -105,7 +124,7 @@ export class CommandJournal {
   async pendingAutomationHandoffs() {
     const data = await this.readData();
     return Object.entries(data.records)
-      .filter(([, record]) => record.state === "completed" && record.automationHandoff === "pending" && !this.isExpired(record))
+      .filter(([, record]) => record.state === "completed" && record.automationHandoff === "pending")
       .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt))
       .map(([idempotencyKey, record]) => ({
         idempotencyKey,
@@ -117,10 +136,7 @@ export class CommandJournal {
   async pendingAutomationRecoveries() {
     const data = await this.readData();
     return Object.entries(data.records)
-      .filter(([, record]) => !this.isExpired(record) && (
-        (record.state === "completed" && record.automationHandoff === "pending") ||
-        (record.state === "accepted" && isTimedCommandWrapper(record.command))
-      ))
+      .filter(([, record]) => isPendingAutomationRecovery(record))
       .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt))
       .map(([idempotencyKey, record]) => ({
         idempotencyKey,
@@ -168,9 +184,11 @@ export class CommandJournal {
 
   private prune(data: JournalData) {
     for (const [key, record] of Object.entries(data.records)) {
-      if (this.isExpired(record)) delete data.records[key];
+      if (!isPendingAutomationRecovery(record) && this.isExpired(record)) delete data.records[key];
     }
-    const overflow = Object.entries(data.records).sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt));
+    const overflow = Object.entries(data.records)
+      .filter(([, record]) => !isPendingAutomationRecovery(record))
+      .sort(([, left], [, right]) => left.updatedAt.localeCompare(right.updatedAt));
     while (overflow.length > this.maxRecords) {
       const oldest = overflow.shift();
       if (oldest) delete data.records[oldest[0]];
@@ -179,6 +197,13 @@ export class CommandJournal {
 
   private isExpired(record: JournalRecord) {
     return this.now().getTime() - new Date(record.updatedAt).getTime() > this.ttlMs;
+  }
+
+  private assertAutomationCapacity(data: JournalData) {
+    const pending = Object.values(data.records).filter(isPendingAutomationRecovery).length;
+    if (pending >= this.maxPendingAutomationRecords) {
+      throw new CommandJournalAutomationCapacityError(this.maxPendingAutomationRecords);
+    }
   }
 
   private async readData(): Promise<JournalData> {
@@ -248,4 +273,14 @@ function needsConservativeHandoff(record: Pick<JournalRecord, "state" | "command
 function isTimedCommandWrapper(value: unknown) {
   const wrapper = value as { command?: { overrideUntil?: unknown } };
   return typeof wrapper?.command?.overrideUntil === "string";
+}
+
+function isPendingAutomationRecovery(record: Pick<JournalRecord, "state" | "command" | "automationHandoff">) {
+  return (record.state === "completed" && record.automationHandoff === "pending") ||
+    (record.state === "accepted" && isTimedCommandWrapper(record.command));
+}
+
+function positiveLimit(value: number, name: string) {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive safe integer`);
+  return value;
 }

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createGatewayAutomationServices,
+  initializeAutomationBeforeManualRecovery,
+  observeAutomationFixtureStatuses,
   createDurableAutomationTerminalHandoff,
   executeAutomationWithBestEffortTelemetry,
   enqueueAutomationFixtureStates,
@@ -30,6 +32,7 @@ import { StateEventOutboxError } from "./state/state-event-outbox";
 import { provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
 import { automationScope, automationSnapshot } from "./automation/automation-test-fixtures";
+import { recoverPendingManualAutomationHandoffs } from "./commands/gateway-command-handler";
 
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
@@ -135,6 +138,98 @@ describe("startGatewayRuntime", () => {
         occurredAt: "2026-08-30T01:00:01.000Z"
       }]
     );
+  });
+
+  it("initializes the real snapshot runtime before replaying a pending manual terminal handoff", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-manual-recovery-order-"));
+    try {
+      const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
+      await stateStore.initialize();
+      await stateStore.update((state) => {
+        state.currentByFixture[scopedFixtureId] = 20;
+        state.baseBrightnessByFixture[scopedFixtureId] = 20;
+        state.lastDesiredByFixture[scopedFixtureId] = 20;
+        state.manualOverrides[scopedFixtureId] = {
+          sourceId: "11111111-1111-4111-8111-111111111111",
+          brightnessPercent: 60,
+          startedAt: "2026-08-30T01:00:00.000Z",
+          overrideUntil: "2026-08-30T02:00:00.000Z",
+          preBrightness: 20
+        };
+        state.transitionsByFixture[scopedFixtureId] = {
+          phase: "pending",
+          brightnessPercent: 60,
+          sourceType: "manual_override",
+          sourceId: "11111111-1111-4111-8111-111111111111",
+          occurrenceKey: null,
+          attempt: 1,
+          startedAt: "2026-08-30T01:00:00.000Z",
+          status: null,
+          terminalAt: null
+        };
+        return state;
+      });
+      const terminalHandoff = vi.fn().mockResolvedValue(undefined);
+      const persisted = automationSnapshot(1);
+      const services = createGatewayAutomationServices({
+        configStore: {
+          load: async () => persisted,
+          apply: async () => undefined,
+          restore: async () => undefined
+        },
+        stateStore,
+        scope: automationScope,
+        wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+        monotonicClock: () => 1_000,
+        clockTrust: { isTrusted: async () => true },
+        execute: vi.fn(),
+        onTerminalResults: terminalHandoff
+      });
+      await services.scheduleRuntime.initialize();
+      const command = timedGatewayCommand();
+      const journal = {
+        pendingAutomationRecoveries: async () => [{
+          idempotencyKey: command.idempotencyKey,
+          state: "completed" as const,
+          command: { command },
+          result: successfulGatewayCommandResult(command)
+        }],
+        complete: vi.fn(),
+        markAutomationHandoffComplete: vi.fn().mockResolvedValue(undefined)
+      };
+      const coordinator = createManualOverrideCoordinator(services.scheduleRuntime);
+
+      await initializeAutomationBeforeManualRecovery(
+        services.automationRuntime,
+        () => recoverPendingManualAutomationHandoffs(journal, coordinator)
+      );
+
+      expect(services.automationRuntime.currentRevision).toBe(1);
+      expect(terminalHandoff).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }));
+      expect(journal.markAutomationHandoffComplete).toHaveBeenCalledWith(command.idempotencyKey);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("feeds fixture observations to automation independently of telemetry intake", async () => {
+    let listener: ((status: { fixtureId: string; brightness: number; health: { observedAt: string } }) => void) | undefined;
+    const adapter = {
+      onFixtureStatus: vi.fn((next) => { listener = next; return vi.fn(); })
+    };
+    const runtime = { recordFixtureState: vi.fn().mockResolvedValue(undefined) };
+
+    observeAutomationFixtureStatuses(adapter as never, runtime, vi.fn());
+    listener?.({
+      fixtureId: scopedFixtureId,
+      brightness: 40,
+      health: { observedAt: "2026-08-30T01:00:00.000Z" }
+    });
+    await vi.waitFor(() => expect(runtime.recordFixtureState).toHaveBeenCalledWith(
+      scopedFixtureId,
+      40,
+      "2026-08-30T01:00:00.000Z"
+    ));
   });
 
   it("keeps local automation RF successful when terminal telemetry capacity is exhausted", async () => {
@@ -537,3 +632,59 @@ describe("startGatewayRuntime", () => {
     expect(runtime.activate).toHaveBeenCalledWith(client, prepared);
   });
 });
+
+function timedGatewayCommand() {
+  return {
+    commandId: "11111111-1111-4111-8111-111111111111",
+    dispatchId: "22222222-2222-4222-8222-222222222222",
+    idempotencyKey: "33333333-3333-4333-8333-333333333333",
+    sequence: 1,
+    siteId: scopedSiteId,
+    gatewayId: scopedGatewayId,
+    targetType: "fixture" as const,
+    targetId: scopedFixtureId,
+    targetFixtureIds: [scopedFixtureId],
+    deliveryMode: "unicast" as const,
+    brightness: 60,
+    requestedBy: "77777777-7777-4777-8777-777777777777",
+    requestedAt: "2026-08-30T01:00:00.000Z",
+    expiresAt: "2026-08-30T01:01:00.000Z",
+    overrideUntil: "2026-08-30T02:00:00.000Z"
+  };
+}
+
+function successfulGatewayCommandResult(command: ReturnType<typeof timedGatewayCommand>) {
+  return {
+    acceptance: {
+      commandId: command.commandId,
+      dispatchId: command.dispatchId,
+      idempotencyKey: command.idempotencyKey,
+      sequence: command.sequence,
+      siteId: command.siteId,
+      gatewayId: command.gatewayId,
+      eventId: "88888888-8888-4888-8888-888888888888",
+      status: "accepted",
+      acceptedAt: "2026-08-30T01:00:00.000Z"
+    },
+    deviceStatus: {
+      commandId: command.commandId,
+      dispatchId: command.dispatchId,
+      idempotencyKey: command.idempotencyKey,
+      sequence: command.sequence,
+      siteId: command.siteId,
+      gatewayId: command.gatewayId,
+      eventId: "99999999-9999-4999-8999-999999999999",
+      status: "succeeded",
+      occurredAt: "2026-08-30T01:00:01.000Z",
+      results: [{
+        fixtureId: scopedFixtureId,
+        status: "succeeded",
+        brightness: 60,
+        rssi: -60,
+        hopCount: 1
+      }]
+    },
+    fixtureStateObserved: true,
+    observedFixtureIds: [scopedFixtureId]
+  };
+}

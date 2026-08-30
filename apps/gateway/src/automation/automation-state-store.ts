@@ -47,14 +47,15 @@ export interface PersistedAutomationTransitionState {
   terminalAt: string | null;
 }
 
-export interface PersistedAutomationStateV2 {
-  schemaVersion: 2;
+export interface PersistedAutomationStateV3 {
+  schemaVersion: 3;
   activeOccurrences: Record<string, PersistedOccurrenceState>;
   manualOverrides: Record<string, PersistedManualOverrideState>;
   vehicleRules: Record<string, PersistedVehicleRuleState>;
   currentByFixture: Record<string, number>;
   baseBrightnessByFixture: Record<string, number>;
   lastDesiredByFixture: Record<string, number>;
+  unverifiedDesiredByFixture: Record<string, number>;
   transitionsByFixture: Record<string, PersistedAutomationTransitionState>;
   telemetryGap: PersistedAutomationTelemetryGap | null;
 }
@@ -81,9 +82,9 @@ export class AutomationStateCommitUncertainError extends Error {
 }
 
 export class FileAutomationStateStore {
-  private state: PersistedAutomationStateV2 | null = null;
+  private state: PersistedAutomationStateV3 | null = null;
   private available = false;
-  private initialization: Promise<PersistedAutomationStateV2> | undefined;
+  private initialization: Promise<PersistedAutomationStateV3> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -96,7 +97,7 @@ export class FileAutomationStateStore {
     return this.initialization;
   }
 
-  read(): PersistedAutomationStateV2 {
+  read(): PersistedAutomationStateV3 {
     if (!this.available || !this.state) {
       throw new AutomationStateStoreError("automation_state_unavailable");
     }
@@ -104,8 +105,8 @@ export class FileAutomationStateStore {
   }
 
   async update(
-    mutation: (state: PersistedAutomationStateV2) => PersistedAutomationStateV2
-  ): Promise<PersistedAutomationStateV2> {
+    mutation: (state: PersistedAutomationStateV3) => PersistedAutomationStateV3
+  ): Promise<PersistedAutomationStateV3> {
     await this.initialize();
     return this.exclusive(async () => {
       const previous = this.read();
@@ -154,7 +155,7 @@ export class FileAutomationStateStore {
     });
   }
 
-  private async restore(): Promise<PersistedAutomationStateV2> {
+  private async restore(): Promise<PersistedAutomationStateV3> {
     let raw: unknown | null;
     try {
       raw = await readJsonFile(this.path);
@@ -186,7 +187,7 @@ export class FileAutomationStateStore {
     }
   }
 
-  private async recoverPrevious(previous: PersistedAutomationStateV2, commitError: unknown) {
+  private async recoverPrevious(previous: PersistedAutomationStateV3, commitError: unknown) {
     let rollbackError: unknown;
     try {
       await this.write(this.path, previous);
@@ -194,7 +195,7 @@ export class FileAutomationStateStore {
       rollbackError = error;
     }
 
-    let visible: PersistedAutomationStateV2 | null = null;
+    let visible: PersistedAutomationStateV3 | null = null;
     let readbackError: unknown;
     try {
       const raw = await readJsonFile(this.path);
@@ -223,21 +224,22 @@ export class FileAutomationStateStore {
   }
 }
 
-export function emptyAutomationState(): PersistedAutomationStateV2 {
+export function emptyAutomationState(): PersistedAutomationStateV3 {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     activeOccurrences: {},
     manualOverrides: {},
     vehicleRules: {},
     currentByFixture: {},
     baseBrightnessByFixture: {},
     lastDesiredByFixture: {},
+    unverifiedDesiredByFixture: {},
     transitionsByFixture: {},
     telemetryGap: null
   };
 }
 
-export function parseAutomationState(value: unknown): PersistedAutomationStateV2 {
+export function parseAutomationState(value: unknown): PersistedAutomationStateV3 {
   if (hasExactKeys(value, [
     "schemaVersion",
     "activeOccurrences",
@@ -247,9 +249,15 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV2
     "baseBrightnessByFixture",
     "lastDesiredByFixture"
   ]) && value.schemaVersion === 1) {
-    return parseAutomationStateFields(value, {}, null);
+    return parseAutomationStateFields(
+      value,
+      {},
+      parseBrightnessRecord(value.lastDesiredByFixture),
+      {},
+      null
+    );
   }
-  if (!hasExactKeys(value, [
+  if (hasExactKeys(value, [
     "schemaVersion",
     "activeOccurrences",
     "manualOverrides",
@@ -259,27 +267,70 @@ export function parseAutomationState(value: unknown): PersistedAutomationStateV2
     "lastDesiredByFixture",
     "transitionsByFixture",
     "telemetryGap"
-  ]) || value.schemaVersion !== 2) throw new Error("invalid automation state");
+  ]) && value.schemaVersion === 2) {
+    const transitionsByFixture = parseRecord(value.transitionsByFixture, parseTransition);
+    const desired = migrateV2Desired(
+      parseBrightnessRecord(value.lastDesiredByFixture),
+      transitionsByFixture
+    );
+    return parseAutomationStateFields(
+      value,
+      desired.confirmed,
+      desired.unverified,
+      transitionsByFixture,
+      parseTelemetryGap(value.telemetryGap)
+    );
+  }
+  if (!hasExactKeys(value, [
+    "schemaVersion",
+    "activeOccurrences",
+    "manualOverrides",
+    "vehicleRules",
+    "currentByFixture",
+    "baseBrightnessByFixture",
+    "lastDesiredByFixture",
+    "unverifiedDesiredByFixture",
+    "transitionsByFixture",
+    "telemetryGap"
+  ]) || value.schemaVersion !== 3) throw new Error("invalid automation state");
   return parseAutomationStateFields(
     value,
+    parseBrightnessRecord(value.lastDesiredByFixture),
+    parseBrightnessRecord(value.unverifiedDesiredByFixture),
     parseRecord(value.transitionsByFixture, parseTransition),
     parseTelemetryGap(value.telemetryGap)
   );
 }
 
+function migrateV2Desired(
+  lastDesiredByFixture: Record<string, number>,
+  transitionsByFixture: Record<string, PersistedAutomationTransitionState>
+) {
+  const confirmed: Record<string, number> = {};
+  const unverified: Record<string, number> = {};
+  for (const [fixtureId, brightness] of Object.entries(lastDesiredByFixture)) {
+    if (transitionsByFixture[fixtureId]) confirmed[fixtureId] = brightness;
+    else unverified[fixtureId] = brightness;
+  }
+  return { confirmed, unverified };
+}
+
 function parseAutomationStateFields(
   value: Record<string, unknown>,
+  lastDesiredByFixture: Record<string, number>,
+  unverifiedDesiredByFixture: Record<string, number>,
   transitionsByFixture: Record<string, PersistedAutomationTransitionState>,
   telemetryGap: PersistedAutomationTelemetryGap | null
-): PersistedAutomationStateV2 {
+): PersistedAutomationStateV3 {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
     manualOverrides: parseRecord(value.manualOverrides, parseManualOverride),
     vehicleRules: parseRecord(value.vehicleRules, parseVehicleRule),
     currentByFixture: parseBrightnessRecord(value.currentByFixture),
     baseBrightnessByFixture: parseBrightnessRecord(value.baseBrightnessByFixture),
-    lastDesiredByFixture: parseBrightnessRecord(value.lastDesiredByFixture),
+    lastDesiredByFixture,
+    unverifiedDesiredByFixture,
     transitionsByFixture,
     telemetryGap
   };
