@@ -33,7 +33,12 @@ bool vehicle_sensor_process_level(
     uint64_t monotonic_us,
     vehicle_sensor_event_t *event);
 uint64_t vehicle_sensor_elapsed_us(uint64_t newer, uint64_t older);
-bool vehicle_sensor_gpio_is_safe(int gpio, int pwm_gpio, int factory_reset_gpio);
+bool vehicle_sensor_gpio_is_safe(
+    int gpio,
+    int pwm_gpio,
+    int factory_reset_gpio,
+    int console_tx_gpio,
+    int console_rx_gpio);
 void vehicle_sensor_record_dropped_edge(vehicle_sensor_state_t *state);
 uint32_t vehicle_sensor_dropped_edge_count(const vehicle_sensor_state_t *state);
 
@@ -43,7 +48,7 @@ uint32_t vehicle_sensor_dropped_edge_count(const vehicle_sensor_state_t *state);
 typedef void (*vehicle_sensor_event_handler_t)(const vehicle_sensor_event_t *event, void *context);
 
 esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, void *context);
-void vehicle_sensor_driver_stop(void);
+esp_err_t vehicle_sensor_driver_stop(void);
 bool vehicle_sensor_driver_get_current_level(bool *level);
 uint32_t vehicle_sensor_driver_dropped_edge_count(void);
 #endif

@@ -1060,7 +1060,20 @@ git add apps/esp32-h2-firmware/main apps/esp32-h2-firmware/test/native/test_vehi
 git commit -m "feat(firmware): add microwave sensor GPIO driver"
 ```
 
-검증: native driver state/pin/counter test와 production/test build-gate test를 통과했다. ESP-IDF v5.5.1 `esp32h2` test-build binary는 `0xe6370` 바이트이고 app partition `0x19c90` 바이트가 남는다. 실제 센서 전압/noise/ESD, queue overflow, Raspberry Pi RF와 HIL은 미실행이며 reserved `0xFFFF` test binary는 flash 금지다.
+검증: native driver state/pin/counter test와 production/test build-gate test를 통과했다. 최초 ESP-IDF v5.5.1 `esp32h2` test-build binary는 `0xe6370` 바이트이고 1 MiB app partition `0x19c90` 바이트가 남았다. Review에서 IRAM, boot ordering, overflow resync, Company ID trust, UART0 pin, lifecycle, 실제 driver test와 OTA margin P1 4/P2 4가 발견되어 아래 Fix Round 1을 수행했다.
+
+#### Task 15 Fix Round 1
+
+- [x] `CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y`와 build linker-map audit로 ISR, GPIO level, timer, queue-send symbol이 IRAM/ROM이 아니면 실패한다.
+- [x] interrupt-disabled boot enqueue 뒤 critical enable/reconcile로 producer 순서를 고정하고 start current를 초기화한다. Start 이전에 끝난 짧은 pulse는 범위 밖이다.
+- [x] queue full ISR은 dropped counter와 atomic resync-needed만 세우고 task가 drain 뒤 authoritative GPIO를 읽으며 경합한 최신 queue edge까지 반복 처리한다.
+- [x] signed manufacturing approval exact CID와 trusted key fingerprint 없이는 production build를 거부하고 artifact hash manifest를 build/flash에 연결한다. Test image는 side-effect 전 runtime fail-stop한다.
+- [x] 기본 UART0 console의 GPIO23/24와 custom UART console의 configured TX/RX GPIO를 compile/runtime에서 거부하고 기존 PWM/reset/strapping/flash/package/USB guard를 유지한다.
+- [x] callback self-stop을 `ESP_ERR_INVALID_STATE`로 거부하고 외부 stop의 완전 cleanup, failure cleanup과 반복 start/stop을 검증한다.
+- [x] 실제 production driver를 `ESP_PLATFORM`으로 컴파일한 host fake에서 boot/ISR/queue overflow/resync/lifecycle을 실행하고 map section audit를 자동화한다.
+- [x] 4 MiB flash를 custom `0x1f0000` two-OTA slot으로 바꾸고 production free margin을 `max(slot * 20%, 256 KiB)`로 강제한다.
+
+Fix Round 1 clean test-build는 binary `0xe64f0`(`943,344`) 바이트, app slot `0x1f0000`(`2,031,616`) 바이트, free `0x109b10`(`1,088,272`, 약 54%)이며 현재 production 최소 free gate는 `406,324` 바이트다. Software debounce/timing filter는 추가하지 않았다. 실제 센서 전압/noise/ESD, cache-disabled edge, raw flash 동작, Raspberry Pi RF와 HIL은 미실행이다.
 
 ### Task 16: ESP32-H2 Sensor Server와 reliable vendor event
 

@@ -75,13 +75,18 @@ static void test_gpio_allowlist_and_owned_pin_conflicts(void) {
   };
 
   for (int gpio = 0; gpio < 28; gpio += 1) {
-    assert(vehicle_sensor_gpio_is_safe(gpio, 8, 9) == expected_safe[gpio]);
+    assert(vehicle_sensor_gpio_is_safe(gpio, 8, 9, -1, -1) == expected_safe[gpio]);
   }
 
-  assert(!vehicle_sensor_gpio_is_safe(-1, 8, 9));
-  assert(!vehicle_sensor_gpio_is_safe(28, 8, 9));
-  assert(!vehicle_sensor_gpio_is_safe(4, 4, 9));
-  assert(!vehicle_sensor_gpio_is_safe(4, 8, 4));
+  assert(!vehicle_sensor_gpio_is_safe(-1, 8, 9, -1, -1));
+  assert(!vehicle_sensor_gpio_is_safe(28, 8, 9, -1, -1));
+  assert(!vehicle_sensor_gpio_is_safe(4, 4, 9, -1, -1));
+  assert(!vehicle_sensor_gpio_is_safe(4, 8, 4, -1, -1));
+  assert(!vehicle_sensor_gpio_is_safe(23, 8, 9, 24, 23));
+  assert(!vehicle_sensor_gpio_is_safe(24, 8, 9, 24, 23));
+  assert(!vehicle_sensor_gpio_is_safe(22, 8, 9, 22, 23));
+  assert(vehicle_sensor_gpio_is_safe(23, 8, 9, -1, -1));
+  assert(vehicle_sensor_gpio_is_safe(24, 8, 9, -1, -1));
 }
 
 int main(void) {

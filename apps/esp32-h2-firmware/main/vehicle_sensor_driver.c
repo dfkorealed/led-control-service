@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 _Static_assert(ATOMIC_INT_LOCK_FREE == 2, "vehicle sensor ISR counter must be lock-free");
+_Static_assert(ATOMIC_BOOL_LOCK_FREE == 2, "vehicle sensor ISR flags must be lock-free");
 _Static_assert(sizeof(vehicle_sensor_edge_t) <= 16, "vehicle sensor queue items must remain fixed and small");
 
 void vehicle_sensor_state_init(vehicle_sensor_state_t *state) {
@@ -36,8 +37,14 @@ uint64_t vehicle_sensor_elapsed_us(uint64_t newer, uint64_t older) {
   return newer - older;
 }
 
-bool vehicle_sensor_gpio_is_safe(int gpio, int pwm_gpio, int factory_reset_gpio) {
-  if (gpio == pwm_gpio || gpio == factory_reset_gpio) {
+bool vehicle_sensor_gpio_is_safe(
+    int gpio,
+    int pwm_gpio,
+    int factory_reset_gpio,
+    int console_tx_gpio,
+    int console_rx_gpio) {
+  if (gpio == pwm_gpio || gpio == factory_reset_gpio ||
+      gpio == console_tx_gpio || gpio == console_rx_gpio) {
     return false;
   }
 
@@ -97,8 +104,35 @@ uint32_t vehicle_sensor_dropped_edge_count(const vehicle_sensor_state_t *state) 
 #define VEHICLE_SENSOR_TASK_STACK_DEPTH 3072
 #define VEHICLE_SENSOR_TASK_PRIORITY 6
 
+#if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT)
+#define VEHICLE_SENSOR_CONSOLE_TX_GPIO 24
+#define VEHICLE_SENSOR_CONSOLE_RX_GPIO 23
+#elif defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
+#if CONFIG_ESP_CONSOLE_UART_TX_GPIO >= 0
+#define VEHICLE_SENSOR_CONSOLE_TX_GPIO CONFIG_ESP_CONSOLE_UART_TX_GPIO
+#elif CONFIG_ESP_CONSOLE_UART_NUM == 0
+#define VEHICLE_SENSOR_CONSOLE_TX_GPIO 24
+#else
+#define VEHICLE_SENSOR_CONSOLE_TX_GPIO -1
+#endif
+#if CONFIG_ESP_CONSOLE_UART_RX_GPIO >= 0
+#define VEHICLE_SENSOR_CONSOLE_RX_GPIO CONFIG_ESP_CONSOLE_UART_RX_GPIO
+#elif CONFIG_ESP_CONSOLE_UART_NUM == 0
+#define VEHICLE_SENSOR_CONSOLE_RX_GPIO 23
+#else
+#define VEHICLE_SENSOR_CONSOLE_RX_GPIO -1
+#endif
+#else
+#define VEHICLE_SENSOR_CONSOLE_TX_GPIO -1
+#define VEHICLE_SENSOR_CONSOLE_RX_GPIO -1
+#endif
+
 #if !SOC_GPIO_SUPPORT_PIN_HYS_FILTER
 #error "ESP32-H2 hardware GPIO hysteresis is required"
+#endif
+
+#if !defined(CONFIG_GPIO_CTRL_FUNC_IN_IRAM) || !CONFIG_GPIO_CTRL_FUNC_IN_IRAM
+#error "CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y is required for the vehicle sensor ISR"
 #endif
 
 #if CONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO < 0 || CONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO > 27 || \
@@ -119,6 +153,17 @@ uint32_t vehicle_sensor_dropped_edge_count(const vehicle_sensor_state_t *state) 
 #error "Vehicle sensor GPIO must not conflict with the factory reset GPIO"
 #endif
 
+#if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) && \
+    (CONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO == 23 || CONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO == 24)
+#error "Vehicle sensor GPIO must not conflict with UART0 console GPIO23/GPIO24"
+#endif
+
+#if defined(CONFIG_ESP_CONSOLE_UART_CUSTOM) && \
+    (CONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO == VEHICLE_SENSOR_CONSOLE_TX_GPIO || \
+     CONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO == VEHICLE_SENSOR_CONSOLE_RX_GPIO)
+#error "Vehicle sensor GPIO must not conflict with configured console GPIO"
+#endif
+
 typedef struct {
   vehicle_sensor_state_t state;
   vehicle_sensor_event_handler_t handler;
@@ -130,6 +175,7 @@ typedef struct {
   bool handler_registered;
   _Atomic bool current_level_valid;
   _Atomic bool current_level;
+  _Atomic bool resync_needed;
 } vehicle_sensor_driver_t;
 
 static vehicle_sensor_driver_t driver;
@@ -137,15 +183,19 @@ static StaticQueue_t edge_queue_storage;
 static uint8_t edge_queue_buffer[VEHICLE_SENSOR_QUEUE_LENGTH * sizeof(vehicle_sensor_edge_t)];
 static StaticTask_t sensor_task_storage;
 static StackType_t sensor_task_stack[VEHICLE_SENSOR_TASK_STACK_DEPTH];
+static portMUX_TYPE startup_mux = portMUX_INITIALIZER_UNLOCKED;
 
-static void IRAM_ATTR vehicle_sensor_gpio_isr(void *argument) {
+void IRAM_ATTR vehicle_sensor_gpio_isr(void *argument) {
   vehicle_sensor_driver_t *sensor = argument;
   vehicle_sensor_edge_t edge = {
       .level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0,
       .monotonic_us = (uint64_t)esp_timer_get_time(),
   };
 
-  if (xQueueSendFromISR(sensor->queue, &edge, NULL) != pdTRUE) {
+  if (xQueueSendFromISR(sensor->queue, &edge, NULL) == pdTRUE) {
+    atomic_store_explicit(&sensor->current_level, edge.level, memory_order_relaxed);
+    atomic_store_explicit(&sensor->current_level_valid, true, memory_order_release);
+  } else {
     uint32_t dropped = atomic_load_explicit(&sensor->state.dropped_edges, memory_order_relaxed);
     while (dropped != UINT32_MAX &&
            !atomic_compare_exchange_weak_explicit(
@@ -155,6 +205,18 @@ static void IRAM_ATTR vehicle_sensor_gpio_isr(void *argument) {
                memory_order_relaxed,
                memory_order_relaxed)) {
     }
+    atomic_store_explicit(&sensor->resync_needed, true, memory_order_release);
+  }
+}
+
+static void vehicle_sensor_publish_edge(
+    vehicle_sensor_driver_t *sensor,
+    const vehicle_sensor_edge_t *edge) {
+  vehicle_sensor_event_t event;
+  atomic_store_explicit(&sensor->current_level, edge->level, memory_order_relaxed);
+  atomic_store_explicit(&sensor->current_level_valid, true, memory_order_release);
+  if (vehicle_sensor_process_level(&sensor->state, edge->level, edge->monotonic_us, &event)) {
+    sensor->handler(&event, sensor->handler_context);
   }
 }
 
@@ -162,14 +224,25 @@ static void vehicle_sensor_task(void *argument) {
   vehicle_sensor_driver_t *sensor = argument;
   vehicle_sensor_edge_t edge;
 
-  while (xQueueReceive(sensor->queue, &edge, portMAX_DELAY) == pdTRUE) {
-    vehicle_sensor_event_t event;
-    if (!vehicle_sensor_process_level(&sensor->state, edge.level, edge.monotonic_us, &event)) {
-      continue;
+  for (;;) {
+    if (xQueueReceive(sensor->queue, &edge, portMAX_DELAY) != pdTRUE) {
+      return;
     }
-    atomic_store_explicit(&sensor->current_level, event.level, memory_order_relaxed);
-    atomic_store_explicit(&sensor->current_level_valid, true, memory_order_release);
-    sensor->handler(&event, sensor->handler_context);
+
+    for (;;) {
+      vehicle_sensor_publish_edge(sensor, &edge);
+      while (xQueueReceive(sensor->queue, &edge, 0) == pdTRUE) {
+        vehicle_sensor_publish_edge(sensor, &edge);
+      }
+
+      if (!atomic_exchange_explicit(&sensor->resync_needed, false, memory_order_acq_rel)) {
+        break;
+      }
+
+      // A dropped edge makes GPIO authoritative. The next loop drains any ISR edge that raced this read.
+      edge.level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0;
+      edge.monotonic_us = (uint64_t)esp_timer_get_time();
+    }
   }
 }
 
@@ -200,6 +273,7 @@ static void vehicle_sensor_driver_cleanup(void) {
   driver.handler = NULL;
   driver.handler_context = NULL;
   atomic_store_explicit(&driver.current_level_valid, false, memory_order_release);
+  atomic_store_explicit(&driver.resync_needed, false, memory_order_release);
 }
 
 esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, void *context) {
@@ -212,7 +286,9 @@ esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, vo
   if (!vehicle_sensor_gpio_is_safe(
           CONFIG_LED_CONTROL_VEHICLE_SENSOR_GPIO,
           CONFIG_LED_CONTROL_PWM_GPIO,
-          CONFIG_LED_CONTROL_FACTORY_RESET_GPIO)) {
+          CONFIG_LED_CONTROL_FACTORY_RESET_GPIO,
+          VEHICLE_SENSOR_CONSOLE_TX_GPIO,
+          VEHICLE_SENSOR_CONSOLE_RX_GPIO)) {
     return ESP_ERR_INVALID_ARG;
   }
 
@@ -221,6 +297,7 @@ esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, vo
   driver.handler_context = context;
   atomic_init(&driver.current_level_valid, false);
   atomic_init(&driver.current_level, false);
+  atomic_init(&driver.resync_needed, false);
   driver.queue = xQueueCreateStatic(
       VEHICLE_SENSOR_QUEUE_LENGTH,
       sizeof(vehicle_sensor_edge_t),
@@ -260,6 +337,11 @@ esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, vo
   }
   driver.handler_registered = true;
 
+  error = gpio_set_intr_type(VEHICLE_SENSOR_GPIO, GPIO_INTR_ANYEDGE);
+  if (error != ESP_OK) {
+    goto fail;
+  }
+
   vehicle_sensor_edge_t boot_edge = {
       .level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0,
       .monotonic_us = (uint64_t)esp_timer_get_time(),
@@ -268,22 +350,25 @@ esp_err_t vehicle_sensor_driver_start(vehicle_sensor_event_handler_t handler, vo
     vehicle_sensor_driver_cleanup();
     return ESP_ERR_NO_MEM;
   }
+  atomic_store_explicit(&driver.current_level, boot_edge.level, memory_order_relaxed);
+  atomic_store_explicit(&driver.current_level_valid, true, memory_order_release);
 
-  error = gpio_set_intr_type(VEHICLE_SENSOR_GPIO, GPIO_INTR_ANYEDGE);
-  if (error != ESP_OK) {
-    goto fail;
-  }
+  portENTER_CRITICAL(&startup_mux);
   error = gpio_intr_enable(VEHICLE_SENSOR_GPIO);
-  if (error != ESP_OK) {
-    goto fail;
+  if (error == ESP_OK) {
+    const vehicle_sensor_edge_t reconciled_edge = {
+        .level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0,
+        .monotonic_us = (uint64_t)esp_timer_get_time(),
+    };
+    if (xQueueSend(driver.queue, &reconciled_edge, 0) != pdTRUE) {
+      error = ESP_ERR_NO_MEM;
+    } else {
+      atomic_store_explicit(&driver.current_level, reconciled_edge.level, memory_order_relaxed);
+      atomic_store_explicit(&driver.current_level_valid, true, memory_order_release);
+    }
   }
-
-  vehicle_sensor_edge_t reconciled_edge = {
-      .level = gpio_get_level(VEHICLE_SENSOR_GPIO) != 0,
-      .monotonic_us = (uint64_t)esp_timer_get_time(),
-  };
-  if (xQueueSend(driver.queue, &reconciled_edge, 0) != pdTRUE) {
-    error = ESP_ERR_NO_MEM;
+  portEXIT_CRITICAL(&startup_mux);
+  if (error != ESP_OK) {
     goto fail;
   }
 
@@ -306,10 +391,15 @@ fail:
   return error;
 }
 
-void vehicle_sensor_driver_stop(void) {
-  if (driver.queue != NULL) {
-    vehicle_sensor_driver_cleanup();
+esp_err_t vehicle_sensor_driver_stop(void) {
+  if (driver.queue == NULL) {
+    return ESP_OK;
   }
+  if (driver.task != NULL && xTaskGetCurrentTaskHandle() == driver.task) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  vehicle_sensor_driver_cleanup();
+  return ESP_OK;
 }
 
 bool vehicle_sensor_driver_get_current_level(bool *level) {

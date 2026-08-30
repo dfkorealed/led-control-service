@@ -45,6 +45,7 @@ config LED_CONTROL_VEHICLE_SENSOR_GPIO
     help
         안전 후보는 GPIO 0, 1, 4, 5, 10~14, 22~24다. PWM과 factory reset,
         strapping, flash, package 전용 및 USB-Serial-JTAG pin 충돌은 compile 시 거부한다.
+        기본 UART0 console의 RX GPIO23/TX GPIO24와 custom console GPIO도 제외한다.
 
 config LED_CONTROL_FACTORY_RESET_HOLD_MS
     int "Factory reset hold duration (ms)"

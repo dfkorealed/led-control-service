@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-31 / ISR symbol 이름 확인과 IRAM 안전은 같은 검증이 아니다
+- **발생했던 문제/실수**: ISR object disassembly에서 허용한 외부 symbol 세 개만 보인다는 사실로 cache-disabled 안전까지 통과했다고 기록했지만 `gpio_get_level`은 flash text에 링크되어 있었다. Build metadata와 분리된 editable `sdkconfig`만으로 test flash를 막아 binary 자체의 mode/CID도 증명하지 못했다.
+- **원인**: 호출 집합 검증과 최종 linked address/section 검증을 같은 것으로 취급했고, compile 성공과 wrapper 입력을 artifact provenance로 확대 해석했다.
+- **해결 및 예방책**: GPIO control IRAM 옵션을 defaults와 compile guard에 고정하고 build가 linker map에서 ISR과 모든 외부 호출의 IRAM/ROM 주소를 검사한다. Binary, sdkconfig, map, generated flash args, partition, mode/CID와 signed manufacturing approval hash를 artifact manifest에 결속하고 flash 전에 재검증한다. Test image는 metadata 우회와 무관하게 app 첫 분기에서 side-effect 없이 fail-stop한다.
+- **반복 방지 체크**: ISR 변경 시 symbol 이름뿐 아니라 linked address를 failure fixture와 clean target map 양쪽에서 확인한다. Production artifact는 exact CID signed approval와 release OTA margin을 통과해야 하며 실제 key/manifest가 없을 때 임의 숫자로 성공시키지 않는다.
+
 ## 2026-08-30 / Telemetry gap aggregate와 replay receipt를 함께 bounded하게 유지하기
 - **발생했던 문제/실수**: Fixed journal reimport를 accepted aggregate baseline으로 고쳐 exact count는 맞췄지만, journal clear가 계속 실패하는 동안 교체된 일반 source receipt를 outbox `acceptedHandoffs`에서 제거하지 않았다. Journal metadata와 inode는 8 KiB로 고정돼도 source 100회 교체 뒤 regular outbox에는 aggregate 1개와 source receipt 100개가 남아 strict 64 MiB 예산을 계속 소비했다.
 - **원인**: Source receipt를 uncleared state replay 방지용 identity와 aggregate count 계산용 metadata로 분리한 뒤에도 stale 정리를 coordinator의 journal clear 이후 reconciliation에만 맡겼다. Clear 예외가 그 경로를 매번 차단하므로, fixed journal의 O(1)만 검사한 테스트는 regular outbox의 O(n)을 보지 못했다.
