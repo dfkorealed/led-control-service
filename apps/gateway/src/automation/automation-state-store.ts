@@ -90,6 +90,17 @@ export interface AutomationStateMutationResult {
   durability: AutomationStateDurabilityOutcome;
 }
 
+export interface RetainedAutomationTelemetryGap {
+  revision: number;
+  gap: PersistedAutomationTelemetryGap;
+}
+
+export interface AutomationTelemetryGapAcceptanceResult extends RetainedAutomationTelemetryGap {
+  accepted: boolean;
+  acceptance: "state" | "journal" | "memory_retry";
+  error?: unknown;
+}
+
 export class AutomationStateStoreError extends Error {
   constructor(
     readonly code: "automation_state_corrupt" | "automation_state_unavailable" | "automation_state_store_failed",
@@ -114,6 +125,9 @@ export class FileAutomationStateStore {
   private available = false;
   private initialization: Promise<PersistedAutomationStateV4> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
+  private telemetryGapQueue: Promise<unknown> = Promise.resolve();
+  // One cumulative source bounds memory while preserving every not-yet-accepted drop.
+  private retainedGap: RetainedAutomationTelemetryGap | null = null;
   private durabilityState: { mode: "ready" | "degraded"; reason: string | null } = {
     mode: "ready",
     reason: null
@@ -170,7 +184,8 @@ export class FileAutomationStateStore {
     return this.exclusive(async () => {
       const previous = this.read();
       const next = parseAutomationState(mutation(structuredClone(previous)));
-      if (isDeepStrictEqual(previous, next) && this.durabilityState.mode === "ready") {
+      if (isDeepStrictEqual(previous, next) && this.durabilityState.mode === "ready" &&
+        (!this.retainedGap || isDeepStrictEqual(previous.telemetryGap, this.retainedGap.gap))) {
         return { state: previous, durability: "durable" as const };
       }
 
@@ -190,39 +205,56 @@ export class FileAutomationStateStore {
 
       this.state = next;
       this.available = true;
-      this.setDurability("ready", null);
+      if (this.retainedGap && !isDeepStrictEqual(next.telemetryGap, this.retainedGap.gap)) {
+        this.setDurability("degraded", "telemetry_gap_retry_pending");
+      } else {
+        this.setDurability("ready", null);
+      }
       return { state: structuredClone(next), durability: "durable" as const };
     });
   }
 
-  recordTelemetryGap(firstDroppedAt: string, droppedCount: number, lastDroppedAt = firstDroppedAt) {
+  recordTelemetryGap(
+    firstDroppedAt: string,
+    droppedCount: number,
+    lastDroppedAt = firstDroppedAt,
+    revision: number | null = 0
+  ) {
     const firstTimestamp = parseTimestamp(firstDroppedAt);
     const lastTimestamp = parseTimestamp(lastDroppedAt);
     if (Date.parse(firstTimestamp) > Date.parse(lastTimestamp)) throw new Error("invalid telemetry gap interval");
     if (!Number.isSafeInteger(droppedCount) || droppedCount <= 0) {
       throw new Error("invalid telemetry gap count");
     }
-    return this.updateDurable((state) => {
-      const current = state.telemetryGap;
-      state.telemetryGap = current ? {
-        handoffId: current.handoffId,
-        provenance: current.provenance,
-        firstDroppedAt: Date.parse(firstTimestamp) < Date.parse(current.firstDroppedAt)
-          ? firstTimestamp
-          : current.firstDroppedAt,
-        lastDroppedAt: Date.parse(lastTimestamp) > Date.parse(current.lastDroppedAt)
-          ? lastTimestamp
-          : current.lastDroppedAt,
-        droppedCount: Math.min(Number.MAX_SAFE_INTEGER, current.droppedCount + droppedCount)
-      } : {
-        handoffId: this.createHandoffId(),
-        provenance: "fixture_state_outbox",
-        firstDroppedAt: firstTimestamp,
-        lastDroppedAt: lastTimestamp,
-        droppedCount
+    const normalizedRevision = parseGapRevision(revision);
+    return this.exclusiveTelemetryGap(async () => {
+      await this.initialize();
+      const base = this.retainedGap?.gap ?? this.read().telemetryGap;
+      this.retainedGap = {
+        revision: this.retainedGap
+          ? Math.max(this.retainedGap.revision, normalizedRevision)
+          : normalizedRevision,
+        gap: mergeTelemetryGap(
+          base,
+          firstTimestamp,
+          droppedCount,
+          lastTimestamp,
+          this.createHandoffId
+        )
       };
-      return state;
+      return this.acceptRetainedTelemetryGap();
     });
+  }
+
+  retryRetainedTelemetryGap() {
+    return this.exclusiveTelemetryGap(async () => {
+      if (!this.retainedGap) return null;
+      return this.acceptRetainedTelemetryGap();
+    });
+  }
+
+  retainedTelemetryGap(): RetainedAutomationTelemetryGap | null {
+    return structuredClone(this.retainedGap);
   }
 
   createTelemetryHandoff(records: AutomationTelemetryRecordInput[]) {
@@ -252,6 +284,63 @@ export class FileAutomationStateStore {
       return state;
     });
     return { cleared, durability: result.durability };
+  }
+
+  private async acceptRetainedTelemetryGap(): Promise<AutomationTelemetryGapAcceptanceResult> {
+    const retained = structuredClone(this.retainedGap!);
+    try {
+      await this.updateDurable((state) => {
+        if (state.telemetryGap && state.telemetryGap.handoffId !== retained.gap.handoffId) {
+          throw new Error("automation telemetry gap identity conflict");
+        }
+        state.telemetryGap = structuredClone(retained.gap);
+        return state;
+      });
+      this.retainedGap = null;
+      this.setDurability("ready", null);
+      return { ...retained, accepted: true, acceptance: "state" };
+    } catch (stateError) {
+      if (stateError instanceof AutomationStateCommitUncertainError) {
+        this.setDurability("degraded", stateError.code);
+        return { ...retained, accepted: false, acceptance: "memory_retry", error: stateError };
+      }
+      if (!(stateError instanceof AutomationStateStoreError)) throw stateError;
+      if (!isEnospc(stateError.cause)) {
+        this.setDurability("degraded", "telemetry_gap_retry_pending");
+        return { ...retained, accepted: false, acceptance: "memory_retry", error: stateError };
+      }
+      this.setDurability("degraded", "ENOSPC");
+      try {
+        if (!this.options.gapJournal) {
+          throw new Error("automation telemetry gap journal is unavailable");
+        }
+        await this.options.gapJournal.record({
+          handoffId: retained.gap.handoffId,
+          recordsHash: automationTelemetryGapRecordsHash(retained.revision, retained.gap),
+          provenance: retained.gap.provenance,
+          revision: retained.revision,
+          firstDroppedAt: retained.gap.firstDroppedAt,
+          lastDroppedAt: retained.gap.lastDroppedAt,
+          droppedCount: retained.gap.droppedCount
+        });
+        // The journal is the durable acceptance proof. Mirror its cumulative source
+        // in process memory so later drops do not restart from stale on-disk state.
+        const memoryState = this.read();
+        memoryState.telemetryGap = structuredClone(retained.gap);
+        this.state = memoryState;
+        this.available = true;
+        this.retainedGap = null;
+        return { ...retained, accepted: true, acceptance: "journal", error: stateError };
+      } catch (journalError) {
+        const error = new AggregateError(
+          [stateError, journalError],
+          "automation telemetry gap acceptance pending"
+        );
+        this.options.onGapJournalError?.(journalError);
+        this.setDurability("degraded", "telemetry_gap_retry_pending");
+        return { ...retained, accepted: false, acceptance: "memory_retry", error };
+      }
+    }
   }
 
   private async restore(): Promise<PersistedAutomationStateV4> {
@@ -411,6 +500,54 @@ export class FileAutomationStateStore {
     this.queue = result.then(() => undefined, () => undefined);
     return result;
   }
+
+  private exclusiveTelemetryGap<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.telemetryGapQueue.then(operation, operation);
+    this.telemetryGapQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+}
+
+export function automationTelemetryGapRecordsHash(
+  revision: number,
+  gap: PersistedAutomationTelemetryGap
+) {
+  return `sha256:${createHash("sha256").update(JSON.stringify({ revision, ...gap })).digest("hex")}` as const;
+}
+
+function mergeTelemetryGap(
+  current: PersistedAutomationTelemetryGap | null,
+  firstDroppedAt: string,
+  droppedCount: number,
+  lastDroppedAt: string,
+  createHandoffId: () => string
+): PersistedAutomationTelemetryGap {
+  if (!current) {
+    return {
+      handoffId: createHandoffId(),
+      provenance: "fixture_state_outbox",
+      firstDroppedAt,
+      lastDroppedAt,
+      droppedCount
+    };
+  }
+  return {
+    handoffId: current.handoffId,
+    provenance: current.provenance,
+    firstDroppedAt: Date.parse(firstDroppedAt) < Date.parse(current.firstDroppedAt)
+      ? firstDroppedAt
+      : current.firstDroppedAt,
+    lastDroppedAt: Date.parse(lastDroppedAt) > Date.parse(current.lastDroppedAt)
+      ? lastDroppedAt
+      : current.lastDroppedAt,
+    droppedCount: Math.min(Number.MAX_SAFE_INTEGER, current.droppedCount + droppedCount)
+  };
+}
+
+function parseGapRevision(value: number | null) {
+  const revision = value ?? 0;
+  if (!Number.isSafeInteger(revision) || revision < 0) throw new Error("invalid telemetry gap revision");
+  return revision;
 }
 
 function handoffIdentity(handoff: PersistedAutomationTelemetryHandoff) {

@@ -119,3 +119,36 @@ Commit: self (`fix(gateway): require durable telemetry cleanup`)
 
 - Raspberry Pi filesystem exhaustion, sudden power loss and flash wear remain unmeasured on hardware; automated tests use real temp files with injected `ENOSPC`, rename/fsync uncertainty and restart boundaries.
 - ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 3.
+
+## Fix Round 4
+
+Status: DONE_WITH_CONCERNS
+
+Commit: self (`fix(gateway): retain initial telemetry gaps`)
+
+### Delivered
+
+- Made first-gap creation a telemetry acceptance boundary. The state store fixes the cumulative gap identity/count before writing state; a definite state `ENOSPC` writes that exact source to the preallocated fixed journal and reports success only after journal `fsync` succeeds.
+- Retained state+journal failures as one bounded in-memory cumulative source instead of an unbounded event list. New drops merge their first/last timestamps and count into the same identity, set `automation_state_durability_degraded`, and return control so local RF continues while coordinator retry uses the existing 1-second to 30-second backoff.
+- Mirrored a journal-accepted source into process state so later full-disk drops continue from the accepted cumulative count rather than stale disk state. The fixed journal now keeps one dedicated cumulative source receipt in addition to the last general source receipt, preventing interleaved handoffs from inflating an older state replay.
+- Imported both bounded journal receipts into the outbox, treated lower cumulative state replay as an idempotent no-op, and retained clear-before-release ordering. Restart and repeated recovery converge on one `telemetry_gap` event/count while exact execution event ID, sequence, hash and application-ACK behavior remain unchanged.
+- Preserved `AtomicJsonCommitUncertainError` taxonomy: an `ENOSPC` nested inside commit uncertainty is retained for retry and is never reclassified as fixed-journal acceptance. A retry that first creates outbox work wakes the production publisher, and a transient outbox recovery failure re-arms the bounded backoff instead of abandoning the journal source.
+
+### TDD Evidence
+
+- Verified RED failures before implementation for first state-gap write `ENOSPC`, state+journal dual failure, cumulative post-fallback drops, restart with stale state, interleaved journal source replay, commit uncertainty, retry publisher wake and transient outbox recovery retry continuity.
+- GREEN coverage uses real temp state/outbox/journal files with injected state and journal faults. It asserts stable identity, exact counts, one bounded retained source, explicit degraded health, no duplicate event after restart and exact-once cumulative outbox merge.
+
+### Verification
+
+- Gateway Task 13 focused regression: 8 files, 161/161 tests passed.
+- Gateway full regression: 56 files, 488/488 tests passed.
+- Shared full regression: 7 files, 74/74 tests passed.
+- Docker contract suite: 17/17 tests passed.
+- Required Docker/mTLS Mosquitto integration: 2/2 tests passed.
+- Shared and Gateway typecheck, lint and production build passed; `git diff --check` passed.
+
+### Remaining Concerns
+
+- Raspberry Pi filesystem exhaustion, sudden power loss, fixed-block durability and flash wear remain unmeasured on hardware; automated tests inject `ENOSPC`, journal I/O failure, commit uncertainty, restart and interleaving against local files.
+- ESP32-H2 Sensor Client/vendor event input and Raspberry Pi/BlueZ RF HIL remain outside Task 13 fix round 4.

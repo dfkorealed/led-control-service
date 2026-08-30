@@ -2,11 +2,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { writeJsonAtomic } from "../mesh/mesh-store-file";
+import { AtomicJsonCommitUncertainError, writeJsonAtomic } from "../mesh/mesh-store-file";
 import { StorageHeadroomManager } from "../storage/storage-headroom-manager";
 import { FileAutomationStateStore } from "./automation-state-store";
 import { AutomationTelemetryCoordinator } from "./automation-telemetry-coordinator";
-import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journal";
+import {
+  AutomationTelemetryGapJournal,
+  type AutomationTelemetryGapJournalLike
+} from "./automation-telemetry-gap-journal";
 import { AutomationTelemetryOutbox } from "./automation-telemetry-outbox";
 import { createAutomationTelemetryHandoff } from "./automation-telemetry-handoff";
 import { automationScope, automationSnapshot } from "./automation-test-fixtures";
@@ -15,12 +18,282 @@ import { ScheduleRuntime } from "./schedule-runtime";
 const directories: string[] = [];
 const fixtureId = "00000000-0000-4000-8000-000000000101";
 const scheduleId = "00000000-0000-4000-8000-000000000103";
+const gapSourceHandoffId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
 describe("AutomationTelemetryCoordinator", () => {
+  it("accepts the first state ENOSPC gap in the fixed journal with its exact identity and count", async () => {
+    const test = await gapAcceptanceFixture();
+    test.setStateDiskFull(true);
+
+    await expect(test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:00:00.000Z",
+      3,
+      "2026-08-30T01:00:02.000Z"
+    )).resolves.toBe(true);
+
+    expect(test.stateStore.read().telemetryGap).toMatchObject({
+      handoffId: gapSourceHandoffId,
+      droppedCount: 3
+    });
+    expect(test.stateStore.retainedTelemetryGap()).toBeNull();
+    await expect(test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:00:03.000Z",
+      2,
+      "2026-08-30T01:00:04.000Z"
+    )).resolves.toBe(true);
+
+    expect(test.stateStore.read().telemetryGap).toMatchObject({
+      handoffId: gapSourceHandoffId,
+      droppedCount: 5
+    });
+    const accepted = await test.journal.read();
+    expect(accepted).toMatchObject({
+      revision: 7,
+      firstDroppedAt: "2026-08-30T01:00:00.000Z",
+      lastDroppedAt: "2026-08-30T01:00:04.000Z",
+      droppedCount: 5,
+      lastSourceHandoffId: gapSourceHandoffId,
+      lastSourceDroppedCount: 5,
+      provenance: "fixture_state_outbox"
+    });
+
+    const repeated = await test.journal.record({
+      handoffId: accepted!.lastSourceHandoffId,
+      recordsHash: accepted!.lastSourceRecordsHash,
+      provenance: accepted!.provenance,
+      revision: accepted!.revision,
+      firstDroppedAt: accepted!.firstDroppedAt,
+      lastDroppedAt: accepted!.lastDroppedAt,
+      droppedCount: accepted!.lastSourceDroppedCount
+    });
+    expect(repeated).toEqual(accepted);
+    expect(test.stateStore.durability()).toEqual({ mode: "degraded", reason: "ENOSPC" });
+  });
+
+  it("retains one cumulative retry source when state and journal fail, then merges it exactly once", async () => {
+    const test = await gapAcceptanceFixture();
+    test.setStateDiskFull(true);
+    test.setJournalFailure(true);
+
+    await expect(test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:01:00.000Z",
+      2,
+      "2026-08-30T01:01:01.000Z"
+    )).resolves.toBe(false);
+    await expect(test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:00:59.000Z",
+      3,
+      "2026-08-30T01:01:03.000Z"
+    )).resolves.toBe(false);
+
+    expect(test.stateStore.retainedTelemetryGap()).toEqual({
+      revision: 7,
+      gap: {
+        handoffId: gapSourceHandoffId,
+        provenance: "fixture_state_outbox",
+        firstDroppedAt: "2026-08-30T01:00:59.000Z",
+        lastDroppedAt: "2026-08-30T01:01:03.000Z",
+        droppedCount: 5
+      }
+    });
+    expect(test.stateStore.durability()).toEqual({
+      mode: "degraded",
+      reason: "telemetry_gap_retry_pending"
+    });
+    expect(test.retryDelays).toEqual([10]);
+
+    test.setJournalFailure(false);
+    await test.runRetry();
+
+    expect(test.stateStore.retainedTelemetryGap()).toBeNull();
+    const firstPending = await test.outbox.pending();
+    expect(firstPending).toHaveLength(1);
+    expect(firstPending[0]!.event).toMatchObject({
+      revision: 7,
+      kind: "telemetry_gap",
+      payload: {
+        firstDroppedAt: "2026-08-30T01:00:59.000Z",
+        lastDroppedAt: "2026-08-30T01:01:03.000Z",
+        droppedCount: 5
+      }
+    });
+    expect(test.retryChanges).toEqual([true]);
+
+    await test.coordinator.flush(7);
+    expect((await test.outbox.pending()).map(storedIdentity)).toEqual(firstPending.map(storedIdentity));
+    test.coordinator.stop();
+  });
+
+  it("keeps retrying a journal-accepted gap when outbox recovery fails transiently", async () => {
+    const test = await gapAcceptanceFixture();
+    test.setStateDiskFull(true);
+    await expect(test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:01:10.000Z",
+      3,
+      "2026-08-30T01:01:12.000Z"
+    )).resolves.toBe(true);
+
+    test.setOutboxDiskFull(true);
+    await test.runRetry();
+
+    expect(test.retryDelays).toEqual([10, 20]);
+    await expect(test.journal.read()).resolves.toMatchObject({
+      lastSourceHandoffId: gapSourceHandoffId,
+      lastSourceDroppedCount: 3,
+      droppedCount: 3
+    });
+
+    test.setOutboxDiskFull(false);
+    await test.runRetry();
+    expect((await test.outbox.pending())[0]?.event).toMatchObject({
+      kind: "telemetry_gap",
+      payload: { droppedCount: 3 }
+    });
+
+    test.setStateDiskFull(false);
+    await test.runRetry();
+    const pending = await test.outbox.pending();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.event.payload).toMatchObject({ droppedCount: 3 });
+    test.coordinator.stop();
+  });
+
+  it("retains commit-uncertain gap acceptance without reclassifying its ENOSPC cause as journal success", async () => {
+    const test = await gapAcceptanceFixture();
+    test.setStateCommitUncertain(true);
+
+    await expect(test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:01:30.000Z",
+      4,
+      "2026-08-30T01:01:33.000Z"
+    )).resolves.toBe(false);
+
+    await expect(test.journal.read()).resolves.toBeNull();
+    expect(test.stateStore.retainedTelemetryGap()).toMatchObject({
+      revision: 7,
+      gap: { handoffId: gapSourceHandoffId, droppedCount: 4 }
+    });
+    expect(test.stateStore.durability()).toEqual({
+      mode: "degraded",
+      reason: "automation_state_commit_uncertain"
+    });
+    expect(test.retryDelays).toEqual([10]);
+    test.coordinator.stop();
+  });
+
+  it("restarts from a newer cumulative journal fallback without replaying the older state count", async () => {
+    const test = await gapAcceptanceFixture();
+    await test.stateStore.recordTelemetryGap(
+      "2026-08-30T01:02:00.000Z",
+      2,
+      "2026-08-30T01:02:01.000Z",
+      7
+    );
+    const durableGap = test.stateStore.read().telemetryGap!;
+    test.setStateDiskFull(true);
+
+    await expect(test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:01:59.000Z",
+      3,
+      "2026-08-30T01:02:03.000Z"
+    )).resolves.toBe(true);
+    expect(test.stateStore.read().telemetryGap).toMatchObject({
+      handoffId: durableGap.handoffId,
+      droppedCount: 5
+    });
+    const diskBeforeRestart = new FileAutomationStateStore(test.statePath);
+    await expect(diskBeforeRestart.initialize()).resolves.toMatchObject({ telemetryGap: durableGap });
+    await expect(test.journal.read()).resolves.toMatchObject({
+      lastSourceHandoffId: durableGap.handoffId,
+      lastSourceDroppedCount: 5,
+      droppedCount: 5
+    });
+    await test.journal.record({
+      handoffId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      recordsHash: `sha256:${"c".repeat(64)}`,
+      provenance: "automation_state_storage",
+      revision: 7,
+      firstDroppedAt: "2026-08-30T01:02:01.000Z",
+      lastDroppedAt: "2026-08-30T01:02:01.000Z",
+      droppedCount: 2
+    });
+    test.coordinator.stop();
+
+    const restartedState = new FileAutomationStateStore(test.statePath);
+    const restartedOutbox = new AutomationTelemetryOutbox(
+      test.outboxPath,
+      automationScope,
+      { headroomBytes: 32_768 }
+    );
+    await restartedState.initialize();
+    await restartedOutbox.initialize();
+    const restartedCoordinator = new AutomationTelemetryCoordinator(restartedState, restartedOutbox);
+    await restartedCoordinator.flush(7);
+    const firstPending = await restartedOutbox.pending();
+
+    expect(restartedState.read().telemetryGap).toBeNull();
+    expect(firstPending).toHaveLength(1);
+    expect(firstPending[0]!.event).toMatchObject({
+      kind: "telemetry_gap",
+      payload: {
+        firstDroppedAt: "2026-08-30T01:01:59.000Z",
+        lastDroppedAt: "2026-08-30T01:02:03.000Z",
+        droppedCount: 7
+      }
+    });
+
+    await restartedCoordinator.flush(7);
+    expect((await restartedOutbox.pending()).map(storedIdentity)).toEqual(firstPending.map(storedIdentity));
+  });
+
+  it("imports only the unaccepted journal delta when the outbox already receipted an older cumulative count", async () => {
+    const test = await gapAcceptanceFixture();
+    await test.stateStore.recordTelemetryGap(
+      "2026-08-30T01:03:00.000Z",
+      2,
+      "2026-08-30T01:03:01.000Z",
+      7
+    );
+    test.setStateDiskFull(true);
+    await test.coordinator.flush(7);
+    expect((await test.outbox.inspect()).gap).toMatchObject({ droppedCount: 2 });
+
+    await test.coordinator.recordGap(
+      7,
+      "2026-08-30T01:02:59.000Z",
+      3,
+      "2026-08-30T01:03:03.000Z"
+    );
+    await expect(test.journal.read()).resolves.toMatchObject({
+      lastSourceHandoffId: gapSourceHandoffId,
+      lastSourceDroppedCount: 5,
+      droppedCount: 5
+    });
+
+    const pending = await test.outbox.pending();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.event).toMatchObject({
+      kind: "telemetry_gap",
+      payload: {
+        firstDroppedAt: "2026-08-30T01:02:59.000Z",
+        lastDroppedAt: "2026-08-30T01:03:03.000Z",
+        droppedCount: 5
+      }
+    });
+    test.coordinator.stop();
+  });
+
   it("keeps an accepted handoff pending in memory and on disk when durable state clear hits ENOSPC", async () => {
     const test = await cleanupFixture();
     const handoff = createAutomationTelemetryHandoff([eventRecord()])!;
@@ -410,6 +683,94 @@ async function cleanupFixture() {
     async runRetry() {
       const task = retryTasks.shift();
       if (!task) throw new Error("expected a scheduled telemetry cleanup retry");
+      await task();
+    }
+  };
+}
+
+async function gapAcceptanceFixture() {
+  const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-gap-acceptance-"));
+  directories.push(directory);
+  const statePath = join(directory, "state.json");
+  const outboxPath = join(directory, "outbox.json");
+  const journal = new AutomationTelemetryGapJournal(
+    `${outboxPath}.gap`,
+    () => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+  );
+  let journalFailure = false;
+  const fallibleJournal: AutomationTelemetryGapJournalLike = {
+    initialize: () => journal.initialize(),
+    read: () => journal.read(),
+    record: (input) => journalFailure
+      ? Promise.reject(Object.assign(new Error("journal unavailable"), { code: "EIO" }))
+      : journal.record(input),
+    clear: (handoffId, recordsHash) => journal.clear(handoffId, recordsHash)
+  };
+  const headroom = new StorageHeadroomManager(`${outboxPath}.reserve`, 32_768, {
+    preallocate: async (_target, bytes) => bytes,
+    release: async () => undefined,
+    scheduleBackground: () => 1,
+    cancelBackground: () => undefined
+  });
+  await journal.initialize();
+  await headroom.initialize();
+  let stateDiskFull = false;
+  let stateCommitUncertain = false;
+  let outboxDiskFull = false;
+  const stateStore = new FileAutomationStateStore(
+    statePath,
+    async (target, value) => {
+      if (stateCommitUncertain) {
+        throw new AtomicJsonCommitUncertainError(target, {
+          cause: Object.assign(new Error("directory full"), { code: "ENOSPC" })
+        });
+      }
+      if (stateDiskFull) throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+      await writeJsonAtomic(target, value);
+    },
+    () => gapSourceHandoffId,
+    { headroom, gapJournal: fallibleJournal }
+  );
+  const outbox = new AutomationTelemetryOutbox(outboxPath, automationScope, {
+    headroom,
+    gapJournal: fallibleJournal,
+    write: async (target, value) => {
+      if (outboxDiskFull) throw Object.assign(new Error("outbox disk full"), { code: "ENOSPC" });
+      await writeJsonAtomic(target, value);
+    }
+  });
+  await stateStore.initialize();
+  await outbox.initialize();
+  const retryTasks: Array<() => Promise<void>> = [];
+  const retryDelays: number[] = [];
+  const retryChanges: boolean[] = [];
+  const coordinator = new AutomationTelemetryCoordinator(stateStore, outbox, {
+    retryInitialDelayMs: 10,
+    retryMaxDelayMs: 20,
+    scheduleRetry: (task, delayMs) => {
+      retryTasks.push(task);
+      retryDelays.push(delayMs);
+      return retryTasks.length;
+    },
+    cancelRetry: () => undefined,
+    onRetryChanged: () => { retryChanges.push(true); }
+  });
+  return {
+    statePath,
+    outboxPath,
+    journal,
+    stateStore,
+    outbox,
+    coordinator,
+    retryDelays,
+    retryChanges,
+    setStateDiskFull(value: boolean) { stateDiskFull = value; },
+    setStateCommitUncertain(value: boolean) { stateCommitUncertain = value; },
+    setOutboxDiskFull(value: boolean) { outboxDiskFull = value; },
+    setJournalFailure(value: boolean) { journalFailure = value; },
+    async runRetry() {
+      const task = retryTasks.shift();
+      if (!task) throw new Error("expected a scheduled telemetry acceptance retry");
       await task();
     }
   };

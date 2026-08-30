@@ -322,15 +322,19 @@ async function main() {
   if (automationStateStore.durability().mode === "degraded") {
     await health.setOperationalBlocker("automation_state_durability_degraded", true);
   }
-  const automationTelemetryCoordinator = new AutomationTelemetryCoordinator(
-    automationStateStore,
-    automationTelemetryOutbox,
-    { onError: (error) => void reportGatewayError(error, "automation_telemetry_cleanup") }
-  );
   const automationTelemetryPublisher = new AutomationTelemetryPublisher(
     automationTelemetryOutbox,
     { siteId, gatewayId },
     { onError: (error) => void reportGatewayError(error, "automation_telemetry_retry") }
+  );
+  const automationTelemetryCoordinator = new AutomationTelemetryCoordinator(
+    automationStateStore,
+    automationTelemetryOutbox,
+    {
+      onError: (error) => void reportGatewayError(error, "automation_telemetry_cleanup"),
+      onRetryChanged: () => automationTelemetryPublisher.wake()
+        .catch((error) => void reportGatewayError(error, "automation_telemetry_recovery_publish"))
+    }
   );
   const clockTrust = new SystemClockTrustProvider();
   let scheduleRuntime!: ScheduleRuntime;

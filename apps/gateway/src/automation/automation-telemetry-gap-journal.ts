@@ -39,6 +39,12 @@ export interface AutomationTelemetryGapJournalState {
   lastSourceRecordsHash: string;
   lastSourceDroppedCount: number;
   provenance: AutomationTelemetryGapProvenance;
+  // Persist one cumulative source independently from the last writer so
+  // interleaved fixed-journal handoffs cannot make an older state replay add it twice.
+  cumulativeSourceHandoffId: string | null;
+  cumulativeSourceRecordsHash: string | null;
+  cumulativeSourceDroppedCount: number;
+  cumulativeSourceProvenance: AutomationTelemetryGapProvenance | null;
 }
 
 export interface AutomationTelemetryGapJournalLike {
@@ -70,17 +76,19 @@ export class AutomationTelemetryGapJournal implements AutomationTelemetryGapJour
     return this.queue.run(async () => {
       validateGapInput(input);
       const current = await this.load();
-      if (current?.lastSourceHandoffId === input.handoffId) {
-        if (current.lastSourceRecordsHash === input.recordsHash) return structuredClone(current);
-        if (input.droppedCount < current.lastSourceDroppedCount) {
+      const trackedSource = findTrackedSource(current, input.handoffId);
+      if (trackedSource) {
+        if (trackedSource.recordsHash === input.recordsHash) return structuredClone(current!);
+        if (trackedSource.provenance !== input.provenance ||
+          input.droppedCount === trackedSource.droppedCount) {
           throw new Error("automation telemetry gap handoff conflict");
         }
+        if (input.droppedCount < trackedSource.droppedCount) return structuredClone(current!);
       }
 
-      const previousSourceCount = current?.lastSourceHandoffId === input.handoffId
-        ? current.lastSourceDroppedCount
-        : 0;
+      const previousSourceCount = trackedSource?.droppedCount ?? 0;
       const addedCount = input.droppedCount - previousSourceCount;
+      const cumulativeSource = isCumulativeGapProvenance(input.provenance);
       const nextWithoutHash = {
         version: 1 as const,
         generation: (current?.generation ?? 0) + 1,
@@ -92,7 +100,19 @@ export class AutomationTelemetryGapJournal implements AutomationTelemetryGapJour
         lastSourceHandoffId: input.handoffId,
         lastSourceRecordsHash: input.recordsHash,
         lastSourceDroppedCount: input.droppedCount,
-        provenance: input.provenance
+        provenance: input.provenance,
+        cumulativeSourceHandoffId: cumulativeSource
+          ? input.handoffId
+          : current?.cumulativeSourceHandoffId ?? null,
+        cumulativeSourceRecordsHash: cumulativeSource
+          ? input.recordsHash
+          : current?.cumulativeSourceRecordsHash ?? null,
+        cumulativeSourceDroppedCount: cumulativeSource
+          ? input.droppedCount
+          : current?.cumulativeSourceDroppedCount ?? 0,
+        cumulativeSourceProvenance: cumulativeSource
+          ? input.provenance
+          : current?.cumulativeSourceProvenance ?? null
       };
       const next: AutomationTelemetryGapJournalState = {
         ...nextWithoutHash,
@@ -220,13 +240,50 @@ function parseJournalState(value: unknown, generation: number): AutomationTeleme
     lastDroppedAt: parsed.lastDroppedAt,
     droppedCount: parsed.lastSourceDroppedCount
   });
-  if (parsed.droppedCount < parsed.lastSourceDroppedCount || parsed.gapRecordsHash !== gapRecordsHash({
-    ...parsed,
-    gapRecordsHash: undefined
-  })) {
+  const cumulativeSource = parseCumulativeSource(value);
+  if (parsed.droppedCount < parsed.lastSourceDroppedCount ||
+    parsed.droppedCount < cumulativeSource.droppedCount ||
+    parsed.gapRecordsHash !== gapRecordsHash({
+      ...parsed,
+      gapRecordsHash: undefined
+    })) {
     throw new Error("invalid automation telemetry gap journal hash");
   }
-  return parsed;
+  return {
+    ...parsed,
+    cumulativeSourceHandoffId: cumulativeSource.handoffId,
+    cumulativeSourceRecordsHash: cumulativeSource.recordsHash,
+    cumulativeSourceDroppedCount: cumulativeSource.droppedCount,
+    cumulativeSourceProvenance: cumulativeSource.provenance
+  };
+}
+
+function parseCumulativeSource(value: Record<string, unknown>) {
+  const fields = [
+    value.cumulativeSourceHandoffId,
+    value.cumulativeSourceRecordsHash,
+    value.cumulativeSourceDroppedCount,
+    value.cumulativeSourceProvenance
+  ];
+  if (fields.every((field) => field === undefined) || (
+    value.cumulativeSourceHandoffId === null && value.cumulativeSourceRecordsHash === null &&
+    value.cumulativeSourceDroppedCount === 0 && value.cumulativeSourceProvenance === null
+  )) {
+    return { handoffId: null, recordsHash: null, droppedCount: 0, provenance: null };
+  }
+  if (typeof value.cumulativeSourceHandoffId !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(String(value.cumulativeSourceRecordsHash)) ||
+    !Number.isSafeInteger(value.cumulativeSourceDroppedCount) ||
+    Number(value.cumulativeSourceDroppedCount) <= 0 ||
+    !isCumulativeGapProvenance(value.cumulativeSourceProvenance)) {
+    throw new Error("invalid automation telemetry cumulative gap source");
+  }
+  return {
+    handoffId: value.cumulativeSourceHandoffId,
+    recordsHash: value.cumulativeSourceRecordsHash as string,
+    droppedCount: value.cumulativeSourceDroppedCount as number,
+    provenance: value.cumulativeSourceProvenance
+  };
 }
 
 function gapRecordsHash(value: object) {
@@ -304,6 +361,32 @@ async function writeAll(
 
 function laterTimestamp(left: string, right: string) {
   return Date.parse(left) >= Date.parse(right) ? left : right;
+}
+
+function findTrackedSource(
+  current: AutomationTelemetryGapJournalState | null,
+  handoffId: string
+) {
+  if (!current) return null;
+  if (current.cumulativeSourceHandoffId === handoffId) {
+    return {
+      recordsHash: current.cumulativeSourceRecordsHash!,
+      droppedCount: current.cumulativeSourceDroppedCount,
+      provenance: current.cumulativeSourceProvenance!
+    };
+  }
+  if (current.lastSourceHandoffId === handoffId) {
+    return {
+      recordsHash: current.lastSourceRecordsHash,
+      droppedCount: current.lastSourceDroppedCount,
+      provenance: current.provenance
+    };
+  }
+  return null;
+}
+
+function isCumulativeGapProvenance(value: unknown): value is AutomationTelemetryGapProvenance {
+  return value === "automation_state_gap" || value === "fixture_state_outbox";
 }
 
 function isGapProvenance(value: unknown): value is AutomationTelemetryGapProvenance {

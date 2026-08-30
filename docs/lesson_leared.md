@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-08-30 / 최초 telemetry gap 생성은 cleanup이 아니라 durable acceptance 경계
+- **발생했던 문제/실수**: Protocol cleanup을 durable-required로 고친 뒤 최초 `telemetryGap` 생성도 같은 state-only 경로를 사용했다. Shared headroom retry 뒤 state write가 `ENOSPC`이면 preallocated journal에 도달하기 전에 throw했고, RF 호출자는 오류를 격리했지만 dropped count와 identity는 어디에도 남지 않았다. Journal 수용 뒤에도 process state가 오래된 disk count를 유지하면 full disk 중 다음 drop이 누락될 수 있었고, 다른 source가 journal의 last receipt를 덮은 restart에서는 이전 cumulative count가 다시 합산될 수 있었다.
+- **원인**: “source를 durable하게 지우는 cleanup”과 “새 source를 처음 durable하게 받는 acceptance”를 같은 성공 조건으로 취급했고, fixed journal의 마지막 source receipt 하나만으로 반복 cumulative source와 일반 handoff interleaving을 모두 표현하려 했다.
+- **해결 및 예방책**: 최초 gap identity/count를 state write 전에 만들고 definite state `ENOSPC`에서 같은 후보를 fixed journal에 `fsync`한다. 양쪽 실패는 하나의 cumulative in-memory source와 degraded health로 유지하며 coordinator가 같은 identity를 재시도한다. Journal 수용값은 process state에 mirror하고, journal에는 일반 last source와 별도로 cumulative gap receipt 하나만 고정 보존한다. Commit uncertainty는 ENOSPC cause가 있어도 journal success로 재분류하지 않는다.
+- **반복 방지 체크**: 첫 state gap write ENOSPC, state+journal 동시 실패와 후속 누적, storage 회복 publisher wake, journal fallback restart, stale state, interleaved 일반 source, exact identity 반복과 commit-uncertain cause를 한 focused 회귀 세트로 유지한다. Retained source가 배열이나 identity map으로 늘어나지 않는지도 확인한다.
+
 ## 2026-08-30 / Local control의 memory-only 예외를 protocol cleanup에 전파하지 않기
 - **발생했던 문제/실수**: Full disk에서 RF를 계속하기 위해 도입한 automation state의 in-memory commit이 telemetry handoff/gap clear에도 적용되어, coordinator가 durable source는 pending인데 outbox receipt를 먼저 제거할 수 있었다. Crash 뒤 같은 handoff가 새 event ID와 sequence로 다시 저장되거나 gap count가 늘어날 수 있었다.
 - **원인**: 물리 제어 진행성과 cross-file protocol ordering이 같은 generic mutation 성공값을 공유했고, state mutation 결과에 durability가 드러나지 않았다.

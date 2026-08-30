@@ -1,6 +1,8 @@
-import { createHash } from "node:crypto";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
-import { FileAutomationStateStore } from "./automation-state-store";
+import {
+  automationTelemetryGapRecordsHash,
+  FileAutomationStateStore
+} from "./automation-state-store";
 import {
   AutomationTelemetryOutbox,
   type AutomationTelemetryAppendBatchResult
@@ -17,6 +19,7 @@ interface AutomationTelemetryCoordinatorOptions {
   scheduleRetry?: (task: RetryTask, delayMs: number) => unknown;
   cancelRetry?: (handle: unknown) => void;
   onError?: (error: unknown) => void;
+  onRetryChanged?: () => void | Promise<void>;
 }
 
 export class AutomationTelemetryCoordinator {
@@ -26,6 +29,7 @@ export class AutomationTelemetryCoordinator {
   private readonly scheduleRetry: NonNullable<AutomationTelemetryCoordinatorOptions["scheduleRetry"]>;
   private readonly cancelRetry: NonNullable<AutomationTelemetryCoordinatorOptions["cancelRetry"]>;
   private readonly onError: (error: unknown) => void;
+  private readonly onRetryChanged: NonNullable<AutomationTelemetryCoordinatorOptions["onRetryChanged"]>;
   private retryDelayMs: number;
   private retryHandle: unknown;
   private retryScheduled = false;
@@ -47,13 +51,23 @@ export class AutomationTelemetryCoordinator {
     this.scheduleRetry = options.scheduleRetry ?? defaultScheduleRetry;
     this.cancelRetry = options.cancelRetry ?? defaultCancelRetry;
     this.onError = options.onError ?? (() => undefined);
+    this.onRetryChanged = options.onRetryChanged ?? (() => undefined);
   }
 
   flush(revision: number | null = null) {
     return this.queue.run(async () => {
       if (revision !== null) this.retryRevision = revision;
       const results: AutomationTelemetryAppendBatchResult[] = [];
-      let changed = await this.outbox.recoverGapJournal();
+      let changed = false;
+      const retainedGap = await this.stateStore.retryRetainedTelemetryGap();
+      if (retainedGap) {
+        if (!retainedGap.accepted) {
+          this.deferCleanup(retainedGap.error ?? new Error("automation telemetry gap acceptance pending"));
+          return { handoffs: results, changed, retryScheduled: this.retryScheduled };
+        }
+        changed = true;
+      }
+      changed = await this.outbox.recoverGapJournal() || changed;
 
       while (true) {
         const handoff = this.stateStore.read().pendingTelemetryHandoffs[0];
@@ -73,7 +87,7 @@ export class AutomationTelemetryCoordinator {
       if (revision !== null) {
         const gap = this.stateStore.read().telemetryGap;
         if (gap) {
-          const recordsHash = gapRecordsHash(revision, gap);
+          const recordsHash = automationTelemetryGapRecordsHash(revision, gap);
           await this.outbox.recordGap({ revision, recordsHash, ...gap });
           try {
             await this.stateStore.clearTelemetryGap(gap);
@@ -104,12 +118,26 @@ export class AutomationTelemetryCoordinator {
     lastDroppedAt: string
   ) {
     return this.queue.run(async () => {
-      await this.stateStore.recordTelemetryGap(firstDroppedAt, droppedCount, lastDroppedAt);
+      if (revision !== null) this.retryRevision = revision;
+      const acceptance = await this.stateStore.recordTelemetryGap(
+        firstDroppedAt,
+        droppedCount,
+        lastDroppedAt,
+        revision
+      );
+      if (!acceptance.accepted) {
+        this.deferCleanup(acceptance.error ?? new Error("automation telemetry gap acceptance pending"));
+        return false;
+      }
+      if (acceptance.acceptance === "journal") {
+        this.deferCleanup(acceptance.error ?? new Error("automation telemetry gap state cleanup pending"));
+        return true;
+      }
       if (revision === null) return false;
-      const gap = this.stateStore.read().telemetryGap!;
-      const recordsHash = gapRecordsHash(revision, gap);
-      await this.outbox.recordGap({ revision, recordsHash, ...gap });
+      const gap = acceptance.gap;
+      const recordsHash = automationTelemetryGapRecordsHash(revision, gap);
       try {
+        await this.outbox.recordGap({ revision, recordsHash, ...gap });
         const result = await this.stateStore.clearTelemetryGap(gap);
         if (result.cleared) await this.outbox.releaseHandoff(gap.handoffId, recordsHash);
         return result.cleared;
@@ -135,9 +163,10 @@ export class AutomationTelemetryCoordinator {
       this.retryScheduled = false;
       this.retryHandle = undefined;
       try {
-        await this.flush(this.retryRevision);
+        const result = await this.flush(this.retryRevision);
+        if (result.changed) await this.onRetryChanged();
       } catch (retryError) {
-        this.onError(retryError);
+        this.deferCleanup(retryError);
       }
     }, delayMs);
   }
@@ -148,13 +177,6 @@ export class AutomationTelemetryCoordinator {
     this.retryScheduled = false;
     this.retryDelayMs = this.retryInitialDelayMs;
   }
-}
-
-function gapRecordsHash(
-  revision: number,
-  gap: ReturnType<FileAutomationStateStore["read"]>["telemetryGap"] & {}
-) {
-  return `sha256:${createHash("sha256").update(JSON.stringify({ revision, ...gap })).digest("hex")}`;
 }
 
 function defaultScheduleRetry(task: RetryTask, delayMs: number) {

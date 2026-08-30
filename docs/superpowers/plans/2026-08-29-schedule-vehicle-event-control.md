@@ -928,6 +928,16 @@ git add apps/gateway/src/automation apps/gateway/src/runtime/gateway-mqtt-runtim
 git commit -m "feat(gateway): execute vehicle sensor events"
 ```
 
+**Fix round 4 (2026-08-30, 완료):**
+
+- [x] 최초 `telemetryGap` 후보의 stable identity/count를 state write 전에 확정하고, durable state `ENOSPC`에서는 동일 cumulative 후보를 preallocated fixed journal에 직접 수용한다.
+- [x] State와 journal이 모두 실패하면 새 배열을 늘리지 않고 하나의 cumulative retained source에 시각 범위와 count를 합치며 `automation_state_durability_degraded` health와 1초~30초 coordinator retry를 유지한다.
+- [x] Journal 수용 후보를 process state에 mirror해 full disk 중 후속 drop도 오래된 disk count가 아닌 마지막 durable journal count에서 이어가고, 다른 journal source가 사이에 기록돼도 cumulative source receipt 하나를 별도 고정 필드로 보존한다.
+- [x] Storage 회복 retry가 만든 outbox 변경은 publisher를 깨우고 transient outbox 실패도 다음 bounded backoff를 다시 예약하며, durable clear 전 receipt 유지, commit-uncertain taxonomy, exact event replay와 application ACK ordering을 보존한다.
+- [x] RED/GREEN으로 최초 state `ENOSPC`, state+journal 동시 실패, bounded cumulative retry, journal fallback restart, interleaved source, 같은 identity 재수용, commit uncertainty와 transient outbox recovery를 검증했다.
+
+검증: Task 13 focused 8파일 161/161, Gateway 전체 56파일 488/488, shared 74/74, Docker 계약 17/17, 필수 Mosquitto 2/2와 Shared/Gateway typecheck·lint·build를 통과했다. 실제 Raspberry Pi storage exhaustion·power loss·flash wear와 ESP32-H2/BlueZ RF HIL은 별도 검증이다.
+
 ### Task 14: Gateway BLE Mesh Sensor Client와 vendor ACK 처리
 
 **Files:**

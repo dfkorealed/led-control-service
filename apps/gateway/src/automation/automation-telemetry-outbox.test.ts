@@ -1,4 +1,5 @@
-import { rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
@@ -313,6 +314,40 @@ describe("AutomationTelemetryOutbox", () => {
     });
   });
 
+  it("restores a checksummed pre-round-4 journal block without cumulative source fields", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-legacy-gap-journal-"));
+    directories.push(directory);
+    const path = join(directory, "gap.bin");
+    const legacyWithoutHash = {
+      version: 1 as const,
+      generation: 1,
+      gapHandoffId: "44444444-4444-4444-8444-444444444444",
+      revision: 7,
+      firstDroppedAt: "2026-08-30T01:00:00.000Z",
+      lastDroppedAt: "2026-08-30T01:00:02.000Z",
+      droppedCount: 3,
+      lastSourceHandoffId: "55555555-5555-4555-8555-555555555555",
+      lastSourceRecordsHash: `sha256:${"e".repeat(64)}`,
+      lastSourceDroppedCount: 3,
+      provenance: "automation_state_storage" as const
+    };
+    const state = {
+      ...legacyWithoutHash,
+      gapRecordsHash: `sha256:${createHash("sha256")
+        .update(JSON.stringify(legacyWithoutHash))
+        .digest("hex")}`
+    };
+    await writeFile(path, legacyGapJournalFile(state));
+
+    await expect(new AutomationTelemetryGapJournal(path).read()).resolves.toMatchObject({
+      ...state,
+      cumulativeSourceHandoffId: null,
+      cumulativeSourceRecordsHash: null,
+      cumulativeSourceDroppedCount: 0,
+      cumulativeSourceProvenance: null
+    });
+  });
+
   it("keeps shared regular atomic-rewrite headroom untouched across normal outbox commits", async () => {
     const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-headroom-"));
     directories.push(directory);
@@ -466,6 +501,26 @@ describe("AutomationTelemetryRecorder", () => {
     });
   });
 });
+
+function legacyGapJournalFile(state: object) {
+  const blockBytes = AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES / 2;
+  const magic = Buffer.from("ATGAP001", "ascii");
+  const headerBytes = magic.length + 8 + 4 + 32;
+  const payload = Buffer.from(JSON.stringify(state), "utf8");
+  const file = Buffer.alloc(AUTOMATION_TELEMETRY_GAP_JOURNAL_BYTES);
+  const block = file.subarray(0, blockBytes);
+
+  magic.copy(block, 0);
+  block.writeBigUInt64BE(1n, magic.length);
+  block.writeUInt32BE(payload.length, magic.length + 8);
+  createHash("sha256")
+    .update(block.subarray(magic.length, magic.length + 8))
+    .update(payload)
+    .digest()
+    .copy(block, magic.length + 12);
+  payload.copy(block, headerBytes);
+  return file;
+}
 
 async function outboxFixture(options: { maxBytes?: number } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "automation-telemetry-outbox-"));

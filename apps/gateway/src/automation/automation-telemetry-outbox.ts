@@ -231,6 +231,10 @@ export class AutomationTelemetryOutbox {
       const current = this.state;
       const receipt = current.acceptedHandoffs[normalized.handoffId];
       if (receipt?.recordsHash === normalized.recordsHash) return structuredClone(current.gap);
+      if (receipt && receipt.provenance === normalized.provenance &&
+        normalized.droppedCount < receipt.droppedCount) {
+        return structuredClone(current.gap);
+      }
       const next = applyGapToState(current, normalized, this.createEventId);
       this.assertStrictCapacity(next);
       try {
@@ -537,31 +541,76 @@ export class AutomationTelemetryOutbox {
     const journal = await this.gapJournal.read();
     if (!journal) return false;
     const current = this.state;
-    const next = applyGapToState(current, {
-      handoffId: journal.gapHandoffId,
-      recordsHash: journal.gapRecordsHash,
-      provenance: "automation_state_gap",
-      revision: journal.revision,
-      firstDroppedAt: journal.firstDroppedAt,
-      lastDroppedAt: journal.lastDroppedAt,
-      droppedCount: journal.droppedCount
-    }, this.createEventId);
     // The source handoff can still be pending in automation state when this journal is imported.
-    // Move its receipt with the aggregate gap so clearing the journal cannot make replay append the exact records again.
-    const sourceReceipt = next.acceptedHandoffs[journal.lastSourceHandoffId];
-    if (sourceReceipt && (
-      sourceReceipt.recordsHash !== journal.lastSourceRecordsHash ||
-      sourceReceipt.outcome !== "gap" ||
-      sourceReceipt.droppedCount !== journal.lastSourceDroppedCount
-    )) {
-      throw new Error("automation telemetry journal source handoff conflict");
-    }
-    next.acceptedHandoffs[journal.lastSourceHandoffId] = {
+    // Move its bounded receipts with the aggregate gap and subtract counts already accepted by the regular outbox.
+    const sourceReceipts = [{
+      handoffId: journal.lastSourceHandoffId,
       recordsHash: journal.lastSourceRecordsHash,
-      outcome: "gap",
-      provenance: journal.provenance,
-      droppedCount: journal.lastSourceDroppedCount
-    };
+      droppedCount: journal.lastSourceDroppedCount,
+      provenance: journal.provenance
+    }];
+    if (journal.cumulativeSourceHandoffId &&
+      journal.cumulativeSourceHandoffId !== journal.lastSourceHandoffId) {
+      sourceReceipts.push({
+        handoffId: journal.cumulativeSourceHandoffId,
+        recordsHash: journal.cumulativeSourceRecordsHash!,
+        droppedCount: journal.cumulativeSourceDroppedCount,
+        provenance: journal.cumulativeSourceProvenance!
+      });
+    }
+    let alreadyAcceptedCount = 0;
+    for (const source of sourceReceipts) {
+      const sourceReceipt = current.acceptedHandoffs[source.handoffId];
+      if (!sourceReceipt) continue;
+      if (sourceReceipt.outcome !== "gap" || sourceReceipt.provenance !== source.provenance ||
+        sourceReceipt.droppedCount > source.droppedCount) {
+        throw new Error("automation telemetry journal source handoff conflict");
+      }
+      alreadyAcceptedCount += sourceReceipt.droppedCount;
+    }
+    const unacceptedCount = journal.droppedCount - alreadyAcceptedCount;
+    if (!Number.isSafeInteger(unacceptedCount) || unacceptedCount < 0) {
+      throw new Error("automation telemetry journal count conflict");
+    }
+    const next = unacceptedCount === 0
+      ? structuredClone(current)
+      : applyGapToState(current, {
+        handoffId: journal.gapHandoffId,
+        recordsHash: journal.gapRecordsHash,
+        provenance: "automation_state_gap",
+        revision: journal.revision,
+        firstDroppedAt: journal.firstDroppedAt,
+        lastDroppedAt: journal.lastDroppedAt,
+        droppedCount: unacceptedCount
+      }, this.createEventId);
+    if (unacceptedCount === 0) {
+      const aggregateReceipt = next.acceptedHandoffs[journal.gapHandoffId];
+      if (aggregateReceipt && aggregateReceipt.recordsHash !== journal.gapRecordsHash) {
+        throw new Error("automation telemetry journal aggregate handoff conflict");
+      }
+      next.acceptedHandoffs[journal.gapHandoffId] = {
+        recordsHash: journal.gapRecordsHash,
+        outcome: "gap",
+        provenance: "automation_state_gap",
+        droppedCount: 0
+      };
+    }
+    for (const source of sourceReceipts) {
+      const sourceReceipt = next.acceptedHandoffs[source.handoffId];
+      if (sourceReceipt && (
+        sourceReceipt.outcome !== "gap" ||
+        sourceReceipt.provenance !== source.provenance ||
+        sourceReceipt.droppedCount > source.droppedCount
+      )) {
+        throw new Error("automation telemetry journal source handoff conflict");
+      }
+      next.acceptedHandoffs[source.handoffId] = {
+        recordsHash: source.recordsHash,
+        outcome: "gap",
+        provenance: source.provenance,
+        droppedCount: source.droppedCount
+      };
+    }
     await this.commit(current, next);
     await this.gapJournal.clear(journal.gapHandoffId, journal.gapRecordsHash);
     return true;
@@ -750,8 +799,11 @@ function applyGapToState(
   validateNormalizedGap(input);
   const receipt = current.acceptedHandoffs[input.handoffId];
   if (receipt?.recordsHash === input.recordsHash) return structuredClone(current);
-  if (receipt && (receipt.provenance !== input.provenance || input.droppedCount < receipt.droppedCount)) {
-    throw new Error("automation telemetry gap handoff identity conflict");
+  if (receipt) {
+    if (receipt.provenance !== input.provenance) {
+      throw new Error("automation telemetry gap handoff identity conflict");
+    }
+    if (input.droppedCount < receipt.droppedCount) return structuredClone(current);
   }
   const next = structuredClone(current);
   const addedCount = input.droppedCount - (receipt?.droppedCount ?? 0);
