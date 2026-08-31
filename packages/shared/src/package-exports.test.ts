@@ -33,7 +33,7 @@ async function createBuildFixture() {
   const fakeTypeScript = join(root, "bin", "tsc");
   await writeFile(fakeTypeScript, `#!/usr/bin/env node
 const { mkdirSync, symlinkSync, writeFileSync } = require("node:fs");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 const outDirectoryIndex = process.argv.indexOf("--outDir");
 if (outDirectoryIndex === -1 || !process.argv[outDirectoryIndex + 1]) process.exit(2);
 const outDirectory = process.argv[outDirectoryIndex + 1];
@@ -44,6 +44,11 @@ if (project === "tsconfig.esm.json" && process.env.FAKE_TSC_ESM_SYMLINK_TARGET) 
   mkdirSync(outDirectory, { recursive: true });
   writeFileSync(join(outDirectory, "index.js"), "exports.fixtureValue = 1;\\n");
   writeFileSync(join(outDirectory, "index.d.ts"), "export declare const fixtureValue = 1;\\n");
+  if (process.env.FAKE_TSC_GENERATED_PATH) {
+    const generatedPath = join(outDirectory, ...process.env.FAKE_TSC_GENERATED_PATH.split("/"));
+    mkdirSync(dirname(generatedPath), { recursive: true });
+    writeFileSync(generatedPath, "generated fixture artifact\\n");
+  }
 }
 `);
   await chmod(fakeTypeScript, 0o755);
@@ -206,6 +211,92 @@ describe("shared package exports", () => {
 });
 
 describe.sequential("shared build output cleanup", () => {
+  const reservedDevicePaths = [
+    "CON",
+    "con.txt",
+    "nested/PRN",
+    "nested/prn.log",
+    "AUX",
+    "nested/aux.js",
+    "NUL",
+    "nested/nul.txt",
+    ...Array.from({ length: 9 }, (_, index) =>
+      `${index % 2 === 0 ? "nested/" : ""}${index % 2 === 0 ? "COM" : "com"}${index + 1}.log`
+    ),
+    ...Array.from({ length: 9 }, (_, index) =>
+      `${index % 2 === 0 ? "nested/" : ""}${index % 2 === 0 ? "LPT" : "lpt"}${index + 1}.txt`
+    ),
+    "safe/con/child.js",
+    "safe/PRN.txt/child.js"
+  ];
+
+  it.each(reservedDevicePaths)(
+    "rejects the Windows reserved device path %s before touching any artifact",
+    async (path) => {
+      const root = await createBuildFixture();
+      const externalDirectory = await createExternalDirectory();
+      const distDirectory = join(root, "dist");
+      const existingArtifact = join(distDirectory, "existing.js");
+      const unrelatedArtifact = join(distDirectory, "user-kept.txt");
+      const externalSentinel = join(externalDirectory, "sentinel.txt");
+      await mkdir(distDirectory, { recursive: true });
+      await writeFile(existingArtifact, "existing artifact\n");
+      await writeFile(unrelatedArtifact, "unrelated artifact\n");
+      await writeFile(externalSentinel, "external sentinel\n");
+      await writeBuildManifest(root, ["existing.js", path]);
+
+      await expect(runFixtureBuild(root)).rejects.toThrow();
+
+      await expect(readFile(existingArtifact, "utf8")).resolves.toBe("existing artifact\n");
+      await expect(readFile(unrelatedArtifact, "utf8")).resolves.toBe("unrelated artifact\n");
+      await expect(readFile(externalSentinel, "utf8")).resolves.toBe("external sentinel\n");
+    }
+  );
+
+  it.each([
+    "console",
+    "nested/con1.txt",
+    "com0.log",
+    "nested/com10.log",
+    "lpt0.txt",
+    "nested/lpt10.txt",
+    "null",
+    "nested/auxiliary.js"
+  ])("accepts the non-device control path %s", async (path) => {
+    const root = await createBuildFixture();
+    const distDirectory = join(root, "dist");
+    const unrelatedArtifact = join(distDirectory, "user-kept.txt");
+    await mkdir(distDirectory, { recursive: true });
+    await writeFile(unrelatedArtifact, "unrelated artifact\n");
+    await writeBuildManifest(root, [path]);
+
+    await expect(runFixtureBuild(root)).resolves.toMatchObject({ stderr: "" });
+
+    await expect(readFile(unrelatedArtifact, "utf8")).resolves.toBe("unrelated artifact\n");
+  });
+
+  it("rejects a generated artifact with a reserved nested segment before cleanup", async () => {
+    const root = await createBuildFixture();
+    const externalDirectory = await createExternalDirectory();
+    const distDirectory = join(root, "dist");
+    const existingArtifact = join(distDirectory, "existing.js");
+    const unrelatedArtifact = join(distDirectory, "user-kept.txt");
+    const externalSentinel = join(externalDirectory, "sentinel.txt");
+    await mkdir(distDirectory, { recursive: true });
+    await writeFile(existingArtifact, "existing artifact\n");
+    await writeFile(unrelatedArtifact, "unrelated artifact\n");
+    await writeFile(externalSentinel, "external sentinel\n");
+    await writeBuildManifest(root, ["existing.js"]);
+
+    await expect(runFixtureBuild(root, {
+      FAKE_TSC_GENERATED_PATH: "nested/COM1.log"
+    })).rejects.toThrow();
+
+    await expect(readFile(existingArtifact, "utf8")).resolves.toBe("existing artifact\n");
+    await expect(readFile(unrelatedArtifact, "utf8")).resolves.toBe("unrelated artifact\n");
+    await expect(readFile(externalSentinel, "utf8")).resolves.toBe("external sentinel\n");
+  });
+
   it.each([
     ["uppercase drive-absolute path", "C:\\outside.js"],
     ["lowercase drive-absolute path", "c:/outside.js"],

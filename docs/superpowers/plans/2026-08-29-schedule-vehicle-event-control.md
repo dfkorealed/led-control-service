@@ -1283,6 +1283,17 @@ Fix Round 4 검증: 기존 구현은 core focused 7건 중 4건이 실패했고,
 
 Fix Round 5 검증: focused RED는 21건 중 8건 실패였고 수정 뒤 Shared 96/96, packed root/subpath ESM·CJS consumer, Web focused 80/80·전체 334/334, production build와 main `1,028.66 kB / gzip 313.70 kB` bundle audit, API/Gateway typecheck·build·root/narrow import·output syntax를 통과했다. 정상 generated path는 기존 POSIX ASCII 상대 경로와 packed CJS/ESM 산출물을 유지한다.
 
+#### Fix Round 5 breaker: Windows reserved device artifact path
+
+- [x] `CON|PRN|AUX|NUL|COM1..COM9|LPT1..LPT9`의 root/nested, case, extension 변형과 비예약 대조군을 표 기반 manifest fixture에 추가한다.
+- [x] 기존 구현에서 예약 manifest 28건과 generated nested artifact 1건이 cleanup을 시작할 수 있는 성공으로 수락되는 RED를 확인한다.
+- [x] 모든 segment의 terminal dot/space 제거 후 첫 `.` 앞 stem을 중앙 `validateGeneratedPath()`에서 case-insensitive로 검사하고 기존 drive/ADS/backslash/symlink 규칙을 유지한다.
+- [x] 거부 시 기존 manifest-owned artifact, unrelated `dist` 파일과 외부 sentinel이 모두 보존되고 generated output도 같은 validator에서 거부됨을 focused GREEN으로 확인한다.
+- [x] Shared full/build/packed, Web focused/full/typecheck/lint/build/bundle audit, API/Gateway smoke와 diff-check를 실행한다.
+- [x] `task17-breaker-report.md`, 상태·교훈 문서를 갱신하고 `fix(shared): reject reserved device artifact paths`로 한 번 커밋한다.
+
+Breaker 검증: 기존 validator에서 focused 58건 중 예약 manifest 28건과 generated artifact 1건이 성공해 RED를 확인했다. 수정 뒤 focused 58/58, Shared 전체 8파일 133/133, 별도 build/typecheck와 packed ESM/CJS consumer, Web focused 80/80·전체 334/334, typecheck/lint/build와 main `1,028.66 kB / gzip 313.70 kB` bundle audit, API/Gateway typecheck·build·root/narrow import·output syntax smoke를 통과했다. Gateway bundle은 `504.9 kB`다.
+
 ### Task 18: Web 이벤트 CRUD와 수동 override UI
 
 **Files:**

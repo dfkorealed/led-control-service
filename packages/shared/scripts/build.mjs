@@ -218,10 +218,18 @@ function validateGeneratedPath(path) {
     || segment === ".."
     || segment.endsWith(".")
     || segment.endsWith(" ")
+    || isWindowsReservedDeviceSegment(segment)
   )) {
     throw new Error(`invalid shared build output path: ${path}`);
   }
   return path;
+}
+
+function isWindowsReservedDeviceSegment(segment) {
+  // Windows resolves these stems as devices in every directory, including with extensions.
+  const trimmedSegment = segment.replace(/[. ]+$/, "");
+  const basenameStem = trimmedSegment.split(".", 1)[0].toUpperCase();
+  return /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(basenameStem);
 }
 
 function validateGeneratedPaths(paths) {
