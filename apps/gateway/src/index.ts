@@ -289,16 +289,10 @@ async function main() {
     if (!process.send || !process.connected) {
       throw new Error("software automation simulator requires private child IPC");
     }
-    detachSoftwareAutomationSimulatorIpc = attachSoftwareAutomationSimulatorIpc(
-      softwareAutomationSimulator,
-      process,
-      required(process.env, "AUTOMATION_E2E_SIMULATOR_IPC_TOKEN")
-    );
   }
   const runtime = await startGatewayRuntime({
     env: process.env,
     ...(softwareAutomationSimulator ? {
-      ensureMqttIdentity: async () => undefined,
       createAdapters: async () => softwareAutomationSimulator.adapters
     } : {})
   });
@@ -448,6 +442,10 @@ async function main() {
     stateStore: automationStateStore,
     scope: { siteId, gatewayId },
     clockTrust,
+    ...(softwareAutomationSimulator ? {
+      wallClock: softwareAutomationSimulator.wallClock,
+      monotonicClock: softwareAutomationSimulator.monotonicClock
+    } : {}),
     requestFixtureObservation: (fixtureIds) => {
       requestFixtureObservationResync(fixtureIds, targetedLightingResync, fullResyncFallback);
     },
@@ -479,7 +477,15 @@ async function main() {
     await health.setOperationalBlocker(automationStateHealthReason(error), true);
     throw error;
   }
-  const gatewayMonotonicClock = () => performance.now();
+  if (softwareAutomationSimulator) {
+    detachSoftwareAutomationSimulatorIpc = attachSoftwareAutomationSimulatorIpc(
+      softwareAutomationSimulator,
+      process,
+      required(process.env, "AUTOMATION_E2E_SIMULATOR_IPC_TOKEN"),
+      { onClockAdvanced: () => scheduleRuntime.tick() }
+    );
+  }
+  const gatewayMonotonicClock = softwareAutomationSimulator?.monotonicClock ?? (() => performance.now());
   const manualOverrideCoordinator = createManualOverrideCoordinator(scheduleRuntime, gatewayMonotonicClock);
   await initializeAutomationBeforeManualRecovery(
     automationRuntime,
@@ -846,13 +852,11 @@ async function main() {
     void recordMeshResyncOutcome(health, report).catch((error) => void reportGatewayError(error, "mesh_resync"));
   });
   startControlPlaneWithBackgroundMeshResync(() => mqttRuntime.start(), meshResyncWorker);
-  const rotation = softwareAutomationSimulator
-    ? undefined
-    : startCertificateRotation(
-      assignment,
-      process.env,
-      createMqttIdentityActivation(assignment, process.env, mqttRuntime)
-    );
+  const rotation = startCertificateRotation(
+    assignment,
+    process.env,
+    createMqttIdentityActivation(assignment, process.env, mqttRuntime)
+  );
   registerGatewayShutdownHandlers({
     stop: async () => {
       detachSoftwareAutomationSimulatorIpc?.();

@@ -250,7 +250,7 @@ export class AutomationMqttConsumerService {
       return this.resolveSnapshotVehicleRule(tx, scope, snapshot, payload.sourceId);
     }
     const manualOverride = await tx.manualOverride.findFirst({
-      where: { id: payload.sourceId, siteId: scope.siteId, gatewayId: scope.gatewayId },
+      where: { commandId: payload.sourceId, siteId: scope.siteId, gatewayId: scope.gatewayId },
       select: { id: true, fixtures: { select: { fixtureId: true } } }
     });
     return manualOverride ? {

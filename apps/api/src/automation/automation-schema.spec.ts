@@ -64,6 +64,13 @@ const executionUpdateTriggerMigrationPath = join(
 const executionUpdateTriggerMigration = existsSync(executionUpdateTriggerMigrationPath)
   ? readFileSync(executionUpdateTriggerMigrationPath, "utf8")
   : "";
+const manualCommandExecutionMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260904_bind_manual_execution_command_source/migration.sql"
+);
+const manualCommandExecutionMigration = existsSync(manualCommandExecutionMigrationPath)
+  ? readFileSync(manualCommandExecutionMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -226,6 +233,20 @@ describe("automation Prisma schema contract", () => {
       'EXECUTE FUNCTION "validate_automation_execution_source"()'
     );
     expect(executionUpdateTriggerMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
+  });
+
+  it("binds a manual execution command source to the ManualOverride primary key", () => {
+    expect(manualCommandExecutionMigration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(manualCommandExecutionMigration).toContain(
+      'override."id" = NEW."manualOverrideId"'
+    );
+    expect(manualCommandExecutionMigration).toContain(
+      'override."commandId" = snapshot_source_id'
+    );
+    expect(manualCommandExecutionMigration).not.toContain(
+      'NEW."manualOverrideId" IS DISTINCT FROM snapshot_source_id'
+    );
+    expect(manualCommandExecutionMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
   it("indexes each schedule's latest execution in list order through a forward migration", () => {
@@ -2068,12 +2089,13 @@ function executionInsert(options: {
   lightingScheduleId?: string;
   vehicleEventRuleId?: string;
   manualOverrideId?: string;
+  manualCommandId?: string;
 }) {
   const gatewayId = options.gatewayId ?? "automation-schema-gateway-a";
   const payload = options.kind === "action_result" && options.manualOverrideId
     ? `'${JSON.stringify({
         sourceType: "manual_override",
-        sourceId: options.manualOverrideId,
+        sourceId: options.manualCommandId ?? "automation-schema-command-a",
         results: []
       })}'::jsonb`
     : "'{}'::jsonb";

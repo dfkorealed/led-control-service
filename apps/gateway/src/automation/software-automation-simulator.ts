@@ -20,6 +20,9 @@ export interface SoftwareAutomationSimulatorFixture {
 export interface SoftwareAutomationSimulator {
   adapters: GatewayAdapters;
   clockTrust: ClockTrustProvider;
+  wallClock(): Date;
+  monotonicClock(): number;
+  advanceClock(advanceMs: number): { wallClockMs: number; monotonicMs: number };
   injectSensorEdge(fixtureId: string, edge: SoftwareAutomationSensorEdge): Promise<void>;
 }
 
@@ -46,6 +49,9 @@ export function createSoftwareAutomationSimulator(options: {
   const fixtureStatusListeners = new Set<(status: BleMeshFixtureStatus) => void>();
   const lightingObservationListeners = new Set<(observation: BleMeshLightingObservation) => void>();
   const sensorListeners = new Set<(sourceUnicast: number, data: Uint8Array) => void>();
+  let clockOffsetMs = 0;
+  const wallClock = () => new Date(Date.now() + clockOffsetMs);
+  const monotonicClock = () => performance.now() + clockOffsetMs;
 
   const applyBrightness = async (fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]> => {
     const reports: BleMeshCommandReport[] = [];
@@ -53,7 +59,7 @@ export function createSoftwareAutomationSimulator(options: {
       const fixture = fixtures.get(fixtureId);
       if (!fixture) throw new Error(`software automation fixture is not configured: ${fixtureId}`);
       fixture.brightness = brightness;
-      const observedAt = new Date().toISOString();
+      const observedAt = wallClock().toISOString();
       const report = {
         fixtureId,
         acknowledged: true,
@@ -85,7 +91,7 @@ export function createSoftwareAutomationSimulator(options: {
     for (const fixtureId of fixtureIds) {
       const fixture = fixtures.get(fixtureId);
       if (!fixture) continue;
-      const observedAt = new Date().toISOString();
+      const observedAt = wallClock().toISOString();
       const status = {
         fixtureId,
         brightness: fixture.brightness,
@@ -208,6 +214,15 @@ export function createSoftwareAutomationSimulator(options: {
   return {
     adapters,
     clockTrust: { async isTrusted() { return true; } },
+    wallClock,
+    monotonicClock,
+    advanceClock(advanceMs) {
+      if (!Number.isInteger(advanceMs) || advanceMs < 0 || advanceMs > 86_400_000) {
+        throw new Error("software automation clock advance must be an integer from 0 to 86400000ms");
+      }
+      clockOffsetMs += advanceMs;
+      return { wallClockMs: wallClock().getTime(), monotonicMs: monotonicClock() };
+    },
     async injectSensorEdge(fixtureId, edge) {
       const fixture = fixtures.get(fixtureId);
       if (!fixture?.vehicleSensor) {
@@ -236,21 +251,62 @@ export function attachSoftwareAutomationSimulatorIpc(
   simulator: SoftwareAutomationSimulator,
   channel: SoftwareAutomationSimulatorIpcChannel,
   token: string,
+  options: { onClockAdvanced?: () => Promise<void> } = {},
 ) {
   if (!token) throw new Error("software automation simulator IPC token is required");
   const onMessage = (message: unknown) => {
-    if (!isSensorEdgeMessage(message, token)) return;
-    void simulator.injectSensorEdge(message.fixtureId, message.edge)
-      .then(() => sendIpcResult(channel, message.requestId, true))
+    if (!channel.connected) return;
+    if (isSensorEdgeMessage(message, token)) {
+      void simulator.injectSensorEdge(message.fixtureId, message.edge)
+        .then(() => sendIpcResult(channel, "automation-e2e-sensor-edge-result", message.requestId, true))
+        .catch((error) => sendIpcResult(
+          channel,
+          "automation-e2e-sensor-edge-result",
+          message.requestId,
+          false,
+          error instanceof Error ? error.message : "software automation sensor edge failed",
+        ));
+      return;
+    }
+    if (!isClockAdvanceMessage(message, token)) return;
+    void Promise.resolve()
+      .then(() => simulator.advanceClock(message.advanceMs))
+      .then(async (clock) => {
+        await options.onClockAdvanced?.();
+        sendIpcResult(
+          channel,
+          "automation-e2e-clock-advance-result",
+          message.requestId,
+          true,
+          undefined,
+          clock,
+        );
+      })
       .catch((error) => sendIpcResult(
         channel,
+        "automation-e2e-clock-advance-result",
         message.requestId,
         false,
-        error instanceof Error ? error.message : "software automation sensor edge failed",
+        error instanceof Error ? error.message : "software automation clock advance failed",
       ));
   };
   channel.on("message", onMessage);
   return () => channel.off("message", onMessage);
+}
+
+function isClockAdvanceMessage(message: unknown, token: string): message is {
+  type: "automation-e2e-clock-advance";
+  token: string;
+  requestId: string;
+  advanceMs: number;
+} {
+  if (!message || typeof message !== "object" || Array.isArray(message)) return false;
+  const value = message as Record<string, unknown>;
+  return value.type === "automation-e2e-clock-advance" &&
+    value.token === token &&
+    typeof value.requestId === "string" && value.requestId.length > 0 &&
+    typeof value.advanceMs === "number" && Number.isInteger(value.advanceMs) &&
+    value.advanceMs >= 0 && value.advanceMs <= 86_400_000;
 }
 
 function isSensorEdgeMessage(message: unknown, token: string): message is {
@@ -271,15 +327,18 @@ function isSensorEdgeMessage(message: unknown, token: string): message is {
 
 function sendIpcResult(
   channel: SoftwareAutomationSimulatorIpcChannel,
+  type: "automation-e2e-sensor-edge-result" | "automation-e2e-clock-advance-result",
   requestId: string,
   ok: boolean,
   error?: string,
+  details: Record<string, unknown> = {},
 ) {
   if (!channel.connected || !channel.send) return;
   channel.send({
-    type: "automation-e2e-sensor-edge-result",
+    type,
     requestId,
     ok,
+    ...details,
     ...(error ? { error } : {}),
   });
 }

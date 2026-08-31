@@ -213,6 +213,215 @@ test("MQTT close가 hang되어도 stop은 timeout 뒤 나머지 cleanup을 완�
   }
 });
 
+test("production Gateway handoff는 publisher background 작업과 MQTT close 완료를 순서대로 기다린다", async () => {
+  const lab = new RealBackendLab({ cleanupTimeoutMs: 100 });
+  const internal = lab as unknown as {
+    backgroundTasks: Set<Promise<void>>;
+    detachGatewayPublisher: () => Promise<void>;
+    eventSequence: number;
+    mqtt: { end: (force: boolean, options: object, callback: () => void) => void };
+  };
+  let releaseBackground!: () => void;
+  const background = new Promise<void>((resolve) => {
+    releaseBackground = () => {
+      internal.eventSequence = 777;
+      resolve();
+    };
+  });
+  internal.backgroundTasks.add(background);
+  let closeCallback: (() => void) | undefined;
+  internal.mqtt = {
+    end: (_force, _options, callback) => { closeCallback = callback; }
+  };
+
+  let settled = false;
+  const handoff = internal.detachGatewayPublisher().finally(() => { settled = true; });
+  await delay(10);
+  expect(closeCallback).toBeUndefined();
+  releaseBackground();
+  await waitFor(() => closeCallback !== undefined);
+  expect(internal.eventSequence).toBe(777);
+  expect(settled).toBe(false);
+  closeCallback?.();
+  await handoff;
+  expect(settled).toBe(true);
+});
+
+test("production Gateway handoff는 publisher background 오류와 MQTT close timeout을 허용하지 않는다", async () => {
+  const backgroundFailureLab = new RealBackendLab({ cleanupTimeoutMs: 20 });
+  const failed = backgroundFailureLab as unknown as {
+    backgroundError: unknown;
+    detachGatewayPublisher: () => Promise<void>;
+    mqtt: { end: (force: boolean, options: object, callback: () => void) => void };
+  };
+  failed.backgroundError = new Error("injected publisher failure");
+  failed.mqtt = { end: (_force, _options, callback) => callback() };
+  await expect(failed.detachGatewayPublisher()).rejects.toThrow("injected publisher failure");
+
+  const closeTimeoutLab = new RealBackendLab({ cleanupTimeoutMs: 20 });
+  const timedOut = closeTimeoutLab as unknown as {
+    detachGatewayPublisher: () => Promise<void>;
+    mqtt: { end: (force: boolean, options: object, callback: () => void) => void };
+  };
+  timedOut.mqtt = { end: () => undefined };
+  await expect(timedOut.detachGatewayPublisher()).rejects.toThrow("publisher MQTT close timed out");
+});
+
+test("automation readiness heartbeat는 production Gateway child와 exact identity payload에 결속한다", async () => {
+  const lab = new RealBackendLab();
+  const siteId = "00000000-0000-4000-8000-000000000019";
+  const gatewayId = "00000000-0000-4000-8000-000000000020";
+  const internal = lab as unknown as {
+    installation: { siteId: string; floorId: string; timeZone: string };
+    gateway: { id: string; serialNumber: string };
+    mqttEvidence: Array<Record<string, unknown>>;
+    waitForAutomationGatewayHeartbeat: (child: ChildProcess, timeoutMs: number) => Promise<void>;
+  };
+  internal.installation = { siteId, floorId: "floor-ready", timeZone: "Asia/Seoul" };
+  Object.assign(internal.gateway, { id: gatewayId, serialNumber: "DFK-READY" });
+  const child = {
+    pid: process.pid,
+    exitCode: null,
+    signalCode: null
+  } as ChildProcess;
+  const heartbeat = {
+    siteId,
+    gatewayId,
+    eventId: "00000000-0000-4000-8000-000000000019",
+    sequence: 19,
+    occurredAt: new Date().toISOString(),
+    gatewaySerial: "DFK-READY",
+    firmwareVersion: "task19-software-automation-simulator",
+    configVersion: 1
+  };
+  const topic = `sites/${siteId}/gateways/${gatewayId}/state/heartbeat`;
+  internal.mqttEvidence.push({
+    direction: "automation-observer",
+    producer: "lab-publisher",
+    producerPid: process.pid,
+    topic,
+    payload: heartbeat
+  });
+  internal.mqttEvidence.push({
+    direction: "automation-observer",
+    producer: "production-gateway",
+    producerPid: process.pid + 1,
+    topic,
+    payload: heartbeat
+  });
+
+  let ready = false;
+  const waiting = internal.waitForAutomationGatewayHeartbeat(child, 500).then(() => { ready = true; });
+  await delay(20);
+  expect(ready).toBe(false);
+  internal.mqttEvidence.push({
+    direction: "automation-observer",
+    producer: "production-gateway",
+    producerPid: process.pid,
+    topic,
+    payload: heartbeat
+  });
+  await waiting;
+  expect(ready).toBe(true);
+});
+
+test("automation oracle은 lab 자기 발행을 제외하고 production event의 exact ACK와 DB row를 요구한다", () => {
+  const correlate = (labSupport as unknown as {
+    correlateAutomationExecutionEvidence: (input: Record<string, unknown>) => Record<string, unknown>;
+  }).correlateAutomationExecutionEvidence;
+  const gatewayId = "00000000-0000-4000-8000-000000000020";
+  const eventId = "00000000-0000-4000-8000-000000000021";
+  const ruleId = "00000000-0000-4000-8000-000000000022";
+  const fixtureId = "00000000-0000-4000-8000-000000000023";
+  const payloadHash = `sha256:${"a".repeat(64)}`;
+  const event = {
+    schemaVersion: 1,
+    eventId,
+    sequence: 21,
+    gatewayId,
+    revision: 2,
+    ruleId,
+    occurrenceKey: "schedule-occurrence-21",
+    kind: "action_result",
+    occurredAt: "2026-08-31T04:00:00.000Z",
+    payload: {
+      sourceType: "schedule",
+      sourceId: ruleId,
+      results: [{
+        fixtureId,
+        status: "succeeded",
+        brightnessPercent: 40,
+        faultCode: null,
+        errorCode: null,
+        occurredAt: "2026-08-31T04:00:00.000Z"
+      }]
+    }
+  };
+  const eventTopic = `sites/site-1/gateways/${gatewayId}/events/automation/execution`;
+  const ackTopic = `sites/site-1/gateways/${gatewayId}/acks/automation/execution-ingested`;
+  const productionEvidence = {
+    direction: "automation-observer",
+    producer: "production-gateway",
+    producerPid: 321,
+    topic: eventTopic,
+    payload: event
+  };
+  const labSelfEvidence = {
+    direction: "gateway-event",
+    producer: "lab-publisher",
+    topic: eventTopic,
+    payload: { ...event, eventId: "00000000-0000-4000-8000-000000000024", sequence: 22 }
+  };
+  const databaseRows = [{
+    eventId,
+    sequence: "21",
+    revision: 2,
+    kind: "action_result",
+    ruleId,
+    occurrenceKey: "schedule-occurrence-21",
+    payload: event.payload,
+    payloadHash,
+    lightingScheduleId: ruleId,
+    vehicleEventRuleId: null,
+    manualOverrideId: null,
+    manualCommandId: null
+  }];
+  const input = {
+    siteId: "site-1",
+    gatewayId,
+    producerPid: 321,
+    targetFixtureId: fixtureId,
+    mqttEvidence: [labSelfEvidence, productionEvidence],
+    databaseRows
+  };
+
+  expect(() => correlate(input)).toThrow("pending execution ACK");
+
+  const result = correlate({
+    ...input,
+    mqttEvidence: [...input.mqttEvidence, {
+      direction: "automation-observer",
+      producer: "api",
+      producerPid: null,
+      topic: ackTopic,
+      payload: {
+        schemaVersion: 1,
+        gatewayId,
+        eventId,
+        sequence: 21,
+        reportPayloadHash: payloadHash,
+        ingestedAt: "2026-08-31T04:00:01.000Z"
+      }
+    }]
+  });
+  expect(result).toMatchObject({
+    uniqueProductionEventCount: 1,
+    uniqueAckCount: 1,
+    databaseRowCount: 1,
+    actions: [{ sourceType: "schedule", brightness: 40, revision: 2 }]
+  });
+});
+
 async function waitForFile(path: string) {
   const deadline = Date.now() + 2_000;
   while (Date.now() < deadline) {
@@ -245,6 +454,15 @@ function killPid(pid: number) {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor(predicate: () => boolean) {
+  const deadline = Date.now() + 500;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await delay(5);
+  }
+  throw new Error("timed out waiting for test condition");
 }
 
 async function allocateUnusedLabPorts() {

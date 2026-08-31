@@ -43,6 +43,12 @@ const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
 const MQTT_FORCE_CLOSE_TIMEOUT_MS = 1_000;
+const MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY = 256;
+
+interface GatewayInboundQueue {
+  pending: number;
+  tail: Promise<void>;
+}
 
 @Injectable()
 export class MqttService implements OnModuleInit {
@@ -51,6 +57,7 @@ export class MqttService implements OnModuleInit {
   private closePromise: Promise<void> | null = null;
   private inboundStopPromise: Promise<void> | null = null;
   private readonly activeInboundHandlers = new Set<Promise<void>>();
+  private readonly gatewayInboundQueues = new Map<string, GatewayInboundQueue>();
   private connectListener: (() => void) | null = null;
   private messageListener: ((topic: string, payload: Buffer) => void) | null = null;
   private inboundStopped = false;
@@ -188,7 +195,7 @@ export class MqttService implements OnModuleInit {
 
     let handler!: Promise<void>;
     handler = Promise.resolve()
-      .then(() => this.handleMessage(topic, payload))
+      .then(() => this.runInGatewayInboundQueue(topic, () => this.handleMessage(topic, payload)))
       .catch((error) => {
         this.logger.error(`mqtt inbound message handling failed (error=${this.errorKind(error)})`);
       })
@@ -269,7 +276,7 @@ export class MqttService implements OnModuleInit {
         return;
       }
       let handler!: Promise<void>;
-      handler = this.ingestFixtureStatePacket(topic, payload)
+      handler = this.runInGatewayInboundQueue(topic, () => this.ingestFixtureStatePacket(topic, payload))
         .then(({ scope, acknowledgement }) => {
           done(0);
           return this.publishFixtureStateAcknowledgement(scope.siteId, scope.gatewayId, acknowledgement).catch((error) => {
@@ -280,6 +287,29 @@ export class MqttService implements OnModuleInit {
         .finally(() => this.activeInboundHandlers.delete(handler));
       this.activeInboundHandlers.add(handler);
     };
+  }
+
+  private runInGatewayInboundQueue<T>(topic: string, operation: () => Promise<T>): Promise<T> {
+    const scope = parseGatewayTopic(topic);
+    const key = scope ? `${scope.siteId}:${scope.gatewayId}` : `unscoped:${topic}`;
+    let queue = this.gatewayInboundQueues.get(key);
+    if (!queue) {
+      queue = { pending: 0, tail: Promise.resolve() };
+      this.gatewayInboundQueues.set(key, queue);
+    }
+    if (queue.pending >= MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY) {
+      return Promise.reject(new Error("MQTT inbound Gateway queue capacity exceeded"));
+    }
+
+    queue.pending += 1;
+    const result = queue.tail.then(operation);
+    queue.tail = result.then(() => undefined, () => undefined);
+    return result.finally(() => {
+      queue!.pending -= 1;
+      if (queue!.pending === 0 && this.gatewayInboundQueues.get(key) === queue) {
+        this.gatewayInboundQueues.delete(key);
+      }
+    });
   }
 
   private rejectFixtureStateDelivery(error: unknown) {

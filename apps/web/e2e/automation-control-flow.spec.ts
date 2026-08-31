@@ -100,16 +100,54 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await admin.goto(`/control?siteId=${created.siteId}&mode=manual`);
   await admin.getByRole("checkbox", { name: `${targetName} 선택` }).check();
   await admin.getByRole("slider", { name: "밝기" }).fill("60");
-  await admin.getByLabel("수동 override 종료 시각").fill(localDateTimeMinute(new Date(Date.now() + 70_000)));
+  const manualOverrideUntil = new Date(Date.now() + 10 * 60_000);
+  manualOverrideUntil.setSeconds(0, 0);
+  await admin.getByLabel("수동 override 종료 시각").fill(localDateTimeMinute(manualOverrideUntil));
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await expect(admin.getByText("조명 적용 완료")).toBeVisible();
   await lab.waitForFixtureBrightness(targetName, 60);
   await expectFixtureBrightness(admin, created.siteId, targetName, "60%");
 
-  await lab.waitForFixtureBrightness(targetName, 80, 90_000);
+  await lab.advanceAutomationClockTo(manualOverrideUntil.getTime() - 1_000);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "manual-before-expiry",
+    cause: "manual_override_active",
+    fixtureName: targetName,
+    brightness: 60,
+  });
+  await lab.advanceAutomationClock(1_001);
+  await lab.waitForFixtureBrightness(targetName, 80);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "manual-after-expiry",
+    cause: "manual_override_expired_vehicle_priority_resumed",
+    fixtureName: targetName,
+    brightness: 80,
+  });
   await expectFixtureBrightness(admin, created.siteId, targetName, "80%");
   await lab.injectSensorEdge(sensorName, "cleared");
-  await lab.waitForFixtureBrightness(targetName, 40, 20_000);
+  await lab.waitForAutomationExecutionKind("event_extended");
+  const vehicleHoldUntilMs = await lab.latestVehicleHoldUntil();
+  await lab.assertAutomationBrightnessPhase({
+    phase: "vehicle-clear-immediate",
+    cause: "vehicle_hold_started",
+    fixtureName: targetName,
+    brightness: 80,
+  });
+  await lab.advanceAutomationClockTo(vehicleHoldUntilMs - 1_000);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "vehicle-hold-before-deadline",
+    cause: "vehicle_hold_active",
+    fixtureName: targetName,
+    brightness: 80,
+  });
+  await lab.advanceAutomationClock(1_001);
+  await lab.waitForFixtureBrightness(targetName, 40);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "vehicle-hold-after-deadline",
+    cause: "vehicle_hold_expired_schedule_resumed",
+    fixtureName: targetName,
+    brightness: 40,
+  });
   await expectFixtureBrightness(admin, created.siteId, targetName, "40%");
 
   await lab.assertAutomationEvidence({ targetName, sensorName });

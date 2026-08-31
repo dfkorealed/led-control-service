@@ -6,6 +6,83 @@ const scope = {
 };
 
 describe("MqttService v2 ordered state", () => {
+  it("serializes automation and fixture-state ingestion for the same Gateway", async () => {
+    let releaseAutomation!: () => void;
+    let markAutomationStarted!: () => void;
+    const automationStarted = new Promise<void>((resolve) => { markAutomationStarted = resolve; });
+    const automationBlocked = new Promise<void>((resolve) => { releaseAutomation = resolve; });
+    const ingestion = {
+      ingest: jest.fn().mockResolvedValue({
+        eventId: fixtureEvent(9).eventId,
+        sequence: 9,
+        fixtureId: fixtureEvent(9).fixtureId,
+        status: "ingested"
+      })
+    };
+    const automation = {
+      handleMessage: jest.fn(async () => {
+        markAutomationStarted();
+        await automationBlocked;
+      })
+    };
+    const service = new MqttService(
+      {} as never,
+      { attachProvisionedNode: jest.fn() } as never,
+      ingestion as never,
+      automation as never
+    );
+    jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const internal = service as unknown as {
+      startInboundHandler(topic: string, payload: Buffer): void;
+      createCustomHandleAcks(): (
+        topic: string,
+        payload: Buffer,
+        packet: { qos: number },
+        done: (reasonCode: number) => void
+      ) => void;
+    };
+
+    internal.startInboundHandler(
+      `sites/${scope.siteId}/gateways/${scope.gatewayId}/events/automation/execution`,
+      Buffer.from("{}")
+    );
+    await automationStarted;
+    const done = jest.fn();
+    internal.createCustomHandleAcks()(
+      `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/fixtures`,
+      Buffer.from(JSON.stringify(fixtureEvent(9))),
+      { qos: 1 },
+      done
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ingestion.ingest).not.toHaveBeenCalled();
+    expect(done).not.toHaveBeenCalled();
+
+    releaseAutomation();
+    await service.stopInboundAndDrain();
+    expect(ingestion.ingest).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledWith(0);
+  });
+
+  it("bounds the pending inbound work for one Gateway", async () => {
+    const service = new MqttService({} as never, { attachProvisionedNode: jest.fn() } as never);
+    const internal = service as unknown as {
+      runInGatewayInboundQueue<T>(topic: string, operation: () => Promise<T>): Promise<T>;
+    };
+    const topic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/events/automation/execution`;
+    const blocked = new Promise<void>(() => undefined);
+
+    for (let index = 0; index < 256; index += 1) {
+      void internal.runInGatewayInboundQueue(topic, () => blocked);
+    }
+
+    await expect(internal.runInGatewayInboundQueue(topic, async () => undefined)).rejects.toThrow(
+      "MQTT inbound Gateway queue capacity exceeded"
+    );
+  });
+
   it("releases the inbound PUBACK after commit without waiting for the application ACK publish callback", async () => {
     let releaseApplicationAck!: () => void;
     const applicationAckPending = new Promise<void>((resolve) => {
@@ -21,7 +98,9 @@ describe("MqttService v2 ordered state", () => {
     };
     const service = new MqttService({} as never, { attachProvisionedNode: jest.fn() } as never, ingestion as never);
     jest.spyOn(service, "publishTopic").mockReturnValue(applicationAckPending);
-    const done = jest.fn();
+    let markPuback!: () => void;
+    const puback = new Promise<void>((resolve) => { markPuback = resolve; });
+    const done = jest.fn(() => markPuback());
 
     const customHandleAcks = (service as unknown as {
       createCustomHandleAcks: () => (topic: string, payload: Buffer, packet: { qos: number }, done: (reasonCode: number) => void) => void;
@@ -33,8 +112,7 @@ describe("MqttService v2 ordered state", () => {
       done
     );
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await puback;
     expect(done).toHaveBeenCalledWith(0);
     releaseApplicationAck();
     await service.stopInboundAndDrain();

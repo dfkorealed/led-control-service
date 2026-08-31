@@ -2,6 +2,9 @@ import type { Page, Request, TestInfo } from "@playwright/test";
 import {
   acceptanceAckV2Schema,
   applicationStateIngestedAckV2Schema,
+  automationExecutionActionResultPayloadV1Schema,
+  automationExecutionEventV1Schema,
+  automationExecutionIngestedAckV1Schema,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
   gatewayHeartbeatV2Schema,
@@ -18,11 +21,11 @@ import {
 } from "@led-control/shared";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID, scrypt as scryptCallback, X509Certificate } from "node:crypto";
-import { appendFileSync, chmodSync, closeSync, existsSync, openSync } from "node:fs";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { appendFileSync, chmodSync, closeSync, existsSync, openSync, readFileSync } from "node:fs";
+import { copyFile, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname, join, resolve } from "node:path";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import { connect, type IClientPublishOptions, type MqttClient } from "mqtt";
 
 const scrypt = promisify(scryptCallback);
@@ -50,6 +53,134 @@ type NetworkEvidence = {
   status: number | null;
   outcome: "pending" | "responded" | "failed";
 };
+type AutomationExecutionDatabaseRow = {
+  eventId: string;
+  sequence: string;
+  revision: number;
+  kind: string;
+  ruleId: string | null;
+  occurrenceKey: string | null;
+  payload: unknown;
+  payloadHash: string | null;
+  lightingScheduleId: string | null;
+  vehicleEventRuleId: string | null;
+  manualOverrideId: string | null;
+  manualCommandId: string | null;
+};
+
+export function correlateAutomationExecutionEvidence(input: {
+  siteId: string;
+  gatewayId: string;
+  producerPid: number;
+  targetFixtureId: string;
+  mqttEvidence: Array<Record<string, unknown>>;
+  databaseRows: AutomationExecutionDatabaseRow[];
+}) {
+  const eventTopic = mqttTopics.automationExecution(input.siteId, input.gatewayId);
+  const ackTopic = mqttTopics.automationExecutionIngested(input.siteId, input.gatewayId);
+  const events = new Map<string, ReturnType<typeof automationExecutionEventV1Schema.parse>>();
+  const acknowledgements = new Map<string, ReturnType<typeof automationExecutionIngestedAckV1Schema.parse>>();
+
+  for (const evidence of input.mqttEvidence) {
+    if (
+      evidence.direction === "automation-observer" &&
+      evidence.producer === "production-gateway" &&
+      evidence.producerPid === input.producerPid &&
+      evidence.topic === eventTopic
+    ) {
+      const event = automationExecutionEventV1Schema.parse(evidence.payload);
+      if (event.gatewayId !== input.gatewayId) throw new Error("production execution event scope mismatch");
+      const key = automationExecutionKey(event.eventId, event.sequence);
+      const existing = events.get(key);
+      if (existing && !isDeepStrictEqual(existing, event)) {
+        throw new Error(`conflicting production execution replay: ${key}`);
+      }
+      events.set(key, event);
+      continue;
+    }
+    if (
+      evidence.direction === "automation-observer" &&
+      evidence.producer === "api" &&
+      evidence.producerPid === null &&
+      evidence.topic === ackTopic
+    ) {
+      const acknowledgement = automationExecutionIngestedAckV1Schema.parse(evidence.payload);
+      if (acknowledgement.gatewayId !== input.gatewayId) throw new Error("execution ACK scope mismatch");
+      const key = automationExecutionKey(acknowledgement.eventId, acknowledgement.sequence);
+      const existing = acknowledgements.get(key);
+      if (existing && existing.reportPayloadHash !== acknowledgement.reportPayloadHash) {
+        throw new Error(`conflicting execution ACK replay: ${key}`);
+      }
+      acknowledgements.set(key, acknowledgement);
+    }
+  }
+
+  if (events.size === 0) throw new Error("production automation execution evidence is missing");
+  const pendingAckKeys = [...events.keys()].filter((key) => !acknowledgements.has(key));
+  if (pendingAckKeys.length > 0) {
+    throw new Error(`pending execution ACK: ${pendingAckKeys.join(",")}`);
+  }
+  const unexpectedAckKeys = [...acknowledgements.keys()].filter((key) => !events.has(key));
+  if (unexpectedAckKeys.length > 0) {
+    throw new Error(`unexpected execution ACK: ${unexpectedAckKeys.join(",")}`);
+  }
+
+  const rows = new Map(input.databaseRows.map((row) => [automationExecutionKey(row.eventId, Number(row.sequence)), row]));
+  const pendingDatabaseKeys = [...events.keys()].filter((key) => !rows.has(key));
+  if (pendingDatabaseKeys.length > 0) {
+    throw new Error(`pending execution DB row: ${pendingDatabaseKeys.join(",")}`);
+  }
+  const unexpectedDatabaseKeys = [...rows.keys()].filter((key) => !events.has(key));
+  if (unexpectedDatabaseKeys.length > 0) {
+    throw new Error(`unexpected execution DB row: ${unexpectedDatabaseKeys.join(",")}`);
+  }
+
+  const actions: Array<Record<string, unknown>> = [];
+  for (const [key, event] of events) {
+    const row = rows.get(key)!;
+    const acknowledgement = acknowledgements.get(key)!;
+    if (
+      row.revision !== event.revision || row.kind !== event.kind || row.ruleId !== event.ruleId ||
+      row.occurrenceKey !== event.occurrenceKey || !isDeepStrictEqual(row.payload, event.payload)
+    ) throw new Error(`execution DB row mismatch: ${key}`);
+    if (!row.payloadHash || acknowledgement.reportPayloadHash !== row.payloadHash) {
+      throw new Error(`execution ACK hash mismatch: ${key}`);
+    }
+    if (event.kind !== "action_result") continue;
+    const action = automationExecutionActionResultPayloadV1Schema.parse(event.payload);
+    if (action.sourceType === "schedule" && row.lightingScheduleId !== action.sourceId) {
+      throw new Error(`schedule execution source mismatch: ${key}`);
+    }
+    if (action.sourceType === "vehicle_event_rule" && row.vehicleEventRuleId !== action.sourceId) {
+      throw new Error(`vehicle execution source mismatch: ${key}`);
+    }
+    if (action.sourceType === "manual_override" && (
+      !row.manualOverrideId || row.manualCommandId !== action.sourceId
+    )) throw new Error(`manual execution source mismatch: ${key}`);
+    const targetResult = action.results.find(({ fixtureId }) => fixtureId === input.targetFixtureId);
+    if (!targetResult || targetResult.status !== "succeeded" || targetResult.brightnessPercent === null) {
+      throw new Error(`target execution result mismatch: ${key}`);
+    }
+    actions.push({
+      eventId: event.eventId,
+      sequence: event.sequence,
+      sourceType: action.sourceType,
+      sourceId: action.sourceId,
+      brightness: targetResult.brightnessPercent,
+      kind: event.kind,
+      revision: event.revision,
+      occurrenceKey: event.occurrenceKey
+    });
+  }
+  actions.sort((left, right) => Number(left.sequence) - Number(right.sequence));
+
+  return {
+    uniqueProductionEventCount: events.size,
+    uniqueAckCount: acknowledgements.size,
+    databaseRowCount: rows.size,
+    actions
+  };
+}
 
 export class RealBackendLab {
   readonly operator = { loginId: runtimeLoginId("operator"), password: runtimePassword() };
@@ -86,9 +217,12 @@ export class RealBackendLab {
   private automationTarget?: AutomationFixture;
   private automationSensor?: AutomationFixture;
   private automationDatabaseEvidence?: Record<string, unknown>;
+  private readonly automationPhaseEvidence: Array<Record<string, unknown>> = [];
+  private automationClockMs?: number;
   private readonly automationIpcToken = runtimeSecret("automation-ipc");
   private readonly automationIpcRequests = new Map<string, {
-    resolve: () => void;
+    expectedType: "automation-e2e-sensor-edge-result" | "automation-e2e-clock-advance-result";
+    resolve: (result: Record<string, unknown>) => void;
     reject: (error: Error) => void;
     timeout: NodeJS.Timeout;
   }>();
@@ -271,11 +405,14 @@ export class RealBackendLab {
         this.stateIngestedEventIds.add(acknowledgement.eventId);
       }
       this.mqttHandlerChain = this.mqttHandlerChain.then(() => this.handleMqtt(topic, payload)).catch((error) => {
+        this.backgroundError ??= error;
         this.recordMqtt({ direction: "handler-error", topic, error: safeMessage(error) });
       });
     });
     await this.publishHeartbeat();
-    this.heartbeat = setInterval(() => void this.publishHeartbeat(), 5_000);
+    this.heartbeat = setInterval(() => {
+      this.trackBackgroundTask(this.publishHeartbeat(), "publisher heartbeat");
+    }, 5_000);
   }
 
   async startAutomationGateway(input: { targetName: string; sensorName: string }) {
@@ -324,6 +461,7 @@ export class RealBackendLab {
     }, null, 2)}\n`, { mode: 0o600 });
     await writeFile(eventSequencePath, `${JSON.stringify({ sequence: this.eventSequence })}\n`, { mode: 0o600 });
     const certificateName = `gateway-${this.gateway.id.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const identity = await this.seedGatewayIdentityStores(gatewayDir, certificateName);
     const gateway = this.spawnLogged(
       "gateway",
       process.execPath,
@@ -344,10 +482,17 @@ export class RealBackendLab {
         GATEWAY_HEARTBEAT_MS: "1000",
         GATEWAY_BLE_STATUS_TIMEOUT_MS: "1000",
         GATEWAY_FIRMWARE_VERSION: "task19-software-automation-simulator",
+        GATEWAY_BOOTSTRAP_URL: `https://localhost:${this.ports.api}`,
+        GATEWAY_BOOTSTRAP_CA_PATH: join(this.pkiDir, "ca.crt"),
+        GATEWAY_DEVICE_CERT_PATH: identity.deviceCertificatePath,
+        GATEWAY_DEVICE_KEY_PATH: identity.deviceKeyPath,
+        GATEWAY_IDENTITY_ROOT: identity.deviceRoot,
+        GATEWAY_MQTT_IDENTITY_ROOT: identity.mqttRoot,
+        GATEWAY_MQTT_CA_SOURCE_PATH: join(this.pkiDir, "ca.crt"),
         MQTT_URL: `mqtts://localhost:${this.ports.mqtt}`,
-        MQTT_CA_PATH: join(this.pkiDir, "ca.crt"),
-        MQTT_CLIENT_CERT_PATH: join(this.pkiDir, `${certificateName}.crt`),
-        MQTT_CLIENT_KEY_PATH: join(this.pkiDir, `${certificateName}.key`),
+        MQTT_CA_PATH: identity.mqttCaPath,
+        MQTT_CLIENT_CERT_PATH: identity.mqttCertificatePath,
+        MQTT_CLIENT_KEY_PATH: identity.mqttKeyPath,
         GATEWAY_HEALTH_PATH: join(gatewayDir, "health.json"),
         GATEWAY_COMMAND_JOURNAL_PATH: join(gatewayDir, "command-journal.json"),
         GATEWAY_EVENT_SEQUENCE_PATH: eventSequencePath,
@@ -367,7 +512,7 @@ export class RealBackendLab {
     this.automationGateway = gateway;
     gateway.on("message", (message) => this.handleAutomationIpcMessage(message));
     gateway.once("exit", () => this.rejectAutomationIpcRequests("automation Gateway child exited"));
-    await this.waitForGatewayMqttEvidence(gateway, "/state/heartbeat", 30_000);
+    await this.waitForAutomationGatewayHeartbeat(gateway, 30_000);
   }
 
   async waitForVehicleSensorCapability(name: string, timeoutMs = 20_000) {
@@ -379,30 +524,33 @@ export class RealBackendLab {
   }
 
   injectSensorEdge(fixtureId: string, edge: "detected" | "cleared") {
-    const gateway = this.automationGateway;
-    if (!gateway?.connected) throw new Error("automation Gateway private IPC is not connected");
-    const requestId = randomUUID();
-    return new Promise<void>((resolvePromise, reject) => {
-      const timeout = setTimeout(() => {
-        this.automationIpcRequests.delete(requestId);
-        reject(new Error("automation Gateway private IPC timed out"));
-      }, 10_000);
-      this.automationIpcRequests.set(requestId, { resolve: resolvePromise, reject, timeout });
-      gateway.send({
+    return this.sendAutomationIpcRequest(
+      "automation-e2e-sensor-edge-result",
+      {
         type: "automation-e2e-sensor-edge",
-        token: this.automationIpcToken,
-        requestId,
         fixtureId: this.resolveAutomationFixtureId(fixtureId),
         edge
-      }, (error) => {
-        if (!error) return;
-        const pending = this.automationIpcRequests.get(requestId);
-        if (!pending) return;
-        clearTimeout(pending.timeout);
-        this.automationIpcRequests.delete(requestId);
-        pending.reject(error);
-      });
-    });
+      }
+    ).then(() => undefined);
+  }
+
+  async advanceAutomationClock(advanceMs: number) {
+    const result = await this.sendAutomationIpcRequest(
+      "automation-e2e-clock-advance-result",
+      { type: "automation-e2e-clock-advance", advanceMs }
+    );
+    if (typeof result.wallClockMs !== "number" || typeof result.monotonicMs !== "number") {
+      throw new Error("automation Gateway returned a malformed clock result");
+    }
+    this.automationClockMs = result.wallClockMs;
+    return { wallClockMs: result.wallClockMs, monotonicMs: result.monotonicMs };
+  }
+
+  async advanceAutomationClockTo(wallClockMs: number) {
+    const current = await this.advanceAutomationClock(0);
+    const advanceMs = Math.floor(wallClockMs - current.wallClockMs);
+    if (advanceMs < 0) throw new Error("automation clock cannot move backwards");
+    return this.advanceAutomationClock(advanceMs);
   }
 
   async waitForFixtureBrightness(name: string, brightness: number, timeoutMs = 20_000) {
@@ -411,6 +559,51 @@ export class RealBackendLab {
       String(brightness),
       timeoutMs
     );
+  }
+
+  async assertAutomationBrightnessPhase(input: {
+    phase: string;
+    cause: string;
+    fixtureName: string;
+    brightness: number;
+  }) {
+    const actual = Number(await this.scalar(
+      `SELECT brightness::text FROM "Fixture" WHERE name=${sqlString(input.fixtureName)}`
+    ));
+    if (actual !== input.brightness) {
+      throw new Error(
+        `automation phase ${input.phase} expected brightness ${input.brightness}, received ${actual}`
+      );
+    }
+    this.automationPhaseEvidence.push({
+      order: this.automationPhaseEvidence.length + 1,
+      phase: input.phase,
+      cause: input.cause,
+      fixtureName: input.fixtureName,
+      brightness: actual,
+      clockMs: this.automationClockMs ?? null
+    });
+  }
+
+  async waitForAutomationExecutionKind(kind: string, expected = 1, timeoutMs = 20_000) {
+    await this.waitForDatabaseCount(
+      `SELECT count(*) FROM "AutomationExecution" WHERE "gatewayId"=${sqlString(this.gateway.id)} AND kind=${sqlString(kind)}::"AutomationExecutionKind"`,
+      expected,
+      timeoutMs
+    );
+  }
+
+  async latestVehicleHoldUntil() {
+    const value = await this.scalar(`
+      SELECT payload->>'holdUntil'
+      FROM "AutomationExecution"
+      WHERE "gatewayId"=${sqlString(this.gateway.id)} AND kind='event_extended'::"AutomationExecutionKind"
+      ORDER BY sequence DESC
+      LIMIT 1
+    `);
+    const holdUntilMs = Date.parse(value);
+    if (!Number.isFinite(holdUntilMs)) throw new Error("vehicle hold deadline evidence is missing");
+    return holdUntilMs;
   }
 
   async assertAutomationEvidence(input: { targetName: string; sensorName: string }) {
@@ -426,11 +619,11 @@ export class RealBackendLab {
         'desiredRevision', (SELECT "desiredRevision" FROM "GatewayAutomationConfiguration" WHERE "gatewayId"=${sqlString(this.gateway.id)}),
         'appliedRevision', (SELECT "appliedRevision" FROM "GatewayAutomationConfiguration" WHERE "gatewayId"=${sqlString(this.gateway.id)}),
         'syncStatus', (SELECT "syncStatus" FROM "GatewayAutomationConfiguration" WHERE "gatewayId"=${sqlString(this.gateway.id)}),
+        'targetFixtureId', (SELECT id FROM "Fixture" WHERE name=${sqlString(input.targetName)}),
         'targetBrightness', (SELECT brightness FROM "Fixture" WHERE name=${sqlString(input.targetName)}),
         'sensorCapability', (SELECT m."vehicleSensorCapabilityStatus" FROM "Fixture" f JOIN "MeshNode" m ON m.id=f."meshNodeId" WHERE f.name=${sqlString(input.sensorName)})
       )
     `);
-    this.automationDatabaseEvidence = evidence;
     for (const [key, minimum] of [
       ["scheduleCount", 1],
       ["vehicleEventRuleCount", 1],
@@ -452,6 +645,97 @@ export class RealBackendLab {
       if (!this.mqttEvidence.some(({ topic }) => String(topic).includes(marker))) {
         throw new Error(`MQTT automation evidence missing: ${marker}`);
       }
+    }
+    const gateway = this.automationGateway;
+    if (!gateway?.pid) throw new Error("production automation Gateway child identity is unavailable");
+    const targetFixtureId = String(evidence.targetFixtureId ?? "");
+    if (!targetFixtureId) throw new Error("automation target fixture identity is unavailable");
+    const executionOracle = await this.waitForAutomationExecutionOracle(gateway.pid, targetFixtureId, 30_000);
+    this.assertCleanAutomationIngestion();
+    if (this.backgroundError) throw this.backgroundError;
+    this.automationDatabaseEvidence = { ...evidence, executionOracle };
+  }
+
+  private async waitForAutomationExecutionOracle(
+    producerPid: number,
+    targetFixtureId: string,
+    timeoutMs: number
+  ) {
+    const installation = this.requireInstallation();
+    const deadline = Date.now() + timeoutMs;
+    let lastError: unknown;
+    let stableSignature = "";
+    let stableSince = 0;
+    while (Date.now() < deadline) {
+      try {
+        const databaseRows = await this.queryAutomationExecutionRows();
+        const correlated = correlateAutomationExecutionEvidence({
+          siteId: installation.siteId,
+          gatewayId: this.gateway.id,
+          producerPid,
+          targetFixtureId,
+          mqttEvidence: this.mqttEvidence,
+          databaseRows
+        });
+        const phases = expectedAutomationActionPhases(correlated.actions);
+        const signature = JSON.stringify({
+          eventCount: correlated.uniqueProductionEventCount,
+          ackCount: correlated.uniqueAckCount,
+          databaseRowCount: correlated.databaseRowCount,
+          phases
+        });
+        if (signature !== stableSignature) {
+          stableSignature = signature;
+          stableSince = Date.now();
+        } else if (Date.now() - stableSince >= 500) {
+          return { ...correlated, phases, databaseRows };
+        }
+      } catch (error) {
+        lastError = error;
+        stableSignature = "";
+        stableSince = 0;
+      }
+      await delay(100);
+    }
+    throw new Error(`automation execution oracle did not converge: ${safeMessage(lastError)}`, { cause: lastError });
+  }
+
+  private queryAutomationExecutionRows() {
+    return this.queryJson<AutomationExecutionDatabaseRow[]>(`
+      SELECT coalesce(json_agg(json_build_object(
+        'eventId', ae."eventId",
+        'sequence', ae.sequence::text,
+        'revision', ae.revision,
+        'kind', ae.kind::text,
+        'ruleId', ae."ruleId",
+        'occurrenceKey', ae."occurrenceKey",
+        'payload', ae.payload,
+        'payloadHash', ae."payloadHash",
+        'lightingScheduleId', ae."lightingScheduleId",
+        'vehicleEventRuleId', ae."vehicleEventRuleId",
+        'manualOverrideId', ae."manualOverrideId",
+        'manualCommandId', mo."commandId"
+      ) ORDER BY ae.sequence), '[]'::json)
+      FROM "AutomationExecution" ae
+      LEFT JOIN "ManualOverride" mo ON mo.id=ae."manualOverrideId"
+      WHERE ae."gatewayId"=${sqlString(this.gateway.id)}
+    `);
+  }
+
+  private assertCleanAutomationIngestion() {
+    const evidenceErrors = this.mqttEvidence.filter(({ direction }) =>
+      direction === "handler-error" || direction === "automation-observer-error");
+    if (evidenceErrors.length > 0) throw new Error("automation MQTT evidence contains an ingest or observer error");
+    const checks = [
+      { file: "api.log", pattern: /UNEXPECTED_ERROR|P2028|mqtt inbound message handling failed|fixture state transaction failed before PUBACK|fixture state application ACK publish failed/ },
+      { file: "gateway.log", pattern: /Gateway MQTT .* failed/ }
+    ];
+    for (const check of checks) {
+      const path = join(this.labDir, check.file);
+      if (!existsSync(path)) throw new Error(`automation log is missing: ${check.file}`);
+      const content = readFileSync(path, "utf8");
+      const matched = content.match(check.pattern);
+      if (matched) throw new Error(`automation ingest log is not clean: ${check.file}: ${matched[0]}`);
     }
   }
 
@@ -550,6 +834,12 @@ export class RealBackendLab {
       await writeFile(
         testInfo.outputPath("automation-database-evidence.json"),
         JSON.stringify(this.automationDatabaseEvidence, null, 2)
+      );
+    }
+    if (this.automationPhaseEvidence.length > 0) {
+      await writeFile(
+        testInfo.outputPath("automation-phase-evidence.json"),
+        JSON.stringify(this.automationPhaseEvidence, null, 2)
       );
     }
     for (const name of ["api.log", "web.log", "gateway.log"]) {
@@ -662,14 +952,10 @@ export class RealBackendLab {
   }
 
   private scheduleInitialFixtureStates() {
-    let task!: Promise<void>;
-    task = delay(800)
-      .then(() => this.publishInitialFixtureStatesWhenReady())
-      .catch((error) => {
-        this.backgroundError ??= error;
-      })
-      .finally(() => this.backgroundTasks.delete(task));
-    this.backgroundTasks.add(task);
+    this.trackBackgroundTask(
+      delay(800).then(() => this.publishInitialFixtureStatesWhenReady()),
+      "initial fixture state publication"
+    );
   }
 
   private async publishFixtureState(fixtureId: string, brightness: number) {
@@ -696,10 +982,46 @@ export class RealBackendLab {
   private async detachGatewayPublisher() {
     if (this.heartbeat) clearInterval(this.heartbeat);
     this.heartbeat = undefined;
-    await this.mqttHandlerChain;
+    const errors: unknown[] = [];
+    const handlerResults = await settleWithin(
+      [this.mqttHandlerChain],
+      this.cleanupTimeoutMs,
+      "publisher MQTT handler drain"
+    );
+    errors.push(...rejectedReasons(handlerResults));
+    const background = [...this.backgroundTasks];
+    if (background.length > 0) {
+      const backgroundResults = await settleWithin(
+        background,
+        this.cleanupTimeoutMs,
+        "publisher background task drain"
+      );
+      errors.push(...rejectedReasons(backgroundResults));
+    }
+    if (this.backgroundError) errors.push(this.backgroundError);
+
     const client = this.mqtt;
-    this.mqtt = undefined;
-    if (client) await closeMqttWithin(client, false, this.cleanupTimeoutMs);
+    if (client) {
+      try {
+        await closeMqttStrictWithin(client, false, this.cleanupTimeoutMs, "publisher MQTT close");
+        this.mqtt = undefined;
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "publisher handoff failed");
+  }
+
+  private trackBackgroundTask(operation: Promise<void>, label: string) {
+    let task!: Promise<void>;
+    task = operation
+      .catch((error) => {
+        this.backgroundError ??= new Error(`${label}: ${safeMessage(error)}`, { cause: error });
+      })
+      .finally(() => this.backgroundTasks.delete(task));
+    this.backgroundTasks.add(task);
   }
 
   private async seedGatewayMqttCertificateLedger(certificatePath: string) {
@@ -724,6 +1046,56 @@ export class RealBackendLab {
     `);
   }
 
+  private async seedGatewayIdentityStores(gatewayDir: string, certificateName: string) {
+    const sourceCertificate = join(this.pkiDir, `${certificateName}.crt`);
+    const sourceKey = join(this.pkiDir, `${certificateName}.key`);
+    const sourceCa = join(this.pkiDir, "ca.crt");
+    const deviceRoot = join(gatewayDir, "identity", "device");
+    const mqttRoot = join(gatewayDir, "identity", "mqtt");
+    const deviceGenerationId = randomUUID();
+    const mqttGenerationId = randomUUID();
+    const deviceGeneration = join(deviceRoot, "generations", deviceGenerationId);
+    const mqttGeneration = join(mqttRoot, "generations", mqttGenerationId);
+    for (const root of [deviceRoot, mqttRoot]) {
+      await mkdir(join(root, "generations"), { recursive: true, mode: 0o750 });
+      await mkdir(join(root, "pending-generations"), { recursive: true, mode: 0o750 });
+      chmodSync(root, 0o750);
+      chmodSync(join(root, "generations"), 0o750);
+      chmodSync(join(root, "pending-generations"), 0o750);
+    }
+    await mkdir(deviceGeneration, { mode: 0o750 });
+    await mkdir(mqttGeneration, { mode: 0o750 });
+    await copyIdentityFile(sourceCertificate, join(deviceGeneration, "device.crt"), 0o644);
+    await copyIdentityFile(sourceKey, join(deviceGeneration, "device.key"), 0o600);
+    await this.run("openssl", [
+      "req", "-new",
+      "-key", join(deviceGeneration, "device.key"),
+      "-out", join(deviceGeneration, "device.csr"),
+      "-subj", `/CN=${this.gateway.id}`
+    ]);
+    chmodSync(join(deviceGeneration, "device.csr"), 0o644);
+    for (const name of ["device-ca.crt", "api-ca.crt", "mqtt-ca.crt"]) {
+      await copyIdentityFile(sourceCa, join(deviceGeneration, name), 0o644);
+    }
+    await symlink(`generations/${deviceGenerationId}`, join(deviceRoot, "current"));
+
+    await copyIdentityFile(sourceCertificate, join(mqttGeneration, "gateway.crt"), 0o644);
+    await copyIdentityFile(sourceKey, join(mqttGeneration, "gateway.key"), 0o600);
+    await copyIdentityFile(sourceCa, join(mqttGeneration, "gateway-chain.crt"), 0o644);
+    await copyIdentityFile(sourceCa, join(mqttGeneration, "mqtt-ca.crt"), 0o644);
+    await symlink(`generations/${mqttGenerationId}`, join(mqttRoot, "current"));
+
+    return {
+      deviceRoot,
+      deviceCertificatePath: join(deviceRoot, "current", "device.crt"),
+      deviceKeyPath: join(deviceRoot, "current", "device.key"),
+      mqttRoot,
+      mqttCertificatePath: join(mqttRoot, "current", "gateway.crt"),
+      mqttKeyPath: join(mqttRoot, "current", "gateway.key"),
+      mqttCaPath: join(mqttRoot, "current", "mqtt-ca.crt")
+    };
+  }
+
   private async attachAutomationObserver() {
     const installation = this.requireInstallation();
     const observer = await connectMqttForLab({
@@ -738,11 +1110,18 @@ export class RealBackendLab {
       direction: "automation-observer-error",
       error: safeMessage(error)
     }));
-    observer.on("message", (topic, payload) => this.recordMqtt({
-      direction: "automation-observer",
-      topic,
-      payload: parseJson(payload)
-    }));
+    observer.on("message", (topic, payload) => {
+      const producer = topic.includes("/commands/") || topic.includes("/acks/")
+        ? "api"
+        : "production-gateway";
+      this.recordMqtt({
+        direction: "automation-observer",
+        producer,
+        producerPid: producer === "production-gateway" ? this.automationGateway?.pid ?? null : null,
+        topic,
+        payload: parseJson(payload)
+      });
+    });
     await subscribe(observer, [`sites/${installation.siteId}/gateways/${this.gateway.id}/#`]);
     this.automationObserver = observer;
   }
@@ -750,13 +1129,42 @@ export class RealBackendLab {
   private handleAutomationIpcMessage(message: unknown) {
     if (!message || typeof message !== "object" || Array.isArray(message)) return;
     const result = message as Record<string, unknown>;
-    if (result.type !== "automation-e2e-sensor-edge-result" || typeof result.requestId !== "string") return;
+    if (typeof result.type !== "string" || typeof result.requestId !== "string") return;
     const pending = this.automationIpcRequests.get(result.requestId);
-    if (!pending) return;
+    if (!pending || result.type !== pending.expectedType) return;
     clearTimeout(pending.timeout);
     this.automationIpcRequests.delete(result.requestId);
-    if (result.ok === true) pending.resolve();
-    else pending.reject(new Error(typeof result.error === "string" ? result.error : "automation sensor edge failed"));
+    if (result.ok === true) pending.resolve(result);
+    else pending.reject(new Error(typeof result.error === "string" ? result.error : "automation private IPC failed"));
+  }
+
+  private sendAutomationIpcRequest(
+    expectedType: "automation-e2e-sensor-edge-result" | "automation-e2e-clock-advance-result",
+    payload: Record<string, unknown>
+  ) {
+    const gateway = this.automationGateway;
+    if (!gateway?.connected) throw new Error("automation Gateway private IPC is not connected");
+    const requestId = randomUUID();
+    return new Promise<Record<string, unknown>>((resolvePromise, reject) => {
+      const timeout = setTimeout(() => {
+        this.automationIpcRequests.delete(requestId);
+        reject(new Error("automation Gateway private IPC timed out"));
+      }, 10_000);
+      this.automationIpcRequests.set(requestId, {
+        expectedType,
+        resolve: resolvePromise,
+        reject,
+        timeout
+      });
+      gateway.send({ ...payload, token: this.automationIpcToken, requestId }, (error) => {
+        if (!error) return;
+        const pending = this.automationIpcRequests.get(requestId);
+        if (!pending) return;
+        clearTimeout(pending.timeout);
+        this.automationIpcRequests.delete(requestId);
+        pending.reject(error);
+      });
+    });
   }
 
   private rejectAutomationIpcRequests(message: string) {
@@ -774,15 +1182,30 @@ export class RealBackendLab {
     throw new Error(`automation fixture is not configured: ${nameOrId}`);
   }
 
-  private async waitForGatewayMqttEvidence(child: ChildProcess, marker: string, timeoutMs: number) {
+  private async waitForAutomationGatewayHeartbeat(child: ChildProcess, timeoutMs: number) {
+    const installation = this.requireInstallation();
+    const topic = mqttTopicsV2.heartbeat(installation.siteId, this.gateway.id);
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       assertChildRunning(child, "automation Gateway");
-      if (this.mqttEvidence.some(({ direction, topic }) =>
-        direction === "automation-observer" && String(topic).includes(marker))) return;
+      const ready = this.mqttEvidence.some((evidence) => {
+        if (
+          evidence.direction !== "automation-observer" ||
+          evidence.producer !== "production-gateway" ||
+          evidence.producerPid !== child.pid ||
+          evidence.topic !== topic
+        ) return false;
+        const parsed = gatewayHeartbeatV2Schema.safeParse(evidence.payload);
+        return parsed.success &&
+          parsed.data.siteId === installation.siteId &&
+          parsed.data.gatewayId === this.gateway.id &&
+          parsed.data.gatewaySerial === this.gateway.serialNumber &&
+          parsed.data.firmwareVersion === "task19-software-automation-simulator";
+      });
+      if (ready) return;
       await delay(100);
     }
-    throw new Error(`timed out waiting for production Gateway MQTT evidence: ${marker}`);
+    throw new Error("timed out waiting for production Gateway identity heartbeat");
   }
 
   private async publish(topic: string, payload: unknown, options: IClientPublishOptions = { qos: 1 }) {
@@ -956,8 +1379,8 @@ export class RealBackendLab {
     throw new Error("timed out waiting for real-backend evidence");
   }
 
-  private async waitForDatabaseCount(statement: string, expected: number) {
-    const deadline = Date.now() + 10_000;
+  private async waitForDatabaseCount(statement: string, expected: number, timeoutMs = 10_000) {
+    const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (Number(await this.scalar(statement)) >= expected) return;
       await delay(100);
@@ -1044,6 +1467,48 @@ async function hashSecret(secret: string) {
 }
 
 function sqlString(value: string) { return `'${value.replaceAll("'", "''")}'`; }
+
+async function copyIdentityFile(source: string, destination: string, mode: number) {
+  await copyFile(source, destination);
+  chmodSync(destination, mode);
+}
+
+function automationExecutionKey(eventId: string, sequence: number) {
+  return `${eventId}:${sequence}`;
+}
+
+function expectedAutomationActionPhases(actions: Array<Record<string, unknown>>) {
+  const expected = [
+    { phase: "schedule-active", sourceType: "schedule", brightness: 40 },
+    { phase: "vehicle-detected", sourceType: "vehicle_event_rule", brightness: 80 },
+    { phase: "manual-active", sourceType: "manual_override", brightness: 60 },
+    { phase: "manual-expired", sourceType: "vehicle_event_rule", brightness: 80 },
+    { phase: "vehicle-hold-expired", sourceType: "schedule", brightness: 40 }
+  ];
+  if (actions.length !== expected.length) {
+    throw new Error(`expected ${expected.length} target action phases, received ${actions.length}`);
+  }
+  return expected.map((phase, index) => {
+    const action = actions[index];
+    if (action.sourceType !== phase.sourceType || action.brightness !== phase.brightness) {
+      throw new Error(
+        `automation action phase mismatch at ${phase.phase}: ${String(action.sourceType)}/${String(action.brightness)}`
+      );
+    }
+    return {
+      phase: phase.phase,
+      producer: "production-gateway",
+      eventId: action.eventId,
+      sequence: action.sequence,
+      kind: action.kind,
+      brightness: action.brightness,
+      sourceType: action.sourceType,
+      sourceId: action.sourceId,
+      revision: action.revision,
+      occurrenceKey: action.occurrenceKey
+    };
+  });
+}
 
 function runtimeLoginId(prefix: string) {
   return `task9_${prefix.replaceAll("-", "_")}_${randomBytes(6).toString("hex")}`;
@@ -1288,6 +1753,30 @@ function closeMqttWithin(client: MqttClient, force: boolean, timeoutMs: number) 
       client.end(force, {}, finish);
     } catch {
       finish();
+    }
+  });
+}
+
+function closeMqttStrictWithin(
+  client: MqttClient,
+  force: boolean,
+  timeoutMs: number,
+  label: string
+) {
+  return new Promise<void>((resolvePromise, reject) => {
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else resolvePromise();
+    };
+    const timeout = setTimeout(() => finish(new Error(`${label} timed out`)), timeoutMs);
+    try {
+      client.end(force, {}, () => finish());
+    } catch (error) {
+      finish(error);
     }
   });
 }

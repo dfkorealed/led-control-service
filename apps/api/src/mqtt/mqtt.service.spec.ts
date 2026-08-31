@@ -539,6 +539,7 @@ describe("MqttService", () => {
 
   it("detaches inbound messages, drains the active handler, and contains a redacted rejection", async () => {
     const activeHandler = deferred<void>();
+    const handlerStarted = deferred<void>();
     const client = Object.assign(new EventEmitter(), {
       subscribe: jest.fn()
     });
@@ -549,6 +550,7 @@ describe("MqttService", () => {
       code: "PRIVATE_CODE"
     });
     const handleMessage = jest.spyOn(service, "handleMessage").mockImplementation(async () => {
+      handlerStarted.resolve();
       await activeHandler.promise;
       throw sensitiveError;
     });
@@ -556,7 +558,7 @@ describe("MqttService", () => {
 
     service.onModuleInit();
     client.emit("message", "sites/private/topic", Buffer.from("private-payload"));
-    await Promise.resolve();
+    await handlerStarted.promise;
     expect(handleMessage).toHaveBeenCalledTimes(1);
 
     const stopping = service.stopInboundAndDrain();

@@ -10,6 +10,8 @@ const FIXTURE_ID = "00000000-0000-4000-8000-000000000006";
 const FIXTURE_ID_2 = "00000000-0000-4000-8000-000000000009";
 const EVENT_ID = "00000000-0000-4000-8000-000000000007";
 const MESH_NODE_ID = "00000000-0000-4000-8000-000000000008";
+const COMMAND_ID = "00000000-0000-4000-8000-000000000010";
+const MANUAL_OVERRIDE_ID = "00000000-0000-4000-8000-000000000011";
 const NOW = new Date("2026-08-30T01:00:00.000Z");
 
 describe("AutomationMqttConsumerService", () => {
@@ -213,6 +215,49 @@ describe("AutomationMqttConsumerService", () => {
     expect(harness.state.applicationAcks).toHaveLength(1);
   });
 
+  it("binds a manual action command source to the ManualOverride primary key and exact ACK", async () => {
+    const harness = createHarness();
+    const event = executionEvent({
+      ruleId: null,
+      occurrenceKey: `manual:${COMMAND_ID}`,
+      payload: {
+        sourceType: "manual_override" as const,
+        sourceId: COMMAND_ID,
+        results: [{
+          fixtureId: FIXTURE_ID,
+          status: "succeeded" as const,
+          brightnessPercent: 60,
+          faultCode: null,
+          errorCode: null,
+          occurredAt: "2026-08-30T00:59:00.000Z"
+        }]
+      }
+    });
+
+    await harness.service.onExecution({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event);
+
+    expect(harness.state.executions).toEqual([expect.objectContaining({
+      eventId: EVENT_ID,
+      manualOverrideId: MANUAL_OVERRIDE_ID,
+      lightingScheduleId: null,
+      vehicleEventRuleId: null,
+      payloadHash: canonicalPayloadHash(event)
+    })]);
+    expect(harness.state.fixtureResults).toEqual([expect.objectContaining({
+      fixtureId: FIXTURE_ID,
+      brightnessPercent: 60
+    })]);
+    expect(harness.state.applicationAcks).toEqual([expect.objectContaining({
+      applicationAckKey: `automation-execution:${GATEWAY_ID}:${EVENT_ID}:9:${canonicalPayloadHash(event)}`,
+      payload: expect.objectContaining({
+        gatewayId: GATEWAY_ID,
+        eventId: EVENT_ID,
+        sequence: 9,
+        reportPayloadHash: canonicalPayloadHash(event)
+      })
+    })]);
+  });
+
   it("rejects a conflicting replay without changing the original execution or ACK", async () => {
     const harness = createHarness();
     const original = executionEvent();
@@ -290,6 +335,11 @@ function createHarness() {
       payload: snapshot(revision)
     })),
     currentVehicleRule: { id: RULE_ID, targetFixtureIds: [FIXTURE_ID, FIXTURE_ID_2] },
+    manualOverride: {
+      id: MANUAL_OVERRIDE_ID,
+      commandId: COMMAND_ID,
+      fixtureIds: [FIXTURE_ID]
+    },
     executions: [],
     fixtureResults: [],
     applicationAcks: []
@@ -372,7 +422,18 @@ function createPrisma(state: State) {
         };
       })
     },
-    manualOverride: { findFirst: jest.fn() },
+    manualOverride: {
+      findFirst: jest.fn(async ({ where }: any) => {
+        if (
+          where.commandId !== state.manualOverride.commandId ||
+          where.siteId !== SITE_ID || where.gatewayId !== GATEWAY_ID
+        ) return null;
+        return {
+          id: state.manualOverride.id,
+          fixtures: state.manualOverride.fixtureIds.map((fixtureId) => ({ fixtureId }))
+        };
+      })
+    },
     automationExecution: {
       findUnique: jest.fn(async ({ where }: any) => state.executions.find((row) =>
         row.gatewayId === where.gatewayId_eventId_sequence.gatewayId &&
@@ -502,6 +563,7 @@ interface State {
   configuration: any;
   configOutboxes: any[];
   currentVehicleRule: { id: string; targetFixtureIds: string[] } | null;
+  manualOverride: { id: string; commandId: string; fixtureIds: string[] };
   executions: any[];
   fixtureResults: any[];
   applicationAcks: any[];
