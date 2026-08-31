@@ -113,6 +113,36 @@ git status --short && pnpm typecheck && pnpm test && scripts/esp32-h2-build.sh
 | `pnpm test` | 성공: root 15, mobile 1, shared 151, automation-engine 28, Web 352, API 738 passed 및 161 skipped, Gateway 559 passed |
 | `git diff --check` | 성공, 출력 없음 |
 
+## Fix Round 3 RED/GREEN
+
+Fix Round 2 Re-review의 유일한 OPEN P1을 수정했다. temp directory는 fixed lock의 ownership/coordination 상태가 아니므로, publish 전 crash artifact가 후속 build의 fixed lock 획득을 막아서는 안 된다.
+
+### RED
+
+1. empty `.build-output.lock.tmp-<token>` orphan이 있으면 기존 acquire는 timeout까지 대기했다.
+2. exact `.owner.<token>`가 partial JSON인 orphan은 기존 acquire가 invalid marker로 fail-closed했다.
+3. temp directory/marker symlink와 non-directory는 외부 target을 건드리지는 않았지만 fixed lock acquire 자체를 실패시켰다. temp cleanup 직후 원 publisher가 retry하는 경쟁도 구현 훅이 없어 재현할 수 없었다.
+
+### GREEN
+
+1. acquire는 orphan temp를 best-effort로만 정리하고 temp owner identity를 fixed lock 판정에 사용하지 않는다. empty temp와 exact regular `.owner.<token>` 하나를 가진 temp(complete/partial/invalid)는 direct path에서 unlink/rmdir로 정리한 뒤 fixed lock publish를 계속한다.
+2. temp symlink, non-directory, marker symlink와 외부 sentinel은 변경하지 않고 무시한다. 따라서 공격자가 만든 비정상 temp path는 fixed lock mutual exclusion이나 정상 build 진행을 막지 않는다.
+3. temp cleanup에 걸린 publisher는 marker write/rename의 `ENOENT` 또는 collision 뒤 fixed lock 존재를 다시 확인하고 새 temp publish를 retry한다. active fixed lock의 timeout, stale/PID reuse, unknown identity fail-closed, exact release와 delayed successor ABA 보호는 기존 회귀로 유지했다.
+
+### Fix Round 3 검증
+
+| 명령 | 결과 |
+| --- | --- |
+| `pnpm --filter @led-control/shared exec vitest run src/build-output-lock.test.ts src/package-exports.test.ts -t 'shared build output lock|serializes concurrent builds'` | 성공: lock 20건과 실제 동시 build fixture 1건 통과 |
+| `pnpm --filter @led-control/shared test` | 성공: 9 files, 154 tests passed |
+| `pnpm typecheck` | 성공, exit code `0` |
+| `pnpm test` | 성공: root 15, mobile 1, shared 154, automation-engine 28, Web 352, API 738 passed 및 161 skipped, Gateway 559 passed |
+| `git diff --check` | 성공, 출력 없음 |
+
+### 잔여 위험
+
+multi-entry 또는 symlink/non-directory temp artifact는 외부 경로를 건드리지 않기 위해 자동 삭제하지 않을 수 있다. 이 artifact는 fixed lock 획득을 막지 않지만 parent directory의 운영 정리는 별도로 필요할 수 있다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 여전히 미실행이다.
+
 ## HIL 경계와 다음 증거
 
 HIL runbook은 아직 실행하지 않았다. 다음 증거가 한 시험 디렉터리에 함께 있어야만 HIL 통과로 판정한다.

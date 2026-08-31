@@ -216,7 +216,7 @@ describe("shared build output lock", () => {
     await expect(readFile(sentinel, "utf8")).resolves.toBe("keep\n");
   });
 
-  it("removes a stale orphan temp directory through its exact marker", async () => {
+  it("removes a completed orphan temp directory through its exact marker", async () => {
     const root = await createRoot();
     await seedTemp(root, { pid: 101, processStartIdentity: "old-boot" });
 
@@ -225,19 +225,46 @@ describe("shared build output lock", () => {
     await expect(release()).resolves.toBe(true);
   });
 
-  it("waits for an active orphan temp directory instead of stealing it", async () => {
+  it("does not let another contender's active temp block fixed lock acquisition", async () => {
     const root = await createRoot();
     await seedTemp(root, { pid: 101, processStartIdentity: "boot-a" });
 
-    await expect(acquire(
+    const release = await acquire(
       root,
       { pid: 202, processStartIdentity: "boot-b" },
       new Map([[101, { state: "active", processStartIdentity: "boot-a" }]]),
       "token-b"
-    )).rejects.toThrow("timed out");
+    );
+    await expect(access(tempPath(root, "stale-token"))).rejects.toThrow();
+    await expect(release()).resolves.toBe(true);
   });
 
-  it.each(["lock root", "owner marker", "temp directory", "temp marker"])
+  it("removes an empty orphan temp without blocking fixed lock acquisition", async () => {
+    const root = await createRoot();
+    await mkdir(tempPath(root, "orphan-token"));
+
+    const release = await acquire(
+      root,
+      { pid: 202, processStartIdentity: "boot-b" },
+      new Map(),
+      "token-b"
+    );
+    await expect(access(tempPath(root, "orphan-token"))).rejects.toThrow();
+    await expect(release()).resolves.toBe(true);
+  });
+
+  it("removes a partial owner marker orphan without blocking fixed lock acquisition", async () => {
+    const root = await createRoot();
+    const token = "orphan-token";
+    await mkdir(tempPath(root, token));
+    await writeFile(ownerMarkerPath(tempPath(root, token), token), '{"version":');
+
+    const release = await acquire(root, { pid: 202, processStartIdentity: "boot-b" }, new Map(), "token-b");
+    await expect(access(tempPath(root, token))).rejects.toThrow();
+    await expect(release()).resolves.toBe(true);
+  });
+
+  it.each(["lock root", "owner marker"])
   ("fails closed for a %s symlink without touching its external target", async (kind) => {
     const root = await createRoot();
     const external = await createRoot();
@@ -249,11 +276,6 @@ describe("shared build output lock", () => {
     } else if (kind === "owner marker") {
       await mkdir(lockPath(root));
       await symlink(sentinel, ownerMarkerPath(lockPath(root), "token-a"), "file");
-    } else if (kind === "temp directory") {
-      await symlink(external, tempPath(root, "token-a"), "dir");
-    } else {
-      await mkdir(tempPath(root, "token-a"));
-      await symlink(sentinel, ownerMarkerPath(tempPath(root, "token-a"), "token-a"), "file");
     }
 
     await expect(acquire(root, { pid: 202, processStartIdentity: "boot-b" }, new Map(), "token-b"))
@@ -261,12 +283,62 @@ describe("shared build output lock", () => {
     await expect(readFile(sentinel, "utf8")).resolves.toBe("keep\n");
   });
 
-  it("fails closed for a non-directory orphan temp path", async () => {
+  it.each(["temp directory", "temp marker", "non-directory temp"])
+  ("ignores a %s without changing its external or invalid path", async (kind) => {
     const root = await createRoot();
-    await writeFile(tempPath(root, "token-a"), "not a directory\n");
+    const external = await createRoot();
+    const sentinel = join(external, "sentinel.txt");
+    await writeFile(sentinel, "keep\n");
 
-    await expect(acquire(root, { pid: 202, processStartIdentity: "boot-b" }, new Map(), "token-b"))
-      .rejects.toThrow("shared build lock temp");
+    if (kind === "temp directory") {
+      await symlink(external, tempPath(root, "token-a"), "dir");
+    } else if (kind === "temp marker") {
+      await mkdir(tempPath(root, "token-a"));
+      await symlink(sentinel, ownerMarkerPath(tempPath(root, "token-a"), "token-a"), "file");
+    } else {
+      await writeFile(tempPath(root, "token-a"), "not a directory\n");
+    }
+
+    const release = await acquire(root, { pid: 202, processStartIdentity: "boot-b" }, new Map(), "token-b");
+    await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b" });
+    await expect(readFile(sentinel, "utf8")).resolves.toBe("keep\n");
+    if (kind === "non-directory temp") {
+      await expect(readFile(tempPath(root, "token-a"), "utf8")).resolves.toBe("not a directory\n");
+    }
+    await expect(release()).resolves.toBe(true);
+  });
+
+  it("retries publishing after another contender cleans its just-created temp directory", async () => {
+    const root = await createRoot();
+    let tempCreated = false;
+    let resumeFirstAttempt: (() => void) | undefined;
+    const firstAttemptCanContinue = new Promise<void>((resolve) => {
+      resumeFirstAttempt = resolve;
+    });
+    const first = acquire(
+      root,
+      { pid: 101, processStartIdentity: "boot-a" },
+      new Map(),
+      "token-a",
+      {
+        afterTemporaryDirectoryCreated: async () => {
+          tempCreated = true;
+          await firstAttemptCanContinue;
+        }
+      }
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tempCreated).toBe(true);
+
+    const secondRelease = await acquire(root, { pid: 202, processStartIdentity: "boot-b" }, new Map(), "token-b");
+    await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b" });
+    await expect(secondRelease()).resolves.toBe(true);
+
+    resumeFirstAttempt?.();
+    const firstRelease = await first;
+    await expect(readOwner(root)).resolves.toMatchObject({ token: "token-a" });
+    await expect(firstRelease()).resolves.toBe(true);
   });
 
   it("allows independent package roots to acquire output locks concurrently", async () => {

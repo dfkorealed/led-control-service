@@ -15,23 +15,26 @@ export async function acquireOutputLock(options) {
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const readProcessIdentity = options.readProcessIdentity ?? readProcessIdentityFromSystem;
   const beforeOwnerMarkerUnlink = options.beforeOwnerMarkerUnlink;
+  const afterTemporaryDirectoryCreated = options.afterTemporaryDirectoryCreated;
   const owner = options.owner ?? await currentOwner(readProcessIdentity);
   const token = assertToken(options.token ?? randomUUID());
   const expectedOwner = { version: 1, token, ...assertOwner(owner) };
   const deadline = now() + timeoutMs;
 
   while (true) {
-    const tempState = await recoverOrWaitForOrphanTemps(lockPath, readProcessIdentity);
-    if (tempState === "wait") {
-      await waitForRetry(deadline, now, sleep, pollIntervalMs);
-      continue;
-    }
+    await cleanOrphanTemps(lockPath);
 
-    if (await publishCompletedLock(lockPath, expectedOwner)) {
+    if (await publishCompletedLock(lockPath, expectedOwner, afterTemporaryDirectoryCreated)) {
       return createRelease(lockPath, expectedOwner, beforeOwnerMarkerUnlink);
     }
 
-    const lock = await inspectOwnerDirectory(lockPath, "lock root");
+    let lock;
+    try {
+      lock = await inspectOwnerDirectory(lockPath, "lock root");
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) continue;
+      throw error;
+    }
     if (lock.state === "empty") {
       await removeEmptyDirectory(lockPath, "lock root");
       continue;
@@ -64,23 +67,28 @@ function createRelease(lockPath, expectedOwner, beforeOwnerMarkerUnlink) {
   };
 }
 
-async function publishCompletedLock(lockPath, owner) {
+async function publishCompletedLock(lockPath, owner, afterTemporaryDirectoryCreated) {
   const parent = dirname(lockPath);
   await assertRealDirectory(parent, "shared build lock parent");
   await assertExistingLockRootIsRealDirectory(lockPath);
   const temporaryPath = temporaryDirectoryPath(lockPath, owner.token);
-  await mkdir(temporaryPath);
+  try {
+    await mkdir(temporaryPath);
+  } catch (error) {
+    if (isExistingPathError(error)) return false;
+    throw error;
+  }
 
   try {
+    // Test seam for the race where another contender removes this unpublished temp path.
+    if (afterTemporaryDirectoryCreated) await afterTemporaryDirectoryCreated();
     await writeOwnerMarker(temporaryPath, owner);
     await rename(temporaryPath, lockPath);
     return true;
   } catch (error) {
-    const removed = await relinquishOwnerDirectory(temporaryPath, owner, "temporary lock");
-    if (!removed) {
-      throw new Error("shared build temporary lock cleanup could not be verified", { cause: error });
-    }
-    if (isExistingPathError(error)) return false;
+    const removed = await removeTemporaryDirectory(temporaryPath, owner.token);
+    if (isErrorCode(error, "ENOENT") || isExistingPathError(error)) return false;
+    if (!removed) throw new Error("shared build temporary lock cleanup could not be verified", { cause: error });
     throw error;
   }
 }
@@ -94,7 +102,7 @@ async function assertExistingLockRootIsRealDirectory(lockPath) {
   }
 }
 
-async function recoverOrWaitForOrphanTemps(lockPath, readProcessIdentity) {
+async function cleanOrphanTemps(lockPath) {
   const parent = dirname(lockPath);
   const prefix = `${basename(lockPath)}${TEMPORARY_DIRECTORY_MARKER}`;
   await assertRealDirectory(parent, "shared build lock parent");
@@ -102,27 +110,46 @@ async function recoverOrWaitForOrphanTemps(lockPath, readProcessIdentity) {
 
   for (const entry of entries) {
     if (!entry.name.startsWith(prefix)) continue;
-    const token = assertToken(entry.name.slice(prefix.length));
+    const token = tryToken(entry.name.slice(prefix.length));
+    if (!token) continue;
     const temporaryPath = join(parent, entry.name);
-    if (entry.isSymbolicLink() || !entry.isDirectory()) {
-      throw new Error("invalid shared build lock temp directory");
-    }
+    if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
+    await removeTemporaryDirectory(temporaryPath, token);
+  }
+}
 
-    const temp = await inspectOwnerDirectory(temporaryPath, "temporary lock", token);
-    if (temp.state === "empty") return "wait";
-
-    const identity = await readProcessIdentity(temp.owner.pid);
-    if (identity.state === "unknown") {
-      throw new Error("shared build temporary lock owner identity cannot be verified");
-    }
-    if (identity.state === "active" && identity.processStartIdentity === temp.owner.processStartIdentity) {
-      return "wait";
-    }
-    const removed = await relinquishOwnerDirectory(temporaryPath, temp.owner, "temporary lock");
-    if (!removed) return "wait";
+async function removeTemporaryDirectory(directory, token) {
+  let entries;
+  try {
+    const stats = await lstat(directory);
+    if (stats.isSymbolicLink() || !stats.isDirectory()) return false;
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return false;
+    throw error;
   }
 
-  return "clear";
+  if (entries.length === 0) return removeEmptyDirectory(directory, "temporary lock");
+  if (entries.length !== 1 || entries[0].name !== `${OWNER_MARKER_PREFIX}${token}` || !entries[0].isFile()) {
+    return false;
+  }
+
+  const markerPath = ownerMarkerPath(directory, token);
+  const markerStats = await lstat(markerPath);
+  if (markerStats.isSymbolicLink() || !markerStats.isFile()) return false;
+  try {
+    await unlink(markerPath);
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+  try {
+    await rmdir(directory);
+    return true;
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTEMPTY")) return false;
+    throw error;
+  }
 }
 
 async function relinquishOwnerDirectory(directory, expectedOwner, label, beforeOwnerMarkerUnlink) {
@@ -276,6 +303,14 @@ function assertToken(value) {
     throw new Error("invalid shared build lock owner token");
   }
   return value;
+}
+
+function tryToken(value) {
+  try {
+    return assertToken(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function assertNonEmptyString(value, label) {
