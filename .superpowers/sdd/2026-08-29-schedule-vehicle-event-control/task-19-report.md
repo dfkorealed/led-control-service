@@ -263,7 +263,7 @@ TZ=UTC E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright tes
 기준일: 2026-08-31
 
 - 상태: 신규 `P1-R1-1`, `P2-R1-1`, `P2-R1-2` 수정 완료
-- 최종 Chromium: `1 passed (44.7s)`, test body `22.3s`
+- implementer의 shared writer 변경 전 Chromium: `1 passed (44.7s)`, test body `22.3s`
 - 최종 execution oracle: production Gateway unique event `10`, API exact ACK `10`, PostgreSQL row `10`
 - Gateway telemetry outbox: `nextSequence=10`, pending records `0`, pending gap `false`
 - API/Gateway clean-log gate: `UNEXPECTED_ERROR`, `P2028`, inbound ingest failure, Gateway MQTT failure 모두 `0`
@@ -377,8 +377,35 @@ pnpm typecheck && pnpm test
 
 TZ=UTC E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test \
   e2e/automation-control-flow.spec.ts --project=chromium
-# 1 passed (44.7s), test body 22.3s
+# implementer의 shared writer 변경 전 1 passed (44.7s), test body 22.3s
 ```
+
+### Commit 직전 shared production storage 변경과 evidence chronology 정정
+
+Fix Round 2 commit 직전에 `apps/gateway/src/mesh/mesh-store-file.ts`의 공용 `writeJsonAtomic()` temporary identity를 `pid + Date.now()`에서 `pid + Date.now() + randomUUID()`로 변경했다. 기존 identity는 동일 process가 같은 millisecond에 같은 path를 동시에 쓰면 두 writer가 같은 temp path를 계산했다. 첫 writer의 `open(..., "wx")` 뒤 두 번째 writer가 `EEXIST`로 실패하고, 실패 cleanup이 공용 temp path를 제거하면 첫 writer의 rename도 `ENOENT`로 실패할 수 있었다. 실제 Chromium RED에서 health heartbeat와 background mesh resync가 같은 `health.json`을 같은 millisecond에 저장하며 이 순서가 발생했다.
+
+이 helper는 command journal, appliance health, automation config/state/config ACK/telemetry outbox, state/provisioning outbox와 mesh identity/address/transaction/group stores 등 Gateway production storage가 공유한다. 따라서 변경 영향은 Task 19 lab cleanup에 한정되지 않는다. UUID는 writer별 temp file identity만 분리한다. 기존의 exclusive temp create, temp file write와 fsync, target rename, parent-directory fsync, directory-sync 실패 시 exact readback과 retry/uncertain-commit 판정, 실패 시 자기 temp file cleanup semantics는 유지한다. 같은 target에 대한 상위 수준 상태 변경 직렬화나 merge를 새로 제공하지 않으며, 각 production store의 기존 queue와 ownership 경계가 계속 이를 담당한다.
+
+`apps/gateway/src/mesh/mesh-store-file.test.ts`의 covering test는 `Date.now()`를 같은 millisecond로 고정하고 동일 process에서 same-path writer 둘을 동시에 실행한다. 변경 전에는 `EEXIST` RED였고, UUID 변경 뒤 두 write가 모두 완료되며 target은 둘 중 하나의 완전한 JSON이고 `.tmp` file은 남지 않는 `2/2` GREEN이 됐다.
+
+위 Fix Round 2 명령 표의 full workspace GREEN과 Chromium `44.7s`/body `22.3s`는 이 shared production 변경 전 implementer 실행 결과다. 변경 뒤 implementer는 mesh focused `2/2`와 관련 Gateway focused `55/55`를 통과했지만 사용자 중단 지시에 따라 post-change 전체 workspace와 Chromium을 다시 완료하지 않았다. 따라서 이를 implementer의 final-diff 전체 재검증으로 해석하지 않는다.
+
+Reviewer는 commit `9698e1b` final HEAD에서 아래를 fresh 재실행했다.
+
+```bash
+pnpm --filter @led-control/gateway exec vitest run src/mesh/mesh-store-file.test.ts
+# 2 passed
+
+E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test \
+  e2e/real-backend-lab-support.spec.ts --project=chromium
+# 13 passed
+
+TZ=UTC E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test \
+  e2e/automation-control-flow.spec.ts --project=chromium
+# final HEAD 1 passed (47.5s), test body 23.4s
+```
+
+Reviewer fresh run cleanup 뒤 Task 19 고정 port listener, child process와 새 lab run directory는 남지 않았다. Final HEAD의 software integration/Chromium 완료 claim은 이 reviewer evidence에 근거하며, implementer pre-change 결과와 구분한다.
 
 ### Cleanup
 
@@ -393,3 +420,15 @@ TZ=UTC E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright tes
 - MQTT bounded permit은 production API runtime 내부 구현이며 HTTP endpoint나 별도 network listener를 만들지 않는다. Packet identity는 MQTT.js process 내부 객체로만 전달한다.
 - Software E2E는 유효한 사전 발급 certificate를 사용하므로 bootstrap certificate 재발급과 live rotation activation을 증명하지 않는다.
 - BLE adapter와 sensor source는 software simulator다. 실제 Raspberry Pi/BlueZ, ESP32-H2 firmware/RF, packet loss, reboot/power-loss HIL은 미실행이다.
+
+---
+
+## Fix Round 3 결과
+
+기준일: 2026-08-31
+
+- 상태: `P2-R2-1` 문서 evidence traceability 수정 완료
+- 코드 기능 변경: 없음
+- Fix Round 2에 commit 직전 shared production `writeJsonAtomic()` UUID temp identity의 RED 원인, 영향 범위, atomic commit/cleanup 보존 semantics와 covering test를 추가했다.
+- Implementer의 pre-change 전체 결과, post-change 전체 rerun 중단, reviewer의 final-HEAD fresh mesh `2/2`, RealBackendLab support `13/13`, Chromium `1 passed (47.5s)`/body `23.4s`와 clean cleanup을 시간 순서와 실행 주체별로 분리했다.
+- `docs/project-status.md`와 `docs/menus/control.md`의 Task 19 완료 claim을 Fix Round 3 및 reviewer final-HEAD evidence에 맞췄다. Bootstrap certificate 재발급과 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL 미검증 경계는 그대로다.
