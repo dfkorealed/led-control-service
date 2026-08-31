@@ -50,4 +50,14 @@ describe("vehicle event form", () => {
       holdSeconds: 60
     });
   });
+
+  it("ignores a stale brightness value and normalizes to 100 when dimming is off", () => {
+    const values = validForm({ dimmingEnabled: false, brightnessPercent: "101" });
+
+    expect(validateVehicleEventForm(values)).not.toHaveProperty("brightnessPercent");
+    expect(vehicleEventFormToInput(values, "enabled").action).toEqual({
+      dimmingEnabled: false,
+      brightnessPercent: 100
+    });
+  });
 });

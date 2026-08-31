@@ -34,7 +34,6 @@ export function VehicleEventControlPanel({
   const scope = useRef({ key: scopeKey, generation: 0 });
   if (scope.current.key !== scopeKey) scope.current = { key: scopeKey, generation: scope.current.generation + 1 };
   const scopeGeneration = scope.current.generation;
-  const expiredGeneration = useRef<number | null>(null);
   const [editingRule, setEditingRule] = useState<VehicleEventRuleResponse | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogReturnFocus, setDialogReturnFocus] = useState<HTMLElement | null>(null);
@@ -51,20 +50,47 @@ export function VehicleEventControlPanel({
     refetchInterval: 3000
   });
   const rules = rulesQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const queryFailure = rulesQuery.isLoadingError
+    ? {
+        message: isScheduleUnauthorized(rulesQuery.error) ? "로그인 세션이 만료되었습니다." : "이벤트 규칙 목록을 불러오지 못했습니다.",
+        retryLabel: "다시 시도",
+        retry: () => rulesQuery.refetch()
+      }
+    : rulesQuery.isFetchNextPageError
+      ? {
+          message: isScheduleUnauthorized(rulesQuery.error) ? "로그인 세션이 만료되었습니다." : "다음 이벤트 규칙을 불러오지 못했습니다.",
+          retryLabel: "다음 페이지 다시 시도",
+          retry: () => rulesQuery.fetchNextPage()
+        }
+      : rulesQuery.isRefetchError
+        ? {
+            message: isScheduleUnauthorized(rulesQuery.error) ? "로그인 세션이 만료되었습니다." : "Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다.",
+            retryLabel: "상태 다시 조회",
+            retry: () => rulesQuery.refetch()
+          }
+        : null;
+  // Mutation-level callbacks survive observer unmount; per-call callbacks below only update scoped UI state.
   const saveMutation = useMutation({
-    mutationFn: ({ ruleId, input }: { ruleId: string | null; input: CreateVehicleEventRuleInput }) => ruleId
-      ? updateVehicleEventRule(siteId, ruleId, input)
-      : createVehicleEventRule(siteId, input)
+    mutationFn: ({ operationSiteId, ruleId, input }: { operationSiteId: string; ruleId: string | null; input: CreateVehicleEventRuleInput }) => ruleId
+      ? updateVehicleEventRule(operationSiteId, ruleId, input)
+      : createVehicleEventRule(operationSiteId, input),
+    onSuccess: (_result, variables) => invalidate(variables.operationSiteId),
+    onError: (error) => expirePrincipal(error)
   });
   const toggleMutation = useMutation({
-    mutationFn: ({ ruleId, status }: { ruleId: string; status: "enabled" | "disabled" }) =>
-      updateVehicleEventRule(siteId, ruleId, { status })
+    mutationFn: ({ operationSiteId, ruleId, status }: { operationSiteId: string; ruleId: string; status: "enabled" | "disabled" }) =>
+      updateVehicleEventRule(operationSiteId, ruleId, { status }),
+    onSuccess: (_result, variables) => invalidate(variables.operationSiteId),
+    onError: (error) => expirePrincipal(error)
   });
-  const removeMutation = useMutation({ mutationFn: (ruleId: string) => deleteVehicleEventRule(siteId, ruleId) });
+  const removeMutation = useMutation({
+    mutationFn: ({ operationSiteId, ruleId }: { operationSiteId: string; ruleId: string }) => deleteVehicleEventRule(operationSiteId, ruleId),
+    onSuccess: (_result, variables) => invalidate(variables.operationSiteId),
+    onError: (error) => expirePrincipal(error)
+  });
   const isMutating = saveMutation.isPending || toggleMutation.isPending || removeMutation.isPending;
 
   useEffect(() => {
-    expiredGeneration.current = null;
     setEditingRule(null);
     setDialogOpen(false);
     setDeleteCandidate(null);
@@ -73,22 +99,20 @@ export function VehicleEventControlPanel({
   }, [scopeKey]);
 
   useEffect(() => {
-    expirePrincipal(rulesQuery.error, scopeKey, scopeGeneration);
+    expirePrincipal(rulesQuery.error);
   }, [rulesQuery.error, rulesQuery.errorUpdatedAt, scopeGeneration, scopeKey]);
 
   function isCurrent(operationScope: string, operationGeneration: number) {
     return scope.current.key === operationScope && scope.current.generation === operationGeneration;
   }
 
-  function expirePrincipal(error: unknown, operationScope: string, operationGeneration: number) {
-    if (!isScheduleUnauthorized(error) || !isCurrent(operationScope, operationGeneration)) return;
-    if (expiredGeneration.current === operationGeneration) return;
-    expiredGeneration.current = operationGeneration;
+  function expirePrincipal(error: unknown) {
+    if (!isScheduleUnauthorized(error)) return;
     void queryClient.invalidateQueries({ queryKey: authMeQueryKey });
   }
 
-  function invalidate() {
-    void queryClient.invalidateQueries({ queryKey: vehicleEventRuleQueryKey(siteId) });
+  function invalidate(operationSiteId: string) {
+    void queryClient.invalidateQueries({ queryKey: vehicleEventRuleQueryKey(operationSiteId) });
     void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   }
 
@@ -113,9 +137,8 @@ export function VehicleEventControlPanel({
     const operationGeneration = scopeGeneration;
     const ruleId = editingRule?.id ?? null;
     setMutationError("");
-    saveMutation.mutate({ ruleId, input }, {
+    saveMutation.mutate({ operationSiteId: siteId, ruleId, input }, {
       onSuccess: () => {
-        invalidate();
         if (!isCurrent(operationScope, operationGeneration)) return;
         setDialogOpen(false);
         setEditingRule(null);
@@ -123,7 +146,6 @@ export function VehicleEventControlPanel({
       },
       onError: (error) => {
         if (!isCurrent(operationScope, operationGeneration)) return;
-        expirePrincipal(error, operationScope, operationGeneration);
         setMutationError(vehicleEventMutationErrorMessage(error));
       }
     });
@@ -135,14 +157,12 @@ export function VehicleEventControlPanel({
     const status = rule.status === "enabled" ? "disabled" : "enabled";
     setMessage("");
     setMutationError("");
-    toggleMutation.mutate({ ruleId: rule.id, status }, {
+    toggleMutation.mutate({ operationSiteId: siteId, ruleId: rule.id, status }, {
       onSuccess: () => {
-        invalidate();
         if (isCurrent(operationScope, operationGeneration)) setMessage(status === "enabled" ? "이벤트 규칙을 활성화했습니다." : "이벤트 규칙을 비활성화했습니다.");
       },
       onError: (error) => {
         if (!isCurrent(operationScope, operationGeneration)) return;
-        expirePrincipal(error, operationScope, operationGeneration);
         setMutationError(vehicleEventMutationErrorMessage(error));
       }
     });
@@ -154,16 +174,14 @@ export function VehicleEventControlPanel({
     const operationGeneration = scopeGeneration;
     const ruleId = deleteCandidate.id;
     setMutationError("");
-    removeMutation.mutate(ruleId, {
+    removeMutation.mutate({ operationSiteId: siteId, ruleId }, {
       onSuccess: () => {
-        invalidate();
         if (!isCurrent(operationScope, operationGeneration)) return;
         setDeleteCandidate(null);
         setMessage("이벤트 규칙을 삭제했습니다.");
       },
       onError: (error) => {
         if (!isCurrent(operationScope, operationGeneration)) return;
-        expirePrincipal(error, operationScope, operationGeneration);
         setMutationError(vehicleEventMutationErrorMessage(error));
       }
     });
@@ -177,9 +195,7 @@ export function VehicleEventControlPanel({
       </div>
       {!canManage ? <p className="schedule-readonly-notice" role="status">조회 전용 계정입니다. 이벤트 규칙과 Gateway 적용 상태만 확인할 수 있습니다.</p> : null}
       {rulesQuery.isLoading ? <p className="muted-text" role="status">이벤트 규칙을 불러오는 중입니다.</p> : null}
-      {rulesQuery.isLoadingError ? <QueryError message={isScheduleUnauthorized(rulesQuery.error) ? "로그인 세션이 만료되었습니다." : "이벤트 규칙 목록을 불러오지 못했습니다."} onRetry={() => void rulesQuery.refetch()} label="다시 시도" /> : null}
-      {rulesQuery.isFetchNextPageError ? <QueryError message="다음 이벤트 규칙을 불러오지 못했습니다." onRetry={() => void rulesQuery.fetchNextPage()} label="다음 페이지 다시 시도" /> : null}
-      {rulesQuery.isRefetchError ? <QueryError message="Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다." onRetry={() => void rulesQuery.refetch()} label="상태 다시 조회" /> : null}
+      {queryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} /> : null}
       {!rulesQuery.isLoading && !rulesQuery.isLoadingError ? (
         <div className="schedule-table-wrap">
           <table className="schedule-table">

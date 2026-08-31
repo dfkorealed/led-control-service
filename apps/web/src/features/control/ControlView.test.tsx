@@ -846,6 +846,26 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost.mock.calls[0][1]).not.toHaveProperty("overrideUntil");
   });
 
+  it.each(["site", "user"])("recalculates the one-hour override default when the %s scope changes", async (scope) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-31T00:00:00.000Z"));
+    const { rerender } = renderControl();
+    const overrideInput = screen.getByLabelText("수동 override 종료 시각");
+    fireEvent.change(overrideInput, { target: { value: "2030-01-01T00:00" } });
+    vi.setSystemTime(new Date("2026-08-31T05:00:00.000Z"));
+
+    if (scope === "site") {
+      const nextSiteId = "00000000-0000-4000-8000-000000000099";
+      const nextDashboard: Dashboard = { ...dashboard, site: { ...dashboard.site, id: nextSiteId, name: "다음 현장" } };
+      mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
+      rerender(controlElement(nextSiteId));
+    } else {
+      rerender(controlElement(dashboard.site.id, "admin", USER_B));
+    }
+
+    expect(screen.getByLabelText("수동 override 종료 시각")).toHaveValue(localDateTimeValue(new Date("2026-08-31T06:00:00.000Z")));
+  });
+
   it("uses roving tab focus and selects modes with circular arrow, Home, and End keys", async () => {
     renderControl("admin", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=manual`);
     const manualTab = screen.getByRole("tab", { name: "수동 제어" });
@@ -986,6 +1006,14 @@ function createFixture(
     controlBlockReason: null,
     ...overrides
   };
+}
+
+function localDateTimeValue(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-") + `T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function createLargeDashboard(fixtureCount: number): Dashboard {

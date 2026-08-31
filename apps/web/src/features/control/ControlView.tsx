@@ -132,6 +132,7 @@ export function ControlView({
     activeScope.current = { generation, userId, siteId: activeSiteId };
     setIsSubmitting(false);
     setSelection(emptySelection);
+    setOverrideUntilLocal(defaultOverrideUntilLocal());
     setMessage("");
     setTerminalResult(null);
     setGroupDialogOpen(false);

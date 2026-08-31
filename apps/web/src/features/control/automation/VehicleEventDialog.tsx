@@ -34,6 +34,11 @@ export function VehicleEventDialog({
   onSubmit: (input: CreateVehicleEventRuleInput) => void;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
+  const sourceFieldRef = useRef<HTMLFieldSetElement>(null);
+  const targetFieldRef = useRef<HTMLFieldSetElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const brightnessInputRef = useRef<HTMLInputElement>(null);
+  const holdSecondsInputRef = useRef<HTMLInputElement>(null);
   const [values, setValues] = useState<VehicleEventFormValues>(createEmptyVehicleEventForm);
   const [errors, setErrors] = useState<VehicleEventFormErrors>({});
   const title = rule ? "이벤트 수정" : "이벤트 추가";
@@ -58,7 +63,10 @@ export function VehicleEventDialog({
     event.preventDefault();
     const nextErrors = validateVehicleEventForm(values);
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+    if (Object.keys(nextErrors).length > 0) {
+      focusFirstInvalidControl(nextErrors);
+      return;
+    }
     const status: AutomationRuleStatus = rule?.status ?? "enabled";
     onSubmit(vehicleEventFormToInput(values, status));
   }
@@ -79,7 +87,7 @@ export function VehicleEventDialog({
         </header>
 
         <form className="schedule-form" onSubmit={submit} noValidate>
-          <fieldset className="schedule-form-section" disabled={isPending}>
+          <fieldset ref={sourceFieldRef} className="schedule-form-section" disabled={isPending} tabIndex={-1} {...errorAttributes(errors.sourceFixtureIds, vehicleEventErrorIds.source)}>
             <legend>감지 센서</legend>
             <p className="schedule-field-help">Gateway에 등록되고 차량 감지 capability가 확인된 fixture만 선택할 수 있습니다.</p>
             <ControlTargetPicker
@@ -92,10 +100,10 @@ export function VehicleEventDialog({
                 if (selection.mode === "fixtures") change({ sourceFixtureIds: selection.fixtureIds });
               }}
             />
-            <FieldError message={errors.sourceFixtureIds} />
+            <FieldError id={vehicleEventErrorIds.source} message={errors.sourceFixtureIds} />
           </fieldset>
 
-          <fieldset className="schedule-form-section schedule-target-section" disabled={isPending}>
+          <fieldset ref={targetFieldRef} className="schedule-form-section schedule-target-section" disabled={isPending} tabIndex={-1} {...errorAttributes(errors.targetFixtureIds, vehicleEventErrorIds.target)}>
             <legend>제어 조명</legend>
             <ControlTargetPicker
               dashboard={dashboard}
@@ -106,15 +114,15 @@ export function VehicleEventDialog({
                 if (selection.mode === "fixtures") change({ targetFixtureIds: selection.fixtureIds });
               }}
             />
-            <FieldError message={errors.targetFixtureIds} />
+            <FieldError id={vehicleEventErrorIds.target} message={errors.targetFixtureIds} />
           </fieldset>
 
           <fieldset className="schedule-form-section" disabled={isPending}>
             <legend>행동과 유지 시간</legend>
             <label className="form-field schedule-name-field">
               <span>규칙 이름</span>
-              <input aria-label="규칙 이름" aria-invalid={Boolean(errors.name)} value={values.name} onChange={(event) => change({ name: event.target.value })} />
-              <FieldError message={errors.name} />
+              <input ref={nameInputRef} aria-label="규칙 이름" {...errorAttributes(errors.name, vehicleEventErrorIds.name)} value={values.name} onChange={(event) => change({ name: event.target.value })} />
+              <FieldError id={vehicleEventErrorIds.name} message={errors.name} />
             </label>
             <label className="schedule-dimming-toggle">
               <input type="checkbox" aria-label="디밍 사용" checked={values.dimmingEnabled} onChange={(event) => change({ dimmingEnabled: event.target.checked })} />
@@ -123,14 +131,14 @@ export function VehicleEventDialog({
             {values.dimmingEnabled ? (
               <label className="form-field schedule-compact-number">
                 <span>밝기</span>
-                <input type="number" min="0" max="100" aria-label="밝기" aria-invalid={Boolean(errors.brightnessPercent)} value={values.brightnessPercent} onChange={(event) => change({ brightnessPercent: event.target.value })} />
-                <FieldError message={errors.brightnessPercent} />
+                <input ref={brightnessInputRef} type="number" min="0" max="100" aria-label="밝기" {...errorAttributes(errors.brightnessPercent, vehicleEventErrorIds.brightness)} value={values.brightnessPercent} onChange={(event) => change({ brightnessPercent: event.target.value })} />
+                <FieldError id={vehicleEventErrorIds.brightness} message={errors.brightnessPercent} />
               </label>
             ) : <p className="schedule-field-help">디밍 OFF는 100% 밝기로 실행합니다.</p>}
             <label className="form-field schedule-compact-number">
               <span>유지 시간(초)</span>
-              <input type="number" min="5" max="1800" aria-label="유지 시간" aria-invalid={Boolean(errors.holdSeconds)} value={values.holdSeconds} onChange={(event) => change({ holdSeconds: event.target.value })} />
-              <FieldError message={errors.holdSeconds} />
+              <input ref={holdSecondsInputRef} type="number" min="5" max="1800" aria-label="유지 시간" {...errorAttributes(errors.holdSeconds, vehicleEventErrorIds.holdSeconds)} value={values.holdSeconds} onChange={(event) => change({ holdSeconds: event.target.value })} />
+              <FieldError id={vehicleEventErrorIds.holdSeconds} message={errors.holdSeconds} />
             </label>
           </fieldset>
 
@@ -143,14 +151,45 @@ export function VehicleEventDialog({
       </section>
     </div>
   );
+
+  function focusFirstInvalidControl(nextErrors: VehicleEventFormErrors) {
+    if (nextErrors.sourceFixtureIds) return sourceFieldRef.current?.focus();
+    if (nextErrors.targetFixtureIds) return targetFieldRef.current?.focus();
+    if (nextErrors.name) return nameInputRef.current?.focus();
+    if (nextErrors.brightnessPercent) return brightnessInputRef.current?.focus();
+    if (nextErrors.holdSeconds) holdSecondsInputRef.current?.focus();
+  }
 }
 
 function isVehicleEventSource(fixture: DashboardFixture) {
+  const verifiedAt = fixture.vehicleSensorCapabilityVerifiedAt;
   return fixture.gateway !== null
     && fixture.vehicleSensorCapabilityStatus === "supported"
-    && fixture.vehicleSensorCapabilityVerifiedAt !== null;
+    && typeof verifiedAt === "string"
+    && isCanonicalIsoTimestamp(verifiedAt);
 }
 
-function FieldError({ message }: { message?: string }) {
-  return message ? <span className="field-error">{message}</span> : null;
+function isCanonicalIsoTimestamp(value: string) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+const vehicleEventErrorIds = {
+  source: "vehicle-event-source-error",
+  target: "vehicle-event-target-error",
+  name: "vehicle-event-name-error",
+  brightness: "vehicle-event-brightness-error",
+  holdSeconds: "vehicle-event-hold-seconds-error"
+} as const;
+
+function errorAttributes(message: string | undefined, id: string) {
+  return message ? {
+    "aria-invalid": true,
+    "aria-describedby": id,
+    "aria-errormessage": id
+  } : {};
+}
+
+function FieldError({ id, message }: { id: string; message?: string }) {
+  return message ? <span id={id} className="field-error" role="alert">{message}</span> : null;
 }

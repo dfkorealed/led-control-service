@@ -1335,6 +1335,12 @@ git add apps/web/src/features/control
 git commit -m "feat(web): add vehicle event control interface"
 ```
 
+#### Task 18 Fix Round 1
+
+- [x] mutation-level `401` principal expiry와 event/dashboard cache invalidation을 추가하고, UI state만 scope generation으로 보호한다.
+- [x] initial/cursor/background 목록 `401`, verified timestamp fail-closed, dimming OFF 정규화, Site/user scope now+1h reset, field error 연결·focus의 RED-GREEN 회귀를 추가한다.
+- [x] Web/API 전체 회귀·typecheck·lint·build와 diff-check를 실행하고 Fix Round 1 보고서를 갱신한다.
+
 ### Task 19: software integration과 Chromium E2E
 
 **Files:**

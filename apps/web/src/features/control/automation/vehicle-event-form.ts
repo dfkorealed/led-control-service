@@ -28,7 +28,7 @@ export function validateVehicleEventForm(values: VehicleEventFormValues): Vehicl
   if (!values.name.trim()) errors.name = "규칙 이름을 입력해 주세요.";
   if (values.sourceFixtureIds.length === 0) errors.sourceFixtureIds = "감지 센서를 한 개 이상 선택하세요.";
   if (values.targetFixtureIds.length === 0) errors.targetFixtureIds = "제어 조명을 한 개 이상 선택하세요.";
-  if (!integerInRange(values.brightnessPercent, 0, 100)) {
+  if (values.dimmingEnabled && !integerInRange(values.brightnessPercent, 0, 100)) {
     errors.brightnessPercent = "밝기는 0~100 사이의 정수여야 합니다.";
   }
   if (!integerInRange(values.holdSeconds, 5, 1_800)) {

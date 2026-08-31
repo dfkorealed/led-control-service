@@ -1,6 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../api/client";
+import { authMeQueryKey } from "../../../api/principal-cache";
+import { vehicleEventRuleQueryKey } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
 import { VehicleEventControlPanel } from "./VehicleEventControlPanel";
 
@@ -84,14 +87,142 @@ describe("VehicleEventControlPanel", () => {
     expect(within(sourceSection).queryByLabelText("B1-L001 선택")).not.toBeInTheDocument();
     expect(within(sourceSection).queryByLabelText("B1-L002 선택")).not.toBeInTheDocument();
   });
+
+  it("fails closed for missing and invalid capability verification timestamps", async () => {
+    const unverifiedDashboard: Dashboard = {
+      ...dashboard,
+      floors: [{
+        ...dashboard.floors[0],
+        fixtures: [
+          { ...dashboard.floors[0].fixtures[0], vehicleSensorCapabilityVerifiedAt: undefined },
+          { ...dashboard.floors[0].fixtures[0], id: "00000000-0000-4000-8000-000000000007", name: "B1-SENSOR-INVALID", vehicleSensorCapabilityVerifiedAt: "2026-02-30T00:00:00.000Z" }
+        ]
+      }]
+    };
+    renderPanel("admin", { dashboard: unverifiedDashboard });
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+
+    const sourceSection = screen.getByRole("group", { name: "감지 센서" });
+    expect(within(sourceSection).queryByLabelText("B1-SENSOR-001 선택")).not.toBeInTheDocument();
+    expect(within(sourceSection).queryByLabelText("B1-SENSOR-INVALID 선택")).not.toBeInTheDocument();
+  });
+
+  it("connects submit errors to the first invalid control group and focuses it", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 추가" })).getByRole("button", { name: "저장" }));
+
+    const sourceSection = screen.getByRole("group", { name: "감지 센서" });
+    const sourceError = screen.getByText("감지 센서를 한 개 이상 선택하세요.");
+    expect(sourceSection).toHaveAttribute("aria-invalid", "true");
+    expect(sourceSection).toHaveAttribute("aria-describedby", "vehicle-event-source-error");
+    expect(sourceSection).toHaveAttribute("aria-errormessage", "vehicle-event-source-error");
+    expect(sourceError).toHaveAttribute("id", "vehicle-event-source-error");
+    expect(sourceSection).toHaveFocus();
+  });
+
+  it("expires the principal after an unauthorized mutation finishes following unmount", async () => {
+    const deferred = deferredPromise<ReturnType<typeof rule>>();
+    mocks.createVehicleEventRule.mockReturnValueOnce(deferred.promise);
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { unmount } = renderPanel("admin", { queryClient });
+    await submitValidCreate();
+    unmount();
+    deferred.reject(new ApiError("unauthorized", 401, null));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: authMeQueryKey }));
+  });
+
+  it("invalidates event and dashboard caches after a successful mutation finishes following unmount", async () => {
+    const deferred = deferredPromise<ReturnType<typeof rule>>();
+    mocks.createVehicleEventRule.mockReturnValueOnce(deferred.promise);
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { unmount } = renderPanel("admin", { queryClient });
+    await submitValidCreate();
+    unmount();
+    deferred.resolve(rule());
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: vehicleEventRuleQueryKey(siteId) }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard"] });
+  });
+
+  it("treats an initial list 401 as principal expiry", async () => {
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
+    renderPanel("admin", { queryClient });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: authMeQueryKey }));
+  });
+
+  it("treats a next-page 401 as principal expiry", async () => {
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    mocks.listVehicleEventRules
+      .mockResolvedValueOnce({ items: [rule()], total: 2, nextCursor: "next-page" })
+      .mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
+    renderPanel("admin", { queryClient });
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: authMeQueryKey }));
+  });
+
+  it("treats a background refresh 401 as principal expiry", async () => {
+    const queryClient = testQueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    renderPanel("admin", { queryClient });
+    await screen.findByText("입구 차량 감지");
+    mocks.listVehicleEventRules.mockRejectedValueOnce(new ApiError("unauthorized", 401, null));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) });
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("로그인 세션이 만료되었습니다.");
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: authMeQueryKey }));
+  });
 });
 
-function renderPanel(role: "admin" | "viewer") {
+function renderPanel(
+  role: "admin" | "viewer",
+  { queryClient = testQueryClient(), dashboard: panelDashboard = dashboard }: { queryClient?: QueryClient; dashboard?: Dashboard } = {}
+) {
   return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-      <VehicleEventControlPanel siteId={siteId} role={role} dashboard={dashboard} />
+    <QueryClientProvider client={queryClient}>
+      <VehicleEventControlPanel siteId={siteId} role={role} dashboard={panelDashboard} />
     </QueryClientProvider>
   );
+}
+
+function testQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+}
+
+async function submitValidCreate() {
+  await screen.findByText("입구 차량 감지");
+  fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+  const sourceSection = screen.getByRole("group", { name: "감지 센서" });
+  const targetSection = screen.getByRole("group", { name: "제어 조명" });
+  fireEvent.click(within(sourceSection).getByLabelText("B1-SENSOR-001 선택"));
+  fireEvent.click(within(targetSection).getByLabelText("B1-L001 선택"));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 추가" })).getByRole("button", { name: "저장" }));
+  await waitFor(() => expect(mocks.createVehicleEventRule).toHaveBeenCalledTimes(1));
+}
+
+function deferredPromise<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return { promise, resolve, reject };
 }
 
 function fixture(
