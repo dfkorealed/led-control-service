@@ -32,7 +32,7 @@ async function createBuildFixture() {
 
   const fakeTypeScript = join(root, "bin", "tsc");
   await writeFile(fakeTypeScript, `#!/usr/bin/env node
-const { mkdirSync, symlinkSync, writeFileSync } = require("node:fs");
+const { mkdirSync, readdirSync, symlinkSync, writeFileSync } = require("node:fs");
 const { dirname, join } = require("node:path");
 const outDirectoryIndex = process.argv.indexOf("--outDir");
 if (outDirectoryIndex === -1 || !process.argv[outDirectoryIndex + 1]) process.exit(2);
@@ -48,6 +48,15 @@ if (project === "tsconfig.esm.json" && process.env.FAKE_TSC_ESM_SYMLINK_TARGET) 
     const generatedPath = join(outDirectory, ...process.env.FAKE_TSC_GENERATED_PATH.split("/"));
     mkdirSync(dirname(generatedPath), { recursive: true });
     writeFileSync(generatedPath, "generated fixture artifact\\n");
+  }
+  if (project === "tsconfig.esm.json" && process.env.FAKE_TSC_BARRIER_DIRECTORY) {
+    const barrierDirectory = process.env.FAKE_TSC_BARRIER_DIRECTORY;
+    const requiredParticipants = Number(process.env.FAKE_TSC_BARRIER_PARTICIPANTS ?? "2");
+    writeFileSync(join(barrierDirectory, String(process.pid)), "ready\\n");
+    const deadline = Date.now() + 5_000;
+    while (readdirSync(barrierDirectory).length < requiredParticipants) {
+      if (Date.now() >= deadline) process.exit(3);
+    }
   }
 }
 `);
@@ -441,6 +450,23 @@ describe.sequential("shared build output cleanup", () => {
     await rm(distDirectory, { recursive: true });
     await expect(runFixtureBuild(root)).resolves.toMatchObject({ stderr: "" });
     await expect(readFile(join(distDirectory, "esm", "index.js"), "utf8")).resolves.toBe(
+      "exports.fixtureValue = 1;\n"
+    );
+  }, 30_000);
+
+  it("serializes concurrent builds that share the generated output directory", async () => {
+    const root = await createBuildFixture();
+    const barrierDirectory = await createExternalDirectory();
+    await expect(runFixtureBuild(root)).resolves.toMatchObject({ stderr: "" });
+
+    await expect(Promise.all(Array.from({ length: 2 }, () => runFixtureBuild(root, {
+      FAKE_TSC_BARRIER_DIRECTORY: barrierDirectory,
+      FAKE_TSC_BARRIER_PARTICIPANTS: "2"
+    })))).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ stderr: "" })])
+    );
+
+    await expect(readFile(join(root, "dist", "index.js"), "utf8")).resolves.toBe(
       "exports.fixtureValue = 1;\n"
     );
   }, 30_000);

@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distDirectory = join(packageRoot, "dist");
 const manifestPath = join(packageRoot, ".build-output-manifest.json");
+const outputLockPath = join(packageRoot, ".build-output.lock");
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "led-shared-build-"));
 const cjsDirectory = join(temporaryDirectory, "cjs");
 const esmDirectory = join(temporaryDirectory, "esm");
@@ -40,16 +41,41 @@ try {
     ...cjsFiles,
     ...esmFiles.map((path) => posix.join("esm", path))
   ]).sort();
-  const previousFiles = await readBuildManifest();
+  const releaseOutputLock = await acquireOutputLock();
+  try {
+    const previousFiles = await readBuildManifest();
 
-  // Only a previous successful build's manifest grants ownership; unknown dist files are preserved.
-  await preflightOutputPaths([...new Set([...previousFiles, ...generatedFiles])]);
-  await removeGeneratedFiles(previousFiles);
-  await copyGeneratedFiles(cjsDirectory, "", cjsFiles);
-  await copyGeneratedFiles(esmDirectory, "esm", esmFiles);
-  await writeBuildManifest(generatedFiles);
+    // Only a previous successful build's manifest grants ownership; unknown dist files are preserved.
+    await preflightOutputPaths([...new Set([...previousFiles, ...generatedFiles])]);
+    await removeGeneratedFiles(previousFiles);
+    await copyGeneratedFiles(cjsDirectory, "", cjsFiles);
+    await copyGeneratedFiles(esmDirectory, "esm", esmFiles);
+    await writeBuildManifest(generatedFiles);
+  } finally {
+    await releaseOutputLock();
+  }
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
+}
+
+async function acquireOutputLock() {
+  const deadline = Date.now() + 60_000;
+  while (true) {
+    try {
+      await mkdir(outputLockPath);
+      return async () => {
+        await rmdir(outputLockPath);
+      };
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") {
+        throw error;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error("timed out waiting for shared build output lock");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
 }
 
 function runTypeScriptBuild(project, outDirectory) {
