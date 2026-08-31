@@ -90,6 +90,29 @@ git status --short && pnpm typecheck && pnpm test && scripts/esp32-h2-build.sh
 | `pnpm test` | 성공: root 15, mobile 1, shared 146, automation-engine 28, Web 352, API 738 passed 및 161 skipped, Gateway 559 passed |
 | `git diff --check` | 성공, 출력 없음 |
 
+## Fix Round 2 RED/GREEN
+
+추가 ruling에 따라 Fix Round 1의 `rename(lockDir, quarantine)` stale takeover를 폐기했다. 고정 lock directory를 먼저 만들고 metadata를 쓰는 방식도 publish 전 부분 상태를 만들 수 있으므로 사용하지 않는다.
+
+### RED
+
+1. `.owner.<token>` marker를 기대하는 새 회귀를 먼저 추가했다. 기존 구현은 visible lock에 `owner.json`을 직접 쓰므로 marker publish 검증이 실패했고, stale owner/empty lock은 owner identity 미확인으로 종료됐다.
+2. orphan temp directory, temp symlink/non-directory/marker symlink, late stale contender의 successor ABA, empty release artifact를 위한 테스트는 기존 구현이 temp를 무시하거나 quarantine 방식으로 동작해 실패했다.
+
+### GREEN
+
+1. 같은 parent의 unique `.build-output.lock.tmp-<token>` directory에 strict `.owner.<token>` marker를 `O_EXCL|O_NOFOLLOW`로 완전히 기록한 뒤 `rename(temp, lock)`으로 publish한다. 따라서 visible non-empty lock은 완성된 정확한 owner marker 하나만 가진다.
+2. stale takeover와 release는 읽은 exact marker path만 unlink한다. unlink가 성공한 뒤에만 `rmdir`을 시도하고 outer acquisition을 재시도한다. 늦은 contender가 successor로 교체한 경우 old marker unlink의 `ENOENT` 또는 non-empty directory 결과로 abort하여 successor를 삭제하지 않는다. release crash로 남은 empty lock은 marker를 삭제한 뒤의 artifact로만 `rmdir`/retry한다.
+3. orphan temp는 directory name token과 marker token을 모두 대조하고 missing PID/PID reuse일 때 exact marker만 정리한다. active/empty temp는 대기하고 identity unknown, symlink, non-directory, 비정상 marker는 fail-closed한다. quarantine rename과 mtime 기반 steal은 제거했다.
+
+| 명령 | 결과 |
+| --- | --- |
+| `pnpm --filter @led-control/shared exec vitest run src/build-output-lock.test.ts src/package-exports.test.ts -t 'shared build output lock|serializes concurrent builds'` | 성공: lock 17건과 실제 동시 build fixture 1건 통과 |
+| `pnpm --filter @led-control/shared test` | 성공: 9 files, 151 tests passed |
+| `pnpm typecheck` | 성공, exit code `0` |
+| `pnpm test` | 성공: root 15, mobile 1, shared 151, automation-engine 28, Web 352, API 738 passed 및 161 skipped, Gateway 559 passed |
+| `git diff --check` | 성공, 출력 없음 |
+
 ## HIL 경계와 다음 증거
 
 HIL runbook은 아직 실행하지 않았다. 다음 증거가 한 시험 디렉터리에 함께 있어야만 HIL 통과로 판정한다.

@@ -4,7 +4,8 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir, rename, rmdir, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-const OWNER_FILENAME = "owner.json";
+const OWNER_MARKER_PREFIX = ".owner.";
+const TEMPORARY_DIRECTORY_MARKER = ".tmp-";
 
 export async function acquireOutputLock(options) {
   const lockPath = assertLockPath(options.lockPath);
@@ -13,99 +14,152 @@ export async function acquireOutputLock(options) {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const readProcessIdentity = options.readProcessIdentity ?? readProcessIdentityFromSystem;
-  const cleanupQuarantine = options.cleanupQuarantine ?? removeOwnerDirectory;
+  const beforeOwnerMarkerUnlink = options.beforeOwnerMarkerUnlink;
   const owner = options.owner ?? await currentOwner(readProcessIdentity);
-  const token = assertNonEmptyString(options.token ?? randomUUID(), "shared build lock token");
+  const token = assertToken(options.token ?? randomUUID());
   const expectedOwner = { version: 1, token, ...assertOwner(owner) };
   const deadline = now() + timeoutMs;
 
-  await assertQuarantinesSafe(lockPath);
   while (true) {
-    try {
-      await createLock(lockPath, expectedOwner);
-      return createRelease(lockPath, expectedOwner);
-    } catch (error) {
-      if (!isErrorCode(error, "EEXIST")) throw error;
-    }
-
-    let recordedOwner;
-    try {
-      recordedOwner = await readOwner(lockPath, "lock root");
-      await assertOnlyOwnerMetadata(lockPath, "lock root");
-    } catch (error) {
-      if (!isErrorCode(error, "ENOENT")) throw error;
-      if (now() >= deadline) throw new Error("shared build lock owner identity cannot be verified");
-      await sleep(pollIntervalMs);
+    const tempState = await recoverOrWaitForOrphanTemps(lockPath, readProcessIdentity);
+    if (tempState === "wait") {
+      await waitForRetry(deadline, now, sleep, pollIntervalMs);
       continue;
     }
-    const identity = await readProcessIdentity(recordedOwner.pid);
+
+    if (await publishCompletedLock(lockPath, expectedOwner)) {
+      return createRelease(lockPath, expectedOwner, beforeOwnerMarkerUnlink);
+    }
+
+    const lock = await inspectOwnerDirectory(lockPath, "lock root");
+    if (lock.state === "empty") {
+      await removeEmptyDirectory(lockPath, "lock root");
+      continue;
+    }
+
+    const identity = await readProcessIdentity(lock.owner.pid);
     if (identity.state === "unknown") {
       throw new Error("shared build lock owner identity cannot be verified");
     }
-    if (identity.state === "missing" || identity.processStartIdentity !== recordedOwner.processStartIdentity) {
-      const release = await takeoverStaleLock(lockPath, recordedOwner, expectedOwner, cleanupQuarantine);
-      if (release) return release;
+    if (identity.state === "missing" || identity.processStartIdentity !== lock.owner.processStartIdentity) {
+      await relinquishOwnerDirectory(lockPath, lock.owner, "lock root", beforeOwnerMarkerUnlink);
       continue;
     }
-    if (now() >= deadline) throw new Error("timed out waiting for shared build output lock");
-    await sleep(pollIntervalMs);
+    await waitForRetry(deadline, now, sleep, pollIntervalMs);
   }
 }
 
-async function takeoverStaleLock(lockPath, staleOwner, expectedOwner, cleanupQuarantine) {
-  const quarantinePath = `${lockPath}.quarantine-${randomUUID()}`;
-  try {
-    await rename(lockPath, quarantinePath);
-  } catch (error) {
-    if (isErrorCode(error, "ENOENT")) return undefined;
-    throw error;
-  }
-
-  let release;
-  try {
-    const quarantinedOwner = await readOwner(quarantinePath, "quarantine");
-    if (!sameOwner(quarantinedOwner, staleOwner)) {
-      throw new Error("shared build lock quarantine owner changed during takeover");
-    }
-    await assertOnlyOwnerMetadata(quarantinePath, "quarantine");
-    await createLock(lockPath, expectedOwner);
-    release = createRelease(lockPath, expectedOwner);
-    await cleanupQuarantine(quarantinePath, staleOwner, "quarantine");
-    return release;
-  } catch (error) {
-    if (release) await release();
-    throw error;
-  }
-}
-
-function createRelease(lockPath, expectedOwner) {
+function createRelease(lockPath, expectedOwner, beforeOwnerMarkerUnlink) {
   return async () => {
-    let recordedOwner;
     try {
-      recordedOwner = await readOwner(lockPath, "lock root");
-      await assertOnlyOwnerMetadata(lockPath, "lock root");
+      return await relinquishOwnerDirectory(
+        lockPath,
+        expectedOwner,
+        "lock root",
+        beforeOwnerMarkerUnlink
+      );
     } catch {
       return false;
     }
-    if (!sameOwner(recordedOwner, expectedOwner)) return false;
-    await removeOwnerDirectory(lockPath, expectedOwner, "lock root");
-    return true;
   };
 }
 
-async function createLock(lockPath, owner) {
-  await assertRealDirectory(dirname(lockPath), "shared build lock parent");
-  await mkdir(lockPath);
+async function publishCompletedLock(lockPath, owner) {
+  const parent = dirname(lockPath);
+  await assertRealDirectory(parent, "shared build lock parent");
+  await assertExistingLockRootIsRealDirectory(lockPath);
+  const temporaryPath = temporaryDirectoryPath(lockPath, owner.token);
+  await mkdir(temporaryPath);
+
   try {
-    await writeOwner(lockPath, owner);
+    await writeOwnerMarker(temporaryPath, owner);
+    await rename(temporaryPath, lockPath);
+    return true;
   } catch (error) {
-    await removeOwnerDirectoryIfEmpty(lockPath);
+    const removed = await relinquishOwnerDirectory(temporaryPath, owner, "temporary lock");
+    if (!removed) {
+      throw new Error("shared build temporary lock cleanup could not be verified", { cause: error });
+    }
+    if (isExistingPathError(error)) return false;
     throw error;
   }
 }
 
-async function writeOwner(lockPath, owner) {
-  const path = join(lockPath, OWNER_FILENAME);
+async function assertExistingLockRootIsRealDirectory(lockPath) {
+  try {
+    await assertRealDirectory(lockPath, "shared build lock root");
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return;
+    throw error;
+  }
+}
+
+async function recoverOrWaitForOrphanTemps(lockPath, readProcessIdentity) {
+  const parent = dirname(lockPath);
+  const prefix = `${basename(lockPath)}${TEMPORARY_DIRECTORY_MARKER}`;
+  await assertRealDirectory(parent, "shared build lock parent");
+  const entries = await readdir(parent, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (!entry.name.startsWith(prefix)) continue;
+    const token = assertToken(entry.name.slice(prefix.length));
+    const temporaryPath = join(parent, entry.name);
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw new Error("invalid shared build lock temp directory");
+    }
+
+    const temp = await inspectOwnerDirectory(temporaryPath, "temporary lock", token);
+    if (temp.state === "empty") return "wait";
+
+    const identity = await readProcessIdentity(temp.owner.pid);
+    if (identity.state === "unknown") {
+      throw new Error("shared build temporary lock owner identity cannot be verified");
+    }
+    if (identity.state === "active" && identity.processStartIdentity === temp.owner.processStartIdentity) {
+      return "wait";
+    }
+    const removed = await relinquishOwnerDirectory(temporaryPath, temp.owner, "temporary lock");
+    if (!removed) return "wait";
+  }
+
+  return "clear";
+}
+
+async function relinquishOwnerDirectory(directory, expectedOwner, label, beforeOwnerMarkerUnlink) {
+  const current = await inspectOwnerDirectory(directory, label, expectedOwner.token);
+  if (current.state === "empty" || !sameOwner(current.owner, expectedOwner)) return false;
+  if (beforeOwnerMarkerUnlink) await beforeOwnerMarkerUnlink();
+
+  try {
+    await unlink(ownerMarkerPath(directory, expectedOwner.token));
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+
+  try {
+    await rmdir(directory);
+    return true;
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTEMPTY")) return false;
+    throw error;
+  }
+}
+
+async function removeEmptyDirectory(directory, label) {
+  const inspected = await inspectOwnerDirectory(directory, label);
+  if (inspected.state !== "empty") return false;
+  try {
+    await rmdir(directory);
+    return true;
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTEMPTY")) return false;
+    throw error;
+  }
+}
+
+async function writeOwnerMarker(directory, owner) {
+  const path = ownerMarkerPath(directory, owner.token);
   const handle = await open(
     path,
     constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollowFlag(),
@@ -118,67 +172,32 @@ async function writeOwner(lockPath, owner) {
   }
 }
 
-async function readOwner(lockPath, label) {
-  await assertRealDirectory(lockPath, `shared build ${label}`);
-  const path = join(lockPath, OWNER_FILENAME);
+async function inspectOwnerDirectory(directory, label, expectedToken) {
+  await assertRealDirectory(directory, `shared build ${label}`);
+  const entries = await readdir(directory, { withFileTypes: true });
+  if (entries.length === 0) return { state: "empty" };
+  if (entries.length !== 1 || !entries[0].isFile() || !entries[0].name.startsWith(OWNER_MARKER_PREFIX)) {
+    throw new Error(`invalid shared build ${label} contents`);
+  }
+
+  const token = assertToken(entries[0].name.slice(OWNER_MARKER_PREFIX.length));
+  if (expectedToken && token !== expectedToken) {
+    throw new Error(`invalid shared build ${label} owner marker`);
+  }
+  const path = ownerMarkerPath(directory, token);
   const stats = await lstat(path);
   if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw new Error(`invalid shared build ${label} owner metadata`);
+    throw new Error(`invalid shared build ${label} owner marker`);
   }
   const handle = await open(path, constants.O_RDONLY | noFollowFlag());
   try {
     const opened = await handle.stat();
-    if (!opened.isFile()) throw new Error(`invalid shared build ${label} owner metadata`);
-    return parseOwner(await handle.readFile("utf8"), label);
+    if (!opened.isFile()) throw new Error(`invalid shared build ${label} owner marker`);
+    const owner = parseOwner(await handle.readFile("utf8"), label);
+    if (owner.token !== token) throw new Error(`invalid shared build ${label} owner marker`);
+    return { state: "owner", owner };
   } finally {
     await handle.close();
-  }
-}
-
-async function assertOnlyOwnerMetadata(lockPath, label) {
-  await assertRealDirectory(lockPath, `shared build ${label}`);
-  const entries = await readdir(lockPath, { withFileTypes: true });
-  if (entries.length !== 1 || entries[0].name !== OWNER_FILENAME || !entries[0].isFile()) {
-    throw new Error(`invalid shared build ${label} contents`);
-  }
-  const stats = await lstat(join(lockPath, OWNER_FILENAME));
-  if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw new Error(`invalid shared build ${label} owner metadata`);
-  }
-}
-
-async function removeOwnerDirectory(lockPath, expectedOwner, label) {
-  const currentOwner = await readOwner(lockPath, label);
-  await assertOnlyOwnerMetadata(lockPath, label);
-  if (!sameOwner(currentOwner, expectedOwner)) return false;
-  await unlink(join(lockPath, OWNER_FILENAME));
-  await rmdir(lockPath);
-  return true;
-}
-
-async function removeOwnerDirectoryIfEmpty(lockPath) {
-  try {
-    const entries = await readdir(lockPath);
-    if (entries.length === 0) await rmdir(lockPath);
-  } catch {
-    // A failed lock creation leaves an abnormal path for the next build to reject.
-  }
-}
-
-async function assertQuarantinesSafe(lockPath) {
-  const parent = dirname(lockPath);
-  const prefix = `${basename(lockPath)}.quarantine-`;
-  await assertRealDirectory(parent, "shared build lock parent");
-  const entries = await readdir(parent, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.name.startsWith(prefix)) continue;
-    const path = join(parent, entry.name);
-    if (entry.isSymbolicLink() || !entry.isDirectory()) {
-      throw new Error("invalid shared build lock quarantine");
-    }
-    const owner = await readOwner(path, "quarantine");
-    await assertOnlyOwnerMetadata(path, "quarantine");
-    await removeOwnerDirectory(path, owner, "quarantine");
   }
 }
 
@@ -208,20 +227,28 @@ function parseOwner(value, label) {
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error(`invalid shared build ${label} owner metadata`);
+    throw new Error(`invalid shared build ${label} owner marker`);
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`invalid shared build ${label} owner metadata`);
+    throw new Error(`invalid shared build ${label} owner marker`);
   }
   const keys = Object.keys(parsed).sort().join(",");
   if (keys !== "pid,processStartIdentity,token,version" || parsed.version !== 1) {
-    throw new Error(`invalid shared build ${label} owner metadata`);
+    throw new Error(`invalid shared build ${label} owner marker`);
   }
   return {
     version: 1,
-    token: assertNonEmptyString(parsed.token, `shared build ${label} owner token`),
+    token: assertToken(parsed.token),
     ...assertOwner(parsed)
   };
+}
+
+function temporaryDirectoryPath(lockPath, token) {
+  return join(dirname(lockPath), `${basename(lockPath)}${TEMPORARY_DIRECTORY_MARKER}${token}`);
+}
+
+function ownerMarkerPath(directory, token) {
+  return join(directory, `${OWNER_MARKER_PREFIX}${token}`);
 }
 
 function assertOwner(owner) {
@@ -244,6 +271,13 @@ function assertPositiveInteger(value, label) {
   return value;
 }
 
+function assertToken(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value)) {
+    throw new Error("invalid shared build lock owner token");
+  }
+  return value;
+}
+
 function assertNonEmptyString(value, label) {
   if (typeof value !== "string" || value.length === 0 || value.includes("\0")) {
     throw new Error(`invalid ${label}`);
@@ -256,11 +290,20 @@ async function assertRealDirectory(path, label) {
   if (stats.isSymbolicLink() || !stats.isDirectory()) throw new Error(`invalid ${label}`);
 }
 
+async function waitForRetry(deadline, now, sleep, pollIntervalMs) {
+  if (now() >= deadline) throw new Error("timed out waiting for shared build output lock");
+  await sleep(pollIntervalMs);
+}
+
 function sameOwner(left, right) {
   return left.version === right.version
     && left.token === right.token
     && left.pid === right.pid
     && left.processStartIdentity === right.processStartIdentity;
+}
+
+function isExistingPathError(error) {
+  return isErrorCode(error, "EEXIST") || isErrorCode(error, "ENOTEMPTY");
 }
 
 function isErrorCode(error, code) {
