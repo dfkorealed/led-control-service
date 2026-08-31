@@ -1,17 +1,18 @@
 import { spawnSync } from "node:child_process";
+import { constants } from "node:fs";
 import {
-  copyFile,
+  lstat,
   mkdir,
   mkdtemp,
-  readFile,
+  open,
   readdir,
   rename,
   rm,
   rmdir,
-  writeFile
+  unlink
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, normalize, resolve, sep } from "node:path";
+import { dirname, join, posix, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,21 +21,29 @@ const manifestPath = join(packageRoot, ".build-output-manifest.json");
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "led-shared-build-"));
 const cjsDirectory = join(temporaryDirectory, "cjs");
 const esmDirectory = join(temporaryDirectory, "esm");
+let temporaryOutputCounter = 0;
 
 try {
   runTypeScriptBuild("tsconfig.json", cjsDirectory);
   runTypeScriptBuild("tsconfig.esm.json", esmDirectory);
-  await writeFile(join(esmDirectory, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`);
+  await assertGeneratedDirectory(cjsDirectory);
+  await assertGeneratedDirectory(esmDirectory);
+  await writeGeneratedMetadataFile(
+    esmDirectory,
+    "package.json",
+    `${JSON.stringify({ type: "module" }, null, 2)}\n`
+  );
 
   const cjsFiles = await listFiles(cjsDirectory);
   const esmFiles = await listFiles(esmDirectory);
-  const generatedFiles = [
+  const generatedFiles = validateGeneratedPaths([
     ...cjsFiles,
     ...esmFiles.map((path) => join("esm", path))
-  ].sort();
+  ]).sort();
   const previousFiles = await readBuildManifest();
 
   // Only a previous successful build's manifest grants ownership; unknown dist files are preserved.
+  await preflightOutputPaths([...new Set([...previousFiles, ...generatedFiles])]);
   await removeGeneratedFiles(previousFiles);
   await copyGeneratedFiles(cjsDirectory, "", cjsFiles);
   await copyGeneratedFiles(esmDirectory, "esm", esmFiles);
@@ -71,11 +80,28 @@ async function listFiles(directory, prefix = "") {
 
 async function readBuildManifest() {
   try {
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const manifestStats = await lstat(manifestPath);
+    if (manifestStats.isSymbolicLink() || !manifestStats.isFile()) {
+      throw new Error("invalid shared build output manifest file");
+    }
+
+    const manifestHandle = await open(manifestPath, constants.O_RDONLY | noFollowFlag());
+    let manifestText;
+    try {
+      const openedStats = await manifestHandle.stat();
+      if (!openedStats.isFile()) {
+        throw new Error("invalid shared build output manifest file");
+      }
+      manifestText = await manifestHandle.readFile("utf8");
+    } finally {
+      await manifestHandle.close();
+    }
+
+    const manifest = JSON.parse(manifestText);
     if (manifest.version !== 1 || !Array.isArray(manifest.files)) {
       throw new Error("invalid shared build output manifest");
     }
-    return manifest.files.map(validateGeneratedPath);
+    return validateGeneratedPaths(manifest.files);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       return [];
@@ -84,21 +110,33 @@ async function readBuildManifest() {
   }
 }
 
+async function preflightOutputPaths(files) {
+  for (const path of files) {
+    await inspectOutputFile(path);
+  }
+}
+
 async function removeGeneratedFiles(files) {
   const parentDirectories = new Set();
   for (const path of files) {
-    const outputPath = resolveOutputPath(path);
-    await rm(outputPath, { force: true });
-    let parentDirectory = dirname(outputPath);
-    while (parentDirectory !== distDirectory) {
-      parentDirectories.add(parentDirectory);
-      parentDirectory = dirname(parentDirectory);
+    const inspected = await inspectOutputFile(path);
+    if (inspected.stats) {
+      // unlink never follows the final component; the parent chain was just revalidated.
+      await unlink(inspected.outputPath);
+    }
+
+    const segments = path.split("/");
+    for (let index = segments.length - 1; index > 0; index -= 1) {
+      parentDirectories.add(segments.slice(0, index).join("/"));
     }
   }
 
-  for (const directory of [...parentDirectories].sort((left, right) => right.length - left.length)) {
+  for (const directory of [...parentDirectories].sort(compareDeepestPathFirst)) {
     try {
-      await rmdir(directory);
+      const inspected = await inspectOutputDirectory(directory);
+      if (inspected.exists) {
+        await rmdir(inspected.outputPath);
+      }
     } catch (error) {
       if (!error || typeof error !== "object" || !("code" in error)
         || !["ENOENT", "ENOTEMPTY"].includes(error.code)) {
@@ -110,25 +148,40 @@ async function removeGeneratedFiles(files) {
 
 async function copyGeneratedFiles(sourceDirectory, destinationPrefix, files) {
   for (const path of files) {
-    const destinationPath = resolveOutputPath(join(destinationPrefix, path));
-    await mkdir(dirname(destinationPath), { recursive: true });
-    await copyFile(join(sourceDirectory, path), destinationPath);
+    const destinationPath = validateGeneratedPath(join(destinationPrefix, path));
+    const source = await readGeneratedFile(join(sourceDirectory, path));
+    await ensureSafeParentDirectories(destinationPath);
+    await writeOutputFile(destinationPath, source);
   }
 }
 
 async function writeBuildManifest(files) {
   const temporaryManifestPath = `${manifestPath}.${process.pid}.tmp`;
+  let temporaryManifestCreated = false;
   try {
-    await writeFile(temporaryManifestPath, `${JSON.stringify({ version: 1, files }, null, 2)}\n`);
+    const temporaryManifestHandle = await open(
+      temporaryManifestPath,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollowFlag(),
+      0o600
+    );
+    temporaryManifestCreated = true;
+    try {
+      await temporaryManifestHandle.writeFile(`${JSON.stringify({ version: 1, files }, null, 2)}\n`);
+    } finally {
+      await temporaryManifestHandle.close();
+    }
     await rename(temporaryManifestPath, manifestPath);
+    temporaryManifestCreated = false;
   } finally {
-    await rm(temporaryManifestPath, { force: true });
+    if (temporaryManifestCreated) {
+      await unlink(temporaryManifestPath).catch(() => undefined);
+    }
   }
 }
 
 function resolveOutputPath(path) {
   const validatedPath = validateGeneratedPath(path);
-  const outputPath = resolve(distDirectory, validatedPath);
+  const outputPath = resolve(distDirectory, ...validatedPath.split("/"));
   if (outputPath !== distDirectory && !outputPath.startsWith(`${distDirectory}${sep}`)) {
     throw new Error(`shared build output escapes dist: ${path}`);
   }
@@ -136,12 +189,249 @@ function resolveOutputPath(path) {
 }
 
 function validateGeneratedPath(path) {
-  if (typeof path !== "string" || path.length === 0 || isAbsolute(path)) {
+  if (typeof path !== "string" || path.length === 0 || path.includes("\0")) {
     throw new Error(`invalid shared build output path: ${String(path)}`);
   }
-  const normalizedPath = normalize(path);
-  if (normalizedPath === "." || normalizedPath === ".." || normalizedPath.startsWith(`..${sep}`)) {
+
+  const portablePath = path.replaceAll("\\", "/");
+  if (posix.isAbsolute(portablePath) || win32.isAbsolute(path) || win32.isAbsolute(portablePath)) {
     throw new Error(`invalid shared build output path: ${path}`);
   }
-  return normalizedPath;
+
+  const segments = portablePath.split("/");
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+    throw new Error(`invalid shared build output path: ${path}`);
+  }
+  return segments.join("/");
+}
+
+function validateGeneratedPaths(paths) {
+  const validatedPaths = paths.map(validateGeneratedPath);
+  if (new Set(validatedPaths).size !== validatedPaths.length) {
+    throw new Error("invalid shared build output manifest: duplicate file path");
+  }
+  return validatedPaths;
+}
+
+async function inspectOutputFile(path) {
+  const validatedPath = validateGeneratedPath(path);
+  const segments = validatedPath.split("/");
+  const parent = await inspectDirectoryChain(segments.slice(0, -1));
+  const outputPath = resolveOutputPath(validatedPath);
+  if (!parent.exists) {
+    return { outputPath, stats: undefined };
+  }
+
+  const stats = await lstatIfExists(outputPath);
+  if (stats?.isSymbolicLink()) {
+    throw new Error(`shared build output target is a symlink: ${validatedPath}`);
+  }
+  if (stats?.isDirectory()) {
+    throw new Error(`shared build output manifest contains a directory: ${validatedPath}`);
+  }
+  if (stats && !stats.isFile()) {
+    throw new Error(`shared build output target is not a regular file: ${validatedPath}`);
+  }
+  return { outputPath, stats };
+}
+
+async function inspectOutputDirectory(path) {
+  const validatedPath = validateGeneratedPath(path);
+  const segments = validatedPath.split("/");
+  const inspected = await inspectDirectoryChain(segments);
+  return {
+    outputPath: resolveOutputPath(validatedPath),
+    exists: inspected.exists
+  };
+}
+
+async function inspectDirectoryChain(segments) {
+  const rootStats = await lstatIfExists(distDirectory);
+  if (!rootStats) {
+    return { exists: false };
+  }
+  assertRealDirectory(rootStats, "dist");
+
+  let currentPath = distDirectory;
+  for (const segment of segments) {
+    currentPath = join(currentPath, segment);
+    const stats = await lstatIfExists(currentPath);
+    if (!stats) {
+      return { exists: false };
+    }
+    assertRealDirectory(stats, currentPath);
+  }
+  return { exists: true };
+}
+
+async function ensureSafeParentDirectories(path) {
+  const validatedPath = validateGeneratedPath(path);
+  const parentSegments = validatedPath.split("/").slice(0, -1);
+  await ensureDistRoot();
+
+  for (let index = 0; index < parentSegments.length; index += 1) {
+    const existingParents = parentSegments.slice(0, index);
+    const inspectedParents = await inspectDirectoryChain(existingParents);
+    if (!inspectedParents.exists) {
+      throw new Error(`shared build output parent changed during mkdir: ${validatedPath}`);
+    }
+
+    const directoryPath = join(distDirectory, ...parentSegments.slice(0, index + 1));
+    const existingStats = await lstatIfExists(directoryPath);
+    if (!existingStats) {
+      try {
+        await mkdir(directoryPath);
+      } catch (error) {
+        if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") {
+          throw error;
+        }
+      }
+    }
+
+    const createdStats = await lstatIfExists(directoryPath);
+    if (!createdStats) {
+      throw new Error(`shared build output parent disappeared during mkdir: ${validatedPath}`);
+    }
+    assertRealDirectory(createdStats, directoryPath);
+  }
+}
+
+async function ensureDistRoot() {
+  let stats = await lstatIfExists(distDirectory);
+  if (!stats) {
+    try {
+      await mkdir(distDirectory);
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") {
+        throw error;
+      }
+    }
+    stats = await lstatIfExists(distDirectory);
+  }
+  if (!stats) {
+    throw new Error("shared build dist root disappeared during mkdir");
+  }
+  assertRealDirectory(stats, "dist");
+}
+
+async function readGeneratedFile(path) {
+  const stats = await lstat(path);
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new Error(`shared build generated source is not a regular file: ${path}`);
+  }
+
+  const sourceHandle = await open(path, constants.O_RDONLY | noFollowFlag());
+  try {
+    const openedStats = await sourceHandle.stat();
+    if (!openedStats.isFile()) {
+      throw new Error(`shared build generated source is not a regular file: ${path}`);
+    }
+    return await sourceHandle.readFile();
+  } finally {
+    await sourceHandle.close();
+  }
+}
+
+async function assertGeneratedDirectory(directory) {
+  const temporaryStats = await lstat(temporaryDirectory);
+  if (temporaryStats.isSymbolicLink() || !temporaryStats.isDirectory()) {
+    throw new Error("shared build temporary root is not a real directory");
+  }
+
+  const directoryStats = await lstat(directory);
+  if (directoryStats.isSymbolicLink() || !directoryStats.isDirectory()) {
+    throw new Error(`shared build generated directory is not a real directory: ${directory}`);
+  }
+}
+
+async function writeGeneratedMetadataFile(directory, filename, content) {
+  await assertGeneratedDirectory(directory);
+  const path = join(directory, filename);
+  if (await lstatIfExists(path)) {
+    throw new Error(`shared build generated metadata already exists: ${path}`);
+  }
+
+  const metadataHandle = await open(
+    path,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollowFlag(),
+    0o666
+  );
+  try {
+    await metadataHandle.writeFile(content);
+  } finally {
+    await metadataHandle.close();
+  }
+}
+
+async function writeOutputFile(path, content) {
+  const inspectedDestination = await inspectOutputFile(path);
+  const temporaryPath = `${path}.led-build-${process.pid}-${temporaryOutputCounter += 1}.tmp`;
+  const inspectedTemporary = await inspectOutputFile(temporaryPath);
+  if (inspectedTemporary.stats) {
+    throw new Error(`shared build temporary output already exists: ${temporaryPath}`);
+  }
+
+  let temporaryCreated = false;
+  try {
+    const temporaryHandle = await open(
+      inspectedTemporary.outputPath,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollowFlag(),
+      0o666
+    );
+    temporaryCreated = true;
+    try {
+      await temporaryHandle.writeFile(content);
+    } finally {
+      await temporaryHandle.close();
+    }
+
+    // Revalidate immediately before rename. rename replaces a final symlink instead of following it.
+    await inspectOutputFile(path);
+    await inspectOutputFile(temporaryPath);
+    await rename(inspectedTemporary.outputPath, inspectedDestination.outputPath);
+    temporaryCreated = false;
+  } finally {
+    if (temporaryCreated) {
+      await removeTemporaryOutput(temporaryPath);
+    }
+  }
+}
+
+async function removeTemporaryOutput(path) {
+  try {
+    const inspected = await inspectOutputFile(path);
+    if (inspected.stats) {
+      await unlink(inspected.outputPath);
+    }
+  } catch {
+    // An unsafe parent is left untouched; a later clean build can reject it explicitly.
+  }
+}
+
+async function lstatIfExists(path) {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function assertRealDirectory(stats, path) {
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error(`shared build output parent is not a real directory: ${path}`);
+  }
+}
+
+function noFollowFlag() {
+  if (typeof constants.O_NOFOLLOW !== "number") {
+    throw new Error("shared build requires O_NOFOLLOW support");
+  }
+  return constants.O_NOFOLLOW;
+}
+
+function compareDeepestPathFirst(left, right) {
+  return right.split("/").length - left.split("/").length || right.localeCompare(left);
 }

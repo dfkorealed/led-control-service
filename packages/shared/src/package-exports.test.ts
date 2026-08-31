@@ -1,7 +1,19 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { access, mkdtemp, mkdir, readFile, realpath, rm, symlink } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  copyFile,
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,6 +21,59 @@ import { afterEach, describe, expect, it } from "vitest";
 const execFile = promisify(execFileCallback);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryDirectories: string[] = [];
+
+async function createBuildFixture() {
+  const root = await mkdtemp(join(tmpdir(), "led-shared-build-fixture-"));
+  temporaryDirectories.push(root);
+
+  await mkdir(join(root, "scripts"), { recursive: true });
+  await mkdir(join(root, "bin"), { recursive: true });
+  await copyFile(join(packageRoot, "scripts", "build.mjs"), join(root, "scripts", "build.mjs"));
+
+  const fakeTypeScript = join(root, "bin", "tsc");
+  await writeFile(fakeTypeScript, `#!/usr/bin/env node
+const { mkdirSync, symlinkSync, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
+const outDirectoryIndex = process.argv.indexOf("--outDir");
+if (outDirectoryIndex === -1 || !process.argv[outDirectoryIndex + 1]) process.exit(2);
+const outDirectory = process.argv[outDirectoryIndex + 1];
+const project = process.argv[process.argv.indexOf("--project") + 1];
+if (project === "tsconfig.esm.json" && process.env.FAKE_TSC_ESM_SYMLINK_TARGET) {
+  symlinkSync(process.env.FAKE_TSC_ESM_SYMLINK_TARGET, outDirectory, "dir");
+} else {
+  mkdirSync(outDirectory, { recursive: true });
+  writeFileSync(join(outDirectory, "index.js"), "exports.fixtureValue = 1;\\n");
+  writeFileSync(join(outDirectory, "index.d.ts"), "export declare const fixtureValue = 1;\\n");
+}
+`);
+  await chmod(fakeTypeScript, 0o755);
+
+  return root;
+}
+
+async function createExternalDirectory() {
+  const directory = await mkdtemp(join(tmpdir(), "led-shared-external-sentinel-"));
+  temporaryDirectories.push(directory);
+  return directory;
+}
+
+async function writeBuildManifest(root: string, files: unknown[]) {
+  await writeFile(
+    join(root, ".build-output-manifest.json"),
+    `${JSON.stringify({ version: 1, files }, null, 2)}\n`
+  );
+}
+
+async function runFixtureBuild(root: string, environment: Record<string, string> = {}) {
+  return execFile(process.execPath, ["scripts/build.mjs"], {
+    cwd: root,
+    env: {
+      ...process.env,
+      PATH: `${join(root, "bin")}${delimiter}${process.env.PATH ?? ""}`,
+      ...environment
+    }
+  });
+}
 
 const payload = {
   sourceType: "schedule",
@@ -137,5 +202,124 @@ describe("shared package exports", () => {
     await expect(execFile(process.execPath, ["--eval", rootRequireSmoke], {
       cwd: consumerDirectory
     })).resolves.toMatchObject({ stderr: "" });
+  }, 30_000);
+});
+
+describe.sequential("shared build output cleanup", () => {
+  it("rejects an intermediate dist symlink before touching external or existing artifacts", async () => {
+    const root = await createBuildFixture();
+    const externalDirectory = await createExternalDirectory();
+    const distDirectory = join(root, "dist");
+    const externalArtifact = join(externalDirectory, "index.js");
+    const existingArtifact = join(distDirectory, "index.js");
+    await mkdir(distDirectory, { recursive: true });
+    await writeFile(existingArtifact, "existing artifact\n");
+    await writeFile(externalArtifact, "external sentinel\n");
+    await symlink(externalDirectory, join(distDirectory, "esm"), "dir");
+    await writeBuildManifest(root, ["index.js", "esm/index.js"]);
+
+    await expect(runFixtureBuild(root)).rejects.toThrow();
+
+    await expect(readFile(externalArtifact, "utf8")).resolves.toBe("external sentinel\n");
+    await expect(readFile(existingArtifact, "utf8")).resolves.toBe("existing artifact\n");
+    expect((await lstat(join(distDirectory, "esm"))).isSymbolicLink()).toBe(true);
+  });
+
+  it("rejects a symlinked dist root without touching its external target", async () => {
+    const root = await createBuildFixture();
+    const externalDirectory = await createExternalDirectory();
+    const externalArtifact = join(externalDirectory, "index.js");
+    await writeFile(externalArtifact, "external root sentinel\n");
+    await symlink(externalDirectory, join(root, "dist"), "dir");
+    await writeBuildManifest(root, ["index.js"]);
+
+    await expect(runFixtureBuild(root)).rejects.toThrow();
+
+    await expect(readFile(externalArtifact, "utf8")).resolves.toBe("external root sentinel\n");
+    expect((await lstat(join(root, "dist"))).isSymbolicLink()).toBe(true);
+  });
+
+  it("fails closed on a generated target symlink and preserves the external file", async () => {
+    const root = await createBuildFixture();
+    const externalDirectory = await createExternalDirectory();
+    const distDirectory = join(root, "dist");
+    const externalArtifact = join(externalDirectory, "target.js");
+    const existingArtifact = join(distDirectory, "existing.js");
+    await mkdir(distDirectory, { recursive: true });
+    await writeFile(existingArtifact, "existing artifact\n");
+    await writeFile(externalArtifact, "external target sentinel\n");
+    await symlink(externalArtifact, join(distDirectory, "index.js"), "file");
+    await writeBuildManifest(root, ["existing.js", "index.js"]);
+
+    await expect(runFixtureBuild(root)).rejects.toThrow();
+
+    await expect(readFile(externalArtifact, "utf8")).resolves.toBe("external target sentinel\n");
+    await expect(readFile(existingArtifact, "utf8")).resolves.toBe("existing artifact\n");
+    expect((await lstat(join(distDirectory, "index.js"))).isSymbolicLink()).toBe(true);
+  });
+
+  it("rejects a symlinked ESM compiler output before writing external metadata", async () => {
+    const root = await createBuildFixture();
+    const externalDirectory = await createExternalDirectory();
+    const externalArtifact = join(externalDirectory, "index.js");
+    await writeFile(externalArtifact, "external compiler sentinel\n");
+    await writeBuildManifest(root, []);
+
+    await expect(runFixtureBuild(root, {
+      FAKE_TSC_ESM_SYMLINK_TARGET: externalDirectory
+    })).rejects.toThrow();
+
+    await expect(readFile(externalArtifact, "utf8")).resolves.toBe("external compiler sentinel\n");
+    await expect(access(join(externalDirectory, "package.json"))).rejects.toThrow();
+  });
+
+  it("rejects malformed, duplicate, and directory manifest entries", async () => {
+    const cases: Array<{ name: string; files: unknown[]; setup?: (root: string) => Promise<void> }> = [
+      { name: "absolute POSIX path", files: ["/tmp/outside.js"] },
+      { name: "absolute Windows path", files: ["C:\\outside.js"] },
+      { name: "parent traversal", files: ["../outside.js"] },
+      { name: "empty entry", files: [""] },
+      { name: "duplicate entry", files: ["index.js", "index.js"] },
+      { name: "portable duplicate entry", files: ["esm/index.js", "esm\\index.js"] },
+      {
+        name: "directory entry",
+        files: ["owned-directory"],
+        setup: async (root) => mkdir(join(root, "dist", "owned-directory"), { recursive: true })
+      },
+      { name: "NUL entry", files: ["index.js\0outside"] },
+      { name: "mixed-separator escape", files: ["esm\\..\\../outside.js"] }
+    ];
+
+    for (const testCase of cases) {
+      const root = await createBuildFixture();
+      await testCase.setup?.(root);
+      await writeBuildManifest(root, testCase.files);
+      await expect(runFixtureBuild(root), testCase.name).rejects.toThrow();
+    }
+  }, 30_000);
+
+  it("cleans only stale manifest-owned files and preserves unrelated dist files", async () => {
+    const root = await createBuildFixture();
+    const distDirectory = join(root, "dist");
+    await mkdir(join(distDirectory, "stale"), { recursive: true });
+    await writeFile(join(distDirectory, "index.js"), "old generated artifact\n");
+    await writeFile(join(distDirectory, "stale", "removed.js"), "stale generated artifact\n");
+    await writeFile(join(distDirectory, "user-kept.txt"), "unrelated user file\n");
+    await writeBuildManifest(root, ["index.js", "stale/removed.js"]);
+
+    await expect(runFixtureBuild(root)).resolves.toMatchObject({ stderr: "" });
+
+    await expect(readFile(join(distDirectory, "index.js"), "utf8")).resolves.toBe("exports.fixtureValue = 1;\n");
+    await expect(access(join(distDirectory, "stale", "removed.js"))).rejects.toThrow();
+    await expect(access(join(distDirectory, "stale"))).rejects.toThrow();
+    await expect(readFile(join(distDirectory, "user-kept.txt"), "utf8")).resolves.toBe(
+      "unrelated user file\n"
+    );
+
+    await rm(distDirectory, { recursive: true });
+    await expect(runFixtureBuild(root)).resolves.toMatchObject({ stderr: "" });
+    await expect(readFile(join(distDirectory, "esm", "index.js"), "utf8")).resolves.toBe(
+      "exports.fixtureValue = 1;\n"
+    );
   }, 30_000);
 });

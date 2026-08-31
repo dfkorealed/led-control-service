@@ -1263,6 +1263,16 @@ git commit -m "feat(web): add schedule control interface"
 
 검증: API·form 최초 RED는 새 모듈 부재로 2 suite가 실패했고, panel/URL RED에서는 기존 수동 제어 41개가 통과한 상태로 새 mode 테스트 3개와 panel suite가 실패했다. 다중 fixture canonical order와 삭제 실패 dialog 표시도 각각 RED를 확인했다. 구현 뒤 focused 4파일 67/67, Web 전체 31파일 321/321, typecheck, lint와 production build를 통과했다. Production API/Gateway Chromium E2E와 실제 Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
 
+#### Fix Round 4: shared generated artifact cleanup symlink hardening
+
+- [x] 격리 shared build fixture에 `dist/esm` parent symlink, `dist` root symlink, target file symlink, 악성 manifest path와 unrelated file 보존 회귀를 추가하고 기존 구현에서 외부 sentinel 훼손 또는 잘못된 성공을 RED로 확인한다.
+- [x] manifest path를 portable lexical canonical form으로 검증하고 absolute, traversal, empty, duplicate, directory, NUL, mixed-separator escape를 fail-closed한다.
+- [x] `dist` root부터 target parent까지 모든 기존 component를 `lstat`으로 선검증하고 cleanup, empty-directory prune, parent mkdir, artifact write 직전에 다시 검증한다. symlink/non-directory parent와 symlink/directory/non-file target은 mutation 전에 거부한다.
+- [x] recursive mkdir과 symlink-following copy를 제거하고 real directory를 한 단계씩 생성하며 exclusive temporary file write와 rename으로 generated artifact final target을 따라가지 않는다.
+- [x] Shared/Web/bundle audit/API/Gateway 회귀, diff-check를 실행하고 한글 Fix Round 4 보고서·누적 문서·남은 OS-level race를 갱신한 뒤 `fix(shared): harden generated artifact cleanup`으로 커밋한다.
+
+Fix Round 4 검증: 기존 구현은 core focused 7건 중 4건이 실패했고, source-side ESM output symlink 테스트도 외부 metadata write 뒤 성공해 별도 RED를 확인했다. 수정 뒤 Shared 83/83, Web 334/334, production build와 main `1,028.66 kB / gzip 313.70 kB` bundle audit, API/Gateway typecheck·build·root/narrow import·output syntax, `git diff --check`를 통과했다. Node 표준 API에 dirfd-relative mutation이 없어 mutation 직전 `lstat` 뒤 parent swap의 잔여 OS race는 보고서에 명시했다.
+
 ### Task 18: Web 이벤트 CRUD와 수동 override UI
 
 **Files:**

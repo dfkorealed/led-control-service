@@ -340,3 +340,10 @@
 - **원인**: 비동기 envelope allocation 성공과 그 내부 ownership snapshot 성공을 하나의 수락 경계로 보지 않았다. Success path의 copy 동작만 읽고 allocator failure, queue-post cleanup과 handler deep-free까지 end-to-end ownership graph를 검증하지 않았다.
 - **해결 및 예방책**: Pinned ESP-IDF server-send만 public API thread에서 payload/context를 all-or-nothing 할당하고, queue 수락 전 failure는 caller가 exact cleanup한 뒤 동기 오류를 반환한다. Queue 수락 후에만 ownership을 queued argument로 이동하고 기존 handler deep-free가 한 번 해제한다. Patch는 사용자 SDK가 아닌 build-only component overlay에 적용하며 exact revision/source/patch hash와 artifact identity로 고정한다.
 - **반복 방지 체크**: 비동기 API가 nested memory를 복사하면 first allocation, 각 nested allocation, envelope와 queue post를 모두 fault-inject한다. 각 failure의 API 결과, queued handler 0회, free count와 success delayed-handler exact one-free를 검증하고, unrelated action의 기존 동작도 회귀한다. SDK patch는 wrong revision/hash fail-closed, 멱등 적용, 실제 compile source와 signed artifact digest까지 함께 검사한다.
+
+## 2026-08-31 / lexical containment는 filesystem containment가 아니다
+
+- **발생했던 문제/실수**: shared build manifest 경로를 `resolve()`로 `dist` 아래인지 확인했지만 `dist/esm`이 외부 디렉터리 symlink로 바뀌면 cleanup `rm()`이 외부의 같은 이름 파일을 삭제했다.
+- **원인**: 문자열 경로의 `..` escape만 차단하고 `dist` root부터 target parent까지 실제 component type을 확인하지 않았다. Recursive `mkdir`와 path 기반 copy도 중간 symlink를 따라갈 수 있었다.
+- **해결 및 예방책**: manifest 전체와 생성 대상 전체를 mutation 전에 portable canonical path와 `lstat` chain으로 선검증하고, unlink/rmdir/mkdir/write 직전에 다시 검사한다. Target symlink와 directory/non-file은 fail-closed하며 parent는 real directory만 한 단계씩 생성한다. Generated file은 exclusive temporary regular file로 쓴 뒤 `rename`해 final symlink를 따라가지 않는다.
+- **반복 방지 체크**: build cleanup 테스트에는 `dist` root symlink, intermediate parent symlink, target file symlink, absolute/Windows/traversal/empty/duplicate/directory/NUL/mixed-separator manifest와 외부 sentinel을 포함한다. Node에 dirfd-relative `openat`/`unlinkat`이 없어 남는 parent-swap race는 writable build directory 권한과 단일 build process로 추가 제한한다.
