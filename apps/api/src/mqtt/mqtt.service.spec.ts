@@ -500,6 +500,7 @@ describe("MqttService", () => {
     expect(subscribe).toHaveBeenCalledWith(
       [
         "sites/+/gateways/+/events/automation/config-applied",
+        "sites/+/gateways/+/events/automation/current-config-request",
         "sites/+/gateways/+/events/automation/execution",
         "sites/+/gateways/+/events/automation/vehicle-sensor-capability"
       ],

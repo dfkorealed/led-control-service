@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   automationActionV1Schema,
+  automationConfigAppliedDeliveryV1Schema,
+  automationConfigAppliedReceiptV1Schema,
   automationConfigAppliedV1Schema,
+  automationCurrentConfigRequestV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
@@ -21,6 +24,8 @@ const fixtureId2 = "33333333-3333-4333-8333-333333333334";
 const scheduleId = "44444444-4444-4444-8444-444444444444";
 const vehicleRuleId = "55555555-5555-4555-8555-555555555555";
 const eventId = "66666666-6666-4666-8666-666666666666";
+const requestId = "77777777-7777-4777-8777-777777777777";
+const acknowledgementId = "88888888-8888-4888-8888-888888888888";
 const occurredAt = "2026-08-29T00:00:00.000Z";
 const payloadHash = `sha256:${"a".repeat(64)}`;
 
@@ -200,6 +205,77 @@ describe("automation shared contracts", () => {
       reportPayloadHash: `sha256:${"A".repeat(64)}`
     })).toThrow();
     expect(() => automationExecutionIngestedAckV1Schema.parse({ ...acknowledgement, extra: true })).toThrow();
+  });
+
+  it("round-trips current-config requests and exact config-applied delivery receipts", () => {
+    const request = {
+      schemaVersion: 1 as const,
+      requestId,
+      siteId,
+      gatewayId,
+      requestedAt: occurredAt
+    };
+    const acknowledgement = automationConfigAppliedV1Schema.parse({
+      schemaVersion: 1,
+      gatewayId,
+      revision: 3,
+      payloadHash,
+      status: "applied",
+      errorCode: null,
+      appliedAt: occurredAt
+    });
+    const delivery = {
+      schemaVersion: 1 as const,
+      acknowledgementId,
+      siteId,
+      gatewayId,
+      acknowledgement
+    };
+    const receipt = {
+      ...delivery,
+      ingestedAt: "2026-08-29T00:00:01.000Z"
+    };
+
+    expect(automationCurrentConfigRequestV1Schema.parse(request)).toEqual(request);
+    expect(automationConfigAppliedDeliveryV1Schema.parse(delivery)).toEqual(delivery);
+    expect(automationConfigAppliedReceiptV1Schema.parse(receipt)).toEqual(receipt);
+  });
+
+  it("rejects malformed or cross-scope convergence payloads", () => {
+    const acknowledgement = automationConfigAppliedV1Schema.parse({
+      schemaVersion: 1,
+      gatewayId,
+      revision: 3,
+      payloadHash,
+      status: "applied",
+      errorCode: null,
+      appliedAt: occurredAt
+    });
+    const delivery = {
+      schemaVersion: 1 as const,
+      acknowledgementId,
+      siteId,
+      gatewayId,
+      acknowledgement
+    };
+
+    expect(automationCurrentConfigRequestV1Schema.safeParse({
+      schemaVersion: 1,
+      requestId,
+      siteId,
+      gatewayId,
+      requestedAt: occurredAt,
+      extra: true
+    }).success).toBe(false);
+    expect(automationConfigAppliedDeliveryV1Schema.safeParse({
+      ...delivery,
+      gatewayId: "00000000-0000-4000-8000-000000000099"
+    }).success).toBe(false);
+    expect(automationConfigAppliedReceiptV1Schema.safeParse({
+      ...delivery,
+      ingestedAt: occurredAt,
+      siteId: "not-a-site-id"
+    }).success).toBe(false);
   });
 
   it("validates a nonempty manual override window", () => {

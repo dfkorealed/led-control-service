@@ -1,14 +1,18 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
-  automationConfigAppliedV1Schema,
+  automationConfigAppliedDeliveryV1Schema,
+  automationConfigAppliedReceiptV1Schema,
+  automationCurrentConfigRequestV1Schema,
   automationExecutionActionResultPayloadV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
   mqttTopics,
+  type AutomationConfigAppliedDeliveryV1,
   type AutomationExecutionEventV1
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
+import { isDeepStrictEqual } from "node:util";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic, type GatewayTopicScope } from "../mqtt/topic-scope";
 import { AutomationClock } from "./automation-clock";
@@ -16,6 +20,7 @@ import { canonicalPayloadHash } from "./automation-payload-hash";
 import { VehicleSensorCapabilityService } from "./vehicle-sensor-capability.service";
 
 const CONFIG_APPLIED_CHANNEL = "events/automation/config-applied";
+const CURRENT_CONFIG_REQUEST_CHANNEL = "events/automation/current-config-request";
 const EXECUTION_CHANNEL = "events/automation/execution";
 const CAPABILITY_CHANNEL = "events/automation/vehicle-sensor-capability";
 
@@ -27,6 +32,7 @@ type CurrentConfiguration = {
   syncStatus: "PENDING" | "APPLIED" | "REJECTED";
   lastErrorCode: string | null;
   lastAppliedAt: Date | null;
+  payloadHash: string | null;
 };
 
 type ExecutionSource = {
@@ -69,76 +75,205 @@ export class AutomationMqttConsumerService {
       await this.onConfigApplied(scope, this.parseJson(payload));
       return;
     }
+    if (scope.channel === CURRENT_CONFIG_REQUEST_CHANNEL) {
+      await this.onCurrentConfigRequest(scope, this.parseJson(payload));
+      return;
+    }
     if (scope.channel === EXECUTION_CHANNEL) {
       await this.onExecution(scope, this.parseJson(payload));
     }
   }
 
-  async onConfigApplied(scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">, rawAck: unknown) {
-    const parsed = automationConfigAppliedV1Schema.safeParse(rawAck);
-    if (!parsed.success || parsed.data.gatewayId !== scope.gatewayId) return;
-    const ack = parsed.data;
+  async onCurrentConfigRequest(
+    scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
+    rawRequest: unknown
+  ) {
+    const parsed = automationCurrentConfigRequestV1Schema.safeParse(rawRequest);
+    if (
+      !parsed.success || parsed.data.siteId !== scope.siteId ||
+      parsed.data.gatewayId !== scope.gatewayId
+    ) return;
 
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
+      const configuration = await this.lockCurrentConfiguration(tx, scope);
+      if (!configuration?.payloadHash) return;
+      const stored = await this.loadStoredSnapshot(
+        tx,
+        scope,
+        configuration.desiredRevision,
+        configuration.payloadHash
+      );
+      if (!stored) return;
+      const now = this.clock.now();
+      await tx.mqttOutbox.updateMany({
+        where: {
+          id: stored.id,
+          OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }]
+        },
+        data: {
+          attempts: 0,
+          nextAttemptAt: now,
+          publishedAt: null,
+          lockedBy: null,
+          lockedAt: null,
+          leaseExpiresAt: null,
+          deadLetteredAt: null,
+          supersededAt: null,
+          lastError: null
+        }
+      });
+      return stored.snapshot;
+    });
+  }
+
+  async onConfigApplied(scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">, rawAck: unknown) {
+    const parsed = automationConfigAppliedDeliveryV1Schema.safeParse(rawAck);
+    if (
+      !parsed.success || parsed.data.siteId !== scope.siteId ||
+      parsed.data.gatewayId !== scope.gatewayId
+    ) return;
+    const delivery = parsed.data as AutomationConfigAppliedDeliveryV1;
+    const ack = delivery.acknowledgement;
+
+    return this.prisma.$transaction(async (tx) => {
       const configuration = await this.lockCurrentConfiguration(tx, scope);
       if (!configuration || ack.revision > configuration.desiredRevision) return;
 
-      const storedOutbox = await tx.mqttOutbox.findFirst({
-        where: {
-          gatewayId: scope.gatewayId,
-          revision: ack.revision,
-          payloadHash: ack.payloadHash,
-          dispatchId: null,
-          applicationAckKey: null
-        },
-        select: { payload: true }
-      });
-      const storedSnapshot = automationSnapshotV1Schema.safeParse(storedOutbox?.payload);
-      if (
-        !storedSnapshot.success ||
-        storedSnapshot.data.siteId !== scope.siteId ||
-        storedSnapshot.data.gatewayId !== scope.gatewayId ||
-        storedSnapshot.data.revision !== ack.revision ||
-        storedSnapshot.data.payloadHash !== ack.payloadHash
-      ) return;
+      const stored = await this.loadStoredSnapshot(tx, scope, ack.revision, ack.payloadHash);
+      if (!stored) return;
+      const storedSnapshot = stored.snapshot;
 
       if (ack.status === "rejected") {
-        if (ack.revision !== configuration.desiredRevision || ack.revision <= configuration.appliedRevision) return;
+        if (ack.revision === configuration.desiredRevision && ack.revision > configuration.appliedRevision) {
+          await tx.gatewayAutomationConfiguration.update({
+            where: { gatewayId: scope.gatewayId },
+            data: {
+              syncStatus: "REJECTED",
+              lastErrorCode: sanitizeConfigurationErrorCode(ack.errorCode)
+            }
+          });
+        }
+      } else if (ack.revision > configuration.appliedRevision) {
+        const isCurrentDesired = ack.revision === configuration.desiredRevision;
+        const preserveCurrentRejection = !isCurrentDesired && configuration.syncStatus === "REJECTED";
         await tx.gatewayAutomationConfiguration.update({
           where: { gatewayId: scope.gatewayId },
           data: {
-            syncStatus: "REJECTED",
-            lastErrorCode: sanitizeConfigurationErrorCode(ack.errorCode)
+            appliedRevision: ack.revision,
+            syncStatus: preserveCurrentRejection ? "REJECTED" : isCurrentDesired ? "APPLIED" : "PENDING",
+            lastErrorCode: preserveCurrentRejection ? configuration.lastErrorCode : null,
+            lastAppliedAt: new Date(ack.appliedAt)
           }
         });
-        return;
+        const scheduleIds = storedSnapshot.schedules.map(({ id }) => id);
+        if (scheduleIds.length > 0) {
+          await tx.lightingSchedule.updateMany({
+            where: { id: { in: scheduleIds }, gatewayId: scope.gatewayId, appliedRevision: { lt: ack.revision } },
+            data: { appliedRevision: ack.revision }
+          });
+        }
+        const eventRuleIds = storedSnapshot.vehicleEventRules.map(({ id }) => id);
+        if (eventRuleIds.length > 0) {
+          await tx.vehicleEventRule.updateMany({
+            where: { id: { in: eventRuleIds }, gatewayId: scope.gatewayId, appliedRevision: { lt: ack.revision } },
+            data: { appliedRevision: ack.revision }
+          });
+        }
       }
 
-      if (ack.revision <= configuration.appliedRevision) return;
-      const isCurrentDesired = ack.revision === configuration.desiredRevision;
-      const preserveCurrentRejection = !isCurrentDesired && configuration.syncStatus === "REJECTED";
-      await tx.gatewayAutomationConfiguration.update({
-        where: { gatewayId: scope.gatewayId },
-        data: {
-          appliedRevision: ack.revision,
-          syncStatus: preserveCurrentRejection ? "REJECTED" : isCurrentDesired ? "APPLIED" : "PENDING",
-          lastErrorCode: preserveCurrentRejection ? configuration.lastErrorCode : null,
-          lastAppliedAt: new Date(ack.appliedAt)
-        }
-      });
-      const scheduleIds = storedSnapshot.data.schedules.map(({ id }) => id);
-      if (scheduleIds.length > 0) {
-        await tx.lightingSchedule.updateMany({
-          where: { id: { in: scheduleIds }, gatewayId: scope.gatewayId, appliedRevision: { lt: ack.revision } },
-          data: { appliedRevision: ack.revision }
-        });
+      return this.createOrReviveConfigAppliedReceipt(tx, scope, delivery);
+    });
+  }
+
+  private async loadStoredSnapshot(
+    tx: Prisma.TransactionClient,
+    scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
+    revision: number,
+    payloadHash: string
+  ) {
+    const row = await tx.mqttOutbox.findFirst({
+      where: {
+        gatewayId: scope.gatewayId,
+        revision,
+        payloadHash,
+        dispatchId: null,
+        applicationAckKey: null
+      },
+      select: { id: true, topic: true, payload: true }
+    });
+    const parsed = automationSnapshotV1Schema.safeParse(row?.payload);
+    if (!row || !parsed.success) return null;
+    const { payloadHash: storedHash, ...withoutHash } = parsed.data;
+    if (
+      row.topic !== mqttTopics.automationConfig(scope.siteId, scope.gatewayId) ||
+      parsed.data.siteId !== scope.siteId || parsed.data.gatewayId !== scope.gatewayId ||
+      parsed.data.revision !== revision || storedHash !== payloadHash ||
+      canonicalPayloadHash(withoutHash) !== payloadHash
+    ) return null;
+    return { id: row.id, snapshot: parsed.data };
+  }
+
+  private async createOrReviveConfigAppliedReceipt(
+    tx: Prisma.TransactionClient,
+    scope: Pick<GatewayTopicScope, "siteId" | "gatewayId">,
+    delivery: AutomationConfigAppliedDeliveryV1
+  ) {
+    const applicationAckKey = configAppliedReceiptKey(scope.gatewayId, delivery.acknowledgementId);
+    const existing = await tx.mqttOutbox.findUnique({ where: { applicationAckKey } });
+    if (existing) {
+      const receipt = automationConfigAppliedReceiptV1Schema.safeParse(existing.payload);
+      if (
+        !receipt.success || receipt.data.siteId !== scope.siteId ||
+        receipt.data.gatewayId !== scope.gatewayId ||
+        receipt.data.acknowledgementId !== delivery.acknowledgementId ||
+        !isDeepStrictEqual(receipt.data.acknowledgement, delivery.acknowledgement)
+      ) {
+        throw new BadRequestException("config-applied acknowledgement identity conflict");
       }
-      const eventRuleIds = storedSnapshot.data.vehicleEventRules.map(({ id }) => id);
-      if (eventRuleIds.length > 0) {
-        await tx.vehicleEventRule.updateMany({
-          where: { id: { in: eventRuleIds }, gatewayId: scope.gatewayId, appliedRevision: { lt: ack.revision } },
-          data: { appliedRevision: ack.revision }
-        });
+      await this.reviveApplicationAck(tx, existing.id);
+      return receipt.data;
+    }
+
+    const receipt = automationConfigAppliedReceiptV1Schema.parse({
+      ...delivery,
+      ingestedAt: this.clock.now().toISOString()
+    });
+    const stored = await tx.mqttOutbox.create({
+      data: {
+        gatewayId: scope.gatewayId,
+        applicationAckKey,
+        revision: null,
+        payloadHash: canonicalPayloadHash(receipt),
+        topic: mqttTopics.automationConfigAppliedReceipt(scope.siteId, scope.gatewayId),
+        payload: receipt
+      }
+    });
+    return automationConfigAppliedReceiptV1Schema.parse(stored.payload);
+  }
+
+  private reviveApplicationAck(tx: Prisma.TransactionClient, id: string) {
+    const now = this.clock.now();
+    return tx.mqttOutbox.updateMany({
+      where: {
+        id,
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }],
+        AND: [{
+          OR: [
+            { publishedAt: { not: null } },
+            { deadLetteredAt: { not: null } },
+            { leaseExpiresAt: { lte: now } }
+          ]
+        }]
+      },
+      data: {
+        attempts: 0,
+        nextAttemptAt: now,
+        publishedAt: null,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        deadLetteredAt: null,
+        lastError: null
       }
     });
   }
@@ -467,6 +602,10 @@ function executionAckKey(
   reportPayloadHash: string
 ) {
   return `automation-execution:${gatewayId}:${eventId}:${sequence}:${reportPayloadHash}`;
+}
+
+function configAppliedReceiptKey(gatewayId: string, acknowledgementId: string) {
+  return `automation-config-applied:${gatewayId}:${acknowledgementId}`;
 }
 
 function canonicalExecutionPayloadHash(event: AutomationExecutionEventV1) {

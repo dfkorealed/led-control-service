@@ -27,7 +27,7 @@ test.afterEach(async ({}, testInfo) => {
 });
 
 test("admin creates and executes schedule and vehicle event rules", async ({ browser }, testInfo) => {
-  test.setTimeout(360_000);
+  test.setTimeout(480_000);
   const operator = await browser.newPage();
   await operator.goto("/monitoring");
   await login(operator, lab.operator.loginId, lab.operator.password);
@@ -78,11 +78,13 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await expect(admin.getByText("등록 완료").first()).toBeVisible();
   await admin.getByRole("button", { name: "등록 세션 완료" }).click();
 
+  const preconnectTargetName = await lab.readRegisteredFixtureName(lab.fixtures[0].serialNumber);
+  await admin.goto(`/control?siteId=${created.siteId}&mode=schedule`);
+  await createSchedule(admin, { brightness: 40, target: preconnectTargetName });
+  const firstConnect = await lab.assertDesiredConfigPublishedBeforeFirstGatewayConnect();
   await lab.startAutomationGateway({ targetName, sensorName });
   await lab.waitForVehicleSensorCapability(sensorName);
-
-  await admin.goto(`/control?siteId=${created.siteId}&mode=schedule`);
-  await createSchedule(admin, { brightness: 40, target: targetName });
+  await lab.waitForAutomationProtocolConvergence("first-connect", firstConnect.evidenceCursor);
   await expect(syncRow(admin, "Task 19 상시 스케줄")).toContainText("적용됨", { timeout: 20_000 });
   await lab.waitForFixtureBrightness(targetName, 40);
 
@@ -151,6 +153,33 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await expectFixtureBrightness(admin, created.siteId, targetName, "40%");
 
   await lab.assertAutomationEvidence({ targetName, sensorName });
+
+  await lab.restartAutomationGatewayAfterSessionExpiry("session-expired-reconnect");
+
+  const deletedScheduleId = await lab.readScheduleId("Task 19 상시 스케줄");
+  await lab.stopAutomationGateway();
+  await admin.goto(`/control?siteId=${created.siteId}&mode=schedule`);
+  await admin.getByRole("button", { name: "Task 19 상시 스케줄 삭제" }).click();
+  const deleteDialog = admin.getByRole("dialog", { name: "스케줄 삭제" });
+  await deleteDialog.getByRole("button", { name: "삭제", exact: true }).click();
+  await expect(syncRow(admin, "Task 19 상시 스케줄")).toHaveCount(0);
+  await lab.waitForPublishedDesiredRevisionAhead("deleted-rule-published");
+  await lab.restartAutomationGatewayAfterSessionExpiry("deleted-rule-session-expired");
+  await lab.assertDeletedScheduleDoesNotExecute(deletedScheduleId);
+
+  await lab.stopAutomationGateway();
+  await createSchedule(admin, { brightness: 40, target: targetName });
+  const apiRestart = await lab.waitForPublishedDesiredRevisionAhead("api-restart-published");
+  await lab.stopApi();
+  await lab.resetMqttBrokerSessions();
+  await lab.restartAutomationGateway();
+  await lab.publishLatestDesiredSnapshotAsApiPrincipal();
+  await lab.waitForDurableConfigAck();
+  await lab.startApi();
+  await lab.waitForAutomationProtocolConvergence("api-restart-ack", apiRestart.evidenceCursor);
+  await admin.reload();
+  await expect(syncRow(admin, "Task 19 상시 스케줄")).toContainText("적용됨", { timeout: 20_000 });
+  await lab.assertAutomationConvergenceEvidence();
   await lab.writeEvidence(testInfo);
 });
 

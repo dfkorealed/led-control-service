@@ -79,7 +79,7 @@ test("Mosquitto restores an offline gateway QoS 1 command after broker restart",
   }
 });
 
-test("Mosquitto rejects application ACK publishes from a Gateway certificate", async (t) => {
+test("Mosquitto enforces directional automation convergence ACLs for a Gateway certificate", async (t) => {
   const useDocker = await dockerAvailable();
   if (!useDocker && !(await hostMosquittoAvailable())) {
     if (dockerRequired) assert.fail("Docker daemon is required when MQTT_INTEGRATION_REQUIRED=1");
@@ -144,7 +144,9 @@ test("Mosquitto rejects application ACK publishes from a Gateway certificate", a
 
     const base = `sites/site-1/gateways/${gatewayId}/acks`;
     const automationAckTopic = `${base}/automation/execution-ingested`;
+    const configAppliedReceiptTopic = `${base}/automation/config-applied-ingested`;
     const capabilityAckTopic = `${base}/automation/vehicle-sensor-capability-ingested`;
+    const currentConfigRequestTopic = `sites/site-1/gateways/${gatewayId}/events/automation/current-config-request`;
     const capabilityReportTopic = `sites/site-1/gateways/${gatewayId}/events/automation/vehicle-sensor-capability`;
     await assert.doesNotReject(publish(gateway, `${base}/acceptance`, "{}"));
     await assert.doesNotReject(publish(gateway, `${base}/device-status`, "{}"));
@@ -152,6 +154,14 @@ test("Mosquitto rejects application ACK publishes from a Gateway certificate", a
     const receivedAutomationAck = waitForMessage(gateway, automationAckTopic);
     await publish(api, automationAckTopic, JSON.stringify({ status: "ingested" }));
     await assert.doesNotReject(receivedAutomationAck);
+    await assert.doesNotReject(subscribe(gateway, configAppliedReceiptTopic));
+    const receivedConfigAppliedReceipt = waitForMessage(gateway, configAppliedReceiptTopic);
+    await publish(api, configAppliedReceiptTopic, JSON.stringify({ status: "ingested" }));
+    await assert.doesNotReject(receivedConfigAppliedReceipt);
+    await assert.doesNotReject(subscribe(api, currentConfigRequestTopic));
+    const receivedCurrentConfigRequest = waitForMessage(api, currentConfigRequestTopic);
+    await assert.doesNotReject(publish(gateway, currentConfigRequestTopic, "{}"));
+    await assert.doesNotReject(receivedCurrentConfigRequest);
     await assert.doesNotReject(publish(gateway, capabilityReportTopic, "{}"));
     await assert.doesNotReject(subscribe(gateway, capabilityAckTopic));
     const receivedCapabilityAck = waitForMessage(gateway, capabilityAckTopic);
@@ -162,6 +172,13 @@ test("Mosquitto rejects application ACK publishes from a Gateway certificate", a
       publish(gateway, automationAckTopic, "{}"),
       /not authorized/i
     );
+    await assert.rejects(publish(gateway, configAppliedReceiptTopic, "{}"), /not authorized/i);
+    const otherGatewayReceiptTopic =
+      "sites/site-1/gateways/00000000-0000-4000-8000-000000000099/acks/automation/config-applied-ingested";
+    await subscribe(gateway, otherGatewayReceiptTopic);
+    const rejectedCrossGatewayDelivery = waitForMessage(gateway, otherGatewayReceiptTopic);
+    await publish(api, otherGatewayReceiptTopic, "{}");
+    await assert.rejects(rejectedCrossGatewayDelivery, /was not delivered/);
     await assert.rejects(publish(gateway, capabilityAckTopic, "{}"), /not authorized/i);
     await assert.rejects(
       publish(gateway, `${base}/provisioning/scan-terminal-ingested`, "{}"),

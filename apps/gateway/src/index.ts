@@ -5,6 +5,7 @@ import { config } from "dotenv";
 import {
   GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   type AcceptanceAckV2,
+  type AutomationConfigAppliedReceiptV1,
   type AutomationExecutionFixtureResultV1,
   type DeviceStatusAckV2,
   type FixtureStateV2,
@@ -13,6 +14,7 @@ import {
   type ProvisioningFailedPayload,
   gatewayDimmingCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
+  automationConfigAppliedReceiptV1Schema,
   automationExecutionIngestedAckV1Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
   BLUETOOTH_COMPANY_ID_CONFIG,
@@ -92,6 +94,7 @@ import {
 } from "./automation/automation-config-store";
 import { AutomationRuntime } from "./automation/automation-runtime";
 import { AutomationConfigAckOutbox, AutomationConfigAckPublisher } from "./automation/automation-config-ack-outbox";
+import { AutomationCurrentConfigRequester } from "./automation/automation-current-config-requester";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
 import {
   ScheduleRuntime,
@@ -568,6 +571,9 @@ async function main() {
   const automationAckPublisher = new AutomationConfigAckPublisher(automationAckOutbox, { siteId, gatewayId }, {
     onError: (error) => void reportGatewayError(error, "automation_config_ack_retry")
   });
+  const automationConfigRequester = new AutomationCurrentConfigRequester({ siteId, gatewayId }, {
+    onError: (error) => void reportGatewayError(error, "automation_current_config_request_retry")
+  });
 
   async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket) {
     const receipt = createGatewayCommandReceipt(packet, gatewayMonotonicClock);
@@ -690,11 +696,14 @@ async function main() {
   }
 
   async function handleAutomationPayload(payload: Buffer) {
-    await handleAutomationConfigPayload(payload, automationRuntime, async (acknowledgement) => {
+    const acknowledgement = await handleAutomationConfigPayload(payload, automationRuntime, async (acknowledgement) => {
       await automationAckOutbox.enqueue(acknowledgement);
       void automationAckPublisher.wake()
         .catch((error) => void reportGatewayError(error, "automation_config_ack_publish"));
     });
+    if (acknowledgement.status === "applied" && automationRuntime.currentSnapshot) {
+      automationConfigRequester.confirm(automationRuntime.currentSnapshot);
+    }
     if (automationRuntime.currentRevision !== null) {
       const result = await automationTelemetryCoordinator.flush(automationRuntime.currentRevision);
       if (result.changed) void automationTelemetryPublisher.wake()
@@ -795,6 +804,15 @@ async function main() {
           }
         }
       },
+      [mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId)]: async (payload) => {
+        const receipt = automationConfigAppliedReceiptV1Schema.parse(
+          JSON.parse(payload.toString())
+        ) as AutomationConfigAppliedReceiptV1;
+        const result = await automationAckOutbox.acknowledge(receipt);
+        if (result === "conflict") throw new Error("automation config receipt conflict");
+        if (result === "deleted") void automationAckPublisher.wake()
+          .catch((error) => void reportGatewayError(error, "automation_config_ack_publish"));
+      },
       [mqttTopics.automationExecutionIngested(siteId, gatewayId)]: async (payload) => {
         const acknowledgement = automationExecutionIngestedAckV1Schema.parse(JSON.parse(payload.toString()));
         if (acknowledgement.gatewayId !== gatewayId) throw new Error("automation execution ACK scope mismatch");
@@ -814,6 +832,9 @@ async function main() {
       connectAutomationAcks: () => Promise.all([
         automationAckPublisher.connect(
           (topic, acknowledgement) => publish(mqttRuntime.client, topic, acknowledgement)
+        ),
+        automationConfigRequester.connect(
+          (topic, request) => publish(mqttRuntime.client, topic, request)
         ),
         automationTelemetryPublisher.connect(mqttRuntime.client),
         vehicleSensorController.reconnect(
@@ -837,6 +858,7 @@ async function main() {
       provisioningScanRecovery.disconnect();
       stateEventPublisher.disconnect();
       automationAckPublisher.disconnect();
+      automationConfigRequester.disconnect();
       automationTelemetryPublisher.disconnect();
       vehicleSensorController.disconnect();
       return health.unhealthy("mqtt_disconnected");
@@ -872,6 +894,7 @@ async function main() {
       await Promise.all([schedulerDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
       stateEventPublisher.disconnect();
       automationAckPublisher.disconnect();
+      automationConfigRequester.disconnect();
       await mqttRuntime.stop();
     }
   }, rotation);
@@ -1199,6 +1222,7 @@ export function subscribeGatewayCommands(
         mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.provisioningScanTerminalIngestedAck(assignment.siteId, assignment.gatewayId),
         mqttTopicsV2.stateIngestedAck(assignment.siteId, assignment.gatewayId),
+        mqttTopics.automationConfigAppliedReceipt(assignment.siteId, assignment.gatewayId),
         mqttTopics.automationExecutionIngested(assignment.siteId, assignment.gatewayId),
         mqttTopics.vehicleSensorCapabilityIngested(assignment.siteId, assignment.gatewayId)
       ],

@@ -1,6 +1,11 @@
+import { randomUUID } from "node:crypto";
 import {
+  automationConfigAppliedDeliveryV1Schema,
+  automationConfigAppliedReceiptV1Schema,
   automationConfigAppliedV1Schema,
   mqttTopics,
+  type AutomationConfigAppliedDeliveryV1,
+  type AutomationConfigAppliedReceiptV1,
   type AutomationConfigAppliedV1
 } from "@led-control/shared";
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
@@ -12,9 +17,9 @@ const DEFAULT_RETRY_MAX_DELAY_MS = 30_000;
 const DEFAULT_PUBLISH_TIMEOUT_MS = 10_000;
 
 interface StoredAutomationConfigAcks {
-  version: 1;
+  version: 2;
   scope: AutomationScope;
-  records: AutomationConfigAppliedV1[];
+  records: AutomationConfigAppliedDeliveryV1[];
 }
 
 type AtomicJsonWriter = (path: string, value: unknown) => Promise<void>;
@@ -26,7 +31,8 @@ export class AutomationConfigAckOutbox {
   constructor(
     private readonly path: string,
     private readonly scope: AutomationScope,
-    private readonly write: AtomicJsonWriter = writeJsonAtomic
+    private readonly write: AtomicJsonWriter = writeJsonAtomic,
+    private readonly createAcknowledgementId: () => string = randomUUID
   ) {}
 
   initialize() {
@@ -34,39 +40,54 @@ export class AutomationConfigAckOutbox {
   }
 
   pending() {
-    return this.queue.run(async () => (await this.load()).records.map((record) => ({ ...record })));
+    return this.queue.run(async () => structuredClone((await this.load()).records));
   }
 
   enqueue(value: AutomationConfigAppliedV1) {
     return this.queue.run(async () => {
-      const acknowledgement = this.parse(value);
+      const acknowledgement = this.parseAcknowledgement(value);
       const state = await this.load();
-      const existing = state.records.find((record) => sameResult(record, acknowledgement));
-      if (existing) return { ...existing };
-      state.records.push(acknowledgement);
+      const existing = state.records.find((record) => sameResult(record.acknowledgement, acknowledgement));
+      if (existing) return structuredClone(existing);
+      const delivery = automationConfigAppliedDeliveryV1Schema.parse({
+        schemaVersion: 1,
+        acknowledgementId: this.createAcknowledgementId(),
+        ...this.scope,
+        acknowledgement
+      }) as AutomationConfigAppliedDeliveryV1;
+      state.records.push(delivery);
       try {
         await this.persist(state);
       } catch (error) {
         await this.reloadFromDisk();
         throw error;
       }
-      return { ...acknowledgement };
+      return structuredClone(delivery);
     });
   }
 
-  markPublished(value: AutomationConfigAppliedV1) {
-    return this.queue.run(async () => {
+  acknowledge(value: AutomationConfigAppliedReceiptV1) {
+    return this.queue.run(async (): Promise<"deleted" | "missing" | "conflict"> => {
+      const receipt = automationConfigAppliedReceiptV1Schema.parse(value) as AutomationConfigAppliedReceiptV1;
+      if (receipt.siteId !== this.scope.siteId || receipt.gatewayId !== this.scope.gatewayId) {
+        throw new Error("automation config receipt scope mismatch");
+      }
       const state = await this.load();
-      const index = state.records.findIndex((record) => sameAck(record, value));
-      if (index < 0) return false;
-      const [removed] = state.records.splice(index, 1);
+      const index = state.records.findIndex((record) => record.acknowledgementId === receipt.acknowledgementId);
+      if (index < 0) return "missing";
+      const delivery = state.records[index];
+      if (
+        delivery.siteId !== receipt.siteId || delivery.gatewayId !== receipt.gatewayId ||
+        !sameAck(delivery.acknowledgement, receipt.acknowledgement)
+      ) return "conflict";
+      state.records.splice(index, 1);
       try {
         await this.persist(state);
       } catch (error) {
         await this.reloadFromDisk();
         throw error;
       }
-      return true;
+      return "deleted";
     });
   }
 
@@ -79,15 +100,17 @@ export class AutomationConfigAckOutbox {
       throw new Error("invalid automation config ACK outbox", { cause: error });
     }
     if (raw === null) {
-      this.state = { version: 1, scope: { ...this.scope }, records: [] };
+      this.state = { version: 2, scope: { ...this.scope }, records: [] };
       await this.persist(this.state);
       return this.state;
     }
-    this.state = parseStoredOutbox(raw, this.scope);
+    const parsed = parseStoredOutbox(raw, this.scope, this.createAcknowledgementId);
+    this.state = parsed.state;
+    if (parsed.migrated) await this.persist(this.state);
     return this.state;
   }
 
-  private parse(value: AutomationConfigAppliedV1) {
+  private parseAcknowledgement(value: AutomationConfigAppliedV1) {
     const parsed = automationConfigAppliedV1Schema.parse(value);
     if (parsed.gatewayId !== this.scope.gatewayId) throw new Error("automation config ACK scope mismatch");
     return parsed as AutomationConfigAppliedV1;
@@ -104,7 +127,7 @@ export class AutomationConfigAckOutbox {
 }
 
 export class AutomationConfigAckPublisher {
-  private publish: ((topic: string, payload: AutomationConfigAppliedV1) => Promise<void>) | undefined;
+  private publish: ((topic: string, payload: AutomationConfigAppliedDeliveryV1) => Promise<void>) | undefined;
   private drainPromise: Promise<void> | undefined;
   private drainGeneration: number | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -132,7 +155,7 @@ export class AutomationConfigAckPublisher {
     this.retryDelayMs = this.retryInitialDelayMs;
   }
 
-  connect(publish: (topic: string, payload: AutomationConfigAppliedV1) => Promise<void>) {
+  connect(publish: (topic: string, payload: AutomationConfigAppliedDeliveryV1) => Promise<void>) {
     this.generation += 1;
     this.publish = publish;
     this.retryDelayMs = this.retryInitialDelayMs;
@@ -148,6 +171,7 @@ export class AutomationConfigAckPublisher {
 
   wake() {
     if (!this.publish) return Promise.resolve();
+    this.retryDelayMs = this.retryInitialDelayMs;
     this.clearTimer();
     return this.drain(this.generation);
   }
@@ -169,17 +193,18 @@ export class AutomationConfigAckPublisher {
     const publish = this.publish;
     if (!publish || generation !== this.generation) return;
     try {
-      while (publish === this.publish && generation === this.generation) {
-        const [head] = await this.outbox.pending();
-        if (!head) return;
+      const records = await this.outbox.pending();
+      for (const record of records) {
+        if (publish !== this.publish || generation !== this.generation) return;
         await withTimeout(
-          publish(mqttTopics.automationConfigApplied(this.scope.siteId, this.scope.gatewayId), head),
+          publish(mqttTopics.automationConfigApplied(this.scope.siteId, this.scope.gatewayId), record),
           this.publishTimeoutMs
         );
-        if (publish !== this.publish || generation !== this.generation) return;
-        await this.outbox.markPublished(head);
-        this.retryDelayMs = this.retryInitialDelayMs;
       }
+      if (
+        publish === this.publish && generation === this.generation &&
+        (await this.outbox.pending()).length > 0
+      ) this.scheduleRetry(generation);
     } catch (error) {
       if (publish === this.publish && generation === this.generation) this.scheduleRetry(generation);
       throw error;
@@ -202,16 +227,32 @@ export class AutomationConfigAckPublisher {
   }
 }
 
-function parseStoredOutbox(value: unknown, scope: AutomationScope): StoredAutomationConfigAcks {
-  if (!isRecord(value) || value.version !== 1 || !sameScope(value.scope, scope) || !Array.isArray(value.records)) {
+function parseStoredOutbox(
+  value: unknown,
+  scope: AutomationScope,
+  createAcknowledgementId: () => string
+): { state: StoredAutomationConfigAcks; migrated: boolean } {
+  if (!isRecord(value) || !sameScope(value.scope, scope) || !Array.isArray(value.records)) {
     throw new Error("invalid automation config ACK outbox");
   }
-  const records = value.records.map((record) => {
-    const parsed = automationConfigAppliedV1Schema.parse(record);
-    if (parsed.gatewayId !== scope.gatewayId) throw new Error("invalid automation config ACK outbox");
-    return parsed as AutomationConfigAppliedV1;
-  });
-  return { version: 1, scope: { ...scope }, records };
+  if (value.version === 1) {
+    const records = value.records.map((record) => automationConfigAppliedDeliveryV1Schema.parse({
+      schemaVersion: 1,
+      acknowledgementId: createAcknowledgementId(),
+      ...scope,
+      acknowledgement: automationConfigAppliedV1Schema.parse(record)
+    }) as AutomationConfigAppliedDeliveryV1);
+    return { state: { version: 2, scope: { ...scope }, records }, migrated: true };
+  }
+  if (value.version !== 2) throw new Error("invalid automation config ACK outbox");
+  const records = value.records.map((record) => automationConfigAppliedDeliveryV1Schema.parse(record) as AutomationConfigAppliedDeliveryV1);
+  if (records.some((record) => record.siteId !== scope.siteId || record.gatewayId !== scope.gatewayId)) {
+    throw new Error("invalid automation config ACK outbox");
+  }
+  if (new Set(records.map(({ acknowledgementId }) => acknowledgementId)).size !== records.length) {
+    throw new Error("invalid automation config ACK outbox");
+  }
+  return { state: { version: 2, scope: { ...scope }, records }, migrated: false };
 }
 
 function sameResult(left: AutomationConfigAppliedV1, right: AutomationConfigAppliedV1) {

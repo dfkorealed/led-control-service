@@ -95,8 +95,9 @@ describe("automation config production path", () => {
 
     expect(automation.currentRevision).toBe(4);
     expect(await new FileAutomationConfigStore(snapshotPath, automationScope).load()).toEqual(current);
-    expect((await outbox.pending()).map(({ revision, payloadHash, status, errorCode }) =>
-      ({ revision, payloadHash, status, errorCode }))).toEqual([
+    expect((await outbox.pending()).map(({ acknowledgement }) => acknowledgement).map(
+      ({ revision, payloadHash, status, errorCode }) => ({ revision, payloadHash, status, errorCode })
+    )).toEqual([
       { revision: 4, payloadHash: current.payloadHash, status: "applied", errorCode: null },
       { revision: 5, payloadHash: invalid.payloadHash, status: "rejected", errorCode: "snapshot_invalid" },
       { revision: 3, payloadHash: old.payloadHash, status: "rejected", errorCode: "snapshot_old_revision" },
@@ -175,10 +176,12 @@ describe("automation config production path", () => {
     expect(await new FileAutomationConfigStore(snapshotPath, automationScope).load()).toEqual(incoming);
     expect(await outbox.pending()).toEqual([
       expect.objectContaining({
-        revision: incoming.revision,
-        payloadHash: incoming.payloadHash,
-        status: "applied",
-        errorCode: null
+        acknowledgement: expect.objectContaining({
+          revision: incoming.revision,
+          payloadHash: incoming.payloadHash,
+          status: "applied",
+          errorCode: null
+        })
       })
     ]);
     await restartedRuntime.stop();

@@ -1,5 +1,6 @@
 import { canonicalPayloadHash } from "./automation-payload-hash";
 import { AutomationMqttConsumerService } from "./automation-mqtt-consumer.service";
+import { automationConfigAppliedReceiptV1Schema, mqttTopics } from "@led-control/shared";
 
 const SITE_ID = "00000000-0000-4000-8000-000000000001";
 const OTHER_SITE_ID = "00000000-0000-4000-8000-000000000002";
@@ -12,6 +13,7 @@ const EVENT_ID = "00000000-0000-4000-8000-000000000007";
 const MESH_NODE_ID = "00000000-0000-4000-8000-000000000008";
 const COMMAND_ID = "00000000-0000-4000-8000-000000000010";
 const MANUAL_OVERRIDE_ID = "00000000-0000-4000-8000-000000000011";
+const REQUEST_ID = "00000000-0000-4000-8000-000000000012";
 const NOW = new Date("2026-08-30T01:00:00.000Z");
 
 describe("AutomationMqttConsumerService", () => {
@@ -57,6 +59,117 @@ describe("AutomationMqttConsumerService", () => {
     expect(harness.state.executions).toEqual([]);
     expect(harness.state.applicationAcks).toEqual([]);
     expect(harness.state.configuration).toMatchObject({ appliedRevision: 2, syncStatus: "PENDING" });
+  });
+
+  it("authenticates a current-config request and revives the exact latest full snapshot without changing APPLIED state", async () => {
+    const harness = createHarness();
+    const latest = harness.state.configOutboxes.at(-1)!;
+    Object.assign(harness.state.configuration, {
+      appliedRevision: 5,
+      syncStatus: "APPLIED",
+      lastAppliedAt: NOW
+    });
+    Object.assign(latest, {
+      attempts: 10,
+      publishedAt: NOW,
+      deadLetteredAt: NOW,
+      lastError: "mqtt_publish_failed"
+    });
+    const beforeConfiguration = structuredClone(harness.state.configuration);
+    const request = currentConfigRequest();
+
+    harness.state.identityActive = false;
+    await harness.service.handleMessage(
+      mqttTopics.automationCurrentConfigRequest(SITE_ID, GATEWAY_ID),
+      Buffer.from(JSON.stringify(request))
+    );
+    expect(latest.publishedAt).toEqual(NOW);
+
+    harness.state.identityActive = true;
+    await harness.service.handleMessage(
+      mqttTopics.automationCurrentConfigRequest(SITE_ID, GATEWAY_ID),
+      Buffer.from(JSON.stringify(request))
+    );
+
+    expect(harness.state.configuration).toEqual(beforeConfiguration);
+    expect(latest).toMatchObject({
+      attempts: 0,
+      nextAttemptAt: NOW,
+      publishedAt: null,
+      deadLetteredAt: null,
+      supersededAt: null,
+      lastError: null
+    });
+  });
+
+  it("creates a durable exact config-applied receipt on first ingest and revives it on replay", async () => {
+    const harness = createHarness();
+    const delivery = configAck(5, "applied", snapshot(5).payloadHash);
+
+    await harness.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, delivery);
+
+    expect(harness.state.configuration).toMatchObject({ appliedRevision: 5, syncStatus: "APPLIED" });
+    expect(harness.state.applicationAcks).toHaveLength(1);
+    const receiptRow = harness.state.applicationAcks[0];
+    const receipt = automationConfigAppliedReceiptV1Schema.parse(receiptRow.payload);
+    expect(receipt).toEqual({ ...delivery, ingestedAt: NOW.toISOString() });
+    expect(receiptRow).toMatchObject({
+      applicationAckKey: `automation-config-applied:${GATEWAY_ID}:${delivery.acknowledgementId}`,
+      topic: mqttTopics.automationConfigAppliedReceipt(SITE_ID, GATEWAY_ID)
+    });
+
+    Object.assign(receiptRow, {
+      attempts: 10,
+      publishedAt: NOW,
+      deadLetteredAt: NOW,
+      lastError: "mqtt_publish_failed"
+    });
+    await harness.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, delivery);
+
+    expect(harness.state.applicationAcks).toHaveLength(1);
+    expect(receiptRow).toMatchObject({
+      attempts: 0,
+      nextAttemptAt: NOW,
+      publishedAt: null,
+      deadLetteredAt: null,
+      lastError: null
+    });
+  });
+
+  it("does not publish a receipt for a conflicting acknowledgement identity", async () => {
+    const harness = createHarness();
+    const delivery = configAck(5, "applied", snapshot(5).payloadHash);
+    await harness.service.onConfigApplied({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, delivery);
+    const receiptRow = harness.state.applicationAcks[0];
+    Object.assign(receiptRow, { publishedAt: NOW, deadLetteredAt: NOW });
+
+    await expect(harness.service.onConfigApplied(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      {
+        ...delivery,
+        acknowledgement: {
+          ...delivery.acknowledgement,
+          status: "rejected",
+          errorCode: "snapshot_revision_conflict"
+        }
+      }
+    )).rejects.toThrow("config-applied acknowledgement identity conflict");
+
+    expect(harness.state.applicationAcks).toHaveLength(1);
+    expect(receiptRow).toMatchObject({ publishedAt: NOW, deadLetteredAt: NOW });
+  });
+
+  it("rolls back config state and emits no receipt when its ingest transaction fails", async () => {
+    const harness = createHarness();
+    harness.state.failAckCreate = true;
+    const before = snapshotState(harness.state);
+
+    await expect(harness.service.onConfigApplied(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      configAck(5, "applied", snapshot(5).payloadHash)
+    )).rejects.toThrow("ack insert failed");
+
+    expect(snapshotState(harness.state)).toEqual(before);
   });
 
   it("advances applied revisions monotonically and derives sync state from the current desired revision", async () => {
@@ -323,7 +436,8 @@ function createHarness() {
       appliedRevision: 2,
       syncStatus: "PENDING",
       lastErrorCode: null,
-      lastAppliedAt: null
+      lastAppliedAt: null,
+      payloadHash: snapshot(5).payloadHash
     },
     configOutboxes: [3, 4, 5].map((revision) => ({
       id: `config-${revision}`,
@@ -332,7 +446,17 @@ function createHarness() {
       payloadHash: snapshot(revision).payloadHash,
       dispatchId: null,
       applicationAckKey: null,
-      payload: snapshot(revision)
+      topic: mqttTopics.automationConfig(SITE_ID, GATEWAY_ID),
+      payload: snapshot(revision),
+      attempts: 0,
+      nextAttemptAt: NOW,
+      publishedAt: null,
+      lockedBy: null,
+      lockedAt: null,
+      leaseExpiresAt: null,
+      deadLetteredAt: null,
+      supersededAt: null,
+      lastError: null
     })),
     currentVehicleRule: { id: RULE_ID, targetFixtureIds: [FIXTURE_ID, FIXTURE_ID_2] },
     manualOverride: {
@@ -396,7 +520,8 @@ function createPrisma(state: State) {
         return row;
       }),
       updateMany: jest.fn(async ({ where, data }: any) => {
-        const row = state.applicationAcks.find((candidate) => candidate.id === where.id);
+        const row = [...state.configOutboxes, ...state.applicationAcks]
+          .find((candidate) => candidate.id === where.id);
         if (!row) return { count: 0 };
         Object.assign(row, structuredClone(data));
         return { count: 1 };
@@ -497,12 +622,28 @@ function configAck(
 ) {
   return {
     schemaVersion: 1 as const,
+    acknowledgementId: `80000000-0000-4000-8000-${String(revision).padStart(12, "0")}`,
+    siteId: SITE_ID,
     gatewayId: GATEWAY_ID,
-    revision,
-    payloadHash,
-    status,
-    errorCode,
-    appliedAt: "2026-08-30T00:30:00.000Z"
+    acknowledgement: {
+      schemaVersion: 1 as const,
+      gatewayId: GATEWAY_ID,
+      revision,
+      payloadHash,
+      status,
+      errorCode,
+      appliedAt: "2026-08-30T00:30:00.000Z"
+    }
+  };
+}
+
+function currentConfigRequest() {
+  return {
+    schemaVersion: 1 as const,
+    requestId: REQUEST_ID,
+    siteId: SITE_ID,
+    gatewayId: GATEWAY_ID,
+    requestedAt: NOW.toISOString()
   };
 }
 

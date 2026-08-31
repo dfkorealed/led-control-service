@@ -1,13 +1,19 @@
 import { mkdtemp, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AutomationConfigAppliedV1 } from "@led-control/shared";
+import {
+  automationConfigAppliedReceiptV1Schema,
+  type AutomationConfigAppliedDeliveryV1,
+  type AutomationConfigAppliedReceiptV1,
+  type AutomationConfigAppliedV1
+} from "@led-control/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AutomationConfigAckOutbox, AutomationConfigAckPublisher } from "./automation-config-ack-outbox";
 import { automationScope, automationSnapshot } from "./automation-test-fixtures";
 import { writeJsonAtomic } from "../mesh/mesh-store-file";
 
 const directories: string[] = [];
+const acknowledgementId = "99999999-9999-4999-8999-999999999999";
 
 afterEach(async () => {
   vi.useRealTimers();
@@ -16,69 +22,120 @@ afterEach(async () => {
 });
 
 describe("AutomationConfigAckOutbox", () => {
-  it("recovers and republishes an exact ACK after publish failure and process restart", async () => {
-    vi.useFakeTimers();
+  it("retains and republishes an exact ACK across broker PUBACK and process restart until its application receipt", async () => {
     const path = await outboxPath();
-    const snapshot = automationSnapshot(4);
-    const acknowledgement = ack(snapshot);
-    const firstOutbox = new AutomationConfigAckOutbox(path, automationScope);
+    const acknowledgement = ack(automationSnapshot(4));
+    const firstOutbox = new AutomationConfigAckOutbox(
+      path,
+      automationScope,
+      writeJsonAtomic,
+      () => acknowledgementId
+    );
     await firstOutbox.initialize();
-    await firstOutbox.enqueue(acknowledgement);
-    const failedPublish = vi.fn().mockRejectedValue(new Error("broker unavailable"));
-    const firstPublisher = new AutomationConfigAckPublisher(firstOutbox, automationScope, { retryInitialDelayMs: 10 });
-    await expect(firstPublisher.connect(failedPublish)).rejects.toThrow("broker unavailable");
+    const delivery = await firstOutbox.enqueue(acknowledgement);
+    const firstPublish = vi.fn().mockResolvedValue(undefined);
+    const firstPublisher = new AutomationConfigAckPublisher(firstOutbox, automationScope);
+
+    await firstPublisher.connect(firstPublish);
+
+    expect(firstPublish).toHaveBeenCalledWith(
+      `sites/${automationScope.siteId}/gateways/${automationScope.gatewayId}/events/automation/config-applied`,
+      delivery
+    );
+    expect(await firstOutbox.pending()).toEqual([delivery]);
     firstPublisher.disconnect();
 
     const restartedOutbox = new AutomationConfigAckOutbox(path, automationScope);
     await restartedOutbox.initialize();
-    const successfulPublish = vi.fn().mockResolvedValue(undefined);
-    const restartedPublisher = new AutomationConfigAckPublisher(restartedOutbox, automationScope, { retryInitialDelayMs: 10 });
-    await restartedPublisher.connect(successfulPublish);
+    const restartedPublish = vi.fn().mockResolvedValue(undefined);
+    const restartedPublisher = new AutomationConfigAckPublisher(restartedOutbox, automationScope);
+    await restartedPublisher.connect(restartedPublish);
 
-    expect(successfulPublish).toHaveBeenCalledWith(
+    expect(restartedPublish).toHaveBeenCalledWith(
       `sites/${automationScope.siteId}/gateways/${automationScope.gatewayId}/events/automation/config-applied`,
-      acknowledgement
+      delivery
     );
+    expect(await restartedOutbox.acknowledge(receipt(delivery))).toBe("deleted");
     expect(await restartedOutbox.pending()).toEqual([]);
     restartedPublisher.disconnect();
   });
 
-  it("deduplicates an unreported exact result without changing its timestamp", async () => {
+  it("rejects wrong, old, and altered receipts without deleting the current ACK", async () => {
     const path = await outboxPath();
-    const snapshot = automationSnapshot(4);
-    const outbox = new AutomationConfigAckOutbox(path, automationScope);
+    const outbox = new AutomationConfigAckOutbox(path, automationScope, writeJsonAtomic, () => acknowledgementId);
     await outbox.initialize();
-    const first = ack(snapshot);
-    await outbox.enqueue(first);
-    await outbox.enqueue({ ...first, appliedAt: "2026-08-30T09:09:09.000Z" });
+    const delivery = await outbox.enqueue(ack(automationSnapshot(4)));
 
-    expect(await outbox.pending()).toEqual([first]);
+    expect(await outbox.acknowledge({
+      ...receipt(delivery),
+      acknowledgementId: "88888888-8888-4888-8888-888888888888"
+    })).toBe("missing");
+    expect(await outbox.acknowledge({
+      ...receipt(delivery),
+      acknowledgement: { ...delivery.acknowledgement, revision: 3 }
+    })).toBe("conflict");
+    await expect(outbox.acknowledge({
+      ...receipt(delivery),
+      siteId: "77777777-7777-4777-8777-777777777777"
+    })).rejects.toThrow("automation config receipt scope mismatch");
+    expect(await outbox.pending()).toEqual([delivery]);
   });
 
-  it("starts a new generation drain while the disconnected generation is still pending", async () => {
+  it("retries successful broker publishes with bounded exponential delays while the receipt is missing", async () => {
+    vi.useFakeTimers();
     const path = await outboxPath();
-    const outbox = new AutomationConfigAckOutbox(path, automationScope);
-    const acknowledgement = ack(automationSnapshot(4));
+    const outbox = new AutomationConfigAckOutbox(path, automationScope, writeJsonAtomic, () => acknowledgementId);
     await outbox.initialize();
-    await outbox.enqueue(acknowledgement);
-    let releaseOld!: () => void;
-    const oldPublish = vi.fn(() => new Promise<void>((resolve) => { releaseOld = resolve; }));
-    const publisher = new AutomationConfigAckPublisher(outbox, automationScope);
+    await outbox.enqueue(ack(automationSnapshot(4)));
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const publisher = new AutomationConfigAckPublisher(outbox, automationScope, {
+      retryInitialDelayMs: 10,
+      retryMaxDelayMs: 20
+    });
 
-    const oldDrain = publisher.connect(oldPublish);
-    await vi.waitFor(() => expect(oldPublish).toHaveBeenCalledTimes(1));
+    await publisher.connect(publish);
+    expect(publish).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(publish).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(publish).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(publish).toHaveBeenCalledTimes(4);
+    expect(vi.getTimerCount()).toBe(1);
     publisher.disconnect();
-    const newPublish = vi.fn().mockResolvedValue(undefined);
-    await publisher.connect(newPublish);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 
-    expect(newPublish).toHaveBeenCalledWith(
-      `sites/${automationScope.siteId}/gateways/${automationScope.gatewayId}/events/automation/config-applied`,
-      acknowledgement
+  it("deduplicates an unreceipted exact result without changing its identity or timestamp", async () => {
+    const path = await outboxPath();
+    const outbox = new AutomationConfigAckOutbox(path, automationScope, writeJsonAtomic, () => acknowledgementId);
+    await outbox.initialize();
+    const first = ack(automationSnapshot(4));
+    const delivery = await outbox.enqueue(first);
+    await outbox.enqueue({ ...first, appliedAt: "2026-08-30T09:09:09.000Z" });
+
+    expect(await outbox.pending()).toEqual([delivery]);
+  });
+
+  it("migrates a version 1 pending ACK without losing it", async () => {
+    const path = await outboxPath();
+    const acknowledgement = ack(automationSnapshot(4));
+    await writeJsonAtomic(path, { version: 1, scope: automationScope, records: [acknowledgement] });
+    const outbox = new AutomationConfigAckOutbox(
+      path,
+      automationScope,
+      writeJsonAtomic,
+      () => acknowledgementId
     );
-    expect(await outbox.pending()).toEqual([]);
-    releaseOld();
-    await oldDrain;
-    publisher.disconnect();
+
+    await outbox.initialize();
+
+    expect(await outbox.pending()).toEqual([{
+      schemaVersion: 1,
+      acknowledgementId,
+      ...automationScope,
+      acknowledgement
+    }]);
   });
 
   it("keeps memory and disk aligned after a post-rename parent fsync fault", async () => {
@@ -93,18 +150,19 @@ describe("AutomationConfigAckOutbox", () => {
     const outbox = new AutomationConfigAckOutbox(
       path,
       automationScope,
-      (target, value) => writeJsonAtomic(target, value, { syncParentDirectory })
+      (target, value) => writeJsonAtomic(target, value, { syncParentDirectory }),
+      () => acknowledgementId
     );
     const acknowledgement = ack(automationSnapshot(4));
     await outbox.initialize();
 
-    await outbox.enqueue(acknowledgement);
+    const delivery = await outbox.enqueue(acknowledgement);
 
     expect(syncAttempts).toBe(3);
-    expect(await outbox.pending()).toEqual([acknowledgement]);
+    expect(await outbox.pending()).toEqual([delivery]);
     const restarted = new AutomationConfigAckOutbox(path, automationScope);
     await restarted.initialize();
-    expect(await restarted.pending()).toEqual([acknowledgement]);
+    expect(await restarted.pending()).toEqual([delivery]);
   });
 });
 
@@ -118,6 +176,13 @@ function ack(snapshot: ReturnType<typeof automationSnapshot>): AutomationConfigA
     errorCode: null,
     appliedAt: "2026-08-30T01:02:03.000Z"
   };
+}
+
+function receipt(delivery: AutomationConfigAppliedDeliveryV1): AutomationConfigAppliedReceiptV1 {
+  return automationConfigAppliedReceiptV1Schema.parse({
+    ...delivery,
+    ingestedAt: "2026-08-30T01:02:04.000Z"
+  }) as AutomationConfigAppliedReceiptV1;
 }
 
 async function outboxPath() {

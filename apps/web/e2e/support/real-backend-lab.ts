@@ -2,9 +2,13 @@ import type { Page, Request, TestInfo } from "@playwright/test";
 import {
   acceptanceAckV2Schema,
   applicationStateIngestedAckV2Schema,
+  automationConfigAppliedDeliveryV1Schema,
+  automationConfigAppliedReceiptV1Schema,
+  automationCurrentConfigRequestV1Schema,
   automationExecutionActionResultPayloadV1Schema,
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
+  automationSnapshotV1Schema,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
   gatewayHeartbeatV2Schema,
@@ -269,12 +273,18 @@ export class RealBackendLab {
   private readonly stateIngestedEventIds = new Set<string>();
   private mqtt?: MqttClient;
   private automationObserver?: MqttClient;
+  private apiProcess?: ChildProcess;
+  private mqttProcess?: ChildProcess;
   private automationGateway?: ChildProcess;
+  private automationGatewayEnvironment?: NodeJS.ProcessEnv;
+  private automationConfigAckOutboxPath?: string;
+  private automationSnapshotPath?: string;
   private automationTelemetryOutboxPath?: string;
   private automationTarget?: AutomationFixture;
   private automationSensor?: AutomationFixture;
   private automationDatabaseEvidence?: Record<string, unknown>;
   private readonly automationPhaseEvidence: Array<Record<string, unknown>> = [];
+  private readonly automationConvergenceEvidence: Array<Record<string, unknown>> = [];
   private automationClockMs?: number;
   private readonly automationIpcToken = runtimeSecret("automation-ipc");
   private readonly automationIpcRequests = new Map<string, {
@@ -322,6 +332,7 @@ export class RealBackendLab {
         BOOTSTRAP_OPERATOR_PASSWORD: this.operator.password
       });
       const api = this.spawnLogged("api", process.execPath, [join(ROOT, "apps/api/dist/src/main.js")], this.apiEnv());
+      this.apiProcess = api;
       const web = this.spawnLogged("web", process.execPath, [join(ROOT, "apps/web/node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(this.ports.web), "--strictPort"], {
         WEB_PORT: String(this.ports.web), VITE_API_PROXY_TARGET: `http://127.0.0.1:${this.ports.api}`
       }, join(ROOT, "apps/web"));
@@ -510,7 +521,11 @@ export class RealBackendLab {
     const assignmentPath = join(gatewayDir, "assignment.json");
     const eventSequencePath = join(gatewayDir, "event-sequence.json");
     const automationTelemetryOutboxPath = join(gatewayDir, "automation-telemetry.json");
+    const automationConfigAckOutboxPath = join(gatewayDir, "automation-config-acks.json");
+    const automationSnapshotPath = join(gatewayDir, "automation-snapshot.json");
     this.automationTelemetryOutboxPath = automationTelemetryOutboxPath;
+    this.automationConfigAckOutboxPath = automationConfigAckOutboxPath;
+    this.automationSnapshotPath = automationSnapshotPath;
     await writeFile(assignmentPath, `${JSON.stringify({
       siteId: installation.siteId,
       gatewayId: this.gateway.id,
@@ -521,57 +536,288 @@ export class RealBackendLab {
     await writeFile(eventSequencePath, `${JSON.stringify({ sequence: this.eventSequence })}\n`, { mode: 0o600 });
     const certificateName = `gateway-${this.gateway.id.replaceAll(/[^a-zA-Z0-9._-]/g, "_")}`;
     const identity = await this.seedGatewayIdentityStores(gatewayDir, certificateName);
-    const gateway = this.spawnLogged(
-      "gateway",
-      process.execPath,
-      [join(ROOT, "apps/gateway/dist/gateway.mjs")],
-      {
-        NODE_ENV: "test",
-        AUTOMATION_E2E_SIMULATOR: "1",
-        AUTOMATION_E2E_SIMULATOR_IPC_TOKEN: this.automationIpcToken,
-        AUTOMATION_E2E_SIMULATOR_FIXTURES: JSON.stringify([
-          { fixtureId: target.fixtureId },
-          {
-            fixtureId: sensor.fixtureId,
-            vehicleSensor: { meshNodeId: sensor.meshNodeId, primaryUnicast: 0x1201 }
-          }
-        ]),
-        GATEWAY_ASSIGNMENT_PATH: assignmentPath,
-        GATEWAY_BLUETOOTH_COMPANY_ID: "0x1234",
-        GATEWAY_HEARTBEAT_MS: "1000",
-        GATEWAY_BLE_STATUS_TIMEOUT_MS: "1000",
-        GATEWAY_FIRMWARE_VERSION: "task19-software-automation-simulator",
-        GATEWAY_BOOTSTRAP_URL: `https://localhost:${this.ports.api}`,
-        GATEWAY_BOOTSTRAP_CA_PATH: join(this.pkiDir, "ca.crt"),
-        GATEWAY_DEVICE_CERT_PATH: identity.deviceCertificatePath,
-        GATEWAY_DEVICE_KEY_PATH: identity.deviceKeyPath,
-        GATEWAY_IDENTITY_ROOT: identity.deviceRoot,
-        GATEWAY_MQTT_IDENTITY_ROOT: identity.mqttRoot,
-        GATEWAY_MQTT_CA_SOURCE_PATH: join(this.pkiDir, "ca.crt"),
-        MQTT_URL: `mqtts://localhost:${this.ports.mqtt}`,
-        MQTT_CA_PATH: identity.mqttCaPath,
-        MQTT_CLIENT_CERT_PATH: identity.mqttCertificatePath,
-        MQTT_CLIENT_KEY_PATH: identity.mqttKeyPath,
-        GATEWAY_HEALTH_PATH: join(gatewayDir, "health.json"),
-        GATEWAY_COMMAND_JOURNAL_PATH: join(gatewayDir, "command-journal.json"),
-        GATEWAY_EVENT_SEQUENCE_PATH: eventSequencePath,
-        GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH: join(gatewayDir, "provisioning-scan-journal.json"),
-        GATEWAY_STATE_EVENT_OUTBOX_PATH: join(gatewayDir, "state-event-outbox.json"),
-        GATEWAY_MESH_GROUP_STATE_PATH: join(gatewayDir, "mesh-groups.json"),
-        GATEWAY_MESH_GROUP_RESYNC_PATH: join(gatewayDir, "mesh-group-resync.json"),
-        GATEWAY_AUTOMATION_CONFIG_PATH: join(gatewayDir, "automation-snapshot.json"),
-        GATEWAY_AUTOMATION_STATE_PATH: join(gatewayDir, "automation-state.json"),
-        GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH: automationTelemetryOutboxPath,
-        GATEWAY_AUTOMATION_ACK_OUTBOX_PATH: join(gatewayDir, "automation-config-acks.json"),
-        GATEWAY_VEHICLE_SENSOR_CAPABILITY_JOURNAL_PATH: join(gatewayDir, "vehicle-sensor-capabilities.json")
-      },
-      ROOT,
-      true
-    );
-    this.automationGateway = gateway;
-    gateway.on("message", (message) => this.handleAutomationIpcMessage(message));
-    gateway.once("exit", () => this.rejectAutomationIpcRequests("automation Gateway child exited"));
-    await this.waitForAutomationGatewayHeartbeat(gateway, 30_000);
+    this.automationGatewayEnvironment = {
+      NODE_ENV: "test",
+      AUTOMATION_E2E_SIMULATOR: "1",
+      AUTOMATION_E2E_SIMULATOR_IPC_TOKEN: this.automationIpcToken,
+      AUTOMATION_E2E_SIMULATOR_FIXTURES: JSON.stringify([
+        { fixtureId: target.fixtureId },
+        {
+          fixtureId: sensor.fixtureId,
+          vehicleSensor: { meshNodeId: sensor.meshNodeId, primaryUnicast: 0x1201 }
+        }
+      ]),
+      GATEWAY_ASSIGNMENT_PATH: assignmentPath,
+      GATEWAY_BLUETOOTH_COMPANY_ID: "0x1234",
+      GATEWAY_HEARTBEAT_MS: "1000",
+      GATEWAY_BLE_STATUS_TIMEOUT_MS: "1000",
+      GATEWAY_FIRMWARE_VERSION: "task19-software-automation-simulator",
+      GATEWAY_BOOTSTRAP_URL: `https://localhost:${this.ports.api}`,
+      GATEWAY_BOOTSTRAP_CA_PATH: join(this.pkiDir, "ca.crt"),
+      GATEWAY_DEVICE_CERT_PATH: identity.deviceCertificatePath,
+      GATEWAY_DEVICE_KEY_PATH: identity.deviceKeyPath,
+      GATEWAY_IDENTITY_ROOT: identity.deviceRoot,
+      GATEWAY_MQTT_IDENTITY_ROOT: identity.mqttRoot,
+      GATEWAY_MQTT_CA_SOURCE_PATH: join(this.pkiDir, "ca.crt"),
+      MQTT_URL: `mqtts://localhost:${this.ports.mqtt}`,
+      MQTT_CA_PATH: identity.mqttCaPath,
+      MQTT_CLIENT_CERT_PATH: identity.mqttCertificatePath,
+      MQTT_CLIENT_KEY_PATH: identity.mqttKeyPath,
+      GATEWAY_HEALTH_PATH: join(gatewayDir, "health.json"),
+      GATEWAY_COMMAND_JOURNAL_PATH: join(gatewayDir, "command-journal.json"),
+      GATEWAY_EVENT_SEQUENCE_PATH: eventSequencePath,
+      GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH: join(gatewayDir, "provisioning-scan-journal.json"),
+      GATEWAY_STATE_EVENT_OUTBOX_PATH: join(gatewayDir, "state-event-outbox.json"),
+      GATEWAY_MESH_GROUP_STATE_PATH: join(gatewayDir, "mesh-groups.json"),
+      GATEWAY_MESH_GROUP_RESYNC_PATH: join(gatewayDir, "mesh-group-resync.json"),
+      GATEWAY_AUTOMATION_CONFIG_PATH: automationSnapshotPath,
+      GATEWAY_AUTOMATION_STATE_PATH: join(gatewayDir, "automation-state.json"),
+      GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH: automationTelemetryOutboxPath,
+      GATEWAY_AUTOMATION_ACK_OUTBOX_PATH: automationConfigAckOutboxPath,
+      GATEWAY_VEHICLE_SENSOR_CAPABILITY_JOURNAL_PATH: join(gatewayDir, "vehicle-sensor-capabilities.json")
+    };
+    await this.launchAutomationGateway();
+  }
+
+  async readRegisteredFixtureName(serialNumber: string) {
+    const name = await this.scalar(`
+      SELECT f.name
+      FROM "Fixture" f
+      JOIN "MeshNode" m ON m.id=f."meshNodeId"
+      WHERE m."serialNumber"=${sqlString(serialNumber)}
+    `);
+    if (!name) throw new Error(`registered fixture name is missing: ${serialNumber}`);
+    return name;
+  }
+
+  async readScheduleId(name: string) {
+    const id = await this.scalar(`
+      SELECT id FROM "LightingSchedule"
+      WHERE "gatewayId"=${sqlString(this.gateway.id)} AND name=${sqlString(name)}
+    `);
+    if (!id) throw new Error(`schedule identity is missing: ${name}`);
+    return id;
+  }
+
+  async waitForPublishedDesiredRevisionAhead(label: string, timeoutMs = 20_000) {
+    const deadline = Date.now() + timeoutMs;
+    let state: Awaited<ReturnType<RealBackendLab["readAutomationSyncState"]>> | undefined;
+    while (Date.now() < deadline) {
+      state = await this.readAutomationSyncState();
+      if (state.desiredRevision > state.appliedRevision && state.publishedAt) {
+        const evidence = {
+          scenario: label,
+          stage: "snapshot-published-unapplied",
+          ...state,
+          evidenceCursor: this.mqttEvidence.length
+        };
+        this.automationConvergenceEvidence.push(evidence);
+        return evidence;
+      }
+      await delay(100);
+    }
+    throw new Error(`desired automation snapshot was not published ahead of applied revision: ${label}`);
+  }
+
+  async assertDesiredConfigPublishedBeforeFirstGatewayConnect() {
+    if (this.automationGateway || this.automationGatewayEnvironment) {
+      throw new Error("production automation Gateway was prepared before the first-connect assertion");
+    }
+    const evidence = await this.waitForPublishedDesiredRevisionAhead("first-connect-published");
+    const configTopic = mqttTopics.automationConfig(this.requireInstallation().siteId, this.gateway.id);
+    if (!this.mqttEvidence.some((item) => item.direction === "command" && item.topic === configTopic)) {
+      throw new Error("pre-connect config snapshot did not reach the broker-backed test Gateway");
+    }
+    return evidence;
+  }
+
+  async waitForAutomationProtocolConvergence(label: string, evidenceCursor: number, timeoutMs = 30_000) {
+    const deadline = Date.now() + timeoutMs;
+    let lastError: unknown;
+    while (Date.now() < deadline) {
+      try {
+        const state = await this.readAutomationSyncState();
+        const localSnapshot = await this.readLocalAutomationSnapshot();
+        const pendingAcks = await this.readAutomationConfigAckRecords();
+        if (
+          state.syncStatus !== "APPLIED" || state.desiredRevision !== state.appliedRevision ||
+          localSnapshot.revision !== state.desiredRevision || localSnapshot.payloadHash !== state.payloadHash ||
+          pendingAcks.length !== 0
+        ) {
+          throw new Error("database, local snapshot, and durable ACK state are not converged");
+        }
+        const protocol = this.readAutomationProtocolEvidence(evidenceCursor);
+        const evidence = {
+          scenario: label,
+          stage: "application-protocol-converged",
+          ...state,
+          localRevision: localSnapshot.revision,
+          pendingAckCount: pendingAcks.length,
+          ...protocol
+        };
+        this.automationConvergenceEvidence.push(evidence);
+        return evidence;
+      } catch (error) {
+        lastError = error;
+      }
+      await delay(100);
+    }
+    throw new Error(`automation application protocol did not converge for ${label}: ${safeMessage(lastError)}`, {
+      cause: lastError
+    });
+  }
+
+  async restartAutomationGatewayAfterSessionExpiry(label: string) {
+    await this.stopAutomationGateway();
+    await this.resetMqttBrokerSessions();
+    const evidenceCursor = this.mqttEvidence.length;
+    await this.launchAutomationGateway();
+    return this.waitForAutomationProtocolConvergence(label, evidenceCursor);
+  }
+
+  async stopAutomationGateway() {
+    const gateway = this.automationGateway;
+    if (!gateway) return;
+    this.rejectAutomationIpcRequests("automation Gateway was stopped for a convergence scenario");
+    await stopProcessGroup(gateway, this.cleanupTimeoutMs);
+    if (this.automationGateway === gateway) this.automationGateway = undefined;
+  }
+
+  async restartAutomationGateway() {
+    await this.stopAutomationGateway();
+    return this.launchAutomationGateway();
+  }
+
+  async assertDeletedScheduleDoesNotExecute(scheduleId: string) {
+    const snapshot = await this.readLocalAutomationSnapshot();
+    if (snapshot.schedules.some(({ id }) => id === scheduleId)) {
+      throw new Error("cloud-deleted schedule remains in the local full snapshot");
+    }
+    const before = Number(await this.scalar(`
+      SELECT count(*) FROM "AutomationExecution"
+      WHERE "gatewayId"=${sqlString(this.gateway.id)} AND "ruleId"=${sqlString(scheduleId)}
+    `));
+    await this.advanceAutomationClock(3 * 60 * 60 * 1_000);
+    await delay(1_500);
+    const after = Number(await this.scalar(`
+      SELECT count(*) FROM "AutomationExecution"
+      WHERE "gatewayId"=${sqlString(this.gateway.id)} AND "ruleId"=${sqlString(scheduleId)}
+    `));
+    if (after !== before) throw new Error("cloud-deleted schedule executed after empty-snapshot convergence");
+    this.automationConvergenceEvidence.push({
+      scenario: "deleted-rule",
+      stage: "post-convergence-clock-advance",
+      scheduleId,
+      localRevision: snapshot.revision,
+      executionCountBefore: before,
+      executionCountAfter: after,
+      advancedMs: 3 * 60 * 60 * 1_000
+    });
+  }
+
+  async stopApi() {
+    const api = this.apiProcess;
+    if (!api) return;
+    await stopProcessGroup(api, this.cleanupTimeoutMs);
+    if (this.apiProcess === api) this.apiProcess = undefined;
+  }
+
+  async startApi() {
+    if (this.apiProcess) return;
+    const api = this.spawnLogged("api", process.execPath, [join(ROOT, "apps/api/dist/src/main.js")], this.apiEnv());
+    this.apiProcess = api;
+    await waitForOwnedHttp(api, this.ports.api, `http://127.0.0.1:${this.ports.api}/auth/me`, [401]);
+  }
+
+  async resetMqttBrokerSessions() {
+    const broker = this.mqttProcess;
+    if (!broker) throw new Error("lab MQTT broker process is unavailable");
+    if (this.mqtt) throw new Error("test Gateway publisher must be detached before broker session reset");
+    await stopProcessGroup(broker, this.cleanupTimeoutMs);
+    const replacement = this.spawnLogged("mqtt", "mosquitto", ["-c", join(this.labDir, "mosquitto.conf")], {});
+    this.mqttProcess = replacement;
+    await waitForOwnedPort(replacement, this.ports.mqtt);
+    if (this.automationObserver) {
+      await this.waitFor(() => Boolean(this.automationObserver?.connected), 15_000);
+    }
+    this.automationConvergenceEvidence.push({
+      scenario: "broker-session-reset",
+      stage: "non-persistent-broker-restarted",
+      previousPid: broker.pid ?? null,
+      replacementPid: replacement.pid ?? null
+    });
+  }
+
+  async publishLatestDesiredSnapshotAsApiPrincipal() {
+    const installation = this.requireInstallation();
+    const snapshot = automationSnapshotV1Schema.parse(await this.queryJson<unknown>(`
+      SELECT outbox.payload
+      FROM "GatewayAutomationConfiguration" configuration
+      JOIN "MqttOutbox" outbox
+        ON outbox."gatewayId"=configuration."gatewayId"
+       AND outbox.revision=configuration."desiredRevision"
+       AND outbox."payloadHash"=configuration."payloadHash"
+      WHERE configuration."gatewayId"=${sqlString(this.gateway.id)}
+        AND outbox."dispatchId" IS NULL
+        AND outbox."applicationAckKey" IS NULL
+    `));
+    const client = await connectMqttForLab({
+      host: "127.0.0.1",
+      port: this.ports.mqtt,
+      clientId: `task19-api-recovery-${randomUUID()}`,
+      ca: await readFile(join(this.pkiDir, "ca.crt")),
+      cert: await readFile(join(this.pkiDir, "api.crt")),
+      key: await readFile(join(this.pkiDir, "api.key"))
+    });
+    client.on("error", () => undefined);
+    const topic = mqttTopics.automationConfig(installation.siteId, this.gateway.id);
+    try {
+      await publish(client, topic, JSON.stringify(snapshot), { qos: 1 });
+      this.recordMqtt({
+        direction: "lab-api-recovery-publisher",
+        topic,
+        revision: snapshot.revision,
+        payloadHash: snapshot.payloadHash
+      });
+    } finally {
+      await closeMqttStrictWithin(client, false, this.cleanupTimeoutMs, "API recovery publisher close");
+    }
+    return snapshot;
+  }
+
+  async waitForDurableConfigAck(timeoutMs = 20_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const records = await this.readAutomationConfigAckRecords();
+      if (records.length > 0) {
+        const record = records[0];
+        this.automationConvergenceEvidence.push({
+          scenario: "api-restart-ack",
+          stage: "broker-puback-without-application-receipt",
+          acknowledgementId: record.acknowledgementId,
+          revision: record.acknowledgement.revision,
+          pendingAckCount: records.length
+        });
+        return record;
+      }
+      await delay(100);
+    }
+    throw new Error("Gateway config-applied ACK did not remain durable after broker PUBACK");
+  }
+
+  async assertAutomationConvergenceEvidence() {
+    const required = ["first-connect", "session-expired-reconnect", "deleted-rule", "api-restart-ack"];
+    for (const scenario of required) {
+      if (!this.automationConvergenceEvidence.some((evidence) => evidence.scenario === scenario)) {
+        throw new Error(`automation convergence evidence is missing: ${scenario}`);
+      }
+    }
+    const state = await this.readAutomationSyncState();
+    const pendingAcks = await this.readAutomationConfigAckRecords();
+    if (state.syncStatus !== "APPLIED" || state.desiredRevision !== state.appliedRevision || pendingAcks.length !== 0) {
+      throw new Error("final automation convergence state is incomplete");
+    }
+    this.assertCleanAutomationIngestion();
   }
 
   async waitForVehicleSensorCapability(name: string, timeoutMs = 20_000) {
@@ -696,7 +942,9 @@ export class RealBackendLab {
     }
     for (const marker of [
       "/commands/automation/config-sync",
+      "/events/automation/current-config-request",
       "/events/automation/config-applied",
+      "/acks/automation/config-applied-ingested",
       "/events/automation/execution",
       "/events/automation/vehicle-sensor-capability",
       "/state/fixtures"
@@ -917,6 +1165,12 @@ export class RealBackendLab {
       await writeFile(
         testInfo.outputPath("automation-phase-evidence.json"),
         JSON.stringify(this.automationPhaseEvidence, null, 2)
+      );
+    }
+    if (this.automationConvergenceEvidence.length > 0) {
+      await writeFile(
+        testInfo.outputPath("automation-convergence-evidence.json"),
+        JSON.stringify(this.automationConvergenceEvidence, null, 2)
       );
     }
     for (const name of ["api.log", "web.log", "gateway.log"]) {
@@ -1259,6 +1513,114 @@ export class RealBackendLab {
     throw new Error(`automation fixture is not configured: ${nameOrId}`);
   }
 
+  private async launchAutomationGateway() {
+    if (this.automationGateway) throw new Error("automation Gateway is already running");
+    if (!this.automationGatewayEnvironment) throw new Error("automation Gateway environment is not prepared");
+    this.automationClockMs = undefined;
+    const gateway = this.spawnLogged(
+      "gateway",
+      process.execPath,
+      [join(ROOT, "apps/gateway/dist/gateway.mjs")],
+      this.automationGatewayEnvironment,
+      ROOT,
+      true
+    );
+    this.automationGateway = gateway;
+    gateway.on("message", (message) => this.handleAutomationIpcMessage(message));
+    gateway.once("exit", () => {
+      if (this.automationGateway !== gateway) return;
+      this.automationGateway = undefined;
+      this.rejectAutomationIpcRequests("automation Gateway child exited");
+    });
+    await this.waitForAutomationGatewayHeartbeat(gateway, 30_000);
+    return gateway;
+  }
+
+  private async readAutomationSyncState() {
+    return this.queryJson<{
+      desiredRevision: number;
+      appliedRevision: number;
+      syncStatus: string;
+      payloadHash: string;
+      publishedAt: string | null;
+    }>(`
+      SELECT json_build_object(
+        'desiredRevision', configuration."desiredRevision",
+        'appliedRevision', configuration."appliedRevision",
+        'syncStatus', configuration."syncStatus"::text,
+        'payloadHash', configuration."payloadHash",
+        'publishedAt', outbox."publishedAt"
+      )
+      FROM "GatewayAutomationConfiguration" configuration
+      LEFT JOIN "MqttOutbox" outbox
+        ON outbox."gatewayId"=configuration."gatewayId"
+       AND outbox.revision=configuration."desiredRevision"
+       AND outbox."payloadHash"=configuration."payloadHash"
+       AND outbox."dispatchId" IS NULL
+       AND outbox."applicationAckKey" IS NULL
+      WHERE configuration."gatewayId"=${sqlString(this.gateway.id)}
+    `);
+  }
+
+  private async readLocalAutomationSnapshot() {
+    const path = this.automationSnapshotPath;
+    if (!path) throw new Error("Gateway automation snapshot path is unavailable");
+    return automationSnapshotV1Schema.parse(JSON.parse(await readFile(path, "utf8")));
+  }
+
+  private async readAutomationConfigAckRecords() {
+    const path = this.automationConfigAckOutboxPath;
+    if (!path) throw new Error("Gateway automation config ACK outbox path is unavailable");
+    const value = JSON.parse(await readFile(path, "utf8")) as unknown;
+    const installation = this.requireInstallation();
+    if (
+      !isJsonRecord(value) || value.version !== 2 || !isJsonRecord(value.scope) ||
+      value.scope.siteId !== installation.siteId || value.scope.gatewayId !== this.gateway.id ||
+      !Array.isArray(value.records)
+    ) throw new Error("Gateway automation config ACK outbox identity or shape mismatch");
+    return value.records.map((record) => automationConfigAppliedDeliveryV1Schema.parse(record));
+  }
+
+  private readAutomationProtocolEvidence(evidenceCursor: number) {
+    const installation = this.requireInstallation();
+    const topics = {
+      request: mqttTopics.automationCurrentConfigRequest(installation.siteId, this.gateway.id),
+      snapshot: mqttTopics.automationConfig(installation.siteId, this.gateway.id),
+      delivery: mqttTopics.automationConfigApplied(installation.siteId, this.gateway.id),
+      receipt: mqttTopics.automationConfigAppliedReceipt(installation.siteId, this.gateway.id)
+    };
+    const evidence = this.mqttEvidence.slice(evidenceCursor);
+    const requestEntry = evidence.find((entry) => entry.topic === topics.request && "payload" in entry);
+    const snapshotEntry = evidence.find((entry) => entry.topic === topics.snapshot && "payload" in entry);
+    const deliveries = evidence
+      .filter((entry) => entry.topic === topics.delivery && "payload" in entry)
+      .map((entry) => automationConfigAppliedDeliveryV1Schema.parse(entry.payload));
+    const receipts = evidence
+      .filter((entry) => entry.topic === topics.receipt && "payload" in entry)
+      .map((entry) => automationConfigAppliedReceiptV1Schema.parse(entry.payload));
+    if (!requestEntry || !snapshotEntry || deliveries.length === 0 || receipts.length === 0) {
+      throw new Error("request, snapshot, config-applied delivery, or application receipt evidence is missing");
+    }
+    const request = automationCurrentConfigRequestV1Schema.parse(requestEntry.payload);
+    const snapshot = automationSnapshotV1Schema.parse(snapshotEntry.payload);
+    const receipt = receipts.find((candidate) => deliveries.some((delivery) => (
+      delivery.acknowledgementId === candidate.acknowledgementId &&
+      isDeepStrictEqual(delivery.acknowledgement, candidate.acknowledgement)
+    )));
+    if (!receipt) throw new Error("config-applied receipt does not match an exact durable ACK delivery");
+    if (
+      request.siteId !== installation.siteId || request.gatewayId !== this.gateway.id ||
+      snapshot.siteId !== installation.siteId || snapshot.gatewayId !== this.gateway.id ||
+      receipt.siteId !== installation.siteId || receipt.gatewayId !== this.gateway.id
+    ) throw new Error("automation convergence protocol scope mismatch");
+    return {
+      requestId: request.requestId,
+      responseRevision: snapshot.revision,
+      acknowledgementId: receipt.acknowledgementId,
+      receiptRevision: receipt.acknowledgement.revision
+    };
+  }
+
   private async waitForAutomationGatewayHeartbeat(child: ChildProcess, timeoutMs: number) {
     const installation = this.requireInstallation();
     const topic = mqttTopicsV2.heartbeat(installation.siteId, this.gateway.id);
@@ -1344,6 +1706,7 @@ export class RealBackendLab {
       "--dir", this.labDir
     ], {});
     const mqtt = this.spawnLogged("mqtt", "mosquitto", ["-c", join(this.labDir, "mosquitto.conf")], {});
+    this.mqttProcess = mqtt;
     await Promise.all([
       waitForRedisIdentity(redis, this.ports.redis),
       waitForOwnedPort(mqtt, this.ports.mqtt)
@@ -1512,6 +1875,8 @@ export class RealBackendLab {
     } finally {
       this.mqtt = undefined;
       this.automationObserver = undefined;
+      this.apiProcess = undefined;
+      this.mqttProcess = undefined;
       this.automationGateway = undefined;
       try {
         const processResults = await Promise.allSettled(

@@ -116,6 +116,7 @@ export class MqttService implements OnModuleInit {
       client.subscribe(["sites/+/gateways/+/state/fixtures", "sites/+/gateways/+/state/heartbeat"], { qos: 1 });
       client.subscribe([
         "sites/+/gateways/+/events/automation/config-applied",
+        "sites/+/gateways/+/events/automation/current-config-request",
         "sites/+/gateways/+/events/automation/execution",
         "sites/+/gateways/+/events/automation/vehicle-sensor-capability"
       ], { qos: 1 });
@@ -547,6 +548,7 @@ export class MqttService implements OnModuleInit {
     const gatewayScope = parseGatewayTopic(topic);
     if (gatewayScope && [
       "events/automation/config-applied",
+      "events/automation/current-config-request",
       "events/automation/execution",
       "events/automation/vehicle-sensor-capability"
     ].includes(gatewayScope.channel)) {

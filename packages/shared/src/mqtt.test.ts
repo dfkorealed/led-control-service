@@ -15,6 +15,12 @@ describe("mqttTopics", () => {
     expect(mqttTopics.automationConfigApplied("site-1", "gateway-1")).toBe(
       "sites/site-1/gateways/gateway-1/events/automation/config-applied"
     );
+    expect(mqttTopics.automationCurrentConfigRequest("site-1", "gateway-1")).toBe(
+      "sites/site-1/gateways/gateway-1/events/automation/current-config-request"
+    );
+    expect(mqttTopics.automationConfigAppliedReceipt("site-1", "gateway-1")).toBe(
+      "sites/site-1/gateways/gateway-1/acks/automation/config-applied-ingested"
+    );
     expect(mqttTopics.automationExecution("site-1", "gateway-1")).toBe(
       "sites/site-1/gateways/gateway-1/events/automation/execution"
     );

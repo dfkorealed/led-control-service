@@ -21,6 +21,10 @@ export const mqttTopics = {
     `sites/${siteId}/gateways/${gatewayId}/commands/automation/config-sync`,
   automationConfigApplied: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/automation/config-applied`,
+  automationCurrentConfigRequest: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/automation/current-config-request`,
+  automationConfigAppliedReceipt: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/acks/automation/config-applied-ingested`,
   automationExecution: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/automation/execution`,
   automationExecutionIngested: (siteId: string, gatewayId: string) =>

@@ -80,6 +80,26 @@ export interface AutomationConfigAppliedV1 {
   appliedAt: string;
 }
 
+export interface AutomationCurrentConfigRequestV1 {
+  schemaVersion: 1;
+  requestId: string;
+  siteId: string;
+  gatewayId: string;
+  requestedAt: string;
+}
+
+export interface AutomationConfigAppliedDeliveryV1 {
+  schemaVersion: 1;
+  acknowledgementId: string;
+  siteId: string;
+  gatewayId: string;
+  acknowledgement: AutomationConfigAppliedV1;
+}
+
+export interface AutomationConfigAppliedReceiptV1 extends AutomationConfigAppliedDeliveryV1 {
+  ingestedAt: string;
+}
+
 export interface AutomationExecutionEventV1 {
   schemaVersion: 1;
   eventId: string;
@@ -259,6 +279,39 @@ export const automationConfigAppliedV1Schema = z.object({
   }
   if (configuration.status === "rejected" && configuration.errorCode === null) {
     addIssue(context, "errorCode", "rejected configuration requires an errorCode");
+  }
+});
+
+export const automationCurrentConfigRequestV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  requestId: identifierSchema,
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  requestedAt: timestampSchema
+}).strict();
+
+const automationConfigAppliedDeliveryShape = {
+  schemaVersion: z.literal(1),
+  acknowledgementId: identifierSchema,
+  siteId: identifierSchema,
+  gatewayId: identifierSchema,
+  acknowledgement: automationConfigAppliedV1Schema
+};
+
+export const automationConfigAppliedDeliveryV1Schema = z.object(
+  automationConfigAppliedDeliveryShape
+).strict().superRefine((delivery, context) => {
+  if (delivery.gatewayId !== delivery.acknowledgement.gatewayId) {
+    addIssue(context, "gatewayId", "config acknowledgement Gateway scope must match its delivery");
+  }
+});
+
+export const automationConfigAppliedReceiptV1Schema = z.object({
+  ...automationConfigAppliedDeliveryShape,
+  ingestedAt: timestampSchema
+}).strict().superRefine((receipt, context) => {
+  if (receipt.gatewayId !== receipt.acknowledgement.gatewayId) {
+    addIssue(context, "gatewayId", "config acknowledgement Gateway scope must match its receipt");
   }
 });
 
