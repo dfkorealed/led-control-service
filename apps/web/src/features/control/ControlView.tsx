@@ -40,6 +40,11 @@ const ScheduleControlPanel = lazy(async () => {
   return { default: module.ScheduleControlPanel };
 });
 
+const VehicleEventControlPanel = lazy(async () => {
+  const module = await import("./automation/VehicleEventControlPanel");
+  return { default: module.VehicleEventControlPanel };
+});
+
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
 
 export function ControlView({
@@ -61,6 +66,7 @@ export function ControlView({
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
+  const [overrideUntilLocal, setOverrideUntilLocal] = useState(() => defaultOverrideUntilLocal());
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [commandId, setCommandId] = useState<string | null>(null);
@@ -166,11 +172,19 @@ export function ControlView({
   async function submitCommand() {
     if (!data || !target || !canSubmit || isActiveCommandSessionBlocked(userId)) return;
 
+    const overrideUntil = overrideUntilFromLocal(overrideUntilLocal);
+    const overrideValidationError = validateOverrideUntil(overrideUntil);
+    if (overrideValidationError) {
+      setMessage(overrideValidationError);
+      return;
+    }
+
     const request = canonicalizeDimmingCommandInput({
       siteId: data.site.id,
       clientRequestId: crypto.randomUUID(),
       target,
-      brightness
+      brightness,
+      ...(overrideUntil ? { overrideUntil } : {})
     });
     saveActiveCommandRequest(userId, data.site.id, request);
     setCommandUserId(userId);
@@ -236,19 +250,15 @@ export function ControlView({
   const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} />;
 
   if (mode === "event") {
+    const eventSiteId = data?.site.id ?? siteId;
     return (
       <section className="control-screen">
         {modeTabs}
-        <div
-          id="control-mode-panel-event"
-          className="control-mode-placeholder"
-          role="tabpanel"
-          aria-labelledby="control-mode-event"
-        >
-          <span className="eyebrow">차량 감지 자동제어</span>
-          <h2>이벤트 제어</h2>
-          <p>이벤트 제어는 다음 작업에서 제공됩니다.</p>
-        </div>
+        {eventSiteId ? (
+          <Suspense fallback={<p className="muted-text" role="status">이벤트 화면을 불러오는 중입니다.</p>}>
+            <VehicleEventControlPanel key={`${userId}:${eventSiteId}`} siteId={eventSiteId} role={userRole} dashboard={data} scopeKey={`${userId}:${eventSiteId}`} />
+          </Suspense>
+        ) : isLoading ? <p className="muted-text" role="status">현장 정보를 불러오는 중입니다.</p> : <p className="danger-text" role="alert">이벤트 현장을 확인하지 못했습니다.</p>}
       </section>
     );
   }
@@ -380,6 +390,21 @@ export function ControlView({
               </button>
             ))}
           </div>
+
+          <label className="form-field control-override-field">
+            <span>수동 override 종료 시각</span>
+            <input
+              type="datetime-local"
+              aria-label="수동 override 종료 시각"
+              value={overrideUntilLocal}
+              disabled={controlsLocked}
+              onChange={(event) => {
+                setOverrideUntilLocal(event.target.value);
+                setMessage("");
+              }}
+            />
+            <small>비워두면 서버 기본값을 사용합니다.</small>
+          </label>
 
           <button className="primary-button" type="button" onClick={submitCommand} disabled={!canSubmit}>
             {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
@@ -565,4 +590,29 @@ function definitiveRejectionMessage(error: { status: number; body?: unknown }): 
   if (error.status === 403) return "제어 권한이 없습니다. 권한을 확인한 뒤 다시 시도하세요.";
   if (error.status === 409) return "동일 요청 ID가 다른 제어 내용과 충돌했습니다. 새 제어 요청을 실행하세요.";
   return `제어 요청이 거부되었습니다(${error.status}). 입력과 권한을 확인하세요.`;
+}
+
+function defaultOverrideUntilLocal(now = new Date()) {
+  const date = new Date(now.getTime() + 60 * 60 * 1000);
+  date.setSeconds(0, 0);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-") + `T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function overrideUntilFromLocal(value: string) {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function validateOverrideUntil(overrideUntil: string | null | undefined, now = new Date()) {
+  if (overrideUntil === undefined) return null;
+  if (overrideUntil === null) return "종료 시각을 확인해 주세요.";
+  const until = Date.parse(overrideUntil);
+  if (until <= now.getTime()) return "종료 시각은 현재 이후여야 합니다.";
+  if (until > now.getTime() + 30 * 24 * 60 * 60 * 1000) return "종료 시각은 30일 이내여야 합니다.";
+  return null;
 }

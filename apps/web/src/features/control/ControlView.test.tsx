@@ -32,6 +32,9 @@ vi.mock("./automation/ScheduleControlPanel", () => ({
     );
   }
 }));
+vi.mock("./automation/VehicleEventControlPanel", () => ({
+  VehicleEventControlPanel: ({ siteId }: { siteId: string }) => <p>이벤트 패널 {siteId}</p>
+}));
 
 const fixtureIds = {
   b2First: "00000000-0000-4000-8000-000000002001",
@@ -136,6 +139,7 @@ describe("ControlView 대상 선택", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
     sessionStorage.clear();
   });
@@ -146,12 +150,12 @@ describe("ControlView 대상 선택", () => {
     fireEvent.click(screen.getByLabelText("B2-L001 선택"));
     fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
 
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", {
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,
       clientRequestId: expect.any(String),
       target: { type: "fixture", fixtureId: fixtureIds.b2First },
       brightness: 70
-    }, { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal) }));
   });
 
   it("syncs brightness from the fixture when exactly one light is selected", () => {
@@ -199,12 +203,12 @@ describe("ControlView 대상 선택", () => {
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
     fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
 
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", {
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,
       clientRequestId: expect.any(String),
       target: { type: "fixtures", fixtureIds: [fixtureIds.b2First, fixtureIds.b2Second] },
       brightness: 30
-    }, { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal) }));
     expect(screen.getByText("2개 선택 · 제어 불가 0개")).toBeInTheDocument();
   });
 
@@ -215,12 +219,12 @@ describe("ControlView 대상 선택", () => {
     fireEvent.click(screen.getByRole("button", { name: "B1" }));
     expect(screen.getByText("BLE Mesh 그룹 전송")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", {
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,
       clientRequestId: expect.any(String),
       target: { type: "floor", floorId: dashboard.floors[1].id },
       brightness: 70
-    }, { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal) }));
 
     mocks.useCommandStatus.mockReturnValue({
       data: createCommandStatus(commandIds.default, "completed"),
@@ -234,12 +238,12 @@ describe("ControlView 대상 선택", () => {
     fireEvent.click(screen.getByRole("button", { name: "구역" }));
     fireEvent.click(screen.getByRole("button", { name: /B2 입구 구역/ }));
     fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", {
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,
       clientRequestId: expect.any(String),
       target: { type: "group", groupId: dashboard.groups[0].id },
       brightness: 70
-    }, { signal: expect.any(AbortSignal) }));
+    }), { signal: expect.any(AbortSignal) }));
   });
 
   it("does not expose configuring or failed mesh groups as selectable control targets", () => {
@@ -806,7 +810,40 @@ describe("ControlView 대상 선택", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "이벤트 제어" }));
     await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=event"));
-    expect(screen.getByText("이벤트 제어는 다음 작업에서 제공됩니다.")).toBeInTheDocument();
+    expect(await screen.findByText(`이벤트 패널 ${dashboard.site.id}`)).toBeInTheDocument();
+  });
+
+  it("sends a local override end time as an ISO instant and rejects invalid windows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-31T00:00:00.000Z"));
+    renderControl();
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    const overrideInput = screen.getByLabelText("수동 override 종료 시각");
+    fireEvent.change(overrideInput, { target: { value: "2026-08-30T23:59" } });
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    expect(screen.getByText("종료 시각은 현재 이후여야 합니다.")).toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+
+    fireEvent.change(overrideInput, { target: { value: "2026-10-01T00:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    expect(screen.getByText("종료 시각은 30일 이내여야 합니다.")).toBeInTheDocument();
+
+    fireEvent.change(overrideInput, { target: { value: "2026-08-31T10:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
+      overrideUntil: new Date("2026-08-31T10:00").toISOString()
+    }), { signal: expect.any(AbortSignal) });
+  });
+
+  it("omits an empty override end time so the server applies its default window", async () => {
+    renderControl();
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    fireEvent.change(screen.getByLabelText("수동 override 종료 시각"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
+    expect(mocks.apiPost.mock.calls[0][1]).not.toHaveProperty("overrideUntil");
   });
 
   it("uses roving tab focus and selects modes with circular arrow, Home, and End keys", async () => {

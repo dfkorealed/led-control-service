@@ -31,12 +31,21 @@ interface ControlTargetPickerProps {
   dashboard: Dashboard;
   selection: ControlSelection;
   disabled: boolean;
+  allowedModes?: readonly ControlMode[];
+  fixtureFilter?: (fixture: DashboardFixture) => boolean;
   onChange: (selection: ControlSelection) => void;
 }
 
 type StatusFilter = "all" | DashboardFixture["status"];
 
-export function ControlTargetPicker({ dashboard, selection, disabled, onChange }: ControlTargetPickerProps) {
+export function ControlTargetPicker({
+  dashboard,
+  selection,
+  disabled,
+  allowedModes = ["fixtures", "floor", "group"],
+  fixtureFilter,
+  onChange
+}: ControlTargetPickerProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [floorFilter, setFloorFilter] = useState("all");
@@ -49,12 +58,13 @@ export function ControlTargetPicker({ dashboard, selection, disabled, onChange }
   const filteredFixtures = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
     return fixturesWithFloor.filter(({ fixture, floor }) => {
+      const matchesFixture = !fixtureFilter || fixtureFilter(fixture);
       const matchesSearch = !keyword || fixture.name.toLocaleLowerCase().includes(keyword);
       const matchesStatus = statusFilter === "all" || fixture.status === statusFilter;
       const matchesFloor = floorFilter === "all" || floor.id === floorFilter;
-      return matchesSearch && matchesStatus && matchesFloor;
+      return matchesFixture && matchesSearch && matchesStatus && matchesFloor;
     });
-  }, [fixturesWithFloor, search, statusFilter, floorFilter]);
+  }, [fixtureFilter, fixturesWithFloor, search, statusFilter, floorFilter]);
   const selectedFixtureIds = useMemo(
     () => new Set(selection.mode === "fixtures" ? selection.fixtureIds : []),
     [selection]
@@ -112,7 +122,7 @@ export function ControlTargetPicker({ dashboard, selection, disabled, onChange }
           ["fixtures", "개별/다중"],
           ["floor", "층"],
           ["group", "구역"]
-        ] as const).map(([mode, label]) => (
+        ] as const).filter(([mode]) => allowedModes.includes(mode)).map(([mode, label]) => (
           <button
             key={mode}
             type="button"

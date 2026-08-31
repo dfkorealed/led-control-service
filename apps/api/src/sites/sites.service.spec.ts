@@ -138,7 +138,11 @@ describe("SitesService", () => {
         ratedWatt: "40", rssi: -58, hopCount: 1, commandSuccessRate: 0.98,
         lastSeenAt: new Date("2026-07-01T00:00:00.000Z"),
         healthFaultCodes: [], healthLastSeenAt: new Date("2026-07-01T00:00:01.000Z"),
-        meshNode: { gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: new Date() } }
+        meshNode: {
+          gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: new Date() },
+          vehicleSensorCapabilityStatus: "supported",
+          vehicleSensorCapabilityVerifiedAt: new Date("2026-08-31T00:00:00.000Z")
+        }
       },
       {
         id: "fixture-2", floorId: "floor-1", name: "L2", x: 30, y: 40, brightness: 0, status: "fault",
@@ -175,6 +179,8 @@ describe("SitesService", () => {
     expect(dashboard.floors[0].fixtures[0]).toMatchObject({
       health: { faultCodes: [], observedAt: "2026-07-01T00:00:01.000Z" },
       gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
+      vehicleSensorCapabilityStatus: "supported",
+      vehicleSensorCapabilityVerifiedAt: "2026-08-31T00:00:00.000Z",
       controllable: true,
       controlBlockReason: null
     });

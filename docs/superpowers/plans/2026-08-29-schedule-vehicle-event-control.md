@@ -1309,7 +1309,7 @@ Breaker 검증: 기존 validator에서 focused 58건 중 예약 manifest 28건�
 - Consumes: event rule API, source fixture list, schedule UI convention, command `overrideUntil`.
 - Produces: source→target→action/hold dialog, event list CRUD, manual override 종료 시각 입력.
 
-- [ ] **Step 1: source/target/hold와 override 실패 테스트를 작성한다**
+- [x] **Step 1: source/target/hold와 override 실패 테스트를 작성한다**
 
 ```tsx
 await user.click(screen.getByRole("button", { name: "이벤트 추가" }));
@@ -1318,15 +1318,15 @@ expect(screen.getByText("감지 센서를 한 개 이상 선택하세요.")).toB
 expect(screen.getByText("제어 조명을 한 개 이상 선택하세요.")).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: event dialog와 목록을 구현한다**
+- [x] **Step 2: event dialog와 목록을 구현한다**
 
 dialog 순서는 감지 센서, 제어 조명, 행동·유지시간이다. 목록에는 enabled, source 수, target 수, 밝기, hold, sync 상태, 최근 감지를 표시한다. source picker는 현재 Gateway와 등록된 Fixture만 제공한다.
 
-- [ ] **Step 3: 수동 override 종료 입력을 구현한다**
+- [x] **Step 3: 수동 override 종료 입력을 구현한다**
 
 기본 UI 값은 현재부터 1시간이며 local datetime을 ISO instant로 변환한다. 비워 전송하면 서버 기본값을 사용한다. 과거 시각과 30일 초과를 client에서도 거부한다.
 
-- [ ] **Step 4: 접근성과 회귀 검증 후 커밋한다**
+- [x] **Step 4: 접근성과 회귀 검증 후 커밋한다**
 
 Run: `pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/web test -- VehicleEventControlPanel.test.tsx ControlView.test.tsx && pnpm --filter @led-control/web build`
 

@@ -159,6 +159,8 @@ export class SitesService {
                 connectionStatus: gatewayOnline ? "online" : "offline"
               }
             : null,
+          vehicleSensorCapabilityStatus: fixture.meshNode?.vehicleSensorCapabilityStatus ?? "unknown",
+          vehicleSensorCapabilityVerifiedAt: fixture.meshNode?.vehicleSensorCapabilityVerifiedAt?.toISOString() ?? null,
           controllable: controlBlockReason === null,
           controlBlockReason
           };

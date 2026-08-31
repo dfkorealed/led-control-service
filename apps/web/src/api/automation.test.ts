@@ -3,11 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./client";
 import {
   createSchedule,
+  createVehicleEventRule,
   deleteSchedule,
+  deleteVehicleEventRule,
+  listVehicleEventRules,
   listSchedules,
   scheduleMutationErrorMessage,
   scheduleQueryKey,
+  vehicleEventRuleQueryKey,
   updateSchedule,
+  updateVehicleEventRule,
   type CreateScheduleInput
 } from "./automation";
 
@@ -47,6 +52,15 @@ const input: CreateScheduleInput = {
   target
 };
 
+const vehicleEventInput = {
+  name: "입구 차량 감지",
+  status: "enabled" as const,
+  sourceFixtureIds: ["00000000-0000-4000-8000-000000000004"],
+  targetFixtureIds: ["00000000-0000-4000-8000-000000000003"],
+  action: { dimmingEnabled: true, brightnessPercent: 80 },
+  holdSeconds: 60
+};
+
 describe("schedule API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -80,6 +94,24 @@ describe("schedule API", () => {
       { status: "disabled" }
     );
     expect(mocks.apiDelete).toHaveBeenCalledWith(`/sites/${siteId}/automation/schedules/${scheduleId}`);
+  });
+
+  it("uses the production vehicle event CRUD routes and stable query key", async () => {
+    await listVehicleEventRules(siteId, { limit: 100, cursor: "next/cursor" });
+    await createVehicleEventRule(siteId, vehicleEventInput);
+    await updateVehicleEventRule(siteId, scheduleId, { status: "disabled" });
+    await deleteVehicleEventRule(siteId, scheduleId);
+
+    expect(vehicleEventRuleQueryKey(siteId)).toEqual(["automation-vehicle-event-rules", siteId]);
+    expect(mocks.apiGet).toHaveBeenCalledWith(
+      `/sites/${siteId}/automation/vehicle-event-rules?limit=100&cursor=next%2Fcursor`
+    );
+    expect(mocks.apiPost).toHaveBeenCalledWith(`/sites/${siteId}/automation/vehicle-event-rules`, vehicleEventInput);
+    expect(mocks.apiPatch).toHaveBeenCalledWith(
+      `/sites/${siteId}/automation/vehicle-event-rules/${scheduleId}`,
+      { status: "disabled" }
+    );
+    expect(mocks.apiDelete).toHaveBeenCalledWith(`/sites/${siteId}/automation/vehicle-event-rules/${scheduleId}`);
   });
 
   it.each([
