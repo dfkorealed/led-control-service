@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry, Task 14 Gateway BLE Mesh Sensor Client, Task 15 ESP32-H2 GPIO sensor driver, Task 16 Sensor Server/reliable vendor event, Task 17 Web 제어 탭·스케줄 CRUD, Task 18 Web 차량 이벤트 CRUD·수동 override UI, Task 19 production API/Gateway Chromium software E2E, Task 20 HIL runbook·최종 문서 검증과 final review P1 양방향 application convergence fix까지 마쳤다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 미실행 상태로 별도다.
+**Calm Operations 고객 UI 전면 개선**: 승인된 A안으로 모니터링·수동/스케줄/차량 이벤트 제어·통계·설정의 공통 디자인 시스템을 적용하고 설정 내부 sidebar를 주 내비게이션의 역할별 hover/focus/touch 서브메뉴로 이동하는 설계와 구현 계획을 완료했다. 실제 구현은 시작 전이다.
 
 ## 작업 상태
 
@@ -19,6 +19,9 @@
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
 | 계정·설치 주체 전환 구현 | 완료(소프트웨어) | Task 1~9와 final review fix를 완료했다. login/reset/change는 User row lock과 실제 PostgreSQL barrier로 old credential session race를 차단하고, 일반 admin의 command/group/floor write는 transaction 내부 Site lock 재인가를 사용한다. Web은 login 평문을 React Query cache에 넣지 않으며 principal 전환·강제 revoke에서 tenant Query/Mutation cache를 제거한다. service-global operator는 `/operator/site-admins`에서 현장별 assigned admin을 create/update/reset/disable하고 network allowlist는 `/api/auth/*`, `/api/operator/*`뿐이다. 격리 실백엔드 Chromium journey는 새 PostgreSQL/Redis/mTLS Mosquitto와 test-support simulator로 설치·claim·registration·제어·통계·도면·비밀번호·viewer 권한을 검증하며 사용자 개발 DB를 읽거나 초기화하지 않는다. 이는 production Gateway/BlueZ/RF 또는 Raspberry Pi/ESP32-H2 HIL 증거가 아니다. 모바일·재설치는 범위 밖이다. controller가 수동 in-app browser QA를 시도했지만 admin-enforced browser policy가 localhost 접근 전에 차단해 미실행이며 자동 Chromium E2E와 별개다. |
 | 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
+| Calm Operations UI 개선 설계 | 완료(설계) | 고객용 4개 메뉴의 공통 token·primitive, 현재 기능별 정보 위계, 설정 hover/focus/touch 서브메뉴, 반응형·접근성과 검증 범위를 확정했다. API·DB·MQTT 변경은 포함하지 않는다. |
+| Calm Operations UI 개선 구현 계획 | 완료(계획) | [구현 계획](superpowers/plans/2026-08-31-calm-operations-ui-refresh.md)에 공통 UI, 설정 navigation, 메뉴별 적용, 반응형 E2E, 문서 수렴을 8개 TDD·검증·커밋 단위로 작성했다. |
+| Calm Operations UI 개선 구현 | 대기 | 구현 계획 승인 후 시작한다. 실제 소프트웨어 검증이 끝나기 전에는 완료로 표시하지 않는다. |
 | 스케줄·차량 이벤트 제어 설계 | 완료(설계) | 반복 일정, overlap 차단, 수동 override·차량 이벤트·스케줄 우선순위, Gateway full snapshot 무중단 적용, offline 실행과 ESP32-H2 차량 감지 event 계약을 확정했다. Task 7~12에서 API CRUD, production MQTT config와 Gateway offline 실행을 구현했고 Web과 실제 sensor/telemetry 연결은 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape, node-scoped durable ACK identity와 lease-safe exact replay revival까지 5차 review fix를 완료했다. Production Gateway report journal은 후속 Task 범위다. |
@@ -38,7 +41,7 @@
 
 ## 다음 단계
 
-**다음 검증은 `apps/gateway/README.md`의 HIL 수동 절차를 사용한 실제 Raspberry Pi/BlueZ/ESP32-H2 시험이다.** Native/target build와 software simulator 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
+**다음 작업은 승인된 Calm Operations 구현 계획을 Task 1부터 순서대로 실행하는 것이다.** 기존 기능 회귀를 막기 위해 공통 UI, 설정 navigation, 메뉴별 적용, 반응형 E2E와 문서 수렴을 각 검증·커밋 단위로 완료한다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이 UI 작업과 별도로 미실행 상태를 유지하며 software 결과를 실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 
