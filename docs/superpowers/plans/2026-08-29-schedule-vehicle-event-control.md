@@ -1428,6 +1428,46 @@ git add docs/menus/control.md docs/project-status.md apps/gateway/README.md apps
 git commit -m "docs: finalize lighting automation verification"
 ```
 
+### Task 21: Final 전체 branch review P1 양방향 convergence 통합 fix wave
+
+**Files:**
+- Modify: `packages/shared/src/automation-contracts.ts`, `packages/shared/src/mqtt.ts`
+- Modify: `apps/api/src/automation/automation-mqtt-consumer.service.ts`, `apps/api/src/mqtt/mqtt.service.ts`
+- Modify: `apps/gateway/src/automation/automation-config-ack-outbox.ts`, `apps/gateway/src/index.ts`
+- Create: `apps/gateway/src/automation/automation-current-config-requester.ts`
+- Modify: `infra/mosquitto.acl.example`, `apps/gateway/docker/mqtt-persistence.integration.mjs`
+- Modify: `apps/web/e2e/automation-control-flow.spec.ts`, `apps/web/e2e/support/real-backend-lab.ts`
+- Modify: `docs/menus/control.md`, `apps/gateway/README.md`, `docs/project-status.md`
+- Create: `.superpowers/sdd/2026-08-29-schedule-vehicle-event-control/final-fix-report.md`
+
+**Interfaces:**
+- Consumes: final review P1-1과 기존 immutable full snapshot/config-applied ACK 계약.
+- Produces: MQTT retained/session 수명과 무관한 current-config request/revive 및 exact application receipt 기반 ACK 종결.
+
+- [x] **Step 1: 최소 focused RED를 production 수정 전에 기록한다**
+
+Shared는 새 request/delivery/receipt schema와 topic 부재로 3건 실패했고, API는 request 미구독·delivery envelope/receipt 미구현으로 8건 실패했으며, Gateway는 requester module 부재와 PUBACK 삭제 동작 때문에 7건 실패했다.
+
+- [x] **Step 2: shared/API 양방향 protocol을 구현한다**
+
+Strict Site/Gateway/UUID identity schema와 topic을 추가한다. API는 active claimed Gateway와 MQTT certificate ledger를 transaction lock으로 확인하고 exact latest desired snapshot outbox를 APPLIED 상태에서도 revive한다. Config ACK 최초 ingest와 exact replay는 같은 transaction에서 receipt를 생성/revive하고 conflict 또는 transaction failure는 receipt를 남기지 않는다.
+
+- [x] **Step 3: Gateway durable ACK와 bounded recovery를 구현한다**
+
+모든 subscription-ready connect/reconnect에서 current-config request를 발행한다. Config ACK outbox를 v1 raw ACK에서 v2 delivery envelope로 migration하고 broker PUBACK 뒤에도 유지하며, exact receipt만 삭제한다. Request와 ACK publish는 1초부터 최대 30초 bounded backoff를 사용하고 disconnect에서 timer를 정리한다.
+
+- [x] **Step 4: 실제 mTLS broker와 Chromium convergence 시나리오를 검증한다**
+
+Mosquitto integration `2/2`, Shared `162/162`, API `742 passed`, Gateway `562/562`, RealBackendLab support `13/13`, Chromium `1/1`을 통과했다. Chromium evidence는 최초 연결 전 publish `1/0→1/1`, 세션 소멸 revision 2, cloud 삭제 `2→3` 뒤 3시간 execution `7→7`, API restart `3→4`와 ACK outbox `1→0`을 기록했다.
+
+- [x] **Step 5: root typecheck/test, diff-check, 문서·보고서와 커밋 SHA를 확정한다**
+
+Run: `pnpm typecheck && pnpm test && git diff --check`
+
+Root typecheck는 6개 workspace project를 통과했다. Root test는 runtime/TLS `15/15`, Mobile `1/1`, Shared `162/162`, automation-engine `28/28`, Web `352/352`, API `742 passed`(`161 skipped`: integration 환경 의존), Gateway `562/562`를 통과했고 Gateway Docker 계약은 별도로 `17/17`을 통과했다. 최종 Chromium RealBackendLab은 `1/1`(`59.1s`, test body `34.8s`)이며 `git diff --check`는 출력 없이 성공했다. Production·test 구현 commit은 `4df0eba`다.
+
+실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았으면 미실행으로 유지하고 production CID/trust fail-closed를 변경하지 않는다.
+
 ## 완료 판정
 
 - API CRUD 저장과 Gateway 적용 ACK가 UI에서 서로 다른 상태로 표시된다.
