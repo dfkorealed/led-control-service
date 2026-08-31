@@ -145,9 +145,7 @@ export class CommandsService {
             fixtures: {
               createMany: {
                 data: resolved.fixtureIds.map((fixtureId) => ({
-                  fixtureId,
-                  siteId: input.siteId,
-                  gatewayId: resolved.gatewayId
+                  fixtureId
                 }))
               }
             }

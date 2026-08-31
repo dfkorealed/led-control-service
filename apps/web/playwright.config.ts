@@ -5,6 +5,7 @@ const webPort = Number(process.env.E2E_LAB_WEB_PORT ?? 15173);
 
 export default defineConfig({
   testDir: "./e2e",
+  workers: realBackendLab ? 1 : undefined,
   timeout: realBackendLab ? 240_000 : 30_000,
   expect: { timeout: realBackendLab ? 15_000 : 5_000 },
   use: {

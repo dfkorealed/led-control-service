@@ -7,7 +7,7 @@
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
-- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. Task 17 schedule Web CRUD와 Task 18 차량 이벤트 Web CRUD·수동 override 종료 시각 입력을 연결했으며 다음 구현은 software E2E와 HIL이다.
+- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. Task 17 schedule Web CRUD, Task 18 차량 이벤트 Web CRUD·수동 override 종료 시각 입력과 Task 19 production API/Gateway software E2E를 연결했으며 다음 검증은 HIL이다.
 
 ## 확정 구현 범위
 
@@ -121,6 +121,8 @@
 - 제어 생성은 `(siteId, requestedBy, clientRequestId)`와 안정 정렬한 target·brightness fingerprint로 멱등 처리한다. 동일 요청은 기존 command를 반환하고 다른 payload는 `409 client_request_id_payload_conflict`로 거부하며, 동시 unique 충돌은 새 transaction 재조회로 수렴한다. Web은 네트워크 오류·5xx·응답 유실에서만 같은 요청의 재전송을 제공하고, 4xx 확정 거부는 pending 요청을 제거해 UI를 즉시 잠금 해제한다. 전송 중 사용자·현장 전환 시 기존 요청을 abort하고 generation/scope가 다른 지연 성공·실패 결과를 현재 화면에 반영하지 않는다.
 - `viewer`가 제어 화면에 진입하면 읽기 전용 안내를 표시하고 밝기 슬라이더, 프리셋, 대상 선택과 `밝기 적용` 버튼을 모두 비활성화한다. 이 경우 브라우저는 `POST /commands/dimming`을 보내지 않으며 권한 오류를 장비 장애로 오인하지 않는다.
 - Task 9 격리 실백엔드 Chromium E2E는 assigned admin이 개별, 임의 다중, 층, 저장 구역 밝기 명령을 production command API로 전송하고 test-support software simulator가 MQTT acceptance/device-status ACK와 fixture-state를 반환해 각 명령이 terminal 상태로 수렴하는 것을 검증했다. simulator는 lab CA의 `CN=Gateway.id` client certificate와 own-gateway topic ACL을 사용하지만, production Gateway 인증서 발급·bootstrap·배포 ACL 또는 실제 BlueZ/RF 전송을 검증한 것은 아니다. operator는 customer route를 mount하지 않고 viewer는 읽기 전용이다.
+- Task 19 Chromium E2E는 매 실행마다 격리 PostgreSQL, Redis와 mTLS Mosquitto를 시작하고 production API dist와 production Gateway runtime을 child process로 기동한다. admin UI에서 `B2-001` 40% daily schedule과 `B2-SENSOR-001` source의 80% 차량 이벤트를 실제 API CRUD로 만들고 snapshot `APPLIED` ACK를 확인한 뒤 `schedule 40% -> event 80% -> manual 60% -> override 만료 후 event 80% -> clear와 5초 hold 뒤 schedule 40%`를 실제 MQTT state telemetry와 DB로 검증한다. 센서 edge는 Playwright worker와 Gateway child 사이 token 검증 IPC에만 존재하며 HTTP, UI, public API endpoint는 추가하지 않았다.
+- Task 19 simulator는 `NODE_ENV=test`와 `AUTOMATION_E2E_SIMULATOR=1`이 동시에 있을 때만 생성된다. production에서 활성화를 요청하면 정확히 `software automation simulator is forbidden in production`으로 즉시 실패하고, 일반 `scripts/dev.mjs`도 simulator 환경을 거부한다. Production 기본 adapter 경로는 계속 BlueZ를 사용하며 software E2E는 실제 Raspberry Pi/BlueZ/ESP32-H2 RF HIL 완료로 간주하지 않는다.
 - 백엔드는 조명의 gateway 매핑, gateway 90초 heartbeat, fixture online/fault 상태를 명령 생성 전에 검증하며 하나라도 제어할 수 없는 그룹 전체를 거부한다.
 - 제어 화면은 서버의 `controllable`, `controlBlockReason`에 따라 대상 선택과 `밝기 적용`을 차단하고 미매핑, gateway offline, fixture offline/fault 사유를 한국어로 표시한다.
 - 초기 데이터가 없으면 loading 또는 empty state를 구분해 표시한다. 기존 캐시가 있는 상태에서 dashboard 백그라운드 갱신이 실패해도 제어 화면과 캐시 데이터를 유지한다.
@@ -198,7 +200,7 @@
 - Task 14 Gateway Sensor/vendor client, Task 15 GPIO driver와 Task 16 ESP32-H2 model은 native exact wire/retry, actual production-source host fake와 patched ESP-IDF fullclean target build로 검증했다. Model host fake는 config queue 포화와 reboot 복원, period/AppKey/reprovision, 네 Sensor 요청, authoritative current unavailable, 단일 timer, stop race/restart, event별 initial+6 retry 실제 publish, Sensor/vendor completion 영구 유실, duplicate-after-reuse, 이전 generation completion 무해성과 외부 Health 배열 재구성을 실행한다. Breaker test는 payload/context/envelope/queue-post deterministic failure의 동기 오류, handler 0회/exact free와 16 burst pending retry를 실행한다. 실제 RF, device heap/queue timing, cache-disabled ISR, 센서 전기 신호, packet loss, 전원 차단은 증명하지 않으며 HIL은 아직 실행하지 않았다.
 - pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
-- schedule API CRUD, Gateway offline schedule 실행, Schedule Web CRUD와 차량 이벤트 Web CRUD·수동 override 종료 시각 입력은 소프트웨어 구현을 마쳤다. Task 18 Fix Round 1 Web unit은 event 목록·권한·empty source/target·canonical capability timestamp filter, mutation unmount 뒤 `401`/cache invalidation, initial/cursor/background `401`, conditional dimming validation, field error 접근성, scope reset과 manual override 변환을 검증했다. Web 전체 34 파일 352건과 production build를 통과했지만, production API/Gateway Chromium software E2E와 실제 Raspberry Pi/ESP32-H2 HIL은 후속 범위다.
+- schedule API CRUD, Gateway offline schedule 실행, Schedule Web CRUD와 차량 이벤트 Web CRUD·수동 override 종료 시각 입력은 소프트웨어 구현을 마쳤다. Task 18 Fix Round 1 Web unit은 event 목록·권한·empty source/target·canonical capability timestamp filter, mutation unmount 뒤 `401`/cache invalidation, initial/cursor/background `401`, conditional dimming validation, field error 접근성, scope reset과 manual override 변환을 검증했다. Task 19 production API/Gateway Chromium software E2E도 실제 DB/MQTT 경로로 통과했지만 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 후속 범위다.
 - 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.
 - Health Current는 최신 snapshot만 사용하며 fault 이력과 제품별 code 설명은 아직 제공하지 않는다.
 - viewer의 읽기 전용 안내는 구현됐지만, 향후 명령 이력 화면에서도 동일한 권한 설명을 재사용하도록 공통화할 수 있다.
@@ -230,9 +232,15 @@
 - `apps/gateway/src/automation/automation-storage.ts`
 - `apps/gateway/src/storage/storage-headroom-manager.ts`
 - `apps/gateway/src/automation/schedule-runtime.ts`
+- `apps/gateway/src/automation/software-automation-simulator.ts`
+- `apps/gateway/src/automation/software-automation-simulator.test.ts`
 - `apps/gateway/src/runtime/gateway-mqtt-runtime.ts`
 - `apps/api/src/automation/target-snapshot.service.ts`
 - `apps/api/src/automation/automation-snapshot.service.ts`
+- `apps/web/e2e/automation-control-flow.spec.ts`
+- `apps/web/e2e/support/real-backend-lab.ts`
+- `apps/web/playwright.config.ts`
+- `scripts/dev.mjs`
 - `apps/api/src/automation/dto/schedule.dto.ts`
 - `apps/api/src/automation/dto/vehicle-event-rule.dto.ts`
 - `apps/web/src/api/automation.ts`

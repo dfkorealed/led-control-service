@@ -118,6 +118,10 @@ import {
   VehicleSensorGatewayController
 } from "./mesh/vehicle-sensor-client";
 import { createVehicleSensorVendorModel } from "./mesh/bluez-mesh-model-config";
+import {
+  attachSoftwareAutomationSimulatorIpc,
+  createSoftwareAutomationSimulatorFromEnvironment
+} from "./automation/software-automation-simulator";
 
 const STATE_EVENT_RESERVATION_BYTES = 2_048;
 
@@ -271,6 +275,7 @@ config({ path: resolve(process.cwd(), "../../.env") });
 config();
 
 async function main() {
+  const softwareAutomationSimulator = createSoftwareAutomationSimulatorFromEnvironment(process.env);
   if (process.env.GATEWAY_PHASE0_PROBE === "1") {
     await createProductionAdapters(process.env);
     console.log(JSON.stringify({ status: "passed", capability: "bluez-mesh-bootstrap" }));
@@ -279,7 +284,24 @@ async function main() {
   const heartbeatMs = parseGatewayHeartbeatInterval(process.env.GATEWAY_HEARTBEAT_MS);
   const health = new ApplianceHealth(process.env.GATEWAY_HEALTH_PATH ?? "/var/run/led-control/health.json", { heartbeatMs });
   await health.startingUnassigned();
-  const runtime = await startGatewayRuntime({ env: process.env });
+  let detachSoftwareAutomationSimulatorIpc: (() => unknown) | undefined;
+  if (softwareAutomationSimulator) {
+    if (!process.send || !process.connected) {
+      throw new Error("software automation simulator requires private child IPC");
+    }
+    detachSoftwareAutomationSimulatorIpc = attachSoftwareAutomationSimulatorIpc(
+      softwareAutomationSimulator,
+      process,
+      required(process.env, "AUTOMATION_E2E_SIMULATOR_IPC_TOKEN")
+    );
+  }
+  const runtime = await startGatewayRuntime({
+    env: process.env,
+    ...(softwareAutomationSimulator ? {
+      ensureMqttIdentity: async () => undefined,
+      createAdapters: async () => softwareAutomationSimulator.adapters
+    } : {})
+  });
   if (!runtime.adapters.healthProbes) throw new Error("BlueZ health probes are unavailable");
   health.setProbes(runtime.adapters.healthProbes);
   const assignment = runtime.assignment;
@@ -382,7 +404,7 @@ async function main() {
         .catch((error) => void reportGatewayError(error, "automation_telemetry_recovery_publish"))
     }
   );
-  const clockTrust = new SystemClockTrustProvider();
+  const clockTrust = softwareAutomationSimulator?.clockTrust ?? new SystemClockTrustProvider();
   let scheduleRuntime!: ScheduleRuntime;
   let automationRuntime!: AutomationRuntime;
   const recordRuntimeTelemetryGap = async (
@@ -824,9 +846,16 @@ async function main() {
     void recordMeshResyncOutcome(health, report).catch((error) => void reportGatewayError(error, "mesh_resync"));
   });
   startControlPlaneWithBackgroundMeshResync(() => mqttRuntime.start(), meshResyncWorker);
-  const rotation = startCertificateRotation(assignment, process.env, createMqttIdentityActivation(assignment, process.env, mqttRuntime));
+  const rotation = softwareAutomationSimulator
+    ? undefined
+    : startCertificateRotation(
+      assignment,
+      process.env,
+      createMqttIdentityActivation(assignment, process.env, mqttRuntime)
+    );
   registerGatewayShutdownHandlers({
     stop: async () => {
+      detachSoftwareAutomationSimulatorIpc?.();
       const schedulerDrain = scheduleRuntime.stopAndDrain();
       const meshResyncDrain = meshResyncWorker.stopAndDrain();
       const targetedResyncDrain = targetedLightingResync.stopAndDrain();

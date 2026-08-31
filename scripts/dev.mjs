@@ -24,6 +24,9 @@ if (!existsSync(envFile)) fail(".env 파일이 없습니다. cp .env.example .en
 
 const fileEnv = parseEnvFile(readFileSync(envFile, "utf8"));
 const sourceEnv = { ...fileEnv, ...process.env };
+if (sourceEnv.AUTOMATION_E2E_SIMULATOR === "1") {
+  fail("AUTOMATION_E2E_SIMULATOR는 private child IPC를 제공하는 Chromium RealBackendLab에서만 실행할 수 있습니다.");
+}
 const env = resolveDevEnvironment(root, sourceEnv);
 const appFilters = resolveDevAppFilters(process.argv.slice(2));
 const apiPort = Number(env.API_PORT || 4000);

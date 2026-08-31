@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AccessModule } from "../access/access.module";
+import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AutomationController, VehicleEventRulesController } from "./automation.controller";
 import { AutomationRuntimeModule } from "./automation-runtime.module";
@@ -8,7 +9,7 @@ import { TargetSnapshotService } from "./target-snapshot.service";
 import { VehicleEventRulesService } from "./vehicle-event-rules.service";
 
 @Module({
-  imports: [PrismaModule, AccessModule, AutomationRuntimeModule],
+  imports: [PrismaModule, AuthModule, AccessModule, AutomationRuntimeModule],
   controllers: [AutomationController, VehicleEventRulesController],
   providers: [
     SchedulesService,

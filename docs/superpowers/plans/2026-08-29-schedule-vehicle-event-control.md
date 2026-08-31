@@ -1354,7 +1354,7 @@ git commit -m "feat(web): add vehicle event control interface"
 - Consumes: production API/Gateway runtime, PostgreSQL, Redis, mTLS MQTT, simulated BLE adapter/sensor input.
 - Produces: 실제 DB/MQTT 경로를 통과하는 CRUD→snapshot applied→schedule/event/manual priority E2E 증거.
 
-- [ ] **Step 1: simulator가 production 기본 경로에서 비활성인지 테스트한다**
+- [x] **Step 1: simulator가 production 기본 경로에서 비활성인지 테스트한다**
 
 ```ts
 expect(() => createSoftwareAutomationSimulator({ nodeEnv: "production", enabled: true })).toThrow(
@@ -1362,11 +1362,11 @@ expect(() => createSoftwareAutomationSimulator({ nodeEnv: "production", enabled:
 );
 ```
 
-- [ ] **Step 2: 명시적 E2E 환경에서만 sensor edge를 주입하는 adapter를 구현한다**
+- [x] **Step 2: 명시적 E2E 환경에서만 sensor edge를 주입하는 adapter를 구현한다**
 
 환경 변수 `AUTOMATION_E2E_SIMULATOR=1`과 `NODE_ENV=test`가 모두 있어야 활성화한다. UI/API에는 simulator endpoint를 노출하지 않고 test process 내부 handle로만 `detected/cleared`를 주입한다.
 
-- [ ] **Step 3: Chromium 사용자 흐름을 작성한다**
+- [x] **Step 3: Chromium 사용자 흐름을 작성한다**
 
 ```ts
 test("admin creates and executes schedule and vehicle event rules", async ({ page }) => {
@@ -1381,13 +1381,13 @@ test("admin creates and executes schedule and vehicle event rules", async ({ pag
 
 같은 spec에서 manual override 60%가 event 80%를 가리고, override 만료 뒤 event 80%, clear+hold 뒤 schedule 40%로 복귀하는지 검증한다.
 
-- [ ] **Step 4: 전체 software 검증을 실행한다**
+- [x] **Step 4: 전체 software 검증을 실행한다**
 
 Run: `pnpm typecheck && pnpm test && pnpm --filter @led-control/web exec playwright test e2e/automation-control-flow.spec.ts --project=chromium`
 
 Expected: shared/API/Gateway/Web/Firmware native 계약과 Chromium E2E가 모두 PASS한다. Docker/mTLS dependency가 시작되지 않으면 테스트를 skip하지 않고 setup failure로 종료한다.
 
-- [ ] **Step 5: 통합 변경을 커밋한다**
+- [x] **Step 5: 통합 변경을 커밋한다**
 
 ```bash
 git add apps/gateway/src/automation apps/web/e2e apps/web/playwright.config.ts scripts/dev.mjs

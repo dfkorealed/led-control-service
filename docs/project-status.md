@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry, Task 14 Gateway BLE Mesh Sensor Client, Task 15 ESP32-H2 GPIO sensor driver, Task 16 Sensor Server/reliable vendor event, Task 17 Web 제어 탭·스케줄 CRUD와 Task 18 Web 차량 이벤트 CRUD·수동 override UI Fix Round 1까지 소프트웨어 구현을 마쳤다. 다음 구현은 Task 19 software integration과 Chromium E2E다.
+**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry, Task 14 Gateway BLE Mesh Sensor Client, Task 15 ESP32-H2 GPIO sensor driver, Task 16 Sensor Server/reliable vendor event, Task 17 Web 제어 탭·스케줄 CRUD, Task 18 Web 차량 이벤트 CRUD·수동 override UI Fix Round 1과 Task 19 production API/Gateway Chromium software E2E까지 마쳤다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 별도다.
 
 ## 작업 상태
 
@@ -32,10 +32,11 @@
 | 스케줄·차량 이벤트 제어 Task 16 | 완료(소프트웨어/target build, breaker) | Pinned ESP-IDF v5.5.1의 server-send 경계를 repository-managed build-only patch로 보완했다. `SERVER_MODEL_SEND` payload/context는 API thread에서 all-or-nothing snapshot하고 allocation/envelope/queue-post 실패는 handler 없이 동기 오류와 exact cleanup, queue 수락은 기존 handler deep-free 1회를 보장한다. Wrong revision/hash와 tampered overlay는 overwrite 없이 fail-closed하며 patch digest를 test manifest v3/production attestation v2에 결속한다. Client send는 유지했고 P2-14 burst/retry와 four-point allocation fault를 actual patched source/production host fake로 검증했다. Gateway 547/547, shared 75/75와 patched ESP-IDF fullclean test-build를 통과했으며 binary `0xefa30`, OTA free `0x1005d0`이다. Global IDF checkout은 pristine이고 production trust는 정상 fail-closed, 실제 flash/RF/HIL은 미실행이다. |
 | 스케줄·차량 이벤트 제어 Task 17 | 완료(소프트웨어/Web unit, Fix Round 5 breaker) | `mode=manual|schedule|event` roving tabs, admin schedule CRUD·활성화, viewer read-only 목록, 현장 timezone 날짜·Gregorian yearly 검증·once/daily/weekly/monthly/yearly·자정 통과 한 구간·dimming·최대 1,000개 target form, Gateway sync와 production action-result 집계, pagination/polling 비차단 오류, scope 세대가 보호된 `401` principal 만료 처리를 구현했다. Shared build는 symlink와 drive/ADS/backslash/terminal dot-space 검사를 유지하면서 모든 path segment의 Windows reserved device stem도 host와 무관하게 mutation 전에 거부한다. Manifest와 generated artifact의 root/nested/case/extension 변형, 비예약 대조군 및 owned/unrelated/external sentinel 보존을 고정했다. Shared 133/133, packed ESM/CJS consumer, Web focused 80/80·전체 334/334, API/Gateway typecheck/build/import/output smoke와 main `1,028.66 kB / gzip 313.70 kB` bundle audit를 통과했다. Production API/Gateway Chromium E2E와 Raspberry Pi/ESP32-H2 HIL은 미실행이고 이벤트 탭은 Task 18 준비 상태다. |
 | 스케줄·차량 이벤트 제어 Task 18 | 완료(소프트웨어/Web unit, Fix Round 1) | event rule API CRUD를 Web에 연결해 admin 생성·수정·삭제·활성화, viewer read-only 목록, source·target·brightness·hold·Gateway sync·최근 감지를 제공한다. Fix Round 1에서 mutation-level auth/cache side effect로 unmount 뒤에도 `401` principal expiry와 cache invalidation을 보장하고, initial/cursor/background `401`을 세션 만료로 통일했다. source는 Gateway 등록·`supported`·canonical ISO verified timestamp를 모두 만족할 때만 선택 가능하며, dimming OFF brightness 정규화, Site/user scope의 now+1h reset, validation 오류 연결·focus를 보강했다. focused Web 63/63, Web 전체 352/352, API 전체 727 passed, 양 앱 typecheck·lint·build를 통과했다. production API/Gateway Chromium E2E와 Raspberry Pi/ESP32-H2 HIL은 Task 19 이후 별도다. |
+| 스케줄·차량 이벤트 제어 Task 19 | 완료(software integration/Chromium E2E) | `NODE_ENV=test`와 `AUTOMATION_E2E_SIMULATOR=1`에만 생성되는 BLE software simulator와 token 검증 private child IPC sensor edge를 strict TDD로 구현했다. 격리 PostgreSQL·Redis·mTLS Mosquitto, production API/Gateway, UI API CRUD, snapshot `APPLIED` ACK, `schedule 40% -> event 80% -> manual 60% -> event 80% -> schedule 40%` priority와 DB/MQTT telemetry를 Chromium에서 통과했다. Public simulator endpoint는 없고 production 활성화는 exact error로 fail-closed한다. 실제 BlueZ/RF HIL은 미실행이다. |
 
 ## 다음 단계
 
-**다음 구현은 Task 19 software integration과 Chromium E2E다.** 이후 HIL 순서로 진행한다. Native/target build와 Docker Mosquitto, Web unit 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
+**Task 19 software integration과 Chromium E2E를 완료했으며 다음은 실제 Raspberry Pi/ESP32-H2 HIL이다.** Native/target build와 software simulator 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 
@@ -47,7 +48,7 @@
 
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
-- 스케줄과 차량 이벤트 규칙은 Web admin CRUD·활성화와 viewer read-only, Gateway 동기화·pagination/polling 복구·세션 만료까지 연결했다. 이벤트 mutation은 panel unmount와 무관하게 principal/cache side effect를 수행하며, source는 Gateway 등록과 supported·canonical ISO verified sensor capability가 확인된 Dashboard fixture로 제한한다. 수동 override 종료 시각은 client에서 과거·30일 초과를 거부하고 Site/user 전환 시 now+1h 기본값을 다시 계산한다. production API/Gateway Chromium E2E는 Task 19 범위로 남아 있다.
+- 스케줄과 차량 이벤트 규칙은 Web admin CRUD·활성화와 viewer read-only, Gateway 동기화·pagination/polling 복구·세션 만료까지 연결했다. 이벤트 mutation은 panel unmount와 무관하게 principal/cache side effect를 수행하며, source는 Gateway 등록과 supported·canonical ISO verified sensor capability가 확인된 Dashboard fixture로 제한한다. 수동 override 종료 시각은 client에서 과거·30일 초과를 거부하고 Site/user 전환 시 now+1h 기본값을 다시 계산한다. production API/Gateway Chromium software E2E는 Task 19에서 완료했고 실제 BlueZ/RF HIL은 남아 있다.
 - 차량 센서 capability report/ACK, Gateway exact ACK와 ESP32-H2 GPIO/Sensor/vendor model은 소프트웨어와 target build에서 연결됐다. 실제 Raspberry Pi/BlueZ와 ESP32-H2 사이 provisioning, Sensor Get/Status, vendor packet loss·retry·ACK, reboot/reprovision 및 Health fault RF 왕복 HIL은 아직 실행하지 않았다.
 
 ### 통계

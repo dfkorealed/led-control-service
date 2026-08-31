@@ -139,8 +139,8 @@ describe("CommandsService", () => {
       startedAt: now,
       overrideUntil: new Date("2026-08-29T01:00:00.000Z"),
       fixtures: { createMany: { data: [
-        { fixtureId: ids.fixture1, siteId: ids.site, gatewayId: ids.gateway1 },
-        { fixtureId: ids.fixture2, siteId: ids.site, gatewayId: ids.gateway1 }
+        { fixtureId: ids.fixture1 },
+        { fixtureId: ids.fixture2 }
       ] } }
     }) });
     expect(tx.mqttOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
