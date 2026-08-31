@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry, Task 14 Gateway BLE Mesh Sensor Client, Task 15 ESP32-H2 GPIO sensor driver, Task 16 Sensor Server/reliable vendor event, Task 17 Web 제어 탭·스케줄 CRUD, Task 18 Web 차량 이벤트 CRUD·수동 override UI Fix Round 1과 Task 19 production API/Gateway Chromium software E2E Fix Round 3까지 마쳤다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 별도다.
+**스케줄·차량 감지 이벤트 제어 구현**: shared recurrence, production schema, schedule/차량 이벤트 규칙 API CRUD, Task 9 production MQTT automation 동기화, Task 10 timed manual override, Task 11 Gateway snapshot hot reload, Task 12 offline scheduler·priority arbiter·재시작 복구, Task 13 vehicle runtime·durable execution telemetry, Task 14 Gateway BLE Mesh Sensor Client, Task 15 ESP32-H2 GPIO sensor driver, Task 16 Sensor Server/reliable vendor event, Task 17 Web 제어 탭·스케줄 CRUD, Task 18 Web 차량 이벤트 CRUD·수동 override UI, Task 19 production API/Gateway Chromium software E2E와 Task 20 HIL runbook·최종 문서 검증까지 마쳤다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 미실행 상태로 별도다.
 
 ## 작업 상태
 
@@ -33,10 +33,11 @@
 | 스케줄·차량 이벤트 제어 Task 17 | 완료(소프트웨어/Web unit, Fix Round 5 breaker) | `mode=manual|schedule|event` roving tabs, admin schedule CRUD·활성화, viewer read-only 목록, 현장 timezone 날짜·Gregorian yearly 검증·once/daily/weekly/monthly/yearly·자정 통과 한 구간·dimming·최대 1,000개 target form, Gateway sync와 production action-result 집계, pagination/polling 비차단 오류, scope 세대가 보호된 `401` principal 만료 처리를 구현했다. Shared build는 symlink와 drive/ADS/backslash/terminal dot-space 검사를 유지하면서 모든 path segment의 Windows reserved device stem도 host와 무관하게 mutation 전에 거부한다. Manifest와 generated artifact의 root/nested/case/extension 변형, 비예약 대조군 및 owned/unrelated/external sentinel 보존을 고정했다. Shared 133/133, packed ESM/CJS consumer, Web focused 80/80·전체 334/334, API/Gateway typecheck/build/import/output smoke와 main `1,028.66 kB / gzip 313.70 kB` bundle audit를 통과했다. Production API/Gateway Chromium E2E와 Raspberry Pi/ESP32-H2 HIL은 미실행이고 이벤트 탭은 Task 18 준비 상태다. |
 | 스케줄·차량 이벤트 제어 Task 18 | 완료(소프트웨어/Web unit, Fix Round 1) | event rule API CRUD를 Web에 연결해 admin 생성·수정·삭제·활성화, viewer read-only 목록, source·target·brightness·hold·Gateway sync·최근 감지를 제공한다. Fix Round 1에서 mutation-level auth/cache side effect로 unmount 뒤에도 `401` principal expiry와 cache invalidation을 보장하고, initial/cursor/background `401`을 세션 만료로 통일했다. source는 Gateway 등록·`supported`·canonical ISO verified timestamp를 모두 만족할 때만 선택 가능하며, dimming OFF brightness 정규화, Site/user scope의 now+1h reset, validation 오류 연결·focus를 보강했다. focused Web 63/63, Web 전체 352/352, API 전체 727 passed, 양 앱 typecheck·lint·build를 통과했다. production API/Gateway Chromium E2E와 Raspberry Pi/ESP32-H2 HIL은 Task 19 이후 별도다. |
 | 스케줄·차량 이벤트 제어 Task 19 | 완료(software integration/Chromium E2E, Fix Round 3) | 수동 payload의 `sourceId=commandId`를 실제 `ManualOverride` PK에 결속하고 legacy `sourceId=ManualOverride.id` 실행도 payload/hash rewrite 없이 같은 owner invariant로 보존한다. API MQTT inbound는 non-fixture QoS 1 packet의 PUBACK 전에 Site/Gateway별 bounded permit을 예약하고 실제 MQTT.js message listener에 packet/topic identity로 정확히 한 번 넘긴다. 통제된 private IPC clock으로 manual expiry와 5초 vehicle hold 직전/직후를 검증하며, production Gateway child PID가 발행한 unique execution 10건을 독립 계산한 canonical event hash, API exact ACK 10건, DB row 10건과 일대일 확인하고 Gateway telemetry outbox records 0/gap false까지 직접 확인한다. Commit 직전 공용 `writeJsonAtomic()` temp identity의 same-process/same-millisecond 충돌 수정은 reviewer가 final HEAD에서 mesh focused `2/2`, RealBackendLab support `13/13`, Chromium `1 passed (47.5s)`/body `23.4s`와 clean cleanup으로 fresh 검증했다. 실제 PostgreSQL·Redis·mTLS Mosquitto와 production identity store/rotation startup은 통과했지만 bootstrap 재발급과 BlueZ/RF HIL은 미실행이다. Public simulator endpoint는 없고 production 활성화는 exact error로 fail-closed한다. |
+| 스케줄·차량 이벤트 제어 Task 20 | 완료(문서·software 최종 검증) | `pnpm typecheck`와 `pnpm test`가 통과했다. 최종 검증 중 드러난 shared build output cleanup 병렬 `unlink ENOENT` 경쟁은 RED/GREEN test와 process lock으로 수정해 root typecheck/test에서 재발하지 않았다. production `scripts/esp32-h2-build.sh`는 자사 Bluetooth SIG Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed했다. HIL runbook은 센서 전기 실측부터 deploy/flash, provisioning/model binding, rule applied, High/Low/5초 hold/retrigger, cloud 단절, Gateway/ESP restart, telemetry replay까지 기록했지만 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다. |
 
 ## 다음 단계
 
-**Task 19 software integration과 Chromium E2E를 완료했으며 다음은 실제 Raspberry Pi/ESP32-H2 HIL이다.** Native/target build와 software simulator 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
+**다음 검증은 `apps/gateway/README.md`의 HIL 수동 절차를 사용한 실제 Raspberry Pi/BlueZ/ESP32-H2 시험이다.** Native/target build와 software simulator 결과를 production Gateway identity·BlueZ/RF·실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 
@@ -62,7 +63,7 @@
 
 ### 실장비 검증
 
-- Raspberry Pi, MQTT broker, ESP32-H2를 연결한 검색·등록·제어·상태 수집 HIL은 아직 실행하지 않았다.
+- Raspberry Pi, MQTT broker, ESP32-H2를 연결한 검색·등록·제어·상태 수집 HIL과 센서 High/Low/5초 hold/retrigger, cloud 단절, Gateway/ESP 재시작, telemetry replay는 아직 실행하지 않았다. `apps/gateway/README.md`의 HIL 수동 절차가 재현 가능한 실행 기준이며, 실행 로그와 전기 실측 기록이 없으면 완료로 바꾸지 않는다.
 
 ## 기록 원칙
 

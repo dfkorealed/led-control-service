@@ -9,6 +9,7 @@
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령과 차량 센서의 Sensor Server/vendor reliable event를 처리하는 단계까지 빌드 검증했다.
 - BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개, 차량 센서 GPIO driver와 Sensor/vendor model 및 Task 16 server-send ownership breaker를 포함한 test-build `led_control_node.bin` 크기는 `0xefa30`(`981,552`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x1005d0`(`1,050,064`, 약 52%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
+- Task 19 Chromium software E2E는 완료됐지만 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 **미실행**이다. `scripts/esp32-h2-build.sh` production mode는 자사 Bluetooth SIG Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. test build는 compile 검증 전용이며 flash/HIL에 사용할 수 없다.
 
 ## ESP-IDF 설치
 
@@ -133,6 +134,8 @@ flash wrapper는 fixed production policy로 signed approval과 signed artifact a
 - 기본 센서 입력은 `GPIO 4`다. fail-closed allowlist는 GPIO `0, 1, 4, 5, 10~14, 22~24`이며 PWM, factory reset, strapping, flash/package와 USB-Serial-JTAG pin은 compile 시 거부한다. 기본 UART0 console의 RX GPIO23/TX GPIO24와 custom UART console에 설정한 GPIO도 compile/runtime에서 거부한다.
 - 입력은 내부 pull-down과 ESP32-H2 hardware hysteresis를 사용한다. software debounce, 시간 filter, High timeout 또는 임의 Low 보정은 넣지 않는다. 센서 출력 chatter가 있으면 모든 실제 level 전환이 event가 되므로 PCB와 센서 자체의 전기적 품질로 해결한다.
 - 양산 PCB에서는 외부 pull-down, 입력 직렬 저항, ESD/서지, isolation, 센서 소비전류와 전원 sequencing을 회로 검토와 실측으로 확정한다. ESP32-H2 3.3V pin을 검증되지 않은 센서/컨버터 보조전원 공급원으로 사용하지 않는다.
+
+**강한 경고:** LED converter의 DIM+/DIM-, 0-10V/PWM DIM interface, LED 부하 또는 보조전원을 ESP GPIO나 ESP32-H2 3.3V rail에 직접 연결하지 않는다. HIL에서는 승인된 절연/레벨시프팅 interface 회로만 사용하며, sensor 3.3V Active High/idle Low/GND continuity/safe GPIO를 먼저 실측한다. 전체 순서와 명령·성공/실패 판정·증거 수집은 `apps/gateway/README.md`의 `차량 감지 자동제어 HIL 수동 절차`를 따른다. 실제 실측·flash·provisioning·RF 증거가 없는 상태를 software E2E 결과로 완료 처리하지 않는다.
 
 driver는 interrupt가 비활성인 상태에서 boot level을 32개 static queue에 먼저 넣는다. 이어 critical section 안에서 interrupt를 enable하고 즉시 level을 재확인하므로 ISR edge가 boot event보다 앞서지 않는다. Driver start 이전에 발생하고 원래 level로 돌아온 짧은 pulse는 보장 범위 밖이며, start가 반환할 때 current level은 마지막 reconciliation 또는 ISR 관측값으로 초기화된다.
 

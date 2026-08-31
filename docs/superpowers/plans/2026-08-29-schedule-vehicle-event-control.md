@@ -1407,21 +1407,21 @@ git commit -m "test: verify lighting automation end to end"
 - Consumes: Tasks 1~19의 실제 test 결과와 남은 HIL 경계.
 - Produces: 구현 완료/미구현/개선 필요 현황, Raspberry Pi+ESP32-H2 HIL runbook, 체크된 실행 계획.
 
-- [ ] **Step 1: 메뉴 문서를 실제 기능과 일치시킨다**
+- [x] **Step 1: 메뉴 문서를 실제 기능과 일치시킨다**
 
 `docs/menus/control.md`의 `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙` 구조를 유지한다. software E2E 완료와 HIL 미실행을 별도 항목으로 표시한다.
 
-- [ ] **Step 2: HIL 절차를 재현 가능한 순서로 기록한다**
+- [x] **Step 2: HIL 절차를 재현 가능한 순서로 기록한다**
 
 순서는 센서 3.3V/Active High/GND 및 safe GPIO 실측 → Gateway/ESP flash/deploy → provisioning/app key/model binding → 규칙 적용 확인 → High/Low/hold/retrigger → cloud 단절 → Gateway/ESP restart → telemetry 재전달이다. LED converter DIM interface를 GPIO에 직접 연결하지 않는 경고를 포함한다.
 
-- [ ] **Step 3: 최종 검증 결과를 기록하고 plan checkbox를 갱신한다**
+- [x] **Step 3: 최종 검증 결과를 기록하고 plan checkbox를 갱신한다**
 
 Run: `git status --short && pnpm typecheck && pnpm test && scripts/esp32-h2-build.sh`
 
 HIL은 실제 장비에서 수행하지 않았으면 `미실행`으로 남기고 software 결과로 대체하지 않는다.
 
-- [ ] **Step 4: 문서를 커밋한다**
+- [x] **Step 4: 문서를 커밋한다**
 
 ```bash
 git add docs/menus/control.md docs/project-status.md apps/gateway/README.md apps/esp32-h2-firmware/README.md docs/superpowers/plans/2026-08-29-schedule-vehicle-event-control.md

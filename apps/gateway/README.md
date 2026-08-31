@@ -116,6 +116,153 @@ pnpm --filter @led-control/gateway test -- storage-headroom-manager.test.ts auto
 pnpm --filter @led-control/gateway build
 ```
 
+## 차량 감지 자동제어 HIL 수동 절차
+
+상태: **미실행**. 아래 절차는 Task 19의 Chromium software E2E와 별개인 실제 Raspberry Pi + BlueZ Mesh + ESP32-H2 시험이다. software simulator, native test, ESP-IDF target build 또는 MQTT publish 성공만으로 HIL을 통과 처리하지 않는다. 한 단계라도 실패하면 이후 단계를 진행하지 말고 실패 시각, 명령 출력, Gateway 로그, ESP serial log, MQTT capture와 전기 실측치를 보존한다.
+
+시험 시작 전 실제 값만 설정한다. observer 인증서는 Gateway device key가 아닌 읽기 권한이 있는 별도 운영자/검증 principal을 사용하고, private key와 claim code는 기록 파일에 넣지 않는다.
+
+```bash
+export SITE_ID='<site UUID>'
+export GATEWAY_ID='<gateway UUID>'
+export SENSOR_FIXTURE_ID='<sensor fixture UUID>'
+export TARGET_FIXTURE_ID='<target light fixture UUID>'
+export PI_HOST='<user@raspberry-pi>'
+export MQTT_HOST='<broker DNS or IP>'
+export MQTT_HOST_IP='<broker IPv4 for the temporary cloud cut>'
+export HIL_EVIDENCE_DIR="$PWD/.superpowers/sdd/2026-08-29-schedule-vehicle-event-control/hil-$(date +%Y%m%d%H%M%S)"
+mkdir -p "$HIL_EVIDENCE_DIR"
+```
+
+`mosquitto_sub`를 사용할 검증 principal의 CA/certificate/key 경로를 환경에 설정한 뒤, 시작부터 종료까지 automation ACK와 execution을 수집한다.
+
+```bash
+export HIL_CA='<observer CA path>'
+export HIL_CERT='<observer certificate path>'
+export HIL_KEY='<observer private key path>'
+mosquitto_sub -h "$MQTT_HOST" -p 8883 --cafile "$HIL_CA" --cert "$HIL_CERT" --key "$HIL_KEY" \
+  -t "sites/$SITE_ID/gateways/$GATEWAY_ID/events/automation/#" \
+  -t "sites/$SITE_ID/gateways/$GATEWAY_ID/acks/automation/#" -v \
+  | tee "$HIL_EVIDENCE_DIR/mqtt.log"
+```
+
+### 1. 센서 전기 안전과 safe GPIO 실측
+
+**경고: LED converter의 DIM+/DIM-, 0-10V/PWM DIM interface, LED 부하, converter 보조전원을 ESP GPIO 또는 ESP32-H2 3.3V rail에 직접 연결하지 않는다. 승인된 절연/레벨시프팅 interface 회로와 ESD/서지 보호를 거친 센서 3.3V digital output만 safe GPIO에 연결한다.** 회로 승인과 전원이 분리되지 않았거나 측정값이 범위를 벗어나면 flash·전원 인가·GPIO 연결을 중지한다.
+
+1. ESP와 converter 전원을 분리하고 multimeter/oscilloscope로 sensor output-to-sensor GND를 측정한다. idle Low와 detection High가 모두 `0~3.3V` 범위이고 High가 Active High인지 확인한다.
+2. 비절연 연결은 sensor GND와 ESP GND의 연속성, GPIO `4` 또는 실제 Kconfig safe GPIO가 PWM/factory-reset/UART/strapping/USB/flash pin과 충돌하지 않는지 확인한다. 긴 배선·서로 다른 전원·surge 환경은 승인된 isolation/level shifter를 사용한다.
+3. 아래처럼 기록을 남긴다. 성공은 세 값이 회로 승인서와 일치하고 sensor output 외 converter 회로가 ESP GPIO/3.3V에 직접 연결되지 않은 경우다. 하나라도 불일치하면 실패다.
+
+```bash
+printf 'measured_at=%s\nsensor_idle_v=<measured>\nsensor_active_v=<measured>\ngnd_continuity_ohm=<measured>\nsafe_gpio=<GPIO>\ninterface_approval=<id>\n' \
+  "$(date -Iseconds)" | tee "$HIL_EVIDENCE_DIR/electrical-measurement.txt"
+```
+
+### 2. Gateway deploy와 ESP production flash
+
+Pi image와 signed firmware artifact를 각각 배포한다. `--test-build` binary는 intentional abort image이므로 HIL에 flash하지 않는다.
+
+```bash
+scripts/gateway-appliance-deploy.sh "$PI_HOST" \
+  dist/gateway-appliance/led-control-gateway-<revision>-linux-arm64.tar
+
+CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID='<owner decimal Company ID>' \
+LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST='<approved manifest>' \
+LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE='<approved signature>' \
+scripts/esp32-h2-build.sh
+scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
+```
+
+성공은 Pi `led-control-gateway`가 `healthy`이고 ESP serial log에 unprovisioned beacon 또는 복원된 provisioned node가 보이며 production flash wrapper가 signed attestation을 검증한 경우다. 실패는 deploy/health/approval/attestation/flash 어느 하나의 non-zero exit, `GATEWAY_BLUETOOTH_COMPANY_ID`와 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID` 불일치, 혹은 test-build flash 시도다. 아래 출력과 serial log를 보관한다.
+
+```bash
+ssh "$PI_HOST" 'cd /opt/led-control/gateway && docker compose -f compose.yml ps && docker exec led-control-gateway cat /var/run/led-control/health.json' \
+  | tee "$HIL_EVIDENCE_DIR/gateway-health.txt"
+```
+
+### 3. Provisioning, AppKey, model binding
+
+웹의 등록 흐름으로 Gateway claim, sensor fixture와 target fixture 등록을 완료한다. ESP는 unprovisioned beacon에서 발견한 뒤에만 등록하며, 이미 provisioned node를 재사용하면 fixture ID/unicast mapping을 대조한다. Gateway 로그에서 `AddNodeComplete`, NetKey/AppKey index `0`, Light Lightness/OnOff bind와 Sensor Server `0x1100` 및 vendor server `0x0000`의 AppKey/model publication Config Status를 확인한다.
+
+```bash
+ssh "$PI_HOST" 'docker logs --since 15m led-control-gateway' \
+  | tee "$HIL_EVIDENCE_DIR/provisioning-gateway.log"
+```
+
+성공은 두 fixture의 unicast mapping, target Lightness Status, sensor Sensor Get/Status, Sensor/vendor model binding이 모두 확인된 경우다. 검색 0건, `STATUS_TIMEOUT`, model/AppKey/publication status 불일치, capability가 `supported`가 아닌 경우는 실패다. 이 단계의 증거는 등록 화면 결과, Gateway log, ESP serial log, `mqtt.log`이다.
+
+### 4. Rule applied 확인
+
+admin으로 schedule과 vehicle event rule을 같은 Gateway의 target fixture에 생성한다. event rule의 source는 위 sensor fixture, brightness는 schedule보다 높은 값, hold는 정확히 `5초`로 설정한다. UI에는 CRUD 저장 상태와 Gateway `APPLIED` 상태가 별도임을 확인하고, MQTT에서 matching revision/hash의 `config-applied`를 수집한다.
+
+```bash
+ssh "$PI_HOST" 'docker exec led-control-gateway sh -c "cat /var/lib/led-control/automation-snapshot.json; echo; cat /var/lib/led-control/automation-state.json"' \
+  | tee "$HIL_EVIDENCE_DIR/applied-snapshot-and-state.json"
+```
+
+성공은 UI `APPLIED`, snapshot의 site/gateway/revision/hash와 matching `config-applied`, enabled schedule/event rule이 함께 존재하는 경우다. 저장 성공만 있고 `PENDING` 또는 `REJECTED`, hash/scope mismatch, snapshot 누락은 실패다.
+
+### 5. High, Low, 5초 hold, retrigger
+
+target fixture의 schedule brightness를 먼저 관측한 뒤 실제 센서를 High로 만든다. ESP serial log, Gateway log, MQTT execution과 target Lightness Status를 같은 시각에 기록한다. High가 유지되는 동안 software timeout으로 event가 끝나면 실패다.
+
+```bash
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # sensor High 직전
+# 실제 sensor output을 High로 만든다.
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # High 관측
+# 실제 sensor output을 Low로 만든다.
+sleep 4
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # hold 4초: event brightness 유지여야 함
+# hold deadline 전 실제 sensor output을 High로 다시 만들어 retrigger한다.
+sleep 2
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # retrigger 뒤 6초: event brightness 유지여야 함
+# 마지막으로 sensor output을 Low로 만들고 정확히 5초 이상 기다린다.
+sleep 6
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # schedule brightness 복귀 확인
+```
+
+성공 순서는 `schedule -> event High -> Low 뒤 5초 유지 -> deadline 전 retrigger로 hold 연장 -> 마지막 Low 뒤 5초 후 schedule`이다. 각 단계의 target Lightness Status, `(sourceUnicast, bootId, sequence)` vendor ACK, execution kind와 timestamp가 수집되어야 한다. High/Low 반전, 5초 전 복귀, retrigger 뒤 deadline 미연장, Status/ACK 누락은 실패다.
+
+### 6. Cloud 단절
+
+승인된 시험 창에 Pi에서 broker TLS egress만 차단한다. 다른 현장 또는 관리 plane을 차단하지 않으며, 작업 후 규칙을 즉시 삭제한다.
+
+```bash
+ssh "$PI_HOST" "sudo iptables -I OUTPUT -p tcp -d $MQTT_HOST_IP --dport 8883 -j DROP"
+ssh "$PI_HOST" 'docker logs --since 2m led-control-gateway' | tee "$HIL_EVIDENCE_DIR/cloud-cut.log"
+# 다음 schedule boundary와 sensor High/Low/hold/retrigger를 한 번 더 실제로 수행한다.
+ssh "$PI_HOST" "sudo iptables -D OUTPUT -p tcp -d $MQTT_HOST_IP --dport 8883 -j DROP"
+```
+
+성공은 broker가 단절된 동안 마지막 applied snapshot으로 local schedule/event/hold가 실행되고, 복구 뒤 동일 event identity를 중복 실행하지 않는 경우다. snapshot 없이 실행, cloud 명령이 없으면 정지, duplicate RF/telemetry 또는 firewall rule을 제거하지 못한 경우는 실패다. 전후 `automation-state.json`, target Status와 `cloud-cut.log`를 증거로 남긴다.
+
+### 7. Gateway와 ESP restart
+
+event가 active인 상태와 마지막 Low hold 중 각각 한 번씩 Gateway restart, ESP reset을 수행한다. Gateway의 persisted snapshot/state와 ESP provisioning/AppKey/model state가 복원돼야 하며 re-provision은 발생하지 않아야 한다.
+
+```bash
+ssh "$PI_HOST" 'cd /opt/led-control/gateway && docker compose -f compose.yml restart gateway-appliance && docker compose -f compose.yml logs --tail=200 gateway-appliance' \
+  | tee "$HIL_EVIDENCE_DIR/gateway-restart.log"
+# ESP32-H2 RESET 또는 승인된 전원 cycle 후 serial log를 HIL_EVIDENCE_DIR/esp-restart.log에 저장한다.
+ssh "$PI_HOST" 'docker exec led-control-gateway sh -c "cat /var/lib/led-control/automation-snapshot.json; echo; cat /var/lib/led-control/automation-state.json"' \
+  | tee "$HIL_EVIDENCE_DIR/restart-state.json"
+```
+
+성공은 restart 뒤 같은 mapping/unicast와 model binding이 유지되고, current Sensor Status가 resync되며, active source의 우선순위·hold·schedule 복귀가 보존되고 already-observed desired에 duplicate RF가 없는 경우다. state corruption, re-provision 요구, restart pending fence가 관측 전 풀림, 잃은 hold, duplicate RF는 실패다.
+
+### 8. Telemetry 재전달과 종료 판정
+
+cloud 복구 뒤 MQTT capture에서 execution telemetry와 API ingested ACK의 exact `(gatewayId, eventId, sequence, payloadHash)` 일치를 확인한다. broker PUBACK만으로 telemetry가 삭제되면 안 되며, outbox가 ACK 후 drain돼야 한다.
+
+```bash
+ssh "$PI_HOST" 'docker exec led-control-gateway sh -c "cat /var/lib/led-control/automation-telemetry.json; echo; cat /var/lib/led-control/automation-state.json"' \
+  | tee "$HIL_EVIDENCE_DIR/telemetry-after-replay.json"
+sha256sum "$HIL_EVIDENCE_DIR"/* | tee "$HIL_EVIDENCE_DIR/SHA256SUMS"
+```
+
+성공은 MQTT execution과 API ingested ACK가 exact identity/hash로 짝지어지고, 재연결 후 immutable replay만 발생하며, terminal ACK 뒤 telemetry records가 drain되고 `telemetryGap`이 없거나 명시적 gap evidence가 남는 경우다. ACK 없는 삭제, hash conflict, replay 누락, duplicate execution identity, unexplained `telemetryGap`은 실패다. 성공 또는 실패 결과, 시험자, 보드 serial, Gateway revision, firmware attestation hash, 회로 승인 ID와 이 디렉터리 전체를 change record에 첨부한다.
+
 ## 라즈베리파이 배포
 
 라즈베리파이 양산 이미지에는 현장 `siteId`와 DB의 `gatewayId`를 미리 넣지 않는다. 제조 시 주입한 serial과 1회용 enrollment token으로 장비 내부 key에 대한 device certificate를 발급받고, 이후 device mTLS bootstrap을 호출한다. 사용자가 웹에서 claim을 완료하면 서버가 assignment를 반환한다. 게이트웨이는 이를 기본 `/var/lib/led-control/assignment.json`에 원자적으로 저장하며 파일 권한은 `0600`이다.
