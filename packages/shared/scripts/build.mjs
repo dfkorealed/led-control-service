@@ -14,11 +14,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, posix, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { acquireOutputLock } from "./build-output-lock.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distDirectory = join(packageRoot, "dist");
 const manifestPath = join(packageRoot, ".build-output-manifest.json");
-const outputLockPath = join(packageRoot, ".build-output.lock");
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "led-shared-build-"));
 const cjsDirectory = join(temporaryDirectory, "cjs");
 const esmDirectory = join(temporaryDirectory, "esm");
@@ -41,7 +41,7 @@ try {
     ...cjsFiles,
     ...esmFiles.map((path) => posix.join("esm", path))
   ]).sort();
-  const releaseOutputLock = await acquireOutputLock();
+  const releaseOutputLock = await acquireOutputLock({ lockPath: join(packageRoot, ".build-output.lock") });
   try {
     const previousFiles = await readBuildManifest();
 
@@ -56,26 +56,6 @@ try {
   }
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
-}
-
-async function acquireOutputLock() {
-  const deadline = Date.now() + 60_000;
-  while (true) {
-    try {
-      await mkdir(outputLockPath);
-      return async () => {
-        await rmdir(outputLockPath);
-      };
-    } catch (error) {
-      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") {
-        throw error;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error("timed out waiting for shared build output lock");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-  }
 }
 
 function runTypeScriptBuild(project, outDirectory) {

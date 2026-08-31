@@ -2,14 +2,14 @@
 
 기준일: 2026-08-31
 
-## 다음 구현 범위
+## 구현 완료
 
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
 - schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. Task 17 schedule Web CRUD, Task 18 차량 이벤트 Web CRUD·수동 override 종료 시각 입력과 Task 19 production API/Gateway Chromium software E2E를 완료했다. 이 software E2E는 실제 PostgreSQL·Redis·mTLS Mosquitto와 production Gateway runtime을 사용하지만 BLE adapter/sensor source는 test 전용 simulator이며, Raspberry Pi/BlueZ/ESP32-H2 HIL은 미실행이다.
 
-## 확정 구현 범위
+### 확정 구현 범위
 
 - 사용자가 명령을 적용하면 실제 BLE Mesh 상태 기반 terminal 결과가 나올 때까지 현재 제어 입력을 잠그는 사용자 관점의 동기 제어를 구현한다. HTTP 연결을 장시간 유지하지 않고 기존 Command/Outbox/MQTT 상태를 1초 polling으로 조회한다.
 - 개별 조명, 임의 다중 선택, 층 전체, 저장 구역 단위 밝기 제어를 제공한다.
@@ -24,7 +24,7 @@
 
 상세 계약은 `docs/superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md`를 따른다.
 
-## 명시적 보류 범위
+### 명시적 보류 범위
 
 - 다중 gateway command 최종 집계 고도화
 - ACK 계약 전면 개편과 API MQTT 소비 내구성 재설계
@@ -34,7 +34,7 @@
 - 자동 HIL 판정. 실제 하드웨어 검증은 단일 gateway 기준으로 수동 수행한다.
 - ESP32-H2 vendor sensor model과 Raspberry Pi BlueZ RF의 packet loss, 재부팅 oscillation, sudden power-loss HIL. 현재 검증은 software journal·MQTT 계약 수준이다.
 
-## 구현 완료
+### 구현 항목
 
 - 제어 페이지에 `수동 제어 | 스케줄 제어 | 이벤트 제어` 탭을 추가했다. 선택 상태는 `mode=manual|schedule|event` URL query로 유지하고 누락되거나 잘못된 값은 기존 `siteId`를 보존한 채 `manual`로 정규화한다. 선택 탭만 일반 Tab 순서에 두고 좌우 방향키 순환, Home/End에서 focus·선택·URL을 함께 갱신하며 browser back/forward 뒤에도 roving focus 상태를 복원한다. Site 또는 사용자 scope가 바뀌면 열린 스케줄 dialog와 mutation 표시 상태를 새 scope로 넘기지 않는다. Schedule panel은 schedule mode에서 lazy-load하고 loading 동안 연결된 `tabpanel` 상태를 유지한다.
 - schedule 목록은 서버 `schedules.service.ts`의 실제 응답 형태를 사용해 이름, 활성 상태, 현장 시간대의 다음 실행, 반복·시간, 밝기, 대상 수, Gateway `PENDING|APPLIED|REJECTED` 상태와 최근 실행 결과를 표시한다. 최근 `action_result`는 `@led-control/shared/automation-contracts`의 narrow production schema로 검증한 뒤 fixture별 성공·실패·시간 초과를 집계하고 legacy/unknown payload는 상세 확인 불가로 표시한다. subpath의 `browser`와 generic `import`는 shared build가 생성한 executable `dist/esm` artifact를 사용하고 CommonJS `require`는 기존 CJS artifact를 유지하며, shared root CommonJS runtime은 Web production graph에 포함하지 않는다. Shared build cleanup은 manifest 소유 파일만 제거하고 `dist` root/parent/target symlink와 non-directory를 fail-closed하며 unrelated 파일을 보존한다. Artifact logical path는 POSIX 상대 경로만 허용하고 colon/backslash, drive-relative, ADS, UNC/device와 terminal dot/space를 host OS와 무관하게 mutation 전에 거부한다. 100개 bounded cursor page를 이어 불러오며 목록은 3초 polling한다. 첫 페이지, 다음 페이지, background 상태 갱신 오류를 구분하고 기존 행을 유지한 비차단 경고와 오류 종류에 맞는 재시도를 제공한다.
@@ -213,7 +213,7 @@
 - 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 RF/HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
 - `sessionStorage` 새로고침 복구와 ACK terminal 전 입력 잠금의 브라우저 계약 검증은 Task 7에서 완료했다. 격리 실백엔드 Chromium E2E에서 저장 구역 생성·수정·삭제와 개별·다중·층·구역 제어 4건의 terminal 결과를 검증했다. Raspberry Pi Gateway와 ESP32-H2를 연결한 HIL은 아직 실행하지 않았다.
 - 저장 구역 생성·수정·삭제·재동기화 Web dialog와 Chromium route fixture 검증은 완료됐다. 다만 실제 Raspberry Pi/BlueZ/ESP32-H2를 연결한 zone 제어 실기는 `not_executed` 상태다. 표준 Health Fault Clear callback 실기도 Gateway 프로세스 내부에서 BlueZ node owner 권한으로 전송할 API/IPC가 없어 `not_executed` 상태이며, 두 항목 모두 자동 fixture 통과로 완료 처리하지 않는다.
-- Task 20 final software 검증에서 `pnpm typecheck`와 `pnpm test`는 통과했다. 첫 typecheck에서 병렬 shared output cleanup의 `unlink ENOENT` 경쟁을 재현해 output commit 구간 process lock과 RED/GREEN regression test로 최소 수정했다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
+- Task 20 Fix Round 1에서 shared output lock은 token, PID와 `ps` process-start identity를 strict metadata로 기록한다. active owner는 wait, missing PID와 start identity가 다른 PID reuse는 atomic quarantine takeover, identity 미확인은 fail-closed로 구분한다. release는 exact token/PID/start identity가 모두 맞을 때만 lock을 지우며 root/owner metadata/quarantine의 symlink·비정상 파일은 외부 target을 건드리지 않고 거부한다. concurrent build, crash stale recovery, PID reuse, timeout, release fencing, cleanup refusal, symlink/external sentinel과 package root 독립성을 RED/GREEN으로 검증했다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
 
@@ -269,6 +269,8 @@
 - `packages/shared/package.json`
 - `packages/shared/tsconfig.esm.json`
 - `packages/shared/scripts/build.mjs`
+- `packages/shared/scripts/build-output-lock.mjs`
+- `packages/shared/src/build-output-lock.test.ts`
 - `packages/shared/src/package-exports.test.ts`
 - `packages/shared/src/mqtt.ts`
 - `apps/web/src/features/control/ControlView.tsx`

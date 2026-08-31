@@ -63,6 +63,33 @@ git status --short && pnpm typecheck && pnpm test && scripts/esp32-h2-build.sh
 
 마지막 firmware 결과는 구현 결함으로 처리하지 않았다. production script는 자사 Bluetooth SIG Company ID, fixed trust policy와 signed manufacturing approval을 요구하며 현재 policy는 `unprovisioned`다. 이를 우회해 test-build image를 HIL에 flash하지 않는다. signed production 자료가 준비된 별도 HIL 실행에서만 production build/flash를 수행한다.
 
+## Fix Round 1 RED/GREEN
+
+`task-20-review.md`의 P1 3건과 P2 2건을 모두 반영했다. 이 수정은 Task 20의 software 검증 및 문서 보강이며, 실제 HIL 실행 결과가 아니다.
+
+### RED
+
+1. 기존 directory-only shared output lock은 lock owner token, PID, process-start identity가 없어 crash stale lock, PID 재사용, 이전 owner의 release와 symlink/quarantine 안전성을 구분하거나 복구할 수 없었다. 새 lock 회귀 테스트를 먼저 추가했을 때 helper module이 없어 import가 실패했다. 구현 중 active lock에 비정상 파일이 있는 경우 timeout으로 대기하던 실패도 `invalid shared build lock root contents`를 기대하는 테스트로 재현했다.
+2. Gateway README의 production build/flash 명령은 Company ID와 approval manifest/signature를 build 한 줄에만 환경으로 주입하고, HIL retrigger는 High 뒤 Low/old deadline/new deadline 관측 순서가 불명확했으며 MQTT capture는 foreground `mosquitto_sub | tee`로 종료 PID와 실패를 판정할 수 없었다.
+3. `docs/menus/control.md`는 요구된 다섯 H2 외에 범위용 H2가 더 있어 메뉴 문서 구조 계약을 위반했다.
+
+### GREEN
+
+1. `packages/shared/scripts/build-output-lock.mjs`를 추가했다. strict `owner.json`에는 version, random owner token, PID, `ps` 기반 process-start identity만 기록한다. active identity는 대기, missing PID와 start identity가 다른 PID reuse는 rename 기반 atomic quarantine takeover, identity 미확인은 fail-closed로 분기한다. mtime만으로 steal하지 않는다. release와 cleanup은 exact token/PID/start identity가 모두 일치할 때만 수행하며, lock root/metadata/quarantine의 symlink·비정상 파일은 외부 target을 따라가거나 삭제하지 않고 거부한다.
+2. `packages/shared/src/build-output-lock.test.ts`로 정상 동시 소유 대기와 timeout, crash stale recovery, PID reuse, identity 미확인, release fencing, quarantine cleanup failure/refusal, lock root/owner metadata/quarantine symlink와 외부 sentinel 보존, 서로 다른 package root의 독립 진행을 검증했다. 기존 fixture의 실제 동시 build regression도 유지했다.
+3. `apps/gateway/README.md`는 같은 shell에서 `IDF_PATH`, 동일 Company ID, approval manifest/signature를 export해 build와 flash wrapper 모두로 전달하도록 수정했다. MQTT capture는 background PID를 evidence에 남기고 trap/종료 단계에서 `kill`+`wait`와 비어 있지 않은 log를 확인한다. retrigger는 first Low 뒤 old deadline 전 High edge와 즉시 Low를 만들고, old deadline 직후 80%, retrigger Low 기준 new deadline 직후 40%를 별도 timestamp로 판정한다.
+4. `docs/menus/control.md`의 H2는 `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙` 다섯 개만 남기고 기존 범위/보류 내용은 `구현 완료` 안의 H3로 병합했다. 관련 파일과 프로젝트 상태도 lock 보강을 반영했다.
+
+### Fix Round 1 검증
+
+| 명령 | 결과 |
+| --- | --- |
+| `pnpm --filter @led-control/shared exec vitest run src/build-output-lock.test.ts src/package-exports.test.ts -t 'shared build output lock|serializes concurrent builds'` | 성공: 새 lock 회귀 12건과 실제 동시 build fixture 통과 |
+| `pnpm --filter @led-control/shared test` | 성공: 9 files, 146 tests passed |
+| `pnpm typecheck` | 성공, exit code `0` |
+| `pnpm test` | 성공: root 15, mobile 1, shared 146, automation-engine 28, Web 352, API 738 passed 및 161 skipped, Gateway 559 passed |
+| `git diff --check` | 성공, 출력 없음 |
+
 ## HIL 경계와 다음 증거
 
 HIL runbook은 아직 실행하지 않았다. 다음 증거가 한 시험 디렉터리에 함께 있어야만 HIL 통과로 판정한다.

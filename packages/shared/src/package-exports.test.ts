@@ -29,6 +29,7 @@ async function createBuildFixture() {
   await mkdir(join(root, "scripts"), { recursive: true });
   await mkdir(join(root, "bin"), { recursive: true });
   await copyFile(join(packageRoot, "scripts", "build.mjs"), join(root, "scripts", "build.mjs"));
+  await copyFile(join(packageRoot, "scripts", "build-output-lock.mjs"), join(root, "scripts", "build-output-lock.mjs"));
 
   const fakeTypeScript = join(root, "bin", "tsc");
   await writeFile(fakeTypeScript, `#!/usr/bin/env node

@@ -137,14 +137,49 @@ mkdir -p "$HIL_EVIDENCE_DIR"
 `mosquitto_sub`를 사용할 검증 principal의 CA/certificate/key 경로를 환경에 설정한 뒤, 시작부터 종료까지 automation ACK와 execution을 수집한다.
 
 ```bash
+set -euo pipefail
 export HIL_CA='<observer CA path>'
 export HIL_CERT='<observer certificate path>'
 export HIL_KEY='<observer private key path>'
 mosquitto_sub -h "$MQTT_HOST" -p 8883 --cafile "$HIL_CA" --cert "$HIL_CERT" --key "$HIL_KEY" \
   -t "sites/$SITE_ID/gateways/$GATEWAY_ID/events/automation/#" \
   -t "sites/$SITE_ID/gateways/$GATEWAY_ID/acks/automation/#" -v \
-  | tee "$HIL_EVIDENCE_DIR/mqtt.log"
+  >"$HIL_EVIDENCE_DIR/mqtt.log" 2>&1 &
+MQTT_CAPTURE_PID=$!
+printf 'mqtt_capture_pid=%s\nstarted_at=%s\n' "$MQTT_CAPTURE_PID" "$(date -Iseconds)" \
+  | tee "$HIL_EVIDENCE_DIR/mqtt-capture.pid"
+
+stop_mqtt_capture() {
+  if ! kill -0 "$MQTT_CAPTURE_PID" 2>/dev/null; then
+    set +e
+    wait "$MQTT_CAPTURE_PID"
+    status=$?
+    set -e
+    printf 'mqtt_capture_unexpected_exit=%s\n' "$status" >>"$HIL_EVIDENCE_DIR/mqtt-capture.pid"
+    return 1
+  fi
+  kill "$MQTT_CAPTURE_PID"
+  set +e
+  wait "$MQTT_CAPTURE_PID"
+  status=$?
+  set -e
+  if [ "$status" -ne 0 ] && [ "$status" -ne 143 ]; then
+    printf 'mqtt_capture_exit=%s\n' "$status" >>"$HIL_EVIDENCE_DIR/mqtt-capture.pid"
+    return "$status"
+  fi
+  test -s "$HIL_EVIDENCE_DIR/mqtt.log"
+}
+
+trap 'status=$?; trap - EXIT INT TERM; stop_mqtt_capture || status=1; exit "$status"' EXIT
+trap 'exit 130' INT TERM
+sleep 1
+if ! kill -0 "$MQTT_CAPTURE_PID" 2>/dev/null; then
+  stop_mqtt_capture || true
+  exit 1
+fi
 ```
+
+이 shell에서 이후 단계를 실행한다. `mqtt-capture.pid`의 PID와 시작 시각을 증거에 포함하고, Step 8 종료 명령 또는 trap이 `kill`과 `wait`를 수행한다. subscriber가 종료 전에 죽거나 종료 후 `mqtt.log`가 비어 있으면 HIL 실패다.
 
 ### 1. 센서 전기 안전과 safe GPIO 실측
 
@@ -167,14 +202,17 @@ Pi image와 signed firmware artifact를 각각 배포한다. `--test-build` bina
 scripts/gateway-appliance-deploy.sh "$PI_HOST" \
   dist/gateway-appliance/led-control-gateway-<revision>-linux-arm64.tar
 
-CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID='<owner decimal Company ID>' \
-LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST='<approved manifest>' \
-LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE='<approved signature>' \
+export IDF_PATH="${IDF_PATH:-$HOME/esp/esp-idf}"
+export CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID='<owner decimal Company ID>'
+export LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST='<approved manifest>'
+export LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE='<approved signature>'
+test -f "$IDF_PATH/export.sh"
+test -f apps/esp32-h2-firmware/manufacturing/production-trust-policy.conf
 scripts/esp32-h2-build.sh
 scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
 ```
 
-성공은 Pi `led-control-gateway`가 `healthy`이고 ESP serial log에 unprovisioned beacon 또는 복원된 provisioned node가 보이며 production flash wrapper가 signed attestation을 검증한 경우다. 실패는 deploy/health/approval/attestation/flash 어느 하나의 non-zero exit, `GATEWAY_BLUETOOTH_COMPANY_ID`와 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID` 불일치, 혹은 test-build flash 시도다. 아래 출력과 serial log를 보관한다.
+동일 shell에서 export한 Company ID, approval manifest/signature와 `IDF_PATH`가 build와 flash wrapper 모두에 전달된다. trust policy는 caller override가 아닌 repository/CI fixed policy이므로 위 파일이 `unprovisioned`이면 production build/flash는 의도적으로 실패한다. 성공은 Pi `led-control-gateway`가 `healthy`이고 ESP serial log에 unprovisioned beacon 또는 복원된 provisioned node가 보이며 production flash wrapper가 signed attestation을 검증한 경우다. 실패는 deploy/health/approval/attestation/flash 어느 하나의 non-zero exit, `GATEWAY_BLUETOOTH_COMPANY_ID`와 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID` 불일치, 혹은 test-build flash 시도다. 아래 출력과 serial log를 보관한다.
 
 ```bash
 ssh "$PI_HOST" 'cd /opt/led-control/gateway && docker compose -f compose.yml ps && docker exec led-control-gateway cat /var/run/led-control/health.json' \
@@ -208,21 +246,23 @@ ssh "$PI_HOST" 'docker exec led-control-gateway sh -c "cat /var/lib/led-control/
 target fixture의 schedule brightness를 먼저 관측한 뒤 실제 센서를 High로 만든다. ESP serial log, Gateway log, MQTT execution과 target Lightness Status를 같은 시각에 기록한다. High가 유지되는 동안 software timeout으로 event가 끝나면 실패다.
 
 ```bash
-date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # sensor High 직전
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # initial High 직전
 # 실제 sensor output을 High로 만든다.
-date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # High 관측
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # initial High
 # 실제 sensor output을 Low로 만든다.
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # first Low, old 5초 hold 시작
 sleep 4
-date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # hold 4초: event brightness 유지여야 함
-# hold deadline 전 실제 sensor output을 High로 다시 만들어 retrigger한다.
+# first Low 기준 old deadline 전 High edge를 만들어 retrigger한다.
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # retrigger High
+# High edge 직후 즉시 Low로 내려 새 5초 hold를 시작한다.
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # retrigger Low, new 5초 hold 시작
 sleep 2
-date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # retrigger 뒤 6초: event brightness 유지여야 함
-# 마지막으로 sensor output을 Low로 만들고 정확히 5초 이상 기다린다.
-sleep 6
-date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # schedule brightness 복귀 확인
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # old deadline 직후: 80% event 유지 확인
+sleep 4
+date -Iseconds | tee -a "$HIL_EVIDENCE_DIR/physical-actions.log" # retrigger Low 기준 new deadline 직후: 40% schedule 복귀 확인
 ```
 
-성공 순서는 `schedule -> event High -> Low 뒤 5초 유지 -> deadline 전 retrigger로 hold 연장 -> 마지막 Low 뒤 5초 후 schedule`이다. 각 단계의 target Lightness Status, `(sourceUnicast, bootId, sequence)` vendor ACK, execution kind와 timestamp가 수집되어야 한다. High/Low 반전, 5초 전 복귀, retrigger 뒤 deadline 미연장, Status/ACK 누락은 실패다.
+성공 순서는 `schedule -> initial High -> first Low -> old deadline 전 retrigger High/즉시 Low -> old deadline 직후 80% 유지 -> retrigger Low 기준 new deadline 직후 40% 복귀`다. `retrigger High`와 `retrigger Low`의 별도 timestamp, 두 deadline 관측의 target Lightness Status, `(sourceUnicast, bootId, sequence)` vendor ACK, execution kind를 수집한다. old deadline에 High가 남아 있으면 이 판정은 무효다. High/Low 반전, old deadline 직후 40% 복귀, new deadline 뒤에도 80% 유지, Status/ACK 누락은 실패다.
 
 ### 6. Cloud 단절
 
@@ -258,6 +298,8 @@ cloud 복구 뒤 MQTT capture에서 execution telemetry와 API ingested ACK의 e
 ```bash
 ssh "$PI_HOST" 'docker exec led-control-gateway sh -c "cat /var/lib/led-control/automation-telemetry.json; echo; cat /var/lib/led-control/automation-state.json"' \
   | tee "$HIL_EVIDENCE_DIR/telemetry-after-replay.json"
+stop_mqtt_capture
+trap - EXIT INT TERM
 sha256sum "$HIL_EVIDENCE_DIR"/* | tee "$HIL_EVIDENCE_DIR/SHA256SUMS"
 ```
 
