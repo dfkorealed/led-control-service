@@ -206,6 +206,37 @@ describe("shared package exports", () => {
 });
 
 describe.sequential("shared build output cleanup", () => {
+  it.each([
+    ["uppercase drive-absolute path", "C:\\outside.js"],
+    ["lowercase drive-absolute path", "c:/outside.js"],
+    ["uppercase drive-relative path", "D:relative.js"],
+    ["lowercase drive-relative traversal", "c:..\\outside.js"],
+    ["alternate data stream", "index.js:stream"],
+    ["nested alternate data stream", "esm/index.js:stream"],
+    ["UNC path", "\\\\server\\share\\outside.js"],
+    ["Win32 device namespace", "\\\\?\\C:\\outside.js"],
+    ["Win32 device path", "\\\\.\\PhysicalDrive0"],
+    ["backslash separator", "nested\\outside.js"],
+    ["mixed separators", "nested/sub\\outside.js"],
+    ["terminal dot segment", "nested./outside.js"],
+    ["terminal space segment", "nested /outside.js"]
+  ])("rejects the non-portable %s before touching any artifact", async (_name, path) => {
+    const root = await createBuildFixture();
+    const externalDirectory = await createExternalDirectory();
+    const distDirectory = join(root, "dist");
+    const existingArtifact = join(distDirectory, "existing.js");
+    const externalSentinel = join(externalDirectory, "sentinel.txt");
+    await mkdir(distDirectory, { recursive: true });
+    await writeFile(existingArtifact, "existing artifact\n");
+    await writeFile(externalSentinel, "external sentinel\n");
+    await writeBuildManifest(root, ["existing.js", path]);
+
+    await expect(runFixtureBuild(root)).rejects.toThrow();
+
+    await expect(readFile(existingArtifact, "utf8")).resolves.toBe("existing artifact\n");
+    await expect(readFile(externalSentinel, "utf8")).resolves.toBe("external sentinel\n");
+  });
+
   it("rejects an intermediate dist symlink before touching external or existing artifacts", async () => {
     const root = await createBuildFixture();
     const externalDirectory = await createExternalDirectory();

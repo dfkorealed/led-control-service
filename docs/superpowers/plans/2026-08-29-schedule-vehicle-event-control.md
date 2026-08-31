@@ -1273,6 +1273,16 @@ git commit -m "feat(web): add schedule control interface"
 
 Fix Round 4 검증: 기존 구현은 core focused 7건 중 4건이 실패했고, source-side ESM output symlink 테스트도 외부 metadata write 뒤 성공해 별도 RED를 확인했다. 수정 뒤 Shared 83/83, Web 334/334, production build와 main `1,028.66 kB / gzip 313.70 kB` bundle audit, API/Gateway typecheck·build·root/narrow import·output syntax, `git diff --check`를 통과했다. Node 표준 API에 dirfd-relative mutation이 없어 mutation 직전 `lstat` 뒤 parent swap의 잔여 OS race는 보고서에 명시했다.
 
+#### Fix Round 5: portable Windows artifact path fail-closed
+
+- [x] Upper/lower drive absolute/relative, ADS, UNC, Win32 device prefix, backslash/mixed separator와 terminal dot/space를 표 기반 격리 build fixture에 추가하고 기존 artifact·외부 sentinel 보존을 assertion한다.
+- [x] 기존 구현에서 drive-relative, ADS, backslash/mixed separator와 terminal dot/space 8건이 POSIX build 성공으로 수락되는 RED를 확인한다.
+- [x] Generated logical path를 POSIX separator로 생성하고 colon/backslash와 terminal dot/space segment를 정규화 없이 거부한다. Generated 수집, cleanup, copy, manifest read/write 경계에서 같은 목록 validator를 적용한다.
+- [x] Shared full/build/typecheck/packed, Web focused/full/typecheck/lint/build/bundle audit와 API/Gateway build/import/output smoke를 실행한다.
+- [x] `git diff --check`를 실행하고 한글 Fix Round 5 보고서·누적 문서를 완료한 뒤 `fix(shared): reject non-portable artifact paths`로 커밋한다.
+
+Fix Round 5 검증: focused RED는 21건 중 8건 실패였고 수정 뒤 Shared 96/96, packed root/subpath ESM·CJS consumer, Web focused 80/80·전체 334/334, production build와 main `1,028.66 kB / gzip 313.70 kB` bundle audit, API/Gateway typecheck·build·root/narrow import·output syntax를 통과했다. 정상 generated path는 기존 POSIX ASCII 상대 경로와 packed CJS/ESM 산출물을 유지한다.
+
 ### Task 18: Web 이벤트 CRUD와 수동 override UI
 
 **Files:**

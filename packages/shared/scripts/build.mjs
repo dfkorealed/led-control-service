@@ -38,7 +38,7 @@ try {
   const esmFiles = await listFiles(esmDirectory);
   const generatedFiles = validateGeneratedPaths([
     ...cjsFiles,
-    ...esmFiles.map((path) => join("esm", path))
+    ...esmFiles.map((path) => posix.join("esm", path))
   ]).sort();
   const previousFiles = await readBuildManifest();
 
@@ -63,11 +63,14 @@ function runTypeScriptBuild(project, outDirectory) {
 }
 
 async function listFiles(directory, prefix = "") {
-  const entries = await readdir(join(directory, prefix), { withFileTypes: true });
+  const filesystemDirectory = prefix
+    ? join(directory, ...prefix.split("/"))
+    : directory;
+  const entries = await readdir(filesystemDirectory, { withFileTypes: true });
   const files = [];
 
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    const path = join(prefix, entry.name);
+    const path = posix.join(prefix, entry.name);
     if (entry.isDirectory()) {
       files.push(...await listFiles(directory, path));
     } else if (entry.isFile()) {
@@ -111,14 +114,14 @@ async function readBuildManifest() {
 }
 
 async function preflightOutputPaths(files) {
-  for (const path of files) {
+  for (const path of validateGeneratedPaths(files)) {
     await inspectOutputFile(path);
   }
 }
 
 async function removeGeneratedFiles(files) {
   const parentDirectories = new Set();
-  for (const path of files) {
+  for (const path of validateGeneratedPaths(files)) {
     const inspected = await inspectOutputFile(path);
     if (inspected.stats) {
       // unlink never follows the final component; the parent chain was just revalidated.
@@ -147,15 +150,18 @@ async function removeGeneratedFiles(files) {
 }
 
 async function copyGeneratedFiles(sourceDirectory, destinationPrefix, files) {
-  for (const path of files) {
-    const destinationPath = validateGeneratedPath(join(destinationPrefix, path));
-    const source = await readGeneratedFile(join(sourceDirectory, path));
+  for (const path of validateGeneratedPaths(files)) {
+    const destinationPath = validateGeneratedPath(
+      destinationPrefix ? posix.join(destinationPrefix, path) : path
+    );
+    const source = await readGeneratedFile(join(sourceDirectory, ...path.split("/")));
     await ensureSafeParentDirectories(destinationPath);
     await writeOutputFile(destinationPath, source);
   }
 }
 
 async function writeBuildManifest(files) {
+  const validatedFiles = validateGeneratedPaths(files);
   const temporaryManifestPath = `${manifestPath}.${process.pid}.tmp`;
   let temporaryManifestCreated = false;
   try {
@@ -166,7 +172,9 @@ async function writeBuildManifest(files) {
     );
     temporaryManifestCreated = true;
     try {
-      await temporaryManifestHandle.writeFile(`${JSON.stringify({ version: 1, files }, null, 2)}\n`);
+      await temporaryManifestHandle.writeFile(
+        `${JSON.stringify({ version: 1, files: validatedFiles }, null, 2)}\n`
+      );
     } finally {
       await temporaryManifestHandle.close();
     }
@@ -193,16 +201,27 @@ function validateGeneratedPath(path) {
     throw new Error(`invalid shared build output path: ${String(path)}`);
   }
 
-  const portablePath = path.replaceAll("\\", "/");
-  if (posix.isAbsolute(portablePath) || win32.isAbsolute(path) || win32.isAbsolute(portablePath)) {
+  // Compiler artifacts use POSIX logical paths. Normalizing Windows syntax here could
+  // turn drive-relative, device, or alternate-data-stream paths into unsafe aliases.
+  if (path.includes(":") || path.includes("\\")) {
     throw new Error(`invalid shared build output path: ${path}`);
   }
 
-  const segments = portablePath.split("/");
-  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+  if (posix.isAbsolute(path) || win32.isAbsolute(path)) {
     throw new Error(`invalid shared build output path: ${path}`);
   }
-  return segments.join("/");
+
+  const segments = path.split("/");
+  if (segments.some((segment) =>
+    segment.length === 0
+    || segment === "."
+    || segment === ".."
+    || segment.endsWith(".")
+    || segment.endsWith(" ")
+  )) {
+    throw new Error(`invalid shared build output path: ${path}`);
+  }
+  return path;
 }
 
 function validateGeneratedPaths(paths) {
@@ -346,7 +365,8 @@ async function assertGeneratedDirectory(directory) {
 
 async function writeGeneratedMetadataFile(directory, filename, content) {
   await assertGeneratedDirectory(directory);
-  const path = join(directory, filename);
+  const validatedFilename = validateGeneratedPath(filename);
+  const path = join(directory, ...validatedFilename.split("/"));
   if (await lstatIfExists(path)) {
     throw new Error(`shared build generated metadata already exists: ${path}`);
   }
