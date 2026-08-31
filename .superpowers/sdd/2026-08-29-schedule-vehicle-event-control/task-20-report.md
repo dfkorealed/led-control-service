@@ -154,3 +154,34 @@ HIL runbook은 아직 실행하지 않았다. 다음 증거가 한 시험 디렉
 - cloud cut 전후 state/log, Gateway/ESP restart 복구 기록, execution event와 API ingested ACK의 exact identity/hash 대조
 
 이 기록이 생기기 전까지 실제 HIL 상태는 `미실행`이며, 메뉴 문서와 프로젝트 상태판의 완료 범위는 software 구현/검증으로만 해석한다.
+
+## Fix Round 4 RED/GREEN
+
+Fix Round 3 Re-review의 유일한 OPEN P1을 수정했다. 문제는 completed temp cleanup이 원본 temp의 marker를 먼저 unlink한 뒤 directory를 rmdir하는 동안, 원 publisher가 같은 temp를 empty fixed lock으로 rename하고 성공을 반환할 수 있다는 점이었다. 이 경우 다른 contender가 markerless fixed lock을 복구 대상으로 제거하거나 덮어써 same-output mutual exclusion이 깨진다.
+
+### RED
+
+1. reviewer가 재현한 `unlink(marker)`와 `rmdir(temp)` 사이 창을 deterministic filesystem wrapper로 고정하는 테스트를 먼저 추가했다. publisher는 complete marker를 쓴 뒤 `rename(temp, fixed)` 직전에 멈추고, cleaner는 같은 completed temp marker를 unlink한 뒤 original temp `rmdir` 직전에 멈춘다.
+2. 수정 전 `pnpm --filter @led-control/shared exec vitest run src/build-output-lock.test.ts -t 'prevents completed temp cleanup'`는 `expected 'fulfilled' to be 'rejected'`로 실패했다. publisher가 markerless fixed lock을 가진 것처럼 성공을 반환하는 기존 결함을 확인한 RED다.
+
+### GREEN
+
+1. temp cleanup은 원본 temp를 같은 parent의 unique `.quarantine-<uuid>` sibling path로 먼저 atomic rename한다. 이 rename이 성공한 뒤에만 해당 quarantine path 내부를 검사하고, empty directory 또는 exact regular `.owner.<token>` marker 하나만 정리한다.
+2. publisher가 먼저 `temp -> fixed` rename에 성공하면 cleaner의 `temp -> quarantine` rename은 `ENOENT`로 중단되고 fixed lock은 publisher marker를 보존한다.
+3. cleaner가 먼저 `temp -> quarantine` rename에 성공하면 publisher의 `temp -> fixed` rename은 `ENOENT`를 받고, 같은 token으로 새 temp를 다시 만들어 retry한다. retry/test token 재사용도 같은 경로로 검증했다.
+4. fixed lock directory는 quarantine하지 않고 기존 exact marker release/stale takeover만 유지한다. temp/quarantine symlink, non-directory, marker symlink, multi-entry와 external target은 따라가거나 삭제하지 않으며 fixed lock 획득을 막지 않는다.
+
+### Fix Round 4 검증
+
+| 명령 | 결과 |
+| --- | --- |
+| `pnpm --filter @led-control/shared exec vitest run src/build-output-lock.test.ts -t 'prevents completed temp cleanup'` | 수정 후 성공: 1 passed |
+| `pnpm --filter @led-control/shared exec vitest run src/build-output-lock.test.ts src/package-exports.test.ts -t 'shared build output lock|serializes concurrent builds'` | 성공: lock 26건과 실제 same-output concurrent build fixture 1건 통과 |
+| `pnpm --filter @led-control/shared test` | 성공: 9 files, 160 tests passed |
+| `pnpm typecheck` | 성공, exit code `0` |
+| `pnpm test` | 성공: root 15, mobile 1, shared 160, automation-engine 28, Web 352, API 738 passed 및 161 skipped, Gateway 559 passed |
+| `git diff --check` | 성공, 출력 없음 |
+
+### Fix Round 4 잔여 위험
+
+정리 불가능한 temp/quarantine symlink, non-directory, marker symlink, multi-entry artifact는 외부 경로를 건드리지 않기 위해 남을 수 있다. 이 artifact는 fixed lock 획득을 막지 않지만 parent directory 운영 정리는 별도로 필요할 수 있다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 여전히 미실행이다.

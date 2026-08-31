@@ -119,6 +119,31 @@ async function cleanOrphanTemps(lockPath) {
 }
 
 async function removeTemporaryDirectory(directory, token) {
+  const quarantinePath = await quarantineTemporaryDirectory(directory);
+  if (!quarantinePath) return false;
+  return removeQuarantinedTemporaryDirectory(quarantinePath, token);
+}
+
+async function quarantineTemporaryDirectory(directory) {
+  try {
+    const stats = await lstat(directory);
+    if (stats.isSymbolicLink() || !stats.isDirectory()) return false;
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+
+  const quarantinePath = `${directory}.quarantine-${randomUUID()}`;
+  try {
+    await rename(directory, quarantinePath);
+    return quarantinePath;
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
+async function removeQuarantinedTemporaryDirectory(directory, token) {
   let entries;
   try {
     const stats = await lstat(directory);
