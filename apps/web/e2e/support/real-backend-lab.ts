@@ -20,7 +20,7 @@ import {
   provisioningScanStartSchema
 } from "@led-control/shared";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { randomBytes, randomUUID, scrypt as scryptCallback, X509Certificate } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, X509Certificate } from "node:crypto";
 import { appendFileSync, chmodSync, closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -139,12 +139,14 @@ export function correlateAutomationExecutionEvidence(input: {
   for (const [key, event] of events) {
     const row = rows.get(key)!;
     const acknowledgement = acknowledgements.get(key)!;
+    const canonicalPayloadHash = canonicalAutomationExecutionPayloadHash(event);
     if (
       row.revision !== event.revision || row.kind !== event.kind || row.ruleId !== event.ruleId ||
       row.occurrenceKey !== event.occurrenceKey || !isDeepStrictEqual(row.payload, event.payload)
     ) throw new Error(`execution DB row mismatch: ${key}`);
-    if (!row.payloadHash || acknowledgement.reportPayloadHash !== row.payloadHash) {
-      throw new Error(`execution ACK hash mismatch: ${key}`);
+    if (row.payloadHash !== canonicalPayloadHash) throw new Error(`execution DB canonical hash mismatch: ${key}`);
+    if (acknowledgement.reportPayloadHash !== canonicalPayloadHash) {
+      throw new Error(`execution ACK canonical hash mismatch: ${key}`);
     }
     if (event.kind !== "action_result") continue;
     const action = automationExecutionActionResultPayloadV1Schema.parse(event.payload);
@@ -169,7 +171,8 @@ export function correlateAutomationExecutionEvidence(input: {
       brightness: targetResult.brightnessPercent,
       kind: event.kind,
       revision: event.revision,
-      occurrenceKey: event.occurrenceKey
+      occurrenceKey: event.occurrenceKey,
+      payloadHash: canonicalPayloadHash
     });
   }
   actions.sort((left, right) => Number(left.sequence) - Number(right.sequence));
@@ -180,6 +183,59 @@ export function correlateAutomationExecutionEvidence(input: {
     databaseRowCount: rows.size,
     actions
   };
+}
+
+export function inspectAutomationTelemetryOutbox(
+  value: unknown,
+  scope: { siteId: string; gatewayId: string }
+) {
+  if (!isJsonRecord(value) || value.version !== 2 || !isJsonRecord(value.scope) ||
+    value.scope.siteId !== scope.siteId || value.scope.gatewayId !== scope.gatewayId ||
+    !Number.isSafeInteger(value.nextSequence) || Number(value.nextSequence) < 0 ||
+    !Array.isArray(value.records) || (value.gap !== null && !isJsonRecord(value.gap)) ||
+    !isJsonRecord(value.acceptedHandoffs)) {
+    throw new Error("automation telemetry outbox identity or shape mismatch");
+  }
+  return {
+    version: 2,
+    siteId: scope.siteId,
+    gatewayId: scope.gatewayId,
+    nextSequence: Number(value.nextSequence),
+    pendingRecordCount: value.records.length,
+    pendingGap: value.gap !== null,
+    durableHandoffReceiptCount: Object.keys(value.acceptedHandoffs).length
+  };
+}
+
+function canonicalAutomationExecutionPayloadHash(
+  event: ReturnType<typeof automationExecutionEventV1Schema.parse>
+) {
+  const action = event.kind === "action_result"
+    ? automationExecutionActionResultPayloadV1Schema.parse(event.payload)
+    : null;
+  const value = action ? {
+    ...event,
+    payload: {
+      ...action,
+      results: [...action.results]
+        .sort((left, right) => left.fixtureId < right.fixtureId ? -1 : left.fixtureId > right.fixtureId ? 1 : 0)
+    }
+  } : event;
+  return `sha256:${createHash("sha256").update(JSON.stringify(sortCanonicalJson(value))).digest("hex")}`;
+}
+
+function sortCanonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortCanonicalJson);
+  if (!isJsonRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([key, child]) => [key, sortCanonicalJson(child)])
+  );
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export class RealBackendLab {
@@ -214,6 +270,7 @@ export class RealBackendLab {
   private mqtt?: MqttClient;
   private automationObserver?: MqttClient;
   private automationGateway?: ChildProcess;
+  private automationTelemetryOutboxPath?: string;
   private automationTarget?: AutomationFixture;
   private automationSensor?: AutomationFixture;
   private automationDatabaseEvidence?: Record<string, unknown>;
@@ -452,6 +509,8 @@ export class RealBackendLab {
     await mkdir(gatewayDir, { recursive: true, mode: 0o700 });
     const assignmentPath = join(gatewayDir, "assignment.json");
     const eventSequencePath = join(gatewayDir, "event-sequence.json");
+    const automationTelemetryOutboxPath = join(gatewayDir, "automation-telemetry.json");
+    this.automationTelemetryOutboxPath = automationTelemetryOutboxPath;
     await writeFile(assignmentPath, `${JSON.stringify({
       siteId: installation.siteId,
       gatewayId: this.gateway.id,
@@ -502,7 +561,7 @@ export class RealBackendLab {
         GATEWAY_MESH_GROUP_RESYNC_PATH: join(gatewayDir, "mesh-group-resync.json"),
         GATEWAY_AUTOMATION_CONFIG_PATH: join(gatewayDir, "automation-snapshot.json"),
         GATEWAY_AUTOMATION_STATE_PATH: join(gatewayDir, "automation-state.json"),
-        GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH: join(gatewayDir, "automation-telemetry.json"),
+        GATEWAY_AUTOMATION_TELEMETRY_OUTBOX_PATH: automationTelemetryOutboxPath,
         GATEWAY_AUTOMATION_ACK_OUTBOX_PATH: join(gatewayDir, "automation-config-acks.json"),
         GATEWAY_VEHICLE_SENSOR_CAPABILITY_JOURNAL_PATH: join(gatewayDir, "vehicle-sensor-capabilities.json")
       },
@@ -677,18 +736,25 @@ export class RealBackendLab {
           mqttEvidence: this.mqttEvidence,
           databaseRows
         });
+        const gatewayTelemetryOutbox = await this.readAutomationTelemetryOutbox();
+        if (gatewayTelemetryOutbox.pendingRecordCount !== 0 || gatewayTelemetryOutbox.pendingGap) {
+          throw new Error(
+            `Gateway automation telemetry outbox is pending: records=${gatewayTelemetryOutbox.pendingRecordCount}, gap=${gatewayTelemetryOutbox.pendingGap}`
+          );
+        }
         const phases = expectedAutomationActionPhases(correlated.actions);
         const signature = JSON.stringify({
           eventCount: correlated.uniqueProductionEventCount,
           ackCount: correlated.uniqueAckCount,
           databaseRowCount: correlated.databaseRowCount,
-          phases
+          phases,
+          gatewayTelemetryOutbox
         });
         if (signature !== stableSignature) {
           stableSignature = signature;
           stableSince = Date.now();
         } else if (Date.now() - stableSince >= 500) {
-          return { ...correlated, phases, databaseRows };
+          return { ...correlated, phases, databaseRows, gatewayTelemetryOutbox };
         }
       } catch (error) {
         lastError = error;
@@ -720,6 +786,17 @@ export class RealBackendLab {
       LEFT JOIN "ManualOverride" mo ON mo.id=ae."manualOverrideId"
       WHERE ae."gatewayId"=${sqlString(this.gateway.id)}
     `);
+  }
+
+  private async readAutomationTelemetryOutbox() {
+    const path = this.automationTelemetryOutboxPath;
+    const installation = this.requireInstallation();
+    if (!path) throw new Error("Gateway automation telemetry outbox path is unavailable");
+    const content = await readFile(path, "utf8");
+    return inspectAutomationTelemetryOutbox(JSON.parse(content), {
+      siteId: installation.siteId,
+      gatewayId: this.gateway.id
+    });
   }
 
   private assertCleanAutomationIngestion() {

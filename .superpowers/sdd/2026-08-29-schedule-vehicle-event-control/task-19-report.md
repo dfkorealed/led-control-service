@@ -255,3 +255,141 @@ TZ=UTC E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright tes
 - BLE adapter와 sensor source는 software simulator다. 실제 Raspberry Pi/BlueZ, ESP32-H2 firmware/RF, packet loss, reboot/power-loss HIL은 별도 검증 범위다.
 - Fixture의 동일 물리 변화에서 mesh publication과 reported state가 연속 도착하면 API가 후행 과거 timestamp를 documented `reverse_time`으로 ACK할 수 있다. 이 상태는 latest snapshot을 퇴행시키지 않으며 Fix Round 1 clean error gate의 실패 패턴은 아니다.
 - Workspace shared build cleanup은 동시 pretypecheck에서 드물게 `unlink ENOENT` race가 있다. 재실행은 통과했지만 build tooling 자체의 원자성 보강은 Task 19 범위 밖이다.
+
+---
+
+## Fix Round 2 결과
+
+기준일: 2026-08-31
+
+- 상태: 신규 `P1-R1-1`, `P2-R1-1`, `P2-R1-2` 수정 완료
+- 최종 Chromium: `1 passed (44.7s)`, test body `22.3s`
+- 최종 execution oracle: production Gateway unique event `10`, API exact ACK `10`, PostgreSQL row `10`
+- Gateway telemetry outbox: `nextSequence=10`, pending records `0`, pending gap `false`
+- API/Gateway clean-log gate: `UNEXPECTED_ERROR`, `P2028`, inbound ingest failure, Gateway MQTT failure 모두 `0`
+
+### Fix Round 2 RED
+
+1. MQTT focused test에서 한 Site/Gateway queue에 256개 작업을 유지한 뒤 실제 MQTT.js publish handler로 257번째 non-fixture QoS 1 packet을 전달했다. 기존 구현은 capacity 확보 전에 `done(0)`을 호출해 message listener와 PUBACK을 진행했고, 257번째 handler는 뒤늦게 reject됐다. 첫 RED는 13개 중 6개 실패로 조기 PUBACK, packet identity 부재, duplicate 처리 부재, abort/shutdown waiter 부재를 함께 드러냈다.
+2. 20260903 trigger를 적용한 실제 PostgreSQL schema에 `payload.sourceId=ManualOverride.id` legacy execution을 저장하고 20260904 migration을 적용했다. 기존 함수는 payload no-op UPDATE에서 `23514 manual execution cannot contain ruleId`를 발생시켰다. 정적 migration 계약도 legacy PK/command ID 호환 branch 부재로 RED였다.
+3. RealBackendLab support fixture는 captured event와 무관한 `sha256:aaaa...`를 ACK와 DB 양쪽에 넣어도 기존 oracle이 성공했다. `canonical hash mismatch`를 기대한 테스트가 throw하지 않아 RED가 됐다.
+
+### Fix Round 2 GREEN
+
+- API MQTT queue는 Site/Gateway별 최대 256개의 acquired permit을 유지한다. Capacity가 찼을 때 custom ACK callback은 waiter로 남고, permit이 release된 뒤에만 257번째 packet을 예약하고 MQTT.js callback을 실행한다. 따라서 broker QoS 1 delivery는 capacity 확보 전 PUBACK되지 않는다.
+- `customHandleAcks`가 받은 `IPublishPacket` 객체와 topic을 permit identity로 저장하고 MQTT.js가 동기 emit한 동일 message listener만 이를 소비한다. 같은 packet의 중복 custom callback과 listener는 한 번만 처리하며 wrong packet/topic은 `_sendPacket(puback)` 전에 throw하고 transport를 닫는다. Handler 성공/throw, transport close, shutdown, 포화 waiter 모두 idempotent release하고 queue/map이 0으로 수렴한다.
+- 20260904 trigger는 실행 row의 `manualOverrideId`가 가리키는 같은 `ManualOverride`에서 `payload.sourceId=override.id` legacy 형식 또는 `payload.sourceId=override.commandId` 현재 형식만 허용한다. 기존 `AutomationExecution.payload`/`payloadHash` rewrite는 없다. 최종 Site/Gateway owner 비교는 두 형식 모두에 동일하게 적용된다.
+- RealBackendLab은 production Gateway child에서 캡처한 execution event를 local 독립 canonical JSON/hash 구현으로 계산한다. Action result는 fixture ID로 정렬하고 전체 object key를 재귀 정렬한 SHA-256을 event 기준값으로 삼아 API ACK와 DB hash를 각각 비교한다.
+- Oracle은 Gateway runtime에 넘긴 실제 telemetry outbox 경로를 직접 읽고 version, Site/Gateway scope, next sequence, pending records와 gap을 검사한다. ACK/DB가 10/10이어도 outbox record가 남거나 gap이 있으면 stable GREEN으로 반환하지 않는다.
+
+### 실제 process topology와 broker backpressure
+
+기존 Fix Round 1 topology를 유지한다. Playwright worker가 격리 PostgreSQL/Redis/mTLS Mosquitto, production API/Web과 production Gateway child를 소유하고 센서/시계는 token 검증 private child IPC로만 제어한다. HTTP/UI/public API endpoint와 production bundle 원격 제어 surface는 추가하지 않았다.
+
+API inbound의 non-fixture QoS 1 흐름은 다음 순서다.
+
+1. MQTT.js가 `customHandleAcks(topic, payload, packet, done)`을 호출한다.
+2. API가 packet/topic에 결속된 bounded Gateway permit을 먼저 예약한다. 포화 시 `done`을 호출하지 않는다.
+3. Capacity가 확보된 뒤 `done(0)`을 호출하면 MQTT.js가 동일 packet으로 `message`를 동기 emit한다.
+4. API listener가 permit을 exact once 소비해 serial handler로 넘긴다.
+5. Listener 반환 뒤에만 MQTT.js가 PUBACK을 전송한다. Handler 완료/실패는 permit을 한 번 release한다.
+6. Capacity 대기 중 transport abort 또는 shutdown이면 waiter와 미소비 packet reservation을 취소하고 PUBACK 없이 broker redelivery를 보존한다.
+
+### PostgreSQL upgrade evidence
+
+`AUTOMATION_SCHEMA_TEST_DATABASE_URL`로 실제 PostgreSQL 16의 격리 schema를 만들고 20260902 function, 원 trigger, 20260903 update trigger를 순서대로 적용했다. 20260903 상태에서 아래 legacy row를 저장한 뒤 20260904를 적용했다.
+
+```json
+{
+  "executionId": "legacy-execution",
+  "manualOverrideId": "override-a",
+  "payloadSourceId": "override-a",
+  "commandId": "command-a",
+  "payloadHash": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+}
+```
+
+Migration 전후 `payload::text`와 `payloadHash` 결합값은 exact 동일했다. 적용 뒤 legacy row의 trigger 대상 payload UPDATE, 신규 `sourceId=command-a` insert는 성공했고, cross-tenant `override-b`, unrelated source, 다른 override PK source는 모두 `23514`로 거부됐다. Test 종료 시 격리 schema를 drop했다.
+
+### DB/MQTT canonical evidence
+
+최종 Chromium scope:
+
+```json
+{
+  "siteId": "d4c9fc33-5d25-45f9-b36f-c8ae2d88acd1",
+  "gatewayId": "1969f9a0-bc4a-43ac-94ed-4eeb53c167f1",
+  "scheduleCount": 1,
+  "vehicleEventRuleCount": 1,
+  "manualOverrideCount": 1,
+  "desiredRevision": 2,
+  "appliedRevision": 2,
+  "syncStatus": "APPLIED",
+  "targetBrightness": 40,
+  "uniqueProductionEventCount": 10,
+  "uniqueAckCount": 10,
+  "databaseRowCount": 10,
+  "telemetryOutboxPendingRecords": 0,
+  "telemetryOutboxPendingGap": false
+}
+```
+
+Manual exact binding과 independently verified canonical hash:
+
+```json
+{
+  "eventId": "37d692b2-617d-43da-91cc-d52087e11c26",
+  "sequence": 6,
+  "payloadSourceId": "e3cb1059-8705-4ad2-90ba-837d35c2237b",
+  "manualCommandId": "e3cb1059-8705-4ad2-90ba-837d35c2237b",
+  "manualOverrideId": "4fbea5cc-6eac-4196-93ec-0ff0abd490f3",
+  "eventAckDbPayloadHash": "sha256:7a9ad0baba08bba3c3af87577de49039b848e91ed36a8558333a670a80f0a6c0"
+}
+```
+
+Action-result sequence는 schedule `40`(seq 2, rev 1), vehicle `80`(seq 5, rev 2), manual `60`(seq 6, rev 2), vehicle resume `80`(seq 7, rev 2), schedule resume `40`(seq 10, rev 2)다. Lifecycle을 포함한 sequence 1~10의 event canonical hash, ACK `reportPayloadHash`, DB `payloadHash`가 모두 같다. Observer의 execution publish 13건은 QoS 1 replay를 포함하지만 unique event identity는 10건이고 exact ACK/DB도 각각 10건이다.
+
+통제 시계 phase evidence는 `60 -> 80 -> 80 -> 80 -> 40`이며 manual deadline 직전/직후와 clear 직후/hold deadline 직전/직후 원인 순서를 유지했다.
+
+### 실행 명령과 결과
+
+```bash
+pnpm --filter @led-control/api exec jest src/mqtt/mqtt-v2-state.spec.ts --runInBand
+# 14 passed; 실제 MQTT.js publish handler의 listener -> PUBACK 순서 포함
+
+AUTOMATION_SCHEMA_TEST_DATABASE_URL='postgresql://.../postgres' \
+  pnpm --filter @led-control/api exec jest src/automation/automation-schema.spec.ts --runInBand \
+  -t 'binds legacy override|manual execution source 20260903 upgrade compatibility'
+# 3 passed; 실제 PostgreSQL legacy upgrade 2건 포함
+
+pnpm --filter @led-control/gateway exec vitest run \
+  src/automation/automation-telemetry-outbox.test.ts \
+  src/automation/automation-telemetry-coordinator.test.ts \
+  src/automation/software-automation-simulator.test.ts
+# 3 files, 53 passed
+
+E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test \
+  e2e/real-backend-lab-support.spec.ts --project=chromium
+# 13 passed
+
+pnpm typecheck && pnpm test
+# exit 0; root 15, mobile 1, shared 133, automation-engine 28, Web 352, Gateway 558 포함 전체 workspace GREEN
+
+TZ=UTC E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test \
+  e2e/automation-control-flow.spec.ts --project=chromium
+# 1 passed (44.7s), test body 22.3s
+```
+
+### Cleanup
+
+- 최종 run 종료 뒤 `15173`, `14000`, `15432`, `16379`, `18883` listener는 모두 `0`건이고 Task 19 Gateway/API/Web/PostgreSQL/Redis/Mosquitto child process는 남지 않았다.
+- 이번 `task9-*` lab run directory는 제거됐다. `.local/e2e-real-backend`에 남은 디렉터리는 모두 2026-08-27 이전의 기존 Task 11 자료이므로 수정하지 않았다.
+- PostgreSQL upgrade test의 임시 schema는 `afterAll`에서 drop했다. 기존 Docker PostgreSQL container 자체는 이 작업 소유가 아니므로 중지하거나 삭제하지 않았다.
+- Dependency setup, migration, mTLS, child readiness, background drain, MQTT close, pending IPC 또는 oracle 실패에는 skip이 없고 failure와 cleanup error가 전파된다.
+
+### Production fail-closed와 coverage 경계
+
+- Simulator production-forbidden, exact two-env activation, private IPC token/type/request/fixture/edge validation, production identity validation/certificate rotation startup 계약은 Fix Round 1과 동일하게 유지되고 전체 regression을 통과했다.
+- MQTT bounded permit은 production API runtime 내부 구현이며 HTTP endpoint나 별도 network listener를 만들지 않는다. Packet identity는 MQTT.js process 내부 객체로만 전달한다.
+- Software E2E는 유효한 사전 발급 certificate를 사용하므로 bootstrap certificate 재발급과 live rotation activation을 증명하지 않는다.
+- BLE adapter와 sensor source는 software simulator다. 실제 Raspberry Pi/BlueZ, ESP32-H2 firmware/RF, packet loss, reboot/power-loss HIL은 미실행이다.

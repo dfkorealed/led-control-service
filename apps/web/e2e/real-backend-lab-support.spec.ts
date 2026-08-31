@@ -333,7 +333,7 @@ test("automation oracle은 lab 자기 발행을 제외하고 production event의
   const eventId = "00000000-0000-4000-8000-000000000021";
   const ruleId = "00000000-0000-4000-8000-000000000022";
   const fixtureId = "00000000-0000-4000-8000-000000000023";
-  const payloadHash = `sha256:${"a".repeat(64)}`;
+  const fakePayloadHash = `sha256:${"a".repeat(64)}`;
   const event = {
     schemaVersion: 1,
     eventId,
@@ -380,7 +380,7 @@ test("automation oracle은 lab 자기 발행을 제외하고 production event의
     ruleId,
     occurrenceKey: "schedule-occurrence-21",
     payload: event.payload,
-    payloadHash,
+    payloadHash: fakePayloadHash,
     lightingScheduleId: ruleId,
     vehicleEventRuleId: null,
     manualOverrideId: null,
@@ -397,7 +397,7 @@ test("automation oracle은 lab 자기 발행을 제외하고 production event의
 
   expect(() => correlate(input)).toThrow("pending execution ACK");
 
-  const result = correlate({
+  const withFakeAck = {
     ...input,
     mqttEvidence: [...input.mqttEvidence, {
       direction: "automation-observer",
@@ -409,10 +409,22 @@ test("automation oracle은 lab 자기 발행을 제외하고 production event의
         gatewayId,
         eventId,
         sequence: 21,
-        reportPayloadHash: payloadHash,
+        reportPayloadHash: fakePayloadHash,
         ingestedAt: "2026-08-31T04:00:01.000Z"
       }
     }]
+  };
+  expect(() => correlate(withFakeAck)).toThrow("canonical hash mismatch");
+
+  const payloadHash = "sha256:2056eb3e2f42a19fbcd81f1ddd125798452746edb1cf1c2b31d39644ef60a769";
+  const result = correlate({
+    ...withFakeAck,
+    mqttEvidence: withFakeAck.mqttEvidence.map((evidence) => (
+      evidence.topic === ackTopic
+        ? { ...evidence, payload: { ...evidence.payload, reportPayloadHash: payloadHash } }
+        : evidence
+    )),
+    databaseRows: databaseRows.map((row) => ({ ...row, payloadHash }))
   });
   expect(result).toMatchObject({
     uniqueProductionEventCount: 1,
@@ -420,6 +432,33 @@ test("automation oracle은 lab 자기 발행을 제외하고 production event의
     databaseRowCount: 1,
     actions: [{ sourceType: "schedule", brightness: 40, revision: 2 }]
   });
+});
+
+test("automation oracle은 production Gateway durable telemetry outbox의 scope와 drain을 직접 검증한다", () => {
+  const inspect = (labSupport as unknown as {
+    inspectAutomationTelemetryOutbox: (
+      value: unknown,
+      scope: { siteId: string; gatewayId: string }
+    ) => Record<string, unknown>;
+  }).inspectAutomationTelemetryOutbox;
+  const scope = { siteId: "site-1", gatewayId: "gateway-1" };
+  const base = {
+    version: 2,
+    scope,
+    nextSequence: 10,
+    records: [],
+    gap: null,
+    acceptedHandoffs: { handoff: { outcome: "records" } }
+  };
+
+  expect(inspect(base, scope)).toMatchObject({
+    pendingRecordCount: 0,
+    pendingGap: false,
+    durableHandoffReceiptCount: 1
+  });
+  expect(inspect({ ...base, records: [{}] }, scope)).toMatchObject({ pendingRecordCount: 1 });
+  expect(inspect({ ...base, gap: { droppedCount: 1 } }, scope)).toMatchObject({ pendingGap: true });
+  expect(() => inspect(base, { ...scope, gatewayId: "gateway-2" })).toThrow("identity or shape mismatch");
 });
 
 async function waitForFile(path: string) {

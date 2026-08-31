@@ -235,17 +235,15 @@ describe("automation Prisma schema contract", () => {
     expect(executionUpdateTriggerMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
-  it("binds a manual execution command source to the ManualOverride primary key", () => {
+  it("binds legacy override and current command manual sources to one ManualOverride owner", () => {
     expect(manualCommandExecutionMigration.trimStart().startsWith("BEGIN;")).toBe(true);
-    expect(manualCommandExecutionMigration).toContain(
-      'override."id" = NEW."manualOverrideId"'
-    );
-    expect(manualCommandExecutionMigration).toContain(
-      'override."commandId" = snapshot_source_id'
+    expect(manualCommandExecutionMigration).toMatch(
+      /override\."id" = NEW\."manualOverrideId"[\s\S]*\(\s*override\."id" = snapshot_source_id[\s\S]*OR override\."commandId" = snapshot_source_id\s*\)/
     );
     expect(manualCommandExecutionMigration).not.toContain(
       'NEW."manualOverrideId" IS DISTINCT FROM snapshot_source_id'
     );
+    expect(manualCommandExecutionMigration).not.toContain('UPDATE "AutomationExecution"');
     expect(manualCommandExecutionMigration.trimEnd().endsWith("COMMIT;")).toBe(true);
   });
 
@@ -1969,6 +1967,97 @@ describeWithPostgres("automation migration PostgreSQL constraints", () => {
   });
 });
 
+describeWithPostgres("manual execution source 20260903 upgrade compatibility", () => {
+  const schemaName = "automation_manual_source_upgrade";
+  const scopedSql = (sql: string) => `SET search_path TO "${schemaName}";\n${sql}`;
+  let legacyBeforeUpgrade = "";
+  const legacyPayload = JSON.stringify({
+    sourceType: "manual_override",
+    sourceId: "override-a",
+    results: [{ fixtureId: "fixture-a", brightness: 60 }]
+  });
+  const legacyHash = `sha256:${"1".repeat(64)}`;
+
+  beforeAll(() => {
+    executeSql(manualExecutionUpgradeSchemaSql(schemaName));
+    executeSql(scopedSql(snapshotBackedExecutionMigration));
+    executeSql(scopedSql(`
+      CREATE TRIGGER "AutomationExecution_source_check"
+      BEFORE INSERT OR UPDATE OF
+        "siteId", "gatewayId", "ruleId", "lightingScheduleId", "vehicleEventRuleId", "manualOverrideId", "kind"
+      ON "AutomationExecution"
+      FOR EACH ROW EXECUTE FUNCTION "validate_automation_execution_source"();
+    `));
+    executeSql(scopedSql(executionUpdateTriggerMigration));
+    executeSql(scopedSql(`
+      INSERT INTO "ManualOverride" ("id", "commandId", "siteId", "gatewayId") VALUES
+        ('override-a', 'command-a', 'site-a', 'gateway-a'),
+        ('override-b', 'command-b', 'site-b', 'gateway-b');
+      INSERT INTO "AutomationExecution" (
+        "id", "siteId", "gatewayId", "revision", "ruleId", "lightingScheduleId",
+        "vehicleEventRuleId", "manualOverrideId", "kind", "payload", "payloadHash"
+      ) VALUES (
+        'legacy-execution', 'site-a', 'gateway-a', 17, NULL, NULL, NULL, 'override-a',
+        'action_result', '${legacyPayload}'::jsonb, '${legacyHash}'
+      );
+    `));
+    legacyBeforeUpgrade = querySql(scopedSql(`
+      SELECT "payload"::text || E'\\n' || "payloadHash"
+      FROM "AutomationExecution" WHERE "id" = 'legacy-execution';
+    `));
+    executeSql(scopedSql(manualCommandExecutionMigration));
+  });
+
+  afterAll(() => {
+    executeSql(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;`);
+  });
+
+  it("upgrades without rewriting the legacy immutable payload or hash", () => {
+    executeSql(scopedSql(`
+      UPDATE "AutomationExecution" SET "payload" = "payload" WHERE "id" = 'legacy-execution';
+    `));
+
+    expect(querySql(scopedSql(`
+      SELECT "payload"::text || E'\\n' || "payloadHash"
+      FROM "AutomationExecution" WHERE "id" = 'legacy-execution';
+    `))).toBe(legacyBeforeUpgrade);
+    expect(legacyBeforeUpgrade).toContain(legacyHash);
+    expect(legacyBeforeUpgrade).toContain('"sourceId": "override-a"');
+  });
+
+  it("accepts commandId sources and rejects cross-owner or unrelated sources", () => {
+    executeSql(scopedSql(manualExecutionUpgradeInsert({
+      id: "command-source-execution",
+      siteId: "site-a",
+      gatewayId: "gateway-a",
+      manualOverrideId: "override-a",
+      sourceId: "command-a"
+    })));
+
+    expectSqlFailure(scopedSql(manualExecutionUpgradeInsert({
+      id: "cross-owner-execution",
+      siteId: "site-a",
+      gatewayId: "gateway-a",
+      manualOverrideId: "override-b",
+      sourceId: "command-b"
+    })), "execution source owner does not match execution owner");
+    expectSqlFailure(scopedSql(manualExecutionUpgradeInsert({
+      id: "wrong-source-execution",
+      siteId: "site-a",
+      gatewayId: "gateway-a",
+      manualOverrideId: "override-a",
+      sourceId: "not-command-or-override"
+    })), "manual execution cannot contain ruleId");
+    expectSqlFailure(scopedSql(manualExecutionUpgradeInsert({
+      id: "other-override-source-execution",
+      siteId: "site-a",
+      gatewayId: "gateway-a",
+      manualOverrideId: "override-a",
+      sourceId: "override-b"
+    })), "manual execution cannot contain ruleId");
+  });
+});
+
 const validPayloadHash = `sha256:${"a".repeat(64)}`;
 
 function configurationInsert(
@@ -2150,6 +2239,49 @@ function equalTimeMigrationTestSchemaSql(schemaName: string) {
       "payload" JSONB NOT NULL,
       "publishedAt" TIMESTAMP,
       "deadLetteredAt" TIMESTAMP
+    );
+  `;
+}
+
+function manualExecutionUpgradeSchemaSql(schemaName: string) {
+  return `
+    DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;
+    CREATE SCHEMA "${schemaName}";
+    SET search_path TO "${schemaName}";
+    CREATE TABLE "LightingSchedule" ("id" TEXT PRIMARY KEY, "siteId" TEXT NOT NULL, "gatewayId" TEXT NOT NULL);
+    CREATE TABLE "VehicleEventRule" ("id" TEXT PRIMARY KEY, "siteId" TEXT NOT NULL, "gatewayId" TEXT NOT NULL);
+    CREATE TABLE "ManualOverride" (
+      "id" TEXT PRIMARY KEY, "commandId" TEXT NOT NULL UNIQUE, "siteId" TEXT NOT NULL, "gatewayId" TEXT NOT NULL
+    );
+    CREATE TABLE "MqttOutbox" (
+      "id" TEXT PRIMARY KEY, "dispatchId" TEXT, "applicationAckKey" TEXT, "gatewayId" TEXT,
+      "revision" BIGINT, "payloadHash" TEXT, "payload" JSONB NOT NULL
+    );
+    CREATE TABLE "AutomationExecution" (
+      "id" TEXT PRIMARY KEY, "siteId" TEXT NOT NULL, "gatewayId" TEXT NOT NULL,
+      "revision" BIGINT NOT NULL, "ruleId" TEXT, "lightingScheduleId" TEXT,
+      "vehicleEventRuleId" TEXT, "manualOverrideId" TEXT, "kind" TEXT NOT NULL,
+      "payload" JSONB NOT NULL, "payloadHash" TEXT NOT NULL
+    );
+  `;
+}
+
+function manualExecutionUpgradeInsert(input: {
+  id: string;
+  siteId: string;
+  gatewayId: string;
+  manualOverrideId: string;
+  sourceId: string;
+}) {
+  return `
+    INSERT INTO "AutomationExecution" (
+      "id", "siteId", "gatewayId", "revision", "ruleId", "lightingScheduleId",
+      "vehicleEventRuleId", "manualOverrideId", "kind", "payload", "payloadHash"
+    ) VALUES (
+      '${input.id}', '${input.siteId}', '${input.gatewayId}', 18, NULL, NULL, NULL,
+      '${input.manualOverrideId}', 'action_result',
+      '{"sourceType":"manual_override","sourceId":"${input.sourceId}","results":[]}'::jsonb,
+      'sha256:${"2".repeat(64)}'
     );
   `;
 }

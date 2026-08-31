@@ -105,7 +105,10 @@ BEGIN
         SELECT 1
         FROM "ManualOverride" AS override
         WHERE override."id" = NEW."manualOverrideId"
-          AND override."commandId" = snapshot_source_id
+          AND (
+            override."id" = snapshot_source_id
+            OR override."commandId" = snapshot_source_id
+          )
       ) THEN
         RAISE EXCEPTION 'manual execution cannot contain ruleId' USING ERRCODE = '23514';
       END IF;

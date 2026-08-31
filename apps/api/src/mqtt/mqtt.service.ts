@@ -28,7 +28,7 @@ import {
   type ApplicationStateIngestedAckV2
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
-import mqtt, { IClientOptions, MqttClient } from "mqtt";
+import mqtt, { IClientOptions, IPublishPacket, MqttClient } from "mqtt";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
@@ -48,7 +48,28 @@ const MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY = 256;
 interface GatewayInboundQueue {
   pending: number;
   tail: Promise<void>;
+  waiters: GatewayInboundWaiter[];
 }
+
+interface GatewayInboundWaiter {
+  resolve: (permit: GatewayInboundPermit) => void;
+  reject: (error: Error) => void;
+}
+
+interface GatewayInboundPermit {
+  key: string;
+  queue: GatewayInboundQueue;
+  released: boolean;
+}
+
+interface InboundPacketPermit {
+  topic: string;
+  permit: GatewayInboundPermit | null;
+  consumed: boolean;
+  aborted: boolean;
+}
+
+class InboundQueueAbortedError extends Error {}
 
 @Injectable()
 export class MqttService implements OnModuleInit {
@@ -58,8 +79,11 @@ export class MqttService implements OnModuleInit {
   private inboundStopPromise: Promise<void> | null = null;
   private readonly activeInboundHandlers = new Set<Promise<void>>();
   private readonly gatewayInboundQueues = new Map<string, GatewayInboundQueue>();
+  private readonly inboundPacketPermits = new Map<IPublishPacket, InboundPacketPermit>();
+  private readonly seenInboundPackets = new WeakSet<IPublishPacket>();
   private connectListener: (() => void) | null = null;
-  private messageListener: ((topic: string, payload: Buffer) => void) | null = null;
+  private messageListener: ((topic: string, payload: Buffer, packet?: IPublishPacket) => void) | null = null;
+  private closeListener: (() => void) | null = null;
   private inboundStopped = false;
   private closing = false;
   private readonly fixtureStateIngestion: Pick<FixtureStateIngestionService, "ingest">;
@@ -96,9 +120,11 @@ export class MqttService implements OnModuleInit {
         "sites/+/gateways/+/events/automation/vehicle-sensor-capability"
       ], { qos: 1 });
     };
-    this.messageListener = (topic, payload) => this.startInboundHandler(topic, payload);
+    this.messageListener = (topic, payload, packet) => this.acceptInboundMessage(topic, payload, packet);
+    this.closeListener = () => this.abortPendingInboundReservations();
     client.on("connect", this.connectListener);
     client.on("message", this.messageListener);
+    client.on("close", this.closeListener);
   }
 
   async publishProvisioningScanStart(input: ProvisioningScanStartPayload) {
@@ -183,23 +209,67 @@ export class MqttService implements OnModuleInit {
       const client = this.client;
       if (client && this.connectListener) client.removeListener("connect", this.connectListener);
       if (client && this.messageListener) client.removeListener("message", this.messageListener);
+      if (client && this.closeListener) client.removeListener("close", this.closeListener);
       this.connectListener = null;
       this.messageListener = null;
+      this.closeListener = null;
+      this.abortPendingInboundReservations();
       this.inboundStopPromise = Promise.all([...this.activeInboundHandlers]).then(() => undefined);
     }
     return this.inboundStopPromise;
   }
 
-  private startInboundHandler(topic: string, payload: Buffer) {
-    if (this.inboundStopped) return;
+  private acceptInboundMessage(topic: string, payload: Buffer, packet?: IPublishPacket) {
+    if (topic.endsWith("/state/fixtures")) return;
+
+    if (!packet || packet.qos !== 1) {
+      this.startInboundHandler(topic, payload);
+      return;
+    }
+
+    const reservation = this.inboundPacketPermits.get(packet);
+    if (!reservation) {
+      throw new Error("MQTT QoS 1 message listener received an unreserved packet identity");
+    }
+    if (reservation.topic !== topic) {
+      this.releaseInboundPacketReservation(packet, reservation);
+      throw new Error("MQTT QoS 1 packet reservation topic mismatch");
+    }
+    if (reservation.consumed) return;
+    if (!reservation.permit || reservation.aborted || this.inboundStopped) {
+      this.releaseInboundPacketReservation(packet, reservation);
+      throw new Error("MQTT QoS 1 packet reservation is unavailable");
+    }
+
+    reservation.consumed = true;
+    this.startInboundHandler(topic, payload, reservation.permit, () => {
+      this.inboundPacketPermits.delete(packet);
+    });
+  }
+
+  private startInboundHandler(
+    topic: string,
+    payload: Buffer,
+    permit?: GatewayInboundPermit,
+    onComplete?: () => void
+  ) {
+    if (this.inboundStopped) {
+      if (permit) this.releaseGatewayInboundPermit(permit);
+      onComplete?.();
+      return;
+    }
 
     let handler!: Promise<void>;
-    handler = Promise.resolve()
-      .then(() => this.runInGatewayInboundQueue(topic, () => this.handleMessage(topic, payload)))
+    const operation = () => this.handleMessage(topic, payload);
+    handler = (permit
+      ? this.runWithGatewayInboundPermit(permit, operation)
+      : this.runInGatewayInboundQueue(topic, operation))
       .catch((error) => {
+        if (error instanceof InboundQueueAbortedError) return;
         this.logger.error(`mqtt inbound message handling failed (error=${this.errorKind(error)})`);
       })
       .finally(() => {
+        onComplete?.();
         this.activeInboundHandlers.delete(handler);
       });
     this.activeInboundHandlers.add(handler);
@@ -267,8 +337,12 @@ export class MqttService implements OnModuleInit {
 
   private createCustomHandleAcks(): NonNullable<IClientOptions["customHandleAcks"]> {
     return (topic, payload, packet, done) => {
-      if (packet.qos !== 1 || !topic.endsWith("/state/fixtures")) {
+      if (packet.qos !== 1) {
         done(0);
+        return;
+      }
+      if (!topic.endsWith("/state/fixtures")) {
+        this.reserveInboundPacketBeforeAck(topic, packet, done);
         return;
       }
       if (this.inboundStopped) {
@@ -289,27 +363,143 @@ export class MqttService implements OnModuleInit {
     };
   }
 
-  private runInGatewayInboundQueue<T>(topic: string, operation: () => Promise<T>): Promise<T> {
-    const scope = parseGatewayTopic(topic);
-    const key = scope ? `${scope.siteId}:${scope.gatewayId}` : `unscoped:${topic}`;
-    let queue = this.gatewayInboundQueues.get(key);
-    if (!queue) {
-      queue = { pending: 0, tail: Promise.resolve() };
-      this.gatewayInboundQueues.set(key, queue);
-    }
-    if (queue.pending >= MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY) {
-      return Promise.reject(new Error("MQTT inbound Gateway queue capacity exceeded"));
+  private reserveInboundPacketBeforeAck(
+    topic: string,
+    packet: IPublishPacket,
+    done: Parameters<NonNullable<IClientOptions["customHandleAcks"]>>[3]
+  ) {
+    if (this.seenInboundPackets.has(packet)) return;
+    this.seenInboundPackets.add(packet);
+
+    if (this.inboundStopped || !this.hasActiveMessageListener()) {
+      this.client?.stream.destroy();
+      return;
     }
 
-    queue.pending += 1;
+    const reservation: InboundPacketPermit = {
+      topic,
+      permit: null,
+      consumed: false,
+      aborted: false
+    };
+    this.inboundPacketPermits.set(packet, reservation);
+
+    let handler!: Promise<void>;
+    handler = this.reserveGatewayInboundPermit(topic)
+      .then((permit) => {
+        reservation.permit = permit;
+        if (reservation.aborted || this.inboundStopped || this.inboundPacketPermits.get(packet) !== reservation) {
+          this.releaseGatewayInboundPermit(permit);
+          return;
+        }
+
+        try {
+          done(0);
+        } catch (error) {
+          this.releaseInboundPacketReservation(packet, reservation);
+          this.rejectInboundDelivery(error);
+          return;
+        }
+
+        if (!reservation.consumed) {
+          this.releaseInboundPacketReservation(packet, reservation);
+          this.rejectInboundDelivery(new Error("MQTT QoS 1 packet permit was not consumed by the message listener"));
+        }
+      })
+      .catch((error) => {
+        const failClosed = !reservation.aborted && !this.inboundStopped &&
+          !(error instanceof InboundQueueAbortedError);
+        this.releaseInboundPacketReservation(packet, reservation);
+        if (failClosed) this.rejectInboundDelivery(error);
+      })
+      .finally(() => this.activeInboundHandlers.delete(handler));
+    this.activeInboundHandlers.add(handler);
+  }
+
+  private hasActiveMessageListener() {
+    const client = this.client;
+    return Boolean(client && this.messageListener && client.listeners("message").includes(this.messageListener));
+  }
+
+  private gatewayInboundQueueKey(topic: string) {
+    const scope = parseGatewayTopic(topic);
+    return scope ? `${scope.siteId}:${scope.gatewayId}` : `unscoped:${topic}`;
+  }
+
+  private reserveGatewayInboundPermit(topic: string): Promise<GatewayInboundPermit> {
+    if (this.inboundStopped) return Promise.reject(new InboundQueueAbortedError("MQTT inbound is stopped"));
+
+    const key = this.gatewayInboundQueueKey(topic);
+    let queue = this.gatewayInboundQueues.get(key);
+    if (!queue) {
+      queue = { pending: 0, tail: Promise.resolve(), waiters: [] };
+      this.gatewayInboundQueues.set(key, queue);
+    }
+    if (queue.pending < MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY) {
+      queue.pending += 1;
+      return Promise.resolve({ key, queue, released: false });
+    }
+
+    return new Promise<GatewayInboundPermit>((resolve, reject) => {
+      queue!.waiters.push({ resolve, reject });
+    });
+  }
+
+  private async runInGatewayInboundQueue<T>(topic: string, operation: () => Promise<T>): Promise<T> {
+    const permit = await this.reserveGatewayInboundPermit(topic);
+    return this.runWithGatewayInboundPermit(permit, operation);
+  }
+
+  private runWithGatewayInboundPermit<T>(permit: GatewayInboundPermit, operation: () => Promise<T>): Promise<T> {
+    const { queue } = permit;
     const result = queue.tail.then(operation);
     queue.tail = result.then(() => undefined, () => undefined);
     return result.finally(() => {
-      queue!.pending -= 1;
-      if (queue!.pending === 0 && this.gatewayInboundQueues.get(key) === queue) {
-        this.gatewayInboundQueues.delete(key);
-      }
+      this.releaseGatewayInboundPermit(permit);
     });
+  }
+
+  private releaseGatewayInboundPermit(permit: GatewayInboundPermit) {
+    if (permit.released) return;
+    permit.released = true;
+
+    const { key, queue } = permit;
+    const waiter = queue.waiters.shift();
+    if (waiter) {
+      waiter.resolve({ key, queue, released: false });
+      return;
+    }
+
+    queue.pending -= 1;
+    if (queue.pending === 0 && this.gatewayInboundQueues.get(key) === queue) {
+      this.gatewayInboundQueues.delete(key);
+    }
+  }
+
+  private releaseInboundPacketReservation(packet: IPublishPacket, reservation: InboundPacketPermit) {
+    if (this.inboundPacketPermits.get(packet) === reservation) this.inboundPacketPermits.delete(packet);
+    reservation.aborted = true;
+    if (reservation.permit) this.releaseGatewayInboundPermit(reservation.permit);
+  }
+
+  private abortPendingInboundReservations() {
+    const error = new InboundQueueAbortedError("MQTT inbound transport stopped before capacity was available");
+    for (const queue of this.gatewayInboundQueues.values()) {
+      const waiters = queue.waiters.splice(0);
+      for (const waiter of waiters) waiter.reject(error);
+    }
+    for (const [packet, reservation] of this.inboundPacketPermits) {
+      if (reservation.consumed) continue;
+      this.releaseInboundPacketReservation(packet, reservation);
+    }
+  }
+
+  private rejectInboundDelivery(_error: unknown) {
+    const client = this.client;
+    if (!client) return;
+    // Identity failures throw through MQTT.js' synchronous message emit before
+    // _sendPacket; closing the transport preserves broker redelivery.
+    client.stream.destroy();
   }
 
   private rejectFixtureStateDelivery(error: unknown) {

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -53,7 +54,7 @@ async function readFileBounded(path: string, maxBytes: number) {
 
 export async function writeJsonAtomic(path: string, value: unknown, options: AtomicJsonWriteOptions = {}) {
   const directory = dirname(path);
-  const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  const temporaryPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
   const syncParentDirectory = options.syncParentDirectory ?? syncDirectory;
   await mkdir(directory, { recursive: true, mode: 0o700 });
   try {
