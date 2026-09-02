@@ -28,12 +28,14 @@ for (const viewport of responsiveViewports) {
       await expect(bottomNav).toHaveCount(0);
       await expect(rail).toHaveCSS("width", "92px");
       await expect(topbar).toHaveCSS("min-height", "72px");
+      await expect(page.locator(".brand-mark")).toBeVisible();
     } else {
       await expect(rail).toHaveCount(0);
       await expect(bottomNav).toBeVisible();
       await expect(bottomNav.locator(".nav-item")).toHaveCount(4);
       await expect(bottomNav).toHaveCSS("position", "fixed");
       await expectMinimumTouchTargets(page, ".bottom-nav");
+      await expectMinimumTouchTargets(page, ".topbar-actions");
 
       const geometry = await page.locator(".app-shell").evaluate((shell, selector) => {
         const navigation = document.querySelector(selector)?.getBoundingClientRect();
@@ -47,6 +49,21 @@ for (const viewport of responsiveViewports) {
     }
 
     await expect(bottomNav.locator(".nav-item.active")).toHaveCount(viewport.width <= 760 ? 1 : 0);
+    await expect(page.locator(".topbar .status-pill")).toHaveAttribute("data-tone", "success");
+    await expect(page.locator(".topbar .status-pill svg")).toHaveAttribute("aria-hidden", "true");
     await expectNoHorizontalOverflow(page);
   });
 }
+
+test("shell navigation updates when the viewport crosses the compact breakpoint", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await installSettingsApiRoutes(page, "admin");
+  await page.goto("/monitoring?siteId=site-1");
+  await expect(page.locator(".sidebar")).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await expect(page.locator(".sidebar")).toHaveCount(0);
+  await expect(page.locator(".bottom-nav")).toBeVisible();
+  await expect(page.locator(".bottom-nav .nav-item")).toHaveCount(4);
+});

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, BarChart3, MapPin, SlidersHorizontal } from "lucide-react";
+import { Activity, BarChart3, CircleAlert, CircleCheck, MapPin, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
@@ -51,7 +51,7 @@ function PrimaryNavigation({ role, search }: Pick<AuthUser, "role"> & { search: 
 
 export function CustomerShell({ user }: { user: AuthUser }) {
   const location = useLocation();
-  const isCompactNavigation = window.matchMedia("(max-width: 760px)").matches;
+  const [isCompactNavigation, setIsCompactNavigation] = useState(() => window.matchMedia("(max-width: 760px)").matches);
   const queryClient = useQueryClient();
   const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
@@ -67,10 +67,19 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   const gateway = dashboard?.gateways[0];
   const gatewayStatusLabel = gateway ? (gateway.connectionStatus === "online" ? "게이트웨이 정상" : "게이트웨이 오프라인") : "게이트웨이 미등록";
   const gatewayStatusClass = gateway?.connectionStatus === "online" ? "online" : "offline";
+  const gatewayStatusTone = gateway?.connectionStatus === "online" ? "success" : gateway ? "danger" : "neutral";
+  const GatewayStatusIcon = gateway?.connectionStatus === "online" ? CircleCheck : CircleAlert;
 
   useEffect(() => {
     unblockActiveCommandSession(user.id);
   }, [user.id]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const updateNavigation = (event: MediaQueryListEvent) => setIsCompactNavigation(event.matches);
+    media.addEventListener("change", updateNavigation);
+    return () => media.removeEventListener("change", updateNavigation);
+  }, []);
 
   async function handleLogout() {
     if (isLoggingOut) return;
@@ -157,7 +166,8 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               <MapPin size={16} />
               {dashboard?.floors[0]?.name ?? "층 미등록"} 주차장
             </span>
-            <span className={`status-pill ${gatewayStatusClass}`}>
+            <span className={`status-pill ${gatewayStatusClass}`} data-tone={gatewayStatusTone}>
+              <GatewayStatusIcon size={16} aria-hidden="true" />
               {gatewayStatusLabel}
             </span>
             <button className="logout-button" onClick={handleLogout} disabled={isLoggingOut}>
