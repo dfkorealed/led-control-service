@@ -2086,6 +2086,10 @@ button {
     max-height: min(60vh, 420px);
     overflow-y: auto;
   }
+
+  .settings-submenu a {
+    min-height: 45px;
+  }
 }
 
 .settings-content {
@@ -4023,6 +4027,11 @@ button.group-card {
     min-height: 44px;
   }
 
+  .monitoring-screen .segmented-control button {
+    min-width: 52px;
+    min-height: 52px;
+  }
+
   .logout-button,
   .registration-targets select {
     min-height: 44px;
@@ -4065,7 +4074,13 @@ button.group-card {
   }
 
   .control-screen button {
-    min-height: 44px;
+    min-height: 52px;
+  }
+
+  .control-screen .segmented-control button,
+  .statistics-screen .segmented-control button {
+    min-width: 52px;
+    min-height: 52px;
   }
 
   .control-screen .control-search-field,
@@ -4123,7 +4138,8 @@ button.group-card {
   }
 
   .schedule-dialog .icon-button {
-    width: 44px;
+    width: 52px;
+    min-height: 52px;
   }
 
   .schedule-dialog .form-field input,
@@ -4309,7 +4325,7 @@ button.group-card {
   }
 
   .statistics-chart-heading .segmented-control button {
-    min-height: 44px;
+    min-height: 52px;
   }
 
   .energy-line-chart,

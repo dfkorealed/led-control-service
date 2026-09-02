@@ -251,7 +251,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
       await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
       await expect(menu).toHaveAttribute("id", "settings-navigation-popup");
       await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
-      await expectMinimumTouchTargets(page, ".app-shell", { excludeSpatialMapMarkers: true });
+      await expectMinimumTouchTargets(page, ".settings-submenu");
       await expectNoHorizontalOverflow(page);
 
       await menu.getByRole("link", { name: "도면 관리" }).click();

@@ -125,6 +125,10 @@ for (const viewport of [
     await expectReportPanelLayout(page, viewport.width <= 1120);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
+      const chartHeading = page.locator(".statistics-chart-heading");
+      await chartHeading.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      await expect(page.getByRole("button", { name: "일별" })).toBeInViewport();
+      await expect(page.getByRole("button", { name: "월별" })).toBeInViewport();
       await expectMinimumTouchTargets(page, ".app-shell");
     }
   });

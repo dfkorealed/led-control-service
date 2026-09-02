@@ -6,6 +6,7 @@ import {
 } from "./support/settings-api";
 import {
   expectMinimumTouchTargets,
+  expectMinimumTouchTargetsAfterScrolling,
   expectNoHorizontalOverflow
 } from "./support/layout-assertions";
 import type { RegistrationSession } from "../src/api/registration";
@@ -533,7 +534,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await expectResponsivePanelLayout(page, ".control-target-card", ".control-panel", viewport.width <= 1120);
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
-        await expectMinimumTouchTargets(page, ".app-shell");
+        await expectMinimumTouchTargetsAfterScrolling(page, ".control-screen");
       }
     });
   }
@@ -552,8 +553,11 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       const scheduleDialog = page.getByRole("dialog", { name: "스케줄 추가" });
       await expect(scheduleDialog).toBeVisible();
       await scheduleDialog.getByRole("combobox", { name: "반복" }).selectOption("weekly");
-      await expect(scheduleDialog.getByRole("group", { name: "반복 요일" })).toBeVisible();
-      await expectMinimumTouchTargets(page, ".schedule-dialog");
+      const weekdayGroup = scheduleDialog.getByRole("group", { name: "반복 요일" });
+      await expect(weekdayGroup).toBeVisible();
+      await weekdayGroup.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      await expect(weekdayGroup).toBeInViewport();
+      await expectMinimumTouchTargetsAfterScrolling(page, ".schedule-dialog");
       await scheduleDialog.getByRole("button", { name: "스케줄 추가 닫기" }).click();
 
       await page.getByRole("tab", { name: "이벤트 제어" }).click();
@@ -565,7 +569,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await expect(eventDialog).toBeVisible();
       await expect(eventDialog.getByLabel("규칙 이름")).toBeVisible();
       await expect(eventDialog.getByLabel("유지 시간")).toBeVisible();
-      await expectMinimumTouchTargets(page, ".schedule-dialog");
+      await expectMinimumTouchTargetsAfterScrolling(page, ".schedule-dialog");
     });
   }
 

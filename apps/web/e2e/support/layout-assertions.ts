@@ -26,6 +26,51 @@ export async function expectNoHorizontalOverflow(page: Page) {
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
 }
 
+export async function expectMinimumTouchTargetsAfterScrolling(page: Page, rootSelector: string) {
+  const targets = page.locator(rootSelector).locator(interactiveTargetSelector);
+  const targetCount = await targets.count();
+  let inspectedTargetCount = 0;
+
+  for (let index = 0; index < targetCount; index += 1) {
+    const target = targets.nth(index);
+    const marker = `touch-contract-${index}`;
+    const eligible = await target.evaluate((element, dataMarker) => {
+      if (element.matches(":disabled") || element.getAttribute("aria-disabled") === "true") return false;
+      const candidates = element instanceof HTMLInputElement
+        && (element.type === "checkbox" || element.type === "radio")
+        ? [...(element.labels ?? []), element]
+        : [element];
+      const scrollTarget = candidates.find((candidate) => {
+        for (let current: Element | null = candidate; current; current = current.parentElement) {
+          const style = getComputedStyle(current);
+          if (
+            current.matches(".sr-only,[hidden],[aria-hidden='true']")
+            || style.display === "none"
+            || style.visibility === "hidden"
+            || style.visibility === "collapse"
+            || Number(style.opacity) === 0
+          ) return false;
+        }
+        const rect = candidate.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      if (!scrollTarget) return false;
+      scrollTarget.scrollIntoView({ block: "center", inline: "center" });
+      element.setAttribute("data-e2e-touch-contract", dataMarker);
+      return true;
+    }, marker);
+    if (eligible) {
+      inspectedTargetCount += 1;
+      await expectMinimumTouchTargets(page, `[data-e2e-touch-contract="${marker}"]`);
+    }
+  }
+
+  expect(
+    inspectedTargetCount,
+    `Expected at least one visible enabled interactive target within ${rootSelector}`
+  ).toBeGreaterThan(0);
+}
+
 export async function expectMinimumTouchTargets(
   page: Page,
   rootSelector: string,
@@ -39,6 +84,19 @@ export async function expectMinimumTouchTargets(
       left: number;
       width: number;
       height: number;
+    }
+
+    interface PixelSegment {
+      size: number;
+      sample: number;
+    }
+
+    interface ReachableMeasurement {
+      width: number;
+      height: number;
+      hasMinimumArea: boolean;
+      geometryWidth: number;
+      geometryHeight: number;
     }
 
     function intersectRects(first: VisibleRect, second: VisibleRect): VisibleRect | null {
@@ -64,6 +122,19 @@ export async function expectMinimumTouchTargets(
       return true;
     }
 
+    function establishesFixedContainingBlock(element: Element) {
+      const style = getComputedStyle(element);
+      const willChange = style.willChange.split(",").map((value) => value.trim());
+      const containment = style.contain.split(" ");
+      return style.transform !== "none"
+        || style.perspective !== "none"
+        || style.filter !== "none"
+        || style.backdropFilter !== "none"
+        || willChange.some((value) => ["transform", "perspective", "filter", "backdrop-filter"].includes(value))
+        || containment.some((value) => ["layout", "paint", "strict", "content"].includes(value))
+        || style.contentVisibility !== "visible";
+    }
+
     function usableVisibleRect(element: Element): VisibleRect | null {
       if (!isVisibleThroughAncestors(element)) return null;
       const bounds = element.getBoundingClientRect();
@@ -87,7 +158,13 @@ export async function expectMinimumTouchTargets(
       );
       if (!visibleRect) return null;
 
+      const isFixed = getComputedStyle(element).position === "fixed";
+      const hasFixedContainingBlock = isFixed
+        && [...generateAncestors(element)].some(establishesFixedContainingBlock);
       for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        // A viewport-fixed box escapes ancestor overflow unless an ancestor establishes
+        // the fixed containing block (for example via transform/filter/perspective).
+        if (isFixed && !hasFixedContainingBlock) continue;
         const style = getComputedStyle(ancestor);
         const clipsX = ["auto", "hidden", "clip", "scroll"].includes(style.overflowX);
         const clipsY = ["auto", "hidden", "clip", "scroll"].includes(style.overflowY);
@@ -109,20 +186,85 @@ export async function expectMinimumTouchTargets(
       return visibleRect;
     }
 
-    function isPointerReachable(element: Element, rect: VisibleRect) {
-      const insetX = Math.min(1, rect.width / 2);
-      const insetY = Math.min(1, rect.height / 2);
-      const points = [
-        [rect.left + rect.width / 2, rect.top + rect.height / 2],
-        [rect.left + insetX, rect.top + insetY],
-        [rect.right - insetX, rect.top + insetY],
-        [rect.left + insetX, rect.bottom - insetY],
-        [rect.right - insetX, rect.bottom - insetY]
-      ];
-      return points.some(([x, y]) => {
-        const pointerTarget = document.elementFromPoint(x, y);
+    function* generateAncestors(element: Element) {
+      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) yield ancestor;
+    }
+
+    function pixelSegments(start: number, end: number): PixelSegment[] {
+      const segments: PixelSegment[] = [];
+      for (let segmentStart = start; segmentStart < end;) {
+        const segmentEnd = Math.min(segmentStart + 1, end);
+        segments.push({
+          size: segmentEnd - segmentStart,
+          sample: segmentStart + (segmentEnd - segmentStart) / 2
+        });
+        segmentStart = segmentEnd;
+      }
+      return segments;
+    }
+
+    function measureReachableArea(element: Element, rect: VisibleRect): ReachableMeasurement {
+      const columns = pixelSegments(rect.left, rect.right);
+      const rows = pixelSegments(rect.top, rect.bottom);
+      const hitGrid = rows.map((row) => columns.map((column) => {
+        const pointerTarget = document.elementFromPoint(column.sample, row.sample);
         return pointerTarget === element || (pointerTarget ? element.contains(pointerTarget) : false);
+      }));
+
+      let maximumWidth = 0;
+      for (const row of hitGrid) {
+        let width = 0;
+        row.forEach((reachable, columnIndex) => {
+          width = reachable ? width + columns[columnIndex].size : 0;
+          maximumWidth = Math.max(maximumWidth, width);
+        });
+      }
+
+      let maximumHeight = 0;
+      columns.forEach((_, columnIndex) => {
+        let height = 0;
+        rows.forEach((row, rowIndex) => {
+          height = hitGrid[rowIndex][columnIndex] ? height + row.size : 0;
+          maximumHeight = Math.max(maximumHeight, height);
+        });
       });
+
+      for (let topRow = 0; topRow < rows.length; topRow += 1) {
+        const reachableColumns = columns.map(() => true);
+        let height = 0;
+        for (let bottomRow = topRow; bottomRow < rows.length; bottomRow += 1) {
+          height += rows[bottomRow].size;
+          reachableColumns.forEach((_, columnIndex) => {
+            reachableColumns[columnIndex] &&= hitGrid[bottomRow][columnIndex];
+          });
+          if (height < 44) continue;
+
+          let width = 0;
+          for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+            width = reachableColumns[columnIndex] ? width + columns[columnIndex].size : 0;
+            if (width >= 44) {
+              return {
+                width: maximumWidth,
+                height: maximumHeight,
+                hasMinimumArea: true,
+                geometryWidth: rect.width,
+                geometryHeight: rect.height
+              };
+            }
+          }
+          // More rows can only remove reachable columns, so this top edge cannot
+          // produce a 44x44 candidate after its first 44px-high slice fails.
+          break;
+        }
+      }
+
+      return {
+        width: maximumWidth,
+        height: maximumHeight,
+        hasMinimumArea: false,
+        geometryWidth: rect.width,
+        geometryHeight: rect.height
+      };
     }
 
     const targetElements = roots.flatMap((root) => [
@@ -133,21 +275,34 @@ export async function expectMinimumTouchTargets(
     return [...new Set(targetElements)].flatMap((element) => {
       if (args.excludeSpatialMapMarkers && element.closest("[data-spatial-map-marker='true']")) return [];
       if (element.matches(":disabled") || element.getAttribute("aria-disabled") === "true") return [];
-      let hitTarget = element;
       const isNativeChoice = element instanceof HTMLInputElement
         && (element.type === "checkbox" || element.type === "radio");
-      if (isNativeChoice) hitTarget = element.labels?.[0] ?? element;
-      const hitRect = usableVisibleRect(hitTarget);
-      if (!hitRect || !isPointerReachable(hitTarget, hitRect)) return [];
+      const associatedLabels = isNativeChoice ? [...(element.labels ?? [])] : [];
+      const hitCandidates = isNativeChoice ? [...associatedLabels, element] : [element];
+      const measurements = [...new Set(hitCandidates)].flatMap((hitTarget) => {
+        const hitRect = usableVisibleRect(hitTarget);
+        if (!hitRect) return [];
+        return [measureReachableArea(hitTarget, hitRect)];
+      });
+      if (measurements.length === 0) return [];
+      const passingMeasurement = measurements.find(({ hasMinimumArea }) => hasMinimumArea);
+      const bestMeasurement = passingMeasurement ?? measurements.reduce((best, measurement) => {
+        const bestMinimumDimension = Math.min(best.width, best.height);
+        const measurementMinimumDimension = Math.min(measurement.width, measurement.height);
+        if (measurementMinimumDimension !== bestMinimumDimension) {
+          return measurementMinimumDimension > bestMinimumDimension ? measurement : best;
+        }
+        return measurement.width * measurement.height > best.width * best.height ? measurement : best;
+      });
       const label = element.getAttribute("aria-label")
-        ?? (isNativeChoice ? element.labels?.[0]?.textContent?.trim() : null)
+        ?? (isNativeChoice ? associatedLabels.map((labelElement) => labelElement.textContent?.trim()).find(Boolean) : null)
         ?? element.textContent?.trim()
         ?? element.tagName;
-      return [{ label, width: hitRect.width, height: hitRect.height }];
+      return [{ label, ...bestMeasurement }];
     });
   }, { interactiveTargetSelector, excludeSpatialMapMarkers });
 
   expect(targets.length, `Expected at least one visible enabled interactive target within ${rootSelector}`).toBeGreaterThan(0);
-  const undersized = targets.filter(({ width, height }) => width < 44 || height < 44);
+  const undersized = targets.filter(({ hasMinimumArea }) => !hasMinimumArea);
   expect(undersized, `Touch targets below 44px within ${rootSelector}`).toEqual([]);
 }
