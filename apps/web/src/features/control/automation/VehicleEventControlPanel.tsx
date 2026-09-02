@@ -192,8 +192,9 @@ export function VehicleEventControlPanel({
     <div id="control-mode-panel-event" className="schedule-control-panel" role="tabpanel" aria-labelledby="control-mode-event">
       <PageHeader
         title="이벤트 제어"
+        headingLevel={3}
         description="Gateway가 차량 센서 감지를 현장 조명 규칙으로 즉시 연결합니다."
-        actions={canManage ? <button ref={addButtonRef} className="ui-button ui-button-primary schedule-add-button" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</button> : undefined}
+        actions={canManage ? <Button ref={addButtonRef} variant="primary" className="schedule-add-button" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : undefined}
       />
       {!canManage ? <p className="schedule-readonly-notice" role="status">조회 전용 계정입니다. 이벤트 규칙과 Gateway 적용 상태만 확인할 수 있습니다.</p> : null}
       {rulesQuery.isLoading ? <p className="muted-text" role="status">이벤트 규칙을 불러오는 중입니다.</p> : null}

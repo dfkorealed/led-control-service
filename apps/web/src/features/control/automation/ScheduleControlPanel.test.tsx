@@ -120,6 +120,13 @@ describe("ScheduleControlPanel", () => {
     expect(await screen.findByText("등록된 스케줄이 없습니다.")).toBeInTheDocument();
   });
 
+  it("uses a level-three panel heading and shared add button", async () => {
+    renderPanel("admin");
+
+    expect(await screen.findByRole("heading", { name: "스케줄 제어", level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "스케줄 추가" })).toHaveClass("ui-button", "ui-button-primary");
+  });
+
   it("renders sync and production action-result summaries but no mutation commands for a viewer", async () => {
     mocks.listSchedules.mockResolvedValue(page([
       schedule({

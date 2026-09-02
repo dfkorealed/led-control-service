@@ -65,6 +65,13 @@ describe("VehicleEventControlPanel", () => {
     expect(screen.queryByRole("button", { name: "이벤트 추가" })).not.toBeInTheDocument();
   });
 
+  it("uses a level-three panel heading and shared add button", async () => {
+    renderPanel("admin");
+
+    expect(await screen.findByRole("heading", { name: "이벤트 제어", level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이벤트 추가" })).toHaveClass("ui-button", "ui-button-primary");
+  });
+
   it("shows icon and text badges for every Gateway sync state", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({
       items: [

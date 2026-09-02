@@ -326,17 +326,19 @@ export function ControlView({
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="control-manual-panel">
       <PageHeader
         title="조명 밝기 제어"
+        headingLevel={3}
         description="제어 대상을 선택한 뒤 밝기와 수동 override 시간을 적용합니다."
         actions={(
-          <button
+          <Button
             ref={groupDialogOpenerRef}
-            className="ui-button ui-button-secondary control-group-button"
+            variant="secondary"
+            className="control-group-button"
             type="button"
             onClick={() => setGroupDialogOpen(true)}
             disabled={commandSessionBlocked || isSubmitting || restorePending || commandInProgress}
           >
             <Layers3 size={16} aria-hidden="true" /> {readOnly ? "구역 현황" : "구역 관리"}
-          </button>
+          </Button>
         )}
       />
 
@@ -431,29 +433,29 @@ export function ControlView({
                 동일 요청 다시 전송
               </Button>
             ) : null}
-            {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
             {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
             {matchingCommandStatus ? <CommandProgress status={matchingCommandStatus} /> : null}
             {!matchingCommandStatus && terminalResult?.siteId === data.site.id ? <CommandProgress status={terminalResult.status} /> : null}
-            {hasMismatchedCommandStatus && !missingCommand ? (
-              <div className="command-status-error" role="alert">
-                <p className="danger-text">
-                  명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
-                </p>
-                <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
-                  {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
-                </Button>
-              </div>
-            ) : null}
-            {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
-              <div className="command-status-error" role="alert">
-                <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
-                <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
-                  {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
-                </Button>
-              </div>
-            ) : null}
           </div>
+          {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
+          {hasMismatchedCommandStatus && !missingCommand ? (
+            <div className="command-status-error" role="alert">
+              <p className="danger-text">
+                명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
+              </p>
+              <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
+                {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+              </Button>
+            </div>
+          ) : null}
+          {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
+            <div className="command-status-error" role="alert">
+              <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
+              <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
+                {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+              </Button>
+            </div>
+          ) : null}
         </aside>
       </div>
       <FixtureGroupDialog
@@ -550,7 +552,7 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   );
   const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
   return (
-    <div className="dial-card" aria-live="polite">
+    <div className="dial-card">
       <span>최근 명령 상태</span>
       <strong>{commandStageLabel(status.stage)}</strong>
       <small>{status.completedFixtureCount} / {status.totalFixtureCount} 처리</small>

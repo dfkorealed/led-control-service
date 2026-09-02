@@ -147,12 +147,14 @@ describe("ControlView 대상 선택", () => {
   it("exposes the calm operations hierarchy for manual control", () => {
     renderControl();
 
-    expect(screen.getByRole("heading", { name: "조명 제어" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "조명 제어", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "조명 밝기 제어", level: 3 })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "제어 방식" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("region", { name: "제어 대상 선택" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveTextContent("밝기");
     expect(screen.getByRole("status", { name: "명령 진행 상태" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "구역 관리" })).toHaveClass("ui-button", "ui-button-secondary");
   });
 
   it("sends one selected light as a fixture target", async () => {
@@ -685,7 +687,11 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     expect(screen.queryByText("조명 적용 완료")).not.toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("명령 상태 응답의 식별자가 일치하지 않습니다");
+    const commandStatus = screen.getByRole("status", { name: "명령 진행 상태" });
+    const commandAlert = screen.getByRole("alert");
+    expect(commandAlert).toHaveTextContent("명령 상태 응답의 식별자가 일치하지 않습니다");
+    expect(within(commandStatus).queryByRole("alert")).not.toBeInTheDocument();
+    expect(commandStatus).not.toContainElement(commandAlert);
     fireEvent.click(screen.getByRole("button", { name: "명령 상태 다시 조회" }));
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.expected);

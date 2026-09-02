@@ -215,18 +215,20 @@ export function ScheduleControlPanel({
     >
       <PageHeader
         title="스케줄 제어"
+        headingLevel={3}
         description="Gateway가 현장 시간대에 맞춰 반복 밝기 규칙을 실행합니다."
         actions={canManage ? (
-          <button
+          <Button
             ref={addButtonRef}
-            className="ui-button ui-button-primary schedule-add-button"
+            variant="primary"
+            className="schedule-add-button"
             type="button"
             onClick={beginAdd}
             disabled={isMutating || !dashboard}
             title={dashboard ? "새 스케줄 추가" : "제어 대상 정보를 불러오는 중입니다"}
           >
             <CalendarPlus size={16} aria-hidden="true" /> 스케줄 추가
-          </button>
+          </Button>
         ) : undefined}
       />
 

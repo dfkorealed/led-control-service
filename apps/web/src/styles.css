@@ -95,7 +95,7 @@
 
 .ui-status-badge[data-tone="neutral"] {
   background: #f1f5f9;
-  color: #64748b;
+  color: #475569;
 }
 
 .ui-status-badge[data-tone="info"] {
@@ -3733,6 +3733,20 @@ button.group-card {
   }
 
   .monitoring-screen .ui-page-actions {
+    width: 100%;
+  }
+
+  .control-screen .ui-page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .control-screen .ui-page-actions {
+    width: 100%;
+  }
+
+  .control-screen .ui-page-actions .ui-button {
+    justify-content: center;
     width: 100%;
   }
 
