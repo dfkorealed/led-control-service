@@ -137,6 +137,33 @@ describe("FixtureGroupDialog", () => {
     expect(screen.getByRole("group", { name: "구역 조명 목록" })).toBeInTheDocument();
   });
 
+  it("삭제 확인 Escape는 부모 dialog를 유지하고 삭제 trigger로 포커스를 복귀한다", async () => {
+    renderDialog(true);
+    const deleteTrigger = await screen.findByRole("button", { name: "B2 입구 삭제" });
+
+    deleteTrigger.focus();
+    fireEvent.click(deleteTrigger);
+    expect(screen.getByRole("dialog", { name: "구역 삭제 확인" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog", { name: "구역 삭제 확인" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "구역 관리" })).toBeInTheDocument();
+    await waitFor(() => expect(deleteTrigger).toHaveFocus());
+  });
+
+  it("저장 구역 Mesh 오류의 ACK는 화면에서 장비 응답으로 표시한다", async () => {
+    mocks.listFixtureGroups.mockResolvedValue([{
+      ...failedGroup,
+      meshControlGroup: { ...failedGroup.meshControlGroup!, error: "Gateway ACK를 확인하지 못했습니다." }
+    }]);
+
+    renderDialog(true);
+
+    expect(await screen.findByText("Gateway 장비 응답을 확인하지 못했습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
+  });
+
   it("traps keyboard focus, closes on Escape, and restores the opener", async () => {
     renderDialogHarness();
     const opener = screen.getByRole("button", { name: "구역 관리 열기" });

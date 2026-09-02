@@ -26,7 +26,11 @@ export async function expectNoHorizontalOverflow(page: Page) {
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
 }
 
-export async function expectMinimumTouchTargetsAfterScrolling(page: Page, rootSelector: string) {
+export async function expectMinimumTouchTargetsAfterScrolling(
+  page: Page,
+  rootSelector: string,
+  { excludeSpatialMapMarkers = false }: { excludeSpatialMapMarkers?: boolean } = {}
+) {
   const targets = page.locator(rootSelector).locator(interactiveTargetSelector);
   const targetCount = await targets.count();
   let inspectedTargetCount = 0;
@@ -34,15 +38,16 @@ export async function expectMinimumTouchTargetsAfterScrolling(page: Page, rootSe
   for (let index = 0; index < targetCount; index += 1) {
     const target = targets.nth(index);
     const marker = `touch-contract-${index}`;
-    const candidateCount = await target.evaluate((element, dataMarker) => {
+    const candidateCount = await target.evaluate((element, { dataMarker, excludeSpatialMapMarkers: excludeMarkers }) => {
       if (element.matches(":disabled") || element.getAttribute("aria-disabled") === "true") return 0;
+      if (excludeMarkers && element.closest("[data-spatial-map-marker='true']")) return 0;
       const candidates = element instanceof HTMLInputElement
         && (element.type === "checkbox" || element.type === "radio")
         ? [...(element.labels ?? []), element]
         : [element];
       element.setAttribute("data-e2e-touch-contract", dataMarker);
       return [...new Set(candidates)].length;
-    }, marker);
+    }, { dataMarker: marker, excludeSpatialMapMarkers });
     let targetWasInspected = false;
     let targetPassed = false;
     let lastCandidateFailure: unknown;

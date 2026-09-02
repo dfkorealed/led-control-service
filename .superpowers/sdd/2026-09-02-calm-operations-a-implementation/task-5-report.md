@@ -26,3 +26,23 @@
 ## 남은 한계
 
 - Chromium route fixture 검증은 실제 Raspberry Pi/BlueZ/ESP32-H2 또는 실제 BLE Mesh terminal ACK 왕복 HIL을 대체하지 않는다. HIL은 `not_executed` 상태다.
+
+## Fix round 1
+
+### 수정 내용과 RED→GREEN 근거
+
+- Nested 삭제 확인의 RED unit을 추가했다. 기존 부모 modal의 document `Escape` handler가 child `ConfirmDialog`와 동시에 동작해 부모까지 닫을 수 있었으므로, child가 열린 동안 부모 `useModalFocus`를 suspend했다. 확인 dialog만 닫히고 삭제 trigger로 포커스가 돌아가며 부모 dialog가 유지되는지 unit으로 고정했다.
+- `humanizeDeviceResponseMessage`를 순수 display-only `control-copy.ts`로 분리해 command 결과, floor/group 준비 상태, 저장 구역 Mesh 오류 경계에 공통 적용했다. raw `ACK` fixture는 state/API를 바꾸지 않고 rendered Korean copy에 `ACK`가 없음을 unit으로 검증했다.
+- `ControlView`의 수동 `ui-card`와 preset, `ControlTargetPicker`의 mode/target action을 공통 `Card`/`Button`으로 교체했다. 역할ㆍaccessible nameㆍhandler는 보존했고 focused unit에서 공통 class와 동작을 확인했다.
+- 모바일 44px E2E RED를 따라 저장 구역 editor의 select와 action은 실제 20/32px임을 확인해 48px minimum touch surface로 수정했다. 닫기 button은 가림이나 clipping이 아니라 44px rounded box의 모서리에서 full 44×44 reachable square가 끊긴 원인이므로 48px으로 확대했다. 전역 CSS 증상 패치는 추가하지 않았다.
+- `monitoring-control-flow`의 mobile touch 검증을 `.app-shell` 전체로 복원했다. long page에서는 target별 scroll-aware 측정을 사용하되, 지도 marker만 명시적으로 제외해 header/page/map control의 coverage를 유지했다.
+- 수동 제어 E2E는 1440/1024/390/320에서 individual/floor/group target, preset/override, success/partial/timeout/reload recovery, fault/offline block, viewer read-only, saved-zone list/editor, dialog scroll/touch를 route fixture로 검증한다. fixture는 실제 하드웨어가 아닌 browser API contract임을 계속 명시한다.
+
+### Fix round 검증
+
+- `pnpm --filter @led-control/web test -- src/features/control/ControlView.test.tsx src/features/control/FixtureGroupDialog.test.tsx src/features/control/active-command-store.test.ts` — 3 files, 82 tests passed.
+- `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-manual-control.spec.ts --project=chromium` — 12 passed (4 viewport).
+- `pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts --project=chromium` — broad shell touch flow 25개를 재실행했고, 시간 경계로 분리한 마지막 keyboard/reduced-motion 2개도 passed.
+- `pnpm --filter @led-control/web typecheck` — passed.
+- `pnpm --filter @led-control/web build` — passed; 기존 Vite 500 kB chunk-size warning만 발생.
+- `git diff --check` — passed.

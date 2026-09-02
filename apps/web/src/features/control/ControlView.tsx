@@ -27,6 +27,7 @@ import {
   controlSelectionToDimmingTarget,
   type ControlSelection
 } from "./ControlTargetPicker";
+import { humanizeDeviceResponseMessage } from "./control-copy";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
 import { floorMeshReadiness } from "./control-readiness";
@@ -368,7 +369,7 @@ export function ControlView({
           </fieldset>
         </Card>
 
-        <aside className="control-panel ui-card" aria-label="밝기 실행">
+        <Card className="control-panel" role="complementary" aria-label="밝기 실행">
           <div className="panel-title-row">
             <div>
               <span className="eyebrow">선택 대상</span>
@@ -398,9 +399,9 @@ export function ControlView({
 
           <div className="preset-row">
             {[0, 30, 70, 100].map((value) => (
-              <button key={value} type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
+              <Button key={value} variant="secondary" type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
                 {value}%
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -456,7 +457,7 @@ export function ControlView({
               </Button>
             </div>
           ) : null}
-        </aside>
+        </Card>
       </div>
       <FixtureGroupDialog
         open={groupDialogOpen}
@@ -564,13 +565,6 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
       ))}
     </div>
   );
-}
-
-/** Protocol values remain untouched; this mapper is only for user-visible copy. */
-export function humanizeDeviceResponseMessage(value: string): string {
-  return value
-    .replace(/\bACK를/gi, "장비 응답을")
-    .replace(/\bACK\b/gi, "장비 응답");
 }
 
 function commandSteps(stage: CommandStage): ProgressStep[] {

@@ -13,6 +13,7 @@ import {
 import type { Dashboard, DashboardFixture } from "../../api/queries";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { humanizeDeviceResponseMessage } from "./control-copy";
 import { useModalFocus } from "./useModalFocus";
 
 interface FixtureGroupDialogProps {
@@ -103,7 +104,7 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
     onClose();
   }
 
-  useModalFocus({ open, dialogRef, returnFocusRef, onClose: closeDialog });
+  useModalFocus({ open, suspended: Boolean(deleteCandidate), dialogRef, returnFocusRef, onClose: closeDialog });
 
   const dashboardMemberships = useMemo(() => new Map(
     dashboard.groups.map((group) => [group.id, group.fixtureIds])
@@ -178,7 +179,7 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
             {groupsQuery.error ? (
               <div className="fixture-group-dialog-error" role="alert">
                 <p className="danger-text">구역 목록을 불러오지 못했습니다.</p>
-                <button type="button" onClick={() => void groupsQuery.refetch()}>다시 시도</button>
+                <Button variant="secondary" type="button" onClick={() => void groupsQuery.refetch()}>다시 시도</Button>
               </div>
             ) : null}
             {!groupsQuery.isLoading && !groupsQuery.error ? (
@@ -209,20 +210,20 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
                         </StatusBadge>
                       </div>
                       <small className={`mesh-status-copy ${status.tone}`}>{status.label}</small>
-                      {group.meshControlGroup?.error ? <p className="danger-text">{group.meshControlGroup.error}</p> : null}
+                      {group.meshControlGroup?.error ? <p className="danger-text">{humanizeDeviceResponseMessage(group.meshControlGroup.error)}</p> : null}
                       {editable ? (
                         <div className="fixture-group-row-actions">
-                          <button type="button" aria-label={`${group.name} 수정`} onClick={() => beginEdit(group)} disabled={isMutating}>
+                          <Button variant="secondary" type="button" aria-label={`${group.name} 수정`} onClick={() => beginEdit(group)} disabled={isMutating}>
                             <Pencil size={15} aria-hidden="true" /> 수정
-                          </button>
+                          </Button>
                           {group.meshControlGroup?.status === "failed" ? (
-                            <button type="button" aria-label={`${group.name} 재동기화`} onClick={() => resyncMutation.mutate(group)} disabled={isMutating}>
+                            <Button variant="secondary" type="button" aria-label={`${group.name} 재동기화`} onClick={() => resyncMutation.mutate(group)} disabled={isMutating}>
                               <RefreshCw size={15} aria-hidden="true" /> 재동기화
-                            </button>
+                            </Button>
                           ) : null}
-                          <button className="danger-action" type="button" aria-label={`${group.name} 삭제`} onClick={() => setDeleteCandidate(group)} disabled={isMutating}>
+                          <Button variant="danger" className="danger-action" type="button" aria-label={`${group.name} 삭제`} onClick={() => setDeleteCandidate(group)} disabled={isMutating}>
                             <Trash2 size={15} aria-hidden="true" /> 삭제
-                          </button>
+                          </Button>
                         </div>
                       ) : null}
                     </article>
