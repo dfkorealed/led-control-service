@@ -171,6 +171,7 @@ for (const viewport of viewports) {
       await expectRegistrationStepStates(page, ["complete", "current", "pending", "pending"]);
       await expect(page.getByRole("button", { name: "선택 조명 등록" })).toBeEnabled();
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
+      await expectMobileRegionTargetsReachable(page, ".registration-config-form", viewport.width);
       await page.getByRole("radio", { name: "개별 설정" }).check();
       await page.getByLabel("조명 1 X 좌표").fill("120");
       await page.getByRole("button", { name: "선택 조명 등록" }).click();

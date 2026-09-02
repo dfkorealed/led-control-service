@@ -692,22 +692,42 @@ const initialRegistrationSteps: readonly ProgressStep[] = [
 ];
 
 export function registrationSteps(session: RegistrationSession, nodes: DiscoveredRegistrationNode[]): ProgressStep[] {
-  if (session.status === "completed") return registrationStepStates(["complete", "complete", "complete", "complete"]);
-  if (session.scanStatus === "failed") return registrationStepStates(["error", "pending", "pending", "pending"]);
-  if (session.scanStatus !== "completed") return registrationStepStates(["current", "pending", "pending", "pending"]);
+  const reachableStates = reachableRegistrationStepStates(session, nodes);
+  switch (session.status) {
+    case "active":
+      return registrationStepStates(reachableStates);
+    case "completed":
+      return registrationStepStates(["complete", "complete", "complete", "complete"]);
+    case "cancelled":
+      return registrationStepStates(reachableStates.map((state) => state === "current" ? "pending" : state));
+    case "failed":
+      return registrationStepStates(reachableStates.map((state) => state === "current" ? "error" : state));
+    default: {
+      const unhandledStatus: never = session.status;
+      return unhandledStatus;
+    }
+  }
+}
+
+function reachableRegistrationStepStates(
+  session: RegistrationSession,
+  nodes: DiscoveredRegistrationNode[]
+): ProgressStepState[] {
+  if (session.scanStatus === "failed") return ["error", "pending", "pending", "pending"];
+  if (session.scanStatus !== "completed") return ["current", "pending", "pending", "pending"];
   if (nodes.some((node) => node.status === "reconcile_required")) {
-    return registrationStepStates(["complete", "complete", "complete", "current"]);
+    return ["complete", "complete", "complete", "current"];
   }
   if (nodes.some((node) => node.status === "failed")) {
-    return registrationStepStates(["complete", "complete", "error", "pending"]);
+    return ["complete", "complete", "error", "pending"];
   }
   if (nodes.some((node) => node.status === "provisioning")) {
-    return registrationStepStates(["complete", "complete", "current", "pending"]);
+    return ["complete", "complete", "current", "pending"];
   }
   if (nodes.some((node) => node.status === "provisioned")) {
-    return registrationStepStates(["complete", "complete", "complete", "current"]);
+    return ["complete", "complete", "complete", "current"];
   }
-  return registrationStepStates(["complete", "current", "pending", "pending"]);
+  return ["complete", "current", "pending", "pending"];
 }
 
 function registrationStepStates(states: readonly ProgressStepState[]): ProgressStep[] {

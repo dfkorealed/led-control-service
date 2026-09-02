@@ -105,6 +105,21 @@ describe("RegistrationPanel", () => {
         states: ["complete", "complete", "complete", "complete"]
       },
       {
+        session: { ...scanningSession(), status: "cancelled" as const },
+        states: ["pending", "pending", "pending", "pending"]
+      },
+      {
+        session: { ...completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1)), status: "failed" as const },
+        states: ["complete", "error", "pending", "pending"]
+      },
+      {
+        session: {
+          ...completedSession([{ ...mockRegistrationSession.discoveredNodes[0], status: "reconcile_required" as const }]),
+          status: "failed" as const
+        },
+        states: ["complete", "complete", "complete", "error"]
+      },
+      {
         session: { ...completedSession([]), scanStatus: "failed" as const },
         states: ["error", "pending", "pending", "pending"]
       },
@@ -118,7 +133,7 @@ describe("RegistrationPanel", () => {
       const stateValues: readonly string[] = states;
       expect(registrationSteps(session, session.discoveredNodes).map((step) => step.state)).toEqual(states);
       expect(stateValues.filter((state) => state === "current"))
-        .toHaveLength(session.status === "completed" || stateValues.includes("error") ? 0 : 1);
+        .toHaveLength(session.status === "active" && !stateValues.includes("error") ? 1 : 0);
     }
   });
 

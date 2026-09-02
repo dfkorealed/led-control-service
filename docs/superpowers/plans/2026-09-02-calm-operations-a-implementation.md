@@ -1157,6 +1157,13 @@ git commit -m "feat(web): complete corrected calm operations UI"
 - [x] RED에서 transport/registration/dialog unit `10 failed / 71 passed`와 320px setup input `224×42` 실패를 확인했고, focused GREEN unit `137/137`, commissioning Chromium `5/5`, timeout Chromium `1/1`, Web unit `441/441`, typecheck와 production build를 통과했다.
 - [x] 실백엔드 pre-connect 검증은 DB publish 직후 broker observer callback까지 bounded wait해 delivery lag를 protocol 실패로 오판하지 않는다. focused lab Chromium `1/1`, 전체 tracked Chromium 직렬 실행 `136 passed / 3 environment-gated skipped`를 통과했으며 기존 chunk-size warning은 별도 기록한다.
 
+#### Task 8 fix round 4
+
+- [x] `RegistrationSession.status`의 `active|completed|failed|cancelled` 전체 union을 exhaustively 분기한다. cancelled/completed terminal에는 current가 없고, session-level failed는 scan·configure·provision·reconcile 중 실제 도달 단계가 error가 되며 선행 단계는 complete를 유지한다.
+- [x] 390px/320px registration E2E는 기본 batch form의 enabled input을 individual mode 전환 전에 연속 44×44px·clipping·occlusion 기준으로 검사한 뒤 individual form도 기존대로 검사한다.
+- [x] RED unit `1 failed / 24 passed`에서 cancelled current 잔존을, CSS 42px mutation RED Chromium `1 failed`에서 batch input `252×42`를 확인했다. focused unit `25/25`와 네 viewport commissioning Chromium `5/5`로 GREEN을 확인했다.
+- [x] full Web unit `441/441`, full tracked Chromium 직렬 실행 `136 passed / 3 environment-gated skipped`, typecheck와 production build를 통과하고 diff/copy/prohibited-boundary 감사를 final tree에서 완료한다.
+
 ---
 
 ## Final acceptance checklist
