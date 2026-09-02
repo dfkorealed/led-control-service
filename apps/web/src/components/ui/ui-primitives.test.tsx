@@ -14,8 +14,13 @@ describe("Calm Operations UI primitives", () => {
   it("renders status with an icon and visible label", () => {
     render(<StatusBadge tone="success" icon={CircleCheck}>정상</StatusBadge>);
 
-    expect(screen.getByText("정상")).toBeVisible();
-    expect(screen.getByText("정상").closest("span")).toHaveAttribute("data-tone", "success");
+    const label = screen.getByText("정상");
+    const badge = label.closest(".ui-status-badge");
+
+    expect(label).toBeVisible();
+    expect(badge).toHaveAttribute("data-tone", "success");
+    expect(badge?.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(label).not.toHaveAttribute("data-tone");
   });
 
   it("gives metric cards an accessible label and stable value", () => {
