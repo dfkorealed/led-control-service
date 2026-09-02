@@ -55,13 +55,16 @@ describe("SettingsNavigationItem", () => {
 
     fireEvent.mouseEnter(trigger.closest("div")!);
 
-    expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1");
-    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
-    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
+    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+    expect(trigger).toHaveAttribute("aria-controls", "settings-navigation-popup");
+    expect(screen.getByRole("menu", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
+    expect(screen.getByRole("menuitem", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1");
+    expect(screen.getByRole("menuitem", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
+    expect(screen.getByRole("menuitem", { name: "비밀번호 변경" })).toBeVisible();
 
     fireEvent.keyDown(trigger, { key: "Escape" });
 
-    expect(screen.queryByRole("link", { name: "도면 관리" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "도면 관리" })).not.toBeInTheDocument();
   });
 
   it("does not expose admin-only security to a viewer", () => {
@@ -70,8 +73,8 @@ describe("SettingsNavigationItem", () => {
 
     fireEvent.focus(screen.getByRole("link", { name: "설정" }));
 
-    expect(screen.getByRole("link", { name: "도면 관리" })).toBeVisible();
-    expect(screen.queryByRole("link", { name: "비밀번호 변경" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "도면 관리" })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: "비밀번호 변경" })).not.toBeInTheDocument();
   });
 
   it("opens the mobile sheet instead of navigating on a coarse pointer", () => {
@@ -80,7 +83,10 @@ describe("SettingsNavigationItem", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
 
-    expect(screen.getByRole("dialog", { name: "설정 메뉴" })).toBeInTheDocument();
+    const trigger = screen.getByRole("link", { name: "설정" });
+    expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+    expect(trigger).toHaveAttribute("aria-controls", "settings-navigation-popup");
+    expect(screen.getByRole("dialog", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
     expect(screen.getByTestId("location")).toHaveTextContent("/monitoring?siteId=site-1");
   });
 });

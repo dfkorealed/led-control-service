@@ -494,10 +494,15 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await expectResponsivePanelLayout(page, ".map-panel", ".detail-panel", viewport.width <= 1120);
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
-        await expectMinimumTouchTargets(
-          page,
-          ".nav-item, .monitoring-screen .secondary-button, .monitoring-screen .segmented-control button, .monitoring-screen .fixture-dot"
-        );
+        await expectMinimumTouchTargets(page, ".app-shell", { excludeSpatialMapMarkers: true });
+        const fixtureSelector = page.getByRole("combobox", { name: "상세 조명 선택" });
+        await expect(fixtureSelector).toBeVisible();
+        await expect(fixtureSelector.locator("option")).toHaveCount(fixtures.length);
+        await fixtureSelector.selectOption(ids.fixture2);
+        await expect(fixtureSelector).toHaveValue(ids.fixture2);
+        await expect(page.getByRole("complementary", { name: "선택 조명 상세" }).getByRole("heading", { name: "B2-L002" })).toBeVisible();
+        await fixtureSelector.selectOption(ids.fixture1);
+        await expect(page.getByRole("complementary", { name: "선택 조명 상세" }).getByRole("heading", { name: "B2-L001" })).toBeVisible();
       }
 
       await page.goto(`/control?siteId=${ids.site}`);
@@ -505,8 +510,39 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await expectResponsivePanelLayout(page, ".control-target-card", ".control-panel", viewport.width <= 1120);
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
-        await expectMinimumTouchTargets(page, ".nav-item, .control-screen button");
+        await expectMinimumTouchTargets(page, ".app-shell");
       }
+    });
+  }
+
+  for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) {
+    test(`${viewport.width}px에서 스케줄·이벤트 목록과 핵심 dialog가 전체 touch target 계약을 지킨다`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await installBrowserContractFixture(page);
+      await installAutomationListRoutes(page);
+
+      await page.goto(`/control?siteId=${ids.site}&mode=schedule`);
+      await expect(page.getByRole("heading", { name: "스케줄 제어" })).toBeVisible();
+      await expect(page.getByText("등록된 스케줄이 없습니다.")).toBeVisible();
+      await expectMinimumTouchTargets(page, ".app-shell");
+      await page.getByRole("button", { name: "스케줄 추가" }).click();
+      const scheduleDialog = page.getByRole("dialog", { name: "스케줄 추가" });
+      await expect(scheduleDialog).toBeVisible();
+      await scheduleDialog.getByRole("combobox", { name: "반복" }).selectOption("weekly");
+      await expect(scheduleDialog.getByRole("group", { name: "반복 요일" })).toBeVisible();
+      await expectMinimumTouchTargets(page, ".schedule-dialog");
+      await scheduleDialog.getByRole("button", { name: "스케줄 추가 닫기" }).click();
+
+      await page.getByRole("tab", { name: "이벤트 제어" }).click();
+      await expect(page.getByRole("heading", { name: "이벤트 제어" })).toBeVisible();
+      await expect(page.getByText("등록된 이벤트 규칙이 없습니다.")).toBeVisible();
+      await expectMinimumTouchTargets(page, ".app-shell");
+      await page.getByRole("button", { name: "이벤트 추가" }).click();
+      const eventDialog = page.getByRole("dialog", { name: "이벤트 추가" });
+      await expect(eventDialog).toBeVisible();
+      await expect(eventDialog.getByLabel("규칙 이름")).toBeVisible();
+      await expect(eventDialog.getByLabel("유지 시간")).toBeVisible();
+      await expectMinimumTouchTargets(page, ".schedule-dialog");
     });
   }
 
@@ -550,6 +586,12 @@ async function expectResponsivePanelLayout(
   } else {
     expect(secondary.x).toBeGreaterThanOrEqual(primary.x + primary.width - 1);
   }
+}
+
+async function installAutomationListRoutes(page: Page) {
+  const emptyPage = { items: [], nextCursor: null };
+  await page.route("**/api/sites/*/automation/schedules**", (route) => route.fulfill({ json: emptyPage }));
+  await page.route("**/api/sites/*/automation/vehicle-event-rules**", (route) => route.fulfill({ json: emptyPage }));
 }
 
 async function installFixtureGroupContractRoutes(page: Page, initialGroups: FixtureGroupMetadata[]) {

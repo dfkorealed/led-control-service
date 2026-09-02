@@ -383,7 +383,19 @@ export async function installSettingsApiRoutes(
       }
     }
     if (path === `/floors/${ids.floorId}/editor-revisions`) {
-      return route.fulfill({ json: { items: [], nextCursor: null } });
+      return route.fulfill({
+        json: {
+          items: [{
+            revision: 7,
+            snapshotSha256: "browser-contract-revision-7",
+            changeSummary: { fixtureUpdates: 1 },
+            restoredFromRevision: null,
+            createdAt: "2026-07-12T00:00:00.000Z",
+            actor: { displayName: "브라우저 계약 관리자" }
+          }],
+          nextCursor: null
+        }
+      });
     }
 
     return route.fulfill({ status: 404, json: { message: "site not found" } });

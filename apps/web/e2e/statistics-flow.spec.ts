@@ -125,7 +125,7 @@ for (const viewport of [
     await expectReportPanelLayout(page, viewport.width <= 1120);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
-      await expectMinimumTouchTargets(page, ".nav-item, .statistics-screen button");
+      await expectMinimumTouchTargets(page, ".app-shell");
     }
   });
 }

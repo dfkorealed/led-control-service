@@ -120,6 +120,36 @@ describe("MonitoringView refresh", () => {
     )).toBeVisible();
   });
 
+  it("keeps the mobile fixture selector and map marker selection in sync", async () => {
+    const faultFixture = {
+      ...fixture,
+      id: "fixture-2",
+      name: "B1-L002",
+      brightness: 42,
+      status: "fault" as const
+    };
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [fixture, faultFixture], nextCursor: null }] },
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    const selector = await screen.findByRole("combobox", { name: "상세 조명 선택" });
+    expect(selector).toHaveValue("fixture-2");
+    expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L002" })).toBeVisible();
+
+    fireEvent.change(selector, { target: { value: "fixture-1" } });
+    expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L001" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "B1-L002 장애 42%" }));
+    expect(selector).toHaveValue("fixture-2");
+  });
+
   it("locks the refresh action until both requests settle", async () => {
     const dashboardRequest = deferred<unknown>();
     const fixtureRequest = deferred<unknown>();

@@ -10,6 +10,7 @@ export interface SettingsNavigationItemProps {
 }
 
 const coarsePointerQuery = "(hover: none), (pointer: coarse)";
+const settingsPopupId = "settings-navigation-popup";
 
 function hasCoarsePointer() {
   return window.matchMedia?.(coarsePointerQuery).matches ?? false;
@@ -67,7 +68,8 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
         to={`/settings${search}`}
         className={active ? "nav-item active" : "nav-item"}
         aria-expanded={open}
-        aria-haspopup="dialog"
+        aria-haspopup={coarsePointer ? "dialog" : "menu"}
+        aria-controls={settingsPopupId}
         onClick={handlePrimaryClick}
       >
         <Settings size={18} aria-hidden="true" />
@@ -75,9 +77,19 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
         <ChevronRight className="settings-nav-chevron" size={16} aria-hidden="true" />
       </NavLink>
       {open ? (
-        <div className="settings-submenu" role={coarsePointer ? "dialog" : undefined} aria-label="설정 메뉴">
+        <div
+          id={settingsPopupId}
+          className="settings-submenu"
+          role={coarsePointer ? "dialog" : "menu"}
+          aria-label="설정 메뉴"
+        >
           {sections.map((section) => (
-            <NavLink key={section.path} to={`${section.path}${search}`} onClick={() => setOpen(false)}>
+            <NavLink
+              key={section.path}
+              to={`${section.path}${search}`}
+              role={coarsePointer ? undefined : "menuitem"}
+              onClick={() => setOpen(false)}
+            >
               {section.label}
             </NavLink>
           ))}

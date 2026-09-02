@@ -21,7 +21,7 @@
 
 ## 구현 완료
 
-- 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 지도·상세 패널 배치와 document-level horizontal overflow를 검증한다. 모바일 새로고침, 층 선택, 지도 marker와 주 메뉴는 최소 44px hit target을 유지하며 공통 `:focus-visible` ring, safe-area 하단 내비게이션, reduced-motion 축소 계약을 적용한다. 이 검증은 deterministic API fixture 기반이며 실제 Raspberry Pi/ESP32-H2 HIL 증거는 아니다.
+- 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 지도·상세 패널 배치와 document-level horizontal overflow를 검증한다. 760px 이하에서는 visible·enabled interactive descendant 전체를 공통 helper로 열거해 새로고침, 층·현장·등록 대상 select, 로그아웃과 주 메뉴의 최소 44px hit target을 검증한다. 밀집 도면 marker는 34px compact scale을 유지해 hit overlap을 만들지 않으며 이 helper에서 명시적으로 제외한다. 대신 모든 조명을 노출하는 `상세 조명 선택` select가 44px 대체 선택 경로를 제공하고 marker/selector/상세 상태를 같은 selection state로 동기화한다. 이 검증은 deterministic API fixture 기반이며 실제 Raspberry Pi/ESP32-H2 HIL 증거는 아니다.
 - Calm Operations 정보 위계에 맞춰 `PageHeader`에 운영 현황, 선택 층, 수동 새로고침·마지막 갱신·부분 실패를 모으고, 선택 층 기준 전체 조명·정상·점검 필요·평균 밝기를 공통 `MetricCard`로 표시한다. KPI는 넓은 화면에서 한 행의 유연한 열로 배치되고 모바일에서는 2열로 재배치된다.
 - 선택 조명 상세는 도면보다 좁은 고정 범위 패널에 배치하며 현재 밝기와 장비 사실 아래에 장애·실제 오프라인 점검 큐를 둔다. 정상·장애·오프라인·첫 상태 확인 대기는 선택 상세의 `StatusBadge`와 지도 범례에서 icon + visible text로 구분하고, compact marker도 상태별 solid/double/dashed/dotted border pattern을 함께 사용한다. marker별 상태 문구나 SVG를 1,000개까지 반복 렌더링하지 않으며 기존 한국어 접근성 이름과 선택 hit target은 유지한다.
 - 모니터링 표현 계층을 개편해도 설치 guard, Gateway claim, active registration session 복구, 등록 조명이 존재할 때의 admin 등록 패널, viewer 읽기 전용 empty state는 유지한다. 등록은 여전히 실제 Gateway/BlueZ/ESP32-H2 상태와 HIL에 의존하며 Calm Operations UI를 실장비 등록 완료로 간주하지 않는다.
@@ -67,7 +67,7 @@
 - 선택 조명 상세 패널에 현재 밝기, 정격 전력, 마지막 수신, 해당 조명에 실제 매핑된 게이트웨이 이름/상태, RSSI, hop count, 명령 성공률을 표시한다.
 - 선택 층 기준 전체 조명 수, 온라인 수, 장애 수, 평균 밝기를 표시한다.
 - 장애 조명과 실제 오프라인 조명을 점검 큐에서 바로 선택할 수 있다. 첫 상태를 기다리는 `provisioning_waiting_state` 조명은 오프라인 대수와 선택 대상에서 제외한다.
-- 층 탭은 좁은 화면에서 가로 스크롤되고, 모바일 하단 내비게이션은 safe area 여백을 반영한다.
+- 층 탭은 좁은 화면에서 가로 스크롤되고, 모바일 하단 내비게이션 CSS는 `env(safe-area-inset-bottom)` 여백 계약을 적용한다. 현재 Chromium route fixture는 non-zero safe-area inset을 에뮬레이션하지 않으므로 실제 WebView inset 실측을 주장하지 않는다.
 - MQTT `fixture-state` 이벤트가 fixture 최신 상태 snapshot을 갱신한다.
 - provisioning 완료 MQTT event는 밝기, online/fault, lastSeenAt을 추정하지 않는다. 첫 실제 `fixture-state` event가 들어올 때만 이 snapshot을 확정한다.
 - MQTT `gateway-heartbeat` 이벤트가 gateway online/offline 상태 판단에 반영된다.
@@ -154,7 +154,10 @@
 - `apps/web/src/features/registration/FixtureIndividualForm.tsx`
 - `apps/web/src/api/registration.ts`
 - `apps/web/e2e/monitoring-control-flow.spec.ts`
+- `apps/web/e2e/layout-assertions.spec.ts`
+- `apps/web/e2e/support/layout-assertions.ts`
 - `apps/web/e2e/support/settings-api.ts`
+- `apps/web/playwright.config.ts`
 - `apps/web/src/api/queries.ts`
 - `apps/api/src/sites/sites.controller.ts`
 - `apps/api/src/sites/sites.service.ts`

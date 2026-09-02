@@ -200,6 +200,21 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
         <MetricCard label="평균 밝기" value={floorSummary.averageBrightness} unit="%" helper="현재 디밍" />
       </div>
 
+      <label className="monitoring-fixture-selector">
+        <span>상세 조명 선택</span>
+        <select
+          aria-label="상세 조명 선택"
+          value={selectedFixture?.id ?? ""}
+          onChange={(event) => setSelectedFixtureId(event.target.value)}
+        >
+          {fixtures.map((fixture) => (
+            <option key={fixture.id} value={fixture.id}>
+              {fixture.name} · {fixture.statusReason === "provisioning_waiting_state" ? "상태 확인 대기" : statusLabels[fixture.status]}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <div className="operations-layout">
         <div className="map-panel">
           {floor && mapSnapshot ? (

@@ -88,6 +88,7 @@ export function FloorScene({
           <button
             key={fixture.id}
             type="button"
+            data-spatial-map-marker="true"
             className={`fixture-dot ${fixture.status}${awaitingState ? " awaiting-state" : ""}${fixture.id === selectedFixtureId ? " active" : ""}`}
             style={markerStyle}
             title={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}

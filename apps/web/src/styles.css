@@ -887,6 +887,10 @@ button {
   align-items: stretch;
 }
 
+.monitoring-fixture-selector {
+  display: none;
+}
+
 .map-panel {
   min-width: 0;
 }
@@ -4014,8 +4018,36 @@ button.group-card {
 
   .monitoring-screen .secondary-button,
   .monitoring-screen .segmented-control button,
+  .monitoring-screen .monitoring-fixture-selector select,
   .floor-asset-actions .secondary-button {
     min-height: 44px;
+  }
+
+  .logout-button,
+  .registration-targets select {
+    min-height: 44px;
+  }
+
+  .editor-properties-panel input,
+  .password-settings-card input {
+    min-height: 44px;
+  }
+
+  .monitoring-fixture-selector {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .monitoring-fixture-selector select {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--text);
+    padding: 0 12px;
   }
 
   .control-screen .ui-page-header {
@@ -4033,6 +4065,14 @@ button.group-card {
   }
 
   .control-screen button {
+    min-height: 44px;
+  }
+
+  .control-screen .control-search-field,
+  .control-screen .control-search-field input,
+  .control-screen .select-field select,
+  .control-screen .dial-card input,
+  .control-screen .control-override-field input {
     min-height: 44px;
   }
 
@@ -4080,6 +4120,22 @@ button.group-card {
   .schedule-dialog-actions {
     bottom: -16px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .schedule-dialog .icon-button {
+    width: 44px;
+  }
+
+  .schedule-dialog .form-field input,
+  .schedule-dialog .form-field select,
+  .schedule-dialog .control-search-field,
+  .schedule-dialog .control-search-field input,
+  .schedule-dialog .select-field.compact select,
+  .schedule-dialog .schedule-weekdays label,
+  .schedule-dialog .schedule-dimming-toggle,
+  .schedule-dialog .schedule-dialog-actions > button,
+  .schedule-dialog .schedule-brightness-control > input[type="range"] {
+    min-height: 44px;
   }
 
   .schedule-form-grid.two-columns,
@@ -4208,9 +4264,9 @@ button.group-card {
   }
 
   .fixture-dot {
-    --fixture-marker-radius: 38px;
-    width: 44px;
-    min-height: 44px;
+    --fixture-marker-radius: 40px;
+    width: 34px;
+    min-height: 34px;
   }
 
   .fixture-dot:is(.active, :hover, :focus-visible) {

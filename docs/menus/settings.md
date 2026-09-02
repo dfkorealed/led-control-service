@@ -70,7 +70,7 @@
 
 ## 구현 완료
 
-- 설정 주 메뉴는 desktop hover/focus와 Escape focus 복원, admin/viewer별 링크 노출, coarse pointer의 `설정 메뉴` dialog형 bottom sheet, `siteId` 보존을 Chromium route fixture로 검증한다. 설정·도면 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정하고, 모바일 floor asset 컨트롤과 편집 버튼은 최소 44px hit target을 유지한다.
+- 설정 주 메뉴는 desktop hover/focus와 Escape focus 복원, admin/viewer별 링크 노출, coarse pointer의 `설정 메뉴` dialog형 bottom sheet, `siteId` 보존을 Chromium route fixture로 검증한다. trigger는 desktop에서 `aria-haspopup="menu"`/`role="menu"`/`menuitem`, coarse pointer에서 `aria-haspopup="dialog"`를 사용하고 두 변형 모두 stable `aria-controls`로 popup과 연결된다. 설정·도면 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정한다. 1024px 및 390px/320px의 설정 개요·admin 비밀번호 화면과 viewer security guard, 모바일 floor asset·속성 필드·revision action을 실제 route에서 검증하며 760px 이하에서는 공통 root helper가 visible·enabled interactive descendant 전체의 최소 44px hit target을 확인한다.
 - 주 메뉴의 설정 항목은 데스크톱 click으로 query string을 유지한 `/settings` 개요로 이동하고 hover/focus로 역할별 disclosure를 연다. coarse pointer click은 route를 바꾸지 않고 하단 sheet를 열어 `설정 개요`를 포함한 허용 메뉴를 선택하게 한다. 외부 pointer, blur, Escape와 route 변경은 disclosure를 닫는다.
 - 설정 본문의 내부 `설정 메뉴` 사이드바를 제거하고 현장 선택기를 수평 context row에 유지했다. 기존 현장 전환 dirty 확인 및 editor store 폐기, 상세 route와 `siteId` query 보존 계약은 그대로 유지한다.
 - 설정 메뉴에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `도면 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `도면 관리`만 읽기 전용으로 사용한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
@@ -98,7 +98,7 @@
 - 일괄·개별 조명 등록 API는 유효한 node만 원자 예약하고 node별 검증 실패를 분리한다. 자동 배치는 도면 또는 기본 canvas의 빈 grid를 사용하며 불명확한 provisioning 결과는 `reconcile_required`로 격리한다.
 - 조명 등록 화면의 검색 node 개별/전체 선택, 일괄·개별 설정 전환과 선택 조명 등록은 설치 완료 assigned admin의 commissioning UI로 노출된다. viewer와 operator에는 mutation UI를 노출하지 않는다. Task 9 software E2E는 production API와 test-support MQTT publisher 경로를 검증했고 shared `parseDfkDeviceUuid`로 invalid/타사 UUID 1개가 scan-found에서 제외됨을 확인했다. 실제 BlueZ/RF Gateway scan과 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - Konva 도면 에디터에 도면 업로드, 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 구현했다.
-- 도면 에디터 toolbar와 revision 복구 icon action은 desktop과 760px 이하 layout 모두 최소 44×44px touch target을 유지한다.
+- 도면 에디터 toolbar와 revision 복구 icon action은 desktop과 760px 이하 layout에서 표시·동작을 검증한다. 760px 이하에서는 선택 fixture의 조명명·정격 전력·X/Y·크기 property input과 revision 복구를 포함한 visible·enabled interactive descendant 전체가 최소 44×44px touch target을 유지한다.
 - 설정 에디터와 모니터링 읽기 전용 지도는 `FloorMapObjectNode`의 사각형·삼각형·선·텍스트 geometry를 공유한다. Transformer, drag와 변경 callback은 설정 에디터에서만 활성화한다.
 - PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
 - `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다. legacy migration은 현장 유무로 서비스 운영사를 추론하지 않으며 기존 Organization을 모두 customer로, legacy owner/operator와 invitation을 admin으로 유지한다.
@@ -327,7 +327,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 비밀번호 변경과 setup/commissioning visibility는 mock 기반 웹 회귀와 Task 9 격리 실백엔드 E2E로 검증했다. 모바일 레이아웃과 재설치는 이번 범위 밖이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
 - 평탄화된 설정 콘텐츠와 에디터 workbench의 시각 계층만 정리했으며, pending setup/Gateway claim/registration 흐름과 도면 editor lease·dirty guard·atomic save/restore·단축키·map bounds의 기존 제약 및 후속 실장비 검증 범위는 변경하지 않았다.
-- coarse pointer용 설정 bottom sheet와 단일 열 설정 본문은 자동화 테스트를 통과했다. 실제 모바일 WebView safe-area, 키보드 focus 이동과 네이티브 navigation 통합 검증은 후속 작업이다.
+- coarse pointer용 설정 bottom sheet와 단일 열 설정 본문은 자동화 테스트를 통과했다. CSS는 `env(safe-area-inset-bottom)` 계약을 적용하지만 현재 Chromium route fixture는 non-zero inset을 실측하지 않는다. 실제 모바일 WebView safe-area, 키보드 focus 이동과 네이티브 navigation 통합 검증은 후속 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
@@ -375,6 +375,11 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/floor-editor`
 - `apps/web/src/styles.css`
 - `apps/web/src/features/floor-map/FloorScene.tsx`
+- `apps/web/e2e/settings-floor-editor.spec.ts`
+- `apps/web/e2e/layout-assertions.spec.ts`
+- `apps/web/e2e/support/layout-assertions.ts`
+- `apps/web/e2e/support/settings-api.ts`
+- `apps/web/playwright.config.ts`
 - `apps/web/src/features/floor-editor/editor-diff.ts`
 - `apps/web/src/features/floor-editor/editor-store.ts`
 - `apps/web/src/features/setup`

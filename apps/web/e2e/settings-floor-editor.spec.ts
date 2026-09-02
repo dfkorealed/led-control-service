@@ -206,9 +206,12 @@ test("desktop settings navigation opens on hover, preserves site scope, and expo
   const settings = page.getByRole("link", { name: "설정", exact: true });
   await settings.hover();
   await expect(settings).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
+  await expect(settings).toHaveAttribute("aria-haspopup", "menu");
+  await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
+  await expect(page.getByRole("menu", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
+  await expect(page.getByRole("menuitem", { name: "비밀번호 변경" })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "설정 메뉴" })).toHaveCount(0);
-  await page.getByRole("link", { name: "도면 관리" }).click();
+  await page.getByRole("menuitem", { name: "도면 관리" }).click();
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
   await expect(page.getByRole("heading", { name: "도면 관리" })).toBeVisible();
@@ -223,8 +226,9 @@ test("desktop settings navigation opens on focus and Escape restores focus", asy
   const settings = page.getByRole("link", { name: "설정", exact: true });
   await settings.focus();
   await expect(settings).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("link", { name: "도면 관리" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "비밀번호 변경" })).toHaveCount(0);
+  await expect(settings).toHaveAttribute("aria-haspopup", "menu");
+  await expect(page.getByRole("menuitem", { name: "도면 관리" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "비밀번호 변경" })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   await expect(settings).toHaveAttribute("aria-expanded", "false");
@@ -243,14 +247,17 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
 
       const menu = page.getByRole("dialog", { name: "설정 메뉴" });
       await expect(menu).toBeVisible();
+      await expect(settings).toHaveAttribute("aria-haspopup", "dialog");
+      await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
+      await expect(menu).toHaveAttribute("id", "settings-navigation-popup");
       await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
-      await expectMinimumTouchTargets(page, ".nav-item, .settings-submenu a");
+      await expectMinimumTouchTargets(page, ".app-shell", { excludeSpatialMapMarkers: true });
       await expectNoHorizontalOverflow(page);
 
       await menu.getByRole("link", { name: "도면 관리" }).click();
       await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
       await expect(page.getByRole("heading", { name: "도면 관리" })).toBeVisible();
-      await expectMinimumTouchTargets(page, ".nav-item, .settings-screen a, .settings-screen button, .settings-screen select");
+      await expectMinimumTouchTargets(page, ".app-shell");
       await expectNoHorizontalOverflow(page);
     } finally {
       await page.close();
@@ -264,7 +271,16 @@ for (const viewport of responsiveViewports) {
     const api = await installSettingsApiRoutes(page, "admin");
     await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
     await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
-    await expect.poll(() => api.editorRequests.some((request) => request.type === "lease-acquire")).toBe(true);
+    await expect.poll(() => {
+      const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
+      return latestLease?.type === "lease-acquire" && latestLease.result.editable;
+    }).toBe(true);
+    await expect(page.getByRole("button", { name: "리비전 7 복구" })).toBeVisible();
+    const editorCanvas = page.locator(".floor-editor-konva-stage canvas").first();
+    const editorCanvasBox = await editorCanvas.boundingBox();
+    expect(editorCanvasBox).not.toBeNull();
+    if (editorCanvasBox) await page.mouse.click(editorCanvasBox.x + 120, editorCanvasBox.y + 140);
+    await expect(page.getByRole("complementary", { name: "속성 패널" }).getByRole("heading", { name: "B2-L01" })).toBeVisible();
 
     const [toolbar, stage, sidePanel] = await Promise.all([
       page.locator(".floor-editor-toolbar").boundingBox(),
@@ -286,7 +302,36 @@ for (const viewport of responsiveViewports) {
 
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
-      await expectMinimumTouchTargets(page, ".nav-item, .floor-editor-shell button, .floor-asset-actions .secondary-button");
+      await expectMinimumTouchTargets(page, ".app-shell");
     }
   });
 }
+
+for (const viewport of responsiveViewports.filter(({ width }) => width === 1024 || width <= 760)) {
+  test(`settings overview and password form keep their interactive contract at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await installSettingsApiRoutes(page, "admin");
+
+    await page.goto("/settings?siteId=site-1");
+    await expect(page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    if (viewport.width <= 760) await expectMinimumTouchTargets(page, ".app-shell");
+
+    await page.goto("/settings/security?siteId=site-1");
+    await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
+    await expect(page.getByLabel("현재 비밀번호")).toBeVisible();
+    await expect(page.getByLabel("새 비밀번호", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("새 비밀번호 확인")).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    if (viewport.width <= 760) await expectMinimumTouchTargets(page, ".app-shell");
+  });
+}
+
+test("viewer cannot enter admin password settings", async ({ page }) => {
+  await installSettingsApiRoutes(page, "viewer");
+  await page.goto("/settings/security?siteId=site-1");
+
+  await expect(page).toHaveURL(/\/settings\?siteId=site-1$/);
+  await expect(page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+  await expect(page.getByRole("form", { name: "비밀번호 변경" })).toHaveCount(0);
+});
