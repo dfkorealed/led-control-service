@@ -1142,6 +1142,12 @@ git commit -m "feat(web): complete corrected calm operations UI"
 - [x] 390px/320px 실제 dirty editor에서 coarse sheet cancel은 editor·draft·sheet·focus를 유지하고 confirm은 hash 포함 route transition 뒤 history back/forward를 막지 않는다.
 - [x] focused/full Web unit, focused/full Chromium, typecheck, build, copy/diff/boundary audit를 현재 fix-round tree에서 다시 통과한다.
 
+#### Task 8 fix round 2
+
+- [x] replace를 제거한 의도적 bad mutation에서 390px/320px 모두 editor 복귀 뒤 sentinel 직접 assertion이 실패한다.
+- [x] 정상 제품 로직에서 승인 직후와 editor 복귀 뒤 sentinel이 없고 추가 clean logout에 unsaved confirm이 열리지 않는다.
+- [x] focused relevant unit/E2E, full Web/Chromium, typecheck, build, copy/diff/boundary audit를 현재 fix-round tree에서 다시 통과한다.
+
 ---
 
 ## Final acceptance checklist

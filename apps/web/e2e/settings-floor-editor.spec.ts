@@ -237,12 +237,27 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
 
       await expect(page).toHaveURL(/\/settings\/security\?siteId=site-1#fragment$/);
       await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
+      await expect.poll(() => page.evaluate(() => Boolean(window.history.state?.__floorEditorDirtySentinel))).toBe(false);
       await page.goBack();
       await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1#fragment$/);
       await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+      await expect.poll(() => page.evaluate(() => Boolean(window.history.state?.__floorEditorDirtySentinel))).toBe(false);
       await page.goForward();
       await expect(page).toHaveURL(/\/settings\/security\?siteId=site-1#fragment$/);
       await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
+      await page.goBack();
+      await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1#fragment$/);
+      await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+
+      const unexpectedDialogs: string[] = [];
+      page.on("dialog", async (dialog) => {
+        unexpectedDialogs.push(dialog.message());
+        await dialog.dismiss();
+      });
+      await page.getByRole("button", { name: "로그아웃" }).click();
+      await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+      expect(unexpectedDialogs).toEqual([]);
+      expect(api.logoutRequests).toBe(1);
     } finally {
       await page.close();
     }
