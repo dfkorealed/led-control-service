@@ -71,13 +71,46 @@ for (const viewport of viewports) {
     }
 
     await page.getByRole("button", { name: "현장 및 관리자 생성" }).click();
-    await expect(page.getByRole("dialog", { name: "현장 및 관리자 생성" })).toBeVisible();
+    const createDialog = page.getByRole("dialog", { name: "현장 및 관리자 생성" });
+    await expect(createDialog).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
     if (viewport.width <= 760) {
-      await expectMinimumTouchTargets(page, ".operator-dialog-actions");
+      await expectMobileDialogControls(createDialog);
+      await createDialog.getByRole("button", { name: "현장 및 관리자 생성 닫기" }).click();
+
+      await page.getByRole("button", { name: "김관리 수정" }).click();
+      const editDialog = page.getByRole("dialog", { name: "김관리 수정" });
+      await expectMobileDialogControls(editDialog);
+      await editDialog.getByRole("button", { name: "김관리 수정 닫기" }).click();
+
+      await page.getByRole("button", { name: "김관리 비밀번호 재설정" }).click();
+      const resetDialog = page.getByRole("dialog", { name: "김관리 비밀번호 재설정" });
+      await expectMobileDialogControls(resetDialog);
+      await resetDialog.getByRole("button", { name: "김관리 비밀번호 재설정 닫기" }).click();
+
+      await page.getByRole("button", { name: "김관리 비활성화" }).click();
+      const disableDialog = page.getByRole("dialog", { name: "김관리 비활성화" });
+      await expectMobileDialogControls(disableDialog);
     }
   });
+}
+
+async function expectMobileDialogControls(dialog: ReturnType<Page["getByRole"]>) {
+  const close = dialog.locator(".operator-dialog-header .icon-button");
+  await expect(close).toHaveCSS("min-height", "44px");
+  const closeBox = await close.boundingBox();
+  expect(closeBox).not.toBeNull();
+  expect(closeBox!.width).toBeGreaterThanOrEqual(44);
+  expect(closeBox!.height).toBeGreaterThanOrEqual(44);
+
+  const actions = dialog.locator(".operator-dialog-actions > button");
+  for (const action of await actions.all()) {
+    const box = await action.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  }
 }
 
 async function installAuthOperatorRoutes(page: Page, isAuthenticated: () => boolean) {

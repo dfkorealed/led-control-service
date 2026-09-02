@@ -4122,6 +4122,17 @@ button.group-card {
     min-height: 16px;
   }
 
+  .operator-dialog .icon-button {
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .operator-dialog-actions > button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
     padding-bottom: var(--bottom-nav-space);
