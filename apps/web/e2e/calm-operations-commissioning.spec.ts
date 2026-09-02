@@ -84,6 +84,7 @@ for (const viewport of viewports) {
       await page.getByLabel("주소").fill("서울시 강남구");
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["주소 미입력", "층 자동 생성"], viewport.width);
+      await expectMobileRegionTargetsReachable(page, ".setup-wizard", viewport.width);
       await page.getByRole("button", { name: "층 자동 생성" }).click();
       await expectNoHorizontalOverflow(page);
       await expect(page.getByRole("button", { name: "초기 설정 완료" })).toBeEnabled();
@@ -108,6 +109,7 @@ for (const viewport of viewports) {
       await expect(page.getByRole("button", { name: "게이트웨이 등록" })).toBeEnabled();
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["게이트웨이 등록"], viewport.width);
+      await expectMobileRegionTargetsReachable(page, ".gateway-claim-panel", viewport.width);
     });
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {
@@ -127,9 +129,11 @@ for (const viewport of viewports) {
       await expectCommissioningActionsReachable(page, ["조명 검색 시작"], viewport.width);
       await startSearch(page);
       await expect(page.getByRole("status", { name: "조명 검색 상태" })).toHaveText("검색 중");
+      await expectRegistrationStepStates(page, ["current", "pending", "pending", "pending"]);
       await expect(page.getByText("검색된 미등록 조명이 없습니다.")).toHaveCount(0);
       await page.clock.fastForward(1500);
       await expect(page.getByText("검색된 미등록 조명이 없습니다.")).toBeVisible();
+      await expectRegistrationStepStates(page, ["complete", "current", "pending", "pending"]);
       await expectNoHorizontalOverflow(page);
     });
 
@@ -164,6 +168,7 @@ for (const viewport of viewports) {
       await page.goto(`/settings?siteId=${ids.site}`);
       await expect(page.getByLabel("조명 1 선택")).toBeVisible();
       await page.getByLabel("조명 1 선택").check();
+      await expectRegistrationStepStates(page, ["complete", "current", "pending", "pending"]);
       await expect(page.getByRole("button", { name: "선택 조명 등록" })).toBeEnabled();
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
       await page.getByRole("radio", { name: "개별 설정" }).check();
@@ -172,21 +177,52 @@ for (const viewport of viewports) {
       await expect(page.locator(".individual-error")).toHaveText("X와 Y 좌표를 모두 입력하거나 모두 비워주세요.");
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
+      await expectMobileRegionTargetsReachable(page, ".registration-panel", viewport.width);
     });
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {
       const reconcile = registrationSession("completed", [{ ...discoveredNode, status: "reconcile_required", errorMessage: "Gateway ACK 확인 필요" }]);
       await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [reconcile] });
       await page.goto(`/settings?siteId=${ids.site}`);
-      await expect(page.getByRole("list", { name: "조명 등록 진행" })).toContainText("상태 확인");
+      await expectRegistrationStepStates(page, ["complete", "complete", "complete", "current"]);
+      await expect(page.getByText("게이트웨이 장비 응답 확인 필요")).toBeVisible();
+      await expect(page.getByText("Gateway ACK 확인 필요")).toHaveCount(0);
       await expectCommissioningActionsReachable(page, ["상태 다시 확인"], viewport.width);
       await page.getByLabel("장비 상태를 확인했으며 현재 세션에서 제외").check();
       await expect(page.getByRole("button", { name: "현재 세션에서 제외" })).toBeEnabled();
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["현재 세션에서 제외"], viewport.width);
+      await expectMobileRegionTargetsReachable(page, ".registration-panel", viewport.width);
     });
   });
 }
+
+test("registration progress exposes provisioning, completed, and failed semantics", async ({ browser, baseURL }) => {
+  const viewport = { width: 390, height: 844 };
+  const cases = [
+    {
+      session: registrationSession("completed", [{ ...discoveredNode, status: "provisioning" as const }]),
+      states: ["complete", "complete", "current", "pending"]
+    },
+    {
+      session: { ...registrationSession("completed", [{ ...discoveredNode, status: "provisioned" as const }]), status: "completed" as const },
+      states: ["complete", "complete", "complete", "complete"]
+    },
+    {
+      session: { ...registrationSession("failed", []), scanFailureMessage: "Gateway ACK timeout" },
+      states: ["error", "pending", "pending", "pending"]
+    }
+  ] as const;
+
+  for (const { session, states } of cases) {
+    await withFixturePage(browser, baseURL, viewport, async (page) => {
+      await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [session] });
+      await page.goto(`/settings?siteId=${ids.site}`);
+      await expectRegistrationStepStates(page, states);
+      await expectNoHorizontalOverflow(page);
+    });
+  }
+});
 
 function fixtureIds() {
   return { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway };
@@ -212,6 +248,15 @@ async function expectCommissioningActionsReachable(page: Page, actionNames: read
 
 async function expectMobileRegionTargetsReachable(page: Page, selector: string, width: number) {
   if (width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, selector);
+}
+
+async function expectRegistrationStepStates(page: Page, states: readonly string[]) {
+  const progress = page.getByRole("list", { name: "조명 등록 진행" });
+  await expect(progress.locator(":scope > li")).toHaveCount(states.length);
+  await expect.poll(async () => progress.locator(":scope > li").evaluateAll((steps) =>
+    steps.map((step) => step.getAttribute("data-state"))
+  )).toEqual(states);
+  await expect(progress.locator('[aria-current="step"]')).toHaveCount(states.filter((state) => state === "current").length);
 }
 
 async function expectCommissioningActionReachable(page: Page, action: ReturnType<Page["getByRole"]>, actionIndex: number) {

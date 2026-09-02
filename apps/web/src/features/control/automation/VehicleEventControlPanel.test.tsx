@@ -72,6 +72,16 @@ describe("VehicleEventControlPanel", () => {
     expect(screen.getByRole("button", { name: "이벤트 추가" })).toHaveClass("ui-button", "ui-button-primary");
   });
 
+  it("uses shared dialog action buttons", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+
+    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
+    expect(within(dialog).getByRole("button", { name: "저장" })).toHaveClass("ui-button", "ui-button-primary");
+  });
+
   it("keeps one reachable add action for an empty vehicle event list", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [], total: 0, nextCursor: null });
     renderPanel("admin");

@@ -206,10 +206,10 @@ describe("ControlView 대상 선택", () => {
 
     renderControl();
     fireEvent.click(screen.getByRole("button", { name: "층" }));
-    expect(screen.getByText("Gateway 장비 응답을 확인하지 못했습니다.")).toBeInTheDocument();
+    expect(screen.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "구역" }));
-    expect(screen.getAllByText("Gateway 장비 응답을 확인하지 못했습니다.")).toHaveLength(1);
+    expect(screen.getAllByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toHaveLength(1);
     expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
   });
 

@@ -16,6 +16,7 @@ import {
   type RegistrationSession
 } from "../../api/registration";
 import { Button, Card, FeedbackState, ProgressSteps, StatusBadge, type ProgressStep, type ProgressStepState } from "../../components/ui";
+import { humanizeTransportMessage } from "../transport-copy";
 import { FixtureBatchForm, type FixtureBatchDefaults } from "./FixtureBatchForm";
 import {
   FixtureIndividualForm,
@@ -290,7 +291,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
       serialNumber: node.serialNumber,
       editable: isRegisterableNode(node, sessionSnapshot),
       draft: individualDrafts[node.id] ?? createIndividualDraft(),
-      error: nodeErrors[node.id] ?? node.errorMessage ?? undefined
+      error: displayTransportMessage(nodeErrors[node.id] ?? node.errorMessage)
     };
   });
   const sessionNodes = sessionSnapshot?.discoveredNodes ?? [];
@@ -514,8 +515,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
               <div className="node-row muted-node">게이트웨이가 미등록 조명을 검색하는 중입니다.</div>
             ) : (
               nodes.map((node, index) => {
-                const rowError = nodeErrors[node.id]
-                  ?? ((node.status === "failed" || node.status === "reconcile_required") ? node.errorMessage : null);
+                const rowError = displayTransportMessage(nodeErrors[node.id]
+                  ?? ((node.status === "failed" || node.status === "reconcile_required") ? node.errorMessage : null));
                 return (
                   <div className={`node-row${selectedNodeIds.includes(node.id) ? " selected" : ""}`} key={node.id}>
                     <label className="node-selection">
@@ -675,7 +676,12 @@ function scanStatusLabel(session: RegistrationSession | null) {
 }
 
 function safeScanFailureMessage(message: string | null) {
-  return message?.trim() || "조명 검색 중 문제가 발생했습니다. 다시 검색하세요.";
+  return displayTransportMessage(message) || "조명 검색 중 문제가 발생했습니다. 다시 검색하세요.";
+}
+
+function displayTransportMessage(message: string | null | undefined) {
+  const trimmed = message?.trim();
+  return trimmed ? humanizeTransportMessage(trimmed) : undefined;
 }
 
 const initialRegistrationSteps: readonly ProgressStep[] = [
@@ -685,17 +691,31 @@ const initialRegistrationSteps: readonly ProgressStep[] = [
   { id: "reconcile", label: "상태 확인", state: "pending" }
 ];
 
-function registrationSteps(session: RegistrationSession, nodes: DiscoveredRegistrationNode[]): ProgressStep[] {
-  const unresolved = nodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required");
-  const scanState: ProgressStepState = session.scanStatus === "completed"
-    ? "complete"
-    : session.scanStatus === "failed" ? "error" : "current";
-  return [
-    { id: "scan", label: "조명 검색", state: scanState },
-    { id: "configure", label: "등록 정보", state: nodes.length > 0 ? "current" : "pending" },
-    { id: "provision", label: "장비 등록", state: unresolved ? "current" : "pending" },
-    { id: "reconcile", label: "상태 확인", state: nodes.some((node) => node.status === "reconcile_required") ? "current" : "pending" }
-  ];
+export function registrationSteps(session: RegistrationSession, nodes: DiscoveredRegistrationNode[]): ProgressStep[] {
+  if (session.status === "completed") return registrationStepStates(["complete", "complete", "complete", "complete"]);
+  if (session.scanStatus === "failed") return registrationStepStates(["error", "pending", "pending", "pending"]);
+  if (session.scanStatus !== "completed") return registrationStepStates(["current", "pending", "pending", "pending"]);
+  if (nodes.some((node) => node.status === "reconcile_required")) {
+    return registrationStepStates(["complete", "complete", "complete", "current"]);
+  }
+  if (nodes.some((node) => node.status === "failed")) {
+    return registrationStepStates(["complete", "complete", "error", "pending"]);
+  }
+  if (nodes.some((node) => node.status === "provisioning")) {
+    return registrationStepStates(["complete", "complete", "current", "pending"]);
+  }
+  if (nodes.some((node) => node.status === "provisioned")) {
+    return registrationStepStates(["complete", "complete", "complete", "current"]);
+  }
+  return registrationStepStates(["complete", "current", "pending", "pending"]);
+}
+
+function registrationStepStates(states: readonly ProgressStepState[]): ProgressStep[] {
+  return ["조명 검색", "등록 정보", "장비 등록", "상태 확인"].map((label, index) => ({
+    id: ["scan", "configure", "provision", "reconcile"][index],
+    label,
+    state: states[index]
+  }));
 }
 
 function scanStatusTone(session: RegistrationSession | null) {

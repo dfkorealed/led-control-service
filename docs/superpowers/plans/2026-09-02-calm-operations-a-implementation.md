@@ -1148,6 +1148,15 @@ git commit -m "feat(web): complete corrected calm operations UI"
 - [x] 정상 제품 로직에서 승인 직후와 editor 복귀 뒤 sentinel이 없고 추가 clean logout에 unsaved confirm이 열리지 않는다.
 - [x] focused relevant unit/E2E, full Web/Chromium, typecheck, build, copy/diff/boundary audit를 현재 fix-round tree에서 다시 통과한다.
 
+#### Task 8 fix round 3
+
+- [x] 등록·제어 화면의 transport 응답 문구는 raw API 값과 protocol identifier를 바꾸지 않고 공통 display mapper에서 `Gateway`, `ACK`, `timeout`을 자연스러운 한국어로 표시한다.
+- [x] 조명 등록 진행 단계는 검색·정보 입력·장비 등록·상태 확인을 하나의 순서 상태 기계로 계산해 nonterminal에서 `aria-current="step"`이 정확히 하나이고, 완료 terminal과 실제 실패 단계가 일관된 의미를 갖는다.
+- [x] 390px/320px setup·claim·registration의 input/select/checkable label이 연속 44×44px 도달·clipping·occlusion 계약을 만족하고, 1440px/1024px 레이아웃을 보존한다.
+- [x] 스케줄·차량 이벤트·저장 구역 dialog의 기본/취소 action을 공통 `Button`으로 수렴하면서 ref·submit·disabled/loading·Escape·focus 동작을 보존한다.
+- [x] RED에서 transport/registration/dialog unit `10 failed / 71 passed`와 320px setup input `224×42` 실패를 확인했고, focused GREEN unit `137/137`, commissioning Chromium `5/5`, timeout Chromium `1/1`, Web unit `441/441`, typecheck와 production build를 통과했다.
+- [x] 실백엔드 pre-connect 검증은 DB publish 직후 broker observer callback까지 bounded wait해 delivery lag를 protocol 실패로 오판하지 않는다. focused lab Chromium `1/1`, 전체 tracked Chromium 직렬 실행 `136 passed / 3 environment-gated skipped`를 통과했으며 기존 chunk-size warning은 별도 기록한다.
+
 ---
 
 ## Final acceptance checklist

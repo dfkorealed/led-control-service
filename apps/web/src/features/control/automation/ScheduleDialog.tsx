@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CreateScheduleInput, ScheduleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
 import { useDialogFocus } from "../../../components/ConfirmDialog";
+import { Button } from "../../../components/ui";
 import { ControlTargetPicker } from "../ControlTargetPicker";
 import {
   createEmptyScheduleForm,
@@ -340,10 +341,10 @@ export function ScheduleDialog({
 
           {serverError ? <p className="danger-text schedule-form-server-error" role="alert">{serverError}</p> : null}
           <footer className="schedule-dialog-actions">
-            <button type="button" onClick={onClose} disabled={isPending}>취소</button>
-            <button className="primary-button" type="submit" disabled={isPending}>
-              {isPending ? "저장 중" : schedule ? "변경 저장" : "스케줄 만들기"}
-            </button>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>
+            <Button className="primary-button" variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">
+              {schedule ? "변경 저장" : "스케줄 만들기"}
+            </Button>
           </footer>
         </form>
       </section>

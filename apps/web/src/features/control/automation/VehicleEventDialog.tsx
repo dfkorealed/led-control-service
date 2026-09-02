@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CreateVehicleEventRuleInput, VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { useDialogFocus } from "../../../components/ConfirmDialog";
+import { Button } from "../../../components/ui";
 import { ControlTargetPicker } from "../ControlTargetPicker";
 import {
   createEmptyVehicleEventForm,
@@ -144,8 +145,8 @@ export function VehicleEventDialog({
 
           {serverError ? <p className="danger-text schedule-form-server-error" role="alert">{serverError}</p> : null}
           <footer className="schedule-dialog-actions">
-            <button type="button" onClick={onClose} disabled={isPending}>취소</button>
-            <button className="primary-button" type="submit" disabled={isPending}>{isPending ? "저장 중" : "저장"}</button>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>
+            <Button className="primary-button" variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">저장</Button>
           </footer>
         </form>
       </section>

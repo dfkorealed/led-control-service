@@ -137,6 +137,16 @@ describe("ScheduleControlPanel", () => {
     expect(screen.getByRole("button", { name: "스케줄 추가" })).toHaveClass("ui-button", "ui-button-primary");
   });
 
+  it("uses shared dialog action buttons", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
+    expect(within(dialog).getByRole("button", { name: "스케줄 만들기" })).toHaveClass("ui-button", "ui-button-primary");
+  });
+
   it("renders sync and production action-result summaries but no mutation commands for a viewer", async () => {
     mocks.listSchedules.mockResolvedValue(page([
       schedule({

@@ -1,9 +1,11 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-02
+기준일: 2026-09-03
 
 ## 구현 완료
 
+- 수동 명령·저장 구역의 transport 오류는 공통 표시 전용 mapper를 사용해 `Gateway ACK timeout`을 `게이트웨이 장비 응답 시간 초과`로 표시하고, 원시 command/group API 값과 protocol identifier는 유지한다. 화면 결과에는 `Gateway`/`ACK`/`timeout`이 섞인 문구를 남기지 않는다.
+- 스케줄, 차량 이벤트, 저장 구역 dialog의 취소·저장 액션은 공통 `Button`을 사용한다. 기존 submit/cancel event, disabled/loading 문구, Escape·focus 복귀와 기존 CSS class 계약은 유지한다.
 - 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 대상 선택·밝기 실행 패널의 1120px 스택과 document-level horizontal overflow 부재를 검증한다. 390px/320px의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다. scrollable control/dialog는 각 target을 viewport 중앙으로 이동해 같은 core 판정을 순차 적용한다. 이 계약으로 대상 검색·상태/층 filter·밝기 range·수동 override datetime을 검증하고, 스케줄·이벤트 empty list와 add dialog도 별도로 열어 날짜/시간/select, 반복 요일, target picker, 행동 필드와 dialog action을 검사한다. 공통 focus ring과 reduced-motion 규칙은 기존 명령/API/auth/scope 계약을 바꾸지 않는다.
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
@@ -225,6 +227,8 @@
 
 ## 관련 파일
 
+- `apps/web/src/features/transport-copy.ts`
+- `apps/web/src/features/transport-copy.test.ts`
 - `apps/api/src/automation/automation.controller.ts`
 - `apps/api/src/sites/sites.service.ts`
 - `apps/api/src/automation/automation.module.ts`

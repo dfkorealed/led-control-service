@@ -110,7 +110,7 @@ for (const viewport of viewports) {
 
     await page.getByRole("button", { name: "구역", exact: true }).click();
     await expect(page.getByRole("button", { name: "B2 입구 선택" })).toBeDisabled();
-    await expect(page.getByText("Gateway 장비 응답을 확인하지 못했습니다.")).toBeVisible();
+    await expect(page.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeVisible();
     await expect(page.getByText(/ACK/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
@@ -149,7 +149,8 @@ for (const viewport of viewports) {
       await timeoutPage.getByRole("checkbox", { name: "B2-L01 선택" }).check();
       await timeoutPage.getByRole("button", { name: "밝기 적용" }).click();
       timeoutApi.setCommandStatus({ stage: "timed_out", results: [commandResult("timed_out", "Gateway ACK timeout")] });
-      await expect(timeoutPage.getByText("Gateway 장비 응답 timeout")).toBeVisible();
+      await expect(timeoutPage.getByText("게이트웨이 장비 응답 시간 초과")).toBeVisible();
+      await expect(timeoutPage.locator(".command-progress-card .danger-text")).not.toContainText(/Gateway|ACK|timeout/i);
       await expect(timeoutPage.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
     } finally {
       await timeoutPage.close();

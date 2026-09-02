@@ -135,6 +135,8 @@ describe("FixtureGroupDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
     expect(screen.getByRole("heading", { name: "구역 편집" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "구역 조명 목록" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
+    expect(screen.getByRole("button", { name: "변경 저장" })).toHaveClass("ui-button", "ui-button-primary");
   });
 
   it("삭제 확인 Escape는 부모 dialog를 유지하고 삭제 trigger로 포커스를 복귀한다", async () => {
@@ -186,7 +188,7 @@ describe("FixtureGroupDialog", () => {
 
     renderDialog(true);
 
-    expect(await screen.findByText("Gateway 장비 응답을 확인하지 못했습니다.")).toBeInTheDocument();
+    expect(await screen.findByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeInTheDocument();
     expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
   });
 

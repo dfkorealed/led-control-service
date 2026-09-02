@@ -356,10 +356,10 @@ function FixtureGroupForm({
         {!form.gatewayId ? <p className="control-empty-state">층과 게이트웨이를 먼저 선택하세요.</p> : null}
       </div>
       <div className="fixture-group-form-actions">
-        <button type="button" onClick={onCancel} disabled={isSaving}>취소</button>
-        <button className="primary-button" type="submit" disabled={!valid || isSaving}>
-          {isSaving ? "저장 중" : form.groupId ? "변경 저장" : "구역 만들기"}
-        </button>
+        <Button variant="secondary" type="button" onClick={onCancel} disabled={isSaving}>취소</Button>
+        <Button className="primary-button" variant="primary" type="submit" disabled={!valid} isLoading={isSaving} loadingLabel="저장 중">
+          {form.groupId ? "변경 저장" : "구역 만들기"}
+        </Button>
       </div>
     </form>
     </Card>

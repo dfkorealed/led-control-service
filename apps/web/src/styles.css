@@ -3876,10 +3876,11 @@ button.group-card {
 }
 
 .setup-form-grid input,
+.setup-form-grid select,
 .setup-range-row input,
 .floor-edit-row input {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #ffffff;
@@ -3963,6 +3964,7 @@ button.group-card {
 
 .registration-targets select {
   min-width: 150px;
+  min-height: 44px;
 }
 
 .registration-summary span,
@@ -4008,6 +4010,17 @@ button.group-card {
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
+}
+
+.selection-checkbox,
+.node-selection,
+.reconcile-actions label {
+  min-height: 44px;
+}
+
+.node-selection {
+  min-width: 44px;
+  justify-content: center;
 }
 
 .selection-checkbox input,
@@ -4117,7 +4130,11 @@ button.group-card {
 
 .registration-mode-toggle label {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 92px;
+  min-height: 44px;
   border-radius: 6px;
   padding: 8px 12px;
   color: var(--muted);
@@ -4164,6 +4181,7 @@ button.group-card {
 .individual-fixture-fields input {
   width: 100%;
   min-width: 0;
+  min-height: 44px;
 }
 
 .registration-submit {
@@ -4715,7 +4733,7 @@ button.group-card {
   }
 
   .node-row {
-    grid-template-columns: 24px minmax(0, 1fr);
+    grid-template-columns: 44px minmax(0, 1fr);
     align-items: start;
   }
 
