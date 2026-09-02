@@ -74,3 +74,4 @@ Task 5: fix round 1/5 (5 addressed — MetricCard status/value-unit contract, 39
 Task 5: fix round 2/5 (1 addressed — App integration assertions aligned without weakening site/query/cache checks; commits `f235ee1`..`c35b672`).
 Task 5: complete (commits `fea0a1f`..`c35b672`, 24 focused tests and 6 Chromium statistics flows passed; final re-review clean).
 Cross-task regression after Task 5: full Web suite exposed four Task 3 monitoring App assertions still targeting removed `B1/B2 운영 현황` copy. They are not caused by the Task 5 fix diff; resolve against the Task 3 accessibility contract before Task 6.
+Task 3: supplemental fix round 2/5 complete (four App monitoring assertions aligned to current semantic landmarks without runtime changes; commit `c9cb009`; 375 full Web tests and independent review passed).
