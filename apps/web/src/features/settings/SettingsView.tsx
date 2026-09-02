@@ -72,7 +72,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
             </div>
           </div>
           <p className="muted-text">도면 등록 {registeredPlanCount}개</p>
-          <Link className="ui-button ui-button-secondary" to={{ pathname: "/settings/floor-plans", search: location.search }}>
+          <Link className="ui-button ui-button-secondary" to={{ pathname: "/settings/floor-plans", search: location.search, hash: location.hash }}>
             도면 관리 열기
           </Link>
         </Card>
@@ -109,7 +109,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
                 <strong>관리자 비밀번호</strong>
               </div>
             </div>
-            <Link className="ui-button ui-button-secondary" to={{ pathname: "/settings/security", search: location.search }}>
+            <Link className="ui-button ui-button-secondary" to={{ pathname: "/settings/security", search: location.search, hash: location.hash }}>
               비밀번호 변경 열기
             </Link>
           </Card>

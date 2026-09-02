@@ -194,6 +194,61 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
   await expect.poll(async () => page.evaluate(async () => (await fetch("/api/auth/me")).status)).toBe(401);
 });
 
+for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) {
+  test(`dirty editor keeps the coarse ${viewport.width}px settings sheet on cancel and clears its sentinel on confirm`, async ({ browser, baseURL }) => {
+    const page = await browser.newPage({ baseURL, viewport, hasTouch: true, isMobile: true });
+    try {
+      const api = await installSettingsApiRoutes(page, "admin");
+      await page.goto("/settings?siteId=site-1#fragment");
+      await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1#fragment");
+      await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+      await expect.poll(() => {
+        const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
+        return latestLease?.type === "lease-acquire" && latestLease.result.editable;
+      }).toBe(true);
+
+      await page.getByLabel("B2 편집 캔버스").click({ position: { x: 120, y: 140 } });
+      const xInput = page.getByRole("complementary", { name: "속성 패널" }).getByLabel("X");
+      await xInput.fill("260");
+      await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
+
+      await page.getByRole("button", { name: "설정", exact: true }).click();
+      const menu = page.getByRole("navigation", { name: "설정 메뉴" });
+      const securityLink = menu.getByRole("link", { name: "비밀번호 변경" });
+      await expect(securityLink).toHaveAttribute("href", "/settings/security?siteId=site-1#fragment");
+
+      page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("저장하지 않은 변경사항");
+        await dialog.dismiss();
+      });
+      await securityLink.click();
+
+      await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1#fragment$/);
+      await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+      await expect(xInput).toHaveValue("260");
+      await expect(menu).toBeVisible();
+      await expect(securityLink).toBeFocused();
+
+      page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("저장하지 않은 변경사항");
+        await dialog.accept();
+      });
+      await securityLink.click();
+
+      await expect(page).toHaveURL(/\/settings\/security\?siteId=site-1#fragment$/);
+      await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
+      await page.goBack();
+      await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1#fragment$/);
+      await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+      await page.goForward();
+      await expect(page).toHaveURL(/\/settings\/security\?siteId=site-1#fragment$/);
+      await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
+    } finally {
+      await page.close();
+    }
+  });
+}
+
 test("desktop settings navigation opens on hover, preserves site scope, and exposes admin links", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installSettingsApiRoutes(page, "admin");

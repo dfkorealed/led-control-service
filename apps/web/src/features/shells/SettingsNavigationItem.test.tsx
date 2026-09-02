@@ -6,7 +6,7 @@ import { SettingsNavigationItem } from "./SettingsNavigationItem";
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
+  return <output data-testid="location">{`${location.pathname}${location.search}${location.hash}`}</output>;
 }
 
 function mockMatchMedia({ coarse = false }: { coarse?: boolean } = {}) {
@@ -33,7 +33,7 @@ function renderSettingsItem({
   role: AuthUser["role"];
   initialEntry: string;
 }) {
-  const search = initialEntry.includes("?") ? initialEntry.slice(initialEntry.indexOf("?")) : "";
+  const search = new URL(initialEntry, "http://localhost").search;
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <SettingsNavigationItem role={role} search={search} />
@@ -50,14 +50,16 @@ describe("SettingsNavigationItem", () => {
 
   it("설정 메뉴는 siteId와 현재 항목을 보존한다", () => {
     mockMatchMedia();
-    renderSettingsItem({ role: "admin", initialEntry: "/settings/floor-plans?siteId=site-1" });
+    renderSettingsItem({ role: "admin", initialEntry: "/settings/floor-plans?siteId=site-1#fragment" });
 
-    fireEvent.focus(screen.getByRole("link", { name: "설정" }));
+    const trigger = screen.getByRole("link", { name: "설정" });
+    fireEvent.focus(trigger);
 
     expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1");
-    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
-    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toHaveAttribute("href", "/settings/security?siteId=site-1");
+    expect(trigger).toHaveAttribute("href", "/settings?siteId=site-1#fragment");
+    expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1#fragment");
+    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1#fragment");
+    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toHaveAttribute("href", "/settings/security?siteId=site-1#fragment");
     expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("aria-current", "page");
   });
 

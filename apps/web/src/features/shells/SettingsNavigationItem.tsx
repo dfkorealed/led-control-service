@@ -84,7 +84,7 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
       ) : (
         <Link
           ref={(node) => { triggerRef.current = node; }}
-          to={`/settings${search}`}
+          to={{ pathname: "/settings", search, hash: location.hash }}
           className={active ? "nav-item active" : "nav-item"}
           aria-expanded={open}
           aria-controls={settingsPopupId}
@@ -118,7 +118,7 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
                 <li key={section.path}>
                   <NavLink
                     ref={index === 0 ? firstSectionRef : undefined}
-                    to={`${section.path}${search}`}
+                    to={{ pathname: section.path, search, hash: location.hash }}
                     end={section.path === "/settings"}
                     onClick={() => setOpen(false)}
                   >

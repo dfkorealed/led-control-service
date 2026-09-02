@@ -52,7 +52,7 @@ describe("SettingsShell", () => {
 
   it("설정 개요는 실제 데이터와 route action으로 네 카드를 표시한다", () => {
     render(
-      <MemoryRouter initialEntries={["/settings?siteId=site-1"]}>
+      <MemoryRouter initialEntries={["/settings?siteId=site-1#fragment"]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
             <Route index element={<SettingsView siteId="site-1" userRole="admin" />} />
@@ -72,14 +72,14 @@ describe("SettingsShell", () => {
     expect(floors).toHaveTextContent(`도면 등록 ${mockDashboard.floors.length}개`);
     expect(within(floors).getByRole("link", { name: "도면 관리 열기" })).toHaveAttribute(
       "href",
-      "/settings/floor-plans?siteId=site-1"
+      "/settings/floor-plans?siteId=site-1#fragment"
     );
 
     expect(screen.getByRole("group", { name: "Gateway 상태" })).toHaveTextContent(/정상|오프라인|미등록/);
     const security = screen.getByRole("group", { name: "계정·보안" });
     expect(within(security).getByRole("link", { name: "비밀번호 변경 열기" })).toHaveAttribute(
       "href",
-      "/settings/security?siteId=site-1"
+      "/settings/security?siteId=site-1#fragment"
     );
   });
 

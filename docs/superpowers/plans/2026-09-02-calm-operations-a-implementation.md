@@ -1136,6 +1136,12 @@ git add apps/web/src/features/shells/SettingsNavigationItem.tsx apps/web/src/fea
 git commit -m "feat(web): complete corrected calm operations UI"
 ```
 
+#### Task 8 fix round 1
+
+- [x] 설정 overview action과 desktop/coarse submenu가 현재 query string과 hash fragment를 함께 보존한다.
+- [x] 390px/320px 실제 dirty editor에서 coarse sheet cancel은 editor·draft·sheet·focus를 유지하고 confirm은 hash 포함 route transition 뒤 history back/forward를 막지 않는다.
+- [x] focused/full Web unit, focused/full Chromium, typecheck, build, copy/diff/boundary audit를 현재 fix-round tree에서 다시 통과한다.
+
 ---
 
 ## Final acceptance checklist
