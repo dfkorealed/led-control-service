@@ -1,6 +1,6 @@
 import type { CreateFixtureGroupInput, FixtureGroupMetadata } from "@led-control/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowLeft, CircleCheck, Clock3, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   createFixtureGroup,
@@ -11,6 +11,8 @@ import {
   updateFixtureGroup
 } from "../../api/fixture-groups";
 import type { Dashboard, DashboardFixture } from "../../api/queries";
+import { Button, Card, StatusBadge } from "../../components/ui";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { useModalFocus } from "./useModalFocus";
 
 interface FixtureGroupDialogProps {
@@ -160,15 +162,15 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
           />
         ) : (
           <>
-            <div className="fixture-group-dialog-toolbar">
-              <p>{canManage ? "자주 함께 제어할 조명을 구역으로 저장합니다." : "저장 구역과 Mesh 준비 상태를 조회할 수 있습니다."}</p>
+              <div className="fixture-group-dialog-toolbar">
+                <p>{canManage ? "자주 함께 제어할 조명을 구역으로 저장합니다." : "저장 구역과 Mesh 준비 상태를 조회할 수 있습니다."}</p>
               {canManage ? (
-                <button className="secondary-button" type="button" onClick={() => {
+                <Button variant="secondary" type="button" onClick={() => {
                   setMessage("");
                   setForm(emptyForm);
                 }}>
                   <Plus size={16} aria-hidden="true" /> 새 구역
-                </button>
+                </Button>
               ) : null}
             </div>
 
@@ -180,6 +182,14 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
               </div>
             ) : null}
             {!groupsQuery.isLoading && !groupsQuery.error ? (
+              <section className="fixture-group-list-section" aria-labelledby="fixture-group-list-heading">
+                <div className="fixture-group-section-heading">
+                  <div>
+                    <span className="eyebrow">현재 구성</span>
+                    <h4 id="fixture-group-list-heading">현재 저장 구역</h4>
+                  </div>
+                  <span>{groups.length}개</span>
+                </div>
               <div className="fixture-group-list" aria-label="저장 구역 목록">
                 {groups.map((group) => {
                   const status = fixtureGroupStatus(group);
@@ -192,9 +202,13 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
                         <div>
                           <strong>{group.name}</strong>
                           <span>{floorName} · {gatewayName} · {group.fixtureCount}개</span>
+                          <small>{group.meshControlGroup ? `Mesh 구성 v${group.meshControlGroup.version} · 주소 정보 없음` : "Mesh 주소 정보 없음"}</small>
                         </div>
-                        <span className={`mesh-status-badge ${status.tone}`}>{status.label}</span>
+                        <StatusBadge tone={group.meshControlGroup?.status === "ready" ? "success" : "warning"} icon={group.meshControlGroup?.status === "ready" ? CircleCheck : Clock3}>
+                          {group.meshControlGroup?.status === "ready" ? "준비됨" : "확인 필요"}
+                        </StatusBadge>
                       </div>
+                      <small className={`mesh-status-copy ${status.tone}`}>{status.label}</small>
                       {group.meshControlGroup?.error ? <p className="danger-text">{group.meshControlGroup.error}</p> : null}
                       {editable ? (
                         <div className="fixture-group-row-actions">
@@ -216,21 +230,21 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
                 })}
                 {groups.length === 0 ? <p className="control-empty-state">저장된 구역이 없습니다.</p> : null}
               </div>
+              </section>
             ) : null}
           </>
         )}
 
-        {deleteCandidate ? (
-          <div className="fixture-group-delete-confirm" role="alert" aria-label="구역 삭제 확인">
-            <p><strong>{deleteCandidate.name}</strong> 구역을 삭제하시겠습니까?</p>
-            <div>
-              <button type="button" onClick={() => setDeleteCandidate(null)} disabled={deleteMutation.isPending}>취소</button>
-              <button className="danger-action" type="button" onClick={() => deleteMutation.mutate(deleteCandidate)} disabled={deleteMutation.isPending}>
-                {deleteMutation.isPending ? "삭제 요청 중" : "삭제 확인"}
-              </button>
-            </div>
-          </div>
-        ) : null}
+        <ConfirmDialog
+          open={Boolean(deleteCandidate)}
+          title="구역 삭제 확인"
+          description={deleteCandidate ? <><strong>{deleteCandidate.name}</strong> 구역을 삭제하시겠습니까?</> : undefined}
+          confirmLabel="삭제 확인"
+          isPending={deleteMutation.isPending}
+          destructive
+          onClose={() => setDeleteCandidate(null)}
+          onConfirm={() => deleteCandidate && deleteMutation.mutate(deleteCandidate)}
+        />
         {message ? <p className="success-text" role="status">{message}</p> : null}
         {error ? <p className="danger-text" role="alert">구역 변경을 완료하지 못했습니다. 입력과 연결 상태를 확인해 주세요.</p> : null}
       </section>
@@ -276,6 +290,7 @@ function FixtureGroupForm({
   }
 
   return (
+    <Card className="fixture-group-editor-card">
     <form className="fixture-group-form" onSubmit={(event) => {
       event.preventDefault();
       if (!valid) return;
@@ -289,6 +304,10 @@ function FixtureGroupForm({
       <button className="fixture-group-back" type="button" onClick={onCancel} disabled={isSaving}>
         <ArrowLeft size={16} aria-hidden="true" /> 목록으로
       </button>
+      <div>
+        <span className="eyebrow">선택 구역</span>
+        <h4>구역 편집</h4>
+      </div>
       <label className="form-field">
         <span>구역 이름</span>
         <input value={form.name} maxLength={200} onChange={(event) => onChange({ ...form, name: event.target.value })} />
@@ -340,6 +359,7 @@ function FixtureGroupForm({
         </button>
       </div>
     </form>
+    </Card>
   );
 }
 

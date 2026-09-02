@@ -2612,6 +2612,8 @@ button {
 }
 
 .fixture-group-dialog-header h3,
+.fixture-group-section-heading h4,
+.fixture-group-editor-card h4,
 .fixture-group-dialog-toolbar p,
 .fixture-group-row p,
 .fixture-group-delete-confirm p {
@@ -2640,6 +2642,34 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.fixture-group-list-section,
+.fixture-group-section-heading,
+.fixture-group-editor-card {
+  display: grid;
+  gap: 10px;
+}
+
+.fixture-group-section-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.fixture-group-section-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.fixture-group-section-heading > span,
+.fixture-group-row-main small,
+.mesh-status-copy {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mesh-status-copy.failed {
+  color: #b91c1c;
 }
 
 .fixture-group-row {
@@ -2900,6 +2930,24 @@ button {
 
 .command-status-region:empty {
   min-height: 0;
+}
+
+.command-progress-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.command-progress-card > span,
+.command-progress-card > small {
+  color: var(--muted);
+}
+
+.command-progress-card > strong {
+  color: var(--text);
 }
 
 .dial-card {

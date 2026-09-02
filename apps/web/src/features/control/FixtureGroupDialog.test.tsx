@@ -108,7 +108,7 @@ describe("FixtureGroupDialog", () => {
     }));
 
     fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정 삭제" }));
-    const confirmation = screen.getByRole("alert", { name: "구역 삭제 확인" });
+    const confirmation = screen.getByRole("dialog", { name: "구역 삭제 확인" });
     fireEvent.click(within(confirmation).getByRole("button", { name: "삭제 확인" }));
     await waitFor(() => expect(mocks.deleteFixtureGroup).toHaveBeenCalledWith(ids.site, ids.group));
   });
@@ -122,6 +122,19 @@ describe("FixtureGroupDialog", () => {
     expect(screen.queryByRole("button", { name: "B2 입구 수정" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "B2 입구 재동기화" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "B2 입구 삭제" })).not.toBeInTheDocument();
+  });
+
+  it("저장 구역 dialog는 CRUD와 포커스 계약을 유지한다", async () => {
+    renderDialog(true);
+
+    expect(screen.getByRole("heading", { name: "구역 관리" })).toBeInTheDocument();
+    expect(await screen.findByText("확인 필요")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "현재 저장 구역" })).toBeInTheDocument();
+    expect(screen.getByText("Mesh 구성 v2 · 주소 정보 없음")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
+    expect(screen.getByRole("heading", { name: "구역 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "구역 조명 목록" })).toBeInTheDocument();
   });
 
   it("traps keyboard focus, closes on Escape, and restores the opener", async () => {
