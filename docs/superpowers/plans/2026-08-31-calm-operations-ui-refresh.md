@@ -73,7 +73,7 @@
 - `StatusTone = "success" | "warning" | "danger" | "neutral" | "info"`
 - Primitive는 API 호출이나 feature state를 소유하지 않는다.
 
-- [ ] **Step 1: Write failing primitive contract tests**
+- [x] **Step 1: Write failing primitive contract tests**
 
 ```tsx
 import { CircleAlert, CircleCheck } from "lucide-react";
@@ -106,13 +106,13 @@ describe("Calm Operations UI primitives", () => {
 });
 ```
 
-- [ ] **Step 2: Run the primitive tests and verify RED**
+- [x] **Step 2: Run the primitive tests and verify RED**
 
 Run: `pnpm --filter @led-control/web test -- src/components/ui/ui-primitives.test.tsx`
 
 Expected: FAIL because `apps/web/src/components/ui/index.ts` does not exist.
 
-- [ ] **Step 3: Implement the primitive public contracts**
+- [x] **Step 3: Implement the primitive public contracts**
 
 Use native elements and small wrappers. The implementation must follow these signatures:
 
@@ -184,7 +184,7 @@ export function FeedbackState({ tone = "neutral", icon: Icon, title, description
 
 Export all primitives and their public prop/status types from `index.ts`. Do not export feature-specific helpers from this folder.
 
-- [ ] **Step 4: Add the token layer and primitive CSS**
+- [x] **Step 4: Add the token layer and primitive CSS**
 
 Replace the current root token values without renaming feature classes, then append primitive styles:
 
@@ -218,7 +218,7 @@ Replace the current root token values without renaming feature classes, then app
 .ui-metric-card strong { font-variant-numeric: tabular-nums; }
 ```
 
-- [ ] **Step 5: Run focused tests, typecheck and build**
+- [x] **Step 5: Run focused tests, typecheck and build**
 
 Run:
 
@@ -230,7 +230,7 @@ pnpm --filter @led-control/web build
 
 Expected: all commands exit 0. Record the bundle-size output but do not treat bundle growth as a failure unless the build reports an error.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add apps/web/src/components/ui apps/web/src/styles.css
