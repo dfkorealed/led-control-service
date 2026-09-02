@@ -714,7 +714,7 @@ git commit -m "feat(web): apply corrected manual control surfaces"
 - Preserves: schedule/event query keys, bounded pagination, polling, mutation-level auth/cache callbacks and scope generation
 - Preserves: all form types and `validateScheduleForm`/vehicle-event validation
 
-- [ ] **Step 1: Write failing schedule and event visual-state tests**
+- [x] **Step 1: Write failing schedule and event visual-state tests**
 
 Use the exact test names `스케줄 목록은 적용 상태를 공통 badge로 구분한다`, `스케줄 dialog는 네 입력 section과 validation focus를 유지한다`, and `차량 이벤트 목록은 polling 실패에도 기존 행과 retry를 유지한다`.
 
@@ -729,7 +729,7 @@ expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttr
 
 Add empty-list action, delete confirmation, rejected sync retry, schedule section headings (`운영 기간과 시간`, `반복`, `밝기`, `제어 대상`) and event section headings (`감지 센서`, `제어 조명`, `행동`) to their existing tests.
 
-- [ ] **Step 2: Run automation tests and confirm RED**
+- [x] **Step 2: Run automation tests and confirm RED**
 
 Run:
 
@@ -739,7 +739,7 @@ pnpm --filter @led-control/web test -- src/features/control/automation/ScheduleC
 
 Expected: common status badge and named editor section assertions fail; API/form tests continue to compile.
 
-- [ ] **Step 3: Apply the corrected list and state surfaces**
+- [x] **Step 3: Apply the corrected list and state surfaces**
 
 Keep tables semantic and give them `aria-label`. Use common badges for enabled/disabled and `PENDING|APPLIED|REJECTED`, common buttons for row actions, `FeedbackState` for loading/error/empty/background warnings, and `ConfirmDialog` for delete. Preserve current rows while background polling fails.
 
@@ -755,7 +755,7 @@ function SyncBadge({ status }: { status: ScheduleResponse["syncStatus"] }) {
 
 On narrow viewports, keep the same table DOM in an `.automation-table-wrap` scroll container or expose each row as a CSS grid without hiding cells. Do not duplicate action controls into separate mobile state.
 
-- [ ] **Step 4: Apply corrected schedule and event editor sections**
+- [x] **Step 4: Apply corrected schedule and event editor sections**
 
 Reorder only JSX containers around existing controlled inputs. Keep input refs, `aria-invalid`, `aria-errormessage`, validation focus, submit payload, Escape/backdrop close, and return focus unchanged. Use the section order asserted in Step 1 and a sticky/mobile-safe action footer.
 
@@ -775,15 +775,15 @@ Here `periodFields`, `recurrenceFields`, `brightnessFields`, `targetFields`, and
 
 Do not implement prototype-only holiday exception CRUD. Existing overlap/period validation is shown inside the feedback section.
 
-- [ ] **Step 5: Add automation four-viewport coverage**
+- [x] **Step 5: Add automation four-viewport coverage**
 
 Use current schedule/event route fixtures and open both add dialogs at 1440/1024/390/320. Assert list columns remain reachable, enabled/disabled/sync/recent-result values are visible, empty/error/retry states have real actions, dialogs remain within viewport, all scrollable controls meet touch targets, and document overflow is absent.
 
-- [ ] **Step 6: Update control documentation for scenes 17~21**
+- [x] **Step 6: Update control documentation for scenes 17~21**
 
 Add the corrected table/dialog/state hierarchy and four-viewport evidence to `docs/menus/control.md`. Keep existing API/Gateway offline automation and sensor HIL limitations exactly distinguished.
 
-- [ ] **Step 7: Run GREEN and automation regression**
+- [x] **Step 7: Run GREEN and automation regression**
 
 Run:
 
@@ -797,7 +797,7 @@ git diff --check
 
 Expected: CRUD, auth expiry, pagination, polling, validation, focus and bundle boundary tests pass with corrected UI.
 
-- [ ] **Step 8: Review, synchronize status, and commit Task 6**
+- [x] **Step 8: Review, synchronize status, and commit Task 6**
 
 ```bash
 git add apps/web/src/features/control/automation apps/web/src/styles.css apps/web/e2e/calm-operations-automation.spec.ts docs/menus/control.md docs/project-status.md docs/superpowers/plans/2026-09-02-calm-operations-a-implementation.md
