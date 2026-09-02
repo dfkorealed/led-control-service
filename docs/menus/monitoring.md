@@ -21,6 +21,9 @@
 
 ## 구현 완료
 
+- Calm Operations 정보 위계에 맞춰 `PageHeader`에 운영 현황, 선택 층, 수동 새로고침·마지막 갱신·부분 실패를 모으고, 선택 층 기준 전체 조명·정상·점검 필요·평균 밝기를 공통 `MetricCard`로 표시한다. KPI는 넓은 화면에서 한 행의 유연한 열로 배치되고 모바일에서는 2열로 재배치된다.
+- 선택 조명 상세는 도면보다 좁은 고정 범위 패널에 배치하며 현재 밝기와 장비 사실 아래에 장애·실제 오프라인 점검 큐를 둔다. 정상·장애·오프라인·첫 상태 확인 대기는 색상만 사용하지 않고 `StatusBadge`의 icon + text로 구분하며, 지도 marker의 기존 한국어 접근성 이름과 선택 hit target은 유지한다.
+- 모니터링 표현 계층을 개편해도 설치 guard, Gateway claim, active registration session 복구, 등록 조명이 존재할 때의 admin 등록 패널, viewer 읽기 전용 empty state는 유지한다. 등록은 여전히 실제 Gateway/BlueZ/ESP32-H2 상태와 HIL에 의존하며 Calm Operations UI를 실장비 등록 완료로 간주하지 않는다.
 - Task 8에서 pending assigned admin이 `/monitoring`, `/control`, `/statistics`, 설정 하위 직접 URL로 들어오면 CustomerShell이 조회한 dashboard의 selected/default `siteId`를 유지해 `/settings?siteId=...`로 replace한다. `/settings`에서는 배정된 고객사·현장명을 읽기 전용으로 표시하고 주소·단가·층만 입력하는 최초 설치 화면을 제공한다.
 - CustomerShell은 admin dashboard의 `installationStatus`가 확인되기 전에는 customer child route를 mount하지 않는다. 확인 중에는 설치 상태 loading UI를, 최초 조회 실패에는 retry UI를 표시하며 성공 setup 응답은 actual site key와 `['dashboard', 'default']` cache에 함께 반영해 실패한 background refetch가 있어도 installed guard 상태를 유지한다.
 - 설치 완료 후 등록 조명이 0개인 모니터링은 admin에게 Gateway claim 또는 조명 등록 패널을 제공한다. viewer는 설치 대기 안내만 보며 claim, 등록, setup mutation UI를 볼 수 없다. operator는 customer shell을 mount하지 않는다.
@@ -137,6 +140,10 @@
 
 ## 관련 파일
 
+- `apps/web/src/components/ui/MetricCard.tsx`
+- `apps/web/src/components/ui/PageHeader.tsx`
+- `apps/web/src/components/ui/StatusBadge.tsx`
+- `apps/web/src/components/ui/FeedbackState.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/monitoring/FloorMap.tsx`
 - `apps/web/src/features/floor-map/FloorScene.tsx`

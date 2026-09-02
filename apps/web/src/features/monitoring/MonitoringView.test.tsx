@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MonitoringView } from "./MonitoringView";
 
@@ -86,6 +86,36 @@ describe("MonitoringView refresh", () => {
       expect(refetchMap).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
+  });
+
+  it("presents the populated floor with semantic metrics and selected fixture detail", () => {
+    const faultFixture = {
+      ...fixture,
+      id: "fixture-2",
+      name: "B1-L002",
+      brightness: 72,
+      status: "fault" as const
+    };
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [fixture, faultFixture], nextCursor: null }] },
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
+    expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
+    expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("72%");
+    expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByText(
+      /정상|장애|오프라인|상태 확인 대기/,
+      { selector: ".ui-status-badge > span" }
+    )).toBeVisible();
   });
 
   it("locks the refresh action until both requests settle", async () => {
@@ -187,7 +217,8 @@ describe("MonitoringView refresh", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "B2" }));
 
-    expect(await screen.findByRole("heading", { name: "B2 운영 현황" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "B2" })).toHaveClass("active");
     expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument();
   });
 });

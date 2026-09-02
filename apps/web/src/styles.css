@@ -720,6 +720,74 @@ button {
   gap: 12px;
 }
 
+.monitoring-screen .ui-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.monitoring-screen .ui-page-header h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.22;
+}
+
+.monitoring-screen .ui-page-description {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.monitoring-screen .ui-page-actions {
+  min-width: 0;
+}
+
+.monitoring-screen .ui-metric-card {
+  display: grid;
+  gap: 6px;
+  min-height: 104px;
+  padding: 16px;
+}
+
+.monitoring-screen .ui-metric-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.monitoring-screen .ui-metric-card strong {
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.monitoring-screen .ui-metric-card strong small {
+  margin-left: 2px;
+  font-size: 16px;
+}
+
+.monitoring-screen .ui-metric-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.monitoring-screen .ui-metric-card[data-tone="primary"] strong {
+  color: var(--primary);
+}
+
+.monitoring-screen .ui-metric-card[data-tone="success"] strong {
+  color: var(--success);
+}
+
+.monitoring-screen .ui-metric-card[data-tone="danger"] strong {
+  color: var(--danger);
+}
+
 .metric {
   display: grid;
   gap: 5px;
@@ -763,7 +831,7 @@ button {
 
 .operations-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   gap: 16px;
   align-items: stretch;
 }
@@ -785,6 +853,12 @@ button {
     #ffffff;
   background-size: 48px 48px;
   box-shadow: var(--shadow);
+}
+
+.monitoring-map-card {
+  border-color: var(--border);
+  border-radius: 16px;
+  box-shadow: none;
 }
 
 .floor-map::before {
@@ -855,7 +929,7 @@ button {
 }
 
 .fixture-dot {
-  --fixture-marker-radius: 42px;
+  --fixture-marker-radius: 40px;
   position: absolute;
   top: clamp(var(--fixture-marker-radius), var(--fixture-top), calc(100% - var(--fixture-marker-radius)));
   left: clamp(var(--fixture-marker-radius), var(--fixture-left), calc(100% - var(--fixture-marker-radius)));
@@ -863,8 +937,8 @@ button {
   display: inline-grid;
   gap: 3px;
   place-items: center;
-  width: 36px;
-  min-height: 36px;
+  width: 34px;
+  min-height: 34px;
   transform: translate(-50%, -50%);
   border: 1px solid #9ac3ff;
   border-radius: 999px;
@@ -873,7 +947,7 @@ button {
   padding: 0;
   text-align: center;
   cursor: pointer;
-  box-shadow: 0 12px 24px rgba(11, 99, 229, 0.14);
+  box-shadow: none;
   transition:
     width 160ms ease,
     min-height 160ms ease,
@@ -951,7 +1025,7 @@ button {
   border-color: #fca5a5;
   background: #fff1f2;
   color: #b91c1c;
-  box-shadow: 0 12px 24px rgba(239, 68, 68, 0.12);
+  box-shadow: none;
 }
 
 .fixture-dot.fault::after {
@@ -996,10 +1070,47 @@ button {
   align-content: start;
   gap: 16px;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--panel);
   padding: 18px;
-  box-shadow: var(--shadow);
+  box-shadow: none;
+}
+
+.monitoring-screen .ui-status-badge[data-tone="success"] {
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.monitoring-screen .ui-status-badge[data-tone="warning"] {
+  background: #fffbeb;
+  color: #a16207;
+}
+
+.monitoring-screen .ui-status-badge[data-tone="danger"] {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.monitoring-screen .ui-status-badge[data-tone="neutral"] {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.monitoring-screen .ui-feedback-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid #fecaca;
+  border-radius: 16px;
+  background: #fff7f7;
+  color: #b91c1c;
+  padding: 14px;
+}
+
+.monitoring-screen .ui-feedback-state > div {
+  display: grid;
+  gap: 10px;
 }
 
 .panel-title-row {
@@ -3463,6 +3574,15 @@ button.group-card {
   .monitoring-heading-actions,
   .floor-editor-actions {
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .monitoring-screen .ui-page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .monitoring-screen .ui-page-actions {
     width: 100%;
   }
 

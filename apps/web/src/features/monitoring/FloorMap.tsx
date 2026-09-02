@@ -11,7 +11,7 @@ interface FloorMapProps {
 
 export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }: FloorMapProps) {
   return (
-    <div className="floor-map" style={{ aspectRatio: `${snapshot.width} / ${snapshot.height}` }} role="region" aria-label="층 도면">
+    <div className="floor-map monitoring-map-card" style={{ aspectRatio: `${snapshot.width} / ${snapshot.height}` }} role="region" aria-label="층 도면">
       <FloorScene
         snapshot={snapshot}
         fixtures={floor.fixtures}

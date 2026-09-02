@@ -1,6 +1,7 @@
-import { RefreshCw } from "lucide-react";
+import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
+import { FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
@@ -155,64 +156,48 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
 
   return (
     <section className="screen-grid monitoring-screen">
-      <div className="screen-heading">
-        <div>
-          <span className="eyebrow">실시간 모니터링</span>
-          <h2>{floor?.name ?? "층 미등록"} 운영 현황</h2>
-        </div>
-        <div className="monitoring-heading-actions">
-          <div className="monitoring-refresh-actions">
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={isManualRefreshing}
-              onClick={() => void handleRefresh()}
-            >
-              <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
-              {isManualRefreshing ? "새로고침 중" : "새로고침"}
-            </button>
-            <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
-            {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
-          </div>
-          <div className="segmented-control" aria-label="층 선택">
-            {data.floors.map((item) => (
+      <PageHeader
+        title="운영 현황"
+        description={`${floor?.name ?? "층 미등록"} · 실시간 조명 상태`}
+        actions={(
+          <div className="monitoring-heading-actions">
+            <div className="monitoring-refresh-actions">
               <button
-                key={item.id}
-                className={item.id === floor?.id ? "active" : ""}
-                onClick={() => handleSelectFloor(item.id)}
+                className="secondary-button"
+                type="button"
+                disabled={isManualRefreshing}
+                onClick={() => void handleRefresh()}
               >
-                {item.name}
+                <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
+                {isManualRefreshing ? "새로고침 중" : "새로고침"}
               </button>
-            ))}
+              <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
+              {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
+            </div>
+            <div className="segmented-control" aria-label="층 선택">
+              {data.floors.map((item) => (
+                <button
+                  key={item.id}
+                  className={item.id === floor?.id ? "active" : ""}
+                  onClick={() => handleSelectFloor(item.id)}
+                >
+                  {item.name}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      </div>
+        )}
+      />
 
       {userRole === "admin" && data.gateways.length > 0 ? (
         <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
       ) : null}
 
       <div className="summary-row">
-        <div className="metric primary">
-          <span>전체 조명</span>
-          <strong>{floorSummary.totalFixtures}</strong>
-          <small>선택 층 기준</small>
-        </div>
-        <div className="metric success">
-          <span>온라인</span>
-          <strong>{floorSummary.onlineFixtures}</strong>
-          <small>최근 수신 정상</small>
-        </div>
-        <div className="metric danger">
-          <span>장애</span>
-          <strong>{floorSummary.faultFixtures}</strong>
-          <small>우선 점검 대상</small>
-        </div>
-        <div className="metric">
-          <span>평균 밝기</span>
-          <strong>{floorSummary.averageBrightness}%</strong>
-          <small>현재 디밍</small>
-        </div>
+        <MetricCard label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
+        <MetricCard label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
+        <MetricCard label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
+        <MetricCard label="평균 밝기" value={floorSummary.averageBrightness} unit="%" helper="현재 디밍" />
       </div>
 
       <div className="operations-layout">
@@ -221,32 +206,32 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <>
               <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
               {mapQuery.error || mapRefreshFailed ? (
-                <div className="panel danger" role="status">
-                  저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.
-                  <button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>
-                </div>
+                <FeedbackState
+                  tone="danger"
+                  icon={TriangleAlert}
+                  title="저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다."
+                  action={<button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>}
+                />
               ) : null}
             </>
           ) : floor && (mapQuery.error || mapRefreshFailed) ? (
-            <div className="panel danger" role="alert">
-              <p>저장된 지도를 불러오지 못했습니다.</p>
-              <button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>
-            </div>
+            <FeedbackState
+              tone="danger"
+              icon={TriangleAlert}
+              title="저장된 지도를 불러오지 못했습니다."
+              action={<button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>}
+            />
           ) : (
             <div className="panel">등록된 층이 없습니다.</div>
           )}
         </div>
-        <aside className="detail-panel" aria-label="상세 패널">
+        <aside className="detail-panel" aria-label="선택 조명 상세">
           <div className="panel-title-row">
             <div>
               <span className="eyebrow">상세 패널</span>
               <h3>{selectedFixture?.name ?? "조명 선택"}</h3>
             </div>
-            <span className={`status-pill ${selectedFixture?.status ?? "offline"}`}>
-              {selectedFixture?.statusReason === "provisioning_waiting_state"
-                ? "상태 확인 대기"
-                : selectedFixture ? statusLabels[selectedFixture.status] : "대기"}
-            </span>
+            <FixtureStatusBadge fixture={selectedFixture} />
           </div>
 
           {selectedFixture ? (
@@ -296,28 +281,27 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
                   <dd>{formatSuccessRate(selectedFixture.commandSuccessRate)}</dd>
                 </div>
               </dl>
+              <div className="device-list-panel">
+                <h4>점검 큐</h4>
+                <button className="device-row" disabled={!firstFaultFixture} onClick={() => firstFaultFixture && setSelectedFixtureId(firstFaultFixture.id)}>
+                  <span className="device-state danger" />
+                  <div>
+                    <strong>장애 조명</strong>
+                    <span>{floorSummary.faultFixtures}대</span>
+                  </div>
+                </button>
+                <button className="device-row" disabled={!firstOfflineFixture} onClick={() => firstOfflineFixture && setSelectedFixtureId(firstOfflineFixture.id)}>
+                  <span className="device-state muted" />
+                  <div>
+                    <strong>오프라인</strong>
+                    <span>{offlineCount}대</span>
+                  </div>
+                </button>
+              </div>
             </div>
           ) : (
             <p className="muted-text">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</p>
           )}
-
-          <div className="device-list-panel">
-            <h4>점검 큐</h4>
-            <button className="device-row" disabled={!firstFaultFixture} onClick={() => firstFaultFixture && setSelectedFixtureId(firstFaultFixture.id)}>
-              <span className="device-state danger" />
-              <div>
-                <strong>장애 조명</strong>
-                <span>{floorSummary.faultFixtures}대</span>
-              </div>
-            </button>
-            <button className="device-row" disabled={!firstOfflineFixture} onClick={() => firstOfflineFixture && setSelectedFixtureId(firstOfflineFixture.id)}>
-              <span className="device-state muted" />
-              <div>
-                <strong>오프라인</strong>
-                <span>{offlineCount}대</span>
-              </div>
-            </button>
-          </div>
         </aside>
       </div>
     </section>
@@ -326,6 +310,16 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
 
 function formatRssi(value: number | null) {
   return value === null ? "수집 전" : `${value} dBm`;
+}
+
+function FixtureStatusBadge({ fixture }: { fixture: Dashboard["floors"][number]["fixtures"][number] | undefined }) {
+  if (!fixture) return <StatusBadge tone="neutral" icon={Clock3}>대기</StatusBadge>;
+  if (fixture.statusReason === "provisioning_waiting_state") {
+    return <StatusBadge tone="warning" icon={Clock3}>상태 확인 대기</StatusBadge>;
+  }
+  if (fixture.status === "online") return <StatusBadge tone="success" icon={CircleCheck}>{statusLabels.online}</StatusBadge>;
+  if (fixture.status === "fault") return <StatusBadge tone="danger" icon={TriangleAlert}>{statusLabels.fault}</StatusBadge>;
+  return <StatusBadge tone="neutral" icon={CircleX}>{statusLabels.offline}</StatusBadge>;
 }
 
 function formatSuccessRate(value: number | null) {
