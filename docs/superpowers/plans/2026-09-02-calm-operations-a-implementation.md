@@ -228,7 +228,7 @@ git commit -m "feat(web): establish corrected calm operations shell"
 - Preserves: `DialogState`, operator query key/invalidation, create/assign/edit/reset/disable mutation arguments and focus restoration
 - Produces no new API or route
 
-- [ ] **Step 1: Write failing login and operator semantic tests**
+- [x] **Step 1: Write failing login and operator semantic tests**
 
 Use the exact test names `로그인은 운영 요약 없이 Calm Operations 브랜드와 실제 폼만 표시한다`, `운영자 목록은 실제 데이터로 네 요약과 상태 표를 표시한다`, and `운영자 계정 dialog는 mutation 후 초점을 복원한다`.
 
@@ -245,7 +245,7 @@ expect(screen.getByRole("checkbox", { name: "자동 로그인" })).toBeChecked()
 
 In `SiteAdminManagementView.test.tsx`, after the list query resolves, assert groups named `운영 현장`, `설치 완료`, `관리자 계정`, and `확인 필요`, common status badges, the table label, and the existing five dialog actions. Keep every current password, conflict, focus restoration and mutation assertion.
 
-- [ ] **Step 2: Run the component tests and confirm RED**
+- [x] **Step 2: Run the component tests and confirm RED**
 
 Run:
 
@@ -255,7 +255,7 @@ pnpm --filter @led-control/web test -- src/App.test.tsx src/features/operator/si
 
 Expected: login fails on the new brand heading; operator fails because metric groups and corrected page hierarchy do not exist.
 
-- [ ] **Step 3: Implement the login composition without summary cards**
+- [x] **Step 3: Implement the login composition without summary cards**
 
 Split `AuthView` into `.auth-brand-panel` and a `Card` form panel. Keep the same controlled inputs and submit function. Render this content:
 
@@ -269,7 +269,7 @@ Split `AuthView` into `.auth-brand-panel` and a `Card` form panel. Keep the same
 
 Render no operational metric in the brand panel. Use `Button` for login and `FeedbackState` or an equivalent semantic inline alert for authentication failure. Preserve `autocomplete`, required fields, checked default and duplicate-submit lock.
 
-- [ ] **Step 4: Implement the operator header, metrics, table, and dialogs**
+- [x] **Step 4: Implement the operator header, metrics, table, and dialogs**
 
 Use the resolved `siteAdmins.data` to derive display-only counts with `useMemo`; do not issue another query. The metric values are total sites, installed sites, assigned admin count, and pending/unassigned/inactive count. Render `PageHeader` + four `MetricCard`s + the existing table. Replace local action/button/card/status markup with common primitives while preserving every handler and accessible action name.
 
@@ -286,11 +286,11 @@ const summaries = [
 ];
 ```
 
-- [ ] **Step 5: Add responsive auth/operator Playwright coverage**
+- [x] **Step 5: Add responsive auth/operator Playwright coverage**
 
 Mock `auth/me` as unauthenticated for login and as operator for `/operator/site-admins`; mock the existing operator list endpoint with installed, pending, unassigned and inactive examples. For all four viewports assert login form visibility, absence of the three forbidden summaries, operator table or its own scroll container, dialog visibility, no document overflow, and mobile touch targets.
 
-- [ ] **Step 6: Run GREEN and auth/operator regression**
+- [x] **Step 6: Run GREEN and auth/operator regression**
 
 Run:
 
@@ -302,7 +302,7 @@ pnpm --filter @led-control/web typecheck
 
 Expected: focused tests pass; real-auth spec remains skipped unless its existing environment flag is enabled; no password value appears in React Query cache assertions.
 
-- [ ] **Step 7: Review, synchronize status, and commit Task 2**
+- [x] **Step 7: Review, synchronize status, and commit Task 2**
 
 The orchestrator records scene 01~03 complete and keeps software/browser-fixture evidence distinct from real backend execution.
 
