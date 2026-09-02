@@ -297,6 +297,43 @@ describe("ScheduleControlPanel", () => {
     expect(document.getElementById(errorId)).toBeInTheDocument();
   });
 
+  it("숨겨진 밝기 input의 오류는 디밍 toggle fallback에 연결하고 focus한다", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    fireEvent.change(within(dialog).getByLabelText("스케줄 이름"), { target: { value: "유효한 이름" } });
+    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
+    fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "101" } });
+    fireEvent.click(within(dialog).getByLabelText("디밍 사용"));
+    expect(within(dialog).queryByLabelText("밝기")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+
+    const dimmingToggle = within(dialog).getByLabelText("디밍 사용");
+    expect(screen.getByText("밝기는 0~100 사이의 정수여야 합니다.")).toBeVisible();
+    expect(dimmingToggle).toHaveFocus();
+    expect(dimmingToggle).toHaveAttribute("aria-invalid", "true");
+    expect(dimmingToggle).toHaveAttribute("aria-errormessage", "schedule-brightness-error");
+    expect(dimmingToggle).toHaveAttribute("aria-describedby", "schedule-brightness-error");
+  });
+
+  it("target-only 검증 오류는 제어 대상 fieldset에 연결하고 focus한다", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    fireEvent.change(within(dialog).getByLabelText("스케줄 이름"), { target: { value: "유효한 이름" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+
+    const targetSection = within(dialog).getByRole("group", { name: /^제어 대상$/ });
+    expect(targetSection).toHaveFocus();
+    expect(targetSection).toHaveAttribute("aria-invalid", "true");
+    expect(targetSection).toHaveAttribute("aria-errormessage", "schedule-target-error");
+    expect(document.getElementById("schedule-target-error")).toBeInTheDocument();
+  });
+
   it("creates and edits a complete schedule through the dialog", async () => {
     const { queryClient } = renderPanel("admin");
     await screen.findByText("야간 운영");

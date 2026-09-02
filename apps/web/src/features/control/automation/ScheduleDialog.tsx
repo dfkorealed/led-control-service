@@ -54,6 +54,7 @@ export function ScheduleDialog({
   const monthlyDayInputRef = useRef<HTMLInputElement>(null);
   const yearlyMonthInputRef = useRef<HTMLInputElement>(null);
   const yearlyDayInputRef = useRef<HTMLInputElement>(null);
+  const dimmingToggleRef = useRef<HTMLInputElement>(null);
   const brightnessInputRef = useRef<HTMLInputElement>(null);
   const targetSectionRef = useRef<HTMLFieldSetElement>(null);
   const [values, setValues] = useState<ScheduleFormValues>(() => createEmptyScheduleForm(timeZone));
@@ -286,8 +287,10 @@ export function ScheduleDialog({
             <legend>밝기</legend>
             <label className="schedule-dimming-toggle">
               <input
+                ref={dimmingToggleRef}
                 type="checkbox"
                 aria-label="디밍 사용"
+                {...errorAttributes(errors.brightnessPercent, scheduleErrorIds.brightnessPercent)}
                 checked={values.dimmingEnabled}
                 onChange={(event) => change({ dimmingEnabled: event.target.checked })}
               />
@@ -357,7 +360,13 @@ export function ScheduleDialog({
     if (nextErrors.monthlyDay) return monthlyDayInputRef.current?.focus();
     if (nextErrors.yearlyMonth) return yearlyMonthInputRef.current?.focus();
     if (nextErrors.yearlyDay) return yearlyDayInputRef.current?.focus();
-    if (nextErrors.brightnessPercent) return brightnessInputRef.current?.focus();
+    if (nextErrors.brightnessPercent) {
+      const focusTarget = brightnessInputRef.current ?? dimmingToggleRef.current;
+      if (focusTarget) {
+        focusTarget.focus();
+        return;
+      }
+    }
     if (nextErrors.target) targetSectionRef.current?.focus();
   }
 }
@@ -382,6 +391,6 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 
 function errorAttributes(error: string | undefined, id: string) {
   return error
-    ? { "aria-invalid": true, "aria-errormessage": id }
+    ? { "aria-invalid": true, "aria-describedby": id, "aria-errormessage": id }
     : { "aria-invalid": false };
 }

@@ -11,7 +11,7 @@
 
 - RED: 새 status badge, named table, editor section/validation-focus, polling-failure assertions을 먼저 추가했고 기존 표면에서 실패를 확인했다.
 - GREEN: unit suite와 four-viewport route-fixture E2E를 통과했다.
-- fixture E2E: `calm-operations-automation.spec.ts`는 1440×900, 1024×768, 390×844, 320×740에서 목록 열 reachability, document overflow 부재, empty/error/retry, dialog 경계와 touch target을 검증한다.
+- fixture E2E: `calm-operations-automation.spec.ts`는 1440×900, 1024×768, 390×844, 320×740의 정상 목록·dialog 흐름에서 목록 열 reachability, document overflow 부재, PENDING/delete/weekly/monthly와 dialog 경계·touch target을 검증한다. empty/error/retry action variant는 별도 390×844 fixture scenario에서만 검증한다.
 - real backend regression: `E2E_REAL_BACKEND_LAB=1` 및 `--workers=1` 조건의 `automation-control-flow.spec.ts`가 통과했다.
 
 ## 병렬 E2E 환경 관찰
@@ -31,3 +31,8 @@ brief의 두 spec 병렬 실행은 제품 assertion이 아니라 shared build �
 - four viewport normal-flow evidence: 1440×900, 1024×768, 390×844, 320×740 각각에서 PENDING/APPLIED/REJECTED badge, 마지막 header/cell/management action의 wrapper 내부 bounds, schedule delete confirm controls, weekly/monthly conditional controls를 검증했다. empty/error/retry action variant는 React Query retry 지연을 과도하게 네 번 반복하지 않도록 별도 390×844 fixture scenario로 명시적으로 제한했다.
 - final commands: automation focused unit suite `55/55`, `calm-operations-automation.spec.ts` Chromium `5/5`, bundle audit, web typecheck, `git diff --check`가 통과했다.
 - real-backend split run: `pnpm --filter @led-control/shared build && E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/automation-control-flow.spec.ts --project=chromium --workers=1`를 사용했다. 첫 실행은 Lab Vite가 준비된 뒤 외부 shared build가 dist artifact를 delete/recreate해 `automation-action-result-contracts.js` import가 순간적으로 실패했고, API MQTT inbound clean-log oracle가 그 결과를 실패로 기록했다. automation phase evidence 자체는 다섯 단계 모두 완료됐다. build process가 없는 상태에서 같은 분리 조건으로 한 번만 재실행해 `1/1` 통과를 확인했다. 이는 화면/API 제품 실패가 아닌 shared dist test-server orchestration race이며, fixture와 real-backend run을 병렬화하지 않았다.
+
+## Fix Round 2 증거 (2026-09-03)
+
+- RED: brightness `101`을 입력한 뒤 디밍을 OFF로 전환해 number input을 unmount하고 submit하는 focused case는 오류 문구는 남지만 기존 ref early-return 때문에 visible fallback으로 focus하지 못했다. target-only focused case도 추가해 `제어 대상` fieldset의 focus와 error wiring을 명시했다.
+- GREEN: hidden brightness input 대신 visible `디밍 사용` toggle을 fallback focus target으로 사용하며, control이 없을 때는 target fallback 검사까지 계속한다. toggle은 brightness error의 stable `aria-invalid`, `aria-errormessage`, `aria-describedby`를 사용한다. `validateScheduleForm` 및 payload semantics는 변경하지 않았다.
