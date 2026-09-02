@@ -410,7 +410,7 @@ git commit -m "feat(web): move settings navigation into app sidebar"
 - Consumes: `MetricCard`, `PageHeader`, `StatusBadge`, `FeedbackState`
 - Preserves: registration, refresh, map selection, query and status logic
 
-- [ ] **Step 1: Add failing monitoring semantic tests**
+- [x] **Step 1: Add failing monitoring semantic tests**
 
 Add assertions to the existing populated-dashboard test:
 
@@ -425,13 +425,13 @@ expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" }
 
 Keep existing tests for active registration session recovery, partial refresh, map fallback, 1,000 fixture behavior and role-specific empty state.
 
-- [ ] **Step 2: Run monitoring tests and verify RED**
+- [x] **Step 2: Run monitoring tests and verify RED**
 
 Run: `pnpm --filter @led-control/web test -- src/features/monitoring/MonitoringView.test.tsx src/features/monitoring/FloorMap.test.tsx`
 
 Expected: FAIL on the new heading, metric group and complementary labels.
 
-- [ ] **Step 3: Apply the common page and metric structure**
+- [x] **Step 3: Apply the common page and metric structure**
 
 - Replace the current heading with `PageHeader title="운영 현황"` and keep refresh/floor controls in `actions`.
 - Replace four `.metric` wrappers with `MetricCard`.
@@ -440,7 +440,7 @@ Expected: FAIL on the new heading, metric group and complementary labels.
 - Add `aria-label="선택 조명 상세"` to the detail aside.
 - Preserve every query, effect, registration component, selected fixture calculation and refresh handler.
 
-- [ ] **Step 4: Restyle monitoring map and detail layout**
+- [x] **Step 4: Restyle monitoring map and detail layout**
 
 - Give the map the largest flexible column and the detail panel a bounded `minmax(280px, 340px)` column.
 - Reduce marker decoration; keep hover/focus/selected enlargement and state labels.
@@ -448,11 +448,11 @@ Expected: FAIL on the new heading, metric group and complementary labels.
 - Move the fault/offline rows below the selected fixture facts inside the detail panel.
 - Preserve Konva hit targets and existing marker accessible names.
 
-- [ ] **Step 5: Update monitoring documentation**
+- [x] **Step 5: Update monitoring documentation**
 
 Under `구현 완료`, add the Calm Operations hierarchy, icon+text state contract, responsive KPI behavior and unchanged registration limitation. Add the new shared UI files under `관련 파일`. Set the document date to `2026-08-31`.
 
-- [ ] **Step 6: Run focused monitoring verification**
+- [x] **Step 6: Run focused monitoring verification**
 
 Run:
 
@@ -463,7 +463,7 @@ pnpm --filter @led-control/web typecheck
 
 Expected: tests and typecheck pass.
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
 ```bash
 git add apps/web/src/features/monitoring apps/web/src/styles.css docs/menus/monitoring.md
