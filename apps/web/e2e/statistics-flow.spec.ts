@@ -105,11 +105,31 @@ test("retries a summary failure and keeps cards during a series failure", async 
   await expect(page.getByRole("img", { name: /일별 상태 기반 추정/ })).toBeVisible();
 });
 
-test("fits the report at a mobile viewport", async ({ page }) => {
+test("uses two KPI columns at 390px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/statistics");
   await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "월별" })).toBeVisible();
+  expect(await gridColumnCount(page)).toBe(2);
+  expect(await hasHorizontalOverflow(page)).toBe(false);
+});
+
+test("uses touch-sized period controls at 390px", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/statistics");
+  for (const name of ["일별", "월별"]) {
+    const button = page.getByRole("button", { name });
+    await expect(button).toBeVisible();
+    expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    expect(await button.evaluate((element) => Number.parseFloat(getComputedStyle(element).minHeight)))
+      .toBeGreaterThanOrEqual(44);
+  }
+});
+
+test("uses one KPI column without overflow at 320px", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto("/statistics");
+  await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
+  expect(await gridColumnCount(page)).toBe(1);
   expect(await hasHorizontalOverflow(page)).toBe(false);
 });
 
@@ -183,4 +203,11 @@ function series(siteId: string, granularity: "day" | "month", from: string, to: 
 
 async function hasHorizontalOverflow(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+}
+
+
+async function gridColumnCount(page: Page) {
+  return page.locator(".statistics-summary").evaluate((element) => {
+    return getComputedStyle(element).gridTemplateColumns.split(" ").length;
+  });
 }

@@ -212,6 +212,7 @@ button {
 
 .content {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   min-width: 0;
   padding: 24px;
@@ -2585,6 +2586,12 @@ button.group-card {
   gap: 14px;
 }
 
+.chart-panel,
+.statistics-cost-panel {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
 .statistics-screen .ui-page-header {
   display: flex;
   align-items: flex-end;
@@ -2665,7 +2672,7 @@ button.group-card {
   font-variant-numeric: tabular-nums;
 }
 
-.statistics-metric > .ui-status-badge {
+.statistics-metric .ui-metric-card > .ui-status-badge {
   position: absolute;
   right: 16px;
   bottom: 16px;
@@ -2798,8 +2805,8 @@ button.group-card {
   font-variant-numeric: tabular-nums;
 }
 
-.statistics-savings[data-negative="true"] dd,
-.statistics-savings[data-negative="true"] small {
+.statistics-savings[data-tone="danger"] dd,
+.statistics-savings[data-tone="danger"] small {
   color: var(--danger);
 }
 
@@ -3690,7 +3697,7 @@ button.group-card {
 
   .control-layout,
   .report-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .control-target-list {
@@ -4012,7 +4019,7 @@ button.group-card {
   }
 
   .statistics-summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .statistics-screen .ui-page-header {
@@ -4028,9 +4035,19 @@ button.group-card {
     align-items: stretch;
   }
 
+  .statistics-chart-heading .segmented-control button {
+    min-height: 44px;
+  }
+
   .energy-line-chart,
   .statistics-chart-state {
     height: 280px;
     min-height: 280px;
+  }
+}
+
+@media (max-width: 360px) {
+  .statistics-summary {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

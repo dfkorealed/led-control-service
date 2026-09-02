@@ -156,10 +156,12 @@ function EnergyMetric({ label, period }: { label: string; period: EnergySummary[
         unit="kWh"
         helper={`${formatWon(period.estimatedCost)} · 상태 기반 추정`}
         tone={period.dataStatus === "available" ? "primary" : "neutral"}
+        status={(
+          <StatusBadge tone={presentation.tone} icon={presentation.icon}>
+            {statusLabels[period.dataStatus]}
+          </StatusBadge>
+        )}
       />
-      <StatusBadge tone={presentation.tone} icon={presentation.icon}>
-        {statusLabels[period.dataStatus]}
-      </StatusBadge>
     </div>
   );
 }
@@ -192,6 +194,18 @@ function EnergyChartState({
   }
 
   const points = query.data.points;
+  if (!points.some((point) => point.estimatedKwh !== null)) {
+    return (
+      <div className="statistics-chart-state">
+        <FeedbackState
+          icon={CircleOff}
+          title="선택한 기간의 사용량 데이터가 없습니다."
+          description="수집 데이터가 있는 기간을 선택해 주세요."
+        />
+      </div>
+    );
+  }
+
   return (
     <>
       <div
@@ -286,7 +300,10 @@ function CostPanel({ summary }: { summary: EnergySummary }) {
               <dd>{formatWon(summary.baseline24Hours.estimatedCost)}</dd>
               <small>{formatKwh(summary.baseline24Hours.estimatedKwh)}</small>
             </div>
-            <div className="statistics-cost-item statistics-savings" data-negative={summary.estimatedSavings.cost < 0}>
+            <div
+              className="statistics-cost-item statistics-savings"
+              data-tone={summary.estimatedSavings.cost < 0 ? "danger" : "neutral"}
+            >
               <dt>예상 절감</dt>
               <dd>{formatWon(summary.estimatedSavings.cost)}</dd>
               <small>{formatKwh(summary.estimatedSavings.kwh)}</small>

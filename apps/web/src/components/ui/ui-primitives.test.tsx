@@ -71,10 +71,21 @@ describe("Calm Operations UI primitives", () => {
     }
   );
 
-  it("gives metric cards an accessible label and stable value", () => {
-    render(<MetricCard label="전체 조명" value="2,354" unit="개" helper="선택 층 기준" />);
+  it("keeps the spaced value, unit and optional status inside the metric group", () => {
+    render(
+      <MetricCard
+        label="전체 조명"
+        value="2,354"
+        unit="개"
+        helper="선택 층 기준"
+        status={<StatusBadge tone="success" icon={CircleCheck}>수집 완료</StatusBadge>}
+      />
+    );
 
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2,354개");
+    const group = screen.getByRole("group", { name: "전체 조명" });
+    expect(group).toHaveTextContent("2,354 개");
+    expect(group).toHaveTextContent("수집 완료");
+    expect(group.querySelector(".ui-status-badge")).toBe(screen.getByText("수집 완료").closest(".ui-status-badge"));
   });
 
   it("renders page actions and feedback semantics", () => {

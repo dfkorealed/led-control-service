@@ -94,9 +94,9 @@ describe("StatisticsView", () => {
     renderView();
 
     expect(screen.getByRole("heading", { name: "에너지 리포트" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25kWh");
-    expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toHaveTextContent("120.5kWh");
-    expect(screen.getByRole("group", { name: "올해 누적 전력 사용량" })).toHaveTextContent("900kWh");
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
+    expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toHaveTextContent("120.5 kWh");
+    expect(screen.getByRole("group", { name: "올해 누적 전력 사용량" })).toHaveTextContent("900 kWh");
     expect(screen.getByText("수집 완료")).toBeInTheDocument();
     expect(screen.getAllByText("수집 공백 있음")).toHaveLength(2);
     expect(screen.getByText("수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다.")).toBeInTheDocument();
@@ -106,8 +106,10 @@ describe("StatisticsView", () => {
     renderView();
 
     expect(screen.getByRole("heading", { name: "에너지 리포트" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("kWh");
-    expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toHaveTextContent("원");
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" }))
+      .toHaveTextContent("오늘 전력 사용량4.25 kWh680원 · 상태 기반 추정수집 완료");
+    expect(screen.getByRole("group", { name: "이번 달 누적 전력 사용량" }))
+      .toHaveTextContent("이번 달 누적 전력 사용량120.5 kWh19,280원 · 상태 기반 추정수집 공백 있음");
     expect(screen.getByText("상태 기반 추정")).toBeVisible();
     expect(screen.getByRole("img", { name: /상태 기반 추정 전력 사용량 꺾은선 차트/ })).toBeInTheDocument();
   });
@@ -126,6 +128,27 @@ describe("StatisticsView", () => {
     expect(screen.queryByText(/2026년 8월 27일/)).not.toBeInTheDocument();
   });
 
+  it("keeps summary and cost data while showing an empty state for an all-null active series", () => {
+    mocks.day = queryResult({
+      ...daySeries,
+      points: daySeries.points.map((point) => ({
+        ...point,
+        estimatedKwh: null,
+        estimatedCost: null,
+        knownSeconds: 0,
+        unknownSeconds: 86_400,
+        dataStatus: "no_data" as const
+      }))
+    });
+
+    renderView();
+
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
+    expect(screen.getByText("25,600원")).toBeInTheDocument();
+    expect(screen.getByText("선택한 기간의 사용량 데이터가 없습니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /일별 상태 기반 추정/ })).not.toBeInTheDocument();
+  });
+
   it("shows forecast, 24-hour baseline and unclamped savings", () => {
     mocks.summary = queryResult({
       ...summary,
@@ -137,6 +160,9 @@ describe("StatisticsView", () => {
     expect(screen.getByText("47,616원")).toBeInTheDocument();
     expect(screen.getByText("-2.5 kWh")).toBeInTheDocument();
     expect(screen.getByText("-400원")).toBeInTheDocument();
+    const savingsRow = screen.getByText("예상 절감").closest(".statistics-cost-item");
+    expect(savingsRow).toHaveAttribute("data-tone", "danger");
+    expect(savingsRow).not.toHaveAttribute("data-tone", "success");
     expect(screen.getByText(/현재 등록 조명 10개 · 해당 월 31일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준/)).toBeInTheDocument();
   });
 
@@ -188,7 +214,7 @@ describe("StatisticsView", () => {
     mocks.summary = queryResult(summary);
     mocks.day = { ...queryResult<EnergySeriesResponse>(), isError: true, error: new Error("failed"), refetch: seriesRetry };
     renderView();
-    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25kWh");
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
     expect(screen.getByRole("alert")).toHaveTextContent("사용량 추이를 불러오지 못했습니다.");
     fireEvent.click(screen.getByRole("button", { name: "사용량 추이 다시 시도" }));
     expect(seriesRetry).toHaveBeenCalledOnce();
