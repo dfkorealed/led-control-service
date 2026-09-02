@@ -1,10 +1,10 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-08-31
+기준일: 2026-09-02
 
 ## 현재 마일스톤
 
-**Calm Operations 고객 UI 전면 개선**: 승인된 A안으로 모니터링·수동/스케줄/차량 이벤트 제어·통계·설정의 공통 디자인 시스템을 적용하고 설정 내부 sidebar를 주 내비게이션의 역할별 hover/focus/touch 서브메뉴로 이동하는 설계와 구현 계획을 완료했다. 실제 구현은 시작 전이다.
+**Calm Operations 고객 UI 전면 개선**: 모니터링·수동/스케줄/차량 이벤트 제어·통계·설정에 승인된 A안의 공통 디자인 시스템을 적용하고 설정 내부 sidebar를 주 내비게이션의 역할별 hover/focus/touch 서브메뉴로 이동했다. Task 1~7 구현과 반응형 계약은 완료했지만 Task 8 전체 Chromium 검증의 legacy selector 실패와 수동 in-app browser QA 환경 차단이 남아 최종 소프트웨어 완료로 표시하지 않는다.
 
 ## 작업 상태
 
@@ -21,7 +21,7 @@
 | 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
 | Calm Operations UI 개선 설계 | 완료(설계) | 고객용 4개 메뉴의 공통 token·primitive, 현재 기능별 정보 위계, 설정 hover/focus/touch 서브메뉴, 반응형·접근성과 검증 범위를 확정했다. API·DB·MQTT 변경은 포함하지 않는다. |
 | Calm Operations UI 개선 구현 계획 | 완료(계획) | [구현 계획](superpowers/plans/2026-08-31-calm-operations-ui-refresh.md)에 공통 UI, 설정 navigation, 메뉴별 적용, 반응형 E2E, 문서 수렴을 8개 TDD·검증·커밋 단위로 작성했다. |
-| Calm Operations UI 개선 구현 | 진행 중 | 별도 작업트리에서 Task 1~7 고객 UI와 반응형·접근성 계약 및 독립 리뷰를 완료했고 Task 8 문서 수렴·전체 검증을 진행한다. Chromium 핵심 흐름 45개, helper 반례 23개, 전체 Web 379개가 통과했으며, 최종 전체 검증 전에는 완료로 표시하지 않는다. |
+| Calm Operations UI 개선 구현 | 진행 중(최종 검증 차단) | Task 8 fresh 검증에서 shared build, Web unit `36 files / 379 tests`, typecheck와 production build는 통과했다. build는 `2,381 modules`, main `1,039.89 kB / gzip 317.06 kB`, PDF `532.22 kB / gzip 161.49 kB`이며 기존 500 kB chunk 경고가 남는다. 전체 Chromium은 `85 passed / 3 skipped / 1 failed`로, 제품 화면에는 `오늘 전력 사용량 3.36 kWh`가 렌더링되지만 `e2e/mvp1.spec.ts`가 Task 5에서 제거된 `.metric` class를 계속 조회해 실패한다. focused 재실행도 `1 failed`로 동일하게 재현됐다. in-app Browser 제어 도구가 이 세션에 없어 수동 시각 QA는 시작하지 못했으며 자동 Chromium과 별도 미완료로 기록한다. Raspberry Pi/BlueZ/ESP32-H2 HIL도 미실행이다. |
 | 스케줄·차량 이벤트 제어 설계 | 완료(설계) | 반복 일정, overlap 차단, 수동 override·차량 이벤트·스케줄 우선순위, Gateway full snapshot 무중단 적용, offline 실행과 ESP32-H2 차량 감지 event 계약을 확정했다. Task 7~12에서 API CRUD, production MQTT config와 Gateway offline 실행을 구현했고 Web과 실제 sensor/telemetry 연결은 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape, node-scoped durable ACK identity와 lease-safe exact replay revival까지 5차 review fix를 완료했다. Production Gateway report journal은 후속 Task 범위다. |
@@ -41,9 +41,14 @@
 
 ## 다음 단계
 
-**다음 작업은 승인된 Calm Operations 구현 계획의 Task 8 문서 수렴·전체 검증을 실행하는 것이다.** Task 1~7은 각 독립 리뷰까지 완료했으며, 메뉴 문서·상태판·체크리스트를 실제 검증 결과와 일치시키고 전체 diff를 최종 검토한다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이 UI 작업과 별도로 미실행 상태를 유지하며 software 결과를 실장비 완료로 확대 해석하지 않는다.
+**다음 작업은 `apps/web/e2e/mvp1.spec.ts`의 legacy `.metric` assertion을 현재 접근 가능한 `MetricCard` 계약에 맞춘 뒤 Step 2 전체 Chromium을 fresh 재실행하고, in-app Browser가 제공되는 세션에서 1440/1024/390/320 수동 시각 QA를 수행하는 것이다.** 두 검증이 실제로 끝나기 전에는 Task 8 Step 2·3과 Calm Operations 소프트웨어 완료를 체크하지 않는다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이 UI 작업과 별도로 미실행 상태를 유지하며 software 결과를 실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
+
+### Calm Operations 최종 검증
+
+- 전체 Chromium 89개 중 실백엔드 전용 3개는 환경 조건에 따라 skip됐고 85개가 통과했다. 남은 1개는 통계 화면이 아니라 제거된 `.metric` CSS class를 조회하는 `apps/web/e2e/mvp1.spec.ts:186`의 stale assertion이며 focused 재실행에서도 동일하게 실패했다. Task 8은 문서 전용 범위이므로 이 테스트 코드를 수정하지 않았다.
+- deterministic Chromium route fixture는 네 viewport의 monitoring/control/statistics/floor editor overflow, 설정 desktop hover·focus와 mobile bottom sheet, empty/partial/danger 상태를 자동 검사한다. 그러나 이번 세션에는 browser-client가 요구하는 JavaScript 제어 도구가 없어 사람의 in-app Browser inspection을 시작하지 못했다. 이는 localhost 정책 차단이 아니며 자동 Chromium 통과와 수동 시각 QA를 같은 증거로 취급하지 않는다.
 
 ### 모니터링
 

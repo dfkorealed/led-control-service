@@ -824,7 +824,7 @@ git commit -m "test(web): verify calm operations responsive layouts"
 - Consumes: verification evidence from Tasks 1–7
 - Produces: truthful final status and completed checkbox record
 
-- [ ] **Step 1: Reconcile menu documents against the final UI**
+- [x] **Step 1: Reconcile menu documents against the final UI**
 
 Run:
 
@@ -861,11 +861,11 @@ Inspect monitoring, each of the three control modes, statistics, settings overvi
 
 Record browser-policy blocks separately from automated Chromium results.
 
-- [ ] **Step 4: Update status and plan checkboxes**
+- [x] **Step 4: Update status and plan checkboxes**
 
 Set the Calm Operations implementation row in `docs/project-status.md` to `완료(소프트웨어)` only if Step 2 passes. Include manual visual QA as complete or explicitly list the environment block. Mark every completed checkbox in this plan; do not mark HIL complete.
 
-- [ ] **Step 5: Review the complete diff**
+- [x] **Step 5: Review the complete diff**
 
 Run:
 
@@ -877,7 +877,7 @@ git log --oneline -10
 
 Expected: no whitespace errors, only intended UI/docs files modified, and Tasks 1–7 commits are present.
 
-- [ ] **Step 6: Commit Task 8**
+- [x] **Step 6: Commit Task 8**
 
 ```bash
 git add docs/project-status.md docs/superpowers/plans/2026-08-31-calm-operations-ui-refresh.md docs/menus
