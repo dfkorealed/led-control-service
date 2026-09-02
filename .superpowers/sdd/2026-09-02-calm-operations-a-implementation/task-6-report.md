@@ -36,3 +36,8 @@ brief의 두 spec 병렬 실행은 제품 assertion이 아니라 shared build �
 
 - RED: brightness `101`을 입력한 뒤 디밍을 OFF로 전환해 number input을 unmount하고 submit하는 focused case는 오류 문구는 남지만 기존 ref early-return 때문에 visible fallback으로 focus하지 못했다. target-only focused case도 추가해 `제어 대상` fieldset의 focus와 error wiring을 명시했다.
 - GREEN: hidden brightness input 대신 visible `디밍 사용` toggle을 fallback focus target으로 사용하며, control이 없을 때는 target fallback 검사까지 계속한다. toggle은 brightness error의 stable `aria-invalid`, `aria-errormessage`, `aria-describedby`를 사용한다. `validateScheduleForm` 및 payload semantics는 변경하지 않았다.
+
+## Fix Round 3 증거 (2026-09-03)
+
+- RED: 디밍 ON에서 brightness `101` submit 후 numeric input과 toggle 모두에 brightness error ARIA가 연결된 것을 focused case로 확인했다.
+- GREEN: toggle error spread는 `!values.dimmingEnabled`일 때만 적용한다. 따라서 디밍 ON에서는 visible numeric input만 brightness error association을 갖고, 디밍 OFF hidden-input fallback은 기존처럼 toggle의 ARIA/focus를 유지한다. validation 및 payload semantics는 변경하지 않았다.

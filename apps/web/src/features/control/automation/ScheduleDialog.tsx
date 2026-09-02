@@ -290,7 +290,7 @@ export function ScheduleDialog({
                 ref={dimmingToggleRef}
                 type="checkbox"
                 aria-label="디밍 사용"
-                {...errorAttributes(errors.brightnessPercent, scheduleErrorIds.brightnessPercent)}
+                {...(!values.dimmingEnabled ? errorAttributes(errors.brightnessPercent, scheduleErrorIds.brightnessPercent) : {})}
                 checked={values.dimmingEnabled}
                 onChange={(event) => change({ dimmingEnabled: event.target.checked })}
               />

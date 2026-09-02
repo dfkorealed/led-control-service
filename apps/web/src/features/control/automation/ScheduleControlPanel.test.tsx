@@ -297,6 +297,26 @@ describe("ScheduleControlPanel", () => {
     expect(document.getElementById(errorId)).toBeInTheDocument();
   });
 
+  it("디밍 ON 밝기 오류는 visible numeric input만 error ARIA를 갖는다", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    fireEvent.change(within(dialog).getByLabelText("스케줄 이름"), { target: { value: "유효한 이름" } });
+    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
+    fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "101" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+
+    const brightnessInput = within(dialog).getByLabelText("밝기");
+    expect(brightnessInput).toHaveFocus();
+    expect(brightnessInput).toHaveAttribute("aria-invalid", "true");
+    expect(brightnessInput).toHaveAttribute("aria-errormessage", "schedule-brightness-error");
+    expect(brightnessInput).toHaveAttribute("aria-describedby", "schedule-brightness-error");
+    expect(within(dialog).getByLabelText("디밍 사용")).not.toHaveAttribute("aria-invalid");
+    expect(within(dialog).getByLabelText("디밍 사용")).not.toHaveAttribute("aria-errormessage");
+  });
+
   it("숨겨진 밝기 input의 오류는 디밍 toggle fallback에 연결하고 focus한다", async () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
