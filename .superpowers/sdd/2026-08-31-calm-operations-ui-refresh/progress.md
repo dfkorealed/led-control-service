@@ -78,3 +78,8 @@ Task 3: supplemental fix round 2/5 complete (four App monitoring assertions alig
 Task 6: fix round 1/5 (2 addressed — six App integration assertions and 44x44 editor toolbar/revision targets; commits `ea10760`..`c917087`).
 Task 6: complete (commits `ca9bf13`..`c917087`, 72 settings/editor tests, 378 full Web tests, typecheck/build and independent Chromium dimension review passed).
 Task 7: Ruling: the global 44px touch-target rule does not justify enlarging each dense spatial floor-map marker until hit areas overlap. Preserve the compact marker scale and Konva hit semantics required by Task 3, remove the false 44px marker claim, and provide a visible 44px mobile fixture selector as the equivalent selection path; if wrong, direct marker tapping remains below 44px even though every fixture is reachable through the compliant selector, but the map stays selectable, legible and performant at up to 1,000 fixtures.
+Task 7: fix round 1/5 (5 addressed — exhaustive interactive-root helper, mobile fixture selector/compact marker ruling, hermetic Playwright server, desktop/coarse ARIA, expanded viewport coverage; commits `13643d6`..`9b776d9`).
+Task 7: fix round 2/5 (1 addressed — associated labels, viewport/overflow clipping and pointer reachability; commits `9b776d9`..`a1000b0`).
+Task 7: fix round 3/5 (3 addressed — continuous 44x44 hit area, all labels/input fallback, fixed containing blocks; commits `a1000b0`..`7a88b83`).
+Task 7: fix round 4/5 (1 addressed by fresh escalated implementer — scroll each associated label/input candidate; commits `7a88b83`..`fe0f4e8`).
+Task 7: complete (commits `7ba136b`..`fe0f4e8`, helper Chromium 23/23, focused Chromium 45/45, Web 379/379, typecheck/build and final re-review passed).

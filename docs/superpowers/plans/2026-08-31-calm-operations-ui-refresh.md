@@ -741,7 +741,7 @@ git commit -m "feat(web): refresh settings and floor editor surfaces"
 - Produces: `expectNoHorizontalOverflow(page)` and `expectMinimumTouchTargets(page, selector)`
 - Consumes: completed four-menu UI
 
-- [ ] **Step 1: Add the shared failing E2E layout assertions**
+- [x] **Step 1: Add the shared failing E2E layout assertions**
 
 ```ts
 import { expect, type Page } from "@playwright/test";
@@ -762,7 +762,7 @@ export async function expectMinimumTouchTargets(page: Page, selector: string) {
 
 Add assertions at 1440x900, 1024x768, 390x844 and 320x740 to the existing deterministic route-fixture flows. On settings, hover `설정`, click `도면 관리`, verify `siteId`, then repeat at mobile width by opening the `설정 메뉴` dialog.
 
-- [ ] **Step 2: Run the focused Playwright specs and verify RED**
+- [x] **Step 2: Run the focused Playwright specs and verify RED**
 
 Run:
 
@@ -772,7 +772,7 @@ pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.
 
 Expected: at least one new overflow/touch/navigation assertion fails before final responsive CSS is complete.
 
-- [ ] **Step 3: Finish the responsive CSS contract**
+- [x] **Step 3: Finish the responsive CSS contract**
 
 - At 1120px, stack monitoring/control/report secondary panels below primary content where required.
 - At 760px, use bottom navigation, 2-column KPI, single-column work panels and mobile settings bottom sheet.
@@ -788,7 +788,7 @@ Expected: at least one new overflow/touch/navigation assertion fails before fina
 }
 ```
 
-- [ ] **Step 4: Run focused Playwright and full web verification**
+- [x] **Step 4: Run focused Playwright and full web verification**
 
 Run:
 
@@ -801,7 +801,7 @@ pnpm --filter @led-control/web build
 
 Expected: all commands exit 0 and each tested viewport has no document-level horizontal overflow.
 
-- [ ] **Step 5: Commit Task 7**
+- [x] **Step 5: Commit Task 7**
 
 ```bash
 git add apps/web/e2e apps/web/src/styles.css
