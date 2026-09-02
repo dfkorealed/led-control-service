@@ -954,7 +954,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("7.5 kWh")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("7.5 kWh");
     expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/summary");
     expect(apiGet).toHaveBeenCalledWith(
       "/energy/sites/site-2/series?granularity=day&from=2026-08-01&to=2026-08-31"
@@ -973,7 +973,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("4.25 kWh")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
     expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/summary`);
     expect(apiGet).not.toHaveBeenCalledWith("/energy/default/estimate");
   });
@@ -987,7 +987,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("7.5 kWh")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("7.5 kWh");
     window.history.pushState({}, "", `/statistics?siteId=${mockDashboard.site.id}`);
     view.unmount();
     render(
@@ -996,7 +996,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("4.25 kWh")).toBeInTheDocument();
+    expect(await screen.findByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
     expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/summary");
     expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/summary`);
   });
