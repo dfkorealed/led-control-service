@@ -19,7 +19,7 @@ function LocationProbe() {
 function RoutedSettingsShell() {
   const location = useLocation();
   const selectedSiteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
-  return <SettingsShell userRole="admin" selectedSiteId={selectedSiteId} />;
+  return <SettingsShell selectedSiteId={selectedSiteId} />;
 }
 
 describe("SettingsShell", () => {
@@ -29,19 +29,20 @@ describe("SettingsShell", () => {
     useFloorEditorStore.setState({ isDirty: false });
   });
 
-  it("renders only the admin settings navigation", () => {
+  it("renders the site context and routed content without an internal settings sidebar", () => {
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1"]}>
         <Routes>
-          <Route path="/settings" element={<SettingsShell userRole="admin" selectedSiteId="site-1" />}>
+          <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
             <Route path="floor-plans" element={<h2>도면 관리</h2>} />
           </Route>
         </Routes>
       </MemoryRouter>
     );
 
-    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
-    expect(screen.queryByRole("link", { name: "설치 및 시운전" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "현장 선택" })).toHaveValue("site-1");
+    expect(screen.getByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("설정 메뉴")).not.toBeInTheDocument();
   });
 
   it("blocks a site switch while the floor editor is dirty", () => {
@@ -55,7 +56,7 @@ describe("SettingsShell", () => {
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1"]}>
         <Routes>
-          <Route path="/settings" element={<SettingsShell userRole="admin" selectedSiteId="site-1" />}>
+          <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
             <Route path="floor-plans" element={<LocationProbe />} />
           </Route>
         </Routes>

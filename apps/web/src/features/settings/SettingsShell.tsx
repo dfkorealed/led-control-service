@@ -1,20 +1,15 @@
 import { useCallback } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
-import type { AuthUser } from "../../api/auth";
+import { Outlet } from "react-router-dom";
 import { useSites } from "../../api/queries";
 import { SiteSwitcher } from "../sites/SiteSwitcher";
 import { useFloorEditorStore } from "../floor-editor/editor-store";
-import { settingsSectionsFor } from "./settings-sections";
 
 interface SettingsShellProps {
-  userRole: AuthUser["role"];
   selectedSiteId?: string;
 }
 
-export function SettingsShell({ userRole, selectedSiteId }: SettingsShellProps) {
+export function SettingsShell({ selectedSiteId }: SettingsShellProps) {
   const { data: sites = [] } = useSites();
-  const location = useLocation();
-  const sections = settingsSectionsFor(userRole);
   const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
   const canSelectSite = useCallback(() => {
@@ -25,25 +20,14 @@ export function SettingsShell({ userRole, selectedSiteId }: SettingsShellProps) 
   }, [discardEditorChanges, isEditorDirty]);
 
   return (
-    <section className="settings-workspace">
-      <aside className="settings-sidebar" aria-label="설정 메뉴">
+    <section className="settings-workspace settings-workspace-flat">
+      <div className="settings-context-bar">
         <SiteSwitcher
           sites={sites}
           selectedSiteId={selectedSiteId}
           canSelectSite={canSelectSite}
         />
-        <nav className="settings-nav">
-          {sections.map((section) => (
-            <NavLink
-              className={({ isActive }) => isActive ? "settings-nav-link active" : "settings-nav-link"}
-              key={section.label}
-              to={`${section.path}${location.search}`}
-            >
-              {section.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
+      </div>
       <div className="settings-content">
         <Outlet />
       </div>

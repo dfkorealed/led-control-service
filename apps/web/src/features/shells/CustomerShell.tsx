@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, BarChart3, MapPin, Settings, SlidersHorizontal } from "lucide-react";
+import { Activity, BarChart3, MapPin, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
@@ -20,12 +20,12 @@ import { FloorPlanSettingsView } from "../settings/floor-plans/FloorPlanSettings
 import { SettingsView } from "../settings/SettingsView";
 import { PasswordSettingsView } from "../settings/security/PasswordSettingsView";
 import { StatisticsView } from "../statistics/StatisticsView";
+import { SettingsNavigationItem } from "./SettingsNavigationItem";
 
 const items = [
   { path: "/monitoring", label: "모니터링", icon: Activity },
   { path: "/control", label: "제어", icon: SlidersHorizontal },
-  { path: "/statistics", label: "통계", icon: BarChart3 },
-  { path: "/settings", label: "설정", icon: Settings }
+  { path: "/statistics", label: "통계", icon: BarChart3 }
 ] as const;
 
 export function CustomerShell({ user }: { user: AuthUser }) {
@@ -128,6 +128,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               </NavLink>
             );
           })}
+          <SettingsNavigationItem role={user.role} search={location.search} />
         </nav>
       </aside>
       <main className="content">
@@ -164,7 +165,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             )}
           />
           <Route path="/statistics" element={<StatisticsView siteId={siteId ?? dashboard?.site.id} />} />
-          <Route path="/settings" element={<SettingsShell userRole={user.role} selectedSiteId={siteId ?? dashboard?.site.id} />}>
+          <Route path="/settings" element={<SettingsShell selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
             <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />
             <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={user.role} />} />

@@ -46,6 +46,21 @@ const apiState = vi.hoisted(() => ({
   commandStatus: null as null | unknown
 }));
 
+Object.defineProperty(window, "matchMedia", {
+  configurable: true,
+  writable: true,
+  value: vi.fn((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn()
+  }))
+});
+
 vi.mock("./api/client", () => ({
   apiGet: vi.fn((path: string) => {
     const dashboardResponse = (fallback: unknown) =>
@@ -417,7 +432,7 @@ describe("App", () => {
   });
 
   it("renders the floor-plan settings route for an admin on refresh", async () => {
-    window.history.pushState({}, "", "/settings/floor-plans");
+    window.history.pushState({}, "", "/settings/floor-plans?siteId=site-2");
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -426,6 +441,9 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(window.location.search).toBe("?siteId=site-2");
+    expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("href", "/settings?siteId=site-2");
+    expect(screen.queryByLabelText("설정 메뉴")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "설치 및 시운전" })).not.toBeInTheDocument();
   });
 

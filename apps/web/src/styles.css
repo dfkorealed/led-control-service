@@ -1583,10 +1583,17 @@ button {
   min-width: 0;
 }
 
-.settings-sidebar {
-  display: grid;
-  align-content: start;
-  gap: 14px;
+.settings-workspace-flat {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-context-bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-context-bar .site-switcher {
+  width: min(100%, 280px);
 }
 
 .site-switcher select {
@@ -1599,23 +1606,55 @@ button {
   padding: 0 10px;
 }
 
-.settings-nav {
-  display: grid;
-  gap: 4px;
+.settings-nav-disclosure {
+  position: relative;
 }
 
-.settings-nav-link {
-  border-left: 3px solid transparent;
-  color: var(--muted);
-  padding: 9px 10px;
+.settings-nav-disclosure > .nav-item {
+  width: 100%;
+}
+
+.settings-nav-chevron {
+  margin-left: auto;
+}
+
+.settings-submenu {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  left: calc(100% + 10px);
+  width: 208px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow-popover);
+  padding: 8px;
+}
+
+.settings-submenu a {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  border-radius: 10px;
+  padding: 0 12px;
+  color: var(--text);
   text-decoration: none;
 }
 
-.settings-nav-link.active {
-  border-left-color: var(--primary);
+.settings-submenu a.active {
   background: var(--primary-soft);
   color: var(--primary);
-  font-weight: 800;
+  font-weight: 700;
+}
+
+@media (max-width: 760px), (hover: none), (pointer: coarse) {
+  .settings-submenu {
+    position: fixed;
+    inset: auto 12px calc(var(--bottom-nav-space) - 8px);
+    width: auto;
+    max-height: min(60vh, 420px);
+    overflow-y: auto;
+  }
 }
 
 .settings-content {
@@ -3391,26 +3430,12 @@ button.group-card {
     gap: 14px;
   }
 
-  .settings-sidebar {
-    gap: 8px;
-    min-width: 0;
+  .settings-context-bar {
+    justify-content: stretch;
   }
 
-  .settings-nav {
-    grid-auto-flow: column;
-    grid-auto-columns: max-content;
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
-
-  .settings-nav-link {
-    border-bottom: 3px solid transparent;
-    border-left: 0;
-    white-space: nowrap;
-  }
-
-  .settings-nav-link.active {
-    border-bottom-color: var(--primary);
+  .settings-context-bar .site-switcher {
+    width: 100%;
   }
 
   .topbar,
