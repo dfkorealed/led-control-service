@@ -648,7 +648,7 @@ git commit -m "feat(web): refresh energy report presentation"
 - Consumes: shared primitives and flattened `SettingsShell`
 - Preserves: setup, claim/registration, role guard, lease, dirty guard, atomic save/restore and password cache safety
 
-- [ ] **Step 1: Add failing settings hierarchy tests**
+- [x] **Step 1: Add failing settings hierarchy tests**
 
 For the installed overview:
 
@@ -668,7 +668,7 @@ expect(screen.getByRole("toolbar", { name: "도면 편집 도구" })).toBeInTheD
 
 Keep every existing viewer redirect, site switch dirty confirmation, lease conflict, atomic save/restore and password plaintext-cache test.
 
-- [ ] **Step 2: Run focused settings tests and verify RED**
+- [x] **Step 2: Run focused settings tests and verify RED**
 
 Run:
 
@@ -678,7 +678,7 @@ pnpm --filter @led-control/web test -- src/features/settings src/features/floor-
 
 Expected: FAIL on the new heading and named region contracts.
 
-- [ ] **Step 3: Refresh the settings overview**
+- [x] **Step 3: Refresh the settings overview**
 
 - Use `PageHeader title="설정 개요"`.
 - Present site and Gateway as labeled `Card` sections with `role="group"` names.
@@ -686,14 +686,14 @@ Expected: FAIL on the new heading and named region contracts.
 - Keep pending setup, no-site state, Gateway claim and registration components unchanged.
 - Use icon+text status and role-aware actions; do not expose admin actions to viewer.
 
-- [ ] **Step 4: Refresh floor-plan list and password form**
+- [x] **Step 4: Refresh floor-plan list and password form**
 
 - Use the same PageHeader, Card and Button variants.
 - Keep floor route/query, editor availability and viewer read-only behavior.
 - Give the password form `aria-label="비밀번호 변경"`, keep local-only plaintext state and existing validation messages.
 - Preserve success clearing, failed input retention and duplicate-submit lock.
 
-- [ ] **Step 5: Align the floor editor workbench**
+- [x] **Step 5: Align the floor editor workbench**
 
 - Keep canvas, asset upload, property panel, revision list and store boundaries unchanged.
 - Give the existing tool container `role="toolbar" aria-label="도면 편집 도구"`.
@@ -701,14 +701,14 @@ Expected: FAIL on the new heading and named region contracts.
 - Maintain the wide editor layout at desktop and stack the properties/revisions below the canvas at 760px.
 - Preserve 1,000-fixture performance, lease heartbeat/watchdog, dirty sentinel and atomic save/restore behavior.
 
-- [ ] **Step 6: Update settings documentation**
+- [x] **Step 6: Update settings documentation**
 
 - Replace the old statement that PC uses a settings-only left menu with the approved primary-nav hover/focus and mobile bottom-sheet structure.
 - Under `구현 완료`, record that only `설정 개요`, `도면 관리`, admin `비밀번호 변경` are exposed by role.
 - Record the flattened content layout and unchanged setup/editor limitations.
 - Update the date to `2026-08-31` and related files.
 
-- [ ] **Step 7: Run settings verification**
+- [x] **Step 7: Run settings verification**
 
 Run:
 
@@ -719,7 +719,7 @@ pnpm --filter @led-control/web typecheck
 
 Expected: tests and typecheck pass.
 
-- [ ] **Step 8: Commit Task 6**
+- [x] **Step 8: Commit Task 6**
 
 ```bash
 git add apps/web/src/features/settings apps/web/src/features/floor-editor apps/web/src/styles.css docs/menus/settings.md
