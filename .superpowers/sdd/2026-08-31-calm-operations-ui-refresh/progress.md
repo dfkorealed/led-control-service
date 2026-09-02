@@ -70,3 +70,7 @@ Task 3: complete (commits `a0cb1cd`..`e2e58cc`, review clean).
 Task 4: fix round 1/5 (5 addressed — neutral contrast, mobile header actions, live-region separation, h2/h3 hierarchy, shared ref-forwarding Button; commits `a714aa1`..`74ae77e`).
 Task 4: fix round 2/5 (2 addressed — monitoring neutral cascade contrast and control h3 typography; commits `74ae77e`..`6a127b1`).
 Task 4: complete (commits `1d58726`..`6a127b1`, 116 control tests, typecheck and production build passed; final re-review clean).
+Task 5: fix round 1/5 (5 addressed — MetricCard status/value-unit contract, 390/320 KPI grid, 44px range buttons, active-series empty state, negative savings semantics; commits `30e3615`..`f235ee1`).
+Task 5: fix round 2/5 (1 addressed — App integration assertions aligned without weakening site/query/cache checks; commits `f235ee1`..`c35b672`).
+Task 5: complete (commits `fea0a1f`..`c35b672`, 24 focused tests and 6 Chromium statistics flows passed; final re-review clean).
+Cross-task regression after Task 5: full Web suite exposed four Task 3 monitoring App assertions still targeting removed `B1/B2 운영 현황` copy. They are not caused by the Task 5 fix diff; resolve against the Task 3 accessibility contract before Task 6.

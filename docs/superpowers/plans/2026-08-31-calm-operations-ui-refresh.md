@@ -572,7 +572,7 @@ git commit -m "feat(web): unify manual and automation control UI"
 - Consumes: `MetricCard`, `PageHeader`, `StatusBadge`, `FeedbackState`
 - Preserves: summary/series split queries, null gaps, screen-reader list and estimation copy
 
-- [ ] **Step 1: Add failing statistics contract tests**
+- [x] **Step 1: Add failing statistics contract tests**
 
 ```tsx
 expect(screen.getByRole("heading", { name: "에너지 리포트" })).toBeInTheDocument();
@@ -584,13 +584,13 @@ expect(screen.getByRole("img", { name: /상태 기반 추정 전력 사용량 �
 
 Keep existing tests for partial/no-data, tooltip, independent series retry, timezone ranges and mobile overflow.
 
-- [ ] **Step 2: Run statistics tests and verify RED**
+- [x] **Step 2: Run statistics tests and verify RED**
 
 Run: `pnpm --filter @led-control/web test -- src/features/statistics/StatisticsView.test.tsx`
 
 Expected: FAIL on the new `MetricCard` group contracts.
 
-- [ ] **Step 3: Apply the common hierarchy**
+- [x] **Step 3: Apply the common hierarchy**
 
 - Replace the page heading with `PageHeader` while preserving timezone and last aggregation copy.
 - Change `EnergyMetric` to compose `MetricCard` and `StatusBadge`.
@@ -599,18 +599,18 @@ Expected: FAIL on the new `MetricCard` group contracts.
 - Place chart first and cost comparison second in DOM reading order.
 - Preserve Recharts data, null points, tooltip and screen-reader list.
 
-- [ ] **Step 4: Restyle the chart and cost panel**
+- [x] **Step 4: Restyle the chart and cost panel**
 
 - Use neutral grid/border tokens and primary blue series.
 - Give tooltip a 12px radius, high-contrast text and popover shadow.
 - Align currency and kWh values with tabular numbers.
 - Keep negative savings visible and semantic; never convert them to a positive success state.
 
-- [ ] **Step 5: Update statistics documentation**
+- [x] **Step 5: Update statistics documentation**
 
 Record the shared KPI/status components, hierarchy and responsive behavior in `docs/menus/statistics.md`; preserve every actual-estimation limitation and HIL distinction; update date and related files.
 
-- [ ] **Step 6: Run statistics verification**
+- [x] **Step 6: Run statistics verification**
 
 Run:
 
@@ -621,7 +621,7 @@ pnpm --filter @led-control/web typecheck
 
 Expected: tests and typecheck pass.
 
-- [ ] **Step 7: Commit Task 5**
+- [x] **Step 7: Commit Task 5**
 
 ```bash
 git add apps/web/src/features/statistics apps/web/src/styles.css docs/menus/statistics.md
