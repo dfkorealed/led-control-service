@@ -28,8 +28,30 @@ const items = [
   { path: "/statistics", label: "통계", icon: BarChart3 }
 ] as const;
 
+function PrimaryNavigation({ role, search }: Pick<AuthUser, "role"> & { search: string }) {
+  return (
+    <>
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <NavLink
+            className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}
+            key={item.path}
+            to={`${item.path}${search}`}
+          >
+            <Icon size={18} />
+            <span>{item.label}</span>
+          </NavLink>
+        );
+      })}
+      <SettingsNavigationItem role={role} search={search} />
+    </>
+  );
+}
+
 export function CustomerShell({ user }: { user: AuthUser }) {
   const location = useLocation();
+  const isCompactNavigation = window.matchMedia("(max-width: 760px)").matches;
   const queryClient = useQueryClient();
   const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
@@ -106,31 +128,24 @@ export function CustomerShell({ user }: { user: AuthUser }) {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">LC</span>
-          <div>
-            <strong>LED Control</strong>
-            <span>관제 센터</span>
-          </div>
-        </div>
-        <nav className="nav-list" aria-label="주 메뉴">
-          {items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}
-                key={item.path}
-                to={`${item.path}${location.search}`}
-              >
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
-          <SettingsNavigationItem role={user.role} search={location.search} />
+      {isCompactNavigation ? (
+        <nav className="bottom-nav nav-list" aria-label="모바일 주 메뉴">
+          <PrimaryNavigation role={user.role} search={location.search} />
         </nav>
-      </aside>
+      ) : (
+        <aside className="sidebar">
+          <div className="brand">
+            <span className="brand-mark">LC</span>
+            <div>
+              <strong>LED Control</strong>
+              <span>관제 센터</span>
+            </div>
+          </div>
+          <nav className="nav-list" aria-label="주 메뉴">
+            <PrimaryNavigation role={user.role} search={location.search} />
+          </nav>
+        </aside>
+      )}
       <main className="content">
         <header className="topbar">
           <div>

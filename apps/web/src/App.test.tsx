@@ -417,7 +417,7 @@ describe("App", () => {
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
   });
 
-  it("renders the four primary navigation items", async () => {
+  it("keeps the four customer navigation links after rail markup changes", async () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -425,10 +425,19 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("link", { name: "모니터링" })).toHaveAttribute("href", "/monitoring");
-    expect(screen.getByRole("link", { name: "제어" })).toHaveAttribute("href", "/control");
-    expect(screen.getByRole("link", { name: "통계" })).toHaveAttribute("href", "/statistics");
-    expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("href", "/settings");
+    const links = await Promise.all([
+      screen.findByRole("link", { name: "모니터링" }),
+      screen.findByRole("link", { name: "제어" }),
+      screen.findByRole("link", { name: "통계" }),
+      screen.findByRole("link", { name: "설정" })
+    ]);
+
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/monitoring",
+      "/control",
+      "/statistics",
+      "/settings"
+    ]);
   });
 
   it("renders the floor-plan settings route for an admin on refresh", async () => {

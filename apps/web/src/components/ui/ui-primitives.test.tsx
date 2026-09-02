@@ -1,9 +1,9 @@
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { readFileSync } from "node:fs";
 import { createRef } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Button, FeedbackState, MetricCard, PageHeader, StatusBadge } from ".";
+import { Button, FeedbackState, MetricCard, PageHeader, ProgressSteps, StatusBadge } from ".";
 import type { StatusTone } from ".";
 
 const styles = readFileSync("src/styles.css", "utf8");
@@ -98,6 +98,23 @@ describe("Calm Operations UI primitives", () => {
 
     expect(screen.getByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("불러오지 못했습니다");
+  });
+
+  it("renders ordered progress without using color as the only state", () => {
+    render(<ProgressSteps label="명령 진행" steps={[
+      { id: "queued", label: "명령 접수", state: "complete" },
+      { id: "accepted", label: "장비 응답", state: "current" },
+      { id: "applied", label: "조명 적용", state: "pending" }
+    ]} />);
+
+    const list = screen.getByRole("list", { name: "명령 진행" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(list).getByText("장비 응답").closest("li")).toHaveAttribute("data-state", "current");
+  });
+
+  it.each(["info", "success", "warning"] as const)("exposes the %s feedback tone", (tone) => {
+    render(<FeedbackState tone={tone} icon={CircleCheck} title={`${tone} 상태`} />);
+    expect(screen.getByText(`${tone} 상태`).closest("section")).toHaveAttribute("data-tone", tone);
   });
 
   it("renders a reusable page heading level", () => {

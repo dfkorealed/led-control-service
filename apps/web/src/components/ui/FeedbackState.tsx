@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-export type FeedbackTone = "neutral" | "danger";
+export type FeedbackTone = "neutral" | "info" | "success" | "warning" | "danger";
 
 export function FeedbackState({ tone = "neutral", icon: Icon, title, description, action }: { tone?: FeedbackTone; icon: LucideIcon; title: string; description?: string; action?: ReactNode }) {
   const liveProps = tone === "danger" ? { role: "alert" as const } : { role: "status" as const };
