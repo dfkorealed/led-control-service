@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { expectMinimumTouchTargets, expectNoHorizontalOverflow } from "./support/layout-assertions";
 
 const editorState = {
   floor: {
@@ -29,8 +30,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 for (const viewport of [
-  { name: "desktop", width: 1440, height: 1000 },
-  { name: "mobile", width: 390, height: 844 }
+  { name: "desktop", width: 1440, height: 900 },
+  { name: "tablet", width: 1024, height: 768 },
+  { name: "mobile", width: 390, height: 844 },
+  { name: "compact", width: 320, height: 740 }
 ]) {
   test(`floor editor remains usable on ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize(viewport);
@@ -49,8 +52,8 @@ for (const viewport of [
     }));
     expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth);
     expect(layout.shellWidth).toBeGreaterThan(viewport.width < 500 ? viewport.width - 40 : 800);
-
-    await page.screenshot({ path: `test-results/task-9-${viewport.name}.png`, fullPage: true });
+    await expectNoHorizontalOverflow(page);
+    if (viewport.width <= 760) await expectMinimumTouchTargets(page, ".app-shell");
   });
 }
 

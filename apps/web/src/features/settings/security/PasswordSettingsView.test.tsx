@@ -40,6 +40,25 @@ describe("PasswordSettingsView", () => {
     expect(changePasswordMock).not.toHaveBeenCalled();
   });
 
+  it("비밀번호 변경은 기존 8자 규칙과 성공 상태를 유지한다", async () => {
+    changePasswordMock.mockResolvedValue({ ok: true });
+    renderView();
+    fillPasswords("current-password", "1234567");
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+
+    const error = screen.getByRole("alert");
+    expect(error).toHaveTextContent("비밀번호를 변경하지 못했습니다.");
+    expect(error).toHaveTextContent("새 비밀번호는 8자 이상이어야 합니다.");
+    expect(screen.queryByText(/10자|특수문자/)).not.toBeInTheDocument();
+    expect(changePasswordMock).not.toHaveBeenCalled();
+
+    fillPasswords("current-password", "new-password");
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("비밀번호를 변경했습니다.");
+    expect(changePasswordMock).toHaveBeenCalledOnce();
+  });
+
   it("blocks mismatched new-password confirmation before requesting", () => {
     renderView();
     fillPasswords();

@@ -2,11 +2,11 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-09-02
+기준일: 2026-09-03
 
 ## 현재 우선순위
 
-- 설정 메뉴의 신규 기능은 모니터링과 수동 제어 집중 구현이 끝날 때까지 보류한다.
+- Scene 24~26 설정 개요·역할별 navigation·도면 목록/편집·비밀번호 변경 UI 교정은 완료했다. 새로운 설정 도메인 기능은 아래 미구현 목록과 후속 범위를 유지한다.
 - 기존 도면 에디터는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
 - 사용자/보안, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
 - BLE Mesh floor/zone Group Address와 subscription 동기화는 설정 화면 확장이 아니라 제어 기반 기능으로 구현한다. 기존 FixtureGroup 데이터만 사용하며 이번 범위에서 그룹 CRUD UI는 추가하지 않는다.
@@ -70,26 +70,27 @@
 
 ## 구현 완료
 
-- 설정 주 메뉴는 desktop hover/focus와 Escape focus 복원, 자연스러운 Tab/Shift+Tab 순서, admin/viewer별 링크 노출, coarse pointer bottom sheet와 `siteId` 보존을 Chromium route fixture로 검증한다. desktop trigger는 query string을 유지한 `/settings` 개요 링크이고 coarse trigger는 현재 route를 유지하는 `button[type="button"]`이며, 두 변형 모두 stable `aria-controls`와 `aria-expanded`로 popup과 연결된다. popup은 `nav aria-label="설정 메뉴"` 안의 목록과 일반 링크를 사용하며 focus trap이나 roving tabindex를 주장하지 않는다. desktop parent는 하위 route에서 시각적 active 상태만 유지하고 `aria-current`를 노출하지 않으며, 개요는 exact `/settings`, 도면·보안은 각각 자신의 route에서만 `aria-current="page"`를 갖는다. coarse button은 현재 페이지로 표시하지 않는다.
+- 설정 주 메뉴는 desktop hover/focus와 Escape focus 복원, 자연스러운 Tab/Shift+Tab 순서, admin/viewer별 링크 노출, coarse pointer bottom sheet와 `siteId` 보존을 Chromium route fixture로 검증한다. desktop trigger는 query string을 유지한 `/settings` 개요 링크이고 coarse trigger는 현재 route를 유지하는 `button[type="button"]`이며, 두 변형 모두 stable `aria-controls`와 `aria-expanded`로 popup과 연결된다. 모바일 sheet는 scrim·grabber·제목을 갖고 첫 허용 링크로 focus를 이동하며 Escape는 trigger로 focus를 복원한다. popup은 `nav aria-label="설정 메뉴"` 안의 목록과 일반 링크를 사용하며 focus trap이나 roving tabindex를 주장하지 않는다. desktop parent는 하위 route에서 시각적 active 상태만 유지하고 `aria-current`를 노출하지 않으며, 개요는 exact `/settings`, 도면·보안은 각각 자신의 route에서만 `aria-current="page"`를 갖는다. coarse button은 현재 페이지로 표시하지 않는다.
 - dirty 도면 편집 중 coarse 설정 button을 여는 동작은 confirm, route 변경, draft 폐기를 발생시키지 않는다. sheet의 실제 하위 링크는 기존 dirty navigation guard를 그대로 통과하며, 취소하면 editor·sheet·draft를 유지하고 확인하면 선택한 하위 route와 동일한 `siteId`로 이동하며 draft를 폐기한다. React 통합 회귀로 open·cancel·confirm 세 경계를 검증한다.
 - 설정·도면 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정한다. 1024px 및 390px/320px의 설정 개요·admin 비밀번호 화면과 viewer security guard, 모바일 floor asset·속성 필드·revision action을 실제 route에서 검증한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다. sheet가 열린 동안은 실제 navigation popup root를 검사하고, 배경 route는 이동 뒤 별도로 검사한다.
 - 주 메뉴의 설정 항목은 데스크톱 click으로 query string을 유지한 `/settings` 개요로 이동하고 hover/focus로 역할별 disclosure를 연다. coarse pointer click은 route를 바꾸지 않고 하단 sheet를 열어 `설정 개요`를 포함한 허용 메뉴를 선택하게 한다. 외부 pointer, blur, Escape와 route 변경은 disclosure를 닫는다.
 - 설정 본문의 내부 `설정 메뉴` 사이드바를 제거하고 현장 선택기를 수평 context row에 유지했다. 기존 현장 전환 dirty 확인 및 editor store 폐기, 상세 route와 `siteId` query 보존 계약은 그대로 유지한다.
 - 설정 메뉴에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `도면 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `도면 관리`만 읽기 전용으로 사용한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
-- `설정 개요`, `도면 관리`, admin `비밀번호 변경` 화면은 공통 PageHeader, Card, Button과 상태 토큰으로 같은 시각 계층을 사용한다. 개요의 현장·Gateway는 이름 있는 구역으로, 층/도면·그룹은 새 편집 동작 없이 compact row로 표시한다.
+- Scene 24 설정 개요는 현재 dashboard/role/route 데이터만 사용해 `현장 정보`, `층·도면`, `Gateway 상태`, admin 전용 `계정·보안` 카드를 표시한다. 도면 관리와 비밀번호 변경 action은 실제 route 링크이고 현재 `siteId` query를 보존한다. firmware, session, 마지막 변경 시각처럼 현재 API가 반환하지 않는 값은 표시하지 않는다.
 - operator가 만든 pending Site는 assigned admin이 customer route에서 `/settings?siteId=...`로 replace된 최초 설치 UI에서 address, tariff, timeZone, floors로 완성한다. CustomerShell은 installationStatus 확인 전 child route를 fail-closed하고, `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송한다. 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다. Task 9 격리 실백엔드 E2E는 이 흐름과 password 교체 후 이전 비밀번호 실패/새 비밀번호 로그인을 검증했다. 재설치와 모바일은 범위 밖이고 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - 설치 완료 뒤 admin은 설정 개요에서 Gateway claim 또는 조명 등록을 수행할 수 있다. viewer는 claim, registration, setup mutation UI를 보지 않는다. operator는 전용 shell 때문에 customer 설정에 진입하지 않는다.
 - Scene 04~09 설치·Gateway claim·조명 검색·일괄/개별 등록·상태 확인 화면은 공통 `Card`, `Button`, `StatusBadge`, `FeedbackState`, `ProgressSteps`로 정보 위계를 표시한다. 초기 설치는 현장 정보부터 운영 시작까지, 등록은 검색·등록 정보·장비 등록·상태 확인 단계를 실제 session 상태로 표현한다.
 - 설치·claim·registration UI는 기존 실제 setup/claim/registration API payload, query key, mutation, active session polling·복구와 cache invalidation을 그대로 사용한다. `reconcile_required` 노드는 기존 명시적 확인·제외·상태 재조회 흐름을 유지하며 viewer와 operator에는 mutation UI를 노출하지 않는다.
 - Ethernet, mTLS, 장비 online 같은 prototype 전용 사전 점검은 현재 API가 제공하지 않아 구현하지 않았다. `calm-operations-commissioning.spec.ts`의 browser fixture는 화면·API route 계약 검증일 뿐 Raspberry Pi/ESP32-H2 hardware-in-the-loop 증거가 아니다.
-- `POST /auth/change-password` 화면은 현재/새/확인 비밀번호, 8자 검증, 확인 불일치, 정확한 현재 비밀번호 오류, 일반 오류와 중복 제출 차단을 제공한다. 평문 비밀번호는 React Query mutation/cache에 넣지 않고 component-local state와 요청 본문에만 두며, 성공 또는 화면 이탈 시 제거하고 실패 시 재시도 입력을 유지한다.
-- 도면 목록과 편집 route의 편집 가능 역할은 assigned admin만이다. viewer는 목록과 저장된 도면을 읽기 전용으로 보고, operator는 customer shell을 mount하지 않는다.
+- Scene 26 비밀번호 변경은 현재/새/확인 비밀번호, 기존 최소 8자 검증, 확인 불일치, 정확한 현재 비밀번호 오류, 일반 오류와 중복 제출 차단을 공통 danger/success feedback으로 표시한다. 평문 비밀번호는 React Query mutation/cache에 넣지 않고 component-local state와 요청 본문에만 두며, 성공 또는 화면 이탈 시 제거하고 실패 시 재시도 입력을 유지한다. 성공 시 현재 세션은 유지하고 기존 API가 동일 사용자의 다른 활성 세션만 revoke하는 동작을 변경하지 않았다.
+- Scene 25~26 도면 목록과 편집 route의 편집 가능 역할은 assigned admin만이다. admin은 등록/편집 action을 사용하고 viewer는 neutral `읽기 전용` 상태와 저장된 도면만 보며, operator는 customer shell을 mount하지 않는다. 편집기는 도구 rail·canvas·속성·버전 region을 유지하고 lease 상실은 읽기 전용 warning, `409`는 강제 덮어쓰기 없이 `최신 버전 다시 불러오기`만 제공한다.
+- 도면 editor의 lease token/fence heartbeat와 fail-closed deadline, atomic save, dirty confirm/cancel 및 browser history sentinel, revision 조회·복구, asset upload 중 save/restore lock은 기존 상태와 callback을 그대로 사용한다.
 - `POST /setup/initial-site`는 assigned active customer `admin`만 `{ siteId, address, tariffKwhRate, timeZone?, floors }`로 호출할 수 있다. transaction 안에서 target Site row를 `FOR UPDATE`로 잠그고 assigned admin 및 pending 상태를 재검증한 뒤 기존 Site와 Floors/FloorPlan만 갱신한다.
 - 최초 설치는 Organization, Site, SiteMembership을 새로 만들지 않으며 주소·단가·층 중 하나라도 없으면 `pending`, 모두 있으면 `installed`다. 재호출과 Serializable 충돌은 `409`로 반환한다.
 - `POST /setup/floors`도 assigned admin의 `commission` capability를 요구한다. 기존 floor 이름·level 중복과 floorPlan 생성 검증은 유지한다.
 - `POST /gateways/claim`과 모든 `registration-sessions` route는 `admin` controller role 및 service의 active customer admin + 대상 Site `commission` 검사를 함께 적용한다. registration mutation은 create body 또는 저장된 session의 `siteId`를 권위 데이터로 사용해 transaction 첫 단계에서 Site를 잠그고 권한을 재검증하며, 이후 `Site -> Gateway -> Session -> Node` 순서로 필요한 행만 잠근다. get/identify는 read-only service 권한 검사만 수행한다.
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
-- 설정 개요에 현장 정보와 Gateway 상태를 구분한 요약 카드를 표시하고 층/도면과 그룹은 compact row로 제공한다.
+- 설정 개요에 현장 정보, 층·도면, Gateway 상태, admin 계정·보안을 구분한 실제 데이터 카드와 route action을 제공한다.
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
 - 등록 패널은 층과 Gateway를 명시적으로 선택해 `siteId`, `floorId`, `gatewayId`를 전송하고 BLE Mesh 후보·provisioning 요청을 제공한다. 설치 완료 assigned admin에게만 노출되며 viewer와 operator는 볼 수 없다. Task 9 격리 실백엔드 E2E는 0건 검색, 재검색, 자사 node 2개 일괄 등록을 검증했다. API는 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
 - provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 `MeshNode.deviceUuid` unique 경쟁만 해당 node 실패로 기록하며, 다른 unique/transaction 오류는 재전파한다.
@@ -302,6 +303,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 미구현
 
+- Scene 04~09와 24~26의 자동 Web/Chromium 검증은 완료했지만 Raspberry Pi/BlueZ/ESP32-H2 HIL과 실제 모바일 WebView safe-area 검증은 미실행이다.
+
 - 고객사 viewer 초대·비활성화와 viewer별 `SiteMembership` 현장 배정을 관리하는 설정 UI
 - 현장 정보 수정과 층 CRUD/archive UI
 - 비공개 도면 asset과 보안 처리 pipeline
@@ -329,7 +332,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
-- 비밀번호 변경과 setup/commissioning visibility는 mock 기반 웹 회귀와 Task 9 격리 실백엔드 E2E로 검증했다. 모바일 레이아웃과 재설치는 이번 범위 밖이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
+- 비밀번호 변경과 setup/commissioning visibility는 Web 회귀와 기존 격리 실백엔드 E2E로 검증했다. Scene 24~26 레이아웃은 1440×900, 1024×768, 390×844, 320×740 자동 Chromium으로 검증했지만 재설치, 수동 in-app Browser 시각 QA와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
 - 평탄화된 설정 콘텐츠와 에디터 workbench의 시각 계층만 정리했으며, pending setup/Gateway claim/registration 흐름과 도면 editor lease·dirty guard·atomic save/restore·단축키·map bounds의 기존 제약 및 후속 실장비 검증 범위는 변경하지 않았다.
 - coarse pointer용 설정 bottom sheet와 단일 열 설정 본문은 자동화 테스트를 통과했고, desktop disclosure의 Tab/Shift+Tab/Escape focus 이동은 헤드리스 Chromium으로 검증했다. CSS는 `env(safe-area-inset-bottom)` 계약을 적용하지만 현재 Chromium route fixture는 non-zero inset을 실측하지 않는다. 실제 모바일 WebView safe-area와 네이티브 navigation 통합 검증은 후속 작업이다.
@@ -381,6 +384,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/styles.css`
 - `apps/web/src/features/floor-map/FloorScene.tsx`
 - `apps/web/e2e/settings-floor-editor.spec.ts`
+- `apps/web/e2e/floor-editor-layout.spec.ts`
 - `apps/web/e2e/layout-assertions.spec.ts`
 - `apps/web/e2e/support/layout-assertions.ts`
 - `apps/web/e2e/support/settings-api.ts`
@@ -420,3 +424,4 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 도면 에디터 또는 등록 진입점이 바뀌면 `docs/menus/monitoring.md`도 같은 작업에서 갱신한다.
 - DB schema가 바뀌면 `docs/database-schema.md`를 같은 작업에서 갱신한다.
 - 자동 테스트 완료, 코드 완료, Raspberry Pi 검증과 ESP32-H2 Hardware E2E를 별도 상태로 기록한다.
+- route-backed action을 추가하거나 제거할 때 role filtering, `siteId` query 보존, dirty navigation guard 회귀를 함께 갱신한다.

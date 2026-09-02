@@ -1,7 +1,8 @@
+import { CircleCheck, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { ApiError } from "../../../api/client";
 import { changePassword } from "../../../api/auth";
-import { Button, Card, PageHeader } from "../../../components/ui";
+import { Button, Card, FeedbackState, PageHeader } from "../../../components/ui";
 
 export function PasswordSettingsView() {
   const requestInFlight = useRef(false);
@@ -65,8 +66,12 @@ export function PasswordSettingsView() {
               <input type="password" autoComplete="new-password" value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} />
             </label>
           </div>
-          {errorMessage ? <p className="danger-text" role="alert">{errorMessage}</p> : null}
-          {successMessage ? <p className="success-text" role="status">{successMessage}</p> : null}
+          {errorMessage ? (
+            <FeedbackState tone="danger" icon={TriangleAlert} title="비밀번호를 변경하지 못했습니다." description={errorMessage} />
+          ) : null}
+          {successMessage ? (
+            <FeedbackState tone="success" icon={CircleCheck} title={successMessage} />
+          ) : null}
           <Button variant="primary" type="submit" isLoading={isPending} loadingLabel="변경 중">
             비밀번호 변경
           </Button>

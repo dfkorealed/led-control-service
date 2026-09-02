@@ -167,15 +167,10 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;
   }).toBe(true);
 
-  await page.evaluate(() => {
-    const key = "__floorEditorDirtySentinel";
-    const state = window.history.state ?? {};
-    window.history.pushState(
-      { ...state, idx: typeof state.idx === "number" ? state.idx + 1 : 1, [key]: "playwright-dirty" },
-      "",
-      window.location.href
-    );
-  });
+  await page.getByLabel("B2 편집 캔버스").click({ position: { x: 120, y: 140 } });
+  const xInput = page.getByRole("complementary", { name: "속성 패널" }).getByLabel("X");
+  await xInput.fill("260");
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toContain("저장하지 않은 변경사항");
@@ -184,6 +179,7 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
   await page.getByRole("button", { name: "로그아웃" }).click();
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1$/);
+  await expect(xInput).toHaveValue("260");
   expect(api.logoutRequests).toBe(0);
   await expect.poll(async () => page.evaluate(async () => (await fetch("/api/auth/me")).status)).toBe(200);
 
@@ -210,6 +206,11 @@ test("desktop settings navigation opens on hover, preserves site scope, and expo
   await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
   const navigation = page.getByRole("navigation", { name: "설정 메뉴" });
   await expect(navigation).toHaveAttribute("id", "settings-navigation-popup");
+  const settingsBox = await settings.boundingBox();
+  const navigationBox = await navigation.boundingBox();
+  expect(settingsBox).not.toBeNull();
+  expect(navigationBox).not.toBeNull();
+  if (settingsBox && navigationBox) expect(navigationBox.x).toBeGreaterThanOrEqual(settingsBox.x + settingsBox.width - 1);
   await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
   await navigation.getByRole("link", { name: "도면 관리" }).click();
 
@@ -262,6 +263,11 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
 
       const menu = page.getByRole("navigation", { name: "설정 메뉴" });
       await expect(menu).toBeVisible();
+      await expect(page.getByRole("button", { name: "설정 메뉴 닫기" })).toBeVisible();
+      await expect(menu.getByRole("heading", { name: "설정 메뉴" })).toBeVisible();
+      await expect(menu.locator(".settings-submenu-grabber")).toBeVisible();
+      await expect(menu.getByRole("link", { name: "설정 개요" })).toBeFocused();
+      await expect(menu).toHaveCSS("overflow-y", "auto");
       await expect(settings).not.toHaveAttribute("aria-current");
       await expect(settings).not.toHaveAttribute("aria-haspopup");
       await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
@@ -269,6 +275,9 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
       await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
       await expectMinimumTouchTargets(page, ".settings-submenu");
       await expectNoHorizontalOverflow(page);
+      const sheetBox = await menu.boundingBox();
+      expect(sheetBox).not.toBeNull();
+      if (sheetBox) expect(Math.abs(sheetBox.y + sheetBox.height - viewport.height)).toBeLessThanOrEqual(1);
 
       await menu.getByRole("link", { name: "도면 관리" }).click();
       await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
@@ -324,7 +333,7 @@ for (const viewport of responsiveViewports) {
   });
 }
 
-for (const viewport of responsiveViewports.filter(({ width }) => width === 1024 || width <= 760)) {
+for (const viewport of responsiveViewports) {
   test(`settings overview and password form keep their interactive contract at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installSettingsApiRoutes(page, "admin");

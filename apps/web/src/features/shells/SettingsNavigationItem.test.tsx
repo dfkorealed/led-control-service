@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../../api/auth";
@@ -46,6 +46,36 @@ describe("SettingsNavigationItem", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it("설정 메뉴는 siteId와 현재 항목을 보존한다", () => {
+    mockMatchMedia();
+    renderSettingsItem({ role: "admin", initialEntry: "/settings/floor-plans?siteId=site-1" });
+
+    fireEvent.focus(screen.getByRole("link", { name: "설정" }));
+
+    expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1");
+    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
+    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toHaveAttribute("href", "/settings/security?siteId=site-1");
+    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("모바일 설정 메뉴는 scrim과 bottom sheet focus 계약을 유지한다", async () => {
+    mockMatchMedia({ coarse: true });
+    renderSettingsItem({ role: "admin", initialEntry: "/monitoring?siteId=site-1" });
+
+    const trigger = screen.getByRole("button", { name: "설정" });
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("button", { name: "설정 메뉴 닫기" })).toHaveClass("settings-submenu-scrim");
+    expect(screen.getByTestId("settings-submenu-grabber")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "설정 메뉴" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("link", { name: "설정 개요" })).toHaveFocus());
+
+    fireEvent.keyDown(screen.getByRole("navigation", { name: "설정 메뉴" }), { key: "Escape" });
+    expect(screen.queryByRole("navigation", { name: "설정 메뉴" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("opens admin settings links on hover and closes with Escape", () => {

@@ -1,7 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { LockKeyhole } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import type { AuthUser } from "../../../api/auth";
+import { FeedbackState } from "../../../components/ui";
 import {
   acquireFloorEditorLease,
   getFloorEditorState,
@@ -89,11 +91,12 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   return (
     <>
       {!activeLease.editable ? (
-        <p className="danger-text" role="alert">
-          {activeLease.holderName
-            ? `${activeLease.holderName}님이 ${formatLeaseTime(activeLease.acquiredAt)}부터 이 도면을 편집 중입니다. 읽기 전용으로 열었습니다.`
-            : "편집 lease를 확보하지 못했습니다. 읽기 전용으로 열었습니다."}
-        </p>
+        <FeedbackState
+          tone="warning"
+          icon={LockKeyhole}
+          title={activeLease.holderName ? `${activeLease.holderName}님이 이 도면을 편집 중입니다.` : "편집 권한을 확보하지 못했습니다."}
+          description="현재 버전은 읽기 전용으로 확인할 수 있습니다."
+        />
       ) : null}
       <FloorEditorView
         initialState={editorQuery.data}
@@ -232,12 +235,6 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
   }, [canEdit, floorId]);
 
   return leaseState;
-}
-
-function formatLeaseTime(value: string | undefined) {
-  if (!value) return "알 수 없는 시각";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "알 수 없는 시각" : date.toLocaleString("ko-KR");
 }
 
 function useDirtyNavigationGuard(

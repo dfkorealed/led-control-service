@@ -935,7 +935,7 @@ git commit -m "feat(web): apply corrected energy report surfaces"
 - Preserves: lease/fence, atomic save, `409`, reload, revision restore, asset upload lock and password API semantics
 - Produces: four real overview cards with route-backed actions only
 
-- [ ] **Step 1: Write failing settings overview and navigation tests**
+- [x] **Step 1: Write failing settings overview and navigation tests**
 
 Use the exact test names `설정 개요는 실제 데이터와 route action으로 네 카드를 표시한다`, `설정 메뉴는 siteId와 현재 항목을 보존한다`, and `모바일 설정 메뉴는 scrim과 bottom sheet focus 계약을 유지한다`.
 
@@ -950,7 +950,7 @@ expect(screen.getByRole("link", { name: "비밀번호 변경" })).toHaveAttribut
 
 Keep existing hover/focus/Tab/Shift+Tab/Escape/outside click/coarse-pointer/dirty cancel/confirm tests.
 
-- [ ] **Step 2: Write failing floor/security state tests**
+- [x] **Step 2: Write failing floor/security state tests**
 
 Use the exact test names `도면 편집기는 lease 상실 시 읽기 전용 feedback을 표시한다`, `409 충돌은 최신 버전 다시 불러오기만 제공한다`, and `비밀번호 변경은 기존 8자 규칙과 성공 상태를 유지한다`.
 
@@ -967,7 +967,7 @@ expect(screen.queryByText(/10자|특수문자/)).not.toBeInTheDocument();
 
 Drive the private validator through the form; do not export it for the test. Do not change success navigation/logout behavior.
 
-- [ ] **Step 3: Run focused settings tests and confirm RED**
+- [x] **Step 3: Run focused settings tests and confirm RED**
 
 Run:
 
@@ -977,7 +977,7 @@ pnpm --filter @led-control/web test -- src/features/shells/SettingsNavigationIte
 
 Expected: four-card overview, corrected floor/editor landmarks and security feedback assertions fail; dirty guard and API tests still compile.
 
-- [ ] **Step 4: Implement the settings overview and disclosure visuals**
+- [x] **Step 4: Implement the settings overview and disclosure visuals**
 
 Build four cards only from existing dashboard/role/route data. Add `useLocation`/`Link`, derive the floor-plan count from the already loaded dashboard, and preserve the current query string explicitly:
 
@@ -1037,7 +1037,7 @@ const registeredPlanCount = data.floors.filter((floor) => floor.floorPlan !== nu
 
 Do not show firmware/session/last-change values not returned by current APIs. Keep `SettingsNavigationItem` event handlers and navigation decisions; only apply corrected popover/bottom-sheet shell with scrim, grabber and title. Preserve one `aria-current` item.
 
-- [ ] **Step 5: Implement floor list/editor and security surfaces**
+- [x] **Step 5: Implement floor list/editor and security surfaces**
 
 Use common `Card`, `Button`, `StatusBadge`, `FeedbackState` around existing state. Floor list exposes edit/register only for admin and a neutral read-only badge for viewer. Editor remains tool rail + canvas + side panel, but lease/read-only/conflict/version feedback follows scene 26 hierarchy. Do not move or rewrite save/restore/guard logic.
 
@@ -1081,17 +1081,17 @@ In `PasswordSettingsView.tsx`, retain `errorMessage`/`successMessage` and the cu
 ) : null}
 ```
 
-- [ ] **Step 6: Complete four-viewport settings and editor coverage**
+- [x] **Step 6: Complete four-viewport settings and editor coverage**
 
 Update both Playwright specs to run 1440/1024/390/320. Assert desktop popover placement, mobile scrim/grabber/title sheet, role-specific links, site query preservation, floor admin/viewer actions, editor canvas/toolbar/properties/version regions, dialog/sheet scrollability, no overflow and 44px mobile targets. Exercise dirty cancel and confirm through real navigation events.
 
-- [ ] **Step 7: Update settings and project status documentation**
+- [x] **Step 7: Update settings and project status documentation**
 
 Update `docs/menus/settings.md` under every required section with scenes 24~26 and the already completed scene 04~09 entry. Record real route-backed cards, role filtering, dirty guard, lease/conflict/version restore, current password semantics and HIL limitation.
 
 Update `docs/project-status.md` to state login/operator/setup and scene 01~26 are complete only after all commands in Step 8 pass. State that API/DB/MQTT/firmware did not change, automatic browser checks are software evidence, and manual in-app Browser/HIL status is reported exactly as executed.
 
-- [ ] **Step 8: Run focused GREEN, full Web regression, and build**
+- [x] **Step 8: Run focused GREEN, full Web regression, and build**
 
 Run:
 
@@ -1105,7 +1105,7 @@ pnpm --filter @led-control/web build
 
 Expected: all commands exit 0; build may repeat the existing chunk-size warning but must not introduce a build error.
 
-- [ ] **Step 9: Run final whole-UI Chromium and copy/overflow audits**
+- [x] **Step 9: Run final whole-UI Chromium and copy/overflow audits**
 
 Run:
 
@@ -1118,7 +1118,7 @@ git status --short
 
 Expected: Playwright exits 0 with only pre-existing environment-gated skips; `rg` finds no user-visible `ACK` in production Web source; diff check is clean; status contains only Task 8 plus orchestrator documentation changes.
 
-- [ ] **Step 10: Self-review scene coverage and functional boundary**
+- [x] **Step 10: Self-review scene coverage and functional boundary**
 
 Review the final diff against the spec and confirm:
 
@@ -1129,7 +1129,7 @@ Review the final diff against the spec and confirm:
 
 Confirm there is no change under `apps/web/src/api`, `packages/shared`, `apps/api`, `apps/gateway`, `apps/esp32-h2-firmware`, Prisma/migrations, route paths, query keys, active-command store/session, editor store/history, or auth permission logic. Any such diff blocks completion until reverted or separately approved.
 
-- [ ] **Step 11: Commit Task 8 and final convergence**
+- [x] **Step 11: Commit Task 8 and final convergence**
 
 ```bash
 git add apps/web/src/features/shells/SettingsNavigationItem.tsx apps/web/src/features/shells/SettingsNavigationItem.test.tsx apps/web/src/features/settings apps/web/src/features/floor-editor apps/web/src/App.test.tsx apps/web/src/styles.css apps/web/e2e/settings-floor-editor.spec.ts apps/web/e2e/floor-editor-layout.spec.ts docs/menus/settings.md docs/project-status.md docs/superpowers/plans/2026-09-02-calm-operations-a-implementation.md
@@ -1140,15 +1140,15 @@ git commit -m "feat(web): complete corrected calm operations UI"
 
 ## Final acceptance checklist
 
-- [ ] Scene 01 로그인에 세 운영 요약이 없고 실제 login flow가 유지된다.
-- [ ] Scene 02~03 operator 목록·상태·dialog와 focus/mutation 계약이 유지된다.
-- [ ] Scene 04~09 setup/claim/registration/recovery와 역할·polling·복구가 유지된다.
-- [ ] Scene 10~12 monitoring desktop/mobile/exception과 1,000 fixture 경계가 유지된다.
-- [ ] Scene 13~16 manual command/readiness/group와 command recovery가 유지된다.
-- [ ] Scene 17~21 schedule/event CRUD·pagination·polling·validation·viewer가 유지된다.
-- [ ] Scene 22~23 summary/series/no-data/cost semantics가 유지된다.
-- [ ] Scene 24~26 settings/floor/security와 dirty/lease/conflict/version/password semantics가 유지된다.
-- [ ] production Web source의 일반 사용자-visible copy에 `ACK`가 없다.
-- [ ] 네 viewport에서 document overflow, 겹침, 잘린 action이 없다.
-- [ ] `docs/menus/monitoring.md`, `control.md`, `statistics.md`, `settings.md`와 `docs/project-status.md`가 실제 결과와 일치한다.
-- [ ] Web unit, typecheck, build, 전체 Chromium이 통과하고 software/HIL 증거가 구분된다.
+- [x] Scene 01 로그인에 세 운영 요약이 없고 실제 login flow가 유지된다.
+- [x] Scene 02~03 operator 목록·상태·dialog와 focus/mutation 계약이 유지된다.
+- [x] Scene 04~09 setup/claim/registration/recovery와 역할·polling·복구가 유지된다.
+- [x] Scene 10~12 monitoring desktop/mobile/exception과 1,000 fixture 경계가 유지된다.
+- [x] Scene 13~16 manual command/readiness/group와 command recovery가 유지된다.
+- [x] Scene 17~21 schedule/event CRUD·pagination·polling·validation·viewer가 유지된다.
+- [x] Scene 22~23 summary/series/no-data/cost semantics가 유지된다.
+- [x] Scene 24~26 settings/floor/security와 dirty/lease/conflict/version/password semantics가 유지된다.
+- [x] production Web source의 일반 사용자-visible copy에 `ACK`가 없다.
+- [x] 네 viewport에서 document overflow, 겹침, 잘린 action이 없다.
+- [x] `docs/menus/monitoring.md`, `control.md`, `statistics.md`, `settings.md`와 `docs/project-status.md`가 실제 결과와 일치한다.
+- [x] Web unit, typecheck, build, 전체 Chromium이 통과하고 software/HIL 증거가 구분된다.

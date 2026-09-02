@@ -828,7 +828,7 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: "설정" }));
 
-    const gatewayStatus = await screen.findByRole("group", { name: "게이트웨이 상태" });
+    const gatewayStatus = await screen.findByRole("group", { name: "Gateway 상태" });
     expect(gatewayStatus).toHaveTextContent("설정 게이트웨이");
     expect(gatewayStatus).toHaveTextContent("GW-SETTINGS-001");
     expect(gatewayStatus).toHaveTextContent("오프라인");
@@ -1046,7 +1046,7 @@ describe("App", () => {
         clientRequestId: expect.any(String)
       }), { signal: expect.any(AbortSignal) })
     );
-    expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
+    expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
   });
 
   it("shows fixture-level partial failure from command status polling", async () => {
@@ -1339,7 +1339,7 @@ describe("App", () => {
     await waitFor(() => expect(
       vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")
     ).toHaveLength(2));
-    expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
+    expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
   });
 
   it("shows commissioning controls to an admin for an installed site without fixtures", async () => {
