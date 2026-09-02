@@ -2,13 +2,22 @@ import { CircleAlert, CircleCheck } from "lucide-react";
 import { readFileSync } from "node:fs";
 import { createRef } from "react";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Button, FeedbackState, MetricCard, PageHeader, StatusBadge } from ".";
 import type { StatusTone } from ".";
 
 const styles = readFileSync("src/styles.css", "utf8");
+let stylesheet: HTMLStyleElement;
 
 describe("Calm Operations UI primitives", () => {
+  beforeAll(() => {
+    stylesheet = document.createElement("style");
+    stylesheet.textContent = resolveStylesheetVariables(styles);
+    document.head.append(stylesheet);
+  });
+
+  afterAll(() => stylesheet.remove());
+
   it("keeps button semantics while exposing variant and loading state", () => {
     render(<Button variant="primary" isLoading>저장</Button>);
 
@@ -37,15 +46,28 @@ describe("Calm Operations UI primitives", () => {
   });
 
   it.each<StatusTone>(["success", "warning", "danger", "neutral", "info"])(
-    "keeps the %s status badge at WCAG AA text contrast",
+    "keeps the %s status badge at WCAG AA text contrast after the CSS cascade",
     (tone) => {
-      render(<StatusBadge tone={tone} icon={CircleCheck}>{tone}</StatusBadge>);
-      const declaration = styles.match(new RegExp(`\\.ui-status-badge\\[data-tone="${tone}"\\]\\s*\\{([^}]+)\\}`))?.[1] ?? "";
-      const foreground = resolveCssColor(declaration.match(/color:\s*([^;]+)/i)?.[1] ?? "");
-      const background = resolveCssColor(declaration.match(/background:\s*([^;]+)/i)?.[1] ?? "");
+      render(
+        <>
+          <StatusBadge tone={tone} icon={CircleCheck}>{`${tone}-root`}</StatusBadge>
+          <div className="monitoring-screen">
+            <StatusBadge tone={tone} icon={CircleCheck}>{`${tone}-monitoring`}</StatusBadge>
+          </div>
+        </>
+      );
 
-      expect(screen.getByText(tone)).toBeVisible();
-      expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
+      for (const context of ["root", "monitoring"]) {
+        const badge = screen.getByText(`${tone}-${context}`).closest(".ui-status-badge");
+        const computedStyle = getComputedStyle(badge!);
+
+        expect(badge).toBeVisible();
+        const foreground = computedStyle.color;
+        const background = computedStyle.backgroundColor;
+        const ratio = contrastRatio(foreground, background);
+
+        expect(ratio, `${tone}-${context}: ${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+      }
     }
   );
 
@@ -68,9 +90,18 @@ describe("Calm Operations UI primitives", () => {
   });
 
   it("renders a reusable page heading level", () => {
-    render(<PageHeader title="스케줄 제어" headingLevel={3} />);
+    render(
+      <div className="control-screen">
+        <PageHeader title="스케줄 제어" headingLevel={3} />
+      </div>
+    );
 
-    expect(screen.getByRole("heading", { name: "스케줄 제어", level: 3 })).toBeInTheDocument();
+    const heading = screen.getByRole("heading", { name: "스케줄 제어", level: 3 });
+    const computedStyle = getComputedStyle(heading);
+
+    expect(computedStyle.margin).toBe("0px");
+    expect(computedStyle.fontSize).toBe("24px");
+    expect(computedStyle.lineHeight).toBe("1.22");
   });
 
   it("stacks control page actions at the mobile breakpoint", () => {
@@ -88,10 +119,12 @@ function contrastRatio(foreground: string, background: string) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-function resolveCssColor(value: string) {
-  const variable = value.trim().match(/^var\((--[^)]+)\)$/)?.[1];
-  if (!variable) return value.trim();
-  return styles.match(new RegExp(`${variable}:\\s*([^;]+)`))?.[1].trim() ?? "";
+function resolveStylesheetVariables(source: string) {
+  const variables = new Map(
+    Array.from(source.matchAll(/(--[\w-]+):\s*([^;]+);/g), ([, name, value]) => [name, value.trim()])
+  );
+
+  return source.replace(/var\((--[\w-]+)\)/g, (declaration, name: string) => variables.get(name) ?? declaration);
 }
 
 function relativeLuminance(color: string) {

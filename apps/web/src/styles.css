@@ -1190,7 +1190,7 @@ button {
 
 .monitoring-screen .ui-status-badge[data-tone="neutral"] {
   background: #f1f5f9;
-  color: #64748b;
+  color: #475569;
 }
 
 .monitoring-screen .ui-feedback-state {
@@ -1367,7 +1367,7 @@ button {
   gap: 16px;
 }
 
-.control-screen .ui-page-header h2 {
+.control-screen .ui-page-header :is(h2, h3) {
   margin: 0;
   font-size: 24px;
   line-height: 1.22;
