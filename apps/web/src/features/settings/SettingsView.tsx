@@ -1,4 +1,6 @@
+import { Building2, CircleCheck, CircleDashed, Layers3, Network, WifiOff } from "lucide-react";
 import { useDashboard } from "../../api/queries";
+import { Card, PageHeader, StatusBadge } from "../../components/ui";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
@@ -25,32 +27,61 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
   }
 
   const gateway = data.gateways[0];
-  const gatewayValue = gateway ? `${gateway.name} (${gateway.serialNumber})` : "미등록";
-  const gatewayMeta = gateway ? statusLabel(gateway.connectionStatus) : "미등록";
-  const settings = [
-    { title: "현장", value: data.site.name, meta: "조직, 현장, 운영 기준" },
-    { title: "층/도면", value: data.floors.map((floor) => floor.name).join(", "), meta: "도면 업로드와 좌표계" },
-    { title: "그룹", value: data.groups.map((group) => group.name).join(", "), meta: "구역 제어 단위" },
-    { title: "게이트웨이", value: gatewayValue, meta: gatewayMeta }
-  ];
 
   return (
     <section className="settings-screen">
-      <div className="screen-heading">
-        <div>
-          <span className="eyebrow">서비스 구성</span>
-          <h2>운영 설정</h2>
-        </div>
-      </div>
+      <PageHeader
+        title="설정 개요"
+        description="현재 현장 구성과 게이트웨이 연결 상태를 확인합니다."
+      />
 
-      <div className="settings-grid">
-        {settings.map((item) => (
-          <div className="setting-card" key={item.title}>
-            <span>{item.title}</span>
-            <strong>{item.value}</strong>
-            <small>{item.meta}</small>
+      <div className="settings-overview-grid">
+        <Card className="settings-summary-card" role="group" aria-label="현장 정보">
+          <div className="settings-card-heading">
+            <Building2 size={20} aria-hidden="true" />
+            <div>
+              <span>현장 정보</span>
+              <strong>{data.site.name}</strong>
+            </div>
           </div>
-        ))}
+          <dl className="settings-compact-rows">
+            <div>
+              <dt>고객사</dt>
+              <dd>{data.site.customerName}</dd>
+            </div>
+            <div>
+              <dt><Layers3 size={15} aria-hidden="true" /> 층/도면</dt>
+              <dd>{listNames(data.floors)}</dd>
+            </div>
+            <div>
+              <dt>그룹</dt>
+              <dd>{listNames(data.groups)}</dd>
+            </div>
+          </dl>
+        </Card>
+
+        <Card className="settings-summary-card" role="group" aria-label="게이트웨이 상태">
+          <div className="settings-card-heading">
+            <Network size={20} aria-hidden="true" />
+            <div>
+              <span>게이트웨이 상태</span>
+              <strong>{gateway?.name ?? "미등록"}</strong>
+            </div>
+          </div>
+          {gateway ? (
+            <div className="settings-gateway-summary">
+              <StatusBadge
+                tone={gateway.connectionStatus === "online" ? "success" : "neutral"}
+                icon={gateway.connectionStatus === "online" ? CircleCheck : WifiOff}
+              >
+                {statusLabel(gateway.connectionStatus)}
+              </StatusBadge>
+              <span>시리얼 {gateway.serialNumber}</span>
+            </div>
+          ) : (
+            <StatusBadge tone="neutral" icon={CircleDashed}>미등록</StatusBadge>
+          )}
+        </Card>
       </div>
       {userRole === "admin" ? (
         data.gateways.length === 0
@@ -62,5 +93,9 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
 }
 
 function statusLabel(status: "online" | "offline") {
-  return status === "online" ? "온라인" : "오프라인";
+  return status === "online" ? "정상" : "오프라인";
+}
+
+function listNames(items: Array<{ name: string }>) {
+  return items.length > 0 ? items.map((item) => item.name).join(", ") : "등록 없음";
 }

@@ -28,6 +28,7 @@ describe("FloorPlanSettingsView", () => {
     );
 
     expect(await screen.findByText("B2")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
     expect(screen.getByText("도면 등록됨")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "B2 도면 편집" })).toHaveAttribute(
       "href",

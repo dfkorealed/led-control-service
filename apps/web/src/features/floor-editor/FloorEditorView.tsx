@@ -3,6 +3,7 @@ import { Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, Type, Un
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
+import { Button, PageHeader } from "../../components/ui";
 import {
   listFloorEditorRevisions,
   restoreFloorEditorRevision,
@@ -144,35 +145,41 @@ export function FloorEditorView({
 
   return (
     <section className="floor-editor-shell">
-      <header className="floor-editor-topbar">
-        <div>
-          <span className="eyebrow">층별 도면 에디터</span>
-          <h2>{initialState.floor.name} 도면 편집</h2>
-        </div>
-        <div className="floor-editor-actions">
-          <button className="icon-button" aria-label="축소" onClick={() => setZoom(zoom - 0.1)}>
-            <ZoomOut size={18} />
-          </button>
-          <button className="zoom-reset-button" onClick={resetZoom}>100%</button>
-          <button className="icon-button" aria-label="확대" onClick={() => setZoom(zoom + 0.1)}>
-            <ZoomIn size={18} />
-          </button>
-          <button className="secondary-button" onClick={onCancel}>
-            <Undo2 size={16} />
-            취소
-          </button>
-          <button className="primary-button" disabled={!isDirty || isSaveOrRestoreBlocked} onClick={handleSave}>
-            <Save size={16} />
-            {saveStatus === "saving" ? "저장 중" : "저장"}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title={`${initialState.floor.name} 도면 편집`}
+        description="도면 배경과 조명 위치, 표시 객체를 편집합니다."
+        actions={(
+          <div className="floor-editor-actions">
+            <Button variant="ghost" className="floor-editor-icon-button" aria-label="축소" onClick={() => setZoom(zoom - 0.1)}>
+              <ZoomOut size={18} aria-hidden="true" />
+            </Button>
+            <Button variant="secondary" className="floor-editor-zoom-reset" onClick={resetZoom}>100%</Button>
+            <Button variant="ghost" className="floor-editor-icon-button" aria-label="확대" onClick={() => setZoom(zoom + 0.1)}>
+              <ZoomIn size={18} aria-hidden="true" />
+            </Button>
+            <Button variant="secondary" onClick={onCancel}>
+              <Undo2 size={16} aria-hidden="true" />
+              취소
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!isDirty || isSaveOrRestoreBlocked}
+              isLoading={saveStatus === "saving"}
+              loadingLabel="저장 중"
+              onClick={handleSave}
+            >
+              <Save size={16} aria-hidden="true" />
+              저장
+            </Button>
+          </div>
+        )}
+      />
 
       {saveStatus === "error" ? <p className="danger-text" role="alert">변경분을 저장하지 못했습니다.</p> : null}
       {saveStatus === "conflict" ? (
         <div className="editor-conflict" role="alert">
           <span>다른 사용자가 먼저 저장했습니다.</span>
-          <button className="secondary-button" onClick={() => void onReload()}>최신 버전 다시 불러오기</button>
+          <Button variant="secondary" onClick={() => void onReload()}>최신 버전 다시 불러오기</Button>
         </div>
       ) : null}
       {skippedFixtureCount > 0 ? (
@@ -184,8 +191,9 @@ export function FloorEditorView({
           {tools.map((tool) => {
             const Icon = tool.icon;
             return (
-              <button
+              <Button
                 key={tool.key}
+                variant="ghost"
                 className={activeTool === tool.key ? "active" : ""}
                 aria-label={tool.label}
                 title={tool.label}
@@ -194,8 +202,8 @@ export function FloorEditorView({
                 onClick={() => setActiveTool(tool.key)}
                 onDragStart={(event) => handleToolDragStart(event, tool.key)}
               >
-                <Icon size={18} />
-              </button>
+                <Icon size={18} aria-hidden="true" />
+              </Button>
             );
           })}
         </aside>
@@ -262,7 +270,7 @@ function RevisionPanel({
       {isError ? (
         <div role="alert">
           <p className="danger-text">버전 기록을 불러오지 못했습니다.</p>
-          <button className="secondary-button" onClick={onRetry}>다시 시도</button>
+          <Button variant="secondary" onClick={onRetry}>다시 시도</Button>
         </div>
       ) : null}
       {!isLoading && !isError && revisions.length === 0 ? <p className="muted-text">저장된 버전이 없습니다.</p> : null}
@@ -277,24 +285,25 @@ function RevisionPanel({
                 <span>변경 {revisionChangeCount(revision.changeSummary)}건</span>
               </div>
               {canRestore ? (
-                <button
-                  className="icon-button"
+                <Button
+                  variant="ghost"
+                  className="editor-revision-restore"
                   aria-label={`리비전 ${revision.revision} 복구`}
                   title="이 버전 복구"
                   disabled={isDirty || isMutationPending}
                   onClick={() => onRestore(revision.revision)}
                 >
-                  <RotateCcw size={16} />
-                </button>
+                  <RotateCcw size={16} aria-hidden="true" />
+                </Button>
               ) : null}
             </li>
           ))}
         </ol>
       ) : null}
       {!isError && hasNextPage ? (
-        <button className="secondary-button" disabled={isFetchingNextPage} onClick={onLoadMore}>
+        <Button variant="secondary" disabled={isFetchingNextPage} onClick={onLoadMore}>
           {isFetchingNextPage ? "불러오는 중" : "이전 버전 더 보기"}
-        </button>
+        </Button>
       ) : null}
     </section>
   );

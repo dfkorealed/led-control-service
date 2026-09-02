@@ -1361,6 +1361,181 @@ button {
   gap: 16px;
 }
 
+.settings-screen .ui-page-header,
+.floor-editor-shell .ui-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-screen .ui-page-header h2,
+.floor-editor-shell .ui-page-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.22;
+}
+
+.settings-screen .ui-page-description,
+.floor-editor-shell .ui-page-description {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 14px;
+}
+
+.settings-summary-card,
+.floor-plan-card,
+.password-settings-card {
+  padding: 18px;
+}
+
+.settings-summary-card {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.settings-card-heading,
+.floor-plan-card-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  color: var(--primary);
+}
+
+.settings-card-heading > div,
+.floor-plan-card-summary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-card-heading span,
+.floor-plan-card-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-card-heading strong,
+.floor-plan-card-summary strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-compact-rows {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.settings-compact-rows > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr);
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: 11px 0;
+}
+
+.settings-compact-rows > div:last-child {
+  padding-bottom: 0;
+}
+
+.settings-compact-rows dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-compact-rows dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-gateway-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-card-list {
+  display: grid;
+  gap: 10px;
+}
+
+.floor-plan-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.floor-plan-edit-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.floor-plan-edit-link:focus-visible {
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
+.password-settings-form {
+  width: min(100%, 760px);
+}
+
+.password-settings-card {
+  display: grid;
+  gap: 14px;
+}
+
+.password-settings-card .ui-button {
+  justify-self: start;
+}
+
+.settings-screen .ui-feedback-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  padding: 18px;
+  color: var(--muted);
+}
+
+.settings-screen .ui-feedback-state[data-tone="danger"] {
+  border-color: #fecaca;
+  color: var(--danger);
+}
+
 .control-screen .ui-page-header {
   display: flex;
   align-items: flex-end;
@@ -2910,14 +3085,6 @@ button.group-card {
   min-width: 0;
 }
 
-.floor-editor-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.floor-editor-topbar h2,
 .editor-properties-panel h3 {
   margin: 0;
   color: var(--text);
@@ -2932,16 +3099,20 @@ button.group-card {
   gap: 8px;
 }
 
-.zoom-reset-button {
-  min-width: 58px;
-  min-height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #ffffff;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 900;
-  cursor: pointer;
+.floor-editor-actions .ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.floor-editor-icon-button {
+  width: 44px;
+  padding: 0;
+}
+
+.floor-editor-zoom-reset {
+  min-width: 64px;
 }
 
 .floor-editor-layout {
@@ -2978,6 +3149,7 @@ button.group-card {
   border-radius: 10px;
   background: transparent;
   color: var(--muted);
+  padding: 0;
   cursor: pointer;
 }
 
@@ -2985,6 +3157,12 @@ button.group-card {
   border-color: #b9d5ff;
   background: var(--primary-soft);
   color: var(--primary);
+}
+
+.editor-revision-restore {
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
 }
 
 .floor-editor-toolbar button[draggable="true"] {
@@ -3687,14 +3865,6 @@ button.group-card {
     grid-template-columns: 1fr;
   }
 
-  .floor-editor-layout {
-    grid-template-columns: 52px minmax(0, 1fr);
-  }
-
-  .floor-editor-side-panel {
-    grid-column: 1 / -1;
-  }
-
   .control-layout,
   .report-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -3800,6 +3970,33 @@ button.group-card {
   .monitoring-screen .ui-page-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settings-screen .ui-page-header,
+  .floor-editor-shell .ui-page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-screen .ui-page-actions,
+  .floor-editor-shell .ui-page-actions {
+    width: 100%;
+  }
+
+  .settings-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .floor-plan-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .floor-plan-edit-link,
+  .password-settings-card .ui-button {
+    justify-content: center;
+    justify-self: stretch;
+    width: 100%;
   }
 
   .monitoring-screen .ui-page-actions {

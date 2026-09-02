@@ -2,7 +2,7 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-09-02
+기준일: 2026-08-31
 
 ## 현재 우선순위
 
@@ -64,15 +64,16 @@
 | 펌웨어 및 유지보수 | 버전, 서명된 OTA, 단계 배포, 중단·롤백, 인증서 수명주기 |
 | 외부 연동 | API key, Webhook, BMS/BACnet 연동과 접근 범위 |
 
-- PC 웹에서는 주 메뉴의 설정 항목 hover/focus disclosure로 역할별 하위 메뉴를 열고, 설정 본문은 별도 내부 사이드바 없이 표시한다.
-- coarse pointer에서는 설정 주 메뉴 활성화가 현재 route를 유지한 채 하단 sheet를 열며, 동일한 역할 필터와 API를 사용한다.
+- PC 웹에서는 주 메뉴의 설정 항목 hover/focus disclosure로 역할별 하위 메뉴를 열고, 설정 본문은 별도 내부 사이드바 없이 평탄한 콘텐츠 계층으로 표시한다.
+- coarse pointer에서는 설정 주 메뉴 활성화가 현재 route를 유지한 채 역할별 하위 메뉴 bottom sheet를 열며, 데스크톱 disclosure와 동일한 역할 필터와 API를 사용한다.
 - 설정과 에디터는 URL을 가지며 새로고침, 브라우저 뒤로 가기와 직접 진입을 지원한다.
 
 ## 구현 완료
 
 - 주 메뉴의 설정 항목은 데스크톱 click으로 query string을 유지한 `/settings` 개요로 이동하고 hover/focus로 역할별 disclosure를 연다. coarse pointer click은 route를 바꾸지 않고 하단 sheet를 열어 `설정 개요`를 포함한 허용 메뉴를 선택하게 한다. 외부 pointer, blur, Escape와 route 변경은 disclosure를 닫는다.
 - 설정 본문의 내부 `설정 메뉴` 사이드바를 제거하고 현장 선택기를 수평 context row에 유지했다. 기존 현장 전환 dirty 확인 및 editor store 폐기, 상세 route와 `siteId` query 보존 계약은 그대로 유지한다.
-- Task 8에서 설정 메뉴를 현재 고객 운영 범위로 단순화했다. admin은 `설정 개요`, `도면 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `도면 관리`만 읽기 전용으로 사용한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
+- 설정 메뉴에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `도면 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `도면 관리`만 읽기 전용으로 사용한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
+- `설정 개요`, `도면 관리`, admin `비밀번호 변경` 화면은 공통 PageHeader, Card, Button과 상태 토큰으로 같은 시각 계층을 사용한다. 개요의 현장·Gateway는 이름 있는 구역으로, 층/도면·그룹은 새 편집 동작 없이 compact row로 표시한다.
 - operator가 만든 pending Site는 assigned admin이 customer route에서 `/settings?siteId=...`로 replace된 최초 설치 UI에서 address, tariff, timeZone, floors로 완성한다. CustomerShell은 installationStatus 확인 전 child route를 fail-closed하고, `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송한다. 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다. Task 9 격리 실백엔드 E2E는 이 흐름과 password 교체 후 이전 비밀번호 실패/새 비밀번호 로그인을 검증했다. 재설치와 모바일은 범위 밖이고 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - 설치 완료 뒤 admin은 설정 개요에서 Gateway claim 또는 조명 등록을 수행할 수 있다. viewer는 claim, registration, setup mutation UI를 보지 않는다. operator는 전용 shell 때문에 customer 설정에 진입하지 않는다.
 - `POST /auth/change-password` 화면은 현재/새/확인 비밀번호, 8자 검증, 확인 불일치, 정확한 현재 비밀번호 오류, 일반 오류와 중복 제출 차단을 제공한다. 평문 비밀번호는 React Query mutation/cache에 넣지 않고 component-local state와 요청 본문에만 두며, 성공 또는 화면 이탈 시 제거하고 실패 시 재시도 입력을 유지한다.
@@ -82,7 +83,7 @@
 - `POST /setup/floors`도 assigned admin의 `commission` capability를 요구한다. 기존 floor 이름·level 중복과 floorPlan 생성 검증은 유지한다.
 - `POST /gateways/claim`과 모든 `registration-sessions` route는 `admin` controller role 및 service의 active customer admin + 대상 Site `commission` 검사를 함께 적용한다. registration mutation은 create body 또는 저장된 session의 `siteId`를 권위 데이터로 사용해 transaction 첫 단계에서 Site를 잠그고 권한을 재검증하며, 이후 `Site -> Gateway -> Session -> Node` 순서로 필요한 행만 잠근다. get/identify는 read-only service 권한 검사만 수행한다.
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
-- 설정 화면에 현장, 층/도면, 그룹, Gateway 요약 카드를 표시한다.
+- 설정 개요에 현장 정보와 Gateway 상태를 구분한 요약 카드를 표시하고 층/도면과 그룹은 compact row로 제공한다.
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
 - 등록 패널은 층과 Gateway를 명시적으로 선택해 `siteId`, `floorId`, `gatewayId`를 전송하고 BLE Mesh 후보·provisioning 요청을 제공한다. 설치 완료 assigned admin에게만 노출되며 viewer와 operator는 볼 수 없다. Task 9 격리 실백엔드 E2E는 0건 검색, 재검색, 자사 node 2개 일괄 등록을 검증했다. API는 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
 - provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 `MeshNode.deviceUuid` unique 경쟁만 해당 node 실패로 기록하며, 다른 unique/transaction 오류는 재전파한다.
@@ -323,6 +324,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - 비밀번호 변경과 setup/commissioning visibility는 mock 기반 웹 회귀와 Task 9 격리 실백엔드 E2E로 검증했다. 모바일 레이아웃과 재설치는 이번 범위 밖이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
+- 평탄화된 설정 콘텐츠와 에디터 workbench의 시각 계층만 정리했으며, pending setup/Gateway claim/registration 흐름과 도면 editor lease·dirty guard·atomic save/restore·단축키·map bounds의 기존 제약 및 후속 실장비 검증 범위는 변경하지 않았다.
 - coarse pointer용 설정 bottom sheet와 단일 열 설정 본문은 자동화 테스트를 통과했다. 실제 모바일 WebView safe-area, 키보드 focus 이동과 네이티브 navigation 통합 검증은 후속 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
@@ -361,10 +363,15 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/Dockerfile`
 - `apps/web/nginx.conf.template`
 - `apps/web/src/features/settings/SettingsView.tsx`
+- `apps/web/src/features/settings/SettingsShell.test.tsx`
 - `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`
+- `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.test.tsx`
 - `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`
+- `apps/web/src/features/settings/security/PasswordSettingsView.tsx`
+- `apps/web/src/features/settings/security/PasswordSettingsView.test.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/floor-editor`
+- `apps/web/src/styles.css`
 - `apps/web/src/features/floor-map/FloorScene.tsx`
 - `apps/web/src/features/floor-editor/editor-diff.ts`
 - `apps/web/src/features/floor-editor/editor-store.ts`

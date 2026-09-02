@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ApiError } from "../../../api/client";
 import { changePassword } from "../../../api/auth";
+import { Button, Card, PageHeader } from "../../../components/ui";
 
 export function PasswordSettingsView() {
   const requestInFlight = useRef(false);
@@ -43,33 +44,33 @@ export function PasswordSettingsView() {
   }
 
   return (
-    <section className="settings-screen" aria-labelledby="password-settings-title">
-      <div className="screen-heading">
-        <div>
-          <span className="eyebrow">계정 보안</span>
-          <h2 id="password-settings-title">비밀번호 변경</h2>
-        </div>
-      </div>
-      <form className="panel setup-section" onSubmit={handleSubmit}>
-        <div className="setup-form-grid">
-          <label>
-            현재 비밀번호
-            <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
-          </label>
-          <label>
-            새 비밀번호
-            <input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
-          </label>
-          <label>
-            새 비밀번호 확인
-            <input type="password" autoComplete="new-password" value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} />
-          </label>
-        </div>
-        {errorMessage ? <p className="danger-text" role="alert">{errorMessage}</p> : null}
-        {successMessage ? <p className="success-text" role="status">{successMessage}</p> : null}
-        <button className="primary-button" type="submit" disabled={isPending}>
-          {isPending ? "변경 중" : "비밀번호 변경"}
-        </button>
+    <section className="settings-screen">
+      <PageHeader
+        title="비밀번호 변경"
+        description="현재 비밀번호를 확인한 뒤 새 비밀번호를 적용합니다."
+      />
+      <form className="password-settings-form" aria-label="비밀번호 변경" onSubmit={handleSubmit}>
+        <Card className="setup-section password-settings-card">
+          <div className="setup-form-grid">
+            <label>
+              현재 비밀번호
+              <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+            </label>
+            <label>
+              새 비밀번호
+              <input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+            </label>
+            <label>
+              새 비밀번호 확인
+              <input type="password" autoComplete="new-password" value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} />
+            </label>
+          </div>
+          {errorMessage ? <p className="danger-text" role="alert">{errorMessage}</p> : null}
+          {successMessage ? <p className="success-text" role="status">{successMessage}</p> : null}
+          <Button variant="primary" type="submit" isLoading={isPending} loadingLabel="변경 중">
+            비밀번호 변경
+          </Button>
+        </Card>
       </form>
     </section>
   );

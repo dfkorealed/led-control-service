@@ -1,14 +1,17 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mockDashboard } from "../../test/fixtures";
 import { useFloorEditorStore } from "../floor-editor/editor-store";
 import { SettingsShell } from "./SettingsShell";
+import { SettingsView } from "./SettingsView";
 
 vi.mock("../../api/queries", () => ({
   useSites: () => ({ data: [
     { id: "site-1", name: "본사 주차장" },
     { id: "site-2", name: "지사 주차장" }
-  ] })
+  ] }),
+  useDashboard: () => ({ data: mockDashboard })
 }));
 
 function LocationProbe() {
@@ -43,6 +46,22 @@ describe("SettingsShell", () => {
     expect(screen.getByRole("combobox", { name: "현장 선택" })).toHaveValue("site-1");
     expect(screen.getByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
     expect(screen.queryByLabelText("설정 메뉴")).not.toBeInTheDocument();
+  });
+
+  it("presents the installed site and gateway as labeled overview sections", () => {
+    render(
+      <MemoryRouter initialEntries={["/settings?siteId=site-1"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
+            <Route index element={<SettingsView siteId="site-1" userRole="viewer" />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "현장 정보" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "게이트웨이 상태" })).toHaveTextContent(/정상|오프라인|미등록/);
   });
 
   it("blocks a site switch while the floor editor is dirty", () => {

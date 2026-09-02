@@ -25,6 +25,12 @@ describe("PasswordSettingsView", () => {
     vi.clearAllMocks();
   });
 
+  it("exposes the password fields as a named form", () => {
+    renderView();
+
+    expect(screen.getByRole("form", { name: "비밀번호 변경" })).toBeInTheDocument();
+  });
+
   it("blocks a new password shorter than eight characters before requesting", () => {
     renderView();
     fillPasswords("current-password", "short");
