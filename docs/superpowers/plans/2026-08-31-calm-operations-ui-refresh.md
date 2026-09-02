@@ -834,7 +834,7 @@ rg -n "Calm Operations|서브메뉴|수동 제어|스케줄 제어|차량 이벤
 
 Expected: each implemented customer menu has a matching current statement; no document claims a new API, actual meter, Gateway command or completed HIL.
 
-- [ ] **Step 2: Run the complete web validation suite**
+- [x] **Step 2: Run the complete web validation suite**
 
 Run:
 

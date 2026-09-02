@@ -183,9 +183,9 @@ test("customer admin can view monitoring dashboard and navigate primary sections
   await page.getByRole("link", { name: "통계" }).click();
   await expect(page.getByRole("heading", { name: "통계", exact: true })).toBeVisible();
   await expect(page.getByText("에너지 리포트")).toBeVisible();
-  await expect(page.locator(".metric").filter({ hasText: "오늘" })).toContainText("3.36 kWh");
+  await expect(page.getByRole("group", { name: "오늘 전력 사용량" })).toContainText("3.36 kWh");
 
   await page.getByRole("link", { name: "설정" }).click();
   await expect(page.getByRole("heading", { name: "설정", exact: true })).toBeVisible();
-  await expect(page.getByText("운영 설정")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
 });
