@@ -37,6 +37,11 @@ for (const viewport of responsiveViewports) {
       await expectMinimumTouchTargets(page, ".bottom-nav");
       await expectMinimumTouchTargets(page, ".topbar-actions");
 
+      const logoutBounds = await page.getByRole("button", { name: "로그아웃", exact: true }).boundingBox();
+      expect(logoutBounds, "로그아웃 버튼의 실제 경계 상자").not.toBeNull();
+      expect(logoutBounds!.width, "로그아웃 버튼 너비").toBeGreaterThanOrEqual(44);
+      expect(logoutBounds!.height, "로그아웃 버튼 높이").toBeGreaterThanOrEqual(44);
+
       const geometry = await page.locator(".app-shell").evaluate((shell, selector) => {
         const navigation = document.querySelector(selector)?.getBoundingClientRect();
         const styles = getComputedStyle(shell);

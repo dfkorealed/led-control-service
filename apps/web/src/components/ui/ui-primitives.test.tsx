@@ -133,6 +133,8 @@ describe("Calm Operations UI primitives", () => {
   });
 
   it.each([
+    ["neutral", "rgb(241, 245, 249)"],
+    ["info", "rgb(233, 242, 255)"],
     ["success", "rgb(236, 253, 243)"],
     ["warning", "rgb(255, 247, 230)"],
     ["danger", "rgb(255, 241, 242)"]
@@ -147,6 +149,8 @@ describe("Calm Operations UI primitives", () => {
     (screenClass) => {
       render(
         <div className={screenClass}>
+          <FeedbackState tone="neutral" icon={CircleCheck} title={`${screenClass} 기본`} />
+          <FeedbackState tone="info" icon={CircleCheck} title={`${screenClass} 정보`} />
           <FeedbackState tone="success" icon={CircleCheck} title={`${screenClass} 성공`} />
           <FeedbackState tone="warning" icon={CircleCheck} title={`${screenClass} 경고`} />
           <FeedbackState tone="danger" icon={CircleCheck} title={`${screenClass} 오류`} />
@@ -154,6 +158,8 @@ describe("Calm Operations UI primitives", () => {
       );
 
       const expectedBackgrounds = [
+        [`${screenClass} 기본`, "rgb(241, 245, 249)"],
+        [`${screenClass} 정보`, "rgb(233, 242, 255)"],
         [`${screenClass} 성공`, "rgb(236, 253, 243)"],
         [`${screenClass} 경고`, "rgb(255, 247, 230)"],
         [`${screenClass} 오류`, "rgb(255, 241, 242)"]

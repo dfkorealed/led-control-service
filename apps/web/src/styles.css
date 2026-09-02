@@ -109,9 +109,13 @@
   gap: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  background: var(--panel);
+  background: #f1f5f9;
   color: var(--muted);
   padding: 14px;
+}
+
+.ui-feedback-state[data-tone="neutral"] {
+  background: #f1f5f9;
 }
 
 .ui-feedback-state > div {
@@ -127,7 +131,7 @@
 
 .ui-feedback-state[data-tone="info"] {
   border-color: #cfe0f5;
-  background: #f8fbff;
+  background: #e9f2ff;
   color: #0b63e5;
 }
 
@@ -4189,6 +4193,11 @@ button.group-card {
     min-height: 44px;
   }
 
+  .topbar .logout-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   :is(.settings-screen, .monitoring-screen)
     :is(.setup-wizard, .setup-section, .registration-panel)
     :is(.primary-button, .secondary-button),
@@ -4515,6 +4524,18 @@ button.group-card {
 .settings-screen .ui-feedback-state[data-tone="success"],
 .statistics-screen .ui-feedback-state[data-tone="success"] {
   background: #ecfdf3;
+}
+
+.monitoring-screen .ui-feedback-state[data-tone="neutral"],
+.settings-screen .ui-feedback-state[data-tone="neutral"],
+.statistics-screen .ui-feedback-state[data-tone="neutral"] {
+  background: #f1f5f9;
+}
+
+.monitoring-screen .ui-feedback-state[data-tone="info"],
+.settings-screen .ui-feedback-state[data-tone="info"],
+.statistics-screen .ui-feedback-state[data-tone="info"] {
+  background: #e9f2ff;
 }
 
 .monitoring-screen .ui-feedback-state[data-tone="warning"],
