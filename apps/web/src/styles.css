@@ -3117,7 +3117,7 @@ button.group-card {
 
 .floor-editor-layout {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: 60px minmax(0, 1fr) minmax(240px, 300px);
   gap: 12px;
   align-items: stretch;
   min-height: 620px;
@@ -3142,8 +3142,10 @@ button.group-card {
 
 .floor-editor-toolbar button {
   display: inline-grid;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
   place-items: center;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -3160,8 +3162,10 @@ button.group-card {
 }
 
 .editor-revision-restore {
-  width: 40px;
-  min-height: 40px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
   padding: 0;
 }
 
@@ -4113,7 +4117,7 @@ button.group-card {
 
   .floor-editor-toolbar {
     grid-auto-flow: column;
-    grid-auto-columns: 40px;
+    grid-auto-columns: 44px;
     overflow-x: auto;
   }
 

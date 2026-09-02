@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
 import type { FloorEditorState } from "./editor-types";
@@ -14,6 +15,9 @@ const floorEditorApi = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
+
+const styles = readFileSync("src/styles.css", "utf8");
+let stylesheet: HTMLStyleElement;
 
 const editorState: FloorEditorState = {
   floor: {
@@ -94,6 +98,14 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
 }
 
 describe("FloorEditorView", () => {
+  beforeAll(() => {
+    stylesheet = document.createElement("style");
+    stylesheet.textContent = styles;
+    document.head.append(stylesheet);
+  });
+
+  afterAll(() => stylesheet.remove());
+
   beforeEach(() => {
     floorEditorApi.saveFloorEditorState.mockImplementation(async (_floorId, _payload) => ({
       ...structuredClone(editorState),
@@ -127,6 +139,25 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("toolbar", { name: "도면 편집 도구" })).toBeInTheDocument();
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
+  });
+
+  it("keeps editor icon actions at least 44 by 44 pixels across desktop and mobile tracks", async () => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
+    renderEditor();
+
+    const toolbar = screen.getByRole("toolbar", { name: "도면 편집 도구" });
+    const toolButton = within(toolbar).getByRole("button", { name: "선택" });
+    const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
+
+    for (const button of [toolButton, restoreButton]) {
+      const computedStyle = getComputedStyle(button);
+      expect(Number.parseFloat(computedStyle.minWidth)).toBeGreaterThanOrEqual(44);
+      expect(Number.parseFloat(computedStyle.minHeight)).toBeGreaterThanOrEqual(44);
+    }
+
+    expect(styles).toMatch(/\.floor-editor-layout\s*\{[^}]*grid-template-columns:\s*60px\s+minmax\(0,\s*1fr\)/s);
+    const mobileStyles = styles.slice(styles.lastIndexOf("@media (max-width: 760px)"));
+    expect(mobileStyles).toMatch(/\.floor-editor-toolbar\s*\{[^}]*grid-auto-columns:\s*44px;/s);
   });
 
   it("keeps save disabled when a route-owned lease makes the editor read-only", () => {

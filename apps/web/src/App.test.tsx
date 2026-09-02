@@ -573,7 +573,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "운영 설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "현장 및 층" })).not.toBeInTheDocument();
   });
 
@@ -583,7 +583,7 @@ describe("App", () => {
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "운영 설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
     expect(window.location.search).toBe("?siteId=site-2");
     expect(screen.queryByLabelText("현재 비밀번호")).not.toBeInTheDocument();
@@ -679,7 +679,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
 
-    expect(await screen.findByRole("heading", { name: "운영 설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(queryClient.getQueryData(["dashboard", "default"])).toMatchObject({
       site: { installationStatus: "installed", address: "서울시 강남구" }
     });
@@ -815,8 +815,10 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: "설정" }));
 
-    expect(await screen.findByText("설정 게이트웨이 (GW-SETTINGS-001)")).toBeInTheDocument();
-    expect(screen.getByText("오프라인")).toBeInTheDocument();
+    const gatewayStatus = await screen.findByRole("group", { name: "게이트웨이 상태" });
+    expect(gatewayStatus).toHaveTextContent("설정 게이트웨이");
+    expect(gatewayStatus).toHaveTextContent("GW-SETTINGS-001");
+    expect(gatewayStatus).toHaveTextContent("오프라인");
   });
 
   it("shows unregistered gateway in settings when no gateways exist", async () => {
@@ -943,7 +945,7 @@ describe("App", () => {
     expect(screen.queryByText("18:00-22:00")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
-    expect(await screen.findByText("운영 설정")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(screen.queryByText("MVP 2 준비")).not.toBeInTheDocument();
     expect(screen.queryByText("통신 음영 검토")).not.toBeInTheDocument();
   });
@@ -1344,7 +1346,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "조명 등록" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
-    await screen.findByRole("heading", { name: "운영 설정" });
+    await screen.findByRole("heading", { name: "설정 개요" });
     expect(screen.getByRole("heading", { name: "조명 등록" })).toBeInTheDocument();
   });
 
