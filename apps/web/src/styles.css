@@ -2585,12 +2585,30 @@ button.group-card {
   gap: 14px;
 }
 
-.statistics-heading {
-  align-items: end;
+.statistics-screen .ui-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.statistics-screen .ui-page-header h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.22;
+}
+
+.statistics-screen .ui-page-description {
+  margin-top: 6px;
+}
+
+.statistics-screen .ui-page-actions {
+  display: inline-flex;
+  align-items: center;
 }
 
 .statistics-updated {
-  margin: 6px 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 13px;
 }
@@ -2611,37 +2629,74 @@ button.group-card {
 .statistics-metric {
   position: relative;
   min-width: 0;
-  min-height: 132px;
+}
+
+.statistics-metric .ui-metric-card {
+  display: grid;
+  min-height: 156px;
   align-content: start;
+  gap: 10px;
+  padding: 18px 18px 54px;
 }
 
-.statistics-metric strong {
-  overflow-wrap: anywhere;
-}
-
-.coverage-pill {
-  justify-self: start;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 8px;
-  color: var(--muted) !important;
+.statistics-metric .ui-metric-label {
+  color: var(--muted);
+  font-size: 13px;
   font-weight: 700;
 }
 
-.coverage-pill.available {
-  border-color: #a7d8ce;
-  background: #effaf7;
-  color: #0f766e !important;
+.statistics-metric .ui-metric-card strong {
+  color: var(--text);
+  font-size: clamp(24px, 2.4vw, 32px);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
-.coverage-pill.partial {
-  border-color: #f2d18a;
-  background: #fff9eb;
-  color: #854d0e !important;
+.statistics-metric .ui-metric-card strong small {
+  margin-left: 5px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
-.coverage-pill.no_data {
-  background: #f5f7fa;
+.statistics-metric .ui-metric-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.statistics-metric > .ui-status-badge {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+}
+
+.statistics-screen .ui-feedback-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  color: var(--text);
+  padding: 16px;
+}
+
+.statistics-screen .ui-feedback-state[data-tone="danger"] {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #b91c1c;
+}
+
+.statistics-screen .ui-feedback-state > div {
+  display: grid;
+  gap: 10px;
+}
+
+.statistics-screen .ui-feedback-state p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
 }
 
 .statistics-chart-heading {
@@ -2664,12 +2719,13 @@ button.group-card {
   gap: 4px;
   max-width: 230px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 10px 24px rgba(15, 38, 70, 0.12);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow-popover);
   padding: 10px 12px;
-  color: var(--muted);
+  color: var(--text);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .energy-tooltip strong {
@@ -2731,6 +2787,7 @@ button.group-card {
   color: var(--text);
   font-size: 20px;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
@@ -2738,6 +2795,12 @@ button.group-card {
   grid-column: 1 / -1;
   color: var(--primary);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.statistics-savings[data-negative="true"] dd,
+.statistics-savings[data-negative="true"] small {
+  color: var(--danger);
 }
 
 .insight-panel p,
@@ -3950,6 +4013,15 @@ button.group-card {
 
   .statistics-summary {
     grid-template-columns: 1fr;
+  }
+
+  .statistics-screen .ui-page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .statistics-screen .ui-page-actions {
+    justify-content: flex-start;
   }
 
   .statistics-chart-heading {

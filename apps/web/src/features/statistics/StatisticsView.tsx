@@ -1,4 +1,5 @@
 import type { EnergySeriesPoint, EnergySummary } from "@led-control/shared";
+import { Activity, CircleCheck, CircleOff, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import {
   CartesianGrid,
@@ -10,6 +11,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergySeries, useEnergySummary } from "../../api/energy";
+import { Button, FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
 import { getEnergySeriesRanges } from "./statistics-periods";
 
 type Granularity = "day" | "month";
@@ -21,6 +23,12 @@ const statusLabels: Record<EnergyDataStatus, string> = {
   partial: "수집 공백 있음",
   no_data: "수집 데이터 없음"
 };
+
+const statusPresentation = {
+  available: { tone: "success", icon: CircleCheck },
+  partial: { tone: "warning", icon: TriangleAlert },
+  no_data: { tone: "neutral", icon: CircleOff }
+} as const;
 
 export function StatisticsView({ siteId }: { siteId?: string }) {
   const [granularity, setGranularity] = useState<Granularity>("day");
@@ -44,15 +52,25 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
   });
 
   if (!siteId || summaryQuery.isLoading) {
-    return <section className="panel">전력 통계를 불러오는 중</section>;
+    return (
+      <section className="statistics-screen">
+        <FeedbackState
+          icon={Activity}
+          title="전력 통계를 불러오는 중"
+          description="선택한 현장의 상태 기반 사용량을 집계하고 있습니다."
+        />
+      </section>
+    );
   }
   if (summaryQuery.isError || !summaryQuery.data) {
     return (
-      <section className="panel danger statistics-error" role="alert">
-        <strong>전력 통계를 불러오지 못했습니다.</strong>
-        <button type="button" className="secondary-button" onClick={() => summaryQuery.refetch()}>
-          전력 통계 다시 시도
-        </button>
+      <section className="statistics-screen">
+        <FeedbackState
+          tone="danger"
+          icon={TriangleAlert}
+          title="전력 통계를 불러오지 못했습니다."
+          action={<Button variant="secondary" onClick={() => summaryQuery.refetch()}>전력 통계 다시 시도</Button>}
+        />
       </section>
     );
   }
@@ -65,22 +83,22 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
 
   return (
     <section className="statistics-screen">
-      <div className="screen-heading statistics-heading">
-        <div>
-          <span className="eyebrow">전력 통계</span>
-          <h2>에너지 리포트</h2>
+      <PageHeader
+        title="에너지 리포트"
+        description={(
           <p className="statistics-updated">
             {summary.timeZone} · 마지막 집계 {formatTimestamp(summary.lastAggregatedAt ?? summary.generatedAt, summary.timeZone)}
           </p>
-        </div>
-        <span className="status-pill online">상태 기반 추정</span>
-      </div>
+        )}
+        status={<StatusBadge tone="info" icon={Activity}>상태 기반 추정</StatusBadge>}
+      />
 
       {hasNoKnownData ? (
-        <section className="panel statistics-empty">
-          <h3>아직 상태 기반 사용량을 표시할 수 없습니다.</h3>
-          <p>조명 상태가 수집되면 통계가 표시됩니다.</p>
-        </section>
+        <FeedbackState
+          icon={Activity}
+          title="아직 상태 기반 사용량을 표시할 수 없습니다."
+          description="조명 상태가 수집되면 통계가 표시됩니다."
+        />
       ) : (
         <>
           {hasPartialData ? (
@@ -128,14 +146,21 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
 }
 
 function EnergyMetric({ label, period }: { label: string; period: EnergySummary["today"] }) {
+  const presentation = statusPresentation[period.dataStatus];
+
   return (
-    <section className="metric statistics-metric" aria-label={`${label} 전력 사용량`}>
-      <span>{label}</span>
-      <strong>{formatKwh(period.estimatedKwh)}</strong>
-      <span>{formatWon(period.estimatedCost)}</span>
-      <small>상태 기반 추정</small>
-      <span className={`coverage-pill ${period.dataStatus}`}>{statusLabels[period.dataStatus]}</span>
-    </section>
+    <div className="statistics-metric">
+      <MetricCard
+        label={`${label} 전력 사용량`}
+        value={formatKwhValue(period.estimatedKwh)}
+        unit="kWh"
+        helper={`${formatWon(period.estimatedCost)} · 상태 기반 추정`}
+        tone={period.dataStatus === "available" ? "primary" : "neutral"}
+      />
+      <StatusBadge tone={presentation.tone} icon={presentation.icon}>
+        {statusLabels[period.dataStatus]}
+      </StatusBadge>
+    </div>
   );
 }
 
@@ -146,14 +171,22 @@ function EnergyChartState({
   granularity: Granularity;
   query: ReturnType<typeof useEnergySeries>;
 }) {
-  if (query.isLoading) return <div className="statistics-chart-state">사용량 추이를 불러오는 중</div>;
+  if (query.isLoading) {
+    return (
+      <div className="statistics-chart-state">
+        <FeedbackState icon={Activity} title="사용량 추이를 불러오는 중" />
+      </div>
+    );
+  }
   if (query.isError || !query.data) {
     return (
-      <div className="statistics-chart-state danger" role="alert">
-        <span>사용량 추이를 불러오지 못했습니다.</span>
-        <button type="button" className="secondary-button" onClick={() => query.refetch()}>
-          사용량 추이 다시 시도
-        </button>
+      <div className="statistics-chart-state">
+        <FeedbackState
+          tone="danger"
+          icon={TriangleAlert}
+          title="사용량 추이를 불러오지 못했습니다."
+          action={<Button variant="secondary" onClick={() => query.refetch()}>사용량 추이 다시 시도</Button>}
+        />
       </div>
     );
   }
@@ -168,7 +201,7 @@ function EnergyChartState({
       >
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 760, height: 300 }}>
           <LineChart data={points} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
-            <CartesianGrid stroke="#e3e9f2" strokeDasharray="4 4" vertical={false} />
+            <CartesianGrid stroke="var(--border)" strokeDasharray="4 4" vertical={false} />
             <XAxis dataKey="period" tickFormatter={(value: string) => formatAxisPeriod(value, granularity)} tickLine={false} />
             <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} />
             <Tooltip
@@ -184,7 +217,7 @@ function EnergyChartState({
               type="monotone"
               dataKey="estimatedKwh"
               name="사용량"
-              stroke="#1769e0"
+              stroke="var(--primary)"
               strokeWidth={3}
               dot={{ r: 4, fill: "#ffffff", strokeWidth: 2 }}
               activeDot={{ r: 6 }}
@@ -243,17 +276,17 @@ function CostPanel({ summary }: { summary: EnergySummary }) {
         && summary.estimatedSavings.kwh !== null
         && summary.estimatedSavings.cost !== null ? (
           <dl className="statistics-cost-list">
-            <div>
+            <div className="statistics-cost-item">
               <dt>이번 달 예상 비용</dt>
               <dd>{formatWon(summary.monthForecast.estimatedCost)}</dd>
               <small>{formatKwh(summary.monthForecast.estimatedKwh)}</small>
             </div>
-            <div>
+            <div className="statistics-cost-item">
               <dt>24시간 100% 기준 비용</dt>
               <dd>{formatWon(summary.baseline24Hours.estimatedCost)}</dd>
               <small>{formatKwh(summary.baseline24Hours.estimatedKwh)}</small>
             </div>
-            <div>
+            <div className="statistics-cost-item statistics-savings" data-negative={summary.estimatedSavings.cost < 0}>
               <dt>예상 절감</dt>
               <dd>{formatWon(summary.estimatedSavings.cost)}</dd>
               <small>{formatKwh(summary.estimatedSavings.kwh)}</small>
@@ -301,7 +334,11 @@ function formatDuration(seconds: number) {
 }
 
 function formatKwh(value: number) {
-  return `${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 3 }).format(value)} kWh`;
+  return `${formatKwhValue(value)} kWh`;
+}
+
+function formatKwhValue(value: number) {
+  return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 3 }).format(value);
 }
 
 function formatWon(value: number) {
