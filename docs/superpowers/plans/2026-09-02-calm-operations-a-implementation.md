@@ -591,7 +591,7 @@ git commit -m "feat(web): apply corrected monitoring surfaces"
 - Preserves: fixture-group CRUD/resync payload, focus trap, return focus and viewer read-only rules
 - Produces: `humanizeDeviceResponseMessage(value: string): string` as a display-only mapper
 
-- [ ] **Step 1: Write failing manual-control and copy tests**
+- [x] **Step 1: Write failing manual-control and copy tests**
 
 Use the exact test names `수동 제어는 실제 command stage를 명령 진행 단계로 표시한다`, `서버의 ACK 문구는 사용자 화면에서 장비 응답으로 표시한다`, and `저장 구역 dialog는 CRUD와 포커스 계약을 유지한다`.
 
@@ -609,7 +609,7 @@ Feed a fixture result error of `"게이트웨이 ACK를 확인하지 못했습�
 
 In `FixtureGroupDialog.test.tsx`, add headings/status assertions for the list and editor while retaining exact create/update/delete/resync payload and focus tests.
 
-- [ ] **Step 2: Run control tests and confirm RED**
+- [x] **Step 2: Run control tests and confirm RED**
 
 Run:
 
@@ -619,7 +619,7 @@ pnpm --filter @led-control/web test -- src/features/control/ControlView.test.tsx
 
 Expected: `명령 진행` list is absent and raw `ACK` text is still rendered from the command message/result.
 
-- [ ] **Step 3: Implement the display-only response wording boundary**
+- [x] **Step 3: Implement the display-only response wording boundary**
 
 Keep command stages and protocol values unchanged. Add a local pure formatter and use it only at render/set-message boundaries:
 
@@ -631,7 +631,7 @@ function humanizeDeviceResponseMessage(value: string) {
 
 Change the successful post message to `"명령을 전송했습니다. 장비 응답을 기다리는 중입니다."`. Apply the formatter to server-provided fixture result messages before display. Do not change response matching, terminal detection or retry decisions.
 
-- [ ] **Step 4: Render corrected target, brightness, and command progress surfaces**
+- [x] **Step 4: Render corrected target, brightness, and command progress surfaces**
 
 Keep `ControlTargetPicker` modes, search, filters, selection limit and readiness derivation. Use `Card` for target and brightness panels, common `Button` for presets/actions, and `StatusBadge` for read-only/readiness.
 
@@ -648,7 +648,7 @@ const commandSteps = [
 
 `stepState` and `terminalStepState` are pure visual mappers. Existing `CommandStage`, fixture counts and failed results remain the source of truth.
 
-- [ ] **Step 5: Apply saved-zone list/editor visuals**
+- [x] **Step 5: Apply saved-zone list/editor visuals**
 
 Recompose `FixtureGroupDialog` with a page heading, current group list, Mesh status badges and a focused editor card. Keep group address/version display, selected fixtures, resync/delete confirmation and viewer action hiding. Use common `ConfirmDialog` buttons without changing its focus contract.
 
@@ -660,15 +660,15 @@ Use the existing readiness values to choose the shared badge rather than creatin
 </StatusBadge>
 ```
 
-- [ ] **Step 6: Add four-viewport manual and zone coverage**
+- [x] **Step 6: Add four-viewport manual and zone coverage**
 
 Use the current monitoring/control fixture to cover target modes, slider/presets/override, in-flight lock, success/partial/timeout/recovery, offline/fault/Mesh block, viewer, and group list/editor at all four viewports. Assert no user-visible `ACK`, no document overflow, dialog scrollability and 44px mobile targets.
 
-- [ ] **Step 7: Update control documentation for scenes 13~16**
+- [x] **Step 7: Update control documentation for scenes 13~16**
 
 In `docs/menus/control.md`, record corrected manual/command/readiness/group surfaces and the display-copy rule. Keep protocol-level ACK descriptions in technical implementation sections because those are developer documentation, and state explicitly that only user-visible copy changed. Preserve HIL limitations.
 
-- [ ] **Step 8: Run GREEN and manual-control regression**
+- [x] **Step 8: Run GREEN and manual-control regression**
 
 Run:
 
@@ -681,7 +681,7 @@ git diff --check
 
 Expected: command payload/lock/recovery tests and group CRUD/resync tests pass; all rendered command messages use plain Korean.
 
-- [ ] **Step 9: Review, synchronize status, and commit Task 5**
+- [x] **Step 9: Review, synchronize status, and commit Task 5**
 
 ```bash
 git add apps/web/src/features/control/ControlView.tsx apps/web/src/features/control/ControlView.test.tsx apps/web/src/features/control/ControlTargetPicker.tsx apps/web/src/features/control/FixtureGroupDialog.tsx apps/web/src/features/control/FixtureGroupDialog.test.tsx apps/web/src/components/ConfirmDialog.tsx apps/web/src/styles.css apps/web/e2e/calm-operations-manual-control.spec.ts apps/web/e2e/monitoring-control-flow.spec.ts docs/menus/control.md docs/project-status.md docs/superpowers/plans/2026-09-02-calm-operations-a-implementation.md
