@@ -339,7 +339,7 @@ git commit -m "feat(web): apply calm operations auth and operator UI"
 - Preserves: setup/claim/registration API payloads, query keys, active-session polling and cache invalidation
 - Preserves: `FixtureBatchDefaults`, `FixtureIndividualDefaults`, `FixtureIndividualDraft`
 
-- [ ] **Step 1: Add failing installation and registration hierarchy tests**
+- [x] **Step 1: Add failing installation and registration hierarchy tests**
 
 Add these focused assertions while keeping all current mutation tests:
 
@@ -372,7 +372,7 @@ it("등록 실패와 확인 필요 노드를 장비 상태 확인 단계로 표�
 
 The assertions must target headings, lists, status/alert roles and existing button names rather than CSS snapshots.
 
-- [ ] **Step 2: Run focused tests and confirm RED**
+- [x] **Step 2: Run focused tests and confirm RED**
 
 Run:
 
@@ -382,7 +382,7 @@ pnpm --filter @led-control/web test -- src/features/setup/SetupWizard.test.tsx s
 
 Expected: tests fail because the shared progress list and named commissioning regions are not wired into setup/registration views.
 
-- [ ] **Step 3: Apply the setup and claim hierarchy**
+- [x] **Step 3: Apply the setup and claim hierarchy**
 
 Render actual installation progress with `ProgressSteps`, then group the existing address, tariff, timezone, floor-count and generated-floor controls into `Card` sections. Keep all validation constants and `createInitialSiteSetup` input unchanged.
 
@@ -399,7 +399,7 @@ Use the existing mutation state to supply the progress interface:
 ]} />
 ```
 
-- [ ] **Step 4: Apply search, batch/individual, and recovery surfaces**
+- [x] **Step 4: Apply search, batch/individual, and recovery surfaces**
 
 Keep `nodes`, `selectableNodes`, `actionableNodes`, historic unresolved merge and all mutation objects unchanged. Recompose the return JSX into:
 
@@ -420,15 +420,15 @@ function registrationSteps(session: RegistrationSession, nodes: DiscoveredRegist
 
 `registrationSteps` is a pure display mapper local to `RegistrationPanel.tsx`; it must not alter status progression or polling. Migrate form submit buttons to common `Button` and node status to `StatusBadge`.
 
-- [ ] **Step 5: Add commissioning viewport coverage**
+- [x] **Step 5: Add commissioning viewport coverage**
 
 Reuse `installSettingsApiRoutes` and the current `RegistrationSession` fixtures. At 1440/1024/390/320, cover pending admin setup, Viewer pending, Gateway claim, completed-empty scan, discovered batch, individual validation, reconcile state and enabled action touch targets. Call `expectNoHorizontalOverflow` after each state transition.
 
-- [ ] **Step 6: Update the settings menu status document**
+- [x] **Step 6: Update the settings menu status document**
 
 In `docs/menus/settings.md`, keep all required sections and add scene 04~09 under `구현 완료`. State that the UI uses actual setup/claim/registration APIs, active-session recovery remains implemented, prototype-only device prechecks are not implemented, and browser fixtures are not hardware HIL. Add the changed files to `관련 파일` and set the basis date to `2026-09-02`.
 
-- [ ] **Step 7: Run GREEN and commissioning regression**
+- [x] **Step 7: Run GREEN and commissioning regression**
 
 Run:
 
@@ -441,7 +441,7 @@ git diff --check
 
 Expected: setup/claim payload tests, active session recovery, reconcile, rescan and all viewport assertions pass.
 
-- [ ] **Step 8: Review, synchronize status, and commit Task 3**
+- [x] **Step 8: Review, synchronize status, and commit Task 3**
 
 ```bash
 git add apps/web/src/features/setup apps/web/src/features/registration apps/web/src/App.test.tsx apps/web/src/styles.css apps/web/e2e/calm-operations-commissioning.spec.ts docs/menus/settings.md docs/project-status.md docs/superpowers/plans/2026-09-02-calm-operations-a-implementation.md
