@@ -118,7 +118,7 @@ export function VehicleEventDialog({
           </fieldset>
 
           <fieldset className="schedule-form-section" disabled={isPending}>
-            <legend>행동과 유지 시간</legend>
+            <legend>행동</legend>
             <label className="form-field schedule-name-field">
               <span>규칙 이름</span>
               <input ref={nameInputRef} aria-label="규칙 이름" {...errorAttributes(errors.name, vehicleEventErrorIds.name)} value={values.name} onChange={(event) => change({ name: event.target.value })} />

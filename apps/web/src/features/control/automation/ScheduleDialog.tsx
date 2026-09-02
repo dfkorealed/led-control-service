@@ -46,6 +46,7 @@ export function ScheduleDialog({
   const timeZone = dashboard.site.timeZone;
   const dialogRef = useRef<HTMLElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const targetSectionRef = useRef<HTMLFieldSetElement>(null);
   const [values, setValues] = useState<ScheduleFormValues>(() => createEmptyScheduleForm(timeZone));
   const [errors, setErrors] = useState<ScheduleFormErrors>({});
   const title = schedule ? "스케줄 수정" : "스케줄 추가";
@@ -78,7 +79,10 @@ export function ScheduleDialog({
     event.preventDefault();
     const nextErrors = validateScheduleForm(values);
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+    if (Object.keys(nextErrors).length > 0) {
+      focusFirstInvalidControl(nextErrors);
+      return;
+    }
     const status: AutomationRuleStatus = schedule?.status ?? "enabled";
     onSubmit(scheduleFormToInput(values, timeZone, status));
   }
@@ -120,7 +124,7 @@ export function ScheduleDialog({
           </label>
 
           <fieldset className="schedule-form-section" disabled={isPending}>
-            <legend>적용 기간과 시간</legend>
+            <legend>운영 기간과 시간</legend>
             <p className="schedule-field-help">날짜와 시각은 브라우저가 아닌 {timeZone} 현장 기준입니다.</p>
             <div className="schedule-form-grid two-columns">
               <label className="form-field">
@@ -301,7 +305,7 @@ export function ScheduleDialog({
             <FieldError message={errors.brightnessPercent} />
           </fieldset>
 
-          <fieldset className="schedule-form-section schedule-target-section" disabled={isPending}>
+          <fieldset ref={targetSectionRef} className="schedule-form-section schedule-target-section" disabled={isPending} tabIndex={-1}>
             <legend>제어 대상</legend>
             <ControlTargetPicker
               dashboard={dashboard}
@@ -323,6 +327,11 @@ export function ScheduleDialog({
       </section>
     </div>
   );
+
+  function focusFirstInvalidControl(nextErrors: ScheduleFormErrors) {
+    if (nextErrors.name) return nameInputRef.current?.focus();
+    if (nextErrors.target) targetSectionRef.current?.focus();
+  }
 }
 
 function FieldError({ message }: { message?: string }) {

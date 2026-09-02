@@ -1598,6 +1598,7 @@ button {
 .settings-screen {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .settings-screen .ui-page-header,
@@ -1900,9 +1901,11 @@ button {
   font-weight: 700;
 }
 
+.automation-table-wrap,
 .schedule-table-wrap {
   min-width: 0;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: #ffffff;
@@ -1962,6 +1965,15 @@ button {
   height: 160px;
   color: var(--muted);
   text-align: center !important;
+}
+
+.schedule-control-panel > .ui-feedback-state {
+  align-items: center;
+}
+
+.schedule-control-panel > .ui-feedback-state .ui-button {
+  justify-self: start;
+  margin-top: 4px;
 }
 
 .schedule-sync-badge {
@@ -2216,7 +2228,7 @@ button {
   justify-content: flex-end;
   border-top: 1px solid var(--border);
   background: #ffffff;
-  padding: 14px 0 0;
+  padding: 14px 0 max(14px, env(safe-area-inset-bottom));
 }
 
 .schedule-dialog-actions > button:not(.primary-button) {

@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-08-31
+기준일: 2026-09-02
 
 ## 구현 완료
 
@@ -9,6 +9,7 @@
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
 - schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. Task 17 schedule Web CRUD, Task 18 차량 이벤트 Web CRUD·수동 override 종료 시각 입력과 Task 19 production API/Gateway Chromium software E2E를 완료했다. 이 software E2E는 실제 PostgreSQL·Redis·mTLS Mosquitto와 production Gateway runtime을 사용하지만 BLE adapter/sensor source는 test 전용 simulator이며, Raspberry Pi/BlueZ/ESP32-H2 HIL은 미실행이다.
+- Scenes 17~21의 Calm Operations 자동화 표면은 공통 `StatusBadge`와 `FeedbackState`로 목록의 활성·Gateway sync·최근 실행/감지 상태와 loading/empty/error/stale polling을 구분한다. schedule/차량 이벤트 표는 각각 접근 가능한 이름을 가지고, 좁은 화면에서도 동일 table DOM을 `.automation-table-wrap` 가로 스크롤로 유지한다. admin empty state의 추가 action, 삭제 확인, 오류별 실제 retry, viewer read-only를 유지하며 query key, bounded pagination, polling, mutation auth/cache callback과 scope generation은 변경하지 않았다. schedule editor는 `운영 기간과 시간 → 반복 → 밝기 → 제어 대상`, 차량 이벤트 editor는 `감지 센서 → 제어 조명 → 행동` fieldset으로 정리하고 기존 controlled input·검증·focus trap/return을 보존한다. `calm-operations-automation.spec.ts`는 1440×900, 1024×768, 390×844, 320×740 fixture에서 목록 열 reachability, document overflow 부재, dialog viewport 경계와 모바일 scroll/touch target을 검증한다. 이 route fixture는 UI software 증거일 뿐 Gateway/BlueZ/Raspberry Pi/ESP32-H2 HIL을 대체하지 않는다.
 
 ### 확정 구현 범위
 
@@ -291,10 +292,12 @@
 - `apps/web/src/features/control/automation/ScheduleControlPanel.test.tsx`
 - `apps/web/src/features/control/automation/VehicleEventControlPanel.tsx`
 - `apps/web/src/features/control/automation/VehicleEventControlPanel.test.tsx`
+- `apps/web/e2e/calm-operations-automation.spec.ts`
 - `apps/web/src/components/ui/Button.tsx`
 - `apps/web/src/components/ui/Card.tsx`
 - `apps/web/src/components/ui/PageHeader.tsx`
 - `apps/web/src/components/ui/StatusBadge.tsx`
+- `apps/web/src/components/ui/FeedbackState.tsx`
 - `apps/web/src/styles.css`
 - `apps/web/src/features/control/automation/automation-contracts.test.ts`
 - `apps/web/src/features/control/automation/ScheduleDialog.tsx`

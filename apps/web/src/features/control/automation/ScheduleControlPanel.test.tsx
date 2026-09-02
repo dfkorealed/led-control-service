@@ -120,6 +120,16 @@ describe("ScheduleControlPanel", () => {
     expect(await screen.findByText("등록된 스케줄이 없습니다.")).toBeInTheDocument();
   });
 
+  it("keeps one reachable add action for an empty schedule list", async () => {
+    mocks.listSchedules.mockResolvedValue(page([]));
+    renderPanel("admin");
+
+    await screen.findByText("등록된 스케줄이 없습니다.");
+    expect(screen.getAllByRole("button", { name: "스케줄 추가" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
+  });
+
   it("uses a level-three panel heading and shared add button", async () => {
     renderPanel("admin");
 
@@ -174,6 +184,35 @@ describe("ScheduleControlPanel", () => {
     expect(screen.queryByRole("button", { name: /수정/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /삭제/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /비활성화/ })).not.toBeInTheDocument();
+  });
+
+  it("스케줄 목록은 적용 상태를 공통 badge로 구분한다", async () => {
+    mocks.listSchedules.mockResolvedValue(page([
+      schedule({ name: "대기 스케줄", syncStatus: "PENDING" }),
+      schedule({ id: "00000000-0000-4000-8000-000000000012", name: "적용 스케줄", syncStatus: "APPLIED" }),
+      schedule({ id: "00000000-0000-4000-8000-000000000013", name: "실패 스케줄", syncStatus: "REJECTED" })
+    ]));
+    renderPanel("viewer");
+
+    expect(await screen.findByRole("table", { name: "스케줄 목록" })).toBeInTheDocument();
+    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByText("적용 대기").closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttribute("data-tone", "danger");
+  });
+
+  it("스케줄 dialog는 네 입력 section과 validation focus를 유지한다", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    expect(within(dialog).getByRole("group", { name: "운영 기간과 시간" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "반복" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "밝기" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "제어 대상" })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+    expect(screen.getByLabelText("스케줄 이름")).toHaveFocus();
   });
 
   it("creates and edits a complete schedule through the dialog", async () => {

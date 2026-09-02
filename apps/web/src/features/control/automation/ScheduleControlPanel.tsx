@@ -18,7 +18,7 @@ import type { AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import { Button, PageHeader, StatusBadge } from "../../../components/ui";
+import { Button, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
 import { ScheduleDialog } from "./ScheduleDialog";
 
 export function ScheduleControlPanel({
@@ -238,17 +238,20 @@ export function ScheduleControlPanel({
         </p>
       ) : null}
 
-      {schedulesQuery.isLoading ? <p className="muted-text" role="status">스케줄을 불러오는 중입니다.</p> : null}
+      {schedulesQuery.isLoading ? <FeedbackState icon={Clock3} title="스케줄을 불러오는 중입니다." /> : null}
       {queryFailure ? (
-        <div className="schedule-query-error" role="alert">
-          <p className="danger-text">{queryFailure.message}</p>
-          <Button variant="secondary" type="button" onClick={() => void queryFailure.retry()}>{queryFailure.retryLabel}</Button>
-        </div>
+        <FeedbackState
+          tone={schedulesQuery.isRefetchError && !isScheduleUnauthorized(schedulesQuery.error) ? "warning" : "danger"}
+          liveRole="alert"
+          icon={TriangleAlert}
+          title={queryFailure.message}
+          action={<Button variant="secondary" type="button" onClick={() => void queryFailure.retry()}>{queryFailure.retryLabel}</Button>}
+        />
       ) : null}
 
       {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError ? (
-        <div className="schedule-table-wrap">
-          <table className="schedule-table">
+        schedules.length > 0 ? <div className="automation-table-wrap schedule-table-wrap">
+          <table className="schedule-table" aria-label="스케줄 목록">
             <thead>
               <tr>
                 <th>이름</th>
@@ -259,7 +262,7 @@ export function ScheduleControlPanel({
                 <th>대상</th>
                 <th>Gateway 동기화</th>
                 <th>최근 결과</th>
-                {canManage ? <th><span className="sr-only">관리</span></th> : null}
+                {canManage ? <th aria-label="관리" /> : null}
               </tr>
             </thead>
             <tbody>
@@ -322,12 +325,13 @@ export function ScheduleControlPanel({
                   ) : null}
                 </tr>
               ))}
-              {schedules.length === 0 ? (
-                <tr><td className="schedule-table-empty" colSpan={canManage ? 9 : 8}>등록된 스케줄이 없습니다.</td></tr>
-              ) : null}
             </tbody>
           </table>
-        </div>
+        </div> : <FeedbackState
+          icon={CalendarPlus}
+          title="등록된 스케줄이 없습니다."
+          description="반복 밝기 규칙을 추가하면 Gateway 적용 상태와 최근 결과를 여기서 확인할 수 있습니다."
+        />
       ) : null}
 
       {schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError ? (

@@ -72,6 +72,16 @@ describe("VehicleEventControlPanel", () => {
     expect(screen.getByRole("button", { name: "이벤트 추가" })).toHaveClass("ui-button", "ui-button-primary");
   });
 
+  it("keeps one reachable add action for an empty vehicle event list", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({ items: [], total: 0, nextCursor: null });
+    renderPanel("admin");
+
+    await screen.findByText("등록된 이벤트 규칙이 없습니다.");
+    expect(screen.getAllByRole("button", { name: "이벤트 추가" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    expect(screen.getByRole("dialog", { name: "이벤트 추가" })).toBeInTheDocument();
+  });
+
   it("shows icon and text badges for every Gateway sync state", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({
       items: [
@@ -90,12 +100,32 @@ describe("VehicleEventControlPanel", () => {
     expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttribute("data-tone", "danger");
   });
 
+  it("차량 이벤트 목록은 polling 실패에도 기존 행과 retry를 유지한다", async () => {
+    const { queryClient } = renderPanel("admin");
+    expect(await screen.findByRole("table", { name: "차량 이벤트 목록" })).toBeInTheDocument();
+
+    mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("poll failed"));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: vehicleEventRuleQueryKey(siteId) });
+    });
+
+    const warning = await screen.findByRole("alert");
+    expect(warning).toHaveClass("ui-feedback-state");
+    expect(warning).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다.");
+    expect(screen.getByText("입구 차량 감지")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
+  });
+
   it("validates empty source and target selections before a create request", async () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
 
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 추가" })).getByRole("button", { name: "저장" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+    expect(within(dialog).getByRole("group", { name: "감지 센서" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "제어 조명" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "행동" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
 
     expect(screen.getByText("감지 센서를 한 개 이상 선택하세요.")).toBeInTheDocument();
     expect(screen.getByText("제어 조명을 한 개 이상 선택하세요.")).toBeInTheDocument();
@@ -218,11 +248,14 @@ function renderPanel(
   role: "admin" | "viewer",
   { queryClient = testQueryClient(), dashboard: panelDashboard = dashboard }: { queryClient?: QueryClient; dashboard?: Dashboard } = {}
 ) {
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <VehicleEventControlPanel siteId={siteId} role={role} dashboard={panelDashboard} />
-    </QueryClientProvider>
-  );
+  return {
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <VehicleEventControlPanel siteId={siteId} role={role} dashboard={panelDashboard} />
+      </QueryClientProvider>
+    ),
+    queryClient
+  };
 }
 
 function testQueryClient() {
