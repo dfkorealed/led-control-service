@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { DimmingTarget } from "@led-control/shared";
 import type { Dashboard, DashboardFixture } from "../../api/queries";
+import { Button } from "../../components/ui";
 import { fixtureGroupReadiness, floorMeshReadiness } from "./control-readiness";
 
 const MAX_FIXTURE_SELECTION = 1000;
@@ -208,14 +209,15 @@ export function ControlTargetPicker({
             {filteredFixtures.length === 0 ? <p className="control-empty-state">조건에 맞는 조명이 없습니다.</p> : null}
           </div>
           {visibleLimit < filteredFixtures.length ? (
-            <button
+            <Button
+              variant="secondary"
               className="control-load-more"
               type="button"
               disabled={disabled}
               onClick={() => setVisibleLimit((current) => current + FIXTURE_LIST_BATCH_SIZE)}
             >
               더 보기
-            </button>
+            </Button>
           ) : null}
         </>
       ) : null}

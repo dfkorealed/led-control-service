@@ -41,6 +41,24 @@
   color: #fff;
 }
 
+.ui-button-secondary,
+.ui-button-ghost {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--primary);
+}
+
+.ui-button-danger {
+  border: 1px solid #fecaca;
+  background: #fff7f7;
+  color: #b91c1c;
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .ui-card,
 .ui-metric-card {
   border: 1px solid var(--border);
@@ -56,6 +74,33 @@
   border-radius: 999px;
   padding: 4px 9px;
   font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ui-status-badge[data-tone="success"] {
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.ui-status-badge[data-tone="warning"] {
+  background: #fffbeb;
+  color: #a16207;
+}
+
+.ui-status-badge[data-tone="danger"] {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.ui-status-badge[data-tone="neutral"] {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.ui-status-badge[data-tone="info"] {
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .ui-metric-card strong {
@@ -1315,6 +1360,33 @@ button {
   gap: 16px;
 }
 
+.control-screen .ui-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.control-screen .ui-page-header h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.22;
+}
+
+.control-screen .ui-page-description {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.control-screen .ui-page-actions,
+.schedule-add-button,
+.control-group-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .control-manual-panel,
 .schedule-control-panel {
   display: grid;
@@ -1326,7 +1398,11 @@ button {
   display: flex;
   min-width: 0;
   overflow-x: auto;
-  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: #eef4fb;
+  padding: 4px;
   scrollbar-width: none;
 }
 
@@ -1335,40 +1411,33 @@ button {
 }
 
 .control-mode-tabs button {
-  position: relative;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 7px;
   min-width: 132px;
-  min-height: 44px;
+  min-height: 48px;
   border: 0;
+  border-radius: 12px;
   background: transparent;
   color: var(--muted);
   padding: 8px 14px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
   cursor: pointer;
 }
 
-.control-mode-tabs button::after {
-  position: absolute;
-  right: 10px;
-  bottom: -1px;
-  left: 10px;
-  height: 3px;
-  background: transparent;
-  content: "";
-}
-
 .control-mode-tabs button.active {
+  background: var(--panel);
   color: var(--primary);
+  box-shadow: 0 4px 12px rgba(15, 38, 70, 0.08);
 }
 
-.control-mode-tabs button.active::after {
-  background: var(--primary);
+.control-mode-tabs button:focus-visible {
+  outline: 0;
+  box-shadow: var(--focus-ring);
 }
 
 .control-mode-placeholder {
@@ -1420,7 +1489,7 @@ button {
   min-width: 0;
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: #ffffff;
 }
 
@@ -1438,6 +1507,14 @@ button {
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
+}
+
+.schedule-table tbody tr {
+  min-height: 56px;
+}
+
+.schedule-table tbody td {
+  height: 56px;
 }
 
 .schedule-table th {
@@ -1499,15 +1576,15 @@ button {
 
 .schedule-row-actions {
   display: grid;
-  grid-template-columns: repeat(3, 34px);
+  grid-template-columns: repeat(3, 44px);
   gap: 5px;
 }
 
 .schedule-row-actions button {
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #ffffff;
@@ -1847,6 +1924,11 @@ button {
   align-items: start;
 }
 
+.control-target-card {
+  min-width: 0;
+  padding: 16px;
+}
+
 .control-target-picker {
   display: grid;
   gap: 12px;
@@ -1951,7 +2033,7 @@ button {
   max-height: 520px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: #ffffff;
 }
 
@@ -2377,10 +2459,20 @@ button {
   display: grid;
   gap: 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--panel);
   padding: 18px;
   box-shadow: var(--shadow);
+}
+
+.command-status-region {
+  display: grid;
+  gap: 10px;
+  min-height: 1px;
+}
+
+.command-status-region:empty {
+  min-height: 0;
 }
 
 .dial-card {

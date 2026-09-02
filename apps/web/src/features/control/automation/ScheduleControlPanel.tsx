@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { automationExecutionActionResultPayloadV1Schema } from "@led-control/shared/automation-contracts";
-import { CalendarPlus, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
+import { CalendarPlus, CircleCheck, Clock3, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   createSchedule,
@@ -18,6 +18,7 @@ import type { AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { Button, PageHeader, StatusBadge } from "../../../components/ui";
 import { ScheduleDialog } from "./ScheduleDialog";
 
 export function ScheduleControlPanel({
@@ -212,15 +213,13 @@ export function ScheduleControlPanel({
       role="tabpanel"
       aria-labelledby="control-mode-schedule"
     >
-      <div className="schedule-panel-heading">
-        <div>
-          <span className="eyebrow">Gateway 자동 실행</span>
-          <h2>스케줄 제어</h2>
-        </div>
-        {canManage ? (
+      <PageHeader
+        title="스케줄 제어"
+        description="Gateway가 현장 시간대에 맞춰 반복 밝기 규칙을 실행합니다."
+        actions={canManage ? (
           <button
             ref={addButtonRef}
-            className="primary-button"
+            className="ui-button ui-button-primary schedule-add-button"
             type="button"
             onClick={beginAdd}
             disabled={isMutating || !dashboard}
@@ -228,8 +227,8 @@ export function ScheduleControlPanel({
           >
             <CalendarPlus size={16} aria-hidden="true" /> 스케줄 추가
           </button>
-        ) : null}
-      </div>
+        ) : undefined}
+      />
 
       {!canManage ? (
         <p className="schedule-readonly-notice" role="status">
@@ -241,7 +240,7 @@ export function ScheduleControlPanel({
       {queryFailure ? (
         <div className="schedule-query-error" role="alert">
           <p className="danger-text">{queryFailure.message}</p>
-          <button type="button" onClick={() => void queryFailure.retry()}>{queryFailure.retryLabel}</button>
+          <Button variant="secondary" type="button" onClick={() => void queryFailure.retry()}>{queryFailure.retryLabel}</Button>
         </div>
       ) : null}
 
@@ -268,17 +267,18 @@ export function ScheduleControlPanel({
                     <strong>{schedule.name}</strong>
                     <small>{formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC")}</small>
                   </td>
-                  <td>{schedule.status === "enabled" ? "활성" : "비활성"}</td>
+                  <td><EnabledBadge enabled={schedule.status === "enabled"} /></td>
                   <td>{formatNextOccurrence(schedule, dashboard?.site.timeZone ?? "UTC")}</td>
                   <td>{formatRecurrence(schedule)}</td>
                   <td>{schedule.action.dimmingEnabled ? `${schedule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
                   <td>{schedule.targetCount}개</td>
                   <td><SyncBadge status={schedule.syncStatus} /></td>
-                  <td>{formatLastExecution(schedule, dashboard?.site.timeZone ?? "UTC")}</td>
+                  <td><LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
                   {canManage ? (
                     <td>
                       <div className="schedule-row-actions">
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
                           aria-label={`${schedule.name} ${schedule.status === "enabled" ? "비활성화" : "활성화"}`}
                           title={schedule.status === "enabled" ? "비활성화" : "활성화"}
@@ -288,8 +288,9 @@ export function ScheduleControlPanel({
                           {schedule.status === "enabled"
                             ? <PowerOff size={16} aria-hidden="true" />
                             : <Power size={16} aria-hidden="true" />}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="ghost"
                           type="button"
                           aria-label={`${schedule.name} 수정`}
                           title="수정"
@@ -297,8 +298,9 @@ export function ScheduleControlPanel({
                           onClick={(event) => beginEdit(schedule, event.currentTarget)}
                         >
                           <Pencil size={16} aria-hidden="true" />
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="danger"
                           className="danger-action"
                           type="button"
                           aria-label={`${schedule.name} 삭제`}
@@ -312,7 +314,7 @@ export function ScheduleControlPanel({
                           }}
                         >
                           <Trash2 size={16} aria-hidden="true" />
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   ) : null}
@@ -327,14 +329,15 @@ export function ScheduleControlPanel({
       ) : null}
 
       {schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError ? (
-        <button
+        <Button
+          variant="secondary"
           className="control-load-more"
           type="button"
           disabled={schedulesQuery.isFetchingNextPage}
           onClick={() => void schedulesQuery.fetchNextPage()}
         >
           {schedulesQuery.isFetchingNextPage ? "불러오는 중" : "스케줄 더 보기"}
-        </button>
+        </Button>
       ) : null}
       {message ? <p className="success-text schedule-panel-message" role="status">{message}</p> : null}
       {mutationError && !scheduleDialogOpen && !deleteCandidate
@@ -381,11 +384,27 @@ export function ScheduleControlPanel({
 
 function SyncBadge({ status }: { status: ScheduleResponse["syncStatus"] }) {
   const presentation = status === "APPLIED"
-    ? { label: "Gateway 적용됨", className: "applied" }
+    ? { label: "적용됨", tone: "success" as const, icon: CircleCheck }
     : status === "REJECTED"
-      ? { label: "Gateway 적용 실패", className: "rejected" }
-      : { label: "Gateway 동기화 중", className: "pending" };
-  return <span className={`schedule-sync-badge ${presentation.className}`}>{presentation.label}</span>;
+      ? { label: "적용 실패", tone: "danger" as const, icon: TriangleAlert }
+      : { label: "적용 대기", tone: "warning" as const, icon: Clock3 };
+  return <StatusBadge tone={presentation.tone} icon={presentation.icon}>{presentation.label}</StatusBadge>;
+}
+
+function EnabledBadge({ enabled }: { enabled: boolean }) {
+  return enabled
+    ? <StatusBadge tone="success" icon={Power}>활성</StatusBadge>
+    : <StatusBadge tone="neutral" icon={PowerOff}>비활성</StatusBadge>;
+}
+
+function LastExecutionBadge({ schedule, timeZone }: { schedule: ScheduleResponse; timeZone: string }) {
+  const failed = schedule.lastExecution?.kind === "action_result"
+    && !formatActionResult(schedule.lastExecution.payload).startsWith("모두 성공");
+  return (
+    <StatusBadge tone={failed ? "danger" : schedule.lastExecution ? "info" : "neutral"} icon={failed ? TriangleAlert : Clock3}>
+      {formatLastExecution(schedule, timeZone)}
+    </StatusBadge>
+  );
 }
 
 function formatActivePeriod(schedule: ScheduleResponse, timeZone: string) {

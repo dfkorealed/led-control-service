@@ -144,6 +144,17 @@ describe("ControlView 대상 선택", () => {
     sessionStorage.clear();
   });
 
+  it("exposes the calm operations hierarchy for manual control", () => {
+    renderControl();
+
+    expect(screen.getByRole("heading", { name: "조명 제어" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "제어 방식" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "제어 대상 선택" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveTextContent("밝기");
+    expect(screen.getByRole("status", { name: "명령 진행 상태" })).toBeInTheDocument();
+  });
+
   it("sends one selected light as a fixture target", async () => {
     renderControl();
 

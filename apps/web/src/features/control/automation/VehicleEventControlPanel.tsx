@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CarFront, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
+import { CarFront, CircleCheck, Clock3, Pencil, Power, PowerOff, Trash2, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   createVehicleEventRule,
@@ -16,6 +16,7 @@ import type { AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { Button, PageHeader, StatusBadge } from "../../../components/ui";
 import { VehicleEventDialog } from "./VehicleEventDialog";
 
 export function VehicleEventControlPanel({
@@ -189,10 +190,11 @@ export function VehicleEventControlPanel({
 
   return (
     <div id="control-mode-panel-event" className="schedule-control-panel" role="tabpanel" aria-labelledby="control-mode-event">
-      <div className="schedule-panel-heading">
-        <div><span className="eyebrow">Gateway 차량 감지</span><h2>이벤트 제어</h2></div>
-        {canManage ? <button ref={addButtonRef} className="primary-button" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</button> : null}
-      </div>
+      <PageHeader
+        title="이벤트 제어"
+        description="Gateway가 차량 센서 감지를 현장 조명 규칙으로 즉시 연결합니다."
+        actions={canManage ? <button ref={addButtonRef} className="ui-button ui-button-primary schedule-add-button" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</button> : undefined}
+      />
       {!canManage ? <p className="schedule-readonly-notice" role="status">조회 전용 계정입니다. 이벤트 규칙과 Gateway 적용 상태만 확인할 수 있습니다.</p> : null}
       {rulesQuery.isLoading ? <p className="muted-text" role="status">이벤트 규칙을 불러오는 중입니다.</p> : null}
       {queryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} /> : null}
@@ -203,17 +205,17 @@ export function VehicleEventControlPanel({
             <tbody>
               {rules.map((rule) => <tr key={rule.id}>
                 <td><strong>{rule.name}</strong></td>
-                <td>{rule.status === "enabled" ? "활성" : "비활성"}</td>
+                <td><EnabledBadge enabled={rule.status === "enabled"} /></td>
                 <td>{rule.sourceCount}개</td>
                 <td>{rule.targetCount}개</td>
                 <td>{rule.action.dimmingEnabled ? `${rule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
                 <td>{rule.holdSeconds}초</td>
                 <td><SyncBadge status={rule.syncStatus} /></td>
-                <td>{rule.lastDetection ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone: dashboard?.site.timeZone ?? "UTC" }).format(new Date(rule.lastDetection.occurredAt)) : "최근 감지 없음"}</td>
+                <td><DetectionBadge rule={rule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
                 {canManage ? <td><div className="schedule-row-actions">
-                  <button type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</button>
-                  <button type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></button>
-                  <button className="danger-action" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); setDeleteReturnFocus(event.currentTarget); setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></button>
+                  <Button variant="ghost" type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
+                  <Button variant="ghost" type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></Button>
+                  <Button variant="danger" className="danger-action" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); setDeleteReturnFocus(event.currentTarget); setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
                 </div></td> : null}
               </tr>)}
               {rules.length === 0 ? <tr><td className="schedule-table-empty" colSpan={canManage ? 9 : 8}>등록된 이벤트 규칙이 없습니다.</td></tr> : null}
@@ -221,7 +223,7 @@ export function VehicleEventControlPanel({
           </table>
         </div>
       ) : null}
-      {rulesQuery.hasNextPage ? <button className="control-load-more" type="button" disabled={rulesQuery.isFetchingNextPage} onClick={() => void rulesQuery.fetchNextPage()}>{rulesQuery.isFetchingNextPage ? "불러오는 중" : "더 보기"}</button> : null}
+      {rulesQuery.hasNextPage ? <Button variant="secondary" className="control-load-more" type="button" disabled={rulesQuery.isFetchingNextPage} onClick={() => void rulesQuery.fetchNextPage()}>{rulesQuery.isFetchingNextPage ? "불러오는 중" : "더 보기"}</Button> : null}
       {message ? <p className="success-text schedule-panel-message" role="status">{message}</p> : null}
       {mutationError && !dialogOpen && !deleteCandidate ? <p className="danger-text schedule-panel-message" role="alert">{mutationError}</p> : null}
       {dashboard ? <VehicleEventDialog open={dialogOpen} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusElement={dialogReturnFocus} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onSubmit={save} /> : null}
@@ -233,14 +235,27 @@ export function VehicleEventControlPanel({
 }
 
 function QueryError({ message, onRetry, label }: { message: string; onRetry: () => void; label: string }) {
-  return <div className="schedule-query-error" role="alert"><p className="danger-text">{message}</p><button type="button" onClick={onRetry}>{label}</button></div>;
+  return <div className="schedule-query-error" role="alert"><p className="danger-text">{message}</p><Button variant="secondary" type="button" onClick={onRetry}>{label}</Button></div>;
 }
 
 function SyncBadge({ status }: { status: "PENDING" | "APPLIED" | "REJECTED" }) {
   const presentation = status === "APPLIED"
-    ? { className: "applied", label: "적용됨" }
+    ? { tone: "success" as const, icon: CircleCheck, label: "적용됨" }
     : status === "REJECTED"
-      ? { className: "rejected", label: "적용 거부" }
-      : { className: "pending", label: "적용 대기" };
-  return <span className={`schedule-sync-badge ${presentation.className}`}>{presentation.label}</span>;
+      ? { tone: "danger" as const, icon: TriangleAlert, label: "적용 실패" }
+      : { tone: "warning" as const, icon: Clock3, label: "적용 대기" };
+  return <StatusBadge tone={presentation.tone} icon={presentation.icon}>{presentation.label}</StatusBadge>;
+}
+
+function EnabledBadge({ enabled }: { enabled: boolean }) {
+  return enabled
+    ? <StatusBadge tone="success" icon={Power}>활성</StatusBadge>
+    : <StatusBadge tone="neutral" icon={PowerOff}>비활성</StatusBadge>;
+}
+
+function DetectionBadge({ rule, timeZone }: { rule: VehicleEventRuleResponse; timeZone: string }) {
+  const label = rule.lastDetection
+    ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(rule.lastDetection.occurredAt))
+    : "최근 감지 없음";
+  return <StatusBadge tone={rule.lastDetection ? "info" : "neutral"} icon={rule.lastDetection ? CarFront : Clock3}>{label}</StatusBadge>;
 }

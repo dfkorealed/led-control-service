@@ -36,6 +36,8 @@
 
 ### 구현 항목
 
+- Calm Operations 제어 화면은 단일 `조명 제어` 페이지 헤더 아래에 `수동 제어 | 스케줄 제어 | 이벤트 제어`를 동일한 pale-blue 탭 표면으로 배치한다. 수동 모드는 `제어 대상 선택` 카드와 `밝기 실행` 보조 영역을 읽기 순서대로 나누고, 선택 수·0~100 슬라이더·프리셋·override·적용 액션과 `명령 진행 상태` live region을 제공한다. 페이지 셸 변경 뒤에도 기존 URL mode query, command lock/recovery, polling/retry/timeout, viewer 제한과 Mesh readiness 상태 머신은 유지한다.
+- 수동 전송 가능 여부, 자동화 활성 여부, Gateway 동기화와 최근 실행·감지 상태는 공통 icon+text `StatusBadge`로 표시한다. Gateway sync 문구는 `적용됨 | 적용 대기 | 적용 실패`로 통일하며 색상만으로 상태를 구분하지 않는다. 스케줄·이벤트 목록은 16px bordered surface와 최소 56px 행을 사용하고 add/edit/retry/delete는 공통 버튼 variant를 사용하되 기존 accessible name과 mutation·pagination·`401`·validation·scope side effect 계약을 유지한다.
 - 제어 페이지에 `수동 제어 | 스케줄 제어 | 이벤트 제어` 탭을 추가했다. 선택 상태는 `mode=manual|schedule|event` URL query로 유지하고 누락되거나 잘못된 값은 기존 `siteId`를 보존한 채 `manual`로 정규화한다. 선택 탭만 일반 Tab 순서에 두고 좌우 방향키 순환, Home/End에서 focus·선택·URL을 함께 갱신하며 browser back/forward 뒤에도 roving focus 상태를 복원한다. Site 또는 사용자 scope가 바뀌면 열린 스케줄 dialog와 mutation 표시 상태를 새 scope로 넘기지 않는다. Schedule panel은 schedule mode에서 lazy-load하고 loading 동안 연결된 `tabpanel` 상태를 유지한다.
 - schedule 목록은 서버 `schedules.service.ts`의 실제 응답 형태를 사용해 이름, 활성 상태, 현장 시간대의 다음 실행, 반복·시간, 밝기, 대상 수, Gateway `PENDING|APPLIED|REJECTED` 상태와 최근 실행 결과를 표시한다. 최근 `action_result`는 `@led-control/shared/automation-contracts`의 narrow production schema로 검증한 뒤 fixture별 성공·실패·시간 초과를 집계하고 legacy/unknown payload는 상세 확인 불가로 표시한다. subpath의 `browser`와 generic `import`는 shared build가 생성한 executable `dist/esm` artifact를 사용하고 CommonJS `require`는 기존 CJS artifact를 유지하며, shared root CommonJS runtime은 Web production graph에 포함하지 않는다. Shared build cleanup은 manifest 소유 파일만 제거하고 `dist` root/parent/target symlink와 non-directory를 fail-closed하며 unrelated 파일을 보존한다. Artifact logical path는 POSIX 상대 경로만 허용하고 colon/backslash, drive-relative, ADS, UNC/device와 terminal dot/space를 host OS와 무관하게 mutation 전에 거부한다. 100개 bounded cursor page를 이어 불러오며 목록은 3초 polling한다. 첫 페이지, 다음 페이지, background 상태 갱신 오류를 구분하고 기존 행을 유지한 비차단 경고와 오류 종류에 맞는 재시도를 제공한다.
 - admin은 schedule 추가·수정·삭제·활성화/비활성화를 수행할 수 있고 viewer는 같은 목록과 상태만 조회한다. mutation 성공 시 중앙 schedule query key와 dashboard query를 invalidate한다. `schedule_overlap`, `single_gateway_required`, 권한·입력 오류는 서버 원문을 노출하지 않는 한글 메시지로 표시한다.
@@ -282,6 +284,13 @@
 - `apps/web/src/features/control/automation/ControlModeTabs.tsx`
 - `apps/web/src/features/control/automation/ScheduleControlPanel.tsx`
 - `apps/web/src/features/control/automation/ScheduleControlPanel.test.tsx`
+- `apps/web/src/features/control/automation/VehicleEventControlPanel.tsx`
+- `apps/web/src/features/control/automation/VehicleEventControlPanel.test.tsx`
+- `apps/web/src/components/ui/Button.tsx`
+- `apps/web/src/components/ui/Card.tsx`
+- `apps/web/src/components/ui/PageHeader.tsx`
+- `apps/web/src/components/ui/StatusBadge.tsx`
+- `apps/web/src/styles.css`
 - `apps/web/src/features/control/automation/automation-contracts.test.ts`
 - `apps/web/src/features/control/automation/ScheduleDialog.tsx`
 - `apps/web/src/features/control/automation/schedule-form.ts`

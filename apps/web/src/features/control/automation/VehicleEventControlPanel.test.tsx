@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import { authMeQueryKey } from "../../../api/principal-cache";
-import { vehicleEventRuleQueryKey } from "../../../api/automation";
+import { vehicleEventRuleQueryKey, type VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
 import { VehicleEventControlPanel } from "./VehicleEventControlPanel";
 
@@ -63,6 +63,24 @@ describe("VehicleEventControlPanel", () => {
     expect(screen.getByText("적용 대기")).toBeInTheDocument();
     expect(screen.getByText("최근 감지 없음")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "이벤트 추가" })).not.toBeInTheDocument();
+  });
+
+  it("shows icon and text badges for every Gateway sync state", async () => {
+    mocks.listVehicleEventRules.mockResolvedValue({
+      items: [
+        rule({ name: "적용 대기 규칙", syncStatus: "PENDING" }),
+        rule({ id: "00000000-0000-4000-8000-000000000012", name: "적용 완료 규칙", syncStatus: "APPLIED" }),
+        rule({ id: "00000000-0000-4000-8000-000000000013", name: "적용 실패 규칙", syncStatus: "REJECTED" })
+      ],
+      total: 3,
+      nextCursor: null
+    });
+
+    renderPanel("viewer");
+
+    expect((await screen.findByText("적용 대기")).closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttribute("data-tone", "danger");
   });
 
   it("validates empty source and target selections before a create request", async () => {
@@ -240,7 +258,7 @@ function fixture(
   };
 }
 
-function rule() {
+function rule(overrides: Partial<VehicleEventRuleResponse> = {}): VehicleEventRuleResponse {
   return {
     id: "00000000-0000-4000-8000-000000000011",
     name: "입구 차량 감지",
@@ -262,6 +280,7 @@ function rule() {
     createdById: "user-1",
     updatedById: "user-1",
     createdAt: "2026-08-31T00:00:00.000Z",
-    updatedAt: "2026-08-31T00:00:00.000Z"
+    updatedAt: "2026-08-31T00:00:00.000Z",
+    ...overrides
   };
 }

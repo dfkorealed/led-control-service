@@ -51,7 +51,7 @@ export function ControlModeTabs({
             onClick={() => onChange(item.value)}
             onKeyDown={(event) => selectFromKeyboard(event, index)}
           >
-            <Icon size={16} aria-hidden="true" />
+            <Icon size={18} aria-hidden="true" />
             {item.label}
           </button>
         );

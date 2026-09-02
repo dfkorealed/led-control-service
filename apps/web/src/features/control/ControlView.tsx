@@ -1,9 +1,10 @@
-import { Layers3 } from "lucide-react";
+import { CircleCheck, Clock3, Eye, Layers3, TriangleAlert } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
+import { Button, Card, PageHeader, StatusBadge } from "../../components/ui";
 import {
   canonicalizeDimmingCommandInput,
   createDimmingCommand,
@@ -249,11 +250,18 @@ export function ControlView({
   }
 
   const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} />;
+  const pageHeader = (
+    <PageHeader
+      title="조명 제어"
+      description="수동 명령과 Gateway 자동화 규칙을 한곳에서 관리합니다."
+    />
+  );
 
   if (mode === "event") {
     const eventSiteId = data?.site.id ?? siteId;
     return (
       <section className="control-screen">
+        {pageHeader}
         {modeTabs}
         {eventSiteId ? (
           <Suspense fallback={<p className="muted-text" role="status">이벤트 화면을 불러오는 중입니다.</p>}>
@@ -268,6 +276,7 @@ export function ControlView({
     const scheduleSiteId = data?.site.id ?? siteId;
     return (
       <section className="control-screen">
+        {pageHeader}
         {modeTabs}
         {scheduleSiteId ? (
           <Suspense
@@ -299,36 +308,37 @@ export function ControlView({
   }
 
   if (isLoading && !data) {
-    return <section className="control-screen">{modeTabs}<p className="muted-text" role="status">제어 대상을 불러오는 중입니다.</p></section>;
+    return <section className="control-screen">{pageHeader}{modeTabs}<p className="muted-text" role="status">제어 대상을 불러오는 중입니다.</p></section>;
   }
 
   if (error && !data) {
-    return <section className="control-screen">{modeTabs}<p className="danger-text" role="alert">제어 대상을 불러오지 못했습니다.</p></section>;
+    return <section className="control-screen">{pageHeader}{modeTabs}<p className="danger-text" role="alert">제어 대상을 불러오지 못했습니다.</p></section>;
   }
 
   if (!data) {
-    return <section className="control-screen">{modeTabs}<p className="muted-text" role="status">제어 대상 데이터가 없습니다.</p></section>;
+    return <section className="control-screen">{pageHeader}{modeTabs}<p className="muted-text" role="status">제어 대상 데이터가 없습니다.</p></section>;
   }
 
   return (
     <section className="control-screen">
+      {pageHeader}
       {modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="control-manual-panel">
-      <div className="screen-heading">
-        <div>
-          <span className="eyebrow">수동 제어</span>
-          <h2>조명 밝기 제어</h2>
-        </div>
-        <button
-          ref={groupDialogOpenerRef}
-          className="secondary-button"
-          type="button"
-          onClick={() => setGroupDialogOpen(true)}
-          disabled={commandSessionBlocked || isSubmitting || restorePending || commandInProgress}
-        >
-          <Layers3 size={16} aria-hidden="true" /> {readOnly ? "구역 현황" : "구역 관리"}
-        </button>
-      </div>
+      <PageHeader
+        title="조명 밝기 제어"
+        description="제어 대상을 선택한 뒤 밝기와 수동 override 시간을 적용합니다."
+        actions={(
+          <button
+            ref={groupDialogOpenerRef}
+            className="ui-button ui-button-secondary control-group-button"
+            type="button"
+            onClick={() => setGroupDialogOpen(true)}
+            disabled={commandSessionBlocked || isSubmitting || restorePending || commandInProgress}
+          >
+            <Layers3 size={16} aria-hidden="true" /> {readOnly ? "구역 현황" : "구역 관리"}
+          </button>
+        )}
+      />
 
       {readOnly ? (
         <p className="danger-text control-readonly-notice" role="alert">
@@ -337,32 +347,32 @@ export function ControlView({
       ) : null}
 
       <div className="control-layout">
-        <fieldset className="control-picker-fieldset" disabled={controlsLocked}>
-          <ControlTargetPicker
-            key={data.site.id}
-            dashboard={data}
-            selection={selection}
-            disabled={controlsLocked}
-            onChange={(nextSelection) => {
-              setSelection(nextSelection);
-              if (nextSelection.mode === "fixtures" && nextSelection.fixtureIds.length === 1) {
-                const fixture = fixtures.find((item) => item.id === nextSelection.fixtureIds[0]);
-                if (fixture) setBrightness(fixture.brightness);
-              }
-              setMessage("");
-            }}
-          />
-        </fieldset>
+        <Card className="control-target-card" aria-label="제어 대상 선택">
+          <fieldset className="control-picker-fieldset" disabled={controlsLocked}>
+            <ControlTargetPicker
+              key={data.site.id}
+              dashboard={data}
+              selection={selection}
+              disabled={controlsLocked}
+              onChange={(nextSelection) => {
+                setSelection(nextSelection);
+                if (nextSelection.mode === "fixtures" && nextSelection.fixtureIds.length === 1) {
+                  const fixture = fixtures.find((item) => item.id === nextSelection.fixtureIds[0]);
+                  if (fixture) setBrightness(fixture.brightness);
+                }
+                setMessage("");
+              }}
+            />
+          </fieldset>
+        </Card>
 
-        <aside className="control-panel">
+        <aside className="control-panel ui-card" aria-label="밝기 실행">
           <div className="panel-title-row">
             <div>
               <span className="eyebrow">선택 대상</span>
               <h3>{selected.name}</h3>
             </div>
-            <span className={`status-pill ${canSubmit ? "online" : "offline"}`}>
-              {readOnly ? "조회 전용" : canSubmit ? "전송 가능" : blockMessage ? "제어 불가" : "대상 없음"}
-            </span>
+            <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
 
           <div className="control-target-summary" aria-live="polite">
@@ -407,40 +417,43 @@ export function ControlView({
             <small>비워두면 서버 기본값을 사용합니다.</small>
           </label>
 
-          <button className="primary-button" type="button" onClick={submitCommand} disabled={!canSubmit}>
+          <Button variant="primary" type="button" onClick={submitCommand} disabled={!canSubmit}>
             {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
-          </button>
-          {scopedActiveRequest && !scopedCommandId ? (
-            <button
-              type="button"
-              onClick={() => void sendCommand(scopedActiveRequest, userId)}
-              disabled={isSubmitting || commandSessionBlocked}
-            >
-              동일 요청 다시 전송
-            </button>
-          ) : null}
-          {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
-          {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
-          {matchingCommandStatus ? <CommandProgress status={matchingCommandStatus} /> : null}
-          {!matchingCommandStatus && terminalResult?.siteId === data.site.id ? <CommandProgress status={terminalResult.status} /> : null}
-          {hasMismatchedCommandStatus && !missingCommand ? (
-            <div className="command-status-error" role="alert">
-              <p className="danger-text">
-                명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
-              </p>
-              <button type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
-                {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
-              </button>
-            </div>
-          ) : null}
-          {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
-            <div className="command-status-error" role="alert">
-              <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
-              <button type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
-                {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
-              </button>
-            </div>
-          ) : null}
+          </Button>
+          <div className="command-status-region" role="status" aria-label="명령 진행 상태" aria-live="polite">
+            {scopedActiveRequest && !scopedCommandId ? (
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => void sendCommand(scopedActiveRequest, userId)}
+                disabled={isSubmitting || commandSessionBlocked}
+              >
+                동일 요청 다시 전송
+              </Button>
+            ) : null}
+            {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
+            {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
+            {matchingCommandStatus ? <CommandProgress status={matchingCommandStatus} /> : null}
+            {!matchingCommandStatus && terminalResult?.siteId === data.site.id ? <CommandProgress status={terminalResult.status} /> : null}
+            {hasMismatchedCommandStatus && !missingCommand ? (
+              <div className="command-status-error" role="alert">
+                <p className="danger-text">
+                  명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
+                </p>
+                <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
+                  {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+                </Button>
+              </div>
+            ) : null}
+            {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
+              <div className="command-status-error" role="alert">
+                <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
+                <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
+                  {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </aside>
       </div>
       <FixtureGroupDialog
@@ -454,6 +467,13 @@ export function ControlView({
       </div>
     </section>
   );
+}
+
+function ManualControlBadge({ readOnly, canSubmit, blocked }: { readOnly: boolean; canSubmit: boolean; blocked: boolean }) {
+  if (readOnly) return <StatusBadge tone="neutral" icon={Eye}>조회 전용</StatusBadge>;
+  if (canSubmit) return <StatusBadge tone="success" icon={CircleCheck}>전송 가능</StatusBadge>;
+  if (blocked) return <StatusBadge tone="danger" icon={TriangleAlert}>제어 불가</StatusBadge>;
+  return <StatusBadge tone="neutral" icon={Clock3}>대상 없음</StatusBadge>;
 }
 
 function resolveSelection(

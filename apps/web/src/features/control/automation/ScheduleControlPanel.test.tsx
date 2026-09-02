@@ -155,9 +155,10 @@ describe("ScheduleControlPanel", () => {
 
     renderPanel("viewer");
 
-    expect(await screen.findAllByText("Gateway 동기화 중")).not.toHaveLength(0);
-    expect(screen.getByText("Gateway 적용됨")).toBeInTheDocument();
-    expect(screen.getByText("Gateway 적용 실패")).toBeInTheDocument();
+    expect((await screen.findAllByText("적용 대기"))[0].closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
+    expect(screen.getAllByText("적용 실패").find((element) => element.closest(".ui-status-badge"))?.closest(".ui-status-badge"))
+      .toHaveAttribute("data-tone", "danger");
     expect(screen.getByText(/모두 성공 · 성공 2개/)).toBeInTheDocument();
     expect(screen.getByText(/일부 실패 · 성공 1개 · 실패 1개 · 시간 초과 1개/)).toBeInTheDocument();
     expect(screen.getByText(/실패 · 실패 1개 · 시간 초과 1개/)).toBeInTheDocument();
@@ -324,7 +325,7 @@ describe("ScheduleControlPanel", () => {
   it("keeps applied rows visible and warns when a background status refresh is stale", async () => {
     mocks.listSchedules.mockResolvedValueOnce(page([schedule({ syncStatus: "APPLIED" })]));
     const { queryClient } = renderPanel("admin");
-    expect(await screen.findByText("Gateway 적용됨")).toBeInTheDocument();
+    expect(await screen.findByText("적용됨")).toBeInTheDocument();
 
     mocks.listSchedules.mockRejectedValueOnce(new Error("poll failed"));
     await act(async () => {
@@ -334,11 +335,11 @@ describe("ScheduleControlPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다."
     );
-    expect(screen.getByText("Gateway 적용됨")).toBeInTheDocument();
+    expect(screen.getByText("적용됨")).toBeInTheDocument();
 
     mocks.listSchedules.mockResolvedValueOnce(page([schedule({ syncStatus: "PENDING" })]));
     fireEvent.click(screen.getByRole("button", { name: "상태 다시 조회" }));
-    expect(await screen.findByText("Gateway 동기화 중")).toBeInTheDocument();
+    expect(await screen.findByText("적용 대기")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
