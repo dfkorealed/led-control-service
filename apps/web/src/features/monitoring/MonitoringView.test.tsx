@@ -112,6 +112,8 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("72%");
+    const selectedFixtureDetail = screen.getByRole("region", { name: "선택 조명 정보" });
+    expect(within(selectedFixtureDetail).getByRole("heading", { name: "점검 큐" })).toBeInTheDocument();
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByText(
       /정상|장애|오프라인|상태 확인 대기/,
       { selector: ".ui-status-badge > span" }

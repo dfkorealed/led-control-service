@@ -928,6 +928,50 @@ button {
   font-size: 13px;
 }
 
+.floor-map-legend {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 12px;
+  max-width: calc(100% - 36px);
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 8px 10px;
+  color: var(--muted);
+  list-style: none;
+}
+
+.floor-map-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.floor-map-legend li:nth-child(1) {
+  color: var(--success);
+}
+
+.floor-map-legend li:nth-child(2) {
+  color: var(--danger);
+}
+
+.floor-map-legend li:nth-child(3) {
+  color: #64748b;
+}
+
+.floor-map-legend li:nth-child(4) {
+  color: #a16207;
+}
+
 .fixture-dot {
   --fixture-marker-radius: 40px;
   position: absolute;
@@ -1001,7 +1045,10 @@ button {
 }
 
 .fixture-dot.offline {
+  border-width: 2px;
   border-color: #cbd5e1;
+  border-style: dashed;
+  border-radius: 10px;
   background: #f1f5f9;
   color: #64748b;
   box-shadow: none;
@@ -1012,7 +1059,10 @@ button {
 }
 
 .fixture-dot.awaiting-state {
+  border-width: 3px;
   border-color: #facc15;
+  border-style: dotted;
+  border-radius: 6px;
   background: #fffbeb;
   color: #854d0e;
 }
@@ -1022,7 +1072,9 @@ button {
 }
 
 .fixture-dot.fault {
+  border-width: 3px;
   border-color: #fca5a5;
+  border-style: double;
   background: #fff1f2;
   color: #b91c1c;
   box-shadow: none;
@@ -3494,6 +3546,12 @@ button.group-card {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .detail-stack {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
   .panel-title-row,
   .device-list-panel {
     grid-column: 1 / -1;
@@ -3771,6 +3829,10 @@ button.group-card {
   }
 
   .detail-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-stack {
     grid-template-columns: 1fr;
   }
 

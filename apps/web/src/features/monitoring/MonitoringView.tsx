@@ -235,7 +235,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
           </div>
 
           {selectedFixture ? (
-            <div className="detail-stack">
+            <section className="detail-stack" aria-label="선택 조명 정보">
               <div className="brightness-card">
                 <span>현재 밝기</span>
                 <strong>{selectedFixture.brightness}%</strong>
@@ -298,7 +298,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
                   </div>
                 </button>
               </div>
-            </div>
+            </section>
           ) : (
             <p className="muted-text">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</p>
           )}

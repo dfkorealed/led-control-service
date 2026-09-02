@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorMap } from "./FloorMap";
 
 const mapSnapshot = {
@@ -36,6 +36,8 @@ const mapSnapshot = {
 };
 
 describe("FloorMap", () => {
+  afterEach(() => cleanup());
+
   it("renders fixtures with brightness labels", () => {
     const onSelectFixture = vi.fn();
     render(
@@ -119,5 +121,60 @@ describe("FloorMap", () => {
     );
 
     expect(screen.getByRole("button", { name: "B2-L02 상태 확인 대기 0%" })).toBeInTheDocument();
+  });
+
+  it("shows an icon and text legend with semantic marker variants", () => {
+    const sharedFixture = {
+      x: 200,
+      y: 240,
+      ratedWatt: 40,
+      brightness: 0,
+      health: null,
+      rssi: null,
+      hopCount: null,
+      commandSuccessRate: null,
+      lastSeenAt: null,
+      gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" as const },
+      controllable: false,
+      controlBlockReason: "fixture_offline" as const
+    };
+    render(
+      <FloorMap
+        snapshot={{ ...mapSnapshot, floorPlan: null, objects: [] }}
+        selectedFixtureId={null}
+        onSelectFixture={vi.fn()}
+        floor={{
+          id: "floor-1",
+          name: "B2",
+          level: -2,
+          floorPlan: null,
+          meshControlGroups: [],
+          fixtures: [
+            { ...sharedFixture, id: "fixture-fault", name: "B2-Fault", status: "fault" as const },
+            { ...sharedFixture, id: "fixture-offline", name: "B2-Offline", status: "offline" as const },
+            {
+              ...sharedFixture,
+              id: "fixture-awaiting",
+              name: "B2-Awaiting",
+              status: "offline" as const,
+              statusReason: "provisioning_waiting_state"
+            }
+          ]
+        }}
+      />
+    );
+
+    const legend = screen.getByRole("list", { name: "조명 상태 범례" });
+    const legendItems = within(legend).getAllByRole("listitem");
+    expect(legendItems).toHaveLength(4);
+    for (const label of ["정상", "장애", "오프라인", "상태 확인 대기"]) {
+      const item = within(legend).getByText(label).closest("li");
+      expect(item).not.toBeNull();
+      expect(item?.querySelector("svg")).not.toBeNull();
+    }
+
+    expect(screen.getByRole("button", { name: "B2-Fault 장애 0%" })).toHaveClass("fault");
+    expect(screen.getByRole("button", { name: "B2-Offline 오프라인 0%" })).toHaveClass("offline");
+    expect(screen.getByRole("button", { name: "B2-Awaiting 상태 확인 대기 0%" })).toHaveClass("offline", "awaiting-state");
   });
 });
