@@ -243,7 +243,9 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
           confirmLabel="삭제 확인"
           isPending={deleteMutation.isPending}
           destructive
-          onClose={() => setDeleteCandidate(null)}
+          onClose={() => {
+            if (!deleteMutation.isPending) setDeleteCandidate(null);
+          }}
           onConfirm={() => deleteCandidate && deleteMutation.mutate(deleteCandidate)}
         />
         {message ? <p className="success-text" role="status">{message}</p> : null}

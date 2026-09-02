@@ -152,6 +152,32 @@ describe("FixtureGroupDialog", () => {
     await waitFor(() => expect(deleteTrigger).toHaveFocus());
   });
 
+  it("삭제 요청 중 Escape는 확인 dialog와 포커스를 유지한다", async () => {
+    const pendingDelete = deferred<{ id: string; lifecycleStatus: "retiring" }>();
+    mocks.deleteFixtureGroup.mockReturnValue(pendingDelete.promise);
+    renderDialog(true);
+    const deleteTrigger = await screen.findByRole("button", { name: "B2 입구 삭제" });
+
+    deleteTrigger.focus();
+    fireEvent.click(deleteTrigger);
+    const confirmation = screen.getByRole("dialog", { name: "구역 삭제 확인" });
+    const confirmButton = within(confirmation).getByRole("button", { name: "삭제 확인" });
+    confirmButton.focus();
+    fireEvent.click(confirmButton);
+    await waitFor(() => expect(mocks.deleteFixtureGroup).toHaveBeenCalledWith(ids.site, ids.group));
+
+    const focusedBeforeEscape = document.activeElement;
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.getByRole("dialog", { name: "구역 삭제 확인" })).toBeInTheDocument();
+    expect(document.activeElement).toBe(focusedBeforeEscape);
+    expect(within(confirmation).getByRole("button", { name: "구역 삭제 확인 닫기" })).toBeDisabled();
+    expect(within(confirmation).getByRole("button", { name: "취소" })).toBeDisabled();
+
+    pendingDelete.resolve({ id: ids.group, lifecycleStatus: "retiring" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "구역 삭제 확인" })).not.toBeInTheDocument());
+  });
+
   it("저장 구역 Mesh 오류의 ACK는 화면에서 장비 응답으로 표시한다", async () => {
     mocks.listFixtureGroups.mockResolvedValue([{
       ...failedGroup,
@@ -224,6 +250,14 @@ function DialogHarness() {
 
 function renderDialogHarness() {
   return render(<DialogHarness />);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 function createDashboard(): Dashboard {

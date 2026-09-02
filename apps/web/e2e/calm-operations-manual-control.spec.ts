@@ -3,6 +3,8 @@ import type { FixtureGroupMetadata } from "@led-control/shared";
 import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 
+test.use({ timezoneId: "Asia/Seoul" });
+
 const ids = {
   site: "77777777-7777-4777-8777-777777777701",
   floor: "77777777-7777-4777-8777-777777777702",
@@ -38,6 +40,7 @@ const viewports = [
 
 for (const viewport of viewports) {
   test(`${viewport.width}px 수동 제어는 대상·명령 결과·저장 구역 계약을 유지한다`, async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-09-01T00:00:00.000Z") });
     await page.setViewportSize(viewport);
     const api = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
@@ -59,10 +62,18 @@ for (const viewport of viewports) {
 
     await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
     await page.getByRole("button", { name: "30%" }).click();
-    await page.getByLabel("수동 override 종료 시각").fill("2026-09-03T08:30");
+    await page.getByLabel("수동 override 종료 시각").fill("2026-09-01T10:30");
     await page.getByRole("button", { name: "밝기 적용" }).click();
-    await expect.poll(() => api.dimmingRequests.at(-1)?.brightness).toBe(30);
+    await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({
+      brightness: 30,
+      overrideUntil: "2026-09-01T01:30:00.000Z"
+    });
     await expect(page.getByRole("list", { name: "명령 진행" })).toContainText("장비 응답");
+    await expect(page.getByRole("checkbox", { name: "B2-L01 선택" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "층" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "30%" })).toBeDisabled();
+    await expect(page.getByLabel("수동 override 종료 시각")).toBeDisabled();
+    await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
 
     await page.reload();
     await expect(page.getByRole("list", { name: "명령 진행" })).toBeVisible();
@@ -86,6 +97,22 @@ for (const viewport of viewports) {
       await expectMinimumTouchTargets(page, ".fixture-group-dialog-header .icon-button");
       await expectMinimumTouchTargetsAfterScrolling(page, ".fixture-group-editor-card");
     }
+  });
+
+  test(`${viewport.width}px Mesh 준비 전 floor와 저장 구역은 제어 대상으로 차단한다`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await installManualControlFixture(page, "admin", "blocked");
+    await page.goto(`/control?siteId=${ids.site}`);
+
+    await page.getByRole("button", { name: "층" }).click();
+    await expect(page.getByRole("button", { name: "B2" })).toBeDisabled();
+    await expect(page.getByText(/Mesh 설정 중/)).toBeVisible();
+
+    await page.getByRole("button", { name: "구역", exact: true }).click();
+    await expect(page.getByRole("button", { name: "B2 입구 선택" })).toBeDisabled();
+    await expect(page.getByText("Gateway 장비 응답을 확인하지 못했습니다.")).toBeVisible();
+    await expect(page.getByText(/ACK/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
 
   test(`${viewport.width}px viewer는 수동 제어와 저장 구역을 읽기 전용으로 유지한다`, async ({ page }) => {
@@ -154,7 +181,7 @@ function commandResult(status: "succeeded" | "failed" | "timed_out", errorMessag
   return { fixtureId: ids.fixture, fixtureName: "B2-L01", status, errorMessage };
 }
 
-async function installManualControlFixture(page: Page, role: "admin" | "viewer") {
+async function installManualControlFixture(page: Page, role: "admin" | "viewer", meshState: "ready" | "blocked" = "ready") {
   const api = await installSettingsApiRoutes(page, role, {
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
     fixtures
@@ -166,14 +193,20 @@ async function installManualControlFixture(page: Page, role: "admin" | "viewer")
       return route.fulfill({ json: [savedZone] });
     }
     if (url.pathname === `/api/sites/${ids.site}/dashboard`) {
-      return route.fulfill({ json: dashboardResponse() });
+      return route.fulfill({ json: dashboardResponse(meshState) });
     }
     return route.fallback();
   });
   return api;
 }
 
-function dashboardResponse() {
+function dashboardResponse(meshState: "ready" | "blocked" = "ready") {
+  const floorMeshControlGroup = meshState === "blocked"
+    ? { gatewayId: ids.gateway, status: "configuring", version: 1, error: null }
+    : { gatewayId: ids.gateway, status: "ready", version: 1, error: null };
+  const groupMeshControlGroup = meshState === "blocked"
+    ? { status: "failed", version: 2, error: "Gateway ACK를 확인하지 못했습니다." }
+    : savedZone.meshControlGroup;
   return {
     site: {
       id: ids.site,
@@ -190,10 +223,10 @@ function dashboardResponse() {
       name: "B2",
       level: -2,
       floorPlan: null,
-      meshControlGroups: [{ gatewayId: ids.gateway, status: "ready", version: 1, error: null }],
+      meshControlGroups: [floorMeshControlGroup],
       fixtures
     }],
-    groups: [{ ...savedZone, fixtureIds: [ids.fixture] }],
+    groups: [{ ...savedZone, meshControlGroup: groupMeshControlGroup, fixtureIds: [ids.fixture] }],
     gateways: [{
       id: ids.gateway,
       name: "Gateway B2",

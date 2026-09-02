@@ -46,3 +46,20 @@
 - `pnpm --filter @led-control/web typecheck` — passed.
 - `pnpm --filter @led-control/web build` — passed; 기존 Vite 500 kB chunk-size warning만 발생.
 - `git diff --check` — passed.
+
+## Fix round 2
+
+### 수정 내용과 RED→GREEN 근거
+
+- 수동 제어 E2E가 wall clock에 의존한 local override를 사용하고 brightness만 확인하던 위험을 고정했다. RED는 과거 `2026-09-01T10:30` 값에서 API request가 생성되지 않아 exact payload assertion이 실패한 것으로 재현했다. 각 admin viewport에는 `Asia/Seoul`과 `2026-09-01T00:00:00.000Z` browser clock을 고정하고, `brightness: 30` 및 `overrideUntil: 2026-09-01T01:30:00.000Z`를 함께 검증한다.
+- command status가 nonterminal인 동안 checkbox, target mode, preset, override input, apply action이 모두 disabled임을 reload/terminal transition 전에 검증했다. 각 viewport에서 production-shaped fixture의 floor `configuring`와 saved zone `failed`를 동시에 제공해 두 target이 fail-closed되고 raw ACK가 화면에 남지 않음을 확인한다.
+- delete pending RED unit은 confirmation의 Escape가 `deleteCandidate`를 즉시 지워 dialog를 닫는 것을 재현했다. `FixtureGroupDialog`는 pending일 때 ConfirmDialog `onClose`를 무시하도록 guard하여 close/backdrop의 existing disabled contract와 함께 confirmation/focus를 유지한다. deferred delete를 resolve하면 정상적으로 confirmation이 닫히는지도 확인했다.
+
+### Fix round 검증
+
+- `pnpm --filter @led-control/web test -- src/features/control/ControlView.test.tsx src/features/control/FixtureGroupDialog.test.tsx src/features/control/active-command-store.test.ts` — 3 files, 83 tests passed.
+- `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-manual-control.spec.ts --project=chromium` — 16 passed (4 viewport).
+- `pnpm --filter @led-control/web exec playwright test e2e/monitoring-control-flow.spec.ts --project=chromium` — 25 passed.
+- `pnpm --filter @led-control/web typecheck` — passed.
+- `pnpm --filter @led-control/web build` — passed; 기존 Vite 500 kB chunk-size warning만 발생.
+- `git diff --check` — passed.
