@@ -693,9 +693,10 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
-    expect(await screen.findByText("상세 패널")).toBeInTheDocument();
   });
 
   it("shows the selected fixture's assigned gateway in monitoring details", async () => {
@@ -844,13 +845,13 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "B1" }));
-    expect(await screen.findByText("B1 운영 현황")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
     expect(await screen.findByRole("heading", { name: "B1-L02" })).toBeInTheDocument();
-    expect(screen.getByText("-56 dBm")).toBeInTheDocument();
-    expect(screen.getByText("99%")).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("-56 dBm");
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("99%");
   });
 
   it("keeps the monitoring floor map read only", async () => {
@@ -861,9 +862,9 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "도면 편집" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("층 도면")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
   });
 
   it("excludes fixtures waiting for initial state from the offline inspection queue", async () => {
@@ -919,7 +920,9 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("B2 운영 현황")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "도면 편집" })).not.toBeInTheDocument();
   });
 
