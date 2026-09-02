@@ -105,8 +105,8 @@ describe("RegistrationPanel", () => {
         states: ["complete", "complete", "complete", "complete"]
       },
       {
-        session: { ...scanningSession(), status: "cancelled" as const },
-        states: ["pending", "pending", "pending", "pending"]
+        session: { ...completedSession([]), status: "cancelled" as const },
+        states: ["complete", "pending", "pending", "pending"]
       },
       {
         session: { ...completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1)), status: "failed" as const },
