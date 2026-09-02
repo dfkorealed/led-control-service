@@ -473,7 +473,7 @@ git commit -m "feat(web): apply calm operations commissioning UI"
 - Preserves: `FloorMapProps`, `FloorScene` hit targets and read-only monitoring behavior
 - Produces: named regions `빠른 상태`, `층 도면`, `선택 조명 상세`
 
-- [ ] **Step 1: Write failing monitoring state and hierarchy tests**
+- [x] **Step 1: Write failing monitoring state and hierarchy tests**
 
 Use the exact test names `모니터링은 빠른 상태, 층 도면, 선택 조명 상세 순서를 유지한다`, `부분 지도 갱신 실패에서도 직전 유효 데이터를 유지한다`, and `모바일 모니터링은 320px에서 문서 overflow 없이 동작한다`.
 
@@ -490,7 +490,7 @@ expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHa
 
 Add a mobile-order unit assertion using DOM order: `빠른 상태` precedes `층 도면`, which precedes `선택 조명 상세`. Keep existing selected fixture, provisioning-waiting, pagination and map fallback assertions.
 
-- [ ] **Step 2: Run monitoring tests and confirm RED**
+- [x] **Step 2: Run monitoring tests and confirm RED**
 
 Run:
 
@@ -500,7 +500,7 @@ pnpm --filter @led-control/web test -- src/features/monitoring/MonitoringView.te
 
 Expected: new `빠른 상태` region and mobile-oriented DOM order assertions fail against the current layout.
 
-- [ ] **Step 3: Recompose monitoring without changing queries**
+- [x] **Step 3: Recompose monitoring without changing queries**
 
 Keep all hooks/effects/handlers above the return unchanged. Use common `Button` for refresh/retry, add a `Card` quick-status list derived from existing fault/offline fixtures, keep four metric cards, and place map/detail in the corrected 1fr/280px desktop grid. The empty admin/viewer, first map failure and partial map refresh branches remain separate.
 
@@ -519,7 +519,7 @@ Render the quick-state region directly from the current derived values:
 
 Do not add a control link unless it is an actual React Router `Link` to `/control` that preserves the full current query string; if the link is added, assert it in `App.test.tsx` before implementation.
 
-- [ ] **Step 4: Align map and marker visuals**
+- [x] **Step 4: Align map and marker visuals**
 
 Keep `interactive={false}`, marker keyboard/click selection and accessible names. Reduce decoration, use icon+text legend for `정상`, `장애`, `오프라인`, `상태 확인 대기`, and keep the selected marker ring visible at 200% zoom. Do not change map coordinate scaling or hit-test math.
 
@@ -536,15 +536,15 @@ Keep the `FloorScene` call interface unchanged:
 />
 ```
 
-- [ ] **Step 5: Add monitoring four-viewport and exception coverage**
+- [x] **Step 5: Add monitoring four-viewport and exception coverage**
 
 Use the installed dashboard fixture with online/fault/offline/provisioning-waiting fixtures. At all viewports assert 4/4, 2/2, 2/2, 1/1 KPI columns for desktop/tablet/mobile/minimum respectively, correct panel stacking, no overflow and mobile touch targets. Add fixture variants for 0 fixtures, Viewer pending, initial map failure and partial refresh failure; assert valid data remains visible in the partial case.
 
-- [ ] **Step 6: Update monitoring documentation**
+- [x] **Step 6: Update monitoring documentation**
 
 Update `docs/menus/monitoring.md` under `구현 완료`, `부족하거나 개선이 필요한 기능`, `관련 파일`, and keep its hardware caveats. Record scenes 10~12, mobile quick-state ordering, four viewport contract, icon+text statuses and unchanged registration/session logic.
 
-- [ ] **Step 7: Run GREEN and monitoring regression**
+- [x] **Step 7: Run GREEN and monitoring regression**
 
 Run:
 
@@ -557,7 +557,7 @@ git diff --check
 
 Expected: semantic tests pass, 1,000-fixture rendering remains a browser fixture rather than HIL, and every viewport has no document overflow.
 
-- [ ] **Step 8: Review, synchronize status, and commit Task 4**
+- [x] **Step 8: Review, synchronize status, and commit Task 4**
 
 ```bash
 git add apps/web/src/features/monitoring apps/web/src/features/floor-map/FloorScene.tsx apps/web/src/features/floor-map/FloorScene.test.tsx apps/web/src/styles.css apps/web/e2e/calm-operations-monitoring.spec.ts docs/menus/monitoring.md docs/project-status.md docs/superpowers/plans/2026-09-02-calm-operations-a-implementation.md
