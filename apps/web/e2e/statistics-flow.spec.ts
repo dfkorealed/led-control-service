@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  expectMinimumTouchTargets,
+  expectNoHorizontalOverflow
+} from "./support/layout-assertions";
 
 const generatedAt = "2026-08-26T00:00:00.000Z";
 
@@ -105,33 +109,26 @@ test("retries a summary failure and keeps cards during a series failure", async 
   await expect(page.getByRole("img", { name: /일별 상태 기반 추정/ })).toBeVisible();
 });
 
-test("uses two KPI columns at 390px", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/statistics");
-  await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
-  expect(await gridColumnCount(page)).toBe(2);
-  expect(await hasHorizontalOverflow(page)).toBe(false);
-});
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 1024, height: 768 },
+  { width: 390, height: 844 },
+  { width: 320, height: 740 }
+] as const) {
+  test(`keeps the statistics report responsive at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/statistics");
+    await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
 
-test("uses touch-sized period controls at 390px", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/statistics");
-  for (const name of ["일별", "월별"]) {
-    const button = page.getByRole("button", { name });
-    await expect(button).toBeVisible();
-    expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44);
-    expect(await button.evaluate((element) => Number.parseFloat(getComputedStyle(element).minHeight)))
-      .toBeGreaterThanOrEqual(44);
-  }
-});
-
-test("uses one KPI column without overflow at 320px", async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 844 });
-  await page.goto("/statistics");
-  await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
-  expect(await gridColumnCount(page)).toBe(1);
-  expect(await hasHorizontalOverflow(page)).toBe(false);
-});
+    const expectedColumns = viewport.width <= 360 ? 1 : viewport.width <= 760 ? 2 : 3;
+    expect(await gridColumnCount(page)).toBe(expectedColumns);
+    await expectReportPanelLayout(page, viewport.width <= 1120);
+    await expectNoHorizontalOverflow(page);
+    if (viewport.width <= 760) {
+      await expectMinimumTouchTargets(page, ".nav-item, .statistics-screen button");
+    }
+  });
+}
 
 function dashboard(siteId: string) {
   return {
@@ -201,13 +198,24 @@ function series(siteId: string, granularity: "day" | "month", from: string, to: 
   };
 }
 
-async function hasHorizontalOverflow(page: Page) {
-  return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
-}
-
-
 async function gridColumnCount(page: Page) {
   return page.locator(".statistics-summary").evaluate((element) => {
     return getComputedStyle(element).gridTemplateColumns.split(" ").length;
   });
+}
+
+async function expectReportPanelLayout(page: Page, stacked: boolean) {
+  const [chart, costs] = await Promise.all([
+    page.locator(".chart-panel").boundingBox(),
+    page.locator(".statistics-cost-panel").boundingBox()
+  ]);
+  expect(chart).not.toBeNull();
+  expect(costs).not.toBeNull();
+  if (!chart || !costs) return;
+
+  if (stacked) {
+    expect(costs.y).toBeGreaterThanOrEqual(chart.y + chart.height - 1);
+  } else {
+    expect(costs.x).toBeGreaterThanOrEqual(chart.x + chart.width - 1);
+  }
 }

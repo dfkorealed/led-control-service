@@ -127,6 +127,11 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
@@ -4007,6 +4012,12 @@ button.group-card {
     width: 100%;
   }
 
+  .monitoring-screen .secondary-button,
+  .monitoring-screen .segmented-control button,
+  .floor-asset-actions .secondary-button {
+    min-height: 44px;
+  }
+
   .control-screen .ui-page-header {
     align-items: stretch;
     flex-direction: column;
@@ -4019,6 +4030,10 @@ button.group-card {
   .control-screen .ui-page-actions .ui-button {
     justify-content: center;
     width: 100%;
+  }
+
+  .control-screen button {
+    min-height: 44px;
   }
 
   .site-pill {
@@ -4194,8 +4209,8 @@ button.group-card {
 
   .fixture-dot {
     --fixture-marker-radius: 38px;
-    width: 34px;
-    min-height: 34px;
+    width: 44px;
+    min-height: 44px;
   }
 
   .fixture-dot:is(.active, :hover, :focus-visible) {
@@ -4250,5 +4265,16 @@ button.group-card {
 @media (max-width: 360px) {
   .statistics-summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }

@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
+import {
+  expectMinimumTouchTargets,
+  expectNoHorizontalOverflow
+} from "./support/layout-assertions";
 import { installSettingsApiRoutes } from "./support/settings-api";
+
+const responsiveViewports = [
+  { width: 1440, height: 900 },
+  { width: 1024, height: 768 },
+  { width: 390, height: 844 },
+  { width: 320, height: 740 }
+] as const;
 
 test("operator customer routes are blocked and admin floor changes are reflected in monitoring", async ({ browser }) => {
   const operatorPage = await browser.newPage();
@@ -71,7 +82,7 @@ test("viewer is redirected before editor state and lease requests while mutation
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
-  const floorRow = page.locator(".setting-card").filter({ hasText: "B2" });
+  const floorRow = page.locator(".floor-plan-card").filter({ hasText: "B2" });
   await expect(floorRow).toContainText("도면 등록됨");
   await expect(floorRow.getByRole("link", { name: "B2 도면 편집" })).toHaveCount(0);
   expect(api.requests.filter((path) => path.includes("/editor-state") || path.includes("/editor-lease"))).toEqual([]);
@@ -186,3 +197,96 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
   expect(api.logoutRequests).toBe(1);
   await expect.poll(async () => page.evaluate(async () => (await fetch("/api/auth/me")).status)).toBe(401);
 });
+
+test("desktop settings navigation opens on hover, preserves site scope, and exposes admin links", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installSettingsApiRoutes(page, "admin");
+  await page.goto("/monitoring?siteId=site-1");
+
+  const settings = page.getByRole("link", { name: "설정", exact: true });
+  await settings.hover();
+  await expect(settings).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "설정 메뉴" })).toHaveCount(0);
+  await page.getByRole("link", { name: "도면 관리" }).click();
+
+  await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
+  await expect(page.getByRole("heading", { name: "도면 관리" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});
+
+test("desktop settings navigation opens on focus and Escape restores focus", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await installSettingsApiRoutes(page, "viewer");
+  await page.goto("/monitoring?siteId=site-1");
+
+  const settings = page.getByRole("link", { name: "설정", exact: true });
+  await settings.focus();
+  await expect(settings).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("link", { name: "도면 관리" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "비밀번호 변경" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
+  await expect(settings).toBeFocused();
+  await expectNoHorizontalOverflow(page);
+});
+
+for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) {
+  test(`coarse ${viewport.width}px settings navigation uses an accessible bottom sheet`, async ({ browser, baseURL }) => {
+    const page = await browser.newPage({ baseURL, viewport, hasTouch: true, isMobile: true });
+    try {
+      await installSettingsApiRoutes(page, "admin");
+      await page.goto("/monitoring?siteId=site-1");
+      const settings = page.getByRole("link", { name: "설정", exact: true });
+      await settings.click();
+
+      const menu = page.getByRole("dialog", { name: "설정 메뉴" });
+      await expect(menu).toBeVisible();
+      await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
+      await expectMinimumTouchTargets(page, ".nav-item, .settings-submenu a");
+      await expectNoHorizontalOverflow(page);
+
+      await menu.getByRole("link", { name: "도면 관리" }).click();
+      await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
+      await expect(page.getByRole("heading", { name: "도면 관리" })).toBeVisible();
+      await expectMinimumTouchTargets(page, ".nav-item, .settings-screen a, .settings-screen button, .settings-screen select");
+      await expectNoHorizontalOverflow(page);
+    } finally {
+      await page.close();
+    }
+  });
+}
+
+for (const viewport of responsiveViewports) {
+  test(`floor editor keeps its workspace contract at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const api = await installSettingsApiRoutes(page, "admin");
+    await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+    await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+    await expect.poll(() => api.editorRequests.some((request) => request.type === "lease-acquire")).toBe(true);
+
+    const [toolbar, stage, sidePanel] = await Promise.all([
+      page.locator(".floor-editor-toolbar").boundingBox(),
+      page.locator(".floor-editor-stage").boundingBox(),
+      page.locator(".floor-editor-side-panel").boundingBox()
+    ]);
+    expect(toolbar).not.toBeNull();
+    expect(stage).not.toBeNull();
+    expect(sidePanel).not.toBeNull();
+    if (toolbar && stage && sidePanel) {
+      if (viewport.width <= 760) {
+        expect(stage.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height - 1);
+        expect(sidePanel.y).toBeGreaterThanOrEqual(stage.y + stage.height - 1);
+      } else {
+        expect(stage.x).toBeGreaterThanOrEqual(toolbar.x + toolbar.width - 1);
+        expect(sidePanel.x).toBeGreaterThanOrEqual(stage.x + stage.width - 1);
+      }
+    }
+
+    await expectNoHorizontalOverflow(page);
+    if (viewport.width <= 760) {
+      await expectMinimumTouchTargets(page, ".nav-item, .floor-editor-shell button, .floor-asset-actions .secondary-button");
+    }
+  });
+}

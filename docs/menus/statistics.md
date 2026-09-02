@@ -4,6 +4,7 @@
 
 ## 구현 완료
 
+- 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 리포트·비용 패널의 1120px 스택, 390px 2열 KPI, 320px 1열 KPI, 44px 기간 선택과 document-level horizontal overflow 부재를 검증한다.
 - Web은 선택 현장의 `GET /energy/sites/:siteId/summary`와 일별·월별 `series` wrapper를 React Query로 조회한다. URL에 `siteId`가 없으면 대시보드가 반환한 실제 현장 ID를 사용하며 legacy default estimate API로 우회하지 않는다.
 - 오늘, 이번 달 누적, 올해 누적의 상태 기반 추정 사용량과 비용을 표시한다.
 - 페이지 제목과 집계 시각은 공통 `PageHeader`, 추정 출처는 공통 `StatusBadge`로 표시한다. KPI는 공통 `MetricCard`에 공백으로 구분한 값·kWh, 비용과 `available`, `partial`, `no_data` `StatusBadge`를 하나의 접근 가능한 group 안에 제공한다.

@@ -4,6 +4,10 @@ import {
   installSettingsApiRoutes,
   type SettingsFixture
 } from "./support/settings-api";
+import {
+  expectMinimumTouchTargets,
+  expectNoHorizontalOverflow
+} from "./support/layout-assertions";
 import type { RegistrationSession } from "../src/api/registration";
 
 const ids = {
@@ -59,6 +63,13 @@ const fixtures: SettingsFixture[] = [
   }
 ];
 
+const responsiveViewports = [
+  { width: 1440, height: 900 },
+  { width: 1024, height: 768 },
+  { width: 390, height: 844 },
+  { width: 320, height: 740 }
+] as const;
+
 function registrationSession(scanStatus: RegistrationSession["scanStatus"], scanFailureMessage: string | null): RegistrationSession {
   return {
     id: "88888888-8888-4888-8888-888888888888",
@@ -111,7 +122,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     const api = await installBrowserContractFixture(page);
     await page.goto(`/monitoring?siteId=${ids.site}`);
 
-    await expect(page.getByRole("heading", { name: "B2 운영 현황" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
     const lastUpdated = page.getByText(/마지막 갱신:/);
     await expect(lastUpdated).toBeVisible();
     const previousLastUpdated = await lastUpdated.textContent();
@@ -472,7 +483,74 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await expect.poll(() => controlApi.dimmingRequests[1]?.target).toEqual({ type: "group", groupId: ids.group });
     await expect(page.getByText("조명 적용 완료")).toBeVisible();
   });
+
+  for (const viewport of responsiveViewports) {
+    test(`${viewport.width}px에서 모니터링과 제어 작업 패널이 반응형 계약을 지킨다`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await installBrowserContractFixture(page);
+
+      await page.goto(`/monitoring?siteId=${ids.site}`);
+      await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
+      await expectResponsivePanelLayout(page, ".map-panel", ".detail-panel", viewport.width <= 1120);
+      await expectNoHorizontalOverflow(page);
+      if (viewport.width <= 760) {
+        await expectMinimumTouchTargets(
+          page,
+          ".nav-item, .monitoring-screen .secondary-button, .monitoring-screen .segmented-control button, .monitoring-screen .fixture-dot"
+        );
+      }
+
+      await page.goto(`/control?siteId=${ids.site}`);
+      await expect(page.getByRole("heading", { name: "조명 제어" })).toBeVisible();
+      await expectResponsivePanelLayout(page, ".control-target-card", ".control-panel", viewport.width <= 1120);
+      await expectNoHorizontalOverflow(page);
+      if (viewport.width <= 760) {
+        await expectMinimumTouchTargets(page, ".nav-item, .control-screen button");
+      }
+    });
+  }
+
+  test("keyboard focus remains visible on shared controls", async ({ page }) => {
+    await installBrowserContractFixture(page);
+    await page.goto(`/monitoring?siteId=${ids.site}`);
+    await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
+
+    const refresh = page.getByRole("button", { name: "새로고침" });
+    await refresh.focus();
+    expect(await refresh.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
+  });
+
+  test("reduced motion preference shortens interface transitions", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await installBrowserContractFixture(page);
+    await page.goto(`/monitoring?siteId=${ids.site}`);
+    await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
+
+    expect(await page.locator(".fixture-dot").first().evaluate((element) => getComputedStyle(element).transitionDuration))
+      .toBe("1e-05s");
+  });
 });
+
+async function expectResponsivePanelLayout(
+  page: Page,
+  primarySelector: string,
+  secondarySelector: string,
+  stacked: boolean
+) {
+  const [primary, secondary] = await Promise.all([
+    page.locator(primarySelector).boundingBox(),
+    page.locator(secondarySelector).boundingBox()
+  ]);
+  expect(primary).not.toBeNull();
+  expect(secondary).not.toBeNull();
+  if (!primary || !secondary) return;
+
+  if (stacked) {
+    expect(secondary.y).toBeGreaterThanOrEqual(primary.y + primary.height - 1);
+  } else {
+    expect(secondary.x).toBeGreaterThanOrEqual(primary.x + primary.width - 1);
+  }
+}
 
 async function installFixtureGroupContractRoutes(page: Page, initialGroups: FixtureGroupMetadata[]) {
   const groups = structuredClone(initialGroups);

@@ -70,6 +70,7 @@
 
 ## 구현 완료
 
+- 설정 주 메뉴는 desktop hover/focus와 Escape focus 복원, admin/viewer별 링크 노출, coarse pointer의 `설정 메뉴` dialog형 bottom sheet, `siteId` 보존을 Chromium route fixture로 검증한다. 설정·도면 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정하고, 모바일 floor asset 컨트롤과 편집 버튼은 최소 44px hit target을 유지한다.
 - 주 메뉴의 설정 항목은 데스크톱 click으로 query string을 유지한 `/settings` 개요로 이동하고 hover/focus로 역할별 disclosure를 연다. coarse pointer click은 route를 바꾸지 않고 하단 sheet를 열어 `설정 개요`를 포함한 허용 메뉴를 선택하게 한다. 외부 pointer, blur, Escape와 route 변경은 disclosure를 닫는다.
 - 설정 본문의 내부 `설정 메뉴` 사이드바를 제거하고 현장 선택기를 수평 context row에 유지했다. 기존 현장 전환 dirty 확인 및 editor store 폐기, 상세 route와 `siteId` query 보존 계약은 그대로 유지한다.
 - 설정 메뉴에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `도면 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `도면 관리`만 읽기 전용으로 사용한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.

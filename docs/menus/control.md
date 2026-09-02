@@ -4,6 +4,7 @@
 
 ## 구현 완료
 
+- 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 대상 선택·밝기 실행 패널의 1120px 스택, document-level horizontal overflow 부재와 모바일 44px 버튼 hit target을 검증한다. 공통 focus ring과 reduced-motion 규칙은 기존 명령/API/auth/scope 계약을 바꾸지 않는다.
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
