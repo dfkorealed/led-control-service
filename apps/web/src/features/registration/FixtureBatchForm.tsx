@@ -1,4 +1,5 @@
 import { CheckCircle2, Loader2 } from "lucide-react";
+import { Button } from "../../components/ui";
 
 export interface FixtureBatchDefaults {
   namePrefix: string;
@@ -91,15 +92,16 @@ export function RegistrationSubmitButton({
   pending: boolean;
 }) {
   return (
-    <button
-      className="primary-button registration-submit"
+    <Button
+      className="registration-submit"
+      variant="primary"
       type="submit"
       aria-label="선택 조명 등록"
-      disabled={disabled || pending}
+      disabled={disabled}
+      isLoading={pending}
+      loadingLabel="선택 조명 등록 중"
     >
-      {pending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />}
-      선택 조명 등록
-      <span>{selectedCount}</span>
-    </button>
+      <>{pending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />} 선택 조명 등록 <span>{selectedCount}</span></>
+    </Button>
   );
 }

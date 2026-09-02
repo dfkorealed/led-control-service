@@ -79,6 +79,9 @@
 - `설정 개요`, `도면 관리`, admin `비밀번호 변경` 화면은 공통 PageHeader, Card, Button과 상태 토큰으로 같은 시각 계층을 사용한다. 개요의 현장·Gateway는 이름 있는 구역으로, 층/도면·그룹은 새 편집 동작 없이 compact row로 표시한다.
 - operator가 만든 pending Site는 assigned admin이 customer route에서 `/settings?siteId=...`로 replace된 최초 설치 UI에서 address, tariff, timeZone, floors로 완성한다. CustomerShell은 installationStatus 확인 전 child route를 fail-closed하고, `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송한다. 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다. Task 9 격리 실백엔드 E2E는 이 흐름과 password 교체 후 이전 비밀번호 실패/새 비밀번호 로그인을 검증했다. 재설치와 모바일은 범위 밖이고 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - 설치 완료 뒤 admin은 설정 개요에서 Gateway claim 또는 조명 등록을 수행할 수 있다. viewer는 claim, registration, setup mutation UI를 보지 않는다. operator는 전용 shell 때문에 customer 설정에 진입하지 않는다.
+- Scene 04~09 설치·Gateway claim·조명 검색·일괄/개별 등록·상태 확인 화면은 공통 `Card`, `Button`, `StatusBadge`, `FeedbackState`, `ProgressSteps`로 정보 위계를 표시한다. 초기 설치는 현장 정보부터 운영 시작까지, 등록은 검색·등록 정보·장비 등록·상태 확인 단계를 실제 session 상태로 표현한다.
+- 설치·claim·registration UI는 기존 실제 setup/claim/registration API payload, query key, mutation, active session polling·복구와 cache invalidation을 그대로 사용한다. `reconcile_required` 노드는 기존 명시적 확인·제외·상태 재조회 흐름을 유지하며 viewer와 operator에는 mutation UI를 노출하지 않는다.
+- Ethernet, mTLS, 장비 online 같은 prototype 전용 사전 점검은 현재 API가 제공하지 않아 구현하지 않았다. `calm-operations-commissioning.spec.ts`의 browser fixture는 화면·API route 계약 검증일 뿐 Raspberry Pi/ESP32-H2 hardware-in-the-loop 증거가 아니다.
 - `POST /auth/change-password` 화면은 현재/새/확인 비밀번호, 8자 검증, 확인 불일치, 정확한 현재 비밀번호 오류, 일반 오류와 중복 제출 차단을 제공한다. 평문 비밀번호는 React Query mutation/cache에 넣지 않고 component-local state와 요청 본문에만 두며, 성공 또는 화면 이탈 시 제거하고 실패 시 재시도 입력을 유지한다.
 - 도면 목록과 편집 route의 편집 가능 역할은 assigned admin만이다. viewer는 목록과 저장된 도면을 읽기 전용으로 보고, operator는 customer shell을 mount하지 않는다.
 - `POST /setup/initial-site`는 assigned active customer `admin`만 `{ siteId, address, tariffKwhRate, timeZone?, floors }`로 호출할 수 있다. transaction 안에서 target Site row를 `FOR UPDATE`로 잠그고 assigned admin 및 pending 상태를 재검증한 뒤 기존 Site와 Floors/FloorPlan만 갱신한다.
@@ -336,7 +339,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
 - 기존 `FixtureGroup` 데이터는 제어 기반에서 사용할 수 있지만 zone 생성·수정 UI/API가 없어 zone 실장비 제어 Gate는 `not_executed`다. 이 미구현 계획은 설정 기능 재개 시 별도 작업으로 유지한다.
-- 등록 패널의 물리 provisioning 상태는 1.5초 polling으로 반영한다. 단계별 진행률과 `reconcile_required` 장비의 현장 복구 workflow는 아직 제공하지 않는다.
+- 등록 패널의 물리 provisioning 상태는 1.5초 polling으로 반영하고, 검색·등록·상태 확인의 display-only 진행 단계를 제공한다. `reconcile_required` 장비의 실제 현장 복구 판단과 자동 질의는 아직 제공하지 않는다.
 - MinIO 기반 local S3 integration test는 준비됐지만 현재 개발 머신에 Docker CLI가 없어 실제 실행 증거는 아직 없다.
 - PDF는 첫 페이지만 도면 배경으로 렌더링한다. 다중 페이지 선택과 원본 PDF 파일 관리 UI는 후속 작업이다.
 - 도형 삭제, 조명/도형 다중 선택과 일괄 이동, undo/redo는 아직 없다. Konva Transformer는 모서리/변 resize만 제공하므로 회전, grid snap과 키보드 미세 조정이 필요하다.
@@ -386,6 +389,10 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/floor-editor/editor-store.ts`
 - `apps/web/src/features/setup`
 - `apps/web/src/features/registration`
+- `apps/web/src/features/setup/SetupWizard.test.tsx`
+- `apps/web/src/features/setup/GatewayClaimPanel.test.tsx`
+- `apps/web/src/features/registration/RegistrationPanel.test.tsx`
+- `apps/web/e2e/calm-operations-commissioning.spec.ts`
 - `apps/api/src/floor-editor/floor-editor.controller.ts`
 - `apps/api/src/floor-editor/editor-lease.service.ts`
 - `apps/api/src/floor-editor/floor-editor.service.ts`

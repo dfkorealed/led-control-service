@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Radar } from "lucide-react";
+import { CircleAlert, CircleCheck, Clock3, Radar } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dashboard } from "../../api/queries";
 import {
@@ -15,6 +15,7 @@ import {
   type RegisterFixtureBatchInput,
   type RegistrationSession
 } from "../../api/registration";
+import { Button, Card, FeedbackState, ProgressSteps, StatusBadge, type ProgressStep, type ProgressStepState } from "../../components/ui";
 import { FixtureBatchForm, type FixtureBatchDefaults } from "./FixtureBatchForm";
 import {
   FixtureIndividualForm,
@@ -296,6 +297,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
   const hasProvisionedNode = sessionNodes.some((node) => node.status === "provisioned");
   const hasUnresolvedNode = sessionNodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required");
   const isTerminalScan = sessionSnapshot?.scanStatus === "completed" || sessionSnapshot?.scanStatus === "failed";
+  const steps = sessionSnapshot ? registrationSteps(sessionSnapshot, nodes) : initialRegistrationSteps;
 
   function toggleNode(nodeId: string) {
     setSelectedNodeIds((current) => current.includes(nodeId)
@@ -399,10 +401,16 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
           <span className="eyebrow">BLE Mesh Provisioning</span>
           <h3>조명 등록</h3>
         </div>
-        <span className="status-pill online">{scanStatusLabel(sessionSnapshot)}</span>
+        {sessionSnapshot ? (
+          <span role="status" aria-label="조명 검색 상태">
+            <StatusBadge tone={scanStatusTone(sessionSnapshot)} icon={scanStatusIcon(sessionSnapshot)}>{scanStatusLabel(sessionSnapshot)}</StatusBadge>
+          </span>
+        ) : <StatusBadge tone="neutral" icon={Clock3}>준비됨</StatusBadge>}
       </div>
 
-      <div className="registration-summary">
+      <ProgressSteps label="조명 등록 진행" steps={steps} />
+
+      <Card className="registration-summary">
         <div>
           <strong>{floor?.name ?? "등록 대상 선택"}</strong>
           <span>{hasFixtures ? "추가 조명을 검색해 등록합니다." : "등록된 조명이 없어 먼저 검색을 시작합니다."}</span>
@@ -436,59 +444,56 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
             </select>
           </label>
         </div>
-        <button className="primary-button" disabled={!canStart} onClick={() => startMutation.mutate()}>
-          {startMutation.isPending ? <Loader2 size={16} /> : <Radar size={16} />}
+        <Button variant="primary" disabled={!canStart} isLoading={startMutation.isPending} loadingLabel="조명 검색 시작 중" onClick={() => startMutation.mutate()}>
+          <Radar size={16} />
           조명 검색 시작
-        </button>
-      </div>
+        </Button>
+      </Card>
 
-      {startMutation.error ? <p className="danger-text">조명 검색 세션을 시작하지 못했습니다.</p> : null}
+      {startMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 검색 세션을 시작하지 못했습니다." /> : null}
       {activeSessionsQuery.error ? (
-        <p className="danger-text">
-          진행 중인 등록 세션을 확인하지 못했습니다.
-          <button className="link-button" onClick={() => activeSessionsQuery.refetch()}>다시 시도</button>
-        </p>
+        <FeedbackState tone="danger" icon={CircleAlert} title="진행 중인 등록 세션을 확인하지 못했습니다." action={<Button variant="ghost" onClick={() => activeSessionsQuery.refetch()}>다시 시도</Button>} />
       ) : null}
 
       {session && sessionSnapshot ? (
-        <div className="registration-session">
+        <Card className="registration-session">
           <div className="session-meta">
             <span>등록 세션</span>
             <strong>{session.id.slice(0, 8)}</strong>
             <small>{nodes.length}개 후보 발견</small>
             {nodes.some((node) => node.status === "reconcile_required") ? (
-              <button
-                className="secondary-button"
-                disabled={sessionQuery.isFetching}
+              <Button
+                variant="secondary"
+                isLoading={sessionQuery.isFetching}
+                loadingLabel="상태 확인 중"
                 onClick={() => sessionQuery.refetch()}
               >
-                {sessionQuery.isFetching ? <Loader2 size={15} /> : null}
                 상태 다시 확인
-              </button>
+              </Button>
             ) : null}
             {sessionSnapshot.scanStatus === "completed" && nodes.length > 0 && !hasUnresolvedNode ? (
-              <button className="secondary-button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate()}>
-                {retryMutation.isPending ? <Loader2 size={15} /> : <Radar size={15} />}
+              <Button variant="secondary" disabled={retryMutation.isPending} isLoading={retryMutation.isPending} loadingLabel="다시 검색 중" onClick={() => retryMutation.mutate()}>
+                <Radar size={15} />
                 다시 검색
-              </button>
+              </Button>
             ) : null}
           </div>
           {sessionSnapshot.scanStatus === "failed" ? (
             <div className="node-row muted-node" role="alert">
               <span>{safeScanFailureMessage(sessionSnapshot.scanFailureMessage)}</span>
-              <button className="secondary-button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate()}>
-                {retryMutation.isPending ? <Loader2 size={15} /> : <Radar size={15} />}
+              <Button variant="secondary" disabled={retryMutation.isPending} isLoading={retryMutation.isPending} loadingLabel="다시 검색 중" onClick={() => retryMutation.mutate()}>
+                <Radar size={15} />
                 다시 검색
-              </button>
+              </Button>
             </div>
           ) : null}
           {sessionSnapshot.scanStatus === "completed" && nodes.length === 0 ? (
             <div className="node-row muted-node">
               <span>검색된 미등록 조명이 없습니다.</span>
-              <button className="secondary-button" disabled={retryMutation.isPending} onClick={() => retryMutation.mutate()}>
-                {retryMutation.isPending ? <Loader2 size={15} /> : <Radar size={15} />}
+              <Button variant="secondary" disabled={retryMutation.isPending} isLoading={retryMutation.isPending} loadingLabel="다시 검색 중" onClick={() => retryMutation.mutate()}>
+                <Radar size={15} />
                 다시 검색
-              </button>
+              </Button>
             </div>
           ) : null}
           {nodes.length > 0 ? (
@@ -528,7 +533,9 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
                       <small>RSSI {node.rssi} dBm</small>
                       {rowError ? <small className="danger-text">{rowError}</small> : null}
                     </div>
-                    <span className={`node-status ${node.status}`}>{statusLabels[node.status]}</span>
+                    <StatusBadge className={`node-status ${node.status}`} tone={nodeStatusTone(node.status)} icon={nodeStatusIcon(node.status)}>
+                      {statusLabels[node.status]}
+                    </StatusBadge>
                     {node.status === "reconcile_required" ? (
                       <div className="reconcile-actions">
                         <small>장비의 실제 등록 상태를 확인하기 전에는 다시 등록하지 마세요.</small>
@@ -543,8 +550,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
                           />
                           장비가 등록되지 않았거나 초기화된 상태임을 확인
                         </label>
-                        <button
-                          className="secondary-button"
+                        <Button
+                          variant="secondary"
                           disabled={
                             !reconcileConfirmations.includes(node.id)
                             || excludeMutation.isPending
@@ -553,7 +560,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
                           onClick={() => excludeMutation.mutate(node.id)}
                         >
                           현재 세션에서 제외
-                        </button>
+                        </Button>
                       </div>
                     ) : null}
                   </div>
@@ -604,22 +611,22 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
                   onSubmit={submitRegistration}
                 />
               )}
-              {registerMutation.error ? <p className="danger-text">선택한 조명 등록 요청을 처리하지 못했습니다.</p> : null}
+              {registerMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="선택한 조명 등록 요청을 처리하지 못했습니다." /> : null}
             </div>
           ) : null}
           {sessionSnapshot.status === "active" ? (
-            <button
-              className="link-button"
+            <Button
+              variant="ghost"
               disabled={!isTerminalScan || hasUnresolvedNode || completeMutation.isPending || cancelMutation.isPending}
               onClick={() => hasProvisionedNode ? completeMutation.mutate() : cancelMutation.mutate()}
             >
               {hasProvisionedNode ? "등록 세션 완료" : "등록 세션 취소"}
-            </button>
+            </Button>
           ) : null}
-          {excludeMutation.error ? <p className="danger-text">노드를 현재 세션에서 제외하지 못했습니다.</p> : null}
-          {cancelMutation.error ? <p className="danger-text">등록 세션을 취소하지 못했습니다.</p> : null}
-          {sessionQuery.error ? <p className="danger-text">등록 세션 상태를 다시 확인하지 못했습니다.</p> : null}
-        </div>
+          {excludeMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="노드를 현재 세션에서 제외하지 못했습니다." /> : null}
+          {cancelMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="등록 세션을 취소하지 못했습니다." /> : null}
+          {sessionQuery.error ? <FeedbackState tone="danger" icon={CircleAlert} title="등록 세션 상태를 다시 확인하지 못했습니다." /> : null}
+        </Card>
       ) : null}
     </section>
   );
@@ -669,4 +676,50 @@ function scanStatusLabel(session: RegistrationSession | null) {
 
 function safeScanFailureMessage(message: string | null) {
   return message?.trim() || "조명 검색 중 문제가 발생했습니다. 다시 검색하세요.";
+}
+
+const initialRegistrationSteps: readonly ProgressStep[] = [
+  { id: "scan", label: "조명 검색", state: "current" },
+  { id: "configure", label: "등록 정보", state: "pending" },
+  { id: "provision", label: "장비 등록", state: "pending" },
+  { id: "reconcile", label: "상태 확인", state: "pending" }
+];
+
+function registrationSteps(session: RegistrationSession, nodes: DiscoveredRegistrationNode[]): ProgressStep[] {
+  const unresolved = nodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required");
+  const scanState: ProgressStepState = session.scanStatus === "completed"
+    ? "complete"
+    : session.scanStatus === "failed" ? "error" : "current";
+  return [
+    { id: "scan", label: "조명 검색", state: scanState },
+    { id: "configure", label: "등록 정보", state: nodes.length > 0 ? "current" : "pending" },
+    { id: "provision", label: "장비 등록", state: unresolved ? "current" : "pending" },
+    { id: "reconcile", label: "상태 확인", state: nodes.some((node) => node.status === "reconcile_required") ? "current" : "pending" }
+  ];
+}
+
+function scanStatusTone(session: RegistrationSession | null) {
+  if (session?.scanStatus === "failed") return "danger" as const;
+  if (session?.scanStatus === "completed") return "success" as const;
+  return "info" as const;
+}
+
+function scanStatusIcon(session: RegistrationSession | null) {
+  if (session?.scanStatus === "failed") return CircleAlert;
+  if (session?.scanStatus === "completed") return CircleCheck;
+  return Clock3;
+}
+
+function nodeStatusTone(status: DiscoveredRegistrationNode["status"]) {
+  if (status === "failed" || status === "reconcile_required") return "danger" as const;
+  if (status === "provisioned") return "success" as const;
+  if (status === "provisioning" || status === "identifying") return "warning" as const;
+  return "info" as const;
+}
+
+function nodeStatusIcon(status: DiscoveredRegistrationNode["status"]) {
+  if (status === "failed" || status === "reconcile_required") return CircleAlert;
+  if (status === "provisioned") return CircleCheck;
+  if (status === "provisioning" || status === "identifying") return Clock3;
+  return Radar;
 }

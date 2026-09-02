@@ -16,6 +16,8 @@ describe("GatewayClaimPanel", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     render(<QueryClientProvider client={queryClient}><GatewayClaimPanel siteId="site-1" /></QueryClientProvider>);
 
+    expect(screen.getByRole("region", { name: "Gateway 연결" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Viewer 설치 대기" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "게이트웨이 등록" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("제품 시리얼"), { target: { value: " GW-001 " } });
     fireEvent.change(screen.getByLabelText("일회성 등록 코드"), { target: { value: " once-1234 " } });

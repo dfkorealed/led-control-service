@@ -64,6 +64,27 @@ describe("RegistrationPanel", () => {
     expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
   });
 
+  it("교정 UI에서 검색 중 상태를 실제 session 상태로 표현한다", async () => {
+    const activeSession = { ...mockRegistrationSession, scanStatus: "scanning" as const, discoveredNodes: [] };
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValue(activeSession);
+
+    renderPanel();
+
+    expect(await screen.findByRole("status", { name: "조명 검색 상태" })).toHaveTextContent("검색 중");
+  });
+
+  it("등록 실패와 확인 필요 노드를 장비 상태 확인 단계로 표현한다", async () => {
+    const node = { ...mockRegistrationSession.discoveredNodes[0], status: "reconcile_required" as const };
+    const activeSession = completedSession([node]);
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValue(activeSession);
+
+    renderPanel();
+
+    expect(await screen.findByRole("list", { name: "조명 등록 진행" })).toHaveTextContent("상태 확인");
+  });
+
   it("확인 필요 노드는 명시적 확인 후 세션에서 제외하고 성공 장비가 없으면 세션을 취소한다", async () => {
     const reconcileNode = {
       ...mockRegistrationSession.discoveredNodes[0],

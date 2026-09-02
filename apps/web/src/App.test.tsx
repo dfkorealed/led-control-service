@@ -571,7 +571,7 @@ describe("App", () => {
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "초기 설치 설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
     expect(window.location.search).toBe("?siteId=site-2");
   });
@@ -688,7 +688,7 @@ describe("App", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "초기 설치 설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
 
@@ -1375,6 +1375,7 @@ describe("App", () => {
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
     expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Viewer 설치 대기" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "게이트웨이 등록" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "조명 등록" })).not.toBeInTheDocument();
   });
