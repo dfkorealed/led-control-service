@@ -2363,6 +2363,10 @@ button {
   align-items: start;
 }
 
+.statistics-report-layout {
+  grid-template-columns: minmax(0, 1fr) 330px;
+}
+
 .control-target-card {
   min-width: 0;
   padding: 16px;
@@ -3075,15 +3079,24 @@ button.group-card {
 
 .chart-panel,
 .insight-panel,
-.rf-panel {
+.rf-panel,
+.statistics-chart-panel,
+.statistics-cost-panel {
   display: grid;
   gap: 14px;
 }
 
 .chart-panel,
+.statistics-chart-panel,
 .statistics-cost-panel {
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
+}
+
+.statistics-chart-panel,
+.statistics-cost-panel {
+  padding: 18px;
+  box-shadow: 0 10px 24px rgba(15, 38, 70, 0.04);
 }
 
 .statistics-screen .ui-page-header {

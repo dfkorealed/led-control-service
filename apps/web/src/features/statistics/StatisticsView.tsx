@@ -11,7 +11,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergySeries, useEnergySummary } from "../../api/energy";
-import { Button, FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
+import { Button, Card, FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
 import { getEnergySeriesRanges } from "./statistics-periods";
 
 type Granularity = "day" | "month";
@@ -80,6 +80,64 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
   const hasPartialData = [summary.today, summary.monthToDate, summary.yearToDate]
     .some((period) => period.dataStatus === "partial");
   const activeSeries = granularity === "day" ? dayQuery : monthQuery;
+  const retrySeriesButton = (
+    <Button variant="secondary" onClick={() => activeSeries.refetch()}>
+      사용량 추이 다시 시도
+    </Button>
+  );
+  const chart = activeSeries.isLoading ? (
+    <div className="statistics-chart-state">
+      <FeedbackState icon={Activity} title="사용량 추이를 불러오는 중" />
+    </div>
+  ) : activeSeries.isError || !activeSeries.data ? (
+    <div className="statistics-chart-state">
+      <FeedbackState
+        tone="danger"
+        icon={TriangleAlert}
+        title="사용량 추이를 불러오지 못했습니다."
+        action={retrySeriesButton}
+      />
+    </div>
+  ) : !activeSeries.data.points.some((point) => point.estimatedKwh !== null) ? (
+    <div className="statistics-chart-state">
+      <FeedbackState
+        icon={CircleOff}
+        title="선택한 기간의 사용량 데이터가 없습니다."
+        description="수집 데이터가 있는 기간을 선택해 주세요."
+      />
+    </div>
+  ) : (
+    <EnergyChart granularity={granularity} points={activeSeries.data.points} />
+  );
+  const unavailableMessage = summary.monthForecast.reason === "no_registered_fixture"
+    ? "등록된 조명이 없어 예상 비용과 절감액을 계산할 수 없습니다."
+    : "상태 수집 시간이 부족하여 예상 비용과 절감액을 계산할 수 없습니다.";
+  const costRows = summary.monthForecast.reason === "available"
+    && summary.monthForecast.estimatedKwh !== null
+    && summary.monthForecast.estimatedCost !== null
+    && summary.estimatedSavings.kwh !== null
+    && summary.estimatedSavings.cost !== null ? (
+      <dl className="statistics-cost-list">
+        <div className="statistics-cost-item">
+          <dt>이번 달 예상 비용</dt>
+          <dd>{formatWon(summary.monthForecast.estimatedCost)}</dd>
+          <small>{formatKwh(summary.monthForecast.estimatedKwh)}</small>
+        </div>
+        <div className="statistics-cost-item">
+          <dt>24시간 100% 기준 비용</dt>
+          <dd>{formatWon(summary.baseline24Hours.estimatedCost)}</dd>
+          <small>{formatKwh(summary.baseline24Hours.estimatedKwh)}</small>
+        </div>
+        <div
+          className="statistics-cost-item statistics-savings"
+          data-tone={summary.estimatedSavings.cost < 0 ? "danger" : "neutral"}
+        >
+          <dt>예상 절감</dt>
+          <dd>{formatWon(summary.estimatedSavings.cost)}</dd>
+          <small>{formatKwh(summary.estimatedSavings.kwh)}</small>
+        </div>
+      </dl>
+    ) : <p className="statistics-unavailable">{unavailableMessage}</p>;
 
   return (
     <section className="statistics-screen">
@@ -113,8 +171,8 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
             <EnergyMetric label="올해 누적" period={summary.yearToDate} />
           </div>
 
-          <div className="report-layout">
-            <section className="panel chart-panel">
+          <div className="report-layout statistics-report-layout">
+            <Card className="statistics-chart-panel" aria-label="상태 기반 추정 사용량">
               <div className="panel-title-row statistics-chart-heading">
                 <div>
                   <span className="eyebrow">사용량 추이</span>
@@ -134,10 +192,19 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
                   ))}
                 </div>
               </div>
-              <EnergyChartState granularity={granularity} query={activeSeries} />
-            </section>
+              {chart}
+            </Card>
 
-            <CostPanel summary={summary} />
+            <aside className="statistics-cost-panel ui-card" aria-label="비용 비교">
+              <div>
+                <span className="eyebrow">예상 요금</span>
+                <h3>이번 달 비용 비교</h3>
+              </div>
+              {costRows}
+              <p className="statistics-baseline-note">
+                현재 등록 조명 {summary.baseline24Hours.fixtureCount}개 · 해당 월 {summary.baseline24Hours.daysInMonth}일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준
+              </p>
+            </aside>
           </div>
         </>
       )}
@@ -166,46 +233,13 @@ function EnergyMetric({ label, period }: { label: string; period: EnergySummary[
   );
 }
 
-function EnergyChartState({
+function EnergyChart({
   granularity,
-  query
+  points
 }: {
   granularity: Granularity;
-  query: ReturnType<typeof useEnergySeries>;
+  points: EnergySeriesPoint[];
 }) {
-  if (query.isLoading) {
-    return (
-      <div className="statistics-chart-state">
-        <FeedbackState icon={Activity} title="사용량 추이를 불러오는 중" />
-      </div>
-    );
-  }
-  if (query.isError || !query.data) {
-    return (
-      <div className="statistics-chart-state">
-        <FeedbackState
-          tone="danger"
-          icon={TriangleAlert}
-          title="사용량 추이를 불러오지 못했습니다."
-          action={<Button variant="secondary" onClick={() => query.refetch()}>사용량 추이 다시 시도</Button>}
-        />
-      </div>
-    );
-  }
-
-  const points = query.data.points;
-  if (!points.some((point) => point.estimatedKwh !== null)) {
-    return (
-      <div className="statistics-chart-state">
-        <FeedbackState
-          icon={CircleOff}
-          title="선택한 기간의 사용량 데이터가 없습니다."
-          description="수집 데이터가 있는 기간을 선택해 주세요."
-        />
-      </div>
-    );
-  }
-
   return (
     <>
       <div
@@ -270,50 +304,6 @@ function EnergyTooltip({
       <span>{statusLabels[point.dataStatus]}</span>
       {point.unknownSeconds > 0 ? <span>수집 공백 {formatDuration(point.unknownSeconds)}</span> : null}
     </div>
-  );
-}
-
-function CostPanel({ summary }: { summary: EnergySummary }) {
-  const unavailableMessage = summary.monthForecast.reason === "no_registered_fixture"
-    ? "등록된 조명이 없어 예상 비용과 절감액을 계산할 수 없습니다."
-    : "상태 수집 시간이 부족하여 예상 비용과 절감액을 계산할 수 없습니다.";
-
-  return (
-    <aside className="panel insight-panel statistics-cost-panel">
-      <div>
-        <span className="eyebrow">예상 요금</span>
-        <h3>이번 달 비용 비교</h3>
-      </div>
-      {summary.monthForecast.reason === "available"
-        && summary.monthForecast.estimatedKwh !== null
-        && summary.monthForecast.estimatedCost !== null
-        && summary.estimatedSavings.kwh !== null
-        && summary.estimatedSavings.cost !== null ? (
-          <dl className="statistics-cost-list">
-            <div className="statistics-cost-item">
-              <dt>이번 달 예상 비용</dt>
-              <dd>{formatWon(summary.monthForecast.estimatedCost)}</dd>
-              <small>{formatKwh(summary.monthForecast.estimatedKwh)}</small>
-            </div>
-            <div className="statistics-cost-item">
-              <dt>24시간 100% 기준 비용</dt>
-              <dd>{formatWon(summary.baseline24Hours.estimatedCost)}</dd>
-              <small>{formatKwh(summary.baseline24Hours.estimatedKwh)}</small>
-            </div>
-            <div
-              className="statistics-cost-item statistics-savings"
-              data-tone={summary.estimatedSavings.cost < 0 ? "danger" : "neutral"}
-            >
-              <dt>예상 절감</dt>
-              <dd>{formatWon(summary.estimatedSavings.cost)}</dd>
-              <small>{formatKwh(summary.estimatedSavings.kwh)}</small>
-            </div>
-          </dl>
-        ) : <p className="statistics-unavailable">{unavailableMessage}</p>}
-      <p className="statistics-baseline-note">
-        현재 등록 조명 {summary.baseline24Hours.fixtureCount}개 · 해당 월 {summary.baseline24Hours.daysInMonth}일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준
-      </p>
-    </aside>
   );
 }
 

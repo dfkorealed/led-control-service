@@ -50,6 +50,8 @@ test("shows energy cards, daily and monthly lines, partial coverage and savings"
   await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
   await expect(page.getByLabel("오늘 전력 사용량")).toContainText("4.25 kWh");
   await expect(page.getByLabel("이번 달 누적 전력 사용량")).toContainText("수집 공백 있음");
+  await expect(page.getByRole("region", { name: "상태 기반 추정 사용량" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "비용 비교" })).toBeVisible();
   await expect(page.getByText("이번 달 예상 비용")).toBeVisible();
   await expect(page.getByText("25,600원")).toBeVisible();
   await expect(page.getByText("22,016원")).toBeVisible();
@@ -120,9 +122,16 @@ for (const viewport of [
     await page.goto("/statistics");
     await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
 
-    const expectedColumns = viewport.width <= 360 ? 1 : viewport.width <= 760 ? 2 : 3;
+    const expectedColumns = viewport.width === 320 ? 1 : viewport.width === 390 ? 2 : 3;
     expect(await gridColumnCount(page)).toBe(expectedColumns);
     await expectReportPanelLayout(page, viewport.width <= 1120);
+    await expect(page.getByRole("region", { name: "상태 기반 추정 사용량" })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "비용 비교" })).toBeVisible();
+    const firstAxisLabel = page.locator(".energy-line-chart .recharts-cartesian-axis-tick-value").first();
+    await expect(firstAxisLabel).toBeVisible();
+    expect(await firstAxisLabel.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(11);
+    await expect(page.getByRole("button", { name: "일별" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "월별" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
       const chartHeading = page.locator(".statistics-chart-heading");
@@ -210,7 +219,7 @@ async function gridColumnCount(page: Page) {
 
 async function expectReportPanelLayout(page: Page, stacked: boolean) {
   const [chart, costs] = await Promise.all([
-    page.locator(".chart-panel").boundingBox(),
+    page.locator(".statistics-chart-panel").boundingBox(),
     page.locator(".statistics-cost-panel").boundingBox()
   ]);
   expect(chart).not.toBeNull();
