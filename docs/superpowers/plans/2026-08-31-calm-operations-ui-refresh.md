@@ -255,7 +255,7 @@ git commit -m "feat(web): add calm operations UI primitives"
 - Produces: `SettingsNavigationItem({ role, search, isActive })`
 - Desktop click navigates to `/settings`; coarse pointer click opens the bottom sheet without navigation.
 
-- [ ] **Step 1: Write failing settings navigation tests**
+- [x] **Step 1: Write failing settings navigation tests**
 
 Test the component inside `MemoryRouter` with an admin and viewer:
 
@@ -289,7 +289,7 @@ it("opens the mobile sheet instead of navigating on a coarse pointer", () => {
 
 Also add App-level assertions that a subroute preserves `siteId` and SettingsShell no longer renders `aria-label="설정 메뉴"` as an internal sidebar.
 
-- [ ] **Step 2: Run focused navigation tests and verify RED**
+- [x] **Step 2: Run focused navigation tests and verify RED**
 
 Run:
 
@@ -299,7 +299,7 @@ pnpm --filter @led-control/web test -- src/features/shells/SettingsNavigationIte
 
 Expected: FAIL because `SettingsNavigationItem` is missing and the old settings sidebar still renders.
 
-- [ ] **Step 3: Implement `SettingsNavigationItem`**
+- [x] **Step 3: Implement `SettingsNavigationItem`**
 
 Use one settings `NavLink`, conditional submenu DOM, and explicit interaction state:
 
@@ -338,14 +338,14 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
 
 Add document `pointerdown` outside handling, wrapper `onBlur` with `relatedTarget`, Escape close, and route-change close. Do not introduce a new route state or global store.
 
-- [ ] **Step 4: Integrate the settings item into `CustomerShell`**
+- [x] **Step 4: Integrate the settings item into `CustomerShell`**
 
 - Keep monitoring/control/statistics in the existing `items` array.
 - Render `SettingsNavigationItem` after those links.
 - Pass `user.role` and `location.search`.
 - Keep the existing `Routes`, role guards, selected `siteId`, logout and dirty-editor behavior unchanged.
 
-- [ ] **Step 5: Remove the internal settings submenu**
+- [x] **Step 5: Remove the internal settings submenu**
 
 Change `SettingsShell` to keep `SiteSwitcher` in a horizontal context row and render `Outlet` directly:
 
@@ -362,7 +362,7 @@ return (
 
 Remove the `settings-nav` and `settings-sidebar` markup but keep the site-switch dirty confirmation and store reset exactly as-is.
 
-- [ ] **Step 6: Add desktop popover and mobile bottom-sheet CSS**
+- [x] **Step 6: Add desktop popover and mobile bottom-sheet CSS**
 
 ```css
 .settings-nav-disclosure { position: relative; }
@@ -375,7 +375,7 @@ Remove the `settings-nav` and `settings-sidebar` markup but keep the site-switch
 }
 ```
 
-- [ ] **Step 7: Run focused and full web tests**
+- [x] **Step 7: Run focused and full web tests**
 
 Run:
 
@@ -387,7 +387,7 @@ pnpm --filter @led-control/web typecheck
 
 Expected: focused and full suites pass; operator tests still show no customer navigation; viewer security route still redirects to settings overview.
 
-- [ ] **Step 8: Commit Task 2**
+- [x] **Step 8: Commit Task 2**
 
 ```bash
 git add apps/web/src/features/shells apps/web/src/features/settings/SettingsShell.tsx apps/web/src/features/settings/SettingsShell.test.tsx apps/web/src/App.test.tsx apps/web/src/styles.css
