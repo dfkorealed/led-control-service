@@ -46,7 +46,7 @@ function fixture(
     lastSeenAt: "2026-07-12T00:00:00.000Z",
     gateway: { id: ids.gateway, name: "Gateway B2", connectionStatus: "online" },
     controllable: status === "online",
-    controlBlockReason: null
+    controlBlockReason: status === "fault" ? "fixture_fault" : status === "offline" ? "fixture_offline" : null
   };
 }
 
@@ -115,6 +115,23 @@ test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 
     await expect(mapFailurePage.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
   } finally {
     await mapFailurePage.close();
+  }
+
+  const viewerPendingPage = await browser.newPage({ baseURL, viewport: { width: 390, height: 844 } });
+  try {
+    await installSettingsApiRoutes(viewerPendingPage, "viewer", {
+      fixtures: [],
+      installationStatus: "pending",
+      ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+    });
+    await viewerPendingPage.goto(`/monitoring?siteId=${ids.site}`);
+    await expect(viewerPendingPage.getByRole("region", { name: "Viewer 설치 대기" })).toBeVisible();
+    await expect(viewerPendingPage.getByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeVisible();
+    await expect(viewerPendingPage.getByRole("button", { name: "조명 검색 시작" })).toHaveCount(0);
+    await expect(viewerPendingPage.getByRole("heading", { name: "조명 등록" })).toHaveCount(0);
+    await expect(viewerPendingPage.getByRole("heading", { name: "게이트웨이 등록" })).toHaveCount(0);
+  } finally {
+    await viewerPendingPage.close();
   }
 });
 

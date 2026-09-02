@@ -26,7 +26,7 @@ export interface SettingsFixture {
   lastSeenAt: string | null;
   gateway: { id: string; name: string; connectionStatus: "online" | "offline" } | null;
   controllable: boolean;
-  controlBlockReason: null;
+  controlBlockReason: "fixture_unmapped" | "gateway_offline" | "fixture_fault" | "fixture_offline" | null;
 }
 
 interface InstallSettingsApiOptions {
@@ -212,6 +212,9 @@ export async function installSettingsApiRoutes(
         throw new Error(`invalid fixture status: ${String(update.status)}`);
       }
       Object.assign(fixture, structuredClone(update));
+      const controlState = controlStateForStatus(fixture.status);
+      fixture.controllable = controlState.controllable;
+      fixture.controlBlockReason = controlState.controlBlockReason;
     },
     setCommandStatus: (input) => {
       const expectedFixtureIds = commandResults.map((result) => result.fixtureId).sort();
@@ -570,6 +573,12 @@ function pagedFixtures(fixtures: SettingsFixture[], cursor: string | null) {
   const start = cursor ? fixtures.findIndex((fixture) => fixture.id === cursor) + 1 : 0;
   const items = fixtures.slice(start, start + 200);
   return { items, nextCursor: start + 200 < fixtures.length ? items.at(-1)?.id ?? null : null };
+}
+
+function controlStateForStatus(status: SettingsFixture["status"]) {
+  if (status === "fault") return { controllable: false, controlBlockReason: "fixture_fault" as const };
+  if (status === "offline") return { controllable: false, controlBlockReason: "fixture_offline" as const };
+  return { controllable: true, controlBlockReason: null };
 }
 
 function applyFixtureUpdates(fixtures: SettingsFixture[], updates: SavePayload["fixtureUpdates"]) {
