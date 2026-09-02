@@ -34,34 +34,68 @@ export async function expectMinimumTouchTargetsAfterScrolling(page: Page, rootSe
   for (let index = 0; index < targetCount; index += 1) {
     const target = targets.nth(index);
     const marker = `touch-contract-${index}`;
-    const eligible = await target.evaluate((element, dataMarker) => {
-      if (element.matches(":disabled") || element.getAttribute("aria-disabled") === "true") return false;
+    const candidateCount = await target.evaluate((element, dataMarker) => {
+      if (element.matches(":disabled") || element.getAttribute("aria-disabled") === "true") return 0;
       const candidates = element instanceof HTMLInputElement
         && (element.type === "checkbox" || element.type === "radio")
         ? [...(element.labels ?? []), element]
         : [element];
-      const scrollTarget = candidates.find((candidate) => {
-        for (let current: Element | null = candidate; current; current = current.parentElement) {
-          const style = getComputedStyle(current);
-          if (
-            current.matches(".sr-only,[hidden],[aria-hidden='true']")
-            || style.display === "none"
-            || style.visibility === "hidden"
-            || style.visibility === "collapse"
-            || Number(style.opacity) === 0
-          ) return false;
-        }
-        const rect = candidate.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      });
-      if (!scrollTarget) return false;
-      scrollTarget.scrollIntoView({ block: "center", inline: "center" });
       element.setAttribute("data-e2e-touch-contract", dataMarker);
-      return true;
+      return [...new Set(candidates)].length;
     }, marker);
-    if (eligible) {
-      inspectedTargetCount += 1;
-      await expectMinimumTouchTargets(page, `[data-e2e-touch-contract="${marker}"]`);
+    let targetWasInspected = false;
+    let targetPassed = false;
+    let lastCandidateFailure: unknown;
+
+    try {
+      // Associated labels and the input fallback can occupy different positions in a scroll root.
+      // Measure immediately after scrolling each candidate, and defer its assertion failure so a
+      // later candidate can satisfy the native choice without changing target-by-target scrolling.
+      for (let candidateIndex = 0; candidateIndex < candidateCount; candidateIndex += 1) {
+        const candidateWasScrolled = await target.evaluate((element, currentCandidateIndex) => {
+          const candidates = element instanceof HTMLInputElement
+            && (element.type === "checkbox" || element.type === "radio")
+            ? [...new Set([...(element.labels ?? []), element])]
+            : [element];
+          const scrollTarget = candidates[currentCandidateIndex];
+          if (!scrollTarget) return false;
+
+          for (let current: Element | null = scrollTarget; current; current = current.parentElement) {
+            const style = getComputedStyle(current);
+            if (
+              current.matches(".sr-only,[hidden],[aria-hidden='true']")
+              || style.display === "none"
+              || style.visibility === "hidden"
+              || style.visibility === "collapse"
+              || Number(style.opacity) === 0
+            ) return false;
+          }
+          const rect = scrollTarget.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return false;
+
+          scrollTarget.scrollIntoView({ block: "center", inline: "center" });
+          return true;
+        }, candidateIndex);
+        if (!candidateWasScrolled) continue;
+
+        targetWasInspected = true;
+        try {
+          await expectMinimumTouchTargets(page, `[data-e2e-touch-contract="${marker}"]`);
+          targetPassed = true;
+          break;
+        } catch (error) {
+          lastCandidateFailure = error;
+        }
+      }
+    } finally {
+      await page.locator(`[data-e2e-touch-contract="${marker}"]`).evaluateAll((elements) => {
+        elements.forEach((element) => element.removeAttribute("data-e2e-touch-contract"));
+      });
+    }
+
+    if (targetWasInspected) inspectedTargetCount += 1;
+    if (targetWasInspected && !targetPassed) {
+      throw lastCandidateFailure ?? new Error(`Unable to measure touch target ${index} within ${rootSelector}`);
     }
   }
 

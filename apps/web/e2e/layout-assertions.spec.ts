@@ -233,6 +233,18 @@ test("scrolling touch target helper inspects an undersized target below the view
   await expect(expectMinimumTouchTargetsAfterScrolling(page, "#root")).rejects.toThrow(/화면 밖 작은 대상/);
 });
 
+test("scrolling touch target helper tries every associated label for a native choice", async ({ page }) => {
+  await page.setContent(`
+    <main id="root" style="width: 140px; height: 60px; overflow-y: auto">
+      <input id="scroll-choice" type="radio" style="position: absolute; opacity: 0">
+      <label for="scroll-choice" style="display: block; width: 30px; height: 44px">첫째</label>
+      <label for="scroll-choice" style="display: block; width: 100px; height: 44px">둘째</label>
+    </main>
+  `);
+
+  await expectMinimumTouchTargetsAfterScrolling(page, "#root");
+});
+
 test("scrolling touch target helper fails when a root has no eligible target", async ({ page }) => {
   await page.setContent('<main id="root">정적 콘텐츠</main>');
 
