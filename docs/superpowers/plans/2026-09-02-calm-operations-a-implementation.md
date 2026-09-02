@@ -825,7 +825,7 @@ git commit -m "feat(web): apply corrected automation surfaces"
 - Preserves: Recharts data, null gaps, tooltip, screen-reader list, cost/baseline/savings calculations
 - Produces no new statistic or API field
 
-- [ ] **Step 1: Write failing report-layout and independent-state tests**
+- [x] **Step 1: Write failing report-layout and independent-state tests**
 
 Use the exact test names `에너지 리포트는 metric, chart, 비용 비교 영역을 구분한다`, `series 오류는 summary와 비용을 유지하고 chart만 재시도한다`, and `선택 기간 no-data는 metric을 유지하고 chart만 비운다`.
 
@@ -840,7 +840,7 @@ expect(screen.getByRole("complementary", { name: "비용 비교" })).toBeInTheDo
 
 For no-data assert no metric groups. For selected-period no-data assert metrics remain and only the chart region contains the empty message. For series error assert metrics/cost remain and the chart region contains the retry button.
 
-- [ ] **Step 2: Run statistics tests and confirm RED**
+- [x] **Step 2: Run statistics tests and confirm RED**
 
 Run:
 
@@ -850,7 +850,7 @@ pnpm --filter @led-control/web test -- src/features/statistics/StatisticsView.te
 
 Expected: named chart/cost region assertions fail while range/query contract tests pass.
 
-- [ ] **Step 3: Apply corrected report structure**
+- [x] **Step 3: Apply corrected report structure**
 
 Keep all calculation variables and query branches. Add exact region labels, use a 3-card metric strip, place chart and cost `Card` in a `minmax(0, 1fr) 330px` grid above 1120px, and stack below it. Use `StatusBadge` for available/partial and `FeedbackState` inside only the failing area.
 
@@ -869,15 +869,15 @@ Define `retrySeriesButton`, `chart`, and `costRows` from the current JSX branche
 
 Keep `aria-pressed` on daily/monthly buttons and the existing chart `role="img"` description. Do not connect across null points or turn no-data into zero.
 
-- [ ] **Step 4: Strengthen all four viewport assertions**
+- [x] **Step 4: Strengthen all four viewport assertions**
 
 Update `statistics-flow.spec.ts` to assert metric columns 3/3/2/1 at 1440/1024/390/320, chart/cost split only above 1120px, readable axis/segmented actions, no document overflow and 44px mobile targets. Preserve existing success/no-data/summary retry/series retry flows.
 
-- [ ] **Step 5: Update statistics documentation**
+- [x] **Step 5: Update statistics documentation**
 
 Update `docs/menus/statistics.md` with scene 22~23 hierarchy, independent summary/series/no-data behavior, four viewport validation and unchanged state-based-estimate limitation. Set the basis date to `2026-09-02` and list modified files.
 
-- [ ] **Step 6: Run GREEN and statistics regression**
+- [x] **Step 6: Run GREEN and statistics regression**
 
 Run:
 
@@ -890,7 +890,7 @@ git diff --check
 
 Expected: summary/series separation, null gaps, timezone ranges and every viewport assertion pass.
 
-- [ ] **Step 7: Review, synchronize status, and commit Task 7**
+- [x] **Step 7: Review, synchronize status, and commit Task 7**
 
 ```bash
 git add apps/web/src/features/statistics apps/web/e2e/statistics-flow.spec.ts apps/web/src/styles.css docs/menus/statistics.md docs/project-status.md docs/superpowers/plans/2026-09-02-calm-operations-a-implementation.md
