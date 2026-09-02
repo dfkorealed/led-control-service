@@ -277,6 +277,7 @@ for (const viewport of responsiveViewports) {
     }).toBe(true);
     await expect(page.getByRole("button", { name: "리비전 7 복구" })).toBeVisible();
     const editorCanvas = page.locator(".floor-editor-konva-stage canvas").first();
+    await editorCanvas.evaluate((element) => element.scrollIntoView({ block: "center" }));
     const editorCanvasBox = await editorCanvas.boundingBox();
     expect(editorCanvasBox).not.toBeNull();
     if (editorCanvasBox) await page.mouse.click(editorCanvasBox.x + 120, editorCanvasBox.y + 140);
@@ -315,7 +316,13 @@ for (const viewport of responsiveViewports.filter(({ width }) => width === 1024 
     await page.goto("/settings?siteId=site-1");
     await expect(page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    if (viewport.width <= 760) await expectMinimumTouchTargets(page, ".app-shell");
+    if (viewport.width <= 760) {
+      const registrationTargets = page.locator(".registration-targets");
+      await registrationTargets.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      await expect(page.getByLabel("등록 층")).toBeInViewport();
+      await expect(page.getByLabel("등록 게이트웨이")).toBeInViewport();
+      await expectMinimumTouchTargets(page, ".app-shell");
+    }
 
     await page.goto("/settings/security?siteId=site-1");
     await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();

@@ -231,6 +231,29 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await expect(page.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
   });
 
+  test("mobile touch contract measures the visible registration method radio labels", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const active = {
+      ...registrationSession("completed", null),
+      scanCorrelationId: discoveredNode.scanCorrelationId,
+      scanAttempt: discoveredNode.scanAttempt ?? 1,
+      discoveredNodes: [discoveredNode]
+    };
+    await installSettingsApiRoutes(page, "admin", {
+      fixtures,
+      ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
+      registrationSession: active,
+      activeRegistrationSessions: [active]
+    });
+
+    await page.goto(`/monitoring?siteId=${ids.site}`);
+    await expect(page.getByRole("radio", { name: "일괄 설정" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "개별 설정" })).toBeVisible();
+    await page.getByRole("radiogroup", { name: "조명 설정 방식" }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole("radiogroup", { name: "조명 설정 방식" })).toBeInViewport();
+    await expectMinimumTouchTargets(page, ".registration-mode-toggle");
+  });
+
   test("검색 실패 원인은 정제된 메시지만 표시한다", async ({ page }) => {
     await installSettingsApiRoutes(page, "admin", {
       fixtures: [],

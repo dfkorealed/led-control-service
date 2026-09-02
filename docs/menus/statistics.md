@@ -4,7 +4,7 @@
 
 ## 구현 완료
 
-- 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 리포트·비용 패널의 1120px 스택, 390px 2열 KPI, 320px 1열 KPI와 document-level horizontal overflow 부재를 검증한다. 390px/320px에서는 공통 root helper가 숨김·disabled를 제외한 모든 visible·enabled interactive descendant를 열거해 기간 선택뿐 아니라 주 메뉴·현장 선택·로그아웃까지 최소 44px hit target을 검증한다.
+- 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 리포트·비용 패널의 1120px 스택, 390px 2열 KPI, 320px 1열 KPI와 document-level horizontal overflow 부재를 검증한다. 390px/320px의 공통 helper 검사 대상은 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 overflow clip과 교차한 영역에서 pointer hit-test로 도달 가능한 control이다. 부분 노출은 원래 box가 아니라 실제 usable intersection이 44×44px 이상이어야 하며 완전 offscreen control은 제외한다. checkbox/radio는 연결된 visible label을 effective hit target으로 판정한다. 이 계약으로 기간 선택뿐 아니라 주 메뉴·현장 선택·로그아웃도 검증한다.
 - Web은 선택 현장의 `GET /energy/sites/:siteId/summary`와 일별·월별 `series` wrapper를 React Query로 조회한다. URL에 `siteId`가 없으면 대시보드가 반환한 실제 현장 ID를 사용하며 legacy default estimate API로 우회하지 않는다.
 - 오늘, 이번 달 누적, 올해 누적의 상태 기반 추정 사용량과 비용을 표시한다.
 - 페이지 제목과 집계 시각은 공통 `PageHeader`, 추정 출처는 공통 `StatusBadge`로 표시한다. KPI는 공통 `MetricCard`에 공백으로 구분한 값·kWh, 비용과 `available`, `partial`, `no_data` `StatusBadge`를 하나의 접근 가능한 group 안에 제공한다.
