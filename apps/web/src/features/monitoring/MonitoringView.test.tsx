@@ -111,6 +111,8 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
     expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
+    expect(screen.getByRole("region", { name: "빠른 상태" })).toHaveTextContent("점검 필요");
+    expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("72%");
     const selectedFixtureDetail = screen.getByRole("region", { name: "선택 조명 정보" });
     expect(within(selectedFixtureDetail).getByRole("heading", { name: "점검 큐" })).toBeInTheDocument();
@@ -118,6 +120,33 @@ describe("MonitoringView refresh", () => {
       /정상|장애|오프라인|상태 확인 대기/,
       { selector: ".ui-status-badge > span" }
     )).toBeVisible();
+  });
+
+  it("모니터링은 빠른 상태, 층 도면, 선택 조명 상세 순서를 유지한다", () => {
+    const faultFixture = {
+      ...fixture,
+      id: "fixture-2",
+      name: "B1-L002",
+      status: "fault" as const
+    };
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [fixture, faultFixture], nextCursor: null }] },
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    const quickStatus = screen.getByRole("region", { name: "빠른 상태" });
+    const map = screen.getByRole("region", { name: "층 도면" });
+    const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
+    expect(quickStatus).toHaveTextContent("점검 필요");
+    expect(detail).toHaveTextContent("현재 밝기");
+    expect(quickStatus.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(map.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("keeps the mobile fixture selector and map marker selection in sync", async () => {
@@ -207,7 +236,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
   });
 
-  it("이전 지도 snapshot이 있을 때 갱신 실패를 알리고 지도를 유지한다", async () => {
+  it("부분 지도 갱신 실패에서도 직전 유효 데이터를 유지한다", async () => {
     refetchMap.mockRejectedValueOnce(new Error("map unavailable"));
     render(<MonitoringView siteId="site-1" />);
 
@@ -215,8 +244,20 @@ describe("MonitoringView refresh", () => {
 
     expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("현재 밝기");
     fireEvent.click(screen.getByRole("button", { name: "지도 다시 시도" }));
     expect(refetchMap).toHaveBeenCalledTimes(2);
+  });
+
+  it("모바일 모니터링은 320px에서 문서 overflow 없이 동작한다", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
+    render(<MonitoringView siteId="site-1" />);
+
+    const quickStatus = screen.getByRole("region", { name: "빠른 상태" });
+    const map = screen.getByRole("region", { name: "층 도면" });
+    const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
+    expect(quickStatus.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(map.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("한 층의 지도 갱신 실패를 다른 층의 성공한 지도에 표시하지 않는다", async () => {

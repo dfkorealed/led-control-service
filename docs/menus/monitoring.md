@@ -22,9 +22,10 @@
 ## 구현 완료
 
 - 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 지도·상세 패널 배치와 document-level horizontal overflow를 검증한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다. 이 계약으로 새로고침, 층·현장·등록 대상 select, 등록 방식 radio label, 로그아웃과 주 메뉴를 검증한다. 특히 390px와 320px에서 enabled `조명 검색 시작`·검색 실패 재시도의 actual bounding box가 44px 이상인지, 390px에서 pending setup·Gateway claim·조명 등록·reconciliation의 enabled primary/secondary action이 44px 이상인지를 route fixture로 고정한다. 밀집 도면 marker는 34px compact scale을 유지해 hit overlap을 만들지 않으며 helper에서 명시적으로 제외한다. 대신 모든 조명을 노출하는 `상세 조명 선택` select가 44px 대체 선택 경로를 제공하고 marker/selector/상세 상태를 같은 selection state로 동기화한다. 이 검증은 deterministic API fixture 기반이며 실제 Raspberry Pi/ESP32-H2 HIL 증거는 아니다.
-- Calm Operations 정보 위계에 맞춰 `PageHeader`에 운영 현황, 선택 층, 수동 새로고침·마지막 갱신·부분 실패를 모으고, 선택 층 기준 전체 조명·정상·점검 필요·평균 밝기를 공통 `MetricCard`로 표시한다. KPI는 넓은 화면에서 한 행의 유연한 열로 배치되고 모바일에서는 2열로 재배치된다.
+- Calm Operations scenes 10~12는 `PageHeader`와 KPI 뒤에 `빠른 상태`, `층 도면`, `선택 조명 상세`를 같은 DOM 순서로 제공한다. `빠른 상태`의 점검 필요·실제 오프라인 button은 해당 첫 조명을 선택하며 `provisioning_waiting_state`는 오프라인 수에서 제외한다. 데스크톱은 큰 지도와 280px 흰 상세 패널을 병렬로 두고, 태블릿/모바일은 지도 뒤 상세 패널을 쌓는다.
+- 선택 층 기준 전체 조명·정상·점검 필요·평균 밝기는 공통 `MetricCard`로 표시한다. KPI 열/행 계약은 1440px 4/1, 1024px 2/2, 390px 2/2, 320px 1/4이고 해당 네 viewport에서 document horizontal overflow를 자동 검증한다. 모바일의 quick-state와 상세 selector는 44px 이상 touch target으로 측정한다.
 - 선택 조명 상세는 도면보다 좁은 고정 범위 패널에 배치하며 현재 밝기와 장비 사실 아래에 장애·실제 오프라인 점검 큐를 둔다. 정상·장애·오프라인·첫 상태 확인 대기는 선택 상세의 `StatusBadge`와 지도 범례에서 icon + visible text로 구분하고, compact marker도 상태별 solid/double/dashed/dotted border pattern을 함께 사용한다. marker별 상태 문구나 SVG를 1,000개까지 반복 렌더링하지 않으며 기존 한국어 접근성 이름과 선택 hit target은 유지한다.
-- 모니터링 표현 계층을 개편해도 설치 guard, Gateway claim, active registration session 복구, 등록 조명이 존재할 때의 admin 등록 패널, viewer 읽기 전용 empty state는 유지한다. 등록은 여전히 실제 Gateway/BlueZ/ESP32-H2 상태와 HIL에 의존하며 Calm Operations UI를 실장비 등록 완료로 간주하지 않는다.
+- 모니터링 표현 계층을 개편해도 설치 guard, Gateway claim, active registration session 복구, 등록 조명이 존재할 때의 admin 등록 패널, viewer 읽기 전용 empty state는 유지한다. 일반 모니터링의 KPI·빠른 상태·지도·상세를 먼저 두고 등록 패널을 후속 영역에 둬 진행 중 등록이 정상 운영 화면을 대체하지 않는다. 등록은 여전히 실제 Gateway/BlueZ/ESP32-H2 상태와 HIL에 의존하며 Calm Operations UI를 실장비 등록 완료로 간주하지 않는다.
 - Task 8에서 pending assigned admin이 `/monitoring`, `/control`, `/statistics`, 설정 하위 직접 URL로 들어오면 CustomerShell이 조회한 dashboard의 selected/default `siteId`를 유지해 `/settings?siteId=...`로 replace한다. `/settings`에서는 배정된 고객사·현장명을 읽기 전용으로 표시하고 주소·단가·층만 입력하는 최초 설치 화면을 제공한다.
 - CustomerShell은 admin dashboard의 `installationStatus`가 확인되기 전에는 customer child route를 mount하지 않는다. 확인 중에는 설치 상태 loading UI를, 최초 조회 실패에는 retry UI를 표시하며 성공 setup 응답은 actual site key와 `['dashboard', 'default']` cache에 함께 반영해 실패한 background refetch가 있어도 installed guard 상태를 유지한다.
 - 설치 완료 후 등록 조명이 0개인 모니터링은 admin에게 Gateway claim 또는 조명 등록 패널을 제공한다. viewer는 설치 대기 안내만 보며 claim, 등록, setup mutation UI를 볼 수 없다. operator는 customer shell을 mount하지 않는다.
@@ -124,7 +125,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. 모바일 레이아웃과 재설치는 이번 범위 밖이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
+- pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.
 - durable state outbox의 파일 권한·용량 차단과 application ACK 재전송은 자동 테스트로 검증했지만, 실제 broker/API 재시작과 Raspberry Pi 전원 차단을 포함한 HIL은 아직 실행하지 않았다.
 - Health 정보는 최신 Current snapshot만 보존하며 fault 이력, 발생 횟수와 해제 이력은 명시적 보류 범위다.
@@ -154,6 +155,7 @@
 - `apps/web/src/features/registration/FixtureIndividualForm.tsx`
 - `apps/web/src/api/registration.ts`
 - `apps/web/e2e/monitoring-control-flow.spec.ts`
+- `apps/web/e2e/calm-operations-monitoring.spec.ts`
 - `apps/web/e2e/layout-assertions.spec.ts`
 - `apps/web/e2e/support/layout-assertions.ts`
 - `apps/web/e2e/support/settings-api.ts`

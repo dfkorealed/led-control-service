@@ -1056,9 +1056,65 @@ button {
 
 .operations-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  grid-template-columns: minmax(0, 1fr) 280px;
   gap: 16px;
   align-items: stretch;
+}
+
+.monitoring-quick-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  border-color: var(--border);
+  background: #ffffff;
+  padding: 10px;
+  box-shadow: none;
+}
+
+.monitoring-quick-status button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: #fff7f7;
+  color: #b91c1c;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.monitoring-quick-status button:nth-child(2) {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.monitoring-quick-status button:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.monitoring-quick-status button:not(:disabled):is(:hover, :focus-visible) {
+  border-color: currentColor;
+  outline: none;
+}
+
+.monitoring-quick-status svg {
+  width: 18px;
+  height: 18px;
+}
+
+.monitoring-quick-status span {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.monitoring-quick-status strong {
+  color: inherit;
+  font-size: 16px;
 }
 
 .monitoring-fixture-selector {
@@ -1076,11 +1132,7 @@ button {
   height: auto;
   border: 1px solid #cddcf0;
   border-radius: 18px;
-  background:
-    linear-gradient(90deg, rgba(11, 99, 229, 0.08) 1px, transparent 1px),
-    linear-gradient(rgba(11, 99, 229, 0.08) 1px, transparent 1px),
-    #ffffff;
-  background-size: 48px 48px;
+  background: #f8fafc;
   box-shadow: var(--shadow);
 }
 
@@ -1092,9 +1144,9 @@ button {
 
 .floor-map::before {
   position: absolute;
-  inset: 56px 22px 22px;
-  border: 2px solid #d8e2ef;
-  border-radius: 16px;
+  inset: 14px;
+  border: 1px solid rgba(203, 213, 225, 0.72);
+  border-radius: 12px;
   content: "";
 }
 
@@ -1128,17 +1180,17 @@ button {
 
 .floor-map-label {
   position: absolute;
-  top: 18px;
-  left: 18px;
+  top: 14px;
+  left: 14px;
   z-index: 4;
   display: flex;
   align-items: center;
   gap: 10px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.92);
-  padding: 8px 10px;
-  box-shadow: 0 10px 24px rgba(15, 38, 70, 0.08);
+  padding: 6px 8px;
+  box-shadow: none;
 }
 
 .floor-map-label span {
@@ -1159,8 +1211,8 @@ button {
 
 .floor-map-legend {
   position: absolute;
-  right: 18px;
-  bottom: 18px;
+  right: 14px;
+  bottom: 14px;
   z-index: 4;
   display: flex;
   flex-wrap: wrap;
@@ -1169,9 +1221,9 @@ button {
   max-width: calc(100% - 36px);
   margin: 0;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.94);
-  padding: 8px 10px;
+  padding: 6px 8px;
   color: var(--muted);
   list-style: none;
 }
@@ -1319,8 +1371,9 @@ button {
   min-height: 56px;
   border-radius: 14px;
   padding: 8px;
-  outline: 3px solid rgba(11, 99, 229, 0.32);
-  outline-offset: 3px;
+  outline: 3px solid #2563eb;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 7px rgba(37, 99, 235, 0.2);
   text-align: left;
 }
 
@@ -1331,6 +1384,9 @@ button {
   border-radius: 14px;
   padding: 8px;
   text-align: left;
+  outline: 3px solid #2563eb;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 7px rgba(37, 99, 235, 0.2);
 }
 
 .fixture-dot:is(.active, :hover, :focus-visible) {
@@ -4069,6 +4125,10 @@ button.group-card {
 }
 
 @media (max-width: 1120px) {
+  .monitoring-screen .summary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .operations-layout {
     grid-template-columns: 1fr;
   }
@@ -4477,6 +4537,14 @@ button.group-card {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .monitoring-quick-status {
+    grid-template-columns: 1fr;
+  }
+
+  .monitoring-quick-status button {
+    min-height: 52px;
+  }
+
   .registration-summary,
   .setup-form-grid,
   .setup-range-row,
@@ -4634,6 +4702,12 @@ button.group-card {
   .operator-row-actions .ui-button,
   .operator-admin-table td > .ui-button {
     min-height: 44px;
+  }
+}
+
+@media (max-width: 359px) {
+  .monitoring-screen .summary-row {
+    grid-template-columns: 1fr;
   }
 }
 

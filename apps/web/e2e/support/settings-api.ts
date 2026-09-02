@@ -18,7 +18,7 @@ export interface SettingsFixture {
   ratedWatt: number;
   brightness: number;
   status: "online" | "offline" | "fault";
-  statusReason?: "reported";
+  statusReason?: "reported" | "provisioning_waiting_state";
   health: { faultCodes: number[]; observedAt: string } | null;
   rssi: number | null;
   hopCount: number | null;
@@ -92,6 +92,7 @@ export interface SettingsApiFixtureState {
   dashboardRequests: number;
   fixturePageRequests: number;
   mapSnapshotRequests: number;
+  failNextMapSnapshots: (count: number) => void;
   fixturePageCursors: Array<string | null>;
   dimmingRequests: CreateDimmingCommandInput[];
   commandStatusRequests: string[];
@@ -192,6 +193,10 @@ export async function installSettingsApiRoutes(
     dashboardRequests: 0,
     fixturePageRequests: 0,
     mapSnapshotRequests: 0,
+    failNextMapSnapshots: (count) => {
+      if (!Number.isInteger(count) || count < 1) throw new Error("map snapshot failure count must be a positive integer");
+      remainingMapSnapshotFailures += count;
+    },
     fixturePageCursors: [],
     dimmingRequests: [],
     commandStatusRequests: [],
