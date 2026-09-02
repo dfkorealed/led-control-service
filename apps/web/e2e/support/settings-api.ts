@@ -31,6 +31,8 @@ export interface SettingsFixture {
 
 interface InstallSettingsApiOptions {
   fixtures?: SettingsFixture[];
+  installationStatus?: "pending" | "installed";
+  includeGateway?: boolean;
   commandId?: string;
   mapObjects?: SettingsMapObject[];
   mapSnapshotFailuresBeforeSuccess?: number;
@@ -151,6 +153,8 @@ export async function installSettingsApiRoutes(
   role: SettingsRole,
   {
     fixtures = defaultFixtures,
+    installationStatus = "installed",
+    includeGateway = true,
     commandId = "77777777-7777-4777-8777-777777777777",
     mapObjects = [],
     mapSnapshotFailuresBeforeSuccess = 0,
@@ -262,7 +266,14 @@ export async function installSettingsApiRoutes(
     if (path === "/sites/default/dashboard" || path === `/sites/${ids.siteId}/dashboard`) {
       state.dashboardRequests += 1;
       return route.fulfill({
-        json: dashboard(fixtureState, runtimeFloor, ids.gatewayId, url.searchParams.get("includeFixtures") === "true")
+        json: dashboard(
+          fixtureState,
+          runtimeFloor,
+          ids.gatewayId,
+          url.searchParams.get("includeFixtures") === "true",
+          installationStatus,
+          includeGateway
+        )
       });
     }
     if (path === `/sites/${ids.siteId}/floors/${ids.floorId}/fixtures`) {
@@ -436,14 +447,16 @@ function dashboard(
   fixtures: SettingsFixture[],
   runtimeFloor: typeof floor,
   gatewayId: string,
-  includeFixtures = false
+  includeFixtures = false,
+  installationStatus: "pending" | "installed" = "installed",
+  includeGateway = true
 ) {
   return {
     site: {
       id: runtimeFloor.siteId,
       name: "고객사 B2 현장",
       customerName: "고객사",
-      installationStatus: "installed",
+      installationStatus,
       address: "서울시 강남구",
       tariffKwhRate: 160,
       timeZone: "Asia/Seoul"
@@ -465,14 +478,14 @@ function dashboard(
       fixtures: includeFixtures ? fixtures : []
     }],
     groups: [],
-    gateways: [{
+    gateways: includeGateway ? [{
       id: gatewayId,
       name: "Gateway B2",
       serialNumber: "GW-E2E-001",
       firmwareVersion: "e2e-1.0.0",
       lastHeartbeatAt: "2026-07-12T00:00:00.000Z",
       connectionStatus: "online"
-    }]
+    }] : []
   };
 }
 

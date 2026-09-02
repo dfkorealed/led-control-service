@@ -898,3 +898,19 @@ After Task 8, invoke `superpowers:requesting-code-review`. The reviewer must com
 - menu docs and project status matching actual verification evidence
 
 Any review finding is handled with `superpowers:receiving-code-review`, a failing regression test, the minimal fix and a focused re-run before repeating the final gate.
+
+### Final whole-branch review fix addendum (2026-09-02)
+
+This addendum supersedes the earlier Task 2 `menu`/`menuitem` and coarse `dialog` example snippets. The implemented disclosure uses browser-native link and button semantics with normal document focus order.
+
+- [x] Add the settings/dirty regressions first. The initial focused RED was `7 failed / 27 passed`: the old anchor trigger was visible on coarse pointers, fake popup roles remained, and the parent/overview links exposed duplicate current-page semantics.
+- [x] Split the triggers by input mode: desktop remains a `/settings${search}` overview link, while coarse pointers use a real `button[type="button"]` that only opens the sheet.
+- [x] Render `nav aria-label="설정 메뉴"` with a list of normal links, stable `aria-expanded`/`aria-controls`, natural Tab/Shift+Tab order and Escape focus restoration. Preserve hover, focus, outside-pointer, route/site change and role filtering.
+- [x] Keep exactly one current-page link: overview is exact `/settings`; floor plan and security are current only on their own routes; the desktop parent has visual active styling without `aria-current`, and the coarse button is never a current page.
+- [x] Prove the dirty boundary: opening the coarse disclosure does not confirm, navigate or discard; canceled submenu navigation preserves editor/sheet/draft; confirmed navigation discards and keeps the requested subroute plus `siteId`.
+- [x] Add enabled commissioning touch regressions. The valid CSS RED was `2 failed / 2 passed`: setup secondary measured 34px and registration submit measured 42px. Scope the 44px minimum to mobile customer settings/monitoring setup, claim, registration, reconciliation and retry actions without operator or global desktop leakage.
+- [x] Focused GREEN: settings/dirty Vitest `5 files / 48 tests`; related Chromium `65 passed`, including natural keyboard order and 390px/320px enabled action bounds.
+- [x] Full GREEN: shared build, Web typecheck, production build, Web unit `36 files / 383 tests`, and Chromium `90 passed / 3 skipped`. Production build transformed `2,381 modules`; main is `1,040.07 kB / gzip 317.05 kB`, PDF is `532.22 kB / gzip 161.49 kB`; the existing non-fatal 500 kB chunk warning remains.
+- [x] Update settings/monitoring feature docs, project status and the tracked progress ledger with the current semantics and exact software evidence.
+- [ ] Run manual in-app Browser visual QA at 1440/1024/390/320 when its control surface is available. Automated Chromium does not close this item.
+- [ ] Run Raspberry Pi/BlueZ/ESP32-H2 HIL separately; no software fixture result is hardware evidence.

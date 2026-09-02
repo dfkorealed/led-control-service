@@ -2,7 +2,7 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-08-31
+기준일: 2026-09-02
 
 ## 현재 우선순위
 
@@ -70,7 +70,9 @@
 
 ## 구현 완료
 
-- 설정 주 메뉴는 desktop hover/focus와 Escape focus 복원, admin/viewer별 링크 노출, coarse pointer의 `설정 메뉴` dialog형 bottom sheet, `siteId` 보존을 Chromium route fixture로 검증한다. trigger는 desktop에서 `aria-haspopup="menu"`/`role="menu"`/`menuitem`, coarse pointer에서 `aria-haspopup="dialog"`를 사용하고 두 변형 모두 stable `aria-controls`로 popup과 연결된다. 설정·도면 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정한다. 1024px 및 390px/320px의 설정 개요·admin 비밀번호 화면과 viewer security guard, 모바일 floor asset·속성 필드·revision action을 실제 route에서 검증한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다. coarse bottom sheet가 열린 동안은 dialog popup root를 검사하고, 배경 route는 이동 뒤 별도로 검사한다.
+- 설정 주 메뉴는 desktop hover/focus와 Escape focus 복원, 자연스러운 Tab/Shift+Tab 순서, admin/viewer별 링크 노출, coarse pointer bottom sheet와 `siteId` 보존을 Chromium route fixture로 검증한다. desktop trigger는 query string을 유지한 `/settings` 개요 링크이고 coarse trigger는 현재 route를 유지하는 `button[type="button"]`이며, 두 변형 모두 stable `aria-controls`와 `aria-expanded`로 popup과 연결된다. popup은 `nav aria-label="설정 메뉴"` 안의 목록과 일반 링크를 사용하며 focus trap이나 roving tabindex를 주장하지 않는다. desktop parent는 하위 route에서 시각적 active 상태만 유지하고 `aria-current`를 노출하지 않으며, 개요는 exact `/settings`, 도면·보안은 각각 자신의 route에서만 `aria-current="page"`를 갖는다. coarse button은 현재 페이지로 표시하지 않는다.
+- dirty 도면 편집 중 coarse 설정 button을 여는 동작은 confirm, route 변경, draft 폐기를 발생시키지 않는다. sheet의 실제 하위 링크는 기존 dirty navigation guard를 그대로 통과하며, 취소하면 editor·sheet·draft를 유지하고 확인하면 선택한 하위 route와 동일한 `siteId`로 이동하며 draft를 폐기한다. React 통합 회귀로 open·cancel·confirm 세 경계를 검증한다.
+- 설정·도면 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정한다. 1024px 및 390px/320px의 설정 개요·admin 비밀번호 화면과 viewer security guard, 모바일 floor asset·속성 필드·revision action을 실제 route에서 검증한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다. sheet가 열린 동안은 실제 navigation popup root를 검사하고, 배경 route는 이동 뒤 별도로 검사한다.
 - 주 메뉴의 설정 항목은 데스크톱 click으로 query string을 유지한 `/settings` 개요로 이동하고 hover/focus로 역할별 disclosure를 연다. coarse pointer click은 route를 바꾸지 않고 하단 sheet를 열어 `설정 개요`를 포함한 허용 메뉴를 선택하게 한다. 외부 pointer, blur, Escape와 route 변경은 disclosure를 닫는다.
 - 설정 본문의 내부 `설정 메뉴` 사이드바를 제거하고 현장 선택기를 수평 context row에 유지했다. 기존 현장 전환 dirty 확인 및 editor store 폐기, 상세 route와 `siteId` query 보존 계약은 그대로 유지한다.
 - 설정 메뉴에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `도면 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `도면 관리`만 읽기 전용으로 사용한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
@@ -327,7 +329,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 비밀번호 변경과 setup/commissioning visibility는 mock 기반 웹 회귀와 Task 9 격리 실백엔드 E2E로 검증했다. 모바일 레이아웃과 재설치는 이번 범위 밖이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
 - 평탄화된 설정 콘텐츠와 에디터 workbench의 시각 계층만 정리했으며, pending setup/Gateway claim/registration 흐름과 도면 editor lease·dirty guard·atomic save/restore·단축키·map bounds의 기존 제약 및 후속 실장비 검증 범위는 변경하지 않았다.
-- coarse pointer용 설정 bottom sheet와 단일 열 설정 본문은 자동화 테스트를 통과했다. CSS는 `env(safe-area-inset-bottom)` 계약을 적용하지만 현재 Chromium route fixture는 non-zero inset을 실측하지 않는다. 실제 모바일 WebView safe-area, 키보드 focus 이동과 네이티브 navigation 통합 검증은 후속 작업이다.
+- coarse pointer용 설정 bottom sheet와 단일 열 설정 본문은 자동화 테스트를 통과했고, desktop disclosure의 Tab/Shift+Tab/Escape focus 이동은 헤드리스 Chromium으로 검증했다. CSS는 `env(safe-area-inset-bottom)` 계약을 적용하지만 현재 Chromium route fixture는 non-zero inset을 실측하지 않는다. 실제 모바일 WebView safe-area와 네이티브 navigation 통합 검증은 후속 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.

@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { BrowserRouter, Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FloorEditorState } from "../../floor-editor/editor-types";
 import { dirtyEditorSentinelKey } from "../../floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "../../floor-editor/editor-store";
+import { SettingsNavigationItem } from "../../shells/SettingsNavigationItem";
 import { FloorEditorRoute } from "./FloorEditorRoute";
 
 const floorEditorApi = vi.hoisted(() => ({
@@ -75,7 +76,12 @@ function renderRoute(userRole: "operator" | "admin" | "viewer", initialEntry = "
   return { ...result, queryClient };
 }
 
-function renderBrowserRoute() {
+function CurrentSettingsNavigation() {
+  const location = useLocation();
+  return <SettingsNavigationItem role="admin" search={location.search} />;
+}
+
+function renderBrowserRoute({ withSettingsNavigation = false } = {}) {
   window.history.replaceState({}, "", "/settings?siteId=site-2");
   window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
   const queryClient = new QueryClient();
@@ -83,6 +89,7 @@ function renderBrowserRoute() {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
+          {withSettingsNavigation ? <CurrentSettingsNavigation /> : null}
           <Link to="/settings/security?siteId=site-2">보안 이동</Link>
           <Routes>
             <Route path="/settings" element={<><h2>설정 개요</h2><LocationProbe /></>} />
@@ -126,6 +133,7 @@ describe("FloorEditorRoute", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     window.history.replaceState({}, "", "/");
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, selection: null });
   });
@@ -442,6 +450,55 @@ describe("FloorEditorRoute", () => {
     fireEvent.click(screen.getByRole("link", { name: "설정 이동" }));
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-2");
+  });
+
+  it("opens the coarse settings disclosure without discarding a dirty draft and guards only submenu navigation", async () => {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: query === "(hover: none), (pointer: coarse)",
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    })));
+    getFloorEditorState.mockResolvedValue(editorState);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    useFloorEditorStore.getState().initialize(editorState);
+    const dirtyDraft = {
+      ...editorState,
+      floor: { ...editorState.floor, name: "작성 중" }
+    };
+    useFloorEditorStore.setState({ state: dirtyDraft, isDirty: true });
+    renderBrowserRoute({ withSettingsNavigation: true });
+    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+    await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "설정" }));
+
+    const settingsNavigation = screen.getByRole("navigation", { name: "설정 메뉴" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    expect(useFloorEditorStore.getState()).toMatchObject({ state: dirtyDraft, isDirty: true });
+
+    const securityLink = within(settingsNavigation).getByRole("link", { name: "비밀번호 변경" });
+    fireEvent.click(securityLink);
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    expect(useFloorEditorStore.getState()).toMatchObject({ state: dirtyDraft, isDirty: true });
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(securityLink);
+
+    expect(await screen.findByRole("heading", { name: "보안 설정" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/security?siteId=site-2");
+    expect(useFloorEditorStore.getState()).toMatchObject({ state: editorState, initialState: editorState, isDirty: false });
   });
 
   it("requires confirmation for dirty cancel but not after save", async () => {

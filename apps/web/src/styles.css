@@ -2062,6 +2062,14 @@ button {
   padding: 8px;
 }
 
+.settings-submenu-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .settings-submenu a {
   display: flex;
   min-height: 44px;
@@ -4034,6 +4042,13 @@ button.group-card {
 
   .logout-button,
   .registration-targets select {
+    min-height: 44px;
+  }
+
+  :is(.settings-screen, .monitoring-screen)
+    :is(.setup-wizard, .setup-section, .registration-panel)
+    :is(.primary-button, .secondary-button),
+  :is(.settings-screen, .monitoring-screen) > .secondary-button {
     min-height: 44px;
   }
 

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { CreateFixtureGroupInput, FixtureGroupMetadata } from "@led-control/shared";
 import {
   installSettingsApiRoutes,
@@ -253,6 +253,123 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await page.getByRole("radiogroup", { name: "조명 설정 방식" }).scrollIntoViewIfNeeded();
     await expect(page.getByRole("radiogroup", { name: "조명 설정 방식" })).toBeInViewport();
     await expectMinimumTouchTargets(page, ".registration-mode-toggle");
+  });
+
+  test("390px pending setup and gateway claim expose enabled 44px actions", async ({ browser, baseURL }) => {
+    const setupPage = await browser.newPage({ baseURL, viewport: { width: 390, height: 844 } });
+    try {
+      await installSettingsApiRoutes(setupPage, "admin", {
+        installationStatus: "pending",
+        ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+      });
+      await setupPage.goto(`/settings?siteId=${ids.site}`);
+      await setupPage.getByLabel("주소").fill("서울시 강남구");
+      for (const actionName of ["주소 미입력", "층 자동 생성", "초기 설정 완료"]) {
+        const action = setupPage.getByRole("button", { name: actionName });
+        await expect(action).toBeEnabled();
+        await expectMinimumTouchTargetSize(action);
+      }
+    } finally {
+      await setupPage.close();
+    }
+
+    const claimPage = await browser.newPage({ baseURL, viewport: { width: 390, height: 844 } });
+    try {
+      await installSettingsApiRoutes(claimPage, "admin", {
+        fixtures: [],
+        includeGateway: false,
+        ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+      });
+      await claimPage.goto(`/settings?siteId=${ids.site}`);
+      await claimPage.getByLabel("제품 시리얼").fill("GW-E2E-NEW");
+      await claimPage.getByLabel("일회성 등록 코드").fill("claim-code");
+      const claim = claimPage.getByRole("button", { name: "게이트웨이 등록" });
+      await expect(claim).toBeEnabled();
+      await expectMinimumTouchTargetSize(claim);
+    } finally {
+      await claimPage.close();
+    }
+  });
+
+  for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) {
+    test(`${viewport.width}px enabled search and failure retry actions meet the 44px commissioning contract`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await installSettingsApiRoutes(page, "admin", {
+        fixtures: [],
+        ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
+        registrationSession: registrationSession("failed", "Bluetooth 어댑터를 사용할 수 없습니다."),
+        registrationRetrySession: registrationSession("scanning", null)
+      });
+      await page.goto(`/monitoring?siteId=${ids.site}`);
+      await page.getByLabel("등록 층").selectOption(ids.floor);
+      await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+
+      const start = page.getByRole("button", { name: "조명 검색 시작" });
+      await expect(start).toBeEnabled();
+      await expectMinimumTouchTargetSize(start);
+      await start.click();
+
+      const retry = page.getByRole("button", { name: "다시 검색" });
+      await expect(retry).toBeEnabled();
+      await expectMinimumTouchTargetSize(retry);
+    });
+  }
+
+  test("390px enabled registration and reconciliation actions meet the 44px commissioning contract", async ({ browser, baseURL }) => {
+    const registrationPage = await browser.newPage({ baseURL, viewport: { width: 390, height: 844 } });
+    try {
+      const completed = {
+        ...registrationSession("completed", null),
+        scanCorrelationId: discoveredNode.scanCorrelationId,
+        scanAttempt: discoveredNode.scanAttempt ?? 1,
+        discoveredNodes: [discoveredNode]
+      };
+      await installSettingsApiRoutes(registrationPage, "admin", {
+        fixtures: [],
+        ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
+        registrationSession: completed
+      });
+      await registrationPage.goto(`/monitoring?siteId=${ids.site}`);
+      await registrationPage.getByLabel("등록 층").selectOption(ids.floor);
+      await registrationPage.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+      await registrationPage.getByRole("button", { name: "조명 검색 시작" }).click();
+      await registrationPage.getByLabel("조명 1 선택").check();
+      const submit = registrationPage.getByRole("button", { name: "선택 조명 등록" });
+      await expect(submit).toBeEnabled();
+      await expectMinimumTouchTargetSize(submit);
+    } finally {
+      await registrationPage.close();
+    }
+
+    const reconciliationPage = await browser.newPage({ baseURL, viewport: { width: 390, height: 844 } });
+    try {
+      const reconciliationNode = {
+        ...discoveredNode,
+        status: "reconcile_required" as const,
+        errorMessage: "게이트웨이 ACK를 확인하지 못했습니다."
+      };
+      const reconciliation = {
+        ...registrationSession("completed", null),
+        scanCorrelationId: reconciliationNode.scanCorrelationId,
+        scanAttempt: reconciliationNode.scanAttempt ?? 1,
+        discoveredNodes: [reconciliationNode]
+      };
+      await installSettingsApiRoutes(reconciliationPage, "admin", {
+        fixtures: [],
+        ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
+        registrationSession: reconciliation
+      });
+      await reconciliationPage.goto(`/monitoring?siteId=${ids.site}`);
+      await reconciliationPage.getByLabel("등록 층").selectOption(ids.floor);
+      await reconciliationPage.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+      await reconciliationPage.getByRole("button", { name: "조명 검색 시작" }).click();
+      await reconciliationPage.getByLabel("장비 상태를 확인했으며 현재 세션에서 제외").check();
+      const exclude = reconciliationPage.getByRole("button", { name: "현재 세션에서 제외" });
+      await expect(exclude).toBeEnabled();
+      await expectMinimumTouchTargetSize(exclude);
+    } finally {
+      await reconciliationPage.close();
+    }
   });
 
   test("검색 실패 원인은 정제된 메시지만 표시한다", async ({ page }) => {
@@ -613,6 +730,15 @@ async function expectResponsivePanelLayout(
   } else {
     expect(secondary.x).toBeGreaterThanOrEqual(primary.x + primary.width - 1);
   }
+}
+
+async function expectMinimumTouchTargetSize(target: Locator) {
+  await target.evaluate((element) => element.scrollIntoView({ block: "center", inline: "center" }));
+  const bounds = await target.boundingBox();
+  expect(bounds).not.toBeNull();
+  if (!bounds) return;
+  expect(bounds.width).toBeGreaterThanOrEqual(44);
+  expect(bounds.height).toBeGreaterThanOrEqual(44);
 }
 
 async function installAutomationListRoutes(page: Page) {

@@ -206,19 +206,24 @@ test("desktop settings navigation opens on hover, preserves site scope, and expo
   const settings = page.getByRole("link", { name: "설정", exact: true });
   await settings.hover();
   await expect(settings).toHaveAttribute("aria-expanded", "true");
-  await expect(settings).toHaveAttribute("aria-haspopup", "menu");
+  await expect(settings).not.toHaveAttribute("aria-haspopup");
   await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
-  await expect(page.getByRole("menu", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
-  await expect(page.getByRole("menuitem", { name: "비밀번호 변경" })).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "설정 메뉴" })).toHaveCount(0);
-  await page.getByRole("menuitem", { name: "도면 관리" }).click();
+  const navigation = page.getByRole("navigation", { name: "설정 메뉴" });
+  await expect(navigation).toHaveAttribute("id", "settings-navigation-popup");
+  await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
+  await navigation.getByRole("link", { name: "도면 관리" }).click();
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
   await expect(page.getByRole("heading", { name: "도면 관리" })).toBeVisible();
+  await settings.hover();
+  await expect(settings).not.toHaveAttribute("aria-current");
+  await expect(page.getByRole("link", { name: "설정 개요" })).not.toHaveAttribute("aria-current");
+  await expect(page.getByRole("link", { name: "도면 관리" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "비밀번호 변경" })).not.toHaveAttribute("aria-current");
   await expectNoHorizontalOverflow(page);
 });
 
-test("desktop settings navigation opens on focus and Escape restores focus", async ({ page }) => {
+test("desktop settings navigation follows natural Tab and Shift+Tab order before Escape restores focus", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await installSettingsApiRoutes(page, "viewer");
   await page.goto("/monitoring?siteId=site-1");
@@ -226,9 +231,19 @@ test("desktop settings navigation opens on focus and Escape restores focus", asy
   const settings = page.getByRole("link", { name: "설정", exact: true });
   await settings.focus();
   await expect(settings).toHaveAttribute("aria-expanded", "true");
-  await expect(settings).toHaveAttribute("aria-haspopup", "menu");
-  await expect(page.getByRole("menuitem", { name: "도면 관리" })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "비밀번호 변경" })).toHaveCount(0);
+  await expect(settings).not.toHaveAttribute("aria-haspopup");
+  const navigation = page.getByRole("navigation", { name: "설정 메뉴" });
+  const overview = navigation.getByRole("link", { name: "설정 개요" });
+  const floorPlans = navigation.getByRole("link", { name: "도면 관리" });
+  await expect(floorPlans).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toHaveCount(0);
+
+  await page.keyboard.press("Tab");
+  await expect(overview).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(floorPlans).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(overview).toBeFocused();
   await page.keyboard.press("Escape");
 
   await expect(settings).toHaveAttribute("aria-expanded", "false");
@@ -242,12 +257,13 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
     try {
       await installSettingsApiRoutes(page, "admin");
       await page.goto("/monitoring?siteId=site-1");
-      const settings = page.getByRole("link", { name: "설정", exact: true });
+      const settings = page.getByRole("button", { name: "설정", exact: true });
       await settings.click();
 
-      const menu = page.getByRole("dialog", { name: "설정 메뉴" });
+      const menu = page.getByRole("navigation", { name: "설정 메뉴" });
       await expect(menu).toBeVisible();
-      await expect(settings).toHaveAttribute("aria-haspopup", "dialog");
+      await expect(settings).not.toHaveAttribute("aria-current");
+      await expect(settings).not.toHaveAttribute("aria-haspopup");
       await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
       await expect(menu).toHaveAttribute("id", "settings-navigation-popup");
       await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);

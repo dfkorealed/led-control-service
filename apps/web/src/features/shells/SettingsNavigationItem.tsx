@@ -1,6 +1,6 @@
 import { ChevronRight, Settings } from "lucide-react";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
 import { settingsSectionsFor } from "../settings/settings-sections";
 
@@ -19,7 +19,7 @@ function hasCoarsePointer() {
 export function SettingsNavigationItem({ role, search }: SettingsNavigationItemProps) {
   const location = useLocation();
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLAnchorElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
   const sections = settingsSectionsFor(role);
   const active = location.pathname.startsWith("/settings");
@@ -38,16 +38,18 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
     return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
   }, []);
 
-  function handlePrimaryClick(event: MouseEvent<HTMLAnchorElement>) {
-    if (!hasCoarsePointer()) return;
-    event.preventDefault();
-    setOpen(true);
-  }
-
   function closeWithFocusRestore() {
     triggerRef.current?.focus();
     setOpen(false);
   }
+
+  const triggerContent = (
+    <>
+      <Settings size={18} aria-hidden="true" />
+      <span>설정</span>
+      <ChevronRight className="settings-nav-chevron" size={16} aria-hidden="true" />
+    </>
+  );
 
   return (
     <div
@@ -63,37 +65,48 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
         if (event.key === "Escape") closeWithFocusRestore();
       }}
     >
-      <NavLink
-        ref={triggerRef}
-        to={`/settings${search}`}
-        className={active ? "nav-item active" : "nav-item"}
-        aria-expanded={open}
-        aria-haspopup={coarsePointer ? "dialog" : "menu"}
-        aria-controls={settingsPopupId}
-        onClick={handlePrimaryClick}
-      >
-        <Settings size={18} aria-hidden="true" />
-        <span>설정</span>
-        <ChevronRight className="settings-nav-chevron" size={16} aria-hidden="true" />
-      </NavLink>
+      {coarsePointer ? (
+        <button
+          ref={(node) => { triggerRef.current = node; }}
+          type="button"
+          className={active ? "nav-item active" : "nav-item"}
+          aria-expanded={open}
+          aria-controls={settingsPopupId}
+          onClick={() => setOpen(true)}
+        >
+          {triggerContent}
+        </button>
+      ) : (
+        <Link
+          ref={(node) => { triggerRef.current = node; }}
+          to={`/settings${search}`}
+          className={active ? "nav-item active" : "nav-item"}
+          aria-expanded={open}
+          aria-controls={settingsPopupId}
+        >
+          {triggerContent}
+        </Link>
+      )}
       {open ? (
-        <div
+        <nav
           id={settingsPopupId}
           className="settings-submenu"
-          role={coarsePointer ? "dialog" : "menu"}
           aria-label="설정 메뉴"
         >
-          {sections.map((section) => (
-            <NavLink
-              key={section.path}
-              to={`${section.path}${search}`}
-              role={coarsePointer ? undefined : "menuitem"}
-              onClick={() => setOpen(false)}
-            >
-              {section.label}
-            </NavLink>
-          ))}
-        </div>
+          <ul className="settings-submenu-list">
+            {sections.map((section) => (
+              <li key={section.path}>
+                <NavLink
+                  to={`${section.path}${search}`}
+                  end={section.path === "/settings"}
+                  onClick={() => setOpen(false)}
+                >
+                  {section.label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </nav>
       ) : null}
     </div>
   );

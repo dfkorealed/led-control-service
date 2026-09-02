@@ -55,16 +55,16 @@ describe("SettingsNavigationItem", () => {
 
     fireEvent.mouseEnter(trigger.closest("div")!);
 
-    expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     expect(trigger).toHaveAttribute("aria-controls", "settings-navigation-popup");
-    expect(screen.getByRole("menu", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
-    expect(screen.getByRole("menuitem", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1");
-    expect(screen.getByRole("menuitem", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
-    expect(screen.getByRole("menuitem", { name: "비밀번호 변경" })).toBeVisible();
+    expect(trigger).not.toHaveAttribute("aria-haspopup");
+    expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
+    expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1");
+    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
+    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
 
     fireEvent.keyDown(trigger, { key: "Escape" });
 
-    expect(screen.queryByRole("menuitem", { name: "도면 관리" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "설정 메뉴" })).not.toBeInTheDocument();
   });
 
   it("does not expose admin-only security to a viewer", () => {
@@ -73,20 +73,40 @@ describe("SettingsNavigationItem", () => {
 
     fireEvent.focus(screen.getByRole("link", { name: "설정" }));
 
-    expect(screen.getByRole("menuitem", { name: "도면 관리" })).toBeVisible();
-    expect(screen.queryByRole("menuitem", { name: "비밀번호 변경" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "도면 관리" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "비밀번호 변경" })).not.toBeInTheDocument();
   });
 
-  it("opens the mobile sheet instead of navigating on a coarse pointer", () => {
+  it("uses a button to open the coarse disclosure without navigating", () => {
     mockMatchMedia({ coarse: true });
     renderSettingsItem({ role: "admin", initialEntry: "/monitoring?siteId=site-1" });
 
-    fireEvent.click(screen.getByRole("link", { name: "설정" }));
+    fireEvent.click(screen.getByRole("button", { name: "설정" }));
+
+    const trigger = screen.getByRole("button", { name: "설정" });
+    expect(trigger).toHaveAttribute("aria-controls", "settings-navigation-popup");
+    expect(trigger).not.toHaveAttribute("aria-current");
+    expect(trigger).not.toHaveAttribute("aria-haspopup");
+    expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
+    expect(screen.getByTestId("location")).toHaveTextContent("/monitoring?siteId=site-1");
+  });
+
+  it.each([
+    ["/settings?siteId=site-1", "설정 개요"],
+    ["/settings/floor-plans?siteId=site-1", "도면 관리"],
+    ["/settings/security?siteId=site-1", "비밀번호 변경"]
+  ])("exposes one current-page link for %s", (initialEntry, currentLabel) => {
+    mockMatchMedia();
+    renderSettingsItem({ role: "admin", initialEntry });
 
     const trigger = screen.getByRole("link", { name: "설정" });
-    expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
-    expect(trigger).toHaveAttribute("aria-controls", "settings-navigation-popup");
-    expect(screen.getByRole("dialog", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
-    expect(screen.getByTestId("location")).toHaveTextContent("/monitoring?siteId=site-1");
+    fireEvent.focus(trigger);
+
+    expect(trigger).not.toHaveAttribute("aria-current");
+    for (const label of ["설정 개요", "도면 관리", "비밀번호 변경"]) {
+      const link = screen.getByRole("link", { name: label });
+      if (label === currentLabel) expect(link).toHaveAttribute("aria-current", "page");
+      else expect(link).not.toHaveAttribute("aria-current");
+    }
   });
 });
