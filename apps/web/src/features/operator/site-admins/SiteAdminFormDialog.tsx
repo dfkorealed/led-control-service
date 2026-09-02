@@ -1,8 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AssignSiteAdminInput, CreateSiteAdminInput, SiteAdminSummary, UpdateSiteAdminInput } from "../../../api/operator-site-admins";
 import { useDialogFocus } from "../../../components/ConfirmDialog";
+import { Button } from "../../../components/ui/Button";
+import { FeedbackState } from "../../../components/ui/FeedbackState";
 import { MIN_OPERATOR_PASSWORD_LENGTH, OPERATOR_PASSWORD_POLICY_MESSAGE, isPasswordPolicyError } from "./password-policy";
 
 type FormMode = "create" | "assign" | "edit";
@@ -188,9 +190,9 @@ export function SiteAdminFormDialog({
       <section ref={dialogRef} className="operator-dialog" role="dialog" aria-modal="true" aria-labelledby="site-admin-form-dialog-title" tabIndex={-1}>
         <header className="operator-dialog-header">
           <h2 id="site-admin-form-dialog-title">{title}</h2>
-          <button className="icon-button" type="button" aria-label={`${title} 닫기`} onClick={close} disabled={isPending}>
+          <Button className="icon-button" type="button" aria-label={`${title} 닫기`} onClick={close} disabled={isPending}>
             <X size={18} aria-hidden="true" />
-          </button>
+          </Button>
         </header>
         <form className="operator-form" onSubmit={(event) => {
           event.preventDefault();
@@ -234,10 +236,10 @@ export function SiteAdminFormDialog({
               {passwordError ? <span id="site-admin-password-error" className="field-error" role="alert">{passwordError}</span> : null}
             </label>
           ) : null}
-          {generalError ? <p className="danger-text" role="alert">{generalError}</p> : null}
+          {generalError ? <FeedbackState tone="danger" icon={CircleAlert} title={generalError} /> : null}
           <footer className="operator-dialog-actions">
-            <button type="button" onClick={close} disabled={isPending}>취소</button>
-            <button className="primary-button" type="submit" disabled={!valid || isPending}>{isPending ? "처리 중" : submitLabel}</button>
+            <Button type="button" onClick={close} disabled={isPending}>취소</Button>
+            <Button variant="primary" type="submit" disabled={!valid || isPending} isLoading={isPending} loadingLabel="처리 중">{submitLabel}</Button>
           </footer>
         </form>
       </section>

@@ -54,6 +54,42 @@ describe("SiteAdminManagementView", () => {
     api.disableSiteAdmin.mockResolvedValue({ ok: true });
   });
 
+  it("운영자 목록은 실제 데이터로 네 요약과 상태 표를 표시한다", async () => {
+    renderView();
+
+    await screen.findByText("인천 물류센터");
+
+    expect(screen.getByRole("group", { name: "운영 현장" })).toHaveTextContent("2");
+    expect(screen.getByRole("group", { name: "설치 완료" })).toHaveTextContent("1");
+    expect(screen.getByRole("group", { name: "관리자 계정" })).toHaveTextContent("1");
+    expect(screen.getByRole("group", { name: "확인 필요" })).toHaveTextContent("2");
+    expect(screen.getByText("설치 대기")).toBeVisible();
+    expect(within(screen.getByLabelText("현장 관리자 계정 표")).getByText("설치 완료")).toBeVisible();
+    expect(screen.getByText("활성")).toBeVisible();
+    expect(screen.getByLabelText("현장 관리자 계정 표")).toBeVisible();
+    expect(screen.getByRole("button", { name: "현장 및 관리자 생성" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "김관리 수정" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "김관리 비밀번호 재설정" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "김관리 비활성화" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "강남 주차장 관리자 지정" })).toBeVisible();
+  });
+
+  it("운영자 계정 dialog는 mutation 후 초점을 복원한다", async () => {
+    renderView();
+    await screen.findByText("customer_admin");
+
+    const trigger = screen.getByRole("button", { name: "김관리 수정" });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(api.updateSiteAdmin).toHaveBeenCalledWith("admin-1", {
+      adminName: "김관리",
+      loginId: "customer_admin"
+    }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(trigger);
+  });
+
   afterEach(cleanup);
 
   it("creates a site admin without creating a password-bearing React Query mutation", async () => {
@@ -200,7 +236,7 @@ describe("SiteAdminManagementView", () => {
     fireEvent.change(within(dialog).getByLabelText("비밀번호 확인"), { target: { value: "different-password" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "비밀번호 재설정" }));
 
-    expect(await within(dialog).findByText("비밀번호 확인이 일치하지 않습니다.")).toHaveAttribute("role", "alert");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("비밀번호 확인이 일치하지 않습니다.");
     expect(api.resetSiteAdminPassword).not.toHaveBeenCalled();
 
     fireEvent.change(within(dialog).getByLabelText("비밀번호 확인"), { target: { value: "new-password" } });
@@ -300,7 +336,7 @@ describe("SiteAdminManagementView", () => {
     fireEvent.click(screen.getByRole("button", { name: "김관리 수정" }));
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
-    expect(await screen.findByText("관리자 계정 변경을 완료하지 못했습니다. 잠시 후 다시 시도하세요.")).toHaveAttribute("role", "alert");
+    expect(await screen.findByRole("alert")).toHaveTextContent("관리자 계정 변경을 완료하지 못했습니다. 잠시 후 다시 시도하세요.");
     expect(screen.queryByText("이미 사용 중인 로그인 아이디입니다.")).not.toBeInTheDocument();
     expect(screen.getByLabelText("로그인 아이디")).not.toHaveAttribute("aria-invalid", "true");
   });
@@ -413,8 +449,8 @@ describe("SiteAdminManagementView", () => {
     api.listSiteAdmins.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce([assignedSite]);
     renderView();
 
-    expect(screen.getByText("현장 관리자 목록을 불러오는 중입니다.")).toHaveAttribute("role", "status");
-    expect(await screen.findByText("현장 관리자 목록을 불러오지 못했습니다.")).toHaveAttribute("role", "alert");
+    expect(screen.getByRole("status")).toHaveTextContent("현장 관리자 목록을 불러오는 중입니다.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("현장 관리자 목록을 불러오지 못했습니다.");
     fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
     await screen.findByText("인천 물류센터");
 

@@ -1,6 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
+import { CircleAlert } from "lucide-react";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { FeedbackState } from "../../../components/ui/FeedbackState";
 
 interface DisableSiteAdminDialogProps {
   admin: NonNullable<SiteAdminSummary["admin"]>;
@@ -44,7 +46,7 @@ export function DisableSiteAdminDialog({ admin, returnFocusElement, fallbackFocu
       onConfirm={() => mutation.mutate()}
       onClose={close}
     >
-      {mutation.error ? <p className="danger-text" role="alert">관리자 계정을 비활성화하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.</p> : null}
+      {mutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="관리자 계정을 비활성화하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요." /> : null}
     </ConfirmDialog>
   );
 }

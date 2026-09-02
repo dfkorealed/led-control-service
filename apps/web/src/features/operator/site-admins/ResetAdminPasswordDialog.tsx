@@ -1,6 +1,8 @@
+import { CircleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { FeedbackState } from "../../../components/ui/FeedbackState";
 import { MIN_OPERATOR_PASSWORD_LENGTH, OPERATOR_PASSWORD_POLICY_MESSAGE, isPasswordPolicyError } from "./password-policy";
 
 interface ResetAdminPasswordDialogProps {
@@ -99,8 +101,8 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
           setNewPassword(event.target.value);
         }} /></label>
         <label className="form-field"><span>비밀번호 확인</span><input type="password" value={confirmation} autoComplete="new-password" onChange={(event) => setConfirmation(event.target.value)} /></label>
-        {validationError ? <p className="danger-text" role="alert">{validationError}</p> : null}
-        {generalError ? <p className="danger-text" role="alert">{generalError}</p> : null}
+        {validationError ? <FeedbackState tone="danger" icon={CircleAlert} title={validationError} /> : null}
+        {generalError ? <FeedbackState tone="danger" icon={CircleAlert} title={generalError} /> : null}
       </div>
     </ConfirmDialog>
   );

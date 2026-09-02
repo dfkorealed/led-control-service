@@ -24,7 +24,12 @@
 }
 
 .ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   min-height: 44px;
+  cursor: pointer;
   border-radius: var(--radius-control);
   padding: 0 16px;
   font-weight: 700;
@@ -418,6 +423,46 @@ button {
   gap: 18px;
 }
 
+.operator-admin-management > .ui-page-header {
+  align-items: end;
+  gap: 18px;
+}
+
+.operator-admin-management > .ui-page-header h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.operator-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.operator-summary-grid .ui-metric-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.operator-summary-grid .ui-metric-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.operator-summary-grid .ui-metric-card strong {
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1;
+}
+
 .operator-admin-toolbar {
   display: flex;
   align-items: end;
@@ -486,39 +531,15 @@ button {
   gap: 6px;
 }
 
-.operator-row-actions button,
-.operator-admin-table td > button,
-.operator-fetch-error button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--primary);
-  padding: 6px 9px;
+.operator-row-actions .ui-button,
+.operator-admin-table td > .ui-button {
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 6px 10px;
   font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.operator-row-actions .danger-action {
-  border-color: #fecaca;
-  color: #b91c1c;
 }
 
 .operator-announcement {
-  margin: 0;
-}
-
-.operator-fetch-error {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.operator-fetch-error .danger-text {
   margin: 0;
 }
 
@@ -609,18 +630,6 @@ button {
 .operator-dialog-actions {
   justify-content: flex-end;
   margin-top: 6px;
-}
-
-.operator-dialog-actions button:not(.primary-button):not(.danger-button) {
-  min-height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--muted);
-  padding: 7px 12px;
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
 }
 
 .danger-button {
@@ -764,19 +773,44 @@ button {
 
 .auth-shell {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);
+  align-items: center;
+  gap: clamp(32px, 8vw, 120px);
+  width: min(100%, 1080px);
+  margin: 0 auto;
   min-height: 100vh;
-  place-items: center;
   padding: 24px;
   background:
     linear-gradient(180deg, rgba(232, 241, 255, 0.8), rgba(247, 250, 255, 0) 360px),
     var(--surface);
 }
 
+.auth-brand-panel {
+  max-width: 540px;
+}
+
+.auth-brand-panel .auth-brand {
+  margin-bottom: 28px;
+}
+
+.auth-brand-panel h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(34px, 4vw, 54px);
+  line-height: 1.18;
+  letter-spacing: -0.04em;
+}
+
+.auth-brand-panel > p {
+  max-width: 440px;
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
 .auth-panel {
   width: min(100%, 440px);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel);
   padding: 24px;
   box-shadow: var(--shadow);
 }
@@ -789,7 +823,7 @@ button {
   margin-bottom: 20px;
 }
 
-.auth-heading h1 {
+.auth-heading h2 {
   margin: 0;
   color: var(--text);
   font-size: 28px;
@@ -834,8 +868,11 @@ button {
 }
 
 .auth-submit {
-  gap: 8px;
   margin-top: 4px;
+}
+
+.auth-panel .ui-feedback-state {
+  margin-top: 14px;
 }
 
 .danger-text {
@@ -4053,6 +4090,38 @@ button.group-card {
 }
 
 @media (max-width: 760px) {
+  .auth-shell {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: center;
+    gap: 32px;
+    padding: 24px 16px;
+  }
+
+  .auth-brand-panel {
+    max-width: none;
+  }
+
+  .auth-brand-panel h1 {
+    font-size: 36px;
+  }
+
+  .auth-panel {
+    width: 100%;
+  }
+
+  .auth-form input,
+  .form-field input {
+    min-height: 44px;
+  }
+
+  .auth-form .check-field {
+    min-height: 44px;
+  }
+
+  .auth-form .check-field input {
+    min-height: 16px;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
     padding-bottom: var(--bottom-nav-space);
@@ -4501,6 +4570,40 @@ button.group-card {
     height: 280px;
     min-height: 280px;
   }
+
+  .operator-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .operator-admin-management > .ui-page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .operator-admin-management > .ui-page-header .ui-page-actions,
+  .operator-admin-management > .ui-page-header .ui-button {
+    width: 100%;
+  }
+
+  .operator-header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 14px;
+  }
+
+  .operator-header-actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .operator-content {
+    padding: 24px 14px;
+  }
+
+  .operator-row-actions .ui-button,
+  .operator-admin-table td > .ui-button {
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 360px) {
@@ -4516,6 +4619,10 @@ button.group-card {
   }
 
   .statistics-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .operator-summary-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

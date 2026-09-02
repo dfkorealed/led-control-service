@@ -294,7 +294,7 @@ describe("App", () => {
     cleanup();
   });
 
-  it("renders the login form when no authenticated session exists", async () => {
+  it("로그인은 운영 요약 없이 Calm Operations 브랜드와 실제 폼만 표시한다", async () => {
     authState.user = null;
     const queryClient = new QueryClient();
     render(
@@ -303,10 +303,14 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /빛을 더 안정적으로/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(screen.queryByText("연결 조명")).not.toBeInTheDocument();
+    expect(screen.queryByText("정상 운영")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^(Gateway|게이트웨이)$/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText("아이디")).toBeInTheDocument();
     expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
-    expect(screen.getByLabelText("자동 로그인")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "자동 로그인" })).toBeChecked();
   });
 
   it("submits the login id and never renders public signup controls", async () => {

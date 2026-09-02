@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Pencil, Plus, UserPlus, UserRoundX } from "lucide-react";
-import { useRef, useState } from "react";
+import { CircleAlert, CircleCheck, Clock3, KeyRound, Pencil, Plus, UserPlus, UserRoundX, UsersRound } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import {
   assignSiteAdmin,
   createSiteAdmin,
@@ -11,6 +11,12 @@ import {
   updateSiteAdmin,
   type SiteAdminSummary
 } from "../../../api/operator-site-admins";
+import { Button } from "../../../components/ui/Button";
+import { Card } from "../../../components/ui/Card";
+import { FeedbackState } from "../../../components/ui/FeedbackState";
+import { MetricCard } from "../../../components/ui/MetricCard";
+import { PageHeader } from "../../../components/ui/PageHeader";
+import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { DisableSiteAdminDialog } from "./DisableSiteAdminDialog";
 import { ResetAdminPasswordDialog } from "./ResetAdminPasswordDialog";
 import { SiteAdminFormDialog } from "./SiteAdminFormDialog";
@@ -29,6 +35,12 @@ export function SiteAdminManagementView() {
   const createCommandRef = useRef<HTMLButtonElement>(null);
   const [notice, setNotice] = useState("");
   const siteAdmins = useQuery({ queryKey: operatorSiteAdminsQueryKey, queryFn: listSiteAdmins });
+  const summaries = useMemo(() => [
+    { label: "운영 현장", value: siteAdmins.data?.length ?? 0, tone: "primary" as const, icon: UsersRound },
+    { label: "설치 완료", value: siteAdmins.data?.filter((site) => site.installationStatus === "installed").length ?? 0, tone: "success" as const, icon: CircleCheck },
+    { label: "관리자 계정", value: siteAdmins.data?.filter((site) => site.admin).length ?? 0, tone: "neutral" as const, icon: UserPlus },
+    { label: "확인 필요", value: siteAdmins.data?.filter((site) => site.installationStatus !== "installed" || !site.admin || site.admin.status !== "active").length ?? 0, tone: "warning" as const, icon: CircleAlert }
+  ], [siteAdmins.data]);
 
   function openDialog(next: DialogState, trigger: HTMLElement) {
     setNotice("");
@@ -46,28 +58,28 @@ export function SiteAdminManagementView() {
   }
 
   return (
-    <section className="operator-admin-management" aria-labelledby="operator-site-admins-heading">
-      <div className="operator-admin-toolbar">
-        <div>
-          <span className="eyebrow">서비스 운영</span>
-          <h1 id="operator-site-admins-heading">현장 관리자 계정</h1>
-        </div>
-        <button ref={createCommandRef} className="primary-button" type="button" onClick={(event) => openDialog({ type: "create" }, event.currentTarget)}>
+    <section className="operator-admin-management" aria-label="현장 관리자 계정">
+      <PageHeader
+        title="현장 관리자 계정"
+        headingLevel={1}
+        description="서비스 운영 · 현장별 설치 상태와 관리자 계정을 관리합니다."
+        actions={<Button ref={createCommandRef} type="button" variant="primary" onClick={(event) => openDialog({ type: "create" }, event.currentTarget)}>
           <Plus size={16} aria-hidden="true" /> 현장 및 관리자 생성
-        </button>
+        </Button>}
+      />
+
+      {notice ? <FeedbackState tone="success" icon={CircleCheck} title={notice} /> : null}
+
+      <div className="operator-summary-grid">
+        {summaries.map(({ label, value, tone, icon }) => <MetricCard key={label} label={label} value={value} tone={tone} icon={icon} />)}
       </div>
 
-      {notice ? <p className="success-text operator-announcement" role="status">{notice}</p> : null}
-
-      {siteAdmins.isLoading ? <p className="muted-text" role="status">현장 관리자 목록을 불러오는 중입니다.</p> : null}
+      {siteAdmins.isLoading ? <FeedbackState tone="neutral" icon={Clock3} title="현장 관리자 목록을 불러오는 중입니다." /> : null}
       {siteAdmins.error ? (
-        <div className="operator-fetch-error">
-          <p className="danger-text" role="alert">현장 관리자 목록을 불러오지 못했습니다.</p>
-          <button type="button" onClick={() => void siteAdmins.refetch()}>다시 시도</button>
-        </div>
+        <FeedbackState tone="danger" icon={CircleAlert} title="현장 관리자 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void siteAdmins.refetch()}>다시 시도</Button>} />
       ) : null}
       {!siteAdmins.isLoading && !siteAdmins.error ? (
-        <div className="operator-table-wrap" tabIndex={0} aria-label="현장 관리자 계정 표">
+        <Card className="operator-table-wrap" tabIndex={0} aria-label="현장 관리자 계정 표">
           <table className="operator-admin-table">
             <thead>
               <tr>
@@ -79,7 +91,7 @@ export function SiteAdminManagementView() {
               {siteAdmins.data?.length === 0 ? <tr><td colSpan={8} className="operator-table-empty">관리할 현장이 없습니다.</td></tr> : null}
             </tbody>
           </table>
-        </div>
+        </Card>
       ) : null}
 
       {dialog?.type === "create" ? <SiteAdminFormDialog mode="create" returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
@@ -97,19 +109,19 @@ function SiteAdminRow({ site, onOpen }: { site: SiteAdminSummary; onOpen: (dialo
     <tr>
       <td>{site.customerName}</td>
       <td>{site.siteName}</td>
-      <td><span className={`status-pill ${site.installationStatus === "installed" ? "success" : "offline"}`}>{site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}</span></td>
+      <td><StatusBadge tone={site.installationStatus === "installed" ? "success" : "warning"} icon={site.installationStatus === "installed" ? CircleCheck : Clock3}>{site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}</StatusBadge></td>
       <td>{admin?.name ?? "관리자 미지정"}</td>
       <td>{admin?.loginId ?? "-"}</td>
-      <td>{admin ? <span className={`status-pill ${admin.status === "active" ? "success" : "danger"}`}>{admin.status === "active" ? "활성" : "비활성"}</span> : "-"}</td>
+      <td>{admin ? <StatusBadge tone={admin.status === "active" ? "success" : "danger"} icon={admin.status === "active" ? CircleCheck : CircleAlert}>{admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : "-"}</td>
       <td>{admin ? formatUpdatedAt(admin.updatedAt) : "-"}</td>
       <td>
         {admin ? (
           <div className="operator-row-actions">
-            <button type="button" aria-label={`${admin.name} 수정`} onClick={(event) => onOpen({ type: "edit", admin }, event.currentTarget)}><Pencil size={15} aria-hidden="true" /> 수정</button>
-            <button type="button" aria-label={`${admin.name} 비밀번호 재설정`} onClick={(event) => onOpen({ type: "reset", admin }, event.currentTarget)}><KeyRound size={15} aria-hidden="true" /> 비밀번호 재설정</button>
-            <button className="danger-action" type="button" aria-label={`${admin.name} 비활성화`} onClick={(event) => onOpen({ type: "disable", admin }, event.currentTarget)}><UserRoundX size={15} aria-hidden="true" /> 비활성화</button>
+            <Button type="button" aria-label={`${admin.name} 수정`} onClick={(event) => onOpen({ type: "edit", admin }, event.currentTarget)}><Pencil size={15} aria-hidden="true" /> 수정</Button>
+            <Button type="button" aria-label={`${admin.name} 비밀번호 재설정`} onClick={(event) => onOpen({ type: "reset", admin }, event.currentTarget)}><KeyRound size={15} aria-hidden="true" /> 비밀번호 재설정</Button>
+            <Button variant="danger" type="button" aria-label={`${admin.name} 비활성화`} onClick={(event) => onOpen({ type: "disable", admin }, event.currentTarget)}><UserRoundX size={15} aria-hidden="true" /> 비활성화</Button>
           </div>
-        ) : <button type="button" onClick={(event) => onOpen({ type: "assign", site }, event.currentTarget)} aria-label={`${site.siteName} 관리자 지정`}><UserPlus size={15} aria-hidden="true" /> 관리자 지정</button>}
+        ) : <Button type="button" onClick={(event) => onOpen({ type: "assign", site }, event.currentTarget)} aria-label={`${site.siteName} 관리자 지정`}><UserPlus size={15} aria-hidden="true" /> 관리자 지정</Button>}
       </td>
     </tr>
   );
