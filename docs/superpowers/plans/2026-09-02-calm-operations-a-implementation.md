@@ -91,7 +91,7 @@
 - Produces: `ProgressSteps({ label, steps }: { label: string; steps: readonly ProgressStep[] })`
 - Preserves: `CustomerShell` route tree, `siteId` query, logout/dirty guard, settings disclosure behavior
 
-- [ ] **Step 1: Add failing primitive and shell tests**
+- [x] **Step 1: Add failing primitive and shell tests**
 
 Add these contracts to `ui-primitives.test.tsx`:
 
@@ -116,7 +116,7 @@ it.each(["info", "success", "warning"] as const)("exposes the %s feedback tone",
 
 Add an App assertion that the four customer navigation links remain present after the rail markup changes. In the new Playwright file, mock the installed admin dashboard through `installSettingsApiRoutes`, visit `/monitoring`, and assert rail/topbar/bottom-nav geometry plus `expectNoHorizontalOverflow()` at all four required viewports.
 
-- [ ] **Step 2: Run the focused tests and confirm RED**
+- [x] **Step 2: Run the focused tests and confirm RED**
 
 Run:
 
@@ -127,7 +127,7 @@ pnpm --filter @led-control/web exec playwright test e2e/calm-operations-shell.sp
 
 Expected: Vitest fails because `ProgressSteps` is not exported and `FeedbackTone` rejects the new tones; Playwright fails because the new file's 92px rail/compact topbar/bottom-nav geometry assertions do not match the current shell.
 
-- [ ] **Step 3: Implement the shared progress and feedback interfaces**
+- [x] **Step 3: Implement the shared progress and feedback interfaces**
 
 Create the component with native ordered-list semantics:
 
@@ -157,7 +157,7 @@ export function ProgressSteps({ label, steps }: { label: string; steps: readonly
 
 Expand `FeedbackTone`, export the new types/component from `index.ts`, and style every tone with icon + text contrast. Do not put query state or timers in these components.
 
-- [ ] **Step 4: Apply the corrected token layer and shell geometry**
+- [x] **Step 4: Apply the corrected token layer and shell geometry**
 
 Set the exact spec colors and radii in `:root`, change desktop `.app-shell` to a 92px rail plus 72px top context bar, and keep the existing route links and `SettingsNavigationItem`. At `760px` and below, preserve four bottom navigation items and add safe-area content padding; at `360px` and below, allow labels to wrap without reducing the 44px target.
 
@@ -177,11 +177,11 @@ Implement the geometry with this CSS boundary while leaving the current `Routes`
 
 Do not add notification, avatar, or refresh controls that have no current handler.
 
-- [ ] **Step 5: Make the four-viewport shell fixture pass**
+- [x] **Step 5: Make the four-viewport shell fixture pass**
 
 Use `responsiveViewports = [{ width: 1440, height: 900 }, { width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 320, height: 740 }]`. Assert desktop rail visibility above 760px, bottom navigation visibility at or below 760px, one current nav item, content clear of fixed navigation, no horizontal overflow, and minimum mobile touch targets.
 
-- [ ] **Step 6: Run GREEN and shell regression**
+- [x] **Step 6: Run GREEN and shell regression**
 
 Run:
 
@@ -193,7 +193,7 @@ pnpm --filter @led-control/web typecheck
 
 Expected: all commands exit 0; settings hover/focus/touch tests still preserve role and `siteId` behavior.
 
-- [ ] **Step 7: Review, synchronize status, and commit Task 1**
+- [x] **Step 7: Review, synchronize status, and commit Task 1**
 
 The orchestrator checks the completed boxes above, adds a `Calm Operations A 교정 UI` active row to `docs/project-status.md` with Task 1 complete and Tasks 2~8 remaining, then commits only reviewed files:
 
