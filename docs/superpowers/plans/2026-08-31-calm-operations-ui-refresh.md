@@ -490,7 +490,7 @@ git commit -m "feat(web): refresh monitoring information hierarchy"
 - Consumes: `Button`, `Card`, `PageHeader`, `StatusBadge`, existing ARIA tabs
 - Preserves: `mode=manual|schedule|event`, command lock/recovery, automation CRUD and viewer permissions
 
-- [ ] **Step 1: Write failing control hierarchy tests**
+- [x] **Step 1: Write failing control hierarchy tests**
 
 ```tsx
 expect(screen.getByRole("heading", { name: "조명 제어" })).toBeInTheDocument();
@@ -502,7 +502,7 @@ expect(screen.getByRole("status", { name: "명령 진행 상태" })).toBeInTheDo
 
 For schedule/event panels, assert visible icon+text sync states `적용됨`, `적용 대기`, `적용 실패` and preserve all existing mutation, pagination, 401 and validation tests.
 
-- [ ] **Step 2: Run focused control tests and verify RED**
+- [x] **Step 2: Run focused control tests and verify RED**
 
 Run:
 
@@ -512,14 +512,14 @@ pnpm --filter @led-control/web test -- src/features/control/ControlView.test.tsx
 
 Expected: FAIL on the new heading and named regions.
 
-- [ ] **Step 3: Unify the page shell and existing mode tabs**
+- [x] **Step 3: Unify the page shell and existing mode tabs**
 
 - Render a single `PageHeader title="조명 제어"` above `ControlModeTabs`.
 - Keep `role="tablist"`, roving tabIndex, ArrowLeft/Right, Home and End behavior unchanged.
 - Use the same active pale-blue surface, icon size and focus ring as the primary navigation.
 - Keep the URL mode query behavior unchanged.
 
-- [ ] **Step 4: Restyle manual control without changing its state machine**
+- [x] **Step 4: Restyle manual control without changing its state machine**
 
 - Keep target selection in the left card and add `aria-label="제어 대상 선택"`.
 - Add `aria-label="밝기 실행"` to the right aside.
@@ -528,7 +528,7 @@ Expected: FAIL on the new heading and named regions.
 - Replace visual-only status pills with `StatusBadge`; retain exact current copy used by tests and API outcomes.
 - Do not change `submitCommand`, active command storage, polling, retry, timeout, `overrideUntil`, read-only or Mesh readiness logic.
 
-- [ ] **Step 5: Restyle schedule and vehicle event management**
+- [x] **Step 5: Restyle schedule and vehicle event management**
 
 - Use `PageHeader` inside each panel only for panel-specific title/actions; avoid a second page h1/h2 hierarchy.
 - Style list containers as bordered 16px surfaces with 56px minimum rows.
@@ -536,11 +536,11 @@ Expected: FAIL on the new heading and named regions.
 - Use `Button` variants for add, edit, retry and delete while preserving existing accessible names.
 - Keep dialogs, validation focus, pagination, polling, scope-generation and mutation auth side effects unchanged.
 
-- [ ] **Step 6: Update control documentation**
+- [x] **Step 6: Update control documentation**
 
 Add the three-mode Calm Operations layout, status badge contract and unchanged software/HIL limitations to `docs/menus/control.md`; include shared UI and automation panel files under `관련 파일`; update the date to `2026-08-31`.
 
-- [ ] **Step 7: Run control verification**
+- [x] **Step 7: Run control verification**
 
 Run:
 
@@ -551,7 +551,7 @@ pnpm --filter @led-control/web typecheck
 
 Expected: all control tests and typecheck pass.
 
-- [ ] **Step 8: Commit Task 4**
+- [x] **Step 8: Commit Task 4**
 
 ```bash
 git add apps/web/src/features/control apps/web/src/styles.css docs/menus/control.md

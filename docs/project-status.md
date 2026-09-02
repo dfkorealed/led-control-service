@@ -21,7 +21,7 @@
 | 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
 | Calm Operations UI 개선 설계 | 완료(설계) | 고객용 4개 메뉴의 공통 token·primitive, 현재 기능별 정보 위계, 설정 hover/focus/touch 서브메뉴, 반응형·접근성과 검증 범위를 확정했다. API·DB·MQTT 변경은 포함하지 않는다. |
 | Calm Operations UI 개선 구현 계획 | 완료(계획) | [구현 계획](superpowers/plans/2026-08-31-calm-operations-ui-refresh.md)에 공통 UI, 설정 navigation, 메뉴별 적용, 반응형 E2E, 문서 수렴을 8개 TDD·검증·커밋 단위로 작성했다. |
-| Calm Operations UI 개선 구현 | 진행 중 | 별도 작업트리에서 Task 1 공통 UI, Task 2 설정 navigation, Task 3 모니터링 KPI·상태 범례·상세 반응형과 각 리뷰 수정을 완료했고 Task 4 수동·스케줄·차량 이벤트 제어 UI를 진행한다. 실제 소프트웨어 검증이 끝나기 전에는 완료로 표시하지 않는다. |
+| Calm Operations UI 개선 구현 | 진행 중 | 별도 작업트리에서 Task 1 공통 UI, Task 2 설정 navigation, Task 3 모니터링, Task 4 수동·스케줄·차량 이벤트 제어 UI와 각 리뷰 수정을 완료했고 Task 5 통계 UI를 진행한다. 제어는 116개 테스트·typecheck·production build와 독립 재리뷰를 통과했으며, 실제 소프트웨어 전체 검증 전에는 완료로 표시하지 않는다. |
 | 스케줄·차량 이벤트 제어 설계 | 완료(설계) | 반복 일정, overlap 차단, 수동 override·차량 이벤트·스케줄 우선순위, Gateway full snapshot 무중단 적용, offline 실행과 ESP32-H2 차량 감지 event 계약을 확정했다. Task 7~12에서 API CRUD, production MQTT config와 Gateway offline 실행을 구현했고 Web과 실제 sensor/telemetry 연결은 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape, node-scoped durable ACK identity와 lease-safe exact replay revival까지 5차 review fix를 완료했다. Production Gateway report journal은 후속 Task 범위다. |
@@ -41,7 +41,7 @@
 
 ## 다음 단계
 
-**다음 작업은 승인된 Calm Operations 구현 계획을 Task 1부터 순서대로 실행하는 것이다.** 기존 기능 회귀를 막기 위해 공통 UI, 설정 navigation, 메뉴별 적용, 반응형 E2E와 문서 수렴을 각 검증·커밋 단위로 완료한다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이 UI 작업과 별도로 미실행 상태를 유지하며 software 결과를 실장비 완료로 확대 해석하지 않는다.
+**다음 작업은 승인된 Calm Operations 구현 계획의 Task 5 통계 UI를 실행하는 것이다.** Task 1~4는 각 독립 리뷰까지 완료했으며, 이후 설정 화면·반응형 E2E·문서 수렴을 검증·커밋 단위로 이어간다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이 UI 작업과 별도로 미실행 상태를 유지하며 software 결과를 실장비 완료로 확대 해석하지 않는다.
 
 ## 알려진 미해결 항목
 
