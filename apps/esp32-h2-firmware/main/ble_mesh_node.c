@@ -83,6 +83,8 @@ static uint32_t vehicle_sensor_history_fault_mask;
 static bool system_fault_active;
 static bool system_fault_registered;
 
+/* Config Server는 provisioner가 AppKey bind, subscription, publication을 설정하는 입구다.
+ * 제어 callback보다 먼저 이 설정 변화를 받게 해 model runtime이 아직 준비되지 않은 publication을 쓰지 않게 한다. */
 static esp_ble_mesh_cfg_srv_t config_server = {
     .net_transmit = ESP_BLE_MESH_TRANSMIT(2, 20),
     .relay = ESP_BLE_MESH_RELAY_ENABLED,
@@ -260,6 +262,8 @@ static void publish_group_lightness_status(void *argument) {
 }
 
 static void schedule_group_lightness_status(void) {
+  /* 같은 group Set을 받은 여러 노드가 즉시 Status를 내보내면 RF airtime이 겹친다.
+   * unicast 주소 기반 지터로 publication만 분산하고, 명령 적용·opcode·destination 계약은 바꾸지 않는다. */
   uint16_t primary_unicast = esp_ble_mesh_get_primary_element_address();
   uint32_t delay_ms = mesh_group_publication_jitter_ms(primary_unicast);
   esp_err_t error = esp_timer_stop(group_lightness_publish_timer);
@@ -355,6 +359,8 @@ static void config_server_cb(esp_ble_mesh_cfg_server_cb_event_t event, esp_ble_m
   vehicle_sensor_model_runtime_configuration_changed();
 }
 
+/* Generic OnOff callback은 HTTP handler처럼 Mesh stack이 명령 도착 시 호출하는 경계다.
+ * 여기서 메모리 상태, LED, 저장 예약, Status를 한 흐름으로 갱신해 응답만 바뀌고 실제 조명이 남는 실패를 막는다. */
 static void generic_server_cb(esp_ble_mesh_generic_server_cb_event_t event, esp_ble_mesh_generic_server_cb_param_t *param) {
   switch (event) {
   case ESP_BLE_MESH_GENERIC_SERVER_RECV_GET_MSG_EVT:
@@ -384,6 +390,8 @@ static void generic_server_cb(esp_ble_mesh_generic_server_cb_event_t event, esp_
   }
 }
 
+/* Light Lightness도 Mesh stack callback으로 들어온다. Set의 TID 중복을 먼저 걸러 재전송이
+ * PWM 적용·NVS 예약·Status publication을 반복시키지 않도록 한다. */
 static void lighting_server_cb(esp_ble_mesh_lighting_server_cb_event_t event, esp_ble_mesh_lighting_server_cb_param_t *param) {
   switch (event) {
   case ESP_BLE_MESH_LIGHTING_SERVER_RECV_GET_MSG_EVT:
@@ -628,6 +636,8 @@ static void model_publish_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_m
 
 static void vehicle_sensor_driver_event(const vehicle_sensor_event_t *event, void *context) {
   (void)context;
+  /* GPIO interrupt는 driver가 짧은 event로 worker에 넘긴 뒤에만 여기까지 온다. 이 경계에서도
+   * BLE 송신·log·대기를 하지 않고 runtime queue에 handoff해 ISR/driver context 지연과 이벤트 유실을 피한다. */
   (void)vehicle_sensor_model_runtime_submit_event(event);
 }
 

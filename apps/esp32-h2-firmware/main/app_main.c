@@ -28,6 +28,8 @@ void app_main(void) {
   }
 #endif
 
+  /* NVS를 먼저 준비해야 이후 상태 복구가 유효하다. 호환되지 않는 NVS 파티션만 초기화해
+   * 부팅 실패를 막고, 정상적인 사용자 조명 상태를 매 부팅마다 지우지는 않는다. */
   esp_err_t error = nvs_flash_init();
   if (error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_ERROR_CHECK(nvs_flash_erase());
@@ -39,6 +41,8 @@ void app_main(void) {
   ESP_ERROR_CHECK(persistent_state_init());
   ESP_ERROR_CHECK(identify_init());
 
+  /* 이 복구본은 boot 시 PWM에 즉시 적용한다. Mesh 초기화는 같은 NVS 상태를 다시 읽어
+   * model의 Status와 실제 LED가 서로 다른 밝기로 시작하지 않게 한다. */
   control_state_t state = control_state_create();
   bool restored = false;
   ESP_ERROR_CHECK(persistent_state_load(&state, &restored));

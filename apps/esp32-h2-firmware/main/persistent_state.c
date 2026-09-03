@@ -10,6 +10,8 @@
 #define STATE_NAMESPACE "led_state"
 #define STATE_KEY "control"
 #define STATE_VERSION 1
+/* Slider/mesh 연속 명령마다 flash를 commit하면 NVS 수명이 짧아진다. 마지막 메모리 snapshot만
+ * 2초 뒤 저장해 쓰기를 합치며, 그 창의 전원 차단은 마지막 변경이 아직 영속화되지 않을 수 있는 trade-off다. */
 #define SAVE_DEBOUNCE_US (2 * 1000 * 1000)
 
 typedef struct {

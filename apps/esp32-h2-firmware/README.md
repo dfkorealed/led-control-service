@@ -11,6 +11,16 @@
 - BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개, 차량 센서 GPIO driver와 Sensor/vendor model 및 Task 16 server-send ownership breaker를 포함한 test-build `led_control_node.bin` 크기는 `0xefa30`(`981,552`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x1005d0`(`1,050,064`, 약 52%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
 - Task 19 Chromium software E2E는 완료됐지만 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 **미실행**이다. `scripts/esp32-h2-build.sh` production mode는 자사 Bluetooth SIG Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. test build는 compile 검증 전용이며 flash/HIL에 사용할 수 없다.
 
+## 펌웨어 용어와 읽는 순서
+
+- **ESP-IDF**는 ESP32-H2용 Espressif 공식 SDK·빌드 환경이고, **firmware**는 그 환경에서 빌드되어 보드에서 직접 실행되는 프로그램이다.
+- **flash/NVS**는 전원이 꺼져도 남는 flash의 key-value 저장 영역으로, 여기서는 마지막 조명 제어 상태를 다음 부팅에 복원하는 데 쓴다.
+- **GPIO**는 보드 핀의 디지털 입출력이고, **PWM**은 GPIO 출력의 duty 비율을 바꿔 LED driver의 밝기를 조절하는 방식이다.
+- **FreeRTOS task**는 RTOS가 스케줄하는 독립 실행 흐름이며, **callback**은 부팅·Mesh·GPIO driver가 특정 이벤트를 알릴 때 호출하는 함수다.
+- **provisioning**은 provisioner가 미등록 노드에 네트워크 자격 증명과 주소를 부여하는 과정이고, **BLE Mesh model**은 Generic OnOff나 Light Lightness처럼 Mesh 메시지를 처리하는 표준 또는 vendor 기능 단위다.
+- **Status publication**은 노드가 요청 응답과 별개로 자신의 현재 상태를 publication 설정의 주소로 전송해 다른 Mesh 노드가 상태 변화를 알 수 있게 하는 동작이다.
+
+코드는 `app_main.c → control_state.c → led_driver.c → persistent_state.c → ble_mesh_node.c` 순서로 읽는다. 먼저 부팅 의존성과 NVS 초기화를 보고, 메모리 상태의 의미를 이해한 뒤 PWM 적용과 flash 저장 시점을 확인한다. 마지막으로 그 상태가 provisioning 뒤 BLE Mesh model callback과 Status publication으로 어떻게 연결되는지 따라가면 하드웨어·저장소·무선 계약을 섞지 않고 이해할 수 있다.
 ## ESP-IDF 설치
 
 macOS 기준 설치 명령은 아래와 같다. Python 3.14 계열은 일부 ESP-IDF 도구 호환성 리스크가 있어 Python 3.12를 우선 사용한다.

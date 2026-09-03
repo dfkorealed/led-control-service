@@ -40,6 +40,8 @@ esp_err_t led_driver_set_brightness(uint8_t brightness_percent) {
     brightness_percent = 100;
   }
 
+  /* Mesh/control의 0~100%를 LEDC 10-bit duty(0~1023)로 바꾼다. 이 변환을 driver 경계에
+   * 고정해 호출자가 하드웨어 분해능을 가정하거나 100%를 최대 duty보다 작게 만드는 실수를 막는다. */
   uint32_t duty = ((uint32_t)brightness_percent * LED_CONTROL_PWM_MAX_DUTY) / 100;
   esp_err_t error = ledc_set_duty(LED_CONTROL_PWM_MODE, LED_CONTROL_PWM_CHANNEL, duty);
   if (error != ESP_OK) {
