@@ -254,8 +254,8 @@ export class RegistrationService {
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
 
-    // 여기서 주소 예약과 노드의 provisioning 상태를 함께 commit해 같은 주소가 두 등록에 배정되는 실패를 막는다.
-    // accepted 응답은 다음 MQTT 계층에 Gateway 작업 예약·명령 발행을 맡긴다는 뜻일 뿐, 물리 provisioning이나 Fixture 확정은 아니다.
+    // 등록 요청을 주소 예약과 노드의 provisioning 준비 상태로 함께 DB에 기록해 같은 주소가 두 등록에 배정되는 실패를 막는다.
+    // accepted 응답은 이 준비 기록 뒤 Gateway에 직접 명령을 발행한다는 뜻일 뿐, durable job/outbox·물리 provisioning·Fixture 확정은 아니다.
     const prepared = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
       await this.lockGateway(tx, accessSession.gatewayId);
@@ -396,8 +396,8 @@ export class RegistrationService {
       };
     });
 
-    // DB commit 뒤에 명령을 발행해 rollback된 주소로 Gateway가 동작하지 않게 한다.
-    // 현재 경로는 outbox가 아닌 직접 발행이므로, 발행 결과가 불명확하면 다음 reconcile 상태로 넘긴다.
+    // DB commit 뒤 Gateway에 직접 명령을 발행해 rollback된 주소로 동작하는 실패를 막는다.
+    // 이 경로는 durable job/outbox가 아닌 직접 발행이므로, 발행 결과가 불명확하면 다음 reconcile 상태로 넘긴다.
     for (const registration of prepared.registrations) {
       try {
         await this.mqttService.publishProvisionDevice({

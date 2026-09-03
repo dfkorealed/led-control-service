@@ -337,8 +337,6 @@ export class MqttService implements OnModuleInit {
   }
 
   private createCustomHandleAcks(): NonNullable<IClientOptions["customHandleAcks"]> {
-    // PUBACK은 broker가 수신했다는 전송 확인일 뿐 DB 반영 확인은 아니다.
-    // 이 경계는 event ID·sequence·topic scope 검증과 DB commit 뒤에 ACK해 재전송과 잘못된 Gateway 범위가 다음 처리 계층으로 섞이지 않게 한다.
     return (topic, payload, packet, done) => {
       if (packet.qos !== 1) {
         done(0);
@@ -352,6 +350,8 @@ export class MqttService implements OnModuleInit {
         this.client?.stream.destroy();
         return;
       }
+      // state/fixtures QoS 1의 PUBACK은 API MQTT client가 broker에서 전달받은 PUBLISH를 처리한 뒤 보내는 MQTT 전달 확인일 뿐 DB 반영 확인은 아니다.
+      // event ID·sequence·topic scope를 검증하고 DB commit 뒤 done()을 호출해 재전송과 잘못된 Gateway 범위가 다음 처리 계층으로 섞이지 않게 한다.
       let handler!: Promise<void>;
       handler = this.runInGatewayInboundQueue(topic, () => this.ingestFixtureStatePacket(topic, payload))
         .then(({ scope, acknowledgement }) => {
