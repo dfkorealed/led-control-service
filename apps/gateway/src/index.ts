@@ -278,6 +278,10 @@ config({ path: resolve(process.cwd(), "../../.env") });
 config();
 
 async function main() {
+  // 시작 순서는 현장 의존성을 안쪽부터 조립하는 과정이다. 먼저 배정·인증으로
+  // site/gateway 범위를 확정하고, 그 범위의 local journal/outbox와 BlueZ adapter를
+  // 준비한 뒤 MQTT를 연다. 순서가 바뀌면 재시작 때 재발행할 이벤트의 저장소 없이
+  // 명령을 받거나, 다른 현장의 메시지를 다음 계층으로 전달할 수 있다.
   const softwareAutomationSimulator = createSoftwareAutomationSimulatorFromEnvironment(process.env);
   if (process.env.GATEWAY_PHASE0_PROBE === "1") {
     await createProductionAdapters(process.env);
@@ -576,6 +580,10 @@ async function main() {
   });
 
   async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket) {
+    // MQTT command는 바로 RF 성공으로 바꾸지 않는다. command journal이 수신·실행
+    // 경계를 보존하고, 결과 상태는 state outbox에 넣어 다음 MQTT publisher가 재시도한다.
+    // 이렇게 해야 Pi 전원 또는 인터넷 장애가 ACK와 실제 조명 상태를 서로 다르게
+    // 보이게 만드는 일을 막을 수 있다.
     const receipt = createGatewayCommandReceipt(packet, gatewayMonotonicClock);
     const command = gatewayDimmingCommandV2CompatibilitySchema.parse(JSON.parse(payload.toString()));
     let acceptancePublished = false;
@@ -652,6 +660,8 @@ async function main() {
   }
 
   async function handleProvisioningScanPayload(payload: Buffer, source: GatewayMqttClient) {
+    // 검색 종료 이벤트도 journal에 먼저 남긴다. 다음 reconnect 계층은 이 journal을
+    // 읽어 아직 cloud에 확인되지 않은 terminal event만 다시 발행한다.
     const command = provisioningScanStartSchema.parse(JSON.parse(payload.toString()));
     return stateEventCapacity.run(["*"], async () => {
       try {

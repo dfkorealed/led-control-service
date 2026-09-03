@@ -166,6 +166,9 @@ export class GatewayMqttRuntime {
 
   private handleConnect(client: GatewayMqttClient, packet: Pick<IConnackPacket, "sessionPresent">) {
     if (this.currentClient !== client) return;
+    // reconnect마다 generation을 올린다. 이전 연결의 늦은 subscribe 완료 callback이
+    // 새 연결의 준비 상태를 덮어 heartbeat나 command intake를 중복 시작하는 일을
+    // isActiveConnection 검사로 막는다.
     const epoch = ++this.connectionEpoch;
     this.clearSubscriptionRetry();
     this.subscriptionRetryAttempt = 0;
@@ -361,6 +364,9 @@ export class GatewayMqttRuntime {
   }
 
   private enqueue<T>(operation: () => Promise<T>) {
+    // identity 교체·중지·재연결은 한 줄로 직렬화한다. 동시에 실행하면 이전 client의
+    // 자동 reconnect가 후보 client를 밀어내거나 rollback 뒤 연결을 되살릴 수 있어,
+    // cloud MQTT 다음 계층에 서로 다른 session이 섞이지 않게 한다.
     const result = this.queue.then(operation, operation);
     this.queue = result.then(() => undefined, () => undefined);
     return result;

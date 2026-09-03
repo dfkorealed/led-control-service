@@ -27,6 +27,9 @@ const NODE_INTERFACE = "org.bluez.mesh.Node1";
 const GENERIC_ONOFF_GET = Uint8Array.from([0x82, 0x01]);
 const LIGHT_LIGHTNESS_GET = Uint8Array.from([0x82, 0x4b]);
 
+// BlueZ D-Bus는 Pi의 bluetooth-meshd가 제공하는 daemon API다. 이 adapter는 cloud
+// domain 값이 무선 패킷 형식에 직접 섞이지 않도록 그 API 호출과 BLE Mesh 사이만 맡는다.
+
 interface AdapterTransport {
   call(service: string, path: string, interfaceName: string, method: string, args: unknown[]): Promise<unknown>;
 }
@@ -394,6 +397,9 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     deadlineAt?: number,
     reservedTid?: number
   ): Promise<BleMeshCommandReport> {
+    // fixture ID는 업무 식별자이고 primaryUnicast는 Mesh에서 답을 보낼 주소다. 저장된
+    // mapping을 여기서 경계로 사용해야 다른 조명의 Status를 이 명령 성공으로 받아들이는
+    // 일을 막고, 아래 D-Bus Send와 status 관찰이 같은 node를 대상으로 한다.
     const nodePath = this.requireNodePath();
     const tid = reservedTid ?? await this.transactions.next(primaryUnicast);
     if (isCommandExpired(signal, deadlineAt)) return deadlineExceeded(fixtureId, brightness, signal);
@@ -419,6 +425,9 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         [],
         Array.from(encodeLightnessSet({ lightness: targetLightness, tid }))
       ]);
+      // Send 완료는 daemon이 요청을 받았다는 뜻일 뿐 조명이 바뀌었다는 확인은 아니다.
+      // Lightness Status를 기다려야 RF 유실·주소 오류를 성공으로 ACK하는 것을 막고,
+      // 다음 command/상태 outbox 계층에 실제 관측값만 전달한다.
       const reportedBrightness = lightnessToPercent((await status.promise).present);
       if (Math.abs(reportedBrightness - brightness) > 1) {
         return failed(fixtureId, reportedBrightness, "state_mismatch");

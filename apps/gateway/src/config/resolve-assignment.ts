@@ -35,8 +35,14 @@ export async function resolveGatewayAssignment(options: {
   const sleep = options.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
 
   for (let attempt = 0; ; attempt += 1) {
+    // 아직 claim되지 않은 Gateway는 빈 배정을 정상 상태로 보고 다시 조회한다. 바로
+    // 실패하면 제조·설치 순서가 늦을 때 현장 process가 멈추고, 다음 MQTT 계층까지
+    // 도달하지 못한다. 반대로 배정이 생긴 뒤에만 아래 저장 단계로 진행한다.
     const assignment = await client.fetchAssignment();
     if (assignment) {
+      // writeAtomic은 0600 임시 파일을 fsync·rename해 배정을 교체한다. 전원 장애가
+      // 난 뒤 부분 JSON이나 다른 사용자가 읽을 수 있는 자격 정보로 시작하는 일을
+      // 막고, 다음 시작에서는 같은 local assignment로 MQTT identity를 준비하게 한다.
       await options.store.writeAtomic(assignment);
       return assignment;
     }

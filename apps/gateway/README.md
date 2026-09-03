@@ -2,6 +2,18 @@
 
 이 앱은 라즈베리파이에서 실행되는 현장 게이트웨이 프로세스다. 클라우드 MQTT 명령을 받아 BLE Mesh adapter 인터페이스로 전달하고, 명령 ACK, 조명 상태, heartbeat, 조명 검색/등록 이벤트를 MQTT로 발행한다.
 
+## 역할 지도
+
+프론트엔드에서 API 응답을 화면 상태로 바꾸는 경계가 있다면, Gateway는 현장에서는 클라우드 명령을 조명 무선 명령으로 바꾸는 경계다. 다만 브라우저나 웹 서버가 아니라 Raspberry Pi에서 계속 실행되는 현장 process다. 브라우저가 닫혀도 조명이 동작해야 하므로, 통신과 저장소를 Pi 안에서 직접 관리한다.
+
+- **클라우드 방향:** HTTPS bootstrap으로 현장 Gateway의 배정을 받고, mTLS MQTT로 gateway 범위의 명령·ACK·상태를 API와 주고받는다.
+- **조명 방향:** Raspberry Pi의 BlueZ D-Bus API를 통해 `bluetooth-meshd`에 요청하고, BLE Mesh로 ESP32-H2 조명에 명령과 상태 조회를 보낸다.
+- **전원·인터넷 장애 경계:** command journal과 각 outbox는 Pi의 local persistence다. MQTT가 끊기거나 전원이 중간에 꺼져도 확정해야 할 명령 결과·상태·ACK를 남겨 재시도하며, 전송만 성공한 것을 처리 완료로 잘못 표시하지 않는다.
+
+### 검증 범위
+
+Gateway의 unit/mock test는 journal·outbox·MQTT 재연결·BlueZ adapter의 메시지 변환처럼 소프트웨어 계약을 검증한다. 이 결과는 실제 무선 송수신이나 전원 복구를 보장하지 않는다. Raspberry Pi, BlueZ D-Bus, ESP32-H2와 RF 환경을 함께 쓰는 HIL은 아래 절차로 별도 실행·판정하며, 현재 문서에 명시된 HIL 상태를 자동 테스트 성공으로 바꾸지 않는다.
+
 ## BlueZ Phase 0 타당성 검사
 
 양산형 실제 장비 경로는 Raspberry Pi의 `bluetooth-meshd`와 BlueZ Mesh D-Bus를 사용한다. 개발 PC의 stub 성공을 실제 BLE Mesh 성공으로 간주하지 않으며, 아래 여섯 항목이 Raspberry Pi 1대와 ESP32-H2 1~2대에서 모두 확인되어야 실제 BlueZ adapter 구현을 운영 경로로 선택한다.
