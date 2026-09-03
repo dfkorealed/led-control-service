@@ -7,5 +7,7 @@ export type { FeedbackTone } from "./FeedbackState";
 export { MetricCard } from "./MetricCard";
 export type { MetricTone } from "./MetricCard";
 export { PageHeader } from "./PageHeader";
+export { ProgressSteps } from "./ProgressSteps";
+export type { ProgressStep, ProgressStepState } from "./ProgressSteps";
 export { StatusBadge } from "./StatusBadge";
 export type { StatusTone } from "./StatusBadge";

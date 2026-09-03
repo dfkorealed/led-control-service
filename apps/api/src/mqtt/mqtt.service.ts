@@ -25,7 +25,8 @@ import {
   provisioningScanFoundSchema,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema,
-  type ApplicationStateIngestedAckV2
+  type ApplicationStateIngestedAckV2,
+  type MeshGroupResyncAckV2
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import mqtt, { IClientOptions, IPublishPacket, MqttClient } from "mqtt";
@@ -67,6 +68,11 @@ interface InboundPacketPermit {
   topic: string;
   consumed: boolean;
   aborted: boolean;
+}
+
+interface PendingMeshGroupResyncAck {
+  topic: string;
+  payload: MeshGroupResyncAckV2;
 }
 
 class InboundQueueAbortedError extends Error {}
@@ -387,8 +393,8 @@ export class MqttService implements OnModuleInit {
     this.inboundPacketPermits.set(packet, reservation);
 
     let handler!: Promise<void>;
-    handler = this.runInGatewayInboundQueue(topic, () => this.handleMessage(topic, payload))
-      .then(() => {
+    handler = this.runInGatewayInboundQueue(topic, () => this.handleMessageBeforeAck(topic, payload))
+      .then((publishAfterAck) => {
         if (reservation.aborted || this.inboundStopped || this.inboundPacketPermits.get(packet) !== reservation) {
           return;
         }
@@ -405,7 +411,12 @@ export class MqttService implements OnModuleInit {
         if (this.inboundPacketPermits.get(packet) === reservation) {
           this.releaseInboundPacketReservation(packet, reservation);
           this.rejectInboundDelivery(new Error("MQTT QoS 1 packet was not emitted to the message listener"));
+          return;
         }
+
+        return publishAfterAck?.().catch((error) => {
+          this.logger.error(`mesh group resync ACK publish failed after DB commit and PUBACK (error=${this.errorKind(error)})`);
+        });
       })
       .catch((error) => {
         const failClosed = !reservation.aborted && !this.inboundStopped &&
@@ -418,6 +429,22 @@ export class MqttService implements OnModuleInit {
       })
       .finally(() => this.activeInboundHandlers.delete(handler));
     this.activeInboundHandlers.add(handler);
+  }
+
+  private async handleMessageBeforeAck(topic: string, payload: Buffer): Promise<(() => Promise<void>) | undefined> {
+    if (!topic.endsWith("/events/mesh-group/resync-request")) {
+      await this.handleMessage(topic, payload);
+      return;
+    }
+
+    const acknowledgement = await this.prepareMeshGroupResyncAcknowledgement(topic, payload);
+    if (!acknowledgement) return;
+
+    // MQTT.js pauses its parser until customHandleAcks calls done(). Waiting for
+    // this QoS 1 publish first would prevent the same parser from receiving its
+    // broker PUBACK. Keep the publish in the tracked handler, but start it only
+    // after the inbound database transaction has been acknowledged.
+    return () => this.publishMeshGroupResyncAcknowledgement(acknowledgement);
   }
 
   private hasActiveMessageListener() {
@@ -715,29 +742,44 @@ export class MqttService implements OnModuleInit {
     }
 
     if (topic.endsWith("/events/mesh-group/resync-request")) {
-      const event = meshGroupResyncRequestV2Schema.parse(JSON.parse(payload.toString()));
-      const topicScope = parseGatewayScopedTopic(topic);
-      if (!topicScope || topicScope.siteId !== event.siteId || topicScope.gatewayId !== event.gatewayId) return;
-      await this.prisma.$transaction((tx) => this.meshControlGroups.resetGatewayGroupsForResync(tx, {
-        siteId: event.siteId,
-        gatewayId: event.gatewayId,
-        eventId: event.eventId,
-        occurredAt: event.occurredAt,
-        reason: event.reason
-      }));
-      const ack = meshGroupResyncAckV2Schema.parse({
+      const acknowledgement = await this.prepareMeshGroupResyncAcknowledgement(topic, payload);
+      if (acknowledgement) await this.publishMeshGroupResyncAcknowledgement(acknowledgement);
+    }
+  }
+
+  private async prepareMeshGroupResyncAcknowledgement(
+    topic: string,
+    payload: Buffer
+  ): Promise<PendingMeshGroupResyncAck | null> {
+    const event = meshGroupResyncRequestV2Schema.parse(JSON.parse(payload.toString()));
+    const topicScope = parseGatewayScopedTopic(topic);
+    if (!topicScope || topicScope.siteId !== event.siteId || topicScope.gatewayId !== event.gatewayId) return null;
+
+    await this.prisma.$transaction((tx) => this.meshControlGroups.resetGatewayGroupsForResync(tx, {
+      siteId: event.siteId,
+      gatewayId: event.gatewayId,
+      eventId: event.eventId,
+      occurredAt: event.occurredAt,
+      reason: event.reason
+    }));
+    return {
+      topic: mqttTopicsV2.meshGroupResyncAck(event.siteId, event.gatewayId),
+      payload: meshGroupResyncAckV2Schema.parse({
         siteId: event.siteId,
         gatewayId: event.gatewayId,
         eventId: randomUUID(),
         requestEventId: event.eventId,
         occurredAt: new Date().toISOString()
-      });
-      await this.publishTopic(
-        mqttTopicsV2.meshGroupResyncAck(event.siteId, event.gatewayId),
-        ack,
-        { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS }
-      );
-    }
+      })
+    };
+  }
+
+  private publishMeshGroupResyncAcknowledgement(acknowledgement: PendingMeshGroupResyncAck) {
+    return this.publishTopic(
+      acknowledgement.topic,
+      acknowledgement.payload,
+      { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS }
+    );
   }
 
   private async acceptCurrentScanEvent(

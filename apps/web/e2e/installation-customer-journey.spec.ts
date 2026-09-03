@@ -23,6 +23,7 @@ test.afterEach(async ({}, testInfo) => {
 
 test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 전용으로 접근한다", async ({ browser }, testInfo) => {
   test.setTimeout(300_000);
+  const siteName = "Task 9 지하주차장";
   const operator = await browser.newPage();
   lab.captureNetwork(operator, "operator");
 
@@ -33,7 +34,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
 
   await operator.getByRole("button", { name: "현장 및 관리자 생성" }).click();
   await operator.getByLabel("고객사명").fill("Task 9 고객사");
-  await operator.getByLabel("현장명").fill("Task 9 지하주차장");
+  await operator.getByLabel("현장명").fill(siteName);
   await operator.getByLabel("관리자 이름").fill(lab.admin.name);
   await operator.getByLabel("로그인 아이디").fill(lab.admin.loginId);
   await operator.getByLabel("초기 비밀번호").fill(lab.admin.password);
@@ -256,14 +257,15 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   expect((await resetResponsePromise).status()).toBe(201);
   await expect(operator.getByRole("status")).toHaveText("관리자 비밀번호를 재설정했습니다.");
 
-  await operator.getByRole("button", { name: `${updatedAdminName} 비활성화` }).click();
-  const disableDialog = operator.getByRole("dialog", { name: `${updatedAdminName} 비활성화` });
-  const disableResponsePromise = operator.waitForResponse((response) => (
+  await operator.getByRole("button", { name: `${updatedAdminName} 삭제` }).click();
+  const deleteDialog = operator.getByRole("dialog", { name: `${updatedAdminName} 삭제` });
+  await deleteDialog.getByLabel("삭제할 현장명").fill(siteName);
+  const deleteResponsePromise = operator.waitForResponse((response) => (
     response.url().includes("/api/operator/site-admins/") && response.request().method() === "DELETE"
   ));
-  await disableDialog.getByRole("button", { name: "비활성화", exact: true }).click();
-  expect((await disableResponsePromise).status()).toBe(200);
-  await expect(operator.getByText("관리자 미지정")).toBeVisible();
+  await deleteDialog.getByRole("button", { name: "영구 삭제", exact: true }).click();
+  expect((await deleteResponsePromise).status()).toBe(200);
+  await expect(operator.getByText(siteName)).toHaveCount(0);
   lab.assertOperatorNetworkIsolation();
 
   await lab.assertEvidence();

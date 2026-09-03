@@ -93,6 +93,7 @@ export function FloorScene({
             style={markerStyle}
             title={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
             aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
+            aria-current={fixture.id === selectedFixtureId ? "true" : undefined}
             onClick={() => onSelectFixture?.(fixture.id)}
           >
             <span className="fixture-name">{fixture.name}</span>

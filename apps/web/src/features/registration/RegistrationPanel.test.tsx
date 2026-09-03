@@ -12,7 +12,7 @@ import {
   retryRegistrationScan
 } from "../../api/registration";
 import { mockDashboard, mockRegistrationSession } from "../../test/fixtures";
-import { RegistrationPanel, shouldPollRegistrationSession } from "./RegistrationPanel";
+import { RegistrationPanel, registrationSteps, shouldPollRegistrationSession } from "./RegistrationPanel";
 
 vi.mock("../../api/registration", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../api/registration")>(),
@@ -60,8 +60,122 @@ describe("RegistrationPanel", () => {
     expect(await screen.findByText(/1개 후보 발견/)).toBeInTheDocument();
     expect(screen.getByLabelText("등록 층")).toHaveValue(activeSession.floorId);
     expect(screen.getByLabelText("등록 게이트웨이")).toHaveValue(activeSession.gatewayId);
-    expect(getSessionMock).toHaveBeenCalledWith(activeSession.id);
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledWith(activeSession.id));
     expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
+  });
+
+  it("교정 UI에서 검색 중 상태를 실제 session 상태로 표현한다", async () => {
+    const activeSession = { ...mockRegistrationSession, scanStatus: "scanning" as const, discoveredNodes: [] };
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValue(activeSession);
+
+    renderPanel();
+
+    expect(await screen.findByRole("status", { name: "조명 검색 상태" })).toHaveTextContent("검색 중");
+  });
+
+  it("등록 실패와 확인 필요 노드를 장비 상태 확인 단계로 표현한다", async () => {
+    const node = { ...mockRegistrationSession.discoveredNodes[0], status: "reconcile_required" as const };
+    const activeSession = completedSession([node]);
+    activeSessionsMock.mockResolvedValue([activeSession]);
+    getSessionMock.mockResolvedValue(activeSession);
+
+    renderPanel();
+
+    expect(await screen.findByRole("list", { name: "조명 등록 진행" })).toHaveTextContent("상태 확인");
+  });
+
+  it("실제 등록 session 상태를 하나의 단계 상태 머신으로 표현한다", () => {
+    const cases = [
+      { session: scanningSession(), states: ["current", "pending", "pending", "pending"] },
+      {
+        session: completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1)),
+        states: ["complete", "current", "pending", "pending"]
+      },
+      {
+        session: completedSession([{ ...mockRegistrationSession.discoveredNodes[0], status: "provisioning" as const }]),
+        states: ["complete", "complete", "current", "pending"]
+      },
+      {
+        session: completedSession([{ ...mockRegistrationSession.discoveredNodes[0], status: "reconcile_required" as const }]),
+        states: ["complete", "complete", "complete", "current"]
+      },
+      {
+        session: { ...completedSession([{ ...mockRegistrationSession.discoveredNodes[0], status: "provisioned" as const }]), status: "completed" as const },
+        states: ["complete", "complete", "complete", "complete"]
+      },
+      {
+        session: { ...completedSession([]), status: "cancelled" as const },
+        states: ["complete", "pending", "pending", "pending"]
+      },
+      {
+        session: { ...completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1)), status: "failed" as const },
+        states: ["complete", "error", "pending", "pending"]
+      },
+      {
+        session: {
+          ...completedSession([{ ...mockRegistrationSession.discoveredNodes[0], status: "reconcile_required" as const }]),
+          status: "failed" as const
+        },
+        states: ["complete", "complete", "complete", "error"]
+      },
+      {
+        session: { ...completedSession([]), scanStatus: "failed" as const },
+        states: ["error", "pending", "pending", "pending"]
+      },
+      {
+        session: completedSession([{ ...mockRegistrationSession.discoveredNodes[0], status: "failed" as const }]),
+        states: ["complete", "complete", "error", "pending"]
+      }
+    ] as const;
+
+    for (const { session, states } of cases) {
+      const stateValues: readonly string[] = states;
+      expect(registrationSteps(session, session.discoveredNodes).map((step) => step.state)).toEqual(states);
+      expect(stateValues.filter((state) => state === "current"))
+        .toHaveLength(session.status === "active" && !stateValues.includes("error") ? 1 : 0);
+    }
+  });
+
+  it("node 오류의 ACK 원문을 표시 전용 한국어로 바꾼다", async () => {
+    const rawMessage = "Gateway ACK 확인 필요";
+    const reconcile = completedSession([{
+      ...mockRegistrationSession.discoveredNodes[0],
+      status: "reconcile_required" as const,
+      errorMessage: rawMessage
+    }]);
+    activeSessionsMock.mockResolvedValue([reconcile]);
+    getSessionMock.mockResolvedValue(reconcile);
+    renderPanel();
+    expect(await screen.findByText("게이트웨이 장비 응답 확인 필요")).toBeInTheDocument();
+    expect(screen.queryByText(rawMessage)).not.toBeInTheDocument();
+  });
+
+  it("개별 검증 오류의 ACK 원문을 표시 전용 한국어로 바꾼다", async () => {
+    const rawMessage = "Gateway ACK 확인 필요";
+    const discovered = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
+    activeSessionsMock.mockResolvedValue([discovered]);
+    getSessionMock.mockResolvedValue(discovered);
+    registerBatchMock.mockResolvedValue({
+      items: [{ nodeId: discovered.discoveredNodes[0].id, status: "validation_failed", error: rawMessage }]
+    });
+    renderPanel();
+    await screen.findByText(discovered.discoveredNodes[0].serialNumber);
+    fireEvent.click(screen.getByLabelText("조명 1 선택"));
+    fireEvent.click(screen.getByRole("radio", { name: "개별 설정" }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
+    expect(await screen.findByText("게이트웨이 장비 응답 확인 필요", { selector: ".individual-error" })).toBeInTheDocument();
+    expect(screen.queryByText(rawMessage)).not.toBeInTheDocument();
+  });
+
+  it("scan 실패의 ACK 원문을 표시 전용 한국어로 바꾼다", async () => {
+    const rawMessage = "Gateway ACK 확인 필요";
+    const scanFailed = { ...completedSession([]), scanStatus: "failed" as const, scanFailureMessage: rawMessage };
+    activeSessionsMock.mockResolvedValue([scanFailed]);
+    getSessionMock.mockResolvedValue(scanFailed);
+    renderPanel();
+    expect(await screen.findByText("게이트웨이 장비 응답 확인 필요")).toBeInTheDocument();
+    expect(screen.queryByText(rawMessage)).not.toBeInTheDocument();
   });
 
   it("확인 필요 노드는 명시적 확인 후 세션에서 제외하고 성공 장비가 없으면 세션을 취소한다", async () => {

@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { LogOut } from "lucide-react";
+import { CircleAlert, LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { SiteAdminManagementView } from "./site-admins/SiteAdminManagementView";
+import { Button } from "../../components/ui/Button";
+import { FeedbackState } from "../../components/ui/FeedbackState";
 
 export function OperatorShell({ user }: { user: AuthUser }) {
   const queryClient = useQueryClient();
@@ -37,14 +39,14 @@ export function OperatorShell({ user }: { user: AuthUser }) {
         </div>
         <div className="operator-header-actions">
           <span className="operator-login-id">{user.loginId}</span>
-          <button className="logout-button" onClick={handleLogout} disabled={isLoggingOut}>
+          <Button className="logout-button" variant="ghost" onClick={handleLogout} isLoading={isLoggingOut} loadingLabel="로그아웃 중">
             <LogOut size={16} />
-            {isLoggingOut ? "로그아웃 중" : "로그아웃"}
-          </button>
+            로그아웃
+          </Button>
         </div>
       </header>
       <main className="operator-content">
-        {logoutError ? <p className="danger-text" role="alert">{logoutError}</p> : null}
+        {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
         <Routes>
           <Route path="/operator/site-admins" element={<SiteAdminManagementView />} />
           <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />

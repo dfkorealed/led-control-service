@@ -1,9 +1,9 @@
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { readFileSync } from "node:fs";
 import { createRef } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Button, FeedbackState, MetricCard, PageHeader, StatusBadge } from ".";
+import { Button, FeedbackState, MetricCard, PageHeader, ProgressSteps, StatusBadge } from ".";
 import type { StatusTone } from ".";
 
 const styles = readFileSync("src/styles.css", "utf8");
@@ -99,6 +99,77 @@ describe("Calm Operations UI primitives", () => {
     expect(screen.getByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("불러오지 못했습니다");
   });
+
+  it("renders ordered progress without using color as the only state", () => {
+    render(<ProgressSteps label="명령 진행" steps={[
+      { id: "queued", label: "명령 접수", state: "complete" },
+      { id: "accepted", label: "장비 응답", state: "current" },
+      { id: "applied", label: "조명 적용", state: "pending" }
+    ]} />);
+
+    const list = screen.getAllByRole("list", { name: "명령 진행" }).at(-1)!;
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(list).getByText("장비 응답").closest("li")).toHaveAttribute("data-state", "current");
+  });
+
+  it("gives current, pending and error progress a visible icon and state label", () => {
+    render(<ProgressSteps label="명령 진행" steps={[
+      { id: "accepted", label: "장비 응답", state: "current" },
+      { id: "applied", label: "조명 적용", state: "pending" },
+      { id: "failed", label: "결과 확인", state: "error" }
+    ]} />);
+
+    const list = screen.getAllByRole("list", { name: "명령 진행" }).at(-1)!;
+    for (const [label, stateLabel] of [["장비 응답", "진행 중"], ["조명 적용", "대기"], ["결과 확인", "오류"]] as const) {
+      const item = within(list).getByText(label).closest("li")!;
+      expect(within(item).getByText(stateLabel)).toBeVisible();
+      expect(item.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it.each(["info", "success", "warning"] as const)("exposes the %s feedback tone", (tone) => {
+    render(<FeedbackState tone={tone} icon={CircleCheck} title={`${tone} 상태`} />);
+    expect(screen.getByText(`${tone} 상태`).closest("section")).toHaveAttribute("data-tone", tone);
+  });
+
+  it.each([
+    ["neutral", "rgb(241, 245, 249)"],
+    ["info", "rgb(233, 242, 255)"],
+    ["success", "rgb(236, 253, 243)"],
+    ["warning", "rgb(255, 247, 230)"],
+    ["danger", "rgb(255, 241, 242)"]
+  ] as const)("uses the exact %s feedback background", (tone, background) => {
+    render(<FeedbackState tone={tone} icon={CircleCheck} title={`${tone} 상태`} />);
+    const title = screen.getAllByText(`${tone} 상태`).at(-1)!;
+    expect(getComputedStyle(title.closest("section")!).backgroundColor).toBe(background);
+  });
+
+  it.each(["monitoring-screen", "settings-screen", "statistics-screen"] as const)(
+    "keeps feedback tone backgrounds exact in the %s cascade",
+    (screenClass) => {
+      render(
+        <div className={screenClass}>
+          <FeedbackState tone="neutral" icon={CircleCheck} title={`${screenClass} 기본`} />
+          <FeedbackState tone="info" icon={CircleCheck} title={`${screenClass} 정보`} />
+          <FeedbackState tone="success" icon={CircleCheck} title={`${screenClass} 성공`} />
+          <FeedbackState tone="warning" icon={CircleCheck} title={`${screenClass} 경고`} />
+          <FeedbackState tone="danger" icon={CircleCheck} title={`${screenClass} 오류`} />
+        </div>
+      );
+
+      const expectedBackgrounds = [
+        [`${screenClass} 기본`, "rgb(241, 245, 249)"],
+        [`${screenClass} 정보`, "rgb(233, 242, 255)"],
+        [`${screenClass} 성공`, "rgb(236, 253, 243)"],
+        [`${screenClass} 경고`, "rgb(255, 247, 230)"],
+        [`${screenClass} 오류`, "rgb(255, 241, 242)"]
+      ] as const;
+      for (const [title, background] of expectedBackgrounds) {
+        const state = screen.getByText(title).closest("section")!;
+        expect(getComputedStyle(state).backgroundColor).toBe(background);
+      }
+    }
+  );
 
   it("renders a reusable page heading level", () => {
     render(

@@ -18,15 +18,17 @@ export interface SettingsFixture {
   ratedWatt: number;
   brightness: number;
   status: "online" | "offline" | "fault";
-  statusReason?: "reported";
+  statusReason?: "reported" | "provisioning_waiting_state";
   health: { faultCodes: number[]; observedAt: string } | null;
   rssi: number | null;
   hopCount: number | null;
   commandSuccessRate: number | null;
   lastSeenAt: string | null;
   gateway: { id: string; name: string; connectionStatus: "online" | "offline" } | null;
+  vehicleSensorCapabilityStatus?: "unknown" | "supported" | "unsupported";
+  vehicleSensorCapabilityVerifiedAt?: string | null;
   controllable: boolean;
-  controlBlockReason: null;
+  controlBlockReason: "fixture_unmapped" | "gateway_offline" | "fixture_fault" | "fixture_offline" | null;
 }
 
 interface InstallSettingsApiOptions {
@@ -36,6 +38,7 @@ interface InstallSettingsApiOptions {
   commandId?: string;
   mapObjects?: SettingsMapObject[];
   mapSnapshotFailuresBeforeSuccess?: number;
+  gatewayHeartbeatAt?: string;
   registrationSession?: RegistrationSession;
   activeRegistrationSessions?: RegistrationSession[];
   registrationRetrySession?: RegistrationScanRetryResult;
@@ -91,6 +94,7 @@ export interface SettingsApiFixtureState {
   dashboardRequests: number;
   fixturePageRequests: number;
   mapSnapshotRequests: number;
+  failNextMapSnapshots: (count: number) => void;
   fixturePageCursors: Array<string | null>;
   dimmingRequests: CreateDimmingCommandInput[];
   commandStatusRequests: string[];
@@ -158,6 +162,7 @@ export async function installSettingsApiRoutes(
     commandId = "77777777-7777-4777-8777-777777777777",
     mapObjects = [],
     mapSnapshotFailuresBeforeSuccess = 0,
+    gatewayHeartbeatAt,
     registrationSession,
     activeRegistrationSessions = [],
     registrationRetrySession,
@@ -171,10 +176,14 @@ export async function installSettingsApiRoutes(
   let commandStage: FixtureCommandStage = "accepted";
   let commandResults: FixtureCommandResult[] = [];
   let commandCreated = false;
-  const initialRegistrationSession = registrationSession ? structuredClone(registrationSession) : null;
+  const initialRegistrationSession = registrationSession
+    ? structuredClone(registrationSession)
+    : structuredClone(activeRegistrationSessions[0] ?? null);
   const retriedRegistrationSession = registrationRetrySession ? structuredClone(registrationRetrySession) : null;
   const queuedRegistrationSessions = structuredClone(registrationPollingSessions);
   let currentRegistrationSession = initialRegistrationSession;
+  const createdRegistrationNeedsPolling = initialRegistrationSession?.scanStatus === "pending";
+  let registrationSessionStarted = false;
   let registrationRetryStarted = false;
   const state: SettingsApiFixtureState = {
     requests: [],
@@ -186,6 +195,10 @@ export async function installSettingsApiRoutes(
     dashboardRequests: 0,
     fixturePageRequests: 0,
     mapSnapshotRequests: 0,
+    failNextMapSnapshots: (count) => {
+      if (!Number.isInteger(count) || count < 1) throw new Error("map snapshot failure count must be a positive integer");
+      remainingMapSnapshotFailures += count;
+    },
     fixturePageCursors: [],
     dimmingRequests: [],
     commandStatusRequests: [],
@@ -201,6 +214,9 @@ export async function installSettingsApiRoutes(
         throw new Error(`invalid fixture status: ${String(update.status)}`);
       }
       Object.assign(fixture, structuredClone(update));
+      const controlState = controlStateForStatus(fixture.status);
+      fixture.controllable = controlState.controllable;
+      fixture.controlBlockReason = controlState.controlBlockReason;
     },
     setCommandStatus: (input) => {
       const expectedFixtureIds = commandResults.map((result) => result.fixtureId).sort();
@@ -247,12 +263,13 @@ export async function installSettingsApiRoutes(
     }
     if (path === "/registration-sessions" && request.method() === "POST") {
       if (!initialRegistrationSession) return route.fulfill({ status: 404, json: { message: "registration fixture not configured" } });
+      registrationSessionStarted = true;
       return route.fulfill({ json: structuredClone(initialRegistrationSession) });
     }
     if (path === `/registration-sessions/${initialRegistrationSession?.id}` && request.method() === "GET") {
       if (!currentRegistrationSession) return route.fulfill({ status: 404, json: { message: "registration fixture not configured" } });
       state.registrationSessionRequests += 1;
-      if (registrationRetryStarted && queuedRegistrationSessions.length > 0) {
+      if (((registrationSessionStarted && createdRegistrationNeedsPolling) || registrationRetryStarted) && queuedRegistrationSessions.length > 0) {
         currentRegistrationSession = queuedRegistrationSessions.shift() ?? currentRegistrationSession;
       }
       return route.fulfill({ json: structuredClone(currentRegistrationSession) });
@@ -272,7 +289,8 @@ export async function installSettingsApiRoutes(
           ids.gatewayId,
           url.searchParams.get("includeFixtures") === "true",
           installationStatus,
-          includeGateway
+          includeGateway,
+          gatewayHeartbeatAt
         )
       });
     }
@@ -449,7 +467,8 @@ function dashboard(
   gatewayId: string,
   includeFixtures = false,
   installationStatus: "pending" | "installed" = "installed",
-  includeGateway = true
+  includeGateway = true,
+  gatewayHeartbeatAt = new Date().toISOString()
 ) {
   return {
     site: {
@@ -483,7 +502,8 @@ function dashboard(
       name: "Gateway B2",
       serialNumber: "GW-E2E-001",
       firmwareVersion: "e2e-1.0.0",
-      lastHeartbeatAt: "2026-07-12T00:00:00.000Z",
+      // The dashboard contract exposes `online` only while the heartbeat is inside its 90-second freshness window.
+      lastHeartbeatAt: gatewayHeartbeatAt,
       connectionStatus: "online"
     }] : []
   };
@@ -555,6 +575,12 @@ function pagedFixtures(fixtures: SettingsFixture[], cursor: string | null) {
   const start = cursor ? fixtures.findIndex((fixture) => fixture.id === cursor) + 1 : 0;
   const items = fixtures.slice(start, start + 200);
   return { items, nextCursor: start + 200 < fixtures.length ? items.at(-1)?.id ?? null : null };
+}
+
+function controlStateForStatus(status: SettingsFixture["status"]) {
+  if (status === "fault") return { controllable: false, controlBlockReason: "fixture_fault" as const };
+  if (status === "offline") return { controllable: false, controlBlockReason: "fixture_offline" as const };
+  return { controllable: true, controlBlockReason: null };
 }
 
 function applyFixtureUpdates(fixtures: SettingsFixture[], updates: SavePayload["fixtureUpdates"]) {

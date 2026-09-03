@@ -53,6 +53,7 @@ describe("FloorScene", () => {
     expect(screen.queryByTestId("floor-transformer")).not.toBeInTheDocument();
     const fixture = screen.getByRole("button", { name: "B1-L001 정상 70%" });
     expect(fixture).toHaveAttribute("data-spatial-map-marker", "true");
+    expect(fixture).toHaveAttribute("aria-current", "true");
     fireEvent.click(fixture);
     expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
   });

@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Clock3 } from "lucide-react";
 import { useState } from "react";
 import { claimGateway } from "../../api/setup";
+import { Button, Card, FeedbackState, StatusBadge } from "../../components/ui";
 
 interface GatewayClaimPanelProps {
   siteId: string;
@@ -20,12 +21,15 @@ export function GatewayClaimPanel({ siteId }: GatewayClaimPanelProps) {
   const disabled = mutation.isPending || !name.trim() || !serialNumber.trim() || !claimCode.trim();
 
   return (
-    <section className="panel setup-section" aria-labelledby="gateway-claim-title">
+    <Card className="setup-section gateway-claim-panel" aria-label="Gateway 연결">
       <div className="panel-title-row">
         <div>
           <span className="eyebrow">장비 연결</span>
           <h3 id="gateway-claim-title">게이트웨이 등록</h3>
         </div>
+        <StatusBadge tone={mutation.isSuccess ? "success" : "neutral"} icon={mutation.isSuccess ? CheckCircle2 : Clock3}>
+          {mutation.isSuccess ? "등록됨" : "연결 준비"}
+        </StatusBadge>
       </div>
       <div className="setup-form-grid">
         <label>
@@ -41,12 +45,12 @@ export function GatewayClaimPanel({ siteId }: GatewayClaimPanelProps) {
           <input value={claimCode} onChange={(event) => setClaimCode(event.target.value)} type="password" autoComplete="one-time-code" />
         </label>
       </div>
-      {mutation.error ? <p className="danger-text" role="alert">게이트웨이 등록에 실패했습니다. 제품 정보와 등록 코드를 확인하세요.</p> : null}
-      {mutation.isSuccess ? <p className="success-text"><CheckCircle2 size={16} />게이트웨이가 현장에 등록되었습니다.</p> : null}
-      <button className="primary-button setup-submit" disabled={disabled} onClick={() => mutation.mutate()}>
-        {mutation.isPending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />}
+      {mutation.error ? <FeedbackState tone="danger" icon={CheckCircle2} title="게이트웨이 등록에 실패했습니다." description="제품 정보와 등록 코드를 확인하세요." /> : null}
+      {mutation.isSuccess ? <FeedbackState tone="success" icon={CheckCircle2} title="게이트웨이가 현장에 등록되었습니다." /> : null}
+      <Button className="setup-submit" variant="primary" disabled={disabled} isLoading={mutation.isPending} loadingLabel="게이트웨이 등록 중" onClick={() => mutation.mutate()}>
+        <CheckCircle2 size={16} />
         게이트웨이 등록
-      </button>
-    </section>
+      </Button>
+    </Card>
   );
 }

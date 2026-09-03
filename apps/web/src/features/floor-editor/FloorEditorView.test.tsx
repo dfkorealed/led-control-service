@@ -438,7 +438,7 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 
-  it("offers reload only after a 409 conflict", async () => {
+  it("409 충돌은 최신 버전 다시 불러오기만 제공한다", async () => {
     const onReload = vi.fn();
     floorEditorApi.saveFloorEditorState.mockRejectedValueOnce(
       new ApiError("PUT failed", 409, { message: "revision conflict" })
@@ -448,8 +448,12 @@ describe("FloorEditorView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("다른 사용자가 먼저 저장했습니다");
+    const feedback = await screen.findByRole("alert");
+    expect(feedback).toHaveTextContent("최신 도면과 변경사항이 충돌했습니다.");
+    expect(feedback).toHaveTextContent("최신 버전을 다시 불러온 뒤 변경사항을 확인하세요.");
+    expect(feedback).toHaveAttribute("data-tone", "danger");
     expect(screen.queryByRole("button", { name: /강제/ })).not.toBeInTheDocument();
+    expect(within(feedback).getAllByRole("button")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "최신 버전 다시 불러오기" }));
     expect(onReload).toHaveBeenCalledOnce();
     expect(useFloorEditorStore.getState().isDirty).toBe(true);

@@ -294,7 +294,7 @@ describe("App", () => {
     cleanup();
   });
 
-  it("renders the login form when no authenticated session exists", async () => {
+  it("로그인은 운영 요약 없이 Calm Operations 브랜드와 실제 폼만 표시한다", async () => {
     authState.user = null;
     const queryClient = new QueryClient();
     render(
@@ -303,10 +303,14 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /빛을 더 안정적으로/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(screen.queryByText("연결 조명")).not.toBeInTheDocument();
+    expect(screen.queryByText("정상 운영")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^(Gateway|게이트웨이)$/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText("아이디")).toBeInTheDocument();
     expect(screen.getByLabelText("비밀번호")).toBeInTheDocument();
-    expect(screen.getByLabelText("자동 로그인")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "자동 로그인" })).toBeChecked();
   });
 
   it("submits the login id and never renders public signup controls", async () => {
@@ -417,7 +421,7 @@ describe("App", () => {
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
   });
 
-  it("renders the four primary navigation items", async () => {
+  it("keeps the four customer navigation links after rail markup changes", async () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -425,10 +429,19 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("link", { name: "모니터링" })).toHaveAttribute("href", "/monitoring");
-    expect(screen.getByRole("link", { name: "제어" })).toHaveAttribute("href", "/control");
-    expect(screen.getByRole("link", { name: "통계" })).toHaveAttribute("href", "/statistics");
-    expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("href", "/settings");
+    const links = await Promise.all([
+      screen.findByRole("link", { name: "모니터링" }),
+      screen.findByRole("link", { name: "제어" }),
+      screen.findByRole("link", { name: "통계" }),
+      screen.findByRole("link", { name: "설정" })
+    ]);
+
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/monitoring",
+      "/control",
+      "/statistics",
+      "/settings"
+    ]);
   });
 
   it("renders the floor-plan settings route for an admin on refresh", async () => {
@@ -558,7 +571,7 @@ describe("App", () => {
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "초기 설치 설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
     expect(window.location.search).toBe("?siteId=site-2");
   });
@@ -675,7 +688,7 @@ describe("App", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "초기 설치 설정" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
 
@@ -815,7 +828,7 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: "설정" }));
 
-    const gatewayStatus = await screen.findByRole("group", { name: "게이트웨이 상태" });
+    const gatewayStatus = await screen.findByRole("group", { name: "Gateway 상태" });
     expect(gatewayStatus).toHaveTextContent("설정 게이트웨이");
     expect(gatewayStatus).toHaveTextContent("GW-SETTINGS-001");
     expect(gatewayStatus).toHaveTextContent("오프라인");
@@ -1033,7 +1046,7 @@ describe("App", () => {
         clientRequestId: expect.any(String)
       }), { signal: expect.any(AbortSignal) })
     );
-    expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
+    expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
   });
 
   it("shows fixture-level partial failure from command status polling", async () => {
@@ -1326,7 +1339,7 @@ describe("App", () => {
     await waitFor(() => expect(
       vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")
     ).toHaveLength(2));
-    expect(await screen.findByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).toBeInTheDocument();
+    expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
   });
 
   it("shows commissioning controls to an admin for an installed site without fixtures", async () => {
@@ -1362,6 +1375,7 @@ describe("App", () => {
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
     expect(await screen.findByRole("heading", { name: "설치 담당자가 현장을 준비 중입니다" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Viewer 설치 대기" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "게이트웨이 등록" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "조명 등록" })).not.toBeInTheDocument();
   });

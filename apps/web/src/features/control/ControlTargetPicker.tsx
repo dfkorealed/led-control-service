@@ -2,8 +2,9 @@ import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { DimmingTarget } from "@led-control/shared";
 import type { Dashboard, DashboardFixture } from "../../api/queries";
-import { Button } from "../../components/ui";
+import { Button, Card } from "../../components/ui";
 import { fixtureGroupReadiness, floorMeshReadiness } from "./control-readiness";
+import { humanizeDeviceResponseMessage } from "./control-copy";
 
 const MAX_FIXTURE_SELECTION = 1000;
 const FIXTURE_LIST_BATCH_SIZE = 100;
@@ -124,8 +125,9 @@ export function ControlTargetPicker({
           ["floor", "층"],
           ["group", "구역"]
         ] as const).filter(([mode]) => allowedModes.includes(mode)).map(([mode, label]) => (
-          <button
+          <Button
             key={mode}
+            variant="ghost"
             type="button"
             aria-pressed={selection.mode === mode}
             className={selection.mode === mode ? "active" : ""}
@@ -133,7 +135,7 @@ export function ControlTargetPicker({
             onClick={() => switchMode(mode)}
           >
             {label}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -170,8 +172,9 @@ export function ControlTargetPicker({
           </div>
           <div className="control-selection-actions">
             <span>{Math.min(visibleLimit, filteredFixtures.length)} / {filteredFixtures.length}개 표시</span>
-            <button type="button" disabled={disabled || filteredFixtures.length === 0} onClick={selectVisibleFixtures}>검색 결과 전체 선택</button>
-            <button
+            <Button variant="secondary" type="button" disabled={disabled || filteredFixtures.length === 0} onClick={selectVisibleFixtures}>검색 결과 전체 선택</Button>
+            <Button
+              variant="secondary"
               type="button"
               disabled={disabled || selection.fixtureIds.length === 0}
               onClick={() => {
@@ -180,7 +183,7 @@ export function ControlTargetPicker({
               }}
             >
               선택 해제
-            </button>
+            </Button>
           </div>
           <p className={selectionLimitReached ? "control-selection-limit danger-text" : "control-selection-limit"} role={selectionLimitReached ? "alert" : undefined}>
             한 번에 최대 1,000개 조명까지 선택할 수 있습니다.
@@ -223,11 +226,12 @@ export function ControlTargetPicker({
       ) : null}
 
       {selection.mode === "floor" ? (
-        <div className="control-target-list control-target-button-list" role="group" aria-label="층 목록">
+        <Card className="control-target-list control-target-button-list" role="group" aria-label="층 목록">
           {dashboard.floors.map((floor) => {
             const readiness = floorMeshReadiness(floor);
             return (
-              <button
+              <Button
+                variant="secondary"
                 type="button"
                 aria-label={floor.name}
                 className={selection.floorId === floor.id ? "control-target-button selected" : "control-target-button"}
@@ -238,22 +242,23 @@ export function ControlTargetPicker({
                 <span>
                   <strong>{floor.name}</strong>
                   <small>층 전체 조명 · {readiness.label}</small>
-                  {readiness.error ? <small className="danger-text">{readiness.error}</small> : null}
+                  {readiness.error ? <small className="danger-text">{humanizeDeviceResponseMessage(readiness.error)}</small> : null}
                 </span>
                 <span>{floor.fixtures.length}개</span>
-              </button>
+              </Button>
             );
           })}
           {dashboard.floors.length === 0 ? <p className="control-empty-state">등록된 층이 없습니다.</p> : null}
-        </div>
+        </Card>
       ) : null}
 
       {selection.mode === "group" ? (
-        <div className="control-target-list control-target-button-list" role="group" aria-label="구역 목록">
+        <Card className="control-target-list control-target-button-list" role="group" aria-label="구역 목록">
           {dashboard.groups.map((group) => {
             const readiness = fixtureGroupReadiness(group);
             return (
-              <button
+              <Button
+                variant="secondary"
                 type="button"
                 aria-label={`${group.name} 선택`}
                 className={selection.groupId === group.id ? "control-target-button selected" : "control-target-button"}
@@ -264,14 +269,14 @@ export function ControlTargetPicker({
                 <span>
                   <strong>{group.name}</strong>
                   <small>저장된 구역 · {readiness.label}</small>
-                  {readiness.error ? <small className="danger-text">{readiness.error}</small> : null}
+                  {readiness.error ? <small className="danger-text">{humanizeDeviceResponseMessage(readiness.error)}</small> : null}
                 </span>
                 <span>{group.fixtureIds.length}개</span>
-              </button>
+              </Button>
             );
           })}
           {dashboard.groups.length === 0 ? <p className="control-empty-state">등록된 구역이 없습니다.</p> : null}
-        </div>
+        </Card>
       ) : null}
     </div>
   );

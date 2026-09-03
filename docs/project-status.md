@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**Calm Operations 고객 UI 전면 개선**: 모니터링·수동/스케줄/차량 이벤트 제어·통계·설정에 승인된 A안의 공통 디자인 시스템을 적용하고 설정 내부 sidebar를 주 내비게이션의 역할별 hover/focus/touch disclosure로 이동했다. Final whole-branch review fix에서 coarse trigger를 실제 button으로 분리해 dirty editor의 open·cancel·confirm 경계를 고정하고, 설정 popup을 자연스러운 link navigation으로 정렬하고, 모바일 commissioning action의 44px 계약을 보강한 뒤 전체 software validation을 통과했다. 수동 in-app Browser QA는 제어 surface가 없는 환경 때문에 미실행이며 자동 Chromium과 별도 상태로 유지한다.
+**Calm Operations 고객 UI 전면 개선 완료(소프트웨어)**: 공통 Task 1, 로그인/operator Scene 01~03, setup/claim/registration Scene 04~09, monitoring Scene 10~12, manual control Scene 13~16, schedule/event Scene 17~21, statistics Scene 22~23, settings/floor/security Scene 24~26을 구현했다. 기존 API·DB·MQTT·firmware 계약은 변경하지 않았고, 1440/1024/390/320 자동 Chromium은 software UI 증거다. 수동 in-app Browser 시각 QA와 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이번 실행에서 수행하지 않았으며 완료로 확대 기록하지 않는다.
 
 ## 작업 상태
 
@@ -24,7 +24,7 @@
 | 모니터링 등록 흐름 보완 | 완료(소프트웨어) | 조명 생성 후에도 유지되는 active session 복구 API·UI, 과거 attempt 미해결 노드 노출, `reconcile_required` 상태 재조회·안전 제외·세션 취소, MQTT 완료 경합 잠금, unresolved 재검색/완료 차단과 fixture benchmark 현장 범위 경로를 구현했다. 실장비 상태 자동 판정과 HIL은 포함하지 않는다. |
 | Calm Operations UI 개선 설계 | 완료(설계) | 고객용 4개 메뉴의 공통 token·primitive, 현재 기능별 정보 위계, 설정 hover/focus/touch 서브메뉴, 반응형·접근성과 검증 범위를 확정했다. API·DB·MQTT 변경은 포함하지 않는다. |
 | Calm Operations UI 개선 구현 계획 | 완료(계획) | [구현 계획](superpowers/plans/2026-08-31-calm-operations-ui-refresh.md)에 공통 UI, 설정 navigation, 메뉴별 적용, 반응형 E2E, 문서 수렴을 8개 TDD·검증·커밋 단위로 작성했다. |
-| Calm Operations UI 개선 구현 | 완료(소프트웨어) | Final whole-branch review fix에서 desktop `/settings${search}` 개요 link와 coarse `button[type="button"]`을 분리했고, popup을 `nav aria-label="설정 메뉴"`·목록·일반 링크로 정렬해 Tab/Shift+Tab/Escape와 단일 `aria-current` 계약을 고정했다. dirty editor에서 sheet open은 confirm·route·draft를 건드리지 않고, 하위 링크는 cancel 시 sheet/editor/draft를 유지하며 confirm 시 requested subroute·`siteId`로 이동한다. 760px 이하 customer setup/claim/registration/reconciliation/retry enabled action은 44px 이상이고 operator/global desktop CSS는 변경하지 않았다. focused Vitest `5 files / 48 tests`, 관련 Chromium `65 passed`, 전체 Chromium `90 passed / 3 skipped`, Web unit `36 files / 383 tests`, shared build, typecheck와 production build가 통과했다. build는 `2,381 modules`, main `1,040.07 kB / gzip 317.05 kB`, PDF `532.22 kB / gzip 161.49 kB`이며 기존 500 kB chunk 경고가 남는다. in-app Browser 수동 QA와 Raspberry Pi/BlueZ/ESP32-H2 HIL은 미실행이다. |
+| Calm Operations UI 개선 구현 | 완료(소프트웨어, fix round 4) | Task 1~8과 Scene 01~26을 완료했다. Scene 24~26은 실제 dashboard 기반 4개 설정 카드와 route action, role-filtered desktop popover/mobile scrim·grabber·title sheet, admin 등록/편집·viewer 읽기 전용 도면 목록, lease warning·atomic save·409 reload-only·revision restore·asset lock, 기존 8자 비밀번호와 현재-session 유지 동작을 보존한다. Fix round 1은 overview/submenu의 query+hash 보존과 390px/320px dirty coarse sheet cancel/confirm·focus·history 왕복을, fix round 2는 승인 직후와 editor 복귀 뒤 sentinel 직접 부재 및 clean logout 무확인을 고정했다. Fix round 3은 등록·제어 transport 표시 문구 한국어화, 등록 단계 단일 상태 기계, commissioning form/checkable의 연속 44×44px 도달 계약과 세 dialog 공통 Button action을 추가했다. Fix round 4는 cancelled/completed terminal의 current를 제거하고 session-level failed의 실제 도달 단계를 error로 표시하며, 390px/320px 기본 batch form을 individual mode 전환 전에 44×44px clipping·occlusion 기준으로 검증한다. focused registration unit 25/25, 네 viewport commissioning Chromium 5/5, 전체 Web 441/441, 전체 tracked Chromium 직렬 실행 136 passed/3 environment-gated skipped, typecheck와 production build를 통과했고 기존 chunk-size warning만 남았다. API/DB/MQTT/firmware와 raw API/protocol identifier는 변경하지 않았다. 자동 Chromium fixture는 software 증거이며 수동 in-app Browser와 Raspberry Pi/BlueZ/ESP32-H2 HIL은 미실행이다. |
 | 스케줄·차량 이벤트 제어 설계 | 완료(설계) | 반복 일정, overlap 차단, 수동 override·차량 이벤트·스케줄 우선순위, Gateway full snapshot 무중단 적용, offline 실행과 ESP32-H2 차량 감지 event 계약을 확정했다. Task 7~12에서 API CRUD, production MQTT config와 Gateway offline 실행을 구현했고 Web과 실제 sensor/telemetry 연결은 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 7 | 완료(소프트웨어) | assigned admin mutation/viewer read 권한, exact Fixture snapshot, 공통 engine overlap, automation advisory lock 후 Site 재인가 동시성, RepeatableRead 기반 bounded keyset 목록, schedule API CRUD와 revision/full-snapshot outbox를 구현했다. 실제 MQTT publish/application ACK는 Task 9, Gateway offline 실행과 schedule Web CRUD는 후속 Task다. |
 | 스케줄·차량 이벤트 제어 Task 8 | 완료(소프트웨어) | node-local capability ledger/partial uniqueness, migration baseline reconciliation, canonical hash와 stale/conflict 처리, 3종 `MqttOutbox` row shape, node-scoped durable ACK identity와 lease-safe exact replay revival까지 5차 review fix를 완료했다. Production Gateway report journal은 후속 Task 범위다. |
@@ -45,14 +45,14 @@
 
 ## 다음 단계
 
-**다음 작업은 in-app Browser가 제공되는 세션에서 1440/1024/390/320 수동 시각 QA를 수행하는 것이다.** Task 8 Step 2 software validation은 완료했지만 Step 3은 자동 Chromium으로 대체하지 않고 미체크로 유지한다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL도 이 UI 작업과 별도로 미실행 상태를 유지하며 software 결과를 실장비 완료로 확대 해석하지 않는다.
+**다음 작업은 in-app Browser가 제공되는 세션에서 1440/1024/390/320 수동 시각 QA를 수행하는 것이다.** 자동 Chromium 검증은 완료됐지만 사람의 시각 확인으로 대체 기록하지 않는다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL도 별도 미실행 상태를 유지한다.
 
 ## 알려진 미해결 항목
 
 ### Calm Operations 최종 검증
 
-- Final whole-branch review fix는 설정 navigation의 dirty coarse open·submenu cancel·confirm, desktop 자연 Tab/Shift+Tab/Escape, `/settings`·`/settings/floor-plans`·`/settings/security`의 단일 current-page 의미, 390px/320px commissioning enabled action 44px 계약을 새 회귀로 고정했다. 관련 Chromium `65 passed`, 전체 93개 중 `90 passed / 3 skipped`, Web unit `383 passed`로 software suite가 통과했다.
-- deterministic Chromium route fixture는 네 viewport의 monitoring/control/statistics/floor editor overflow, 설정 desktop hover·focus·자연스러운 키보드 이동과 coarse bottom sheet, empty/partial/danger 상태를 자동 검사한다. 그러나 이번 세션에는 browser-client가 요구하는 JavaScript 제어 도구가 없어 사람의 in-app Browser inspection을 시작하지 못했다. 이는 localhost 정책 차단이 아니며 자동 Chromium 통과와 수동 시각 QA를 같은 증거로 취급하지 않는다.
+- Task 8 fix round 4 검증은 registration unit `25 passed`, 네 viewport commissioning Chromium `5 passed`, 전체 Web `441 passed`, 전체 tracked Chromium 직렬 실행 `136 passed / 3 environment-gated skipped`, typecheck와 production build를 통과했다. 전체 session terminal 의미와 batch-before-individual touch 검사를 회귀로 고정했다. 전체 Chromium은 실백엔드 lab의 shared output 재생성과 fixture Vite 접근이 겹치는 기존 병렬 경합 때문에 직렬 실행하며, development proxy 종료 시점 `socket hang up` 경고를 실제 backend/HIL 증거로 확대하지 않는다.
+- deterministic Chromium route fixture는 네 viewport의 monitoring/control/statistics/floor editor overflow, 설정 desktop hover·focus·자연스러운 키보드 이동과 coarse bottom sheet, empty/partial/danger 상태를 자동 검사한다. 이번 Task에서는 사람의 in-app Browser inspection을 수행하지 않았으며 자동 Chromium 통과와 수동 시각 QA를 같은 증거로 취급하지 않는다.
 
 ### 모니터링
 

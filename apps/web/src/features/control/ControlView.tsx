@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, PageHeader, StatusBadge } from "../../components/ui";
+import { Button, Card, PageHeader, ProgressSteps, StatusBadge, type ProgressStep, type ProgressStepState } from "../../components/ui";
 import {
   canonicalizeDimmingCommandInput,
   createDimmingCommand,
@@ -27,6 +27,7 @@ import {
   controlSelectionToDimmingTarget,
   type ControlSelection
 } from "./ControlTargetPicker";
+import { humanizeDeviceResponseMessage } from "./control-copy";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
 import { floorMeshReadiness } from "./control-readiness";
@@ -215,7 +216,7 @@ export function ControlView({
       setCommandUserId(requestUserId);
       setCommandSiteId(request.siteId);
       setCommandId(command.id);
-      setMessage("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.");
+      setMessage("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.");
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     } catch (error) {
       if (
@@ -350,7 +351,7 @@ export function ControlView({
 
       <div className="control-layout">
         <Card className="control-target-card" aria-label="제어 대상 선택">
-          <fieldset className="control-picker-fieldset" disabled={controlsLocked}>
+          <fieldset className="control-picker-fieldset" aria-label="제어 대상 선택" disabled={controlsLocked}>
             <ControlTargetPicker
               key={data.site.id}
               dashboard={data}
@@ -368,7 +369,7 @@ export function ControlView({
           </fieldset>
         </Card>
 
-        <aside className="control-panel ui-card" aria-label="밝기 실행">
+        <Card className="control-panel" role="complementary" aria-label="밝기 실행">
           <div className="panel-title-row">
             <div>
               <span className="eyebrow">선택 대상</span>
@@ -398,9 +399,9 @@ export function ControlView({
 
           <div className="preset-row">
             {[0, 30, 70, 100].map((value) => (
-              <button key={value} type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
+              <Button key={value} variant="secondary" type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
                 {value}%
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -456,7 +457,7 @@ export function ControlView({
               </Button>
             </div>
           ) : null}
-        </aside>
+        </Card>
       </div>
       <FixtureGroupDialog
         open={groupDialogOpen}
@@ -552,17 +553,44 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   );
   const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
   return (
-    <div className="dial-card">
+    <div className="command-progress-card">
       <span>최근 명령 상태</span>
       <strong>{commandStageLabel(status.stage)}</strong>
       <small>{status.completedFixtureCount} / {status.totalFixtureCount} 처리</small>
+      <ProgressSteps label="명령 진행" steps={commandSteps(status.stage)} />
       {failedResults.map((result) => (
         <small className={isFailure ? "danger-text" : ""} key={result.fixtureId}>
-          {result.fixtureName}: {result.errorMessage ?? (result.status === "timed_out" ? "응답 시간 초과" : "적용 실패")}
+          {result.fixtureName}: {humanizeDeviceResponseMessage(result.errorMessage ?? (result.status === "timed_out" ? "응답 시간 초과" : "적용 실패"))}
         </small>
       ))}
     </div>
   );
+}
+
+function commandSteps(stage: CommandStage): ProgressStep[] {
+  return [
+    { id: "queued", label: "명령 접수", state: stepState(stage, "queued") },
+    { id: "published", label: "Gateway 전송", state: stepState(stage, "published") },
+    { id: "accepted", label: "장비 응답", state: stepState(stage, "accepted") },
+    { id: "completed", label: "조명 적용", state: terminalStepState(stage) }
+  ];
+}
+
+function stepState(stage: CommandStage, step: "queued" | "published" | "accepted"): ProgressStepState {
+  const stageRank: Record<"queued" | "published" | "accepted", number> = { queued: 0, published: 1, accepted: 2 };
+  const currentRank = stage === "completed" || stage === "partial_failed" || stage === "failed" || stage === "timed_out"
+    ? 3
+    : stageRank[stage];
+  const stepRank = stageRank[step];
+  if (currentRank > stepRank) return "complete";
+  if (currentRank === stepRank) return "current";
+  return "pending";
+}
+
+function terminalStepState(stage: CommandStage): ProgressStepState {
+  if (stage === "completed") return "complete";
+  if (stage === "partial_failed" || stage === "failed" || stage === "timed_out") return "error";
+  return "pending";
 }
 
 function commandStageLabel(stage: CommandStage) {

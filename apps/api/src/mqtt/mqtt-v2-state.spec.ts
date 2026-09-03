@@ -328,6 +328,58 @@ describe("MqttService v2 ordered state", () => {
     await service.stopInboundAndDrain();
   });
 
+  it("PUBACKs a mesh resync request after commit without waiting for the outbound resync ACK callback", async () => {
+    const outboundResyncAck = deferred<void>();
+    const markers: string[] = [];
+    const prisma = {
+      $transaction: jest.fn(async (operation: (tx: object) => Promise<unknown>) => {
+        const result = await operation({ transaction: true });
+        markers.push("transaction-committed");
+        return result;
+      })
+    };
+    const meshGroups = {
+      attachProvisionedNode: jest.fn(),
+      resetGatewayGroupsForResync: jest.fn().mockResolvedValue({ groupCount: 1, memberCount: 0 })
+    };
+    const service = new MqttService(prisma as never, meshGroups as never);
+    const client = mqttClientHarness(service);
+    jest.spyOn(service, "publishTopic").mockImplementation(() => {
+      markers.push("resync-ack-publish-started");
+      return outboundResyncAck.promise;
+    });
+    const internal = mqttInternals(service);
+    const topic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/events/mesh-group/resync-request`;
+    const payload = Buffer.from(JSON.stringify({
+      ...scope,
+      eventId: "77777777-7777-4777-8777-777777777777",
+      occurredAt: "2026-08-26T00:00:00.000Z",
+      reason: "state_missing"
+    }));
+    const packet = { qos: 1, messageId: 38 };
+    const done = jest.fn((reasonCode: number) => {
+      markers.push("inbound-puback");
+      client.emit("message", topic, payload, packet);
+      expect(reasonCode).toBe(0);
+    });
+
+    internal.createCustomHandleAcks()(topic, payload, packet, done);
+    await waitFor(() => markers.includes("resync-ack-publish-started"));
+    await flushPromises();
+    const markersBeforeOutboundAckSettles = [...markers];
+
+    outboundResyncAck.resolve();
+    await service.stopInboundAndDrain();
+
+    expect(markersBeforeOutboundAckSettles).toEqual([
+      "transaction-committed",
+      "inbound-puback",
+      "resync-ack-publish-started"
+    ]);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(client.stream.destroy).not.toHaveBeenCalled();
+  });
+
   it("rejects new fixture state intake after shutdown drain starts", async () => {
     const ingestion = { ingest: jest.fn() };
     const destroy = jest.fn();

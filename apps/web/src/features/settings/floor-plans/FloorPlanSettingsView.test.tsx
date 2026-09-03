@@ -52,6 +52,7 @@ describe("FloorPlanSettingsView", () => {
 
     expect(await screen.findByText("B2")).toBeInTheDocument();
     expect(screen.getByText("도면 등록됨")).toBeInTheDocument();
+    expect(screen.getByText("읽기 전용")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "B2 도면 편집" })).not.toBeInTheDocument();
   });
 });

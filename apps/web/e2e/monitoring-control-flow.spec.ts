@@ -544,7 +544,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     })]);
 
     await page.getByRole("button", { name: "B2 출구 통로 삭제" }).click();
-    await page.getByRole("alert", { name: "구역 삭제 확인" }).getByRole("button", { name: "삭제 확인" }).click();
+    await page.getByRole("dialog", { name: "구역 삭제 확인" }).getByRole("button", { name: "삭제 확인", exact: true }).click();
     await expect.poll(() => groupApi.deleteRequests).toEqual([ids.createdGroup]);
     await expect(page.getByText("삭제 중")).toBeVisible();
   });
@@ -635,7 +635,9 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await expectResponsivePanelLayout(page, ".map-panel", ".detail-panel", viewport.width <= 1120);
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
-        await expectMinimumTouchTargets(page, ".app-shell", { excludeSpatialMapMarkers: true });
+        // Keep the full shell in scope while scrolling long dashboard controls into reach.
+        // Spatial markers are positioned visual affordances, not standalone touch controls.
+        await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell", { excludeSpatialMapMarkers: true });
         const fixtureSelector = page.getByRole("combobox", { name: "상세 조명 선택" });
         await expect(fixtureSelector).toBeVisible();
         await expect(fixtureSelector.locator("option")).toHaveCount(fixtures.length);

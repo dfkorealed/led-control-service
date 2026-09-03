@@ -20,6 +20,7 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
   const location = useLocation();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  const firstSectionRef = useRef<HTMLAnchorElement>(null);
   const [open, setOpen] = useState(false);
   const sections = settingsSectionsFor(role);
   const active = location.pathname.startsWith("/settings");
@@ -28,6 +29,10 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
   useEffect(() => {
     setOpen(false);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (open && coarsePointer) firstSectionRef.current?.focus();
+  }, [coarsePointer, open]);
 
   useEffect(() => {
     function closeOnOutsidePointer(event: PointerEvent) {
@@ -79,7 +84,7 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
       ) : (
         <Link
           ref={(node) => { triggerRef.current = node; }}
-          to={`/settings${search}`}
+          to={{ pathname: "/settings", search, hash: location.hash }}
           className={active ? "nav-item active" : "nav-item"}
           aria-expanded={open}
           aria-controls={settingsPopupId}
@@ -88,25 +93,42 @@ export function SettingsNavigationItem({ role, search }: SettingsNavigationItemP
         </Link>
       )}
       {open ? (
-        <nav
-          id={settingsPopupId}
-          className="settings-submenu"
-          aria-label="설정 메뉴"
-        >
-          <ul className="settings-submenu-list">
-            {sections.map((section) => (
-              <li key={section.path}>
-                <NavLink
-                  to={`${section.path}${search}`}
-                  end={section.path === "/settings"}
-                  onClick={() => setOpen(false)}
-                >
-                  {section.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <>
+          {coarsePointer ? (
+            <button
+              type="button"
+              className="settings-submenu-scrim"
+              aria-label="설정 메뉴 닫기"
+              onClick={closeWithFocusRestore}
+            />
+          ) : null}
+          <nav
+            id={settingsPopupId}
+            className="settings-submenu"
+            aria-label="설정 메뉴"
+          >
+            {coarsePointer ? (
+              <div className="settings-submenu-heading">
+                <span className="settings-submenu-grabber" data-testid="settings-submenu-grabber" aria-hidden="true" />
+                <h2>설정 메뉴</h2>
+              </div>
+            ) : null}
+            <ul className="settings-submenu-list">
+              {sections.map((section, index) => (
+                <li key={section.path}>
+                  <NavLink
+                    ref={index === 0 ? firstSectionRef : undefined}
+                    to={{ pathname: section.path, search, hash: location.hash }}
+                    end={section.path === "/settings"}
+                    onClick={() => setOpen(false)}
+                  >
+                    {section.label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </>
       ) : null}
     </div>
   );

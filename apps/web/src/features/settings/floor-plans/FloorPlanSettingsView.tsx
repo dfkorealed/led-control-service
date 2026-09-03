@@ -1,8 +1,8 @@
-import { FileImage, LoaderCircle, TriangleAlert } from "lucide-react";
+import { FileImage, LoaderCircle, LockKeyhole, TriangleAlert } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import type { AuthUser } from "../../../api/auth";
 import { useDashboard } from "../../../api/queries";
-import { Card, FeedbackState, PageHeader } from "../../../components/ui";
+import { Card, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
 
 interface FloorPlanSettingsViewProps {
   siteId?: string;
@@ -33,15 +33,15 @@ export function FloorPlanSettingsView({ siteId, userRole }: FloorPlanSettingsVie
                   <span>{floor.floorPlan ? "도면 등록됨" : "도면 미등록"}</span>
                 </div>
               </div>
-              {canEdit && (
+              {canEdit ? (
                 <Link
                   className="ui-button ui-button-secondary floor-plan-edit-link"
                   to={`/settings/floor-plans/${floor.id}/edit${location.search}`}
-                  aria-label={`${floor.name} 도면 편집`}
+                  aria-label={`${floor.name} ${floor.floorPlan ? "도면 편집" : "도면 등록"}`}
                 >
-                  도면 편집
+                  {floor.floorPlan ? "도면 편집" : "도면 등록"}
                 </Link>
-              )}
+              ) : <StatusBadge tone="neutral" icon={LockKeyhole}>읽기 전용</StatusBadge>}
             </Card>
           ))}
         </div>

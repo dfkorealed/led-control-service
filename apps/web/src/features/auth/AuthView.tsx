@@ -1,6 +1,9 @@
 import { FormEvent, useState } from "react";
-import { LockKeyhole } from "lucide-react";
+import { CircleAlert, LockKeyhole } from "lucide-react";
 import { login, type AuthUser } from "../../api/auth";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { FeedbackState } from "../../components/ui/FeedbackState";
 
 interface AuthViewProps {
   onAuthenticated: (auth: { user: AuthUser }) => Promise<void>;
@@ -29,18 +32,15 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
 
   return (
     <main className="auth-shell">
-      <section className="auth-panel">
-        <div className="brand auth-brand">
-          <span className="brand-mark">LC</span>
-          <div>
-            <strong>LED Control</strong>
-            <span>관제 센터</span>
-          </div>
-        </div>
-
+      <section className="auth-brand-panel" aria-label="LED Control 소개">
+        <div className="brand auth-brand"><span className="brand-mark">LC</span><strong>LED Control</strong></div>
+        <h1>빛을 더 안정적으로,<br />현장을 더 선명하게.</h1>
+        <p>주차장 LED 조명의 상태, 제어, 에너지 사용량을 하나의 차분한 운영 화면에서 확인하세요.</p>
+      </section>
+      <Card className="auth-panel">
         <div className="auth-heading">
           <span className="eyebrow">계정 로그인</span>
-          <h1>LED Control 로그인</h1>
+          <h2>LED Control 로그인</h2>
         </div>
 
         <form className="auth-form" onSubmit={submit}>
@@ -72,14 +72,14 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
             />
             자동 로그인
           </label>
-          <button className="primary-button auth-submit" disabled={isPending}>
-            <LockKeyhole size={18} />
+          <Button className="auth-submit" type="submit" variant="primary" isLoading={isPending} loadingLabel="로그인 중">
+            <LockKeyhole size={18} aria-hidden="true" />
             로그인
-          </button>
+          </Button>
         </form>
 
-        {errorMessage && <p className="danger-text" role="alert">{errorMessage}</p>}
-      </section>
+        {errorMessage ? <FeedbackState tone="danger" icon={CircleAlert} title={errorMessage} /> : null}
+      </Card>
     </main>
   );
 }

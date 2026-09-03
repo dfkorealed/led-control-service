@@ -138,7 +138,7 @@ describe("FloorEditorRoute", () => {
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, selection: null });
   });
 
-  it("switches an editor to read-only when another user holds the floor lease", async () => {
+  it("도면 편집기는 lease 상실 시 읽기 전용 feedback을 표시한다", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     acquireFloorEditorLease.mockResolvedValue({
       editable: false,
@@ -148,7 +148,11 @@ describe("FloorEditorRoute", () => {
 
     renderRoute("admin");
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("김관리");
+    const feedback = (await screen.findByText("김관리님이 이 도면을 편집 중입니다.")).closest("[data-tone]");
+    expect(feedback).not.toBeNull();
+    expect(feedback).toHaveTextContent("김관리님이 이 도면을 편집 중입니다.");
+    expect(feedback).toHaveTextContent("현재 버전은 읽기 전용으로 확인할 수 있습니다.");
+    expect(feedback).toHaveAttribute("data-tone", "warning");
     expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
   });
 

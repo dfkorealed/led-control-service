@@ -120,11 +120,31 @@ describe("ScheduleControlPanel", () => {
     expect(await screen.findByText("등록된 스케줄이 없습니다.")).toBeInTheDocument();
   });
 
+  it("keeps one reachable add action for an empty schedule list", async () => {
+    mocks.listSchedules.mockResolvedValue(page([]));
+    renderPanel("admin");
+
+    await screen.findByText("등록된 스케줄이 없습니다.");
+    expect(screen.getAllByRole("button", { name: "스케줄 추가" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
+  });
+
   it("uses a level-three panel heading and shared add button", async () => {
     renderPanel("admin");
 
     expect(await screen.findByRole("heading", { name: "스케줄 제어", level: 3 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "스케줄 추가" })).toHaveClass("ui-button", "ui-button-primary");
+  });
+
+  it("uses shared dialog action buttons", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
+    expect(within(dialog).getByRole("button", { name: "스케줄 만들기" })).toHaveClass("ui-button", "ui-button-primary");
   });
 
   it("renders sync and production action-result summaries but no mutation commands for a viewer", async () => {
@@ -174,6 +194,174 @@ describe("ScheduleControlPanel", () => {
     expect(screen.queryByRole("button", { name: /수정/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /삭제/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /비활성화/ })).not.toBeInTheDocument();
+  });
+
+  it("스케줄 목록은 적용 상태를 공통 badge로 구분한다", async () => {
+    mocks.listSchedules.mockResolvedValue(page([
+      schedule({ name: "대기 스케줄", syncStatus: "PENDING" }),
+      schedule({ id: "00000000-0000-4000-8000-000000000012", name: "적용 스케줄", syncStatus: "APPLIED" }),
+      schedule({ id: "00000000-0000-4000-8000-000000000013", name: "실패 스케줄", syncStatus: "REJECTED" })
+    ]));
+    renderPanel("viewer");
+
+    expect(await screen.findByRole("table", { name: "스케줄 목록" })).toBeInTheDocument();
+    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByText("적용 대기").closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttribute("data-tone", "danger");
+  });
+
+  it("스케줄 dialog는 네 입력 section과 validation focus를 유지한다", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    expect(within(dialog).getByRole("group", { name: "운영 기간과 시간" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "반복" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "밝기" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "제어 대상" })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+    expect(screen.getByLabelText("스케줄 이름")).toHaveFocus();
+  });
+
+  it.each([
+    {
+      description: "적용 시작일",
+      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("적용 시작일"), { target: { value: "" } }),
+      controlLabel: "적용 시작일",
+      errorId: "schedule-active-from-date-error"
+    },
+    {
+      description: "적용 종료일",
+      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("적용 종료일"), { target: { value: "" } }),
+      controlLabel: "적용 종료일",
+      errorId: "schedule-active-until-date-error"
+    },
+    {
+      description: "시작 시각",
+      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("시작 시각"), { target: { value: "" } }),
+      controlLabel: "시작 시각",
+      errorId: "schedule-local-start-time-error"
+    },
+    {
+      description: "종료 시각",
+      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("종료 시각"), { target: { value: "" } }),
+      controlLabel: "종료 시각",
+      errorId: "schedule-local-end-time-error"
+    },
+    {
+      description: "매주 요일",
+      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "weekly" } }),
+      controlLabel: "월",
+      errorId: "schedule-weekly-days-error"
+    },
+    {
+      description: "매월 날짜",
+      configure: (dialog: HTMLElement) => {
+        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "monthly" } });
+        fireEvent.change(within(dialog).getByLabelText("매월 날짜"), { target: { value: "" } });
+      },
+      controlLabel: "매월 날짜",
+      errorId: "schedule-monthly-day-error"
+    },
+    {
+      description: "매년 월",
+      configure: (dialog: HTMLElement) => {
+        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "yearly" } });
+        fireEvent.change(within(dialog).getByLabelText("매년 월"), { target: { value: "" } });
+      },
+      controlLabel: "매년 월",
+      errorId: "schedule-yearly-month-error"
+    },
+    {
+      description: "매년 날짜",
+      configure: (dialog: HTMLElement) => {
+        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "yearly" } });
+        fireEvent.change(within(dialog).getByLabelText("매년 날짜"), { target: { value: "" } });
+      },
+      controlLabel: "매년 날짜",
+      errorId: "schedule-yearly-day-error"
+    },
+    {
+      description: "밝기",
+      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "101" } }),
+      controlLabel: "밝기",
+      errorId: "schedule-brightness-error"
+    }
+  ])("이름 뒤의 $description 검증 오류를 첫 invalid control에 연결하고 focus한다", async ({ configure, controlLabel, errorId }) => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    fireEvent.change(within(dialog).getByLabelText("스케줄 이름"), { target: { value: "유효한 이름" } });
+    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
+    configure(dialog);
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+
+    const control = within(dialog).getByLabelText(controlLabel);
+    expect(control).toHaveFocus();
+    expect(control).toHaveAttribute("aria-invalid", "true");
+    expect(control).toHaveAttribute("aria-errormessage", errorId);
+    expect(document.getElementById(errorId)).toBeInTheDocument();
+  });
+
+  it("디밍 ON 밝기 오류는 visible numeric input만 error ARIA를 갖는다", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    fireEvent.change(within(dialog).getByLabelText("스케줄 이름"), { target: { value: "유효한 이름" } });
+    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
+    fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "101" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+
+    const brightnessInput = within(dialog).getByLabelText("밝기");
+    expect(brightnessInput).toHaveFocus();
+    expect(brightnessInput).toHaveAttribute("aria-invalid", "true");
+    expect(brightnessInput).toHaveAttribute("aria-errormessage", "schedule-brightness-error");
+    expect(brightnessInput).toHaveAttribute("aria-describedby", "schedule-brightness-error");
+    expect(within(dialog).getByLabelText("디밍 사용")).not.toHaveAttribute("aria-invalid");
+    expect(within(dialog).getByLabelText("디밍 사용")).not.toHaveAttribute("aria-errormessage");
+  });
+
+  it("숨겨진 밝기 input의 오류는 디밍 toggle fallback에 연결하고 focus한다", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    fireEvent.change(within(dialog).getByLabelText("스케줄 이름"), { target: { value: "유효한 이름" } });
+    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
+    fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "101" } });
+    fireEvent.click(within(dialog).getByLabelText("디밍 사용"));
+    expect(within(dialog).queryByLabelText("밝기")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+
+    const dimmingToggle = within(dialog).getByLabelText("디밍 사용");
+    expect(screen.getByText("밝기는 0~100 사이의 정수여야 합니다.")).toBeVisible();
+    expect(dimmingToggle).toHaveFocus();
+    expect(dimmingToggle).toHaveAttribute("aria-invalid", "true");
+    expect(dimmingToggle).toHaveAttribute("aria-errormessage", "schedule-brightness-error");
+    expect(dimmingToggle).toHaveAttribute("aria-describedby", "schedule-brightness-error");
+  });
+
+  it("target-only 검증 오류는 제어 대상 fieldset에 연결하고 focus한다", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    fireEvent.change(within(dialog).getByLabelText("스케줄 이름"), { target: { value: "유효한 이름" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
+
+    const targetSection = within(dialog).getByRole("group", { name: /^제어 대상$/ });
+    expect(targetSection).toHaveFocus();
+    expect(targetSection).toHaveAttribute("aria-invalid", "true");
+    expect(targetSection).toHaveAttribute("aria-errormessage", "schedule-target-error");
+    expect(document.getElementById("schedule-target-error")).toBeInTheDocument();
   });
 
   it("creates and edits a complete schedule through the dialog", async () => {

@@ -11,17 +11,21 @@ const FOCUSABLE_SELECTOR = [
 
 export function useModalFocus({
   open,
+  suspended = false,
   dialogRef,
   returnFocusRef,
   onClose
 }: {
   open: boolean;
+  suspended?: boolean;
   dialogRef: RefObject<HTMLElement | null>;
   returnFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
 }) {
   const onCloseRef = useRef(onClose);
+  const suspendedRef = useRef(suspended);
   onCloseRef.current = onClose;
+  suspendedRef.current = suspended;
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -39,6 +43,9 @@ export function useModalFocus({
     initialTarget.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
+      // A nested modal owns Escape and Tab until it closes; keeping this effect mounted
+      // preserves the parent dialog's original focus restoration target.
+      if (suspendedRef.current) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();

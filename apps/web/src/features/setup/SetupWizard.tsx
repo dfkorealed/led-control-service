@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Wand2 } from "lucide-react";
+import { CheckCircle2, Clock3, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createInitialSiteSetup, type InitialFloorInput } from "../../api/setup";
+import { Button, Card, FeedbackState, ProgressSteps, StatusBadge } from "../../components/ui";
 
 interface SetupWizardProps {
   siteId: string;
@@ -73,14 +74,21 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
       <div className="panel-title-row">
         <div>
           <span className="eyebrow">초기 설치</span>
-          <h3 id="setup-wizard-title">초기 설치 설정</h3>
+          <h3 id="setup-wizard-title">현장 기본 정보를 입력하세요</h3>
         </div>
-        <span className={`status-pill ${successMessage ? "success" : "offline"}`} aria-live="polite">
+        <StatusBadge tone={successMessage ? "success" : "neutral"} icon={successMessage ? CheckCircle2 : Clock3}>
           {successMessage ? "저장됨" : "준비"}
-        </span>
+        </StatusBadge>
       </div>
 
-      <div className="setup-section">
+      <ProgressSteps label="현장 설치 진행" steps={[
+        { id: "site", label: "현장 정보", state: "current" },
+        { id: "gateway", label: "Gateway 연결", state: "pending" },
+        { id: "fixtures", label: "조명 등록", state: "pending" },
+        { id: "operate", label: "운영 시작", state: "pending" }
+      ]} />
+
+      <Card className="setup-section">
           <h4>현장 정보</h4>
           <div className="setup-form-grid">
           <div className="setting-card">
@@ -95,9 +103,9 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
             주소
             <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="서울시 강남구" />
           </label>
-          <button className="secondary-button" type="button" onClick={() => setAddress("미입력")}>
+          <Button variant="secondary" type="button" onClick={() => setAddress("미입력")}>
             주소 미입력
-          </button>
+          </Button>
           <label>
             kWh 단가
             <input
@@ -117,9 +125,9 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
             </select>
           </label>
         </div>
-      </div>
+      </Card>
 
-      <div className="setup-section">
+      <Card className="setup-section">
         <h4>층 생성</h4>
         <div className="setup-range-row">
           <label>
@@ -144,8 +152,8 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
               onChange={(event) => setGroundCount(event.target.value)}
             />
           </label>
-          <button
-            className="secondary-button"
+          <Button
+            variant="secondary"
             type="button"
             onClick={() => {
               const basement = parseCount(basementCount);
@@ -156,7 +164,7 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
           >
             <Wand2 size={16} />
             층 자동 생성
-          </button>
+          </Button>
         </div>
 
         <div className="floor-edit-list" aria-label="생성된 층 목록">
@@ -197,43 +205,37 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
             ))
           )}
         </div>
-      </div>
+      </Card>
 
       {validationMessage ? (
         <p className="danger-text" role="alert">
           {validationMessage}
         </p>
       ) : null}
-      {setupMutation.error ? (
-        <p className="danger-text" role="alert">
-          초기 설정을 저장하지 못했습니다.
-        </p>
-      ) : null}
+      {setupMutation.error ? <FeedbackState tone="danger" icon={CheckCircle2} title="초기 설정을 저장하지 못했습니다." /> : null}
       {successMessage ? (
-        <p className="success-text" aria-live="polite">
-          <CheckCircle2 size={16} />
-          {successMessage}
-        </p>
+        <FeedbackState tone="success" icon={CheckCircle2} title={successMessage} />
       ) : null}
 
-      <button className="primary-button setup-submit" disabled={!canSubmit} onClick={() => setupMutation.mutate()}>
-        {setupMutation.isPending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />}
+      <Button className="setup-submit" variant="primary" disabled={!canSubmit} isLoading={setupMutation.isPending} loadingLabel="초기 설정 저장 중" onClick={() => setupMutation.mutate()}>
+        <CheckCircle2 size={16} />
         초기 설정 완료
-      </button>
+      </Button>
     </section>
   );
 }
 
 export function InstallationPending() {
   return (
-    <section className="setup-wizard" aria-labelledby="installation-pending-title">
+    <section className="setup-wizard" aria-label="Viewer 설치 대기">
       <div className="panel-title-row">
         <div>
           <span className="eyebrow">설치 준비</span>
           <h3 id="installation-pending-title">설치 담당자가 현장을 준비 중입니다</h3>
         </div>
-        <span className="status-pill offline">대기</span>
+        <StatusBadge tone="neutral" icon={Clock3}>대기</StatusBadge>
       </div>
+      <FeedbackState tone="neutral" icon={Clock3} title="Viewer 설치 대기" description="설치 담당자가 현장 정보와 Gateway 연결을 완료하면 조명 등록을 시작할 수 있습니다." />
     </section>
   );
 }

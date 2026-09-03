@@ -1,9 +1,9 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, Type, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { CircleCheck, Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, TriangleAlert, Type, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
-import { Button, PageHeader } from "../../components/ui";
+import { Button, FeedbackState, PageHeader } from "../../components/ui";
 import {
   listFloorEditorRevisions,
   restoreFloorEditorRevision,
@@ -175,15 +175,20 @@ export function FloorEditorView({
         )}
       />
 
-      {saveStatus === "error" ? <p className="danger-text" role="alert">변경분을 저장하지 못했습니다.</p> : null}
+      {saveStatus === "error" ? (
+        <FeedbackState tone="danger" icon={TriangleAlert} title="변경분을 저장하지 못했습니다." />
+      ) : null}
       {saveStatus === "conflict" ? (
-        <div className="editor-conflict" role="alert">
-          <span>다른 사용자가 먼저 저장했습니다.</span>
-          <Button variant="secondary" onClick={() => void onReload()}>최신 버전 다시 불러오기</Button>
-        </div>
+        <FeedbackState
+          tone="danger"
+          icon={TriangleAlert}
+          title="최신 도면과 변경사항이 충돌했습니다."
+          description="최신 버전을 다시 불러온 뒤 변경사항을 확인하세요."
+          action={<Button variant="secondary" onClick={() => void onReload()}>최신 버전 다시 불러오기</Button>}
+        />
       ) : null}
       {skippedFixtureCount > 0 ? (
-        <p className="success-text" role="status">현재 존재하지 않는 조명 {skippedFixtureCount}개를 건너뛰었습니다.</p>
+        <FeedbackState tone="success" icon={CircleCheck} title={`현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`} />
       ) : null}
 
       <div className="floor-editor-layout">

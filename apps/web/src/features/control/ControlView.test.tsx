@@ -151,10 +151,78 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("heading", { name: "조명 밝기 제어", level: 3 })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "제어 방식" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("region", { name: "제어 대상 선택" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "제어 대상 선택" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveTextContent("밝기");
     expect(screen.getByRole("status", { name: "명령 진행 상태" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "구역 관리" })).toHaveClass("ui-button", "ui-button-secondary");
+  });
+
+  it("수동 제어는 실제 command stage를 명령 진행 단계로 표시한다", async () => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
+    const commandStatus = createCommandStatus(commandIds.default, "partial_failed");
+    mocks.useCommandStatus.mockReturnValue({
+      data: commandStatus,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn()
+    });
+
+    renderControl();
+
+    expect(screen.getByRole("tabpanel", { name: "수동 제어" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "제어 대상 선택" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "명령 진행" })).toHaveTextContent("장비 응답");
+  });
+
+  it("서버의 ACK 문구는 사용자 화면에서 장비 응답으로 표시한다", () => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
+    const commandStatus = createCommandStatus(commandIds.default, "partial_failed");
+    commandStatus.dispatches[0].results[0].errorMessage = "게이트웨이 ACK를 확인하지 못했습니다.";
+    mocks.useCommandStatus.mockReturnValue({
+      data: commandStatus,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn()
+    });
+
+    renderControl();
+
+    expect(screen.getByRole("status", { name: "명령 진행 상태" })).toHaveTextContent("B2-L001: 게이트웨이 장비 응답을 확인하지 못했습니다.");
+    expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
+  });
+
+  it("floor와 저장 구역 Mesh 오류의 ACK는 사용자 화면에서 장비 응답으로 표시한다", () => {
+    const ackDashboard: Dashboard = {
+      ...dashboard,
+      floors: dashboard.floors.map((floor, index) => index === 0
+        ? { ...floor, meshControlGroups: [{ ...floor.meshControlGroups[0], status: "failed", error: "Gateway ACK를 확인하지 못했습니다." }] }
+        : floor),
+      groups: dashboard.groups.map((group, index) => index === 0
+        ? { ...group, meshControlGroup: { ...group.meshControlGroup!, status: "failed", error: "Gateway ACK를 확인하지 못했습니다." } }
+        : group)
+    };
+    mocks.useControlDashboard.mockReturnValue({ data: ackDashboard, isLoading: false, error: null });
+
+    renderControl();
+    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    expect(screen.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "구역" }));
+    expect(screen.getAllByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toHaveLength(1);
+    expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
+  });
+
+  it("수동 제어는 공통 Card와 Button으로 preset 및 대상 action을 렌더링한다", () => {
+    renderControl();
+
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveClass("ui-card");
+    expect(screen.getByRole("button", { name: "30%" })).toHaveClass("ui-button");
+    expect(screen.getByRole("button", { name: "검색 결과 전체 선택" })).toHaveClass("ui-button");
+    expect(screen.getByRole("button", { name: "층" })).toHaveClass("ui-button");
+
+    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    expect(screen.getByRole("button", { name: "B2" })).toHaveClass("ui-button");
   });
 
   it("sends one selected light as a fixture target", async () => {

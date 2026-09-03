@@ -1,4 +1,5 @@
-import { Building2, CircleCheck, CircleDashed, Layers3, Network, WifiOff } from "lucide-react";
+import { Building2, CircleCheck, CircleDashed, Layers3, Network, ShieldCheck, WifiOff } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
 import { useDashboard } from "../../api/queries";
 import { Card, PageHeader, StatusBadge } from "../../components/ui";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
@@ -7,6 +8,7 @@ import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 
 export function SettingsView({ userRole, siteId }: { userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
   const { data } = useDashboard(siteId);
+  const location = useLocation();
 
   if (!data?.site.id) {
     return (
@@ -27,6 +29,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
   }
 
   const gateway = data.gateways[0];
+  const registeredPlanCount = data.floors.filter((floor) => floor.floorPlan !== null).length;
 
   return (
     <section className="settings-screen">
@@ -50,21 +53,35 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
               <dd>{data.site.customerName}</dd>
             </div>
             <div>
-              <dt><Layers3 size={15} aria-hidden="true" /> 층/도면</dt>
-              <dd>{listNames(data.floors)}</dd>
+              <dt>주소</dt>
+              <dd>{data.site.address ?? "등록 없음"}</dd>
             </div>
             <div>
-              <dt>그룹</dt>
-              <dd>{listNames(data.groups)}</dd>
+              <dt>시간대</dt>
+              <dd>{data.site.timeZone}</dd>
             </div>
           </dl>
         </Card>
 
-        <Card className="settings-summary-card" role="group" aria-label="게이트웨이 상태">
+        <Card className="settings-summary-card" role="group" aria-label="층·도면">
+          <div className="settings-card-heading">
+            <Layers3 size={20} aria-hidden="true" />
+            <div>
+              <span>층·도면</span>
+              <strong>{data.floors.length}개 층</strong>
+            </div>
+          </div>
+          <p className="muted-text">도면 등록 {registeredPlanCount}개</p>
+          <Link className="ui-button ui-button-secondary" to={{ pathname: "/settings/floor-plans", search: location.search, hash: location.hash }}>
+            도면 관리 열기
+          </Link>
+        </Card>
+
+        <Card className="settings-summary-card" role="group" aria-label="Gateway 상태">
           <div className="settings-card-heading">
             <Network size={20} aria-hidden="true" />
             <div>
-              <span>게이트웨이 상태</span>
+              <span>Gateway 상태</span>
               <strong>{gateway?.name ?? "미등록"}</strong>
             </div>
           </div>
@@ -82,6 +99,21 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
             <StatusBadge tone="neutral" icon={CircleDashed}>미등록</StatusBadge>
           )}
         </Card>
+
+        {userRole === "admin" ? (
+          <Card className="settings-summary-card" role="group" aria-label="계정·보안">
+            <div className="settings-card-heading">
+              <ShieldCheck size={20} aria-hidden="true" />
+              <div>
+                <span>계정·보안</span>
+                <strong>관리자 비밀번호</strong>
+              </div>
+            </div>
+            <Link className="ui-button ui-button-secondary" to={{ pathname: "/settings/security", search: location.search, hash: location.hash }}>
+              비밀번호 변경 열기
+            </Link>
+          </Card>
+        ) : null}
       </div>
       {userRole === "admin" ? (
         data.gateways.length === 0
@@ -94,8 +126,4 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
 
 function statusLabel(status: "online" | "offline") {
   return status === "online" ? "정상" : "오프라인";
-}
-
-function listNames(items: Array<{ name: string }>) {
-  return items.length > 0 ? items.map((item) => item.name).join(", ") : "등록 없음";
 }

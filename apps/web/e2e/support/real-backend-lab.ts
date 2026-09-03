@@ -625,6 +625,12 @@ export class RealBackendLab {
     }
     const evidence = await this.waitForPublishedDesiredRevisionAhead("first-connect-published");
     const configTopic = mqttTopics.automationConfig(this.requireInstallation().siteId, this.gateway.id);
+    // The DB publisher timestamp can commit just before the broker observer's message callback runs.
+    // Wait for that independent evidence boundary instead of treating event-loop delivery lag as a protocol failure.
+    await this.waitFor(() => this.mqttEvidence.some((item) => (
+      item.direction === "command" && item.topic === configTopic
+    )), 5_000);
+    await this.mqttHandlerChain;
     if (!this.mqttEvidence.some((item) => item.direction === "command" && item.topic === configTopic)) {
       throw new Error("pre-connect config snapshot did not reach the broker-backed test Gateway");
     }

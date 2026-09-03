@@ -16,7 +16,7 @@ import type { AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import { Button, PageHeader, StatusBadge } from "../../../components/ui";
+import { Button, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
 import { VehicleEventDialog } from "./VehicleEventDialog";
 
 export function VehicleEventControlPanel({
@@ -197,12 +197,12 @@ export function VehicleEventControlPanel({
         actions={canManage ? <Button ref={addButtonRef} variant="primary" className="schedule-add-button" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : undefined}
       />
       {!canManage ? <p className="schedule-readonly-notice" role="status">조회 전용 계정입니다. 이벤트 규칙과 Gateway 적용 상태만 확인할 수 있습니다.</p> : null}
-      {rulesQuery.isLoading ? <p className="muted-text" role="status">이벤트 규칙을 불러오는 중입니다.</p> : null}
-      {queryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} /> : null}
+      {rulesQuery.isLoading ? <FeedbackState icon={Clock3} title="이벤트 규칙을 불러오는 중입니다." /> : null}
+      {queryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} isBackground={rulesQuery.isRefetchError && !isScheduleUnauthorized(rulesQuery.error)} /> : null}
       {!rulesQuery.isLoading && !rulesQuery.isLoadingError ? (
-        <div className="schedule-table-wrap">
-          <table className="schedule-table">
-            <thead><tr><th>이름</th><th>활성</th><th>감지 센서</th><th>제어 조명</th><th>밝기</th><th>유지</th><th>Gateway 동기화</th><th>최근 감지</th>{canManage ? <th><span className="sr-only">관리</span></th> : null}</tr></thead>
+        rules.length > 0 ? <div className="automation-table-wrap schedule-table-wrap">
+          <table className="schedule-table" aria-label="차량 이벤트 목록">
+            <thead><tr><th>이름</th><th>활성</th><th>감지 센서</th><th>제어 조명</th><th>밝기</th><th>유지</th><th>Gateway 동기화</th><th>최근 감지</th>{canManage ? <th aria-label="관리" /> : null}</tr></thead>
             <tbody>
               {rules.map((rule) => <tr key={rule.id}>
                 <td><strong>{rule.name}</strong></td>
@@ -219,10 +219,9 @@ export function VehicleEventControlPanel({
                   <Button variant="danger" className="danger-action" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); setDeleteReturnFocus(event.currentTarget); setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
                 </div></td> : null}
               </tr>)}
-              {rules.length === 0 ? <tr><td className="schedule-table-empty" colSpan={canManage ? 9 : 8}>등록된 이벤트 규칙이 없습니다.</td></tr> : null}
             </tbody>
           </table>
-        </div>
+        </div> : <FeedbackState icon={CarFront} title="등록된 이벤트 규칙이 없습니다." description="감지 센서와 제어 조명을 연결해 차량 이벤트 대응을 시작할 수 있습니다." />
       ) : null}
       {rulesQuery.hasNextPage ? <Button variant="secondary" className="control-load-more" type="button" disabled={rulesQuery.isFetchingNextPage} onClick={() => void rulesQuery.fetchNextPage()}>{rulesQuery.isFetchingNextPage ? "불러오는 중" : "더 보기"}</Button> : null}
       {message ? <p className="success-text schedule-panel-message" role="status">{message}</p> : null}
@@ -235,8 +234,8 @@ export function VehicleEventControlPanel({
   );
 }
 
-function QueryError({ message, onRetry, label }: { message: string; onRetry: () => void; label: string }) {
-  return <div className="schedule-query-error" role="alert"><p className="danger-text">{message}</p><Button variant="secondary" type="button" onClick={onRetry}>{label}</Button></div>;
+function QueryError({ message, onRetry, label, isBackground }: { message: string; onRetry: () => void; label: string; isBackground: boolean }) {
+  return <FeedbackState tone={isBackground ? "warning" : "danger"} liveRole="alert" icon={TriangleAlert} title={message} action={<Button variant="secondary" type="button" onClick={onRetry}>{label}</Button>} />;
 }
 
 function SyncBadge({ status }: { status: "PENDING" | "APPLIED" | "REJECTED" }) {

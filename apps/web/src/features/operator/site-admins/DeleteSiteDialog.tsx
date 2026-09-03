@@ -1,7 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
+import { CircleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { FeedbackState } from "../../../components/ui/FeedbackState";
 
 interface DeleteSiteDialogProps {
   site: SiteAdminSummary;
@@ -22,7 +24,7 @@ export function DeleteSiteDialog({ site, returnFocusElement, fallbackFocusElemen
       try {
         await onSuccess();
       } catch {
-        // A completed disable mutation must not remain open when its post-success refetch fails.
+        // A completed delete mutation must not remain open when its post-success refetch fails.
       } finally {
         onClose();
       }
@@ -61,7 +63,7 @@ export function DeleteSiteDialog({ site, returnFocusElement, fallbackFocusElemen
           onChange={(event) => setConfirmationSiteName(event.target.value)}
         />
       </label>
-      {mutation.error ? <p className="danger-text" role="alert">현장과 관리자 계정을 삭제하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.</p> : null}
+      {mutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="현장과 관리자 계정을 삭제하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요." /> : null}
     </ConfirmDialog>
   );
 }

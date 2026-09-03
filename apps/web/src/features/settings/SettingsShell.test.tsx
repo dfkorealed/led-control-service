@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockDashboard } from "../../test/fixtures";
@@ -13,6 +13,8 @@ vi.mock("../../api/queries", () => ({
   ] }),
   useDashboard: () => ({ data: mockDashboard })
 }));
+vi.mock("../registration/RegistrationPanel", () => ({ RegistrationPanel: () => null }));
+vi.mock("../setup/GatewayClaimPanel", () => ({ GatewayClaimPanel: () => null }));
 
 function LocationProbe() {
   const location = useLocation();
@@ -48,20 +50,37 @@ describe("SettingsShell", () => {
     expect(screen.queryByLabelText("설정 메뉴")).not.toBeInTheDocument();
   });
 
-  it("presents the installed site and gateway as labeled overview sections", () => {
+  it("설정 개요는 실제 데이터와 route action으로 네 카드를 표시한다", () => {
     render(
-      <MemoryRouter initialEntries={["/settings?siteId=site-1"]}>
+      <MemoryRouter initialEntries={["/settings?siteId=site-1#fragment"]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
-            <Route index element={<SettingsView siteId="site-1" userRole="viewer" />} />
+            <Route index element={<SettingsView siteId="site-1" userRole="admin" />} />
           </Route>
         </Routes>
       </MemoryRouter>
     );
 
     expect(screen.getByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "현장 정보" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "게이트웨이 상태" })).toHaveTextContent(/정상|오프라인|미등록/);
+    const site = screen.getByRole("group", { name: "현장 정보" });
+    expect(site).toHaveTextContent(mockDashboard.site.customerName);
+    expect(site).toHaveTextContent(mockDashboard.site.address!);
+    expect(site).toHaveTextContent(mockDashboard.site.timeZone);
+
+    const floors = screen.getByRole("group", { name: "층·도면" });
+    expect(floors).toHaveTextContent(`${mockDashboard.floors.length}개 층`);
+    expect(floors).toHaveTextContent(`도면 등록 ${mockDashboard.floors.length}개`);
+    expect(within(floors).getByRole("link", { name: "도면 관리 열기" })).toHaveAttribute(
+      "href",
+      "/settings/floor-plans?siteId=site-1#fragment"
+    );
+
+    expect(screen.getByRole("group", { name: "Gateway 상태" })).toHaveTextContent(/정상|오프라인|미등록/);
+    const security = screen.getByRole("group", { name: "계정·보안" });
+    expect(within(security).getByRole("link", { name: "비밀번호 변경 열기" })).toHaveAttribute(
+      "href",
+      "/settings/security?siteId=site-1#fragment"
+    );
   });
 
   it("blocks a site switch while the floor editor is dirty", () => {

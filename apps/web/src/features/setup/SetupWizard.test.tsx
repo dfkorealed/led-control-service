@@ -49,8 +49,17 @@ describe("SetupWizard", () => {
   it("renders installation pending instead of a setup form for a customer user", () => {
     render(<InstallationPending />);
 
+    expect(screen.getByRole("region", { name: "Viewer 설치 대기" })).toHaveTextContent("설치 담당자가 현장을 준비 중입니다");
     expect(screen.getByText("설치 담당자가 현장을 준비 중입니다")).toBeInTheDocument();
     expect(screen.queryByLabelText("고객사명")).not.toBeInTheDocument();
+  });
+
+  it("현장 정보부터 운영 시작까지 설치 진행 단계를 표시한다", () => {
+    renderWizard();
+
+    expect(screen.getByRole("list", { name: "현장 설치 진행" })).toHaveTextContent("현장 정보");
+    expect(screen.getByRole("list", { name: "현장 설치 진행" })).toHaveTextContent("Gateway 연결");
+    expect(screen.getByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeInTheDocument();
   });
 
   it("assigned pending site를 고객사명·현장명 입력 없이 완료한다", async () => {

@@ -1,7 +1,7 @@
 import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
-import { FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
+import { Button, Card, FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
@@ -163,15 +163,15 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
         actions={(
           <div className="monitoring-heading-actions">
             <div className="monitoring-refresh-actions">
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={isManualRefreshing}
+              <Button
+                variant="secondary"
+                isLoading={isManualRefreshing}
+                loadingLabel="새로고침 중"
                 onClick={() => void handleRefresh()}
               >
                 <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
-                {isManualRefreshing ? "새로고침 중" : "새로고침"}
-              </button>
+                새로고침
+              </Button>
               <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
               {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
             </div>
@@ -190,10 +190,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
         )}
       />
 
-      {userRole === "admin" && data.gateways.length > 0 ? (
-        <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
-      ) : null}
-
       <FixtureQueryFeedback
         floorName={floor?.name}
         hasData={hasFixtureData}
@@ -210,6 +206,29 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <MetricCard label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
             <MetricCard label="평균 밝기" value={floorSummary.averageBrightness} unit="%" helper="현재 디밍" />
           </div>
+
+          <Card className="monitoring-quick-status" role="region" aria-label="빠른 상태">
+            <button
+              type="button"
+              aria-label={`빠른 상태 점검 필요 ${floorSummary.faultFixtures}대`}
+              disabled={!firstFaultFixture}
+              onClick={() => firstFaultFixture && setSelectedFixtureId(firstFaultFixture.id)}
+            >
+              <TriangleAlert aria-hidden="true" />
+              <span>점검 필요</span>
+              <strong>{floorSummary.faultFixtures}대</strong>
+            </button>
+            <button
+              type="button"
+              aria-label={`빠른 상태 오프라인 ${offlineCount}대`}
+              disabled={!firstOfflineFixture}
+              onClick={() => firstOfflineFixture && setSelectedFixtureId(firstOfflineFixture.id)}
+            >
+              <CircleX aria-hidden="true" />
+              <span>오프라인</span>
+              <strong>{offlineCount}대</strong>
+            </button>
+          </Card>
 
           <label className="monitoring-fixture-selector">
             <span>상세 조명 선택</span>
@@ -236,7 +255,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
                       tone="danger"
                       icon={TriangleAlert}
                       title="저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다."
-                      action={<button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>}
+                      action={<Button variant="secondary" onClick={() => void handleMapRetry()}>지도 다시 시도</Button>}
                     />
                   ) : null}
                 </>
@@ -245,7 +264,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
                   tone="danger"
                   icon={TriangleAlert}
                   title="저장된 지도를 불러오지 못했습니다."
-                  action={<button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>}
+                  action={<Button variant="secondary" onClick={() => void handleMapRetry()}>지도 다시 시도</Button>}
                 />
               ) : floor ? (
                 <FeedbackState icon={Clock3} title="저장된 지도를 불러오는 중" />
@@ -334,6 +353,10 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
           </div>
         </>
       ) : null}
+
+      {userRole === "admin" && data.gateways.length > 0 ? (
+        <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
+      ) : null}
     </section>
   );
 }
@@ -364,9 +387,9 @@ function FixtureQueryFeedback({
         ? "저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다."
         : "조명 상태를 불러오지 못했습니다."}
       action={(
-        <button className="secondary-button" type="button" disabled={isFetching} onClick={onRetry}>
+        <Button variant="secondary" disabled={isFetching} onClick={onRetry}>
           {isFetching ? "조명 상태 다시 시도 중" : "조명 상태 다시 시도"}
-        </button>
+        </Button>
       )}
     />
   );

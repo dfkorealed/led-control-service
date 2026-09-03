@@ -108,7 +108,7 @@ describe("FixtureGroupDialog", () => {
     }));
 
     fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정 삭제" }));
-    const confirmation = screen.getByRole("alert", { name: "구역 삭제 확인" });
+    const confirmation = screen.getByRole("dialog", { name: "구역 삭제 확인" });
     fireEvent.click(within(confirmation).getByRole("button", { name: "삭제 확인" }));
     await waitFor(() => expect(mocks.deleteFixtureGroup).toHaveBeenCalledWith(ids.site, ids.group));
   });
@@ -122,6 +122,74 @@ describe("FixtureGroupDialog", () => {
     expect(screen.queryByRole("button", { name: "B2 입구 수정" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "B2 입구 재동기화" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "B2 입구 삭제" })).not.toBeInTheDocument();
+  });
+
+  it("저장 구역 dialog는 CRUD와 포커스 계약을 유지한다", async () => {
+    renderDialog(true);
+
+    expect(screen.getByRole("heading", { name: "구역 관리" })).toBeInTheDocument();
+    expect(await screen.findByText("확인 필요")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "현재 저장 구역" })).toBeInTheDocument();
+    expect(screen.getByText("Mesh 구성 v2 · 주소 정보 없음")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
+    expect(screen.getByRole("heading", { name: "구역 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "구역 조명 목록" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
+    expect(screen.getByRole("button", { name: "변경 저장" })).toHaveClass("ui-button", "ui-button-primary");
+  });
+
+  it("삭제 확인 Escape는 부모 dialog를 유지하고 삭제 trigger로 포커스를 복귀한다", async () => {
+    renderDialog(true);
+    const deleteTrigger = await screen.findByRole("button", { name: "B2 입구 삭제" });
+
+    deleteTrigger.focus();
+    fireEvent.click(deleteTrigger);
+    expect(screen.getByRole("dialog", { name: "구역 삭제 확인" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog", { name: "구역 삭제 확인" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "구역 관리" })).toBeInTheDocument();
+    await waitFor(() => expect(deleteTrigger).toHaveFocus());
+  });
+
+  it("삭제 요청 중 Escape는 확인 dialog와 포커스를 유지한다", async () => {
+    const pendingDelete = deferred<{ id: string; lifecycleStatus: "retiring" }>();
+    mocks.deleteFixtureGroup.mockReturnValue(pendingDelete.promise);
+    renderDialog(true);
+    const deleteTrigger = await screen.findByRole("button", { name: "B2 입구 삭제" });
+
+    deleteTrigger.focus();
+    fireEvent.click(deleteTrigger);
+    const confirmation = screen.getByRole("dialog", { name: "구역 삭제 확인" });
+    const confirmButton = within(confirmation).getByRole("button", { name: "삭제 확인" });
+    confirmButton.focus();
+    fireEvent.click(confirmButton);
+    await waitFor(() => expect(mocks.deleteFixtureGroup).toHaveBeenCalledWith(ids.site, ids.group));
+
+    const focusedBeforeEscape = document.activeElement;
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.getByRole("dialog", { name: "구역 삭제 확인" })).toBeInTheDocument();
+    expect(document.activeElement).toBe(focusedBeforeEscape);
+    expect(within(confirmation).getByRole("button", { name: "구역 삭제 확인 닫기" })).toBeDisabled();
+    expect(within(confirmation).getByRole("button", { name: "취소" })).toBeDisabled();
+
+    pendingDelete.resolve({ id: ids.group, lifecycleStatus: "retiring" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "구역 삭제 확인" })).not.toBeInTheDocument());
+  });
+
+  it("저장 구역 Mesh 오류의 ACK는 화면에서 장비 응답으로 표시한다", async () => {
+    mocks.listFixtureGroups.mockResolvedValue([{
+      ...failedGroup,
+      meshControlGroup: { ...failedGroup.meshControlGroup!, error: "Gateway ACK를 확인하지 못했습니다." }
+    }]);
+
+    renderDialog(true);
+
+    expect(await screen.findByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
   });
 
   it("traps keyboard focus, closes on Escape, and restores the opener", async () => {
@@ -184,6 +252,14 @@ function DialogHarness() {
 
 function renderDialogHarness() {
   return render(<DialogHarness />);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 function createDashboard(): Dashboard {
