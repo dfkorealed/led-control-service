@@ -73,6 +73,22 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
 
 6. Gateway 제조 등록은 deprecated inventory 적재 CLI가 아니라 station mTLS, Pi 내부 key 생성, 제조 enrollment API와 Vault 서명 절차를 사용합니다. 명령과 secret 취급의 정본은 [device lab first install의 제조 station 절차](docs/runbooks/device-lab-first-install.md#6-제조-station으로-pi-identity-발급)입니다. Web claim에는 제조 label의 시리얼과 일회성 code를 한 번만 사용합니다.
 
+## 프론트엔드 개발자를 위한 코드 지도
+
+이 서비스의 제어·상태 흐름은 `Web → API → MQTT broker → Gateway → BLE Mesh → ESP32-H2`입니다.
+
+- **Web**은 사용자의 HTTP 요청을 만들고 화면 상태를 갱신합니다. 시작점은 [apps/web/src/main.tsx](apps/web/src/main.tsx)이며, 화면 기능은 `apps/web/src/features` 아래에 있습니다.
+- **API**는 로그인·권한을 확인하고 업무 규칙을 적용한 뒤, 여러 레코드가 함께 바뀌는 작업은 DB transaction으로 묶습니다. NestJS 시작점과 모듈 목록은 [apps/api/src/main.ts](apps/api/src/main.ts), [apps/api/src/app.module.ts](apps/api/src/app.module.ts)에서 봅니다.
+- **MQTT broker**는 API와 Gateway 사이의 비동기 메시지 전달을 담당합니다. API의 발행·수신 코드는 [apps/api/src/mqtt/mqtt.service.ts](apps/api/src/mqtt/mqtt.service.ts), 메시지 형식과 topic 생성 함수는 [packages/shared/src/gateway-contracts.ts](packages/shared/src/gateway-contracts.ts)에 있습니다.
+- **Gateway**는 MQTT 명령과 상태 메시지를 BLE Mesh 동작으로 바꾸고, 반대 방향의 장비 상태를 MQTT로 올립니다. 실행 시작점은 [apps/gateway/src/index.ts](apps/gateway/src/index.ts)입니다.
+- **ESP32-H2**는 BLE Mesh node와 PWM 밝기 제어, 상태 보고를 맡습니다. 펌웨어 시작점은 [apps/esp32-h2-firmware/main/app_main.c](apps/esp32-h2-firmware/main/app_main.c)이고, 밝기 제어는 [apps/esp32-h2-firmware/main/control_state.c](apps/esp32-h2-firmware/main/control_state.c)에 있습니다.
+
+### 먼저 따라갈 두 흐름
+
+**빠른 로컬 소프트웨어 확인**에서는 이 README의 [로컬 실장비 개발 환경](#로컬-실장비-개발-환경) 절차로 API, Web, 로컬 MQTT를 실행합니다. 실제 장비가 없으면 조명 검색 결과가 0개여도 정상입니다. 화면에서 명령을 보냈을 때는 Web의 요청이 API의 Controller와 Service를 거쳐 MQTT outbox에 기록되고, 이후 Gateway용 topic으로 발행되는 흐름을 추적합니다. API 계층의 파일별 역할과 입문 순서는 [apps/api/README.md](apps/api/README.md)를 봅니다.
+
+**실장비 설치**는 제조 identity가 먼저 필요합니다. 제조 station이 Gateway identity를 발급하고, 고객 사이트의 admin이 Gateway를 claim한 뒤 bootstrap 응답으로 사이트·Gateway·MQTT 연결 정보를 받습니다. 이후 Gateway가 BLE Mesh 장비를 등록하고 상태를 보고합니다. 이 절차와 장비별 준비물은 [device lab first install](docs/runbooks/device-lab-first-install.md)에서 확인합니다. 실장비가 아직 검증되지 않은 범위는 이 문서의 [양산 장비 기반 진행 상태](#양산-장비-기반-진행-상태)를 함께 확인하세요.
+
 ## 검증 명령
 
 ```bash
