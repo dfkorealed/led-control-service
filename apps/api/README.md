@@ -37,7 +37,9 @@
 
 등록 화면은 [src/registration/registration.controller.ts](src/registration/registration.controller.ts)와 [src/registration/registration.service.ts](src/registration/registration.service.ts)를 먼저 읽습니다.
 
-`Controller → RegistrationService → ProvisioningSession, DiscoveredMeshNode, MeshNode, Fixture` 순서로 진행합니다. session 생성·scan 재시도·장비 identify·개별/묶음 등록·완료가 HTTP API로 제공되고, scan 및 provision 명령은 MQTT를 통해 Gateway로 전달됩니다. 등록 중 화면은 응답의 session 상태와 발견 node 목록을 기준으로 표시해야 하며, 장비가 바로 실제 Fixture가 되는 것은 아닙니다.
+`Controller → RegistrationService → ProvisioningSession, DiscoveredMeshNode` 순서로 session과 발견 장비 정보를 관리합니다. scan 재시도와 개별/묶음 등록·완료는 HTTP API로 제공되고, scan 및 provision 명령은 MQTT를 통해 Gateway로 전달됩니다. `identify` HTTP 경로는 현재 존재하지만 `501 NOT_IMPLEMENTED`와 `pre_provision_identify_unsupported`를 반환하므로, 화면에서 동작하는 identify 기능으로 제공하면 안 됩니다.
+
+등록 요청은 Gateway에 provision 명령을 보낼 준비만 하며 Fixture를 즉시 만들지 않습니다. Gateway가 provisioning 완료 MQTT 이벤트를 보낸 뒤 [src/mqtt/mqtt.service.ts](src/mqtt/mqtt.service.ts)의 MQTT consumer가 transaction 안에서 `DiscoveredMeshNode → MeshNode → Fixture`를 처리합니다. 여기서 **MQTT consumer**는 broker에서 도착한 Gateway 메시지를 받아 API 저장 로직으로 넘기는 코드입니다. 등록 중 화면은 HTTP 응답만으로 설치 완료를 확정하지 말고, session 상태와 발견 node 목록을 다시 조회해 비동기 완료 결과를 반영해야 합니다.
 
 ### 5. Gateway가 보내는 조명 상태
 
