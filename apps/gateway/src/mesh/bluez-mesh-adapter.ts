@@ -53,6 +53,7 @@ interface TransactionStore {
 }
 
 interface ConfigClient {
+  prepareLocalNode(): Promise<void>;
   configureNode(input: { unicast: number; elementCount: number }): Promise<unknown>;
   addModelSubscription(input: { unicast: number; groupAddress: number; modelId?: number }): Promise<unknown>;
   removeModelSubscription(input: { unicast: number; groupAddress: number; modelId?: number }): Promise<unknown>;
@@ -77,6 +78,7 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   private readonly healthPendingFixtures = new Set<string>();
   private nextObservationGeneration = 0;
   private resyncInFlight: Promise<BleMeshResyncReport> | undefined;
+  private localNodeReady: Promise<void> | undefined;
   private lastResyncReport: BleMeshResyncReport | undefined;
   private readonly commandSources = new KeyedSerialTaskQueue();
   private readonly appliedGroupMembers = new Map<string, Map<string, { meshNodeId: string; meshAddress: string }>>();
@@ -111,7 +113,13 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
   }
 
   start() {
-    return this.provisioner.start();
+    this.localNodeReady ??= this.provisioner.start()
+      .then(() => this.createConfigClient(this.requireNodePath()).prepareLocalNode())
+      .catch((error) => {
+        this.localNodeReady = undefined;
+        throw error;
+      });
+    return this.localNodeReady;
   }
 
   onFixtureStatus(listener: (status: FixtureMeshStatus) => void) {
@@ -551,46 +559,13 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     mapping: { fixtureId: string; primaryUnicast: number; elementCount: number },
     signal?: AbortSignal
   ): Promise<ResyncFixtureResult> {
-    try {
-      if (signal?.aborted) return { fixtureId: mapping.fixtureId, status: "failed" };
-      await this.retryBusy(() => this.createConfigClient(this.requireNodePath()).configureNode({
-        unicast: mapping.primaryUnicast,
-        elementCount: mapping.elementCount
-      }), signal);
-      if (signal?.aborted) return { fixtureId: mapping.fixtureId, status: "failed" };
-      // Start the observation window when this bounded-queue item actually runs. Large
-      // sites may wait longer than one coherence window before reaching this point.
-      const generation = this.beginObservationGeneration(mapping.fixtureId, this.now()).generation;
-      const observation = this.waitForFixtureLightingPair(mapping.fixtureId, generation, signal);
-      try {
-        await Promise.all([
-          this.sendStatusGetWithRetry(mapping.primaryUnicast, GENERIC_ONOFF_GET, signal),
-          this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET, signal),
-          this.sendStatusGetWithRetry(mapping.primaryUnicast, this.healthFaultGet, signal)
-        ]);
-      } catch {
-        observation.cancel();
-        return { fixtureId: mapping.fixtureId, status: "failed" };
-      }
-      observation.startDeadline();
-      try {
-        await observation.promise;
-        return {
-          fixtureId: mapping.fixtureId,
-          status: "observed",
-          healthPending: !this.hasCurrentHealth(mapping.fixtureId, generation)
-        };
-      } catch {
-        return { fixtureId: mapping.fixtureId, status: "timed_out" };
-      }
-    } catch {
-      return { fixtureId: mapping.fixtureId, status: "failed" };
-    }
+    return this.resyncLightingFixture(mapping, signal, true);
   }
 
   private async resyncLightingFixture(
     mapping: { fixtureId: string; primaryUnicast: number },
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    includeHealth = false
   ): Promise<ResyncFixtureResult> {
     if (signal?.aborted) return { fixtureId: mapping.fixtureId, status: "failed" };
     const generation = this.beginObservationGeneration(mapping.fixtureId, this.now()).generation;
@@ -598,7 +573,8 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     try {
       await Promise.all([
         this.sendStatusGetWithRetry(mapping.primaryUnicast, GENERIC_ONOFF_GET, signal),
-        this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET, signal)
+        this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET, signal),
+        ...(includeHealth ? [this.sendStatusGetWithRetry(mapping.primaryUnicast, this.healthFaultGet, signal)] : [])
       ]);
     } catch {
       observation.cancel();
@@ -607,7 +583,11 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     observation.startDeadline();
     try {
       await observation.promise;
-      return { fixtureId: mapping.fixtureId, status: "observed" };
+      return {
+        fixtureId: mapping.fixtureId,
+        status: "observed",
+        healthPending: includeHealth && !this.hasCurrentHealth(mapping.fixtureId, generation)
+      };
     } catch {
       return { fixtureId: mapping.fixtureId, status: signal?.aborted ? "failed" : "timed_out" };
     }

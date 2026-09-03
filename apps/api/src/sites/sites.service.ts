@@ -80,11 +80,15 @@ export class SitesService {
       : [];
     const fixturesByFloor = new Map(site.floors.map((floor) => [floor.id, fixtures.filter((fixture) => fixture.floorId === floor.id)]));
     const now = new Date();
+    const resolvedFixtureStatuses = fixtures.map((fixture) => fixtureStatusWithHealth(
+      fixture.status,
+      toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt)
+    ));
     const summary = includeFixtures
       ? {
           totalFixtures: fixtures.length,
-          onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
-          faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
+          onlineFixtures: resolvedFixtureStatuses.filter((status) => status === "online").length,
+          faultFixtures: resolvedFixtureStatuses.filter((status) => status === "fault").length,
           averageBrightness: fixtures.length
             ? Math.round(fixtures.reduce((sum, fixture) => sum + fixture.brightness, 0) / fixtures.length)
             : 0
@@ -204,17 +208,26 @@ export class SitesService {
   }
 
   private async getFixtureSummary(siteId: string) {
-    const [totalFixtures, onlineFixtures, faultFixtures, brightness] = await Promise.all([
-      this.prisma.fixture.count({ where: { floor: { siteId } } }),
-      this.prisma.fixture.count({ where: { floor: { siteId }, status: "online" } }),
-      this.prisma.fixture.count({ where: { floor: { siteId }, status: "fault" } }),
-      this.prisma.fixture.aggregate({ where: { floor: { siteId } }, _avg: { brightness: true } })
-    ]);
+    const fixtures = await this.prisma.fixture.findMany({
+      where: { floor: { siteId } },
+      select: {
+        status: true,
+        brightness: true,
+        healthFaultCodes: true,
+        healthLastSeenAt: true
+      }
+    });
+    const statuses = fixtures.map((fixture) => fixtureStatusWithHealth(
+      fixture.status,
+      toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt)
+    ));
     return {
-      totalFixtures,
-      onlineFixtures,
-      faultFixtures,
-      averageBrightness: Math.round(brightness._avg.brightness ?? 0)
+      totalFixtures: fixtures.length,
+      onlineFixtures: statuses.filter((status) => status === "online").length,
+      faultFixtures: statuses.filter((status) => status === "fault").length,
+      averageBrightness: fixtures.length
+        ? Math.round(fixtures.reduce((sum, fixture) => sum + fixture.brightness, 0) / fixtures.length)
+        : 0
     };
   }
 }

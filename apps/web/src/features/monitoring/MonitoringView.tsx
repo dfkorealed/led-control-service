@@ -49,6 +49,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
+  const hasFixtureData = fixtureQuery.data !== undefined;
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const mapSnapshot = mapQuery.data;
   const mapRefreshFailed = mapRefreshFailedFloorId === floor?.id;
@@ -158,7 +159,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
     <section className="screen-grid monitoring-screen">
       <PageHeader
         title="운영 현황"
-        description={`${floor?.name ?? "층 미등록"} · 실시간 조명 상태`}
+        description={`${floor?.name ?? "층 미등록"} · 10분마다 자동 갱신 · 수동 새로고침 가능`}
         actions={(
           <div className="monitoring-heading-actions">
             <div className="monitoring-refresh-actions">
@@ -193,133 +194,181 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
         <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
       ) : null}
 
-      <div className="summary-row">
-        <MetricCard label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
-        <MetricCard label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
-        <MetricCard label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
-        <MetricCard label="평균 밝기" value={floorSummary.averageBrightness} unit="%" helper="현재 디밍" />
-      </div>
+      <FixtureQueryFeedback
+        floorName={floor?.name}
+        hasData={hasFixtureData}
+        error={fixtureQuery.error}
+        isFetching={fixtureQuery.isFetching}
+        onRetry={() => void fixtureQuery.refetch()}
+      />
 
-      <label className="monitoring-fixture-selector">
-        <span>상세 조명 선택</span>
-        <select
-          aria-label="상세 조명 선택"
-          value={selectedFixture?.id ?? ""}
-          onChange={(event) => setSelectedFixtureId(event.target.value)}
-        >
-          {fixtures.map((fixture) => (
-            <option key={fixture.id} value={fixture.id}>
-              {fixture.name} · {fixture.statusReason === "provisioning_waiting_state" ? "상태 확인 대기" : statusLabels[fixture.status]}
-            </option>
-          ))}
-        </select>
-      </label>
+      {hasFixtureData ? (
+        <>
+          <div className="summary-row">
+            <MetricCard label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
+            <MetricCard label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
+            <MetricCard label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
+            <MetricCard label="평균 밝기" value={floorSummary.averageBrightness} unit="%" helper="현재 디밍" />
+          </div>
 
-      <div className="operations-layout">
-        <div className="map-panel">
-          {floor && mapSnapshot ? (
-            <>
-              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
-              {mapQuery.error || mapRefreshFailed ? (
+          <label className="monitoring-fixture-selector">
+            <span>상세 조명 선택</span>
+            <select
+              aria-label="상세 조명 선택"
+              value={selectedFixture?.id ?? ""}
+              onChange={(event) => setSelectedFixtureId(event.target.value)}
+            >
+              {fixtures.map((fixture) => (
+                <option key={fixture.id} value={fixture.id}>
+                  {fixture.name} · {fixture.statusReason === "provisioning_waiting_state" ? "상태 확인 대기" : statusLabels[fixture.status]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="operations-layout">
+            <div className="map-panel">
+              {floor && mapSnapshot ? (
+                <>
+                  <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
+                  {mapQuery.error || mapRefreshFailed ? (
+                    <FeedbackState
+                      tone="danger"
+                      icon={TriangleAlert}
+                      title="저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다."
+                      action={<button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>}
+                    />
+                  ) : null}
+                </>
+              ) : floor && (mapQuery.error || mapRefreshFailed) ? (
                 <FeedbackState
                   tone="danger"
                   icon={TriangleAlert}
-                  title="저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다."
+                  title="저장된 지도를 불러오지 못했습니다."
                   action={<button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>}
                 />
-              ) : null}
-            </>
-          ) : floor && (mapQuery.error || mapRefreshFailed) ? (
-            <FeedbackState
-              tone="danger"
-              icon={TriangleAlert}
-              title="저장된 지도를 불러오지 못했습니다."
-              action={<button className="secondary-button" type="button" onClick={() => void handleMapRetry()}>지도 다시 시도</button>}
-            />
-          ) : (
-            <div className="panel">등록된 층이 없습니다.</div>
-          )}
-        </div>
-        <aside className="detail-panel" aria-label="선택 조명 상세">
-          <div className="panel-title-row">
-            <div>
-              <span className="eyebrow">상세 패널</span>
-              <h3>{selectedFixture?.name ?? "조명 선택"}</h3>
+              ) : floor ? (
+                <FeedbackState icon={Clock3} title="저장된 지도를 불러오는 중" />
+              ) : (
+                <div className="panel">등록된 층이 없습니다.</div>
+              )}
             </div>
-            <FixtureStatusBadge fixture={selectedFixture} />
-          </div>
+            <aside className="detail-panel" aria-label="선택 조명 상세">
+              <div className="panel-title-row">
+                <div>
+                  <span className="eyebrow">상세 패널</span>
+                  <h3>{selectedFixture?.name ?? "조명 선택"}</h3>
+                </div>
+                <FixtureStatusBadge fixture={selectedFixture} />
+              </div>
 
-          {selectedFixture ? (
-            <section className="detail-stack" aria-label="선택 조명 정보">
-              <div className="brightness-card">
-                <span>현재 밝기</span>
-                <strong>{selectedFixture.brightness}%</strong>
-                <div className="progress-track">
-                  <span style={{ width: `${selectedFixture.brightness}%` }} />
-                </div>
-              </div>
-              <dl className="info-list">
-                <div>
-                  <dt>정격 전력</dt>
-                  <dd>{selectedFixture.ratedWatt} W</dd>
-                </div>
-                <div>
-                  <dt>마지막 수신</dt>
-                  <dd>{formatLastSeen(selectedFixture.lastSeenAt)}</dd>
-                </div>
-                <div>
-                  <dt>장비 Health</dt>
-                  <dd>{formatHealthStatus(selectedFixture.health)}</dd>
-                </div>
-                <div>
-                  <dt>Health 수신</dt>
-                  <dd>{formatLastSeen(selectedFixture.health?.observedAt ?? null)}</dd>
-                </div>
-                <div>
-                  <dt>게이트웨이</dt>
-                  <dd>
-                    {selectedFixture.gateway
-                      ? `${selectedFixture.gateway.name} (${selectedFixture.gateway.connectionStatus === "online" ? "정상" : "오프라인"})`
-                      : "미매핑"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>RSSI</dt>
-                  <dd>{formatRssi(selectedFixture.rssi)}</dd>
-                </div>
-                <div>
-                  <dt>Hop</dt>
-                  <dd>{selectedFixture.hopCount ?? "수집 전"}</dd>
-                </div>
-                <div>
-                  <dt>명령 성공률</dt>
-                  <dd>{formatSuccessRate(selectedFixture.commandSuccessRate)}</dd>
-                </div>
-              </dl>
-              <div className="device-list-panel">
-                <h4>점검 큐</h4>
-                <button className="device-row" disabled={!firstFaultFixture} onClick={() => firstFaultFixture && setSelectedFixtureId(firstFaultFixture.id)}>
-                  <span className="device-state danger" />
-                  <div>
-                    <strong>장애 조명</strong>
-                    <span>{floorSummary.faultFixtures}대</span>
+              {selectedFixture ? (
+                <section className="detail-stack" aria-label="선택 조명 정보">
+                  <div className="brightness-card">
+                    <span>현재 밝기</span>
+                    <strong>{selectedFixture.brightness}%</strong>
+                    <div className="progress-track">
+                      <span style={{ width: `${selectedFixture.brightness}%` }} />
+                    </div>
                   </div>
-                </button>
-                <button className="device-row" disabled={!firstOfflineFixture} onClick={() => firstOfflineFixture && setSelectedFixtureId(firstOfflineFixture.id)}>
-                  <span className="device-state muted" />
-                  <div>
-                    <strong>오프라인</strong>
-                    <span>{offlineCount}대</span>
+                  <dl className="info-list">
+                    <div>
+                      <dt>정격 전력</dt>
+                      <dd>{selectedFixture.ratedWatt} W</dd>
+                    </div>
+                    <div>
+                      <dt>마지막 수신</dt>
+                      <dd>{formatLastSeen(selectedFixture.lastSeenAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>장비 Health</dt>
+                      <dd>{formatHealthStatus(selectedFixture.health)}</dd>
+                    </div>
+                    <div>
+                      <dt>Health 수신</dt>
+                      <dd>{formatLastSeen(selectedFixture.health?.observedAt ?? null)}</dd>
+                    </div>
+                    <div>
+                      <dt>게이트웨이</dt>
+                      <dd>
+                        {selectedFixture.gateway
+                          ? `${selectedFixture.gateway.name} (${selectedFixture.gateway.connectionStatus === "online" ? "정상" : "오프라인"})`
+                          : "미매핑"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>RSSI</dt>
+                      <dd>{formatRssi(selectedFixture.rssi)}</dd>
+                    </div>
+                    <div>
+                      <dt>Hop</dt>
+                      <dd>{selectedFixture.hopCount ?? "수집 전"}</dd>
+                    </div>
+                    <div>
+                      <dt>명령 성공률</dt>
+                      <dd>{formatSuccessRate(selectedFixture.commandSuccessRate)}</dd>
+                    </div>
+                  </dl>
+                  <div className="device-list-panel">
+                    <h4>점검 큐</h4>
+                    <button className="device-row" disabled={!firstFaultFixture} onClick={() => firstFaultFixture && setSelectedFixtureId(firstFaultFixture.id)}>
+                      <span className="device-state danger" />
+                      <div>
+                        <strong>장애 조명</strong>
+                        <span>{floorSummary.faultFixtures}대</span>
+                      </div>
+                    </button>
+                    <button className="device-row" disabled={!firstOfflineFixture} onClick={() => firstOfflineFixture && setSelectedFixtureId(firstOfflineFixture.id)}>
+                      <span className="device-state muted" />
+                      <div>
+                        <strong>오프라인</strong>
+                        <span>{offlineCount}대</span>
+                      </div>
+                    </button>
                   </div>
-                </button>
-              </div>
-            </section>
-          ) : (
-            <p className="muted-text">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</p>
-          )}
-        </aside>
-      </div>
+                </section>
+              ) : (
+                <p className="muted-text">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</p>
+              )}
+            </aside>
+          </div>
+        </>
+      ) : null}
     </section>
+  );
+}
+
+function FixtureQueryFeedback({
+  floorName,
+  hasData,
+  error,
+  isFetching,
+  onRetry
+}: {
+  floorName: string | undefined;
+  hasData: boolean;
+  error: unknown;
+  isFetching: boolean;
+  onRetry: () => void;
+}) {
+  if (!error && hasData) return null;
+  if (!error) {
+    return <FeedbackState icon={Clock3} title={`${floorName ? `${floorName} ` : ""}조명 상태를 불러오는 중`} />;
+  }
+
+  return (
+    <FeedbackState
+      tone="danger"
+      icon={TriangleAlert}
+      title={hasData
+        ? "저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다."
+        : "조명 상태를 불러오지 못했습니다."}
+      action={(
+        <button className="secondary-button" type="button" disabled={isFetching} onClick={onRetry}>
+          {isFetching ? "조명 상태 다시 시도 중" : "조명 상태 다시 시도"}
+        </button>
+      )}
+    />
   );
 }
 

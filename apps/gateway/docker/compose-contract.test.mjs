@@ -83,6 +83,9 @@ test("device identity와 Task 27 MQTT identity 경로를 분리하고 factory tr
   assert.doesNotMatch(compose, /identity\/device\/current\/gateway\.(?:crt|key)/);
   assert.match(compose, /GATEWAY_FACTORY_API_CA_PATH:\s*\/etc\/led-control\/factory-trust\/api-ca\.crt/);
   assert.match(envExample, /^MQTT_URL=mqtts:\/\//m);
+  assert.match(envExample, /^GATEWAY_BLUEZ_IO=generic:hci0$/m);
+  assert.match(envExample, /^GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH=\/var\/lib\/led-control\/provisioning-device-journal\.json$/m);
+  assert.match(compose, /GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH:\s*\/var\/lib\/led-control\/provisioning-device-journal\.json/);
   assert.doesNotMatch(envExample, /^MQTT_URL=mqtt:\/\//m);
   assert.doesNotMatch(envExample, /PRIVATE KEY|BEGIN CERTIFICATE/);
   assert.match(readme, /Task 27[^\n]*MQTT 연결 전에[^\n]*identity\/mqtt\/current/);

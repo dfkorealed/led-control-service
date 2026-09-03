@@ -194,6 +194,18 @@ configure_roles_and_policy() {
   "$VAULT_BIN" policy write gateway-pki "$POLICY_PATH" >/dev/null
 }
 
+configure_crl_lifecycle() {
+  local mount
+  for mount in "$DEVICE_MOUNT" "$MQTT_MOUNT" "$API_MOUNT"; do
+    "$VAULT_BIN" write "$mount/config/crl" \
+      expiry=72h \
+      auto_rebuild=true \
+      auto_rebuild_grace_period=24h \
+      >/dev/null
+    "$VAULT_BIN" read "$mount/crl/rotate" >/dev/null || die "$mount CRL rotation failed"
+  done
+}
+
 prepare() {
   mkdir -p "$PKI_CSR_DIR"
   chmod 0700 "$PKI_CSR_DIR"
@@ -213,6 +225,7 @@ install() {
   import_intermediate "$DEVICE_MOUNT" gateway-device "$device_certificate"
   import_intermediate "$MQTT_MOUNT" gateway-mqtt "$mqtt_certificate"
   import_intermediate "$API_MOUNT" api-server "$api_certificate"
+  configure_crl_lifecycle
   configure_roles_and_policy
   printf 'Intermediate certificates, roles, and policy are installed.\n'
 }

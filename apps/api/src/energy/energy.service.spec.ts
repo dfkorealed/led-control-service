@@ -146,7 +146,7 @@ describe("EnergyService", () => {
     });
   });
 
-  it("projects a fixture forecast only after per-fixture and site coverage gates pass", async () => {
+  it("returns exact forecast, baseline, and savings after coverage gates pass", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-08-02T00:00:00.000Z"));
     const fixture = stateFixture({
       energyTrackingStartedAt: new Date("2026-07-31T15:00:00.000Z"),
@@ -164,10 +164,46 @@ describe("EnergyService", () => {
 
     const result = await service.getSiteSummary(user, "site-1");
 
-    expect(result.monthForecast.reason).toBe("available");
-    expect(result.monthForecast.observedKnownSeconds).toBe(118_800);
-    expect(result.monthForecast.estimatedKwh).toBeGreaterThan(0.8);
-    expect(result.estimatedSavings.kwh).not.toBeNull();
+    expect(result.monthForecast).toEqual({
+      estimatedKwh: 18.0364,
+      estimatedCost: 2_885.82,
+      observedKnownSeconds: 118_800,
+      reason: "available"
+    });
+    expect(result.baseline24Hours).toEqual({
+      estimatedKwh: 29.76,
+      estimatedCost: 4_761.6,
+      fixtureCount: 1,
+      daysInMonth: 31
+    });
+    expect(result.estimatedSavings).toEqual({ kwh: 11.7236, cost: 1_875.78 });
+  });
+
+  it("returns negative savings when forecast usage exceeds the current 24-hour baseline", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-02T00:00:00.000Z"));
+    const fixture = stateFixture({
+      ratedWatt: "40",
+      energyTrackingStartedAt: new Date("2026-07-31T15:00:00.000Z"),
+      aggregates: [aggregate("2026-08-01", 2, 118_800, 0)],
+      cursor: stateCursor(new Date("2026-08-02T00:00:00.000Z"))
+    });
+    const { service } = createStateBasedService({ fixtures: [fixture] });
+
+    const result = await service.getSiteSummary(user, "site-1");
+
+    expect(result.monthForecast).toEqual({
+      estimatedKwh: 45.0909,
+      estimatedCost: 7_214.55,
+      observedKnownSeconds: 118_800,
+      reason: "available"
+    });
+    expect(result.baseline24Hours).toEqual({
+      estimatedKwh: 29.76,
+      estimatedCost: 4_761.6,
+      fixtureCount: 1,
+      daysInMonth: 31
+    });
+    expect(result.estimatedSavings).toEqual({ kwh: -15.3309, cost: -2_452.95 });
   });
 
   it("fails the forecast closed when one fixture has less than one hour of known state", async () => {

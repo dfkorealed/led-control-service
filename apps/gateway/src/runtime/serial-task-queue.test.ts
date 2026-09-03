@@ -31,4 +31,19 @@ describe("SerialTaskQueue", () => {
     await expect(failed).rejects.toThrow("provisioning failed");
     await expect(next).resolves.toBe("completed");
   });
+
+  it("drains accepted provisioning work before shutdown continues", async () => {
+    const queue = new SerialTaskQueue();
+    let release!: () => void;
+    queue.run(() => new Promise<void>((resolve) => { release = resolve; }));
+    let drained = false;
+
+    const draining = queue.drain().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    release();
+    await draining;
+    expect(drained).toBe(true);
+  });
 });

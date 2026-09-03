@@ -1,6 +1,6 @@
 # Lab Vault 기반 최초 실장비 설치 시험
 
-> 현재 판정: Task 9 격리 software E2E는 production API·인증·claim·registration·MQTT ACK/state 경로를 통과했다. test-support publisher는 shared `parseDfkDeviceUuid`로 invalid/타사 UUID를 제외하고 lab CA의 gateway별 CN/own-topic ACL을 사용하지만 실제 `apps/gateway` BlueZ/RF, production Gateway 인증서 발급·bootstrap·broker ACL 배포를 실행하지 않는다. Raspberry Pi와 ESP32-H2를 포함한 아래 실기 절차를 모두 통과하기 전에는 양산 준비 완료로 판정하지 않는다.
+> 현재 판정: Task 9 격리 software E2E는 production API·인증·claim·registration·MQTT ACK/state 경로를 통과했다. 2026-09-02 Raspberry Pi 4 실기에서는 제조 등록, 일회성 claim, 현장 귀속, Gateway bootstrap, 장비·MQTT 인증서 발급과 broker mTLS 접속까지 통과했다. Lab HIL의 기존 `0xFFFF`가 BlueZ SIG 모델 표식과 vendor model에서 충돌하는 원인을 실기 로그로 확인해 비양산 RFU `0xFFFE`로 교체했고 재검증 중이다. heartbeat, ESP32-H2 검색·provisioning·제어는 아직 완료하지 않았다. 자사 Company Identifier와 서명된 firmware 제조 승인이 준비되어 Raspberry Pi와 ESP32-H2를 포함한 아래 실기 절차를 모두 통과하기 전에는 양산 준비 완료로 판정하지 않는다.
 
 이 문서는 개발 Mac에서 양산과 같은 신뢰 흐름을 반복 시험하는 단일 기준 절차다. Lab 전용 Root와 Vault를 사용하지만 제품 API의 제조 등록, 일회성 claim, 장비 bootstrap, MQTT mTLS 경로는 우회하지 않는다.
 
@@ -20,6 +20,8 @@ Lab Root private key와 Vault root token은 개발 Mac의 `.local` 밖으로 복
 ## 2. 사전 준비
 
 Mac에 Docker Desktop, Node.js, pnpm, Vault CLI, OpenSSL, jq, Mosquitto와 SSH가 필요하다. Pi에는 64-bit Raspberry Pi OS, Docker Engine/Compose plugin, Bluetooth와 SSH가 필요하다.
+
+양산 Gateway와 ESP32-H2에는 Bluetooth SIG가 제품 소유 회사에 할당한 동일한 Company Identifier가 필요하다. 발급 전 BLE Mesh 실기는 격리된 `lab-hil` 프로파일에서만 비양산 RFU `0xFFFE`를 양쪽에 동일하게 사용한다. `0xFFFF`는 BlueZ가 SIG 모델 표식으로 사용하므로 vendor model이 있는 이 제품의 RF Lab에 사용할 수 없다. `0xFFFE`도 할당값이 아니므로 이 결과는 검색·provisioning·제어 RF 검증용일 뿐 Bluetooth SIG 적합성 또는 양산 완료 증거가 아니다.
 
 ```bash
 cd "/Users/kim-jh/Documents/led-control-service"
@@ -56,6 +58,7 @@ Pi에도 `/etc/hosts`에 같은 한 줄을 추가한다. DHCP로 Mac IP가 바�
 ## 3. Lab Vault와 전체 PKI를 한 번에 준비
 
 다음 명령은 Vault 시작, CSR 생성, Lab Root 서명, intermediate 설치, API/MQTT 인증서, CRL, 제조 station, 제한된 application token과 실행 환경 파일 생성을 순서대로 수행한다.
+Bootstrap은 목적별 Vault PKI mount의 CRL을 72시간 유효기간과 24시간 자동 재생성 여유로 설정하고 즉시 회전한다. 장기간 중지한 Lab을 재개할 때도 만료된 CRL을 그대로 service bundle에 재사용하지 않는다.
 
 ```bash
 LAB_API_IP="$LAB_HOST_IP" \
@@ -132,6 +135,7 @@ pnpm dev
 ```
 
 정상 상태는 API `4000`, Web `5173`, MQTT TLS `8883`이 열리고 API가 Vault token file을 읽어 시작하는 것이다. 다른 터미널에서 확인한다.
+API HTTPS listener는 일반 Web 요청과 장비 mTLS 요청을 함께 받는다. TLS 계층은 client certificate를 요청하되 인증서가 없는 브라우저 연결을 허용하고, 제조·Gateway 전용 endpoint는 `ManufacturingAuthGuard`와 `DeviceCertificateGuard`가 `socket.authorized` 및 발급 CA를 다시 검증해 거부한다.
 
 ```bash
 curl --cacert .local/lab-pki/services/current/api-ca.crt \
@@ -229,6 +233,9 @@ MQTT_URL=mqtts://mqtt.led.lan:8883
 GATEWAY_SERIAL=GW-RPI-000001
 GATEWAY_FIRMWARE_VERSION=gateway-appliance-lab
 GATEWAY_ADAPTER=bluez
+GATEWAY_DEPLOYMENT_MODE=lab-hil
+GATEWAY_LAB_HIL_ACK=NOT_FOR_PRODUCTION
+GATEWAY_BLUETOOTH_COMPANY_ID=65534
 GATEWAY_HEARTBEAT_MS=5000
 GATEWAY_BLE_STATUS_TIMEOUT_MS=8000
 GATEWAY_BLE_SCAN_SECONDS=10
@@ -247,13 +254,13 @@ ssh dfkorea@dfkorea.local \
 
 ## 9. ESP32-H2 준비와 Task 16 실기 검증 진입
 
-ESP-IDF 5.5 firmware를 빌드하고 연결된 각 보드에 기록한다. `esp32-h2-flash.sh`는 flash 후 serial monitor까지 계속 실행하므로 node마다 terminal을 하나씩 사용한다.
+Company ID 발급 전에는 ESP-IDF 5.5 Lab HIL firmware를 빌드하고 연결된 각 보드에 기록한다. Lab flash wrapper는 flash 후 serial monitor까지 계속 실행하므로 node마다 terminal을 하나씩 사용한다.
 
 ```bash
 cd "/Users/kim-jh/Documents/led-control-service"
-scripts/esp32-h2-build.sh
+scripts/esp32-h2-build.sh --lab-hil-build
 ls /dev/cu.usbmodem*
-scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
+scripts/esp32-h2-lab-hil-flash.sh /dev/cu.usbmodemXXXX
 ```
 
 serial log의 `BLE Mesh node initialized ... uuid=` 값은 32자리 hex이고 `44464b4c4544`로 시작해야 한다. 검색 전 보드는 unprovisioned 상태여야 한다. 이미 provisioned된 보드는 NetKey와 unicast address를 보존하므로 검색되지 않으며, 새 설치 시험에서는 firmware README의 `erase-flash` 절차로 초기화한 뒤 다시 flash한다.
@@ -346,6 +353,7 @@ Vault를 reset한 뒤 기존 `.local/lab-pki`와 Pi 인증서를 섞으면 issue
 | `pnpm dev`가 8883 handshake 실패 | 기존 개발용 mqtt container가 8883 점유 | `docker compose stop mqtt-tls`, Lab env를 source 후 재실행 |
 | 제조 endpoint가 401/TLS 실패 | station key 권한, CA/CRL, API 재시작 | `600` 권한과 `lab.env` 적용 여부 확인 |
 | claim 후 Pi가 `unclaimed` 반복 | serial 불일치 또는 claim 미완료 | label, 웹 입력, Pi `GATEWAY_SERIAL`을 비교 |
+| Gateway가 `owned_bluetooth_company_id_required`로 종료 | 자사 Bluetooth SIG Company Identifier 누락 또는 금지값 | 자사 할당값을 Gateway와 ESP32-H2에 동일하게 배포한 뒤 재시작 |
 | 조명 검색 0개 | ESP32 provisioned 상태, HCI block, mesh daemon | ESP32 serial log, `rfkill`, Pi gateway/BlueZ 로그 확인 |
 
 자동 검증은 다음 명령으로 반복한다.

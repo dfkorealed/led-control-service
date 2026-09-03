@@ -15,7 +15,7 @@ DEVICE_MOUNT="gateway-device-pki"
 API_MOUNT="api-server-pki"
 MQTT_MOUNT="gateway-mqtt-pki"
 API_MQTT_URI_SAN="spiffe://led-control/mqtt/api-service"
-SERVICE_BUNDLE_FORMAT_VERSION="3"
+SERVICE_BUNDLE_FORMAT_VERSION="4"
 ROOT_CRL_PATH="${PKI_ROOT_CRL_PATH:-$ROOT_DIR/.local/lab-pki/root/root.crl}"
 
 STAGE=""
@@ -102,8 +102,11 @@ read_ca() {
     process.stdin.on("end", () => {
       try {
         const data = JSON.parse(source).data;
-        if (typeof data?.certificate !== "string" || !data.certificate.trim() ||
-          !Array.isArray(data.ca_chain) || data.ca_chain.some(item => typeof item !== "string" || !item.trim())) process.exit(1);
+        const chainIsValid = typeof data?.ca_chain === "string"
+          ? Boolean(data.ca_chain.trim())
+          : Array.isArray(data?.ca_chain) && data.ca_chain.length > 0 &&
+            data.ca_chain.every(item => typeof item === "string" && item.trim());
+        if (typeof data?.certificate !== "string" || !data.certificate.trim() || !chainIsValid) process.exit(1);
         process.stdout.write(data.certificate);
       } catch {
         process.exit(1);

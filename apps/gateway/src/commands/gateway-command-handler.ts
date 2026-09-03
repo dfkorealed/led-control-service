@@ -72,6 +72,7 @@ export interface GatewayCommandOptions {
   onAutomationError?: (error: unknown) => void;
   receipt?: GatewayCommandReceipt;
   monotonicClock?: () => number;
+  onDurableReceipt?: () => void;
 }
 
 interface AutomationDimmingAction {
@@ -132,6 +133,7 @@ async function executeGatewayDimmingCommand(
 ): Promise<GatewayCommandResult> {
   const existing = await journal.get(command.idempotencyKey);
   if (existing?.state === "completed") {
+    options.onDurableReceipt?.();
     const result = existing.result as GatewayCommandResult;
     if (existing.automationHandoff === "pending") {
       await replayAutomationHandoff(journal, command, result, options);
@@ -139,6 +141,7 @@ async function executeGatewayDimmingCommand(
     return result;
   }
   if (existing?.state === "accepted") {
+    options.onDurableReceipt?.();
     const stored = existing.command as { acceptance?: AcceptanceAckV2 };
     const result = createIndeterminateResult(command, stored.acceptance);
     await completeWithAutomationHandoff(journal, command, result, options);
@@ -191,9 +194,11 @@ async function executeGatewayDimmingCommand(
   const reserved = await journal.accept(command.idempotencyKey, { command, acceptance });
   if (!reserved) {
     const raced = await journal.get(command.idempotencyKey);
+    if (raced) options.onDurableReceipt?.();
     if (raced?.state === "completed") return raced.result as GatewayCommandResult;
     throw new Error("duplicate command has an indeterminate accepted result");
   }
+  options.onDurableReceipt?.();
   await onAccepted?.(acceptance);
 
   // Journal fsync and the acceptance PUBACK can consume the remaining delivery window.

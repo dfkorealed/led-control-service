@@ -79,6 +79,21 @@ openssl dgst -sha256 -sign "$FIXTURE_ROOT/approval.key.pem" -out "$APPROVAL_SIGN
 if "$REPO_ROOT/scripts/esp32-h2-manufacturing-approval.sh" \
   verify-test-only \
   "$TEST_POLICY" \
+  65534 \
+  "$SOURCE_COMMIT" \
+  "$SDKCONFIG" \
+  "$PARTITIONS" \
+  "$APPROVAL" \
+  "$APPROVAL_SIGNATURE" \
+  >"$FIXTURE_ROOT/lab-company-id.out" 2>&1; then
+  echo "manufacturing approval unexpectedly accepted the Lab HIL Company ID" >&2
+  exit 1
+fi
+grep -q "manufacturing approval has an invalid Company ID" "$FIXTURE_ROOT/lab-company-id.out"
+
+if "$REPO_ROOT/scripts/esp32-h2-manufacturing-approval.sh" \
+  verify-test-only \
+  "$TEST_POLICY" \
   "$COMPANY_ID" \
   fedcba9876543210fedcba9876543210fedcba98 \
   "$SDKCONFIG" \

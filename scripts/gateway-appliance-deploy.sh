@@ -54,6 +54,21 @@ done
 set -a
 . "./$ARCHIVE_NAME.env"
 set +a
+
+upsert_env_value() {
+  key=$1
+  value=$2
+  temporary=$(mktemp ".env.appliance.tmp.XXXXXX")
+  awk -v key="$key" 'substr($0, 1, length(key) + 1) != key "=" { print }' .env.appliance > "$temporary"
+  printf '%s=%s\n' "$key" "$value" >> "$temporary"
+  chmod --reference=.env.appliance "$temporary"
+  mv "$temporary" .env.appliance
+}
+
+# Compose가 다음 재시작에서도 방금 검증·load한 immutable image를 선택하도록
+# archive metadata를 장비 설정에 남긴다. 기존 site/identity 설정은 그대로 보존한다.
+upsert_env_value GATEWAY_IMAGE_REPOSITORY "$GATEWAY_IMAGE_REPOSITORY"
+upsert_env_value GATEWAY_IMAGE_TAG "$GATEWAY_IMAGE_TAG"
 docker compose --env-file .env.appliance -f compose.yml up -d --remove-orphans
 
 for _ in $(seq 1 60); do

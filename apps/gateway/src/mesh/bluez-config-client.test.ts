@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { BLUEZ_APPLICATION_PATHS } from "./bluez-dbus-application";
 import { CONFIG_OPCODES } from "./bluez-config-codec";
 import { BluezConfigClient } from "./bluez-config-client";
-import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
+import {
+  TEST_BLUETOOTH_COMPANY_ID,
+  TEST_BLUETOOTH_COMPANY_ID_LE
+} from "../test-fixtures/vehicle-sensor-protocol";
 
 const CONFIG_OPTIONS = { responseTimeoutMs: 100, companyId: TEST_BLUETOOTH_COMPANY_ID };
 
@@ -14,6 +17,43 @@ class FakeTransport {
     return undefined as T;
   }
 }
+
+it("binds local receiving client models with the provisioner address device key", async () => {
+  const transport = new FakeTransport();
+  const application = new EventEmitter();
+  const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
+  const prepare = client.prepareLocalNode();
+
+  await waitForCallCount(transport, "DevKeySend", 1);
+  const clientModels = [0x0003, 0x1001, 0x1102, 0x1302];
+  for (let index = 0; index < clientModels.length; index += 1) {
+    const modelId = clientModels[index]!;
+    const call = transport.calls.filter(({ method }) => method === "DevKeySend")[index]!;
+    expect(call.args[1]).toBe(0x0001);
+    expect(call.args[2]).toBe(true);
+    application.emit("devKeyMessageReceived", {
+      source: 0x0001,
+      data: Uint8Array.from([0x80, 0x3e, 0, 0x01, 0, 0, 0, modelId & 0xff, modelId >> 8])
+    });
+    await waitForCallCount(transport, "DevKeySend", index + 2);
+  }
+
+  const vendorCall = transport.calls.filter(({ method }) => method === "DevKeySend")[4]!;
+  expect(vendorCall.args[2]).toBe(true);
+  application.emit("devKeyMessageReceived", {
+    source: 0x0001,
+    data: Uint8Array.from([
+      0x80, 0x3e, 0, 0x01, 0, 0, 0,
+      ...TEST_BLUETOOTH_COMPANY_ID_LE,
+      0x01, 0x00
+    ])
+  });
+
+  await expect(prepare).resolves.toBeUndefined();
+  expect(transport.calls.map(({ method }) => method)).toEqual([
+    "CreateAppKey", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend", "DevKeySend"
+  ]);
+});
 
 it("configures composition, AppKey, Health/OnOff/Lightness bindings, and 60-second publications in order", async () => {
   const transport = new FakeTransport();
@@ -224,20 +264,16 @@ it("binds vehicle sensor models with stack Sensor and vendor publication periods
   const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
 
-  await waitForCall(transport, "AddAppKey");
-  application.emit("devKeyMessageReceived", {
-    source: 0x1201,
-    data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0])
-  });
   await waitForCallCount(transport, "DevKeySend", 1);
+  expect(transport.calls.find(({ method }) => method === "AddAppKey")).toBeUndefined();
   application.emit("devKeyMessageReceived", {
     source: 0x1201,
     data: Uint8Array.from([
       0x02, 0x00,
-      0xff, 0xff, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
+      ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x01, 0x01,
       0x00, 0x11,
-      0xff, 0xff, 0x00, 0x00
+      ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x00, 0x00
     ])
   });
   await waitForCallCount(transport, "DevKeySend", 2);
@@ -253,14 +289,14 @@ it("binds vehicle sensor models with stack Sensor and vendor publication periods
   await waitForCallCount(transport, "DevKeySend", 4);
   application.emit("devKeyMessageReceived", {
     source: 0x1201,
-    data: Uint8Array.from([0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00])
+    data: Uint8Array.from([0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x00, 0x00])
   });
   await waitForCallCount(transport, "DevKeySend", 5);
   application.emit("devKeyMessageReceived", {
     source: 0x1201,
     data: Uint8Array.from([
       0x80, 0x19, 0x00, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
-      0xff, 0xff, 0x00, 0x00
+      ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x00, 0x00
     ])
   });
 
@@ -269,13 +305,13 @@ it("binds vehicle sensor models with stack Sensor and vendor publication periods
     vendorVehicleEventModelBound: true
   });
   expect(transport.calls.find(({ method }) => method === "CreateAppKey")?.args).toEqual([0, 0]);
-  expect(transport.calls.find(({ method }) => method === "AddAppKey")?.args.slice(2, 4)).toEqual([0, 0]);
+  expect(transport.calls.find(({ method }) => method === "AddAppKey")).toBeUndefined();
   expect(transport.calls.filter(({ method }) => method === "DevKeySend").map(({ args }) => args[5])).toEqual([
     [0x80, 0x08, 0x00],
     [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0x00, 0x11],
     [0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x11],
-    [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00],
-    [0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00]
+    [0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x00, 0x00],
+    [0x03, 0x01, 0x12, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x00, 0x00]
   ]);
 });
 
@@ -285,11 +321,6 @@ it("rejects a nonzero stack publication period for the vehicle Sensor Server", a
   const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
 
-  await waitForCall(transport, "AddAppKey");
-  application.emit("devKeyMessageReceived", {
-    source: 0x1201,
-    data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0])
-  });
   await waitForCallCount(transport, "DevKeySend", 1);
   application.emit("devKeyMessageReceived", {
     source: 0x1201,
@@ -320,11 +351,6 @@ it("rejects a nonzero publication retransmit for the vehicle Sensor Server", asy
   const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
 
-  await waitForCall(transport, "AddAppKey");
-  application.emit("devKeyMessageReceived", {
-    source: 0x1201,
-    data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0])
-  });
   await waitForCallCount(transport, "DevKeySend", 1);
   application.emit("devKeyMessageReceived", {
     source: 0x1201,
@@ -355,11 +381,6 @@ it("reports absent vehicle sensor models as unsupported without issuing model co
   const client = new BluezConfigClient(transport, application, "/org/bluez/mesh/node1", CONFIG_OPTIONS);
   const configure = client.configureVehicleSensorModels({ unicast: 0x1201, elementCount: 1 });
 
-  await waitForCall(transport, "AddAppKey");
-  application.emit("devKeyMessageReceived", {
-    source: 0x1201,
-    data: Uint8Array.from([...CONFIG_OPCODES.appKeyStatus, 0, 0, 0, 0])
-  });
   await waitForCallCount(transport, "DevKeySend", 1);
   application.emit("devKeyMessageReceived", {
     source: 0x1201,

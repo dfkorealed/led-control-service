@@ -9,6 +9,7 @@ IDF_PATCH_GATE="$REPO_ROOT/scripts/esp32-h2-idf-patch.sh"
 PYTHON_312_BIN="/opt/homebrew/opt/python@3.12/libexec/bin"
 BUILD_MODE="production"
 TEST_COMPANY_ID=65535
+LAB_HIL_COMPANY_ID=65534
 APPROVAL_MANIFEST=""
 APPROVAL_SIGNATURE=""
 SOURCE_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
@@ -16,10 +17,13 @@ SOURCE_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 if [ "${1:-}" = "--test-build" ]; then
   BUILD_MODE="test"
   shift
+elif [ "${1:-}" = "--lab-hil-build" ]; then
+  BUILD_MODE="lab-hil"
+  shift
 fi
 
 if [ "$#" -ne 0 ]; then
-  echo "Usage: scripts/esp32-h2-build.sh [--test-build]" >&2
+  echo "Usage: scripts/esp32-h2-build.sh [--test-build|--lab-hil-build]" >&2
   exit 2
 fi
 
@@ -28,6 +32,7 @@ if [ "$BUILD_MODE" = "production" ]; then
   if ! [[ "$COMPANY_ID" =~ ^[0-9]+$ ]] ||
       [ "$COMPANY_ID" -le 0 ] ||
       [ "$COMPANY_ID" -ge 65535 ] ||
+      [ "$COMPANY_ID" -eq 65534 ] ||
       [ "$COMPANY_ID" -eq 741 ]; then
     echo "production build requires CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID with the owner's decimal Bluetooth SIG ID" >&2
     exit 1
@@ -39,8 +44,10 @@ if [ "$BUILD_MODE" = "production" ]; then
     echo "production build requires a clean source commit" >&2
     exit 1
   fi
-else
+elif [ "$BUILD_MODE" = "test" ]; then
   COMPANY_ID="$TEST_COMPANY_ID"
+else
+  COMPANY_ID="$LAB_HIL_COMPANY_ID"
 fi
 
 if [ ! -f "$IDF_PATH/export.sh" ]; then
@@ -48,6 +55,8 @@ if [ ! -f "$IDF_PATH/export.sh" ]; then
   echo "Install ESP-IDF first: git clone -b v5.5.1 --recursive https://github.com/espressif/esp-idf.git $IDF_PATH && $IDF_PATH/install.sh esp32h2" >&2
   exit 1
 fi
+
+"$FIRMWARE_DIR/test/native/test_ble_mesh_provisioning_bearer.sh"
 
 if [ -d "$PYTHON_312_BIN" ]; then
   export PATH="$PYTHON_312_BIN:$PATH"
@@ -69,6 +78,11 @@ rm -f "$BUILD_WORKDIR/sdkconfig" "$BUILD_WORKDIR/sdkconfig.old"
     echo "CONFIG_LED_CONTROL_TEST_BUILD=y"
   else
     echo "CONFIG_LED_CONTROL_TEST_BUILD=n"
+  fi
+  if [ "$BUILD_MODE" = "lab-hil" ]; then
+    echo "CONFIG_LED_CONTROL_LAB_HIL_BUILD=y"
+  else
+    echo "CONFIG_LED_CONTROL_LAB_HIL_BUILD=n"
   fi
   echo "CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=$COMPANY_ID"
 } >"$BUILD_WORKDIR/sdkconfig.build-gate"
@@ -98,11 +112,17 @@ if [ "$BUILD_MODE" = "production" ]; then
     "$SOURCE_COMMIT" \
     "$APPROVAL_MANIFEST" \
     "$APPROVAL_SIGNATURE"
-else
+elif [ "$BUILD_MODE" = "test" ]; then
   "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" \
     create \
     "$BUILD_WORKDIR" \
     test \
+    "$COMPANY_ID" \
+    "$SOURCE_COMMIT"
+else
+  "$REPO_ROOT/scripts/esp32-h2-artifact-audit.sh" \
+    create-lab-hil \
+    "$BUILD_WORKDIR" \
     "$COMPANY_ID" \
     "$SOURCE_COMMIT"
 fi
@@ -110,5 +130,7 @@ fi
 
 if [ "$BUILD_MODE" = "test" ]; then
   echo "TEST BUILD ONLY: reserved Company ID 0xFFFF; this binary must not be flashed for HIL or production." >&2
+elif [ "$BUILD_MODE" = "lab-hil" ]; then
+  echo "LAB HIL ONLY: non-production RFU Company ID 0xFFFE; this binary must not be used for production." >&2
 fi
 echo "Firmware build output: $BUILD_WORKDIR/build"

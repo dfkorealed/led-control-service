@@ -1,15 +1,23 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { gatewayHeartbeatFreshSince } from "@led-control/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(FixtureFreshnessService.name);
   private timer: NodeJS.Timeout | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
   onModuleInit() {
-    this.timer = setInterval(() => void this.markStaleFixtures(), Number(process.env.FIXTURE_FRESHNESS_POLL_MS ?? 30_000));
+    this.timer = setInterval(() => {
+      void this.markStaleFixtures().catch((error) => {
+        const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+          ? error.code
+          : "UNEXPECTED_ERROR";
+        this.logger.error(`fixture freshness sweep failed (error=${code})`);
+      });
+    }, Number(process.env.FIXTURE_FRESHNESS_POLL_MS ?? 30_000));
   }
 
   onModuleDestroy() {

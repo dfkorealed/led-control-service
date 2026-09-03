@@ -60,6 +60,10 @@ describe("MonitoringView refresh", () => {
     queryMocks.useFloorFixtures.mockReturnValue({
       data: { pages: [{ items: [fixture], nextCursor: null }] },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      error: null,
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
       hasNextPage: false,
       isFetchingNextPage: false,
       fetchNextPage: vi.fn(),
@@ -69,6 +73,8 @@ describe("MonitoringView refresh", () => {
       data: mapSnapshot,
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
       error: null,
+      isPending: false,
+      isLoading: false,
       refetch: refetchMap
     });
   });
@@ -99,6 +105,10 @@ describe("MonitoringView refresh", () => {
     queryMocks.useFloorFixtures.mockReturnValue({
       data: { pages: [{ items: [fixture, faultFixture], nextCursor: null }] },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      error: null,
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
       hasNextPage: false,
       isFetchingNextPage: false,
       fetchNextPage: vi.fn(),
@@ -131,6 +141,10 @@ describe("MonitoringView refresh", () => {
     queryMocks.useFloorFixtures.mockReturnValue({
       data: { pages: [{ items: [fixture, faultFixture], nextCursor: null }] },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      error: null,
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
       hasNextPage: false,
       isFetchingNextPage: false,
       fetchNextPage: vi.fn(),
@@ -192,11 +206,159 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("region", { name: "조명 등록 패널" })).toBeInTheDocument();
   });
 
+  it("fixture 최초 조회 중에는 조명 0개나 빈 층으로 오표시하지 않는다", () => {
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: undefined,
+      dataUpdatedAt: 0,
+      error: null,
+      isPending: true,
+      isLoading: true,
+      isFetching: true,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("조명 상태를 불러오는 중");
+    expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
+    expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
+  });
+
+  it("층 전환 중에는 이전 층 KPI나 빈 fixture 지도를 표시하지 않는다", () => {
+    const twoFloorDashboard = {
+      ...dashboard,
+      floors: [
+        dashboard.floors[0],
+        { ...dashboard.floors[0], id: "floor-2", name: "B2", level: -2 }
+      ]
+    };
+    queryMocks.useDashboard.mockReturnValue({
+      data: twoFloorDashboard,
+      isLoading: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      refetch: refetchDashboard
+    });
+    queryMocks.useFloorFixtures.mockImplementation((floorId: string) => floorId === "floor-1" ? {
+      data: { pages: [{ items: [fixture], nextCursor: null }] },
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      error: null,
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    } : {
+      data: undefined,
+      dataUpdatedAt: 0,
+      error: null,
+      isPending: true,
+      isLoading: true,
+      isFetching: true,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+    queryMocks.useFloorMapSnapshot.mockImplementation((floorId: string) => ({
+      data: { ...mapSnapshot, floorId },
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      error: null,
+      isPending: false,
+      isLoading: false,
+      refetch: refetchMap
+    }));
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
+    fireEvent.click(screen.getByRole("button", { name: "B2" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("B2 조명 상태를 불러오는 중");
+    expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
+  });
+
+  it("fixture 최초 조회 실패에는 오류와 재시도를 표시한다", () => {
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: undefined,
+      dataUpdatedAt: 0,
+      error: new Error("fixtures unavailable"),
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("조명 상태를 불러오지 못했습니다.");
+    expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "조명 상태 다시 시도" }));
+    expect(refetchFixtures).toHaveBeenCalledTimes(1);
+  });
+
+  it("fixture 갱신 실패 시 이전 성공 데이터를 유지하고 오류를 알린다", () => {
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [fixture], nextCursor: null }] },
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      error: new Error("fixtures unavailable"),
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
+    expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다.");
+    fireEvent.click(screen.getByRole("button", { name: "조명 상태 다시 시도" }));
+    expect(refetchFixtures).toHaveBeenCalledTimes(1);
+  });
+
+  it("지도 최초 조회 중에는 등록된 층이 없다고 표시하지 않는다", () => {
+    queryMocks.useFloorMapSnapshot.mockReturnValue({
+      data: undefined,
+      dataUpdatedAt: 0,
+      error: null,
+      isPending: true,
+      isLoading: true,
+      refetch: refetchMap
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("저장된 지도를 불러오는 중");
+    expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
+  });
+
+  it("자동 갱신 주기와 수동 새로고침 정책을 함께 안내한다", () => {
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByText("B1 · 10분마다 자동 갱신 · 수동 새로고침 가능")).toBeInTheDocument();
+    expect(screen.queryByText(/실시간 조명 상태/)).not.toBeInTheDocument();
+  });
+
   it("지도 최초 조회 실패에는 빈 캔버스 대신 오류와 재시도를 표시한다", () => {
     queryMocks.useFloorMapSnapshot.mockReturnValue({
       data: undefined,
       dataUpdatedAt: 0,
       error: new Error("map unavailable"),
+      isPending: false,
+      isLoading: false,
       refetch: refetchMap
     });
     render(<MonitoringView siteId="site-1" />);
@@ -240,6 +402,8 @@ describe("MonitoringView refresh", () => {
       data: { ...mapSnapshot, floorId },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
       error: null,
+      isPending: false,
+      isLoading: false,
       refetch: floorId === "floor-1" ? firstFloorRefetch : secondFloorRefetch
     }));
     render(<MonitoringView siteId="site-1" />);

@@ -7,13 +7,21 @@ config LED_CONTROL_TEST_BUILD
         scripts/esp32-h2-build.sh --test-build가 자동 target compile 검증에만 사용한다.
         이 설정의 binary는 HIL 또는 양산 장비에 flash하면 안 된다.
 
+config LED_CONTROL_LAB_HIL_BUILD
+    bool "Enable flashable Lab HIL build"
+    default n
+    depends on !LED_CONTROL_TEST_BUILD
+    help
+        Bluetooth SIG Company Identifier 발급 전 실장비 HIL에만 사용한다.
+        비양산 RFU 0xFFFE를 사용하며 판매·배포·양산에 사용할 수 없다.
+
 config LED_CONTROL_BLUETOOTH_COMPANY_ID
     int "Bluetooth SIG assigned company identifier"
     range 1 65535
     help
         Bluetooth SIG가 자사에 할당한 Company Identifier를 10진수로 지정한다.
         Gateway의 GATEWAY_BLUETOOTH_COMPANY_ID와 반드시 같은 값이어야 한다.
-        65535는 LED_CONTROL_TEST_BUILD 전용 reserved fixture다.
+        65535는 LED_CONTROL_TEST_BUILD, 65534는 LED_CONTROL_LAB_HIL_BUILD 전용이다.
 
 config DFK_PRODUCT_FAMILY
     int "DFK product family code"

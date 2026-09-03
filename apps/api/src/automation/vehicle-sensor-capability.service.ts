@@ -68,14 +68,14 @@ export class VehicleSensorCapabilityService {
         tx.processedGatewayEvent.findFirst({
           where: {
             gatewayId: report.gatewayId,
-            meshNodeId: report.meshNodeId,
+            meshNodeId: node.id,
             sequence: capabilityRevision,
             eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
           }
         })
       ]);
       const existing = distinctLedgerRows(eventById, eventByRevision);
-      if (existing.some((row) => !sameCapabilityLedger(row, report, payloadHash))) {
+      if (existing.some((row) => !sameCapabilityLedger(row, node.id, report, payloadHash))) {
         return this.persistAck(tx, report, payloadHash, "rejected", "capability_event_conflict");
       }
       if (existing.length > 0) {
@@ -156,7 +156,7 @@ export class VehicleSensorCapabilityService {
     const lockTargets = requireActiveClaim
       ? Prisma.sql`FOR UPDATE OF node, gateway, inventory`
       : Prisma.sql`FOR UPDATE OF node, gateway`;
-    const [node] = await tx.$queryRaw<LockedCapabilityNode[]>(Prisma.sql`
+    const nodes = await tx.$queryRaw<LockedCapabilityNode[]>(Prisma.sql`
       SELECT
         node."id",
         node."vehicleSensorCapabilityStatus",
@@ -169,12 +169,12 @@ export class VehicleSensorCapabilityService {
       INNER JOIN "Gateway" AS gateway ON gateway."id" = node."gatewayId"
       ${activeClaimJoin}
       LEFT JOIN "Fixture" AS fixture ON fixture."meshNodeId" = node."id"
-      WHERE node."id" = ${report.meshNodeId}
+      WHERE (node."id" = ${report.meshNodeId} OR fixture."id" = ${report.meshNodeId})
         AND node."gatewayId" = ${report.gatewayId}
         AND gateway."siteId" = ${report.siteId}
       ${lockTargets}
     `);
-    return node;
+    return nodes.length === 1 ? nodes[0] : null;
   }
 
   private updateMetadata(
@@ -204,7 +204,7 @@ export class VehicleSensorCapabilityService {
       data: {
         eventId: report.eventId,
         gatewayId: report.gatewayId,
-        meshNodeId: report.meshNodeId,
+        meshNodeId: node.id,
         fixtureId: node.fixtureId,
         sequence: BigInt(report.capabilityRevision),
         eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE,
@@ -303,11 +303,12 @@ function distinctLedgerRows(
 
 function sameCapabilityLedger(
   row: CapabilityLedgerRow,
+  canonicalMeshNodeId: string,
   report: VehicleSensorCapabilityReportV1,
   payloadHash: string
 ) {
   return row.gatewayId === report.gatewayId
-    && row.meshNodeId === report.meshNodeId
+    && row.meshNodeId === canonicalMeshNodeId
     && row.sequence === BigInt(report.capabilityRevision)
     && row.eventType === VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE
     && row.payloadHash === payloadHash;

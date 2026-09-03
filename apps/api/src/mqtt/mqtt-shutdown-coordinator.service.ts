@@ -4,6 +4,7 @@ import { AutomationOutboxPublisherService } from "../automation/automation-outbo
 import { MqttService } from "./mqtt.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
+import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 
 @Injectable()
 export class MqttShutdownCoordinator implements OnModuleDestroy {
@@ -12,6 +13,7 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
   constructor(
     private readonly commandOutbox: OutboxPublisherService,
     private readonly scanOutbox: ProvisioningScanOutboxPublisherService,
+    private readonly provisioningDeviceOutbox: ProvisioningDeviceOutboxPublisherService,
     private readonly automationOutbox: AutomationOutboxPublisherService,
     private readonly meshGroupSync: MeshGroupSyncWorker,
     private readonly mqtt: MqttService
@@ -21,12 +23,14 @@ export class MqttShutdownCoordinator implements OnModuleDestroy {
     if (!this.shutdownPromise) {
       const commandDrain = this.commandOutbox.stopAndDrain();
       const scanDrain = this.scanOutbox.stopAndDrain();
+      const provisioningDeviceDrain = this.provisioningDeviceOutbox.stopAndDrain();
       const automationDrain = this.automationOutbox.stopAndDrain();
       const meshGroupDrain = this.meshGroupSync.stopAndDrain();
       const inboundDrain = this.mqtt.stopInboundAndDrain();
       this.shutdownPromise = Promise.all([
         commandDrain,
         scanDrain,
+        provisioningDeviceDrain,
         automationDrain,
         meshGroupDrain,
         inboundDrain

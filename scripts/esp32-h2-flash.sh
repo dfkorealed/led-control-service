@@ -33,6 +33,12 @@ if grep -q '^CONFIG_LED_CONTROL_TEST_BUILD=y$' "$SDKCONFIG" ||
   exit 1
 fi
 
+if grep -q '^CONFIG_LED_CONTROL_LAB_HIL_BUILD=y$' "$SDKCONFIG" ||
+    { [ -f "$TEST_MANIFEST" ] && grep -q '^mode=lab-hil$' "$TEST_MANIFEST"; }; then
+  echo "Refusing to flash a Lab HIL build with the production flash script." >&2
+  exit 1
+fi
+
 if [ ! -f "$ATTESTATION" ] || [ ! -f "$ATTESTATION_SIGNATURE" ]; then
   echo "Refusing to flash: signed production artifact attestation is missing." >&2
   exit 1

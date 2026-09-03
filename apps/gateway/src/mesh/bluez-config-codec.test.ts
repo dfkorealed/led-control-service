@@ -13,7 +13,10 @@ import {
   parseModelPublicationStatus,
   parsePrimaryElementCompositionModels
 } from "./bluez-config-codec";
-import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
+import {
+  TEST_BLUETOOTH_COMPANY_ID,
+  TEST_BLUETOOTH_COMPANY_ID_LE
+} from "../test-fixtures/vehicle-sensor-protocol";
 
 describe("BlueZ Config Client codec", () => {
   it("encodes SIG configuration messages in Bluetooth Mesh wire order", () => {
@@ -34,19 +37,19 @@ describe("BlueZ Config Client codec", () => {
 
   it("encodes and parses vendor model identifiers in Bluetooth Mesh wire order", () => {
     expect([...encodeModelAppBind(0x1201, 0, 0x0000, TEST_BLUETOOTH_COMPANY_ID)]).toEqual([
-      0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00
+      0x80, 0x3d, 0x01, 0x12, 0x00, 0x00, ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x00, 0x00
     ]);
     expect(parseModelAppStatus(Uint8Array.from([
-      0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00
+      0x80, 0x3e, 0x00, 0x01, 0x12, 0x00, 0x00, ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x00, 0x00
     ]))).toEqual({ elementAddress: 0x1201, appKeyIndex: 0, companyId: TEST_BLUETOOTH_COMPANY_ID, modelId: 0x0000 });
   });
 
   it("strictly parses primary element SIG and vendor models from Composition Page 0", () => {
     expect(parsePrimaryElementCompositionModels(Uint8Array.from([
-      0xff, 0xff, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
+      ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x01, 0x00, 0x01, 0x00, 0x40, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x01, 0x01,
       0x00, 0x11,
-      0xff, 0xff, 0x00, 0x00
+      ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x00, 0x00
     ]))).toEqual({
       sigModelIds: [0x1100],
       vendorModels: [{ companyId: TEST_BLUETOOTH_COMPANY_ID, modelId: 0x0000 }]

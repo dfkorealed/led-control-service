@@ -165,8 +165,8 @@ export const mockEnergyMonthSeries: EnergySeriesResponse = {
   from: "2026-01-01",
   to: "2026-12-01",
   points: [
-    { source: "state_based_estimate", period: "2026-07-01", estimatedKwh: 140, estimatedCost: 22_400, knownSeconds: 2_678_400, unknownSeconds: 0, dataStatus: "available" },
-    { source: "state_based_estimate", period: "2026-08-01", estimatedKwh: 120.5, estimatedCost: 19_280, knownSeconds: 2_073_600, unknownSeconds: 7_200, dataStatus: "partial" }
+    { source: "state_based_estimate", period: "2026-07", estimatedKwh: 140, estimatedCost: 22_400, knownSeconds: 2_678_400, unknownSeconds: 0, dataStatus: "available" },
+    { source: "state_based_estimate", period: "2026-08", estimatedKwh: 120.5, estimatedCost: 19_280, knownSeconds: 2_073_600, unknownSeconds: 7_200, dataStatus: "partial" }
   ]
 };
 

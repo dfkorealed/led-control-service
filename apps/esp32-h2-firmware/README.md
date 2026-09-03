@@ -9,7 +9,7 @@
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
 - 현재 펌웨어는 부팅 시 NVS에서 마지막 밝기를 복원하고, BLE Mesh unprovisioned node로 광고되며, Generic OnOff/Light Lightness 명령과 차량 센서의 Sensor Server/vendor reliable event를 처리하는 단계까지 빌드 검증했다.
 - BLE Mesh group publication 지터, TID 중복 방지, 모델별 group 16개, 차량 센서 GPIO driver와 Sensor/vendor model 및 Task 16 server-send ownership breaker를 포함한 test-build `led_control_node.bin` 크기는 `0xefa30`(`981,552`) 바이트다. Custom two-OTA partition의 각 app slot은 `0x1f0000`(`2,031,616`) 바이트이고 `0x1005d0`(`1,050,064`, 약 52%)가 남는다. Production build는 free가 slot의 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 실패한다.
-- Task 19 Chromium software E2E는 완료됐지만 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 **미실행**이다. `scripts/esp32-h2-build.sh` production mode는 자사 Bluetooth SIG Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. test build는 compile 검증 전용이며 flash/HIL에 사용할 수 없다.
+- 2026-09-02 Raspberry Pi 제조 등록·claim·Gateway bootstrap·MQTT mTLS까지 실기 확인했고, 비양산 RFU Company ID `0xFFFE`를 명시적으로 격리한 Lab HIL target build gate도 통과했다. 기존 `0xFFFF`는 BlueZ의 SIG 모델 내부 표식과 vendor model이 충돌해 RF Lab에서 제외했다. BLE Mesh RF 검색·provisioning·제어는 아직 미실행이다. Production mode는 자사 Bluetooth SIG Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 계속 fail-closed하며, compile 전용 test build도 flash/HIL에 사용할 수 없다.
 
 ## 펌웨어 용어와 읽는 순서
 
@@ -21,6 +21,7 @@
 - **Status publication**은 노드가 요청 응답과 별개로 자신의 현재 상태를 publication 설정의 주소로 전송해 다른 Mesh 노드가 상태 변화를 알 수 있게 하는 동작이다.
 
 코드는 `app_main.c → control_state.c → led_driver.c → persistent_state.c → ble_mesh_node.c` 순서로 읽는다. 먼저 부팅 의존성과 NVS 초기화를 보고, 메모리 상태의 의미를 이해한 뒤 PWM 적용과 flash 저장 시점을 확인한다. 마지막으로 그 상태가 provisioning 뒤 BLE Mesh model callback과 Status publication으로 어떻게 연결되는지 따라가면 하드웨어·저장소·무선 계약을 섞지 않고 이해할 수 있다.
+
 ## ESP-IDF 설치
 
 macOS 기준 설치 명령은 아래와 같다. Python 3.14 계열은 일부 ESP-IDF 도구 호환성 리스크가 있어 Python 3.12를 우선 사용한다.
@@ -42,7 +43,7 @@ PATH="/opt/homebrew/opt/python@3.12/libexec/bin:/opt/homebrew/bin:$PATH" "$HOME/
 
 ## 빌드
 
-Gateway와 센서 펌웨어는 Bluetooth SIG가 자사에 할당한 하나의 Company Identifier를 공유한다. 펌웨어 빌드 전 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=<10진수 식별자>`를 site별 보안 빌드 설정에 주입하고, Gateway에는 같은 값을 `GATEWAY_BLUETOOTH_COMPANY_ID`로 배포한다. 값이 없거나 `0`, Espressif 할당값 `0x02E5`, 테스트/내부용 `0xFFFF`이면 빌드 또는 Gateway 시작이 fail-closed된다. 저장소에는 양산 식별자나 테스트 기본값을 커밋하지 않는다.
+Gateway와 센서 펌웨어는 Bluetooth SIG가 자사에 할당한 하나의 Company Identifier를 공유한다. 펌웨어 빌드 전 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=<10진수 식별자>`를 site별 보안 빌드 설정에 주입하고, Gateway에는 같은 값을 `GATEWAY_BLUETOOTH_COMPANY_ID`로 배포한다. 값이 없거나 `0`, Espressif 할당값 `0x02E5`, compile 전용 `0xFFFF`, Lab HIL 전용 `0xFFFE`이면 production 빌드 또는 Gateway 시작이 fail-closed된다. 저장소에는 양산 식별자나 테스트 기본값을 커밋하지 않는다.
 
 ```bash
 test "$CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID" = "$GATEWAY_BLUETOOTH_COMPANY_ID"
@@ -78,6 +79,13 @@ partitions_sha256=<partitions.csv SHA-256>
 scripts/esp32-h2-build.sh --test-build
 ```
 
+Bluetooth SIG Company ID 발급 전 실제 보드 HIL은 별도 Lab 프로파일만 사용한다. 이 프로파일은 `CONFIG_LED_CONTROL_LAB_HIL_BUILD=y`, 비양산 RFU Company ID `65534`(`0xFFFE`)를 산출물 manifest에 결속하고 부팅 시 `NOT FOR PRODUCTION` 경고를 출력한다. 이 값은 Bluetooth SIG 적합성 증거가 아니며 격리된 개발 시험에만 사용한다. Production flash wrapper는 이 산출물을 거부한다.
+
+```bash
+scripts/esp32-h2-build.sh --lab-hil-build
+scripts/esp32-h2-lab-hil-flash.sh /dev/cu.usbmodemXXXX
+```
+
 성공 시 주요 산출물은 아래와 같다.
 
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/bootloader/bootloader.bin`
@@ -85,7 +93,7 @@ scripts/esp32-h2-build.sh --test-build
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/ota_data_initial.bin`
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led_control_node.bin`
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/esp-idf-patch.identity`
-- `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.manifest` (test build 전용 unsigned marker)
+- `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.manifest` (compile test 또는 Lab HIL 전용 unsigned marker)
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation` (production provision 후 생성)
 - `/Users/kim-jh/esp/led-control-esp32-h2-build/build/led-control-artifact.attestation.sig` (production provision 후 생성)
 
@@ -123,6 +131,8 @@ LED_CONTROL_MANUFACTURING_APPROVAL_MANIFEST=<승인 manifest 경로> \
 LED_CONTROL_MANUFACTURING_APPROVAL_SIGNATURE=<detached signature 경로> \
 scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
 ```
+
+Company ID 발급 전 Lab HIL에서는 production wrapper 대신 앞 절의 `esp32-h2-lab-hil-flash.sh`만 사용한다. Lab 산출물은 실제 RF 시험이 가능하지만 판매·납품·양산 이미지로 사용할 수 없다.
 
 자동 다운로드 모드 진입이 실패하면 보드의 `BOOT` 버튼을 누른 상태에서 `RESET`을 눌렀다 떼고, 그 다음 `BOOT` 버튼을 놓은 뒤 다시 플래시한다.
 
@@ -163,7 +173,7 @@ Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 
 - ESP-IDF v5.5.1 `esp_ble_mesh_model_publish()`은 shared `model->pub->msg`를 BTC task가 나중에 읽으므로 application-driven burst에 사용하지 않는다. Sensor Status와 vendor event는 publication destination/model/opcode를 유지하면서 repository-patched `esp_ble_mesh_server_model_send_msg()`로 보낸다. Payload와 context는 API thread에서 all-or-nothing snapshot하며 둘 중 하나라도 allocation 실패면 queue post 없이 `ESP_ERR_NO_MEM`을 반환한다. Envelope allocation/queue post 실패도 caller ownership을 exact cleanup하고, queue 수락 뒤에는 BTC handler가 두 snapshot을 한 번 해제한다. Context의 destination, AppKey, TTL, friendship credential과 SZMIC는 현재 publication 설정을 그대로 사용하고 NetKey는 Gateway provisioning 계약의 index `0`을 사용한다.
 - Model send/publish completion은 request token이 없어 개별 송신과 상관할 수 없으므로 Health와 liveness에 사용하지 않는다. Sensor Status는 server-send API의 동기 BTC enqueue 수락/거부만 반영하고 immediate API failure만 Sensor send fault를 올린다. Vendor event는 API 수락 뒤에도 exact `(bootId, sequence)` ACK까지 pending이며 immediate API failure, exact ACK와 retry exhaustion만 전달 신뢰도에 반영한다. 다음 accepted API call 또는 exact ACK는 해당 채널의 send fault를 회복한다.
 - Driver callback은 BLE API나 log를 호출하지 않고 static worker queue에 nonblocking handoff만 수행한다. Event admission은 24개, 전체 command queue는 32개이며 포화 시 bounded dropped fault와 authoritative current-state recovery를 예약한다. BLE send, retry, ACK, Sensor 응답과 publication은 4 KiB static worker에서 직렬화하고 application-owned event memory는 고정 크기다. Server-send allocation/queue failure는 pinned ESP-IDF patch 경계에서 동기 오류로 표면화되며 failed vendor event는 pending slot에 남아 다음 deadline에 재시도한다.
-- `CONFIG_BLE_MESH_SETTINGS=y`로 provisioning credentials, AppKey binding과 publication을 재부팅 뒤 복원한다. Queue와 독립된 atomic configuration generation을 모든 command/timer 경계와 idle poll에서 적용하므로 queue 포화 중 마지막 Config 변경도 수렴한다. AppKey/model bind, publication address와 stack period/retransmit `0`이 모두 맞아야 publication ready이며 전송 직전 설정이 달라져도 fail-closed한다.
+- `CONFIG_BLE_MESH_SETTINGS=y`로 ESP-IDF settings 저장 경로를 활성화해 provisioning credentials, AppKey binding과 publication이 재부팅 뒤 복원되도록 구성했다. Target build와 production-source host fake에서 복원 경로를 검증했지만 실제 flash의 cold boot/NVS 복원은 다음 HIL에서 확인해야 한다. Queue와 독립된 atomic configuration generation을 모든 command/timer 경계와 idle poll에서 적용하므로 queue 포화 중 마지막 Config 변경도 수렴한다. AppKey/model bind, publication address와 stack period/retransmit `0`이 모두 맞아야 publication ready이며 전송 직전 설정이 달라져도 fail-closed한다.
 - Provisioning reset은 lifecycle epoch와 pending을 재설정한다. Model worker와 queue는 최초 start에서 한 번만 생성하고 삭제하지 않는다. Shutdown은 intake를 atomic close하고 in-flight producer를 drain한 뒤 worker가 해당 generation queue를 reset하고 parked ack를 공개할 때까지 기다린다. Restart는 parked 상태에서 session core와 새 boot ID만 초기화한 뒤 같은 worker를 깨운다.
 - dropped, retry exhausted, send error, publication unconfigured와 sequence exhausted를 vendor Health fault `0x80~0x84`로 연결한다. Sensor/vendor send active flag를 분리해 한 채널 성공이 다른 채널 장애를 지우지 않으며 exact ACK는 vendor 채널만 회복한다. Health Current는 두 send flag 중 하나라도 active면 `0x82`를 유지하고 history는 Fault Clear 전까지 보존한다. Clear는 history만 지우며 permanent sequence exhaustion current는 유지한다.
 

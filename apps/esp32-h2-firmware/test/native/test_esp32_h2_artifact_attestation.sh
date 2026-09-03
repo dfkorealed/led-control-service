@@ -32,7 +32,7 @@ cat >"$BUILD_DIR/flash_args" <<'EOF'
 0xd000 ota_data_initial.bin
 0x10000 led_control_node.bin
 EOF
-printf 'CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y\nCONFIG_BLE_MESH_SETTINGS=y\nCONFIG_LED_CONTROL_TEST_BUILD=n\nCONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=%s\n' "$COMPANY_ID" >"$BUILD_ROOT/sdkconfig"
+printf 'CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y\nCONFIG_BLE_MESH_SETTINGS=y\nCONFIG_LED_CONTROL_TEST_BUILD=n\nCONFIG_LED_CONTROL_LAB_HIL_BUILD=n\nCONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=%s\n' "$COMPANY_ID" >"$BUILD_ROOT/sdkconfig"
 cp "$REPO_ROOT/apps/esp32-h2-firmware/partitions.csv" "$BUILD_ROOT/partitions.csv"
 "$PATCH_GATE" write-identity "$BUILD_ROOT/esp-idf-patch.identity"
 

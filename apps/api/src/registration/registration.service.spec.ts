@@ -25,6 +25,7 @@ describe("RegistrationService", () => {
     loginId: "operator_01", name: "Operator", role: "operator", status: "active"
   };
   const admin: AuthenticatedUser = { ...operator, organizationId: ids.organizationId, organizationType: "customer", loginId: "fixture_user", role: "admin" };
+  const currentScanCorrelationId = "88888888-8888-4888-8888-888888888888";
 
   function createModule(prismaOverrides = {}, mqttOverrides = {}, meshGroupOverrides = {}) {
     const prisma: any = {
@@ -53,6 +54,7 @@ describe("RegistrationService", () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
       provisioningScanOutbox: { create: jest.fn() },
+      provisioningDeviceOutbox: { create: jest.fn() },
       discoveredMeshNode: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -127,6 +129,8 @@ describe("RegistrationService", () => {
       gatewayId: ids.gatewayId,
       status: "active",
       scanStatus: "completed",
+      scanCorrelationId: currentScanCorrelationId,
+      scanAttempt: 2,
       floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
     };
   }
@@ -138,6 +142,8 @@ describe("RegistrationService", () => {
       deviceUuid: "esp32h2-demo-001",
       serialNumber: "LC-B2-001",
       status: "discovered",
+      scanCorrelationId: currentScanCorrelationId,
+      scanAttempt: 2,
       meshAddress: null
     };
   }
@@ -448,22 +454,9 @@ describe("RegistrationService", () => {
 
   it("atomically reserves valid batch nodes and returns node-level validation failures", async () => {
     const secondNodeId = "55555555-5555-4555-8555-555555555555";
-    const session = {
-      id: ids.sessionId,
-      siteId: ids.siteId,
-      floorId: ids.floorId,
-      gatewayId: ids.gatewayId,
-      status: "active",
-      floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
-    };
-    const node = {
-      id: ids.nodeId,
-      sessionId: ids.sessionId,
-      deviceUuid: "esp32h2-demo-001",
-      status: "discovered",
-      meshAddress: null
-    };
-    const { service, prisma, mqtt, allocation } = await createModule({
+    const session = registrationSession();
+    const node = discoveredNode();
+    const { service, prisma, mqtt, allocation, siteAccess } = await createModule({
       provisioningSession: {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(session),
@@ -476,6 +469,16 @@ describe("RegistrationService", () => {
         update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...node, ...data }))
       },
       fixture: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
+    });
+    const lockOrder: string[] = [];
+    siteAccess.assertCommissionInTransaction.mockImplementation(async () => {
+      lockOrder.push("site");
+      return { id: ids.siteId };
+    });
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+      const query = strings.join("");
+      lockOrder.push(query.includes("Gateway") ? "gateway" : query.includes("ProvisioningSession") ? "session" : "node");
+      return [];
     });
 
     const result = await service.registerBatch(admin, ids.sessionId, {
@@ -491,6 +494,7 @@ describe("RegistrationService", () => {
       expect.objectContaining({ nodeId: ids.nodeId, fixtureName: "B2-L001", status: "accepted" }),
       { nodeId: secondNodeId, status: "validation_failed", error: "discovered node not found" }
     ]);
+    expect(lockOrder).toEqual(["site", "gateway", "session", "node"]);
     expect(allocation.reserveFixtureNumbers).toHaveBeenCalledWith(prisma, ids.floorId, 1, 1);
     expect(allocation.reserveMeshAddresses).toHaveBeenCalledWith(prisma, ids.gatewayId, 1);
     expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
@@ -504,25 +508,100 @@ describe("RegistrationService", () => {
         errorMessage: null
       })
     });
-    expect(mqtt.publishProvisionDevice).toHaveBeenCalledTimes(1);
+    expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledWith({
+      data: {
+        id: expect.any(String),
+        sessionId: ids.sessionId,
+        nodeId: ids.nodeId,
+        topic: `sites/${ids.siteId}/gateways/${ids.gatewayId}/commands/provisioning/provision-device`,
+        payload: {
+          commandId: expect.any(String),
+          sessionId: ids.sessionId,
+          siteId: ids.siteId,
+          gatewayId: ids.gatewayId,
+          nodeId: ids.nodeId,
+          deviceUuid: "esp32h2-demo-001",
+          meshAddress: "0x0100",
+          requestedAt: expect.any(String)
+        }
+      }
+    });
+    const outboxData = prisma.provisioningDeviceOutbox.create.mock.calls[0][0].data;
+    expect(outboxData.id).toBe(outboxData.payload.commandId);
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
   });
 
-  it("ensures the floor mesh group before publishing provisioning commands", async () => {
-    const session = {
-      id: ids.sessionId,
-      siteId: ids.siteId,
-      floorId: ids.floorId,
-      gatewayId: ids.gatewayId,
-      status: "active",
-      floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
-    };
-    const node = {
-      id: ids.nodeId,
-      sessionId: ids.sessionId,
-      deviceUuid: "esp32h2-demo-001",
-      status: "discovered",
-      meshAddress: null
-    };
+  it.each(["pending", "scanning", "failed"] as const)(
+    "rejects registration while the session scan is %s",
+    async (scanStatus) => {
+      const session = { ...registrationSession(), scanStatus };
+      const node = discoveredNode();
+      const { service, prisma, mqtt, allocation, meshGroups } = await createModule({
+        provisioningSession: {
+          create: jest.fn(),
+          findUnique: jest.fn().mockResolvedValue(session),
+          update: jest.fn()
+        },
+        discoveredMeshNode: {
+          findFirst: jest.fn(),
+          findUnique: jest.fn(),
+          findMany: jest.fn().mockResolvedValue([node]),
+          update: jest.fn()
+        }
+      });
+
+      await expect(service.registerBatch(admin, ids.sessionId, registrationBatchInput())).rejects.toEqual(
+        new ConflictException({ code: "registration_scan_not_completed" })
+      );
+
+      expect(meshGroups.ensureFloorGroup).not.toHaveBeenCalled();
+      expect(prisma.discoveredMeshNode.findMany).not.toHaveBeenCalled();
+      expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+      expect(allocation.reserveFixtureNumbers).not.toHaveBeenCalled();
+      expect(allocation.reserveMeshAddresses).not.toHaveBeenCalled();
+      expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    ["previous attempt", { scanAttempt: 1 }],
+    ["different correlation", { scanCorrelationId: "77777777-7777-4777-8777-777777777777" }],
+    ["legacy null correlation", { scanCorrelationId: null }],
+    ["legacy null attempt", { scanAttempt: null }]
+  ])("rejects a registration node with %s identity", async (_caseName, nodeOverrides) => {
+    const session = registrationSession();
+    const node = { ...discoveredNode(), ...nodeOverrides };
+    const { service, prisma, mqtt, allocation } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(session),
+        update: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([node]),
+        update: jest.fn()
+      }
+    });
+
+    await expect(service.registerBatch(admin, ids.sessionId, registrationBatchInput())).resolves.toEqual({
+      items: [{
+        nodeId: ids.nodeId,
+        status: "validation_failed",
+        error: "discovered node does not belong to the current completed scan"
+      }]
+    });
+
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(allocation.reserveFixtureNumbers).not.toHaveBeenCalled();
+    expect(allocation.reserveMeshAddresses).not.toHaveBeenCalled();
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
+  });
+
+  it("ensures the floor mesh group before persisting provisioning commands", async () => {
+    const session = registrationSession();
+    const node = discoveredNode();
     const { service, prisma, mqtt, meshGroups } = await createModule({
       provisioningSession: {
         create: jest.fn(),
@@ -546,26 +625,14 @@ describe("RegistrationService", () => {
 
     expect(meshGroups.ensureFloorGroup).toHaveBeenCalledWith(prisma, ids.gatewayId, ids.floorId);
     expect(meshGroups.ensureFloorGroup.mock.invocationCallOrder[0]).toBeLessThan(
-      mqtt.publishProvisionDevice.mock.invocationCallOrder[0]
+      prisma.provisioningDeviceOutbox.create.mock.invocationCallOrder[0]
     );
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
   });
 
-  it("does not publish provisioning when floor mesh group allocation fails", async () => {
-    const session = {
-      id: ids.sessionId,
-      siteId: ids.siteId,
-      floorId: ids.floorId,
-      gatewayId: ids.gatewayId,
-      status: "active",
-      floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
-    };
-    const node = {
-      id: ids.nodeId,
-      sessionId: ids.sessionId,
-      deviceUuid: "esp32h2-demo-001",
-      status: "discovered",
-      meshAddress: null
-    };
+  it("does not persist provisioning outbox when floor mesh group allocation fails", async () => {
+    const session = registrationSession();
+    const node = discoveredNode();
     const { service, prisma, mqtt, meshGroups } = await createModule({
       provisioningSession: {
         create: jest.fn(),
@@ -591,27 +658,17 @@ describe("RegistrationService", () => {
 
     expect(meshGroups.ensureFloorGroup).toHaveBeenCalledWith(prisma, ids.gatewayId, ids.floorId);
     expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(prisma.provisioningDeviceOutbox.create).not.toHaveBeenCalled();
     expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
   });
 
-  it("keeps an accepted node in reconciliation when MQTT publish outcome is unknown", async () => {
+  it("returns an accepted node from the durable transaction without waiting for MQTT", async () => {
     const session = {
-      id: ids.sessionId,
-      siteId: ids.siteId,
-      floorId: ids.floorId,
-      gatewayId: ids.gatewayId,
-      status: "active",
+      ...registrationSession(),
       floor: { id: ids.floorId, name: "B2", floorPlan: null }
     };
-    const node = {
-      id: ids.nodeId,
-      sessionId: ids.sessionId,
-      deviceUuid: "esp32h2-demo-001",
-      status: "discovered",
-      meshAddress: null
-    };
-    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
-    const { service } = await createModule({
+    const node = discoveredNode();
+    const { service, prisma, mqtt } = await createModule({
       provisioningSession: {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(session),
@@ -621,8 +678,7 @@ describe("RegistrationService", () => {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
         findMany: jest.fn().mockResolvedValue([node]),
-        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...node, ...data })),
-        updateMany
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...node, ...data }))
       },
       fixture: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
     }, {
@@ -636,10 +692,8 @@ describe("RegistrationService", () => {
     })).resolves.toEqual({
       items: [{ nodeId: ids.nodeId, fixtureName: "B2-L001", status: "accepted" }]
     });
-    expect(updateMany).toHaveBeenCalledWith({
-      where: { id: ids.nodeId, sessionId: ids.sessionId, status: "provisioning" },
-      data: { status: "reconcile_required", errorMessage: "MQTT connection closed" }
-    });
+    expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledTimes(1);
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
   });
 
   it("rejects a customer admin from starting provisioning", async () => {
@@ -903,7 +957,7 @@ describe("RegistrationService", () => {
   });
 
 
-  it("starts provisioning for a discovered node and publishes a provision command", async () => {
+  it("starts provisioning for a discovered node and persists a provision command", async () => {
     const node = {
       id: ids.nodeId,
       sessionId: ids.sessionId,
@@ -914,6 +968,8 @@ describe("RegistrationService", () => {
       firmwareVersion: "mock-node-0.1.0",
       status: "identifying",
       identifyState: "blinking",
+      scanCorrelationId: currentScanCorrelationId,
+      scanAttempt: 2,
       meshAddress: null,
       session: {
         id: ids.sessionId,
@@ -929,14 +985,7 @@ describe("RegistrationService", () => {
     const { service, prisma, mqtt } = await createModule({
       provisioningSession: {
         create: jest.fn(),
-        findUnique: jest.fn().mockResolvedValue({
-          id: ids.sessionId,
-          siteId: ids.siteId,
-          floorId: ids.floorId,
-          gatewayId: ids.gatewayId,
-          status: "active",
-          floor: { id: ids.floorId, name: "B2", floorPlan: { width: 1200, height: 800 } }
-        }),
+        findUnique: jest.fn().mockResolvedValue(registrationSession()),
         update: jest.fn()
       },
       discoveredMeshNode: {
@@ -983,15 +1032,22 @@ describe("RegistrationService", () => {
     });
     expect(prisma.meshNode.create).not.toHaveBeenCalled();
     expect(prisma.fixture.create).not.toHaveBeenCalled();
-    expect(mqtt.publishProvisionDevice).toHaveBeenCalledWith({
-      sessionId: ids.sessionId,
-      siteId: ids.siteId,
-      gatewayId: ids.gatewayId,
-      nodeId: ids.nodeId,
-      deviceUuid: "esp32h2-demo-001",
-      meshAddress: "0x0100",
-      requestedAt: expect.any(String)
+    expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        sessionId: ids.sessionId,
+        nodeId: ids.nodeId,
+        topic: `sites/${ids.siteId}/gateways/${ids.gatewayId}/commands/provisioning/provision-device`,
+        payload: expect.objectContaining({
+          sessionId: ids.sessionId,
+          siteId: ids.siteId,
+          gatewayId: ids.gatewayId,
+          nodeId: ids.nodeId,
+          deviceUuid: "esp32h2-demo-001",
+          meshAddress: "0x0100"
+        })
+      })
     });
+    expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
   });
 
   it("completes a registration session only after terminal scan state", async () => {

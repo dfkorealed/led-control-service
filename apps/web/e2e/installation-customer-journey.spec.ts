@@ -87,6 +87,29 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByRole("heading", { name: "조명 등록" })).toBeVisible();
   await lab.attachGatewayPublisher();
 
+  await expect.poll(async () => {
+    const response = await admin.request.get(`/api/sites/${created.siteId}/dashboard`);
+    const dashboard = await response.json() as { gateways: Array<{ connectionStatus: string }> };
+    return dashboard.gateways[0]?.connectionStatus;
+  }).toBe("online");
+  await admin.getByRole("link", { name: "모니터링" }).click();
+  await admin.reload();
+  await expect(admin.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
+  await expect(admin.getByText("게이트웨이 정상")).toBeVisible();
+
+  await admin.getByRole("link", { name: "제어" }).click();
+  await expect(admin.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
+  await expect(admin.getByText("조건에 맞는 조명이 없습니다.")).toBeVisible();
+  await expect(admin.getByText("0개 선택 · 제어 불가 0개")).toBeVisible();
+  await expect(admin.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+
+  await admin.getByRole("link", { name: "통계" }).click();
+  await expect(admin.getByText("조명 상태가 수집되면 통계가 표시됩니다.")).toBeVisible();
+  await expect(admin.getByText("0 kWh", { exact: true })).toHaveCount(0);
+
+  await admin.getByRole("link", { name: "설정" }).click();
+  await expect(admin.getByRole("heading", { name: "조명 등록" })).toBeVisible();
+
   await admin.reload();
   await admin.getByLabel("등록 층").selectOption(installation.floorId);
   await admin.getByLabel("등록 게이트웨이").selectOption(lab.gateway.id);

@@ -14,7 +14,10 @@ import {
   decodeVendorVehicleEvent
 } from "./vehicle-sensor-client";
 import { createVehicleSensorVendorModel } from "./bluez-mesh-model-config";
-import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
+import {
+  TEST_BLUETOOTH_COMPANY_ID,
+  TEST_BLUETOOTH_COMPANY_ID_LE
+} from "../test-fixtures/vehicle-sensor-protocol";
 import { AtomicJsonCommitUncertainError, writeJsonAtomic } from "./mesh-store-file";
 
 const SOURCE_FIXTURE_ID = "00000000-0000-4000-8000-000000000102";
@@ -94,8 +97,8 @@ describe("VehicleSensorClient", () => {
 
     expect(runtimeEvents).toEqual([{ type: "detected", sourceFixtureId: SOURCE_FIXTURE_ID }]);
     expect(sent.slice(-2)).toEqual([
-      { destination: SOURCE_UNICAST, payload: [0xc2, 0xff, 0xff, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00] },
-      { destination: SOURCE_UNICAST, payload: [0xc2, 0xff, 0xff, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00] }
+      { destination: SOURCE_UNICAST, payload: [0xc2, ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00] },
+      { destination: SOURCE_UNICAST, payload: [0xc2, ...TEST_BLUETOOTH_COMPANY_ID_LE, 0x01, 0x07, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00] }
     ]);
   });
 

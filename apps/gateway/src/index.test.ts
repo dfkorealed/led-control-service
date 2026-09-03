@@ -10,6 +10,7 @@ import {
   createDurableAutomationLifecycleHandoff,
   createDurableAutomationTerminalHandoff,
   executeAutomationWithBestEffortTelemetry,
+  gatewayDeferredPubackTopics,
   enqueueAutomationFixtureStates,
   createManualOverrideCoordinator,
   createFixtureStatusPublisher,
@@ -21,6 +22,8 @@ import {
   publishObservedDeviceStates,
   createMqttIdentityActivation,
   connectGatewayServices,
+  drainGatewayProcessShutdown,
+  handleProvisioningDevicePayloadForCurrentScope,
   parseGatewayHeartbeatInterval,
   recordMeshResyncOutcome,
   registerGatewayShutdownHandlers,
@@ -46,6 +49,14 @@ import {
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
 const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
+
+it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
+  expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/dimming`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/provisioning/provision-device`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/automation/config-sync`
+  ]);
+});
 
 it("publishes provisioning completion before isolating capability refresh failure", async () => {
   const command = {
@@ -85,6 +96,54 @@ it("publishes provisioning completion before isolating capability refresh failur
   await vi.waitFor(() => expect(onCapabilityRefreshError).toHaveBeenCalledTimes(1));
   expect(requestCapabilityRefresh).toHaveBeenCalledWith(command.nodeId);
   expect(JSON.stringify(onCapabilityRefreshError.mock.calls)).not.toContain("private config failure");
+});
+
+it.each(["siteId", "gatewayId"] as const)(
+  "rejects a valid provisioning payload with a mismatched %s before journal or RF handling",
+  async (scopeKey) => {
+    const handle = vi.fn();
+    const payload = Buffer.from(JSON.stringify({
+      commandId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      siteId: scopeKey === "siteId" ? "99999999-9999-4999-8999-999999999999" : scopedSiteId,
+      gatewayId: scopeKey === "gatewayId" ? "99999999-9999-4999-8999-999999999999" : scopedGatewayId,
+      nodeId: "44444444-4444-4444-8444-444444444444",
+      deviceUuid: "00112233445566778899aabbccddeeff",
+      meshAddress: "0x0101",
+      requestedAt: "2026-09-03T00:00:00.000Z"
+    }));
+
+    await expect(handleProvisioningDevicePayloadForCurrentScope({
+      payload,
+      scope: { siteId: scopedSiteId, gatewayId: scopedGatewayId },
+      handle
+    })).rejects.toThrow("provisioning device command scope mismatch");
+
+    expect(handle).not.toHaveBeenCalled();
+  }
+);
+
+it("quiesces process MQTT intake before blocking worker drains and stops the client last", async () => {
+  const calls: string[] = [];
+  let releaseDrain!: () => void;
+  const drain = new Promise<void>((resolve) => { releaseDrain = resolve; });
+  const runtime = {
+    quiesceCommandIntake: vi.fn(async () => { calls.push("quiesce"); }),
+    stop: vi.fn(async () => { calls.push("stop"); })
+  };
+  const shutdown = drainGatewayProcessShutdown({
+    runtime,
+    drainBeforeMqttStop: async () => {
+      calls.push("drain");
+      await drain;
+    }
+  });
+
+  await vi.waitFor(() => expect(calls).toEqual(["quiesce", "drain"]));
+  expect(runtime.stop).not.toHaveBeenCalled();
+  releaseDrain();
+  await shutdown;
+  expect(calls).toEqual(["quiesce", "drain", "stop"]);
 });
 
 const assignment = {
@@ -891,6 +950,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
+        "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/state-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/config-applied-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested",

@@ -79,7 +79,17 @@ export interface ScheduleRuntimeOptions {
   onTerminalResults?: (handoff: AutomationTerminalHandoff) => Promise<void>;
   flushTelemetryHandoffs?: () => Promise<void>;
   onError?: (error: unknown) => void;
+  onDiagnostic?: (diagnostic: ManualOverridePrepareDiagnostic) => void;
+  manualOverrideSlowThresholdMs?: number;
   tickIntervalMs?: number;
+}
+
+export interface ManualOverridePrepareDiagnostic {
+  event: "manual_override_prepare_slow";
+  sourceId: string;
+  stage: "waiting_for_serialization" | "checking_clock" | "persisting_state";
+  activationPending: boolean;
+  elapsedMs: number;
 }
 
 interface ComputedDesiredState {
@@ -325,12 +335,26 @@ export class ScheduleRuntime {
   }
 
   prepareManualOverride(input: ManualOverrideInput): Promise<void> {
+    const startedAt = this.monotonicClock();
+    let stage: ManualOverridePrepareDiagnostic["stage"] = "waiting_for_serialization";
+    const slowThresholdMs = this.options.manualOverrideSlowThresholdMs ?? 1_000;
+    const diagnosticTimer = setTimeout(() => {
+      this.options.onDiagnostic?.({
+        event: "manual_override_prepare_slow",
+        sourceId: input.sourceId,
+        stage,
+        activationPending: this.activationCheckpoint !== null,
+        elapsedMs: Math.max(0, Math.floor(this.monotonicClock() - startedAt))
+      });
+    }, slowThresholdMs);
+    diagnosticTimer.unref();
     return this.runExternal(async () => {
       await this.ensureInitialized();
       validateManualOverride(input);
       const wallNow = this.wallClock();
       const monotonicNow = this.monotonicClock();
       const durationMs = Date.parse(input.overrideUntil) - Date.parse(input.startedAt);
+      stage = "checking_clock";
       const trusted = await this.options.clockTrust.isTrusted(wallNow);
       if (!trusted && input.timingSource === "legacy_wire") {
         throw new ScheduleRuntimeError("legacy_timing_unverifiable");
@@ -346,6 +370,7 @@ export class ScheduleRuntime {
           GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS
         );
       if (remainingMs <= 0) throw new ScheduleRuntimeError("manual_override_expired");
+      stage = "persisting_state";
       await this.options.store.updateControlState((state) => {
         for (const fixtureId of input.fixtureIds) {
           const base = captureBase(state, fixtureId);
@@ -377,7 +402,7 @@ export class ScheduleRuntime {
         this.manualCommandsInFlight.add(fixtureId);
         this.manualOverrideDeadlines.set(fixtureId, monotonicNow + remainingMs);
       }
-    });
+    }).finally(() => clearTimeout(diagnosticTimer));
   }
 
   handoffManualTerminal(

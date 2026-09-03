@@ -253,3 +253,31 @@ state-event outbox 상한은 `100,000 events` 또는 `100 MiB` 중 먼저 도달
 - 통계는 fixture별 3,600초와 site coverage 80%를 충족할 때만 월 forecast·실제 월 초 기준 24시간 baseline 절감 비용을 표시한다.
 - 새 summary/series와 deprecated estimate API가 최소 한 배포 병행되고 `EnergyUsage`는 보존된다.
 - 자동 테스트와 실제 HIL 결과가 문서와 상태판에서 구분되어 기록된다.
+
+## 12. 2026-09-03 실장비 엣지 케이스 보강
+
+### 12.1 개별 조명 명령 확인
+
+개별 밝기 제어는 하나의 절대 8초 deadline 안에서 처리한다. Gateway는 acknowledged Light Lightness Set을 보낸 뒤 일치하는 Status가 오지 않으면 같은 TID로 한 번만 재전송하고, 그래도 확인되지 않으면 Light Lightness Get으로 실제 상태를 조회한다. 조회값이 목표와 1% 이내면 성공으로 수렴하고, 다른 값이면 `state_mismatch`, 끝까지 응답이 없으면 `timed_out`과 `verification_required` 오류 코드로 확정한다. 재전송과 조회는 새 TID를 소비하거나 deadline 이후 RF를 시작하지 않는다.
+
+Gateway journal에 `accepted`만 남은 채 재시작된 개별 또는 병렬 unicast 명령은 RF Set을 무조건 재실행하지 않는다. 저장된 대상과 목표 밝기를 Lightness Get으로 조회해 일치하는 대상만 성공으로 확정하고, 불일치·무응답 대상은 `verification_required`로 종료한다. 이미 만료됐거나 Mesh group 명령인 경우에는 기존 보수적 timeout을 유지한다. 이 복구 결과도 기존 device-status와 fixture-state durable 경로를 사용한다.
+
+Web은 `verification_required`를 일반 전송 실패와 구분해 `조명 적용 여부를 확인하지 못했습니다`로 표시하고, 현재 명령 조회 재시도와 모니터링 새로고침 경로를 제공한다. 확인되지 않은 요청 밝기를 현재 조명 상태로 표시하지 않는다.
+
+### 12.2 provisioning 명령과 terminal 영속성
+
+API는 node를 `provisioning`으로 바꾸는 transaction에서 node별 provisioning command outbox를 함께 생성한다. 전용 worker가 lease, bounded backoff와 deadletter를 사용해 QoS 1으로 발행하고, broker PUBACK 뒤 `publishedAt`을 기록한다. 발행 한계 초과는 node를 `reconcile_required`로 전환하되 주소와 pending fixture 정보를 보존한다. 등록 HTTP 요청은 MQTT 연결 여부와 무관하게 DB에 영속 저장된 `accepted` 결과를 반환한다.
+
+Gateway는 provisioning command를 RF 실행 전에 로컬 journal에 저장한다. 같은 session/node/device/address payload의 재전달은 한 번의 물리 provisioning으로 수렴하고, 다른 payload 충돌은 fail-closed한다. 완료 또는 실패 terminal에는 site/gateway, eventId, sequence, session/node/device/address와 발생 시각을 포함한다. terminal은 원자 파일 outbox에 저장한 뒤 발행하며 API의 exact `device-terminal-ingested` application ACK 전까지 재연결·재시작 후 동일 payload로 재발행한다.
+
+API는 terminal event의 topic scope와 payload identity를 검증하고 `ProcessedGatewayEvent`, node/Fixture/mesh group 변경, terminal ACK outbox를 하나의 transaction에 commit한다. 중복 terminal은 기존 결과와 exact identity가 일치할 때 ACK를 다시 살리고, 충돌 payload는 상태를 변경하지 않는다. Gateway는 exact ACK를 받은 뒤에만 terminal journal을 제거한다.
+
+### 12.3 배포와 검증 순서
+
+1. shared provisioning v2 payload/topic과 API migration/outbox worker를 먼저 배포한다.
+2. API가 구형 terminal을 한 배포 동안 읽을 수 있게 유지한 뒤 Gateway journal/ACK 소비를 배포한다.
+3. Gateway의 개별 Lightness 재확인과 재시작 복구를 배포한다.
+4. Web 오류 문구와 복구 행동을 배포한다.
+5. 자동 테스트 후 ESP32-H2를 연결해 Status 유실, Gateway kill/restart, API/MQTT 단절 중 provisioning 완료와 terminal replay HIL을 수행한다.
+
+완료 기준은 같은 TID 재전송·Get 확인이 중복 밝기 적용 없이 성공/불일치/확인 불가를 구분하고, API 또는 Gateway가 provisioning의 각 경계에서 중단돼도 자동 재전달 또는 명시적 `reconcile_required`로 유한 시간 안에 수렴하는 것이다.

@@ -1,0 +1,113 @@
+From: DFKorea LED Control Gateway
+Subject: [PATCH] mesh: fix local PB-ADV and persistent AppKey activation
+
+BlueZ 5.82 routes an AddNode call without a Server option through the
+local Remote Provisioning Server model. On Raspberry Pi this self-routed
+path acknowledges Link Open but never emits the PB-ADV Link Open packet.
+
+The Mesh D-Bus contract says an omitted Server means local provisioning.
+Preserve explicit remote-server behavior while selecting BlueZ's existing
+direct PB-ADV initiator when Server is absent.
+
+Management1.CreateAppKey writes the generated key to the provisioner
+keyring but does not add it to the local node AppKey list. Node1.Send then
+fails with "Key not found", and an in-memory-only activation is lost on
+daemon restart. Add the key through BlueZ's local AppKey path so both the
+runtime list and node storage are updated. Repeated CreateAppKey calls also
+repair keyring-only state left by older releases.
+
+--- a/mesh/manager.c
++++ b/mesh/manager.c
+@@ -25,6 +25,7 @@
+ #include "mesh/node.h"
+ #include "mesh/model.h"
+ #include "mesh/net.h"
++#include "mesh/appkey.h"
+ #include "mesh/keyring.h"
+ #include "mesh/agent.h"
+ #include "mesh/provision.h"
+@@ -422,6 +423,7 @@
+ 	uint16_t subidx;
+ 	uint16_t sec = 60;
+ 	uint16_t server = 0;
++	bool remote_server_requested = false;
+ 
+ 	l_debug("AddNode request");
+ 
+@@ -446,8 +448,10 @@
+ 		} else if (!strcmp(key, "Server")) {
+ 			if (l_dbus_message_iter_get_variant(&var, "q",
+ 								&server)) {
+-				if (server < 0x8000)
++				if (server < 0x8000) {
+ 					failed = false;
++					remote_server_requested = true;
++				}
+ 			}
+ 		} else if (!strcmp(key, "Subnet")) {
+ 			if (l_dbus_message_iter_get_variant(&var, "q",
+@@ -495,7 +499,8 @@
+ 	}
+ 
+ 	prov_pending->msg = l_dbus_message_ref(msg);
+-	initiator_start(PB_ADV, server, subidx, uuid, 99, sec,
++	initiator_start(PB_ADV, remote_server_requested ? server : 0,
++				subidx, uuid, 99, sec,
+ 					prov_pending->agent, add_start,
+ 					add_data_get, add_cmplt, node,
+ 					prov_pending);
+@@ -915,8 +920,12 @@
+ 	if (keyring_get_app_key(node, app_idx, &app_key)) {
+-		/* Allow redundant calls with identical values */
+-		if (!memcmp(app_key.old_key, new_key, 16) &&
+-						app_key.net_idx == net_idx)
++		if (app_key.net_idx != net_idx)
++			return dbus_error(msg, MESH_ERROR_ALREADY_EXISTS, NULL);
++
++		if (appkey_key_add(node_get_net(node), net_idx, app_idx,
++					app_key.old_key) != MESH_STATUS_SUCCESS)
++			return dbus_error(msg, MESH_ERROR_FAILED,
++					"Failed to activate application key");
++
+ 			return l_dbus_message_new_method_return(msg);
+ 
+-		return dbus_error(msg, MESH_ERROR_ALREADY_EXISTS, NULL);
+ 	}
+@@ -929,6 +938,13 @@
+ 	if (!keyring_put_app_key(node, app_idx, net_idx, &app_key))
+ 		return dbus_error(msg, MESH_ERROR_FAILED, NULL);
+ 
++	if (appkey_key_add(node_get_net(node), net_idx, app_idx,
++				app_key.old_key) != MESH_STATUS_SUCCESS) {
++		keyring_del_app_key(node, app_idx);
++		return dbus_error(msg, MESH_ERROR_FAILED,
++					"Failed to activate application key");
++	}
++
+ 	return l_dbus_message_new_method_return(msg);
+ }
+ 
+--- a/mesh/mesh-io-generic.c
++++ b/mesh/mesh-io-generic.c
+@@ -456,17 +456,16 @@ static void send_cancel_done(const void *buf, uint8_t size,
+ 							void *user_data)
+ {
+ 	struct mesh_io_private *pvt = user_data;
+-	struct bt_hci_cmd_le_set_random_address cmd;
+ 
+ 	if (!pvt)
+ 		return;
+ 
+ 	pvt->sending = false;
+ 
+-	/* At end of any burst of ADVs, change random address */
+-	l_getrandom(cmd.addr, 6);
+-	cmd.addr[5] |= 0xc0;
+-	bt_hci_send(pvt->hci, BT_HCI_CMD_LE_SET_RANDOM_ADDRESS,
+-				&cmd, sizeof(cmd), NULL, NULL, NULL);
++	/*
++	 * BCM4345C0 rejects LE Set Random Address while passive scanning remains
++	 * enabled. Keep the static random address selected during configure_hci()
++	 * for this daemon lifetime so advertising bursts can continue reliably.
++	 */
+ }

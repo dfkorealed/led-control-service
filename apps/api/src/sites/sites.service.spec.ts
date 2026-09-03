@@ -145,8 +145,9 @@ describe("SitesService", () => {
         }
       },
       {
-        id: "fixture-2", floorId: "floor-1", name: "L2", x: 30, y: 40, brightness: 0, status: "fault",
-        ratedWatt: "40", rssi: null, hopCount: null, commandSuccessRate: null, lastSeenAt: null, meshNode: null
+        id: "fixture-2", floorId: "floor-1", name: "L2", x: 30, y: 40, brightness: 0, status: "online",
+        ratedWatt: "40", rssi: null, hopCount: null, commandSuccessRate: null, lastSeenAt: null, meshNode: null,
+        healthFaultCodes: [1], healthLastSeenAt: new Date("2026-07-01T00:00:02.000Z")
       }
     ]);
 
@@ -174,6 +175,7 @@ describe("SitesService", () => {
     expect(dashboard.summary.totalFixtures).toBe(2);
     expect(dashboard.summary.onlineFixtures).toBe(1);
     expect(dashboard.summary.faultFixtures).toBe(1);
+    expect(dashboard.floors[0].fixtures[1].status).toBe("fault");
     expect(dashboard.floors[0].fixtures[0].brightness).toBe(70);
     expect(dashboard.floors[0].fixtures[0].rssi).toBe(-58);
     expect(dashboard.floors[0].fixtures[0]).toMatchObject({

@@ -7,6 +7,7 @@ class FakeMqttClient extends EventEmitter {
   handleMessage = vi.fn((_packet: unknown, callback: (error?: Error) => void) => callback());
   readonly end = vi.fn((_force?: boolean, callback?: (error?: Error) => void) => callback?.());
   readonly publish = vi.fn((_topic: string, _payload: string, _options?: unknown, callback?: (error?: Error) => void) => callback?.());
+  readonly unsubscribe = vi.fn((_topics: string | string[], callback?: (error?: Error) => void) => callback?.());
   readonly reconnect = vi.fn();
 }
 
@@ -270,17 +271,20 @@ describe("GatewayMqttRuntime", () => {
     await runtime.stop();
   });
 
-  it("leaves existing command PUBACK behavior immediate", async () => {
+  it("releases dimming PUBACK at the handler's durable boundary while execution continues", async () => {
     const client = new FakeMqttClient();
     let release!: () => void;
-    const handler = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));
+    const handler = vi.fn((_payload, _source, _packet, control) => {
+      control.acknowledgeDurable();
+      return new Promise<void>((resolve) => { release = resolve; });
+    });
     const runtime = new GatewayMqttRuntime({
       client: client as never,
       heartbeatMs: 1_000,
       subscribe: vi.fn(),
       publishHeartbeat: vi.fn(),
       topicHandlers: { "commands/dimming": handler },
-      deferredPubackTopics: ["commands/automation/config-sync"],
+      deferredPubackTopics: ["commands/automation/config-sync", "commands/dimming"],
       onMessageError: vi.fn()
     });
     runtime.start();
@@ -295,9 +299,48 @@ describe("GatewayMqttRuntime", () => {
     client.emit("message", "commands/dimming", Buffer.from("{}"), packet);
     client.handleMessage(packet, puback);
 
-    expect(puback).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith(Buffer.from("{}"), client, packet);
+    await vi.waitFor(() => expect(puback).toHaveBeenCalledTimes(1));
+    expect(handler).toHaveBeenCalledWith(
+      Buffer.from("{}"),
+      client,
+      packet,
+      expect.objectContaining({ acknowledgeDurable: expect.any(Function) })
+    );
     release();
+    await runtime.stop();
+  });
+
+  it("releases provisioning PUBACK after durable accept while RF execution continues", async () => {
+    const client = new FakeMqttClient();
+    let releaseRf!: () => void;
+    const handler = vi.fn((_payload, _source, _packet, control) => {
+      control.acknowledgeDurable();
+      return new Promise<void>((resolve) => { releaseRf = resolve; });
+    });
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: { "commands/provisioning/provision-device": handler },
+      deferredPubackTopics: ["commands/provisioning/provision-device"],
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+    const packet = { qos: 1 } as never;
+    const puback = vi.fn();
+
+    client.emit("message", "commands/provisioning/provision-device", Buffer.from("{}"), packet);
+    client.handleMessage(packet, puback);
+
+    await vi.waitFor(() => expect(puback).toHaveBeenCalledTimes(1));
+    expect(handler).toHaveBeenCalledWith(
+      Buffer.from("{}"),
+      client,
+      packet,
+      expect.objectContaining({ acknowledgeDurable: expect.any(Function) })
+    );
+    releaseRf();
     await runtime.stop();
   });
 
@@ -350,6 +393,33 @@ describe("GatewayMqttRuntime", () => {
     release();
     await stopping;
     expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("quiesces command intake without closing the client needed by process drains", async () => {
+    const client = new FakeMqttClient();
+    const handler = vi.fn();
+    const acknowledgement = vi.fn();
+    const commandTopic = "commands/provisioning/provision-device";
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: { [commandTopic]: handler, "acks/provisioning/device-terminal-ingested": acknowledgement },
+      commandTopics: [commandTopic],
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+
+    await runtime.quiesceCommandIntake();
+    client.emit("message", commandTopic, Buffer.from("{}"));
+    client.emit("message", "acks/provisioning/device-terminal-ingested", Buffer.from("{}"));
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(acknowledgement).toHaveBeenCalledTimes(1);
+    expect(client.unsubscribe).toHaveBeenCalledWith([commandTopic], expect.any(Function));
+    expect(client.end).not.toHaveBeenCalled();
+    await runtime.stop();
   });
 
   it("reports an MQTT client shutdown failure to its caller", async () => {

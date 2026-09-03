@@ -5,34 +5,48 @@ ARG BLUEZ_VERSION=5.82
 ARG BLUEZ_SHA256=0739fa608a837967ee6d5572b43fb89946a938d1c6c26127158aaefd743a790b
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential ca-certificates curl libdbus-1-dev libell-dev libglib2.0-dev libjson-c-dev \
-      libreadline-dev pkg-config xz-utils \
+      build-essential ca-certificates curl libbluetooth-dev libdbus-1-dev libell-dev libglib2.0-dev libjson-c-dev \
+      libreadline-dev patch pkg-config xz-utils \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
+COPY apps/gateway/docker/patches/bluez-5.82-local-add-node-pb-adv.patch /tmp/
 RUN curl -fsSLO "https://www.kernel.org/pub/linux/bluetooth/bluez-${BLUEZ_VERSION}.tar.xz" \
     && echo "${BLUEZ_SHA256}  bluez-${BLUEZ_VERSION}.tar.xz" | sha256sum -c - \
     && tar -xf "bluez-${BLUEZ_VERSION}.tar.xz" \
     && cd "bluez-${BLUEZ_VERSION}" \
+    && patch -p1 < /tmp/bluez-5.82-local-add-node-pb-adv.patch \
     && ./configure --enable-mesh --disable-obex --disable-udev --disable-cups \
       --disable-monitor --disable-client --disable-datafiles \
       --disable-systemd --disable-manpages \
-    && make -j"$(nproc)" mesh/bluetooth-meshd tools/btmgmt
+    && make -j"$(nproc)" mesh/bluetooth-meshd
+
+FROM debian:bookworm-slim AS btmgmt-builder
+RUN apt-get update && apt-get install -y --no-install-recommends bluez \
+    && rm -rf /var/lib/apt/lists/*
 
 FROM node:22-bookworm-slim AS app-builder
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends procps \
+    && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/gateway/package.json apps/gateway/package.json
+COPY packages/automation-engine/package.json packages/automation-engine/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --frozen-lockfile --filter @led-control/gateway...
 COPY apps/gateway/src apps/gateway/src
 COPY apps/gateway/scripts apps/gateway/scripts
 COPY apps/gateway/tsconfig.json apps/gateway/tsconfig.json
+COPY packages/automation-engine/src packages/automation-engine/src
+COPY packages/automation-engine/tsconfig.json packages/automation-engine/tsconfig.json
 COPY packages/shared/src packages/shared/src
+COPY packages/shared/scripts packages/shared/scripts
 COPY packages/shared/tsconfig.json packages/shared/tsconfig.json
+COPY packages/shared/tsconfig.esm.json packages/shared/tsconfig.esm.json
 RUN pnpm --filter @led-control/shared build \
+    && pnpm --filter @led-control/automation-engine build \
     && pnpm --filter @led-control/gateway exec esbuild src/index.ts \
       --bundle --platform=node --format=esm --target=node22 --packages=external \
       --outfile=/tmp/gateway.mjs \
@@ -53,7 +67,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --system --gid gateway --home-dir /var/lib/led-control --shell /usr/sbin/nologin gateway
 
 COPY --from=bluez-builder /src/bluez-5.82/mesh/bluetooth-meshd /usr/local/sbin/bluetooth-meshd
-COPY --from=bluez-builder /src/bluez-5.82/tools/btmgmt /usr/local/bin/btmgmt
+COPY --from=btmgmt-builder /usr/bin/btmgmt /usr/local/bin/btmgmt
 COPY --from=app-builder /tmp/gateway.mjs /opt/led-control/gateway.mjs
 COPY --from=app-builder /tmp/manufacturing-enroll.mjs /usr/local/bin/manufacturing-enroll.mjs
 COPY --from=app-builder /tmp/gateway-runtime/node_modules /opt/led-control/node_modules

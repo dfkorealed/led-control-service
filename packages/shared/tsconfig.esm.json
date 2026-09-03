@@ -5,6 +5,6 @@
     "rootDir": "src",
     "outDir": "dist/esm"
   },
-  "include": ["src/automation-action-result-contracts.ts"],
+  "include": ["src/automation-action-result-contracts.ts", "src/dimming-command.ts"],
   "exclude": []
 }

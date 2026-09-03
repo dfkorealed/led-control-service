@@ -128,6 +128,9 @@ export class BluezDbusApplication extends EventEmitter {
 
   async start() {
     if (this.started) return;
+    if (this.options.companyId === 0xffff) {
+      throw new Error("bluetooth_company_id_reserved_for_sig_models");
+    }
     const application = {
       CompanyID: this.options.companyId,
       ProductID: 0x0001,

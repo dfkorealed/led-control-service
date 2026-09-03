@@ -1064,6 +1064,7 @@ model ProvisioningSession {
   user               User                      @relation(fields: [requestedBy], references: [id])
   discoveredNodes    DiscoveredMeshNode[]
   scanOutbox         ProvisioningScanOutbox[]
+  deviceOutbox       ProvisioningDeviceOutbox[]
   startedAt          DateTime                  @default(now())
   completedAt        DateTime?
   createdAt          DateTime                  @default(now())
@@ -1094,6 +1095,30 @@ model ProvisioningScanOutbox {
   @@unique([sessionId, scanAttempt])
 }
 
+model ProvisioningDeviceOutbox {
+  id             String              @id @default(uuid())
+  sessionId      String
+  nodeId         String
+  topic          String
+  payload        Json
+  attempts       Int                 @default(0)
+  nextAttemptAt  DateTime            @default(now())
+  publishedAt    DateTime?
+  lockedBy       String?
+  lockedAt       DateTime?
+  leaseExpiresAt DateTime?
+  deadLetteredAt DateTime?
+  lastError      String?
+  session        ProvisioningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  node           DiscoveredMeshNode  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
+  @@index([sessionId])
+  @@index([nodeId])
+}
+
 model DiscoveredMeshNode {
   id                 String               @id @default(uuid())
   sessionId          String
@@ -1114,6 +1139,7 @@ model DiscoveredMeshNode {
   pendingRatedWatt   Decimal?             @db.Decimal(8, 2)
   errorMessage       String?
   session            ProvisioningSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  deviceOutbox       ProvisioningDeviceOutbox[]
   discoveredAt       DateTime             @default(now())
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt

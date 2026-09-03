@@ -164,7 +164,7 @@ test.beforeEach(async ({ page }) => {
         to: params.get("to"),
         points: granularity === "day"
           ? [{ source: "state_based_estimate", period: "2026-08-26", estimatedKwh: 3.36, estimatedCost: 538, knownSeconds: 43200, unknownSeconds: 0, dataStatus: "available" }]
-          : [{ source: "state_based_estimate", period: "2026-08-01", estimatedKwh: 100.8, estimatedCost: 16128, knownSeconds: 2073600, unknownSeconds: 0, dataStatus: "available" }]
+          : [{ source: "state_based_estimate", period: "2026-08", estimatedKwh: 100.8, estimatedCost: 16128, knownSeconds: 2073600, unknownSeconds: 0, dataStatus: "available" }]
       })
     });
   });

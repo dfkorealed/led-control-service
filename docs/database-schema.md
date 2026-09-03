@@ -15,7 +15,7 @@
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
-- 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `DiscoveredMeshNode`
+- 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `ProvisioningDeviceOutbox`, `DiscoveredMeshNode`
 
 간단한 관계 흐름은 다음과 같다.
 
@@ -44,7 +44,8 @@ Organization
       ├─ Command ─ CommandDispatch ─ MqttOutbox
       │         └─ ManualOverride ─ ManualOverrideFixture
       └─ ProvisioningSession ─ ProvisioningScanOutbox
-                             └─ DiscoveredMeshNode
+                             ├─ ProvisioningDeviceOutbox
+                             └─ DiscoveredMeshNode ─ ProvisioningDeviceOutbox
 SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 ```
 
@@ -1208,6 +1209,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - `user`: `User`
 - `discoveredNodes`: `DiscoveredMeshNode[]`
 - `scanOutbox`: `ProvisioningScanOutbox[]`
+- `deviceOutbox`: `ProvisioningDeviceOutbox[]`
 
 등록 시작 계약:
 
@@ -1216,6 +1218,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - `20260826150000_add_provisioning_scan_outbox` migration은 foundation migration이 남긴 모든 historical `pending/scanning` session을 `failed` (`legacy_scan_closed`) terminal state로 먼저 수렴시킨 뒤 active-only partial unique index를 만든다. 당시에는 durable scan-start outbox가 없었으므로 과거 active session도 재발행하지 않고 종료하는 fail-closed migration 정책이다.
 - publisher는 leased outbox를 처리할 때만 `pending -> scanning`으로 전이한 뒤 strict v2 scan-start payload를 발행한다. MQTT callback timeout은 기본 10초(`PROVISIONING_SCAN_OUTBOX_PUBLISH_TIMEOUT_MS`)로 30초 lease보다 짧아야 하며, timeout/reject는 attempt backoff로 기록한다. publish 전 process crash는 lease 만료 뒤 같은 correlation/attempt로 재시도하며, 최대 3회 또는 5분 실패는 outbox dead-letter와 `scan_start_publish_failed` terminal state를 같은 transaction에서 기록한다.
 - found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다. `ProcessedGatewayEvent`의 eventId 및 gateway/sequence/eventType 원장은 같은 transaction에서 중복·낮은 sequence를 차단한다. completed/failed는 원장 생성과 `ProvisioningSession` terminal 변경 transaction이 commit된 뒤에만 scan-terminal application ACK를 발행한다. 동일 terminal event가 재전달되면 exact 원장과 terminal snapshot을 다시 확인해 ACK를 재발행한다.
+- 등록 batch는 node를 `provisioning`으로 바꾸고 command ID, session/site/gateway/node/device/address identity를 가진 `ProvisioningDeviceOutbox` row를 같은 transaction에서 만든다. HTTP `accepted`는 broker 연결이나 PUBACK이 아니라 이 durable transaction의 commit을 뜻한다.
 
 ### ProvisioningScanOutbox
 
@@ -1233,6 +1236,30 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `lockedBy`, `lockedAt`, `leaseExpiresAt` | nullable | 아니오 | worker lease | crash 후 다른 worker의 reclaim 경계 |
 | `publishedAt`, `deadLetteredAt` | nullable | 아니오 | terminal marker | 성공 publish 또는 재시도 포기 시각 |
 | `lastError` | `String?` | 아니오 |  | 내부 publisher 오류. 사용자 API 응답에 그대로 노출하지 않음 |
+
+### ProvisioningDeviceOutbox
+
+node별 `provision-device` command의 durable transactional outbox다. 등록 API의 node 상태·Mesh 주소·pending Fixture 정보와 같은 transaction에서 생성되며, 기존 command/scan outbox와 독립적으로 lease를 관리한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, command UUID | outbox와 strict command가 공유하는 identity |
+| `sessionId` | `String` | 예 | FK -> `ProvisioningSession.id`, delete cascade | 등록 세션 |
+| `nodeId` | `String` | 예 | FK -> `DiscoveredMeshNode.id`, delete cascade | 등록 대상 node |
+| `topic` | `String` | 예 |  | gateway-scoped `provision-device` topic |
+| `payload` | `Json` | 예 |  | command/session/site/gateway/node/device/address/requestedAt strict payload |
+| `attempts` | `Int` | 예 | `0` | publisher MQTT 실패 횟수 |
+| `nextAttemptAt` | `DateTime` | 예 | `now()` | retry 가능 시각 |
+| `lockedBy`, `lockedAt`, `leaseExpiresAt` | nullable | 아니오 | worker lease | `SKIP LOCKED` claim과 crash reclaim 경계 |
+| `publishedAt`, `deadLetteredAt` | nullable | 아니오 | terminal marker | broker PUBACK 또는 재시도 포기 시각 |
+| `lastError` | `String?` | 아니오 |  | 내부 publisher 오류. 사용자 응답에는 고정 문구만 사용 |
+
+운영 계약:
+
+- `20260905090000_add_provisioning_device_outbox` migration만 새로 추가하며 이전 migration은 변경하지 않는다.
+- worker는 30초 lease보다 짧은 기본 10초 publish timeout, 최대 10회 또는 15분, 최대 60초 exponential backoff를 사용한다. outbox ID/session/node/topic과 payload identity, 잠근 node의 현재 session/site/gateway/device/address/status를 모두 확인한 뒤 QoS 1 발행을 시작한다.
+- broker PUBACK 뒤에만 `publishedAt`을 기록한다. 한계를 넘으면 outbox deadletter와 node의 `reconcile_required` 전이를 한 transaction에 기록하며 Mesh 주소와 pending Fixture 정보는 변경하지 않는다.
+- 한 node의 과거 published/deadletter 원장을 보존한 채 후속 명시적 재조정 command를 만들 수 있도록 `nodeId`는 unique가 아니라 일반 index다.
 
 ### DiscoveredMeshNode
 
@@ -1278,6 +1305,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 관계:
 
 - `session`: `ProvisioningSession`
+- `deviceOutbox`: `ProvisioningDeviceOutbox[]`
 
 ### EnergyUsage
 

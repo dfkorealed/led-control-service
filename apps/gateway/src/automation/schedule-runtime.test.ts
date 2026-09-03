@@ -1268,6 +1268,40 @@ describe("ScheduleRuntime", () => {
     expect(test.runtime.currentSnapshot?.schedules[0]?.status).toBe("enabled");
   });
 
+  it("reports where a manual override is waiting when config activation does not settle", async () => {
+    vi.useFakeTimers();
+    const directory = await mkdtemp(join(tmpdir(), "manual-override-diagnostic-"));
+    directories.push(directory);
+    const onDiagnostic = vi.fn();
+    const runtime = new ScheduleRuntime({
+      store: new FileAutomationStateStore(join(directory, "state.json")),
+      wallClock: () => new Date("2026-08-30T01:30:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute: executeSuccessfully,
+      onDiagnostic,
+      manualOverrideSlowThresholdMs: 1_000
+    });
+    await runtime.initialize();
+    await runtime.recordFixtureState(fixtureId, 20);
+    await runtime.recompute(snapshot({}));
+
+    const preparing = runtime.prepareManualOverride(
+      manualOverride(60, "2026-08-30T02:10:00.000Z")
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+      event: "manual_override_prepare_slow",
+      stage: "waiting_for_serialization",
+      activationPending: true
+    }));
+
+    await runtime.rollbackActivation();
+    await preparing;
+    vi.useRealTimers();
+  });
+
   it("recovers a persisted UTC vehicle expiry into a new process monotonic deadline", async () => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     const rules = snapshot({ vehicleEventRules: [vehicleRule(80, 60)] });

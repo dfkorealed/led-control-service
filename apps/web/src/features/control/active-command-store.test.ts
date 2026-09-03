@@ -53,6 +53,17 @@ describe("active command store", () => {
     });
   });
 
+  it("preserves overrideUntil so response-loss recovery replays the identical command fingerprint", () => {
+    const request = { ...REQUEST, overrideUntil: "2026-09-03T01:30:00.000Z" };
+
+    saveActiveCommandRequest(USER_A, REQUEST.siteId, request);
+
+    expect(loadActiveCommandRequest(USER_A, REQUEST.siteId)).toEqual({
+      ...request,
+      target: { type: "fixtures", fixtureIds: [...REQUEST.target.fixtureIds].sort() }
+    });
+  });
+
   it("rejects a request whose payload site does not match its storage scope", () => {
     saveActiveCommandRequest(USER_A, "site-a", REQUEST);
 

@@ -46,7 +46,55 @@ done
   exit 1
 }
 
-bluetooth-meshd --nodetach --storage /var/lib/bluetooth/mesh &
+BLUEZ_DEBUG_ARGS=""
+if [ "${GATEWAY_BLUEZ_DEBUG:-0}" = "1" ]; then
+  BLUEZ_DEBUG_ARGS="--debug --dbus-debug"
+fi
+
+# The appliance owns a dedicated controller. Raw HCI avoids kernel MGMT Mesh
+# transmit failures observed on Raspberry Pi while keeping an explicit `auto`
+# escape hatch for diagnostics.
+BLUEZ_IO="${GATEWAY_BLUEZ_IO:-generic:hci0}"
+BLUEZ_IO_ARGS=""
+if [ "$BLUEZ_IO" != "auto" ]; then
+  printf '%s\n' "$BLUEZ_IO" | grep -Eq '^generic:hci[0-9]+$' || {
+    echo "GATEWAY_BLUEZ_IO must be auto or generic:hciN" >&2
+    exit 1
+  }
+  BLUEZ_IO_ARGS="--io $BLUEZ_IO"
+  HCI_INDEX="${BLUEZ_IO#generic:hci}"
+
+  # Raw HCI requires an unpowered controller when bluetooth-meshd takes
+  # ownership. A previous container may leave it powered during a redeploy.
+  BTMGMT_OUTPUT=$(mktemp)
+  set +e
+  timeout "${GATEWAY_HCI_RESET_TIMEOUT_SECONDS:-5}" \
+    btmgmt --index "$HCI_INDEX" power off >"$BTMGMT_OUTPUT" 2>&1
+  BTMGMT_STATUS=$?
+  set -e
+  case "$BTMGMT_STATUS" in
+    0) ;;
+    124)
+      grep -q 'Set Powered complete' "$BTMGMT_OUTPUT" || {
+        cat "$BTMGMT_OUTPUT" >&2
+        rm -f "$BTMGMT_OUTPUT"
+        echo "Timed out before hci$HCI_INDEX powered off" >&2
+        exit 1
+      }
+      ;;
+    *)
+      cat "$BTMGMT_OUTPUT" >&2
+      rm -f "$BTMGMT_OUTPUT"
+      echo "Failed to power off hci$HCI_INDEX" >&2
+      exit "$BTMGMT_STATUS"
+      ;;
+  esac
+  rm -f "$BTMGMT_OUTPUT"
+fi
+
+# BLUEZ arguments contain only the validated/fixed switches above and are intentionally split.
+# shellcheck disable=SC2086
+bluetooth-meshd --nodetach --storage /var/lib/bluetooth/mesh $BLUEZ_IO_ARGS $BLUEZ_DEBUG_ARGS &
 MESH_PID=$!
 
 attempt=0

@@ -33,7 +33,7 @@ export type VehicleSensorVendorModel = typeof VEHICLE_SENSOR_VENDOR_MODEL & {
 };
 
 export function createVehicleSensorVendorModel(companyId: number): VehicleSensorVendorModel {
-  if (!Number.isInteger(companyId) || companyId < 0 || companyId > 0xffff) {
+  if (!Number.isInteger(companyId) || companyId < 0 || companyId >= 0xffff) {
     throw new Error("invalid_bluetooth_company_id");
   }
   return {

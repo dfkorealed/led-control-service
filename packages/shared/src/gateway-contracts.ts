@@ -16,12 +16,16 @@ export const mqttTopicsV2 = {
     `sites/${siteId}/gateways/${gatewayId}/acks/state-ingested`,
   provisioningScanTerminalIngestedAck: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
+  provisioningDeviceTerminalIngestedAck: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/device-terminal-ingested`,
   provisioningScanFound: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-found`,
   provisioningScanCompleted: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`,
   provisioningScanFailed: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-failed`,
+  provisioningDeviceTerminal: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/provisioning/device-terminal`,
   fixtureState: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/fixtures`,
   heartbeat: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/heartbeat`,
   meshGroupResyncRequest: (siteId: string, gatewayId: string) =>

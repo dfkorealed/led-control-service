@@ -21,6 +21,13 @@
       "require": "./dist/automation-action-result-contracts.js",
       "import": "./dist/esm/automation-action-result-contracts.js",
       "default": "./dist/automation-action-result-contracts.js"
+    },
+    "./dimming-command": {
+      "types": "./dist/esm/dimming-command.d.ts",
+      "browser": "./dist/esm/dimming-command.js",
+      "require": "./dist/dimming-command.js",
+      "import": "./dist/esm/dimming-command.js",
+      "default": "./dist/dimming-command.js"
     }
   },
   "scripts": {

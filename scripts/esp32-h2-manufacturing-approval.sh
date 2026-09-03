@@ -95,6 +95,7 @@ verify_approval() {
   if ! [[ "$company_id" =~ ^[0-9]+$ ]] ||
       [ "$company_id" -le 0 ] ||
       [ "$company_id" -ge 65535 ] ||
+      [ "$company_id" -eq 65534 ] ||
       [ "$company_id" -eq 741 ]; then
     echo "manufacturing approval has an invalid Company ID" >&2
     exit 1

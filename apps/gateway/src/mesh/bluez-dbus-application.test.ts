@@ -22,6 +22,14 @@ class FakeExportBus implements DbusExportBus {
 }
 
 describe("BluezDbusApplication", () => {
+  it("SIG model marker 0xFFFF를 vendor Company ID로 export하지 않는다", async () => {
+    const bus = new FakeExportBus();
+    const application = new BluezDbusApplication(bus, async () => [0, 0x0100], { companyId: 0xffff });
+
+    await expect(application.start()).rejects.toThrow("bluetooth_company_id_reserved_for_sig_models");
+    expect(bus.exports.size).toBe(0);
+  });
+
   it("BlueZ가 요구하는 application hierarchy와 정확한 callback signature를 export한다", async () => {
     const bus = new FakeExportBus();
     const application = new BluezDbusApplication(bus, async () => [0, 0x0100], OPTIONS);

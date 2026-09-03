@@ -22,7 +22,7 @@ cat >"$FIXTURE_ROOT/idf/export.sh" <<'EOF'
 idf.py() {
   printf '%s\n' "$*" >>"$ESP32_H2_BUILD_GATE_CALLS"
   if [[ "$*" == *"set-target esp32h2" ]]; then
-    cp sdkconfig.build-gate sdkconfig
+    sed -E 's/^CONFIG_([A-Z0-9_]+)=n$/# CONFIG_\1 is not set/' sdkconfig.build-gate >sdkconfig
     cat sdkconfig.defaults >>sdkconfig
   elif [ "$*" = "build" ]; then
     mkdir -p build/bootloader build/partition_table
@@ -158,6 +158,38 @@ grep -Eq '^esp_idf_patch_sha256=[0-9a-f]{64}$' "$FIXTURE_ROOT/build-workdir/buil
 grep -Eq '^esp_idf_patch_identity_sha256=[0-9a-f]{64}$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
 grep -q 'ESP-IDF v5.5.1' "$FIXTURE_ROOT/test-build.out"
 grep -q "must not be flashed for HIL or production" "$FIXTURE_ROOT/test-build.out"
+
+run_build --lab-hil-build >"$FIXTURE_ROOT/lab-hil-build.out" 2>&1
+grep -q '^CONFIG_LED_CONTROL_TEST_BUILD=n$' "$FIXTURE_ROOT/build-workdir/sdkconfig.build-gate"
+grep -q '^CONFIG_LED_CONTROL_LAB_HIL_BUILD=y$' "$FIXTURE_ROOT/build-workdir/sdkconfig.build-gate"
+grep -q '^CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID=65534$' "$FIXTURE_ROOT/build-workdir/sdkconfig.build-gate"
+grep -q '^schema=led-control-lab-hil-artifact-v1$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -q '^mode=lab-hil$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -q '^company_id=65534$' "$FIXTURE_ROOT/build-workdir/build/led-control-artifact.manifest"
+grep -q "LAB HIL ONLY: non-production RFU Company ID 0xFFFE" "$FIXTURE_ROOT/lab-hil-build.out"
+
+if env \
+  IDF_PATH="$FIXTURE_ROOT/idf" \
+  ESP32_H2_BUILD_WORKDIR="$FIXTURE_ROOT/build-workdir" \
+  ESP32_H2_BUILD_GATE_CALLS="$FIXTURE_ROOT/idf-calls" \
+  "$REPO_ROOT/scripts/esp32-h2-flash.sh" /dev/null >"$FIXTURE_ROOT/flash-lab-as-production.out" 2>&1; then
+  echo "production flash unexpectedly accepted a Lab HIL build" >&2
+  exit 1
+fi
+grep -q "Refusing to flash a Lab HIL build" "$FIXTURE_ROOT/flash-lab-as-production.out"
+
+if ! env \
+  PATH="$FIXTURE_ROOT/bin:$PATH" \
+  IDF_PATH="$FIXTURE_ROOT/idf" \
+  ESP32_H2_BUILD_WORKDIR="$FIXTURE_ROOT/build-workdir" \
+  ESP32_H2_BUILD_GATE_CALLS="$FIXTURE_ROOT/idf-calls" \
+  "$REPO_ROOT/scripts/esp32-h2-lab-hil-flash.sh" /dev/null >"$FIXTURE_ROOT/flash-lab-hil.out" 2>&1; then
+  cat "$FIXTURE_ROOT/flash-lab-hil.out" >&2
+  exit 1
+fi
+grep -q '^verify-lab-hil ' "$FIXTURE_ROOT/flash-lab-hil.out"
+grep -q 'flash monitor' "$FIXTURE_ROOT/idf-calls"
+run_build --test-build >"$FIXTURE_ROOT/test-build-restored.out" 2>&1
 
 CALLS_BEFORE_WRONG_SOURCE="$(wc -l <"$FIXTURE_ROOT/idf-calls" | tr -d ' ')"
 printf '\nwrong source\n' >>"$FIXTURE_ROOT/idf/$BTC_TASK_PATH"

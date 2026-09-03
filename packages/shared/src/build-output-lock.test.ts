@@ -681,7 +681,10 @@ describe("shared build output lock", () => {
 
   it("retries publishing after another contender cleans its just-created temp directory", async () => {
     const root = await createRoot();
-    let tempCreated = false;
+    let markTempCreated: (() => void) | undefined;
+    const tempCreated = new Promise<void>((resolve) => {
+      markTempCreated = resolve;
+    });
     let resumeFirstAttempt: (() => void) | undefined;
     const firstAttemptCanContinue = new Promise<void>((resolve) => {
       resumeFirstAttempt = resolve;
@@ -693,14 +696,13 @@ describe("shared build output lock", () => {
       "token-a",
       {
         afterTemporaryDirectoryCreated: async () => {
-          tempCreated = true;
+          markTempCreated?.();
           await firstAttemptCanContinue;
         }
       }
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(tempCreated).toBe(true);
+    await tempCreated;
 
     const secondRelease = await acquire(root, { pid: 202, processStartIdentity: "boot-b" }, new Map(), "token-b");
     await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b" });

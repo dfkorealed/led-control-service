@@ -126,6 +126,18 @@ const rootRequireSmoke = requireSmoke.replace(
   "@led-control/shared/automation-contracts",
   "@led-control/shared"
 );
+const dimmingCommandImportSmoke = `
+  const { createDimmingCommandSchema: schema } = await import("@led-control/shared/dimming-command");
+  const result = schema.safeParse({
+    siteId: "00000000-0000-4000-8000-000000000001",
+    clientRequestId: "00000000-0000-4000-8000-000000000002",
+    target: { type: "fixture", fixtureId: "00000000-0000-4000-8000-000000000003" },
+    brightness: 60
+  });
+  if (!result.success) process.exit(1);
+`;
+const dimmingCommandRequireSmoke = dimmingCommandImportSmoke
+  .replace('await import("@led-control/shared/dimming-command")', 'require("@led-control/shared/dimming-command")');
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) =>
@@ -166,6 +178,8 @@ describe("shared package exports", () => {
     const { stdout: archiveList } = await execFile("tar", ["-tzf", archivePath!]);
     expect(archiveList).toContain("package/dist/esm/automation-action-result-contracts.js");
     expect(archiveList).toContain("package/dist/esm/automation-action-result-contracts.d.ts");
+    expect(archiveList).toContain("package/dist/esm/dimming-command.js");
+    expect(archiveList).toContain("package/dist/esm/dimming-command.d.ts");
     expect(archiveList).toContain("package/dist/esm/package.json");
 
     await execFile("tar", [
@@ -204,6 +218,11 @@ describe("shared package exports", () => {
     expect([automationExports.browser, automationExports.import]).not.toContainEqual(
       expect.stringMatching(/\.ts$/)
     );
+    const dimmingCommandExports = packageJson.exports["./dimming-command"];
+    expect(dimmingCommandExports.browser).toBe("./dist/esm/dimming-command.js");
+    expect(dimmingCommandExports.import).toBe("./dist/esm/dimming-command.js");
+    expect(dimmingCommandExports.require).toBe("./dist/dimming-command.js");
+    expect(dimmingCommandExports.types).toBe("./dist/esm/dimming-command.d.ts");
 
     await expect(execFile(process.execPath, ["--input-type=module", "--eval", importSmoke], {
       cwd: consumerDirectory
@@ -215,6 +234,12 @@ describe("shared package exports", () => {
       cwd: consumerDirectory
     })).resolves.toMatchObject({ stderr: "" });
     await expect(execFile(process.execPath, ["--eval", rootRequireSmoke], {
+      cwd: consumerDirectory
+    })).resolves.toMatchObject({ stderr: "" });
+    await expect(execFile(process.execPath, ["--input-type=module", "--eval", dimmingCommandImportSmoke], {
+      cwd: consumerDirectory
+    })).resolves.toMatchObject({ stderr: "" });
+    await expect(execFile(process.execPath, ["--eval", dimmingCommandRequireSmoke], {
       cwd: consumerDirectory
     })).resolves.toMatchObject({ stderr: "" });
   }, 30_000);

@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BluezMeshAdapter } from "./bluez-mesh-adapter";
-import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
+import {
+  TEST_BLUETOOTH_COMPANY_ID,
+  TEST_BLUETOOTH_COMPANY_ID_LE
+} from "../test-fixtures/vehicle-sensor-protocol";
 
 function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?: number; now?: () => number } = {}) {
   const application = new EventEmitter();
@@ -27,6 +30,7 @@ function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?:
     listConfirmed: vi.fn(async () => [{ fixtureId: "fixture-1", primaryUnicast: 0x0100, elementCount: 1, status: "confirmed" as const }])
   };
   const config = {
+    prepareLocalNode: vi.fn(async () => undefined),
     configureNode: vi.fn(async () => ({ compositionPage: 0 })),
     addModelSubscription: vi.fn(async () => ({ elementAddress: 0x0100, groupAddress: 0xc000, modelId: 0x1300 })),
     removeModelSubscription: vi.fn(async () => ({ elementAddress: 0x0100, groupAddress: 0xc000, modelId: 0x1300 }))
@@ -600,31 +604,29 @@ describe("BluezMeshAdapter", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("reapplies confirmed-node configuration before querying actual status without declaring a missing reply offline", async () => {
+  it("queries confirmed-node status without replaying provisioning configuration", async () => {
     const f = fixture();
     await f.adapter.resyncFixtureStates();
-    expect(f.config.configureNode).toHaveBeenCalledWith({ unicast: 0x0100, elementCount: 1 });
+    expect(f.config.prepareLocalNode).toHaveBeenCalledTimes(1);
+    expect(f.config.configureNode).not.toHaveBeenCalled();
     expect(f.transport.calls.filter((call) => call.method === "Send")).toHaveLength(3);
     expect(f.transport.calls.filter((call) => call.method === "Send").map((call) => call.args[4])).toEqual([
-      [0x82, 0x01], [0x82, 0x4b], [0x80, 0x31, 0xff, 0xff]
+      [0x82, 0x01], [0x82, 0x4b], [0x80, 0x31, ...TEST_BLUETOOTH_COMPANY_ID_LE]
     ]);
   });
 
-  it("isolates one fixture configuration failure while other lighting observations complete", async () => {
+  it("isolates one fixture status-query failure while other lighting observations complete", async () => {
     const f = fixture();
     configureGroupFixtures(f);
     f.addresses.listConfirmed.mockResolvedValue([
       { fixtureId: "fixture-1", primaryUnicast: 0x0100, elementCount: 1, status: "confirmed" },
       { fixtureId: "fixture-2", primaryUnicast: 0x0101, elementCount: 1, status: "confirmed" }
     ]);
-    (f.config.configureNode as any).mockImplementation(async ({ unicast }: { unicast: number }) => {
-      if (unicast === 0x0100) throw new Error("fixture configuration failed");
-      return { compositionPage: 0 };
-    });
     f.transport.call.mockImplementation(async (_service, _path, _interfaceName, method, args) => {
       f.transport.calls.push({ method, args });
       const destination = args[1] as number;
       const payload = args[4] as number[];
+      if (destination === 0x0100) throw new Error("fixture query failed");
       if (destination !== 0x0101) return;
       if (payload[0] === 0x82 && payload[1] === 0x01) {
         queueMicrotask(() => f.application.emit("messageReceived", {
@@ -815,38 +817,24 @@ describe("BluezMeshAdapter", () => {
 
   it("runs one bounded resync when reconnects overlap", async () => {
     const f = fixture();
-    let resolveConfig: (() => void) | undefined;
-    f.config.configureNode.mockImplementationOnce(() => new Promise<{ compositionPage: number }>((resolve) => {
-      resolveConfig = () => resolve({ compositionPage: 0 });
-    }));
     const first = f.adapter.resyncFixtureStates();
     const second = f.adapter.resyncFixtureStates();
     expect(second).toBe(first);
-    await vi.waitFor(() => expect(f.config.configureNode).toHaveBeenCalledTimes(1));
-    resolveConfig?.();
+    expect(f.config.configureNode).not.toHaveBeenCalled();
     await expect(first).resolves.toMatchObject({ total: 1, configured: 1, observed: 0, timedOut: 1 });
   });
 
   it("bounds a 1,000-node resync queue and retries a busy Mesh send", async () => {
-    let now = 0;
-    const f = fixture({ observationCoherenceMs: 65_000, now: () => now });
+    const f = fixture({ observationCoherenceMs: 65_000, now: () => 0 });
     const mappings = Array.from({ length: 1000 }, (_, index) => ({
       fixtureId: `fixture-${index}`,
       primaryUnicast: index + 0x0100,
       elementCount: 1,
       status: "confirmed" as const
     }));
-    let activeConfigures = 0;
-    let maximumActiveConfigures = 0;
+    let activeSends = 0;
+    let maximumActiveSends = 0;
     f.addresses.listConfirmed.mockResolvedValue(mappings);
-    f.config.configureNode.mockImplementation(async () => {
-      activeConfigures += 1;
-      maximumActiveConfigures = Math.max(maximumActiveConfigures, activeConfigures);
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      now += 100;
-      activeConfigures -= 1;
-      return { compositionPage: 0 };
-    });
     f.addresses.findByPrimaryUnicast.mockImplementation(async (primaryUnicast: number) => ({
       fixtureId: `fixture-${primaryUnicast - 0x0100}`,
       primaryUnicast,
@@ -857,9 +845,12 @@ describe("BluezMeshAdapter", () => {
     f.transport.call.mockImplementation(async (_service, _path, _interfaceName, method, args) => {
       f.transport.calls.push({ method, args });
       if (method !== "Send") return;
+      activeSends += 1;
+      maximumActiveSends = Math.max(maximumActiveSends, activeSends);
+      await new Promise((resolve) => setTimeout(resolve, 1));
       if (busy) {
         busy = false;
-        now += 70_000;
+        activeSends -= 1;
         throw new Error("BlueZ busy");
       }
       const destination = args[1] as number;
@@ -882,10 +873,11 @@ describe("BluezMeshAdapter", () => {
           data: Uint8Array.from([0x05, 0x01, 0xe5, 0x02, 0x00])
         }));
       }
+      activeSends -= 1;
     });
 
     await expect(f.adapter.resyncFixtureStates()).resolves.toMatchObject({ total: 1000, configured: 1000, observed: 1000, healthPending: 1000, timedOut: 0 });
-    expect(maximumActiveConfigures).toBeLessThanOrEqual(4);
+    expect(maximumActiveSends).toBeLessThanOrEqual(12);
     expect(f.transport.call).toHaveBeenCalledTimes(3001);
   }, 10_000);
 
@@ -898,22 +890,22 @@ describe("BluezMeshAdapter", () => {
       status: "confirmed" as const
     }));
     f.addresses.listConfirmed.mockResolvedValue(mappings);
-    let releaseConfig!: () => void;
-    const configGate = new Promise<void>((resolve) => { releaseConfig = resolve; });
-    f.config.configureNode.mockImplementation(async () => {
-      await configGate;
-      return { compositionPage: 0 };
+    let releaseSends!: () => void;
+    const sendGate = new Promise<void>((resolve) => { releaseSends = resolve; });
+    f.transport.call.mockImplementation(async (_service, _path, _interfaceName, method, args) => {
+      f.transport.calls.push({ method, args });
+      if (method === "Send") await sendGate;
     });
     const controller = new AbortController();
     const resync = f.adapter.resyncFixtureStates(controller.signal);
-    await vi.waitFor(() => expect(f.config.configureNode).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(f.transport.call).toHaveBeenCalledTimes(12));
 
     controller.abort();
-    releaseConfig();
+    releaseSends();
     await resync;
 
-    expect(f.config.configureNode.mock.calls.length).toBeLessThan(1_000);
-    expect(f.transport.call).not.toHaveBeenCalled();
+    expect(f.config.configureNode).not.toHaveBeenCalled();
+    expect(f.transport.call.mock.calls.length).toBeLessThan(3_000);
   });
 });
 

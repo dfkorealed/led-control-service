@@ -43,7 +43,8 @@ export function createApiHttpsOptions(env: NodeJS.ProcessEnv, readFile: ReadFile
     ca: [deviceCa, manufacturingCa],
     crl: [...deviceCrl, ...manufacturingCrl],
     requestCert: true,
-    rejectUnauthorized: true
+    // Browser routes share this listener; device-only routes enforce authorized peers in their mTLS guards.
+    rejectUnauthorized: false
   };
   validateTlsMaterial(httpsOptions);
 

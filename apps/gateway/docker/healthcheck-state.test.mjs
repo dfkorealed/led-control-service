@@ -37,13 +37,16 @@ test("healthcheck state rejects stale, future, and malformed heartbeat intervals
   await assert.doesNotReject(check(directory, { lastHeartbeatPublishedAt: new Date(now).toISOString() }));
 });
 
-test("healthcheck state requires root healthcheck powered attestation instead of the non-root health JSON", async () => {
+test("healthcheck state relies on the live BlueZ attach state instead of a competing btmgmt query", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "gateway-healthcheck-"));
   const now = new Date().toISOString();
 
-  await assert.doesNotReject(check(directory, { lastHeartbeatPublishedAt: now }, "5000", "1"));
-  await assert.rejects(check(directory, { hciPowered: true, lastHeartbeatPublishedAt: now }, "5000", null), /healthcheck failed/);
-  await assert.rejects(check(directory, { hciPowered: true, lastHeartbeatPublishedAt: now }, "5000", "0"), /healthcheck failed/);
+  await assert.doesNotReject(check(directory, { lastHeartbeatPublishedAt: now }, "5000", null));
+  await assert.rejects(check(directory, {
+    bluezAttached: false,
+    hciPowered: true,
+    lastHeartbeatPublishedAt: now
+  }, "5000", null), /healthcheck failed/);
 });
 
 async function check(directory, overrides, heartbeatMs = "5000", powered = "1") {

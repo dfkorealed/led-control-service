@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
 import {
   BluezTransport,
   BluezTransportError,
+  installDbusMultiReturnCompatibility,
   normalizeDbusMethodReturn,
   type DbusBus
 } from "./bluez-transport";
@@ -32,6 +34,23 @@ class CallbackBus implements DbusBus {
   }
 }
 
+class CallbackErrorBus implements DbusBus {
+  async getInterface() {
+    return {
+      CreateNetwork(
+        _path: string,
+        _uuid: number[],
+        callback: (error: unknown) => void
+      ) {
+        callback({
+          name: "org.bluez.mesh.Error.Failed",
+          message: "Controller is already in use"
+        });
+      }
+    };
+  }
+}
+
 describe("BluezTransport", () => {
   it("flattens the two-value RequestProvData reply for dbus-native", () => {
     expect(normalizeDbusMethodReturn({ type: 2, signature: "qq", body: [[0, 0x0100]] })).toEqual({
@@ -39,6 +58,40 @@ describe("BluezTransport", () => {
       signature: "qq",
       body: [0, 0x0100]
     });
+  });
+
+  it("keeps RequestProvData reply normalization after dbus-native replaces its sender on connect", () => {
+    const connection = new EventEmitter() as EventEmitter & {
+      message: (message: unknown) => void;
+      sent: unknown[];
+    };
+    connection.sent = [];
+    connection.message = (message) => connection.sent.push(message);
+    const bus = { connection } as never;
+
+    installDbusMultiReturnCompatibility(bus);
+    connection.message = (message) => connection.sent.push(message);
+    connection.emit("connect");
+    connection.message({ type: 2, signature: "qq", body: [[0, 0x0101]] });
+
+    expect(connection.sent).toEqual([{ type: 2, signature: "qq", body: [0, 0x0101] }]);
+  });
+
+  it("does not send a reply when BlueZ marks a callback as no-reply", () => {
+    const connection = new EventEmitter() as EventEmitter & {
+      message: (message: unknown) => void;
+      sent: unknown[];
+    };
+    connection.sent = [];
+    connection.message = (message) => connection.sent.push(message);
+    const bus = { connection } as never;
+
+    installDbusMultiReturnCompatibility(bus);
+    connection.emit("message", { type: 1, serial: 41, flags: 1 });
+    connection.message({ type: 2, replySerial: 41 });
+    connection.message({ type: 2, replySerial: 42 });
+
+    expect(connection.sent).toEqual([{ type: 2, replySerial: 42 }]);
   });
 
   it("reuses one long-running D-Bus session", async () => {
@@ -71,6 +124,22 @@ describe("BluezTransport", () => {
         name: "BluezTransportError",
         code: "BLUEZ_DBUS_ERROR"
       })
+    );
+  });
+
+  it("preserves dbus-native object error details", async () => {
+    const transport = new BluezTransport(() => new CallbackErrorBus());
+
+    await expect(
+      transport.call(
+        "org.bluez.mesh",
+        "/org/bluez/mesh",
+        "org.bluez.mesh.Network1",
+        "CreateNetwork",
+        ["/org/ledcontrol/mesh", []]
+      )
+    ).rejects.toThrow(
+      "BlueZ D-Bus call failed: org.bluez.mesh.Network1.CreateNetwork: org.bluez.mesh.Error.Failed: Controller is already in use"
     );
   });
 });

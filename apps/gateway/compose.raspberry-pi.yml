@@ -35,6 +35,7 @@ services:
       GATEWAY_BOOTSTRAP_CA_PATH: /var/lib/led-control/identity/device/current/api-ca.crt
       GATEWAY_ASSIGNMENT_PATH: /var/lib/led-control/assignment.json
       GATEWAY_COMMAND_JOURNAL_PATH: /var/lib/led-control/command-journal.json
+      GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH: /var/lib/led-control/provisioning-device-journal.json
       GATEWAY_EVENT_SEQUENCE_PATH: /var/lib/led-control/event-sequence.json
       GATEWAY_AUTOMATION_CONFIG_PATH: /var/lib/led-control/automation-snapshot.json
       GATEWAY_AUTOMATION_STATE_PATH: /var/lib/led-control/automation-state.json

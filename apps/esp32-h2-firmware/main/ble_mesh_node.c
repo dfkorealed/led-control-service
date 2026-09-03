@@ -37,15 +37,20 @@
 #if !defined(CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID) || CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID != 0xFFFF
 #error "Test builds must use only the reserved 0xFFFF Company ID fixture"
 #endif
+#elif defined(CONFIG_LED_CONTROL_LAB_HIL_BUILD)
+#if !defined(CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID) || CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID != 0xFFFE
+#error "Lab HIL builds must use only the non-production RFU 0xFFFE Company ID"
+#endif
 #elif !defined(CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID) || \
     CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0 || \
     CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0x02E5 || \
+    CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0xFFFE || \
     CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID == 0xFFFF
 #error "A Bluetooth SIG company identifier assigned to this product owner is required"
 #endif
 
 #define LED_CONTROL_COMPANY_ID CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID
-#define LED_CONTROL_UNPROV_NAME "DFK-LED-H2"
+#define LED_CONTROL_PROV_BEARERS ESP_BLE_MESH_PROV_ADV
 #define LED_CONTROL_HEALTH_TEST_ID 0x01
 #define VEHICLE_SENSOR_VENDOR_EVENT_OPCODE \
   ESP_BLE_MESH_MODEL_OP_3(VEHICLE_SENSOR_VENDOR_EVENT_OPCODE_BYTE & 0x3FU, LED_CONTROL_COMPANY_ID)
@@ -71,6 +76,8 @@ enum root_model_index {
 
 static const char *TAG = "ble_mesh_node";
 
+#define LED_CONTROL_GATT_PROXY_STATE ESP_BLE_MESH_GATT_PROXY_NOT_SUPPORTED
+
 static uint8_t dev_uuid[16] = {0};
 static uint8_t health_test_ids[] = {LED_CONTROL_HEALTH_TEST_ID};
 static control_state_t mesh_control_state;
@@ -90,11 +97,7 @@ static esp_ble_mesh_cfg_srv_t config_server = {
     .relay = ESP_BLE_MESH_RELAY_ENABLED,
     .relay_retransmit = ESP_BLE_MESH_TRANSMIT(2, 20),
     .beacon = ESP_BLE_MESH_BEACON_ENABLED,
-#if defined(CONFIG_BLE_MESH_GATT_PROXY_SERVER)
-    .gatt_proxy = ESP_BLE_MESH_GATT_PROXY_ENABLED,
-#else
-    .gatt_proxy = ESP_BLE_MESH_GATT_PROXY_NOT_SUPPORTED,
-#endif
+    .gatt_proxy = LED_CONTROL_GATT_PROXY_STATE,
 #if defined(CONFIG_BLE_MESH_FRIEND)
     .friend_state = ESP_BLE_MESH_FRIEND_ENABLED,
 #else
@@ -281,12 +284,24 @@ static void schedule_group_lightness_status(void) {
 
 static void send_onoff_status(esp_ble_mesh_model_t *model, esp_ble_mesh_msg_ctx_t *ctx) {
   uint8_t onoff = onoff_server.state.onoff;
-  esp_ble_mesh_server_model_send_msg(model, ctx, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_STATUS, sizeof(onoff), &onoff);
+  esp_err_t error = esp_ble_mesh_server_model_send_msg(
+      model, ctx, ESP_BLE_MESH_MODEL_OP_GEN_ONOFF_STATUS, sizeof(onoff), &onoff);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to send OnOff Status: %s", esp_err_to_name(error));
+  }
 }
 
 static void send_lightness_status(esp_ble_mesh_model_t *model, esp_ble_mesh_msg_ctx_t *ctx) {
   uint16_t lightness = lightness_state.lightness_actual;
-  esp_ble_mesh_server_model_send_msg(model, ctx, ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS, sizeof(lightness), (uint8_t *)&lightness);
+  esp_err_t error = esp_ble_mesh_server_model_send_msg(
+      model,
+      ctx,
+      ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_STATUS,
+      sizeof(lightness),
+      (uint8_t *)&lightness);
+  if (error != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to send Lightness Status: %s", esp_err_to_name(error));
+  }
 }
 
 static void provisioning_cb(esp_ble_mesh_prov_cb_event_t event, esp_ble_mesh_prov_cb_param_t *param) {
@@ -315,7 +330,7 @@ static void provisioning_cb(esp_ble_mesh_prov_cb_event_t event, esp_ble_mesh_pro
   case ESP_BLE_MESH_NODE_PROV_RESET_EVT:
     ESP_LOGW(TAG, "Provisioning reset requested");
     vehicle_sensor_model_runtime_reset();
-    esp_ble_mesh_node_prov_enable((esp_ble_mesh_prov_bearer_t)(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT));
+    esp_ble_mesh_node_prov_enable(LED_CONTROL_PROV_BEARERS);
     break;
   case ESP_BLE_MESH_NODE_SET_UNPROV_DEV_NAME_COMP_EVT:
     ESP_LOGI(TAG, "Unprovisioned device name set, err=%d", param->node_set_unprov_dev_name_comp.err_code);
@@ -402,6 +417,13 @@ static void lighting_server_cb(esp_ble_mesh_lighting_server_cb_event_t event, es
   case ESP_BLE_MESH_LIGHTING_SERVER_RECV_SET_MSG_EVT:
     if (param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET ||
         param->ctx.recv_op == ESP_BLE_MESH_MODEL_OP_LIGHT_LIGHTNESS_SET_UNACK) {
+      ESP_LOGI(
+          TAG,
+          "Lightness Set received src=0x%04x dst=0x%04x tid=%u lightness=%u",
+          param->ctx.addr,
+          param->ctx.recv_dst,
+          param->value.set.lightness.tid,
+          param->value.set.lightness.lightness);
       bool duplicate = mesh_lightness_transaction_is_duplicate(
           &lightness_transaction_cache,
           param->ctx.addr,
@@ -714,12 +736,7 @@ esp_err_t ble_mesh_node_init(void) {
     return err;
   }
 
-  err = esp_ble_mesh_set_unprovisioned_device_name(LED_CONTROL_UNPROV_NAME);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to set unprovisioned name, err=%d", err);
-  }
-
-  err = esp_ble_mesh_node_prov_enable((esp_ble_mesh_prov_bearer_t)(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT));
+  err = esp_ble_mesh_node_prov_enable(LED_CONTROL_PROV_BEARERS);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to enable provisioning, err=%d", err);
     ESP_ERROR_CHECK_WITHOUT_ABORT(vehicle_sensor_driver_stop());
@@ -737,8 +754,7 @@ esp_err_t ble_mesh_node_init(void) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_ble_mesh_health_server_fault_update(&elements[0]));
   }
 
-  ESP_LOGI(TAG, "BLE Mesh node initialized name=%s uuid=%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
-           LED_CONTROL_UNPROV_NAME,
+  ESP_LOGI(TAG, "BLE Mesh node initialized uuid=%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
            dev_uuid[0],
            dev_uuid[1],
            dev_uuid[2],

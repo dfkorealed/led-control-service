@@ -324,6 +324,39 @@ describe("VehicleSensorCapabilityService", () => {
     ]);
   });
 
+  it("resolves a gateway registration identity to the canonical MeshNode ledger identity", async () => {
+    const input = report({ meshNodeId: FIXTURE_ID });
+    const { service, tx } = testContext();
+
+    await expect(service.applyReport(input, {
+      siteId: SITE_ID,
+      gatewayId: GATEWAY_ID,
+      requireActiveClaim: true
+    })).resolves.toMatchObject({
+      meshNodeId: FIXTURE_ID,
+      status: "applied"
+    });
+
+    expect(tx.processedGatewayEvent.findFirst).toHaveBeenCalledWith({
+      where: {
+        gatewayId: GATEWAY_ID,
+        meshNodeId: NODE_ID,
+        sequence: 7n,
+        eventType: CAPABILITY_EVENT_TYPE
+      }
+    });
+    expect(tx.processedGatewayEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        meshNodeId: NODE_ID,
+        fixtureId: FIXTURE_ID
+      })
+    });
+    expect(tx.meshNode.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: NODE_ID } }));
+    const sql = tx.$queryRaw.mock.calls[0][0].strings.join(" ");
+    expect(sql).toContain('node."id" =');
+    expect(sql).toContain('fixture."id" =');
+  });
+
   it("reuses the first durable ACK payload and timestamp for an exact redelivery", async () => {
     const input = report();
     const firstAck = acknowledgement(input, "applied", null, FIRST_INGESTED_AT);

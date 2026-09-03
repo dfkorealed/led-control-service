@@ -8,6 +8,7 @@ MIN_RELEASE_FREE_BYTES=$((256 * 1024))
 
 usage() {
   echo "Usage: scripts/esp32-h2-artifact-audit.sh create|verify BUILD_WORKDIR test COMPANY_ID [SOURCE_COMMIT]" >&2
+  echo "   or: scripts/esp32-h2-artifact-audit.sh create-lab-hil|verify-lab-hil BUILD_WORKDIR COMPANY_ID [SOURCE_COMMIT]" >&2
   echo "   or: scripts/esp32-h2-artifact-audit.sh create-production-attestation|verify-production-attestation BUILD_WORKDIR COMPANY_ID SOURCE_COMMIT APPROVAL SIGNATURE" >&2
   echo "   or: scripts/esp32-h2-artifact-audit.sh create-test-only-attestation|verify-test-only-attestation POLICY BUILD_WORKDIR COMPANY_ID SOURCE_COMMIT APPROVAL SIGNATURE" >&2
   exit 2
@@ -35,6 +36,12 @@ require_file() {
     echo "artifact audit missing required file: $1" >&2
     exit 1
   fi
+}
+
+config_disabled() {
+  local key="$1"
+  local file="$2"
+  grep -Eq "^(# ${key} is not set|${key}=n)$" "$file"
 }
 
 load_policy() {
@@ -258,6 +265,44 @@ case "$ACTION" in
       rm -f "$expected"
     fi
     ;;
+  create-lab-hil|verify-lab-hil)
+    [ "$#" -ge 3 ] && [ "$#" -le 4 ] || usage
+    load_build "$2"
+    audit_layout
+    config_disabled CONFIG_LED_CONTROL_TEST_BUILD "$SDKCONFIG" || {
+      echo "Lab HIL artifact must not be a compile-only test build" >&2
+      exit 1
+    }
+    grep -q '^CONFIG_LED_CONTROL_LAB_HIL_BUILD=y$' "$SDKCONFIG" || {
+      echo "Lab HIL artifact mode does not match sdkconfig" >&2
+      exit 1
+    }
+    [ "$3" = "65534" ] || {
+      echo "Lab HIL artifact requires non-production RFU Company ID 65534" >&2
+      exit 1
+    }
+    [ "$(single_value CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID "$SDKCONFIG" "sdkconfig")" = "$3" ] || {
+      echo "artifact Company ID mismatch" >&2
+      exit 1
+    }
+    SOURCE_COMMIT="${4:-lab-hil-uncommitted}"
+    if [ "$ACTION" = "create-lab-hil" ]; then
+      write_payload "$TEST_MANIFEST.tmp" led-control-lab-hil-artifact-v1 lab-hil "$3" "$SOURCE_COMMIT" none none none
+      mv "$TEST_MANIFEST.tmp" "$TEST_MANIFEST"
+      rm -f "$ATTESTATION" "$ATTESTATION_SIGNATURE"
+      echo "Lab HIL artifact manifest: $TEST_MANIFEST"
+    else
+      require_file "$TEST_MANIFEST"
+      expected="$(mktemp)"
+      write_payload "$expected" led-control-lab-hil-artifact-v1 lab-hil "$3" "$SOURCE_COMMIT" none none none
+      cmp -s "$expected" "$TEST_MANIFEST" || {
+        rm -f "$expected"
+        echo "Lab HIL artifact manifest mismatch" >&2
+        exit 1
+      }
+      rm -f "$expected"
+    fi
+    ;;
   create-production-attestation|verify-production-attestation)
     [ "$#" -eq 6 ] || usage
     POLICY="$PRODUCTION_POLICY"
@@ -290,8 +335,12 @@ if [[ "$ACTION" == *attestation ]]; then
     echo "production OTA free margin is $APP_PARTITION_FREE bytes; require at least $RELEASE_REQUIRED_FREE" >&2
     exit 1
   fi
-  grep -q '^CONFIG_LED_CONTROL_TEST_BUILD=n$' "$SDKCONFIG" || {
+  config_disabled CONFIG_LED_CONTROL_TEST_BUILD "$SDKCONFIG" || {
     echo "production attestation does not match sdkconfig" >&2
+    exit 1
+  }
+  config_disabled CONFIG_LED_CONTROL_LAB_HIL_BUILD "$SDKCONFIG" || {
+    echo "production attestation rejects a Lab HIL sdkconfig" >&2
     exit 1
   }
   [ "$(single_value CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID "$SDKCONFIG" "sdkconfig")" = "$COMPANY_ID" ] || {

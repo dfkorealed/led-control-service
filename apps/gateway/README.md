@@ -65,10 +65,21 @@ GATEWAY_SERIAL=GW-LOCAL-001
 GATEWAY_FIRMWARE_VERSION=gateway-dev-local
 GATEWAY_HEARTBEAT_MS=5000
 GATEWAY_ADAPTER=bluez
+GATEWAY_DEPLOYMENT_MODE=production
 GATEWAY_BLUETOOTH_COMPANY_ID=<Bluetooth SIG 자사 할당 Company Identifier>
 ```
 
-`GATEWAY_BLUETOOTH_COMPANY_ID`는 필수이며 10진수 또는 `0x` 16진수로 설정한다. 누락, 미할당 `0`, Espressif 할당값 `0x02E5`, 테스트/내부용 `0xFFFF`는 시작 단계에서 거부한다. 같은 제품의 ESP32-H2 빌드는 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID`에 정확히 같은 값을 사용한다.
+Production의 `GATEWAY_BLUETOOTH_COMPANY_ID`는 필수이며 10진수 또는 `0x` 16진수로 설정한다. 누락, 미할당 `0`, Espressif 할당값 `0x02E5`, compile 전용 `0xFFFF`, Lab HIL 전용 `0xFFFE`는 시작 단계에서 거부한다. 같은 제품의 ESP32-H2 빌드는 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID`에 정확히 같은 값을 사용한다.
+
+Company ID 발급 전 실장비 시험은 아래 세 값을 모두 명시한 Lab HIL에서만 비양산 RFU 값 `0xFFFE`를 허용한다. `0xFFFF`는 BlueZ가 SIG 모델 내부 표식으로 사용해 vendor model과 충돌하므로 RF Lab에는 사용할 수 없다. `0xFFFE` 역시 Bluetooth SIG 할당값이 아니므로 격리 시험에만 사용하며, 하나라도 누락되거나 production mode에서 같은 값을 사용하면 시작을 거부한다.
+
+```env
+GATEWAY_DEPLOYMENT_MODE=lab-hil
+GATEWAY_LAB_HIL_ACK=NOT_FOR_PRODUCTION
+GATEWAY_BLUETOOTH_COMPANY_ID=65534
+```
+
+BlueZ 원인 분석이 필요할 때만 `GATEWAY_BLUEZ_DEBUG=1`을 일시 적용한다. 정상 운영에서는 raw D-Bus 로그 양이 크므로 설정하지 않거나 `0`으로 유지한다.
 
 ### 3. 게이트웨이 실행
 
@@ -223,6 +234,13 @@ test -f "$IDF_PATH/export.sh"
 test -f apps/esp32-h2-firmware/manufacturing/production-trust-policy.conf
 scripts/esp32-h2-build.sh
 scripts/esp32-h2-flash.sh /dev/cu.usbmodemXXXX
+```
+
+Company ID 발급 전 Lab HIL은 Pi `.env.appliance`에 `lab-hil` 3개 값을 설정하고 다음 전용 wrapper를 사용한다. 이 결과는 RF 기능 검증에는 포함하지만 Bluetooth SIG 적합성이나 양산 승인 증거에는 포함하지 않는다.
+
+```bash
+scripts/esp32-h2-build.sh --lab-hil-build
+scripts/esp32-h2-lab-hil-flash.sh /dev/cu.usbmodemXXXX
 ```
 
 동일 shell에서 export한 Company ID, approval manifest/signature와 `IDF_PATH`가 build와 flash wrapper 모두에 전달된다. trust policy는 caller override가 아닌 repository/CI fixed policy이므로 위 파일이 `unprovisioned`이면 production build/flash는 의도적으로 실패한다. 성공은 Pi `led-control-gateway`가 `healthy`이고 ESP serial log에 unprovisioned beacon 또는 복원된 provisioned node가 보이며 production flash wrapper가 signed attestation을 검증한 경우다. 실패는 deploy/health/approval/attestation/flash 어느 하나의 non-zero exit, `GATEWAY_BLUETOOTH_COMPANY_ID`와 `CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID` 불일치, 혹은 test-build flash 시도다. 아래 출력과 serial log를 보관한다.
@@ -411,6 +429,8 @@ WantedBy=multi-user.target
 검색 시작 명령은 `/var/lib/led-control/provisioning-scan-journal.json`에 `(sessionId, scanCorrelationId, scanAttempt)` key로 원자 저장한다. 이 파일은 `0600`이어야 하며, 손상·권한 오류·1,000 record 초과는 scanner를 시작하지 않는 fail-closed 오류다. running duplicate는 기존 실행만 기다린다. 재시작 초기화는 남은 running record를 새 BlueZ scan 없이 정제된 `scan-failed` terminal로 원자 전환하지만 MQTT 연결 전에는 발행하지 않는다. runtime listener 등록 전에 MQTT가 연결됐어도 command와 application ACK subscription을 먼저 준비한 뒤 connect recovery를 한 번 실행한다.
 
 connect recovery는 아직 application ACK를 받지 못한 terminal을 original `eventId`와 `sequence`로 직렬 drain한다. 연결 뒤 새 terminal이 생기면 retry scheduler를 깨우고, ACK가 없으면 1초부터 30초까지 exponential bounded backoff로 같은 terminal을 재발행한다. idle journal은 polling하지 않으며 connection 안의 drain은 single-flight다. 각 recovery publish는 30초 scan outbox lease보다 짧은 10초 안에 끝나야 한다. MQTT close는 예약 timer와 callback 대기를 모두 취소하고, reconnect는 새 connection generation에서 즉시 drain을 재시작한다. broker PUBACK은 전송만 확인하므로 `deliveredAt`을 기록하지 않는다. API가 `ProcessedGatewayEvent`와 `ProvisioningSession` transaction을 commit한 뒤 발행한 `acks/provisioning/scan-terminal-ingested`의 `eventId`, `sequence`, `sessionId`, `scanCorrelationId`, `scanAttempt`가 저장 terminal과 모두 일치할 때만 delivered로 전환하고 retry timer를 정리한다. ACK를 받지 못한 terminal과 running record는 retention과 capacity eviction에서 제외한다. 이 보호 record 때문에 1,000개 한도를 넘으면 새 scan을 시작하지 않고 fail-closed 한다. delivered terminal만 ACK의 `ingestedAt`부터 24시간 보존한 뒤 제거한다. 경로는 `GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH`로 바꿀 수 있다.
+
+개별 provisioning v2 command는 RF 실행 전에 `/var/lib/led-control/provisioning-device-journal.json`에 원자 저장하고 그 durability barrier 뒤에만 inbound QoS 1 PUBACK을 연다. 같은 `commandId`의 exact payload는 진행 중이면 RF를 중복 실행하지 않고, terminal 상태면 저장된 exact `eventId`/`sequence`를 재사용한다. 같은 `commandId`의 identity가 달라지면 RF 전에 fail-closed 한다. RF 종료 뒤 terminal도 file fsync, rename, parent directory fsync를 통과한 다음 발행하며 broker PUBACK 뒤에도 application ACK 전까지 reconnect와 process restart에서 재발행한다. exact device terminal ACK는 pending replay marker만 삭제하고 command/terminal tombstone은 24시간 보존해 늦은 duplicate 실행을 막는다. 재시작 때 `accepted`만 남은 command는 장비가 이미 provision됐을 가능성이 있으므로 RF를 다시 보내지 않고 `provisioning_outcome_unknown` terminal로 보수적으로 수렴한다. 경로는 `GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH`로 바꿀 수 있으며 shutdown은 진행 중 provisioning handler와 마지막 terminal handoff를 drain한 뒤 MQTT를 닫는다.
 
 Gateway MQTT certificate는 ACK namespace에서 Gateway가 실제 생성하는 `acks/acceptance`, `acks/device-status`만 publish할 수 있다. API transaction commit을 증명하는 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested`, `acks/automation/config-applied-ingested`, execution/capability ingested ACK는 Gateway read-only이며 self-publish는 Mosquitto ACL에서 거부한다. Config receipt read 권한도 certificate CN과 같은 Gateway ID topic에만 한정되고 cross-Gateway delivery는 거부된다.
 

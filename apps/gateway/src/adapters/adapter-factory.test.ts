@@ -29,6 +29,50 @@ describe("createProductionAdapters", () => {
     expect(createBluezAdapter).not.toHaveBeenCalled();
   });
 
+  it("allows the internal-use Company Identifier only for an explicitly acknowledged Lab HIL deployment", async () => {
+    const adapter = {
+      setBrightness: vi.fn(),
+      onFixtureStatus: vi.fn(() => () => undefined),
+      onLightingObservation: vi.fn(() => () => undefined),
+      resyncFixtureStates: vi.fn(),
+      resyncLightingFixtures: vi.fn(),
+      syncGroupSubscriptions: vi.fn(),
+      scan: vi.fn(),
+      identify: vi.fn(),
+      provision: vi.fn(),
+      vehicleSensors: {
+        listConfirmedSources: vi.fn(async () => []),
+        resolveByFixtureId: vi.fn(async () => null),
+        resolveBySourceUnicast: vi.fn(async () => null),
+        configureSource: vi.fn(),
+        send: vi.fn(async () => undefined),
+        onMessage: vi.fn(() => () => undefined)
+      }
+    };
+    const createBluezAdapter = vi.fn(async () => adapter);
+
+    await expect(createProductionAdapters({
+      GATEWAY_ADAPTER: "bluez",
+      GATEWAY_DEPLOYMENT_MODE: "lab-hil",
+      GATEWAY_LAB_HIL_ACK: "NOT_FOR_PRODUCTION",
+      GATEWAY_BLUETOOTH_COMPANY_ID: String(TEST_BLUETOOTH_COMPANY_ID)
+    }, { createBluezAdapter })).resolves.toMatchObject({ dimming: adapter });
+    expect(createBluezAdapter).toHaveBeenCalledWith(TEST_BLUETOOTH_COMPANY_ID);
+
+    for (const env of [
+      { GATEWAY_DEPLOYMENT_MODE: "lab-hil", GATEWAY_BLUETOOTH_COMPANY_ID: String(TEST_BLUETOOTH_COMPANY_ID) },
+      { GATEWAY_DEPLOYMENT_MODE: "lab-hil", GATEWAY_LAB_HIL_ACK: "NOT_FOR_PRODUCTION", GATEWAY_BLUETOOTH_COMPANY_ID: "65535" },
+      { GATEWAY_DEPLOYMENT_MODE: "lab-hil", GATEWAY_LAB_HIL_ACK: "NOT_FOR_PRODUCTION", GATEWAY_BLUETOOTH_COMPANY_ID: "0x1234" },
+      { GATEWAY_DEPLOYMENT_MODE: "production", GATEWAY_LAB_HIL_ACK: "NOT_FOR_PRODUCTION", GATEWAY_BLUETOOTH_COMPANY_ID: String(TEST_BLUETOOTH_COMPANY_ID) },
+      { GATEWAY_DEPLOYMENT_MODE: "unknown", GATEWAY_LAB_HIL_ACK: "NOT_FOR_PRODUCTION", GATEWAY_BLUETOOTH_COMPANY_ID: String(TEST_BLUETOOTH_COMPANY_ID) }
+    ]) {
+      await expect(createProductionAdapters(
+        { GATEWAY_ADAPTER: "bluez", ...env },
+        { createBluezAdapter }
+      )).rejects.toThrow();
+    }
+  });
+
   it("constructs one real BlueZ adapter for all production capabilities", async () => {
     const adapter = {
       setBrightness: vi.fn(),

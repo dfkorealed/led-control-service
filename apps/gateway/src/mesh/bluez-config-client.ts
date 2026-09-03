@@ -28,6 +28,7 @@ const NET_KEY_INDEX = 0;
 const APP_KEY_INDEX = 0;
 const PROVISIONER_ADDRESS = 0x0001;
 const SERVER_MODELS = [0x0002, 0x1000, 0x1300] as const;
+const LOCAL_SIG_CLIENT_MODELS = [0x0003, 0x1001, BLUETOOTH_MESH_MODELS.sensorClient, 0x1302] as const;
 const LIGHT_LIGHTNESS_SERVER_MODEL_ID = 0x1300;
 const STATUS_PUBLICATION_PERIOD = encodePublicationPeriod(60_000);
 const VEHICLE_SENSOR_STACK_PUBLICATION_PERIOD = 0;
@@ -57,6 +58,37 @@ export class BluezConfigClient {
   ) {
     this.responseTimeoutMs = options.responseTimeoutMs ?? 10_000;
     this.companyId = options.companyId;
+  }
+
+  async prepareLocalNode() {
+    await this.ensureLocalAppKey();
+    for (const modelId of LOCAL_SIG_CLIENT_MODELS) {
+      const status = await this.sendLocalDevKeyAndWait(
+        encodeModelAppBind(PROVISIONER_ADDRESS, APP_KEY_INDEX, modelId),
+        CONFIG_OPCODES.modelAppStatus,
+        parseModelAppStatus
+      );
+      if (status.elementAddress !== PROVISIONER_ADDRESS || status.appKeyIndex !== APP_KEY_INDEX ||
+        status.modelId !== modelId || "companyId" in status) {
+        throw new Error("Local client model App binding does not match the request");
+      }
+    }
+
+    const vendorStatus = await this.sendLocalDevKeyAndWait(
+      encodeModelAppBind(
+        PROVISIONER_ADDRESS,
+        APP_KEY_INDEX,
+        VEHICLE_SENSOR_VENDOR_MODEL.clientModelId,
+        this.companyId
+      ),
+      CONFIG_OPCODES.modelAppStatus,
+      parseModelAppStatus
+    );
+    if (vendorStatus.elementAddress !== PROVISIONER_ADDRESS || vendorStatus.appKeyIndex !== APP_KEY_INDEX ||
+      vendorStatus.modelId !== VEHICLE_SENSOR_VENDOR_MODEL.clientModelId ||
+      !("companyId" in vendorStatus) || vendorStatus.companyId !== this.companyId) {
+      throw new Error("Local vendor client model App binding does not match the request");
+    }
   }
 
   async configureNode(input: { unicast: number; elementCount: number }): Promise<NodeComposition> {
@@ -114,7 +146,6 @@ export class BluezConfigClient {
 
   async configureVehicleSensorModels(input: { unicast: number; elementCount: number }) {
     await this.ensureLocalAppKey();
-    await this.ensureRemoteAppKey(input.unicast);
     const composition = await this.sendDevKeyAndWait(
       input.unicast,
       encodeCompositionDataGet(0),
@@ -286,6 +317,20 @@ export class BluezConfigClient {
       parser,
       destination,
       matcher
+    );
+  }
+
+  private sendLocalDevKeyAndWait<T>(
+    payload: Uint8Array,
+    opcode: Uint8Array,
+    parser: (data: Uint8Array) => T
+  ) {
+    return this.sendAndWait(
+      "DevKeySend",
+      [BLUEZ_APPLICATION_PATHS.element, PROVISIONER_ADDRESS, true, NET_KEY_INDEX, [], Array.from(payload)],
+      opcode,
+      parser,
+      PROVISIONER_ADDRESS
     );
   }
 

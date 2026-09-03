@@ -33,4 +33,33 @@ describe("FixtureFreshnessService", () => {
       data: { status: "offline", statusReason: "fixture_stale" }
     });
   });
+
+  it("contains a scheduled sweep failure and keeps the interval alive", async () => {
+    jest.useFakeTimers();
+    const previousPollMs = process.env.FIXTURE_FRESHNESS_POLL_MS;
+    process.env.FIXTURE_FRESHNESS_POLL_MS = "10";
+    try {
+      const prisma = {
+        fixture: {
+          updateMany: jest.fn()
+            .mockRejectedValueOnce(Object.assign(new Error("database unavailable"), { code: "P1001" }))
+            .mockResolvedValue({ count: 0 })
+        }
+      };
+      const service = new FixtureFreshnessService(prisma as never);
+      const loggerError = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+
+      service.onModuleInit();
+      await jest.advanceTimersByTimeAsync(10);
+      expect(loggerError).toHaveBeenCalledWith("fixture freshness sweep failed (error=P1001)");
+
+      await jest.advanceTimersByTimeAsync(10);
+      expect(prisma.fixture.updateMany).toHaveBeenCalledTimes(3);
+      service.onModuleDestroy();
+    } finally {
+      if (previousPollMs === undefined) delete process.env.FIXTURE_FRESHNESS_POLL_MS;
+      else process.env.FIXTURE_FRESHNESS_POLL_MS = previousPollMs;
+      jest.useRealTimers();
+    }
+  });
 });

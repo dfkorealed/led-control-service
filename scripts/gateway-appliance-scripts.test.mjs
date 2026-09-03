@@ -30,6 +30,19 @@ test("deploy script는 image를 먼저 load하고 제조 identity 검증 뒤 Com
   assert.match(source, /install -d -m 0750/);
 });
 
+test("deploy script는 실제 배포한 image 좌표를 appliance 환경 파일에 영속화한다", async () => {
+  const source = await readFile(path.join(root, "scripts/gateway-appliance-deploy.sh"), "utf8");
+
+  assert.match(source, /upsert_env_value GATEWAY_IMAGE_REPOSITORY "\$GATEWAY_IMAGE_REPOSITORY"/);
+  assert.match(source, /upsert_env_value GATEWAY_IMAGE_TAG "\$GATEWAY_IMAGE_TAG"/);
+  assert.match(source, /mktemp "\.env\.appliance\.tmp\.XXXXXX"/);
+  assert.match(source, /mv "\$temporary" \.env\.appliance/);
+  assert.ok(
+    source.indexOf("upsert_env_value GATEWAY_IMAGE_TAG") < source.indexOf("docker compose --env-file"),
+    "image tag must be persisted before Compose resolves the service image"
+  );
+});
+
 test("deploy script는 잘못된 CLI 인자를 exit 2로 거부한다", () => {
   for (const args of [[], ["gateway@example.test", "image.tar", "unexpected"]]) {
     const result = spawnSync(path.join(root, "scripts/gateway-appliance-deploy.sh"), args, { encoding: "utf8" });

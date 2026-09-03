@@ -9,6 +9,7 @@ import { FixtureFreshnessService } from "../fixtures/fixture-freshness.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outbox-publisher.service";
+import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 
@@ -21,6 +22,7 @@ import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.
     OutboxPublisherService,
     AutomationOutboxPublisherService,
     ProvisioningScanOutboxPublisherService,
+    ProvisioningDeviceOutboxPublisherService,
     MqttShutdownCoordinator,
     CommandTimeoutService,
     MeshGroupSyncWorker

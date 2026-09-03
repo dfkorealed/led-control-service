@@ -192,7 +192,8 @@ describe("MqttService", () => {
         update: jest.fn()
       },
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
-      discoveredMeshNode: { upsert: jest.fn().mockResolvedValue(undefined) }
+      discoveredMeshNode: { upsert: jest.fn().mockResolvedValue(undefined) },
+      mqttOutbox: createScanAckOutboxMock()
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     const order: string[] = [];
@@ -202,9 +203,7 @@ describe("MqttService", () => {
       return result;
     });
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
-    const publishTopic = jest.spyOn(service, "publishTopic").mockImplementation(async () => {
-      order.push("ack-published");
-    });
+    const publishTopic = jest.spyOn(service, "publishTopic").mockResolvedValue(undefined);
     const base = {
       sessionId, scanCorrelationId, scanAttempt: 1, siteId, gatewayId,
       eventId: "55555555-5555-4555-8555-555555555555", sequence: 1, occurredAt: "2026-08-26T00:00:01.000Z"
@@ -223,22 +222,15 @@ describe("MqttService", () => {
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       eventId: "66666666-6666-4666-8666-666666666666", gatewayId, sequence: 2n, eventType: "provisioning_scan_completed"
     }) });
-    expect(publishTopic).toHaveBeenCalledWith(
-      `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
-      {
-        eventId: "66666666-6666-4666-8666-666666666666",
-        sequence: 2,
-        sessionId,
-        scanCorrelationId,
-        scanAttempt: 1,
-        ingestedAt: expect.any(String)
-      },
-      { timeoutMs: 10_000 }
-    );
-    expect(order).toEqual(["transaction-committed", "ack-published"]);
+    expect(prisma.mqttOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      applicationAckKey: `provisioning-scan-terminal:${gatewayId}:66666666-6666-4666-8666-666666666666:2`,
+      topic: `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`
+    }) });
+    expect(publishTopic).not.toHaveBeenCalled();
+    expect(order).toEqual(["transaction-committed"]);
   });
 
-  it("re-publishes the application ACK for an already committed duplicate terminal", async () => {
+  it("requeues the durable application ACK for an already committed duplicate terminal", async () => {
     const siteId = "22222222-2222-4222-8222-222222222222";
     const gatewayId = "33333333-3333-4333-8333-333333333333";
     const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -254,6 +246,7 @@ describe("MqttService", () => {
       scanFailureCode: null, scanFailureMessage: null
     };
     const markers: any[] = [];
+    const mqttOutbox = createScanAckOutboxMock();
     const prisma: any = {
       provisioningSession: {
         findUnique: jest.fn(async () => session),
@@ -264,7 +257,8 @@ describe("MqttService", () => {
           ? markers.find((marker) => marker.eventId === where.eventId) ?? null
           : null),
         create: jest.fn(async ({ data }) => { markers.push(data); })
-      }
+      },
+      mqttOutbox
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
@@ -279,21 +273,12 @@ describe("MqttService", () => {
 
     expect(prisma.provisioningSession.update).toHaveBeenCalledTimes(1);
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
-    expect(publishTopic).toHaveBeenCalledTimes(2);
-    expect(publishTopic).toHaveBeenLastCalledWith(
-      `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
-      expect.objectContaining({
-        eventId: event.eventId,
-        sequence: event.sequence,
-        sessionId,
-        scanCorrelationId,
-        scanAttempt: 1
-      }),
-      { timeoutMs: 10_000 }
-    );
+    expect(mqttOutbox.create).toHaveBeenCalledTimes(1);
+    expect(mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+    expect(publishTopic).not.toHaveBeenCalled();
   });
 
-  it("publishes the commit-coupled ACK when the same terminal is redelivered after a transaction failure", async () => {
+  it("stores the durable ACK when the same terminal is redelivered after a transaction failure", async () => {
     const siteId = "22222222-2222-4222-8222-222222222222";
     const gatewayId = "33333333-3333-4333-8333-333333333333";
     const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -306,6 +291,7 @@ describe("MqttService", () => {
         update: jest.fn().mockRejectedValueOnce(new Error("transaction failed")).mockResolvedValueOnce(undefined)
       },
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      mqttOutbox: createScanAckOutboxMock(),
       $queryRaw: jest.fn().mockResolvedValue([])
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
@@ -324,14 +310,54 @@ describe("MqttService", () => {
 
     expect(publishTopic).not.toHaveBeenCalled();
     await expect(service.handleMessage(topic, payload)).resolves.toBeUndefined();
-    expect(publishTopic).toHaveBeenCalledWith(
-      `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
-      expect.objectContaining({ eventId: "66666666-6666-4666-8666-666666666666", sequence: 2 }),
-      { timeoutMs: 10_000 }
-    );
+    expect(prisma.mqttOutbox.create).toHaveBeenCalledTimes(1);
+    expect(publishTopic).not.toHaveBeenCalled();
   });
 
-  it("re-publishes the commit-coupled ACK when its first publish fails after commit", async () => {
+  it("stores the scan terminal ACK durably without coupling broker PUBACK to an MQTT publish", async () => {
+    const siteId = "22222222-2222-4222-8222-222222222222";
+    const gatewayId = "33333333-3333-4333-8333-333333333333";
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const scanCorrelationId = "44444444-4444-4444-8444-444444444444";
+    const prisma: any = {
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning",
+          scanCorrelationId, scanAttempt: 1
+        }),
+        update: jest.fn().mockResolvedValue(undefined)
+      },
+      processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      mqttOutbox: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn(async ({ data }) => ({ ...data, id: "scan-ack-outbox" })),
+        updateMany: jest.fn()
+      },
+      $queryRaw: jest.fn().mockResolvedValue([])
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+    const publishTopic = jest.spyOn(service, "publishTopic").mockRejectedValue(new Error("Connection closed"));
+
+    await expect(service.handleMessage(
+      `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`,
+      Buffer.from(JSON.stringify({
+        sessionId, siteId, gatewayId, scanCorrelationId, scanAttempt: 1,
+        eventId: "66666666-6666-4666-8666-666666666666", sequence: 2,
+        occurredAt: "2026-08-26T00:00:01.000Z", acceptedNodeCount: 1
+      }))
+    )).resolves.toBeUndefined();
+
+    expect(publishTopic).not.toHaveBeenCalled();
+    expect(prisma.mqttOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      gatewayId,
+      applicationAckKey: `provisioning-scan-terminal:${gatewayId}:66666666-6666-4666-8666-666666666666:2`,
+      topic: `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
+      payloadHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/)
+    }) });
+  });
+
+  it("revives a durable terminal ACK when the same committed event is redelivered", async () => {
     const siteId = "22222222-2222-4222-8222-222222222222";
     const gatewayId = "33333333-3333-4333-8333-333333333333";
     const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -347,6 +373,7 @@ describe("MqttService", () => {
       scanFailureCode: null, scanFailureMessage: null
     };
     const markers: any[] = [];
+    const mqttOutbox = createScanAckOutboxMock();
     const prisma: any = {
       provisioningSession: {
         findUnique: jest.fn(async () => session),
@@ -358,28 +385,24 @@ describe("MqttService", () => {
           : null),
         create: jest.fn(async ({ data }) => { markers.push(data); })
       },
+      mqttOutbox,
       $queryRaw: jest.fn().mockResolvedValue([])
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
-    const publishTopic = jest.spyOn(service, "publishTopic")
-      .mockRejectedValueOnce(new Error("application ACK publish failed"))
-      .mockResolvedValueOnce(undefined);
+    const publishTopic = jest.spyOn(service, "publishTopic").mockResolvedValue(undefined);
     const topic = `sites/${siteId}/gateways/${gatewayId}/events/provisioning/scan-completed`;
     const payload = Buffer.from(JSON.stringify(event));
 
-    await expect(service.handleMessage(topic, payload)).rejects.toThrow("application ACK publish failed");
+    await expect(service.handleMessage(topic, payload)).resolves.toBeUndefined();
     session.status = "completed";
     await expect(service.handleMessage(topic, payload)).resolves.toBeUndefined();
 
     expect(prisma.provisioningSession.update).toHaveBeenCalledTimes(1);
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
-    expect(publishTopic).toHaveBeenCalledTimes(2);
-    expect(publishTopic).toHaveBeenLastCalledWith(
-      `sites/${siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
-      expect.objectContaining({ eventId: event.eventId, sequence: event.sequence }),
-      { timeoutMs: 10_000 }
-    );
+    expect(mqttOutbox.create).toHaveBeenCalledTimes(1);
+    expect(mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+    expect(publishTopic).not.toHaveBeenCalled();
   });
 
   it("stores a correlated scan failure and ignores wrong correlation, attempt, scope, duplicate, and lower sequence events", async () => {
@@ -391,7 +414,8 @@ describe("MqttService", () => {
     const prisma: any = {
       provisioningSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
-      discoveredMeshNode: { upsert: jest.fn() }
+      discoveredMeshNode: { upsert: jest.fn() },
+      mqttOutbox: createScanAckOutboxMock()
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
@@ -1673,6 +1697,7 @@ describe("MqttService", () => {
         discoveredAt: new Date("2026-06-30T23:59:01.000Z")
       },
       update: {
+        status: "discovered",
         rssi: -54,
         oobCapability: "static-oob",
         firmwareVersion: "mock-node-0.1.0",
@@ -2277,6 +2302,29 @@ function createMeshGroupsMock() {
   return {
     attachProvisionedNode: jest.fn().mockResolvedValue(undefined),
     resetGatewayGroupsForResync: jest.fn().mockResolvedValue({ groupCount: 0, memberCount: 0 })
+  };
+}
+
+function createScanAckOutboxMock() {
+  let stored: any = null;
+  return {
+    findUnique: jest.fn(async () => stored),
+    create: jest.fn(async ({ data }) => {
+      stored = {
+        id: "scan-terminal-ack-outbox",
+        ...data,
+        attempts: 0,
+        nextAttemptAt: new Date(),
+        publishedAt: null,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        deadLetteredAt: null,
+        lastError: null
+      };
+      return stored;
+    }),
+    updateMany: jest.fn().mockResolvedValue({ count: 1 })
   };
 }
 

@@ -33,6 +33,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { AutomationMqttConsumerService } from "../automation/automation-mqtt-consumer.service";
+import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
@@ -64,7 +65,6 @@ interface GatewayInboundPermit {
 
 interface InboundPacketPermit {
   topic: string;
-  permit: GatewayInboundPermit | null;
   consumed: boolean;
   aborted: boolean;
 }
@@ -236,16 +236,15 @@ export class MqttService implements OnModuleInit {
       this.releaseInboundPacketReservation(packet, reservation);
       throw new Error("MQTT QoS 1 packet reservation topic mismatch");
     }
-    if (reservation.consumed) return;
-    if (!reservation.permit || reservation.aborted || this.inboundStopped) {
+    if (!reservation.consumed || reservation.aborted || this.inboundStopped) {
       this.releaseInboundPacketReservation(packet, reservation);
-      throw new Error("MQTT QoS 1 packet reservation is unavailable");
+      throw new Error("MQTT QoS 1 packet was emitted before durable handling completed");
     }
 
-    reservation.consumed = true;
-    this.startInboundHandler(topic, payload, reservation.permit, () => {
-      this.inboundPacketPermits.delete(packet);
-    });
+    // customHandleAcks already completed the durable handler. MQTT.js emits the
+    // message listener from done(0), so consuming the exact packet here avoids
+    // executing the application handler twice.
+    this.releaseInboundPacketReservation(packet, reservation);
   }
 
   private startInboundHandler(
@@ -343,7 +342,7 @@ export class MqttService implements OnModuleInit {
         return;
       }
       if (!topic.endsWith("/state/fixtures")) {
-        this.reserveInboundPacketBeforeAck(topic, packet, done);
+        this.handleInboundPacketBeforeAck(topic, payload, packet, done);
         return;
       }
       if (this.inboundStopped) {
@@ -366,8 +365,9 @@ export class MqttService implements OnModuleInit {
     };
   }
 
-  private reserveInboundPacketBeforeAck(
+  private handleInboundPacketBeforeAck(
     topic: string,
+    payload: Buffer,
     packet: IPublishPacket,
     done: Parameters<NonNullable<IClientOptions["customHandleAcks"]>>[3]
   ) {
@@ -381,21 +381,19 @@ export class MqttService implements OnModuleInit {
 
     const reservation: InboundPacketPermit = {
       topic,
-      permit: null,
       consumed: false,
       aborted: false
     };
     this.inboundPacketPermits.set(packet, reservation);
 
     let handler!: Promise<void>;
-    handler = this.reserveGatewayInboundPermit(topic)
-      .then((permit) => {
-        reservation.permit = permit;
+    handler = this.runInGatewayInboundQueue(topic, () => this.handleMessage(topic, payload))
+      .then(() => {
         if (reservation.aborted || this.inboundStopped || this.inboundPacketPermits.get(packet) !== reservation) {
-          this.releaseGatewayInboundPermit(permit);
           return;
         }
 
+        reservation.consumed = true;
         try {
           done(0);
         } catch (error) {
@@ -404,16 +402,19 @@ export class MqttService implements OnModuleInit {
           return;
         }
 
-        if (!reservation.consumed) {
+        if (this.inboundPacketPermits.get(packet) === reservation) {
           this.releaseInboundPacketReservation(packet, reservation);
-          this.rejectInboundDelivery(new Error("MQTT QoS 1 packet permit was not consumed by the message listener"));
+          this.rejectInboundDelivery(new Error("MQTT QoS 1 packet was not emitted to the message listener"));
         }
       })
       .catch((error) => {
         const failClosed = !reservation.aborted && !this.inboundStopped &&
           !(error instanceof InboundQueueAbortedError);
         this.releaseInboundPacketReservation(packet, reservation);
-        if (failClosed) this.rejectInboundDelivery(error);
+        if (failClosed) {
+          this.logger.error(`mqtt inbound transaction failed before PUBACK (error=${this.errorKind(error)})`);
+          this.rejectInboundDelivery(error);
+        }
       })
       .finally(() => this.activeInboundHandlers.delete(handler));
     this.activeInboundHandlers.add(handler);
@@ -482,7 +483,6 @@ export class MqttService implements OnModuleInit {
   private releaseInboundPacketReservation(packet: IPublishPacket, reservation: InboundPacketPermit) {
     if (this.inboundPacketPermits.get(packet) === reservation) this.inboundPacketPermits.delete(packet);
     reservation.aborted = true;
-    if (reservation.permit) this.releaseGatewayInboundPermit(reservation.permit);
   }
 
   private abortPendingInboundReservations() {
@@ -619,6 +619,7 @@ export class MqttService implements OnModuleInit {
               discoveredAt: new Date(node.occurredAt)
             },
             update: {
+              status: "discovered",
               rssi: node.rssi,
               oobCapability: node.oobCapability,
               firmwareVersion: node.firmwareVersion,
@@ -646,18 +647,6 @@ export class MqttService implements OnModuleInit {
       const eventType = "acceptedNodeCount" in event
         ? "provisioning_scan_completed" as const
         : "provisioning_scan_failed" as const;
-      let committed: boolean;
-      try {
-        committed = await this.prisma.$transaction((tx) =>
-          this.applyProvisioningScanTerminal(tx, event, topicScope, eventType)
-        );
-      } catch (error) {
-        if (!isUniqueConstraintError(error)) throw error;
-        committed = await this.prisma.$transaction((tx) =>
-          this.applyProvisioningScanTerminal(tx, event, topicScope, eventType)
-        );
-      }
-      if (!committed) return;
       const acknowledgement = applicationProvisioningScanTerminalIngestedAckV2Schema.parse({
         eventId: event.eventId,
         sequence: event.sequence,
@@ -666,11 +655,20 @@ export class MqttService implements OnModuleInit {
         scanAttempt: event.scanAttempt,
         ingestedAt: new Date().toISOString()
       });
-      await this.publishTopic(
-        mqttTopicsV2.provisioningScanTerminalIngestedAck(event.siteId, event.gatewayId),
-        acknowledgement,
-        { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS }
-      );
+      const applyTerminal = async (tx: Prisma.TransactionClient) => {
+        const committed = await this.applyProvisioningScanTerminal(tx, event, topicScope, eventType);
+        if (!committed) return false;
+        await this.persistProvisioningScanTerminalAcknowledgement(tx, event.siteId, event.gatewayId, acknowledgement);
+        return true;
+      };
+      let committed: boolean;
+      try {
+        committed = await this.prisma.$transaction(applyTerminal);
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        committed = await this.prisma.$transaction(applyTerminal);
+      }
+      if (!committed) return;
       return;
     }
 
@@ -851,6 +849,59 @@ export class MqttService implements OnModuleInit {
           }
     });
     return true;
+  }
+
+  private async persistProvisioningScanTerminalAcknowledgement(
+    tx: Prisma.TransactionClient,
+    siteId: string,
+    gatewayId: string,
+    acknowledgement: ReturnType<typeof applicationProvisioningScanTerminalIngestedAckV2Schema.parse>
+  ) {
+    const applicationAckKey = `provisioning-scan-terminal:${gatewayId}:${acknowledgement.eventId}:${acknowledgement.sequence}`;
+    const existing = await tx.mqttOutbox.findUnique({ where: { applicationAckKey } });
+    const now = new Date();
+    if (existing) {
+      const stored = applicationProvisioningScanTerminalIngestedAckV2Schema.parse(existing.payload);
+      if (
+        stored.eventId !== acknowledgement.eventId || stored.sequence !== acknowledgement.sequence ||
+        stored.sessionId !== acknowledgement.sessionId || stored.scanCorrelationId !== acknowledgement.scanCorrelationId ||
+        stored.scanAttempt !== acknowledgement.scanAttempt ||
+        existing.gatewayId !== gatewayId ||
+        existing.topic !== mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId)
+      ) throw new Error("provisioning scan terminal acknowledgement identity conflict");
+      await tx.mqttOutbox.updateMany({
+        where: {
+          id: existing.id,
+          OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }],
+          AND: [{ OR: [
+            { publishedAt: { not: null } },
+            { deadLetteredAt: { not: null } },
+            { leaseExpiresAt: { lte: now } }
+          ] }]
+        },
+        data: {
+          attempts: 0,
+          nextAttemptAt: now,
+          publishedAt: null,
+          lockedBy: null,
+          lockedAt: null,
+          leaseExpiresAt: null,
+          deadLetteredAt: null,
+          lastError: null
+        }
+      });
+      return;
+    }
+    await tx.mqttOutbox.create({
+      data: {
+        gatewayId,
+        applicationAckKey,
+        revision: null,
+        payloadHash: canonicalPayloadHash(acknowledgement),
+        topic: mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId),
+        payload: acknowledgement
+      }
+    });
   }
 
   private async storeAcceptanceAck(ack: ReturnType<typeof acceptanceAckV2Schema.parse>) {

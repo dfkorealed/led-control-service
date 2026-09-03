@@ -1,11 +1,14 @@
 import * as dbusNative from "@homebridge/dbus-native";
 import type { DBusInterface, MessageBus } from "@homebridge/dbus-native";
 
-type DbusCallback = (error: Error | null, ...values: unknown[]) => void;
+type DbusCallback = (error: unknown, ...values: unknown[]) => void;
 type DbusMethod = (...args: [...unknown[], DbusCallback]) => unknown;
 
 interface NativeDbusMessage {
   type?: number;
+  flags?: number;
+  serial?: number;
+  replySerial?: number;
   signature?: string;
   body?: unknown[];
   [key: string]: unknown;
@@ -14,6 +17,9 @@ interface NativeDbusMessage {
 interface NativeConnectionWithMessage {
   message(message: NativeDbusMessage): void;
   stream: { destroy(): void };
+  state?: string;
+  once(event: "connect", listener: () => void): void;
+  prependListener(event: "message", listener: (message: NativeDbusMessage) => void): void;
 }
 
 interface NativeExportMessageBus extends MessageBus {
@@ -35,8 +41,33 @@ export function normalizeDbusMethodReturn<T extends NativeDbusMessage>(message: 
 
 export function installDbusMultiReturnCompatibility(bus: MessageBus) {
   const connection = bus.connection as unknown as NativeConnectionWithMessage;
-  const send = connection.message.bind(connection);
-  connection.message = (message) => send(normalizeDbusMethodReturn(message));
+  const noReplySerials = new Set<number>();
+
+  connection.prependListener("message", (message) => {
+    if (message.type === 1 && typeof message.serial === "number" && ((message.flags ?? 0) & 0x01) !== 0) {
+      noReplySerials.add(message.serial);
+    }
+  });
+
+  const wrapCurrentSender = () => {
+    const send = connection.message.bind(connection);
+    connection.message = (message) => {
+      const normalized = normalizeDbusMethodReturn(message);
+      if (
+        (normalized.type === 2 || normalized.type === 3) &&
+        typeof normalized.replySerial === "number" &&
+        noReplySerials.delete(normalized.replySerial)
+      ) {
+        return;
+      }
+      send(normalized);
+    };
+  };
+
+  wrapCurrentSender();
+  // dbus-native replaces `connection.message` after its async handshake. The
+  // compatibility wrapper must therefore be installed again after `connect`.
+  if (connection.state !== "connected") connection.once("connect", wrapCurrentSender);
 }
 
 export interface DbusBus {
@@ -114,7 +145,8 @@ export class BluezTransport {
 
       return (await invokeDbusMethod((dbusMethod as DbusMethod).bind(dbusInterface), args)) as T;
     } catch (cause) {
-      const detail = cause instanceof Error ? `: ${cause.message}` : "";
+      const errorDetail = formatDbusErrorDetail(cause);
+      const detail = errorDetail ? `: ${errorDetail}` : "";
       throw new BluezTransportError(
         `BlueZ D-Bus call failed: ${interfaceName}.${method}${detail}`,
         service,
@@ -135,7 +167,7 @@ export class BluezTransport {
 function invokeDbusMethod(method: DbusMethod, args: unknown[]) {
   return new Promise<unknown>((resolve, reject) => {
     let settled = false;
-    const finish = (error: Error | null, ...values: unknown[]) => {
+    const finish = (error: unknown, ...values: unknown[]) => {
       if (settled) return;
       settled = true;
       if (error) {
@@ -156,4 +188,15 @@ function invokeDbusMethod(method: DbusMethod, args: unknown[]) {
       finish(error instanceof Error ? error : new Error(String(error)));
     }
   });
+}
+
+function formatDbusErrorDetail(cause: unknown) {
+  if (cause instanceof Error) return cause.message;
+  if (typeof cause === "string") return cause;
+  if (!cause || typeof cause !== "object") return "";
+
+  const error = cause as Record<string, unknown>;
+  const name = typeof error.name === "string" ? error.name : "";
+  const message = typeof error.message === "string" ? error.message : "";
+  return [name, message].filter(Boolean).join(": ");
 }

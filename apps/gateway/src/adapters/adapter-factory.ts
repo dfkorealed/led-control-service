@@ -1,5 +1,4 @@
 import type { BleMeshAdapter, ProvisioningAdapter, ProvisioningScannerAdapter } from "../gateway";
-import { BLUETOOTH_COMPANY_ID_CONFIG, parseOwnedBluetoothCompanyId } from "@led-control/shared";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ApplianceHealthProbes } from "../health/appliance-health";
@@ -12,6 +11,7 @@ import { MeshAddressStore } from "../mesh/mesh-address-store";
 import { MeshIdentityStore } from "../mesh/mesh-identity-store";
 import { MeshTransactionStore } from "../mesh/mesh-transaction-store";
 import { BluezVehicleSensorMeshPort, type VehicleSensorMeshPort } from "../mesh/vehicle-sensor-client";
+import { resolveGatewayBluetoothCompanyId } from "../deployment-profile";
 
 export interface GatewayAdapters {
   dimming: BleMeshAdapter;
@@ -35,7 +35,7 @@ export async function createProductionAdapters(
   if (env.GATEWAY_ADAPTER !== "bluez") {
     throw new Error("PRODUCTION_ADAPTER_REQUIRED: GATEWAY_ADAPTER must be bluez");
   }
-  const companyId = parseOwnedBluetoothCompanyId(env[BLUETOOTH_COMPANY_ID_CONFIG.gatewayEnvironment]);
+  const companyId = resolveGatewayBluetoothCompanyId(env);
 
   const adapter = await (dependencies.createBluezAdapter ?? ((ownedCompanyId) => createBluezAdapter(env, ownedCompanyId)))(companyId);
   return {

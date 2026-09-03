@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-03-frontend-developer-code-guide-design.md`
 
+**실행 상태:** Task 1~5 완료. 상세 실행 기록은 `.superpowers/sdd/2026-09-03-frontend-developer-code-guide/progress.md`에 유지한다.
+
 ## Global Constraints
 
 - 기존 작업 트리의 사용자 변경을 덮어쓰거나 되돌리지 않는다. 각 파일 수정 전 `git diff -- <file>`을 읽고 기존 변경 hunk는 수정하지 않는다.
@@ -43,19 +45,19 @@
 - Consumes: 현행 runtime port와 shared Gateway 메시지 계약.
 - Produces: Web → API → MQTT → Gateway → BLE Mesh → ESP32의 읽기 지도.
 
-- [ ] **Step 1: README의 기존 hunk와 삽입 위치를 확인한다.**
+- [x] **Step 1: README의 기존 hunk와 삽입 위치를 확인한다.**
   - Run: `git diff -- README.md && sed -n '1,160p' README.md`
   - Expected: 기존 설치 명령을 바꾸지 않고 `프론트엔드 개발자를 위한 코드 지도` 섹션을 독립적으로 넣을 위치를 정한다.
 
-- [ ] **Step 2: 루트 README에 전체 시스템 지도를 작성한다.**
+- [x] **Step 2: 루트 README에 전체 시스템 지도를 작성한다.**
   - Web은 HTTP 요청과 화면 상태, API는 권한·업무 규칙·DB transaction, MQTT broker는 비동기 전달, Gateway는 MQTT/BLE Mesh 변환, ESP32는 BLE Mesh/PWM/Status를 맡는다고 설명한다.
   - 빠른 로컬 소프트웨어 실행과 제조 identity가 필요한 실장비 설치를 분리하고, 각 흐름의 실제 파일 링크를 넣는다.
 
-- [ ] **Step 3: API README를 작성한다.**
+- [x] **Step 3: API README를 작성한다.**
   - `route handler → Controller`, `domain/use-case → Service`, `query/mutation 저장소 → Prisma transaction`, `event listener → MQTT consumer` 대응 표를 만든다.
   - operator bootstrap, customer site/admin, Gateway claim, registration session, fixture-state ingestion을 `Controller → Service → 저장 모델` 순서로 안내한다.
 
-- [ ] **Step 4: 링크와 공백을 검증하고 task 파일만 커밋한다.**
+- [x] **Step 4: 링크와 공백을 검증하고 task 파일만 커밋한다.**
   - Run: `rg -n '\]\([^)]*\)' README.md apps/api/README.md && git diff --check -- README.md apps/api/README.md`
   - Expected: 공백 오류가 없고 문서가 실제 파일을 가리킨다.
   - Commit: `git add -p README.md apps/api/README.md && git diff --cached && git commit -m "docs: add API beginner code guide"`
@@ -74,22 +76,22 @@
 - Consumes: Task 1 API 용어와 NestJS/Prisma/MQTT 계약.
 - Produces: HTTP/제조/claim/등록/MQTT 상태 수신의 외부 경계와 durable 처리 이유.
 
-- [ ] **Step 1: 기존 API hunk를 확인한다.**
+- [x] **Step 1: 기존 API hunk를 확인한다.**
   - Run: `git diff -- apps/api/src/main.ts apps/api/src/gateway-onboarding/gateway-onboarding.service.ts apps/api/src/pki/manufacturing-enrollment.service.ts apps/api/src/registration/registration.service.ts apps/api/src/mqtt/mqtt.service.ts`
   - Expected: 사용자 변경 행을 피하고 class, transaction, publish/subscribe 경계에만 주석을 넣는다.
 
-- [ ] **Step 2: API process와 claim transaction의 의도를 주석으로 설명한다.**
+- [x] **Step 2: API process와 claim transaction의 의도를 주석으로 설명한다.**
   - `main.ts`: HTTP/CORS/TLS와 background worker를 하나의 API process에 조립하는 이유.
   - `gateway-onboarding.service.ts`: `GatewayInventory → Gateway` 전환과 claim code 소비를 같은 transaction에서 확정해야 Pi bootstrap과 중복 claim 경합을 막는 이유.
 
-- [ ] **Step 3: 제조와 registration의 비동기 경계를 주석으로 설명한다.**
+- [x] **Step 3: 제조와 registration의 비동기 경계를 주석으로 설명한다.**
   - `manufacturing-enrollment.service.ts`: Pi private key를 서버에 보내지 않고 CSR만 서명하는 이유, claim code는 hash로만 저장하는 이유.
   - `registration.service.ts`: UI `accepted`는 물리 provisioning 완료가 아니라 Gateway 작업 예약이라는 점, Mesh address 예약과 outbox를 같은 transaction에 기록하는 이유.
 
-- [ ] **Step 4: MQTT 수신의 중복 방지와 application ACK를 주석으로 설명한다.**
+- [x] **Step 4: MQTT 수신의 중복 방지와 application ACK를 주석으로 설명한다.**
   - `mqtt.service.ts`: broker PUBACK은 전송 확인일 뿐 DB 반영 확인이 아니라는 점, event ID/sequence/scope 검증과 DB commit 뒤 application ACK의 순서를 설명한다.
 
-- [ ] **Step 5: API 검증 후 task 파일만 커밋한다.**
+- [x] **Step 5: API 검증 후 task 파일만 커밋한다.**
   - Run: `pnpm --filter @led-control/api typecheck`
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/gateway-onboarding/gateway-onboarding.service.spec.ts src/pki/manufacturing-enrollment.service.spec.ts src/registration/registration.service.spec.ts src/mqtt/mqtt.service.spec.ts`
   - Run: `git diff --check -- apps/api`
@@ -110,23 +112,23 @@
 - Consumes: API의 gateway-scoped MQTT command와 assignment.
 - Produces: HTTPS bootstrap, mTLS MQTT, BlueZ D-Bus, BLE Mesh, local persistence 설명.
 
-- [ ] **Step 1: Gateway 기존 hunk를 확인한다.**
+- [x] **Step 1: Gateway 기존 hunk를 확인한다.**
   - Run: `git diff -- apps/gateway/README.md apps/gateway/src/index.ts apps/gateway/src/config/resolve-assignment.ts apps/gateway/src/runtime/gateway-mqtt-runtime.ts apps/gateway/src/mesh/bluez-mesh-adapter.ts`
   - Expected: existing HIL/automation 변경을 보존하고 설명과 주석 위치를 정한다.
 
-- [ ] **Step 2: Gateway README에 역할 지도와 프론트엔드 비유를 추가한다.**
+- [x] **Step 2: Gateway README에 역할 지도와 프론트엔드 비유를 추가한다.**
   - Gateway를 현장용 protocol adapter로 비유하되 browser가 아닌 Raspberry Pi process라는 차이를 설명한다.
   - MQTT는 cloud 방향, BlueZ D-Bus/BLE Mesh는 조명 방향, journal/outbox는 전원·인터넷 장애 후 재시도용 local persistence라고 설명한다.
 
-- [ ] **Step 3: 시작·assignment·MQTT 재연결 주석을 추가한다.**
+- [x] **Step 3: 시작·assignment·MQTT 재연결 주석을 추가한다.**
   - `index.ts`: dependency 조립 순서와 command handler가 어떤 event를 어느 저장소로 넘기는지.
   - `resolve-assignment.ts`: claim 전 `unclaimed` 재시도, claim 후 0600 atomic local assignment 저장의 역할.
   - `gateway-mqtt-runtime.ts`: reconnect generation과 serialized operation이 이전 connection callback의 뒤늦은 실행을 막는 이유.
 
-- [ ] **Step 4: BlueZ adapter 변환 경계에 주석을 추가한다.**
+- [x] **Step 4: BlueZ adapter 변환 경계에 주석을 추가한다.**
   - `bluez-mesh-adapter.ts`: D-Bus가 Pi의 Bluetooth Mesh daemon API라는 점, fixture ID/Mesh unicast address mapping, send만으로 성공 처리하지 않고 Lightness/Health Status를 기다리는 이유.
 
-- [ ] **Step 5: Gateway 검증 후 task 파일만 커밋한다.**
+- [x] **Step 5: Gateway 검증 후 task 파일만 커밋한다.**
   - Run: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway test && git diff --check -- apps/gateway`
   - Expected: unit/mock 결과와 실제 Pi/BlueZ/ESP32 RF HIL의 차이를 README에 유지한다.
   - Commit: `git add -p apps/gateway/README.md apps/gateway/src/index.ts apps/gateway/src/config/resolve-assignment.ts apps/gateway/src/runtime/gateway-mqtt-runtime.ts apps/gateway/src/mesh/bluez-mesh-adapter.ts && git diff --cached && git commit -m "docs: explain gateway installation flow"`
@@ -146,25 +148,25 @@
 - Consumes: Gateway가 provisioning 뒤 보내는 Generic OnOff, Light Lightness, Health, Sensor BLE Mesh message.
 - Produces: 부팅/callback, state/PWM, NVS persistence, BLE Mesh status publication 설명.
 
-- [ ] **Step 1: 기존 firmware hunk를 확인한다.**
+- [x] **Step 1: 기존 firmware hunk를 확인한다.**
   - Run: `git diff -- apps/esp32-h2-firmware/README.md apps/esp32-h2-firmware/main/app_main.c apps/esp32-h2-firmware/main/ble_mesh_node.c apps/esp32-h2-firmware/main/control_state.c apps/esp32-h2-firmware/main/led_driver.c apps/esp32-h2-firmware/main/persistent_state.c`
   - Expected: current vehicle-sensor 구현을 보존하고 조명 lifecycle과 나란히 설명할 위치를 정한다.
 
-- [ ] **Step 2: firmware README에 용어 사전과 코드 읽기 순서를 추가한다.**
+- [x] **Step 2: firmware README에 용어 사전과 코드 읽기 순서를 추가한다.**
   - ESP-IDF, firmware, flash/NVS, GPIO, PWM, FreeRTOS task, callback, provisioning, BLE Mesh model, Status publication을 한 문장씩 정의한다.
   - `app_main.c → control_state.c → led_driver.c → persistent_state.c → ble_mesh_node.c` 순서의 이유를 설명한다.
 
-- [ ] **Step 3: 부팅·state·PWM·NVS 주석을 추가한다.**
+- [x] **Step 3: 부팅·state·PWM·NVS 주석을 추가한다.**
   - `app_main.c`: boot 순서와 NVS 복구.
   - `control_state.c`: memory state와 persistence 분리.
   - `led_driver.c`: 0~100 brightness에서 LEDC duty 변환.
   - `persistent_state.c`: flash 수명 보호 2초 debounce.
 
-- [ ] **Step 4: BLE Mesh callback과 RF 상태 publication 주석을 추가한다.**
+- [x] **Step 4: BLE Mesh callback과 RF 상태 publication 주석을 추가한다.**
   - `ble_mesh_node.c`: Config Server가 provisioner 설정을 받는 입구, Generic OnOff/Lightness callback이 API handler처럼 호출되는 점, group jitter가 다수 노드 동시 응답의 RF 충돌을 줄이는 이유.
   - vehicle sensor callback: interrupt context에서 BLE 송신 대신 worker handoff를 하는 이유.
 
-- [ ] **Step 5: host firmware tests 후 task 파일만 커밋한다.**
+- [x] **Step 5: host firmware tests 후 task 파일만 커밋한다.**
   - Run: `cc -std=c11 -Wall -Wextra -Werror apps/esp32-h2-firmware/test/control_state_test.c apps/esp32-h2-firmware/main/control_state.c apps/esp32-h2-firmware/main/mesh_state.c apps/esp32-h2-firmware/main/mesh_publication_jitter.c -o /tmp/led-control-state-test && /tmp/led-control-state-test`
   - Run: `cc -std=c11 -Wall -Wextra -Werror apps/esp32-h2-firmware/test/mesh_transaction_cache_test.c apps/esp32-h2-firmware/main/mesh_transaction_cache.c -o /tmp/led-mesh-transaction-test && /tmp/led-mesh-transaction-test`
   - Run: `git diff --check -- apps/esp32-h2-firmware`
@@ -181,17 +183,17 @@
 - Consumes: Tasks 1~4의 실제 변경과 검증 결과.
 - Produces: 초보자 코드 가이드 완료 범위와 실장비 검증 한계 기록.
 
-- [ ] **Step 1: 상태판과 기존 hunk의 충돌 여부를 확인한다.**
+- [x] **Step 1: 상태판과 기존 hunk의 충돌 여부를 확인한다.**
   - Run: `git diff -- docs/project-status.md`
   - Expected: existing user hunk와 겹치지 않을 때만 문서화 작업 행을 추가한다. 겹치면 수정하지 않고 총괄에게 보고한다.
 
-- [ ] **Step 2: 상태판과 체크리스트를 완료 상태로 갱신한다.**
+- [x] **Step 2: 상태판과 체크리스트를 완료 상태로 갱신한다.**
   - 상태판에는 `README/핵심 주석을 보강했고 API/Gateway typecheck 및 firmware host test를 실행했다. 실제 Pi/ESP32 HIL 결과는 추가하지 않았다.`를 기록한다.
 
-- [ ] **Step 3: 전체 diff를 독해 관점으로 검토하고 기록 파일만 커밋한다.**
+- [x] **Step 3: 전체 diff를 독해 관점으로 검토한다.**
   - Run: `git diff --check && git diff -- README.md apps/api/README.md apps/gateway/README.md apps/esp32-h2-firmware/README.md apps/api/src apps/gateway/src apps/esp32-h2-firmware/main docs/project-status.md`
   - Expected: logic/contract 변경 없이 주석이 바로 뒤 외부 경계 또는 의도를 설명한다.
-  - Commit: `git add -p docs/project-status.md docs/superpowers/plans/2026-09-03-frontend-developer-code-guide.md && git diff --cached && git commit -m "docs: record beginner code guide verification"`
+  - Commit: 실행하지 않음. 공유 작업 트리에 controller의 기존 미커밋 변경이 있어 문서 기록 파일도 커밋하지 않고 총괄 에이전트에게 인계한다.
 
 ## Plan Self-Review
 

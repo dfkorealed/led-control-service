@@ -141,7 +141,7 @@ describe("MqttService v2 ordered state", () => {
       client.emit("message", topic, Buffer.from("{}"), { ...packet });
       order.push("puback");
     });
-    await flushPromises();
+    await waitFor(() => client.stream.destroy.mock.calls.length === 1);
 
     expect(order).toEqual([]);
     expect(client.stream.destroy).toHaveBeenCalledTimes(1);
@@ -161,7 +161,7 @@ describe("MqttService v2 ordered state", () => {
       client.emit("message", `${topic}/wrong`, Buffer.from("{}"), packet);
       order.push("puback");
     });
-    await flushPromises();
+    await waitFor(() => client.stream.destroy.mock.calls.length === 1);
 
     expect(order).toEqual([]);
     expect(client.stream.destroy).toHaveBeenCalledTimes(1);
@@ -169,7 +169,7 @@ describe("MqttService v2 ordered state", () => {
     expect(internal.inboundPacketPermits.size).toBe(0);
   });
 
-  it("consumes a packet permit exactly once when the same listener delivery is duplicated", async () => {
+  it("processes a packet exactly once when MQTT invokes the custom ACK handler twice", async () => {
     const topic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/events/automation/execution`;
     const handled = jest.fn().mockResolvedValue(undefined);
     const service = new MqttService(
@@ -182,7 +182,6 @@ describe("MqttService v2 ordered state", () => {
     const internal = mqttInternals(service);
     const packet = { qos: 1, messageId: 32 };
     const done = jest.fn((reasonCode: number) => {
-      client.emit("message", topic, Buffer.from("{}"), packet);
       client.emit("message", topic, Buffer.from("{}"), packet);
       expect(reasonCode).toBe(0);
     });
@@ -228,7 +227,7 @@ describe("MqttService v2 ordered state", () => {
     }
   );
 
-  it("releases the consumed permit once when the asynchronous handler rejects", async () => {
+  it("does not PUBACK and closes the transport when durable handling rejects", async () => {
     const topic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/events/automation/execution`;
     const service = new MqttService(
       {} as never,
@@ -238,6 +237,7 @@ describe("MqttService v2 ordered state", () => {
     );
     const client = mqttClientHarness(service);
     const internal = mqttInternals(service);
+    jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
     const packet = { qos: 1, messageId: 35 };
     const done = jest.fn((reasonCode: number) => {
       client.emit("message", topic, Buffer.from("{}"), packet);
@@ -245,12 +245,52 @@ describe("MqttService v2 ordered state", () => {
     });
 
     internal.createCustomHandleAcks()(topic, Buffer.from("{}"), packet, done);
+    await waitFor(() => client.stream.destroy.mock.calls.length === 1);
+    await service.stopInboundAndDrain();
+
+    expect(done).not.toHaveBeenCalled();
+    expect(client.stream.destroy).toHaveBeenCalledTimes(1);
+    expect(internal.gatewayInboundQueues.size).toBe(0);
+    expect(internal.inboundPacketPermits.size).toBe(0);
+  });
+
+  it("PUBACKs a command acceptance only after its database write completes", async () => {
+    const stored = deferred<{ count: number }>();
+    const prisma = {
+      commandDispatch: { updateMany: jest.fn(() => stored.promise) }
+    };
+    const service = new MqttService(prisma as never, { attachProvisionedNode: jest.fn() } as never);
+    const client = mqttClientHarness(service);
+    const internal = mqttInternals(service);
+    const topic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/acks/acceptance`;
+    const packet = { qos: 1, messageId: 37 };
+    const payload = Buffer.from(JSON.stringify({
+      commandId: "11111111-1111-4111-8111-111111111111",
+      dispatchId: "66666666-6666-4666-8666-666666666666",
+      idempotencyKey: "33333333-3333-4333-8333-333333333333",
+      sequence: 1,
+      ...scope,
+      eventId: "77777777-7777-4777-8777-777777777777",
+      status: "accepted",
+      acceptedAt: "2026-07-11T00:00:01.000Z"
+    }));
+    const done = jest.fn((reasonCode: number) => {
+      client.emit("message", topic, payload, packet);
+      expect(reasonCode).toBe(0);
+    });
+
+    internal.createCustomHandleAcks()(topic, payload, packet, done);
+    await flushPromises();
+
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledTimes(1);
+    expect(done).not.toHaveBeenCalled();
+
+    stored.resolve({ count: 1 });
     await waitFor(() => done.mock.calls.length === 1);
     await service.stopInboundAndDrain();
 
     expect(done).toHaveBeenCalledTimes(1);
-    expect(internal.gatewayInboundQueues.size).toBe(0);
-    expect(internal.inboundPacketPermits.size).toBe(0);
+    expect(client.stream.destroy).not.toHaveBeenCalled();
   });
 
   it("releases the inbound PUBACK after commit without waiting for the application ACK publish callback", async () => {

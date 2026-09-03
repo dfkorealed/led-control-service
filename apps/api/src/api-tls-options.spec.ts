@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createApiHttpsOptions } from "./api-tls-options";
 
 describe("createApiHttpsOptions", () => {
-  it("trusts both client CAs and expands every CRL PEM block for Node TLS", () => {
+  it("requests optional client certificates so browser routes remain reachable while mTLS guards enforce device routes", () => {
     const material = createTlsMaterial();
     try {
       const result = createApiHttpsOptions(completeEnvironment(), (path: string) => material.files[path]);
@@ -17,7 +17,7 @@ describe("createApiHttpsOptions", () => {
           ca: [material.files["/tls/device-ca.crt"], material.files["/tls/manufacturing-ca.crt"]],
           crl: [material.files["/tls/device.crl"], material.files["/tls/manufacturing.crl"]],
           requestCert: true,
-          rejectUnauthorized: true
+          rejectUnauthorized: false
         }
       });
     } finally {

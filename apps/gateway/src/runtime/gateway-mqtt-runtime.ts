@@ -2,9 +2,18 @@ import type { IConnackPacket, IPublishPacket, MqttClient } from "mqtt";
 
 export type GatewayMqttClient = Pick<
   MqttClient,
-  "connected" | "end" | "handleMessage" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe"
+  "connected" | "end" | "handleMessage" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe" | "unsubscribe"
 >;
-type TopicHandler = (payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket) => unknown;
+export interface GatewayDeferredMessageControl {
+  acknowledgeDurable(): void;
+}
+
+type TopicHandler = (
+  payload: Buffer,
+  source: GatewayMqttClient,
+  packet?: IPublishPacket,
+  control?: GatewayDeferredMessageControl
+) => unknown;
 type ErrorReporter = (error: unknown, context: string) => unknown;
 
 export interface GatewayMqttIdentityTransaction {
@@ -20,6 +29,7 @@ export interface GatewayMqttRuntimeOptions {
   subscribe: (client: GatewayMqttClient, sessionPresent: boolean, force: boolean) => unknown;
   publishHeartbeat: () => unknown;
   topicHandlers: Record<string, TopicHandler>;
+  commandTopics?: readonly string[];
   deferredPubackTopics?: readonly string[];
   onMessageError: ErrorReporter;
   onConnect?: () => unknown;
@@ -55,18 +65,22 @@ export class GatewayMqttRuntime {
   private readonly originalHandleMessage = new Map<GatewayMqttClient, GatewayMqttClient["handleMessage"]>();
   private readonly deferredHandlers = new WeakMap<object, Promise<void>>();
   private readonly deferredPubackTopics: ReadonlySet<string>;
+  private readonly commandTopics: ReadonlySet<string>;
   private readonly candidateReadyTimeoutMs: number;
   private connectionEpoch = 0;
   private subscriptionRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private subscriptionRetryAttempt = 0;
   private readonly subscriptionRetryBaseMs: number;
   private subscriptionsReady = false;
+  private commandIntakeQuiesced = false;
+  private commandIntakeQuiescing: Promise<void> | undefined;
 
   constructor(private readonly options: GatewayMqttRuntimeOptions) {
     this.currentClient = options.client;
     this.candidateReadyTimeoutMs = boundedCandidateReadyTimeout(options.candidateReadyTimeoutMs ?? DEFAULT_CANDIDATE_READY_TIMEOUT_MS);
     this.subscriptionRetryBaseMs = boundedSubscriptionRetry(options.subscriptionRetryBaseMs ?? 1_000);
     this.deferredPubackTopics = new Set(options.deferredPubackTopics ?? []);
+    this.commandTopics = new Set(options.commandTopics ?? []);
   }
 
   get client() {
@@ -77,6 +91,8 @@ export class GatewayMqttRuntime {
     if (this.started) return;
     this.started = true;
     this.stopping = false;
+    this.commandIntakeQuiesced = false;
+    this.commandIntakeQuiescing = undefined;
     this.addClientListeners(this.currentClient);
     if (this.currentClient.connected && this.connectionEpoch === 0) {
       this.handleConnect(this.currentClient, { sessionPresent: false });
@@ -88,6 +104,15 @@ export class GatewayMqttRuntime {
     this.stopping = true;
     this.activeCandidate?.cancel(new Error("MQTT runtime is stopping"));
     return this.enqueue(async () => {
+      this.clearHeartbeatTimer();
+      this.clearSubscriptionRetry();
+      let quiesceError: unknown;
+      try {
+        await this.quiesceCommandIntake();
+      } catch (error) {
+        quiesceError = error;
+        this.commandIntakeQuiesced = true;
+      }
       let drainError: unknown;
       try {
         await this.options.onBeforeStop?.();
@@ -95,8 +120,6 @@ export class GatewayMqttRuntime {
         drainError = error;
       }
       this.started = false;
-      this.clearHeartbeatTimer();
-      this.clearSubscriptionRetry();
       this.removeClientListeners(this.currentClient);
       let shutdownError: unknown;
       try {
@@ -104,12 +127,29 @@ export class GatewayMqttRuntime {
       } catch (error) {
         shutdownError = error;
       }
-      if (drainError && shutdownError) {
-        throw new AggregateError([drainError, shutdownError], "MQTT drain and shutdown failed");
-      }
+      const errors = [quiesceError, drainError, shutdownError].filter((error) => error !== undefined);
+      if (errors.length > 1) throw new AggregateError(errors, "MQTT quiesce, drain, or shutdown failed");
+      if (quiesceError) throw quiesceError;
       if (drainError) throw drainError;
       if (shutdownError) throw shutdownError;
     });
+  }
+
+  quiesceCommandIntake() {
+    if (this.commandIntakeQuiesced) return Promise.resolve();
+    if (this.commandIntakeQuiescing) return this.commandIntakeQuiescing;
+    const client = this.currentClient;
+    const topics = [...this.commandTopics];
+    const quiescing = topics.length === 0
+      ? Promise.resolve()
+      : new Promise<void>((resolve, reject) => {
+        client.unsubscribe(topics, (error) => (error ? reject(error) : resolve()));
+      });
+    this.commandIntakeQuiescing = quiescing.then(() => {
+      if (client !== this.currentClient) throw new Error("MQTT client changed while command intake was quiescing");
+      this.commandIntakeQuiesced = true;
+    });
+    return this.commandIntakeQuiescing;
   }
 
   activate(candidate: GatewayMqttClient, identity?: GatewayMqttIdentityTransaction): Promise<void> {
@@ -245,11 +285,23 @@ export class GatewayMqttRuntime {
   }
 
   private handleMessage(client: GatewayMqttClient, topic: string, payload: Buffer, packet?: IPublishPacket) {
-    const handled = this.dispatchMessage(topic, payload, client, packet);
+    if (this.commandIntakeQuiesced && this.commandTopics.has(topic)) return;
     if (packet?.qos === 1 && this.deferredPubackTopics.has(topic)) {
-      this.deferredHandlers.set(packet, handled);
+      let acknowledgeDurable!: () => void;
+      let retryDelivery!: (error: Error) => void;
+      const durable = new Promise<void>((resolve, reject) => {
+        acknowledgeDurable = resolve;
+        retryDelivery = reject;
+      });
+      const handled = this.dispatchMessage(topic, payload, client, packet, { acknowledgeDurable });
+      this.deferredHandlers.set(packet, durable);
+      void handled.then(
+        acknowledgeDurable,
+        (error) => retryDelivery(error instanceof Error ? error : new Error(String(error)))
+      );
       return;
     }
+    const handled = this.dispatchMessage(topic, payload, client, packet);
     void handled.catch(() => undefined);
   }
 
@@ -376,12 +428,13 @@ export class GatewayMqttRuntime {
     topic: string,
     payload: Buffer,
     source: GatewayMqttClient,
-    packet?: IPublishPacket
+    packet?: IPublishPacket,
+    control?: GatewayDeferredMessageControl
   ): Promise<void> {
     const handler = this.options.topicHandlers[topic];
     if (!handler) return Promise.resolve();
     try {
-      return Promise.resolve(handler(payload, source, packet)).then(
+      return Promise.resolve(handler(payload, source, packet, control)).then(
         () => undefined,
         (error) => {
           this.report(this.options.onMessageError, error, topic);

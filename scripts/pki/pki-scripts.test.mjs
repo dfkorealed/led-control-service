@@ -100,7 +100,7 @@ if [[ "$1" == "list" ]]; then
 elif [[ "$1" == "status" ]]; then
   printf '%s\\n' '{"storage_type":"${storageType}"}'
 elif [[ "$1 $2" == "read -format=json" && "$3" == */cert/ca_chain ]]; then
-  node -e 'const source = require("node:fs").readFileSync(process.argv[1], "utf8"); const ca_chain = source.match(/-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----/g); process.stdout.write(JSON.stringify({ data: { certificate: source, ca_chain } }));' "${caChainPath}"
+  node -e 'const source = require("node:fs").readFileSync(process.argv[1], "utf8"); const ca_chain = process.env.LAB_TEST_CA_CHAIN_AS_STRING === "1" ? source : source.match(/-----BEGIN CERTIFICATE-----[\\s\\S]*?-----END CERTIFICATE-----/g); process.stdout.write(JSON.stringify({ data: { certificate: source, ca_chain } }));' "${caChainPath}"
 elif [[ "$1 $2" == "read -format=raw" && "$3" == */crl/pem ]]; then
   [[ "\${LAB_TEST_FAIL_CRL:-0}" != 1 ]] || exit 44
   cat "${crlPath}"
@@ -262,6 +262,10 @@ test("bootstrap install imports externally signed intermediates and configures i
     assert.match(log, /api-server-pki\/intermediate\/set-signed/);
     assert.match(log, /gateway-device-pki\/config\/issuers default=issuer-with-key/);
     assert.doesNotMatch(log, /config\/issuers default=root-without-key/);
+    for (const mount of ["gateway-device-pki", "gateway-mqtt-pki", "api-server-pki"]) {
+      assert.match(log, new RegExp(`${mount}\\/config\\/crl.*expiry=72h.*auto_rebuild=true.*auto_rebuild_grace_period=24h`));
+      assert.match(log, new RegExp(`read ${mount}\\/crl\\/rotate`));
+    }
     assert.match(log, /gateway-device-pki\/roles\/gateway-device.*client_flag=true.*server_flag=false.*max_ttl=8760h/);
     for (const role of ["gateway-device", "gateway-mqtt", "mqtt-server", "api-mqtt-client", "api-server"]) {
       const roleLine = log.split("\n").find((line) => line.includes(`/roles/${role} `)) ?? "";
@@ -290,7 +294,7 @@ test("bootstrap install imports externally signed intermediates and configures i
   }
 });
 
-test("service issuance requires every SAN input and publishes separate API, MQTT, and API MQTT client credentials", () => {
+test("service issuance accepts the Vault 1.17 PEM-string CA chain and publishes separate service credentials", () => {
   const directory = temporaryDirectory();
   const crlMaterial = createValidCrl(directory);
   const vault = writeMockVault(directory, crlMaterial);
@@ -312,6 +316,7 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
       LAB_API_IP: "192.168.1.10",
       LAB_MQTT_DNS: "mqtt.lan",
       LAB_MQTT_IP: "192.168.1.11",
+      LAB_TEST_CA_CHAIN_AS_STRING: "1",
       PKI_ROOT_CRL_PATH: crlMaterial.rootCrl,
       PKI_SERVICE_CERT_DIR: output
     });
@@ -333,7 +338,7 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
       assert.equal(mode(join(current, `${name}.crt`)), 0o644);
       assert.equal(readFileSync(join(current, `${name}.crt`), "utf8"), readFileSync(crlMaterial.caChain, "utf8"));
     }
-    assert.equal(readFileSync(join(current, "format-version"), "utf8").trim(), "3");
+    assert.equal(readFileSync(join(current, "format-version"), "utf8").trim(), "4");
     assert.equal(mode(join(current, "mqtt-client.crl")), 0o644);
     assert.equal((readFileSync(join(current, "mqtt-client.crl"), "utf8").match(/BEGIN X509 CRL/g) ?? []).length, 2);
     assert.equal(mode(join(current, "device.crl")), 0o644);
@@ -341,6 +346,43 @@ test("service issuance requires every SAN input and publishes separate API, MQTT
     assert.match(log, /read -format=raw gateway-mqtt-pki\/crl\/pem/);
     assert.match(log, /read -format=raw gateway-device-pki\/crl\/pem/);
     assert.doesNotMatch(stdout, /token|BEGIN .*PRIVATE KEY/i);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("service issuer는 단일 CRL 형식의 기존 generation을 새 CRL bundle로 교체한다", () => {
+  const directory = temporaryDirectory();
+  const crlMaterial = createValidCrl(directory);
+  const vault = writeMockVault(directory, crlMaterial);
+  const output = join(directory, "bundle");
+  const environment = {
+    VAULT_BIN: vault,
+    VAULT_ADDR: "https://vault.internal:8200",
+    LAB_API_DNS: "api.lan",
+    LAB_API_IP: "192.168.1.10",
+    LAB_MQTT_DNS: "mqtt.lan",
+    LAB_MQTT_IP: "192.168.1.11",
+    PKI_ROOT_CRL_PATH: crlMaterial.rootCrl,
+    PKI_SERVICE_CERT_DIR: output
+  };
+  try {
+    run(issue, [], environment);
+    const legacyGeneration = realpathSync(join(output, "current"));
+    const firstCrl = readFileSync(join(legacyGeneration, "device.crl"), "utf8")
+      .match(/-----BEGIN X509 CRL-----[\s\S]*?-----END X509 CRL-----/)?.[0];
+    assert.ok(firstCrl);
+    writeFileSync(join(legacyGeneration, "device.crl"), `${firstCrl}\n`);
+    writeFileSync(join(legacyGeneration, "mqtt-client.crl"), `${firstCrl}\n`);
+    writeFileSync(join(legacyGeneration, "format-version"), "3\n");
+
+    run(issue, [], environment);
+
+    const current = join(output, "current");
+    assert.notEqual(realpathSync(current), legacyGeneration);
+    assert.equal(readFileSync(join(current, "format-version"), "utf8").trim(), "4");
+    assert.equal((readFileSync(join(current, "device.crl"), "utf8").match(/BEGIN X509 CRL/g) ?? []).length, 2);
+    assert.equal((readFileSync(join(current, "mqtt-client.crl"), "utf8").match(/BEGIN X509 CRL/g) ?? []).length, 2);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -347,3 +347,94 @@
 - **원인**: 문자열 경로의 `..` escape만 차단하고 `dist` root부터 target parent까지 실제 component type을 확인하지 않았다. Backslash를 slash로 정규화한 뒤 검사해 Windows 의미를 잃었고, prefix·separator·colon 검사만 추가한 뒤 각 segment의 extension 이전 device stem을 검증하지 않았다.
 - **해결 및 예방책**: manifest 전체와 생성 대상 전체를 mutation 전에 POSIX logical path validator와 `lstat` chain으로 선검증하고, cleanup/generation/manifest read·write 및 unlink/rmdir/mkdir/write 직전에 다시 검사한다. Colon/backslash와 terminal dot/space는 정규화 없이 거부하며, 모든 segment의 첫 `.` 앞 stem이 `CON|PRN|AUX|NUL|COM1..COM9|LPT1..LPT9`이면 case-insensitive로 거부한다. Target symlink와 directory/non-file은 fail-closed하며 parent는 real directory만 한 단계씩 생성한다.
 - **반복 방지 체크**: build cleanup 테스트에는 `dist` root/intermediate/target symlink, drive absolute·relative, ADS, UNC/device prefix, backslash/mixed separator, terminal dot/space, traversal/empty/duplicate/directory/NUL과 reserved device의 root/nested/case/extension 변형을 포함한다. `console|con1|com0|com10|lpt0|lpt10|null|auxiliary` 대조군과 기존 owned/unrelated artifact·외부 sentinel도 함께 검증한다. Node에 dirfd-relative `openat`/`unlinkat`이 없어 남는 parent-swap race는 writable build directory 권한과 단일 build process로 추가 제한한다.
+
+## 2026-09-01 / 실장비 Lab 재개는 Vault 응답 형식과 CRL 수명을 함께 검증한다
+
+- **발생했던 문제/실수**: Vault 1.17의 `cert/ca_chain` 문자열 응답을 배열 전용 parser가 거부했고, 장기간 중지한 Lab의 만료 CRL을 재사용해 Mosquitto가 새 API client certificate까지 거부했다. API TLS가 모든 연결에 client certificate를 강제해 일반 브라우저 로그인도 TLS handshake 전에 차단됐다.
+- **원인**: Mock Vault가 한 가지 JSON shape만 반환했고, certificate 재발급과 CRL 회전을 같은 lifecycle로 다루지 않았다. 브라우저 endpoint와 장비 mTLS endpoint가 listener를 공유한다는 조건도 TLS transport 설정에 반영하지 않았다.
+- **해결 및 예방책**: PEM 문자열과 배열 CA chain을 모두 엄격 검증하고, bootstrap마다 목적별 CRL 자동 재생성과 즉시 회전을 설정한다. API listener는 client certificate를 요청하되 일반 TLS 연결은 허용하며 제조·Gateway route의 전용 Guard가 `socket.authorized`와 issuer를 fail-closed 검증한다.
+- **반복 방지 체크**: Lab 재개 시험에는 실제 Vault 버전의 JSON shape, `openssl verify -crl_check_all`, CRL `nextUpdate`, 인증서 없는 `/auth/me`의 HTTP 401 도달, 잘못된 제조·장비 인증서의 전용 route 401을 함께 확인한다.
+
+## 2026-09-01 / Gateway 컨테이너는 clean build에서 전이 workspace 입력을 검증한다
+
+- **발생했던 문제/실수**: Gateway ARM64 이미지를 clean cache로 빌드하자 shared package의 build script와 ESM tsconfig, Gateway가 참조하는 automation engine source, BlueZ native header와 build lock의 `ps`가 순서대로 누락됐다.
+- **원인**: 로컬 workspace 산출물과 이전 Docker layer가 전이 의존성을 가려 Dockerfile의 build context 및 build-stage 운영체제 의존성이 불완전한 상태로 남았다.
+- **해결 및 예방책**: Gateway가 빌드하는 각 workspace package의 `package.json`, source, tsconfig와 build script를 명시적으로 복사하고, native BlueZ compile 및 shared build lock에 필요한 패키지를 builder stage에 설치한다. 의존 package를 먼저 빌드한 뒤 Gateway deploy를 수행한다.
+- **반복 방지 체크**: 컨테이너 계약 테스트가 필수 COPY, package 설치와 build 순서를 검사하도록 유지하고, 배포 후보 이미지는 정기적으로 cache 없는 ARM64 build와 Raspberry Pi load/start까지 검증한다.
+
+## 2026-09-01 / 양산 차단과 실장비 Lab HIL은 별도 프로파일로 유지한다
+
+- **발생했던 문제/실수**: Bluetooth SIG Company ID 발급 전에는 안전한 production gate 때문에 실제 BLE Mesh RF 시험도 시작할 수 없었다. 또한 Kconfig의 disabled bool이 실제 `sdkconfig`에서 `=n`이 아니라 `# ... is not set`으로 저장돼 fixture 전용 감사 조건이 target build를 거부했다.
+- **원인**: compile 전용 test와 판매 불가 RF Lab을 한 프로파일로 취급했고, fake `idf.py`가 Kconfig 직렬화 형식을 그대로 복사해 실제 target 형식 차이를 가렸다.
+- **해결 및 예방책**: `production`, RF 금지 `test`, 비양산 RFU `0xFFFE`를 쓰는 `lab-hil`을 분리한다. Compile-only test의 `0xFFFF`는 BlueZ가 SIG 모델 표식으로 사용하므로 vendor model RF HIL에 재사용하지 않는다. Gateway는 mode·확인값·CID를 함께 검증하고 firmware는 Lab manifest와 전용 flash wrapper만 허용한다. 감사 스크립트는 Kconfig의 두 disabled 표기를 모두 엄격히 수용한다.
+- **반복 방지 체크**: build gate fixture가 실제 Kconfig bool 직렬화를 재현하고 production flash의 Lab 거부, Lab flash의 exact manifest 재검증, fullclean ESP32-H2 target build를 함께 실행한다.
+
+## 2026-09-02 / `0xFFFF`는 BLE Mesh vendor model의 Lab Company ID로 사용할 수 없다
+
+- **발생했던 문제/실수**: Gateway와 ESP32-H2의 Lab HIL에 `0xFFFF`를 넣자 BlueZ `CreateNetwork`가 일반적인 `Operation failed`만 반환했다.
+- **원인**: BlueZ는 내부 32-bit model ID에서 상위 16-bit `0xFFFF`를 SIG 모델 표식으로 사용한다. 따라서 vendor client `(company=0xFFFF, model=0x0001)`가 SIG Configuration Client `0x0001`과 같은 내부 ID가 되어 중복 등록에 실패했다.
+- **해결 및 예방책**: `0xFFFF`는 RF를 시작하지 않는 compile-only test에만 유지하고, 격리된 Lab HIL은 비양산 RFU `0xFFFE`를 exact gate로 사용한다. Production은 `0xFFFE`와 `0xFFFF`를 모두 거부하며 실제 출하는 반드시 자사 Bluetooth SIG 할당값으로 다시 빌드한다.
+- **반복 방지 체크**: Gateway application은 `0xFFFF` vendor export를 사전 거부하고, Gateway deployment·ESP32 build·artifact audit·Lab flash 테스트가 `0xFFFE`만 수용하는지 함께 검증한다.
+
+## 2026-09-02 / MQTT QoS 1 PUBACK은 durable 처리 완료의 증거여야 한다
+
+- **발생했던 문제/실수**: API가 acceptance/device-status 등 Gateway 이벤트의 bounded queue 자리만 예약한 뒤 PUBACK하고 실제 DB 처리를 비동기로 시작해, PUBACK 직후 API crash에서 제어 결과가 영구 유실될 수 있었다. Gateway dimming command도 journal 저장 전에 PUBACK할 수 있었다.
+- **원인**: broker backpressure 수락과 application durability를 같은 완료 경계로 간주했다.
+- **해결 및 예방책**: API custom ACK handler가 exact packet payload를 Site/Gateway queue에서 DB 처리한 뒤에만 MQTT.js listener와 PUBACK을 진행한다. 실패 시 PUBACK 없이 transport를 닫아 persistent session 재전달을 보존한다. Gateway도 dimming handler 완료 전에는 PUBACK하지 않는다.
+- **반복 방지 체크**: acceptance DB promise와 command journal promise를 의도적으로 멈춘 테스트에서 PUBACK 0회를 확인하고, 완료 뒤 exact 1회, 실패 뒤 transport close와 재전달 가능 상태를 함께 검증한다.
+
+## 2026-09-02 / BLE Mesh AppKey keyring 저장과 로컬 node 복원은 별도 상태다
+
+- **발생했던 문제/실수**: patched BlueZ provisioner가 AppKey를 keyring에만 기록해 현재 프로세스에서는 설정 명령이 동작했지만 재시작한 로컬 node의 `appKeys` runtime 목록에는 키가 없어 제어 송신이 실패했다.
+- **원인**: provisioner keyring 파일 존재를 local node storage/runtime 복원 완료로 확대 해석했다.
+- **해결 및 예방책**: AppKey 생성과 기존 keyring 복구 경로 모두 `appkey_key_add(node_get_net(node), ...)`를 사용해 runtime과 node JSON을 함께 갱신한다. exact BlueZ 5.82 patch 적용과 ARM64 compile을 검증한다.
+- **반복 방지 체크**: 컨테이너 계약에 runtime/node 저장 API 호출을 고정하고, HIL에서는 provisioning 직후 제어뿐 아니라 Gateway process/container cold restart 뒤 같은 node 제어까지 성공해야 완료 처리한다.
+
+## 2026-09-02 / 조회 대기·오류와 정상적인 빈 결과는 다른 화면 상태다
+
+- **발생했던 문제/실수**: 층별 조명 query의 `undefined` 또는 최초 오류를 빈 배열로 변환해 로딩 중에도 조명 0개 KPI와 빈 지도를 표시했다.
+- **원인**: React Query data의 부재를 서버가 반환한 성공적인 empty collection과 동일하게 취급했다.
+- **해결 및 예방책**: 최초 pending/error는 `FeedbackState`로 분기하고, 성공 데이터가 있는 background 오류만 stale 데이터를 유지하면서 경고한다. 지도 snapshot pending도 실제 층 미등록과 분리한다.
+- **반복 방지 체크**: 목록 UI 테스트에는 최초 로딩, key 변경 로딩, 최초 오류/재시도, stale-data background 오류, 성공 empty 결과를 각각 독립 fixture로 유지한다.
+
+## 2026-09-02 / TypeScript export와 브라우저 runtime export는 별도로 검증한다
+
+- **발생했던 문제/실수**: Web typecheck와 Vitest는 통과했지만 Vite production build가 shared CommonJS root의 새 named schema export를 정적으로 찾지 못했다.
+- **원인**: declaration의 `export *` 가시성을 Rollup의 CommonJS named-export 해석과 동일한 것으로 간주했다.
+- **해결 및 예방책**: 브라우저에서 사용하는 dimming runtime schema를 전용 `@led-control/shared/dimming-command` ESM/CJS subpath로 제공하고 Web은 해당 경로를 직접 import한다.
+- **반복 방지 체크**: runtime shared export 추가 시 TypeScript 검사뿐 아니라 packed package의 ESM import, CommonJS require와 Web production build를 모두 통과시킨다.
+
+## 2026-09-02 / 비동기 경합 테스트는 시간 지연이 아니라 명시적 barrier를 사용한다
+
+- **발생했던 문제/실수**: build lock 경합 테스트가 `setTimeout(0)` 뒤 filesystem hook이 실행됐다고 가정해 시스템 부하에서 간헐적으로 실패했다.
+- **원인**: event-loop 한 tick을 실제 비동기 작업 단계 도달의 증거로 사용했다.
+- **해결 및 예방책**: 테스트 hook이 temp directory 생성 시점에 전용 Promise barrier를 resolve하고 상대 작업은 그 barrier를 직접 기다린다.
+- **반복 방지 체크**: race test는 sleep, 임의 timeout, retry 횟수로 순서를 추정하지 않고 각 경계의 signal/release barrier로 실행 순서를 고정한다.
+
+## 2026-09-03 / 수신 이벤트 commit과 반대 방향 MQTT ACK publish를 한 Promise로 묶지 않는다
+
+- **발생했던 문제/실수**: 실장비 검색 완료 상태는 DB에 반영됐지만 application ACK publish 중 MQTT 연결이 닫히자 수신 handler 전체가 실패했다. QoS 1 persistent session이 같은 terminal 이벤트를 계속 재전달하며 API MQTT client가 불안정해졌고, 이후 조명 등록 명령도 `Connection closed`로 실패했다.
+- **원인**: Gateway 이벤트의 durable DB commit과 반대 방향 ACK의 broker 전달을 하나의 handler 성공 조건으로 묶었다. DB commit 뒤 ACK만 실패한 경우를 원자적으로 되돌릴 수 없는데도 원래 수신 이벤트까지 실패로 처리했다.
+- **해결 및 예방책**: terminal 상태·처리 원장·ACK outbox를 같은 DB transaction으로 commit하고 그 직후 수신 PUBACK을 허용한다. 실제 ACK publish는 lease와 backoff가 있는 outbox worker가 담당하며 중복 terminal은 동일 identity의 outbox를 재활성화한다.
+- **반복 방지 체크**: MQTT publish를 `Connection closed`로 강제해도 수신 handler가 성공하고 ACK outbox가 생성되는지, transaction 실패에는 outbox가 남지 않는지, 같은 terminal 재전달에서 새 행 대신 기존 행이 재활성화되는지 검증한다.
+
+## 2026-09-03 / Gateway 등록 식별자와 Cloud MeshNode PK를 같은 값으로 가정하지 않는다
+
+- **발생했던 문제/실수**: provisioning 직후 Gateway가 등록 후보/Fixture 식별자로 차량 센서 capability를 발행했지만 API는 이를 서버가 생성한 `MeshNode.id`로만 조회했다. 정상 메시지가 scope 오류로 거부되고 QoS 1 PUBACK이 보류되면서 persistent session이 같은 메시지를 재전달해 API MQTT 연결이 반복 종료됐다.
+- **원인**: provisioning 명령과 완료 이벤트에서 Gateway가 보존하는 외부 correlation identity와 Cloud 내부 관계형 PK를 하나의 `meshNodeId` 의미로 간주했다.
+- **해결 및 예방책**: claimed Site/Gateway 범위 안에서 보고된 identity를 `MeshNode.id` 또는 연결된 `Fixture.id`로 조회해 정확히 한 건일 때만 canonical MeshNode로 변환한다. 처리 원장과 metadata는 canonical ID를 사용하고 Gateway용 ACK는 원래 report identity를 보존한다.
+- **반복 방지 체크**: 장비가 알 수 있는 외부 identity와 서버 PK가 다른 fixture를 테스트에 사용한다. revision dedupe, ledger FK, metadata update에는 canonical ID가 저장되고 ACK correlation에는 입력 identity가 유지되는지 검증한다.
+
+## 2026-09-03 / Gateway 배포 image 태그는 실행 시점 환경변수로만 덮어쓰지 않는다
+
+- **발생했던 문제/실수**: 최신 Gateway 번들을 Pi에 배포해 제어가 성공했지만, 이후 `docker compose up`으로 재생성하자 `.env.appliance`에 남은 구형 태그가 선택돼 수정 전 MQTT 처리로 되돌아갔다. BLE 경로도 진단용 `auto`가 명시돼 최신 `generic:hci0` 기본값을 덮어썼다.
+- **원인**: 배포 스크립트가 archive의 image repository/tag를 현재 shell에만 export하고 장비 설정에는 영속화하지 않았다. 기존 `.env.appliance`를 보존하는 정책과 새 배포 좌표 고정이 분리되지 않았다.
+- **해결 및 예방책**: archive checksum과 image load를 확인한 뒤 실제 repository/tag만 `.env.appliance`에 임시 파일+rename으로 갱신하고 나머지 현장·인증 설정은 보존한다. 예시 설정에는 Raspberry Pi 운영 기본값 `GATEWAY_BLUEZ_IO=generic:hci0`을 명시한다.
+- **반복 방지 체크**: 배포 계약 테스트는 image 좌표가 Compose 실행 전에 영속화되는지 검사한다. HIL 재시작 뒤 컨테이너의 `.Config.Image`, 번들 marker, `GATEWAY_BLUEZ_IO`, Mesh 상태 resync와 실제 밝기 명령을 함께 확인한다.
+
+## 2026-09-03 / HTTP accepted와 MQTT 직접 발행 성공을 같은 경계로 두지 않는다
+
+- **발생했던 문제/실수**: 등록 transaction commit 뒤 API가 `provision-device`를 직접 발행해, MQTT 연결 종료나 process crash 시 이미 예약된 node/address/pending Fixture와 command 전달 여부가 분리됐다.
+- **원인**: 사용자에게 반환할 durable 수락과 broker PUBACK을 하나의 요청 생명주기에서 처리했고, commit과 publish 사이 실패를 재구성할 원장이 없었다.
+- **해결 및 예방책**: node의 `provisioning` 전이와 strict command outbox를 같은 DB transaction에 만들고 HTTP는 commit 직후 반환한다. 별도 worker가 lease 아래 현재 node identity를 재검증해 발행하며 PUBACK 뒤에만 완료 표시하고, bounded 실패는 pending 증거를 보존한 `reconcile_required`로 전환한다.
+- **반복 방지 체크**: broker mock이 실패해도 등록 API가 durable outbox와 `accepted`를 남기는지, outbox ID/topic/payload scope 충돌은 발행 전에 deadletter되는지, retry 한계 전에는 node를 변경하지 않고 한계에서만 outbox/node를 한 transaction으로 전환하는지 검증한다.

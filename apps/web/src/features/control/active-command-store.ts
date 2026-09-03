@@ -1,4 +1,5 @@
-import type { CreateDimmingCommandInput, DimmingTarget } from "@led-control/shared";
+import type { CreateDimmingCommandInput } from "@led-control/shared";
+import { createDimmingCommandSchema } from "@led-control/shared/dimming-command";
 import { canonicalizeDimmingCommandInput } from "../../api/commands";
 
 const STORAGE_PREFIX = "led-control:active-command:";
@@ -121,49 +122,8 @@ function loadRecord(userId: string, siteId: string): ActiveCommandRecord | null 
 }
 
 function parseCommandRequest(value: unknown): CreateDimmingCommandInput | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Record<string, unknown>;
-  if (
-    !isCommandId(candidate.siteId)
-    || !isCommandId(candidate.clientRequestId)
-    || !Number.isInteger(candidate.brightness)
-    || (candidate.brightness as number) < 0
-    || (candidate.brightness as number) > 100
-  ) return null;
-
-  const target = parseTarget(candidate.target);
-  if (!target) return null;
-  return {
-    siteId: candidate.siteId,
-    clientRequestId: candidate.clientRequestId,
-    target,
-    brightness: candidate.brightness as number
-  };
-}
-
-function parseTarget(value: unknown): DimmingTarget | null {
-  if (!value || typeof value !== "object") return null;
-  const target = value as Record<string, unknown>;
-  if (target.type === "fixture" && isCommandId(target.fixtureId)) {
-    return { type: "fixture", fixtureId: target.fixtureId };
-  }
-  if (target.type === "floor" && isCommandId(target.floorId)) {
-    return { type: "floor", floorId: target.floorId };
-  }
-  if (target.type === "group" && isCommandId(target.groupId)) {
-    return { type: "group", groupId: target.groupId };
-  }
-  if (
-    target.type === "fixtures"
-    && Array.isArray(target.fixtureIds)
-    && target.fixtureIds.length >= 1
-    && target.fixtureIds.length <= 1_000
-    && target.fixtureIds.every(isCommandId)
-    && new Set(target.fixtureIds).size === target.fixtureIds.length
-  ) {
-    return { type: "fixtures", fixtureIds: target.fixtureIds };
-  }
-  return null;
+  const parsed = createDimmingCommandSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function saveRecord(userId: string, siteId: string, record: ActiveCommandRecord): void {

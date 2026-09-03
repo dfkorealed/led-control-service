@@ -22,6 +22,9 @@ import {
   floorMapObjectDraftSchema,
   floorPlanUpdateSchema,
   provisionDeviceSchema,
+  provisioningDeviceCommandV2Schema,
+  provisioningDeviceTerminalV2Schema,
+  applicationProvisioningDeviceTerminalIngestedAckV2Schema,
   provisioningCompletedSchema,
   provisioningFailedSchema,
   provisioningScanCompletedSchema,
@@ -280,6 +283,60 @@ describe("shared schemas", () => {
     ).toBe("provisioning timeout");
   });
 
+  it("strictly binds provisioning v2 commands, terminal events, and application acknowledgements", () => {
+    const identity = {
+      commandId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      siteId: "00000000-0000-4000-8000-000000000003",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      nodeId: "22222222-2222-4222-8222-222222222222",
+      deviceUuid: "esp32h2-demo-001",
+      meshAddress: "0x0101"
+    };
+    const command = { ...identity, requestedAt: "2026-07-01T00:00:02.000Z" };
+    const terminal = {
+      ...identity,
+      eventId: "55555555-5555-4555-8555-555555555555",
+      sequence: 9,
+      occurredAt: "2026-07-01T00:00:05.000Z",
+      status: "completed" as const,
+      firmwareVersion: "esp32h2-0.1.0",
+      rssi: -61,
+      hopCount: 1
+    };
+    const acknowledgement = {
+      ...identity,
+      eventId: terminal.eventId,
+      sequence: terminal.sequence,
+      ingestedAt: "2026-07-01T00:00:06.000Z"
+    };
+
+    expect(provisioningDeviceCommandV2Schema.parse(command)).toEqual(command);
+    expect(provisioningDeviceTerminalV2Schema.parse(terminal)).toEqual(terminal);
+    expect(applicationProvisioningDeviceTerminalIngestedAckV2Schema.parse(acknowledgement)).toEqual(acknowledgement);
+    expect(() => provisioningDeviceCommandV2Schema.parse({ ...command, extra: true })).toThrow();
+    expect(() => provisioningDeviceCommandV2Schema.parse({ ...command, meshAddress: "0xc000" })).toThrow();
+    expect(() => provisioningDeviceTerminalV2Schema.parse({
+      ...terminal,
+      status: "failed",
+      errorMessage: "provisioning timeout"
+    })).toThrow();
+    expect(() => applicationProvisioningDeviceTerminalIngestedAckV2Schema.parse({
+      ...acknowledgement,
+      nodeId: "not-a-uuid"
+    })).toThrow();
+
+    expect(provisioningDeviceTerminalV2Schema.parse({
+      ...identity,
+      eventId: "66666666-6666-4666-8666-666666666666",
+      sequence: 10,
+      occurredAt: "2026-07-01T00:00:07.000Z",
+      status: "failed",
+      errorCode: "provisioning_timeout",
+      errorMessage: "provisioning timeout"
+    }).status).toBe("failed");
+  });
+
   it("defines a complete desired mesh group membership set including deletion to empty", () => {
     expect(
       mqttTopics.meshGroupSubscriptionSync(
@@ -436,6 +493,51 @@ describe("shared schemas", () => {
       estimatedSavings: { kwh: null, cost: null },
       lastAggregatedAt: null
     }).success).toBe(true);
+  });
+
+  it("requires energy series point periods to match the response granularity", () => {
+    const response = {
+      siteId: "00000000-0000-4000-8000-000000000003",
+      timeZone: "Asia/Seoul",
+      source: "state_based_estimate" as const,
+      generatedAt: "2026-08-26T00:00:00.000Z",
+      from: "2026-08-01",
+      to: "2026-08-31"
+    };
+    const point = {
+      source: "state_based_estimate" as const,
+      estimatedKwh: 1.2,
+      estimatedCost: 192,
+      knownSeconds: 3_600,
+      unknownSeconds: 0,
+      dataStatus: "available" as const
+    };
+
+    expect(energySeriesResponseSchema.safeParse({
+      ...response,
+      granularity: "day",
+      points: [{ ...point, period: "2026-08-26" }]
+    }).success).toBe(true);
+    expect(energySeriesResponseSchema.safeParse({
+      ...response,
+      granularity: "day",
+      points: [{ ...point, period: "2026-08" }]
+    }).success).toBe(false);
+    expect(energySeriesResponseSchema.safeParse({
+      ...response,
+      granularity: "month",
+      points: [{ ...point, period: "2026-08" }]
+    }).success).toBe(true);
+    expect(energySeriesResponseSchema.safeParse({
+      ...response,
+      granularity: "month",
+      points: [{ ...point, period: "2026-08-01" }]
+    }).success).toBe(false);
+    expect(energySeriesResponseSchema.safeParse({
+      ...response,
+      granularity: "month",
+      points: [{ ...point, period: "2026-13" }]
+    }).success).toBe(false);
   });
 
   it("validates atomic floor editor save and restore inputs", () => {

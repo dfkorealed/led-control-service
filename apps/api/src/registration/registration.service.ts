@@ -3,6 +3,7 @@ import {
   CreateRegistrationSessionInput,
   gatewayHeartbeatFreshSince,
   mqttTopicsV2,
+  provisioningDeviceCommandV2Schema,
   RegisterFixtureBatchInput,
   registerFixtureBatchSchema
 } from "@led-control/shared";
@@ -254,8 +255,8 @@ export class RegistrationService {
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
 
-    // 등록 요청을 주소 예약과 노드의 provisioning 준비 상태로 함께 DB에 기록해 같은 주소가 두 등록에 배정되는 실패를 막는다.
-    // accepted 응답은 이 준비 기록 뒤 Gateway에 직접 명령을 발행한다는 뜻일 뿐, durable job/outbox·물리 provisioning·Fixture 확정은 아니다.
+    // 등록 요청은 주소 예약, node 준비 상태, durable outbox를 함께 commit해 같은 주소가 두 등록에 배정되는 실패를 막는다.
+    // accepted는 이 DB commit만 뜻하며 MQTT PUBACK, 물리 provisioning, Fixture 확정을 뜻하지 않는다.
     const prepared = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
       await this.lockGateway(tx, accessSession.gatewayId);
@@ -268,6 +269,9 @@ export class RegistrationService {
       });
       if (!session) throw new NotFoundException("registration session not found");
       this.assertActiveSession(session.status);
+      if (session.scanStatus !== "completed") {
+        throw new ConflictException({ code: "registration_scan_not_completed" });
+      }
       await this.meshControlGroups.ensureFloorGroup(tx, session.gatewayId, session.floorId);
 
       const nodeIds = input.nodes.map((node) => node.nodeId).sort();
@@ -299,6 +303,15 @@ export class RegistrationService {
         }
         if (node.status !== "discovered" && node.status !== "identifying") {
           failures.set(requested.nodeId, "discovered node is not available for registration");
+          continue;
+        }
+        if (
+          node.scanCorrelationId === null
+          || node.scanAttempt === null
+          || node.scanCorrelationId !== session.scanCorrelationId
+          || node.scanAttempt !== session.scanAttempt
+        ) {
+          failures.set(requested.nodeId, "discovered node does not belong to the current completed scan");
           continue;
         }
         const individual = input.mode === "individual"
@@ -378,14 +391,31 @@ export class RegistrationService {
             errorMessage: null
           }
         });
+        const commandId = randomUUID();
+        const payload = provisioningDeviceCommandV2Schema.parse({
+          commandId,
+          sessionId,
+          siteId: session.siteId,
+          gatewayId: session.gatewayId,
+          nodeId: registration.nodeId,
+          deviceUuid: registration.deviceUuid,
+          meshAddress: registration.meshAddress,
+          requestedAt: new Date().toISOString()
+        });
+        await tx.provisioningDeviceOutbox.create({
+          data: {
+            id: commandId,
+            sessionId,
+            nodeId: registration.nodeId,
+            topic: mqttTopicsV2.gatewayCommand(session.siteId, session.gatewayId, "provisioning/provision-device"),
+            payload
+          }
+        });
         registrations.push(registration);
       }
       const registrationsByNodeId = new Map(registrations.map((registration) => [registration.nodeId, registration]));
 
       return {
-        siteId: session.siteId,
-        gatewayId: session.gatewayId,
-        registrations,
         items: input.nodes.map((node) => failures.has(node.nodeId)
           ? { nodeId: node.nodeId, status: "validation_failed" as const, error: failures.get(node.nodeId)! }
           : {
@@ -395,30 +425,6 @@ export class RegistrationService {
           })
       };
     });
-
-    // DB commit 뒤 Gateway에 직접 명령을 발행해 rollback된 주소로 동작하는 실패를 막는다.
-    // 이 경로는 durable job/outbox가 아닌 직접 발행이므로, 발행 결과가 불명확하면 다음 reconcile 상태로 넘긴다.
-    for (const registration of prepared.registrations) {
-      try {
-        await this.mqttService.publishProvisionDevice({
-          sessionId,
-          siteId: prepared.siteId,
-          gatewayId: prepared.gatewayId,
-          nodeId: registration.nodeId,
-          deviceUuid: registration.deviceUuid,
-          meshAddress: registration.meshAddress,
-          requestedAt: new Date().toISOString()
-        });
-      } catch (error) {
-        await this.prisma.discoveredMeshNode.updateMany({
-          where: { id: registration.nodeId, sessionId, status: "provisioning" },
-          data: {
-            status: "reconcile_required",
-            errorMessage: error instanceof Error ? error.message : "provisioning publish outcome is unknown"
-          }
-        });
-      }
-    }
 
     return { items: prepared.items };
   }

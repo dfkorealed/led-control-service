@@ -55,14 +55,17 @@ describe("Nest manufacturing mTLS integration", () => {
     if (!address || typeof address === "string") throw new Error("server did not bind");
 
     expect(await call(address.port, directory, manufacturing, true)).toBe(204);
-    await expect(call(address.port, directory, manufacturing, false)).rejects.toThrow();
-    await expect(
-      callWithIdentity(address.port, directory, join(directory, "other.crt"), join(directory, "other.key"))
-    ).rejects.toThrow();
+    expect(await call(address.port, directory, manufacturing, false)).toBe(401);
+    expect(await callWithIdentity(
+      address.port,
+      directory,
+      join(directory, "other.crt"),
+      join(directory, "other.key")
+    )).toBe(401);
 
     execFileSync(issuer, ["revoke"], { cwd: repo, env: { ...process.env, PKI_ENV: "lab" }, stdio: "pipe" });
     server.setSecureContext(createApiHttpsOptions(env).httpsOptions!);
-    await expect(call(address.port, directory, manufacturing, true)).rejects.toThrow();
+    expect(await call(address.port, directory, manufacturing, true)).toBe(401);
   });
 });
 

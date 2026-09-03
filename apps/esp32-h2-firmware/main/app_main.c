@@ -27,6 +27,9 @@ void app_main(void) {
     esp_system_abort("TEST BUILD: reserved Company ID fixture; RF, sensor, NVS, HIL and production use are prohibited");
   }
 #endif
+#if defined(CONFIG_LED_CONTROL_LAB_HIL_BUILD)
+  ESP_LOGW(TAG, "LAB HIL ONLY: non-production RFU Bluetooth Company ID 0xFFFE; NOT FOR PRODUCTION");
+#endif
 
   /* NVS를 먼저 준비해야 이후 상태 복구가 유효하다. 호환되지 않는 NVS 파티션만 초기화해
    * 부팅 실패를 막고, 정상적인 사용자 조명 상태를 매 부팅마다 지우지는 않는다. */

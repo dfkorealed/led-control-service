@@ -111,6 +111,18 @@ test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () =
     /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/provisioning\/scan-terminal-ingested/
   );
   assert.match(acl, /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/state-ingested/);
+  assert.match(
+    acl,
+    /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/automation\/config-applied-ingested/
+  );
+  assert.match(
+    acl,
+    /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/automation\/execution-ingested/
+  );
+  assert.match(
+    acl,
+    /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/automation\/vehicle-sensor-capability-ingested/
+  );
   assert.match(acl, /topic write sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/acceptance/);
   assert.match(acl, /topic write sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/device-status/);
   assert.doesNotMatch(acl, /topic write sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/#/);

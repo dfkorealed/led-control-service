@@ -82,6 +82,21 @@ describe("handleGatewayDimmingCommand", () => {
     expect(adapter.commands).toHaveLength(1);
   });
 
+  it("opens the MQTT receipt boundary after journal acceptance and before publishing acceptance", async () => {
+    const events: string[] = [];
+
+    const result = await handleGatewayDimmingCommand(
+      new StubBleMeshAdapter(),
+      memoryJournal(new Map()),
+      command,
+      async () => { events.push("acceptance-published"); },
+      { onDurableReceipt: () => events.push("receipt-durable") }
+    );
+
+    expect(result.deviceStatus.status).toBe("succeeded");
+    expect(events).toEqual(["receipt-durable", "acceptance-published"]);
+  });
+
   it("replays a completed command whose durable automation handoff was interrupted", async () => {
     const adapter = new StubBleMeshAdapter();
     const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
