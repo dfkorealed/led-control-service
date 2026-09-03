@@ -191,7 +191,12 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     const releaseVerify = deferred<void>();
     const blockingPasswords = new BlockingVerifyPasswordService(verifyStarted, releaseVerify);
     const loginService = new AuthService(competingPrisma, blockingPasswords, new AuditService(competingPrisma));
-    const operatorService = new OperatorSiteAdminsService(prisma, new PasswordService(), new AuditService(prisma));
+    const operatorService = new OperatorSiteAdminsService(
+      prisma,
+      new PasswordService(),
+      new AuditService(prisma),
+      { processNow: async () => ({ status: "completed" as const }) } as never
+    );
 
     const oldLogin = loginService.login({ loginId: fixture.loginId, password: fixture.oldPassword, rememberMe: false });
     await verifyStarted.promise;

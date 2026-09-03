@@ -15,6 +15,10 @@ interface ResetPasswordInput {
   newPassword: string;
 }
 
+interface DeleteSiteAdminInput {
+  confirmationSiteName: string;
+}
+
 @UseGuards(SessionAuthGuard, RolesGuard)
 @Roles("operator")
 @Controller("operator")
@@ -51,7 +55,11 @@ export class OperatorSiteAdminsController {
   }
 
   @Delete("site-admins/:userId")
-  disable(@CurrentUser() user: AuthenticatedUser, @Param("userId") userId: string) {
-    return this.siteAdmins.disable(user, userId);
+  deleteSiteAdmin(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("userId") userId: string,
+    @Body() body: DeleteSiteAdminInput
+  ) {
+    return this.siteAdmins.deleteSiteAdmin(user, userId, body?.confirmationSiteName);
   }
 }

@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-08-30
+작성일: 2026-09-03
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -14,7 +14,7 @@
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
-- 감사: `GatewayClaimAudit`, `AuditLog`
+- 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
 - 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `DiscoveredMeshNode`
 
 간단한 관계 흐름은 다음과 같다.
@@ -45,6 +45,7 @@ Organization
       │         └─ ManualOverride ─ ManualOverrideFixture
       └─ ProvisioningSession ─ ProvisioningScanOutbox
                              └─ DiscoveredMeshNode
+SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 ```
 
 ## 2. Enum
@@ -277,7 +278,25 @@ admin 연결 제약:
 - Site의 `adminUserId`/`organizationId`, User의 `role`/`status`/`organizationId`, Organization의 `type`에 영향을 주는 INSERT/UPDATE는 각 테이블의 `BEFORE STATEMENT` trigger에서 동일한 transaction-scoped advisory lock을 먼저 얻는다. PostgreSQL이 target row를 잠그기 전에 세 write path를 직렬화하므로 서로 다른 target table에서 시작하는 UPDATE 사이의 row-lock 순환 대기를 막는다. 이 전역 직렬화는 저빈도 계정·현장 관리 작업의 처리량보다 교착 방지를 우선한 계약이다.
 - statement gate를 통과한 뒤 기존 row trigger는 stale snapshot write-skew를 막기 위해 관계 행을 `FOR UPDATE`로 잠그고 변경 후 상태를 검증한다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 transaction 종료까지 안정적으로 유지한다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
-- operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 비활성화는 Task 1 trigger를 만족하도록 Site 연결 해제, User `disabled`, Session revoke 순서로 실행하며, 현장과 감사 이력은 삭제하지 않는다.
+- operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 영구 삭제는 사용자가 입력한 현장명이 현재 이름과 정확히 일치할 때만 실행한다. 같은 transaction에서 제조 `GatewayInventory`를 비활성화하고 외부 정리 대상을 `SiteDeletionCleanup`에 먼저 기록한 뒤, `20260903041451_operator_site_cascade_delete` migration의 ownership cascade로 층·도면·조명·그룹·게이트웨이·명령·등록·에너지·자동화 데이터를 제거한다. Gateway 삭제의 `SET NULL` FK가 inventory claim 연결을 해제한다. 커밋 뒤 worker가 Gateway 인증서를 폐기하고 presigned upload URL 최대 수명 이후 FloorAsset 객체를 삭제하며 실패 시 재시도한다. `GatewayInventory`와 `GatewayCertificate` 원장은 보존한다. 고객사에 다른 Site가 없으면 Session, Invitation, 모든 customer User와 Organization도 삭제한다. 삭제 대상 User를 `FOR UPDATE`로 먼저 잠가 login/session 생성과 직렬화한다. 삭제 감사는 함께 삭제되는 customer가 아니라 service-provider Organization에 `operator.site_deleted`로 보존한다.
+
+### SiteDeletionCleanup
+
+현장 DB 삭제와 S3/MinIO·PKI 같은 외부 시스템 정리를 분리하는 durable 작업 원장이다. 삭제된 `Site`와 FK를 맺지 않아 Site cascade 후에도 남는다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 정리 작업 ID |
+| `siteId` | `String` | 예 | Unique, FK 없음 | 삭제된 현장 ID snapshot |
+| `inventoryIds` | `Json` | 예 | 문자열 배열 | 인증서를 폐기할 제조 inventory ID 목록 |
+| `objectKeys` | `Json` | 예 | 문자열 배열 | 삭제할 FloorAsset object key 목록 |
+| `attempts` | `Int` | 예 | `0` | lease 획득 횟수 |
+| `nextAttemptAt` | `DateTime` | 예 | `now()` | 다음 재시도 가능 시각 |
+| `lockedAt`, `leaseExpiresAt` | `DateTime?` | 아니오 |  | 다중 API instance 중복 실행을 막는 만료형 lease |
+| `completedAt` | `DateTime?` | 아니오 |  | 외부 정리 완료 시각 |
+| `lastError` | `String?` | 아니오 | 정제된 코드만 저장 | 마지막 실패 원인 |
+
+worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 조회한다. inventory별 인증서 폐기는 즉시 시작하고, object 삭제는 삭제 시점에 아직 유효할 수 있는 300초 presigned URL과 5초 안전 여유가 지난 뒤 실행한다. 두 외부 작업은 재실행 가능하며, 실패하면 최대 1시간의 지수 backoff로 다시 시도한다.
 
 ### Floor
 
@@ -465,7 +484,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 조명 ID |
-| `floorId` | `String` | 예 | `siteId`와 복합 FK -> `Floor(id, siteId)`, delete restrict/update cascade | 설치 층 |
+| `floorId` | `String` | 예 | `siteId`와 복합 FK -> `Floor(id, siteId)`, delete cascade/update cascade | 설치 층 |
 | `meshNodeId` | `String?` | 아니오 | Unique, `gatewayId`와 복합 FK -> `MeshNode(id, gatewayId)`, delete set null/update cascade | 연결된 BLE Mesh 노드 |
 | `siteId` | `String` | 예 | `project_fixture_owner` trigger 파생, 직접 불일치 입력 거부 | Floor에서 투영한 tenant owner |
 | `gatewayId` | `String?` | 아니오 | `project_fixture_owner` trigger 파생, MeshNode가 없을 때만 `NULL` | MeshNode에서 투영한 Gateway owner |
@@ -956,8 +975,8 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `LightingSchedule` 컬럼 | 타입 | 필수 | 기본값/제약 |
 | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` |
-| `siteId` | `String` | 예 | FK -> `Site.id`, delete restrict; index `(siteId, status, createdAt)` |
-| `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete restrict; index `(gatewayId, status)` |
+| `siteId` | `String` | 예 | FK -> `Site.id`, delete cascade; index `(siteId, status, createdAt)` |
+| `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete cascade; index `(gatewayId, status)` |
 | `name` | `String` | 예 | DB check `btrim(name) <> ''` |
 | `status` | `AutomationRuleStatus` | 예 | `enabled` |
 | `activeFrom`, `activeUntil` | `DateTime` | 예 | DB check `activeFrom <= activeUntil` |
@@ -975,7 +994,7 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 
 `automation_weekly_days_are_unique(INTEGER[])`는 `IMMUTABLE` SQL helper이며 recurrence CHECK가 중복 요일을 API와 독립적으로 거부한다. `localStartTime <> localEndTime` CHECK는 같은 시각을 암묵적인 24시간 schedule로 해석하지 않고 API와 독립적으로 거부한다. `LightingSchedule`은 owner-bearing child FK 기준인 `(id, siteId, gatewayId)` Unique도 가진다.
 
-`LightingScheduleFixture`의 컬럼은 `scheduleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`이다. `(scheduleId, fixtureId)`가 복합 PK이고 `(scheduleId, siteId, gatewayId)`는 부모 owner Unique를 `ON DELETE CASCADE, ON UPDATE RESTRICT`로 참조한다. `(fixtureId, siteId, gatewayId)`는 투영된 `Fixture(id, siteId, gatewayId)`를 delete/update restrict로 참조하며 `(fixtureId)`, `(siteId, gatewayId)` index가 있다.
+`LightingScheduleFixture`의 컬럼은 `scheduleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`이다. `(scheduleId, fixtureId)`가 복합 PK이고 `(scheduleId, siteId, gatewayId)`는 부모 owner Unique를 `ON DELETE CASCADE, ON UPDATE RESTRICT`로 참조한다. `(fixtureId, siteId, gatewayId)`는 투영된 `Fixture(id, siteId, gatewayId)`를 delete cascade/update restrict로 참조하며 `(fixtureId)`, `(siteId, gatewayId)` index가 있다.
 
 `LightingSchedule_membership_statement_lock`과 `LightingScheduleFixture_membership_statement_lock`은 top-level INSERT/UPDATE/DELETE 전에 같은 automation membership advisory lock을 획득한다. Row maintenance는 이 statement lock이 이미 유지된다고 가정하고 INSERT/DELETE에서 부모 `targetCount`를 원자 증감하며, `scheduleId` UPDATE에서는 OLD/NEW 부모를 ID 오름차순 `FOR UPDATE`로 잠근 뒤 두 counter를 갱신한다. Counter가 만든 nested `LightingSchedule` UPDATE의 parent statement trigger는 depth guard로 재진입 작업을 생략한다. 음수는 DB check와 underflow guard가 거부한다. DEFERRABLE INITIALLY DEFERRED constraint trigger는 commit 시 `targetCount >= 1`과 실제 child `COUNT(*)` 일치를 함께 검증한다. Parent+child를 같은 transaction에서 만들거나 snapshot 전체를 교체할 수 있고, nested parent cascade에서 이미 삭제된 parent의 counter와 deferred 검증은 건너뛴다. 모든 direct child write가 같은 parent row version을 갱신하므로 READ COMMITTED는 lock 대기 뒤 최신 counter로 재검사하고 REPEATABLE READ/SERIALIZABLE은 concurrent row update를 serialization failure로 종료해 동시 마지막-target 삭제의 stale 성공을 막는다.
 
@@ -984,8 +1003,8 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `VehicleEventRule` 컬럼 | 타입 | 필수 | 기본값/제약 |
 | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` |
-| `siteId` | `String` | 예 | FK -> `Site.id`, delete restrict; index `(siteId, status, createdAt)` |
-| `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete restrict; index `(gatewayId, status)` |
+| `siteId` | `String` | 예 | FK -> `Site.id`, delete cascade; index `(siteId, status, createdAt)` |
+| `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete cascade; index `(gatewayId, status)` |
 | `name` | `String` | 예 | DB check `btrim(name) <> ''` |
 | `status` | `AutomationRuleStatus` | 예 | `enabled` |
 | `dimmingEnabled` | `Boolean` | 예 | 감지 action 디밍 여부 |
@@ -996,7 +1015,7 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `createdById`, `updatedById` | `String` | 예 | named FK -> `User.id`, delete restrict |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` |
 
-`VehicleEventRule`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique를 가진다. `VehicleEventSource`와 `VehicleEventTarget`은 각각 `ruleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장하고 `(ruleId, fixtureId)` 복합 PK로 source/target 중복을 차단한다. `(ruleId, siteId, gatewayId)`는 부모 owner를 delete cascade/update restrict로, `(fixtureId, siteId, gatewayId)`는 투영된 Fixture owner를 delete/update restrict로 참조한다. 두 테이블 모두 `(fixtureId)`, `(siteId, gatewayId)` index가 있다.
+`VehicleEventRule`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique를 가진다. `VehicleEventSource`와 `VehicleEventTarget`은 각각 `ruleId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장하고 `(ruleId, fixtureId)` 복합 PK로 source/target 중복을 차단한다. `(ruleId, siteId, gatewayId)`는 부모 owner를 delete cascade/update restrict로, `(fixtureId, siteId, gatewayId)`는 투영된 Fixture owner를 delete cascade/update restrict로 참조한다. 두 테이블 모두 `(fixtureId)`, `(siteId, gatewayId)` index가 있다.
 
 `VehicleEventSource` INSERT와 `fixtureId` 변경은 연결 Fixture의 MeshNode row를 잠그고 capability가 `supported`이며 verified timestamp가 있는지 검사한다. MeshNode capability UPDATE의 `BEFORE ROW` guard는 status/timestamp 조합을 재검증하고 enabled rule source로 참조되는 node의 downgrade/unknown 전환을 거부한다. Rule status UPDATE도 invalid source를 가진 disabled rule의 re-enable을 거부한다. Fixture의 `meshNodeId` 변경은 enabled source를 미지원 node로 옮기지 못하게 한다. Disabled rule의 기존 source는 감사 목적으로 남길 수 있지만 지원 report 적용 전에는 API와 direct SQL 모두 re-enable할 수 없다. 이 제약은 Prisma를 우회한 direct SQL에도 동일하다.
 
@@ -1007,9 +1026,9 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `ManualOverride` 컬럼 | 타입 | 필수 | 기본값/제약 |
 | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` |
-| `siteId` | `String` | 예 | FK -> `Site.id`, delete restrict; index `(siteId, overrideUntil)` |
-| `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete restrict; index `(gatewayId, overrideUntil)` |
-| `commandId` | `String` | 예 | Unique; `(commandId, siteId, requestedById)` FK -> `Command(id, siteId, requestedBy)`, delete/update restrict |
+| `siteId` | `String` | 예 | FK -> `Site.id`, delete cascade; index `(siteId, overrideUntil)` |
+| `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete cascade; index `(gatewayId, overrideUntil)` |
+| `commandId` | `String` | 예 | Unique; `(commandId, siteId, requestedById)` FK -> `Command(id, siteId, requestedBy)`, delete cascade/update restrict |
 | `requestedById` | `String` | 예 | named FK -> `User.id`, delete restrict; index `(requestedById, createdAt)` |
 | `brightnessPercent` | `Int` | 예 | DB check `0..100` |
 | `startedAt`, `overrideUntil` | `DateTime` | 예 | DB check `overrideUntil > startedAt` |
@@ -1017,7 +1036,7 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `targetCount` | `Int` | 예 | `0`; DB check `>= 0`, child trigger 유지 | 현재 target row 수 |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` |
 
-`ManualOverride`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique와 Prisma 1:1 Command relation 기준인 `(commandId, siteId, requestedById)` Unique를 가진다. `ManualOverrideFixture`는 `manualOverrideId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장한다. `(manualOverrideId, fixtureId)` 복합 PK, `(fixtureId)`, `(siteId, gatewayId)` index, owner-aware override delete cascade/update restrict와 투영된 `(fixtureId, siteId, gatewayId)` Fixture delete/update restrict를 사용한다.
+`ManualOverride`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique와 Prisma 1:1 Command relation 기준인 `(commandId, siteId, requestedById)` Unique를 가진다. `ManualOverrideFixture`는 `manualOverrideId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장한다. `(manualOverrideId, fixtureId)` 복합 PK, `(fixtureId)`, `(siteId, gatewayId)` index, owner-aware override delete cascade/update restrict와 투영된 `(fixtureId, siteId, gatewayId)` Fixture delete cascade/update restrict를 사용한다.
 
 `ManualOverride_membership_statement_lock`과 `ManualOverrideFixture_membership_statement_lock`은 top-level statement가 parent 또는 child tuple을 잠그기 전에 공통 advisory lock을 획득한다. Row maintenance는 INSERT/DELETE/부모-key UPDATE에서 `targetCount`를 원자 갱신하며 부모 이동 시 두 override row를 ID 오름차순으로 잠근다. Counter가 만든 nested override UPDATE는 depth guard로 parent statement 작업을 생략하고, nested parent cascade는 이미 사라진 override의 counter와 deferred 검증을 건너뛴다. Direct DML의 deferred 검증은 `targetCount >= 1`과 실제 target row 수 일치를 강제한다. 동일 parent row version 갱신이 모든 공통 isolation level에서 동시 마지막-target 삭제의 stale 성공을 막는다. Command/User/Fixture 관계를 restrict해 이미 실행된 수동 override 원장이 참조 대상 삭제로 유실되지 않게 한다.
 
@@ -1028,8 +1047,8 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `AutomationExecution` 컬럼 | 타입 | 필수 | 기본값/제약 |
 | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` |
-| `siteId` | `String` | 예 | FK -> `Site.id`, delete restrict; index `(siteId, occurredAt)` |
-| `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete restrict |
+| `siteId` | `String` | 예 | FK -> `Site.id`, delete cascade; index `(siteId, occurredAt)` |
+| `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete cascade |
 | `eventId` | `String` | 예 | Unique with `gatewayId`, `sequence` |
 | `sequence` | `BigInt` | 예 | DB check `>= 0`; index `(gatewayId, sequence)` |
 | `revision` | `Int` | 예 | DB check `>= 0` |
@@ -1049,7 +1068,7 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 - `action_result`: schedule/event/manual source 중 정확히 하나. schedule/event는 `ruleId`가 source ID와 같고 manual은 `ruleId = NULL`이다. Manual payload의 `sourceId`는 command ID이며, `manualOverrideId`는 같은 `ManualOverride.commandId`를 가진 실제 PK여야 한다.
 - `telemetry_gap`: source 세 컬럼과 `ruleId`가 모두 `NULL`
 
-Site/Gateway 삭제는 원장 때문에 restrict되지만 규칙 또는 override 삭제는 FK `SET NULL`로 허용한다. Trigger는 FK가 지운 source parent가 실제로 없을 때의 non-null -> null 전이만 history 보존 전이로 허용하며 raw `ruleId`, event payload, occurrence key, owner는 유지한다. Owner `(gatewayId, siteId)`와 Site/source FK의 key update는 restrict한다.
+개별 규칙 또는 override 삭제는 실행 원장의 FK를 `SET NULL`로 바꾸고 raw `ruleId`, event payload, occurrence key와 owner를 보존한다. 반면 operator가 확인한 현장 영구 삭제에서는 Site/Gateway ownership FK가 cascade되어 해당 현장의 실행 원장도 함께 제거된다. Owner `(gatewayId, siteId)`와 Site/source FK의 key update는 restrict한다.
 
 | `AutomationExecutionFixtureResult` 컬럼 | 타입 | 필수 | 기본값/제약 |
 | --- | --- | --- | --- |
@@ -1069,9 +1088,9 @@ DB check는 live `fixtureId`가 `NULL`이거나 `fixtureSnapshotId`와 정확히
 - `Gateway.id + Gateway.siteId`를 Unique로 만들고 구성, 규칙, override, 실행 원장이 `(gatewayId, siteId)` 복합 FK를 사용한다. Owner FK는 `ON UPDATE RESTRICT`다. `Gateway_automation_site_reassignment_guard`는 기존 Site가 `NULL`이면 dependency 생성 전 최초 assignment를 허용하지만, 구성/규칙/override/실행 원장 또는 `publishedAt IS NULL` config outbox가 있으면 Site 변경을 거부한다.
 - Fixture는 `Floor(id, siteId)`와 `MeshNode(id, gatewayId)` 복합 FK로 owner를 투영한다. Floor/MeshNode owner update는 Fixture에 cascade하지만 schedule/event/manual join이 `(fixtureId, siteId, gatewayId)`를 `ON UPDATE RESTRICT`로 참조하므로 유효한 owner 이동만 구조적으로 허용된다. Join 생성과 owner 이동의 안전성은 automation row visibility scan에 의존하지 않으며 READ COMMITTED, REPEATABLE READ, SERIALIZABLE에서 FK row-version 검사로 유지된다. 같은 owner update, automation 미참조 Fixture의 owner 이동, MeshNode 없는 Fixture의 `gatewayId = NULL`은 허용한다.
 - Schedule/event/manual parent와 schedule target, vehicle source/target, manual target의 top-level DML은 모두 `BEFORE STATEMENT`에서 고정 key `(1279607873, 1296387394)`의 transaction-level advisory lock을 target tuple보다 먼저 획득한다. 이 낮은 빈도의 구성 쓰기 직렬화가 parent UPDATE 후 membership DML과 multi-row 반대 parent 변경의 transaction-global lock cycle을 제거한다. Membership row maintenance는 parent-maintained non-negative counter를 갱신하고, parent-key move의 양쪽 parent ID 정렬, DEFERRABLE INITIALLY DEFERRED counter/실제 child 수 reconciliation, 최소 1개 제약은 그대로 유지한다. Counter trigger가 만든 nested parent UPDATE와 parent DELETE의 nested FK cascade는 trigger depth guard로 statement 작업을 건너뛴다. Cascade row trigger와 deferred cardinality trigger는 삭제된 parent 부재도 확인해 parent row/FK cascade 순서를 따른다.
-- 구성 row와 config outbox는 owner 삭제 시 cascade하는 현재 상태다. 규칙 target/source는 규칙 삭제 시 cascade하지만 Fixture 삭제는 restrict한다.
-- Manual override는 `(commandId, siteId, requestedById)` 복합 FK로 source Command의 tenant/requester를 고정하고 요청 `User`, 대상 `Fixture` 삭제를 restrict해 감사 연결을 보존한다.
-- 실행 원장은 trigger로 source owner와 kind/rule coherence를 확인한다. Site/Gateway 삭제를 restrict하고 원본 규칙/override 및 Fixture의 물리 삭제는 nullable FK를 `SET NULL`로 바꾸면서 raw ID snapshot과 payload를 유지한다.
+- 구성 row와 config outbox는 owner 삭제 시 cascade한다. 규칙 target/source는 규칙 또는 Fixture 삭제 시 cascade하며, 현장 영구 삭제에서는 양쪽 owner가 함께 정리된다.
+- Manual override는 `(commandId, siteId, requestedById)` 복합 FK로 source Command의 tenant/requester를 고정한다. Command와 대상 Fixture 삭제는 관련 override/target을 cascade하고 요청 `User`의 개별 삭제는 restrict한다.
+- 실행 원장은 trigger로 source owner와 kind/rule coherence를 확인한다. 개별 원본 규칙/override 및 Fixture 삭제에서는 nullable source FK와 snapshot ID로 이력을 보존하지만, 명시적인 현장 영구 삭제에서는 Site/Gateway와 함께 cascade한다.
 
 `20260829_add_lighting_automation`은 배포 이력을 보존하는 released Task 6 migration으로 수정하지 않는다. 이 migration은 기존 Fixture의 `siteId`를 Floor에서 backfill하고, MeshNode가 연결된 Fixture만 `gatewayId`를 backfill한 뒤 `siteId NOT NULL`과 owner FK를 적용한다. MeshNode 없는 기존 Fixture는 `gatewayId = NULL`로 보존된다. 기존 Command와 command형 `MqttOutbox` row는 신규 owner Unique와 command/config row-shape check를 그대로 만족한다. Task 7 목록의 최신 실행 조회 index는 별도 순방향 migration `20260830_add_schedule_execution_list_index`가 기존 단독 index를 `(lightingScheduleId, occurredAt DESC, sequence DESC)`로 교체한다.
 
@@ -1101,7 +1120,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | --- | --- | --- | --- | --- |
 | `eventId` | `String` | 예 | PK | Gateway event UUID |
 | `gatewayId` | `String` | 예 | FK -> `Gateway.id`, unique tuple | owner Gateway |
-| `meshNodeId` | `String?` | capability만 예 | `(id, gatewayId)` 복합 FK -> `MeshNode`, delete/update restrict, partial unique tuple | node-local capability ledger identity; legacy event는 null 허용 |
+| `meshNodeId` | `String?` | capability만 예 | `(id, gatewayId)` 복합 FK -> `MeshNode`, delete cascade/update restrict, partial unique tuple | node-local capability ledger identity; legacy event는 null 허용 |
 | `fixtureId` | `String?` | 아니오 | FK -> `Fixture.id`, delete set null | 연결 Fixture snapshot |
 | `sequence` | `BigInt` | 예 | unique tuple | event type별 영속 순서, capability에는 `capabilityRevision` 저장 |
 | `eventType` | `String` | 예 | unique tuple | 이벤트 계약 식별자 |
@@ -1349,6 +1368,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
 | `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |
+| `SiteDeletionCleanup` | Unique `siteId`, retry/lease index | 현장별 외부 정리 작업 1개와 다중 API instance의 crash-safe 재시도 |
 | `DiscoveredMeshNode` | Unique `sessionId`, `deviceUuid` | 같은 등록 세션 안에서 발견 노드 중복 방지 |
 | `ProvisioningSession` | Partial unique `gatewayId WHERE scanStatus IN (pending, scanning)` | Gateway당 outbox 대기·실행 중 scan 1개 제한 |
 | `ProvisioningScanOutbox` | Unique `sessionId + scanAttempt`, retry/lease index | 같은 scan attempt의 중복 outbox 생성 방지와 crash-safe reclaim |

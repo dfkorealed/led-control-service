@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
-import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
 
@@ -44,6 +44,10 @@ export class ObjectStorageService {
 
   async headObject(objectKey: string) {
     return this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: objectKey }));
+  }
+
+  async deleteObject(objectKey: string) {
+    return this.client.send(new DeleteObjectCommand({ Bucket: this.options.bucket, Key: objectKey }));
   }
 
   private validateUpload(input: { mimeType: string; sizeBytes: number; sha256: string }) {

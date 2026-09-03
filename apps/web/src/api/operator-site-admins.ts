@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from "./client";
+import { apiGet, apiPatch, apiPost, apiRequest } from "./client";
 
 export interface SiteAdminSummary {
   siteId: string;
@@ -55,6 +55,10 @@ export function resetSiteAdminPassword(userId: string, newPassword: string) {
   return apiPost<{ ok: true }>(`/operator/site-admins/${encodeURIComponent(userId)}/reset-password`, { newPassword });
 }
 
-export function disableSiteAdmin(userId: string) {
-  return apiDelete<{ ok: true }>(`/operator/site-admins/${encodeURIComponent(userId)}`);
+export function deleteSiteAdmin(userId: string, confirmationSiteName: string) {
+  return apiRequest<{ ok: true }>(`/operator/site-admins/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmationSiteName })
+  });
 }

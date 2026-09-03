@@ -13,7 +13,7 @@ const api = vi.hoisted(() => ({
   assignSiteAdmin: vi.fn(),
   updateSiteAdmin: vi.fn(),
   resetSiteAdminPassword: vi.fn(),
-  disableSiteAdmin: vi.fn()
+  deleteSiteAdmin: vi.fn()
 }));
 
 vi.mock("../../../api/operator-site-admins", () => ({
@@ -51,7 +51,7 @@ describe("SiteAdminManagementView", () => {
     api.assignSiteAdmin.mockResolvedValue({ ...unassignedSite, admin: assignedSite.admin });
     api.updateSiteAdmin.mockResolvedValue({ ...assignedSite.admin, name: "김수정", loginId: "updated_admin" });
     api.resetSiteAdminPassword.mockResolvedValue({ ok: true });
-    api.disableSiteAdmin.mockResolvedValue({ ok: true });
+    api.deleteSiteAdmin.mockResolvedValue({ ok: true });
   });
 
   afterEach(cleanup);
@@ -264,10 +264,14 @@ describe("SiteAdminManagementView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "김관리 삭제" }));
     const dialog = screen.getByRole("dialog", { name: "김관리 삭제" });
-    expect(within(dialog).getByText("관리자 로그인이 차단되고 현장 지정이 해제됩니다. 현장과 운영 이력은 보존됩니다.")).toBeVisible();
-    fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
+    expect(within(dialog).getByText(/현장과 관련 데이터가 영구 삭제됩니다/)).toBeVisible();
+    const confirmButton = within(dialog).getByRole("button", { name: "영구 삭제" });
+    expect(confirmButton).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("삭제할 현장명"), { target: { value: "인천 물류센터" } });
+    expect(confirmButton).toBeEnabled();
+    fireEvent.click(confirmButton);
 
-    await waitFor(() => expect(api.disableSiteAdmin).toHaveBeenCalledWith("admin-1"));
+    await waitFor(() => expect(api.deleteSiteAdmin).toHaveBeenCalledWith("admin-1", "인천 물류센터"));
   });
 
   it("maps a login id conflict to its field, focuses it, and restores trigger focus after Escape", async () => {
@@ -359,7 +363,9 @@ describe("SiteAdminManagementView", () => {
 
     const createCommand = screen.getByRole("button", { name: "현장 및 관리자 생성" });
     fireEvent.click(screen.getByRole("button", { name: "김관리 삭제" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "김관리 삭제" })).getByRole("button", { name: "삭제" }));
+    const dialog = within(screen.getByRole("dialog", { name: "김관리 삭제" }));
+    fireEvent.change(dialog.getByLabelText("삭제할 현장명"), { target: { value: "인천 물류센터" } });
+    fireEvent.click(dialog.getByRole("button", { name: "영구 삭제" }));
 
     await screen.findByText("관리자 미지정");
     expect(screen.queryByRole("button", { name: "김관리 삭제" })).not.toBeInTheDocument();
@@ -376,7 +382,9 @@ describe("SiteAdminManagementView", () => {
 
     const trigger = screen.getByRole("button", { name: "김관리 삭제" });
     fireEvent.click(trigger);
-    fireEvent.click(within(screen.getByRole("dialog", { name: "김관리 삭제" })).getByRole("button", { name: "삭제" }));
+    const dialog = within(screen.getByRole("dialog", { name: "김관리 삭제" }));
+    fireEvent.change(dialog.getByLabelText("삭제할 현장명"), { target: { value: "인천 물류센터" } });
+    fireEvent.click(dialog.getByRole("button", { name: "영구 삭제" }));
 
     await waitFor(() => expect(api.listSiteAdmins).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

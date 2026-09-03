@@ -147,97 +147,114 @@ enum VehicleSensorCapabilityStatus {
 }
 
 model Organization {
-  id          String       @id @default(uuid())
+  id          String           @id @default(uuid())
   name        String
   type        OrganizationType @default(customer)
   users       User[]
   sites       Site[]
   invitations Invitation[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 }
 
 model User {
-  id                   String                @id @default(uuid())
-  organizationId       String
-  loginId              String                @unique
-  email                String?               @unique
-  name                 String
-  passwordHash         String
-  role                 UserRole
-  status               UserStatus            @default(active)
-  organization         Organization          @relation(fields: [organizationId], references: [id])
-  administeredSite     Site?                 @relation("SiteAdmin")
-  commands             Command[]
-  sessions             Session[]
-  provisioningSessions ProvisioningSession[]
-  gatewayClaimAudits   GatewayClaimAudit[]
-  siteMemberships      SiteMembership[]
-  floorMapRevisions    FloorMapRevision[]
-  createdLightingSchedules LightingSchedule[] @relation("LightingScheduleCreatedBy")
-  updatedLightingSchedules LightingSchedule[] @relation("LightingScheduleUpdatedBy")
-  createdVehicleEventRules VehicleEventRule[] @relation("VehicleEventRuleCreatedBy")
-  updatedVehicleEventRules VehicleEventRule[] @relation("VehicleEventRuleUpdatedBy")
-  manualOverrides      ManualOverride[]       @relation("ManualOverrideRequestedBy")
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  id                       String                @id @default(uuid())
+  organizationId           String
+  loginId                  String                @unique
+  email                    String?               @unique
+  name                     String
+  passwordHash             String
+  role                     UserRole
+  status                   UserStatus            @default(active)
+  organization             Organization          @relation(fields: [organizationId], references: [id])
+  administeredSite         Site?                 @relation("SiteAdmin")
+  commands                 Command[]
+  sessions                 Session[]
+  provisioningSessions     ProvisioningSession[]
+  gatewayClaimAudits       GatewayClaimAudit[]
+  siteMemberships          SiteMembership[]
+  floorMapRevisions        FloorMapRevision[]
+  createdLightingSchedules LightingSchedule[]    @relation("LightingScheduleCreatedBy")
+  updatedLightingSchedules LightingSchedule[]    @relation("LightingScheduleUpdatedBy")
+  createdVehicleEventRules VehicleEventRule[]    @relation("VehicleEventRuleCreatedBy")
+  updatedVehicleEventRules VehicleEventRule[]    @relation("VehicleEventRuleUpdatedBy")
+  manualOverrides          ManualOverride[]      @relation("ManualOverrideRequestedBy")
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
 }
 
 model Site {
-  id                   String                @id @default(uuid())
-  organizationId       String
-  adminUserId          String?               @unique
-  name                 String
-  address              String?
-  tariffKwhRate        Decimal?              @db.Decimal(10, 2)
-  timeZone             String                @default("Asia/Seoul")
-  organization         Organization          @relation(fields: [organizationId], references: [id])
-  admin                User?                 @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
-  floors               Floor[]
-  gateways             Gateway[]
-  groups               FixtureGroup[]
-  commands             Command[]
-  invitations          Invitation[]
-  provisioningSessions ProvisioningSession[]
-  gatewayClaimAudits   GatewayClaimAudit[]
-  memberships          SiteMembership[]
+  id                       String                           @id @default(uuid())
+  organizationId           String
+  adminUserId              String?                          @unique
+  name                     String
+  address                  String?
+  tariffKwhRate            Decimal?                         @db.Decimal(10, 2)
+  timeZone                 String                           @default("Asia/Seoul")
+  organization             Organization                     @relation(fields: [organizationId], references: [id])
+  admin                    User?                            @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
+  floors                   Floor[]
+  gateways                 Gateway[]
+  groups                   FixtureGroup[]
+  commands                 Command[]
+  invitations              Invitation[]
+  provisioningSessions     ProvisioningSession[]
+  gatewayClaimAudits       GatewayClaimAudit[]
+  memberships              SiteMembership[]
   automationConfigurations GatewayAutomationConfiguration[]
-  lightingSchedules    LightingSchedule[]
-  vehicleEventRules    VehicleEventRule[]
-  manualOverrides      ManualOverride[]
-  automationExecutions AutomationExecution[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  lightingSchedules        LightingSchedule[]
+  vehicleEventRules        VehicleEventRule[]
+  manualOverrides          ManualOverride[]
+  automationExecutions     AutomationExecution[]
+  createdAt                DateTime                         @default(now())
+  updatedAt                DateTime                         @updatedAt
 
   @@index([organizationId])
 }
 
+model SiteDeletionCleanup {
+  id             String    @id @default(uuid())
+  siteId         String    @unique
+  inventoryIds   Json
+  objectKeys     Json
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now())
+  lockedAt       DateTime?
+  leaseExpiresAt DateTime?
+  completedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([completedAt, nextAttemptAt, leaseExpiresAt])
+}
+
 model Floor {
-  id                   String                @id @default(uuid())
-  siteId               String
-  name                 String
-  level                Int
-  nextFixtureSequence  Int                   @default(0)
-  mapRevision          Int                   @default(0)
-  editorLeaseFence     Int                   @default(0)
-  editorLeaseTokenHash String?
-  editorLeaseHolderId  String?
+  id                    String                @id @default(uuid())
+  siteId                String
+  name                  String
+  level                 Int
+  nextFixtureSequence   Int                   @default(0)
+  mapRevision           Int                   @default(0)
+  editorLeaseFence      Int                   @default(0)
+  editorLeaseTokenHash  String?
+  editorLeaseHolderId   String?
   editorLeaseHolderName String?
   editorLeaseAcquiredAt DateTime?
-  editorLeaseExpiresAt DateTime?
-  site                 Site                  @relation(fields: [siteId], references: [id])
-  floorPlan            FloorPlan?
-  fixtures             Fixture[]
-  fixtureGroups        FixtureGroup[]
-  mapObjects           FloorMapObject[]
-  assets               FloorAsset[]
-  provisioningSessions ProvisioningSession[]
-  mapRevisions         FloorMapRevision[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  editorLeaseExpiresAt  DateTime?
+  site                  Site                  @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  floorPlan             FloorPlan?
+  fixtures              Fixture[]
+  fixtureGroups         FixtureGroup[]
+  mapObjects            FloorMapObject[]
+  assets                FloorAsset[]
+  provisioningSessions  ProvisioningSession[]
+  mapRevisions          FloorMapRevision[]
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
 
-  @@unique([id, siteId])
   @@index([siteId])
+  @@unique([id, siteId])
 }
 
 model SiteMembership {
@@ -288,19 +305,19 @@ model AuditLog {
 }
 
 model FloorAsset {
-  id         String           @id @default(uuid())
-  floorId    String
-  kind       FloorAssetKind
-  status     FloorAssetStatus @default(pending)
-  objectKey  String           @unique
-  publicUrl  String
-  mimeType   String
-  sizeBytes  BigInt
-  sha256     String
-  readyAt    DateTime?
-  floor      Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  id        String           @id @default(uuid())
+  floorId   String
+  kind      FloorAssetKind
+  status    FloorAssetStatus @default(pending)
+  objectKey String           @unique
+  publicUrl String
+  mimeType  String
+  sizeBytes BigInt
+  sha256    String
+  readyAt   DateTime?
+  floor     Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   @@index([floorId, status, createdAt])
 }
@@ -315,52 +332,52 @@ model FloorPlan {
   width            Int
   height           Int
   version          Int                 @default(1)
-  floor            Floor               @relation(fields: [floorId], references: [id])
+  floor            Floor               @relation(fields: [floorId], references: [id], onDelete: Cascade)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 }
 
 model Fixture {
-  id                  String                 @id @default(uuid())
-  floorId             String
-  meshNodeId          String?                @unique
-  siteId              String                 @default(dbgenerated())
-  gatewayId           String?
-  name                String
-  ratedWatt           Decimal                @db.Decimal(8, 2)
-  x                   Float
-  y                   Float
-  size                Float                  @default(20)
-  status              FixtureStatus          @default(offline)
-  brightness          Int                    @default(0)
-  rssi                Int?
-  hopCount            Int?
-  commandSuccessRate  Float?
-  lastSeenAt          DateTime?
-  lastStateEventId    String?                @unique
-  lastStateSequence   BigInt?
-  lastStateOccurredAt DateTime?
-  statusReason        String?
-  healthFaultCodes    Json?
-  healthLastSeenAt    DateTime?
-  energyTrackingStartedAt DateTime           @default(now())
-  firstStateOccurredAt DateTime?
-  powerOn             Boolean?
-  floor               Floor                  @relation(fields: [floorId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Cascade)
-  meshNode            MeshNode?              @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: SetNull, onUpdate: Cascade)
-  groupFixtures       GroupFixture[]
-  energyUsages        EnergyUsage[]
-  energyDailyAggregates FixtureEnergyDailyAggregate[]
-  energyStateCursor   FixtureEnergyStateCursor?
-  processedStateEvents ProcessedGatewayEvent[]
-  commandResults      CommandFixtureResult[]
-  lightingScheduleTargets LightingScheduleFixture[]
-  vehicleEventSources VehicleEventSource[]
-  vehicleEventTargets VehicleEventTarget[]
-  manualOverrideTargets ManualOverrideFixture[]
+  id                         String                             @id @default(uuid())
+  floorId                    String
+  meshNodeId                 String?                            @unique
+  siteId                     String                             @default(dbgenerated())
+  gatewayId                  String?
+  name                       String
+  ratedWatt                  Decimal                            @db.Decimal(8, 2)
+  x                          Float
+  y                          Float
+  size                       Float                              @default(20)
+  status                     FixtureStatus                      @default(offline)
+  brightness                 Int                                @default(0)
+  rssi                       Int?
+  hopCount                   Int?
+  commandSuccessRate         Float?
+  lastSeenAt                 DateTime?
+  lastStateEventId           String?                            @unique
+  lastStateSequence          BigInt?
+  lastStateOccurredAt        DateTime?
+  statusReason               String?
+  healthFaultCodes           Json?
+  healthLastSeenAt           DateTime?
+  energyTrackingStartedAt    DateTime                           @default(now())
+  firstStateOccurredAt       DateTime?
+  powerOn                    Boolean?
+  floor                      Floor                              @relation(fields: [floorId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Cascade)
+  meshNode                   MeshNode?                          @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: SetNull, onUpdate: Cascade)
+  groupFixtures              GroupFixture[]
+  energyUsages               EnergyUsage[]
+  energyDailyAggregates      FixtureEnergyDailyAggregate[]
+  energyStateCursor          FixtureEnergyStateCursor?
+  processedStateEvents       ProcessedGatewayEvent[]
+  commandResults             CommandFixtureResult[]
+  lightingScheduleTargets    LightingScheduleFixture[]
+  vehicleEventSources        VehicleEventSource[]
+  vehicleEventTargets        VehicleEventTarget[]
+  manualOverrideTargets      ManualOverrideFixture[]
   automationExecutionResults AutomationExecutionFixtureResult[]
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
+  createdAt                  DateTime                           @default(now())
+  updatedAt                  DateTime                           @updatedAt
 
   @@unique([id, siteId, gatewayId])
   @@unique([meshNodeId, gatewayId])
@@ -387,7 +404,7 @@ model FloorMapObject {
   zIndex      Int      @default(0)
   locked      Boolean  @default(false)
   visible     Boolean  @default(true)
-  floor       Floor    @relation(fields: [floorId], references: [id])
+  floor       Floor    @relation(fields: [floorId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -401,9 +418,9 @@ model FixtureGroup {
   gatewayId       String?
   name            String
   lifecycleStatus FixtureGroupLifecycleStatus @default(active)
-  site            Site                        @relation(fields: [siteId], references: [id])
-  floor           Floor?                      @relation(fields: [floorId], references: [id], onDelete: Restrict)
-  gateway         Gateway?                    @relation(fields: [gatewayId], references: [id], onDelete: Restrict)
+  site            Site                        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  floor           Floor?                      @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  gateway         Gateway?                    @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   groupFixtures   GroupFixture[]
   createdAt       DateTime                    @default(now())
   updatedAt       DateTime                    @updatedAt
@@ -414,31 +431,31 @@ model FixtureGroup {
 model GroupFixture {
   groupId   String
   fixtureId String
-  group     FixtureGroup @relation(fields: [groupId], references: [id])
-  fixture   Fixture      @relation(fields: [fixtureId], references: [id])
+  group     FixtureGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  fixture   Fixture      @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
 
   @@id([groupId, fixtureId])
 }
 
 model Gateway {
-  id                      String                  @id @default(uuid())
+  id                      String                          @id @default(uuid())
   siteId                  String
   name                    String
-  serialNumber            String                  @unique
+  serialNumber            String                          @unique
   firmwareVersion         String
   lastHeartbeatAt         DateTime?
   /// Active device certificate fingerprint pointer; canonical history is GatewayCertificate.fingerprint.
-  certificateFingerprint  String?                 @unique
-  assignmentVersion       Int                     @default(0)
-  nextCommandSequence     BigInt                  @default(0)
-  nextMeshUnicastAddress  Int                     @default(256)
-  nextMeshGroupAddress    Int                     @default(49152)
+  certificateFingerprint  String?                         @unique
+  assignmentVersion       Int                             @default(0)
+  nextCommandSequence     BigInt                          @default(0)
+  nextMeshUnicastAddress  Int                             @default(256)
+  nextMeshGroupAddress    Int                             @default(49152)
   claimedAt               DateTime?
-  lastHeartbeatEventId    String?                 @unique
+  lastHeartbeatEventId    String?                         @unique
   lastHeartbeatSequence   BigInt?
   lastHeartbeatOccurredAt DateTime?
-  site                    Site                    @relation(fields: [siteId], references: [id])
-  inventory               GatewayInventory?       @relation("GatewayInventoryClaim")
+  site                    Site                            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  inventory               GatewayInventory?               @relation("GatewayInventoryClaim")
   meshNodes               MeshNode[]
   meshControlGroups       MeshControlGroup[]
   fixtureGroups           FixtureGroup[]
@@ -451,65 +468,65 @@ model Gateway {
   vehicleEventRules       VehicleEventRule[]
   manualOverrides         ManualOverride[]
   automationExecutions    AutomationExecution[]
-  automationOutboxEntries MqttOutbox[]             @relation("AutomationConfigOutboxGateway")
-  createdAt               DateTime                @default(now())
-  updatedAt               DateTime                @updatedAt
+  automationOutboxEntries MqttOutbox[]                    @relation("AutomationConfigOutboxGateway")
+  createdAt               DateTime                        @default(now())
+  updatedAt               DateTime                        @updatedAt
 
-  @@index([siteId])
   @@unique([id, siteId])
+  @@index([siteId])
 }
 
 model GatewayInventory {
-  id                     String              @id @default(uuid())
-  serialNumber           String              @unique
+  id                     String               @id @default(uuid())
+  serialNumber           String               @unique
   claimCodeHash          String?
   /// Active device certificate fingerprint pointer; canonical history is GatewayCertificate.fingerprint.
-  certificateFingerprint String?             @unique
-  claimedGatewayId       String?             @unique
+  certificateFingerprint String?              @unique
+  claimedGatewayId       String?              @unique
   claimedAt              DateTime?
   disabledAt             DateTime?
-  claimedGateway         Gateway?            @relation("GatewayInventoryClaim", fields: [claimedGatewayId], references: [id])
+  claimedGateway         Gateway?             @relation("GatewayInventoryClaim", fields: [claimedGatewayId], references: [id], onDelete: SetNull)
   claimAudits            GatewayClaimAudit[]
   certificates           GatewayCertificate[]
-  createdAt              DateTime            @default(now())
-  updatedAt              DateTime            @updatedAt
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
 }
 
 model GatewayEnrollment {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   serialNumber    String
-  tokenHash       String   @unique
+  tokenHash       String    @unique
   expiresAt       DateTime
   usedAt          DateTime?
   stationIdentity String
   outcome         String?
   failureReason   String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   @@index([serialNumber, createdAt])
 }
 
 model GatewayCertificate {
-  id                String              @id @default(uuid())
+  id                String                   @id @default(uuid())
   inventoryId       String
   gatewayId         String?
   purpose           CertificatePurpose
   certificateSerial String
   /// Canonical certificate fingerprint ledger; Gateway and GatewayInventory point to the active device certificate.
-  fingerprint       String              @unique
+  fingerprint       String                   @unique
   issuer            String
   notBefore         DateTime
   notAfter          DateTime
   /// PostgreSQL migration enforces one active MQTT certificate per inventory with a partial unique index.
   status            GatewayCertificateStatus
   revokedAt         DateTime?
-  replacedById      String?             @unique
-  inventory         GatewayInventory    @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
-  gateway           Gateway?            @relation(fields: [gatewayId], references: [id], onDelete: SetNull)
-  replacedBy        GatewayCertificate? @relation("GatewayCertificateReplacement", fields: [replacedById], references: [id], onDelete: Restrict)
-  replaces          GatewayCertificate? @relation("GatewayCertificateReplacement")
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  replacedById      String?                  @unique
+  inventory         GatewayInventory         @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+  gateway           Gateway?                 @relation(fields: [gatewayId], references: [id], onDelete: SetNull)
+  replacedBy        GatewayCertificate?      @relation("GatewayCertificateReplacement", fields: [replacedById], references: [id], onDelete: Restrict)
+  replaces          GatewayCertificate?      @relation("GatewayCertificateReplacement")
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
 
   @@index([inventoryId, purpose, status])
   @@index([gatewayId, purpose, status])
@@ -535,23 +552,23 @@ model GatewayClaimAudit {
 }
 
 model MeshNode {
-  id                                String                          @id @default(uuid())
+  id                                String                        @id @default(uuid())
   gatewayId                         String
-  deviceUuid                        String?                         @unique
+  deviceUuid                        String?                       @unique
   serialNumber                      String?
   meshAddress                       String
   firmwareVersion                   String
   vehicleSensorCapabilityStatus     VehicleSensorCapabilityStatus @default(unknown)
   vehicleSensorCapabilityVerifiedAt DateTime?
-  vehicleSensorCapabilityRevision   BigInt                          @default(0)
-  vehicleSensorServerBound          Boolean                         @default(false)
-  vehicleVendorEventModelBound      Boolean                         @default(false)
-  gateway                           Gateway                         @relation(fields: [gatewayId], references: [id])
+  vehicleSensorCapabilityRevision   BigInt                        @default(0)
+  vehicleSensorServerBound          Boolean                       @default(false)
+  vehicleVendorEventModelBound      Boolean                       @default(false)
+  gateway                           Gateway                       @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   fixture                           Fixture?
   processedEvents                   ProcessedGatewayEvent[]
   controlGroupMemberships           MeshControlGroupMember[]
-  createdAt                         DateTime                        @default(now())
-  updatedAt                         DateTime                        @updatedAt
+  createdAt                         DateTime                      @default(now())
+  updatedAt                         DateTime                      @updatedAt
 
   @@unique([id, gatewayId])
   @@unique([gatewayId, meshAddress])
@@ -583,23 +600,23 @@ enum MeshControlGroupMemberOperation {
 }
 
 model MeshControlGroup {
-  id                   String                 @id @default(uuid())
-  gatewayId            String
-  targetType           MeshControlTargetType
-  targetId             String
-  groupAddress         String
-  status               MeshControlGroupStatus @default(configuring)
-  configurationVersion Int                    @default(1)
-  operationPlanVersion Int                    @default(0)
-  fullReconciliationRequired Boolean          @default(false)
-  lastError            String?
-  gateway              Gateway                @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  members              MeshControlGroupMember[]
-  expectedOperations   MeshControlGroupExpectedOperation[]
-  appliedMembers       MeshControlGroupAppliedMember[]
-  commandDispatches    CommandDispatch[]
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  id                         String                              @id @default(uuid())
+  gatewayId                  String
+  targetType                 MeshControlTargetType
+  targetId                   String
+  groupAddress               String
+  status                     MeshControlGroupStatus              @default(configuring)
+  configurationVersion       Int                                 @default(1)
+  operationPlanVersion       Int                                 @default(0)
+  fullReconciliationRequired Boolean                             @default(false)
+  lastError                  String?
+  gateway                    Gateway                             @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  members                    MeshControlGroupMember[]
+  expectedOperations         MeshControlGroupExpectedOperation[]
+  appliedMembers             MeshControlGroupAppliedMember[]
+  commandDispatches          CommandDispatch[]
+  createdAt                  DateTime                            @default(now())
+  updatedAt                  DateTime                            @updatedAt
 
   @@unique([id, gatewayId])
   @@unique([gatewayId, targetType, targetId])
@@ -639,20 +656,20 @@ model MeshControlGroupAppliedMember {
 }
 
 model MeshControlGroupMember {
-  groupId             String
-  gatewayId           String
-  meshNodeId          String
-  subscriptionStatus  MeshControlGroupMemberSubscriptionStatus @default(pending)
-  desired             Boolean                                 @default(true)
-  appliedVersion      Int                                     @default(0)
-  statusVersion       Int                                     @default(0)
-  operationId         String?
-  operation           MeshControlGroupMemberOperation?
-  lastError           String?
-  group               MeshControlGroup                        @relation(fields: [groupId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
-  meshNode            MeshNode                                @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
-  createdAt           DateTime                                @default(now())
-  updatedAt           DateTime                                @updatedAt
+  groupId            String
+  gatewayId          String
+  meshNodeId         String
+  subscriptionStatus MeshControlGroupMemberSubscriptionStatus @default(pending)
+  desired            Boolean                                  @default(true)
+  appliedVersion     Int                                      @default(0)
+  statusVersion      Int                                      @default(0)
+  operationId        String?
+  operation          MeshControlGroupMemberOperation?
+  lastError          String?
+  group              MeshControlGroup                         @relation(fields: [groupId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
+  meshNode           MeshNode                                 @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade)
+  createdAt          DateTime                                 @default(now())
+  updatedAt          DateTime                                 @updatedAt
 
   @@id([groupId, meshNodeId])
   @@index([groupId, gatewayId])
@@ -672,7 +689,7 @@ model Command {
   brightness         Int
   status             CommandStatus     @default(pending)
   errorMessage       String?
-  site               Site              @relation(fields: [siteId], references: [id])
+  site               Site              @relation(fields: [siteId], references: [id], onDelete: Cascade)
   user               User              @relation(fields: [requestedBy], references: [id])
   dispatches         CommandDispatch[]
   manualOverride     ManualOverride?
@@ -700,8 +717,8 @@ model CommandDispatch {
   completedAt             DateTime?
   errorCode               String?
   errorMessage            String?
-  command                 Command                @relation(fields: [commandId], references: [id])
-  gateway                 Gateway                @relation(fields: [gatewayId], references: [id])
+  command                 Command                @relation(fields: [commandId], references: [id], onDelete: Cascade)
+  gateway                 Gateway                @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   meshControlGroup        MeshControlGroup?      @relation(fields: [meshControlGroupId, gatewayId], references: [id, gatewayId], onDelete: Restrict)
   fixtureResults          CommandFixtureResult[]
   outbox                  MqttOutbox?
@@ -725,7 +742,7 @@ model CommandFixtureResult {
   hopCount     Int?
   occurredAt   DateTime?
   dispatch     CommandDispatch            @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
-  fixture      Fixture                    @relation(fields: [fixtureId], references: [id])
+  fixture      Fixture                    @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
   createdAt    DateTime                   @default(now())
   updatedAt    DateTime                   @updatedAt
 
@@ -734,27 +751,27 @@ model CommandFixtureResult {
 }
 
 model MqttOutbox {
-  id            String          @id @default(uuid())
-  dispatchId    String?         @unique
-  gatewayId     String?
-  applicationAckKey String?     @unique
-  revision      Int?
-  payloadHash   String?
-  topic         String
-  payload       Json
-  attempts      Int             @default(0)
-  nextAttemptAt DateTime        @default(now())
-  publishedAt   DateTime?
-  lockedBy      String?
-  lockedAt      DateTime?
-  leaseExpiresAt DateTime?
-  deadLetteredAt DateTime?
-  supersededAt   DateTime?
-  lastError     String?
-  dispatch      CommandDispatch? @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
-  gateway       Gateway?         @relation("AutomationConfigOutboxGateway", fields: [gatewayId], references: [id], onDelete: Cascade)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id                String           @id @default(uuid())
+  dispatchId        String?          @unique
+  gatewayId         String?
+  applicationAckKey String?          @unique
+  revision          Int?
+  payloadHash       String?
+  topic             String
+  payload           Json
+  attempts          Int              @default(0)
+  nextAttemptAt     DateTime         @default(now())
+  publishedAt       DateTime?
+  lockedBy          String?
+  lockedAt          DateTime?
+  leaseExpiresAt    DateTime?
+  deadLetteredAt    DateTime?
+  supersededAt      DateTime?
+  lastError         String?
+  dispatch          CommandDispatch? @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  gateway           Gateway?         @relation("AutomationConfigOutboxGateway", fields: [gatewayId], references: [id], onDelete: Cascade)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
   @@unique([gatewayId, revision, payloadHash])
@@ -801,8 +818,8 @@ model LightingSchedule {
   targetCount       Int                       @default(0)
   createdById       String
   updatedById       String
-  site              Site                      @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  gateway           Gateway                   @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  site              Site                      @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  gateway           Gateway                   @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
   createdBy         User                      @relation("LightingScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   updatedBy         User                      @relation("LightingScheduleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   fixtures          LightingScheduleFixture[]
@@ -821,7 +838,7 @@ model LightingScheduleFixture {
   siteId     String
   gatewayId  String
   schedule   LightingSchedule @relation(fields: [scheduleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture    Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+  fixture    Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
   createdAt  DateTime         @default(now())
 
   @@id([scheduleId, fixtureId])
@@ -844,8 +861,8 @@ model VehicleEventRule {
   targetCount       Int                   @default(0)
   createdById       String
   updatedById       String
-  site              Site                  @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  gateway           Gateway               @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  site              Site                  @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  gateway           Gateway               @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
   createdBy         User                  @relation("VehicleEventRuleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   updatedBy         User                  @relation("VehicleEventRuleUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   sources           VehicleEventSource[]
@@ -865,7 +882,7 @@ model VehicleEventSource {
   siteId    String
   gatewayId String
   rule      VehicleEventRule @relation(fields: [ruleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture   Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+  fixture   Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
   createdAt DateTime         @default(now())
 
   @@id([ruleId, fixtureId])
@@ -879,7 +896,7 @@ model VehicleEventTarget {
   siteId    String
   gatewayId String
   rule      VehicleEventRule @relation(fields: [ruleId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture   Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+  fixture   Fixture          @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
   createdAt DateTime         @default(now())
 
   @@id([ruleId, fixtureId])
@@ -898,9 +915,9 @@ model ManualOverride {
   overrideUntil     DateTime
   endedAt           DateTime?
   targetCount       Int                     @default(0)
-  site              Site                    @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  gateway           Gateway                 @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
-  command           Command                 @relation(fields: [commandId, siteId, requestedById], references: [id, siteId, requestedBy], onDelete: Restrict, onUpdate: Restrict)
+  site              Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  gateway           Gateway                 @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
+  command           Command                 @relation(fields: [commandId, siteId, requestedById], references: [id, siteId, requestedBy], onDelete: Cascade, onUpdate: Restrict)
   requestedBy       User                    @relation("ManualOverrideRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
   fixtures          ManualOverrideFixture[]
   executions        AutomationExecution[]   @relation("ManualOverrideExecutions")
@@ -920,7 +937,7 @@ model ManualOverrideFixture {
   siteId           String
   gatewayId        String
   manualOverride   ManualOverride @relation(fields: [manualOverrideId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture          Fixture        @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Restrict, onUpdate: Restrict)
+  fixture          Fixture        @relation(fields: [fixtureId, siteId, gatewayId], references: [id, siteId, gatewayId], onDelete: Cascade, onUpdate: Restrict)
   createdAt        DateTime       @default(now())
 
   @@id([manualOverrideId, fixtureId])
@@ -929,7 +946,7 @@ model ManualOverrideFixture {
 }
 
 model AutomationExecution {
-  id                 String                  @id @default(uuid())
+  id                 String                             @id @default(uuid())
   siteId             String
   gatewayId          String
   eventId            String
@@ -945,8 +962,8 @@ model AutomationExecution {
   payload            Json
   /// Nullable only for execution history created before canonical MQTT ingestion hashes were introduced.
   payloadHash        String?
-  site               Site                               @relation(fields: [siteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  gateway            Gateway                            @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Restrict, onUpdate: Restrict)
+  site               Site                               @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  gateway            Gateway                            @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
   lightingSchedule   LightingSchedule?                  @relation("LightingScheduleExecutions", fields: [lightingScheduleId], references: [id], onDelete: SetNull, onUpdate: Restrict)
   vehicleEventRule   VehicleEventRule?                  @relation("VehicleEventRuleExecutions", fields: [vehicleEventRuleId], references: [id], onDelete: SetNull, onUpdate: Restrict)
   manualOverride     ManualOverride?                    @relation("ManualOverrideExecutions", fields: [manualOverrideId], references: [id], onDelete: SetNull, onUpdate: Restrict)
@@ -963,24 +980,24 @@ model AutomationExecution {
 }
 
 model AutomationExecutionFixtureResult {
-  executionId        String
-  fixtureSnapshotId  String
-  fixtureId          String?
-  status             CommandFixtureResultStatus
-  brightnessPercent  Int?
-  faultCode          String?
-  errorCode          String?
-  occurredAt         DateTime
-  execution          AutomationExecution @relation(fields: [executionId], references: [id], onDelete: Cascade, onUpdate: Restrict)
-  fixture            Fixture?            @relation(fields: [fixtureId], references: [id], onDelete: SetNull, onUpdate: Restrict)
-  createdAt          DateTime            @default(now())
+  executionId       String
+  fixtureSnapshotId String
+  fixtureId         String?
+  status            CommandFixtureResultStatus
+  brightnessPercent Int?
+  faultCode         String?
+  errorCode         String?
+  occurredAt        DateTime
+  execution         AutomationExecution        @relation(fields: [executionId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  fixture           Fixture?                   @relation(fields: [fixtureId], references: [id], onDelete: SetNull, onUpdate: Restrict)
+  createdAt         DateTime                   @default(now())
 
   @@id([executionId, fixtureSnapshotId])
   @@index([fixtureId, status])
 }
 
 model ProcessedGatewayEvent {
-  eventId     String   @id
+  eventId     String    @id
   gatewayId   String
   meshNodeId  String?
   fixtureId   String?
@@ -988,10 +1005,10 @@ model ProcessedGatewayEvent {
   eventType   String
   payloadHash String?
   occurredAt  DateTime
-  gateway     Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  meshNode    MeshNode? @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Restrict, onUpdate: Restrict)
-  fixture     Fixture? @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
+  gateway     Gateway   @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  meshNode    MeshNode? @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade, onUpdate: Restrict)
+  fixture     Fixture?  @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
 
   @@index([gatewayId, occurredAt])
   @@index([meshNodeId])
@@ -1008,7 +1025,7 @@ model Invitation {
   expiresAt      DateTime
   acceptedAt     DateTime?
   organization   Organization @relation(fields: [organizationId], references: [id])
-  site           Site?        @relation(fields: [siteId], references: [id])
+  site           Site?        @relation(fields: [siteId], references: [id], onDelete: Cascade)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 }
@@ -1028,53 +1045,53 @@ model Session {
 }
 
 model ProvisioningSession {
-  id              String                    @id @default(uuid())
-  siteId          String
-  floorId         String
-  gatewayId       String
-  requestedBy     String
-  status          ProvisioningSessionStatus @default(active)
-  scanStatus      ProvisioningScanStatus    @default(pending)
-  scanCorrelationId String?
-  scanAttempt     Int                       @default(0)
-  scanStartedAt   DateTime?
-  scanCompletedAt DateTime?
-  scanFailureCode String?
+  id                 String                    @id @default(uuid())
+  siteId             String
+  floorId            String
+  gatewayId          String
+  requestedBy        String
+  status             ProvisioningSessionStatus @default(active)
+  scanStatus         ProvisioningScanStatus    @default(pending)
+  scanCorrelationId  String?
+  scanAttempt        Int                       @default(0)
+  scanStartedAt      DateTime?
+  scanCompletedAt    DateTime?
+  scanFailureCode    String?
   scanFailureMessage String?
-  site            Site                      @relation(fields: [siteId], references: [id])
-  floor           Floor                     @relation(fields: [floorId], references: [id])
-  gateway         Gateway                   @relation(fields: [gatewayId], references: [id])
-  user            User                      @relation(fields: [requestedBy], references: [id])
-  discoveredNodes DiscoveredMeshNode[]
-  scanOutbox      ProvisioningScanOutbox[]
-  startedAt       DateTime                  @default(now())
-  completedAt     DateTime?
-  createdAt       DateTime                  @default(now())
-  updatedAt       DateTime                  @updatedAt
+  site               Site                      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  floor              Floor                     @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  gateway            Gateway                   @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  user               User                      @relation(fields: [requestedBy], references: [id])
+  discoveredNodes    DiscoveredMeshNode[]
+  scanOutbox         ProvisioningScanOutbox[]
+  startedAt          DateTime                  @default(now())
+  completedAt        DateTime?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
 
   @@index([gatewayId, scanStatus])
 }
 
 model ProvisioningScanOutbox {
-  id             String               @id @default(uuid())
+  id             String              @id @default(uuid())
   sessionId      String
   scanAttempt    Int
   topic          String
   payload        Json
-  attempts       Int                  @default(0)
-  nextAttemptAt  DateTime             @default(now())
+  attempts       Int                 @default(0)
+  nextAttemptAt  DateTime            @default(now())
   publishedAt    DateTime?
   lockedBy       String?
   lockedAt       DateTime?
   leaseExpiresAt DateTime?
   deadLetteredAt DateTime?
   lastError      String?
-  session        ProvisioningSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  session        ProvisioningSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
-  @@unique([sessionId, scanAttempt])
   @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
+  @@unique([sessionId, scanAttempt])
 }
 
 model DiscoveredMeshNode {
@@ -1096,7 +1113,7 @@ model DiscoveredMeshNode {
   pendingFixtureSize Float?
   pendingRatedWatt   Decimal?             @db.Decimal(8, 2)
   errorMessage       String?
-  session            ProvisioningSession  @relation(fields: [sessionId], references: [id])
+  session            ProvisioningSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   discoveredAt       DateTime             @default(now())
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
@@ -1111,21 +1128,21 @@ model EnergyUsage {
   period    String
   kwh       Decimal  @db.Decimal(12, 4)
   cost      Decimal  @db.Decimal(12, 2)
-  fixture   Fixture  @relation(fields: [fixtureId], references: [id])
+  fixture   Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 }
 
 model FixtureEnergyDailyAggregate {
-  id               String   @id @default(uuid())
-  fixtureId        String
-  localDate        DateTime @db.Date
-  estimatedKwh     Decimal  @db.Decimal(20, 12)
-  estimatedCost    Decimal  @db.Decimal(20, 8)
-  knownSeconds     Int      @default(0)
-  unknownSeconds   Int      @default(0)
-  fixture          Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id             String   @id @default(uuid())
+  fixtureId      String
+  localDate      DateTime @db.Date
+  estimatedKwh   Decimal  @db.Decimal(20, 12)
+  estimatedCost  Decimal  @db.Decimal(20, 8)
+  knownSeconds   Int      @default(0)
+  unknownSeconds Int      @default(0)
+  fixture        Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@unique([fixtureId, localDate])
   @@index([localDate])

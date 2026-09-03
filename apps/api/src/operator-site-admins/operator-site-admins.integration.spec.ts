@@ -13,38 +13,54 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
   let prisma: PrismaService;
   let service: OperatorSiteAdminsService;
   let operator: AuthenticatedUser;
+  let createdOperator = false;
   const createdOrganizationIds: string[] = [];
+  const deletionSiteIds: string[] = [];
+  const deletionInventoryIds: string[] = [];
 
   beforeAll(async () => {
     process.env.DATABASE_URL = databaseUrl;
     prisma = new PrismaService();
     await prisma.$connect();
-    const provider = await prisma.organization.create({ data: { id: randomUUID(), name: "Operator Provider", type: "service_provider" } });
+    const provider = await prisma.organization.findFirst({ where: { type: "service_provider" } })
+      ?? await prisma.organization.create({ data: { id: randomUUID(), name: "Operator Provider", type: "service_provider" } });
     const passwords = new PasswordService();
-    const user = await prisma.user.create({
+    const existingOperator = await prisma.user.findFirst({ where: { role: "operator" } });
+    const user = existingOperator ?? await prisma.user.create({
       data: {
         id: randomUUID(), organizationId: provider.id, loginId: `operator_${randomUUID().slice(0, 8)}`,
         email: null, name: "Operator", passwordHash: await passwords.hash("operator password"), role: "operator", status: "active"
       }
     });
+    createdOperator = !existingOperator;
     operator = { ...user, organizationType: "service_provider" };
-    service = new OperatorSiteAdminsService(prisma, passwords, new AuditService(prisma));
+    service = new OperatorSiteAdminsService(
+      prisma,
+      passwords,
+      new AuditService(prisma),
+      { processNow: async () => ({ status: "completed" as const }) } as never
+    );
   });
 
   afterEach(async () => {
+    await prisma.siteDeletionCleanup.deleteMany({ where: { siteId: { in: deletionSiteIds.splice(0) } } });
     for (const organizationId of createdOrganizationIds.splice(0)) {
       await prisma.auditLog.deleteMany({ where: { organizationId } });
       await prisma.session.deleteMany({ where: { user: { organizationId } } });
       await prisma.site.deleteMany({ where: { organizationId } });
       await prisma.user.deleteMany({ where: { organizationId } });
-      await prisma.organization.delete({ where: { id: organizationId } });
+      await prisma.organization.deleteMany({ where: { id: organizationId } });
     }
+    await prisma.gatewayCertificate.deleteMany({ where: { inventoryId: { in: deletionInventoryIds } } });
+    await prisma.gatewayInventory.deleteMany({ where: { id: { in: deletionInventoryIds.splice(0) } } });
   });
 
   afterAll(async () => {
-    await prisma.session.deleteMany({ where: { userId: operator.id } });
-    await prisma.user.delete({ where: { id: operator.id } });
-    await prisma.organization.delete({ where: { id: operator.organizationId } });
+    if (!operator) return;
+    if (createdOperator) {
+      await prisma.session.deleteMany({ where: { userId: operator.id } });
+      await prisma.user.delete({ where: { id: operator.id } });
+    }
     await prisma.$disconnect();
   });
 
@@ -62,23 +78,115 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
     expect(JSON.stringify(result)).not.toMatch(/password|passwordHash/i);
   });
 
-  it("disables an admin, revokes sessions and leaves the site unassigned", async () => {
+  it("deletes an admin and the complete customer site", async () => {
     const created = await service.createSiteAdmin(operator, {
       customerName: "Disable Customer", siteName: "Disable Site", adminName: "Disable Admin",
       loginId: `disable_${randomUUID().slice(0, 8)}`, initialPassword: "initial password"
     });
     const adminId = created.admin!.id;
-    createdOrganizationIds.push((await prisma.site.findUniqueOrThrow({ where: { id: created.siteId } })).organizationId);
+    deletionSiteIds.push(created.siteId);
+    const organizationId = (await prisma.site.findUniqueOrThrow({ where: { id: created.siteId } })).organizationId;
+    const floor = await prisma.floor.create({
+      data: { siteId: created.siteId, name: "B1", level: -1 }
+    });
+    await prisma.floorPlan.create({
+      data: { floorId: floor.id, imageUrl: "https://assets.example/map.png", width: 1200, height: 800 }
+    });
+    await prisma.floorMapObject.create({
+      data: { floorId: floor.id, type: "rectangle", x: 10, y: 20, width: 100, height: 80 }
+    });
+    const gateway = await prisma.gateway.create({
+      data: { siteId: created.siteId, name: "Main Gateway", serialNumber: `GW-${randomUUID()}`, firmwareVersion: "1.0.0" }
+    });
+    const claimedInventory = await prisma.gatewayInventory.create({
+      data: { serialNumber: gateway.serialNumber, claimedGatewayId: gateway.id, claimedAt: new Date() }
+    });
+    const certificateInventory = await prisma.gatewayInventory.create({
+      data: { serialNumber: `GW-CERT-${randomUUID()}` }
+    });
+    deletionInventoryIds.push(claimedInventory.id, certificateInventory.id);
+    const certificate = await prisma.gatewayCertificate.create({
+      data: {
+        inventoryId: certificateInventory.id,
+        gatewayId: gateway.id,
+        purpose: "device",
+        certificateSerial: randomUUID().replaceAll("-", ""),
+        fingerprint: randomUUID().replaceAll("-", "").padEnd(64, "0"),
+        issuer: "integration-ca",
+        notBefore: new Date("2026-01-01T00:00:00.000Z"),
+        notAfter: new Date("2027-01-01T00:00:00.000Z"),
+        status: "active"
+      }
+    });
+    const meshNode = await prisma.meshNode.create({
+      data: { gatewayId: gateway.id, deviceUuid: randomUUID().replaceAll("-", ""), meshAddress: "0x0100", firmwareVersion: "1.0.0" }
+    });
+    const fixture = await prisma.fixture.create({
+      data: {
+        floorId: floor.id, siteId: created.siteId, gatewayId: gateway.id, meshNodeId: meshNode.id,
+        name: "B1-001", ratedWatt: "40.00", x: 30, y: 40
+      }
+    });
+    await prisma.energyUsage.create({
+      data: { fixtureId: fixture.id, source: "state", period: "2026-09-03", kwh: "1.2500", cost: "200.00" }
+    });
+    const provisioningSession = await prisma.provisioningSession.create({
+      data: { siteId: created.siteId, floorId: floor.id, gatewayId: gateway.id, requestedBy: adminId }
+    });
+    await prisma.discoveredMeshNode.create({
+      data: {
+        sessionId: provisioningSession.id, deviceUuid: randomUUID().replaceAll("-", ""),
+        serialNumber: `NODE-${randomUUID()}`, rssi: -55, oobCapability: "none", firmwareVersion: "1.0.0"
+      }
+    });
+    const viewer = await prisma.user.create({
+      data: {
+        organizationId, loginId: `viewer_${randomUUID().slice(0, 8)}`, email: null, name: "Viewer",
+        passwordHash: await new PasswordService().hash("viewer password"), role: "viewer", status: "active"
+      }
+    });
+    await prisma.siteMembership.create({ data: { userId: viewer.id, siteId: created.siteId } });
+    await prisma.session.create({
+      data: { userId: viewer.id, tokenHash: randomUUID(), expiresAt: new Date("2027-01-01T00:00:00.000Z") }
+    });
+    await prisma.invitation.create({
+      data: {
+        organizationId, siteId: created.siteId, email: "viewer@example.com", role: "viewer",
+        tokenHash: randomUUID(), expiresAt: new Date("2027-01-01T00:00:00.000Z")
+      }
+    });
     await prisma.session.createMany({ data: [
       { userId: adminId, tokenHash: randomUUID(), rememberMe: false, expiresAt: new Date("2026-09-01T00:00:00.000Z") },
       { userId: adminId, tokenHash: randomUUID(), rememberMe: true, expiresAt: new Date("2026-09-01T00:00:00.000Z") }
     ] });
 
-    await service.disable(operator, adminId);
+    await service.deleteSiteAdmin(operator, adminId, "Disable Site");
 
-    await expect(prisma.user.findUniqueOrThrow({ where: { id: adminId } })).resolves.toMatchObject({ status: "disabled" });
-    await expect(prisma.site.findUniqueOrThrow({ where: { id: created.siteId } })).resolves.toMatchObject({ adminUserId: null });
-    await expect(prisma.session.count({ where: { userId: adminId, revokedAt: null } })).resolves.toBe(0);
+    await expect(prisma.user.findUnique({ where: { id: adminId } })).resolves.toBeNull();
+    await expect(prisma.site.findUnique({ where: { id: created.siteId } })).resolves.toBeNull();
+    await expect(prisma.organization.findUnique({ where: { id: organizationId } })).resolves.toBeNull();
+    await expect(prisma.floor.count({ where: { id: floor.id } })).resolves.toBe(0);
+    await expect(prisma.gateway.count({ where: { id: gateway.id } })).resolves.toBe(0);
+    await expect(prisma.meshNode.count({ where: { id: meshNode.id } })).resolves.toBe(0);
+    await expect(prisma.fixture.count({ where: { id: fixture.id } })).resolves.toBe(0);
+    await expect(prisma.energyUsage.count({ where: { fixtureId: fixture.id } })).resolves.toBe(0);
+    await expect(prisma.provisioningSession.count({ where: { id: provisioningSession.id } })).resolves.toBe(0);
+    await expect(prisma.user.findUnique({ where: { id: viewer.id } })).resolves.toBeNull();
+    await expect(prisma.gatewayInventory.findUniqueOrThrow({ where: { id: claimedInventory.id } })).resolves.toMatchObject({
+      claimedGatewayId: null,
+      disabledAt: expect.any(Date)
+    });
+    await expect(prisma.gatewayCertificate.findUniqueOrThrow({ where: { id: certificate.id } })).resolves.toMatchObject({
+      gatewayId: null,
+      inventoryId: certificateInventory.id
+    });
+    await expect(prisma.siteDeletionCleanup.findUniqueOrThrow({ where: { siteId: created.siteId } })).resolves.toMatchObject({
+      inventoryIds: expect.arrayContaining([claimedInventory.id, certificateInventory.id]),
+      objectKeys: []
+    });
+    await expect(prisma.auditLog.count({
+      where: { organizationId: operator.organizationId, targetId: created.siteId, action: "operator.site_deleted" }
+    })).resolves.toBe(1);
   });
 
   it("allows exactly one of two replacement admins racing for the same unassigned site", async () => {
@@ -114,12 +222,13 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
     expect(loginIds).toContain(admins[0].loginId);
   }, 15_000);
 
-  it("keeps reset-disable competition consistent and maps the serialization loser to conflict", async () => {
+  it("keeps reset-delete competition consistent and rejects the loser safely", async () => {
     const created = await service.createSiteAdmin(operator, {
       customerName: "Reset Disable Race Customer", siteName: "Reset Disable Race Site", adminName: "Race Admin",
       loginId: `reset_disable_${randomUUID().slice(0, 8)}`, initialPassword: "initial password"
     });
     const adminId = created.admin!.id;
+    deletionSiteIds.push(created.siteId);
     const organizationId = (await prisma.site.findUniqueOrThrow({ where: { id: created.siteId } })).organizationId;
     createdOrganizationIds.push(organizationId);
     await prisma.session.createMany({ data: [
@@ -136,7 +245,7 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
     try {
       results = await Promise.allSettled([
         racers[0].service.resetPassword(operator, adminId, "replacement password"),
-        racers[1].service.disable(operator, adminId)
+        racers[1].service.deleteSiteAdmin(operator, adminId, "Reset Disable Race Site")
       ]);
     } finally {
       await Promise.all(racers.map((racer) => racer.disconnect()));
@@ -145,20 +254,23 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
     expect(results.filter(isFulfilled)).toHaveLength(1);
     expect(results.filter(isConflictRejected)).toHaveLength(1);
     const [storedAdmin, storedSite, activeSessions, audits] = await Promise.all([
-      prisma.user.findUniqueOrThrow({ where: { id: adminId } }),
-      prisma.site.findUniqueOrThrow({ where: { id: created.siteId } }),
+      prisma.user.findUnique({ where: { id: adminId } }),
+      prisma.site.findUnique({ where: { id: created.siteId } }),
       prisma.session.count({ where: { userId: adminId, revokedAt: null } }),
       prisma.auditLog.count({
-        where: { targetId: adminId, action: { in: ["operator.site_admin_password_reset", "operator.site_admin_disabled"] } }
+        where: { OR: [
+          { targetId: adminId, action: "operator.site_admin_password_reset" },
+          { targetId: created.siteId, action: "operator.site_deleted" }
+        ] }
       })
     ]);
     expect(activeSessions).toBe(0);
     expect(audits).toBe(1);
-    if (storedAdmin.status === "disabled") {
-      expect(storedSite.adminUserId).toBeNull();
+    if (!storedAdmin) {
+      expect(storedSite).toBeNull();
     } else {
       expect(storedAdmin.status).toBe("active");
-      expect(storedSite.adminUserId).toBe(adminId);
+      expect(storedSite?.adminUserId).toBe(adminId);
     }
   }, 15_000);
 
@@ -202,6 +314,7 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
     beforeOrganizationCreate?: () => Promise<void>;
   }) {
     const client = new PrismaService();
+    let userFindHookCalled = false;
     const extended = client.$extends({
       query: {
         site: {
@@ -214,7 +327,10 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
         user: {
           async findFirst({ args, query }) {
             const result = await query(args);
-            if (hooks.afterUserFindFirst) await hooks.afterUserFindFirst();
+            if (hooks.afterUserFindFirst && !userFindHookCalled) {
+              userFindHookCalled = true;
+              await hooks.afterUserFindFirst();
+            }
             return result;
           }
         },
@@ -232,7 +348,8 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
       service: new OperatorSiteAdminsService(
         extended as unknown as PrismaService,
         new PasswordService(),
-        new AuditService(extended as unknown as PrismaService)
+        new AuditService(extended as unknown as PrismaService),
+        { processNow: async () => ({ status: "completed" as const }) } as never
       ),
       disconnect: () => extended.$disconnect()
     };

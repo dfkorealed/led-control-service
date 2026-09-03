@@ -5,6 +5,7 @@ import { normalizeLoginId, type AuthenticatedUser } from "../auth/auth.types";
 import { PasswordService } from "../auth/password.service";
 import { lockUserForPasswordMutation } from "../auth/user-password-lock";
 import { PrismaService } from "../prisma/prisma.service";
+import { SiteDeletionCleanupService } from "./site-deletion-cleanup.service";
 
 export interface CreateSiteAdminInput {
   customerName: string;
@@ -42,7 +43,22 @@ export interface SiteAdminSummary {
 const managedAdminSelect = {
   id: true,
   organizationId: true,
-  administeredSite: { select: { id: true } }
+  administeredSite: {
+    select: {
+      id: true,
+      name: true,
+      gateways: {
+        select: {
+          id: true,
+          inventory: { select: { id: true } },
+          certificates: {
+            select: { inventory: { select: { id: true, claimedGatewayId: true } } }
+          }
+        }
+      },
+      floors: { select: { assets: { select: { objectKey: true } } } }
+    }
+  }
 } as const;
 
 @Injectable()
@@ -50,7 +66,8 @@ export class OperatorSiteAdminsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly deletionCleanup: SiteDeletionCleanupService
   ) {}
 
   async list(user: AuthenticatedUser): Promise<SiteAdminSummary[]> {
@@ -240,38 +257,96 @@ export class OperatorSiteAdminsService {
     }
   }
 
-  async disable(user: AuthenticatedUser, userId: string) {
+  async deleteSiteAdmin(user: AuthenticatedUser, userId: string, confirmationSiteName: unknown) {
     this.assertOperator(user);
     const adminId = this.requiredString(userId, "userId");
+    const confirmedName = this.exactConfirmationName(confirmationSiteName);
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const deletionTarget = await this.findManagedAdmin(this.prisma, adminId);
+      const targetSite = deletionTarget.administeredSite!;
+      if (targetSite.name !== confirmedName) {
+        throw new BadRequestException("confirmationSiteName does not match the site name");
+      }
+
+      const assetKeys = this.assetKeys(targetSite.floors ?? []);
+      const inventoryIds = this.inventoryIds(targetSite.gateways);
+      const deletion = await this.prisma.$transaction(async (tx) => {
         const admin = await this.findManagedAdmin(tx, adminId);
-        // Task 1's trigger rejects a disabled user still assigned to a Site.
-        await tx.site.update({ where: { id: admin.administeredSite!.id }, data: { adminUserId: null } });
-        await tx.user.update({ where: { id: admin.id }, data: { status: "disabled" } });
-        const revokedSessions = await tx.session.updateMany({
-          where: { userId: admin.id, revokedAt: null },
-          data: { revokedAt: new Date() }
+        const site = admin.administeredSite!;
+        const currentInventoryIds = this.inventoryIds(site.gateways);
+        const currentAssetKeys = this.assetKeys(site.floors ?? []);
+        if (
+          site.id !== targetSite.id
+          || site.name !== confirmedName
+          || !this.sameIds(inventoryIds, currentInventoryIds)
+          || !this.sameIds(assetKeys, currentAssetKeys)
+        ) {
+          throw new ConflictException("site changed during deletion, please retry");
+        }
+
+        const gatewayIds = site.gateways.map((gateway) => gateway.id);
+        await tx.gatewayInventory.updateMany({
+          where: {
+            OR: [
+              { claimedGatewayId: { in: gatewayIds } },
+              { id: { in: inventoryIds } }
+            ]
+          },
+          data: { disabledAt: new Date() }
         });
+        const organizationSiteCount = await tx.site.count({ where: { organizationId: admin.organizationId } });
+        if (organizationSiteCount === 1) {
+          await tx.$queryRaw(Prisma.sql`
+            SELECT "id" FROM "User"
+            WHERE "organizationId" = ${admin.organizationId}
+            ORDER BY "id" FOR UPDATE
+          `);
+        } else {
+          await tx.$queryRaw(Prisma.sql`
+            SELECT "id" FROM "User" WHERE "id" = ${admin.id} FOR UPDATE
+          `);
+        }
+        const cleanup = await tx.siteDeletionCleanup.create({
+          data: { siteId: site.id, inventoryIds, objectKeys: assetKeys }
+        });
+        await tx.site.delete({ where: { id: site.id } });
+
+        if (organizationSiteCount === 1) {
+          await tx.session.deleteMany({ where: { user: { organizationId: admin.organizationId } } });
+          await tx.invitation.deleteMany({ where: { organizationId: admin.organizationId } });
+          await tx.user.deleteMany({ where: { organizationId: admin.organizationId } });
+          await tx.organization.delete({ where: { id: admin.organizationId } });
+        } else {
+          await tx.session.deleteMany({ where: { userId: admin.id } });
+          await tx.user.delete({ where: { id: admin.id } });
+        }
+
         await this.audit.record({
           transaction: tx,
-          organizationId: admin.organizationId,
-          siteId: admin.administeredSite!.id,
+          organizationId: user.organizationId,
           actorId: user.id,
-          action: "operator.site_admin_disabled",
-          targetType: "User",
-          targetId: admin.id,
+          action: "operator.site_deleted",
+          targetType: "Site",
+          targetId: site.id,
           outcome: "success",
-          metadata: { revokedSessionCount: revokedSessions.count }
+          metadata: {
+            siteName: site.name,
+            customerOrganizationId: admin.organizationId,
+            gatewayCount: site.gateways.length
+          }
         });
-        return { ok: true };
+        return { cleanupId: cleanup.id };
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      // The committed cleanup row is the authority. Immediate processing keeps the
+      // common path fast; startup/polling retries preserve eventual cleanup on failure.
+      await this.deletionCleanup.processNow(deletion.cleanupId).catch(() => undefined);
+      return { ok: true };
     } catch (error) {
       this.throwMappedPrismaError(error);
     }
   }
 
-  private async findManagedAdmin(tx: Prisma.TransactionClient, userId: string) {
+  private async findManagedAdmin(tx: Pick<Prisma.TransactionClient, "user">, userId: string) {
     const admin = await tx.user.findFirst({
       where: {
         id: userId,
@@ -284,6 +359,32 @@ export class OperatorSiteAdminsService {
     });
     if (!admin?.administeredSite) throw new NotFoundException("active assigned site admin not found");
     return admin;
+  }
+
+  private inventoryIds(gateways: ReadonlyArray<{
+    id: string;
+    inventory: { id: string } | null;
+    certificates?: ReadonlyArray<{ inventory: { id: string; claimedGatewayId: string | null } }>;
+  }>) {
+    const inventoryIds = new Set<string>();
+    for (const gateway of gateways) {
+      if (gateway.inventory) inventoryIds.add(gateway.inventory.id);
+      for (const certificate of gateway.certificates ?? []) {
+        if (certificate.inventory.claimedGatewayId && certificate.inventory.claimedGatewayId !== gateway.id) {
+          throw new ConflictException("gateway certificate inventory ownership mismatch");
+        }
+        inventoryIds.add(certificate.inventory.id);
+      }
+    }
+    return [...inventoryIds].sort();
+  }
+
+  private assetKeys(floors: ReadonlyArray<{ assets: ReadonlyArray<{ objectKey: string }> }>) {
+    return floors.flatMap((floor) => floor.assets.map((asset) => asset.objectKey)).sort();
+  }
+
+  private sameIds(left: string[], right: string[]) {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
   }
 
   private toSummary(site: {
@@ -340,6 +441,13 @@ export class OperatorSiteAdminsService {
     return value.trim();
   }
 
+  private exactConfirmationName(value: unknown) {
+    if (typeof value !== "string" || !value) {
+      throw new BadRequestException("confirmationSiteName is required");
+    }
+    return value;
+  }
+
   private requiredPassword(value: unknown, name: string) {
     if (typeof value !== "string" || !value.trim()) throw new BadRequestException(`${name} is required`);
     return value;
@@ -351,12 +459,17 @@ export class OperatorSiteAdminsService {
 
   private throwMappedPrismaError(error: unknown): never {
     if (this.isPrismaError(error, "P2002")) throw new ConflictException("loginId already exists");
-    if (this.isPrismaError(error, "P2034")) throw new ConflictException("operator site admin transaction conflicted, please retry");
+    if (this.isPrismaError(error, "P2034") || this.isPrismaError(error, "40001")) {
+      throw new ConflictException("operator site admin transaction conflicted, please retry");
+    }
     throw error;
   }
 
   private isPrismaError(error: unknown, code: string) {
     return (error instanceof Prisma.PrismaClientKnownRequestError && error.code === code)
-      || (typeof error === "object" && error !== null && (error as { code?: unknown }).code === code);
+      || (typeof error === "object" && error !== null && (
+        (error as { code?: unknown }).code === code
+        || (error as { meta?: { code?: unknown } }).meta?.code === code
+      ));
   }
 }

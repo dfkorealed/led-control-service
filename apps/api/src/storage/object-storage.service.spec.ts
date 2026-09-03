@@ -25,4 +25,18 @@ describe("ObjectStorageService", () => {
       service.createUploadDescriptor({ floorId: "floor-1", mimeType: "image/png", sizeBytes: 10, sha256: "invalid" })
     ).rejects.toThrow("sha256");
   });
+
+  it("deletes an uploaded object from the configured bucket", async () => {
+    const send = jest.fn().mockResolvedValue({});
+    const deletingService = new ObjectStorageService({ send } as never, {
+      bucket: "floor-assets",
+      publicBaseUrl: "http://localhost:9000/floor-assets"
+    });
+
+    await deletingService.deleteObject("floors/floor-1/file.png");
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      input: { Bucket: "floor-assets", Key: "floors/floor-1/file.png" }
+    }));
+  });
 });
