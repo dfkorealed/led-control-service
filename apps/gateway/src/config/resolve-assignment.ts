@@ -41,8 +41,8 @@ export async function resolveGatewayAssignment(options: {
     const assignment = await client.fetchAssignment();
     if (assignment) {
       // writeAtomic은 0600 임시 파일을 fsync·rename해 배정을 교체한다. 전원 장애가
-      // 난 뒤 부분 JSON이나 다른 사용자가 읽을 수 있는 자격 정보로 시작하는 일을
-      // 막고, 다음 시작에서는 같은 local assignment로 MQTT identity를 준비하게 한다.
+      // 난 뒤 부분 JSON으로 시작하거나 현장 배정 정보·Gateway 식별 범위가 넓게 읽히는
+      // 일을 막고, 다음 시작에서는 같은 local assignment로 MQTT identity를 준비하게 한다.
       await options.store.writeAtomic(assignment);
       return assignment;
     }

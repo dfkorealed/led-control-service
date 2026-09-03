@@ -582,8 +582,8 @@ async function main() {
   async function handleDimmingPayloadV2(payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket) {
     // MQTT command는 바로 RF 성공으로 바꾸지 않는다. command journal이 수신·실행
     // 경계를 보존하고, 결과 상태는 state outbox에 넣어 다음 MQTT publisher가 재시도한다.
-    // 이렇게 해야 Pi 전원 또는 인터넷 장애가 ACK와 실제 조명 상태를 서로 다르게
-    // 보이게 만드는 일을 막을 수 있다.
+    // 이것이 Pi 전원·인터넷 장애 뒤 남은 결과를 복구·재발행해 ACK와 실제 조명 상태의
+    // 불일치를 줄이는 범위다. 저장과 RF 실행을 하나의 원자 작업으로 보장하지는 않는다.
     const receipt = createGatewayCommandReceipt(packet, gatewayMonotonicClock);
     const command = gatewayDimmingCommandV2CompatibilitySchema.parse(JSON.parse(payload.toString()));
     let acceptancePublished = false;
