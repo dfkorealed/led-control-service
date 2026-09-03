@@ -84,7 +84,7 @@ static bool system_fault_active;
 static bool system_fault_registered;
 
 /* Config Server는 provisioner가 AppKey bind, subscription, publication을 설정하는 입구다.
- * 제어 callback보다 먼저 이 설정 변화를 받게 해 model runtime이 아직 준비되지 않은 publication을 쓰지 않게 한다. */
+ * 설정 변경 callback은 runtime에 전달되어 publication·subscription 구성이 현재 Mesh 상태를 반영하게 한다. */
 static esp_ble_mesh_cfg_srv_t config_server = {
     .net_transmit = ESP_BLE_MESH_TRANSMIT(2, 20),
     .relay = ESP_BLE_MESH_RELAY_ENABLED,
