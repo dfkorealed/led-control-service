@@ -130,6 +130,8 @@ export class ManufacturingEnrollmentService {
       throw new ConflictException("gateway inventory is unavailable");
     }
 
+    // Pi에서 만든 private key는 밖으로 내보내지 않고 CSR만 이 경계로 보낸다.
+    // 서버·제조 시스템 유출 시 장치 키까지 노출되는 실패를 막고, 다음 CA 계층은 공개키 요청만 서명한다.
     try {
       await this.csrValidator.validate(csrPem);
     } catch (error) {
@@ -171,6 +173,8 @@ export class ManufacturingEnrollmentService {
       const certificateData = this.certificateData(inventory.id, signed);
       await this.db().$transaction(async (tx: any) => {
         claimCode = randomBytes(32).toString("base64url");
+        // claim code 원문은 이 응답으로만 전달하고 DB에는 hash만 남긴다.
+        // 저장소 유출로 재사용 가능한 claim code가 노출되는 것을 막으며, onboarding 계층은 이후 입력값을 hash와 비교한다.
         const claimCodeHash = await this.hashClaimCode(claimCode);
         await tx.gatewayCertificate.create({ data: certificateData });
         const updatedInventory = await tx.gatewayInventory.updateMany({

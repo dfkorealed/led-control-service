@@ -57,6 +57,8 @@ export class GatewayOnboardingService {
     const name = this.requireText(input.name, "gateway name is required");
     const claimCode = this.requireText(input.claimCode, "claimCode is required");
 
+    // Inventory를 Gateway로 바꾸고 claim code를 소비하는 일을 한 transaction에서 확정한다.
+    // Pi bootstrap과 중복 claim 요청이 서로 다른 소유자를 보지 않게 하며, commit 뒤 bootstrap 계층은 한 Gateway 배정만 읽는다.
     const decision: ClaimDecision = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.$queryRaw`
         SELECT true AS "locked"
