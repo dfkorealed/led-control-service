@@ -258,14 +258,14 @@ describe("SiteAdminManagementView", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("uses the shared destructive confirmation to disable an admin and states the access consequence", async () => {
+  it("uses the shared destructive confirmation to delete an admin while preserving site history", async () => {
     renderView();
     await screen.findByText("customer_admin");
 
-    fireEvent.click(screen.getByRole("button", { name: "김관리 비활성화" }));
-    const dialog = screen.getByRole("dialog", { name: "김관리 비활성화" });
-    expect(within(dialog).getByText("로그아웃되며 현장 접근이 중단됩니다. 운영 이력은 보존됩니다.")).toBeVisible();
-    fireEvent.click(within(dialog).getByRole("button", { name: "비활성화" }));
+    fireEvent.click(screen.getByRole("button", { name: "김관리 삭제" }));
+    const dialog = screen.getByRole("dialog", { name: "김관리 삭제" });
+    expect(within(dialog).getByText("관리자 로그인이 차단되고 현장 지정이 해제됩니다. 현장과 운영 이력은 보존됩니다.")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
 
     await waitFor(() => expect(api.disableSiteAdmin).toHaveBeenCalledWith("admin-1"));
   });
@@ -349,7 +349,7 @@ describe("SiteAdminManagementView", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("restores focus to the stable create command after disabling an admin removes its trigger", async () => {
+  it("restores focus to the stable create command after deleting an admin removes its trigger", async () => {
     api.listSiteAdmins.mockReset();
     api.listSiteAdmins
       .mockResolvedValueOnce([assignedSite])
@@ -358,15 +358,15 @@ describe("SiteAdminManagementView", () => {
     await screen.findByText("customer_admin");
 
     const createCommand = screen.getByRole("button", { name: "현장 및 관리자 생성" });
-    fireEvent.click(screen.getByRole("button", { name: "김관리 비활성화" }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "김관리 비활성화" })).getByRole("button", { name: "비활성화" }));
+    fireEvent.click(screen.getByRole("button", { name: "김관리 삭제" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "김관리 삭제" })).getByRole("button", { name: "삭제" }));
 
     await screen.findByText("관리자 미지정");
-    expect(screen.queryByRole("button", { name: "김관리 비활성화" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "김관리 삭제" })).not.toBeInTheDocument();
     await waitFor(() => expect(document.activeElement).toBe(createCommand));
   });
 
-  it("restores the disable trigger when its refetch result keeps it connected", async () => {
+  it("restores the delete trigger when its refetch result keeps it connected", async () => {
     api.listSiteAdmins.mockReset();
     api.listSiteAdmins
       .mockResolvedValueOnce([assignedSite])
@@ -374,9 +374,9 @@ describe("SiteAdminManagementView", () => {
     renderView();
     await screen.findByText("customer_admin");
 
-    const trigger = screen.getByRole("button", { name: "김관리 비활성화" });
+    const trigger = screen.getByRole("button", { name: "김관리 삭제" });
     fireEvent.click(trigger);
-    fireEvent.click(within(screen.getByRole("dialog", { name: "김관리 비활성화" })).getByRole("button", { name: "비활성화" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "김관리 삭제" })).getByRole("button", { name: "삭제" }));
 
     await waitFor(() => expect(api.listSiteAdmins).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

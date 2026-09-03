@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Pencil, Plus, UserPlus, UserRoundX } from "lucide-react";
+import { KeyRound, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
 import { useRef, useState } from "react";
 import {
   assignSiteAdmin,
@@ -86,7 +86,7 @@ export function SiteAdminManagementView() {
       {dialog?.type === "assign" ? <SiteAdminFormDialog mode="assign" site={dialog.site} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
       {dialog?.type === "edit" ? <SiteAdminFormDialog mode="edit" admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onCreate={createSiteAdmin} onAssign={assignSiteAdmin} onUpdate={updateSiteAdmin} onSuccess={complete} onClose={closeDialog} /> : null}
       {dialog?.type === "reset" ? <ResetAdminPasswordDialog admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onReset={resetSiteAdminPassword} onSuccess={() => complete("관리자 비밀번호를 재설정했습니다.")} onClose={closeDialog} /> : null}
-      {dialog?.type === "disable" ? <DisableSiteAdminDialog admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onDisable={disableSiteAdmin} onSuccess={() => complete("관리자 계정을 비활성화했습니다.")} onClose={closeDialog} /> : null}
+      {dialog?.type === "disable" ? <DisableSiteAdminDialog admin={dialog.admin} returnFocusElement={returnFocusElement} fallbackFocusElement={createCommandRef.current} onDisable={disableSiteAdmin} onSuccess={() => complete("관리자 계정을 삭제했습니다.")} onClose={closeDialog} /> : null}
     </section>
   );
 }
@@ -107,7 +107,7 @@ function SiteAdminRow({ site, onOpen }: { site: SiteAdminSummary; onOpen: (dialo
           <div className="operator-row-actions">
             <button type="button" aria-label={`${admin.name} 수정`} onClick={(event) => onOpen({ type: "edit", admin }, event.currentTarget)}><Pencil size={15} aria-hidden="true" /> 수정</button>
             <button type="button" aria-label={`${admin.name} 비밀번호 재설정`} onClick={(event) => onOpen({ type: "reset", admin }, event.currentTarget)}><KeyRound size={15} aria-hidden="true" /> 비밀번호 재설정</button>
-            <button className="danger-action" type="button" aria-label={`${admin.name} 비활성화`} onClick={(event) => onOpen({ type: "disable", admin }, event.currentTarget)}><UserRoundX size={15} aria-hidden="true" /> 비활성화</button>
+            <button className="danger-action" type="button" aria-label={`${admin.name} 삭제`} onClick={(event) => onOpen({ type: "disable", admin }, event.currentTarget)}><Trash2 size={15} aria-hidden="true" /> 삭제</button>
           </div>
         ) : <button type="button" onClick={(event) => onOpen({ type: "assign", site }, event.currentTarget)} aria-label={`${site.siteName} 관리자 지정`}><UserPlus size={15} aria-hidden="true" /> 관리자 지정</button>}
       </td>

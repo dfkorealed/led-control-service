@@ -34,9 +34,9 @@ export function DisableSiteAdminDialog({ admin, returnFocusElement, fallbackFocu
   return (
     <ConfirmDialog
       open
-      title={`${admin.name} 비활성화`}
-      description="로그아웃되며 현장 접근이 중단됩니다. 운영 이력은 보존됩니다."
-      confirmLabel="비활성화"
+      title={`${admin.name} 삭제`}
+      description="관리자 로그인이 차단되고 현장 지정이 해제됩니다. 현장과 운영 이력은 보존됩니다."
+      confirmLabel="삭제"
       destructive
       isPending={mutation.isPending}
       returnFocusElement={returnFocusElement}
@@ -44,7 +44,7 @@ export function DisableSiteAdminDialog({ admin, returnFocusElement, fallbackFocu
       onConfirm={() => mutation.mutate()}
       onClose={close}
     >
-      {mutation.error ? <p className="danger-text" role="alert">관리자 계정을 비활성화하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.</p> : null}
+      {mutation.error ? <p className="danger-text" role="alert">관리자 계정을 삭제하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.</p> : null}
     </ConfirmDialog>
   );
 }
