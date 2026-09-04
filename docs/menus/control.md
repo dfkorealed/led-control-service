@@ -1,6 +1,6 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-03
+기준일: 2026-09-04
 
 ## 구현 완료
 
@@ -14,8 +14,8 @@
 - 스케줄 제어와 차량 감지 이벤트 제어 설계를 확정했다. 상세 계약은 `docs/superpowers/specs/2026-08-29-schedule-vehicle-event-control-design.md`를 따른다.
 - 클라우드는 규칙 관리·배포 상태의 정본, Raspberry Pi Gateway는 무중단 hot reload와 offline 현장 실행의 정본, ESP32-H2는 3.3V Active High 마이크로웨이브 센서의 GPIO 상태 이벤트와 밝기 적용을 담당한다. High 동안 이벤트를 유지하고 Low 이후 규칙별 유지시간을 계산한다.
 - shared 반복 일정 계약과 production DB schema에 이어 Task 7에서 schedule API, Task 8에서 차량 이벤트 규칙 API CRUD, exact Fixture snapshot과 full-snapshot outbox 저장을 구현했다.
-- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, 수동 명령 timed override 저장, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. Task 17 schedule Web CRUD, Task 18 차량 이벤트 Web CRUD·수동 override 종료 시각 입력과 Task 19 production API/Gateway Chromium software E2E를 완료했다. 이 software E2E는 실제 PostgreSQL·Redis·mTLS Mosquitto와 production Gateway runtime을 사용하지만 BLE adapter/sensor source는 test 전용 simulator이며, Raspberry Pi/BlueZ/ESP32-H2 HIL은 미실행이다.
-- Bluetooth SIG Company ID 발급 전 실장비 검증을 위해 Gateway와 ESP32-H2에 명시적 `lab-hil` 프로파일을 추가했다. 실기에서 `0xFFFF`가 BlueZ SIG 모델 내부 표식과 vendor model ID를 중복시키는 원인을 확인해 Lab 전용 비양산 RFU 값을 `0xFFFE`로 교체했다. Gateway 확인값, firmware Lab manifest와 전용 flash wrapper가 모두 맞을 때만 RF에 사용하며 production 시작·flash 경로는 계속 거부한다. 단일 ESP32-H2의 검색·provisioning·등록·재시작 복구·개별 밝기 제어는 실 RF로 통과했으며 다중 노드, 그룹, 센서, 전원 차단 HIL은 남아 있다.
+- schedule/차량 이벤트 API CRUD, production API MQTT 동기화, Gateway snapshot 원자 저장/hot reload, offline scheduler·priority arbiter·재시작 복구, durable execution telemetry, Gateway BLE Mesh Sensor Client, ESP32-H2 GPIO driver와 Sensor Server/reliable vendor event model을 완료했다. Task 17~19의 Web CRUD와 software E2E에 이어 2026-09-04 단일 Raspberry Pi 4·ESP32-H2 실장비 HIL에서 admin UI 생성·수정·비활성화·삭제, config revision `1~7`의 exact `APPLIED`, schedule 시작 `70% -> 35%`와 종료 복귀 `35% -> 70%`, 차량 High `70% -> 85%`, Low 후 5초 복귀, 수정된 규칙의 High `70% -> 80%`, Low 후 6초 복귀를 확인했다. 16개 execution event와 6개 fixture action result가 모두 성공했고 Gateway config ACK·telemetry outbox는 비었다.
+- Bluetooth SIG Company ID 발급 전 실장비 검증을 위해 Gateway와 ESP32-H2에 명시적 `lab-hil` 프로파일을 추가했다. 실기에서 `0xFFFF`가 BlueZ SIG 모델 내부 표식과 vendor model ID를 중복시키는 원인을 확인해 Lab 전용 비양산 RFU 값을 `0xFFFE`로 교체했다. Gateway 확인값, firmware Lab manifest와 전용 flash wrapper가 모두 맞을 때만 RF에 사용하며 production 시작·flash 경로는 계속 거부한다. 단일 ESP32-H2의 검색·provisioning·등록·재시작 복구·개별 밝기·schedule/event sensor 제어는 실 RF로 통과했으며 다중 노드, Mesh Group, packet loss와 동시 전원 차단 HIL은 남아 있다.
 - Scenes 17~21의 Calm Operations 자동화 표면은 공통 `StatusBadge`와 `FeedbackState`로 목록의 활성·Gateway sync·최근 실행/감지 상태와 loading/empty/error/stale polling을 구분한다. schedule/차량 이벤트 표는 각각 접근 가능한 이름을 가지고, 좁은 화면에서도 동일 table DOM을 `.automation-table-wrap` 가로 스크롤로 유지한다. admin empty state의 추가 action, 삭제 확인, 오류별 실제 retry, viewer read-only를 유지하며 query key, bounded pagination, polling, mutation auth/cache callback과 scope generation은 변경하지 않았다. schedule editor는 `운영 기간과 시간 → 반복 → 밝기 → 제어 대상`, 차량 이벤트 editor는 `감지 센서 → 제어 조명 → 행동` fieldset으로 정리하고 기존 controlled input·검증·focus trap/return을 보존한다. `calm-operations-automation.spec.ts`는 1440×900, 1024×768, 390×844, 320×740의 정상 목록·editor 흐름에서 PENDING/APPLIED/REJECTED 상태, 마지막 관리 열의 가로-scroll reachability, 삭제 확인, weekly/monthly 조건 field와 verified 차량 센서 선택행을 검증한다. empty/error/retry action variant는 React Query retry 시간을 제한하기 위해 별도 390×844 fixture에서 실행한다. 이 route fixture는 UI software 증거일 뿐 Gateway/BlueZ/Raspberry Pi/ESP32-H2 HIL을 대체하지 않는다.
 
 ### 확정 구현 범위
@@ -41,7 +41,7 @@
 - 스케줄 제어와 차량 감지 이벤트 제어 외의 센서·장면 자동제어
 - RSSI, hop count와 제품별 상세 diagnostics
 - 자동 HIL 판정. 실제 하드웨어 검증은 단일 gateway 기준으로 수동 수행한다.
-- ESP32-H2 vendor sensor model과 Raspberry Pi BlueZ RF의 packet loss, 재부팅 oscillation, sudden power-loss HIL. 현재 검증은 software journal·MQTT 계약 수준이다.
+- ESP32-H2 vendor sensor model과 Raspberry Pi BlueZ RF의 packet loss, 반복 재부팅, sudden power-loss HIL. 정상 High/Low와 5초·6초 hold 실 RF는 통과했지만 손실·전원 장애 시험은 별도다.
 
 ### 구현 항목
 
@@ -206,16 +206,16 @@
 - gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결
 - ESP32-H2 제품/진단 정보 report의 gateway/API 연동
 - ESP32-H2 실제 보드 플래시 검증
-- Raspberry Pi BlueZ Mesh, 실제 ESP32-H2, 실제 센서와 LED converter interface를 함께 연결한 schedule/event HIL. software E2E, native test, ESP-IDF target build는 이 항목을 완료로 대체하지 않는다.
+- 실제 마이크로웨이브 센서의 전기 출력과 LED converter를 함께 연결한 전압·타이밍 HIL. 2026-09-04 시험은 ESP32-H2 GPIO4의 내부 pull만 전환해 firmware·BLE Mesh·Gateway·API·Web 전체 논리 경로를 검증했으며 센서/컨버터 전기 적합성 증거는 아니다.
 
 ## 부족하거나 개선이 필요한 기능
 
 - 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 같은 TID를 사용하는 bounded 재전송 또는 후속 Lightness Get 확인으로 실제 적용과 서버 실패 표시가 어긋나지 않게 보완해야 한다.
 - API/Gateway의 DB·journal 이후 PUBACK 계약은 자동화됐지만, API 종료·Gateway 종료·broker 재연결과 ESP32-H2 cold boot를 동시에 포함한 acceptance/device-status 중복 재전달 및 AppKey 복원은 실장비 전원 차단 HIL로 확인해야 한다.
 - Automation full snapshot의 production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK, Task 12 offline scheduler·priority arbiter, Task 13 execution outbox/application ACK와 Task 14 Sensor Client/vendor ACK 입력은 연결됐다. Snapshot activation과 production shutdown은 필요한 BLE Mesh terminal state/handoff, execution/capability queue와 in-flight QoS 1 publish를 순서대로 drain한다.
-- Capability ACK의 필수 `reportPayloadHash`와 identity `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`는 cross-node eventId 충돌과 same-node altered payload를 원본과 분리한다. Exact report 재전달은 최초 payload/hash/`ingestedAt`을 유지하고 published/deadletter/expired lease delivery 상태만 재큐잉하며 live lease를 보호한다. 이 API 계약은 unit/PostgreSQL migration test로 검증했지만 실제 production broker ACL과 Gateway certificate로 report 왕복을 수행한 HIL 증거는 아직 없다.
-- Task 14 Gateway Sensor/vendor client, Task 15 GPIO driver와 Task 16 ESP32-H2 model은 native exact wire/retry, actual production-source host fake와 patched ESP-IDF fullclean target build로 검증했다. Model host fake는 config queue 포화와 reboot 복원, period/AppKey/reprovision, 네 Sensor 요청, authoritative current unavailable, 단일 timer, stop race/restart, event별 initial+6 retry 실제 publish, Sensor/vendor completion 영구 유실, duplicate-after-reuse, 이전 generation completion 무해성과 외부 Health 배열 재구성을 실행한다. Breaker test는 payload/context/envelope/queue-post deterministic failure의 동기 오류, handler 0회/exact free와 16 burst pending retry를 실행한다. 실제 RF, device heap/queue timing, cache-disabled ISR, 센서 전기 신호, packet loss, 전원 차단은 증명하지 않으며 HIL은 아직 실행하지 않았다.
-- pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 아직 실행하지 않았다.
+- Capability ACK의 필수 `reportPayloadHash`와 identity `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`는 cross-node eventId 충돌과 same-node altered payload를 원본과 분리한다. Exact report 재전달은 최초 payload/hash/`ingestedAt`을 유지하고 published/deadletter/expired lease delivery 상태만 재큐잉하며 live lease를 보호한다. 2026-09-03~04 Lab HIL에서 실제 Gateway 인증서·broker ACL로 capability revision 1과 Sensor/vendor binding, application ACK 및 후속 event 수신을 확인했다. Packet loss와 ACK exhaustion은 아직 실기하지 않았다.
+- Task 14 Gateway Sensor/vendor client, Task 15 GPIO driver와 Task 16 ESP32-H2 model은 native exact wire/retry, production-source host fake와 patched ESP-IDF fullclean target build로 검증했다. 2026-09-04 단일 노드 HIL은 실제 RF의 정상 High/Low 경로까지 추가로 확인했다. device heap/queue 장기 부하, cache-disabled ISR stress, 실제 센서 전기 신호, packet loss와 전원 차단은 아직 증명하지 않았다.
+- pending redirect와 네 가지 제어 target의 production API/MQTT ACK/state 경로는 Task 9 격리 실백엔드 software E2E로 검증했다. 실제 Raspberry Pi/BlueZ/ESP32-H2에서는 이번 단일 fixture schedule/event와 기존 개별 밝기 제어가 통과했으며 다중 fixture·층·구역·Mesh Group HIL은 아직 실행하지 않았다.
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - schedule API CRUD, Gateway offline schedule 실행, Schedule Web CRUD와 차량 이벤트 Web CRUD·수동 override 종료 시각 입력은 소프트웨어 구현을 마쳤다. Task 18 Fix Round 1 Web unit은 event 목록·권한·empty source/target·canonical capability timestamp filter, mutation unmount 뒤 `401`/cache invalidation, initial/cursor/background `401`, conditional dimming validation, field error 접근성, scope reset과 manual override 변환을 검증했다. Task 19 Fix Round 3 production API/Gateway Chromium software E2E도 실제 DB/MQTT 경로, 독립 canonical execution hash/ACK/DB/outbox oracle와 deadline 경계에서 final-HEAD reviewer fresh run을 통과했지만 bootstrap certificate 재발급, 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 후속 범위다.
 - Final review P1 통합 fix의 RealBackendLab Chromium 검증은 non-persistent mTLS Mosquitto를 실제 재시작해 최초 Gateway 연결 전 publish `desired/applied 1/0→1/1`, 세션 소멸 재연결 revision 2, cloud 삭제 revision `2→3`, API session 소멸·재시작 revision `3→4`를 확인했다. 삭제 snapshot 적용 뒤 통제 clock을 3시간 전진해도 삭제 rule execution count는 `7→7`로 유지됐고, API가 없는 동안 config ACK는 broker PUBACK 뒤에도 Gateway outbox 1건으로 남아 API의 exact receipt 후 0건이 됐다. 이는 production API/Gateway와 software BLE simulator 검증이며 실제 RF/HIL 완료 증거는 아니다.
@@ -228,7 +228,7 @@
 - gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
 - API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기, 신규 웹 target picker 연결까지 반영됐다.
 - 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 RF/HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
-- `sessionStorage` 새로고침 복구와 ACK terminal 전 입력 잠금의 브라우저 계약 검증은 Task 7에서 완료했다. 격리 실백엔드 Chromium E2E에서 저장 구역 생성·수정·삭제와 개별·다중·층·구역 제어 4건의 terminal 결과를 검증했다. Raspberry Pi Gateway와 ESP32-H2를 연결한 HIL은 아직 실행하지 않았다.
+- `sessionStorage` 새로고침 복구와 ACK terminal 전 입력 잠금의 브라우저 계약 검증은 Task 7에서 완료했다. 격리 실백엔드 Chromium E2E에서 저장 구역 생성·수정·삭제와 개별·다중·층·구역 제어 4건의 terminal 결과를 검증했다. Raspberry Pi Gateway와 ESP32-H2 HIL은 단일 fixture의 개별·schedule·event 제어까지 통과했으며 다중·층·구역·Mesh Group 실장비 검증은 남아 있다.
 - 저장 구역 생성·수정·삭제·재동기화 Web dialog와 Chromium route fixture 검증은 완료됐다. 다만 실제 Raspberry Pi/BlueZ/ESP32-H2를 연결한 zone 제어 실기는 `not_executed` 상태다. 표준 Health Fault Clear callback 실기도 Gateway 프로세스 내부에서 BlueZ node owner 권한으로 전송할 API/IPC가 없어 `not_executed` 상태이며, 두 항목 모두 자동 fixture 통과로 완료 처리하지 않는다.
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 

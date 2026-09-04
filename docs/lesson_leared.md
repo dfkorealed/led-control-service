@@ -438,3 +438,17 @@
 - **원인**: 사용자에게 반환할 durable 수락과 broker PUBACK을 하나의 요청 생명주기에서 처리했고, commit과 publish 사이 실패를 재구성할 원장이 없었다.
 - **해결 및 예방책**: node의 `provisioning` 전이와 strict command outbox를 같은 DB transaction에 만들고 HTTP는 commit 직후 반환한다. 별도 worker가 lease 아래 현재 node identity를 재검증해 발행하며 PUBACK 뒤에만 완료 표시하고, bounded 실패는 pending 증거를 보존한 `reconcile_required`로 전환한다.
 - **반복 방지 체크**: broker mock이 실패해도 등록 API가 durable outbox와 `accepted`를 남기는지, outbox ID/topic/payload scope 충돌은 발행 전에 deadletter되는지, retry 한계 전에는 node를 변경하지 않고 한계에서만 outbox/node를 한 transaction으로 전환하는지 검증한다.
+
+## 2026-09-04 / LAN 변경은 주소 하나가 아니라 DNS·SAN·실행 중 환경의 세 상태를 함께 바꾼다
+
+- **발생했던 문제/실수**: Mac과 Pi가 새 네트워크에서 서로 TCP 연결은 가능했지만 API process는 이전 IP의 MQTT로 연결을 시도했고 Gateway는 `mqtt.led.lan`을 해석하지 못해 `unhealthy`였다.
+- **원인**: 현재 인터페이스 IP, Lab 서비스 인증서 SAN, Mac에서 이미 export된 `MQTT_URL`, Pi의 `/etc/hosts`와 실행 중 container의 이름 해석을 각각 독립 상태로 두고 일부만 갱신했다.
+- **해결 및 예방책**: `route -n get default`와 `ipconfig getifaddr`로 현재 LAN을 확인하고, 같은 IP로 `lab:pki:bootstrap`을 재실행한 뒤 새 `lab.env`를 source한다. Pi의 `api.led.lan`/`mqtt.led.lan` 매핑을 교체하고 container를 재생성해 `/etc/hosts` 반영을 확인한다. DB의 site/gateway ID, claim과 장비 client certificate는 그대로 유지한다.
+- **반복 방지 체크**: 장소 이동 뒤에는 API process socket destination, `openssl x509` SAN, Pi/container `getent hosts`, 4000/8883 TCP, API·Gateway mTLS client 연결, Gateway health와 heartbeat를 순서대로 확인한 다음 HIL을 시작한다.
+
+## 2026-09-04 / 실제 fsync 비동기 테스트에 수십 ms wall-clock race를 두지 않는다
+
+- **발생했던 문제/실수**: Gateway 전체 테스트를 병렬 실행할 때 journal 저장 완료를 50ms `Promise.race`로 판정한 테스트가 단독 실행에서는 통과하고 전체 실행에서 간헐적으로 실패했다.
+- **원인**: 테스트 목적은 terminal publish 미완료가 command handler를 막지 않는지 확인하는 것이었지만, 실제 파일 `fsync` 시간까지 임의의 50ms 성능 조건으로 묶었다.
+- **해결 및 예방책**: 해결되지 않은 publish promise를 그대로 둔 상태에서 command handler promise가 완료되는지를 직접 await한다. 회귀 시에는 테스트 자체 timeout이 실패 경계를 제공한다.
+- **반복 방지 체크**: durability·filesystem 테스트에서는 기능 순서를 controllable promise와 명시적 signal로 검증하고, 제품 요구사항에 없는 짧은 wall-clock 제한은 assertion에 사용하지 않는다.

@@ -1,6 +1,6 @@
 # Lab Vault 기반 최초 실장비 설치 시험
 
-> 현재 판정: Task 9 격리 software E2E는 production API·인증·claim·registration·MQTT ACK/state 경로를 통과했다. 2026-09-02 Raspberry Pi 4 실기에서는 제조 등록, 일회성 claim, 현장 귀속, Gateway bootstrap, 장비·MQTT 인증서 발급과 broker mTLS 접속까지 통과했다. Lab HIL의 기존 `0xFFFF`가 BlueZ SIG 모델 표식과 vendor model에서 충돌하는 원인을 실기 로그로 확인해 비양산 RFU `0xFFFE`로 교체했고 재검증 중이다. heartbeat, ESP32-H2 검색·provisioning·제어는 아직 완료하지 않았다. 자사 Company Identifier와 서명된 firmware 제조 승인이 준비되어 Raspberry Pi와 ESP32-H2를 포함한 아래 실기 절차를 모두 통과하기 전에는 양산 준비 완료로 판정하지 않는다.
+> 현재 판정: production API·인증·claim·registration·MQTT ACK/state의 software E2E와 Raspberry Pi 4 제조 등록·claim·bootstrap·mTLS, 단일 ESP32-H2 검색·provisioning·상태·수동 제어를 통과했다. 2026-09-04에는 Lab 전용 `0xFFFE`로 schedule 시작/종료와 GPIO Active High 차량 이벤트·Low hold 종료를 실제 BlueZ RF로 검증했다. 다중 노드·Mesh Group, 실제 센서와 LED converter 전기 연결, packet loss·동시 전원 차단은 남아 있으며 자사 Company Identifier와 서명된 firmware 제조 승인이 준비되기 전에는 양산 준비 완료로 판정하지 않는다.
 
 이 문서는 개발 Mac에서 양산과 같은 신뢰 흐름을 반복 시험하는 단일 기준 절차다. Lab 전용 Root와 Vault를 사용하지만 제품 API의 제조 등록, 일회성 claim, 장비 bootstrap, MQTT mTLS 경로는 우회하지 않는다.
 
@@ -309,6 +309,14 @@ GDB panic 주입 또는 다음 Health Current 중 하나라도 확인되지 않�
 - 같은 탭 reload 전후 동일 command ID polling과 제어 잠금 화면
 - 미실행 또는 차단 항목을 그대로 표시한 최종 판정표
 
+### 9.5 스케줄·차량 이벤트 단일 노드 HIL
+
+스케줄은 현재 시각을 포함하는 짧은 규칙을 Web에서 만들고 `GatewayAutomationConfiguration.desiredRevision = appliedRevision`, Gateway snapshot의 같은 revision, `schedule_started/action_result/schedule_ended/action_result`, 시작 밝기와 종료 복귀 밝기를 모두 확인한다. 차량 이벤트는 capability가 `supported`이고 Sensor Server/vendor model binding이 모두 true인 fixture만 source로 사용한다. High 동안 이벤트 밝기를 유지하고 Low 뒤 규칙의 hold가 지난 다음 직전 base 밝기로 복귀해야 한다.
+
+2026-09-04 단일 노드 시험은 schedule `70% -> 35% -> 70%`, 차량 이벤트 `70% -> 85% -> 70%`(5초), 수정 규칙 `70% -> 80% -> 70%`(6초)를 통과했다. 실제 센서가 없는 자동 시험에서는 ESP32-H2 GPIO4의 외부 전압을 인가하지 않고 JTAG로 내부 pull만 바꿨다. 이 방식은 firmware·BLE Mesh·Gateway·API·Web 논리 경로 검증용이며 실제 센서 출력 전압, rise/fall time, 공통 GND와 converter 절연 검증을 대체하지 않는다. 다른 SoC·GPIO·ELF에 raw register 값을 재사용하지 말고 exact build의 GPIO 설정과 칩을 먼저 검증한다.
+
+완료 뒤 생성한 schedule/event rule을 Web에서 비활성화·삭제하고 empty snapshot까지 `APPLIED`인지 확인한다. Gateway의 `automation-config-acks.json`과 `automation-telemetry.json`은 records가 비어야 하며 fixture는 시험 전 base 밝기로 돌아와야 한다.
+
 ## 10. 부정 시험
 
 - 잘못된 station 인증서로 제조 endpoint 호출: TLS 단계에서 거부돼야 한다.
@@ -350,6 +358,7 @@ Vault를 reset한 뒤 기존 `.local/lab-pki`와 Pi 인증서를 섞으면 issue
 | Vault container가 `Created`에서 멈춤 | `docker info`, Docker Desktop 로그 | Docker Desktop 엔진 재시작 후 Vault smoke test |
 | `api.led.lan`을 찾지 못함 | Mac/Pi `/etc/hosts`, 현재 LAN IP | 두 호스트의 DNS 매핑을 같은 IP로 수정 |
 | API 인증서 hostname 오류 | `openssl x509 -in ... -text`의 SAN | 현재 `LAB_HOST_IP`로 Lab PKI 재생성 여부 판단 |
+| 장소 이동 뒤 API/Gateway MQTT가 동시에 offline | 실행 중 API의 `MQTT_URL`, Pi의 `getent hosts`, 인증서 SAN이 이전 IP를 가리킴 | 현재 LAN IP로 `lab:pki:bootstrap`을 재실행하고 새 `lab.env`를 source한 뒤 Pi DNS 매핑과 두 process를 재시작한다. DB ID·claim·장비 인증서는 유지한다. |
 | `pnpm dev`가 8883 handshake 실패 | 기존 개발용 mqtt container가 8883 점유 | `docker compose stop mqtt-tls`, Lab env를 source 후 재실행 |
 | 제조 endpoint가 401/TLS 실패 | station key 권한, CA/CRL, API 재시작 | `600` 권한과 `lab.env` 적용 여부 확인 |
 | claim 후 Pi가 `unclaimed` 반복 | serial 불일치 또는 claim 미완료 | label, 웹 입력, Pi `GATEWAY_SERIAL`을 비교 |

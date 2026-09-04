@@ -1,6 +1,6 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-03
+기준일: 2026-09-04
 
 ## 현재 마일스톤
 
@@ -17,7 +17,8 @@
 | 메뉴 완성 구현 | 완료(소프트웨어) | Task 13까지 구현·문서·전체 회귀와 실백엔드 설치·고객 운영 Chromium E2E를 통과했다. 실제 Raspberry Pi/ESP32-H2 HIL은 별도 검증으로 남아 있다. |
 | 2026-09-02 무장비 안정성 재점검 | 완료(무장비 검증) | 현재 scan identity 서버 강제, 모니터링 query 로딩/오류 구분, Health 기반 KPI, freshness scheduler 오류 격리, 명령 원문 `overrideUntil` 보존, Gateway command journal 및 API DB commit 뒤 QoS 1 PUBACK, BlueZ 로컬 AppKey 영속 저장, 통계 period 계약과 shared browser runtime export를 보완했다. Shared `163`, API `752`, Gateway `567`, Web `390`, 관련 Chromium `32`, Gateway container contract `22` 테스트와 API/Gateway/Web production build를 통과했다. Web main bundle은 `1,095.21 kB / gzip 331.01 kB`로 기존 500 kB 경고가 남는다. 개별 provisioning command/terminal 양방향 durable journal, 통계 repeatable-read snapshot과 실제 Raspberry Pi/ESP32-H2 cold-restart HIL은 남아 있다. |
 | 실장비 엣지 케이스 보강 Task 1 | 완료(소프트웨어) | strict provisioning command/device terminal/application ACK 계약과 topic, node 상태 변경 transaction의 `ProvisioningDeviceOutbox`, `SKIP LOCKED` lease·10회/15분 retry·deadletter worker 및 shutdown drain을 구현했다. HTTP `accepted`는 MQTT 연결과 무관한 DB commit을 뜻하고 PUBACK 한계 초과는 pending 증거를 보존한 `reconcile_required`로 수렴한다. Fix Round 1에서 15분 경과 선발행, terminal deadletter node 고정과 stale worker lease fencing을 보완했다. Shared 전체 `164`, API focused `141` 테스트와 API typecheck를 통과했다. Gateway 로컬 command/terminal journal과 exact ACK 소비는 Task 2이며 실제 broker/Raspberry Pi/ESP32-H2 재시작 HIL은 미실행이다. |
-| 실장비 엣지 케이스 보강 Task 2 | 완료(소프트웨어) | Gateway가 strict provisioning v2 command를 RF 전에 `0600` atomic journal에 수락하고 inbound QoS 1 PUBACK을 durability 뒤에 연다. exact duplicate는 RF를 재실행하지 않고 저장 terminal을 재사용하며 command identity 충돌은 fail-closed 한다. terminal은 atomic 저장 뒤 발행하고 exact application ACK 전까지 same-connection bounded retry와 reconnect/restart replay를 유지한다. accepted-only restart는 같은 장치를 자동 재provision하지 않고 `provisioning_outcome_unknown`으로 수렴한다. `/var/lib/led-control` appliance 경로와 shutdown drain을 연결했고 focused `78`, Gateway 전체 `583`, container contract `23` 테스트와 Gateway typecheck를 통과했다. API terminal ingest/ACK outbox는 Task 3이고 실제 broker/Raspberry Pi/ESP32-H2 crash HIL은 미실행이다. |
+| 실장비 엣지 케이스 보강 Task 2 | 완료(소프트웨어) | Gateway가 strict provisioning v2 command를 RF 전에 `0600` atomic journal에 수락하고 inbound QoS 1 PUBACK을 durability 뒤에 연다. exact duplicate는 RF를 재실행하지 않고 저장 terminal을 재사용하며 command identity 충돌은 fail-closed 한다. terminal은 atomic 저장 뒤 발행하고 exact application ACK 전까지 same-connection bounded retry와 reconnect/restart replay를 유지한다. accepted-only restart는 같은 장치를 자동 재provision하지 않고 `provisioning_outcome_unknown`으로 수렴한다. `/var/lib/led-control` appliance 경로, shutdown 시 command quiesce, ACK-only reconnect, unsubscribe timeout·fail-closed PUBACK과 drain을 연결했고 focused `94`, Gateway 전체 `599`, container contract `23` 테스트와 Gateway typecheck를 통과했다. API terminal ingest/ACK outbox는 Task 3이고 실제 broker kill/restart·동시 전원 차단 HIL은 미실행이다. |
+| 스케줄·차량 이벤트 단일 노드 HIL | 완료(정상 경로 실장비) | 변경된 LAN에서 Mac `172.30.1.64`, Pi `172.30.1.8`을 자동 탐지하고 Lab API/MQTT 인증서 SAN과 Pi DNS 매핑을 갱신했다. 실제 PostgreSQL·mTLS MQTT·Raspberry Pi 4 BlueZ·ESP32-H2로 admin UI CRUD, config revision `1~7` 수렴, schedule `70→35→70`, event `70→85→70`(5초), 수정 event `70→80→70`(6초), execution 16건과 action result 성공 6건, empty snapshot 적용과 outbox drain을 확인했다. 실제 마이크로웨이브 센서·LED converter 전기 연결, 다중 노드·group, packet loss와 동시 전원 차단은 미실행이다. |
 | 계정·설치 주체 전환 설계 | 완료 | [전역 운영자와 현장 관리자 계정 흐름 설계](superpowers/specs/2026-08-26-operator-admin-account-flow-design.md)에 로그인 아이디, 전역 단일 operator, 현장별 단일 admin, admin 최초 설치와 설정 범위를 정의했고 재설치는 제외했다. |
 | 계정·설치 주체 전환 구현 계획 | 완료 | [구현 계획](superpowers/plans/2026-08-27-operator-admin-account-flow.md)을 DB·인증·권한·웹·E2E의 9개 검증·커밋 단위로 작성했다. |
 | 계정·설치 주체 전환 구현 | 완료(소프트웨어) | Task 1~9와 final review fix를 완료했다. login/reset/change는 User row lock과 실제 PostgreSQL barrier로 old credential session race를 차단하고, 일반 admin의 command/group/floor write는 transaction 내부 Site lock 재인가를 사용한다. Web은 login 평문을 React Query cache에 넣지 않으며 principal 전환·강제 revoke에서 tenant Query/Mutation cache를 제거한다. service-global operator는 `/operator/site-admins`에서 현장별 assigned admin을 create/update/reset/disable하고 network allowlist는 `/api/auth/*`, `/api/operator/*`뿐이다. 격리 실백엔드 Chromium journey는 새 PostgreSQL/Redis/mTLS Mosquitto와 test-support simulator로 설치·claim·registration·제어·통계·도면·비밀번호·viewer 권한을 검증하며 사용자 개발 DB를 읽거나 초기화하지 않는다. 이는 production Gateway/BlueZ/RF 또는 Raspberry Pi/ESP32-H2 HIL 증거가 아니다. 모바일·재설치는 범위 밖이다. controller가 수동 in-app browser QA를 시도했지만 admin-enforced browser policy가 localhost 접근 전에 차단해 미실행이며 자동 Chromium E2E와 별개다. |
@@ -62,9 +63,9 @@
 
 - 저장 구역 CRUD, ready 차단, 요청 멱등성, ACK 대상·종합 상태 검증과 개별·다중·층·구역 동기 제어는 구현됐다.
 - Gateway Config Model Subscription Add/Delete와 실제 조명 제어는 Raspberry Pi/ESP32-H2 HIL에서 검증해야 한다.
-- 스케줄과 차량 이벤트 규칙은 Web admin CRUD·활성화와 viewer read-only, Gateway 동기화·pagination/polling 복구·세션 만료까지 연결했다. 이벤트 mutation은 panel unmount와 무관하게 principal/cache side effect를 수행하며, source는 Gateway 등록과 supported·canonical ISO verified sensor capability가 확인된 Dashboard fixture로 제한한다. 수동 override 종료 시각은 client에서 과거·30일 초과를 거부하고 Site/user 전환 시 now+1h 기본값을 다시 계산한다. production API/Gateway Chromium software E2E는 Task 19에서 완료했고 실제 BlueZ/RF HIL은 남아 있다.
+- 스케줄과 차량 이벤트 규칙은 Web admin CRUD·활성화와 viewer read-only, Gateway 동기화·pagination/polling 복구·세션 만료까지 연결했다. production API/Gateway Chromium software E2E와 2026-09-04 단일 Raspberry Pi/ESP32-H2 정상 High/Low RF HIL을 통과했다. 실제 센서·converter 전기 연결, 다중 노드와 장애 주입 HIL은 남아 있다.
 - Snapshot/ACK 수렴은 MQTT retained message와 API/Gateway session 수명에서 분리했다. Empty/deleted full snapshot도 current-config 응답으로 재발행되고 config ACK는 exact API receipt 전까지 durable retry한다. RealBackendLab과 mTLS broker software 검증은 통과했지만 장기 오프라인 시간, 실제 storage power-loss와 RF 부하가 함께 있는 현장 HIL은 아직 실행하지 않았다.
-- 차량 센서 capability report/ACK, Gateway exact ACK와 ESP32-H2 GPIO/Sensor/vendor model은 소프트웨어와 target build에서 연결됐다. 실제 Raspberry Pi/BlueZ와 ESP32-H2 사이 provisioning, Sensor Get/Status, vendor packet loss·retry·ACK, reboot/reprovision 및 Health fault RF 왕복 HIL은 아직 실행하지 않았다.
+- 차량 센서 capability report/ACK, Gateway exact ACK와 ESP32-H2 GPIO/Sensor/vendor model은 software/target build에 이어 단일 노드의 boot Low, JTAG 내부 pull High, vendor event, Low hold 종료와 밝기 복귀까지 RF로 확인했다. Sensor Get/주기 Status의 장기 관측, vendor packet loss·retry exhaustion, reprovision 및 Health fault 왕복은 아직 실행하지 않았다.
 
 ### 통계
 
@@ -79,7 +80,7 @@
 
 - Raspberry Pi 4의 제조 등록, 일회성 claim, Gateway bootstrap, 장비·MQTT 인증서 발급과 broker mTLS 접속은 실장비로 통과했다. Company ID 발급 전용 `lab-hil` Gateway gate와 ESP32-H2 fullclean target build/manifest/전용 flash gate도 자동 검증했다.
 - Raspberry Pi와 ESP32-H2 사이 단일 노드 검색·provisioning·등록, Gateway 컨테이너 재시작 뒤 Mesh/AppKey 복원, 상태 resync와 개별 밝기 제어 RF HIL을 통과했다. 90%·20%·60%는 API terminal/DB/ESP Status까지 성공했고, 40%는 ESP 적용 후 Status 유실로 `STATUS_TIMEOUT`이 발생해 명령 확인 재시도가 남았다.
-- 다중 노드·Mesh Group, 센서 High/Low/5초 hold/retrigger, cloud 단절, Gateway/ESP 동시 전원 차단과 telemetry replay HIL은 아직 실행하지 않았다. `apps/gateway/README.md`의 HIL 수동 절차가 재현 가능한 실행 기준이며, 실행 로그와 전기 실측 기록이 없으면 완료로 바꾸지 않는다.
+- 단일 노드 schedule 시작/종료와 센서 High/Low, 5초·6초 hold 및 수정 규칙 재실행은 통과했다. 다중 노드·Mesh Group, 실제 마이크로웨이브 센서/LED converter 전기 연결, packet loss, cloud 단절, Gateway/ESP 동시 전원 차단과 telemetry replay HIL은 아직 실행하지 않았다.
 
 ## 기록 원칙
 
