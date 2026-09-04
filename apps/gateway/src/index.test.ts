@@ -34,6 +34,7 @@ import {
   handleProvisionDeviceCommand,
   recordAndHandoffAutomationTelemetryGap,
   startGatewayRuntime,
+  subscribeGatewayAcknowledgements,
   subscribeGatewayCommands
 } from "./index";
 import { StateEventOutboxError } from "./state/state-event-outbox";
@@ -143,6 +144,36 @@ it("quiesces process MQTT intake before blocking worker drains and stops the cli
   expect(runtime.stop).not.toHaveBeenCalled();
   releaseDrain();
   await shutdown;
+  expect(calls).toEqual(["quiesce", "drain", "stop"]);
+});
+
+it("runs every shutdown stage and aggregates failures after command quiesce rejects", async () => {
+  const calls: string[] = [];
+  const quiesceError = new Error("UNSUBACK failed");
+  const drainError = new Error("replay drain failed");
+  const stopError = new Error("MQTT stop failed");
+  const runtime = {
+    quiesceCommandIntake: vi.fn(async () => {
+      calls.push("quiesce");
+      throw quiesceError;
+    }),
+    stop: vi.fn(async () => {
+      calls.push("stop");
+      throw stopError;
+    })
+  };
+
+  const shutdown = drainGatewayProcessShutdown({
+    runtime,
+    drainBeforeMqttStop: async () => {
+      calls.push("drain");
+      throw drainError;
+    }
+  });
+
+  await expect(shutdown).rejects.toMatchObject({
+    errors: [quiesceError, drainError, stopError]
+  });
   expect(calls).toEqual(["quiesce", "drain", "stop"]);
 });
 
@@ -948,6 +979,27 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
         "sites/site-27/gateways/gateway-27/commands/automation/config-sync",
         "sites/site-27/gateways/gateway-27/commands/mesh-group/subscription-sync",
+        "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
+        "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
+        "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",
+        "sites/site-27/gateways/gateway-27/acks/state-ingested",
+        "sites/site-27/gateways/gateway-27/acks/automation/config-applied-ingested",
+        "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested",
+        "sites/site-27/gateways/gateway-27/acks/automation/vehicle-sensor-capability-ingested"
+      ],
+      { qos: 1 },
+      expect.any(Function)
+    );
+  });
+
+  it("subscribes only acknowledgement topics while command intake is quiesced", async () => {
+    const subscribe = vi.fn((_topics, _options, callback?: (error?: Error) => void) => callback?.());
+    const client = { subscribe };
+
+    await subscribeGatewayAcknowledgements(client as never, assignment, false);
+
+    expect(subscribe).toHaveBeenCalledWith(
+      [
         "sites/site-27/gateways/gateway-27/commands/mesh-group/resync-ack",
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",

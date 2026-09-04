@@ -859,6 +859,8 @@ async function main() {
     client: runtime.client,
     heartbeatMs,
     subscribe: (client, sessionPresent, force) => subscribeGatewayCommands(client, assignment, sessionPresent, force),
+    subscribeAcknowledgements: (client, sessionPresent, force) =>
+      subscribeGatewayAcknowledgements(client, assignment, sessionPresent, force),
     publishHeartbeat,
     commandTopics: gatewayCommandTopics(siteId, gatewayId),
     topicHandlers: {
@@ -1309,23 +1311,29 @@ export function subscribeGatewayCommands(
   sessionPresent: boolean,
   force = false
 ) {
-  if (sessionPresent && !force) return Promise.resolve();
-  return new Promise<void>((resolve, reject) => {
-    client.subscribe(
-      [
-        ...gatewayCommandTopics(assignment.siteId, assignment.gatewayId),
-        mqttTopicsV2.meshGroupResyncAck(assignment.siteId, assignment.gatewayId),
-        mqttTopicsV2.provisioningScanTerminalIngestedAck(assignment.siteId, assignment.gatewayId),
-        mqttTopicsV2.provisioningDeviceTerminalIngestedAck(assignment.siteId, assignment.gatewayId),
-        mqttTopicsV2.stateIngestedAck(assignment.siteId, assignment.gatewayId),
-        mqttTopics.automationConfigAppliedReceipt(assignment.siteId, assignment.gatewayId),
-        mqttTopics.automationExecutionIngested(assignment.siteId, assignment.gatewayId),
-        mqttTopics.vehicleSensorCapabilityIngested(assignment.siteId, assignment.gatewayId)
-      ],
-      { qos: 1 },
-      (error) => (error ? reject(error) : resolve())
-    );
-  });
+  return subscribeGatewayTopics(
+    client,
+    [
+      ...gatewayCommandTopics(assignment.siteId, assignment.gatewayId),
+      ...gatewayAcknowledgementTopics(assignment.siteId, assignment.gatewayId)
+    ],
+    sessionPresent,
+    force
+  );
+}
+
+export function subscribeGatewayAcknowledgements(
+  client: Pick<MqttClient, "subscribe">,
+  assignment: Pick<GatewayAssignment, "siteId" | "gatewayId">,
+  sessionPresent: boolean,
+  force = false
+) {
+  return subscribeGatewayTopics(
+    client,
+    gatewayAcknowledgementTopics(assignment.siteId, assignment.gatewayId),
+    sessionPresent,
+    force
+  );
 }
 
 export function gatewayCommandTopics(siteId: string, gatewayId: string) {
@@ -1337,6 +1345,30 @@ export function gatewayCommandTopics(siteId: string, gatewayId: string) {
     mqttTopics.automationConfig(siteId, gatewayId),
     mqttTopics.meshGroupSubscriptionSync(siteId, gatewayId)
   ];
+}
+
+function gatewayAcknowledgementTopics(siteId: string, gatewayId: string) {
+  return [
+    mqttTopicsV2.meshGroupResyncAck(siteId, gatewayId),
+    mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId),
+    mqttTopicsV2.provisioningDeviceTerminalIngestedAck(siteId, gatewayId),
+    mqttTopicsV2.stateIngestedAck(siteId, gatewayId),
+    mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId),
+    mqttTopics.automationExecutionIngested(siteId, gatewayId),
+    mqttTopics.vehicleSensorCapabilityIngested(siteId, gatewayId)
+  ];
+}
+
+function subscribeGatewayTopics(
+  client: Pick<MqttClient, "subscribe">,
+  topics: string[],
+  sessionPresent: boolean,
+  force: boolean
+) {
+  if (sessionPresent && !force) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    client.subscribe(topics, { qos: 1 }, (error) => (error ? reject(error) : resolve()));
+  });
 }
 
 export async function handleProvisioningDevicePayloadForCurrentScope<T>(input: {
@@ -1355,9 +1387,22 @@ export async function drainGatewayProcessShutdown(input: {
   runtime: Pick<GatewayMqttRuntime, "quiesceCommandIntake" | "stop">;
   drainBeforeMqttStop: () => Promise<void>;
 }) {
-  await input.runtime.quiesceCommandIntake();
-  await input.drainBeforeMqttStop();
-  await input.runtime.stop();
+  const errors: unknown[] = [];
+  // Shutdown stages are independent cleanup boundaries. A failed unsubscribe must
+  // not skip worker/replay drain or the final MQTT client close.
+  for (const operation of [
+    () => input.runtime.quiesceCommandIntake(),
+    input.drainBeforeMqttStop,
+    () => input.runtime.stop()
+  ]) {
+    try {
+      await operation();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 1) throw new AggregateError(errors, "Gateway process shutdown failed");
+  if (errors.length === 1) throw errors[0];
 }
 
 export function createGatewayShutdownHandler(

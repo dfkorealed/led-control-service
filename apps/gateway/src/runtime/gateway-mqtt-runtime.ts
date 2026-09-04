@@ -25,8 +25,10 @@ export interface GatewayMqttRuntimeOptions {
   client: GatewayMqttClient;
   heartbeatMs: number;
   candidateReadyTimeoutMs?: number;
+  commandIntakeQuiesceTimeoutMs?: number;
   subscriptionRetryBaseMs?: number;
   subscribe: (client: GatewayMqttClient, sessionPresent: boolean, force: boolean) => unknown;
+  subscribeAcknowledgements?: (client: GatewayMqttClient, sessionPresent: boolean, force: boolean) => unknown;
   publishHeartbeat: () => unknown;
   topicHandlers: Record<string, TopicHandler>;
   commandTopics?: readonly string[];
@@ -48,6 +50,7 @@ interface CandidateAttempt {
 }
 
 const DEFAULT_CANDIDATE_READY_TIMEOUT_MS = 10_000;
+const DEFAULT_COMMAND_INTAKE_QUIESCE_TIMEOUT_MS = 5_000;
 
 export class GatewayMqttRuntime {
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -64,20 +67,26 @@ export class GatewayMqttRuntime {
   }>();
   private readonly originalHandleMessage = new Map<GatewayMqttClient, GatewayMqttClient["handleMessage"]>();
   private readonly deferredHandlers = new WeakMap<object, Promise<void>>();
+  private readonly blockedCommandPubacks = new WeakSet<object>();
   private readonly deferredPubackTopics: ReadonlySet<string>;
   private readonly commandTopics: ReadonlySet<string>;
   private readonly candidateReadyTimeoutMs: number;
+  private readonly commandIntakeQuiesceTimeoutMs: number;
   private connectionEpoch = 0;
   private subscriptionRetryTimer: ReturnType<typeof setTimeout> | undefined;
   private subscriptionRetryAttempt = 0;
   private readonly subscriptionRetryBaseMs: number;
   private subscriptionsReady = false;
   private commandIntakeQuiesced = false;
+  private commandIntakeClosed = false;
   private commandIntakeQuiescing: Promise<void> | undefined;
 
   constructor(private readonly options: GatewayMqttRuntimeOptions) {
     this.currentClient = options.client;
     this.candidateReadyTimeoutMs = boundedCandidateReadyTimeout(options.candidateReadyTimeoutMs ?? DEFAULT_CANDIDATE_READY_TIMEOUT_MS);
+    this.commandIntakeQuiesceTimeoutMs = boundedCommandIntakeQuiesceTimeout(
+      options.commandIntakeQuiesceTimeoutMs ?? DEFAULT_COMMAND_INTAKE_QUIESCE_TIMEOUT_MS
+    );
     this.subscriptionRetryBaseMs = boundedSubscriptionRetry(options.subscriptionRetryBaseMs ?? 1_000);
     this.deferredPubackTopics = new Set(options.deferredPubackTopics ?? []);
     this.commandTopics = new Set(options.commandTopics ?? []);
@@ -92,6 +101,7 @@ export class GatewayMqttRuntime {
     this.started = true;
     this.stopping = false;
     this.commandIntakeQuiesced = false;
+    this.commandIntakeClosed = false;
     this.commandIntakeQuiescing = undefined;
     this.addClientListeners(this.currentClient);
     if (this.currentClient.connected && this.connectionEpoch === 0) {
@@ -136,8 +146,13 @@ export class GatewayMqttRuntime {
   }
 
   quiesceCommandIntake() {
-    if (this.commandIntakeQuiesced) return Promise.resolve();
     if (this.commandIntakeQuiescing) return this.commandIntakeQuiescing;
+    if (this.commandIntakeQuiesced) return Promise.resolve();
+    // Switch reconnect policy before waiting for UNSUBACK. A command already in
+    // flight still follows the normal durable handler instead of being locally dropped.
+    this.commandIntakeQuiesced = true;
+    this.clearSubscriptionRetry();
+    this.connectionEpoch += 1;
     const client = this.currentClient;
     const topics = [...this.commandTopics];
     const quiescing = topics.length === 0
@@ -145,9 +160,16 @@ export class GatewayMqttRuntime {
       : new Promise<void>((resolve, reject) => {
         client.unsubscribe(topics, (error) => (error ? reject(error) : resolve()));
       });
-    this.commandIntakeQuiescing = quiescing.then(() => {
+    this.commandIntakeQuiescing = withTimeout(
+      quiescing,
+      this.commandIntakeQuiesceTimeoutMs,
+      `MQTT command intake unsubscribe timed out after ${this.commandIntakeQuiesceTimeoutMs}ms`
+    ).then(() => {
       if (client !== this.currentClient) throw new Error("MQTT client changed while command intake was quiescing");
-      this.commandIntakeQuiesced = true;
+    }).finally(() => {
+      // Once unsubscribe has a terminal result, no later command may enter RF.
+      // QoS1 packets are left unacknowledged so the broker redelivers on restart.
+      this.commandIntakeClosed = true;
     });
     return this.commandIntakeQuiescing;
   }
@@ -223,7 +245,10 @@ export class GatewayMqttRuntime {
   private subscribeActiveConnection(client: GatewayMqttClient, epoch: number, sessionPresent: boolean) {
     let subscription: unknown;
     try {
-      subscription = this.options.subscribe(client, sessionPresent, sessionPresent);
+      const subscribe = this.commandIntakeQuiesced
+        ? this.options.subscribeAcknowledgements
+        : this.options.subscribe;
+      subscription = subscribe?.(client, sessionPresent, sessionPresent);
     } catch (error) {
       this.report(this.options.onRuntimeError, error, "subscribe");
       this.scheduleSubscriptionRetry(client, epoch, sessionPresent);
@@ -285,7 +310,10 @@ export class GatewayMqttRuntime {
   }
 
   private handleMessage(client: GatewayMqttClient, topic: string, payload: Buffer, packet?: IPublishPacket) {
-    if (this.commandIntakeQuiesced && this.commandTopics.has(topic)) return;
+    if (this.commandIntakeClosed && this.commandTopics.has(topic)) {
+      if (packet?.qos === 1) this.blockedCommandPubacks.add(packet);
+      return;
+    }
     if (packet?.qos === 1 && this.deferredPubackTopics.has(topic)) {
       let acknowledgeDurable!: () => void;
       let retryDelivery!: (error: Error) => void;
@@ -335,7 +363,10 @@ export class GatewayMqttRuntime {
       if (subscriptionStarted) return;
       connected = true;
       subscriptionStarted = true;
-      void Promise.resolve(this.options.subscribe(client, packet.sessionPresent, true)).then(
+      const subscribe = this.commandIntakeQuiesced
+        ? this.options.subscribeAcknowledgements
+        : this.options.subscribe;
+      void Promise.resolve(subscribe?.(client, packet.sessionPresent, true)).then(
         () => finish(),
         (error) => finish(error instanceof Error ? error : new Error(String(error)))
       );
@@ -487,10 +518,15 @@ export class GatewayMqttRuntime {
   }
 
   private installDeferredPubackBoundary(client: GatewayMqttClient) {
-    if (this.originalHandleMessage.has(client) || this.deferredPubackTopics.size === 0) return;
+    if (this.originalHandleMessage.has(client) ||
+      (this.deferredPubackTopics.size === 0 && this.commandTopics.size === 0)) return;
     const original = client.handleMessage;
     this.originalHandleMessage.set(client, original);
     client.handleMessage = (packet, callback) => {
+      if (this.blockedCommandPubacks.has(packet)) {
+        callback(new Error("MQTT command intake is closed"));
+        return;
+      }
       const deferred = this.deferredHandlers.get(packet);
       if (!deferred) {
         original.call(client, packet, callback);
@@ -539,6 +575,13 @@ function boundedCandidateReadyTimeout(value: number) {
   return value;
 }
 
+function boundedCommandIntakeQuiesceTimeout(value: number) {
+  if (!Number.isInteger(value) || value < 1 || value > 60_000) {
+    throw new Error("invalid MQTT command intake quiesce timeout");
+  }
+  return value;
+}
+
 function boundedSubscriptionRetry(value: number) {
   if (!Number.isInteger(value) || value < 10 || value > 30_000) throw new Error("invalid MQTT subscription retry interval");
   return value;
@@ -546,4 +589,20 @@ function boundedSubscriptionRetry(value: number) {
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return value !== null && (typeof value === "object" || typeof value === "function") && "then" in value;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    void promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }

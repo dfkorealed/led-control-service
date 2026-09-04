@@ -395,9 +395,17 @@ describe("GatewayMqttRuntime", () => {
     expect(client.end).toHaveBeenCalledTimes(1);
   });
 
-  it("quiesces command intake without closing the client needed by process drains", async () => {
+  it("keeps ACK intake and the durable PUBACK boundary for a command raced with quiesce", async () => {
     const client = new FakeMqttClient();
-    const handler = vi.fn();
+    let finishUnsubscribe!: () => void;
+    client.unsubscribe.mockImplementation((_topics, callback) => {
+      finishUnsubscribe = () => callback?.();
+    });
+    let acknowledgeDurable!: () => void;
+    const handler = vi.fn((_payload, _source, _packet, control) => {
+      acknowledgeDurable = control.acknowledgeDurable;
+      return new Promise<void>(() => undefined);
+    });
     const acknowledgement = vi.fn();
     const commandTopic = "commands/provisioning/provision-device";
     const runtime = new GatewayMqttRuntime({
@@ -407,19 +415,223 @@ describe("GatewayMqttRuntime", () => {
       publishHeartbeat: vi.fn(),
       topicHandlers: { [commandTopic]: handler, "acks/provisioning/device-terminal-ingested": acknowledgement },
       commandTopics: [commandTopic],
+      deferredPubackTopics: [commandTopic],
       onMessageError: vi.fn()
     });
     runtime.start();
 
-    await runtime.quiesceCommandIntake();
-    client.emit("message", commandTopic, Buffer.from("{}"));
+    const quiescing = runtime.quiesceCommandIntake();
+    const packet = { qos: 1 } as never;
+    const puback = vi.fn();
+    client.emit("message", commandTopic, Buffer.from("{}"), packet);
+    client.handleMessage(packet, puback);
     client.emit("message", "acks/provisioning/device-terminal-ingested", Buffer.from("{}"));
 
-    expect(handler).not.toHaveBeenCalled();
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(puback).not.toHaveBeenCalled();
     expect(acknowledgement).toHaveBeenCalledTimes(1);
     expect(client.unsubscribe).toHaveBeenCalledWith([commandTopic], expect.any(Function));
     expect(client.end).not.toHaveBeenCalled();
+    acknowledgeDurable();
+    await vi.waitFor(() => expect(puback).toHaveBeenCalledTimes(1));
+    finishUnsubscribe();
+    await quiescing;
     await runtime.stop();
+  });
+
+  it("fails closed after unsubscribe rejection while keeping ACK intake and replay publishing alive", async () => {
+    const client = new FakeMqttClient();
+    const commandTopic = "commands/provisioning/provision-device";
+    const acknowledgementTopic = "acks/provisioning/device-terminal-ingested";
+    const handler = vi.fn();
+    const acknowledgement = vi.fn();
+    const replayPublished = vi.fn();
+    let releaseDrain!: () => void;
+    const drain = new Promise<void>((resolve) => { releaseDrain = resolve; });
+    const onBeforeStop = vi.fn(() => drain);
+    client.unsubscribe.mockImplementation((_topics, callback) => callback?.(new Error("UNSUBACK failed")));
+    client.publish.mockImplementation((_topic, _payload, _options, callback) => {
+      replayPublished();
+      callback?.();
+    });
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      subscribeAcknowledgements: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: { [commandTopic]: handler, [acknowledgementTopic]: acknowledgement },
+      commandTopics: [commandTopic],
+      deferredPubackTopics: [commandTopic],
+      onMessageError: vi.fn(),
+      onBeforeStop
+    });
+    runtime.start();
+
+    const stopping = runtime.stop();
+    void stopping.catch(() => undefined);
+    await vi.waitFor(() => expect(onBeforeStop).toHaveBeenCalledTimes(1));
+    const packet = { qos: 1 } as never;
+    const puback = vi.fn();
+    const packetHandled = vi.fn((error?: Error) => {
+      if (!error) puback();
+    });
+    client.emit("message", commandTopic, Buffer.from("{}"), packet);
+    client.handleMessage(packet, packetHandled);
+    client.emit("message", acknowledgementTopic, Buffer.from("{}"));
+    client.publish("events/provisioning/device-terminal", "{}", { qos: 1 }, vi.fn());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(puback).not.toHaveBeenCalled();
+    expect(packetHandled).toHaveBeenCalledWith(expect.any(Error));
+    expect(acknowledgement).toHaveBeenCalledTimes(1);
+    expect(replayPublished).toHaveBeenCalledTimes(1);
+    expect(client.end).not.toHaveBeenCalled();
+
+    releaseDrain();
+    await expect(stopping).rejects.toThrow("UNSUBACK failed");
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed after unsubscribe timeout while onBeforeStop is still blocked", async () => {
+    vi.useFakeTimers();
+    const client = new FakeMqttClient();
+    const commandTopic = "commands/provisioning/provision-device";
+    const handler = vi.fn();
+    let releaseDrain!: () => void;
+    const drain = new Promise<void>((resolve) => { releaseDrain = resolve; });
+    const onBeforeStop = vi.fn(() => drain);
+    client.unsubscribe.mockImplementation(() => undefined as never);
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      commandIntakeQuiesceTimeoutMs: 100,
+      subscribe: vi.fn(),
+      subscribeAcknowledgements: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers: { [commandTopic]: handler },
+      commandTopics: [commandTopic],
+      deferredPubackTopics: [commandTopic],
+      onMessageError: vi.fn(),
+      onBeforeStop
+    });
+    runtime.start();
+
+    const stopping = runtime.stop();
+    void stopping.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(onBeforeStop).toHaveBeenCalledTimes(1);
+    const packet = { qos: 1 } as never;
+    const puback = vi.fn();
+    const packetHandled = vi.fn((error?: Error) => {
+      if (!error) puback();
+    });
+    client.emit("message", commandTopic, Buffer.from("{}"), packet);
+    client.handleMessage(packet, packetHandled);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(puback).not.toHaveBeenCalled();
+    expect(packetHandled).toHaveBeenCalledWith(expect.any(Error));
+    expect(client.end).not.toHaveBeenCalled();
+
+    releaseDrain();
+    await expect(stopping).rejects.toThrow("MQTT command intake unsubscribe timed out after 100ms");
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores only acknowledgement subscriptions after a post-quiesce session loss", async () => {
+    const client = new FakeMqttClient();
+    const subscribe = vi.fn();
+    const subscribeAcknowledgements = vi.fn();
+    const commandTopic = "commands/provisioning/provision-device";
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe,
+      subscribeAcknowledgements,
+      publishHeartbeat: vi.fn(),
+      topicHandlers: { [commandTopic]: vi.fn() },
+      commandTopics: [commandTopic],
+      onMessageError: vi.fn()
+    });
+    runtime.start();
+    client.emit("connect", { sessionPresent: false });
+    await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
+
+    await runtime.quiesceCommandIntake();
+    client.emit("close");
+    client.emit("connect", { sessionPresent: false });
+
+    await vi.waitFor(() => expect(subscribeAcknowledgements).toHaveBeenCalledTimes(1));
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(subscribeAcknowledgements).toHaveBeenCalledWith(client, false, false);
+    await runtime.stop();
+  });
+
+  it("bounds an unresponsive unsubscribe and still drains before ending the client", async () => {
+    vi.useFakeTimers();
+    const client = new FakeMqttClient();
+    const order: string[] = [];
+    client.unsubscribe.mockImplementation(() => undefined as never);
+    client.end.mockImplementation((_force, callback) => {
+      order.push("end");
+      callback?.();
+    });
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      commandIntakeQuiesceTimeoutMs: 100,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers,
+      commandTopics: ["commands/provisioning/provision-device"],
+      onMessageError: vi.fn(),
+      onBeforeStop: async () => { order.push("drain"); }
+    });
+    runtime.start();
+
+    const stopping = runtime.stop().then(
+      () => ({ kind: "resolved" as const }),
+      (error: unknown) => ({ kind: "rejected" as const, error })
+    );
+    const outcome = Promise.race([
+      stopping,
+      new Promise<{ kind: "blocked" }>((resolve) => setTimeout(() => resolve({ kind: "blocked" }), 101))
+    ]);
+    await vi.advanceTimersByTimeAsync(101);
+
+    await expect(outcome).resolves.toMatchObject({
+      kind: "rejected",
+      error: new Error("MQTT command intake unsubscribe timed out after 100ms")
+    });
+    expect(order).toEqual(["drain", "end"]);
+  });
+
+  it("drains and ends the client after unsubscribe rejection before reporting the error", async () => {
+    const client = new FakeMqttClient();
+    const order: string[] = [];
+    client.unsubscribe.mockImplementation((_topics, callback) => callback?.(new Error("UNSUBACK failed")));
+    client.end.mockImplementation((_force, callback) => {
+      order.push("end");
+      callback?.();
+    });
+    const runtime = new GatewayMqttRuntime({
+      client: client as never,
+      heartbeatMs: 1_000,
+      subscribe: vi.fn(),
+      publishHeartbeat: vi.fn(),
+      topicHandlers,
+      commandTopics: ["commands/provisioning/provision-device"],
+      onMessageError: vi.fn(),
+      onBeforeStop: async () => { order.push("drain"); }
+    });
+    runtime.start();
+
+    await expect(runtime.stop()).rejects.toThrow("UNSUBACK failed");
+    expect(order).toEqual(["drain", "end"]);
   });
 
   it("reports an MQTT client shutdown failure to its caller", async () => {

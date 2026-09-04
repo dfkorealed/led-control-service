@@ -182,12 +182,10 @@ describe("ProvisioningDeviceJournal", () => {
       publish: legacyDirectPublish
     };
     const handling = handleDurableProvisioningDevice(legacyInput);
-    const outcome = await Promise.race([
-      handling.then(() => "handled"),
-      new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 50))
-    ]);
-
-    expect(outcome).toBe("handled");
+    // The journal performs real fsync operations, so wall-clock races become
+    // flaky under the full parallel suite. Awaiting here still proves that the
+    // unresolved publish promise is not part of the command handler boundary.
+    await expect(handling).resolves.toBeUndefined();
     expect(legacyDirectPublish).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
     expect(publish).toHaveBeenCalledWith(completedTerminal().topic, expect.objectContaining({
