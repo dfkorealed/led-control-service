@@ -22,6 +22,7 @@ import { ProvisioningScanJournal, type ProvisioningScanTerminalEvent } from "./s
 import { AutomationRuntimeError, type AutomationRuntime } from "./automation/automation-runtime";
 
 export interface BleMeshAdapter {
+  setAttention?(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal): Promise<number>;
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
   applyUnicast?(fixtureId: string, brightness: number, signal?: AbortSignal, deadlineAt?: number): Promise<BleMeshCommandReport>;
   applyParallelUnicast?(

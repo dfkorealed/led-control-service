@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { FixtureIdentifyModule } from "./fixture-identify/fixture-identify.module";
 import { AccessModule } from "./access/access.module";
 import { AuditModule } from "./audit/audit.module";
 import { AutomationModule } from "./automation/automation.module";
@@ -20,6 +21,7 @@ import { SitesModule } from "./sites/sites.module";
 
 @Module({
   imports: [
+    FixtureIdentifyModule,
     PrismaModule,
     AuthModule,
     AccessModule,

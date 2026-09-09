@@ -14,6 +14,14 @@
 
 Gateway의 unit/mock test는 journal·outbox·MQTT 재연결·BlueZ adapter의 메시지 변환처럼 소프트웨어 계약을 검증한다. 이 결과는 실제 무선 송수신이나 전원 복구를 보장하지 않는다. Raspberry Pi, BlueZ D-Bus, ESP32-H2와 RF 환경을 함께 쓰는 HIL은 아래 절차로 별도 실행·판정하며, 현재 문서에 명시된 HIL 상태를 자동 테스트 성공으로 바꾸지 않는다.
 
+## Registered Fixture Identification (2026-09-09)
+
+- `commands/identify` and `events/identify-result` use the dedicated strict version-1 shared contract in the assigned `sites/{siteId}/gateways/{gatewayId}` namespace. Existing production/lab static ACL and dev ACL generator authorize these channels through gateway-CN-scoped command-read/event-write rules; API also validates topic, payload, active claim and MQTT certificate ledger.
+- API start requires the floor's assigned admin, matching DB lease token/fence, at least ten seconds of lease lifetime, a registered fixture and fresh gateway/fixture state. Redis coordinates one active session per gateway; a matching confirmed stop permits the next start. Busy, stale stop, unknown device, expired command, unsupported adapter, timeout and broker uncertainty are distinct outcomes. No schema, brightness, placement or statistics state is changed.
+- Start has a fixed `requestedAt + 10s` expiry; delayed delivery reduces the whole-second Attention duration instead of extending expiry. Health Attention Set `0x8005` and Status `0x8007` are verified against ESP-IDF's `esp_ble_mesh_defs.h` and `core/foundation.h`. Existing Health Server `0x0002` / Client `0x0003` AppKey binding is reused. Send/PUBACK alone never confirms Attention.
+- Gateway remembers bounded command/session receipts, including stop-before-start tombstones, and retains uncertain starts until TTL. Restart rejects pre-start requests and imposes a ten-second cooldown so prior on-node Attention can expire without replay. Shutdown aborts pending waits and attempts a bounded stop; on-node TTL remains the fallback. Legacy identify no longer sets brightness to 100 percent.
+- `attention_confirmed` means a matching source and Attention Status, not visual or map-position verification. SIG Health has no application session/TID in its Status, so source/value correlation cannot prove a physical-location match. RF delay, packet loss, daemon restart and actual LED restoration to the latest normal target require Raspberry Pi/ESP32-H2 HIL; none was performed for this software change.
+
 ## BlueZ Phase 0 타당성 검사
 
 양산형 실제 장비 경로는 Raspberry Pi의 `bluetooth-meshd`와 BlueZ Mesh D-Bus를 사용한다. 개발 PC의 stub 성공을 실제 BLE Mesh 성공으로 간주하지 않으며, 아래 여섯 항목이 Raspberry Pi 1대와 ESP32-H2 1~2대에서 모두 확인되어야 실제 BlueZ adapter 구현을 운영 경로로 선택한다.

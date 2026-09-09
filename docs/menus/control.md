@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 에디터의 식별 명령은 일반 밝기 제어와 별도 Health Attention 경로로 처리한다. 10초 식별 중에도 일반 수동·스케줄·이벤트 목표는 유지하고 종료 시 최신 목표로 복귀하도록 펌웨어를 보강했다. 실제 LED 복귀 검증은 후속이며 기존 제어 명령 성공/실패나 전력 상태를 식별 응답으로 덮어쓰지 않는다.
+
 - 2026-09-09 에디터의 배치 상태와 제어 대상을 분리했다. 조명을 미배치로 바꿔도 Fixture/Mesh ID, 그룹 멤버와 스케줄·이벤트 대상은 유지한다. 배치 해제는 실제 소등/장비 삭제 명령을 보내지 않는다. 격리 DB 회귀로 관계 보존을 확인했으며 변경된 웹을 거치는 통합 검증은 진행 중이다.
 
 - 실장비 provisioning 직후 Gateway가 발행하는 차량 센서 capability의 `meshNodeId`는 Gateway가 알고 있는 등록 후보/Fixture 식별자일 수 있다. API는 claimed Site/Gateway 범위 안에서 실제 `MeshNode.id` 또는 연결된 `Fixture.id`를 정확히 한 건으로 해석하고, 처리 원장과 capability metadata에는 canonical `MeshNode.id`를 저장한다. 0건 또는 중복 매핑은 fail-closed하며 ACK에는 Gateway가 보낸 식별자를 그대로 반환해 durable journal correlation을 유지한다. 2026-09-03 Raspberry Pi/ESP32-H2 HIL에서 capability revision 1, Sensor Server/vendor model binding, ACK outbox 발행을 확인했다.

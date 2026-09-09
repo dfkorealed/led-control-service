@@ -973,6 +973,7 @@ describe("startGatewayRuntime", () => {
     expect(subscribe).toHaveBeenCalledTimes(1);
     expect(subscribe).toHaveBeenCalledWith(
       [
+        "sites/site-27/gateways/gateway-27/commands/identify",
         "sites/site-27/gateways/gateway-27/commands/dimming",
         "sites/site-27/gateways/gateway-27/commands/provisioning/scan-start",
         "sites/site-27/gateways/gateway-27/commands/provisioning/identify-device",

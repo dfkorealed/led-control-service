@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { config } from "dotenv";
+import { FixtureIdentifyRuntime } from "./runtime/fixture-identify-runtime";
+import { publishFixtureIdentifyResult } from "./runtime/fixture-identify-publisher";
 import {
   GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   type AcceptanceAckV2,
@@ -20,6 +22,7 @@ import {
   automationExecutionIngestedAckV1Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
   identifyDeviceSchema,
+  fixtureIdentifyTopics,
   isGatewayCommandExpired,
   mqttTopicsV2,
   mqttTopics,
@@ -331,6 +334,9 @@ async function main() {
   const vehicleSensorVendorModel = createVehicleSensorVendorModel(bluetoothCompanyId);
   await health.meshReady();
   const adapter = adapters.dimming;
+  const fixtureIdentify = new FixtureIdentifyRuntime({ siteId, gatewayId,
+    setAttention: adapter.setAttention?.bind(adapter) });
+  const identifyResultAbort = new AbortController();
   const scannerAdapter = adapters.scanner;
   const provisioningAdapter = adapters.provisioning;
   const provisioningQueue = new SerialTaskQueue();
@@ -864,6 +870,10 @@ async function main() {
     publishHeartbeat,
     commandTopics: gatewayCommandTopics(siteId, gatewayId),
     topicHandlers: {
+      [fixtureIdentifyTopics.command(siteId, gatewayId)]: async (payload, source) => {
+        const result = await fixtureIdentify.handle(JSON.parse(payload.toString()));
+        await publishFixtureIdentifyResult(source, result, identifyResultAbort.signal);
+      },
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")]: handleDimmingPayloadV2,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start")]: handleProvisioningScanPayload,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device")]: handleIdentifyPayload,
@@ -951,6 +961,8 @@ async function main() {
       return health.unhealthy("mqtt_disconnected");
     },
     onBeforeStop: async () => {
+      identifyResultAbort.abort();
+      await fixtureIdentify.stop();
       await Promise.all([...activeProvisioningHandlers].map((handling) => handling.catch(() => undefined)));
       await provisioningQueue.drain();
       await Promise.all([
@@ -1338,6 +1350,7 @@ export function subscribeGatewayAcknowledgements(
 
 export function gatewayCommandTopics(siteId: string, gatewayId: string) {
   return [
+    fixtureIdentifyTopics.command(siteId, gatewayId),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device"),

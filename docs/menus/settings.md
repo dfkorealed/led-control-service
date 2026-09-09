@@ -71,6 +71,8 @@
 
 ## 구현 완료
 
+- 등록 조명 위치 확인용 `POST /floors/:floorId/fixtures/:fixtureId/identify`와 전용 MQTT command/result를 구현했다. 현장 admin·현재 편집 lease·등록/연결 상태를 확인하고 10초 절대 만료와 게이트웨이별 단일 대상을 강제한다. 시작 시 lease 잔여가 10초 미만이면 갱신이 필요하다. 실제 Health Attention Status만 장비 응답으로 인정하며 PUBACK·응답 누락은 성공으로 표시하지 않는다. 정확한 session 중지, 오래된 중지/시작·중복·재시작 직후 명령 차단과 제한 시간/종료 정리를 포함한다. API/실DB·Redis 17개와 Gateway 관련 12개를 독립 재실행했다. 웹 연동은 진행 중이며 실제 broker/RF/LED 검증은 후속이다.
+
 - 층별 배치 상태를 `Fixture.placementStatus`와 `positionVerifiedAt`으로 분리했다. 신규 등록은 미배치, 기존 조명은 좌표를 보존한 배치/위치 미확인 상태다. 에디터는 미배치를 포함한 전체 조명과 검색용 시리얼/Mesh 주소를 반환한다. 배치 해제와 좌표 변경은 위치 확인만 무효화하며 장비·그룹·자동화·통계 정보는 유지한다. 새 snapshot V2와 기존 V1 복구를 함께 지원한다.
 - 에디터 저장/복구를 묶음 SQL로 처리하고 JSON 요청 한도를 에디터 PUT에만 1 MiB로 확장했다. 초과는 413, 충돌은 409, transaction 만료는 503으로 구분한다. 실제 정격 W 변경에만 에너지 checkpoint를 생성한다. 격리 DB/HTTP 18개 회귀와 조명 1,000개·도형 2,000개 100회 저장을 통과했으며 사용자 DB에는 아직 migration을 적용하지 않았다.
 

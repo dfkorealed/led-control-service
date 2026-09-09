@@ -7,3 +7,4 @@ export * from "./mqtt";
 export * from "./product-identity";
 export * from "./schemas";
 export * from "./vehicle-sensor-protocol";
+export * from "./fixture-identify-contracts";

@@ -22,6 +22,7 @@ import {
   percentToLightness
 } from "./bluez-model-codec";
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
+import { requestHealthAttention } from "./health-attention";
 const BLUEZ_SERVICE = "org.bluez.mesh";
 const NODE_INTERFACE = "org.bluez.mesh.Node1";
 const GENERIC_ONOFF_GET = Uint8Array.from([0x82, 0x01]);
@@ -200,7 +201,21 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     if (!mapping || mapping.status !== "confirmed") {
       throw new Error("UNPROVISIONED_IDENTIFY_UNAVAILABLE: standard BLE Mesh cannot blink a node before provisioning");
     }
-    await this.setBrightness([command.nodeId], 100);
+    throw new Error("REGISTERED_IDENTIFY_REQUIRES_SESSION: use the bounded fixture identify command");
+  }
+
+  async setAttention(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal) {
+    await this.start();
+    const mapping = await this.addressStore.findByFixtureId(fixtureId);
+    if (!mapping || mapping.status !== "confirmed") throw new Error("fixture_not_registered");
+    const remaining = expiresAt - this.now();
+    const seconds = action === "stop" ? 0 : Math.min(10, Math.floor(remaining / 1000));
+    if (remaining <= 0 || (action === "start" && seconds < 1) || signal?.aborted) throw new Error("command_expired");
+    return requestHealthAttention(this.application, mapping.primaryUnicast, seconds,
+      (payload) => {
+        if (signal?.aborted || this.now() >= expiresAt) throw new Error("command_expired");
+        return this.sendStatusGet(mapping.primaryUnicast, payload, signal);
+      }, Math.min(2000, remaining), signal);
   }
 
   async setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]> {

@@ -52,6 +52,33 @@ function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?:
 }
 
 describe("BluezMeshAdapter", () => {
+  it("uses the bound Health client for Attention without Lightness or statistics side effects", async () => {
+    const now = Date.now();
+    const f = fixture({ now: () => now });
+    const status = vi.fn();
+    f.adapter.onFixtureStatus(status);
+    f.transport.call.mockImplementation(async (_service, _path, _interface, _method, args) => {
+      const payload = args[4] as number[];
+      f.application.emit("messageReceived", { source: 0x0100, data: [0x80, 0x07, payload[2]] });
+    });
+    await expect(f.adapter.setAttention("fixture-1", now + 10_000, "start")).resolves.toBe(10);
+    expect(f.transport.call).toHaveBeenCalledWith("org.bluez.mesh", "/org/bluez/mesh/node1", "org.bluez.mesh.Node1", "Send",
+      [expect.any(String), 0x0100, 0, [], [0x80, 0x05, 10]]);
+    await expect(f.adapter.setAttention("fixture-1", now + 10_000, "stop")).resolves.toBe(0);
+    expect(f.transactions.next).not.toHaveBeenCalled();
+    expect(f.config.configureNode).not.toHaveBeenCalled();
+    expect(status).not.toHaveBeenCalled();
+  });
+
+  it("does not send expired Attention or fall back to legacy 100 percent brightness", async () => {
+    const now = Date.now();
+    const f = fixture({ now: () => now });
+    await expect(f.adapter.setAttention("fixture-1", now, "start")).rejects.toThrow("command_expired");
+    await expect(f.adapter.setAttention("unknown", now + 10_000, "start")).rejects.toThrow("fixture_not_registered");
+    await expect(f.adapter.identify({ nodeId: "fixture-1" } as never)).rejects.toThrow("REQUIRES_SESSION");
+    expect(f.transport.call).not.toHaveBeenCalled();
+  });
+
   it("does not acknowledge brightness until a matching Lightness Status arrives", async () => {
     const f = fixture();
     const command = f.adapter.setBrightness(["fixture-1"], 50);

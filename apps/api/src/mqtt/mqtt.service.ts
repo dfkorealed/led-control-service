@@ -6,6 +6,9 @@ import {
   deriveDeviceStatusAckStatus,
   deviceStatusAckV2Schema,
   fixtureStateV2Schema,
+  fixtureIdentifyResultSchema,
+  fixtureIdentifyTopics,
+  type FixtureIdentifyResult,
   GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   gatewayHeartbeatV2Schema,
   IdentifyDevicePayload,
@@ -79,6 +82,12 @@ class InboundQueueAbortedError extends Error {}
 
 @Injectable()
 export class MqttService implements OnModuleInit {
+  private readonly identifyListeners = new Set<(result: FixtureIdentifyResult) => Promise<void>>();
+
+  onFixtureIdentifyResult(listener: (result: FixtureIdentifyResult) => Promise<void>) {
+    this.identifyListeners.add(listener);
+    return () => { this.identifyListeners.delete(listener); };
+  }
   private readonly logger = new Logger(MqttService.name);
   private client: MqttClient | null = null;
   private closePromise: Promise<void> | null = null;
@@ -109,6 +118,7 @@ export class MqttService implements OnModuleInit {
       client.subscribe(
         [
           "sites/+/gateways/+/events/provisioning/scan-found",
+          "sites/+/gateways/+/events/identify-result",
           "sites/+/gateways/+/events/provisioning/scan-completed",
           "sites/+/gateways/+/events/provisioning/scan-failed",
           "sites/+/gateways/+/events/provisioning-completed",
@@ -213,6 +223,7 @@ export class MqttService implements OnModuleInit {
   stopInboundAndDrain() {
     if (!this.inboundStopPromise) {
       this.inboundStopped = true;
+      this.identifyListeners.clear();
       const client = this.client;
       if (client && this.connectListener) client.removeListener("connect", this.connectListener);
       if (client && this.messageListener) client.removeListener("message", this.messageListener);
@@ -574,6 +585,21 @@ export class MqttService implements OnModuleInit {
   }
 
   async handleMessage(topic: string, payload: Buffer) {
+    if (topic.endsWith("/events/identify-result")) {
+      const result = fixtureIdentifyResultSchema.parse(JSON.parse(payload.toString()));
+      if (topic !== fixtureIdentifyTopics.result(result.siteId, result.gatewayId)) throw new Error("identify_scope_mismatch");
+      const now = new Date();
+      // The broker binds certificate CN to gateway topics. Recheck the active
+      // claim/certificate ledger here because ACL site wildcards alone are insufficient.
+      const gateway = await this.prisma.gateway.findFirst({ where: { id: result.gatewayId, siteId: result.siteId,
+        claimedAt: { not: null }, inventory: { disabledAt: null, claimedAt: { not: null },
+          certificates: { some: { gatewayId: result.gatewayId, purpose: "mqtt", status: "active", revokedAt: null, notBefore: { lte: now }, notAfter: { gt: now } } }
+        }
+      }, select: { id: true } });
+      if (!gateway) throw new Error("identify_gateway_unregistered");
+      for (const listener of this.identifyListeners) await listener(result);
+      return;
+    }
     const gatewayScope = parseGatewayTopic(topic);
     if (gatewayScope && [
       "events/automation/config-applied",

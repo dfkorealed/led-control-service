@@ -2,7 +2,7 @@ import type { IConnackPacket, IPublishPacket, MqttClient } from "mqtt";
 
 export type GatewayMqttClient = Pick<
   MqttClient,
-  "connected" | "end" | "handleMessage" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe" | "unsubscribe"
+  "connected" | "end" | "handleMessage" | "on" | "reconnect" | "removeListener" | "publish" | "subscribe" | "unsubscribe" | "getLastMessageId" | "removeOutgoingMessage"
 >;
 export interface GatewayDeferredMessageControl {
   acknowledgeDurable(): void;
