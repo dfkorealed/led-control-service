@@ -1,6 +1,6 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-04
+기준일: 2026-09-09
 
 ## 현재 마일스톤
 
@@ -10,6 +10,7 @@
 
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
+| 1,000개 조명 맵 배치 개선 | 구현 중 | [기존 에디터 설계](superpowers/specs/2026-07-06-floor-editor-design.md)의 2026-09-09 범위와 [실행 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 Task 1~11을 진행한다. backend는 배치 계약/등록 분리/대량 저장, web_frontend는 층별 편집/드롭/확인 후 배치 해제/대량 편집, gateway/backend와 firmware는 등록 후 식별 명령을 담당한다. 실장비 검증은 사용자 요청으로 후속이며 이번 실행은 소프트웨어 구현과 브라우저/실DB 검증에 집중한다. 기존 파일 도면 활용은 보류하고 자산/좌표는 보존한다. |
 | 에이전트 운영 기반 Task 1 | 완료 | 운영 기준과 지속 갱신 상태판을 작성했다. |
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
@@ -46,7 +47,9 @@
 
 ## 다음 단계
 
-**다음 작업은 in-app Browser가 제공되는 세션에서 1440/1024/390/320 수동 시각 QA를 수행하는 것이다.** 자동 Chromium 검증은 완료됐지만 사람의 시각 확인으로 대체 기록하지 않는다. 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL도 별도 미실행 상태를 유지한다.
+다음 구현은 [맵 배치 개선 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 Task 1 배치 상태·snapshot 호환 계약부터 시작한다. 현재는 사용자 요청에 따른 구현 전 최종 계획 단계다.
+
+기존 Calm Operations의 1440/1024/390/320 수동 시각 QA는 후속 검증으로 유지한다. 자동 Chromium 검증을 사람의 시각 확인으로 대체 기록하지 않으며, 기능별 Raspberry Pi/BlueZ/ESP32-H2 HIL 여부는 해당 증거를 기준으로 판정한다.
 
 ## 알려진 미해결 항목
 

@@ -1,12 +1,147 @@
-# 층별 도면 에디터 Implementation Plan
+# 층별 도면 에디터 구현 계획
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 모니터링 페이지에 전체 화면 도면 에디터를 추가해 층별 도면 배경, 도형, 텍스트, LED 조명 위치와 기본 정보를 수정할 수 있게 한다.
+**목표:** 설정의 층별 에디터에서 1,000개 조명 검색·드래그 배치·확인 후 배치 해제·일괄 편집·실물 위치 확인을 제공한다. 파일 도면 활용은 보류한다.
 
-**Architecture:** 기존 읽기 전용 `FloorMap`은 유지하고, 편집 모드는 `FloorEditorView`와 Canvas 기반 `react-konva` 컴포넌트로 분리한다. DB는 `FloorPlan`을 확장하고 `FloorMapObject`를 추가해 도면 배경, 조명 좌표, 도형 객체를 분리 저장한다.
+**구조:** 기존 Konva 에디터와 atomic save/lease/revision을 확장하고 배치 상태를 장비 등록 상태에서 분리한다. 읽기 전용 지도만 미배치 마커를 제외하며 제어·통계에는 전체 등록 조명을 유지한다. 식별 점멸은 독립된 등록 후 장비 명령으로 연결한다.
 
-**Tech Stack:** React, TypeScript, React Query, Zustand, Konva, react-konva, pdfjs-dist, NestJS, Prisma, PostgreSQL, Jest, Vitest.
+**기술:** React, TypeScript, React Query, Zustand, Konva, NestJS, Prisma, PostgreSQL, MQTT, BlueZ, ESP-IDF, Jest, Vitest, Playwright.
+
+**설계:** [층별 도면 에디터 설계](../specs/2026-07-06-floor-editor-design.md)의 `2026-09-09 최종 구현 범위`.
+
+## 2026-09-09 대량 배치 실행 계획
+
+상태: 2026-09-09 사용자 구현 승인으로 실행 중. 이 절이 활성 체크리스트이며 하단 작업/진행 로그는 기존 구현 이력이다. 실장비 검증은 사용자 요청으로 후속이며 소프트웨어 구현·실DB·브라우저 검증을 진행한다.
+
+진행 기록:
+- backend: Task 1/2/10 배치 계약·등록 분리·저장/복구 보강 진행 중.
+- web_frontend: Task 3~7 및 9의 층별 UI·목록 드롭·확인 후 배치 해제·대량 편집 진행 중.
+- gateway/backend + firmware: Task 8 등록 후 Health Attention 명령과 출력 우선순위 보강 진행 중.
+- 총괄: 공유 계약/소유 범위 조율, 통합 검증과 문서/커밋 진행. 실제 장비 동작 검증·배포는 실행하지 않는다.
+
+### 공통 규칙
+
+- `AGENTS.md`, `docs/agent-operations.md`, `docs/lesson_leared.md`와 해당 경로 지침을 읽고 시작한다. 담당 역할별로 검증 가능한 작은 변경을 진행하고 공유 계약은 총괄 검토 후 한 역할이 먼저 적용한다.
+- 각 Task는 회귀 작성·구현·검증·메뉴 문서/상태판 갱신·범위별 커밋 순서로 완료한다. 구현 완료와 실장비 검증 완료를 분리한다.
+- 위치 데이터와 장비 식별 명령을 분리한다. 배치 해제에 장비 삭제/초기화/그룹 변경/제어 명령을 연결하지 않는다.
+- 입력 상한은 fixture 변경 1,000개, 기존 object mutation 합계 2,000개를 유지한다. 에디터 요청 body는 1 MiB로 명시하고 초과 요청은 일관된 413으로 표시한다. 기존 과대 데이터가 있을 때 마이그레이션으로 잘라내지 않는다.
+- UI는 한글과 기존 공통 컴포넌트를 사용한다. 도면 업로드/교체와 CAD/AI 확장은 실행하지 않는다. 기존 자산과 기존 좌표는 유지한다.
+
+### Task 1: 배치 상태와 저장 버전 계약 / backend
+
+대상: `apps/api/prisma/schema.prisma`, 해당 migration, `packages/shared/src/schemas.ts`, `apps/api/src/floor-editor/floor-editor-snapshot.ts`, `docs/database-schema.md`.
+
+제안 공통 값:
+
+```ts
+type FixturePlacement = {
+  placementStatus: 'unplaced' | 'placed';
+  positionVerifiedAt: string | null;
+};
+// 저장 입력은 확인 시각을 신뢰하지 않고 서버가 명시적 위치 확인에 시각을 부여한다.
+type PlacementPatch = { placementStatus?: 'unplaced' | 'placed'; positionVerified?: boolean };
+```
+
+- [ ] 신규 조명 기본 unplaced, 기존 row placed/미확인, 기존 x/y 보존 migration을 작성하고 이전/신규 row와 이전 snapshot 호환 테스트를 실행한다.
+- [ ] 배치 상태/위치 확인 필드를 editor 조회·저장·snapshot에 전파하고 새 snapshot 버전과 이전 버전 parser를 연결한다. unplaced 확인 금지와 좌표 변경 시 확인 해제를 검증한다.
+- [ ] shared/API 타입 및 migration 통합 검증 뒤 DB 문서/메뉴/상태판을 갱신하고 커밋한다.
+
+### Task 2: 등록과 배치 분리 / backend
+
+대상: `apps/api/src/registration/registration.service.ts`, `apps/api/src/floor-editor/floor-editor.service.ts`, `apps/api/src/floor-map/floor-map.service.ts`, 조명/대시보드 조회 소비자.
+
+- [ ] 캔버스 공간이 가득 차도 신규 등록이 성공하고 unplaced로 생성되는 회귀를 추가한다. 최신 웹에서는 등록 단계 배치 입력을 제거하고 구버전 요청의 기존 필드 수신 정책을 명시적으로 호환 처리한다.
+- [ ] 지도 마커의 배치 필터를 조회·제어·통계 집계 필터와 분리한다. 편집기는 미배치 조명도 포함한 전체 편집 상태를 제공한다.
+- [ ] 미배치 전환 전후 fixture ID, Mesh 주소, 그룹 멤버, 자동화 대상, 전력 이력이 동일한지 실DB 테스트 후 관련 문서 갱신과 커밋을 진행한다.
+
+### Task 3: 1,000개 렌더링 기반 / web_frontend
+
+대상: `apps/web/src/features/floor-editor/FloorEditorCanvas.tsx`, `editor-store.ts`, 신규 `EditorFixtureNode.tsx`, `apps/web/src/features/floor-map/FloorScene.tsx`.
+
+- [ ] 기존 1,000개 fixture 브라우저 시나리오에 pan/zoom 프레임 측정과 안정적인 ref 유지 검사를 추가해 기준을 기록한다.
+- [ ] 배경/도형/조명/선택 레이어와 Zustand selector를 분리하고 조명 노드를 memo 처리한다. pan/zoom 중 반복적인 전체 React 상태 갱신을 제거한다.
+- [ ] 화면 크기 Stage와 단일 좌표 변환 경로, 저배율 이름 축소, locked 객체의 상호작용 차단을 검증하고 문서 갱신 후 커밋한다.
+
+### Task 4: 편집 명령과 Undo/Redo / web_frontend
+
+대상: `editor-store.ts`, `editor-diff.ts`, 신규 `editor-history.ts`, `FloorEditorView.tsx`, `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`.
+
+- [ ] `placeFixtures`, `unplaceFixture`, `moveFixtures`, `updateFixtureProperties` 동작을 한 번의 이력 항목으로 적용한다. ID별 변경 추적과 재배치/배치 해제/Undo/Redo 왕복 검증을 작성한다.
+- [ ] 저장 후 에디터를 유지하고 응답으로 baseline/cache를 교체한다. 저장 실패/충돌에서 초안을 보존하고 서버 버전 복구와 로컬 Undo를 구분한다.
+- [ ] 로컬 초안은 사용자·현장·층·baseline revision으로 격리하고 로그아웃 시 제거한다. 복구 시 권한과 revision을 다시 확인하며 lease가 없으면 변경을 차단한다. 문서 갱신 후 커밋한다.
+
+### Task 5: 목록 드롭과 확인 팝업 배치 해제 / web_frontend
+
+대상: 신규 `FixturePlacementList.tsx`, `FixturePlacementAction.tsx`, `UnplaceFixtureDialog.tsx`, `FloorEditorCanvas.tsx`, 공통 dialog/button 컴포넌트.
+
+- [ ] 미배치 목록에서 fixture ID만 드래그하고 캔버스 drop에서 현재 층/상태를 다시 확인한다. 화면에서 월드 좌표로 변환한 중심점에 한 번 배치한다.
+- [ ] 단일 선택 조명 우상단에 화면 크기 고정 배치 해제 버튼을 추가한다. 핸들 중첩, 경계 넘침, 클릭 이벤트 전파를 차단한다.
+- [ ] 설계의 정확한 팝업 문구와 취소/확인/포커스 복귀를 구현한다. 승인 후 로컬 미배치 목록 복귀와 저장/Undo/재드롭을 검증한다.
+- [ ] 0.5배/1배/2배 및 pan/스크롤 상태의 드롭, 캔버스 밖 취소, 중복 drop, lease 만료, viewer 변경 차단 브라우저 회귀 후 문서 갱신과 커밋을 진행한다.
+
+### Task 6: 검색과 지도 탐색 / web_frontend
+
+대상: `FixturePlacementList.tsx`, `FloorEditorView.tsx`, `FloorEditorCanvas.tsx`, `EditorPropertiesPanel.tsx`.
+
+- [ ] 이름/현재 제공 가능한 시리얼·Mesh 주소 검색, 전체/배치/미배치 필터와 가상화 목록, 선택 수/배치 수를 추가한다. 식별자 DTO가 없으면 backend와 shared 계약을 먼저 확장한다.
+- [ ] 검색 결과 선택은 배치 조명일 때 위치로 이동하고 미배치이면 목록/속성에 머문다. 도면 맞춤·선택 맞춤·미니맵·휠 줌·팬을 연결한다.
+- [ ] 우측 속성/배치/레이어 탭에 기본 도형과 색상 기능을 유지하고 배경 업로드/교체 진입점을 숨긴다. 저장된 기존 배경 호환 표시와 1,000번째 항목 탐색을 검증한 뒤 문서 갱신과 커밋을 진행한다.
+
+### Task 7: 대량 선택과 반자동 배치 / web_frontend
+
+대상: 신규 `editor-placement.ts`, `EditorBatchPlacementPanel.tsx`, `editor-store.ts`, `EditorPropertiesPanel.tsx`, `FloorEditorCanvas.tsx`.
+
+- [ ] 박스/Shift 선택, 필터 결과 전체 선택, 다중 이동, 화살표 이동, 스냅, 정렬/균등 분배를 구현한다. 잠긴 항목을 제외하고 그룹 이동 경계는 선택 집합에 동일한 이동량을 적용한다.
+- [ ] 사각형 영역 격자/통로 선형 배치의 대상 ID·행/열·간격·방향 미리보기와 취소/적용을 구현한다. 공간이 부족하면 개수/간격을 수정하도록 안내하고 겹침이나 누락을 숨기지 않는다.
+- [ ] 이름 규칙·표시 크기·정격 W 일괄 속성을 혼합값/결과 미리보기와 연결한다. 24개 일괄 배치의 단일 Undo, 1,000개 이동, fixture 복제 없음과 제어 그룹 불변을 검증하고 커밋한다.
+
+### Task 8: 실물 조명 위치 확인 / backend → gateway → firmware → web_frontend
+
+대상: `packages/shared/src/schemas.ts`, `gateway-contracts.ts`, 등록 후 fixture 명령 API, `apps/gateway/src/mesh/bluez-mesh-adapter.ts`, Health client 경로, `apps/esp32-h2-firmware/main/identify.c`, `ble_mesh_node.c`, 신규 웹 `FixtureIdentifyPanel.tsx`.
+
+- [ ] 공유 명령에 fixture ID/site/gateway/command ID와 절대 만료 시각을 정의하고 시작/중지/결과를 분리한다. 현장 admin, 현재 lease, online/등록 상태, 단일 진행 대상을 서버에서 검증한다.
+- [ ] Gateway가 Health Attention 시작/중지와 응답을 처리하고 중복/만료/응답 없음/다음 대상 전환 시 이전 대상 중지를 처리한다. 기존 identify의 100% 고정 동작을 사용하지 않는다.
+- [ ] ESP32에서 자체 만료와 종료/재시작 처리를 검증하고 식별 중 정상 제어 목표를 보존한다. 시작 당시 밝기가 아닌 최신 목표로 돌아가도록 PWM 출력 우선순위를 정리한다.
+- [ ] 웹의 확인 시작/중지/다음/건너뛰기와 위치 클릭·명시적 확인을 연결한다. 명령 응답과 사람의 위치 확인을 구분해 저장한다.
+- [ ] 소프트웨어 계약·Gateway·firmware host 테스트 및 ESP-IDF build를 통과한 각 소단위마다 커밋한다. 실제 LED 점멸/종료/스케줄·이벤트 복귀는 HIL 완료 전까지 미검증으로 남긴다.
+
+### Task 9: 모니터링·제어·통계 연동 / web_frontend + backend
+
+대상: `apps/web/src/features/floor-map/FloorScene.tsx`, 모니터링 목록/빈 상태, 제어 대상 선택, API 대시보드/통계 조회와 각 회귀 테스트.
+
+- [ ] 지도에서 unplaced만 제외하고 목록에는 남긴다. 등록 1,000개/배치 0개와 등록 0개의 안내를 구분하고 설정 편집 진입을 제공한다.
+- [ ] 배치 해제 후 수동 제어, 기존 그룹/스케줄/이벤트 대상 유지와 전력 합계를 실백엔드에서 검증한다. 사용자가 저장하기 전에는 모니터링 지도가 바뀌지 않도록 한다.
+- [ ] 저장/재조회/revision 복구 후 배치/위치 확인 상태와 도형이 일치하는지 검증하고 영향받는 메뉴 문서를 갱신한 뒤 커밋한다.
+
+### Task 10: 대량 저장·복구 안정성 / backend
+
+대상: `apps/api/src/main.ts`, `apps/api/src/floor-editor/floor-editor.service.ts`, snapshot parser와 실DB/HTTP 통합 테스트.
+
+- [ ] 1,000개 fixture 전체 필드와 2,000개 object 변경을 실제 HTTP 경로로 보내 body 상한/검증 응답을 확인한다. 좌표 변경을 묶음 SQL로 처리하며 정격 W 변경은 기존 에너지 checkpoint를 보존한다.
+- [ ] 저장·복구 시간 예산과 timeout 오류 응답을 명시하고 lease/revision/atomic audit 경계를 유지한다. 실패 시 일부 row나 revision만 저장되지 않는 회귀를 실행한다.
+- [ ] snapshot 크기/복구 지연을 100회 저장으로 측정한다. 새 snapshot 버전·해시와 이전 버전 파서를 검증하고 기존 이력을 자동 삭제하지 않는다. 장기 보관 정책은 측정 결과와 함께 문서에 제안값으로 남긴다.
+- [ ] 관련 API 테스트/typecheck와 문서를 갱신하고 커밋한다.
+
+### Task 11: 통합 검증과 완료 판정 / qa_reviewer
+
+- [ ] 브라우저 정상 흐름을 검증한다: 신규 등록 → 미배치 → 목록 드롭 → 다중 배치 → 위치 확인 초안 → 저장 → 모니터링 → 배치 해제 취소/승인 → 저장 → 제어/통계 유지 → 재배치.
+- [ ] 1,000개 조명으로 대표 PC 1440/1024, 좁은 화면 390/320의 패널/버튼 겹침을 확인한다. 성능 합격 목표는 편집 준비 p95 3초 이내, 연속 이동 중 장시간 30fps 미만 구간 없음, 대량 저장 p95 3초 이내다. 하드웨어/브라우저/회차를 증거에 기록한다.
+- [ ] 일반적인 데이터 손실 경로인 새로고침, 저장 실패, lease 만료, 계정 전환, Undo 후 저장, 이전 revision 복구를 점검한다. 인터랙티브 시안은 생산 코드 검증 증거로 사용하지 않는다.
+- [ ] 실장비가 준비되면 Raspberry Pi/ESP32-H2/LED로 식별 시간 제한, 중지, 다음 조명 전환과 자동제어 복귀를 실행한다. 실장비 부재는 UI/소프트웨어 완료와 구분한다.
+- [ ] 발견된 오류를 소유 역할에 반환하고 수정 후 필요한 회귀를 재실행한다. 최종 상태판/메뉴 문서와 이 체크리스트를 일치시키고 작업 단위별 커밋을 확인한다.
+
+### 실행 순서와 범위 검토
+
+Task 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 순서다. Task 8의 공유 계약/API → Gateway → firmware → 웹 순서는 유지한다. 독립된 backend 대량 저장 최적화는 공유 계약 완료 후 웹 작업과 병렬 진행할 수 있다.
+
+- [x] 미배치 목록 드래그 앤 드롭: Task 5.
+- [x] 단일 선택 조명 우상단 버튼과 확인 팝업: Task 5.
+- [x] 장비 삭제가 아닌 미배치 복귀: Task 1, 2, 4, 5, 9.
+- [x] 기존 파일 도면 활용 보류와 기존 자산 보존: Task 6.
+- [x] 앞서 제안한 검색/일괄 편집/식별/성능 보완: Task 3, 4, 6, 7, 8, 10, 11.
+
+위 체크는 계획 범위 대조 완료를 뜻하며 구현 완료가 아니다.
 
 ---
 
