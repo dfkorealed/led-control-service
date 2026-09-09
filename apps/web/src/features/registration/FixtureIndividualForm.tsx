@@ -10,8 +10,6 @@ export interface FixtureIndividualDraft {
   fixtureName: string;
   ratedWatt: string;
   size: number;
-  x: string;
-  y: string;
 }
 
 export interface FixtureIndividualItem {
@@ -103,22 +101,6 @@ export function FixtureIndividualForm({
                 max={1000}
                 value={item.draft.size}
                 onChange={(event) => onDraftChange(item.nodeId, { size: Number(event.target.value) })}
-              />
-            </label>
-            <label>
-              {item.label} X 좌표
-              <input
-                type="number"
-                value={item.draft.x}
-                onChange={(event) => onDraftChange(item.nodeId, { x: event.target.value })}
-              />
-            </label>
-            <label>
-              {item.label} Y 좌표
-              <input
-                type="number"
-                value={item.draft.y}
-                onChange={(event) => onDraftChange(item.nodeId, { y: event.target.value })}
               />
             </label>
             {item.error ? <p className="danger-text individual-error">{item.error}</p> : null}

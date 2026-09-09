@@ -42,6 +42,8 @@ export interface Dashboard {
       name: string;
       x: number;
       y: number;
+      placementStatus?: "unplaced" | "placed";
+      positionVerifiedAt?: string | null;
       ratedWatt: number;
       brightness: number;
       status: "online" | "offline" | "fault";

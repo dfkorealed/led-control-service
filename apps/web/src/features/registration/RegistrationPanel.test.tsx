@@ -321,8 +321,8 @@ describe("RegistrationPanel", () => {
         mode: "batch",
         defaults: expect.objectContaining({ namePrefix: "B2-L", ratedWatt: "40.00", size: 20 }),
         nodes: [
-          { nodeId: mockRegistrationSession.discoveredNodes[0].id, placement: { mode: "auto" } },
-          { nodeId: mockRegistrationSession.discoveredNodes[1].id, placement: { mode: "auto" } }
+          { nodeId: mockRegistrationSession.discoveredNodes[0].id },
+          { nodeId: mockRegistrationSession.discoveredNodes[1].id }
         ]
       })
     ));
@@ -331,15 +331,15 @@ describe("RegistrationPanel", () => {
     expect(screen.getAllByText("등록 중")).toHaveLength(2);
   });
 
-  it("개별 설정에서 조명별 이름과 좌표를 입력한다", async () => {
+  it("개별 등록은 이름만 설정하고 초기 좌표 입력 없이 미배치로 요청한다", async () => {
     registerBatchMock.mockResolvedValue({ items: [] });
     await renderStartedPanel();
 
     fireEvent.click(screen.getByLabelText("조명 1 선택"));
     fireEvent.click(screen.getByRole("radio", { name: "개별 설정" }));
     fireEvent.change(screen.getByLabelText("조명 1 이름"), { target: { value: "입구 조명" } });
-    fireEvent.change(screen.getByLabelText("조명 1 X 좌표"), { target: { value: "120" } });
-    fireEvent.change(screen.getByLabelText("조명 1 Y 좌표"), { target: { value: "240" } });
+    expect(screen.queryByLabelText("조명 1 X 좌표")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("조명 1 Y 좌표")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
 
     expect(screen.getByDisplayValue("입구 조명")).toBeInTheDocument();
@@ -348,11 +348,11 @@ describe("RegistrationPanel", () => {
       expect.objectContaining({
         mode: "individual",
         nodes: [expect.objectContaining({
-          fixtureName: "입구 조명",
-          placement: { mode: "manual", x: 120, y: 240 }
+          fixtureName: "입구 조명"
         })]
       })
     ));
+    expect(registerBatchMock.mock.calls[0][1].nodes[0]).not.toHaveProperty("placement");
   });
 
   it("서버 검증 실패 노드의 선택과 오류를 유지한다", async () => {

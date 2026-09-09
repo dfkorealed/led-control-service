@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFloorEditorStore } from "./editor-store";
 import type { FloorEditorState } from "./editor-types";
+import type { EDITOR_MAX_NAME_LENGTH } from "@led-control/shared";
+
+const maxNameLength: typeof EDITOR_MAX_NAME_LENGTH = 200;
 
 const initialState: FloorEditorState = {
   floor: { id: "floor-1", siteId: "site-1", name: "B1", level: -1, mapRevision: 3, floorPlan: null },
@@ -22,6 +25,42 @@ describe("floor editor store baseline", () => {
 
     useFloorEditorStore.getState().updateFixture("fixture-1", { x: 11 });
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
+  });
+
+  it.each([121, maxNameLength])("moves a fixture with an existing %i-character name", (length) => {
+    const fixture = { ...initialState.fixtures[0], name: "L".repeat(length) };
+    useFloorEditorStore.getState().initialize({ ...initialState, fixtures: [fixture] });
+    useFloorEditorStore.getState().moveFixtures([fixture.id], { x: 5, y: 10 });
+    expect(useFloorEditorStore.getState().state!.fixtures[0]).toMatchObject({ name: fixture.name, x: 15, y: 30 });
+    useFloorEditorStore.getState().undo();
+    expect(useFloorEditorStore.getState().state!.fixtures[0]).toEqual(fixture);
+  });
+
+  it("accepts the shared name limit and rejects only an over-limit name patch", () => {
+    useFloorEditorStore.getState().updateFixture("fixture-1", { name: "L".repeat(maxNameLength) });
+    const validState = useFloorEditorStore.getState().state;
+    expect(validState!.fixtures[0].name).toHaveLength(maxNameLength);
+    useFloorEditorStore.getState().updateFixture("fixture-1", { name: "L".repeat(maxNameLength + 1) });
+    expect(useFloorEditorStore.getState().state).toBe(validState);
+  });
+
+  it("preserves legacy coordinates and verification on a name-only edit", () => {
+    const fixture = { ...initialState.fixtures[0], x: 1800, y: -25, positionVerifiedAt: "2026-09-09T01:00:00.000Z" };
+    useFloorEditorStore.getState().initialize({ ...initialState, fixtures: [fixture] });
+    useFloorEditorStore.getState().updateFixture(fixture.id, { name: "Renamed" });
+    expect(useFloorEditorStore.getState().state!.fixtures[0]).toEqual({ ...fixture, name: "Renamed" });
+  });
+
+  it("clamps only the patched coordinate and leaves unrelated legacy size and wattage intact", () => {
+    const fixture = { ...initialState.fixtures[0], x: 1800, y: -25, size: 2, ratedWatt: 12000 };
+    useFloorEditorStore.getState().initialize({ ...initialState, fixtures: [fixture] });
+    useFloorEditorStore.getState().updateFixture(fixture.id, { x: 1500 });
+    expect(useFloorEditorStore.getState().state!.fixtures[0]).toMatchObject({ x: 1200, y: -25, size: 2, ratedWatt: 12000 });
+    const validState = useFloorEditorStore.getState().state;
+    useFloorEditorStore.getState().updateFixture(fixture.id, { x: Number.NaN });
+    useFloorEditorStore.getState().updateFixture(fixture.id, { size: 2 });
+    useFloorEditorStore.getState().updateFixture(fixture.id, { ratedWatt: 12000 });
+    expect(useFloorEditorStore.getState().state).toBe(validState);
   });
 
   it("adopts an atomic save response as the new clean baseline", () => {

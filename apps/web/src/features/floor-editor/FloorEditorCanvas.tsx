@@ -1,280 +1,245 @@
 import Konva from "konva";
-import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
-import { useEffect, useRef, useState } from "react";
-import { Circle, Group, Image as KonvaImage, Layer, Rect, Stage, Text, Transformer } from "react-konva";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import { Circle, Image as KonvaImage, Label, Layer, Rect, Stage, Tag, Text, Transformer } from "react-konva";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
 import { clampPoint, createDefaultObject, createObjectFromDrag, screenToWorld, type Point } from "./geometry";
 import { useFloorEditorStore } from "./editor-store";
-import type { EditorFixture, EditorTool, FloorMapObject, FloorMapObjectDraft } from "./editor-types";
+import type { EditorTool, FloorMapObjectDraft } from "./editor-types";
+import { EditorFixtureNode } from "./EditorFixtureNode";
+import { FIXTURE_DRAG_TYPE } from "./FixturePlacementList";
+import { FixturePlacementAction } from "./FixturePlacementAction";
+import { EditorMinimap } from "./EditorMinimap";
+import { canShowFixtureNames, selectedFixtureLabelLayout } from "./editor-labels";
 
-const TOOL_DRAG_DATA_TYPE = "application/x-floor-editor-tool";
+const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text"]);
-const fixtureColors: Record<EditorFixture["status"], string> = {
-  online: "#20c997",
-  offline: "#94a3b8",
-  fault: "#ef4444"
-};
+type Gesture = { kind: "pan" | "marquee" | "draw"; start: Point; screen: Point; pan: Point; additive: boolean; moved: boolean };
 
 export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) {
-  const stageRef = useRef<Konva.Stage | null>(null);
-  const transformerRef = useRef<Konva.Transformer | null>(null);
-  const objectRefs = useRef(new Map<string, Konva.Node>());
-  const fixtureRefs = useRef(new Map<string, Konva.Node>());
-  const [backgroundImage, setBackgroundImage] = useState<HTMLImageElement | null>(null);
-  const [creationStart, setCreationStart] = useState<Point | null>(null);
-  const [creationPreview, setCreationPreview] = useState<FloorMapObjectDraft | null>(null);
-  const [hasCreationDragMoved, setHasCreationDragMoved] = useState(false);
-  const [lastPanPoint, setLastPanPoint] = useState<Point | null>(null);
-  const { state, activeTool, zoom, pan, selection, setPan, selectFixture, selectObject, addObject, updateFixture, updateObject } = useFloorEditorStore();
-
+  const container = useRef<HTMLDivElement>(null);
+  const stage = useRef<Konva.Stage>(null);
+  const transformer = useRef<Konva.Transformer>(null);
+  const nodes = useRef(new Map<string, Konva.Node>());
+  const objectNodes = useRef(new Map<string, Konva.Node>());
+  const objectRefCallbacks = useRef(new Map<string, (node: Konva.Node | null) => void>());
+  const gesture = useRef<Gesture | null>(null);
+  const groupDrag = useRef<Array<{ id: string; x: number; y: number }>>([]);
+  const disabled = useRef(readOnly); disabled.current = readOnly;
+  const state = useFloorEditorStore((s) => s.state);
+  const activeTool = useFloorEditorStore((s) => s.activeTool);
+  const zoom = useFloorEditorStore((s) => s.zoom);
+  const pan = useFloorEditorStore((s) => s.pan);
+  const viewport = useFloorEditorStore((s) => s.viewport);
+  const selection = useFloorEditorStore((s) => s.selection);
+  const selectedIds = useFloorEditorStore((s) => s.selectedFixtureIds);
+  const layers = useFloorEditorStore((s) => s.layers);
+  const lockedIds = useFloorEditorStore((s) => s.lockedFixtureIds);
+  const preview = useFloorEditorStore((s) => s.preview);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const lockedSet = useMemo(() => new Set(lockedIds), [lockedIds]);
+  const placedFixtures = useMemo(() => state?.fixtures.filter((fixture) => fixture.placementStatus !== "unplaced") ?? [], [state?.fixtures]);
+  const showBulkNames = useMemo(() => canShowFixtureNames(placedFixtures, zoom), [placedFixtures, zoom]);
+  const [background, setBackground] = useState<HTMLImageElement | null>(null);
+  const [creation, setCreation] = useState<FloorMapObjectDraft | null>(null);
+  const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [dropPreview, setDropPreview] = useState<Point | null>(null);
   const floorPlan = state?.floor.floorPlan;
-  const backgroundImageUrl =
-    floorPlan && floorPlan.sourceType !== "none" ? floorPlan.renderedImageUrl ?? floorPlan.imageUrl : "";
+  const backgroundUrl = floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "";
   const bounds = { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
-  const selectedObjectId = selection?.kind === "object" ? selection.id : null;
-  const selectedFixtureId = selection?.kind === "fixture" ? selection.id : null;
 
   useEffect(() => {
-    if (!backgroundImageUrl) {
-      setBackgroundImage(null);
-      return;
-    }
+    const element = container.current;
+    if (!element) return;
+    const resize = () => { const rect = element.getBoundingClientRect(); if (rect.width && rect.height) useFloorEditorStore.getState().setViewport({ width: rect.width, height: rect.height }); };
+    resize();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(resize); observer.observe(element);
+    return () => observer.disconnect();
+  }, [state?.floor.id]);
+
+  useEffect(() => {
+    setBackground(null);
+    if (!backgroundUrl) return;
+    let disposed = false;
     const image = new window.Image();
-    image.src = backgroundImageUrl;
-    image.onload = () => setBackgroundImage(image);
-  }, [backgroundImageUrl]);
+    image.onload = () => { if (!disposed) setBackground(image); };
+    image.src = backgroundUrl;
+    return () => { disposed = true; image.onload = null; };
+  }, [backgroundUrl]);
+
+  const register = useCallback((id: string, node: Konva.Node | null) => { if (node) nodes.current.set(id, node); else nodes.current.delete(id); }, []);
+  const onSelect = useCallback((id: string, additive: boolean) => useFloorEditorStore.getState().selectFixture(id, additive), []);
+  const onDragStart = useCallback((id: string) => {
+    const store = useFloorEditorStore.getState();
+    if (disabled.current) return;
+    if (!store.selectedFixtureIds.includes(id)) store.selectFixture(id);
+    const ids = new Set(useFloorEditorStore.getState().selectedFixtureIds);
+    groupDrag.current = store.state?.fixtures.filter((f) => ids.has(f.id) && !store.lockedFixtureIds.includes(f.id) && f.placementStatus !== "unplaced") ?? [];
+  }, []);
+  const onDragMove = useCallback((id: string, node: Konva.Node) => {
+    if (disabled.current) return;
+    const store = useFloorEditorStore.getState();
+    const selected = groupDrag.current;
+    const origin = selected.find((f) => f.id === id);
+    if (!origin || !selected.length) return;
+    let dx = node.x() - origin.x, dy = node.y() - origin.y;
+    if (store.snap) { dx = Math.round(dx / 10) * 10; dy = Math.round(dy / 10) * 10; }
+    dx = Math.max(-Math.min(...selected.map((f) => f.x)), Math.min(dx, (store.state?.floor.floorPlan?.width ?? 1200) - Math.max(...selected.map((f) => f.x))));
+    dy = Math.max(-Math.min(...selected.map((f) => f.y)), Math.min(dy, (store.state?.floor.floorPlan?.height ?? 800) - Math.max(...selected.map((f) => f.y))));
+    selected.forEach((f) => nodes.current.get(f.id)?.position({ x: f.x + dx, y: f.y + dy }));
+  }, []);
+  const onDragEnd = useCallback((id: string, node: Konva.Node) => {
+    const origin = groupDrag.current.find((f) => f.id === id);
+    if (origin && !disabled.current) useFloorEditorStore.getState().moveFixtures(groupDrag.current.map((f) => f.id), { x: node.x() - origin.x, y: node.y() - origin.y });
+    // Konva has already moved nodes imperatively; always reconcile on lease loss or no-op.
+    useFloorEditorStore.getState().state?.fixtures.forEach((f) => nodes.current.get(f.id)?.position(f));
+    groupDrag.current = [];
+  }, []);
+  const onTransform = useCallback((id: string, node: Konva.Node) => {
+    const fixture = useFloorEditorStore.getState().state?.fixtures.find((f) => f.id === id);
+    const scale = Math.max(node.scaleX(), node.scaleY()); node.scale({ x: 1, y: 1 });
+    if (fixture && !disabled.current) useFloorEditorStore.getState().updateFixture(id, { x: node.x(), y: node.y(), size: Math.min(200, Math.max(4, (fixture.size ?? 20) * scale)) });
+  }, []);
 
   useEffect(() => {
-    const transformer = transformerRef.current;
-    if (!transformer) return;
-    const selectedNode = selectedObjectId
-      ? objectRefs.current.get(selectedObjectId)
-      : selectedFixtureId
-        ? fixtureRefs.current.get(selectedFixtureId)
-        : undefined;
-    transformer.nodes(selectedNode ? [selectedNode] : []);
-    transformer.getLayer()?.batchDraw();
-  }, [selectedFixtureId, selectedObjectId, state]);
+    const selectedNode = selection?.kind === "fixture" && layers.fixtures.visible && !layers.fixtures.locked && !lockedSet.has(selection.id)
+      ? nodes.current.get(selection.id)
+      : selection?.kind === "object" && layers.objects.visible && !layers.objects.locked && !state?.objects.find((o) => o.id === selection.id)?.locked
+        ? objectNodes.current.get(selection.id) : undefined;
+    transformer.current?.nodes(!readOnly && selectedNode ? [selectedNode] : []);
+    transformer.current?.getLayer()?.batchDraw();
+  }, [selection, state, readOnly, layers, lockedSet]);
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
+      const store = useFloorEditorStore.getState();
+      if (event.key === "Escape") {
+        // Imperative pan is not yet in Zustand. Restore every layer before dropping
+        // the gesture, so the next drop uses exactly the transform shown on screen.
+        if (gesture.current?.kind === "pan") stage.current?.getLayers().forEach((layer) => layer.position(store.pan));
+        gesture.current = null; setCreation(null); setMarquee(null); setDropPreview(null); store.setPreview([]); return;
+      }
+      if (readOnly) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? store.redo() : store.undo(); return; }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); store.redo(); return; }
+      const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
+      if (delta) { event.preventDefault(); const step = event.shiftKey || store.snap ? 10 : 1; store.moveFixtures(store.selectedFixtureIds, { x: delta[0] * step, y: delta[1] * step }); }
+      if ((event.key === "Delete" || event.key === "Backspace") && store.selection?.kind === "object") { event.preventDefault(); store.removeObject(store.selection.id); }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [readOnly]);
 
   if (!state) return null;
-  const editorState = state;
+  const screenPoint = (event: { clientX: number; clientY: number }) => { const rect = container.current!.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; };
+  const worldPoint = (event: { clientX: number; clientY: number }) => screenToWorld(screenPoint(event), useFloorEditorStore.getState().pan, useFloorEditorStore.getState().zoom);
 
-  function getStageWorldPoint() {
-    const pointer = stageRef.current?.getPointerPosition();
-    return pointer ? clampPoint(screenToWorld(pointer, pan, zoom), bounds) : { x: 0, y: 0 };
-  }
-
-  function getDropWorldPoint(event: ReactDragEvent<HTMLDivElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const screenPoint = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    return clampPoint(screenToWorld(screenPoint, pan, zoom), bounds);
-  }
-
-  function getDomWorldPoint(event: ReactMouseEvent<HTMLDivElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const screenPoint = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    return clampPoint(screenToWorld(screenPoint, pan, zoom), bounds);
-  }
-
-  function handleStageMouseDown(event: Konva.KonvaEventObject<MouseEvent>) {
-    if (readOnly) return;
-    if (activeTool !== "select" && activeTool !== "pan") {
-      const start = getStageWorldPoint();
-      setCreationStart(start);
-      setCreationPreview(createObjectFromDrag(activeTool, start, start));
-      setHasCreationDragMoved(false);
-      return;
-    }
+  function begin(event: MouseEvent<HTMLDivElement>) {
+    if ((event.target as Element).closest("button")) return;
     if (activeTool === "pan") {
-      setLastPanPoint({ x: event.evt.clientX, y: event.evt.clientY });
+      gesture.current = { kind: "pan", screen: screenPoint(event), pan, start: worldPoint(event), additive: false, moved: false };
+    } else if (!readOnly && drawingTools.has(activeTool) && !layers.objects.locked) {
+      gesture.current = { kind: "draw", screen: screenPoint(event), pan, start: clampPoint(worldPoint(event), bounds), additive: false, moved: false };
+    } else if (!readOnly && activeTool === "select") {
+      const hit = stage.current?.getIntersection(screenPoint(event));
+      if (hit) return;
+      gesture.current = { kind: "marquee", screen: screenPoint(event), pan, start: worldPoint(event), additive: event.shiftKey, moved: false };
+      if (!event.shiftKey) useFloorEditorStore.getState().clearSelection();
     }
   }
-
-  function handleStageMouseMove(event: Konva.KonvaEventObject<MouseEvent>) {
-    if (readOnly) return;
-    if (creationStart && activeTool !== "select" && activeTool !== "pan") {
-      setCreationPreview(createObjectFromDrag(activeTool, creationStart, getStageWorldPoint()));
-      setHasCreationDragMoved(true);
+  function move(event: MouseEvent<HTMLDivElement>) {
+    const action = gesture.current; if (!action) return;
+    const point = screenPoint(event);
+    action.moved ||= Math.hypot(point.x - action.screen.x, point.y - action.screen.y) > 3;
+    if (action.kind === "pan") {
+      // Pan the four layers directly; publish one viewport change when the gesture ends.
+      stage.current?.getLayers().forEach((layer) => layer.position({ x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y }));
       return;
     }
-    if (lastPanPoint && activeTool === "pan") {
-      setPan({ x: pan.x + event.evt.clientX - lastPanPoint.x, y: pan.y + event.evt.clientY - lastPanPoint.y });
-      setLastPanPoint({ x: event.evt.clientX, y: event.evt.clientY });
-    }
-  }
-
-  function handleStageMouseUp() {
     if (readOnly) return;
-    if (creationPreview && hasCreationDragMoved) addObject(editorState.floor.id, creationPreview);
-    setCreationStart(null);
-    setCreationPreview(null);
-    setHasCreationDragMoved(false);
-    setLastPanPoint(null);
+    const world = clampPoint(worldPoint(event), bounds);
+    if (action.kind === "draw") setCreation(createObjectFromDrag(activeTool, action.start, world));
+    else setMarquee({ x: Math.min(action.start.x, world.x), y: Math.min(action.start.y, world.y), width: Math.abs(world.x - action.start.x), height: Math.abs(world.y - action.start.y) });
   }
-
-  function handleContainerMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
-    if (readOnly) return;
-    if (activeTool !== "select" && activeTool !== "pan") {
-      const start = getDomWorldPoint(event);
-      setCreationStart(start);
-      setCreationPreview(createObjectFromDrag(activeTool, start, start));
-      setHasCreationDragMoved(false);
-      return;
+  function finish(event: MouseEvent<HTMLDivElement>) {
+    const action = gesture.current; gesture.current = null;
+    if (action?.kind === "pan") { const point = screenPoint(event); useFloorEditorStore.getState().setPan({ x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y }); }
+    if (!readOnly && action?.moved) {
+      if (action.kind === "draw" && creation) useFloorEditorStore.getState().addObject(state!.floor.id, creation);
+      if (action.kind === "marquee" && marquee && layers.fixtures.visible && !layers.fixtures.locked) useFloorEditorStore.getState().selectFixtures(state!.fixtures.filter((f) => f.placementStatus !== "unplaced" && !lockedSet.has(f.id) && f.x >= marquee.x && f.x <= marquee.x + marquee.width && f.y >= marquee.y && f.y <= marquee.y + marquee.height).map((f) => f.id), action.additive);
     }
-    if (activeTool === "pan") {
-      setLastPanPoint({ x: event.clientX, y: event.clientY });
-    }
+    setCreation(null); setMarquee(null);
   }
-
-  function handleContainerMouseMove(event: ReactMouseEvent<HTMLDivElement>) {
+  function dragOver(event: DragEvent<HTMLDivElement>) {
     if (readOnly) return;
-    if (creationStart && activeTool !== "select" && activeTool !== "pan") {
-      setCreationPreview(createObjectFromDrag(activeTool, creationStart, getDomWorldPoint(event)));
-      setHasCreationDragMoved(true);
-      return;
-    }
-    if (lastPanPoint && activeTool === "pan") {
-      setPan({ x: pan.x + event.clientX - lastPanPoint.x, y: pan.y + event.clientY - lastPanPoint.y });
-      setLastPanPoint({ x: event.clientX, y: event.clientY });
-    }
+    if (event.dataTransfer.types.includes(FIXTURE_DRAG_TYPE) && !layers.fixtures.locked) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropPreview(worldPoint(event)); }
+    else if (event.dataTransfer.types.includes(TOOL_DRAG_TYPE) && !layers.objects.locked) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }
   }
-
-  function handleDragOver(event: ReactDragEvent<HTMLDivElement>) {
-    if (readOnly) return;
-    if (readDraggedTool(event.dataTransfer)) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-    }
-  }
-
-  function handleDrop(event: ReactDragEvent<HTMLDivElement>) {
-    if (readOnly) return;
-    const tool = readDraggedTool(event.dataTransfer);
-    if (!tool) return;
+  function drop(event: DragEvent<HTMLDivElement>) {
+    setDropPreview(null); if (readOnly) return;
     event.preventDefault();
-    addObject(editorState.floor.id, createDefaultObject(tool, getDropWorldPoint(event)));
+    const current = useFloorEditorStore.getState();
+    if (current.state?.floor.id !== state!.floor.id) return;
+    const point = worldPoint(event);
+    if (point.x < 0 || point.y < 0 || point.x > bounds.width || point.y > bounds.height) return;
+    const id = event.dataTransfer.getData(FIXTURE_DRAG_TYPE);
+    if (id) {
+      const fixture = current.state.fixtures.find((f) => f.id === id);
+      if (!fixture || fixture.placementStatus !== "unplaced" || current.layers.fixtures.locked || current.lockedFixtureIds.includes(id)) return;
+      current.placeFixtures([{ id, ...point }]); current.selectFixture(id); return;
+    }
+    const tool = event.dataTransfer.getData(TOOL_DRAG_TYPE) as EditorTool;
+    if (drawingTools.has(tool)) current.addObject(current.state.floor.id, createDefaultObject(tool, point));
   }
-
-  function handleObjectTransformEnd(object: FloorMapObject, node: Konva.Node) {
-    const scaleX = node.scaleX();
-    const scaleY = node.scaleY();
-    const width = Math.max(24, object.width * scaleX);
-    const height = object.type === "line" ? 0 : Math.max(24, object.height * scaleY);
-    node.scale({ x: 1, y: 1 });
-    updateObject(object.id, {
-      x: clampPoint({ x: node.x(), y: node.y() }, bounds).x,
-      y: clampPoint({ x: node.x(), y: node.y() }, bounds).y,
-      width,
-      height,
-      points: object.type === "triangle" ? trianglePoints(width, height) : object.points
-    });
-  }
-
-  function handleFixtureTransformEnd(fixture: EditorFixture, node: Konva.Node) {
-    const scale = Math.max(node.scaleX(), node.scaleY());
-    node.scale({ x: 1, y: 1 });
-    updateFixture(fixture.id, {
-      x: node.x(),
-      y: node.y(),
-      size: Math.max(12, (fixture.size ?? 20) * scale)
-    });
-  }
-
-  return (
-    <div
-      className={`floor-editor-canvas konva-editor-canvas ${backgroundImageUrl ? "has-plan" : "grid-only"}`}
-      aria-label={`${editorState.floor.name} 편집 캔버스`}
-      aria-disabled={readOnly}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
-      onMouseDown={handleContainerMouseDown}
-      onMouseMove={handleContainerMouseMove}
-      onMouseUp={handleStageMouseUp}
-      onMouseLeave={handleStageMouseUp}
-    >
-      <Stage
-        ref={stageRef}
-        width={bounds.width}
-        height={bounds.height}
-        className="floor-editor-konva-stage"
-        listening={!readOnly}
-        onMouseDown={handleStageMouseDown}
-        onMouseMove={handleStageMouseMove}
-        onMouseUp={handleStageMouseUp}
-      >
-        <Layer x={pan.x} y={pan.y} scaleX={zoom} scaleY={zoom}>
-          <Rect width={bounds.width} height={bounds.height} fill={backgroundImage ? "transparent" : "#f8fbff"} listening />
-          {backgroundImage ? (
-            <KonvaImage image={backgroundImage} width={bounds.width} height={bounds.height} listening={false} />
-          ) : null}
-          {editorState.objects.filter((object) => object.visible).map((object) => (
-            <FloorMapObjectNode
-              key={object.id}
-              object={object}
-              interactive={!readOnly}
-              selected={object.id === selectedObjectId}
-              setNodeRef={(node) => setNodeRef(objectRefs.current, object.id, node)}
-              onSelect={() => selectObject(object.id)}
-              onChange={(patch) => updateObject(object.id, patch)}
-              onTransformEnd={(node) => handleObjectTransformEnd(object, node)}
-            />
-          ))}
-          {creationPreview ? (
-            <FloorMapObjectNode
-              object={{ ...creationPreview, id: "creation-preview", zIndex: 999 }}
-              interactive={!readOnly}
-              preview
-            />
-          ) : null}
-          {editorState.fixtures.map((fixture) => (
-            <Group
-              key={fixture.id}
-              ref={(node) => setNodeRef(fixtureRefs.current, fixture.id, node)}
-              x={fixture.x}
-              y={fixture.y}
-              draggable
-              onClick={() => selectFixture(fixture.id)}
-              onTap={() => selectFixture(fixture.id)}
-              onDragStart={() => selectFixture(fixture.id)}
-              onDragEnd={(event) => updateFixture(fixture.id, { x: event.target.x(), y: event.target.y() })}
-              onTransformEnd={(event) => handleFixtureTransformEnd(fixture, event.target)}
-            >
-              <Circle
-                radius={(fixture.size ?? 20) / 2}
-                fill={fixtureColors[fixture.status]}
-                stroke="#ffffff"
-                strokeWidth={2}
-                perfectDrawEnabled={false}
-                shadowEnabled={false}
-              />
-              <Text x={14} y={-8} text={fixture.name} fontSize={12} fontStyle="bold" fill="#172033" />
-            </Group>
-          ))}
-          <Transformer
-            ref={transformerRef}
-            rotateEnabled={false}
-            enabledAnchors={["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"]}
-            boundBoxFunc={(_, newBox) => ({
-              ...newBox,
-              width: Math.max(12, newBox.width),
-              height: Math.max(12, newBox.height)
-            })}
-          />
-        </Layer>
-      </Stage>
-    </div>
-  );
-}
-
-function readDraggedTool(dataTransfer: DataTransfer): EditorTool | null {
-  const tool = dataTransfer.getData(TOOL_DRAG_DATA_TYPE) as EditorTool;
-  return drawingTools.has(tool) ? tool : null;
-}
-
-function setNodeRef(map: Map<string, Konva.Node>, id: string, node: Konva.Node | null) {
-  if (node) {
-    map.set(id, node);
-  } else {
-    map.delete(id);
-  }
+  const transform = { x: pan.x, y: pan.y, scaleX: zoom, scaleY: zoom };
+  const focusedFixture = layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtures.find((fixture) => fixture.id === selection.id) : undefined;
+  const focusedLabel = focusedFixture ? selectedFixtureLabelLayout(focusedFixture, pan, zoom, viewport) : undefined;
+  return <div ref={container} className={`floor-editor-canvas konva-editor-canvas ${backgroundUrl ? "has-plan" : "grid-only"}`}
+    aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
+    onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); } }}
+    onDragOver={dragOver} onDragLeave={() => setDropPreview(null)} onDrop={drop}>
+    <Stage ref={stage} width={viewport.width} height={viewport.height} className="floor-editor-konva-stage" onWheel={(event) => {
+      event.evt.preventDefault(); const store = useFloorEditorStore.getState();
+      const point = stage.current?.getPointerPosition(); if (!point) return;
+      const world = screenToWorld(point, store.pan, store.zoom);
+      const next = Math.min(4, Math.max(0.1, store.zoom * (event.evt.deltaY > 0 ? 1 / 1.1 : 1.1)));
+      useFloorEditorStore.setState({ zoom: next, pan: { x: point.x - world.x * next, y: point.y - world.y * next } });
+    }}>
+      <Layer {...transform} listening={false}>
+        <Rect width={bounds.width} height={bounds.height} fill="#ffffff" stroke="#cbd1d9" strokeWidth={1} />
+        {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
+      </Layer>
+      <Layer {...transform} visible={layers.objects.visible} listening={!readOnly && !layers.objects.locked && activeTool === "select"}>
+        {state.objects.filter((o) => o.visible).sort((a, b) => a.zIndex - b.zIndex).map((object) => {
+          let ref = objectRefCallbacks.current.get(object.id);
+          if (!ref) { ref = (node) => { if (node) objectNodes.current.set(object.id, node); else objectNodes.current.delete(object.id); }; objectRefCallbacks.current.set(object.id, ref); }
+          return <FloorMapObjectNode key={object.id} object={object} interactive={!readOnly && !layers.objects.locked && !object.locked && activeTool === "select"} selected={selection?.id === object.id}
+            setNodeRef={ref} onSelect={() => useFloorEditorStore.getState().selectObject(object.id)}
+            onChange={(patch) => useFloorEditorStore.getState().updateObject(object.id, clampPoint({ x: patch.x ?? object.x, y: patch.y ?? object.y }, bounds))}
+            onTransformEnd={(node) => {
+              if (readOnly) return;
+              const width = Math.max(24, object.width * node.scaleX()); const height = object.type === "line" ? 0 : Math.max(24, object.height * node.scaleY()); node.scale({ x: 1, y: 1 });
+              useFloorEditorStore.getState().updateObject(object.id, { ...clampPoint({ x: node.x(), y: node.y() }, bounds), width, height, points: object.type === "triangle" ? trianglePoints(width, height) : object.points });
+            }} />;
+        })}
+      </Layer>
+      <Layer {...transform} visible={layers.fixtures.visible} listening={activeTool === "select"}>
+        {placedFixtures.map((fixture) => <EditorFixtureNode key={fixture.id} fixture={fixture} selected={selectedSet.has(fixture.id)} interactive={!readOnly && activeTool === "select" && !layers.fixtures.locked && !lockedSet.has(fixture.id)} showName={showBulkNames && !selectedSet.has(fixture.id)} register={register} onSelect={onSelect} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransform={onTransform} />)}
+      </Layer>
+      <Layer {...transform}>
+        {creation && <FloorMapObjectNode object={{ ...creation, id: "creation", zIndex: 999 }} interactive={false} preview />}
+        {marquee && <Rect {...marquee} fill="#2563eb20" stroke="#2563eb" strokeWidth={1 / zoom} listening={false} />}
+        {preview.map((p) => <Circle key={p.id} x={p.x} y={p.y} radius={10} fill="#e9b949" opacity={0.65} listening={false} />)}
+        {dropPreview && <Circle x={dropPreview.x} y={dropPreview.y} radius={10} stroke="#185ed0" fill="#dbeafe" listening={false} />}
+        <Transformer ref={transformer} rotateEnabled={false} keepRatio={selection?.kind === "fixture"} flipEnabled={false} enabledAnchors={["top-left", "top-right", "bottom-left", "bottom-right"]} boundBoxFunc={(oldBox, box) => box.width < 4 || box.height < 4 ? oldBox : box} />
+        {focusedFixture && focusedLabel && <Label name="selected-fixture-label" x={focusedLabel.x} y={focusedLabel.y} scaleX={focusedLabel.scaleX} scaleY={focusedLabel.scaleY} listening={false}>
+          <Tag fill="#ffffff" stroke="#cbd1d9" strokeWidth={1} cornerRadius={4} />
+          <Text name="selected-fixture-name" text={focusedFixture.name} width={focusedLabel.width} height={focusedLabel.height} padding={6} fontSize={12} fontStyle="bold" fill="#252d3a" ellipsis wrap="none" verticalAlign="middle" />
+        </Label>}
+      </Layer>
+    </Stage>
+    <FixturePlacementAction readOnly={readOnly} />
+    <EditorMinimap />
+  </div>;
 }

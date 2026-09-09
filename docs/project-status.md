@@ -1,8 +1,10 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-09
+기준일: 2026-09-10
 
 ## 현재 마일스톤
+
+**층별 1,000개 조명 맵 편집 개선 완료(소프트웨어)**: 미배치 드래그 배치, 확인 후 배치 해제, 층별 초안/잠금/저장, Undo/Redo, 검색·일괄 편집·미니맵과 등록 후 식별을 구현했다. 웹 497개 단위, 편집기 Chromium 29개와 추가 성능 1개, 실제 설치 여정 2개 및 두 층 배치 여정 1개를 통과했다. 사용자 DB migration 적용과 실장비 배포/검증은 실행하지 않았다.
 
 **Calm Operations 고객 UI 전면 개선 완료(소프트웨어)**: 공통 Task 1, 로그인/operator Scene 01~03, setup/claim/registration Scene 04~09, monitoring Scene 10~12, manual control Scene 13~16, schedule/event Scene 17~21, statistics Scene 22~23, settings/floor/security Scene 24~26을 구현했다. 기존 API·DB·MQTT·firmware 계약은 변경하지 않았고, 1440/1024/390/320 자동 Chromium은 software UI 증거다. 수동 in-app Browser 시각 QA와 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이번 실행에서 수행하지 않았으며 완료로 확대 기록하지 않는다.
 
@@ -10,9 +12,9 @@
 
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
-| 맵 배치 Task 8 식별 통신/펌웨어 | 완료(소프트웨어, 웹 통합 중) | 등록 후 Health Attention API/MQTT/Gateway 경로, 단일 대상·session·10초 만료·인증/lease·중복/재시작 차단과 펌웨어 최신 밝기 복귀를 구현했다. Gateway 613, API 801(환경 의존 172 skip), Shared 172, 식별 API/실DB·Redis 17, Docker/ACL 24 및 API/Gateway build를 통과했다. Main 관련 Gateway 12/API 17 재실행 통과. 실제 broker/RF/LED 식별은 미검증이다. |
-| 맵 배치 Task 1/10 및 등록 서버 분리 | 완료(소프트웨어) | 기존 좌표 보존 migration, 신규 미배치, V1/V2 snapshot, 배치와 장비/에너지 분리, 1 MiB PUT와 묶음 저장을 구현했다. Shared 172, API 800(환경 의존 170 skip), 격리 DB/HTTP 18 및 API typecheck/build, 독립 코드 검토를 통과했다. 1,000 fixture/2,000 object 100회 저장 p95 425ms, 복구 485ms. 사용자 DB 적용과 실장비 검증은 미실행이며 웹 통합은 진행 중이다. |
-| 1,000개 조명 맵 배치 개선 | 구현 중 | [기존 에디터 설계](superpowers/specs/2026-07-06-floor-editor-design.md)의 2026-09-09 범위와 [실행 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 Task 1~11을 진행한다. backend는 배치 계약/등록 분리/대량 저장, web_frontend는 층별 편집/드롭/확인 후 배치 해제/대량 편집, gateway/backend와 firmware는 등록 후 식별 명령을 담당한다. 실장비 검증은 사용자 요청으로 후속이며 이번 실행은 소프트웨어 구현과 브라우저/실DB 검증에 집중한다. 기존 파일 도면 활용은 보류하고 자산/좌표는 보존한다. |
+| 맵 배치 Task 8 식별 통신/펌웨어 | 완료(소프트웨어) | 등록 후 Health Attention API/MQTT/Gateway 경로, 단일 대상·session·10초 만료·인증/lease·중복/재시작 차단과 펌웨어 최신 밝기 복귀를 구현했다. Gateway 613, API 801(환경 의존 172 skip), Shared 172, 식별 API/실DB·Redis 17, Docker/ACL 24 및 API/Gateway build를 통과했다. Main 관련 Gateway 12/API 17 재실행 통과. 실제 broker/RF/LED 식별은 미검증이다. |
+| 맵 배치 Task 1/10 및 등록 서버 분리 | 완료(소프트웨어) | 기존 좌표 보존 migration, 신규 미배치, V1/V2 snapshot, 배치와 장비/에너지 분리, 1 MiB PUT와 묶음 저장을 구현했다. Shared 172, API 800(환경 의존 170 skip), 격리 DB/HTTP 18 및 API typecheck/build, 독립 코드 검토를 통과했다. 1,000 fixture/2,000 object 100회 저장 p95 425ms, 복구 485ms. 사용자 DB 적용과 실장비 검증은 미실행이며 웹 통합은 완료했다. |
+| 1,000개 조명 맵 배치 개선 | 완료(소프트웨어) | [실행 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 Task 1~10과 Task 11 소프트웨어 검증 완료. 층별 편집·드롭·확인 후 배치 해제·일괄 편집·식별 UI와 데이터 보존을 연결했다. 1,000개 배치 warm reload 20회 준비 p95 220.6ms, 실제 PostgreSQL 저장 100회 main 재검증 p95 549ms. 실장비 검증과 기존 파일 도면 활용은 보류하고 자산/좌표는 보존한다. |
 | 에이전트 운영 기반 Task 1 | 완료 | 운영 기준과 지속 갱신 상태판을 작성했다. |
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
 | 메뉴 완성 설계 작성 | 완료 | [모니터링·제어·통계 완료 설계](superpowers/specs/2026-08-26-monitoring-control-statistics-completion-design.md)에 재검토를 반영해 migration 시점 에너지 추적과 durable state outbox·application ACK까지 확정했다. |
@@ -49,7 +51,7 @@
 
 ## 다음 단계
 
-현재 [맵 배치 개선 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 Task 1~11을 실행 중이다. 배치 계약·등록 분리, 층별 UI, 식별 명령을 역할별로 구현하고 독립된 DB/브라우저 환경에서 검증한다. 펌웨어 식별 출력 단위는 host 12개 시나리오·portable 테스트·ESP-IDF 빌드 및 독립 코드 검토를 통과했다. 실장비 배포·검증은 실행하지 않는다.
+[맵 배치 개선 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 소프트웨어 작업은 완료했다. 이후 사용자 DB 백업/migration 적용과 Raspberry Pi/ESP32-H2/LED의 식별 시작·중지·만료·최신 밝기 복귀를 검증한다. 현재는 실장비 검증 보류 요청을 유지하며 배포하지 않는다. 기존 파일 도면 활용, 도형 다중 선택/회전, 큰 웹 bundle 코드 분할은 후속 범위다.
 
 기존 Calm Operations의 1440/1024/390/320 수동 시각 QA는 후속 검증으로 유지한다. 자동 Chromium 검증을 사람의 시각 확인으로 대체 기록하지 않으며, 기능별 Raspberry Pi/BlueZ/ESP32-H2 HIL 여부는 해당 증거를 기준으로 판정한다.
 

@@ -367,31 +367,20 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
       registerMutation.mutate({
         mode: "batch",
         defaults: batchDefaults,
-        nodes: actionableNodes.map((node) => ({ nodeId: node.id, placement: { mode: "auto" } }))
+        nodes: actionableNodes.map((node) => ({ nodeId: node.id }))
       });
       return;
     }
 
-    const coordinateErrors: Record<string, string> = {};
     const registrationNodes = actionableNodes.map((node) => {
       const draft = individualDrafts[node.id] ?? createIndividualDraft();
-      const hasX = draft.x.trim() !== "";
-      const hasY = draft.y.trim() !== "";
-      if (hasX !== hasY) coordinateErrors[node.id] = "X와 Y 좌표를 모두 입력하거나 모두 비워주세요.";
       return {
         nodeId: node.id,
         fixtureName: draft.fixtureName,
         ratedWatt: draft.ratedWatt,
-        size: draft.size,
-        placement: hasX && hasY
-          ? { mode: "manual" as const, x: Number(draft.x), y: Number(draft.y) }
-          : { mode: "auto" as const }
+        size: draft.size
       };
     });
-    if (Object.keys(coordinateErrors).length > 0) {
-      setNodeErrors((current) => ({ ...current, ...coordinateErrors }));
-      return;
-    }
     registerMutation.mutate({ mode: "individual", defaults: individualDefaults, nodes: registrationNodes });
   }
 
@@ -644,7 +633,7 @@ function replaceNode(nodes: DiscoveredRegistrationNode[], updatedNode: Discovere
 }
 
 function createIndividualDraft(): FixtureIndividualDraft {
-  return { fixtureName: "", ratedWatt: "40.00", size: 20, x: "", y: "" };
+  return { fixtureName: "", ratedWatt: "40.00", size: 20 };
 }
 
 function isRegisterableNode(node: DiscoveredRegistrationNode, session: RegistrationSession | null) {

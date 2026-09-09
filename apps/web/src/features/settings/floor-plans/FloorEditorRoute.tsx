@@ -3,7 +3,8 @@ import { LockKeyhole } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import type { AuthUser } from "../../../api/auth";
-import { FeedbackState } from "../../../components/ui";
+import { useDashboard } from "../../../api/queries";
+import { Button, FeedbackState } from "../../../components/ui";
 import {
   acquireFloorEditorLease,
   getFloorEditorState,
@@ -40,9 +41,9 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isDirty, setIsDirty] = useState(false);
-  const leaseTokenRef = useRef<string | null>(null);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
   const selectedSiteId = new URLSearchParams(location.search).get("siteId");
+  const dashboard = useDashboard(selectedSiteId ?? undefined);
   const canEdit = userRole === "admin";
   const editorQuery = useQuery({
     queryKey: ["floor-editor", selectedSiteId ?? "unresolved", floorId],
@@ -96,20 +97,28 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
           icon={LockKeyhole}
           title={activeLease.holderName ? `${activeLease.holderName}님이 이 도면을 편집 중입니다.` : "편집 권한을 확보하지 못했습니다."}
           description="현재 버전은 읽기 전용으로 확인할 수 있습니다."
+          action={<Button variant="secondary" disabled={leaseState.isAcquiring} onClick={leaseState.retry}>편집 권한 다시 요청</Button>}
         />
       ) : null}
       <FloorEditorView
+        key={`${selectedSiteId}:${floorId}`}
         initialState={editorQuery.data}
         userRole={userRole}
         readOnly={!activeLease.editable}
         leaseToken={activeLease.token}
         leaseFence={activeLease.fence}
+        floors={dashboard.data?.floors ?? [{ id: floorId!, name: editorQuery.data.floor.name }]}
+        onFloorChange={(nextFloorId) => {
+          if (nextFloorId === floorId || !dashboard.data?.floors.some((floor) => floor.id === nextFloorId)) return;
+          if (isDirty && !window.confirm(discardMessage)) return;
+          if (isDirty) confirmEditorLeave();
+          navigateFromEditor(`/settings/floor-plans/${encodeURIComponent(nextFloorId)}/edit${location.search}`);
+        }}
         onDirtyChange={setIsDirty}
         onCancel={leaveEditor}
         onReload={async () => { await editorQuery.refetch(); }}
         onSaved={() => {
           setIsDirty(false);
-          navigateFromEditor(listPath);
         }}
       />
     </>
@@ -118,11 +127,17 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
 
 function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
   const [leaseState, setLeaseState] = useState<FloorLeaseState>({ floorId: null, lease: { editable: false } });
+  const [attempt, setAttempt] = useState(0);
+  const [isAcquiring, setIsAcquiring] = useState(true);
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
 
   useEffect(() => {
     if (!canEdit || !floorId) return;
 
+    setIsAcquiring(true);
+    setLeaseState({ floorId, lease: { editable: false } });
     let disposed = false;
+    let pageHidden = false;
     let leaseLost = false;
     let acquiredToken: string | null = null;
     let heartbeat: number | null = null;
@@ -150,6 +165,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       acquiredToken = null;
       stopTimers();
       publish(lease.editable ? { editable: false } : lease);
+      setIsAcquiring(false);
     };
     const scheduleLeaseDeadline = (deadlineAt: number) => {
       const now = currentLeaseTime();
@@ -164,7 +180,10 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       return true;
     };
     const releaseAfterDispose = (token: string) => {
-      void releaseFloorEditorLease(floorId, token).catch(() => undefined);
+      const release = pageHidden
+        ? releaseFloorEditorLease(floorId, token, { keepalive: true })
+        : releaseFloorEditorLease(floorId, token);
+      void release.catch(() => undefined);
     };
     const renewLease = async () => {
       const token = acquiredToken;
@@ -173,6 +192,10 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       const deadlineAt = currentLeaseTime() + floorEditorLeaseDeadlineMs;
       try {
         const renewed = await acquireFloorEditorLease(floorId, token);
+        if (disposed) {
+          if (renewed.editable && renewed.token === token) releaseAfterDispose(token);
+          return;
+        }
         if (disposed || leaseLost || acquiredToken !== token) return;
         if (!renewed.editable || renewed.token !== token) {
           loseLease(renewed);
@@ -188,7 +211,11 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
     };
     const scheduleInitialRetry = (lease: FloorEditorLease) => {
       publish(lease);
-      if (disposed || leaseLost || acquiredToken || retryAttempt >= initialLeaseRetryDelaysMs.length) return;
+      if (disposed || leaseLost || acquiredToken) return;
+      if (retryAttempt >= initialLeaseRetryDelaysMs.length) {
+        setIsAcquiring(false);
+        return;
+      }
       const delay = initialLeaseRetryDelaysMs[retryAttempt++];
       retryTimer = window.setTimeout(() => {
         retryTimer = null;
@@ -216,6 +243,7 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
           return;
         }
         publish(acquired);
+        setIsAcquiring(false);
         heartbeat = window.setInterval(() => void renewLease(), leaseHeartbeatMs);
       } catch {
         if (!disposed && !leaseLost && !acquiredToken) scheduleInitialRetry({ editable: false });
@@ -224,17 +252,38 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
       }
     };
 
-    void acquireInitialLease();
-    return () => {
+    const handlePageHide = () => {
+      if (disposed) return;
+      // beforeunload can be cancelled. Only pagehide ends ownership, including
+      // BFCache suspension; no token is persisted or shared with another tab.
+      pageHidden = true;
+      publish({ editable: false });
+      setIsAcquiring(false);
       disposed = true;
       stopTimers();
       const token = acquiredToken;
       acquiredToken = null;
       if (token) releaseAfterDispose(token);
     };
-  }, [canEdit, floorId]);
+    const handlePageShow = (event: PageTransitionEvent) => {
+      // A restored document must reacquire, never revive its released lease.
+      if (event.persisted && pageHidden) retry();
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+    void acquireInitialLease();
+    return () => {
+      disposed = true;
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
+      stopTimers();
+      const token = acquiredToken;
+      acquiredToken = null;
+      if (token) releaseAfterDispose(token);
+    };
+  }, [canEdit, floorId, attempt, retry]);
 
-  return leaseState;
+  return { ...leaseState, isAcquiring, retry };
 }
 
 function useDirtyNavigationGuard(

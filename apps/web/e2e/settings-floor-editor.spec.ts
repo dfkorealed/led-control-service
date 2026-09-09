@@ -34,7 +34,8 @@ test("operator customer routes are blocked and admin floor changes are reflected
   await adminPage.getByRole("complementary", { name: "속성 패널" }).getByLabel("X").fill("240");
   await adminPage.getByRole("button", { name: "저장", exact: true }).click();
 
-  await expect(adminPage).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
+  await expect(adminPage).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1$/);
+  await expect(adminPage.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
   await expect.poll(() => adminApi.editorRequests.filter(({ type }) => type === "atomic-save")).toHaveLength(1);
 
   const save = adminApi.editorRequests.find(({ type }) => type === "atomic-save");
@@ -59,6 +60,8 @@ test("operator customer routes are blocked and admin floor changes are reflected
   expect(acquireBeforeSave).toMatchObject({ type: "lease-acquire", payload: {}, result: { editable: true } });
   expect(acquireBeforeSave.sequence).toBeLessThan(saveSequence);
 
+  await adminPage.getByRole("link", { name: "모니터링", exact: true }).click();
+  await expect(adminPage).toHaveURL(/\/monitoring\?siteId=site-1$/);
   await expect.poll(() => adminApi.editorRequests.some((request) => (
     request.type === "lease-release"
     && request.sequence > saveSequence
@@ -68,7 +71,6 @@ test("operator customer routes are blocked and admin floor changes are reflected
 
   expect(adminApi.fixtureUpdates).toEqual([{ id: "fixture-1", x: 240 }]);
 
-  await adminPage.goto("/monitoring?siteId=site-1");
   const movedFixture = adminPage.getByRole("button", { name: "B2-L01 정상 70%" });
   await expect(movedFixture).toBeVisible();
   await expect(movedFixture).toHaveCSS("--fixture-left", "20%");
@@ -398,6 +400,14 @@ for (const viewport of responsiveViewports) {
 
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
+      // Validate complete touch areas, not the slice of a toolbar clipped by
+      // the viewport after centering the canvas on this vertically stacked page.
+      await page.locator(".floor-editor-toolbar").scrollIntoViewIfNeeded();
+      await expectMinimumTouchTargets(page, ".floor-editor-toolbar");
+      await expectMinimumTouchTargets(page, ".editor-snap");
+      await page.getByRole("button", { name: "배치 해제", exact: true }).scrollIntoViewIfNeeded();
+      await expectMinimumTouchTargets(page, ".fixture-placement-action");
+      await page.evaluate(() => window.scrollTo(0, 0));
       await expectMinimumTouchTargets(page, ".app-shell");
     }
   });

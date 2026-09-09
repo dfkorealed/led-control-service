@@ -3502,10 +3502,11 @@ button.group-card {
 
 .floor-editor-layout {
   display: grid;
-  grid-template-columns: 60px minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: 224px minmax(240px, 1fr) 268px;
   gap: 12px;
   align-items: stretch;
   min-height: 620px;
+  height: max(620px, calc(100vh - 230px));
 }
 
 .floor-editor-toolbar,
@@ -3513,7 +3514,7 @@ button.group-card {
 .floor-asset-uploader,
 .editor-revisions {
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 6px;
   background: var(--panel);
   box-shadow: 0 10px 24px rgba(15, 38, 70, 0.04);
 }
@@ -3523,6 +3524,7 @@ button.group-card {
   align-content: start;
   gap: 8px;
   padding: 8px;
+  grid-template-columns: repeat(4, 44px);
 }
 
 .floor-editor-toolbar button {
@@ -3567,6 +3569,7 @@ button.group-card {
   align-content: start;
   gap: 12px;
   min-width: 0;
+  overflow-y: auto;
 }
 
 .editor-conflict {
@@ -3586,20 +3589,21 @@ button.group-card {
 .floor-editor-stage {
   display: grid;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 0;
   background: #dfe8f5;
-  padding: 12px;
+  padding: 0;
 }
 
 .floor-editor-canvas {
   position: relative;
-  width: min(100%, 1200px);
+  width: 100%;
+  height: 100%;
   min-height: 420px;
   overflow: hidden;
-  border: 1px solid #c6d3e3;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 0;
   background-color: #f8fbff;
 }
 
@@ -3610,6 +3614,39 @@ button.group-card {
     linear-gradient(90deg, #dbe6f3 1px, transparent 1px);
   background-size: 32px 32px;
 }
+
+.floor-editor-left-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; border-right: 1px solid var(--border); }
+.fixture-placement-list { display: flex; flex-direction: column; min-height: 0; flex: 1; gap: 8px; padding: 10px; }
+.editor-list-heading { display: flex; gap: 8px; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
+.editor-list-heading .ui-button { padding: 4px; min-height: 32px; }
+.editor-search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 4px; padding: 0 8px; }
+.editor-search input { width: 100%; min-width: 0; height: 38px; border: 0; background: transparent; font: inherit; font-size: 12px; }
+.editor-virtual-list { height: 400px; min-height: 160px; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.editor-fixture-row { display: flex; align-items: center; gap: 5px; width: 100%; border: 0; border-bottom: 1px solid var(--border); padding: 8px 4px; background: #fff; text-align: left; cursor: pointer; color: var(--text); }
+.editor-fixture-row[draggable=true] { cursor: grab; }
+.editor-fixture-row.selected { background: #eaf2ff; box-shadow: inset 3px 0 #2263c6; }
+.editor-fixture-row > span { display: grid; min-width: 0; gap: 5px; }
+.editor-fixture-row strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-fixture-row small { font-size: 10px; color: var(--muted); }
+.editor-snap { display: flex; align-items: center; gap: 8px; padding: 10px; font-size: 12px; }
+.fixture-placement-action { position: absolute; z-index: 5; width: 48px; height: 48px; padding: 0; background: white; border-radius: 4px; box-shadow: 0 2px 8px #0002; }
+.editor-minimap { position: absolute; bottom: 12px; right: 12px; width: 160px; height: 100px; border: 1px solid #aab3bd; background: #e9edf1; cursor: crosshair; }
+.editor-dialog-backdrop { position: fixed; inset: 0; background: #18212e66; display: grid; place-items: center; z-index: 1000; padding: 16px; }
+.editor-confirm-dialog { width: min(440px, 100%); padding: 24px; background: #fff; border-radius: 8px; box-shadow: 0 16px 48px #0003; }
+.editor-confirm-dialog h3 { margin: 0; font-size: 18px; }
+.editor-confirm-dialog p { line-height: 1.7; overflow-wrap: anywhere; }
+.editor-align-tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+.editor-align-tools .ui-button { min-width: 40px; min-height: 40px; padding: 4px; }
+.editor-layer-row { display: flex; align-items: center; min-width: 0; gap: 2px; border-bottom: 1px solid var(--border); }
+.editor-layer-row > strong, .editor-layer-name { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-layer-name { border: 0; background: none; text-align: left; cursor: pointer; padding: 12px 0; }
+.editor-layer-row .ui-button { padding: 4px; min-width: 34px; }
+.editor-name-preview { padding-left: 16px; font-size: 12px; overflow-wrap: anywhere; }
+.floor-editor-side-panel > .segmented-control { display: flex; min-width: 0; }
+.floor-editor-side-panel > .segmented-control button { flex: 1; padding: 8px 4px; }
+.floor-editor-shell .editor-properties-panel, .floor-editor-shell .editor-revisions, .floor-editor-shell .floor-editor-toolbar { border: 0; border-radius: 0; box-shadow: none; }
+.floor-editor-shell .editor-properties-panel { padding: 12px; }
+.floor-editor-actions select { min-height: 40px; max-width: 130px; font: inherit; border: 1px solid var(--border); border-radius: 4px; }
 
 .floor-editor-world {
   position: absolute;
@@ -4687,21 +4724,34 @@ button.group-card {
   .floor-editor-layout {
     grid-template-columns: 1fr;
     min-height: 0;
+    height: auto;
   }
+  .floor-editor-left-panel { border-right: 0; }
+  .editor-virtual-list { height: 192px; flex: none; }
 
   .floor-editor-toolbar {
+    grid-template-columns: none;
     grid-auto-flow: column;
-    grid-auto-columns: 44px;
+    grid-auto-columns: 48px;
     overflow-x: auto;
   }
+
+  .floor-editor-toolbar button { width: 48px; min-width: 48px; height: 48px; min-height: 48px; border-radius: 4px; }
+  .editor-snap { min-height: 48px; }
 
   .floor-editor-side-panel {
     grid-column: auto;
   }
 
   .floor-editor-stage {
-    padding: 8px;
+    padding: 0;
+    height: 480px;
   }
+  .editor-list-heading .ui-button, .editor-layer-row .ui-button, .editor-align-tools .ui-button { min-height: 44px; min-width: 44px; }
+  .editor-minimap { width: 160px; height: 100px; }
+  .floor-editor-shell .floor-editor-actions > .ui-button { min-width: 48px; min-height: 48px; padding: 10px; border-radius: 4px; }
+  .floor-editor-actions select, .editor-search input { min-height: 48px; min-width: 48px; }
+  .floor-editor-shell .segmented-control button { min-width: 48px; min-height: 48px; border-radius: 4px; }
 
   .summary-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));

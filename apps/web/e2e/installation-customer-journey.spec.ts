@@ -68,7 +68,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.goto(`/monitoring?siteId=${created.siteId}`);
   await login(admin, lab.admin.loginId, lab.admin.password);
   await expect(admin).toHaveURL(new RegExp(`/settings\\?siteId=${created.siteId}$`));
-  await expect(admin.getByRole("heading", { name: "초기 설치 설정" })).toBeVisible();
+  await expect(admin.getByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeVisible();
   await admin.getByLabel("주소").fill("서울시 Task 9 테스트구 9번지");
   await admin.getByLabel("kWh 단가").fill("160");
   await admin.getByLabel("시간대").selectOption("Asia/Seoul");
@@ -126,7 +126,8 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByText("등록 완료").first()).toBeVisible();
   await admin.getByRole("button", { name: "등록 세션 완료" }).click();
   await admin.getByRole("link", { name: "모니터링" }).click();
-  await expect(admin.getByRole("heading", { name: "B1 운영 현황" })).toBeVisible();
+  await expect(admin.getByRole("heading", { name: "운영 현황", exact: true })).toBeVisible();
+  await expect(admin.getByText("배치된 조명이 없습니다", { exact: true })).toBeVisible();
   await expect(admin.getByText("장비 Health")).toBeVisible();
   await lab.screenshot(admin, testInfo, "02-admin-monitoring");
 
@@ -177,19 +178,21 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByText(/현재 등록 조명 2개 .* 24시간 .* 100% 밝기/)).toBeVisible();
 
   const mapFixtureName = fixtureNames[1];
-  const originalPlacement = await lab.readFixturePlacement(mapFixtureName);
   const movedX = 240;
   await admin.getByRole("link", { name: "설정" }).click();
   await admin.getByRole("link", { name: "도면 관리" }).click();
-  await admin.getByRole("link", { name: "B1 도면 편집" }).click();
+  await admin.getByRole("link", { name: "B1 도면 등록" }).click();
   const canvas = admin.getByLabel("B1 편집 캔버스");
-  await expect(admin.getByRole("button", { name: "선택" })).toBeEnabled();
-  await canvas.click({ position: originalPlacement });
+  await expect(admin.getByRole("button", { name: "선택", exact: true })).toBeEnabled();
+  await expect(canvas).toHaveAttribute("aria-disabled", "false");
+  const unplacedList = admin.getByRole("complementary", { name: "조명 목록" });
+  await unplacedList.getByRole("button", { name: new RegExp(mapFixtureName) }).dragTo(canvas, { targetPosition: { x: 160, y: 200 } });
   const properties = admin.getByRole("complementary", { name: "속성 패널" });
   await expect(properties.getByRole("heading", { name: mapFixtureName })).toBeVisible();
   await properties.getByLabel("X").fill(String(movedX));
   await admin.getByRole("button", { name: "저장", exact: true }).click();
-  await expect(admin).toHaveURL(new RegExp(`/settings/floor-plans\\?siteId=${created.siteId}$`));
+  await expect(admin.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+  await expect(admin).toHaveURL(new RegExp(`/settings/floor-plans/${installation.floorId}/edit`));
   await admin.getByRole("link", { name: "모니터링" }).click();
   const movedFixture = admin.getByRole("button", { name: new RegExp(mapFixtureName) });
   await expect(movedFixture).toBeVisible();
@@ -212,7 +215,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("button", { name: "로그인" }).click();
   await expect(admin.getByRole("heading", { name: "비밀번호 변경" })).toBeVisible();
   await admin.getByRole("link", { name: "모니터링" }).click();
-  await expect(admin.getByRole("heading", { name: "B1 운영 현황" })).toBeVisible();
+  await expect(admin.getByRole("heading", { name: "운영 현황", exact: true })).toBeVisible();
   await admin.getByRole("button", { name: "로그아웃" }).click();
 
   await lab.seedViewerAccount();
@@ -220,7 +223,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   lab.captureNetwork(viewer, "viewer");
   await viewer.goto(`/monitoring?siteId=${created.siteId}`);
   await login(viewer, lab.viewer.loginId, lab.viewer.password);
-  await expect(viewer.getByRole("heading", { name: "B1 운영 현황" })).toBeVisible();
+  await expect(viewer.getByRole("heading", { name: "운영 현황", exact: true })).toBeVisible();
   await viewer.getByRole("link", { name: "제어" }).click();
   await expect(viewer.getByText(/조회 전용 계정입니다/)).toBeVisible();
   await expect(viewer.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
@@ -229,7 +232,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(viewer.getByRole("link", { name: "비밀번호 변경" })).toHaveCount(0);
   await viewer.getByRole("link", { name: "도면 관리" }).click();
   await expect(viewer.getByText("도면 미등록")).toBeVisible();
-  await expect(viewer.getByRole("link", { name: "B1 도면 편집" })).toHaveCount(0);
+  await expect(viewer.getByRole("link", { name: /B1 도면 (등록|편집)/ })).toHaveCount(0);
   await lab.screenshot(viewer, testInfo, "03-viewer-read-only");
 
   await operator.bringToFront();

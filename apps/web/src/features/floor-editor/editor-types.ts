@@ -35,6 +35,12 @@ export interface EditorFixture {
   ratedWatt: number;
   brightness: number;
   status: "online" | "offline" | "fault";
+  placementStatus?: "unplaced" | "placed";
+  positionVerifiedAt?: string | null;
+  /** Explicit user confirmation intent; only the server assigns a timestamp. */
+  positionVerified?: boolean;
+  serialNumber?: string | null;
+  meshAddress?: number | string | null;
 }
 
 export interface FloorMapObject {

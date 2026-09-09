@@ -1,9 +1,14 @@
 import type { RestoreFloorEditorRevisionInput, SaveEditorStateInput } from "@led-control/shared";
+import type { FixtureIdentifyRequest, FixtureIdentifyResponse } from "@led-control/shared";
 import { apiGet, apiPost, apiPut, apiRequest } from "./client";
 import type { FloorEditorState } from "../features/floor-editor/editor-types";
 
 export function getFloorEditorState(floorId: string) {
   return apiGet<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`);
+}
+
+export function identifyFixture(floorId: string, fixtureId: string, payload: FixtureIdentifyRequest) {
+  return apiPost<FixtureIdentifyResponse>(`/floors/${encodeURIComponent(floorId)}/fixtures/${encodeURIComponent(fixtureId)}/identify`, payload);
 }
 
 export interface FloorEditorRevision {
@@ -36,8 +41,9 @@ export function acquireFloorEditorLease(floorId: string, token?: string) {
   return apiPost<FloorEditorLease>(`/floors/${encodeURIComponent(floorId)}/editor-lease`, token ? { token } : {});
 }
 
-export function releaseFloorEditorLease(floorId: string, token: string) {
+export function releaseFloorEditorLease(floorId: string, token: string, options: { keepalive?: boolean } = {}) {
   return apiRequest<{ released: boolean }>(`/floors/${encodeURIComponent(floorId)}/editor-lease`, {
+    ...options,
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token })

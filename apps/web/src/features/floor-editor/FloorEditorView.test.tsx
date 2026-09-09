@@ -6,6 +6,8 @@ import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
 import type { FloorEditorState } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
+import { saveEditorDraft } from "./editor-drafts";
+import { clearTenantCache } from "../../api/principal-cache";
 
 const floorEditorApi = vi.hoisted(() => ({
   listFloorEditorRevisions: vi.fn(),
@@ -70,8 +72,9 @@ const editorState: FloorEditorState = {
   ]
 };
 
-function renderEditor(state: FloorEditorState = editorState, props?: Partial<Parameters<typeof FloorEditorView>[0]>) {
+function renderEditor(state: FloorEditorState = editorState, props?: Partial<Parameters<typeof FloorEditorView>[0]>, userId?: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  if (userId) queryClient.setQueryData(["auth", "me"], { user: { id: userId } });
   const editorProps = {
     userRole: "admin" as const,
     leaseToken: "lease-token",
@@ -98,6 +101,63 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
 }
 
 describe("FloorEditorView", () => {
+  it("preserves viewport and selection when a save cache response is structurally shared", async () => {
+    const saved = { ...structuredClone(editorState), floor: { ...editorState.floor, mapRevision: 8 }, fixtures: [{ ...editorState.fixtures[0], x: 240 }] };
+    floorEditorApi.saveFloorEditorState.mockResolvedValueOnce(saved);
+    const onSaved = vi.fn();
+    const view = renderEditor(editorState, { onSaved });
+    const key = ["floor-editor", "site-2", "floor-b2"];
+    view.queryClient.setQueryData(key, structuredClone(editorState));
+    act(() => {
+      const store = useFloorEditorStore.getState();
+      store.selectFixture("fixture-1");
+      store.setZoom(0.6);
+      store.setPan({ x: 75, y: -30 });
+      store.updateFixture("fixture-1", { x: 240 });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved));
+    const cached = view.queryClient.getQueryData<FloorEditorState>(key)!;
+    expect(cached).toEqual(saved);
+    expect(cached).not.toBe(saved);
+    view.rerenderEditor(cached);
+    expect(useFloorEditorStore.getState()).toMatchObject({ zoom: 0.6, pan: { x: 75, y: -30 }, selectedFixtureIds: ["fixture-1"], selection: { kind: "fixture", id: "fixture-1" }, initialState: saved, isDirty: false });
+  });
+
+  it("keeps clean same-scope history on equivalent refetch and resets it for another floor", () => {
+    const view = renderEditor();
+    act(() => {
+      const store = useFloorEditorStore.getState();
+      store.updateFixture("fixture-1", { x: 240 });
+      store.undo();
+      store.setZoom(0.6);
+      store.setPan({ x: 75, y: -30 });
+    });
+    const future = useFloorEditorStore.getState().future;
+    expect(future).toHaveLength(1);
+    view.rerenderEditor(structuredClone(editorState));
+    expect(useFloorEditorStore.getState().future).toBe(future);
+    expect(useFloorEditorStore.getState().zoom).toBe(0.6);
+    view.rerenderEditor({ ...structuredClone(editorState), floor: { ...editorState.floor, id: "other-floor" } });
+    expect(useFloorEditorStore.getState()).toMatchObject({ zoom: 1, pan: { x: 0, y: 0 }, past: [], future: [], selectedFixtureIds: [] });
+  });
+
+  it("ignores a late save response after switching to another floor draft", async () => {
+    const save = deferred<FloorEditorState>();
+    floorEditorApi.saveFloorEditorState.mockReturnValueOnce(save.promise);
+    const onSaved = vi.fn();
+    const view = renderEditor(editorState, { onSaved });
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 44 }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    const other = { ...structuredClone(editorState), floor: { ...editorState.floor, id: "floor-other" } };
+    view.rerenderEditor(other);
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 999 }));
+    await act(async () => save.resolve({ ...editorState, floor: { ...editorState.floor, mapRevision: 8 } }));
+    expect(useFloorEditorStore.getState().state?.floor.id).toBe("floor-other");
+    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(999);
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+    expect(onSaved).not.toHaveBeenCalled();
+  });
   beforeAll(() => {
     stylesheet = document.createElement("style");
     stylesheet.textContent = styles;
@@ -124,6 +184,7 @@ describe("FloorEditorView", () => {
     cleanup();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+    localStorage.clear();
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null });
   });
 
@@ -140,6 +201,35 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
   });
+  it("rejects recovery while save is pending and ignores a response after principal purge", async () => {
+    saveEditorDraft("draft-user", editorState, { ...editorState, fixtures: [{ ...editorState.fixtures[0], x: 555 }] });
+    const save = deferred<FloorEditorState>();
+    floorEditorApi.saveFloorEditorState.mockReturnValueOnce(save.promise);
+    const { queryClient } = renderEditor(editorState, undefined, "draft-user");
+    const recover = await screen.findByRole("button", { name: "초안 복구" });
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 222 }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(recover).toBeDisabled();
+    fireEvent.click(recover);
+    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(222);
+    act(() => clearTenantCache(queryClient));
+    await act(async () => save.resolve(editorState));
+    expect(useFloorEditorStore.getState().state).toBeNull();
+    expect(queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toBeUndefined();
+  });
+  it("ignores a late revision restore after changing floors", async () => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
+    const restore = deferred<FloorEditorState & { skippedFixtureIds: string[] }>();
+    floorEditorApi.restoreFloorEditorRevision.mockReturnValueOnce(restore.promise);
+    const view = renderEditor();
+    fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
+    const other = { ...editorState, floor: { ...editorState.floor, id: "other" } };
+    view.rerenderEditor(other);
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 777 }));
+    await act(async () => restore.resolve({ ...editorState, skippedFixtureIds: [] }));
+    expect(useFloorEditorStore.getState().state?.floor.id).toBe("other");
+    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(777);
+  });
 
   it("keeps editor icon actions at least 44 by 44 pixels across desktop and mobile tracks", async () => {
     floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
@@ -155,9 +245,9 @@ describe("FloorEditorView", () => {
       expect(Number.parseFloat(computedStyle.minHeight)).toBeGreaterThanOrEqual(44);
     }
 
-    expect(styles).toMatch(/\.floor-editor-layout\s*\{[^}]*grid-template-columns:\s*60px\s+minmax\(0,\s*1fr\)/s);
+    expect(styles).toContain("grid-template-columns: 224px minmax(240px, 1fr) 268px");
     const mobileStyles = styles.slice(styles.lastIndexOf("@media (max-width: 760px)"));
-    expect(mobileStyles).toMatch(/\.floor-editor-toolbar\s*\{[^}]*grid-auto-columns:\s*44px;/s);
+    expect(mobileStyles).toMatch(/\.floor-editor-toolbar\s*\{[^}]*grid-auto-columns:\s*48px;/s);
   });
 
   it("keeps save disabled when a route-owned lease makes the editor read-only", () => {
@@ -312,6 +402,7 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("button", { name: "이동" }));
     fireEvent.mouseDown(screen.getByLabelText("B2 편집 캔버스"), { clientX: 100, clientY: 120 });
     fireEvent.mouseMove(screen.getByLabelText("B2 편집 캔버스"), { clientX: 130, clientY: 150 });
+    fireEvent.mouseUp(screen.getByLabelText("B2 편집 캔버스"), { clientX: 130, clientY: 150 });
 
     expect(useFloorEditorStore.getState().pan).toEqual({ x: 30, y: 30 });
   });
@@ -340,8 +431,8 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("조명명")).toBeDisabled();
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: "사각형" })).toBeDisabled();
-    expect(document.querySelectorAll('.floor-asset-uploader input[type="file"]:disabled')).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "배경 없음" })).toBeDisabled();
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
     act(() => useFloorEditorStore.getState().setActiveTool("rectangle"));
     fireEvent.mouseDown(screen.getByLabelText("B2 편집 캔버스"), { clientX: 200, clientY: 160 });
     fireEvent.mouseMove(screen.getByLabelText("B2 편집 캔버스"), { clientX: 320, clientY: 240 });
@@ -394,36 +485,11 @@ describe("FloorEditorView", () => {
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
   });
 
-  it("blocks save and restore while a background upload is pending", async () => {
-    const upload = deferred<{ id: string; status: "ready"; publicUrl: string }>();
-    floorEditorApi.uploadFloorAsset.mockReturnValueOnce(upload.promise);
-    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
+  it("preserves existing background without offering upload or replacement controls", () => {
     renderEditor();
-    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 444 }));
-    const NativeUrl = URL;
-    class TestUrl extends NativeUrl {}
-    Object.assign(TestUrl, { createObjectURL: vi.fn(() => "blob:plan"), revokeObjectURL: vi.fn() });
-    vi.stubGlobal("URL", TestUrl);
-    vi.stubGlobal("Image", class {
-      naturalWidth = 1200;
-      naturalHeight = 800;
-      onload: ((event: Event) => void) | null = null;
-      set src(_value: string) {
-        queueMicrotask(() => this.onload?.(new Event("load")));
-      }
-    });
-
-    const imageInput = document.querySelector<HTMLInputElement>('.floor-asset-uploader input[accept^="image/"]')!;
-    fireEvent.change(imageInput, { target: { files: [new File(["plan"], "plan.png", { type: "image/png" })] } });
-
-    await waitFor(() => expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledOnce());
-    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "리비전 5 복구" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
-
-    upload.resolve({ id: "asset-1", status: "ready", publicUrl: "/uploads/plan.png" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "저장" })).toBeEnabled());
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
+    expect(useFloorEditorStore.getState().state?.floor.floorPlan).toEqual(editorState.floor.floorPlan);
   });
 
   it("keeps current edits and dirty state after a network failure", async () => {
@@ -440,6 +506,7 @@ describe("FloorEditorView", () => {
 
   it("409 충돌은 최신 버전 다시 불러오기만 제공한다", async () => {
     const onReload = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     floorEditorApi.saveFloorEditorState.mockRejectedValueOnce(
       new ApiError("PUT failed", 409, { message: "revision conflict" })
     );
@@ -456,7 +523,7 @@ describe("FloorEditorView", () => {
     expect(within(feedback).getAllByRole("button")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "최신 버전 다시 불러오기" }));
     expect(onReload).toHaveBeenCalledOnce();
-    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
   });
 
   it("invalidates site and floor scoped queries after atomic save", async () => {
@@ -468,7 +535,9 @@ describe("FloorEditorView", () => {
 
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", "site-2"] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-editor", "site-2", "floor-b2"] });
+    expect(queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toMatchObject({ floor: { mapRevision: 8 } });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-fixtures", "site-2", "floor-b2"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-map", "site-2", "floor-b2"] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-editor-revisions", "site-2", "floor-b2"] });
   });
 
@@ -624,6 +693,7 @@ describe("FloorEditorView", () => {
 function createDataTransfer() {
   const values = new Map<string, string>();
   return {
+    get types() { return [...values.keys()]; },
     effectAllowed: "",
     dropEffect: "",
     setData: vi.fn((type: string, value: string) => values.set(type, value)),

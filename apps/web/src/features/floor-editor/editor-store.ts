@@ -1,126 +1,188 @@
 import { create } from "zustand";
+import type { EDITOR_MAX_NAME_LENGTH } from "@led-control/shared";
 import { buildEditorChanges, hasEditorChanges } from "./editor-diff";
 import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
+import type { Point } from "./geometry";
 
-type Selection =
-  | { kind: "fixture"; id: string }
-  | { kind: "object"; id: string }
-  | null;
+type Selection = { kind: "fixture" | "object"; id: string } | null;
+export type FixturePatch = Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size" | "placementStatus" | "positionVerified">>;
+export type PlacementPoint = Point & { id: string };
+type LayerName = "background" | "objects" | "fixtures";
+type LayerSettings = Record<LayerName, { visible: boolean; locked: boolean }>;
+// The shared root is CommonJS, so enforce its literal limit through a type-only
+// import without pulling that runtime entry into the browser editor bundle.
+const maxFixtureNameLength: typeof EDITOR_MAX_NAME_LENGTH = 200;
+interface HistoryEntry { state: FloorEditorState; selection: Selection; selectedFixtureIds: string[] }
+const defaultLayers = (): LayerSettings => ({ background: { visible: true, locked: true }, objects: { visible: true, locked: false }, fixtures: { visible: true, locked: false } });
 
 interface EditorStore {
   initialState: FloorEditorState | null;
   state: FloorEditorState | null;
   isDirty: boolean;
+  dirtyFixtureIds: string[];
+  dirtyObjectIds: string[];
   activeTool: EditorTool;
   zoom: number;
-  pan: { x: number; y: number };
+  pan: Point;
+  viewport: { width: number; height: number };
   selection: Selection;
+  selectedFixtureIds: string[];
+  lockedFixtureIds: string[];
+  layers: LayerSettings;
+  snap: boolean;
+  preview: PlacementPoint[];
+  past: HistoryEntry[];
+  future: HistoryEntry[];
   initialize: (state: FloorEditorState) => void;
-  adoptBaseline: (state: FloorEditorState) => void;
+  reset: () => void;
+  adoptBaseline: (state: FloorEditorState, preserveHistory?: boolean) => void;
+  recoverDraft: (state: FloorEditorState) => void;
   discardChanges: () => void;
+  undo: () => void;
+  redo: () => void;
   setActiveTool: (tool: EditorTool) => void;
   setZoom: (zoom: number) => void;
-  setPan: (pan: { x: number; y: number }) => void;
+  setPan: (pan: Point) => void;
+  setViewport: (viewport: { width: number; height: number }) => void;
+  fit: (selected?: boolean) => void;
   resetZoom: () => void;
-  selectFixture: (fixtureId: string) => void;
+  selectFixture: (fixtureId: string, additive?: boolean) => void;
+  selectFixtures: (ids: string[], additive?: boolean) => void;
   selectObject: (objectId: string) => void;
   clearSelection: () => void;
-  updateFixture: (fixtureId: string, patch: Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size">>) => void;
+  updateFixture: (fixtureId: string, patch: FixturePatch) => void;
+  updateFixtureProperties: (ids: string[], patch: FixturePatch | ((fixture: EditorFixture, index: number) => FixturePatch)) => void;
+  placeFixtures: (placements: PlacementPoint[]) => void;
+  unplaceFixture: (id: string) => void;
+  moveFixtures: (ids: string[], delta: Point) => void;
+  setPreview: (preview: PlacementPoint[]) => void;
+  setSnap: (snap: boolean) => void;
+  setLayer: (layer: LayerName, patch: Partial<LayerSettings[LayerName]>) => void;
+  toggleFixtureLock: (ids: string[]) => void;
   updateFloorPlan: (floorPlan: FloorPlanDraft | null) => void;
   addObject: (floorId: string, draft: FloorMapObjectDraft) => void;
   updateObject: (objectId: string, patch: Partial<FloorMapObject>) => void;
   removeObject: (objectId: string) => void;
 }
 
-export const useFloorEditorStore = create<EditorStore>((set, get) => ({
-  initialState: null,
-  state: null,
-  isDirty: false,
-  activeTool: "select",
-  zoom: 1,
-  pan: { x: 0, y: 0 },
-  selection: null,
-  initialize: (state) => set({ initialState: state, state, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null }),
-  adoptBaseline: (state) => set({ initialState: state, state, isDirty: false, selection: null }),
-  discardChanges: () => set(({ initialState }) => initialState ? {
-    state: initialState,
-    isDirty: false,
-    activeTool: "select",
-    selection: null
-  } : { isDirty: false, activeTool: "select", selection: null }),
-  setActiveTool: (tool) => set({ activeTool: tool, selection: tool === "select" ? get().selection : null }),
-  setZoom: (zoom) => set({ zoom: Math.min(Math.max(zoom, 0.25), 3) }),
-  setPan: (pan) => set({ pan }),
-  resetZoom: () => set({ zoom: 1, pan: { x: 0, y: 0 } }),
-  selectFixture: (fixtureId) => set({ selection: { kind: "fixture", id: fixtureId }, activeTool: "select" }),
-  selectObject: (objectId) => set({ selection: { kind: "object", id: objectId }, activeTool: "select" }),
-  clearSelection: () => set({ selection: null }),
-  updateFixture: (fixtureId, patch) =>
-    set(({ initialState, state }) => {
-      if (!state) return {};
-      const fixture = state.fixtures.find((candidate) => candidate.id === fixtureId);
-      if (!fixture || !hasPatchChange(fixture, patch)) return {};
-      const nextState = {
-        ...state,
-        fixtures: state.fixtures.map((candidate) => candidate.id === fixtureId ? { ...candidate, ...patch } : candidate)
-      };
-      return {
-        state: nextState,
-        isDirty: stateIsDirty(initialState, nextState)
-      };
-    }),
-  updateFloorPlan: (floorPlan) =>
-    set(({ initialState, state }) => {
-      if (!state) return {};
-      const nextState = { ...state, floor: { ...state.floor, floorPlan } };
-      return { state: nextState, isDirty: stateIsDirty(initialState, nextState) };
-    }),
-  addObject: (floorId, draft) =>
-    set(({ initialState, state }) => {
-      if (!state) return {};
-      const object: FloorMapObject = {
-        ...draft,
-        id: `draft-${crypto.randomUUID()}`,
-        floorId,
-        zIndex: draft.zIndex ?? state.objects.length + 1
-      };
-      return {
-        state: { ...state, objects: [...state.objects, object] },
-        isDirty: stateIsDirty(initialState, { ...state, objects: [...state.objects, object] }),
-        selection: { kind: "object", id: object.id },
-        activeTool: "select"
-      };
-    }),
-  updateObject: (objectId, patch) =>
-    set(({ initialState, state }) => {
-      if (!state) return {};
-      const object = state.objects.find((candidate) => candidate.id === objectId);
-      if (!object || !hasPatchChange(object, patch)) return {};
-      const nextState = {
-        ...state,
-        objects: state.objects.map((candidate) => candidate.id === objectId ? { ...candidate, ...patch } : candidate)
-      };
-      return {
-        state: nextState,
-        isDirty: stateIsDirty(initialState, nextState)
-      };
-    }),
-  removeObject: (objectId) =>
-    set(({ initialState, state, selection }) => {
-      if (!state || !state.objects.some((object) => object.id === objectId)) return {};
-      const nextState = { ...state, objects: state.objects.filter((object) => object.id !== objectId) };
-      return {
-        state: nextState,
-        isDirty: stateIsDirty(initialState, nextState),
-        selection: selection?.kind === "object" && selection.id === objectId ? null : selection
-      };
-    })
-}));
-
-function hasPatchChange<T extends object>(value: T, patch: Partial<T>) {
-  return Object.entries(patch).some(([key, next]) => !Object.is(value[key as keyof T], next));
-}
-
-function stateIsDirty(initialState: FloorEditorState | null, state: FloorEditorState) {
-  return initialState ? hasEditorChanges(buildEditorChanges(initialState, state)) : false;
-}
+export const useFloorEditorStore = create<EditorStore>((set, get) => {
+  const dirty = (state: FloorEditorState) => {
+    const baseline = get().initialState;
+    if (!baseline) return { isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [] };
+    const changes = buildEditorChanges(baseline, state);
+    return { isDirty: hasEditorChanges(changes), dirtyFixtureIds: changes.fixtureUpdates.map((f) => f.id), dirtyObjectIds: [...changes.objectUpdates.map((o) => o.id), ...changes.objectDeletes, ...state.objects.filter((o) => o.id.startsWith("draft-")).map((o) => o.id)] };
+  };
+  const snapshot = (): HistoryEntry => ({ state: get().state!, selection: get().selection, selectedFixtureIds: get().selectedFixtureIds });
+  const commit = (state: FloorEditorState, extra: Partial<EditorStore> = {}) => {
+    if (state === get().state) return;
+    set({ ...dirty(state), state, past: [...get().past.slice(-99), snapshot()], future: [], preview: [], ...extra });
+  };
+  const applyFixtures = (patches: Map<string, FixturePatch>) => {
+    const { state, layers, lockedFixtureIds } = get();
+    if (!state || layers.fixtures.locked || !layers.fixtures.visible) return;
+    const locked = new Set(lockedFixtureIds);
+    let changed = false;
+    const fixtures = state.fixtures.map((fixture) => {
+      const patch = patches.get(fixture.id);
+      if (!patch || locked.has(fixture.id)) return fixture;
+      const next = { ...fixture, ...patch };
+      // Partial edits must not normalize unrelated legacy geometry or reject
+      // unchanged fields. The server validates the same narrow patch on save.
+      if (("x" in patch && !Number.isFinite(next.x)) || ("y" in patch && !Number.isFinite(next.y))
+        || ("ratedWatt" in patch && (!Number.isFinite(next.ratedWatt) || next.ratedWatt < 0 || next.ratedWatt > 10000))
+        || ("size" in patch && (!Number.isFinite(next.size ?? 20) || (next.size ?? 20) < 4 || (next.size ?? 20) > 200))
+        || ("name" in patch && (typeof next.name !== "string" || next.name.length > maxFixtureNameLength))) return fixture;
+      if ("x" in patch) next.x = Math.max(0, Math.min(state.floor.floorPlan?.width ?? 1200, next.x));
+      if ("y" in patch) next.y = Math.max(0, Math.min(state.floor.floorPlan?.height ?? 800, next.y));
+      if (next.x !== fixture.x || next.y !== fixture.y || next.placementStatus === "unplaced") {
+        next.positionVerifiedAt = null;
+        if (fixture.positionVerifiedAt || fixture.positionVerified) next.positionVerified = false;
+      }
+      if (next.placementStatus === "unplaced") next.positionVerified = false;
+      if (!Object.keys(next).some((key) => !Object.is(next[key as keyof EditorFixture], fixture[key as keyof EditorFixture]))) return fixture;
+      changed = true;
+      return next;
+    });
+    if (changed) commit({ ...state, fixtures });
+  };
+  return {
+    initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1,
+    pan: { x: 0, y: 0 }, viewport: { width: 800, height: 600 }, selection: null, selectedFixtureIds: [],
+    lockedFixtureIds: [], layers: defaultLayers(), snap: false, preview: [], past: [], future: [],
+    initialize: (state) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: false }),
+    reset: () => set({ initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: false }),
+    adoptBaseline: (state, preserveHistory = false) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], ...(preserveHistory ? {} : { past: [], future: [], preview: [] }) }),
+    recoverDraft: (state) => { if (state.floor.id === get().initialState?.floor.id && state.floor.mapRevision === get().initialState?.floor.mapRevision) commit(state); },
+    discardChanges: () => { const state = get().initialState; if (state) get().initialize(state); else set({ isDirty: false, selection: null, selectedFixtureIds: [], past: [], future: [] }); },
+    undo: () => { const entry = get().past.at(-1); if (entry) set({ ...entry, ...dirty(entry.state), past: get().past.slice(0, -1), future: [...get().future, snapshot()], preview: [] }); },
+    redo: () => { const entry = get().future.at(-1); if (entry) set({ ...entry, ...dirty(entry.state), past: [...get().past, snapshot()], future: get().future.slice(0, -1), preview: [] }); },
+    setActiveTool: (activeTool) => set({ activeTool, ...(activeTool !== "select" ? { selection: null, selectedFixtureIds: [] } : {}) }),
+    setZoom: (zoom) => set({ zoom: Math.min(Math.max(zoom, 0.1), 4) }),
+    setPan: (pan) => set({ pan }),
+    setViewport: (viewport) => set({ viewport }),
+    resetZoom: () => set({ zoom: 1, pan: { x: 0, y: 0 } }),
+    fit: (selected = false) => {
+      const { state, selectedFixtureIds, viewport } = get();
+      if (!state) return;
+      const ids = new Set(selectedFixtureIds);
+      const fixtures = selected ? state.fixtures.filter((f) => ids.has(f.id) && f.placementStatus !== "unplaced") : [];
+      if (selected && !fixtures.length) return;
+      const x = fixtures.length ? Math.min(...fixtures.map((f) => f.x)) - 40 : 0;
+      const y = fixtures.length ? Math.min(...fixtures.map((f) => f.y)) - 40 : 0;
+      const width = fixtures.length ? Math.max(...fixtures.map((f) => f.x)) - x + 40 : state.floor.floorPlan?.width ?? 1200;
+      const height = fixtures.length ? Math.max(...fixtures.map((f) => f.y)) - y + 40 : state.floor.floorPlan?.height ?? 800;
+      const zoom = Math.min(2, Math.max(0.1, Math.min((viewport.width - 48) / width, (viewport.height - 48) / height)));
+      set({ zoom, pan: { x: (viewport.width - width * zoom) / 2 - x * zoom, y: (viewport.height - height * zoom) / 2 - y * zoom } });
+    },
+    selectFixture: (id, additive = false) => {
+      const ids = additive ? get().selectedFixtureIds.includes(id) ? get().selectedFixtureIds.filter((value) => value !== id) : [...get().selectedFixtureIds, id] : [id];
+      get().selectFixtures(ids);
+    },
+    selectFixtures: (ids, additive = false) => {
+      const available = new Set(get().state?.fixtures.map((f) => f.id));
+      const selectedFixtureIds = [...new Set([...(additive ? get().selectedFixtureIds : []), ...ids])].filter((id) => available.has(id));
+      set({ selectedFixtureIds, selection: selectedFixtureIds.length === 1 ? { kind: "fixture", id: selectedFixtureIds[0] } : null, activeTool: "select" });
+    },
+    selectObject: (id) => set({ selection: { kind: "object", id }, selectedFixtureIds: [], activeTool: "select" }),
+    clearSelection: () => set({ selection: null, selectedFixtureIds: [] }),
+    updateFixture: (id, patch) => applyFixtures(new Map([[id, patch]])),
+    updateFixtureProperties: (ids, patch) => {
+      const wanted = new Set(ids);
+      const fixtures = get().state?.fixtures.filter((f) => wanted.has(f.id)) ?? [];
+      applyFixtures(new Map(fixtures.map((f, i) => [f.id, typeof patch === "function" ? patch(f, i) : patch])));
+    },
+    placeFixtures: (placements) => applyFixtures(new Map(placements.map(({ id, ...point }) => [id, { ...point, placementStatus: "placed" }]))),
+    unplaceFixture: (id) => { applyFixtures(new Map([[id, { placementStatus: "unplaced" }]])); if (get().state?.fixtures.find((f) => f.id === id)?.placementStatus === "unplaced") get().clearSelection(); },
+    moveFixtures: (ids, delta) => {
+      const { state, lockedFixtureIds } = get();
+      if (!state || !Number.isFinite(delta.x) || !Number.isFinite(delta.y)) return;
+      const wanted = new Set(ids); const locked = new Set(lockedFixtureIds);
+      const fixtures = state.fixtures.filter((f) => wanted.has(f.id) && !locked.has(f.id) && f.placementStatus !== "unplaced");
+      if (!fixtures.length) return;
+      const x = Math.max(-Math.min(...fixtures.map((f) => f.x)), Math.min(delta.x, (state.floor.floorPlan?.width ?? 1200) - Math.max(...fixtures.map((f) => f.x))));
+      const y = Math.max(-Math.min(...fixtures.map((f) => f.y)), Math.min(delta.y, (state.floor.floorPlan?.height ?? 800) - Math.max(...fixtures.map((f) => f.y))));
+      applyFixtures(new Map(fixtures.map((f) => [f.id, { x: f.x + x, y: f.y + y }])));
+    },
+    setPreview: (preview) => set({ preview }), setSnap: (snap) => set({ snap }),
+    setLayer: (layer, patch) => set({ layers: { ...get().layers, [layer]: { ...get().layers[layer], ...patch } }, ...(layer === "fixtures" && patch.visible === false ? { selectedFixtureIds: [], selection: null, preview: [] } : {}) }),
+    toggleFixtureLock: (ids) => { const locked = new Set(get().lockedFixtureIds); const unlock = ids.every((id) => locked.has(id)); ids.forEach((id) => unlock ? locked.delete(id) : locked.add(id)); set({ lockedFixtureIds: [...locked] }); },
+    updateFloorPlan: (floorPlan) => { const state = get().state; if (state) commit({ ...state, floor: { ...state.floor, floorPlan } }); },
+    addObject: (floorId, draft) => {
+      const { state, layers } = get(); if (!state || state.floor.id !== floorId || layers.objects.locked) return;
+      const object: FloorMapObject = { ...draft, id: `draft-${crypto.randomUUID()}`, floorId, zIndex: draft.zIndex ?? state.objects.length + 1 };
+      commit({ ...state, objects: [...state.objects, object] }, { selection: { kind: "object", id: object.id }, selectedFixtureIds: [], activeTool: "select" });
+    },
+    updateObject: (id, patch) => {
+      const { state, layers } = get(); if (!state || layers.objects.locked) return;
+      const object = state.objects.find((o) => o.id === id);
+      // Locked shapes can only be unlocked/hidden explicitly from the layer panel.
+      if (!object || object.locked && Object.keys(patch).some((key) => key !== "locked" && key !== "visible")) return;
+      if (!Object.entries(patch).some(([key, value]) => !Object.is(object[key as keyof FloorMapObject], value))) return;
+      commit({ ...state, objects: state.objects.map((o) => o.id === id ? { ...o, ...patch } : o) });
+    },
+    removeObject: (id) => {
+      const { state, layers } = get(); if (!state || layers.objects.locked || !state.objects.some((o) => o.id === id && !o.locked)) return;
+      commit({ ...state, objects: state.objects.filter((o) => o.id !== id) }, { selection: null });
+    }
+  };
+});

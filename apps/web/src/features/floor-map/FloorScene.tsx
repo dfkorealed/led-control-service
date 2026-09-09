@@ -17,6 +17,7 @@ export interface SceneFixture {
   brightness: number;
   status: "online" | "offline" | "fault";
   statusReason?: string | null;
+  placementStatus?: "unplaced" | "placed";
 }
 
 export interface SceneMapObject {
@@ -75,7 +76,7 @@ export function FloorScene({
           <span key={object.id} data-testid={`map-object-${object.id}`}>{object.type}</span>
         ))}
       </div>
-      {fixtures.map((fixture) => {
+      {fixtures.filter((fixture) => fixture.placementStatus !== "unplaced").map((fixture) => {
         const awaitingState = fixture.statusReason === "provisioning_waiting_state";
         const statusLabel = awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status];
         const markerStyle = {
@@ -125,7 +126,7 @@ export function FloorMapObjectNode({
   onChange?: (patch: { x?: number; y?: number }) => void;
   onTransformEnd?: (node: Konva.Node) => void;
 }) {
-  const interactiveProps = interactive && !preview
+  const interactiveProps = interactive && !preview && !object.locked
     ? {
         draggable: true,
         onClick: onSelect,

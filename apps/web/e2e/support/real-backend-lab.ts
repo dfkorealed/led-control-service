@@ -1686,7 +1686,7 @@ export class RealBackendLab {
   }
 
   private async fixtureIds() {
-    const raw = await this.scalar(`SELECT coalesce(string_agg(id,',' ORDER BY name),'') FROM "Fixture" WHERE "floorId"='${this.requireInstallation().floorId}'`);
+    const raw = await this.scalar(`SELECT coalesce(string_agg(id,',' ORDER BY name),'') FROM "Fixture" WHERE "siteId"=${sqlString(this.requireInstallation().siteId)} AND "gatewayId"=${sqlString(this.gateway.id)}`);
     return raw ? raw.split(",") : [];
   }
 

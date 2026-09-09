@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity, BarChart3, CircleAlert, CircleCheck, MapPin, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, matchPath, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { useDashboard } from "../../api/queries";
@@ -64,6 +64,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     refetch: refetchDashboard
   } = useDashboard(siteId);
   const selectedSiteId = siteId ?? dashboard?.site.id;
+  const editorRoute = matchPath("/settings/floor-plans/:floorId/edit", location.pathname);
+  const displayedFloor = editorRoute
+    ? dashboard?.floors.find((floor) => floor.id === editorRoute.params.floorId)
+    : dashboard?.floors[0];
   const gateway = dashboard?.gateways[0];
   const gatewayStatusLabel = gateway ? (gateway.connectionStatus === "online" ? "게이트웨이 정상" : "게이트웨이 오프라인") : "게이트웨이 미등록";
   const gatewayStatusClass = gateway?.connectionStatus === "online" ? "online" : "offline";
@@ -162,10 +166,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             <h1>{titleForPath(location.pathname)}</h1>
           </div>
           <div className="topbar-actions" aria-label="현장 상태">
-            <span className="site-pill">
+            {(!editorRoute || displayedFloor) && <span className="site-pill" data-testid="active-floor-badge">
               <MapPin size={16} />
-              {dashboard?.floors[0]?.name ?? "층 미등록"} 주차장
-            </span>
+              {displayedFloor?.name ?? "층 미등록"} 주차장
+            </span>}
             <span className={`status-pill ${gatewayStatusClass}`} data-tone={gatewayStatusTone}>
               <GatewayStatusIcon size={16} aria-hidden="true" />
               {gatewayStatusLabel}

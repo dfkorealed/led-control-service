@@ -7,7 +7,11 @@ const objectFields = [
   "fillColor", "strokeWidth", "text", "fontSize", "zIndex", "locked", "visible"
 ] as const;
 
-export type EditorChangeSet = Omit<SaveEditorStateInput, "leaseToken" | "leaseFence">;
+export type EditorChangeSet = Omit<SaveEditorStateInput, "leaseToken" | "leaseFence" | "fixtureUpdates"> & {
+  fixtureUpdates: Array<SaveEditorStateInput["fixtureUpdates"][number] & {
+    placementStatus?: "unplaced" | "placed"; positionVerified?: boolean;
+  }>;
+};
 
 export function buildEditorChanges(initial: FloorEditorState, current: FloorEditorState): EditorChangeSet {
   const initialFixtures = new Map(initial.fixtures.map((fixture) => [fixture.id, fixture]));
@@ -21,7 +25,17 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
     const baseline = initialFixtures.get(fixture.id);
     if (!baseline) continue;
     const patch = changedFields(baseline, fixture, fixtureFields);
-    if (Object.keys(patch).length > 0) fixtureUpdates.push({ id: fixture.id, ...patch });
+    const placementPatch: { placementStatus?: "unplaced" | "placed"; positionVerified?: boolean } = {};
+    if ((baseline.placementStatus ?? "placed") !== (fixture.placementStatus ?? "placed")) {
+      placementPatch.placementStatus = fixture.placementStatus ?? "placed";
+    }
+    if ((baseline.positionVerifiedAt ?? null) !== (fixture.positionVerifiedAt ?? null)
+      || fixture.positionVerified !== undefined && fixture.positionVerified !== baseline.positionVerified) {
+      placementPatch.positionVerified = fixture.positionVerified ?? Boolean(fixture.positionVerifiedAt);
+    }
+    if (Object.keys(patch).length > 0 || Object.keys(placementPatch).length > 0) {
+      fixtureUpdates.push({ id: fixture.id, ...patch, ...placementPatch });
+    }
   }
 
   for (const object of current.objects) {

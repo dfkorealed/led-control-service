@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-03
+기준일: 2026-09-10
 
 ## 확정 구현 범위
 
@@ -21,7 +21,7 @@
 
 ## 구현 완료
 
-- 신규 등록 API는 지도 배치를 분리해 도면 공간이 부족해도 조명을 미배치로 등록한다. 조회 DTO는 배치 상태와 위치 확인 시각을 제공하며 등록 조명 목록/개수/제어/전력 집계에서 미배치를 제외하지 않는다. 기존 조명 좌표는 migration으로 보존한다. 미배치 마커 제외와 등록 UI 변경은 2026-09-09 에디터 웹 통합 검증 중이다.
+- 신규 등록은 지도 공간과 무관하게 미배치로 생성한다. 목록/개수/제어/전력 집계에서는 유지하고 지도 마커만 제외한다. 등록 조명은 있으나 배치가 없을 때 `배치된 조명이 없습니다`와 설정 편집 진입을 제공하며, 등록 0개 안내와 구분한다. 기존 조명 좌표는 migration으로 보존한다. 두 층 실제 API/DB 브라우저 E2E에서 저장 전/후 및 배치 해제 후 마커 분리를 검증했다.
 
 - 실장비 검색 완료 이벤트와 Gateway application ACK를 API의 직접 MQTT publish 성공 여부에 결합하지 않는다. API는 검색 terminal 상태·중복 방지 원장·ACK용 `MqttOutbox`를 같은 DB transaction에 저장한 뒤 broker PUBACK을 반환하고, 별도 outbox worker가 연결 복구 후 ACK를 재전송한다. 따라서 ACK 전송 중 일시적인 MQTT 연결 종료가 persistent session을 막아 이후 provisioning 명령까지 `Connection closed`로 실패시키지 않는다. 같은 terminal event 재전달은 기존 ACK outbox를 재활성화하며 payload identity 충돌은 fail-closed 한다.
 - 2026-09-03 Raspberry Pi/ESP32-H2 HIL에서 자사 UUID 한 건 검색, `0x0100` provisioning, `B2-L002` Fixture 생성, B2층 `0xC000` Mesh group subscription version 2 적용과 application ACK 발행을 확인했다. 등록 완료 직후 첫 `fixture-state` publication 전에는 `offline`을 `상태 확인 대기`로 표현하는 기존 계약을 유지한다.
@@ -51,7 +51,7 @@
 - 등록용 자동 이름 순번은 층별 `Floor.nextFixtureSequence`, Mesh unicast 주소는 게이트웨이별 `Gateway.nextMeshUnicastAddress`에서 소유 행 잠금 후 연속 범위로 원자 예약한다. 삭제되거나 건너뛴 값은 재사용하지 않으며 Mesh 주소는 `0x0001~0x7fff`만 허용한다.
 - `POST /registration-sessions/:sessionId/nodes/register-batch`는 일괄·개별 설정을 하나의 요청으로 받고, session/node 행 잠금과 Task 5 allocator를 같은 transaction에서 사용한다. 유효한 node는 `accepted`, 존재하지 않거나 이미 처리 중인 node는 `validation_failed`로 분리해 성공한 등록을 유지한다.
 - 일괄 이름은 서버가 prefix, 시작 번호, 자릿수와 예약 순번으로 생성한다. 자동 좌표는 도면 크기 또는 `1200x800` 기본 canvas 안의 기존 fixture와 겹치지 않는 행 우선 grid cell을 사용하며 이름·전력·좌표·marker 크기를 provisioning 전에 저장한다.
-- 조명 등록 패널은 검색된 등록 가능 node의 개별/전체 checkbox 선택과 `일괄 설정`·`개별 설정` 전환을 지원한다. 일괄 설정은 선택 층 이름을 기본 prefix로 사용하고, 개별 설정은 조명별 이름·정격 전력·marker 크기와 선택적 좌표를 입력한다. X/Y를 모두 비우면 자동 배치하고 둘 다 입력하면 수동 배치하며 한쪽만 입력하면 해당 node에 검증 오류를 표시한다.
+- 조명 등록 패널은 검색된 등록 가능 node의 개별/전체 checkbox 선택과 `일괄 설정`·`개별 설정` 전환을 지원한다. 일괄 설정은 선택 층 이름을 기본 prefix로 사용하고, 개별 설정은 이름·정격 전력·marker 크기를 입력한다. 등록 단계의 좌표 입력은 제거했으며, 위치는 등록 후 설정의 해당 층 에디터에서 배치한다.
 - 일괄·개별 등록 요청에서 서버가 수락한 node만 선택 해제하고, `validation_failed`는 오류와 선택을 유지한다. 물리 provisioning 중인 node는 재등록할 수 없으며 이후 `failed` 또는 `reconcile_required`로 확인되면 검토 대상으로 다시 선택해 node 행에 원인을 표시한다.
 - API는 선택 node의 `provisioning` 상태, Mesh 주소, pending Fixture 정보와 strict v2 `provision-device` outbox를 한 transaction에 저장한다. HTTP `accepted`는 MQTT 연결과 무관하게 이 durable 기록이 commit됐음을 뜻한다. worker는 `SKIP LOCKED` lease, 10초 publish timeout, 최대 10회/15분 bounded backoff로 QoS 1 발행하고 PUBACK 뒤 `publishedAt`을 기록한다. 한계 초과는 주소와 pending 정보를 보존한 채 node를 `reconcile_required`로 전환한다. Gateway는 command를 RF 전에 `0600` atomic journal에 저장하고 exact duplicate를 FIFO에 다시 넣지 않으며, terminal도 atomic 저장 뒤 exact application ACK 전까지 재발행한다. accepted-only restart는 RF를 반복하지 않고 적용 여부 확인 불가 terminal로 수렴한다.
 - `reconcile_required` 노드는 `상태 다시 확인`으로 늦게 도착한 provisioning 완료를 먼저 조회한다. 여전히 불확실하면 관리자가 장비가 미등록 또는 초기화 상태임을 확인한 뒤 `POST /registration-sessions/:sessionId/nodes/:nodeId/exclude`로 현재 세션에서만 제외할 수 있다. 이 동작은 Mesh 주소와 pending 정보를 감사 증거로 보존하며 재프로비저닝 명령을 발행하지 않는다.

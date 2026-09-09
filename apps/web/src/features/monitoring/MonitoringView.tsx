@@ -1,5 +1,6 @@
 import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
 import { Button, Card, FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
@@ -250,6 +251,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
               {floor && mapSnapshot ? (
                 <>
                   <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
+                  {fixtures.length > 0 && fixtures.every((fixture) => fixture.placementStatus === "unplaced") && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
                   {mapQuery.error || mapRefreshFailed ? (
                     <FeedbackState
                       tone="danger"

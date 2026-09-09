@@ -35,7 +35,7 @@ for (const viewport of [
   { name: "mobile", width: 390, height: 844 },
   { name: "compact", width: 320, height: 740 }
 ]) {
-  test(`floor editor remains usable on ${viewport.name}`, async ({ page }) => {
+  test(`floor editor remains usable on ${viewport.name}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.goto("/settings/floor-plans/floor-b2/edit?siteId=site-2");
 
@@ -54,6 +54,9 @@ for (const viewport of [
     expect(layout.shellWidth).toBeGreaterThan(viewport.width < 500 ? viewport.width - 40 : 800);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) await expectMinimumTouchTargets(page, ".app-shell");
+    const path = testInfo.outputPath(`editor-panels-${viewport.width}.png`);
+    await page.screenshot({ path, fullPage: true });
+    await testInfo.attach(`editor-panels-${viewport.width}`, { path, contentType: "image/png" });
   });
 }
 
@@ -87,6 +90,7 @@ async function mockEditorApi(page: Page) {
       } });
     }
     if (path === "/floors/floor-b2/editor-state") return route.fulfill({ json: editorState });
+    if (path === "/floors/floor-b2/editor-lease") return route.fulfill({ json: { editable: true, token: "test-lease", fence: 1 } });
     if (path === "/floors/floor-b2/editor-revisions") {
       return route.fulfill({ json: { items: [{
         revision: 7,

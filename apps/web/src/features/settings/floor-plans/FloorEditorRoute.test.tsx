@@ -184,6 +184,71 @@ describe("FloorEditorRoute", () => {
     expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
   });
 
+  it("keeps a cancelled unload editable but releases once with keepalive on pagehide", async () => {
+    vi.useFakeTimers();
+    getFloorEditorState.mockResolvedValue(editorState);
+    const { unmount } = renderRoute("admin");
+    await act(async () => {});
+    act(() => window.dispatchEvent(new Event("beforeunload", { cancelable: true })));
+    expect(releaseFloorEditorLease).not.toHaveBeenCalled();
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+    act(() => window.dispatchEvent(new PageTransitionEvent("pagehide")));
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    expect(releaseFloorEditorLease).toHaveBeenCalledTimes(1);
+    expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "test-lease-token", { keepalive: true });
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(releaseFloorEditorLease).toHaveBeenCalledTimes(1);
+  });
+
+  it("reacquires without reusing the old token after BFCache restoration", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    renderRoute("admin");
+    await waitFor(() => expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false"));
+    const restoredAcquire = deferred<{ editable: boolean; token?: string }>();
+    acquireFloorEditorLease.mockReturnValueOnce(restoredAcquire.promise);
+    act(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));
+    act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    await waitFor(() => expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2));
+    expect(acquireFloorEditorLease).toHaveBeenLastCalledWith("floor-b2");
+    await act(async () => restoredAcquire.resolve({ editable: true, token: "fresh-tab-token" }));
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+  });
+
+  it("releases a late page-hidden acquire and cannot overwrite the restored lease", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const late = deferred<{ editable: boolean; token?: string }>();
+    acquireFloorEditorLease.mockReturnValueOnce(late.promise);
+    renderRoute("admin");
+    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    act(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));
+    act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    await waitFor(() => expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false"));
+    await act(async () => late.resolve({ editable: true, token: "late-hidden-token" }));
+    expect(releaseFloorEditorLease).toHaveBeenCalledWith("floor-b2", "late-hidden-token", { keepalive: true });
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+  });
+
+  it("offers manual retry after exhaustion without stealing another tab's lease", async () => {
+    vi.useFakeTimers();
+    getFloorEditorState.mockResolvedValue(editorState);
+    acquireFloorEditorLease.mockResolvedValue({ editable: false, holderName: "다른 탭" });
+    renderRoute("admin");
+    await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
+    expect(acquireFloorEditorLease).toHaveBeenCalledTimes(7);
+    expect(screen.getByRole("button", { name: "편집 권한 다시 요청" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "편집 권한 다시 요청" }));
+    await act(async () => {});
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
+    expect(acquireFloorEditorLease.mock.calls.every((args) => args.length === 1 && args[0] === "floor-b2")).toBe(true);
+    expect(releaseFloorEditorLease).not.toHaveBeenCalled();
+    acquireFloorEditorLease.mockResolvedValue({ editable: true, token: "new-token" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
+  });
+
   it("serializes pending heartbeats and keeps a lost lease read-only", async () => {
     vi.useFakeTimers();
     getFloorEditorState.mockResolvedValue(editorState);
@@ -391,7 +456,7 @@ describe("FloorEditorRoute", () => {
     secondRoute.unmount();
   });
 
-  it.each(["저장", "취소"])("returns an admin to the selected site's list after %s", async (action) => {
+  it.each(["취소"])("returns an admin to the selected site's list after %s", async (action) => {
     getFloorEditorState.mockResolvedValue(editorState);
     renderRoute("admin");
 
@@ -516,6 +581,8 @@ describe("FloorEditorRoute", () => {
     expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
     expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledOnce();
   });
@@ -580,7 +647,7 @@ describe("FloorEditorRoute", () => {
     expect(useFloorEditorStore.getState()).toMatchObject({ state: editorState, initialState: editorState, isDirty: false });
   });
 
-  it("replaces the dirty sentinel on save so consecutive backs visit editor then the previous route", async () => {
+  it("removes the dirty sentinel on save while staying in the editor", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm");
     useFloorEditorStore.getState().initialize(editorState);
@@ -590,11 +657,8 @@ describe("FloorEditorRoute", () => {
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
     act(() => useFloorEditorStore.getState().adoptBaseline(editorState));
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
-
-    act(() => window.history.back());
-
     expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeUndefined());
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
