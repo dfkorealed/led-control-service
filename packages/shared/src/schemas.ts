@@ -5,6 +5,7 @@ export const POSTGRES_INT_MAX = 2_147_483_647;
 export const EDITOR_MAX_EXPECTED_REVISION = POSTGRES_INT_MAX - 1;
 export const EDITOR_MAX_FIXTURE_UPDATES = 1_000;
 export const EDITOR_MAX_MAP_OBJECT_MUTATIONS = 2_000;
+export const EDITOR_MAX_BODY_BYTES = 1_048_576;
 export const EDITOR_MAX_POINTS = 128;
 export const EDITOR_MAX_ID_LENGTH = 128;
 export const EDITOR_MAX_NAME_LENGTH = 200;
@@ -72,14 +73,21 @@ export const legacyFloorPlanPatchSchema = z.object({
   height: positiveInt4Schema.optional()
 }).refine((value) => Object.keys(value).length > 0, "floor plan patch must not be empty");
 
+export const fixturePlacementStatusSchema = z.enum(["unplaced", "placed"]);
+export type FixturePlacementStatus = z.infer<typeof fixturePlacementStatusSchema>;
+
 export const fixtureLayoutUpdateSchema = z.object({
   id: editorIdSchema,
   name: z.string().trim().min(1).max(EDITOR_MAX_NAME_LENGTH).optional(),
   ratedWatt: ratedWattSchema.optional(),
   x: finiteNumberSchema.optional(),
   y: finiteNumberSchema.optional(),
-  size: finiteNumberSchema.positive().optional()
-}).strict().refine((value) => Object.keys(value).some((key) => key !== "id"), "fixture update must not be empty");
+  size: finiteNumberSchema.positive().optional(),
+  placementStatus: fixturePlacementStatusSchema.optional(),
+  positionVerified: z.boolean().optional()
+}).strict().refine((value) => Object.keys(value).some((key) => key !== "id"), "fixture update must not be empty")
+  .refine((value) => value.placementStatus !== "unplaced" || value.positionVerified !== true,
+    "unplaced fixtures cannot have a verified position");
 
 const floorMapObjectFields = {
   type: z.enum(["rectangle", "triangle", "line", "text"]),
@@ -263,7 +271,7 @@ export const editorRevisionListQuerySchema = z.object({
 const legacySnapshotUrlSchema = z.string().trim().max(EDITOR_MAX_URL_LENGTH);
 const legacySnapshotPointsSchema = z.array(editorPointSchema).max(EDITOR_MAX_POINTS).nullable();
 
-export const FLOOR_EDITOR_SNAPSHOT_VERSION = 1;
+export const FLOOR_EDITOR_SNAPSHOT_VERSION = 2;
 
 export const floorEditorSnapshotV1Schema = z.object({
   floorPlan: z.object({
@@ -302,10 +310,29 @@ export const floorEditorSnapshotV1Schema = z.object({
   }).strict())
 }).strict();
 
-export const floorEditorSnapshotSchema = floorEditorSnapshotV1Schema;
+export const floorEditorSnapshotV2Schema = floorEditorSnapshotV1Schema.extend({
+  version: z.literal(FLOOR_EDITOR_SNAPSHOT_VERSION),
+  fixtures: z.array(floorEditorSnapshotV1Schema.shape.fixtures.element.extend({
+    placementStatus: fixturePlacementStatusSchema,
+    positionVerifiedAt: z.string().datetime().nullable()
+  }).refine((fixture) => fixture.placementStatus !== "unplaced" || fixture.positionVerifiedAt === null,
+    "unplaced fixtures cannot have a verified position"))
+});
+
+// Legacy revisions remain immutable; normalize their missing placement metadata only on read.
+export const floorEditorSnapshotSchema = z.union([
+  floorEditorSnapshotV2Schema,
+  floorEditorSnapshotV1Schema.transform((snapshot) => ({
+    ...snapshot,
+    version: FLOOR_EDITOR_SNAPSHOT_VERSION as 2,
+    fixtures: snapshot.fixtures.map((fixture) => ({
+      ...fixture, placementStatus: "placed" as const, positionVerifiedAt: null
+    }))
+  }))
+]);
 
 export function parseFloorEditorSnapshot(value: unknown) {
-  return floorEditorSnapshotV1Schema.parse(value);
+  return floorEditorSnapshotSchema.parse(value);
 }
 
 export type SaveEditorStateInput = z.infer<typeof saveEditorStateSchema>;
@@ -338,14 +365,14 @@ const registrationNumberDefaults = {
 };
 const registrationBatchNodeSchema = z.object({
   nodeId: z.string().uuid(),
-  placement: registrationPlacementSchema
+  placement: registrationPlacementSchema.optional()
 }).strict();
 const registrationIndividualNodeSchema = z.object({
   nodeId: z.string().uuid(),
   fixtureName: z.string().trim().max(EDITOR_MAX_NAME_LENGTH),
   ratedWatt: registrationRatedWattSchema,
   size: registrationSizeSchema,
-  placement: registrationPlacementSchema
+  placement: registrationPlacementSchema.optional()
 }).strict();
 
 export const registerFixtureBatchSchema = z.discriminatedUnion("mode", [

@@ -582,7 +582,9 @@ describe("shared schemas", () => {
       objects: []
     })).toEqual({
       floorPlan: null,
-      fixtures: [{ id: "fixture-1", name: "B2-L01", ratedWatt: "40.00", x: 10, y: 20, size: 24 }],
+      version: 2,
+      fixtures: [{ id: "fixture-1", name: "B2-L01", ratedWatt: "40.00", x: 10, y: 20, size: 24,
+        placementStatus: "placed", positionVerifiedAt: null }],
       objects: []
     });
 
@@ -623,8 +625,10 @@ describe("shared schemas", () => {
       }]
     };
 
-    expect(parseFloorEditorSnapshot(legacySnapshot)).toEqual(legacySnapshot);
-    expect(floorEditorSnapshotSchema.parse(legacySnapshot)).toEqual(legacySnapshot);
+    const upgraded = { ...legacySnapshot, version: 2,
+      fixtures: legacySnapshot.fixtures.map((fixture) => ({ ...fixture, placementStatus: "placed", positionVerifiedAt: null })) };
+    expect(parseFloorEditorSnapshot(legacySnapshot)).toEqual(upgraded);
+    expect(floorEditorSnapshotSchema.parse(legacySnapshot)).toEqual(upgraded);
     expect(() => floorPlanUpdateSchema.parse(legacySnapshot.floorPlan)).toThrow();
   });
 

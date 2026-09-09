@@ -7,6 +7,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum FixturePlacementStatus {
+  unplaced
+  placed
+}
+
 enum FixtureStatus {
   online
   offline
@@ -338,6 +343,8 @@ model FloorPlan {
 }
 
 model Fixture {
+  placementStatus            FixturePlacementStatus             @default(unplaced)
+  positionVerifiedAt         DateTime?
   id                         String                             @id @default(uuid())
   floorId                    String
   meshNodeId                 String?                            @unique

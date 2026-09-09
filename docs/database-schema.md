@@ -357,6 +357,13 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 
 층 도면의 전체 편집 스냅숏과 복구 이력을 보관한다. `Floor` 삭제 시 함께 삭제되며, 기록한 사용자는 삭제할 수 없다.
 
+- 2026-09-09부터 신규 snapshot은 `version: 2`와 fixture별 `placementStatus`, `positionVerifiedAt`을 포함한다. 버전 필드가 없는 V1은 조회/복구 시 `placed/null`로 정규화한다. 기존 snapshot JSON과 SHA-256을 덮어쓰지 않는다.
+- 저장/복구는 Serializable transaction에서 현장 admin 재인가, 층 lease/fence 및 revision 검증, fixture/object 갱신, 새 snapshot/hash와 audit를 함께 commit한다. 위치 확인은 서버 DB 시각으로 기록하고, 복구는 저장된 확인 시각을 복원한다.
+- 좌표/속성은 bound JSONB 입력을 사용하는 1,000행 단위 SQL 갱신, object 생성은 `createMany`로 처리한다. 실제 정격 W가 바뀐 fixture만 기존 에너지 checkpoint를 닫는다. 좌표/배치/확인만 변경하거나 같은 W를 다시 보내면 에너지 정산 경계를 만들지 않는다.
+- 에디터 PUT JSON 한도는 1 MiB, fixture 변경 1,000개, object 변경 합계 2,000개다. 다른 JSON 경로는 100 KiB를 유지한다. 초과 body는 JSON 413, transaction 충돌은 409, transaction 만료는 `floor_editor_transaction_timeout` 503이다. Transaction 대기 예산은 5초, 실행 예산은 15초이며 일반 저장/복구 성능 목표는 3초다.
+- 격리 PostgreSQL QA의 실제 HTTP/controller/service 1,000 fixture + 2,000 object 회귀(2026-09-09 최신 재실행, 로컬 Mac, 100회): 요청 559,679바이트, 저장 p95 425ms, 복구 485ms, 평균 snapshot JSON 730,443바이트/DB 저장 97,995바이트. 초기 저장 1회 + 변경 저장 100회 + 복구 1회의 총 102개 revision을 대상으로 snapshot 평균을 측정했다. 인증 guard만 테스트 사용자로 대체하며 현장 권한/lease/revision/DB/audit는 실제 구현이다. HIL 또는 운영 부하 측정 결과가 아니다.
+- 이력 자동 삭제는 구현하지 않는다. 위 표본 기준 1만 revision은 snapshot 본문만 약 0.98 GB이며 index/audit/WAL 비용은 별도다. 보관 90일 이후 저빈도 이력 외부 보관은 제안값이며, 복구 SLA와 사용자 승인 후 별도 정책으로 결정한다.
+
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | revision ID |
@@ -482,6 +489,11 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 
 개별 LED 조명이다. 위치, 밝기, 상태, 통신 품질 최신 snapshot을 가진다.
 
+- `20260909000000_fixture_placement`는 기존 row를 좌표 변경 없이 `placed/NULL`로 확장한 뒤 신규 기본값을 `unplaced`로 바꾼다. `Fixture_unplaced_position_unverified` CHECK로 미배치 확인 시각을 금지한다. 격리 QA DB에만 migrate deploy를 실행했으며 사용자 DB에는 적용하지 않았다.
+- 신규 등록은 지도 여유 공간과 무관하게 수락하며, 구버전 등록 placement 입력은 호환 수신하되 사용하지 않는다. Pending 숫자 x/y는 `0/0`, 완료된 Fixture는 기본값 `unplaced/NULL`이며 이 숫자를 지도 위치로 해석하지 않는다.
+- 에디터는 전체 등록 조명을 반환한다. 지도 마커에서만 미배치를 숨기고 목록/개수/제어/그룹/스케줄/이벤트/통계에서는 제외하지 않는다. 배치 해제는 장비·그룹·자동화·전력 이력을 변경하지 않는다.
+- 위치 변경/배치 해제는 기존 확인을 무효화한다. 이름/크기 수정은 확인을 유지한다. 입력 `positionVerified: true`는 현재 위치를 사람이 확인한 요청이며 서버가 새 시각을 부여한다. Timestamp 직접 입력과 미배치 확인은 거부한다. 이전 revision 복구는 당시 좌표 및 확인 시각을 함께 복원한다.
+
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 조명 ID |
@@ -494,6 +506,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `x` | `Float` | 예 |  | 도면 기준 X 좌표 |
 | `y` | `Float` | 예 |  | 도면 기준 Y 좌표 |
 | `size` | `Float` | 예 | `20` | 도면 에디터에서 표시되는 조명 노드 지름 |
+| `placementStatus` | `FixturePlacementStatus` | 예 | `unplaced` | 지도 배치 상태: `unplaced`, `placed`. 등록/제어 가능 여부와 독립 |
+| `positionVerifiedAt` | `DateTime?` | 아니오 | `NULL`; 미배치는 NULL 강제 CHECK | 사람이 위치를 명시적으로 확인한 서버 시각 |
 | `status` | `FixtureStatus` | 예 | `offline` | 현재 상태 |
 | `brightness` | `Int` | 예 | `0` | 현재 밝기 0-100 |
 | `rssi` | `Int?` | 아니오 |  | 최근 RSSI |

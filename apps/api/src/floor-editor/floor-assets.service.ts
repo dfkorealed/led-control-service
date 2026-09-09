@@ -78,10 +78,12 @@ export class FloorAssetsService {
     const floor = await this.findFloor(floorId);
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "read");
-    return this.prisma.floorAsset.findMany({
+    const assets = await this.prisma.floorAsset.findMany({
       where: { floorId, status: "ready" },
       orderBy: { createdAt: "asc" }
     });
+    // Upload validation caps assets at 50 MiB, safely within JSON's exact integer range.
+    return assets.map((asset) => ({ ...asset, sizeBytes: Number(asset.sizeBytes) }));
   }
 
   private findFloor(floorId: string) {

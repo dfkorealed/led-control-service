@@ -71,6 +71,9 @@
 
 ## 구현 완료
 
+- 층별 배치 상태를 `Fixture.placementStatus`와 `positionVerifiedAt`으로 분리했다. 신규 등록은 미배치, 기존 조명은 좌표를 보존한 배치/위치 미확인 상태다. 에디터는 미배치를 포함한 전체 조명과 검색용 시리얼/Mesh 주소를 반환한다. 배치 해제와 좌표 변경은 위치 확인만 무효화하며 장비·그룹·자동화·통계 정보는 유지한다. 새 snapshot V2와 기존 V1 복구를 함께 지원한다.
+- 에디터 저장/복구를 묶음 SQL로 처리하고 JSON 요청 한도를 에디터 PUT에만 1 MiB로 확장했다. 초과는 413, 충돌은 409, transaction 만료는 503으로 구분한다. 실제 정격 W 변경에만 에너지 checkpoint를 생성한다. 격리 DB/HTTP 18개 회귀와 조명 1,000개·도형 2,000개 100회 저장을 통과했으며 사용자 DB에는 아직 migration을 적용하지 않았다.
+
 - 등록 후 위치 확인의 펌웨어 출력 단위를 보강했다. Health Attention은 자체 만료되며 명시적 중지·재시작에 대응한다. 식별 중 수동/자동제어의 최신 밝기 목표를 보존해 종료 후 복귀하고, 지연된 timer callback이나 PWM 오류 후 재시도가 새 요청을 덮어쓰지 않는다. Host 12개 시나리오·portable 테스트와 ESP-IDF 빌드를 통과했으며 API/Gateway/웹 통합은 진행 중이다. 실제 조명의 점멸·가시성 검증은 후속이다.
 
 - 최초 setup, Gateway claim, 등록 대상·일괄/개별 form의 input/select와 checkbox/radio label은 390px·320px에서 연속 44×44px 이상 도달 가능한 영역을 제공한다. Chromium commissioning helper는 기본 일괄 form을 개별 mode 전환 전에 검사하고, 전환 뒤 개별 form도 별도로 검사하며, 버튼 외 모든 enabled interactive control을 스크롤한 뒤 viewport·overflow clipping과 실제 hit-test occlusion까지 확인한다.
@@ -106,7 +109,7 @@
 - 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
 - 실제 Gateway scan은 shared DFK product identity 계약을 통과한 ESP32-H2 UUID만 등록 후보로 반환한다. UUID 필터는 제품 식별용이며 제조 원장, claim과 Gateway mTLS 인증을 대체하지 않는다.
 - 층별 자동 조명 이름 순번과 게이트웨이별 Mesh unicast 주소를 PostgreSQL 소유 행 잠금으로 원자 예약하는 기반을 구현했다. Mesh 주소는 `0x0001~0x7fff` 범위를 벗어나면 등록을 거부한다.
-- 일괄·개별 조명 등록 API는 유효한 node만 원자 예약하고 node별 검증 실패를 분리한다. 자동 배치는 도면 또는 기본 canvas의 빈 grid를 사용하며 불명확한 provisioning 결과는 `reconcile_required`로 격리한다.
+- 일괄·개별 조명 등록 API는 유효한 node만 원자 예약하고 node별 검증 실패를 분리한다. 신규 조명은 지도 공간과 무관하게 미배치로 등록한다. 구버전 placement 입력은 호환 수신하되 좌표로 적용하지 않는다. 불명확한 provisioning 결과는 `reconcile_required`로 격리한다.
 - 조명 등록 화면의 검색 node 개별/전체 선택, 일괄·개별 설정 전환과 선택 조명 등록은 설치 완료 assigned admin의 commissioning UI로 노출된다. viewer와 operator에는 mutation UI를 노출하지 않는다. Task 9 software E2E는 production API와 test-support MQTT publisher 경로를 검증했고 shared `parseDfkDeviceUuid`로 invalid/타사 UUID 1개가 scan-found에서 제외됨을 확인했다. 실제 BlueZ/RF Gateway scan과 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - Konva 도면 에디터에 도면 업로드, 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 구현했다.
 - 도면 에디터 toolbar와 revision 복구 icon action은 desktop과 760px 이하 layout에서 표시·동작을 검증한다. 760px 이하에서는 선택 fixture의 조명명·정격 전력·X/Y·크기 property input과 revision 복구를 포함해 위 helper 정의에 해당하는 control의 실제 usable intersection이 최소 44×44px를 유지한다. 360px 이하 toolbar는 3열로 wrap해 마지막 action이 가로 clip에 걸리지 않게 한다.

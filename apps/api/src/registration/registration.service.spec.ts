@@ -531,6 +531,23 @@ describe("RegistrationService", () => {
     expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
   });
 
+  it("accepts registration on a full floor and ignores legacy placement coordinates", async () => {
+    const session = registrationSession();
+    const node = discoveredNode();
+    const { service, prisma } = await createModule({
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue({ ...session, floor: { ...session.floor, floorPlan: { width: 1, height: 1 } } }) },
+      discoveredMeshNode: { findMany: jest.fn().mockResolvedValue([node]), update: jest.fn().mockResolvedValue(node) }
+    });
+    const result = await service.registerBatch(admin, ids.sessionId, {
+      mode: "batch", defaults: { namePrefix: "L", startNumber: 1, digits: 3, ratedWatt: "40", size: 20 },
+      nodes: [{ nodeId: ids.nodeId, placement: { mode: "manual", x: -500, y: 99999 } }]
+    });
+    expect(result.items[0].status).toBe("accepted");
+    expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ pendingFixtureX: 0, pendingFixtureY: 0 })
+    }));
+  });
+
   it.each(["pending", "scanning", "failed"] as const)(
     "rejects registration while the session scan is %s",
     async (scanStatus) => {
@@ -1023,8 +1040,8 @@ describe("RegistrationService", () => {
         status: "provisioning",
         meshAddress: "0x0100",
         pendingFixtureName: "B2-L13",
-        pendingFixtureX: 420,
-        pendingFixtureY: 260,
+        pendingFixtureX: 0,
+        pendingFixtureY: 0,
         pendingFixtureSize: 20,
         pendingRatedWatt: "40.00",
         errorMessage: null

@@ -65,6 +65,8 @@ export class FixturesService {
           x: fixture.x,
           y: fixture.y,
           size: fixture.size,
+          placementStatus: fixture.placementStatus,
+          positionVerifiedAt: fixture.positionVerifiedAt?.toISOString() ?? null,
           ratedWatt: Number(fixture.ratedWatt),
           brightness: fixture.brightness,
           status,

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import {
   FloorEditorSnapshot,
   SaveEditorStateInput,
@@ -17,6 +17,11 @@ import { PrismaService } from "../prisma/prisma.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { buildFloorEditorSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
+import { EditorPatch, persistEditorPatches } from "./editor-batch-persistence";
+
+export const EDITOR_TRANSACTION_OPTIONS = {
+  isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 5_000, timeout: 15_000
+};
 
 interface UpdateFloorPlanInput {
   imageUrl?: string;
@@ -33,6 +38,8 @@ interface UpdateFixtureInput {
   x?: number;
   y?: number;
   size?: number;
+  placementStatus?: "unplaced" | "placed";
+  positionVerified?: boolean;
 }
 
 interface CreateObjectInput {
@@ -123,7 +130,7 @@ export class FloorEditorService {
       where: { id: floorId },
       include: {
         floorPlan: true,
-        fixtures: { orderBy: { name: "asc" } },
+        fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] }
       }
     });
@@ -174,7 +181,7 @@ export class FloorEditorService {
         });
 
         return this.toEditorState(floor);
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, EDITOR_TRANSACTION_OPTIONS);
     } catch (error) {
       this.throwMappedTransactionError(error);
       throw error;
@@ -287,7 +294,7 @@ export class FloorEditorService {
         });
 
         return { ...this.toEditorState(floor), skippedFixtureIds };
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, EDITOR_TRANSACTION_OPTIONS);
     } catch (error) {
       this.throwMappedTransactionError(error);
       throw error;
@@ -332,7 +339,11 @@ export class FloorEditorService {
         size: fixture.size,
         ratedWatt: Number(fixture.ratedWatt),
         brightness: fixture.brightness,
-        status: fixture.status
+        status: fixture.status,
+        placementStatus: fixture.placementStatus ?? "placed",
+        positionVerifiedAt: fixture.positionVerifiedAt?.toISOString() ?? null,
+        meshAddress: fixture.meshNode?.meshAddress ?? null,
+        serialNumber: fixture.meshNode?.serialNumber ?? null
       })),
       objects: [...floor.mapObjects].sort((left, right) => this.compareEditorObjects(left, right)).map((object) => ({
         id: object.id,
@@ -562,30 +573,62 @@ export class FloorEditorService {
       });
     }
 
-    for (const { id, data } of input.fixtureUpdates) {
-      if (data.ratedWatt !== undefined) {
-        await this.energyCheckpoint.closeRatedWattInterval(
-          tx,
-          id,
-          new Prisma.Decimal(data.ratedWatt as string | number),
-          changedAt
-        );
-      }
-      await tx.fixture.update({ where: { id }, data });
-    }
+    await this.applyFixturePatches(tx, floorId, input.fixtureUpdates, changedAt, false);
 
     if (input.objectDeletes.length > 0) {
       await tx.floorMapObject.deleteMany({ where: { floorId, id: { in: input.objectDeletes } } });
     }
-    for (const data of input.objectCreates) {
-      await tx.floorMapObject.create({ data });
+    if (input.objectCreates.length > 0) {
+      await tx.floorMapObject.createMany({ data: input.objectCreates });
     }
-    for (const { id, data } of input.objectUpdates) {
-      await tx.floorMapObject.update({
-        where: { id },
-        data: data as Prisma.FloorMapObjectUncheckedUpdateInput
-      });
+    await persistEditorPatches(tx, floorId, "FloorMapObject", input.objectUpdates, changedAt);
+  }
+
+  private async applyFixturePatches(
+    tx: Prisma.TransactionClient, floorId: string, patches: EditorPatch[], changedAt: Date, restoring: boolean
+  ) {
+    if (patches.length === 0) return;
+    const fixtures = await tx.fixture.findMany({
+      where: { floorId, id: { in: patches.map(({ id }) => id) } },
+      select: { id: true, x: true, y: true, ratedWatt: true, placementStatus: true, positionVerifiedAt: true }
+    });
+    const currentById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
+    const plan = await tx.floorPlan.findUnique({ where: { floorId }, select: { width: true, height: true } });
+    const normalized: EditorPatch[] = [];
+    for (const { id, data: patch } of [...patches].sort((a, b) => a.id.localeCompare(b.id))) {
+      const current = currentById.get(id);
+      if (!current) throw new BadRequestException("fixture updates must belong to the requested floor");
+      const { positionVerified, ...data } = patch;
+      const placement = data.placementStatus ?? current.placementStatus;
+      const moved = (data.x !== undefined && data.x !== current.x) || (data.y !== undefined && data.y !== current.y);
+      if (!restoring) {
+        if (placement === "unplaced" && positionVerified === true) {
+          throw new BadRequestException("unplaced fixtures cannot have a verified position");
+        }
+        // Preserve out-of-bounds legacy coordinates on metadata-only/full-form edits.
+        // Bounds apply when actually moving, newly placing, or explicitly confirming a position.
+        if (placement === "placed" && (moved || current.placementStatus !== "placed" || positionVerified === true)) {
+          const x = Number(data.x ?? current.x);
+          const y = Number(data.y ?? current.y);
+          if (x < 0 || x > (plan?.width ?? 1200) || y < 0 || y > (plan?.height ?? 800)) {
+            throw new BadRequestException("fixture coordinates must be within the requested floor");
+          }
+        }
+        if (moved || placement === "unplaced" || positionVerified === false) data.positionVerifiedAt = null;
+        // An explicit human confirmation in the same save verifies the NEW position, never inherits the old timestamp.
+        if (positionVerified === true) data.positionVerifiedAt = changedAt.toISOString();
+      }
+      if (data.ratedWatt !== undefined) {
+        const watt = new Prisma.Decimal(data.ratedWatt as string | number);
+        if (!watt.equals(current.ratedWatt)) {
+          await this.energyCheckpoint.closeRatedWattInterval(tx, id, watt, changedAt);
+        } else {
+          delete data.ratedWatt;
+        }
+      }
+      normalized.push({ id, data });
     }
+    await persistEditorPatches(tx, floorId, "Fixture", normalized, changedAt);
   }
 
   private async loadSnapshotFloor(tx: Prisma.TransactionClient, floorId: string) {
@@ -593,7 +636,7 @@ export class FloorEditorService {
       where: { id: floorId },
       include: {
         floorPlan: true,
-        fixtures: { orderBy: { id: "asc" } },
+        fixtures: { orderBy: { id: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: { id: "asc" } }
       }
     });
@@ -682,17 +725,8 @@ export class FloorEditorService {
       await tx.floorPlan.deleteMany({ where: { floorId } });
     }
 
-    for (const fixture of snapshot.fixtures) {
-      if (!existingFixtureIds.has(fixture.id)) continue;
-      const { id, ...data } = fixture;
-      await this.energyCheckpoint.closeRatedWattInterval(
-        tx,
-        id,
-        new Prisma.Decimal(data.ratedWatt),
-        changedAt
-      );
-      await tx.fixture.update({ where: { id }, data });
-    }
+    await this.applyFixturePatches(tx, floorId, snapshot.fixtures
+      .filter(({ id }) => existingFixtureIds.has(id)).map(({ id, ...data }) => ({ id, data })), changedAt, true);
 
     await tx.floorMapObject.deleteMany({ where: { floorId } });
     if (snapshot.objects.length > 0) {
@@ -709,6 +743,9 @@ export class FloorEditorService {
   private throwMappedTransactionError(error: unknown) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2034") {
       throw new ConflictException("floor editor transaction conflicted, please retry");
+    }
+    if (error && typeof error === "object" && "code" in error && error.code === "P2028") {
+      throw new ServiceUnavailableException({ code: "floor_editor_transaction_timeout", message: "floor editor save timed out; reload the revision before retrying" });
     }
   }
 
@@ -771,6 +808,8 @@ export class FloorEditorService {
     if (input.x !== undefined) data.x = this.finiteNumber(input.x, "x");
     if (input.y !== undefined) data.y = this.finiteNumber(input.y, "y");
     if (input.size !== undefined) data.size = this.finiteNumber(input.size, "size");
+    if (input.placementStatus !== undefined) data.placementStatus = input.placementStatus;
+    if (input.positionVerified !== undefined) data.positionVerified = input.positionVerified;
 
     return data;
   }

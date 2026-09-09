@@ -4,6 +4,17 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { FloorEditorService } from "./floor-editor.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
+import { Test } from "@nestjs/testing";
+import { NestExpressApplication } from "@nestjs/platform-express";
+import { FloorEditorController } from "./floor-editor.controller";
+import { EditorLeaseService } from "./editor-lease.service";
+import { SessionAuthGuard } from "../auth/session-auth.guard";
+import { configureApiBodyParser } from "../api-body-parser";
+import { EDITOR_MAX_BODY_BYTES } from "@led-control/shared";
+import { TargetSnapshotService } from "../automation/target-snapshot.service";
+import { FixturesService } from "../fixtures/fixtures.service";
+import { EnergyService } from "../energy/energy.service";
+import { createHash, randomUUID } from "node:crypto";
 
 const databaseUrl = process.env.FLOOR_EDITOR_TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -28,11 +39,11 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
   const readyAssetUrl = "https://assets.example/integration-floor.png";
   const operator = {
     id: ids.operatorId,
-    organizationId: ids.providerOrganizationId,
-    organizationType: "service_provider" as const,
+    organizationId: ids.customerOrganizationId,
+    organizationType: "customer" as const,
     loginId: "floor_editor_operator",
     name: "Floor editor operator",
-    role: "operator" as const,
+    role: "admin" as const,
     status: "active" as const
   };
   const viewer = {
@@ -88,8 +99,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     });
     if (existingProvider) {
       ids.providerOrganizationId = existingProvider.id;
-      operator.organizationId = existingProvider.id;
-      unassignedOperator.organizationId = existingProvider.id;
     } else {
       await prisma.organization.create({
         data: { id: ids.providerOrganizationId, name: "Provider", type: "service_provider" }
@@ -138,12 +147,14 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       create: {
         id: ids.siteId,
         organizationId: ids.customerOrganizationId,
+        adminUserId: operator.id,
         name: "Transaction site",
         address: "Test",
         tariffKwhRate: "100.00"
       },
       update: {
         organizationId: ids.customerOrganizationId,
+        adminUserId: operator.id,
         name: "Transaction site",
         address: "Test",
         tariffKwhRate: "100.00"
@@ -227,7 +238,8 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     });
     await prisma.fixture.update({
       where: { id: ids.fixtureId },
-      data: { name: "B1-L01", ratedWatt: "40.00", x: 10, y: 10, size: 20 }
+      data: { name: "B1-L01", ratedWatt: "40.00", x: 10, y: 10, size: 20,
+        placementStatus: "placed", positionVerifiedAt: null }
     });
   });
 
@@ -264,6 +276,209 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
     await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(0);
   });
+
+  it("persists placement, verifies on the server, clears on movement, and restores exact metadata", async () => {
+    await activateLease();
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    const saved = await service.saveEditorState(operator, ids.floorId, {
+      ...saveInput, fixtureUpdates: [{ id: ids.fixtureId, placementStatus: "placed", positionVerified: true }]
+    });
+    expect(saved.fixtures[0]).toMatchObject({ placementStatus: "placed", positionVerifiedAt: expect.any(String) });
+    const verifiedAt = (await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } })).positionVerifiedAt;
+    expect(verifiedAt).toBeInstanceOf(Date);
+    await service.saveEditorState(operator, ids.floorId, {
+      ...saveInput, expectedRevision: 1, fixtureUpdates: [{ id: ids.fixtureId, name: "Renamed", size: 24 }]
+    });
+    expect((await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } })).positionVerifiedAt).toEqual(verifiedAt);
+    await service.saveEditorState(operator, ids.floorId, { ...saveInput, expectedRevision: 2 });
+    expect((await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } })).positionVerifiedAt).toBeNull();
+    await service.restoreEditorRevision(operator, ids.floorId, 1, { expectedRevision: 3, leaseToken: lease.token, leaseFence: lease.fence });
+    expect((await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } })).positionVerifiedAt).toEqual(verifiedAt);
+    const before = await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } });
+    const cursor = await prisma.fixtureEnergyStateCursor.findUnique({ where: { fixtureId: ids.fixtureId } });
+    await service.saveEditorState(operator, ids.floorId, {
+      ...saveInput, expectedRevision: 4, fixtureUpdates: [{ id: ids.fixtureId, placementStatus: "unplaced", ratedWatt: "40.00" }]
+    });
+    const after = await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } });
+    expect(after).toMatchObject({ placementStatus: "unplaced", positionVerifiedAt: null, x: before.x, y: before.y,
+      meshNodeId: before.meshNodeId, gatewayId: before.gatewayId, ratedWatt: before.ratedWatt });
+    expect(await prisma.fixtureEnergyStateCursor.findUnique({ where: { fixtureId: ids.fixtureId } })).toEqual(cursor);
+  });
+
+  it("rejects verifying an unplaced fixture and coordinates outside this floor without creating a revision", async () => {
+    await activateLease();
+    await prisma.fixture.update({ where: { id: ids.fixtureId }, data: { placementStatus: "unplaced", positionVerifiedAt: null } });
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    for (const patch of [{ positionVerified: true }, { placementStatus: "placed", x: 1201 }, { placementStatus: "placed", y: -1 }]) {
+      await expect(service.saveEditorState(operator, ids.floorId, {
+        ...saveInput, fixtureUpdates: [{ id: ids.fixtureId, ...patch }]
+      })).rejects.toBeInstanceOf(BadRequestException);
+    }
+    expect(await prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).toBe(0);
+  });
+
+  it("restores legacy V1 without rewriting its hash or placing fixtures registered after the revision", async () => {
+    await activateLease();
+    const snapshot = { fixtures: [{ id: ids.fixtureId, name: "Legacy", ratedWatt: "40.00", size: 20, x: -12.5, y: 20000 }],
+      floorPlan: null, objects: [] };
+    const hash = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+    await prisma.floorMapRevision.create({ data: { floorId: ids.floorId, revision: 1, snapshot,
+      snapshotSha256: hash, changeSummary: {}, changedBy: operator.id } });
+    const later = await prisma.fixture.create({ data: { floorId: ids.floorId, name: "New", ratedWatt: "40", x: 0, y: 0 } });
+    await prisma.floor.update({ where: { id: ids.floorId }, data: { mapRevision: 1 } });
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    const result = await service.restoreEditorRevision(operator, ids.floorId, 1, {
+      expectedRevision: 1, leaseToken: lease.token, leaseFence: lease.fence
+    });
+    expect(result.fixtures.find(({ id }) => id === ids.fixtureId)).toMatchObject({
+      placementStatus: "placed", positionVerifiedAt: null, x: -12.5, y: 20000
+    });
+    expect(result.fixtures.find(({ id }) => id === later.id)).toMatchObject({ placementStatus: "unplaced", positionVerifiedAt: null });
+    const source = await prisma.floorMapRevision.findUniqueOrThrow({ where: { floorId_revision: { floorId: ids.floorId, revision: 1 } } });
+    expect(source.snapshot).toEqual(snapshot);
+    expect(source.snapshotSha256).toBe(hash);
+    await expect(service.saveEditorState(operator, ids.floorId, { ...saveInput, expectedRevision: 2,
+      fixtureUpdates: [{ id: ids.fixtureId, name: "Legacy renamed", x: -12.5, y: 20000,
+        placementStatus: "placed", positionVerified: false }] })).resolves.toBeDefined();
+  });
+
+  it("keeps registered identity, group and schedule targets, controllability and energy intact when unplaced", async () => {
+    await activateLease();
+    const gateway = await prisma.gateway.create({ data: {
+      siteId: ids.siteId, name: "Placement test", serialNumber: randomUUID(), firmwareVersion: "test",
+      lastHeartbeatAt: new Date()
+    } });
+    const node = await prisma.meshNode.create({ data: {
+      gatewayId: gateway.id, meshAddress: "0x0100", serialNumber: "fixture-search-serial", firmwareVersion: "test"
+    } });
+    await prisma.fixture.update({ where: { id: ids.fixtureId }, data: { meshNodeId: node.id, status: "online",
+      brightness: 50, powerOn: true, energyTrackingStartedAt: new Date("2026-09-01T00:00:00Z"),
+      firstStateOccurredAt: new Date("2026-09-01T00:00:00Z"), lastStateOccurredAt: new Date("2026-09-02T00:00:00Z"),
+      lastStateEventId: randomUUID(), lastStateSequence: 1n } });
+    const group = await prisma.fixtureGroup.create({ data: { siteId: ids.siteId, floorId: ids.floorId,
+      gatewayId: gateway.id, name: "Placement group", groupFixtures: { create: { fixtureId: ids.fixtureId } } } });
+    const schedule = await prisma.lightingSchedule.create({ data: {
+      siteId: ids.siteId, gatewayId: gateway.id, name: "Placement schedule", activeFrom: new Date("2026-09-01T00:00:00Z"),
+      activeUntil: new Date("2026-10-01T00:00:00Z"), localStartTime: "08:00", localEndTime: "20:00", recurrenceKind: "daily",
+      dimmingEnabled: true, brightnessPercent: 50, createdById: operator.id, updatedById: operator.id,
+      fixtures: { create: { fixtureId: ids.fixtureId } }
+    } });
+    const checkpointTime = new Date("2026-09-02T00:00:00Z");
+    await prisma.fixtureEnergyStateCursor.upsert({ where: { fixtureId: ids.fixtureId },
+      create: { fixtureId: ids.fixtureId, aggregatedThrough: checkpointTime, observedStateOccurredAt: checkpointTime,
+        brightness: 50, powerOn: true, ratedWatt: 40, durationRemainders: [] },
+      update: { aggregatedThrough: checkpointTime, observedStateOccurredAt: checkpointTime,
+        brightness: 50, powerOn: true, ratedWatt: 40, durationRemainders: [] } });
+    await prisma.fixtureEnergyDailyAggregate.upsert({ where: { fixtureId_localDate: {
+      fixtureId: ids.fixtureId, localDate: new Date("2026-09-01T00:00:00Z") } },
+      create: { fixtureId: ids.fixtureId, localDate: new Date("2026-09-01T00:00:00Z"), estimatedKwh: "0.48", estimatedCost: "48", knownSeconds: 86400, unknownSeconds: 0 },
+      update: { estimatedKwh: "0.48", estimatedCost: "48" } });
+    const energy = new EnergyService(prisma, siteAccess);
+    const fixtures = new FixturesService(prisma, siteAccess);
+    const editor = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    const targets = new TargetSnapshotService();
+    const getEvidence = async () => ({
+      membership: await prisma.groupFixture.findMany({ where: { groupId: group.id } }),
+      schedule: await prisma.lightingScheduleFixture.findMany({ where: { scheduleId: schedule.id } }),
+      targets: await targets.resolve(prisma, ids.siteId, { type: "group", groupId: group.id }),
+      cursor: await prisma.fixtureEnergyStateCursor.findUnique({ where: { fixtureId: ids.fixtureId } }),
+      energy: await energy.getSiteSeries(operator, ids.siteId, { granularity: "day", from: "2026-09-01", to: "2026-09-01" })
+    });
+    try {
+      const before = await getEvidence();
+      const saved = await editor.saveEditorState(operator, ids.floorId, { ...saveInput,
+        fixtureUpdates: [{ id: ids.fixtureId, placementStatus: "unplaced", ratedWatt: "40.00", positionVerified: false }] });
+      expect(saved.fixtures[0]).toMatchObject({ placementStatus: "unplaced", meshAddress: "0x0100", serialNumber: "fixture-search-serial" });
+      const after = await getEvidence();
+      expect(after.membership).toEqual(before.membership);
+      expect(after.schedule).toEqual(before.schedule);
+      expect(after.targets).toEqual(before.targets);
+      expect(after.cursor).toEqual(before.cursor);
+      expect(after.energy.points).toEqual(before.energy.points);
+      const list = await fixtures.getFloorFixtures(operator, ids.siteId, ids.floorId, {});
+      expect(list.items[0]).toMatchObject({ id: ids.fixtureId, placementStatus: "unplaced", controllable: true, controlBlockReason: null });
+      expect(await prisma.meshNode.findUnique({ where: { id: node.id } })).toMatchObject({ meshAddress: "0x0100" });
+    } finally {
+      await prisma.lightingSchedule.delete({ where: { id: schedule.id } });
+      await prisma.fixtureGroup.delete({ where: { id: group.id } });
+      await prisma.fixture.update({ where: { id: ids.fixtureId }, data: { meshNodeId: null } });
+      await prisma.gateway.delete({ where: { id: gateway.id } });
+      await prisma.fixtureEnergyStateCursor.deleteMany({ where: { fixtureId: ids.fixtureId } });
+      await prisma.fixtureEnergyDailyAggregate.deleteMany({ where: { fixtureId: ids.fixtureId } });
+    }
+  });
+
+  it("saves 1,000 fixtures and 2,000 objects over HTTP 100 times and restores within budget", async () => {
+    await activateLease(lease.token, lease.fence, new Date(Date.now() + 600_000));
+    const fixtureIds = [ids.fixtureId, ...Array.from({ length: 999 }, (_, i) => `bulk-fixture-${i}`)];
+    await prisma.fixture.createMany({ data: fixtureIds.slice(1).map((id) => ({
+      id, floorId: ids.floorId, name: id, ratedWatt: "40", x: 0, y: 0
+    })) });
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    const module = await Test.createTestingModule({
+      controllers: [FloorEditorController], providers: [
+        { provide: FloorEditorService, useValue: service }, { provide: EditorLeaseService, useValue: {} }
+      ]
+    }).overrideGuard(SessionAuthGuard).useValue({ canActivate: (context: any) => {
+      context.switchToHttp().getRequest().user = operator;
+      return true;
+    } }).compile();
+    const app = module.createNestApplication<NestExpressApplication>();
+    configureApiBodyParser(app);
+    await app.listen(0, "127.0.0.1");
+    const url = `${await app.getUrl()}/floors/${ids.floorId}`;
+    const put = (input: unknown) => fetch(`${url}/editor-state`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input)
+    });
+    try {
+      const fixtureUpdates = fixtureIds.map((id, index) => ({ id, name: `Light ${index}`, ratedWatt: 40,
+        x: 20 + index % 40 * 25, y: 20 + Math.floor(index / 40) * 25, size: 20, placementStatus: "placed", positionVerified: false }));
+      const input = { ...saveInput, fixtureUpdates,
+        objectCreates: Array.from({ length: 2000 }, () => ({ type: "rectangle", x: 10, y: 20,
+          width: 30, height: 40, rotation: 0, points: null, text: null, strokeColor: "#ffffff",
+          fillColor: null, strokeWidth: 1, fontSize: null, zIndex: 0, locked: false, visible: true })) };
+      const payloadBytes = Buffer.byteLength(JSON.stringify(input));
+      expect(payloadBytes).toBeGreaterThan(102400);
+      expect(payloadBytes).toBeLessThan(EDITOR_MAX_BODY_BYTES);
+      const first = await put(input);
+      expect(first.status).toBe(200);
+      const baseline: any = await first.json();
+      expect(baseline.fixtures).toHaveLength(1000);
+      expect(baseline.objects).toHaveLength(2000);
+      expect((await put({ ...input, expectedRevision: 1, objectCreates: [...input.objectCreates, input.objectCreates[0]] })).status).toBe(400);
+      expect((await put({ ...input, expectedRevision: 1, padding: "x".repeat(EDITOR_MAX_BODY_BYTES) })).status).toBe(413);
+      const durations: number[] = [];
+      for (let i = 1; i <= 100; i++) {
+        const start = performance.now();
+        const response = await put({ ...input, expectedRevision: i,
+          fixtureUpdates: fixtureUpdates.map((fixture) => ({ ...fixture, x: fixture.x + i % 2 })),
+          objectCreates: [], objectUpdates: baseline.objects.map((object: { id: string }) => ({ id: object.id, patch: { x: i } })) });
+        expect(response.status).toBe(200);
+        await response.json();
+        durations.push(performance.now() - start);
+      }
+      const restoreStart = performance.now();
+      const response = await fetch(`${url}/editor-revisions/1/restore`, { method: "POST",
+        headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedRevision: 101, leaseToken: lease.token, leaseFence: lease.fence }) });
+      expect(response.status).toBe(201);
+      const restored: any = await response.json();
+      const restoreMs = performance.now() - restoreStart;
+      expect(restored.fixtures).toEqual(baseline.fixtures);
+      expect(restored.objects).toEqual(baseline.objects);
+      const rows = await prisma.$queryRaw<Array<{ bytes: number; storedBytes: number }>>`
+        SELECT avg(octet_length(snapshot::text))::int AS bytes, avg(pg_column_size(snapshot))::int AS "storedBytes"
+        FROM "FloorMapRevision" WHERE "floorId" = ${ids.floorId}
+      `;
+      expect(await prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).toBe(102);
+      const p95 = durations.sort((a, b) => a - b)[94];
+      console.info("floor-editor PostgreSQL/HTTP benchmark", { payloadBytes, saves: 100, p95Ms: Math.round(p95),
+        restoreMs: Math.round(restoreMs), meanSnapshotBytes: rows[0].bytes, meanStoredBytes: rows[0].storedBytes });
+      expect(p95).toBeLessThan(3000);
+      expect(restoreMs).toBeLessThan(3000);
+    } finally {
+      await app.close();
+    }
+  }, 120_000);
 
   it("commits one audit and revision and rejects a stale optimistic save without another commit", async () => {
     await activateLease();

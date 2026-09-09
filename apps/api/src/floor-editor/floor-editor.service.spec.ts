@@ -94,7 +94,7 @@ describe("FloorEditorService", () => {
       where: { id: ids.floorId },
       include: {
         floorPlan: true,
-        fixtures: { orderBy: { name: "asc" } },
+        fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] }
       }
     });
@@ -218,13 +218,16 @@ describe("FloorEditorService atomic revisions", () => {
         findUnique: jest.fn().mockResolvedValue(canonicalFloor)
       },
       floorPlan: {
+        findUnique: jest.fn().mockResolvedValue(canonicalFloor.floorPlan),
         upsert: jest.fn().mockResolvedValue(canonicalFloor.floorPlan),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 })
       },
       floorAsset: { count: jest.fn().mockResolvedValue(2) },
       fixture: {
         findMany: jest.fn().mockImplementation(({ where }: any) =>
-          Promise.resolve((where.id.in as string[]).filter((id) => id === fixtureId).map((id) => ({ id })))
+          Promise.resolve((where.id.in as string[]).filter((id) => id === fixtureId).map((id) => ({
+            ...canonicalFloor.fixtures[0], id, placementStatus: "placed", positionVerifiedAt: null
+          })))
         ),
         update: jest.fn().mockResolvedValue({ id: fixtureId })
       },
@@ -249,6 +252,7 @@ describe("FloorEditorService atomic revisions", () => {
         findMany: jest.fn()
       },
       auditLog: { create: jest.fn().mockResolvedValue({ id: "audit-1" }) },
+      $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{
           mapRevision: 3,
@@ -340,13 +344,14 @@ describe("FloorEditorService atomic revisions", () => {
 
     expect(result.floor).toMatchObject({ id: floorId, mapRevision: 4 });
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 5000, timeout: 15000
     });
     expect(tx.floor.update).toHaveBeenCalledWith({
       where: { id: floorId },
       data: { mapRevision: { increment: 1 } }
     });
-    expect(tx.fixture.update).toHaveBeenCalledWith({ where: { id: fixtureId }, data: { x: 130, y: 250, size: 24 } });
+    expect(tx.fixture.update).not.toHaveBeenCalled();
+    expect(tx.$executeRaw.mock.calls[0][0].values).toContain(JSON.stringify([{ id: fixtureId, data: { x: 130, y: 250, size: 24 } }]));
     expect(tx.floorMapRevision.create).toHaveBeenCalledWith({ data: expect.objectContaining({ floorId, revision: 4 }) });
     expect(tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -380,8 +385,26 @@ describe("FloorEditorService atomic revisions", () => {
       expect.any(Date)
     );
     expect(energyCheckpoint.closeRatedWattInterval.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.fixture.update.mock.invocationCallOrder[0]
+      tx.$executeRaw.mock.invocationCallOrder[0]
     );
+  });
+
+  it("does not create an energy boundary for unverification with an unchanged full-form rated watt", async () => {
+    const { service, energyCheckpoint, tx } = await createAtomicService();
+    await service.saveEditorState(user, floorId, { ...saveInput,
+      fixtureUpdates: [{ id: fixtureId, ratedWatt: "40.00", positionVerified: false }] });
+    expect(energyCheckpoint.closeRatedWattInterval).not.toHaveBeenCalled();
+    expect(tx.$executeRaw.mock.calls[0][0].values).toContain(JSON.stringify([
+      { id: fixtureId, data: { positionVerifiedAt: null } }
+    ]));
+  });
+
+  it("maps an expired database transaction to a retryable 503", async () => {
+    const { service, prisma } = await createAtomicService();
+    prisma.$transaction.mockRejectedValue({ code: "P2028" });
+    await expect(service.saveEditorState(user, floorId, saveInput)).rejects.toMatchObject({
+      status: 503, response: expect.objectContaining({ code: "floor_editor_transaction_timeout" })
+    });
   });
 
   it.each([
@@ -539,6 +562,7 @@ describe("FloorEditorService atomic revisions", () => {
 
     const revisionData = tx.floorMapRevision.create.mock.calls[0][0].data;
     expect(revisionData.snapshot).toEqual({
+      version: 2,
       floorPlan: {
         imageUrl: "https://assets.example/b2.png",
         sourceType: "image",
@@ -548,8 +572,8 @@ describe("FloorEditorService atomic revisions", () => {
         height: 800
       },
       fixtures: [
-        { id: fixtureId, name: "B2-L01", ratedWatt: "40.00", x: 130, y: 250, size: 24 },
-        { id: missingFixtureId, name: "B2-L02", ratedWatt: "40.00", x: 130, y: 250, size: 24 }
+        { id: fixtureId, name: "B2-L01", ratedWatt: "40.00", x: 130, y: 250, size: 24, placementStatus: "placed", positionVerifiedAt: null },
+        { id: missingFixtureId, name: "B2-L02", ratedWatt: "40.00", x: 130, y: 250, size: 24, placementStatus: "placed", positionVerifiedAt: null }
       ],
       objects: [
         {
@@ -564,7 +588,7 @@ describe("FloorEditorService atomic revisions", () => {
         }
       ]
     });
-    expect(revisionData.snapshotSha256).toBe("faba9c7c806314da6599b8c40fe2f4e7c2c479ba2869bcdf4d53e7914e9415cf");
+    expect(revisionData.snapshotSha256).toBe("48af51e8b9ce673be95f7decce8a5c2d7ff9116f0ef08d8ffe26eec354182161");
   });
 
   it("saves a deterministic snapshot when persisted rows use legacy none and nullable geometry", async () => {
@@ -755,11 +779,12 @@ describe("FloorEditorService atomic revisions", () => {
     });
 
     expect(result.skippedFixtureIds).toEqual([missingFixtureId]);
-    expect(tx.fixture.update).toHaveBeenCalledTimes(1);
-    expect(tx.fixture.update).toHaveBeenCalledWith({
-      where: { id: fixtureId },
-      data: { name: "Old L01", ratedWatt: "30.00", x: 10, y: 20, size: 18 }
-    });
+    expect(tx.fixture.update).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw.mock.calls[0][0].values).toContain(JSON.stringify([{
+      id: fixtureId, data: { name: "Old L01", ratedWatt: "30.00", x: 10, y: 20, size: 18,
+        placementStatus: "placed", positionVerifiedAt: null }
+    }]));
     expect(tx.floorMapRevision.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ floorId, revision: 4, restoredFromRevision: 1 })
     });

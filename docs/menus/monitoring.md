@@ -21,6 +21,8 @@
 
 ## 구현 완료
 
+- 신규 등록 API는 지도 배치를 분리해 도면 공간이 부족해도 조명을 미배치로 등록한다. 조회 DTO는 배치 상태와 위치 확인 시각을 제공하며 등록 조명 목록/개수/제어/전력 집계에서 미배치를 제외하지 않는다. 기존 조명 좌표는 migration으로 보존한다. 미배치 마커 제외와 등록 UI 변경은 2026-09-09 에디터 웹 통합 검증 중이다.
+
 - 실장비 검색 완료 이벤트와 Gateway application ACK를 API의 직접 MQTT publish 성공 여부에 결합하지 않는다. API는 검색 terminal 상태·중복 방지 원장·ACK용 `MqttOutbox`를 같은 DB transaction에 저장한 뒤 broker PUBACK을 반환하고, 별도 outbox worker가 연결 복구 후 ACK를 재전송한다. 따라서 ACK 전송 중 일시적인 MQTT 연결 종료가 persistent session을 막아 이후 provisioning 명령까지 `Connection closed`로 실패시키지 않는다. 같은 terminal event 재전달은 기존 ACK outbox를 재활성화하며 payload identity 충돌은 fail-closed 한다.
 - 2026-09-03 Raspberry Pi/ESP32-H2 HIL에서 자사 UUID 한 건 검색, `0x0100` provisioning, `B2-L002` Fixture 생성, B2층 `0xC000` Mesh group subscription version 2 적용과 application ACK 발행을 확인했다. 등록 완료 직후 첫 `fixture-state` publication 전에는 `offline`을 `상태 확인 대기`로 표현하는 기존 계약을 유지한다.
 - 2026-09-02 무장비 회귀 점검에서 등록 API도 Web과 동일하게 `scanStatus=completed`, non-null correlation ID와 attempt의 exact match를 강제한다. 따라서 이전 검색 시도나 identity가 없는 legacy 발견 행을 요청에 직접 넣어도 provisioning 대상으로 수락하지 않는다.

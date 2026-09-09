@@ -17,6 +17,8 @@ interface SnapshotFloor {
     x: number;
     y: number;
     size: number;
+    placementStatus?: "unplaced" | "placed";
+    positionVerifiedAt?: Date | string | null;
   }>;
   mapObjects: Array<{
     id: string;
@@ -40,6 +42,7 @@ interface SnapshotFloor {
 
 export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnapshot {
   return parseFloorEditorSnapshot({
+    version: 2,
     floorPlan: floor.floorPlan
       ? {
           imageUrl: floor.floorPlan.imageUrl,
@@ -58,7 +61,10 @@ export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnaps
         ratedWatt: String(fixture.ratedWatt),
         x: fixture.x,
         y: fixture.y,
-        size: fixture.size
+        size: fixture.size,
+        placementStatus: fixture.placementStatus ?? "placed",
+        positionVerifiedAt: fixture.positionVerifiedAt instanceof Date
+          ? fixture.positionVerifiedAt.toISOString() : fixture.positionVerifiedAt ?? null
       })),
     objects: [...floor.mapObjects]
       .sort((left, right) => compareIds(left.id, right.id))

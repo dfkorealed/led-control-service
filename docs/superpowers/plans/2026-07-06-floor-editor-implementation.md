@@ -15,7 +15,7 @@
 상태: 2026-09-09 사용자 구현 승인으로 실행 중. 이 절이 활성 체크리스트이며 하단 작업/진행 로그는 기존 구현 이력이다. 실장비 검증은 사용자 요청으로 후속이며 소프트웨어 구현·실DB·브라우저 검증을 진행한다.
 
 진행 기록:
-- backend: Task 1/2/10 배치 계약·등록 분리·저장/복구 보강 진행 중.
+- backend: Task 1/10 및 Task 2 서버 배치 분리 완료. Shared 172, API 800, 격리 DB/HTTP 18 테스트와 typecheck/build 및 독립 코드 검토를 통과했다. 등록 웹의 좌표 입력 제거와 전체 브라우저 연동은 web_frontend 작업에서 검증한다.
 - web_frontend: Task 3~7 및 9의 층별 UI·목록 드롭·확인 후 배치 해제·대량 편집 진행 중.
 - gateway/backend: Task 8 등록 후 Health Attention 명령 진행 중. firmware 출력 우선순위 단위는 구현·host 테스트·ESP-IDF 빌드 및 독립 코드 검토 완료.
 - 총괄: 공유 계약/소유 범위 조율, 통합 검증과 문서/커밋 진행. 실제 장비 동작 검증·배포는 실행하지 않는다.
@@ -43,17 +43,18 @@ type FixturePlacement = {
 type PlacementPatch = { placementStatus?: 'unplaced' | 'placed'; positionVerified?: boolean };
 ```
 
-- [ ] 신규 조명 기본 unplaced, 기존 row placed/미확인, 기존 x/y 보존 migration을 작성하고 이전/신규 row와 이전 snapshot 호환 테스트를 실행한다.
-- [ ] 배치 상태/위치 확인 필드를 editor 조회·저장·snapshot에 전파하고 새 snapshot 버전과 이전 버전 parser를 연결한다. unplaced 확인 금지와 좌표 변경 시 확인 해제를 검증한다.
-- [ ] shared/API 타입 및 migration 통합 검증 뒤 DB 문서/메뉴/상태판을 갱신하고 커밋한다.
+- [x] 신규 조명 기본 unplaced, 기존 row placed/미확인, 기존 x/y 보존 migration을 작성하고 이전/신규 row와 이전 snapshot 호환 테스트를 실행한다.
+- [x] 배치 상태/위치 확인 필드를 editor 조회·저장·snapshot에 전파하고 새 snapshot 버전과 이전 버전 parser를 연결한다. unplaced 확인 금지와 좌표 변경 시 확인 해제를 검증한다.
+- [x] shared/API 타입 및 migration 통합 검증 뒤 DB 문서/메뉴/상태판을 갱신하고 커밋한다.
 
 ### Task 2: 등록과 배치 분리 / backend
 
 대상: `apps/api/src/registration/registration.service.ts`, `apps/api/src/floor-editor/floor-editor.service.ts`, `apps/api/src/floor-map/floor-map.service.ts`, 조명/대시보드 조회 소비자.
 
 - [ ] 캔버스 공간이 가득 차도 신규 등록이 성공하고 unplaced로 생성되는 회귀를 추가한다. 최신 웹에서는 등록 단계 배치 입력을 제거하고 구버전 요청의 기존 필드 수신 정책을 명시적으로 호환 처리한다.
+  서버와 회귀 완료: 구버전 placement 입력은 호환 수신 후 무시한다. 웹 입력 제거는 Task 9와 함께 검증 중이다.
 - [ ] 지도 마커의 배치 필터를 조회·제어·통계 집계 필터와 분리한다. 편집기는 미배치 조명도 포함한 전체 편집 상태를 제공한다.
-- [ ] 미배치 전환 전후 fixture ID, Mesh 주소, 그룹 멤버, 자동화 대상, 전력 이력이 동일한지 실DB 테스트 후 관련 문서 갱신과 커밋을 진행한다.
+- [x] 미배치 전환 전후 fixture ID, Mesh 주소, 그룹 멤버, 자동화 대상, 전력 이력이 동일한지 실DB 테스트 후 관련 문서 갱신과 커밋을 진행한다.
 
 ### Task 3: 1,000개 렌더링 기반 / web_frontend
 
@@ -118,10 +119,10 @@ type PlacementPatch = { placementStatus?: 'unplaced' | 'placed'; positionVerifie
 
 대상: `apps/api/src/main.ts`, `apps/api/src/floor-editor/floor-editor.service.ts`, snapshot parser와 실DB/HTTP 통합 테스트.
 
-- [ ] 1,000개 fixture 전체 필드와 2,000개 object 변경을 실제 HTTP 경로로 보내 body 상한/검증 응답을 확인한다. 좌표 변경을 묶음 SQL로 처리하며 정격 W 변경은 기존 에너지 checkpoint를 보존한다.
-- [ ] 저장·복구 시간 예산과 timeout 오류 응답을 명시하고 lease/revision/atomic audit 경계를 유지한다. 실패 시 일부 row나 revision만 저장되지 않는 회귀를 실행한다.
-- [ ] snapshot 크기/복구 지연을 100회 저장으로 측정한다. 새 snapshot 버전·해시와 이전 버전 파서를 검증하고 기존 이력을 자동 삭제하지 않는다. 장기 보관 정책은 측정 결과와 함께 문서에 제안값으로 남긴다.
-- [ ] 관련 API 테스트/typecheck와 문서를 갱신하고 커밋한다.
+- [x] 1,000개 fixture 전체 필드와 2,000개 object 변경을 실제 HTTP 경로로 보내 body 상한/검증 응답을 확인한다. 좌표 변경을 묶음 SQL로 처리하며 정격 W 변경은 기존 에너지 checkpoint를 보존한다.
+- [x] 저장·복구 시간 예산과 timeout 오류 응답을 명시하고 lease/revision/atomic audit 경계를 유지한다. 실패 시 일부 row나 revision만 저장되지 않는 회귀를 실행한다.
+- [x] snapshot 크기/복구 지연을 100회 저장으로 측정한다. 새 snapshot 버전·해시와 이전 버전 파서를 검증하고 기존 이력을 자동 삭제하지 않는다. 장기 보관 정책은 측정 결과와 함께 문서에 제안값으로 남긴다.
+- [x] 관련 API 테스트/typecheck와 문서를 갱신하고 커밋한다. 2026-09-09 로컬 Mac 격리 PostgreSQL/HTTP 최종 재실행: 저장 100회 p95 425ms, 복구 485ms. 실제 운영 부하/HIL 성능 보장은 아니다.
 
 ### Task 11: 통합 검증과 완료 판정 / qa_reviewer
 

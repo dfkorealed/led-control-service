@@ -34,53 +34,6 @@ interface PendingRegistration {
   size: number;
 }
 
-interface OccupiedPlacement {
-  x: number;
-  y: number;
-  size: number;
-}
-
-class PlacementIndex {
-  private readonly bucketSize = 32;
-  private readonly buckets = new Map<string, Set<OccupiedPlacement>>();
-
-  constructor(placements: OccupiedPlacement[]) {
-    placements.forEach((placement) => this.add(placement));
-  }
-
-  add(placement: OccupiedPlacement) {
-    for (const key of this.keysFor(placement)) {
-      const bucket = this.buckets.get(key) ?? new Set<OccupiedPlacement>();
-      bucket.add(placement);
-      this.buckets.set(key, bucket);
-    }
-  }
-
-  overlaps(candidate: OccupiedPlacement) {
-    const nearby = new Set<OccupiedPlacement>();
-    for (const key of this.keysFor(candidate)) {
-      this.buckets.get(key)?.forEach((placement) => nearby.add(placement));
-    }
-    return Array.from(nearby).some((placement) =>
-      Math.abs(placement.x - candidate.x) < (placement.size + candidate.size) / 2 + 4
-      && Math.abs(placement.y - candidate.y) < (placement.size + candidate.size) / 2 + 4
-    );
-  }
-
-  private keysFor(placement: OccupiedPlacement) {
-    const radius = placement.size / 2 + 4;
-    const minX = Math.floor((placement.x - radius) / this.bucketSize);
-    const maxX = Math.floor((placement.x + radius) / this.bucketSize);
-    const minY = Math.floor((placement.y - radius) / this.bucketSize);
-    const maxY = Math.floor((placement.y + radius) / this.bucketSize);
-    const keys: string[] = [];
-    for (let y = minY; y <= maxY; y += 1) {
-      for (let x = minX; x <= maxX; x += 1) keys.push(`${x}:${y}`);
-    }
-    return keys;
-  }
-}
-
 @Injectable()
 export class RegistrationService {
   constructor(
@@ -292,7 +245,6 @@ export class RegistrationService {
         fixtureName: string;
         ratedWatt: string;
         size: number;
-        placement: { mode: "auto" } | { mode: "manual"; x: number; y: number };
       }> = [];
 
       for (const requested of input.nodes) {
@@ -323,29 +275,13 @@ export class RegistrationService {
           meshAddress: node.meshAddress,
           fixtureName: individual?.fixtureName ?? "",
           ratedWatt: individual?.ratedWatt ?? (input.mode === "batch" ? input.defaults.ratedWatt : "40.00"),
-          size: individual?.size ?? (input.mode === "batch" ? input.defaults.size : 20),
-          placement: requested.placement
+          size: individual?.size ?? (input.mode === "batch" ? input.defaults.size : 20)
         });
       }
 
-      const width = session.floor.floorPlan?.width ?? 1200;
-      const height = session.floor.floorPlan?.height ?? 800;
-      const occupied: OccupiedPlacement[] = await tx.fixture.findMany({
-        where: { floorId: session.floorId },
-        select: { x: true, y: true, size: true }
-      });
-      const placementIndex = new PlacementIndex(occupied);
-      const positioned = candidates.flatMap((candidate) => {
-        const position = candidate.placement.mode === "manual"
-          ? this.validateManualPlacement(candidate.placement, candidate.size, width, height)
-          : this.findAutoPlacement(width, height, candidate.size, placementIndex);
-        if (!position) {
-          failures.set(candidate.nodeId, "no valid placement is available on the floor plan");
-          return [];
-        }
-        placementIndex.add({ ...position, size: candidate.size });
-        return [{ ...candidate, ...position }];
-      });
+      // Legacy placement input remains accepted but is intentionally ignored. Numeric zeroes
+      // satisfy the provisioning contract only; the new Fixture default is unplaced, not (0,0).
+      const positioned = candidates.map((candidate) => ({ ...candidate, x: 0, y: 0 }));
 
       const generatedNameCandidates = positioned.filter((candidate) => !candidate.fixtureName);
       const fixtureNumbers = generatedNameCandidates.length > 0
@@ -573,31 +509,6 @@ export class RegistrationService {
 
   private isGatewayScanConflict(error: unknown) {
     return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
-  }
-
-  private validateManualPlacement(
-    placement: { x: number; y: number },
-    size: number,
-    width: number,
-    height: number
-  ) {
-    const half = size / 2;
-    if (placement.x < half || placement.x > width - half || placement.y < half || placement.y > height - half) {
-      return null;
-    }
-    return { x: placement.x, y: placement.y };
-  }
-
-  private findAutoPlacement(width: number, height: number, size: number, placementIndex: PlacementIndex) {
-    if (size > width || size > height) return null;
-    const half = size / 2;
-    const step = Math.max(24, Math.ceil(size + 4));
-    for (let y = half; y <= height - half; y += step) {
-      for (let x = half; x <= width - half; x += step) {
-        if (!placementIndex.overlaps({ x, y, size })) return { x, y };
-      }
-    }
-    return null;
   }
 
   private async assertCommissionAccess(user: AuthenticatedUser, siteId: string) {

@@ -36,12 +36,14 @@ describe("FloorAssetsService", () => {
   it("uses read access when listing ready floor assets", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
-      floorAsset: { findMany: jest.fn().mockResolvedValue([{ id: "asset-1", status: "ready" }]) }
+      floorAsset: { findMany: jest.fn().mockResolvedValue([{ id: "asset-1", status: "ready", sizeBytes: 1024n }]) }
     };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
     const service = new FloorAssetsService(prisma, {} as any, siteAccess as unknown as SiteAccessService);
 
-    await expect(service.listAssets(viewer, "floor-1")).resolves.toEqual([{ id: "asset-1", status: "ready" }]);
+    const assets = await service.listAssets(viewer, "floor-1");
+    expect(assets).toEqual([{ id: "asset-1", status: "ready", sizeBytes: 1024 }]);
+    expect(() => JSON.stringify(assets)).not.toThrow();
     expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
   });
   it("creates a pending tenant-scoped upload intent", async () => {

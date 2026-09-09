@@ -10,6 +10,7 @@
 
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
+| 맵 배치 Task 1/10 및 등록 서버 분리 | 완료(소프트웨어) | 기존 좌표 보존 migration, 신규 미배치, V1/V2 snapshot, 배치와 장비/에너지 분리, 1 MiB PUT와 묶음 저장을 구현했다. Shared 172, API 800(환경 의존 170 skip), 격리 DB/HTTP 18 및 API typecheck/build, 독립 코드 검토를 통과했다. 1,000 fixture/2,000 object 100회 저장 p95 425ms, 복구 485ms. 사용자 DB 적용과 실장비 검증은 미실행이며 웹 통합은 진행 중이다. |
 | 1,000개 조명 맵 배치 개선 | 구현 중 | [기존 에디터 설계](superpowers/specs/2026-07-06-floor-editor-design.md)의 2026-09-09 범위와 [실행 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 Task 1~11을 진행한다. backend는 배치 계약/등록 분리/대량 저장, web_frontend는 층별 편집/드롭/확인 후 배치 해제/대량 편집, gateway/backend와 firmware는 등록 후 식별 명령을 담당한다. 실장비 검증은 사용자 요청으로 후속이며 이번 실행은 소프트웨어 구현과 브라우저/실DB 검증에 집중한다. 기존 파일 도면 활용은 보류하고 자산/좌표는 보존한다. |
 | 에이전트 운영 기반 Task 1 | 완료 | 운영 기준과 지속 갱신 상태판을 작성했다. |
 | 에이전트 운영 기반 Task 2 | 완료 | 프로젝트 전용 custom agent 7개의 기본 권한 프로필과 디렉터리별 `AGENTS.md` 소유·검증 규칙을 구성했다. 실제 QA 읽기 전용 검토는 부모 세션도 읽기 전용 권한으로 실행한다. |
