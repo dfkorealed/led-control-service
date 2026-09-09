@@ -17,7 +17,7 @@
 진행 기록:
 - backend: Task 1/2/10 배치 계약·등록 분리·저장/복구 보강 진행 중.
 - web_frontend: Task 3~7 및 9의 층별 UI·목록 드롭·확인 후 배치 해제·대량 편집 진행 중.
-- gateway/backend + firmware: Task 8 등록 후 Health Attention 명령과 출력 우선순위 보강 진행 중.
+- gateway/backend: Task 8 등록 후 Health Attention 명령 진행 중. firmware 출력 우선순위 단위는 구현·host 테스트·ESP-IDF 빌드 및 독립 코드 검토 완료.
 - 총괄: 공유 계약/소유 범위 조율, 통합 검증과 문서/커밋 진행. 실제 장비 동작 검증·배포는 실행하지 않는다.
 
 ### 공통 규칙
@@ -102,7 +102,7 @@ type PlacementPatch = { placementStatus?: 'unplaced' | 'placed'; positionVerifie
 
 - [ ] 공유 명령에 fixture ID/site/gateway/command ID와 절대 만료 시각을 정의하고 시작/중지/결과를 분리한다. 현장 admin, 현재 lease, online/등록 상태, 단일 진행 대상을 서버에서 검증한다.
 - [ ] Gateway가 Health Attention 시작/중지와 응답을 처리하고 중복/만료/응답 없음/다음 대상 전환 시 이전 대상 중지를 처리한다. 기존 identify의 100% 고정 동작을 사용하지 않는다.
-- [ ] ESP32에서 자체 만료와 종료/재시작 처리를 검증하고 식별 중 정상 제어 목표를 보존한다. 시작 당시 밝기가 아닌 최신 목표로 돌아가도록 PWM 출력 우선순위를 정리한다.
+- [x] ESP32에서 자체 만료와 종료/재시작 처리를 검증하고 식별 중 정상 제어 목표를 보존한다. 시작 당시 밝기가 아닌 최신 목표로 돌아가도록 PWM 출력 우선순위를 정리한다. 12개 fake driver 시나리오와 portable 상태 테스트, ESP-IDF compile-only 빌드/산출물 감사 및 독립 코드 검토를 통과했다. 서비스의 10초 한도는 API/Gateway가 강제하며 펌웨어는 표준 Health Attention의 1~255초를 수용한다. 실제 RF/LED 동작은 미검증이다.
 - [ ] 웹의 확인 시작/중지/다음/건너뛰기와 위치 클릭·명시적 확인을 연결한다. 명령 응답과 사람의 위치 확인을 구분해 저장한다.
 - [ ] 소프트웨어 계약·Gateway·firmware host 테스트 및 ESP-IDF build를 통과한 각 소단위마다 커밋한다. 실제 LED 점멸/종료/스케줄·이벤트 복귀는 HIL 완료 전까지 미검증으로 남긴다.
 

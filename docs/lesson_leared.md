@@ -1,5 +1,10 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-09 / 식별 점멸과 정상 밝기 목표를 분리한다
+- **발생했던 문제/실수**: 위치 확인을 일반 밝기 명령으로 처리하거나 시작 시 밝기를 저장해 복원하면 점멸 중 도착한 수동·스케줄·이벤트 목표가 사라질 수 있다.
+- **해결 및 예방책**: 정상 목표와 일시적인 Attention 출력을 분리하고 같은 mutex 안에서 시각·상태·PWM 갱신을 처리한다. 만료와 중지는 항상 최신 목표로 복귀하며 이전 timer callback은 현재 상태만 평가한다.
+- **반복 방지 체크**: fake driver의 latest/expiry-latest/stale-restart/stale-stop/output-retry/stop-retry 회귀를 유지한다. Host 및 target build 성공은 실제 LED 가시성이나 RF 검증을 뜻하지 않는다.
+
 ## 2026-08-31 / Caller가 key와 fingerprint를 함께 주면 trust anchor가 아니다
 - **발생했던 문제/실수**: Production caller가 approval public key와 그 fingerprint를 같은 환경에서 선택할 수 있어 self-signed 임의 CID가 wrapper를 통과했고, unsigned artifact manifest는 flash image provenance를 증명하지 못했다.
 - **원인**: Signature 유효성 검증과 신뢰 루트 고정을 혼동했고, app binary만 hash로 묶으면 generated flash set 전체가 승인된다고 확대 해석했다.

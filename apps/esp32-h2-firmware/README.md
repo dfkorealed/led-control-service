@@ -4,6 +4,7 @@
 
 ## 현재 검증 상태
 
+- 2026-09-09 Health Attention 식별 개선은 portable 상태 테스트, 실제 identify/LEDC driver를 실행하는 host fake 12개 시나리오와 `scripts/esp32-h2-build.sh --test-build` ESP32-H2 fullclean compile/link 및 artifact audit를 통과했다. Binary는 `968,320` 바이트, OTA slot 여유는 `1,063,296` 바이트다. Compile-only 산출물이며 flash, RF, 실제 조명/센서 검증과 제조 자격 증명 발급은 수행하지 않았다.
 - 2026-07-08 기준 macOS 개발 환경에 ESP-IDF `v5.5.1`을 설치했다.
 - `scripts/esp32-h2-build.sh`로 실제 ESP32-H2 target 빌드를 통과했다.
 - 빌드 산출물은 `/Users/kim-jh/esp/led-control-esp32-h2-build/build`에 생성된다.
@@ -196,7 +197,7 @@ Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 
 - Health fault clear/test callback과 fault update publication 진입점
 - 마지막 밝기, 이전 밝기, command sequence를 NVS blob으로 저장하고 2초 debounce commit으로 flash write를 제한
 - Off 후 On 시 직전 0% 초과 밝기를 복원
-- Health Attention에 연결된 250ms identify 점멸과 종료 시 원래 밝기 복원
+- Health Attention 기반 150ms 비소등 식별 pulse, 자체 시간 만료/명시적 종료와 최신 일반 밝기 목표 복원
 - GPIO active-low 8초 길게 누르기를 통한 앱 NVS 및 BLE Mesh credential factory reset
 - panic/watchdog reset reason을 Health fault `0x01`로 기록
 - ESP-IDF task watchdog 10초 설정
@@ -214,6 +215,26 @@ Sensor task는 생성 직후 start notification gate에서 대기한다. 높은 
 - OTA 이미지 수신, 검증, rollback 정책
 - BLE Mesh optional transition time을 LEDC 비동기 fade 완료 callback/task와 present/target 상태 분리 후 Status publication으로 연결. 현재 즉시 duty 변경만 구현되어 있어 미완료다.
 - 표준 BLE Mesh TID와 cloud gateway command sequence의 매핑 정책. Light Lightness의 로컬 6초 TID 중복 방지는 구현됐지만 8-bit TID를 cloud sequence로 간주하지 않는다.
+
+## Health Attention 조명 식별
+
+기존 표준 Health Attention wire를 그대로 사용한다. `ATTENTION_ON`의 `seconds`(1~255초)마다 새 단조 시각 기준으로 식별 기한을 교체하고 pulse를 다시 시작한다. `ATTENTION_OFF` 또는 0초 요청은 즉시 종료하며 중복 종료와 시작 전 종료는 일반 목표를 바꾸지 않는다. 추가 MQTT schema, RTC/시각 동기화 또는 센서 입력은 필요하지 않다.
+
+- `led_output_state.c`는 일반 목표와 임시 식별 출력을 분리하는 ESP-IDF 비의존 상태 모듈이다. 수동/스케줄/이벤트 명령은 기존 `led_driver_set_brightness()`를 통해 항상 최신 목표를 갱신한다. 식별 중에도 다음 출력 계산에 즉시 반영되며 종료/만료 시 캡처한 과거 값이 아니라 최신 목표로 돌아간다.
+- 식별 기준 밝기는 `max(최신 목표, 10%)`다. 매 1초의 처음 150ms 동안 기준이 50% 이상이면 기준의 70%로 잠깐 낮추고, 미만이면 30 percentage points 높인다. 나머지 850ms는 기준 밝기다. 식별 중 출력은 0이 되지 않으며 목표가 OFF인 조명도 임시로 켜진다. 종료 후에는 정상 목표 0%도 그대로 복원한다. 실제 converter의 최소 점등 밝기와 현장 식별 가시성은 후속 실측 대상이다.
+- 부팅 때 한 번 시작하는 50ms 주기 `ESP_TIMER_TASK` sampler가 현재 상태/기한만 평가한다. 요청마다 timer를 중지/재생성하지 않으므로 지연된 이전 tick이 새 식별 기한을 종료하지 않는다. 정상 task 스케줄링에서 만료는 다음 tick 이내이며 RTOS 지연만큼 늦어질 수 있다. ISR dispatch는 사용하지 않는다.
+- 일반 목표 갱신, 시작/종료, 시간 읽기와 `ledc_set_duty`/`ledc_update_duty` 전체를 같은 FreeRTOS mutex로 직렬화한다. 초기화는 기존처럼 부팅 시 Mesh callback 시작 전에 수행한다. Idle tick은 같은 PWM 값을 다시 쓰지 않으며 PWM 적용 오류는 다음 tick에서 최신 목표로 재시도한다.
+- 식별 pulse는 driver 출력에만 적용한다. OnOff/Lightness 모델 상태, NVS 저장과 일반 상태 publication에는 임시 pulse 값이 들어가지 않으므로 상태 기반 통계에 식별 점멸이 일반 제어 변경으로 기록되지 않는다. 이는 물리 소비전력이 변하지 않는다는 의미는 아니다.
+
+저장소 루트에서 호스트 회귀 테스트:
+
+```bash
+bash apps/esp32-h2-firmware/test/identify_fake/test_identify_host.sh
+```
+
+`test/led_output_state_test.c`는 만료 경계, 재시작, 목표 갱신, 0~100% 전체 목표의 비소등 pulse와 255초를 검사한다. `test/identify_fake/test_identify_driver.c`는 production identify/driver source를 pthread mutex와 LEDC/timer fake로 실행하며 자동 만료, 최신 목표 복원, 중복 시작/종료, 지연 callback 경합, OFF, 초기화 재시도와 PWM 실패 후 복구를 검증한다. 경합은 sleep 대신 명시적 condition-variable barrier로 고정한다.
+
+실제 보드 flash/run은 이번 범위 밖이다. 후속 HIL에서는 등록 조명의 Health Attention 수신, 식별 중 수동/스케줄/이벤트 갱신, RF 지연/재전송, 부하 하의 종료 지연과 pulse의 전기적/시각적 동작을 확인해야 한다. 기존 production 신뢰 정책과 compile-only 부팅 fail-stop은 변경하지 않았다.
 
 ## 양산 GPIO 설정
 

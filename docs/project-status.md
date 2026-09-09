@@ -47,7 +47,7 @@
 
 ## 다음 단계
 
-다음 구현은 [맵 배치 개선 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 Task 1 배치 상태·snapshot 호환 계약부터 시작한다. 현재는 사용자 요청에 따른 구현 전 최종 계획 단계다.
+현재 [맵 배치 개선 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 Task 1~11을 실행 중이다. 배치 계약·등록 분리, 층별 UI, 식별 명령을 역할별로 구현하고 독립된 DB/브라우저 환경에서 검증한다. 펌웨어 식별 출력 단위는 host 12개 시나리오·portable 테스트·ESP-IDF 빌드 및 독립 코드 검토를 통과했다. 실장비 배포·검증은 실행하지 않는다.
 
 기존 Calm Operations의 1440/1024/390/320 수동 시각 QA는 후속 검증으로 유지한다. 자동 Chromium 검증을 사람의 시각 확인으로 대체 기록하지 않으며, 기능별 Raspberry Pi/BlueZ/ESP32-H2 HIL 여부는 해당 증거를 기준으로 판정한다.
 

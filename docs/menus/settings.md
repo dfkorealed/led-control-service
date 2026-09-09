@@ -6,7 +6,7 @@
 
 ## 현재 우선순위
 
-- 2026-09-09 맵 편집 개선은 계획 정리 완료/구현 미착수다. 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 추진한다. 배치 해제는 장비 등록/그룹/제어/통계에 영향을 주지 않는다. PDF/JPG/PNG 업로드·교체 및 CAD/AI 활용은 보류하되 기존 자산과 좌표는 보존한다. 최신 범위와 Task 1~11은 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 및 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 절을 따른다. 아래 기존 완료 목록은 현재 코드를 설명하며 이 계획의 구현 완료를 의미하지 않는다.
+- 2026-09-09 맵 편집 개선은 구현·검증 중이다. 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 추진한다. 배치 해제는 장비 등록/그룹/제어/통계에 영향을 주지 않는다. PDF/JPG/PNG 업로드·교체 및 CAD/AI 활용은 보류하되 기존 자산과 좌표는 보존한다. 최신 범위와 Task 1~11은 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 및 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 절을 따른다. 아래 기존 완료 목록은 이 계획 전체의 구현 완료를 의미하지 않는다. 실장비 검증은 사용자 요청으로 후속이다.
 - Scene 24~26 설정 개요·역할별 navigation·도면 목록/편집·비밀번호 변경 UI 교정은 완료했다. 새로운 설정 도메인 기능은 아래 미구현 목록과 후속 범위를 유지한다.
 - 기존 도면 에디터는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
 - 사용자/보안, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
@@ -70,6 +70,8 @@
 - 설정과 에디터는 URL을 가지며 새로고침, 브라우저 뒤로 가기와 직접 진입을 지원한다.
 
 ## 구현 완료
+
+- 등록 후 위치 확인의 펌웨어 출력 단위를 보강했다. Health Attention은 자체 만료되며 명시적 중지·재시작에 대응한다. 식별 중 수동/자동제어의 최신 밝기 목표를 보존해 종료 후 복귀하고, 지연된 timer callback이나 PWM 오류 후 재시도가 새 요청을 덮어쓰지 않는다. Host 12개 시나리오·portable 테스트와 ESP-IDF 빌드를 통과했으며 API/Gateway/웹 통합은 진행 중이다. 실제 조명의 점멸·가시성 검증은 후속이다.
 
 - 최초 setup, Gateway claim, 등록 대상·일괄/개별 form의 input/select와 checkbox/radio label은 390px·320px에서 연속 44×44px 이상 도달 가능한 영역을 제공한다. Chromium commissioning helper는 기본 일괄 form을 개별 mode 전환 전에 검사하고, 전환 뒤 개별 form도 별도로 검사하며, 버튼 외 모든 enabled interactive control을 스크롤한 뒤 viewport·overflow clipping과 실제 hit-test occlusion까지 확인한다.
 - 조명 등록 `ProgressSteps`는 검색·등록 정보·장비 등록·상태 확인을 전체 session status union의 단일 상태 머신으로 표현한다. `completed`·`cancelled` terminal에는 current가 없고, session-level `failed`는 scan/node 도달 상태로 실패 단계를 정한다. 서버 transport 오류는 원시 API 값을 유지한 채 공통 표시 전용 mapper로 자연스러운 한국어 문구를 제공한다.

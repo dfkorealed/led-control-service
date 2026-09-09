@@ -8,6 +8,7 @@ idf_component_register(
     "factory_reset.c"
     "identify.c"
     "led_driver.c"
+    "led_output_state.c"
     "mesh_state.c"
     "mesh_publication_jitter.c"
     "mesh_transaction_cache.c"

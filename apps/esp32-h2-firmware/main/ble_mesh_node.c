@@ -486,7 +486,7 @@ static void health_server_cb(esp_ble_mesh_health_server_cb_event_t event, esp_bl
     break;
   case ESP_BLE_MESH_HEALTH_SERVER_ATTENTION_ON_EVT:
     ESP_LOGI(TAG, "Health attention on, seconds=%u", param->attention_on.time);
-    ESP_ERROR_CHECK_WITHOUT_ABORT(identify_start(param->attention_on.time, mesh_control_state.brightness_percent));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(identify_start(param->attention_on.time));
     break;
   case ESP_BLE_MESH_HEALTH_SERVER_ATTENTION_OFF_EVT:
     ESP_LOGI(TAG, "Health attention off");
