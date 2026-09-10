@@ -173,7 +173,7 @@ describeWithDatabase("SetupService PostgreSQL integration", () => {
 function createService(prisma: PrismaService, siteAccess = new SiteAccessService(prisma)) {
   return new SetupService(
     prisma,
-    { getDashboardById: jest.fn().mockResolvedValue({}) } as never,
+    { getDashboard: jest.fn().mockResolvedValue({}) } as never,
     siteAccess
   );
 }

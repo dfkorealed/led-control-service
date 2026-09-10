@@ -43,4 +43,17 @@ describe("SetupController", () => {
     await expect(controller.addFloors(user, null as any)).rejects.toBeInstanceOf(BadRequestException);
     expect(setupService.addFloors).toHaveBeenCalledWith(user, null);
   });
+
+  it("returns the caller-scoped dashboard response from both setup routes", async () => {
+    const { controller, setupService } = createController();
+    const dashboard = {
+      site: { id: "site-1" },
+      capabilities: { read: true, control: true, manage: true, commission: true }
+    };
+    setupService.completeInitialSite.mockResolvedValueOnce(dashboard);
+    setupService.addFloors.mockResolvedValueOnce(dashboard);
+
+    await expect(controller.createInitialSite(user, { siteId: "site-1" } as any)).resolves.toEqual(dashboard);
+    await expect(controller.addFloors(user, { siteId: "site-1" } as any)).resolves.toEqual(dashboard);
+  });
 });

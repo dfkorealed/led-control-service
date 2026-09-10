@@ -344,6 +344,43 @@ describe("CommandsService", () => {
     expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
   });
 
+  it("rejects an idempotent recovery when control access is downgraded to read", async () => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const concurrentCommand = {
+      id: ids.command,
+      siteId: ids.site,
+      requestedBy: controlUser.id,
+      clientRequestId,
+      requestFingerprint: fingerprint({ type: "fixture", fixtureId: ids.fixture1 }, 30),
+      targetType: "fixture",
+      targetId: ids.fixture1,
+      targetFixtureIds: [ids.fixture1],
+      brightness: 30,
+      manualOverride: { overrideUntil: new Date("2026-08-29T01:00:00.000Z") },
+      createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      dispatches: [{ deliveryMode: "unicast" }]
+    };
+    const { prisma, service, siteAccess, tx } = createHarness({
+      fixtures: [fixture(ids.fixture1)],
+      concurrentCommand
+    });
+    siteAccess.assertControlInTransaction
+      .mockResolvedValueOnce({ id: ids.site, organizationId: controlUser.organizationId })
+      .mockRejectedValueOnce(new ForbiddenException("site capability denied"));
+
+    await expect(service.createDimmingCommand(controlUser, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 30
+    })).rejects.toThrow("site capability denied");
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(siteAccess.assertControlInTransaction).toHaveBeenCalledTimes(2);
+    expect(siteAccess.assertControlInTransaction).toHaveBeenLastCalledWith(tx, controlUser, ids.site);
+    expect(tx.command.findUnique).toHaveBeenCalledTimes(1);
+  });
+
   it("does not recover an unrelated unique constraint failure", async () => {
     const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
     tx.command.create.mockRejectedValueOnce({
