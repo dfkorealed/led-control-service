@@ -11,6 +11,7 @@
     "test:bundle-audit": "pnpm run build:shared && node scripts/audit-schedule-bundle.mjs",
     "e2e:auth:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/auth-real.spec.ts --project=chromium",
     "e2e:journey:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/installation-customer-journey.spec.ts --project=chromium",
+    "e2e:site-users:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/site-user-management-real.spec.ts --project=chromium",
     "lint": "pnpm run build:shared && tsc --noEmit",
     "typecheck": "pnpm run build:shared && tsc --noEmit"
   },

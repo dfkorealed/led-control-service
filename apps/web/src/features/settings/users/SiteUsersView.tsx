@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CircleAlert, CircleCheck, Clock3, KeyRound, Pencil, Plus, Search, Trash2, UserCheck, UserX } from "lucide-react";
+import { ApiError } from "../../../api/client";
 import { siteUsersQueryKey, updateSiteUser, useSiteUsers, type SiteUserAccessLevel, type SiteUserStatus, type SiteUserSummary, type SiteUsersResponse } from "../../../api/site-users";
 import { Button, Card, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
 import { DeleteSiteUserDialog } from "./DeleteSiteUserDialog";
@@ -108,23 +109,42 @@ export function SiteUsersView({ siteId }: { siteId?: string }) {
     setNotice("");
     setActionError("");
     setBusyUserId(user.id);
+    const nextStatus = user.status === "active" ? "disabled" : "active";
     try {
-      const nextStatus = user.status === "active" ? "disabled" : "active";
-      await updateSiteUser(siteId, user.id, {
-        name: user.name,
-        loginId: user.loginId,
-        accessLevel: user.accessLevel,
-        status: nextStatus,
-        expectedUpdatedAt: user.updatedAt
-      });
+      await updateStatus(user, nextStatus);
       refreshWithNotice(nextStatus === "active" ? "사용자를 활성화했습니다." : "사용자를 비활성화하고 기존 세션을 종료했습니다.");
     } catch (error) {
+      if (siteUserErrorCode(error) === "SITE_USER_CHANGED") {
+        try {
+          const refreshed = await usersQuery.refetch();
+          if (refreshed.error) throw refreshed.error;
+          const latest = refreshed.data?.users.find((candidate) => candidate.id === user.id);
+          if (!latest) throw new ApiError("site user not found", 404, { code: "SITE_USER_NOT_FOUND" });
+          await updateStatus(latest, nextStatus);
+          refreshWithNotice(nextStatus === "active" ? "사용자를 활성화했습니다." : "사용자를 비활성화하고 기존 세션을 종료했습니다.");
+          return;
+        } catch (retryError) {
+          const message = await recoverMutationError(retryError);
+          if (message) setActionError(message);
+          return;
+        }
+      }
       const message = await recoverMutationError(error);
       if (message) setActionError(message);
     } finally {
       busyActionRef.current = false;
       setBusyUserId(null);
     }
+  }
+
+  function updateStatus(user: SiteUserSummary, status: SiteUserStatus) {
+    return updateSiteUser(siteId!, user.id, {
+      name: user.name,
+      loginId: user.loginId,
+      accessLevel: user.accessLevel,
+      status,
+      expectedUpdatedAt: user.updatedAt
+    });
   }
 
   if (!siteId) return <FeedbackState tone="neutral" icon={CircleAlert} title="유저를 관리할 현장을 선택하세요." />;

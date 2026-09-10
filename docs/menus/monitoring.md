@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-10
+기준일: 2026-09-11
 
 ## 확정 구현 범위
 
@@ -20,6 +20,8 @@
 - 자동 HIL 판정. 실제 하드웨어 검증은 수동으로 수행한다.
 
 ## 구현 완료
+
+- 현장 일반 유저의 `read`와 `control` capability는 모두 모니터링 메뉴와 해당 현장 dashboard 조회를 허용한다. 신규 일반 유저는 임시 비밀번호로 최초 로그인한 뒤 전용 강제 변경 화면을 완료해야 모니터링으로 진입한다. mock Chromium으로 역할별 메뉴를, 격리 PostgreSQL/API Chromium으로 최초 로그인·비밀번호 변경·비활성 세션의 다음 보호 요청 `401`과 재로그인 거절을 검증했다. Gateway나 ESP32-H2를 사용한 검증은 아니다.
 
 - 설정에서 실행하는 테스트 데이터 도구가 `VITE_TEST_DATA_TOOLS_ENABLED=true`일 때만 `POST/DELETE /test-data/sites/:siteId`를 사용해 층별 marker Gateway 1개와 MeshNode/Fixture 200개씩을 생성·삭제한다. 생성은 idempotent하며 `led-control-test-data/v1/`과 `[TEST DATA] Fixture `를 도구 전용 예약 namespace로 사용한다. 삭제는 Gateway·MeshNode·Fixture marker chain이 모두 일치하는 테스트 데이터만 대상으로 하므로 실제 장비 데이터는 보존된다. 예상하지 않은 종속 데이터가 marker 장비 또는 조명에 연결돼 있으면 삭제는 `409`로 전체 거부된다. 생성 직후 recent online이더라도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. 이 데이터는 실장비/MQTT 시뮬레이션이 아니며 DB schema/migration 변경도 없다.
 
@@ -156,6 +158,10 @@
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. Docker 전용 broker persistence 재시작 test는 현재 로컬 Docker daemon 부재로 skip됐다. 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
+
+- `apps/web/e2e/site-user-management.spec.ts`
+- `apps/web/e2e/site-user-management-real.spec.ts`
+- `apps/api/src/site-users`
 
 - `apps/web/src/features/transport-copy.ts`
 - `apps/web/src/features/transport-copy.test.ts`

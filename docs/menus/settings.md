@@ -2,14 +2,14 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-09-10
+기준일: 2026-09-11
 
 ## 현재 우선순위
 
 - 2026-09-09 승인 맵 편집 개선은 소프트웨어 구현과 최종 회귀 검증을 완료했다. 층별 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 연결했다. 두 층 실제 API/DB 브라우저 E2E는 2026-09-10 통과했다. PDF/JPG/PNG 업로드·교체 및 CAD/AI 활용은 보류하되 기존 자산과 좌표는 보존한다. 최신 범위와 Task 1~11은 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 및 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 절을 따른다. 실장비 검증·배포는 사용자 요청으로 후속이다.
 - Scene 24~26 설정 개요·역할별 navigation·도면 목록/편집·비밀번호 변경 UI 교정은 완료했다. 새로운 설정 도메인 기능은 아래 미구현 목록과 후속 범위를 유지한다.
 - 기존 맵 편집기는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
-- 사용자/보안, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
+- 현장 일반 유저 관리와 본인 비밀번호 변경은 구현 완료했다. MFA·세션 관리·공통 감사 조회, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
 - BLE Mesh floor/zone Group Address와 subscription 동기화는 설정 화면 확장이 아니라 제어 기반 기능으로 구현한다. 기존 FixtureGroup 데이터만 사용하며 이번 범위에서 그룹 CRUD UI는 추가하지 않는다.
 - Task 6에서 로그인 화면을 `loginId` 전용으로 정리하고 operator/customer shell을 분리했다. Task 7에서 operator는 설정을 포함한 고객 메뉴 대신 `/operator/site-admins` 전용 목록으로 replace되며, 현장·관리자 생성, 기존 현장 관리자 지정, 수정, 비밀번호 재설정과 삭제를 제공한다. 삭제는 현장명을 다시 입력한 경우에만 실행하며 해당 현장의 층·도면·조명·게이트웨이·제어·통계 데이터와 고객사 계정을 영구 삭제한다. Task 8에서 assigned admin의 최초 설치와 commissioning 역할 노출을 웹에 연결했다.
 
@@ -37,17 +37,18 @@
 | 그룹 관리와 운영 정책 | 금지 | 허용 | 금지 |
 | 맵 버전 복구 | 금지 | 허용 | 금지 |
 | Gateway 해제·장비 교체·초기화 | 후속 계약 확정 대기 | 후속 계약 확정 대기 | 금지 |
-| 알림 규칙과 고객사 사용자 관리 | 허용 | 허용 | 금지 |
+| 고객사 일반 유저 관리 | 금지 | 허용 | 금지 |
+| 알림 규칙 | 후속 계약 확정 대기 | 후속 계약 확정 대기 | 금지 |
 | operator 배정·인증서·OTA 변경 | 허용 | 금지 | 금지 |
 | 편집 잠금 강제 해제 | 금지 | 허용 | 금지 |
 
 - 프론트의 버튼 노출과 무관하게 모든 변경 API가 서버에서 조직, 현장 접근 범위와 역할을 검사한다.
 - `operator`는 서비스 운영사 소속이지만 고객 Site의 `read/manage/commission` capability와 Site 목록을 갖지 않는다.
 - `admin`은 `Site.adminUserId`로 직접 배정된 한 customer Site만 `read/manage/commission`할 수 있으며 같은 Organization의 다른 Site도 `404`다.
-- `viewer`는 자기 고객사 조직 안에서도 `SiteMembership`으로 배정된 현장만 조회한다.
+- `viewer`는 자기 고객사 조직 안에서도 `SiteMembership`으로 배정된 현장만 접근하며, membership의 `read | control` capability를 따른다.
 - 마지막 고객사 admin은 비활성화하거나 viewer로 낮출 수 없다.
 - operator 배정, 현장 초기화, Gateway 해제, 인증서 폐기, 전체 OTA에는 재인증과 감사 로그를 적용한다.
-- admin은 admin/viewer를 초대할 수 있지만 operator를 생성하거나 배정할 수 없다.
+- admin은 자기 현장에 일반 유저만 생성할 수 있으며 두 번째 admin이나 operator를 생성·배정할 수 없다.
 
 ## 설정 정보 구조
 
@@ -71,6 +72,8 @@
 
 ## 구현 완료
 
+- admin 전용 `/settings/users`에서 현장 일반 유저를 최대 100명까지 조회·검색·생성·수정·비활성화·재활성화·비밀번호 초기화·영구 삭제한다. 일반 유저는 시스템 role `viewer`를 유지하고 현장 capability만 `read | control`로 분리한다. `control`은 `read`를 포함하며 admin 설정 화면에는 접근하지 못한다. 비활성화는 기존 세션을 즉시 폐기하고 재로그인을 차단하며, 영구 삭제는 로그인 아이디 확인 뒤 사용자·membership·세션을 제거한다. 비밀번호가 포함된 생성·초기화 요청은 React Query mutation cache를 사용하지 않고 응답·화면·trace에도 평문을 남기지 않는다.
+- 사용자 수정과 상태 변경은 `expectedUpdatedAt`으로 충돌을 감지한다. 비밀번호 변경처럼 다른 요청이 user revision을 갱신해 상태 변경이 `SITE_USER_CHANGED`로 거부되면, UI는 최신 목록을 다시 조회해 사용자가 요청한 상태만 한 번 재시도한다. 서버는 모든 쓰기 transaction 안에서 호출자 admin과 대상 Site를 다시 인가한다.
 - 맵 편집기의 오른쪽 속성·배치·레이어 영역은 이름 있는 공통 `SidePanel`과 `ui-side-panel-layout` overflow 계약을 사용한다. 긴 조명명과 속성값은 패널 폭 안에서 줄바꿈하고, 높이가 제한되면 오른쪽 영역 내부에서 스크롤해 속성 UI가 화면 밖으로 잘리지 않는다.
 
 - 맵 편집 화면의 기능명과 진입 메뉴를 `맵 관리`/`맵 편집`으로 통일했다. 아무 요소도 선택하지 않으면 우측 속성 패널에는 맵 너비·높이·격자 간격만 표시하고, 조명 단일/다중 선택과 네모·세모·선·텍스트 선택 시에는 해당 요소에 유효한 속성만 표시한다. 선택이 바뀌면 속성 탭으로 자동 복귀한다.
@@ -245,7 +248,7 @@
 
 ### 사용자, 보안과 감사
 
-- `SiteMembership`은 customer `viewer`의 현장 read 범위에만 사용한다. assigned `admin`은 `Site.adminUserId`로 직접 연결되고 operator는 고객 Site capability를 갖지 않는다.
+- `SiteMembership`은 customer `viewer`의 현장 `read | control` capability에 사용한다. assigned `admin`은 `Site.adminUserId`로 직접 연결되고 operator는 고객 Site capability를 갖지 않는다.
 - 이메일 초대, 역할 변경, 비활성화, 세션 강제 종료와 operator/admin MFA를 제공한다.
 - 서비스 운영사 Organization과 고객사 Organization을 구분한다. operator는 Task 3 관리 API로 customer Organization, pending Site와 assigned admin 계정을 provision하지만 해당 고객 Site에 접근 권한을 얻지 않는다.
 - 최초 서비스 계정은 `auth:bootstrap-operator`로 서비스 운영사 Organization에 생성한다.
@@ -333,7 +336,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - Scene 04~09와 24~26의 자동 Web/Chromium 검증은 완료했지만 Raspberry Pi/BlueZ/ESP32-H2 HIL과 실제 모바일 WebView safe-area 검증은 미실행이다.
 
-- 고객사 viewer 초대·비활성화와 viewer별 `SiteMembership` 현장 배정을 관리하는 설정 UI
+- 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
 - 현장 정보 수정과 층 CRUD/archive UI
 - 비공개 도면 asset과 보안 처리 pipeline
 - 조명 정보·그룹 CRUD 관리 화면
@@ -393,6 +396,13 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 관련 파일
 
+- `apps/web/src/features/settings/users/SiteUsersView.tsx`
+- `apps/web/src/features/settings/users/SiteUsersView.test.tsx`
+- `apps/web/src/api/site-users.ts`
+- `apps/web/e2e/site-user-management.spec.ts`
+- `apps/web/e2e/site-user-management-real.spec.ts`
+- `apps/api/src/site-users`
+- `apps/api/src/access/site-access.service.ts`
 - `apps/web/src/components/ui/SidePanel.tsx`
 - `apps/web/src/features/transport-copy.ts`
 - `apps/web/src/features/transport-copy.test.ts`

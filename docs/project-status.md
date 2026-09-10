@@ -1,6 +1,6 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-10
+기준일: 2026-09-11
 
 ## 현재 마일스톤
 
@@ -12,6 +12,7 @@
 
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
+| 현장 유저 관리 Task 1~9 | 완료(소프트웨어) | admin이 현장 일반 유저를 최대 100명까지 생성·수정·비활성화·재활성화·비밀번호 초기화·영구 삭제하며, 시스템 role `viewer`와 현장 `read | control` capability를 분리했다. mock Chromium 3개는 전체 관리 여정·최초 비밀번호 변경·read/control/admin 메뉴 및 직접 route·수동 제어 API 권한을 검증했다. 격리 PostgreSQL/API Chromium 1개는 비활성화 PATCH 200/`disabled`, 현재 세션의 다음 보호 요청 401과 재로그인 거절을 검증했다. 실제 Gateway/ESP32-H2 하드웨어 검증은 포함하지 않는다. |
 | 맵 배치 Task 8 식별 통신/펌웨어 | 완료(소프트웨어) | 등록 후 Health Attention API/MQTT/Gateway 경로, 단일 대상·session·10초 만료·인증/lease·중복/재시작 차단과 펌웨어 최신 밝기 복귀를 구현했다. Gateway 613, API 801(환경 의존 172 skip), Shared 172, 식별 API/실DB·Redis 17, Docker/ACL 24 및 API/Gateway build를 통과했다. Main 관련 Gateway 12/API 17 재실행 통과. 실제 broker/RF/LED 식별은 미검증이다. |
 | 맵 배치 Task 1/10 및 등록 서버 분리 | 완료(소프트웨어) | 기존 좌표 보존 migration, 신규 미배치, V1/V2 snapshot, 배치와 장비/에너지 분리, 1 MiB PUT와 묶음 저장을 구현했다. Shared 172, API 800(환경 의존 170 skip), 격리 DB/HTTP 18 및 API typecheck/build, 독립 코드 검토를 통과했다. 1,000 fixture/2,000 object 100회 저장 p95 425ms, 복구 485ms. 사용자 DB 적용과 실장비 검증은 미실행이며 웹 통합은 완료했다. |
 | 1,000개 조명 맵 배치 개선 | 완료(소프트웨어) | [실행 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 Task 1~10과 Task 11 소프트웨어 검증 완료. 층별 편집·드롭·확인 후 배치 해제·일괄 편집·식별 UI와 데이터 보존을 연결했다. 1,000개 배치 warm reload 20회 준비 p95 220.6ms, 실제 PostgreSQL 저장 100회 main 재검증 p95 549ms. 실장비 검증과 기존 파일 도면 활용은 보류하고 자산/좌표는 보존한다. |

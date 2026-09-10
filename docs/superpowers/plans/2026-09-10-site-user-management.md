@@ -355,29 +355,29 @@
 - Produces: mock API UI E2E와 실제 PostgreSQL/API 인증 E2E
 - Produces: `pnpm --filter @led-control/web e2e:site-users:real`
 
-- [ ] **Step 1: admin 목록·생성·수정·비활성화·재활성화·초기화·삭제 브라우저 E2E를 작성한다.**
+- [x] **Step 1: admin 목록·생성·수정·비활성화·재활성화·초기화·삭제 브라우저 E2E를 작성한다.**
 
-- [ ] **Step 2: 신규 일반 유저 최초 로그인과 강제 비밀번호 변경 E2E를 작성한다.**
+- [x] **Step 2: 신규 일반 유저 최초 로그인과 강제 비밀번호 변경 E2E를 작성한다.**
 
-- [ ] **Step 3: read/control/admin 권한별 메뉴, direct route, 수동 제어 API E2E를 작성한다.**
+- [x] **Step 3: read/control/admin 권한별 메뉴, direct route, 수동 제어 API E2E를 작성한다.**
 
-- [ ] **Step 4: 비활성화된 브라우저 세션의 다음 요청 차단과 재로그인 실패 E2E를 작성한다.**
+- [x] **Step 4: 비활성화된 브라우저 세션의 다음 요청 차단과 재로그인 실패 E2E를 작성한다.**
 
-- [ ] **Step 5: 구현 전 또는 누락 상태에서 E2E가 실패하는지 확인한다.**
+- [x] **Step 5: 구현 전 또는 누락 상태에서 E2E가 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/web exec playwright test e2e/site-user-management.spec.ts --project=chromium`
 
-- [ ] **Step 6: mock E2E와 실제 backend E2E를 통과시킨다.**
+- [x] **Step 6: mock E2E와 실제 backend E2E를 통과시킨다.**
 
   Run: `pnpm --filter @led-control/web exec playwright test e2e/site-user-management.spec.ts --project=chromium`
 
   Run: `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/site-user-management-real.spec.ts --project=chromium`
 
-- [ ] **Step 7: 메뉴·DB·프로젝트 현황 문서를 실제 구현 상태로 갱신한다.**
+- [x] **Step 7: 메뉴·DB·프로젝트 현황 문서를 실제 구현 상태로 갱신한다.**
 
   `lesson_leared.md`에는 역할과 capability를 분리하고 write transaction에서 재인가해야 한다는 반복 가능한 교훈을 기록한다.
 
-- [ ] **Step 8: 전체 API/Web 검증을 실행한다.**
+- [x] **Step 8: 전체 API/Web 검증을 실행한다.**
 
   Run: `pnpm --filter @led-control/api test -- --runInBand`
 
@@ -387,12 +387,12 @@
 
   Run: `pnpm --filter @led-control/web build`
 
-- [ ] **Step 9: diff와 설계서를 대조한다.**
+- [x] **Step 9: diff와 설계서를 대조한다.**
 
   Run: `git diff --check`
 
   비밀번호 노출, admin 전용 기능 권한 완화, 관련 없는 dirty 파일 수정, 문서 누락이 없는지 확인한다.
 
-- [ ] **Step 10: Task 9 변경만 커밋한다.**
+- [x] **Step 10: Task 9 변경만 커밋한다.**
 
   Commit: `test: cover site user management journey`

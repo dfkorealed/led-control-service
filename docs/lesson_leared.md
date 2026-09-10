@@ -474,3 +474,23 @@
 - **원인**: 테스트 목적은 terminal publish 미완료가 command handler를 막지 않는지 확인하는 것이었지만, 실제 파일 `fsync` 시간까지 임의의 50ms 성능 조건으로 묶었다.
 - **해결 및 예방책**: 해결되지 않은 publish promise를 그대로 둔 상태에서 command handler promise가 완료되는지를 직접 await한다. 회귀 시에는 테스트 자체 timeout이 실패 경계를 제공한다.
 - **반복 방지 체크**: durability·filesystem 테스트에서는 기능 순서를 controllable promise와 명시적 signal로 검증하고, 제품 요구사항에 없는 짧은 wall-clock 제한은 assertion에 사용하지 않는다.
+## 2026-09-11 / 시스템 role과 현장 capability는 별도 권한 축으로 유지한다
+
+- **발생했던 문제/실수**: 일반 유저의 `viewer` role만으로 조회 전용 사용자와 수동 제어 사용자를 구분하려 하면 admin 전용 기능까지 함께 완화하거나 제어 권한을 표현하지 못한다.
+- **원인**: 계정의 전역 책임과 특정 현장에서 가능한 행위를 하나의 role 값으로 표현하려 했다.
+- **해결 및 예방책**: 시스템 role은 `operator | admin | viewer`, 현장 권한은 `SiteMembership.accessLevel = read | control`로 분리한다. `control`은 `read`를 포함하지만 admin 설정 권한은 포함하지 않는다. 메뉴 숨김뿐 아니라 direct route와 API에서도 같은 capability를 검사한다.
+- **반복 방지 체크**: 권한 기능을 추가할 때 role, 현장 scope, capability를 각각 표로 작성하고 UI 메뉴·직접 URL·조회 API·쓰기 API의 허용/거절 테스트를 함께 둔다.
+
+## 2026-09-11 / 쓰기 transaction 안에서 권한을 다시 확인한다
+
+- **발생했던 문제/실수**: 요청 초기에만 admin 권한을 확인하면 계정 비활성화나 현장 재배정과 동시에 실행된 쓰기가 오래된 권한으로 commit될 수 있다.
+- **원인**: controller/guard의 인증 결과를 transaction commit 시점까지 변하지 않는 사실로 간주했다.
+- **해결 및 예방책**: 사용자 생성·수정·상태 변경·비밀번호 초기화·삭제 transaction 안에서 Site와 호출자 계정을 잠그고 active assigned admin 여부를 다시 확인한다. 대상 row는 `expectedUpdatedAt`으로 충돌을 감지하며 UI는 최신 row를 받은 뒤 요청한 변경만 제한적으로 재시도한다.
+- **반복 방지 체크**: 모든 권한 민감 쓰기 테스트에 guard 통과 후 권한 변경, stale revision 409, 다른 현장 IDOR와 비활성 호출자 사례를 포함한다.
+
+## 2026-09-11 / 영구 삭제된 사용자의 PII cache는 즉시 제거한다
+
+- **발생했던 문제/실수**: DB에서 사용자를 삭제해도 React Query 목록·mutation cache나 브라우저 trace에 이름, 로그인 아이디, 임시 비밀번호가 남을 수 있다.
+- **원인**: 서버 삭제와 클라이언트 메모리·테스트 artifact 정리를 서로 다른 완료 조건으로 취급했다.
+- **해결 및 예방책**: 삭제 성공 즉시 현장 사용자 query를 최신 응답으로 교체하고 삭제 대상 상세·mutation cache를 제거한다. 비밀번호 포함 작업은 React Query mutation cache 밖의 component-local state와 요청 body만 사용하고 성공·닫기 때 지운다. 보안 E2E는 trace와 screenshot을 끈다.
+- **반복 방지 체크**: 삭제·비밀번호 흐름은 API 응답, DOM, Web Storage, Query/Mutation cache와 생성된 trace artifact에 평문 또는 삭제 PII가 남지 않는지 검사한다.

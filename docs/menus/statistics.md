@@ -1,8 +1,10 @@
 # 통계 메뉴 기능 현황
 
-기준일: 2026-09-10
+기준일: 2026-09-11
 
 ## 구현 완료
+
+- 현장 `read` 또는 `control` capability가 있는 일반 유저는 통계 메뉴와 현장 에너지 조회 API를 사용할 수 있고, 시스템 role이 `viewer`이므로 admin 전용 설정 기능은 노출되지 않는다. mock Chromium 권한 여정에서 메뉴 노출을 검증했으며 통계 계산이나 실장비 수집 계약을 변경한 작업은 아니다.
 
 - 공통 UI 간격을 4px 배수의 `4/8/12/16/24/32px` 토큰으로 정의하고 통계 메뉴에 1차 적용했다. 화면 섹션은 24px, KPI·패널 사이는 16px로 통일하고, 남는 세로 공간은 행 높이에 분산하지 않고 콘텐츠를 화면 상단부터 배치한다. KPI 상태 badge는 고정 높이·하단 예약 영역을 사용하는 absolute 배치에서 grid 배치로 전환해 불필요한 공백을 제거했다. 760px 이하에서는 KPI 라벨과 badge, 차트 제목과 기간 탭을 각각 세로로 배치해 한 글자 줄바꿈과 말줄임을 방지한다. 차트·비용 패널은 데스크톱 24px, 760px 이하 16px padding을 사용한다.
 - 사용량 차트 오른쪽의 비용 비교 영역은 공통 `SidePanel`과 `ui-side-panel-layout`을 사용한다. 긴 비용·기준 문구는 패널 내부에서 줄바꿈하고, 좁은 화면에서는 차트 다음 한 열로 쌓아 가로 잘림을 만들지 않는다.
@@ -70,6 +72,8 @@
 
 ## 관련 파일
 
+- `apps/web/e2e/site-user-management.spec.ts`
+- `apps/api/src/access/site-access.service.ts`
 - `docs/ui-spacing.md`
 - `apps/web/src/components/ui/SidePanel.tsx`
 - `apps/web/src/features/statistics/StatisticsView.tsx`

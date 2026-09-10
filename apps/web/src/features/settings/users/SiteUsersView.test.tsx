@@ -182,6 +182,32 @@ describe("SiteUsersView", () => {
     await waitFor(() => expect(api.updateSiteUser).toHaveBeenCalledWith("site-1", "user-2", expect.objectContaining({ status: "active" })));
   });
 
+  it("retries a status change once with the latest profile after an optimistic conflict", async () => {
+    const latest = {
+      ...users[0],
+      name: "로그인 후 최신 이름",
+      accessLevel: "read" as const,
+      updatedAt: "2026-09-11T01:00:00.000Z"
+    };
+    const refetch = vi.fn().mockResolvedValue({ data: { users: [latest, users[1]], count: 2, limit: 100 }, error: null });
+    api.useSiteUsers.mockReturnValue(queryState({ users, count: 2, limit: 100 }, { refetch }));
+    api.updateSiteUser
+      .mockRejectedValueOnce(new ApiError("changed", 409, { code: "SITE_USER_CHANGED" }))
+      .mockResolvedValueOnce({ ...latest, status: "disabled" });
+    renderView();
+
+    fireEvent.click(screen.getByRole("button", { name: "김현수 비활성화" }));
+
+    await waitFor(() => expect(api.updateSiteUser).toHaveBeenCalledTimes(2));
+    expect(api.updateSiteUser).toHaveBeenNthCalledWith(2, "site-1", "user-1", {
+      name: latest.name,
+      loginId: latest.loginId,
+      accessLevel: latest.accessLevel,
+      status: "disabled",
+      expectedUpdatedAt: latest.updatedAt
+    });
+  });
+
   it("enables permanent deletion only after the exact current login id is entered", async () => {
     renderView();
     fireEvent.click(screen.getByRole("button", { name: "야간 당직 영구 삭제" }));
