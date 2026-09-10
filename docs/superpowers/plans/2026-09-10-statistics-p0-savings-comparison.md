@@ -59,7 +59,7 @@
 - Consumes: 기존 `energyDataStatusSchema`, `energySourceSchema`와 ISO date/datetime 규칙.
 - Produces: `EnergyComparisonPreset`, `EnergyComparisonPoint`, `EnergyComparisonResponse`, `energyComparisonResponseSchema`.
 
-- [ ] **Step 1: strict 계약의 실패 테스트를 작성한다.**
+- [x] **Step 1: strict 계약의 실패 테스트를 작성한다.**
 
 ```ts
 expect(() => energyComparisonResponseSchema.parse({
@@ -72,11 +72,11 @@ expect(energyComparisonResponseSchema.parse({
 }).summary.outcome).toBe("overuse");
 ```
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/shared test -- energy-contracts.test.ts`
   - Expected: FAIL because `energyComparisonResponseSchema` is not exported.
 
-- [ ] **Step 3: schema와 type을 구현한다.**
+- [x] **Step 3: schema와 type을 구현한다.**
 
 ```ts
 export const energyComparisonPresetSchema = z.enum(["last_7_days", "current_month", "current_year"]);
@@ -95,11 +95,11 @@ export const energyComparisonPointSchema = z.object({
   - `summary.outcome=saving`이면 savings 값이 null이 아니고 0 이상, `overuse`이면 0 미만, `unavailable`이면 세 savings 값이 모두 null이 되도록 `superRefine`한다.
   - prior kind는 `previous_period | previous_year`, history quality는 P0에서 `legacy_structure_unknown`만 허용한다.
 
-- [ ] **Step 4: shared 계약을 검증한다.**
+- [x] **Step 4: shared 계약을 검증한다.**
   - Run: `pnpm --filter @led-control/shared test -- energy-contracts.test.ts && pnpm --filter @led-control/shared typecheck`
   - Expected: new tests and typecheck PASS.
 
-- [ ] **Step 5: 커밋한다.**
+- [x] **Step 5: 커밋한다.**
   - Run: `git add packages/shared/src/energy-contracts.ts packages/shared/src/energy-contracts.test.ts packages/shared/src/index.ts && git commit -m "feat(shared): add energy comparison contracts"`
 
 ### Task 2: 기간 경계와 절감 계산기
