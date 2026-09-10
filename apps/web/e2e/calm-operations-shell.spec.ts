@@ -17,7 +17,7 @@ for (const viewport of responsiveViewports) {
     await page.setViewportSize(viewport);
     await installSettingsApiRoutes(page, "admin");
     await page.goto("/monitoring?siteId=site-1");
-    await expect(page.getByRole("combobox", { name: "층 선택" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
 
     const rail = page.locator(".sidebar");
     const bottomNav = page.locator(".bottom-nav");
