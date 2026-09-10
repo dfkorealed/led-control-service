@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, PageHeader, ProgressSteps, StatusBadge, type ProgressStep, type ProgressStepState } from "../../components/ui";
+import { Button, Card, PageHeader, ProgressSteps, SidePanel, StatusBadge, type ProgressStep, type ProgressStepState } from "../../components/ui";
 import {
   canonicalizeDimmingCommandInput,
   createDimmingCommand,
@@ -349,7 +349,7 @@ export function ControlView({
         </p>
       ) : null}
 
-      <div className="control-layout">
+      <div className="control-layout ui-side-panel-layout">
         <Card className="control-target-card" aria-label="제어 대상 선택">
           <fieldset className="control-picker-fieldset" aria-label="제어 대상 선택" disabled={controlsLocked}>
             <ControlTargetPicker
@@ -369,7 +369,7 @@ export function ControlView({
           </fieldset>
         </Card>
 
-        <Card className="control-panel" role="complementary" aria-label="밝기 실행">
+        <SidePanel className="control-panel" aria-label="밝기 실행">
           <div className="panel-title-row">
             <div>
               <span className="eyebrow">선택 대상</span>
@@ -457,7 +457,7 @@ export function ControlView({
               </Button>
             </div>
           ) : null}
-        </Card>
+        </SidePanel>
       </div>
       <FixtureGroupDialog
         open={groupDialogOpen}

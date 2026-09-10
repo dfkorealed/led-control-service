@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 수동 밝기 제어의 오른쪽 실행 영역은 공통 `SidePanel`과 `ui-side-panel-layout`을 사용한다. 데스크톱에서는 280~340px 범위의 안전한 패널 폭을 확보하고 긴 대상명과 상태 문구를 패널 안에서 줄바꿈하며, 높이가 제한되면 패널 내부만 세로 스크롤한다. 1120px 이하에서는 대상 선택 다음 한 열로 쌓아 화면 밖 잘림을 막는다.
+
 - 에디터의 식별 명령은 일반 밝기 제어와 별도 Health Attention 경로로 처리한다. 10초 식별 중에도 일반 수동·스케줄·이벤트 목표는 유지하고 종료 시 최신 목표로 복귀하도록 펌웨어를 보강했다. 실제 LED 복귀 검증은 후속이며 기존 제어 명령 성공/실패나 전력 상태를 식별 응답으로 덮어쓰지 않는다.
 
 - 에디터 배치 상태와 제어 대상을 분리했다. 조명을 미배치로 바꿔도 Fixture/Mesh ID, 그룹 멤버와 스케줄·이벤트 대상은 유지한다. 배치 해제는 실제 소등/장비 삭제 명령을 보내지 않는다. 격리 DB 관계 보존 회귀와 두 층 브라우저 E2E의 배치 해제 후 70% 명령·MQTT 결과 확인을 통과했다. RF 경계는 테스트 simulator이므로 실장비 검증으로 확대하지 않는다.
@@ -215,6 +217,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 같은 TID를 사용하는 bounded 재전송 또는 후속 Lightness Get 확인으로 실제 적용과 서버 실패 표시가 어긋나지 않게 보완해야 한다.
 - API/Gateway의 DB·journal 이후 PUBACK 계약은 자동화됐지만, API 종료·Gateway 종료·broker 재연결과 ESP32-H2 cold boot를 동시에 포함한 acceptance/device-status 중복 재전달 및 AppKey 복원은 실장비 전원 차단 HIL로 확인해야 한다.
 - Automation full snapshot의 production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK, Task 12 offline scheduler·priority arbiter, Task 13 execution outbox/application ACK와 Task 14 Sensor Client/vendor ACK 입력은 연결됐다. Snapshot activation과 production shutdown은 필요한 BLE Mesh terminal state/handoff, execution/capability queue와 in-flight QoS 1 publish를 순서대로 drain한다.
@@ -238,6 +241,8 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/web/src/components/ui/SidePanel.tsx`
 
 - `apps/web/src/features/transport-copy.ts`
 - `apps/web/src/features/transport-copy.test.ts`

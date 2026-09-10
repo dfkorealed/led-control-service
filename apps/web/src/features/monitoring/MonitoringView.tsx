@@ -2,7 +2,7 @@ import { CircleCheck, CircleX, Clock3, Plus, RefreshCw, TriangleAlert } from "lu
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
-import { Button, Card, FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
+import { Button, FeedbackState, MetricCard, PageHeader, SidePanel, StatusBadge } from "../../components/ui";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { RegistrationDialog } from "../registration/RegistrationDialog";
 import { InstallationPending } from "../setup/SetupWizard";
@@ -68,10 +68,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
     () => ({
       totalFixtures: fixtures.length,
       onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
-      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
-      averageBrightness: fixtures.length
-        ? Math.round(fixtures.reduce((sum, fixture) => sum + fixture.brightness, 0) / fixtures.length)
-        : 0
+      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length
     }),
     [fixtures]
   );
@@ -214,31 +211,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <MetricCard label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
             <MetricCard label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
             <MetricCard label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
-            <MetricCard label="평균 밝기" value={floorSummary.averageBrightness} unit="%" helper="현재 디밍" />
           </div>
-
-          <Card className="monitoring-quick-status" role="region" aria-label="빠른 상태">
-            <button
-              type="button"
-              aria-label={`빠른 상태 점검 필요 ${floorSummary.faultFixtures}대`}
-              disabled={!firstFaultFixture}
-              onClick={() => firstFaultFixture && setSelectedFixtureId(firstFaultFixture.id)}
-            >
-              <TriangleAlert aria-hidden="true" />
-              <span>점검 필요</span>
-              <strong>{floorSummary.faultFixtures}대</strong>
-            </button>
-            <button
-              type="button"
-              aria-label={`빠른 상태 오프라인 ${offlineCount}대`}
-              disabled={!firstOfflineFixture}
-              onClick={() => firstOfflineFixture && setSelectedFixtureId(firstOfflineFixture.id)}
-            >
-              <CircleX aria-hidden="true" />
-              <span>오프라인</span>
-              <strong>{offlineCount}대</strong>
-            </button>
-          </Card>
 
           <label className="monitoring-fixture-selector">
             <span>상세 조명 선택</span>
@@ -255,7 +228,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             </select>
           </label>
 
-          <div className="operations-layout">
+          <div className="operations-layout ui-side-panel-layout">
             <div className="map-panel">
               {floor && mapSnapshot ? (
                 <>
@@ -283,7 +256,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
                 <div className="panel">등록된 층이 없습니다.</div>
               )}
             </div>
-            <aside className="detail-panel" aria-label="선택 조명 상세">
+            <SidePanel className="detail-panel" aria-label="선택 조명 상세">
               <div className="panel-title-row">
                 <div>
                   <span className="eyebrow">상세 패널</span>
@@ -360,7 +333,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
               ) : (
                 <p className="muted-text">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</p>
               )}
-            </aside>
+            </SidePanel>
           </div>
         </>
       ) : null}

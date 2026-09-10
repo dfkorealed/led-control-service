@@ -11,7 +11,7 @@ import {
   YAxis
 } from "recharts";
 import { useEnergySeries, useEnergySummary } from "../../api/energy";
-import { Button, Card, FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
+import { Button, Card, FeedbackState, MetricCard, PageHeader, SidePanel, StatusBadge } from "../../components/ui";
 import { getEnergySeriesRanges } from "./statistics-periods";
 
 type Granularity = "day" | "month";
@@ -171,7 +171,7 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
             <EnergyMetric label="올해 누적" period={summary.yearToDate} />
           </div>
 
-          <div className="report-layout statistics-report-layout">
+          <div className="report-layout statistics-report-layout ui-side-panel-layout">
             <Card className="statistics-chart-panel" aria-label="상태 기반 추정 사용량">
               <div className="panel-title-row statistics-chart-heading">
                 <div>
@@ -195,7 +195,7 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
               {chart}
             </Card>
 
-            <aside className="statistics-cost-panel ui-card" aria-label="비용 비교">
+            <SidePanel className="statistics-cost-panel" aria-label="비용 비교">
               <div>
                 <span className="eyebrow">예상 요금</span>
                 <h3>이번 달 비용 비교</h3>
@@ -204,7 +204,7 @@ export function StatisticsView({ siteId }: { siteId?: string }) {
               <p className="statistics-baseline-note">
                 현재 등록 조명 {summary.baseline24Hours.fixtureCount}개 · 해당 월 {summary.baseline24Hours.daysInMonth}일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준
               </p>
-            </aside>
+            </SidePanel>
           </div>
         </>
       )}

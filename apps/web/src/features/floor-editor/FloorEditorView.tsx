@@ -4,7 +4,7 @@ import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "re
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
-import { Button, FeedbackState, PageHeader } from "../../components/ui";
+import { Button, FeedbackState, PageHeader, SidePanel } from "../../components/ui";
 import {
   listFloorEditorRevisions,
   restoreFloorEditorRevision,
@@ -259,7 +259,7 @@ export function FloorEditorView({
         <FeedbackState tone="success" icon={CircleCheck} title={`현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`} />
       ) : null}
 
-      <div className="floor-editor-layout">
+      <div className="floor-editor-layout ui-side-panel-layout">
         <div className="floor-editor-left-panel"><FixturePlacementList readOnly={readOnly || isMutationPending} />
         <aside className="floor-editor-toolbar" role="toolbar" aria-label="맵 편집 도구">
           {tools.map((tool) => {
@@ -284,7 +284,7 @@ export function FloorEditorView({
         <main className="floor-editor-stage">
           <FloorEditorCanvas readOnly={readOnly || isMutationPending} />
         </main>
-        <div className="floor-editor-side-panel">
+        <SidePanel className="floor-editor-side-panel" aria-label="맵 편집 정보">
           <div className="segmented-control" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <button role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</button>)}</div>
           {panelTab === "properties" && <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
@@ -304,7 +304,7 @@ export function FloorEditorView({
             onRetry={() => void revisionsQuery.refetch()}
             onRestore={(revision) => void handleRestore(revision)}
           />
-        </div>
+        </SidePanel>
       </div>
     </section>
   );

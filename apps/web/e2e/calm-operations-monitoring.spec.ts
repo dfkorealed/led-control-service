@@ -24,10 +24,10 @@ const fixtures: SettingsFixture[] = [
 ];
 
 const viewports = [
-  { width: 1440, height: 900, columns: 4, rows: 1 },
+  { width: 1440, height: 900, columns: 3, rows: 1 },
   { width: 1024, height: 768, columns: 2, rows: 2 },
   { width: 390, height: 844, columns: 2, rows: 2 },
-  { width: 320, height: 740, columns: 1, rows: 4 }
+  { width: 320, height: 740, columns: 1, rows: 3 }
 ] as const;
 
 function fixture(
@@ -72,7 +72,8 @@ for (const viewport of viewports) {
     await page.goto(`/monitoring?siteId=${ids.site}`);
 
     await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "빠른 상태" })).toContainText("점검 필요");
+    await expect(page.getByRole("group", { name: "평균 밝기" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
     await expectMetricGrid(page, viewport.columns, viewport.rows);
@@ -93,12 +94,84 @@ for (const viewport of viewports) {
     }
 
     if (viewport.width <= 760) {
-      await page.getByRole("region", { name: "빠른 상태" }).scrollIntoViewIfNeeded();
-      await expectMinimumTouchTargets(page, ".monitoring-quick-status");
+      await page.getByRole("region", { name: "층 도면" }).scrollIntoViewIfNeeded();
+      await expectMinimumTouchTargetsAfterScrolling(page, ".monitoring-map-zoom-controls");
       await expectMinimumTouchTargetsAfterScrolling(page, ".monitoring-fixture-selector");
     }
   });
 }
+
+test("데스크톱 지도는 내부에서 확대·스크롤되고 상세 정보는 패널 폭 안에 유지된다", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installMonitoringFixture(page);
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  const map = page.getByRole("region", { name: "층 도면" });
+  const mapViewport = page.getByTestId("monitoring-map-viewport");
+  await expect(map.getByRole("button", { name: "지도 배율 100%" })).toBeVisible();
+  const pageScaleBefore = await page.evaluate(() => window.visualViewport?.scale ?? 1);
+  const modifiedWheel = await mapViewport.evaluate((element) => {
+    const event = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -120,
+      clientX: element.getBoundingClientRect().left + element.clientWidth / 2,
+      clientY: element.getBoundingClientRect().top + element.clientHeight / 2
+    });
+    return { canceled: !element.dispatchEvent(event), defaultPrevented: event.defaultPrevented };
+  });
+  expect(modifiedWheel).toEqual({ canceled: true, defaultPrevented: true });
+  await expect(map.getByRole("button", { name: "지도 배율 110%" })).toBeVisible();
+  expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(pageScaleBefore);
+  await map.getByRole("button", { name: "지도 화면 맞춤" }).click();
+
+  for (let index = 0; index < 5; index += 1) await map.getByRole("button", { name: "지도 확대" }).click();
+  await expect(map.getByRole("button", { name: "지도 배율 150%" })).toBeVisible();
+
+  const mapOverflow = await mapViewport.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    clientHeight: element.clientHeight,
+    scrollWidth: element.scrollWidth,
+    scrollHeight: element.scrollHeight,
+    overflowX: getComputedStyle(element).overflowX,
+    overflowY: getComputedStyle(element).overflowY
+  }));
+  expect(mapOverflow.overflowX).toBe("auto");
+  expect(mapOverflow.overflowY).toBe("auto");
+  expect(
+    mapOverflow.scrollWidth > mapOverflow.clientWidth || mapOverflow.scrollHeight > mapOverflow.clientHeight
+  ).toBe(true);
+
+  const centeredScroll = await mapViewport.evaluate((element) => {
+    element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2;
+    element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
+    return { left: element.scrollLeft, top: element.scrollTop };
+  });
+  const viewportBox = await mapViewport.boundingBox();
+  if (!viewportBox) throw new Error("monitoring map viewport has no layout box");
+  await page.mouse.move(viewportBox.x + viewportBox.width / 2 + 120, viewportBox.y + viewportBox.height / 2 + 60);
+  await page.mouse.down();
+  await page.mouse.move(viewportBox.x + viewportBox.width / 2 + 20, viewportBox.y + viewportBox.height / 2 - 20, { steps: 5 });
+  await page.mouse.up();
+  const draggedScroll = await mapViewport.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }));
+  expect(draggedScroll.left).toBeGreaterThan(centeredScroll.left + 70);
+  expect(draggedScroll.top).toBeGreaterThan(centeredScroll.top + 50);
+
+  await page.getByRole("button", { name: "B2-L001-매우-긴-테스트-조명-이름 정상 70%" }).click();
+  await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("B2-L001-매우-긴-테스트-조명-이름");
+
+  const panelOverflow = await page.getByRole("complementary", { name: "선택 조명 상세" }).evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    overflowX: getComputedStyle(element).overflowX,
+    overflowY: getComputedStyle(element).overflowY
+  }));
+  expect(panelOverflow.overflowX).toBe("hidden");
+  expect(panelOverflow.overflowY).toBe("auto");
+  expect(panelOverflow.scrollWidth).toBeLessThanOrEqual(panelOverflow.clientWidth + 1);
+  await expectNoHorizontalOverflow(page);
+});
 
 test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 분리한다", async ({ browser, baseURL }) => {
   const emptyPage = await browser.newPage({ baseURL, viewport: { width: 390, height: 844 } });
@@ -123,7 +196,7 @@ test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 
     });
     await mapFailurePage.goto(`/monitoring?siteId=${ids.site}`);
     await expect(mapFailurePage.getByText("저장된 지도를 불러오지 못했습니다.")).toBeVisible({ timeout: 10_000 });
-    await expect(mapFailurePage.getByRole("region", { name: "빠른 상태" })).toBeVisible();
+    await expect(mapFailurePage.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(mapFailurePage.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
   } finally {
     await mapFailurePage.close();
@@ -230,7 +303,7 @@ test("부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지
 
 async function expectMetricGrid(page: Page, columns: number, rows: number) {
   const metrics = page.locator(".summary-row > [role='group']");
-  await expect(metrics).toHaveCount(4);
+  await expect(metrics).toHaveCount(3);
   const boxes = await metrics.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { x: Math.round(box.x), y: Math.round(box.y) };

@@ -33,8 +33,8 @@
 - 조명 등록 진행 표시는 session·scan·node 상태를 하나의 순서 상태 머신으로 파생한다. active workflow는 오류가 없는 동안 정확히 한 단계만 `aria-current="step"`이고, 선행 단계는 완료, scan/장비 등록 실패는 실제 발생 단계의 오류로 표현한다. `completed`는 전체 완료, `cancelled`는 도달 단계 이후를 pending으로 유지해 current가 없고, session-level `failed`는 도달한 실제 단계가 error가 되어 terminal session을 진행 중으로 오인하지 않는다. 서버의 `errorMessage`, 개별 등록 검증 오류와 `scanFailureMessage`는 API 값 자체를 바꾸지 않고 공통 표시 경계에서 `Gateway ACK timeout` 같은 transport 원문을 `게이트웨이 장비 응답 시간 초과`처럼 한국어로 바꾼다.
 - 390px·320px commissioning 회귀는 버튼뿐 아니라 setup/Gateway claim/조명 등록의 enabled input·select·checkbox/radio associated label을 실제 clipping·occlusion을 고려한 연속 44×44px reachable area로 검증한다. 등록 직후 기본 일괄 form의 다섯 input을 먼저 검사하고, 개별 설정으로 전환한 뒤 개별 input을 다시 검사한다. 등록 form input과 select는 최소 44px이고, 18px checkbox/radio 시각 크기는 유지하되 label hit 영역을 44px 이상 제공한다.
 - 1440×900, 1024×768, 390×844, 320×740 Chromium route fixture에서 지도·상세 패널 배치와 document-level horizontal overflow를 검증한다. 1440×900 데스크톱은 문서 세로 스크롤 없이 뷰포트 안에 운영 화면을 고정하고, 상세 내용만 패널 안에서 세로 스크롤되는 계약을 추가로 검증한다. `2400×600`, `600×2400`처럼 가로·세로 비율이 극단적인 도면도 지도 영역의 가로·세로 경계 안에서 원본 비율을 유지한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다. 이 계약으로 새로고침, 층·현장·등록 대상 select, 등록 방식 radio label, 로그아웃과 주 메뉴를 검증한다. 특히 390px와 320px에서 enabled `조명 검색 시작`·검색 실패 재시도의 actual bounding box가 44px 이상인지, 390px에서 pending setup·Gateway claim·조명 등록·reconciliation의 enabled primary/secondary action이 44px 이상인지를 route fixture로 고정한다. 밀집 도면 marker는 34px compact scale을 유지해 hit overlap을 만들지 않으며 helper에서 명시적으로 제외한다. 대신 모든 조명을 노출하는 `상세 조명 선택` select가 44px 대체 선택 경로를 제공하고 marker/selector/상세 상태를 같은 selection state로 동기화한다. 이 검증은 deterministic API fixture 기반이며 실제 Raspberry Pi/ESP32-H2 HIL 증거는 아니다.
-- Calm Operations scenes 10~12는 `PageHeader`와 KPI 뒤에 `빠른 상태`, `층 도면`, `선택 조명 상세`를 같은 DOM 순서로 제공한다. `빠른 상태`의 점검 필요·실제 오프라인 button은 해당 첫 조명을 선택하며 `provisioning_waiting_state`는 오프라인 수에서 제외한다. 데스크톱은 남은 뷰포트 높이 안에서 지도와 280px 흰 상세 패널을 병렬로 두고 상세 패널만 내부 스크롤한다. 태블릿/모바일은 지도 뒤 상세 패널을 쌓고 문서 세로 스크롤을 허용한다.
-- 선택 층 기준 전체 조명·정상·점검 필요·평균 밝기는 공통 `MetricCard`로 표시한다. KPI 열/행 계약은 1440px 4/1, 1024px 2/2, 390px 2/2, 320px 1/4이고 해당 네 viewport에서 document horizontal overflow를 자동 검증한다. 모바일의 quick-state와 상세 selector는 44px 이상 touch target으로 측정한다.
+- 운영 화면 상단은 선택 층 기준 `전체 조명`, `정상`, `점검 필요` 3개 `MetricCard`만 compact하게 표시한다. 평균 밝기와 별도 빠른 상태 영역은 제거해 지도 높이를 확보했다. KPI 열/행 계약은 1440px 3/1, 1024px 2/2, 390px 2/2, 320px 1/3이고 해당 네 viewport에서 document horizontal overflow를 자동 검증한다.
+- KPI 다음에는 `층 도면`, `선택 조명 상세` 순서를 유지한다. 데스크톱 지도는 남은 뷰포트 높이를 모두 사용하고 현재 viewport에 맞춘 100%를 기준으로 10% 단위 확대·축소와 화면 맞춤을 제공한다. `Ctrl`/`Cmd`+휠은 브라우저 기본 확대를 취소하는 non-passive listener로 포인터 중심 zoom만 수행하고, 배경 이미지의 native drag를 비활성화해 빈 지도 drag와 일반 scroll로 안정적인 상하좌우 이동을 제공한다. marker 선택은 그대로 유지한다. 확대된 원본 비율 지도는 전용 viewport 안에서만 overflow되고 모바일 zoom control은 48px touch target을 제공한다.
 - 선택 조명 상세는 도면보다 좁은 고정 범위 패널에 배치하며 현재 밝기와 장비 사실 아래에 장애·실제 오프라인 점검 큐를 둔다. 패널과 하위 grid item은 축소 가능한 너비를 사용하고 긴 장비·게이트웨이 이름을 패널 안에서 줄바꿈해 document-level 가로 스크롤을 만들지 않는다. 정상·장애·오프라인·첫 상태 확인 대기는 선택 상세의 `StatusBadge`와 지도 범례에서 icon + visible text로 구분하고, compact marker도 상태별 solid/double/dashed/dotted border pattern을 함께 사용한다. marker별 상태 문구나 SVG를 1,000개까지 반복 렌더링하지 않으며 기존 한국어 접근성 이름과 선택 hit target은 유지한다.
 - 모니터링 표현 계층을 개편해도 설치 guard, Gateway claim, active registration session 복구와 viewer 읽기 전용 empty state는 유지한다. 등록 조명이 존재하는 일반 운영 화면에서는 등록 패널을 상시 렌더링하지 않고, admin이 상단 `조명 등록` 버튼을 누를 때만 focus trap과 Escape/호출 버튼 focus 복귀를 갖춘 dialog 안에서 기존 등록 기능을 사용한다. dialog는 390px·320px에서 화면 너비에 맞춰 내부 가로 스크롤을 만들지 않고, 등록 대상 입력을 한 열로 배치하며 닫기 버튼에 44×44px 이상의 실제 터치 영역을 제공한다. 닫았다 다시 열어도 진행 중 세션을 유지한다. 등록은 여전히 실제 Gateway/BlueZ/ESP32-H2 상태와 HIL에 의존하며 Calm Operations UI를 실장비 등록 완료로 간주하지 않는다.
 - Task 8에서 pending assigned admin이 `/monitoring`, `/control`, `/statistics`, 설정 하위 직접 URL로 들어오면 CustomerShell이 조회한 dashboard의 selected/default `siteId`를 유지해 `/settings?siteId=...`로 replace한다. `/settings`에서는 배정된 고객사·현장명을 읽기 전용으로 표시하고 주소·단가·층만 입력하는 최초 설치 화면을 제공한다.
@@ -77,7 +77,7 @@
 - 조명 점은 기본 compact marker로 표시하고, 선택/hover/focus 시 상태, 밝기, 이름 카드로 확장하여 밀집 화면의 겹침을 줄인다.
 - 조명 점의 접근성 라벨과 tooltip은 한국어 상태명(정상/오프라인/장애)을 사용하고, `provisioning_waiting_state`는 `상태 확인 대기`로 별도 표시한다.
 - 선택 조명 상세 패널에 현재 밝기, 정격 전력, 마지막 수신, 해당 조명에 실제 매핑된 게이트웨이 이름/상태, RSSI, hop count, 명령 성공률을 표시한다.
-- 선택 층 기준 전체 조명 수, 온라인 수, 장애 수, 평균 밝기를 표시한다.
+- 선택 층 기준 전체 조명 수, 온라인 수와 점검 필요 수만 상단 KPI로 표시한다.
 - 장애 조명과 실제 오프라인 조명을 점검 큐에서 바로 선택할 수 있다. 첫 상태를 기다리는 `provisioning_waiting_state` 조명은 오프라인 대수와 선택 대상에서 제외한다.
 - 층 탭은 좁은 화면에서 가로 스크롤되고, 모바일 하단 내비게이션 CSS는 `env(safe-area-inset-bottom)` 여백 계약을 적용한다. 현재 Chromium route fixture는 non-zero safe-area inset을 에뮬레이션하지 않으므로 실제 WebView inset 실측을 주장하지 않는다.
 - MQTT `fixture-state` 이벤트가 fixture 최신 상태 snapshot을 갱신한다.
@@ -137,6 +137,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
 - 테스트 데이터는 설정 개요의 설치 완료 assigned `admin` 전용 개발·검증 도구이며, 기본 off 상태이고 API도 비활성화 시 404를 반환한다. 따라서 표시되는 online 상태는 일시적 recent online일 수 있고 freshness 재집계 뒤 offline이 될 수 있으며, 실제 Gateway·Mesh·MQTT 상태나 HIL 검증 증거로 해석할 수 없다.
 - 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay는 software로 구현됐다. 다만 이 ACK를 생성하는 API terminal ingest/ACK outbox는 Task 3 범위여서 현재 production 통합에서는 device terminal이 계속 pending replay로 남는다. API/Gateway 프로세스 전원 차단 전체 구간의 자동 수렴과 실제 broker/Raspberry Pi/ESP32-H2 재시작 HIL은 Task 3 이후 검증해야 한다.
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
@@ -162,6 +163,7 @@
 - `apps/web/src/components/ui/PageHeader.tsx`
 - `apps/web/src/components/ui/StatusBadge.tsx`
 - `apps/web/src/components/ui/FeedbackState.tsx`
+- `apps/web/src/components/ui/SidePanel.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/api/src/test-data/test-data.controller.ts`
 - `apps/api/src/test-data/test-data.service.ts`
@@ -170,6 +172,7 @@
 - `apps/web/src/features/settings/TestDataToolsPanel.tsx`
 - `apps/web/src/api/test-data.ts`
 - `apps/web/src/features/monitoring/FloorMap.tsx`
+- `apps/web/src/features/monitoring/FloorMap.test.tsx`
 - `apps/web/src/features/floor-map/FloorScene.tsx`
 - `apps/web/src/features/floor-editor/FloorEditorView.tsx`
 - `apps/web/src/features/floor-editor/editor-monitoring-cache.ts`

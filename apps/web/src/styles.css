@@ -77,6 +77,20 @@
   background: var(--panel);
 }
 
+.ui-side-panel {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+
+.ui-side-panel > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .ui-status-badge {
   display: inline-flex;
   min-height: 28px;
@@ -976,9 +990,11 @@ button {
 
 .monitoring-screen .ui-metric-card {
   display: grid;
-  gap: 6px;
-  min-height: 104px;
-  padding: 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 72px;
+  padding: 12px 16px;
 }
 
 .monitoring-screen .ui-metric-label {
@@ -991,6 +1007,8 @@ button {
 }
 
 .monitoring-screen .ui-metric-card strong {
+  grid-row: 1 / span 2;
+  grid-column: 2;
   color: var(--text);
   font-size: 28px;
   line-height: 1;
@@ -1062,66 +1080,17 @@ button {
 
 .operations-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
   gap: 16px;
   align-items: stretch;
   min-width: 0;
 }
 
-.monitoring-quick-status {
+.ui-side-panel-layout {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  border-color: var(--border);
-  background: #ffffff;
-  padding: 10px;
-  box-shadow: none;
-}
-
-.monitoring-quick-status button {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-height: 48px;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  background: #fff7f7;
-  color: #b91c1c;
-  padding: 10px 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.monitoring-quick-status button:nth-child(2) {
-  background: #f8fafc;
-  color: #475569;
-}
-
-.monitoring-quick-status button:disabled {
-  cursor: default;
-  opacity: 0.72;
-}
-
-.monitoring-quick-status button:not(:disabled):is(:hover, :focus-visible) {
-  border-color: currentColor;
-  outline: none;
-}
-
-.monitoring-quick-status svg {
-  width: 18px;
-  height: 18px;
-}
-
-.monitoring-quick-status span {
+  align-items: stretch;
+  gap: 16px;
   min-width: 0;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.monitoring-quick-status strong {
-  color: inherit;
-  font-size: 16px;
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 26vw, var(--ui-side-panel-width, 340px));
 }
 
 .monitoring-fixture-selector {
@@ -1130,6 +1099,51 @@ button {
 
 .map-panel {
   min-width: 0;
+  min-height: 0;
+}
+
+.monitoring-map-shell {
+  position: relative;
+  width: 100%;
+  height: clamp(420px, 58vh, 720px);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #dfe8f5;
+}
+
+.monitoring-map-viewport {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background-color: #dfe8f5;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.16) 1px, transparent 1px);
+  background-size: 24px 24px;
+  cursor: grab;
+  scrollbar-color: #9bacc1 #edf2f8;
+  scrollbar-width: thin;
+}
+
+.monitoring-map-viewport:active {
+  cursor: grabbing;
+}
+
+.monitoring-map-viewport:focus-visible {
+  outline: 0;
+  box-shadow: inset var(--focus-ring);
+}
+
+.monitoring-map-stage {
+  display: grid;
+  min-width: 100%;
+  min-height: 100%;
+  place-items: center;
+  padding: 24px;
 }
 
 .floor-map {
@@ -1147,6 +1161,67 @@ button {
   border-color: var(--border);
   border-radius: 16px;
   box-shadow: none;
+}
+
+.monitoring-map-pan-hint,
+.monitoring-map-zoom-controls {
+  position: absolute;
+  z-index: 6;
+  bottom: 12px;
+}
+
+.monitoring-map-pan-hint {
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  background: rgba(21, 34, 56, 0.86);
+  color: #ffffff;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.monitoring-map-zoom-controls {
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 3px;
+  box-shadow: 0 8px 20px rgba(15, 38, 70, 0.12);
+}
+
+.monitoring-map-zoom-controls button {
+  display: inline-grid;
+  min-width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--primary);
+  padding: 0 7px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monitoring-map-zoom-controls button:nth-child(2) {
+  min-width: 54px;
+}
+
+.monitoring-map-zoom-controls button:is(:hover, :focus-visible) {
+  background: var(--primary-soft);
+}
+
+.monitoring-map-zoom-controls button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .floor-map::before {
@@ -1470,10 +1545,9 @@ button {
 }
 
 .panel-title-row h3 {
-  overflow: hidden;
+  min-width: 0;
   font-size: 22px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .detail-stack {
@@ -1522,11 +1596,10 @@ button {
   margin: 0;
 }
 
-.info-list div,
-.device-row {
-  display: flex;
+.info-list div {
+  display: grid;
+  grid-template-columns: minmax(78px, 0.8fr) minmax(0, 1.2fr);
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1535,8 +1608,10 @@ button {
 }
 
 .info-list dt {
+  min-width: 0;
   color: var(--muted);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .info-list dd {
@@ -1607,18 +1682,13 @@ button {
   }
 
   .monitoring-dashboard .map-panel {
-    display: grid;
     min-height: 0;
     overflow: hidden;
-    place-items: center;
-    container-type: size;
   }
 
-  .monitoring-dashboard .floor-map {
-    width: min(100%, calc(100cqh * var(--floor-map-aspect-ratio)));
-    max-width: 100%;
-    height: auto;
-    max-height: 100%;
+  .monitoring-dashboard .monitoring-map-shell {
+    height: 100%;
+    min-height: 0;
   }
 
   .monitoring-dashboard .detail-panel {
@@ -1640,6 +1710,13 @@ button {
 }
 
 .device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfdff;
+  padding: 12px;
   justify-content: flex-start;
   width: 100%;
   cursor: pointer;
@@ -2516,13 +2593,12 @@ button {
 .control-layout,
 .report-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
   gap: 16px;
   align-items: start;
 }
 
 .statistics-report-layout {
-  grid-template-columns: minmax(0, 1fr) 330px;
+  --ui-side-panel-width: 330px;
 }
 
 .control-target-card {
@@ -3752,6 +3828,7 @@ button.group-card {
   align-content: start;
   gap: 12px;
   min-width: 0;
+  padding: 0;
   overflow-y: auto;
 }
 
@@ -4558,6 +4635,20 @@ button.group-card {
     flex: 1;
   }
 
+  .monitoring-map-pan-hint {
+    display: none;
+  }
+
+  .monitoring-map-zoom-controls {
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .monitoring-map-zoom-controls button {
+    min-width: 48px;
+    height: 48px;
+  }
+
   .registration-dialog-backdrop {
     padding: 0;
   }
@@ -5013,14 +5104,6 @@ button.group-card {
 
   .summary-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .monitoring-quick-status {
-    grid-template-columns: 1fr;
-  }
-
-  .monitoring-quick-status button {
-    min-height: 52px;
   }
 
   .registration-summary,

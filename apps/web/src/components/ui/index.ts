@@ -9,5 +9,6 @@ export type { MetricTone } from "./MetricCard";
 export { PageHeader } from "./PageHeader";
 export { ProgressSteps } from "./ProgressSteps";
 export type { ProgressStep, ProgressStepState } from "./ProgressSteps";
+export { SidePanel } from "./SidePanel";
 export { StatusBadge } from "./StatusBadge";
 export type { StatusTone } from "./StatusBadge";

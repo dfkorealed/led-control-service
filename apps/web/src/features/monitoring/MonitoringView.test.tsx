@@ -94,7 +94,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
   });
 
-  it("presents the populated floor with semantic metrics and selected fixture detail", () => {
+  it("presents only the three operational metrics above the map and selected fixture detail", () => {
     const faultFixture = {
       ...fixture,
       id: "fixture-2",
@@ -121,7 +121,8 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
     expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
-    expect(screen.getByRole("region", { name: "빠른 상태" })).toHaveTextContent("점검 필요");
+    expect(screen.queryByRole("group", { name: "평균 밝기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "빠른 상태" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("72%");
     const selectedFixtureDetail = screen.getByRole("region", { name: "선택 조명 정보" });
@@ -132,7 +133,7 @@ describe("MonitoringView refresh", () => {
     )).toBeVisible();
   });
 
-  it("모니터링은 빠른 상태, 층 도면, 선택 조명 상세 순서를 유지한다", () => {
+  it("모니터링은 핵심 KPI 다음에 층 도면과 선택 조명 상세를 배치한다", () => {
     const faultFixture = {
       ...fixture,
       id: "fixture-2",
@@ -150,12 +151,11 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    const quickStatus = screen.getByRole("region", { name: "빠른 상태" });
+    const summary = screen.getByRole("group", { name: "점검 필요" }).parentElement!;
     const map = screen.getByRole("region", { name: "층 도면" });
     const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
-    expect(quickStatus).toHaveTextContent("점검 필요");
     expect(detail).toHaveTextContent("현재 밝기");
-    expect(quickStatus.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(map.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -432,10 +432,10 @@ describe("MonitoringView refresh", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
     render(<MonitoringView siteId="site-1" />);
 
-    const quickStatus = screen.getByRole("region", { name: "빠른 상태" });
+    const summary = screen.getByRole("group", { name: "점검 필요" }).parentElement!;
     const map = screen.getByRole("region", { name: "층 도면" });
     const detail = screen.getByRole("complementary", { name: "선택 조명 상세" });
-    expect(quickStatus.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(map.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

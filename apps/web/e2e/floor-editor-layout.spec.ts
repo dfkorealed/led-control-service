@@ -42,6 +42,7 @@ for (const viewport of [
     await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
     await expect(page.getByRole("toolbar", { name: "맵 편집 도구" })).toBeVisible();
     await expect(page.getByLabel("B2 편집 캔버스")).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "맵 편집 정보" })).toHaveClass(/ui-side-panel/);
     await expect(page.getByRole("complementary", { name: "속성 패널" })).toBeVisible();
     await expect(page.getByRole("region", { name: "맵 버전" })).toBeVisible();
 

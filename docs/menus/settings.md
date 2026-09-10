@@ -71,6 +71,8 @@
 
 ## 구현 완료
 
+- 맵 편집기의 오른쪽 속성·배치·레이어 영역은 이름 있는 공통 `SidePanel`과 `ui-side-panel-layout` overflow 계약을 사용한다. 긴 조명명과 속성값은 패널 폭 안에서 줄바꿈하고, 높이가 제한되면 오른쪽 영역 내부에서 스크롤해 속성 UI가 화면 밖으로 잘리지 않는다.
+
 - 맵 편집 화면의 기능명과 진입 메뉴를 `맵 관리`/`맵 편집`으로 통일했다. 아무 요소도 선택하지 않으면 우측 속성 패널에는 맵 너비·높이·격자 간격만 표시하고, 조명 단일/다중 선택과 네모·세모·선·텍스트 선택 시에는 해당 요소에 유효한 속성만 표시한다. 선택이 바뀌면 속성 탭으로 자동 복귀한다.
 - 맵 크기와 층별 격자 간격(5~200)을 `FloorPlan`에 저장한다. 배경 파일이 없는 층도 `sourceType = none`인 맵 설정을 저장할 수 있다. 격자 스냅은 화면 이동량이 아니라 맵 절대 좌표를 사용하며, 조명·도형의 생성·드롭·이동·크기 변경·키보드 이동에 동일하게 적용한다. 도형은 모서리와 변, 선은 양 끝, 조명은 비율 고정 모서리 핸들로 크기를 바꾼다. 도형 전체가 맵 경계 안에 남도록 보정하고, 기존 요소가 밖으로 밀려나는 맵 축소는 UI에서 거부한다. 격자는 고배율/대형 맵에서도 그리기 부하가 제한되며 배경 이미지 위에 표시된다.
 - 2026-09-10 맵 편집 보강 검증: Shared 172개, API 825개(환경 의존 172개 skip), Web 512개 단위 테스트와 Web/API production build를 통과했다. Chromium은 1440/1024/390/320px 레이아웃, 선택별 패널, 20px 절대 격자 드래그를 포함한 25개 시나리오를 통과했다. Raspberry Pi/ESP32-H2 HIL 범위는 변경하지 않았다.
@@ -358,6 +360,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- 맵 편집 우측 패널의 공통 overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.
 - 비밀번호 변경과 setup/commissioning visibility는 Web 회귀와 기존 격리 실백엔드 E2E로 검증했다. Scene 24~26 레이아웃은 1440×900, 1024×768, 390×844, 320×740 자동 Chromium으로 검증했지만 재설치, 수동 in-app Browser 시각 QA와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
@@ -390,6 +393,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 관련 파일
 
+- `apps/web/src/components/ui/SidePanel.tsx`
 - `apps/web/src/features/transport-copy.ts`
 - `apps/web/src/features/transport-copy.test.ts`
 - `apps/web/src/App.tsx`

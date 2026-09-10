@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRef } from "react";
 import { render, screen, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Button, FeedbackState, MetricCard, PageHeader, ProgressSteps, StatusBadge } from ".";
+import { Button, FeedbackState, MetricCard, PageHeader, ProgressSteps, SidePanel, StatusBadge } from ".";
 import type { StatusTone } from ".";
 
 const styles = readFileSync("src/styles.css", "utf8");
@@ -98,6 +98,16 @@ describe("Calm Operations UI primitives", () => {
 
     expect(screen.getByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("불러오지 못했습니다");
+  });
+
+  it("renders right-side information as a reusable complementary panel", () => {
+    render(<SidePanel aria-label="선택 조명 상세" className="detail-panel">상세 정보</SidePanel>);
+
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveClass(
+      "ui-side-panel",
+      "ui-card",
+      "detail-panel"
+    );
   });
 
   it("renders ordered progress without using color as the only state", () => {

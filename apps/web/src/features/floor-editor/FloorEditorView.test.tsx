@@ -200,6 +200,9 @@ describe("FloorEditorView", () => {
     expect(screen.getByRole("toolbar", { name: "맵 편집 도구" })).toBeInTheDocument();
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
+    const sidePanel = screen.getByRole("complementary", { name: "맵 편집 정보" });
+    expect(sidePanel).toHaveClass("ui-side-panel", "floor-editor-side-panel");
+    expect(sidePanel.parentElement).toHaveClass("ui-side-panel-layout");
     expect(screen.getByRole("heading", { name: "맵 설정" })).toBeInTheDocument();
     expect(screen.getByLabelText("맵 너비")).toHaveValue(1200);
     expect(screen.getByLabelText("맵 높이")).toHaveValue(800);
