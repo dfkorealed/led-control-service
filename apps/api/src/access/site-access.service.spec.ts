@@ -11,7 +11,7 @@ describe("SiteAccessService", () => {
     id: customerSiteId,
     organizationId: "customer-org",
     adminUserId: "admin-1",
-    memberships: [] as { id: string }[],
+    memberships: [] as { id: string; accessLevel: "read" | "control" }[],
     organization: { id: "customer-org" }
   };
   const prisma = {
@@ -64,7 +64,7 @@ describe("SiteAccessService", () => {
   });
 
   it("hides a site from an operator even when it has a membership", async () => {
-    site.memberships = [{ id: "membership-1" }];
+    site.memberships = [{ id: "membership-1", accessLevel: "read" }];
     const service = await createService();
 
     await expect(service.assert(unassignedOperator, customerSiteId, "read")).rejects.toThrow("site not found");
@@ -107,21 +107,93 @@ describe("SiteAccessService", () => {
   });
 
   it("forbids a viewer from managing a readable site", async () => {
-    site.memberships = [{ id: "membership-1" }];
+    site.memberships = [{ id: "membership-1", accessLevel: "read" }];
     const service = await createService();
 
     await expect(service.assert(viewer, customerSiteId, "manage")).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it("grants a read member only read capability", async () => {
+    site.memberships = [{ id: "membership-read", accessLevel: "read" }];
+    const service = await createService();
+
+    await expect(service.assert(viewer, customerSiteId, "read")).resolves.toMatchObject({ id: customerSiteId });
+    await expect(service.assert(viewer, customerSiteId, "control")).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.assert(viewer, customerSiteId, "manage")).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.assert(viewer, customerSiteId, "commission")).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.capabilities(viewer, customerSiteId)).resolves.toEqual({
+      read: true,
+      control: false,
+      manage: false,
+      commission: false
+    });
+  });
+
+  it("grants a control member read and control capability only", async () => {
+    site.memberships = [{ id: "membership-control", accessLevel: "control" }];
+    const service = await createService();
+
+    await expect(service.assert(viewer, customerSiteId, "read")).resolves.toMatchObject({ id: customerSiteId });
+    await expect(service.assert(viewer, customerSiteId, "control")).resolves.toMatchObject({ id: customerSiteId });
+    await expect(service.assert(viewer, customerSiteId, "manage")).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.assert(viewer, customerSiteId, "commission")).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.capabilities(viewer, customerSiteId)).resolves.toEqual({
+      read: true,
+      control: true,
+      manage: false,
+      commission: false
+    });
+  });
+
+  it("grants every capability to the assigned admin", async () => {
+    const service = await createService();
+
+    await expect(service.capabilities(admin, customerSiteId)).resolves.toEqual({
+      read: true,
+      control: true,
+      manage: true,
+      commission: true
+    });
+  });
+
+  it("locks the site and reauthorizes an active control member inside a control transaction", async () => {
+    const service = await createService();
+    const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: customerSiteId }]),
+      site: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: customerSiteId,
+          organizationId: viewer.organizationId,
+          adminUserId: admin.id,
+          admin: null,
+          memberships: [{
+            accessLevel: "control",
+            user: {
+              id: viewer.id,
+              organizationId: viewer.organizationId,
+              role: "viewer",
+              status: "active",
+              organization: { type: "customer" }
+            }
+          }]
+        })
+      }
+    };
+
+    await expect(service.assertControlInTransaction(transaction as never, viewer, customerSiteId))
+      .resolves.toMatchObject({ id: customerSiteId });
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
   it("hides a cross-customer membership from a viewer even when the membership row exists", async () => {
-    site.memberships = [{ id: "cross-customer-membership" }];
+    site.memberships = [{ id: "cross-customer-membership", accessLevel: "read" }];
     const service = await createService();
 
     await expect(service.assert(viewer, otherCustomerSiteId, "read")).rejects.toThrow("site not found");
   });
 
   it("hides other customer sites from a customer admin even when the admin has a membership", async () => {
-    site.memberships = [{ id: "cross-tenant-membership" }];
+    site.memberships = [{ id: "cross-tenant-membership", accessLevel: "read" }];
     const service = await createService();
 
     await expect(service.assert(admin, otherCustomerSiteId, "read")).rejects.toThrow("site not found");

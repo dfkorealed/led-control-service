@@ -3,7 +3,14 @@ import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 
-export type SiteCapability = "read" | "manage" | "commission";
+export type SiteCapability = "read" | "control" | "manage" | "commission";
+
+export interface SiteCapabilities {
+  read: boolean;
+  control: boolean;
+  manage: boolean;
+  commission: boolean;
+}
 
 @Injectable()
 export class SiteAccessService {
@@ -11,6 +18,14 @@ export class SiteAccessService {
 
   async assert(user: AuthenticatedUser, siteId: string, capability: SiteCapability) {
     return this.assertCapability(this.prisma, user, siteId, capability);
+  }
+
+  async capabilities(user: AuthenticatedUser, siteId: string): Promise<SiteCapabilities> {
+    const { site, capabilities } = await this.loadCapabilities(this.prisma, user, siteId);
+    if (!capabilities.read) {
+      throw new NotFoundException("site not found");
+    }
+    return capabilities;
   }
 
   async assertReadInTransaction(
@@ -21,14 +36,78 @@ export class SiteAccessService {
     return this.assertCapability(tx, user, siteId, "read");
   }
 
+  async assertControlInTransaction(
+    tx: Pick<Prisma.TransactionClient, "$queryRaw" | "site">,
+    user: AuthenticatedUser,
+    siteId: string
+  ) {
+    if (user.role === "admin") {
+      return this.assertAssignedAdminInTransaction(tx, user, siteId);
+    }
+    if (!this.isActiveCustomerViewer(user)) {
+      throw new NotFoundException("site not found");
+    }
+
+    // Site is locked before membership/user reauthorization, matching admin writes.
+    // This prevents a request prechecked before disable, reassignment, or membership
+    // removal from authorizing an operation after the concurrent change commits.
+    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE
+    `);
+    if (locked.length === 0) throw new NotFoundException("site not found");
+
+    const site = await tx.site.findUnique({
+      where: { id: siteId },
+      select: {
+        id: true,
+        organizationId: true,
+        memberships: {
+          where: { userId: user.id },
+          select: {
+            accessLevel: true,
+            user: {
+              select: {
+                id: true,
+                organizationId: true,
+                role: true,
+                status: true,
+                organization: { select: { type: true } }
+              }
+            }
+          }
+        }
+      }
+    });
+    if (!site || !this.hasControlMembership(site.organizationId, site.memberships[0], user)) {
+      throw new NotFoundException("site not found");
+    }
+    return site;
+  }
+
   private async assertCapability(
     client: Pick<Prisma.TransactionClient, "site">,
     user: AuthenticatedUser,
     siteId: string,
     capability: SiteCapability
   ) {
+    const { site, capabilities } = await this.loadCapabilities(client, user, siteId);
+    if (!site || !capabilities.read) throw new NotFoundException("site not found");
+    const permitted = capabilities[capability];
+
+    if (!permitted) {
+      throw new ForbiddenException("site capability denied");
+    }
+    return site;
+  }
+
+  private async loadCapabilities(
+    client: Pick<Prisma.TransactionClient, "site">,
+    user: AuthenticatedUser,
+    siteId: string
+  ) {
+    const empty: SiteCapabilities = { read: false, control: false, manage: false, commission: false };
     if (!this.hasValidOrganizationType(user)) {
-      throw new NotFoundException("site not found");
+      return { site: null, capabilities: empty };
     }
 
     const usesMembership = user.role === "viewer";
@@ -39,27 +118,29 @@ export class SiteAccessService {
         timeZone: true,
         organizationId: true,
         adminUserId: true,
-        ...(usesMembership ? { memberships: { where: { userId: user.id }, select: { id: true } } } : {})
+        ...(usesMembership ? {
+          memberships: { where: { userId: user.id }, select: { id: true, accessLevel: true } }
+        } : {})
       }
     });
-    if (!site) throw new NotFoundException("site not found");
+    if (!site) return { site: null, capabilities: empty };
 
-    const assignedViewer = "memberships" in site && site.memberships.length > 0;
     const assignedAdmin = user.role === "admin"
-      && user.status === "active"
       && site.adminUserId === user.id
       && site.organizationId === user.organizationId;
-    const validViewerMembership = user.role === "viewer" && site.organizationId === user.organizationId;
-    const canRead = assignedAdmin || (usesMembership && assignedViewer && validViewerMembership);
-    const canManage = assignedAdmin;
-    const canCommission = assignedAdmin;
-    const permitted = capability === "read" ? canRead : capability === "manage" ? canManage : canCommission;
-
-    if (!permitted) {
-      if (!canRead) throw new NotFoundException("site not found");
-      throw new ForbiddenException("site capability denied");
-    }
-    return site;
+    const membership = "memberships" in site ? site.memberships[0] : undefined;
+    const validViewerMembership = user.role === "viewer" && site.organizationId === user.organizationId && Boolean(membership);
+    const canControl = assignedAdmin || (validViewerMembership && membership?.accessLevel === "control");
+    const canRead = assignedAdmin || validViewerMembership;
+    return {
+      site,
+      capabilities: {
+        read: canRead,
+        control: canControl,
+        manage: assignedAdmin,
+        commission: assignedAdmin
+      }
+    };
   }
 
   async assertCommissionInTransaction(
@@ -147,6 +228,27 @@ export class SiteAccessService {
 
   private isActiveCustomerAdmin(user: AuthenticatedUser) {
     return user.role === "admin" && user.status === "active" && user.organizationType === "customer";
+  }
+
+  private isActiveCustomerViewer(user: AuthenticatedUser) {
+    return user.role === "viewer" && user.status === "active" && user.organizationType === "customer";
+  }
+
+  private hasControlMembership(
+    siteOrganizationId: string,
+    membership: {
+      accessLevel: "read" | "control";
+      user: { id: string; organizationId: string; role: string; status: string; organization: { type: string } };
+    } | undefined,
+    user: AuthenticatedUser
+  ) {
+    return membership?.accessLevel === "control"
+      && membership.user.id === user.id
+      && membership.user.organizationId === user.organizationId
+      && membership.user.organizationId === siteOrganizationId
+      && membership.user.role === "viewer"
+      && membership.user.status === "active"
+      && membership.user.organization.type === "customer";
   }
 
   private isAssignedActiveCustomerAdmin(
