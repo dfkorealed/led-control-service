@@ -6,6 +6,7 @@ import {
   deviceStatusAckV2Schema,
   deriveDeviceStatusAckStatus,
   fixtureStateV2Schema,
+  gatewayDimmingCommandDraftV2CompatibilitySchema,
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandV2CompatibilitySchema,
   gatewayDimmingCommandPublishedV2Schema,
@@ -157,7 +158,6 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetFixtureIds: [fixtureId],
       deliveryMode: "unicast",
       brightness: 70,
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt,
       overrideUntil: "2026-08-29T01:00:00.000Z",
       expiresAt: "2026-07-11T00:00:10.000Z"
@@ -204,7 +204,6 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetFixtureIds: [fixtureId],
       deliveryMode: "unicast" as const,
       brightness: 70,
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt,
       overrideUntil: "2026-08-29T01:00:00.000Z"
     };
@@ -221,6 +220,35 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     })).toThrow();
   });
 
+  it("omits requester PII from new dimming wires while accepting the historical key", () => {
+    const current = {
+      commandId,
+      dispatchId,
+      siteId,
+      gatewayId,
+      idempotencyKey: `${commandId}:${gatewayId}`,
+      sequence: 7,
+      targetType: "fixture" as const,
+      targetId: fixtureId,
+      targetFixtureIds: [fixtureId],
+      deliveryMode: "unicast" as const,
+      brightness: 70,
+      requestedAt: occurredAt,
+      expiresAt: "2026-07-11T00:00:10.000Z"
+    };
+
+    expect(gatewayDimmingCommandV2Schema.parse(current)).not.toHaveProperty("requestedBy");
+    expect(gatewayDimmingCommandV2CompatibilitySchema.parse({
+      ...current,
+      requestedBy: "55555555-5555-4555-8555-555555555555"
+    })).toMatchObject({ requestedBy: "55555555-5555-4555-8555-555555555555" });
+    const { expiresAt: _expiresAt, ...historicalDraft } = current;
+    expect(gatewayDimmingCommandDraftV2CompatibilitySchema.parse({
+      ...historicalDraft,
+      requestedBy: "55555555-5555-4555-8555-555555555555"
+    })).toHaveProperty("requestedBy");
+  });
+
   it("reads a legacy near-expiry wire command without weakening new producer validation", () => {
     const legacy = {
       commandId,
@@ -234,7 +262,6 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetFixtureIds: [fixtureId],
       deliveryMode: "unicast" as const,
       brightness: 70,
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: "2026-07-11T00:00:00.000Z",
       overrideUntil: "2026-07-11T00:00:05.000Z",
       expiresAt: "2026-07-11T00:00:10.000Z"
@@ -257,7 +284,6 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetFixtureIds: [fixtureId],
       deliveryMode: "unicast" as const,
       brightness: 70,
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: "2026-07-11T00:00:00.000Z",
       overrideUntil: "2026-07-11T01:00:00.000Z",
       deliveryGeneration: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -296,7 +322,6 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetId: "77777777-7777-4777-8777-777777777777",
       targetFixtureIds: [fixtureId],
       brightness: 70,
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt,
       overrideUntil: "2026-08-29T01:00:00.000Z"
     };
@@ -337,7 +362,6 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetFixtureIds: [fixtureId],
       deliveryMode: "unicast" as const,
       brightness: 70,
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt,
       overrideUntil: "2026-08-29T01:00:00.000Z"
     };
@@ -401,7 +425,6 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       targetFixtureIds: [fixtureId],
       deliveryMode: "unicast" as const,
       brightness: 70,
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt,
       overrideUntil: "2026-08-29T01:00:00.000Z"
     };
@@ -425,7 +448,6 @@ describe("gateway-scoped MQTT v2 contracts", () => {
       meshControlGroupId,
       meshControlGroupVersion: 2,
       brightness: 70,
-      requestedBy: "55555555-5555-4555-8555-555555555555",
       requestedAt: occurredAt,
       overrideUntil: "2026-08-29T01:00:00.000Z"
     };

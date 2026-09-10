@@ -1,4 +1,4 @@
-import { gatewayDimmingCommandDraftV2Schema } from "@led-control/shared";
+import { gatewayDimmingCommandV2CompatibilitySchema } from "@led-control/shared";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -30,7 +30,7 @@ describeWithPostgres("command target migration PostgreSQL rehearsal", () => {
     `));
     expect(payloads).toHaveLength(2);
     for (const payload of payloads) {
-      expect(gatewayDimmingCommandDraftV2Schema.parse(payload)).toEqual(payload);
+      expect(gatewayDimmingCommandV2CompatibilitySchema.parse(payload)).toEqual(payload);
       expect(payload).not.toHaveProperty("expiresAt");
       expect(payload).not.toHaveProperty("legacyDebug");
     }

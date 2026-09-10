@@ -1128,7 +1128,6 @@ function timedGatewayCommand() {
     targetFixtureIds: [scopedFixtureId],
     deliveryMode: "unicast" as const,
     brightness: 60,
-    requestedBy: "77777777-7777-4777-8777-777777777777",
     requestedAt: "2026-08-30T01:00:00.000Z",
     expiresAt: "2026-08-30T01:01:00.000Z",
     overrideUntil: "2026-08-30T02:00:00.000Z"

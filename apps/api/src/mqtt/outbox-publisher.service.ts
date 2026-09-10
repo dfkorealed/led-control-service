@@ -4,6 +4,7 @@ import {
   createGatewayCommandExpiry,
   GatewayDimmingCommandDraftV2,
   GatewayDimmingCommandPublishedV2,
+  gatewayDimmingCommandDraftV2CompatibilitySchema,
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2CompatibilitySchema,
@@ -363,8 +364,8 @@ function parseStoredDimmingCommand(payload: Prisma.JsonValue): {
   const published = gatewayDimmingCommandPublishedV2Schema.safeParse(payload);
   if (published.success) return { draft: toDimmingDraft(published.data), payload: published.data };
 
-  const draft = gatewayDimmingCommandDraftV2Schema.safeParse(payload);
-  if (draft.success) return { draft: draft.data };
+  const draft = gatewayDimmingCommandDraftV2CompatibilitySchema.safeParse(payload);
+  if (draft.success) return { draft: toDimmingDraft(draft.data) };
 
   const compatible = gatewayDimmingCommandV2CompatibilitySchema.safeParse(payload);
   if (!compatible.success) throw draft.error;
@@ -378,6 +379,9 @@ function toDimmingDraft(payload: Record<string, unknown>): GatewayDimmingCommand
   delete draft.deliveryGeneratedAt;
   delete draft.deliveryWindowMs;
   delete draft.overrideRemainingMs;
+  // Historical rows can contain requester PII. Compatibility parsing accepts
+  // the old wire, but every newly persisted/published generation omits it.
+  delete draft.requestedBy;
   return gatewayDimmingCommandDraftV2Schema.parse(draft);
 }
 

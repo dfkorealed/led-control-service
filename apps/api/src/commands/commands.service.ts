@@ -196,7 +196,6 @@ export class CommandsService {
             }
             : {}),
           brightness: command.brightness,
-          requestedBy: command.requestedBy,
           requestedAt: command.createdAt.toISOString(),
           overrideUntil: manualOverride.overrideUntil.toISOString()
         });

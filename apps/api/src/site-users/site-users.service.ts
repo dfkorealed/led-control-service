@@ -122,6 +122,33 @@ export class SiteUsersService {
     return this.transaction(user, siteId, async (tx, organizationId) => {
       const current = await this.lockMember(tx, siteId, organizationId, userId);
       if (body.confirmationLoginId !== current.loginId) throw this.invalidInput();
+      const deletionIdentity = await tx.user.findUnique({
+        where: { id: userId },
+        select: { email: true }
+      });
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "MqttOutbox" AS outbox
+        SET
+          "payload" = outbox."payload" - 'requestedBy',
+          "updatedAt" = CURRENT_TIMESTAMP
+        FROM "CommandDispatch" AS dispatch
+        JOIN "Command" AS command ON command."id" = dispatch."commandId"
+        WHERE outbox."dispatchId" = dispatch."id"
+          AND command."requestedBy" = ${userId}
+          AND jsonb_typeof(outbox."payload") = 'object'
+          AND outbox."payload" ? 'requestedBy'
+      `);
+      if (deletionIdentity?.email) {
+        const normalizedEmail = deletionIdentity.email.trim().toLowerCase();
+        await tx.$executeRaw(Prisma.sql`
+          DELETE FROM "Invitation"
+          WHERE "organizationId" = ${organizationId}
+            AND "siteId" = ${siteId}
+            AND "acceptedAt" IS NOT NULL
+            AND "email" IS NOT NULL
+            AND LOWER(BTRIM("email")) = ${normalizedEmail}
+        `);
+      }
       // AuditLog has no User FK. Clear linked PII explicitly while retaining
       // technical event rows; the deletion event itself records only the site.
       await tx.auditLog.updateMany({

@@ -1,4 +1,4 @@
-import { gatewayDimmingCommandDraftV2Schema } from "@led-control/shared";
+import { gatewayDimmingCommandV2CompatibilitySchema } from "@led-control/shared";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -59,7 +59,7 @@ describe("command target migration contract", () => {
       requestedBy: "77777777-7777-4777-8777-777777777777",
       requestedAt: "2026-07-11T00:00:00.000Z"
     };
-    expect(gatewayDimmingCommandDraftV2Schema.parse(migratedLegacyGroup)).toEqual(migratedLegacyGroup);
+    expect(gatewayDimmingCommandV2CompatibilitySchema.parse(migratedLegacyGroup)).toEqual(migratedLegacyGroup);
   });
 
   it("declares the mesh group snapshot relation and lookup index", () => {

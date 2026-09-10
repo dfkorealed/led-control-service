@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-11 / 사용자 삭제는 FK뿐 아니라 durable 비정규화 데이터까지 추적한다
+- **발생했던 문제/실수**: `Command.requestedBy`와 `ManualOverride.requestedById`를 `SET NULL`로 바꿨지만 MQTT outbox JSON의 요청자 UUID와 수락된 초대 이메일은 관계형 FK 밖에 남아 있었다. 미발행 command row는 사용자 삭제 뒤에도 요청자 식별자를 외부로 발행할 수 있었다.
+- **원인**: 사용자 PII 수명을 관계형 column과 브라우저 cache 위주로 검토하고, durable JSON payload와 가입에 사용된 토큰 원장의 비정규화 복사본을 삭제 그래프에 포함하지 않았다.
+- **해결 및 예방책**: 신규 wire에는 실행에 필요 없는 사용자 식별자를 넣지 않고, 순방향 migration과 사용자 삭제 transaction에서 command-dispatch outbox의 top-level legacy 키를 set-based로 제거한다. 이메일이 있는 초대 가입 사용자는 조직·현장·정규화 이메일·수락 상태가 모두 일치하는 Invitation만 같은 transaction에서 삭제한다.
+- **반복 방지 체크**: 개인정보 삭제 검토 시 FK, JSON/outbox, 감사 원장, 초대·토큰, cache를 함께 열거한다. 실제 PostgreSQL에서 pending row 후속 발행, migration historical scrub, 다른 tenant/미수락 데이터 보존과 transaction rollback을 회귀로 유지한다.
+
 ## 2026-09-10 / 편집 화면의 생명주기와 서버 편집권을 함께 처리한다
 - **발생했던 문제/실수**: 느린 저장 응답이 층 전환 후 전역 에디터 상태를 덮어쓸 수 있었고, 실제 브라우저 새로고침에서는 React cleanup이 실행되지 않아 서버의 이전 lease가 남았다. 테스트용 lease 응답을 항상 성공으로 반환한 브라우저 테스트만으로는 후자를 찾지 못했다.
 - **해결 및 예방책**: 저장·복구 응답에 화면 생존 여부, 현장/층 범위와 인증 세대 검사를 적용한다. 인증 변경은 로컬 저장소뿐 아니라 에디터 singleton과 이력도 비운다. 페이지 이탈의 실제 반납은 `pagehide`와 keepalive 요청으로 처리하고, BFCache 복귀 시 새로운 편집권을 확보한다. 취소할 수 있는 `beforeunload`만으로 lease를 반납하거나 다른 탭의 lease를 강제로 가져오지 않는다.

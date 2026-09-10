@@ -1,4 +1,8 @@
 import { Prisma } from "@prisma/client";
+import {
+  gatewayDimmingCommandDraftV2Schema,
+  gatewayDimmingCommandPublishedV2Schema
+} from "@led-control/shared";
 import { Test } from "@nestjs/testing";
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -9,6 +13,7 @@ import { AuditService } from "../audit/audit.service";
 import { AuthService } from "../auth/auth.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { PasswordService } from "../auth/password.service";
+import { OutboxPublisherService } from "../mqtt/outbox-publisher.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SiteUsersService } from "./site-users.service";
 import { SiteUsersModule } from "./site-users.module";
@@ -218,13 +223,47 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
     }
   }, 15_000);
 
-  it("permanently deletes account PII/sessions/membership but retains command and active override", async () => {
+  it("permanently deletes account PII and requester payloads while retaining publishable command history", async () => {
     const member = await service.create(admin, siteId, input());
     const gateway = await prisma.gateway.create({ data: { siteId, name: "gateway", serialNumber: randomUUID(), firmwareVersion: "1" } });
     const command = await prisma.command.create({ data: { siteId, requestedBy: member.id, clientRequestId: randomUUID(), requestFingerprint: "fingerprint", targetType: "fixture", brightness: 70 } });
     const override = await prisma.manualOverride.create({ data: {
       siteId, gatewayId: gateway.id, commandId: command.id, requestedById: member.id,
       brightnessPercent: 70, startedAt: new Date(), overrideUntil: new Date(Date.now() + 3600_000)
+    } });
+    const dispatch = await prisma.commandDispatch.create({ data: {
+      commandId: command.id, gatewayId: gateway.id, idempotencyKey: randomUUID(), sequence: 1
+    } });
+    const requestedAt = new Date();
+    const fixtureId = randomUUID();
+    const outbox = await prisma.mqttOutbox.create({ data: {
+      dispatchId: dispatch.id,
+      topic: `sites/${siteId}/gateways/${gateway.id}/commands/dimming`,
+      payload: {
+        commandId: command.id,
+        dispatchId: dispatch.id,
+        idempotencyKey: dispatch.idempotencyKey,
+        sequence: 1,
+        siteId,
+        gatewayId: gateway.id,
+        targetType: "fixture",
+        targetId: fixtureId,
+        targetFixtureIds: [fixtureId],
+        deliveryMode: "unicast",
+        brightness: 70,
+        requestedBy: member.id,
+        requestedAt: requestedAt.toISOString(),
+        overrideUntil: override.overrideUntil.toISOString()
+      }
+    } });
+    const unrelatedInvitation = await prisma.invitation.create({ data: {
+      organizationId: admin.organizationId,
+      siteId,
+      email: `unrelated.${randomUUID()}@example.com`,
+      role: "viewer",
+      tokenHash: createHash("sha256").update(randomUUID()).digest("hex"),
+      expiresAt: new Date(Date.now() + 3600_000),
+      acceptedAt: new Date()
     } });
     await prisma.session.create({ data: { userId: member.id, tokenHash: randomUUID(), expiresAt: new Date(Date.now() + 3600_000) } });
     await audit.record({ actorId: member.id, targetType: "User", targetId: member.id, siteId, action: "auth.password_changed", outcome: "success", metadata: { loginId: member.loginId }, ipAddress: "127.0.0.1" });
@@ -234,9 +273,91 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
     expect(await prisma.session.count({ where: { userId: member.id } })).toBe(0);
     expect((await prisma.command.findUniqueOrThrow({ where: { id: command.id } })).requestedBy).toBeNull();
     expect(await prisma.manualOverride.findUniqueOrThrow({ where: { id: override.id } })).toMatchObject({ requestedById: null, commandId: command.id, endedAt: null });
+    const scrubbedOutbox = await prisma.mqttOutbox.findUniqueOrThrow({ where: { id: outbox.id } });
+    expect(scrubbedOutbox).toMatchObject({ dispatchId: dispatch.id, publishedAt: null, deadLetteredAt: null });
+    expect(scrubbedOutbox.payload).not.toHaveProperty("requestedBy");
+    expect(gatewayDimmingCommandDraftV2Schema.parse(scrubbedOutbox.payload)).toEqual(scrubbedOutbox.payload);
+
+    const publishNow = new Date(requestedAt.getTime() + 1_000);
+    const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };
+    const publisher = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: `site-user-delete-${randomUUID()}`,
+      clock: () => publishNow,
+      deliveryGeneration: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    });
+    const claimed = await publisher.claimBatch(publishNow);
+    expect(claimed.map((row) => row.id)).toContain(outbox.id);
+    await publisher.publishClaimed(claimed.find((row) => row.id === outbox.id)!);
+    const publishedOutbox = await prisma.mqttOutbox.findUniqueOrThrow({ where: { id: outbox.id } });
+    expect(publishedOutbox.publishedAt).toEqual(publishNow);
+    expect(gatewayDimmingCommandPublishedV2Schema.parse(publishedOutbox.payload)).not.toHaveProperty("requestedBy");
+    expect(mqtt.publishTopic).toHaveBeenCalledWith(
+      outbox.topic,
+      expect.not.objectContaining({ requestedBy: member.id }),
+      expect.any(Object)
+    );
+    expect(await prisma.invitation.findUnique({ where: { id: unrelatedInvitation.id } })).not.toBeNull();
     const audits = JSON.stringify(await prisma.auditLog.findMany({ where: { siteId } }));
     for (const value of [member.id, member.name, member.loginId, "Temporary-123"]) expect(audits).not.toContain(value);
     expect((await service.list(admin, siteId)).count).toBe(0);
+  });
+
+  it("deletes only the accepted invitation PII that created the signup user", async () => {
+    const token = randomUUID();
+    const normalizedEmail = `deleted.${randomUUID()}@example.com`;
+    const accepted = await prisma.invitation.create({ data: {
+      organizationId: admin.organizationId,
+      siteId,
+      email: `  ${normalizedEmail.toUpperCase()}  `,
+      role: "viewer",
+      tokenHash: createHash("sha256").update(token).digest("hex"),
+      expiresAt: new Date(Date.now() + 3600_000)
+    } });
+    const signup = await new AuthService(prisma, passwords, audit).signup({
+      token,
+      loginId: `invited_${randomUUID()}`,
+      email: normalizedEmail,
+      name: "초대 삭제 대상",
+      password: "Invitation-123"
+    });
+    const otherSite = await prisma.site.create({ data: {
+      organizationId: admin.organizationId,
+      name: "다른 초대 현장"
+    } });
+    const otherOrg = await prisma.organization.create({ data: { name: "다른 초대 고객사", type: "customer" } });
+    const preserved = await Promise.all([
+      prisma.invitation.create({ data: {
+        organizationId: admin.organizationId, siteId, email: normalizedEmail, role: "viewer",
+        tokenHash: createHash("sha256").update(randomUUID()).digest("hex"),
+        expiresAt: new Date(Date.now() + 3600_000)
+      } }),
+      prisma.invitation.create({ data: {
+        organizationId: admin.organizationId, siteId: otherSite.id, email: normalizedEmail, role: "viewer",
+        tokenHash: createHash("sha256").update(randomUUID()).digest("hex"),
+        expiresAt: new Date(Date.now() + 3600_000), acceptedAt: new Date()
+      } }),
+      prisma.invitation.create({ data: {
+        organizationId: otherOrg.id, siteId, email: normalizedEmail, role: "viewer",
+        tokenHash: createHash("sha256").update(randomUUID()).digest("hex"),
+        expiresAt: new Date(Date.now() + 3600_000), acceptedAt: new Date()
+      } }),
+      prisma.invitation.create({ data: {
+        organizationId: admin.organizationId, siteId, email: `other.${normalizedEmail}`, role: "viewer",
+        tokenHash: createHash("sha256").update(randomUUID()).digest("hex"),
+        expiresAt: new Date(Date.now() + 3600_000), acceptedAt: new Date()
+      } })
+    ]);
+
+    await expect(service.remove(admin, siteId, signup.user.id, {
+      confirmationLoginId: signup.user.loginId
+    })).resolves.toEqual({ ok: true });
+
+    expect(await prisma.user.findUnique({ where: { id: signup.user.id } })).toBeNull();
+    expect(await prisma.invitation.findUnique({ where: { id: accepted.id } })).toBeNull();
+    expect((await prisma.invitation.findMany({
+      where: { id: { in: preserved.map((invitation) => invitation.id) } },
+      select: { id: true }
+    })).map((invitation) => invitation.id).sort()).toEqual(preserved.map((invitation) => invitation.id).sort());
   });
 
   it("cannot mutate an admin, a viewer in another site, or another organization's viewer", async () => {

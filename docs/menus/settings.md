@@ -120,6 +120,7 @@
 - `POST /setup/floors`도 assigned admin의 `commission` capability를 요구한다. 기존 floor 이름·level 중복과 floorPlan 생성 검증은 유지한다.
 - `POST /gateways/claim`과 모든 `registration-sessions` route는 `admin` controller role 및 service의 active customer admin + 대상 Site `commission` 검사를 함께 적용한다. registration mutation은 create body 또는 저장된 session의 `siteId`를 권위 데이터로 사용해 transaction 첫 단계에서 Site를 잠그고 권한을 재검증하며, 이후 `Site -> Gateway -> Session -> Node` 순서로 필요한 행만 잠근다. get/identify는 read-only service 권한 검사만 수행한다.
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
+- 현장 일반 유저 영구 삭제는 관계형 요청자 FK만 익명화하지 않고, 해당 사용자의 command-dispatch MQTT outbox에서 legacy `requestedBy`를 같은 transaction으로 제거한다. 초대 가입 계정은 조직·현장·정규화 이메일이 일치하는 수락 완료 Invitation도 함께 삭제하며, 미수락·다른 범위 초대와 이메일이 없는 admin 직접 생성 계정은 보존한다. 실제 PostgreSQL 회귀는 pending outbox의 requester 부재와 후속 발행, 초대 PII 범위 삭제를 검증한다.
 - 설정 개요에 현장 정보, 층·도면, Gateway 상태, admin 계정·보안을 구분한 실제 데이터 카드와 route action을 제공한다.
 - Gateway 이름, 시리얼과 온라인·오프라인 상태를 실제 dashboard 응답으로 표시한다.
 - 등록 패널은 층과 Gateway를 명시적으로 선택해 `siteId`, `floorId`, `gatewayId`를 전송하고 BLE Mesh 후보·provisioning 요청을 제공한다. 설치 완료 assigned admin에게만 노출되며 viewer와 operator는 볼 수 없다. Task 9 격리 실백엔드 E2E는 0건 검색, 재검색, 자사 node 2개 일괄 등록을 검증했다. API는 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
