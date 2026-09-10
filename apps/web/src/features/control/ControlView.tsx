@@ -352,7 +352,7 @@ export function ControlView({
 
       {readOnly ? (
         <p className="danger-text control-readonly-notice" role="alert">
-          조회 전용 계정입니다. 조명 제어는 admin 계정으로만 수행할 수 있습니다.
+          조회 전용 계정입니다. 조명 제어는 제어 권한이 있는 계정만 사용할 수 있습니다.
         </p>
       ) : null}
 

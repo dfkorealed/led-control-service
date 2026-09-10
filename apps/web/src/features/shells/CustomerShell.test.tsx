@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../../api/auth";
 import { CustomerShell } from "./CustomerShell";
 
-vi.mock("../settings/floor-plans/FloorEditorRoute", () => ({ FloorEditorRoute: () => null }));
+vi.mock("../settings/floor-plans/FloorEditorRoute", () => ({ FloorEditorRoute: () => <p>맵 편집 화면</p> }));
 vi.mock("../monitoring/MonitoringView", () => ({ MonitoringView: () => <p>모니터링 화면</p> }));
 vi.mock("../control/ControlView", () => ({ ControlView: () => <p>제어 화면</p> }));
 vi.mock("../statistics/StatisticsView", () => ({ StatisticsView: () => <p>통계 화면</p> }));
@@ -34,7 +34,7 @@ const adminUser = {
   mustChangePassword: false
 };
 
-function dashboardFor(capabilities: { read: true; control: boolean; manage: boolean; commission: boolean }) {
+function dashboardFor(capabilities: { read: boolean; control: boolean; manage: boolean; commission: boolean }) {
   return {
     site: { id: "site", name: "현장", customerName: "고객사", installationStatus: "installed" as const, address: null, tariffKwhRate: 160, timeZone: "Asia/Seoul" },
     summary: { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
@@ -103,6 +103,15 @@ describe("customer shell editor floor context", () => {
 
     expect(screen.getByRole("link", { name: "제어" })).toBeInTheDocument();
     expect(screen.getByText("제어 화면")).toBeInTheDocument();
+  });
+
+  it("uses manage capability instead of admin role for the map edit route", async () => {
+    dashboardState.current = { data: dashboardFor({ read: true, control: true, manage: false, commission: false }), isLoading: false, error: null, refetch: vi.fn() };
+
+    renderShell("/settings/floor-plans/floor-b2/edit?siteId=site", adminUser);
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site"));
+    expect(screen.queryByText("맵 편집 화면")).not.toBeInTheDocument();
   });
 
   it("allows every customer user to open password settings but keeps registration admin-only", async () => {

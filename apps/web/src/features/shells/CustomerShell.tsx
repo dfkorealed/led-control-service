@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, NavLink, Route, Routes, matchPath, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
-import { useDashboard } from "../../api/queries";
+import { useDashboard, type SiteCapabilities } from "../../api/queries";
 import { ControlView } from "../control/ControlView";
 import {
   blockActiveCommandSession,
@@ -29,10 +29,10 @@ const items = [
   { path: "/statistics", label: "통계", icon: BarChart3 }
 ] as const;
 
-function PrimaryNavigation({ role, search, canControl }: Pick<AuthUser, "role"> & { search: string; canControl: boolean }) {
+function PrimaryNavigation({ capabilities, search }: { capabilities: SiteCapabilities; search: string }) {
   return (
     <>
-      {items.filter((item) => item.path !== "/control" || canControl).map((item) => {
+      {items.filter((item) => item.path !== "/control" || capabilities.control).map((item) => {
         const Icon = item.icon;
         return (
           <NavLink
@@ -45,7 +45,7 @@ function PrimaryNavigation({ role, search, canControl }: Pick<AuthUser, "role"> 
           </NavLink>
         );
       })}
-      <SettingsNavigationItem role={role} search={search} />
+      <SettingsNavigationItem capabilities={capabilities} search={search} />
     </>
   );
 }
@@ -166,7 +166,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     <div className="app-shell">
       {isCompactNavigation ? (
         <nav className="bottom-nav nav-list" aria-label="모바일 주 메뉴">
-          <PrimaryNavigation role={user.role} search={location.search} canControl={capabilities.control} />
+          <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
       ) : (
         <aside className="sidebar">
@@ -178,7 +178,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             </div>
           </div>
           <nav className="nav-list" aria-label="주 메뉴">
-            <PrimaryNavigation role={user.role} search={location.search} canControl={capabilities.control} />
+            <PrimaryNavigation capabilities={capabilities} search={location.search} />
           </nav>
         </aside>
       )}
@@ -229,8 +229,13 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               path="registration"
               element={capabilities.manage ? <RegistrationSettingsView siteId={siteId} /> : <Navigate to={`/settings${location.search}`} replace />}
             />
-            <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />
-            <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={user.role} />} />
+            <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} capabilities={capabilities} />} />
+            <Route
+              path="floor-plans/:floorId/edit"
+              element={capabilities.manage
+                ? <FloorEditorRoute capabilities={capabilities} />
+                : <Navigate to={`/settings/floor-plans${location.search}`} replace />}
+            />
             <Route
               path="security"
               element={<PasswordSettingsView />}

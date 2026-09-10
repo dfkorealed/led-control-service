@@ -30,3 +30,17 @@
 - 비밀번호 평문은 API 호출 인자로만 전달되고 Query/Mutation cache에는 저장하지 않는다.
 - production build의 기존 메인 chunk 크기 경고는 남아 있으나 이번 권한 변경의 오류는 아니다.
 - 유저 관리 본문과 강제 비밀번호 변경 화면은 계획대로 Task 7, Task 8 범위에 남겨 두었다.
+
+## Fix Round 1
+
+- 설정 메뉴, 설정 섹션, 맵 목록의 편집 버튼, 맵 편집 route가 `user.role` 대신 Dashboard의 `capabilities`를 단일 권한 기준으로 사용하도록 수정했다.
+- `read`와 `control` 권한은 맵 목록을 읽기 전용으로 볼 수 있고, `manage` 권한만 편집 route에 진입하도록 테스트를 보강했다.
+- 조회 전용 제어 화면의 안내 문구를 제어 권한 기준으로 바로잡았다.
+- 현장 미등록 응답을 표현할 수 있도록 `SiteCapabilities.read` 타입을 `boolean`으로 수정하고 `read: false` fixture를 검증했다.
+
+### TDD 및 검증
+
+- RED: capability 객체를 전달한 설정 메뉴 테스트 8건, 설정 섹션 테스트 3건, 맵 목록 테스트 1건이 기존 role 기반 구현에서 실패했다. `manage: false`인 admin의 직접 편집 route도 차단되지 않아 실패했다.
+- GREEN: 지정 테스트 7개 파일, 168개 테스트가 모두 통과했다.
+- `pnpm --filter @led-control/web typecheck`: 통과
+- `pnpm --filter @led-control/web build`: 통과. 기존 메인 chunk 크기 경고만 남아 있다.

@@ -459,6 +459,7 @@ describe("ControlView 대상 선택", () => {
     renderControl("viewer");
 
     expect(screen.getByText(/조회 전용 계정/)).toBeInTheDocument();
+    expect(screen.getByText(/제어 권한이 있는 계정만 사용할 수 있습니다/)).toBeInTheDocument();
     expect(screen.getByLabelText("B2-L001 선택")).toBeDisabled();
     expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     expect(mocks.apiPost).not.toHaveBeenCalled();

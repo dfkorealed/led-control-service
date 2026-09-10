@@ -11,7 +11,7 @@ export const monitoringQueryPolicy = {
 } as const;
 
 export interface SiteCapabilities {
-  read: true;
+  read: boolean;
   control: boolean;
   manage: boolean;
   commission: boolean;

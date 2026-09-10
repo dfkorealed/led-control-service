@@ -500,7 +500,8 @@ describe("App", () => {
   });
 
   it.each(
-    settingsSectionsFor("admin").filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
+    settingsSectionsFor({ read: true, control: true, manage: true, commission: true })
+      .filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
   )("renders an admin destination for the $label settings link", async (section) => {
     window.history.pushState({}, "", `${section.path}?siteId=site-1`);
     authState.user = { ...authState.user!, role: "admin" };

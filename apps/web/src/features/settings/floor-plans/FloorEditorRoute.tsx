@@ -2,8 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LockKeyhole } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
-import type { AuthUser } from "../../../api/auth";
-import { useDashboard } from "../../../api/queries";
+import { useDashboard, type SiteCapabilities } from "../../../api/queries";
 import { Button, FeedbackState } from "../../../components/ui";
 import {
   acquireFloorEditorLease,
@@ -16,7 +15,7 @@ import { dirtyEditorSentinelKey, hasDirtyEditorSentinel } from "../../floor-edit
 import { useFloorEditorStore } from "../../floor-editor/editor-store";
 
 interface FloorEditorRouteProps {
-  userRole: AuthUser["role"];
+  capabilities: SiteCapabilities;
 }
 
 const discardMessage = "저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?";
@@ -35,7 +34,7 @@ interface FloorLeaseState {
   lease: FloorEditorLease;
 }
 
-export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
+export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
   const { floorId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -44,7 +43,7 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
   const selectedSiteId = new URLSearchParams(location.search).get("siteId");
   const dashboard = useDashboard(selectedSiteId ?? undefined);
-  const canEdit = userRole === "admin";
+  const canEdit = capabilities.manage;
   const editorQuery = useQuery({
     queryKey: ["floor-editor", selectedSiteId ?? "unresolved", floorId],
     queryFn: () => getFloorEditorState(floorId ?? ""),
@@ -103,7 +102,7 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
       <FloorEditorView
         key={`${selectedSiteId}:${floorId}`}
         initialState={editorQuery.data}
-        userRole={userRole}
+        userRole="admin"
         readOnly={!activeLease.editable}
         leaseToken={activeLease.token}
         leaseFence={activeLease.fence}
