@@ -74,25 +74,25 @@
 - Produces: `capabilities(user, siteId): Promise<SiteCapabilities>`
 - Consumes: `SiteMembership.accessLevel`
 
-- [ ] **Step 1: read/control/admin capability 행렬 단위 테스트를 작성한다.**
+- [x] **Step 1: read/control/admin capability 행렬 단위 테스트를 작성한다.**
 
   `read` membership은 read만, `control` membership은 read와 control, 배정 admin은 모든 capability를 허용하고 일반 유저의 manage/commission은 거절하는 사례를 포함한다.
 
-- [ ] **Step 2: transaction 재인가 통합 테스트를 작성한다.**
+- [x] **Step 2: transaction 재인가 통합 테스트를 작성한다.**
 
   Site 잠금 뒤 membership 상태를 다시 읽으며, 비활성화·membership 삭제·타 조직 이동이 발생한 요청을 거절하는지 검증한다.
 
-- [ ] **Step 3: 기존 서비스가 control을 알지 못해 테스트가 실패하는지 확인한다.**
+- [x] **Step 3: 기존 서비스가 control을 알지 못해 테스트가 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/api exec jest src/access/site-access.service.spec.ts src/access/site-access.integration.spec.ts --runInBand`
 
-- [ ] **Step 4: capability 계산과 transaction용 control 인가를 구현한다.**
+- [x] **Step 4: capability 계산과 transaction용 control 인가를 구현한다.**
 
   Site 잠금 순서는 기존 `assertManageInTransaction`과 동일하게 유지하고 viewer의 조직, 상태, membership, accessLevel을 모두 확인한다.
 
-- [ ] **Step 5: 접근 제어 테스트를 통과시킨다.**
+- [x] **Step 5: 접근 제어 테스트를 통과시킨다.**
 
-- [ ] **Step 6: Task 2 변경만 커밋한다.**
+- [x] **Step 6: Task 2 변경만 커밋한다.**
 
   Commit: `feat(api): add site control capability`
 
