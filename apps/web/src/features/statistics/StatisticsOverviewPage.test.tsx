@@ -1,20 +1,24 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type { EnergySeriesResponse, EnergySummary } from "@led-control/shared";
+import type { EnergyComparisonPreset, EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { StatisticsOverviewPage } from "./StatisticsOverviewPage";
 import { getEnergySeriesRanges } from "./statistics-periods";
+import { makeEnergyComparison } from "./statistics-test-fixtures";
 
 const mocks = vi.hoisted(() => ({
   summary: {} as ReturnType<typeof queryResult>,
   day: {} as ReturnType<typeof queryResult>,
-  month: {} as ReturnType<typeof queryResult>
+  month: {} as ReturnType<typeof queryResult>,
+  comparison: {} as ReturnType<typeof queryResult>,
+  comparisonHook: vi.fn()
 }));
 
 vi.mock("../../api/energy", () => ({
   useEnergySummary: () => mocks.summary,
-  useEnergySeries: ({ granularity }: { granularity: "day" | "month" }) => mocks[granularity]
+  useEnergySeries: ({ granularity }: { granularity: "day" | "month" }) => mocks[granularity],
+  useEnergyComparison: (_siteId: string, preset: EnergyComparisonPreset) => mocks.comparisonHook(preset)
 }));
 
 function queryResult<T>(data?: T) {
@@ -90,6 +94,9 @@ describe("StatisticsOverviewPage", () => {
     mocks.summary = queryResult(summary);
     mocks.day = queryResult(daySeries);
     mocks.month = queryResult(monthSeries);
+    mocks.comparison = queryResult(makeEnergyComparison());
+    mocks.comparisonHook.mockReset();
+    mocks.comparisonHook.mockImplementation(() => mocks.comparison);
   });
 
   afterEach(cleanup);
@@ -111,6 +118,47 @@ describe("StatisticsOverviewPage", () => {
     expect(screen.getByText("수집 완료")).toBeInTheDocument();
     expect(screen.getAllByText("수집 공백 있음")).toHaveLength(2);
     expect(screen.getByText("수집 공백이 있어 일부 기간은 추정값이 불완전할 수 있습니다.")).toBeInTheDocument();
+  });
+
+  it("shows savings KPIs and changes the comparison preset accessibly", () => {
+    renderView();
+
+    expect(screen.getByRole("group", { name: "에너지 절감률" })).toHaveTextContent("35 %");
+    expect(screen.getByRole("group", { name: "예상 절감 전력" })).toHaveTextContent("35 kWh");
+    expect(screen.getByRole("button", { name: "이번 달" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "최근 7일" }));
+    expect(screen.getByRole("button", { name: "최근 7일" })).toHaveAttribute("aria-pressed", "true");
+    expect(mocks.comparisonHook).toHaveBeenLastCalledWith("last_7_days");
+  });
+
+  it("isolates comparison errors and retries without hiding the existing summary", () => {
+    const retry = vi.fn();
+    mocks.comparison = { ...queryResult(), isError: true, error: new Error("failed"), refetch: retry };
+    renderView();
+
+    expect(screen.getByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
+    expect(screen.getByText("절감 비교를 불러오지 못했습니다.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "절감 비교 다시 시도" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("explains an unavailable comparison without inventing zero savings", () => {
+    mocks.comparison = queryResult(makeEnergyComparison({
+      summary: {
+        baselineKwh: 100,
+        estimatedKwh: null,
+        savingsKwh: null,
+        savingsCost: null,
+        savingsRatePercent: null,
+        outcome: "unavailable",
+        forecastReason: "insufficient_state"
+      }
+    }));
+    renderView();
+
+    expect(screen.getByText("조명별 1시간 이상, 현장 수집률 80% 이상이 필요합니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "예상 절감 전력" })).not.toBeInTheDocument();
   });
 
   it("에너지 리포트는 metric, chart, 비용 비교 영역을 구분한다", () => {
@@ -199,8 +247,8 @@ describe("StatisticsOverviewPage", () => {
 
     expect(screen.getByText("아직 상태 기반 사용량을 표시할 수 없습니다.")).toBeInTheDocument();
     expect(screen.getByText("조명 상태가 수집되면 통계가 표시됩니다.")).toBeInTheDocument();
-    expect(screen.queryByText("0 kWh")).not.toBeInTheDocument();
-    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "오늘 전력 사용량" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "이번 달 누적 전력 사용량" })).not.toBeInTheDocument();
   });
 
   it("explains why forecast and savings are unavailable", () => {

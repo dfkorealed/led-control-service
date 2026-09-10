@@ -303,7 +303,7 @@ export function useEnergyComparison(siteId: string | undefined, preset: EnergyCo
   - Run: `pnpm --filter @led-control/web test -- src/api/energy.test.tsx src/features/statistics/statistics-comparison.test.ts`
   - Expected: query key, URL encoding, strict parse, presentation PASS.
 
-- [ ] **Step 5: 커밋한다.**
+- [x] **Step 5: 커밋한다.**
   - Run: `git add apps/web/src/api/energy.ts apps/web/src/api/energy.test.tsx apps/web/src/features/statistics/statistics-comparison.ts apps/web/src/features/statistics/statistics-comparison.test.ts && git commit -m "feat(web): query energy comparisons"`
 
 ### Task 6: 절감 KPI, 비교 그래프, 동기간 패널
@@ -321,33 +321,33 @@ export function useEnergyComparison(siteId: string | undefined, preset: EnergyCo
 - Consumes: Task 5 hook and presentation, existing `Card`, `MetricCard`, `SidePanel`, `StatusBadge`.
 - Produces: preset control, savings KPI, baseline/observed/forecast graph, prior-period panel.
 
-- [ ] **Step 1: UI 상태 실패 테스트를 작성한다.**
+- [x] **Step 1: UI 상태 실패 테스트를 작성한다.**
   - saving 35%, overuse -10%, unavailable 세 fixture를 만든다.
   - `forecast` point가 점선 series이고 null point가 연결되지 않는지 검사한다.
   - screen-reader list에 `기준 100 kWh, 예상 65 kWh, 절감 35 kWh`가 포함되는지 검사한다.
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/web test -- StatisticsOverviewPage.test.tsx EnergyComparisonChart.test.tsx PeriodComparisonPanel.test.tsx`
   - Expected: FAIL because P0 components are absent.
 
-- [ ] **Step 3: 공통 컴포넌트로 P0 UI를 구현한다.**
+- [x] **Step 3: 공통 컴포넌트로 P0 UI를 구현한다.**
   - preset button은 `최근 7일`, `이번 달`, `올해`와 `aria-pressed`를 제공한다.
   - `MetricCard`를 재사용하고 saving/overuse copy를 별도 presenter에서 받는다.
   - chart는 baseline `Bar`, observed `Line`, forecast `Line strokeDasharray="4 4"`를 사용한다.
   - tooltip과 `sr-only` list에서 기준, 실제/예상, 차이, 수집률을 함께 제공한다.
   - prior panel은 현재·비교 기간 수집률과 `조명 구성 변화 미보정`을 표시한다.
 
-- [ ] **Step 4: partial·empty·error를 구현한다.**
+- [x] **Step 4: partial·empty·error를 구현한다.**
   - comparison error는 기존 summary 카드까지 숨기지 않고 comparison section 안에서 retry한다.
   - prior data null은 각 row만 empty state로 둔다.
   - forecast unavailable은 기준 bar를 유지하고 예상 line과 절감 KPI를 대체 설명으로 바꾼다.
 
-- [ ] **Step 5: 반응형 CSS를 구현한다.**
+- [x] **Step 5: 반응형 CSS를 구현한다.**
   - desktop은 chart 8 columns, comparison 4 columns.
   - 1120px 이하는 한 열, 760px 이하는 16px padding.
   - 서브메뉴만 내부 overflow-x를 사용하고 `.content`/document overflow는 만들지 않는다.
 
-- [ ] **Step 6: focused Web test를 검증한다.**
+- [x] **Step 6: focused Web test를 검증한다.**
   - Run: `pnpm --filter @led-control/web test -- StatisticsOverviewPage.test.tsx EnergyComparisonChart.test.tsx PeriodComparisonPanel.test.tsx`
   - Run: `pnpm --filter @led-control/web typecheck`
   - Expected: all P0 view states and typecheck PASS.

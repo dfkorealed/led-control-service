@@ -1,5 +1,5 @@
-import type { EnergySeriesPoint, EnergySummary } from "@led-control/shared";
-import { Activity, CircleCheck, CircleOff, TriangleAlert } from "lucide-react";
+import type { EnergyComparisonPreset, EnergySeriesPoint, EnergySummary } from "@led-control/shared";
+import { Activity, CircleCheck, CircleOff, TriangleAlert, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
@@ -11,8 +11,12 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import { useEnergySeries, useEnergySummary } from "../../api/energy";
+import { useEnergyComparison, useEnergySeries, useEnergySummary } from "../../api/energy";
 import { Button, Card, FeedbackState, MetricCard, PageHeader, SidePanel, StatusBadge } from "../../components/ui";
+import { EnergyComparisonChart } from "./EnergyComparisonChart";
+import { PeriodComparisonPanel } from "./PeriodComparisonPanel";
+import { comparisonPresentation } from "./statistics-comparison";
+import { formatKwh, formatKwhValue, formatWon } from "./statistics-format";
 import { getEnergySeriesRanges } from "./statistics-periods";
 import type { StatisticsOutletContext } from "./StatisticsShell";
 
@@ -35,7 +39,9 @@ const statusPresentation = {
 export function StatisticsOverviewPage() {
   const { siteId } = useOutletContext<StatisticsOutletContext>();
   const [granularity, setGranularity] = useState<Granularity>("day");
+  const [comparisonPreset, setComparisonPreset] = useState<EnergyComparisonPreset>("current_month");
   const summaryQuery = useEnergySummary(siteId);
+  const comparisonQuery = useEnergyComparison(siteId, comparisonPreset);
   const ranges = summaryQuery.data
     ? getEnergySeriesRanges(summaryQuery.data.generatedAt, summaryQuery.data.timeZone)
     : null;
@@ -154,6 +160,12 @@ export function StatisticsOverviewPage() {
         status={<StatusBadge tone="info" icon={Activity}>상태 기반 추정</StatusBadge>}
       />
 
+      <ComparisonSection
+        preset={comparisonPreset}
+        onPresetChange={setComparisonPreset}
+        query={comparisonQuery}
+      />
+
       {hasNoKnownData ? (
         <FeedbackState
           icon={Activity}
@@ -211,6 +223,140 @@ export function StatisticsOverviewPage() {
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+const comparisonPresetOptions: Array<{ value: EnergyComparisonPreset; label: string }> = [
+  { value: "last_7_days", label: "최근 7일" },
+  { value: "current_month", label: "이번 달" },
+  { value: "current_year", label: "올해" }
+];
+
+function ComparisonSection({
+  preset,
+  onPresetChange,
+  query
+}: {
+  preset: EnergyComparisonPreset;
+  onPresetChange: (preset: EnergyComparisonPreset) => void;
+  query: ReturnType<typeof useEnergyComparison>;
+}) {
+  let content;
+  if (query.isLoading) {
+    content = <FeedbackState icon={Activity} title="절감 비교를 불러오는 중" />;
+  } else if (query.isError || !query.data) {
+    content = (
+      <FeedbackState
+        tone="danger"
+        icon={TriangleAlert}
+        title="절감 비교를 불러오지 못했습니다."
+        action={<Button variant="secondary" onClick={() => query.refetch()}>절감 비교 다시 시도</Button>}
+      />
+    );
+  } else {
+    const presentation = comparisonPresentation(query.data.summary);
+    const isAvailable = presentation.ratePercent !== null
+      && presentation.savingsKwh !== null
+      && presentation.savingsCost !== null
+      && query.data.summary.estimatedKwh !== null;
+    const SavingsIcon = presentation.tone === "danger" ? TrendingUp : TrendingDown;
+    const savingsPrefix = presentation.tone === "danger" ? "기준 초과" : "예상 절감";
+
+    content = (
+      <>
+        {isAvailable ? (
+          <div className="statistics-comparison-kpis">
+            <div className="statistics-metric">
+              <MetricCard
+                label={presentation.label}
+                value={formatKwhValue(presentation.ratePercent!)}
+                unit="%"
+                helper={presentation.description}
+                tone={presentation.tone}
+                status={(
+                  <StatusBadge tone={presentation.tone} icon={SavingsIcon}>
+                    {presentation.tone === "danger" ? "초과 사용" : "절감 중"}
+                  </StatusBadge>
+                )}
+              />
+            </div>
+            <div className="statistics-metric">
+              <MetricCard
+                label="예상 사용량"
+                value={formatKwhValue(query.data.summary.estimatedKwh!)}
+                unit="kWh"
+                helper={`기준 ${formatKwh(query.data.summary.baselineKwh)}`}
+                tone="primary"
+              />
+            </div>
+            <div className="statistics-metric">
+              <MetricCard
+                label={`${savingsPrefix} 전력`}
+                value={formatKwhValue(Math.abs(presentation.savingsKwh!))}
+                unit="kWh"
+                helper="24시간 100% 운전 기준"
+                tone={presentation.tone}
+              />
+            </div>
+            <div className="statistics-metric">
+              <MetricCard
+                label={`${savingsPrefix} 비용`}
+                value={formatWon(Math.abs(presentation.savingsCost!))}
+                helper="현재 설정 단가 기준"
+                tone={presentation.tone}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="statistics-comparison-unavailable">
+            <div className="statistics-metric">
+              <MetricCard
+                label="기준 사용량"
+                value={formatKwhValue(query.data.summary.baselineKwh)}
+                unit="kWh"
+                helper="24시간 100% 운전 기준"
+              />
+            </div>
+            <FeedbackState icon={CircleOff} title="절감률 산정 대기" description={presentation.description} />
+          </div>
+        )}
+        <div className="statistics-comparison-layout">
+          <Card className="statistics-comparison-chart-panel" aria-label="기준 대비 사용량 비교">
+            <div>
+              <span className="eyebrow">기준 대비 추세</span>
+              <h3>실제·예상 사용량 비교</h3>
+            </div>
+            <EnergyComparisonChart comparison={query.data} />
+          </Card>
+          <PeriodComparisonPanel comparisons={query.data.priorComparisons} />
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <section className="statistics-comparison-section" aria-labelledby="statistics-comparison-title">
+      <div className="statistics-comparison-heading">
+        <div>
+          <span className="eyebrow">핵심 절감 분석</span>
+          <h3 id="statistics-comparison-title">기준 대비 에너지 절감</h3>
+        </div>
+        <div className="segmented-control" aria-label="절감 비교 기간">
+          {comparisonPresetOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={preset === option.value ? "active" : ""}
+              aria-pressed={preset === option.value}
+              onClick={() => onPresetChange(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {content}
     </section>
   );
 }
@@ -341,16 +487,4 @@ function formatTimestamp(timestamp: string, timeZone: string) {
 function formatDuration(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
-}
-
-function formatKwh(value: number) {
-  return `${formatKwhValue(value)} kWh`;
-}
-
-function formatKwhValue(value: number) {
-  return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 3 }).format(value);
-}
-
-function formatWon(value: number) {
-  return `${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }).format(value)}원`;
 }

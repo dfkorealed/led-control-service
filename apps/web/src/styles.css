@@ -1775,6 +1775,48 @@ button {
   min-width: 0;
 }
 
+.statistics-shell {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.statistics-subnavigation {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+
+.statistics-subnavigation-track {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  gap: var(--space-2);
+}
+
+.statistics-subnavigation-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border-bottom: 2px solid transparent;
+  padding: 0 var(--space-3);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.statistics-subnavigation-link.active {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+}
+
 .settings-screen .ui-page-header,
 .floor-editor-shell .ui-page-header {
   display: flex;
@@ -3399,6 +3441,143 @@ button.group-card {
   gap: var(--space-5);
 }
 
+.statistics-comparison-section {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.statistics-comparison-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.statistics-comparison-heading h3,
+.statistics-comparison-chart-panel h3,
+.period-comparison-panel h3 {
+  margin: var(--space-1) 0 0;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.statistics-comparison-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.statistics-comparison-unavailable {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr);
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.statistics-comparison-layout {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.statistics-comparison-chart-panel,
+.period-comparison-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-5);
+  box-shadow: 0 10px 24px rgba(15, 38, 70, 0.04);
+}
+
+.statistics-comparison-chart-panel {
+  grid-column: span 8;
+}
+
+.period-comparison-panel {
+  grid-column: span 4;
+}
+
+.comparison-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.comparison-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.comparison-chart-legend span::before {
+  width: 18px;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--primary);
+  content: "";
+}
+
+.comparison-chart-legend [data-series="baseline"]::before {
+  height: 10px;
+  background: var(--primary-soft);
+}
+
+.comparison-chart-legend [data-series="forecast"]::before {
+  background: repeating-linear-gradient(90deg, var(--warning) 0 5px, transparent 5px 8px);
+}
+
+.energy-comparison-chart {
+  width: 100%;
+  height: 340px;
+  min-width: 0;
+}
+
+.period-comparison-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.period-comparison-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-3);
+}
+
+.period-comparison-row > strong {
+  align-self: center;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.period-comparison-row > p,
+.period-comparison-coverage {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.period-comparison-row > p {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.period-comparison-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .statistics-screen .ui-page-header {
   display: flex;
   align-items: flex-end;
@@ -4564,6 +4743,19 @@ button.group-card {
 }
 
 @media (max-width: 1120px) {
+  .statistics-comparison-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .statistics-comparison-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .statistics-comparison-chart-panel,
+  .period-comparison-panel {
+    grid-column: 1;
+  }
+
   .monitoring-screen .summary-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4598,6 +4790,34 @@ button.group-card {
 }
 
 @media (max-width: 760px) {
+  .statistics-comparison-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .statistics-comparison-heading .segmented-control {
+    width: 100%;
+  }
+
+  .statistics-comparison-heading .segmented-control button {
+    flex: 1;
+    min-height: 48px;
+  }
+
+  .statistics-comparison-kpis,
+  .statistics-comparison-unavailable {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .statistics-comparison-chart-panel,
+  .period-comparison-panel {
+    padding: var(--space-4);
+  }
+
+  .energy-comparison-chart {
+    height: 280px;
+  }
+
   .statistics-chart-panel,
   .statistics-cost-panel {
     padding: var(--space-4);
