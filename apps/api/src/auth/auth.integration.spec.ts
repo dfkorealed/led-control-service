@@ -48,7 +48,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
         email,
         role: "viewer",
         tokenHash: service.hashToken(rawToken),
-        expiresAt: new Date("2026-09-01T00:00:00.000Z")
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000)
       }
     });
     return { organizationId, siteId, email, rawToken, invitation };

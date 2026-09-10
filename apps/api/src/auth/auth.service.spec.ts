@@ -35,9 +35,12 @@ describe("AuthService", () => {
       acceptedAt: null
     };
     const transaction = {
-      invitation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "site-1" }]),
+      invitation: { findUnique: jest.fn().mockResolvedValue(invitation), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       site: { findUnique: jest.fn().mockResolvedValue({ id: "site-1", organizationId: "customer-org-1" }) },
       user: {
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn().mockResolvedValue({
           id: "viewer-1",
           organizationId: "customer-org-1",
@@ -69,11 +72,16 @@ describe("AuthService", () => {
       password: "correct horse battery staple"
     });
 
-    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { loginId: "viewer_01" } });
-    expect(transaction.user.create).toHaveBeenCalledWith({
+    expect(prisma.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { loginId: "viewer_01" } }));
+    expect(transaction.user.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ loginId: "viewer_01", email: invitation.email, role: "viewer" })
-    });
+    }));
     expect(transaction.siteMembership.create).toHaveBeenCalledWith({ data: { userId: "viewer-1", siteId: "site-1" } });
+    expect(transaction.user.count).toHaveBeenCalledWith({ where: {
+      role: "viewer", organizationId: "customer-org-1", siteMemberships: { some: { siteId: "site-1" } }
+    } });
+    expect(transaction.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(transaction.$queryRaw.mock.invocationCallOrder[0]);
+    expect(transaction.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(transaction.user.count.mock.invocationCallOrder[0]);
   });
 
   it.each(["operator", "admin"])("rejects %s invitation signup", async (role) => {
@@ -234,6 +242,8 @@ describe("AuthService", () => {
 
     for (const fixture of cases) {
       const transaction = {
+        $executeRaw: jest.fn().mockResolvedValue(1),
+        $queryRaw: jest.fn().mockResolvedValue(fixture.site ? [{ id: fixture.site.id }] : []),
         invitation: { updateMany: jest.fn() },
         site: { findUnique: jest.fn().mockResolvedValue(fixture.site) },
         user: { create: jest.fn() },

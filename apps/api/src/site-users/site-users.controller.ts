@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
-import { Roles } from "../access/roles.decorator";
+import { Roles, RolesErrorCode } from "../access/roles.decorator";
 import { RolesGuard } from "../access/roles.guard";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -8,6 +8,7 @@ import { SiteUsersService } from "./site-users.service";
 
 @UseGuards(SessionAuthGuard, RolesGuard)
 @Roles("admin")
+@RolesErrorCode("SITE_CAPABILITY_DENIED")
 @Controller("sites/:siteId/users")
 export class SiteUsersController {
   constructor(private readonly users: SiteUsersService) {}

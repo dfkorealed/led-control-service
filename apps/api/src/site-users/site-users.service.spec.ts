@@ -63,6 +63,11 @@ describe("SiteUsersController admin guard contract", () => {
         switchToHttp: () => ({ getRequest: () => ({ user: { ...admin, role: "viewer" } }) })
       };
       expect(() => new RolesGuard(new Reflector()).canActivate(context as any)).toThrow(ForbiddenException);
+      try {
+        new RolesGuard(new Reflector()).canActivate(context as any);
+      } catch (error) {
+        expect((error as ForbiddenException).getResponse()).toMatchObject({ code: "SITE_CAPABILITY_DENIED" });
+      }
     }
   });
 

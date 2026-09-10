@@ -2,13 +2,12 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
+import { assertSiteUserCapacity, runSiteUserTransaction, SITE_USER_LIMIT } from "../access/site-user-policy";
 import { AuditService } from "../audit/audit.service";
 import { normalizeLoginId, type AuthenticatedUser } from "../auth/auth.types";
 import { PasswordService } from "../auth/password.service";
 import { PrismaService } from "../prisma/prisma.service";
 
-const USER_LIMIT = 100 as const;
-const TRANSACTION_ATTEMPTS = 3;
 const profileShape = {
   name: z.string().trim().min(1).max(100),
   loginId: z.string().trim().toLowerCase().regex(/^[a-z0-9._@-]{4,100}$/),
@@ -56,7 +55,7 @@ export class SiteUsersService {
         where: this.memberWhere(siteId, organizationId), select: summarySelect(siteId),
         orderBy: [{ createdAt: "asc" }, { id: "asc" }]
       });
-      return { users: users.map((row) => this.summary(row)), count: users.length, limit: USER_LIMIT };
+      return { users: users.map((row) => this.summary(row)), count: users.length, limit: SITE_USER_LIMIT };
     });
   }
 
@@ -66,8 +65,7 @@ export class SiteUsersService {
     await this.access.assert(user, siteId, "manage");
     const passwordHash = await this.passwords.hash(body.temporaryPassword);
     return this.transaction(user, siteId, async (tx, organizationId) => {
-      const count = await tx.user.count({ where: this.memberWhere(siteId, organizationId) });
-      if (count >= USER_LIMIT) throw new ConflictException({ code: "USER_LIMIT_REACHED", message: "site user limit reached" });
+      await assertSiteUserCapacity(tx, siteId, organizationId);
       const created = await tx.user.create({
         data: {
           organizationId, loginId: normalizeLoginId(body.loginId), name: body.name,
@@ -147,33 +145,20 @@ export class SiteUsersService {
     operation: (tx: Prisma.TransactionClient, organizationId: string) => Promise<T>,
     isolationLevel: Prisma.TransactionIsolationLevel = Prisma.TransactionIsolationLevel.ReadCommitted
   ): Promise<T> {
-    for (let attempt = 0; attempt < TRANSACTION_ATTEMPTS; attempt++) {
-      try {
-        return await this.prisma.$transaction(async (tx) => {
-          // Match user-password-lock and assignment BEFORE STATEMENT triggers.
-          // The gate must precede Site: Site -> gate would deadlock against an
-          // assignment's gate -> Site order. Row order remains Site -> User.
-          await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${80520260827090000n})`);
-          const site = await this.access.assertManageInTransaction(tx, user, siteId);
-          return operation(tx, site.organizationId);
-        }, { isolationLevel, maxWait: 5000, timeout: 10000 });
-      } catch (error) {
-        if (this.isConflict(error)) {
-          // A serializable snapshot can predate a waited-on lock. Recount in a
-          // fresh transaction before admitting the last available user slot.
-          if (attempt + 1 < TRANSACTION_ATTEMPTS) continue;
-          throw this.changed();
-        }
-        if (error instanceof HttpException) throw error;
-        if (this.errorCode(error) === "P2002") {
-          throw new ConflictException({ code: "LOGIN_ID_ALREADY_EXISTS", message: "login ID already exists" });
-        }
-        // Prisma errors can embed mutation arguments, including hashes. Never
-        // pass these errors/causes to Nest's unhandled-error logger or clients.
-        throw new InternalServerErrorException({ code: "SITE_USER_OPERATION_FAILED", message: "site user operation failed" });
+    try {
+      return await runSiteUserTransaction(this.prisma, async (tx) => {
+        const site = await this.access.assertManageInTransaction(tx, user, siteId);
+        return operation(tx, site.organizationId);
+      }, isolationLevel);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      if (this.errorCode(error) === "P2002") {
+        throw new ConflictException({ code: "LOGIN_ID_ALREADY_EXISTS", message: "login ID already exists" });
       }
+      // Prisma errors can embed mutation arguments, including hashes. Never
+      // pass these errors/causes to Nest's unhandled-error logger or clients.
+      throw new InternalServerErrorException({ code: "SITE_USER_OPERATION_FAILED", message: "site user operation failed" });
     }
-    throw this.changed();
   }
 
   private memberWhere(siteId: string, organizationId: string): Prisma.UserWhereInput {
@@ -218,9 +203,5 @@ export class SiteUsersService {
   }
   private errorCode(error: unknown) {
     return typeof error === "object" && error !== null ? (error as { code?: string }).code : undefined;
-  }
-  private isConflict(error: unknown) {
-    return ["P2034", "40001", "40P01"].includes(this.errorCode(error) ?? "")
-      || (error instanceof Prisma.PrismaClientKnownRequestError && ["40001", "40P01"].includes(String(error.meta?.code)));
   }
 }

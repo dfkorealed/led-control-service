@@ -101,6 +101,56 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
     expect(await prisma.siteMembership.count({ where: { siteId } })).toBe(0);
   });
 
+  it.each([0, 1, 2])("enforces one shared last slot when admin create and invitation signup compete (%i)", async () => {
+    const users = Array.from({ length: 99 }, (_, i) => ({
+      id: randomUUID(), organizationId: admin.organizationId, loginId: `mixed_${randomUUID()}`,
+      name: "seed", passwordHash: "unused", role: "viewer" as const,
+      status: i % 2 ? "active" as const : "disabled" as const
+    }));
+    await prisma.user.createMany({ data: users });
+    await prisma.siteMembership.createMany({ data: users.map((u) => ({ userId: u.id, siteId })) });
+    const token = randomUUID();
+    const invitation = await prisma.invitation.create({ data: {
+      organizationId: admin.organizationId, siteId, role: "viewer", email: `${randomUUID()}@example.com`,
+      tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 60_000)
+    } });
+    const auth = new AuthService(competitor, passwords, new AuditService(competitor));
+    const signupBody = { token, loginId: `invited_${randomUUID()}`, email: invitation.email!, name: "초대 사용자", password: "Invitation-123" };
+    const results = await Promise.allSettled([
+      service.create(admin, siteId, input()), auth.signup(signupBody)
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((r) => r.status === "rejected")).toMatchObject({ reason: { response: { code: "USER_LIMIT_REACHED" } } });
+    expect((await service.list(admin, siteId)).count).toBe(100);
+    const storedInvitation = await prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
+    if (results[1].status === "rejected") {
+      expect(storedInvitation.acceptedAt).toBeNull();
+      expect(await prisma.user.findUnique({ where: { loginId: signupBody.loginId } })).toBeNull();
+    } else {
+      expect(storedInvitation.acceptedAt).not.toBeNull();
+      expect(JSON.stringify(results[1].value)).not.toMatch(/password|scrypt\$/i);
+    }
+  });
+
+  it("rejects invitation signup at 100 users without consuming the token", async () => {
+    const users = Array.from({ length: 100 }, () => ({
+      id: randomUUID(), organizationId: admin.organizationId, loginId: `full_${randomUUID()}`,
+      name: "seed", passwordHash: "unused", role: "viewer" as const, status: "disabled" as const
+    }));
+    await prisma.user.createMany({ data: users });
+    await prisma.siteMembership.createMany({ data: users.map((u) => ({ userId: u.id, siteId })) });
+    const token = randomUUID();
+    const invitation = await prisma.invitation.create({ data: {
+      organizationId: admin.organizationId, siteId, role: "viewer", email: "full@example.com",
+      tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 60_000)
+    } });
+    const auth = new AuthService(prisma, passwords, audit);
+    await expect(auth.signup({ token, loginId: "full_invited", email: invitation.email!, name: "초대", password: "Invitation-123" }))
+      .rejects.toMatchObject({ response: { code: "USER_LIMIT_REACHED" } });
+    expect((await prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } })).acceptedAt).toBeNull();
+    expect(await prisma.user.findUnique({ where: { loginId: "full_invited" } })).toBeNull();
+  });
+
   it("returns safe summaries and preserves password on disable/reactivate", async () => {
     const member = await service.create(admin, siteId, input());
     const stored = await prisma.user.findUniqueOrThrow({ where: { id: member.id } });
@@ -240,11 +290,15 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       const memberCookie = await cookie(member.id);
       for (const [method, suffix] of [["GET", ""], ["POST", ""], ["PATCH", `/${member.id}`], ["POST", `/${member.id}/reset-password`], ["DELETE", `/${member.id}`]]) {
         expect((await request(method, path + suffix)).status).toBe(401);
-        expect((await request(method, path + suffix, memberCookie, method === "GET" ? undefined : {})).status).toBe(403);
+        const denied = await request(method, path + suffix, memberCookie, method === "GET" ? undefined : {});
+        expect(denied.status).toBe(403);
+        expect(await denied.json()).toMatchObject({ code: "SITE_CAPABILITY_DENIED" });
       }
       const provider = await prisma.organization.create({ data: { name: "운영사", type: "service_provider" } });
       const operator = await prisma.user.create({ data: { organizationId: provider.id, loginId: `operator_${randomUUID()}`, name: "운영자", role: "operator", passwordHash: "unused" } });
-      expect((await request("GET", path, await cookie(operator.id))).status).toBe(403);
+      const deniedOperator = await request("GET", path, await cookie(operator.id));
+      expect(deniedOperator.status).toBe(403);
+      expect(await deniedOperator.json()).toMatchObject({ code: "SITE_CAPABILITY_DENIED" });
       expect((await request("GET", `/sites/${randomUUID()}/users`, adminCookie)).status).toBe(404);
       expect((await request("POST", path, adminCookie, body)).status).toBe(409);
       const malformed = await request("POST", path, adminCookie, { ...body, temporaryPassword: { nested: "secret" } });

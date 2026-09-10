@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
+import { assertSiteUserCapacity, runSiteUserTransaction } from "../access/site-user-policy";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizeLoginId, type OrganizationType, type UserRole } from "./auth.types";
 import { PasswordService } from "./password.service";
@@ -80,18 +81,28 @@ export class AuthService {
     }
 
     const [loginIdUser, emailUser] = await Promise.all([
-      this.db().user.findUnique({ where: { loginId } }),
-      this.db().user.findUnique({ where: { email } })
+      this.db().user.findUnique({ where: { loginId }, select: { id: true } }),
+      this.db().user.findUnique({ where: { email }, select: { id: true } })
     ]);
     if (loginIdUser || emailUser) throw new BadRequestException("User already exists");
 
     const passwordHash = await this.passwords.hash(input.password);
     let user;
     try {
-      user = await this.db().$transaction(async (tx: any) => {
+      user = await runSiteUserTransaction(this.prisma, async (tx) => {
         const site = await this.validateViewerInvitationAssignment(tx, invitation);
+        // Re-read after the Site lock on every retry. A prechecked invitation
+        // can be revoked, moved or expire while waiting for the shared gate.
+        const current = await tx.invitation.findUnique({ where: { tokenHash: this.hashToken(token) }, include: { organization: { select: { type: true } } } });
+        if (!current || current.acceptedAt || current.expiresAt <= new Date()
+          || current.siteId !== site.id || current.organizationId !== site.organizationId
+          || current.role !== "viewer" || current.organization.type !== "customer"
+          || !current.email || this.normalizeEmail(current.email) !== email) {
+          throw new BadRequestException("Invitation is invalid or expired");
+        }
+        await assertSiteUserCapacity(tx, site.id, site.organizationId);
         const consumedInvitation = await tx.invitation.updateMany({
-          where: { id: invitation.id, acceptedAt: null },
+          where: { id: current.id, acceptedAt: null, expiresAt: { gt: new Date() } },
           data: { acceptedAt: new Date() }
         });
         if (consumedInvitation.count !== 1) throw new BadRequestException("Invitation is invalid or expired");
@@ -105,14 +116,17 @@ export class AuthService {
             role: "viewer",
             status: "active",
             passwordHash
-          }
+          },
+          select: { id: true, organizationId: true, loginId: true, email: true, name: true, role: true, status: true }
         });
         await tx.siteMembership.create({ data: { userId: createdUser.id, siteId: site.id } });
         return createdUser;
       });
     } catch (error) {
       if (this.isUniqueConstraintError(error)) throw new BadRequestException("User already exists");
-      throw error;
+      if (error instanceof HttpException) throw error;
+      // Avoid logging Prisma errors containing password-hash mutation arguments.
+      throw new InternalServerErrorException("Signup could not be completed");
     }
 
     return { user: this.publicUser({ ...user, organization: invitation.organization }) };
@@ -249,8 +263,9 @@ export class AuthService {
     return value;
   }
 
-  private async validateViewerInvitationAssignment(tx: any, invitation: { siteId?: string | null; organizationId: string }) {
+  private async validateViewerInvitationAssignment(tx: Prisma.TransactionClient, invitation: { siteId?: string | null; organizationId: string }) {
     if (!invitation.siteId) throw new BadRequestException("viewer invitations require a valid customer site assignment");
+    await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Site" WHERE "id" = ${invitation.siteId} FOR UPDATE`);
     const site = await tx.site.findUnique({
       where: { id: invitation.siteId },
       select: { id: true, organizationId: true }
