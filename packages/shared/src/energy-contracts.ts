@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { energyDataStatusSchema, energySourceSchema } from "./schemas";
+import { energyDataStatusSchema, energySourceSchema } from "./schemas.js";
 
 const durationSecondsSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const coverageRateSchema = z.number().min(0).max(1).nullable();

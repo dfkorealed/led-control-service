@@ -42,12 +42,28 @@ test.beforeEach(async ({ page }) => {
       body: JSON.stringify(series(siteId, granularity, url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? ""))
     });
   });
+  await page.route("**/energy/sites/*/comparisons?**", (route) => {
+    const url = new URL(route.request().url());
+    const siteId = url.pathname.split("/")[4];
+    const preset = comparisonPreset(url.searchParams.get("preset"));
+    const outcome = siteId === "site-overuse"
+      ? "overuse"
+      : siteId === "site-empty" ? "unavailable" : "saving";
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(comparison(preset, outcome))
+    });
+  });
 });
 
 test("shows energy cards, daily and monthly lines, partial coverage and savings", async ({ page }) => {
-  await page.goto("/statistics");
+  await page.goto("/statistics?siteId=site-1");
 
   await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
+  await expect(page).toHaveURL(/\/statistics\/overview\?siteId=site-1$/);
+  await expect(page.getByRole("navigation", { name: "통계 메뉴" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "에너지 절감률" })).toContainText("35 %");
+  await expect(page.getByRole("img", { name: "기준 대비 에너지 사용량 비교 차트" })).toBeVisible();
   await expect(page.getByLabel("오늘 전력 사용량")).toContainText("4.25 kWh");
   await expect(page.getByLabel("이번 달 누적 전력 사용량")).toContainText("수집 공백 있음");
   await expect(page.getByRole("region", { name: "상태 기반 추정 사용량" })).toBeVisible();
@@ -58,7 +74,7 @@ test("shows energy cards, daily and monthly lines, partial coverage and savings"
   await expect(page.getByRole("img", { name: /일별 상태 기반 추정/ })).toBeVisible();
   await expect(page.getByText(/2026년 8월 26일: 4.25 kWh, 680원, 수집 공백 2시간 0분/)).toBeAttached();
 
-  const partialDot = page.locator(".recharts-line-dots circle").nth(1);
+  const partialDot = page.locator(".statistics-chart-panel .recharts-line-dots circle").nth(1);
   await partialDot.hover();
   await expect(page.locator(".energy-tooltip")).toContainText("수집 공백 2시간 0분");
 
@@ -66,6 +82,36 @@ test("shows energy cards, daily and monthly lines, partial coverage and savings"
   await expect(page.getByRole("button", { name: "월별" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("img", { name: /월별 상태 기반 추정/ })).toBeVisible();
   await expect(page.getByText(/2026년 7월: 140 kWh/)).toBeAttached();
+
+  const comparisonRequest = page.waitForRequest((request) => request.url().includes("/comparisons?preset=last_7_days"));
+  await page.getByRole("button", { name: "최근 7일" }).click();
+  await comparisonRequest;
+  await expect(page.getByRole("button", { name: "최근 7일" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page).toHaveURL(/\/statistics\/overview\?siteId=site-1$/);
+});
+
+test("shows negative savings as overuse without clamping", async ({ page }) => {
+  await page.goto("/statistics?siteId=site-overuse");
+
+  await expect(page.getByRole("group", { name: "기준 대비 초과 사용" })).toContainText("-10 %");
+  await expect(page.getByRole("group", { name: "기준 초과 전력" })).toContainText("10 kWh");
+  await expect(page.getByText("초과 사용", { exact: true })).toBeVisible();
+});
+
+test("retries comparison failures without hiding existing usage cards", async ({ page }) => {
+  let allowComparison = false;
+  await page.route("**/energy/sites/site-comparison-retry/comparisons?**", (route) => {
+    return allowComparison
+      ? route.fulfill({ contentType: "application/json", body: JSON.stringify(comparison("current_month", "saving")) })
+      : route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "failed" }) });
+  });
+
+  await page.goto("/statistics?siteId=site-comparison-retry");
+  await expect(page.getByLabel("오늘 전력 사용량")).toContainText("4.25 kWh");
+  await expect(page.getByText("절감 비교를 불러오지 못했습니다.")).toBeVisible();
+  allowComparison = true;
+  await page.getByRole("button", { name: "절감 비교 다시 시도" }).click();
+  await expect(page.getByRole("group", { name: "에너지 절감률" })).toContainText("35 %");
 });
 
 test("shows the no-data state without zero usage cards", async ({ page }) => {
@@ -112,25 +158,26 @@ test("retries a summary failure and keeps cards during a series failure", async 
 });
 
 test("packs the statistics report from the top in a tall viewport", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.setViewportSize({ width: 1440, height: 2400 });
   await page.goto("/statistics");
   await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
 
-  const layout = await page.locator(".statistics-screen").evaluate((screen) => {
-    const heading = screen.querySelector("h2");
-    const report = screen.querySelector(".statistics-report-layout");
+  const layout = await page.locator(".statistics-shell").evaluate((shell) => {
+    const heading = shell.querySelector("h2");
+    const report = shell.querySelector(".statistics-report-layout");
     if (!heading || !report) throw new Error("statistics report layout is incomplete");
 
-    const screenRect = screen.getBoundingClientRect();
+    const shellRect = shell.getBoundingClientRect();
     const headingRect = heading.getBoundingClientRect();
     const reportRect = report.getBoundingClientRect();
     return {
-      headingOffset: headingRect.top - screenRect.top,
-      remainingSpace: screenRect.bottom - reportRect.bottom
+      headingOffset: headingRect.top - shellRect.top,
+      remainingSpace: shellRect.bottom - reportRect.bottom
     };
   });
 
-  expect(layout.headingOffset).toBeLessThanOrEqual(1);
+  expect(layout.headingOffset).toBeGreaterThan(0);
+  expect(layout.headingOffset).toBeLessThan(100);
   expect(layout.remainingSpace).toBeGreaterThan(100);
 });
 
@@ -144,6 +191,9 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/statistics");
     await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "통계 메뉴" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "기준 대비 사용량 비교" })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "동기간 비교" })).toBeVisible();
 
     const expectedColumns = viewport.width === 320 ? 1 : viewport.width === 390 ? 2 : 3;
     expect(await gridColumnCount(page)).toBe(expectedColumns);
@@ -156,6 +206,12 @@ for (const viewport of [
     await expect(page.getByRole("button", { name: "일별" })).toBeVisible();
     await expect(page.getByRole("button", { name: "월별" })).toBeVisible();
     await expectStatisticsSpacing(page, viewport.width <= 760);
+    await expectComparisonPanelLayout(page, viewport.width <= 1120);
+    const comparisonOverflow = await page.locator(".statistics-comparison-chart-panel").evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth
+    }));
+    expect(comparisonOverflow.scrollWidth).toBeLessThanOrEqual(comparisonOverflow.clientWidth);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
       const chartHeading = page.locator(".statistics-chart-heading");
@@ -285,6 +341,50 @@ function series(siteId: string, granularity: "day" | "month", from: string, to: 
   };
 }
 
+type ComparisonOutcome = "saving" | "overuse" | "unavailable";
+type ComparisonPreset = "last_7_days" | "current_month" | "current_year";
+
+function comparisonPreset(value: string | null): ComparisonPreset {
+  return value === "last_7_days" || value === "current_year" ? value : "current_month";
+}
+
+function comparison(preset: ComparisonPreset, outcome: ComparisonOutcome) {
+  const unavailable = outcome === "unavailable";
+  const overuse = outcome === "overuse";
+  const period = preset === "current_year" ? "2026-08" : "2026-08-25";
+  const estimatedKwh = unavailable ? null : overuse ? 110 : 65;
+  return {
+    siteId: "00000000-0000-4000-8000-000000000003",
+    timeZone: "Asia/Seoul",
+    source: "state_based_estimate",
+    generatedAt,
+    preset,
+    range: { from: "2026-08-01", to: "2026-08-31", completedThrough: "2026-08-25" },
+    summary: {
+      baselineKwh: 100,
+      estimatedKwh,
+      savingsKwh: unavailable ? null : overuse ? -10 : 35,
+      savingsCost: unavailable ? null : overuse ? -1_600 : 5_600,
+      savingsRatePercent: unavailable ? null : overuse ? -10 : 35,
+      outcome,
+      forecastReason: preset === "current_month"
+        ? unavailable ? "insufficient_state" : "available"
+        : "not_applicable"
+    },
+    priorComparisons: [],
+    points: [{
+      period,
+      baselineKwh: 100,
+      estimatedKwh,
+      phase: unavailable ? "unavailable" : preset === "current_month" ? "forecast" : "observed",
+      knownSeconds: unavailable ? 0 : 79_200,
+      unknownSeconds: unavailable ? 86_400 : 7_200,
+      coverageRate: unavailable ? null : 0.9167,
+      dataStatus: unavailable ? "no_data" : "partial"
+    }]
+  };
+}
+
 async function gridColumnCount(page: Page) {
   return page.locator(".statistics-summary").evaluate((element) => {
     return getComputedStyle(element).gridTemplateColumns.split(" ").length;
@@ -304,5 +404,21 @@ async function expectReportPanelLayout(page: Page, stacked: boolean) {
     expect(costs.y).toBeGreaterThanOrEqual(chart.y + chart.height - 1);
   } else {
     expect(costs.x).toBeGreaterThanOrEqual(chart.x + chart.width - 1);
+  }
+}
+
+async function expectComparisonPanelLayout(page: Page, stacked: boolean) {
+  const [chart, comparisonPanel] = await Promise.all([
+    page.locator(".statistics-comparison-chart-panel").boundingBox(),
+    page.locator(".period-comparison-panel").boundingBox()
+  ]);
+  expect(chart).not.toBeNull();
+  expect(comparisonPanel).not.toBeNull();
+  if (!chart || !comparisonPanel) return;
+
+  if (stacked) {
+    expect(comparisonPanel.y).toBeGreaterThanOrEqual(chart.y + chart.height - 1);
+  } else {
+    expect(comparisonPanel.x).toBeGreaterThanOrEqual(chart.x + chart.width - 1);
   }
 }

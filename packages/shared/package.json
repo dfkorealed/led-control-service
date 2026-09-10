@@ -28,6 +28,13 @@
       "require": "./dist/dimming-command.js",
       "import": "./dist/esm/dimming-command.js",
       "default": "./dist/dimming-command.js"
+    },
+    "./energy-contracts": {
+      "types": "./dist/esm/energy-contracts.d.ts",
+      "browser": "./dist/esm/energy-contracts.js",
+      "require": "./dist/energy-contracts.js",
+      "import": "./dist/esm/energy-contracts.js",
+      "default": "./dist/energy-contracts.js"
     }
   },
   "scripts": {

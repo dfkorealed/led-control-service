@@ -1,6 +1,8 @@
 import {
   energyComparisonResponseSchema,
-  type EnergyComparisonPreset,
+  type EnergyComparisonPreset
+} from "@led-control/shared/energy-contracts";
+import {
   type EnergySeriesResponse,
   type EnergySummary
 } from "@led-control/shared";

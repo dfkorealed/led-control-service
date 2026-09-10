@@ -352,7 +352,7 @@ export function useEnergyComparison(siteId: string | undefined, preset: EnergyCo
   - Run: `pnpm --filter @led-control/web typecheck`
   - Expected: all P0 view states and typecheck PASS.
 
-- [ ] **Step 7: 커밋한다.**
+- [x] **Step 7: 커밋한다.**
   - Run: `git add apps/web/src/features/statistics apps/web/src/styles.css && git commit -m "feat(web): show energy savings comparisons"`
 
 ### Task 7: Browser 회귀와 문서 수렴
@@ -368,32 +368,32 @@ export function useEnergyComparison(siteId: string | undefined, preset: EnergyCo
 - Consumes: Tasks 1~6 전체 P0 동작.
 - Produces: 네 viewport 회귀, 구현/한계 문서, 완료 체크리스트.
 
-- [ ] **Step 1: Playwright route fixture에 comparison 응답을 추가한다.**
+- [x] **Step 1: Playwright route fixture에 comparison 응답을 추가한다.**
   - saving, overuse, insufficient-state site별 fixture를 제공한다.
   - 기존 `/statistics` 테스트는 redirect 이후 overview heading을 기다리도록 수정한다.
 
-- [ ] **Step 2: 브라우저 흐름을 작성한다.**
+- [x] **Step 2: 브라우저 흐름을 작성한다.**
   - `/statistics?siteId=site-1` query 보존 redirect.
   - preset 전환 후 URL/query와 API 요청.
   - 음수 절감의 `초과 사용` 텍스트.
   - comparison retry가 기존 KPI를 유지하는지.
   - 1440/1024/390/320에서 서브메뉴와 chart overflow, 44×44px target.
 
-- [ ] **Step 3: Chromium 회귀를 실행한다.**
+- [x] **Step 3: Chromium 회귀를 실행한다.**
   - Run: `pnpm --filter @led-control/web exec playwright test e2e/statistics-flow.spec.ts --project=chromium`
   - Expected: P0 flows PASS with no document horizontal overflow.
 
-- [ ] **Step 4: 메뉴와 상태 문서를 갱신한다.**
+- [x] **Step 4: 메뉴와 상태 문서를 갱신한다.**
   - `docs/menus/statistics.md` 구현 완료에 overview route, 절감률, 기준 그래프, 동기간 비교를 기록한다.
   - `현재 등록 조명 기준`, `조명 구성 변화 미보정`, 실제 계측/HIL 미실행을 개선 필요 항목에 기록한다.
   - `docs/project-status.md`의 활성 P0 상태와 실제 검증 명령을 기록한다.
 
-- [ ] **Step 5: 전체 소프트웨어 검증을 실행한다.**
+- [x] **Step 5: 전체 소프트웨어 검증을 실행한다.**
   - Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/api test -- --runInBand src/energy && pnpm --filter @led-control/web test && pnpm --filter @led-control/web build`
   - Run: `git diff --check`
   - Expected: all commands exit 0; production build의 기존 bundle 경고는 실패로 확대하지 않고 기록한다.
 
-- [ ] **Step 6: 계획 체크리스트와 상태판을 동기화해 커밋한다.**
+- [x] **Step 6: 계획 체크리스트와 상태판을 동기화해 커밋한다.**
   - 이 계획에서 실제 완료한 step만 `[x]`로 바꾼다.
   - Run: `git add apps/web/e2e/statistics-flow.spec.ts apps/web/src/App.test.tsx docs/menus/statistics.md docs/project-status.md docs/superpowers/plans/2026-09-10-statistics-p0-savings-comparison.md && git commit -m "test(statistics): verify P0 savings overview"`
 

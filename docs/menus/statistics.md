@@ -1,9 +1,18 @@
 # 통계 메뉴 기능 현황
 
-기준일: 2026-09-10
+기준일: 2026-09-11
 
 ## 구현 완료
 
+- 통계 route를 `StatisticsShell` 아래의 서브메뉴 구조로 분리했다. 현재 P0에서는 `개요`만 노출하며 `/statistics`와 알 수 없는 하위 route는 query/hash를 보존해 `/statistics/overview`로 replace 이동한다. 주 메뉴의 통계 active 상태는 모든 통계 하위 route에서 유지된다.
+- `GET /energy/sites/:siteId/comparisons?preset=last_7_days|current_month|current_year`를 추가했다. 최근 7일은 완료된 7개 현장 날짜, 이번 달은 월초부터 완료된 전일까지의 실적과 월말 예상, 올해는 월별 실적을 반환한다. 기간 계산은 현장 IANA timezone과 윤년·월말을 반영한다.
+- 비교 응답은 24시간·100% 운전 기준 사용량, 실제 또는 예상 사용량, 절감 kWh·비용·절감률과 `saving`, `overuse`, `unavailable` 결과를 strict shared 계약으로 제공한다. 초과 사용은 음수 절감값을 0으로 보정하지 않으며, 비교 불가는 절감값을 `null`로 유지한다.
+- `개요` 상단에 `최근 7일`, `이번 달`, `올해` preset과 절감률·예상 사용량·절감 전력·절감 비용 KPI를 추가했다. 비교 불가 시 기준 KPI와 산정 조건 설명만 유지하고 0 절감으로 표시하지 않는다.
+- 기준 사용량은 막대, 완료된 실제 사용량은 실선, 이번 달 예상 사용량은 점선으로 표시한다. 사용량 미산정 point는 `null`을 유지해 선을 연결하지 않고 기준 막대만 남긴다. tooltip과 스크린리더 목록은 기간별 기준·실제/예상·차이 kWh·차이율·수집률을 함께 제공하고 `현재 등록 조명 기준`을 명시한다.
+- 직전 동기간과 전년 동기간의 사용량 변화 및 양쪽 수집률을 별도 패널로 제공한다. 비교 자료가 없으면 해당 행만 `비교 불가` 상태로 두며, 과거 조명 구성이 보정되지 않았음을 `조명 구성 변화 미보정` 문구로 상시 알린다.
+- comparison 로딩·오류·미산정 상태를 기존 summary와 series에서 분리했다. 비교 API가 실패해도 오늘·이번 달·올해 KPI와 기존 추이·비용 영역은 유지되고, 비교 영역만 다시 시도할 수 있다.
+- comparison 런타임 Zod 계약은 `@led-control/shared/energy-contracts` ESM/CommonJS 서브패스로 배포한다. packed package 소비 테스트로 브라우저 ESM과 서버 CommonJS 양쪽에서 schema를 직접 불러올 수 있음을 검증한다.
+- P0 Chromium 회귀는 saving·overuse·insufficient-state·summary/series/comparison 독립 재시도와 redirect query 보존을 검증한다. 1440×900, 1024×768, 390×844, 320×740에서 비교 chart/panel 스택, 44×44px 조작 영역, document 및 비교 chart의 가로 overflow 부재를 확인하고, 2400px 높이에서 shell이 남은 공간을 행 사이에 분산하지 않고 상단부터 채우는지 확인한다.
 - 공통 UI 간격을 4px 배수의 `4/8/12/16/24/32px` 토큰으로 정의하고 통계 메뉴에 1차 적용했다. 화면 섹션은 24px, KPI·패널 사이는 16px로 통일하고, 남는 세로 공간은 행 높이에 분산하지 않고 콘텐츠를 화면 상단부터 배치한다. KPI 상태 badge는 고정 높이·하단 예약 영역을 사용하는 absolute 배치에서 grid 배치로 전환해 불필요한 공백을 제거했다. 760px 이하에서는 KPI 라벨과 badge, 차트 제목과 기간 탭을 각각 세로로 배치해 한 글자 줄바꿈과 말줄임을 방지한다. 차트·비용 패널은 데스크톱 24px, 760px 이하 16px padding을 사용한다.
 - 사용량 차트 오른쪽의 비용 비교 영역은 공통 `SidePanel`과 `ui-side-panel-layout`을 사용한다. 긴 비용·기준 문구는 패널 내부에서 줄바꿈하고, 좁은 화면에서는 차트 다음 한 열로 쌓아 가로 잘림을 만들지 않는다.
 
@@ -44,20 +53,21 @@
 ## 미구현
 
 - 실제 전력계 기반 사용량 수집
-- 일/월/년 기간 선택
 - 사용자 지정 기간 조회
 - 층별 전력 사용량 차트
 - 그룹별 전력 사용량 차트
 - 조명별 전력 사용량 상세
 - 전기요금 단가/요금제 설정 연동
 - 피크/경부하/중간부하 시간대 요금제
-- 절감률 표시
 - CSV/Excel/PDF 내보내기
 - 통계 drill-down
-- 전월 대비, 전년 대비 비교
 
 ## 부족하거나 개선이 필요한 기능
 
+- 24시간·100% 기준선은 조회 시점의 현재 등록 조명과 정격 W를 사용한다. 조회 기간 중 등록·삭제·정격 변경이 있었다면 당시 조명 구성으로 소급 보정하지 않으므로 장기 비교의 절대값 해석에 주의해야 한다.
+- 직전·전년 동기간 비교는 현재 누적 이력의 구조를 그대로 사용하고 과거 조명 구성 변경을 복원하지 않는다. 현재 응답의 history quality는 `legacy_structure_unknown`이며, 이력 snapshot을 도입하기 전까지 구성 효과와 실제 운영 절감 효과를 분리할 수 없다.
+- P0는 상태 이벤트와 정격 전력 기반의 소프트웨어 추정 기능이다. 실제 전력계·Raspberry Pi·ESP32-H2·BLE Mesh 상태 publication을 함께 사용한 절감률 HIL은 이번 작업에서 실행하지 않았다.
+- 사용 분석(P1)과 최적화(P2)는 상세 구현 계획만 준비된 상태이며 아직 route를 노출하지 않는다. P3 보고서/내보내기는 사용자 요청에 따라 보류한다.
 - 공통 간격 토큰과 배치 규칙은 통계 메뉴에만 1차 적용했다. 모니터링·제어·설정의 기존 임의 간격은 각 메뉴 개선 시 동일한 규칙으로 전환해야 한다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - summary/series의 `generatedAt`은 요청별로 한 번 고정되지만 여러 DB read가 하나의 repeatable-read snapshot으로 묶여 있지는 않다. 상태 ingest가 조회 중간에 commit되면 응답 내부 누적·forecast가 서로 다른 순간을 볼 수 있으므로 양산 정산 정확도가 필요해질 때 read-only repeatable-read transaction으로 묶어야 한다.
@@ -71,9 +81,15 @@
 ## 관련 파일
 
 - `docs/ui-spacing.md`
+- `docs/assets/statistics-analytics/statistics-overview-ui.png`
 - `apps/web/src/components/ui/SidePanel.tsx`
-- `apps/web/src/features/statistics/StatisticsView.tsx`
-- `apps/web/src/features/statistics/StatisticsView.test.tsx`
+- `apps/web/src/features/statistics/StatisticsShell.tsx`
+- `apps/web/src/features/statistics/StatisticsSubnavigation.tsx`
+- `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`
+- `apps/web/src/features/statistics/StatisticsOverviewPage.test.tsx`
+- `apps/web/src/features/statistics/EnergyComparisonChart.tsx`
+- `apps/web/src/features/statistics/PeriodComparisonPanel.tsx`
+- `apps/web/src/features/statistics/statistics-comparison.ts`
 - `apps/web/src/features/statistics/statistics-periods.ts`
 - `apps/web/src/styles.css`
 - `apps/web/src/components/ui/MetricCard.tsx`
@@ -89,10 +105,13 @@
 - `apps/web/playwright.config.ts`
 - `apps/api/src/energy/energy.controller.ts`
 - `apps/api/src/energy/energy.service.ts`
+- `apps/api/src/energy/energy-analytics-query.service.ts`
+- `apps/api/src/energy/energy-comparison-query.ts`
 - `apps/api/src/energy/energy-periods.ts`
 - `apps/api/src/energy/energy.integration.spec.ts`
 - `apps/api/src/energy/fixture-state-ingestion.service.ts`
 - `apps/api/prisma/schema.prisma`
+- `packages/shared/src/energy-contracts.ts`
 
 ## 갱신 규칙
 

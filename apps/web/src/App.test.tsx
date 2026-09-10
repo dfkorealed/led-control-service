@@ -8,6 +8,7 @@ import { useFloorEditorStore } from "./features/floor-editor/editor-store";
 import {
   mockDashboard,
   mockEnergyDaySeries,
+  mockEnergyComparison,
   mockEnergyMonthSeries,
   mockEnergySummary,
   mockRegistrationSession
@@ -149,6 +150,23 @@ vi.mock("./api/client", () => ({
             today: { ...mockEnergySummary.today, estimatedKwh: 7.5, estimatedCost: 1_200 }
           }
         : mockEnergySummary);
+    }
+    const energyComparisonMatch = path.match(/^\/energy\/sites\/([^/]+)\/comparisons\?preset=(last_7_days|current_month|current_year)$/);
+    if (energyComparisonMatch) {
+      const preset = energyComparisonMatch[2] as typeof mockEnergyComparison.preset;
+      return Promise.resolve({
+        ...mockEnergyComparison,
+        preset,
+        summary: {
+          ...mockEnergyComparison.summary,
+          forecastReason: preset === "current_month" ? "available" : "not_applicable"
+        },
+        points: mockEnergyComparison.points.map((point, index) => ({
+          ...point,
+          period: preset === "current_year" ? `2026-${String(index + 1).padStart(2, "0")}` : point.period,
+          phase: preset === "current_month" ? point.phase : "observed"
+        })).filter((_, index) => preset !== "current_year" || index < 4)
+      });
     }
     const energySeriesMatch = path.match(/^\/energy\/sites\/([^/]+)\/series\?(.*)$/);
     if (energySeriesMatch) {
@@ -978,6 +996,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("7.5 kWh");
     expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/summary");
+    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/comparisons?preset=current_month");
     expect(apiGet).toHaveBeenCalledWith(
       "/energy/sites/site-2/series?granularity=day&from=2026-08-01&to=2026-08-31"
     );
@@ -997,6 +1016,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
     expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/summary`);
+    expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/comparisons?preset=current_month`);
     expect(apiGet).not.toHaveBeenCalledWith("/energy/default/estimate");
   });
 

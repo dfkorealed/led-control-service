@@ -9,7 +9,13 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import { formatComparisonPeriod, formatCoverage, formatKwh, formatKwhValue } from "./statistics-format";
+import {
+  formatComparisonPeriod,
+  formatCoverage,
+  formatKwh,
+  formatKwhValue,
+  formatPercent
+} from "./statistics-format";
 
 interface ComparisonChartPoint extends EnergyComparisonPoint {
   observedKwh: number | null;
@@ -77,6 +83,7 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      <p className="statistics-baseline-note">24시간 100% · 현재 등록 조명 기준</p>
       <ul className="sr-only" aria-label="기준 대비 에너지 비교 데이터">
         {data.map((point) => <li key={point.period}>{describeComparisonPoint(point)}</li>)}
       </ul>
@@ -99,6 +106,7 @@ function ComparisonTooltip({ active, point }: { active?: boolean; point?: Compar
       <span>기준 {formatKwh(point.baselineKwh)}</span>
       <span>{point.phase === "forecast" ? "예상" : "실제"} {point.estimatedKwh === null ? "산정 불가" : formatKwh(point.estimatedKwh)}</span>
       {difference === null ? null : <span>{formatDifference(difference)}</span>}
+      {difference === null ? null : <span>{formatDifferenceRate(point.baselineKwh, difference)}</span>}
       <span>수집률 {formatCoverage(point.coverageRate)}</span>
     </div>
   );
@@ -110,13 +118,20 @@ function describeComparisonPoint(point: ComparisonChartPoint) {
     return `${period}: 기준 ${formatKwh(point.baselineKwh)}, 사용량 산정 불가, 수집률 ${formatCoverage(point.coverageRate)}`;
   }
   const measurement = point.phase === "forecast" ? "예상" : "실제";
-  return `${period}: 기준 ${formatKwh(point.baselineKwh)}, ${measurement} ${formatKwh(point.estimatedKwh)}, ${formatDifference(point.baselineKwh - point.estimatedKwh)}, 수집률 ${formatCoverage(point.coverageRate)}`;
+  const difference = point.baselineKwh - point.estimatedKwh;
+  return `${period}: 기준 ${formatKwh(point.baselineKwh)}, ${measurement} ${formatKwh(point.estimatedKwh)}, ${formatDifference(difference)}, ${formatDifferenceRate(point.baselineKwh, difference)}, 수집률 ${formatCoverage(point.coverageRate)}`;
 }
 
 function formatDifference(difference: number) {
   return difference >= 0
     ? `절감 ${formatKwh(difference)}`
     : `초과 사용 ${formatKwh(Math.abs(difference))}`;
+}
+
+function formatDifferenceRate(baselineKwh: number, difference: number) {
+  if (baselineKwh === 0) return "증감률 산정 불가";
+  const rate = Math.abs(difference / baselineKwh * 100);
+  return difference >= 0 ? `절감률 ${formatPercent(rate)}` : `초과율 ${formatPercent(rate)}`;
 }
 
 function formatAxisPeriod(period: string) {
