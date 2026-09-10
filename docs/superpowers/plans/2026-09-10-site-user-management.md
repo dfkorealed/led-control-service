@@ -276,29 +276,29 @@
 - Produces: 재사용 가능한 focus trap·Escape·focus restore 지원 `ModalDialog`
 - Consumes: `site-users.ts` hooks와 기존 `Button`, `Card`, `PageHeader`, `StatusBadge`
 
-- [ ] **Step 1: ModalDialog의 dialog semantics, Escape, focus trap, focus restore 테스트를 작성한다.**
+- [x] **Step 1: ModalDialog의 dialog semantics, Escape, focus trap, focus restore 테스트를 작성한다.**
 
-- [ ] **Step 2: 목록 loading, empty, success, stale-error 상태 테스트를 작성한다.**
+- [x] **Step 2: 목록 loading, empty, success, stale-error 상태 테스트를 작성한다.**
 
-- [ ] **Step 3: 생성·수정 form validation과 조회/제어 segmented control 테스트를 작성한다.**
+- [x] **Step 3: 생성·수정 form validation과 조회/제어 segmented control 테스트를 작성한다.**
 
-- [ ] **Step 4: 비밀번호 초기화, 비활성화, 영구 삭제 확인 테스트를 작성한다.**
+- [x] **Step 4: 비밀번호 초기화, 비활성화, 영구 삭제 확인 테스트를 작성한다.**
 
   삭제 버튼은 현재 loginId와 확인 입력이 정확히 일치할 때만 활성화해야 한다.
 
-- [ ] **Step 5: 100명 제한과 API 오류 code별 사용자 문구 테스트를 작성한다.**
+- [x] **Step 5: 100명 제한과 API 오류 code별 사용자 문구 테스트를 작성한다.**
 
-- [ ] **Step 6: 화면이 없어 테스트가 실패하는지 확인한다.**
+- [x] **Step 6: 화면이 없어 테스트가 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/web exec vitest run src/components/ui/ui-primitives.test.tsx src/features/settings/users`
 
-- [ ] **Step 7: 시안에 맞춰 공통 Dialog와 유저 관리 화면을 구현한다.**
+- [x] **Step 7: 시안에 맞춰 공통 Dialog와 유저 관리 화면을 구현한다.**
 
   행 동작에는 lucide 아이콘과 tooltip/접근성 이름을 사용한다. 생성 성공 후 임시 비밀번호를 toast나 cache에 재표시하지 않는다.
 
-- [ ] **Step 8: 유저 관리 화면 테스트를 통과시킨다.**
+- [x] **Step 8: 유저 관리 화면 테스트를 통과시킨다.**
 
-- [ ] **Step 9: Task 7 변경만 커밋한다.**
+- [x] **Step 9: Task 7 변경만 커밋한다.**
 
   Commit: `feat(settings): add site user management ui`
 
