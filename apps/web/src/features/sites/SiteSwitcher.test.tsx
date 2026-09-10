@@ -112,16 +112,16 @@ describe("SiteSwitcher", () => {
       <BrowserRouter>
         <Routes>
           <Route path="/settings" element={<h2>설정 개요</h2>} />
-          <Route path="/settings/floor-plans" element={<><h2>도면 관리</h2><RoutedSiteSwitcher /></>} />
-          <Route path="/settings/floor-plans/:floorId/edit" element={<><h2>도면 편집</h2><RoutedSiteSwitcher /></>} />
+          <Route path="/settings/floor-plans" element={<><h2>맵 관리</h2><RoutedSiteSwitcher /></>} />
+          <Route path="/settings/floor-plans/:floorId/edit" element={<><h2>맵 편집</h2><RoutedSiteSwitcher /></>} />
         </Routes>
       </BrowserRouter>
     );
 
     fireEvent.change(screen.getByRole("combobox", { name: "현장 선택" }), { target: { value: "site-2" } });
-    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     act(() => window.history.back());
-    expect(await screen.findByRole("heading", { name: "도면 편집" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "맵 편집" })).toBeInTheDocument();
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledOnce();

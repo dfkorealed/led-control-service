@@ -58,9 +58,9 @@ describe("SettingsNavigationItem", () => {
     expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toBeInTheDocument();
     expect(trigger).toHaveAttribute("href", "/settings?siteId=site-1#fragment");
     expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1#fragment");
-    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1#fragment");
+    expect(screen.getByRole("link", { name: "맵 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1#fragment");
     expect(screen.getByRole("link", { name: "비밀번호 변경" })).toHaveAttribute("href", "/settings/security?siteId=site-1#fragment");
-    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "맵 관리" })).toHaveAttribute("aria-current", "page");
   });
 
   it("모바일 설정 메뉴는 scrim과 bottom sheet focus 계약을 유지한다", async () => {
@@ -91,7 +91,7 @@ describe("SettingsNavigationItem", () => {
     expect(trigger).not.toHaveAttribute("aria-haspopup");
     expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
     expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1");
-    expect(screen.getByRole("link", { name: "도면 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
+    expect(screen.getByRole("link", { name: "맵 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
     expect(screen.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
 
     fireEvent.keyDown(trigger, { key: "Escape" });
@@ -105,7 +105,7 @@ describe("SettingsNavigationItem", () => {
 
     fireEvent.focus(screen.getByRole("link", { name: "설정" }));
 
-    expect(screen.getByRole("link", { name: "도면 관리" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "맵 관리" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "비밀번호 변경" })).not.toBeInTheDocument();
   });
 
@@ -125,7 +125,7 @@ describe("SettingsNavigationItem", () => {
 
   it.each([
     ["/settings?siteId=site-1", "설정 개요"],
-    ["/settings/floor-plans?siteId=site-1", "도면 관리"],
+    ["/settings/floor-plans?siteId=site-1", "맵 관리"],
     ["/settings/security?siteId=site-1", "비밀번호 변경"]
   ])("exposes one current-page link for %s", (initialEntry, currentLabel) => {
     mockMatchMedia();
@@ -135,7 +135,7 @@ describe("SettingsNavigationItem", () => {
     fireEvent.focus(trigger);
 
     expect(trigger).not.toHaveAttribute("aria-current");
-    for (const label of ["설정 개요", "도면 관리", "비밀번호 변경"]) {
+    for (const label of ["설정 개요", "맵 관리", "비밀번호 변경"]) {
       const link = screen.getByRole("link", { name: label });
       if (label === currentLabel) expect(link).toHaveAttribute("aria-current", "page");
       else expect(link).not.toHaveAttribute("aria-current");

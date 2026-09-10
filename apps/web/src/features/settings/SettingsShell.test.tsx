@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,26 +40,29 @@ describe("SettingsShell", () => {
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1"]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
-            <Route path="floor-plans" element={<h2>도면 관리</h2>} />
+            <Route path="floor-plans" element={<h2>맵 관리</h2>} />
           </Route>
         </Routes>
       </MemoryRouter>
     );
 
     expect(screen.getByRole("combobox", { name: "현장 선택" })).toHaveValue("site-1");
-    expect(screen.getByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     expect(screen.queryByLabelText("설정 메뉴")).not.toBeInTheDocument();
   });
 
   it("설정 개요는 실제 데이터와 route action으로 네 카드를 표시한다", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <MemoryRouter initialEntries={["/settings?siteId=site-1#fragment"]}>
-        <Routes>
-          <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
-            <Route index element={<SettingsView siteId="site-1" userRole="admin" />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/settings?siteId=site-1#fragment"]}>
+          <Routes>
+            <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
+              <Route index element={<SettingsView siteId="site-1" userRole="admin" />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
     );
 
     expect(screen.getByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
@@ -69,8 +73,8 @@ describe("SettingsShell", () => {
 
     const floors = screen.getByRole("group", { name: "층·도면" });
     expect(floors).toHaveTextContent(`${mockDashboard.floors.length}개 층`);
-    expect(floors).toHaveTextContent(`도면 등록 ${mockDashboard.floors.length}개`);
-    expect(within(floors).getByRole("link", { name: "도면 관리 열기" })).toHaveAttribute(
+    expect(floors).toHaveTextContent(`맵 설정 ${mockDashboard.floors.length}개`);
+    expect(within(floors).getByRole("link", { name: "맵 관리 열기" })).toHaveAttribute(
       "href",
       "/settings/floor-plans?siteId=site-1#fragment"
     );

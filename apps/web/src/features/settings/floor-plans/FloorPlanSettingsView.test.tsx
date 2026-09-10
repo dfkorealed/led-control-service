@@ -22,22 +22,22 @@ describe("FloorPlanSettingsView", () => {
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-2"]}>
         <Routes>
           <Route path="/settings/floor-plans" element={<FloorPlanSettingsView siteId="site-2" userRole="admin" />} />
-          <Route path="/settings/floor-plans/:floorId/edit" element={<h2>B2 도면 편집</h2>} />
+          <Route path="/settings/floor-plans/:floorId/edit" element={<h2>B2 맵 편집</h2>} />
         </Routes>
       </MemoryRouter>
     );
 
     expect(await screen.findByText("B2")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
-    expect(screen.getByText("도면 등록됨")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "B2 도면 편집" })).toHaveAttribute(
+    expect(screen.getByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
+    expect(screen.getByText("맵 설정됨")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "B2 맵 편집" })).toHaveAttribute(
       "href",
       `/settings/floor-plans/${dashboard.floors[0].id}/edit?siteId=site-2`
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "B2 도면 편집" }));
+    fireEvent.click(screen.getByRole("link", { name: "B2 맵 편집" }));
 
-    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
   });
 
   it("keeps the floor-plan list read only for viewers", async () => {
@@ -51,8 +51,8 @@ describe("FloorPlanSettingsView", () => {
     );
 
     expect(await screen.findByText("B2")).toBeInTheDocument();
-    expect(screen.getByText("도면 등록됨")).toBeInTheDocument();
+    expect(screen.getByText("맵 설정됨")).toBeInTheDocument();
     expect(screen.getByText("읽기 전용")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "B2 도면 편집" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "B2 맵 편집" })).not.toBeInTheDocument();
   });
 });

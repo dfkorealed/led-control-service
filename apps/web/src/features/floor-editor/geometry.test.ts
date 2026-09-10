@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { clampPoint, createDefaultObject, createObjectFromDrag, moveByDelta, screenToWorld } from "./geometry";
+import {
+  alignRectToGuides,
+  clampObjectToMap,
+  clampPoint,
+  createDefaultObject,
+  createObjectFromDrag,
+  moveByDelta,
+  screenToWorld,
+  snapPointToGrid,
+  snapRectToGrid
+} from "./geometry";
 
 describe("floor editor geometry", () => {
   it("converts screen coordinates into world coordinates using pan and zoom", () => {
@@ -13,6 +23,38 @@ describe("floor editor geometry", () => {
 
   it("moves a point by delta and keeps it inside bounds", () => {
     expect(moveByDelta({ x: 1180, y: 20 }, { dx: 80, dy: -40 }, { width: 1200, height: 800 })).toEqual({ x: 1200, y: 0 });
+  });
+
+  it("snaps absolute coordinates and rectangle edges to the configured grid", () => {
+    expect(snapPointToGrid({ x: 23, y: 36 }, 10)).toEqual({ x: 20, y: 40 });
+    expect(snapRectToGrid({ x: 13, y: 27, width: 84, height: 59 }, 20)).toEqual({
+      x: 20,
+      y: 20,
+      width: 80,
+      height: 60
+    });
+  });
+
+  it("aligns moving bounds to the nearest map and element guides", () => {
+    expect(alignRectToGuides(
+      { x: 197, y: 147, width: 100, height: 60 },
+      [{ x: 300, y: 100, width: 100, height: 100 }],
+      { width: 1200, height: 800 },
+      5
+    )).toEqual({
+      point: { x: 200, y: 150 },
+      guides: [
+        { orientation: "vertical", position: 300 },
+        { orientation: "horizontal", position: 150 }
+      ]
+    });
+  });
+
+  it("keeps a complete object inside the map instead of only clamping its origin", () => {
+    expect(clampObjectToMap(
+      { x: 1150, y: 770, width: 160, height: 96 },
+      { width: 1200, height: 800 }
+    )).toEqual({ x: 1040, y: 704, width: 160, height: 96 });
   });
 
   it("creates default map objects for the active drawing tool", () => {

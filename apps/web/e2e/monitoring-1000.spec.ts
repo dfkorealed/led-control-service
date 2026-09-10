@@ -105,7 +105,7 @@ test("브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하�
 
   const editorStartedAt = Date.now();
   await page.goto(`/settings/floor-plans/${ids.floor}/edit?siteId=${ids.site}`);
-  await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
+  await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
   await expect.poll(() => {
     const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;

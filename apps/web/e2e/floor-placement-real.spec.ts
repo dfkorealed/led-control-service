@@ -337,7 +337,7 @@ function floorSelector(page: Page, floor: Floor) {
 }
 
 async function expectEditor(page: Page, floor: Floor) {
-  await expect(page.getByRole("heading", { name: `${floor.name} 도면 편집`, exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `${floor.name} 맵 편집`, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "선택", exact: true })).toBeEnabled();
   await expect(page.getByLabel(`${floor.name} 편집 캔버스`)).toHaveAttribute("aria-disabled", "false");
 }
@@ -382,7 +382,7 @@ async function confirmUnplace(page: Page) {
 }
 
 function unplaceDialog(page: Page) {
-  return page.getByRole("dialog", { name: "이 조명을 도면에서 제거할까요?", exact: true });
+  return page.getByRole("dialog", { name: "이 조명을 맵에서 제거할까요?", exact: true });
 }
 
 async function saveEditor(page: Page, floor: Floor, revision: number, fixtureId: string, placementStatus: Placement["placementStatus"]) {

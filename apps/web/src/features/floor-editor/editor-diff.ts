@@ -129,18 +129,31 @@ function sameFloorPlan(
     && left.originalFileUrl === right.originalFileUrl
     && left.renderedImageUrl === right.renderedImageUrl
     && left.width === right.width
-    && left.height === right.height;
+    && left.height === right.height
+    && (left.gridSize ?? 10) === (right.gridSize ?? 10);
 }
 
 function toFloorPlanUpdate(floorPlan: FloorEditorState["floor"]["floorPlan"]): EditorChangeSet["floorPlan"] {
-  if (!floorPlan || floorPlan.sourceType === "none") return null;
+  if (!floorPlan) return null;
   const sourceType = floorPlan.sourceType ?? "image";
+  if (sourceType === "none") {
+    return {
+      sourceType,
+      imageUrl: "",
+      originalFileUrl: null,
+      renderedImageUrl: null,
+      width: floorPlan.width,
+      height: floorPlan.height,
+      gridSize: floorPlan.gridSize ?? 10
+    };
+  }
   return {
     sourceType,
     imageUrl: floorPlan.imageUrl,
     originalFileUrl: floorPlan.originalFileUrl ?? floorPlan.imageUrl,
     renderedImageUrl: floorPlan.renderedImageUrl ?? floorPlan.imageUrl,
     width: floorPlan.width,
-    height: floorPlan.height
+    height: floorPlan.height,
+    gridSize: floorPlan.gridSize ?? 10
   };
 }

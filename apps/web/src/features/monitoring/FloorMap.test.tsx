@@ -12,8 +12,9 @@ const mapSnapshot = {
     sourceType: "image" as const,
     originalFileUrl: "/demo.svg",
     renderedImageUrl: "/demo.svg",
-    width: 1200,
-    height: 800
+      width: 1200,
+      height: 800,
+      gridSize: 10
   },
   objects: [{
     id: "rectangle-1",

@@ -17,8 +17,8 @@ export function FloorPlanSettingsView({ siteId, userRole }: FloorPlanSettingsVie
   return (
     <section className="settings-screen">
       <PageHeader
-        title="도면 관리"
-        description={canEdit ? "층별 도면을 확인하고 편집합니다." : "층별 도면 등록 상태를 조회합니다."}
+        title="맵 관리"
+        description={canEdit ? "층별 도면을 확인하고 편집합니다." : "층별 맵 설정 상태를 조회합니다."}
       />
       {isLoading && <FeedbackState icon={LoaderCircle} title="도면 목록을 불러오는 중" />}
       {error && <FeedbackState tone="danger" icon={TriangleAlert} title="도면 목록을 불러오지 못했습니다." />}
@@ -30,16 +30,16 @@ export function FloorPlanSettingsView({ siteId, userRole }: FloorPlanSettingsVie
                 <FileImage size={20} aria-hidden="true" />
                 <div>
                   <strong>{floor.name}</strong>
-                  <span>{floor.floorPlan ? "도면 등록됨" : "도면 미등록"}</span>
+                  <span>{floor.floorPlan ? "맵 설정됨" : "맵 미설정"}</span>
                 </div>
               </div>
               {canEdit ? (
                 <Link
                   className="ui-button ui-button-secondary floor-plan-edit-link"
                   to={`/settings/floor-plans/${floor.id}/edit${location.search}`}
-                  aria-label={`${floor.name} ${floor.floorPlan ? "도면 편집" : "도면 등록"}`}
+                  aria-label={`${floor.name} ${floor.floorPlan ? "맵 편집" : "맵 설정"}`}
                 >
-                  {floor.floorPlan ? "도면 편집" : "도면 등록"}
+                  {floor.floorPlan ? "맵 편집" : "맵 설정"}
                 </Link>
               ) : <StatusBadge tone="neutral" icon={LockKeyhole}>읽기 전용</StatusBadge>}
             </Card>

@@ -191,15 +191,62 @@ describe("FloorEditorView", () => {
   it("renders toolbar canvas properties save and cancel controls", () => {
     renderEditor();
 
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "확대" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "축소" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "100%" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "저장" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "취소" })).toBeInTheDocument();
-    expect(screen.getByRole("toolbar", { name: "도면 편집 도구" })).toBeInTheDocument();
+    expect(screen.getByRole("toolbar", { name: "맵 편집 도구" })).toBeInTheDocument();
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "맵 설정" })).toBeInTheDocument();
+    expect(screen.getByLabelText("맵 너비")).toHaveValue(1200);
+    expect(screen.getByLabelText("맵 높이")).toHaveValue(800);
+    expect(screen.getByLabelText("격자 간격")).toHaveValue(10);
+    expect(screen.queryByLabelText("조명명")).not.toBeInTheDocument();
+  });
+
+  it("shows only controls that belong to the selected element type", () => {
+    renderEditor();
+
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    expect(screen.getByLabelText("조명명")).toBeInTheDocument();
+    expect(screen.queryByLabelText("맵 너비")).not.toBeInTheDocument();
+
+    act(() => useFloorEditorStore.getState().selectObject("object-1"));
+    expect(screen.getByLabelText("텍스트 내용")).toBeInTheDocument();
+    expect(screen.getByLabelText("글자 크기")).toBeInTheDocument();
+    expect(screen.queryByLabelText("채우기 색상")).not.toBeInTheDocument();
+  });
+
+  it("switches shape properties between area and line controls", () => {
+    const rectangle = { ...editorState.objects[0], type: "rectangle" as const, text: "" };
+    renderEditor({ ...editorState, objects: [rectangle] });
+
+    act(() => useFloorEditorStore.getState().selectObject("object-1"));
+    expect(screen.getByLabelText("너비")).toBeInTheDocument();
+    expect(screen.getByLabelText("높이")).toBeInTheDocument();
+    expect(screen.getByLabelText("선 색상")).toBeInTheDocument();
+    expect(screen.getByLabelText("채우기 색상")).toBeInTheDocument();
+
+    act(() => useFloorEditorStore.setState((store) => ({
+      state: store.state ? { ...store.state, objects: [{ ...rectangle, type: "line", height: 0 }] } : null
+    })));
+    expect(screen.getByLabelText("길이")).toBeInTheDocument();
+    expect(screen.queryByLabelText("높이")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("채우기 색상")).not.toBeInTheDocument();
+  });
+
+  it("shows batch fixture properties for a multi-selection", () => {
+    const second = { ...editorState.fixtures[0], id: "fixture-2", name: "B2-L02" };
+    renderEditor({ ...editorState, fixtures: [...editorState.fixtures, second] });
+
+    act(() => useFloorEditorStore.getState().selectFixtures(["fixture-1", "fixture-2"]));
+
+    expect(screen.getByRole("heading", { name: "2개 선택" })).toBeInTheDocument();
+    expect(screen.getByLabelText("이름 접두어")).toBeInTheDocument();
+    expect(screen.queryByLabelText("맵 너비")).not.toBeInTheDocument();
   });
   it("rejects recovery while save is pending and ignores a response after principal purge", async () => {
     saveEditorDraft("draft-user", editorState, { ...editorState, fixtures: [{ ...editorState.fixtures[0], x: 555 }] });
@@ -235,7 +282,7 @@ describe("FloorEditorView", () => {
     floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
     renderEditor();
 
-    const toolbar = screen.getByRole("toolbar", { name: "도면 편집 도구" });
+    const toolbar = screen.getByRole("toolbar", { name: "맵 편집 도구" });
     const toolButton = within(toolbar).getByRole("button", { name: "선택" });
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
 
@@ -319,7 +366,7 @@ describe("FloorEditorView", () => {
     fireEvent.dragOver(canvas, { dataTransfer });
     fireEvent(canvas, createDragEventWithPoint(canvas, "drop", dataTransfer, 240, 180));
 
-    expect(screen.getAllByText("rectangle").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "네모" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
@@ -376,7 +423,10 @@ describe("FloorEditorView", () => {
   });
 
   it("uses a color palette input for object fill color", () => {
-    renderEditor();
+    renderEditor({
+      ...editorState,
+      objects: [{ ...editorState.objects[0], type: "rectangle", text: "" }]
+    });
 
     act(() => useFloorEditorStore.getState().selectObject("object-1"));
 
@@ -405,6 +455,19 @@ describe("FloorEditorView", () => {
     fireEvent.mouseUp(screen.getByLabelText("B2 편집 캔버스"), { clientX: 130, clientY: 150 });
 
     expect(useFloorEditorStore.getState().pan).toEqual({ x: 30, y: 30 });
+  });
+
+  it("zooms with wheel input regardless of pointer device", () => {
+    renderEditor();
+    const stage = document.querySelector<HTMLElement>(".konvajs-content");
+    expect(stage).not.toBeNull();
+
+    fireEvent.wheel(stage!, { deltaY: 120 });
+    expect(useFloorEditorStore.getState().zoom).toBeLessThan(1);
+
+    act(() => useFloorEditorStore.setState({ zoom: 1, pan: { x: 0, y: 0 } }));
+    fireEvent.wheel(stage!, { deltaY: -8 });
+    expect(useFloorEditorStore.getState()).toMatchObject({ zoom: 1.1, pan: { x: 0, y: 0 } });
   });
 
   it("does not submit an unchanged state", async () => {
@@ -516,7 +579,7 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
     const feedback = await screen.findByRole("alert");
-    expect(feedback).toHaveTextContent("최신 도면과 변경사항이 충돌했습니다.");
+    expect(feedback).toHaveTextContent("최신 맵과 변경사항이 충돌했습니다.");
     expect(feedback).toHaveTextContent("최신 버전을 다시 불러온 뒤 변경사항을 확인하세요.");
     expect(feedback).toHaveAttribute("data-tone", "danger");
     expect(screen.queryByRole("button", { name: /강제/ })).not.toBeInTheDocument();

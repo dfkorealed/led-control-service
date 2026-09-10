@@ -180,8 +180,8 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   const mapFixtureName = fixtureNames[1];
   const movedX = 240;
   await admin.getByRole("link", { name: "설정" }).click();
-  await admin.getByRole("link", { name: "도면 관리" }).click();
-  await admin.getByRole("link", { name: "B1 도면 등록" }).click();
+  await admin.getByRole("link", { name: "맵 관리" }).click();
+  await admin.getByRole("link", { name: "B1 맵 설정" }).click();
   const canvas = admin.getByLabel("B1 편집 캔버스");
   await expect(admin.getByRole("button", { name: "선택", exact: true })).toBeEnabled();
   await expect(canvas).toHaveAttribute("aria-disabled", "false");
@@ -228,10 +228,10 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(viewer.getByText(/조회 전용 계정입니다/)).toBeVisible();
   await expect(viewer.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   await viewer.getByRole("link", { name: "설정" }).click();
-  await expect(viewer.getByRole("link", { name: "도면 관리" })).toBeVisible();
+  await expect(viewer.getByRole("link", { name: "맵 관리" })).toBeVisible();
   await expect(viewer.getByRole("link", { name: "비밀번호 변경" })).toHaveCount(0);
-  await viewer.getByRole("link", { name: "도면 관리" }).click();
-  await expect(viewer.getByText("도면 미등록")).toBeVisible();
+  await viewer.getByRole("link", { name: "맵 관리" }).click();
+  await expect(viewer.getByText("맵 미설정")).toBeVisible();
   await expect(viewer.getByRole("link", { name: /B1 도면 (등록|편집)/ })).toHaveCount(0);
   await lab.screenshot(viewer, testInfo, "03-viewer-read-only");
 

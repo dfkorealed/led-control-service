@@ -2,13 +2,14 @@ import { create } from "zustand";
 import type { EDITOR_MAX_NAME_LENGTH } from "@led-control/shared";
 import { buildEditorChanges, hasEditorChanges } from "./editor-diff";
 import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
-import type { Point } from "./geometry";
+import { clampObjectToMap, snapPointToGrid, snapRectToGrid, trianglePointsForSize, type Point } from "./geometry";
 
 type Selection = { kind: "fixture" | "object"; id: string } | null;
 export type FixturePatch = Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size" | "placementStatus" | "positionVerified">>;
 export type PlacementPoint = Point & { id: string };
 type LayerName = "background" | "objects" | "fixtures";
 type LayerSettings = Record<LayerName, { visible: boolean; locked: boolean }>;
+type MapSettings = { width: number; height: number; gridSize: number };
 // The shared root is CommonJS, so enforce its literal limit through a type-only
 // import without pulling that runtime entry into the browser editor bundle.
 const maxFixtureNameLength: typeof EDITOR_MAX_NAME_LENGTH = 200;
@@ -60,6 +61,7 @@ interface EditorStore {
   setLayer: (layer: LayerName, patch: Partial<LayerSettings[LayerName]>) => void;
   toggleFixtureLock: (ids: string[]) => void;
   updateFloorPlan: (floorPlan: FloorPlanDraft | null) => void;
+  updateMapSettings: (settings: MapSettings) => string | null;
   addObject: (floorId: string, draft: FloorMapObjectDraft) => void;
   updateObject: (objectId: string, patch: Partial<FloorMapObject>) => void;
   removeObject: (objectId: string) => void;
@@ -86,6 +88,12 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       const patch = patches.get(fixture.id);
       if (!patch || locked.has(fixture.id)) return fixture;
       const next = { ...fixture, ...patch };
+      if (get().snap && ("x" in patch || "y" in patch)) {
+        const gridSize = state.floor.floorPlan?.gridSize ?? 10;
+        const point = snapPointToGrid({ x: next.x, y: next.y }, gridSize);
+        if ("x" in patch) next.x = point.x;
+        if ("y" in patch) next.y = point.y;
+      }
       // Partial edits must not normalize unrelated legacy geometry or reject
       // unchanged fields. The server validates the same narrow patch on save.
       if (("x" in patch && !Number.isFinite(next.x)) || ("y" in patch && !Number.isFinite(next.y))
@@ -166,10 +174,46 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     setPreview: (preview) => set({ preview }), setSnap: (snap) => set({ snap }),
     setLayer: (layer, patch) => set({ layers: { ...get().layers, [layer]: { ...get().layers[layer], ...patch } }, ...(layer === "fixtures" && patch.visible === false ? { selectedFixtureIds: [], selection: null, preview: [] } : {}) }),
     toggleFixtureLock: (ids) => { const locked = new Set(get().lockedFixtureIds); const unlock = ids.every((id) => locked.has(id)); ids.forEach((id) => unlock ? locked.delete(id) : locked.add(id)); set({ lockedFixtureIds: [...locked] }); },
-    updateFloorPlan: (floorPlan) => { const state = get().state; if (state) commit({ ...state, floor: { ...state.floor, floorPlan } }); },
+    updateFloorPlan: (floorPlan) => {
+      const state = get().state;
+      if (state) commit({ ...state, floor: { ...state.floor, floorPlan: floorPlan ? { ...floorPlan, gridSize: floorPlan.gridSize ?? state.floor.floorPlan?.gridSize ?? 10 } : null } });
+    },
+    updateMapSettings: ({ width, height, gridSize }) => {
+      const state = get().state;
+      if (!state || ![width, height, gridSize].every(Number.isInteger) || width < 1 || height < 1 || gridSize < 5 || gridSize > 200) {
+        return "맵 크기와 격자 간격을 확인해주세요.";
+      }
+      const contentOutside = state.fixtures.some((fixture) => fixture.placementStatus !== "unplaced" && (fixture.x < 0 || fixture.y < 0 || fixture.x > width || fixture.y > height))
+        || state.objects.some((object) => object.x < 0 || object.y < 0 || object.x + object.width > width || object.y + object.height > height);
+      if (contentOutside) return "기존 요소가 포함되도록 맵 크기를 늘려주세요.";
+      const current = state.floor.floorPlan;
+      const floorPlan: FloorPlanDraft = current ? { ...current, width, height, gridSize } : {
+        imageUrl: "", sourceType: "none", originalFileUrl: null, renderedImageUrl: null,
+        width, height, gridSize, version: 1
+      };
+      commit({ ...state, floor: { ...state.floor, floorPlan } });
+      return null;
+    },
     addObject: (floorId, draft) => {
       const { state, layers } = get(); if (!state || state.floor.id !== floorId || layers.objects.locked) return;
-      const object: FloorMapObject = { ...draft, id: `draft-${crypto.randomUUID()}`, floorId, zIndex: draft.zIndex ?? state.objects.length + 1 };
+      const bounds = { width: state.floor.floorPlan?.width ?? 1200, height: state.floor.floorPlan?.height ?? 800 };
+      const gridSize = state.floor.floorPlan?.gridSize ?? 10;
+      const sourceRect = { x: draft.x, y: draft.y, width: draft.width, height: draft.height };
+      const snapped = get().snap
+        ? draft.type === "line"
+          ? { ...snapRectToGrid({ ...sourceRect, height: gridSize }, gridSize), height: 0 }
+          : snapRectToGrid(sourceRect, gridSize)
+        : sourceRect;
+      const geometry = clampObjectToMap(snapped, bounds);
+      const object: FloorMapObject = {
+        ...draft,
+        ...geometry,
+        height: draft.type === "line" ? 0 : geometry.height,
+        points: draft.type === "triangle" ? trianglePointsForSize(geometry.width, geometry.height) : draft.points,
+        id: `draft-${crypto.randomUUID()}`,
+        floorId,
+        zIndex: draft.zIndex ?? state.objects.length + 1
+      };
       commit({ ...state, objects: [...state.objects, object] }, { selection: { kind: "object", id: object.id }, selectedFixtureIds: [], activeTool: "select" });
     },
     updateObject: (id, patch) => {
@@ -177,8 +221,29 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       const object = state.objects.find((o) => o.id === id);
       // Locked shapes can only be unlocked/hidden explicitly from the layer panel.
       if (!object || object.locked && Object.keys(patch).some((key) => key !== "locked" && key !== "visible")) return;
-      if (!Object.entries(patch).some(([key, value]) => !Object.is(object[key as keyof FloorMapObject], value))) return;
-      commit({ ...state, objects: state.objects.map((o) => o.id === id ? { ...o, ...patch } : o) });
+      let normalizedPatch = patch;
+      if (["x", "y", "width", "height"].some((key) => key in patch)) {
+        const bounds = { width: state.floor.floorPlan?.width ?? 1200, height: state.floor.floorPlan?.height ?? 800 };
+        const gridSize = state.floor.floorPlan?.gridSize ?? 10;
+        const merged = { x: patch.x ?? object.x, y: patch.y ?? object.y, width: patch.width ?? object.width, height: object.type === "line" ? 0 : patch.height ?? object.height };
+        const isResize = "width" in patch || "height" in patch;
+        const snapped = get().snap
+          ? isResize
+            ? object.type === "line"
+              ? { ...snapRectToGrid({ ...merged, height: gridSize }, gridSize), height: 0 }
+              : snapRectToGrid(merged, gridSize)
+            : { ...merged, ...snapPointToGrid(merged, gridSize) }
+          : merged;
+        const geometry = clampObjectToMap(snapped, bounds);
+        normalizedPatch = {
+          ...patch,
+          ...geometry,
+          height: object.type === "line" ? 0 : geometry.height,
+          ...(object.type === "triangle" ? { points: trianglePointsForSize(geometry.width, geometry.height) } : {})
+        };
+      }
+      if (!Object.entries(normalizedPatch).some(([key, value]) => !Object.is(object[key as keyof FloorMapObject], value))) return;
+      commit({ ...state, objects: state.objects.map((o) => o.id === id ? { ...o, ...normalizedPatch } : o) });
     },
     removeObject: (id) => {
       const { state, layers } = get(); if (!state || layers.objects.locked || !state.objects.some((o) => o.id === id && !o.locked)) return;

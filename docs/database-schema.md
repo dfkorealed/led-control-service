@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-09-03
+작성일: 2026-09-10
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -406,6 +406,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 | `imageUrl` | `String` | 예 |  | 도면 이미지 URL |
 | `width` | `Int` | 예 |  | 도면 기준 너비 |
 | `height` | `Int` | 예 |  | 도면 기준 높이 |
+| `gridSize` | `Int` | 예 | `10`, DB check `5~200` | 층별 맵 편집 격자 및 절대 좌표 스냅 간격 |
 | `version` | `Int` | 예 | `1` | 도면 버전 |
 | `sourceType` | `FloorPlanSourceType` | 예 | `image` | 배경 원본 종류. 기존 도면은 이미지로 간주 |
 | `originalFileUrl` | `String?` | 아니오 |  | 업로드한 원본 JPG/PNG/PDF 파일 URL |
@@ -419,8 +420,9 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 
 운영 메모:
 
-- 현재 읽기 전용 모니터링 화면은 `imageUrl`, `width`, `height`를 사용한다.
-- 구현 중인 에디터에서는 `sourceType = none`이거나 `FloorPlan`이 없을 때 배경 없는 격자 캔버스를 표시한다.
+- 현재 읽기 전용 모니터링 화면은 `imageUrl`, `width`, `height`와 저장된 맵 객체·조명 좌표를 사용한다.
+- 맵 편집기는 `sourceType = none`이거나 `FloorPlan`이 없을 때 배경 없는 격자 캔버스를 표시한다. 배경이 없어도 맵 크기와 `gridSize`를 저장하기 위해 `sourceType = none`인 `FloorPlan`을 생성할 수 있다.
+- `gridSize`는 `20260910000000_floor_plan_grid_size` migration으로 추가한다. 기존 행은 `10`으로 backfill되며 DB와 API가 모두 `5~200` 범위를 검증한다.
 - PDF 업로드는 원본 ready asset URL을 `originalFileUrl`, 첫 페이지 PNG ready asset URL을 `renderedImageUrl`에 저장한다.
 - `imageUrl`, `originalFileUrl`, `renderedImageUrl`은 같은 층의 ready `FloorAsset.publicUrl`만 허용하며 data URL과 임의 외부 URL을 거부한다.
 

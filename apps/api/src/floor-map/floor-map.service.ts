@@ -46,7 +46,8 @@ export class FloorMapService {
             originalFileUrl: floor.floorPlan.originalFileUrl,
             renderedImageUrl: floor.floorPlan.renderedImageUrl,
             width: floor.floorPlan.width,
-            height: floor.floorPlan.height
+            height: floor.floorPlan.height,
+            gridSize: floor.floorPlan.gridSize ?? 10
           }
         : null,
       objects: floor.mapObjects.map((object) => ({
