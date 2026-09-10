@@ -9,6 +9,7 @@ interface SnapshotFloor {
     renderedImageUrl: string | null;
     width: number;
     height: number;
+    gridSize?: number;
   };
   fixtures: Array<{
     id: string;
@@ -50,7 +51,8 @@ export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnaps
           originalFileUrl: floor.floorPlan.originalFileUrl,
           renderedImageUrl: floor.floorPlan.renderedImageUrl,
           width: floor.floorPlan.width,
-          height: floor.floorPlan.height
+          height: floor.floorPlan.height,
+          gridSize: floor.floorPlan.gridSize ?? 10
         }
       : null,
     fixtures: [...floor.fixtures]

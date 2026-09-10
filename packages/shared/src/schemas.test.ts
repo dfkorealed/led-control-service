@@ -626,10 +626,11 @@ describe("shared schemas", () => {
     };
 
     const upgraded = { ...legacySnapshot, version: 2,
+      floorPlan: { ...legacySnapshot.floorPlan, gridSize: 10 },
       fixtures: legacySnapshot.fixtures.map((fixture) => ({ ...fixture, placementStatus: "placed", positionVerifiedAt: null })) };
     expect(parseFloorEditorSnapshot(legacySnapshot)).toEqual(upgraded);
     expect(floorEditorSnapshotSchema.parse(legacySnapshot)).toEqual(upgraded);
-    expect(() => floorPlanUpdateSchema.parse(legacySnapshot.floorPlan)).toThrow();
+    expect(floorPlanUpdateSchema.parse(legacySnapshot.floorPlan)).toEqual(upgraded.floorPlan);
   });
 
   it("rejects unsafe legacy snapshot values", () => {
@@ -657,7 +658,8 @@ describe("shared schemas", () => {
       originalFileUrl: "https://assets.example/floor.png",
       renderedImageUrl: "https://assets.example/floor.png",
       width: 1200,
-      height: 800
+      height: 800,
+      gridSize: 10
     };
     const pdfPlan = {
       ...imagePlan,
@@ -668,6 +670,19 @@ describe("shared schemas", () => {
 
     expect(floorPlanUpdateSchema.parse(imagePlan)).toEqual(imagePlan);
     expect(floorPlanUpdateSchema.parse(pdfPlan)).toEqual(pdfPlan);
+
+    const mapOnlyPlan = {
+      sourceType: "none" as const,
+      imageUrl: "",
+      originalFileUrl: null,
+      renderedImageUrl: null,
+      width: 1600,
+      height: 900,
+      gridSize: 20
+    };
+    expect(floorPlanUpdateSchema.parse(mapOnlyPlan)).toEqual(mapOnlyPlan);
+    expect(() => floorPlanUpdateSchema.parse({ ...mapOnlyPlan, gridSize: 1 })).toThrow();
+    expect(() => floorPlanUpdateSchema.parse({ ...mapOnlyPlan, gridSize: 201 })).toThrow();
     expect(() => floorPlanUpdateSchema.parse({ sourceType: "image" })).toThrow();
     expect(() => floorPlanUpdateSchema.parse({ ...imagePlan, imageUrl: "   " })).toThrow();
     expect(() => floorPlanUpdateSchema.parse({ ...imagePlan, sourceType: "none" })).toThrow();

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui";
 import { placementLabel } from "./FixturePlacementList";
 import { useFloorEditorStore } from "./editor-store";
+import type { FloorMapObject } from "./editor-types";
 
 export function EditorPropertiesPanel({ readOnly = false }: { readOnly?: boolean }) {
   const { state, selection, updateFixture, updateObject } = useFloorEditorStore();
@@ -17,14 +18,7 @@ export function EditorPropertiesPanel({ readOnly = false }: { readOnly?: boolean
   }, [state, selection]);
 
   if (ids.length > 1) return <BatchProperties readOnly={readOnly || layers.fixtures.locked} />;
-  if (!state || !selected?.value) {
-    return (
-      <aside className="editor-properties-panel" aria-label="속성 패널">
-        <span className="eyebrow">속성</span>
-        <h3>선택 없음</h3>
-      </aside>
-    );
-  }
+  if (!state || !selected?.value) return <MapProperties readOnly={readOnly} />;
 
   if (selected.kind === "fixture") {
     const fixture = selected.value;
@@ -40,63 +34,141 @@ export function EditorPropertiesPanel({ readOnly = false }: { readOnly?: boolean
         </label>
         <label>
           정격 전력
-          <input
-            type="number"
-            disabled={readOnly}
-            value={fixture.ratedWatt}
-            onChange={(event) => updateFixture(fixture.id, { ratedWatt: Number(event.target.value) })}
-          />
+          <input type="number" disabled={readOnly} value={fixture.ratedWatt} onChange={(event) => updateFixture(fixture.id, { ratedWatt: Number(event.target.value) })} />
         </label>
         <div className="editor-property-grid">
-          <label>
-            X
-            <input type="number" disabled={readOnly || fixture.placementStatus === "unplaced"} value={Math.round(fixture.x)} onChange={(event) => updateFixture(fixture.id, { x: Number(event.target.value) })} />
-          </label>
-          <label>
-            Y
-            <input type="number" disabled={readOnly || fixture.placementStatus === "unplaced"} value={Math.round(fixture.y)} onChange={(event) => updateFixture(fixture.id, { y: Number(event.target.value) })} />
-          </label>
-          <label>
-            크기
-            <input type="number" disabled={readOnly} value={Math.round(fixture.size ?? 20)} onChange={(event) => updateFixture(fixture.id, { size: Number(event.target.value) })} />
-          </label>
+          <NumberProperty label="X" value={fixture.x} disabled={readOnly || fixture.placementStatus === "unplaced"} onChange={(x) => updateFixture(fixture.id, { x })} />
+          <NumberProperty label="Y" value={fixture.y} disabled={readOnly || fixture.placementStatus === "unplaced"} onChange={(y) => updateFixture(fixture.id, { y })} />
+          <NumberProperty label="크기" value={fixture.size ?? 20} disabled={readOnly} onChange={(size) => updateFixture(fixture.id, { size })} />
         </div>
       </aside>
     );
   }
 
   const object = selected.value;
-  readOnly ||= object.locked || layers.objects.locked;
+  return <ObjectProperties object={object} readOnly={readOnly || object.locked || layers.objects.locked} onChange={(patch) => updateObject(object.id, patch)} />;
+}
+
+function MapProperties({ readOnly }: { readOnly: boolean }) {
+  const floorPlan = useFloorEditorStore((s) => s.state?.floor.floorPlan);
+  const updateMapSettings = useFloorEditorStore((s) => s.updateMapSettings);
+  const [width, setWidth] = useState(floorPlan?.width ?? 1200);
+  const [height, setHeight] = useState(floorPlan?.height ?? 800);
+  const [gridSize, setGridSize] = useState(floorPlan?.gridSize ?? 10);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWidth(floorPlan?.width ?? 1200);
+    setHeight(floorPlan?.height ?? 800);
+    setGridSize(floorPlan?.gridSize ?? 10);
+    setError(null);
+  }, [floorPlan?.width, floorPlan?.height, floorPlan?.gridSize]);
+
   return (
     <aside className="editor-properties-panel" aria-label="속성 패널">
-      <span className="eyebrow">도형 속성</span>
-      <h3>{object.type}</h3>
-      <div className="editor-property-grid">{(["x", "y", "width", "height"] as const).map((key) => <label key={key}>{({ x: "X", y: "Y", width: "너비", height: "높이" })[key]}<input type="number" disabled={readOnly || object.type === "line" && key === "height"} value={object[key]} onChange={(e) => {
-        const value = Number(e.target.value); if (!Number.isFinite(value) || value < 0) return;
-        const width = key === "width" ? value : object.width, height = key === "height" ? value : object.height;
-        updateObject(object.id, { [key]: value, ...(object.type === "triangle" ? { points: [{ x: width / 2, y: 0 }, { x: width, y: height }, { x: 0, y: height }] } : {}) });
-      }} /></label>)}</div>
-      <label>
-        선 색상
-        <input type="color" disabled={readOnly} value={normalizeColorValue(object.strokeColor)} onChange={(event) => updateObject(object.id, { strokeColor: event.target.value })} />
-      </label>
-      <label>
-        채우기 색상
-        <input type="color" disabled={readOnly} value={normalizeColorValue(object.fillColor ?? "")} onChange={(event) => updateObject(object.id, { fillColor: event.target.value })} />
-      </label>
-      <label>
-        선 두께
-        <input type="number" disabled={readOnly} value={object.strokeWidth} onChange={(event) => updateObject(object.id, { strokeWidth: Number(event.target.value) })} />
-      </label>
-      <label>
-        텍스트
-        <input disabled={readOnly} value={object.text} onChange={(event) => updateObject(object.id, { text: event.target.value })} />
-      </label>
-      <label>
-        글자 크기
-        <input type="number" disabled={readOnly} value={object.fontSize ?? 16} onChange={(event) => updateObject(object.id, { fontSize: Number(event.target.value) })} />
-      </label>
+      <span className="eyebrow">맵 전체</span>
+      <h3>맵 설정</h3>
+      <p className="muted-text">아무 요소도 선택하지 않았습니다.</p>
+      <div className="editor-property-grid">
+        <NumberProperty label="맵 너비" value={width} disabled={readOnly} min={1} onChange={setWidth} />
+        <NumberProperty label="맵 높이" value={height} disabled={readOnly} min={1} onChange={setHeight} />
+      </div>
+      <NumberProperty label="격자 간격" value={gridSize} disabled={readOnly} min={5} max={200} onChange={setGridSize} />
+      <p className="muted-text">격자 간격은 5~200 사이에서 설정할 수 있습니다.</p>
+      {error ? <p className="field-error" role="alert">{error}</p> : null}
+      <Button
+        variant="primary"
+        disabled={readOnly || width === (floorPlan?.width ?? 1200) && height === (floorPlan?.height ?? 800) && gridSize === (floorPlan?.gridSize ?? 10)}
+        onClick={() => setError(updateMapSettings({ width, height, gridSize }))}
+      >
+        맵 설정 적용
+      </Button>
     </aside>
+  );
+}
+
+function ObjectProperties({ object, readOnly, onChange }: {
+  object: FloorMapObject;
+  readOnly: boolean;
+  onChange: (patch: Partial<FloorMapObject>) => void;
+}) {
+  const names = { rectangle: "네모", triangle: "세모", line: "선", text: "텍스트" } as const;
+  const number = (key: "x" | "y" | "width" | "height", label: string) => (
+    <NumberProperty key={key} label={label} value={object[key]} disabled={readOnly} onChange={(value) => onChange({ [key]: value })} />
+  );
+
+  return (
+    <aside className="editor-properties-panel" aria-label="속성 패널">
+      <span className="eyebrow">{names[object.type]} 속성</span>
+      <h3>{names[object.type]}</h3>
+      <div className="editor-property-grid">
+        {number("x", "X")}
+        {number("y", "Y")}
+        {object.type === "line" ? number("width", "길이") : (
+          <>
+            {number("width", "너비")}
+            {number("height", "높이")}
+          </>
+        )}
+      </div>
+      {object.type === "text" ? (
+        <>
+          <label>
+            텍스트 내용
+            <input disabled={readOnly} value={object.text} onChange={(event) => onChange({ text: event.target.value })} />
+          </label>
+          <NumberProperty label="글자 크기" value={object.fontSize ?? 16} disabled={readOnly} min={1} onChange={(fontSize) => onChange({ fontSize })} />
+          <ColorProperty label="글자 색상" value={object.strokeColor} disabled={readOnly} onChange={(strokeColor) => onChange({ strokeColor })} />
+        </>
+      ) : (
+        <>
+          <ColorProperty label="선 색상" value={object.strokeColor} disabled={readOnly} onChange={(strokeColor) => onChange({ strokeColor })} />
+          {object.type !== "line" ? <ColorProperty label="채우기 색상" value={object.fillColor ?? ""} disabled={readOnly} onChange={(fillColor) => onChange({ fillColor })} /> : null}
+          <NumberProperty label="선 두께" value={object.strokeWidth} disabled={readOnly} min={1} onChange={(strokeWidth) => onChange({ strokeWidth })} />
+        </>
+      )}
+    </aside>
+  );
+}
+
+function NumberProperty({ label, value, disabled, min = 0, max, onChange }: {
+  label: string;
+  value: number;
+  disabled: boolean;
+  min?: number;
+  max?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label>
+      {label}
+      <input
+        type="number"
+        aria-label={label}
+        disabled={disabled}
+        min={min}
+        max={max}
+        value={Math.round(value)}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          if (Number.isFinite(next) && next >= min && (max === undefined || next <= max)) onChange(next);
+        }}
+      />
+    </label>
+  );
+}
+
+function ColorProperty({ label, value, disabled, onChange }: {
+  label: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label>
+      {label}
+      <input type="color" aria-label={label} disabled={disabled} value={normalizeColorValue(value)} onChange={(event) => onChange(event.target.value)} />
+    </label>
   );
 }
 
@@ -112,7 +184,7 @@ function BatchProperties({ readOnly }: { readOnly: boolean }) {
   const fixtures = state?.fixtures.filter((f) => ids.includes(f.id) && !locked.includes(f.id)) ?? [];
   const mixed = (key: "size" | "ratedWatt") => new Set(fixtures.map((f) => f[key] ?? 20)).size > 1 ? "혼합값" : String(fixtures[0]?.[key] ?? "");
   const valid = (!size || Number.isFinite(Number(size)) && Number(size) >= 4 && Number(size) <= 200) && (!watt || Number.isFinite(Number(watt)) && Number(watt) >= 0 && Number(watt) <= 10000) && Number.isInteger(start) && start >= 0;
-  return <aside className="editor-properties-panel" aria-label="속성 패널"><h3>{ids.length}개 선택</h3><p>수정 대상 {fixtures.length}개</p>
+  return <aside className="editor-properties-panel" aria-label="속성 패널"><span className="eyebrow">조명 일괄 속성</span><h3>{ids.length}개 선택</h3><p>수정 대상 {fixtures.length}개</p>
     <label>이름 접두어<input value={prefix} maxLength={100} onChange={(e) => { setPrefix(e.target.value); setPreview(false); }} /></label>
     <label>시작 번호<input type="number" value={start} min={0} onChange={(e) => { setStart(Number(e.target.value)); setPreview(false); }} /></label>
     <label>일괄 크기<input type="number" value={size} placeholder={mixed("size")} onChange={(e) => { setSize(e.target.value); setPreview(false); }} /></label>

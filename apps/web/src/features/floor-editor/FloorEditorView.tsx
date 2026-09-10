@@ -62,7 +62,7 @@ export function FloorEditorView({
 }: FloorEditorViewProps) {
   readOnly ||= userRole !== "admin";
   const queryClient = useQueryClient();
-  const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap })));
+  const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap, selection, selectedFixtureIds } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap, selection: s.selection, selectedFixtureIds: s.selectedFixtureIds })));
   const [panelTab, setPanelTab] = useState("properties");
   const [recovery, setRecovery] = useState<FloorEditorState | null>(null);
   const [draftError, setDraftError] = useState(false);
@@ -128,6 +128,10 @@ export function FloorEditorView({
   useEffect(() => {
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
+
+  useEffect(() => {
+    setPanelTab("properties");
+  }, [selection?.kind, selection?.id, selectedFixtureIds.length]);
 
   async function handleSave() {
     if (readOnly || !state || !baseline || state.floor.id !== floorId || baseline.floor.id !== floorId || state.floor.siteId !== siteId || !isDirty || mutationLock.current || !leaseToken || !leaseFence) return;
@@ -202,7 +206,7 @@ export function FloorEditorView({
   return (
     <section className="floor-editor-shell">
       <PageHeader
-        title={`${initialState.floor.name} 도면 편집`}
+        title={`${initialState.floor.name} 맵 편집`}
         description={`리비전 ${baseline?.floor.mapRevision ?? initialState.floor.mapRevision}${isDirty ? " · 저장하지 않은 변경사항" : " · 저장됨"}`}
         actions={(
           <div className="floor-editor-actions">
@@ -216,7 +220,7 @@ export function FloorEditorView({
             <Button variant="ghost" className="floor-editor-icon-button" aria-label="확대" onClick={() => setZoom(zoom + 0.1)}>
               <ZoomIn size={18} aria-hidden="true" />
             </Button>
-            <Button variant="ghost" aria-label="도면 맞춤" title="도면 맞춤" onClick={() => useFloorEditorStore.getState().fit()}><Maximize size={18} /></Button>
+            <Button variant="ghost" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit()}><Maximize size={18} /></Button>
             <Button variant="ghost" aria-label="선택 맞춤" title="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)}><Focus size={18} /></Button>
             <Button variant="secondary" onClick={onCancel}>
               <Undo2 size={16} aria-hidden="true" />
@@ -243,7 +247,7 @@ export function FloorEditorView({
         <FeedbackState
           tone="danger"
           icon={TriangleAlert}
-          title="최신 도면과 변경사항이 충돌했습니다."
+          title="최신 맵과 변경사항이 충돌했습니다."
           description="최신 버전을 다시 불러온 뒤 변경사항을 확인하세요."
           action={<Button variant="secondary" onClick={() => { if (!isDirty || window.confirm("로컬 변경사항을 버리고 최신 버전을 불러올까요?")) { useFloorEditorStore.getState().discardChanges(); void onReload(); } }}>최신 버전 다시 불러오기</Button>}
         />
@@ -256,7 +260,7 @@ export function FloorEditorView({
 
       <div className="floor-editor-layout">
         <div className="floor-editor-left-panel"><FixturePlacementList readOnly={readOnly || isMutationPending} />
-        <aside className="floor-editor-toolbar" role="toolbar" aria-label="도면 편집 도구">
+        <aside className="floor-editor-toolbar" role="toolbar" aria-label="맵 편집 도구">
           {tools.map((tool) => {
             const Icon = tool.icon;
             return (
@@ -333,7 +337,7 @@ function RevisionPanel({
   onRestore: (revision: number) => void;
 }) {
   return (
-    <section className="editor-revisions" aria-label="도면 버전">
+    <section className="editor-revisions" aria-label="맵 버전">
       <div>
         <span className="eyebrow">버전</span>
         <h3>변경 기록</h3>

@@ -453,7 +453,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     expect(window.location.search).toBe("?siteId=site-2");
     expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("href", "/settings?siteId=site-2");
     expect(screen.queryByLabelText("설정 메뉴")).not.toBeInTheDocument();
@@ -878,7 +878,7 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "도면 편집" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
   });
 
@@ -938,7 +938,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "도면 편집" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
   });
 
   it("renders redesigned landmarks for control statistics and settings", async () => {

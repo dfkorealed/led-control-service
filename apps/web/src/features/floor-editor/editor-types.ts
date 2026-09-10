@@ -23,6 +23,7 @@ export interface FloorPlanDraft {
   renderedImageUrl?: string | null;
   width: number;
   height: number;
+  gridSize?: number;
   version: number;
 }
 

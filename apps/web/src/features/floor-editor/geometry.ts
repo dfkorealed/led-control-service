@@ -10,6 +10,8 @@ export interface Bounds {
   height: number;
 }
 
+export interface MapRect extends Point, Bounds {}
+
 interface Delta {
   dx: number;
   dy: number;
@@ -28,6 +30,46 @@ export function clampPoint(point: Point, bounds: Bounds): Point {
     x: Math.min(Math.max(point.x, 0), bounds.width),
     y: Math.min(Math.max(point.y, 0), bounds.height)
   };
+}
+
+export function snapValueToGrid(value: number, gridSize: number) {
+  return Math.round(value / gridSize) * gridSize;
+}
+
+export function snapPointToGrid(point: Point, gridSize: number): Point {
+  return {
+    x: snapValueToGrid(point.x, gridSize),
+    y: snapValueToGrid(point.y, gridSize)
+  };
+}
+
+export function snapRectToGrid(rect: MapRect, gridSize: number): MapRect {
+  const start = snapPointToGrid(rect, gridSize);
+  const end = snapPointToGrid({ x: rect.x + rect.width, y: rect.y + rect.height }, gridSize);
+  return {
+    ...start,
+    width: Math.max(gridSize, end.x - start.x),
+    height: Math.max(gridSize, end.y - start.y)
+  };
+}
+
+export function clampObjectToMap(rect: MapRect, bounds: Bounds): MapRect {
+  const width = Math.min(Math.max(rect.width, 0), bounds.width);
+  const height = Math.min(Math.max(rect.height, 0), bounds.height);
+  return {
+    x: Math.min(Math.max(rect.x, 0), Math.max(0, bounds.width - width)),
+    y: Math.min(Math.max(rect.y, 0), Math.max(0, bounds.height - height)),
+    width,
+    height
+  };
+}
+
+export function trianglePointsForSize(width: number, height: number) {
+  return [
+    { x: width / 2, y: 0 },
+    { x: width, y: height },
+    { x: 0, y: height }
+  ];
 }
 
 export function moveByDelta(point: Point, delta: Delta, bounds: Bounds): Point {
@@ -54,11 +96,7 @@ export function createDefaultObject(tool: EditorTool, point: Point): FloorMapObj
       type: "triangle",
       width: 120,
       height: 104,
-      points: [
-        { x: 60, y: 0 },
-        { x: 120, y: 104 },
-        { x: 0, y: 104 }
-      ]
+      points: trianglePointsForSize(120, 104)
     };
   }
 
@@ -85,11 +123,7 @@ export function createObjectFromDrag(tool: EditorTool, start: Point, end: Point)
       ...object,
       width,
       height,
-      points: [
-        { x: width / 2, y: 0 },
-        { x: width, y: height },
-        { x: 0, y: height }
-      ]
+      points: trianglePointsForSize(width, height)
     };
   }
 

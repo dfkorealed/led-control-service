@@ -30,6 +30,7 @@ interface UpdateFloorPlanInput {
   renderedImageUrl?: string | null;
   width?: number;
   height?: number;
+  gridSize?: number;
 }
 
 interface UpdateFixtureInput {
@@ -86,15 +87,17 @@ type FloorPlanData = {
   renderedImageUrl?: string | null;
   width?: number;
   height?: number;
+  gridSize?: number;
 };
 
 type CompleteFloorPlanData = {
   imageUrl: string;
-  sourceType: "image" | "pdf";
-  originalFileUrl: string;
-  renderedImageUrl: string;
+  sourceType: FloorPlanSourceType;
+  originalFileUrl: string | null;
+  renderedImageUrl: string | null;
   width: number;
   height: number;
+  gridSize: number;
 };
 
 interface PreparedSaveEditorState {
@@ -327,6 +330,7 @@ export class FloorEditorService {
               renderedImageUrl: floor.floorPlan.renderedImageUrl,
               width: floor.floorPlan.width,
               height: floor.floorPlan.height,
+              gridSize: floor.floorPlan.gridSize ?? 10,
               version: floor.floorPlan.version
             }
           : null
@@ -782,6 +786,11 @@ export class FloorEditorService {
     }
     if (input.width !== undefined) data.width = this.positiveInteger(input.width, "width");
     if (input.height !== undefined) data.height = this.positiveInteger(input.height, "height");
+    if (input.gridSize !== undefined) {
+      const gridSize = this.positiveInteger(input.gridSize, "gridSize");
+      if (gridSize < 5 || gridSize > 200) throw new BadRequestException("gridSize must be between 5 and 200");
+      data.gridSize = gridSize;
+    }
 
     return data;
   }

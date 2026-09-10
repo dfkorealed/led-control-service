@@ -336,6 +336,7 @@ model FloorPlan {
   renderedImageUrl String?
   width            Int
   height           Int
+  gridSize         Int                 @default(10)
   version          Int                 @default(1)
   floor            Floor               @relation(fields: [floorId], references: [id], onDelete: Cascade)
   createdAt        DateTime            @default(now())

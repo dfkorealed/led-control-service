@@ -569,7 +569,8 @@ describe("FloorEditorService atomic revisions", () => {
         originalFileUrl: "https://assets.example/b2.png",
         renderedImageUrl: "https://assets.example/b2-rendered.png",
         width: 1200,
-        height: 800
+        height: 800,
+        gridSize: 10
       },
       fixtures: [
         { id: fixtureId, name: "B2-L01", ratedWatt: "40.00", x: 130, y: 250, size: 24, placementStatus: "placed", positionVerifiedAt: null },
@@ -588,7 +589,55 @@ describe("FloorEditorService atomic revisions", () => {
         }
       ]
     });
-    expect(revisionData.snapshotSha256).toBe("48af51e8b9ce673be95f7decce8a5c2d7ff9116f0ef08d8ffe26eec354182161");
+    expect(revisionData.snapshotSha256).toBe("b94b1e38ef58dc2aa429f5347d5647cf3c648eb063dd5be8750ee15123eb7a4f");
+  });
+
+  it("persists map dimensions and grid settings without a background asset", async () => {
+    const tx = createTransactionClient();
+    const { service } = await createAtomicService({ tx });
+
+    await service.saveEditorState(user, floorId, {
+      expectedRevision: 3,
+      leaseToken,
+      leaseFence,
+      floorPlan: {
+        sourceType: "none",
+        imageUrl: "",
+        originalFileUrl: null,
+        renderedImageUrl: null,
+        width: 1600,
+        height: 900,
+        gridSize: 20
+      },
+      fixtureUpdates: [],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    });
+
+    expect(tx.floorPlan.upsert).toHaveBeenCalledWith({
+      where: { floorId },
+      create: {
+        floorId,
+        sourceType: "none",
+        imageUrl: "",
+        originalFileUrl: null,
+        renderedImageUrl: null,
+        width: 1600,
+        height: 900,
+        gridSize: 20
+      },
+      update: {
+        sourceType: "none",
+        imageUrl: "",
+        originalFileUrl: null,
+        renderedImageUrl: null,
+        width: 1600,
+        height: 900,
+        gridSize: 20,
+        version: { increment: 1 }
+      }
+    });
   });
 
   it("saves a deterministic snapshot when persisted rows use legacy none and nullable geometry", async () => {

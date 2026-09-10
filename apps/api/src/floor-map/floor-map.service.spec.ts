@@ -69,7 +69,8 @@ describe("FloorMapService", () => {
         originalFileUrl: null,
         renderedImageUrl: null,
         width: 1600,
-        height: 900
+        height: 900,
+        gridSize: 10
       },
       objects: [{
         id: "object-1",

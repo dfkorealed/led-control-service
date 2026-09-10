@@ -203,7 +203,7 @@ test("real pointer list drop, cancel/unplace, undo, save and floor isolation", a
   expect((await currentState(page)).fixtures[0]).toEqual(state.fixtures[0]);
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
-  await expect(page.getByRole("heading", { name: "B1 도면 편집" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "B1 맵 편집" })).toBeVisible();
   expect(saves).toHaveLength(1);
   await page.getByLabel("층 선택", { exact: true }).selectOption("floor-2");
   await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-floor-id", "floor-2");
@@ -235,7 +235,7 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
   await page.getByRole("button", { name: "실행 취소", exact: true }).click();
   expect((await currentState(page)).fixtures[0].placementStatus).toBe("unplaced");
   await page.getByRole("button", { name: "다시 실행" }).click();
-  await page.getByRole("button", { name: "도면 맞춤" }).click();
+  await page.getByRole("button", { name: "맵 맞춤" }).click();
   const canvas = page.getByTestId("floor-editor-canvas");
   const box = (await canvas.boundingBox())!;
   const originalNodes = await page.evaluateHandle(() => {
@@ -302,7 +302,7 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
   await page.mouse.click(currentBox.x + firstPosition.x, currentBox.y + firstPosition.y);
   for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
     await page.setViewportSize(viewport);
-    await page.getByRole("button", { name: "도면 맞춤" }).click();
+    await page.getByRole("button", { name: "맵 맞춤" }).click();
     await expect(page.getByRole("button", { name: "배치 해제", exact: true })).toBeVisible();
     const labels = await renderedLabels(page);
     expect(labels.bulkCount).toBe(0);

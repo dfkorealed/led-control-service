@@ -27,6 +27,24 @@ describe("floor editor store baseline", () => {
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 
+  it("snaps fixture movement to absolute grid coordinates", () => {
+    useFloorEditorStore.getState().setSnap(true);
+    useFloorEditorStore.getState().moveFixtures(["fixture-1"], { x: 7, y: 7 });
+
+    expect(useFloorEditorStore.getState().state!.fixtures[0]).toMatchObject({ x: 20, y: 30 });
+  });
+
+  it("stores map-only dimensions and rejects shrinking across existing content", () => {
+    expect(useFloorEditorStore.getState().updateMapSettings({ width: 1600, height: 900, gridSize: 20 })).toBeNull();
+    expect(useFloorEditorStore.getState().state!.floor.floorPlan).toMatchObject({
+      sourceType: "none", width: 1600, height: 900, gridSize: 20
+    });
+
+    expect(useFloorEditorStore.getState().updateMapSettings({ width: 12, height: 12, gridSize: 10 }))
+      .toBe("기존 요소가 포함되도록 맵 크기를 늘려주세요.");
+    expect(useFloorEditorStore.getState().state!.floor.floorPlan).toMatchObject({ width: 1600, height: 900 });
+  });
+
   it.each([121, maxNameLength])("moves a fixture with an existing %i-character name", (length) => {
     const fixture = { ...initialState.fixtures[0], name: "L".repeat(length) };
     useFloorEditorStore.getState().initialize({ ...initialState, fixtures: [fixture] });

@@ -115,7 +115,8 @@ describe("buildEditorChanges", () => {
       originalFileUrl: "/plan.png",
       renderedImageUrl: "/plan.png",
       width: 1400,
-      height: 800
+      height: 800,
+      gridSize: 10
     });
   });
 
@@ -126,7 +127,7 @@ describe("buildEditorChanges", () => {
     expect(buildEditorChanges(initial, current).floorPlan).toBeNull();
   });
 
-  it("treats null and a none floor plan as the same API state", () => {
+  it("persists a map-only floor plan separately from an absent floor plan", () => {
     const initial = state({ floor: { ...state().floor, floorPlan: null } });
     const current = state({
       floor: {
@@ -143,7 +144,15 @@ describe("buildEditorChanges", () => {
       }
     });
 
-    expect(buildEditorChanges(initial, current)).not.toHaveProperty("floorPlan");
+    expect(buildEditorChanges(initial, current).floorPlan).toEqual({
+      imageUrl: "",
+      sourceType: "none",
+      originalFileUrl: null,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800,
+      gridSize: 10
+    });
   });
 
   it("treats default source and fallback asset URLs as the same API state", () => {

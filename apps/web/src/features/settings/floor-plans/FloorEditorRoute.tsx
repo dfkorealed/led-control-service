@@ -80,9 +80,9 @@ export function FloorEditorRoute({ userRole }: FloorEditorRouteProps) {
   }
 
   if (!canEdit) return <Navigate to={listPath} replace />;
-  if (editorQuery.error) return <div className="panel danger">도면 편집기를 불러오지 못했습니다.</div>;
-  if (editorQuery.isLoading || !editorQuery.data) return <div className="panel">도면 편집기를 불러오는 중</div>;
-  if (!selectedSiteId) return <div className="panel">도면 편집기를 불러오는 중</div>;
+  if (editorQuery.error) return <div className="panel danger">맵 편집기를 불러오지 못했습니다.</div>;
+  if (editorQuery.isLoading || !editorQuery.data) return <div className="panel">맵 편집기를 불러오는 중</div>;
+  if (!selectedSiteId) return <div className="panel">맵 편집기를 불러오는 중</div>;
   if (selectedSiteId !== editorQuery.data.floor.siteId) {
     return <Navigate to={`/settings/floor-plans?siteId=${encodeURIComponent(selectedSiteId)}`} replace />;
   }

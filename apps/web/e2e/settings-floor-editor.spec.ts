@@ -23,7 +23,7 @@ test("operator customer routes are blocked and admin floor changes are reflected
   const adminPage = await browser.newPage();
   const adminApi = await installSettingsApiRoutes(adminPage, "admin");
   await adminPage.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
-  await expect(adminPage.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+  await expect(adminPage.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
   await expect.poll(() => {
     const latestLease = [...adminApi.editorRequests].reverse().find((request) => request.type === "lease-acquire");
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;
@@ -85,8 +85,8 @@ test("viewer is redirected before editor state and lease requests while mutation
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
   const floorRow = page.locator(".floor-plan-card").filter({ hasText: "B2" });
-  await expect(floorRow).toContainText("도면 등록됨");
-  await expect(floorRow.getByRole("link", { name: "B2 도면 편집" })).toHaveCount(0);
+  await expect(floorRow).toContainText("맵 설정됨");
+  await expect(floorRow.getByRole("link", { name: "B2 맵 편집" })).toHaveCount(0);
   expect(api.requests.filter((path) => path.includes("/editor-state") || path.includes("/editor-lease"))).toEqual([]);
 
   const status = await page.evaluate(async () => {
@@ -163,7 +163,7 @@ test("settings browser fixture isolates unknown tenant route data", async ({ pag
 test("dirty editor logout keeps the draft on cancel and logs out only after confirmation", async ({ page }) => {
   const api = await installSettingsApiRoutes(page, "admin");
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
-  await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
   await expect.poll(() => {
     const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;
@@ -203,7 +203,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
       const api = await installSettingsApiRoutes(page, "admin");
       await page.goto("/settings?siteId=site-1#fragment");
       await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1#fragment");
-      await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
       await expect.poll(() => {
         const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
         return latestLease?.type === "lease-acquire" && latestLease.result.editable;
@@ -226,7 +226,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
       await securityLink.click();
 
       await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1#fragment$/);
-      await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
       await expect(xInput).toHaveValue("260");
       await expect(menu).toBeVisible();
       await expect(securityLink).toBeFocused();
@@ -242,14 +242,14 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
       await expect.poll(() => page.evaluate(() => Boolean(window.history.state?.__floorEditorDirtySentinel))).toBe(false);
       await page.goBack();
       await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1#fragment$/);
-      await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
       await expect.poll(() => page.evaluate(() => Boolean(window.history.state?.__floorEditorDirtySentinel))).toBe(false);
       await page.goForward();
       await expect(page).toHaveURL(/\/settings\/security\?siteId=site-1#fragment$/);
       await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
       await page.goBack();
       await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1#fragment$/);
-      await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
 
       const unexpectedDialogs: string[] = [];
       page.on("dialog", async (dialog) => {
@@ -284,14 +284,14 @@ test("desktop settings navigation opens on hover, preserves site scope, and expo
   expect(navigationBox).not.toBeNull();
   if (settingsBox && navigationBox) expect(navigationBox.x).toBeGreaterThanOrEqual(settingsBox.x + settingsBox.width - 1);
   await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
-  await navigation.getByRole("link", { name: "도면 관리" }).click();
+  await navigation.getByRole("link", { name: "맵 관리" }).click();
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
-  await expect(page.getByRole("heading", { name: "도면 관리" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "맵 관리" })).toBeVisible();
   await settings.hover();
   await expect(settings).not.toHaveAttribute("aria-current");
   await expect(page.getByRole("link", { name: "설정 개요" })).not.toHaveAttribute("aria-current");
-  await expect(page.getByRole("link", { name: "도면 관리" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "맵 관리" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("link", { name: "비밀번호 변경" })).not.toHaveAttribute("aria-current");
   await expectNoHorizontalOverflow(page);
 });
@@ -307,7 +307,7 @@ test("desktop settings navigation follows natural Tab and Shift+Tab order before
   await expect(settings).not.toHaveAttribute("aria-haspopup");
   const navigation = page.getByRole("navigation", { name: "설정 메뉴" });
   const overview = navigation.getByRole("link", { name: "설정 개요" });
-  const floorPlans = navigation.getByRole("link", { name: "도면 관리" });
+  const floorPlans = navigation.getByRole("link", { name: "맵 관리" });
   await expect(floorPlans).toBeVisible();
   await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toHaveCount(0);
 
@@ -351,9 +351,9 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
       expect(sheetBox).not.toBeNull();
       if (sheetBox) expect(Math.abs(sheetBox.y + sheetBox.height - viewport.height)).toBeLessThanOrEqual(1);
 
-      await menu.getByRole("link", { name: "도면 관리" }).click();
+      await menu.getByRole("link", { name: "맵 관리" }).click();
       await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
-      await expect(page.getByRole("heading", { name: "도면 관리" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "맵 관리" })).toBeVisible();
       await expectMinimumTouchTargets(page, ".app-shell");
       await expectNoHorizontalOverflow(page);
     } finally {
@@ -367,7 +367,7 @@ for (const viewport of responsiveViewports) {
     await page.setViewportSize(viewport);
     const api = await installSettingsApiRoutes(page, "admin");
     await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
-    await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
     await expect.poll(() => {
       const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
       return latestLease?.type === "lease-acquire" && latestLease.result.editable;

@@ -1,8 +1,8 @@
 import Konva from "konva";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
-import { Circle, Image as KonvaImage, Label, Layer, Rect, Stage, Tag, Text, Transformer } from "react-konva";
+import { Circle, Image as KonvaImage, Label, Layer, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
-import { clampPoint, createDefaultObject, createObjectFromDrag, screenToWorld, type Point } from "./geometry";
+import { clampPoint, createDefaultObject, createObjectFromDrag, screenToWorld, snapPointToGrid, snapValueToGrid, type Point } from "./geometry";
 import { useFloorEditorStore } from "./editor-store";
 import type { EditorTool, FloorMapObjectDraft } from "./editor-types";
 import { EditorFixtureNode } from "./EditorFixtureNode";
@@ -35,6 +35,7 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
   const layers = useFloorEditorStore((s) => s.layers);
   const lockedIds = useFloorEditorStore((s) => s.lockedFixtureIds);
   const preview = useFloorEditorStore((s) => s.preview);
+  const snap = useFloorEditorStore((s) => s.snap);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const lockedSet = useMemo(() => new Set(lockedIds), [lockedIds]);
   const placedFixtures = useMemo(() => state?.fixtures.filter((fixture) => fixture.placementStatus !== "unplaced") ?? [], [state?.fixtures]);
@@ -83,7 +84,11 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
     const origin = selected.find((f) => f.id === id);
     if (!origin || !selected.length) return;
     let dx = node.x() - origin.x, dy = node.y() - origin.y;
-    if (store.snap) { dx = Math.round(dx / 10) * 10; dy = Math.round(dy / 10) * 10; }
+    if (store.snap) {
+      const gridSize = store.state?.floor.floorPlan?.gridSize ?? 10;
+      dx = snapValueToGrid(origin.x + dx, gridSize) - origin.x;
+      dy = snapValueToGrid(origin.y + dy, gridSize) - origin.y;
+    }
     dx = Math.max(-Math.min(...selected.map((f) => f.x)), Math.min(dx, (store.state?.floor.floorPlan?.width ?? 1200) - Math.max(...selected.map((f) => f.x))));
     dy = Math.max(-Math.min(...selected.map((f) => f.y)), Math.min(dy, (store.state?.floor.floorPlan?.height ?? 800) - Math.max(...selected.map((f) => f.y))));
     selected.forEach((f) => nodes.current.get(f.id)?.position({ x: f.x + dx, y: f.y + dy }));
@@ -124,7 +129,11 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? store.redo() : store.undo(); return; }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); store.redo(); return; }
       const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
-      if (delta) { event.preventDefault(); const step = event.shiftKey || store.snap ? 10 : 1; store.moveFixtures(store.selectedFixtureIds, { x: delta[0] * step, y: delta[1] * step }); }
+      if (delta) {
+        event.preventDefault();
+        const step = store.snap ? store.state?.floor.floorPlan?.gridSize ?? 10 : event.shiftKey ? 10 : 1;
+        store.moveFixtures(store.selectedFixtureIds, { x: delta[0] * step, y: delta[1] * step });
+      }
       if ((event.key === "Delete" || event.key === "Backspace") && store.selection?.kind === "object") { event.preventDefault(); store.removeObject(store.selection.id); }
     };
     window.addEventListener("keydown", handleKey);
@@ -159,7 +168,12 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
     }
     if (readOnly) return;
     const world = clampPoint(worldPoint(event), bounds);
-    if (action.kind === "draw") setCreation(createObjectFromDrag(activeTool, action.start, world));
+    if (action.kind === "draw") {
+      const gridSize = state!.floor.floorPlan?.gridSize ?? 10;
+      const start = snap ? snapPointToGrid(action.start, gridSize) : action.start;
+      const end = snap ? snapPointToGrid(world, gridSize) : world;
+      setCreation(createObjectFromDrag(activeTool, start, end));
+    }
     else setMarquee({ x: Math.min(action.start.x, world.x), y: Math.min(action.start.y, world.y), width: Math.abs(world.x - action.start.x), height: Math.abs(world.y - action.start.y) });
   }
   function finish(event: MouseEvent<HTMLDivElement>) {
@@ -173,7 +187,12 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
   }
   function dragOver(event: DragEvent<HTMLDivElement>) {
     if (readOnly) return;
-    if (event.dataTransfer.types.includes(FIXTURE_DRAG_TYPE) && !layers.fixtures.locked) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropPreview(worldPoint(event)); }
+    if (event.dataTransfer.types.includes(FIXTURE_DRAG_TYPE) && !layers.fixtures.locked) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      const point = worldPoint(event);
+      setDropPreview(snap ? snapPointToGrid(point, state!.floor.floorPlan?.gridSize ?? 10) : point);
+    }
     else if (event.dataTransfer.types.includes(TOOL_DRAG_TYPE) && !layers.objects.locked) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }
   }
   function drop(event: DragEvent<HTMLDivElement>) {
@@ -195,8 +214,15 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
   const transform = { x: pan.x, y: pan.y, scaleX: zoom, scaleY: zoom };
   const focusedFixture = layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtures.find((fixture) => fixture.id === selection.id) : undefined;
   const focusedLabel = focusedFixture ? selectedFixtureLabelLayout(focusedFixture, pan, zoom, viewport) : undefined;
+  const selectedObjectType = selection?.kind === "object" ? state.objects.find((object) => object.id === selection.id)?.type : undefined;
+  const transformerAnchors = selection?.kind === "fixture"
+    ? ["top-left", "top-right", "bottom-left", "bottom-right"]
+    : selectedObjectType === "line"
+      ? ["middle-left", "middle-right"]
+      : ["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
   return <div ref={container} className={`floor-editor-canvas konva-editor-canvas ${backgroundUrl ? "has-plan" : "grid-only"}`}
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
+    data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); } }}
     onDragOver={dragOver} onDragLeave={() => setDropPreview(null)} onDrop={drop}>
     <Stage ref={stage} width={viewport.width} height={viewport.height} className="floor-editor-konva-stage" onWheel={(event) => {
@@ -209,6 +235,7 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
       <Layer {...transform} listening={false}>
         <Rect width={bounds.width} height={bounds.height} fill="#ffffff" stroke="#cbd1d9" strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
+        {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} /> : null}
       </Layer>
       <Layer {...transform} visible={layers.objects.visible} listening={!readOnly && !layers.objects.locked && activeTool === "select"}>
         {state.objects.filter((o) => o.visible).sort((a, b) => a.zIndex - b.zIndex).map((object) => {
@@ -232,7 +259,7 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
         {marquee && <Rect {...marquee} fill="#2563eb20" stroke="#2563eb" strokeWidth={1 / zoom} listening={false} />}
         {preview.map((p) => <Circle key={p.id} x={p.x} y={p.y} radius={10} fill="#e9b949" opacity={0.65} listening={false} />)}
         {dropPreview && <Circle x={dropPreview.x} y={dropPreview.y} radius={10} stroke="#185ed0" fill="#dbeafe" listening={false} />}
-        <Transformer ref={transformer} rotateEnabled={false} keepRatio={selection?.kind === "fixture"} flipEnabled={false} enabledAnchors={["top-left", "top-right", "bottom-left", "bottom-right"]} boundBoxFunc={(oldBox, box) => box.width < 4 || box.height < 4 ? oldBox : box} />
+        <Transformer ref={transformer} rotateEnabled={false} keepRatio={selection?.kind === "fixture"} flipEnabled={false} enabledAnchors={transformerAnchors} boundBoxFunc={(oldBox, box) => box.width < 4 || box.height < 4 ? oldBox : box} />
         {focusedFixture && focusedLabel && <Label name="selected-fixture-label" x={focusedLabel.x} y={focusedLabel.y} scaleX={focusedLabel.scaleX} scaleY={focusedLabel.scaleY} listening={false}>
           <Tag fill="#ffffff" stroke="#cbd1d9" strokeWidth={1} cornerRadius={4} />
           <Text name="selected-fixture-name" text={focusedFixture.name} width={focusedLabel.width} height={focusedLabel.height} padding={6} fontSize={12} fontStyle="bold" fill="#252d3a" ellipsis wrap="none" verticalAlign="middle" />
@@ -242,4 +269,30 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
     <FixturePlacementAction readOnly={readOnly} />
     <EditorMinimap />
   </div>;
+}
+
+function MapGrid({ width, height, gridSize, zoom }: { width: number; height: number; gridSize: number; zoom: number }) {
+  const lineCount = width / gridSize + height / gridSize;
+  const displayStep = gridSize * Math.max(1, Math.ceil(lineCount / 2_000));
+  return (
+    <Shape
+      name="map-grid"
+      listening={false}
+      stroke="#cbd5e1"
+      strokeWidth={1 / zoom}
+      opacity={0.65}
+      sceneFunc={(context, shape) => {
+        context.beginPath();
+        for (let x = displayStep; x < width; x += displayStep) {
+          context.moveTo(x, 0);
+          context.lineTo(x, height);
+        }
+        for (let y = displayStep; y < height; y += displayStep) {
+          context.moveTo(0, y);
+          context.lineTo(width, y);
+        }
+        context.strokeShape(shape);
+      }}
+    />
+  );
 }

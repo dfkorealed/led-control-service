@@ -1,0 +1,6 @@
+ALTER TABLE "FloorPlan"
+ADD COLUMN "gridSize" INTEGER NOT NULL DEFAULT 10;
+
+ALTER TABLE "FloorPlan"
+ADD CONSTRAINT "FloorPlan_gridSize_check"
+CHECK ("gridSize" BETWEEN 5 AND 200);

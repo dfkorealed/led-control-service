@@ -18,7 +18,7 @@ export default defineConfig({
     screenshot: realBackendLab ? "off" : "only-on-failure"
   },
   webServer: realBackendLab ? undefined : {
-    command: `WEB_PORT=${webPort} pnpm --filter @led-control/web dev`,
+    command: `VITE_TEST_DATA_TOOLS_ENABLED=false WEB_PORT=${webPort} pnpm --filter @led-control/web dev`,
     url: baseURL,
     reuseExistingServer: false,
     timeout: 120_000

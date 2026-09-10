@@ -16,6 +16,9 @@ export const EDITOR_MAX_OBJECT_TYPE_LENGTH = 64;
 export const EDITOR_MAX_RATED_WATT = 999_999.99;
 export const EDITOR_REVISION_DEFAULT_LIMIT = 20;
 export const EDITOR_REVISION_MAX_LIMIT = 100;
+export const EDITOR_DEFAULT_GRID_SIZE = 10;
+export const EDITOR_MIN_GRID_SIZE = 5;
+export const EDITOR_MAX_GRID_SIZE = 200;
 
 const finiteNumberSchema = z.number().finite();
 const nullableFiniteNumberSchema = finiteNumberSchema.nullable();
@@ -23,6 +26,10 @@ const int4Schema = z.number().int().min(POSTGRES_INT_MIN).max(POSTGRES_INT_MAX);
 const nonnegativeInt4Schema = int4Schema.nonnegative();
 const expectedRevisionSchema = nonnegativeInt4Schema.max(EDITOR_MAX_EXPECTED_REVISION);
 const positiveInt4Schema = int4Schema.positive();
+const editorGridSizeSchema = int4Schema
+  .min(EDITOR_MIN_GRID_SIZE)
+  .max(EDITOR_MAX_GRID_SIZE)
+  .default(EDITOR_DEFAULT_GRID_SIZE);
 export const positivePostgresIntSchema = z.union([
   z.number(),
   z.string().regex(/^\d+$/)
@@ -43,10 +50,20 @@ const floorPlanFields = {
   originalFileUrl: editorUrlSchema,
   renderedImageUrl: editorUrlSchema,
   width: positiveInt4Schema,
-  height: positiveInt4Schema
+  height: positiveInt4Schema,
+  gridSize: editorGridSizeSchema
 };
 
 export const floorPlanUpdateSchema = z.discriminatedUnion("sourceType", [
+  z.object({
+    sourceType: z.literal("none"),
+    imageUrl: z.literal(""),
+    originalFileUrl: z.null(),
+    renderedImageUrl: z.null(),
+    width: positiveInt4Schema,
+    height: positiveInt4Schema,
+    gridSize: editorGridSizeSchema
+  }).strict(),
   z.object({ sourceType: z.literal("image"), ...floorPlanFields }).strict(),
   z.object({ sourceType: z.literal("pdf"), ...floorPlanFields }).strict()
 ]);
@@ -58,7 +75,8 @@ export const legacyFloorPlanEffectiveSchema = z.discriminatedUnion("sourceType",
     originalFileUrl: z.union([z.literal(""), z.null()]),
     renderedImageUrl: z.union([z.literal(""), z.null()]),
     width: positiveInt4Schema,
-    height: positiveInt4Schema
+    height: positiveInt4Schema,
+    gridSize: editorGridSizeSchema
   }).strict(),
   z.object({ sourceType: z.literal("image"), ...floorPlanFields }).strict(),
   z.object({ sourceType: z.literal("pdf"), ...floorPlanFields }).strict()
@@ -70,7 +88,8 @@ export const legacyFloorPlanPatchSchema = z.object({
   originalFileUrl: z.string().trim().max(EDITOR_MAX_URL_LENGTH).nullable().optional(),
   renderedImageUrl: z.string().trim().max(EDITOR_MAX_URL_LENGTH).nullable().optional(),
   width: positiveInt4Schema.optional(),
-  height: positiveInt4Schema.optional()
+  height: positiveInt4Schema.optional(),
+  gridSize: editorGridSizeSchema.optional()
 }).refine((value) => Object.keys(value).length > 0, "floor plan patch must not be empty");
 
 export const fixturePlacementStatusSchema = z.enum(["unplaced", "placed"]);
@@ -192,14 +211,30 @@ export const floorMapObjectStateSchema = z.discriminatedUnion("type", [
   }).strict()
 ]);
 
-export const floorMapPlanSnapshotSchema = z.object({
+const floorMapReadPlanFields = {
   imageUrl: editorUrlSchema,
-  sourceType: z.enum(["image", "pdf"]),
   originalFileUrl: editorUrlSchema.nullable(),
   renderedImageUrl: editorUrlSchema.nullable(),
   width: positiveInt4Schema,
-  height: positiveInt4Schema
-}).strict();
+  height: positiveInt4Schema,
+  gridSize: editorGridSizeSchema
+};
+
+// The read model keeps nullable legacy asset variants, while atomic editor
+// writes continue to require a complete source-specific floor plan payload.
+export const floorMapPlanSnapshotSchema = z.discriminatedUnion("sourceType", [
+  z.object({
+    sourceType: z.literal("none"),
+    imageUrl: z.literal(""),
+    originalFileUrl: z.null(),
+    renderedImageUrl: z.null(),
+    width: positiveInt4Schema,
+    height: positiveInt4Schema,
+    gridSize: editorGridSizeSchema
+  }).strict(),
+  z.object({ sourceType: z.literal("image"), ...floorMapReadPlanFields }).strict(),
+  z.object({ sourceType: z.literal("pdf"), ...floorMapReadPlanFields }).strict()
+]);
 
 export const floorMapSnapshotSchema = z.object({
   floorId: z.string().uuid(),
@@ -280,7 +315,8 @@ export const floorEditorSnapshotV1Schema = z.object({
     originalFileUrl: legacySnapshotUrlSchema.nullable(),
     renderedImageUrl: legacySnapshotUrlSchema.nullable(),
     width: positiveInt4Schema,
-    height: positiveInt4Schema
+    height: positiveInt4Schema,
+    gridSize: editorGridSizeSchema
   }).strict().nullable(),
   fixtures: z.array(z.object({
     id: editorIdSchema,

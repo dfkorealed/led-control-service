@@ -39,11 +39,11 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/settings/floor-plans/floor-b2/edit?siteId=site-2");
 
-    await expect(page.getByRole("heading", { name: "B2 도면 편집" })).toBeVisible();
-    await expect(page.getByRole("toolbar", { name: "도면 편집 도구" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
+    await expect(page.getByRole("toolbar", { name: "맵 편집 도구" })).toBeVisible();
     await expect(page.getByLabel("B2 편집 캔버스")).toBeVisible();
     await expect(page.getByRole("complementary", { name: "속성 패널" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "도면 버전" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "맵 버전" })).toBeVisible();
 
     const layout = await page.evaluate(() => ({
       viewportWidth: window.innerWidth,
@@ -59,6 +59,37 @@ for (const viewport of [
     await testInfo.attach(`editor-panels-${viewport.width}`, { path, contentType: "image/png" });
   });
 }
+
+test("map settings drive absolute grid snapping and contextual shape properties", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+
+  const properties = page.getByRole("complementary", { name: "속성 패널" });
+  await expect(properties.getByRole("heading", { name: "맵 설정" })).toBeVisible();
+  await properties.getByLabel("격자 간격").fill("20");
+  await properties.getByRole("button", { name: "맵 설정 적용" }).click();
+  await page.getByLabel("격자 스냅").check();
+
+  const canvas = page.getByLabel("B2 편집 캔버스");
+  await expect(canvas).toHaveAttribute("data-snap", "true");
+  await expect(canvas).toHaveAttribute("data-grid-size", "20");
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("editor canvas has no layout box");
+
+  await page.getByRole("button", { name: "사각형" }).click();
+  await page.mouse.move(box.x + 203, box.y + 163);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 297, box.y + 242);
+  await page.mouse.up();
+
+  await expect(properties.getByRole("heading", { name: "네모" })).toBeVisible();
+  await expect(properties.getByLabel("X")).toHaveValue("200");
+  await expect(properties.getByLabel("Y")).toHaveValue("160");
+  await expect(properties.getByLabel("너비")).toHaveValue("100");
+  await expect(properties.getByLabel("높이")).toHaveValue("80");
+  await expect(properties.getByLabel("채우기 색상")).toBeVisible();
+  await expect(properties.getByLabel("텍스트 내용")).toHaveCount(0);
+});
 
 async function mockEditorApi(page: Page) {
   await page.route("**/*", async (route) => {

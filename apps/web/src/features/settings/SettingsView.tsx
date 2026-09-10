@@ -72,9 +72,9 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
               <strong>{data.floors.length}개 층</strong>
             </div>
           </div>
-          <p className="muted-text">도면 등록 {registeredPlanCount}개</p>
+          <p className="muted-text">맵 설정 {registeredPlanCount}개</p>
           <Link className="ui-button ui-button-secondary" to={{ pathname: "/settings/floor-plans", search: location.search, hash: location.hash }}>
-            도면 관리 열기
+            맵 관리 열기
           </Link>
         </Card>
 

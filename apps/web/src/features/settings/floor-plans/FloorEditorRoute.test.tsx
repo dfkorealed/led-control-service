@@ -26,7 +26,7 @@ vi.mock("../../floor-editor/FloorEditorView", () => ({
     readOnly?: boolean;
   }) => (
     <section>
-      <h2>{initialState.floor.name} 도면 편집</h2>
+      <h2>{initialState.floor.name} 맵 편집</h2>
       <output data-testid="lease-read-only">{String(readOnly)}</output>
       <LocationProbe />
       <button onClick={() => onDirtyChange(true)}>수정</button>
@@ -67,7 +67,7 @@ function renderRoute(userRole: "operator" | "admin" | "viewer", initialEntry = "
         <Link to="/settings?siteId=site-2">설정 이동</Link>
         <Routes>
           <Route path="/settings" element={<><h2>설정 개요</h2><LocationProbe /></>} />
-          <Route path="/settings/floor-plans" element={<><h2>도면 관리</h2><LocationProbe /></>} />
+          <Route path="/settings/floor-plans" element={<><h2>맵 관리</h2><LocationProbe /></>} />
           <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={userRole} />} />
         </Routes>
       </MemoryRouter>
@@ -93,7 +93,7 @@ function renderBrowserRoute({ withSettingsNavigation = false } = {}) {
           <Link to="/settings/security?siteId=site-2">보안 이동</Link>
           <Routes>
             <Route path="/settings" element={<><h2>설정 개요</h2><LocationProbe /></>} />
-            <Route path="/settings/floor-plans" element={<><h2>도면 관리</h2><LocationProbe /></>} />
+            <Route path="/settings/floor-plans" element={<><h2>맵 관리</h2><LocationProbe /></>} />
             <Route path="/settings/security" element={<><h2>보안 설정</h2><LocationProbe /></>} />
             <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute userRole="admin" />} />
           </Routes>
@@ -138,7 +138,7 @@ describe("FloorEditorRoute", () => {
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, selection: null });
   });
 
-  it("도면 편집기는 lease 상실 시 읽기 전용 feedback을 표시한다", async () => {
+  it("맵 편집기는 lease 상실 시 읽기 전용 feedback을 표시한다", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     acquireFloorEditorLease.mockResolvedValue({
       editable: false,
@@ -161,7 +161,7 @@ describe("FloorEditorRoute", () => {
     acquireFloorEditorLease.mockResolvedValue({ editable: true, token: "lease-token", holderName: "김관리" });
     const { unmount } = renderRoute("admin");
 
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     await waitFor(() => expect(acquireFloorEditorLease).toHaveBeenCalledWith("floor-b2"));
     unmount();
 
@@ -222,7 +222,7 @@ describe("FloorEditorRoute", () => {
     const late = deferred<{ editable: boolean; token?: string }>();
     acquireFloorEditorLease.mockReturnValueOnce(late.promise);
     renderRoute("admin");
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     act(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));
     act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
     await waitFor(() => expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false"));
@@ -259,7 +259,7 @@ describe("FloorEditorRoute", () => {
     renderRoute("admin");
 
     await act(async () => {});
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(acquireFloorEditorLease).toHaveBeenCalledTimes(2);
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
@@ -393,7 +393,7 @@ describe("FloorEditorRoute", () => {
 
     await waitFor(() => expect(acquireFloorEditorLease).toHaveBeenCalledWith("floor-b2"));
     fireEvent.click(screen.getByRole("button", { name: "B3로 이동" }));
-    await screen.findByRole("heading", { name: "B3 도면 편집" });
+    await screen.findByRole("heading", { name: "B3 맵 편집" });
     await waitFor(() => expect(acquireFloorEditorLease).toHaveBeenCalledWith("floor-b3"));
     staleAcquire.reject(new Error("old floor unavailable"));
     await act(async () => {});
@@ -420,7 +420,7 @@ describe("FloorEditorRoute", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     fireEvent.click(screen.getByRole("button", { name: "B3로 이동" }));
     await act(async () => {});
-    expect(screen.getByRole("heading", { name: "B3 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B3 맵 편집" })).toBeInTheDocument();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(70_000); });
     expect(screen.getByTestId("lease-read-only")).toHaveTextContent("false");
@@ -440,11 +440,11 @@ describe("FloorEditorRoute", () => {
     const firstRoute = renderRoute("admin");
 
     await act(async () => {});
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     firstRoute.unmount();
     const secondRoute = renderRoute("admin");
     await act(async () => {});
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(screen.getByTestId("lease-read-only")).toHaveTextContent("true");
 
     delayedRelease.resolve({ released: true });
@@ -460,12 +460,12 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     renderRoute("admin");
 
-    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(getFloorEditorState).toHaveBeenCalledWith("floor-b2");
 
     fireEvent.click(screen.getByRole("button", { name: action }));
 
-    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-2");
   });
 
@@ -473,7 +473,7 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const { queryClient } = renderRoute("admin");
 
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
 
     expect(queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toEqual(editorState);
   });
@@ -483,7 +483,7 @@ describe("FloorEditorRoute", () => {
     const { queryClient } = renderRoute("admin", "/settings/floor-plans/floor-b2/edit");
 
     await waitFor(() => expect(queryClient.getQueryData(["floor-editor", "site-2", "floor-b2"])).toEqual(editorState));
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
   });
 
@@ -491,16 +491,16 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     renderRoute("admin", "/settings/floor-plans/floor-b2/edit?siteId=site-1");
 
-    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
-    expect(screen.queryByRole("heading", { name: "B2 도면 편집" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "B2 맵 편집" })).not.toBeInTheDocument();
   });
 
   it("blocks a viewer's direct edit URL before loading editor state", async () => {
     renderRoute("viewer");
 
-    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "B2 도면 편집" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "B2 맵 편집" })).not.toBeInTheDocument();
     expect(getFloorEditorState).not.toHaveBeenCalled();
   });
 
@@ -508,11 +508,11 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderRoute("admin");
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
 
     fireEvent.click(screen.getByRole("link", { name: "설정 이동" }));
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledOnce();
 
     confirm.mockReturnValue(true);
@@ -541,7 +541,7 @@ describe("FloorEditorRoute", () => {
     };
     useFloorEditorStore.setState({ state: dirtyDraft, isDirty: true });
     renderBrowserRoute({ withSettingsNavigation: true });
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
@@ -549,7 +549,7 @@ describe("FloorEditorRoute", () => {
 
     const settingsNavigation = screen.getByRole("navigation", { name: "설정 메뉴" });
     expect(confirm).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
     expect(useFloorEditorStore.getState()).toMatchObject({ state: dirtyDraft, isDirty: true });
 
@@ -558,7 +558,7 @@ describe("FloorEditorRoute", () => {
 
     expect(confirm).toHaveBeenCalledOnce();
     expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
     expect(useFloorEditorStore.getState()).toMatchObject({ state: dirtyDraft, isDirty: true });
 
@@ -574,23 +574,23 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderRoute("admin");
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
 
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
-    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledOnce();
   });
 
   it("registers a beforeunload guard only while dirty", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
     renderRoute("admin");
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
 
     const cleanEvent = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(cleanEvent);
@@ -610,14 +610,14 @@ describe("FloorEditorRoute", () => {
     useFloorEditorStore.getState().initialize(editorState);
     useFloorEditorStore.setState({ state: { ...editorState, floor: { ...editorState.floor, name: "작성 중" } }, isDirty: true });
     renderBrowserRoute();
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
     act(() => window.history.back());
     await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/floor-plans/floor-b2/edit");
     expect(useFloorEditorStore.getState().state?.floor.name).toBe("작성 중");
 
@@ -625,7 +625,7 @@ describe("FloorEditorRoute", () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
-    expect(screen.getByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(getFloorEditorState).toHaveBeenCalledOnce();
     expect(useFloorEditorStore.getState().state?.floor.name).toBe("작성 중");
   });
@@ -636,7 +636,7 @@ describe("FloorEditorRoute", () => {
     useFloorEditorStore.getState().initialize(editorState);
     useFloorEditorStore.setState({ state: { ...editorState, floor: { ...editorState.floor, name: "작성 중" } }, isDirty: true });
     renderBrowserRoute();
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
@@ -652,12 +652,12 @@ describe("FloorEditorRoute", () => {
     const confirm = vi.spyOn(window, "confirm");
     useFloorEditorStore.getState().initialize(editorState);
     renderBrowserRoute();
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
     act(() => useFloorEditorStore.getState().adoptBaseline(editorState));
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeUndefined());
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
@@ -668,14 +668,14 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderBrowserRoute();
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
-    expect(await screen.findByRole("heading", { name: "도면 관리" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     act(() => window.history.back());
-    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledOnce();
@@ -685,14 +685,14 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderBrowserRoute();
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
     fireEvent.click(screen.getByRole("link", { name: "보안 이동" }));
     expect(await screen.findByRole("heading", { name: "보안 설정" })).toBeInTheDocument();
     act(() => window.history.back());
-    expect(await screen.findByRole("heading", { name: "B2 도면 편집" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(confirm).toHaveBeenCalledOnce();
@@ -702,7 +702,7 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm");
     renderBrowserRoute();
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
@@ -718,7 +718,7 @@ describe("FloorEditorRoute", () => {
     getFloorEditorState.mockResolvedValue(editorState);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const { unmount } = renderBrowserRoute();
-    await screen.findByRole("heading", { name: "B2 도면 편집" });
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(dirtyGuardIsActive()).toBe(true));
 
