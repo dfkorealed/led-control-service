@@ -1285,6 +1285,7 @@ button {
   padding: 6px 8px;
   color: var(--muted);
   list-style: none;
+  pointer-events: none;
 }
 
 .floor-map-legend li {
@@ -4610,6 +4611,10 @@ button.group-card {
 
   .monitoring-map-pan-hint {
     display: none;
+  }
+
+  .floor-map-legend {
+    bottom: 72px;
   }
 
   .monitoring-map-zoom-controls {

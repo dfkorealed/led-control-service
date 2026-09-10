@@ -107,18 +107,26 @@ for (const viewport of viewports) {
       const legend = shell.querySelector(".floor-map-legend")?.getBoundingClientRect();
       const panHintElement = shell.querySelector<HTMLElement>(".monitoring-map-pan-hint");
       const panHint = panHintElement?.getBoundingClientRect();
-      if (!legend || !panHint || !panHintElement) throw new Error("지도 범례 또는 이동 안내를 찾을 수 없습니다.");
+      const zoomControls = shell.querySelector(".monitoring-map-zoom-controls")?.getBoundingClientRect();
+      const legendElement = shell.querySelector<HTMLElement>(".floor-map-legend");
+      if (!legend || !legendElement || !panHint || !panHintElement || !zoomControls) {
+        throw new Error("지도 범례 또는 이동·확대 안내를 찾을 수 없습니다.");
+      }
       return {
         legendBottom: legend.bottom,
         panHintTop: panHint.top,
-        panHintDisplay: getComputedStyle(panHintElement).display
+        panHintDisplay: getComputedStyle(panHintElement).display,
+        legendPointerEvents: getComputedStyle(legendElement).pointerEvents,
+        zoomControlsTop: zoomControls.top
       };
     });
+    expect(mapOverlayLayout.legendPointerEvents).toBe("none");
     if (viewport.width > 760) {
       expect(mapOverlayLayout.panHintDisplay).not.toBe("none");
       expect(mapOverlayLayout.legendBottom).toBeLessThanOrEqual(mapOverlayLayout.panHintTop - 4);
     } else {
       expect(mapOverlayLayout.panHintDisplay).toBe("none");
+      expect(mapOverlayLayout.legendBottom).toBeLessThanOrEqual(mapOverlayLayout.zoomControlsTop - 4);
     }
 
     const statusBadge = await page.locator(".fixture-dot:not(.active)").first().evaluate((element) => {
