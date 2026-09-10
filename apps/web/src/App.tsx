@@ -1,9 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useLayoutEffect, useState } from "react";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, useNavigate } from "react-router-dom";
 import { useCurrentUser } from "./api/auth";
 import { clearTenantCache, replacePrincipalCache } from "./api/principal-cache";
 import { AuthView } from "./features/auth/AuthView";
+import { RequiredPasswordChangeView } from "./features/auth/RequiredPasswordChangeView";
 import { OperatorShell } from "./features/operator/OperatorShell";
 import { CustomerShell } from "./features/shells/CustomerShell";
 import "./styles.css";
@@ -26,6 +27,7 @@ export function App() {
 
 function AppContent({ onAuthenticated }: { onAuthenticated: Parameters<typeof AuthView>[0]["onAuthenticated"] }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { data: auth, isLoading: isAuthLoading, error: authError } = useCurrentUser();
   const principalKey = auth?.user ? `${auth.user.id}:${auth.user.organizationId}` : null;
   const [acceptedPrincipalKey, setAcceptedPrincipalKey] = useState<string | null>();
@@ -53,6 +55,13 @@ function AppContent({ onAuthenticated }: { onAuthenticated: Parameters<typeof Au
 
   if (authError || !auth?.user) {
     return <AuthView onAuthenticated={onAuthenticated} />;
+  }
+
+  if (auth.user.mustChangePassword) {
+    return <RequiredPasswordChangeView user={auth.user} onAuthenticated={async (nextAuth) => {
+      navigate("/monitoring", { replace: true });
+      await onAuthenticated(nextAuth);
+    }} />;
   }
 
   if (acceptedPrincipalKey !== undefined && acceptedPrincipalKey !== principalKey) {

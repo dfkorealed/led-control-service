@@ -38,5 +38,5 @@ export function changePassword(input: {
   newPassword: string;
   newPasswordConfirmation: string;
 }) {
-  return apiPost<{ ok: boolean }>("/auth/change-password", input);
+  return apiPost<{ ok: true; user: AuthUser }>("/auth/change-password", input);
 }

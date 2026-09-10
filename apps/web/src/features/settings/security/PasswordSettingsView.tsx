@@ -1,10 +1,13 @@
 import { CircleCheck, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
-import { ApiError } from "../../../api/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { changePassword } from "../../../api/auth";
+import { refreshPrincipalCache } from "../../../api/principal-cache";
 import { Button, Card, FeedbackState, PageHeader } from "../../../components/ui";
+import { passwordChangeErrorMessage, validatePasswordChange } from "../../auth/password-form";
 
 export function PasswordSettingsView() {
+  const queryClient = useQueryClient();
   const requestInFlight = useRef(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -29,15 +32,14 @@ export function PasswordSettingsView() {
     setErrorMessage("");
     setSuccessMessage("");
     try {
-      await changePassword({ currentPassword, newPassword, newPasswordConfirmation });
+      const result = await changePassword({ currentPassword, newPassword, newPasswordConfirmation });
+      await refreshPrincipalCache(queryClient, { user: result.user });
       setCurrentPassword("");
       setNewPassword("");
       setNewPasswordConfirmation("");
       setSuccessMessage("비밀번호를 변경했습니다.");
     } catch (error) {
-      setErrorMessage(isIncorrectCurrentPassword(error)
-        ? "현재 비밀번호가 올바르지 않습니다."
-        : "비밀번호를 변경하지 못했습니다. 잠시 후 다시 시도하세요.");
+      setErrorMessage(passwordChangeErrorMessage(error, "비밀번호를 변경하지 못했습니다. 잠시 후 다시 시도하세요."));
     } finally {
       requestInFlight.current = false;
       setIsPending(false);
@@ -59,11 +61,11 @@ export function PasswordSettingsView() {
             </label>
             <label>
               새 비밀번호
-              <input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+              <input type="password" autoComplete="new-password" minLength={8} maxLength={1024} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
             </label>
             <label>
               새 비밀번호 확인
-              <input type="password" autoComplete="new-password" value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} />
+              <input type="password" autoComplete="new-password" minLength={8} maxLength={1024} value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} />
             </label>
           </div>
           {errorMessage ? (
@@ -82,16 +84,5 @@ export function PasswordSettingsView() {
 }
 
 function validatePasswords(currentPassword: string, newPassword: string, newPasswordConfirmation: string) {
-  if (!currentPassword) return "현재 비밀번호를 입력하세요.";
-  if (newPassword.length < 8) return "새 비밀번호는 8자 이상이어야 합니다.";
-  if (newPassword !== newPasswordConfirmation) return "새 비밀번호 확인이 일치하지 않습니다.";
-  return "";
-}
-
-function isIncorrectCurrentPassword(error: unknown) {
-  return error instanceof ApiError
-    && typeof error.body === "object"
-    && error.body !== null
-    && "message" in error.body
-    && error.body.message === "Current password is incorrect";
+  return validatePasswordChange(currentPassword, newPassword, newPasswordConfirmation);
 }
