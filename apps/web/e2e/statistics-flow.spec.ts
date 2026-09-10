@@ -132,6 +132,7 @@ for (const viewport of [
     expect(await firstAxisLabel.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(11);
     await expect(page.getByRole("button", { name: "일별" })).toBeVisible();
     await expect(page.getByRole("button", { name: "월별" })).toBeVisible();
+    await expectStatisticsSpacing(page, viewport.width <= 760);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
       const chartHeading = page.locator(".statistics-chart-heading");
@@ -141,6 +142,45 @@ for (const viewport of [
       await expectMinimumTouchTargets(page, ".app-shell");
     }
   });
+}
+
+async function expectStatisticsSpacing(page: Page, compact: boolean) {
+  const screenGap = await page.locator(".statistics-screen").evaluate((element) => {
+    return getComputedStyle(element).rowGap;
+  });
+  expect(screenGap).toBe("24px");
+
+  const summaryGap = await page.locator(".statistics-summary").evaluate((element) => {
+    return getComputedStyle(element).gap;
+  });
+  expect(summaryGap).toBe("16px");
+
+  const panelPadding = await page.locator(".statistics-chart-panel").evaluate((element) => {
+    return getComputedStyle(element).paddingTop;
+  });
+  expect(panelPadding).toBe(compact ? "16px" : "24px");
+
+  const statusPosition = await page.locator(".statistics-metric .ui-status-badge").first().evaluate((element) => {
+    return getComputedStyle(element).position;
+  });
+  expect(statusPosition).toBe("static");
+
+  if (compact) {
+    const metricLabelWidth = await page.locator(".statistics-metric .ui-metric-label").first().evaluate((element) => {
+      return element.getBoundingClientRect().width;
+    });
+    expect(metricLabelWidth).toBeGreaterThanOrEqual(100);
+
+    const [chartTitle, chartTabs] = await Promise.all([
+      page.locator(".statistics-chart-heading h3").boundingBox(),
+      page.locator(".statistics-chart-heading .segmented-control").boundingBox()
+    ]);
+    expect(chartTitle).not.toBeNull();
+    expect(chartTabs).not.toBeNull();
+    if (chartTitle && chartTabs) {
+      expect(chartTabs.y).toBeGreaterThanOrEqual(chartTitle.y + chartTitle.height);
+    }
+  }
 }
 
 function dashboard(siteId: string) {
