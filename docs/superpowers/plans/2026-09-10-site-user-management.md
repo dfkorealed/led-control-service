@@ -158,27 +158,27 @@
 - Produces: `@AllowPasswordChangePending()` route metadata
 - Changes: `POST /auth/change-password` 응답을 `{ ok: true, user: AuthenticatedUser }`로 확장
 
-- [ ] **Step 1: public user와 로그인 응답의 `mustChangePassword` 테스트를 작성한다.**
+- [x] **Step 1: public user와 로그인 응답의 `mustChangePassword` 테스트를 작성한다.**
 
-- [ ] **Step 2: guard 허용 목록 테스트를 작성한다.**
+- [x] **Step 2: guard 허용 목록 테스트를 작성한다.**
 
   강제 변경 사용자는 `/auth/me`, `/auth/change-password`, `/auth/logout`만 통과하고 다른 보호 route는 `PASSWORD_CHANGE_REQUIRED`로 실패해야 한다.
 
-- [ ] **Step 3: 비밀번호 변경 transaction 테스트를 작성한다.**
+- [x] **Step 3: 비밀번호 변경 transaction 테스트를 작성한다.**
 
   성공 시 flag 해제, 현재 세션 유지, 나머지 세션 폐기, 감사 로그 기록을 검증한다.
 
-- [ ] **Step 4: 테스트가 flag와 metadata 부재로 실패하는지 확인한다.**
+- [x] **Step 4: 테스트가 flag와 metadata 부재로 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/api exec jest src/auth --runInBand`
 
-- [ ] **Step 5: decorator, guard 검사, auth DTO와 service 변경을 구현한다.**
+- [x] **Step 5: decorator, guard 검사, auth DTO와 service 변경을 구현한다.**
 
   비활성 사용자의 로그인 실패 메시지는 기존과 동일하게 유지해 계정 존재 여부를 노출하지 않는다.
 
-- [ ] **Step 6: auth 테스트를 통과시킨다.**
+- [x] **Step 6: auth 테스트를 통과시킨다.**
 
-- [ ] **Step 7: Task 4 변경만 커밋한다.**
+- [x] **Step 7: Task 4 변경만 커밋한다.**
 
   Commit: `feat(auth): require temporary password change`
 
