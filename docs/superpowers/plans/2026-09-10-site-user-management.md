@@ -112,31 +112,31 @@
 - Returns: `{ users: SiteUserSummary[]; count: number; limit: 100 }`
 - Consumes: `SiteAccessService.assertManageInTransaction`, `PasswordService`, `AuditService`
 
-- [ ] **Step 1: controller의 SessionAuthGuard, RolesGuard, `@Roles("admin")` 계약 테스트를 작성한다.**
+- [x] **Step 1: controller의 SessionAuthGuard, RolesGuard, `@Roles("admin")` 계약 테스트를 작성한다.**
 
-- [ ] **Step 2: 목록과 생성 서비스 단위 테스트를 작성한다.**
+- [x] **Step 2: 목록과 생성 서비스 단위 테스트를 작성한다.**
 
   비밀번호 field 미조회, loginId 정규화, 임시 비밀번호 hash, `mustChangePassword = true`, 기본 정렬, active+disabled 100명 제한과 transaction rollback을 검증한다.
 
-- [ ] **Step 3: 수정·비활성화·재활성화·초기화·삭제 단위 테스트를 작성한다.**
+- [x] **Step 3: 수정·비활성화·재활성화·초기화·삭제 단위 테스트를 작성한다.**
 
   동일 현장 viewer 대상 제한, `expectedUpdatedAt` 충돌, 비활성화와 초기화의 세션 폐기, 재활성화 시 기존 비밀번호 유지, 로그인 아이디 재입력 삭제를 검증한다.
 
-- [ ] **Step 4: 실제 PostgreSQL 경쟁 조건과 영구 삭제 통합 테스트를 작성한다.**
+- [x] **Step 4: 실제 PostgreSQL 경쟁 조건과 영구 삭제 통합 테스트를 작성한다.**
 
   99명 상태에서 병렬 생성 두 건 중 정확히 한 건만 성공하는지, 삭제 후 PII가 제거되고 명령 이력이 남는지 검증한다.
 
-- [ ] **Step 5: 신규 API가 없어 테스트가 실패하는지 확인한다.**
+- [x] **Step 5: 신규 API가 없어 테스트가 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/api exec jest src/site-users --runInBand`
 
-- [ ] **Step 6: controller, DTO parsing, service transaction과 오류 code를 구현한다.**
+- [x] **Step 6: controller, DTO parsing, service transaction과 오류 code를 구현한다.**
 
   삭제 감사 로그에는 삭제 대상 이름·loginId·userId를 넣지 않는다. 목록의 `lastLoginAt`은 해당 유저 Session의 가장 최근 `createdAt`으로 계산한다.
 
-- [ ] **Step 7: 유저 관리 단위·통합 테스트를 통과시킨다.**
+- [x] **Step 7: 유저 관리 단위·통합 테스트를 통과시킨다.**
 
-- [ ] **Step 8: Task 3 변경만 커밋한다.**
+- [x] **Step 8: Task 3 변경만 커밋한다.**
 
   Commit: `feat(api): add site user management`
 
