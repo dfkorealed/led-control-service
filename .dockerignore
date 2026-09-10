@@ -10,3 +10,5 @@
 **/dist
 artifacts
 .superpowers
+.codex-build
+.codex-finalizer

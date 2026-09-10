@@ -21,7 +21,7 @@
 
 ## 구현 완료
 
-- 현장 일반 유저의 `read`와 `control` capability는 모두 모니터링 메뉴와 해당 현장 dashboard 조회를 허용한다. 신규 일반 유저는 임시 비밀번호로 최초 로그인한 뒤 전용 강제 변경 화면을 완료해야 모니터링으로 진입한다. mock Chromium으로 역할별 메뉴를, 격리 PostgreSQL/API Chromium으로 최초 로그인·비밀번호 변경·비활성 세션의 다음 보호 요청 `401`과 재로그인 거절을 검증했다. Gateway나 ESP32-H2를 사용한 검증은 아니다.
+- 현장 일반 유저의 `read`와 `control` capability는 모두 모니터링 메뉴와 해당 현장 dashboard 조회를 허용한다. 신규 일반 유저는 임시 비밀번호로 최초 로그인한 뒤 전용 강제 변경 화면을 완료해야 모니터링으로 진입한다. mock Chromium은 read/control/admin의 주 메뉴 exact 범위와 강제 변경 전 보호 API `403`을 검증한다. 격리 PostgreSQL/API Chromium은 실제 `403 PASSWORD_CHANGE_REQUIRED`, 변경 후 read 메뉴, `/settings/users` 직접 접근 차단, 비활성 세션의 다음 보호 요청 `401`과 재로그인 거절을 검증했다. Gateway나 ESP32-H2를 사용한 검증은 아니다.
 
 - 설정에서 실행하는 테스트 데이터 도구가 `VITE_TEST_DATA_TOOLS_ENABLED=true`일 때만 `POST/DELETE /test-data/sites/:siteId`를 사용해 층별 marker Gateway 1개와 MeshNode/Fixture 200개씩을 생성·삭제한다. 생성은 idempotent하며 `led-control-test-data/v1/`과 `[TEST DATA] Fixture `를 도구 전용 예약 namespace로 사용한다. 삭제는 Gateway·MeshNode·Fixture marker chain이 모두 일치하는 테스트 데이터만 대상으로 하므로 실제 장비 데이터는 보존된다. 예상하지 않은 종속 데이터가 marker 장비 또는 조명에 연결돼 있으면 삭제는 `409`로 전체 거부된다. 생성 직후 recent online이더라도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. 이 데이터는 실장비/MQTT 시뮬레이션이 아니며 DB schema/migration 변경도 없다.
 
@@ -98,6 +98,7 @@
 - 층 지도 snapshot은 도형을 `zIndex`, 생성 시각 순으로 고정해 반환한다. 존재하지 않거나 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - 웹은 `useFloorMapSnapshot`으로 선택 층의 저장된 배경과 도형을 10분마다 조회하고, 설정 에디터와 공통 `FloorMapObjectNode` geometry를 사용해 Konva scene에 읽기 전용으로 합성한다. 조명 marker는 같은 좌표계의 접근 가능한 HTML 버튼으로 표시한다.
 - 설정 맵의 atomic save 또는 revision 복구가 성공하면 응답의 `mapRevision`, 배경·맵 크기·도형을 동일 현장/층의 `floor-map` 캐시에 즉시 기록하고, 조명 이름·위치·크기·정격 전력·배치 상태는 기존 `floor-fixtures` 페이지의 밝기·장애·Gateway 운영 상태를 보존한 채 병합한다. 이후 scoped query invalidation과 서버 재조회도 유지하므로 설정에서 모니터링으로 이동할 때 이전 10분 캐시를 먼저 표시하지 않는다.
+- 네모·세모·선·텍스트는 맵 편집 저장 성공 뒤 읽기 전용 모니터링 Konva scene에 같은 좌표와 색상으로 표시한다. 브라우저 회귀는 접근성용 숨김 데이터 존재만 확인하지 않고 네 종류를 한 번에 저장한 뒤 모니터링 canvas의 실제 픽셀을 검사한다.
 - 모니터링 수동 새로고침은 dashboard metadata, 현재 층 fixture 페이지와 현재 층 map snapshot 세 요청을 함께 갱신하며 일부 실패 시 기존 성공 데이터를 유지한다.
 - 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가하며, 수동 갱신 실패 상태는 해당 floor ID에 귀속되어 다른 층으로 전환할 때 누수되지 않는다.
 - deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색, 등록 조명이 존재하는 상태의 active 세션 자동 복구와 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
@@ -183,7 +184,6 @@
 - `apps/web/src/features/floor-editor/FloorEditorView.tsx`
 - `apps/web/src/features/floor-editor/editor-monitoring-cache.ts`
 - `apps/web/src/features/registration/RegistrationPanel.tsx`
-- `apps/web/src/features/registration/RegistrationDialog.tsx`
 - `apps/web/src/features/registration/RegistrationPanel.test.tsx`
 - `apps/web/src/features/registration/FixtureBatchForm.tsx`
 - `apps/web/src/features/registration/FixtureIndividualForm.tsx`

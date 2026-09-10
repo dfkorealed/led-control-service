@@ -1,4 +1,6 @@
 .superpowers/
+.codex-build/
+.codex-finalizer/
 .worktrees/
 node_modules/
 test-results/

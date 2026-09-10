@@ -19,7 +19,17 @@ describe("floor editor store baseline", () => {
     useFloorEditorStore.getState().initialize(initialState);
   });
 
+  it("enables grid snapping whenever an editor state is initialized", () => {
+    expect(useFloorEditorStore.getState().snap).toBe(true);
+
+    useFloorEditorStore.getState().setSnap(false);
+    useFloorEditorStore.getState().initialize(initialState);
+
+    expect(useFloorEditorStore.getState().snap).toBe(true);
+  });
+
   it("becomes dirty only when an editable value actually changes", () => {
+    useFloorEditorStore.getState().setSnap(false);
     useFloorEditorStore.getState().updateFixture("fixture-1", { x: 10 });
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
 
@@ -54,6 +64,25 @@ describe("floor editor store baseline", () => {
     expect(useFloorEditorStore.getState().state!.objects[0]).toMatchObject({ x: 220, y: 180, width: 96, height: 64 });
   });
 
+  it("snaps an object to the nearest map edge when the map size is not a grid multiple", () => {
+    useFloorEditorStore.getState().initialize({
+      ...initialState,
+      floor: {
+        ...initialState.floor,
+        floorPlan: { sourceType: "none", imageUrl: "", originalFileUrl: null, renderedImageUrl: null, width: 95, height: 95, gridSize: 20, version: 1 }
+      },
+      objects: [{
+        id: "object-edge", floorId: "floor-1", type: "rectangle", x: 40, y: 40, width: 20, height: 20, points: null,
+        rotation: 0, strokeColor: "#000000", fillColor: "#ffffff", strokeWidth: 1,
+        text: "", fontSize: null, zIndex: 1, locked: false, visible: true
+      }]
+    });
+
+    useFloorEditorStore.getState().updateObject("object-edge", { x: 69, y: 69 });
+
+    expect(useFloorEditorStore.getState().state!.objects[0]).toMatchObject({ x: 75, y: 75, width: 20, height: 20 });
+  });
+
   it("stores map-only dimensions and rejects shrinking across existing content", () => {
     expect(useFloorEditorStore.getState().updateMapSettings({ width: 1600, height: 900, gridSize: 20 })).toBeNull();
     expect(useFloorEditorStore.getState().state!.floor.floorPlan).toMatchObject({
@@ -68,6 +97,7 @@ describe("floor editor store baseline", () => {
   it.each([121, maxNameLength])("moves a fixture with an existing %i-character name", (length) => {
     const fixture = { ...initialState.fixtures[0], name: "L".repeat(length) };
     useFloorEditorStore.getState().initialize({ ...initialState, fixtures: [fixture] });
+    useFloorEditorStore.getState().setSnap(false);
     useFloorEditorStore.getState().moveFixtures([fixture.id], { x: 5, y: 10 });
     expect(useFloorEditorStore.getState().state!.fixtures[0]).toMatchObject({ name: fixture.name, x: 15, y: 30 });
     useFloorEditorStore.getState().undo();

@@ -48,6 +48,22 @@ export function snapPointToGrid(point: Point, gridSize: number): Point {
   };
 }
 
+export function snapPointToGridWithinBounds(point: Point, gridSize: number, bounds: Bounds): Point {
+  return {
+    x: snapValueToGridWithinBounds(point.x, gridSize, bounds.width),
+    y: snapValueToGridWithinBounds(point.y, gridSize, bounds.height)
+  };
+}
+
+function snapValueToGridWithinBounds(value: number, gridSize: number, maximum: number) {
+  const boundedMaximum = Math.max(0, maximum);
+  const boundedValue = Math.min(Math.max(value, 0), boundedMaximum);
+  const gridPoint = Math.min(Math.max(snapValueToGrid(boundedValue, gridSize), 0), boundedMaximum);
+  return [gridPoint, 0, boundedMaximum].reduce((nearest, candidate) => (
+    Math.abs(candidate - boundedValue) < Math.abs(nearest - boundedValue) ? candidate : nearest
+  ));
+}
+
 export function snapRectToGrid(rect: MapRect, gridSize: number): MapRect {
   const start = snapPointToGrid(rect, gridSize);
   const end = snapPointToGrid({ x: rect.x + rect.width, y: rect.y + rect.height }, gridSize);

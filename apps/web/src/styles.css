@@ -290,6 +290,7 @@ button {
 .sidebar {
   width: 92px;
   position: sticky;
+  z-index: 20;
   top: 0;
   align-self: start;
   height: 100vh;
@@ -1245,6 +1246,10 @@ button {
   inset: 0;
 }
 
+.floor-scene[data-interactive="false"] {
+  pointer-events: none;
+}
+
 .floor-scene-canvas {
   position: absolute;
   inset: 0;
@@ -1266,6 +1271,7 @@ button {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  pointer-events: none;
 }
 
 .floor-map-legend {
@@ -1601,49 +1607,6 @@ button {
   font-weight: 900;
   overflow-wrap: anywhere;
   text-align: right;
-}
-
-.registration-dialog-backdrop {
-  position: fixed;
-  z-index: 40;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  background: rgba(23, 32, 51, 0.4);
-  padding: 24px;
-}
-
-.registration-dialog {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  width: min(100%, 960px);
-  max-height: min(90dvh, 900px);
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--panel);
-  box-shadow: var(--shadow-popover);
-}
-
-.registration-dialog-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid var(--border);
-  padding: 16px 18px;
-}
-
-.registration-dialog-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.registration-dialog-content {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 18px;
 }
 
 @media (min-width: 1121px) {
@@ -2414,6 +2377,7 @@ button {
 .settings-workspace {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
+  align-content: start;
   gap: 18px;
   min-width: 0;
 }
@@ -3744,7 +3708,6 @@ button.group-card {
 
 .floor-editor-toolbar,
 .editor-properties-panel,
-.floor-asset-uploader,
 .editor-revisions {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -3841,12 +3804,12 @@ button.group-card {
   background-color: #f8fbff;
 }
 
-.floor-editor-canvas.grid-only,
-.floor-editor-canvas:not(.has-plan) {
-  background-image:
-    linear-gradient(#dbe6f3 1px, transparent 1px),
-    linear-gradient(90deg, #dbe6f3 1px, transparent 1px);
-  background-size: 32px 32px;
+.floor-editor-canvas.is-pan-ready {
+  cursor: grab;
+}
+
+.floor-editor-canvas.is-panning {
+  cursor: grabbing;
 }
 
 .floor-editor-left-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #fff; border-right: 1px solid var(--border); }
@@ -3995,12 +3958,6 @@ button.group-card {
   padding: 14px;
 }
 
-.floor-asset-uploader {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-}
-
 .editor-revisions {
   display: grid;
   gap: 12px;
@@ -4062,34 +4019,6 @@ button.group-card {
 .editor-revisions > .secondary-button {
   justify-content: center;
   width: 100%;
-}
-
-.floor-asset-uploader strong {
-  display: block;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 15px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.floor-asset-actions {
-  display: grid;
-  gap: 8px;
-}
-
-.floor-asset-actions .secondary-button {
-  justify-content: center;
-  width: 100%;
-}
-
-.floor-asset-actions input[type="file"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
 }
 
 .editor-properties-panel label {
@@ -4627,47 +4556,6 @@ button.group-card {
     height: 48px;
   }
 
-  .registration-dialog-backdrop {
-    padding: 0;
-  }
-
-  .registration-dialog {
-    width: 100%;
-    height: 100dvh;
-    max-height: none;
-    border-radius: 0;
-  }
-
-  .registration-dialog-header {
-    padding: 10px 14px;
-  }
-
-  .registration-dialog-header .icon-button {
-    /* 둥근 모서리 안쪽에도 44px 정사각형 터치 영역이 남도록 실제 크기는 48px로 둔다. */
-    width: 48px;
-    min-width: 48px;
-    height: 48px;
-    min-height: 48px;
-  }
-
-  .registration-dialog-content {
-    min-width: 0;
-    padding: 14px;
-  }
-
-  .registration-dialog-content .registration-panel {
-    padding: 14px;
-  }
-
-  .registration-dialog-content .registration-targets {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .registration-dialog-content .registration-targets select {
-    width: 100%;
-    min-width: 0;
-  }
-
   .auth-shell {
     grid-template-columns: minmax(0, 1fr);
     align-content: center;
@@ -4858,8 +4746,7 @@ button.group-card {
   .monitoring-screen .secondary-button,
   .monitoring-screen .segmented-control button,
   .monitoring-screen .monitoring-floor-selector select,
-  .monitoring-screen .monitoring-fixture-selector select,
-  .floor-asset-actions .secondary-button {
+  .monitoring-screen .monitoring-fixture-selector select {
     min-height: 44px;
   }
 

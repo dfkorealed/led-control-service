@@ -20,7 +20,6 @@
     "@tanstack/react-query": "^5.62.8",
     "konva": "^10.3.0",
     "lucide-react": "^0.468.0",
-    "pdfjs-dist": "^6.1.200",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-konva": "^18.2.16",

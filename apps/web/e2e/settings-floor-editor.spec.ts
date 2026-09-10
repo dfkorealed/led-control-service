@@ -12,6 +12,18 @@ const responsiveViewports = [
   { width: 320, height: 740 }
 ] as const;
 
+async function expectSettingsContentTopAligned(page: import("@playwright/test").Page) {
+  const contextBox = await page.getByRole("combobox", { name: "현장 선택" }).boundingBox();
+  const contentBox = await page.locator(".settings-content > .settings-screen").boundingBox();
+  expect(contextBox).not.toBeNull();
+  expect(contentBox).not.toBeNull();
+  if (!contextBox || !contentBox) return;
+
+  const verticalGap = contentBox.y - (contextBox.y + contextBox.height);
+  expect(verticalGap).toBeGreaterThanOrEqual(0);
+  expect(verticalGap).toBeLessThanOrEqual(20);
+}
+
 test("operator customer routes are blocked and admin floor changes are reflected in monitoring", async ({ browser }) => {
   const operatorPage = await browser.newPage();
   const operatorApi = await installSettingsApiRoutes(operatorPage, "operator");
@@ -99,15 +111,48 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   await page.mouse.up();
   await expect(page.getByRole("complementary", { name: "속성 패널" }).getByRole("heading", { name: "네모" })).toBeVisible();
 
+  for (const shape of [
+    { tool: "삼각형", start: [520, 220], end: [640, 320] },
+    { tool: "선", start: [320, 380], end: [480, 380] },
+    { tool: "텍스트", start: [520, 380], end: [680, 440] }
+  ] as const) {
+    await page.getByRole("button", { name: shape.tool, exact: true }).click();
+    await page.mouse.move(box.x + shape.start[0], box.y + shape.start[1]);
+    await page.mouse.down();
+    await page.mouse.move(box.x + shape.end[0], box.y + shape.end[1]);
+    await page.mouse.up();
+  }
+
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
   await expect.poll(() => api.atomicSavePayloads).toHaveLength(1);
-  expect(api.atomicSavePayloads[0].objectCreates).toHaveLength(1);
+  expect(api.atomicSavePayloads[0].objectCreates).toHaveLength(4);
 
   await page.getByRole("link", { name: "모니터링", exact: true }).click();
 
   await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
-  await expect(page.getByTestId("map-object-saved-map-object-8-1")).toHaveCount(1);
+  for (const index of [1, 2, 3, 4]) {
+    await expect(page.getByTestId(`map-object-saved-map-object-8-${index}`)).toHaveCount(1);
+  }
+  const monitoringCanvas = page.getByRole("region", { name: "층 도면" }).locator(".floor-scene-canvas canvas");
+  await expect.poll(async () => monitoringCanvas.evaluate((canvas: HTMLCanvasElement) => {
+    const context = canvas.getContext("2d");
+    if (!context) return [];
+    const textPixels = context.getImageData(520, 380, 160, 60).data;
+    let textVisible = false;
+    for (let index = 3; index < textPixels.length; index += 4) {
+      if (textPixels[index] > 0) {
+        textVisible = true;
+        break;
+      }
+    }
+    return [
+      context.getImageData(350, 250, 1, 1).data[3],
+      context.getImageData(580, 280, 1, 1).data[3],
+      context.getImageData(400, 380, 1, 1).data[3],
+      textVisible ? 255 : 0
+    ];
+  })).toEqual([255, 255, 255, 255]);
 });
 
 test("viewer is redirected before editor state and lease requests while mutation fixtures reject changes", async ({ page }) => {
@@ -461,10 +506,12 @@ for (const viewport of responsiveViewports) {
     await page.goto("/settings?siteId=site-1");
     await expect(page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "조명 등록" })).toHaveCount(0);
+    await expectSettingsContentTopAligned(page);
     await expectNoHorizontalOverflow(page);
 
     await page.goto("/settings/registration?siteId=site-1");
     await expect(page.getByRole("heading", { name: "조명 등록" })).toBeVisible();
+    await expectSettingsContentTopAligned(page);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
       const registrationTargets = page.locator(".registration-targets");
@@ -474,11 +521,17 @@ for (const viewport of responsiveViewports) {
       await expectMinimumTouchTargets(page, ".app-shell");
     }
 
+    await page.goto("/settings/floor-plans?siteId=site-1");
+    await expect(page.getByRole("heading", { name: "맵 관리" })).toBeVisible();
+    await expectSettingsContentTopAligned(page);
+    await expectNoHorizontalOverflow(page);
+
     await page.goto("/settings/security?siteId=site-1");
     await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
     await expect(page.getByLabel("현재 비밀번호")).toBeVisible();
     await expect(page.getByLabel("새 비밀번호", { exact: true })).toBeVisible();
     await expect(page.getByLabel("새 비밀번호 확인")).toBeVisible();
+    await expectSettingsContentTopAligned(page);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) await expectMinimumTouchTargets(page, ".app-shell");
   });

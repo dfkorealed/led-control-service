@@ -69,11 +69,17 @@ test("map settings drive absolute grid snapping and contextual shape properties"
   await expect(properties.getByRole("heading", { name: "맵 설정" })).toBeVisible();
   await properties.getByLabel("격자 간격").fill("20");
   await properties.getByRole("button", { name: "맵 설정 적용" }).click();
-  await page.getByLabel("격자 스냅").check();
+  await expect(page.getByLabel("격자 스냅")).toBeChecked();
 
   const canvas = page.getByLabel("B2 편집 캔버스");
   await expect(canvas).toHaveAttribute("data-snap", "true");
   await expect(canvas).toHaveAttribute("data-grid-size", "20");
+  await expect.poll(() => canvas.evaluate((element) => getComputedStyle(element).backgroundImage)).toBe("none");
+  await expect.poll(() => canvas.evaluate((element) => {
+    const konva = (window as unknown as { Konva?: { stages: Array<{ container(): HTMLDivElement; findOne(selector: string): unknown }> } }).Konva;
+    const stage = konva?.stages.find((candidate) => candidate.container().closest('[data-testid="floor-editor-canvas"]') === element);
+    return Boolean(stage?.findOne(".map-grid"));
+  })).toBe(true);
   const box = await canvas.boundingBox();
   if (!box) throw new Error("editor canvas has no layout box");
 
@@ -120,9 +126,12 @@ test("wheel always zooms while the move tool pans the map", async ({ page }) => 
   await page.getByRole("button", { name: "100%" }).click();
   await page.getByRole("button", { name: "이동" }).click();
   await page.mouse.move(box.x + 500, box.y + 300);
+  await expect(canvas).toHaveCSS("cursor", "grab");
   await page.mouse.down();
   await page.mouse.move(box.x + 540, box.y + 330);
+  await expect(canvas).toHaveCSS("cursor", "grabbing");
   await page.mouse.up();
+  await expect(canvas).toHaveCSS("cursor", "grab");
   await expect(canvas).toHaveAttribute("data-pan-x", "40");
   await expect(canvas).toHaveAttribute("data-pan-y", "30");
 });

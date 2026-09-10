@@ -57,6 +57,7 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
   const [creation, setCreation] = useState<FloorMapObjectDraft | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<Point | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
   const floorPlan = state?.floor.floorPlan;
   const backgroundUrl = floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "";
   const bounds = { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
@@ -154,7 +155,7 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
         // Imperative pan is not yet in Zustand. Restore every layer before dropping
         // the gesture, so the next drop uses exactly the transform shown on screen.
         if (gesture.current?.kind === "pan") stage.current?.getLayers().forEach((layer) => layer.position(store.pan));
-        gesture.current = null; setCreation(null); setMarquee(null); setDropPreview(null); store.setPreview([]); return;
+        gesture.current = null; setCreation(null); setMarquee(null); setDropPreview(null); setIsPanning(false); store.setPreview([]); return;
       }
       if (readOnly) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? store.redo() : store.undo(); return; }
@@ -179,6 +180,7 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
     if ((event.target as Element).closest("button")) return;
     if (activeTool === "pan") {
       gesture.current = { kind: "pan", screen: screenPoint(event), pan, start: worldPoint(event), additive: false, moved: false };
+      setIsPanning(true);
     } else if (!readOnly && drawingTools.has(activeTool) && !layers.objects.locked) {
       gesture.current = { kind: "draw", screen: screenPoint(event), pan, start: clampPoint(worldPoint(event), bounds), additive: false, moved: false };
     } else if (!readOnly && activeTool === "select") {
@@ -206,7 +208,11 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
   }
   function finish(event: MouseEvent<HTMLDivElement>) {
     const action = gesture.current; gesture.current = null;
-    if (action?.kind === "pan") { const point = screenPoint(event); useFloorEditorStore.getState().setPan({ x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y }); }
+    if (action?.kind === "pan") {
+      const point = screenPoint(event);
+      useFloorEditorStore.getState().setPan({ x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y });
+      setIsPanning(false);
+    }
     if (!readOnly && action?.moved) {
       if (action.kind === "draw" && creation) useFloorEditorStore.getState().addObject(state!.floor.id, creation);
       if (action.kind === "marquee" && marquee && layers.fixtures.visible && !layers.fixtures.locked) useFloorEditorStore.getState().selectFixtures(state!.fixtures.filter((f) => f.placementStatus !== "unplaced" && !lockedSet.has(f.id) && f.x >= marquee.x && f.x <= marquee.x + marquee.width && f.y >= marquee.y && f.y <= marquee.y + marquee.height).map((f) => f.id), action.additive);
@@ -248,10 +254,10 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
     : selectedObjectType === "line"
       ? ["middle-left", "middle-right"]
       : ["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
-  return <div ref={container} className={`floor-editor-canvas konva-editor-canvas ${backgroundUrl ? "has-plan" : "grid-only"}`}
+  return <div ref={container} className={`floor-editor-canvas konva-editor-canvas ${backgroundUrl ? "has-plan" : "grid-only"}${activeTool === "pan" ? " is-pan-ready" : ""}${isPanning ? " is-panning" : ""}`}
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
-    onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); } }}
+    onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => setDropPreview(null)} onDrop={drop}>
     <Stage ref={stage} width={viewport.width} height={viewport.height} className="floor-editor-konva-stage" onWheel={(event) => {
       event.evt.preventDefault(); const store = useFloorEditorStore.getState();
