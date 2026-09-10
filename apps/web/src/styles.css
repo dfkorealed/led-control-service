@@ -1605,12 +1605,13 @@ button {
     min-height: 0;
     overflow: hidden;
     place-items: center;
+    container-type: size;
   }
 
   .monitoring-dashboard .floor-map {
-    width: auto;
+    width: min(100%, calc(100cqh * var(--floor-map-aspect-ratio)));
     max-width: 100%;
-    height: 100%;
+    height: auto;
     max-height: 100%;
   }
 
@@ -4440,6 +4441,47 @@ button.group-card {
 }
 
 @media (max-width: 760px) {
+  .registration-dialog-backdrop {
+    padding: 0;
+  }
+
+  .registration-dialog {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .registration-dialog-header {
+    padding: 10px 14px;
+  }
+
+  .registration-dialog-header .icon-button {
+    /* 둥근 모서리 안쪽에도 44px 정사각형 터치 영역이 남도록 실제 크기는 48px로 둔다. */
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
+    min-height: 48px;
+  }
+
+  .registration-dialog-content {
+    min-width: 0;
+    padding: 14px;
+  }
+
+  .registration-dialog-content .registration-panel {
+    padding: 14px;
+  }
+
+  .registration-dialog-content .registration-targets {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .registration-dialog-content .registration-targets select {
+    width: 100%;
+    min-width: 0;
+  }
+
   .auth-shell {
     grid-template-columns: minmax(0, 1fr);
     align-content: center;

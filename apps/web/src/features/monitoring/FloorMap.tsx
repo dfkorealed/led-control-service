@@ -1,5 +1,6 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
 import { CircleCheck, CircleX, Clock3, TriangleAlert } from "lucide-react";
+import type { CSSProperties } from "react";
 import { Dashboard } from "../../api/queries";
 import { FloorScene } from "../floor-map/FloorScene";
 
@@ -11,8 +12,13 @@ interface FloorMapProps {
 }
 
 export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }: FloorMapProps) {
+  const mapStyle = {
+    aspectRatio: `${snapshot.width} / ${snapshot.height}`,
+    "--floor-map-aspect-ratio": snapshot.width / snapshot.height
+  } as CSSProperties;
+
   return (
-    <div className="floor-map monitoring-map-card" style={{ aspectRatio: `${snapshot.width} / ${snapshot.height}` }} role="region" aria-label="층 도면">
+    <div className="floor-map monitoring-map-card" style={mapStyle} role="region" aria-label="층 도면">
       <FloorScene
         snapshot={snapshot}
         fixtures={floor.fixtures}

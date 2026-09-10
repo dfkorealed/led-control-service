@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
+import type { RegistrationSession } from "../src/api/registration";
 
 const ids = {
   site: "22222222-2222-4222-8222-222222222222",
@@ -9,15 +10,15 @@ const ids = {
 } as const;
 
 const fixtures: SettingsFixture[] = [
+  fixture("B2-L001-매우-긴-테스트-조명-이름", "online", "reported", 120, 140),
   {
-    ...fixture("B2-L001-매우-긴-테스트-조명-이름", "online", "reported", 120, 140),
+    ...fixture("B2-L002", "fault", "reported", 280, 220),
     gateway: {
       id: ids.gateway,
       name: "G".repeat(240),
       connectionStatus: "online"
     }
   },
-  fixture("B2-L002", "fault", "reported", 280, 220),
   fixture("B2-L003", "offline", "reported", 440, 300),
   fixture("B2-L004", "offline", "provisioning_waiting_state", 600, 380)
 ];
@@ -146,22 +147,73 @@ test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 
   }
 });
 
-test("등록된 조명이 있는 관리자는 요청할 때만 조명 등록 UI를 연다", async ({ page }) => {
+test("등록된 조명이 있는 관리자는 요청할 때만 진행 중 조명 등록 UI를 연다", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await installMonitoringFixture(page);
+  await installSettingsApiRoutes(page, "admin", {
+    fixtures,
+    ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
+    activeRegistrationSessions: [activeRegistrationSession]
+  });
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
   await expect(page.getByRole("heading", { name: "조명 등록" })).toHaveCount(0);
-  await page.getByRole("button", { name: "조명 등록" }).click();
+  const trigger = page.getByRole("button", { name: "조명 등록" });
+  await trigger.click();
 
   const dialog = page.getByRole("dialog", { name: "조명 등록" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "조명 등록", level: 2 })).toBeVisible();
+  await expect(dialog.getByText(activeRegistrationSession.id.slice(0, 8), { exact: true })).toBeVisible();
 
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "조명 등록" })).toBeFocused();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await expect(dialog.getByText(activeRegistrationSession.id.slice(0, 8), { exact: true })).toBeVisible();
 });
+
+for (const width of [390, 320]) {
+  test(`${width}px 조명 등록 dialog는 내부 가로 스크롤 없이 동작한다`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 740 });
+    await installMonitoringFixture(page);
+    await page.goto(`/monitoring?siteId=${ids.site}`);
+
+    await page.getByRole("button", { name: "조명 등록" }).click();
+    const dialog = page.getByRole("dialog", { name: "조명 등록" });
+    await expect(dialog).toBeVisible();
+
+    const overflow = await dialog.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      contentClientWidth: element.querySelector<HTMLElement>(".registration-dialog-content")?.clientWidth ?? 0,
+      contentScrollWidth: element.querySelector<HTMLElement>(".registration-dialog-content")?.scrollWidth ?? 0
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+    expect(overflow.contentScrollWidth).toBeLessThanOrEqual(overflow.contentClientWidth + 1);
+    await expectMinimumTouchTargets(page, ".registration-dialog-header");
+  });
+}
+
+for (const dimensions of [{ width: 2400, height: 600 }, { width: 600, height: 2400 }]) {
+  test(`${dimensions.width}x${dimensions.height} 도면은 데스크톱 지도 영역 안에 비율을 유지해 맞춘다`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installSettingsApiRoutes(page, "viewer", {
+      fixtures,
+      mapDimensions: dimensions,
+      ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+    });
+    await page.goto(`/monitoring?siteId=${ids.site}`);
+
+    const panelBox = await page.locator(".map-panel").boundingBox();
+    const mapBox = await page.locator(".floor-map").boundingBox();
+    expect(panelBox).not.toBeNull();
+    expect(mapBox).not.toBeNull();
+    expect(mapBox?.width ?? Infinity).toBeLessThanOrEqual((panelBox?.width ?? 0) + 1);
+    expect(mapBox?.height ?? Infinity).toBeLessThanOrEqual((panelBox?.height ?? 0) + 1);
+    expect((mapBox?.width ?? 0) / (mapBox?.height ?? 1)).toBeCloseTo(dimensions.width / dimensions.height, 1);
+  });
+}
 
 test("부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지한다", async ({ page }) => {
   const api = await installMonitoringFixture(page);
@@ -206,3 +258,22 @@ async function expectDesktopMonitoringUsesInternalScroll(page: Page) {
   expect(metrics.detailOverflowY).toBe("auto");
   expect(metrics.detailScrollHeight).toBeGreaterThan(metrics.detailClientHeight);
 }
+
+const activeRegistrationSession: RegistrationSession = {
+  id: "88888888-8888-4888-8888-888888888888",
+  siteId: ids.site,
+  floorId: ids.floor,
+  gatewayId: ids.gateway,
+  requestedBy: "99999999-9999-4999-8999-999999999999",
+  status: "active",
+  scanStatus: "completed",
+  scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  scanAttempt: 1,
+  scanStartedAt: "2026-09-10T00:00:00.000Z",
+  scanCompletedAt: "2026-09-10T00:00:10.000Z",
+  scanFailureCode: null,
+  scanFailureMessage: null,
+  startedAt: "2026-09-10T00:00:00.000Z",
+  completedAt: null,
+  discoveredNodes: []
+};

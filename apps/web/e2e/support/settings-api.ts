@@ -33,6 +33,7 @@ export interface SettingsFixture {
 
 interface InstallSettingsApiOptions {
   fixtures?: SettingsFixture[];
+  mapDimensions?: { width: number; height: number };
   installationStatus?: "pending" | "installed";
   includeGateway?: boolean;
   commandId?: string;
@@ -157,6 +158,7 @@ export async function installSettingsApiRoutes(
   role: SettingsRole,
   {
     fixtures = defaultFixtures,
+    mapDimensions,
     installationStatus = "installed",
     includeGateway = true,
     commandId = "77777777-7777-4777-8777-777777777777",
@@ -171,7 +173,12 @@ export async function installSettingsApiRoutes(
   }: InstallSettingsApiOptions = {}
 ): Promise<SettingsApiFixtureState> {
   const ids = { ...defaultIds, ...idOverrides };
-  const runtimeFloor = { ...floor, id: ids.floorId, siteId: ids.siteId };
+  const runtimeFloor = {
+    ...floor,
+    id: ids.floorId,
+    siteId: ids.siteId,
+    floorPlan: mapDimensions ? { ...floor.floorPlan, ...mapDimensions } : floor.floorPlan
+  };
   const fixtureState = structuredClone(fixtures);
   let commandStage: FixtureCommandStage = "accepted";
   let commandResults: FixtureCommandResult[] = [];
