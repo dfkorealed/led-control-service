@@ -376,6 +376,32 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
 
   it("rolls back permanent deletion and audit anonymization when the final audit fails", async () => {
     const member = await service.create(admin, siteId, input());
+    const email = `rollback.${randomUUID()}@example.com`;
+    await prisma.user.update({ where: { id: member.id }, data: { email } });
+    const invitation = await prisma.invitation.create({ data: {
+      organizationId: admin.organizationId,
+      siteId,
+      email,
+      role: "viewer",
+      tokenHash: createHash("sha256").update(randomUUID()).digest("hex"),
+      expiresAt: new Date(Date.now() + 3600_000),
+      acceptedAt: new Date()
+    } });
+    const gateway = await prisma.gateway.create({ data: {
+      siteId, name: "rollback gateway", serialNumber: randomUUID(), firmwareVersion: "1"
+    } });
+    const command = await prisma.command.create({ data: {
+      siteId, requestedBy: member.id, clientRequestId: randomUUID(),
+      requestFingerprint: "rollback-fingerprint", targetType: "fixture", brightness: 70
+    } });
+    const dispatch = await prisma.commandDispatch.create({ data: {
+      commandId: command.id, gatewayId: gateway.id, idempotencyKey: randomUUID(), sequence: 1
+    } });
+    const outbox = await prisma.mqttOutbox.create({ data: {
+      dispatchId: dispatch.id,
+      topic: `sites/${siteId}/gateways/${gateway.id}/commands/dimming`,
+      payload: { commandId: command.id, requestedBy: member.id }
+    } });
     await prisma.session.create({ data: { userId: member.id, tokenHash: randomUUID(), expiresAt: new Date(Date.now() + 3600_000) } });
     jest.spyOn(audit, "record").mockRejectedValueOnce(new Error("audit unavailable"));
     await expect(service.remove(admin, siteId, member.id, { confirmationLoginId: member.loginId })).rejects.toMatchObject({ status: 500 });
@@ -383,6 +409,10 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
     expect(await prisma.session.count({ where: { userId: member.id } })).toBe(1);
     expect(await prisma.siteMembership.count({ where: { userId: member.id } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { targetId: member.id, action: "site_user.created" } })).toBe(1);
+    expect(await prisma.invitation.findUnique({ where: { id: invitation.id } })).toMatchObject({ email });
+    expect((await prisma.mqttOutbox.findUniqueOrThrow({ where: { id: outbox.id } })).payload)
+      .toMatchObject({ requestedBy: member.id });
+    expect((await prisma.command.findUniqueOrThrow({ where: { id: command.id } })).requestedBy).toBe(member.id);
   });
 
   it("serves the full HTTP CRUD flow with real session/admin guards and safe JSON responses", async () => {

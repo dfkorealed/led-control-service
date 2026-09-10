@@ -19,6 +19,8 @@ describe("command requester outbox migration contract", () => {
     expect(migration).toContain("outbox.\"payload\" - 'requestedBy'");
     expect(migration).toContain("jsonb_typeof(outbox.\"payload\") = 'object'");
     expect(migration).toContain("outbox.\"payload\" ? 'requestedBy'");
+    expect(migration).toContain('CONSTRAINT "MqttOutbox_command_payload_no_requested_by_check"');
+    expect(migration).toMatch(/"dispatchId" IS NULL[\s\S]*?jsonb_typeof\("payload"\) <> 'object'[\s\S]*?NOT \("payload" \? 'requestedBy'\)/);
   });
 });
 
@@ -60,6 +62,24 @@ describeWithPostgres("command requester outbox migration PostgreSQL rehearsal", 
     expect(rows.config).toEqual({ kind: "automation-config", requestedBy: "keep-config" });
     expect(rows.ack).toEqual({ kind: "application-ack", requestedBy: "keep-ack" });
     expect(rows["other-command-shape"]).toEqual(["requestedBy", "keep-array"]);
+
+    const legacyReinsert = run(schema, `
+      UPDATE "MqttOutbox"
+      SET "payload" = jsonb_set("payload", '{requestedBy}', '"user-2"'::jsonb)
+      WHERE "id" = 'command';
+    `);
+    expect(legacyReinsert.status).not.toBe(0);
+    expect(legacyReinsert.stderr).toContain("MqttOutbox_command_payload_no_requested_by_check");
+
+    const nonCommandUpdates = run(schema, `
+      UPDATE "MqttOutbox"
+      SET "payload" = jsonb_set("payload", '{postMigration}', 'true'::jsonb)
+      WHERE "id" IN ('config', 'ack');
+      UPDATE "MqttOutbox"
+      SET "payload" = "payload" || '["post-migration"]'::jsonb
+      WHERE "id" = 'other-command-shape';
+    `);
+    expect(nonCommandUpdates.status).toBe(0);
   });
 
   function query(schema: string, sql: string) {
