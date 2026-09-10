@@ -73,6 +73,8 @@
 
 - 2026-09-10 최종 검증: 웹 단위 497개, 편집기 Chromium 29개 및 추가 성능 1개, 실제 설치 여정 2개, 두 층 배치 여정 1개 통과. 1,000개 배치 조명 준비 시간은 warm reload 20회 p95 220.6ms였다(mock API/macOS M2 Pro/Chromium, 운영 cold start 보장 아님). 실제 PostgreSQL 대량 저장 100회 main 재검증은 p95 549ms였다. 전체 결과와 재현 경로는 실행 계획에 기록했다.
 
+- 테스트 데이터 도구는 단일 `VITE_TEST_DATA_TOOLS_ENABLED=true` opt-in 환경에서만 Web UI와 API를 활성화하며, off이면 endpoint가 `404`다. 설치 완료 현장의 assigned `admin` 설정 개요에만 생성·삭제 카드를 노출하며, 다른 역할이나 미설치 현장에는 노출하지 않는다. `POST/DELETE /test-data/sites/:siteId`로 현재 모든 층에 marker Gateway 1개와 MeshNode/Fixture 200개씩을 idempotent하게 생성한다. `led-control-test-data/v1/`과 `[TEST DATA] Fixture ` 접두사는 이 도구의 예약 namespace이며, Gateway·MeshNode·Fixture marker chain이 모두 일치하는 데이터만 삭제해 실제 장비 데이터는 보존한다. marker 장비에 예상하지 않은 노드·그룹·명령·통계 등 종속 데이터가 있으면 부분 삭제하지 않고 `409`로 전체 작업을 거부한다. 생성 직후 recent online으로 표시될 수 있으나 실제 heartbeat가 없으면 freshness 정책에 따라 offline으로 전환될 수 있으며, 실장비나 MQTT 동작을 시뮬레이션하는 기능은 아니다. 2026-09-10 전체 회귀는 API 824개와 Web 505개 단위 테스트, 양쪽 typecheck/build를 통과했다.
+
 - 각 층 편집 route와 층 선택을 제공하고 지도·목록·선택·Undo/Redo·미리보기·편집권을 층별로 분리한다. 저장하지 않은 변경이 있으면 층 전환을 확인하며, 저장 응답이 늦게 도착해도 다른 층/계정의 작업을 덮어쓰지 않는다. 상단 층 배지도 편집 중인 층과 일치시킨다.
 - 좌측 가상 목록에서 이름/시리얼/Mesh 주소 검색과 전체/배치/미배치 필터, 전체 선택을 제공한다. 미배치 조명을 드래그해 현재 확대율·팬 좌표의 포인터 위치에 배치하고, 배치 조명 검색 결과를 선택하면 해당 위치를 보여 준다. 선택한 한 조명 우상단의 휴지통은 장비 삭제가 아닌 `배치 해제`다. 확인 팝업의 취소는 변경하지 않고, 승인은 로컬 초안에서 미배치로 되돌린다. 저장 전에는 모니터링에 반영하지 않으며 Undo/재배치가 가능하다.
 - 박스/Shift 선택, 다중 조명 이동, 화살표 이동, 격자 스냅, 정렬/균등 분배, 격자·선형 배치 미리보기/취소/적용과 이름·표시 크기·정격 W 일괄 속성을 제공한다. 잠기거나 숨긴 조명은 변경하지 않는다. 선형 배치는 좌·상 방향과 음수 각도도 처리한다. 조명 등록을 복제하거나 제어 그룹을 변경하지 않는다.
@@ -351,6 +353,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.
 - 비밀번호 변경과 setup/commissioning visibility는 Web 회귀와 기존 격리 실백엔드 E2E로 검증했다. Scene 24~26 레이아웃은 1440×900, 1024×768, 390×844, 320×740 자동 Chromium으로 검증했지만 재설치, 수동 in-app Browser 시각 QA와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
 - 평탄화된 설정 콘텐츠와 에디터 workbench의 시각 계층만 정리했으며, pending setup/Gateway claim/registration 흐름과 도면 editor lease·dirty guard·atomic save/restore·단축키·map bounds의 기존 제약 및 후속 실장비 검증 범위는 변경하지 않았다.
@@ -400,6 +403,14 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`
 - `apps/web/src/features/settings/security/PasswordSettingsView.tsx`
 - `apps/web/src/features/settings/security/PasswordSettingsView.test.tsx`
+- `apps/web/src/features/settings/TestDataToolsPanel.tsx`
+- `apps/web/src/features/settings/TestDataToolsPanel.test.tsx`
+- `apps/web/src/api/test-data.ts`
+- `apps/web/src/api/test-data.test.ts`
+- `apps/web/vite.config.ts`
+- `apps/web/vite.config.test.ts`
+- `apps/api/src/test-data`
+- `.env.example`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/floor-editor`
 - `apps/web/src/styles.css`
@@ -446,3 +457,4 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - DB schema가 바뀌면 `docs/database-schema.md`를 같은 작업에서 갱신한다.
 - 자동 테스트 완료, 코드 완료, Raspberry Pi 검증과 ESP32-H2 Hardware E2E를 별도 상태로 기록한다.
 - route-backed action을 추가하거나 제거할 때 role filtering, `siteId` query와 hash fragment 보존, dirty navigation guard 회귀를 함께 갱신한다.
+- 테스트 데이터 도구의 활성화 플래그, 설치 완료 assigned admin 노출 조건, marker 기반 생성·삭제 범위가 바뀌면 이 문서와 모니터링 문서를 함께 갱신한다. DB schema/migration 변경이 없는지도 명시한다.

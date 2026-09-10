@@ -1647,6 +1647,19 @@ button {
   text-decoration: none;
 }
 
+.settings-test-data-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 18px;
+}
+
+.settings-test-data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .settings-card-heading,
 .floor-plan-card-summary {
   display: flex;

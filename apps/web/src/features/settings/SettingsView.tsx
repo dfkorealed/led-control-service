@@ -5,6 +5,7 @@ import { Card, PageHeader, StatusBadge } from "../../components/ui";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
+import { TestDataToolsPanel } from "./TestDataToolsPanel";
 
 export function SettingsView({ userRole, siteId }: { userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
   const { data } = useDashboard(siteId);
@@ -120,6 +121,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
           ? <GatewayClaimPanel siteId={data.site.id} />
           : <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
       ) : null}
+      <TestDataToolsPanel userRole={userRole} dashboard={data} />
     </section>
   );
 }

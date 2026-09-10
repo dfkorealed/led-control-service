@@ -21,6 +21,8 @@
 
 ## 구현 완료
 
+- 설정에서 실행하는 테스트 데이터 도구가 `VITE_TEST_DATA_TOOLS_ENABLED=true`일 때만 `POST/DELETE /test-data/sites/:siteId`를 사용해 층별 marker Gateway 1개와 MeshNode/Fixture 200개씩을 생성·삭제한다. 생성은 idempotent하며 `led-control-test-data/v1/`과 `[TEST DATA] Fixture `를 도구 전용 예약 namespace로 사용한다. 삭제는 Gateway·MeshNode·Fixture marker chain이 모두 일치하는 테스트 데이터만 대상으로 하므로 실제 장비 데이터는 보존된다. 예상하지 않은 종속 데이터가 marker 장비 또는 조명에 연결돼 있으면 삭제는 `409`로 전체 거부된다. 생성 직후 recent online이더라도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. 이 데이터는 실장비/MQTT 시뮬레이션이 아니며 DB schema/migration 변경도 없다.
+
 - 신규 등록은 지도 공간과 무관하게 미배치로 생성한다. 목록/개수/제어/전력 집계에서는 유지하고 지도 마커만 제외한다. 등록 조명은 있으나 배치가 없을 때 `배치된 조명이 없습니다`와 설정 편집 진입을 제공하며, 등록 0개 안내와 구분한다. 기존 조명 좌표는 migration으로 보존한다. 두 층 실제 API/DB 브라우저 E2E에서 저장 전/후 및 배치 해제 후 마커 분리를 검증했다.
 
 - 실장비 검색 완료 이벤트와 Gateway application ACK를 API의 직접 MQTT publish 성공 여부에 결합하지 않는다. API는 검색 terminal 상태·중복 방지 원장·ACK용 `MqttOutbox`를 같은 DB transaction에 저장한 뒤 broker PUBACK을 반환하고, 별도 outbox worker가 연결 복구 후 ACK를 재전송한다. 따라서 ACK 전송 중 일시적인 MQTT 연결 종료가 persistent session을 막아 이후 provisioning 명령까지 `Connection closed`로 실패시키지 않는다. 같은 terminal event 재전달은 기존 ACK outbox를 재활성화하며 payload identity 충돌은 fail-closed 한다.
@@ -134,6 +136,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 테스트 데이터는 설정 개요의 설치 완료 assigned `admin` 전용 개발·검증 도구이며, 기본 off 상태이고 API도 비활성화 시 404를 반환한다. 따라서 표시되는 online 상태는 일시적 recent online일 수 있고 freshness 재집계 뒤 offline이 될 수 있으며, 실제 Gateway·Mesh·MQTT 상태나 HIL 검증 증거로 해석할 수 없다.
 - 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay는 software로 구현됐다. 다만 이 ACK를 생성하는 API terminal ingest/ACK outbox는 Task 3 범위여서 현재 production 통합에서는 device terminal이 계속 pending replay로 남는다. API/Gateway 프로세스 전원 차단 전체 구간의 자동 수렴과 실제 broker/Raspberry Pi/ESP32-H2 재시작 HIL은 Task 3 이후 검증해야 한다.
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.
@@ -159,6 +162,12 @@
 - `apps/web/src/components/ui/StatusBadge.tsx`
 - `apps/web/src/components/ui/FeedbackState.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
+- `apps/api/src/test-data/test-data.controller.ts`
+- `apps/api/src/test-data/test-data.service.ts`
+- `apps/api/src/test-data/test-data.controller.spec.ts`
+- `apps/api/src/test-data/test-data.service.spec.ts`
+- `apps/web/src/features/settings/TestDataToolsPanel.tsx`
+- `apps/web/src/api/test-data.ts`
 - `apps/web/src/features/monitoring/FloorMap.tsx`
 - `apps/web/src/features/floor-map/FloorScene.tsx`
 - `apps/web/src/features/registration/RegistrationPanel.tsx`
