@@ -1,6 +1,7 @@
 import type { EnergySeriesPoint, EnergySummary } from "@led-control/shared";
 import { Activity, CircleCheck, CircleOff, TriangleAlert } from "lucide-react";
 import { useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   CartesianGrid,
   Line,
@@ -13,6 +14,7 @@ import {
 import { useEnergySeries, useEnergySummary } from "../../api/energy";
 import { Button, Card, FeedbackState, MetricCard, PageHeader, SidePanel, StatusBadge } from "../../components/ui";
 import { getEnergySeriesRanges } from "./statistics-periods";
+import type { StatisticsOutletContext } from "./StatisticsShell";
 
 type Granularity = "day" | "month";
 
@@ -30,7 +32,8 @@ const statusPresentation = {
   no_data: { tone: "neutral", icon: CircleOff }
 } as const;
 
-export function StatisticsView({ siteId }: { siteId?: string }) {
+export function StatisticsOverviewPage() {
+  const { siteId } = useOutletContext<StatisticsOutletContext>();
   const [granularity, setGranularity] = useState<Granularity>("day");
   const summaryQuery = useEnergySummary(siteId);
   const ranges = summaryQuery.data

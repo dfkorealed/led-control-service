@@ -20,25 +20,30 @@ import { FloorPlanSettingsView } from "../settings/floor-plans/FloorPlanSettings
 import { SettingsView } from "../settings/SettingsView";
 import { RegistrationSettingsView } from "../settings/registration/RegistrationSettingsView";
 import { PasswordSettingsView } from "../settings/security/PasswordSettingsView";
-import { StatisticsView } from "../statistics/StatisticsView";
+import { StatisticsOverviewPage } from "../statistics/StatisticsOverviewPage";
+import { StatisticsIndexRedirect, StatisticsShell } from "../statistics/StatisticsShell";
 import { SettingsNavigationItem } from "./SettingsNavigationItem";
 
 const items = [
-  { path: "/monitoring", label: "모니터링", icon: Activity },
-  { path: "/control", label: "제어", icon: SlidersHorizontal },
-  { path: "/statistics", label: "통계", icon: BarChart3 }
+  { path: "/monitoring", destination: "/monitoring", label: "모니터링", icon: Activity },
+  { path: "/control", destination: "/control", label: "제어", icon: SlidersHorizontal },
+  { path: "/statistics", destination: "/statistics/overview", label: "통계", icon: BarChart3 }
 ] as const;
 
 function PrimaryNavigation({ role, search }: Pick<AuthUser, "role"> & { search: string }) {
+  const location = useLocation();
   return (
     <>
       {items.map((item) => {
         const Icon = item.icon;
         return (
           <NavLink
-            className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}
+            aria-current={item.path === "/statistics" && location.pathname.startsWith("/statistics") ? "page" : undefined}
+            className={({ isActive }) => isActive || (item.path === "/statistics" && location.pathname.startsWith("/statistics"))
+              ? "nav-item active"
+              : "nav-item"}
             key={item.path}
-            to={`${item.path}${search}`}
+            to={`${item.destination}${search}`}
           >
             <Icon size={18} />
             <span>{item.label}</span>
@@ -194,7 +199,11 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               />
             )}
           />
-          <Route path="/statistics" element={<StatisticsView siteId={siteId ?? dashboard?.site.id} />} />
+          <Route path="/statistics" element={<StatisticsShell siteId={siteId ?? dashboard?.site.id} />}>
+            <Route index element={<StatisticsIndexRedirect />} />
+            <Route path="overview" element={<StatisticsOverviewPage />} />
+            <Route path="*" element={<StatisticsIndexRedirect />} />
+          </Route>
           <Route path="/settings" element={<SettingsShell selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
             <Route

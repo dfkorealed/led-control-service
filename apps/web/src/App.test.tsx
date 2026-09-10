@@ -439,7 +439,7 @@ describe("App", () => {
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/monitoring",
       "/control",
-      "/statistics",
+      "/statistics/overview",
       "/settings"
     ]);
   });

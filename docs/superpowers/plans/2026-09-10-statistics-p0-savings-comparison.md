@@ -221,7 +221,7 @@ getSiteComparisons(@CurrentUser() user: AuthenticatedUser, @Param("siteId") site
 - Consumes: selected `siteId` from CustomerShell.
 - Produces: `StatisticsOutletContext={siteId?: string}`, overview route, query/hash-preserving redirect.
 
-- [ ] **Step 1: route와 navigation 실패 테스트를 작성한다.**
+- [x] **Step 1: route와 navigation 실패 테스트를 작성한다.**
 
 ```tsx
 expect(screen.getByRole("navigation", { name: "통계 메뉴" })).toBeInTheDocument();
@@ -231,11 +231,11 @@ expect(screen.queryByRole("link", { name: "사용 분석" })).not.toBeInTheDocum
 
   - MemoryRouter에서 `/statistics?siteId=site-2#summary`가 `/statistics/overview?siteId=site-2#summary`로 replace되는 location probe를 추가한다.
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/web test -- StatisticsShell.test.tsx CustomerShell.test.tsx`
   - Expected: FAIL because nested statistics routes do not exist.
 
-- [ ] **Step 3: P0 section metadata와 shell을 구현한다.**
+- [x] **Step 3: P0 section metadata와 shell을 구현한다.**
 
 ```ts
 export const statisticsSections = [
@@ -247,16 +247,16 @@ export const statisticsSections = [
   - `StatisticsShell`은 navigation 다음 `Outlet context={{siteId}}`를 렌더링한다.
   - primary 통계 link 목적지를 `/statistics/overview`로 바꾸고 `/statistics/*`에서 active임을 테스트한다.
 
-- [ ] **Step 4: 기존 view를 overview page로 이동한다.**
+- [x] **Step 4: 기존 view를 overview page로 이동한다.**
   - component 이름과 test describe를 변경한다.
   - `useOutletContext<StatisticsOutletContext>()`로 site ID를 받는다.
   - loading/error 상태도 shell 내부에서 상단 정렬을 유지한다.
 
-- [ ] **Step 5: route 테스트를 검증한다.**
+- [x] **Step 5: route 테스트를 검증한다.**
   - Run: `pnpm --filter @led-control/web test -- StatisticsShell.test.tsx StatisticsOverviewPage.test.tsx CustomerShell.test.tsx App.test.tsx`
   - Expected: redirect, overview render, primary active, 기존 통계 데이터 조회 PASS.
 
-- [ ] **Step 6: 커밋한다.**
+- [x] **Step 6: 커밋한다.**
   - Run: `git add apps/web/src/features/statistics apps/web/src/features/shells/CustomerShell.tsx apps/web/src/features/shells/CustomerShell.test.tsx && git commit -m "feat(web): add statistics overview route"`
 
 ### Task 5: Web comparison query와 상태 모델

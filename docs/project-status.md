@@ -12,7 +12,7 @@
 
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
-| 통계 분석 P0-P2 구현 | 진행 중(P0 Task 3 완료) | [P0 절감·비교](superpowers/plans/2026-09-10-statistics-p0-savings-comparison.md)의 strict Shared 계약, 기간 범위, 공통 analytics read model과 절감·초과·forecast·전월·전년 comparison API를 구현했다. 기존 summary/series는 facade 호환을 유지하며 API energy 70 passed/2 environment-gated skipped와 typecheck를 통과했다. P1·P2는 계획 상태이고 P3는 보류한다. |
+| 통계 분석 P0-P2 구현 | 진행 중(P0 Task 4 완료) | P0 API에 이어 `/statistics/overview`와 `StatisticsShell`·P0 전용 서브메뉴를 구현했다. 기존 `/statistics`는 query/hash를 보존해 replace 이동하며 주 메뉴 통계는 하위 route에서도 active를 유지한다. Web route 관련 73개 테스트와 typecheck를 통과했다. P1·P2는 계획 상태이고 P3는 보류한다. |
 | 맵 배치 Task 8 식별 통신/펌웨어 | 완료(소프트웨어) | 등록 후 Health Attention API/MQTT/Gateway 경로, 단일 대상·session·10초 만료·인증/lease·중복/재시작 차단과 펌웨어 최신 밝기 복귀를 구현했다. Gateway 613, API 801(환경 의존 172 skip), Shared 172, 식별 API/실DB·Redis 17, Docker/ACL 24 및 API/Gateway build를 통과했다. Main 관련 Gateway 12/API 17 재실행 통과. 실제 broker/RF/LED 식별은 미검증이다. |
 | 맵 배치 Task 1/10 및 등록 서버 분리 | 완료(소프트웨어) | 기존 좌표 보존 migration, 신규 미배치, V1/V2 snapshot, 배치와 장비/에너지 분리, 1 MiB PUT와 묶음 저장을 구현했다. Shared 172, API 800(환경 의존 170 skip), 격리 DB/HTTP 18 및 API typecheck/build, 독립 코드 검토를 통과했다. 1,000 fixture/2,000 object 100회 저장 p95 425ms, 복구 485ms. 사용자 DB 적용과 실장비 검증은 미실행이며 웹 통합은 완료했다. |
 | 1,000개 조명 맵 배치 개선 | 완료(소프트웨어) | [실행 계획](superpowers/plans/2026-07-06-floor-editor-implementation.md)의 Task 1~10과 Task 11 소프트웨어 검증 완료. 층별 편집·드롭·확인 후 배치 해제·일괄 편집·식별 UI와 데이터 보존을 연결했다. 1,000개 배치 warm reload 20회 준비 p95 220.6ms, 실제 PostgreSQL 저장 100회 main 재검증 p95 549ms. 실장비 검증과 기존 파일 도면 활용은 보류하고 자산/좌표는 보존한다. |

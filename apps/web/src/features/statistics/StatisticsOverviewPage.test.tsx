@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { StatisticsView } from "./StatisticsView";
+import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
+import { StatisticsOverviewPage } from "./StatisticsOverviewPage";
 import { getEnergySeriesRanges } from "./statistics-periods";
 
 const mocks = vi.hoisted(() => ({
@@ -69,12 +70,22 @@ const monthSeries: EnergySeriesResponse = {
 function renderView() {
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <StatisticsView siteId={summary.siteId} />
+      <MemoryRouter initialEntries={["/statistics/overview"]}>
+        <Routes>
+          <Route path="/statistics" element={<OutletContext siteId={summary.siteId} />}>
+            <Route path="overview" element={<StatisticsOverviewPage />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
 
-describe("StatisticsView", () => {
+function OutletContext({ siteId }: { siteId: string }) {
+  return <Outlet context={{ siteId }} />;
+}
+
+describe("StatisticsOverviewPage", () => {
   beforeEach(() => {
     mocks.summary = queryResult(summary);
     mocks.day = queryResult(daySeries);
