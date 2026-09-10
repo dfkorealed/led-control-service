@@ -192,24 +192,24 @@
 
 **Interfaces:**
 - Produces: Dashboard top-level `capabilities: SiteCapabilities`
-- Changes: 수동 명령 생성·취소가 `assertControlInTransaction`을 사용
+- Changes: 수동 밝기 명령 생성이 `assertControlInTransaction`을 사용
 - Preserves: 스케줄·이벤트·구역·설치·등록·맵 편집의 admin 전용 계약
 
-- [ ] **Step 1: admin/read/control Dashboard capability 응답 테스트를 작성한다.**
+- [x] **Step 1: admin/read/control Dashboard capability 응답 테스트를 작성한다.**
 
-- [ ] **Step 2: read 사용자의 수동 명령 거절과 control 사용자의 생성·취소 성공 테스트를 작성한다.**
+- [x] **Step 2: read 사용자의 수동 명령 거절과 control 사용자의 밝기 명령 생성 성공 테스트를 작성한다.**
 
-- [ ] **Step 3: 일반 유저의 스케줄·이벤트·구역·등록·맵 편집 거절 회귀 테스트를 보강한다.**
+- [x] **Step 3: 일반 유저의 스케줄·이벤트·구역·등록·맵 편집 거절 회귀 테스트를 보강한다.**
 
-- [ ] **Step 4: 기존 viewer 일괄 차단 때문에 테스트가 실패하는지 확인한다.**
+- [x] **Step 4: 기존 viewer 일괄 차단 때문에 테스트가 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/api exec jest src/sites/sites.service.spec.ts src/commands/commands.service.spec.ts src/automation src/fixture-groups src/registration src/floor-editor --runInBand`
 
-- [ ] **Step 5: Dashboard capability와 CommandsService control 재인가를 구현한다.**
+- [x] **Step 5: Dashboard capability와 CommandsService control 재인가를 구현한다.**
 
-- [ ] **Step 6: 관련 API 회귀 테스트를 통과시킨다.**
+- [x] **Step 6: 관련 API 회귀 테스트를 통과시킨다.**
 
-- [ ] **Step 7: Task 5 변경만 커밋한다.**
+- [x] **Step 7: Task 5 변경만 커밋한다.**
 
   Commit: `feat(control): authorize site control users`
 
