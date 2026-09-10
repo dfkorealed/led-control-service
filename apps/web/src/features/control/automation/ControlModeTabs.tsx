@@ -3,7 +3,7 @@ import { useRef, type KeyboardEvent } from "react";
 
 export type ControlPageMode = "manual" | "schedule" | "event";
 
-const modes = [
+const allModes = [
   { value: "manual", label: "수동 제어", icon: SlidersHorizontal },
   { value: "schedule", label: "스케줄 제어", icon: CalendarClock },
   { value: "event", label: "이벤트 제어", icon: CarFront }
@@ -11,12 +11,15 @@ const modes = [
 
 export function ControlModeTabs({
   mode,
-  onChange
+  onChange,
+  allowAutomation
 }: {
   mode: ControlPageMode;
   onChange: (mode: ControlPageMode) => void;
+  allowAutomation: boolean;
 }) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const modes = allowAutomation ? allModes : allModes.slice(0, 1);
 
   function selectFromKeyboard(event: KeyboardEvent<HTMLButtonElement>, currentIndex: number) {
     let nextIndex: number | null = null;

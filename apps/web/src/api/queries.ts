@@ -10,7 +10,15 @@ export const monitoringQueryPolicy = {
   refetchOnWindowFocus: false
 } as const;
 
+export interface SiteCapabilities {
+  read: true;
+  control: boolean;
+  manage: boolean;
+  commission: boolean;
+}
+
 export interface Dashboard {
+  capabilities?: SiteCapabilities;
   site: {
     id: string;
     name: string;

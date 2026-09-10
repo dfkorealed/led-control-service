@@ -53,8 +53,14 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
-  return apiRequest<T>(path, { method: "DELETE" });
+export async function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+  return apiRequest<T>(path, {
+    method: "DELETE",
+    ...(body === undefined ? {} : {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+  });
 }
 
 async function readErrorBody(response: Response): Promise<unknown> {

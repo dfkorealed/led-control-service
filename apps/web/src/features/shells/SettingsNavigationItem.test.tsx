@@ -101,7 +101,7 @@ describe("SettingsNavigationItem", () => {
     expect(screen.queryByRole("navigation", { name: "설정 메뉴" })).not.toBeInTheDocument();
   });
 
-  it("does not expose admin-only security to a viewer", () => {
+  it("exposes personal security but no admin management sections to a viewer", () => {
     mockMatchMedia();
     renderSettingsItem({ role: "viewer", initialEntry: "/settings?siteId=site-1" });
 
@@ -109,7 +109,8 @@ describe("SettingsNavigationItem", () => {
 
     expect(screen.getByRole("link", { name: "맵 관리" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "조명 등록" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "비밀번호 변경" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "유저 관리" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
   });
 
   it("uses a button to open the coarse disclosure without navigating", () => {

@@ -61,6 +61,7 @@ const USER_A = "user-a";
 const USER_B = "user-b";
 
 const dashboard: Dashboard = {
+  capabilities: { read: true, control: true, manage: true, commission: true },
   site: {
     id: "00000000-0000-4000-8000-000000000003",
     name: "테스트 현장",
@@ -412,10 +413,15 @@ describe("ControlView 대상 선택", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
-  it("opens saved-zone management for admin and viewer accounts", () => {
+  it("opens saved-zone management for admin and read-only status for general users", () => {
     const { rerender } = renderControl("admin");
     expect(screen.getByRole("button", { name: "구역 관리" })).toBeEnabled();
 
+    mocks.useControlDashboard.mockReturnValue({
+      data: { ...dashboard, capabilities: { read: true, control: true, manage: false, commission: false } },
+      isLoading: false,
+      error: null
+    });
     rerender(controlElement(dashboard.site.id, "viewer"));
     expect(screen.getByRole("button", { name: "구역 현황" })).toBeEnabled();
   });
@@ -445,12 +451,34 @@ describe("ControlView 대상 선택", () => {
   });
 
   it("keeps every control disabled for viewer accounts", () => {
+    mocks.useControlDashboard.mockReturnValue({
+      data: { ...dashboard, capabilities: { read: true, control: false, manage: false, commission: false } },
+      isLoading: false,
+      error: null
+    });
     renderControl("viewer");
 
     expect(screen.getByText(/조회 전용 계정/)).toBeInTheDocument();
     expect(screen.getByLabelText("B2-L001 선택")).toBeDisabled();
     expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("allows manual control but hides admin automation modes for a control-capable user", async () => {
+    mocks.useControlDashboard.mockReturnValue({
+      data: { ...dashboard, capabilities: { read: true, control: true, manage: false, commission: false } },
+      isLoading: false,
+      error: null
+    });
+
+    renderControl("viewer", dashboard.site.id, USER_A, `/control?siteId=${dashboard.site.id}&mode=schedule`);
+
+    await waitFor(() => expect(screen.getByTestId("control-location")).toHaveTextContent("mode=manual"));
+    expect(screen.getByRole("tab", { name: "수동 제어" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "스케줄 제어" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "이벤트 제어" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/조회 전용 계정/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
   });
 
   it("keeps fixture Health faults visible in the target list", () => {

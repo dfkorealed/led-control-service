@@ -29,10 +29,10 @@ const items = [
   { path: "/statistics", label: "통계", icon: BarChart3 }
 ] as const;
 
-function PrimaryNavigation({ role, search }: Pick<AuthUser, "role"> & { search: string }) {
+function PrimaryNavigation({ role, search, canControl }: Pick<AuthUser, "role"> & { search: string; canControl: boolean }) {
   return (
     <>
-      {items.map((item) => {
+      {items.filter((item) => item.path !== "/control" || canControl).map((item) => {
         const Icon = item.icon;
         return (
           <NavLink
@@ -110,9 +110,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
 
   const isAdmin = user.role === "admin";
   const installationStatus = dashboard?.site.installationStatus;
+  const capabilities = dashboard?.capabilities;
 
-  // An admin's customer routes depend on the assigned site's installation state.
-  // Keep the shell closed until that state is known so child route queries cannot run early.
+  // Installation state remains the first admin gate because setup child routes
+  // must not mount while its dashboard request is pending.
   if (isAdmin && !installationStatus) {
     if (isDashboardLoading) {
       return (
@@ -132,6 +133,27 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     );
   }
 
+  // Fail closed until the server-provided site capability matrix is known.
+  // This prevents a read-only user from briefly mounting protected route trees.
+  if (!capabilities) {
+    if (isDashboardLoading) {
+      return (
+        <section className="settings-screen" aria-live="polite">
+          <p>현장 권한을 확인하는 중입니다.</p>
+        </section>
+      );
+    }
+
+    return (
+      <section className="settings-screen" aria-live="polite">
+        <p role="alert">현장 권한을 확인하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도하세요.</p>
+        <button type="button" className="secondary-button" onClick={() => void refetchDashboard()}>
+          다시 시도
+        </button>
+      </section>
+    );
+  }
+
   const mustCompleteInstallation = isAdmin
     && installationStatus === "pending"
     && location.pathname !== "/settings";
@@ -144,7 +166,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     <div className="app-shell">
       {isCompactNavigation ? (
         <nav className="bottom-nav nav-list" aria-label="모바일 주 메뉴">
-          <PrimaryNavigation role={user.role} search={location.search} />
+          <PrimaryNavigation role={user.role} search={location.search} canControl={capabilities.control} />
         </nav>
       ) : (
         <aside className="sidebar">
@@ -156,7 +178,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             </div>
           </div>
           <nav className="nav-list" aria-label="주 메뉴">
-            <PrimaryNavigation role={user.role} search={location.search} />
+            <PrimaryNavigation role={user.role} search={location.search} canControl={capabilities.control} />
           </nav>
         </aside>
       )}
@@ -185,27 +207,33 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
           <Route
             path="/control"
-            element={(
+            element={capabilities.control ? (
               <ControlView
                 siteId={siteId}
                 userId={user.id}
                 userRole={user.role}
                 commandSessionBlocked={isLoggingOut}
               />
-            )}
+            ) : <Navigate to={`/monitoring${location.search}`} replace />}
           />
           <Route path="/statistics" element={<StatisticsView siteId={siteId ?? dashboard?.site.id} />} />
           <Route path="/settings" element={<SettingsShell selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
             <Route
+              path="users"
+              element={capabilities.manage
+                ? <section className="settings-screen"><h2>유저 관리</h2></section>
+                : <Navigate to={`/settings${location.search}`} replace />}
+            />
+            <Route
               path="registration"
-              element={isAdmin ? <RegistrationSettingsView siteId={siteId} /> : <Navigate to={`/settings${location.search}`} replace />}
+              element={capabilities.manage ? <RegistrationSettingsView siteId={siteId} /> : <Navigate to={`/settings${location.search}`} replace />}
             />
             <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />
             <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={user.role} />} />
             <Route
               path="security"
-              element={isAdmin ? <PasswordSettingsView /> : <Navigate to={`/settings${location.search}`} replace />}
+              element={<PasswordSettingsView />}
             />
             <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
           </Route>
