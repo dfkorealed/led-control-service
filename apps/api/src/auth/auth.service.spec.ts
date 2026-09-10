@@ -23,6 +23,33 @@ describe("AuthService", () => {
     jest.useRealTimers();
   });
 
+  it.each([true, false])("exposes mustChangePassword=%s in login and session public users without secrets", async (mustChangePassword) => {
+    const stored = {
+      id: "viewer-1", organizationId: "org-1", loginId: "viewer_01", name: "Viewer", email: null,
+      role: "viewer", status: "active", organization: { type: "customer" },
+      passwordHash: "secret-hash", mustChangePassword
+    };
+    const { prisma } = createLoginPrisma(stored);
+    const service = createAuthService({ ...prisma, session: { findUnique: jest.fn().mockResolvedValue({
+      user: stored, revokedAt: null, expiresAt: new Date("2026-09-01")
+    }) } } as unknown as PrismaService, { verify: jest.fn().mockResolvedValue(true) } as unknown as PasswordService);
+    const login = await service.login({ loginId: stored.loginId, password: "temporary password", rememberMe: false });
+    const sessionUser = await service.getUserBySessionToken(login.sessionToken);
+    for (const publicUser of [login.user, sessionUser]) {
+      expect(publicUser).toMatchObject({ mustChangePassword });
+      expect(publicUser).not.toHaveProperty("passwordHash");
+      expect(publicUser).not.toHaveProperty("email");
+    }
+  });
+
+  it("keeps disabled-account login errors indistinguishable from invalid credentials", async () => {
+    const { prisma, transaction } = createLoginPrisma({ id: "disabled", status: "disabled", passwordHash: "hash", mustChangePassword: true });
+    const service = createAuthService(prisma as unknown as PrismaService);
+    await expect(service.login({ loginId: "disabled", password: "temporary password", rememberMe: false }))
+      .rejects.toEqual(new UnauthorizedException("Invalid login id or password"));
+    expect(transaction.session.create).not.toHaveBeenCalled();
+  });
+
   it("creates a viewer from an invitation email and separate normalized login id", async () => {
     const invitation = {
       id: "invitation-1",
@@ -301,16 +328,20 @@ describe("AuthService", () => {
       loginId: "admin_01",
       name: "Admin",
       role: "admin" as const,
-      status: "active" as const
+      status: "active" as const,
+      mustChangePassword: true
     };
     const transaction = {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
       user: {
-        findUnique: jest.fn().mockResolvedValue({ passwordHash: "old-hash" }),
-        update: jest.fn().mockResolvedValue({ id: user.id })
+        findUnique: jest.fn().mockResolvedValue({ ...user, organization: { type: "customer" }, passwordHash: "old-hash" }),
+        update: jest.fn().mockResolvedValue({ ...user, organization: { type: "customer" }, mustChangePassword: false })
       },
-      session: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      session: {
+        findUnique: jest.fn().mockResolvedValue({ userId: user.id, revokedAt: null, expiresAt: new Date("2026-09-01") }),
+        updateMany: jest.fn().mockResolvedValue({ count: 2 })
+      },
       auditLog: { create: jest.fn().mockResolvedValue({ id: "audit-1" }) }
     };
     const prisma = {
@@ -325,13 +356,15 @@ describe("AuthService", () => {
       auditService as unknown as AuditService
     );
 
-    await service.changePassword(user, currentToken, {
+    const result = await service.changePassword(user, currentToken, {
       currentPassword: "old password",
       newPassword: "new password",
       newPasswordConfirmation: "new password"
     });
 
-    expect(transaction.user.update).toHaveBeenCalledWith({ where: { id: user.id }, data: { passwordHash: "new-hash" } });
+    expect(result).toMatchObject({ ok: true, user: { id: user.id, mustChangePassword: false } });
+    expect(result).not.toHaveProperty("user.passwordHash");
+    expect(transaction.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: user.id }, data: { passwordHash: "new-hash", mustChangePassword: false } }));
     expect(transaction.session.updateMany).toHaveBeenCalledWith({
       where: { userId: user.id, revokedAt: null, tokenHash: { not: service.hashToken(currentToken) } },
       data: { revokedAt: now }
@@ -354,8 +387,14 @@ describe("AuthService", () => {
     const transaction = {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
-      user: { findUnique: jest.fn().mockResolvedValue({ passwordHash: "old-hash" }), update: jest.fn() },
-      session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ ...user, status: "active", passwordHash: "old-hash" }),
+        update: jest.fn().mockResolvedValue({ ...user, organization: { type: "customer" }, mustChangePassword: false })
+      },
+      session: {
+        findUnique: jest.fn().mockResolvedValue({ userId: user.id, revokedAt: null, expiresAt: new Date("2026-09-01") }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 })
+      },
       auditLog: { create: jest.fn() }
     };
     const prisma = { $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)) };
@@ -383,6 +422,47 @@ describe("AuthService", () => {
       currentPassword: "old password",
       newPassword: "new password",
       newPasswordConfirmation: "different password"
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it.each(["revoked", "expired", "foreign", "missing", "disabled"])("rejects a %s session/account re-read after the password lock", async (reason) => {
+    const user = { id: "viewer-1", organizationId: "org-1" };
+    const session = {
+      userId: reason === "foreign" ? "other-user" : user.id,
+      revokedAt: reason === "revoked" ? now : null,
+      expiresAt: reason === "expired" ? now : new Date("2026-09-01")
+    };
+    const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1), $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ ...user, passwordHash: "hash", status: reason === "disabled" ? "disabled" : "active" }),
+        update: jest.fn()
+      },
+      session: { findUnique: jest.fn().mockResolvedValue(reason === "missing" ? null : session), updateMany: jest.fn().mockResolvedValue({ count: 0 }) }
+    };
+    const audit = { record: jest.fn() };
+    const service = createAuthService({ $transaction: async (callback: (tx: unknown) => unknown) => callback(tx) } as unknown as PrismaService,
+      { verify: jest.fn().mockResolvedValue(true), hash: jest.fn().mockResolvedValue("new-hash") } as unknown as PasswordService,
+      audit as unknown as AuditService);
+    await expect(service.changePassword(user, "current-token", {
+      currentPassword: "temporary password", newPassword: "replacement password", newPasswordConfirmation: "replacement password"
+    })).rejects.toEqual(new UnauthorizedException("Authentication required"));
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(tx.session.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("rejects using the temporary password again without clearing the requirement", async () => {
+    const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1), $queryRaw: jest.fn().mockResolvedValue([{ id: "viewer-1" }]),
+      user: { findUnique: jest.fn().mockResolvedValue({ passwordHash: "hash" }), update: jest.fn() },
+      session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) }
+    };
+    const service = createAuthService({ $transaction: async (callback: (tx: unknown) => unknown) => callback(tx) } as unknown as PrismaService,
+      { verify: jest.fn().mockResolvedValue(true), hash: jest.fn().mockResolvedValue("hash") } as unknown as PasswordService,
+      { record: jest.fn() } as unknown as AuditService);
+    await expect(service.changePassword({ id: "viewer-1", organizationId: "org-1" }, "token", {
+      currentPassword: "temporary password", newPassword: "temporary password", newPasswordConfirmation: "temporary password"
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 });

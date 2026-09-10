@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
 import { assertSiteUserCapacity, runSiteUserTransaction } from "../access/site-user-policy";
 import { PrismaService } from "../prisma/prisma.service";
-import { normalizeLoginId, type OrganizationType, type UserRole } from "./auth.types";
+import { normalizeLoginId, type AuthenticatedUser, type OrganizationType, type UserRole } from "./auth.types";
 import { PasswordService } from "./password.service";
 import { lockUserForPasswordMutation } from "./user-password-lock";
 
@@ -43,6 +43,7 @@ type StoredUser = {
   name: string;
   role: UserRole;
   status: "active" | "disabled";
+  mustChangePassword: boolean;
   organization: { type: OrganizationType };
   passwordHash?: string | null;
 };
@@ -117,7 +118,7 @@ export class AuthService {
             status: "active",
             passwordHash
           },
-          select: { id: true, organizationId: true, loginId: true, email: true, name: true, role: true, status: true }
+          select: { id: true, organizationId: true, loginId: true, email: true, name: true, role: true, status: true, mustChangePassword: true }
         });
         await tx.siteMembership.create({ data: { userId: createdUser.id, siteId: site.id } });
         return createdUser;
@@ -179,19 +180,32 @@ export class AuthService {
     if (newPassword !== newPasswordConfirmation) {
       throw new BadRequestException("New password confirmation does not match");
     }
+    if (newPassword === currentPassword) {
+      throw new BadRequestException("New password must differ from current password");
+    }
 
     const currentTokenHash = this.hashToken(currentSessionToken);
-    await this.db().$transaction(async (tx: any) => {
+    const updatedUser = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
       if (!await lockUserForPasswordMutation(tx, user.id)) {
         throw new UnauthorizedException("Current password is incorrect");
       }
-      const storedUser = await tx.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } });
+      const storedUser = await tx.user.findUnique({ where: { id: user.id } });
+      // A reset/disable can revoke the guard-validated session while this request
+      // waits for the User lock. Never clear the flag using that stale session.
+      const session = await tx.session.findUnique({ where: { tokenHash: currentTokenHash } });
+      if (!storedUser || storedUser.status !== "active" || storedUser.organizationId !== user.organizationId
+        || !session || session.userId !== user.id || session.revokedAt || session.expiresAt <= new Date()) {
+        throw new UnauthorizedException("Authentication required");
+      }
       if (!storedUser?.passwordHash || !(await this.passwords.verify(currentPassword, storedUser.passwordHash))) {
         throw new UnauthorizedException("Current password is incorrect");
       }
 
       const passwordHash = await this.passwords.hash(newPassword);
-      await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
+      const updated = await tx.user.update({
+        where: { id: user.id }, data: { passwordHash, mustChangePassword: false },
+        include: { organization: { select: { type: true } } }
+      });
       const revokedSessions = await tx.session.updateMany({
         where: { userId: user.id, revokedAt: null, tokenHash: { not: currentTokenHash } },
         data: { revokedAt: new Date() }
@@ -206,8 +220,9 @@ export class AuthService {
         outcome: "success",
         metadata: { revokedSessionCount: revokedSessions.count }
       });
+      return this.publicUser(updated);
     });
-    return { ok: true };
+    return { ok: true, user: updatedUser };
   }
 
   async getUserBySessionToken(sessionToken: string) {
@@ -236,7 +251,7 @@ export class AuthService {
     return randomBytes(32).toString("base64url");
   }
 
-  private publicUser(user: StoredUser) {
+  private publicUser(user: StoredUser): AuthenticatedUser {
     return {
       id: user.id,
       organizationId: user.organizationId,
@@ -244,7 +259,8 @@ export class AuthService {
       loginId: user.loginId,
       name: user.name,
       role: user.role,
-      status: user.status
+      status: user.status,
+      mustChangePassword: user.mustChangePassword
     };
   }
 
