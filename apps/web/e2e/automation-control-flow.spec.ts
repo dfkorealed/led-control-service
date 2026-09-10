@@ -233,10 +233,10 @@ async function expectFixtureBrightness(
   fixtureName: string,
   brightness: string,
 ) {
-  await page.goto(`/monitoring?siteId=${siteId}`);
-  await expect(page.getByRole("button", {
-    name: new RegExp(`^${escapeRegExp(fixtureName)} .* ${escapeRegExp(brightness)}$`),
-  })).toBeVisible();
+  await page.goto(`/control?siteId=${siteId}&mode=manual`);
+  const fixtureCheckbox = page.getByRole("checkbox", { name: `${fixtureName} 선택` });
+  await expect(fixtureCheckbox).toBeVisible();
+  await expect(fixtureCheckbox.locator("xpath=ancestor::label")).toContainText(brightness);
 }
 
 function siteDate(date: Date) {
@@ -260,8 +260,4 @@ function siteTime(date: Date) {
 function localDateTimeMinute(date: Date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

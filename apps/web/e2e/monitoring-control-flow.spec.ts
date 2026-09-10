@@ -658,6 +658,60 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     });
   }
 
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1121, height: 900 }]) {
+    test(`${viewport.width}px 수동 제어는 문서 스크롤 없이 조명 목록만 스크롤한다`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const denseFixtures = Array.from({ length: 80 }, (_, index): SettingsFixture => ({
+        ...fixtures[index % fixtures.length],
+        id: `desktop-fixture-${index + 1}`,
+        name: `B2-L${String(index + 1).padStart(3, "0")}`,
+        x: 80 + (index % 10) * 90,
+        y: 80 + Math.floor(index / 10) * 70
+      }));
+      await installSettingsApiRoutes(page, "admin", {
+        fixtures: denseFixtures,
+        ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+      });
+      await page.goto(`/control?siteId=${ids.site}&mode=manual`);
+      await expect(page.getByRole("group", { name: "조명 목록" })).toBeVisible();
+
+      const scrollMetrics = await page.evaluate(() => {
+        const fixtureList = document.querySelector<HTMLElement>(".control-target-list");
+        if (!fixtureList) throw new Error("control target list not found");
+        return {
+          documentClientHeight: document.documentElement.clientHeight,
+          documentScrollHeight: document.documentElement.scrollHeight,
+          listClientHeight: fixtureList.clientHeight,
+          listScrollHeight: fixtureList.scrollHeight,
+          listOverflowY: getComputedStyle(fixtureList).overflowY
+        };
+      });
+      expect(scrollMetrics.documentScrollHeight).toBeLessThanOrEqual(scrollMetrics.documentClientHeight + 1);
+      expect(scrollMetrics.listScrollHeight).toBeGreaterThan(scrollMetrics.listClientHeight);
+      expect(scrollMetrics.listOverflowY).toBe("auto");
+    });
+  }
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }, { width: 761, height: 900 }]) {
+    test(`${viewport.width}px 제어 모드 탭은 화면을 전환해도 크기를 유지한다`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await installBrowserContractFixture(page);
+      await installAutomationListRoutes(page);
+      await page.goto(`/control?siteId=${ids.site}&mode=manual`);
+      await expect(page.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
+
+      const manualTabSizes = await controlModeTabSizes(page);
+
+      await page.getByRole("tab", { name: "스케줄 제어" }).click();
+      await expect(page.getByText("등록된 스케줄이 없습니다.")).toBeVisible();
+      expect(await controlModeTabSizes(page)).toEqual(manualTabSizes);
+
+      await page.getByRole("tab", { name: "이벤트 제어" }).click();
+      await expect(page.getByText("등록된 이벤트 규칙이 없습니다.")).toBeVisible();
+      expect(await controlModeTabSizes(page)).toEqual(manualTabSizes);
+    });
+  }
+
   for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) {
     test(`${viewport.width}px에서 스케줄·이벤트 목록과 핵심 dialog가 전체 touch target 계약을 지킨다`, async ({ page }) => {
       await page.setViewportSize(viewport);
@@ -712,6 +766,13 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       .toBe("1e-05s");
   });
 });
+
+async function controlModeTabSizes(page: Page) {
+  return page.getByRole("tablist", { name: "제어 방식" }).getByRole("tab").evaluateAll((tabs) => tabs.map((tab) => {
+    const bounds = tab.getBoundingClientRect();
+    return { width: bounds.width, height: bounds.height };
+  }));
+}
 
 async function expectResponsivePanelLayout(
   page: Page,
