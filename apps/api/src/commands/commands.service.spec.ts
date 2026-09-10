@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CommandDispatchService } from "./command-dispatch.service";
@@ -20,9 +20,21 @@ const ids = {
 
 const operator: AuthenticatedUser = {
   id: ids.user, organizationId: "org-1", organizationType: "service_provider",
-  loginId: "operator_01", name: "Operator", role: "operator", status: "active"
+  loginId: "operator_01", name: "Operator", role: "operator", mustChangePassword: false, status: "active"
 };
-const viewer: AuthenticatedUser = { ...operator, id: "viewer-1", role: "viewer" };
+const admin: AuthenticatedUser = {
+  ...operator,
+  id: "admin-1",
+  organizationId: "customer-org",
+  organizationType: "customer",
+  role: "admin"
+};
+const readUser: AuthenticatedUser = { ...admin, id: "read-user", role: "viewer" };
+const controlUser: AuthenticatedUser = {
+  ...admin,
+  id: "99999999-9999-4999-8999-999999999997",
+  role: "viewer"
+};
 
 function fixture(id: string, gatewayId = ids.gateway1, floorId = ids.floor) {
   return {
@@ -90,6 +102,7 @@ function createHarness(options: {
   prisma.$transaction = jest.fn(async (callback: (client: any) => Promise<unknown>) => callback(tx));
   const siteAccess = {
     assert: jest.fn().mockResolvedValue({ id: ids.site }),
+    assertControlInTransaction: jest.fn().mockResolvedValue({ id: ids.site, organizationId: "org-1" }),
     assertManageInTransaction: jest.fn().mockResolvedValue({ id: ids.site, organizationId: "org-1" })
   };
   const meshControlGroups = {
@@ -234,7 +247,7 @@ describe("CommandsService", () => {
     expect(tx.command.create).not.toHaveBeenCalled();
   });
 
-  it("reauthorizes manage access as the first step of the dimming write transaction", async () => {
+  it("reauthorizes control access as the first step of the dimming write transaction", async () => {
     const { service, siteAccess, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
 
     await service.createDimmingCommand(operator, {
@@ -244,8 +257,8 @@ describe("CommandsService", () => {
       brightness: 75
     });
 
-    expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(tx, operator, ids.site);
-    expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
+    expect(siteAccess.assertControlInTransaction).toHaveBeenCalledWith(tx, operator, ids.site);
+    expect(siteAccess.assertControlInTransaction.mock.invocationCallOrder[0])
       .toBeLessThan(tx.command.findUnique.mock.invocationCallOrder[0]);
   });
 
@@ -331,6 +344,43 @@ describe("CommandsService", () => {
     expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
   });
 
+  it("rejects an idempotent recovery when control access is downgraded to read", async () => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const concurrentCommand = {
+      id: ids.command,
+      siteId: ids.site,
+      requestedBy: controlUser.id,
+      clientRequestId,
+      requestFingerprint: fingerprint({ type: "fixture", fixtureId: ids.fixture1 }, 30),
+      targetType: "fixture",
+      targetId: ids.fixture1,
+      targetFixtureIds: [ids.fixture1],
+      brightness: 30,
+      manualOverride: { overrideUntil: new Date("2026-08-29T01:00:00.000Z") },
+      createdAt: new Date("2026-07-01T00:00:00.000Z"),
+      dispatches: [{ deliveryMode: "unicast" }]
+    };
+    const { prisma, service, siteAccess, tx } = createHarness({
+      fixtures: [fixture(ids.fixture1)],
+      concurrentCommand
+    });
+    siteAccess.assertControlInTransaction
+      .mockResolvedValueOnce({ id: ids.site, organizationId: controlUser.organizationId })
+      .mockRejectedValueOnce(new ForbiddenException("site capability denied"));
+
+    await expect(service.createDimmingCommand(controlUser, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 30
+    })).rejects.toThrow("site capability denied");
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(siteAccess.assertControlInTransaction).toHaveBeenCalledTimes(2);
+    expect(siteAccess.assertControlInTransaction).toHaveBeenLastCalledWith(tx, controlUser, ids.site);
+    expect(tx.command.findUnique).toHaveBeenCalledTimes(1);
+  });
+
   it("does not recover an unrelated unique constraint failure", async () => {
     const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
     tx.command.create.mockRejectedValueOnce({
@@ -356,7 +406,7 @@ describe("CommandsService", () => {
       deliveryMode: "unicast", terminalStatusUrl: `/commands/${ids.command}`
     });
 
-    expect(siteAccess.assert).toHaveBeenCalledWith(operator, ids.site, "manage");
+    expect(siteAccess.assert).toHaveBeenCalledWith(operator, ids.site, "control");
     expect(tx.command.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       targetType: "fixture", targetId: ids.fixture1, targetFixtureIds: [ids.fixture1]
     }) });
@@ -499,24 +549,44 @@ describe("CommandsService", () => {
     expect(meshControlGroups.getReadyDestination).not.toHaveBeenCalled();
   });
 
-  it("rejects incomplete site-scoped fixture sets and preserves viewer/offline checks", async () => {
+  it("rejects incomplete site-scoped fixture sets and preserves read/offline checks", async () => {
     const incomplete = createHarness({ fixtures: [fixture(ids.fixture1)] });
     await expect(incomplete.service.createDimmingCommand(operator, {
       siteId: ids.site, target: { type: "fixtures", fixtureIds: [ids.fixture1, ids.fixture2] }, brightness: 40
     })).rejects.toThrow("control target not found in the user's site");
     expect(incomplete.tx.command.create).not.toHaveBeenCalled();
 
-    const viewerHarness = createHarness({ fixtures: [fixture(ids.fixture1)] });
-    await expect(viewerHarness.service.createDimmingCommand(viewer, {
+    const readHarness = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    readHarness.siteAccess.assert.mockImplementation((_actor: AuthenticatedUser, _siteId: string, capability: string) => {
+      if (capability === "control") throw new ForbiddenException("site capability denied");
+      return Promise.resolve({ id: ids.site });
+    });
+    await expect(readHarness.service.createDimmingCommand(readUser, {
       siteId: ids.site, target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 40
-    })).rejects.toThrow("viewer users cannot control lights");
-    expect(viewerHarness.prisma.$transaction).not.toHaveBeenCalled();
+    })).rejects.toThrow("site capability denied");
+    expect(readHarness.siteAccess.assert).toHaveBeenCalledWith(readUser, ids.site, "control");
+    expect(readHarness.prisma.$transaction).not.toHaveBeenCalled();
 
     const offlineHarness = createHarness({ fixtures: [{ ...fixture(ids.fixture1), status: "offline" }] });
     await expect(offlineHarness.service.createDimmingCommand(operator, {
       siteId: ids.site, target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 40
     })).rejects.toThrow("fixture is offline");
     expect(offlineHarness.tx.command.create).not.toHaveBeenCalled();
+  });
+
+  it("allows a control member to create a manual command after transaction reauthorization", async () => {
+    const { service, siteAccess, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+
+    await expect(service.createDimmingCommand(controlUser, {
+      siteId: ids.site,
+      clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 55
+    })).resolves.toMatchObject({ id: ids.command, brightness: 55 });
+
+    expect(siteAccess.assert).toHaveBeenCalledWith(controlUser, ids.site, "control");
+    expect(siteAccess.assertControlInTransaction).toHaveBeenCalledWith(tx, controlUser, ids.site);
+    expect(siteAccess.assertManageInTransaction).not.toHaveBeenCalled();
   });
 });
 

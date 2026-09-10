@@ -64,8 +64,15 @@ Object.defineProperty(window, "matchMedia", {
 
 vi.mock("./api/client", () => ({
   apiGet: vi.fn((path: string) => {
-    const dashboardResponse = (fallback: unknown) =>
-      apiState.dashboardResponses.shift()?.() ?? Promise.resolve(apiState.dashboard ?? fallback);
+    const dashboardResponse = (fallback: unknown) => {
+      const response = apiState.dashboardResponses.shift()?.() ?? Promise.resolve(apiState.dashboard ?? fallback);
+      return Promise.resolve(response).then((dashboard) => ({
+        ...(dashboard as Record<string, unknown>),
+        capabilities: authState.user?.role === "viewer"
+          ? { read: true, control: false, manage: false, commission: false }
+          : { read: true, control: true, manage: true, commission: true }
+      }));
+    };
     if (path === "/auth/me") {
       return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
     }
@@ -215,6 +222,7 @@ vi.mock("./api/client", () => ({
     if (path === "/setup/initial-site") {
       const input = body as InitialSiteSetupRequest;
       const nextDashboard = {
+        capabilities: { read: true, control: true, manage: true, commission: true },
         site: {
           id: input.siteId,
           name: "설치 완료 현장",
@@ -510,7 +518,8 @@ describe("App", () => {
   });
 
   it.each(
-    settingsSectionsFor("admin").filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
+    settingsSectionsFor({ read: true, control: true, manage: true, commission: true })
+      .filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
   )("renders an admin destination for the $label settings link", async (section) => {
     window.history.pushState({}, "", `${section.path}?siteId=site-1`);
     authState.user = { ...authState.user!, role: "admin" };
@@ -609,16 +618,16 @@ describe("App", () => {
     expect(screen.queryByRole("link", { name: "현장 및 층" })).not.toBeInTheDocument();
   });
 
-  it("replaces a viewer's password URL with settings while preserving the selected site", async () => {
+  it("allows a viewer to change their own password while preserving the selected site", async () => {
     window.history.pushState({}, "", "/settings/security?siteId=site-2");
     authState.user = { ...authState.user!, role: "viewer" };
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/settings");
+    expect(await screen.findByRole("heading", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/security");
     expect(window.location.search).toBe("?siteId=site-2");
-    expect(screen.queryByLabelText("현재 비밀번호")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
     expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/auth/change-password")).toHaveLength(0);
   });
 
@@ -725,7 +734,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
@@ -878,7 +887,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.change(await screen.findByRole("combobox", { name: "층 선택" }), {
+    fireEvent.change(await screen.findByRole("combobox", { name: "맵 선택" }), {
       target: { value: mockDashboard.floors[1].id }
     });
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
@@ -897,7 +906,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
   });
@@ -957,7 +966,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
@@ -1125,7 +1134,7 @@ describe("App", () => {
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
   });
 
-  it("renders control as read-only for viewers and never posts a command", async () => {
+  it("hides control from read-only viewers and never posts a command", async () => {
     authState.user = {
       id: "viewer-1",
       organizationId: "organization-1",
@@ -1142,19 +1151,9 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    expect(await screen.findByText("조회 전용 계정입니다. 조명 제어는 admin 계정으로만 수행할 수 있습니다."))
-      .toBeInTheDocument();
-    const fixtureModeButton = screen.getByRole("button", { name: "개별/다중" });
-    expect(fixtureModeButton).toHaveAttribute("aria-pressed", "true");
-    expect(fixtureModeButton).toBeDisabled();
-    expect(screen.getByRole("checkbox", { name: "B2-L01 선택" })).toBeDisabled();
-    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
-    const applyButton = screen.getByRole("button", { name: "밝기 적용" });
-    expect(applyButton).toBeDisabled();
-    fireEvent.click(applyButton);
+    expect(await screen.findByRole("link", { name: "모니터링" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "제어" })).not.toBeInTheDocument();
     expect(apiPost).not.toHaveBeenCalledWith("/commands/dimming", expect.anything());
-    expect(screen.queryByText("명령 전송에 실패했습니다. 대상 상태와 게이트웨이 연결을 확인하세요.")).not.toBeInTheDocument();
   });
 
   it("confirms dirty editor logout before revoking the session", async () => {

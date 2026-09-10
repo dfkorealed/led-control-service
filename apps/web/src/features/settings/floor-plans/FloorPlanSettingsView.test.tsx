@@ -21,7 +21,7 @@ describe("FloorPlanSettingsView", () => {
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-2"]}>
         <Routes>
-          <Route path="/settings/floor-plans" element={<FloorPlanSettingsView siteId="site-2" userRole="admin" />} />
+          <Route path="/settings/floor-plans" element={<FloorPlanSettingsView siteId="site-2" capabilities={{ read: true, control: true, manage: true, commission: true }} />} />
           <Route path="/settings/floor-plans/:floorId/edit" element={<h2>B2 맵 편집</h2>} />
         </Routes>
       </MemoryRouter>
@@ -40,13 +40,13 @@ describe("FloorPlanSettingsView", () => {
     expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
   });
 
-  it("keeps the floor-plan list read only for viewers", async () => {
+  it("keeps the floor-plan list read only without manage capability", async () => {
     const dashboard = { ...mockDashboard, floors: [mockDashboard.floors[0]] };
     useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
 
     render(
       <MemoryRouter>
-        <FloorPlanSettingsView userRole="viewer" />
+        <FloorPlanSettingsView capabilities={{ read: true, control: true, manage: false, commission: false }} />
       </MemoryRouter>
     );
 

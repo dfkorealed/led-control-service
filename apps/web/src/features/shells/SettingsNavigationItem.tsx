@@ -1,11 +1,11 @@
 import { ChevronRight, Settings } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import type { AuthUser } from "../../api/auth";
+import type { SiteCapabilities } from "../../api/queries";
 import { settingsSectionsFor } from "../settings/settings-sections";
 
 export interface SettingsNavigationItemProps {
-  role: AuthUser["role"];
+  capabilities: SiteCapabilities;
   search: string;
 }
 
@@ -16,13 +16,13 @@ function hasCoarsePointer() {
   return window.matchMedia?.(coarsePointerQuery).matches ?? false;
 }
 
-export function SettingsNavigationItem({ role, search }: SettingsNavigationItemProps) {
+export function SettingsNavigationItem({ capabilities, search }: SettingsNavigationItemProps) {
   const location = useLocation();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const firstSectionRef = useRef<HTMLAnchorElement>(null);
   const [open, setOpen] = useState(false);
-  const sections = settingsSectionsFor(role);
+  const sections = settingsSectionsFor(capabilities);
   const active = location.pathname.startsWith("/settings");
   const coarsePointer = hasCoarsePointer();
 

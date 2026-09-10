@@ -1,8 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AuthUser } from "../../api/auth";
+import type { SiteCapabilities } from "../../api/queries";
 import { SettingsNavigationItem } from "./SettingsNavigationItem";
+
+const manageCapabilities: SiteCapabilities = { read: true, control: true, manage: true, commission: true };
+const readCapabilities: SiteCapabilities = { read: true, control: false, manage: false, commission: false };
 
 function LocationProbe() {
   const location = useLocation();
@@ -27,16 +30,16 @@ function mockMatchMedia({ coarse = false }: { coarse?: boolean } = {}) {
 }
 
 function renderSettingsItem({
-  role,
+  capabilities,
   initialEntry
 }: {
-  role: AuthUser["role"];
+  capabilities: SiteCapabilities;
   initialEntry: string;
 }) {
   const search = new URL(initialEntry, "http://localhost").search;
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <SettingsNavigationItem role={role} search={search} />
+      <SettingsNavigationItem capabilities={capabilities} search={search} />
       <LocationProbe />
     </MemoryRouter>
   );
@@ -50,7 +53,7 @@ describe("SettingsNavigationItem", () => {
 
   it("설정 메뉴는 siteId와 현재 항목을 보존한다", () => {
     mockMatchMedia();
-    renderSettingsItem({ role: "admin", initialEntry: "/settings/floor-plans?siteId=site-1#fragment" });
+    renderSettingsItem({ capabilities: manageCapabilities, initialEntry: "/settings/floor-plans?siteId=site-1#fragment" });
 
     const trigger = screen.getByRole("link", { name: "설정" });
     fireEvent.focus(trigger);
@@ -66,7 +69,7 @@ describe("SettingsNavigationItem", () => {
 
   it("모바일 설정 메뉴는 scrim과 bottom sheet focus 계약을 유지한다", async () => {
     mockMatchMedia({ coarse: true });
-    renderSettingsItem({ role: "admin", initialEntry: "/monitoring?siteId=site-1" });
+    renderSettingsItem({ capabilities: manageCapabilities, initialEntry: "/monitoring?siteId=site-1" });
 
     const trigger = screen.getByRole("button", { name: "설정" });
     fireEvent.click(trigger);
@@ -83,7 +86,7 @@ describe("SettingsNavigationItem", () => {
 
   it("opens admin settings links on hover and closes with Escape", () => {
     mockMatchMedia();
-    renderSettingsItem({ role: "admin", initialEntry: "/monitoring?siteId=site-1" });
+    renderSettingsItem({ capabilities: manageCapabilities, initialEntry: "/monitoring?siteId=site-1" });
     const trigger = screen.getByRole("link", { name: "설정" });
 
     fireEvent.mouseEnter(trigger.closest("div")!);
@@ -101,20 +104,21 @@ describe("SettingsNavigationItem", () => {
     expect(screen.queryByRole("navigation", { name: "설정 메뉴" })).not.toBeInTheDocument();
   });
 
-  it("does not expose admin-only security to a viewer", () => {
+  it("exposes personal security but no admin management sections to a viewer", () => {
     mockMatchMedia();
-    renderSettingsItem({ role: "viewer", initialEntry: "/settings?siteId=site-1" });
+    renderSettingsItem({ capabilities: readCapabilities, initialEntry: "/settings?siteId=site-1" });
 
     fireEvent.focus(screen.getByRole("link", { name: "설정" }));
 
     expect(screen.getByRole("link", { name: "맵 관리" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "조명 등록" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "비밀번호 변경" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "유저 관리" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
   });
 
   it("uses a button to open the coarse disclosure without navigating", () => {
     mockMatchMedia({ coarse: true });
-    renderSettingsItem({ role: "admin", initialEntry: "/monitoring?siteId=site-1" });
+    renderSettingsItem({ capabilities: manageCapabilities, initialEntry: "/monitoring?siteId=site-1" });
 
     fireEvent.click(screen.getByRole("button", { name: "설정" }));
 
@@ -133,7 +137,7 @@ describe("SettingsNavigationItem", () => {
     ["/settings/security?siteId=site-1", "비밀번호 변경"]
   ])("exposes one current-page link for %s", (initialEntry, currentLabel) => {
     mockMatchMedia();
-    renderSettingsItem({ role: "admin", initialEntry });
+    renderSettingsItem({ capabilities: manageCapabilities, initialEntry });
 
     const trigger = screen.getByRole("link", { name: "설정" });
     fireEvent.focus(trigger);

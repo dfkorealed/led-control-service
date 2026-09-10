@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>유저 관리 UI 설계 시안</title>
+  <style>
+    :root {
+      font-family: Inter, Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #152238;
+      background: #f6f9fe;
+      --primary: #0b63e5;
+      --primary-soft: #e9f2ff;
+      --surface: #f6f9fe;
+      --panel: #fff;
+      --border: #dbe7f5;
+      --muted: #64748b;
+      --danger: #dc2626;
+      --success: #15803d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 1180px; background: var(--surface); }
+    button, input, select { font: inherit; }
+    button { cursor: default; }
+    .app { display: grid; grid-template-columns: 92px minmax(0, 1fr); min-height: 900px; }
+    .sidebar { padding: 16px 10px; border-right: 1px solid var(--border); background: rgba(255,255,255,.96); }
+    .brand { display: grid; place-items: center; margin-bottom: 25px; }
+    .brand-mark { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 14px; background: var(--primary); color: #fff; font-weight: 900; }
+    .nav { display: grid; gap: 9px; }
+    .nav-item { display: grid; min-height: 61px; place-items: center; gap: 4px; border: 1px solid transparent; border-radius: 12px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .nav-item.active { border-color: #b9d5ff; background: var(--primary-soft); color: var(--primary); }
+    .nav-icon { font-size: 18px; line-height: 1; }
+    .main { display: grid; grid-template-rows: 72px minmax(0, 1fr); min-width: 0; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--panel); padding: 0 28px; }
+    .eyebrow { color: var(--primary); font-size: 12px; font-weight: 800; }
+    .topbar h1 { margin: 2px 0 0; font-size: 28px; letter-spacing: 0; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; border-radius: 999px; background: #f1f5f9; padding: 0 12px; color: #475569; font-size: 12px; font-weight: 700; }
+    .pill.online { background: #ecfdf3; color: var(--success); }
+    .logout { min-height: 36px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--muted); padding: 0 12px; font-weight: 700; }
+    .workspace { padding: 20px 24px 28px; }
+    .site-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+    .site-select { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .site-select select { width: 260px; min-height: 40px; border: 1px solid var(--border); border-radius: 7px; background: #fff; padding: 0 10px; color: #152238; }
+    .layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 20px; align-items: start; }
+    .subnav { border-right: 1px solid var(--border); padding-right: 16px; }
+    .subnav-title { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 800; }
+    .subnav-item { display: flex; align-items: center; min-height: 42px; margin-bottom: 3px; border-radius: 7px; padding: 0 12px; color: #475569; font-size: 14px; font-weight: 700; }
+    .subnav-item.active { background: var(--primary-soft); color: var(--primary); }
+    .content { min-width: 0; }
+    .page-header { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+    .page-header h2 { margin: 0; font-size: 24px; letter-spacing: 0; }
+    .page-header p { margin: 7px 0 0; color: var(--muted); font-size: 14px; }
+    .primary { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: #fff; padding: 0 15px; font-weight: 800; }
+    .toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) 150px 150px auto; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .field-control { width: 100%; min-height: 40px; border: 1px solid var(--border); border-radius: 7px; background: #fff; padding: 0 11px; color: #334155; }
+    .count { justify-self: end; color: var(--muted); font-size: 13px; font-weight: 700; }
+    .count strong { color: var(--primary); font-size: 15px; }
+    .table-wrap { overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid var(--border); padding: 13px 14px; text-align: left; white-space: nowrap; }
+    th { background: #f2f7ff; color: var(--muted); font-size: 12px; font-weight: 800; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child, td:nth-child(2) { font-weight: 800; }
+    .badge { display: inline-flex; min-height: 27px; align-items: center; border-radius: 999px; padding: 0 9px; font-size: 12px; font-weight: 800; }
+    .badge.read { background: #f1f5f9; color: #475569; }
+    .badge.control { background: var(--primary-soft); color: var(--primary); }
+    .badge.active { background: #ecfdf3; color: var(--success); }
+    .badge.disabled { background: #fff1f2; color: #be123c; }
+    .actions { display: flex; gap: 6px; }
+    .icon-button { display: inline-grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: #fff; color: #475569; font-size: 15px; }
+    .result-note { margin-top: 12px; color: var(--muted); font-size: 12px; }
+    .backdrop { position: fixed; inset: 0; display: none; place-items: center; background: rgba(23,32,51,.46); padding: 24px; }
+    .dialog { width: min(520px, 100%); border: 1px solid var(--border); border-radius: 8px; background: #fff; box-shadow: 0 18px 48px rgba(15,23,42,.22); padding: 22px; }
+    .dialog.wide { width: 610px; }
+    .dialog-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .dialog-head h2 { margin: 0; font-size: 19px; }
+    .dialog-head p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .close { border: 0; background: transparent; color: var(--muted); font-size: 22px; }
+    .form { display: grid; gap: 15px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-field { display: grid; gap: 7px; color: #475569; font-size: 13px; font-weight: 800; }
+    .form-field small { color: var(--muted); font-weight: 500; line-height: 1.45; }
+    .form-field input { min-height: 42px; border: 1px solid var(--border); border-radius: 7px; padding: 0 11px; color: #152238; }
+    .seg-label { color: #475569; font-size: 13px; font-weight: 800; }
+    .segments { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 7px; border: 1px solid var(--border); border-radius: 7px; padding: 3px; }
+    .segment { min-height: 38px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-weight: 800; }
+    .segment.selected { background: var(--primary); color: #fff; }
+    .permission-help { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+    .status-row { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 14px; }
+    .status-row strong { display: block; font-size: 13px; }
+    .status-row span { color: var(--muted); font-size: 12px; }
+    .switch { width: 42px; height: 24px; border-radius: 999px; background: var(--primary); padding: 3px; }
+    .switch::after { content: ""; display: block; width: 18px; height: 18px; margin-left: 18px; border-radius: 50%; background: #fff; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+    .secondary, .danger { min-height: 40px; border-radius: 7px; padding: 0 14px; font-weight: 800; }
+    .secondary { border: 1px solid var(--border); background: #fff; color: #475569; }
+    .danger { border: 1px solid var(--danger); background: var(--danger); color: #fff; }
+    .warning-box { margin-bottom: 15px; border: 1px solid #fecaca; border-radius: 7px; background: #fff7f7; color: #991b1b; padding: 13px; font-size: 13px; line-height: 1.55; }
+    .account-summary { display: grid; grid-template-columns: 120px 1fr; gap: 8px; margin: 0 0 16px; padding: 13px; background: #f8fafc; font-size: 13px; }
+    .account-summary dt { color: var(--muted); }
+    .account-summary dd { margin: 0; font-weight: 800; }
+    .password-screen { display: none; min-height: 900px; place-items: center; background: linear-gradient(180deg, #eef5ff 0%, #f7faff 44%, #f6f9fe 100%); }
+    .password-card { width: 440px; border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 28px; box-shadow: 0 8px 24px rgba(30,64,175,.08); }
+    .password-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; }
+    .password-brand .brand-mark { width: 38px; height: 38px; border-radius: 11px; }
+    .password-card h1 { margin: 0; font-size: 24px; }
+    .password-card > p { margin: 9px 0 22px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    .password-card .primary { width: 100%; margin-top: 18px; }
+    .security-note { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    body[data-state="create"] .backdrop.create,
+    body[data-state="edit"] .backdrop.edit,
+    body[data-state="reset"] .backdrop.reset,
+    body[data-state="delete"] .backdrop.delete { display: grid; }
+    body[data-state="password"] .app { display: none; }
+    body[data-state="password"] .password-screen { display: grid; }
+  </style>
+</head>
+<body data-state="list">
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">LC</span></div>
+      <nav class="nav" aria-label="주 메뉴">
+        <div class="nav-item"><span class="nav-icon">◉</span><span>모니터링</span></div>
+        <div class="nav-item"><span class="nav-icon">⌁</span><span>제어</span></div>
+        <div class="nav-item"><span class="nav-icon">▥</span><span>통계</span></div>
+        <div class="nav-item active"><span class="nav-icon">⚙</span><span>설정</span></div>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div><span class="eyebrow">DF 주차장</span><h1>설정</h1></div>
+        <div class="top-actions">
+          <span class="pill">⌖ B2 주차장</span>
+          <span class="pill online">● 게이트웨이 정상</span>
+          <button class="logout">로그아웃</button>
+        </div>
+      </header>
+      <section class="workspace">
+        <div class="site-row">
+          <label class="site-select">현장 선택<select><option>DF 주차장</option></select></label>
+        </div>
+        <div class="layout">
+          <nav class="subnav" aria-label="설정 메뉴">
+            <p class="subnav-title">설정 메뉴</p>
+            <div class="subnav-item">설정 개요</div>
+            <div class="subnav-item active">유저 관리</div>
+            <div class="subnav-item">조명 등록</div>
+            <div class="subnav-item">맵 관리</div>
+            <div class="subnav-item">비밀번호 변경</div>
+          </nav>
+          <section class="content">
+            <div class="page-header">
+              <div><h2>유저 관리</h2><p>현장을 조회하거나 조명을 제어할 사용자를 관리합니다.</p></div>
+              <button class="primary">＋ 사용자 추가</button>
+            </div>
+            <div class="toolbar">
+              <input class="field-control" value="" placeholder="이름 또는 로그인 아이디 검색" />
+              <select class="field-control"><option>모든 권한</option></select>
+              <select class="field-control"><option>모든 상태</option></select>
+              <span class="count"><strong>4</strong> / 100명</span>
+            </div>
+            <div class="table-wrap">
+              <table aria-label="현장 사용자 목록">
+                <thead><tr><th>이름</th><th>로그인 아이디</th><th>권한</th><th>상태</th><th>최근 로그인</th><th>관리</th></tr></thead>
+                <tbody>
+                  <tr><td>김현수</td><td>hyunsu.kim</td><td><span class="badge control">제어</span></td><td><span class="badge active">활성</span></td><td>2026. 9. 10. 14:32</td><td><div class="actions"><button class="icon-button" title="수정">✎</button><button class="icon-button" title="비밀번호 초기화">↻</button><button class="icon-button" title="더보기">⋯</button></div></td></tr>
+                  <tr><td>이지은</td><td>jieun.lee</td><td><span class="badge read">조회</span></td><td><span class="badge active">활성</span></td><td>2026. 9. 9. 09:18</td><td><div class="actions"><button class="icon-button">✎</button><button class="icon-button">↻</button><button class="icon-button">⋯</button></div></td></tr>
+                  <tr><td>박민호</td><td>minho.park</td><td><span class="badge control">제어</span></td><td><span class="badge active">활성</span></td><td>2026. 9. 8. 17:46</td><td><div class="actions"><button class="icon-button">✎</button><button class="icon-button">↻</button><button class="icon-button">⋯</button></div></td></tr>
+                  <tr><td>야간 당직</td><td>night.viewer</td><td><span class="badge read">조회</span></td><td><span class="badge disabled">비활성</span></td><td>2026. 8. 24. 23:11</td><td><div class="actions"><button class="icon-button">✎</button><button class="icon-button">↻</button><button class="icon-button">⋯</button></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="result-note">비활성 사용자도 100명 제한에 포함됩니다. 삭제된 사용자는 인원에서 제외됩니다.</p>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="backdrop create">
+    <section class="dialog wide" role="dialog" aria-label="사용자 추가">
+      <div class="dialog-head"><div><h2>사용자 추가</h2><p>임시 비밀번호로 계정을 만들며, 사용자는 최초 로그인 후 비밀번호를 변경해야 합니다.</p></div><button class="close">×</button></div>
+      <div class="form">
+        <div class="form-grid">
+          <label class="form-field">이름<input value="김현수" /></label>
+          <label class="form-field">로그인 아이디<input value="hyunsu.kim" /></label>
+        </div>
+        <label class="form-field">임시 비밀번호<input type="text" value="DFkorea!2026" /><small>8자 이상이며 영문, 숫자, 특수문자를 포함해야 합니다.</small></label>
+        <div><span class="seg-label">현장 권한</span><div class="segments"><button class="segment">조회</button><button class="segment selected">제어</button></div><p class="permission-help">제어 권한에는 모니터링과 통계 조회 권한이 포함됩니다.</p></div>
+        <div class="status-row"><div><strong>계정 활성화</strong><span>활성 상태로 생성하면 즉시 로그인할 수 있습니다.</span></div><span class="switch"></span></div>
+      </div>
+      <div class="dialog-actions"><button class="secondary">취소</button><button class="primary">사용자 생성</button></div>
+    </section>
+  </div>
+
+  <div class="backdrop edit">
+    <section class="dialog wide" role="dialog" aria-label="사용자 수정">
+      <div class="dialog-head"><div><h2>사용자 수정</h2><p>사용자 정보, 현장 권한과 계정 상태를 변경합니다.</p></div><button class="close">×</button></div>
+      <div class="form">
+        <div class="form-grid"><label class="form-field">이름<input value="이지은" /></label><label class="form-field">로그인 아이디<input value="jieun.lee" /></label></div>
+        <div><span class="seg-label">현장 권한</span><div class="segments"><button class="segment selected">조회</button><button class="segment">제어</button></div><p class="permission-help">제어로 변경하면 조명 제어 메뉴와 기능을 사용할 수 있습니다.</p></div>
+        <div class="status-row"><div><strong>계정 활성화</strong><span>비활성화하면 현재 로그인 세션이 즉시 종료됩니다.</span></div><span class="switch"></span></div>
+      </div>
+      <div class="dialog-actions"><button class="secondary">취소</button><button class="primary">변경사항 저장</button></div>
+    </section>
+  </div>
+
+  <div class="backdrop reset">
+    <section class="dialog" role="dialog" aria-label="비밀번호 초기화">
+      <div class="dialog-head"><div><h2>비밀번호 초기화</h2><p>새 임시 비밀번호를 지정합니다. 사용자의 모든 로그인 세션이 종료됩니다.</p></div><button class="close">×</button></div>
+      <dl class="account-summary"><dt>사용자</dt><dd>김현수</dd><dt>로그인 아이디</dt><dd>hyunsu.kim</dd></dl>
+      <div class="form"><label class="form-field">새 임시 비밀번호<input type="text" value="NewPass!2026" /></label><label class="form-field">임시 비밀번호 확인<input type="password" value="NewPass!2026" /></label></div>
+      <div class="dialog-actions"><button class="secondary">취소</button><button class="primary">비밀번호 초기화</button></div>
+    </section>
+  </div>
+
+  <div class="backdrop delete">
+    <section class="dialog" role="alertdialog" aria-label="사용자 영구 삭제">
+      <div class="dialog-head"><div><h2>사용자를 영구 삭제할까요?</h2><p>이 작업은 되돌릴 수 없습니다.</p></div><button class="close">×</button></div>
+      <div class="warning-box">계정과 현장 소속 정보, 로그인 세션이 완전히 삭제됩니다. 기존 조명 제어 이력은 운영 추적을 위해 보존되며 사용자 정보만 ‘삭제된 사용자’로 익명화됩니다.</div>
+      <label class="form-field">확인을 위해 로그인 아이디 <strong>night.viewer</strong>를 입력하세요.<input value="night.viewer" /></label>
+      <div class="dialog-actions"><button class="secondary">취소</button><button class="danger">영구 삭제</button></div>
+    </section>
+  </div>
+
+  <section class="password-screen">
+    <div class="password-card">
+      <div class="password-brand"><span class="brand-mark">LC</span><strong>LED Control</strong></div>
+      <h1>비밀번호를 변경해주세요</h1>
+      <p>관리자가 발급한 임시 비밀번호를 사용 중입니다. 서비스를 계속 사용하려면 본인만 아는 새 비밀번호로 변경해야 합니다.</p>
+      <div class="form">
+        <label class="form-field">현재 임시 비밀번호<input type="password" value="DFkorea!2026" /></label>
+        <label class="form-field">새 비밀번호<input type="password" value="personal!2026" /></label>
+        <label class="form-field">새 비밀번호 확인<input type="password" value="personal!2026" /></label>
+      </div>
+      <button class="primary">비밀번호 변경 후 시작</button>
+      <p class="security-note">변경이 완료되기 전에는 모니터링, 제어, 통계 화면에 접근할 수 없습니다.</p>
+    </div>
+  </section>
+  <script>
+    const state = new URLSearchParams(location.search).get("state") || "list";
+    document.body.dataset.state = state;
+  </script>
+</body>
+</html>

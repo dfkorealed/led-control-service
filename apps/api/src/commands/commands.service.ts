@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import {
   CreateDimmingCommandInput,
   DimmingTarget,
@@ -89,16 +89,14 @@ export class CommandsService {
       throw new BadRequestException("brightness must be an integer from 0 to 100");
     }
 
-    await this.siteAccess.assert(user, input.siteId, "read");
-    if (user.role === "viewer") throw new ForbiddenException("viewer users cannot control lights");
-    await this.siteAccess.assert(user, input.siteId, "manage");
+    await this.siteAccess.assert(user, input.siteId, "control");
 
     const requestFingerprint = createRequestFingerprint(input.target, input.brightness, input.overrideUntil);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
-        await this.siteAccess.assertManageInTransaction(tx, user, input.siteId);
+        await this.siteAccess.assertControlInTransaction(tx, user, input.siteId);
         const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
         if (existing) return existing;
 
@@ -222,7 +220,7 @@ export class CommandsService {
       // A failed PostgreSQL transaction cannot be reused after P2002. Re-read in a fresh transaction.
       return this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
-        await this.siteAccess.assertManageInTransaction(tx, user, input.siteId);
+        await this.siteAccess.assertControlInTransaction(tx, user, input.siteId);
         const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
         if (!existing) throw error;
         return existing;

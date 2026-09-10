@@ -10,11 +10,11 @@ describe("GatewayOnboardingService", () => {
   const gatewayId = "00000000-0000-4000-8000-000000000004";
   const admin: AuthenticatedUser = {
     id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user",
-    name: "Admin", role: "admin", status: "active"
+    name: "Admin", role: "admin", mustChangePassword: false, status: "active"
   };
   const operator: AuthenticatedUser = {
     id: "operator-1", organizationId: "provider-org-1", organizationType: "service_provider", loginId: "operator_1",
-    name: "Operator", role: "operator", status: "active"
+    name: "Operator", role: "operator", mustChangePassword: false, status: "active"
   };
 
   async function createFixture() {

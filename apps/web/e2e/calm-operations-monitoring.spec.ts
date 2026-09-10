@@ -24,10 +24,10 @@ const fixtures: SettingsFixture[] = [
 ];
 
 const viewports = [
-  { width: 1440, height: 900, columns: 3, rows: 1 },
+  { width: 1440, height: 900, columns: 4, rows: 1 },
   { width: 1024, height: 768, columns: 2, rows: 2 },
   { width: 390, height: 844, columns: 2, rows: 2 },
-  { width: 320, height: 740, columns: 1, rows: 3 }
+  { width: 320, height: 740, columns: 1, rows: 4 }
 ] as const;
 
 function fixture(
@@ -73,14 +73,67 @@ for (const viewport of viewports) {
 
     await expect(page.getByRole("heading", { name: "운영 현황" })).toHaveCount(0);
     await expect(page.getByText(/10분마다 자동 갱신/)).toHaveCount(0);
-    await expect(page.getByRole("combobox", { name: "층 선택" })).toBeVisible();
+    const mapSelector = page.getByRole("combobox", { name: "맵 선택" });
+    await expect(mapSelector).toBeVisible();
+    await expect(page.getByRole("group", { name: "오프라인" })).toContainText("2");
+    await expect(page.getByRole("group", { name: "오프라인" })).toContainText("상태 확인 대기 포함");
     await expect(page.getByRole("group", { name: "평균 밝기" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
+    await expect(page.locator(".floor-map-label")).toHaveCount(0);
+    const mapSelectorLabel = page.locator(".monitoring-floor-selector");
+    const selectorLayout = await mapSelectorLabel.evaluate((label) => {
+      const labelText = label.querySelector("span")?.getBoundingClientRect();
+      const select = label.querySelector("select")?.getBoundingClientRect();
+      return {
+        display: getComputedStyle(label).display,
+        labelCenterY: labelText ? labelText.y + labelText.height / 2 : -1,
+        selectCenterY: select ? select.y + select.height / 2 : -2
+      };
+    });
+    expect(selectorLayout.display).toBe("flex");
+    expect(Math.abs(selectorLayout.labelCenterY - selectorLayout.selectCenterY)).toBeLessThan(2);
+    const toolbar = await page.locator(".monitoring-toolbar").boundingBox();
+    const refresh = await page.getByRole("button", { name: "새로고침" }).boundingBox();
+    expect(toolbar).not.toBeNull();
+    expect(refresh).not.toBeNull();
+    expect(Math.abs((toolbar?.x ?? 0) + (toolbar?.width ?? 0) - ((refresh?.x ?? 0) + (refresh?.width ?? 0)))).toBeLessThan(2);
     await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
     await expect(page.getByRole("complementary", { name: "선택 조명 상세" }).getByRole("heading", { name: "점검 큐" })).toHaveCount(0);
     await expectMetricGrid(page, viewport.columns, viewport.rows);
     await expectNoHorizontalOverflow(page);
+
+    const mapOverlayLayout = await page.locator(".monitoring-map-shell").evaluate((shell) => {
+      const legend = shell.querySelector(".floor-map-legend")?.getBoundingClientRect();
+      const panHintElement = shell.querySelector<HTMLElement>(".monitoring-map-pan-hint");
+      const panHint = panHintElement?.getBoundingClientRect();
+      const zoomControls = shell.querySelector(".monitoring-map-zoom-controls")?.getBoundingClientRect();
+      const legendElement = shell.querySelector<HTMLElement>(".floor-map-legend");
+      if (!legend || !legendElement || !panHint || !panHintElement || !zoomControls) {
+        throw new Error("지도 범례 또는 이동·확대 안내를 찾을 수 없습니다.");
+      }
+      return {
+        legendBottom: legend.bottom,
+        panHintTop: panHint.top,
+        panHintDisplay: getComputedStyle(panHintElement).display,
+        legendPointerEvents: getComputedStyle(legendElement).pointerEvents,
+        zoomControlsTop: zoomControls.top
+      };
+    });
+    expect(mapOverlayLayout.legendPointerEvents).toBe("none");
+    if (viewport.width > 760) {
+      expect(mapOverlayLayout.panHintDisplay).not.toBe("none");
+      expect(mapOverlayLayout.legendBottom).toBeLessThanOrEqual(mapOverlayLayout.panHintTop - 4);
+    } else {
+      expect(mapOverlayLayout.panHintDisplay).toBe("none");
+      expect(mapOverlayLayout.legendBottom).toBeLessThanOrEqual(mapOverlayLayout.zoomControlsTop - 4);
+    }
+
+    const statusBadge = await page.locator(".fixture-dot:not(.active)").first().evaluate((element) => {
+      const style = getComputedStyle(element, "::after");
+      return { top: style.top, right: style.right, width: style.width, height: style.height, borderWidth: style.borderTopWidth };
+    });
+    expect(statusBadge).toEqual({ top: "-5px", right: "-5px", width: "8px", height: "8px", borderWidth: "2px" });
 
     if (viewport.width > 1120) {
       await expectDesktopMonitoringUsesInternalScroll(page);
@@ -276,7 +329,7 @@ test("부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지
 
 async function expectMetricGrid(page: Page, columns: number, rows: number) {
   const metrics = page.locator(".summary-row > [role='group']");
-  await expect(metrics).toHaveCount(3);
+  await expect(metrics).toHaveCount(4);
   const boxes = await metrics.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { x: Math.round(box.x), y: Math.round(box.y) };

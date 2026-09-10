@@ -125,6 +125,15 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `active` | 활성 계정 |
 | `disabled` | 비활성 계정 |
 
+### SiteAccessLevel
+
+현장 일반 사용자의 권한 범위다.
+
+| 값 | 의미 |
+| --- | --- |
+| `read` | 현장 상태 조회만 허용 |
+| `control` | 조회와 수동 조명 제어 허용 |
+
 ### ProvisioningSessionStatus
 
 조명 검색/등록 세션 상태.
@@ -221,6 +230,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `passwordHash` | `String` | 예 |  | 비밀번호 hash |
 | `role` | `UserRole` | 예 |  | 권한 |
 | `status` | `UserStatus` | 예 | `active` | 계정 상태 |
+| `mustChangePassword` | `Boolean` | 예 | `false` | 임시 비밀번호로 생성·초기화된 계정의 다음 로그인 비밀번호 변경 요구 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -339,13 +349,14 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 
 ### SiteMembership
 
-`operator`와 `viewer`의 현장 접근 범위를 명시적으로 보관한다. `(userId, siteId)`는 unique이며 두 부모가 삭제되면 함께 삭제한다.
+`operator`와 `viewer`의 현장 접근 범위와 일반 사용자의 현장 권한을 명시적으로 보관한다. `(userId, siteId)`는 unique이며 두 부모가 삭제되면 함께 삭제한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | membership ID |
 | `userId` | `String` | 예 | FK -> `User.id`, cascade delete | 사용자 ID |
 | `siteId` | `String` | 예 | FK -> `Site.id`, cascade delete, indexed | 현장 ID |
+| `accessLevel` | `SiteAccessLevel` | 예 | `read` | 현장별 조회 또는 수동 제어 권한. 기존 membership은 migration에서 `read`로 backfill |
 | `createdAt` | `DateTime` | 예 | `now()` | 배정 시각 |
 
 운영 메모:
@@ -869,7 +880,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 명령 ID |
 | `siteId` | `String` | 예 | FK -> `Site.id` | 대상 현장 |
-| `requestedBy` | `String` | 예 | FK -> `User.id` | 요청 사용자 |
+| `requestedBy` | `String?` | 아니오 | FK -> `User.id`, delete set null | 요청 사용자. 영구 삭제 뒤에도 명령 이력은 보존하며 요청자만 익명화 |
 | `clientRequestId` | `String` | 예 | Unique with `siteId`, `requestedBy` | 클라이언트가 재시도에도 보존하는 UUID |
 | `requestFingerprint` | `String` | 예 | SHA-256 | 안정 정렬 target·brightness의 canonical fingerprint |
 | `targetType` | `String` | 예 |  | `fixture`, `fixtures`, `floor`, `group` |
@@ -884,7 +895,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 관계:
 
 - `site`: `Site`
-- `user`: `User`
+- `user`: `User?`
 
 운영 메모:
 
@@ -892,7 +903,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 - `targetFixtureIds`는 명령 생성 시점의 권위 있는 대상 snapshot이다. 이후 층이나 구역 구성이 변경돼도 이미 생성된 명령의 fixture별 결과 집합은 바뀌지 않는다.
 - MQTT command ACK 수신 시 `status`, `errorMessage`가 갱신된다.
 - `(siteId, requestedBy, clientRequestId)` unique는 동일 사용자·현장 요청의 중복 Command, Outbox, Gateway sequence 생성을 차단한다. 동일 ID에 다른 fingerprint가 오면 API는 conflict로 처리한다.
-- `(id, siteId, requestedBy)` unique는 `ManualOverride(commandId, siteId, requestedById)` 복합 FK의 기준이다. 수동 override가 다른 Site 또는 다른 요청자의 Command를 감사 source로 연결하는 것을 DB가 거부한다.
+- `ManualOverride.commandId`는 `Command.id`를 직접 참조하는 1:1 FK다. 사용자 영구 삭제로 요청자 값이 `NULL`이 되어도 수동 override와 명령 이력 관계는 유지된다.
 
 ### CommandDispatch / CommandFixtureResult / MqttOutbox
 
@@ -1045,17 +1056,17 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `id` | `String` | 예 | PK, `uuid()` |
 | `siteId` | `String` | 예 | FK -> `Site.id`, delete cascade; index `(siteId, overrideUntil)` |
 | `gatewayId` | `String` | 예 | `siteId`와 복합 FK -> `Gateway(id, siteId)`, delete cascade; index `(gatewayId, overrideUntil)` |
-| `commandId` | `String` | 예 | Unique; `(commandId, siteId, requestedById)` FK -> `Command(id, siteId, requestedBy)`, delete cascade/update restrict |
-| `requestedById` | `String` | 예 | named FK -> `User.id`, delete restrict; index `(requestedById, createdAt)` |
+| `commandId` | `String` | 예 | Unique; FK -> `Command.id`, delete cascade/update restrict |
+| `requestedById` | `String?` | 아니오 | named FK -> `User.id`, delete set null; index `(requestedById, createdAt)` |
 | `brightnessPercent` | `Int` | 예 | DB check `0..100` |
 | `startedAt`, `overrideUntil` | `DateTime` | 예 | DB check `overrideUntil > startedAt` |
 | `endedAt` | `DateTime?` | 아니오 | DB check `startedAt <= endedAt <= overrideUntil` |
 | `targetCount` | `Int` | 예 | `0`; DB check `>= 0`, child trigger 유지 | 현재 target row 수 |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` |
 
-`ManualOverride`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique와 Prisma 1:1 Command relation 기준인 `(commandId, siteId, requestedById)` Unique를 가진다. `ManualOverrideFixture`는 `manualOverrideId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장한다. `(manualOverrideId, fixtureId)` 복합 PK, `(fixtureId)`, `(siteId, gatewayId)` index, owner-aware override delete cascade/update restrict와 투영된 `(fixtureId, siteId, gatewayId)` Fixture delete cascade/update restrict를 사용한다.
+`ManualOverride`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique와 `commandId` Unique로 1:1 Command relation을 가진다. 요청 사용자가 영구 삭제되면 `requestedById`만 `NULL`로 바꾸고 override·명령 원장은 보존한다. `ManualOverrideFixture`는 `manualOverrideId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장한다. `(manualOverrideId, fixtureId)` 복합 PK, `(fixtureId)`, `(siteId, gatewayId)` index, owner-aware override delete cascade/update restrict와 투영된 `(fixtureId, siteId, gatewayId)` Fixture delete cascade/update restrict를 사용한다.
 
-`ManualOverride_membership_statement_lock`과 `ManualOverrideFixture_membership_statement_lock`은 top-level statement가 parent 또는 child tuple을 잠그기 전에 공통 advisory lock을 획득한다. Row maintenance는 INSERT/DELETE/부모-key UPDATE에서 `targetCount`를 원자 갱신하며 부모 이동 시 두 override row를 ID 오름차순으로 잠근다. Counter가 만든 nested override UPDATE는 depth guard로 parent statement 작업을 생략하고, nested parent cascade는 이미 사라진 override의 counter와 deferred 검증을 건너뛴다. Direct DML의 deferred 검증은 `targetCount >= 1`과 실제 target row 수 일치를 강제한다. 동일 parent row version 갱신이 모든 공통 isolation level에서 동시 마지막-target 삭제의 stale 성공을 막는다. Command/User/Fixture 관계를 restrict해 이미 실행된 수동 override 원장이 참조 대상 삭제로 유실되지 않게 한다.
+`ManualOverride_membership_statement_lock`과 `ManualOverrideFixture_membership_statement_lock`은 top-level statement가 parent 또는 child tuple을 잠그기 전에 공통 advisory lock을 획득한다. Row maintenance는 INSERT/DELETE/부모-key UPDATE에서 `targetCount`를 원자 갱신하며 부모 이동 시 두 override row를 ID 오름차순으로 잠근다. Counter가 만든 nested override UPDATE는 depth guard로 parent statement 작업을 생략하고, nested parent cascade는 이미 사라진 override의 counter와 deferred 검증을 건너뛴다. Direct DML의 deferred 검증은 `targetCount >= 1`과 실제 target row 수 일치를 강제한다. 동일 parent row version 갱신이 모든 공통 isolation level에서 동시 마지막-target 삭제의 stale 성공을 막는다. Command 관계는 command 삭제 시 cascade, User 관계는 user 삭제 시 set null, ManualOverrideFixture의 Fixture 관계는 fixture 삭제 시 cascade를 사용한다.
 
 ### AutomationExecution / AutomationExecutionFixtureResult
 
@@ -1179,7 +1190,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 세션 ID |
-| `userId` | `String` | 예 | FK -> `User.id` | 사용자 ID |
+| `userId` | `String` | 예 | FK -> `User.id`, delete cascade | 사용자 ID. 사용자 영구 삭제 시 함께 삭제 |
 | `tokenHash` | `String` | 예 | Unique | 세션 토큰 hash |
 | `rememberMe` | `Boolean` | 예 | `false` | 자동 로그인 여부 |
 | `userAgent` | `String?` | 아니오 |  | 접속 user agent |

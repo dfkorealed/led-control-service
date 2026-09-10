@@ -142,19 +142,15 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
               selectedFixtureId={selectedFixtureId}
               onSelectFixture={onSelectFixture}
             />
-            <div className="floor-map-label">
-              <span>{floor.name}</span>
-              <strong>실시간 조명 배치</strong>
-            </div>
-            <ul className="floor-map-legend" aria-label="조명 상태 범례">
-              <li><CircleCheck size={14} aria-hidden="true" /><span>정상</span></li>
-              <li><TriangleAlert size={14} aria-hidden="true" /><span>장애</span></li>
-              <li><CircleX size={14} aria-hidden="true" /><span>오프라인</span></li>
-              <li><Clock3 size={14} aria-hidden="true" /><span>상태 확인 대기</span></li>
-            </ul>
           </div>
         </div>
       </div>
+      <ul className="floor-map-legend" aria-label="조명 상태 범례">
+        <li><CircleCheck size={14} aria-hidden="true" /><span>정상</span></li>
+        <li><TriangleAlert size={14} aria-hidden="true" /><span>장애</span></li>
+        <li><CircleX size={14} aria-hidden="true" /><span>오프라인</span></li>
+        <li><Clock3 size={14} aria-hidden="true" /><span>상태 확인 대기</span></li>
+      </ul>
       <span className="monitoring-map-pan-hint"><Hand size={14} aria-hidden="true" />드래그 또는 스크롤로 이동</span>
       <div className="monitoring-map-zoom-controls" role="group" aria-label="지도 확대 축소">
         <button type="button" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoom - 0.1)}><Minus size={16} aria-hidden="true" /></button>

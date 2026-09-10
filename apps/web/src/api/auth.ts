@@ -10,6 +10,7 @@ export interface AuthUser {
   name: string;
   role: "operator" | "admin" | "viewer";
   status: "active" | "disabled";
+  mustChangePassword: boolean;
 }
 
 export function useCurrentUser() {

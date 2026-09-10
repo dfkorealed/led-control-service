@@ -57,7 +57,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
     () => ({
       totalFixtures: fixtures.length,
       onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
-      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length
+      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
+      offlineFixtures: fixtures.filter((fixture) => fixture.status === "offline").length
     }),
     [fixtures]
   );
@@ -156,9 +157,9 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
     <section className="screen-grid monitoring-screen monitoring-dashboard">
       <div className="monitoring-toolbar" role="group" aria-label="모니터링 도구">
         <label className="monitoring-floor-selector">
-          <span>층 선택</span>
+          <span>맵 선택</span>
           <select
-            aria-label="층 선택"
+            aria-label="맵 선택"
             value={floor?.id ?? ""}
             disabled={data.floors.length === 0}
             onChange={(event) => handleSelectFloor(event.target.value)}
@@ -167,6 +168,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
           </select>
         </label>
         <div className="monitoring-refresh-actions">
+          <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
+          {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
           <Button
             variant="secondary"
             isLoading={isManualRefreshing}
@@ -176,8 +179,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
             새로고침
           </Button>
-          <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
-          {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
         </div>
       </div>
 
@@ -195,6 +196,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <MetricCard label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
             <MetricCard label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
             <MetricCard label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
+            <MetricCard label="오프라인" value={floorSummary.offlineFixtures} helper="상태 확인 대기 포함" />
           </div>
 
           <label className="monitoring-fixture-selector">

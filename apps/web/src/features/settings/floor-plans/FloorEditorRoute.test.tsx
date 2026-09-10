@@ -9,6 +9,9 @@ import { useFloorEditorStore } from "../../floor-editor/editor-store";
 import { SettingsNavigationItem } from "../../shells/SettingsNavigationItem";
 import { FloorEditorRoute } from "./FloorEditorRoute";
 
+const manageCapabilities = { read: true, control: true, manage: true, commission: true } as const;
+const readCapabilities = { read: true, control: false, manage: false, commission: false } as const;
+
 const floorEditorApi = vi.hoisted(() => ({
   getFloorEditorState: vi.fn(),
   acquireFloorEditorLease: vi.fn(),
@@ -59,7 +62,11 @@ function LocationProbe() {
   return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
 }
 
-function renderRoute(userRole: "operator" | "admin" | "viewer", initialEntry = "/settings/floor-plans/floor-b2/edit?siteId=site-2") {
+function renderRoute(
+  userRole: "operator" | "admin" | "viewer",
+  initialEntry = "/settings/floor-plans/floor-b2/edit?siteId=site-2",
+  capabilities = userRole === "admin" ? manageCapabilities : readCapabilities
+) {
   const queryClient = new QueryClient();
   const result = render(
     <QueryClientProvider client={queryClient}>
@@ -68,7 +75,7 @@ function renderRoute(userRole: "operator" | "admin" | "viewer", initialEntry = "
         <Routes>
           <Route path="/settings" element={<><h2>설정 개요</h2><LocationProbe /></>} />
           <Route path="/settings/floor-plans" element={<><h2>맵 관리</h2><LocationProbe /></>} />
-          <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={userRole} />} />
+          <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute capabilities={capabilities} />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -78,7 +85,7 @@ function renderRoute(userRole: "operator" | "admin" | "viewer", initialEntry = "
 
 function CurrentSettingsNavigation() {
   const location = useLocation();
-  return <SettingsNavigationItem role="admin" search={location.search} />;
+  return <SettingsNavigationItem capabilities={manageCapabilities} search={location.search} />;
 }
 
 function renderBrowserRoute({ withSettingsNavigation = false } = {}) {
@@ -95,7 +102,7 @@ function renderBrowserRoute({ withSettingsNavigation = false } = {}) {
             <Route path="/settings" element={<><h2>설정 개요</h2><LocationProbe /></>} />
             <Route path="/settings/floor-plans" element={<><h2>맵 관리</h2><LocationProbe /></>} />
             <Route path="/settings/security" element={<><h2>보안 설정</h2><LocationProbe /></>} />
-            <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute userRole="admin" />} />
+            <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute capabilities={manageCapabilities} />} />
           </Routes>
         </BrowserRouter>
       </QueryClientProvider>
@@ -110,7 +117,7 @@ function renderFloorTransitionRoute() {
       <MemoryRouter initialEntries={["/settings/floor-plans/floor-b2/edit?siteId=site-2"]}>
         <FloorTransitionControl />
         <Routes>
-          <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute userRole="admin" />} />
+          <Route path="/settings/floor-plans/:floorId/edit" element={<FloorEditorRoute capabilities={manageCapabilities} />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -496,8 +503,8 @@ describe("FloorEditorRoute", () => {
     expect(screen.queryByRole("heading", { name: "B2 맵 편집" })).not.toBeInTheDocument();
   });
 
-  it("blocks a viewer's direct edit URL before loading editor state", async () => {
-    renderRoute("viewer");
+  it("blocks a direct edit URL without manage capability before loading editor state", async () => {
+    renderRoute("admin", "/settings/floor-plans/floor-b2/edit?siteId=site-2", readCapabilities);
 
     expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "B2 맵 편집" })).not.toBeInTheDocument();

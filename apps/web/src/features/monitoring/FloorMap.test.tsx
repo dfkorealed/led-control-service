@@ -197,6 +197,12 @@ describe("FloorMap", () => {
     );
 
     const legend = screen.getByRole("list", { name: "조명 상태 범례" });
+    const map = screen.getByRole("region", { name: "층 도면" });
+    const panHint = screen.getByText("드래그 또는 스크롤로 이동");
+    expect(map.querySelector(".floor-map-label")).not.toBeInTheDocument();
+    expect(legend.parentElement).toBe(map);
+    expect(panHint.parentElement).toBe(map);
+    expect(legend.compareDocumentPosition(panHint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const legendItems = within(legend).getAllByRole("listitem");
     expect(legendItems).toHaveLength(4);
     for (const label of ["정상", "장애", "오프라인", "상태 확인 대기"]) {

@@ -1,9 +1,9 @@
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { readFileSync } from "node:fs";
-import { createRef } from "react";
-import { render, screen, within } from "@testing-library/react";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Button, FeedbackState, MetricCard, PageHeader, ProgressSteps, SidePanel, StatusBadge } from ".";
+import { createRef, useState } from "react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { Button, FeedbackState, MetricCard, ModalDialog, PageHeader, ProgressSteps, SidePanel, StatusBadge } from ".";
 import type { StatusTone } from ".";
 
 const styles = readFileSync("src/styles.css", "utf8");
@@ -17,6 +17,7 @@ describe("Calm Operations UI primitives", () => {
   });
 
   afterAll(() => stylesheet.remove());
+  afterEach(cleanup);
 
   it("keeps button semantics while exposing variant and loading state", () => {
     render(<Button variant="primary" isLoading>저장</Button>);
@@ -203,7 +204,60 @@ describe("Calm Operations UI primitives", () => {
     expect(mobileStyles).toMatch(/\.control-screen \.ui-page-actions\s*\{[^}]*width:\s*100%;/s);
     expect(mobileStyles).toMatch(/\.control-screen \.ui-page-actions \.ui-button\s*\{[^}]*justify-content:\s*center;[^}]*width:\s*100%;/s);
   });
+
+  it("provides modal semantics, traps focus and restores the trigger after Escape", async () => {
+    render(<ModalHarness />);
+
+    const trigger = screen.getByRole("button", { name: "대화상자 열기" });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "사용자 수정" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-labelledby");
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "처음" }));
+
+    const closeButton = within(dialog).getByRole("button", { name: "닫기" });
+    closeButton.focus();
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "마지막" }));
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("closes on the backdrop but keeps pending work safe from backdrop, Escape and close controls", () => {
+    const { rerender } = render(<ModalHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "대화상자 열기" }));
+    fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    rerender(<ModalHarness pending />);
+    fireEvent.click(screen.getByRole("button", { name: "대화상자 열기" }));
+    const dialog = screen.getByRole("dialog", { name: "사용자 수정" });
+    expect(within(dialog).getByRole("button", { name: "닫기" })).toBeDisabled();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
+    expect(dialog).toBeInTheDocument();
+  });
 });
+
+function ModalHarness({ pending = false }: { pending?: boolean }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" onClick={() => setOpen(true)}>대화상자 열기</button>
+    {open ? (
+      <ModalDialog title="사용자 수정" onClose={() => setOpen(false)} isPending={pending}>
+        <button type="button">처음</button>
+        <button type="button">마지막</button>
+      </ModalDialog>
+    ) : null}
+  </>;
+}
 
 function contrastRatio(foreground: string, background: string) {
   const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));

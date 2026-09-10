@@ -18,6 +18,7 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { RegistrationModule } from "./registration/registration.module";
 import { SetupModule } from "./setup/setup.module";
 import { SitesModule } from "./sites/sites.module";
+import { SiteUsersModule } from "./site-users/site-users.module";
 import { TestDataModule } from "./test-data/test-data.module";
 
 @Module({
@@ -29,6 +30,7 @@ import { TestDataModule } from "./test-data/test-data.module";
     AuditModule,
     AutomationModule,
     SitesModule,
+    SiteUsersModule,
     CommandsModule,
     EnergyModule,
     RegistrationModule,

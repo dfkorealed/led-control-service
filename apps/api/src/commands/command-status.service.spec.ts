@@ -4,7 +4,7 @@ import { CommandStatusService } from "./command-status.service";
 
 describe("CommandStatusService", () => {
   const user: AuthenticatedUser = {
-    id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", status: "active"
+    id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", mustChangePassword: false, status: "active"
   };
 
   it("returns gateway dispatches and fixture results within the user's organization", async () => {
