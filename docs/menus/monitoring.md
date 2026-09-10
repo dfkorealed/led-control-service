@@ -95,6 +95,7 @@
 - `GET /sites/:siteId/floors/:floorId/map-snapshot`은 현장 read 권한을 확인한 뒤 지도 revision, 선택적 도면 배경과 visible 도형만 반환한다. fixture runtime 상태는 기존 cursor API가 담당하며, 배경이 없으면 `1200x800` 기본 canvas를 사용한다.
 - 층 지도 snapshot은 도형을 `zIndex`, 생성 시각 순으로 고정해 반환한다. 존재하지 않거나 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - 웹은 `useFloorMapSnapshot`으로 선택 층의 저장된 배경과 도형을 10분마다 조회하고, 설정 에디터와 공통 `FloorMapObjectNode` geometry를 사용해 Konva scene에 읽기 전용으로 합성한다. 조명 marker는 같은 좌표계의 접근 가능한 HTML 버튼으로 표시한다.
+- 설정 맵의 atomic save 또는 revision 복구가 성공하면 응답의 `mapRevision`, 배경·맵 크기·도형을 동일 현장/층의 `floor-map` 캐시에 즉시 기록하고, 조명 이름·위치·크기·정격 전력·배치 상태는 기존 `floor-fixtures` 페이지의 밝기·장애·Gateway 운영 상태를 보존한 채 병합한다. 이후 scoped query invalidation과 서버 재조회도 유지하므로 설정에서 모니터링으로 이동할 때 이전 10분 캐시를 먼저 표시하지 않는다.
 - 모니터링 수동 새로고침은 dashboard metadata, 현재 층 fixture 페이지와 현재 층 map snapshot 세 요청을 함께 갱신하며 일부 실패 시 기존 성공 데이터를 유지한다.
 - 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가하며, 수동 갱신 실패 상태는 해당 floor ID에 귀속되어 다른 층으로 전환할 때 누수되지 않는다.
 - deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색, 등록 조명이 존재하는 상태의 active 세션 자동 복구와 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
@@ -170,6 +171,8 @@
 - `apps/web/src/api/test-data.ts`
 - `apps/web/src/features/monitoring/FloorMap.tsx`
 - `apps/web/src/features/floor-map/FloorScene.tsx`
+- `apps/web/src/features/floor-editor/FloorEditorView.tsx`
+- `apps/web/src/features/floor-editor/editor-monitoring-cache.ts`
 - `apps/web/src/features/registration/RegistrationPanel.tsx`
 - `apps/web/src/features/registration/RegistrationDialog.tsx`
 - `apps/web/src/features/registration/RegistrationPanel.test.tsx`
@@ -181,6 +184,7 @@
 - `apps/web/e2e/layout-assertions.spec.ts`
 - `apps/web/e2e/support/layout-assertions.ts`
 - `apps/web/e2e/support/settings-api.ts`
+- `apps/web/e2e/settings-floor-editor.spec.ts`
 - `apps/web/playwright.config.ts`
 - `apps/web/src/api/queries.ts`
 - `apps/api/src/sites/sites.controller.ts`

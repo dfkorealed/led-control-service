@@ -20,6 +20,7 @@ import { loadEditorDraft, removeEditorDraft, saveEditorDraft, editorDraftGenerat
 import { authMeQueryKey } from "../../api/principal-cache";
 import { FloorEditorCanvas } from "./FloorEditorCanvas";
 import { buildEditorChanges } from "./editor-diff";
+import { synchronizeMonitoringCaches } from "./editor-monitoring-cache";
 import { useFloorEditorStore } from "./editor-store";
 import type { EditorTool, FloorEditorState } from "./editor-types";
 
@@ -399,6 +400,7 @@ function formatRevisionTime(createdAt: string) {
 
 async function invalidateEditorQueries(queryClient: ReturnType<typeof useQueryClient>, state: FloorEditorState) {
   queryClient.setQueryData(["floor-editor", state.floor.siteId, state.floor.id], state);
+  synchronizeMonitoringCaches(queryClient, state);
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["dashboard", state.floor.siteId] }),
     queryClient.invalidateQueries({ queryKey: ["floor-fixtures", state.floor.siteId, state.floor.id] }),

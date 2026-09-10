@@ -604,6 +604,79 @@ describe("FloorEditorView", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["floor-editor-revisions", "site-2", "floor-b2"] });
   });
 
+  it("writes the saved editor map into inactive monitoring caches before a refetch", async () => {
+    const saved: FloorEditorState = {
+      ...structuredClone(editorState),
+      floor: {
+        ...structuredClone(editorState.floor),
+        mapRevision: 8,
+        floorPlan: {
+          ...structuredClone(editorState.floor.floorPlan!),
+          width: 1600,
+          height: 900,
+          version: 2
+        }
+      },
+      fixtures: [{
+        ...structuredClone(editorState.fixtures[0]),
+        name: "B2-L01 변경",
+        x: 240,
+        y: 260,
+        size: 36,
+        ratedWatt: 45,
+        placementStatus: "placed"
+      }],
+      objects: [{
+        ...structuredClone(editorState.objects[0]),
+        text: "변경된 출입구",
+        x: 420,
+        strokeColor: "#2563eb"
+      }]
+    };
+    floorEditorApi.saveFloorEditorState.mockResolvedValueOnce(saved);
+    const { queryClient } = renderEditor();
+    queryClient.setQueryData(["floor-map", "site-2", "floor-b2"], {
+      floorId: "floor-b2",
+      revision: 7,
+      width: 1200,
+      height: 800,
+      floorPlan: editorState.floor.floorPlan,
+      objects: editorState.objects
+    });
+    queryClient.setQueryData(["floor-fixtures", "site-2", "floor-b2"], {
+      pages: [{
+        items: [{
+          ...structuredClone(editorState.fixtures[0]),
+          size: 20,
+          health: null,
+          rssi: null,
+          hopCount: null,
+          commandSuccessRate: null,
+          lastSeenAt: null,
+          gateway: null,
+          controllable: false,
+          controlBlockReason: "fixture_unmapped"
+        }],
+        nextCursor: null
+      }],
+      pageParams: [""]
+    });
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 240 }));
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
+    expect(queryClient.getQueryData(["floor-map", "site-2", "floor-b2"])).toMatchObject({
+      revision: 8,
+      width: 1600,
+      height: 900,
+      objects: [{ text: "변경된 출입구", x: 420, strokeColor: "#2563eb" }]
+    });
+    expect(queryClient.getQueryData(["floor-fixtures", "site-2", "floor-b2"])).toMatchObject({
+      pages: [{ items: [{ name: "B2-L01 변경", x: 240, y: 260, size: 36, ratedWatt: 45 }] }]
+    });
+  });
+
   it("paginates revisions and displays actor time and total changes", async () => {
     floorEditorApi.listFloorEditorRevisions
       .mockResolvedValueOnce({
@@ -677,7 +750,22 @@ describe("FloorEditorView", () => {
       }],
       nextCursor: null
     });
-    renderEditor();
+    const restored = {
+      ...structuredClone(editorState),
+      floor: { ...structuredClone(editorState.floor), mapRevision: 8 },
+      objects: [{ ...structuredClone(editorState.objects[0]), text: "복구된 출입구" }],
+      skippedFixtureIds: []
+    };
+    floorEditorApi.restoreFloorEditorRevision.mockResolvedValueOnce(restored);
+    const { queryClient } = renderEditor();
+    queryClient.setQueryData(["floor-map", "site-2", "floor-b2"], {
+      floorId: "floor-b2",
+      revision: 7,
+      width: 1200,
+      height: 800,
+      floorPlan: editorState.floor.floorPlan,
+      objects: editorState.objects
+    });
 
     fireEvent.click(await screen.findByRole("button", { name: "리비전 5 복구" }));
 
@@ -688,6 +776,10 @@ describe("FloorEditorView", () => {
     ));
     expect(useFloorEditorStore.getState()).toMatchObject({ isDirty: false });
     expect(useFloorEditorStore.getState().initialState?.floor.mapRevision).toBe(8);
+    expect(queryClient.getQueryData(["floor-map", "site-2", "floor-b2"])).toMatchObject({
+      revision: 8,
+      objects: [{ text: "복구된 출입구" }]
+    });
   });
 
   it("reports fixtures skipped by a revision restore", async () => {

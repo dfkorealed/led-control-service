@@ -42,6 +42,7 @@ export interface Dashboard {
       name: string;
       x: number;
       y: number;
+      size?: number;
       placementStatus?: "unplaced" | "placed";
       positionVerifiedAt?: string | null;
       ratedWatt: number;

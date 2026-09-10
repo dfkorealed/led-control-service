@@ -70,8 +70,8 @@ interface SavePayload {
   leaseFence?: number;
   floorPlan?: unknown;
   fixtureUpdates: Array<{ id: string; x?: number; y?: number; size?: number; name?: string; ratedWatt?: number }>;
-  objectCreates: unknown[];
-  objectUpdates: unknown[];
+  objectCreates: Array<Omit<SettingsMapObject, "id">>;
+  objectUpdates: Array<{ id: string; patch: Partial<Omit<SettingsMapObject, "id">> }>;
   objectDeletes: string[];
 }
 
@@ -180,6 +180,7 @@ export async function installSettingsApiRoutes(
     floorPlan: mapDimensions ? { ...floor.floorPlan, ...mapDimensions } : floor.floorPlan
   };
   const fixtureState = structuredClone(fixtures);
+  const mapObjectState = structuredClone(mapObjects);
   let commandStage: FixtureCommandStage = "accepted";
   let commandResults: FixtureCommandResult[] = [];
   let commandCreated = false;
@@ -313,7 +314,7 @@ export async function installSettingsApiRoutes(
         remainingMapSnapshotFailures -= 1;
         return route.fulfill({ status: 503, json: { message: "map snapshot unavailable" } });
       }
-      const snapshot = mapSnapshot(runtimeFloor, mapRevision, mapObjects);
+      const snapshot = mapSnapshot(runtimeFloor, mapRevision, mapObjectState);
       // Legacy settings specs retain short IDs; UUID-based contract specs use the same strict parser as the API.
       const response = idOverrides ? floorMapSnapshotSchema.parse(snapshot) : snapshot;
       return route.fulfill({ json: response });
@@ -363,7 +364,7 @@ export async function installSettingsApiRoutes(
       return route.fulfill({ json: commandStatus(commandId, commandStage, commandResults, ids.gatewayId) });
     }
     if (path === `/floors/${ids.floorId}/editor-state`) {
-      if (request.method() === "GET") return route.fulfill({ json: editorState(runtimeFloor, fixtureState, mapRevision) });
+      if (request.method() === "GET") return route.fulfill({ json: editorState(runtimeFloor, fixtureState, mapObjectState, mapRevision) });
       if (request.method() === "PUT") {
         if (role === "viewer") return route.fulfill({ status: 403, json: { message: "insufficient role" } });
         const payload = request.postDataJSON() as SavePayload;
@@ -377,8 +378,9 @@ export async function installSettingsApiRoutes(
         state.atomicSavePayloads.push(payload);
         state.fixtureUpdates.push(...payload.fixtureUpdates);
         applyFixtureUpdates(fixtureState, payload.fixtureUpdates);
+        applyMapObjectUpdates(mapObjectState, payload);
         mapRevision += 1;
-        return route.fulfill({ json: editorState(runtimeFloor, fixtureState, mapRevision) });
+        return route.fulfill({ json: editorState(runtimeFloor, fixtureState, mapObjectState, mapRevision) });
       }
     }
     if (path === `/floors/${ids.floorId}/editor-lease`) {
@@ -559,11 +561,16 @@ function dispatchStatusForStage(stage: FixtureCommandStage) {
   return stage;
 }
 
-function editorState(runtimeFloor: typeof floor, fixtures: SettingsFixture[], mapRevision: number) {
+function editorState(
+  runtimeFloor: typeof floor,
+  fixtures: SettingsFixture[],
+  objects: SettingsMapObject[],
+  mapRevision: number
+) {
   return {
     floor: { ...runtimeFloor, mapRevision },
     fixtures,
-    objects: []
+    objects: objects.map((object) => ({ ...object, floorId: runtimeFloor.id, text: object.text ?? "" }))
   };
 }
 
@@ -594,5 +601,19 @@ function applyFixtureUpdates(fixtures: SettingsFixture[], updates: SavePayload["
   for (const update of updates) {
     const fixture = fixtures.find((candidate) => candidate.id === update.id);
     if (fixture) Object.assign(fixture, update);
+  }
+}
+
+function applyMapObjectUpdates(objects: SettingsMapObject[], payload: SavePayload) {
+  const deleted = new Set(payload.objectDeletes);
+  const retained = objects.filter((object) => !deleted.has(object.id));
+  objects.splice(0, objects.length, ...retained);
+
+  for (const update of payload.objectUpdates) {
+    const object = objects.find((candidate) => candidate.id === update.id);
+    if (object) Object.assign(object, structuredClone(update.patch));
+  }
+  for (const [index, object] of payload.objectCreates.entries()) {
+    objects.push({ ...structuredClone(object), id: `saved-map-object-${payload.expectedRevision + 1}-${index + 1}` } as SettingsMapObject);
   }
 }
