@@ -78,8 +78,14 @@ export class SiteAccessService {
         }
       }
     });
-    if (!site || !this.hasControlMembership(site.organizationId, site.memberships[0], user)) {
+    const capabilities = site
+      ? this.persistedViewerCapabilities(site.organizationId, site.memberships[0], user)
+      : { read: false, control: false };
+    if (!site || !capabilities.read) {
       throw new NotFoundException("site not found");
+    }
+    if (!capabilities.control) {
+      throw new ForbiddenException("site capability denied");
     }
     return site;
   }
@@ -234,7 +240,7 @@ export class SiteAccessService {
     return user.role === "viewer" && user.status === "active" && user.organizationType === "customer";
   }
 
-  private hasControlMembership(
+  private persistedViewerCapabilities(
     siteOrganizationId: string,
     membership: {
       accessLevel: "read" | "control";
@@ -242,13 +248,14 @@ export class SiteAccessService {
     } | undefined,
     user: AuthenticatedUser
   ) {
-    return membership?.accessLevel === "control"
+    const read = Boolean(membership
       && membership.user.id === user.id
       && membership.user.organizationId === user.organizationId
       && membership.user.organizationId === siteOrganizationId
       && membership.user.role === "viewer"
       && membership.user.status === "active"
-      && membership.user.organization.type === "customer";
+      && membership.user.organization.type === "customer");
+    return { read, control: read && membership?.accessLevel === "control" };
   }
 
   private isAssignedActiveCustomerAdmin(

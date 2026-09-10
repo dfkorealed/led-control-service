@@ -185,6 +185,67 @@ describe("SiteAccessService", () => {
     expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
   });
 
+  it("forbids a persisted read member from controlling inside a transaction", async () => {
+    const service = await createService();
+    const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: customerSiteId }]),
+      site: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: customerSiteId,
+          organizationId: viewer.organizationId,
+          memberships: [{
+            accessLevel: "read",
+            user: {
+              id: viewer.id,
+              organizationId: viewer.organizationId,
+              role: "viewer",
+              status: "active",
+              organization: { type: "customer" }
+            }
+          }]
+        })
+      }
+    };
+
+    await expect(service.assertControlInTransaction(transaction as never, viewer, customerSiteId))
+      .rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("does not reread membership or user state until the site lock resolves", async () => {
+    const service = await createService();
+    let resolveLock!: (rows: { id: string }[]) => void;
+    const lock = new Promise<{ id: string }[]>((resolve) => {
+      resolveLock = resolve;
+    });
+    const transaction = {
+      $queryRaw: jest.fn().mockReturnValue(lock),
+      site: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: customerSiteId,
+          organizationId: viewer.organizationId,
+          memberships: [{
+            accessLevel: "control",
+            user: {
+              id: viewer.id,
+              organizationId: viewer.organizationId,
+              role: "viewer",
+              status: "active",
+              organization: { type: "customer" }
+            }
+          }]
+        })
+      }
+    };
+
+    const assertion = service.assertControlInTransaction(transaction as never, viewer, customerSiteId);
+    await Promise.resolve();
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(transaction.site.findUnique).not.toHaveBeenCalled();
+
+    resolveLock([{ id: customerSiteId }]);
+    await expect(assertion).resolves.toMatchObject({ id: customerSiteId });
+  });
+
   it("hides a cross-customer membership from a viewer even when the membership row exists", async () => {
     site.memberships = [{ id: "cross-customer-membership", accessLevel: "read" }];
     const service = await createService();
