@@ -44,6 +44,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     loginId: "floor_editor_operator",
     name: "Floor editor operator",
     role: "admin" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   const viewer = {
@@ -53,6 +54,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     loginId: "floor_editor_viewer",
     name: "Floor editor viewer",
     role: "viewer" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   const otherAdmin = {
@@ -62,6 +64,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     loginId: "floor_editor_other_admin",
     name: "Other admin",
     role: "admin" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   const unassignedOperator = {

@@ -54,7 +54,7 @@ describeWithDatabase("gateway PKI PostgreSQL E2E", () => {
       organizationId: organization.id, adminUserId: user.id, name: "E2E site", address: "E2E", tariffKwhRate: 100
     } });
     const claimed = await onboarding.claimGateway(
-      { id: user.id, organizationId: organization.id, organizationType: "customer", loginId: "fixture_user", name: user.name, role: "admin", status: "active" },
+      { id: user.id, organizationId: organization.id, organizationType: "customer", loginId: "fixture_user", name: user.name, role: "admin", mustChangePassword: user.mustChangePassword, status: "active" },
       { siteId: site.id, serialNumber: "GW-E2E-001", claimCode: issued.claimCode, name: "E2E gateway" }
     );
 

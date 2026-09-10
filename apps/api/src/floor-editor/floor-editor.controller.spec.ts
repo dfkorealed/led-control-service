@@ -9,6 +9,7 @@ describe("FloorEditorController", () => {
     loginId: "fixture_user",
     name: "Operator",
     role: "operator",
+    mustChangePassword: false,
     status: "active"
   } as const;
 

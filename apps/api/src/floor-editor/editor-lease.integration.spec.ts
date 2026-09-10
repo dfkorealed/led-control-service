@@ -28,6 +28,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     loginId: "lease_operator_a",
     name: "Lease Operator A",
     role: "operator" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   const operatorB = {
@@ -37,6 +38,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     loginId: "lease_operator_b",
     name: "Lease Operator B",
     role: "operator" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
 

@@ -188,7 +188,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(other.sessionToken) } })).resolves.toMatchObject({ revokedAt: expect.any(Date) });
     await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(current.sessionToken) } })).resolves.toMatchObject({ revokedAt: null });
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { actorId: userId, action: "auth.password_changed" }, orderBy: { createdAt: "desc" } });
-    expect(JSON.stringify(audit.metadata)).not.toMatch(/password|old password|new password/i);
+    expect(audit.metadata).toEqual({ revokedSessionCount: 1 });
   });
 
   it("leaves passwords, sessions, and audit logs untouched when the current password is wrong", async () => {
@@ -229,7 +229,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     } as unknown as AuditService);
     await expect(failingService.changePassword(current.user, current.sessionToken, {
       currentPassword: fixture.oldPassword, newPassword: "replacement rollback password", newPasswordConfirmation: "replacement rollback password"
-    })).rejects.toThrow("audit unavailable");
+    })).rejects.toMatchObject({ status: 500, response: { code: "PASSWORD_CHANGE_FAILED" } });
     await expect(prisma.user.findUniqueOrThrow({ where: { id: fixture.userId } }))
       .resolves.toMatchObject({ passwordHash: before.passwordHash, mustChangePassword: true });
     for (const token of [current.sessionToken, other.sessionToken]) {

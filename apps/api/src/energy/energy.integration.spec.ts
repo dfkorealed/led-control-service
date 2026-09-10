@@ -20,6 +20,7 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
     loginId: "fixture_user",
     name: "Energy Admin",
     role: "admin" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   let prisma: PrismaService;

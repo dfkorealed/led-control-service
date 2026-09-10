@@ -68,7 +68,7 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
     } });
     const site = await prisma.site.create({ data: { organizationId: org.id, adminUserId: user.id, name: "테스트 현장" } });
     siteId = site.id;
-    admin = { id: user.id, organizationId: org.id, organizationType: "customer", role: "admin", status: "active", loginId: user.loginId, name: user.name };
+    admin = { id: user.id, organizationId: org.id, organizationType: "customer", role: "admin", mustChangePassword: user.mustChangePassword, status: "active", loginId: user.loginId, name: user.name };
   });
 
   afterEach(() => { jest.restoreAllMocks(); });
@@ -128,7 +128,7 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       expect(await prisma.user.findUnique({ where: { loginId: signupBody.loginId } })).toBeNull();
     } else {
       expect(storedInvitation.acceptedAt).not.toBeNull();
-      expect(JSON.stringify(results[1].value)).not.toMatch(/password|scrypt\$/i);
+      expectNoPasswordSecrets(results[1].value, [signupBody.password]);
     }
   });
 
@@ -286,10 +286,30 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       const created = await request("POST", path, adminCookie, body);
       expect(created.status).toBe(201);
       const member = await created.json() as SiteUserJson;
-      expect(JSON.stringify(member)).not.toMatch(/password|scrypt\$/i);
+      const stored = await prisma.user.findUniqueOrThrow({ where: { id: member.id } });
+      expectNoPasswordSecrets(member, [body.temporaryPassword, stored.passwordHash!]);
       const memberCookie = await cookie(member.id);
-      for (const [method, suffix] of [["GET", ""], ["POST", ""], ["PATCH", `/${member.id}`], ["POST", `/${member.id}/reset-password`], ["DELETE", `/${member.id}`]]) {
+      const endpoints = [["GET", ""], ["POST", ""], ["PATCH", `/${member.id}`], ["POST", `/${member.id}/reset-password`], ["DELETE", `/${member.id}`]];
+      for (const [method, suffix] of endpoints) {
         expect((await request(method, path + suffix)).status).toBe(401);
+        const denied = await request(method, path + suffix, memberCookie, method === "GET" ? undefined : {});
+        expect(denied.status).toBe(403);
+        expect(await denied.json()).toMatchObject({ code: "PASSWORD_CHANGE_REQUIRED" });
+      }
+      const beforeChange = await request("GET", "/auth/me", memberCookie);
+      expect(beforeChange.status).toBe(200);
+      expect(await beforeChange.json()).toMatchObject({ user: { mustChangePassword: true } });
+      const changed = await request("POST", "/auth/change-password", memberCookie, {
+        currentPassword: body.temporaryPassword, newPassword: "Personal-password-123", newPasswordConfirmation: "Personal-password-123"
+      });
+      expect(changed.status).toBe(201);
+      const changedBody = await changed.json();
+      expect(changedBody).toMatchObject({ ok: true, user: { id: member.id, mustChangePassword: false } });
+      expectNoPasswordSecrets(changedBody, [body.temporaryPassword, "Personal-password-123", stored.passwordHash!]);
+      // Updating the password also updates User.updatedAt; use the current version
+      // for the later optimistic-lock edit rather than the creation response.
+      member.updatedAt = (await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).updatedAt.toISOString();
+      for (const [method, suffix] of endpoints) {
         const denied = await request(method, path + suffix, memberCookie, method === "GET" ? undefined : {});
         expect(denied.status).toBe(403);
         expect(await denied.json()).toMatchObject({ code: "SITE_CAPABILITY_DENIED" });
@@ -324,3 +344,15 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
 });
 
 interface SiteUserJson { id: string; loginId: string; updatedAt: string }
+
+function expectNoPasswordSecrets(value: unknown, secrets: string[]) {
+  if (typeof value === "string") {
+    for (const secret of secrets) expect(value).not.toContain(secret);
+    expect(value).not.toMatch(/^scrypt\$/);
+  } else if (value && typeof value === "object") {
+    for (const [key, child] of Object.entries(value)) {
+      expect(["password", "passwordhash", "temporarypassword", "currentpassword", "newpassword"]).not.toContain(key.toLowerCase());
+      expectNoPasswordSecrets(child, secrets);
+    }
+  }
+}

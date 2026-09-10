@@ -16,6 +16,7 @@ describe("OperatorSiteAdminsService", () => {
     loginId: "operator_1",
     name: "Operator",
     role: "operator",
+    mustChangePassword: false,
     status: "active"
   };
 

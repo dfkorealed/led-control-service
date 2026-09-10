@@ -23,6 +23,7 @@ describe("SitesService", () => {
     loginId: "fixture_user",
     name: "Admin",
     role: "admin",
+    mustChangePassword: false,
     status: "active"
   };
 

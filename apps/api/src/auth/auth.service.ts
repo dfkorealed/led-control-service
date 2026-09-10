@@ -174,55 +174,64 @@ export class AuthService {
   }
 
   async changePassword(user: Pick<StoredUser, "id" | "organizationId">, currentSessionToken: string, input: ChangePasswordInput) {
-    const currentPassword = this.requiredPassword(input?.currentPassword, "currentPassword");
-    const newPassword = this.requiredPassword(input?.newPassword, "newPassword");
-    const newPasswordConfirmation = this.requiredPassword(input?.newPasswordConfirmation, "newPasswordConfirmation");
-    if (newPassword !== newPasswordConfirmation) {
-      throw new BadRequestException("New password confirmation does not match");
-    }
-    if (newPassword === currentPassword) {
-      throw new BadRequestException("New password must differ from current password");
-    }
-
-    const currentTokenHash = this.hashToken(currentSessionToken);
-    const updatedUser = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
-      if (!await lockUserForPasswordMutation(tx, user.id)) {
-        throw new UnauthorizedException("Current password is incorrect");
+    try {
+      const currentPassword = this.requiredPassword(input?.currentPassword, "currentPassword");
+      const newPassword = this.requiredPassword(input?.newPassword, "newPassword");
+      const newPasswordConfirmation = this.requiredPassword(input?.newPasswordConfirmation, "newPasswordConfirmation");
+      if (newPassword !== newPasswordConfirmation) {
+        throw new BadRequestException("New password confirmation does not match");
       }
-      const storedUser = await tx.user.findUnique({ where: { id: user.id } });
-      // A reset/disable can revoke the guard-validated session while this request
-      // waits for the User lock. Never clear the flag using that stale session.
-      const session = await tx.session.findUnique({ where: { tokenHash: currentTokenHash } });
-      if (!storedUser || storedUser.status !== "active" || storedUser.organizationId !== user.organizationId
-        || !session || session.userId !== user.id || session.revokedAt || session.expiresAt <= new Date()) {
-        throw new UnauthorizedException("Authentication required");
-      }
-      if (!storedUser?.passwordHash || !(await this.passwords.verify(currentPassword, storedUser.passwordHash))) {
-        throw new UnauthorizedException("Current password is incorrect");
+      if (newPassword === currentPassword) {
+        throw new BadRequestException("New password must differ from current password");
       }
 
-      const passwordHash = await this.passwords.hash(newPassword);
-      const updated = await tx.user.update({
-        where: { id: user.id }, data: { passwordHash, mustChangePassword: false },
-        include: { organization: { select: { type: true } } }
+      const currentTokenHash = this.hashToken(currentSessionToken);
+      const updatedUser = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+        if (!await lockUserForPasswordMutation(tx, user.id)) {
+          throw new UnauthorizedException("Current password is incorrect");
+        }
+        const storedUser = await tx.user.findUnique({ where: { id: user.id } });
+        // A reset/disable can revoke the guard-validated session while this request
+        // waits for the User lock. Never clear the flag using that stale session.
+        const session = await tx.session.findUnique({ where: { tokenHash: currentTokenHash } });
+        if (!storedUser || storedUser.status !== "active" || storedUser.organizationId !== user.organizationId
+          || !session || session.userId !== user.id || session.revokedAt || session.expiresAt <= new Date()) {
+          throw new UnauthorizedException("Authentication required");
+        }
+        if (!storedUser?.passwordHash || !(await this.passwords.verify(currentPassword, storedUser.passwordHash))) {
+          throw new UnauthorizedException("Current password is incorrect");
+        }
+
+        const passwordHash = await this.passwords.hash(newPassword);
+        const updated = await tx.user.update({
+          where: { id: user.id }, data: { passwordHash, mustChangePassword: false },
+          include: { organization: { select: { type: true } } }
+        });
+        const revokedSessions = await tx.session.updateMany({
+          where: { userId: user.id, revokedAt: null, tokenHash: { not: currentTokenHash } },
+          data: { revokedAt: new Date() }
+        });
+        await this.audit.record({
+          transaction: tx,
+          organizationId: user.organizationId,
+          actorId: user.id,
+          action: "auth.password_changed",
+          targetType: "User",
+          targetId: user.id,
+          outcome: "success",
+          metadata: { revokedSessionCount: revokedSessions.count }
+        });
+        return this.publicUser(updated);
       });
-      const revokedSessions = await tx.session.updateMany({
-        where: { userId: user.id, revokedAt: null, tokenHash: { not: currentTokenHash } },
-        data: { revokedAt: new Date() }
+      return { ok: true, user: updatedUser };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      // Prisma mutation errors may embed password hashes in their message/meta.
+      // Do not forward or log the original error, including its cause or stack.
+      throw new InternalServerErrorException({
+        code: "PASSWORD_CHANGE_FAILED", message: "Password change could not be completed"
       });
-      await this.audit.record({
-        transaction: tx,
-        organizationId: user.organizationId,
-        actorId: user.id,
-        action: "auth.password_changed",
-        targetType: "User",
-        targetId: user.id,
-        outcome: "success",
-        metadata: { revokedSessionCount: revokedSessions.count }
-      });
-      return this.publicUser(updated);
-    });
-    return { ok: true, user: updatedUser };
+    }
   }
 
   async getUserBySessionToken(sessionToken: string) {

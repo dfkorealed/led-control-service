@@ -15,11 +15,11 @@ describe("SetupService", () => {
   };
   const admin: AuthenticatedUser = {
     id: "admin-1", organizationId: "customer-organization-1", organizationType: "customer",
-    loginId: "admin_1", name: "Admin", role: "admin", status: "active"
+    loginId: "admin_1", name: "Admin", role: "admin", mustChangePassword: false, status: "active"
   };
   const operator: AuthenticatedUser = {
     id: "operator-1", organizationId: "provider-organization-1", organizationType: "service_provider",
-    loginId: "operator_1", name: "Operator", role: "operator", status: "active"
+    loginId: "operator_1", name: "Operator", role: "operator", mustChangePassword: false, status: "active"
   };
   const initialSiteInput = {
     siteId: "site-1", address: "서울시 강남구", tariffKwhRate: 160,

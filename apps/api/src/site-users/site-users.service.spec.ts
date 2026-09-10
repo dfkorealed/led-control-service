@@ -16,7 +16,7 @@ import { SiteUsersService } from "./site-users.service";
 
 const admin: AuthenticatedUser = {
   id: "admin", organizationId: "org", organizationType: "customer",
-  loginId: "admin", name: "관리자", role: "admin", status: "active"
+  loginId: "admin", name: "관리자", role: "admin", mustChangePassword: false, status: "active"
 };
 const now = new Date("2026-09-10T00:00:00.000Z");
 const input = { name: "사용자", loginId: " Member.One ", temporaryPassword: "Temp-pass-123", accessLevel: "control", status: "active" };

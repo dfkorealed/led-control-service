@@ -1,8 +1,13 @@
-import { BadRequestException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, HttpException, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
+import { Prisma } from "@prisma/client";
+import { inspect } from "node:util";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthService } from "./auth.service";
 import { PasswordService } from "./password.service";
+import { AuthController } from "./auth.controller";
+import { SessionAuthGuard } from "./session-auth.guard";
 
 function createAuthService(
   prisma: PrismaService,
@@ -478,3 +483,84 @@ function createLoginPrisma(storedUser: Record<string, unknown> | null = null) {
   };
   return { prisma, transaction };
 }
+
+describe("AuthService password mutation error boundary", () => {
+  const secretHash = "scrypt$synthetic-sensitive-password-hash";
+  const user = {
+    id: "viewer-1", organizationId: "org-1", organizationType: "customer" as const,
+    loginId: "viewer_01", name: "Viewer", role: "viewer" as const, status: "active" as const,
+    mustChangePassword: true
+  };
+  const input = { currentPassword: "temporary password", newPassword: "replacement password", newPasswordConfirmation: "replacement password" };
+  const safeError = { code: "PASSWORD_CHANGE_FAILED", message: "Password change could not be completed" };
+
+  function fixture() {
+    const stored = { ...user, organization: { type: "customer" }, passwordHash: secretHash };
+    const session = { userId: user.id, revokedAt: null, expiresAt: new Date(Date.now() + 60_000), user: stored };
+    const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1), $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
+      user: { findUnique: jest.fn().mockResolvedValue(stored), update: jest.fn().mockResolvedValue({ ...stored, mustChangePassword: false }) },
+      session: { findUnique: jest.fn().mockResolvedValue(session), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    const passwords = { verify: jest.fn().mockResolvedValue(true), hash: jest.fn().mockResolvedValue(secretHash) };
+    const audit = { record: jest.fn() };
+    const prisma = { session: { findUnique: jest.fn().mockResolvedValue(session) },
+      $transaction: jest.fn(async (callback: (tx: unknown) => unknown) => callback(tx)) };
+    const service = createAuthService(prisma as unknown as PrismaService, passwords as unknown as PasswordService, audit as unknown as AuditService);
+    return { tx, passwords, audit, prisma, service };
+  }
+
+  it.each(["lock", "verify", "hash", "update", "revoke", "audit", "commit"])("sanitizes unexpected %s errors without the original message/cause/hash", async (stage) => {
+    const f = fixture();
+    const error = stage === "update"
+      ? new Prisma.PrismaClientKnownRequestError(`mutation failed passwordHash=${secretHash}`, { code: "P2002", clientVersion: "test", meta: { passwordHash: secretHash } })
+      : new Error(`runtime failed ${secretHash}`, { cause: new Error(secretHash) });
+    const boundary = {
+      lock: f.tx.$executeRaw, verify: f.passwords.verify, hash: f.passwords.hash,
+      update: f.tx.user.update, revoke: f.tx.session.updateMany, audit: f.audit.record, commit: f.prisma.$transaction
+    }[stage]!;
+    boundary.mockRejectedValueOnce(error);
+    const caught: unknown = await f.service.changePassword(user, "token", input).catch((reason: unknown) => reason);
+    expect(caught).toBeInstanceOf(InternalServerErrorException);
+    expect((caught as HttpException).getResponse()).toEqual(safeError);
+    expect((caught as Error).cause).toBeUndefined();
+    expect(inspect(caught, { showHidden: true, depth: 8 })).not.toContain(secretHash);
+  });
+
+  it.each([
+    { status: 400, error: new BadRequestException("Invalid password") },
+    { status: 401, error: new UnauthorizedException("Current password is incorrect") }
+  ])("preserves the expected HTTP $status exception", async ({ error: expected }) => {
+    const f = fixture();
+    f.passwords.hash.mockRejectedValueOnce(expected);
+    await expect(f.service.changePassword(user, "token", input)).rejects.toBe(expected);
+  });
+
+  it("never exposes an unexpected Prisma hash through the HTTP response or Nest/console logs", async () => {
+    const f = fixture();
+    f.tx.user.update.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError(`update passwordHash: ${secretHash}`, {
+      code: "P2002", clientVersion: "test", meta: { passwordHash: secretHash }
+    }));
+    const logger = { log: jest.fn(), error: jest.fn(), warn: jest.fn(), debug: jest.fn(), verbose: jest.fn(), fatal: jest.fn() };
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    const consoleWarn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    const module = await Test.createTestingModule({ controllers: [AuthController],
+      providers: [SessionAuthGuard, { provide: AuthService, useValue: f.service }] }).compile();
+    const app = module.createNestApplication({ logger });
+    try {
+      await app.listen(0, "127.0.0.1");
+      const response = await fetch(`${await app.getUrl()}/auth/change-password`, {
+        method: "POST", headers: { "Content-Type": "application/json", Cookie: "led_session=token" }, body: JSON.stringify(input)
+      });
+      const body = await response.json();
+      const logs = [...Object.values(logger).flatMap((method) => method.mock.calls), ...consoleError.mock.calls, ...consoleWarn.mock.calls];
+      expect(response.status).toBe(500);
+      expect(inspect({ body, logs }, { showHidden: true, depth: 10 })).not.toContain(secretHash);
+      expect(body).toEqual(safeError);
+    } finally {
+      await app.close();
+      consoleError.mockRestore();
+      consoleWarn.mockRestore();
+    }
+  });
+});

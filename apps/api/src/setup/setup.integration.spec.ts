@@ -186,7 +186,7 @@ function userData(organizationId: string, loginId: string, role: "operator" | "a
 }
 
 function toAuthenticatedUser(
-  user: Pick<AuthenticatedUser, "id" | "organizationId" | "loginId" | "name" | "role" | "status">,
+  user: Pick<AuthenticatedUser, "id" | "organizationId" | "loginId" | "name" | "role" | "status" | "mustChangePassword">,
   organizationType: "service_provider" | "customer"
 ): AuthenticatedUser {
   return { ...user, organizationType };
