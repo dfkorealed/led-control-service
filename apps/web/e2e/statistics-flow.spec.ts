@@ -111,6 +111,29 @@ test("retries a summary failure and keeps cards during a series failure", async 
   await expect(page.getByRole("img", { name: /일별 상태 기반 추정/ })).toBeVisible();
 });
 
+test("packs the statistics report from the top in a tall viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1400 });
+  await page.goto("/statistics");
+  await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
+
+  const layout = await page.locator(".statistics-screen").evaluate((screen) => {
+    const heading = screen.querySelector("h2");
+    const report = screen.querySelector(".statistics-report-layout");
+    if (!heading || !report) throw new Error("statistics report layout is incomplete");
+
+    const screenRect = screen.getBoundingClientRect();
+    const headingRect = heading.getBoundingClientRect();
+    const reportRect = report.getBoundingClientRect();
+    return {
+      headingOffset: headingRect.top - screenRect.top,
+      remainingSpace: screenRect.bottom - reportRect.bottom
+    };
+  });
+
+  expect(layout.headingOffset).toBeLessThanOrEqual(1);
+  expect(layout.remainingSpace).toBeGreaterThan(100);
+});
+
 for (const viewport of [
   { width: 1440, height: 900 },
   { width: 1024, height: 768 },

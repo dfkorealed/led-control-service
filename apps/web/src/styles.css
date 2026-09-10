@@ -3391,6 +3391,7 @@ button.group-card {
 }
 
 .statistics-screen {
+  align-content: start;
   gap: var(--space-5);
 }
 
