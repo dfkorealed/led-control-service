@@ -38,8 +38,12 @@ test("비활성화된 일반 유저의 현재 세션과 재로그인을 실제 A
   await operator.getByRole("button", { name: "생성", exact: true }).click();
   const createSiteResponse = await createSiteResponsePromise;
   expect(createSiteResponse.status()).toBe(201);
-  const createdSite = await createSiteResponse.json() as { siteId: string };
-  expect(JSON.stringify(createdSite)).not.toMatch(/password/i);
+  const createdSiteResponseBody = await createSiteResponse.json() as unknown;
+  const createdSiteHasPasswordKey = containsPasswordKey(createdSiteResponseBody);
+  const createdSiteContainsKnownSecret = containsKnownSecret(createdSiteResponseBody, [lab.admin.password]);
+  expect(createdSiteHasPasswordKey).toBe(false);
+  expect(createdSiteContainsKnownSecret).toBe(false);
+  const createdSite = createdSiteResponseBody as { siteId: string };
   await operator.close();
 
   const admin = await browser.newPage();
@@ -66,9 +70,13 @@ test("비활성화된 일반 유저의 현재 세션과 재로그인을 실제 A
   await createUserDialog.getByRole("button", { name: "사용자 생성" }).click();
   const createUserResponse = await createUserResponsePromise;
   expect(createUserResponse.status()).toBe(201);
-  const createdUser = await createUserResponse.json() as { id: string; loginId: string };
+  const createdUserResponseBody = await createUserResponse.json() as unknown;
+  const createdUserHasPasswordKey = containsPasswordKey(createdUserResponseBody);
+  const createdUserContainsKnownSecret = containsKnownSecret(createdUserResponseBody, [temporaryPassword]);
+  expect(createdUserHasPasswordKey).toBe(false);
+  expect(createdUserContainsKnownSecret).toBe(false);
+  const createdUser = createdUserResponseBody as { id: string; loginId: string };
   expect(createdUser.loginId).toBe(loginId);
-  expect(JSON.stringify(createdUser)).not.toMatch(/password/i);
   await expect(admin.getByText(loginId)).toBeVisible();
 
   const user = await browser.newPage();
@@ -140,4 +148,21 @@ function runtimePassword(label: string) {
 
 function containsAnySecret(values: string[], secrets: string[]) {
   return values.some((value) => secrets.some((secret) => value.includes(secret)));
+}
+
+function containsPasswordKey(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsPasswordKey);
+  if (typeof value !== "object" || value === null) return false;
+
+  return Object.entries(value).some(([key, nestedValue]) =>
+    /password/i.test(key) || containsPasswordKey(nestedValue)
+  );
+}
+
+function containsKnownSecret(value: unknown, secrets: string[]): boolean {
+  if (typeof value === "string") return secrets.some((secret) => value.includes(secret));
+  if (Array.isArray(value)) return value.some((item) => containsKnownSecret(item, secrets));
+  if (typeof value !== "object" || value === null) return false;
+
+  return Object.values(value).some((nestedValue) => containsKnownSecret(nestedValue, secrets));
 }

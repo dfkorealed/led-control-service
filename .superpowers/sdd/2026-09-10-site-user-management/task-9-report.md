@@ -16,20 +16,20 @@
 | --- | --- |
 | mock E2E 최초 RED | 1 실패: 중복 로그인 아이디를 201 처리하는 느슨한 mock POST 확인 |
 | PATCH body mutation RED | 1 실패: `expectedUpdatedAt` 오타를 exact-key assertion이 검출, 즉시 원복 |
-| mock Chromium E2E | 4 통과, 6.6초 |
-| `SiteUsersView` 단위 테스트 | 1 file, 18 통과 |
+| mock Chromium E2E | 4 통과, 6.8초 |
+| 관련 Web 단위 테스트 | 2 file, 21 통과 |
 | 관련 API 단위 테스트 | 4 suite, 81 통과 |
-| RealBackendLab Chromium E2E | 1 통과, 26.4초 |
+| RealBackendLab Chromium E2E | 1 통과, 26.8초 |
 | Web typecheck | 통과 |
 | `git diff --check` | 통과 |
 
-- 기준 커밋 `2811916`에서 기록한 전체 API 910개·Web 589개 및 Web/API build 결과는 이번 리뷰 수정에서 재실행한 수치로 간주하지 않는다. 이번 변경은 위 관련 단위·E2E와 Web typecheck로 다시 검증했다.
+- 기준 커밋 `2811916`에서 기록한 전체 API 910개·Web 589개 및 Web/API build 결과는 이번 리뷰 수정에서 재실행한 수치로 간주하지 않는다. round 2에서는 mock/real E2E와 `site-users.test.ts`, `SiteUsersView.test.tsx`의 21개 단위 테스트를 다시 검증했다. 관련 API 81개와 Web typecheck는 round 1 기록이며 round 2 재실행 수치가 아니다.
 - Real E2E 조정 과정에서 실제 route와 다른 응답 matcher가 15초 timeout으로 한 번 실패했다. 실제 `PATCH /api/sites/:siteId/users/:userId`로 수정했고, 최종 실행에서는 응답 body와 상태 cell을 각각 검증했다.
 
 ## 보안 확인
 
 - 생성·비밀번호 변경 API 응답에 password 계열 field나 입력 평문이 없는지 검사한다.
-- mock E2E는 API 응답, DOM/input 값과 local/session storage를 검사한다. React Query query/mutation cache의 password·삭제 PII 부재는 `SiteUsersView.test.tsx` 단위 테스트가 검증하며, Playwright가 애플리케이션 내부 QueryClient를 직접 검사한다고 주장하지 않는다.
+- mock E2E는 API 응답, DOM/input 값과 local/session storage를 검사한다. 비밀번호 없는 React Query query cache는 `apps/web/src/api/site-users.test.ts`, mutation cache 비움과 삭제 PII 제거는 `apps/web/src/features/settings/users/SiteUsersView.test.tsx`가 검증한다. Playwright가 애플리케이션 내부 QueryClient를 직접 검사한다고 주장하지 않는다.
 - 두 E2E 파일은 trace와 screenshot을 비활성화했다. 최종 test artifact에는 `.last-run.json`만 있고 zip/png는 없다.
 - 테스트 비밀번호는 실행 시 UUID로 만들며, 비밀번호 부재 assertion은 해시 또는 최종 boolean만 matcher에 전달해 실패 메시지에도 평문을 넣지 않는다.
 
@@ -45,7 +45,8 @@
 
 - mock E2E는 `d126e02 test: cover site user management journey`로 먼저 분리 커밋했다.
 - Real E2E, 충돌 복구, 실행 script와 문서/보고서는 `2811916 test: cover site user management journey`에 반영했다.
-- 리뷰 수정은 `fix(test): harden site user e2e coverage` 단일 커밋으로 분리한다.
+- 리뷰 수정 round 1은 `744d712 fix(test): harden site user e2e coverage`로 분리했다.
+- 리뷰 수정 round 2는 `fix(test): prevent credential output in e2e failures`로 분리한다.
 - 기존 맵 작업이 있던 `apps/web/package.json`, `docs/lesson_leared.md`, `docs/menus/monitoring.md`, `docs/menus/settings.md`, `docs/project-status.md`는 Task 9 신규 hunk만 stage한다.
 - 그 밖의 기존 수정·삭제·신규 파일은 되돌리거나 stage하지 않는다.
 
