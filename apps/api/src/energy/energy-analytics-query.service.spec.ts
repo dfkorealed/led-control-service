@@ -109,7 +109,8 @@ const user: AuthenticatedUser = {
   loginId: "fixture_user",
   name: "Admin",
   role: "admin",
-  status: "active"
+  status: "active",
+  mustChangePassword: false
 };
 
 const SITE_ID = "00000000-0000-4000-8000-000000000003";

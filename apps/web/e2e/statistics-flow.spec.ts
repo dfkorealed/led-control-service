@@ -17,7 +17,8 @@ test.beforeEach(async ({ page }) => {
         loginId: "demo_admin",
         name: "Customer Admin",
         role: "admin",
-        status: "active"
+        status: "active",
+        mustChangePassword: false
       }
     })
   }));
@@ -275,6 +276,7 @@ async function expectStatisticsSpacing(page: Page, compact: boolean) {
 
 function dashboard(siteId: string) {
   return {
+    capabilities: { read: true, control: true, manage: true, commission: true },
     site: {
       id: siteId,
       name: "테스트 주차장",
