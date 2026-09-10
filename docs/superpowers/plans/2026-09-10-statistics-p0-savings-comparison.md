@@ -114,7 +114,7 @@ export const energyComparisonPointSchema = z.object({
 - Consumes: `CalendarDate`, `localDateAt`, `startOfLocalDate`, `addCalendarDays`, `addCalendarMonths`.
 - Produces: `parseComparisonPreset(raw: string): EnergyComparisonPreset`, `comparisonRanges(preset, generatedAt, timeZone): ComparisonRanges`.
 
-- [ ] **Step 1: 완료 날짜와 leap-day 실패 테스트를 작성한다.**
+- [x] **Step 1: 완료 날짜와 leap-day 실패 테스트를 작성한다.**
 
 ```ts
 expect(comparisonRanges("current_month", new Date("2026-09-10T03:00:00Z"), "Asia/Seoul")).toMatchObject({
@@ -125,21 +125,21 @@ expect(comparisonRanges("current_month", new Date("2026-09-10T03:00:00Z"), "Asia
 });
 ```
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-comparison-query.spec.ts`
   - Expected: FAIL because comparison range helpers do not exist.
 
-- [ ] **Step 3: preset별 범위를 구현한다.**
+- [x] **Step 3: preset별 범위를 구현한다.**
   - `last_7_days`: 어제 포함 7일과 직전 7일, 전년 동일 월일.
   - `current_month`: 월 전체 display, 어제까지 completed, 이전 월 같은 일수, 이전 연도 같은 월일.
   - `current_year`: 1월 1일부터 어제까지 completed, 직전 연도 동일 길이와 전년 동일 월일을 같은 범위로 반환하되 UI에는 `previous_year` 한 개만 표시한다.
   - 비교 연도에 2월 29일이 없으면 2월 마지막 날로 cap한다.
 
-- [ ] **Step 4: timezone 경계를 검증한다.**
+- [x] **Step 4: timezone 경계를 검증한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-comparison-query.spec.ts src/energy/energy-periods.spec.ts`
   - Expected: Asia/Seoul month boundary and DST reference cases PASS.
 
-- [ ] **Step 5: 커밋한다.**
+- [x] **Step 5: 커밋한다.**
   - Run: `git add apps/api/src/energy/energy-comparison-query.ts apps/api/src/energy/energy-comparison-query.spec.ts apps/api/src/energy/energy-periods.ts apps/api/src/energy/energy-periods.spec.ts && git commit -m "feat(api): define energy comparison periods"`
 
 ### Task 3: Analytics read model과 comparison endpoint

@@ -1,7 +1,10 @@
 import {
+  daysInCalendarMonth,
+  endOfCalendarMonth,
   listDaysInclusive,
   listMonthsInclusive,
   parseCalendarDate,
+  replaceCalendarYear,
   startOfLocalDate
 } from "./energy-periods";
 
@@ -26,5 +29,11 @@ describe("energy period boundaries", () => {
     expect(() => listDaysInclusive(parseCalendarDate("2026-08-03"), parseCalendarDate("2026-08-01"))).toThrow(
       "from must not be after to"
     );
+  });
+
+  it("returns month ends and clamps leap days when replacing a year", () => {
+    expect(daysInCalendarMonth({ year: 2024, month: 2, day: 1 })).toBe(29);
+    expect(endOfCalendarMonth({ year: 2026, month: 9, day: 10 })).toEqual({ year: 2026, month: 9, day: 30 });
+    expect(replaceCalendarYear({ year: 2024, month: 2, day: 29 }, 2023)).toEqual({ year: 2023, month: 2, day: 28 });
   });
 });
