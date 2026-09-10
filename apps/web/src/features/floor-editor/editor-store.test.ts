@@ -34,6 +34,26 @@ describe("floor editor store baseline", () => {
     expect(useFloorEditorStore.getState().state!.fixtures[0]).toMatchObject({ x: 20, y: 30 });
   });
 
+  it("snaps only object position after movement without changing its size", () => {
+    useFloorEditorStore.getState().initialize({
+      ...initialState,
+      floor: {
+        ...initialState.floor,
+        floorPlan: { sourceType: "none", imageUrl: "", originalFileUrl: null, renderedImageUrl: null, width: 1200, height: 800, gridSize: 20, version: 1 }
+      },
+      objects: [{
+        id: "object-1", floorId: "floor-1", type: "rectangle", x: 100, y: 100, width: 96, height: 64, points: null,
+        rotation: 0, strokeColor: "#000000", fillColor: "#ffffff", strokeWidth: 1,
+        text: "", fontSize: null, zIndex: 1, locked: false, visible: true
+      }]
+    });
+    useFloorEditorStore.getState().setSnap(true);
+
+    useFloorEditorStore.getState().updateObject("object-1", { x: 213, y: 177 });
+
+    expect(useFloorEditorStore.getState().state!.objects[0]).toMatchObject({ x: 220, y: 180, width: 96, height: 64 });
+  });
+
   it("stores map-only dimensions and rejects shrinking across existing content", () => {
     expect(useFloorEditorStore.getState().updateMapSettings({ width: 1600, height: 900, gridSize: 20 })).toBeNull();
     expect(useFloorEditorStore.getState().state!.floor.floorPlan).toMatchObject({

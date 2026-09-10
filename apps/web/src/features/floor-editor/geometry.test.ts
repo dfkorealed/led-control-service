@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { clampObjectToMap, clampPoint, createDefaultObject, createObjectFromDrag, moveByDelta, screenToWorld, snapPointToGrid, snapRectToGrid } from "./geometry";
+import {
+  alignRectToGuides,
+  clampObjectToMap,
+  clampPoint,
+  createDefaultObject,
+  createObjectFromDrag,
+  moveByDelta,
+  screenToWorld,
+  snapPointToGrid,
+  snapRectToGrid
+} from "./geometry";
 
 describe("floor editor geometry", () => {
   it("converts screen coordinates into world coordinates using pan and zoom", () => {
@@ -22,6 +32,21 @@ describe("floor editor geometry", () => {
       y: 20,
       width: 80,
       height: 60
+    });
+  });
+
+  it("aligns moving bounds to the nearest map and element guides", () => {
+    expect(alignRectToGuides(
+      { x: 197, y: 147, width: 100, height: 60 },
+      [{ x: 300, y: 100, width: 100, height: 100 }],
+      { width: 1200, height: 800 },
+      5
+    )).toEqual({
+      point: { x: 200, y: 150 },
+      guides: [
+        { orientation: "vertical", position: 300 },
+        { orientation: "horizontal", position: 150 }
+      ]
     });
   });
 

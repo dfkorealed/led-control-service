@@ -226,10 +226,13 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
         const bounds = { width: state.floor.floorPlan?.width ?? 1200, height: state.floor.floorPlan?.height ?? 800 };
         const gridSize = state.floor.floorPlan?.gridSize ?? 10;
         const merged = { x: patch.x ?? object.x, y: patch.y ?? object.y, width: patch.width ?? object.width, height: object.type === "line" ? 0 : patch.height ?? object.height };
+        const isResize = "width" in patch || "height" in patch;
         const snapped = get().snap
-          ? object.type === "line"
-            ? { ...snapRectToGrid({ ...merged, height: gridSize }, gridSize), height: 0 }
-            : snapRectToGrid(merged, gridSize)
+          ? isResize
+            ? object.type === "line"
+              ? { ...snapRectToGrid({ ...merged, height: gridSize }, gridSize), height: 0 }
+              : snapRectToGrid(merged, gridSize)
+            : { ...merged, ...snapPointToGrid(merged, gridSize) }
           : merged;
         const geometry = clampObjectToMap(snapped, bounds);
         normalizedPatch = {

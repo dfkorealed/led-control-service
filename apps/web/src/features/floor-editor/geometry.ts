@@ -12,6 +12,11 @@ export interface Bounds {
 
 export interface MapRect extends Point, Bounds {}
 
+export interface AlignmentGuide {
+  orientation: "vertical" | "horizontal";
+  position: number;
+}
+
 interface Delta {
   dx: number;
   dy: number;
@@ -51,6 +56,56 @@ export function snapRectToGrid(rect: MapRect, gridSize: number): MapRect {
     width: Math.max(gridSize, end.x - start.x),
     height: Math.max(gridSize, end.y - start.y)
   };
+}
+
+export function alignRectToGuides(
+  moving: MapRect,
+  candidates: MapRect[],
+  bounds: Bounds,
+  threshold: number
+): { point: Point; guides: AlignmentGuide[] } {
+  const verticalTargets = [0, bounds.width / 2, bounds.width];
+  const horizontalTargets = [0, bounds.height / 2, bounds.height];
+  for (const candidate of candidates) {
+    verticalTargets.push(candidate.x, candidate.x + candidate.width / 2, candidate.x + candidate.width);
+    horizontalTargets.push(candidate.y, candidate.y + candidate.height / 2, candidate.y + candidate.height);
+  }
+
+  const vertical = nearestAlignment(
+    [moving.x, moving.x + moving.width / 2, moving.x + moving.width],
+    verticalTargets,
+    threshold
+  );
+  const horizontal = nearestAlignment(
+    [moving.y, moving.y + moving.height / 2, moving.y + moving.height],
+    horizontalTargets,
+    threshold
+  );
+
+  return {
+    point: {
+      x: moving.x + (vertical?.offset ?? 0),
+      y: moving.y + (horizontal?.offset ?? 0)
+    },
+    guides: [
+      ...(vertical ? [{ orientation: "vertical" as const, position: vertical.position }] : []),
+      ...(horizontal ? [{ orientation: "horizontal" as const, position: horizontal.position }] : [])
+    ]
+  };
+}
+
+function nearestAlignment(anchors: number[], targets: number[], threshold: number) {
+  let nearest: { offset: number; position: number; distance: number } | undefined;
+  for (const anchor of anchors) {
+    for (const target of targets) {
+      const offset = target - anchor;
+      const distance = Math.abs(offset);
+      if (distance <= threshold && (!nearest || distance < nearest.distance)) {
+        nearest = { offset, position: target, distance };
+      }
+    }
+  }
+  return nearest;
 }
 
 export function clampObjectToMap(rect: MapRect, bounds: Bounds): MapRect {

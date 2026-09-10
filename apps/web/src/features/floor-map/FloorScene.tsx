@@ -114,6 +114,8 @@ export function FloorMapObjectNode({
   preview = false,
   setNodeRef,
   onSelect,
+  onDragStart,
+  onDragMove,
   onChange,
   onTransformEnd
 }: {
@@ -123,6 +125,8 @@ export function FloorMapObjectNode({
   preview?: boolean;
   setNodeRef?: (node: Konva.Node | null) => void;
   onSelect?: () => void;
+  onDragStart?: () => void;
+  onDragMove?: (node: Konva.Node) => void;
   onChange?: (patch: { x?: number; y?: number }) => void;
   onTransformEnd?: (node: Konva.Node) => void;
 }) {
@@ -131,7 +135,11 @@ export function FloorMapObjectNode({
         draggable: true,
         onClick: onSelect,
         onTap: onSelect,
-        onDragStart: onSelect,
+        onDragStart: () => {
+          onSelect?.();
+          onDragStart?.();
+        },
+        onDragMove: (event: Konva.KonvaEventObject<globalThis.DragEvent>) => onDragMove?.(event.target),
         onDragEnd: (event: Konva.KonvaEventObject<globalThis.DragEvent>) => onChange?.({
           x: event.target.x(),
           y: event.target.y()
