@@ -47,7 +47,7 @@ const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 export function createEmptyScheduleForm(timeZone: string, now = new Date()): ScheduleFormValues {
   const today = dateInTimeZone(now.toISOString(), timeZone);
   return {
-    name: "",
+    name: "조명 스케줄",
     activeFromDate: today,
     activeUntilDate: today,
     localStartTime: "18:00",
