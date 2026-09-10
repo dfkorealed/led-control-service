@@ -1,9 +1,10 @@
-import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CircleCheck, CircleX, Clock3, Plus, RefreshCw, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
 import { Button, Card, FeedbackState, MetricCard, PageHeader, StatusBadge } from "../../components/ui";
 import { RegistrationPanel } from "../registration/RegistrationPanel";
+import { RegistrationDialog } from "../registration/RegistrationDialog";
 import { InstallationPending } from "../setup/SetupWizard";
 import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 import { FloorMap } from "./FloorMap";
@@ -44,6 +45,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
+  const registrationTriggerRef = useRef<HTMLButtonElement>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [mapRefreshFailedFloorId, setMapRefreshFailedFloorId] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(dashboardUpdatedAt);
@@ -157,12 +160,18 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   }
 
   return (
-    <section className="screen-grid monitoring-screen">
+    <section className="screen-grid monitoring-screen monitoring-dashboard">
       <PageHeader
         title="운영 현황"
         description={`${floor?.name ?? "층 미등록"} · 10분마다 자동 갱신 · 수동 새로고침 가능`}
         actions={(
           <div className="monitoring-heading-actions">
+            {userRole === "admin" && data.gateways.length > 0 ? (
+              <Button ref={registrationTriggerRef} variant="secondary" onClick={() => setIsRegistrationOpen(true)}>
+                <Plus aria-hidden="true" size={15} />
+                조명 등록
+              </Button>
+            ) : null}
             <div className="monitoring-refresh-actions">
               <Button
                 variant="secondary"
@@ -357,7 +366,13 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
       ) : null}
 
       {userRole === "admin" && data.gateways.length > 0 ? (
-        <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
+        <RegistrationDialog
+          open={isRegistrationOpen}
+          dashboard={data}
+          dashboardQuerySiteId={siteId}
+          returnFocusRef={registrationTriggerRef}
+          onClose={() => setIsRegistrationOpen(false)}
+        />
       ) : null}
     </section>
   );

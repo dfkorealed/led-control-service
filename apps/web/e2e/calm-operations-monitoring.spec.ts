@@ -9,7 +9,14 @@ const ids = {
 } as const;
 
 const fixtures: SettingsFixture[] = [
-  fixture("B2-L001", "online", "reported", 120, 140),
+  {
+    ...fixture("B2-L001-매우-긴-테스트-조명-이름", "online", "reported", 120, 140),
+    gateway: {
+      id: ids.gateway,
+      name: "G".repeat(240),
+      connectionStatus: "online"
+    }
+  },
   fixture("B2-L002", "fault", "reported", 280, 220),
   fixture("B2-L003", "offline", "reported", 440, 300),
   fixture("B2-L004", "offline", "provisioning_waiting_state", 600, 380)
@@ -69,6 +76,10 @@ for (const viewport of viewports) {
     await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
     await expectMetricGrid(page, viewport.columns, viewport.rows);
     await expectNoHorizontalOverflow(page);
+
+    if (viewport.width > 1120) {
+      await expectDesktopMonitoringUsesInternalScroll(page);
+    }
 
     const mapBox = await page.locator(".map-panel").boundingBox();
     const detailBox = await page.locator(".detail-panel").boundingBox();
@@ -135,6 +146,23 @@ test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 
   }
 });
 
+test("등록된 조명이 있는 관리자는 요청할 때만 조명 등록 UI를 연다", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installMonitoringFixture(page);
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  await expect(page.getByRole("heading", { name: "조명 등록" })).toHaveCount(0);
+  await page.getByRole("button", { name: "조명 등록" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "조명 등록" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "조명 등록", level: 2 })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "조명 등록" })).toBeFocused();
+});
+
 test("부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지한다", async ({ page }) => {
   const api = await installMonitoringFixture(page);
   await page.goto(`/monitoring?siteId=${ids.site}`);
@@ -159,4 +187,22 @@ async function expectMetricGrid(page: Page, columns: number, rows: number) {
   const uniqueRows = new Set(boxes.map((box) => box.y));
   expect(uniqueColumns.size).toBe(columns);
   expect(uniqueRows.size).toBe(rows);
+}
+
+async function expectDesktopMonitoringUsesInternalScroll(page: Page) {
+  const metrics = await page.evaluate(() => {
+    const detail = document.querySelector<HTMLElement>(".detail-panel");
+    if (!detail) throw new Error("상세 패널을 찾을 수 없습니다.");
+    return {
+      documentClientHeight: document.documentElement.clientHeight,
+      documentScrollHeight: document.documentElement.scrollHeight,
+      detailClientHeight: detail.clientHeight,
+      detailScrollHeight: detail.scrollHeight,
+      detailOverflowY: getComputedStyle(detail).overflowY
+    };
+  });
+
+  expect(metrics.documentScrollHeight).toBeLessThanOrEqual(metrics.documentClientHeight + 1);
+  expect(metrics.detailOverflowY).toBe("auto");
+  expect(metrics.detailScrollHeight).toBeGreaterThan(metrics.detailClientHeight);
 }

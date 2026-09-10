@@ -229,10 +229,27 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText("Health 수신")).toBeInTheDocument();
   });
 
-  it("이미 등록된 조명이 있어도 관리자는 진행 중 등록 세션에 접근할 수 있다", () => {
+  it("이미 등록된 조명이 있으면 등록 UI를 숨기고 관리자 요청 시에만 연다", () => {
     render(<MonitoringView siteId="site-1" userRole="admin" />);
 
-    expect(screen.getByRole("region", { name: "조명 등록 패널" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "조명 등록 패널" })).not.toBeInTheDocument();
+
+    const trigger = screen.getByRole("button", { name: "조명 등록" });
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "조명 등록" });
+    expect(within(dialog).getByRole("region", { name: "조명 등록 패널" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "조명 등록" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("조회 사용자는 조명 등록 진입점을 표시하지 않는다", () => {
+    render(<MonitoringView siteId="site-1" userRole="viewer" />);
+
+    expect(screen.queryByRole("button", { name: "조명 등록" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "조명 등록 패널" })).not.toBeInTheDocument();
   });
 
   it("fixture 최초 조회 중에는 조명 0개나 빈 층으로 오표시하지 않는다", () => {

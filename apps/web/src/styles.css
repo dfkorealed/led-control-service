@@ -1059,6 +1059,7 @@ button {
   grid-template-columns: minmax(0, 1fr) 280px;
   gap: 16px;
   align-items: stretch;
+  min-width: 0;
 }
 
 .monitoring-quick-status {
@@ -1406,6 +1407,7 @@ button {
   display: grid;
   align-content: start;
   gap: 16px;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--panel);
@@ -1471,6 +1473,7 @@ button {
 .detail-stack {
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .brightness-card {
@@ -1531,9 +1534,92 @@ button {
 }
 
 .info-list dd {
+  min-width: 0;
   margin: 0;
   color: var(--text);
   font-weight: 900;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.registration-dialog-backdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(23, 32, 51, 0.4);
+  padding: 24px;
+}
+
+.registration-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(100%, 960px);
+  max-height: min(90dvh, 900px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow-popover);
+}
+
+.registration-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 16px 18px;
+}
+
+.registration-dialog-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.registration-dialog-content {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+@media (min-width: 1121px) {
+  .monitoring-dashboard {
+    display: flex;
+    height: calc(100dvh - 116px);
+    min-height: 0;
+    overflow: hidden;
+    flex-direction: column;
+  }
+
+  .monitoring-dashboard .operations-layout {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .monitoring-dashboard .map-panel {
+    display: grid;
+    min-height: 0;
+    overflow: hidden;
+    place-items: center;
+  }
+
+  .monitoring-dashboard .floor-map {
+    width: auto;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+  }
+
+  .monitoring-dashboard .detail-panel {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }
 
 .device-list-panel {
