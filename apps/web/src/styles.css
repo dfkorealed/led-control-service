@@ -3297,7 +3297,7 @@ button.group-card {
 .statistics-chart-panel,
 .statistics-cost-panel {
   display: grid;
-  gap: var(--space-4);
+  gap: 14px;
 }
 
 .chart-panel,
@@ -3309,6 +3309,7 @@ button.group-card {
 
 .statistics-chart-panel,
 .statistics-cost-panel {
+  gap: var(--space-4);
   padding: var(--space-5);
   box-shadow: 0 10px 24px rgba(15, 38, 70, 0.04);
 }
@@ -3391,7 +3392,7 @@ button.group-card {
 }
 
 .statistics-metric .ui-metric-card strong small {
-  margin-left: 5px;
+  margin-left: var(--space-1);
   color: var(--muted);
   font-size: 13px;
 }

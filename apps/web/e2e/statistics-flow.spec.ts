@@ -160,6 +160,17 @@ async function expectStatisticsSpacing(page: Page, compact: boolean) {
   });
   expect(panelPadding).toBe(compact ? "16px" : "24px");
 
+  const chartPanelGap = await page.locator(".statistics-chart-panel").evaluate((element) => {
+    return getComputedStyle(element).gap;
+  });
+  expect(chartPanelGap).toBe("16px");
+
+  const metricCardSpacing = await page.locator(".statistics-metric .ui-metric-card").first().evaluate((element) => {
+    const styles = getComputedStyle(element);
+    return { minHeight: styles.minHeight, paddingBottom: styles.paddingBottom };
+  });
+  expect(metricCardSpacing).toEqual({ minHeight: "0px", paddingBottom: "16px" });
+
   const statusPosition = await page.locator(".statistics-metric .ui-status-badge").first().evaluate((element) => {
     return getComputedStyle(element).position;
   });
