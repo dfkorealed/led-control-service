@@ -37,27 +37,27 @@
 - Produces: nullable `Command.requestedBy`, nullable `ManualOverride.requestedById`, cascading `Session.user`
 - Preserves: `Command.id`와 `ManualOverride.commandId`의 1:1 관계
 
-- [ ] **Step 1: migration 통합 테스트를 작성한다.**
+- [x] **Step 1: migration 통합 테스트를 작성한다.**
 
   기존 membership의 `accessLevel = read` backfill, 사용자 삭제 후 Session과 membership 삭제, Command와 ManualOverride의 요청자 `NULL` 보존을 실제 PostgreSQL schema에서 검증한다.
 
-- [ ] **Step 2: migration 테스트가 신규 column과 삭제 정책 부재로 실패하는지 확인한다.**
+- [x] **Step 2: migration 테스트가 신규 column과 삭제 정책 부재로 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/api exec jest src/prisma/site-user-access-migration.integration.spec.ts --runInBand`
 
-- [ ] **Step 3: Prisma schema와 SQL migration을 구현한다.**
+- [x] **Step 3: Prisma schema와 SQL migration을 구현한다.**
 
   `SiteAccessLevel`, 두 신규 필드, `onDelete: SetNull/Cascade`를 추가한다. `ManualOverride.command`는 `commandId -> Command.id` 관계로 단순화하고 더 이상 필요한 없는 `[id, siteId, requestedBy]`와 `[commandId, siteId, requestedById]` unique 계약을 제거한다.
 
-- [ ] **Step 4: Prisma client를 생성하고 migration 테스트를 통과시킨다.**
+- [x] **Step 4: Prisma client를 생성하고 migration 테스트를 통과시킨다.**
 
   Run: `pnpm --filter @led-control/api prisma:generate`
 
   Run: `pnpm --filter @led-control/api exec jest src/prisma/site-user-access-migration.integration.spec.ts --runInBand`
 
-- [ ] **Step 5: DB 문서를 현재 schema와 삭제 정책으로 갱신한다.**
+- [x] **Step 5: DB 문서를 현재 schema와 삭제 정책으로 갱신한다.**
 
-- [ ] **Step 6: Task 1 변경만 커밋한다.**
+- [x] **Step 6: Task 1 변경만 커밋한다.**
 
   Commit: `feat(api): add site user access schema`
 
@@ -396,4 +396,3 @@
 - [ ] **Step 10: Task 9 변경만 커밋한다.**
 
   Commit: `test: cover site user management journey`
-
