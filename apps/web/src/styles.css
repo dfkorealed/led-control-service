@@ -2348,6 +2348,280 @@ button {
   cursor: pointer;
 }
 
+.automation-quick-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  overflow: hidden;
+}
+
+.automation-dialog-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.automation-quick-badge {
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.automation-quick-form {
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 14px;
+}
+
+.automation-quick-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+
+.automation-quick-section legend,
+.automation-quick-section h3 {
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.automation-preset-group {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.automation-preset-group .automation-preset {
+  justify-content: center;
+  min-width: 0;
+  min-height: 40px;
+}
+
+.automation-preset-group .automation-preset.active,
+.automation-preset-group .automation-preset[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.automation-time-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.automation-time-row > svg {
+  margin-top: 20px;
+  color: var(--muted);
+}
+
+.automation-inline-note {
+  margin: 0;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.automation-selection-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.automation-selection-card.empty {
+  border-style: dashed;
+  background: #f8fafc;
+}
+
+.automation-selection-card.invalid {
+  border-color: #ef4444;
+}
+
+.automation-selection-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.automation-selection-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.automation-selection-copy strong,
+.automation-selection-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-selection-description {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.automation-selection-error {
+  grid-column: 2 / -1;
+}
+
+.automation-brightness-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 86px auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.automation-brightness-row > input[type="range"] {
+  align-self: center;
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.automation-brightness-row > span {
+  padding-bottom: 10px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.automation-advanced {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.automation-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  padding: 10px 12px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+  text-align: left;
+}
+
+.automation-advanced-content {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: 14px;
+}
+
+.automation-advanced-content .schedule-name-field {
+  padding: 0;
+}
+
+.automation-summary-bar {
+  overflow: hidden;
+  min-height: 46px;
+  margin-top: 12px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  padding: 13px 14px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-event-flow {
+  gap: 8px;
+}
+
+.automation-flow-arrow {
+  justify-self: center;
+  color: var(--primary);
+}
+
+.automation-custom-hold {
+  margin-top: 2px;
+}
+
+.automation-picker-view {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1 1 auto;
+  gap: 14px;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 16px;
+}
+
+.automation-picker-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.automation-picker-heading h3,
+.automation-picker-heading p {
+  margin: 0;
+}
+
+.automation-picker-heading h3 {
+  font-size: 16px;
+}
+
+.automation-picker-heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.automation-picker-fieldset {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.automation-picker-fieldset > .control-target-picker {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.automation-picker-view .control-target-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
 .settings-workspace {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
@@ -4885,6 +5159,61 @@ button.group-card {
     min-height: 100vh;
     border-radius: 0;
     padding: 16px;
+  }
+
+  .automation-quick-dialog {
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .automation-quick-form,
+  .automation-picker-view {
+    overflow-y: auto;
+  }
+
+  .automation-preset-group {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .automation-preset-group .automation-preset,
+  .automation-selection-card > .ui-button,
+  .automation-brightness-row > input[type="range"] {
+    min-height: 44px;
+  }
+
+  .automation-time-row,
+  .automation-brightness-row {
+    grid-template-columns: 1fr;
+  }
+
+  .automation-time-row > svg,
+  .automation-brightness-row > span {
+    display: none;
+  }
+
+  .automation-selection-card {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .automation-selection-card > .ui-button {
+    grid-column: 1 / -1;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .automation-selection-error {
+    grid-column: 1 / -1;
+  }
+
+  .automation-picker-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .automation-picker-heading .ui-button {
+    justify-content: center;
+    width: 100%;
   }
 
   .schedule-dialog-header {
