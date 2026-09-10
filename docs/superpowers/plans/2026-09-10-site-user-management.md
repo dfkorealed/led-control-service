@@ -318,23 +318,23 @@
 - Consumes: `AuthUser.mustChangePassword`, 확장된 `changePassword` 응답
 - Produces: 일반 shell보다 우선하는 강제 비밀번호 변경 화면
 
-- [ ] **Step 1: 강제 변경 사용자가 CustomerShell/OperatorShell 대신 전용 화면을 보는 App 테스트를 작성한다.**
+- [x] **Step 1: 강제 변경 사용자가 CustomerShell/OperatorShell 대신 전용 화면을 보는 App 테스트를 작성한다.**
 
-- [ ] **Step 2: 현재·새·확인 비밀번호 validation, 성공, 실패, 로그아웃 테스트를 작성한다.**
+- [x] **Step 2: 현재·새·확인 비밀번호 validation, 성공, 실패, 로그아웃 테스트를 작성한다.**
 
-- [ ] **Step 3: 일반 사용자에게 설정 비밀번호 변경 route가 열리는 회귀 테스트를 작성한다.**
+- [x] **Step 3: 일반 사용자에게 설정 비밀번호 변경 route가 열리는 회귀 테스트를 작성한다.**
 
-- [ ] **Step 4: 전용 화면이 없어 테스트가 실패하는지 확인한다.**
+- [x] **Step 4: 전용 화면이 없어 테스트가 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/web exec vitest run src/App.test.tsx src/features/auth/RequiredPasswordChangeView.test.tsx src/features/settings/security/PasswordSettingsView.test.tsx`
 
-- [ ] **Step 5: 강제 변경 화면과 인증 cache 원자 갱신을 구현한다.**
+- [x] **Step 5: 강제 변경 화면과 인증 cache 원자 갱신을 구현한다.**
 
   성공 응답의 user로 principal cache를 교체하고 `/monitoring`으로 진입한다. 실패 시 비밀번호 값을 지우고 사용자가 다시 시도할 수 있게 한다.
 
-- [ ] **Step 6: 인증 UI 테스트를 통과시킨다.**
+- [x] **Step 6: 인증 UI 테스트를 통과시킨다.**
 
-- [ ] **Step 7: Task 8 변경만 커밋한다.**
+- [x] **Step 7: Task 8 변경만 커밋한다.**
 
   Commit: `feat(auth): add required password change ui`
 
