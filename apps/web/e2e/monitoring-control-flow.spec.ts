@@ -123,7 +123,8 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     const api = await installBrowserContractFixture(page);
     await page.goto(`/monitoring?siteId=${ids.site}`);
 
-    await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "층 선택" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "운영 현황" })).toHaveCount(0);
     const lastUpdated = page.getByText(/마지막 갱신:/);
     await expect(lastUpdated).toBeVisible();
     const previousLastUpdated = await lastUpdated.textContent();
@@ -188,7 +189,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       registrationRetrySession: retryResponse,
       registrationPollingSessions: [pending, scanning, completed]
     });
-    await page.goto(`/monitoring?siteId=${ids.site}`);
+    await page.goto(`/settings/registration?siteId=${ids.site}`);
     await page.getByLabel("등록 층").selectOption(ids.floor);
     await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
     await page.getByRole("button", { name: "조명 검색 시작" }).click();
@@ -224,7 +225,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       activeRegistrationSessions: [active]
     });
 
-    await page.goto(`/monitoring?siteId=${ids.site}`);
+    await page.goto(`/settings/registration?siteId=${ids.site}`);
 
     await expect(page.getByText(discoveredNode.serialNumber)).toBeVisible();
     await expect(page.getByLabel("등록 층")).toHaveValue(ids.floor);
@@ -247,7 +248,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       activeRegistrationSessions: [active]
     });
 
-    await page.goto(`/monitoring?siteId=${ids.site}`);
+    await page.goto(`/settings/registration?siteId=${ids.site}`);
     await expect(page.getByRole("radio", { name: "일괄 설정" })).toBeVisible();
     await expect(page.getByRole("radio", { name: "개별 설정" })).toBeVisible();
     await page.getByRole("radiogroup", { name: "조명 설정 방식" }).scrollIntoViewIfNeeded();
@@ -280,7 +281,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         includeGateway: false,
         ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
       });
-      await claimPage.goto(`/settings?siteId=${ids.site}`);
+      await claimPage.goto(`/settings/registration?siteId=${ids.site}`);
       await claimPage.getByLabel("제품 시리얼").fill("GW-E2E-NEW");
       await claimPage.getByLabel("일회성 등록 코드").fill("claim-code");
       const claim = claimPage.getByRole("button", { name: "게이트웨이 등록" });
@@ -300,7 +301,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         registrationSession: registrationSession("failed", "Bluetooth 어댑터를 사용할 수 없습니다."),
         registrationRetrySession: registrationSession("scanning", null)
       });
-      await page.goto(`/monitoring?siteId=${ids.site}`);
+      await page.goto(`/settings/registration?siteId=${ids.site}`);
       await page.getByLabel("등록 층").selectOption(ids.floor);
       await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
 
@@ -329,7 +330,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
         registrationSession: completed
       });
-      await registrationPage.goto(`/monitoring?siteId=${ids.site}`);
+      await registrationPage.goto(`/settings/registration?siteId=${ids.site}`);
       await registrationPage.getByLabel("등록 층").selectOption(ids.floor);
       await registrationPage.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
       await registrationPage.getByRole("button", { name: "조명 검색 시작" }).click();
@@ -359,7 +360,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
         registrationSession: reconciliation
       });
-      await reconciliationPage.goto(`/monitoring?siteId=${ids.site}`);
+      await reconciliationPage.goto(`/settings/registration?siteId=${ids.site}`);
       await reconciliationPage.getByLabel("등록 층").selectOption(ids.floor);
       await reconciliationPage.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
       await reconciliationPage.getByRole("button", { name: "조명 검색 시작" }).click();
@@ -379,7 +380,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       registrationSession: registrationSession("failed", "Bluetooth 어댑터를 사용할 수 없습니다."),
       registrationRetrySession: registrationSession("scanning", null)
     });
-    await page.goto(`/monitoring?siteId=${ids.site}`);
+    await page.goto(`/settings/registration?siteId=${ids.site}`);
     await page.getByLabel("등록 층").selectOption(ids.floor);
     await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
     await page.getByRole("button", { name: "조명 검색 시작" }).click();
@@ -631,7 +632,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await installBrowserContractFixture(page);
 
       await page.goto(`/monitoring?siteId=${ids.site}`);
-      await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
+      await expect(page.getByRole("combobox", { name: "층 선택" })).toBeVisible();
       await expectResponsivePanelLayout(page, ".map-panel", ".detail-panel", viewport.width <= 1120);
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
@@ -749,7 +750,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
   test("keyboard focus remains visible on shared controls", async ({ page }) => {
     await installBrowserContractFixture(page);
     await page.goto(`/monitoring?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "층 선택" })).toBeVisible();
 
     const refresh = page.getByRole("button", { name: "새로고침" });
     await refresh.focus();
@@ -760,7 +761,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await page.emulateMedia({ reducedMotion: "reduce" });
     await installBrowserContractFixture(page);
     await page.goto(`/monitoring?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "층 선택" })).toBeVisible();
 
     expect(await page.locator(".fixture-dot").first().evaluate((element) => getComputedStyle(element).transitionDuration))
       .toBe("1e-05s");

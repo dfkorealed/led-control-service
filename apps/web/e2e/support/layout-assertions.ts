@@ -85,7 +85,11 @@ export async function expectMinimumTouchTargetsAfterScrolling(
 
         targetWasInspected = true;
         try {
-          await expectMinimumTouchTargets(page, `[data-e2e-touch-contract="${marker}"]`);
+          await expectMinimumTouchTargets(
+            page,
+            `[data-e2e-touch-contract="${marker}"]`,
+            { excludeSpatialMapMarkers }
+          );
           targetPassed = true;
           break;
         } catch (error) {

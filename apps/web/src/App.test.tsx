@@ -707,7 +707,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
@@ -860,8 +860,9 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "B1" }));
-    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    fireEvent.change(await screen.findByRole("combobox", { name: "층 선택" }), {
+      target: { value: mockDashboard.floors[1].id }
+    });
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
@@ -878,12 +879,12 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
   });
 
-  it("excludes fixtures waiting for initial state from the offline inspection queue", async () => {
+  it("removes the inspection queue while keeping individual fixture selection available", async () => {
     const sourceFixture = mockDashboard.floors[0].fixtures[0];
     const offlineFixture = mockDashboard.floors[0].fixtures[5];
     apiState.dashboard = {
@@ -913,8 +914,10 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    const offlineQueue = await screen.findByRole("button", { name: "오프라인 1대" });
-    fireEvent.click(offlineQueue);
+    expect(screen.queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
+    fireEvent.change(await screen.findByRole("combobox", { name: "상세 조명 선택" }), {
+      target: { value: "fixture-real-offline" }
+    });
 
     expect(await screen.findByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
   });
@@ -936,7 +939,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
@@ -1343,7 +1346,7 @@ describe("App", () => {
     expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
   });
 
-  it("shows commissioning controls to an admin for an installed site without fixtures", async () => {
+  it("routes an admin with no fixtures to the settings-only registration screen", async () => {
     apiState.dashboard = {
       ...mockDashboard,
       summary: { ...mockDashboard.summary, totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
@@ -1357,14 +1360,10 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("heading", { name: "조명 등록" })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("link", { name: "설정" }));
-    await screen.findByRole("heading", { name: "설정 개요" });
+    expect(await screen.findByRole("heading", { name: "등록된 조명이 없습니다" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /조명 등록/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "조명 등록" })).not.toBeInTheDocument();
-
-    fireEvent.focus(screen.getByRole("link", { name: "설정" }));
-    fireEvent.click(screen.getByRole("link", { name: "조명 등록" }));
+    fireEvent.click(screen.getByRole("link", { name: "설정 페이지로 이동" }));
     expect(await screen.findByRole("heading", { name: "조명 등록" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/registration");
   });

@@ -107,6 +107,8 @@ describe("FloorMap", () => {
     expect(screen.getByText("70%")).toBeInTheDocument();
     const fixtureButton = screen.getByRole("button", { name: "B2-L01 정상 70%" });
     expect(fixtureButton).toBeInTheDocument();
+    expect(fixtureButton.closest(".floor-scene")).toHaveAttribute("data-map-objects-interactive", "false");
+    expect(fixtureButton.closest(".floor-scene")).not.toHaveAttribute("data-interactive");
     expect(fixtureButton).toHaveStyle({ "--fixture-left": "8.333333333333332%", "--fixture-top": "15%", "--brightness": "70%" });
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("src", "/demo.svg");
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("draggable", "false");

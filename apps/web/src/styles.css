@@ -965,27 +965,31 @@ button {
   gap: 12px;
 }
 
-.monitoring-screen .ui-page-header {
+.monitoring-toolbar {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
 }
 
-.monitoring-screen .ui-page-header h2 {
-  margin: 0;
-  font-size: 24px;
-  line-height: 1.22;
-}
-
-.monitoring-screen .ui-page-description {
-  margin-top: 6px;
+.monitoring-floor-selector {
+  display: grid;
+  min-width: 160px;
+  gap: 6px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 800;
 }
 
-.monitoring-screen .ui-page-actions {
-  min-width: 0;
+.monitoring-floor-selector select {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0 36px 0 12px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
 }
 
 .monitoring-screen .ui-metric-card {
@@ -3687,14 +3691,6 @@ button.group-card {
   padding: 14px;
 }
 
-.monitoring-heading-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .monitoring-refresh-actions {
   display: flex;
   align-items: center;
@@ -4878,20 +4874,29 @@ button.group-card {
     width: 100%;
   }
 
-  .monitoring-screen .ui-page-actions {
-    width: 100%;
-  }
-
   .monitoring-screen .secondary-button,
   .monitoring-screen .segmented-control button,
+  .monitoring-screen .monitoring-floor-selector select,
   .monitoring-screen .monitoring-fixture-selector select,
   .floor-asset-actions .secondary-button {
     min-height: 44px;
   }
 
-  .monitoring-screen .segmented-control button {
-    min-width: 52px;
-    min-height: 52px;
+  .monitoring-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .monitoring-floor-selector {
+    width: 100%;
+  }
+
+  .monitoring-floor-selector select {
+    width: 100%;
+  }
+
+  .monitoring-refresh-actions {
+    justify-content: flex-start;
   }
 
   .logout-button,

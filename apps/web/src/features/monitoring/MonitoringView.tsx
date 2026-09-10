@@ -1,12 +1,9 @@
-import { CircleCheck, CircleX, Clock3, Plus, RefreshCw, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
-import { Button, FeedbackState, MetricCard, PageHeader, SidePanel, StatusBadge } from "../../components/ui";
-import { RegistrationPanel } from "../registration/RegistrationPanel";
-import { RegistrationDialog } from "../registration/RegistrationDialog";
+import { Button, FeedbackState, MetricCard, SidePanel, StatusBadge } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
-import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 import { FloorMap } from "./FloorMap";
 
 const statusLabels = {
@@ -45,8 +42,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
-  const registrationTriggerRef = useRef<HTMLButtonElement>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [mapRefreshFailedFloorId, setMapRefreshFailedFloorId] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(dashboardUpdatedAt);
@@ -58,12 +53,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   const mapSnapshot = mapQuery.data;
   const mapRefreshFailed = mapRefreshFailedFloorId === floor?.id;
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
-  const firstFaultFixture = fixtures.find((fixture) => fixture.status === "fault");
-  const operationallyOfflineFixtures = fixtures.filter(
-    (fixture) => fixture.status === "offline" && fixture.statusReason !== "provisioning_waiting_state"
-  );
-  const firstOfflineFixture = operationallyOfflineFixtures[0];
-  const offlineCount = operationallyOfflineFixtures.length;
   const floorSummary = useMemo(
     () => ({
       totalFixtures: fixtures.length,
@@ -99,6 +88,14 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   }
 
   if (data.summary.totalFixtures === 0) {
+    if (userRole !== "admin") {
+      return (
+        <section className="screen-grid monitoring-screen">
+          <InstallationPending />
+        </section>
+      );
+    }
+
     return (
       <section className="screen-grid monitoring-screen">
         <div className="screen-heading">
@@ -107,13 +104,12 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <h2>등록된 조명이 없습니다</h2>
           </div>
         </div>
-        {userRole === "admin" ? (
-          data.gateways.length === 0
-            ? <GatewayClaimPanel siteId={data.site.id} />
-            : <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
-        ) : (
-          <InstallationPending />
-        )}
+        <FeedbackState
+          icon={Clock3}
+          title="조명 등록은 설정 페이지에서 진행합니다"
+          description="게이트웨이 연결과 조명 검색·등록은 설정의 조명 등록 메뉴에서 사용할 수 있습니다."
+          action={<Link to={`/settings/registration?siteId=${encodeURIComponent(data.site.id)}`}>설정 페이지로 이동</Link>}
+        />
       </section>
     );
   }
@@ -158,44 +154,32 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
 
   return (
     <section className="screen-grid monitoring-screen monitoring-dashboard">
-      <PageHeader
-        title="운영 현황"
-        description={`${floor?.name ?? "층 미등록"} · 10분마다 자동 갱신 · 수동 새로고침 가능`}
-        actions={(
-          <div className="monitoring-heading-actions">
-            {userRole === "admin" && data.gateways.length > 0 ? (
-              <Button ref={registrationTriggerRef} variant="secondary" onClick={() => setIsRegistrationOpen(true)}>
-                <Plus aria-hidden="true" size={15} />
-                조명 등록
-              </Button>
-            ) : null}
-            <div className="monitoring-refresh-actions">
-              <Button
-                variant="secondary"
-                isLoading={isManualRefreshing}
-                loadingLabel="새로고침 중"
-                onClick={() => void handleRefresh()}
-              >
-                <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
-                새로고침
-              </Button>
-              <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
-              {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
-            </div>
-            <div className="segmented-control" aria-label="층 선택">
-              {data.floors.map((item) => (
-                <button
-                  key={item.id}
-                  className={item.id === floor?.id ? "active" : ""}
-                  onClick={() => handleSelectFloor(item.id)}
-                >
-                  {item.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      />
+      <div className="monitoring-toolbar" role="group" aria-label="모니터링 도구">
+        <label className="monitoring-floor-selector">
+          <span>층 선택</span>
+          <select
+            aria-label="층 선택"
+            value={floor?.id ?? ""}
+            disabled={data.floors.length === 0}
+            onChange={(event) => handleSelectFloor(event.target.value)}
+          >
+            {data.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <div className="monitoring-refresh-actions">
+          <Button
+            variant="secondary"
+            isLoading={isManualRefreshing}
+            loadingLabel="새로고침 중"
+            onClick={() => void handleRefresh()}
+          >
+            <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
+            새로고침
+          </Button>
+          <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
+          {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
+        </div>
+      </div>
 
       <FixtureQueryFeedback
         floorName={floor?.name}
@@ -312,23 +296,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
                       <dd>{formatSuccessRate(selectedFixture.commandSuccessRate)}</dd>
                     </div>
                   </dl>
-                  <div className="device-list-panel">
-                    <h4>점검 큐</h4>
-                    <button className="device-row" disabled={!firstFaultFixture} onClick={() => firstFaultFixture && setSelectedFixtureId(firstFaultFixture.id)}>
-                      <span className="device-state danger" />
-                      <div>
-                        <strong>장애 조명</strong>
-                        <span>{floorSummary.faultFixtures}대</span>
-                      </div>
-                    </button>
-                    <button className="device-row" disabled={!firstOfflineFixture} onClick={() => firstOfflineFixture && setSelectedFixtureId(firstOfflineFixture.id)}>
-                      <span className="device-state muted" />
-                      <div>
-                        <strong>오프라인</strong>
-                        <span>{offlineCount}대</span>
-                      </div>
-                    </button>
-                  </div>
                 </section>
               ) : (
                 <p className="muted-text">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</p>
@@ -338,15 +305,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
         </>
       ) : null}
 
-      {userRole === "admin" && data.gateways.length > 0 ? (
-        <RegistrationDialog
-          open={isRegistrationOpen}
-          dashboard={data}
-          dashboardQuerySiteId={siteId}
-          returnFocusRef={registrationTriggerRef}
-          onClose={() => setIsRegistrationOpen(false)}
-        />
-      ) : null}
     </section>
   );
 }
