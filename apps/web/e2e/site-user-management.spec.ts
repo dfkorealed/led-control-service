@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { expect, test, type Browser, type Page, type Route } from "@playwright/test";
 
 test.describe.configure({ mode: "serial" });
@@ -27,9 +27,9 @@ test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비�
   await expect(page.getByText("사용자를 생성했습니다.", { exact: true })).toBeVisible();
   await expect(page.getByText("user_read")).toBeVisible();
   await expect(page.getByText("1 / 100명")).toBeVisible();
-  expect(api.createdPasswordInputs).toEqual([temporaryPassword]);
-  expect(api.responseBodies.some((body) => body.includes(temporaryPassword))).toBe(false);
-  await expect(page.locator("body")).not.toContainText(temporaryPassword);
+  expect(api.createdPasswordDigests).toEqual([digestSecret(temporaryPassword)]);
+  expect(containsAnySecret(api.responseBodies, [temporaryPassword])).toBe(false);
+  expect(await pageContainsAnySecret(page, [temporaryPassword])).toBe(false);
 
   await page.getByRole("button", { name: "김현수 수정" }).click();
   const editDialog = page.getByRole("dialog", { name: "김현수 사용자 수정" });
@@ -39,6 +39,13 @@ test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비�
   await expect(page.getByText("김현수 수정")).toBeVisible();
   const editedRow = page.getByRole("row").filter({ hasText: "user_read" });
   await expect(editedRow).toContainText("제어");
+  expect(api.updatedRequests[0]).toEqual({
+    name: "김현수 수정",
+    loginId: "user_read",
+    accessLevel: "control",
+    status: "active",
+    expectedUpdatedAt: "2026-09-11T00:00:00.000Z"
+  });
 
   await page.getByRole("button", { name: "김현수 수정 비활성화" }).click();
   await expect(editedRow).toContainText("비활성");
@@ -51,9 +58,9 @@ test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비�
   await resetDialog.getByLabel("임시 비밀번호 확인").fill(resetPassword);
   await resetDialog.getByRole("button", { name: "비밀번호 초기화" }).click();
   await expect(page.getByText("비밀번호를 초기화했습니다. 사용자의 기존 세션이 종료되었습니다.", { exact: true })).toBeVisible();
-  expect(api.resetPasswordInputs).toEqual([resetPassword]);
-  expect(api.responseBodies.some((body) => body.includes(resetPassword))).toBe(false);
-  await expect(page.locator("body")).not.toContainText(resetPassword);
+  expect(api.resetPasswordDigests).toEqual([digestSecret(resetPassword)]);
+  expect(containsAnySecret(api.responseBodies, [resetPassword])).toBe(false);
+  expect(await pageContainsAnySecret(page, [resetPassword])).toBe(false);
 
   await page.getByRole("button", { name: "김현수 수정 영구 삭제" }).click();
   const deleteDialog = page.getByRole("alertdialog", { name: "김현수 수정 사용자 영구 삭제" });
@@ -67,8 +74,7 @@ test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비�
     localStorage: { ...localStorage },
     sessionStorage: { ...sessionStorage }
   }));
-  expect(browserStorage).not.toContain(temporaryPassword);
-  expect(browserStorage).not.toContain(resetPassword);
+  expect(containsAnySecret([browserStorage], [temporaryPassword, resetPassword])).toBe(false);
 });
 
 test("신규 일반 유저가 최초 로그인 비밀번호를 변경한 뒤 모니터링에 진입한다", async ({ page }) => {
@@ -82,6 +88,12 @@ test("신규 일반 유저가 최초 로그인 비밀번호를 변경한 뒤 모
   await login(page, "first_login_user", temporaryPassword);
   await expect(page.getByRole("heading", { name: "비밀번호를 변경해 주세요" })).toBeVisible();
   await expect(page.getByRole("navigation")).toHaveCount(0);
+  const protectedResponse = await page.evaluate(async () => {
+    const response = await fetch("/api/sites", { credentials: "include" });
+    const body = await response.json() as { code?: string };
+    return { status: response.status, code: body.code };
+  });
+  expect(protectedResponse).toEqual({ status: 403, code: "PASSWORD_CHANGE_REQUIRED" });
 
   await page.getByLabel("현재 임시 비밀번호").fill(temporaryPassword);
   await page.getByLabel("새 비밀번호", { exact: true }).fill(permanentPassword);
@@ -91,16 +103,63 @@ test("신규 일반 유저가 최초 로그인 비밀번호를 변경한 뒤 모
   await expect(page).toHaveURL(/\/monitoring$/);
   await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
   expect(api.accounts[0]?.mustChangePassword).toBe(false);
-  expect(api.responseBodies.some((body) => body.includes(temporaryPassword) || body.includes(permanentPassword))).toBe(false);
-  await expect(page.locator("body")).not.toContainText(temporaryPassword);
-  await expect(page.locator("body")).not.toContainText(permanentPassword);
+  expect(containsAnySecret(api.responseBodies, [temporaryPassword, permanentPassword])).toBe(false);
+  expect(await pageContainsAnySecret(page, [temporaryPassword, permanentPassword])).toBe(false);
+});
+
+test("mock API가 중복 로그인 아이디와 100명 상한 초과 생성을 거절한다", async ({ page }) => {
+  const api = await installProductApi(page, "admin");
+  const temporaryPassword = runtimePassword("duplicate");
+
+  await page.goto(`/settings/users?siteId=${siteId}`);
+  await page.getByRole("button", { name: "사용자 추가" }).click();
+  let createDialog = page.getByRole("dialog", { name: "사용자 추가" });
+  await createDialog.getByLabel("이름").fill("기존 사용자");
+  await createDialog.getByLabel("로그인 아이디").fill("duplicate.user");
+  await createDialog.getByLabel("임시 비밀번호").fill(temporaryPassword);
+  await createDialog.getByRole("button", { name: "사용자 생성" }).click();
+  await expect(page.getByText("사용자를 생성했습니다.", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "사용자 추가" }).click();
+  createDialog = page.getByRole("dialog", { name: "사용자 추가" });
+  await createDialog.getByLabel("이름").fill("중복 사용자");
+  await createDialog.getByLabel("로그인 아이디").fill("duplicate.user");
+  await createDialog.getByLabel("임시 비밀번호").fill(runtimePassword("duplicate-retry"));
+  await createDialog.getByRole("button", { name: "사용자 생성" }).click();
+  await expect(createDialog.getByRole("alert")).toHaveText("이미 사용 중인 로그인 아이디입니다.");
+  await createDialog.getByRole("button", { name: "취소" }).click();
+
+  await page.getByRole("button", { name: "사용자 추가" }).click();
+  createDialog = page.getByRole("dialog", { name: "사용자 추가" });
+  await createDialog.getByLabel("이름").fill("제한 초과 사용자");
+  await createDialog.getByLabel("로그인 아이디").fill("limit.user");
+  await createDialog.getByLabel("임시 비밀번호").fill(runtimePassword("limit"));
+  api.users.push(...Array.from({ length: 99 }, (_, index) => ({
+    id: `limit-user-${index}`,
+    name: `제한 사용자 ${index}`,
+    loginId: `limit.user.${index}`,
+    accessLevel: "read" as const,
+    status: "active" as const,
+    lastLoginAt: null,
+    createdAt: "2026-09-11T00:00:00.000Z",
+    updatedAt: "2026-09-11T00:00:00.000Z"
+  })));
+  await createDialog.getByRole("button", { name: "사용자 생성" }).click();
+  await expect(createDialog.getByRole("alert")).toHaveText("현장 사용자는 최대 100명까지 등록할 수 있습니다.");
+  await expect(createDialog.getByRole("button", { name: "사용자 생성" })).toBeDisabled();
 });
 
 test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권한이 일치한다", async ({ browser, baseURL }) => {
   const read = await actorPage(browser, baseURL, "read");
   try {
     await read.page.goto(`/monitoring?siteId=${siteId}`);
-    await expect(read.page.getByRole("link", { name: "제어", exact: true })).toHaveCount(0);
+    await expect(read.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "통계", "설정"]);
+    await read.page.getByRole("link", { name: "설정", exact: true }).hover();
+    await expect(read.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "비밀번호 변경"]);
+    await read.page.goto(`/settings/users?siteId=${siteId}`);
+    await expect(read.page).toHaveURL(new RegExp(`/settings\\?siteId=${siteId}`));
+    await expect(read.page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+    await expect(read.page.getByRole("heading", { name: "유저 관리" })).toHaveCount(0);
     await read.page.goto(`/control?siteId=${siteId}&mode=schedule`);
     await expect(read.page).toHaveURL(new RegExp(`/monitoring\\?siteId=${siteId}`));
     expect(await manualCommandStatus(read.page)).toBe(403);
@@ -110,6 +169,13 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
 
   const control = await actorPage(browser, baseURL, "control");
   try {
+    await control.page.goto(`/monitoring?siteId=${siteId}`);
+    await expect(control.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "제어", "통계", "설정"]);
+    await control.page.getByRole("link", { name: "설정", exact: true }).hover();
+    await expect(control.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "비밀번호 변경"]);
+    await control.page.goto(`/settings/users?siteId=${siteId}`);
+    await expect(control.page).toHaveURL(new RegExp(`/settings\\?siteId=${siteId}`));
+    await expect(control.page.getByRole("heading", { name: "유저 관리" })).toHaveCount(0);
     await control.page.goto(`/control?siteId=${siteId}&mode=schedule`);
     await expect(control.page).toHaveURL(new RegExp(`/control\\?siteId=${siteId}&mode=manual`));
     await expect(control.page.getByRole("tab", { name: "수동 제어" })).toBeVisible();
@@ -130,6 +196,10 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
 
   const admin = await actorPage(browser, baseURL, "admin");
   try {
+    await admin.page.goto(`/monitoring?siteId=${siteId}`);
+    await expect(admin.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "제어", "통계", "설정"]);
+    await admin.page.getByRole("link", { name: "설정", exact: true }).hover();
+    await expect(admin.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "유저 관리", "조명 등록", "맵 관리", "비밀번호 변경"]);
     await admin.page.goto(`/control?siteId=${siteId}&mode=schedule`);
     await expect(admin.page.getByRole("tab", { name: "수동 제어" })).toBeVisible();
     await expect(admin.page.getByRole("tab", { name: "스케줄 제어" })).toBeVisible();
@@ -165,11 +235,24 @@ type SiteUser = {
 interface ProductApiState {
   accounts: Account[];
   users: SiteUser[];
-  createdPasswordInputs: string[];
-  resetPasswordInputs: string[];
+  createdPasswordDigests: string[];
+  resetPasswordDigests: string[];
+  updatedRequests: UpdateSiteUserRequest[];
   responseBodies: string[];
   commandRequests: unknown[];
 }
+
+type CreateSiteUserRequest = {
+  name: string;
+  loginId: string;
+  temporaryPassword: string;
+  accessLevel: "read" | "control";
+  status: "active" | "disabled";
+};
+
+type UpdateSiteUserRequest = Omit<CreateSiteUserRequest, "temporaryPassword"> & {
+  expectedUpdatedAt: string;
+};
 
 async function actorPage(browser: Browser, baseURL: string | undefined, role: ActorRole) {
   const page = await browser.newPage({ baseURL });
@@ -189,8 +272,9 @@ async function installProductApi(
   const state: ProductApiState = {
     accounts,
     users: [],
-    createdPasswordInputs: [],
-    resetPasswordInputs: [],
+    createdPasswordDigests: [],
+    resetPasswordDigests: [],
+    updatedRequests: [],
     responseBodies: [],
     commandRequests: []
   };
@@ -233,8 +317,12 @@ async function installProductApi(
     }
     if (path === `/sites/${siteId}/users` && method === "POST") {
       if (principal.role !== "admin") return respond(route, { code: "SITE_CAPABILITY_DENIED" }, 403, state);
-      const body = request.postDataJSON() as { name: string; loginId: string; temporaryPassword: string; accessLevel: "read" | "control"; status: "active" | "disabled" };
-      state.createdPasswordInputs.push(body.temporaryPassword);
+      const body = assertCreateSiteUserRequest(request.postDataJSON());
+      if (state.users.length >= 100) return respond(route, { code: "USER_LIMIT_REACHED" }, 409, state);
+      if (accounts.some((account) => account.loginId === body.loginId)) {
+        return respond(route, { code: "LOGIN_ID_ALREADY_EXISTS" }, 409, state);
+      }
+      state.createdPasswordDigests.push(digestSecret(body.temporaryPassword));
       const user = { id: randomUUID(), name: body.name, loginId: body.loginId, accessLevel: body.accessLevel, status: body.status, lastLoginAt: null, createdAt: now, updatedAt: now };
       state.users.push(user);
       accounts.push({ id: user.id, role: user.accessLevel, loginId: user.loginId, password: body.temporaryPassword, mustChangePassword: true, status: user.status });
@@ -245,8 +333,16 @@ async function installProductApi(
       if (principal.role !== "admin") return respond(route, { code: "SITE_CAPABILITY_DENIED" }, 403, state);
       const user = state.users.find((candidate) => candidate.id === userMatch[1]);
       if (!user) return respond(route, { code: "SITE_USER_NOT_FOUND" }, 404, state);
-      const body = request.postDataJSON() as Pick<SiteUser, "name" | "loginId" | "accessLevel" | "status">;
-      Object.assign(user, body, { updatedAt: new Date(Date.parse(user.updatedAt) + 1_000).toISOString() });
+      const body = assertUpdateSiteUserRequest(request.postDataJSON());
+      state.updatedRequests.push(body);
+      if (body.expectedUpdatedAt !== user.updatedAt) return respond(route, { code: "SITE_USER_CHANGED" }, 409, state);
+      Object.assign(user, {
+        name: body.name,
+        loginId: body.loginId,
+        accessLevel: body.accessLevel,
+        status: body.status,
+        updatedAt: new Date(Date.parse(user.updatedAt) + 1_000).toISOString()
+      });
       const account = accounts.find((candidate) => candidate.id === user.id);
       if (account) Object.assign(account, { loginId: user.loginId, role: user.accessLevel, status: user.status });
       return respond(route, user, 200, state);
@@ -254,8 +350,8 @@ async function installProductApi(
     const resetMatch = path.match(new RegExp(`^/sites/${siteId}/users/([^/]+)/reset-password$`));
     if (resetMatch && method === "POST") {
       if (principal.role !== "admin") return respond(route, { code: "SITE_CAPABILITY_DENIED" }, 403, state);
-      const body = request.postDataJSON() as { temporaryPassword: string };
-      state.resetPasswordInputs.push(body.temporaryPassword);
+      const body = assertTemporaryPasswordRequest(request.postDataJSON());
+      state.resetPasswordDigests.push(digestSecret(body.temporaryPassword));
       const account = accounts.find((candidate) => candidate.id === resetMatch[1]);
       if (account) Object.assign(account, { password: body.temporaryPassword, mustChangePassword: true });
       return respond(route, { ok: true }, 201, state);
@@ -291,6 +387,47 @@ async function installProductApi(
     return respond(route, { code: "NOT_FOUND", path }, 404, state);
   });
   return state;
+}
+
+function assertCreateSiteUserRequest(value: unknown): CreateSiteUserRequest {
+  const body = assertExactRequestShape(value, ["accessLevel", "loginId", "name", "status", "temporaryPassword"]);
+  expect(isNonEmptyString(body.name)).toBe(true);
+  expect(isNonEmptyString(body.loginId)).toBe(true);
+  expect(isNonEmptyString(body.temporaryPassword)).toBe(true);
+  expect(body.accessLevel === "read" || body.accessLevel === "control").toBe(true);
+  expect(body.status === "active" || body.status === "disabled").toBe(true);
+  return body as CreateSiteUserRequest;
+}
+
+function assertUpdateSiteUserRequest(value: unknown): UpdateSiteUserRequest {
+  const body = assertExactRequestShape(value, ["accessLevel", "expectedUpdatedAt", "loginId", "name", "status"]);
+  expect(isNonEmptyString(body.name)).toBe(true);
+  expect(isNonEmptyString(body.loginId)).toBe(true);
+  expect(body.accessLevel === "read" || body.accessLevel === "control").toBe(true);
+  expect(body.status === "active" || body.status === "disabled").toBe(true);
+  expect(typeof body.expectedUpdatedAt === "string" && !Number.isNaN(Date.parse(body.expectedUpdatedAt))).toBe(true);
+  return body as UpdateSiteUserRequest;
+}
+
+function assertTemporaryPasswordRequest(value: unknown) {
+  const body = assertExactRequestShape(value, ["temporaryPassword"]);
+  expect(isNonEmptyString(body.temporaryPassword)).toBe(true);
+  return body as { temporaryPassword: string };
+}
+
+function assertExactRequestShape(value: unknown, expectedKeys: string[]) {
+  expect(isRecord(value)).toBe(true);
+  if (!isRecord(value)) throw new Error("mock API request body must be an object");
+  expect(Object.keys(value).sort()).toEqual([...expectedKeys].sort());
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 async function respond(route: Route, body: unknown, status: number, state: ProductApiState) {
@@ -367,4 +504,20 @@ async function manualCommandStatus(page: Page) {
 
 function runtimePassword(label: string) {
   return `${label}-${randomUUID()}-A1!`;
+}
+
+function digestSecret(secret: string) {
+  return createHash("sha256").update(secret).digest("hex");
+}
+
+function containsAnySecret(values: string[], secrets: string[]) {
+  return values.some((value) => secrets.some((secret) => value.includes(secret)));
+}
+
+async function pageContainsAnySecret(page: Page, secrets: string[]) {
+  const renderedValues = await page.evaluate(() => [
+    document.body.textContent ?? "",
+    ...Array.from(document.querySelectorAll("input, textarea"), (element) => (element as HTMLInputElement | HTMLTextAreaElement).value)
+  ]);
+  return containsAnySecret(renderedValues, secrets);
 }

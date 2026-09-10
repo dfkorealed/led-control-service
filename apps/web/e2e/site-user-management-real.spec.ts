@@ -75,6 +75,12 @@ test("비활성화된 일반 유저의 현재 세션과 재로그인을 실제 A
   await user.goto("/");
   await login(user, loginId, temporaryPassword);
   await expect(user.getByRole("heading", { name: "비밀번호를 변경해 주세요" })).toBeVisible();
+  const pendingPasswordResponse = await user.evaluate(async () => {
+    const response = await fetch("/api/sites", { credentials: "include" });
+    const body = await response.json() as { code?: string };
+    return { status: response.status, code: body.code };
+  });
+  expect(pendingPasswordResponse).toEqual({ status: 403, code: "PASSWORD_CHANGE_REQUIRED" });
   await user.getByLabel("현재 임시 비밀번호").fill(temporaryPassword);
   await user.getByLabel("새 비밀번호", { exact: true }).fill(permanentPassword);
   await user.getByLabel("새 비밀번호 확인").fill(permanentPassword);
@@ -83,10 +89,16 @@ test("비활성화된 일반 유저의 현재 세션과 재로그인을 실제 A
   const changeResponse = await changeResponsePromise;
   expect(changeResponse.status()).toBe(201);
   const changeResponseBody = JSON.stringify(await changeResponse.json());
-  expect(changeResponseBody).not.toContain(temporaryPassword);
-  expect(changeResponseBody).not.toContain(permanentPassword);
+  expect(containsAnySecret([changeResponseBody], [temporaryPassword, permanentPassword])).toBe(false);
   await expect(user).toHaveURL(/\/monitoring$/);
   await expect(user.getByRole("heading", { name: "모니터링", level: 1 })).toBeVisible();
+  await expect(user.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "통계", "설정"]);
+  await user.getByRole("link", { name: "설정", exact: true }).hover();
+  await expect(user.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "비밀번호 변경"]);
+  await user.goto(`/settings/users?siteId=${createdSite.siteId}`);
+  await expect(user).toHaveURL(new RegExp(`/settings\\?siteId=${createdSite.siteId}`));
+  await expect(user.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+  await expect(user.getByRole("heading", { name: "유저 관리" })).toHaveCount(0);
 
   await admin.bringToFront();
   // 비밀번호 변경도 User.updatedAt을 갱신하므로 목록을 새로 받아 최신 낙관적 잠금 값을 사용한다.
@@ -124,4 +136,8 @@ async function login(page: Page, loginId: string, password: string) {
 
 function runtimePassword(label: string) {
   return `${label}-${randomUUID()}-A1!`;
+}
+
+function containsAnySecret(values: string[], secrets: string[]) {
+  return values.some((value) => secrets.some((secret) => value.includes(secret)));
 }
