@@ -1,4 +1,9 @@
-import type { EnergySeriesResponse, EnergySummary } from "@led-control/shared";
+import {
+  energyComparisonResponseSchema,
+  type EnergyComparisonPreset,
+  type EnergySeriesResponse,
+  type EnergySummary
+} from "@led-control/shared";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "./client";
 
@@ -27,6 +32,17 @@ export function useEnergySeries({ siteId, granularity, from, to, enabled }: Ener
       return apiGet<EnergySeriesResponse>(`/energy/sites/${encodeURIComponent(siteId!)}/series?${params.toString()}`);
     },
     enabled: enabled && Boolean(siteId && from && to),
+    retry: 1
+  });
+}
+
+export function useEnergyComparison(siteId: string | undefined, preset: EnergyComparisonPreset) {
+  return useQuery({
+    queryKey: ["energy-comparison", siteId, preset],
+    queryFn: async () => energyComparisonResponseSchema.parse(await apiGet<unknown>(
+      `/energy/sites/${encodeURIComponent(siteId!)}/comparisons?preset=${preset}`
+    )),
+    enabled: Boolean(siteId),
     retry: 1
   });
 }

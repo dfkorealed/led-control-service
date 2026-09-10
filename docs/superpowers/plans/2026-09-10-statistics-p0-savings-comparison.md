@@ -271,7 +271,7 @@ export const statisticsSections = [
 - Consumes: `energyComparisonResponseSchema`, `EnergyComparisonPreset`.
 - Produces: `useEnergyComparison(siteId, preset)`, `comparisonPresentation(summary)`.
 
-- [ ] **Step 1: API parse와 query-key 실패 테스트를 작성한다.**
+- [x] **Step 1: API parse와 query-key 실패 테스트를 작성한다.**
 
 ```ts
 expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/comparisons?preset=current_month");
@@ -280,11 +280,11 @@ expect(client.getQueryCache().find({ queryKey: ["energy-comparison", "site-2", "
 
   - malformed response가 schema parse error로 query error가 되는 테스트를 추가한다.
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/web test -- src/api/energy.test.tsx src/features/statistics/statistics-comparison.test.ts`
   - Expected: FAIL because hook and presenter are absent.
 
-- [ ] **Step 3: hook과 presenter를 구현한다.**
+- [x] **Step 3: hook과 presenter를 구현한다.**
 
 ```ts
 export function useEnergyComparison(siteId: string | undefined, preset: EnergyComparisonPreset) {
@@ -299,7 +299,7 @@ export function useEnergyComparison(siteId: string | undefined, preset: EnergyCo
 
   - presenter는 saving/overuse/unavailable의 label, tone, signed value를 반환하고 산식을 다시 계산하지 않는다.
 
-- [ ] **Step 4: Web unit을 검증한다.**
+- [x] **Step 4: Web unit을 검증한다.**
   - Run: `pnpm --filter @led-control/web test -- src/api/energy.test.tsx src/features/statistics/statistics-comparison.test.ts`
   - Expected: query key, URL encoding, strict parse, presentation PASS.
 
