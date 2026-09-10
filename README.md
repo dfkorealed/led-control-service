@@ -24,6 +24,8 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
    pnpm docker:up
    ```
 
+   Docker를 사용하는 경우 위 준비는 최초 1회만 하면 됩니다. 이후 일상적인 개발 시작은 `pnpm dev:local` 한 번으로 Docker 인프라를 백그라운드에서 시작한 뒤 API와 Web을 실행할 수 있습니다. 종료할 때는 개발 서버 터미널에서 `Ctrl+C`를 누르고, Docker 컨테이너까지 종료하려면 `pnpm docker:down`을 실행합니다.
+
    Docker 대신 Homebrew를 사용하는 경우 PostgreSQL, Redis, Mosquitto를 설치합니다. PostgreSQL과 Redis만 서비스로 실행하며, mTLS Mosquitto는 `pnpm dev`가 현재 터미널의 자식 프로세스로 관리합니다.
 
    ```bash
@@ -55,9 +57,13 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
 
    기존 운영 DB의 `loginId` 전환은 유지보수 창에서 write freeze → 구버전 API와 worker 완전 drain → expand, backfill, contract migration 완료 → 새 `loginId` API/Web 배포 → smoke 확인과 write 재개 순서로 수행합니다. 전환 중 실행 가능한 API 인스턴스를 남기지 않으므로 `loginId IS NULL` 사용자가 로그인해야 하는 구간이 없으며 email 로그인 fallback은 배포하지 않습니다. 빈 DB는 migration 전체 적용 후 새 API/Web만 시작합니다.
 
-4. API와 Web을 실제 장비 모드로 실행합니다. 이 명령은 누락된 개발용 PKI와 `.env`의 `DEV_GATEWAY_ID`용 인증서를 생성하고, 8883 mTLS broker를 시작하고, 대기 중인 DB migration을 적용합니다. Raspberry Pi gateway와 ESP32-H2가 동작하지 않으면 조명 검색 결과는 0개가 정상입니다.
+4. API와 Web을 실제 장비 모드로 실행합니다. Docker를 사용하는 경우 아래 통합 명령이 인프라를 먼저 시작합니다. Homebrew로 PostgreSQL과 Redis를 실행하는 경우에는 기존 `pnpm dev`를 사용합니다. 두 명령 모두 누락된 개발용 PKI와 `.env`의 `DEV_GATEWAY_ID`용 인증서를 생성하고, 8883 mTLS broker를 시작하고, 대기 중인 DB migration을 적용합니다. Raspberry Pi gateway와 ESP32-H2가 동작하지 않으면 조명 검색 결과는 0개가 정상입니다.
 
    ```bash
+   # Docker 방식
+   pnpm dev:local
+
+   # Homebrew 방식
    pnpm dev
    ```
 
@@ -71,7 +77,7 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
 
    bootstrap한 operator의 아이디 예시는 `operator_01`입니다. 비밀번호는 승인된 secret manager 또는 현재 shell의 runtime 환경 변수로만 전달합니다. 공개 회원가입·초대 UI와 제품용 데모 기본 계정은 제공하지 않습니다.
 
-6. Gateway 제조 등록은 deprecated inventory 적재 CLI가 아니라 station mTLS, Pi 내부 key 생성, 제조 enrollment API와 Vault 서명 절차를 사용합니다. 명령과 secret 취급의 정본은 [device lab first install의 제조 station 절차](docs/runbooks/device-lab-first-install.md#6-제조-station으로-pi-identity-발급)입니다. Web claim에는 제조 label의 시리얼과 일회성 code를 한 번만 사용합니다.
+6. Gateway 제조 등록은 station mTLS, Pi 내부 key 생성, 제조 enrollment API와 Vault 서명 절차를 사용합니다. 명령과 secret 취급의 정본은 [device lab first install의 제조 station 절차](docs/runbooks/device-lab-first-install.md#6-제조-station으로-pi-identity-발급)입니다. Web claim에는 제조 label의 시리얼과 일회성 code를 한 번만 사용합니다.
 
 ## 프론트엔드 개발자를 위한 코드 지도
 

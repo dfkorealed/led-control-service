@@ -1,8 +1,10 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-10
+기준일: 2026-09-11
 
 ## 구현 완료
+
+- 현장 capability를 시스템 role과 분리했다. `read` 일반 유저는 제어 메뉴와 `/control` 직접 진입이 차단되고 수동 제어 API도 `403`이다. `control` 일반 유저는 모니터링·통계와 수동 제어만 사용할 수 있으며 `mode=schedule|event` 직접 URL은 `manual`로 replace된다. admin은 수동·스케줄·이벤트 전체를 사용한다. mock Chromium E2E에서 세 권한의 메뉴·직접 route와 수동 명령 API 허용/거절을 검증했으며, 이는 실제 Gateway/BLE Mesh HIL 증거가 아니다.
 
 - 수동 밝기 제어의 오른쪽 실행 영역은 공통 `SidePanel`과 `ui-side-panel-layout`을 사용한다. 데스크톱에서는 280~340px 범위의 안전한 패널 폭을 확보하고 긴 대상명과 상태 문구를 패널 안에서 줄바꿈하며, 높이가 제한되면 패널 내부만 세로 스크롤한다. 1120px 이하에서는 대상 선택 다음 한 열로 쌓아 화면 밖 잘림을 막는다.
 
@@ -241,6 +243,10 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/web/e2e/site-user-management.spec.ts`
+- `apps/api/src/access/site-access.service.ts`
+- `apps/api/src/commands/commands.service.ts`
 
 - `apps/web/src/components/ui/SidePanel.tsx`
 

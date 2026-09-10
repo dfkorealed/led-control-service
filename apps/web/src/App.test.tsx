@@ -29,7 +29,8 @@ const authState = vi.hoisted(() => ({
     loginId: "demo_admin",
     name: "Demo Operator",
     role: "admin",
-    status: "active"
+    status: "active",
+    mustChangePassword: false
   } as null | {
     id: string;
     organizationId: string;
@@ -38,6 +39,7 @@ const authState = vi.hoisted(() => ({
     name: string;
     role: string;
     status: string;
+    mustChangePassword: boolean;
   }
 }));
 const apiState = vi.hoisted(() => ({
@@ -197,13 +199,18 @@ vi.mock("./api/client", () => ({
         loginId: input.loginId.trim().toLowerCase(),
         name: "Authenticated User",
         role: input.loginId.includes("operator") ? "operator" : "admin",
-        status: "active"
+        status: "active",
+        mustChangePassword: false
       };
       return Promise.resolve({ user: authState.user });
     }
     if (path === "/auth/logout") {
       authState.user = null;
       return Promise.resolve({ ok: true });
+    }
+    if (path === "/auth/change-password" && authState.user) {
+      authState.user = { ...authState.user, mustChangePassword: false };
+      return Promise.resolve({ ok: true, user: authState.user });
     }
     if (path === "/registration-sessions") {
       const input = body as { siteId?: string; floorId?: string; gatewayId?: string } | undefined;
@@ -308,7 +315,8 @@ describe("App", () => {
       loginId: "demo_admin",
       name: "Demo Operator",
       role: "admin",
-      status: "active"
+      status: "active",
+      mustChangePassword: false
     };
     apiState.dashboard = null;
     apiState.dashboardResponses = [];
@@ -389,6 +397,45 @@ describe("App", () => {
     expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("failed-login-password");
   });
 
+  it.each(["admin", "viewer", "operator"] as const)(
+    "renders only the required password change screen before the %s shell and tenant queries",
+    async (role) => {
+      window.history.replaceState({}, "", "/control?siteId=site-2");
+      authState.user = {
+        ...authState.user!,
+        organizationType: role === "operator" ? "service_provider" : "customer",
+        role,
+        mustChangePassword: true
+      };
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+      expect(await screen.findByRole("heading", { name: "비밀번호를 변경해 주세요" })).toBeInTheDocument();
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "모니터링" })).not.toBeInTheDocument();
+      expect(vi.mocked(apiGet).mock.calls.map(([path]) => path)).toEqual(["/auth/me"]);
+    }
+  );
+
+  it("enters monitoring only after the required password response replaces the principal", async () => {
+    window.history.replaceState({}, "", "/settings/users?siteId=site-2");
+    authState.user = { ...authState.user!, role: "viewer", mustChangePassword: true };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    await screen.findByRole("heading", { name: "비밀번호를 변경해 주세요" });
+    fireEvent.change(screen.getByLabelText("현재 임시 비밀번호"), { target: { value: "temporary-password" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호"), { target: { value: "new-password" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호 확인"), { target: { value: "new-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+
+    expect(await screen.findByRole("link", { name: "모니터링" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/monitoring");
+    expect(queryClient.getQueryData(["auth", "me"])).toMatchObject({
+      user: { id: "user-1", mustChangePassword: false }
+    });
+  });
+
   it("clears tenant query and mutation data when auth me is revoked before showing the next login", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     queryClient.setQueryData(["tenant", "dashboard"], { heading: "이전 고객 대시보드", tenantSecret: "tenant-a-private" });
@@ -433,7 +480,8 @@ describe("App", () => {
       loginId: "tenant_b_admin",
       name: "Tenant B Admin",
       role: "admin",
-      status: "active"
+      status: "active",
+      mustChangePassword: false
     };
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -546,7 +594,8 @@ describe("App", () => {
         loginId: "operator_01",
         name: "Service Operator",
         role: "operator",
-        status: "active"
+        status: "active",
+        mustChangePassword: false
       };
       const queryClient = new QueryClient();
       render(
@@ -957,7 +1006,8 @@ describe("App", () => {
       loginId: "viewer_01",
       name: "Demo Viewer",
       role: "viewer",
-      status: "active"
+      status: "active",
+      mustChangePassword: false
     };
     const queryClient = new QueryClient();
     render(
@@ -1142,7 +1192,8 @@ describe("App", () => {
       loginId: "viewer_01",
       name: "Demo Viewer",
       role: "viewer",
-      status: "active"
+      status: "active",
+      mustChangePassword: false
     };
     const queryClient = new QueryClient();
     render(

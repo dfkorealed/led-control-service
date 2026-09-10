@@ -22,6 +22,7 @@ export interface ModalDialogProps {
   isPending?: boolean;
   initialFocusRef?: RefObject<HTMLElement>;
   returnFocusElement?: HTMLElement | null;
+  fallbackFocusElement?: HTMLElement | null;
   role?: "dialog" | "alertdialog";
   className?: string;
 }
@@ -35,6 +36,7 @@ export function ModalDialog({
   isPending = false,
   initialFocusRef,
   returnFocusElement,
+  fallbackFocusElement,
   role = "dialog",
   className = ""
 }: ModalDialogProps) {
@@ -54,8 +56,9 @@ export function ModalDialog({
     return () => {
       const previous = previousFocusRef.current;
       if (previous?.isConnected) previous.focus();
+      else if (fallbackFocusElement?.isConnected) fallbackFocusElement.focus();
     };
-  }, [initialFocusRef]);
+  }, [fallbackFocusElement, initialFocusRef]);
 
   function requestClose() {
     if (!isPending) onClose();

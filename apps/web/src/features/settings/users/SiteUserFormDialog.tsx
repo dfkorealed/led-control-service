@@ -8,11 +8,13 @@ interface SiteUserFormDialogProps {
   user?: SiteUserSummary;
   returnFocusElement?: HTMLElement | null;
   onClose: () => void;
-  onCompleted: (message: string) => Promise<void>;
+  onCompleted: (message: string) => void;
   onLimitReached?: () => void;
+  onMutationError?: (error: unknown) => Promise<string | null>;
+  fallbackFocusElement?: HTMLElement | null;
 }
 
-export function SiteUserFormDialog({ siteId, user, returnFocusElement, onClose, onCompleted, onLimitReached }: SiteUserFormDialogProps) {
+export function SiteUserFormDialog({ siteId, user, returnFocusElement, fallbackFocusElement, onClose, onCompleted, onLimitReached, onMutationError }: SiteUserFormDialogProps) {
   const isEdit = Boolean(user);
   const nameRef = useRef<HTMLInputElement>(null);
   const [values, setValues] = useState<SiteUserFormValues>({
@@ -26,6 +28,7 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, onClose, 
   const [requestError, setRequestError] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [isLimitReached, setIsLimitReached] = useState(false);
+  const pendingRef = useRef(false);
 
   function update<K extends keyof SiteUserFormValues>(key: K, value: SiteUserFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }));
@@ -35,6 +38,7 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, onClose, 
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (pendingRef.current) return;
     const normalized = { ...values, name: values.name.trim(), loginId: values.loginId.trim().toLowerCase() };
     const nextErrors = validateSiteUserForm(normalized, !isEdit);
     if (Object.keys(nextErrors).length > 0) {
@@ -43,6 +47,7 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, onClose, 
     }
 
     setRequestError("");
+    pendingRef.current = true;
     setIsPending(true);
     try {
       if (user) {
@@ -63,20 +68,23 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, onClose, 
         });
       }
       setValues((current) => ({ ...current, temporaryPassword: "" }));
-      await onCompleted(user ? "사용자 정보를 수정했습니다." : "사용자를 생성했습니다.");
       onClose();
+      void onCompleted(user ? "사용자 정보를 수정했습니다." : "사용자를 생성했습니다.");
     } catch (error) {
       const message = siteUserErrorMessage(error);
       if (siteUserErrorCode(error) === "USER_LIMIT_REACHED") {
         setIsLimitReached(true);
         onLimitReached?.();
       }
-      if (message === "이미 사용 중인 로그인 아이디입니다.") {
+      const recoveredMessage = onMutationError ? await onMutationError(error) : message;
+      if (!recoveredMessage) return;
+      if (recoveredMessage === "이미 사용 중인 로그인 아이디입니다.") {
         setErrors((current) => ({ ...current, loginId: message }));
       } else {
-        setRequestError(message);
+        setRequestError(recoveredMessage);
       }
     } finally {
+      pendingRef.current = false;
       setIsPending(false);
     }
   }
@@ -91,6 +99,7 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, onClose, 
       isPending={isPending}
       initialFocusRef={nameRef}
       returnFocusElement={returnFocusElement}
+      fallbackFocusElement={fallbackFocusElement}
       className="site-user-dialog-wide"
       actions={<>
         <Button type="button" onClick={onClose} disabled={isPending}>취소</Button>
@@ -109,7 +118,7 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, onClose, 
           </FormField>
         </div>
         {!isEdit ? (
-          <FormField label="임시 비밀번호" error={errors.temporaryPassword} errorId="site-user-password-error" help="8자 이상 입력하세요. 사용자는 최초 로그인 후 비밀번호를 변경해야 합니다.">
+          <FormField label="임시 비밀번호" error={errors.temporaryPassword} errorId="site-user-password-error" help="8~1024자로 입력하세요. 공백만 사용할 수 없으며, 사용자는 최초 로그인 후 비밀번호를 변경해야 합니다.">
             <input id="site-user-password" type="password" value={values.temporaryPassword} onChange={(event) => update("temporaryPassword", event.target.value)} autoComplete="new-password" aria-invalid={Boolean(errors.temporaryPassword)} aria-describedby={errors.temporaryPassword ? "site-user-password-error" : undefined} />
           </FormField>
         ) : null}

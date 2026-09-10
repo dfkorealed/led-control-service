@@ -159,6 +159,7 @@ describe("CommandsService", () => {
     expect(tx.mqttOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       payload: expect.objectContaining({ overrideUntil: "2026-08-29T01:00:00.000Z" })
     }) });
+    expect(tx.mqttOutbox.create.mock.calls[0][0].data.payload).not.toHaveProperty("requestedBy");
   });
 
   it("reuses an omitted overrideUntil request after the server clock advances", async () => {

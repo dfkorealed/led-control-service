@@ -1,6 +1,6 @@
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { readFileSync } from "node:fs";
-import { createRef, useState } from "react";
+import { createRef, useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Button, FeedbackState, MetricCard, ModalDialog, PageHeader, ProgressSteps, SidePanel, StatusBadge } from ".";
@@ -244,6 +244,17 @@ describe("Calm Operations UI primitives", () => {
     fireEvent.mouseDown(screen.getByTestId("modal-backdrop"));
     expect(dialog).toBeInTheDocument();
   });
+
+  it("focuses a stable fallback when the original trigger disappears", async () => {
+    render(<RemovedTriggerModalHarness />);
+    const trigger = screen.getByRole("button", { name: "삭제 열기" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("button", { name: "삭제 완료" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "사용자 추가" }));
+  });
 });
 
 function ModalHarness({ pending = false }: { pending?: boolean }) {
@@ -256,6 +267,19 @@ function ModalHarness({ pending = false }: { pending?: boolean }) {
         <button type="button">마지막</button>
       </ModalDialog>
     ) : null}
+  </>;
+}
+
+function RemovedTriggerModalHarness() {
+  const [open, setOpen] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  const fallback = useRef<HTMLButtonElement>(null);
+  return <>
+    <button ref={fallback} type="button">사용자 추가</button>
+    {!deleted ? <button type="button" onClick={() => setOpen(true)}>삭제 열기</button> : null}
+    {open ? <ModalDialog title="삭제" onClose={() => setOpen(false)} fallbackFocusElement={fallback.current}>
+      <button type="button" onClick={() => { setDeleted(true); setOpen(false); }}>삭제 완료</button>
+    </ModalDialog> : null}
   </>;
 }
 

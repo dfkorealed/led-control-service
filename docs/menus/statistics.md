@@ -13,6 +13,7 @@
 - comparison 로딩·오류·미산정 상태를 기존 summary와 series에서 분리했다. 비교 API가 실패해도 오늘·이번 달·올해 KPI와 기존 추이·비용 영역은 유지되고, 비교 영역만 다시 시도할 수 있다.
 - comparison 런타임 Zod 계약은 `@led-control/shared/energy-contracts` ESM/CommonJS 서브패스로 배포한다. packed package 소비 테스트로 브라우저 ESM과 서버 CommonJS 양쪽에서 schema를 직접 불러올 수 있음을 검증한다.
 - P0 Chromium 회귀는 saving·overuse·insufficient-state·summary/series/comparison 독립 재시도와 redirect query 보존을 검증한다. 1440×900, 1024×768, 390×844, 320×740에서 비교 chart/panel 스택, 44×44px 조작 영역, document 및 비교 chart의 가로 overflow 부재를 확인하고, 2400px 높이에서 shell이 남은 공간을 행 사이에 분산하지 않고 상단부터 채우는지 확인한다.
+- 현장 `read` 또는 `control` capability가 있는 일반 유저는 통계 메뉴를 볼 수 있고, 시스템 role이 `viewer`이므로 admin 전용 설정 기능은 노출되지 않는다. mock Chromium 권한 여정은 read/control의 통계 메뉴 노출과 역할별 주 메뉴 exact 범위만 검증한다. 현장 에너지 API의 `read` capability 요구는 `energy.service.spec.ts`와 `site-access.service.spec.ts` 단위 테스트가 담당하며, 이 유저 관리 E2E가 통계 계산·API 응답·실장비 수집을 검증한다고 확대하지 않는다.
 - 공통 UI 간격을 4px 배수의 `4/8/12/16/24/32px` 토큰으로 정의하고 통계 메뉴에 1차 적용했다. 화면 섹션은 24px, KPI·패널 사이는 16px로 통일하고, 남는 세로 공간은 행 높이에 분산하지 않고 콘텐츠를 화면 상단부터 배치한다. KPI 상태 badge는 고정 높이·하단 예약 영역을 사용하는 absolute 배치에서 grid 배치로 전환해 불필요한 공백을 제거했다. 760px 이하에서는 KPI 라벨과 badge, 차트 제목과 기간 탭을 각각 세로로 배치해 한 글자 줄바꿈과 말줄임을 방지한다. 차트·비용 패널은 데스크톱 24px, 760px 이하 16px padding을 사용한다.
 - 사용량 차트 오른쪽의 비용 비교 영역은 공통 `SidePanel`과 `ui-side-panel-layout`을 사용한다. 긴 비용·기준 문구는 패널 내부에서 줄바꿈하고, 좁은 화면에서는 차트 다음 한 열로 쌓아 가로 잘림을 만들지 않는다.
 
@@ -80,6 +81,8 @@
 
 ## 관련 파일
 
+- `apps/web/e2e/site-user-management.spec.ts`
+- `apps/api/src/access/site-access.service.ts`
 - `docs/ui-spacing.md`
 - `docs/assets/statistics-analytics/statistics-overview-ui.png`
 - `apps/web/src/components/ui/SidePanel.tsx`

@@ -31,12 +31,14 @@ function setup() {
     $executeRaw: jest.fn().mockResolvedValue(1), $queryRaw: jest.fn().mockResolvedValue([{ id: "member" }]),
     user: {
       findMany: jest.fn().mockResolvedValue([row]), findFirst: jest.fn().mockResolvedValue(row),
+      findUnique: jest.fn().mockResolvedValue({ email: "member@example.com" }),
       count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue(row),
       update: jest.fn().mockResolvedValue(row), delete: jest.fn().mockResolvedValue({ id: "member" })
     },
     siteMembership: { create: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) },
     session: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
-    auditLog: { create: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    auditLog: { create: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    invitation: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) }
   };
   const prisma = { $transaction: jest.fn().mockImplementation((fn) => fn(tx)) };
   const access = {
@@ -236,6 +238,11 @@ describe("SiteUsersService", () => {
   it("deletes the account and anonymizes audits while deletion audit omits target PII", async () => {
     const { service, tx } = setup();
     expect(await service.remove(admin, "site", "member", { confirmationLoginId: row.loginId })).toEqual({ ok: true });
+    const rawStatements = tx.$executeRaw.mock.calls.map(([query]) => query.strings?.join(" "));
+    const outboxScrub = rawStatements.find((sql) => sql?.includes('UPDATE "MqttOutbox"'));
+    expect(outboxScrub).toContain('"payload" - \'requestedBy\'');
+    const invitationCleanup = rawStatements.find((sql) => sql?.includes('DELETE FROM "Invitation"'));
+    expect(invitationCleanup).toContain('LOWER(BTRIM("email"))');
     expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: "member" }, select: { id: true } });
     expect(tx.auditLog.updateMany).toHaveBeenCalled();
     const audit = tx.auditLog.create.mock.calls[0][0].data;
@@ -243,6 +250,16 @@ describe("SiteUsersService", () => {
     expect(JSON.stringify(audit)).not.toContain(row.id);
     expect(JSON.stringify(audit)).not.toContain(row.name);
     expect(JSON.stringify(audit)).not.toContain(row.loginId);
+  });
+
+  it("does not run invitation cleanup for an admin-created user without email", async () => {
+    const { service, tx } = setup();
+    tx.user.findUnique.mockResolvedValue({ email: null });
+
+    await service.remove(admin, "site", "member", { confirmationLoginId: row.loginId });
+
+    const rawStatements = tx.$executeRaw.mock.calls.map(([query]) => query.strings?.join(" "));
+    expect(rawStatements.some((sql) => sql?.includes('DELETE FROM "Invitation"'))).toBe(false);
   });
 
   it("propagates audit failure so the transaction rolls back, never accepting a partial write", async () => {

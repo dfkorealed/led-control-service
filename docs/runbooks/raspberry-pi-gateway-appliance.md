@@ -142,7 +142,20 @@ scripts/gateway-appliance-deploy.sh \
 
 스크립트는 checksum 검증, `docker image load`, Compose 적용, health 대기를 수행한다. `.env.appliance` 또는 인증서가 없으면 image를 실행하지 않고 누락 파일을 출력한다.
 
-Timed manual wire를 포함한 rolling upgrade는 다음 순서를 고정한다.
+### Command requester PII migration 유지보수
+
+`20260911090000_remove_command_requester_from_mqtt_outbox`를 포함한 API 배포는 rolling upgrade가 아니다. CHECK constraint는 구버전 프로세스의 DB 재삽입은 막지만 migration 전에 payload를 읽고 최종 fence를 통과한 worker의 메모리 publish는 취소할 수 없으므로 다음 순서를 고정한다.
+
+1. Control write를 freeze한다.
+2. 모든 구버전 API와 command publisher를 stop-and-drain하고 프로세스가 완전히 종료됐는지 확인한다.
+3. 마지막 구버전 command publisher 종료 시점부터 broker 최대 command expiry인 10초를 온전히 기다린다.
+4. `20260911090000_remove_command_requester_from_mqtt_outbox` migration을 적용한다.
+5. 신버전 API와 command publisher만 시작한다. 구·신 버전을 동시에 운영하지 않는다.
+6. 요청자 키가 없는 command create/publish smoke와 API health를 확인한 뒤 control write를 재개한다.
+
+### Timed manual wire Gateway rolling upgrade
+
+위 requester PII migration을 포함하지 않는 timed manual wire rolling upgrade는 다음 순서를 고정한다.
 
 1. Strict delivery generation을 발행하는 새 API publisher를 먼저 가동하고 기존 legacy outbox를 normalize한다. 이미 `overrideUntil`이 지난 row가 `MANUAL_OVERRIDE_EXPIRED`로 종료되는지 확인한다.
 2. Legacy wire를 만들 수 있는 old publisher instance와 worker를 모두 종료한다. 새 publisher가 동작 중이라는 이유로 old publisher 종료를 생략하지 않는다.

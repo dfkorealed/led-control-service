@@ -133,6 +133,12 @@ test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행�
   assert.deepEqual(resolveDevAppFilters([]), ["@led-control/api", "@led-control/web"]);
 });
 
+test("통합 로컬 개발 명령은 Docker 인프라를 먼저 시작한 뒤 기존 dev를 실행한다", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.equal(packageJson.scripts["dev:local"], "pnpm docker:up && pnpm dev");
+});
+
 test("추가 인자가 있어도 제품 개발 프로세스만 실행한다", () => {
   assert.deepEqual(resolveDevAppFilters(["--with-mock-gateway"]), ["@led-control/api", "@led-control/web"]);
 });

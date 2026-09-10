@@ -1,12 +1,14 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { CircleAlert, CircleCheck, Clock3, KeyRound, Pencil, Plus, Search, Trash2, UserCheck, UserX } from "lucide-react";
-import { siteUsersQueryKey, updateSiteUser, useSiteUsers, type SiteUserAccessLevel, type SiteUserStatus, type SiteUserSummary } from "../../../api/site-users";
+import { ApiError } from "../../../api/client";
+import { siteUsersQueryKey, updateSiteUser, useSiteUsers, type SiteUserAccessLevel, type SiteUserStatus, type SiteUserSummary, type SiteUsersResponse } from "../../../api/site-users";
 import { Button, Card, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
 import { DeleteSiteUserDialog } from "./DeleteSiteUserDialog";
 import { ResetSiteUserPasswordDialog } from "./ResetSiteUserPasswordDialog";
 import { SiteUserFormDialog } from "./SiteUserFormDialog";
-import { siteUserErrorMessage } from "./site-user-form";
+import { siteUserErrorCode, siteUserErrorMessage } from "./site-user-form";
 import "./SiteUsersView.css";
 
 type DialogState = { type: "create" } | { type: "edit" | "reset" | "delete"; user: SiteUserSummary };
@@ -15,8 +17,10 @@ type StatusFilter = "all" | SiteUserStatus;
 
 export function SiteUsersView({ siteId }: { siteId?: string }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const usersQuery = useSiteUsers(siteId);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const busyActionRef = useRef(false);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [returnFocusElement, setReturnFocusElement] = useState<HTMLElement | null>(null);
   const [search, setSearch] = useState("");
@@ -24,11 +28,16 @@ export function SiteUsersView({ siteId }: { siteId?: string }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
+  const [refreshError, setRefreshError] = useState("");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [serverLimitReached, setServerLimitReached] = useState(false);
 
   const data = usersQuery.data;
   const atLimit = serverLimitReached || Boolean(data && data.count >= data.limit);
+
+  useEffect(() => {
+    if (data && data.count < data.limit) setServerLimitReached(false);
+  }, [data]);
   const filteredUsers = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("ko-KR");
     return (data?.users ?? []).filter((user) => {
@@ -46,32 +55,96 @@ export function SiteUsersView({ siteId }: { siteId?: string }) {
     setDialog(next);
   }
 
-  async function refreshWithNotice(message: string) {
+  function refreshWithNotice(message: string) {
     setNotice(message);
-    await queryClient.invalidateQueries({ queryKey: siteUsersQueryKey(siteId!) });
+    setActionError("");
+    setRefreshError("");
+    void queryClient.invalidateQueries({ queryKey: siteUsersQueryKey(siteId!) }).catch(() => {
+      setRefreshError("최신 사용자 목록을 불러오지 못했습니다. 기존 목록을 표시합니다.");
+    });
+  }
+
+  async function recoverMutationError(error: unknown): Promise<string | null> {
+    const code = siteUserErrorCode(error);
+    const message = siteUserErrorMessage(error);
+    if (code === "SITE_CAPABILITY_DENIED") {
+      setDialog(null);
+      navigate(`/settings?siteId=${encodeURIComponent(siteId!)}`, { replace: true });
+      return null;
+    }
+    if (code === "SITE_USER_CHANGED" || code === "SITE_USER_NOT_FOUND") {
+      setRefreshError("");
+      try {
+        const result = await usersQuery.refetch();
+        if (result.data && result.data.count < result.data.limit) setServerLimitReached(false);
+        if (result.error) throw result.error;
+      } catch {
+        setRefreshError("최신 사용자 목록을 불러오지 못했습니다. 기존 목록을 표시합니다.");
+      }
+      setDialog(null);
+      setActionError(message);
+      return null;
+    }
+    return message;
+  }
+
+  function removeDeletedUserFromCache(userId: string) {
+    queryClient.setQueryData<SiteUsersResponse>(siteUsersQueryKey(siteId!), (current) => {
+      if (!current) return current;
+      const users = current.users.filter((user) => user.id !== userId);
+      if (users.length === current.users.length) return current;
+      return { ...current, users, count: Math.max(0, current.count - 1) };
+    });
+    setServerLimitReached(false);
+  }
+
+  function completeDeletion(userId: string, message: string) {
+    removeDeletedUserFromCache(userId);
+    refreshWithNotice(message);
   }
 
   async function toggleStatus(user: SiteUserSummary) {
-    if (!siteId || busyUserId) return;
+    if (!siteId || busyActionRef.current) return;
+    busyActionRef.current = true;
     setNotice("");
     setActionError("");
     setBusyUserId(user.id);
+    const nextStatus = user.status === "active" ? "disabled" : "active";
     try {
-      const nextStatus = user.status === "active" ? "disabled" : "active";
-      await updateSiteUser(siteId, user.id, {
-        name: user.name,
-        loginId: user.loginId,
-        accessLevel: user.accessLevel,
-        status: nextStatus,
-        expectedUpdatedAt: user.updatedAt
-      });
-      await refreshWithNotice(nextStatus === "active" ? "사용자를 활성화했습니다." : "사용자를 비활성화하고 기존 세션을 종료했습니다.");
+      await updateStatus(user, nextStatus);
+      refreshWithNotice(nextStatus === "active" ? "사용자를 활성화했습니다." : "사용자를 비활성화하고 기존 세션을 종료했습니다.");
     } catch (error) {
-      setActionError(siteUserErrorMessage(error));
-      await queryClient.invalidateQueries({ queryKey: siteUsersQueryKey(siteId) });
+      if (siteUserErrorCode(error) === "SITE_USER_CHANGED") {
+        try {
+          const refreshed = await usersQuery.refetch();
+          if (refreshed.error) throw refreshed.error;
+          const latest = refreshed.data?.users.find((candidate) => candidate.id === user.id);
+          if (!latest) throw new ApiError("site user not found", 404, { code: "SITE_USER_NOT_FOUND" });
+          await updateStatus(latest, nextStatus);
+          refreshWithNotice(nextStatus === "active" ? "사용자를 활성화했습니다." : "사용자를 비활성화하고 기존 세션을 종료했습니다.");
+          return;
+        } catch (retryError) {
+          const message = await recoverMutationError(retryError);
+          if (message) setActionError(message);
+          return;
+        }
+      }
+      const message = await recoverMutationError(error);
+      if (message) setActionError(message);
     } finally {
+      busyActionRef.current = false;
       setBusyUserId(null);
     }
+  }
+
+  function updateStatus(user: SiteUserSummary, status: SiteUserStatus) {
+    return updateSiteUser(siteId!, user.id, {
+      name: user.name,
+      loginId: user.loginId,
+      accessLevel: user.accessLevel,
+      status,
+      expectedUpdatedAt: user.updatedAt
+    });
   }
 
   if (!siteId) return <FeedbackState tone="neutral" icon={CircleAlert} title="유저를 관리할 현장을 선택하세요." />;
@@ -85,6 +158,7 @@ export function SiteUsersView({ siteId }: { siteId?: string }) {
 
     {notice ? <FeedbackState tone="success" icon={CircleCheck} title={notice} /> : null}
     {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError} /> : null}
+    {refreshError ? <FeedbackState tone="danger" icon={CircleAlert} title={refreshError} action={<Button type="button" onClick={() => { setRefreshError(""); void usersQuery.refetch(); }}>목록 다시 시도</Button>} /> : null}
     {atLimit ? <FeedbackState tone="warning" icon={CircleAlert} title="현장 사용자는 최대 100명까지 등록할 수 있습니다." /> : null}
 
     {usersQuery.isLoading && !data ? <FeedbackState tone="neutral" icon={Clock3} title="사용자 목록을 불러오는 중입니다." /> : null}
@@ -121,10 +195,10 @@ export function SiteUsersView({ siteId }: { siteId?: string }) {
       <p className="site-users-note">비활성 사용자도 100명 제한에 포함됩니다. 삭제된 사용자는 인원에서 제외됩니다.</p>
     </> : null}
 
-    {dialog?.type === "create" ? <SiteUserFormDialog siteId={siteId} returnFocusElement={returnFocusElement ?? addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} onLimitReached={() => setServerLimitReached(true)} /> : null}
-    {dialog?.type === "edit" ? <SiteUserFormDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} /> : null}
-    {dialog?.type === "reset" ? <ResetSiteUserPasswordDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} /> : null}
-    {dialog?.type === "delete" ? <DeleteSiteUserDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} /> : null}
+    {dialog?.type === "create" ? <SiteUserFormDialog siteId={siteId} returnFocusElement={returnFocusElement ?? addButtonRef.current} fallbackFocusElement={addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} onLimitReached={() => setServerLimitReached(true)} onMutationError={recoverMutationError} /> : null}
+    {dialog?.type === "edit" ? <SiteUserFormDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} fallbackFocusElement={addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} onMutationError={recoverMutationError} /> : null}
+    {dialog?.type === "reset" ? <ResetSiteUserPasswordDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} fallbackFocusElement={addButtonRef.current} onClose={() => setDialog(null)} onCompleted={refreshWithNotice} onMutationError={recoverMutationError} /> : null}
+    {dialog?.type === "delete" ? <DeleteSiteUserDialog siteId={siteId} user={dialog.user} returnFocusElement={returnFocusElement ?? addButtonRef.current} fallbackFocusElement={addButtonRef.current} onClose={() => setDialog(null)} onCompleted={(message) => completeDeletion(dialog.user.id, message)} onMutationError={recoverMutationError} /> : null}
   </section>;
 }
 

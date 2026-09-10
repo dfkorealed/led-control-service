@@ -111,10 +111,10 @@ test("브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하�
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;
   }, { timeout: remainingEditorBudget(editorStartedAt) }).toBe(true);
   const canvas = page.getByLabel("B2 편집 캔버스");
-  await expect.poll(async () => canvas.locator("canvas").first().evaluate((element: HTMLCanvasElement) => {
+  await expect.poll(async () => canvas.locator("canvas").nth(2).evaluate((element: HTMLCanvasElement) => {
     const context = element.getContext("2d");
     return context ? Array.from(context.getImageData(20, 20, 1, 1).data) : [];
-  }), { timeout: remainingEditorBudget(editorStartedAt) }).toEqual([32, 201, 151, 255]);
+  }), { timeout: remainingEditorBudget(editorStartedAt) }).toEqual([21, 159, 129, 255]);
   await canvas.click({ position: { x: 20, y: 20 }, force: true, timeout: remainingEditorBudget(editorStartedAt) });
   const properties = page.getByRole("complementary", { name: "속성 패널" });
   await expect(properties.getByRole("heading", { name: "B2-L0001" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
@@ -122,7 +122,7 @@ test("브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하�
   await properties.getByLabel("X").fill("50");
   await page.getByRole("button", { name: "저장", exact: true }).click();
 
-  await expect(page).toHaveURL(`/settings/floor-plans?siteId=${ids.site}`);
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
   expect(api.fixtureUpdates).toHaveLength(1);
   expect(api.fixtureUpdates[0]).toMatchObject({ id: fixtures[0].id, x: 50 });
 });

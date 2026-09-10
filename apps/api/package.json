@@ -12,8 +12,7 @@
     "typecheck": "pnpm --filter @led-control/automation-engine build && tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "auth:bootstrap-operator": "pnpm --filter @led-control/shared build && tsx prisma/bootstrap-operator.ts",
-    "gateway:enroll-inventory": "echo 'Deprecated: use POST /manufacturing/gateway-enrollments' && exit 1"
+    "auth:bootstrap-operator": "pnpm --filter @led-control/shared build && tsx prisma/bootstrap-operator.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1085.0",
