@@ -2740,6 +2740,62 @@ button {
   margin: 0;
 }
 
+@media (min-width: 761px) {
+  .control-screen,
+  .schedule-control-panel {
+    align-content: start;
+  }
+}
+
+@media (min-width: 1121px) {
+  .content > .control-screen {
+    height: calc(100vh - 116px);
+    height: calc(100dvh - 116px);
+    min-height: 0;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .control-manual-panel {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .control-manual-panel .control-layout {
+    min-height: 0;
+    flex: 1;
+    align-items: stretch;
+  }
+
+  .control-manual-panel :is(.control-target-card, .control-picker-fieldset, .control-target-picker) {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .control-manual-panel .control-target-card,
+  .control-manual-panel .control-panel {
+    overflow: hidden;
+  }
+
+  .control-manual-panel .control-target-picker {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .control-manual-panel .control-target-list {
+    min-height: 0;
+    max-height: none;
+    flex: 1;
+  }
+
+  .control-manual-panel .control-panel,
+  .schedule-control-panel {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
 .fixture-group-dialog-backdrop {
   position: fixed;
   inset: 0;
