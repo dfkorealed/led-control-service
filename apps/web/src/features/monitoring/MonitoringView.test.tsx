@@ -126,7 +126,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "층 선택" })).toHaveValue("floor-1");
+    expect(screen.getByRole("combobox", { name: "맵 선택" })).toHaveValue("floor-1");
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("3");
     expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
@@ -357,7 +357,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
-    fireEvent.change(screen.getByRole("combobox", { name: "층 선택" }), { target: { value: "floor-2" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "맵 선택" }), { target: { value: "floor-2" } });
 
     expect(screen.getByRole("status")).toHaveTextContent("B2 조명 상태를 불러오는 중");
     expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
@@ -425,13 +425,17 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
   });
 
-  it("운영 현황 제목과 자동 갱신 안내를 제거하고 층 선택을 같은 상단 영역에 둔다", () => {
+  it("맵 선택을 한 줄로 표시하고 새로고침을 상단 도구의 오른쪽 끝에 둔다", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
     expect(screen.queryByText(/10분마다 자동 갱신/)).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "층 선택" })).toHaveValue("floor-1");
-    expect(screen.getByRole("button", { name: "새로고침" })).toBeInTheDocument();
+    const mapSelector = screen.getByRole("combobox", { name: "맵 선택" });
+    expect(mapSelector).toHaveValue("floor-1");
+    expect(mapSelector.parentElement).toHaveClass("monitoring-floor-selector");
+    expect(mapSelector.parentElement).toHaveTextContent("맵 선택");
+    const refreshButton = screen.getByRole("button", { name: "새로고침" });
+    expect(refreshButton.parentElement?.lastElementChild).toBe(refreshButton);
   });
 
   it("지도 최초 조회 실패에는 빈 캔버스 대신 오류와 재시도를 표시한다", () => {
@@ -505,9 +509,9 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "층 선택" }), { target: { value: "floor-2" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "맵 선택" }), { target: { value: "floor-2" } });
 
-    expect(await screen.findByRole("combobox", { name: "층 선택" })).toHaveValue("floor-2");
+    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toHaveValue("floor-2");
     expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument();
   });
 });

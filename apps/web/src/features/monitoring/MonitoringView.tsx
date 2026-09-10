@@ -157,9 +157,9 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
     <section className="screen-grid monitoring-screen monitoring-dashboard">
       <div className="monitoring-toolbar" role="group" aria-label="모니터링 도구">
         <label className="monitoring-floor-selector">
-          <span>층 선택</span>
+          <span>맵 선택</span>
           <select
-            aria-label="층 선택"
+            aria-label="맵 선택"
             value={floor?.id ?? ""}
             disabled={data.floors.length === 0}
             onChange={(event) => handleSelectFloor(event.target.value)}
@@ -168,6 +168,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
           </select>
         </label>
         <div className="monitoring-refresh-actions">
+          <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
+          {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
           <Button
             variant="secondary"
             isLoading={isManualRefreshing}
@@ -177,8 +179,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
             새로고침
           </Button>
-          <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
-          {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
         </div>
       </div>
 
