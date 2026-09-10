@@ -707,7 +707,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
@@ -860,7 +860,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.change(await screen.findByRole("combobox", { name: "층 선택" }), {
+    fireEvent.change(await screen.findByRole("combobox", { name: "맵 선택" }), {
       target: { value: mockDashboard.floors[1].id }
     });
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
@@ -879,7 +879,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
   });
@@ -939,7 +939,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "층 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
