@@ -104,6 +104,53 @@ UTC 저장과 현지 분석을 함께 만족하기 위해 시간별 집계는 `b
 
 ## 5. 화면 정보 구조와 간격
 
+### 5.1 통계 서브메뉴와 route
+
+통계는 하나의 긴 페이지가 아니라 사용자 목적에 따른 네 개의 하위 페이지로 구성한다.
+
+| 서브메뉴 | Route | 사용자 목적 | 포함 기능 |
+| --- | --- | --- | --- |
+| 개요 | `/statistics/overview` | 에너지 성과를 빠르게 파악 | 기존 KPI, P0 절감률, 기준 비교 그래프, 전월·전년 동기간 비교 |
+| 사용 분석 | `/statistics/analysis` | 사용량이 집중되는 위치와 시간을 탐색 | P1 조명·층·그룹 순위와 상세 추이, P2 요일×시간대 히트맵 |
+| 최적화 | `/statistics/optimization` | 낭비를 줄이고 월 목표를 관리 | P1 비운영 시간 낭비, 운영 시간 정책, 월 목표·예산 |
+| 보고서 | `/statistics/reports` | 결과를 공유하고 산출 근거를 확인 | P2 CSV·Excel·PDF, 생성 이력, 탄소 배출·절감량 |
+
+개발 우선순위인 P0·P1·P2를 메뉴명으로 노출하지 않는다. 사용자는 `성과 확인 → 원인 탐색 → 개선 행동 → 공유` 흐름으로 기능을 이해한다.
+
+기존 `/statistics` 진입은 query와 hash를 보존한 채 `/statistics/overview`로 `replace` 이동한다. 예를 들어 `/statistics?siteId=abc`는 `/statistics/overview?siteId=abc`가 된다. 알 수 없는 `/statistics/*` 경로도 사용 가능한 첫 페이지인 개요로 이동한다.
+
+### 5.2 서브메뉴 노출 시점
+
+아직 구현되지 않은 페이지를 disabled tab이나 빈 화면으로 미리 노출하지 않는다.
+
+- P0 배포: `개요`만 노출
+- P1 배포: `개요`, `사용 분석`, `최적화` 노출
+- P2 배포: `개요`, `사용 분석`, `최적화`, `보고서` 모두 노출
+
+직접 URL로 아직 배포되지 않은 페이지에 접근하면 현재 사용 가능한 첫 페이지로 이동한다. 서버 권한에 따라 메뉴를 숨겨 보안을 대신하지 않으며 각 API의 권한 검증은 그대로 수행한다.
+
+### 5.3 Web 컴포넌트 경계
+
+- `StatisticsShell`: site context와 하위 route의 `Outlet`을 제공한다.
+- `StatisticsSubnavigation`: 현재 배포 단계에서 사용 가능한 메뉴만 렌더링한다.
+- `StatisticsOverviewPage`: 기존 `StatisticsView`와 P0 기능을 소유한다.
+- `StatisticsAnalysisPage`: ranking, drilldown, heatmap을 소유한다.
+- `StatisticsOptimizationPage`: waste, operating-hours, monthly target을 소유한다.
+- `StatisticsReportsPage`: export, report job, emission 정보를 소유한다.
+
+페이지 전환 시 `siteId` query를 항상 보존한다. 페이지별 기간·차원 filter는 URL query로 직렬화해 새로고침, 뒤로 가기, 링크 공유 후에도 복원한다. 다른 페이지에 의미가 없는 filter는 전달하지 않고 `siteId`만 유지한다.
+
+### 5.4 탐색 동작과 접근성
+
+- 데스크톱은 콘텐츠 상단에 현재 배포된 서브메뉴의 수평 `NavLink`를 표시하며 P2 최종 상태에서는 네 개가 된다.
+- 활성 페이지는 색상뿐 아니라 underline과 `aria-current="page"`로 구분한다.
+- 모바일은 메뉴 label을 줄이지 않고 내부 가로 스크롤 영역을 사용한다. document 전체의 가로 overflow는 허용하지 않는다.
+- route가 바뀌면 새 페이지의 `h2`로 focus를 옮기지 않는다. 브라우저 기본 탐색 흐름을 유지하고 문서 제목과 `h1`/`h2` 구조만 정확히 갱신한다.
+- 키보드 Tab으로 각 link에 접근하며 좌우 화살표 전용 tab widget으로 만들지 않는다. 각 항목은 독립적인 페이지 link다.
+- primary sidebar의 `통계`는 모든 `/statistics/*` route에서 active 상태를 유지하고 기본 목적지는 `/statistics/overview`다.
+
+### 5.5 공통 간격
+
 현재 통계 페이지에 적용된 4px 배수 간격 규칙을 유지한다.
 
 - 페이지 상단부터 콘텐츠를 배치하고 세로 중앙 정렬을 사용하지 않는다.
@@ -116,7 +163,7 @@ UTC 저장과 현지 분석을 함께 만족하기 위해 시간별 집계는 `b
 - 1120px 초과는 12-column grid, 그 이하는 한 열 또는 두 열로 재배치한다.
 - 모든 버튼과 탭은 모바일에서 최소 44×44px hit area를 유지한다.
 
-페이지 상단에는 현장, 기간, 추정 출처, 마지막 집계 시각을 배치한다. 사용자가 기간을 바꾸면 같은 `generatedAt` 기준으로 KPI, 차트, 비교, 상세 목록을 함께 갱신한다.
+서브메뉴 아래 페이지 상단에는 현장, 기간, 추정 출처, 마지막 집계 시각을 배치한다. 사용자가 기간을 바꾸면 같은 `generatedAt` 기준으로 해당 페이지의 KPI, 차트, 비교, 상세 목록을 함께 갱신한다.
 
 ## 6. P0 — 절감 성과와 기준 비교
 
@@ -132,7 +179,7 @@ P0는 다음 질문에 즉시 답해야 한다.
 
 ### 6.2 P0 화면 예시
 
-![P0 절감률·기준 비교 UI 예시](../../assets/statistics-analytics/p0-savings-comparison-ui.png)
+![통계 개요 페이지 UI 예시](../../assets/statistics-analytics/statistics-overview-ui.png)
 
 예시 이미지는 정보 구조와 시각 우선순위를 설명한다. 표시 숫자는 예시 데이터이며 구현의 산식과 상태 규칙은 이 문서가 우선한다.
 
@@ -301,9 +348,17 @@ P1은 다음 질문에 답해야 한다.
 - 이번 달 목표와 예산 안에 들어오는가?
 - 목표를 달성하려면 남은 기간에 하루 평균 얼마나 줄여야 하는가?
 
-### 7.2 P1 화면 예시
+### 7.2 P1 화면 예시와 페이지 배치
 
-![P1 순위·낭비·목표 UI 예시](../../assets/statistics-analytics/p1-ranking-waste-target-ui.png)
+P1 기능은 한 페이지에 섞지 않고 탐색 목적과 관리 목적에 따라 나눈다.
+
+![통계 사용 분석 페이지 UI 예시](../../assets/statistics-analytics/statistics-analysis-ui.png)
+
+`사용 분석`은 사용량 순위와 선택 항목의 상세 추이를 제공한다. P2 배포 후 같은 페이지 아래에 요일×시간대 히트맵이 추가된다.
+
+![통계 최적화 페이지 UI 예시](../../assets/statistics-analytics/statistics-optimization-ui.png)
+
+`최적화`는 비운영 시간 낭비, 분석용 운영 시간 정책, 월 목표·예산을 하나의 행동 흐름으로 제공한다.
 
 ### 7.3 P1 선행 기반: 분석용 조명 정체성과 이력
 
@@ -516,9 +571,13 @@ P2는 다음 질문에 답해야 한다.
 - 절감한 에너지가 몇 kgCO₂e의 배출 저감에 해당하는가?
 - 보고서에 사용한 배출계수와 데이터 시점을 다시 확인할 수 있는가?
 
-### 8.2 P2 화면 예시
+### 8.2 P2 화면 예시와 페이지 배치
 
-![P2 히트맵·보고서·탄소 UI 예시](../../assets/statistics-analytics/p2-heatmap-report-carbon-ui.png)
+P2 히트맵은 기존 `사용 분석` 페이지를 확장하고, 외부 공유와 탄소 근거는 새 `보고서` 페이지에서 제공한다.
+
+![히트맵이 추가된 통계 사용 분석 페이지 UI 예시](../../assets/statistics-analytics/statistics-analysis-ui.png)
+
+![통계 보고서 페이지 UI 예시](../../assets/statistics-analytics/statistics-reports-ui.png)
 
 ### 8.3 기능 P2-1: 요일×시간대 히트맵
 
@@ -766,9 +825,13 @@ Site 삭제 작업은 미완료 report job을 먼저 취소하고 아직 유효�
 
 ### 12.4 Web unit
 
+- `/statistics`의 overview redirect와 query·hash 보존
+- 모든 `/statistics/*`에서 primary 통계 메뉴 active 유지
+- 배포 단계별 서브메뉴 노출과 미배포 route fallback
+- 페이지 전환 시 `siteId` 보존과 페이지 전용 filter 분리
 - loading, empty, partial, error, unavailable, overuse 상태
 - filter와 query key
-- keyboard tab/segmented control
+- keyboard link navigation과 페이지 내부 segmented control
 - 차트·표의 accessible name과 수치 대체 콘텐츠
 - viewer read-only와 admin CTA
 - report polling과 만료 상태
@@ -777,6 +840,8 @@ Site 삭제 작업은 미완료 report job을 먼저 취소하고 아직 유효�
 
 - 1440×900, 1024×768, 390×844, 320×740
 - document-level horizontal overflow 없음
+- 네 서브메뉴 직접 URL, 새로고침, 뒤로 가기, primary active 상태
+- 모바일 서브메뉴 내부 scroll과 44×44px link target
 - P0 기간 전환과 음수 절감
 - P1 ranking drilldown, 운영 시간, 목표 CRUD
 - P2 heatmap tooltip, CSV, report 생성·완료·download
@@ -792,7 +857,10 @@ Site 삭제 작업은 미완료 report job을 먼저 취소하고 아직 유효�
 ### 13.1 P0
 
 - DB migration 없음
-- 신규 endpoint와 Web UI를 feature flag로 배포
+- `StatisticsShell`, `StatisticsSubnavigation`, `/statistics/overview`를 먼저 배포
+- 기존 `/statistics`는 query·hash를 보존해 overview로 이동
+- 신규 comparison endpoint와 개요 UI를 feature flag로 배포
+- P1·P2 서브메뉴와 route는 노출하지 않음
 - coverage/forecast/negative savings telemetry 확인 후 기본 활성화
 - rollback은 Web flag 비활성화와 신규 endpoint 미사용으로 수행
 
@@ -800,12 +868,14 @@ Site 삭제 작업은 미완료 report job을 먼저 취소하고 아직 유효�
 
 - 1차 배포: identity/history/hourly schema와 dual-write
 - migration backfill과 검증 query 완료 후 신규 read model 활성화
-- 시간별 데이터 7일 축적 전 ranking만 활성화하고 waste는 대기 상태
+- `사용 분석`과 `최적화` 서브메뉴·route를 함께 추가
+- 시간별 데이터 7일 축적 전 사용 분석의 ranking은 활성화하고 최적화의 waste는 수집 대기 상태로 표시
 - rollback 시 dual-write는 유지하고 신규 UI만 비활성화해 이력 손실을 막는다.
 
 ### 13.3 P2
 
-- heatmap과 CSV 먼저 활성화
+- 사용 분석 페이지에 heatmap을 추가하고 `보고서` 서브메뉴·route를 활성화
+- heatmap과 CSV를 먼저 활성화
 - private storage, cleanup, worker recovery 검증 후 Excel/PDF 활성화
 - 승인된 emission factor가 지정된 site만 탄소 카드 활성화
 - report generator rollback은 신규 job 생성만 막고 기존 completed file download와 cleanup은 유지
@@ -848,3 +918,5 @@ P0는 기존 데이터로 먼저 가치를 제공한다. P1은 이후 분석 정
 - P2 히트맵·보고서·탄소 구현 계획
 
 각 계획은 수정할 정확한 파일, 신규 schema와 interface, migration 순서, RED/GREEN 테스트, 2~5분 단위 체크리스트, 단계별 검증 명령, 커밋 경계를 포함한다. 구현은 P0 계획부터 시작하며 P3는 계획 문서에 포함하지 않는다.
+
+세 계획 모두 네 페이지 최종 정보 구조를 공유한다. P0 계획은 shell과 overview 호환 route를 만들고, P1 계획은 analysis·optimization 페이지를 추가하며, P2 계획은 analysis에 heatmap을 확장하고 reports 페이지를 추가한다.
