@@ -31,7 +31,18 @@ for (const viewport of responsiveViewports) {
       await expect(page.locator(".brand-mark")).toBeVisible();
       const logout = page.getByRole("button", { name: "로그아웃", exact: true });
       await logout.hover();
-      await expect(page.getByRole("tooltip", { name: "로그아웃" })).toBeVisible();
+      const tooltip = page.getByRole("tooltip", { name: "로그아웃" });
+      await expect(tooltip).toBeVisible();
+      await tooltip.hover();
+      await expect(tooltip).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(tooltip).toHaveCount(0);
+
+      await page.mouse.move(0, 0);
+      await logout.focus();
+      await expect(tooltip).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(tooltip).toHaveCount(0);
     } else {
       await expect(rail).toHaveCount(0);
       await expect(bottomNav).toBeVisible();
@@ -44,6 +55,14 @@ for (const viewport of responsiveViewports) {
       expect(logoutBounds, "로그아웃 버튼의 실제 경계 상자").not.toBeNull();
       expect(logoutBounds!.width, "로그아웃 버튼 너비").toBeGreaterThanOrEqual(44);
       expect(logoutBounds!.height, "로그아웃 버튼 높이").toBeGreaterThanOrEqual(44);
+
+      const logout = page.getByRole("button", { name: "로그아웃", exact: true });
+      await logout.focus();
+      const tooltip = page.getByRole("tooltip", { name: "로그아웃" });
+      await expect(tooltip).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await page.keyboard.press("Escape");
+      await expect(tooltip).toHaveCount(0);
 
       const geometry = await page.locator(".app-shell").evaluate((shell, selector) => {
         const navigation = document.querySelector(selector)?.getBoundingClientRect();

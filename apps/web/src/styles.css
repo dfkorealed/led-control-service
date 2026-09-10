@@ -731,8 +731,12 @@ button {
 }
 
 .ui-icon-tooltip-button:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.6;
+}
+
+.ui-icon-tooltip-button[aria-busy="true"] {
+  cursor: wait;
 }
 
 .ui-icon-tooltip-label {
@@ -740,7 +744,7 @@ button {
   z-index: 60;
   top: calc(100% + 8px);
   left: 50%;
-  visibility: hidden;
+  max-width: calc(100vw - 24px);
   border-radius: 8px;
   background: #172033;
   color: #ffffff;
@@ -749,17 +753,24 @@ button {
   font-size: 12px;
   font-weight: 800;
   line-height: 1.2;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -4px);
-  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+  pointer-events: auto;
+  transform: translateX(-50%);
   white-space: nowrap;
 }
 
-.ui-icon-tooltip:is(:hover, :focus-within) .ui-icon-tooltip-label {
-  visibility: visible;
-  opacity: 1;
-  transform: translate(-50%, 0);
+.ui-icon-tooltip-label::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: 8px;
+  content: "";
+}
+
+:is(.topbar-actions, .operator-header-actions) .ui-icon-tooltip-label {
+  right: 0;
+  left: auto;
+  transform: none;
 }
 
 .eyebrow {

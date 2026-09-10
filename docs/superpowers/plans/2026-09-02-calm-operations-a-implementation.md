@@ -202,6 +202,14 @@ git add apps/web/src/components/ui apps/web/src/features/shells/CustomerShell.ts
 git commit -m "feat(web): establish corrected calm operations shell"
 ```
 
+#### Task 1 후속 보완: 공통 셸 현장 정보·아이콘 도움말 (2026-09-10)
+
+- [x] 고객 셸의 층명 배지를 실제 현장명 배지로 교체하고 기존 위치의 중복 현장명을 제거했다.
+- [x] 표시 전용 Gateway 상태 문구만 공통 셸에서 제거하고 설정의 실제 `Gateway 상태` 상세 기능은 유지했다.
+- [x] 고객·운영자 로그아웃의 위치와 동작을 유지한 채 공통 `IconTooltipButton`으로 통합했다.
+- [x] 독립 검토에서 확인된 도움말 hover 유지와 `Escape` 닫기 접근성 문제를 TDD로 보완했다.
+- [x] 1440/1024/390/320 Chromium에서 현장 배지, 도움말 hover·focus·Escape, 52px 터치 영역과 가로 overflow 부재를 확인했다.
+
 ---
 
 ### Task 2: Login and global operator surfaces

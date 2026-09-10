@@ -1,7 +1,7 @@
 import { CircleAlert, CircleCheck, LogOut } from "lucide-react";
 import { readFileSync } from "node:fs";
 import { createRef } from "react";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Button, FeedbackState, IconTooltipButton, MetricCard, PageHeader, ProgressSteps, SidePanel, StatusBadge } from ".";
 import type { StatusTone } from ".";
@@ -37,12 +37,18 @@ describe("Calm Operations UI primitives", () => {
     render(<IconTooltipButton icon={LogOut} label="로그아웃" />);
 
     const button = screen.getByRole("button", { name: "로그아웃" });
-    const tooltip = screen.getByRole("tooltip", { hidden: true });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+    fireEvent.focus(button);
+    const tooltip = screen.getByRole("tooltip");
 
     expect(button).toHaveClass("ui-icon-tooltip-button");
     expect(button).toHaveAttribute("aria-describedby", tooltip.id);
     expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(tooltip).toHaveTextContent("로그아웃");
+
+    fireEvent.keyDown(button, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("renders status with an icon and visible label", () => {
