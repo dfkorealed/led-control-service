@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { changePassword, logout, type AuthUser } from "../../api/auth";
-import { authMeQueryKey, replacePrincipalCache } from "../../api/principal-cache";
+import { authMeQueryKey } from "../../api/principal-cache";
 import { activeCommandStorageKey, saveActiveCommandId } from "../control/active-command-store";
 import { useFloorEditorStore } from "../floor-editor/editor-store";
 import { RequiredPasswordChangeView } from "./RequiredPasswordChangeView";
@@ -26,16 +27,16 @@ const pendingUser: AuthUser = {
 };
 const changedUser: AuthUser = { ...pendingUser, mustChangePassword: false };
 
-function renderView(queryClient = new QueryClient()) {
-  const onAuthenticated = vi.fn(async (auth: { user: AuthUser }) => {
-    await replacePrincipalCache(queryClient, auth);
-  });
+function renderView(queryClient = new QueryClient(), strict = false) {
+  queryClient.setQueryData(authMeQueryKey, { user: pendingUser });
+  const onCompleted = vi.fn();
+  const view = <QueryClientProvider client={queryClient}>
+    <RequiredPasswordChangeView user={pendingUser} onCompleted={onCompleted} />
+  </QueryClientProvider>;
   const result = render(
-    <QueryClientProvider client={queryClient}>
-      <RequiredPasswordChangeView user={pendingUser} onAuthenticated={onAuthenticated} />
-    </QueryClientProvider>
+    strict ? <StrictMode>{view}</StrictMode> : view
   );
-  return { ...result, queryClient, onAuthenticated };
+  return { ...result, queryClient, onCompleted };
 }
 
 function fillPasswords(currentPassword = "temporary-password", newPassword = "new-password") {
@@ -82,12 +83,12 @@ describe("RequiredPasswordChangeView", () => {
     queryClient.setQueryData(["dashboard", "site-1"], { secret: "tenant-data" });
     saveActiveCommandId(pendingUser.id, "site-1", "00000000-0000-4000-8000-000000000001");
     useFloorEditorStore.setState({ isDirty: true });
-    const { onAuthenticated } = renderView(queryClient);
+    const { onCompleted } = renderView(queryClient);
     fillPasswords();
 
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
 
-    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith({ user: changedUser }));
+    await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
     expect(queryClient.getQueryData(authMeQueryKey)).toEqual({ user: changedUser });
     expect(queryClient.getQueryData(["dashboard", "site-1"])).toBeUndefined();
     expect(sessionStorage.getItem(activeCommandStorageKey(pendingUser.id, "site-1"))).toBeNull();
@@ -100,7 +101,7 @@ describe("RequiredPasswordChangeView", () => {
     changePasswordMock
       .mockRejectedValueOnce(new Error("network unavailable"))
       .mockResolvedValueOnce({ ok: true, user: changedUser });
-    const { onAuthenticated } = renderView();
+    const { onCompleted } = renderView();
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
 
@@ -112,7 +113,7 @@ describe("RequiredPasswordChangeView", () => {
 
     fillPasswords("temporary-password-2", "new-password-2");
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
-    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith({ user: changedUser }));
+    await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
     expect(changePasswordMock).toHaveBeenCalledTimes(2);
   });
 
@@ -132,6 +133,33 @@ describe("RequiredPasswordChangeView", () => {
     expect(logoutMock).not.toHaveBeenCalled();
 
     await act(async () => resolveRequest?.({ ok: true, user: changedUser }));
+  });
+
+  it("React.StrictMode의 effect 재실행 뒤에도 현재 작업 응답을 적용한다", async () => {
+    changePasswordMock.mockResolvedValue({ ok: true, user: changedUser });
+    const { queryClient, onCompleted } = renderView(new QueryClient(), true);
+    fillPasswords();
+
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+
+    await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
+    expect(queryClient.getQueryData(authMeQueryKey)).toEqual({ user: changedUser });
+  });
+
+  it("unmount 뒤 도착한 성공 응답으로 principal cache를 되살리지 않는다", async () => {
+    let resolveRequest: ((value: { ok: true; user: AuthUser }) => void) | undefined;
+    changePasswordMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve; }));
+    const queryClient = new QueryClient();
+    const { unmount, onCompleted } = renderView(queryClient);
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    unmount();
+    queryClient.setQueryData(authMeQueryKey, null);
+
+    await act(async () => resolveRequest?.({ ok: true, user: changedUser }));
+
+    expect(queryClient.getQueryData(authMeQueryKey)).toBeNull();
+    expect(onCompleted).not.toHaveBeenCalled();
   });
 
   it("로그아웃 성공 시 현재 principal과 tenant·활성 명령·편집기 상태를 정리한다", async () => {

@@ -58,9 +58,8 @@ function AppContent({ onAuthenticated }: { onAuthenticated: Parameters<typeof Au
   }
 
   if (auth.user.mustChangePassword) {
-    return <RequiredPasswordChangeView user={auth.user} onAuthenticated={async (nextAuth) => {
+    return <RequiredPasswordChangeView user={auth.user} onCompleted={() => {
       navigate("/monitoring", { replace: true });
-      await onAuthenticated(nextAuth);
     }} />;
   }
 

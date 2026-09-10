@@ -46,3 +46,29 @@ pnpm --filter @led-control/web exec vitest run src/App.test.tsx src/features/aut
 - 강제 변경 상태에서는 shell이 mount되지 않아 dashboard/tenant route query가 시작되지 않는다.
 - 실패 경로에서 명령 session block을 해제하고, 성공/로그아웃 경로에서 사용자별 복구 record와 tenant/editor cache를 정리한다.
 - Task 8 외 기존 dirty 파일과 계획·메뉴·상태 문서는 수정하거나 stage하지 않는다.
+
+## Fix Round 1 (2026-09-11)
+
+### RED
+
+- `React.StrictMode`의 effect setup-cleanup 재실행 뒤 `mountedRef`가 `false`로 남아 성공 응답을 무시하는 테스트를 재현했다.
+- 설정 화면의 지연 응답이 로그아웃·계정 전환 후 이전 principal을 인증 캐시에 다시 기록하는 테스트를 재현했다.
+- principal cache 갱신의 `cancelQueries` 대기 중 계정이 바뀌는 경합을 재현했다.
+- API `PasswordService`가 1024자 초과와 공백-only 비밀번호를 허용하는 테스트 실패를 확인했다.
+
+### GREEN
+
+- 강제 변경 화면에 StrictMode-safe lifecycle generation, 작업 token, 요청 당시 principal scope 검사를 적용했다.
+- 비밀번호 변경과 로그아웃은 화면·작업·principal이 모두 현재인 경우에만 cache 및 UI 상태를 갱신한다.
+- 설정 화면도 unmount generation과 요청 당시 principal guard를 사용하며, cache 정리 내부 `await` 전후로 principal을 재검증한다.
+- API 해시 진입점에서 8..1024자 및 공백-only 거절을 강제했다. 앞뒤 공백이 포함된 실제 비밀번호는 가공하지 않는다.
+
+### 검증
+
+- Web 지정 테스트: 3개 파일, 85개 통과
+- API password/auth 집중 테스트: 4개 suite, 55개 통과
+- Web typecheck: 통과
+- API typecheck: 통과
+- Web production build: 통과
+- `git diff --check` (Task 8 Fix Round 1 범위): 통과
+- 기존 Web main chunk 500 kB 초과 경고만 남았으며 이번 수정의 실패 사항은 아니다.

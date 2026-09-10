@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import { changePassword, type AuthUser } from "../../../api/auth";
@@ -19,8 +19,15 @@ const changedUser: AuthUser = {
   status: "active",
   mustChangePassword: false
 };
+const otherUser: AuthUser = {
+  ...changedUser,
+  id: "user-2",
+  organizationId: "organization-2",
+  loginId: "viewer_02"
+};
 
 function renderView(queryClient = new QueryClient()) {
+  queryClient.setQueryData(authMeQueryKey, { user: changedUser });
   render(<QueryClientProvider client={queryClient}><PasswordSettingsView /></QueryClientProvider>);
   return queryClient;
 }
@@ -165,5 +172,38 @@ describe("PasswordSettingsView", () => {
     expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain("current-secret");
     expect(JSON.stringify(queryClient.getMutationCache().getAll())).not.toContain("new-secret");
     expect(changePasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("로그아웃이나 계정 전환 뒤 도착한 지연 응답으로 이전 principal을 복원하지 않는다", async () => {
+    let resolveRequest: ((value: { ok: true; user: AuthUser }) => void) | undefined;
+    changePasswordMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve; }));
+    const queryClient = renderView();
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    queryClient.setQueryData(authMeQueryKey, { user: otherUser });
+
+    await act(async () => resolveRequest?.({ ok: true, user: changedUser }));
+
+    expect(queryClient.getQueryData(authMeQueryKey)).toEqual({ user: otherUser });
+    expect(screen.queryByText("비밀번호를 변경했습니다.")).not.toBeInTheDocument();
+  });
+
+  it("cache 갱신의 await 중 principal이 바뀌면 이전 응답 적용을 중단한다", async () => {
+    let releaseCancellation: (() => void) | undefined;
+    const queryClient = new QueryClient();
+    vi.spyOn(queryClient, "cancelQueries").mockImplementation(() => new Promise((resolve) => {
+      releaseCancellation = () => resolve();
+    }));
+    changePasswordMock.mockResolvedValue({ ok: true, user: changedUser });
+    renderView(queryClient);
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    await waitFor(() => expect(releaseCancellation).toBeTypeOf("function"));
+    queryClient.setQueryData(authMeQueryKey, { user: otherUser });
+
+    await act(async () => releaseCancellation?.());
+
+    expect(queryClient.getQueryData(authMeQueryKey)).toEqual({ user: otherUser });
+    expect(screen.queryByText("비밀번호를 변경했습니다.")).not.toBeInTheDocument();
   });
 });
