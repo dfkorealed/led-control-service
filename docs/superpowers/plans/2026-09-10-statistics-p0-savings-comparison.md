@@ -156,7 +156,7 @@ expect(comparisonRanges("current_month", new Date("2026-09-10T03:00:00Z"), "Asia
 - Consumes: Task 1 response type, Task 2 range helper, existing daily aggregates and open-cursor projection.
 - Produces: `EnergyAnalyticsQueryService.getComparison(user, siteId, preset): Promise<EnergyComparisonResponse>` and `GET /energy/sites/:siteId/comparisons?preset=...`.
 
-- [ ] **Step 1: 절감·초과·forecast 불가 서비스 테스트를 작성한다.**
+- [x] **Step 1: 절감·초과·forecast 불가 서비스 테스트를 작성한다.**
 
 ```ts
 expect(result.summary).toMatchObject({
@@ -170,22 +170,22 @@ expect(overuse.summary).toMatchObject({ savingsKwh: -10, savingsRatePercent: -10
 expect(insufficient.summary).toMatchObject({ estimatedKwh: null, savingsRatePercent: null, outcome: "unavailable" });
 ```
 
-- [ ] **Step 2: endpoint 실패를 확인한다.**
+- [x] **Step 2: endpoint 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-analytics-query.service.spec.ts src/energy/energy.service.spec.ts`
   - Expected: FAIL because analytics provider and comparison facade are absent.
 
-- [ ] **Step 3: 공통 projection 코드를 read model로 추출한다.**
+- [x] **Step 3: 공통 projection 코드를 read model로 추출한다.**
   - 기존 summary·series 결과 fixture를 먼저 고정한다.
   - `loadSite`, `loadFixtures`, `buildFixtureValues`, `summarizeValues`, rounding helper를 이동한다.
   - 기존 `EnergyService.getSiteSummary/getSiteSeries`는 analytics service에 위임하고 응답 snapshot이 기존 fixture와 동일하게 유지되도록 한다.
 
-- [ ] **Step 4: comparison 계산을 구현한다.**
+- [x] **Step 4: comparison 계산을 구현한다.**
   - baseline은 현재 fixture 정격 W와 각 현지 날짜의 실제 seconds를 사용한다.
   - current month 미래 point는 fixture별 observed kWh/knownSeconds rate를 남은 현지 날짜 seconds에 적용한다.
   - prior comparison은 완료 날짜만 합산하며 분모가 0 또는 데이터 없음이면 change rate를 null로 둔다.
   - 모든 ratio는 Decimal로 계산한 뒤 response boundary에서 반올림한다.
 
-- [ ] **Step 5: 접근 검증과 controller query를 연결한다.**
+- [x] **Step 5: 접근 검증과 controller query를 연결한다.**
 
 ```ts
 @Get("sites/:siteId/comparisons")
@@ -197,12 +197,12 @@ getSiteComparisons(@CurrentUser() user: AuthenticatedUser, @Param("siteId") site
   - `SiteAccessService.assert(user, siteId, "read")`가 aggregate query보다 먼저 호출됨을 mock order로 검증한다.
   - 잘못된 preset은 400, 다른 tenant site는 기존 access 정책의 404가 된다.
 
-- [ ] **Step 6: API 회귀를 검증한다.**
+- [x] **Step 6: API 회귀를 검증한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy`
   - Run: `pnpm --filter @led-control/api typecheck`
   - Expected: comparison tests plus existing summary/series/ingestion tests PASS.
 
-- [ ] **Step 7: 커밋한다.**
+- [x] **Step 7: 커밋한다.**
   - Run: `git add apps/api/src/energy && git commit -m "feat(api): add energy savings comparisons"`
 
 ### Task 4: 통계 shell과 overview 호환 route

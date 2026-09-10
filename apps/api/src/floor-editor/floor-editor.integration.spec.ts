@@ -14,6 +14,7 @@ import { EDITOR_MAX_BODY_BYTES } from "@led-control/shared";
 import { TargetSnapshotService } from "../automation/target-snapshot.service";
 import { FixturesService } from "../fixtures/fixtures.service";
 import { EnergyService } from "../energy/energy.service";
+import { EnergyAnalyticsQueryService } from "../energy/energy-analytics-query.service";
 import { createHash, randomUUID } from "node:crypto";
 
 const databaseUrl = process.env.FLOOR_EDITOR_TEST_DATABASE_URL;
@@ -373,7 +374,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       fixtureId: ids.fixtureId, localDate: new Date("2026-09-01T00:00:00Z") } },
       create: { fixtureId: ids.fixtureId, localDate: new Date("2026-09-01T00:00:00Z"), estimatedKwh: "0.48", estimatedCost: "48", knownSeconds: 86400, unknownSeconds: 0 },
       update: { estimatedKwh: "0.48", estimatedCost: "48" } });
-    const energy = new EnergyService(prisma, siteAccess);
+    const energy = new EnergyService(prisma, siteAccess, new EnergyAnalyticsQueryService(prisma, siteAccess));
     const fixtures = new FixturesService(prisma, siteAccess);
     const editor = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
     const targets = new TargetSnapshotService();

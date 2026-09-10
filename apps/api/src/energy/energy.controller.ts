@@ -2,6 +2,7 @@ import { Controller, Get, Header, Param, Query, UseGuards } from "@nestjs/common
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
+import { parseComparisonPreset } from "./energy-comparison-query";
 import { EnergyService } from "./energy.service";
 
 @UseGuards(SessionAuthGuard)
@@ -24,6 +25,15 @@ export class EnergyController {
   @Get("sites/:siteId/summary")
   getSiteSummary(@CurrentUser() user: AuthenticatedUser, @Param("siteId") siteId: string) {
     return this.energyService.getSiteSummary(user, siteId);
+  }
+
+  @Get("sites/:siteId/comparisons")
+  getSiteComparisons(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("siteId") siteId: string,
+    @Query("preset") preset: string
+  ) {
+    return this.energyService.getSiteComparisons(user, siteId, parseComparisonPreset(preset));
   }
 
   @Get("sites/:siteId/series")

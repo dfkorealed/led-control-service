@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { EnergyService } from "./energy.service";
+import { EnergyAnalyticsQueryService } from "./energy-analytics-query.service";
 import { energySeriesResponseSchema, energySummarySchema } from "@led-control/shared";
 
 const databaseUrl = process.env.ENERGY_QUERY_TEST_DATABASE_URL ?? process.env.FIXTURE_STATE_TEST_DATABASE_URL;
@@ -29,7 +30,8 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
     process.env.DATABASE_URL = databaseUrl;
     prisma = new PrismaService();
     await prisma.$connect();
-    service = new EnergyService(prisma, { assert: jest.fn().mockResolvedValue({ id: ids.siteId }) } as never);
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.siteId }) } as never;
+    service = new EnergyService(prisma, siteAccess, new EnergyAnalyticsQueryService(prisma, siteAccess));
     await prisma.organization.upsert({
       where: { id: ids.organizationId },
       create: { id: ids.organizationId, name: "Energy query", type: "customer" },
