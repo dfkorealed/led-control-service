@@ -9,6 +9,7 @@ vi.mock("../settings/floor-plans/FloorEditorRoute", () => ({ FloorEditorRoute: (
 vi.mock("../monitoring/MonitoringView", () => ({ MonitoringView: () => <p>모니터링 화면</p> }));
 vi.mock("../control/ControlView", () => ({ ControlView: () => <p>제어 화면</p> }));
 vi.mock("../statistics/StatisticsView", () => ({ StatisticsView: () => <p>통계 화면</p> }));
+vi.mock("../settings/users/SiteUsersView", () => ({ SiteUsersView: ({ siteId }: { siteId?: string }) => <p data-testid="site-users-view">유저 관리 화면 {siteId}</p> }));
 const dashboardState = vi.hoisted(() => ({
   current: {
     data: undefined as ReturnType<typeof dashboardFor> | undefined,
@@ -131,5 +132,11 @@ describe("customer shell editor floor context", () => {
     fireEvent.focus(screen.getByRole("link", { name: "설정" }));
     const labels = screen.getAllByRole("link").map((link) => link.textContent);
     expect(labels.indexOf("유저 관리")).toBeLessThan(labels.indexOf("조명 등록"));
+  });
+
+  it("mounts the real site user management route with the selected site", () => {
+    renderShell("/settings/users?siteId=site");
+
+    expect(screen.getByTestId("site-users-view")).toHaveTextContent("유저 관리 화면 site");
   });
 });

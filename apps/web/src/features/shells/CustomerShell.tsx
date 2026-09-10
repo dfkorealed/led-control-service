@@ -20,6 +20,7 @@ import { FloorPlanSettingsView } from "../settings/floor-plans/FloorPlanSettings
 import { SettingsView } from "../settings/SettingsView";
 import { RegistrationSettingsView } from "../settings/registration/RegistrationSettingsView";
 import { PasswordSettingsView } from "../settings/security/PasswordSettingsView";
+import { SiteUsersView } from "../settings/users/SiteUsersView";
 import { StatisticsView } from "../statistics/StatisticsView";
 import { SettingsNavigationItem } from "./SettingsNavigationItem";
 
@@ -222,7 +223,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             <Route
               path="users"
               element={capabilities.manage
-                ? <section className="settings-screen"><h2>유저 관리</h2></section>
+                ? <SiteUsersView siteId={selectedSiteId} />
                 : <Navigate to={`/settings${location.search}`} replace />}
             />
             <Route
