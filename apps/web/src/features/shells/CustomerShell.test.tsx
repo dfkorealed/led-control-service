@@ -13,20 +13,17 @@ vi.mock("../../api/queries", async (original) => ({
   })
 }));
 
-describe("customer shell editor floor context", () => {
+describe("customer shell site context", () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-  it.each(["b1", "b2", "unknown"])("uses the %s editor route, not the first dashboard floor", (floor) => {
+  it.each(["b1", "b2", "unknown"])("keeps the site badge independent of the %s editor route", (floor) => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
     render(<QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[`/settings/floor-plans/floor-${floor}/edit?siteId=site`]}>
         <CustomerShell user={{ id: "user", organizationId: "org", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active" }} />
       </MemoryRouter>
     </QueryClientProvider>);
-    if (floor === "unknown") {
-      expect(screen.queryByTestId("active-floor-badge")).not.toBeInTheDocument();
-    } else {
-      expect(screen.getByTestId("active-floor-badge")).toHaveTextContent(`${floor.toUpperCase()} 주차장`);
-    }
+    expect(screen.getByTestId("active-site-badge")).toHaveTextContent("현장");
+    expect(screen.queryByTestId("active-floor-badge")).not.toBeInTheDocument();
   });
 });

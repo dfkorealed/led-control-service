@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiGet, apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
@@ -552,6 +552,25 @@ describe("App", () => {
     expect(screen.queryByRole("heading", { name: "현장 관리자 계정" })).not.toBeInTheDocument();
   });
 
+  it("moves the site name into the header badge and removes the display-only gateway status", async () => {
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    const siteBadge = await screen.findByTestId("active-site-badge");
+    const topbar = siteBadge.closest<HTMLElement>(".topbar");
+
+    expect(siteBadge).toHaveTextContent("Demo Underground Parking");
+    expect(siteBadge).not.toHaveTextContent("B2 주차장");
+    expect(topbar).not.toBeNull();
+    expect(within(topbar!).queryByText(/게이트웨이 (정상|오프라인|미등록)/)).not.toBeInTheDocument();
+    expect(topbar?.querySelector(".eyebrow")).not.toBeInTheDocument();
+    expect(within(topbar!).getByRole("button", { name: "로그아웃" }).querySelector("svg")).toBeInTheDocument();
+  });
+
   it("redirects a pending admin from monitoring to initial settings while preserving siteId", async () => {
     window.history.pushState({}, "", "/monitoring?siteId=site-2");
     apiState.dashboard = {
@@ -790,7 +809,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
 
-  it("shows unregistered gateway status when the dashboard has no gateways", async () => {
+  it("keeps gateway absence details in settings while omitting them from the shell header", async () => {
     apiState.dashboard = {
       ...mockDashboard,
       gateways: []
@@ -802,8 +821,12 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("게이트웨이 미등록")).toBeInTheDocument();
-    expect(screen.queryByText("게이트웨이 정상")).not.toBeInTheDocument();
+    const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>(".topbar");
+    expect(topbar).not.toBeNull();
+    expect(within(topbar!).queryByText("게이트웨이 미등록")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "설정" }));
+    expect(await screen.findByRole("group", { name: "Gateway 상태" })).toHaveTextContent("미등록");
   });
 
   it("shows actual gateway values in settings", async () => {

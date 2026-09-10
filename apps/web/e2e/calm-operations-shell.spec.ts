@@ -29,6 +29,9 @@ for (const viewport of responsiveViewports) {
       await expect(rail).toHaveCSS("width", "92px");
       await expect(topbar).toHaveCSS("min-height", "72px");
       await expect(page.locator(".brand-mark")).toBeVisible();
+      const logout = page.getByRole("button", { name: "로그아웃", exact: true });
+      await logout.hover();
+      await expect(page.getByRole("tooltip", { name: "로그아웃" })).toBeVisible();
     } else {
       await expect(rail).toHaveCount(0);
       await expect(bottomNav).toBeVisible();
@@ -54,8 +57,9 @@ for (const viewport of responsiveViewports) {
     }
 
     await expect(bottomNav.locator(".nav-item.active")).toHaveCount(viewport.width <= 760 ? 1 : 0);
-    await expect(page.locator(".topbar .status-pill")).toHaveAttribute("data-tone", "success");
-    await expect(page.locator(".topbar .status-pill svg")).toHaveAttribute("aria-hidden", "true");
+    await expect(page.getByTestId("active-site-badge")).toHaveText("고객사 B2 현장");
+    await expect(page.getByTestId("active-floor-badge")).toHaveCount(0);
+    await expect(page.locator(".topbar .status-pill")).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
   });
 }

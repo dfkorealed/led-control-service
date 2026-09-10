@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Activity, BarChart3, CircleAlert, CircleCheck, MapPin, SlidersHorizontal } from "lucide-react";
+import { Activity, BarChart3, LogOut, MapPin, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Navigate, NavLink, Route, Routes, matchPath, useLocation } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { useDashboard } from "../../api/queries";
+import { IconTooltipButton } from "../../components/ui";
 import { ControlView } from "../control/ControlView";
 import {
   blockActiveCommandSession,
@@ -65,15 +66,6 @@ export function CustomerShell({ user }: { user: AuthUser }) {
     refetch: refetchDashboard
   } = useDashboard(siteId);
   const selectedSiteId = siteId ?? dashboard?.site.id;
-  const editorRoute = matchPath("/settings/floor-plans/:floorId/edit", location.pathname);
-  const displayedFloor = editorRoute
-    ? dashboard?.floors.find((floor) => floor.id === editorRoute.params.floorId)
-    : dashboard?.floors[0];
-  const gateway = dashboard?.gateways[0];
-  const gatewayStatusLabel = gateway ? (gateway.connectionStatus === "online" ? "게이트웨이 정상" : "게이트웨이 오프라인") : "게이트웨이 미등록";
-  const gatewayStatusClass = gateway?.connectionStatus === "online" ? "online" : "offline";
-  const gatewayStatusTone = gateway?.connectionStatus === "online" ? "success" : gateway ? "danger" : "neutral";
-  const GatewayStatusIcon = gateway?.connectionStatus === "online" ? CircleCheck : CircleAlert;
 
   useEffect(() => {
     unblockActiveCommandSession(user.id);
@@ -163,21 +155,21 @@ export function CustomerShell({ user }: { user: AuthUser }) {
       <main className="content">
         <header className="topbar">
           <div>
-            <span className="eyebrow">{dashboard?.site.name || "현장 미등록"}</span>
             <h1>{titleForPath(location.pathname)}</h1>
           </div>
-          <div className="topbar-actions" aria-label="현장 상태">
-            {(!editorRoute || displayedFloor) && <span className="site-pill" data-testid="active-floor-badge">
-              <MapPin size={16} />
-              {displayedFloor?.name ?? "층 미등록"} 주차장
-            </span>}
-            <span className={`status-pill ${gatewayStatusClass}`} data-tone={gatewayStatusTone}>
-              <GatewayStatusIcon size={16} aria-hidden="true" />
-              {gatewayStatusLabel}
+          <div className="topbar-actions" aria-label="현장 정보">
+            <span className="site-pill" data-testid="active-site-badge">
+              <MapPin size={16} aria-hidden="true" />
+              {dashboard?.site.name || "현장 미등록"}
             </span>
-            <button className="logout-button" onClick={handleLogout} disabled={isLoggingOut}>
-              {isLoggingOut ? "로그아웃 중" : "로그아웃"}
-            </button>
+            <IconTooltipButton
+              className="logout-button"
+              icon={LogOut}
+              label="로그아웃"
+              loadingLabel="로그아웃 중"
+              isLoading={isLoggingOut}
+              onClick={handleLogout}
+            />
             {logoutError ? <span className="danger-text" role="alert">{logoutError}</span> : null}
           </div>
         </header>

@@ -4,6 +4,8 @@ export { Card } from "./Card";
 export type { CardTone } from "./Card";
 export { FeedbackState } from "./FeedbackState";
 export type { FeedbackTone } from "./FeedbackState";
+export { IconTooltipButton } from "./IconTooltipButton";
+export type { IconTooltipButtonProps } from "./IconTooltipButton";
 export { MetricCard } from "./MetricCard";
 export type { MetricTone } from "./MetricCard";
 export { PageHeader } from "./PageHeader";

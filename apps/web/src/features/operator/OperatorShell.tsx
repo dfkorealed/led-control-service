@@ -5,8 +5,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { SiteAdminManagementView } from "./site-admins/SiteAdminManagementView";
-import { Button } from "../../components/ui/Button";
 import { FeedbackState } from "../../components/ui/FeedbackState";
+import { IconTooltipButton } from "../../components/ui/IconTooltipButton";
 
 export function OperatorShell({ user }: { user: AuthUser }) {
   const queryClient = useQueryClient();
@@ -39,10 +39,14 @@ export function OperatorShell({ user }: { user: AuthUser }) {
         </div>
         <div className="operator-header-actions">
           <span className="operator-login-id">{user.loginId}</span>
-          <Button className="logout-button" variant="ghost" onClick={handleLogout} isLoading={isLoggingOut} loadingLabel="로그아웃 중">
-            <LogOut size={16} />
-            로그아웃
-          </Button>
+          <IconTooltipButton
+            className="logout-button"
+            icon={LogOut}
+            label="로그아웃"
+            loadingLabel="로그아웃 중"
+            isLoading={isLoggingOut}
+            onClick={handleLogout}
+          />
         </div>
       </header>
       <main className="operator-content">

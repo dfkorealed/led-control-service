@@ -415,7 +415,6 @@ button {
 .operator-header .logout-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
 }
 
 .operator-content {
@@ -703,6 +702,64 @@ button {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.ui-icon-tooltip {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.ui-icon-tooltip-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  min-width: 52px;
+  height: 52px;
+  min-height: 52px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--primary);
+  padding: 0;
+  cursor: pointer;
+}
+
+.ui-icon-tooltip-button:is(:hover, :focus-visible) {
+  background: var(--primary-soft);
+}
+
+.ui-icon-tooltip-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.ui-icon-tooltip-label {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 8px);
+  left: 50%;
+  visibility: hidden;
+  border-radius: 8px;
+  background: #172033;
+  color: #ffffff;
+  padding: 6px 9px;
+  box-shadow: var(--shadow-popover);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -4px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+  white-space: nowrap;
+}
+
+.ui-icon-tooltip:is(:hover, :focus-within) .ui-icon-tooltip-label {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .eyebrow {

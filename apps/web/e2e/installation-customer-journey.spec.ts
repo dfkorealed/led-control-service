@@ -96,7 +96,8 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("link", { name: "모니터링" }).click();
   await admin.reload();
   await expect(admin.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
-  await expect(admin.getByText("게이트웨이 정상")).toBeVisible();
+  await expect(admin.getByTestId("active-site-badge")).toHaveText(siteName);
+  await expect(admin.locator(".topbar .status-pill")).toHaveCount(0);
 
   await admin.getByRole("link", { name: "제어" }).click();
   await expect(admin.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
