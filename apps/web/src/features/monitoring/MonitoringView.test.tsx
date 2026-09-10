@@ -95,7 +95,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
   });
 
-  it("presents only the three operational metrics above the map and selected fixture detail", () => {
+  it("presents offline fixtures immediately after the inspection metric", () => {
     const faultFixture = {
       ...fixture,
       id: "fixture-2",
@@ -103,8 +103,15 @@ describe("MonitoringView refresh", () => {
       brightness: 72,
       status: "fault" as const
     };
+    const awaitingFixture = {
+      ...fixture,
+      id: "fixture-3",
+      name: "B1-L003",
+      status: "offline" as const,
+      statusReason: "provisioning_waiting_state" as const
+    };
     queryMocks.useFloorFixtures.mockReturnValue({
-      data: { pages: [{ items: [fixture, faultFixture], nextCursor: null }] },
+      data: { pages: [{ items: [fixture, faultFixture, awaitingFixture], nextCursor: null }] },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
       error: null,
       isPending: false,
@@ -120,9 +127,18 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "층 선택" })).toHaveValue("floor-1");
-    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("3");
     expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
+    const offlineMetric = screen.getByRole("group", { name: "오프라인" });
+    expect(offlineMetric).toHaveTextContent("1");
+    expect(offlineMetric).toHaveTextContent("상태 확인 대기 포함");
+    expect(within(offlineMetric.parentElement!).getAllByRole("group").map((metric) => metric.getAttribute("aria-label"))).toEqual([
+      "전체 조명",
+      "정상",
+      "점검 필요",
+      "오프라인"
+    ]);
     expect(screen.queryByRole("group", { name: "평균 밝기" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "빠른 상태" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();

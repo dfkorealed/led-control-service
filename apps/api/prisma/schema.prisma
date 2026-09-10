@@ -56,6 +56,11 @@ enum UserStatus {
   disabled
 }
 
+enum SiteAccessLevel {
+  read
+  control
+}
+
 enum ProvisioningSessionStatus {
   active
   completed
@@ -171,6 +176,7 @@ model User {
   passwordHash             String
   role                     UserRole
   status                   UserStatus            @default(active)
+  mustChangePassword       Boolean               @default(false)
   organization             Organization          @relation(fields: [organizationId], references: [id])
   administeredSite         Site?                 @relation("SiteAdmin")
   commands                 Command[]
@@ -263,12 +269,13 @@ model Floor {
 }
 
 model SiteMembership {
-  id        String   @id @default(uuid())
-  userId    String
-  siteId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id          String          @id @default(uuid())
+  userId      String
+  siteId      String
+  accessLevel SiteAccessLevel @default(read)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  site        Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdAt   DateTime        @default(now())
 
   @@unique([userId, siteId])
   @@index([siteId])
@@ -688,7 +695,7 @@ model MeshControlGroupMember {
 model Command {
   id                 String            @id @default(uuid())
   siteId             String
-  requestedBy        String
+  requestedBy        String?
   clientRequestId    String
   requestFingerprint String
   targetType         String
@@ -698,14 +705,13 @@ model Command {
   status             CommandStatus     @default(pending)
   errorMessage       String?
   site               Site              @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  user               User              @relation(fields: [requestedBy], references: [id])
+  user               User?             @relation(fields: [requestedBy], references: [id], onDelete: SetNull)
   dispatches         CommandDispatch[]
   manualOverride     ManualOverride?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
   @@unique([siteId, requestedBy, clientRequestId])
-  @@unique([id, siteId, requestedBy])
   @@index([siteId, createdAt])
 }
 
@@ -917,7 +923,7 @@ model ManualOverride {
   siteId            String
   gatewayId         String
   commandId         String                  @unique
-  requestedById     String
+  requestedById     String?
   brightnessPercent Int
   startedAt         DateTime
   overrideUntil     DateTime
@@ -925,14 +931,13 @@ model ManualOverride {
   targetCount       Int                     @default(0)
   site              Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
   gateway           Gateway                 @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade, onUpdate: Restrict)
-  command           Command                 @relation(fields: [commandId, siteId, requestedById], references: [id, siteId, requestedBy], onDelete: Cascade, onUpdate: Restrict)
-  requestedBy       User                    @relation("ManualOverrideRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  command           Command                 @relation(fields: [commandId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  requestedBy       User?                   @relation("ManualOverrideRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull, onUpdate: Restrict)
   fixtures          ManualOverrideFixture[]
   executions        AutomationExecution[]   @relation("ManualOverrideExecutions")
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
 
-  @@unique([commandId, siteId, requestedById])
   @@unique([id, siteId, gatewayId])
   @@index([siteId, overrideUntil])
   @@index([gatewayId, overrideUntil])
@@ -1047,7 +1052,7 @@ model Session {
   ipAddress  String?
   expiresAt  DateTime
   revokedAt  DateTime?
-  user       User      @relation(fields: [userId], references: [id])
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 }

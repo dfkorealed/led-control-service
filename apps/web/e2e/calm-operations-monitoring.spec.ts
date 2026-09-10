@@ -24,10 +24,10 @@ const fixtures: SettingsFixture[] = [
 ];
 
 const viewports = [
-  { width: 1440, height: 900, columns: 3, rows: 1 },
+  { width: 1440, height: 900, columns: 4, rows: 1 },
   { width: 1024, height: 768, columns: 2, rows: 2 },
   { width: 390, height: 844, columns: 2, rows: 2 },
-  { width: 320, height: 740, columns: 1, rows: 3 }
+  { width: 320, height: 740, columns: 1, rows: 4 }
 ] as const;
 
 function fixture(
@@ -74,6 +74,8 @@ for (const viewport of viewports) {
     await expect(page.getByRole("heading", { name: "운영 현황" })).toHaveCount(0);
     await expect(page.getByText(/10분마다 자동 갱신/)).toHaveCount(0);
     await expect(page.getByRole("combobox", { name: "층 선택" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "오프라인" })).toContainText("2");
+    await expect(page.getByRole("group", { name: "오프라인" })).toContainText("상태 확인 대기 포함");
     await expect(page.getByRole("group", { name: "평균 밝기" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
@@ -276,7 +278,7 @@ test("부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지
 
 async function expectMetricGrid(page: Page, columns: number, rows: number) {
   const metrics = page.locator(".summary-row > [role='group']");
-  await expect(metrics).toHaveCount(3);
+  await expect(metrics).toHaveCount(4);
   const boxes = await metrics.evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect();
     return { x: Math.round(box.x), y: Math.round(box.y) };

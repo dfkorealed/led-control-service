@@ -57,7 +57,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
     () => ({
       totalFixtures: fixtures.length,
       onlineFixtures: fixtures.filter((fixture) => fixture.status === "online").length,
-      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length
+      faultFixtures: fixtures.filter((fixture) => fixture.status === "fault").length,
+      offlineFixtures: fixtures.filter((fixture) => fixture.status === "offline").length
     }),
     [fixtures]
   );
@@ -195,6 +196,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             <MetricCard label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
             <MetricCard label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
             <MetricCard label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
+            <MetricCard label="오프라인" value={floorSummary.offlineFixtures} helper="상태 확인 대기 포함" />
           </div>
 
           <label className="monitoring-fixture-selector">
