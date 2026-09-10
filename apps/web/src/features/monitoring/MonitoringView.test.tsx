@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MonitoringView } from "./MonitoringView";
 
@@ -117,7 +118,8 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "층 선택" })).toHaveValue("floor-1");
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
     expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
@@ -126,7 +128,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("72%");
     const selectedFixtureDetail = screen.getByRole("region", { name: "선택 조명 정보" });
-    expect(within(selectedFixtureDetail).getByRole("heading", { name: "점검 큐" })).toBeInTheDocument();
+    expect(within(selectedFixtureDetail).queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByText(
       /정상|장애|오프라인|상태 확인 대기/,
       { selector: ".ui-status-badge > span" }
@@ -229,20 +231,36 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText("Health 수신")).toBeInTheDocument();
   });
 
-  it("이미 등록된 조명이 있으면 등록 UI를 숨기고 관리자 요청 시에만 연다", () => {
+  it("등록된 조명이 있어도 모니터링에는 조명 등록 진입점을 표시하지 않는다", () => {
     render(<MonitoringView siteId="site-1" userRole="admin" />);
 
     expect(screen.queryByRole("region", { name: "조명 등록 패널" })).not.toBeInTheDocument();
-
-    const trigger = screen.getByRole("button", { name: "조명 등록" });
-    fireEvent.click(trigger);
-
-    const dialog = screen.getByRole("dialog", { name: "조명 등록" });
-    expect(within(dialog).getByRole("region", { name: "조명 등록 패널" })).toBeInTheDocument();
-
-    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "조명 등록" })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "조명 등록" })).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
+  });
+
+  it("조명이 없는 최초 화면도 등록 UI 대신 설정 페이지 경로만 안내한다", () => {
+    queryMocks.useDashboard.mockReturnValue({
+      data: { ...dashboard, summary: { ...dashboard.summary, totalFixtures: 0 } },
+      isLoading: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      refetch: refetchDashboard
+    });
+
+    render(
+      <MemoryRouter>
+        <MonitoringView siteId="site-1" userRole="admin" />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "조명 등록 패널" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /조명 등록/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "설정 페이지로 이동" })).toHaveAttribute(
+      "href",
+      "/settings/registration?siteId=site-1"
+    );
   });
 
   it("조회 사용자는 조명 등록 진입점을 표시하지 않는다", () => {
@@ -323,7 +341,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
-    fireEvent.click(screen.getByRole("button", { name: "B2" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "층 선택" }), { target: { value: "floor-2" } });
 
     expect(screen.getByRole("status")).toHaveTextContent("B2 조명 상태를 불러오는 중");
     expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
@@ -391,11 +409,13 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
   });
 
-  it("자동 갱신 주기와 수동 새로고침 정책을 함께 안내한다", () => {
+  it("운영 현황 제목과 자동 갱신 안내를 제거하고 층 선택을 같은 상단 영역에 둔다", () => {
     render(<MonitoringView siteId="site-1" />);
 
-    expect(screen.getByText("B1 · 10분마다 자동 갱신 · 수동 새로고침 가능")).toBeInTheDocument();
-    expect(screen.queryByText(/실시간 조명 상태/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/10분마다 자동 갱신/)).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "층 선택" })).toHaveValue("floor-1");
+    expect(screen.getByRole("button", { name: "새로고침" })).toBeInTheDocument();
   });
 
   it("지도 최초 조회 실패에는 빈 캔버스 대신 오류와 재시도를 표시한다", () => {
@@ -469,10 +489,9 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "B2" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "층 선택" }), { target: { value: "floor-2" } });
 
-    expect(await screen.findByRole("heading", { name: "운영 현황" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "B2" })).toHaveClass("active");
+    expect(await screen.findByRole("combobox", { name: "층 선택" })).toHaveValue("floor-2");
     expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument();
   });
 });

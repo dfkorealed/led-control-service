@@ -60,7 +60,7 @@ export function FloorScene({
   const objects = snapshot.objects.filter((object) => object.visible);
 
   return (
-    <div className="floor-scene" data-interactive={interactive ? "true" : "false"}>
+    <div className="floor-scene" data-map-objects-interactive={interactive ? "true" : "false"}>
       {backgroundUrl ? <img className="floor-map-image" src={backgroundUrl} alt={`${floorName ?? "층"} 도면`} draggable={false} /> : null}
       <div className="floor-scene-canvas" aria-hidden="true">
         <Stage width={snapshot.width} height={snapshot.height} listening={interactive}>

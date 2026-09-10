@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 import type { RegistrationSession } from "../src/api/registration";
 
@@ -71,11 +71,14 @@ for (const viewport of viewports) {
     await installMonitoringFixture(page);
     await page.goto(`/monitoring?siteId=${ids.site}`);
 
-    await expect(page.getByRole("heading", { name: "운영 현황" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "운영 현황" })).toHaveCount(0);
+    await expect(page.getByText(/10분마다 자동 갱신/)).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "층 선택" })).toBeVisible();
     await expect(page.getByRole("group", { name: "평균 밝기" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
+    await expect(page.getByRole("complementary", { name: "선택 조명 상세" }).getByRole("heading", { name: "점검 큐" })).toHaveCount(0);
     await expectMetricGrid(page, viewport.columns, viewport.rows);
     await expectNoHorizontalOverflow(page);
 
@@ -182,7 +185,11 @@ test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 
     });
     await emptyPage.goto(`/monitoring?siteId=${ids.site}`);
     await expect(emptyPage.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
-    await expect(emptyPage.getByRole("heading", { name: "조명 등록" })).toBeVisible();
+    await expect(emptyPage.getByRole("button", { name: /조명 등록/ })).toHaveCount(0);
+    await expect(emptyPage.getByRole("link", { name: "설정 페이지로 이동" })).toHaveAttribute(
+      "href",
+      `/settings/registration?siteId=${ids.site}`
+    );
   } finally {
     await emptyPage.close();
   }
@@ -220,7 +227,7 @@ test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 
   }
 });
 
-test("등록된 조명이 있는 관리자는 요청할 때만 진행 중 조명 등록 UI를 연다", async ({ page }) => {
+test("등록된 조명이 있는 관리자도 모니터링에서 등록 UI를 열 수 없다", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installSettingsApiRoutes(page, "admin", {
     fixtures,
@@ -230,43 +237,9 @@ test("등록된 조명이 있는 관리자는 요청할 때만 진행 중 조명
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
   await expect(page.getByRole("heading", { name: "조명 등록" })).toHaveCount(0);
-  const trigger = page.getByRole("button", { name: "조명 등록" });
-  await trigger.click();
-
-  const dialog = page.getByRole("dialog", { name: "조명 등록" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("heading", { name: "조명 등록", level: 2 })).toBeVisible();
-  await expect(dialog.getByText(activeRegistrationSession.id.slice(0, 8), { exact: true })).toBeVisible();
-
-  await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
-  await expect(trigger).toBeFocused();
-
-  await trigger.click();
-  await expect(dialog.getByText(activeRegistrationSession.id.slice(0, 8), { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "조명 등록" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "조명 등록" })).toHaveCount(0);
 });
-
-for (const width of [390, 320]) {
-  test(`${width}px 조명 등록 dialog는 내부 가로 스크롤 없이 동작한다`, async ({ page }) => {
-    await page.setViewportSize({ width, height: width === 390 ? 844 : 740 });
-    await installMonitoringFixture(page);
-    await page.goto(`/monitoring?siteId=${ids.site}`);
-
-    await page.getByRole("button", { name: "조명 등록" }).click();
-    const dialog = page.getByRole("dialog", { name: "조명 등록" });
-    await expect(dialog).toBeVisible();
-
-    const overflow = await dialog.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-      contentClientWidth: element.querySelector<HTMLElement>(".registration-dialog-content")?.clientWidth ?? 0,
-      contentScrollWidth: element.querySelector<HTMLElement>(".registration-dialog-content")?.scrollWidth ?? 0
-    }));
-    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
-    expect(overflow.contentScrollWidth).toBeLessThanOrEqual(overflow.contentClientWidth + 1);
-    await expectMinimumTouchTargets(page, ".registration-dialog-header");
-  });
-}
 
 for (const dimensions of [{ width: 2400, height: 600 }, { width: 600, height: 2400 }]) {
   test(`${dimensions.width}x${dimensions.height} 도면은 데스크톱 지도 영역 안에 비율을 유지해 맞춘다`, async ({ page }) => {

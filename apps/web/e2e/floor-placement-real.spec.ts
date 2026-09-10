@@ -204,14 +204,13 @@ test("software E2E: floor placement, unplace confirmation/undo, persistence and 
 
   await test.step("Unplaced fixtures lose only their map marker, not control or energy participation", async () => {
     await page.getByRole("link", { name: "모니터링", exact: true }).click();
-    await page.getByRole("button", { name: "B1", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "운영 현황", exact: true })).toBeVisible();
+    await page.getByRole("combobox", { name: "층 선택", exact: true }).selectOption(first);
     const map = page.getByRole("region", { name: "층 도면", exact: true });
     await expect(map).toBeVisible();
     await expect(map.getByText("B1", { exact: true })).toBeVisible();
     await expect(map.getByRole("button", { name: new RegExp(fixtureA.name) })).toHaveCount(0);
     await expect(map.getByRole("button", { name: new RegExp(fixtureB.name) })).toHaveCount(0);
-    await page.getByRole("button", { name: "B2", exact: true }).click();
+    await page.getByRole("combobox", { name: "층 선택", exact: true }).selectOption(second);
     await expect(map.getByRole("button", { name: new RegExp(fixtureB.name) })).toBeVisible();
     await expect(map.getByRole("button", { name: new RegExp(fixtureA.name) })).toHaveCount(0);
 
