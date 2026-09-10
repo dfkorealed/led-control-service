@@ -6,8 +6,14 @@ const migrationPath = join(__dirname, "../../prisma/migrations/20260910010000_si
 const schemaPath = join(__dirname, "../../prisma/schema.prisma");
 const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
 const schema = readFileSync(schemaPath, "utf8");
+const databaseSchemaDocument = readFileSync(join(__dirname, "../../../../docs/database-schema.md"), "utf8");
+const testSource = readFileSync(__filename, "utf8");
 const databaseUrl = process.env.SITE_USER_ACCESS_MIGRATION_TEST_DATABASE_URL;
-const psqlDatabaseUrl = databaseUrl?.replace(/\?schema=[^&]+$/, "");
+const psqlDatabaseUrl = databaseUrl ? (() => {
+  const url = new URL(databaseUrl);
+  url.searchParams.delete("schema");
+  return url.toString();
+})() : undefined;
 const describeWithPostgres = databaseUrl ? describe : describe.skip;
 
 describe("site user access migration static contract", () => {
@@ -17,13 +23,24 @@ describe("site user access migration static contract", () => {
     expect(schema).toMatch(/accessLevel\s+SiteAccessLevel\s+@default\(read\)/);
     expect(schema).toMatch(/requestedBy\s+String\?/);
     expect(schema).toMatch(/requestedById\s+String\?/);
-    expect(schema).toMatch(/user\s+User\s+@relation\(fields: \[userId\], references: \[id\], onDelete: Cascade\)/);
+    const sessionModel = schema.match(/model Session \{[\s\S]*?\n\}/)?.[0];
+
+    expect(sessionModel).toMatch(/user\s+User\s+@relation\(fields: \[userId\], references: \[id\], onDelete: Cascade\)/);
     expect(schema).toMatch(/user\s+User\?\s+@relation\(fields: \[requestedBy\], references: \[id\], onDelete: SetNull\)/);
     expect(schema).toMatch(/requestedBy\s+User\?\s+@relation\("ManualOverrideRequestedBy", fields: \[requestedById\], references: \[id\], onDelete: SetNull/);
     expect(schema).toMatch(/command\s+Command\s+@relation\(fields: \[commandId\], references: \[id\], onDelete: Cascade/);
     expect(schema).not.toMatch(/@@unique\(\[id, siteId, requestedBy\]\)/);
     expect(schema).not.toMatch(/@@unique\(\[commandId, siteId, requestedById\]\)/);
     expect(schema).not.toMatch(/fields: \[commandId, siteId, requestedById\]/);
+  });
+
+  it("uses URL query parameters to remove only Prisma's schema option for psql", () => {
+    expect(testSource).toMatch(/new URL\(databaseUrl\)/);
+    expect(testSource).toMatch(/searchParams\.delete\("schema"\)/);
+  });
+
+  it("documents the actual Command, User, and Fixture deletion policies", () => {
+    expect(databaseSchemaDocument).toContain("Command 관계는 command 삭제 시 cascade, User 관계는 user 삭제 시 set null, ManualOverrideFixture의 Fixture 관계는 fixture 삭제 시 cascade를 사용한다.");
   });
 
   it("contains the SQL changes required for the contract", () => {
