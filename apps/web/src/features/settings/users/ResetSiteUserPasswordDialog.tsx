@@ -1,36 +1,44 @@
 import { useRef, useState, type FormEvent } from "react";
 import { resetSiteUserPassword, type SiteUserSummary } from "../../../api/site-users";
 import { Button, ModalDialog } from "../../../components/ui";
-import { siteUserErrorMessage } from "./site-user-form";
+import { siteUserErrorMessage, validateTemporaryPassword } from "./site-user-form";
 
-export function ResetSiteUserPasswordDialog({ siteId, user, returnFocusElement, onClose, onCompleted }: {
+export function ResetSiteUserPasswordDialog({ siteId, user, returnFocusElement, fallbackFocusElement, onClose, onCompleted, onMutationError }: {
   siteId: string;
   user: SiteUserSummary;
   returnFocusElement?: HTMLElement | null;
   onClose: () => void;
-  onCompleted: (message: string) => Promise<void>;
+  onCompleted: (message: string) => void;
+  onMutationError?: (error: unknown) => Promise<string | null>;
+  fallbackFocusElement?: HTMLElement | null;
 }) {
   const passwordRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (password.length < 8) return setError("임시 비밀번호는 8자 이상 입력하세요.");
+    if (pendingRef.current) return;
+    const passwordError = validateTemporaryPassword(password);
+    if (passwordError) return setError(passwordError);
     if (password !== confirmation) return setError("임시 비밀번호 확인이 일치하지 않습니다.");
     setError("");
+    pendingRef.current = true;
     setIsPending(true);
     try {
       await resetSiteUserPassword(siteId, user.id, password);
       setPassword("");
       setConfirmation("");
-      await onCompleted("비밀번호를 초기화했습니다. 사용자의 기존 세션이 종료되었습니다.");
       onClose();
+      void onCompleted("비밀번호를 초기화했습니다. 사용자의 기존 세션이 종료되었습니다.");
     } catch (requestError) {
-      setError(siteUserErrorMessage(requestError));
+      const message = onMutationError ? await onMutationError(requestError) : siteUserErrorMessage(requestError);
+      if (message) setError(message);
     } finally {
+      pendingRef.current = false;
       setIsPending(false);
     }
   }
@@ -42,6 +50,7 @@ export function ResetSiteUserPasswordDialog({ siteId, user, returnFocusElement, 
     isPending={isPending}
     initialFocusRef={passwordRef}
     returnFocusElement={returnFocusElement}
+    fallbackFocusElement={fallbackFocusElement}
     actions={<>
       <Button type="button" onClick={onClose} disabled={isPending}>취소</Button>
       <Button type="submit" form="reset-site-user-password" variant="primary" isLoading={isPending} loadingLabel="처리 중">비밀번호 초기화</Button>

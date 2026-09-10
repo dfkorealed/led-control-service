@@ -14,13 +14,21 @@ export type SiteUserFormErrors = Partial<Record<"name" | "loginId" | "temporaryP
 export function validateSiteUserForm(values: SiteUserFormValues, requiresPassword: boolean): SiteUserFormErrors {
   const errors: SiteUserFormErrors = {};
   if (!values.name.trim()) errors.name = "이름을 입력하세요.";
+  else if (values.name.trim().length > 100) errors.name = "이름은 100자 이하로 입력하세요.";
   if (!/^[a-z0-9._@-]{4,100}$/.test(values.loginId.trim())) {
-    errors.loginId = "로그인 아이디는 영문 소문자, 숫자, ., _, @, -를 사용해 4자 이상 입력하세요.";
+    errors.loginId = "로그인 아이디는 영문 소문자, 숫자, ., _, @, -를 사용해 4자 이상 100자 이하로 입력하세요.";
   }
-  if (requiresPassword && values.temporaryPassword.length < 8) {
-    errors.temporaryPassword = "임시 비밀번호는 8자 이상 입력하세요.";
+  if (requiresPassword) {
+    const passwordError = validateTemporaryPassword(values.temporaryPassword);
+    if (passwordError) errors.temporaryPassword = passwordError;
   }
   return errors;
+}
+
+export function validateTemporaryPassword(value: string) {
+  return value.length < 8 || value.length > 1024 || value.trim().length === 0
+    ? "임시 비밀번호는 8자 이상 1024자 이하이며 공백만 사용할 수 없습니다."
+    : undefined;
 }
 
 const errorMessages: Record<string, string> = {

@@ -3,32 +3,38 @@ import { deleteSiteUser, type SiteUserSummary } from "../../../api/site-users";
 import { Button, ModalDialog } from "../../../components/ui";
 import { siteUserErrorMessage } from "./site-user-form";
 
-export function DeleteSiteUserDialog({ siteId, user, returnFocusElement, onClose, onCompleted }: {
+export function DeleteSiteUserDialog({ siteId, user, returnFocusElement, fallbackFocusElement, onClose, onCompleted, onMutationError }: {
   siteId: string;
   user: SiteUserSummary;
   returnFocusElement?: HTMLElement | null;
   onClose: () => void;
-  onCompleted: (message: string) => Promise<void>;
+  onCompleted: (message: string) => void;
+  onMutationError?: (error: unknown) => Promise<string | null>;
+  fallbackFocusElement?: HTMLElement | null;
 }) {
   const confirmationRef = useRef<HTMLInputElement>(null);
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
   const matches = confirmation === user.loginId;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!matches) return;
+    if (!matches || pendingRef.current) return;
     setError("");
+    pendingRef.current = true;
     setIsPending(true);
     try {
       await deleteSiteUser(siteId, user.id, confirmation);
       setConfirmation("");
-      await onCompleted("사용자를 영구 삭제했습니다.");
       onClose();
+      void onCompleted("사용자를 영구 삭제했습니다.");
     } catch (requestError) {
-      setError(siteUserErrorMessage(requestError));
+      const message = onMutationError ? await onMutationError(requestError) : siteUserErrorMessage(requestError);
+      if (message) setError(message);
     } finally {
+      pendingRef.current = false;
       setIsPending(false);
     }
   }
@@ -41,6 +47,7 @@ export function DeleteSiteUserDialog({ siteId, user, returnFocusElement, onClose
     isPending={isPending}
     initialFocusRef={confirmationRef}
     returnFocusElement={returnFocusElement}
+    fallbackFocusElement={fallbackFocusElement}
     actions={<>
       <Button type="button" onClick={onClose} disabled={isPending}>취소</Button>
       <Button type="submit" form="delete-site-user" variant="danger" disabled={!matches} isLoading={isPending} loadingLabel="삭제 중">영구 삭제</Button>

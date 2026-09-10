@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import type { SiteUserSummary, SiteUsersResponse } from "../../../api/site-users";
@@ -217,7 +218,9 @@ describe("SiteUsersView", () => {
 
   it("locks further creation when the server reports a concurrent 100-user limit", async () => {
     api.createSiteUser.mockRejectedValueOnce(new ApiError("limit", 409, { code: "USER_LIMIT_REACHED" }));
-    renderView();
+    const state = queryState({ users, count: 2, limit: 100 });
+    api.useSiteUsers.mockReturnValue(state);
+    const { queryClient, rerender } = renderViewDetails();
     fireEvent.click(screen.getByRole("button", { name: "사용자 추가" }));
     const dialog = screen.getByRole("dialog", { name: "사용자 추가" });
     fillProfile(dialog, { name: "마지막 사용자", loginId: "last.user", password: "Temporary-123" });
@@ -227,6 +230,135 @@ describe("SiteUsersView", () => {
     expect(within(dialog).getByRole("button", { name: "사용자 생성" })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
     expect(screen.getByRole("button", { name: "사용자 추가" })).toBeDisabled();
+
+    state.data = { users, count: 2, limit: 100 };
+    rerender(<QueryClientProvider client={queryClient}><TestRouter><SiteUsersView siteId="site-1" /></TestRouter></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "사용자 추가" })).toBeEnabled());
+  });
+
+  it("removes deleted PII from cache before a failed background refresh and releases the limit latch", async () => {
+    api.createSiteUser.mockRejectedValueOnce(new ApiError("limit", 409, { code: "USER_LIMIT_REACHED" }));
+    const state = queryState({ users, count: 99, limit: 100 });
+    api.useSiteUsers.mockReturnValue(state);
+    const { queryClient, rerender } = renderViewDetails();
+    queryClient.setQueryData(["site-users", "site-1"], { users, count: 100, limit: 100 });
+    vi.spyOn(queryClient, "invalidateQueries").mockRejectedValueOnce(new Error("refresh failed"));
+
+    fireEvent.click(screen.getByRole("button", { name: "사용자 추가" }));
+    const createDialog = screen.getByRole("dialog");
+    fillProfile(createDialog, { name: "마지막 사용자", loginId: "last.user", password: "Temporary-123" });
+    fireEvent.click(within(createDialog).getByRole("button", { name: "사용자 생성" }));
+    expect(await within(createDialog).findByRole("alert")).toHaveTextContent("최대 100명");
+    fireEvent.click(within(createDialog).getByRole("button", { name: "취소" }));
+    expect(screen.getByRole("button", { name: "사용자 추가" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "야간 당직 영구 삭제" }));
+    const dialog = screen.getByRole("alertdialog");
+    fireEvent.change(within(dialog).getByLabelText("확인 로그인 아이디"), { target: { value: "night.viewer" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "영구 삭제" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    const cached = queryClient.getQueryData<SiteUsersResponse>(["site-users", "site-1"]);
+    expect(cached).toMatchObject({ count: 99 });
+    expect(JSON.stringify(cached)).not.toContain("night.viewer");
+    expect(JSON.stringify(cached)).not.toContain("야간 당직");
+    expect(await screen.findByRole("alert")).toHaveTextContent("최신 사용자 목록을 불러오지 못했습니다");
+    expect(screen.getByRole("button", { name: "사용자 추가" })).toBeEnabled();
+
+    state.data = { users: [users[0]], count: 99, limit: 100 };
+    rerender(<QueryClientProvider client={queryClient}><TestRouter><SiteUsersView siteId="site-1" /></TestRouter></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "사용자 추가" })).toBeEnabled());
+  });
+
+  it("refetches and closes a stale edit dialog after SITE_USER_CHANGED", async () => {
+    const refetch = vi.fn().mockResolvedValue({ data: { users, count: 2, limit: 100 } });
+    api.useSiteUsers.mockReturnValue(queryState({ users, count: 2, limit: 100 }, { refetch }));
+    api.updateSiteUser.mockRejectedValueOnce(new ApiError("changed", 409, { code: "SITE_USER_CHANGED" }));
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: "김현수 수정" }));
+    fireEvent.click(screen.getByRole("button", { name: "변경사항 저장" }));
+
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("다른 관리자가 먼저 수정했습니다");
+  });
+
+  it("refetches a missing status target and prevents a second stale submission", async () => {
+    const refetch = vi.fn().mockResolvedValue({ data: { users: [users[0]], count: 1, limit: 100 } });
+    api.useSiteUsers.mockReturnValue(queryState({ users, count: 2, limit: 100 }, { refetch }));
+    api.updateSiteUser.mockRejectedValueOnce(new ApiError("missing", 404, { code: "SITE_USER_NOT_FOUND" }));
+    renderView();
+    const button = screen.getByRole("button", { name: "야간 당직 활성화" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    expect(api.updateSiteUser).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("대상 사용자가 이미 삭제되었습니다");
+  });
+
+  it("uses the same stale-data recovery for password reset and permanent deletion", async () => {
+    const refetch = vi.fn().mockResolvedValue({ data: { users, count: 2, limit: 100 } });
+    api.useSiteUsers.mockReturnValue(queryState({ users, count: 2, limit: 100 }, { refetch }));
+    api.resetSiteUserPassword.mockRejectedValueOnce(new ApiError("missing", 404, { code: "SITE_USER_NOT_FOUND" }));
+    renderView();
+
+    fireEvent.click(screen.getByRole("button", { name: "김현수 비밀번호 초기화" }));
+    let dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("새 임시 비밀번호"), { target: { value: "Reset-pass-123" } });
+    fireEvent.change(within(dialog).getByLabelText("임시 비밀번호 확인"), { target: { value: "Reset-pass-123" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "비밀번호 초기화" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    api.deleteSiteUser.mockRejectedValueOnce(new ApiError("changed", 409, { code: "SITE_USER_CHANGED" }));
+    fireEvent.click(screen.getByRole("button", { name: "야간 당직 영구 삭제" }));
+    dialog = screen.getByRole("alertdialog");
+    fireEvent.change(within(dialog).getByLabelText("확인 로그인 아이디"), { target: { value: "night.viewer" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "영구 삭제" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(refetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("navigates away with replace when site management capability is revoked", async () => {
+    api.createSiteUser.mockRejectedValueOnce(new ApiError("denied", 403, { code: "SITE_CAPABILITY_DENIED" }));
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: "사용자 추가" }));
+    const dialog = screen.getByRole("dialog");
+    fillProfile(dialog, { name: "새 사용자", loginId: "new.user", password: "Temporary-123" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "사용자 생성" }));
+
+    await waitFor(() => expect(screen.getByTestId("test-location")).toHaveTextContent("/settings?siteId=site-1"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("closes after a successful mutation even when invalidate fails and blocks rapid duplicate submission", async () => {
+    const pending = deferred<SiteUserSummary>();
+    api.createSiteUser.mockReturnValueOnce(pending.promise);
+    const { queryClient } = renderViewDetails();
+    vi.spyOn(queryClient, "invalidateQueries").mockRejectedValueOnce(new Error("refresh failed"));
+    fireEvent.click(screen.getByRole("button", { name: "사용자 추가" }));
+    const dialog = screen.getByRole("dialog");
+    fillProfile(dialog, { name: "새 사용자", loginId: "new.user", password: "Temporary-123" });
+    const submit = within(dialog).getByRole("button", { name: "사용자 생성" });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    expect(api.createSiteUser).toHaveBeenCalledTimes(1);
+
+    pending.resolve(users[0]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.createSiteUser).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("alert")).toHaveTextContent("최신 사용자 목록을 불러오지 못했습니다");
+  });
+
+  it("rejects whitespace-only and overlong reset passwords without an API call", async () => {
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: "김현수 비밀번호 초기화" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("새 임시 비밀번호"), { target: { value: "        " } });
+    fireEvent.change(within(dialog).getByLabelText("임시 비밀번호 확인"), { target: { value: "        " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "비밀번호 초기화" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("공백만 사용할 수 없습니다");
+    expect(api.resetSiteUserPassword).not.toHaveBeenCalled();
   });
 });
 
@@ -246,9 +378,29 @@ function queryState(data?: SiteUsersResponse, overrides: Record<string, unknown>
 }
 
 function renderView() {
+  return renderViewDetails().queryClient;
+}
+
+function renderViewDetails() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={queryClient}><SiteUsersView siteId="site-1" /></QueryClientProvider>);
-  return queryClient;
+  const result = render(<QueryClientProvider client={queryClient}><TestRouter><SiteUsersView siteId="site-1" /></TestRouter></QueryClientProvider>);
+  return { queryClient, ...result };
+}
+
+function TestRouter({ children }: { children: React.ReactNode }) {
+  return <MemoryRouter initialEntries={["/settings/users?siteId=site-1"]}>{children}<LocationProbe /></MemoryRouter>;
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="test-location">{`${location.pathname}${location.search}`}</output>;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
 }
 
 function fillProfile(dialog: HTMLElement, values: { name: string; loginId: string; password: string }) {

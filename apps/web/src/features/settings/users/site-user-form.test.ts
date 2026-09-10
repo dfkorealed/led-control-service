@@ -12,8 +12,19 @@ describe("site user form", () => {
       status: "active"
     }, true)).toEqual({
       name: "이름을 입력하세요.",
-      loginId: "로그인 아이디는 영문 소문자, 숫자, ., _, @, -를 사용해 4자 이상 입력하세요.",
-      temporaryPassword: "임시 비밀번호는 8자 이상 입력하세요."
+      loginId: "로그인 아이디는 영문 소문자, 숫자, ., _, @, -를 사용해 4자 이상 100자 이하로 입력하세요.",
+      temporaryPassword: "임시 비밀번호는 8자 이상 1024자 이하이며 공백만 사용할 수 없습니다."
+    });
+  });
+
+  it("matches backend length and whitespace-only boundaries", () => {
+    expect(validateSiteUserForm({ name: "n".repeat(101), loginId: "valid.login", temporaryPassword: "p".repeat(1025), accessLevel: "read", status: "active" }, true)).toEqual({
+      name: "이름은 100자 이하로 입력하세요.",
+      temporaryPassword: "임시 비밀번호는 8자 이상 1024자 이하이며 공백만 사용할 수 없습니다."
+    });
+    expect(validateSiteUserForm({ name: "이름", loginId: "abc", temporaryPassword: "        ", accessLevel: "read", status: "active" }, true)).toEqual({
+      loginId: "로그인 아이디는 영문 소문자, 숫자, ., _, @, -를 사용해 4자 이상 100자 이하로 입력하세요.",
+      temporaryPassword: "임시 비밀번호는 8자 이상 1024자 이하이며 공백만 사용할 수 없습니다."
     });
   });
 
