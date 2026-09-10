@@ -234,25 +234,25 @@
 - Changes: `apiDelete(path, body?)`
 - Consumes: Dashboard `capabilities`
 
-- [ ] **Step 1: site-users API가 정확한 method, path, body를 보내고 비밀번호를 cache하지 않는 테스트를 작성한다.**
+- [x] **Step 1: site-users API가 정확한 method, path, body를 보내고 비밀번호를 cache하지 않는 테스트를 작성한다.**
 
-- [ ] **Step 2: read/control/admin 메뉴와 route 행렬 테스트를 작성한다.**
+- [x] **Step 2: read/control/admin 메뉴와 route 행렬 테스트를 작성한다.**
 
   read는 제어 메뉴가 없고 direct route가 이동하며, control은 수동 제어만, admin은 기존 모든 제어 mode와 admin 설정을 볼 수 있어야 한다.
 
-- [ ] **Step 3: 일반 유저의 비밀번호 변경 메뉴와 admin의 유저 관리 메뉴 순서 테스트를 작성한다.**
+- [x] **Step 3: 일반 유저의 비밀번호 변경 메뉴와 admin의 유저 관리 메뉴 순서 테스트를 작성한다.**
 
-- [ ] **Step 4: 기존 role 기반 분기 때문에 테스트가 실패하는지 확인한다.**
+- [x] **Step 4: 기존 role 기반 분기 때문에 테스트가 실패하는지 확인한다.**
 
   Run: `pnpm --filter @led-control/web exec vitest run src/api/site-users.test.ts src/features/shells/CustomerShell.test.tsx src/features/settings/settings-sections.test.ts src/features/control/ControlView.test.tsx`
 
-- [ ] **Step 5: API type·hooks와 capability 기반 shell·control 분기를 구현한다.**
+- [x] **Step 5: API type·hooks와 capability 기반 shell·control 분기를 구현한다.**
 
   권한 조회 전에는 viewer의 제어 route를 렌더링하지 않는다. 일반 유저의 schedule/event query parameter는 `manual`로 replace한다.
 
-- [ ] **Step 6: Web 권한 단위 테스트를 통과시킨다.**
+- [x] **Step 6: Web 권한 단위 테스트를 통과시킨다.**
 
-- [ ] **Step 7: Task 6 변경만 커밋한다.**
+- [x] **Step 7: Task 6 변경만 커밋한다.**
 
   Commit: `feat(web): apply site capabilities to navigation`
 
