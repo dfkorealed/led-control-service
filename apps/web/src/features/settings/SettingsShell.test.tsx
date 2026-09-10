@@ -14,7 +14,7 @@ vi.mock("../../api/queries", () => ({
   ] }),
   useDashboard: () => ({ data: mockDashboard })
 }));
-vi.mock("../registration/RegistrationPanel", () => ({ RegistrationPanel: () => null }));
+vi.mock("../registration/RegistrationPanel", () => ({ RegistrationPanel: () => <section aria-label="조명 등록 패널">조명 등록 패널</section> }));
 vi.mock("../setup/GatewayClaimPanel", () => ({ GatewayClaimPanel: () => null }));
 
 function LocationProbe() {
@@ -85,6 +85,7 @@ describe("SettingsShell", () => {
       "href",
       "/settings/security?siteId=site-1#fragment"
     );
+    expect(screen.queryByRole("region", { name: "조명 등록 패널" })).not.toBeInTheDocument();
   });
 
   it("blocks a site switch while the floor editor is dirty", () => {

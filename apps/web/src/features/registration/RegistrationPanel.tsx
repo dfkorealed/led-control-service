@@ -27,6 +27,7 @@ import {
 interface RegistrationPanelProps {
   dashboard: Dashboard | undefined;
   dashboardQuerySiteId?: string;
+  headingLevel?: 2 | 3;
 }
 
 const statusLabels = {
@@ -63,7 +64,7 @@ const initialIndividualDefaults: FixtureIndividualDefaults = {
   digits: 3
 };
 
-export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: RegistrationPanelProps) {
+export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLevel = 3 }: RegistrationPanelProps) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<RegistrationSession | null>(null);
   const [localNodes, setLocalNodes] = useState<DiscoveredRegistrationNode[]>([]);
@@ -299,6 +300,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
   const hasUnresolvedNode = sessionNodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required");
   const isTerminalScan = sessionSnapshot?.scanStatus === "completed" || sessionSnapshot?.scanStatus === "failed";
   const steps = sessionSnapshot ? registrationSteps(sessionSnapshot, nodes) : initialRegistrationSteps;
+  const Heading = headingLevel === 2 ? "h2" : "h3";
 
   function toggleNode(nodeId: string) {
     setSelectedNodeIds((current) => current.includes(nodeId)
@@ -389,7 +391,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId }: Registrat
       <div className="panel-title-row">
         <div>
           <span className="eyebrow">BLE Mesh Provisioning</span>
-          <h3>조명 등록</h3>
+          <Heading>조명 등록</Heading>
         </div>
         {sessionSnapshot ? (
           <span role="status" aria-label="조명 검색 상태">

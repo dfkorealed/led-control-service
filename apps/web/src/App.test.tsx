@@ -504,7 +504,8 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("heading", { name: section.label })).toBeInTheDocument();
-    expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
+    if (section.path === "/settings/security") expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
+    if (section.path === "/settings/registration") expect(screen.getByLabelText("등록 층")).toBeInTheDocument();
   });
 
   it.each(["/monitoring", "/control", "/statistics", "/settings", "/unrecognized-route"])(
@@ -1360,7 +1361,23 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "설정" }));
     await screen.findByRole("heading", { name: "설정 개요" });
-    expect(screen.getByRole("heading", { name: "조명 등록" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "조명 등록" })).not.toBeInTheDocument();
+
+    fireEvent.focus(screen.getByRole("link", { name: "설정" }));
+    fireEvent.click(screen.getByRole("link", { name: "조명 등록" }));
+    expect(await screen.findByRole("heading", { name: "조명 등록" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/registration");
+  });
+
+  it("redirects a viewer's fixture registration URL to settings overview", async () => {
+    window.history.pushState({}, "", "/settings/registration?siteId=site-2");
+    authState.user = { ...authState.user!, role: "viewer" };
+    const queryClient = new QueryClient();
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings");
+    expect(screen.queryByRole("heading", { name: "조명 등록" })).not.toBeInTheDocument();
   });
 
   it("never shows commissioning controls to a viewer", async () => {

@@ -2,9 +2,7 @@ import { Building2, CircleCheck, CircleDashed, Layers3, Network, ShieldCheck, Wi
 import { Link, useLocation } from "react-router-dom";
 import { useDashboard } from "../../api/queries";
 import { Card, PageHeader, StatusBadge } from "../../components/ui";
-import { RegistrationPanel } from "../registration/RegistrationPanel";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
-import { GatewayClaimPanel } from "../setup/GatewayClaimPanel";
 import { TestDataToolsPanel } from "./TestDataToolsPanel";
 
 export function SettingsView({ userRole, siteId }: { userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
@@ -116,11 +114,6 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
           </Card>
         ) : null}
       </div>
-      {userRole === "admin" ? (
-        data.gateways.length === 0
-          ? <GatewayClaimPanel siteId={data.site.id} />
-          : <RegistrationPanel dashboard={data} dashboardQuerySiteId={siteId} />
-      ) : null}
       <TestDataToolsPanel userRole={userRole} dashboard={data} />
     </section>
   );

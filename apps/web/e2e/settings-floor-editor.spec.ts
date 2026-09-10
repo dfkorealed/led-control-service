@@ -79,6 +79,37 @@ test("operator customer routes are blocked and admin floor changes are reflected
   await adminPage.close();
 });
 
+test("a map object saved in settings is rendered immediately in monitoring", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const api = await installSettingsApiRoutes(page, "admin");
+  await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+  await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
+  await expect.poll(() => {
+    const latestLease = [...api.editorRequests].reverse().find((request) => request.type === "lease-acquire");
+    return latestLease?.type === "lease-acquire" && latestLease.result.editable;
+  }).toBe(true);
+
+  const canvas = page.getByLabel("B2 편집 캔버스");
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("editor canvas has no layout box");
+  await page.getByRole("button", { name: "사각형" }).click();
+  await page.mouse.move(box.x + 320, box.y + 220);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 460, box.y + 300);
+  await page.mouse.up();
+  await expect(page.getByRole("complementary", { name: "속성 패널" }).getByRole("heading", { name: "네모" })).toBeVisible();
+
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+  await expect.poll(() => api.atomicSavePayloads).toHaveLength(1);
+  expect(api.atomicSavePayloads[0].objectCreates).toHaveLength(1);
+
+  await page.getByRole("link", { name: "모니터링", exact: true }).click();
+
+  await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
+  await expect(page.getByTestId("map-object-saved-map-object-8-1")).toHaveCount(1);
+});
+
 test("viewer is redirected before editor state and lease requests while mutation fixtures reject changes", async ({ page }) => {
   const api = await installSettingsApiRoutes(page, "viewer");
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
@@ -272,6 +303,14 @@ test("desktop settings navigation opens on hover, preserves site scope, and expo
   await page.goto("/monitoring?siteId=site-1");
 
   const settings = page.getByRole("link", { name: "설정", exact: true });
+  const settingsBoxBeforeOpen = await settings.boundingBox();
+  const chevronBox = await settings.locator(".settings-nav-chevron").boundingBox();
+  expect(settingsBoxBeforeOpen).not.toBeNull();
+  expect(chevronBox).not.toBeNull();
+  expect(Math.abs((chevronBox!.y + chevronBox!.height / 2) - (settingsBoxBeforeOpen!.y + settingsBoxBeforeOpen!.height / 2))).toBeLessThanOrEqual(1);
+  const chevronRightGap = settingsBoxBeforeOpen!.x + settingsBoxBeforeOpen!.width - (chevronBox!.x + chevronBox!.width);
+  expect(chevronRightGap).toBeGreaterThanOrEqual(6);
+  expect(chevronRightGap).toBeLessThanOrEqual(10);
   await settings.hover();
   await expect(settings).toHaveAttribute("aria-expanded", "true");
   await expect(settings).not.toHaveAttribute("aria-haspopup");
@@ -283,6 +322,7 @@ test("desktop settings navigation opens on hover, preserves site scope, and expo
   expect(settingsBox).not.toBeNull();
   expect(navigationBox).not.toBeNull();
   if (settingsBox && navigationBox) expect(navigationBox.x).toBeGreaterThanOrEqual(settingsBox.x + settingsBox.width - 1);
+  await expect(navigation.getByRole("link", { name: "조명 등록" })).toBeVisible();
   await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
   await navigation.getByRole("link", { name: "맵 관리" }).click();
 
@@ -414,12 +454,17 @@ for (const viewport of responsiveViewports) {
 }
 
 for (const viewport of responsiveViewports) {
-  test(`settings overview and password form keep their interactive contract at ${viewport.width}px`, async ({ page }) => {
+  test(`settings routes keep their interactive contract at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installSettingsApiRoutes(page, "admin");
 
     await page.goto("/settings?siteId=site-1");
     await expect(page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "조명 등록" })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+
+    await page.goto("/settings/registration?siteId=site-1");
+    await expect(page.getByRole("heading", { name: "조명 등록" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
       const registrationTargets = page.locator(".registration-targets");

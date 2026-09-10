@@ -2383,7 +2383,9 @@ button {
 }
 
 .settings-nav-disclosure > .nav-item {
+  position: relative;
   width: 100%;
+  padding-right: 24px;
 }
 
 .settings-nav-disclosure > .nav-item:focus-visible,
@@ -2393,7 +2395,11 @@ button {
 }
 
 .settings-nav-chevron {
-  margin-left: auto;
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  margin-left: 0;
+  transform: translateY(-50%);
 }
 
 .settings-submenu {

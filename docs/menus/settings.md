@@ -158,7 +158,7 @@
 - `/settings/floor-plans`는 admin/viewer가 새로고침과 직접 진입할 수 있는 층별 도면 목록을 제공한다. assigned admin만 서버 SiteAccess에 따라 실제 편집할 수 있다.
 - `/settings/floor-plans/:floorId/edit`는 route param으로 `GET /floors/:floorId/editor-state`를 조회한다. viewer의 직접 edit URL은 목록으로 redirect되고 assigned admin은 편집할 수 있다.
 - 웹 에디터는 shared `SaveEditorStateInput` 계약으로 baseline과 현재 상태를 O(n) 비교한다. 1,000개 fixture에서도 실제 변경된 fixture와 floor plan, object create/update/delete만 중복 없이 `PUT /floors/:floorId/editor-state` 한 번으로 전송한다. floor plan의 `null`/`none`, 기본 source type과 fallback asset URL은 API 의미 형태로 정규화해 unchanged 저장을 만들지 않으며 draft object ID는 UUID로 생성한다.
-- atomic save와 revision 복구는 하나의 동기 ref lock으로 상호 배제한다. 요청 중 도구, 캔버스, 배경 입력과 속성 입력을 disabled/read-only로 유지하고, 이미 시작된 배경 asset upload가 끝날 때까지 save/restore도 막아 요청 이후 로컬 수정이 성공 응답에 덮이지 않게 한다. 성공 응답은 새 baseline과 `mapRevision`으로 채택하고 네트워크 오류는 현재 편집 상태를 유지하며, `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다. dashboard/editor/revision query는 `siteId`와 `floorId`가 포함된 key로 invalidate한다.
+- atomic save와 revision 복구는 하나의 동기 ref lock으로 상호 배제한다. 요청 중 도구, 캔버스, 배경 입력과 속성 입력을 disabled/read-only로 유지하고, 이미 시작된 배경 asset upload가 끝날 때까지 save/restore도 막아 요청 이후 로컬 수정이 성공 응답에 덮이지 않게 한다. 성공 응답은 새 baseline과 `mapRevision`으로 채택하고, 같은 현장/층의 모니터링 `floor-map`·`floor-fixtures` 및 dashboard 캐시에 저장된 배경·맵 크기·도형·조명 배치를 즉시 병합한 뒤 scoped query를 invalidate한다. 네트워크 오류는 현재 편집 상태를 유지하며, `409`는 강제 덮어쓰기 없이 최신 버전 다시 불러오기만 제공한다.
 - 버전 패널은 cursor pagination으로 수정자 display name, 시각과 숫자 변경 수 및 `floorPlanChanged`를 합산해 표시한다. loading/error/empty 상태를 구분하고 오류에는 announcement와 재시도를 제공한다. 복구와 편집 UI는 assigned admin만 노출한다. 요청은 baseline의 `mapRevision`을 `expectedRevision`으로 전송하고, 현재 존재하지 않아 건너뛴 조명 안내는 같은 floor query refetch 뒤에도 유지한다.
 - dirty 상태에서는 앱 내부 링크 이동, 현장 전환, 브라우저 뒤로 가기, 저장하지 않은 취소와 `beforeunload`를 확인한다. dirty 진입 시 현재 URL과 같은 history sentinel을 추가해 첫 back이 editor route를 벗어나기 전에 확인하며, 취소는 sentinel을 복원한다. 저장 또는 승인된 내부 이동·현장 전환·취소는 sentinel entry를 목적지로 replace하고, 같은 editor에서 clean 상태가 되거나 unmount되면 sentinel을 소비해 back stack에 editor가 중복으로 남지 않는다. listener는 unmount에서 정리하고 저장 후 back에는 폐기 확인을 표시하지 않는다.
 - `POST /floors/:floorId/editor-lease`는 Redis key `floor-editor:lease:{floorId}`를 캐시·경합 완화에 사용하지만, 실제 편집 권한의 정본은 PostgreSQL `Floor.editorLease*` 컬럼이다. 획득은 같은 transaction에서 만료 여부를 확인하고 monotonic `editorLeaseFence`를 증가시키며, `editorLeaseTokenHash`, `editorLeaseHolderId`, `editorLeaseHolderName`, `editorLeaseAcquiredAt`, `editorLeaseExpiresAt`를 함께 기록한다. 같은 token의 POST는 이 정본을 연장한 뒤 Redis를 best-effort로 갱신하고, `DELETE`와 강제 해제는 fence를 다시 증가시켜 이전 토큰을 무효화한다.
@@ -167,11 +167,12 @@
 - 맵 편집 route는 진입 시 lease를 얻고 editable token이면 30초마다 single-flight heartbeat로 갱신한다. 클라이언트는 `performance.now()` 기반 80초 local deadline watchdog으로 fail-closed 동작을 유지하고, 서버는 PostgreSQL 만료 시각과 fence를 authoritative source로 사용한다. 충돌, 갱신 실패, token 상실, deadline 만료, lease 획득 실패와 floor 전환 중에는 저장/복구/도구/캔버스/배경/속성 변경을 막는 읽기 전용으로 전환한다. 정상 route 이탈은 아직 보유한 token의 release를 요청하고, 브라우저 종료 같은 비정상 종료의 회수는 서버 만료 시각과 Redis TTL에 맡긴다.
 - Task 11 완료 후 legacy `PATCH /floors/:floorId/floor-plan`, `PATCH /fixtures/:fixtureId`, `POST/PATCH/DELETE /floor-map-objects` 경로와 웹 export를 제거했다. 이제 도면 변경은 revision·audit·lease fence가 모두 걸린 atomic save/restore 경로로만 가능하며, stale legacy client가 `mapRevision`을 우회해 normalized row를 덮어쓸 경로는 없다.
 - Playwright browser 회귀는 operator의 customer 설정 직접 URL이 `/operator/site-admins`로 수렴하고 `/sites`를 호출하지 않는 것, admin의 설정 도면 이동/atomic save/모니터링 좌표 반영, viewer edit URL의 사전 redirect와 mutation `403`을 검증한다. Task 9 격리 실백엔드 journey도 map save와 모니터링 좌표 반영을 검증했다. 1,000 fixture editor는 navigation 시작부터 marker 색상 표시와 Konva hit selection까지 8초 이내여야 한다. fixture route는 `apps/web/e2e/support`에만 있으며 assigned `site-1` 밖의 `404`는 test-fixture isolation 검증일 뿐 production tenant E2E 증거는 아니다.
-- Task 16의 별도 Playwright route fixture는 저장된 지도 객체가 모니터링의 실제 Konva canvas에 표시되는 계약까지 검증한다. 설정 에디터 저장 기능이나 Raspberry Pi/ESP32-H2 실장비 연동을 추가로 완료했다는 의미는 아니다.
+- Playwright route fixture는 설정 에디터에서 새 도형을 atomic save한 뒤 모니터링으로 이동하면 저장 응답으로 발급된 도형 ID가 실제 Konva scene에 즉시 표시되는 계약을 검증한다. 이 검증은 브라우저/API fixture 범위이며 Raspberry Pi/ESP32-H2 실장비 연동 완료를 의미하지 않는다.
 - operator는 고객 설정 shell을 mount하지 않으며 고객 Site 목록과 capability를 갖지 않는다. assigned admin과 viewer만 허용된 범위의 Site API를 사용한다. Task 8은 pending admin 최초 설치 UI와 설치 완료 admin의 Gateway/registration 역할 노출을 연결했다.
 - 현장 선택기는 `GET /sites` 응답의 `customerName`과 `name`을 함께 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. operator에게 배정 현장을 표시하던 설명은 폐기됐으며 현재 `GET /sites`는 operator에게 고객 Site를 반환하지 않는다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard, floor fixture, statistics query key는 모두 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`, `/sites/:siteId/floors/:floorId/fixtures`, `/energy/sites/:siteId/estimate`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - dirty editor에서 상단 `로그아웃` 버튼을 눌러도 동일한 폐기 확인을 거친다. 취소하면 session과 draft를 유지하고, 승인한 뒤에만 draft를 버리고 `/auth/logout` 후 auth query를 로그인 화면으로 전환한다.
-- 설정 navigation은 admin의 `설정 개요`, `맵 관리`, `비밀번호 변경`과 viewer의 읽기 전용 `설정 개요`, `맵 관리`만 제공한다. 현재 구현 route는 `/settings`, `/settings/floor-plans`, admin 전용 `/settings/security`이며, viewer의 `/settings/security`와 그 밖의 허용되지 않은 설정 하위 URL은 query string을 유지해 설정 개요로 replace한다.
+- 설정 navigation은 admin의 `설정 개요`, `조명 등록`, `맵 관리`, `비밀번호 변경`과 viewer의 읽기 전용 `설정 개요`, `맵 관리`만 제공한다. `조명 등록` UI는 설정 개요에서 분리한 admin 전용 `/settings/registration`에서만 제공한다. 등록할 Gateway가 없으면 같은 화면에서 Gateway 등록을 먼저 안내하고, Gateway가 있으면 기존 검색·식별·등록 workflow를 그대로 사용한다. viewer가 이 URL로 직접 접근하면 query string을 유지한 설정 개요로 replace한다. 그 밖의 구현 route는 `/settings`, `/settings/floor-plans`, admin 전용 `/settings/security`이며 허용되지 않은 설정 하위 URL도 설정 개요로 수렴한다.
+- 설정 주 메뉴의 펼침 화살표는 메뉴 링크의 오른쪽 8px, 세로 중앙에 고정한다. 메뉴 글자 길이나 가로 여백이 달라져도 화살표가 밀리지 않도록 링크 자체를 기준으로 absolute positioning한다.
 - 웹 Dockerfile은 production API 요청을 same-origin `/api`로 빌드한다. nginx official template entrypoint가 `API_UPSTREAM`(기본 `http://api:4000`)을 주입하고 `/api/*`를 reverse proxy하며, SPA fallback으로 `/settings/floor-plans` 같은 deep route 새로고침을 `index.html`로 응답한다. Vite 개발 서버는 `/api`를 기본 `http://localhost:4000` upstream으로 proxy해 로컬 API 개발 동작을 유지한다.
 
 ## 확정 구현 설계
@@ -401,6 +402,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/Dockerfile`
 - `apps/web/nginx.conf.template`
 - `apps/web/src/features/settings/SettingsView.tsx`
+- `apps/web/src/features/settings/registration/RegistrationSettingsView.tsx`
 - `apps/web/src/features/settings/SettingsShell.test.tsx`
 - `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.tsx`
 - `apps/web/src/features/settings/floor-plans/FloorPlanSettingsView.test.tsx`
@@ -417,6 +419,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `.env.example`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/floor-editor`
+- `apps/web/src/features/floor-editor/editor-monitoring-cache.ts`
 - `apps/web/src/styles.css`
 - `apps/web/src/features/floor-map/FloorScene.tsx`
 - `apps/web/e2e/settings-floor-editor.spec.ts`

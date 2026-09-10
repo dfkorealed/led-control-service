@@ -18,6 +18,7 @@ import { SettingsShell } from "../settings/SettingsShell";
 import { FloorEditorRoute } from "../settings/floor-plans/FloorEditorRoute";
 import { FloorPlanSettingsView } from "../settings/floor-plans/FloorPlanSettingsView";
 import { SettingsView } from "../settings/SettingsView";
+import { RegistrationSettingsView } from "../settings/registration/RegistrationSettingsView";
 import { PasswordSettingsView } from "../settings/security/PasswordSettingsView";
 import { StatisticsView } from "../statistics/StatisticsView";
 import { SettingsNavigationItem } from "./SettingsNavigationItem";
@@ -196,6 +197,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           <Route path="/statistics" element={<StatisticsView siteId={siteId ?? dashboard?.site.id} />} />
           <Route path="/settings" element={<SettingsShell selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
+            <Route
+              path="registration"
+              element={isAdmin ? <RegistrationSettingsView siteId={siteId} /> : <Navigate to={`/settings${location.search}`} replace />}
+            />
             <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} userRole={user.role} />} />
             <Route path="floor-plans/:floorId/edit" element={<FloorEditorRoute userRole={user.role} />} />
             <Route
