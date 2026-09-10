@@ -158,6 +158,84 @@ for (const viewport of viewports) {
   });
 }
 
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1121, height: 900 }, { width: 1366, height: 768 }]) {
+  test(`${viewport.width}px PC 수동 제어 카드는 선택 피드백이 추가되어도 핵심 UI를 고정한다`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const fixtureData = fixtures.map((item) => item.id === ids.faultFixture
+      ? { ...item, name: "B2-L02 출입구 비상 대피 유도 조명 장치" }
+      : item);
+    await installManualControlFixture(page, "admin", "ready", fixtureData);
+    await page.goto(`/control?siteId=${ids.site}`);
+
+    await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
+    const before = await readStableControlRects(page);
+
+    await page.getByRole("checkbox", { name: "B2-L01 선택" }).uncheck();
+    await page.getByRole("checkbox", { name: "B2-L02 출입구 비상 대피 유도 조명 장치 선택" }).check();
+    await expect(page.getByText("제어 불가", { exact: true })).toBeVisible();
+    await expect(page.getByText(/B2-L02 출입구 비상 대피 유도 조명 장치: 조명 장애를 먼저 점검해야 합니다/)).toBeVisible();
+
+    const after = await readStableControlRects(page);
+    for (const key of Object.keys(before.controls) as Array<keyof typeof before.controls>) {
+      expect(Math.abs(after.controls[key].top - before.controls[key].top), `${key} top`).toBeLessThanOrEqual(1);
+      expect(Math.abs(after.controls[key].left - before.controls[key].left), `${key} left`).toBeLessThanOrEqual(1);
+      expect(Math.abs(after.controls[key].width - before.controls[key].width), `${key} width`).toBeLessThanOrEqual(1);
+    }
+    expect(after.panel.scrollHeight).toBeLessThanOrEqual(after.panel.clientHeight + 1);
+    expect(after.body.overflowY).toBe("auto");
+    expect(after.body.bottom).toBeLessThanOrEqual(after.feedback.top);
+    expect(after.badge.left).toBeGreaterThanOrEqual(after.panel.left);
+    expect(after.badge.right).toBeLessThanOrEqual(after.panel.right);
+    expect(after.badge.top).toBeGreaterThanOrEqual(after.panel.top);
+    expect(after.badge.bottom).toBeLessThanOrEqual(after.panel.bottom);
+    expect(after.feedback.left).toBeGreaterThanOrEqual(after.panel.left);
+    expect(after.feedback.right).toBeLessThanOrEqual(after.panel.right);
+    expect(after.feedback.bottom).toBeLessThanOrEqual(after.panel.bottom);
+    expect(after.feedback.top).toBeGreaterThanOrEqual(after.panel.top);
+    expect(after.document.scrollHeight).toBeLessThanOrEqual(after.document.clientHeight + 1);
+    await expectNoHorizontalOverflow(page);
+  });
+}
+
+async function readStableControlRects(page: Page) {
+  return page.evaluate(() => {
+    const panel = document.querySelector<HTMLElement>(".control-panel");
+    const badge = panel?.querySelector<HTMLElement>(".ui-status-badge");
+    const body = panel?.querySelector<HTMLElement>(".control-panel-body");
+    const feedback = panel?.querySelector<HTMLElement>("[role='alert']") ?? panel?.querySelector<HTMLElement>(".command-status-region");
+    const selectors = {
+      dial: ".dial-card",
+      presets: ".preset-row",
+      override: ".control-override-field",
+      submit: ".control-panel-body > .ui-button-primary"
+    } as const;
+    if (!panel || !badge || !body || !feedback) throw new Error("manual control layout is incomplete");
+
+    const rect = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return { top: box.top, right: box.right, bottom: box.bottom, left: box.left, width: box.width };
+    };
+    const controls = Object.fromEntries(Object.entries(selectors).map(([key, selector]) => {
+      const element = panel.querySelector(selector);
+      if (!element) throw new Error(`manual control element not found: ${selector}`);
+      return [key, rect(element)];
+    })) as Record<keyof typeof selectors, ReturnType<typeof rect>>;
+    const panelRect = rect(panel);
+
+    return {
+      controls,
+      panel: { ...panelRect, clientHeight: panel.clientHeight, scrollHeight: panel.scrollHeight },
+      body: { ...rect(body), overflowY: getComputedStyle(body).overflowY },
+      badge: rect(badge),
+      feedback: rect(feedback),
+      document: {
+        clientHeight: document.documentElement.clientHeight,
+        scrollHeight: document.documentElement.scrollHeight
+      }
+    };
+  });
+}
+
 function fixture(
   id: string,
   name: string,
@@ -182,10 +260,15 @@ function commandResult(status: "succeeded" | "failed" | "timed_out", errorMessag
   return { fixtureId: ids.fixture, fixtureName: "B2-L01", status, errorMessage };
 }
 
-async function installManualControlFixture(page: Page, role: "admin" | "viewer", meshState: "ready" | "blocked" = "ready") {
+async function installManualControlFixture(
+  page: Page,
+  role: "admin" | "viewer",
+  meshState: "ready" | "blocked" = "ready",
+  fixtureData: SettingsFixture[] = fixtures
+) {
   const api = await installSettingsApiRoutes(page, role, {
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
-    fixtures
+    fixtures: fixtureData
   });
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -194,14 +277,14 @@ async function installManualControlFixture(page: Page, role: "admin" | "viewer",
       return route.fulfill({ json: [savedZone] });
     }
     if (url.pathname === `/api/sites/${ids.site}/dashboard`) {
-      return route.fulfill({ json: dashboardResponse(meshState) });
+      return route.fulfill({ json: dashboardResponse(meshState, fixtureData) });
     }
     return route.fallback();
   });
   return api;
 }
 
-function dashboardResponse(meshState: "ready" | "blocked" = "ready") {
+function dashboardResponse(meshState: "ready" | "blocked" = "ready", fixtureData: SettingsFixture[] = fixtures) {
   const floorMeshControlGroup = meshState === "blocked"
     ? { gatewayId: ids.gateway, status: "configuring", version: 1, error: null }
     : { gatewayId: ids.gateway, status: "ready", version: 1, error: null };
@@ -225,7 +308,7 @@ function dashboardResponse(meshState: "ready" | "blocked" = "ready") {
       level: -2,
       floorPlan: null,
       meshControlGroups: [floorMeshControlGroup],
-      fixtures
+      fixtures: fixtureData
     }],
     groups: [{ ...savedZone, meshControlGroup: groupMeshControlGroup, fixtureIds: [ids.fixture] }],
     gateways: [{

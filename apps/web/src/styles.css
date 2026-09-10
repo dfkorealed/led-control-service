@@ -2778,6 +2778,10 @@ button {
     overflow: hidden;
   }
 
+  .control-manual-panel .control-panel {
+    grid-template-rows: auto minmax(0, 1fr) clamp(72px, 18%, 112px);
+  }
+
   .control-manual-panel .control-target-picker {
     display: flex;
     flex-direction: column;
@@ -2789,10 +2793,16 @@ button {
     flex: 1;
   }
 
-  .control-manual-panel .control-panel,
   .schedule-control-panel {
     min-height: 0;
     overflow-y: auto;
+  }
+
+  .control-manual-panel :is(.control-panel-body, .control-panel-feedback) {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
   }
 }
 
@@ -3132,6 +3142,7 @@ button {
 
 .control-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   gap: 14px;
   border: 1px solid var(--border);
@@ -3139,6 +3150,33 @@ button {
   background: var(--panel);
   padding: 18px;
   box-shadow: var(--shadow);
+}
+
+.control-panel .panel-title-row > .ui-status-badge {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.control-panel .panel-title-row h3 {
+  line-height: 1.2;
+}
+
+.control-panel-body {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 14px;
+}
+
+.control-panel-feedback {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 10px;
+}
+
+.control-panel-feedback > .danger-text {
+  margin: 0;
 }
 
 .command-status-region {
