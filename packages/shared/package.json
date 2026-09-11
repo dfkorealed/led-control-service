@@ -35,6 +35,13 @@
       "require": "./dist/energy-contracts.js",
       "import": "./dist/esm/energy-contracts.js",
       "default": "./dist/energy-contracts.js"
+    },
+    "./energy-analytics-contracts": {
+      "types": "./dist/esm/energy-analytics-contracts.d.ts",
+      "browser": "./dist/esm/energy-analytics-contracts.js",
+      "require": "./dist/energy-analytics-contracts.js",
+      "import": "./dist/esm/energy-analytics-contracts.js",
+      "default": "./dist/energy-analytics-contracts.js"
     }
   },
   "scripts": {

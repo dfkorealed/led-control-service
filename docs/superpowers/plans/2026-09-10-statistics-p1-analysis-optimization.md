@@ -57,7 +57,7 @@
 - Consumes: P0 `energyComparisonPresetSchema`, 공통 source/data-status 규칙.
 - Produces: `EnergyRankingResponse`, `OperatingHoursPolicy`, `EnergyWasteResponse`, `EnergyMonthlyTargetResponse`와 request schemas.
 
-- [ ] **Step 1: strict schema 실패 테스트를 작성한다.**
+- [x] **Step 1: strict schema 실패 테스트를 작성한다.**
 
 ```ts
 expect(energyRankingQuerySchema.parse({ dimension: "floor", metric: "usage", sort: "desc", limit: "10" })).toEqual({
@@ -67,11 +67,11 @@ expect(() => operatingHoursPolicyInputSchema.parse({ weekly: {}, allowedBrightne
 expect(() => energyMonthlyTargetInputSchema.parse({ targetKwh: null, budgetAmount: null })).toThrow();
 ```
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/shared test -- energy-analytics-contracts.test.ts`
   - Expected: FAIL because P1 schemas do not exist.
 
-- [ ] **Step 3: exact enum과 response schema를 구현한다.**
+- [x] **Step 3: exact enum과 response schema를 구현한다.**
   - dimension: `fixture | floor | group`
   - metric: `usage | cost | contribution | per_fixture_average`
   - history quality: `observed | legacy_structure_unknown`
@@ -79,11 +79,11 @@ expect(() => energyMonthlyTargetInputSchema.parse({ targetKwh: null, budgetAmoun
   - target status: `headroom | warning | projected_over | forecast_unavailable | not_configured`
   - operating hours는 0~23 정수 hour와 자정 통과 `startHour > endHour`를 허용한다.
 
-- [ ] **Step 4: shared test와 export smoke를 검증한다.**
+- [x] **Step 4: shared test와 export smoke를 검증한다.**
   - Run: `pnpm --filter @led-control/shared test && pnpm --filter @led-control/shared typecheck`
   - Expected: strict parse, cross-field refine, package exports PASS.
 
-- [ ] **Step 5: 커밋한다.**
+- [x] **Step 5: 커밋한다.**
   - Run: `git add packages/shared/src/energy-analytics-contracts.ts packages/shared/src/energy-analytics-contracts.test.ts packages/shared/src/index.ts && git commit -m "feat(shared): add energy analytics contracts"`
 
 ### Task 2: 분석 identity, history, hourly, policy, target schema
