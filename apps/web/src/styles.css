@@ -1320,29 +1320,28 @@ button {
 }
 
 .fixture-dot {
-  --fixture-marker-radius: 40px;
+  --fixture-marker-radius: 16px;
   position: absolute;
   top: clamp(var(--fixture-marker-radius), var(--fixture-top), calc(100% - var(--fixture-marker-radius)));
   left: clamp(var(--fixture-marker-radius), var(--fixture-left), calc(100% - var(--fixture-marker-radius)));
   z-index: 2;
-  display: inline-grid;
-  gap: 3px;
-  place-items: center;
-  width: 34px;
-  min-height: 34px;
+  display: block;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
   transform: translate(-50%, -50%);
-  border: 1px solid #9ac3ff;
+  border: 1px solid hsl(38 72% 34%);
   border-radius: 999px;
-  background: var(--primary-soft);
-  color: #174ea6;
+  background:
+    radial-gradient(circle at 35% 30%, rgb(255 255 255 / calc(0.08 + var(--fixture-glow-alpha))), transparent 36%),
+    hsl(45 100% var(--fixture-lightness));
   padding: 0;
-  text-align: center;
   cursor: pointer;
-  box-shadow: none;
+  box-shadow:
+    0 0 var(--fixture-glow-radius) calc(var(--fixture-glow-radius) * 0.35) rgb(250 204 21 / var(--fixture-glow-alpha)),
+    inset 0 0 0 1px rgb(255 255 255 / 0.24);
   transition:
-    width 160ms ease,
-    min-height 160ms ease,
-    border-radius 160ms ease,
+    background 160ms ease,
     box-shadow 160ms ease;
 }
 
@@ -1356,40 +1355,6 @@ button {
   border-radius: 50%;
   background: var(--success);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.22);
-  content: "";
-}
-
-.fixture-name {
-  display: none;
-  max-width: 58px;
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fixture-dot strong {
-  color: var(--text);
-  font-size: 11px;
-  line-height: 1;
-}
-
-.fixture-bar {
-  display: none;
-  width: 100%;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 4px;
-  background: rgba(11, 99, 229, 0.12);
-}
-
-.fixture-bar::before {
-  display: block;
-  width: var(--brightness);
-  height: 100%;
-  border-radius: inherit;
-  background: var(--primary);
   content: "";
 }
 
@@ -1424,9 +1389,6 @@ button {
   border-width: 3px;
   border-color: #fca5a5;
   border-style: double;
-  background: #fff1f2;
-  color: #b91c1c;
-  box-shadow: none;
 }
 
 .fixture-dot.fault::after {
@@ -1435,39 +1397,14 @@ button {
 
 .fixture-dot.active {
   z-index: 3;
-  width: 84px;
-  min-height: 56px;
-  border-radius: 14px;
-  padding: 8px;
   outline: 3px solid #2563eb;
   outline-offset: 4px;
-  box-shadow: 0 0 0 7px rgba(37, 99, 235, 0.2);
-  text-align: left;
 }
 
 .fixture-dot:is(:hover, :focus-visible) {
   z-index: 4;
-  width: 84px;
-  min-height: 56px;
-  border-radius: 14px;
-  padding: 8px;
-  text-align: left;
   outline: 3px solid #2563eb;
   outline-offset: 4px;
-  box-shadow: 0 0 0 7px rgba(37, 99, 235, 0.2);
-}
-
-.fixture-dot:is(.active, :hover, :focus-visible) {
-  place-items: stretch;
-}
-
-.fixture-dot:is(.active, :hover, :focus-visible) .fixture-name,
-.fixture-dot:is(.active, :hover, :focus-visible) .fixture-bar {
-  display: block;
-}
-
-.fixture-dot:is(.active, :hover, :focus-visible) strong {
-  font-size: 15px;
 }
 
 .detail-panel {
@@ -5643,16 +5580,10 @@ button.group-card {
   }
 
   .fixture-dot {
-    --fixture-marker-radius: 40px;
-    width: 34px;
-    min-height: 34px;
-  }
-
-  .fixture-dot:is(.active, :hover, :focus-visible) {
-    width: 76px;
-    min-height: 54px;
-    border-radius: 13px;
-    padding: 7px;
+    --fixture-marker-radius: 16px;
+    width: 20px;
+    height: 20px;
+    min-height: 20px;
   }
 
   .detail-panel {

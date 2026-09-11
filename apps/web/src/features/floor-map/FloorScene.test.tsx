@@ -30,7 +30,7 @@ const snapshot: FloorMapSnapshot = {
 };
 
 describe("FloorScene", () => {
-  it("renders saved map objects and selectable fixtures without editor controls", () => {
+  it("renders compact selectable fixtures without visible marker copy", () => {
     const onSelectFixture = vi.fn();
     render(
       <FloorScene
@@ -54,7 +54,36 @@ describe("FloorScene", () => {
     const fixture = screen.getByRole("button", { name: "B1-L001 정상 70%" });
     expect(fixture).toHaveAttribute("data-spatial-map-marker", "true");
     expect(fixture).toHaveAttribute("aria-current", "true");
+    expect(fixture).toHaveAttribute("title", "B1-L001 정상 70%");
+    expect(fixture).toBeEmptyDOMElement();
+    expect(screen.queryByText("B1-L001")).not.toBeInTheDocument();
+    expect(screen.queryByText("70%")).not.toBeInTheDocument();
     fireEvent.click(fixture);
     expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
+  });
+
+  it("maps online brightness to monotonically stronger light variables", () => {
+    render(
+      <FloorScene
+        snapshot={snapshot}
+        fixtures={[0, 50, 100].map((brightness, index) => ({
+          id: `fixture-${brightness}`,
+          name: `B1-L00${index + 1}`,
+          x: 100 + index * 100,
+          y: 120,
+          brightness,
+          status: "online" as const
+        }))}
+        interactive={false}
+      />
+    );
+
+    const off = screen.getByRole("button", { name: "B1-L001 정상 0%" });
+    const medium = screen.getByRole("button", { name: "B1-L002 정상 50%" });
+    const full = screen.getByRole("button", { name: "B1-L003 정상 100%" });
+
+    expect(off).toHaveStyle({ "--fixture-lightness": "18%", "--fixture-glow-alpha": "0", "--fixture-glow-radius": "0px" });
+    expect(medium).toHaveStyle({ "--fixture-lightness": "50%", "--fixture-glow-alpha": "0.24", "--fixture-glow-radius": "7px" });
+    expect(full).toHaveStyle({ "--fixture-lightness": "82%", "--fixture-glow-alpha": "0.48", "--fixture-glow-radius": "14px" });
   });
 });

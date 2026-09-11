@@ -79,10 +79,13 @@ export function FloorScene({
       {fixtures.filter((fixture) => fixture.placementStatus !== "unplaced").map((fixture) => {
         const awaitingState = fixture.statusReason === "provisioning_waiting_state";
         const statusLabel = awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status];
+        const brightness = Math.min(100, Math.max(0, fixture.brightness));
         const markerStyle = {
           "--fixture-left": `${(fixture.x / snapshot.width) * 100}%`,
           "--fixture-top": `${(fixture.y / snapshot.height) * 100}%`,
-          "--brightness": `${fixture.brightness}%`
+          "--fixture-lightness": `${rounded(18 + brightness * 0.64)}%`,
+          "--fixture-glow-alpha": `${rounded(brightness * 0.0048)}`,
+          "--fixture-glow-radius": `${rounded(brightness * 0.14)}px`
         } as CSSProperties;
 
         return (
@@ -96,15 +99,15 @@ export function FloorScene({
             aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
             aria-current={fixture.id === selectedFixtureId ? "true" : undefined}
             onClick={() => onSelectFixture?.(fixture.id)}
-          >
-            <span className="fixture-name">{fixture.name}</span>
-            <strong>{fixture.brightness}%</strong>
-            <span className="fixture-bar" />
-          </button>
+          />
         );
       })}
     </div>
   );
+}
+
+function rounded(value: number) {
+  return Number(value.toFixed(3));
 }
 
 export function FloorMapObjectNode({
