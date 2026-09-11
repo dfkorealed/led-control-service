@@ -134,25 +134,75 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   for (const index of [1, 2, 3, 4]) {
     await expect(page.getByTestId(`map-object-saved-map-object-8-${index}`)).toHaveCount(1);
   }
-  const monitoringCanvas = page.getByRole("region", { name: "층 도면" }).locator(".floor-scene-canvas canvas");
+  const monitoringMap = page.getByRole("region", { name: "층 도면" }).locator(".floor-map");
+  const monitoringSceneCanvas = monitoringMap.locator(".floor-scene-canvas");
+  const monitoringCanvas = monitoringSceneCanvas.locator("canvas");
+  let layout: {
+    floorMap: { width: number; height: number };
+    sceneCanvas: { width: number; height: number };
+    konvaContent: { width: number; height: number };
+    canvas: { width: number; height: number };
+  } | null = null;
+  await expect.poll(async () => {
+    layout = await monitoringMap.evaluate((floorMap) => {
+      const sceneCanvas = floorMap.querySelector<HTMLElement>(".floor-scene-canvas");
+      const konvaContent = sceneCanvas?.querySelector<HTMLElement>(".konvajs-content");
+      const canvas = konvaContent?.querySelector<HTMLCanvasElement>("canvas");
+      if (!sceneCanvas || !konvaContent || !canvas) return null;
+      const toSize = (element: Element) => {
+        const { width, height } = element.getBoundingClientRect();
+        return { width, height };
+      };
+      return {
+        // The absolutely positioned scene fills the floor map's content box;
+        // client dimensions intentionally exclude the floor map's 1px border.
+        floorMap: { width: floorMap.clientWidth, height: floorMap.clientHeight },
+        sceneCanvas: toSize(sceneCanvas),
+        konvaContent: toSize(konvaContent),
+        canvas: toSize(canvas)
+      };
+    });
+    return layout?.floorMap.height ?? 0;
+  }).toBeGreaterThan(0);
+  if (!layout) throw new Error("monitoring map layout was not rendered");
+  for (const [name, size] of Object.entries({
+    sceneCanvas: layout.sceneCanvas,
+    konvaContent: layout.konvaContent,
+    canvas: layout.canvas
+  })) {
+    expect(size.height, `${name} height`).toBeGreaterThan(0);
+    expect(size.width, `${name} width`).toBeGreaterThan(0);
+    expect(size.height, `${name} height matches floor map`).toBeCloseTo(layout.floorMap.height, 0);
+    expect(size.width, `${name} width matches floor map`).toBeCloseTo(layout.floorMap.width, 0);
+  }
   await expect.poll(async () => monitoringCanvas.evaluate((canvas: HTMLCanvasElement) => {
     const context = canvas.getContext("2d");
-    if (!context) return [];
-    const textPixels = context.getImageData(520, 380, 160, 60).data;
-    let textVisible = false;
+    if (!context) return null;
+    const textPixels = context.getImageData(528, 388, 144, 44).data;
+    let textUsesDefaultBlue = false;
     for (let index = 3; index < textPixels.length; index += 4) {
-      if (textPixels[index] > 0) {
-        textVisible = true;
+      if (
+        textPixels[index] === 255
+        && textPixels[index - 3] === 37
+        && textPixels[index - 2] === 99
+        && textPixels[index - 1] === 235
+      ) {
+        textUsesDefaultBlue = true;
         break;
       }
     }
     return [
-      context.getImageData(350, 250, 1, 1).data[3],
-      context.getImageData(580, 280, 1, 1).data[3],
-      context.getImageData(400, 380, 1, 1).data[3],
-      textVisible ? 255 : 0
+      Array.from(context.getImageData(350, 250, 1, 1).data.slice(0, 3)),
+      Array.from(context.getImageData(580, 280, 1, 1).data.slice(0, 3)),
+      Array.from(context.getImageData(400, 380, 1, 1).data.slice(0, 3)),
+      textUsesDefaultBlue
     ];
-  })).toEqual([255, 255, 255, 255]);
+  })).toEqual([
+    [219, 234, 254],
+    [219, 234, 254],
+    [37, 99, 235],
+    true
+  ]);
 });
 
 test("viewer is redirected before editor state and lease requests while mutation fixtures reject changes", async ({ page }) => {
