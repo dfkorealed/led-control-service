@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException, Optional } from "@nestjs/common";
 import { createFixtureGroupSchema, FixtureGroupMetadata, UpdateFixtureGroupInput } from "@led-control/shared";
 import { MeshControlGroupStatus, Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 
 const MAX_FIXTURE_GROUPS_PER_FIXTURE = 15;
 const MAX_CONFIGURATION_VERSION = 2_147_483_647;
@@ -38,7 +39,8 @@ export class FixtureGroupsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
-    private readonly meshControlGroups: MeshControlGroupService
+    private readonly meshControlGroups: MeshControlGroupService,
+    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService
   ) {}
 
   async list(user: AuthenticatedUser, siteId: string, rawQuery: unknown = {}): Promise<FixtureGroupMetadata[]> {
@@ -92,6 +94,13 @@ export class FixtureGroupsService {
       });
       await tx.groupFixture.createMany({
         data: fixtures.map((fixture) => ({ groupId: group.id, fixtureId: fixture.id }))
+      });
+      await this.energyDimensions?.recordGroupDimensions(tx, {
+        groupId: group.id,
+        siteId,
+        name: input.name,
+        fixtureIds: fixtures.map((fixture) => fixture.id),
+        effectiveAt: new Date()
       });
 
       const meshGroup = await this.meshControlGroups.ensureFixtureGroup(tx, input.gatewayId, group.id);
@@ -180,6 +189,13 @@ export class FixtureGroupsService {
       await tx.groupFixture.createMany({
         data: fixtures.map((fixture) => ({ groupId: group.id, fixtureId: fixture.id }))
       });
+      await this.energyDimensions?.recordGroupDimensions(tx, {
+        groupId: group.id,
+        siteId,
+        name: input.name,
+        fixtureIds: fixtures.map((fixture) => fixture.id),
+        effectiveAt: new Date()
+      });
       await this.replaceDesiredMembers(tx, { ...meshGroup, configurationVersion: nextVersion }, fixtures.map((fixture) => fixture.meshNodeId!));
 
       return this.metadata({ ...group, ...input }, {
@@ -204,6 +220,7 @@ export class FixtureGroupsService {
         where: { id: group.id },
         data: { lifecycleStatus: "retiring" }
       });
+      await this.energyDimensions?.retireGroup(tx, group.id, new Date());
       await tx.meshControlGroup.update({
         where: { id: meshGroup.id },
         data: {

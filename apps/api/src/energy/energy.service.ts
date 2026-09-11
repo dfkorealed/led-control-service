@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { EnergyComparisonPreset } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
@@ -7,6 +7,7 @@ import {
   EnergyAnalyticsQueryService,
   type EnergySeriesQuery
 } from "./energy-analytics-query.service";
+import { EnergyRankingsService } from "./energy-rankings.service";
 
 interface EstimateInput {
   ratedWatt: number;
@@ -20,7 +21,8 @@ export class EnergyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
-    private readonly analytics: EnergyAnalyticsQueryService
+    private readonly analytics: EnergyAnalyticsQueryService,
+    @Optional() private readonly rankings?: EnergyRankingsService
   ) {}
 
   calculateEstimatedUsage(input: EstimateInput) {
@@ -74,5 +76,10 @@ export class EnergyService {
 
   getSiteComparisons(user: AuthenticatedUser, siteId: string, preset: EnergyComparisonPreset) {
     return this.analytics.getComparison(user, siteId, preset);
+  }
+
+  getSiteRankings(user: AuthenticatedUser, siteId: string, query: unknown) {
+    if (!this.rankings) throw new Error("energy rankings service is unavailable");
+    return this.rankings.getRankings(user, siteId, query);
   }
 }

@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { splitEnergyIntervalByUtcHour, type HourlyEnergyDelta } from "./energy-hourly-aggregation";
 
 const KNOWN_STATE_WINDOW_MS = 180_000;
 const KWH_MILLISECOND_DIVISOR = new Prisma.Decimal(3_600_000_000);
@@ -58,6 +59,7 @@ export type FixtureStateTransitionStatus = "accepted" | RejectedFixtureStateTran
 export interface AcceptedFixtureStateTransitionResult {
   status: "accepted";
   dailyDeltas: FixtureEnergyDailyDelta[];
+  hourlyDeltas: HourlyEnergyDelta[];
   nextSnapshot: FixtureEnergySnapshot;
   nextCheckpoint: FixtureEnergyCheckpoint;
 }
@@ -65,6 +67,7 @@ export interface AcceptedFixtureStateTransitionResult {
 export interface RejectedFixtureStateTransitionResult {
   status: RejectedFixtureStateTransitionStatus;
   dailyDeltas: [];
+  hourlyDeltas: [];
   nextSnapshot: FixtureEnergySnapshot;
   nextCheckpoint: FixtureEnergyCheckpoint;
 }
@@ -75,6 +78,7 @@ export type FixtureStateTransitionResult =
 
 export interface FixtureEnergyProjectionResult {
   dailyDeltas: FixtureEnergyDailyDelta[];
+  hourlyDeltas: HourlyEnergyDelta[];
   sourceCheckpoint: FixtureEnergyCheckpoint;
   boundary: {
     projectedFrom: Date;
@@ -98,6 +102,7 @@ interface MutableDurationRemainder {
 
 interface EnergyAccumulator {
   dailyDeltas: Map<string, MutableDailyDelta>;
+  hourlyDeltas: Map<string, HourlyEnergyDelta>;
   durationRemainders: Map<string, MutableDurationRemainder>;
 }
 
@@ -175,7 +180,13 @@ export function aggregateFixtureStateTransition(input: {
     durationRemainders: serializeRemainders(accumulator)
   };
 
-  return { status: "accepted", dailyDeltas: sortedDeltas(accumulator), nextSnapshot, nextCheckpoint };
+  return {
+    status: "accepted",
+    dailyDeltas: sortedDeltas(accumulator),
+    hourlyDeltas: sortedHourlyDeltas(accumulator),
+    nextSnapshot,
+    nextCheckpoint
+  };
 }
 
 export function closeFixtureEnergyCheckpoint(input: {
@@ -200,6 +211,7 @@ export function closeFixtureEnergyCheckpoint(input: {
 
   return {
     dailyDeltas: sortedDeltas(accumulator),
+    hourlyDeltas: sortedHourlyDeltas(accumulator),
     nextCheckpoint: {
       ...cloneCheckpoint(input.checkpoint),
       aggregatedThrough: new Date(input.closedAt),
@@ -235,6 +247,7 @@ export function projectOpenFixtureEnergy(input: {
 
   return {
     dailyDeltas: sortedDeltas(accumulator),
+    hourlyDeltas: sortedHourlyDeltas(accumulator),
     sourceCheckpoint: cloneCheckpoint(input.checkpoint),
     boundary: {
       projectedFrom,
@@ -250,7 +263,7 @@ function rejectedTransition(
   snapshot: FixtureEnergySnapshot,
   checkpoint: FixtureEnergyCheckpoint
 ): RejectedFixtureStateTransitionResult {
-  return { status, dailyDeltas: [], nextSnapshot: snapshot, nextCheckpoint: cloneCheckpoint(checkpoint) };
+  return { status, dailyDeltas: [], hourlyDeltas: [], nextSnapshot: snapshot, nextCheckpoint: cloneCheckpoint(checkpoint) };
 }
 
 function addCheckpointInterval(
@@ -289,6 +302,14 @@ function addKnownInterval(
   effectiveBrightness: number,
   context: AggregationContext
 ) {
+  mergeHourlyDeltas(accumulator, splitEnergyIntervalByUtcHour({
+    from: start,
+    to: end,
+    brightness: effectiveBrightness,
+    ratedWatt,
+    timeZone: context.timeZone,
+    known: true
+  }));
   for (const part of splitByLocalDay(start, end, context.timeZone)) {
     const durationMs = part.end.getTime() - part.start.getTime();
     const delta = getOrCreateDelta(accumulator, part.localDate);
@@ -311,6 +332,14 @@ function addUnknownInterval(
   end: Date,
   context: AggregationContext
 ) {
+  mergeHourlyDeltas(accumulator, splitEnergyIntervalByUtcHour({
+    from: start,
+    to: end,
+    brightness: 0,
+    ratedWatt: new Prisma.Decimal(0),
+    timeZone: context.timeZone,
+    known: false
+  }));
   for (const part of splitByLocalDay(start, end, context.timeZone)) {
     const durationMs = part.end.getTime() - part.start.getTime();
     const delta = getOrCreateDelta(accumulator, part.localDate);
@@ -403,6 +432,7 @@ function findStartOfLocalDate(target: LocalDateParts, formatter: Intl.DateTimeFo
 function createAccumulator(checkpoint: FixtureEnergyCheckpoint): EnergyAccumulator {
   return {
     dailyDeltas: new Map(),
+    hourlyDeltas: new Map(),
     durationRemainders: new Map(
       checkpoint.durationRemainders.map((remainder) => [
         remainder.localDate,
@@ -413,6 +443,27 @@ function createAccumulator(checkpoint: FixtureEnergyCheckpoint): EnergyAccumulat
       ])
     )
   };
+}
+
+function mergeHourlyDeltas(accumulator: EnergyAccumulator, deltas: HourlyEnergyDelta[]) {
+  for (const delta of deltas) {
+    const key = delta.bucketStartUtc.toISOString();
+    const current = accumulator.hourlyDeltas.get(key);
+    if (!current) {
+      accumulator.hourlyDeltas.set(key, delta);
+      continue;
+    }
+    current.estimatedKwh = current.estimatedKwh.add(delta.estimatedKwh);
+    current.knownSeconds += delta.knownSeconds;
+    current.unknownSeconds += delta.unknownSeconds;
+    current.brightnessWeightedSeconds = current.brightnessWeightedSeconds.add(delta.brightnessWeightedSeconds);
+  }
+}
+
+function sortedHourlyDeltas(accumulator: EnergyAccumulator) {
+  return [...accumulator.hourlyDeltas.values()].sort(
+    (left, right) => left.bucketStartUtc.getTime() - right.bucketStartUtc.getTime()
+  );
 }
 
 function getOrCreateDelta(accumulator: EnergyAccumulator, localDate: string) {

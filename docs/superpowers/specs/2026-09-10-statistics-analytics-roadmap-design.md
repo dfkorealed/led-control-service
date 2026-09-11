@@ -1,5 +1,7 @@
 # 통계 분석 P0·P1·P2 기능 확장 설계
 
+> **2026-09-11 P1 범위 결정:** 이번 P1 구현은 분석 이력·시간별 집계·조명/층/그룹 사용량 순위와 `/statistics/analysis`까지만 포함한다. 운영 시간 기반 낭비, 월 목표·예산, `/statistics/optimization`은 사용자 요청에 따라 후속 범위로 보류한다.
+
 작성일: 2026-09-10
 상태: 구현 계획 작성 전 검토본
 대상 브랜치: `codex/statistics-analytics-plans`

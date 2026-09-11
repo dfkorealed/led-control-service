@@ -20,6 +20,7 @@ type IngestionStatus = ApplicationStateIngestedAckV2["status"];
 
 interface LockedFixtureRow {
   id: string;
+  energyFixtureId: string;
   siteId: string;
   gatewayId: string;
   ratedWatt: Prisma.Decimal;
@@ -75,6 +76,7 @@ export class FixtureStateIngestionService {
     const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
       SELECT
         f."id",
+        energy_fixture."id" AS "energyFixtureId",
         fl."siteId" AS "siteId",
         mn."gatewayId" AS "gatewayId",
         f."ratedWatt",
@@ -91,6 +93,7 @@ export class FixtureStateIngestionService {
       INNER JOIN "Floor" fl ON fl."id" = f."floorId"
       INNER JOIN "Site" s ON s."id" = fl."siteId"
       INNER JOIN "MeshNode" mn ON mn."id" = f."meshNodeId"
+      INNER JOIN "EnergyFixtureIdentity" energy_fixture ON energy_fixture."fixtureId" = f."id"
       WHERE f."id" = ${state.fixtureId}
         AND fl."siteId" = ${state.siteId}
         AND mn."gatewayId" = ${gatewayId}
@@ -129,7 +132,8 @@ export class FixtureStateIngestionService {
 
     if (transition.status !== "accepted") return resultFrom(state, transition.status);
 
-    await persistDailyDeltas(tx, fixture.id, transition.dailyDeltas);
+    await persistDailyDeltas(tx, fixture.id, fixture.energyFixtureId, transition.dailyDeltas);
+    await persistHourlyDeltas(tx, fixture.energyFixtureId, transition.hourlyDeltas);
     await persistCheckpoint(tx, fixture.id, transition.nextCheckpoint);
 
     const health = state.health
@@ -165,6 +169,7 @@ export async function closeFixtureEnergyForRatedWattChange(
   const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
     SELECT
       f."id",
+      energy_fixture."id" AS "energyFixtureId",
       fl."siteId" AS "siteId",
       mn."gatewayId" AS "gatewayId",
       f."ratedWatt",
@@ -181,6 +186,7 @@ export async function closeFixtureEnergyForRatedWattChange(
     INNER JOIN "Floor" fl ON fl."id" = f."floorId"
     INNER JOIN "Site" s ON s."id" = fl."siteId"
     LEFT JOIN "MeshNode" mn ON mn."id" = f."meshNodeId"
+    INNER JOIN "EnergyFixtureIdentity" energy_fixture ON energy_fixture."fixtureId" = f."id"
     WHERE f."id" = ${fixtureId}
     FOR UPDATE OF f
   `);
@@ -198,7 +204,8 @@ export async function closeFixtureEnergyForRatedWattChange(
     timeZone: fixture.timeZone,
     tariffKwhRate: new Prisma.Decimal(fixture.tariffKwhRate)
   });
-  await persistDailyDeltas(tx, fixtureId, closed.dailyDeltas);
+  await persistDailyDeltas(tx, fixtureId, fixture.energyFixtureId, closed.dailyDeltas);
+  await persistHourlyDeltas(tx, fixture.energyFixtureId, closed.hourlyDeltas);
   await persistCheckpoint(tx, fixtureId, closed.nextCheckpoint);
   return true;
 }
@@ -218,13 +225,15 @@ export class FixtureEnergyCheckpointService {
 async function persistDailyDeltas(
   tx: Prisma.TransactionClient,
   fixtureId: string,
+  energyFixtureId: string,
   dailyDeltas: ReturnType<typeof closeFixtureEnergyCheckpoint>["dailyDeltas"]
 ) {
   for (const delta of dailyDeltas) {
     await tx.fixtureEnergyDailyAggregate.upsert({
-      where: { fixtureId_localDate: { fixtureId, localDate: delta.localDate } },
+      where: { energyFixtureId_localDate: { energyFixtureId, localDate: delta.localDate } },
       create: {
         fixtureId,
+        energyFixtureId,
         localDate: delta.localDate,
         estimatedKwh: delta.estimatedKwh,
         estimatedCost: delta.estimatedCost,
@@ -236,6 +245,37 @@ async function persistDailyDeltas(
         estimatedCost: { increment: delta.estimatedCost },
         knownSeconds: { increment: delta.knownSeconds },
         unknownSeconds: { increment: delta.unknownSeconds }
+      }
+    });
+  }
+}
+
+async function persistHourlyDeltas(
+  tx: Prisma.TransactionClient,
+  energyFixtureId: string,
+  hourlyDeltas: ReturnType<typeof closeFixtureEnergyCheckpoint>["hourlyDeltas"]
+) {
+  for (const delta of hourlyDeltas) {
+    await tx.fixtureEnergyHourlyAggregate.upsert({
+      where: {
+        energyFixtureId_bucketStartUtc: { energyFixtureId, bucketStartUtc: delta.bucketStartUtc }
+      },
+      create: {
+        energyFixtureId,
+        bucketStartUtc: delta.bucketStartUtc,
+        localDate: delta.localDate,
+        localHour: delta.localHour,
+        utcOffsetMinutes: delta.utcOffsetMinutes,
+        estimatedKwh: delta.estimatedKwh,
+        knownSeconds: delta.knownSeconds,
+        unknownSeconds: delta.unknownSeconds,
+        brightnessWeightedSeconds: delta.brightnessWeightedSeconds
+      },
+      update: {
+        estimatedKwh: { increment: delta.estimatedKwh },
+        knownSeconds: { increment: delta.knownSeconds },
+        unknownSeconds: { increment: delta.unknownSeconds },
+        brightnessWeightedSeconds: { increment: delta.brightnessWeightedSeconds }
       }
     });
   }

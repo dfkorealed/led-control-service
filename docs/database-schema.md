@@ -1357,6 +1357,22 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 
 - `fixture`: `Fixture`
 
+### EnergyFixtureIdentity / EnergyFixtureDimensionVersion
+
+운영 조명 레코드와 분석 이력을 분리하는 영구 identity다. `Fixture` 삭제 시 `fixtureId`만 `null`이 되고 identity, 일별·시간별 집계, 이름·층·정격 전력 이력은 유지된다. Dimension version은 분석 기능 활성화 이후 변경만 기록하며 migration 이전 구조를 추정해 만들지 않는다.
+
+- `EnergyFixtureIdentity.fixtureId`는 nullable unique이며 `Fixture.id` 삭제 시 `SET NULL`이다.
+- `trackingStartedAt` 이전의 일별 집계는 현장 합계에는 포함할 수 있지만 층·조명 구조 순위에서는 제외한다.
+- `EnergyFixtureDimensionVersion`은 이름, 층 ID/이름, 정격 W와 `[effectiveFrom, effectiveTo)`를 저장한다.
+- 같은 identity와 시작 시각은 unique이고 종료 시각은 시작 시각보다 뒤여야 한다.
+
+### EnergyGroupIdentity / EnergyGroupDimensionVersion / EnergyGroupMembershipVersion
+
+그룹 이름과 조명 소속의 유효기간 이력을 보존한다. 운영 그룹 삭제 후에도 분석 identity는 남고 `groupId`만 `null`이 된다. 한 조명은 같은 시점에 여러 그룹에 속할 수 있으므로 그룹별 합계를 현장 총합으로 해석하지 않는다.
+
+- 그룹 이름과 membership은 각각 `[effectiveFrom, effectiveTo)` 범위로 관리한다.
+- 신규 migration은 현재 구조만 활성화 시각부터 기록하며 과거 그룹 구조를 backfill하지 않는다.
+
 ### FixtureEnergyDailyAggregate
 
 상태 기반 전력 추정의 정본이다. legacy `EnergyUsage`의 의미와 데이터는 변경하지 않는다.
@@ -1364,8 +1380,9 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 집계 ID |
-| `fixtureId` | `String` | 예 | FK -> `Fixture.id`, delete cascade | 대상 조명 |
-| `localDate` | `Date` | 예 | Unique with `fixtureId` | Site timezone 기준 현지 날짜 |
+| `fixtureId` | `String?` | 아니오 | FK -> `Fixture.id`, delete set null | 현재 운영 조명 연결 |
+| `energyFixtureId` | `String` | 예 | FK -> `EnergyFixtureIdentity.id` | 영구 분석 조명 identity |
+| `localDate` | `Date` | 예 | Unique with `energyFixtureId` | Site timezone 기준 현지 날짜 |
 | `estimatedKwh` | `Decimal(20,12)` | 예 |  | 상태 기반 추정 사용량 |
 | `estimatedCost` | `Decimal(20,8)` | 예 |  | 적산 당시 단가 기준 예상 비용 |
 | `knownSeconds` | `Int` | 예 | `0`, non-negative check | 유효 상태로 계산한 시간 |
@@ -1375,10 +1392,19 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 
 제약:
 
-- 복합 Unique: `fixtureId`, `localDate`
+- 복합 Unique: `energyFixtureId`, `localDate`
+- Index: `fixtureId`, `localDate`
 - Index: `localDate`
 - `knownSeconds`, `unknownSeconds`는 음수가 될 수 없다.
 - migration은 모든 기존 Fixture의 `energyTrackingStartedAt`에 적용 시각을 저장한다. 따라서 그 이전 구간을 추정하거나 `EnergyUsage`를 새 집계로 backfill하지 않는다.
+
+### FixtureEnergyHourlyAggregate
+
+상태 구간을 UTC 정각 경계로 나눈 시간별 분석 집계다. `bucketStartUtc`와 함께 현장 timezone의 `localDate`, `localHour`, `utcOffsetMinutes`를 저장해 DST 반복 시간을 구분한다. 일별 집계를 시간별로 임의 분배하는 backfill은 하지 않는다.
+
+- 복합 Unique: `energyFixtureId`, `bucketStartUtc`
+- `estimatedKwh`, `knownSeconds`, `unknownSeconds`, `brightnessWeightedSeconds`는 음수가 될 수 없다.
+- 시간별 데이터는 24개월까지만 보존하고, 일별 집계와 dimension history는 장기 보존한다.
 
 ### FixtureEnergyStateCursor
 
@@ -1396,7 +1422,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 갱신 시각 |
 
-`ProcessedGatewayEvent.fixtureId`는 상태 이벤트의 조명 원장 연결을 보존한다. API는 이벤트 원장, 이 cursor, `FixtureEnergyDailyAggregate`, Fixture 최신 상태를 하나의 transaction으로 갱신한다.
+`ProcessedGatewayEvent.fixtureId`는 상태 이벤트의 조명 원장 연결을 보존한다. API는 이벤트 원장, 이 cursor, `FixtureEnergyDailyAggregate`, `FixtureEnergyHourlyAggregate`, Fixture 최신 상태를 하나의 transaction으로 갱신한다.
 
 ## 4. 주요 제약 조건 요약
 
@@ -1414,7 +1440,11 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | `GatewayCertificate` | DB enum purpose/status; Unique `fingerprint`, `replacedById`, `issuer + certificateSerial`; partial unique `inventoryId WHERE purpose = mqtt AND status = active`; self-replacement Check; inventory/replacement delete Restrict | 인증서 수명주기와 inventory별 단일 active MQTT 인증서, 감사 가능한 1:1 교체 체인 추적 |
 | `CommandDispatch` | Unique `idempotencyKey`, `gatewayId + sequence` | 중복 명령과 순서 충돌 방지 |
 | `Command` | Unique `siteId + requestedBy + clientRequestId`; nullable requester FK delete set null | 사용자 재시도 멱등성과 사용자 삭제 뒤 명령 이력 익명화 |
-| `FixtureEnergyDailyAggregate` | Unique `fixtureId + localDate`, localDate index, non-negative seconds check | 일별 idempotent upsert와 기간 조회 |
+| `EnergyFixtureIdentity` | Unique nullable `fixtureId`, Site cascade, Fixture delete set null | 운영 조명 삭제 뒤 분석 이력 보존 |
+| `EnergyFixtureDimensionVersion` | Unique `energyFixtureId + effectiveFrom`, partial Unique open row, ordered effective range | 이름·층·정격 전력 이력 보존 |
+| `EnergyGroupIdentity` / `EnergyGroupMembershipVersion` | nullable operational group link, partial Unique open row, effective range constraints | 그룹 삭제·복수 소속 이력 보존 |
+| `FixtureEnergyDailyAggregate` | Unique `energyFixtureId + localDate`, localDate index, non-negative seconds check | 영구 identity 기준 일별 idempotent upsert와 기간 조회 |
+| `FixtureEnergyHourlyAggregate` | Unique `energyFixtureId + bucketStartUtc`, local/UTC indexes, non-negative check | DST-safe 시간별 집계와 bounded retention |
 | `FixtureEnergyStateCursor` | PK/FK `fixtureId`, brightness `0..100` check | 조명별 단일 적산 checkpoint와 밝기 범위 보장 |
 | `CommandFixtureResult` | PK `dispatchId + fixtureId` | dispatch별 조명 결과 중복 방지 |
 | `ProcessedGatewayEvent` | PK `eventId`, non-capability partial Unique `gatewayId + sequence + eventType`, capability partial Unique `gatewayId + meshNodeId + sequence + eventType` | 전역 event 중복과 legacy Gateway/node-local capability stale 이벤트 방지 |
