@@ -11,6 +11,19 @@ const ids = {
 };
 
 describe("EnergyDimensionHistoryService", () => {
+  it("executes advisory locks without deserializing PostgreSQL void results", async () => {
+    const tx = harness();
+    tx.energyFixtureIdentity.findUnique.mockResolvedValue({ id: ids.identity });
+    tx.energyFixtureDimensionVersion.findFirst.mockResolvedValue({
+      id: "version-1", name: "B1-L01", floorId: ids.floor, floorName: "B1", ratedWatt: new Prisma.Decimal(40)
+    });
+
+    await new EnergyDimensionHistoryService().recordFixtureDimensions(tx, fixtureInput());
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+  });
+
   it("creates a fixture identity and initial dimension in the caller transaction", async () => {
     const tx = harness();
     tx.energyFixtureIdentity.findUnique.mockResolvedValue(null);
@@ -100,6 +113,7 @@ function fixtureInput(overrides: Record<string, unknown> = {}) {
 
 function harness(): any {
   return {
+    $executeRaw: jest.fn().mockResolvedValue(0),
     $queryRaw: jest.fn().mockResolvedValue([]),
     energyFixtureIdentity: {
       findUnique: jest.fn(), create: jest.fn(), findMany: jest.fn()

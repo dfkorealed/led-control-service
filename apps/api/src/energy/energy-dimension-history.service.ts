@@ -157,5 +157,5 @@ function sameFixtureDimension(
 }
 
 function advisoryLock(tx: Transaction, key: string) {
-  return tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`);
+  return tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`);
 }
