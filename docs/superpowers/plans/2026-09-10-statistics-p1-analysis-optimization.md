@@ -1,16 +1,18 @@
-# Statistics P1 Analysis and Optimization Implementation Plan
+# Statistics P1 Usage Analysis Implementation Plan
+
+> **2026-09-11 scope decision:** 사용자 최종 확인에 따라 이번 구현에서는 사용 분석만 진행한다. 기존 Task 6(운영 시간/낭비), Task 7(월 목표/예산), Task 9(최적화 화면)는 구현하지 않으며 `/statistics/optimization`도 노출하지 않는다. 아래 해당 절은 후속 검토를 위한 설계 기록으로만 유지하고 실행 체크리스트에서 제외한다.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 분석 이력과 시간별 집계를 도입하고 조명·층·그룹 사용량 순위, 비운영 시간 낭비, 월 목표·예산을 `/statistics/analysis`와 `/statistics/optimization`에 제공한다.
+**Goal:** 분석 이력과 시간별 집계를 도입하고 조명·층·그룹 사용량 순위를 `/statistics/analysis`에 제공한다.
 
-**Architecture:** Operational Fixture와 분석 identity를 분리하고 유효기간 dimension/group membership으로 변경 이력을 보존한다. 상태 ingest는 기존 daily aggregate와 신규 hourly aggregate를 한 transaction에서 갱신하며, ranking·waste·target API는 P0의 `EnergyAnalyticsQueryService`를 확장해 공통 품질 규칙을 사용한다.
+**Architecture:** Operational Fixture와 분석 identity를 분리하고 유효기간 dimension/group membership으로 변경 이력을 보존한다. 상태 ingest는 기존 daily aggregate와 신규 hourly aggregate를 한 transaction에서 갱신하며, ranking API는 P0 품질 규칙과 동일한 수집률·이력 품질 기준을 사용한다.
 
 **Tech Stack:** TypeScript, Zod, NestJS, Prisma 6/PostgreSQL, Decimal, React 18, React Router 7, TanStack Query 5, Recharts 3, Vitest, Jest, Playwright.
 
 **Spec:** `docs/superpowers/specs/2026-09-10-statistics-analytics-roadmap-design.md`
 
-**UI References:** `docs/assets/statistics-analytics/statistics-analysis-ui.png`, `docs/assets/statistics-analytics/statistics-optimization-ui.png`
+**UI Reference:** `docs/assets/statistics-analytics/statistics-analysis-ui.png`
 
 ## Global Constraints
 
