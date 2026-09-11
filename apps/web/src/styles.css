@@ -3067,6 +3067,16 @@ button {
     grid-template-rows: auto minmax(0, 1fr) clamp(72px, 18%, 112px);
   }
 
+  .control-manual-panel .control-panel .panel-title-row > div {
+    overflow: hidden;
+  }
+
+  .control-manual-panel .control-panel .panel-title-row h3 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .control-manual-panel .control-target-picker {
     display: flex;
     flex-direction: column;
