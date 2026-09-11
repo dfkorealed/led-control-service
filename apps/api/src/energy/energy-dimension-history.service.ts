@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 
 type Transaction = Prisma.TransactionClient;
 
@@ -16,6 +17,66 @@ export interface FixtureDimensionInput {
 
 @Injectable()
 export class EnergyDimensionHistoryService {
+  async ensureFixtureDimensions(
+    tx: Transaction,
+    inputs: Array<Omit<FixtureDimensionInput, "effectiveAt">>,
+    effectiveAt: Date
+  ): Promise<void> {
+    if (inputs.length === 0) return;
+    // A batch represents one snapshot. Repeated IDs use the final supplied snapshot.
+    const byFixtureId = new Map(inputs.map((input) => [input.fixtureId, input]));
+    const fixtureIds = [...byFixtureId.keys()].sort();
+    // Share singleton advisory keys and acquire them in stable order with one round trip.
+    // The void-valued SELECT must use executeRaw, just like the singleton lock.
+    await tx.$executeRaw(Prisma.sql`
+      SELECT pg_advisory_xact_lock(hashtext("lockKey"))
+      FROM (
+        SELECT unnest(ARRAY[${Prisma.join(fixtureIds.map((id) => `energy-fixture:${id}`))}]::text[]) AS "lockKey"
+        ORDER BY "lockKey"
+      ) AS locks
+    `);
+    const identities = await tx.energyFixtureIdentity.findMany({
+      where: { fixtureId: { in: fixtureIds } }, select: { id: true, fixtureId: true }
+    });
+    const identityByFixtureId = new Map(identities.map((identity) => [identity.fixtureId, identity.id]));
+    const missing = fixtureIds.filter((id) => !identityByFixtureId.has(id)).map((fixtureId) => {
+      const input = byFixtureId.get(fixtureId)!;
+      const id = randomUUID();
+      identityByFixtureId.set(fixtureId, id);
+      return { id, fixtureId, siteId: input.siteId, trackingStartedAt: input.trackingStartedAt };
+    });
+    if (missing.length > 0) await tx.energyFixtureIdentity.createMany({ data: missing });
+
+    const currentVersions = await tx.energyFixtureDimensionVersion.findMany({
+      where: { energyFixtureId: { in: [...identityByFixtureId.values()] }, effectiveTo: null },
+      orderBy: { effectiveFrom: "desc" }
+    });
+    const currentByIdentityId = new Map<string, (typeof currentVersions)[number]>();
+    for (const current of currentVersions) {
+      // Match the singleton's newest-current behavior if historical data has multiple open rows.
+      if (!currentByIdentityId.has(current.energyFixtureId)) currentByIdentityId.set(current.energyFixtureId, current);
+    }
+    const closeIds: string[] = [];
+    const creates: Prisma.EnergyFixtureDimensionVersionCreateManyInput[] = [];
+    for (const fixtureId of fixtureIds) {
+      const input = byFixtureId.get(fixtureId)!;
+      const energyFixtureId = identityByFixtureId.get(fixtureId)!;
+      const current = currentByIdentityId.get(energyFixtureId);
+      if (current && sameFixtureDimension(current, input)) continue;
+      if (current) closeIds.push(current.id);
+      creates.push({
+        energyFixtureId, name: input.name, floorId: input.floorId, floorName: input.floorName,
+        ratedWatt: input.ratedWatt, effectiveFrom: effectiveAt
+      });
+    }
+    if (closeIds.length > 0) {
+      await tx.energyFixtureDimensionVersion.updateMany({
+        where: { id: { in: closeIds } }, data: { effectiveTo: effectiveAt }
+      });
+    }
+    if (creates.length > 0) await tx.energyFixtureDimensionVersion.createMany({ data: creates });
+  }
+
   async recordFixtureDimensions(tx: Transaction, input: FixtureDimensionInput): Promise<string> {
     await advisoryLock(tx, `energy-fixture:${input.fixtureId}`);
     let identity = await tx.energyFixtureIdentity.findUnique({ where: { fixtureId: input.fixtureId } });
@@ -150,12 +211,12 @@ export class EnergyDimensionHistoryService {
 
 function sameFixtureDimension(
   current: { name: string; floorId: string; floorName: string; ratedWatt: Prisma.Decimal },
-  input: FixtureDimensionInput
+  input: Omit<FixtureDimensionInput, "effectiveAt">
 ) {
   return current.name === input.name && current.floorId === input.floorId && current.floorName === input.floorName &&
     new Prisma.Decimal(current.ratedWatt).equals(input.ratedWatt);
 }
 
 function advisoryLock(tx: Transaction, key: string) {
-  return tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`);
+  return tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`);
 }
