@@ -47,7 +47,7 @@
 - Modify: `apps/api/src/test-data/test-data.service.spec.ts`
 
 **Interfaces:**
-- Consumes: `EnergyDimensionHistoryService.recordFixtureDimensions(tx, input)`
+- Consumes: `EnergyDimensionHistoryService.ensureFixtureDimensions(tx, inputs, effectiveAt)`
 - Produces: 생성·재실행 후 모든 marker fixture의 identity와 현재 dimension이 존재하는 `TestDataService.create()`
 
 - [x] **Step 1: 신규 fixture와 기존 누락 fixture의 identity/dimension 보충, 반복 호출 비중복을 요구하는 실패 테스트 작성**
@@ -79,7 +79,17 @@
 **최종 검증 (2026-09-11)**
 
 - API typecheck와 production build: exit 0.
-- 전체 API Jest: 101 suites passed, 22 skipped; 948 tests passed, 196 environment-dependent skipped, 0 failed.
+- 전체 API Jest: 101 suites passed, 22 skipped; 956 tests passed, 196 environment-dependent skipped, 0 failed.
 - `git diff --check`: exit 0.
 - 실제 PostgreSQL rollback 구역 생성 통합 회귀 1건은 세 opt-in DB URL이 모두 없어 skip됐다. 사용자 DB에는 연결하거나 쓰지 않았으며 실DB 통과로 간주하지 않는다.
-- 남은 위험: TestDataService 단위 double은 dimension version 비중복 개수를 직접 세지 않지만, 공통 `EnergyDimensionHistoryService`의 동일 dimension no-op 회귀가 production 계약을 보호한다. 실제 PostgreSQL 실행은 DB URL이 있는 격리 환경에서 후속 확인이 필요하다.
+- 남은 위험: 실제 PostgreSQL 동시 실행 및 1,000개 transaction 소요시간은 격리 DB URL이 없어 미검증이다. TestDataService 테스트는 실제 energy service와 stateful DB boundary로 identity/version 개수·반복 비중복을 직접 검증한다.
+
+### Task 4: 최종 리뷰 Important 2건 수정
+
+- [x] cleanup 잠금 누락과 1,000개 비례 쿼리를 재현하는 회귀를 먼저 추가하고 RED 확인: focused 2 failed/28 passed, energy DB 호출 신규 5,000회·반복 3,000회, 잠금 요청 없이 analytics 조회.
+- [x] Site 인가 잠금 뒤 검증된 fixture ID를 정렬한 PostgreSQL `FOR UPDATE`로 잠그고 모든 의존성 조회·삭제를 뒤에 유지. 새 Gateway 잠금 없음.
+- [x] 공통 energy bulk 메서드 추가: 같은 advisory key 정렬 잠금, identity/current version 일괄 조회, 누락 identity/current 보충 및 변경 version bulk close/create.
+- [x] 실제 energy service로 1,000개 신규·반복 query count와 identity/version 개수, 누락 current·필드별 변경·tracking start 보존·empty batch·잠금 대기 중 분석 생성 회귀 확인.
+- [x] GREEN focused 55 passed/1 environment-dependent skipped; energy DB 호출 신규 5회·반복 3회(최초 marker 조회 포함 6회·4회).
+- [x] API typecheck/build, 전체 Jest 956 passed/196 skipped(101 suites passed/22 skipped), `git diff --check` 통과. API DTO/Prisma schema/migration 변경 없음.
+- [x] 설정·모니터링·제어 메뉴, 설계·상태판·교훈을 최종 구현과 검증 한계에 맞춰 최신화.

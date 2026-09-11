@@ -519,3 +519,10 @@
 - **원인**: side effect만 필요한 raw SQL도 결과 행을 반환하는 query로 취급했고, application file watcher 재기동과 schema migration 실행을 같은 hot reload 수명주기로 가정했다.
 - **해결 및 예방책**: 반환형을 소비하지 않는 advisory lock은 `$executeRaw`로 실행하고, row를 읽는 SQL만 `$queryRaw`와 명시적 반환형 검증을 사용한다. migration이 포함된 변경은 실행 중 watcher에 맡기지 말고 `pnpm dev` 전체를 재시작해 migration 완료 뒤 API가 시작되게 한다. watcher 내부에서는 migration을 자동 실행하지 않는다.
 - **반복 방지 체크**: raw SQL 회귀는 호출 API와 반환형 역직렬화 여부를 실제 PostgreSQL opt-in 테스트로 확인한다. migration 포함 변경의 개발·배포 체크리스트에는 전체 process 재시작, migration 적용 로그, API bootstrap 순서를 분리해 기록하며 DB URL이 없어서 skip된 검증을 완료로 표시하지 않는다.
+
+## 2026-09-11 / 분석 삭제는 잠금 이후 검사하고 bulk 경로의 실제 의존성 쿼리를 센다
+
+- **발생했던 문제/실수**: cleanup이 analytics를 확인한 다음 fixture를 삭제하는 사이 ingestion이 집계를 저장할 수 있었다. 생성 경로는 fixture만 bulk 처리하고 energy history를 조명마다 호출해 1,000개 신규·반복에 energy DB 호출 5,000회·3,000회가 필요했다.
+- **원인**: ingestion이 사용하는 fixture row lock을 cleanup 검사 전에 공유하지 않았고, query-count 테스트가 energy service를 double로 치환해 내부 쿼리를 누락했다.
+- **해결 및 예방책**: 기존 Site 인가 잠금 뒤 검증된 fixture ID를 정렬 잠금하고 모든 의존성 조회를 실행한다. bulk history는 singleton과 같은 advisory key를 정렬 잠금하고 identity/version 조회·쓰기까지 일괄 처리한다. 현재 회귀는 실제 energy service를 사용해 신규 5회·반복 3회와 이력 개수·변경 timestamp를 검증한다.
+- **반복 방지 체크**: 잠금 대기 중 의존성 조회가 시작되지 않는지, 대기 중 생성된 analytics 때문에 삭제 전체가 409인지 검사한다. DB URL이 없을 때의 transaction ordering double은 실제 PostgreSQL interleaving이나 처리시간 증거로 확대하지 않는다.

@@ -94,6 +94,17 @@ export class TestDataService {
       if (!this.haveSameIds(markerFixtures, gatewayAttachedFixtures)) {
         throw new ConflictException("test data cleanup is blocked by fixtures outside the verified marker chain");
       }
+      const markerFixtureIds = markerFixtures.map((fixture) => fixture.id).sort();
+      if (markerFixtureIds.length > 0) {
+        // Site authorization already holds the Site lock. Lock only verified fixtures,
+        // in the same ID order as other fixture writers, before any dependency checks.
+        // Ingestion holds this row lock while committing analytics. Do not introduce a
+        // Gateway lock here: ingestion can acquire gateway FK locks after its fixture lock.
+        await tx.$queryRaw(Prisma.sql`
+          SELECT "id" FROM "Fixture" WHERE "id" IN (${Prisma.join(markerFixtureIds)})
+          ORDER BY "id" FOR UPDATE
+        `);
+      }
       await this.assertSafeToDeleteGateways(tx, markerGateways.map((gateway) => gateway.id));
       await this.assertSafeToDeleteFixtures(tx, markerFixtures.map((fixture) => fixture.id));
       const markerFixtureIdentities = await tx.energyFixtureIdentity.findMany({
@@ -264,18 +275,15 @@ export class TestDataService {
         floor: { select: { name: true } }
       }
     });
-    for (const fixture of markerFixtures) {
-      await this.energyDimensions.recordFixtureDimensions(tx, {
-        fixtureId: fixture.id,
-        siteId,
-        name: fixture.name,
-        floorId: fixture.floorId,
-        floorName: fixture.floor.name,
-        ratedWatt: fixture.ratedWatt,
-        trackingStartedAt: fixture.energyTrackingStartedAt,
-        effectiveAt
-      });
-    }
+    await this.energyDimensions.ensureFixtureDimensions(tx, markerFixtures.map((fixture) => ({
+      fixtureId: fixture.id,
+      siteId,
+      name: fixture.name,
+      floorId: fixture.floorId,
+      floorName: fixture.floor.name,
+      ratedWatt: fixture.ratedWatt,
+      trackingStartedAt: fixture.energyTrackingStartedAt
+    })), effectiveAt);
   }
 
   private async assertSafeToDeleteGateways(tx: Prisma.TransactionClient, gatewayIds: string[]) {

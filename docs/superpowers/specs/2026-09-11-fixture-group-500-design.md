@@ -15,8 +15,8 @@
 
 1. advisory lock은 결과 행을 읽지 않는 `$executeRaw`로 실행한다.
 2. `FixtureGroupsService`의 `EnergyDimensionHistoryService` 의존성을 필수화해 production side effect가 테스트에서 조용히 생략되지 않게 한다.
-3. 테스트 데이터 생성은 fixture bulk 생성·재사용 후 marker fixture 전체를 조회하고, 기존 `EnergyDimensionHistoryService.recordFixtureDimensions()`를 같은 transaction에서 호출해 누락 identity와 최초 dimension을 보충한다. 기존 identity의 동일 dimension은 새 version을 만들지 않는다.
-4. 테스트 데이터 삭제는 분석 identity를 명시적으로 다루되, 실제 집계·상태·구역 membership 이력이 있으면 기존 fail-closed 정책에 따라 삭제를 거부한다. 안전한 marker identity와 dimension만 fixture 삭제 전에 제거한다.
+3. 테스트 데이터 생성은 fixture bulk 생성·재사용 후 marker fixture 전체를 조회하고, 공통 `EnergyDimensionHistoryService.ensureFixtureDimensions()`를 같은 transaction에서 호출해 누락 identity와 최초 dimension을 일괄 보충한다. singleton과 같은 advisory key를 정렬해 한 쿼리로 잠그고 identity/current dimension 조회와 bulk write를 사용한다. 1,000개 신규·반복의 energy DB 호출은 5회·3회이며 marker 조회를 포함하면 6회·4회다. 기존 identity의 동일 dimension은 새 version을 만들지 않으며 변경된 version만 같은 `effectiveAt`에 닫고 교체한다.
+4. 테스트 데이터 삭제는 기존 Site 인가 잠금 뒤 정확히 검증한 marker fixture ID만 `ORDER BY id FOR UPDATE`로 잠그고 의존성을 조회한다. ingestion이 먼저 잠근 경우 그 commit 이후 analytics를 확인한다. 새 Gateway 잠금은 추가하지 않는다. 분석 identity를 명시적으로 다루되, 실제 집계·상태·구역 membership 이력이 있으면 기존 fail-closed 정책에 따라 삭제를 거부한다. 안전한 marker identity와 dimension만 fixture 삭제 전에 제거한다.
 5. 스키마와 API payload는 변경하지 않는다.
 
 ## 검증 경계

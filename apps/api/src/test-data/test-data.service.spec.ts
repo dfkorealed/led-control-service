@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
+import { createEnergyHistoryTestStore } from "../energy/test-support/energy-history-test-store";
 import { TestDataService } from "./test-data.service";
 
 const siteId = "site-1";
@@ -26,7 +28,6 @@ type StoredFixture = {
   ratedWatt: Prisma.Decimal;
   energyTrackingStartedAt: Date;
 };
-type StoredEnergyFixtureIdentity = { id: string; siteId: string; fixtureId: string };
 
 function createHarness(options: {
   floors?: Array<{ id: string; siteId: string; name: string }>;
@@ -37,10 +38,12 @@ function createHarness(options: {
   const gateways: StoredGateway[] = [];
   const nodes: StoredNode[] = [];
   const fixtures: StoredFixture[] = [];
-  const fixtureIdentities: StoredEnergyFixtureIdentity[] = [];
+  const history = createEnergyHistoryTestStore();
+  const fixtureIdentities = history.identities;
   let sequence = 0;
   const nextId = (kind: string) => `${kind}-${++sequence}`;
   const tx: any = {
+    $queryRaw: jest.fn(async () => fixtures.map(({ id }) => ({ id }))),
     floor: { findMany: jest.fn(async ({ where }: any) => floors.filter((floor) => floor.siteId === where.siteId)) },
     gateway: {
       findUnique: jest.fn(async ({ where }: any) => gateways.find((gateway) => gateway.serialNumber === where.serialNumber) ?? null),
@@ -164,31 +167,16 @@ function createHarness(options: {
     manualOverrideFixture: { findFirst: jest.fn(async () => null) },
     automationExecutionFixtureResult: { findFirst: jest.fn(async () => null) }
   };
-  tx.energyFixtureIdentity = {
-    findMany: jest.fn(async ({ where }: any) => fixtureIdentities.filter((identity) => identity.siteId === where.siteId
-      && where.fixtureId.in.includes(identity.fixtureId))),
-    deleteMany: jest.fn(async ({ where }: any) => {
-      const deleted = fixtureIdentities.filter((identity) => where.id.in.includes(identity.id));
-      for (const identity of deleted) fixtureIdentities.splice(fixtureIdentities.indexOf(identity), 1);
-      return { count: deleted.length };
-    })
-  };
+  Object.assign(tx, history.tx);
   tx.fixtureEnergyHourlyAggregate = { findFirst: jest.fn(async () => null) };
-  const energyDimensions = {
-    recordFixtureDimensions: jest.fn(async (transaction: unknown, input: any) => {
-      if (transaction !== tx) throw new Error("energy dimensions must use the creation transaction");
-      if (!fixtureIdentities.some((identity) => identity.fixtureId === input.fixtureId)) {
-        fixtureIdentities.push({ id: nextId("energy-fixture"), siteId: input.siteId, fixtureId: input.fixtureId });
-      }
-    })
-  };
+  const energyDimensions = new EnergyDimensionHistoryService();
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (client: unknown) => Promise<unknown>) => callback(tx)) };
   const siteAccess = { assertManageInTransaction: jest.fn(async () => {
     if (options.accessError) throw options.accessError;
     return { id: siteId, organizationId: user.organizationId };
   }) };
   const service = new TestDataService(prisma, siteAccess as never, energyDimensions as never);
-  return { service, prisma, tx, siteAccess, energyDimensions, gateways, nodes, fixtures, fixtureIdentities };
+  return { service, prisma, tx, siteAccess, energyDimensions, gateways, nodes, fixtures, fixtureIdentities, history };
 }
 
 describe("TestDataService", () => {
@@ -269,23 +257,101 @@ describe("TestDataService", () => {
 
     expect(h.fixtureIdentities).toHaveLength(200);
     expect(h.fixtureIdentities.map((identity) => identity.fixtureId)).toContain(firstFixtureId);
-    expect(h.energyDimensions.recordFixtureDimensions).toHaveBeenCalledWith(h.tx, expect.objectContaining({
-      fixtureId: firstFixtureId,
-      siteId,
+    expect(h.history.versions).toContainEqual(expect.objectContaining({
+      energyFixtureId: h.fixtureIdentities.find((identity) => identity.fixtureId === firstFixtureId)!.id,
       name: "[TEST DATA] Fixture 001",
       floorId: "floor-1",
       floorName: "Floor 1",
       ratedWatt: new Prisma.Decimal("40.00"),
-      trackingStartedAt: expect.any(Date),
-      effectiveAt: expect.any(Date)
+      effectiveFrom: expect.any(Date),
+      effectiveTo: null
     }));
 
-    h.fixtureIdentities.splice(0, 1);
+    await h.tx.energyFixtureIdentity.deleteMany({ where: { id: { in: [h.fixtureIdentities[0]!.id] } } });
     await h.service.create(user, siteId);
 
     expect(h.fixtureIdentities).toHaveLength(200);
-    expect(h.energyDimensions.recordFixtureDimensions).toHaveBeenCalledTimes(400);
-    expect(h.energyDimensions.recordFixtureDimensions.mock.calls.every(([transaction]) => transaction === h.tx)).toBe(true);
+    expect(h.history.versions).toHaveLength(200);
+  });
+
+  it("keeps real energy history queries bounded for 1,000 new fixtures and an unchanged repeat", async () => {
+    const h = createHarness({ floors: Array.from({ length: 5 }, (_, index) => ({
+      id: `floor-${index}`, siteId, name: `Floor ${index}`
+    })) });
+
+    await h.service.create(user, siteId);
+    const initialQueries = h.history.queryCount();
+    expect(h.fixtureIdentities).toHaveLength(1000);
+    expect(h.history.versions).toHaveLength(1000);
+
+    await h.service.create(user, siteId);
+    const repeatQueries = h.history.queryCount() - initialQueries;
+    expect(h.fixtureIdentities).toHaveLength(1000);
+    expect(h.history.versions).toHaveLength(1000);
+    console.info("energy history query counts", { initialQueries, repeatQueries });
+    expect(initialQueries).toBeLessThanOrEqual(6);
+    expect(repeatQueries).toBeLessThanOrEqual(3);
+  });
+
+  it("repairs a missing current dimension and closes changed dimensions at one effective time without touching unchanged history", async () => {
+    const h = createHarness();
+    await h.service.create(user, siteId);
+    const firstIdentity = h.fixtureIdentities.find((identity) => identity.fixtureId === h.fixtures[0]!.id)!;
+    const old = h.history.versions.find((version) => version.energyFixtureId === firstIdentity.id)!;
+    const unchanged = h.history.versions.find((version) => version.energyFixtureId === h.fixtureIdentities[2]!.id)!;
+    h.fixtures[0]!.name = "[TEST DATA] Fixture renamed";
+    h.fixtures[0]!.ratedWatt = new Prisma.Decimal(55);
+    h.history.versions.find((version) => version.energyFixtureId === h.fixtureIdentities[1]!.id)!.effectiveTo = new Date("2026-01-01T00:00:00Z");
+
+    await h.service.create(user, siteId);
+
+    const replacement = h.history.versions.find((version) => version.energyFixtureId === firstIdentity.id && version.effectiveTo === null)!;
+    expect(h.fixtureIdentities).toHaveLength(200);
+    expect(h.history.versions).toHaveLength(202);
+    expect(h.history.versions.filter((version) => version.effectiveTo === null)).toHaveLength(200);
+    expect(replacement).toEqual(expect.objectContaining({ name: "[TEST DATA] Fixture renamed", ratedWatt: new Prisma.Decimal(55) }));
+    expect(old.effectiveTo).toEqual(replacement.effectiveFrom);
+    expect(unchanged.effectiveTo).toBeNull();
+    expect(h.history.versions.filter((version) => version.energyFixtureId === unchanged.energyFixtureId)).toEqual([unchanged]);
+  });
+
+  it("waits for sorted verified fixture locks before checks and rejects analytics committed while waiting", async () => {
+    const h = createHarness();
+    await h.service.create(user, siteId);
+    const verifiedIds = h.fixtures.map(({ id }) => id).sort();
+    let releaseLock!: () => void;
+    const barrier = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const events: string[] = [];
+    h.tx.$queryRaw.mockImplementation(async (query: Prisma.Sql) => {
+      expect(query.sql).toMatch(/ORDER BY .*"id"\s+FOR UPDATE/);
+      expect(query.values).toEqual(verifiedIds);
+      events.push("fixture-lock-requested");
+      await barrier;
+      events.push("fixture-lock-acquired");
+      return verifiedIds.map((id) => ({ id }));
+    });
+    h.tx.fixtureEnergyHourlyAggregate.findFirst.mockImplementation(async () => {
+      events.push("analytics-check");
+      return events.includes("fixture-lock-acquired") ? { id: "committed-aggregate" } : null;
+    });
+    const cleanup = h.service.remove(user, siteId);
+    const outcome = cleanup.then(() => "deleted", (error: unknown) => error);
+    // Flush the finite service read sequence while the simulated ingestion owns the row lock.
+    for (let step = 0; step < 30; step++) await Promise.resolve();
+    const beforeRelease = [...events];
+    const checksBeforeRelease = Object.values(h.tx).flatMap((delegate: any) =>
+      delegate.findFirst?.mock?.calls ?? []);
+    releaseLock();
+    const result = await outcome;
+
+    expect(beforeRelease).toEqual(["fixture-lock-requested"]);
+    expect(checksBeforeRelease).toEqual([]);
+    expect(result).toBeInstanceOf(ConflictException);
+    expect(events).toEqual(["fixture-lock-requested", "fixture-lock-acquired", "analytics-check"]);
+    expect(h.tx.energyFixtureIdentity.deleteMany).not.toHaveBeenCalled();
+    expect(h.tx.fixture.deleteMany).not.toHaveBeenCalled();
+    expect(h.tx.gateway.deleteMany).not.toHaveBeenCalled();
+    expect(h.fixtures).toHaveLength(200);
   });
 
   it("bulk-refreshes the marked gateway heartbeat and fixture online timestamps on a repeat POST", async () => {
