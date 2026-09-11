@@ -3,7 +3,18 @@ import { readFileSync } from "node:fs";
 import { createRef, useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { Button, FeedbackState, MetricCard, ModalDialog, PageHeader, ProgressSteps, SidePanel, StatusBadge } from ".";
+import {
+  Button,
+  FeedbackState,
+  MetricCard,
+  ModalDialog,
+  PageHeader,
+  ProgressSteps,
+  SidePanel,
+  StatusBadge,
+  UnderlineNavigation,
+  UnderlineNavigationLabel
+} from ".";
 import type { StatusTone } from ".";
 
 const styles = readFileSync("src/styles.css", "utf8");
@@ -195,6 +206,31 @@ describe("Calm Operations UI primitives", () => {
     expect(computedStyle.margin).toBe("0px");
     expect(computedStyle.fontSize).toBe("24px");
     expect(computedStyle.lineHeight).toBe("1.22");
+  });
+
+  it("keeps navigation semantics while supporting an optional decorative icon", () => {
+    render(
+      <>
+        <UnderlineNavigation aria-label="통계 메뉴">
+          <a href="/statistics/overview">
+            <UnderlineNavigationLabel>개요</UnderlineNavigationLabel>
+          </a>
+        </UnderlineNavigation>
+        <UnderlineNavigation as="div" role="tablist" aria-label="제어 방식">
+          <button type="button" role="tab" aria-selected="true">
+            <UnderlineNavigationLabel icon={<CircleCheck data-testid="control-tab-icon" />}>
+              수동 제어
+            </UnderlineNavigationLabel>
+          </button>
+        </UnderlineNavigation>
+      </>
+    );
+
+    const statisticsNavigation = screen.getByRole("navigation", { name: "통계 메뉴" });
+    const controlNavigation = screen.getByRole("tablist", { name: "제어 방식" });
+    expect(within(statisticsNavigation).getByRole("link", { name: "개요" }).querySelector("svg")).toBeNull();
+    expect(within(controlNavigation).getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("control-tab-icon").closest("span")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("stacks control page actions at the mobile breakpoint", () => {

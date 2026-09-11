@@ -1730,6 +1730,10 @@ button {
   min-width: 0;
 }
 
+.control-screen {
+  align-content: start;
+}
+
 .statistics-shell {
   display: grid;
   align-content: start;
@@ -1738,7 +1742,8 @@ button {
   max-width: 100%;
 }
 
-.statistics-subnavigation {
+.ui-underline-navigation {
+  align-self: start;
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -1747,29 +1752,53 @@ button {
   scrollbar-width: thin;
 }
 
-.statistics-subnavigation-track {
+.ui-underline-navigation-track {
   display: flex;
   width: max-content;
   min-width: 100%;
   gap: var(--space-2);
 }
 
-.statistics-subnavigation-link {
+.ui-underline-navigation-item {
   display: inline-flex;
+  flex: 0 0 auto;
   min-height: 44px;
   align-items: center;
+  justify-content: center;
+  appearance: none;
+  border: 0;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
   padding: 0 var(--space-3);
   color: var(--muted);
+  font: inherit;
   font-size: 14px;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.statistics-subnavigation-link.active {
+.ui-underline-navigation-item:is(.active, [aria-current="page"], [aria-selected="true"]) {
   border-bottom-color: var(--primary);
   color: var(--primary);
+}
+
+.ui-underline-navigation-item:focus-visible {
+  box-shadow: inset var(--focus-ring);
+}
+
+.ui-underline-navigation-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.ui-underline-navigation-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
 .settings-screen .ui-page-header,
@@ -1997,52 +2026,6 @@ button {
   display: grid;
   gap: 16px;
   min-width: 0;
-}
-
-.control-mode-tabs {
-  display: flex;
-  min-width: 0;
-  overflow-x: auto;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: #eef4fb;
-  padding: 4px;
-  scrollbar-width: none;
-}
-
-.control-mode-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.control-mode-tabs button {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-width: 132px;
-  min-height: 48px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--muted);
-  padding: 8px 14px;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.control-mode-tabs button.active {
-  background: var(--panel);
-  color: var(--primary);
-  box-shadow: 0 4px 12px rgba(15, 38, 70, 0.08);
-}
-
-.control-mode-tabs button:focus-visible {
-  outline: 0;
-  box-shadow: var(--focus-ring);
 }
 
 .control-mode-placeholder {
@@ -3105,7 +3088,6 @@ button {
 }
 
 @media (min-width: 761px) {
-  .control-screen,
   .schedule-control-panel {
     align-content: start;
   }
@@ -5555,10 +5537,9 @@ button.group-card {
     width: 100%;
   }
 
-  .control-mode-tabs button {
+  .control-mode-tabs .ui-underline-navigation-item {
     min-width: 116px;
-    padding-right: 10px;
-    padding-left: 10px;
+    min-height: 44px;
   }
 
   .schedule-dialog-backdrop {

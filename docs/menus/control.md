@@ -4,6 +4,7 @@
 
 ## 구현 완료
 
+- 수동·스케줄·이벤트 제어 탭을 통계 상단 메뉴와 같은 밑줄형 공통 `UnderlineNavigation`으로 통일했다. 탭 아이콘은 공통 label의 선택 옵션으로 제공해 제어의 기존 아이콘은 유지하고, 활성 밑줄·색상·44px 높이·가로 스크롤 동작은 통계와 공유한다. 기존 `mode` query, 권한별 탭 노출, `tablist`/`tab` ARIA 연결과 방향키·Home·End roving focus는 변경하지 않았다. 390·320·760px Chromium에서 세 모드 모두 탭과 panel 사이 16px 간격, overflow 내부 focus ring과 document 가로 overflow 부재를 확인했다.
 - 현장 capability를 시스템 role과 분리했다. `read` 일반 유저는 제어 메뉴와 `/control` 직접 진입이 차단되고 수동 제어 API도 `403`이다. `control` 일반 유저는 모니터링·통계와 수동 제어만 사용할 수 있으며 `mode=schedule|event` 직접 URL은 `manual`로 replace된다. admin은 수동·스케줄·이벤트 전체를 사용한다. mock Chromium E2E에서 세 권한의 메뉴·직접 route와 수동 명령 API 허용/거절을 검증했으며, 이는 실제 Gateway/BLE Mesh HIL 증거가 아니다.
 
 - 수동 밝기 제어의 오른쪽 실행 영역은 공통 `SidePanel`과 `ui-side-panel-layout`을 사용한다. 데스크톱에서는 280~340px 범위의 안전한 패널 폭을 확보하고 긴 대상명과 상태 문구를 패널 안에서 줄바꿈하며, 높이가 제한되면 패널 내부만 세로 스크롤한다. 1120px 이하에서는 대상 선택 다음 한 열로 쌓아 화면 밖 잘림을 막는다.
@@ -320,6 +321,7 @@
 - `apps/web/src/features/control/ControlView.tsx`
 - `apps/web/src/features/control/ControlTargetPicker.tsx`
 - `apps/web/src/features/control/ControlView.test.tsx`
+- `apps/web/src/components/ui/UnderlineNavigation.tsx`
 - `apps/web/src/features/control/automation/ControlModeTabs.tsx`
 - `apps/web/src/features/control/automation/ScheduleControlPanel.tsx`
 - `apps/web/src/features/control/automation/ScheduleControlPanel.test.tsx`

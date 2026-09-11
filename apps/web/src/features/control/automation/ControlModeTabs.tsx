@@ -1,5 +1,6 @@
 import { CalendarClock, CarFront, SlidersHorizontal } from "lucide-react";
 import { useRef, type KeyboardEvent } from "react";
+import { UnderlineNavigation, UnderlineNavigationLabel } from "../../../components/ui";
 
 export type ControlPageMode = "manual" | "schedule" | "event";
 
@@ -35,7 +36,7 @@ export function ControlModeTabs({
   }
 
   return (
-    <div className="control-mode-tabs" role="tablist" aria-label="제어 방식">
+    <UnderlineNavigation as="div" className="control-mode-tabs" role="tablist" aria-label="제어 방식">
       {modes.map((item, index) => {
         const Icon = item.icon;
         return (
@@ -50,15 +51,16 @@ export function ControlModeTabs({
             aria-selected={mode === item.value}
             aria-controls={`control-mode-panel-${item.value}`}
             tabIndex={mode === item.value ? 0 : -1}
-            className={mode === item.value ? "active" : ""}
+            className={mode === item.value ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
             onClick={() => onChange(item.value)}
             onKeyDown={(event) => selectFromKeyboard(event, index)}
           >
-            <Icon size={18} aria-hidden="true" />
-            {item.label}
+            <UnderlineNavigationLabel icon={<Icon size={18} />}>
+              {item.label}
+            </UnderlineNavigationLabel>
           </button>
         );
       })}
-    </div>
+    </UnderlineNavigation>
   );
 }

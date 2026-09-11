@@ -4,6 +4,7 @@
 
 ## 구현 완료
 
+- 통계 상단 메뉴의 밑줄형 시각·반응형 계약을 공통 `UnderlineNavigation`으로 분리해 제어 메뉴와 공유한다. 통계의 `NavLink`, query/hash 보존과 무아이콘 표현은 그대로 유지하며, 공통 label은 필요한 소비자만 장식 아이콘을 넣을 수 있다. Chromium computed style 비교와 공통 내부 focus ring 검증으로 제어 탭과 같은 시각 계약을 확인했다.
 - 통계 route를 `StatisticsShell` 아래의 서브메뉴 구조로 분리했다. `개요`와 P1 `사용량 분석`을 노출하며 `/statistics`와 알 수 없는 하위 route는 query/hash를 보존해 `/statistics/overview`로 replace 이동한다. 주 메뉴의 통계 active 상태는 모든 통계 하위 route에서 유지된다.
 - `/statistics/analysis`에서 조명·층·그룹 단위를 전환하고 사용량, 예상 비용, 현장 기여도, 조명당 평균 기준으로 최대 400일을 높은 순/낮은 순 정렬한다. 순위 목록은 수집률과 포함 조명 수를 표시하고 선택 항목의 사용량·비용·기여도, 이전 동일 기간 변화, 일별 추이와 조명별 구성을 상세 패널에 제공한다.
 - `GET /energy/sites/:siteId/rankings`는 strict shared query/response 계약을 사용하고 `read` 권한을 데이터 조회 전에 확인한다. 수집률 80% 미만 또는 구조 이력을 신뢰할 수 없는 항목은 별도 `unranked`로 반환하며, 그룹 중복 소속 합계가 현장 총계와 같지 않을 수 있음을 응답과 화면에서 알린다.
@@ -87,6 +88,7 @@
 - `apps/api/src/access/site-access.service.ts`
 - `docs/ui-spacing.md`
 - `docs/assets/statistics-analytics/statistics-overview-ui.png`
+- `apps/web/src/components/ui/UnderlineNavigation.tsx`
 - `apps/web/src/components/ui/SidePanel.tsx`
 - `apps/web/src/features/statistics/StatisticsShell.tsx`
 - `apps/web/src/features/statistics/StatisticsSubnavigation.tsx`

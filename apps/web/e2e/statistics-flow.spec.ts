@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   expectMinimumTouchTargets,
   expectNoHorizontalOverflow
@@ -117,6 +117,89 @@ test("shows energy cards, daily and monthly lines, partial coverage and savings"
   await comparisonRequest;
   await expect(page.getByRole("button", { name: "최근 7일" })).toHaveAttribute("aria-pressed", "true");
   await expect(page).toHaveURL(/\/statistics\/overview\?siteId=site-1$/);
+});
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 320, height: 740 },
+  { width: 760, height: 900 }
+] as const) {
+  test(`${viewport.width}px control modes use the statistics underline navigation visual with optional icons`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const emptyPage = { items: [], nextCursor: null };
+    await page.route("**/api/sites/*/automation/schedules**", (route) => route.fulfill({ json: emptyPage }));
+    await page.route("**/api/sites/*/automation/vehicle-event-rules**", (route) => route.fulfill({ json: emptyPage }));
+    await page.goto("/control?siteId=site-1&mode=manual");
+
+    const controlNavigation = page.getByRole("tablist", { name: "제어 방식" });
+    const controlTabs = controlNavigation.getByRole("tab");
+    await expect(controlTabs).toHaveCount(3);
+    expect(await controlTabs.locator("svg").count()).toBe(3);
+
+    const controlMetrics = await controlNavigation.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth
+    }));
+    if (viewport.width <= 390) {
+      expect(controlMetrics.scrollWidth).toBeGreaterThan(controlMetrics.clientWidth);
+    } else {
+      expect(controlMetrics.scrollWidth).toBeGreaterThanOrEqual(controlMetrics.clientWidth);
+    }
+    for (const tab of await controlTabs.all()) {
+      const bounds = await tab.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.height).toBeGreaterThanOrEqual(44);
+    }
+    let controlVisual: Awaited<ReturnType<typeof underlineNavigationVisual>> | undefined;
+    for (const [mode, label] of [["manual", "수동 제어"], ["schedule", "스케줄 제어"], ["event", "이벤트 제어"]] as const) {
+      const selectedTab = controlNavigation.getByRole("tab", { name: label });
+      if (mode !== "manual") await selectedTab.click();
+      await expect(page).toHaveURL(new RegExp(`[?&]mode=${mode}(?:&|$)`));
+      await expect(selectedTab).toHaveAttribute("aria-selected", "true");
+      const modePanel = page.locator(`#control-mode-panel-${mode}`);
+      await expect(modePanel).toBeVisible();
+
+      const alignment = await underlineNavigationAlignment(controlNavigation);
+      expect(Math.abs(alignment.wrapperHeight - alignment.trackHeight), `${mode} wrapper/track height`).toBeLessThanOrEqual(1);
+      expect(Math.abs(alignment.trackHeight - alignment.tabHeight), `${mode} track/tab height`).toBeLessThanOrEqual(1);
+      expect(Math.abs(alignment.wrapperBottom - alignment.trackBottom), `${mode} bottom alignment`).toBeLessThanOrEqual(1);
+      await expect.poll(async () => {
+        const currentAlignment = await underlineNavigationAlignment(controlNavigation);
+        const panelTop = await modePanel.evaluate((element) => element.getBoundingClientRect().top);
+        return Math.abs(panelTop - currentAlignment.wrapperBottom - 16);
+      }, { message: `${mode} navigation/panel gap` }).toBeLessThanOrEqual(1);
+      controlVisual ??= await underlineNavigationVisual(controlNavigation, selectedTab);
+    }
+    await expectNoHorizontalOverflow(page);
+
+    await page.goto("/statistics/overview?siteId=site-1#summary");
+    const statisticsNavigation = page.getByRole("navigation", { name: "통계 메뉴" });
+    const selectedStatisticsLink = statisticsNavigation.getByRole("link", { name: "개요" });
+    await expect(statisticsNavigation.getByRole("link")).toHaveCount(2);
+    await expect(selectedStatisticsLink).toHaveAttribute("aria-current", "page");
+    await expect(selectedStatisticsLink).toHaveAttribute("href", "/statistics/overview?siteId=site-1#summary");
+    expect(await statisticsNavigation.locator("svg").count()).toBe(0);
+
+    const statisticsVisual = await underlineNavigationVisual(statisticsNavigation, selectedStatisticsLink);
+    expect(controlVisual).toEqual(statisticsVisual);
+    await expectNoHorizontalOverflow(page);
+  });
+}
+
+test("underline navigation keeps keyboard focus visible inside its overflow edge", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/control?siteId=site-1&mode=manual");
+
+  const controlTab = page.getByRole("tab", { name: "수동 제어" });
+  await controlTab.focus();
+  await expect(controlTab).toBeFocused();
+  expect(await controlTab.evaluate((element) => getComputedStyle(element).boxShadow)).toContain("inset");
+
+  await page.goto("/statistics/overview?siteId=site-1");
+  const statisticsLink = page.getByRole("link", { name: "개요" });
+  await statisticsLink.focus();
+  await expect(statisticsLink).toBeFocused();
+  expect(await statisticsLink.evaluate((element) => getComputedStyle(element).boxShadow)).toContain("inset");
 });
 
 test("shows negative savings as overuse without clamping", async ({ page }) => {
@@ -463,6 +546,55 @@ function ranking(dimension: string, metric: string, sort: string, from: string, 
 async function gridColumnCount(page: Page) {
   return page.locator(".statistics-summary").evaluate((element) => {
     return getComputedStyle(element).gridTemplateColumns.split(" ").length;
+  });
+}
+
+async function underlineNavigationVisual(container: Locator, item: Locator) {
+  const [containerVisual, itemVisual] = await Promise.all([
+    container.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderBottomWidth: style.borderBottomWidth,
+        borderLeftWidth: style.borderLeftWidth,
+        borderRadius: style.borderRadius,
+        borderRightWidth: style.borderRightWidth,
+        borderTopWidth: style.borderTopWidth,
+        padding: style.padding
+      };
+    }),
+    item.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderBottomColor: style.borderBottomColor,
+        borderBottomWidth: style.borderBottomWidth,
+        borderRadius: style.borderRadius,
+        boxShadow: style.boxShadow,
+        color: style.color,
+        height: element.getBoundingClientRect().height,
+        padding: style.padding
+      };
+    })
+  ]);
+  return { container: containerVisual, item: itemVisual };
+}
+
+async function underlineNavigationAlignment(container: Locator) {
+  return container.evaluate((element) => {
+    const track = element.querySelector<HTMLElement>(".ui-underline-navigation-track") ?? element;
+    const selected = element.querySelector<HTMLElement>("[role='tab'][aria-selected='true']");
+    if (!selected) throw new Error("underline navigation layout is incomplete");
+    const wrapperRect = element.getBoundingClientRect();
+    const trackRect = track.getBoundingClientRect();
+    const tabRect = selected.getBoundingClientRect();
+    return {
+      wrapperHeight: wrapperRect.height,
+      wrapperBottom: wrapperRect.bottom,
+      trackHeight: trackRect.height,
+      trackBottom: trackRect.bottom,
+      tabHeight: tabRect.height
+    };
   });
 }
 
