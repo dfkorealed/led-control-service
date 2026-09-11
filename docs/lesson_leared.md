@@ -512,3 +512,10 @@
 - **원인**: 서버 삭제와 클라이언트 메모리·테스트 artifact 정리를 서로 다른 완료 조건으로 취급했다.
 - **해결 및 예방책**: 삭제 성공 즉시 현장 사용자 query를 최신 응답으로 교체하고 삭제 대상 상세·mutation cache를 제거한다. 비밀번호 포함 작업은 React Query mutation cache 밖의 component-local state와 요청 body만 사용하고 성공·닫기 때 지운다. 보안 E2E는 trace와 screenshot을 끈다.
 - **반복 방지 체크**: 삭제·비밀번호 흐름은 API 응답, DOM, Web Storage, Query/Mutation cache와 생성된 trace artifact에 평문 또는 삭제 PII가 남지 않는지 검사한다.
+
+## 2026-09-11 / 반환하지 않는 raw SQL과 migration 포함 hot reload는 별도 경계를 둔다
+
+- **발생했던 문제/실수**: PostgreSQL `pg_advisory_xact_lock()`의 `void` 결과를 Prisma `$queryRaw`로 읽어 구역 생성 transaction이 HTTP 500으로 실패했다. 실행 중인 `pnpm dev`에 migration 포함 변경을 병합할 때 Nest watcher만 재시작하면 새 코드가 migration 적용 전 DB를 볼 수도 있다.
+- **원인**: side effect만 필요한 raw SQL도 결과 행을 반환하는 query로 취급했고, application file watcher 재기동과 schema migration 실행을 같은 hot reload 수명주기로 가정했다.
+- **해결 및 예방책**: 반환형을 소비하지 않는 advisory lock은 `$executeRaw`로 실행하고, row를 읽는 SQL만 `$queryRaw`와 명시적 반환형 검증을 사용한다. migration이 포함된 변경은 실행 중 watcher에 맡기지 말고 `pnpm dev` 전체를 재시작해 migration 완료 뒤 API가 시작되게 한다. watcher 내부에서는 migration을 자동 실행하지 않는다.
+- **반복 방지 체크**: raw SQL 회귀는 호출 API와 반환형 역직렬화 여부를 실제 PostgreSQL opt-in 테스트로 확인한다. migration 포함 변경의 개발·배포 체크리스트에는 전체 process 재시작, migration 적용 로그, API bootstrap 순서를 분리해 기록하며 DB URL이 없어서 skip된 검증을 완료로 표시하지 않는다.

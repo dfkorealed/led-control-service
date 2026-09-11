@@ -33,11 +33,11 @@
 - Consumes: `EnergyDimensionHistoryService.recordGroupDimensions(tx, input)`
 - Produces: 필수 `EnergyDimensionHistoryService` 의존성을 가진 `FixtureGroupsService`와 결과를 역직렬화하지 않는 advisory lock
 
-- [ ] **Step 1: `$executeRaw` advisory lock과 필수 이력 호출을 요구하는 실패 테스트 작성**
-- [ ] **Step 2: focused Jest를 실행해 `$executeRaw` 부재와 optional dependency 때문에 예상대로 실패하는지 확인**
-- [ ] **Step 3: advisory lock을 `$executeRaw`로 바꾸고 fixture-group 의존성의 `@Optional()`과 optional chaining 제거**
-- [ ] **Step 4: 실제 PostgreSQL 환경변수가 있을 때 rollback 가능한 구역 생성 통합 회귀 추가**
-- [ ] **Step 5: focused Jest를 다시 실행해 통과 확인**
+- [x] **Step 1: `$executeRaw` advisory lock과 필수 이력 호출을 요구하는 실패 테스트 작성**
+- [x] **Step 2: focused Jest를 실행해 `$executeRaw` 부재와 optional dependency 때문에 예상대로 실패하는지 확인**
+- [x] **Step 3: advisory lock을 `$executeRaw`로 바꾸고 fixture-group 의존성의 `@Optional()`과 optional chaining 제거**
+- [x] **Step 4: 실제 PostgreSQL 환경변수가 있을 때 rollback 가능한 구역 생성 통합 회귀 추가**
+- [x] **Step 5: focused Jest를 다시 실행해 통과 확인**
 
 ### Task 2: 테스트 데이터 에너지 차원 정합성
 
@@ -50,11 +50,11 @@
 - Consumes: `EnergyDimensionHistoryService.recordFixtureDimensions(tx, input)`
 - Produces: 생성·재실행 후 모든 marker fixture의 identity와 현재 dimension이 존재하는 `TestDataService.create()`
 
-- [ ] **Step 1: 신규 fixture와 기존 누락 fixture의 identity/dimension 보충, 반복 호출 비중복을 요구하는 실패 테스트 작성**
-- [ ] **Step 2: focused Jest를 실행해 이력 생성 호출 부재로 예상대로 실패하는지 확인**
-- [ ] **Step 3: marker fixture를 bounded query로 읽고 기존 energy 서비스로 같은 transaction에서 차원을 보장**
-- [ ] **Step 4: 안전한 marker identity 삭제와 분석 이력 존재 시 409를 요구하는 실패 테스트 작성**
-- [ ] **Step 5: deletion dependency 검사와 identity 정리를 최소 구현하고 focused Jest 통과 확인**
+- [x] **Step 1: 신규 fixture와 기존 누락 fixture의 identity/dimension 보충, 반복 호출 비중복을 요구하는 실패 테스트 작성**
+- [x] **Step 2: focused Jest를 실행해 이력 생성 호출 부재로 예상대로 실패하는지 확인**
+- [x] **Step 3: marker fixture를 bounded query로 읽고 기존 energy 서비스로 같은 transaction에서 차원을 보장**
+- [x] **Step 4: 안전한 marker identity 삭제와 분석 이력 존재 시 409를 요구하는 실패 테스트 작성**
+- [x] **Step 5: deletion dependency 검사와 identity 정리를 최소 구현하고 focused Jest 통과 확인**
 
 ### Task 3: 문서 수렴과 전체 검증
 
@@ -69,9 +69,17 @@
 - Consumes: Task 1~2의 fresh 검증 결과
 - Produces: 실제 구현·한계·운영 재시작 규칙과 일치하는 정본 문서
 
-- [ ] **Step 1: 메뉴 문서에 구역 생성과 테스트 데이터 energy 정합성의 구현 상태·한계를 반영**
-- [ ] **Step 2: migration 포함 hot reload 재시작과 raw query 반환형 교훈을 `docs/lesson_leared.md`에 기록**
-- [ ] **Step 3: `pnpm --filter @led-control/api typecheck` 실행**
-- [ ] **Step 4: `pnpm --filter @led-control/api test -- --runInBand` 실행**
-- [ ] **Step 5: `pnpm --filter @led-control/api build`와 `git diff --check` 실행**
-- [ ] **Step 6: 상태판과 이 체크리스트에 최종 테스트 수·환경 의존 skip·남은 위험 기록**
+- [x] **Step 1: 메뉴 문서에 구역 생성과 테스트 데이터 energy 정합성의 구현 상태·한계를 반영**
+- [x] **Step 2: migration 포함 hot reload 재시작과 raw query 반환형 교훈을 `docs/lesson_leared.md`에 기록**
+- [x] **Step 3: `pnpm --filter @led-control/api typecheck` 실행**
+- [x] **Step 4: `pnpm --filter @led-control/api test -- --runInBand` 실행**
+- [x] **Step 5: `pnpm --filter @led-control/api build`와 `git diff --check` 실행**
+- [x] **Step 6: 상태판과 이 체크리스트에 최종 테스트 수·환경 의존 skip·남은 위험 기록**
+
+**최종 검증 (2026-09-11)**
+
+- API typecheck와 production build: exit 0.
+- 전체 API Jest: 101 suites passed, 22 skipped; 948 tests passed, 196 environment-dependent skipped, 0 failed.
+- `git diff --check`: exit 0.
+- 실제 PostgreSQL rollback 구역 생성 통합 회귀 1건은 세 opt-in DB URL이 모두 없어 skip됐다. 사용자 DB에는 연결하거나 쓰지 않았으며 실DB 통과로 간주하지 않는다.
+- 남은 위험: TestDataService 단위 double은 dimension version 비중복 개수를 직접 세지 않지만, 공통 `EnergyDimensionHistoryService`의 동일 dimension no-op 회귀가 production 계약을 보호한다. 실제 PostgreSQL 실행은 DB URL이 있는 격리 환경에서 후속 확인이 필요하다.
