@@ -81,8 +81,8 @@
 - API typecheck와 production build: exit 0.
 - 전체 API Jest: 101 suites passed, 22 skipped; 956 tests passed, 196 environment-dependent skipped, 0 failed.
 - `git diff --check`: exit 0.
-- 실제 PostgreSQL rollback 구역 생성 통합 회귀 1건은 세 opt-in DB URL이 모두 없어 skip됐다. 사용자 DB에는 연결하거나 쓰지 않았으며 실DB 통과로 간주하지 않는다.
-- 남은 위험: 실제 PostgreSQL 동시 실행 및 1,000개 transaction 소요시간은 격리 DB URL이 없어 미검증이다. TestDataService 테스트는 실제 energy service와 stateful DB boundary로 identity/version 개수·반복 비중복을 직접 검증한다.
+- 전체 suite 실행에서는 opt-in DB URL이 없어 PostgreSQL rollback 구역 생성 통합 회귀 1건이 skip됐다. 이후 로컬 개발 PostgreSQL URL을 명시해 해당 회귀를 별도로 실행했고 구역·에너지 이력 생성과 rollback을 1/1 통과했다.
+- 남은 위험: 실제 PostgreSQL 동시 실행 및 1,000개 transaction 소요시간은 미검증이다. TestDataService 테스트는 실제 energy service와 stateful DB boundary로 identity/version 개수·반복 비중복을 직접 검증한다.
 
 ### Task 4: 최종 리뷰 Important 2건 수정
 

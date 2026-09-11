@@ -379,7 +379,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
-- 저장 구역 생성·수정 UI/API는 제어 메뉴에서 제공한다. 다만 실제 PostgreSQL 구역 생성 rollback 통합 회귀는 2026-09-11 세션에 opt-in DB URL이 없어 1건 skip됐고, Raspberry Pi/BlueZ/ESP32-H2를 연결한 zone 제어 Gate도 `not_executed`다. 자동 단위·브라우저 fixture를 실DB 또는 실장비 완료 증거로 간주하지 않는다.
+- 저장 구역 생성·수정 UI/API는 제어 메뉴에서 제공한다. 전체 suite에서 opt-in DB URL 부재로 skip된 PostgreSQL 구역 생성 rollback 통합 회귀는 로컬 개발 PostgreSQL URL을 명시한 별도 실행에서 1/1 통과했다. Raspberry Pi/BlueZ/ESP32-H2를 연결한 zone 제어 Gate는 `not_executed`이며 자동 단위·브라우저 fixture나 DB rollback 회귀를 실장비 완료 증거로 간주하지 않는다.
 - 등록 패널의 물리 provisioning 상태는 1.5초 polling으로 반영하고, 검색·등록·상태 확인의 display-only 진행 단계를 제공한다. `reconcile_required` 장비의 실제 현장 복구 판단과 자동 질의는 아직 제공하지 않는다.
 - MinIO 기반 local S3 integration test는 준비됐지만 현재 개발 머신에 Docker CLI가 없어 실제 실행 증거는 아직 없다.
 - PDF는 첫 페이지만 도면 배경으로 렌더링한다. 다중 페이지 선택과 원본 PDF 파일 관리 UI는 후속 작업이다.
