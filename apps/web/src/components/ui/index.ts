@@ -14,3 +14,5 @@ export type { ProgressStep, ProgressStepState } from "./ProgressSteps";
 export { SidePanel } from "./SidePanel";
 export { StatusBadge } from "./StatusBadge";
 export type { StatusTone } from "./StatusBadge";
+export { UnderlineNavigation, UnderlineNavigationLabel } from "./UnderlineNavigation";
+export type { UnderlineNavigationProps } from "./UnderlineNavigation";
