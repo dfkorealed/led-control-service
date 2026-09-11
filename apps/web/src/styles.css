@@ -1321,6 +1321,11 @@ button {
 
 .fixture-dot {
   --fixture-marker-radius: 16px;
+  --fixture-fill: #334155;
+  --fixture-highlight-alpha: 0.04;
+  --fixture-glow-alpha: 0;
+  --fixture-glow-radius: 0px;
+  --fixture-glow-spread: 0px;
   position: absolute;
   top: clamp(var(--fixture-marker-radius), var(--fixture-top), calc(100% - var(--fixture-marker-radius)));
   left: clamp(var(--fixture-marker-radius), var(--fixture-left), calc(100% - var(--fixture-marker-radius)));
@@ -1330,19 +1335,99 @@ button {
   height: 20px;
   min-height: 20px;
   transform: translate(-50%, -50%);
-  border: 1px solid hsl(38 72% 34%);
-  border-radius: 999px;
+  border: 1px solid #64748b;
+  border-radius: 3px;
   background:
-    radial-gradient(circle at 35% 30%, rgb(255 255 255 / calc(0.08 + var(--fixture-glow-alpha))), transparent 36%),
-    hsl(45 100% var(--fixture-lightness));
+    radial-gradient(circle at 35% 30%, rgb(255 255 255 / var(--fixture-highlight-alpha)), transparent 40%),
+    var(--fixture-fill);
   padding: 0;
   cursor: pointer;
   box-shadow:
-    0 0 var(--fixture-glow-radius) calc(var(--fixture-glow-radius) * 0.35) rgb(250 204 21 / var(--fixture-glow-alpha)),
+    0 0 var(--fixture-glow-radius) var(--fixture-glow-spread) rgb(255 245 170 / var(--fixture-glow-alpha)),
     inset 0 0 0 1px rgb(255 255 255 / 0.24);
   transition:
     background 160ms ease,
     box-shadow 160ms ease;
+}
+
+.fixture-dot.brightness-level-1 {
+  --fixture-fill: #334155;
+  --fixture-highlight-alpha: 0.04;
+  --fixture-glow-alpha: 0;
+  --fixture-glow-radius: 0px;
+  --fixture-glow-spread: 0px;
+}
+
+.fixture-dot.brightness-level-2 {
+  --fixture-fill: #475569;
+  --fixture-highlight-alpha: 0.06;
+  --fixture-glow-alpha: 0.04;
+  --fixture-glow-radius: 2px;
+  --fixture-glow-spread: 0.5px;
+}
+
+.fixture-dot.brightness-level-3 {
+  --fixture-fill: #64748b;
+  --fixture-highlight-alpha: 0.08;
+  --fixture-glow-alpha: 0.08;
+  --fixture-glow-radius: 3.5px;
+  --fixture-glow-spread: 1px;
+}
+
+.fixture-dot.brightness-level-4 {
+  --fixture-fill: #94a3b8;
+  --fixture-highlight-alpha: 0.1;
+  --fixture-glow-alpha: 0.12;
+  --fixture-glow-radius: 5px;
+  --fixture-glow-spread: 1.5px;
+}
+
+.fixture-dot.brightness-level-5 {
+  --fixture-fill: #b7c0cc;
+  --fixture-highlight-alpha: 0.12;
+  --fixture-glow-alpha: 0.16;
+  --fixture-glow-radius: 6.5px;
+  --fixture-glow-spread: 2px;
+}
+
+.fixture-dot.brightness-level-6 {
+  --fixture-fill: #d1d8e0;
+  --fixture-highlight-alpha: 0.14;
+  --fixture-glow-alpha: 0.2;
+  --fixture-glow-radius: 8px;
+  --fixture-glow-spread: 2.5px;
+}
+
+.fixture-dot.brightness-level-7 {
+  --fixture-fill: #e8e5cf;
+  --fixture-highlight-alpha: 0.16;
+  --fixture-glow-alpha: 0.24;
+  --fixture-glow-radius: 9.5px;
+  --fixture-glow-spread: 3px;
+}
+
+.fixture-dot.brightness-level-8 {
+  --fixture-fill: #f6eb96;
+  --fixture-highlight-alpha: 0.18;
+  --fixture-glow-alpha: 0.28;
+  --fixture-glow-radius: 11px;
+  --fixture-glow-spread: 3.5px;
+}
+
+.fixture-dot.brightness-level-9 {
+  --fixture-fill: #fff5b8;
+  --fixture-highlight-alpha: 0.2;
+  --fixture-glow-alpha: 0.34;
+  --fixture-glow-radius: 12.5px;
+  --fixture-glow-spread: 4.25px;
+}
+
+.fixture-dot.brightness-level-10 {
+  --fixture-fill: #fffde8;
+  --fixture-highlight-alpha: 0.22;
+  --fixture-glow-alpha: 0.42;
+  --fixture-glow-radius: 14px;
+  --fixture-glow-spread: 5px;
 }
 
 .fixture-dot::after {
@@ -1362,7 +1447,7 @@ button {
   border-width: 2px;
   border-color: #cbd5e1;
   border-style: dashed;
-  border-radius: 10px;
+  border-radius: 3px;
   background: #f1f5f9;
   color: #64748b;
   box-shadow: none;
@@ -1376,19 +1461,13 @@ button {
   border-width: 3px;
   border-color: #facc15;
   border-style: dotted;
-  border-radius: 6px;
+  border-radius: 3px;
   background: #fffbeb;
   color: #854d0e;
 }
 
 .fixture-dot.awaiting-state::after {
   background: #ca8a04;
-}
-
-.fixture-dot.fault {
-  border-width: 3px;
-  border-color: #fca5a5;
-  border-style: double;
 }
 
 .fixture-dot.fault::after {

@@ -112,11 +112,10 @@ describe("FloorMap", () => {
     expect(fixtureButton.closest(".floor-scene")).not.toHaveAttribute("data-interactive");
     expect(fixtureButton).toHaveStyle({
       "--fixture-left": "8.333333333333332%",
-      "--fixture-top": "15%",
-      "--fixture-lightness": "62.8%",
-      "--fixture-glow-alpha": "0.336",
-      "--fixture-glow-radius": "9.8px"
+      "--fixture-top": "15%"
     });
+    expect(fixtureButton).toHaveAttribute("data-brightness-level", "8");
+    expect(fixtureButton).toHaveClass("brightness-level-8");
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("src", "/demo.svg");
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("draggable", "false");
     expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
