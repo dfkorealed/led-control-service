@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useEnergyComparison, useEnergySeries, useEnergySummary } from "./energy";
+import { useEnergyComparison, useEnergyRankings, useEnergySeries, useEnergySummary } from "./energy";
 
 const { apiGet } = vi.hoisted(() => ({ apiGet: vi.fn() }));
 
@@ -91,7 +91,38 @@ describe("energy queries", () => {
     await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3_000 });
     expect(result.current.data).toBeUndefined();
   });
+
+  it("loads and strictly parses a ranking request", async () => {
+    apiGet.mockResolvedValue(rankingResponse);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useEnergyRankings({
+      siteId: "site/2", dimension: "floor", metric: "usage", sort: "desc",
+      from: "2026-09-01", to: "2026-09-10", limit: 5
+    }), { wrapper: wrapperFor(client) });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(apiGet).toHaveBeenCalledWith(
+      "/energy/sites/site%2F2/rankings?dimension=floor&metric=usage&sort=desc&from=2026-09-01&to=2026-09-10&limit=5"
+    );
+  });
 });
+
+const rankingResponse = {
+  siteId: "00000000-0000-4000-8000-000000000003",
+  timeZone: "Asia/Seoul",
+  source: "state_based_estimate",
+  generatedAt: "2026-09-10T03:00:00.000Z",
+  dimension: "floor",
+  metric: "usage",
+  sort: "desc",
+  range: { from: "2026-09-01", to: "2026-09-10" },
+  siteTotalKwh: 12,
+  siteTotalCost: 1920,
+  overlappingMemberships: false,
+  legacyExcludedBefore: null,
+  ranked: [],
+  unranked: []
+};
 
 const comparisonResponse = {
   siteId: "00000000-0000-4000-8000-000000000003",

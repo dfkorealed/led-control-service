@@ -11,10 +11,11 @@ import { AuditModule } from "../audit/audit.module";
 import { RedisModule } from "../redis/redis.module";
 import { EditorLeaseService } from "./editor-lease.service";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 
 @Module({
   imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule, RedisModule],
   controllers: [FloorEditorController, FloorAssetsController],
-  providers: [FloorEditorService, FloorAssetsService, EditorLeaseService, FixtureEnergyCheckpointService]
+  providers: [FloorEditorService, FloorAssetsService, EditorLeaseService, FixtureEnergyCheckpointService, EnergyDimensionHistoryService]
 })
 export class FloorEditorModule {}

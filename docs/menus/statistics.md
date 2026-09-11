@@ -4,7 +4,12 @@
 
 ## 구현 완료
 
-- 통계 route를 `StatisticsShell` 아래의 서브메뉴 구조로 분리했다. 현재 P0에서는 `개요`만 노출하며 `/statistics`와 알 수 없는 하위 route는 query/hash를 보존해 `/statistics/overview`로 replace 이동한다. 주 메뉴의 통계 active 상태는 모든 통계 하위 route에서 유지된다.
+- 통계 route를 `StatisticsShell` 아래의 서브메뉴 구조로 분리했다. `개요`와 P1 `사용량 분석`을 노출하며 `/statistics`와 알 수 없는 하위 route는 query/hash를 보존해 `/statistics/overview`로 replace 이동한다. 주 메뉴의 통계 active 상태는 모든 통계 하위 route에서 유지된다.
+- `/statistics/analysis`에서 조명·층·그룹 단위를 전환하고 사용량, 예상 비용, 현장 기여도, 조명당 평균 기준으로 최대 400일을 높은 순/낮은 순 정렬한다. 순위 목록은 수집률과 포함 조명 수를 표시하고 선택 항목의 사용량·비용·기여도, 이전 동일 기간 변화, 일별 추이와 조명별 구성을 상세 패널에 제공한다.
+- `GET /energy/sites/:siteId/rankings`는 strict shared query/response 계약을 사용하고 `read` 권한을 데이터 조회 전에 확인한다. 수집률 80% 미만 또는 구조 이력을 신뢰할 수 없는 항목은 별도 `unranked`로 반환하며, 그룹 중복 소속 합계가 현장 총계와 같지 않을 수 있음을 응답과 화면에서 알린다.
+- 운영 `Fixture`/`FixtureGroup`과 분석 identity를 분리하고 이름·층·정격 W 및 그룹 membership의 유효기간 이력을 저장한다. 신규 조명 확정, 도면의 이름·정격 W 변경, 그룹 생성·수정·retire가 운영 변경과 같은 transaction에서 이력을 갱신한다. migration 이전 일별 합계는 현장 총계에는 포함하지만 당시 차원을 복원하지 않고 순위에서 제외한다.
+- 상태 ingest는 기존 일별 집계와 신규 UTC 시간별 집계를 이벤트 원장·checkpoint·최신 조명 상태와 같은 transaction에 dual-write한다. 시간별 row에는 현지 날짜·시간과 UTC offset을 함께 저장해 DST 반복 시간을 구분하고 known/unknown 초, 밝기 가중 초를 보존한다.
+- 시간별 집계는 UTC 기준 24개월이 지난 row를 한 번에 최대 10,000개씩 제거하는 worker를 제공한다. 일별 집계와 dimension/membership 이력은 이 retention 대상이 아니다.
 - `GET /energy/sites/:siteId/comparisons?preset=last_7_days|current_month|current_year`를 추가했다. 최근 7일은 완료된 7개 현장 날짜, 이번 달은 월초부터 완료된 전일까지의 실적과 월말 예상, 올해는 월별 실적을 반환한다. 기간 계산은 현장 IANA timezone과 윤년·월말을 반영한다.
 - 비교 응답은 24시간·100% 운전 기준 사용량, 실제 또는 예상 사용량, 절감 kWh·비용·절감률과 `saving`, `overuse`, `unavailable` 결과를 strict shared 계약으로 제공한다. 초과 사용은 음수 절감값을 0으로 보정하지 않으며, 비교 불가는 절감값을 `null`로 유지한다.
 - `개요` 상단에 `최근 7일`, `이번 달`, `올해` preset과 절감률·예상 사용량·절감 전력·절감 비용 KPI를 추가했다. 비교 불가 시 기준 KPI와 산정 조건 설명만 유지하고 0 절감으로 표시하지 않는다.
@@ -54,21 +59,18 @@
 ## 미구현
 
 - 실제 전력계 기반 사용량 수집
-- 사용자 지정 기간 조회
-- 층별 전력 사용량 차트
-- 그룹별 전력 사용량 차트
-- 조명별 전력 사용량 상세
 - 전기요금 단가/요금제 설정 연동
 - 피크/경부하/중간부하 시간대 요금제
 - CSV/Excel/PDF 내보내기
-- 통계 drill-down
+- 운영 시간·비운영 시간 낭비 분석 및 월 목표/예산을 포함한 최적화 기능(P1에서 제외)
 
 ## 부족하거나 개선이 필요한 기능
 
 - 24시간·100% 기준선은 조회 시점의 현재 등록 조명과 정격 W를 사용한다. 조회 기간 중 등록·삭제·정격 변경이 있었다면 당시 조명 구성으로 소급 보정하지 않으므로 장기 비교의 절대값 해석에 주의해야 한다.
 - 직전·전년 동기간 비교는 현재 누적 이력의 구조를 그대로 사용하고 과거 조명 구성 변경을 복원하지 않는다. 현재 응답의 history quality는 `legacy_structure_unknown`이며, 이력 snapshot을 도입하기 전까지 구성 효과와 실제 운영 절감 효과를 분리할 수 없다.
-- P0는 상태 이벤트와 정격 전력 기반의 소프트웨어 추정 기능이다. 실제 전력계·Raspberry Pi·ESP32-H2·BLE Mesh 상태 publication을 함께 사용한 절감률 HIL은 이번 작업에서 실행하지 않았다.
-- 사용 분석(P1)과 최적화(P2)는 상세 구현 계획만 준비된 상태이며 아직 route를 노출하지 않는다. P3 보고서/내보내기는 사용자 요청에 따라 보류한다.
+- P0/P1은 상태 이벤트와 정격 전력 기반의 소프트웨어 추정 기능이다. 실제 전력계·Raspberry Pi·ESP32-H2·BLE Mesh 상태 publication을 장기간 함께 사용한 절감률·순위 HIL은 이번 작업에서 실행하지 않았다.
+- 사용량 분석(P1)은 구현했다. 운영시간·낭비·목표/예산과 `/statistics/optimization`은 사용자 요청에 따라 이번 범위에서 제외했고, P3 보고서/내보내기도 보류한다.
+- migration 이전에 이미 쌓인 일별 사용량은 당시 층·그룹 구조를 알 수 없으므로 현장 총계에만 포함한다. 시간별 집계는 migration 이후 상태 이벤트부터 쌓이며 일별 데이터를 시간별로 가짜 변환하지 않는다.
 - 공통 간격 토큰과 배치 규칙은 통계 메뉴에만 1차 적용했다. 모니터링·제어·설정의 기존 임의 간격은 각 메뉴 개선 시 동일한 규칙으로 전환해야 한다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - summary/series의 `generatedAt`은 요청별로 한 번 고정되지만 여러 DB read가 하나의 repeatable-read snapshot으로 묶여 있지는 않다. 상태 ingest가 조회 중간에 commit되면 응답 내부 누적·forecast가 서로 다른 순간을 볼 수 있으므로 양산 정산 정확도가 필요해질 때 read-only repeatable-read transaction으로 묶어야 한다.
@@ -76,7 +78,7 @@
 - 근거 없는 절감 지표, 피크 시간, 추천 정책 고정 문구는 제거했다.
 - 브라우저 자동 검증은 route fixture와 test-only MQTT publisher를 사용한 실백엔드 E2E까지 완료했지만 실제 Raspberry Pi, ESP32-H2, BLE Mesh 상태 publication을 포함한 HIL 결과는 아니다.
 - 예상 전기료는 단일 단가 기반이며 복합 요금제를 반영하지 않는다.
-- 현재 추정치는 선택된 현장 단위로만 제공하므로 층별·그룹별 drill-down은 후속 구현이 필요하다.
+- 층·그룹·조명 순위는 분석 이력이 있는 기간만 차원별로 제공한다. 한 현지 날짜 중간에 차원이 바뀐 경우 일별 aggregate의 날짜 단위 귀속 한계가 있으므로 정산 수준의 시간 비례 배분은 후속 검토가 필요하다.
 - 실제 전력계 측정값이 아니라 BLE Mesh 상태 수신 이력과 정격 전력을 이용한 추정치다. 180초를 넘는 통신 공백은 사용량을 추정하지 않고 `partial`로 노출한다.
 
 ## 관련 파일
@@ -90,6 +92,9 @@
 - `apps/web/src/features/statistics/StatisticsSubnavigation.tsx`
 - `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`
 - `apps/web/src/features/statistics/StatisticsOverviewPage.test.tsx`
+- `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.tsx`
+- `apps/web/src/features/statistics/analysis/EnergyRankingList.tsx`
+- `apps/web/src/features/statistics/analysis/EnergyRankingDetailPanel.tsx`
 - `apps/web/src/features/statistics/EnergyComparisonChart.tsx`
 - `apps/web/src/features/statistics/PeriodComparisonPanel.tsx`
 - `apps/web/src/features/statistics/statistics-comparison.ts`
@@ -110,11 +115,17 @@
 - `apps/api/src/energy/energy.service.ts`
 - `apps/api/src/energy/energy-analytics-query.service.ts`
 - `apps/api/src/energy/energy-comparison-query.ts`
+- `apps/api/src/energy/energy-rankings.service.ts`
+- `apps/api/src/energy/energy-dimension-history.service.ts`
+- `apps/api/src/energy/energy-hourly-aggregation.ts`
+- `apps/api/src/energy/energy-retention.service.ts`
 - `apps/api/src/energy/energy-periods.ts`
 - `apps/api/src/energy/energy.integration.spec.ts`
 - `apps/api/src/energy/fixture-state-ingestion.service.ts`
 - `apps/api/prisma/schema.prisma`
 - `packages/shared/src/energy-contracts.ts`
+- `packages/shared/src/energy-analytics-contracts.ts`
+- `docs/assets/statistics-analytics/statistics-analysis-ui.png`
 
 ## 갱신 규칙
 

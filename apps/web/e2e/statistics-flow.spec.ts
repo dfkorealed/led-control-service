@@ -55,6 +55,34 @@ test.beforeEach(async ({ page }) => {
       body: JSON.stringify(comparison(preset, outcome))
     });
   });
+  await page.route("**/energy/sites/*/rankings?**", (route) => {
+    const url = new URL(route.request().url());
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(ranking(
+        url.searchParams.get("dimension") ?? "floor",
+        url.searchParams.get("metric") ?? "usage",
+        url.searchParams.get("sort") ?? "desc",
+        url.searchParams.get("from") ?? "2026-08-01",
+        url.searchParams.get("to") ?? "2026-08-31"
+      ))
+    });
+  });
+});
+
+test("navigates to usage analysis and drills into fixture, floor, and group rankings", async ({ page }) => {
+  await page.goto("/statistics/overview?siteId=site-1");
+  await page.getByRole("link", { name: "사용량 분석" }).click();
+  await expect(page).toHaveURL(/\/statistics\/analysis\?siteId=site-1$/);
+  await expect(page.getByRole("heading", { name: "사용량 분석" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "사용량 순위" })).toContainText("B1 주차장");
+  await expect(page.getByRole("complementary", { name: "B1 주차장 상세" })).toBeVisible();
+
+  const groupRequest = page.waitForRequest((request) => request.url().includes("dimension=group"));
+  await page.getByRole("button", { name: "그룹" }).click();
+  await groupRequest;
+  await expect(page.getByText(/그룹 중복 소속/)).toBeVisible();
+  await expectNoHorizontalOverflow(page);
 });
 
 test("shows energy cards, daily and monthly lines, partial coverage and savings", async ({ page }) => {
@@ -221,6 +249,11 @@ for (const viewport of [
       await expect(page.getByRole("button", { name: "월별" })).toBeInViewport();
       await expectMinimumTouchTargets(page, ".app-shell");
     }
+
+    await page.getByRole("link", { name: "사용량 분석" }).click();
+    await expect(page.getByRole("heading", { name: "사용량 분석" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "사용량 순위" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
   });
 }
 
@@ -384,6 +417,46 @@ function comparison(preset: ComparisonPreset, outcome: ComparisonOutcome) {
       coverageRate: unavailable ? null : 0.9167,
       dataStatus: unavailable ? "no_data" : "partial"
     }]
+  };
+}
+
+function ranking(dimension: string, metric: string, sort: string, from: string, to: string) {
+  const name = dimension === "group" ? "출입구 그룹" : dimension === "fixture" ? "B1-L01" : "B1 주차장";
+  return {
+    siteId: "30000000-0000-4000-8000-000000000001",
+    timeZone: "Asia/Seoul",
+    source: "state_based_estimate",
+    generatedAt,
+    dimension,
+    metric,
+    sort,
+    range: { from, to },
+    siteTotalKwh: 20,
+    siteTotalCost: 3200,
+    overlappingMemberships: dimension === "group",
+    legacyExcludedBefore: null,
+    ranked: [{
+      identityId: "30000000-0000-4000-8000-000000000020",
+      operationalId: "30000000-0000-4000-8000-000000000020",
+      name,
+      rank: 1,
+      fixtureCount: 8,
+      estimatedKwh: 12.5,
+      estimatedCost: 2000,
+      contributionRate: 0.625,
+      perFixtureAverageKwh: 1.5625,
+      metricValue: metric === "cost" ? 2000 : metric === "contribution" ? 0.625 : metric === "per_fixture_average" ? 1.5625 : 12.5,
+      knownSeconds: 691200,
+      unknownSeconds: 0,
+      coverageRate: 1,
+      dataStatus: "available",
+      historyQuality: "observed",
+      unrankedReason: null,
+      previousPeriod: { estimatedKwh: 14, changeRatePercent: -10.71, rank: 1 },
+      dailyPoints: [{ period: "2026-09-10", estimatedKwh: 1.3, dataStatus: "available" }],
+      fixtures: [{ identityId: "30000000-0000-4000-8000-000000000002", name: "B1-L01", estimatedKwh: 2.1 }]
+    }],
+    unranked: []
   };
 }
 

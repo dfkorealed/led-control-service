@@ -35,7 +35,7 @@
 
 - `packages/shared/src/energy-analytics-contracts.ts`: ranking, operating-hours, waste, target strict schemas.
 - `apps/api/prisma/schema.prisma`: analytics identity/history/hourly/policy/target models.
-- `apps/api/prisma/migrations/20260910120000_energy_analytics_history_hourly/migration.sql`: 보존형 FK와 backfill.
+- `apps/api/prisma/migrations/20260911120000_energy_analytics_history_hourly/migration.sql`: 보존형 FK와 backfill.
 - `apps/api/src/energy/energy-dimension-history.service.ts`: fixture/floor/group history 변경.
 - `apps/api/src/energy/energy-hourly-aggregation.ts`: UTC hour split과 weighted brightness.
 - `apps/api/src/energy/energy-rankings.service.ts`: SQL 기반 dimension ranking.
@@ -86,26 +86,26 @@ expect(() => energyMonthlyTargetInputSchema.parse({ targetKwh: null, budgetAmoun
 - [x] **Step 5: 커밋한다.**
   - Run: `git add packages/shared/src/energy-analytics-contracts.ts packages/shared/src/energy-analytics-contracts.test.ts packages/shared/src/index.ts && git commit -m "feat(shared): add energy analytics contracts"`
 
-### Task 2: 분석 identity, history, hourly, policy, target schema
+### Task 2: 분석 identity, history, hourly schema
 
 **Files:**
 - Modify: `apps/api/prisma/schema.prisma`
-- Create: `apps/api/prisma/migrations/20260910120000_energy_analytics_history_hourly/migration.sql`
+- Create: `apps/api/prisma/migrations/20260911120000_energy_analytics_history_hourly/migration.sql`
 - Modify: `apps/api/test/domain-schema.test.ts`
 - Modify: `docs/database-schema.md`
 
 **Interfaces:**
 - Consumes: existing Fixture, Floor, FixtureGroup, GroupFixture, FixtureEnergyDailyAggregate.
-- Produces: `EnergyFixtureIdentity`, `EnergyFixtureDimensionVersion`, `EnergyGroupIdentity`, `EnergyGroupDimensionVersion`, `EnergyGroupMembershipVersion`, `FixtureEnergyHourlyAggregate`, `SiteOperatingHoursPolicy`, `SiteOperatingHoursException`, `EnergyMonthlyTarget`.
+- Produces: `EnergyFixtureIdentity`, `EnergyFixtureDimensionVersion`, `EnergyGroupIdentity`, `EnergyGroupDimensionVersion`, `EnergyGroupMembershipVersion`, `FixtureEnergyHourlyAggregate`.
 
-- [ ] **Step 1: schema invariant 실패 테스트를 작성한다.**
+- [x] **Step 1: schema invariant 실패 테스트를 작성한다.**
   - domain-schema test에서 신규 table, `(energyFixtureId,bucketStartUtc)` unique, daily `energyFixtureId`, old fixture FK `ON DELETE SET NULL`, effective range check를 요구한다.
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand test/domain-schema.test.ts`
   - Expected: FAIL because migration and models are absent.
 
-- [ ] **Step 3: Prisma models와 enum을 추가한다.**
+- [x] **Step 3: Prisma models와 enum을 추가한다.**
 
 ```prisma
 model EnergyFixtureIdentity {
@@ -123,25 +123,24 @@ model EnergyFixtureIdentity {
 
   - daily aggregate는 `fixtureId String?`, `energyFixtureId String`을 함께 가지고 신규 unique는 `(energyFixtureId, localDate)`다.
   - hourly은 `brightnessWeightedSeconds Decimal(20,4)`와 known/unknown seconds를 가진다.
-  - target은 `(siteId, localMonth)` unique다.
 
-- [ ] **Step 4: 보존형 migration을 작성한다.**
+- [x] **Step 4: 보존형 migration을 작성한다.**
   - 현재 Fixture마다 identity를 생성한다.
   - dimension/group identity와 membership version은 migration timestamp부터 시작한다.
   - 기존 daily row의 `energyFixtureId`를 fixture mapping으로 backfill한 뒤 NOT NULL로 만든다.
   - 기존 daily fixture FK를 `ON DELETE SET NULL`로 바꾸고 fixtureId를 nullable로 만든다.
   - 유효기간 overlap은 PostgreSQL exclusion constraint 또는 transaction advisory lock+partial unique로 차단하며 migration test가 exact SQL을 고정한다.
 
-- [ ] **Step 5: Prisma Client와 schema 문서를 갱신한다.**
+- [x] **Step 5: Prisma Client와 schema 문서를 갱신한다.**
   - Run: `pnpm --filter @led-control/api prisma:generate`
   - `docs/database-schema.md`에 신규 모델, retention, operational/analytics 분리, migration 이전 이력 한계를 기록한다.
 
-- [ ] **Step 6: schema 검증을 실행한다.**
+- [x] **Step 6: schema 검증을 실행한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand test/domain-schema.test.ts`
   - Run: `pnpm --filter @led-control/api typecheck`
   - Expected: schema invariant and typecheck PASS.
 
-- [ ] **Step 7: 커밋한다.**
+- [x] **Step 7: 커밋한다.**
   - Run: `git add apps/api/prisma apps/api/test/domain-schema.test.ts docs/database-schema.md && git commit -m "feat(api): add energy analytics history schema"`
 
 ### Task 3: Dimension과 membership 이력 lifecycle
@@ -150,8 +149,8 @@ model EnergyFixtureIdentity {
 - Create: `apps/api/src/energy/energy-dimension-history.service.ts`
 - Create: `apps/api/src/energy/energy-dimension-history.service.spec.ts`
 - Modify: `apps/api/src/energy/energy.module.ts`
-- Modify: `apps/api/src/registration/registration.service.ts`
-- Modify: `apps/api/src/registration/registration.service.spec.ts`
+- Modify: `apps/api/src/mqtt/mqtt.service.ts`
+- Modify: `apps/api/src/mqtt/mqtt.service.spec.ts`
 - Modify: `apps/api/src/floor-editor/floor-editor.service.ts`
 - Modify: `apps/api/src/floor-editor/floor-editor.service.spec.ts`
 - Modify: `apps/api/src/fixture-groups/fixture-groups.service.ts`
@@ -161,17 +160,17 @@ model EnergyFixtureIdentity {
 - Consumes: Task 2 models and transaction client.
 - Produces: `createFixtureIdentity`, `recordFixtureDimensions`, `replaceGroupMemberships`, `retireFixture` transaction methods.
 
-- [ ] **Step 1: lifecycle 실패 테스트를 작성한다.**
-  - registration transaction이 Fixture와 identity/version을 함께 생성한다.
+- [x] **Step 1: lifecycle 실패 테스트를 작성한다.**
+  - provisioning 완료 transaction이 Fixture와 identity/version을 함께 생성한다.
   - name/floor/ratedW 변경은 old effectiveTo를 닫고 new version을 생성한다.
   - 좌표·placement만 변경하면 version을 만들지 않는다.
   - group update는 removed membership을 닫고 added membership만 생성한다.
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-dimension-history.service.spec.ts src/registration/registration.service.spec.ts src/floor-editor/floor-editor.service.spec.ts src/fixture-groups/fixture-groups.service.spec.ts`
   - Expected: FAIL because history service is absent.
 
-- [ ] **Step 3: transaction-only history service를 구현한다.**
+- [x] **Step 3: transaction-only history service를 구현한다.**
 
 ```ts
 recordFixtureDimensions(tx: Prisma.TransactionClient, input: {
@@ -183,16 +182,16 @@ recordFixtureDimensions(tx: Prisma.TransactionClient, input: {
   - 같은 값이면 no-op, 변경이면 열린 row를 먼저 닫는다.
   - service 내부에서 별도 top-level transaction을 만들지 않는다.
 
-- [ ] **Step 4: registration/floor editor/group service에 연결한다.**
+- [x] **Step 4: MQTT provisioning/floor editor/group service에 연결한다.**
   - 모든 history write는 operational mutation과 같은 transaction에 둔다.
   - group rename과 membership replacement는 `FixtureGroupsService.update`의 locked transaction에 넣는다.
   - site cascade delete는 identity도 site FK cascade로 제거한다.
 
-- [ ] **Step 5: lifecycle 회귀를 검증한다.**
+- [x] **Step 5: lifecycle 회귀를 검증한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-dimension-history.service.spec.ts src/registration/registration.service.spec.ts src/floor-editor/floor-editor.service.spec.ts src/fixture-groups/fixture-groups.service.spec.ts`
   - Expected: mutation/history atomicity PASS.
 
-- [ ] **Step 6: 커밋한다.**
+- [x] **Step 6: 커밋한다.**
   - Run: `git add apps/api/src/energy apps/api/src/registration apps/api/src/floor-editor apps/api/src/fixture-groups && git commit -m "feat(api): preserve energy dimension history"`
 
 ### Task 4: 시간별 집계와 ingest 원자성
@@ -210,7 +209,7 @@ recordFixtureDimensions(tx: Prisma.TransactionClient, input: {
 - Consumes: state transition intervals and `energyFixtureId`.
 - Produces: `HourlyEnergyDelta[]` and atomic daily/hourly persistence.
 
-- [ ] **Step 1: hour split 실패 테스트를 작성한다.**
+- [x] **Step 1: hour split 실패 테스트를 작성한다.**
 
 ```ts
 expect(splitKnownIntervalByUtcHour({
@@ -221,26 +220,26 @@ expect(splitKnownIntervalByUtcHour({
 
   - 30/60/15분 known seconds, brightnessWeightedSeconds, DST repeated local hour를 검증한다.
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-hourly-aggregation.spec.ts`
   - Expected: FAIL because hourly splitter is absent.
 
-- [ ] **Step 3: UTC hour splitter와 delta merge를 구현한다.**
+- [x] **Step 3: UTC hour splitter와 delta merge를 구현한다.**
   - bucket은 UTC 정각 경계로 자른다.
   - localDate/localHour/utcOffsetMinutes는 각 bucketStartUtc에서 계산한다.
   - known과 unknown interval 모두 저장하되 unknown은 kWh와 weighted brightness를 증가시키지 않는다.
 
-- [ ] **Step 4: ingest dual-write를 구현한다.**
+- [x] **Step 4: ingest dual-write를 구현한다.**
   - locked fixture query에서 identity ID를 함께 읽는다.
   - processed event, daily upsert, hourly upsert, cursor, Fixture 상태를 같은 Prisma transaction에서 처리한다.
   - hourly upsert가 실패하면 daily와 processed event도 rollback되는 integration test를 추가한다.
 
-- [ ] **Step 5: replay와 DST 회귀를 검증한다.**
+- [x] **Step 5: replay와 DST 회귀를 검증한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-hourly-aggregation.spec.ts src/energy/energy-aggregation.spec.ts src/energy/fixture-state-ingestion.service.spec.ts`
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/fixture-state-ingestion.integration.spec.ts`
   - Expected: duplicate event does not increment daily/hourly; transaction rollback PASS.
 
-- [ ] **Step 6: 커밋한다.**
+- [x] **Step 6: 커밋한다.**
   - Run: `git add apps/api/src/energy && git commit -m "feat(api): aggregate fixture energy hourly"`
 
 ### Task 5: 사용량 순위 API
@@ -255,24 +254,24 @@ expect(splitKnownIntervalByUtcHour({
 - Consumes: dimension/group histories and daily aggregates.
 - Produces: `GET /energy/sites/:siteId/rankings` returning `EnergyRankingResponse`.
 
-- [ ] **Step 1: ranking 실패 테스트를 작성한다.**
+- [x] **Step 1: ranking 실패 테스트를 작성한다.**
   - floor usage descending, group overlapping membership, per-fixture average, low coverage unranked, legacy period excluded cases를 만든다.
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-rankings.service.spec.ts`
   - Expected: FAIL because ranking service is absent.
 
-- [ ] **Step 3: bounded SQL ranking을 구현한다.**
+- [x] **Step 3: bounded relation query ranking을 구현한다.**
   - 입력 범위 최대 400일, limit 1~100을 shared query schema로 검증한다.
   - effective range intersection을 SQL에서 수행하고 `ORDER BY metric DESC, identityId ASC`로 안정 정렬한다.
   - coverage 미달 row는 `unranked` 배열로 분리한다.
   - group 응답에는 `overlappingMemberships=true`를 항상 포함한다.
 
-- [ ] **Step 4: controller와 tenant scope를 연결한다.**
+- [x] **Step 4: controller와 tenant scope를 연결한다.**
   - access assert가 SQL보다 먼저 수행됨을 call order로 검증한다.
   - other-site dimension ID가 결과에 섞이지 않는 integration fixture를 추가한다.
 
-- [ ] **Step 5: ranking 검증 후 커밋한다.**
+- [x] **Step 5: ranking 검증 후 커밋한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy/energy-rankings.service.spec.ts && pnpm --filter @led-control/api typecheck`
   - Run: `git add apps/api/src/energy && git commit -m "feat(api): add energy usage rankings"`
 
@@ -360,23 +359,23 @@ wasteKwh = ratedWatt × max(avgBrightness - allowedBrightness, 0) / 100 × known
 - Consumes: Task 5 ranking endpoint.
 - Produces: `/statistics/analysis`, dimension/metric filter, ranking detail panel.
 
-- [ ] **Step 1: hook와 route 실패 테스트를 작성한다.**
+- [x] **Step 1: hook와 route 실패 테스트를 작성한다.**
   - `siteId`, dimension, metric, date range가 query key와 URL에 모두 포함되는지 검사한다.
   - 서브메뉴에 `사용 분석`이 추가되고 active link가 바뀌는지 검사한다.
 
-- [ ] **Step 2: 실패를 확인한다.**
+- [x] **Step 2: 실패를 확인한다.**
   - Run: `pnpm --filter @led-control/web test -- src/api/energy.test.tsx StatisticsAnalysisPage.test.tsx EnergyRankingList.test.tsx`
   - Expected: FAIL because route, hook, components are absent.
 
-- [ ] **Step 3: strict API hook과 page filter를 구현한다.**
+- [x] **Step 3: strict API hook과 page filter를 구현한다.**
   - dimension/metric/preset을 URLSearchParams로 직렬화한다.
   - site 변경 시 selected ranking identity를 초기화한다.
 
-- [ ] **Step 4: ranking list와 detail을 구현한다.**
+- [x] **Step 4: ranking list와 detail을 구현한다.**
   - 순위/미순위 영역, coverage, history badge, group overlap notice를 제공한다.
   - row는 button으로 만들고 선택 시 `SidePanel`에 일별 추이와 포함 조명을 표시한다.
 
-- [ ] **Step 5: Web 검증 후 커밋한다.**
+- [x] **Step 5: Web 검증 후 커밋한다.**
   - Run: `pnpm --filter @led-control/web test -- StatisticsAnalysisPage.test.tsx EnergyRankingList.test.tsx src/api/energy.test.tsx && pnpm --filter @led-control/web typecheck`
   - Run: `git add apps/web/src && git commit -m "feat(web): add statistics usage analysis"`
 
@@ -435,32 +434,31 @@ wasteKwh = ratedWatt × max(avgBrightness - allowedBrightness, 0) / 100 × known
 - Consumes: Tasks 1~9 P1 기능.
 - Produces: 24개월 hourly retention, browser evidence, 동기화된 상태 문서.
 
-- [ ] **Step 1: retention 실패 테스트를 작성한다.**
+- [x] **Step 1: retention 실패 테스트를 작성한다.**
   - site timezone과 무관하게 `bucketStartUtc < now-24months`만 bounded batch delete하는지 검사한다.
   - daily와 dimension history는 삭제하지 않는지 검사한다.
 
-- [ ] **Step 2: retention worker를 구현한다.**
+- [x] **Step 2: retention worker를 구현한다.**
   - `OnModuleInit/OnModuleDestroy`, 중복 timer 방지, 1회 10,000행 제한을 사용한다.
   - site 영구 삭제는 FK cascade로 hourly까지 제거한다.
 
-- [ ] **Step 3: Playwright P1 흐름을 추가한다.**
-  - analysis/optimization 직접 URL과 back/forward.
+- [x] **Step 3: Playwright P1 흐름을 추가한다.**
+  - analysis 직접 URL과 서브메뉴 이동.
   - ranking dimension 전환과 detail.
-  - admin operating-hours/target mutation, viewer read-only.
-  - 7일 부족 상태와 group overlap notice.
+  - ranking detail과 group overlap notice.
   - 네 viewport submenu internal scroll와 document overflow 없음.
 
-- [ ] **Step 4: P1 focused 검증을 실행한다.**
+- [x] **Step 4: P1 focused 검증을 실행한다.**
   - Run: `pnpm --filter @led-control/api test -- --runInBand src/energy`
   - Run: `pnpm --filter @led-control/web test && pnpm --filter @led-control/web exec playwright test e2e/statistics-flow.spec.ts --project=chromium`
   - Expected: API/Web/Chromium PASS.
 
-- [ ] **Step 5: 문서와 체크리스트를 동기화한다.**
+- [x] **Step 5: 문서와 체크리스트를 동기화한다.**
   - `docs/menus/statistics.md`에 software 구현과 migration 이전 이력/7일 warm-up 한계를 기록한다.
   - `docs/project-status.md`에 migration, hourly retention, 실제 HIL 미실행을 기록한다.
   - 실제 완료 step만 `[x]`로 바꾼다.
 
-- [ ] **Step 6: 전체 검증 후 커밋한다.**
+- [x] **Step 6: 전체 검증 후 커밋한다.**
   - Run: `pnpm test && pnpm lint && pnpm typecheck && git diff --check`
   - Run: `git add apps/api/src/energy apps/web/e2e/statistics-flow.spec.ts docs && git commit -m "test(statistics): verify P1 analysis and optimization"`
 

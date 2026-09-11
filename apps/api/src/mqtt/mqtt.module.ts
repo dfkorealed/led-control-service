@@ -12,12 +12,14 @@ import { ProvisioningScanOutboxPublisherService } from "./provisioning-scan-outb
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 
 @Module({
   imports: [PrismaModule, MeshControlGroupModule, AutomationRuntimeModule],
   providers: [
     MqttService,
     FixtureStateIngestionService,
+    EnergyDimensionHistoryService,
     FixtureFreshnessService,
     OutboxPublisherService,
     AutomationOutboxPublisherService,

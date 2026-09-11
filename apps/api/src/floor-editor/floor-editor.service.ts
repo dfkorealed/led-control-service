@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import {
   FloorEditorSnapshot,
   SaveEditorStateInput,
@@ -17,6 +17,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { buildFloorEditorSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { EditorPatch, persistEditorPatches } from "./editor-batch-persistence";
 
 export const EDITOR_TRANSACTION_OPTIONS = {
@@ -125,7 +126,8 @@ export class FloorEditorService {
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
     private readonly auditService: AuditService,
-    private readonly energyCheckpoint: FixtureEnergyCheckpointService = new FixtureEnergyCheckpointService()
+    private readonly energyCheckpoint: FixtureEnergyCheckpointService = new FixtureEnergyCheckpointService(),
+    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService
   ) {}
 
   async getEditorState(floorId: string, user: AuthenticatedUser) {
@@ -594,7 +596,11 @@ export class FloorEditorService {
     if (patches.length === 0) return;
     const fixtures = await tx.fixture.findMany({
       where: { floorId, id: { in: patches.map(({ id }) => id) } },
-      select: { id: true, x: true, y: true, ratedWatt: true, placementStatus: true, positionVerifiedAt: true }
+      select: {
+        id: true, name: true, floorId: true, energyTrackingStartedAt: true,
+        x: true, y: true, ratedWatt: true, placementStatus: true, positionVerifiedAt: true,
+        floor: { select: { name: true, siteId: true } }
+      }
     });
     const currentById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
     const plan = await tx.floorPlan.findUnique({ where: { floorId }, select: { width: true, height: true } });
@@ -629,6 +635,18 @@ export class FloorEditorService {
         } else {
           delete data.ratedWatt;
         }
+      }
+      if (this.energyDimensions) {
+        await this.energyDimensions.recordFixtureDimensions(tx, {
+          fixtureId: id,
+          siteId: current.floor.siteId,
+          name: String(data.name ?? current.name),
+          floorId: current.floorId,
+          floorName: current.floor.name,
+          ratedWatt: new Prisma.Decimal((data.ratedWatt ?? current.ratedWatt) as Prisma.Decimal.Value),
+          trackingStartedAt: current.energyTrackingStartedAt,
+          effectiveAt: changedAt
+        });
       }
       normalized.push({ id, data });
     }

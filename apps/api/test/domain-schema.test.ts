@@ -12,6 +12,7 @@ const pendingDeviceCertificateLifecycleMigrationSuffix = "_enforce_pending_devic
 const roleRevisionMigrationSuffix = "simplify_roles_and_floor_revisions";
 const menuCompletionFoundationMigrationSuffix = "menu_completion_foundation";
 const discoveredNodeScanIdentityMigrationSuffix = "add_discovered_node_scan_identity";
+const energyAnalyticsHistoryMigrationSuffix = "energy_analytics_history_hourly";
 
 const findPkiMigrationDirectory = (directoryNames: string[]) => {
   const matches = directoryNames.filter((name) => name.endsWith(pkiMigrationSuffix));
@@ -82,6 +83,37 @@ const prismaStorageFields = (schema: string): PrismaStorageField[] =>
   });
 
 describe("Prisma domain schema", () => {
+  it("preserves fixture dimensions and hourly energy through analytics identities", () => {
+    const schema = readSchema();
+    const migration = readMigrationBySuffix(energyAnalyticsHistoryMigrationSuffix);
+
+    for (const model of [
+      "EnergyFixtureIdentity",
+      "EnergyFixtureDimensionVersion",
+      "EnergyGroupIdentity",
+      "EnergyGroupDimensionVersion",
+      "EnergyGroupMembershipVersion",
+      "FixtureEnergyHourlyAggregate"
+    ]) {
+      expect(schema).toContain(`model ${model}`);
+      expect(migration).toContain(`CREATE TABLE "${model}"`);
+    }
+
+    expect(prismaModelBody(schema, "FixtureEnergyDailyAggregate")).toMatch(/fixtureId\s+String\?/);
+    expect(prismaModelBody(schema, "FixtureEnergyDailyAggregate")).toMatch(/energyFixtureId\s+String/);
+    expect(prismaModelBody(schema, "FixtureEnergyDailyAggregate")).toContain("@@unique([energyFixtureId, localDate])");
+    expect(prismaModelBody(schema, "FixtureEnergyHourlyAggregate")).toContain("@@unique([energyFixtureId, bucketStartUtc])");
+    expect(prismaModelBody(schema, "FixtureEnergyHourlyAggregate")).toMatch(/brightnessWeightedSeconds\s+Decimal/);
+    expect(migration).toMatch(/INSERT INTO "EnergyFixtureIdentity"[\s\S]*FROM "Fixture"/);
+    expect(migration).toMatch(/UPDATE "FixtureEnergyDailyAggregate"[\s\S]*SET "energyFixtureId"/);
+    expect(migration).toContain('ON DELETE SET NULL ON UPDATE CASCADE');
+    expect(migration).toContain('"EnergyFixtureDimensionVersion_effective_range_check"');
+    expect(migration).toContain('"EnergyGroupMembershipVersion_effective_range_check"');
+    expect(migration).toContain('"EnergyFixtureDimensionVersion_one_open_key"');
+    expect(migration).toContain('"EnergyGroupDimensionVersion_one_open_key"');
+    expect(migration).toContain('"EnergyGroupMembershipVersion_one_open_key"');
+  });
+
   it("adds nullable scan identity to discovered nodes through a new migration", () => {
     const schema = readSchema();
     const migration = readMigrationBySuffix(discoveredNodeScanIdentityMigrationSuffix);
@@ -130,7 +162,7 @@ describe("Prisma domain schema", () => {
     expect(prismaModelBody(schema, "Fixture")).toMatch(/firstStateOccurredAt\s+DateTime\?/);
     expect(prismaModelBody(schema, "Fixture")).toMatch(/powerOn\s+Boolean\?/);
     expect(schema).toContain("model FixtureEnergyDailyAggregate");
-    expect(schema).toContain("@@unique([fixtureId, localDate])");
+    expect(schema).toContain("@@unique([energyFixtureId, localDate])");
 
     expect(prismaModelBody(schema, "Command")).toMatch(/clientRequestId\s+String/);
     expect(prismaModelBody(schema, "Command")).toMatch(/requestFingerprint\s+String/);

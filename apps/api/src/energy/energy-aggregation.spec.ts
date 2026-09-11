@@ -160,6 +160,9 @@ describe("aggregateFixtureStateTransition", () => {
     });
 
     expect(result.dailyDeltas[0]).toMatchObject({ knownSeconds: 180, unknownSeconds: 120 });
+    expect(result.hourlyDeltas).toHaveLength(1);
+    expect(result.hourlyDeltas[0]).toMatchObject({ knownSeconds: 180, unknownSeconds: 120, localHour: 0 });
+    expect(result.hourlyDeltas[0].brightnessWeightedSeconds.toString()).toBe("9000");
     expect(result.dailyDeltas[0].estimatedKwh.toFixed(12)).toBe("0.001000000000");
     expect(result.dailyDeltas[0].estimatedCost.toFixed(8)).toBe("0.16000000");
   });

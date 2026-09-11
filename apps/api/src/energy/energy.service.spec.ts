@@ -12,7 +12,8 @@ describe("EnergyService", () => {
       getSiteSeries: jest.fn().mockResolvedValue({ siteId: "site-1", points: [] }),
       getComparison: jest.fn().mockResolvedValue({ siteId: "site-1", preset: "current_month" })
     };
-    const service = new EnergyService({} as never, {} as never, analytics as never);
+    const rankings = { getRankings: jest.fn().mockResolvedValue({ siteId: "site-1", ranked: [] }) };
+    const service = new EnergyService({} as never, {} as never, analytics as never, rankings as never);
 
     await expect(service.getSiteSummary(user, "site-1")).resolves.toEqual({ siteId: "site-1" });
     await expect(service.getSiteSeries(user, "site-1", {
@@ -20,6 +21,9 @@ describe("EnergyService", () => {
     })).resolves.toEqual({ siteId: "site-1", points: [] });
     await expect(service.getSiteComparisons(user, "site-1", "current_month")).resolves.toEqual({
       siteId: "site-1", preset: "current_month"
+    });
+    await expect(service.getSiteRankings(user, "site-1", { dimension: "fixture" })).resolves.toEqual({
+      siteId: "site-1", ranked: []
     });
   });
 

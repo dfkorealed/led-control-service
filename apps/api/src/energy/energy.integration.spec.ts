@@ -12,7 +12,8 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
     organizationId: "22000000-0000-4000-8000-000000000001",
     siteId: "22000000-0000-4000-8000-000000000002",
     floorId: "22000000-0000-4000-8000-000000000003",
-    fixtureId: "22000000-0000-4000-8000-000000000004"
+    fixtureId: "22000000-0000-4000-8000-000000000004",
+    energyFixtureId: "22000000-0000-4000-8000-000000000007"
   };
   const user = {
     id: "22000000-0000-4000-8000-000000000005",
@@ -66,9 +67,18 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
       },
       update: { ratedWatt: "40", energyTrackingStartedAt: new Date("2026-07-31T15:00:00.000Z") }
     });
+    await prisma.energyFixtureIdentity.upsert({
+      where: { fixtureId: ids.fixtureId },
+      create: {
+        id: ids.energyFixtureId, siteId: ids.siteId, fixtureId: ids.fixtureId,
+        trackingStartedAt: new Date("2026-07-31T15:00:00.000Z")
+      },
+      update: { retiredAt: null }
+    });
     await prisma.fixtureEnergyDailyAggregate.create({
       data: {
-        fixtureId: ids.fixtureId, localDate: new Date("2026-08-01T00:00:00.000Z"),
+        fixtureId: ids.fixtureId, energyFixtureId: ids.energyFixtureId,
+        localDate: new Date("2026-08-01T00:00:00.000Z"),
         estimatedKwh: new Prisma.Decimal("0.123456789012"), estimatedCost: new Prisma.Decimal("19.75308624"),
         knownSeconds: 118_800, unknownSeconds: 0
       }

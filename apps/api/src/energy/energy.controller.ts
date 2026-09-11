@@ -46,4 +46,13 @@ export class EnergyController {
   ) {
     return this.energyService.getSiteSeries(user, siteId, { granularity, from, to });
   }
+
+  @Get("sites/:siteId/rankings")
+  getSiteRankings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("siteId") siteId: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    return this.energyService.getSiteRankings(user, siteId, query);
+  }
 }

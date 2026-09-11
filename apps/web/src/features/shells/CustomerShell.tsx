@@ -22,6 +22,7 @@ import { RegistrationSettingsView } from "../settings/registration/RegistrationS
 import { PasswordSettingsView } from "../settings/security/PasswordSettingsView";
 import { SiteUsersView } from "../settings/users/SiteUsersView";
 import { StatisticsOverviewPage } from "../statistics/StatisticsOverviewPage";
+import { StatisticsAnalysisPage } from "../statistics/analysis/StatisticsAnalysisPage";
 import { StatisticsIndexRedirect, StatisticsShell } from "../statistics/StatisticsShell";
 import { SettingsNavigationItem } from "./SettingsNavigationItem";
 
@@ -225,6 +226,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           <Route path="/statistics" element={<StatisticsShell siteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<StatisticsIndexRedirect />} />
             <Route path="overview" element={<StatisticsOverviewPage />} />
+            <Route path="analysis" element={<StatisticsAnalysisPage />} />
             <Route path="*" element={<StatisticsIndexRedirect />} />
           </Route>
           <Route path="/settings" element={<SettingsShell selectedSiteId={siteId ?? dashboard?.site.id} />}>

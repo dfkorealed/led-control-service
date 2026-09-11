@@ -12,7 +12,7 @@
 
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
-| 통계 분석 P0-P2 구현 | 진행 중(P0 완료·소프트웨어) | P0 `/statistics/overview`에 최근 7일·이번 달·올해 preset, 절감·초과 사용 KPI, 24시간 100% 기준 bar와 실제·예상 line, 직전·전년 동기간 비교를 연결했다. forecast 미산정·부분 수집·비교 오류를 기존 통계와 분리하고 수집률 및 `조명 구성 변화 미보정` 한계를 노출한다. Shared 180, API 에너지 70 passed/환경 의존 2 skipped, Web 606, Chromium 10개와 production build를 통과했다. main bundle은 1,239.26 kB/gzip 371.16 kB로 기존 500 kB 경고가 남는다. 실제 전력계·Raspberry Pi·ESP32-H2 HIL은 실행하지 않았다. P1·P2는 계획 상태이고 P3는 보류한다. |
+| 통계 분석 P0-P2 구현 | 진행 중(P0·P1 사용량 분석 완료·소프트웨어) | P0 `/statistics/overview`의 기간별 절감 비교에 이어 P1 `/statistics/analysis`의 조명·층·그룹 순위, 사용량/비용/기여도/조명당 평균, 이전 동기간·일별·조명 구성 drill-down을 구현했다. 분석 identity와 유효기간 dimension/membership, DST-safe 시간별 dual-write, 운영 객체 삭제 후 일별 이력 보존, 24개월/10,000행 bounded retention을 추가했다. 현재 focused 검증은 API energy 85 passed/환경 의존 2 skipped, Web 630, Chromium 11개와 production build를 통과했다. main bundle은 1,250.96 kB/gzip 373.99 kB로 기존 500 kB 경고가 남는다. migration 이전 차원 이력은 현장 총계에만 포함하며 실제 전력계·Raspberry Pi·ESP32-H2 HIL은 실행하지 않았다. 최적화(운영시간·낭비·목표/예산)는 사용자 요청으로 제외했고 P2·P3는 보류한다. |
 | 현장 유저 관리 Task 1~9 | 완료(소프트웨어) | admin이 현장 일반 유저를 최대 100명까지 생성·수정·비활성화·재활성화·비밀번호 초기화·영구 삭제하며, 시스템 role `viewer`와 현장 `read | control` capability를 분리했다. mock Chromium 4개는 전체 관리 여정, 중복/100명 제한, 최초 변경 전 보호 API 403, read/control/admin의 exact 주·설정 메뉴, 일반 유저의 `/settings/users` 차단과 수동 제어 권한을 검증했다. 격리 PostgreSQL/API Chromium 1개는 실제 `403 PASSWORD_CHANGE_REQUIRED`, 변경 후 read 메뉴·직접 route 차단, 비활성화 PATCH 200/`disabled`, 현재 세션의 다음 보호 요청 401과 재로그인 거절을 검증했다. React Query cache는 API/View 단위 테스트가 별도로 검증하며 실제 Gateway/ESP32-H2 하드웨어 검증은 포함하지 않는다. |
 | 맵 배치 Task 8 식별 통신/펌웨어 | 완료(소프트웨어) | 등록 후 Health Attention API/MQTT/Gateway 경로, 단일 대상·session·10초 만료·인증/lease·중복/재시작 차단과 펌웨어 최신 밝기 복귀를 구현했다. Gateway 613, API 801(환경 의존 172 skip), Shared 172, 식별 API/실DB·Redis 17, Docker/ACL 24 및 API/Gateway build를 통과했다. Main 관련 Gateway 12/API 17 재실행 통과. 실제 broker/RF/LED 식별은 미검증이다. |
 | 맵 배치 Task 1/10 및 등록 서버 분리 | 완료(소프트웨어) | 기존 좌표 보존 migration, 신규 미배치, V1/V2 snapshot, 배치와 장비/에너지 분리, 1 MiB PUT와 묶음 저장을 구현했다. Shared 172, API 800(환경 의존 170 skip), 격리 DB/HTTP 18 및 API typecheck/build, 독립 코드 검토를 통과했다. 1,000 fixture/2,000 object 100회 저장 p95 425ms, 복구 485ms. 사용자 DB 적용과 실장비 검증은 미실행이며 웹 통합은 완료했다. |
@@ -84,7 +84,8 @@
 
 ### 통계
 
-- 상태 이벤트 기반 오늘·월·년 집계, 일·월 차트, 180초 projection, 예상 비용과 24시간 100% 기준 절감량을 구현했다.
+- 상태 이벤트 기반 오늘·월·년 집계, 일·월 차트, 180초 projection, 예상 비용과 24시간 100% 기준 절감량 및 조명·층·그룹 사용량 분석을 구현했다.
+- 최적화(운영시간·낭비·월 목표/예산)는 이번 P1 범위에서 제외했으며 migration 이전 차원 이력은 순위로 복원하지 않는다.
 - 실제 ESP32-H2 상태 publication을 장시간 수집하는 HIL은 실행하지 않았다.
 
 ### 계정 인계

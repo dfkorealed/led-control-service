@@ -373,9 +373,14 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         brightness: 50, powerOn: true, ratedWatt: 40, durationRemainders: [] },
       update: { aggregatedThrough: checkpointTime, observedStateOccurredAt: checkpointTime,
         brightness: 50, powerOn: true, ratedWatt: 40, durationRemainders: [] } });
-    await prisma.fixtureEnergyDailyAggregate.upsert({ where: { fixtureId_localDate: {
-      fixtureId: ids.fixtureId, localDate: new Date("2026-09-01T00:00:00Z") } },
-      create: { fixtureId: ids.fixtureId, localDate: new Date("2026-09-01T00:00:00Z"), estimatedKwh: "0.48", estimatedCost: "48", knownSeconds: 86400, unknownSeconds: 0 },
+    const energyIdentity = await prisma.energyFixtureIdentity.upsert({
+      where: { fixtureId: ids.fixtureId },
+      create: { siteId: ids.siteId, fixtureId: ids.fixtureId, trackingStartedAt: new Date("2026-09-01T00:00:00Z") },
+      update: { retiredAt: null }
+    });
+    await prisma.fixtureEnergyDailyAggregate.upsert({ where: { energyFixtureId_localDate: {
+      energyFixtureId: energyIdentity.id, localDate: new Date("2026-09-01T00:00:00Z") } },
+      create: { fixtureId: ids.fixtureId, energyFixtureId: energyIdentity.id, localDate: new Date("2026-09-01T00:00:00Z"), estimatedKwh: "0.48", estimatedCost: "48", knownSeconds: 86400, unknownSeconds: 0 },
       update: { estimatedKwh: "0.48", estimatedCost: "48" } });
     const energy = new EnergyService(prisma, siteAccess, new EnergyAnalyticsQueryService(prisma, siteAccess));
     const fixtures = new FixturesService(prisma, siteAccess);

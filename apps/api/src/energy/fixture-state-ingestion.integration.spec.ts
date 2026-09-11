@@ -11,7 +11,8 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
     floorId: "21000000-0000-4000-8000-000000000003",
     gatewayId: "21000000-0000-4000-8000-000000000004",
     meshNodeId: "21000000-0000-4000-8000-000000000005",
-    fixtureId: "21000000-0000-4000-8000-000000000006"
+    fixtureId: "21000000-0000-4000-8000-000000000006",
+    energyFixtureId: "21000000-0000-4000-8000-000000000008"
   };
   let prisma: PrismaService;
   let service: FixtureStateIngestionService;
@@ -70,6 +71,7 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
   beforeEach(async () => {
     await prisma.processedGatewayEvent.deleteMany({ where: { fixtureId: ids.fixtureId } });
     await prisma.fixtureEnergyDailyAggregate.deleteMany({ where: { fixtureId: ids.fixtureId } });
+    await prisma.fixtureEnergyHourlyAggregate.deleteMany({ where: { energyFixtureId: ids.energyFixtureId } });
     await prisma.fixtureEnergyStateCursor.deleteMany({ where: { fixtureId: ids.fixtureId } });
     await prisma.fixture.upsert({
       where: { id: ids.fixtureId },
@@ -94,6 +96,16 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
         lastStateOccurredAt: null
       }
     });
+    await prisma.energyFixtureIdentity.upsert({
+      where: { fixtureId: ids.fixtureId },
+      create: {
+        id: ids.energyFixtureId,
+        siteId: ids.siteId,
+        fixtureId: ids.fixtureId,
+        trackingStartedAt: new Date("2026-08-26T00:00:00.000Z")
+      },
+      update: { retiredAt: null }
+    });
   });
 
   afterAll(async () => prisma.$disconnect());
@@ -103,15 +115,18 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
     await expect(service.ingest(ids.gatewayId, event)).resolves.toMatchObject({ status: "ingested" });
     await expect(service.ingest(ids.gatewayId, event)).resolves.toMatchObject({ status: "duplicate" });
 
-    const [fixture, aggregate, cursor, ledgerCount] = await Promise.all([
+    const [fixture, aggregate, hourly, cursor, ledgerCount] = await Promise.all([
       prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } }),
       prisma.fixtureEnergyDailyAggregate.findMany({ where: { fixtureId: ids.fixtureId } }),
+      prisma.fixtureEnergyHourlyAggregate.findMany({ where: { energyFixtureId: ids.energyFixtureId } }),
       prisma.fixtureEnergyStateCursor.findUniqueOrThrow({ where: { fixtureId: ids.fixtureId } }),
       prisma.processedGatewayEvent.count({ where: { fixtureId: ids.fixtureId } })
     ]);
     expect(fixture).toMatchObject({ brightness: 70, powerOn: true, lastStateSequence: 1n });
     expect(aggregate).toHaveLength(1);
     expect(aggregate[0]).toMatchObject({ knownSeconds: 0, unknownSeconds: 9 });
+    expect(hourly).toHaveLength(1);
+    expect(hourly[0]).toMatchObject({ knownSeconds: 0, unknownSeconds: 9 });
     expect(cursor.aggregatedThrough).toEqual(new Date("2026-08-26T00:00:09.000Z"));
     expect(ledgerCount).toBe(1);
   });
