@@ -67,7 +67,7 @@ const navigationFloor = {
 describe("FloorMap", () => {
   afterEach(() => cleanup());
 
-  it("renders fixtures with brightness labels", () => {
+  it("keeps marker copy accessible without rendering visible brightness labels", () => {
     const onSelectFixture = vi.fn();
     render(
       <FloorMap
@@ -103,13 +103,20 @@ describe("FloorMap", () => {
       />
     );
 
-    expect(screen.getByText("B2-L01")).toBeInTheDocument();
-    expect(screen.getByText("70%")).toBeInTheDocument();
+    expect(screen.queryByText("B2-L01")).not.toBeInTheDocument();
+    expect(screen.queryByText("70%")).not.toBeInTheDocument();
     const fixtureButton = screen.getByRole("button", { name: "B2-L01 정상 70%" });
     expect(fixtureButton).toBeInTheDocument();
+    expect(fixtureButton).toBeEmptyDOMElement();
     expect(fixtureButton.closest(".floor-scene")).toHaveAttribute("data-map-objects-interactive", "false");
     expect(fixtureButton.closest(".floor-scene")).not.toHaveAttribute("data-interactive");
-    expect(fixtureButton).toHaveStyle({ "--fixture-left": "8.333333333333332%", "--fixture-top": "15%", "--brightness": "70%" });
+    expect(fixtureButton).toHaveStyle({
+      "--fixture-left": "8.333333333333332%",
+      "--fixture-top": "15%",
+      "--fixture-lightness": "62.8%",
+      "--fixture-glow-alpha": "0.336",
+      "--fixture-glow-radius": "9.8px"
+    });
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("src", "/demo.svg");
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("draggable", "false");
     expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
