@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 const TEST_DATA_PREFIX = "led-control-test-data/v1/";
@@ -28,7 +29,8 @@ export type TestDataMutationResult = {
 export class TestDataService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly siteAccess: SiteAccessService
+    private readonly siteAccess: SiteAccessService,
+    private readonly energyDimensions: EnergyDimensionHistoryService
   ) {}
 
   async create(user: AuthenticatedUser, siteId: string): Promise<TestDataMutationResult> {
@@ -60,6 +62,7 @@ export class TestDataService {
         where: { id: { in: gatewayIds } },
         data: { lastHeartbeatAt: now }
       });
+      await this.ensureMarkerFixtureDimensions(tx, siteId, now);
       return result;
     });
   }
@@ -93,9 +96,15 @@ export class TestDataService {
       }
       await this.assertSafeToDeleteGateways(tx, markerGateways.map((gateway) => gateway.id));
       await this.assertSafeToDeleteFixtures(tx, markerFixtures.map((fixture) => fixture.id));
+      const markerFixtureIdentities = await tx.energyFixtureIdentity.findMany({
+        where: { siteId, fixtureId: { in: markerFixtures.map((fixture) => fixture.id) } },
+        select: { id: true, fixtureId: true }
+      });
+      await this.assertSafeToDeleteFixtureIdentities(tx, markerFixtureIdentities.map((identity) => identity.id));
 
       // The selectors use only values this service controls. Never broaden these
       // predicates: normal gateway serials, fixture names, and nodes must survive cleanup.
+      await tx.energyFixtureIdentity.deleteMany({ where: { id: { in: markerFixtureIdentities.map((identity) => identity.id) } } });
       const fixtures = await tx.fixture.deleteMany({
         // The ID set was read through the full gateway → node → fixture marker
         // chain above, then dependency-checked. A prefix-only delete could touch
@@ -236,6 +245,39 @@ export class TestDataService {
     });
   }
 
+  private async ensureMarkerFixtureDimensions(tx: Prisma.TransactionClient, siteId: string, effectiveAt: Date) {
+    const markerFixtures = await tx.fixture.findMany({
+      where: {
+        siteId,
+        name: { startsWith: FIXTURE_PREFIX },
+        meshNode: {
+          deviceUuid: { startsWith: NODE_PREFIX },
+          gateway: { siteId, serialNumber: { startsWith: GATEWAY_PREFIX } }
+        }
+      },
+      select: {
+        id: true,
+        name: true,
+        floorId: true,
+        ratedWatt: true,
+        energyTrackingStartedAt: true,
+        floor: { select: { name: true } }
+      }
+    });
+    for (const fixture of markerFixtures) {
+      await this.energyDimensions.recordFixtureDimensions(tx, {
+        fixtureId: fixture.id,
+        siteId,
+        name: fixture.name,
+        floorId: fixture.floorId,
+        floorName: fixture.floor.name,
+        ratedWatt: fixture.ratedWatt,
+        trackingStartedAt: fixture.energyTrackingStartedAt,
+        effectiveAt
+      });
+    }
+  }
+
   private async assertSafeToDeleteGateways(tx: Prisma.TransactionClient, gatewayIds: string[]) {
     if (gatewayIds.length === 0) return;
     const gatewayWhere = { gatewayId: { in: gatewayIds } };
@@ -299,6 +341,19 @@ export class TestDataService {
     ]);
     if (dependencies.some(Boolean)) {
       throw new ConflictException("test data cleanup is blocked by non-test fixture dependencies");
+    }
+  }
+
+  private async assertSafeToDeleteFixtureIdentities(tx: Prisma.TransactionClient, energyFixtureIds: string[]) {
+    if (energyFixtureIds.length === 0) return;
+    const energyFixtureWhere = { energyFixtureId: { in: energyFixtureIds } };
+    const dependencies = await Promise.all([
+      tx.energyGroupMembershipVersion.findFirst({ where: energyFixtureWhere, select: { id: true } }),
+      tx.fixtureEnergyDailyAggregate.findFirst({ where: energyFixtureWhere, select: { id: true } }),
+      tx.fixtureEnergyHourlyAggregate.findFirst({ where: energyFixtureWhere, select: { id: true } })
+    ]);
+    if (dependencies.some(Boolean)) {
+      throw new ConflictException("test data cleanup is blocked by marker fixture analytics or group membership history");
     }
   }
 
