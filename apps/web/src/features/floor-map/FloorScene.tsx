@@ -79,13 +79,10 @@ export function FloorScene({
       {fixtures.filter((fixture) => fixture.placementStatus !== "unplaced").map((fixture) => {
         const awaitingState = fixture.statusReason === "provisioning_waiting_state";
         const statusLabel = awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status];
-        const brightness = Math.min(100, Math.max(0, fixture.brightness));
+        const brightnessLevel = fixtureBrightnessLevel(fixture.brightness);
         const markerStyle = {
           "--fixture-left": `${(fixture.x / snapshot.width) * 100}%`,
-          "--fixture-top": `${(fixture.y / snapshot.height) * 100}%`,
-          "--fixture-lightness": `${rounded(18 + brightness * 0.64)}%`,
-          "--fixture-glow-alpha": `${rounded(brightness * 0.0048)}`,
-          "--fixture-glow-radius": `${rounded(brightness * 0.14)}px`
+          "--fixture-top": `${(fixture.y / snapshot.height) * 100}%`
         } as CSSProperties;
 
         return (
@@ -93,7 +90,8 @@ export function FloorScene({
             key={fixture.id}
             type="button"
             data-spatial-map-marker="true"
-            className={`fixture-dot ${fixture.status}${awaitingState ? " awaiting-state" : ""}${fixture.id === selectedFixtureId ? " active" : ""}`}
+            data-brightness-level={brightnessLevel}
+            className={`fixture-dot ${fixture.status} brightness-level-${brightnessLevel}${awaitingState ? " awaiting-state" : ""}${fixture.id === selectedFixtureId ? " active" : ""}`}
             style={markerStyle}
             title={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
             aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
@@ -106,8 +104,10 @@ export function FloorScene({
   );
 }
 
-function rounded(value: number) {
-  return Number(value.toFixed(3));
+function fixtureBrightnessLevel(brightness: number) {
+  const finiteBrightness = Number.isFinite(brightness) ? brightness : 0;
+  const clampedBrightness = Math.min(100, Math.max(0, finiteBrightness));
+  return Math.min(10, Math.floor(clampedBrightness / 10) + 1);
 }
 
 export function FloorMapObjectNode({
