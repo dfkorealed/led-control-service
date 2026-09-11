@@ -259,19 +259,35 @@ test("조명 마커는 고정 20px로 유지되고 online 밝기만 단조적으
   await expect(full).toHaveCSS("width", "20px");
   await expect(full).toHaveCSS("height", "20px");
 
+  await page.locator(".fixture-dot").evaluateAll(async (markers) => {
+    await Promise.all(markers.flatMap((marker) => marker.getAnimations().map((animation) => animation.finished)));
+  });
   const lightLevels = await Promise.all([off, medium, full].map((fixtureMarker) => fixtureMarker.evaluate((element) => {
     const style = getComputedStyle(element);
+    const colorChannels = style.backgroundColor.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+    const outerGlow = style.boxShadow.match(/^rgba?\([^)]*?,\s*([\d.]+)\)\s+0px\s+0px\s+([\d.]+)px\s+([\d.]+)px/);
+    if (!colorChannels || colorChannels.length !== 3 || !outerGlow) {
+      throw new Error(`조명 마커의 실제 밝기 스타일을 해석할 수 없습니다: ${style.backgroundColor} / ${style.boxShadow}`);
+    }
     return {
       lightness: Number.parseFloat(style.getPropertyValue("--fixture-lightness")),
       glowAlpha: Number.parseFloat(style.getPropertyValue("--fixture-glow-alpha")),
-      glowRadius: Number.parseFloat(style.getPropertyValue("--fixture-glow-radius"))
+      glowRadius: Number.parseFloat(style.getPropertyValue("--fixture-glow-radius")),
+      renderedLuminance: colorChannels[0] * 0.2126 + colorChannels[1] * 0.7152 + colorChannels[2] * 0.0722,
+      renderedGlowAlpha: Number(outerGlow[1]),
+      renderedGlowBlur: Number(outerGlow[2]),
+      renderedGlowSpread: Number(outerGlow[3])
     };
   })));
-  expect(lightLevels).toEqual([
+  expect(lightLevels.map(({ lightness, glowAlpha, glowRadius }) => ({ lightness, glowAlpha, glowRadius }))).toEqual([
     { lightness: 18, glowAlpha: 0, glowRadius: 0 },
     { lightness: 50, glowAlpha: 0.24, glowRadius: 7 },
     { lightness: 82, glowAlpha: 0.48, glowRadius: 14 }
   ]);
+  for (const property of ["renderedLuminance", "renderedGlowAlpha", "renderedGlowBlur", "renderedGlowSpread"] as const) {
+    expect(lightLevels[1][property], `${property}: 50% > 0%`).toBeGreaterThan(lightLevels[0][property]);
+    expect(lightLevels[2][property], `${property}: 100% > 50%`).toBeGreaterThan(lightLevels[1][property]);
+  }
 
   const [offlineVisual, waitingVisual, faultVisual] = await Promise.all([
     marker("B2-L003 오프라인 70%"),
