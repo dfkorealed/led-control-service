@@ -582,7 +582,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await expect(opener).toBeFocused();
   });
 
-  test("viewer는 저장 구역 상태만 조회하고 관리 동작을 사용할 수 없다", async ({ page }) => {
+  test("read-only viewer는 제어 route와 저장 구역 동작에 접근할 수 없다", async ({ page }) => {
     await installSettingsApiRoutes(page, "viewer", {
       fixtures,
       ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
@@ -598,12 +598,9 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     }]);
     await page.goto(`/control?siteId=${ids.site}`);
 
-    await page.getByRole("button", { name: "구역 현황" }).click();
-    await expect(page.getByText("Mesh 설정 실패")).toBeVisible();
-    await expect(page.getByRole("button", { name: "새 구역" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "B2 입구 수정" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "B2 입구 재동기화" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "B2 입구 삭제" })).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/monitoring\\?siteId=${ids.site}$`));
+    await expect(page.getByRole("button", { name: "구역 현황" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "밝기 적용" })).toHaveCount(0);
   });
 
   test("준비 완료된 층과 저장 구역을 BLE Mesh 대상으로 동기 제어한다", async ({ page }) => {
@@ -726,6 +723,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await page.getByRole("button", { name: "스케줄 추가" }).click();
       const scheduleDialog = page.getByRole("dialog", { name: "스케줄 추가" });
       await expect(scheduleDialog).toBeVisible();
+      await scheduleDialog.getByRole("button", { name: "세부 일정 설정" }).click();
       await scheduleDialog.getByRole("combobox", { name: "반복" }).selectOption("weekly");
       const weekdayGroup = scheduleDialog.getByRole("group", { name: "반복 요일" });
       await expect(weekdayGroup).toBeVisible();
@@ -741,8 +739,10 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await page.getByRole("button", { name: "이벤트 추가" }).click();
       const eventDialog = page.getByRole("dialog", { name: "이벤트 추가" });
       await expect(eventDialog).toBeVisible();
+      await eventDialog.getByRole("button", { name: "고급 설정" }).click();
+      await eventDialog.getByRole("button", { name: "직접 입력" }).click();
       await expect(eventDialog.getByLabel("규칙 이름")).toBeVisible();
-      await expect(eventDialog.getByLabel("유지 시간")).toBeVisible();
+      await expect(eventDialog.getByRole("spinbutton", { name: "유지 시간" })).toBeVisible();
       await expectMinimumTouchTargetsAfterScrolling(page, ".schedule-dialog");
     });
   }
@@ -891,6 +891,7 @@ async function installReadyMeshControlRoutes(page: Page) {
     const url = new URL(request.url());
     if (url.pathname === `/api/sites/${ids.site}/dashboard`) {
       return route.fulfill({ json: {
+        capabilities: { read: true, control: true, manage: true, commission: true },
         site: {
           id: ids.site,
           name: "고객사 B2 현장",

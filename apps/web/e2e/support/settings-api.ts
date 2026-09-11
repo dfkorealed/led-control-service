@@ -295,6 +295,7 @@ export async function installSettingsApiRoutes(
           fixtureState,
           runtimeFloor,
           ids.gatewayId,
+          role,
           url.searchParams.get("includeFixtures") === "true",
           installationStatus,
           includeGateway,
@@ -474,12 +475,18 @@ function dashboard(
   fixtures: SettingsFixture[],
   runtimeFloor: typeof floor,
   gatewayId: string,
+  role: SettingsRole,
   includeFixtures = false,
   installationStatus: "pending" | "installed" = "installed",
   includeGateway = true,
   gatewayHeartbeatAt = new Date().toISOString()
 ) {
   return {
+    capabilities: role === "admin"
+      ? { read: true, control: true, manage: true, commission: true }
+      : role === "viewer"
+        ? { read: true, control: false, manage: false, commission: false }
+        : { read: false, control: false, manage: false, commission: false },
     site: {
       id: runtimeFloor.siteId,
       name: "고객사 B2 현장",
