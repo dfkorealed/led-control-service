@@ -12,8 +12,7 @@ import { clearTenantCache } from "../../api/principal-cache";
 const floorEditorApi = vi.hoisted(() => ({
   listFloorEditorRevisions: vi.fn(),
   restoreFloorEditorRevision: vi.fn(),
-  saveFloorEditorState: vi.fn(),
-  uploadFloorAsset: vi.fn()
+  saveFloorEditorState: vi.fn()
 }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
@@ -154,7 +153,7 @@ describe("FloorEditorView", () => {
     act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 999 }));
     await act(async () => save.resolve({ ...editorState, floor: { ...editorState.floor, mapRevision: 8 } }));
     expect(useFloorEditorStore.getState().state?.floor.id).toBe("floor-other");
-    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(999);
+    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(1000);
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
     expect(onSaved).not.toHaveBeenCalled();
   });
@@ -177,7 +176,6 @@ describe("FloorEditorView", () => {
       floor: { ...structuredClone(editorState.floor), mapRevision: 8 },
       skippedFixtureIds: []
     });
-    floorEditorApi.uploadFloorAsset.mockResolvedValue({ id: "asset-1", status: "ready", publicUrl: "/uploads/plan.png" });
   });
 
   afterEach(() => {
@@ -261,7 +259,7 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
     expect(recover).toBeDisabled();
     fireEvent.click(recover);
-    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(222);
+    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(220);
     act(() => clearTenantCache(queryClient));
     await act(async () => save.resolve(editorState));
     expect(useFloorEditorStore.getState().state).toBeNull();
@@ -278,7 +276,7 @@ describe("FloorEditorView", () => {
     act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 777 }));
     await act(async () => restore.resolve({ ...editorState, skippedFixtureIds: [] }));
     expect(useFloorEditorStore.getState().state?.floor.id).toBe("other");
-    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(777);
+    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(780);
   });
 
   it("keeps editor icon actions at least 44 by 44 pixels across desktop and mobile tracks", async () => {
@@ -374,7 +372,7 @@ describe("FloorEditorView", () => {
 
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
     expect(floorEditorApi.saveFloorEditorState.mock.calls[0][1].objectCreates).toEqual([
-      expect.objectContaining({ type: "rectangle", x: 240, y: 180, width: 160, height: 96 })
+      expect.objectContaining({ type: "rectangle", x: 240, y: 180, width: 160, height: 100 })
     ]);
   });
 
@@ -566,7 +564,7 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("저장하지 못했습니다");
-    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(222);
+    expect(useFloorEditorStore.getState().state?.fixtures[0].x).toBe(220);
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 

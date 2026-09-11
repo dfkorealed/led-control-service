@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-11 / 사용자 삭제는 FK뿐 아니라 durable 비정규화 데이터까지 추적한다
+- **발생했던 문제/실수**: `Command.requestedBy`와 `ManualOverride.requestedById`를 `SET NULL`로 바꿨지만 MQTT outbox JSON의 요청자 UUID와 수락된 초대 이메일은 관계형 FK 밖에 남아 있었다. 미발행 command row는 사용자 삭제 뒤에도 요청자 식별자를 외부로 발행할 수 있었다.
+- **원인**: 사용자 PII 수명을 관계형 column과 브라우저 cache 위주로 검토하고, durable JSON payload와 가입에 사용된 토큰 원장의 비정규화 복사본을 삭제 그래프에 포함하지 않았다.
+- **해결 및 예방책**: 신규 wire에는 실행에 필요 없는 사용자 식별자를 넣지 않고, 순방향 migration과 사용자 삭제 transaction에서 command-dispatch outbox의 top-level legacy 키를 set-based로 제거한다. 이메일이 있는 초대 가입 사용자는 조직·현장·정규화 이메일·수락 상태가 모두 일치하는 Invitation만 같은 transaction에서 삭제한다.
+- **반복 방지 체크**: 개인정보 삭제 검토 시 FK, JSON/outbox, 감사 원장, 초대·토큰, cache를 함께 열거한다. 실제 PostgreSQL에서 pending row 후속 발행, migration historical scrub, 다른 tenant/미수락 데이터 보존과 transaction rollback을 회귀로 유지한다.
+
 ## 2026-09-10 / 편집 화면의 생명주기와 서버 편집권을 함께 처리한다
 - **발생했던 문제/실수**: 느린 저장 응답이 층 전환 후 전역 에디터 상태를 덮어쓸 수 있었고, 실제 브라우저 새로고침에서는 React cleanup이 실행되지 않아 서버의 이전 lease가 남았다. 테스트용 lease 응답을 항상 성공으로 반환한 브라우저 테스트만으로는 후자를 찾지 못했다.
 - **해결 및 예방책**: 저장·복구 응답에 화면 생존 여부, 현장/층 범위와 인증 세대 검사를 적용한다. 인증 변경은 로컬 저장소뿐 아니라 에디터 singleton과 이력도 비운다. 페이지 이탈의 실제 반납은 `pagehide`와 keepalive 요청으로 처리하고, BFCache 복귀 시 새로운 편집권을 확보한다. 취소할 수 있는 `beforeunload`만으로 lease를 반납하거나 다른 탭의 lease를 강제로 가져오지 않는다.
@@ -140,6 +146,18 @@
 - **원인**: 이동 미리보기와 편집 결과 확정을 같은 좌표 정규화 경로로 처리하고, 이동과 리사이즈 patch를 구분하지 않았다.
 - **해결 및 예방책**: Konva 노드는 이동 중 원시 포인터 좌표와 보조선 정렬만 화면에 반영하고, drag end에서 Zustand 상태를 한 번 변경한다. 위치 patch는 시작 좌표만 격자에 맞추고 width/height patch가 포함된 리사이즈에서만 양쪽 모서리를 맞춘다. 휠은 입력 장치를 추정하지 않고 모든 포인터 장치에서 줌으로 통일하며, 맵 이동은 명시적인 이동 도구 드래그로 분리한다.
 - **반복 방지 체크**: 브라우저 테스트에서 drag 중 영속 속성값이 유지되는지, mouse up 뒤 격자 좌표로 바뀌는지, 단순 이동 전후 크기가 같은지, 보조선이 이동 중 표시되고 종료 후 제거되는지를 함께 검증한다.
+
+## 2026-09-10 / Konva 도형 표시는 DOM 존재가 아니라 실제 픽셀로 검증해야 함
+- **발생했던 문제/실수**: 저장된 맵 객체의 접근성용 숨김 DOM만 확인하는 테스트가 있어 실제 Konva canvas가 비어도 회귀를 발견하지 못할 수 있었다.
+- **원인**: canvas 안의 도형은 일반 DOM 노드로 조회할 수 없는데 데이터 전달 여부와 실제 그리기 성공을 같은 것으로 간주했다.
+- **해결 및 예방책**: 네모·세모·선·텍스트를 편집기에서 저장한 뒤 모니터링 canvas의 도형별 좌표에서 alpha 픽셀을 읽어 실제 렌더를 검증한다. 숨김 DOM은 접근성 데이터 계약에만 사용한다.
+- **반복 방지 체크**: Konva 레이어, 크기 또는 CSS scaling을 변경할 때는 최소 한 개 이상의 실제 canvas pixel 검증과 화면 크기별 Playwright 회귀를 포함한다.
+
+## 2026-09-10 / CSS Grid 자동 행은 남는 높이를 분배할 수 있음
+- **발생했던 문제/실수**: 설정 Shell이 화면의 남은 높이만큼 늘어나면서 현장 선택기와 각 서브 페이지 사이에 큰 공백이 생겨 콘텐츠가 세로 중앙에 배치된 것처럼 보였다.
+- **원인**: 높이가 확장된 Grid 컨테이너에 `align-content`를 지정하지 않아 자동 행들이 남는 세로 공간을 나눠 가졌다.
+- **해결 및 예방책**: 상단부터 쌓여야 하는 페이지 Shell에는 `align-content: start`를 명시하고, 컨테이너 경계가 아니라 실제 입력과 다음 콘텐츠의 화면 좌표 간격을 브라우저에서 검증한다.
+- **반복 방지 체크**: 화면 전체 높이를 차지하는 Grid에 여러 자동 행을 추가할 때 1440/1024/390/320px에서 첫 번째 실제 컨트롤과 본문 시작점 사이 간격을 확인한다.
 
 ## 2026-07-08 / 워크스페이스 스크립트 의존성 해석
 - **발생했던 문제/실수**: 루트 `scripts` 디렉터리에 둔 게이트웨이 smoke test가 `pnpm --filter @led-control/gateway exec`로 실행되어도 `mqtt` 패키지를 찾지 못했다.
@@ -474,3 +492,23 @@
 - **원인**: 테스트 목적은 terminal publish 미완료가 command handler를 막지 않는지 확인하는 것이었지만, 실제 파일 `fsync` 시간까지 임의의 50ms 성능 조건으로 묶었다.
 - **해결 및 예방책**: 해결되지 않은 publish promise를 그대로 둔 상태에서 command handler promise가 완료되는지를 직접 await한다. 회귀 시에는 테스트 자체 timeout이 실패 경계를 제공한다.
 - **반복 방지 체크**: durability·filesystem 테스트에서는 기능 순서를 controllable promise와 명시적 signal로 검증하고, 제품 요구사항에 없는 짧은 wall-clock 제한은 assertion에 사용하지 않는다.
+## 2026-09-11 / 시스템 role과 현장 capability는 별도 권한 축으로 유지한다
+
+- **발생했던 문제/실수**: 일반 유저의 `viewer` role만으로 조회 전용 사용자와 수동 제어 사용자를 구분하려 하면 admin 전용 기능까지 함께 완화하거나 제어 권한을 표현하지 못한다.
+- **원인**: 계정의 전역 책임과 특정 현장에서 가능한 행위를 하나의 role 값으로 표현하려 했다.
+- **해결 및 예방책**: 시스템 role은 `operator | admin | viewer`, 현장 권한은 `SiteMembership.accessLevel = read | control`로 분리한다. `control`은 `read`를 포함하지만 admin 설정 권한은 포함하지 않는다. 메뉴 숨김뿐 아니라 direct route와 API에서도 같은 capability를 검사한다.
+- **반복 방지 체크**: 권한 기능을 추가할 때 role, 현장 scope, capability를 각각 표로 작성하고 UI 메뉴·직접 URL·조회 API·쓰기 API의 허용/거절 테스트를 함께 둔다.
+
+## 2026-09-11 / 쓰기 transaction 안에서 권한을 다시 확인한다
+
+- **발생했던 문제/실수**: 요청 초기에만 admin 권한을 확인하면 계정 비활성화나 현장 재배정과 동시에 실행된 쓰기가 오래된 권한으로 commit될 수 있다.
+- **원인**: controller/guard의 인증 결과를 transaction commit 시점까지 변하지 않는 사실로 간주했다.
+- **해결 및 예방책**: 사용자 생성·수정·상태 변경·비밀번호 초기화·삭제 transaction 안에서 Site와 호출자 계정을 잠그고 active assigned admin 여부를 다시 확인한다. 대상 row는 `expectedUpdatedAt`으로 충돌을 감지하며 UI는 최신 row를 받은 뒤 요청한 변경만 제한적으로 재시도한다.
+- **반복 방지 체크**: 모든 권한 민감 쓰기 테스트에 guard 통과 후 권한 변경, stale revision 409, 다른 현장 IDOR와 비활성 호출자 사례를 포함한다.
+
+## 2026-09-11 / 영구 삭제된 사용자의 PII cache는 즉시 제거한다
+
+- **발생했던 문제/실수**: DB에서 사용자를 삭제해도 React Query 목록·mutation cache나 브라우저 trace에 이름, 로그인 아이디, 임시 비밀번호가 남을 수 있다.
+- **원인**: 서버 삭제와 클라이언트 메모리·테스트 artifact 정리를 서로 다른 완료 조건으로 취급했다.
+- **해결 및 예방책**: 삭제 성공 즉시 현장 사용자 query를 최신 응답으로 교체하고 삭제 대상 상세·mutation cache를 제거한다. 비밀번호 포함 작업은 React Query mutation cache 밖의 component-local state와 요청 body만 사용하고 성공·닫기 때 지운다. 보안 E2E는 trace와 screenshot을 끈다.
+- **반복 방지 체크**: 삭제·비밀번호 흐름은 API 응답, DOM, Web Storage, Query/Mutation cache와 생성된 trace artifact에 평문 또는 삭제 PII가 남지 않는지 검사한다.

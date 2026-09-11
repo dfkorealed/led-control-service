@@ -12,7 +12,7 @@ describe("EditorLeaseService", () => {
   const siteId = "00000000-0000-4000-8000-000000000002";
   const adminA = {
     id: "admin-a", organizationId: "customer-1", organizationType: "customer" as const,
-    loginId: "admin_a", name: "김관리", role: "admin" as const, status: "active" as const
+    loginId: "admin_a", name: "김관리", role: "admin" as const, mustChangePassword: false, status: "active" as const
   };
   const adminB = { ...adminA, id: "admin-b", name: "이관리" };
 

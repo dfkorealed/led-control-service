@@ -31,6 +31,22 @@ export function addCalendarMonths(date: CalendarDate, months: number): CalendarD
   return { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1, day: 1 };
 }
 
+export function daysInCalendarMonth(date: CalendarDate) {
+  return new Date(Date.UTC(date.year, date.month, 0)).getUTCDate();
+}
+
+export function endOfCalendarMonth(date: CalendarDate): CalendarDate {
+  return { year: date.year, month: date.month, day: daysInCalendarMonth(date) };
+}
+
+export function replaceCalendarYear(date: CalendarDate, year: number): CalendarDate {
+  return {
+    year,
+    month: date.month,
+    day: Math.min(date.day, daysInCalendarMonth({ year, month: date.month, day: 1 }))
+  };
+}
+
 export function localDateAt(instant: Date, timeZone: string): CalendarDate {
   const parts = formatter(timeZone).formatToParts(instant);
   const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((item) => item.type === type)?.value);

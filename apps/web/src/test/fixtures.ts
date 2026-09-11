@@ -1,6 +1,6 @@
 import type { Dashboard } from "../api/queries";
 import type { RegistrationSession } from "../api/registration";
-import type { EnergySeriesResponse, EnergySummary } from "@led-control/shared";
+import type { EnergyComparisonResponse, EnergySeriesResponse, EnergySummary } from "@led-control/shared";
 
 export const mockUser = {
   id: "00000000-0000-4000-8000-000000000002",
@@ -167,6 +167,31 @@ export const mockEnergyMonthSeries: EnergySeriesResponse = {
   points: [
     { source: "state_based_estimate", period: "2026-07", estimatedKwh: 140, estimatedCost: 22_400, knownSeconds: 2_678_400, unknownSeconds: 0, dataStatus: "available" },
     { source: "state_based_estimate", period: "2026-08", estimatedKwh: 120.5, estimatedCost: 19_280, knownSeconds: 2_073_600, unknownSeconds: 7_200, dataStatus: "partial" }
+  ]
+};
+
+export const mockEnergyComparison: EnergyComparisonResponse = {
+  siteId: mockDashboard.site.id,
+  timeZone: "Asia/Seoul",
+  source: "state_based_estimate",
+  generatedAt: mockEnergySummary.generatedAt,
+  preset: "current_month",
+  range: { from: "2026-08-01", to: "2026-08-31", completedThrough: "2026-08-25" },
+  summary: {
+    baselineKwh: 297.6,
+    estimatedKwh: 160,
+    savingsKwh: 137.6,
+    savingsCost: 22_016,
+    savingsRatePercent: 46.24,
+    outcome: "saving",
+    forecastReason: "available"
+  },
+  priorComparisons: [],
+  points: [
+    { period: "2026-08-25", baselineKwh: 9.6, estimatedKwh: 4.1, phase: "observed", knownSeconds: 86_400, unknownSeconds: 0, coverageRate: 1, dataStatus: "available" },
+    { period: "2026-08-26", baselineKwh: 9.6, estimatedKwh: 4.25, phase: "observed", knownSeconds: 79_200, unknownSeconds: 7_200, coverageRate: 0.9167, dataStatus: "partial" },
+    { period: "2026-08-27", baselineKwh: 9.6, estimatedKwh: 5.2, phase: "forecast", knownSeconds: 0, unknownSeconds: 86_400, coverageRate: null, dataStatus: "no_data" },
+    { period: "2026-08-28", baselineKwh: 9.6, estimatedKwh: 5.1, phase: "forecast", knownSeconds: 0, unknownSeconds: 86_400, coverageRate: null, dataStatus: "no_data" }
   ]
 };
 

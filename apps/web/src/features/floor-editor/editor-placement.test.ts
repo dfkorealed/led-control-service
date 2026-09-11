@@ -27,12 +27,12 @@ describe("placement commands", () => {
     const store = useFloorEditorStore.getState;
     store().placeFixtures([{ id: "f-0", x: 123.5, y: 241 }]);
     expect(store().state!.fixtures).toHaveLength(1000);
-    expect(store().state!.fixtures[0]).toMatchObject({ x: 123.5, y: 241, placementStatus: "placed", positionVerifiedAt: null });
+    expect(store().state!.fixtures[0]).toMatchObject({ x: 120, y: 240, placementStatus: "placed", positionVerifiedAt: null });
     store().unplaceFixture("f-0");
     expect(store().selection).toBeNull();
     expect(buildEditorChanges(baseline, store().state!).fixtureUpdates[0]).toMatchObject({ id: "f-0" });
     store().undo();
-    expect(store().state!.fixtures[0]).toMatchObject({ placementStatus: "placed", x: 123.5 });
+    expect(store().state!.fixtures[0]).toMatchObject({ placementStatus: "placed", x: 120 });
     store().redo();
     expect(store().state!.fixtures[0].placementStatus).toBe("unplaced");
   });
@@ -57,7 +57,7 @@ describe("placement commands", () => {
     expect(store().state!.fixtures[0].positionVerifiedAt).toBeTruthy();
     store().updateFixture("f-0", { x: 20 });
     expect(store().state!.fixtures[0].positionVerifiedAt).toBeTruthy();
-    store().updateFixture("f-0", { x: 22 });
+    store().updateFixture("f-0", { x: 26 });
     expect(store().state!.fixtures[0].positionVerifiedAt).toBeNull();
     expect(buildEditorChanges(store().initialState!, store().state!).fixtureUpdates[0]).toMatchObject({ positionVerified: false });
   });

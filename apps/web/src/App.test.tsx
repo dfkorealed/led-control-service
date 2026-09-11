@@ -8,6 +8,7 @@ import { useFloorEditorStore } from "./features/floor-editor/editor-store";
 import {
   mockDashboard,
   mockEnergyDaySeries,
+  mockEnergyComparison,
   mockEnergyMonthSeries,
   mockEnergySummary,
   mockRegistrationSession
@@ -28,7 +29,8 @@ const authState = vi.hoisted(() => ({
     loginId: "demo_admin",
     name: "Demo Operator",
     role: "admin",
-    status: "active"
+    status: "active",
+    mustChangePassword: false
   } as null | {
     id: string;
     organizationId: string;
@@ -37,6 +39,7 @@ const authState = vi.hoisted(() => ({
     name: string;
     role: string;
     status: string;
+    mustChangePassword: boolean;
   }
 }));
 const apiState = vi.hoisted(() => ({
@@ -63,8 +66,15 @@ Object.defineProperty(window, "matchMedia", {
 
 vi.mock("./api/client", () => ({
   apiGet: vi.fn((path: string) => {
-    const dashboardResponse = (fallback: unknown) =>
-      apiState.dashboardResponses.shift()?.() ?? Promise.resolve(apiState.dashboard ?? fallback);
+    const dashboardResponse = (fallback: unknown) => {
+      const response = apiState.dashboardResponses.shift()?.() ?? Promise.resolve(apiState.dashboard ?? fallback);
+      return Promise.resolve(response).then((dashboard) => ({
+        ...(dashboard as Record<string, unknown>),
+        capabilities: authState.user?.role === "viewer"
+          ? { read: true, control: false, manage: false, commission: false }
+          : { read: true, control: true, manage: true, commission: true }
+      }));
+    };
     if (path === "/auth/me") {
       return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
     }
@@ -150,6 +160,23 @@ vi.mock("./api/client", () => ({
           }
         : mockEnergySummary);
     }
+    const energyComparisonMatch = path.match(/^\/energy\/sites\/([^/]+)\/comparisons\?preset=(last_7_days|current_month|current_year)$/);
+    if (energyComparisonMatch) {
+      const preset = energyComparisonMatch[2] as typeof mockEnergyComparison.preset;
+      return Promise.resolve({
+        ...mockEnergyComparison,
+        preset,
+        summary: {
+          ...mockEnergyComparison.summary,
+          forecastReason: preset === "current_month" ? "available" : "not_applicable"
+        },
+        points: mockEnergyComparison.points.map((point, index) => ({
+          ...point,
+          period: preset === "current_year" ? `2026-${String(index + 1).padStart(2, "0")}` : point.period,
+          phase: preset === "current_month" ? point.phase : "observed"
+        })).filter((_, index) => preset !== "current_year" || index < 4)
+      });
+    }
     const energySeriesMatch = path.match(/^\/energy\/sites\/([^/]+)\/series\?(.*)$/);
     if (energySeriesMatch) {
       const selectedSiteId = decodeURIComponent(energySeriesMatch[1]);
@@ -172,13 +199,18 @@ vi.mock("./api/client", () => ({
         loginId: input.loginId.trim().toLowerCase(),
         name: "Authenticated User",
         role: input.loginId.includes("operator") ? "operator" : "admin",
-        status: "active"
+        status: "active",
+        mustChangePassword: false
       };
       return Promise.resolve({ user: authState.user });
     }
     if (path === "/auth/logout") {
       authState.user = null;
       return Promise.resolve({ ok: true });
+    }
+    if (path === "/auth/change-password" && authState.user) {
+      authState.user = { ...authState.user, mustChangePassword: false };
+      return Promise.resolve({ ok: true, user: authState.user });
     }
     if (path === "/registration-sessions") {
       const input = body as { siteId?: string; floorId?: string; gatewayId?: string } | undefined;
@@ -197,6 +229,7 @@ vi.mock("./api/client", () => ({
     if (path === "/setup/initial-site") {
       const input = body as InitialSiteSetupRequest;
       const nextDashboard = {
+        capabilities: { read: true, control: true, manage: true, commission: true },
         site: {
           id: input.siteId,
           name: "설치 완료 현장",
@@ -282,7 +315,8 @@ describe("App", () => {
       loginId: "demo_admin",
       name: "Demo Operator",
       role: "admin",
-      status: "active"
+      status: "active",
+      mustChangePassword: false
     };
     apiState.dashboard = null;
     apiState.dashboardResponses = [];
@@ -363,6 +397,45 @@ describe("App", () => {
     expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("failed-login-password");
   });
 
+  it.each(["admin", "viewer", "operator"] as const)(
+    "renders only the required password change screen before the %s shell and tenant queries",
+    async (role) => {
+      window.history.replaceState({}, "", "/control?siteId=site-2");
+      authState.user = {
+        ...authState.user!,
+        organizationType: role === "operator" ? "service_provider" : "customer",
+        role,
+        mustChangePassword: true
+      };
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+      expect(await screen.findByRole("heading", { name: "비밀번호를 변경해 주세요" })).toBeInTheDocument();
+      expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "모니터링" })).not.toBeInTheDocument();
+      expect(vi.mocked(apiGet).mock.calls.map(([path]) => path)).toEqual(["/auth/me"]);
+    }
+  );
+
+  it("enters monitoring only after the required password response replaces the principal", async () => {
+    window.history.replaceState({}, "", "/settings/users?siteId=site-2");
+    authState.user = { ...authState.user!, role: "viewer", mustChangePassword: true };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    await screen.findByRole("heading", { name: "비밀번호를 변경해 주세요" });
+    fireEvent.change(screen.getByLabelText("현재 임시 비밀번호"), { target: { value: "temporary-password" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호"), { target: { value: "new-password" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호 확인"), { target: { value: "new-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+
+    expect(await screen.findByRole("link", { name: "모니터링" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/monitoring");
+    expect(queryClient.getQueryData(["auth", "me"])).toMatchObject({
+      user: { id: "user-1", mustChangePassword: false }
+    });
+  });
+
   it("clears tenant query and mutation data when auth me is revoked before showing the next login", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     queryClient.setQueryData(["tenant", "dashboard"], { heading: "이전 고객 대시보드", tenantSecret: "tenant-a-private" });
@@ -407,7 +480,8 @@ describe("App", () => {
       loginId: "tenant_b_admin",
       name: "Tenant B Admin",
       role: "admin",
-      status: "active"
+      status: "active",
+      mustChangePassword: false
     };
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
@@ -439,7 +513,7 @@ describe("App", () => {
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/monitoring",
       "/control",
-      "/statistics",
+      "/statistics/overview",
       "/settings"
     ]);
   });
@@ -492,7 +566,8 @@ describe("App", () => {
   });
 
   it.each(
-    settingsSectionsFor("admin").filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
+    settingsSectionsFor({ read: true, control: true, manage: true, commission: true })
+      .filter((section) => !["/settings", "/settings/floor-plans"].includes(section.path))
   )("renders an admin destination for the $label settings link", async (section) => {
     window.history.pushState({}, "", `${section.path}?siteId=site-1`);
     authState.user = { ...authState.user!, role: "admin" };
@@ -519,7 +594,8 @@ describe("App", () => {
         loginId: "operator_01",
         name: "Service Operator",
         role: "operator",
-        status: "active"
+        status: "active",
+        mustChangePassword: false
       };
       const queryClient = new QueryClient();
       render(
@@ -610,16 +686,16 @@ describe("App", () => {
     expect(screen.queryByRole("link", { name: "현장 및 층" })).not.toBeInTheDocument();
   });
 
-  it("replaces a viewer's password URL with settings while preserving the selected site", async () => {
+  it("allows a viewer to change their own password while preserving the selected site", async () => {
     window.history.pushState({}, "", "/settings/security?siteId=site-2");
     authState.user = { ...authState.user!, role: "viewer" };
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/settings");
+    expect(await screen.findByRole("heading", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/security");
     expect(window.location.search).toBe("?siteId=site-2");
-    expect(screen.queryByLabelText("현재 비밀번호")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
     expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/auth/change-password")).toHaveLength(0);
   });
 
@@ -953,7 +1029,8 @@ describe("App", () => {
       loginId: "viewer_01",
       name: "Demo Viewer",
       role: "viewer",
-      status: "active"
+      status: "active",
+      mustChangePassword: false
     };
     const queryClient = new QueryClient();
     render(
@@ -1001,6 +1078,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("7.5 kWh");
     expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/summary");
+    expect(apiGet).toHaveBeenCalledWith("/energy/sites/site-2/comparisons?preset=current_month");
     expect(apiGet).toHaveBeenCalledWith(
       "/energy/sites/site-2/series?granularity=day&from=2026-08-01&to=2026-08-31"
     );
@@ -1020,6 +1098,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("group", { name: "오늘 전력 사용량" })).toHaveTextContent("4.25 kWh");
     expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/summary`);
+    expect(apiGet).toHaveBeenCalledWith(`/energy/sites/${mockDashboard.site.id}/comparisons?preset=current_month`);
     expect(apiGet).not.toHaveBeenCalledWith("/energy/default/estimate");
   });
 
@@ -1128,7 +1207,7 @@ describe("App", () => {
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
   });
 
-  it("renders control as read-only for viewers and never posts a command", async () => {
+  it("hides control from read-only viewers and never posts a command", async () => {
     authState.user = {
       id: "viewer-1",
       organizationId: "organization-1",
@@ -1136,7 +1215,8 @@ describe("App", () => {
       loginId: "viewer_01",
       name: "Demo Viewer",
       role: "viewer",
-      status: "active"
+      status: "active",
+      mustChangePassword: false
     };
     const queryClient = new QueryClient();
     render(
@@ -1145,19 +1225,9 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    expect(await screen.findByText("조회 전용 계정입니다. 조명 제어는 admin 계정으로만 수행할 수 있습니다."))
-      .toBeInTheDocument();
-    const fixtureModeButton = screen.getByRole("button", { name: "개별/다중" });
-    expect(fixtureModeButton).toHaveAttribute("aria-pressed", "true");
-    expect(fixtureModeButton).toBeDisabled();
-    expect(screen.getByRole("checkbox", { name: "B2-L01 선택" })).toBeDisabled();
-    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
-    const applyButton = screen.getByRole("button", { name: "밝기 적용" });
-    expect(applyButton).toBeDisabled();
-    fireEvent.click(applyButton);
+    expect(await screen.findByRole("link", { name: "모니터링" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "제어" })).not.toBeInTheDocument();
     expect(apiPost).not.toHaveBeenCalledWith("/commands/dimming", expect.anything());
-    expect(screen.queryByText("명령 전송에 실패했습니다. 대상 상태와 게이트웨이 연결을 확인하세요.")).not.toBeInTheDocument();
   });
 
   it("confirms dirty editor logout before revoking the session", async () => {

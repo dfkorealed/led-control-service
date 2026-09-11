@@ -25,6 +25,11 @@ function validForm(overrides: Partial<ScheduleFormValues> = {}): ScheduleFormVal
 }
 
 describe("schedule form validation", () => {
+  it("새 스케줄은 고급 설정을 열지 않아도 저장 가능한 기본 이름을 갖는다", () => {
+    expect(createEmptyScheduleForm("Asia/Seoul", new Date("2026-08-31T12:00:00.000Z")).name)
+      .toBe("조명 스케줄");
+  });
+
   it("requires a valid date period and one non-zero time segment", () => {
     expect(validateScheduleForm(validForm({ activeFromDate: "" }))).toMatchObject({
       activeFromDate: "적용 시작일을 선택해 주세요."

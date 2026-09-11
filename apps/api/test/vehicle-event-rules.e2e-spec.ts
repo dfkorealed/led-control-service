@@ -1493,7 +1493,7 @@ function decodeCursor(cursor: string) {
 }
 
 function actor(
-  user: { id: string; loginId: string; name: string; role: "operator" | "admin" | "viewer"; status: "active" | "disabled" },
+  user: { id: string; loginId: string; name: string; role: "operator" | "admin" | "viewer"; status: "active" | "disabled"; mustChangePassword: boolean },
   organizationId: string,
   organizationType: "service_provider" | "customer"
 ): AuthenticatedUser {

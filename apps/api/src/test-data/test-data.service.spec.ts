@@ -9,6 +9,7 @@ const user = {
   loginId: "site-admin",
   name: "Site Admin",
   role: "admin",
+  mustChangePassword: false,
   status: "active"
 } as const;
 

@@ -31,8 +31,9 @@ export class SitesService {
   }
 
   async getDashboard(user: AuthenticatedUser, siteId: string, includeFixtures = true) {
-    await this.siteAccess.assert(user, siteId, "read");
-    return this.getDashboardById(siteId, includeFixtures);
+    const capabilities = await this.siteAccess.capabilities(user, siteId);
+    const dashboard = await this.getDashboardById(siteId, includeFixtures);
+    return { ...dashboard, capabilities };
   }
 
   // Setup reaches this only after its own transaction created or organization-validated the exact site.
@@ -252,6 +253,7 @@ function emptyDashboard() {
       faultFixtures: 0,
       averageBrightness: 0
     },
+    capabilities: { read: false, control: false, manage: false, commission: false },
     floors: [],
     groups: [],
     gateways: []

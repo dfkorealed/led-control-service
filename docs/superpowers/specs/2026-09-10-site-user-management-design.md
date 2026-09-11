@@ -133,7 +133,7 @@ interface SiteCapabilities {
 - admin은 네 capability가 모두 `true`다.
 - `read` 일반 유저는 `read`만 `true`다.
 - `control` 일반 유저는 `read`, `control`이 `true`다.
-- 수동 명령 생성·취소는 transaction 내부의 `control` 검사를 사용한다.
+- 수동 밝기 명령 생성은 transaction 내부의 `control` 검사를 사용한다.
 - 스케줄, 차량 이벤트, 그룹 관리, 설치, 조명 등록, 맵 편집은 기존 `manage` 또는 `commission` 검사를 유지한다.
 
 ## 웹 UI 설계
@@ -207,7 +207,7 @@ admin의 설정 메뉴는 `설정 개요 → 유저 관리 → 조명 등록 →
 - 타 현장 admin, 일반 유저, operator의 유저 관리 접근을 차단한다.
 - hard delete 후 User, membership, session이 사라지고 Command와 ManualOverride가 익명화되어 남는지 검증한다.
 - 강제 비밀번호 변경 전 허용 endpoint 3개 외의 API가 차단되는지 검증한다.
-- `read`는 명령이 거절되고 `control`은 수동 명령 생성·취소가 가능한지 검증한다.
+- `read`는 명령이 거절되고 `control`은 수동 밝기 명령 생성이 가능한지 검증한다.
 - 일반 유저의 스케줄·이벤트·그룹·등록·맵 편집은 계속 거절되는지 회귀 검증한다.
 
 ### Web
@@ -231,4 +231,3 @@ admin의 설정 메뉴는 `설정 개요 → 유저 관리 → 조명 등록 →
 
 - 수정 가능한 원본: `docs/assets/user-management-ui/user-management-mockup.html`
 - 렌더링 결과: `docs/assets/user-management-ui/rendered/`
-

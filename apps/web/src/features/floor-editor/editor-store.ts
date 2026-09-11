@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { EDITOR_MAX_NAME_LENGTH } from "@led-control/shared";
 import { buildEditorChanges, hasEditorChanges } from "./editor-diff";
 import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
-import { clampObjectToMap, snapPointToGrid, snapRectToGrid, trianglePointsForSize, type Point } from "./geometry";
+import { clampObjectToMap, snapPointToGridWithinBounds, snapRectToGrid, trianglePointsForSize, type Point } from "./geometry";
 
 type Selection = { kind: "fixture" | "object"; id: string } | null;
 export type FixturePatch = Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size" | "placementStatus" | "positionVerified">>;
@@ -79,7 +79,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     if (state === get().state) return;
     set({ ...dirty(state), state, past: [...get().past.slice(-99), snapshot()], future: [], preview: [], ...extra });
   };
-  const applyFixtures = (patches: Map<string, FixturePatch>) => {
+  const applyFixtures = (patches: Map<string, FixturePatch>, snapPositions = true) => {
     const { state, layers, lockedFixtureIds } = get();
     if (!state || layers.fixtures.locked || !layers.fixtures.visible) return;
     const locked = new Set(lockedFixtureIds);
@@ -88,9 +88,12 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       const patch = patches.get(fixture.id);
       if (!patch || locked.has(fixture.id)) return fixture;
       const next = { ...fixture, ...patch };
-      if (get().snap && ("x" in patch || "y" in patch)) {
+      if (snapPositions && get().snap && ("x" in patch || "y" in patch)) {
         const gridSize = state.floor.floorPlan?.gridSize ?? 10;
-        const point = snapPointToGrid({ x: next.x, y: next.y }, gridSize);
+        const point = snapPointToGridWithinBounds({ x: next.x, y: next.y }, gridSize, {
+          width: state.floor.floorPlan?.width ?? 1200,
+          height: state.floor.floorPlan?.height ?? 800
+        });
         if ("x" in patch) next.x = point.x;
         if ("y" in patch) next.y = point.y;
       }
@@ -116,9 +119,9 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
   return {
     initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1,
     pan: { x: 0, y: 0 }, viewport: { width: 800, height: 600 }, selection: null, selectedFixtureIds: [],
-    lockedFixtureIds: [], layers: defaultLayers(), snap: false, preview: [], past: [], future: [],
-    initialize: (state) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: false }),
-    reset: () => set({ initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: false }),
+    lockedFixtureIds: [], layers: defaultLayers(), snap: true, preview: [], past: [], future: [],
+    initialize: (state) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
+    reset: () => set({ initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
     adoptBaseline: (state, preserveHistory = false) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], ...(preserveHistory ? {} : { past: [], future: [], preview: [] }) }),
     recoverDraft: (state) => { if (state.floor.id === get().initialState?.floor.id && state.floor.mapRevision === get().initialState?.floor.mapRevision) commit(state); },
     discardChanges: () => { const state = get().initialState; if (state) get().initialize(state); else set({ isDirty: false, selection: null, selectedFixtureIds: [], past: [], future: [] }); },
@@ -167,9 +170,25 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       const wanted = new Set(ids); const locked = new Set(lockedFixtureIds);
       const fixtures = state.fixtures.filter((f) => wanted.has(f.id) && !locked.has(f.id) && f.placementStatus !== "unplaced");
       if (!fixtures.length) return;
-      const x = Math.max(-Math.min(...fixtures.map((f) => f.x)), Math.min(delta.x, (state.floor.floorPlan?.width ?? 1200) - Math.max(...fixtures.map((f) => f.x))));
-      const y = Math.max(-Math.min(...fixtures.map((f) => f.y)), Math.min(delta.y, (state.floor.floorPlan?.height ?? 800) - Math.max(...fixtures.map((f) => f.y))));
-      applyFixtures(new Map(fixtures.map((f) => [f.id, { x: f.x + x, y: f.y + y }])));
+      const minimumX = Math.min(...fixtures.map((f) => f.x));
+      const minimumY = Math.min(...fixtures.map((f) => f.y));
+      const maximumX = Math.max(...fixtures.map((f) => f.x));
+      const maximumY = Math.max(...fixtures.map((f) => f.y));
+      const width = state.floor.floorPlan?.width ?? 1200;
+      const height = state.floor.floorPlan?.height ?? 800;
+      let x = Math.max(-minimumX, Math.min(delta.x, width - maximumX));
+      let y = Math.max(-minimumY, Math.min(delta.y, height - maximumY));
+      if (get().snap) {
+        const snappedAnchor = snapPointToGridWithinBounds(
+          { x: minimumX + x, y: minimumY + y },
+          state.floor.floorPlan?.gridSize ?? 10,
+          { width: width - (maximumX - minimumX), height: height - (maximumY - minimumY) }
+        );
+        x = snappedAnchor.x - minimumX;
+        y = snappedAnchor.y - minimumY;
+      }
+      // A multi-selection is a rigid group. Its anchor snaps once so relative spacing is preserved.
+      applyFixtures(new Map(fixtures.map((f) => [f.id, { x: f.x + x, y: f.y + y }])), false);
     },
     setPreview: (preview) => set({ preview }), setSnap: (snap) => set({ snap }),
     setLayer: (layer, patch) => set({ layers: { ...get().layers, [layer]: { ...get().layers[layer], ...patch } }, ...(layer === "fixtures" && patch.visible === false ? { selectedFixtureIds: [], selection: null, preview: [] } : {}) }),
@@ -232,7 +251,10 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
             ? object.type === "line"
               ? { ...snapRectToGrid({ ...merged, height: gridSize }, gridSize), height: 0 }
               : snapRectToGrid(merged, gridSize)
-            : { ...merged, ...snapPointToGrid(merged, gridSize) }
+            : { ...merged, ...snapPointToGridWithinBounds(merged, gridSize, {
+                width: Math.max(0, bounds.width - merged.width),
+                height: Math.max(0, bounds.height - merged.height)
+              }) }
           : merged;
         const geometry = clampObjectToMap(snapped, bounds);
         normalizedPatch = {

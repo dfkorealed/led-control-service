@@ -18,6 +18,7 @@ export interface AuthenticatedUser {
   name: string;
   role: UserRole;
   status: "active" | "disabled";
+  mustChangePassword: boolean;
 }
 
 export interface AuthenticatedRequest {

@@ -4,6 +4,7 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && node scripts/dev.mjs",
+    "dev:local": "pnpm docker:up && pnpm dev",
     "test": "node --test scripts/dev-runtime.test.mjs scripts/lan-tls-integration.test.mjs && pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && pnpm -r test",
     "test:lan-tls": "node --test scripts/lan-tls-integration.test.mjs",
     "lint": "pnpm -r lint",
@@ -20,7 +21,6 @@
     "gateway:manufacturing:enroll": "scripts/gateway-manufacturing-enroll.sh",
     "mqtt:integration": "MQTT_INTEGRATION_REQUIRED=1 pnpm --filter @led-control/gateway test:mqtt-integration",
     "benchmark:fixtures": "node scripts/benchmark-fixture-api.mjs",
-    "gateway:enroll-inventory": "pnpm --filter @led-control/api gateway:enroll-inventory",
     "lab:vault": "scripts/pki/lab-vault.sh",
     "test:lab:vault": "node --test scripts/pki/lab-vault.test.mjs",
     "test:lab:vault:integration": "LAB_VAULT_INTEGRATION=1 node --test scripts/pki/lab-vault.test.mjs",

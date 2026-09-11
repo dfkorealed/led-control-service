@@ -15,7 +15,7 @@ run("fixture identify isolated PostgreSQL + Redis integration", () => {
   const organizationId = randomUUID(), userId = randomUUID(), siteId = randomUUID(), floorId = randomUUID();
   const gatewayId = randomUUID(), inventoryId = randomUUID(), fixtureId = randomUUID(), nodeId = randomUUID(), leaseToken = randomUUID();
   const user = { id: userId, organizationId, organizationType: "customer", loginId: `identify_${userId}`,
-    name: "Identify integration", role: "admin", status: "active" } as const;
+    name: "Identify integration", role: "admin", mustChangePassword: false, status: "active" } as const;
   let prisma: PrismaService, redis: Redis, service: FixtureIdentifyService;
   let received: FixtureIdentifyCommand[] = [];
   const mqtt = { onFixtureIdentifyResult: jest.fn(() => jest.fn()), publishTopic: jest.fn(async (_topic: string, input: unknown) => {

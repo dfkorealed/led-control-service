@@ -2,11 +2,33 @@ import { EnergyService } from "./energy.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { EnergyAnalyticsQueryService } from "./energy-analytics-query.service";
 
 describe("EnergyService", () => {
   afterEach(() => jest.useRealTimers());
+  it("delegates state-based reads and comparisons to the analytics read model", async () => {
+    const analytics = {
+      getSiteSummary: jest.fn().mockResolvedValue({ siteId: "site-1" }),
+      getSiteSeries: jest.fn().mockResolvedValue({ siteId: "site-1", points: [] }),
+      getComparison: jest.fn().mockResolvedValue({ siteId: "site-1", preset: "current_month" })
+    };
+    const rankings = { getRankings: jest.fn().mockResolvedValue({ siteId: "site-1", ranked: [] }) };
+    const service = new EnergyService({} as never, {} as never, analytics as never, rankings as never);
+
+    await expect(service.getSiteSummary(user, "site-1")).resolves.toEqual({ siteId: "site-1" });
+    await expect(service.getSiteSeries(user, "site-1", {
+      granularity: "day", from: "2026-09-01", to: "2026-09-02"
+    })).resolves.toEqual({ siteId: "site-1", points: [] });
+    await expect(service.getSiteComparisons(user, "site-1", "current_month")).resolves.toEqual({
+      siteId: "site-1", preset: "current_month"
+    });
+    await expect(service.getSiteRankings(user, "site-1", { dimension: "fixture" })).resolves.toEqual({
+      siteId: "site-1", ranked: []
+    });
+  });
+
   it("estimates kWh and cost from rated watt, brightness, hours, and tariff", () => {
-    const service = new EnergyService({} as never, {} as never);
+    const service = new EnergyService({} as never, {} as never, {} as never);
     const result = service.calculateEstimatedUsage({
       ratedWatt: 40,
       brightness: 50,
@@ -28,7 +50,7 @@ describe("EnergyService", () => {
       }
     };
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", mustChangePassword: false, status: "active"
     };
     const siteAccess = {
       assert: jest.fn().mockResolvedValue({ id: "site-1" }),
@@ -55,7 +77,7 @@ describe("EnergyService", () => {
       }
     };
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "service_provider", loginId: "fixture_user", name: "Operator", role: "operator", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "service_provider", loginId: "fixture_user", name: "Operator", role: "operator", mustChangePassword: false, status: "active"
     };
     const siteAccess = {
       assert: jest.fn().mockResolvedValue({ id: "site-a" }),
@@ -74,14 +96,14 @@ describe("EnergyService", () => {
 
   it("does not query fixtures for an unauthorized site-scoped estimate", async () => {
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Viewer", role: "viewer", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Viewer", role: "viewer", mustChangePassword: false, status: "active"
     };
     const prisma = { site: { findFirstOrThrow: jest.fn() } };
     const siteAccess = {
       listAccessibleSiteIds: jest.fn(),
       assert: jest.fn().mockRejectedValue(new NotFoundException("site not found"))
     };
-    const service = new EnergyService(prisma as never, siteAccess as never);
+    const service = new EnergyService(prisma as never, siteAccess as never, {} as never);
 
     await expect(service.getSiteEstimate(user, "site-foreign")).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.site.findFirstOrThrow).not.toHaveBeenCalled();
@@ -89,12 +111,12 @@ describe("EnergyService", () => {
 
   it("does not return an estimate when the user has no accessible site", async () => {
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "service_provider", loginId: "fixture_user", name: "Operator", role: "operator", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "service_provider", loginId: "fixture_user", name: "Operator", role: "operator", mustChangePassword: false, status: "active"
     };
     const prisma = { site: { findFirstOrThrow: jest.fn() } };
     const siteAccess = { listAccessibleSiteIds: jest.fn().mockResolvedValue([]), assert: jest.fn() };
 
-    await expect(new EnergyService(prisma as never, siteAccess as never).getDefaultSiteEstimate(user)).rejects.toBeInstanceOf(
+    await expect(new EnergyService(prisma as never, siteAccess as never, {} as never).getDefaultSiteEstimate(user)).rejects.toBeInstanceOf(
       NotFoundException
     );
     expect(prisma.site.findFirstOrThrow).not.toHaveBeenCalled();
@@ -102,13 +124,13 @@ describe("EnergyService", () => {
 
   it("rejects cost estimates when a pending site has no tariff", async () => {
     const user: AuthenticatedUser = {
-      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", status: "active"
+      id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", mustChangePassword: false, status: "active"
     };
     const prisma = {
       site: { findFirstOrThrow: jest.fn().mockResolvedValue({ tariffKwhRate: null, floors: [] }) }
     };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
-    const service = new EnergyService(prisma as never, siteAccess as never);
+    const service = new EnergyService(prisma as never, siteAccess as never, {} as never);
 
     await expect(service.getSiteEstimate(user, "site-1")).rejects.toMatchObject({ status: 409 });
   });
@@ -349,7 +371,7 @@ describe("EnergyService", () => {
 });
 
 const user: AuthenticatedUser = {
-  id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", status: "active"
+  id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "fixture_user", name: "Admin", role: "admin", mustChangePassword: false, status: "active"
 };
 
 function aggregate(localDate: string, kwh: number, knownSeconds: number, unknownSeconds: number) {
@@ -417,5 +439,6 @@ function createStateBasedService(input: { timeZone?: string; fixtures?: any[] } 
     fixture: { findMany: jest.fn().mockResolvedValue(input.fixtures ?? []) }
   };
   const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }), listAccessibleSiteIds: jest.fn() };
-  return { service: new EnergyService(prisma as never, siteAccess as never), prisma, siteAccess };
+  const analytics = new EnergyAnalyticsQueryService(prisma as never, siteAccess as never);
+  return { service: new EnergyService(prisma as never, siteAccess as never, analytics), prisma, siteAccess };
 }

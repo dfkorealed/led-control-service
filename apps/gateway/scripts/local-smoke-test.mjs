@@ -55,7 +55,6 @@ client.on("connect", () => {
       targetFixtureIds: [fixtureId],
       deliveryMode: "unicast",
       brightness,
-      requestedBy: "local-smoke-test",
       requestedAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 10_000).toISOString()
     };

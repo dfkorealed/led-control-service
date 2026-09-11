@@ -20,12 +20,12 @@ describe("SiteAccessService", () => {
   };
   const operator: AuthenticatedUser = {
     id: "operator-1", organizationId: "provider-org", organizationType: "service_provider", loginId: "fixture_user",
-    name: "Operator", role: "operator", status: "active"
+    name: "Operator", role: "operator", mustChangePassword: false, status: "active"
   };
   const unassignedOperator: AuthenticatedUser = { ...operator, id: "operator-2" };
   const admin: AuthenticatedUser = {
     id: "admin-1", organizationId: "customer-org", organizationType: "customer", loginId: "fixture_user",
-    name: "Admin", role: "admin", status: "active"
+    name: "Admin", role: "admin", mustChangePassword: false, status: "active"
   };
   const viewer: AuthenticatedUser = { ...admin, id: "viewer-1", role: "viewer" };
 

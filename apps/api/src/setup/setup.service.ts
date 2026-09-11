@@ -68,7 +68,7 @@ export class SetupService {
         await this.createFloorPlans(tx, site.id, input.floors);
         return site.id;
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-      return this.sitesService.getDashboardById(siteId);
+      return this.sitesService.getDashboard(user, siteId);
     } catch (error) {
       this.throwMappedPrismaSetupError(error);
       throw error;
@@ -100,7 +100,7 @@ export class SetupService {
       throw error;
     }
 
-    return this.sitesService.getDashboardById(input.siteId);
+    return this.sitesService.getDashboard(user, input.siteId);
   }
 
   private validateInitialSiteInput(input: CreateInitialSiteInput) {

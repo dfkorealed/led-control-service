@@ -69,7 +69,6 @@ const gatewayDimmingCommandFields = {
   meshControlGroupId: z.string().uuid().optional(),
   meshControlGroupVersion: z.number().int().positive().optional(),
   brightness: z.number().int().min(0).max(100),
-  requestedBy: z.string().uuid(),
   requestedAt: z.string().datetime(),
   // Old durable outbox rows predate timed overrides; new API commands always set this field.
   overrideUntil: z.string().datetime().optional()
@@ -137,19 +136,10 @@ function validateDimmingDelivery(
   }
 }
 
-// The API stores this draft until the publisher durably fixes one delivery generation.
-const gatewayDimmingCommandDraftV2BaseSchema = commandIdentitySchema.extend(gatewayDimmingCommandFields).strict();
-export const gatewayDimmingCommandDraftV2Schema = gatewayDimmingCommandDraftV2BaseSchema.superRefine(
-  validateDimmingDelivery
-);
-
-const gatewayDimmingCommandLegacyV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
-  expiresAt: z.string().datetime()
-}).strict().superRefine(validateDimmingDelivery);
-
-export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
-  expiresAt: z.string().datetime()
-}).strict().superRefine((command, context) => {
+function validateDimmingExpiry(
+  command: Parameters<typeof validateDimmingDelivery>[0] & { expiresAt: string; overrideUntil?: string },
+  context: z.RefinementCtx
+) {
   validateDimmingDelivery(command, context);
   if (command.overrideUntil && Date.parse(command.expiresAt) > Date.parse(command.overrideUntil)) {
     context.addIssue({
@@ -158,15 +148,18 @@ export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2BaseSch
       message: "expiresAt must not exceed overrideUntil"
     });
   }
-});
+}
 
-export const gatewayDimmingCommandPublishedV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
-  expiresAt: z.string().datetime(),
-  deliveryGeneration: z.string().uuid(),
-  deliveryGeneratedAt: z.string().datetime(),
-  deliveryWindowMs: z.number().int().positive().max(10_000),
-  overrideRemainingMs: z.number().int().positive().optional()
-}).strict().superRefine((command, context) => {
+function validatePublishedDimmingCommand(
+  command: Parameters<typeof validateDimmingDelivery>[0] & {
+    expiresAt: string;
+    deliveryGeneratedAt: string;
+    deliveryWindowMs: number;
+    overrideUntil?: string;
+    overrideRemainingMs?: number;
+  },
+  context: z.RefinementCtx
+) {
   validateDimmingDelivery(command, context);
   const generatedAt = Date.parse(command.deliveryGeneratedAt);
   const expectedExpiresAt = generatedAt + command.deliveryWindowMs;
@@ -207,14 +200,62 @@ export const gatewayDimmingCommandPublishedV2Schema = gatewayDimmingCommandDraft
       message: "overrideRemainingMs requires overrideUntil"
     });
   }
-});
+}
+
+// The API stores this draft until the publisher durably fixes one delivery generation.
+const gatewayDimmingCommandDraftV2BaseSchema = commandIdentitySchema.extend(gatewayDimmingCommandFields).strict();
+const historicalGatewayDimmingCommandDraftV2BaseSchema = gatewayDimmingCommandDraftV2BaseSchema.extend({
+  requestedBy: z.string().uuid()
+}).strict();
+export const gatewayDimmingCommandDraftV2Schema = gatewayDimmingCommandDraftV2BaseSchema.superRefine(
+  validateDimmingDelivery
+);
+
+const gatewayDimmingCommandLegacyV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime()
+}).strict().superRefine(validateDimmingDelivery);
+
+export const gatewayDimmingCommandV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime()
+}).strict().superRefine(validateDimmingExpiry);
+
+export const gatewayDimmingCommandPublishedV2Schema = gatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime(),
+  deliveryGeneration: z.string().uuid(),
+  deliveryGeneratedAt: z.string().datetime(),
+  deliveryWindowMs: z.number().int().positive().max(10_000),
+  overrideRemainingMs: z.number().int().positive().optional()
+}).strict().superRefine(validatePublishedDimmingCommand);
+
+const historicalGatewayDimmingCommandDraftV2Schema = historicalGatewayDimmingCommandDraftV2BaseSchema
+  .superRefine(validateDimmingDelivery);
+export const gatewayDimmingCommandDraftV2CompatibilitySchema = z.union([
+  gatewayDimmingCommandDraftV2Schema,
+  historicalGatewayDimmingCommandDraftV2Schema
+]);
+const historicalGatewayDimmingCommandLegacyV2Schema = historicalGatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime()
+}).strict().superRefine(validateDimmingDelivery);
+const historicalGatewayDimmingCommandV2Schema = historicalGatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime()
+}).strict().superRefine(validateDimmingExpiry);
+const historicalGatewayDimmingCommandPublishedV2Schema = historicalGatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime(),
+  deliveryGeneration: z.string().uuid(),
+  deliveryGeneratedAt: z.string().datetime(),
+  deliveryWindowMs: z.number().int().positive().max(10_000),
+  overrideRemainingMs: z.number().int().positive().optional()
+}).strict().superRefine(validatePublishedDimmingCommand);
 
 // Persisted journals and rolling deployments can still contain the pre-invariant wire shape.
 // Keep this parser at compatibility boundaries only; new producers must use gatewayDimmingCommandPublishedV2Schema.
 export const gatewayDimmingCommandV2CompatibilitySchema = z.union([
   gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2Schema,
-  gatewayDimmingCommandLegacyV2Schema
+  gatewayDimmingCommandLegacyV2Schema,
+  historicalGatewayDimmingCommandPublishedV2Schema,
+  historicalGatewayDimmingCommandV2Schema,
+  historicalGatewayDimmingCommandLegacyV2Schema
 ]);
 
 export const acceptanceAckV2Schema = commandIdentitySchema.extend({

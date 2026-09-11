@@ -5,10 +5,11 @@ import { MeshControlGroupModule } from "../mesh-control-groups/mesh-control-grou
 import { PrismaModule } from "../prisma/prisma.module";
 import { FixtureGroupsController } from "./fixture-groups.controller";
 import { FixtureGroupsService } from "./fixture-groups.service";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 
 @Module({
   imports: [PrismaModule, AuthModule, AccessModule, MeshControlGroupModule],
   controllers: [FixtureGroupsController],
-  providers: [FixtureGroupsService]
+  providers: [FixtureGroupsService, EnergyDimensionHistoryService]
 })
 export class FixtureGroupsModule {}

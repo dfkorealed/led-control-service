@@ -3,6 +3,7 @@ import { AuthService } from "./auth.service";
 import { CurrentUser } from "./current-user.decorator";
 import { SessionAuthGuard } from "./session-auth.guard";
 import { AuthenticatedRequest, AuthenticatedUser } from "./auth.types";
+import { AllowPasswordChangePending } from "./allow-password-change-pending.decorator";
 
 type CookieResponse = {
   cookie: (name: string, value: string, options: Record<string, unknown>) => CookieResponse;
@@ -34,12 +35,14 @@ export class AuthController {
   }
 
   @Get("me")
+  @AllowPasswordChangePending()
   @UseGuards(SessionAuthGuard)
   me(@CurrentUser() user: AuthenticatedUser) {
     return { user };
   }
 
   @Post("logout")
+  @AllowPasswordChangePending()
   @UseGuards(SessionAuthGuard)
   async logout(
     @Req() request: AuthenticatedRequest,
@@ -54,6 +57,7 @@ export class AuthController {
   }
 
   @Post("change-password")
+  @AllowPasswordChangePending()
   @UseGuards(SessionAuthGuard)
   async changePassword(
     @Body() body: unknown,

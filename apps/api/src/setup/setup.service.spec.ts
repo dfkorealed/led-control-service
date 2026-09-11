@@ -11,15 +11,16 @@ describe("SetupService", () => {
   const dashboard = {
     site: { id: "site-1", name: "A 주차장" },
     summary: { totalFixtures: 0, onlineFixtures: 0, faultFixtures: 0, averageBrightness: 0 },
+    capabilities: { read: true, control: true, manage: true, commission: true },
     floors: [], groups: [], gateways: []
   };
   const admin: AuthenticatedUser = {
     id: "admin-1", organizationId: "customer-organization-1", organizationType: "customer",
-    loginId: "admin_1", name: "Admin", role: "admin", status: "active"
+    loginId: "admin_1", name: "Admin", role: "admin", mustChangePassword: false, status: "active"
   };
   const operator: AuthenticatedUser = {
     id: "operator-1", organizationId: "provider-organization-1", organizationType: "service_provider",
-    loginId: "operator_1", name: "Operator", role: "operator", status: "active"
+    loginId: "operator_1", name: "Operator", role: "operator", mustChangePassword: false, status: "active"
   };
   const initialSiteInput = {
     siteId: "site-1", address: "서울시 강남구", tariffKwhRate: 160,
@@ -54,7 +55,7 @@ describe("SetupService", () => {
       ...prismaOverrides
     };
     prisma.$transaction = jest.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
-    const sitesService = { getDashboardById: jest.fn().mockResolvedValue(dashboard) };
+    const sitesService = { getDashboard: jest.fn().mockResolvedValue(dashboard) };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
 
     return Test.createTestingModule({
@@ -92,8 +93,9 @@ describe("SetupService", () => {
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable
     });
-    expect(sitesService.getDashboardById).toHaveBeenCalledWith(initialSiteInput.siteId);
+    expect(sitesService.getDashboard).toHaveBeenCalledWith(admin, initialSiteInput.siteId);
     expect(result).toBe(dashboard);
+    expect(result).toHaveProperty("capabilities", { read: true, control: true, manage: true, commission: true });
   });
 
   it("revalidates the assigned active customer admin under the site row lock", async () => {
@@ -166,9 +168,9 @@ describe("SetupService", () => {
   });
 
   it("allows the assigned admin to add non-duplicate floors with commission capability", async () => {
-    const { service, prisma, siteAccess } = await createModule();
+    const { service, prisma, siteAccess, sitesService } = await createModule();
 
-    await service.addFloors(admin, {
+    const result = await service.addFloors(admin, {
       siteId: "site-1",
       floors: [{ name: "B1", level: -1, floorPlan: { imageUrl: "/b1.svg", width: 1200, height: 800 } }]
     });
@@ -178,6 +180,9 @@ describe("SetupService", () => {
     expect(prisma.floorPlan.create).toHaveBeenCalledWith({
       data: { floorId: "floor-1", imageUrl: "/b1.svg", width: 1200, height: 800 }
     });
+    expect(sitesService.getDashboard).toHaveBeenCalledWith(admin, "site-1");
+    expect(result).toBe(dashboard);
+    expect(result).toHaveProperty("capabilities", { read: true, control: true, manage: true, commission: true });
   });
 
   it("rejects stale add-floors authorization after the site is reassigned", async () => {

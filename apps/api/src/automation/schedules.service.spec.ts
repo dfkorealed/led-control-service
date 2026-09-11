@@ -16,6 +16,7 @@ const admin = {
   loginId: "schedule_admin",
   name: "Schedule admin",
   role: "admin" as const,
+  mustChangePassword: false,
   status: "active" as const
 };
 

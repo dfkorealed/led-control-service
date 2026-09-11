@@ -8,6 +8,7 @@ const actor = {
   loginId: "viewer",
   name: "Viewer",
   role: "viewer",
+  mustChangePassword: false,
   status: "active"
 } satisfies AuthenticatedUser;
 

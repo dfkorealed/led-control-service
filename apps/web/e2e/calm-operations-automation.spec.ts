@@ -49,14 +49,24 @@ for (const viewport of viewports) {
 
     await page.getByRole("button", { name: "스케줄 추가" }).click();
     const scheduleDialog = page.getByRole("dialog", { name: "스케줄 추가" });
-    await expect(scheduleDialog.getByRole("group", { name: "운영 기간과 시간" })).toBeVisible();
+    await expect(scheduleDialog.getByRole("group", { name: "언제 켤까요?" })).toBeVisible();
     await expect(scheduleDialog.getByRole("group", { name: "제어 대상", exact: true })).toBeVisible();
+    await expect(scheduleDialog.getByRole("status")).toContainText("매일 18:00–23:00");
+    await expect(scheduleDialog.getByRole("group", { name: "조명 목록" })).toHaveCount(0);
+    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".schedule-dialog");
+    await scheduleDialog.getByRole("button", { name: "평일" }).click();
+    await expect(scheduleDialog.getByRole("status")).toContainText("평일 18:00–23:00");
+    await scheduleDialog.getByRole("button", { name: "세부 일정 설정" }).click();
     await scheduleDialog.getByLabel("반복", { exact: true }).selectOption("weekly");
     await expect(scheduleDialog.getByLabel("월")).toBeVisible();
     await scheduleDialog.getByLabel("반복", { exact: true }).selectOption("monthly");
     await expect(scheduleDialog.getByLabel("매월 날짜")).toBeVisible();
+    await scheduleDialog.getByRole("button", { name: "제어 대상 선택" }).click();
+    await expect(scheduleDialog.getByRole("group", { name: "조명 목록" })).toBeVisible();
     await expectDialogInsideViewport(scheduleDialog, viewport);
+    if (viewport.width > 760) await expectNoDocumentVerticalOverflow(page);
     if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".schedule-dialog");
+    await scheduleDialog.getByRole("button", { name: "선택 완료" }).click();
     await scheduleDialog.getByRole("button", { name: "스케줄 추가 닫기" }).click();
 
     await page.getByRole("tab", { name: "이벤트 제어" }).click();
@@ -70,16 +80,52 @@ for (const viewport of viewports) {
     const eventDialog = page.getByRole("dialog", { name: "이벤트 추가" });
     const sensorSection = eventDialog.getByRole("group", { name: "감지 센서" });
     await expect(sensorSection).toBeVisible();
-    await expect(eventDialog.getByRole("group", { name: "제어 조명" })).toBeVisible();
-    await expect(eventDialog.getByRole("group", { name: "행동" })).toBeVisible();
-    const sensorCheckbox = sensorSection.getByLabel("B1-SENSOR-001 선택");
+    await expect(eventDialog.getByRole("group", { name: "실행할 조명" })).toBeVisible();
+    await expect(eventDialog.getByRole("group", { name: "유지 시간", exact: true })).toBeVisible();
+    await expect(eventDialog.getByRole("group", { name: "조명 목록" })).toHaveCount(0);
+    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".schedule-dialog");
+    await eventDialog.getByRole("button", { name: "감지 센서 선택" }).click();
+    const sensorCheckbox = eventDialog.getByLabel("B1-SENSOR-001 선택");
     await sensorCheckbox.scrollIntoViewIfNeeded();
     await expect(sensorCheckbox).toBeVisible();
     await expect(sensorCheckbox.locator("xpath=ancestor::label")).toContainText("B1-SENSOR-001");
     await expectDialogInsideViewport(eventDialog, viewport);
+    if (viewport.width > 760) await expectNoDocumentVerticalOverflow(page);
     if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".schedule-dialog");
   });
 }
+
+test("1024px 대상 선택기는 긴 조명 목록과 더 보기를 dialog 내부에서 끝까지 제공한다", async ({ page }) => {
+  const viewport = { width: 1024, height: 768 };
+  const fixtures = Array.from({ length: 121 }, (_, index) => fixture({
+    id: `66666666-6666-4666-8666-${String(700 + index).padStart(12, "0")}`,
+    name: `B1-LIGHT-${String(index + 1).padStart(3, "0")}`
+  }));
+  await page.setViewportSize(viewport);
+  await installAutomationFixture(page, { fixtures });
+
+  await page.goto(`/control?siteId=${ids.site}&mode=schedule`);
+  await page.getByRole("button", { name: "스케줄 추가" }).click();
+  const dialog = page.getByRole("dialog", { name: "스케줄 추가" });
+  await dialog.getByRole("button", { name: "제어 대상 선택" }).click();
+
+  const list = dialog.getByRole("group", { name: "조명 목록" });
+  const moreButton = dialog.getByRole("button", { name: "더 보기" });
+  await expect(list).toBeVisible();
+  await expect(dialog.getByText("100 / 121개 표시")).toBeVisible();
+  await moreButton.scrollIntoViewIfNeeded();
+  await expectElementInsideViewport(moreButton, viewport);
+  await expectElementInsideDialogContent(moreButton, dialog);
+  await moreButton.click();
+
+  const finalFixture = dialog.getByLabel("B1-LIGHT-121 선택");
+  await finalFixture.scrollIntoViewIfNeeded();
+  await expect(finalFixture).toBeVisible();
+  await expectElementInsideContainer(finalFixture.locator("xpath=ancestor::label"), list);
+  await expectElementInsideDialogContent(list, dialog);
+  await expectDialogInsideViewport(dialog, viewport);
+  await expectNoDocumentVerticalOverflow(page);
+});
 
 test("자동화 빈 목록과 조회 실패는 실제 추가와 재시도 동작을 제공한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -102,11 +148,11 @@ test("자동화 빈 목록과 조회 실패는 실제 추가와 재시도 동작
 
 async function installAutomationFixture(
   page: Page,
-  options: { schedules?: unknown[]; events?: unknown[]; scheduleFailures?: number; eventFailures?: number } = {}
+  options: { fixtures?: SettingsFixture[]; schedules?: unknown[]; events?: unknown[]; scheduleFailures?: number; eventFailures?: number } = {}
 ) {
   await installSettingsApiRoutes(page, "admin", {
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway },
-    fixtures: [fixture()]
+    fixtures: options.fixtures ?? [fixture()]
   });
   const schedules = options.schedules ?? [schedule("대기 스케줄", "PENDING"), schedule("적용 스케줄", "APPLIED"), schedule("실패 스케줄", "REJECTED")];
   const events = options.events ?? [eventRule("입구 차량 감지", "enabled"), eventRule("야간 차량 감지", "disabled")];
@@ -129,7 +175,7 @@ async function installAutomationFixture(
   });
 }
 
-function fixture(): SettingsFixture {
+function fixture(overrides: Partial<SettingsFixture> = {}): SettingsFixture {
   return {
     id: ids.fixture,
     name: "B1-SENSOR-001",
@@ -147,7 +193,8 @@ function fixture(): SettingsFixture {
     vehicleSensorCapabilityStatus: "supported",
     vehicleSensorCapabilityVerifiedAt: "2026-09-01T00:00:00.000Z",
     controllable: true,
-    controlBlockReason: null
+    controlBlockReason: null,
+    ...overrides
   };
 }
 
@@ -243,6 +290,14 @@ async function expectReachableColumns(page: Page, selector: string) {
   }
 }
 
+async function expectNoDocumentVerticalOverflow(page: Page) {
+  const dimensions = await page.evaluate(() => ({
+    clientHeight: document.documentElement.clientHeight,
+    scrollHeight: document.documentElement.scrollHeight
+  }));
+  expect(dimensions.scrollHeight).toBeLessThanOrEqual(dimensions.clientHeight + 1);
+}
+
 async function expectDialogInsideViewport(dialog: ReturnType<Page["getByRole"]>, viewport: { width: number; height: number }) {
   const bounds = await dialog.boundingBox();
   expect(bounds).not.toBeNull();
@@ -251,4 +306,45 @@ async function expectDialogInsideViewport(dialog: ReturnType<Page["getByRole"]>,
   expect(bounds.y).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width + 1);
   expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height + 1);
+}
+
+async function expectElementInsideViewport(
+  element: ReturnType<Page["locator"]>,
+  viewport: { width: number; height: number }
+) {
+  const bounds = await element.boundingBox();
+  expect(bounds).not.toBeNull();
+  if (!bounds) return;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.y).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width + 1);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height + 1);
+}
+
+async function expectElementInsideContainer(
+  element: ReturnType<Page["locator"]>,
+  container: ReturnType<Page["locator"]>
+) {
+  const [elementBounds, containerBounds] = await Promise.all([element.boundingBox(), container.boundingBox()]);
+  expect(elementBounds).not.toBeNull();
+  expect(containerBounds).not.toBeNull();
+  if (!elementBounds || !containerBounds) return;
+  expect(elementBounds.y).toBeGreaterThanOrEqual(containerBounds.y - 1);
+  expect(elementBounds.y + elementBounds.height).toBeLessThanOrEqual(containerBounds.y + containerBounds.height + 1);
+}
+
+async function expectElementInsideDialogContent(
+  element: ReturnType<Page["locator"]>,
+  dialog: ReturnType<Page["locator"]>
+) {
+  const geometry = await dialog.evaluate((dialogElement, childElement) => {
+    if (!(childElement instanceof Element)) return null;
+    const dialogBounds = dialogElement.getBoundingClientRect();
+    const childBounds = childElement.getBoundingClientRect();
+    const paddingBottom = Number.parseFloat(getComputedStyle(dialogElement).paddingBottom) || 0;
+    return { childBottom: childBounds.bottom, contentBottom: dialogBounds.bottom - paddingBottom };
+  }, await element.elementHandle());
+  expect(geometry).not.toBeNull();
+  if (!geometry) return;
+  expect(geometry.childBottom).toBeLessThanOrEqual(geometry.contentBottom + 1);
 }

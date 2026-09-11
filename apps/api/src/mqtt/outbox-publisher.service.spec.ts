@@ -14,8 +14,11 @@ const dimmingPayload = {
   targetFixtureIds: ["66666666-6666-4666-8666-666666666666"],
   deliveryMode: "unicast",
   brightness: 65,
-  requestedBy: "77777777-7777-4777-8777-777777777777",
   requestedAt: "2026-07-11T00:00:00.000Z"
+};
+const historicalDimmingPayload = {
+  ...dimmingPayload,
+  requestedBy: "77777777-7777-4777-8777-777777777777"
 };
 const deliveryGeneration = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -582,7 +585,7 @@ describe("OutboxPublisherService", () => {
     });
   });
 
-  it("durably creates expiry before a short final fence delay and publishes only the remaining window", async () => {
+  it("scrubs a historical requester while durably creating the publish generation", async () => {
     const preparedAt = new Date("2026-07-11T00:01:00.000Z");
     const fenceReturnedAt = new Date("2026-07-11T00:01:05.000Z");
     const publishedAt = new Date("2026-07-11T00:01:06.000Z");
@@ -612,7 +615,7 @@ describe("OutboxPublisherService", () => {
       id: "outbox-1",
       dispatchId: "dispatch-1",
       topic: "sites/44444444-4444-4444-8444-444444444444/gateways/55555555-5555-4555-8555-555555555555/commands/dimming",
-      payload: dimmingPayload,
+      payload: historicalDimmingPayload,
       attempts: 0,
       createdAt: new Date("2026-07-11T00:00:00.000Z"),
       dispatch: { commandId: "command-1" }

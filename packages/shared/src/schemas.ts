@@ -804,5 +804,5 @@ export {
   createDimmingCommandRequestSchema,
   createDimmingCommandSchema,
   dimmingTargetSchema
-} from "./dimming-command";
-export type { CreateDimmingCommandInput, DimmingTarget } from "./dimming-command";
+} from "./dimming-command.js";
+export type { CreateDimmingCommandInput, DimmingTarget } from "./dimming-command.js";

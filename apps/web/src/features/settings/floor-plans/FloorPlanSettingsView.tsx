@@ -1,18 +1,17 @@
 import { FileImage, LoaderCircle, LockKeyhole, TriangleAlert } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
-import type { AuthUser } from "../../../api/auth";
-import { useDashboard } from "../../../api/queries";
+import { useDashboard, type SiteCapabilities } from "../../../api/queries";
 import { Card, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
 
 interface FloorPlanSettingsViewProps {
   siteId?: string;
-  userRole: AuthUser["role"];
+  capabilities: SiteCapabilities;
 }
 
-export function FloorPlanSettingsView({ siteId, userRole }: FloorPlanSettingsViewProps) {
+export function FloorPlanSettingsView({ siteId, capabilities }: FloorPlanSettingsViewProps) {
   const { data, isLoading, error } = useDashboard(siteId);
   const location = useLocation();
-  const canEdit = userRole === "admin";
+  const canEdit = capabilities.manage;
 
   return (
     <section className="settings-screen">

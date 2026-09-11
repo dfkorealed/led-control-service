@@ -21,6 +21,7 @@ describe("FloorEditorService", () => {
     loginId: "fixture_user",
     name: "Operator",
     role: "operator" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
 
@@ -127,6 +128,7 @@ describe("FloorEditorService atomic revisions", () => {
     loginId: "fixture_user",
     name: "Operator",
     role: "operator" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   const canonicalFloor = {

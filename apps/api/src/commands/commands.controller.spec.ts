@@ -12,6 +12,7 @@ describe("CommandsController", () => {
     loginId: "fixture_user",
     name: "Operator",
     role: "operator",
+    mustChangePassword: false,
     status: "active"
   };
 

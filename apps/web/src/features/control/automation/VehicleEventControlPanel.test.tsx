@@ -82,6 +82,26 @@ describe("VehicleEventControlPanel", () => {
     expect(within(dialog).getByRole("button", { name: "저장" })).toHaveClass("ui-button", "ui-button-primary");
   });
 
+  it("uses compact source and target cards and keeps capability filtering inside picker views", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+
+    expect(within(dialog).getByRole("group", { name: "감지 센서" })).toHaveTextContent("감지 센서를 선택해 주세요.");
+    expect(within(dialog).getByRole("group", { name: "실행할 조명" })).toHaveTextContent("실행할 조명을 선택해 주세요.");
+    expect(within(dialog).queryByRole("group", { name: "조명 목록" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
+    expect(within(dialog).getByLabelText("B1-SENSOR-001 선택")).toBeVisible();
+    expect(within(dialog).queryByLabelText("B1-L001 선택")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+
+    expect(within(dialog).getByRole("group", { name: "감지 센서" })).toHaveTextContent("B1-SENSOR-001");
+    expect(within(dialog).getByRole("status")).toHaveTextContent("B1-SENSOR-001 감지");
+  });
+
   it("keeps one reachable add action for an empty vehicle event list", async () => {
     mocks.listVehicleEventRules.mockResolvedValue({ items: [], total: 0, nextCursor: null });
     renderPanel("admin");
@@ -133,11 +153,14 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
     expect(within(dialog).getByRole("group", { name: "감지 센서" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("group", { name: "제어 조명" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("group", { name: "행동" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "실행할 조명" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "밝기" })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
 
     expect(screen.getByText("감지 센서를 한 개 이상 선택하세요.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
     expect(screen.getByText("제어 조명을 한 개 이상 선택하세요.")).toBeInTheDocument();
     expect(mocks.createVehicleEventRule).not.toHaveBeenCalled();
   });
@@ -147,10 +170,11 @@ describe("VehicleEventControlPanel", () => {
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
 
-    const sourceSection = screen.getByRole("group", { name: "감지 센서" });
-    expect(within(sourceSection).getByLabelText("B1-SENSOR-001 선택")).toBeInTheDocument();
-    expect(within(sourceSection).queryByLabelText("B1-L001 선택")).not.toBeInTheDocument();
-    expect(within(sourceSection).queryByLabelText("B1-L002 선택")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+    expect(within(dialog).getByLabelText("B1-SENSOR-001 선택")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("B1-L001 선택")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("B1-L002 선택")).not.toBeInTheDocument();
   });
 
   it("fails closed for missing and invalid capability verification timestamps", async () => {
@@ -168,9 +192,124 @@ describe("VehicleEventControlPanel", () => {
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
 
-    const sourceSection = screen.getByRole("group", { name: "감지 센서" });
-    expect(within(sourceSection).queryByLabelText("B1-SENSOR-001 선택")).not.toBeInTheDocument();
-    expect(within(sourceSection).queryByLabelText("B1-SENSOR-INVALID 선택")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+    expect(within(dialog).queryByLabelText("B1-SENSOR-001 선택")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("B1-SENSOR-INVALID 선택")).not.toBeInTheDocument();
+  });
+
+  it("shows unresolved ids and rejects an event edit with a removed target fixture", async () => {
+    const removedFixtureId = "00000000-0000-4000-8000-000000000099";
+    mocks.listVehicleEventRules.mockResolvedValue({
+      items: [rule({ targetFixtureIds: [targetFixtureId, removedFixtureId], targetCount: 2 })],
+      total: 1,
+      nextCursor: null
+    });
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+
+    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
+    expect(within(dialog).getByRole("group", { name: "실행할 조명" })).toHaveTextContent("1개 확인 필요");
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+
+    expect(within(dialog).getByText("현재 현장에서 확인되지 않는 제어 조명이 포함되어 있습니다. 다시 선택해 주세요.")).toBeVisible();
+    expect(within(dialog).getByRole("group", { name: "실행할 조명 선택" })).toHaveFocus();
+    expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+  });
+
+  it("rejects an event edit when the selected source capability was revoked", async () => {
+    const revokedDashboard: Dashboard = {
+      ...dashboard,
+      floors: [{
+        ...dashboard.floors[0],
+        fixtures: dashboard.floors[0].fixtures.map((candidate) => candidate.id === sensorFixtureId
+          ? { ...candidate, vehicleSensorCapabilityStatus: "unsupported", vehicleSensorCapabilityVerifiedAt: null }
+          : candidate)
+      }]
+    };
+    renderPanel("admin", { dashboard: revokedDashboard });
+    await screen.findByText("입구 차량 감지");
+
+    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
+    expect(within(dialog).getByRole("group", { name: "감지 센서" })).toHaveTextContent("확인 필요");
+    expect(within(dialog).getByRole("status")).toHaveTextContent("확인 필요 감지");
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+
+    expect(within(dialog).getByText("현재 현장에서 확인되지 않거나 차량 감지 기능이 해제된 센서가 포함되어 있습니다. 다시 선택해 주세요.")).toBeVisible();
+    expect(within(dialog).getByRole("group", { name: "감지 센서 선택" })).toHaveFocus();
+    expect(within(dialog).queryByLabelText("B1-SENSOR-001 선택")).not.toBeInTheDocument();
+    expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
+  });
+
+  it("submits the exact quick-create payload for selected presets", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
+    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "실행할 조명 선택" }));
+    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "80%" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "5분" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(mocks.createVehicleEventRule).toHaveBeenCalledWith(siteId, {
+      name: "차량 감지 제어",
+      status: "enabled",
+      sourceFixtureIds: [sensorFixtureId],
+      targetFixtureIds: [targetFixtureId],
+      action: { dimmingEnabled: true, brightnessPercent: 80 },
+      holdSeconds: 300
+    }));
+  });
+
+  it("submits the exact edit payload for custom hold and dimming-off normalization", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "직접 입력" }));
+    fireEvent.change(within(dialog).getByLabelText("유지 시간"), { target: { value: "75" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "고급 설정" }));
+    fireEvent.click(within(dialog).getByLabelText("디밍 사용"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id, {
+      name: "입구 차량 감지",
+      status: "enabled",
+      sourceFixtureIds: [sensorFixtureId],
+      targetFixtureIds: [targetFixtureId],
+      action: { dimmingEnabled: false, brightnessPercent: 100 },
+      holdSeconds: 75
+    }));
+  });
+
+  it("submits exact custom brightness and hold values while dimming stays enabled", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "입구 차량 감지 수정" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 수정" });
+
+    fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "63" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "직접 입력" }));
+    fireEvent.change(within(dialog).getByLabelText("유지 시간"), { target: { value: "75" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(mocks.updateVehicleEventRule).toHaveBeenCalledWith(siteId, rule().id, {
+      name: "입구 차량 감지",
+      status: "enabled",
+      sourceFixtureIds: [sensorFixtureId],
+      targetFixtureIds: [targetFixtureId],
+      action: { dimmingEnabled: true, brightnessPercent: 63 },
+      holdSeconds: 75
+    }));
   });
 
   it("connects submit errors to the first invalid control group and focuses it", async () => {
@@ -179,7 +318,7 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 추가" })).getByRole("button", { name: "저장" }));
 
-    const sourceSection = screen.getByRole("group", { name: "감지 센서" });
+    const sourceSection = screen.getByRole("group", { name: "감지 센서 선택" });
     const sourceError = screen.getByText("감지 센서를 한 개 이상 선택하세요.");
     expect(sourceSection).toHaveAttribute("aria-invalid", "true");
     expect(sourceSection).toHaveAttribute("aria-describedby", "vehicle-event-source-error");
@@ -275,11 +414,14 @@ function testQueryClient() {
 async function submitValidCreate() {
   await screen.findByText("입구 차량 감지");
   fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
-  const sourceSection = screen.getByRole("group", { name: "감지 센서" });
-  const targetSection = screen.getByRole("group", { name: "제어 조명" });
-  fireEvent.click(within(sourceSection).getByLabelText("B1-SENSOR-001 선택"));
-  fireEvent.click(within(targetSection).getByLabelText("B1-L001 선택"));
-  fireEvent.click(within(screen.getByRole("dialog", { name: "이벤트 추가" })).getByRole("button", { name: "저장" }));
+  const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
+  fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "실행할 조명 선택" }));
+  fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
   await waitFor(() => expect(mocks.createVehicleEventRule).toHaveBeenCalledTimes(1));
 }
 

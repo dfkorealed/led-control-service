@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { EnergyService } from "./energy.service";
+import { EnergyAnalyticsQueryService } from "./energy-analytics-query.service";
 import { energySeriesResponseSchema, energySummarySchema } from "@led-control/shared";
 
 const databaseUrl = process.env.ENERGY_QUERY_TEST_DATABASE_URL ?? process.env.FIXTURE_STATE_TEST_DATABASE_URL;
@@ -11,7 +12,8 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
     organizationId: "22000000-0000-4000-8000-000000000001",
     siteId: "22000000-0000-4000-8000-000000000002",
     floorId: "22000000-0000-4000-8000-000000000003",
-    fixtureId: "22000000-0000-4000-8000-000000000004"
+    fixtureId: "22000000-0000-4000-8000-000000000004",
+    energyFixtureId: "22000000-0000-4000-8000-000000000007"
   };
   const user = {
     id: "22000000-0000-4000-8000-000000000005",
@@ -20,6 +22,7 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
     loginId: "fixture_user",
     name: "Energy Admin",
     role: "admin" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   let prisma: PrismaService;
@@ -29,7 +32,8 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
     process.env.DATABASE_URL = databaseUrl;
     prisma = new PrismaService();
     await prisma.$connect();
-    service = new EnergyService(prisma, { assert: jest.fn().mockResolvedValue({ id: ids.siteId }) } as never);
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: ids.siteId }) } as never;
+    service = new EnergyService(prisma, siteAccess, new EnergyAnalyticsQueryService(prisma, siteAccess));
     await prisma.organization.upsert({
       where: { id: ids.organizationId },
       create: { id: ids.organizationId, name: "Energy query", type: "customer" },
@@ -63,9 +67,18 @@ describeWithDatabase("energy statistics PostgreSQL query", () => {
       },
       update: { ratedWatt: "40", energyTrackingStartedAt: new Date("2026-07-31T15:00:00.000Z") }
     });
+    await prisma.energyFixtureIdentity.upsert({
+      where: { fixtureId: ids.fixtureId },
+      create: {
+        id: ids.energyFixtureId, siteId: ids.siteId, fixtureId: ids.fixtureId,
+        trackingStartedAt: new Date("2026-07-31T15:00:00.000Z")
+      },
+      update: { retiredAt: null }
+    });
     await prisma.fixtureEnergyDailyAggregate.create({
       data: {
-        fixtureId: ids.fixtureId, localDate: new Date("2026-08-01T00:00:00.000Z"),
+        fixtureId: ids.fixtureId, energyFixtureId: ids.energyFixtureId,
+        localDate: new Date("2026-08-01T00:00:00.000Z"),
         estimatedKwh: new Prisma.Decimal("0.123456789012"), estimatedCost: new Prisma.Decimal("19.75308624"),
         knownSeconds: 118_800, unknownSeconds: 0
       }

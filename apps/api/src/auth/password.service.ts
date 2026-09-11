@@ -10,6 +10,8 @@ export class PasswordService {
   async hash(password: unknown) {
     if (typeof password !== "string") throw new BadRequestException("Password must be a string");
     if (password.length < 8) throw new BadRequestException("Password must be at least 8 characters");
+    if (password.length > 1024) throw new BadRequestException("Password must be at most 1024 characters");
+    if (password.trim().length === 0) throw new BadRequestException("Password must not contain only whitespace");
     const salt = randomBytes(16).toString("hex");
     const derivedKey = (await scrypt(password, salt, PASSWORD_KEY_LENGTH)) as Buffer;
     return `scrypt$${salt}$${derivedKey.toString("hex")}`;

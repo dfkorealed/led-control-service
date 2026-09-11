@@ -1,16 +1,35 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
-import { changePassword } from "../../../api/auth";
+import { changePassword, type AuthUser } from "../../../api/auth";
+import { authMeQueryKey } from "../../../api/principal-cache";
 import { PasswordSettingsView } from "./PasswordSettingsView";
 
 vi.mock("../../../api/auth", () => ({ changePassword: vi.fn() }));
 
 const changePasswordMock = vi.mocked(changePassword);
+const changedUser: AuthUser = {
+  id: "user-1",
+  organizationId: "organization-1",
+  organizationType: "customer",
+  loginId: "viewer_01",
+  name: "조회 사용자",
+  role: "viewer",
+  status: "active",
+  mustChangePassword: false
+};
+const otherUser: AuthUser = {
+  ...changedUser,
+  id: "user-2",
+  organizationId: "organization-2",
+  loginId: "viewer_02"
+};
 
-function renderView() {
-  render(<PasswordSettingsView />);
+function renderView(queryClient = new QueryClient()) {
+  queryClient.setQueryData(authMeQueryKey, { user: changedUser });
+  render(<QueryClientProvider client={queryClient}><PasswordSettingsView /></QueryClientProvider>);
+  return queryClient;
 }
 
 function fillPasswords(currentPassword = "current-password", newPassword = "new-password") {
@@ -36,19 +55,19 @@ describe("PasswordSettingsView", () => {
     fillPasswords("current-password", "short");
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent("새 비밀번호는 8자 이상이어야 합니다.");
+    expect(screen.getByRole("alert")).toHaveTextContent("새 비밀번호는 8자 이상 1024자 이하이며 공백만 사용할 수 없습니다.");
     expect(changePasswordMock).not.toHaveBeenCalled();
   });
 
   it("비밀번호 변경은 기존 8자 규칙과 성공 상태를 유지한다", async () => {
-    changePasswordMock.mockResolvedValue({ ok: true });
+    changePasswordMock.mockResolvedValue({ ok: true, user: changedUser });
     renderView();
     fillPasswords("current-password", "1234567");
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
 
     const error = screen.getByRole("alert");
     expect(error).toHaveTextContent("비밀번호를 변경하지 못했습니다.");
-    expect(error).toHaveTextContent("새 비밀번호는 8자 이상이어야 합니다.");
+    expect(error).toHaveTextContent("새 비밀번호는 8자 이상 1024자 이하이며 공백만 사용할 수 없습니다.");
     expect(screen.queryByText(/10자|특수문자/)).not.toBeInTheDocument();
     expect(changePasswordMock).not.toHaveBeenCalled();
 
@@ -69,6 +88,15 @@ describe("PasswordSettingsView", () => {
     expect(changePasswordMock).not.toHaveBeenCalled();
   });
 
+  it.each(["        ", "a".repeat(1025)])("blocks an invalid policy password before requesting", (newPassword) => {
+    renderView();
+    fillPasswords("current-password", newPassword);
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("새 비밀번호는 8자 이상 1024자 이하이며 공백만 사용할 수 없습니다.");
+    expect(changePasswordMock).not.toHaveBeenCalled();
+  });
+
   it("shows the exact current-password failure and keeps inputs for retry", async () => {
     changePasswordMock.mockRejectedValue(new ApiError("POST failed", 401, { message: "Current password is incorrect" }));
     renderView();
@@ -82,7 +110,7 @@ describe("PasswordSettingsView", () => {
 
   it("blocks duplicate password submissions while a local request is pending", async () => {
     let resolveRequest: (() => void) | undefined;
-    changePasswordMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = () => resolve({ ok: true }); }));
+    changePasswordMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = () => resolve({ ok: true, user: changedUser }); }));
     renderView();
     fillPasswords();
 
@@ -96,8 +124,8 @@ describe("PasswordSettingsView", () => {
   });
 
   it("clears all password inputs only after a successful change", async () => {
-    changePasswordMock.mockResolvedValue({ ok: true });
-    renderView();
+    changePasswordMock.mockResolvedValue({ ok: true, user: changedUser });
+    const queryClient = renderView();
     fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
 
@@ -110,6 +138,7 @@ describe("PasswordSettingsView", () => {
     expect(screen.getByLabelText("현재 비밀번호")).toHaveValue("");
     expect(screen.getByLabelText("새 비밀번호")).toHaveValue("");
     expect(screen.getByLabelText("새 비밀번호 확인")).toHaveValue("");
+    expect(queryClient.getQueryData(authMeQueryKey)).toEqual({ user: changedUser });
   });
 
   it("shows a retryable general error for other failures", async () => {
@@ -143,5 +172,38 @@ describe("PasswordSettingsView", () => {
     expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain("current-secret");
     expect(JSON.stringify(queryClient.getMutationCache().getAll())).not.toContain("new-secret");
     expect(changePasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("로그아웃이나 계정 전환 뒤 도착한 지연 응답으로 이전 principal을 복원하지 않는다", async () => {
+    let resolveRequest: ((value: { ok: true; user: AuthUser }) => void) | undefined;
+    changePasswordMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve; }));
+    const queryClient = renderView();
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    queryClient.setQueryData(authMeQueryKey, { user: otherUser });
+
+    await act(async () => resolveRequest?.({ ok: true, user: changedUser }));
+
+    expect(queryClient.getQueryData(authMeQueryKey)).toEqual({ user: otherUser });
+    expect(screen.queryByText("비밀번호를 변경했습니다.")).not.toBeInTheDocument();
+  });
+
+  it("cache 갱신의 await 중 principal이 바뀌면 이전 응답 적용을 중단한다", async () => {
+    let releaseCancellation: (() => void) | undefined;
+    const queryClient = new QueryClient();
+    vi.spyOn(queryClient, "cancelQueries").mockImplementation(() => new Promise((resolve) => {
+      releaseCancellation = () => resolve();
+    }));
+    changePasswordMock.mockResolvedValue({ ok: true, user: changedUser });
+    renderView(queryClient);
+    fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+    await waitFor(() => expect(releaseCancellation).toBeTypeOf("function"));
+    queryClient.setQueryData(authMeQueryKey, { user: otherUser });
+
+    await act(async () => releaseCancellation?.());
+
+    expect(queryClient.getQueryData(authMeQueryKey)).toEqual({ user: otherUser });
+    expect(screen.queryByText("비밀번호를 변경했습니다.")).not.toBeInTheDocument();
   });
 });

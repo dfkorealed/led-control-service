@@ -13,7 +13,7 @@ describe("SitesService", () => {
     fixture: { findMany: jest.fn() }
   };
   const siteAccess = {
-    assert: jest.fn(),
+    capabilities: jest.fn(),
     listAccessibleSiteIds: jest.fn()
   };
   const user: AuthenticatedUser = {
@@ -23,12 +23,13 @@ describe("SitesService", () => {
     loginId: "fixture_user",
     name: "Admin",
     role: "admin",
+    mustChangePassword: false,
     status: "active"
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    siteAccess.assert.mockResolvedValue({ id: "site-1" });
+    siteAccess.capabilities.mockResolvedValue({ read: true, control: true, manage: true, commission: true });
     siteAccess.listAccessibleSiteIds.mockResolvedValue(["site-1"]);
   });
 
@@ -162,7 +163,8 @@ describe("SitesService", () => {
     const service = moduleRef.get(SitesService);
     const dashboard = await (service as any).getDashboard(user, "site-1", true);
 
-    expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "read");
+    expect(siteAccess.capabilities).toHaveBeenCalledWith(user, "site-1");
+    expect(dashboard.capabilities).toEqual({ read: true, control: true, manage: true, commission: true });
     expect(dashboard.site).toEqual({
       id: "site-1",
       name: "Demo Site",
@@ -250,10 +252,27 @@ describe("SitesService", () => {
         faultFixtures: 0,
         averageBrightness: 0
       },
+      capabilities: { read: false, control: false, manage: false, commission: false },
       floors: [],
       groups: [],
       gateways: []
     });
+  });
+
+  it.each([
+    ["assigned admin", { ...user, role: "admin" as const }, { read: true, control: true, manage: true, commission: true }],
+    ["read member", { ...user, id: "read-user", role: "viewer" as const }, { read: true, control: false, manage: false, commission: false }],
+    ["control member", { ...user, id: "control-user", role: "viewer" as const }, { read: true, control: true, manage: false, commission: false }]
+  ])("returns the persisted capability matrix for a %s dashboard", async (_label, actor, capabilities) => {
+    siteAccess.capabilities.mockResolvedValueOnce(capabilities);
+    const service = new (SitesService as any)(prisma, siteAccess);
+    jest.spyOn(service, "getDashboardById").mockResolvedValue({ site: { id: "site-1" } });
+
+    await expect(service.getDashboard(actor, "site-1")).resolves.toEqual({
+      site: { id: "site-1" },
+      capabilities
+    });
+    expect(siteAccess.capabilities).toHaveBeenCalledWith(actor, "site-1");
   });
 
   it("keeps a gateway online when its heartbeat is exactly 90 seconds old", async () => {
@@ -284,7 +303,7 @@ describe("SitesService", () => {
   });
 
   it("does not reveal an explicitly requested inaccessible site dashboard", async () => {
-    siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
+    siteAccess.capabilities.mockRejectedValue(new NotFoundException("site not found"));
     const service = new (SitesService as any)(prisma, siteAccess);
 
     await expect(service.getDashboard(user, "other-site")).rejects.toThrow("site not found");

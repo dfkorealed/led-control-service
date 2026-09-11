@@ -1,5 +1,8 @@
 import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthService } from "./auth.service";
@@ -7,7 +10,7 @@ import { PasswordService } from "./password.service";
 import { OperatorSiteAdminsService } from "../operator-site-admins/operator-site-admins.service";
 import type { AuthenticatedUser } from "./auth.types";
 
-const databaseUrl = process.env.AUTH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+const databaseUrl = process.env.AUTH_TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 function createAuthService(prisma: PrismaService) {
@@ -17,18 +20,43 @@ function createAuthService(prisma: PrismaService) {
 describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
   let prisma: PrismaService;
   let competingPrisma: PrismaService;
+  const schema = `auth_task4_${randomUUID().replaceAll("-", "")}`;
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  function sql(statement: string) {
+    const url = new URL(databaseUrl!);
+    url.searchParams.delete("schema");
+    const password = decodeURIComponent(url.password);
+    url.password = "";
+    const result = spawnSync("psql", ["-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", url.toString()], {
+      env: { ...process.env, PGPASSWORD: password }, encoding: "utf8", input: statement
+    });
+    if (result.status !== 0) throw new Error(`Auth test schema SQL failed: ${result.stderr}`);
+  }
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = databaseUrl;
+    const url = new URL(databaseUrl!);
+    url.searchParams.set("schema", schema);
+    sql(`CREATE SCHEMA "${schema}";`);
+    const generated = spawnSync("pnpm", ["exec", "prisma", "migrate", "diff", "--from-empty", "--to-schema-datamodel", "prisma/schema.prisma", "--script"], {
+      cwd: join(__dirname, "../.."), env: { ...process.env, DATABASE_URL: url.toString() }, encoding: "utf8"
+    });
+    if (generated.status !== 0) throw new Error("Auth test schema generation failed");
+    const migration = readFileSync(join(__dirname, "../../prisma/migrations/20260827090000_operator_admin_account_flow/migration.sql"), "utf8");
+    const triggers = migration.slice(migration.indexOf('CREATE FUNCTION "serialize_admin_assignment_writes"'), migration.lastIndexOf("COMMIT;"));
+    sql(`SET search_path TO "${schema}";\n${generated.stdout}\n${triggers}`);
+    process.env.DATABASE_URL = url.toString();
     prisma = new PrismaService();
     competingPrisma = new PrismaService();
     await prisma.$connect();
     await competingPrisma.$connect();
-  });
+  }, 60_000);
 
   afterAll(async () => {
-    await prisma.$disconnect();
-    await competingPrisma.$disconnect();
+    await prisma?.$disconnect();
+    await competingPrisma?.$disconnect();
+    sql(`DROP SCHEMA IF EXISTS "${schema}" CASCADE;`);
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
   });
 
   async function createViewerInvitation() {
@@ -48,7 +76,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
         email,
         role: "viewer",
         tokenHash: service.hashToken(rawToken),
-        expiresAt: new Date("2026-09-01T00:00:00.000Z")
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000)
       }
     });
     return { organizationId, siteId, email, rawToken, invitation };
@@ -66,7 +94,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
       password: "correct horse battery staple"
     });
 
-    expect(result.user).toMatchObject({ loginId: `viewer_${siteId.slice(0, 8)}`, role: "viewer" });
+    expect(result.user).toMatchObject({ loginId: `viewer_${siteId.slice(0, 8)}`, role: "viewer", mustChangePassword: false });
     expect(result.user).not.toHaveProperty("email");
     await expect(prisma.siteMembership.findFirstOrThrow({ where: { userId: result.user.id, siteId } })).resolves.toBeTruthy();
     await expect(prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } })).resolves.toMatchObject({ acceptedAt: expect.any(Date) });
@@ -131,6 +159,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
         loginId,
         email: null,
         name: "Password Admin",
+        mustChangePassword: true,
         passwordHash: await passwords.hash(oldPassword),
         role: "admin",
         status: "active"
@@ -140,21 +169,26 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     const current = await service.login({ loginId, password: oldPassword, rememberMe: false });
     const other = await service.login({ loginId, password: oldPassword, rememberMe: true });
 
-    await service.changePassword(current.user, current.sessionToken, {
+    expect(current.user).toMatchObject({ mustChangePassword: true });
+    await expect(service.getUserBySessionToken(current.sessionToken)).resolves.toMatchObject({ mustChangePassword: true });
+    const changed = await service.changePassword(current.user, current.sessionToken, {
       currentPassword: oldPassword,
       newPassword,
       newPasswordConfirmation: newPassword
     });
 
+    expect(changed).toMatchObject({ ok: true, user: { id: userId, mustChangePassword: false } });
+    expect(changed).not.toHaveProperty("user.passwordHash");
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: userId } })).resolves.toMatchObject({ mustChangePassword: false });
     await expect(service.login({ loginId, password: oldPassword, rememberMe: false })).rejects.toEqual(
       new UnauthorizedException("Invalid login id or password")
     );
     await expect(service.login({ loginId, password: newPassword, rememberMe: false })).resolves.toMatchObject({ user: { loginId } });
-    await expect(service.getUserBySessionToken(current.sessionToken)).resolves.toMatchObject({ id: userId, loginId });
+    await expect(service.getUserBySessionToken(current.sessionToken)).resolves.toMatchObject({ id: userId, loginId, mustChangePassword: false });
     await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(other.sessionToken) } })).resolves.toMatchObject({ revokedAt: expect.any(Date) });
     await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(current.sessionToken) } })).resolves.toMatchObject({ revokedAt: null });
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { actorId: userId, action: "auth.password_changed" }, orderBy: { createdAt: "desc" } });
-    expect(JSON.stringify(audit.metadata)).not.toMatch(/password|old password|new password/i);
+    expect(audit.metadata).toEqual({ revokedSessionCount: 1 });
   });
 
   it("leaves passwords, sessions, and audit logs untouched when the current password is wrong", async () => {
@@ -165,7 +199,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     const password = "valid password for integration";
     await prisma.organization.create({ data: { id: organizationId, name: `Wrong ${userId}`, type: "customer" } });
     const user = await prisma.user.create({
-      data: { id: userId, organizationId, loginId, email: null, name: "Wrong Password", passwordHash: await passwords.hash(password), role: "admin", status: "active" }
+      data: { id: userId, organizationId, loginId, email: null, name: "Wrong Password", passwordHash: await passwords.hash(password), role: "admin", status: "active", mustChangePassword: true }
     });
     const service = createAuthService(prisma);
     const current = await service.login({ loginId, password, rememberMe: false });
@@ -178,10 +212,44 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
       newPasswordConfirmation: "new password for integration"
     })).rejects.toEqual(new UnauthorizedException("Current password is incorrect"));
 
-    await expect(prisma.user.findUniqueOrThrow({ where: { id: user.id } })).resolves.toMatchObject({ passwordHash: user.passwordHash });
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: user.id } })).resolves.toMatchObject({ passwordHash: user.passwordHash, mustChangePassword: true });
     await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(current.sessionToken) } })).resolves.toMatchObject({ revokedAt: null });
     await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(other.sessionToken) } })).resolves.toMatchObject({ revokedAt: null });
     await expect(prisma.auditLog.count({ where: { actorId: userId, action: "auth.password_changed" } })).resolves.toBe(auditsBefore);
+  });
+
+  it("rolls back flag, password and session revocations when the audit write fails", async () => {
+    const fixture = await createAssignedAdmin(prisma, "temporary rollback password");
+    const before = await prisma.user.update({ where: { id: fixture.userId }, data: { mustChangePassword: true } });
+    const service = createAuthService(prisma);
+    const current = await service.login({ loginId: fixture.loginId, password: fixture.oldPassword, rememberMe: false });
+    const other = await service.login({ loginId: fixture.loginId, password: fixture.oldPassword, rememberMe: true });
+    const failingService = new AuthService(prisma, new PasswordService(), {
+      record: async () => { throw new Error("audit unavailable"); }
+    } as unknown as AuditService);
+    await expect(failingService.changePassword(current.user, current.sessionToken, {
+      currentPassword: fixture.oldPassword, newPassword: "replacement rollback password", newPasswordConfirmation: "replacement rollback password"
+    })).rejects.toMatchObject({ status: 500, response: { code: "PASSWORD_CHANGE_FAILED" } });
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: fixture.userId } }))
+      .resolves.toMatchObject({ passwordHash: before.passwordHash, mustChangePassword: true });
+    for (const token of [current.sessionToken, other.sessionToken]) {
+      await expect(service.getUserBySessionToken(token)).resolves.toMatchObject({ mustChangePassword: true });
+    }
+    expect(await prisma.auditLog.count({ where: { actorId: fixture.userId, action: "auth.password_changed" } })).toBe(0);
+  });
+
+  it("rejects a session revoked after the guard loaded the user even if the password remains valid", async () => {
+    const fixture = await createAssignedAdmin(prisma, "temporary stale password");
+    await prisma.user.update({ where: { id: fixture.userId }, data: { mustChangePassword: true } });
+    const service = createAuthService(prisma);
+    const current = await service.login({ loginId: fixture.loginId, password: fixture.oldPassword, rememberMe: false });
+    const guardUser = await service.getUserBySessionToken(current.sessionToken);
+    await service.logout(current.sessionToken);
+    await expect(service.changePassword(guardUser, current.sessionToken, {
+      currentPassword: fixture.oldPassword, newPassword: "replacement stale password", newPasswordConfirmation: "replacement stale password"
+    })).rejects.toEqual(new UnauthorizedException("Authentication required"));
+    await expect(prisma.user.findUniqueOrThrow({ where: { id: fixture.userId } })).resolves.toMatchObject({ mustChangePassword: true });
+    expect(await prisma.auditLog.count({ where: { actorId: fixture.userId, action: "auth.password_changed" } })).toBe(0);
   });
 
   it("does not leave an old-password session valid when operator reset races login", async () => {

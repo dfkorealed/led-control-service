@@ -20,7 +20,16 @@ const fixtures: SettingsFixture[] = [
     }
   },
   fixture("B2-L003", "offline", "reported", 440, 300),
-  fixture("B2-L004", "offline", "provisioning_waiting_state", 600, 380)
+  fixture("B2-L004", "offline", "provisioning_waiting_state", 600, 380),
+  ...Array.from({ length: 10 }, (_, index) => fixture(
+    `B2-밝기-단계-${index + 1}`,
+    "online",
+    "reported",
+    70 + index * 95,
+    520 + (index % 2) * 80,
+    index * 10
+  )),
+  fixture("B2-밝기-단계-1-경계", "online", "reported", 1030, 520, 9)
 ];
 
 const viewports = [
@@ -35,7 +44,8 @@ function fixture(
   status: SettingsFixture["status"],
   statusReason: "reported" | "provisioning_waiting_state",
   x: number,
-  y: number
+  y: number,
+  brightness = status === "fault" ? 42 : 70
 ): SettingsFixture {
   return {
     id: `33333333-3333-4333-8333-${String(x).padStart(12, "0")}`,
@@ -44,7 +54,7 @@ function fixture(
     y,
     size: 20,
     ratedWatt: 40,
-    brightness: status === "fault" ? 42 : 70,
+    brightness,
     status,
     statusReason,
     health: status === "fault" ? { faultCodes: [4], observedAt: "2026-07-12T00:00:00.000Z" } : null,
@@ -134,6 +144,11 @@ for (const viewport of viewports) {
       return { top: style.top, right: style.right, width: style.width, height: style.height, borderWidth: style.borderTopWidth };
     });
     expect(statusBadge).toEqual({ top: "-5px", right: "-5px", width: "8px", height: "8px", borderWidth: "2px" });
+    const markerSizes = await page.locator(".fixture-dot").evaluateAll((markers) => markers.map((marker) => {
+      const bounds = marker.getBoundingClientRect();
+      return { width: bounds.width, height: bounds.height };
+    }));
+    expect(markerSizes.every(({ width, height }) => width === 20 && height === 20)).toBe(true);
 
     if (viewport.width > 1120) {
       await expectDesktopMonitoringUsesInternalScroll(page);
@@ -227,6 +242,108 @@ test("데스크톱 지도는 내부에서 확대·스크롤되고 상세 정보�
   expect(panelOverflow.overflowY).toBe("auto");
   expect(panelOverflow.scrollWidth).toBeLessThanOrEqual(panelOverflow.clientWidth + 1);
   await expectNoHorizontalOverflow(page);
+});
+
+test("조명 마커는 3px 네모와 고정 20px를 유지하고 online 밝기를 10단계로 표시한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installMonitoringFixture(page);
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  const marker = (name: string) => page.getByRole("button", { name });
+  const active = marker("B2-L002 장애 42%");
+  const levels = Array.from({ length: 10 }, (_, index) => marker(`B2-밝기-단계-${index + 1} 정상 ${index * 10}%`));
+
+  await expect(active).toHaveJSProperty("childElementCount", 0);
+  await expect(active).toHaveCSS("width", "20px");
+  await expect(active).toHaveCSS("height", "20px");
+  await expect(active).toHaveCSS("border-radius", "3px");
+  await levels[4].hover();
+  await expect(levels[4]).toHaveCSS("width", "20px");
+  await expect(levels[4]).toHaveCSS("height", "20px");
+  await expect(levels[4]).toHaveCSS("border-radius", "3px");
+  await levels[9].focus();
+  await expect(levels[9]).toHaveCSS("width", "20px");
+  await expect(levels[9]).toHaveCSS("height", "20px");
+  await expect(levels[9]).toHaveCSS("border-radius", "3px");
+
+  await page.locator(".fixture-dot").evaluateAll(async (markers) => {
+    await Promise.all(markers.flatMap((marker) => marker.getAnimations().map((animation) => animation.finished)));
+  });
+  const lightLevels = await Promise.all(levels.map((fixtureMarker) => fixtureMarker.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const colorChannels = style.backgroundColor.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+    const outerGlow = style.boxShadow.match(/^rgba?\([^)]*?,\s*([\d.]+)\)\s+0px\s+0px\s+([\d.]+)px\s+([\d.]+)px/);
+    if (!colorChannels || colorChannels.length !== 3 || !outerGlow) {
+      throw new Error(`조명 마커의 실제 밝기 스타일을 해석할 수 없습니다: ${style.backgroundColor} / ${style.boxShadow}`);
+    }
+    return {
+      level: element.getAttribute("data-brightness-level"),
+      fill: style.backgroundColor,
+      glow: style.boxShadow,
+      renderedLuminance: colorChannels[0] * 0.2126 + colorChannels[1] * 0.7152 + colorChannels[2] * 0.0722,
+      renderedGlowAlpha: Number(outerGlow[1]),
+      renderedGlowBlur: Number(outerGlow[2]),
+      renderedGlowSpread: Number(outerGlow[3])
+    };
+  })));
+  expect(lightLevels.map(({ level }) => level)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
+  expect(lightLevels.map(({ fill }) => fill)).toEqual([
+    "rgb(51, 65, 85)",
+    "rgb(71, 85, 105)",
+    "rgb(100, 116, 139)",
+    "rgb(148, 163, 184)",
+    "rgb(183, 192, 204)",
+    "rgb(209, 216, 224)",
+    "rgb(232, 229, 207)",
+    "rgb(246, 235, 150)",
+    "rgb(255, 245, 184)",
+    "rgb(255, 253, 232)"
+  ]);
+  expect(new Set(lightLevels.map(({ fill }) => fill)).size).toBe(10);
+  expect(new Set(lightLevels.map(({ glow }) => glow)).size).toBe(10);
+  for (const property of ["renderedLuminance", "renderedGlowAlpha", "renderedGlowBlur", "renderedGlowSpread"] as const) {
+    for (let index = 1; index < lightLevels.length; index += 1) {
+      expect(lightLevels[index][property], `${property}: ${index + 1}단계 > ${index}단계`).toBeGreaterThan(lightLevels[index - 1][property]);
+    }
+  }
+
+  const sameLevelBoundary = marker("B2-밝기-단계-1-경계 정상 9%");
+  await expect(sameLevelBoundary).toHaveAttribute("data-brightness-level", "1");
+  expect(await sameLevelBoundary.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fill: style.backgroundColor, glow: style.boxShadow };
+  })).toEqual({ fill: lightLevels[0].fill, glow: lightLevels[0].glow });
+
+  const [offlineVisual, waitingVisual, faultVisual] = await Promise.all([
+    marker("B2-L003 오프라인 70%"),
+    marker("B2-L004 상태 확인 대기 70%"),
+    marker("B2-L002 장애 42%")
+  ].map((fixtureMarker) => fixtureMarker.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const badgeStyle = getComputedStyle(element, "::after");
+    return {
+      background: style.backgroundColor,
+      boxShadow: style.boxShadow,
+      borderColor: style.borderColor,
+      borderRadius: style.borderRadius,
+      borderStyle: style.borderStyle,
+      badgeBackground: badgeStyle.backgroundColor,
+      badgeWidth: badgeStyle.width,
+      badgeHeight: badgeStyle.height
+    };
+  })));
+  expect(offlineVisual.boxShadow).toBe("none");
+  expect(waitingVisual.boxShadow).toBe("none");
+  expect(offlineVisual.borderRadius).toBe("3px");
+  expect(waitingVisual.borderRadius).toBe("3px");
+  expect(faultVisual.borderRadius).toBe("3px");
+  expect(faultVisual.borderStyle).toBe("solid");
+  expect(faultVisual.borderColor).toBe(await levels[4].evaluate((element) => getComputedStyle(element).borderColor));
+  expect(faultVisual.background).toBe(lightLevels[4].fill);
+  expect(faultVisual.boxShadow).toBe(lightLevels[4].glow);
+  expect(faultVisual.badgeBackground).toBe("rgb(220, 38, 38)");
+  expect({ width: faultVisual.badgeWidth, height: faultVisual.badgeHeight }).toEqual({ width: "8px", height: "8px" });
+  expect(faultVisual.boxShadow).not.toBe("none");
 });
 
 test("모니터링 예외 상태는 등록과 지도 실패를 정상 화면과 분리한다", async ({ browser, baseURL }) => {

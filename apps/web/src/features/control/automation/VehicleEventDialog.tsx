@@ -1,11 +1,24 @@
 import type { AutomationRuleStatus } from "@led-control/shared";
-import { X } from "lucide-react";
+import { ArrowDown, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { CreateVehicleEventRuleInput, VehicleEventRuleResponse } from "../../../api/automation";
-import type { Dashboard, DashboardFixture } from "../../../api/queries";
+import type { Dashboard } from "../../../api/queries";
 import { useDialogFocus } from "../../../components/ConfirmDialog";
 import { Button } from "../../../components/ui";
 import { ControlTargetPicker } from "../ControlTargetPicker";
+import {
+  fixtureIdsAvailability,
+  fixtureIdsSummary,
+  isVehicleEventSource,
+  vehicleEventSummary
+} from "./automation-presenters";
+import {
+  AutomationAdvancedSection,
+  AutomationPresetGroup,
+  AutomationSelectionCard,
+  AutomationSummaryBar,
+  AutomationTargetPickerView
+} from "./components/AutomationQuickFields";
 import {
   createEmptyVehicleEventForm,
   validateVehicleEventForm,
@@ -14,6 +27,16 @@ import {
   type VehicleEventFormErrors,
   type VehicleEventFormValues
 } from "./vehicle-event-form";
+
+const brightnessPresets = ["50", "70", "80", "100"] as const;
+const holdPresets = [
+  { value: "30", label: "30초" },
+  { value: "60", label: "1분" },
+  { value: "300", label: "5분" },
+  { value: "custom", label: "직접 입력" }
+] as const;
+
+type EventDialogView = "main" | "source" | "target";
 
 export function VehicleEventDialog({
   open,
@@ -37,23 +60,46 @@ export function VehicleEventDialog({
   const dialogRef = useRef<HTMLElement>(null);
   const sourceFieldRef = useRef<HTMLFieldSetElement>(null);
   const targetFieldRef = useRef<HTMLFieldSetElement>(null);
+  const sourceCardRef = useRef<HTMLDivElement>(null);
+  const targetCardRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const brightnessInputRef = useRef<HTMLInputElement>(null);
   const holdSecondsInputRef = useRef<HTMLInputElement>(null);
   const [values, setValues] = useState<VehicleEventFormValues>(createEmptyVehicleEventForm);
   const [errors, setErrors] = useState<VehicleEventFormErrors>({});
+  const [view, setView] = useState<EventDialogView>("main");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [customHoldOpen, setCustomHoldOpen] = useState(false);
+  const [pendingFocus, setPendingFocus] = useState<keyof VehicleEventFormErrors | null>(null);
   const title = rule ? "이벤트 수정" : "이벤트 추가";
   const titleId = "vehicle-event-dialog-title";
 
   useEffect(() => {
     if (!open) return;
-    setValues(rule ? vehicleEventRuleToFormValues(rule) : createEmptyVehicleEventForm());
+    const nextValues = rule ? vehicleEventRuleToFormValues(rule) : createEmptyVehicleEventForm();
+    setValues(nextValues);
     setErrors({});
+    setView("main");
+    setAdvancedOpen(false);
+    setCustomHoldOpen(!holdPresets.some((preset) => preset.value === nextValues.holdSeconds));
+    setPendingFocus(null);
   }, [open, rule]);
+
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const target = focusTarget(pendingFocus);
+    if (!target) return;
+    target.focus();
+    setPendingFocus(null);
+  }, [advancedOpen, customHoldOpen, pendingFocus, view]);
 
   useDialogFocus({ open, dialogRef, returnFocusElement, onClose });
 
   if (!open) return null;
+
+  const sourceSummary = fixtureIdsSummary(values.sourceFixtureIds, dashboard, isVehicleEventSource);
+  const targetSummary = fixtureIdsSummary(values.targetFixtureIds, dashboard);
+  const selectedHoldPreset = customHoldOpen ? "custom" : values.holdSeconds;
 
   function change(patch: Partial<VehicleEventFormValues>) {
     setValues((current) => ({ ...current, ...patch }));
@@ -63,116 +109,212 @@ export function VehicleEventDialog({
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const nextErrors = validateVehicleEventForm(values);
+    if (fixtureIdsAvailability(values.sourceFixtureIds, dashboard, isVehicleEventSource).invalidFixtureIds.length > 0) {
+      nextErrors.sourceFixtureIds = "현재 현장에서 확인되지 않거나 차량 감지 기능이 해제된 센서가 포함되어 있습니다. 다시 선택해 주세요.";
+    }
+    if (fixtureIdsAvailability(values.targetFixtureIds, dashboard).invalidFixtureIds.length > 0) {
+      nextErrors.targetFixtureIds = "현재 현장에서 확인되지 않는 제어 조명이 포함되어 있습니다. 다시 선택해 주세요.";
+    }
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) {
-      focusFirstInvalidControl(nextErrors);
+    const firstError = firstVehicleEventError(nextErrors);
+    if (firstError) {
+      if (firstError === "sourceFixtureIds") setView("source");
+      if (firstError === "targetFixtureIds") setView("target");
+      if (firstError === "name") setAdvancedOpen(true);
+      if (firstError === "holdSeconds" && !holdPresets.some((preset) => preset.value === values.holdSeconds)) {
+        setCustomHoldOpen(true);
+      }
+      setPendingFocus(firstError);
       return;
     }
     const status: AutomationRuleStatus = rule?.status ?? "enabled";
     onSubmit(vehicleEventFormToInput(values, status));
   }
 
+  const pickerView = view === "source" || view === "target" ? (
+    <AutomationTargetPickerView
+      title={view === "source" ? "감지 센서 선택" : "실행할 조명 선택"}
+      description={view === "source"
+        ? "차량 감지 기능이 확인된 센서만 표시됩니다."
+        : "차량 감지 시 함께 제어할 조명을 선택하세요."}
+      disabled={isPending}
+      onDone={() => {
+        const completedView = view;
+        setView("main");
+        setPendingFocus(null);
+        queueMicrotask(() => (completedView === "source" ? sourceCardRef.current : targetCardRef.current)?.focus());
+      }}
+    >
+      <fieldset
+        ref={view === "source" ? sourceFieldRef : targetFieldRef}
+        className="automation-picker-fieldset"
+        disabled={isPending}
+        tabIndex={-1}
+        {...errorAttributes(
+          view === "source" ? errors.sourceFixtureIds : errors.targetFixtureIds,
+          view === "source" ? vehicleEventErrorIds.source : vehicleEventErrorIds.target
+        )}
+      >
+        <legend className="sr-only">{view === "source" ? "감지 센서 선택" : "실행할 조명 선택"}</legend>
+        <ControlTargetPicker
+          dashboard={dashboard}
+          selection={{
+            mode: "fixtures",
+            fixtureIds: view === "source" ? values.sourceFixtureIds : values.targetFixtureIds
+          }}
+          allowedModes={["fixtures"]}
+          fixtureFilter={view === "source" ? isVehicleEventSource : undefined}
+          disabled={isPending}
+          onChange={(selection) => {
+            if (selection.mode !== "fixtures") return;
+            change(view === "source"
+              ? { sourceFixtureIds: selection.fixtureIds }
+              : { targetFixtureIds: selection.fixtureIds });
+          }}
+        />
+        <FieldError
+          id={view === "source" ? vehicleEventErrorIds.source : vehicleEventErrorIds.target}
+          message={view === "source" ? errors.sourceFixtureIds : errors.targetFixtureIds}
+        />
+      </fieldset>
+    </AutomationTargetPickerView>
+  ) : null;
+
   return (
     <div className="schedule-dialog-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.currentTarget === event.target && !isPending) onClose();
     }}>
-      <section ref={dialogRef} className="schedule-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+      <section ref={dialogRef} className="schedule-dialog automation-quick-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <header className="schedule-dialog-header">
           <div>
             <span className="eyebrow">Gateway 차량 감지</span>
-            <h2 id={titleId}>{title}</h2>
+            <div className="automation-dialog-title-row">
+              <h2 id={titleId}>{title}</h2>
+              <span className="automation-quick-badge">빠른 설정</span>
+            </div>
           </div>
           <button className="icon-button" type="button" aria-label={`${title} 닫기`} onClick={onClose} disabled={isPending}>
             <X size={18} aria-hidden="true" />
           </button>
         </header>
 
-        <form className="schedule-form" onSubmit={submit} noValidate>
-          <fieldset ref={sourceFieldRef} className="schedule-form-section" disabled={isPending} tabIndex={-1} {...errorAttributes(errors.sourceFixtureIds, vehicleEventErrorIds.source)}>
-            <legend>감지 센서</legend>
-            <p className="schedule-field-help">Gateway에 등록되고 차량 감지 capability가 확인된 fixture만 선택할 수 있습니다.</p>
-            <ControlTargetPicker
-              dashboard={dashboard}
-              selection={{ mode: "fixtures", fixtureIds: values.sourceFixtureIds }}
-              allowedModes={["fixtures"]}
-              fixtureFilter={isVehicleEventSource}
-              disabled={isPending}
-              onChange={(selection) => {
-                if (selection.mode === "fixtures") change({ sourceFixtureIds: selection.fixtureIds });
-              }}
-            />
-            <FieldError id={vehicleEventErrorIds.source} message={errors.sourceFixtureIds} />
-          </fieldset>
+        {pickerView ?? (
+          <form className="schedule-form automation-quick-form" onSubmit={submit} noValidate>
+            <section className="automation-quick-section automation-event-flow" aria-labelledby="event-flow-heading">
+              <h3 id="event-flow-heading">무엇을 감지해서 실행할까요?</h3>
+              <AutomationSelectionCard
+                fieldRef={sourceCardRef}
+                label="감지 센서"
+                title={sourceSummary.count > 0 ? sourceSummary.title : "감지 센서를 선택해 주세요."}
+                description={sourceSummary.count > 0 ? sourceSummary.description : "차량 감지 기능이 확인된 센서만 표시됩니다."}
+                empty={sourceSummary.count === 0}
+                disabled={isPending}
+                error={errors.sourceFixtureIds}
+                errorId={vehicleEventErrorIds.source}
+                kind="sensor"
+                onOpen={() => setView("source")}
+              />
+              <ArrowDown className="automation-flow-arrow" size={20} aria-hidden="true" />
+              <AutomationSelectionCard
+                fieldRef={targetCardRef}
+                label="실행할 조명"
+                title={targetSummary.count > 0 ? targetSummary.title : "실행할 조명을 선택해 주세요."}
+                description={targetSummary.count > 0 ? targetSummary.description : "감지 시 함께 제어할 조명을 선택하세요."}
+                empty={targetSummary.count === 0}
+                disabled={isPending}
+                error={errors.targetFixtureIds}
+                errorId={vehicleEventErrorIds.target}
+                onOpen={() => setView("target")}
+              />
+            </section>
 
-          <fieldset ref={targetFieldRef} className="schedule-form-section schedule-target-section" disabled={isPending} tabIndex={-1} {...errorAttributes(errors.targetFixtureIds, vehicleEventErrorIds.target)}>
-            <legend>제어 조명</legend>
-            <ControlTargetPicker
-              dashboard={dashboard}
-              selection={{ mode: "fixtures", fixtureIds: values.targetFixtureIds }}
-              allowedModes={["fixtures"]}
-              disabled={isPending}
-              onChange={(selection) => {
-                if (selection.mode === "fixtures") change({ targetFixtureIds: selection.fixtureIds });
-              }}
-            />
-            <FieldError id={vehicleEventErrorIds.target} message={errors.targetFixtureIds} />
-          </fieldset>
+            <fieldset className="automation-quick-section" disabled={isPending}>
+              <legend>밝기</legend>
+              <AutomationPresetGroup
+                label="밝기 프리셋"
+                value={values.brightnessPercent}
+                options={brightnessPresets.map((value) => ({ value, label: `${value}%` }))}
+                disabled={isPending || !values.dimmingEnabled}
+                onChange={(brightnessPercent) => change({ brightnessPercent })}
+              />
+              <div className="automation-brightness-row">
+                <input type="range" min="0" max="100" aria-label="밝기 조절" disabled={!values.dimmingEnabled} value={values.dimmingEnabled ? values.brightnessPercent : "100"} onChange={(event) => change({ brightnessPercent: event.target.value })} />
+                <label className="form-field automation-brightness-number">
+                  <span>밝기</span>
+                  <input ref={brightnessInputRef} type="number" min="0" max="100" aria-label="밝기" disabled={!values.dimmingEnabled} {...errorAttributes(errors.brightnessPercent, vehicleEventErrorIds.brightness)} value={values.dimmingEnabled ? values.brightnessPercent : "100"} onChange={(event) => change({ brightnessPercent: event.target.value })} />
+                </label>
+                <span>%</span>
+              </div>
+              <FieldError id={vehicleEventErrorIds.brightness} message={errors.brightnessPercent} />
+            </fieldset>
 
-          <fieldset className="schedule-form-section" disabled={isPending}>
-            <legend>행동</legend>
-            <label className="form-field schedule-name-field">
-              <span>규칙 이름</span>
-              <input ref={nameInputRef} aria-label="규칙 이름" {...errorAttributes(errors.name, vehicleEventErrorIds.name)} value={values.name} onChange={(event) => change({ name: event.target.value })} />
-              <FieldError id={vehicleEventErrorIds.name} message={errors.name} />
-            </label>
-            <label className="schedule-dimming-toggle">
-              <input type="checkbox" aria-label="디밍 사용" checked={values.dimmingEnabled} onChange={(event) => change({ dimmingEnabled: event.target.checked })} />
-              <span>디밍 {values.dimmingEnabled ? "ON" : "OFF"}</span>
-            </label>
-            {values.dimmingEnabled ? (
-              <label className="form-field schedule-compact-number">
-                <span>밝기</span>
-                <input ref={brightnessInputRef} type="number" min="0" max="100" aria-label="밝기" {...errorAttributes(errors.brightnessPercent, vehicleEventErrorIds.brightness)} value={values.brightnessPercent} onChange={(event) => change({ brightnessPercent: event.target.value })} />
-                <FieldError id={vehicleEventErrorIds.brightness} message={errors.brightnessPercent} />
+            <fieldset className="automation-quick-section" disabled={isPending}>
+              <legend>유지 시간</legend>
+              <AutomationPresetGroup
+                label="유지 시간 프리셋"
+                value={selectedHoldPreset}
+                options={holdPresets}
+                disabled={isPending}
+                onChange={(preset) => {
+                  if (preset === "custom") {
+                    setCustomHoldOpen(true);
+                    return;
+                  }
+                  setCustomHoldOpen(false);
+                  change({ holdSeconds: preset });
+                }}
+              />
+              {customHoldOpen ? (
+                <label className="form-field schedule-compact-number automation-custom-hold">
+                  <span>유지 시간(초)</span>
+                  <input ref={holdSecondsInputRef} type="number" min="5" max="1800" aria-label="유지 시간" {...errorAttributes(errors.holdSeconds, vehicleEventErrorIds.holdSeconds)} value={values.holdSeconds} onChange={(event) => change({ holdSeconds: event.target.value })} />
+                  <FieldError id={vehicleEventErrorIds.holdSeconds} message={errors.holdSeconds} />
+                </label>
+              ) : null}
+            </fieldset>
+
+            <AutomationAdvancedSection label="고급 설정" open={advancedOpen} disabled={isPending} onOpenChange={setAdvancedOpen}>
+              <label className="form-field schedule-name-field">
+                <span>규칙 이름</span>
+                <input ref={nameInputRef} aria-label="규칙 이름" {...errorAttributes(errors.name, vehicleEventErrorIds.name)} value={values.name} onChange={(event) => change({ name: event.target.value })} />
+                <FieldError id={vehicleEventErrorIds.name} message={errors.name} />
               </label>
-            ) : <p className="schedule-field-help">디밍 OFF는 100% 밝기로 실행합니다.</p>}
-            <label className="form-field schedule-compact-number">
-              <span>유지 시간(초)</span>
-              <input ref={holdSecondsInputRef} type="number" min="5" max="1800" aria-label="유지 시간" {...errorAttributes(errors.holdSeconds, vehicleEventErrorIds.holdSeconds)} value={values.holdSeconds} onChange={(event) => change({ holdSeconds: event.target.value })} />
-              <FieldError id={vehicleEventErrorIds.holdSeconds} message={errors.holdSeconds} />
-            </label>
-          </fieldset>
+              <label className="schedule-dimming-toggle">
+                <input type="checkbox" aria-label="디밍 사용" checked={values.dimmingEnabled} onChange={(event) => change({ dimmingEnabled: event.target.checked })} />
+                <span>밝기 직접 지정 {values.dimmingEnabled ? "ON" : "OFF"}</span>
+              </label>
+            </AutomationAdvancedSection>
 
-          {serverError ? <p className="danger-text schedule-form-server-error" role="alert">{serverError}</p> : null}
-          <footer className="schedule-dialog-actions">
-            <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>
-            <Button className="primary-button" variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">저장</Button>
-          </footer>
-        </form>
+            <AutomationSummaryBar>{vehicleEventSummary(values, dashboard)}</AutomationSummaryBar>
+            {serverError ? <p className="danger-text schedule-form-server-error" role="alert">{serverError}</p> : null}
+            <footer className="schedule-dialog-actions">
+              <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>
+              <Button className="primary-button" variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">저장</Button>
+            </footer>
+          </form>
+        )}
       </section>
     </div>
   );
 
-  function focusFirstInvalidControl(nextErrors: VehicleEventFormErrors) {
-    if (nextErrors.sourceFixtureIds) return sourceFieldRef.current?.focus();
-    if (nextErrors.targetFixtureIds) return targetFieldRef.current?.focus();
-    if (nextErrors.name) return nameInputRef.current?.focus();
-    if (nextErrors.brightnessPercent) return brightnessInputRef.current?.focus();
-    if (nextErrors.holdSeconds) holdSecondsInputRef.current?.focus();
+  function focusTarget(key: keyof VehicleEventFormErrors) {
+    if (key === "sourceFixtureIds") return sourceFieldRef.current;
+    if (key === "targetFixtureIds") return targetFieldRef.current;
+    if (key === "name") return nameInputRef.current;
+    if (key === "brightnessPercent") return brightnessInputRef.current;
+    return holdSecondsInputRef.current;
   }
 }
 
-function isVehicleEventSource(fixture: DashboardFixture) {
-  const verifiedAt = fixture.vehicleSensorCapabilityVerifiedAt;
-  return fixture.gateway !== null
-    && fixture.vehicleSensorCapabilityStatus === "supported"
-    && typeof verifiedAt === "string"
-    && isCanonicalIsoTimestamp(verifiedAt);
-}
-
-function isCanonicalIsoTimestamp(value: string) {
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+function firstVehicleEventError(errors: VehicleEventFormErrors): keyof VehicleEventFormErrors | null {
+  const order: readonly (keyof VehicleEventFormErrors)[] = [
+    "sourceFixtureIds",
+    "targetFixtureIds",
+    "name",
+    "brightnessPercent",
+    "holdSeconds"
+  ];
+  return order.find((key) => Boolean(errors[key])) ?? null;
 }
 
 const vehicleEventErrorIds = {
@@ -188,7 +330,7 @@ function errorAttributes(message: string | undefined, id: string) {
     "aria-invalid": true,
     "aria-describedby": id,
     "aria-errormessage": id
-  } : {};
+  } : { "aria-invalid": false };
 }
 
 function FieldError({ id, message }: { id: string; message?: string }) {

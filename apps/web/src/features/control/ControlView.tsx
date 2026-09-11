@@ -63,8 +63,14 @@ export function ControlView({
   const location = useLocation();
   const navigate = useNavigate();
   const requestedMode = new URLSearchParams(location.search).get("mode");
-  const mode: ControlPageMode = isControlPageMode(requestedMode) ? requestedMode : "manual";
   const { data, isLoading, error } = useControlDashboard(siteId);
+  const capabilities = data?.capabilities;
+  const canControl = capabilities?.control === true;
+  const canManage = capabilities?.manage === true;
+  const mode: ControlPageMode = isControlPageMode(requestedMode)
+    && (requestedMode === "manual" || canManage)
+    ? requestedMode
+    : "manual";
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
@@ -104,7 +110,7 @@ export function ControlView({
   const blockMessage = blockedFixture
     ? formatControlBlockReason(blockedFixture.controlBlockReason, blockedFixture.name)
     : null;
-  const readOnly = userRole === "viewer";
+  const readOnly = !canControl;
   const target = selected.isValid ? controlSelectionToDimmingTarget(selection) : null;
   const commandInProgress = Boolean(
     scopedActiveRequest && !scopedCommandId
@@ -117,11 +123,12 @@ export function ControlView({
   const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !controlsLocked);
 
   useEffect(() => {
+    if (!capabilities) return;
     if (requestedMode === mode) return;
     const search = new URLSearchParams(location.search);
     search.set("mode", mode);
     void navigate({ pathname: location.pathname, search: `?${search.toString()}` }, { replace: true });
-  }, [location.pathname, location.search, mode, navigate, requestedMode]);
+  }, [capabilities, location.pathname, location.search, mode, navigate, requestedMode]);
 
   useEffect(() => {
     if (mode !== "manual") setGroupDialogOpen(false);
@@ -250,7 +257,7 @@ export function ControlView({
     void navigate({ pathname: location.pathname, search: `?${search.toString()}` });
   }
 
-  const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} />;
+  const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} />;
   const pageHeader = (
     <PageHeader
       title="조명 제어"
@@ -258,7 +265,7 @@ export function ControlView({
     />
   );
 
-  if (mode === "event") {
+  if (capabilities && mode === "event") {
     const eventSiteId = data?.site.id ?? siteId;
     return (
       <section className="control-screen">
@@ -273,7 +280,7 @@ export function ControlView({
     );
   }
 
-  if (mode === "schedule") {
+  if (capabilities && mode === "schedule") {
     const scheduleSiteId = data?.site.id ?? siteId;
     return (
       <section className="control-screen">
@@ -338,14 +345,14 @@ export function ControlView({
             onClick={() => setGroupDialogOpen(true)}
             disabled={commandSessionBlocked || isSubmitting || restorePending || commandInProgress}
           >
-            <Layers3 size={16} aria-hidden="true" /> {readOnly ? "구역 현황" : "구역 관리"}
+            <Layers3 size={16} aria-hidden="true" /> {canManage ? "구역 관리" : "구역 현황"}
           </Button>
         )}
       />
 
       {readOnly ? (
         <p className="danger-text control-readonly-notice" role="alert">
-          조회 전용 계정입니다. 조명 제어는 admin 계정으로만 수행할 수 있습니다.
+          조회 전용 계정입니다. 조명 제어는 제어 권한이 있는 계정만 사용할 수 있습니다.
         </p>
       ) : null}
 
@@ -378,92 +385,96 @@ export function ControlView({
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
 
-          <div className="control-target-summary" aria-live="polite">
-            <strong>{selected.fixtures.length}개 선택 · 제어 불가 {selected.blockedCount}개</strong>
-            <span>{deliveryLabel(selection, selected.fixtures.length)}</span>
+          <div className="control-panel-body">
+            <div className="control-target-summary" aria-live="polite">
+              <strong>{selected.fixtures.length}개 선택 · 제어 불가 {selected.blockedCount}개</strong>
+              <span>{deliveryLabel(selection, selected.fixtures.length)}</span>
+            </div>
+
+            <div className="dial-card">
+              <span>밝기</span>
+              <strong>{brightness}%</strong>
+              <input
+                aria-label="밝기"
+                type="range"
+                min="0"
+                max="100"
+                value={brightness}
+                disabled={controlsLocked}
+                onChange={(event) => setBrightness(Number(event.target.value))}
+              />
+            </div>
+
+            <div className="preset-row">
+              {[0, 30, 70, 100].map((value) => (
+                <Button key={value} variant="secondary" type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
+                  {value}%
+                </Button>
+              ))}
+            </div>
+
+            <label className="form-field control-override-field">
+              <span>수동 override 종료 시각</span>
+              <input
+                type="datetime-local"
+                aria-label="수동 override 종료 시각"
+                value={overrideUntilLocal}
+                disabled={controlsLocked}
+                onChange={(event) => {
+                  setOverrideUntilLocal(event.target.value);
+                  setMessage("");
+                }}
+              />
+              <small>비워두면 서버 기본값을 사용합니다.</small>
+            </label>
+
+            <Button variant="primary" type="button" onClick={submitCommand} disabled={!canSubmit}>
+              {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
+            </Button>
           </div>
-
-          <div className="dial-card">
-            <span>밝기</span>
-            <strong>{brightness}%</strong>
-            <input
-              aria-label="밝기"
-              type="range"
-              min="0"
-              max="100"
-              value={brightness}
-              disabled={controlsLocked}
-              onChange={(event) => setBrightness(Number(event.target.value))}
-            />
-          </div>
-
-          <div className="preset-row">
-            {[0, 30, 70, 100].map((value) => (
-              <Button key={value} variant="secondary" type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
-                {value}%
-              </Button>
-            ))}
-          </div>
-
-          <label className="form-field control-override-field">
-            <span>수동 override 종료 시각</span>
-            <input
-              type="datetime-local"
-              aria-label="수동 override 종료 시각"
-              value={overrideUntilLocal}
-              disabled={controlsLocked}
-              onChange={(event) => {
-                setOverrideUntilLocal(event.target.value);
-                setMessage("");
-              }}
-            />
-            <small>비워두면 서버 기본값을 사용합니다.</small>
-          </label>
-
-          <Button variant="primary" type="button" onClick={submitCommand} disabled={!canSubmit}>
-            {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
-          </Button>
-          <div className="command-status-region" role="status" aria-label="명령 진행 상태" aria-live="polite">
-            {scopedActiveRequest && !scopedCommandId ? (
-              <Button
-                variant="secondary"
-                type="button"
-                onClick={() => void sendCommand(scopedActiveRequest, userId)}
-                disabled={isSubmitting || commandSessionBlocked}
-              >
-                동일 요청 다시 전송
-              </Button>
+          <div className="control-panel-feedback">
+            <div className="command-status-region" role="status" aria-label="명령 진행 상태" aria-live="polite">
+              {scopedActiveRequest && !scopedCommandId ? (
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={() => void sendCommand(scopedActiveRequest, userId)}
+                  disabled={isSubmitting || commandSessionBlocked}
+                >
+                  동일 요청 다시 전송
+                </Button>
+              ) : null}
+              {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
+              {matchingCommandStatus ? <CommandProgress status={matchingCommandStatus} /> : null}
+              {!matchingCommandStatus && terminalResult?.siteId === data.site.id ? <CommandProgress status={terminalResult.status} /> : null}
+            </div>
+            {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
+            {hasMismatchedCommandStatus && !missingCommand ? (
+              <div className="command-status-error" role="alert">
+                <p className="danger-text">
+                  명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
+                </p>
+                <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
+                  {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+                </Button>
+              </div>
             ) : null}
-            {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
-            {matchingCommandStatus ? <CommandProgress status={matchingCommandStatus} /> : null}
-            {!matchingCommandStatus && terminalResult?.siteId === data.site.id ? <CommandProgress status={terminalResult.status} /> : null}
+            {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
+              <div className="command-status-error" role="alert">
+                <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
+                <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
+                  {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+                </Button>
+              </div>
+            ) : null}
           </div>
-          {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
-          {hasMismatchedCommandStatus && !missingCommand ? (
-            <div className="command-status-error" role="alert">
-              <p className="danger-text">
-                명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
-              </p>
-              <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
-                {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
-              </Button>
-            </div>
-          ) : null}
-          {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
-            <div className="command-status-error" role="alert">
-              <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
-              <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
-                {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
-              </Button>
-            </div>
-          ) : null}
         </SidePanel>
       </div>
       <FixtureGroupDialog
         open={groupDialogOpen}
         siteId={data.site.id}
         dashboard={data}
-        canManage={!readOnly}
+        canManage={canManage}
         returnFocusRef={groupDialogOpenerRef}
         onClose={() => setGroupDialogOpen(false)}
       />

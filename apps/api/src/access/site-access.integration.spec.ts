@@ -147,6 +147,7 @@ async function createFixture(prisma: PrismaService) {
     loginId: `old_${oldAdminId.slice(0, 8)}`,
     name: "Old Admin",
     role: "admin",
+    mustChangePassword: (await prisma.user.findUniqueOrThrow({ where: { id: oldAdminId } })).mustChangePassword,
     status: "active"
   };
   return { organizationId, siteId, oldAdmin, newAdminId };
@@ -195,6 +196,7 @@ async function createControlMemberFixture(prisma: PrismaService) {
     loginId: `control_${controlMemberId.slice(0, 8)}`,
     name: "Control Member",
     role: "viewer",
+    mustChangePassword: (await prisma.user.findUniqueOrThrow({ where: { id: controlMemberId } })).mustChangePassword,
     status: "active"
   };
   return { organizationId, otherOrganizationId, siteId, controlMember };

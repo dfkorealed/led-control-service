@@ -1,0 +1,240 @@
+.site-users-screen {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.site-users-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px 150px auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.site-users-toolbar input,
+.site-users-toolbar select,
+.site-user-field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #152238;
+  padding: 0 11px;
+}
+
+.site-users-search {
+  position: relative;
+  display: block;
+}
+
+.site-users-search svg {
+  position: absolute;
+  top: 13px;
+  left: 12px;
+  color: #64748b;
+}
+
+.site-users-search input {
+  padding-left: 36px;
+}
+
+.site-users-count {
+  justify-self: end;
+  white-space: nowrap;
+  color: #1d4ed8;
+  font-size: 14px;
+}
+
+.site-users-table-wrap {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.site-users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.site-users-table th,
+.site-users-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 13px 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.site-users-table th {
+  background: #f2f7ff;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.site-users-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.site-users-table td:first-child,
+.site-users-table td:nth-child(2) {
+  font-weight: 700;
+}
+
+.site-users-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.site-users-icon-action.ui-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+}
+
+.site-users-note {
+  margin: -4px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.site-user-dialog-wide {
+  width: min(610px, 100%);
+}
+
+.site-user-form {
+  display: grid;
+  gap: 15px;
+}
+
+.site-user-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.site-user-field {
+  display: grid;
+  gap: 7px;
+}
+
+.site-user-field label,
+.site-user-segments legend {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.site-user-field small,
+.site-user-field p,
+.site-user-segments p,
+.site-user-status-control small {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.site-user-field-error,
+.site-user-form-alert {
+  color: #b91c1c !important;
+}
+
+.site-user-form-alert {
+  margin: 0;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  background: #fff1f2;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.site-user-segments {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.site-user-segments > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 3px;
+}
+
+.site-user-segments button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.site-user-segments button[aria-pressed="true"] {
+  background: #2563eb;
+  color: #fff;
+}
+
+.site-user-segments p {
+  margin-top: 7px;
+}
+
+.site-user-status-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 14px;
+}
+
+.site-user-status-control span {
+  display: grid;
+  gap: 3px;
+}
+
+.site-user-status-control input {
+  width: 42px;
+  height: 24px;
+  accent-color: #2563eb;
+}
+
+.site-user-account-summary {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+  margin: 0 0 16px;
+  background: #f8fafc;
+  padding: 13px;
+  font-size: 13px;
+}
+
+.site-user-account-summary dt { color: #64748b; }
+.site-user-account-summary dd { margin: 0; font-weight: 700; }
+
+.site-user-delete-warning {
+  margin-bottom: 15px;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  background: #fff7f7;
+  color: #991b1b;
+  padding: 13px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+@media (max-width: 860px) {
+  .site-users-toolbar { grid-template-columns: 1fr 1fr; }
+  .site-users-search { grid-column: 1 / -1; }
+  .site-users-count { justify-self: start; }
+}
+
+@media (max-width: 600px) {
+  .site-users-toolbar,
+  .site-user-form-grid { grid-template-columns: 1fr; }
+  .site-users-count { justify-self: start; }
+}

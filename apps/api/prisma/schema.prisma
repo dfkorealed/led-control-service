@@ -217,6 +217,8 @@ model Site {
   vehicleEventRules        VehicleEventRule[]
   manualOverrides          ManualOverride[]
   automationExecutions     AutomationExecution[]
+  energyFixtureIdentities  EnergyFixtureIdentity[]
+  energyGroupIdentities    EnergyGroupIdentity[]
   createdAt                DateTime                         @default(now())
   updatedAt                DateTime                         @updatedAt
 
@@ -264,8 +266,8 @@ model Floor {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
-  @@index([siteId])
   @@unique([id, siteId])
+  @@index([siteId])
 }
 
 model SiteMembership {
@@ -383,6 +385,7 @@ model Fixture {
   groupFixtures              GroupFixture[]
   energyUsages               EnergyUsage[]
   energyDailyAggregates      FixtureEnergyDailyAggregate[]
+  energyIdentity             EnergyFixtureIdentity?
   energyStateCursor          FixtureEnergyStateCursor?
   processedStateEvents       ProcessedGatewayEvent[]
   commandResults             CommandFixtureResult[]
@@ -437,6 +440,7 @@ model FixtureGroup {
   floor           Floor?                      @relation(fields: [floorId], references: [id], onDelete: Cascade)
   gateway         Gateway?                    @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   groupFixtures   GroupFixture[]
+  energyIdentity  EnergyGroupIdentity?
   createdAt       DateTime                    @default(now())
   updatedAt       DateTime                    @updatedAt
 
@@ -543,9 +547,9 @@ model GatewayCertificate {
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
 
+  @@unique([issuer, certificateSerial])
   @@index([inventoryId, purpose, status])
   @@index([gatewayId, purpose, status])
-  @@unique([issuer, certificateSerial])
 }
 
 model GatewayClaimAudit {
@@ -787,8 +791,8 @@ model MqttOutbox {
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
-  @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
   @@unique([gatewayId, revision, payloadHash])
+  @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
   @@index([gatewayId, publishedAt, deadLetteredAt, nextAttemptAt])
 }
 
@@ -1058,30 +1062,30 @@ model Session {
 }
 
 model ProvisioningSession {
-  id                 String                    @id @default(uuid())
+  id                 String                     @id @default(uuid())
   siteId             String
   floorId            String
   gatewayId          String
   requestedBy        String
-  status             ProvisioningSessionStatus @default(active)
-  scanStatus         ProvisioningScanStatus    @default(pending)
+  status             ProvisioningSessionStatus  @default(active)
+  scanStatus         ProvisioningScanStatus     @default(pending)
   scanCorrelationId  String?
-  scanAttempt        Int                       @default(0)
+  scanAttempt        Int                        @default(0)
   scanStartedAt      DateTime?
   scanCompletedAt    DateTime?
   scanFailureCode    String?
   scanFailureMessage String?
-  site               Site                      @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  floor              Floor                     @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  gateway            Gateway                   @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  user               User                      @relation(fields: [requestedBy], references: [id])
+  site               Site                       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  floor              Floor                      @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  gateway            Gateway                    @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  user               User                       @relation(fields: [requestedBy], references: [id])
   discoveredNodes    DiscoveredMeshNode[]
   scanOutbox         ProvisioningScanOutbox[]
   deviceOutbox       ProvisioningDeviceOutbox[]
-  startedAt          DateTime                  @default(now())
+  startedAt          DateTime                   @default(now())
   completedAt        DateTime?
-  createdAt          DateTime                  @default(now())
-  updatedAt          DateTime                  @updatedAt
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
 
   @@index([gatewayId, scanStatus])
 }
@@ -1104,8 +1108,8 @@ model ProvisioningScanOutbox {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
-  @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
   @@unique([sessionId, scanAttempt])
+  @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
 }
 
 model ProvisioningDeviceOutbox {
@@ -1133,7 +1137,7 @@ model ProvisioningDeviceOutbox {
 }
 
 model DiscoveredMeshNode {
-  id                 String               @id @default(uuid())
+  id                 String                     @id @default(uuid())
   sessionId          String
   deviceUuid         String
   serialNumber       String
@@ -1142,20 +1146,20 @@ model DiscoveredMeshNode {
   firmwareVersion    String
   scanCorrelationId  String?
   scanAttempt        Int?
-  status             DiscoveredNodeStatus @default(discovered)
-  identifyState      String               @default("idle")
+  status             DiscoveredNodeStatus       @default(discovered)
+  identifyState      String                     @default("idle")
   meshAddress        String?
   pendingFixtureName String?
   pendingFixtureX    Float?
   pendingFixtureY    Float?
   pendingFixtureSize Float?
-  pendingRatedWatt   Decimal?             @db.Decimal(8, 2)
+  pendingRatedWatt   Decimal?                   @db.Decimal(8, 2)
   errorMessage       String?
-  session            ProvisioningSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session            ProvisioningSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   deviceOutbox       ProvisioningDeviceOutbox[]
-  discoveredAt       DateTime             @default(now())
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  discoveredAt       DateTime                   @default(now())
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
 
   @@unique([sessionId, deviceUuid])
 }
@@ -1171,20 +1175,119 @@ model EnergyUsage {
   createdAt DateTime @default(now())
 }
 
-model FixtureEnergyDailyAggregate {
-  id             String   @id @default(uuid())
-  fixtureId      String
-  localDate      DateTime @db.Date
-  estimatedKwh   Decimal  @db.Decimal(20, 12)
-  estimatedCost  Decimal  @db.Decimal(20, 8)
-  knownSeconds   Int      @default(0)
-  unknownSeconds Int      @default(0)
-  fixture        Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+model EnergyFixtureIdentity {
+  id                String                          @id @default(uuid())
+  siteId            String
+  fixtureId         String?                         @unique
+  trackingStartedAt DateTime
+  retiredAt         DateTime?
+  site              Site                            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  fixture           Fixture?                        @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
+  dailyAggregates   FixtureEnergyDailyAggregate[]
+  hourlyAggregates  FixtureEnergyHourlyAggregate[]
+  dimensionVersions EnergyFixtureDimensionVersion[]
+  groupMemberships  EnergyGroupMembershipVersion[]
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
 
-  @@unique([fixtureId, localDate])
+  @@index([siteId, trackingStartedAt])
+}
+
+model EnergyFixtureDimensionVersion {
+  id              String                @id @default(uuid())
+  energyFixtureId String
+  name            String
+  floorId         String
+  floorName       String
+  ratedWatt       Decimal               @db.Decimal(8, 2)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  energyFixture   EnergyFixtureIdentity @relation(fields: [energyFixtureId], references: [id], onDelete: Cascade)
+  createdAt       DateTime              @default(now())
+
+  @@unique([energyFixtureId, effectiveFrom])
+  @@index([floorId, effectiveFrom, effectiveTo])
+}
+
+model EnergyGroupIdentity {
+  id                String                         @id @default(uuid())
+  siteId            String
+  groupId           String?                        @unique
+  trackingStartedAt DateTime
+  retiredAt         DateTime?
+  site              Site                           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  group             FixtureGroup?                  @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  dimensionVersions EnergyGroupDimensionVersion[]
+  memberships       EnergyGroupMembershipVersion[]
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+
+  @@index([siteId, trackingStartedAt])
+}
+
+model EnergyGroupDimensionVersion {
+  id            String              @id @default(uuid())
+  energyGroupId String
+  name          String
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  energyGroup   EnergyGroupIdentity @relation(fields: [energyGroupId], references: [id], onDelete: Cascade)
+  createdAt     DateTime            @default(now())
+
+  @@unique([energyGroupId, effectiveFrom])
+}
+
+model EnergyGroupMembershipVersion {
+  id              String                @id @default(uuid())
+  energyGroupId   String
+  energyFixtureId String
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  energyGroup     EnergyGroupIdentity   @relation(fields: [energyGroupId], references: [id], onDelete: Cascade)
+  energyFixture   EnergyFixtureIdentity @relation(fields: [energyFixtureId], references: [id], onDelete: Cascade)
+  createdAt       DateTime              @default(now())
+
+  @@unique([energyGroupId, energyFixtureId, effectiveFrom])
+  @@index([energyFixtureId, effectiveFrom, effectiveTo])
+}
+
+model FixtureEnergyDailyAggregate {
+  id              String                @id @default(uuid())
+  fixtureId       String?
+  energyFixtureId String
+  localDate       DateTime              @db.Date
+  estimatedKwh    Decimal               @db.Decimal(20, 12)
+  estimatedCost   Decimal               @db.Decimal(20, 8)
+  knownSeconds    Int                   @default(0)
+  unknownSeconds  Int                   @default(0)
+  fixture         Fixture?              @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
+  energyFixture   EnergyFixtureIdentity @relation(fields: [energyFixtureId], references: [id], onDelete: Cascade)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@unique([energyFixtureId, localDate])
+  @@index([fixtureId, localDate])
   @@index([localDate])
+}
+
+model FixtureEnergyHourlyAggregate {
+  id                        String                @id @default(uuid())
+  energyFixtureId           String
+  bucketStartUtc            DateTime
+  localDate                 DateTime              @db.Date
+  localHour                 Int
+  utcOffsetMinutes          Int
+  estimatedKwh              Decimal               @db.Decimal(20, 12)
+  knownSeconds              Int                   @default(0)
+  unknownSeconds            Int                   @default(0)
+  brightnessWeightedSeconds Decimal               @db.Decimal(20, 4)
+  energyFixture             EnergyFixtureIdentity @relation(fields: [energyFixtureId], references: [id], onDelete: Cascade)
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+
+  @@unique([energyFixtureId, bucketStartUtc])
+  @@index([localDate, localHour])
+  @@index([bucketStartUtc])
 }
 
 model FixtureEnergyStateCursor {

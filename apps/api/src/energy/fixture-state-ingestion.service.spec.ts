@@ -4,7 +4,8 @@ import { closeFixtureEnergyForRatedWattChange, FixtureStateIngestionService } fr
 const scope = {
   siteId: "22222222-2222-4222-8222-222222222222",
   gatewayId: "55555555-5555-4555-8555-555555555555",
-  fixtureId: "66666666-6666-4666-8666-666666666666"
+  fixtureId: "66666666-6666-4666-8666-666666666666",
+  energyFixtureId: "77777777-7777-4777-8777-777777777777"
 };
 
 describe("FixtureStateIngestionService", () => {
@@ -20,7 +21,14 @@ describe("FixtureStateIngestionService", () => {
     });
 
     expect(prisma.fixtureEnergyDailyAggregate.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { fixtureId_localDate: { fixtureId: scope.fixtureId, localDate: new Date("2026-08-26T00:00:00.000Z") } },
+      where: { energyFixtureId_localDate: { energyFixtureId: scope.energyFixtureId, localDate: new Date("2026-08-26T00:00:00.000Z") } },
+      update: expect.objectContaining({ unknownSeconds: { increment: 9 } })
+    }));
+    expect(prisma.fixtureEnergyHourlyAggregate.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { energyFixtureId_bucketStartUtc: {
+        energyFixtureId: scope.energyFixtureId,
+        bucketStartUtc: new Date("2026-08-26T00:00:00.000Z")
+      } },
       update: expect.objectContaining({ unknownSeconds: { increment: 9 } })
     }));
     expect(prisma.fixtureEnergyStateCursor.upsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -87,6 +95,17 @@ describe("FixtureStateIngestionService", () => {
     expect(prisma.processedGatewayEvent.create).not.toHaveBeenCalled();
   });
 
+  it("fails the transaction before the fixture snapshot when hourly persistence fails", async () => {
+    const prisma = fixturePrisma();
+    prisma.fixtureEnergyHourlyAggregate.upsert.mockRejectedValue(new Error("hourly write failed"));
+    const service = new FixtureStateIngestionService(prisma as never);
+
+    await expect(service.ingest(scope.gatewayId, fixtureEvent(9))).rejects.toThrow("hourly write failed");
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.fixtureEnergyStateCursor.upsert).not.toHaveBeenCalled();
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
+
   it("closes the old rated-watt interval before advancing the persisted checkpoint", async () => {
     const prisma = fixturePrisma({
       lastStateSequence: 1n,
@@ -135,6 +154,10 @@ function fixturePrisma(options: {
 } = {}) {
   const row = {
     id: scope.fixtureId,
+    energyFixtureId: scope.energyFixtureId,
+    name: "B1-L01",
+    floorId: "33333333-3333-4333-8333-333333333333",
+    floorName: "B1",
     siteId: scope.siteId,
     gatewayId: scope.gatewayId,
     ratedWatt: new Prisma.Decimal("40.00"),
@@ -161,6 +184,7 @@ function fixturePrisma(options: {
       upsert: jest.fn().mockResolvedValue(undefined)
     },
     fixtureEnergyDailyAggregate: { upsert: jest.fn().mockResolvedValue(undefined) },
+    fixtureEnergyHourlyAggregate: { upsert: jest.fn().mockResolvedValue(undefined) },
     fixture: { update: jest.fn().mockResolvedValue(undefined) }
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));

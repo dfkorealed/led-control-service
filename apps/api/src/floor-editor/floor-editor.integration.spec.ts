@@ -14,6 +14,7 @@ import { EDITOR_MAX_BODY_BYTES } from "@led-control/shared";
 import { TargetSnapshotService } from "../automation/target-snapshot.service";
 import { FixturesService } from "../fixtures/fixtures.service";
 import { EnergyService } from "../energy/energy.service";
+import { EnergyAnalyticsQueryService } from "../energy/energy-analytics-query.service";
 import { createHash, randomUUID } from "node:crypto";
 
 const databaseUrl = process.env.FLOOR_EDITOR_TEST_DATABASE_URL;
@@ -44,6 +45,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     loginId: "floor_editor_operator",
     name: "Floor editor operator",
     role: "admin" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   const viewer = {
@@ -53,6 +55,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     loginId: "floor_editor_viewer",
     name: "Floor editor viewer",
     role: "viewer" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   const otherAdmin = {
@@ -62,6 +65,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     loginId: "floor_editor_other_admin",
     name: "Other admin",
     role: "admin" as const,
+    mustChangePassword: false,
     status: "active" as const
   };
   const unassignedOperator = {
@@ -369,11 +373,16 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         brightness: 50, powerOn: true, ratedWatt: 40, durationRemainders: [] },
       update: { aggregatedThrough: checkpointTime, observedStateOccurredAt: checkpointTime,
         brightness: 50, powerOn: true, ratedWatt: 40, durationRemainders: [] } });
-    await prisma.fixtureEnergyDailyAggregate.upsert({ where: { fixtureId_localDate: {
-      fixtureId: ids.fixtureId, localDate: new Date("2026-09-01T00:00:00Z") } },
-      create: { fixtureId: ids.fixtureId, localDate: new Date("2026-09-01T00:00:00Z"), estimatedKwh: "0.48", estimatedCost: "48", knownSeconds: 86400, unknownSeconds: 0 },
+    const energyIdentity = await prisma.energyFixtureIdentity.upsert({
+      where: { fixtureId: ids.fixtureId },
+      create: { siteId: ids.siteId, fixtureId: ids.fixtureId, trackingStartedAt: new Date("2026-09-01T00:00:00Z") },
+      update: { retiredAt: null }
+    });
+    await prisma.fixtureEnergyDailyAggregate.upsert({ where: { energyFixtureId_localDate: {
+      energyFixtureId: energyIdentity.id, localDate: new Date("2026-09-01T00:00:00Z") } },
+      create: { fixtureId: ids.fixtureId, energyFixtureId: energyIdentity.id, localDate: new Date("2026-09-01T00:00:00Z"), estimatedKwh: "0.48", estimatedCost: "48", knownSeconds: 86400, unknownSeconds: 0 },
       update: { estimatedKwh: "0.48", estimatedCost: "48" } });
-    const energy = new EnergyService(prisma, siteAccess);
+    const energy = new EnergyService(prisma, siteAccess, new EnergyAnalyticsQueryService(prisma, siteAccess));
     const fixtures = new FixturesService(prisma, siteAccess);
     const editor = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
     const targets = new TargetSnapshotService();

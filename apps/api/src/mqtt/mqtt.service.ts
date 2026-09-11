@@ -39,6 +39,7 @@ import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-gro
 import { AutomationMqttConsumerService } from "../automation/automation-mqtt-consumer.service";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
 
@@ -107,7 +108,8 @@ export class MqttService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly meshControlGroups: MeshControlGroupService,
     fixtureStateIngestion?: FixtureStateIngestionService,
-    @Optional() private readonly automationConsumer?: AutomationMqttConsumerService
+    @Optional() private readonly automationConsumer?: AutomationMqttConsumerService,
+    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
   }
@@ -1236,7 +1238,9 @@ export class MqttService implements OnModuleInit {
           return;
         }
 
-        const fixture = existingFixture ?? await tx.fixture.create({
+        let fixture = existingFixture;
+        if (!fixture) {
+          const createdFixture = await tx.fixture.create({
             data: {
               id: node.id,
               floorId: session.floorId,
@@ -1255,6 +1259,23 @@ export class MqttService implements OnModuleInit {
               lastSeenAt: null
             }
           });
+          fixture = createdFixture;
+          if (this.energyDimensions) {
+            const floor = await tx.floor.findUniqueOrThrow({
+              where: { id: session.floorId }, select: { name: true }
+            });
+            await this.energyDimensions.recordFixtureDimensions(tx, {
+              fixtureId: createdFixture.id,
+              siteId: session.siteId,
+              name: node.pendingFixtureName,
+              floorId: session.floorId,
+              floorName: floor.name,
+              ratedWatt: new Prisma.Decimal(node.pendingRatedWatt ?? "40.00"),
+              trackingStartedAt: createdFixture.energyTrackingStartedAt,
+              effectiveAt: createdFixture.createdAt
+            });
+          }
+        }
         const fixtureGroups = await tx.groupFixture.findMany({
           where: { fixtureId: fixture.id },
           select: { groupId: true },

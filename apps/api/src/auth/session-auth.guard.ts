@@ -1,10 +1,12 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import { AuthService } from "./auth.service";
 import { AuthenticatedRequest } from "./auth.types";
+import { ALLOW_PASSWORD_CHANGE_PENDING } from "./allow-password-change-pending.decorator";
 
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService, private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -14,6 +16,9 @@ export class SessionAuthGuard implements CanActivate {
     }
 
     const user = await this.authService.getUserBySessionToken(token);
+    if (user.mustChangePassword && this.reflector.get<boolean>(ALLOW_PASSWORD_CHANGE_PENDING, context.getHandler()) !== true) {
+      throw new ForbiddenException({ code: "PASSWORD_CHANGE_REQUIRED", message: "Password change required" });
+    }
     request.user = user;
     return true;
   }

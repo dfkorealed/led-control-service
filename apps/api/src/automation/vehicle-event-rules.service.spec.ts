@@ -15,6 +15,7 @@ const admin = {
   loginId: "vehicle_admin",
   name: "Vehicle admin",
   role: "admin",
+  mustChangePassword: false,
   status: "active"
 } satisfies AuthenticatedUser;
 

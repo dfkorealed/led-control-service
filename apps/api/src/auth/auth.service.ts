@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
+import { assertSiteUserCapacity, runSiteUserTransaction } from "../access/site-user-policy";
 import { PrismaService } from "../prisma/prisma.service";
-import { normalizeLoginId, type OrganizationType, type UserRole } from "./auth.types";
+import { normalizeLoginId, type AuthenticatedUser, type OrganizationType, type UserRole } from "./auth.types";
 import { PasswordService } from "./password.service";
 import { lockUserForPasswordMutation } from "./user-password-lock";
 
@@ -42,6 +43,7 @@ type StoredUser = {
   name: string;
   role: UserRole;
   status: "active" | "disabled";
+  mustChangePassword: boolean;
   organization: { type: OrganizationType };
   passwordHash?: string | null;
 };
@@ -80,18 +82,28 @@ export class AuthService {
     }
 
     const [loginIdUser, emailUser] = await Promise.all([
-      this.db().user.findUnique({ where: { loginId } }),
-      this.db().user.findUnique({ where: { email } })
+      this.db().user.findUnique({ where: { loginId }, select: { id: true } }),
+      this.db().user.findUnique({ where: { email }, select: { id: true } })
     ]);
     if (loginIdUser || emailUser) throw new BadRequestException("User already exists");
 
     const passwordHash = await this.passwords.hash(input.password);
     let user;
     try {
-      user = await this.db().$transaction(async (tx: any) => {
+      user = await runSiteUserTransaction(this.prisma, async (tx) => {
         const site = await this.validateViewerInvitationAssignment(tx, invitation);
+        // Re-read after the Site lock on every retry. A prechecked invitation
+        // can be revoked, moved or expire while waiting for the shared gate.
+        const current = await tx.invitation.findUnique({ where: { tokenHash: this.hashToken(token) }, include: { organization: { select: { type: true } } } });
+        if (!current || current.acceptedAt || current.expiresAt <= new Date()
+          || current.siteId !== site.id || current.organizationId !== site.organizationId
+          || current.role !== "viewer" || current.organization.type !== "customer"
+          || !current.email || this.normalizeEmail(current.email) !== email) {
+          throw new BadRequestException("Invitation is invalid or expired");
+        }
+        await assertSiteUserCapacity(tx, site.id, site.organizationId);
         const consumedInvitation = await tx.invitation.updateMany({
-          where: { id: invitation.id, acceptedAt: null },
+          where: { id: current.id, acceptedAt: null, expiresAt: { gt: new Date() } },
           data: { acceptedAt: new Date() }
         });
         if (consumedInvitation.count !== 1) throw new BadRequestException("Invitation is invalid or expired");
@@ -105,14 +117,17 @@ export class AuthService {
             role: "viewer",
             status: "active",
             passwordHash
-          }
+          },
+          select: { id: true, organizationId: true, loginId: true, email: true, name: true, role: true, status: true, mustChangePassword: true }
         });
         await tx.siteMembership.create({ data: { userId: createdUser.id, siteId: site.id } });
         return createdUser;
       });
     } catch (error) {
       if (this.isUniqueConstraintError(error)) throw new BadRequestException("User already exists");
-      throw error;
+      if (error instanceof HttpException) throw error;
+      // Avoid logging Prisma errors containing password-hash mutation arguments.
+      throw new InternalServerErrorException("Signup could not be completed");
     }
 
     return { user: this.publicUser({ ...user, organization: invitation.organization }) };
@@ -159,41 +174,64 @@ export class AuthService {
   }
 
   async changePassword(user: Pick<StoredUser, "id" | "organizationId">, currentSessionToken: string, input: ChangePasswordInput) {
-    const currentPassword = this.requiredPassword(input?.currentPassword, "currentPassword");
-    const newPassword = this.requiredPassword(input?.newPassword, "newPassword");
-    const newPasswordConfirmation = this.requiredPassword(input?.newPasswordConfirmation, "newPasswordConfirmation");
-    if (newPassword !== newPasswordConfirmation) {
-      throw new BadRequestException("New password confirmation does not match");
+    try {
+      const currentPassword = this.requiredPassword(input?.currentPassword, "currentPassword");
+      const newPassword = this.requiredPassword(input?.newPassword, "newPassword");
+      const newPasswordConfirmation = this.requiredPassword(input?.newPasswordConfirmation, "newPasswordConfirmation");
+      if (newPassword !== newPasswordConfirmation) {
+        throw new BadRequestException("New password confirmation does not match");
+      }
+      if (newPassword === currentPassword) {
+        throw new BadRequestException("New password must differ from current password");
+      }
+
+      const currentTokenHash = this.hashToken(currentSessionToken);
+      const updatedUser = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+        if (!await lockUserForPasswordMutation(tx, user.id)) {
+          throw new UnauthorizedException("Current password is incorrect");
+        }
+        const storedUser = await tx.user.findUnique({ where: { id: user.id } });
+        // A reset/disable can revoke the guard-validated session while this request
+        // waits for the User lock. Never clear the flag using that stale session.
+        const session = await tx.session.findUnique({ where: { tokenHash: currentTokenHash } });
+        if (!storedUser || storedUser.status !== "active" || storedUser.organizationId !== user.organizationId
+          || !session || session.userId !== user.id || session.revokedAt || session.expiresAt <= new Date()) {
+          throw new UnauthorizedException("Authentication required");
+        }
+        if (!storedUser?.passwordHash || !(await this.passwords.verify(currentPassword, storedUser.passwordHash))) {
+          throw new UnauthorizedException("Current password is incorrect");
+        }
+
+        const passwordHash = await this.passwords.hash(newPassword);
+        const updated = await tx.user.update({
+          where: { id: user.id }, data: { passwordHash, mustChangePassword: false },
+          include: { organization: { select: { type: true } } }
+        });
+        const revokedSessions = await tx.session.updateMany({
+          where: { userId: user.id, revokedAt: null, tokenHash: { not: currentTokenHash } },
+          data: { revokedAt: new Date() }
+        });
+        await this.audit.record({
+          transaction: tx,
+          organizationId: user.organizationId,
+          actorId: user.id,
+          action: "auth.password_changed",
+          targetType: "User",
+          targetId: user.id,
+          outcome: "success",
+          metadata: { revokedSessionCount: revokedSessions.count }
+        });
+        return this.publicUser(updated);
+      });
+      return { ok: true, user: updatedUser };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      // Prisma mutation errors may embed password hashes in their message/meta.
+      // Do not forward or log the original error, including its cause or stack.
+      throw new InternalServerErrorException({
+        code: "PASSWORD_CHANGE_FAILED", message: "Password change could not be completed"
+      });
     }
-
-    const currentTokenHash = this.hashToken(currentSessionToken);
-    await this.db().$transaction(async (tx: any) => {
-      if (!await lockUserForPasswordMutation(tx, user.id)) {
-        throw new UnauthorizedException("Current password is incorrect");
-      }
-      const storedUser = await tx.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } });
-      if (!storedUser?.passwordHash || !(await this.passwords.verify(currentPassword, storedUser.passwordHash))) {
-        throw new UnauthorizedException("Current password is incorrect");
-      }
-
-      const passwordHash = await this.passwords.hash(newPassword);
-      await tx.user.update({ where: { id: user.id }, data: { passwordHash } });
-      const revokedSessions = await tx.session.updateMany({
-        where: { userId: user.id, revokedAt: null, tokenHash: { not: currentTokenHash } },
-        data: { revokedAt: new Date() }
-      });
-      await this.audit.record({
-        transaction: tx,
-        organizationId: user.organizationId,
-        actorId: user.id,
-        action: "auth.password_changed",
-        targetType: "User",
-        targetId: user.id,
-        outcome: "success",
-        metadata: { revokedSessionCount: revokedSessions.count }
-      });
-    });
-    return { ok: true };
   }
 
   async getUserBySessionToken(sessionToken: string) {
@@ -222,7 +260,7 @@ export class AuthService {
     return randomBytes(32).toString("base64url");
   }
 
-  private publicUser(user: StoredUser) {
+  private publicUser(user: StoredUser): AuthenticatedUser {
     return {
       id: user.id,
       organizationId: user.organizationId,
@@ -230,7 +268,8 @@ export class AuthService {
       loginId: user.loginId,
       name: user.name,
       role: user.role,
-      status: user.status
+      status: user.status,
+      mustChangePassword: user.mustChangePassword
     };
   }
 
@@ -249,8 +288,9 @@ export class AuthService {
     return value;
   }
 
-  private async validateViewerInvitationAssignment(tx: any, invitation: { siteId?: string | null; organizationId: string }) {
+  private async validateViewerInvitationAssignment(tx: Prisma.TransactionClient, invitation: { siteId?: string | null; organizationId: string }) {
     if (!invitation.siteId) throw new BadRequestException("viewer invitations require a valid customer site assignment");
+    await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Site" WHERE "id" = ${invitation.siteId} FOR UPDATE`);
     const site = await tx.site.findUnique({
       where: { id: invitation.siteId },
       select: { id: true, organizationId: true }
