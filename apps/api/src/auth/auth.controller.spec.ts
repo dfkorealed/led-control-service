@@ -50,4 +50,23 @@ describe("AuthController", () => {
     expect(authService.login).not.toHaveBeenCalled();
     expect(authService.changePassword).not.toHaveBeenCalled();
   });
+
+  it("uses Express request.ip and never trusts a caller-supplied forwarded-for header directly", async () => {
+    const authService = {
+      login: jest.fn().mockResolvedValue({
+        user: { id: "admin-1" }, sessionToken: "token", expiresAt: new Date("2026-10-01T00:00:00.000Z")
+      })
+    };
+    const response = { cookie: jest.fn() };
+    response.cookie.mockReturnValue(response);
+    const controller = new AuthController(authService as any);
+
+    await controller.login(
+      { loginId: "admin_01", password: "password", rememberMe: false },
+      { ip: "10.0.0.15", headers: { "x-forwarded-for": "198.51.100.99", "user-agent": "browser" } } as any,
+      response as any
+    );
+
+    expect(authService.login).toHaveBeenCalledWith(expect.objectContaining({ ipAddress: "10.0.0.15", userAgent: "browser" }));
+  });
 });

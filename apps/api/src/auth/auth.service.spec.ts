@@ -8,13 +8,15 @@ import { AuthService } from "./auth.service";
 import { PasswordService } from "./password.service";
 import { AuthController } from "./auth.controller";
 import { SessionAuthGuard } from "./session-auth.guard";
+import { LoginRateLimitService } from "./login-rate-limit.service";
 
 function createAuthService(
   prisma: PrismaService,
   passwords: PasswordService = new PasswordService(),
-  audit: AuditService = new AuditService(prisma)
+  audit: AuditService = { record: jest.fn().mockResolvedValue({ id: "audit" }) } as unknown as AuditService,
+  rateLimiter?: LoginRateLimitService
 ) {
-  return new AuthService(prisma, passwords, audit);
+  return new AuthService(prisma, passwords, audit, rateLimiter);
 }
 
 describe("AuthService", () => {
@@ -164,6 +166,60 @@ describe("AuthService", () => {
     await service.login({ loginId: " ADMIN_01 ", password: "correct horse battery staple", rememberMe: false });
 
     expect(transaction.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { loginId: "admin_01" } }));
+  });
+
+  it("applies the IP/account/tenant limiter before password verification and audits a successful login in the session transaction", async () => {
+    const stored = {
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash", mustChangePassword: false
+    };
+    const { prisma, transaction } = createLoginPrisma(stored);
+    (prisma as any).user = { findUnique: jest.fn().mockResolvedValue({ id: stored.id, organizationId: stored.organizationId }) };
+    (transaction as any).auditLog = { create: jest.fn().mockResolvedValue({ id: "audit-1" }) };
+    const limiter = { consume: jest.fn().mockResolvedValue(undefined), resetAfterSuccess: jest.fn().mockResolvedValue(undefined) };
+    const passwords = { verify: jest.fn().mockResolvedValue(true) };
+    const audit = { record: jest.fn().mockResolvedValue({ id: "audit-1" }) };
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      passwords as unknown as PasswordService,
+      audit as unknown as AuditService,
+      limiter as unknown as LoginRateLimitService
+    );
+
+    await service.login({ loginId: " ADMIN_01 ", password: "password", rememberMe: false, ipAddress: "203.0.113.4", userAgent: "browser" });
+
+    expect(limiter.consume).toHaveBeenCalledWith({
+      loginId: "admin_01", ipAddress: "203.0.113.4", organizationId: "organization-1", userId: "admin-1", userAgent: "browser"
+    });
+    expect(limiter.consume.mock.invocationCallOrder[0]).toBeLessThan(passwords.verify.mock.invocationCallOrder[0]);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      transaction, action: "auth.login_succeeded", outcome: "success", actorId: "admin-1", ipAddress: "203.0.113.4"
+    }));
+    expect(limiter.resetAfterSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("audits a generic login failure without creating a session", async () => {
+    const stored = {
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash", mustChangePassword: false
+    };
+    const { prisma, transaction } = createLoginPrisma(stored);
+    (prisma as any).user = { findUnique: jest.fn().mockResolvedValue({ id: stored.id, organizationId: stored.organizationId }) };
+    const limiter = { consume: jest.fn(), resetAfterSuccess: jest.fn() };
+    const audit = { record: jest.fn().mockResolvedValue({ id: "audit-1" }) };
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      { verify: jest.fn().mockResolvedValue(false) } as unknown as PasswordService,
+      audit as unknown as AuditService,
+      limiter as unknown as LoginRateLimitService
+    );
+
+    await expect(service.login({ loginId: "admin_01", password: "wrong", rememberMe: false, ipAddress: "203.0.113.4" }))
+      .rejects.toEqual(new UnauthorizedException("Invalid login id or password"));
+    expect(transaction.session.create).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: "auth.login_failed", outcome: "failure", targetId: stored.id
+    }));
   });
 
   it("locks and re-reads the user before password verification and session creation in one transaction", async () => {

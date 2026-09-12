@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, Injectable, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable, InternalServerErrorException, Optional, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { normalizeLoginId, type AuthenticatedUser, type OrganizationType, type UserRole } from "./auth.types";
 import { PasswordService } from "./password.service";
 import { lockUserForPasswordMutation } from "./user-password-lock";
+import { LoginRateLimitService, type LoginRateLimitInput } from "./login-rate-limit.service";
 
 const SESSION_COOKIE_NAME = "led_session";
 const NORMAL_SESSION_DAYS = 1;
@@ -55,7 +56,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    @Optional() private readonly loginRateLimit?: LoginRateLimitService
   ) {}
 
   async signup(input: SignupInput) {
@@ -136,9 +138,12 @@ export class AuthService {
   async login(input: LoginInput) {
     if (typeof input?.rememberMe !== "boolean") throw new BadRequestException("rememberMe must be a boolean");
     const loginId = normalizeLoginId(input.loginId);
-    for (let attempt = 1; attempt <= LOGIN_TRANSACTION_ATTEMPTS; attempt += 1) {
-      try {
-        return await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+    const rateInput = await this.loginRateInput(loginId, input);
+    if (this.loginRateLimit) await this.loginRateLimit.consume(rateInput);
+    try {
+      for (let attempt = 1; attempt <= LOGIN_TRANSACTION_ATTEMPTS; attempt += 1) {
+        try {
+          const result = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
           const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
             SELECT "id" FROM "User" WHERE "loginId" = ${loginId} FOR UPDATE
           `);
@@ -163,12 +168,47 @@ export class AuthService {
               expiresAt
             }
           });
+          await this.audit.record({
+            transaction: tx,
+            organizationId: user.organizationId,
+            actorId: user.id,
+            action: "auth.login_succeeded",
+            targetType: "User",
+            targetId: user.id,
+            outcome: "success",
+            ipAddress: input.ipAddress,
+            userAgent: input.userAgent
+          });
           return { user: this.publicUser(user), sessionToken, expiresAt };
-        });
-      } catch (error) {
-        if (!this.isTransactionConflictError(error)) throw error;
-        if (attempt === LOGIN_TRANSACTION_ATTEMPTS) throw this.invalidCredentials();
+          });
+          if (this.loginRateLimit) {
+            try {
+              await this.loginRateLimit.resetAfterSuccess(rateInput);
+            } catch (error) {
+              await this.logout(result.sessionToken);
+              throw error;
+            }
+          }
+          return result;
+        } catch (error) {
+          if (!this.isTransactionConflictError(error)) throw error;
+          if (attempt === LOGIN_TRANSACTION_ATTEMPTS) throw this.invalidCredentials();
+        }
       }
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        await this.audit.record({
+          organizationId: rateInput.organizationId,
+          actorId: rateInput.userId,
+          action: "auth.login_failed",
+          targetType: "User",
+          targetId: rateInput.userId,
+          outcome: "failure",
+          ipAddress: input.ipAddress,
+          userAgent: input.userAgent
+        });
+      }
+      throw error;
     }
     throw this.invalidCredentials();
   }
@@ -305,6 +345,16 @@ export class AuthService {
     const next = new Date(date);
     next.setUTCDate(next.getUTCDate() + days);
     return next;
+  }
+
+  private async loginRateInput(loginId: string, input: LoginInput): Promise<LoginRateLimitInput> {
+    const base = { loginId, ipAddress: input.ipAddress ?? "unknown", userAgent: input.userAgent };
+    if (!this.loginRateLimit) return base;
+    const identity = await this.db().user.findUnique({
+      where: { loginId },
+      select: { id: true, organizationId: true }
+    });
+    return { ...base, userId: identity?.id, organizationId: identity?.organizationId };
   }
 
   private db() {

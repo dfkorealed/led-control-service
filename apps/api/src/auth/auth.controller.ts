@@ -28,7 +28,7 @@ export class AuthController {
     const result = await this.authService.login({
       ...this.loginBody(body),
       userAgent: this.readHeader(request.headers["user-agent"]),
-      ipAddress: this.readHeader(request.headers["x-forwarded-for"])
+      ipAddress: request.ip ?? "unknown"
     });
     this.setSessionCookie(response, result.sessionToken, result.expiresAt);
     return { user: result.user };
