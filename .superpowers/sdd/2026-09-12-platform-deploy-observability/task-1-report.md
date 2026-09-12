@@ -12,6 +12,7 @@ Implemented Task 1 in the isolated worktree on `codex/p0p1-platform-deploy-obser
 - Added `RequestContext.run(requestId, fn)` and `getRequestId()` using `AsyncLocalStorage`. Valid request IDs are propagated; unsafe IDs are replaced with UUID v4 and reflected in the response header.
 - Added one-line JSON application/HTTP logging. Application events keep only fixed operation/error classifications and a fixed context allowlist; arbitrary string, Error, object, header, URL, credential, tenant, body, query, stack, path, and device data are never serialized. The same strict logger is supplied before `NestFactory.create`, then replaced by its DI-owned instance without changing TLS/lifecycle order.
 - The existing eager Redis client owns one generic `error` listener so ioredis cannot fall back to raw error/stack output. Readiness does not create another client or change reconnect policy.
+- Once Nest has created the application, every remaining bootstrap failure (including `app.listen` rejection) enters the existing runtime's fail-closed path exactly once, closing CRL/token lifecycles and the Nest app before emitting only a fixed safe startup failure event.
 - Added bounded in-memory metrics for HTTP total/4xx/5xx/latency sum/max, current readiness, and four fixed dependency failure counters. No tenant, path, credential, or request ID label is accepted.
 - Preserved the existing API TLS construction, body-parser order after the new request middleware, CORS, Vault/CRL runtime setup, Nest shutdown hooks, and runtime cleanup path.
 
@@ -70,12 +71,16 @@ Implemented Task 1 in the isolated worktree on `codex/p0p1-platform-deploy-obser
    - Command: `pnpm --filter @led-control/api exec jest src/observability/dependency-readiness.spec.ts --runInBand`
    - Exit: `1`
    - Expected result: the tagged `$queryRaw` spy received zero calls while `$queryRawUnsafe` was still used.
+7. Post-initialization bootstrap cleanup:
+   - Command: `pnpm --filter @led-control/api exec jest src/observability/api-observability-bootstrap.spec.ts --runInBand`
+   - Exit: `1`
+   - Expected result: `TS2305` for missing `runApiBootstrap`; the existing top-level rejection handler could not reach the initialized runtime after a simulated `listen` rejection.
 
 ## GREEN and verification evidence
 
 - Baseline before changes: API `112 suites / 1,103 passed / 289 skipped`, exit `0`.
-- Review-correction focused final: `9 suites / 36 tests`, all passed, exit `0`.
-- Full API final: `120 suites / 1,137 passed / 289 environment-dependent skipped`, exit `0`.
+- Review-correction focused final: `9 suites / 37 tests`, all passed, exit `0`.
+- Full API final: `120 suites / 1,138 passed / 289 environment-dependent skipped`, exit `0`.
 - `pnpm --filter @led-control/api typecheck`: exit `0`.
 - `pnpm --filter @led-control/api build`: exit `0`.
 - `git diff --check`: exit `0`.
@@ -90,7 +95,7 @@ The recurring pnpm launcher warning that the root `package.json#pnpm` field is n
 - Created `apps/api/src/observability/structured-logger.service.ts` and JSON-line/redaction tests.
 - Created `apps/api/src/observability/observability-metrics.service.ts` and fixed-label tests.
 - Created `apps/api/src/observability/observability.module.ts` and actual Nest DI/destroy-order test.
-- Created `apps/api/src/observability/api-observability-bootstrap.ts` and contract tests for TLS option preservation, pre-creation strict logging, and DI logger/middleware installation order.
+- Created `apps/api/src/observability/api-observability-bootstrap.ts` and contract tests for TLS option preservation, pre-creation strict logging, DI logger/middleware installation order, and fail-closed cleanup after initialized `listen` rejection.
 - Modified `apps/api/src/app.module.ts`, `apps/api/src/main.ts`, and the existing Prisma/Redis/MQTT/Object Storage services.
 - Updated `docs/agent-operations.md`, `docs/project-status.md`, and only the Task 1 checklist in the active plan.
 
@@ -100,6 +105,7 @@ The recurring pnpm launcher warning that the root `package.json#pnpm` field is n
 - Confirmed readiness never creates a Redis or MQTT client. Redis creates its one owned client during normal module initialization; MQTT continues to use its existing production initialization and reconnect policy.
 - Confirmed timed-out readiness calls reuse the completed down response until every raw probe settles, then a later generation can retry and recover. `Promise.reject(undefined)` is down and S3 receives an abort signal at its transport boundary.
 - Confirmed application logs expose only fixed field/value sets, and arbitrary messages, Error text, structured secrets, traces, and unapproved context names are absent. Startup uses this logger before Nest constructs modules, and the single Redis client's error listener discards raw errors.
+- Confirmed post-create bootstrap failures use the established runtime: the behavior test observes exit marking, CRL close, token stop, and one `app.close()` in order, while the caught `EADDRINUSE`-shaped error and embedded credentials never reach the log.
 - Confirmed dependency keys and HTTP metric fields are fixed, so caller-controlled cardinality cannot grow the metric key set.
 - Confirmed real Nest HTTP behavior covers 200/503, response request ID, concurrent isolation, and unmatched path normalization. Actual Nest module teardown covers readiness-before-dependency destruction.
 - Confirmed no second dependency clients, schema/migration changes, shared contract changes, or menu behavior changes were introduced.

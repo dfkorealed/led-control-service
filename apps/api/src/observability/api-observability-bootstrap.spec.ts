@@ -1,10 +1,12 @@
 import { RequestContextMiddleware } from "./request-context.middleware";
 import { StructuredLoggerService } from "./structured-logger.service";
+import { createApiRuntimeLifecycle } from "../api-lifecycle";
 import {
   createApiNestOptions,
   createBootstrapStructuredLogger,
   installApiObservability,
-  reportApiBootstrapFailure
+  reportApiBootstrapFailure,
+  runApiBootstrap
 } from "./api-observability-bootstrap";
 
 describe("API observability bootstrap", () => {
@@ -72,5 +74,40 @@ describe("API observability bootstrap", () => {
       undefined,
       "NestFactory"
     );
+  });
+
+  it("closes an initialized runtime exactly once when listen rejects without leaking the caught error", async () => {
+    const order: string[] = [];
+    const app = { close: jest.fn(async () => { order.push("app"); }) };
+    const runtime = createApiRuntimeLifecycle(app, code => { order.push(`exit-${code}`); });
+    runtime.setToken({ stop: () => { order.push("token"); } });
+    runtime.setCrl({ close: () => { order.push("crl"); } });
+    const lines: string[] = [];
+    const logger = createBootstrapStructuredLogger(
+      line => { lines.push(line); },
+      () => new Date("2026-09-12T00:00:00.000Z")
+    );
+    const listen = jest.fn().mockRejectedValue(
+      new Error("listen EADDRINUSE postgres://admin:secret@tenant.internal stack-secret")
+    );
+    const fallbackExit = jest.fn();
+
+    await runApiBootstrap(async registerRuntime => {
+      registerRuntime(runtime);
+      await listen();
+    }, logger, fallbackExit);
+
+    expect(order).toEqual(["exit-1", "crl", "token", "app"]);
+    expect(app.close).toHaveBeenCalledTimes(1);
+    expect(listen).toHaveBeenCalledTimes(1);
+    expect(fallbackExit).not.toHaveBeenCalled();
+    expect(JSON.parse(lines[0])).toEqual({
+      timestamp: "2026-09-12T00:00:00.000Z",
+      level: "error",
+      context: "NestFactory",
+      operation: "startup",
+      errorClass: "Error"
+    });
+    expect(lines[0]).not.toMatch(/EADDRINUSE|postgres:\/\/|admin|secret|tenant\.internal|stack-secret/);
   });
 });

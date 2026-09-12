@@ -29,6 +29,30 @@ export function reportApiBootstrapFailure(logger: Pick<LoggerService, "error">) 
   );
 }
 
+interface ApiFailureRuntime {
+  failClosed(): Promise<void>;
+}
+
+export async function runApiBootstrap(
+  start: (registerRuntime: (runtime: ApiFailureRuntime) => void) => Promise<void>,
+  logger: Pick<LoggerService, "error">,
+  setExitCode: (code: number) => void = code => { process.exitCode = code; }
+) {
+  let runtime: ApiFailureRuntime | undefined;
+  try {
+    await start(value => { runtime = value; });
+  } catch {
+    if (runtime) {
+      // failClosed owns the established API runtime's exit code and complete cleanup.
+      // Its own failure must not re-expose the original bootstrap error as an unhandled rejection.
+      try { await runtime.failClosed(); } catch { /* best-effort terminal cleanup */ }
+    } else {
+      setExitCode(1);
+    }
+    reportApiBootstrapFailure(logger);
+  }
+}
+
 export function installApiObservability(
   app: {
     get(token: typeof StructuredLoggerService | typeof RequestContextMiddleware): StructuredLoggerService | RequestContextMiddleware;
