@@ -59,6 +59,8 @@ Task 1 fix round 1에서 승인된 예외로 CRL read → publish → fenced fin
 - 기존 동시 MQTT issuance 직렬화와 정상 device renewal/activation을 함께 회귀 검증한다.
 - disposable PostgreSQL에 migration을 적용하되 사용자 로컬 DB에는 migration을 실행하지 않는다.
 
+Task 3 최종 회귀는 전용 disposable PostgreSQL에서 기존 manufacturing → claim → bootstrap → MQTT와 revoked/disabled E2E 2개, 양방향 경쟁·Site 삭제·rollback 회수·동시 MQTT 직렬화·정상 renewal/activation integration 16개를 통과했다. 실제 경계는 PostgreSQL connection·migration·transaction·advisory/row lock·원장 저장까지이며 CA·CSR 검증·CRL 파일 배포는 fixture다. 실제 Vault/CRL과 장비/HIL은 실행하지 않았다.
+
 ## 문서 영향
 
 - `docs/database-schema.md`: enum, 원장, 잠금·worker 불변식

@@ -65,7 +65,7 @@
 
 ### Task 2: 전체 발급·활성화·disable·revoke 경쟁 방어
 
-진행 상태: 구현·검증 완료, Task 2 fix round 1 재검토 대기. Task 1의 CRL 15분은 개별 filesystem 호출 상한이 아니라 네트워크·인증 토큰/파일 I/O·DB 작업의 누적 transaction 예산이다. 예산 초과나 DB session 유실 후 이미 시작한 외부 I/O가 계속되는 위험을 주석·설계·DB 문서에 정정했다.
+진행 상태: 구현·검증 완료. Task 1의 CRL 15분은 개별 filesystem 호출 상한이 아니라 네트워크·인증 토큰/파일 I/O·DB 작업의 누적 transaction 예산이다. 예산 초과나 DB session 유실 후 이미 시작한 외부 I/O가 계속되는 위험을 주석·설계·DB 문서에 정정했다.
 
 **Files:**
 - Modify: `apps/api/src/pki/manufacturing-enrollment.service.ts`
@@ -121,6 +121,8 @@ Task 2 fix round 1 검증 기록:
 
 ### Task 3: 문서·최종 검증
 
+진행 상태: 완료(소프트웨어/API·disposable PostgreSQL). 실제 Vault/CRL 배포와 장비/HIL은 미실행이다.
+
 **Files:**
 - Modify: `apps/api/test/gateway-pki.e2e-spec.ts`
 - Modify: `docs/database-schema.md`
@@ -132,15 +134,15 @@ Task 2 fix round 1 검증 기록:
 - Consumes: Task 1~2의 공통 lock·reconciliation 계약과 실제 PostgreSQL 경쟁 증거.
 - Produces: 문서화된 운영 계약과 최종 검증 기록.
 
-- [ ] **Step 1: 기존 정상 경로 회귀 보완**
+- [x] **Step 1: 기존 정상 경로 회귀 보완**
 
   동시 MQTT issuance가 하나씩 직렬화되고 정상 device renewal/activation이 성공하는 assertion을 같은 disposable DB에서 유지한다.
 
-- [ ] **Step 2: 문서 동기화**
+- [x] **Step 2: 문서 동기화**
 
   schema, 설정 메뉴, 상태판에 구현 범위·실제 DB 증거·Vault/CRL과 crash window의 남은 위험을 기록하고 모든 체크박스를 실제 증거와 일치시킨다.
 
-- [ ] **Step 3: 최종 검증**
+- [x] **Step 3: 최종 검증**
 
   Run: `pnpm --filter @led-control/api exec prisma validate --schema prisma/schema.prisma`
 
@@ -148,10 +150,16 @@ Task 2 fix round 1 검증 기록:
 
   Run: `pnpm --filter @led-control/api exec jest src/pki src/gateway-onboarding/gateway-onboarding.service.spec.ts src/operator-site-admins/operator-site-admins.service.spec.ts --runInBand`
 
-  Run: disposable PostgreSQL integration command from Step 2.
+  Run: `PKI_E2E_DATABASE_URL=<temporary-url> pnpm --filter @led-control/api exec jest test/gateway-pki.e2e-spec.ts --runInBand`
+
+  Run: `PKI_CONCURRENCY_TEST_DATABASE_URL=<temporary-url> pnpm --filter @led-control/api exec jest src/pki/certificate-concurrency.integration.spec.ts --runInBand`
+
+  Run: `pnpm --filter @led-control/api test -- --runInBand`
 
   Run: `git diff --check`
 
-- [ ] **Step 4: 최종 커밋**
+  증거: Prisma validate, API typecheck/build를 통과했다. Focused PKI/onboarding/operator는 159 passed / 17 environment-dependent skipped, 전체 API는 1,103 passed / 288 skipped(112 suites passed / 28 skipped)다. 전용 disposable PostgreSQL 16에서 기존 Gateway PKI E2E 2/2와 concurrency integration 16/16을 통과했다. Integration은 두 번째 MQTT 발급이 첫 발급의 advisory lock에서 기다리는 동안 CA sign 호출이 1회에 머물고, 해제 뒤 총 2회가 되는 것을 직접 확인한다. 정상 renewal→activation은 old device `replaced`/new device `active`, pending 0과 inventory/Gateway pointer를 확인한다. PostgreSQL 경계는 실제이고 CA·CSR·CRL 파일 배포는 fixture다. 사용자 DB migration과 실제 Vault/CRL·장비/HIL은 실행하지 않았다.
+
+- [x] **Step 4: 최종 커밋**
 
   `git add apps/api docs && git commit -m "test(api): prove PKI disable issuance race safety"`

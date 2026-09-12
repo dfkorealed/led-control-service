@@ -144,7 +144,19 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
   });
 
   it("serializes concurrent MQTT issuance and retains cancellation records", async () => {
-    await Promise.all([run("mqtt", services(first)), run("mqtt", services(second))]);
+    const reached = barrier(); const resume = barrier();
+    ca.signCsr.mockImplementationOnce(async () => { reached.release(); await resume.promise; return signed(); });
+    const firstIssuance = run("mqtt", services(first));
+    await reached.promise;
+    const secondIssuance = run("mqtt", services(second));
+    try {
+      await waitForLock();
+      expect(ca.signCsr).toHaveBeenCalledTimes(1);
+    } finally {
+      resume.release();
+    }
+    await Promise.all([firstIssuance, secondIssuance]);
+    expect(ca.signCsr).toHaveBeenCalledTimes(2);
     expect(await first.gatewayCertificate.count({ where: { purpose: "mqtt", status: "active" } })).toBe(1);
     expect(await first.gatewayCertificate.count({ where: { purpose: "mqtt", status: "replaced", replacedById: { not: null } } })).toBe(1);
     expect(await first.certificateRevocationReconciliation.count({ where: { cancelledAt: { not: null } } })).toBe(2);
@@ -155,7 +167,14 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
     await run("renew", services(first));
     const pending = await first.gatewayCertificate.findFirstOrThrow({ where: { status: "pending" } });
     await services(second).lifecycle.activateDeviceCertificate({ deviceCertificateFingerprint: pending.fingerprint });
-    expect(await first.gatewayCertificate.count({ where: { purpose: "device", status: "active" } })).toBe(1);
+    expect(await first.gatewayCertificate.findMany({
+      where: { purpose: "device" }, orderBy: { fingerprint: "asc" },
+      select: { fingerprint: true, status: true, replacedById: true }
+    })).toEqual([
+      { fingerprint: "0".repeat(63) + "B", status: "active", replacedById: null },
+      { fingerprint: ACTIVE, status: "replaced", replacedById: pending.id }
+    ]);
+    expect(await first.gatewayCertificate.count({ where: { purpose: "device", status: "pending" } })).toBe(0);
     expect((await first.gatewayInventory.findUniqueOrThrow({ where: { id: inventoryId } })).certificateFingerprint).toBe("0".repeat(63) + "B");
     expect((await first.gateway.findUniqueOrThrow({ where: { id: gatewayId } })).certificateFingerprint).toBe("0".repeat(63) + "B");
     expect(await first.certificateRevocationReconciliation.count({ where: { cancelledAt: { not: null } } })).toBe(1);
