@@ -30,10 +30,10 @@
 - Create: `apps/api/src/monitoring-incidents/*`
 - Modify: `apps/api/src/app.module.ts`
 
-- [ ] schema/migration/DTO/권한/optimistic concurrency RED 작성
-- [ ] Site 정책 GET/PATCH와 incident list/ack/assign/resolve API 구현
-- [ ] active target unique/check constraints와 AuditLog 구현
-- [ ] API unit 및 disposable PostgreSQL integration 통과
+- [x] schema/migration/DTO/권한/optimistic concurrency RED 작성
+- [x] Site 정책 GET/PATCH와 incident list/ack/assign/resolve API 구현
+- [x] active target unique/check constraints와 AuditLog 구현
+- [x] API unit 및 disposable PostgreSQL integration 통과
 
 ### Task 2: Site별 freshness와 incident reconcile
 
@@ -46,11 +46,11 @@
 - Modify: `apps/api/src/fixtures/fixtures.service.spec.ts`
 - Modify: `apps/api/src/monitoring-incidents/*`
 
-- [ ] 서로 다른 Site threshold와 single-flight/reconcile RED 작성
-- [ ] freshness sweep과 dashboard/fixture connection 판정을 Site 정책으로 통일
-- [ ] active condition open/update와 recovery auto-resolve 구현
-- [ ] dashboard/fixture `generatedAt`과 `monitoringPolicy` metadata 구현
-- [ ] API focused 및 disposable PostgreSQL lifecycle 통과
+- [x] 서로 다른 Site threshold와 single-flight/reconcile RED 작성
+- [x] freshness sweep과 dashboard/fixture connection 판정을 Site 정책으로 통일
+- [x] active condition open/update와 recovery auto-resolve 구현
+- [x] dashboard/fixture `generatedAt`과 `monitoringPolicy` metadata 구현
+- [x] API focused 및 disposable PostgreSQL lifecycle 통과
 
 ### Task 3: Web cached freshness와 상태 원인 통일
 
