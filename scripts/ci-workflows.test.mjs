@@ -64,6 +64,9 @@ test("software CI is a strict frozen-install chain through production audit", as
   }
   for (const name of softwareJobNames) assertSoftwareJobSetup(workflow.jobs[name], name);
 
+  assertCannotBeSkipped(workflow.jobs["production-audit"], "production-audit job");
+  assertCannotBeSkipped(findRunStep(workflow.jobs["production-audit"], "pnpm ci:production-audit"), "production-audit step");
+
   assertStepRuns(workflow.jobs.quality, "pnpm lint");
   assertStepRuns(workflow.jobs.quality, "pnpm typecheck");
   assertStepRuns(workflow.jobs.unit, "pnpm test");
@@ -76,6 +79,22 @@ test("software CI is a strict frozen-install chain through production audit", as
     1,
     "the MQTT production contract must run exactly once in the unit gate"
   );
+});
+
+test("cold-checkout and protected-gate mutations are rejected", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  const coldCheckout = structuredClone(workflow.jobs.unit);
+  coldCheckout.steps = coldCheckout.steps.filter((step) => step.run !== "pnpm --filter @led-control/api prisma:generate");
+  assert.throws(() => assertSoftwareJobSetup(coldCheckout, "cold unit"), /Prisma Client generation/);
+
+  const skippedAudit = structuredClone(workflow.jobs["production-audit"]);
+  skippedAudit.if = false;
+  assert.throws(() => assertCannotBeSkipped(skippedAudit, "production-audit job"), /must not declare if/);
+
+  const hilWorkflow = await parseWorkflow("hil.yml");
+  const continuedHilPreflight = structuredClone(findRunStep(hilWorkflow.jobs["led-hil"], "pnpm ci:hil:preflight"));
+  continuedHilPreflight["continue-on-error"] = true;
+  assert.throws(() => assertCannotBeSkipped(continuedHilPreflight, "HIL preflight step"), /continue-on-error/);
 });
 
 test("integration CI uses healthy PostgreSQL 16 and Redis 7 with explicit isolated gates", async () => {
@@ -157,7 +176,7 @@ test("HIL is manual, protected, serialized, exact-confirmation, and fail-closed 
   assert.equal(job.environment, "hil");
   assert.equal(workflow.concurrency.group, "led-hil");
   assert.equal(workflow.concurrency["cancel-in-progress"], false);
-  assertSoftwareJobSetup(job, "led-hil");
+  assertSoftwareJobSetup(job, "led-hil", { generatePrisma: false });
   for (const variable of hilCommandVariables) assert.ok(job.env[variable], `${variable} must be injected`);
 
   const commands = stepCommands(job);
@@ -166,6 +185,8 @@ test("HIL is manual, protected, serialized, exact-confirmation, and fail-closed 
   const deviceIndex = commands.indexOf("pnpm gateway:hil:2node -- --repeat 3");
   assert.ok(confirmationIndex >= 0 && confirmationIndex < pkiIndex && pkiIndex < deviceIndex);
   assert.doesNotMatch(commands, /continue-on-error/);
+  assertCannotBeSkipped(job, "led-hil job");
+  assertCannotBeSkipped(findRunStep(job, "pnpm ci:hil:preflight"), "HIL preflight step");
 
   const wrongConfirmation = spawnSync(process.execPath, [path.join(root, "scripts/ci-hil-preflight.mjs")], {
     cwd: root,
@@ -191,14 +212,35 @@ async function parseWorkflow(name) {
   return parsed;
 }
 
-function assertSoftwareJobSetup(job, name) {
+function assertSoftwareJobSetup(job, name, { generatePrisma = true } = {}) {
   assert.equal(job["runs-on"] === "ubuntu-latest" || Array.isArray(job["runs-on"]), true, `${name} runner`);
   assert.ok(job.steps.some((step) => step.uses === "actions/checkout@v4"), `${name} checkout`);
   const pnpm = job.steps.find((step) => step.uses === "pnpm/action-setup@v4");
   assert.equal(String(pnpm?.with?.version), "9.15.0", `${name} pnpm`);
   const node = job.steps.find((step) => step.uses === "actions/setup-node@v4");
   assert.equal(String(node?.with?.["node-version"]), "22", `${name} node`);
-  assertStepRuns(job, "pnpm install --frozen-lockfile");
+  const installIndex = job.steps.findIndex((step) => step.run === "pnpm install --frozen-lockfile");
+  assert.ok(installIndex >= 0, `${name} frozen install`);
+  assertCannotBeSkipped(job.steps[installIndex], `${name} frozen install step`);
+  if (!generatePrisma) return;
+  const prismaStep = job.steps[installIndex + 1];
+  assert.equal(
+    prismaStep?.run,
+    "pnpm --filter @led-control/api prisma:generate",
+    `${name} Prisma Client generation must immediately follow the frozen install`
+  );
+  assertCannotBeSkipped(prismaStep, `${name} Prisma Client generation step`);
+}
+
+function assertCannotBeSkipped(entity, name) {
+  assert.equal(Object.hasOwn(entity, "if"), false, `${name} must not declare if`);
+  assert.equal(Object.hasOwn(entity, "continue-on-error"), false, `${name} must not declare continue-on-error`);
+}
+
+function findRunStep(job, command) {
+  const step = job.steps.find((candidate) => candidate.run === command);
+  assert.ok(step, `${command} step must exist`);
+  return step;
 }
 
 function assertStepRuns(job, fragment) {

@@ -1,4 +1,5 @@
-import { statSync } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
+import path from "node:path";
 
 const EXACT_CONFIRMATION = "RUN_LED_HIL";
 const valueVariables = [
@@ -42,10 +43,20 @@ try {
   for (const name of valueVariables) requireValue(name);
   for (const name of commandVariables) validateCommand(name);
   for (const name of ["HIL_CA_PATH", "HIL_GATEWAY_CERT_PATH", "HIL_GATEWAY_KEY_PATH"]) {
-    if (!statSync(process.env[name]).isFile()) throw new Error(`${name} must identify a readable file`);
+    if (!statSync(process.env[name]).isFile()) throw new Error(`${name} must identify a regular file`);
+    try {
+      accessSync(process.env[name], constants.R_OK);
+    } catch {
+      throw new Error(`${name} must be readable`);
+    }
   }
   for (const name of ["HIL_NODE1_PORT", "HIL_NODE2_PORT"]) {
     if (!statSync(process.env[name]).isCharacterDevice()) throw new Error(`${name} must identify a character device`);
+    try {
+      accessSync(process.env[name], constants.R_OK | constants.W_OK);
+    } catch {
+      throw new Error(`${name} must be readable and writable`);
+    }
   }
   process.stdout.write("HIL preflight passed; protected hardware execution is authorized.\n");
 } catch (error) {
@@ -68,4 +79,20 @@ function validateCommand(name) {
   if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== "string" || part.length === 0)) {
     throw new Error(`${name} must be a non-empty JSON string array`);
   }
+  if (!resolveExecutable(parsed[0])) throw new Error(`${name} argv[0] must resolve to an executable file`);
+}
+
+function resolveExecutable(command) {
+  const candidates = command.includes("/")
+    ? [path.resolve(command)]
+    : (process.env.PATH ?? "").split(path.delimiter).filter(Boolean).map((directory) => path.join(directory, command));
+  return candidates.some((candidate) => {
+    try {
+      if (!statSync(candidate).isFile()) return false;
+      accessSync(candidate, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
