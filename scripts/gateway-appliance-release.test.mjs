@@ -186,9 +186,29 @@ for(const absent of [false,true]) test(`review authoritative env defeats ambient
     assert.equal(event.resolvedData,path.join(h.root,"data"));assert.match(event.resolvedImage,/^fixture-gateway:release-[ab]$/);
   }
 });
-test("review legacy gateway project is inherited consistently",async(t)=>{
-  const h=await fixture(t),a=await h.bundle("a");await h.set({existingProject:"gateway"});ok(h.run("activate",a));
+test("review legacy gateway project with verified current is inherited consistently",async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a"),b=await h.bundle("b");ok(h.run("activate",a));await h.set({existingProject:"gateway"});ok(h.run("activate",b));
   for(const event of (await h.events()).filter(e=>e.args[0]==="compose"&&e.project))assert.equal(event.project,"gateway");
+});
+for (const project of ["gateway", "led-control-gateway"]) test(`legacy service without verified current requires baseline registration: ${project}`, async (t) => {
+  const h = await fixture(t), candidate = await h.bundle("a");
+  await h.set({ existingProject: project });
+  const serviceFiles = [h.config + ".active", h.config + ".owner", h.config + ".active.image"];
+  for (const [index, value] of ["legacy-site-image", project, "sha256:" + "f".repeat(64)].entries()) await writeFile(serviceFiles[index], value);
+  const files = [path.join(h.root, ".env.appliance"), ...serviceFiles];
+  const before = await Promise.all(files.map(async (file) => ({ bytes: await readFile(file), mode: (await lstat(file)).mode })));
+  const result = h.run("activate", candidate);
+  fail(result);
+  assert.match(result.stderr, /verified baseline.*(?:migration|registration)/i);
+  for (const [index, file] of files.entries()) {
+    assert.deepEqual(await readFile(file), before[index].bytes);
+    assert.equal((await lstat(file)).mode, before[index].mode);
+  }
+  assert.equal(await h.pointer("current"), null); assert.equal(await h.pointer("previous"), null);
+  assert.equal(await exists(path.join(h.root, ".activation.journal")), false);
+  assert.equal(await exists(path.join(h.root, ".activation-env.snapshot")), false);
+  assert.equal(await exists(path.join(h.root, "releases", candidate.id)), false);
+  assert.equal((await h.events()).some(e => e.args.includes("up") || e.args.includes("down") || e.args.includes("load") || e.args.includes("config")), false);
 });
 for(const foreign of [{existingProject:"foreign"},{existingProject:"gateway",existingService:"other"},{existingProject:"gateway",existingWorkingDir:"/foreign"}])test(`review foreign ownership rejects before mutation ${JSON.stringify(foreign)}`,async(t)=>{
   const h=await fixture(t),a=await h.bundle("a");await h.set(foreign);fail(h.run("activate",a));assert.equal(await site(h),h.siteEnv);
@@ -208,9 +228,9 @@ test("review hanging recovery down retains journal with distinct bounded failure
   fail(result,3);assert.ok(result.elapsed<8000);assert.equal(await exists(path.join(h.root,".activation.journal")),true);assert.equal(await h.pointer("current"),null);
 });
 for(const hang of ["container ls","container inspect","image inspect","{{.Image}}"])test(`review hanging metadata ${hang} fails bounded`,async(t)=>{
-  const h=await fixture(t),a=await h.bundle("a");await h.set({existingProject:"gateway",hang});
-  const result=await h.runDeadline("activate",a);fail(result);assert.ok(result.elapsed<9000,`elapsed ${result.elapsed}`);assert.equal(await site(h),h.siteEnv);
-  assert.equal(await h.pointer("current"),null);
+  const h=await fixture(t),a=await h.bundle("a"),b=await h.bundle("b");ok(h.run("activate",a));const before=await site(h);await h.set({existingProject:"gateway",hang,hangTag:b.tag});
+  const result=await h.runDeadline("activate",b);fail(result);assert.ok(result.elapsed<9000,`elapsed ${result.elapsed}`);assert.equal(await site(h),before);
+  assert.equal(await h.pointer("current"),`releases/${a.id}`);
 });
 test("review unsupported timeout fails before service or env mutation",async(t)=>{
   const h=await fixture(t),a=await h.bundle("a");await writeFile(path.join(h.bin,"timeout"),"#!/bin/sh\nexit 127\n",{mode:0o755});

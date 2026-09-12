@@ -232,6 +232,13 @@ ownership_preflight() {
   case "$project" in gateway|led-control-gateway) ;; *) return 1 ;; esac
   [ "$service" = gateway-appliance ] && [ "$directory" = "$ROOT" ] || return 1
   [ -z "$EXPECTED_PROJECT" ] || [ "$project" = "$EXPECTED_PROJECT" ] || return 1
+  # A legacy service is not a first install: without a verified current bundle
+  # we cannot restore it after failure. A validated active journal is different:
+  # it can legitimately own a first-install candidate that recovery must stop.
+  if [ "$OLD_CURRENT" = none ] && [ "$JOURNAL_ACTIVE" = 0 ]; then
+    error 'existing service has no verified baseline; baseline migration or registration is required before activation'
+    return 1
+  fi
   COMPOSE_PROJECT=$project
 }
 preflight() {
@@ -344,6 +351,7 @@ if [ "$OLD_PREVIOUS" != none ]; then verify_bundle "$ROOT/releases/$OLD_PREVIOUS
 if [ "$COMMAND" = rollback ]; then [ "$OLD_PREVIOUS" != none ] || error 'no previous release'; BUNDLE=$ROOT/releases/$OLD_PREVIOUS; fi
 verify_bundle "$BUNDLE" || error 'bundle verification rejected'
 CANDIDATE=$RELEASE_ID
+[ "$OLD_CURRENT" != none ] || ownership_preflight || error 'legacy ownership preflight rejected'
 if [ "$CANDIDATE" = "$OLD_CURRENT" ]; then preflight "$ROOT/releases/$CANDIDATE" && healthy || error 'current release is not healthy'; echo "already healthy: $CANDIDATE"; exit 0; fi
 AVAILABLE_KB=$(df -Pk "$ROOT" | awk 'NR==2 {print $4}')
 BUNDLE_KB=$(du -sk "$BUNDLE" | awk '{print $1}')
