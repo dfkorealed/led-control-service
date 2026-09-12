@@ -4195,14 +4195,22 @@ button.group-card {
 .statistics-heatmap-detail { margin: 0; color: var(--text); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .statistics-reports-screen { min-width: 0; }
+.statistics-cost-basis-note,
+.statistics-current-cost-note,
+.statistics-ranking-cost-basis { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
 .statistics-report-list { display: grid; gap: var(--space-3); min-width: 0; }
-.statistics-report-job { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-4); }
+.statistics-report-job { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-3); min-width: 0; padding: var(--space-4); }
 .statistics-report-job-copy { display: flex; align-items: start; justify-content: space-between; gap: var(--space-3); min-width: 0; }
 .statistics-report-job-copy > div { display: grid; gap: var(--space-1); min-width: 0; }
 .statistics-report-job-copy strong { color: var(--text); overflow-wrap: anywhere; }
 .statistics-report-job-copy span:not(.ui-status-badge) { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-.statistics-report-job-meta { display: flex; flex-wrap: wrap; gap: var(--space-2); grid-column: 1; color: var(--muted); font-size: 12px; font-weight: 700; }
-.statistics-report-job > .ui-button { grid-column: 2; grid-row: 1 / span 2; min-width: 96px; }
+.statistics-report-job-meta { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); grid-column: 1; margin: 0; color: var(--muted); font-size: 12px; }
+.statistics-report-job-meta > div { display: flex; flex-wrap: wrap; gap: var(--space-1); min-width: 0; }
+.statistics-report-job-meta dt { font-weight: 700; }
+.statistics-report-job-meta dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.statistics-report-job-failure { display: grid; gap: var(--space-1); grid-column: 1; border-radius: 10px; background: #fef2f2; color: var(--danger); padding: var(--space-3); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.statistics-report-job-actions { display: flex; align-self: center; grid-column: 2; grid-row: 1 / span 3; min-width: 0; }
+.statistics-report-job-actions .ui-button { min-width: 112px; }
 .statistics-report-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .statistics-report-dialog .ui-modal-close.ui-button { width: 48px; min-width: 48px; height: 48px; min-height: 48px; border-radius: 6px; flex-shrink: 0; }
 .statistics-report-dialog .ui-modal-actions { flex-wrap: wrap; }
@@ -4222,7 +4230,9 @@ button.group-card {
   .statistics-heatmap { padding: var(--space-4); }
   .statistics-heatmap-heading { align-items: stretch; flex-direction: column; }
   .statistics-report-job { grid-template-columns: minmax(0, 1fr); }
-  .statistics-report-job > .ui-button { grid-column: 1; grid-row: auto; width: 100%; min-height: 44px; }
+  .statistics-report-job-copy { flex-wrap: wrap; }
+  .statistics-report-job-actions { grid-column: 1; grid-row: auto; width: 100%; }
+  .statistics-report-job-actions .ui-button { width: 100%; min-height: 44px; }
   .statistics-report-form { grid-template-columns: minmax(0, 1fr); }
 }
 

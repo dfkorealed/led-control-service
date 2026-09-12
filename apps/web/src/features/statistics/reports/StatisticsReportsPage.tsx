@@ -2,7 +2,7 @@ import type { EnergyReportJob, EnergyReportRequest } from "@led-control/shared/e
 import { FileText } from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { createEnergyReport, downloadEnergyCsv, downloadEnergyReport, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
+import { createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
 import { Button, PageHeader } from "../../../components/ui";
 import { useOutletContext } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
@@ -38,8 +38,8 @@ export function StatisticsReportsPage() {
       document.body.append(anchor);
       anchor.click();
       anchor.remove();
-    } catch {
-      setDownloadError("다운로드를 시작하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.");
+    } catch (error) {
+      setDownloadError(energyReportRequestErrorMessage(error, "download"));
     }
   }
   async function regenerate(job: EnergyReportJob) {
@@ -48,8 +48,8 @@ export function StatisticsReportsPage() {
     setRetryingReportId(job.reportId);
     try {
       await create(job.request);
-    } catch {
-      setRetryError("다시 생성을 요청하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.");
+    } catch (error) {
+      setRetryError(energyReportRequestErrorMessage(error, "regenerate"));
     } finally {
       setRetryingReportId(undefined);
     }
@@ -58,6 +58,7 @@ export function StatisticsReportsPage() {
   return <section className="statistics-screen statistics-reports-screen">
     <PageHeader title="보고서" description="현장 에너지 사용량을 기간과 범위에 맞춰 내보냅니다." status={undefined}
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
+    <p className="statistics-cost-basis-note">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</p>
     <ReportJobList reports={reports.data?.reports} isLoading={reports.isLoading || !siteId} isError={reports.isError}
       retryingReportId={retryingReportId} onRetry={() => void reports.refetch()} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
     {downloadError ? <p className="danger-text" role="alert">{downloadError}</p> : null}

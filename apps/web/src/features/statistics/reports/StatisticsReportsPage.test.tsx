@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../api/client";
 import { StatisticsReportsPage } from "./StatisticsReportsPage";
 
 const reportsApi = vi.hoisted(() => ({
@@ -13,7 +14,8 @@ const reportsApi = vi.hoisted(() => ({
 const dashboardState = vi.hoisted(() => ({ data: undefined as unknown, isLoading: false }));
 const targetState = vi.hoisted(() => ({ data: undefined as unknown, isLoading: false, isError: false }));
 
-vi.mock("../../../api/energy", () => ({
+vi.mock("../../../api/energy", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../../api/energy")>(),
   createEnergyReport: (...args: unknown[]) => reportsApi.create(...args),
   downloadEnergyCsv: (...args: unknown[]) => reportsApi.csv(...args),
   downloadEnergyReport: (...args: unknown[]) => reportsApi.download(...args),
@@ -161,27 +163,73 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByText("완료")).toBeInTheDocument();
     expect(screen.getByText("생성 실패")).toBeInTheDocument();
     expect(screen.getByText("만료됨")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "다운로드" }));
+    expect(screen.getByText("대상 completed")).toBeInTheDocument();
+    expect(screen.getAllByText("요청 시각")).toHaveLength(5);
+    expect(screen.getAllByText("파일 만료 시각")).toHaveLength(2);
+    expect(screen.getByRole("region", { name: "대상 failed 실패 안내" })).toHaveTextContent(
+      "보고서를 생성하지 못했습니다.잠시 후 다시 생성해 주세요."
+    );
+    expect(screen.getByText("보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.")).toBeInTheDocument();
+    const requestedAt = screen.getAllByTitle("2026-09-10T00:00:00.000Z")[0];
+    expect(requestedAt).toHaveAttribute("datetime", "2026-09-10T00:00:00.000Z");
+    fireEvent.click(screen.getByRole("button", { name: "대상 completed 보고서 다운로드" }));
     await waitFor(() => expect(reportsApi.download).toHaveBeenCalledWith(siteId, reports[2].reportId));
-    expect(screen.getAllByRole("button", { name: "다시 생성" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "대상 failed 보고서 다시 생성" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "대상 expired 보고서 다시 생성" })).toBeInTheDocument();
+  });
+
+  it("keeps report metadata and actions in separate wrapping regions", () => {
+    renderPage();
+
+    const completed = screen.getByRole("article", { name: "대상 completed 보고서" });
+    expect(within(completed).getByRole("group", { name: "보고서 메타데이터" })).toHaveTextContent(
+      "형식XLSX범위현장요청 시각"
+    );
+    expect(within(completed).getByRole("group", { name: "보고서 작업" })).toContainElement(
+      within(completed).getByRole("button", { name: "대상 completed 보고서 다운로드" })
+    );
   });
 
   it("keeps the report list available when a signed download request fails", async () => {
     reportsApi.download.mockRejectedValueOnce(new Error("download failed"));
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "다운로드" }));
+    fireEvent.click(screen.getByRole("button", { name: "대상 completed 보고서 다운로드" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("다운로드를 시작하지 못했습니다.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("보고서 다운로드를 완료하지 못했습니다.");
     expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
   });
 
   it("keeps the report list available and reports a retry failure", async () => {
     reportsApi.create.mockRejectedValueOnce(new Error("retry failed"));
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "다시 생성" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "대상 failed 보고서 다시 생성" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("다시 생성을 요청하지 못했습니다.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("보고서 다시 생성을 완료하지 못했습니다.");
     expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["create", () => reportsApi.create.mockRejectedValueOnce(new ApiError("invalid", 400, null)), "보고서 요청 입력을 확인해 주세요."],
+    ["csv", () => reportsApi.csv.mockRejectedValueOnce(new TypeError("Failed to fetch")), "네트워크 연결을 확인한 뒤 CSV 내보내기를 다시 시도해 주세요."],
+    ["download", () => reportsApi.download.mockRejectedValueOnce(new ApiError("gone", 404, null)), "보고서 파일이 없거나 만료되었습니다."],
+    ["regenerate", () => reportsApi.create.mockRejectedValueOnce(new ApiError("conflict", 409, null)), "보고서 다시 생성이 현재 상태와 충돌했습니다."]
+  ] as const)("shows the mapped %s error while preserving the current view", async (action, reject, expected) => {
+    reject();
+    renderPage();
+    if (action === "create" || action === "csv") {
+      fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+      fireEvent.click(screen.getByRole("button", { name: action === "create" ? "보고서 요청" : "CSV 내보내기" }));
+    } else {
+      fireEvent.click(screen.getByRole("button", {
+        name: action === "download" ? "대상 completed 보고서 다운로드" : "대상 failed 보고서 다시 생성"
+      }));
+    }
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
+    if (action === "create" || action === "csv") {
+      expect(screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" })).toBeInTheDocument();
+    } else {
+      expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
+    }
   });
 });
 
@@ -211,6 +259,13 @@ function job(status: "queued" | "processing" | "completed" | "failed" | "expired
     startedAt: started ? "2026-09-10T00:00:02.000Z" : null,
     completedAt: done ? "2026-09-10T00:00:04.000Z" : null,
     expiresAt: done ? "2026-09-17T00:00:04.000Z" : null,
-    failureCode: status === "failed" ? "REPORT_FAILED" : null
+    failureCode: status === "failed" ? "REPORT_GENERATION_FAILED" : null,
+    target: { scope: "site" as const, identityId: siteId, label: `대상 ${status}` },
+    requestedAt: "2026-09-10T00:00:00.000Z",
+    failure: status === "failed" ? {
+      code: "generation_failed" as const,
+      message: "보고서를 생성하지 못했습니다.",
+      action: "잠시 후 다시 생성해 주세요."
+    } : null
   };
 }

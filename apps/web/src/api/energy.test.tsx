@@ -6,6 +6,7 @@ import {
   createEnergyReport,
   downloadEnergyReport,
   downloadEnergyCsv,
+  energyReportRequestErrorMessage,
   useEnergyComparison,
   useEnergyHeatmap,
   useEnergyRankings,
@@ -14,10 +15,15 @@ import {
   useEnergySeries,
   useEnergySummary
 } from "./energy";
+import { ApiError } from "./client";
 
 const { apiGet, apiPost } = vi.hoisted(() => ({ apiGet: vi.fn(), apiPost: vi.fn() }));
 
-vi.mock("./client", () => ({ apiGet, apiPost }));
+vi.mock("./client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./client")>(),
+  apiGet,
+  apiPost
+}));
 
 function wrapperFor(client: QueryClient) {
   return function QueryWrapper({ children }: PropsWithChildren) {
@@ -136,6 +142,46 @@ describe("energy queries", () => {
     }
   });
 
+  it("preserves the CSV response status as an ApiError", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ message: "scope not found" }),
+      { status: 404, headers: { "Content-Type": "application/json" } }
+    )));
+    try {
+      await expect(downloadEnergyCsv(reportJob.siteId, reportJob.request)).rejects.toMatchObject({
+        name: "ApiError",
+        status: 404,
+        body: { message: "scope not found" }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    ["create", 400, "보고서 요청 입력을 확인해 주세요. 기간·대상·지원 문자를 수정한 뒤 다시 시도해 주세요."],
+    ["create", 422, "보고서 요청 입력을 확인해 주세요. 기간·대상·지원 문자를 수정한 뒤 다시 시도해 주세요."],
+    ["regenerate", 404, "다시 생성할 보고서의 대상 또는 이력을 찾을 수 없습니다. 새 조건으로 요청해 주세요."],
+    ["download", 404, "보고서 파일이 없거나 만료되었습니다. 다시 생성해 주세요."],
+    ["csv", 404, "CSV 대상 또는 이력을 찾을 수 없습니다. 대상을 다시 선택해 주세요."],
+    ["create", 409, "보고서 요청이 현재 상태와 충돌했습니다. 삭제 또는 동일 요청 처리가 끝난 뒤 다시 시도해 주세요."],
+    ["download", 503, "서버에서 보고서 다운로드를 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."]
+  ] as const)("maps %s API status %s without exposing server details", (action, status, expected) => {
+    expect(energyReportRequestErrorMessage(
+      new ApiError("request failed", status, { message: "raw storage path /secret/key" }),
+      action
+    )).toBe(expected);
+  });
+
+  it("distinguishes fetch failures from API and unexpected client errors", () => {
+    expect(energyReportRequestErrorMessage(new TypeError("Failed to fetch"), "csv")).toBe(
+      "네트워크 연결을 확인한 뒤 CSV 내보내기를 다시 시도해 주세요."
+    );
+    expect(energyReportRequestErrorMessage(new Error("invalid response"), "create")).toBe(
+      "보고서 요청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."
+    );
+  });
+
   it.each(["completed", "failed", "expired"])("polls active reports at three seconds and stops after %s", async terminal => {
     vi.useFakeTimers();
     apiGet.mockResolvedValueOnce({ reports: [reportJob] })
@@ -143,7 +189,10 @@ describe("energy queries", () => {
       .mockResolvedValue({ reports: [{ ...reportJob, status: terminal, progressPercent: terminal === "failed" ? 0 : 100,
         startedAt: reportJob.createdAt, completedAt: terminal === "failed" ? null : reportJob.createdAt,
         expiresAt: terminal === "failed" ? null : "2026-09-18T00:00:00.000Z",
-        failureCode: terminal === "failed" ? "REPORT_GENERATION_FAILED" : null }] });
+        failureCode: terminal === "failed" ? "REPORT_GENERATION_FAILED" : null,
+        failure: terminal === "failed" ? {
+          code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "다시 생성해 주세요."
+        } : null }] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const hook = renderHook(() => useEnergyReports(reportJob.siteId), { wrapper: wrapperFor(client) });
     try {
@@ -305,5 +354,12 @@ const reportJob = {
   startedAt: null,
   completedAt: null,
   expiresAt: null,
-  failureCode: null
+  failureCode: null,
+  target: {
+    scope: "site" as const,
+    identityId: "30000000-0000-4000-8000-000000000001",
+    label: "서울 물류센터"
+  },
+  requestedAt: "2026-09-10T00:00:00.000Z",
+  failure: null
 };

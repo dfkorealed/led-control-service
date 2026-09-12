@@ -17,7 +17,7 @@ export function EnergyRankingDetailPanel({ item }: { item: EnergyRankingItem | n
       </header>
       <div className="statistics-detail-metrics">
         <div><span>사용량</span><strong>{item.estimatedKwh === null ? "—" : formatKwh(item.estimatedKwh)}</strong></div>
-        <div><span>예상 비용</span><strong>{item.estimatedCost === null ? "—" : formatWon(item.estimatedCost)}</strong></div>
+        <div><span>저장 비용</span><strong>{item.estimatedCost === null ? "—" : formatWon(item.estimatedCost)}</strong></div>
         <div><span>현장 기여도</span><strong>{item.contributionRate === null ? "—" : `${(item.contributionRate * 100).toFixed(1)}%`}</strong></div>
       </div>
       <p className="statistics-ranking-change" data-tone={change !== null && change > 0 ? "danger" : "success"}>
