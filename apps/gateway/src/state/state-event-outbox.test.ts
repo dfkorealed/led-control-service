@@ -22,6 +22,41 @@ afterEach(async () => {
 });
 
 describe("StateEventOutbox", () => {
+  it("removes only the exact future-rejected head and publishes the next persisted event", async () => {
+    const path = await outboxPath();
+    const outbox = new StateEventOutbox(path, scope);
+    await outbox.initialize();
+    const poison = { ...fixtureState(7), occurredAt: "9999-01-01T00:00:00.000Z" };
+    const next = fixtureState(8);
+    await outbox.enqueue(poison);
+    await outbox.enqueue(next);
+    const published: FixtureStateV2[] = [];
+    const publisher = new StateEventOutboxPublisher(outbox);
+    const acknowledgement = {
+      eventId: poison.eventId,
+      sequence: poison.sequence,
+      fixtureId: poison.fixtureId,
+      status: "rejected_future_timestamp",
+      ingestedAt: "2026-08-26T00:00:02.000Z"
+    };
+    try {
+      await publisher.connect(async (topic, payload) => {
+        expect(topic).toBe(mqttTopicsV2.fixtureState(scope.siteId, scope.gatewayId));
+        published.push(payload);
+      });
+      expect(published).toEqual([poison]);
+      await expect(publisher.acknowledge({ ...acknowledgement, sequence: next.sequence })).resolves.toBe(false);
+      expect((await outbox.pending()).map((record) => record.payload)).toEqual([poison, next]);
+      await expect(publisher.acknowledge(acknowledgement)).resolves.toBe(true);
+      expect(published).toEqual([poison, next]);
+      expect((await new StateEventOutbox(path, scope).pending()).map((record) => record.payload)).toEqual([next]);
+      await expect(publisher.acknowledge(acknowledgement)).resolves.toBe(false);
+      expect(published).toEqual([poison, next]);
+    } finally {
+      publisher.disconnect();
+    }
+  });
+
   it("persists mode 0600 before publish and survives restart until exact application ACK", async () => {
     const path = await outboxPath();
     const outbox = new StateEventOutbox(path, scope);

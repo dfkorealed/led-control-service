@@ -1,6 +1,7 @@
 import { MqttService } from "./mqtt.service";
 import { EventEmitter } from "node:events";
 import { dirname, join } from "node:path";
+import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 
 const mqttHandlePublish = require(
   join(dirname(require.resolve("mqtt")), "lib/handlers/publish.js")
@@ -12,6 +13,179 @@ const scope = {
 };
 
 describe("MqttService v2 ordered state", () => {
+  it("persists a future heartbeat rejection without changing gateway freshness, sequence, or firmware", async () => {
+    const { service, gateway, ledger } = heartbeatHarness();
+    const before = { ...gateway };
+    const event = heartbeatEvent({ occurredAt: "9999-01-01T00:00:00.000Z" });
+
+    await receiveHeartbeat(service, event);
+
+    expect(gateway).toEqual(before);
+    expect(ledger.get(event.eventId)).toMatchObject({
+      gatewayId: scope.gatewayId, sequence: 9n, eventType: "gateway_heartbeat",
+      occurredAt: new Date(event.occurredAt), receivedAt: heartbeatReceivedAt,
+      ingestionStatus: "rejected_future_timestamp", payloadHash: canonicalPayloadHash(event)
+    });
+  });
+
+  it("stores server receipt for heartbeat freshness and device time separately at the inclusive boundary", async () => {
+    const { service, gateway, ledger } = heartbeatHarness();
+    const event = heartbeatEvent({ occurredAt: "2026-09-12T00:05:00.000Z" });
+    await receiveHeartbeat(service, event);
+    expect(gateway).toMatchObject({ lastHeartbeatAt: heartbeatReceivedAt,
+      lastHeartbeatOccurredAt: new Date(event.occurredAt), lastHeartbeatSequence: 9n, firmwareVersion: "v2" });
+    expect(ledger.get(event.eventId)).toMatchObject({
+      receivedAt: heartbeatReceivedAt, ingestionStatus: "accepted", payloadHash: canonicalPayloadHash(event)
+    });
+  });
+
+  it.each(["2026-09-12T00:00:00.000Z", "2026-09-12T00:05:00.001Z"])(
+    "verifies heartbeat replay hash even when its sequence is already terminal: %s", async (occurredAt) => {
+      const { service, gateway, ledger } = heartbeatHarness();
+      const event = heartbeatEvent({ occurredAt });
+      await receiveHeartbeat(service, event);
+      const before = { ...gateway };
+      await receiveHeartbeat(service, Object.fromEntries(Object.entries(event).reverse()) as typeof event);
+      expect(ledger.size).toBe(1);
+      expect(gateway).toEqual(before);
+      await expect(receiveHeartbeat(service, { ...event, firmwareVersion: "mutated" })).rejects.toThrow("conflict");
+      expect(gateway).toEqual(before);
+    }
+  );
+
+  it.each(["topic", "serial", "site"])("rejects forged heartbeat %s scope before writing the ledger", async (kind) => {
+    const { service, gateway, ledger } = heartbeatHarness();
+    const before = { ...gateway };
+    const event = heartbeatEvent({ occurredAt: "9999-01-01T00:00:00.000Z",
+      ...(kind === "serial" ? { gatewaySerial: "forged" } : {}),
+      ...(kind === "site" ? { siteId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } : {}) });
+    await expect(receiveHeartbeat(service, event, kind === "topic" ? `${heartbeatTopic}/state/heartbeat` : heartbeatTopic))
+      .rejects.toThrow("scope");
+    expect(ledger.size).toBe(0);
+    expect(gateway).toEqual(before);
+  });
+
+  it("keeps old and equal heartbeat sequences harmless while processing the next heartbeat", async () => {
+    const { service, gateway, ledger } = heartbeatHarness();
+    gateway.lastHeartbeatSequence = 9n;
+    const before = { ...gateway };
+    await receiveHeartbeat(service, heartbeatEvent({ sequence: 8 }));
+    await receiveHeartbeat(service, heartbeatEvent());
+    expect(gateway).toEqual(before);
+    expect(ledger.size).toBe(0);
+    await receiveHeartbeat(service, heartbeatEvent({ sequence: 10 }));
+    expect(gateway.lastHeartbeatSequence).toBe(10n);
+  });
+
+  it("does not swallow a partial unique sequence collision with no exact heartbeat replay", async () => {
+    const { service, tx } = heartbeatHarness();
+    tx.processedGatewayEvent.create.mockRejectedValueOnce({ code: "P2002" });
+    await expect(receiveHeartbeat(service, heartbeatEvent())).rejects.toThrow("conflict");
+  });
+
+  it.each([false, true])("checks the winning heartbeat payload after a unique race (mutated=%s)", async (mutated) => {
+    const { service, gateway, tx, ledger } = heartbeatHarness();
+    const before = { ...gateway };
+    const event = heartbeatEvent({ occurredAt: "9999-01-01T00:00:00.000Z" });
+    tx.processedGatewayEvent.create.mockImplementationOnce(async ({ data }) => {
+      ledger.set(event.eventId, { ...data, payloadHash: mutated ? "sha256:conflicting" : canonicalPayloadHash(event) });
+      throw { code: "P2002" };
+    });
+    if (mutated) await expect(receiveHeartbeat(service, event)).rejects.toThrow("conflict");
+    else await expect(receiveHeartbeat(service, event)).resolves.toBeUndefined();
+    expect(gateway).toEqual(before);
+  });
+
+  it("freezes heartbeat receipt before waiting in the gateway queue", async () => {
+    jest.useFakeTimers().setSystemTime(heartbeatReceivedAt);
+    const { service, ledger } = heartbeatHarness();
+    const client = mqttClientHarness(service);
+    const release = deferred<void>();
+    const event = heartbeatEvent({ occurredAt: "2026-09-12T00:05:00.001Z" });
+    const payload = Buffer.from(JSON.stringify(event));
+    const packet = { qos: 1, messageId: 94 };
+    const done = jest.fn(() => client.emit("message", heartbeatTopic, payload, packet));
+    try {
+      void mqttInternals(service).runInGatewayInboundQueue(heartbeatTopic, () => release.promise);
+      mqttInternals(service).createCustomHandleAcks()(heartbeatTopic, payload, packet, done);
+      jest.setSystemTime(new Date("2026-09-12T00:10:00.000Z"));
+      release.resolve();
+      // Drain active handlers without stopping intake; shutdown intentionally suppresses pending generic PUBACKs.
+      await Promise.all((service as any).activeInboundHandlers);
+      expect(done).toHaveBeenCalledWith(0);
+      expect(ledger.get(event.eventId)).toMatchObject({
+        receivedAt: heartbeatReceivedAt, ingestionStatus: "rejected_future_timestamp"
+      });
+    } finally {
+      release.resolve();
+      await service.stopInboundAndDrain();
+      jest.useRealTimers();
+    }
+  });
+
+  it("fails closed on invalid heartbeat skew configuration", async () => {
+    const original = process.env.GATEWAY_EVENT_MAX_FUTURE_SKEW_MS;
+    process.env.GATEWAY_EVENT_MAX_FUTURE_SKEW_MS = "invalid";
+    try {
+      const { service, ledger } = heartbeatHarness();
+      await expect(receiveHeartbeat(service)).rejects.toThrow("invalid GATEWAY_EVENT_MAX_FUTURE_SKEW_MS");
+      expect(ledger.size).toBe(0);
+    } finally {
+      if (original === undefined) delete process.env.GATEWAY_EVENT_MAX_FUTURE_SKEW_MS;
+      else process.env.GATEWAY_EVENT_MAX_FUTURE_SKEW_MS = original;
+    }
+  });
+
+  it("PUBACKs a durably rejected future heartbeat and then processes the same gateway's state packet", async () => {
+    const { service, ledger } = heartbeatHarness();
+    const client = mqttClientHarness(service);
+    const future = heartbeatEvent({ occurredAt: "9999-01-01T00:00:00.000Z" });
+    const payload = Buffer.from(JSON.stringify(future));
+    const packet = { qos: 1, messageId: 90 };
+    const done = jest.fn(() => {
+      expect(ledger.get(future.eventId)?.ingestionStatus).toBe("rejected_future_timestamp");
+      client.emit("message", heartbeatTopic, payload, packet);
+    });
+    const publish = jest.spyOn(service, "publishTopic").mockResolvedValue();
+    mqttInternals(service).createCustomHandleAcks()(heartbeatTopic, payload, packet, done);
+    await waitFor(() => done.mock.calls.length === 1);
+    const nextDone = jest.fn();
+    mqttInternals(service).createCustomHandleAcks()(fixtureTopic, Buffer.from(JSON.stringify(fixtureEvent(10))),
+      { qos: 1, messageId: 91 }, nextDone);
+    await waitFor(() => nextDone.mock.calls.length === 1);
+    await service.stopInboundAndDrain();
+    expect(publish).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ sequence: 10, status: "ingested" }), expect.any(Object));
+    expect(client.stream.destroy).not.toHaveBeenCalled();
+  });
+
+  it("PUBACKs future fixture rejection and publishes its terminal ACK before processing the next same-gateway state", async () => {
+    const commit = deferred<void>();
+    const ingestion = { ingest: jest.fn(async (_gateway, event) => {
+      if (event.sequence === 9) await commit.promise;
+      return { eventId: event.eventId, sequence: event.sequence, fixtureId: event.fixtureId,
+        status: event.sequence === 9 ? "rejected_future_timestamp" : "ingested" };
+    }) };
+    const service = new MqttService({} as never, {} as never, ingestion as never);
+    const publish = jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const firstDone = jest.fn();
+    const secondDone = jest.fn();
+    const handle = mqttInternals(service).createCustomHandleAcks();
+    handle(fixtureTopic, Buffer.from(JSON.stringify({ ...fixtureEvent(9), occurredAt: "9999-01-01T00:00:00.000Z" })),
+      { qos: 1, messageId: 92 }, firstDone);
+    handle(fixtureTopic, Buffer.from(JSON.stringify(fixtureEvent(10))), { qos: 1, messageId: 93 }, secondDone);
+    await flushPromises();
+    expect(firstDone).not.toHaveBeenCalled();
+    expect(secondDone).not.toHaveBeenCalled();
+    commit.resolve();
+    await service.stopInboundAndDrain();
+    expect(firstDone).toHaveBeenCalledWith(0);
+    expect(secondDone).toHaveBeenCalledWith(0);
+    expect(publish.mock.calls.map(([, ack]) => ack)).toEqual([
+      expect.objectContaining({ sequence: 9, status: "rejected_future_timestamp" }),
+      expect.objectContaining({ sequence: 10, status: "ingested" })
+    ]);
+  });
+
   it("serializes automation and fixture-state ingestion for the same Gateway", async () => {
     let releaseAutomation!: () => void;
     let markAutomationStarted!: () => void;
@@ -501,6 +675,42 @@ function fixtureEvent(sequence: number) {
     rssi: -60,
     hopCount: 1
   };
+}
+
+const heartbeatReceivedAt = new Date("2026-09-12T00:00:00.000Z");
+const heartbeatTopic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/heartbeat`;
+const fixtureTopic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/fixtures`;
+
+function heartbeatEvent(overrides: Record<string, unknown> = {}) {
+  return { ...scope, eventId: "77777777-7777-4777-8777-777777777777", sequence: 9,
+    occurredAt: "2026-09-12T00:00:00.000Z", gatewaySerial: "GW-001", firmwareVersion: "v2", ...overrides };
+}
+
+function receiveHeartbeat(service: MqttService, event = heartbeatEvent(), topic = heartbeatTopic) {
+  return service.handleMessage(topic, Buffer.from(JSON.stringify(event)), heartbeatReceivedAt);
+}
+
+function heartbeatHarness() {
+  const gateway = { id: scope.gatewayId, siteId: scope.siteId, serialNumber: "GW-001",
+    lastHeartbeatAt: new Date("2026-09-11T00:00:00.000Z"), lastHeartbeatOccurredAt: new Date("2026-09-11T00:00:00.000Z"),
+    lastHeartbeatSequence: null as bigint | null, firmwareVersion: "v1" };
+  const ledger = new Map<string, any>();
+  const tx = {
+    $queryRaw: jest.fn(async (_sql, id, siteId, serialNumber) =>
+      id === gateway.id && siteId === gateway.siteId && serialNumber === gateway.serialNumber ? [{ ...gateway }] : []),
+    gateway: {
+      findFirst: jest.fn(async ({ where }) => where.id === gateway.id && where.siteId === gateway.siteId && where.serialNumber === gateway.serialNumber ? { ...gateway } : null),
+      updateMany: jest.fn(async ({ data }) => { Object.assign(gateway, data); return { count: 1 }; })
+    },
+    processedGatewayEvent: {
+      findUnique: jest.fn(async ({ where }) => ledger.get(where.eventId) ?? null),
+      create: jest.fn(async ({ data }) => { ledger.set(data.eventId, data); return data; })
+    }
+  };
+  const prisma = { ...tx, $transaction: jest.fn(async (operation) => operation(tx)) };
+  const ingestion = { ingest: jest.fn(async (_id, event) => ({ eventId: event.eventId, sequence: event.sequence,
+    fixtureId: event.fixtureId, status: "ingested" })) };
+  return { service: new MqttService(prisma as never, {} as never, ingestion as never), gateway, ledger, tx, prisma };
 }
 
 function mqttClientHarness(service: MqttService) {

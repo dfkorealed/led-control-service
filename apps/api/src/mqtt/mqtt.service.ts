@@ -42,6 +42,7 @@ import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
+import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "./gateway-event-time";
 
 const DEVICE_UUID_CONFLICT_ERROR = "device UUID is already registered by another site";
 const FIXTURE_FLOOR_CONFLICT_ERROR = "fixture is already assigned to another floor";
@@ -279,7 +280,8 @@ export class MqttService implements OnModuleInit {
     }
 
     let handler!: Promise<void>;
-    const operation = () => this.handleMessage(topic, payload);
+    const receivedAt = new Date();
+    const operation = () => this.handleMessage(topic, payload, receivedAt);
     handler = (permit
       ? this.runWithGatewayInboundPermit(permit, operation)
       : this.runInGatewayInboundQueue(topic, operation))
@@ -392,6 +394,8 @@ export class MqttService implements OnModuleInit {
   ) {
     if (this.seenInboundPackets.has(packet)) return;
     this.seenInboundPackets.add(packet);
+    // Queue backpressure must not move the trust boundary forward while a packet waits.
+    const receivedAt = new Date();
 
     if (this.inboundStopped || !this.hasActiveMessageListener()) {
       this.client?.stream.destroy();
@@ -406,7 +410,7 @@ export class MqttService implements OnModuleInit {
     this.inboundPacketPermits.set(packet, reservation);
 
     let handler!: Promise<void>;
-    handler = this.runInGatewayInboundQueue(topic, () => this.handleMessageBeforeAck(topic, payload))
+    handler = this.runInGatewayInboundQueue(topic, () => this.handleMessageBeforeAck(topic, payload, receivedAt))
       .then((publishAfterAck) => {
         if (reservation.aborted || this.inboundStopped || this.inboundPacketPermits.get(packet) !== reservation) {
           return;
@@ -444,9 +448,9 @@ export class MqttService implements OnModuleInit {
     this.activeInboundHandlers.add(handler);
   }
 
-  private async handleMessageBeforeAck(topic: string, payload: Buffer): Promise<(() => Promise<void>) | undefined> {
+  private async handleMessageBeforeAck(topic: string, payload: Buffer, receivedAt: Date): Promise<(() => Promise<void>) | undefined> {
     if (!topic.endsWith("/events/mesh-group/resync-request")) {
-      await this.handleMessage(topic, payload);
+      await this.handleMessage(topic, payload, receivedAt);
       return;
     }
 
@@ -586,7 +590,8 @@ export class MqttService implements OnModuleInit {
     );
   }
 
-  async handleMessage(topic: string, payload: Buffer) {
+  async handleMessage(topic: string, payload: Buffer, receivedAt = new Date()) {
+    const frozenReceivedAt = new Date(receivedAt.getTime());
     if (topic.endsWith("/events/identify-result")) {
       const result = fixtureIdentifyResultSchema.parse(JSON.parse(payload.toString()));
       if (topic !== fixtureIdentifyTopics.result(result.siteId, result.gatewayId)) throw new Error("identify_scope_mismatch");
@@ -621,13 +626,10 @@ export class MqttService implements OnModuleInit {
     if (topic.endsWith("/state/heartbeat")) {
       const scope = parseGatewayTopic(topic);
       const heartbeat = gatewayHeartbeatV2Schema.parse(JSON.parse(payload.toString()));
-      if (!scope || scope.siteId !== heartbeat.siteId || scope.gatewayId !== heartbeat.gatewayId) return;
-      const gateway = await this.prisma.gateway.findFirst({
-        where: { id: scope.gatewayId, siteId: scope.siteId, serialNumber: heartbeat.gatewaySerial },
-        select: { lastHeartbeatSequence: true }
-      });
-      if (!gateway || (gateway.lastHeartbeatSequence !== null && gateway.lastHeartbeatSequence >= BigInt(heartbeat.sequence))) return;
-      await this.storeHeartbeatV2(heartbeat);
+      if (!scope || scope.channel !== "state/heartbeat" || scope.siteId !== heartbeat.siteId || scope.gatewayId !== heartbeat.gatewayId) {
+        throw new Error("gateway heartbeat topic scope rejected");
+      }
+      await this.storeHeartbeatV2(heartbeat, frozenReceivedAt);
       return;
     }
 
@@ -1013,38 +1015,70 @@ export class MqttService implements OnModuleInit {
     });
   }
 
-  private async storeHeartbeatV2(heartbeat: ReturnType<typeof gatewayHeartbeatV2Schema.parse>) {
+  private async storeHeartbeatV2(heartbeat: ReturnType<typeof gatewayHeartbeatV2Schema.parse>, receivedAt: Date) {
+    const maxFutureSkewMs = gatewayEventMaxFutureSkewMs();
+    const occurredAt = new Date(heartbeat.occurredAt);
+    const payloadHash = canonicalPayloadHash(heartbeat);
+    const sequence = BigInt(heartbeat.sequence);
     try {
       await this.prisma.$transaction(async (tx) => {
+        // Scope validation and ordering share the Gateway row lock. A heartbeat that
+        // waited for another writer must inspect the committed ledger and sequence again.
+        const [gateway] = await tx.$queryRaw<Array<{ id: string; lastHeartbeatSequence: bigint | null }>>`
+          SELECT "id", "lastHeartbeatSequence" FROM "Gateway"
+          WHERE "id" = ${heartbeat.gatewayId}
+            AND "siteId" = ${heartbeat.siteId}
+            AND "serialNumber" = ${heartbeat.gatewaySerial}
+          FOR UPDATE
+        `;
+        if (!gateway) throw new Error("gateway heartbeat scope rejected");
+        const existing = await tx.processedGatewayEvent.findUnique({ where: { eventId: heartbeat.eventId } });
+        if (existing) {
+          if (!sameHeartbeatEvent(existing, heartbeat, payloadHash)) throw new Error("gateway heartbeat event identity conflict");
+          return;
+        }
+        const ingestionStatus = gatewayEventIsTooFarInFuture(occurredAt, receivedAt, maxFutureSkewMs)
+          ? "rejected_future_timestamp" : "accepted";
+        // Preserve legacy stale/equal sequence no-ops, but check eventId/hash first so
+        // a mutated replay cannot hide behind an already advanced heartbeat sequence.
+        if (ingestionStatus === "accepted" && gateway.lastHeartbeatSequence !== null && gateway.lastHeartbeatSequence >= sequence) return;
         await tx.processedGatewayEvent.create({
           data: {
             eventId: heartbeat.eventId,
             gatewayId: heartbeat.gatewayId,
-            sequence: BigInt(heartbeat.sequence),
+            sequence,
             eventType: "gateway_heartbeat",
-            occurredAt: new Date(heartbeat.occurredAt)
+            occurredAt,
+            receivedAt,
+            payloadHash,
+            ingestionStatus
           }
         });
+        // Terminal rejection commits only the ledger, so MQTT can PUBACK poison packets.
+        if (ingestionStatus === "rejected_future_timestamp") return;
         const updated = await tx.gateway.updateMany({
           where: {
             id: heartbeat.gatewayId,
             siteId: heartbeat.siteId,
             serialNumber: heartbeat.gatewaySerial,
-            OR: [{ lastHeartbeatSequence: null }, { lastHeartbeatSequence: { lt: BigInt(heartbeat.sequence) } }]
+            OR: [{ lastHeartbeatSequence: null }, { lastHeartbeatSequence: { lt: sequence } }]
           },
           data: {
-            lastHeartbeatAt: new Date(heartbeat.occurredAt),
+            lastHeartbeatAt: receivedAt,
             lastHeartbeatEventId: heartbeat.eventId,
-            lastHeartbeatSequence: BigInt(heartbeat.sequence),
-            lastHeartbeatOccurredAt: new Date(heartbeat.occurredAt),
+            lastHeartbeatSequence: sequence,
+            lastHeartbeatOccurredAt: occurredAt,
             firmwareVersion: heartbeat.firmwareVersion
           }
         });
         if (updated.count !== 1) throw new Error("gateway heartbeat scope or sequence rejected");
       });
     } catch (error) {
-      if (isUniqueConstraintError(error)) return;
-      throw error;
+      if (!isUniqueConstraintError(error)) throw error;
+      // A partial unique sequence collision is not proof of a replay. Only an exact
+      // committed identity and canonical payload may complete successfully after P2002.
+      const existing = await this.prisma.processedGatewayEvent.findUnique({ where: { eventId: heartbeat.eventId } });
+      if (!existing || !sameHeartbeatEvent(existing, heartbeat, payloadHash)) throw new Error("gateway heartbeat sequence conflict");
     }
   }
 
@@ -1535,6 +1569,15 @@ export class MqttService implements OnModuleInit {
       }
     });
   }
+}
+
+function sameHeartbeatEvent(
+  existing: { gatewayId: string; sequence: bigint; eventType: string; payloadHash: string | null },
+  heartbeat: ReturnType<typeof gatewayHeartbeatV2Schema.parse>,
+  payloadHash: string
+) {
+  return existing.gatewayId === heartbeat.gatewayId && existing.sequence === BigInt(heartbeat.sequence) &&
+    existing.eventType === "gateway_heartbeat" && existing.payloadHash === payloadHash;
 }
 
 function meshSubscriptionOperationKey(operation: {
