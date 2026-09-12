@@ -32,6 +32,21 @@ test("production image build stage includes the shared workspace package and bui
   assert.match(dockerfile, /pnpm --filter @led-control\/web build/);
 });
 
+test("production image includes repository dependency patches before frozen install", async () => {
+  const dockerfile = await readFile(path.join(webDir, "Dockerfile"), "utf8");
+
+  assert.match(
+    dockerfile,
+    /COPY patches patches\s+RUN corepack enable && pnpm install --frozen-lockfile/
+  );
+});
+
+test("production image build stage provides process start inspection for shared build locking", async () => {
+  const dockerfile = await readFile(path.join(webDir, "Dockerfile"), "utf8");
+
+  assert.match(dockerfile, /RUN apk add --no-cache procps/);
+});
+
 test("docker build smoke-checks the production image when Docker is available", async (t) => {
   try {
     await execFile("docker", ["version"], { cwd: repoRoot });

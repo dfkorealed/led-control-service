@@ -2,9 +2,12 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 
+RUN apk add --no-cache procps
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY patches patches
 RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY apps/web apps/web
