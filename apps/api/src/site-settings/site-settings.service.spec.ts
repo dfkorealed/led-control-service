@@ -148,6 +148,24 @@ describe("SiteSettingsService", () => {
     });
   });
 
+  it("locks the site row before checking its version and updating settings", async () => {
+    const { service, prisma, siteAccess } = createHarness();
+
+    await service().updateSite(admin, ids.site, {
+      expectedUpdatedAt: updatedAt.toISOString(),
+      name: "Locked Plant"
+    });
+
+    expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.$queryRaw.mock.invocationCallOrder[0]);
+    expect(renderSql(prisma.$queryRaw.mock.calls[0][0]).replace(/\s+/g, " ").trim()).toContain(
+      'SELECT "id", "updatedAt" FROM "Site" WHERE "id" = ? FOR UPDATE'
+    );
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.site.update.mock.invocationCallOrder[0]);
+    expect(prisma.site.findUnique).not.toHaveBeenCalled();
+  });
+
   it("rejects a stale site settings mutation after transaction-local row authorization", async () => {
     const { service, prisma } = createHarness();
 
@@ -404,6 +422,9 @@ function createHarness(options: {
 } = {}) {
   const prisma: any = {
     $queryRaw: jest.fn(async (query: TemplateStringsArray | { strings?: string[] }) => {
+      if (renderSql(query).includes('FROM "Site"')) {
+        return [{ id: ids.site, updatedAt }];
+      }
       if (renderSql(query).includes('FROM "Floor"')) {
         return options.lockedFloor === null ? [] : [options.lockedFloor ?? floorRow()];
       }

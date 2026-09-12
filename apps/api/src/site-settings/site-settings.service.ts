@@ -70,6 +70,11 @@ type LockedFloor = {
   updatedAt: Date;
 };
 
+type LockedSite = {
+  id: string;
+  updatedAt: Date;
+};
+
 @Injectable()
 export class SiteSettingsService {
   constructor(
@@ -128,8 +133,7 @@ export class SiteSettingsService {
 
     const site = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertManageInTransaction(tx, user, siteId);
-      const current = await tx.site.findUnique({ where: { id: siteId }, select: { updatedAt: true } });
-      if (!current) throw new NotFoundException("site not found");
+      const current = await this.lockSite(tx, siteId);
       this.assertCurrentVersion(current.updatedAt, expectedUpdatedAt);
       return tx.site.update({
         where: { id: siteId },
@@ -253,6 +257,17 @@ export class SiteSettingsService {
       FOR UPDATE
     `);
     if (!rows[0]) throw new NotFoundException("floor not found");
+    return rows[0];
+  }
+
+  private async lockSite(tx: Prisma.TransactionClient, siteId: string) {
+    const rows = await tx.$queryRaw<LockedSite[]>(Prisma.sql`
+      SELECT "id", "updatedAt"
+      FROM "Site"
+      WHERE "id" = ${siteId}
+      FOR UPDATE
+    `);
+    if (!rows[0]) throw new NotFoundException("site not found");
     return rows[0];
   }
 
