@@ -13,6 +13,7 @@ import {
   ManufacturingEnrollmentService
 } from "./manufacturing-enrollment.service";
 import { PkiModule } from "./pki.module";
+import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
 import { VaultPkiProvider } from "./vault-pki.provider";
 
 const environmentKeys = [
@@ -81,6 +82,7 @@ describe("PkiModule", () => {
     const provider = module.get(CERTIFICATE_AUTHORITY_PROVIDER);
 
     expect(provider).toBeInstanceOf(UnavailableCertificateAuthorityProvider);
+    expect(module.get(CertificateRevocationReconciliationService)).toBeInstanceOf(CertificateRevocationReconciliationService);
     await expect(provider.signCsr(signInput())).rejects.toThrow("certificate authority is unavailable");
     await module.close();
   });

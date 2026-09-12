@@ -35,27 +35,29 @@
 - Produces: `lockGatewayInventory(tx, inventoryId)`, `lockGatewayCertificates(tx, inventoryId)`, `armSignedCertificate(input)`, `cancelSignedCertificate(tx, reconciliationId)`, `stageInventoryRevocation(tx, inventoryId, now)`, `processNow(id?)`.
 - Consumes: `CertificateAuthorityProvider`, `PrismaService`, `CertificatePurpose`.
 
-- [ ] **Step 1: 원장·worker 실패 테스트 작성**
+- [x] **Step 1: 원장·worker 실패 테스트 작성**
 
   issuer+serial/fingerprint idempotency, PEM/CSR 미저장, `FOR UPDATE SKIP LOCKED` claim, lease owner fencing, revoke 성공+CRL 실패의 CRL-only 재시도, 최대 1시간 backoff, 성공 저장 취소를 검증한다.
 
-- [ ] **Step 2: RED 확인**
+- [x] **Step 2: RED 확인**
 
   Run: `pnpm --filter @led-control/api exec jest src/pki/certificate-revocation-reconciliation.service.spec.ts --runInBand`
 
   Expected: 새 서비스·Prisma delegate가 없어 FAIL.
 
-- [ ] **Step 3: additive schema/migration과 최소 worker 구현**
+- [x] **Step 3: additive schema/migration과 최소 worker 구현**
 
   `revocation_pending` enum과 FK 없는 durable ledger를 추가하고, signed metadata만 저장하는 lease-fenced worker를 구현한다. 완료 row는 삭제하지 않는다.
 
-- [ ] **Step 4: GREEN 및 Prisma 검증**
+- [x] **Step 4: GREEN 및 Prisma 검증**
 
   Run: `pnpm --filter @led-control/api exec jest src/pki/certificate-revocation-reconciliation.service.spec.ts src/pki/pki.module.spec.ts --runInBand`
 
   Run: `pnpm --filter @led-control/api exec prisma validate --schema prisma/schema.prisma`
 
-- [ ] **Step 5: 중간 커밋**
+  증거: 최초 worker/helper·module import 부재 RED를 확인했다. Focused worker/module 33개, PKI 전체 107개(환경 의존 1개 제외), API 전체 1,078개(환경 의존 272개 제외), Prisma generate/validate와 API typecheck/build를 통과했다. 스키마 검증은 연결되지 않는 임시 `DATABASE_URL`로 실행했으며 사용자 DB migration은 실행하지 않았다. Task 2는 export된 `CERTIFICATE_TRANSACTION_TIMEOUT_MS = 140000`을 사용해야 180초 arm 유예를 보장한다. 설정 token/type은 순환 의존 방지를 위해 별도 파일로 분리하고 기존 lifecycle import를 re-export로 유지했다.
+
+- [x] **Step 5: 중간 커밋**
 
   `git add apps/api/prisma apps/api/src/pki && git commit -m "feat(api): add durable certificate revocation reconciliation"`
 

@@ -11,7 +11,7 @@
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
 - 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
-- 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
+- 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
@@ -236,6 +236,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `active` | 현재 사용할 수 있는 인증서 |
 | `pending` | 새 device 인증서. 발급 뒤 10분 안에 새 인증서 mTLS로 activation해야 하며, 그 전까지 active pointer를 변경하지 않음 |
 | `replaced` | 새 인증서로 교체된 인증서 |
+| `revocation_pending` | 논리적 사용 차단을 먼저 확정했고 CA 폐기·CRL 배포를 재시도하는 인증서 |
 | `revoked` | CA에서 폐기된 인증서 |
 | `expired` | 유효기간이 종료된 인증서 |
 
@@ -758,7 +759,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `issuer` | `String` | 예 |  | 발급 CA 식별자 |
 | `notBefore` | `DateTime` | 예 |  | 유효 시작 시각 |
 | `notAfter` | `DateTime` | 예 |  | 만료 시각 |
-| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `pending`, `replaced`, `revoked`, `expired` |
+| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `pending`, `replaced`, `revocation_pending`, `revoked`, `expired` |
 | `revokedAt` | `DateTime?` | 아니오 |  | 폐기 시각 |
 | `replacedById` | `String?` | 아니오 | Unique self FK, delete restrict | 이 인증서를 교체한 새 인증서 ID |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -787,6 +788,28 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - Admin inventory disable은 소속 조직의 claimed inventory만 허용한다. `disabledAt`을 먼저 확정해 bootstrap과 MQTT 발급을 즉시 차단한 뒤, 아직 revoke되지 않은 device/MQTT 인증서를 Vault에서 순차 폐기하고 각 성공을 원장에 기록한다. Vault 일부 실패 뒤에도 inventory는 disabled이며 같은 endpoint 호출로 남은 인증서 폐기를 재시도한다.
 - Task 27/29 lifecycle service는 같은 transaction 안에서 기존/후속 인증서가 동일한 `inventoryId`와 `purpose`인지 확인하고, 기존 교체 체인을 잠금 조회해 cycle이 생기지 않는지 검증한 뒤 `replacedById`와 상태를 함께 갱신해야 한다.
 - revoke 대상은 `purpose + issuer + certificateSerial + fingerprint`로 식별해 CA 교체나 serial 충돌 상황에서도 모호하지 않게 한다.
+
+### CertificateRevocationReconciliation
+
+CA 서명 직후 인증서 DB 저장 실패·process crash와 논리적 폐기 후 외부 CA/CRL 장애를 회수하는 영속 원장이다. `20260915090000_certificate_revocation_reconciliation` additive migration으로 추가하며, 인증서·inventory·현장 삭제 후에도 의무가 남도록 FK를 두지 않는다. 완료·취소 행도 삭제하지 않는다.
+
+| 컬럼 | 타입·제약 | 의미 |
+| --- | --- | --- |
+| `id` | String PK, uuid | 원장 ID |
+| `inventoryId`, `certificateId` | String, certificateId nullable, FK 없음 | 대상 식별 metadata |
+| `purpose`, `issuer`, `certificateSerial`, `fingerprint` | purpose DB enum, issuer+serial Unique, fingerprint Unique | PEM 없는 CA 폐기 대상과 두 멱등성 키 |
+| `source` | String | `signed_certificate` 또는 `inventory_revocation`으로 정제 |
+| `attempts`, `nextAttemptAt` | Int 기본 0, DateTime 기본 now | 임대 횟수와 다음 처리 시각 |
+| `leaseOwner`, `leaseExpiresAt` | nullable String / DateTime | claim마다 새 owner와 300초 임대 |
+| `revokedAt`, `completedAt`, `cancelledAt` | nullable DateTime | CA 폐기 성공, CRL 배포 완료, 정상 인증서 저장에 따른 취소 |
+| `lastError` | nullable String | CA/CRL 실패 코드만 저장 |
+| `createdAt`, `updatedAt` | DateTime | 생성·갱신 시각 |
+
+- 처리 인덱스는 `completedAt + cancelledAt + nextAttemptAt + leaseExpiresAt`, 조회 인덱스는 `inventoryId`다.
+- `armSignedCertificate`는 별도 transaction으로 metadata만 commit하며 처리 유예는 180초다. 발급 소비 경로는 공통 `CERTIFICATE_TRANSACTION_TIMEOUT_MS = 140000`을 사용하고, 인증서 저장과 같은 transaction에서 `cancelSignedCertificate`를 호출해야 한다. 이미 임대·폐기·완료된 원장의 취소는 저장을 거부한다.
+- Worker는 시작 시와 30초마다 `FOR UPDATE SKIP LOCKED`로 due 원장을 하나씩 claim한다. 외부 CA/CRL 호출은 DB transaction 밖에서 실행하고 결과는 owner와 아직 유효한 lease로 fence한다. CA 성공을 먼저 기록하므로 CRL 실패는 CA를 다시 폐기하지 않고 CRL만 재시도한다. 30초부터 최대 1시간 지수 backoff로 무기한 재시도하며, CRL 배포 경로가 없으면 완료하지 않는다.
+- 공통 잠금 순서는 inventory advisory lock → inventory row → ID 순 certificate rows → Gateway다. `stageInventoryRevocation`은 같은 transaction에서 inventory pointer를 비우고 미폐기 인증서를 `revocation_pending`으로 바꾸며 이전 정상 발급의 취소 원장도 다시 연다. Gateway pointer와 `disabledAt` 변경은 소비 경로가 같은 transaction에서 담당한다.
+- Task 1은 원장·worker·helper와 단위 검증까지 구현했다. 실제 issue/renew/activate/disable 소비 경로 연결과 disposable PostgreSQL 경쟁 검증은 Task 2에서 수행한다. 사용자 로컬 DB migration과 실제 Vault/CRL 배포는 실행하지 않았다. 원장 저장과 즉시 CA 폐기가 동시에 실패하는 구간은 CA 측 발급 감사/재조회 없이 완전히 회수할 수 없다.
 
 보안 저장 정책:
 

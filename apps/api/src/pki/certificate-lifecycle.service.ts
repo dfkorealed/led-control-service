@@ -15,6 +15,8 @@ import {
 import { GatewayCsrValidator } from "./csr-validator";
 import type { SignedCertificate } from "./pki.types";
 import { publishCrlAtomically } from "./crl-publisher";
+import { CERTIFICATE_LIFECYCLE_CONFIGURATION, type CertificateLifecycleConfiguration } from "./certificate-lifecycle.configuration";
+export { CERTIFICATE_LIFECYCLE_CONFIGURATION, type CertificateLifecycleConfiguration } from "./certificate-lifecycle.configuration";
 
 const DEVICE_CERTIFICATE_TTL_SECONDS = 365 * 24 * 60 * 60;
 const RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -33,14 +35,6 @@ interface RenewDeviceCertificateInput {
 
 interface ActivateDeviceCertificateInput {
   deviceCertificateFingerprint?: unknown;
-}
-
-export const CERTIFICATE_LIFECYCLE_CONFIGURATION = Symbol("CERTIFICATE_LIFECYCLE_CONFIGURATION");
-
-export interface CertificateLifecycleConfiguration {
-  deviceCrlPath?: string;
-  mqttCrlPath?: string;
-  publishCrl: typeof publishCrlAtomically;
 }
 
 @Injectable()

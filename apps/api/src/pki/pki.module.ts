@@ -25,6 +25,7 @@ import {
   type CertificateLifecycleConfiguration
 } from "./certificate-lifecycle.service";
 import { publishCrlAtomically } from "./crl-publisher";
+import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
 
 @Module({
   imports: [PrismaModule],
@@ -50,6 +51,7 @@ import { publishCrlAtomically } from "./crl-publisher";
     ManufacturingEnrollmentService,
     GatewayCertificateService,
     CertificateLifecycleService,
+    CertificateRevocationReconciliationService,
     {
       provide: MANUFACTURING_CA_FINGERPRINT,
       inject: [MANUFACTURING_ENROLLMENT_CONFIGURATION],
@@ -59,7 +61,7 @@ import { publishCrlAtomically } from "./crl-publisher";
     ManufacturingAuthGuard,
     DeviceCertificateGuard
   ],
-  exports: [CERTIFICATE_AUTHORITY_PROVIDER, CertificateLifecycleService]
+  exports: [CERTIFICATE_AUTHORITY_PROVIDER, CertificateLifecycleService, CertificateRevocationReconciliationService]
 })
 export class PkiModule {}
 

@@ -116,6 +116,7 @@ enum GatewayCertificateStatus {
   active
   pending
   replaced
+  revocation_pending
   revoked
   expired
 }
@@ -565,6 +566,33 @@ model GatewayCertificate {
   @@unique([issuer, certificateSerial])
   @@index([inventoryId, purpose, status])
   @@index([gatewayId, purpose, status])
+}
+
+// Deliberately no foreign keys: signed orphans and deletion cleanup must survive
+// the certificate, inventory and site's deletion. Terminal rows retain identity.
+model CertificateRevocationReconciliation {
+  id                String             @id @default(uuid())
+  inventoryId       String
+  certificateId     String?
+  purpose           CertificatePurpose
+  issuer            String
+  certificateSerial String
+  fingerprint       String             @unique
+  source            String
+  attempts          Int                @default(0)
+  nextAttemptAt     DateTime           @default(now())
+  leaseOwner        String?
+  leaseExpiresAt    DateTime?
+  revokedAt         DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  lastError         String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([issuer, certificateSerial])
+  @@index([completedAt, cancelledAt, nextAttemptAt, leaseExpiresAt])
+  @@index([inventoryId])
 }
 
 model GatewayClaimAudit {
