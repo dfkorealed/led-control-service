@@ -23,5 +23,5 @@ MANAGER=$ROOT_DIR/scripts/gateway-appliance-release.sh
 REMOTE_STAGE=$(ssh "$TARGET" 'mktemp -d /tmp/led-control-gateway-upload.XXXXXX')
 [[ "$REMOTE_STAGE" =~ ^/tmp/led-control-gateway-upload\.[A-Za-z0-9]+$ ]] || { echo '원격 staging 경로를 확인할 수 없습니다.' >&2; exit 1; }
 # No identity, site env, private key or obsolete loose artifact is transmitted.
-scp -r "$BUNDLE" "$MANAGER" "$TARGET:$REMOTE_STAGE/"
+scp -r "$BUNDLE" "$MANAGER" "$ROOT_DIR/scripts/gateway-appliance-common.sh" "$TARGET:$REMOTE_STAGE/"
 ssh "$TARGET" "sudo /bin/bash '$REMOTE_STAGE/gateway-appliance-release.sh' activate '$REMOTE_STAGE/$BUNDLE_NAME' --policy-sha256 '$POLICY_SHA'"
