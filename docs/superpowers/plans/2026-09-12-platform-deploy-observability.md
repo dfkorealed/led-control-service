@@ -56,6 +56,7 @@
 - Create: `apps/api/Dockerfile`
 - Create: `apps/api/container-contract.node.mjs`
 - Create: `apps/api/container-init-crls.cjs` (승인된 동적 공개 CRL 예외)
+- Create: `apps/web/nginx.stream.conf` (리뷰 승인: socket mTLS용 TCP passthrough)
 - Create: `scripts/production-deploy-contract.test.mjs`
 - Create: `scripts/production-compose-config.mjs`
 - Create: `scripts/production-compose-smoke.sh`
@@ -82,6 +83,8 @@
 - [x] Run Node contracts, `docker compose ... config`, actual API/Web image builds, and a unique disposable Compose project smoke. Apply all migrations only inside the disposable database, verify readiness dependency fail/recover, TLS Web proxy, then remove only that project and its volumes.
 - [x] Run API/Web typecheck/build, production audit and `git diff --check`; update `docs/agent-operations.md`, `docs/project-status.md`; commit.
 - [x] 승인된 동적 CRL 두 named volume 예외를 구현하고 read-only seed 누락 fail-fast, API 실제 publisher의 atomic rename, broker RO 소비, init 재실행의 상태 보존과 exact cleanup을 disposable smoke로 검증한다. 인증서/key/CA/제조 CRL은 RO로 유지한다.
+- [x] 리뷰 수정: production 전용 project 식별자를 필수 검증하고 render/up 양쪽에 동일 `-p`를 적용한다. 개발/default project 충돌과 named volume 재사용을 거부하는 RED/GREEN을 검증한다.
+- [x] 리뷰 수정: Web-only 세 번째 host port를 nginx TCP stream으로 API TLS listener에 연결한다. 실제 disposable 제조 인증서의 no-cert 401→valid-cert/invalid-body 400, 서버 identity 검증, DB 무변경과 기존 browser proxy·health·cleanup을 검증한다. 전체 production audit 및 API/Web 검증 후 문서·보고서를 갱신하고 커밋한다.
 
 ### Task 3: Accessible Web app-shell recovery
 

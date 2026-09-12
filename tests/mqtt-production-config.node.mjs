@@ -31,6 +31,6 @@ test("production startup uses only standalone production configuration and an ex
   assert.match(productionCompose, /mosquitto-data:\/mosquitto\/data/);
   const command = JSON.parse(packageJson).scripts["docker:up:production"];
   assert.match(command, /--env-file .*PRODUCTION_ENV_FILE:\?/);
-  assert.match(command, /node scripts\/production-compose-config\.mjs up/);
+  assert.match(command, /node -- scripts\/production-compose-config\.mjs up/);
   assert.doesNotMatch(command, /-f docker-compose\.yml/);
 });

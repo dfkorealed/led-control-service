@@ -67,6 +67,7 @@ function cert(name, cn, usage, san='') {
 }
 cert('server','api','serverAuth','DNS:api,DNS:web,DNS:mqtt-tls,DNS:vault-smoke,DNS:localhost,IP:127.0.0.1');
 cert('client','api-service','clientAuth');
+cert('manufacturing','smoke-manufacturing-station','clientAuth');
 for (const [source, targets] of Object.entries({
   'ca.crt':['api-tls/api-ca.crt','api-tls/device-ca.crt','api-tls/manufacturing-ca.crt','mqtt-tls/mqtt-ca.crt','web-tls/web-ca.crt','vault/ca.crt'],
   'ca.crl':['api-tls/device.crl','api-tls/manufacturing.crl','mqtt-tls/mqtt-client.crl'],
@@ -80,7 +81,7 @@ const token=secret(); write('vault/token',token); chmodSync(path.join(dir,'vault
 write('vault/server.cjs', `const fs=require('fs');require('https').createServer({cert:fs.readFileSync('/fixture/server.crt'),key:fs.readFileSync('/fixture/server.key')},(q,r)=>{if(q.method!=='GET'||q.url!=='/v1/auth/token/lookup-self'||q.headers['x-vault-token']!==fs.readFileSync('/fixture/token','utf8')){r.writeHead(403);r.end();return;}r.setHeader('Content-Type','application/json');r.end(JSON.stringify({data:{renewable:true,ttl:3600,policies:['gateway-pki']}}));}).listen(8200);`);
 chmodSync(path.join(dir,'vault/server.cjs'),0o444);
 const password=secret(), redisPassword=secret();
-const env={API_IMAGE:`${project}-api:sha-${id}`,WEB_IMAGE:`${project}-web:sha-${id}`,
+const env={PRODUCTION_COMPOSE_PROJECT:project,API_IMAGE:`${project}-api:sha-${id}`,WEB_IMAGE:`${project}-web:sha-${id}`,
  POSTGRES_USER:'smoke',POSTGRES_PASSWORD:password,POSTGRES_DB:'smoke',DATABASE_URL:`postgresql://smoke:${password}@postgres:5432/smoke`,
  REDIS_PASSWORD:redisPassword,REDIS_URL:`redis://:${redisPassword}@redis:6379`,MQTT_URL:'mqtts://mqtt-tls:8883',MQTT_PUBLIC_URL:'mqtts://mqtt-tls:8883',MQTT_API_INSTANCE_ID:project,
  MQTT_TLS_CERT_DIR:path.join(dir,'mqtt-tls'),API_TLS_CERT_DIR:path.join(dir,'api-tls'),WEB_TLS_CERT_DIR:path.join(dir,'web-tls'),
@@ -90,16 +91,19 @@ const env={API_IMAGE:`${project}-api:sha-${id}`,WEB_IMAGE:`${project}-web:sha-${
  WEB_PUBLIC_URL:'https://localhost',WEB_HTTPS_ORIGIN:'https://localhost',WEB_HTTP_PORT:'127.0.0.1::8080',WEB_HTTPS_PORT:'127.0.0.1::8443'};
 // Production uses fixed target ports in its short syntax; zero asks Docker for
 // private loopback ephemeral host ports, avoiding every existing stack's ports.
-env.WEB_HTTP_PORT='127.0.0.1:0'; env.WEB_HTTPS_PORT='127.0.0.1:0';
+env.WEB_HTTP_PORT='127.0.0.1:0'; env.WEB_HTTPS_PORT='127.0.0.1:0'; env.DEVICE_API_HTTPS_PORT='127.0.0.1:0';
 write('smoke.env',Object.entries(env).map(([k,v])=>`${k}=${v}`).join('\n'));
 // Docker internal networks do not publish host ports. Keep dependencies/Vault
 // internal; only Web joins the ordinary edge bridge for loopback TLS assertions.
 write('override.json',JSON.stringify({services:{'vault-smoke':{image:'node:22.20.0-alpine3.22',user:'1000:1000',read_only:true,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],networks:['backend'],volumes:[`${dir}/vault:/fixture:ro`],command:['node','/fixture/server.cjs']},api:{depends_on:{'vault-smoke':{condition:'service_started'}}}},networks:{backend:{internal:true}}}));
 const cleanEnv={...process.env}; for(const key of Object.keys(env)) delete cleanEnv[key];
 const composeArgs=['compose','-p',project,'--env-file',path.join(dir,'smoke.env'),'-f',path.join(root,'docker-compose.production.yml'),'-f',path.join(dir,'override.json')];
-const {validateProductionConfig}=await import(path.join(root,'scripts/production-compose-config.mjs'));
+const {validateProductionConfig,productionComposeArguments}=await import(path.join(root,'scripts/production-compose-config.mjs'));
+assert.deepEqual(composeArgs.slice(0,-2),productionComposeArguments(project,path.join(dir,'smoke.env')));
 const production=JSON.parse(run('docker',composeArgs.slice(0,-2).concat(['config','--format','json']),{env:cleanEnv}));
 validateProductionConfig(production,{smokeProject:project});
+assert.equal(production.name,project);
+for(const volume of Object.values(production.volumes)) assert.ok(volume.name.startsWith(`${project}_`));
 write('rendered.json',run('docker',[...composeArgs,'config','--format','json'],{env:cleanEnv}));
 const compose=(...args)=>run('docker',['compose','-p',project,'-f',path.join(dir,'rendered.json'),...args]);
 async function stream(file,args,filename) {
@@ -137,7 +141,7 @@ try {
   const ca=readFileSync(path.join(dir,'ca.crt'));
   let port;
   await wait(()=>{try{port=Number(compose('port','web','8443').trim().split(':').at(-1));return Boolean(port)}catch{return false}},'web startup');
-  function request(url,options={}) {return new Promise((resolve,reject)=>{const req=(url.startsWith('https')?https:http).get(url,{ca,...options},res=>{let body='';res.on('data',c=>body+=c);res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body,tls:res.socket?.getProtocol?.()}));});req.on('error',reject);req.setTimeout(5000,()=>req.destroy(new Error('request timeout')));});}
+  function request(url,options={},body) {return new Promise((resolve,reject)=>{const req=(url.startsWith('https')?https:http).request(url,{ca,...options},res=>{let responseBody='';res.on('data',c=>responseBody+=c);res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:responseBody,tls:res.socket?.getProtocol?.()}));});req.on('error',reject);req.setTimeout(5000,()=>req.destroy(new Error('request timeout')));req.end(body);});}
   const origin=`https://localhost:${port}`;
   await wait(async()=>{try{return (await request(`${origin}/api/health/ready`)).status===200}catch{return false}},'readiness');
   const migrations=Number(sql('SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL'));
@@ -164,6 +168,22 @@ try {
   const redirect=await request(`http://localhost:${httpPort}/route?q=1`); assert.equal(redirect.status,308); assert.equal(redirect.headers.location,'https://localhost/route?q=1');
   // An untrusted client must not be able to verify the generated TLS endpoint.
   await assert.rejects(request(`${origin}/`,{ca:undefined}));
+  const devicePort=Number(compose('port','web','9443').trim().split(':').at(-1));
+  const deviceUrl=`https://localhost:${devicePort}/manufacturing/gateway-enrollments`;
+  const invalidBody=JSON.stringify({serialNumber:''});
+  const manufacturingOptions={method:'POST',servername:'api',headers:{'Content-Type':'application/json'}};
+  // An invalid serial is rejected before UUID/token generation or database I/O.
+  // Assert exact 400 validation text, not a generic non-401 that could hide 500.
+  assert.equal((await request(deviceUrl,manufacturingOptions,invalidBody)).status,401);
+  const clientIdentity={cert:readFileSync(path.join(dir,'manufacturing.crt')),key:readFileSync(path.join(dir,'manufacturing.key'))};
+  const authorized=await request(deviceUrl,{...manufacturingOptions,...clientIdentity},invalidBody);
+  assert.equal(authorized.status,400);
+  assert.equal(JSON.parse(authorized.body).message,'serialNumber is required');
+  assert.equal(sql('SELECT count(*) FROM "GatewayInventory"'),'0');
+  assert.equal(sql('SELECT count(*) FROM "GatewayEnrollment"'),'0');
+  await assert.rejects(request(deviceUrl,{...manufacturingOptions,...clientIdentity,servername:'wrong.invalid'},invalidBody));
+  assert.equal((await request(`${origin}/api/health/ready`)).status,200);
+  log('VERIFY TLS-passthrough no-client=401 valid-client=400 invalid-serial=true server-identity=verified inventory/enrollment=0 browser-proxy=200');
   log(`VERIFY migrations=${migrations}/${expected} same-api-image=true live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308`);
   const digest=content=>createHash('sha256').update(content).digest('hex');
   const originalDevice=readFileSync(path.join(dir,'api-tls/device.crl'));

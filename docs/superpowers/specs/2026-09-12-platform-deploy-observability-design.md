@@ -15,9 +15,13 @@
 
 개발용 `docker-compose.yml`과 분리된 standalone `docker-compose.production.yml`이 PostgreSQL 16, Redis 7, Mosquitto 2, MinIO, migration/API/Web 서비스를 모두 정의한다. 개발 Compose의 기본 credential과 host port가 production merge에 상속되지 않게 한다. 운영 secret과 외부 URL은 `${NAME:?message}` 형태로 누락 즉시 실패하게 하며 저장소에 실제 secret을 넣지 않는다.
 
-API image는 workspace dependency와 Prisma Client를 build stage에서 생성하고 Nest artifact를 만든다. 같은 immutable image를 migration one-shot과 API runtime이 공유한다. `api-migrate`가 `prisma migrate deploy`를 끝낸 뒤에만 API가 시작되고, API readiness가 성공한 뒤에만 Web이 시작한다. API는 host에 직접 publish하지 않고 Web nginx가 same-origin `/api/`만 proxy한다.
+리뷰 승인 보완: 파일 분리만으로는 동일 checkout의 Compose project와 named volume이 분리되지 않는다. 운영 시작은 `PRODUCTION_COMPOSE_PROJECT`를 필수로 받고 `led-production-` prefix의 소문자 영숫자·하이픈 식별자(최대 63자)만 허용한다. checkout 기본 이름과 default/dev/development 예약값을 거부하며 config render와 실제 up에 동일한 명시적 `-p`를 전달한다. 모든 named volume은 이 project prefix에 속해야 하며 external/shared volume을 허용하지 않는다.
+
+API image는 workspace dependency와 Prisma Client를 build stage에서 생성하고 Nest artifact를 만든다. 같은 immutable image를 migration one-shot과 API runtime이 공유한다. `api-migrate`가 `prisma migrate deploy`를 끝낸 뒤에만 API가 시작되고, API readiness가 성공한 뒤에만 Web이 시작한다. API는 host에 직접 publish하지 않고 Web nginx가 브라우저 same-origin `/api/`를 HTTPS proxy하며 장비·제조용 TLS는 별도 TCP stream으로 전달한다.
 
 Web nginx는 사용자가 제공한 TLS certificate/key를 read-only mount해 TLS 1.2/1.3으로 서비스하고, HTTP는 HTTPS로 redirect한다. API upstream은 private Compose network의 HTTPS API이며 내부 CA를 명시적으로 신뢰한다. forwarded headers와 request ID를 보존하고, 정적 asset에는 immutable cache, `index.html`에는 no-cache를 적용한다.
+
+리뷰 승인 보완: HTTP TLS termination은 `DeviceCertificateGuard`/`ManufacturingAuthGuard`가 읽는 socket client certificate를 전달하지 못한다. 필수 `DEVICE_API_HTTPS_PORT`를 Web container의 9443 TCP listener에 연결하고 nginx `stream`이 암호화된 바이트를 `api:4000`으로 그대로 전달한다. API가 TLS/mTLS를 종료하며 guard나 certificate header trust를 변경하지 않는다. Host port는 Web의 HTTP·브라우저 HTTPS·장비 HTTPS 세 개뿐이고 새 secret mount는 없다. 장비·제조 클라이언트는 이 별도 endpoint를 사용하며 API 인증서 SAN에는 내부 `api`와 실제 장비용 외부 hostname이 필요하다. TCP passthrough는 URI별 필터링을 하지 않으므로 API의 기존 인증·인가가 모든 경로를 계속 책임진다.
 
 2026-09-12 총괄 승인 보완: 기존 API의 `publishCrlAtomically`가 장비·MQTT CRL을 갱신하므로 동적 공개 CRL 두 파일까지 read-only로 두면 발행이 EROFS로 실패한다. `device-crl`·`mqtt-crl` 전용 named volume으로 분리하고, non-root `crl-init` one-shot이 read-only host seed를 검사한 뒤 빈 volume만 초기화한다. 기존 CRL이 있으면 초기 seed로 덮어쓰지 않는다. 실행 중 writer는 API뿐이며 같은 디렉터리 내 atomic rename을 허용한다. API TLS consumer는 writer와 같은 process이므로 장비 CRL 경로만 RW를 공유한다. Mosquitto는 MQTT CRL volume을 RO로 읽고, 인증서/private key/CA/제조 CRL/host seed는 모두 RO를 유지한다. 변경된 MQTT CRL 파일의 broker TLS 재적용에는 운영 SIGHUP 절차가 필요하며 자동 reload sidecar는 추가하지 않는다.
 
@@ -53,7 +57,7 @@ HTTP middleware가 안전한 `X-Request-Id`를 받아들이거나 새 UUID를 �
 
 - API unit: probe 성공/부분 실패/timeout, shutdown readiness, 정보 비노출, request ID validation/propagation, JSON log redaction, bounded metric labels.
 - API container/Compose contract: non-root runtime, frozen install, Prisma generate/build, migration-before-app, required env, secret-free render, TLS mount, healthcheck fail-fast.
-- Disposable smoke: 고유 Compose project에서 빈 PostgreSQL에 전체 migration, Redis/MQTT/MinIO 준비, API liveness/readiness, Web TLS/same-origin proxy, 의존성 중 하나 중단 시 readiness 503와 복구를 확인한 뒤 해당 project/volume만 제거한다.
+- Disposable smoke: 고유 Compose project에서 빈 PostgreSQL에 전체 migration, Redis/MQTT/MinIO 준비, API liveness/readiness, Web TLS/same-origin proxy, TCP passthrough의 제조 mTLS no-cert 401·valid-cert/invalid-body 400와 서버 identity 검증·DB 무변경, 의존성 중 하나 중단 시 readiness 503와 복구를 확인한 뒤 해당 project/volume만 제거한다.
 - Web unit/Chromium: initial 401/403/network/5xx, retry 성공, lazy chunk rejection, reload/relogin, focus·landmark·버튼 접근성, 기존 로그인·role shell 회귀.
 - root lint/typecheck/test/build, production audit, `git diff --check`를 실행한다.
 

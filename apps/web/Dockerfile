@@ -20,9 +20,11 @@ FROM nginx:1.27.5-alpine
 # Render only the HTTPS origin. nginx variables must survive envsubst unchanged.
 ENV NGINX_ENVSUBST_FILTER=WEB_HTTPS_ORIGIN
 RUN sed -i 's@^pid .*;@pid /tmp/nginx.pid;@; /user  nginx;/d' /etc/nginx/nginx.conf
+RUN printf '\ninclude /etc/nginx/stream.conf;\n' >> /etc/nginx/nginx.conf
 
 COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY apps/web/nginx.stream.conf /etc/nginx/stream.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 
 USER nginx
-EXPOSE 8080 8443
+EXPOSE 8080 8443 9443

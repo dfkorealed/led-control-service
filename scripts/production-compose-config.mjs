@@ -3,7 +3,26 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const requireRule = (condition, rule) => { if (!condition) throw new Error(`Production configuration rejected: ${rule}`); };
+const repositoryRoot = path.resolve(import.meta.dirname, '..');
+
+function validateProductionProject(project) {
+  const defaultProject = path.basename(repositoryRoot).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  requireRule(typeof project === 'string' && /^led-production-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(project) && project.length <= 63 && project !== defaultProject && !['led-production-default', 'led-production-dev', 'led-production-development'].includes(project), 'production project identifier');
+}
+
+// Render and up share this exact argument prefix: no default checkout project
+// or developer COMPOSE_PROJECT_NAME may select existing containers or volumes.
+export function productionComposeArguments(project, envFile) {
+  validateProductionProject(project);
+  requireRule(typeof envFile === 'string' && envFile.length > 0, 'explicit env-file');
+  return ['compose', '-p', project, '--env-file', path.resolve(envFile), '-f', path.join(repositoryRoot, 'docker-compose.production.yml')];
+}
+
 export function validateProductionConfig(config, {smokeProject}={}) {
+  validateProductionProject(config.name);
+  for (const volume of Object.values(config.volumes ?? {})) {
+    requireRule(!volume.external && volume.name?.startsWith(`${config.name}_`), 'project-scoped named volumes');
+  }
   const s=config.services;
   requireRule(s?.api && s?.web && s?.['api-migrate'], 'required app services');
   for(const [name, service] of Object.entries(s)) {
@@ -22,6 +41,7 @@ export function validateProductionConfig(config, {smokeProject}={}) {
   requireRule(s.api.image===s['api-migrate'].image,'identical migration and API image');
   requireRule(s.api.depends_on?.['api-migrate']?.condition==='service_completed_successfully','migration before API');
   requireRule(s.web.depends_on?.api?.condition==='service_healthy','ready API before Web');
+  requireRule((s.web.ports ?? []).map(port => port.target).sort().join(',') === '8080,8443,9443', 'Web browser and raw device TLS listeners');
   requireRule(s['crl-init']?.image===s.api.image && s.api.depends_on?.['crl-init']?.condition==='service_completed_successfully' && s['mqtt-tls'].depends_on?.['crl-init']?.condition==='service_completed_successfully','CRL initialization before consumers');
   for(const source of ['device-crl','mqtt-crl']) {
     const writers=Object.entries(s).filter(([,service])=>(service.volumes??[]).some(m=>m.source===source&&!m.read_only)).map(([name])=>name).sort();
@@ -37,10 +57,10 @@ export function validateProductionConfig(config, {smokeProject}={}) {
 // docker config output/errors: URL/password values may occur in either stream.
 if(process.argv[1] && import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
-    const [action, flag, envFile]=process.argv.slice(2);
-    requireRule(['up','check'].includes(action)&&flag==='--env-file'&&envFile,'explicit action and env-file');
-    const env={PATH:process.env.PATH,HOME:process.env.HOME,DOCKER_HOST:process.env.DOCKER_HOST,DOCKER_CONTEXT:process.env.DOCKER_CONTEXT};
-    const args=['compose','--env-file',path.resolve(envFile),'-f',path.resolve(import.meta.dirname,'../docker-compose.production.yml')];
+    const [action, projectFlag, project, envFlag, envFile, ...extra]=process.argv.slice(2);
+    requireRule(['up','check'].includes(action)&&projectFlag==='--project'&&envFlag==='--env-file'&&!extra.length,'explicit action, project and env-file');
+    const args=productionComposeArguments(project, envFile);
+    const env={PATH:process.env.PATH,HOME:process.env.HOME,DOCKER_HOST:process.env.DOCKER_HOST,DOCKER_CONTEXT:process.env.DOCKER_CONTEXT,PRODUCTION_COMPOSE_PROJECT:project};
     const rendered=spawnSync('docker',[...args,'config','--format','json'],{env,encoding:'utf8'});
     requireRule(rendered.status===0,'Compose render and required inputs');
     validateProductionConfig(JSON.parse(rendered.stdout));

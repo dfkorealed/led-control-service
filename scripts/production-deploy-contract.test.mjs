@@ -6,15 +6,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { validateProductionConfig } from "./production-compose-config.mjs";
+import * as productionConfig from "./production-compose-config.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const source = readFileSync(path.join(root, "docker-compose.production.yml"), "utf8");
 const required = ["API_IMAGE", "WEB_IMAGE", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "REDIS_PASSWORD", "REDIS_URL", "MQTT_URL", "MQTT_PUBLIC_URL", "MQTT_API_INSTANCE_ID", "MQTT_TLS_CERT_DIR", "API_TLS_CERT_DIR", "WEB_TLS_CERT_DIR", "VAULT_ADDR", "VAULT_TOKEN_FILE", "VAULT_CA_CERT_PATH", "VAULT_PKI_DEVICE_MOUNT", "VAULT_PKI_DEVICE_ROLE", "VAULT_PKI_MQTT_MOUNT", "VAULT_PKI_MQTT_ROLE", "OBJECT_STORAGE_ACCESS_KEY", "OBJECT_STORAGE_SECRET_KEY", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_REPORT_BUCKET", "OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_PUBLIC_URL", "OBJECT_STORAGE_REGION", "WEB_PUBLIC_URL", "WEB_HTTPS_ORIGIN", "WEB_HTTP_PORT", "WEB_HTTPS_PORT"];
+required.push("PRODUCTION_COMPOSE_PROJECT", "DEVICE_API_HTTPS_PORT");
 // Config output is never logged; fixtures cannot inherit shell credentials or .env.
-function render(omit) {
+function render(omit, project = "led-production-contract") {
   const dir = mkdtempSync(path.join(tmpdir(), "led-production-contract-"));
   const env = Object.fromEntries(required.map(key => [key, `fixture-${randomBytes(16).toString("hex")}`]));
   Object.assign(env, { API_IMAGE: `led-api@sha256:${'a'.repeat(64)}`, WEB_IMAGE: `led-web@sha256:${'b'.repeat(64)}`, WEB_HTTP_PORT: "18080", WEB_HTTPS_PORT: "18443" });
+  Object.assign(env, { PRODUCTION_COMPOSE_PROJECT: project, DEVICE_API_HTTPS_PORT: "19443" });
   Object.assign(env, {VAULT_ADDR:'https://vault.invalid',WEB_PUBLIC_URL:'https://web.invalid',WEB_HTTPS_ORIGIN:'https://web.invalid',MQTT_URL:'mqtts://mqtt-tls:8883'});
   for (const key of required.filter(key => /_DIR$|_FILE$|_PATH$/.test(key))) env[key] = dir;
   if (omit) delete env[omit];
@@ -22,8 +25,9 @@ function render(omit) {
   writeFileSync(envPath, Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n"), { mode: 0o600 });
   const cleanEnv = { PATH: process.env.PATH, HOME: process.env.HOME, DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONTEXT: process.env.DOCKER_CONTEXT };
   try {
-    const result = spawnSync("docker", ["compose", "--project-name", "led-contract-render", "--env-file", envPath, "-f", "docker-compose.production.yml", "config", "--format", "json"], { cwd: root, env: cleanEnv, encoding: "utf8" });
-    return { status: result.status, config: result.status === 0 ? JSON.parse(result.stdout) : undefined };
+    const result = spawnSync("docker", ["compose", "--project-name", project, "--env-file", envPath, "-f", "docker-compose.production.yml", "config", "--format", "json"], { cwd: root, env: cleanEnv, encoding: "utf8" });
+    const preflight = result.status === 0 ? spawnSync(process.execPath, ["--", path.join(root, "scripts/production-compose-config.mjs"), "check", "--project", project, "--env-file", envPath], {env: cleanEnv, encoding: "utf8"}) : undefined;
+    return { status: result.status, config: result.status === 0 ? JSON.parse(result.stdout) : undefined, preflight };
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
@@ -76,7 +80,44 @@ test("rendered services confine ports to Web and harden filesystem, privileges a
   assert.match(config.services.api.healthcheck.test.join(" "), /health\/ready/);
   assert.match(config.services.web.healthcheck.test.join(" "), /api\/health\/ready/);
   assert.match(config.services.web.healthcheck.test.join(" "), /WEB_HTTPS_ORIGIN/, 'health must verify the public certificate hostname, not require a private web SAN');
-  assert.equal(config.services.web.ports.length, 2);
+  assert.deepEqual(config.services.web.ports.map(port => port.target).sort(), [8080, 8443, 9443]);
+});
+
+test("production project is explicit, validated and separates every volume from development", () => {
+  assert.equal(typeof productionConfig.productionComposeArguments, "function", "production up must bind render and start to one explicit project");
+  for (const project of [undefined, "", "default", "led-control-service", path.basename(root), "led-production-default", "led-production-dev", "led-production-", "led-production-UPPER", "led-production-main;echo-secret"]) {
+    assert.throws(() => productionConfig.productionComposeArguments(project, "/fixture.env"), /production project identifier/);
+  }
+  const args = productionConfig.productionComposeArguments("led-production-contract", "/fixture.env");
+  assert.deepEqual(args.slice(0, 3), ["compose", "-p", "led-production-contract"]);
+  const rendered = render();
+  assert.equal(rendered.preflight.status, 0);
+  assert.equal(rendered.preflight.stdout.trim(), "Production configuration validated; values withheld.");
+  assert.equal(rendered.preflight.stderr, "");
+  const first = rendered.config;
+  const second = render(undefined, "led-production-other").config;
+  const dev = JSON.parse(execFileSync("docker", ["compose", "--env-file", "/dev/null", "-f", "docker-compose.yml", "config", "--format", "json"], {cwd: root, encoding: "utf8", env: {PATH: process.env.PATH, HOME: process.env.HOME}}));
+  assert.notEqual(first.name, dev.name);
+  for (const [key, volume] of Object.entries(first.volumes)) {
+    assert.ok(volume.name.startsWith("led-production-contract_"));
+    assert.notEqual(volume.name, dev.volumes[key]?.name);
+    assert.notEqual(volume.name, second.volumes[key].name);
+  }
+});
+
+test("production CLI rejects absent or unsafe projects before render/up without echoing inputs", () => {
+  const cli = path.join(root, "scripts/production-compose-config.mjs");
+  for (const action of ["check", "up"]) {
+    for (const project of ["", path.basename(root), "led-production-invalid;SENSITIVE_INPUT"]) {
+      const result = spawnSync(process.execPath, ["--", cli, action, "--project", project, "--env-file", "/nonexistent-private.env"], {encoding: "utf8"});
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr.trim(), "Production configuration rejected: production project identifier");
+    }
+    const missing = spawnSync(process.execPath, ["--", cli, action, "--env-file", "/nonexistent-private.env"], {encoding: "utf8"});
+    assert.equal(missing.status, 1);
+    assert.equal(missing.stderr.trim(), "Production configuration rejected: explicit action, project and env-file");
+  }
 });
 
 test("only CRL initialization and the API can write dynamic CRL volumes; secrets stay read-only", () => {
@@ -101,6 +142,7 @@ test("production source and commands exclude dev credentials, PEM and merged def
   const pkg = JSON.parse(readFileSync(path.join(root, "package.json")));
   assert.doesNotMatch(pkg.scripts["docker:up:production"], /-f docker-compose\.yml/);
   assert.match(pkg.scripts["docker:up:production"], /PRODUCTION_ENV_FILE:\?/);
+  assert.match(pkg.scripts["docker:up:production"], /--project.*PRODUCTION_COMPOSE_PROJECT:\?/);
   assert.ok(pkg.scripts["production:contract"]);
   assert.ok(pkg.scripts["production:smoke"]);
 });
@@ -120,9 +162,13 @@ test("deployment preflight rejects mutable app images and every unsafe rendered 
   const {config} = render();
   assert.doesNotThrow(()=>validateProductionConfig(config));
   const mutations = [
+    c=>{c.name=path.basename(root)},
+    c=>{c.volumes['postgres-data'].name='led-control-service_postgres-data'},
+    c=>{c.volumes['postgres-data'].external=true},
     c=>{c.services.api.image='api:latest'},
     c=>{c.services.api.image=c.services['api-migrate'].image='api:sha-0123456789abcdef'},
     c=>{c.services.web.image='web:development'},
+    c=>{c.services.web.ports=c.services.web.ports.filter(port=>port.target!==9443)},
     c=>{c.services.api.ports=[{target:4000,published:'4000'}]},
     c=>{c.services.api.volumes[0].read_only=false},
     c=>{delete c.services.redis.healthcheck},

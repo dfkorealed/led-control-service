@@ -1,5 +1,7 @@
 # Task 2 구현·검증 보고
 
+이 문서 앞부분은 최초 구현 `5a3a6fd`의 증거이며, 마지막 「리뷰 수정」 절이 현재 최종 구현·검증 증거다.
+
 기준: `03af2cd`, branch `codex/p0p1-platform-deploy-observability`. 지정 worktree 안에서만 작업했다. Task 2 소프트웨어 구현과 필수 production audit를 완료했으며 총괄 검토를 기다린다.
 
 ## 구현
@@ -62,3 +64,32 @@
 - 운영 deploy/push/merge, secret 변경, 사용자 DB migration, real external Vault/MQTT/Object Storage, Raspberry Pi/BlueZ/ESP32-H2 HIL, Task 3 React 변경은 실행하지 않았다. 실제 외부 PKI issuance/renewal, bucket public URL·CORS와 MQTT public URL 진입점은 이 smoke의 완료 증거가 아니다.
 - 동적 공개 CRL에 한정한 승인된 RW 예외로 기존 API writer의 atomic 발행을 보존했다. API TLS consumer는 writer와 같은 process라 동일 RW 공개 파일을 읽고 broker는 RO다. Broker 자동 reload sidecar는 추가하지 않았으므로 운영자는 CRL 갱신 후 해당 production project의 `mqtt-tls`에 SIGHUP을 전달해야 한다. 실제 운영 PKI issuance/renewal 수명주기까지 검증했다고 해석하면 안 된다. Web-only host-port 정책 아래 public MQTT/Object Storage 접근 경로도 운영에서 연결해야 한다. API container 교체로 upstream IP가 바뀌면 nginx 재기동/재해석 절차가 필요하며 rolling deployment는 범위 밖이다.
 - API/Web runtime은 non-root지만 MinIO는 위에서 설명한 UID 0 예외다. OS/base image 취약점 스캐너, 공인 인증서 발급, 외부 metrics/log backend, alerts와 production rollout은 구성하지 않았다.
+
+## 리뷰 수정: 프로젝트 격리와 socket mTLS 경로
+
+- Ruling: standalone 파일만으로 개발/운영 Compose 자원이 분리된다고 가정하지 않는다. 운영 전용 project를 필수 검증하고 render/up에 동일 `-p`를 사용한다. Cost if wrong: 개발 DB·broker volume 재사용과 서비스 교체로 사용자 데이터/실행 환경을 손상할 수 있다.
+- Ruling: 브라우저 HTTP reverse proxy로 장비 TLS peer identity가 유지된다고 가정하지 않는다. Web-only 별도 TCP passthrough에서 API를 TLS/mTLS terminator로 유지한다. Cost if wrong: 정상 장비·제조 요청이 모두 401로 차단되거나 우회 certificate header 신뢰로 인증 경계가 약해진다.
+- `PRODUCTION_COMPOSE_PROJECT`는 `led-production-` prefix의 소문자 영숫자·단일 하이픈 조합, 최대 63자이며 checkout 기본 이름과 default/dev/development 예약값을 거부한다. 동일 helper가 config와 up의 명시적 `-p` prefix를 만들고 project 밖/external named volume을 거부한다. 실제 CLI check 성공과 check/up의 missing/invalid/default-collision 실패, 설정 값 비노출, 개발 및 다른 production project와 volume 분리를 검증한다.
+- `DEVICE_API_HTTPS_PORT`를 Web의 9443 TCP listener에만 publish한다. 새 `apps/web/nginx.stream.conf`는 `api:4000`으로 encrypted TCP를 전달하며 TLS를 종료하거나 certificate header를 신뢰하지 않는다. API/guard/source/schema/shared 계약은 변경하지 않고 브라우저 `/api/` HTTPS proxy와 secret mount도 유지했다. 실제 장비 endpoint hostname과 내부 `api`가 API certificate SAN에 필요하다. Stream은 URI를 필터링하지 않으므로 API 기존 인증·인가가 모든 경로를 보호한다.
+- 최초 리뷰 RED: **17 tests, 13 passed, 4 failed** — 필수 project, project validator/분리, Web 세 번째 port, nginx stream 부재. 추가 negative는 9443을 제거한 preflight가 거부하지 않음을 재현했다. CLI 행동 테스트는 Node 24.19.0이 `--env-file`을 자체 옵션으로 선처리해 exit 9가 되는 현상을 발견했고 명시적 `node -- script` separator로 수정했다. 최종 계약 **18/18**, CI/MQTT 연결 계약 **9/9**다.
+- API/Web typecheck/build를 다시 수행했다. 전체 API **120 suites / 1,138 passed / 289 environment-dependent skipped**, 전체 Web **60 files / 686 passed**다. Schema/migrations/API guard·서비스·React 소스는 수정하지 않았다.
+- 현재 required env는 기존 32개와 project/device port를 합한 **34개**이며 각각 누락 시 실제 Compose render 실패를 확인한다. 최종 self-review에서 개발 비교 렌더도 `/dev/null` env-file로 고정해 개발 `.env`를 읽지 않도록 한 뒤 계약 **18/18**과 CI/MQTT **9/9**, `git diff --check`를 다시 통과했다. 이 마지막 변경은 테스트 입력 격리뿐이며 production artifact와 최종 audit image는 동일하다.
+- 첫 실제 passthrough 검증 project `led-production-smoke-656639a59f0de93ab932beba126ddbc5`: pinned nginx image의 stream 지원과 실제 guarded 제조 route의 no-cert **401**, 유효 disposable 제조 cert+빈 serial **400 / serialNumber is required**, 잘못된 API server identity의 TLS 실패, Inventory/Enrollment row **0/0**, browser proxy **200**을 확인했다. DB validation은 UUID/token 생성·DB I/O 이전에 실패하므로 인증서 발급이나 의미 있는 상태 변경을 수행하지 않는다. 57/57 migration·CRL atomic publish·Redis fail/recover와 exact cleanup도 통과했다.
+- 최종 `pnpm ci:production-audit`: **exit 0**. 계약 **18/18**, MQTT config **2/2**, Gateway **24/24**, 실제 MQTT persistence/ACL **2/2**, Web bundle **314.83 kB / gzip 97.58 kB**, 아래 새 image build/smoke, dependency policy 모두 통과했다. Dependency **820**, Critical **0** / High **2** / Moderate **1** / Low **0**, 기존 승인 예외 **3** / unexpected **0**다.
+
+| 최종 리뷰 수정 smoke | 증거 |
+| --- | --- |
+| Project | `led-production-smoke-20c71af3d390cb402599e5abe546bfb5` |
+| API image | `led-production-smoke-20c71af3d390cb402599e5abe546bfb5-api:sha-20c71af3d390cb402599e5abe546bfb5` |
+| API image ID | `sha256:1cd00a53de0911382614f7528f9b6c1dcc2d2b95486d542f243d2686b0fdcf7c` (user `node`) |
+| Web image | `led-production-smoke-20c71af3d390cb402599e5abe546bfb5-web:sha-20c71af3d390cb402599e5abe546bfb5` |
+| Web image ID | `sha256:80f27310ef44417670831939dce0d4e1bafd701ecdbca9faf6f5db1a534d594a` (user `nginx`) |
+| Project boundary | 운영과 동일한 helper의 명시적 `-p` 인자·project name 일치, 모든 volume project prefix 검증, Web 세 host port만 loopback ephemeral publish |
+| DB/migration | 최초 public tables **0**, migration **57/57**, migration/API 동일 image·migration 완료 후 API 기동 |
+| mTLS | Web 9443 raw TCP→API: no-client **401**, valid-client/빈 serial **400**, 정확한 `serialNumber is required`; Inventory/Enrollment **0/0**; API server identity 검증 및 wrong identity TLS 실패 |
+| Browser | TLS **1.2/1.3**, proxy/live/ready **200**, HTTP **308**, request ID·cache·security header 통과 |
+| CRL | missing-seed nonzero, atomic publish **2**, consumer checksum 일치, broker RO, seed 불변, init no rollback, SIGHUP 후 ready **200** |
+| Failure/recovery | wrong nginx upstream identity **502→200**; Redis 중단 ready **503**/live **200**/Web health nonzero→복구 ready **200** |
+| Cleanup | `containers=0 volumes=0 networks=0 owned-images=0`; stopped one-shot 포함, 6개 데이터/CRL volume·임시 PKI/env 제거, broad cleanup 없음 |
+
+운영 배포·push·merge·secret 변경·사용자 DB·실외부 Vault/MQTT/Object Storage·HIL은 실행하지 않았다. 실제 PKI issuance/renewal, 장비 공개 endpoint DNS/인증서, MQTT/Object Storage 외부 진입점은 운영 연결이 필요하다. 기존 CRL SIGHUP 절차·MinIO UID 0 예외·API 교체 후 nginx 재해석 한계는 유지한다. 리뷰 수정은 배포 artifact·계약 테스트·문서에만 한정했다.

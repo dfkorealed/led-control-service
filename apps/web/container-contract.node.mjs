@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 const dockerfile = readFileSync(path.join(import.meta.dirname, "Dockerfile"), "utf8");
@@ -31,4 +31,17 @@ test("Web distinguishes immutable assets from shell and sets security headers", 
   assert.match(nginx, /no-cache/);
   for (const header of ["Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy"]) assert.match(nginx, new RegExp(header));
   assert.match(nginx, /try_files \$uri \$uri\/ \/index\.html/);
+});
+
+test("Web offers a raw TCP API listener without TLS termination or certificate-header trust", () => {
+  const filename = path.join(import.meta.dirname, "nginx.stream.conf");
+  assert.ok(existsSync(filename), "socket mTLS requires an independent stream listener");
+  const stream = readFileSync(filename, "utf8");
+  assert.match(stream, /stream\s*\{/);
+  assert.match(stream, /listen 9443;/);
+  assert.match(stream, /proxy_pass api:4000;/);
+  assert.doesNotMatch(stream, /ssl_certificate|listen[^;]*ssl|proxy_ssl|proxy_set_header/);
+  assert.match(dockerfile, /COPY apps\/web\/nginx\.stream\.conf \/etc\/nginx\/stream\.conf/);
+  assert.match(dockerfile, /include \/etc\/nginx\/stream\.conf/);
+  assert.doesNotMatch(nginx, /proxy_set_header.*(?:Client-Cert|SSL-Cert|Certificate)/i);
 });
