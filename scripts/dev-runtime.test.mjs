@@ -141,18 +141,39 @@ test("통합 로컬 개발 명령은 Docker 인프라를 먼저 시작한 뒤 �
 });
 
 test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립트 인자로 전달한다", () => {
-  const result = spawnSync("docker", ["compose", "config", "--format", "json"], {
-    cwd: new URL("..", import.meta.url),
-    encoding: "utf8"
-  });
-
-  assert.equal(result.status, 0, result.stderr);
-  const compose = JSON.parse(result.stdout);
+  const compose = renderCompose();
   const command = compose.services["object-storage-init"].command;
   assert.equal(command.length, 1);
   assert.match(command[0], /until mc alias set[\s\S]+do sleep 2; done/);
   assert.match(command[0], /mc mb --ignore-existing[\s\S]+energy-reports/);
   assert.match(command[0], /mc anonymous set none/);
+});
+
+test("고정 MinIO 서버는 미설정 WEB_PUBLIC_URL에 개발 CORS origin을 사용한다", () => {
+  const compose = renderCompose({ WEB_PUBLIC_URL: "" });
+  const objectStorage = compose.services["object-storage"];
+
+  assert.equal(objectStorage.image, "minio/minio:RELEASE.2025-04-22T22-12-26Z");
+  assert.equal(objectStorage.environment.MINIO_API_CORS_ALLOW_ORIGIN, "http://localhost:5173");
+});
+
+test("고정 MinIO 서버는 사용자 지정 WEB_PUBLIC_URL을 CORS origin으로 정확히 전달한다", () => {
+  const compose = renderCompose({ WEB_PUBLIC_URL: "http://127.0.0.1:4173" });
+
+  assert.equal(
+    compose.services["object-storage"].environment.MINIO_API_CORS_ALLOW_ORIGIN,
+    "http://127.0.0.1:4173"
+  );
+});
+
+test("MinIO 초기화는 private bucket 정책만 적용하고 지원되지 않는 bucket CORS 설정을 사용하지 않는다", () => {
+  const compose = renderCompose();
+  const objectStorageInit = compose.services["object-storage-init"];
+  const command = objectStorageInit.command[0];
+
+  assert.doesNotMatch(command, /mc cors/);
+  assert.equal((command.match(/mc anonymous set none/g) ?? []).length, 2);
+  assert.equal(objectStorageInit.volumes, undefined);
 });
 
 test("추가 인자가 있어도 제품 개발 프로세스만 실행한다", () => {
@@ -261,4 +282,15 @@ function createCrlWatcherHarness() {
       return cancelled;
     }
   };
+}
+
+function renderCompose(environment = {}) {
+  const result = spawnSync("docker", ["compose", "config", "--format", "json"], {
+    cwd: new URL("..", import.meta.url),
+    encoding: "utf8",
+    env: { ...process.env, ...environment }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
 }
