@@ -1,0 +1,78 @@
+import { pathToFileURL } from "node:url";
+import type { BioFrame, BioProtocol } from "../src/bio/bio-frame-codec";
+import { BioSerialTransport, type BioTransportOptions } from "../src/bio/bio-serial-transport";
+import { BioUsbError } from "../src/bio/bio-usb-error";
+
+interface ProbeOptions {
+  devicePath: string;
+  protocol: BioProtocol;
+  timeoutMs: number;
+}
+type ProbeDependencies = Pick<BioTransportOptions, "inspector" | "connectionFactory"> & {
+  output?: (line: string) => void;
+};
+
+function parseArguments(args: string[]): ProbeOptions {
+  const options: ProbeOptions = {
+    devicePath: "/dev/serial/by-id/usb-1a86_CH57x-if00-port0",
+    protocol: "crc16",
+    timeoutMs: 300
+  };
+  const seen = new Set<string>();
+  for (let index = 0; index < args.length; index += 2) {
+    const key = args[index];
+    const value = args[index + 1];
+    if (!value || seen.has(key)) throw new Error("Invalid arguments");
+    seen.add(key);
+    if (key === "--device" && [options.devicePath, "/dev/bio-dongle"].includes(value)) options.devicePath = value;
+    else if (key === "--protocol" && (value === "crc16" || value === "gs")) options.protocol = value;
+    else if (key === "--timeout-ms" && /^[0-9]+$/.test(value) && Number(value) >= 1 && Number(value) <= 10000) options.timeoutMs = Number(value);
+    else throw new Error("Invalid arguments");
+  }
+  return options;
+}
+
+/** One read-only attempt. There is intentionally no raw command or payload API. */
+export async function runBioDongleProbe(args: string[], dependencies: ProbeDependencies = {}): Promise<number> {
+  const output = dependencies.output ?? ((line: string) => console.log(line));
+  let options: ProbeOptions;
+  try {
+    options = parseArguments(args);
+  } catch {
+    output(JSON.stringify({ ok: false, operation: "probe", error: "INVALID_ARGUMENTS" }));
+    return 2;
+  }
+
+  let response: BioFrame | undefined;
+  let failure: unknown;
+  const transport = new BioSerialTransport({
+    ...options,
+    inspector: dependencies.inspector,
+    connectionFactory: dependencies.connectionFactory,
+    // start() sends only the reviewed literal 0x82 probe and validates 0x83.
+    // Mapping readiness here means nothing about a module: no request() follows.
+    validateReadiness: async (frame) => { response = frame; }
+  });
+  try {
+    await transport.start();
+  } catch (error) {
+    failure = error;
+  } finally {
+    // Cancel the transport's reconnect timer even on a failed first probe.
+    // A close failure overrides success because descriptor ownership is uncertain.
+    try { await transport.stop(); } catch (error) { failure = error; }
+  }
+  if (failure || !response) {
+    output(JSON.stringify({ ok: false, operation: "probe", error: failure instanceof BioUsbError ? failure.code : "PROBE_FAILED" }));
+    return 1;
+  }
+  output(JSON.stringify({
+    ok: true, operation: "probe", protocol: response.protocol, responseCommand: "0x83",
+    payloadBytes: response.payload.length, payload: "[REDACTED]"
+  }));
+  return 0;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exitCode = await runBioDongleProbe(process.argv.slice(2));
+}
