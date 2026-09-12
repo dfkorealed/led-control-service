@@ -1,8 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Opt-in starts its own cluster and never consumes DATABASE_URL or an existing DB.
@@ -21,7 +20,11 @@ const key = (format = "xlsx", attempt = 1) => `reports/${siteId}/${reportId}/att
   let sequence = 0;
 
   beforeAll(async () => {
-    directory = mkdtempSync(join(tmpdir(), "report-migration-safety-"));
+    // This Unix-only PostgreSQL fixture uses /tmp instead of ambient TMPDIR.
+    // Resolve its symlink and validate the entire generated path before pg_ctl
+    // can interpolate it into a shell command or server options.
+    directory = mkdtempSync(join(realpathSync("/tmp"), "report-migration-safety-"));
+    expect(directory).toMatch(/^\/[A-Za-z0-9/_-]+$/);
     port = await new Promise<number>((resolve, reject) => {
       const server = createServer();
       server.on("error", reject);
