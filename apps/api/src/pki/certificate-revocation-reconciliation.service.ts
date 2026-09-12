@@ -90,11 +90,13 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
     await tx.gatewayInventory.updateMany({ where: { id: inventoryId }, data: { certificateFingerprint: null } });
     const ids: string[] = [];
     for (const certificate of certificates) {
-      if (certificate.status === "revoked") continue;
+      // Legacy releases persisted revoked before CRL publication, without this
+      // ledger. Only completedAt proves both steps finished. On first encounter
+      // safely re-revoke/republish, retaining the original certificate history.
       const row = await this.record(tx, this.metadata({ ...certificate, certificateId: certificate.id, source: "inventory_revocation" }), now);
       if (row.completedAt) {
         // A retained completed identity is already revoked in the CA and CRL.
-        await tx.gatewayCertificate.updateMany({ where: { id: certificate.id }, data: { status: "revoked", revokedAt: row.revokedAt ?? now } });
+        await tx.gatewayCertificate.updateMany({ where: { id: certificate.id }, data: { status: "revoked", revokedAt: certificate.revokedAt ?? row.revokedAt ?? now } });
         continue;
       }
       await tx.gatewayCertificate.updateMany({ where: { id: certificate.id, status: { not: "revoked" } }, data: { status: "revocation_pending" } });
@@ -192,9 +194,13 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
         if (!confirmed) throw new Error("CRL changed throughout the publication budget");
         // Keep the common inventory -> certificate -> ledger lock order; reversing
         // it here would deadlock against disable staging this same obligation.
+        let certificateRevokedAt = row.revokedAt;
         if (row.certificateId) {
           await lockGatewayInventory(tx, row.inventoryId);
-          await lockGatewayCertificates(tx, row.inventoryId);
+          const certificates = await lockGatewayCertificates(tx, row.inventoryId);
+          // An upgrade repair may repeat CA revoke long after the original
+          // revocation. Do not rewrite the certificate's historical timestamp.
+          certificateRevokedAt = certificates.find(certificate => certificate.id === row.certificateId)?.revokedAt ?? row.revokedAt;
         }
         const result = await tx.certificateRevocationReconciliation.updateMany({ where: this.fence(row), data: {
           completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null, lastError: null
@@ -202,7 +208,7 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
         if (result.count !== 1) return;
         if (row.certificateId) await tx.gatewayCertificate.updateMany({
           where: { id: row.certificateId, inventoryId: row.inventoryId, fingerprint: row.fingerprint },
-          data: { status: "revoked", revokedAt: row.revokedAt }
+          data: { status: "revoked", revokedAt: certificateRevokedAt }
         });
       }, { timeout: CRL_TRANSACTION_TIMEOUT_MS });
     } catch {

@@ -7,7 +7,7 @@ import { GatewayOnboardingService } from "../gateway-onboarding/gateway-onboardi
 import { ManufacturingEnrollmentService } from "./manufacturing-enrollment.service";
 import { rootCertificates } from "node:tls";
 import { OperatorSiteAdminsService } from "../operator-site-admins/operator-site-admins.service";
-import { HttpException } from "@nestjs/common";
+import { HttpException, ServiceUnavailableException } from "@nestjs/common";
 
 const databaseUrl = process.env.PKI_CONCURRENCY_TEST_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
@@ -65,6 +65,52 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
     return { lifecycle, mqtt: new GatewayCertificateService(db, ca, validator, reconciliation), disable: new GatewayOnboardingService(db, {} as never, lifecycle),
       manufacturing: new ManufacturingEnrollmentService(db, ca, validator, { apiCaBundlePem: "fixture", mqttCaBundlePem: "fixture", manufacturingCaFingerprint: null }, reconciliation) };
   }
+
+  it("recovers a ledgerless legacy revoked certificate through lifecycle retry without changing its revocation history", async () => {
+    const legacyRevokedAt = new Date("2026-08-01T02:03:04.000Z");
+    await first.gatewayCertificate.delete({ where: { fingerprint: PENDING } });
+    const certificate = await first.gatewayCertificate.update({ where: { fingerprint: ACTIVE }, data: {
+      status: "revoked", revokedAt: legacyRevokedAt
+    } });
+    await first.gatewayInventory.update({ where: { id: inventoryId }, data: { disabledAt: legacyRevokedAt, certificateFingerprint: null } });
+    await first.gateway.update({ where: { id: gatewayId }, data: { certificateFingerprint: null } });
+    expect(await first.certificateRevocationReconciliation.count()).toBe(0);
+
+    ca.revoke.mockResolvedValue(undefined);
+    ca.readCrl.mockResolvedValue("fixture-current-crl");
+    const publishCrl = jest.fn().mockRejectedValueOnce(new Error("fixture CRL destination unavailable"))
+      .mockResolvedValue({ changed: true });
+    const configuration = { deviceCrlPath: "/fixture/device.crl", publishCrl };
+    const reconciliation = new CertificateRevocationReconciliationService(first as never, ca, configuration);
+    const lifecycle = new CertificateLifecycleService(first as never, ca, validator, undefined, configuration, reconciliation);
+
+    // Old deployments persisted status=revoked before publishing the CRL. That
+    // status alone must not silently acknowledge this upgrade retry as complete.
+    await expect(lifecycle.revokeInventoryCertificates(inventoryId)).rejects.toBeInstanceOf(ServiceUnavailableException);
+    const pendingJobs = await first.certificateRevocationReconciliation.findMany({ where: { inventoryId } });
+    expect(pendingJobs).toHaveLength(1);
+    expect(pendingJobs[0]).toMatchObject({ certificateId: certificate.id, completedAt: null, cancelledAt: null, lastError: "crl_publish_failed" });
+    expect(await first.gatewayCertificate.findUniqueOrThrow({ where: { id: certificate.id } })).toMatchObject({
+      status: "revoked", revokedAt: legacyRevokedAt
+    });
+
+    await expect(lifecycle.revokeInventoryCertificates(inventoryId)).resolves.toEqual({ revoked: 1 });
+    const completed = await first.certificateRevocationReconciliation.findUniqueOrThrow({ where: { id: pendingJobs[0].id } });
+    expect(completed.completedAt).not.toBeNull();
+    expect(await first.gatewayCertificate.findUniqueOrThrow({ where: { id: certificate.id } })).toMatchObject({
+      status: "revoked", revokedAt: legacyRevokedAt
+    });
+
+    await expect(lifecycle.revokeInventoryCertificates(inventoryId)).resolves.toEqual({ revoked: 0 });
+    expect(await first.certificateRevocationReconciliation.count({ where: { inventoryId } })).toBe(1);
+    expect(await first.certificateRevocationReconciliation.count({ where: { inventoryId, completedAt: null } })).toBe(0);
+    expect(await first.certificateRevocationReconciliation.findUniqueOrThrow({ where: { id: completed.id } })).toMatchObject({ completedAt: completed.completedAt });
+    expect(await first.gatewayCertificate.findUniqueOrThrow({ where: { id: certificate.id } })).toMatchObject({
+      status: "revoked", revokedAt: legacyRevokedAt
+    });
+    expect(ca.revoke).toHaveBeenCalledTimes(1);
+    expect(publishCrl).toHaveBeenCalledTimes(2);
+  });
   async function assertDisabled(expectedLedgerCount = 2) {
     expect(await first.gatewayCertificate.count({ where: { inventoryId, status: { in: ["active", "pending"] } } })).toBe(0);
     expect((await first.gatewayInventory.findUniqueOrThrow({ where: { id: inventoryId } })).certificateFingerprint).toBeNull();
