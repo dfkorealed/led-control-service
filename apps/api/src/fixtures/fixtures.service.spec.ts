@@ -32,7 +32,12 @@ describe("FixturesService", () => {
             lastSeenAt: new Date("2026-07-12T00:00:00.000Z"),
             healthFaultCodes: [4, 1],
             healthLastSeenAt: new Date("2026-07-12T00:00:01.000Z"),
-            meshNode: { gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: heartbeat } }
+            meshNode: {
+              serialNumber: "DFK-H2-0001",
+              meshAddress: "256",
+              firmwareVersion: "1.2.3",
+              gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: heartbeat }
+            }
           },
           { id: "fixture-2" }
         ])
@@ -51,6 +56,9 @@ describe("FixturesService", () => {
       items: [
         {
           id: "fixture-1",
+          serialNumber: "DFK-H2-0001",
+          meshAddress: "256",
+          firmwareVersion: "1.2.3",
           gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
           status: "fault",
           health: { faultCodes: [1, 4], observedAt: "2026-07-12T00:00:01.000Z" },

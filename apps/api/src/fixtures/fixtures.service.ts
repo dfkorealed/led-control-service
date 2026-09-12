@@ -92,6 +92,9 @@ export class FixturesService {
         return {
           id: fixture.id,
           name: fixture.name,
+          serialNumber: fixture.meshNode?.serialNumber ?? null,
+          meshAddress: fixture.meshNode?.meshAddress ?? null,
+          firmwareVersion: fixture.meshNode?.firmwareVersion ?? null,
           x: fixture.x,
           y: fixture.y,
           size: fixture.size,
