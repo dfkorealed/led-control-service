@@ -74,6 +74,9 @@
 
 ## 구현 완료
 
+- 도면 이력은 층별 **최근 100개 또는 최근 365일 중 넓은 범위**를 보존하고, 범위 밖 이력은 분당 최대 1,000개씩 정리한다. 보존된 이력만 목록 조회·복구할 수 있다. 로그인 `Session`은 만료 또는 폐기 후 30일이 지난 행만 분당 최대 10,000개씩 정리하며 활성 세션은 보존한다.
+- 게이트웨이 이벤트 원장은 heartbeat 7일, 조명 상태 30일, 종료된 검색 세션 이벤트 90일, 대체된 차량 센서 capability 365일 이후에 안전 조건을 확인해 분당 최대 10,000개씩 정리한다. watermark·현재 상태·검색 terminal ACK identity가 부족하면 보존한다. 각 정리는 안정된 순서와 `SKIP LOCKED`를 사용하고, 중복 timer 실행을 막으며 삭제 건수·실패 단계를 구조화 로그로 남긴다. 기간 경계와 두 연결의 잠금 건너뛰기·재실행 수렴은 일회성 PostgreSQL에서 검증했다.
+
 - 신규 scan completed/failed는 session에 전체 payload hash·event ID·sequence·최초 ACK 시각을 보존한다. raw 이벤트와 ACK outbox가 삭제된 뒤에도 동일 terminal은 최초 application ACK로 재생성하고 변경된 acceptedNodeCount/failure message는 거부한다. found의 gateway/type 순서는 session을 바꿔도 watermark로 유지하며 임시 PostgreSQL에서 검증했다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
@@ -374,7 +377,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
-- 과거 scan은 raw 원장에 session scope/전체 hash가 없어 terminal identity를 추정 backfill하지 않는다. 해당 legacy 원장은 향후 자동 보존 작업에서도 남겨야 한다. 원장·Session·도면 이력 삭제 worker와 사용자 DB migration 적용은 별도 작업이다.
+- 과거 scan은 raw 원장에 session scope/전체 hash가 없어 terminal identity를 추정 backfill하지 않는다. scope/hash 또는 필요한 현재 상태가 부족한 legacy 원장과 알 수 없는 이벤트 유형은 자동 정리에서도 보존한다. 삭제된 조명의 상태 원장처럼 안전 조건을 더 이상 증명할 수 없는 데이터도 남을 수 있다. 사용자 DB migration 적용·운영 배포와 실장비 검증은 실행하지 않았다.
+- 도면 정리 이후 보존 범위 밖의 revision은 복구할 수 없으며 외부 이력 보관·archive 기능은 없다. `AuditLog`, `GatewayClaimAudit`, 인증서 이력은 이번 자동 삭제 대상에 포함하지 않는다.
 
 - 맵 편집 우측 패널의 공통 overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.
@@ -408,6 +412,9 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
   - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
+
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/retention.module.ts`
+- `apps/api/src/retention/data-retention.service.spec.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`
 
 - `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/prisma/migrations/20260915_statistics_operations_retention/migration.sql`
 
