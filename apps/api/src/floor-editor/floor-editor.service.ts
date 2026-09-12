@@ -159,6 +159,9 @@ export class FloorEditorService {
         const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
         await this.assertAtomicSaveTargets(tx, floorId, prepared);
         const changedAt = await this.incrementRevision(tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence);
+        if (prepared.floorPlan) {
+          await this.assertReadyAssetUrls(floorId, prepared.floorPlan, tx);
+        }
         await this.applySaveChanges(tx, floorId, prepared, changedAt);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
@@ -256,7 +259,6 @@ export class FloorEditorService {
         if (!source) throw new NotFoundException("floor revision not found");
 
         const snapshot = this.parseSnapshot(source.snapshot);
-        await this.assertSnapshotAssetsReady(tx, floorId, snapshot);
         const existingFixtureIds = await this.existingFixtureIds(tx, floorId, snapshot.fixtures.map((fixture) => fixture.id));
         const skippedFixtureIds = snapshot.fixtures
           .map((fixture) => fixture.id)
@@ -264,6 +266,7 @@ export class FloorEditorService {
           .sort();
 
         const changedAt = await this.incrementRevision(tx, floorId, input.expectedRevision, input.leaseToken, input.leaseFence);
+        await this.assertSnapshotAssetsReady(tx, floorId, snapshot);
         await this.applySnapshot(tx, floorId, snapshot, existingFixtureIds, changedAt);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
@@ -472,9 +475,6 @@ export class FloorEditorService {
       this.normalizeObjectGeometryPatch(update.data, objectStates.get(update.id));
     }
 
-    if (input.floorPlan) {
-      await this.assertReadyAssetUrls(floorId, input.floorPlan, tx);
-    }
   }
 
   private async preflightObjectUpdates(
@@ -832,7 +832,7 @@ export class FloorEditorService {
     }
     const assetIds = [...new Set(references.map((reference) => reference.assetId))];
     const readyAssets = await client.floorAsset.findMany({
-      where: { floorId, status: "ready", id: { in: assetIds } },
+      where: { floorId, status: "ready", cleanupStartedAt: null, id: { in: assetIds } },
       select: { id: true }
     });
     if (new Set(readyAssets.map((asset) => asset.id)).size !== assetIds.length) {

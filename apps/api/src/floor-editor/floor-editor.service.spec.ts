@@ -453,15 +453,28 @@ describe("FloorEditorService atomic revisions", () => {
     expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it("rejects non-ready floor plan assets before attempting the optimistic mutation", async () => {
+  it("rejects non-ready floor plan assets before applying the floor plan or revision", async () => {
     const tx = createTransactionClient({ floorAsset: { findMany: jest.fn().mockResolvedValue([{ id: originalAssetId }]) } });
     const { service } = await createAtomicService({ tx });
 
     await expect(service.saveEditorState(user, floorId, saveInput)).rejects.toThrow("ready floor assets");
 
-    expect(tx.floor.update).not.toHaveBeenCalled();
     expect(tx.floorPlan.upsert).not.toHaveBeenCalled();
     expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("locks the floor before accepting ready assets that cleanup could claim", async () => {
+    const tx = createTransactionClient();
+    const { service } = await createAtomicService({ tx });
+
+    await service.saveEditorState(user, floorId, saveInput);
+
+    expect(tx.floorAsset.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ status: "ready", cleanupStartedAt: null })
+    }));
+    expect(tx.floor.update.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.floorAsset.findMany.mock.invocationCallOrder[0]);
   });
 
   it("rejects legacy public floor plan URLs instead of persisting an unauthenticated asset reference", async () => {

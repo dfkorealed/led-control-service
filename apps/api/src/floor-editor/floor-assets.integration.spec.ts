@@ -2,6 +2,7 @@ import { NotFoundException } from "@nestjs/common";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { spawnSync } from "node:child_process";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { FloorAssetCleanupService } from "./floor-asset-cleanup.service";
 import { FloorAssetsService } from "./floor-assets.service";
 
 const databaseUrl = process.env.FLOOR_ASSET_TEST_DATABASE_URL ?? process.env.FLOOR_EDITOR_TEST_DATABASE_URL;
@@ -54,6 +55,17 @@ describeWithPostgres("FloorAssetsService PostgreSQL concurrency", () => {
         "readyAt" TIMESTAMP(3),
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" TIMESTAMP(3) NOT NULL
+      );
+      CREATE TABLE "FloorPlan" (
+        "floorId" TEXT PRIMARY KEY,
+        "imageUrl" TEXT NOT NULL,
+        "originalFileUrl" TEXT,
+        "renderedImageUrl" TEXT
+      );
+      CREATE TABLE "FloorMapRevision" (
+        "id" TEXT PRIMARY KEY,
+        "floorId" TEXT NOT NULL,
+        "snapshot" JSONB NOT NULL
       );
       INSERT INTO "Site" VALUES ('site-1', 'admin-1');
       INSERT INTO "Floor" VALUES ('floor-1', 'site-1');
@@ -123,6 +135,86 @@ describeWithPostgres("FloorAssetsService PostgreSQL concurrency", () => {
       Prisma.sql`SELECT "status"::text AS status FROM "FloorAsset" WHERE "id" = 'asset-1'`
     );
     expect(rows).toEqual([{ status: "pending" }]);
+  });
+
+  it("deletes only old ready orphans while preserving current and historical references", async () => {
+    const now = new Date();
+    const oldReadyAt = new Date(now.getTime() - 24 * 60 * 60_000 - 1_000);
+    const paths = {
+      orphan: "/api/floors/floor-1/assets/asset-orphan/content",
+      current: "/api/floors/floor-1/assets/asset-current/content"
+    };
+    const historicalAssets = Array.from({ length: 25 }, (_, index) => ({
+      id: `asset-historical-${index.toString().padStart(2, "0")}`,
+      objectKey: `floors/floor-1/historical-${index.toString().padStart(2, "0")}.png`
+    }));
+    for (const { id, objectKey } of [
+      { id: "asset-current", objectKey: "floors/floor-1/current.png" },
+      ...historicalAssets,
+      { id: "asset-orphan", objectKey: "floors/floor-1/orphan.png" }
+    ]) {
+      await serviceClient.floorAsset.create({
+        data: {
+          id,
+          floorId: "floor-1",
+          kind: "original",
+          status: "ready",
+          objectKey,
+          mimeType: "image/png",
+          sizeBytes: 1024n,
+          sha256: "b".repeat(64),
+          readyAt: oldReadyAt
+        }
+      });
+    }
+    await serviceClient.floorAsset.create({
+      data: {
+        id: "asset-recent",
+        floorId: "floor-1",
+        kind: "original",
+        status: "ready",
+        objectKey: "floors/floor-1/recent.png",
+        mimeType: "image/png",
+        sizeBytes: 1024n,
+        sha256: "c".repeat(64),
+        readyAt: new Date(now.getTime() - 23 * 60 * 60_000)
+      }
+    });
+    await serviceClient.$executeRaw(Prisma.sql`
+      INSERT INTO "FloorPlan" ("floorId", "imageUrl", "originalFileUrl", "renderedImageUrl")
+      VALUES ('floor-1', ${paths.current}, NULL, NULL)
+    `);
+    for (const [index, asset] of historicalAssets.entries()) {
+      const historicalPath = `/api/floors/floor-1/assets/${asset.id}/content`;
+      await serviceClient.$executeRaw(Prisma.sql`
+        INSERT INTO "FloorMapRevision" ("id", "floorId", "snapshot")
+        VALUES (
+          ${`revision-${index}`},
+          'floor-1',
+          ${JSON.stringify({
+            floorPlan: {
+              imageUrl: historicalPath,
+              originalFileUrl: null,
+              renderedImageUrl: null
+            }
+          })}::jsonb
+        )
+      `);
+    }
+    const storage = { deleteObject: jest.fn().mockResolvedValue(undefined) };
+    const cleanup = new FloorAssetCleanupService(serviceClient as never, storage as never);
+
+    await expect(cleanup.processPending(now)).resolves.toEqual({ processed: 1, deleted: 1 });
+
+    expect(storage.deleteObject).toHaveBeenCalledTimes(1);
+    expect(storage.deleteObject).toHaveBeenCalledWith("floors/floor-1/orphan.png");
+    await expect(serviceClient.floorAsset.count({
+      where: {
+        id: { in: ["asset-current", "asset-recent", ...historicalAssets.map(({ id }) => id)] },
+        cleanupStartedAt: null
+      }
+    })).resolves.toBe(27);
+    await expect(serviceClient.floorAsset.findUnique({ where: { id: "asset-orphan" } })).resolves.toBeNull();
   });
 
   function runSql(sql: string) {

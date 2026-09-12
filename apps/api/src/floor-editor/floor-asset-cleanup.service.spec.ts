@@ -6,10 +6,12 @@ describe("FloorAssetCleanupService", () => {
     const now = new Date("2026-09-12T00:00:10.000Z");
     const prisma: any = {
       floorAsset: {
-        findMany: jest.fn().mockResolvedValue([{ id: "asset-1", objectKey: "floors/floor-1/file.png" }]),
+        findMany: jest.fn()
+          .mockResolvedValueOnce([{ id: "asset-1", objectKey: "floors/floor-1/file.png" }]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 })
-      }
+      },
+      $queryRaw: jest.fn().mockResolvedValue([])
     };
     const storage: any = { deleteObject: jest.fn().mockResolvedValue(undefined) };
     const service = new FloorAssetCleanupService(prisma, storage);
@@ -32,12 +34,14 @@ describe("FloorAssetCleanupService", () => {
     const now = new Date("2026-09-12T00:00:10.000Z");
     const prisma: any = {
       floorAsset: {
-        findMany: jest.fn().mockResolvedValue([{ id: "asset-1", objectKey: "floors/floor-1/file.png" }]),
+        findMany: jest.fn()
+          .mockResolvedValueOnce([{ id: "asset-1", objectKey: "floors/floor-1/file.png" }]),
         updateMany: jest.fn()
           .mockResolvedValueOnce({ count: 1 })
           .mockResolvedValueOnce({ count: 1 }),
         deleteMany: jest.fn()
-      }
+      },
+      $queryRaw: jest.fn().mockResolvedValue([])
     };
     const storage: any = { deleteObject: jest.fn().mockRejectedValue(new Error("storage unavailable")) };
     const service = new FloorAssetCleanupService(prisma, storage);
@@ -54,8 +58,10 @@ describe("FloorAssetCleanupService", () => {
     const now = new Date("2026-09-12T01:00:00.000Z");
     const prisma: any = {
       floorAsset: {
-        findMany: jest.fn().mockResolvedValue([])
-      }
+        findMany: jest.fn()
+          .mockResolvedValueOnce([])
+      },
+      $queryRaw: jest.fn().mockResolvedValue([])
     };
     const service = new FloorAssetCleanupService(prisma, { deleteObject: jest.fn() } as any);
 
@@ -68,5 +74,74 @@ describe("FloorAssetCleanupService", () => {
         ])
       })
     }));
+  });
+
+  it("claims and deletes unreferenced ready assets only after the 24 hour grace period", async () => {
+    const now = new Date("2026-09-13T00:00:00.000Z");
+    const graceAt = new Date("2026-09-12T00:00:00.000Z");
+    const candidate = {
+      id: "asset-ready",
+      floorId: "floor-1",
+      objectKey: "floors/floor-1/ready.png"
+    };
+    const tx: any = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([candidate])
+        .mockResolvedValueOnce([{ referenced: false }]),
+      floorAsset: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    const prisma: any = {
+      floorAsset: {
+        findMany: jest.fn()
+          .mockResolvedValueOnce([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        updateMany: jest.fn()
+      },
+      $queryRaw: jest.fn().mockResolvedValue([candidate]),
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
+    };
+    const storage: any = { deleteObject: jest.fn().mockResolvedValue(undefined) };
+    const service = new FloorAssetCleanupService(prisma, storage);
+
+    await expect(service.processPending(now)).resolves.toEqual({ processed: 1, deleted: 1 });
+
+    expect(prisma.$queryRaw.mock.calls[0][0].values).toContainEqual(graceAt);
+    expect(storage.deleteObject).toHaveBeenCalledWith(candidate.objectKey);
+    expect(prisma.floorAsset.deleteMany).toHaveBeenCalledWith({
+      where: { id: candidate.id, status: "ready", cleanupStartedAt: now }
+    });
+  });
+
+  it("does not claim or delete a ready asset referenced by a floor plan or revision", async () => {
+    const now = new Date("2026-09-13T00:00:00.000Z");
+    const candidate = {
+      id: "asset-ready",
+      floorId: "floor-1",
+      objectKey: "floors/floor-1/ready.png"
+    };
+    const tx: any = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([candidate])
+        .mockResolvedValueOnce([{ referenced: true }]),
+      floorAsset: { updateMany: jest.fn() }
+    };
+    const prisma: any = {
+      floorAsset: {
+        findMany: jest.fn()
+          .mockResolvedValueOnce([]),
+        deleteMany: jest.fn(),
+        updateMany: jest.fn()
+      },
+      $queryRaw: jest.fn().mockResolvedValue([candidate]),
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
+    };
+    const storage: any = { deleteObject: jest.fn() };
+    const service = new FloorAssetCleanupService(prisma, storage);
+
+    await expect(service.processPending(now)).resolves.toEqual({ processed: 1, deleted: 0 });
+
+    expect(tx.floorAsset.updateMany).not.toHaveBeenCalled();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+    expect(prisma.floorAsset.deleteMany).not.toHaveBeenCalled();
   });
 });
