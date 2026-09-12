@@ -37,7 +37,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     foreignFixtureId: "10000000-0000-4000-8000-000000000012",
     assetId: "10000000-0000-4000-8000-000000000013"
   };
-  const readyAssetUrl = "https://assets.example/integration-floor.png";
+  const readyAssetPath = `/api/floors/${ids.floorId}/assets/${ids.assetId}/content`;
   const operator = {
     id: ids.operatorId,
     organizationId: ids.customerOrganizationId,
@@ -202,7 +202,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         kind: "original",
         status: "ready",
         objectKey: "integration/floor.png",
-        publicUrl: readyAssetUrl,
         mimeType: "image/png",
         sizeBytes: 1024n,
         sha256: "a".repeat(64),
@@ -213,7 +212,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         kind: "original",
         status: "ready",
         objectKey: "integration/floor.png",
-        publicUrl: readyAssetUrl,
         mimeType: "image/png",
         sizeBytes: 1024n,
         sha256: "a".repeat(64),
@@ -538,9 +536,9 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     };
     const floorPlan = {
       sourceType: "image" as const,
-      imageUrl: readyAssetUrl,
-      originalFileUrl: readyAssetUrl,
-      renderedImageUrl: readyAssetUrl,
+      imageUrl: readyAssetPath,
+      originalFileUrl: readyAssetPath,
+      renderedImageUrl: readyAssetPath,
       width: 1200,
       height: 800
     };

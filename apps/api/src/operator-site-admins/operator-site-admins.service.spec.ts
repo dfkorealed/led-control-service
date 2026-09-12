@@ -175,6 +175,20 @@ describe("OperatorSiteAdminsService", () => {
     });
   });
 
+  it("locks the site row before taking the final asset snapshot for deletion", async () => {
+    const { service, transaction } = createService({
+      userFindFirst: jest.fn().mockResolvedValue({
+        id: "admin-1", organizationId: "customer-1",
+        administeredSite: { id: "site-1", name: "Pending Site", gateways: [], floors: [] }
+      })
+    });
+
+    await service.deleteSiteAdmin(operator, "admin-1", "Pending Site");
+
+    const rawQueries = transaction.$queryRaw.mock.calls.map(([query]) => query.strings.join(" "));
+    expect(rawQueries.some((query) => query.includes('FROM "Site"') && query.includes("FOR UPDATE"))).toBe(true);
+  });
+
   it("preserves a customer organization and its other users when another site remains", async () => {
     const { service, transaction } = createService({
       siteCount: jest.fn().mockResolvedValue(2),

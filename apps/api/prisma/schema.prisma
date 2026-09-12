@@ -334,21 +334,23 @@ model AuditLog {
 }
 
 model FloorAsset {
-  id        String           @id @default(uuid())
-  floorId   String
-  kind      FloorAssetKind
-  status    FloorAssetStatus @default(pending)
-  objectKey String           @unique
-  publicUrl String
-  mimeType  String
-  sizeBytes BigInt
-  sha256    String
-  readyAt   DateTime?
-  floor     Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id               String           @id @default(uuid())
+  floorId          String
+  kind             FloorAssetKind
+  status           FloorAssetStatus @default(pending)
+  objectKey        String           @unique
+  mimeType         String
+  sizeBytes        BigInt
+  sha256           String
+  uploadExpiresAt  DateTime?
+  cleanupStartedAt DateTime?
+  readyAt          DateTime?
+  floor            Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   @@index([floorId, status, createdAt])
+  @@index([status, uploadExpiresAt, cleanupStartedAt])
 }
 
 model FloorPlan {

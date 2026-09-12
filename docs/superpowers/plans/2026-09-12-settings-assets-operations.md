@@ -55,14 +55,14 @@
 **Interfaces:**
 - Produces: `FloorAsset.uploadExpiresAt`, DB-first `createUploadIntent`, `FloorAssetCleanupService.processPending()`
 
-- [ ] presign 실패 뒤 pending row가 남는 failing test를 작성한다.
-- [ ] pending expiry와 Site deletion 경합 failing test를 작성한다.
-- [ ] schema/migration을 추가하고 Prisma Client를 생성한다.
-- [ ] object key 생성, row commit, presign 순서로 service를 분리한다.
-- [ ] lease 없는 bounded sweeper를 구현하고 module lifecycle에 연결한다.
-- [ ] Site 삭제가 같은 Site lock 뒤 모든 asset key를 cleanup 원장에 복사하게 한다.
-- [ ] disposable DB migration과 focused tests를 통과시킨다.
-- [ ] `feat(api): make floor uploads recoverable`로 커밋한다.
+- [x] presign 실패 뒤 pending row가 남는 failing test를 작성한다.
+- [x] pending expiry와 Site deletion 경합 failing test를 작성한다.
+- [x] schema/migration을 추가하고 Prisma Client를 생성한다.
+- [x] object key 생성, row commit, presign 순서로 service를 분리한다.
+- [x] 만료 점유를 회수하는 bounded sweeper를 구현하고 module lifecycle에 연결한다.
+- [x] Site 삭제가 같은 Site lock 뒤 모든 asset key를 cleanup 원장에 복사하게 한다.
+- [x] disposable DB migration과 focused tests를 통과시킨다.
+- [x] `feat(api): make floor uploads recoverable`로 커밋한다.
 
 ### Task 3: 맵 편집 실도면 업로드 UI
 

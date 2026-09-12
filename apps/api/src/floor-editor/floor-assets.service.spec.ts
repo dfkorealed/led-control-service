@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { SiteAccessService } from "../access/site-access.service";
 import { FloorAssetsService } from "./floor-assets.service";
@@ -13,17 +13,20 @@ describe("FloorAssetsService", () => {
   it("allows a customer admin to create an upload intent but rejects a viewer", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
-      floorAsset: { create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }) }
+      floorAsset: { create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }) },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1" }])
     };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
     const storage: any = {
-      createUploadDescriptor: jest.fn().mockResolvedValue({
-        objectKey: "floors/floor-1/file.png", uploadUrl: "https://signed.example", publicUrl: "https://assets.example/file.png", expiresInSeconds: 300
-      })
+      prepareFloorAssetUpload: jest.fn().mockReturnValue({
+        objectKey: "floors/floor-1/file.png", checksumBase64: "checksum", expiresInSeconds: 300
+      }),
+      createFloorAssetUploadUrl: jest.fn().mockResolvedValue("https://signed.example")
     };
     const siteAccess = { assert: jest.fn().mockImplementation((user: AuthenticatedUser, _siteId: string, capability: string) => {
       if (capability === "manage" && user.role === "viewer") throw new ForbiddenException();
       return { id: "site-1" };
-    }) } as unknown as SiteAccessService;
+    }), assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" }) } as unknown as SiteAccessService;
     const service = new FloorAssetsService(prisma, storage, siteAccess);
     const uploadInput = { kind: "original" as const, mimeType: "image/png", sizeBytes: 1024, sha256: "a".repeat(64) };
 
@@ -77,17 +80,22 @@ describe("FloorAssetsService", () => {
   it("creates a pending tenant-scoped upload intent", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
-      floorAsset: { create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }) }
+      floorAsset: { create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }) },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1" }])
     };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
     const storage: any = {
-      createUploadDescriptor: jest.fn().mockResolvedValue({
+      prepareFloorAssetUpload: jest.fn().mockReturnValue({
         objectKey: "floors/floor-1/file.png",
-        uploadUrl: "https://signed.example",
-        publicUrl: "https://assets.example/floors/floor-1/file.png",
+        checksumBase64: "checksum",
         expiresInSeconds: 300
-      })
+      }),
+      createFloorAssetUploadUrl: jest.fn().mockResolvedValue("https://signed.example")
     };
-    const service = new FloorAssetsService(prisma, storage, { assert: jest.fn().mockResolvedValue({ id: "site-1" }) } as unknown as SiteAccessService);
+    const service = new FloorAssetsService(prisma, storage, {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    } as unknown as SiteAccessService);
 
     await expect(
       service.createUploadIntent(admin, "floor-1", {
@@ -108,6 +116,49 @@ describe("FloorAssetsService", () => {
     });
   });
 
+  it("commits a pending upload ledger before presigning and keeps it when presign fails", async () => {
+    const order: string[] = [];
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        create: jest.fn().mockImplementation(async () => {
+          order.push("ledger");
+          return { id: "asset-1", status: "pending" };
+        })
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1" }])
+    };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
+    const storage: any = {
+      prepareFloorAssetUpload: jest.fn().mockImplementation(() => {
+        order.push("prepare");
+        return {
+          objectKey: "floors/floor-1/file.png",
+          checksumBase64: Buffer.from("a".repeat(64), "hex").toString("base64"),
+          expiresInSeconds: 300
+        };
+      }),
+      createFloorAssetUploadUrl: jest.fn().mockImplementation(async () => {
+        order.push("presign");
+        throw new Error("signer unavailable");
+      })
+    };
+    const siteAccess: any = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1", organizationId: "customer-org" })
+    };
+
+    await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
+      kind: "original",
+      mimeType: "image/png",
+      sizeBytes: 1024,
+      sha256: "a".repeat(64)
+    })).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(order).toEqual(["prepare", "ledger", "presign"]);
+    expect(prisma.floorAsset.create).toHaveBeenCalled();
+  });
+
   it("marks an upload ready only after object metadata matches", async () => {
     const checksum = "a".repeat(64);
     const prisma: any = {
@@ -119,10 +170,9 @@ describe("FloorAssetsService", () => {
           mimeType: "image/png",
           sizeBytes: 1024n,
           sha256: checksum,
-          publicUrl: "https://assets.example/file.png",
           status: "pending"
         }),
-        update: jest.fn().mockResolvedValue({ id: "asset-1", status: "ready", publicUrl: "https://assets.example/file.png" })
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
       }
     };
     const storage: any = {
@@ -137,6 +187,30 @@ describe("FloorAssetsService", () => {
       id: "asset-1",
       status: "ready"
     });
+  });
+
+  it("rejects completion after the pending upload has been claimed for cleanup", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "asset-1",
+          objectKey: "floors/floor-1/file.png",
+          mimeType: "image/png",
+          sizeBytes: 1024n,
+          sha256: "a".repeat(64),
+          status: "pending",
+          cleanupStartedAt: new Date()
+        })
+      }
+    };
+    const storage: any = { headObject: jest.fn() };
+    const service = new FloorAssetsService(prisma, storage, {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" })
+    } as unknown as SiteAccessService);
+
+    await expect(service.completeUpload(admin, "floor-1", "asset-1")).rejects.toBeInstanceOf(ConflictException);
+    expect(storage.headObject).not.toHaveBeenCalled();
   });
 
   it("requires manage access before completing an upload", async () => {

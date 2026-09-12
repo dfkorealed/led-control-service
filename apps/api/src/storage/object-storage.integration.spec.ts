@@ -5,7 +5,7 @@ import { ObjectStorageService } from "./object-storage.service";
 const runIntegration = process.env.RUN_OBJECT_STORAGE_INTEGRATION === "true" ? describe : describe.skip;
 
 runIntegration("ObjectStorageService integration", () => {
-  it("uploads a checksum-signed object and reads matching HEAD metadata", async () => {
+  it("uploads a checksum-signed object and permits only a short signed download", async () => {
     const endpoint = process.env.OBJECT_STORAGE_ENDPOINT ?? "http://localhost:9000";
     const bucket = process.env.OBJECT_STORAGE_BUCKET ?? "floor-assets";
     const client = new S3Client({
@@ -39,9 +39,13 @@ runIntegration("ObjectStorageService integration", () => {
         ContentLength: body.length,
         ChecksumSHA256: descriptor.checksumBase64
       });
-      const publicDownload = await fetch(descriptor.publicUrl);
-      expect(publicDownload.status).toBe(200);
-      expect(Buffer.from(await publicDownload.arrayBuffer())).toEqual(body);
+      const anonymous = await fetch(`${endpoint}/${bucket}/${descriptor.objectKey}`);
+      expect(anonymous.status).toBe(403);
+      const signedUrl = await service.createFloorAssetDownloadUrl(descriptor.objectKey);
+      expect(new URL(signedUrl).searchParams.get("X-Amz-Expires")).toBe("300");
+      const signedDownload = await fetch(signedUrl);
+      expect(signedDownload.status).toBe(200);
+      expect(Buffer.from(await signedDownload.arrayBuffer())).toEqual(body);
     } finally {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: descriptor.objectKey }));
     }

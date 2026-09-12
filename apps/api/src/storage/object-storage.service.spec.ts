@@ -15,7 +15,9 @@ describe("ObjectStorageService", () => {
   it.each(["image/jpeg", "image/png", "application/pdf"])("accepts supported MIME %s", async (mimeType) => {
     await expect(
       service.createUploadDescriptor({ floorId: "floor-1", mimeType, sizeBytes: 1024, sha256: "a".repeat(64) })
-    ).resolves.toMatchObject({ uploadUrl: "https://upload.example/signed", publicUrl: expect.stringContaining("floor-assets/") });
+    ).resolves.toMatchObject({ uploadUrl: "https://upload.example/signed", objectKey: expect.stringContaining("floors/floor-1/") });
+    await expect(service.createUploadDescriptor({ floorId: "floor-1", mimeType, sizeBytes: 1024, sha256: "a".repeat(64) }))
+      .resolves.not.toHaveProperty("publicUrl");
   });
 
   it("rejects unsupported MIME, oversized files, and invalid checksums", async () => {

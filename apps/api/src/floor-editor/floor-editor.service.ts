@@ -788,19 +788,19 @@ export class FloorEditorService {
       data.sourceType = input.sourceType;
     }
     if (input.imageUrl !== undefined) {
-      data.imageUrl = input.imageUrl.trim() === "" ? "" : this.objectStorageUrl(input.imageUrl, "imageUrl");
+      data.imageUrl = input.imageUrl.trim() === "" ? "" : this.floorAssetAccessPath(input.imageUrl, "imageUrl").path;
     }
     if (input.originalFileUrl !== undefined) {
       data.originalFileUrl =
         input.originalFileUrl === null || input.originalFileUrl.trim() === ""
           ? input.originalFileUrl
-          : this.objectStorageUrl(input.originalFileUrl, "originalFileUrl");
+          : this.floorAssetAccessPath(input.originalFileUrl, "originalFileUrl").path;
     }
     if (input.renderedImageUrl !== undefined) {
       data.renderedImageUrl =
         input.renderedImageUrl === null || input.renderedImageUrl.trim() === ""
           ? input.renderedImageUrl
-          : this.objectStorageUrl(input.renderedImageUrl, "renderedImageUrl");
+          : this.floorAssetAccessPath(input.renderedImageUrl, "renderedImageUrl").path;
     }
     if (input.width !== undefined) data.width = this.positiveInteger(input.width, "width");
     if (input.height !== undefined) data.height = this.positiveInteger(input.height, "height");
@@ -822,10 +822,18 @@ export class FloorEditorService {
       new Set([data.imageUrl, data.originalFileUrl, data.renderedImageUrl].filter((url): url is string => Boolean(url)))
     );
     if (urls.length === 0) return;
-    const readyCount = await client.floorAsset.count({
-      where: { floorId, status: "ready", publicUrl: { in: urls } }
+    const references = urls.map((url) => this.floorAssetAccessPath(url, "floor plan URL"));
+    if (references.some((reference) => reference.floorId !== floorId)) {
+      throw new BadRequestException("floor plan URLs must reference ready floor assets");
+    }
+    const assetIds = [...new Set(references.map((reference) => reference.assetId))];
+    const readyAssets = await client.floorAsset.findMany({
+      where: { floorId, status: "ready", id: { in: assetIds } },
+      select: { id: true }
     });
-    if (readyCount !== urls.length) throw new BadRequestException("floor plan URLs must reference ready floor assets");
+    if (new Set(readyAssets.map((asset) => asset.id)).size !== assetIds.length) {
+      throw new BadRequestException("floor plan URLs must reference ready floor assets");
+    }
   }
 
   private buildFixtureData(input: UpdateFixtureInput) {
@@ -893,14 +901,20 @@ export class FloorEditorService {
     return value.trim();
   }
 
-  private objectStorageUrl(value: unknown, field: string) {
+  private floorAssetAccessPath(value: unknown, field: string) {
     const result = this.trimOptionalString(value, field);
     if (result === "") throw new BadRequestException(`${field} must not be empty`);
+    const match = /^\/api\/floors\/([^/]+)\/assets\/([^/]+)\/content$/.exec(result);
+    if (!match) throw new BadRequestException(`${field} must be a floor asset access path`);
     try {
-      const url = new URL(result);
-      if (url.protocol === "http:" || url.protocol === "https:") return result;
-    } catch {}
-    throw new BadRequestException(`${field} must be an object storage URL`);
+      const floorId = decodeURIComponent(match[1]);
+      const assetId = decodeURIComponent(match[2]);
+      const path = `/api/floors/${encodeURIComponent(floorId)}/assets/${encodeURIComponent(assetId)}/content`;
+      if (!floorId || !assetId || path !== result) throw new Error("non-canonical floor asset path");
+      return { floorId, assetId, path };
+    } catch {
+      throw new BadRequestException(`${field} must be a floor asset access path`);
+    }
   }
 
   private nullableTrimmedString(value: unknown, field: string) {

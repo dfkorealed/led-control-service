@@ -119,6 +119,10 @@ describe("FloorEditorService atomic revisions", () => {
   const missingFixtureId = "00000000-0000-4000-8000-000000000199";
   const objectId = "00000000-0000-4000-8000-000000000105";
   const deletedObjectId = "00000000-0000-4000-8000-000000000106";
+  const originalAssetId = "00000000-0000-4000-8000-000000000107";
+  const renderedAssetId = "00000000-0000-4000-8000-000000000108";
+  const originalAssetPath = `/api/floors/${floorId}/assets/${originalAssetId}/content`;
+  const renderedAssetPath = `/api/floors/${floorId}/assets/${renderedAssetId}/content`;
   const leaseToken = "lease-token";
   const leaseFence = 7;
   const user = {
@@ -140,10 +144,10 @@ describe("FloorEditorService atomic revisions", () => {
     floorPlan: {
       id: "floor-plan-1",
       floorId,
-      imageUrl: "https://assets.example/b2.png",
+      imageUrl: originalAssetPath,
       sourceType: "image",
-      originalFileUrl: "https://assets.example/b2.png",
-      renderedImageUrl: "https://assets.example/b2-rendered.png",
+      originalFileUrl: originalAssetPath,
+      renderedImageUrl: renderedAssetPath,
       width: 1200,
       height: 800,
       version: 3
@@ -184,10 +188,10 @@ describe("FloorEditorService atomic revisions", () => {
     leaseToken,
     leaseFence,
     floorPlan: {
-      imageUrl: "https://assets.example/b2.png",
+      imageUrl: originalAssetPath,
       sourceType: "image" as const,
-      originalFileUrl: "https://assets.example/b2.png",
-      renderedImageUrl: "https://assets.example/b2-rendered.png",
+      originalFileUrl: originalAssetPath,
+      renderedImageUrl: renderedAssetPath,
       width: 1200,
       height: 800
     },
@@ -224,7 +228,9 @@ describe("FloorEditorService atomic revisions", () => {
         upsert: jest.fn().mockResolvedValue(canonicalFloor.floorPlan),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 })
       },
-      floorAsset: { count: jest.fn().mockResolvedValue(2) },
+      floorAsset: {
+        findMany: jest.fn().mockResolvedValue([{ id: originalAssetId }, { id: renderedAssetId }])
+      },
       fixture: {
         findMany: jest.fn().mockImplementation(({ where }: any) =>
           Promise.resolve((where.id.in as string[]).filter((id) => id === fixtureId).map((id) => ({
@@ -424,7 +430,7 @@ describe("FloorEditorService atomic revisions", () => {
   });
 
   it("rejects non-ready floor plan assets before attempting the optimistic mutation", async () => {
-    const tx = createTransactionClient({ floorAsset: { count: jest.fn().mockResolvedValue(1) } });
+    const tx = createTransactionClient({ floorAsset: { findMany: jest.fn().mockResolvedValue([{ id: originalAssetId }]) } });
     const { service } = await createAtomicService({ tx });
 
     await expect(service.saveEditorState(user, floorId, saveInput)).rejects.toThrow("ready floor assets");
@@ -432,6 +438,21 @@ describe("FloorEditorService atomic revisions", () => {
     expect(tx.floor.update).not.toHaveBeenCalled();
     expect(tx.floorPlan.upsert).not.toHaveBeenCalled();
     expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy public floor plan URLs instead of persisting an unauthenticated asset reference", async () => {
+    const tx = createTransactionClient();
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, {
+      ...saveInput,
+      floorPlan: {
+        ...saveInput.floorPlan,
+        imageUrl: "https://assets.example/map.png",
+        originalFileUrl: "https://assets.example/map.png",
+        renderedImageUrl: "https://assets.example/map.png"
+      }
+    })).rejects.toThrow("floor asset access path");
   });
 
   it.each([
@@ -566,10 +587,10 @@ describe("FloorEditorService atomic revisions", () => {
     expect(revisionData.snapshot).toEqual({
       version: 2,
       floorPlan: {
-        imageUrl: "https://assets.example/b2.png",
+        imageUrl: originalAssetPath,
         sourceType: "image",
-        originalFileUrl: "https://assets.example/b2.png",
-        renderedImageUrl: "https://assets.example/b2-rendered.png",
+        originalFileUrl: originalAssetPath,
+        renderedImageUrl: renderedAssetPath,
         width: 1200,
         height: 800,
         gridSize: 10
@@ -591,7 +612,7 @@ describe("FloorEditorService atomic revisions", () => {
         }
       ]
     });
-    expect(revisionData.snapshotSha256).toBe("b94b1e38ef58dc2aa429f5347d5647cf3c648eb063dd5be8750ee15123eb7a4f");
+    expect(revisionData.snapshotSha256).toBe("0c62e8df362a65221b7e22d8f1db47756c31823b543405150204bae8d170e49d");
   });
 
   it("persists map dimensions and grid settings without a background asset", async () => {

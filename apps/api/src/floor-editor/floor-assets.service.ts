@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -22,29 +23,52 @@ export class FloorAssetsService {
     await this.siteAccess.assert(user, floor.siteId, "manage");
     if (input.kind !== "original" && input.kind !== "rendered") throw new BadRequestException("invalid floor asset kind");
 
-    const descriptor = await this.storage.createUploadDescriptor({
+    const prepared = this.storage.prepareFloorAssetUpload({
       floorId,
       mimeType: input.mimeType,
       sizeBytes: input.sizeBytes,
       sha256: input.sha256
     });
-    const asset = await this.prisma.floorAsset.create({
-      data: {
-        floorId,
-        kind: input.kind,
-        status: "pending",
-        objectKey: descriptor.objectKey,
-        publicUrl: descriptor.publicUrl,
-        mimeType: input.mimeType,
-        sizeBytes: BigInt(input.sizeBytes),
-        sha256: input.sha256.toLowerCase()
-      }
+    const uploadExpiresAt = new Date(Date.now() + prepared.expiresInSeconds * 1000);
+    const asset = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string; siteId: string }>>(Prisma.sql`
+        SELECT floor."id", floor."siteId"
+        FROM "Floor" AS floor
+        JOIN "Site" AS site ON site."id" = floor."siteId"
+        WHERE floor."id" = ${floorId}
+        FOR UPDATE OF site, floor
+      `);
+      if (locked.length !== 1 || locked[0].siteId !== floor.siteId) throw new NotFoundException("floor not found");
+      await this.siteAccess.assertManageInTransaction(tx, user, floor.siteId);
+      return tx.floorAsset.create({
+        data: {
+          floorId,
+          kind: input.kind,
+          status: "pending",
+          objectKey: prepared.objectKey,
+          mimeType: input.mimeType,
+          sizeBytes: BigInt(input.sizeBytes),
+          sha256: input.sha256.toLowerCase(),
+          uploadExpiresAt
+        }
+      });
     });
+    let uploadUrl: string;
+    try {
+      uploadUrl = await this.storage.createFloorAssetUploadUrl({
+        objectKey: prepared.objectKey,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        sha256: input.sha256
+      });
+    } catch {
+      throw new ServiceUnavailableException("floor asset upload signing is temporarily unavailable");
+    }
     return {
       assetId: asset.id,
-      uploadUrl: descriptor.uploadUrl,
-      publicUrl: descriptor.publicUrl,
-      expiresInSeconds: descriptor.expiresInSeconds
+      uploadUrl,
+      accessPath: this.accessPath(floorId, asset.id),
+      expiresInSeconds: prepared.expiresInSeconds
     };
   }
 
@@ -57,6 +81,9 @@ export class FloorAssetsService {
     });
     if (!asset) throw new NotFoundException("floor asset not found");
     if (asset.status === "ready") return this.assetResponse(asset, floorId);
+    if (asset.cleanupStartedAt) {
+      throw new ConflictException("floor asset upload expired and cleanup has started");
+    }
 
     const head = await this.storage.headObject(asset.objectKey);
     const expectedChecksum = Buffer.from(asset.sha256, "hex").toString("base64");
@@ -67,11 +94,18 @@ export class FloorAssetsService {
     ) {
       throw new BadRequestException("uploaded object metadata does not match upload intent");
     }
-    const ready = await this.prisma.floorAsset.update({
-      where: { id: asset.id },
-      data: { status: "ready", readyAt: new Date() }
+    const readyAt = new Date();
+    const promoted = await this.prisma.floorAsset.updateMany({
+      where: { id: asset.id, floorId, status: "pending", cleanupStartedAt: null },
+      data: { status: "ready", readyAt }
     });
-    return this.assetResponse(ready, floorId);
+    if (promoted.count === 1) {
+      return this.assetResponse({ ...asset, status: "ready", readyAt }, floorId);
+    }
+
+    const latest = await this.prisma.floorAsset.findFirst({ where: { id: asset.id, floorId } });
+    if (latest?.status === "ready") return this.assetResponse(latest, floorId);
+    throw new ConflictException("floor asset upload expired while completion was in progress");
   }
 
   async listAssets(user: AuthenticatedUser, floorId: string) {
@@ -124,7 +158,11 @@ export class FloorAssetsService {
       ...(asset.readyAt === undefined ? {} : { readyAt: asset.readyAt }),
       ...(asset.createdAt === undefined ? {} : { createdAt: asset.createdAt }),
       ...(asset.updatedAt === undefined ? {} : { updatedAt: asset.updatedAt }),
-      accessPath: `/api/floors/${encodeURIComponent(floorId)}/assets/${encodeURIComponent(asset.id)}/content`
+      accessPath: this.accessPath(floorId, asset.id)
     };
+  }
+
+  private accessPath(floorId: string, assetId: string) {
+    return `/api/floors/${encodeURIComponent(floorId)}/assets/${encodeURIComponent(assetId)}/content`;
   }
 }

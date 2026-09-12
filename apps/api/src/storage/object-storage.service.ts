@@ -78,26 +78,39 @@ export class ObjectStorageService {
   }
 
   async createUploadDescriptor(input: { floorId: string; mimeType: string; sizeBytes: number; sha256: string }) {
+    const prepared = this.prepareFloorAssetUpload(input);
+    const uploadUrl = await this.createFloorAssetUploadUrl({ ...input, ...prepared });
+    return { ...prepared, uploadUrl };
+  }
+
+  prepareFloorAssetUpload(input: { floorId: string; mimeType: string; sizeBytes: number; sha256: string }) {
     this.validateUpload(input);
     const extension = extensionForMime(input.mimeType);
     const objectKey = `floors/${input.floorId}/${randomUUID()}.${extension}`;
     const checksumBase64 = Buffer.from(input.sha256, "hex").toString("base64");
+    return { objectKey, checksumBase64, expiresInSeconds: 300 };
+  }
+
+  async createFloorAssetUploadUrl(input: {
+    objectKey: string;
+    mimeType: string;
+    sizeBytes: number;
+    sha256: string;
+  }) {
+    this.validateUpload(input);
+    if (!/^floors\/[^/]+\/[A-Za-z0-9._-]+$/.test(input.objectKey)) {
+      throw new BadRequestException("invalid floor asset object key");
+    }
+    const checksumBase64 = Buffer.from(input.sha256, "hex").toString("base64");
     const command = new PutObjectCommand({
       Bucket: this.options.bucket,
-      Key: objectKey,
+      Key: input.objectKey,
       ContentType: input.mimeType,
       ContentLength: input.sizeBytes,
       ChecksumSHA256: checksumBase64
     });
     const presign = this.options.presign ?? ((client, request) => getSignedUrl(client, request, { expiresIn: 300 }));
-    const uploadUrl = await presign(this.client, command);
-    return {
-      objectKey,
-      uploadUrl,
-      publicUrl: `${this.options.publicBaseUrl.replace(/\/$/, "")}/${objectKey}`,
-      checksumBase64,
-      expiresInSeconds: 300
-    };
+    return presign(this.client, command);
   }
 
   async headObject(objectKey: string) {

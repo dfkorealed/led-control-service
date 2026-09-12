@@ -339,7 +339,7 @@ admin 연결 제약:
 - Site의 `adminUserId`/`organizationId`, User의 `role`/`status`/`organizationId`, Organization의 `type`에 영향을 주는 INSERT/UPDATE는 각 테이블의 `BEFORE STATEMENT` trigger에서 동일한 transaction-scoped advisory lock을 먼저 얻는다. PostgreSQL이 target row를 잠그기 전에 세 write path를 직렬화하므로 서로 다른 target table에서 시작하는 UPDATE 사이의 row-lock 순환 대기를 막는다. 이 전역 직렬화는 저빈도 계정·현장 관리 작업의 처리량보다 교착 방지를 우선한 계약이다.
 - statement gate를 통과한 뒤 기존 row trigger는 stale snapshot write-skew를 막기 위해 관계 행을 `FOR UPDATE`로 잠그고 변경 후 상태를 검증한다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 transaction 종료까지 안정적으로 유지한다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
-- operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 영구 삭제는 사용자가 입력한 현장명이 현재 이름과 정확히 일치할 때만 실행한다. 같은 transaction에서 제조 `GatewayInventory`를 비활성화하고 외부 정리 대상을 `SiteDeletionCleanup`에 먼저 기록한 뒤, `20260903041451_operator_site_cascade_delete` migration의 ownership cascade로 층·도면·조명·그룹·게이트웨이·명령·등록·에너지·자동화 데이터를 제거한다. Gateway 삭제의 `SET NULL` FK가 inventory claim 연결을 해제한다. 커밋 뒤 worker가 Gateway 인증서를 폐기하고 presigned upload URL 최대 수명 이후 FloorAsset 객체를 삭제하며 실패 시 재시도한다. `GatewayInventory`와 `GatewayCertificate` 원장은 보존한다. 고객사에 다른 Site가 없으면 Session, Invitation, 모든 customer User와 Organization도 삭제한다. 삭제 대상 User를 `FOR UPDATE`로 먼저 잠가 login/session 생성과 직렬화한다. 삭제 감사는 함께 삭제되는 customer가 아니라 service-provider Organization에 `operator.site_deleted`로 보존한다.
+- operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 영구 삭제는 사용자가 입력한 현장명이 현재 이름과 정확히 일치할 때만 실행한다. 최종 삭제 transaction은 FloorAsset upload intent와 동일한 Site 행을 `FOR UPDATE`로 잠근 뒤 자산 목록을 다시 읽는다. 같은 transaction에서 제조 `GatewayInventory`를 비활성화하고 외부 정리 대상을 `SiteDeletionCleanup`에 먼저 기록한 뒤, `20260903041451_operator_site_cascade_delete` migration의 ownership cascade로 층·도면·조명·그룹·게이트웨이·명령·등록·에너지·자동화 데이터를 제거한다. Gateway 삭제의 `SET NULL` FK가 inventory claim 연결을 해제한다. 커밋 뒤 worker가 Gateway 인증서를 폐기하고 presigned upload URL 최대 수명 이후 FloorAsset 객체를 삭제하며 실패 시 재시도한다. `GatewayInventory`와 `GatewayCertificate` 원장은 보존한다. 고객사에 다른 Site가 없으면 Session, Invitation, 모든 customer User와 Organization도 삭제한다. 삭제 대상 User를 `FOR UPDATE`로 잠가 login/session 생성과 직렬화한다. 삭제 감사는 함께 삭제되는 customer가 아니라 service-provider Organization에 `operator.site_deleted`로 보존한다.
 
 ### SiteDeletionCleanup
 
@@ -487,7 +487,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - 맵 편집기는 `sourceType = none`이거나 `FloorPlan`이 없을 때 배경 없는 격자 캔버스를 표시한다. 배경이 없어도 맵 크기와 `gridSize`를 저장하기 위해 `sourceType = none`인 `FloorPlan`을 생성할 수 있다.
 - `gridSize`는 `20260910000000_floor_plan_grid_size` migration으로 추가한다. 기존 행은 `10`으로 backfill되며 DB와 API가 모두 `5~200` 범위를 검증한다.
 - PDF 업로드는 원본 ready asset URL을 `originalFileUrl`, 첫 페이지 PNG ready asset URL을 `renderedImageUrl`에 저장한다.
-- `imageUrl`, `originalFileUrl`, `renderedImageUrl`은 같은 층의 ready `FloorAsset.publicUrl`만 허용하며 data URL과 임의 외부 URL을 거부한다.
+- `imageUrl`, `originalFileUrl`, `renderedImageUrl`은 같은 층의 ready `FloorAsset`을 가리키는 `/api/floors/{floorId}/assets/{assetId}/content` 경로만 허용한다. data URL, 임의 외부 URL과 다른 층 asset 경로는 거부한다.
 
 ### FloorAsset
 
@@ -500,16 +500,20 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `kind` | `FloorAssetKind` | 예 | `original`, `rendered` | 원본 또는 렌더 결과 |
 | `status` | `FloorAssetStatus` | 예 | `pending` | 업로드 검증 전/후 상태 |
 | `objectKey` | `String` | 예 | Unique | bucket 내부 object key |
-| `publicUrl` | `String` | 예 |  | 모니터링/에디터 조회 URL |
 | `mimeType` | `String` | 예 |  | 서명된 Content-Type |
 | `sizeBytes` | `BigInt` | 예 |  | 서명된 byte 크기 |
 | `sha256` | `String` | 예 |  | 64자리 hex SHA-256 |
+| `uploadExpiresAt` | `DateTime?` | 아니오 |  | pending PUT URL 만료 시각 |
+| `cleanupStartedAt` | `DateTime?` | 아니오 |  | 만료 자산 정리 작업의 점유 시각 |
 | `readyAt` | `DateTime?` | 아니오 |  | S3 HEAD 검증 완료 시각 |
 
 운영 메모:
 
-- upload intent는 JPEG/PNG/PDF, 1 byte~50 MB, SHA-256 형식을 검증하고 5분짜리 PUT URL을 발급한다.
-- complete 요청은 S3 HEAD의 MIME, 크기, checksum이 모두 intent와 같을 때만 `ready`로 전환한다.
+- upload intent는 JPEG/PNG/PDF, 1 byte~50 MB, SHA-256 형식을 검증하고 DB의 `pending` 원장을 먼저 커밋한 뒤 5분짜리 PUT URL을 발급한다. 서명 서비스가 실패해도 원장은 남아 자동 정리 대상이 된다.
+- complete 요청은 S3 HEAD의 MIME, 크기, checksum이 모두 intent와 같고 cleanup 점유가 없을 때 조건부로 `ready` 전환한다.
+- API 시작 시와 60초마다 최대 25개의 만료 pending 자산을 조회한다. URL 만료 후 5초가 지난 자산을 점유하고 S3 삭제 성공 뒤 원장 행을 삭제하며, 외부 저장소 실패 시 점유를 풀어 다음 주기에 재시도한다. 2분 이상 남은 점유는 중단된 작업으로 간주해 회수한다.
+- 조회 API는 공개 URL을 반환하지 않는다. 현장 `read` 권한을 확인한 content endpoint가 private bucket에 대해 300초 signed GET을 발급하고 `302`로 연결한다.
+- `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan의 알려진 asset URL을 인증 경로로 치환하고 `publicUrl` 컬럼을 제거한다.
 
 ### FloorMapObject
 

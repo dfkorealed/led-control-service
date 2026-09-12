@@ -167,7 +167,7 @@
 - 일반 admin 영속 write는 외부 SiteAccess precheck를 UX 최적화로만 사용한다. dimming command create, fixture-group create/update/delete/resync와 floor-editor save/restore는 transaction 첫 단계에서 Site row를 잠그고 assigned active customer admin을 다시 확인하며, reassignment/disable race는 실제 PostgreSQL 회귀로 차단한다.
 - 수정 전 legacy migration을 적용한 로컬 개발 DB는 checksum 충돌이 발생할 수 있다. 데이터가 불필요한 경우에만 reset을 선택하고, 보존이 필요하면 감사 후 수동 보정 migration을 사용한다. 설정 기능은 자동 reset이나 파괴적 DB 명령을 실행하지 않는다.
 - **폐기된 Task 4 시점 기록:** 당시 registration session 생성·조회·identify·register·complete는 operator controller 계약이라 새 SiteAccess 완료 경로로 사용할 수 없었다. 현재 Task 5 API는 assigned admin controller/service 이중 검사와 mutation transaction 내부 재검증까지 완료했고, Task 8에서 설치 완료 admin의 웹 commissioning 진입점을 연결했다.
-- `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
+- `GET /floors/:floorId/assets`와 content redirect는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인한다. private bucket의 장기 URL은 응답하지 않고 안정적인 API 경로가 300초 signed GET으로 연결된다. upload intent는 pending 원장을 먼저 커밋하며, 만료된 미완료 자산은 60초 주기 bounded sweeper가 저장소 삭제 실패를 재시도한다. 현장 삭제와 intent 생성은 같은 Site 잠금으로 직렬화한다.
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 이 고객 shell은 admin/viewer만 mount하며 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
 - operator는 전용 `OperatorShell`만 mount한다. `/settings`와 하위 경로를 포함한 operator 직접 URL/새로고침은 history replace로 `/operator/site-admins`에 수렴하고 `/sites` 또는 dashboard query를 실행하지 않는다. 현재 route는 header, 로그인 아이디, 로그아웃과 현장 관리자 운영 테이블을 제공한다. dialog는 `role="dialog"`, `aria-modal`, Escape/취소, 최초 focus와 trigger focus 복원을 지원한다. assign/delete 성공처럼 기존 trigger가 목록 refetch에서 제거될 수 있는 경우에는 안정적인 `현장 및 관리자 생성` command로 focus를 복원하며, 작은 화면에서는 표를 가로 스크롤한다.
 - `/settings/floor-plans`는 admin/viewer가 새로고침과 직접 진입할 수 있는 층별 도면 목록을 제공한다. assigned admin만 서버 SiteAccess에 따라 실제 편집할 수 있다.
@@ -380,7 +380,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 설정 상단 탭은 공통 밑줄형 navigation의 44px 포커스·가로 스크롤 계약을 사용한다. 실제 모바일 WebView safe-area와 네이티브 navigation 통합 검증은 후속 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
-- 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
+- 도면 asset의 private 조회와 만료 pending 회수는 구현했다. PDF/JPG/PNG를 선택하고 업로드·교체하는 실제 맵 편집 UI와 PDF 렌더 worker는 후속 Task다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
 - 저장 구역 생성·수정 UI/API는 제어 메뉴에서 제공한다. 전체 suite에서 opt-in DB URL 부재로 skip된 PostgreSQL 구역 생성 rollback 통합 회귀는 로컬 개발 PostgreSQL URL을 명시한 별도 실행에서 1/1 통과했다. Raspberry Pi/BlueZ/ESP32-H2를 연결한 zone 제어 Gate는 `not_executed`이며 자동 단위·브라우저 fixture나 DB rollback 회귀를 실장비 완료 증거로 간주하지 않는다.
