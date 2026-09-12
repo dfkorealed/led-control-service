@@ -121,11 +121,11 @@
 - Produces: `listCommands(user, { siteId, query?, stage?, cursor?, limit? })`
 - Allows: timeout unknown dimming dispatch의 late device-status ACK 1회 수렴
 
-- [ ] **Step 1: ACK RED 테스트** — restart timed_out ACK→unknown, 늦은 succeeded ACK→applied, 늦은 duplicate 무변경, mixed result→partially_applied, status-check 전부 일치/불일치/혼합/미관측 outcome을 검증한다.
-- [ ] **Step 2: transaction reconciliation 구현** — row lock에 kind/outcome을 포함하고 kind별 terminal 처리 함수를 분리한다. 늦은 ACK는 `unknown + timeout error code` 조건에서만 허용한다.
-- [ ] **Step 3: detail/history RED 테스트** — site scope 은닉, 최신순 `(createdAt,id)` cursor, limit 1..100, ID prefix/fixture name query, stage filter, detail 재오픈용 outcome/dispatch metadata를 검증한다.
-- [ ] **Step 4: history 구현** — query DTO를 명시적으로 parse하고 목록에는 요약만, 상세에는 fixture 결과 전체를 반환한다. 검색은 입력 길이를 제한하고 site predicate를 모든 OR branch에 유지한다.
-- [ ] **Step 5: API focused 및 integration 검증** — command, mqtt, timeout specs와 API typecheck를 통과하고 `git commit -m "feat(api): reconcile and search control commands" ...`.
+- [x] **Step 1: ACK RED 테스트** — restart timed_out ACK→unknown, 늦은 succeeded ACK→applied, 늦은 duplicate 무변경, mixed result→partially_applied, status-check 전부 일치/불일치/혼합/미관측 outcome을 검증한다.
+- [x] **Step 2: transaction reconciliation 구현** — row lock에 kind/outcome을 포함하고 kind별 terminal 처리 함수를 분리한다. 늦은 ACK는 `unknown + timeout error code` 조건에서만 허용한다.
+- [x] **Step 3: detail/history RED 테스트** — site scope 은닉, 최신순 `(createdAt,id)` cursor, limit 1..100, ID prefix/fixture name query, stage filter, detail 재오픈용 outcome/dispatch metadata를 검증한다.
+- [x] **Step 4: history 구현** — query DTO를 명시적으로 parse하고 목록에는 요약만, 상세에는 fixture 결과 전체를 반환한다. 검색은 입력 길이를 제한하고 site predicate를 모든 OR branch에 유지한다.
+- [x] **Step 5: API focused 및 integration 검증** — command, mqtt, timeout specs와 API typecheck를 통과하고 `git commit -m "feat(api): reconcile and search control commands" ...`.
 
 ### Task 6: Web 실제 상태 확인·안전 재적용·명령 이력 UI
 
