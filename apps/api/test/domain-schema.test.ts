@@ -335,7 +335,8 @@ describe("Prisma domain schema", () => {
       "CommandDispatch",
       "CommandFixtureResult",
       "MqttOutbox",
-      "ProcessedGatewayEvent"
+      "ProcessedGatewayEvent",
+      "GatewayEventWatermark"
     ]) {
       expect(schema).toContain(`model ${model}`);
     }

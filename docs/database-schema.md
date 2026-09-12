@@ -12,7 +12,7 @@
 - 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
-- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
+- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
 - 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `ProvisioningDeviceOutbox`, `DiscoveredMeshNode`
@@ -1244,8 +1244,32 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `sequence` | `BigInt` | 예 | unique tuple | event type별 영속 순서, capability에는 `capabilityRevision` 저장 |
 | `eventType` | `String` | 예 | unique tuple | 이벤트 계약 식별자 |
 | `payloadHash` | `String?` | 아니오 | `NULL` 또는 `sha256:<64 lowercase hex>` CHECK | canonical complete payload hash; legacy event는 null 허용 |
+| `scopeKey` | `String?` | 아니오 | immutable identity, FK 없음 | 신규 fixture는 Fixture ID, capability는 canonical MeshNode ID, scan은 session ID, heartbeat는 빈 문자열. 복구 불가능한 legacy는 null |
 | `occurredAt` | `DateTime` | 예 |  | Gateway 발생/검증 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | API ingestion 시각 |
+
+`20260915_statistics_operations_retention`부터 모든 신규 소비 경로는 complete payload hash와 scope를 저장하고, 원장·watermark·상태 변경을 같은 transaction에서 commit한다. 보존 선별용 `(eventType, createdAt, eventId)` index를 추가했다. 이 migration은 삭제 worker를 실행하지 않는다.
+
+### GatewayEventWatermark
+
+원장이 정리된 이후에도 stream의 최신 sequence와 payload identity를 보존하는 compact 상태다. `(gatewayId, eventType, scopeKey)`가 PK이며 `lastEventId`는 전역 unique다. `gatewayId`만 cascade FK를 가지므로 Fixture/Node가 사라져도 해당 Gateway의 최신 stream identity는 남는다.
+
+| 컬럼 | 타입 | 의미 |
+| --- | --- | --- |
+| `gatewayId`, `eventType`, `scopeKey` | `String` | heartbeat와 scan은 빈 scope, fixture는 Fixture ID, capability는 canonical MeshNode ID |
+| `lastSequence` | `BigInt` | 양수 high-water. fixture와 capability는 각 scope별로 전진한다 |
+| `lastEventId` | `String` | 마지막 이벤트 ID; 다른 stream의 최신 identity 재사용을 차단한다 |
+| `lastPayloadHash` | `String?` | complete canonical payload hash. 원본 payload가 없는 legacy 값은 null |
+| `lastOccurredAt` | `DateTime` | 마지막 이벤트의 발생 시각 |
+| `updatedAt` | `DateTime` | high-water 갱신 시각 |
+
+- gateway/type advisory transaction lock은 첫 INSERT와 cross-fixture 같은 sequence 경쟁을 직렬화한다. 같은 sequence/ID/hash/발생 시각만 duplicate이며 낮은 sequence는 기존 stale ACK 규약으로 처리하고 같은 sequence의 변경된 identity는 거부한다. Fixture cursor/snapshot, capability 상태, raw ledger와 ACK의 기존 추가 검증은 유지한다.
+- scan은 기존 gateway/type 전체 순서 의미를 유지한다. 과거 PGE에는 session ID가 없으므로 watermark를 session별로 바꾸지 않으며 새 PGE의 `scopeKey`에는 보존 정책용 session ID를 별도로 기록한다.
+- 원장 보존 기간 안에서는 기존 전역 event ID 및 per-type sequence unique/check를 유지한다. 원장 삭제 뒤에는 각 stream의 최신 identity와 단조 high-water만 남는다. 이미 더 높은 값으로 대체된 임의 과거 ID나 다른 fixture의 과거 sequence 충돌까지 영구 기억하지 않는다. Gateway identity 안에서 sequence를 reset/reuse하지 않는 장비 계약이 계속 필요하다.
+- migration은 writer 정지 뒤 10초 `lock_timeout`과 명시적 transaction/table barrier 안에서 실행한다. 원장의 동일 sequence 충돌과 snapshot/원장 identity 불일치는 오류로 중단하며 전체 rollback한다. raw 최신 값과 Fixture/Gateway cursor를 비교해 더 높은 값으로 backfill하고, 같은 identity의 실제 hash가 있으면 보존한다. 알 수 없는 event type은 watermark 생성 대상에서 제외한다.
+- hash 또는 session scope를 복원할 수 없는 legacy 원장은 추정값으로 채우지 않는다. null hash는 watermark duplicate 검증의 wildcard가 아니며, legacy exact replay는 남아 있는 raw 원장에 의존한다. 특히 legacy scan의 raw scope/hash와 terminal identity는 null로 남으므로 향후 retention worker도 이를 보존해야 한다.
+- 같은 migration에서 Session의 `(expiresAt, id)`·`(revokedAt, id)`, FloorMapRevision의 `(createdAt, id)` index를 추가했다. 자동 삭제는 별도 retention worker 작업이며 현재 schema 변경만으로 데이터가 제거되지 않는다.
+- 검증은 `GATEWAY_EVENT_WATERMARK_TEST=1 pnpm --filter @led-control/api test -- gateway-event-watermark.integration.spec.ts --runInBand`가 직접 만든 임시 PostgreSQL에서 수행했다. 사용자/운영 DB에는 적용하지 않았다.
 
 ### Invitation
 
@@ -1315,6 +1339,11 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `scanCompletedAt` | `DateTime?` | 아니오 |  | 완료 또는 실패 수신 시각 |
 | `scanFailureCode` | `String?` | 아니오 |  | Gateway가 분류한 비밀값 없는 실패 코드 |
 | `scanFailureMessage` | `String?` | 아니오 |  | 사용자 노출 가능한 실패 설명 |
+| `scanTerminalEventId` | `String?` | 아니오 | terminal identity CHECK | 마지막으로 commit한 terminal event ID |
+| `scanTerminalSequence` | `BigInt?` | 아니오 | 양수 | terminal의 sequence |
+| `scanTerminalEventType` | `String?` | 아니오 | completed/failed 두 event type만 허용 | terminal 종류 |
+| `scanTerminalPayloadHash` | `String?` | 아니오 | canonical SHA-256 | acceptedNodeCount 또는 failure message를 포함한 전체 terminal hash |
+| `scanTerminalIngestedAt` | `DateTime?` | 아니오 | 최초 ACK 시각 | raw와 ACK outbox가 모두 없어도 같은 ACK payload 재생성 |
 | `startedAt` | `DateTime` | 예 | `now()` | 시작 시각 |
 | `completedAt` | `DateTime?` | 아니오 |  | 완료 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -1336,7 +1365,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - `POST /registration-sessions`와 retry는 `pending` session state, 새 correlation/attempt와 `ProvisioningScanOutbox` row를 하나의 transaction에서 만든다. partial unique index `ProvisioningSession_single_scanning_gateway_key`는 `status=active`인 Gateway 하나에만 `pending` 또는 `scanning` scan 하나를 허용한다.
 - `20260826150000_add_provisioning_scan_outbox` migration은 foundation migration이 남긴 모든 historical `pending/scanning` session을 `failed` (`legacy_scan_closed`) terminal state로 먼저 수렴시킨 뒤 active-only partial unique index를 만든다. 당시에는 durable scan-start outbox가 없었으므로 과거 active session도 재발행하지 않고 종료하는 fail-closed migration 정책이다.
 - publisher는 leased outbox를 처리할 때만 `pending -> scanning`으로 전이한 뒤 strict v2 scan-start payload를 발행한다. MQTT callback timeout은 기본 10초(`PROVISIONING_SCAN_OUTBOX_PUBLISH_TIMEOUT_MS`)로 30초 lease보다 짧아야 하며, timeout/reject는 attempt backoff로 기록한다. publish 전 process crash는 lease 만료 뒤 같은 correlation/attempt로 재시도하며, 최대 3회 또는 5분 실패는 outbox dead-letter와 `scan_start_publish_failed` terminal state를 같은 transaction에서 기록한다.
-- found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다. `ProcessedGatewayEvent`의 eventId 및 gateway/sequence/eventType 원장은 같은 transaction에서 중복·낮은 sequence를 차단한다. completed/failed는 원장 생성과 `ProvisioningSession` terminal 변경 transaction이 commit된 뒤에만 scan-terminal application ACK를 발행한다. 동일 terminal event가 재전달되면 exact 원장과 terminal snapshot을 다시 확인해 ACK를 재발행한다.
+- found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다. `ProcessedGatewayEvent`와 gateway/type watermark는 같은 transaction에서 중복·낮은 sequence를 차단한다. completed/failed는 원장·watermark·session terminal identity와 ACK outbox를 같은 transaction에 저장한다. 신규 terminal identity의 5개 컬럼은 전부 null 또는 전부 non-null이어야 한다. 동일 terminal은 현재 session identity/hash/snapshot과 맞을 때 raw 삭제 뒤에도 최초 `ingestedAt`의 application ACK를 재발행하며, 상태나 acceptedNodeCount/failure message를 변경한 재전송은 거부한다. Legacy terminal은 기존 raw/ACK 원장이 있어야 동일하게 재발행할 수 있다.
 - 등록 batch는 node를 `provisioning`으로 바꾸고 command ID, session/site/gateway/node/device/address identity를 가진 `ProvisioningDeviceOutbox` row를 같은 transaction에서 만든다. HTTP `accepted`는 broker 연결이나 PUBACK이 아니라 이 durable transaction의 commit을 뜻한다.
 
 ### ProvisioningScanOutbox

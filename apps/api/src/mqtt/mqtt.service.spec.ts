@@ -1,3 +1,4 @@
+import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-watermark.mock";
 import { Logger } from "@nestjs/common";
 import { EventEmitter } from "node:events";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
@@ -191,6 +192,7 @@ describe("MqttService", () => {
         findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt: 1 }),
         update: jest.fn()
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: { upsert: jest.fn().mockResolvedValue(undefined) },
       mqttOutbox: createScanAckOutboxMock()
@@ -217,7 +219,8 @@ describe("MqttService", () => {
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
     expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
       where: { id: sessionId },
-      data: { scanStatus: "completed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: null, scanFailureMessage: null }
+      data: expect.objectContaining({ scanStatus: "completed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: null, scanFailureMessage: null,
+        scanTerminalEventId: "66666666-6666-4666-8666-666666666666", scanTerminalSequence: 2n })
     });
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       eventId: "66666666-6666-4666-8666-666666666666", gatewayId, sequence: 2n, eventType: "provisioning_scan_completed"
@@ -230,7 +233,7 @@ describe("MqttService", () => {
     expect(order).toEqual(["transaction-committed"]);
   });
 
-  it("requeues the durable application ACK for an already committed duplicate terminal", async () => {
+  it("requeues the exact terminal ACK after raw ledger deletion and rejects changed terminal payloads", async () => {
     const siteId = "22222222-2222-4222-8222-222222222222";
     const gatewayId = "33333333-3333-4333-8333-333333333333";
     const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -252,6 +255,7 @@ describe("MqttService", () => {
         findUnique: jest.fn(async () => session),
         update: jest.fn(async ({ data }) => Object.assign(session, data))
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: {
         findFirst: jest.fn(async ({ where }) => where.eventId
           ? markers.find((marker) => marker.eventId === where.eventId) ?? null
@@ -269,11 +273,14 @@ describe("MqttService", () => {
 
     await service.handleMessage(topic, payload);
     session.status = "completed";
+    markers.length = 0;
     await service.handleMessage(topic, payload);
 
     expect(prisma.provisioningSession.update).toHaveBeenCalledTimes(1);
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
     expect(mqttOutbox.create).toHaveBeenCalledTimes(1);
+    expect(mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+    await service.handleMessage(topic, Buffer.from(JSON.stringify({ ...event, acceptedNodeCount: 1 })));
     expect(mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
     expect(publishTopic).not.toHaveBeenCalled();
   });
@@ -290,6 +297,7 @@ describe("MqttService", () => {
         }),
         update: jest.fn().mockRejectedValueOnce(new Error("transaction failed")).mockResolvedValueOnce(undefined)
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       mqttOutbox: createScanAckOutboxMock(),
       $queryRaw: jest.fn().mockResolvedValue([])
@@ -327,6 +335,7 @@ describe("MqttService", () => {
         }),
         update: jest.fn().mockResolvedValue(undefined)
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       mqttOutbox: {
         findUnique: jest.fn().mockResolvedValue(null),
@@ -379,6 +388,7 @@ describe("MqttService", () => {
         findUnique: jest.fn(async () => session),
         update: jest.fn(async ({ data }) => Object.assign(session, data))
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: {
         findFirst: jest.fn(async ({ where }) => where.eventId
           ? markers.find((marker) => marker.eventId === where.eventId) ?? null
@@ -413,6 +423,7 @@ describe("MqttService", () => {
     const session = { id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt: 2 };
     const prisma: any = {
       provisioningSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: { upsert: jest.fn() },
       mqttOutbox: createScanAckOutboxMock()
@@ -431,7 +442,8 @@ describe("MqttService", () => {
     await service.handleMessage(topic, Buffer.from(JSON.stringify(base)));
     expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
       where: { id: sessionId },
-      data: { scanStatus: "failed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: "scan_timeout", scanFailureMessage: "조명 검색 시간이 초과되었습니다." }
+      data: expect.objectContaining({ scanStatus: "failed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: "scan_timeout", scanFailureMessage: "조명 검색 시간이 초과되었습니다.",
+        scanTerminalEventId: base.eventId, scanTerminalSequence: 8n })
     });
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ eventType: "provisioning_scan_failed", sequence: 8n }) });
 
@@ -454,6 +466,7 @@ describe("MqttService", () => {
         id: "11111111-1111-4111-8111-111111111111", siteId, gatewayId, status: "active", scanStatus: "scanning",
         scanCorrelationId: "44444444-4444-4444-8444-444444444444", scanAttempt: 1
       }) },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn(async ({ data }) => { markers.push(data.eventId); })
@@ -491,6 +504,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId, status: "active", scanStatus: "completed", scanCorrelationId, scanAttempt: 1 })
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: { upsert: jest.fn() }
     };
@@ -1648,6 +1662,7 @@ describe("MqttService", () => {
           scanAttempt: 2
         })
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: {
         upsert: jest.fn().mockResolvedValue(undefined)

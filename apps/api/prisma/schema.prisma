@@ -313,6 +313,7 @@ model FloorMapRevision {
 
   @@unique([floorId, revision])
   @@index([floorId, createdAt])
+  @@index([createdAt, id])
 }
 
 model AuditLog {
@@ -496,6 +497,7 @@ model Gateway {
   provisioningSessions    ProvisioningSession[]
   commandDispatches       CommandDispatch[]
   processedEvents         ProcessedGatewayEvent[]
+  eventWatermarks         GatewayEventWatermark[]
   certificates            GatewayCertificate[]
   automationConfiguration GatewayAutomationConfiguration?
   lightingSchedules       LightingSchedule[]
@@ -1036,6 +1038,8 @@ model ProcessedGatewayEvent {
   sequence    BigInt
   eventType   String
   payloadHash String?
+  /// Immutable scope identity; NULL for legacy rows whose scope cannot be recovered.
+  scopeKey    String?
   occurredAt  DateTime
   gateway     Gateway   @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
   meshNode    MeshNode? @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade, onUpdate: Restrict)
@@ -1045,6 +1049,23 @@ model ProcessedGatewayEvent {
   @@index([gatewayId, occurredAt])
   @@index([meshNodeId])
   @@index([fixtureId])
+  @@index([eventType, createdAt, eventId])
+}
+
+model GatewayEventWatermark {
+  gatewayId       String
+  eventType       String
+  scopeKey        String   @default("")
+  lastSequence    BigInt
+  lastEventId     String   @unique
+  /// Legacy payloads were not stored; NULL must never be treated as a verified hash.
+  lastPayloadHash String?
+  lastOccurredAt  DateTime
+  updatedAt       DateTime @default(now()) @updatedAt
+  gateway         Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+
+  @@id([gatewayId, eventType, scopeKey])
+  @@index([gatewayId, eventType, lastSequence])
 }
 
 model Invitation {
@@ -1074,6 +1095,9 @@ model Session {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+
+  @@index([expiresAt, id])
+  @@index([revokedAt, id])
 }
 
 model ProvisioningSession {
@@ -1090,6 +1114,11 @@ model ProvisioningSession {
   scanCompletedAt    DateTime?
   scanFailureCode    String?
   scanFailureMessage String?
+  scanTerminalEventId String?
+  scanTerminalSequence BigInt?
+  scanTerminalEventType String?
+  scanTerminalPayloadHash String?
+  scanTerminalIngestedAt DateTime?
   site               Site                       @relation(fields: [siteId], references: [id], onDelete: Cascade)
   floor              Floor                      @relation(fields: [floorId], references: [id], onDelete: Cascade)
   gateway            Gateway                    @relation(fields: [gatewayId], references: [id], onDelete: Cascade)

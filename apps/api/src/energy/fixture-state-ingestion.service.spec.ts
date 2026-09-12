@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import { fixtureStateV2Schema } from "@led-control/shared";
+import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { closeFixtureEnergyForRatedWattChange, FixtureStateIngestionService } from "./fixture-state-ingestion.service";
 
 const scope = {
@@ -9,6 +11,21 @@ const scope = {
 };
 
 describe("FixtureStateIngestionService", () => {
+  it("recognizes the latest exact replay after raw ledger deletion without reapplying energy", async () => {
+    const prisma = fixturePrisma({ watermark: fixtureWatermark(), lastStateSequence: 9n });
+    const service = new FixtureStateIngestionService(prisma as never);
+    await expect(service.ingest(scope.gatewayId, fixtureEvent(9))).resolves.toMatchObject({ status: "duplicate" });
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyDailyAggregate.upsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects a corrupt latest replay after raw ledger deletion", async () => {
+    const prisma = fixturePrisma({ watermark: fixtureWatermark(), lastStateSequence: 9n });
+    const service = new FixtureStateIngestionService(prisma as never);
+    await expect(service.ingest(scope.gatewayId, { ...fixtureEvent(9), brightness: 20 })).rejects.toThrow("conflict");
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
+
   it("atomically persists the ledger, aggregate, checkpoint, and latest fixture snapshot", async () => {
     const prisma = fixturePrisma();
     const service = new FixtureStateIngestionService(prisma as never);
@@ -151,6 +168,7 @@ function fixturePrisma(options: {
   processedEvent?: unknown;
   cursor?: unknown;
   lockedRows?: unknown[];
+  watermark?: unknown;
 } = {}) {
   const row = {
     id: scope.fixtureId,
@@ -173,6 +191,12 @@ function fixturePrisma(options: {
   };
   const prisma: any = {
     __row: row,
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    gatewayEventWatermark: {
+      findUnique: jest.fn().mockResolvedValue(options.watermark ?? null),
+      findFirst: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn().mockResolvedValue(undefined)
+    },
     $queryRaw: jest.fn().mockResolvedValue(options.lockedRows ?? [row]),
     processedGatewayEvent: {
       findUnique: jest.fn().mockResolvedValue(options.processedEvent ?? null),
@@ -189,6 +213,15 @@ function fixturePrisma(options: {
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
   return prisma;
+}
+
+function fixtureWatermark() {
+  return {
+    gatewayId: scope.gatewayId, eventType: "fixture_state", scopeKey: scope.fixtureId,
+    lastSequence: 9n, lastEventId: fixtureEvent(9).eventId,
+    lastPayloadHash: canonicalPayloadHash(fixtureStateV2Schema.parse(fixtureEvent(9))),
+    lastOccurredAt: new Date(fixtureEvent(9).occurredAt), updatedAt: new Date()
+  };
 }
 
 function fixtureEvent(sequence: number) {
