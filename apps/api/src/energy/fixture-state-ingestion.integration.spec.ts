@@ -132,6 +132,17 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
     expect(ledgerCount).toBe(1);
   });
 
+  it("returns a terminal result for concurrent exact accepted replays", async () => {
+    const event = fixtureEvent();
+    const results = await Promise.all([
+      service.ingest(ids.gatewayId, event),
+      service.ingest(ids.gatewayId, event)
+    ]);
+
+    expect(results.map((result) => result.status).sort()).toEqual(["duplicate", "ingested"]);
+    expect(await prisma.processedGatewayEvent.count({ where: { fixtureId: ids.fixtureId } })).toBe(1);
+  });
+
   it("keeps a future poison event out of energy state, then ingests the next normal event", async () => {
     const receivedAt = new Date("2026-08-26T00:00:10.000Z");
     const poison = fixtureEvent({

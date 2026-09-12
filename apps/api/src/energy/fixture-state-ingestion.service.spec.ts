@@ -115,6 +115,31 @@ describe("FixtureStateIngestionService", () => {
     expect(prisma.fixture.update).not.toHaveBeenCalled();
   });
 
+  it("returns duplicate when an exact accepted replay commits while this transaction waits for the fixture lock", async () => {
+    const event = fixtureEvent(9);
+    const committedEvent = {
+      eventId: event.eventId,
+      gatewayId: scope.gatewayId,
+      sequence: 9n,
+      eventType: "fixture_state",
+      occurredAt: new Date(event.occurredAt),
+      fixtureId: scope.fixtureId,
+      payloadHash: fixturePayloadHash(event),
+      ingestionStatus: "accepted"
+    };
+    const prisma = fixturePrisma();
+    prisma.processedGatewayEvent.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(committedEvent);
+    const service = new FixtureStateIngestionService(prisma as never);
+
+    await expect(service.ingest(scope.gatewayId, event)).resolves.toMatchObject({ status: "duplicate" });
+    expect(prisma.processedGatewayEvent.findUnique).toHaveBeenCalledTimes(2);
+    expect(prisma.processedGatewayEvent.findFirst).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyStateCursor.findUnique).not.toHaveBeenCalled();
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
+
   it("returns a previous future rejection only for the exact canonical payload", async () => {
     const event = fixtureEvent(9);
     const prisma = fixturePrisma({

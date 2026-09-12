@@ -16,6 +16,14 @@ describe("gateway event time policy", () => {
     )).toBe(false);
   });
 
+  it("accepts an occurredAt one millisecond before the default future boundary", () => {
+    expect(gatewayEventIsTooFarInFuture(
+      new Date("2026-09-12T00:04:59.999Z"),
+      receivedAt,
+      DEFAULT_GATEWAY_EVENT_MAX_FUTURE_SKEW_MS
+    )).toBe(false);
+  });
+
   it("rejects an occurredAt one millisecond beyond the configured future boundary", () => {
     expect(gatewayEventIsTooFarInFuture(
       new Date("2026-09-12T00:05:00.001Z"),
@@ -24,7 +32,7 @@ describe("gateway event time policy", () => {
     )).toBe(true);
   });
 
-  it.each(["-1", "1.5", " 1", "1 ", "NaN", "", "300_000"]) (
+  it.each(["-1", "1.5", " 1", "1 ", "NaN", "", "300_000", "9007199254740992"]) (
     "fails closed for invalid GATEWAY_EVENT_MAX_FUTURE_SKEW_MS=%p",
     (configuredValue) => {
       expect(() => gatewayEventMaxFutureSkewMs({ GATEWAY_EVENT_MAX_FUTURE_SKEW_MS: configuredValue }))

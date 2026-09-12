@@ -109,6 +109,21 @@ export class FixtureStateIngestionService {
     `);
     if (!fixture) throw new Error("fixture state scope rejected");
 
+    // A concurrent exact replay can read an empty ledger before waiting on this fixture lock.
+    // Re-read after the lock is acquired so the first transaction's committed terminal result wins.
+    const committedDuringFixtureLock = await tx.processedGatewayEvent.findUnique({ where: { eventId: state.eventId } });
+    if (committedDuringFixtureLock) {
+      if (!sameProcessedEvent(committedDuringFixtureLock, gatewayId, state, payloadHash)) {
+        throw new Error("fixture state event identity conflict");
+      }
+      return resultFrom(
+        state,
+        committedDuringFixtureLock.ingestionStatus === "rejected_future_timestamp"
+          ? "rejected_future_timestamp"
+          : "duplicate"
+      );
+    }
+
     const occurredAt = new Date(state.occurredAt);
     if (gatewayEventIsTooFarInFuture(occurredAt, receivedAt, maxFutureSkewMs)) {
       await tx.processedGatewayEvent.create({
