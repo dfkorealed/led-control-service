@@ -94,6 +94,10 @@ describe("gateway-scoped MQTT v2 contracts", () => {
     expect(applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, status: "stale_checkpoint" }).status).toBe(
       "stale_checkpoint"
     );
+    expect(applicationStateIngestedAckV2Schema.parse({
+      ...acknowledgement,
+      status: "rejected_future_timestamp"
+    }).status).toBe("rejected_future_timestamp");
     expect(() => applicationStateIngestedAckV2Schema.parse({ ...acknowledgement, status: "unknown" })).toThrow();
   });
 

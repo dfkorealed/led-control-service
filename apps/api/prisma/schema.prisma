@@ -40,6 +40,11 @@ enum CommandFixtureResultStatus {
   timed_out
 }
 
+enum GatewayEventIngestionStatus {
+  accepted
+  rejected_future_timestamp
+}
+
 enum UserRole {
   operator
   admin
@@ -1029,18 +1034,20 @@ model AutomationExecutionFixtureResult {
 }
 
 model ProcessedGatewayEvent {
-  eventId     String    @id
-  gatewayId   String
-  meshNodeId  String?
-  fixtureId   String?
-  sequence    BigInt
-  eventType   String
-  payloadHash String?
-  occurredAt  DateTime
-  gateway     Gateway   @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  meshNode    MeshNode? @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade, onUpdate: Restrict)
-  fixture     Fixture?  @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
-  createdAt   DateTime  @default(now())
+  eventId         String                      @id
+  gatewayId       String
+  meshNodeId      String?
+  fixtureId       String?
+  sequence        BigInt
+  eventType       String
+  payloadHash     String?
+  occurredAt      DateTime
+  receivedAt      DateTime                    @default(now())
+  ingestionStatus GatewayEventIngestionStatus @default(accepted)
+  gateway         Gateway                     @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  meshNode        MeshNode?                   @relation(fields: [meshNodeId, gatewayId], references: [id, gatewayId], onDelete: Cascade, onUpdate: Restrict)
+  fixture         Fixture?                    @relation(fields: [fixtureId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                    @default(now())
 
   @@index([gatewayId, occurredAt])
   @@index([meshNodeId])
