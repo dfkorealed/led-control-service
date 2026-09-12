@@ -47,13 +47,13 @@
 - Modify: `apps/api/src/automation/vehicle-sensor-capability.service.ts`
 - Modify corresponding specs in those directories.
 
-- [ ] `GatewayEventWatermark`와 provisioning terminal identity, retention indexes를 forward migration으로 추가한다.
-- [ ] 기존 PGE에서 안전하게 high-water를 backfill하되 동일 sequence conflict는 migration preflight에서 탐지한다.
-- [ ] fixture state, heartbeat, scan, capability transaction에서 compare-and-advance를 적용한다.
-- [ ] exact duplicate는 기존 ACK/응답을 재사용하고 stale/conflict는 기존 contract에 맞게 거부한다.
-- [ ] PGE row를 지운 뒤의 duplicate/stale/corrupt replay 회귀를 먼저 작성한다.
-- [ ] Run: focused consumer tests, `pnpm --filter @led-control/api exec prisma validate`, `pnpm --filter @led-control/api prisma:generate`.
-- [ ] Commit: `feat(api): retain gateway event high watermarks`
+- [x] `GatewayEventWatermark`와 provisioning terminal identity, retention indexes를 forward migration으로 추가한다.
+- [x] 기존 PGE에서 안전하게 high-water를 backfill하되 동일 sequence conflict는 migration preflight에서 탐지한다.
+- [x] fixture state, heartbeat, scan, capability transaction에서 compare-and-advance를 적용한다.
+- [x] exact duplicate는 기존 ACK/응답을 재사용하고 stale/conflict는 기존 contract에 맞게 거부한다.
+- [x] PGE row를 지운 뒤의 duplicate/stale/corrupt replay 회귀를 먼저 작성한다.
+- [x] Run: focused consumer tests, `pnpm --filter @led-control/api exec prisma validate`, `pnpm --filter @led-control/api prisma:generate`.
+- [x] Commit: `feat(api): retain gateway event high watermarks`
 
 ## Task 3: bounded data retention worker
 
