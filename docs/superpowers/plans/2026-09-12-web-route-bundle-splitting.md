@@ -68,7 +68,7 @@
 
 - Modify: `apps/web/src/CustomerShell.tsx`
 - Modify: `apps/web/src/CustomerShell.test.tsx`
-- Modify: `apps/web/src/operator/OperatorShell.tsx`
+- Modify: `apps/web/src/features/operator/OperatorShell.tsx`
 - Create: `apps/web/src/features/operator/OperatorShell.test.tsx`
 - Modify: `apps/web/scripts/audit-schedule-bundle.mjs`
 
