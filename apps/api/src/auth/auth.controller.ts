@@ -143,7 +143,6 @@ export class AuthController {
 
   @Post("logout")
   @AllowPasswordChangePending()
-  @UseGuards(SessionAuthGuard)
   async logout(
     @Req() request: AuthenticatedRequest,
     @Res({ passthrough: true }) response: CookieResponse

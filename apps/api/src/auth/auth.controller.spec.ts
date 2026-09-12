@@ -1,7 +1,25 @@
 import { BadRequestException } from "@nestjs/common";
+import { GUARDS_METADATA } from "@nestjs/common/constants";
 import { AuthController } from "./auth.controller";
+import { SessionAuthGuard } from "./session-auth.guard";
 
 describe("AuthController", () => {
+  it("keeps logout idempotent so a rotated cookie can still revoke its session family", async () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, AuthController.prototype.logout)).toBeUndefined();
+    expect(Reflect.getMetadata(GUARDS_METADATA, AuthController.prototype.me)).toEqual([SessionAuthGuard]);
+
+    const authService = { logout: jest.fn().mockResolvedValue(undefined) };
+    const response = { clearCookie: jest.fn().mockReturnThis() };
+    const controller = new AuthController(authService as any);
+
+    await expect(controller.logout(
+      { headers: { cookie: "led_session=pre-rotation-token" } } as any,
+      response as any
+    )).resolves.toEqual({ ok: true });
+    expect(authService.logout).toHaveBeenCalledWith("pre-rotation-token");
+    expect(response.clearCookie).toHaveBeenCalledWith("led_session", expect.objectContaining({ path: "/" }));
+  });
+
   it("marks exactly me, logout and changePassword as pending-password exceptions", () => {
     const methods = Object.getOwnPropertyNames(AuthController.prototype).filter((name) =>
       Reflect.getMetadata("allowPasswordChangePending", (AuthController.prototype as any)[name]) === true
