@@ -17,12 +17,12 @@
 - Create/Modify: production audit policy script와 test
 - Modify: `docs/agent-operations.md`, `docs/project-status.md`
 
-- [ ] Fresh JSON audit를 package, severity, direct/transitive path, runtime 도달성, patched floor로 정규화하는 실패 테스트를 작성한다.
-- [ ] React Router, Nest suite, MQTT와 호환 patch dependency를 upstream release로 먼저 갱신한다.
-- [ ] upstream이 안전 floor를 제공하지 않는 전이에만 package-selector override 또는 repository patch를 적용하고 이유·제거 조건을 기록한다.
-- [ ] `image-size`처럼 safe release가 없는 항목은 취약 입력을 차단하는 exact regression/patch 없이는 예외 처리하지 않는다.
-- [ ] `pnpm audit --prod --audit-level=moderate`, package별 scoped test/typecheck/build, Prisma validate를 실행한다.
-- [ ] 예상하지 못한 production High 0과 남은 명시적 예외를 기록하고 커밋한다.
+- [x] Fresh JSON audit를 package, severity, direct/transitive path, runtime 도달성, patched floor로 정규화하는 실패 테스트를 작성한다.
+- [x] React Router, Nest suite, MQTT와 호환 patch dependency를 upstream release로 먼저 갱신한다.
+- [x] upstream이 안전 floor를 제공하지 않는 전이에만 package-selector override 또는 repository patch를 적용하고 이유·제거 조건을 기록한다.
+- [x] `image-size`처럼 safe release가 없는 항목은 취약 입력을 차단하는 exact regression/patch 없이는 예외 처리하지 않는다.
+- [x] `pnpm audit --prod --audit-level=moderate`, package별 scoped test/typecheck/build, Prisma validate를 실행한다.
+- [x] 예상하지 못한 production High 0과 남은 명시적 예외를 기록하고 커밋한다.
 
 ## Task 2: shared/dist reader-writer 경쟁 제거
 

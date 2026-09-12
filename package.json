@@ -27,6 +27,7 @@
     "lab:pki:bootstrap": "PKI_ENV=lab scripts/pki/bootstrap-device-lab.sh",
     "test:lab:pki": "node --test scripts/pki/*.test.mjs scripts/lan-tls-integration.test.mjs",
     "test:lab:pki:integration": "PKI_ENV=lab scripts/pki/bootstrap-device-lab.sh",
+    "audit:production": "pnpm audit --prod --audit-level=moderate --json | node scripts/production-audit-policy.mjs --input -",
     "docker:up": "docker compose up -d",
     "docker:up:production": "docker compose -f docker-compose.yml -f docker-compose.production.yml up -d",
     "docker:down": "docker compose down"
@@ -34,5 +35,14 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "@nestjs/platform-express>multer": "2.3.0",
+      "@prisma/config>deepmerge-ts": "8.0.2"
+    },
+    "patchedDependencies": {
+      "image-size@1.2.1": "patches/image-size@1.2.1.patch"
+    }
   }
 }

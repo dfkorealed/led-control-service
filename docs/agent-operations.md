@@ -60,6 +60,15 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 - `project-status.md`는 상태 요약의 정본으로 유지한다. 활성 작업은 `writing-plans` 체크리스트에도 같은 상태를 반영한다.
 - mock·자동 fixture·빌드 성공은 실제 하드웨어 검증 완료와 구분해 기록한다.
 
+## Production dependency audit 정책
+
+- 저장소가 고정한 `pnpm@9.15.0`에서 `package.json#pnpm`을 override와 patch의 단일 설정 위치로 사용한다. 로컬의 상위 pnpm launcher가 새 설정 위치 경고를 출력하더라도 저장소 안 `pnpm --version`과 frozen install, 실제 dependency graph를 함께 확인한다.
+- `pnpm audit:production`은 fresh `pnpm audit --prod --audit-level=moderate --json`을 정책 스크립트로 전달한다. 예상하지 못한 Moderate/High/Critical advisory는 exact 경로와 patched floor를 출력하고 실패하며, 허용된 예외도 성공 로그에서 숨기지 않는다.
+- `@nestjs/platform-express>multer=2.3.0`은 Nest 11.2.3이 아직 2.2.0을 고정하므로 사용하는 selector override다. 현재 API에 multipart upload/FileValidator 경로는 없지만 Nest bootstrap/controller와 API typecheck/build로 검증한다. Nest가 Multer 2.3.0 이상을 지원하면 제거한다.
+- `@prisma/config>deepmerge-ts=8.0.2`는 request runtime이 아닌 Prisma CLI config 경로에만 적용한다. Prisma validate/generate와 새 disposable PostgreSQL에 대한 전체 `prisma migrate deploy`가 모두 통과해야 유지하며, Prisma가 8.x 이상을 직접 사용하면 제거한다.
+- `image-size@1.2.1`은 upstream safe release가 없어서 Metro build-time asset 검사 경로의 ICNS/JXL/HEIF signature를 parser dispatch 전에 fail-close하는 repository patch를 사용한다. 악성 shape와 정상 PNG regression, patch SHA-256, exact 두 GHSA와 dependency path가 모두 일치해야 정책 예외가 허용된다. upstream non-vulnerable release가 나오면 patch와 예외를 함께 제거한다.
+- `uuid@8.3.2` Moderate는 ExcelJS 4.4.0의 `uuid.v4()` 사용 경로만 남는다. advisory의 caller-provided buffer API는 호출하지 않으며 XLSX render/load regression으로 소비 경로를 고정한다. ExcelJS가 `uuid>=11.1.1`을 지원하거나 검증된 대체재를 채택하면 예외를 제거한다.
+
 ## 다음 자동화 단계
 
 CI와 HIL 자동화는 다음 단계다. CI는 타입 검사, 린트, 단위·통합·브라우저 테스트와 build를 자동 실행한다. HIL은 전용 Raspberry Pi와 ESP32-H2에서 인증, 검색, provisioning, 상태 수집, 제어 및 재시작 복구를 검증한다. 실제 장비를 변경하거나 배포하는 HIL 실행은 사용자 승인 관문을 유지한다.

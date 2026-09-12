@@ -18,7 +18,7 @@
     "@led-control/automation-engine": "workspace:*",
     "@led-control/shared": "workspace:*",
     "dotenv": "^16.4.7",
-    "mqtt": "^5.10.3"
+    "mqtt": "^5.15.2"
   },
   "devDependencies": {
     "esbuild": "^0.21.5",
