@@ -38,7 +38,7 @@
 - Consumes: clean Git checkout, Gateway package version, `pnpm-lock.yaml`, image archive/config digest, OS/Node inventory.
 - Produces: `node scripts/gateway-release-bundle.mjs create|verify ...`, schema `led-control-gateway-release/v1`, immutable release directory consumed by Task 2.
 
-- [ ] **Step 1: Write failing behavior tests**
+- [x] **Step 1: Write failing behavior tests**
 
 ```js
 test("create emits a closed checksum set and SPDX packages bound to the full commit", async () => {
@@ -53,10 +53,10 @@ test("verify rejects extra files, tampering, unsafe paths, secret material and t
 });
 ```
 
-- [ ] **Step 2: Run RED** — `node --test scripts/gateway-release-bundle.test.mjs scripts/gateway-appliance-scripts.test.mjs`; missing CLI/policy와 incomplete artifact assertions가 실패해야 한다.
-- [ ] **Step 3: Implement minimal builder/verifier** — strict JSON, canonical sorted output, SHA-256 closure, SPDX relationships, secret/path/type rejection, OCI version/revision/source/firmware labels를 구현한다.
-- [ ] **Step 4: Run GREEN** — 위 Node tests와 `pnpm --filter @led-control/gateway test:contracts`를 통과한다.
-- [ ] **Step 5: Commit** — `git commit -m "feat(gateway): produce verifiable release bundles"`.
+- [x] **Step 2: Run RED** — `node --test scripts/gateway-release-bundle.test.mjs scripts/gateway-appliance-scripts.test.mjs`; missing CLI/policy와 incomplete artifact assertions가 실패해야 한다.
+- [x] **Step 3: Implement minimal builder/verifier** — strict JSON, canonical sorted output, SHA-256 closure, SPDX relationships, secret/path/type rejection, OCI version/revision/source/firmware labels를 구현한다.
+- [x] **Step 4: Run GREEN** — 위 Node tests와 `pnpm --filter @led-control/gateway test:contracts`를 통과한다.
+- [x] **Step 5: Commit** — `git commit -m "feat(gateway): produce verifiable release bundles"`.
 
 ### Task 2: Staged activation, health-gated pointer switch and rollback
 
