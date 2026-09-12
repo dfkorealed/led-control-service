@@ -20,6 +20,8 @@
     "gateway:soak": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec tsx scripts/soak-test.ts",
     "gateway:host:test": "node --test scripts/gateway-host-prepare.test.mjs",
     "gateway:appliance:build": "scripts/gateway-appliance-build.sh",
+    "gateway:release:test": "node --test scripts/gateway-release-bundle.test.mjs scripts/gateway-appliance-scripts.test.mjs",
+    "gateway:release:verify": "node scripts/gateway-release-bundle.mjs verify",
     "gateway:appliance:deploy": "scripts/gateway-appliance-deploy.sh",
     "gateway:manufacturing:enroll": "scripts/gateway-manufacturing-enroll.sh",
     "mqtt:integration": "MQTT_INTEGRATION_REQUIRED=1 pnpm --filter @led-control/gateway test:mqtt-integration",

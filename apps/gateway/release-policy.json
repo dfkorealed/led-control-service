@@ -1,0 +1,18 @@
+{
+  "bluez": {
+    "sourceSha256": "0739fa608a837967ee6d5572b43fb89946a938d1c6c26127158aaefd743a790b",
+    "version": "5.82"
+  },
+  "firmwareCompatibility": {
+    "automationSnapshotSchema": 1,
+    "bluetoothCompanyId": "runtime-must-match-signed-firmware",
+    "dimmingCommandWire": 2,
+    "espIdfVersion": "v5.5.1",
+    "productIdentityFormat": 1,
+    "vehicleSensorProtocol": 1
+  },
+  "platform": "linux/arm64",
+  "policyVersion": 1,
+  "schema": "led-control-gateway-release/v1",
+  "source": "https://github.com/df-kjh/led-control-service"
+}

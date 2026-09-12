@@ -6,12 +6,19 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
 
-test("build script는 ARM64 immutable image archive와 checksum을 만든다", async () => {
+test("build script는 clean full-commit ARM64 provenance bundle과 실제 image inventory를 만든다", async () => {
   const source = await readFile(path.join(root, "scripts/gateway-appliance-build.sh"), "utf8");
-  assert.match(source, /--platform linux\/arm64/);
-  assert.match(source, /git rev-parse --short=12 HEAD/);
+  assert.match(source, /linux\/arm64/);
+  assert.match(source, /git rev-parse HEAD/);
+  assert.doesNotMatch(source, /--short=12|ALLOW_DIRTY_BUILD/);
   assert.match(source, /docker image save/);
-  assert.match(source, /sha256sum|shasum -a 256/);
+  assert.match(source, /docker image inspect/);
+  assert.match(source, /gateway-release-bundle\.mjs.*create/);
+  assert.match(source, /gateway-release-inventory\.json/);
+  assert.match(source, /GATEWAY_RELEASE_TEST_MODE/);
+  assert.match(source, /org\.opencontainers\.image\.version/);
+  assert.match(source, /org\.opencontainers\.image\.revision/);
+  assert.match(source, /com\.led-control\.firmware-compatibility/);
 });
 
 test("deploy script는 image를 먼저 load하고 제조 identity 검증 뒤 Compose를 적용한다", async () => {
