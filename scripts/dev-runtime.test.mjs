@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   parseEnvFile,
@@ -149,6 +151,18 @@ test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립�
   assert.match(command[0], /mc anonymous set none/);
 });
 
+test("MinIO 초기화는 floor-assets bucket 생성 실패를 종료 코드로 전파한다", () => {
+  const result = runObjectStorageInitWithMcFailure("mb --ignore-existing local/floor-assets");
+
+  assert.notEqual(result.status, 0, result.stderr);
+});
+
+test("MinIO 초기화는 floor-assets private policy 적용 실패를 종료 코드로 전파한다", () => {
+  const result = runObjectStorageInitWithMcFailure("anonymous set none local/floor-assets");
+
+  assert.notEqual(result.status, 0, result.stderr);
+});
+
 test("고정 MinIO 서버는 미설정 WEB_PUBLIC_URL에 개발 CORS origin을 사용한다", () => {
   const compose = renderCompose({ WEB_PUBLIC_URL: "" });
   const objectStorage = compose.services["object-storage"];
@@ -293,4 +307,21 @@ function renderCompose(environment = {}) {
 
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
+}
+
+function runObjectStorageInitWithMcFailure(failingArguments) {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-mc-"));
+  const fakeMcPath = join(directory, "mc");
+  writeFileSync(fakeMcPath, `#!/bin/sh\nif [ "$*" = "${failingArguments}" ]; then exit 42; fi\nexit 0\n`);
+  chmodSync(fakeMcPath, 0o755);
+
+  try {
+    const command = renderCompose().services["object-storage-init"].command[0].replaceAll("$${", "${");
+    return spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}` }
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }

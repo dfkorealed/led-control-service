@@ -6,7 +6,7 @@ import { ObjectStorageService } from "../storage/object-storage.service";
 const POLL_INTERVAL_MS = 60_000;
 const UPLOAD_EXPIRY_SAFETY_MS = 5_000;
 const ABANDONED_SIGNING_TIMEOUT_MS = 15 * 60_000;
-const CLAIM_TIMEOUT_MS = 120_000;
+const CLAIM_RETRY_BACKOFF_MS = 120_000;
 const READY_ORPHAN_GRACE_MS = 24 * 60 * 60_000;
 const BATCH_SIZE = 25;
 
@@ -39,7 +39,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
   async processPending(now = new Date()) {
     const uploadExpiredAt = new Date(now.getTime() - UPLOAD_EXPIRY_SAFETY_MS);
     const abandonedSigningAt = new Date(now.getTime() - ABANDONED_SIGNING_TIMEOUT_MS);
-    const abandonedClaimAt = new Date(now.getTime() - CLAIM_TIMEOUT_MS);
+    const retryableClaimAt = new Date(now.getTime() - CLAIM_RETRY_BACKOFF_MS);
     const readyOrphanAt = new Date(now.getTime() - READY_ORPHAN_GRACE_MS);
     const expiredUploadWhere = {
       OR: [
@@ -48,7 +48,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
       ]
     };
     const availableClaimWhere = {
-      OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: abandonedClaimAt } }]
+      OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: retryableClaimAt } }]
     };
     const assets = await this.prisma.floorAsset.findMany({
       where: {
@@ -70,7 +70,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
       ) AS path
       WHERE asset."status" = 'ready'
         AND COALESCE(asset."readyAt", asset."createdAt") <= ${readyOrphanAt}
-        AND (asset."cleanupStartedAt" IS NULL OR asset."cleanupStartedAt" <= ${abandonedClaimAt})
+        AND (asset."cleanupStartedAt" IS NULL OR asset."cleanupStartedAt" <= ${retryableClaimAt})
         AND NOT EXISTS (
           SELECT 1
           FROM "FloorPlan" AS plan
@@ -120,16 +120,14 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
     }
 
     for (const asset of readyAssets) {
-      const claimed = await this.claimReadyOrphan(asset.id, readyOrphanAt, abandonedClaimAt, now);
+      const claimed = await this.claimReadyOrphan(asset.id, readyOrphanAt, retryableClaimAt, now);
       if (!claimed) continue;
 
       try {
         await this.storage.deleteObject(claimed.objectKey);
       } catch {
-        await this.prisma.floorAsset.updateMany({
-          where: { id: claimed.id, status: "ready", cleanupStartedAt: now },
-          data: { cleanupStartedAt: null }
-        });
+        // Ready orphans keep their claim as a retry backoff. Releasing it here lets a full
+        // failed batch occupy every poll and starve later candidates behind the LIMIT.
         continue;
       }
 
@@ -142,7 +140,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
     return { processed: assets.length + readyAssets.length, deleted };
   }
 
-  private claimReadyOrphan(assetId: string, readyOrphanAt: Date, abandonedClaimAt: Date, now: Date) {
+  private claimReadyOrphan(assetId: string, readyOrphanAt: Date, retryableClaimAt: Date, now: Date) {
     return this.prisma.$transaction(async (tx) => {
       // Editor save/restore locks Floor before validating assets. Taking the same lock
       // makes either the committed reference or the cleanup claim visible to the loser.
@@ -153,7 +151,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
         WHERE asset."id" = ${assetId}
           AND asset."status" = 'ready'
           AND COALESCE(asset."readyAt", asset."createdAt") <= ${readyOrphanAt}
-          AND (asset."cleanupStartedAt" IS NULL OR asset."cleanupStartedAt" <= ${abandonedClaimAt})
+          AND (asset."cleanupStartedAt" IS NULL OR asset."cleanupStartedAt" <= ${retryableClaimAt})
         FOR UPDATE OF floor, asset
       `);
       const locked = lockedAssets[0];
@@ -200,7 +198,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
             { readyAt: null, createdAt: { lte: readyOrphanAt } }
           ],
           AND: [{
-            OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: abandonedClaimAt } }]
+            OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: retryableClaimAt } }]
           }]
         },
         data: { cleanupStartedAt: now }

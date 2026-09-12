@@ -13,14 +13,14 @@ const scope = {
 };
 
 describe("FixtureStateIngestionService", () => {
-  it("locks the site before locking the fixture and reading energy settings", async () => {
+  it("shares the site lock before exclusively locking the fixture and reading energy settings", async () => {
     const prisma = fixturePrisma();
     const service = new FixtureStateIngestionService(prisma as never);
 
     await service.ingest(scope.gatewayId, fixtureEvent(9));
 
     const lockSql = prisma.$queryRaw.mock.calls.map(([query]: [{ sql: string }]) => query.sql);
-    expect(lockSql[0]).toMatch(/FROM "Site"[\s\S]*FOR UPDATE/);
+    expect(lockSql[0]).toMatch(/FROM "Site"[\s\S]*FOR KEY SHARE/);
     expect(lockSql[1]).toMatch(/FROM "Fixture" f[\s\S]*FOR UPDATE OF f/);
   });
 

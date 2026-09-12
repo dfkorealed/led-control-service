@@ -17,7 +17,10 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
     gatewayId: "21000000-0000-4000-8000-000000000004",
     meshNodeId: "21000000-0000-4000-8000-000000000005",
     fixtureId: "21000000-0000-4000-8000-000000000006",
-    energyFixtureId: "21000000-0000-4000-8000-000000000008"
+    energyFixtureId: "21000000-0000-4000-8000-000000000008",
+    secondMeshNodeId: "21000000-0000-4000-8000-000000000015",
+    secondFixtureId: "21000000-0000-4000-8000-000000000016",
+    secondEnergyFixtureId: "21000000-0000-4000-8000-000000000018"
   };
   let prisma: PrismaService;
   let service: FixtureStateIngestionService;
@@ -216,7 +219,7 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
       });
       await waitForBlockedQuery(prisma, (query) =>
         query.includes('INNER JOIN "MeshNode"')
-        || (query.includes('FROM "Site"') && query.includes("FOR UPDATE"))
+        || (query.includes('FROM "Site"') && query.includes("FOR KEY SHARE"))
       );
       releaseFixture.resolve();
 
@@ -240,7 +243,140 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
       ]);
       await Promise.all([blocker.$disconnect(), settingsPrisma.$disconnect(), ingestionPrisma.$disconnect()]);
     }
-  });
+  }, 20_000);
+
+  it("allows two ingestion site locks while a settings FOR UPDATE waits", async () => {
+    await prisma.processedGatewayEvent.deleteMany({ where: { fixtureId: ids.secondFixtureId } });
+    await prisma.fixtureEnergyDailyAggregate.deleteMany({ where: { fixtureId: ids.secondFixtureId } });
+    await prisma.fixtureEnergyHourlyAggregate.deleteMany({ where: { energyFixtureId: ids.secondEnergyFixtureId } });
+    await prisma.fixtureEnergyStateCursor.deleteMany({ where: { fixtureId: ids.secondFixtureId } });
+    await prisma.meshNode.upsert({
+      where: { id: ids.secondMeshNodeId },
+      create: {
+        id: ids.secondMeshNodeId,
+        gatewayId: ids.gatewayId,
+        deviceUuid: "energy-integration-node-2",
+        meshAddress: "0x1202",
+        firmwareVersion: "integration"
+      },
+      update: { gatewayId: ids.gatewayId }
+    });
+    await prisma.fixture.upsert({
+      where: { id: ids.secondFixtureId },
+      create: {
+        id: ids.secondFixtureId,
+        floorId: ids.floorId,
+        meshNodeId: ids.secondMeshNodeId,
+        name: "B1-L02",
+        ratedWatt: "40.00",
+        x: 20,
+        y: 20,
+        energyTrackingStartedAt: new Date("2026-08-26T00:00:00.000Z")
+      },
+      update: {
+        meshNodeId: ids.secondMeshNodeId,
+        ratedWatt: "40.00",
+        brightness: 0,
+        powerOn: null,
+        energyTrackingStartedAt: new Date("2026-08-26T00:00:00.000Z"),
+        firstStateOccurredAt: null,
+        lastStateEventId: null,
+        lastStateSequence: null,
+        lastStateOccurredAt: null
+      }
+    });
+    await prisma.energyFixtureIdentity.upsert({
+      where: { fixtureId: ids.secondFixtureId },
+      create: {
+        id: ids.secondEnergyFixtureId,
+        siteId: ids.siteId,
+        fixtureId: ids.secondFixtureId,
+        trackingStartedAt: new Date("2026-08-26T00:00:00.000Z")
+      },
+      update: { retiredAt: null }
+    });
+
+    const blocker = new PrismaService();
+    const firstIngestionPrisma = new PrismaService();
+    const secondIngestionPrisma = new PrismaService();
+    const settingsPrisma = new PrismaService();
+    await Promise.all([
+      blocker.$connect(),
+      firstIngestionPrisma.$connect(),
+      secondIngestionPrisma.$connect(),
+      settingsPrisma.$connect()
+    ]);
+    const fixturesLocked = deferred();
+    const releaseFixtures = deferred();
+    const blockerPromise = blocker.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id"
+        FROM "Fixture"
+        WHERE "id" IN (${ids.fixtureId}, ${ids.secondFixtureId})
+        ORDER BY "id"
+        FOR UPDATE
+      `);
+      fixturesLocked.resolve();
+      await releaseFixtures.promise;
+    }, { timeout: 15_000 });
+    await fixturesLocked.promise;
+
+    const firstIngestion = new FixtureStateIngestionService(firstIngestionPrisma);
+    const secondIngestion = new FixtureStateIngestionService(secondIngestionPrisma);
+    let firstPromise: ReturnType<FixtureStateIngestionService["ingest"]> | undefined;
+    let secondPromise: ReturnType<FixtureStateIngestionService["ingest"]> | undefined;
+    let settingsPromise: Promise<unknown> | undefined;
+
+    try {
+      firstPromise = firstIngestion.ingest(ids.gatewayId, {
+        ...fixtureEvent(),
+        eventId: "21000000-0000-4000-8000-000000000019",
+        sequence: 11
+      });
+      secondPromise = secondIngestion.ingest(ids.gatewayId, {
+        ...fixtureEvent(),
+        fixtureId: ids.secondFixtureId,
+        eventId: "21000000-0000-4000-8000-000000000020",
+        sequence: 12
+      });
+      await waitForBlockedQuery(
+        prisma,
+        (query) => query.includes('INNER JOIN "MeshNode"') && query.includes("FOR UPDATE OF f"),
+        2
+      );
+
+      settingsPromise = settingsPrisma.$transaction(async (tx) => {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT "id" FROM "Site" WHERE "id" = ${ids.siteId} FOR UPDATE
+        `);
+      }, { timeout: 15_000 });
+      await waitForBlockedQuery(
+        prisma,
+        (query) => query.includes('FROM "Site"') && query.includes("FOR UPDATE")
+      );
+
+      releaseFixtures.resolve();
+      await expect(Promise.all([firstPromise, secondPromise])).resolves.toEqual([
+        expect.objectContaining({ fixtureId: ids.fixtureId, status: "ingested" }),
+        expect.objectContaining({ fixtureId: ids.secondFixtureId, status: "ingested" })
+      ]);
+      await expect(settingsPromise).resolves.toBeUndefined();
+    } finally {
+      releaseFixtures.resolve();
+      await Promise.allSettled([
+        blockerPromise,
+        ...(firstPromise ? [firstPromise] : []),
+        ...(secondPromise ? [secondPromise] : []),
+        ...(settingsPromise ? [settingsPromise] : [])
+      ]);
+      await Promise.all([
+        blocker.$disconnect(),
+        firstIngestionPrisma.$disconnect(),
+        secondIngestionPrisma.$disconnect(),
+        settingsPrisma.$disconnect()
+      ]);
+    }
+  }, 20_000);
 
   function fixtureEvent() {
     return {
@@ -268,7 +404,11 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function waitForBlockedQuery(prisma: PrismaService, matches: (query: string) => boolean) {
+async function waitForBlockedQuery(
+  prisma: PrismaService,
+  matches: (query: string) => boolean,
+  minimumCount = 1
+) {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
     const rows = await prisma.$queryRaw<Array<{ query: string }>>(Prisma.sql`
@@ -278,7 +418,7 @@ async function waitForBlockedQuery(prisma: PrismaService, matches: (query: strin
         AND pid <> pg_backend_pid()
         AND wait_event_type = 'Lock'
     `);
-    if (rows.some(({ query }) => matches(query))) return;
+    if (rows.filter(({ query }) => matches(query)).length >= minimumCount) return;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error("timed out waiting for the expected PostgreSQL lock waiter");

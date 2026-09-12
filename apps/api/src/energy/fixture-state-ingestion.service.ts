@@ -105,7 +105,7 @@ export class FixtureStateIngestionService {
       SELECT "id"
       FROM "Site"
       WHERE "id" = ${state.siteId}
-      FOR UPDATE
+      FOR KEY SHARE
     `);
     if (!site) throw new Error("fixture state scope rejected");
 

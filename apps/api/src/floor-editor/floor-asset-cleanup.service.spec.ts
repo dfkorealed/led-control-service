@@ -112,6 +112,37 @@ describe("FloorAssetCleanupService", () => {
     });
   });
 
+  it("keeps the ready cleanup claim when object deletion fails", async () => {
+    const now = new Date("2026-09-13T00:00:00.000Z");
+    const candidate = {
+      id: "asset-ready",
+      floorId: "floor-1",
+      objectKey: "floors/floor-1/ready.png"
+    };
+    const tx: any = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([candidate])
+        .mockResolvedValueOnce([{ referenced: false }]),
+      floorAsset: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    const prisma: any = {
+      floorAsset: {
+        findMany: jest.fn().mockResolvedValueOnce([]),
+        deleteMany: jest.fn(),
+        updateMany: jest.fn()
+      },
+      $queryRaw: jest.fn().mockResolvedValue([candidate]),
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
+    };
+    const storage: any = { deleteObject: jest.fn().mockRejectedValue(new Error("storage unavailable")) };
+    const service = new FloorAssetCleanupService(prisma, storage);
+
+    await expect(service.processPending(now)).resolves.toEqual({ processed: 1, deleted: 0 });
+
+    expect(prisma.floorAsset.updateMany).not.toHaveBeenCalled();
+    expect(prisma.floorAsset.deleteMany).not.toHaveBeenCalled();
+  });
+
   it("does not claim or delete a ready asset referenced by a floor plan or revision", async () => {
     const now = new Date("2026-09-13T00:00:00.000Z");
     const candidate = {

@@ -217,6 +217,63 @@ describeWithPostgres("FloorAssetsService PostgreSQL concurrency", () => {
     await expect(serviceClient.floorAsset.findUnique({ where: { id: "asset-orphan" } })).resolves.toBeNull();
   });
 
+  it("backs off failed ready orphans so the next batch runs before retrying them", async () => {
+    const now = new Date();
+    const oldReadyAt = new Date(now.getTime() - 24 * 60 * 60_000 - 1_000);
+    const failedAssets = Array.from({ length: 25 }, (_, index) => ({
+      id: `asset-retry-${index.toString().padStart(2, "0")}`,
+      objectKey: `floors/floor-1/retry-${index.toString().padStart(2, "0")}.png`,
+      createdAt: new Date(oldReadyAt.getTime() + index)
+    }));
+    const laterAsset = {
+      id: "asset-retry-later",
+      objectKey: "floors/floor-1/retry-later.png",
+      createdAt: new Date(oldReadyAt.getTime() + failedAssets.length)
+    };
+    await serviceClient.floorAsset.update({
+      where: { id: "asset-1" },
+      data: { uploadExpiresAt: new Date(now.getTime() + 24 * 60 * 60_000) }
+    });
+    await serviceClient.floorAsset.createMany({
+      data: [...failedAssets, laterAsset].map(({ id, objectKey, createdAt }) => ({
+        id,
+        floorId: "floor-1",
+        kind: "original",
+        status: "ready",
+        objectKey,
+        mimeType: "image/png",
+        sizeBytes: 1024n,
+        sha256: "d".repeat(64),
+        readyAt: oldReadyAt,
+        createdAt
+      }))
+    });
+    const attempts = new Map<string, number>();
+    const storage = {
+      deleteObject: jest.fn(async (objectKey: string) => {
+        const attempt = (attempts.get(objectKey) ?? 0) + 1;
+        attempts.set(objectKey, attempt);
+        if (objectKey !== laterAsset.objectKey && attempt === 1) throw new Error("storage unavailable");
+      })
+    };
+    const cleanup = new FloorAssetCleanupService(serviceClient as never, storage as never);
+
+    await expect(cleanup.processPending(now)).resolves.toEqual({ processed: 25, deleted: 0 });
+    await expect(serviceClient.floorAsset.count({
+      where: { id: { in: failedAssets.map(({ id }) => id) }, cleanupStartedAt: now }
+    })).resolves.toBe(25);
+
+    await expect(cleanup.processPending(new Date(now.getTime() + 60_000)))
+      .resolves.toEqual({ processed: 1, deleted: 1 });
+    expect(storage.deleteObject).toHaveBeenLastCalledWith(laterAsset.objectKey);
+
+    await expect(cleanup.processPending(new Date(now.getTime() + 120_000)))
+      .resolves.toEqual({ processed: 25, deleted: 25 });
+    await expect(serviceClient.floorAsset.count({
+      where: { id: { in: [...failedAssets.map(({ id }) => id), laterAsset.id] } }
+    })).resolves.toBe(0);
+  });
+
   function runSql(sql: string) {
     return spawnSync("psql", ["-q", "-v", "ON_ERROR_STOP=1", psqlDatabaseUrl!], { encoding: "utf8", input: sql });
   }
