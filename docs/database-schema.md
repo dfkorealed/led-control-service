@@ -67,6 +67,41 @@ Migration: `20260913_report_object_cleanup_ledger`. Site/보고서 FK를 두지 
 
 트리거의 upsert는 기존 세 키를 확장/확인하되 현재 `leaseOwner`, `leaseExpiresAt`, `nextAttemptAt`을 유지한다. 따라서 새 reaper의 fenced finalize가 메타데이터를 삭제해도 스스로 임대를 잃지 않으며 중복 원장을 만들지 않는다. DELETE rollback 시 원장 쓰기도 rollback한다. 트리거는 DB 키 원장만 쓰고 S3 네트워크 호출을 하지 않는다. 보호 범위는 트리거 migration 커밋 이후 정상 DELETE/cascade이며, 관리자가 트리거를 끄거나 TRUNCATE로 우회하는 작업은 이 보장을 깨므로 운영 정리 경로로 사용하지 않는다.
 
+### 보고서 migration 사전 검사와 실패 복구
+
+20260912~14 적용은 구 API, report worker와 Site 삭제/메타데이터 purge를 실행하는 모든 프로세스를 중지한 maintenance barrier 안에서 수행한다. 이미 시작한 transaction도 종료됐는지 확인한다. 20260914의 테이블 잠금은 설치 중의 DELETE/쓰기와 충돌하지만 20260912~13 적용 구간까지 보호하지 않으므로 프로세스 중지가 필요하다. 기존 migration SQL과 checksum은 수정하지 않는다.
+
+`DATABASE_URL`을 대상 DB로 명시적으로 설정한 배포 세션에서 다음 순서로 실행한다. 아래 명령은 운영 절차이며 이번 구현에서 사용자/운영 DB에는 실행하지 않았다.
+
+```bash
+pnpm --filter @led-control/api reports:migration-preflight --phase=pre
+pnpm --filter @led-control/api exec prisma migrate deploy
+pnpm --filter @led-control/api reports:migration-preflight --phase=post
+```
+
+preflight는 `.env`를 자동으로 읽지 않고 PostgreSQL의 `READ ONLY`, `RepeatableRead` transaction으로 검사한다. 검사별 statement timeout 5초, lock timeout 1초를 사용한다. `{ "ok": true, ... }`와 종료 코드 0만 통과로 인정하며, 설정/접속/검사 오류도 종료 코드 1로 차단한다. 출력은 진단 code만 제공하고 URL, 자격 증명, 개인 객체 경로와 원문 DB 오류를 노출하지 않는다. `pre`는 아직 적용하지 않은 보고서 migration을 허용하고, `post`는 세 migration이 모두 완료돼야 통과한다.
+
+- `unfinished_migration`: `finished_at`과 `rolled_back_at`이 모두 null인 migration. `logs`가 null이어도 실패/중단 상태다.
+- `legacy_object_keys_not_array`: 기존 `SiteDeletionCleanup.objectKeys`의 scalar/object/JSON null. 완료 원장도 포함한다.
+- `legacy_report_key_count_exceeded`, `legacy_report_identity_conflict`: 기존 엄격한 UUID 경로를 3개 attempt로 확장한 결과가 3개를 넘거나 같은 report ID가 여러 site에 걸친다. xlsx/pdf가 섞이면 6개가 되어 기존 CHECK를 위반한다.
+- `unexpected_report_catalog`, `report_catalog_missing`, `migration_history_gap`: 이력과 테이블/enum/함수 상태가 불일치한다. 부분 적용 또는 수동 복구 흔적을 자동으로 덮어쓰지 않는다.
+- `report_constraint_missing`, `active_request_index_missing`, `snapshot_trigger_missing_or_disabled`, `delete_trigger_missing_or_disabled`: 검증된 CHECK, 활성 요청 unique index, 활성화된 올바른 함수·이벤트의 보호 트리거가 누락됐다.
+- `legacy_report_backfill_missing`: 기존 cleanup의 확장된 키가 영구 원장에 없거나 site/키가 일치하지 않는다.
+
+preflight는 데이터/카탈로그 검사이며 백업 검증이나 maintenance barrier를 대신하지 않는다. 배포 전에 복구 가능한 백업/PITR 지점을 확보한다. 배포 connection의 PostgreSQL `options`에 `-c lock_timeout=5s -c statement_timeout=120s`를 설정해 잠금 대기와 전체 statement 시간을 제한한다. Prisma URL의 query parameter 예시는 `options=-c%20lock_timeout%3D5s%20-c%20statement_timeout%3D120s`이며 기존 query가 있으면 `&`로 추가한다. 20260914 원본에는 timeout이 없으므로 세션 설정을 생략하지 않는다. 실제 배포 시간 한도는 데이터 규모에 맞춰 검토한다. 적용 후 post 검사와 새 버전의 추가 schema/backfill 검증을 통과한 뒤에만 API/worker를 시작한다.
+
+실패 시에는 다음 절차를 따른다.
+
+1. barrier를 유지하고 자동 deploy 재시도를 중단한다. `_prisma_migrations`의 migration 이름, checksum, 시작/완료/rollback 시각, logs, CLI 출력, 해당 PostgreSQL 서버 로그와 preflight 진단을 보존한다. 로그는 제한된 운영 채널에서 취급한다.
+2. 실제 카탈로그와 원장 데이터로 rollback 여부를 판정한다. 20260912~13에는 명시적 transaction이 없으므로 다른 runner에서도 파일 전체가 원자적일 것이라고 가정하지 않는다. 부분 적용 DB에 원본 SQL을 다시 실행하면 이미 존재하는 객체 또는 유실된 backfill 때문에 추가 실패가 발생할 수 있다.
+3. 기본 복구는 검증한 백업/PITR 지점으로 복원한 뒤 원본 migration을 다시 적용하는 것이다. 부분 적용을 보존해야 하는 경우 별도 검토한 순방향 복구 절차로 카탈로그·데이터를 먼저 일치시킨다. 기존 SQL/checksum을 수정하거나 `_prisma_migrations` 행을 임의 삭제하지 않는다.
+4. 완전 rollback과 안전한 재실행을 확인한 담당자만 실패 migration의 `prisma migrate resolve --rolled-back <migration-name>` 사용 여부를 결정한다. `resolve --applied`로 제약/트리거/backfill 검증을 건너뛰지 않는다. 도구는 이러한 복구 명령을 자동 실행하지 않는다.
+5. pre 검사에서 미완료 이력이 정리됐는지 확인한 뒤 단일 deploy와 post 검사를 다시 수행한다. legacy scalar를 빈 배열로 바꾸거나 형식 하나를 임의로 버리는 것은 객체 삭제 권한을 유실할 수 있으므로 원장 데이터의 별도 복구 검토가 필요하다.
+
+자동 회귀는 `REPORT_MIGRATION_SAFETY_TEST=1 pnpm --filter @led-control/api test -- energy-report-migration-safety.integration.spec.ts --runInBand`로 실행한다. PATH의 `initdb`, `pg_ctl`, `psql`을 사용해 임시 디렉터리에 새 PostgreSQL 클러스터와 DB를 만들며 기존 `DATABASE_URL`은 사용하지 않는다. 종료 시 전용 클러스터를 정지하고 임시 파일을 제거한다. 환경변수 없이 실행하면 해당 통합 suite는 skip되며 실제 DB 검증으로 계산하지 않는다.
+
+Prisma 6.19.3/PostgreSQL 16.14의 실제 `migrate deploy`에서 clean replay, 20260911 이후 staged upgrade와 기존 완료 cleanup 키 backfill을 검증했다. 테스트 복사본의 statement 실패는 20260912~13에서도 제출된 SQL batch를 rollback했고, 20260914의 명시적 transaction은 트리거·보고서 DELETE·tombstone 쓰기를 모두 rollback했다. 20260914에서는 Prisma가 중단된 transaction 안에서 오류 logs UPDATE도 시도해 CLI가 `current transaction is aborted`로 끝나고 이력의 `logs`는 null로 남았다. 원래 statement/lock timeout 원인은 PostgreSQL 로그에 남으며 미완료 migration의 단순 재시도는 `P3009`로 차단됐다. 원본과 구분되는 테스트 전용 중간 COMMIT 주입은 부분 카탈로그와 미실행 backfill을 남기며 preflight와 재시도가 이를 거부하는지 검증한다. 별도 두 connection 검증은 테이블 lock timeout, 설치 중 writer 대기와 commit 직후 DELETE의 세 키 보존을 확인한다. 이 결과는 일회성 DB의 소프트웨어 증거이며 운영 DB 복원 실행이나 모든 Prisma/PostgreSQL 버전의 원자성 보장이 아니다.
+
 간단한 관계 흐름은 다음과 같다.
 
 ```text
