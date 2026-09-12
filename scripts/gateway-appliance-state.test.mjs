@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, copyFile, cp, lchmod, link, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, lchmod, link, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fixture, policyHash } from './gateway-appliance-fixture.mjs';
@@ -15,6 +15,7 @@ const ok = result => assert.equal(result.status, 0, result.stderr || String(resu
 const bad = (result, code = 1) => assert.equal(result.status, code, result.stdout + result.stderr);
 const exists = async file => lstat(file).then(() => true, () => false);
 const realOpenSSL = spawnSync('/bin/sh', ['-c', 'command -v openssl'], { encoding: 'utf8' }).stdout.trim();
+const realMktemp = spawnSync('/bin/sh', ['-c', 'command -v mktemp'], { encoding: 'utf8' }).stdout.trim();
 const created = '2026-09-12T00:00:00Z';
 
 // Expectations are derived from real lstat/readlink/bytes, not the shell manifest.
@@ -60,7 +61,22 @@ function archive(records, text) {
 }
 
 async function setup(t) {
+  let workspaceLog;
+  // Observe actual mktemp results (not substituted paths), including workspaces
+  // outside this fixture once production ignores ambient TMPDIR. Cleanup only
+  // the exact directories created by this test's mktemp process.
+  t.after(async()=>{
+    if(!workspaceLog)return;
+    const observed=await readFile(workspaceLog,'utf8').catch(()=>'');
+    for(const directory of observed.trim().split('\n').filter(Boolean)) {
+      if(!/^\.gateway-state\.[A-Za-z0-9]+$/.test(path.basename(directory)))continue;
+      const info=await lstat(directory).catch(()=>null);
+      if(info?.isDirectory()&&!info.isSymbolicLink()) {spawnSync('chmod',['-R','u+w',directory]);await rm(directory,{recursive:true});}
+    }
+  });
   const h=await fixture(t), a=await h.bundle('a');
+  workspaceLog=h.config+'.workspaces';
+  await writeFile(path.join(h.bin,'mktemp'),`#!${process.execPath}\nconst fs=require('node:fs'),cp=require('node:child_process'),path=require('node:path');const p=cp.spawnSync(${JSON.stringify(realMktemp)},process.argv.slice(2),{encoding:'utf8'});if(p.status===0&&/^\\.gateway-state\\.[A-Za-z0-9]+$/.test(path.basename(p.stdout.trim())))fs.appendFileSync(${JSON.stringify(workspaceLog)},p.stdout);process.stdout.write(p.stdout);process.stderr.write(p.stderr);process.exit(p.status??1);\n`,{mode:0o755});
   const data=path.join(h.root,'data'), scratch=path.join(h.temp,'scratch'); await mkdir(scratch,{mode:0o700});
   await mkdir(path.join(h.root,'releases')); await cp(a.dir,path.join(h.root,'releases',a.id),{recursive:true});
   await symlink(`releases/${a.id}`,path.join(h.root,'current'));
@@ -105,8 +121,9 @@ async function setup(t) {
     await writeFile(path.join(backup,'backup.env'),outer);await writeFile(path.join(backup,'checksums.sha256'),`${sha(outer)}  backup.env\n${sha(content)}  state.cms\n`);
     return backup;
   }
-  const clean=async()=>assert.deepEqual(await readdir(scratch),[],'all disposable plaintext removed');
-  return {...h,a,data,cert,key,env,run,args,artifact,clean,backup:path.join(h.temp,'backup')};
+  const workspaces=async()=>readFile(workspaceLog,'utf8').then(s=>s.trim().split('\n').filter(Boolean),()=>[]);
+  const clean=async()=>{for(const directory of await workspaces())assert.equal(await exists(directory),false,'all disposable plaintext removed');assert.deepEqual(await readdir(scratch),[]);};
+  return {...h,a,data,cert,key,env,run,args,artifact,clean,workspaces,backup:path.join(h.temp,'backup')};
 }
 
 test('common library sourcing does not change shell options, traps, positional args or caller globals',()=>{
@@ -256,11 +273,73 @@ for(const command of ['verify','drill'])test(`${command} TERM interruption remov
   const closed=new Promise(resolve=>child.once('close',(status,signal)=>resolve({status,signal})));t.after(()=>child.kill());
   let extracted=false;
   for(let attempt=0;attempt<1000&&!extracted;attempt++) {
-    for(const directory of await readdir(h.env.TMPDIR))if(await exists(path.join(h.env.TMPDIR,directory,'first/manifest.state')))extracted=true;
+    for(const directory of await h.workspaces())if(await exists(path.join(directory,'first/manifest.state')))extracted=true;
     if(!extracted)await new Promise(resolve=>setTimeout(resolve,10));
   }
   assert.equal(extracted,true,'interruption happens after plaintext extraction starts');child.kill('SIGTERM');
   assert.equal((await closed).status,143,stderr);await h.clean();assert.deepEqual(await h.events(),[]);assert.deepEqual(await snapshot(h.data),before);
+});
+for(const [kind,length,accepted] of [['directory',99,true],['file',100,true],['directory',100,false],['file',101,false]])test(`USTAR ${kind} path boundary ${length} bytes is ${accepted?'round-trippable':'rejected before quiesce'}`,async(t)=>{
+  const h=await setup(t),name=`gateway/${'x'.repeat(length-8)}`,file=path.join(h.data,name);
+  if(kind==='directory')await mkdir(file,{mode:0o750});else await writeFile(file,'boundary fixture\n',{mode:0o600});
+  const before=await snapshot(h.data),result=h.run('backup',h.backup);
+  if(accepted) {ok(result);ok(h.run('verify',h.backup));ok(h.run('drill',h.backup));}
+  else {bad(result);assert.equal(await exists(h.backup),false);assert.equal((await h.events()).some(e=>e.name==='docker'&&e.args.includes('stop')),false);}
+  assert.deepEqual(await snapshot(h.data),before);await h.clean();
+});
+test('the parser rejects a 100-byte directory even without a tar prefix',async(t)=>{
+  const h=await setup(t),name=`gateway/${'x'.repeat(92)}`;await mkdir(path.join(h.data,name),{mode:0o750});
+  bad(h.run('verify',await h.artifact(await entries(h.data))));await h.clean();
+});
+for(const location of ['gateway','mesh','identity','factory-trust','root','runtime','backup','safe'])test(`hostile TMPDIR at ${location} never places verify/drill plaintext in live data or input`,async(t)=>{
+  const h=await setup(t),backup=await h.artifact(await entries(h.data));
+  const target=roots.includes(location)?path.join(h.data,location):location==='root'?h.root:location==='backup'?backup:location==='runtime'?path.join(h.root,'runtime'):h.env.TMPDIR;
+  await mkdir(target,{recursive:true});const before=await snapshot(h.data),input=await readdir(backup),site=await readFile(path.join(h.root,'.env.appliance'));
+  h.env.TMPDIR=target;ok(h.run('verify',backup));ok(h.run('drill',backup));
+  for(const workspace of await h.workspaces()) {
+    assert.equal(workspace===h.root||workspace.startsWith(h.root+'/'),false,'no workspace beneath appliance root');
+    assert.equal(workspace===backup||workspace.startsWith(backup+'/'),false,'no workspace beneath input artifact');
+  }
+  assert.deepEqual(await snapshot(h.data),before);assert.deepEqual(await readdir(backup),input);assert.deepEqual(await readFile(path.join(h.root,'.env.appliance')),site);assert.deepEqual(await h.events(),[]);await h.clean();
+});
+test('hostile TMPDIR cannot move the restore workspace with gateway data',async(t)=>{
+  const h=await setup(t),backup=await h.artifact(await entries(h.data)),expected=await snapshot(h.data);
+  await writeFile(path.join(h.data,'gateway/command-journal.json'),'live-newer\n');h.env.TMPDIR=path.join(h.data,'gateway');
+  ok(h.run('restore',backup));assert.deepEqual(await snapshot(h.data),expected);assert.equal(await exists(path.join(h.root,'.state.journal')),false);await h.clean();
+});
+for(const field of ['WORKSPACE','STAGE'])test(`nested journal ${field} cannot recursively delete an unrelated victim`,async(t)=>{
+  const h=await setup(t),backup=await h.artifact(await entries(h.data));ok(h.run('verify',backup));
+  const workspace=(await h.workspaces()).at(-1),tempBase=path.dirname(workspace);
+  const parent=await mkdtemp(path.join(field==='WORKSPACE'?tempBase:h.data,field==='WORKSPACE'?'.gateway-state.':'.state-restore.'));
+  t.after(async()=>{await rm(parent,{recursive:true,force:true});});
+  const victim=path.join(parent,'nested',field==='WORKSPACE'?'.gateway-state.VICTIM':'.state-restore.VICTIM');
+  await mkdir(victim,{recursive:true,mode:0o700});await writeFile(path.join(victim,'sentinel'),'keep');
+  if(field==='STAGE')for(const name of ['old','new','discard'])await mkdir(path.join(victim,name),{mode:0o700});
+  const envSha=sha(await readFile(path.join(h.root,'.env.appliance')));
+  const journal=`COMPOSE_PROJECT=gateway\nDATA_DIR=${h.data}\nENV_SHA256=${envSha}\nOPERATION=${field==='STAGE'?'restore':'backup'}\nPHASE=committed\nRELEASE_ID=${h.a.id}\nSCHEMA=gateway-state-operation/v1\nSTAGE=${field==='STAGE'?victim:'none'}\nWORKSPACE=${field==='WORKSPACE'?victim:workspace}\n`;
+  await writeFile(path.join(h.root,'.state.journal'),journal,{mode:0o600});const events=(await h.events()).length;
+  const result=h.run('backup',h.backup);
+  assert.equal(await readFile(path.join(victim,'sentinel'),'utf8').catch(()=>'<deleted>'),'keep','unrelated victim survives recovery');
+  bad(result,3);assert.equal(await readFile(path.join(h.root,'.state.journal'),'utf8'),journal);assert.equal((await h.events()).length,events);
+  await rm(parent,{recursive:true});await h.clean();
+});
+for(const boundary of ['new_gateway','rollback_gateway','rolled_back','committed_partial_cleanup'])test(`state recovery survives ${boundary} interruption at the persistence boundary`,async(t)=>{
+  const h=await setup(t),backup=await h.artifact(await entries(h.data)),restored=await snapshot(h.data);
+  await writeFile(path.join(h.data,'gateway/command-journal.json'),'live-newer\n');const before=await snapshot(h.data);
+  if(boundary==='committed_partial_cleanup')await h.set({stateCrash:'committed'});
+  else if(boundary==='rolled_back')await h.set({failSwap:'identity',stateCrash:'rolled_back'});
+  else await h.set({stateCrashRename:boundary,...(boundary==='rollback_gateway'?{failSwap:'identity'}:{})});
+  const killed=h.run('restore',backup);assert.equal(killed.signal,'SIGKILL',killed.stderr);
+  const journal=await readFile(path.join(h.root,'.state.journal'),'utf8');
+  if(boundary==='new_gateway')assert.match(journal,/^PHASE=old_gateway$/m,'rename succeeded before next phase write');
+  if(boundary==='committed_partial_cleanup') {
+    const stage=journal.match(/^STAGE=(.+)$/m)[1];assert.equal(path.dirname(stage),h.data);
+    // Reproduce a durable committed journal with cleanup only partly applied.
+    await rm(path.join(stage,'old/gateway'),{recursive:true});
+  }
+  await mkdir(h.backup);bad(h.run('backup',h.backup));
+  assert.deepEqual(await snapshot(h.data),boundary==='committed_partial_cleanup'?restored:before);
+  assert.equal(await exists(path.join(h.root,'.state.journal')),false);await h.clean();
 });
 for(const variant of ['absent','quoted-custom'])test(`shared data resolver uses ${variant} dotenv and ignores ambient overrides`,async(t)=>{
   const h=await setup(t);let site=await readFile(path.join(h.root,'.env.appliance'),'utf8'),actual=h.data;

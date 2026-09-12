@@ -78,7 +78,13 @@ if(name==='mv') {
   if(c.failSwap && paths[0].endsWith('/new/'+c.failSwap) && !fs.existsSync(process.env.RELEASE_SHIM_CONFIG+'.swap-failed')) {
     fs.writeFileSync(process.env.RELEASE_SHIM_CONFIG+'.swap-failed','1'); process.exit(1);
   }
-  fs.renameSync(paths[0],paths[1]); process.exit(0);
+  fs.renameSync(paths[0],paths[1]);
+  if(c.stateCrashRename && !fs.existsSync(process.env.RELEASE_SHIM_CONFIG+'.rename-crashed')) {
+    const root=path.basename(paths[1]);
+    const boundary=paths[0].endsWith('/new/'+root)?'new_'+root:paths[0].endsWith('/old/'+root)?'rollback_'+root:null;
+    if(boundary===c.stateCrashRename) {fs.writeFileSync(process.env.RELEASE_SHIM_CONFIG+'.rename-crashed','1');process.kill(process.ppid,'SIGKILL');}
+  }
+  process.exit(0);
 }
 if(name==='node') process.exit(99);
 if(name==='ssh') { if(args.some(x=>x.includes('mktemp'))) console.log('/tmp/led-control-gateway-upload.ABC123'); process.exit(0); }

@@ -9,6 +9,7 @@ ROOT=/opt/led-control/gateway
 TEST_ROOT=0 POLICY_SHA='' RECIPIENT='' KEY='' BACKUP='' SCRATCH='' OUTPUT_STAGE=''
 DATA_DIR='' RESTORE_STAGE='' STATE_ACTIVE=0 RECOVERING=0 JOURNAL_ACTIVE=0
 JOURNAL_SCRATCH=''
+IMAGE_REPOSITORY='' IMAGE_TAG=''
 COMPOSE_PROJECT=gateway EXPECTED_PROJECT='' OLD_CURRENT=none
 METADATA_SECONDS=15 COMPOSE_SECONDS=120 KILL_SECONDS=5
 COMMAND=${1:-}; [ "$#" -gt 0 ] && shift
@@ -45,14 +46,66 @@ relative_name() {
 }
 state_name() {
   relative_name "$1" || return 1
+  # USTAR adds '/' to directory names. No prefix field is supported by this
+  # profile, so producer and parser reserve that byte for every directory.
+  [ "${2:-}" != d ] || [ "${#1}" -le 99 ] || return 1
   case "$1" in gateway|gateway/*|mesh|mesh/*|identity|identity/*|factory-trust|factory-trust/*) ;; *) return 1 ;; esac
+}
+state_paths() {
+  local base=$1 root entry relative kind
+  for root in factory-trust gateway identity mesh; do
+    safe_directory "$base/$root" || return 1
+    while IFS= read -r -d '' entry; do
+      relative=${entry#"$base/"}; kind=f
+      if [ -d "$entry" ] && [ ! -L "$entry" ]; then kind=d; fi
+      state_name "$relative" "$kind" || return 1
+    done < <(find "$base/$root" -print0)
+  done
+}
+owned_directory_path() {
+  local directory=$1 parent=$2 prefix=$3 name nonce
+  # Prefix matching alone accepts parent/nested/.prefix.NONCE. Only a direct
+  # physical child of the caller's validated parent is one of our mktemp paths.
+  [ "${directory%/*}" = "$parent" ] && safe_path "$directory" && [ -d "$parent" ] || return 1
+  [ "$(cd "$parent" && pwd -P)" = "$parent" ] || return 1
+  name=${directory##*/}; [[ "$name" = "$prefix"* ]] || return 1
+  nonce=${name#"$prefix"}; [[ "$nonce" =~ ^[A-Za-z0-9]{6}$ ]]
+}
+trusted_temp_base() {
+  local physical mode ids
+  # TMPDIR is deliberately not consulted: verify/drill cannot resolve arbitrary
+  # live roots yet must never create plaintext inside one selected by the caller.
+  physical=$(cd /tmp && pwd -P) || return 1
+  [ "$TEMP_BASE" = "$physical" ] && safe_path "$physical" && [ -d "$physical" ] || return 1
+  ids=$(owner_ids "$physical") && [ "${ids%%|*}" = 0 ] || return 1
+  # BSD %Lp omits sticky/set-id bits; use the full mode for this host check.
+  mode=$(stat -c '%a' -- "$physical" 2>/dev/null || stat -f '%p' "$physical") || return 1
+  (( (8#$mode & 07777) == 01777 ))
+}
+temp_isolated() {
+  local boundary
+  trusted_temp_base || return 1
+  # A site/artifact may be below the system temp base (test fixtures often are),
+  # but may not contain the base itself. mktemp's fresh direct child is then a
+  # sibling of those existing paths, never inside them.
+  for boundary in "$ROOT" "${DATA_DIR:-/opt/led-control/data}" "$BACKUP"; do
+    case "$TEMP_BASE/" in "$boundary/"*) return 1 ;; esac
+  done
 }
 remove_owned_directory() {
   # Only our validated mktemp directories are eligible. rm never follows links;
   # never turn a journal-controlled arbitrary path into a recursive deletion.
   local directory=$1 prefix=$2
-  [[ "$directory" = "$prefix"* ]] && safe_directory "$directory" && [ "$(file_mode "$directory")" = 700 ] || return 1
-  find "$directory" -type d -exec chmod u+rwx {} + && rm -rf -- "$directory"
+  case "${prefix##*/}" in
+    .gateway-state.) [ "${prefix%/*}" = "$TEMP_BASE" ] && temp_isolated || return 1 ;;
+    .state-restore.) [ "${prefix%/*}" = "$DATA_DIR" ] && safe_directory "$DATA_DIR" || return 1 ;;
+    .state-output.) [ "${prefix%/*}" = "${BACKUP%/*}" ] && safe_directory "${BACKUP%/*}" || return 1 ;;
+    *) return 1 ;;
+  esac
+  owned_directory_path "$directory" "${prefix%/*}" "${prefix##*/}" && safe_directory "$directory" && [ "$(file_mode "$directory")" = 700 ] || return 1
+  find "$directory" -type d -exec chmod u+rwx {} + || return 1
+  owned_directory_path "$directory" "${prefix%/*}" "${prefix##*/}" && safe_directory "$directory" && [ "$(file_mode "$directory")" = 700 ] || return 1
+  rm -rf -- "$directory"
 }
 state_identity() {
   local base=$1 entry relative kind target generation file
@@ -77,6 +130,7 @@ state_identity() {
 }
 render_manifest() {
   local base=$1 output=$2 list=$3 entry relative mode type size digest target ids previous=''
+  state_paths "$base" || return 1
   : > "$list" || return 1
   for relative in factory-trust gateway identity mesh; do
     safe_directory "$base/$relative" || return 1
@@ -207,7 +261,8 @@ extract_stream() {
       [ "$name" = manifest.state ] && [ "$kind" = 30 ] && [ "$mode" = 384 ] && ((size>0 && size<=16777216)) || return 1
       first=0
     else
-      state_name "$name" && [[ "$previous" < "$name" ]] || return 1; previous=$name
+      if [ "$kind" = 35 ]; then state_name "$name" d || return 1; else state_name "$name" || return 1; fi
+      [[ "$previous" < "$name" ]] || return 1; previous=$name
     fi
     entry=$destination/$name
     safe_path "${entry%/*}" && [ -d "${entry%/*}" ] && [ ! -e "$entry" ] && [ ! -L "$entry" ] || return 1
@@ -252,7 +307,7 @@ validate_artifact() {
 state_runtime() {
   local images loaded
   pointer_id current && [ "$POINTER" != none ] || return 1; OLD_CURRENT=$POINTER
-  verify_bundle "$ROOT/releases/$OLD_CURRENT" && resolve_site "$ROOT/.env.appliance" && ownership_preflight || return 1
+  verify_bundle "$ROOT/releases/$OLD_CURRENT" && resolve_site "$ROOT/.env.appliance" && temp_isolated && ownership_preflight || return 1
   sed "s|seccomp=./docker/seccomp-bluez-mesh.json|seccomp=$ROOT/releases/$OLD_CURRENT/docker/seccomp-bluez-mesh.json|g" "$ROOT/releases/$OLD_CURRENT/compose.yml" > "$SCRATCH/compose.yml" || return 1
   COMPOSE_FILE=$SCRATCH/compose.yml
   docker_cmd "$METADATA_SECONDS" version >/dev/null 2>&1 && docker_cmd "$METADATA_SECONDS" compose version >/dev/null 2>&1 && compose config --quiet || return 1
@@ -281,12 +336,12 @@ read_state_journal() {
   [ "$count" = 9 ] && [ "$journal_schema" = gateway-state-operation/v1 ] && valid_release_id "$journal_release" || return 1
   [[ "$ENV_SHA" =~ ^[a-f0-9]{64}$ ]] && regular "$ROOT/.env.appliance" && [ "$(hash_file "$ROOT/.env.appliance")" = "$ENV_SHA" ] || return 1
   case "$EXPECTED_PROJECT" in gateway|led-control-gateway) ;; *) return 1 ;; esac
-  [[ "$JOURNAL_SCRATCH" = "$TEMP_BASE/.gateway-state."* && "${JOURNAL_SCRATCH##*/}" =~ ^\.gateway-state\.[A-Za-z0-9]+$ ]] && safe_path "$JOURNAL_SCRATCH" || return 1
+  temp_isolated && owned_directory_path "$JOURNAL_SCRATCH" "$TEMP_BASE" .gateway-state. || return 1
   if [ -e "$JOURNAL_SCRATCH" ]; then safe_directory "$JOURNAL_SCRATCH" && [ "$(file_mode "$JOURNAL_SCRATCH")" = 700 ] || return 1; fi
-  pointer_id current && [ "$POINTER" = "$journal_release" ] && verify_bundle "$ROOT/releases/$POINTER" && resolve_site "$ROOT/.env.appliance" && [ "$DATA_DIR" = "$journal_data" ] || return 1
+  pointer_id current && [ "$POINTER" = "$journal_release" ] && verify_bundle "$ROOT/releases/$POINTER" && resolve_site "$ROOT/.env.appliance" && [ "$DATA_DIR" = "$journal_data" ] && temp_isolated || return 1
   case "$OPERATION:$PHASE" in backup:prepared|backup:committed) [ "$RESTORE_STAGE" = none ] || return 1 ;;
     restore:prepared|restore:stopped|restore:old_gateway|restore:new_gateway|restore:old_mesh|restore:new_mesh|restore:old_identity|restore:new_identity|restore:old_factory-trust|restore:new_factory-trust|restore:rolled_back|restore:committed)
-      [[ "$RESTORE_STAGE" = "$DATA_DIR/.state-restore."* && "${RESTORE_STAGE##*/}" =~ ^\.state-restore\.[A-Za-z0-9]+$ ]] && safe_directory "$RESTORE_STAGE" && [ "$(file_mode "$RESTORE_STAGE")" = 700 ] || return 1
+      owned_directory_path "$RESTORE_STAGE" "$DATA_DIR" .state-restore. && safe_directory "$RESTORE_STAGE" && [ "$(file_mode "$RESTORE_STAGE")" = 700 ] || return 1
       safe_directory "$RESTORE_STAGE/new" && safe_directory "$RESTORE_STAGE/old" && safe_directory "$RESTORE_STAGE/discard" || return 1 ;;
     *) return 1 ;;
   esac
@@ -331,6 +386,7 @@ recover_state() {
   # deletion of rollback copies, so a power loss during cleanup is recoverable.
   if [ "$OPERATION" = restore ]; then
     for root in old new discard; do
+      owned_directory_path "$RESTORE_STAGE" "$DATA_DIR" .state-restore. && safe_directory "$RESTORE_STAGE" && [ "$(file_mode "$RESTORE_STAGE")" = 700 ] && safe_directory "$RESTORE_STAGE/$root" || return 1
       find "$RESTORE_STAGE/$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + || return 1
     done
     durable "$RESTORE_STAGE" || return 1
@@ -357,19 +413,24 @@ state_finish() {
 trap 'state_finish $?' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-TEMP_BASE=${TMPDIR:-/tmp}; TEMP_BASE=${TEMP_BASE%/}
-# /tmp itself may be a trusted system symlink (macOS); resolve it, but require
-# the newly-created private directory and all state/output paths to be physical.
-TEMP_BASE=$(cd "$TEMP_BASE" && pwd -P) || error 'temporary parent unavailable'
+TEMP_BASE=$(cd /tmp && pwd -P) || error 'system temporary parent unavailable'
+safe_path "$BACKUP" || error 'unsafe backup path'
+case "$COMMAND" in
+  backup|restore)
+    safe_directory "$ROOT" || error 'unsafe appliance root'
+    if [ "$TEST_ROOT" = 1 ]; then
+      regular "$ROOT/.gateway-release-disposable-root" && [ "$(cat "$ROOT/.gateway-release-disposable-root")" = gateway-release-test/v1 ] || error 'disposable root sentinel required'
+    fi
+    resolve_site "$ROOT/.env.appliance" || error 'site data path rejected before staging' ;;
+esac
+temp_isolated || error 'system temporary parent is unsafe or overlaps the site/artifact'
 SCRATCH=$(mktemp -d "$TEMP_BASE/.gateway-state.XXXXXX") || error 'temporary staging unavailable'
 RECIPIENT_SHA=$(certificate_fingerprint) || error 'recipient certificate rejected'
 if [ "$COMMAND" = verify ] || [ "$COMMAND" = drill ]; then
   validate_artifact || error 'encrypted state verification rejected'
   echo "state $COMMAND verified"; exit 0
 fi
-safe_directory "$ROOT" || error 'unsafe appliance root'
 if [ "$TEST_ROOT" = 1 ]; then
-  regular "$ROOT/.gateway-release-disposable-root" && [ "$(cat "$ROOT/.gateway-release-disposable-root")" = gateway-release-test/v1 ] || error 'disposable root sentinel required'
   METADATA_SECONDS=1; COMPOSE_SECONDS=1; KILL_SECONDS=1
 fi
 for executable in flock sync docker sha256sum timeout tar openssl dd; do command -v "$executable" >/dev/null || error 'host dependency missing'; done
@@ -394,6 +455,7 @@ ENV_SHA=$(hash_file "$ROOT/.env.appliance"); OPERATION=$COMMAND
 if [ "$COMMAND" = backup ]; then
   case "$BACKUP/" in "$DATA_DIR/"*|"$ROOT/"*) error 'backup output cannot be inside the appliance' ;; esac
   SOURCE_RELEASE=$OLD_CURRENT; CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  state_paths "$DATA_DIR" || error 'state archive paths rejected before quiesce'
   STATE_ACTIVE=1; write_state_journal prepared
   compose stop gateway-appliance || error 'gateway quiesce failed'
   render_manifest "$DATA_DIR" "$SCRATCH/manifest.state" "$SCRATCH/list" || error 'state snapshot rejected'
