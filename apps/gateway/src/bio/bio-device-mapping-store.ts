@@ -47,7 +47,6 @@ export class BioDeviceMappingStore {
       const state = await this.read();
       const existing = state.mappings.find((row) => sharesKey(row, mapping));
       if (existing) {
-        if (sameIdentity(existing, mapping)) return { ...existing };
         if (sharesIdentityKey(existing, mapping)) throw new Error("BIO mapping identity conflict");
         throw new Error("BIO mapping address conflict");
       }
@@ -188,14 +187,6 @@ function sharesKey(a: BioDeviceMappingInput, b: BioDeviceMappingInput) {
 
 function sharesIdentityKey(a: BioDeviceMappingInput, b: BioDeviceMappingInput) {
   return a.fixtureId === b.fixtureId || a.nodeId === b.nodeId || a.deviceUuid === b.deviceUuid || a.nativeUuid === b.nativeUuid;
-}
-
-function sameIdentity(a: BioDeviceMapping, b: BioDeviceMappingInput) {
-  return a.fixtureId === b.fixtureId &&
-    a.nodeId === b.nodeId &&
-    a.deviceUuid === b.deviceUuid &&
-    a.nativeUuid === b.nativeUuid &&
-    a.logicalAddress === b.logicalAddress;
 }
 
 function validateText(value: unknown): asserts value is string {

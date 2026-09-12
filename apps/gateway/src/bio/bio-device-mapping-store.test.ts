@@ -57,6 +57,30 @@ describe("BioDeviceMappingStore", () => {
     await expect(
       store.reserve({ ...firstMapping, fixtureId: "fixture-2", nodeId: "node-2", deviceUuid: "bio:001122334455", nativeUuid: "001122334455" })
     ).rejects.toThrow(/address conflict/i);
+    await expect(
+      store.reserve({ ...firstMapping, fixtureId: "fixture-2", deviceUuid: "bio:001122334455", nativeUuid: "001122334455", logicalAddress: 0x0102 })
+    ).rejects.toThrow(/identity conflict/i);
+  });
+
+  it("rejects an exact repeated reservation instead of treating it as idempotent", async () => {
+    const store = new BioDeviceMappingStore(await mappingPath());
+    await store.reserve(firstMapping);
+
+    await expect(store.reserve(firstMapping)).rejects.toThrow(/identity conflict/i);
+  });
+
+  it("rejects re-reservation with changed firmware metadata", async () => {
+    const store = new BioDeviceMappingStore(await mappingPath());
+    await store.reserve(firstMapping);
+
+    await expect(store.reserve({ ...firstMapping, firmware: "1.2.4" })).rejects.toThrow(/identity conflict/i);
+  });
+
+  it("rejects re-reservation with changed protocol metadata", async () => {
+    const store = new BioDeviceMappingStore(await mappingPath());
+    await store.reserve(firstMapping);
+
+    await expect(store.reserve({ ...firstMapping, protocol: "55aa-v1" })).rejects.toThrow(/identity conflict/i);
   });
 
   it("keeps reserved mappings out of lookup and confirmed control candidates", async () => {
