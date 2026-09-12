@@ -40,7 +40,11 @@ function renderShell(path = "/operator/site-admins") {
 
 describe("operator shell route boundary", () => {
   beforeEach(() => {
-    vi.mocked(apiGet).mockReset().mockResolvedValue([]);
+    vi.mocked(apiGet).mockReset().mockImplementation((path: string) => {
+      if (path === "/auth/mfa") return Promise.resolve({ enabled: false, enabledAt: null });
+      if (path === "/auth/sessions") return Promise.resolve({ sessions: [] });
+      return Promise.resolve([]);
+    });
     vi.mocked(apiPost).mockReset().mockResolvedValue({ ok: true });
   });
   afterEach(cleanup);
@@ -61,6 +65,18 @@ describe("operator shell route boundary", () => {
 
     expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
     expect(screen.getByLabelText("현재 경로")).toHaveTextContent(/^\/operator\/site-admins$/);
+  });
+
+  it("keeps site admin management and exposes the reusable account security route", async () => {
+    renderShell("/operator/security?source=account#sessions");
+
+    expect(screen.getByRole("navigation", { name: "운영자 메뉴" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "현장 관리자" })).toHaveAttribute("href", "/operator/site-admins?source=account#sessions");
+    expect(screen.getByRole("link", { name: "계정 보안" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeVisible();
+    expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith("/auth/mfa");
+    expect(apiGet).toHaveBeenCalledWith("/auth/sessions");
   });
 
   it("clears authentication and tenant cache after logout", async () => {

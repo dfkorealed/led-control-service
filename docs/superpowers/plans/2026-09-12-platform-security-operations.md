@@ -8,7 +8,8 @@
 - [x] Task 2. Redis 기반 로그인 IP·계정·고객사/IP 제한과 감사 기록을 구현한다.
 - [x] Task 3. MFA 등록·확인·로그인·복구 코드·해제 API와 세션 회전을 구현한다.
 - [x] Task 4. 세션 목록·개별 종료·다른 세션 전체 종료 API와 권한 변경 시 세션 폐기를 구현한다.
-- [ ] Task 5. 로그인 MFA 단계와 admin/operator 계정 보안 UI를 실제 API에 연결한다.
+- [x] Task 4-A. 로그인 제한 통합 테스트를 시나리오별 Redis namespace와 소유 범위 cleanup으로 격리하고, 명시적 hop/IP/CIDR만 허용하는 reverse proxy 신뢰 설정을 검증한다.
+- [x] Task 5. 로그인 MFA 단계와 admin/operator 계정 보안 UI를 실제 API에 연결한다. 계정별 MFA·세션 cache 격리와 지연 mutation principal guard를 포함하며 Web unit 705개, typecheck, production build와 focused Chromium E2E를 통과했다.
 - [ ] Task 6. 일회용 PostgreSQL·Redis 통합, 웹 접근성·회귀, 전체 품질 게이트를 실행하고 문서를 최신화한다.
 
 ## 완료 조건

@@ -29,7 +29,7 @@ const SiteUsersView = lazy(() => import("../settings/users/SiteUsersView").then(
 const RegistrationSettingsView = lazy(() => import("../settings/registration/RegistrationSettingsView").then((module) => ({ default: module.RegistrationSettingsView })));
 const FloorPlanSettingsView = lazy(() => import("../settings/floor-plans/FloorPlanSettingsView").then((module) => ({ default: module.FloorPlanSettingsView })));
 const FloorEditorRoute = lazy(() => import("../settings/floor-plans/FloorEditorRoute").then((module) => ({ default: module.FloorEditorRoute })));
-const PasswordSettingsView = lazy(() => import("../settings/security/PasswordSettingsView").then((module) => ({ default: module.PasswordSettingsView })));
+const AccountSecurityView = lazy(() => import("../settings/security/AccountSecurityView").then((module) => ({ default: module.AccountSecurityView })));
 
 const items = [
   { path: "/monitoring", destination: "/monitoring", label: "모니터링", icon: Activity },
@@ -248,7 +248,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
               />
               <Route
                 path="security"
-                element={<PasswordSettingsView />}
+                element={<AccountSecurityView user={user} />}
               />
               <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
             </Route>

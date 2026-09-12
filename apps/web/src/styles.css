@@ -419,9 +419,16 @@ button {
 }
 
 .operator-content {
+  display: grid;
+  align-content: start;
+  gap: 20px;
   width: min(100%, 1120px);
   margin: 0 auto;
   padding: 40px 24px;
+}
+
+.operator-navigation {
+  background: var(--surface);
 }
 
 .operator-page {
@@ -2053,6 +2060,160 @@ button {
 
 .password-settings-card .ui-button {
   justify-self: start;
+}
+
+.account-security-stack {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 820px);
+}
+
+.account-security-stack .password-settings-form {
+  width: 100%;
+}
+
+.security-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.security-card-heading,
+.security-status-row,
+.security-session-item,
+.security-session-title,
+.security-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.security-card-heading,
+.security-status-row,
+.security-session-item {
+  justify-content: space-between;
+}
+
+.security-card-heading > div,
+.security-status-row > div,
+.security-session-item > div {
+  min-width: 0;
+}
+
+.security-card-heading h2,
+.security-card-heading p,
+.security-status-row p,
+.security-session-item p,
+.security-enrollment p,
+.security-recovery p {
+  margin: 0;
+}
+
+.security-card-heading h2 {
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.security-card-heading p,
+.security-status-row p,
+.security-session-item p,
+.security-enrollment p,
+.security-recovery p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.security-card-heading > svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.security-enrollment,
+.security-disable-form,
+.security-recovery {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.security-enrollment label,
+.security-disable-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.security-enrollment input,
+.security-disable-form input {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0 12px;
+}
+
+.security-secret {
+  overflow-wrap: anywhere;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  padding: 12px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.security-recovery ul,
+.security-session-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.security-recovery ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.security-recovery li {
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 8px 10px;
+}
+
+.security-session-list {
+  display: grid;
+}
+
+.security-session-item {
+  border-top: 1px solid var(--border);
+  padding: 14px 0;
+}
+
+.security-session-title {
+  flex-wrap: wrap;
+}
+
+.security-session-title strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.security-session-item > .ui-button {
+  flex: 0 0 auto;
+}
+
+.security-card > .ui-feedback-state {
+  margin: 0;
 }
 
 .settings-screen .ui-feedback-state {
@@ -5437,6 +5598,30 @@ button.group-card {
     justify-content: center;
     justify-self: stretch;
     width: 100%;
+  }
+
+  .security-card-heading,
+  .security-status-row,
+  .security-session-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .security-status-row > .ui-button,
+  .security-session-item > .ui-button,
+  .security-actions > .ui-button,
+  .security-recovery > .ui-button {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .security-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .security-recovery ul {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .monitoring-screen .secondary-button,

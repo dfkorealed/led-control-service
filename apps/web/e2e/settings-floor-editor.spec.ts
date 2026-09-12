@@ -369,7 +369,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
       await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
 
       const menu = page.getByRole("navigation", { name: "설정 메뉴" });
-      const securityLink = menu.getByRole("link", { name: "비밀번호 변경" });
+      const securityLink = menu.getByRole("link", { name: "계정 보안" });
       await expect(securityLink).toHaveAttribute("href", "/settings/security?siteId=site-1#fragment");
 
       page.once("dialog", async (dialog) => {
@@ -436,7 +436,7 @@ test("desktop settings link opens capability-filtered top tabs and preserves sit
   await expect(navigation.getByRole("link", { name: "설정 개요" })).toHaveAttribute("aria-current", "page");
   await expect(navigation.getByRole("link", { name: "유저 관리" })).toBeVisible();
   await expect(navigation.getByRole("link", { name: "조명 등록" })).toBeVisible();
-  await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "계정 보안" })).toBeVisible();
   await navigation.getByRole("link", { name: "맵 관리" }).click();
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1#settings$/);
@@ -444,7 +444,7 @@ test("desktop settings link opens capability-filtered top tabs and preserves sit
   await expect(settings).toHaveAttribute("aria-current", "page");
   await expect(navigation.getByRole("link", { name: "설정 개요" })).not.toHaveAttribute("aria-current");
   await expect(navigation.getByRole("link", { name: "맵 관리" })).toHaveAttribute("aria-current", "page");
-  await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).not.toHaveAttribute("aria-current");
+  await expect(navigation.getByRole("link", { name: "계정 보안" })).not.toHaveAttribute("aria-current");
   await expectNoHorizontalOverflow(page);
 });
 
@@ -460,7 +460,7 @@ test("desktop viewer settings tabs follow natural keyboard order and hide manage
   const navigation = page.getByRole("navigation", { name: "설정 메뉴" });
   const overview = navigation.getByRole("link", { name: "설정 개요" });
   const floorPlans = navigation.getByRole("link", { name: "맵 관리" });
-  const security = navigation.getByRole("link", { name: "비밀번호 변경" });
+  const security = navigation.getByRole("link", { name: "계정 보안" });
   await expect(floorPlans).toBeVisible();
   await expect(security).toBeVisible();
   await expect(navigation.getByRole("link", { name: "유저 관리" })).toHaveCount(0);
@@ -495,7 +495,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
       await page.goto("/settings/security?siteId=site-1");
       const activeSecurityTab = page
         .getByRole("navigation", { name: "설정 메뉴" })
-        .getByRole("link", { name: "비밀번호 변경" });
+        .getByRole("link", { name: "계정 보안" });
       await expect(activeSecurityTab).toHaveAttribute("aria-current", "page");
       await expect(activeSecurityTab).toBeInViewport();
 
@@ -607,5 +607,5 @@ test("viewer can enter personal password settings", async ({ page }) => {
 
   await expect(page).toHaveURL(/\/settings\/security\?siteId=site-1$/);
   await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "비밀번호 변경" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "계정 보안" })).toHaveAttribute("aria-current", "page");
 });

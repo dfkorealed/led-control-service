@@ -81,8 +81,8 @@ describe("customer shell site context", () => {
     expect(within(screen.getByRole("main")).getByRole("status")).toHaveAttribute("aria-live", "polite");
     expect(screen.getByRole("navigation", { name: "주 메뉴" })).toBeVisible();
     expect(screen.getByRole("button", { name: "로그아웃" })).toBeEnabled();
-    expect(await screen.findByRole("heading", { name: "비밀번호 변경" })).toBeVisible();
-    expect(within(screen.getByRole("main")).queryByRole("status")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeVisible();
+    expect(within(screen.getByRole("main")).queryByText("화면을 불러오는 중입니다.")).not.toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/security?siteId=site&source=account#password");
   });
 
@@ -165,7 +165,7 @@ describe("customer shell site context", () => {
     dashboardState.current = { data: dashboardFor({ read: true, control: false, manage: false, commission: false }), isLoading: false, error: null, refetch: vi.fn() };
     renderShell("/settings/security?siteId=site", { ...adminUser, id: "reader", loginId: "reader", role: "viewer" });
 
-    expect(await screen.findByRole("heading", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeInTheDocument();
 
     cleanup();
     renderShell("/settings/registration?siteId=site", { ...adminUser, id: "reader", loginId: "reader", role: "viewer" });

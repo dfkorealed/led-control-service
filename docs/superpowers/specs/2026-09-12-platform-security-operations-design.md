@@ -10,9 +10,11 @@ operator와 admin 계정에 TOTP 기반 2단계 인증을 제공하고, 모든 �
 
 - MFA가 꺼진 계정은 아이디·비밀번호 검증 후 바로 세션을 발급한다.
 - MFA가 켜진 operator/admin은 비밀번호 검증 후 짧은 수명의 일회성 MFA 챌린지만 발급한다. TOTP 또는 복구 코드를 추가 검증해야 세션이 생성된다.
+- MFA 로그인 및 등록 챌린지는 검증 시 한 번 소비된다. 코드가 틀리거나 만료된 경우 웹은 기존 챌린지를 재사용하지 않고 아이디·비밀번호 입력 또는 MFA 등록 시작 단계로 돌려보낸다.
 - 챌린지는 Redis에 암호화된 임시 데이터로 저장하고 계정, 접속 IP, User-Agent, 자동 로그인 선택과 결속한다.
 - 로그인 제한은 IP, 정규화된 로그인 아이디, 확인 가능한 고객사와 IP 조합을 각각 계산한다. Redis 오류 시 `503`으로 닫고, 제한 초과는 동일한 `429` 응답으로 처리한다.
 - 클라이언트 IP는 Express가 계산한 `request.ip`만 사용한다. 임의의 `X-Forwarded-For` 헤더를 직접 신뢰하지 않는다.
+- 기본 배포는 Express의 직접 접속 의미를 유지한다. Reverse proxy를 사용하는 배포만 `API_TRUST_PROXY`에 명시적 hop 수 또는 IP/CIDR 목록을 설정하며 `true`·`all`·hostname과 잘못된 CIDR은 API 시작 단계에서 거부한다.
 
 ## MFA
 
@@ -42,8 +44,14 @@ operator와 admin 계정에 TOTP 기반 2단계 인증을 제공하고, 모든 �
 - admin 설정의 보안 탭은 비밀번호 변경, MFA 상태/등록/해제, 활성 세션 목록을 실제 API로 표시한다.
 - operator 화면에는 기존 현장 관리자 관리와 분리된 계정 보안 경로를 추가한다.
 - 비동기 상태, 오류, 성공 안내는 `aria-live`와 명시적 label을 사용하고 키보드만으로 조작할 수 있어야 한다.
+- MFA·세션 React Query key는 `userId:organizationId` principal을 포함한다. 계정 전환 시 보안 화면의 평문 입력 상태를 폐기하고, 이전 principal에서 시작한 지연 mutation 응답은 새 principal의 인증 cache나 화면 상태를 변경하지 않는다.
 
 ## 제외
 
 - SMS·이메일 OTP, WebAuthn, 강제 MFA 정책, 운영 배포와 사용자 DB migration은 이번 범위에서 제외한다.
 - 검증은 일회용 PostgreSQL·Redis와 소프트웨어 브라우저 환경만 사용한다.
+
+## 통합 테스트 격리
+
+- 로그인 제한 통합 시나리오는 실행마다 고유 Redis key prefix를 사용한다. 각 시나리오 종료 시 자신이 소유한 prefix만 `SCAN`으로 찾아 삭제하며 공유 Redis 전체를 `FLUSHDB`하지 않는다.
+- 같은 일회용 PostgreSQL·Redis에서 보안 통합 스위트를 연속 실행해 이전 실행의 IP 버킷이 다음 실행의 제한 판정에 영향을 주지 않는지 검증한다.

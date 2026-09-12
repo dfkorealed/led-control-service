@@ -1,6 +1,6 @@
-import { FormEvent, useState } from "react";
-import { CircleAlert, LockKeyhole } from "lucide-react";
-import { login, type AuthUser } from "../../api/auth";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { ArrowLeft, CircleAlert, KeyRound, LockKeyhole } from "lucide-react";
+import { completeMfaLogin, login, type AuthUser, type MfaLoginChallenge } from "../../api/auth";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { FeedbackState } from "../../components/ui/FeedbackState";
@@ -15,19 +15,70 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const [challenge, setChallenge] = useState<MfaLoginChallenge | null>(null);
+  const [verificationMode, setVerificationMode] = useState<"totp" | "recovery">("totp");
+  const [verificationValue, setVerificationValue] = useState("");
+  const requestInFlight = useRef(false);
+  const verificationInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (challenge) verificationInputRef.current?.focus();
+  }, [challenge, verificationMode]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isPending) return;
+    if (requestInFlight.current) return;
     setErrorMessage("");
+    requestInFlight.current = true;
     setIsPending(true);
     try {
       const auth = await login({ loginId, password, rememberMe });
+      setPassword("");
+      if ("mfaRequired" in auth) {
+        setChallenge(auth);
+        setVerificationMode("totp");
+        setVerificationValue("");
+        return;
+      }
       await onAuthenticated(auth);
-    } catch {
-      setErrorMessage("아이디 또는 비밀번호를 확인해 주세요.");
+    } catch (error) {
+      setErrorMessage(loginErrorMessage(error));
+    } finally {
+      requestInFlight.current = false;
       setIsPending(false);
     }
+  }
+
+  async function submitMfa(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!challenge || requestInFlight.current || !verificationValue.trim()) return;
+    requestInFlight.current = true;
+    setIsPending(true);
+    setErrorMessage("");
+    try {
+      const auth = await completeMfaLogin({
+        challengeToken: challenge.challengeToken,
+        ...(verificationMode === "totp"
+          ? { code: verificationValue.trim() }
+          : { recoveryCode: verificationValue.trim() })
+      });
+      setVerificationValue("");
+      await onAuthenticated({ user: auth.user });
+    } catch (error) {
+      setVerificationValue("");
+      if (errorStatus(error) === 401) setChallenge(null);
+      setErrorMessage(mfaErrorMessage(error));
+    } finally {
+      requestInFlight.current = false;
+      setIsPending(false);
+    }
+  }
+
+  function returnToCredentials() {
+    if (requestInFlight.current) return;
+    setChallenge(null);
+    setVerificationValue("");
+    setErrorMessage("");
   }
 
   return (
@@ -38,12 +89,51 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
         <p>주차장 LED 조명의 상태, 제어, 에너지 사용량을 하나의 차분한 운영 화면에서 확인하세요.</p>
       </section>
       <Card className="auth-panel">
-        <div className="auth-heading">
-          <span className="eyebrow">계정 로그인</span>
-          <h2>LED Control 로그인</h2>
-        </div>
-
-        <form className="auth-form" onSubmit={submit}>
+        {challenge ? (
+          <>
+            <div className="auth-heading">
+              <span className="eyebrow">계정 보안</span>
+              <h2>2단계 인증</h2>
+              <p className="auth-helper">인증 앱의 6자리 코드 또는 저장한 복구 코드를 입력하세요.</p>
+            </div>
+            <form className="auth-form" onSubmit={submitMfa}>
+              <label>
+                {verificationMode === "totp" ? "인증 앱 코드" : "복구 코드"}
+                <input
+                  ref={verificationInputRef}
+                  type="text"
+                  inputMode={verificationMode === "totp" ? "numeric" : "text"}
+                  autoComplete="one-time-code"
+                  value={verificationValue}
+                  onChange={(event) => setVerificationValue(event.target.value)}
+                  maxLength={verificationMode === "totp" ? 6 : 128}
+                  required
+                />
+              </label>
+              <Button className="auth-submit" type="submit" variant="primary" isLoading={isPending} loadingLabel="인증 중">
+                <KeyRound size={18} aria-hidden="true" />
+                인증하고 로그인
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => {
+                setVerificationMode((mode) => mode === "totp" ? "recovery" : "totp");
+                setVerificationValue("");
+                setErrorMessage("");
+              }} disabled={isPending}>
+                {verificationMode === "totp" ? "복구 코드 사용" : "인증 앱 코드 사용"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={returnToCredentials} disabled={isPending}>
+                <ArrowLeft size={18} aria-hidden="true" />
+                아이디와 비밀번호 다시 입력
+              </Button>
+            </form>
+          </>
+        ) : (
+          <>
+            <div className="auth-heading">
+              <span className="eyebrow">계정 로그인</span>
+              <h2>LED Control 로그인</h2>
+            </div>
+            <form className="auth-form" onSubmit={submit}>
           <label>
             아이디
             <input
@@ -76,10 +166,41 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
             <LockKeyhole size={18} aria-hidden="true" />
             로그인
           </Button>
-        </form>
+            </form>
+          </>
+        )}
 
         {errorMessage ? <FeedbackState tone="danger" icon={CircleAlert} title={errorMessage} /> : null}
       </Card>
     </main>
   );
+}
+
+function loginErrorMessage(error: unknown) {
+  if (errorStatus(error) === 429) {
+    return "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (errorStatus(error) === 503) {
+    return "인증 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  return "아이디 또는 비밀번호를 확인해 주세요.";
+}
+
+function mfaErrorMessage(error: unknown) {
+  if (errorStatus(error) === 429) {
+    return "인증 시도가 너무 많습니다. 잠시 후 다시 로그인해 주세요.";
+  }
+  if (errorStatus(error) === 503) {
+    return "인증 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (errorStatus(error) === 401) {
+    return "인증 코드가 올바르지 않거나 만료되었습니다. 아이디와 비밀번호부터 다시 입력해 주세요.";
+  }
+  return "2단계 인증을 완료하지 못했습니다. 다시 시도해 주세요.";
+}
+
+function errorStatus(error: unknown) {
+  return error && typeof error === "object" && "status" in error && typeof error.status === "number"
+    ? error.status
+    : null;
 }

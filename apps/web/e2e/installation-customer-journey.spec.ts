@@ -225,7 +225,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(movedFixture).toHaveCSS("--fixture-left", `${movedX / 12}%`);
 
   await admin.getByRole("link", { name: "설정", exact: true }).click();
-  await settingsNavigation.getByRole("link", { name: "비밀번호 변경", exact: true }).click();
+  await settingsNavigation.getByRole("link", { name: "계정 보안", exact: true }).click();
   await admin.getByLabel("현재 비밀번호").fill(lab.admin.password);
   await admin.getByLabel("새 비밀번호", { exact: true }).fill(lab.admin.newPassword);
   await admin.getByLabel("새 비밀번호 확인").fill(lab.admin.newPassword);
@@ -239,7 +239,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByText("아이디 또는 비밀번호를 확인해 주세요.")).toBeVisible();
   await admin.getByLabel("비밀번호").fill(lab.admin.newPassword);
   await admin.getByRole("button", { name: "로그인" }).click();
-  await expect(admin.getByRole("heading", { name: "비밀번호 변경" })).toBeVisible();
+  await expect(admin.getByRole("heading", { name: "계정 보안" })).toBeVisible();
   await admin.getByRole("link", { name: "모니터링" }).click();
   await expect(admin.getByRole("combobox", { name: "맵 선택", exact: true })).toBeVisible();
   await admin.getByRole("button", { name: "로그아웃" }).click();
@@ -254,7 +254,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await viewer.getByRole("link", { name: "설정", exact: true }).click();
   const viewerSettingsNavigation = viewer.getByRole("navigation", { name: "설정 메뉴" });
   await expect(viewerSettingsNavigation.getByRole("link", { name: "맵 관리", exact: true })).toBeVisible();
-  await expect(viewerSettingsNavigation.getByRole("link", { name: "비밀번호 변경", exact: true })).toBeVisible();
+  await expect(viewerSettingsNavigation.getByRole("link", { name: "계정 보안", exact: true })).toBeVisible();
   await expect(viewerSettingsNavigation.getByRole("link", { name: "유저 관리", exact: true })).toHaveCount(0);
   await expect(viewerSettingsNavigation.getByRole("link", { name: "조명 등록", exact: true })).toHaveCount(0);
   await viewerSettingsNavigation.getByRole("link", { name: "맵 관리", exact: true }).click();

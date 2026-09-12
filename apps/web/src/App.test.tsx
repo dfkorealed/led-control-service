@@ -713,7 +713,7 @@ describe("App", () => {
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/security");
     expect(window.location.search).toBe("?siteId=site-2");
     expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
