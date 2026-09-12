@@ -15,6 +15,8 @@ import {
 } from "./certificate-authority.provider";
 import { GatewayCsrValidator } from "./csr-validator";
 import type { SignedCertificate } from "./pki.types";
+import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
+import { CERTIFICATE_TRANSACTION_TIMEOUT_MS, lockGatewayCertificates, lockGatewayInventory } from "./inventory-certificate-lock";
 
 const scrypt = promisify(scryptCallback);
 const ENROLLMENT_TTL_MS = 15 * 60 * 1000;
@@ -51,7 +53,8 @@ export class ManufacturingEnrollmentService {
     @Inject(CERTIFICATE_AUTHORITY_PROVIDER) private readonly certificateAuthority: CertificateAuthorityProvider,
     private readonly csrValidator: GatewayCsrValidator,
     @Inject(MANUFACTURING_ENROLLMENT_CONFIGURATION)
-    private readonly configuration: ManufacturingEnrollmentConfiguration
+    private readonly configuration: ManufacturingEnrollmentConfiguration,
+    private readonly reconciliation: CertificateRevocationReconciliationService = new CertificateRevocationReconciliationService(prisma, certificateAuthority)
   ) {}
 
   async createEnrollment(input: CreateEnrollmentInput) {
@@ -145,33 +148,26 @@ export class ManufacturingEnrollmentService {
       throw new ServiceUnavailableException("device certificate enrollment failed");
     }
 
-    let signed: SignedCertificate;
-    try {
-      signed = await this.certificateAuthority.signCsr({
-        purpose: "device",
-        csrPem,
-        commonName: serialNumber,
-        uriSans: [`urn:dfkorea:gateway:${serialNumber}`],
-        ttlSeconds: DEVICE_CERTIFICATE_TTL_SECONDS
-      });
-    } catch {
-      await this.recordFailure(enrollment.id, "certificate_signing_failed");
-      throw new ServiceUnavailableException("device certificate enrollment failed");
-    }
-
-    let deviceCaBundlePem: string;
-    try {
-      deviceCaBundlePem = buildDeviceCaBundle(signed.caChainPem);
-    } catch {
-      await this.bestEffortRevoke(signed);
-      await this.recordFailure(enrollment.id, "certificate_signing_failed");
-      throw new ServiceUnavailableException("device certificate enrollment failed");
-    }
-
+    let signed: SignedCertificate | undefined;
+    let reconciliationId: string | undefined;
+    let deviceCaBundlePem = "";
     let claimCode = "";
     try {
-      const certificateData = this.certificateData(inventory.id, signed);
       await this.db().$transaction(async (tx: any) => {
+        await lockGatewayInventory(tx, inventory.id);
+        await lockGatewayCertificates(tx, inventory.id);
+        this.assertInventoryCanEnroll(await tx.gatewayInventory.findUnique({ where: { id: inventory.id } }));
+        signed = await this.certificateAuthority.signCsr({
+          purpose: "device", csrPem, commonName: serialNumber,
+          uriSans: [`urn:dfkorea:gateway:${serialNumber}`], ttlSeconds: DEVICE_CERTIFICATE_TTL_SECONDS
+        });
+        reconciliationId = await this.reconciliation.armSignedCertificate({
+          inventoryId: inventory.id, purpose: "device", issuer: signed.issuer,
+          certificateSerial: signed.certificateSerial, fingerprint: signed.fingerprint
+        });
+        this.assertInventoryCanEnroll(await tx.gatewayInventory.findUnique({ where: { id: inventory.id } }));
+        const certificateData = this.certificateData(inventory.id, signed);
+        deviceCaBundlePem = buildDeviceCaBundle(signed.caChainPem);
         claimCode = randomBytes(32).toString("base64url");
         // claim code 원문은 이 응답으로만 전달하고 DB에는 hash만 남긴다.
         // 저장소 유출로 재사용 가능한 claim code가 노출되는 것을 막으며, onboarding 계층은 이후 입력값을 hash와 비교한다.
@@ -191,16 +187,17 @@ export class ManufacturingEnrollmentService {
           where: { id: enrollment.id },
           data: { outcome: "issued", failureReason: null }
         });
-      });
+        await this.reconciliation.cancelSignedCertificate(tx, reconciliationId);
+      }, { maxWait: CERTIFICATE_TRANSACTION_TIMEOUT_MS, timeout: CERTIFICATE_TRANSACTION_TIMEOUT_MS });
     } catch {
-      await this.bestEffortRevoke(signed);
-      await this.recordFailure(enrollment.id, "persistence_failed");
+      if (signed && !reconciliationId) await this.bestEffortRevoke(signed);
+      await this.recordFailure(enrollment.id, signed ? "persistence_failed" : "certificate_signing_failed");
       throw new ServiceUnavailableException("device certificate enrollment failed");
     }
 
     return {
-      deviceCertificatePem: signed.certificatePem,
-      deviceCertificateFingerprint: this.certificateData(inventory.id, signed).fingerprint,
+      deviceCertificatePem: signed!.certificatePem,
+      deviceCertificateFingerprint: this.certificateData(inventory.id, signed!).fingerprint,
       deviceCaBundlePem,
       apiCaBundlePem: this.configuration.apiCaBundlePem,
       mqttCaBundlePem: this.configuration.mqttCaBundlePem,
@@ -209,6 +206,7 @@ export class ManufacturingEnrollmentService {
   }
 
   private assertInventoryCanEnroll(inventory: any) {
+    if (!inventory) throw new ConflictException("gateway inventory is unavailable");
     if (inventory.disabledAt) throw new ConflictException("gateway inventory is disabled");
     if (inventory.claimedGatewayId) throw new ConflictException("gateway inventory is already claimed");
     if (inventory.certificateFingerprint) throw new ConflictException("gateway already has a device certificate");
@@ -264,7 +262,8 @@ export class ManufacturingEnrollmentService {
         fingerprint: signed.fingerprint
       });
     } catch {
-      // The consumed token remains unusable; lifecycle reconciliation can retry revocation.
+      // The token stays consumed, but without a durable arm this dual outage
+      // requires CA-side issuance auditing to recover the signed certificate.
     }
   }
 

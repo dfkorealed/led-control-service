@@ -178,7 +178,8 @@ describe("GatewayOnboardingService", () => {
       return Promise.resolve(disabledInventory);
     });
     const lifecycle = {
-      revokeInventoryCertificates: jest
+      stageInventoryDisable: jest.fn(async () => { await prisma.gatewayInventory.update({}); return ["job-1", "job-2"]; }),
+      processInventoryRevocation: jest
         .fn()
         .mockRejectedValueOnce(new Error("Vault unavailable"))
         .mockResolvedValueOnce({ revoked: 2 })
@@ -189,8 +190,8 @@ describe("GatewayOnboardingService", () => {
     await expect(service.disableInventory(operator, "inventory-1")).rejects.toThrow("certificate revocation pending");
     await expect(service.disableInventory(operator, "inventory-1")).resolves.toEqual({ status: "disabled", revoked: 2 });
 
-    expect(prisma.gatewayInventory.update).toHaveBeenCalledTimes(1);
-    expect(lifecycle.revokeInventoryCertificates).toHaveBeenCalledTimes(2);
+    expect(prisma.gatewayInventory.update).toHaveBeenCalledTimes(2);
+    expect(lifecycle.processInventoryRevocation).toHaveBeenCalledTimes(2);
     expect(siteAccess.assert).not.toHaveBeenCalled();
   });
 

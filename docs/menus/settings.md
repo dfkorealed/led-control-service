@@ -135,7 +135,7 @@
 - 등록 패널은 층과 Gateway를 명시적으로 선택해 `siteId`, `floorId`, `gatewayId`를 전송하고 BLE Mesh 후보·provisioning 요청을 제공한다. 설치 완료 assigned admin에게만 노출되며 viewer와 operator는 볼 수 없다. Task 9 격리 실백엔드 E2E는 0건 검색, 재검색, 자사 node 2개 일괄 등록을 검증했다. API는 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
 - provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 `MeshNode.deviceUuid` unique 경쟁만 해당 node 실패로 기록하며, 다른 unique/transaction 오류는 재전파한다.
 - 제조 장비 원장 기반 `POST /gateways/claim`은 assigned active customer admin만 수행한다. claim은 serial trim 정규화 뒤 serial별 PostgreSQL transaction advisory lock으로 같은 serial 시도를 직렬화하고, 같은 transaction에서 Site 잠금 재검증, 15분 실패 횟수 판정, terminal audit, inventory 잠금과 단회 claim-code 소비를 완료한다. invalid·unavailable·already-consumed·rate-limited·success를 모두 commit한 뒤 기존 정제된 `401/409/429`로 변환하며 claim code와 내부 reason을 응답에 노출하지 않는다. 다른 serial은 전역 잠금을 공유하지 않는다. device-certificate 기반 `POST /gateway-bootstrap`과 manufacturing enrollment 경계는 바꾸지 않았다.
-- `POST /gateway-inventories/:inventoryId/disable`은 고객 commissioning이 아닌 제조 보안 동작으로 active service-provider `operator`만 수행하며 customer SiteAccess를 요구하지 않는다. inventory disable 뒤 certificate revocation 동작도 유지한다.
+- `POST /gateway-inventories/:inventoryId/disable`은 제조 보안 동작으로 active service-provider `operator`만 수행하며 customer SiteAccess를 요구하지 않는다. 최초 device 발급·MQTT 발급·renewal·activation과 공통 inventory 잠금을 사용하고, 같은 commit에 disabled 상태·인증서 `revocation_pending`·두 device pointer 제거·영속 폐기 원장을 저장한다. commit 뒤 CA/CRL worker가 폐기하며 외부 장애에도 원장을 재시도한다. Site 삭제도 같은 staging을 거쳐 Gateway cascade 뒤 폐기 의무를 유지한다. 별도 PostgreSQL 16에서 양방향 경쟁·서명 후 rollback 복구를 검증했으며 실제 Vault/CRL 배포와 장비 검증은 미실행이다.
 - Claim 성공과 invalid·unavailable·already-consumed·rate-limited terminal 결과를 모두 감사하며, 병렬 invalid 요청도 serial별 선형화 경계에서 최대 5회의 비싼 claim-code 검증만 수행한다.
 - Raspberry Pi appliance가 실제 BlueZ scan/provisioning adapter와 영속 Mesh identity를 사용한다.
 - 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
@@ -380,6 +380,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 설정 상단 탭은 공통 밑줄형 navigation의 44px 포커스·가로 스크롤 계약을 사용한다. 실제 모바일 WebView safe-area와 네이티브 navigation 통합 검증은 후속 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
+- PKI 폐기 대기·재시도 원장의 전용 운영 UI는 아직 없다. CA 서명 직후 원장 저장과 즉시 폐기가 모두 실패하는 이중 장애, CRL transaction 예산을 넘는 누적 외부 I/O·DB session 유실은 후속 운영 검증이 필요하다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.

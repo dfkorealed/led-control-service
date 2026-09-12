@@ -17,11 +17,12 @@ const MAX_BACKOFF_MS = 3_600_000;
 const CRL_ADVISORY_NAMESPACE = 0x504b4943;
 const MAX_CRL_PUBLICATIONS = 3;
 // At most four CA reads (initial + three confirmations), each bounded by Vault's
-// 120s request limit: <=8 minutes of network I/O. Fifteen minutes leaves room for
-// three local atomic publishes and DB work, and deliberately exceeds the row's
-// 5-minute lease. A same-row successor may claim but must wait for this callback
-// to finish before reading/publishing. An extreme >15-minute filesystem stall
-// remains an operational failure boundary; Prisma cannot cancel external I/O.
+// 120s request limit: <=8 minutes of network requests. Fifteen minutes is the
+// cumulative transaction budget for external I/O and DB work, not a strict
+// filesystem I/O bound. The budget deliberately exceeds the row's 5-minute
+// lease. Any combination of reads, token/file I/O and DB work that outlives the
+// transaction (or a lost DB session) can release the purpose lock while an
+// already-started publish continues: Prisma cannot cancel that external I/O.
 const CRL_TRANSACTION_TIMEOUT_MS = 15 * 60_000;
 // Must exceed CERTIFICATE_TRANSACTION_TIMEOUT_MS (140s). The independent commit
 // survives rollback/crash, while the delay protects successful certificate writes.

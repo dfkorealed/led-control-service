@@ -8,6 +8,9 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { Prisma } from "@prisma/client";
+import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
+import { CERTIFICATE_TRANSACTION_TIMEOUT_MS, lockGatewayCertificates, lockGatewayInventory } from "./inventory-certificate-lock";
 import {
   CERTIFICATE_AUTHORITY_PROVIDER,
   type CertificateAuthorityProvider
@@ -21,8 +24,6 @@ export { CERTIFICATE_LIFECYCLE_CONFIGURATION, type CertificateLifecycleConfigura
 const DEVICE_CERTIFICATE_TTL_SECONDS = 365 * 24 * 60 * 60;
 const RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const ACTIVATION_GRACE_MS = 10 * 60 * 1000;
-const INVENTORY_ADVISORY_LOCK_TIMEOUT_MS = 10_000;
-const RENEWAL_TRANSACTION_TIMEOUT_MS = 140_000;
 
 export interface CertificateLifecycleClock {
   now(): Date;
@@ -46,7 +47,8 @@ export class CertificateLifecycleService {
     @Optional() private readonly clock: CertificateLifecycleClock = { now: () => new Date() },
     @Optional()
     @Inject(CERTIFICATE_LIFECYCLE_CONFIGURATION)
-    private readonly configuration: CertificateLifecycleConfiguration = { publishCrl: publishCrlAtomically }
+    private readonly configuration: CertificateLifecycleConfiguration = { publishCrl: publishCrlAtomically },
+    private readonly reconciliation: CertificateRevocationReconciliationService = new CertificateRevocationReconciliationService(prisma, certificateAuthority, configuration)
   ) {}
 
   async renewDeviceCertificate(input?: RenewDeviceCertificateInput | null) {
@@ -67,16 +69,17 @@ export class CertificateLifecycleService {
     }
 
     let signed: SignedCertificate | undefined;
+    let reconciliationId: string | undefined;
     try {
       const issuance = await this.db().$transaction(async (tx: any) => {
-        // Serialize sign-and-record work per inventory so a second CSR cannot create another pending identity.
-        await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${INVENTORY_ADVISORY_LOCK_TIMEOUT_MS}ms`}, true)`;
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${activeCertificate.inventory.id}::text, 0))`;
+        await lockGatewayInventory(tx, activeCertificate.inventory.id);
+        await lockGatewayCertificates(tx, activeCertificate.inventory.id);
         const current = await tx.gatewayCertificate.findUnique({
           where: { id: activeCertificate.id },
           include: { inventory: { include: { claimedGateway: true } } }
         });
-        this.assertRenewableDeviceCertificate(current, fingerprint, now);
+        this.assertRenewableDeviceCertificate(current, fingerprint, this.clock.now());
+        const gatewayId = current.inventory.claimedGatewayId;
         const existingPending = await tx.gatewayCertificate.findFirst({
           where: { inventoryId: current.inventoryId, purpose: "device", status: "pending" }
         });
@@ -87,14 +90,25 @@ export class CertificateLifecycleService {
           commonName: current.inventory.serialNumber,
           uriSans: [`urn:dfkorea:gateway:${current.inventory.serialNumber}`],
           ttlSeconds: DEVICE_CERTIFICATE_TTL_SECONDS
-        });
+        }).catch(() => { throw new ServiceUnavailableException("device certificate renewal failed"); });
         signed = signedCertificate;
+        reconciliationId = await this.reconciliation.armSignedCertificate({
+          inventoryId: current.inventoryId, purpose: "device", issuer: signedCertificate.issuer,
+          certificateSerial: signedCertificate.certificateSerial, fingerprint: signedCertificate.fingerprint
+        });
+        const refreshed = await tx.gatewayCertificate.findUnique({ where: { id: current.id }, include: { inventory: { include: { claimedGateway: true } } } });
+        this.assertRenewableDeviceCertificate(refreshed, fingerprint, this.clock.now());
+        if (refreshed.inventory.claimedGatewayId !== gatewayId ||
+          await tx.gatewayCertificate.findFirst({ where: { inventoryId: current.inventoryId, purpose: "device", status: "pending" } })) {
+          throw new ConflictException("device certificate renewal state changed");
+        }
         const certificateData = this.certificateData(current.inventoryId, current.inventory.claimedGatewayId, signedCertificate, "pending");
         await tx.gatewayCertificate.create({ data: certificateData });
+        await this.reconciliation.cancelSignedCertificate(tx, reconciliationId);
         return { certificateData, gatewayId: current.inventory.claimedGatewayId, signed: signedCertificate };
       }, {
-        maxWait: RENEWAL_TRANSACTION_TIMEOUT_MS,
-        timeout: RENEWAL_TRANSACTION_TIMEOUT_MS
+        maxWait: CERTIFICATE_TRANSACTION_TIMEOUT_MS,
+        timeout: CERTIFICATE_TRANSACTION_TIMEOUT_MS
       });
       return {
         gatewayId: issuance.gatewayId,
@@ -103,7 +117,7 @@ export class CertificateLifecycleService {
         notAfter: issuance.certificateData.notAfter.toISOString()
       };
     } catch (error) {
-      if (signed) await this.bestEffortRevoke(signed, "device");
+      if (signed && !reconciliationId) await this.bestEffortRevoke(signed, "device");
       if (error instanceof BadRequestException || error instanceof ConflictException || error instanceof UnauthorizedException) throw error;
       throw new ServiceUnavailableException("device certificate renewal failed");
     }
@@ -115,31 +129,37 @@ export class CertificateLifecycleService {
       where: { fingerprint },
       include: { inventory: { include: { claimedGateway: true } } }
     });
-    const now = this.clock.now();
-    if (this.isAlreadyActiveDeviceCertificate(pending, fingerprint)) {
-      return { status: "active" as const };
-    }
-    this.assertPendingDeviceCertificate(pending, fingerprint);
+    if (!pending) throw new UnauthorizedException("pending device certificate mismatch");
 
-    if (pending.createdAt.getTime() + ACTIVATION_GRACE_MS < now.getTime()) {
-      await this.revokeExpiredPendingCertificate(pending, now);
-      throw new UnauthorizedException("pending device certificate activation expired");
-    }
-
+    let expiredJob: string | undefined;
     try {
       await this.db().$transaction(async (tx: any) => {
+        await lockGatewayInventory(tx, pending.inventoryId);
+        await lockGatewayCertificates(tx, pending.inventoryId);
         const currentPending = await tx.gatewayCertificate.findUnique({
           where: { id: pending.id },
           include: { inventory: { include: { claimedGateway: true } } }
         });
+        if (this.isAlreadyActiveDeviceCertificate(currentPending, fingerprint)) return;
         this.assertPendingDeviceCertificate(currentPending, fingerprint);
-        if (currentPending.createdAt.getTime() + ACTIVATION_GRACE_MS < now.getTime()) {
-          throw new UnauthorizedException("pending device certificate activation expired");
+        if (currentPending.createdAt.getTime() + ACTIVATION_GRACE_MS < this.clock.now().getTime()) {
+          // Expiry revokes only the pending identity. The active device remains
+          // usable, while the orphan ledger survives rollback or worker failure.
+          expiredJob = await this.reconciliation.armSignedCertificate({
+            inventoryId: currentPending.inventoryId, certificateId: currentPending.id, purpose: "device",
+            issuer: currentPending.issuer, certificateSerial: currentPending.certificateSerial, fingerprint: currentPending.fingerprint
+          });
+          await tx.certificateRevocationReconciliation.updateMany({ where: { id: expiredJob, completedAt: null }, data: {
+            certificateId: currentPending.id, cancelledAt: null, nextAttemptAt: this.clock.now()
+          } });
+          await tx.gatewayCertificate.update({ where: { id: currentPending.id }, data: { status: "revocation_pending" } });
+          return;
         }
         const active = await tx.gatewayCertificate.findFirst({
           where: { inventoryId: currentPending.inventoryId, purpose: "device", status: "active" }
         });
-        if (!active || active.fingerprint !== this.inventoryFingerprint(currentPending.inventory)) {
+        if (!active || active.revokedAt || active.fingerprint !== this.inventoryFingerprint(currentPending.inventory) ||
+          currentPending.inventory.claimedGateway.certificateFingerprint !== active.fingerprint) {
           throw new UnauthorizedException("active device certificate mismatch");
         }
         await tx.gatewayCertificate.update({
@@ -155,58 +175,47 @@ export class CertificateLifecycleService {
           where: { id: currentPending.inventory.claimedGatewayId },
           data: { certificateFingerprint: fingerprint }
         });
-      });
+      }, { maxWait: CERTIFICATE_TRANSACTION_TIMEOUT_MS, timeout: CERTIFICATE_TRANSACTION_TIMEOUT_MS });
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
       throw new ServiceUnavailableException("device certificate activation failed");
+    }
+    if (expiredJob) {
+      await this.reconciliation.processNow(expiredJob).catch(() => undefined);
+      throw new UnauthorizedException("pending device certificate activation expired");
     }
     return { status: "active" as const };
   }
 
   async revokeInventoryCertificates(inventoryId: string) {
-    const certificates = await this.db().gatewayCertificate.findMany({
-      where: { inventoryId, revokedAt: null },
-      orderBy: { createdAt: "asc" }
-    });
-    let revoked = 0;
-    for (const certificate of certificates) {
-      try {
-        await this.certificateAuthority.revoke({
-          purpose: certificate.purpose,
-          certificateSerial: certificate.certificateSerial,
-          issuer: certificate.issuer,
-          fingerprint: certificate.fingerprint
-        });
-        await this.db().gatewayCertificate.update({
-          where: { id: certificate.id },
-          data: { status: "revoked", revokedAt: this.clock.now() }
-        });
-        revoked += 1;
-      } catch {
-        throw new ServiceUnavailableException("inventory certificate revocation pending");
-      }
-    }
     try {
-      await this.synchronizeCrls();
+      const ids = await this.db().$transaction((tx: Prisma.TransactionClient) => this.stageInventoryDisable(tx, inventoryId),
+        { maxWait: CERTIFICATE_TRANSACTION_TIMEOUT_MS, timeout: CERTIFICATE_TRANSACTION_TIMEOUT_MS });
+      return await this.processInventoryRevocation(ids);
     } catch {
-      throw new ServiceUnavailableException("certificate revocation list publication pending");
+      throw new ServiceUnavailableException("inventory certificate revocation pending");
     }
-    return { revoked };
   }
 
-  private async synchronizeCrls() {
-    const targets = [
-      ["device", this.configuration.deviceCrlPath],
-      ["mqtt", this.configuration.mqttCrlPath]
-    ] as const;
-    for (const [purpose, path] of targets) {
-      if (!path) continue;
-      await this.configuration.publishCrl(path, await this.certificateAuthority.readCrl(purpose));
-    }
+  async stageInventoryDisable(tx: Prisma.TransactionClient, inventoryId: string) {
+    const inventory = await lockGatewayInventory(tx, inventoryId);
+    if (!inventory) return [];
+    const ids = await this.reconciliation.stageInventoryRevocation(tx, inventoryId, this.clock.now());
+    await tx.gatewayInventory.update({ where: { id: inventoryId }, data: { disabledAt: inventory.disabledAt ?? this.clock.now() } });
+    // Gateway writes follow inventory and certificate locks, including site deletion.
+    await tx.gateway.updateMany({ where: { id: inventory.claimedGatewayId ?? "" }, data: { certificateFingerprint: null } });
+    return ids;
+  }
+
+  async processInventoryRevocation(ids: string[]) {
+    for (const id of ids) await this.reconciliation.processNow(id);
+    const pending = await this.db().certificateRevocationReconciliation.count({ where: { id: { in: ids }, completedAt: null } });
+    if (pending) throw new ServiceUnavailableException("inventory certificate revocation pending");
+    return { revoked: ids.length };
   }
 
   private assertRenewableDeviceCertificate(certificate: any, fingerprint: string, now: Date) {
-    if (!certificate || certificate.purpose !== "device" || certificate.status !== "active") {
+    if (!certificate || certificate.purpose !== "device" || certificate.status !== "active" || certificate.revokedAt) {
       throw new UnauthorizedException("device certificate mismatch");
     }
     const inventory = certificate.inventory;
@@ -216,6 +225,7 @@ export class CertificateLifecycleService {
       !inventory.claimedGatewayId ||
       !inventory.claimedGateway ||
       inventory.claimedGateway.id !== inventory.claimedGatewayId ||
+      inventory.claimedGateway.certificateFingerprint !== fingerprint ||
       this.inventoryFingerprint(inventory) !== fingerprint ||
       this.normalizeFingerprint(certificate.fingerprint) !== fingerprint
     ) {
@@ -228,7 +238,7 @@ export class CertificateLifecycleService {
   }
 
   private assertPendingDeviceCertificate(certificate: any, fingerprint: string) {
-    if (!certificate || certificate.purpose !== "device" || certificate.status !== "pending") {
+    if (!certificate || certificate.purpose !== "device" || certificate.status !== "pending" || certificate.revokedAt) {
       throw new UnauthorizedException("pending device certificate mismatch");
     }
     const inventory = certificate.inventory;
@@ -238,6 +248,7 @@ export class CertificateLifecycleService {
       !inventory.claimedGatewayId ||
       !inventory.claimedGateway ||
       inventory.claimedGateway.id !== inventory.claimedGatewayId ||
+      certificate.gatewayId !== inventory.claimedGatewayId ||
       this.normalizeFingerprint(certificate.fingerprint) !== fingerprint
     ) {
       throw new UnauthorizedException("pending device certificate mismatch");
@@ -246,28 +257,12 @@ export class CertificateLifecycleService {
 
   private isAlreadyActiveDeviceCertificate(certificate: any, fingerprint: string) {
     const inventory = certificate?.inventory;
-    return certificate?.purpose === "device" && certificate.status === "active" &&
+    return certificate?.purpose === "device" && certificate.status === "active" && !certificate.revokedAt &&
       inventory && !inventory.disabledAt && inventory.claimedGatewayId &&
       inventory.claimedGateway?.id === inventory.claimedGatewayId &&
+      inventory.claimedGateway?.certificateFingerprint === fingerprint &&
       this.normalizeCertificateFingerprint(certificate.fingerprint) === fingerprint &&
       this.inventoryFingerprint(inventory) === fingerprint;
-  }
-
-  private async revokeExpiredPendingCertificate(certificate: any, now: Date) {
-    try {
-      await this.certificateAuthority.revoke({
-        purpose: "device",
-        certificateSerial: certificate.certificateSerial,
-        issuer: certificate.issuer,
-        fingerprint: certificate.fingerprint
-      });
-      await this.db().gatewayCertificate.update({
-        where: { id: certificate.id },
-        data: { status: "revoked", revokedAt: now }
-      });
-    } catch {
-      throw new ServiceUnavailableException("pending device certificate revocation failed");
-    }
   }
 
   private certificateData(inventoryId: string, gatewayId: string, signed: SignedCertificate, status: "pending") {
@@ -291,7 +286,7 @@ export class CertificateLifecycleService {
         fingerprint: signed.fingerprint
       });
     } catch {
-      // The lifecycle retry path is responsible for any CA outage after signing.
+      // Without a durable arm, simultaneous DB/CA failure requires CA-side issuance auditing.
     }
   }
 

@@ -65,6 +65,8 @@
 
 ### Task 2: 전체 발급·활성화·disable·revoke 경쟁 방어
 
+진행 상태: 구현·검증 완료, Task 2 검토 대기. Task 1의 CRL 15분은 개별 filesystem 호출 상한이 아니라 네트워크·인증 토큰/파일 I/O·DB 작업의 누적 transaction 예산이다. 예산 초과나 DB session 유실 후 이미 시작한 외부 I/O가 계속되는 위험을 주석·설계·DB 문서에 정정했다.
+
 **Files:**
 - Modify: `apps/api/src/pki/manufacturing-enrollment.service.ts`
 - Modify: `apps/api/src/pki/manufacturing-enrollment.service.spec.ts`
@@ -82,11 +84,11 @@
 - Consumes: Task 1의 잠금 helper와 reconciliation API.
 - Produces: CA 서명 전·후 authoritative inventory/device certificate/pointer/gateway assignment 검증, 성공 원장 취소, disable commit의 logical revoke와 실제 PostgreSQL 경쟁 증거.
 
-- [ ] **Step 1: 각 경로의 실패 단위·실제 PostgreSQL 테스트 작성**
+- [x] **Step 1: 각 경로의 실패 단위·실제 PostgreSQL 테스트 작성**
 
   MQTT issue와 device renew가 서명 뒤 disabled/status/pointer/assignment 변경을 거부하고 원장을 남기는지, activation이 같은 잠금 뒤 revoked/pending drift를 거부하는지, 최초 issue가 공통 잠금을 쓰는지 검증한다. 두 Prisma connection과 deferred CA barrier로 disable-first issue/renew/activate 및 sign-first issue/renew/activate 뒤 disable을 재현하고 최종 active/pending과 pointer 부재를 literal assertion한다.
 
-- [ ] **Step 2: RED 확인**
+- [x] **Step 2: RED 확인**
 
   Run: `pnpm --filter @led-control/api exec jest src/pki/manufacturing-enrollment.service.spec.ts src/pki/gateway-certificate.service.spec.ts src/pki/certificate-lifecycle.service.spec.ts src/gateway-onboarding/gateway-onboarding.service.spec.ts src/operator-site-admins/operator-site-admins.service.spec.ts --runInBand`
 
@@ -94,17 +96,19 @@
 
   Expected: CA 뒤 재검증·잠금·원장 assertion이 FAIL.
 
-- [ ] **Step 3: 최소 production 변경**
+- [x] **Step 3: 최소 production 변경**
 
   사전 조회는 유지하되 transaction에서 공통 lock 뒤 재조회하고, 서명 직후 원장을 독립 commit한 다음 저장 직전 다시 조회한다. 성공 commit은 certificate row와 원장 `cancelledAt`을 함께 반영한다. disable과 site deletion은 같은 잠금 transaction에서 `revocation_pending`, pointer clear, job upsert를 먼저 commit하고 worker `processNow`를 호출한다.
 
-- [ ] **Step 4: GREEN 확인**
+- [x] **Step 4: GREEN 확인**
 
   Run: `pnpm --filter @led-control/api exec jest src/pki/manufacturing-enrollment.service.spec.ts src/pki/gateway-certificate.service.spec.ts src/pki/certificate-lifecycle.service.spec.ts src/gateway-onboarding/gateway-onboarding.service.spec.ts src/operator-site-admins/operator-site-admins.service.spec.ts src/operator-site-admins/site-deletion-cleanup.service.spec.ts --runInBand`
 
   Run: disposable PostgreSQL integration command from Step 2 and expect PASS.
 
-- [ ] **Step 5: 중간 커밋**
+  증거: production 변경 전 MQTT/renew post-sign drift 10건과 최초 발급/activation 잠금·revokedAt 회귀 RED를 확인했다. 별도 PostgreSQL 16 컨테이너의 `pki_concurrency` DB에 전체 57 migration을 적용했다. 처음 실제 DB 8건은 Lock wait 부재·활성 인증서 잔존·원장 취소 부재로 실패했고, 최종 13건은 최초 device 발급 포함 양방향 경합·`pg_stat_activity` Lock wait·정상 MQTT 직렬화/renewal/activation·서명 rollback 후 fresh worker 폐기·Site 삭제 cascade 뒤 원장을 통과했다. 사용자 DB·실제 Vault/CRL·장비는 변경하지 않았다.
+
+- [x] **Step 5: 중간 커밋**
 
   `git add apps/api/src/gateway-onboarding apps/api/src/operator-site-admins apps/api/src/pki && git commit -m "fix(api): serialize inventory disable and certificate issuance"`
 

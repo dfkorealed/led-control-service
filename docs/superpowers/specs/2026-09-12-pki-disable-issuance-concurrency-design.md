@@ -40,7 +40,7 @@ Inventory disable은 같은 transaction에서 `disabledAt`을 설정하고 미�
 
 Worker는 시작 시와 30초마다 `FOR UPDATE SKIP LOCKED`로 처리할 원장을 임대한다. 외부 CA 폐기는 DB transaction 밖에서 수행한다. owner와 유효한 lease를 조건으로 결과를 기록하며, CA 폐기 성공 뒤에는 `revokedAt`, CRL 배포까지 성공하면 `completedAt`을 기록한다. 실패는 정제된 error code와 최대 1시간 지수 backoff로 무기한 재시도한다. 인증서 row가 있는 작업은 완료 시 해당 row를 `revoked`로 전환한다.
 
-Task 1 fix round 1에서 승인된 예외로 CRL read → publish → fenced finalize는 purpose별 PostgreSQL advisory lock을 가진 transaction 안에서 직렬화한다. 예약된 두 int key `(0x504b4943, device=1/mqtt=2)`는 inventory bigint 잠금 공간과 분리한다. 서로 다른 purpose는 독립적으로 진행한다. publish 직전에는 CA read를 기다리는 동안 transaction/lease를 잃지 않았는지 조회하고, publish 뒤에는 CA를 다시 읽어 snapshot이 달라졌다면 최신 CRL로 수렴시킨 뒤 완료한다. 최대 3회 배포·검증으로 제한하며 계속 달라지면 미완료/backoff로 남긴다. Vault 요청별 120초 제한에 따라 최초 조회와 3회 확인의 네트워크 시간은 최대 8분이다. CRL transaction은 로컬 파일/DB 여유를 둔 15분으로 설정해 5분 row lease보다 오래 유지한다. 같은 row가 재임대되어도 후속 worker는 앞선 callback/transaction이 끝난 뒤 최신 CRL을 읽고 배포해야 한다. Prisma가 외부 I/O를 취소하지 못하는 15분 이상 filesystem 정지 또는 DB session 유실은 별도 운영 위험으로 기록한다.
+Task 1 fix round 1에서 승인된 예외로 CRL read → publish → fenced finalize는 purpose별 PostgreSQL advisory lock을 가진 transaction 안에서 직렬화한다. 예약된 두 int key `(0x504b4943, device=1/mqtt=2)`는 inventory bigint 잠금 공간과 분리한다. 서로 다른 purpose는 독립적으로 진행한다. publish 직전에는 CA read를 기다리는 동안 transaction/lease를 잃지 않았는지 조회하고, publish 뒤에는 CA를 다시 읽어 snapshot이 달라졌다면 최신 CRL로 수렴시킨 뒤 완료한다. 최대 3회 배포·검증으로 제한하며 계속 달라지면 미완료/backoff로 남긴다. Vault 요청별 120초 제한에 따라 최초 조회와 3회 확인의 네트워크 요청 예산은 최대 8분이다. CRL transaction의 15분은 네트워크·인증 토큰/파일 I/O·DB 작업의 누적 예산이며 엄격한 filesystem 상한이 아니다. 5분 row lease 이후에도 살아 있는 transaction은 purpose 잠금을 유지한다. 하지만 누적 I/O가 예산을 넘거나 DB session이 유실되면 기존 publish가 잠금 해제 뒤에도 계속될 수 있다. Prisma는 시작한 외부 I/O를 취소하지 못하므로 개별 파일 호출이 15분 미만이어도 발생할 수 있는 이 경계를 운영 위험으로 기록한다.
 
 ## 경로별 재검증
 

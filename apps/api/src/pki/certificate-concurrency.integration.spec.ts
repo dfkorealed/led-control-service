@@ -1,0 +1,229 @@
+import { PrismaClient } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import { GatewayCertificateService } from "./gateway-certificate.service";
+import { CertificateLifecycleService } from "./certificate-lifecycle.service";
+import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
+import { GatewayOnboardingService } from "../gateway-onboarding/gateway-onboarding.service";
+import { ManufacturingEnrollmentService } from "./manufacturing-enrollment.service";
+import { rootCertificates } from "node:tls";
+import { OperatorSiteAdminsService } from "../operator-site-admins/operator-site-admins.service";
+
+const databaseUrl = process.env.PKI_CONCURRENCY_TEST_DATABASE_URL;
+const integration = databaseUrl ? describe : describe.skip;
+const ACTIVE = "AA".repeat(32);
+const PENDING = "BB".repeat(32);
+const operator = { id: "operator", role: "operator", status: "active", organizationType: "service_provider" };
+const validator = { validate: async () => ({ publicKey: {} as CryptoKey }) };
+function barrier() {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => { release = resolve; });
+  return { promise, release };
+}
+
+integration("certificate inventory concurrency (disposable PostgreSQL only)", () => {
+  const first = new PrismaClient({ datasourceUrl: databaseUrl });
+  const second = new PrismaClient({ datasourceUrl: databaseUrl });
+  const observer = new PrismaClient({ datasourceUrl: databaseUrl });
+  let inventoryId: string;
+  let gatewayId: string;
+  let ca: any;
+  let sequence = 0;
+  beforeAll(async () => {
+    // An explicit dedicated URL is mandatory; no fallback to DATABASE_URL.
+    if (new URL(databaseUrl!).pathname !== "/pki_concurrency") throw new Error("dedicated disposable database required");
+    await Promise.all([first.$connect(), second.$connect(), observer.$connect()]);
+  });
+  afterAll(async () => { await Promise.all([first.$disconnect(), second.$disconnect(), observer.$disconnect()]); });
+  beforeEach(async () => {
+    await first.gatewayCertificate.updateMany({ data: { replacedById: null } });
+    await first.gatewayCertificate.deleteMany();
+    await first.certificateRevocationReconciliation.deleteMany();
+    await first.gatewayInventory.deleteMany();
+    await first.gateway.deleteMany();
+    await first.site.deleteMany();
+    await first.user.deleteMany();
+    await first.organization.deleteMany();
+    const organization = await first.organization.create({ data: { name: "PKI fixture" } });
+    const site = await first.site.create({ data: { name: "PKI fixture", organizationId: organization.id } });
+    const gateway = await first.gateway.create({ data: { serialNumber: randomUUID(), name: "fixture", firmwareVersion: "test", siteId: site.id, certificateFingerprint: ACTIVE } });
+    gatewayId = gateway.id;
+    const inventory = await first.gatewayInventory.create({ data: { serialNumber: gateway.serialNumber, claimedGatewayId: gateway.id, certificateFingerprint: ACTIVE } });
+    inventoryId = inventory.id;
+    await first.gatewayCertificate.create({ data: { inventoryId, gatewayId, purpose: "device", certificateSerial: "01", fingerprint: ACTIVE, issuer: "device-ca", status: "active", notBefore: new Date(Date.now() - 86400000), notAfter: new Date(Date.now() + 86400000) } });
+    await first.gatewayCertificate.create({ data: { inventoryId, gatewayId, purpose: "device", certificateSerial: "02", fingerprint: PENDING, issuer: "device-ca", status: "pending", notBefore: new Date(), notAfter: new Date(Date.now() + 864000000) } });
+    sequence = 10;
+    ca = { signCsr: jest.fn(async () => signed()), revoke: jest.fn(async () => { throw new Error("provider-secret"); }), readCrl: jest.fn() };
+  });
+  function signed() {
+    sequence += 1;
+    return { certificatePem: "fixture-public-certificate", caChainPem: ["fixture-ca"], issuer: "fixture-ca", certificateSerial: sequence.toString(16), fingerprint: sequence.toString(16).padStart(64, "0"), notBefore: new Date().toISOString(), notAfter: new Date(Date.now() + 864000000).toISOString() };
+  }
+  function services(db: any) {
+    const reconciliation = new CertificateRevocationReconciliationService(db, ca);
+    const lifecycle = new CertificateLifecycleService(db, ca, validator, undefined, undefined, reconciliation);
+    return { lifecycle, mqtt: new GatewayCertificateService(db, ca, validator, reconciliation), disable: new GatewayOnboardingService(db, {} as never, lifecycle),
+      manufacturing: new ManufacturingEnrollmentService(db, ca, validator, { apiCaBundlePem: "fixture", mqttCaBundlePem: "fixture", manufacturingCaFingerprint: null }, reconciliation) };
+  }
+  async function assertDisabled(expectedLedgerCount = 2) {
+    expect(await first.gatewayCertificate.count({ where: { inventoryId, status: { in: ["active", "pending"] } } })).toBe(0);
+    expect((await first.gatewayInventory.findUniqueOrThrow({ where: { id: inventoryId } })).certificateFingerprint).toBeNull();
+    expect((await first.gateway.findUniqueOrThrow({ where: { id: gatewayId } })).certificateFingerprint).toBeNull();
+    const ledger = await first.certificateRevocationReconciliation.findMany({ where: { inventoryId } });
+    expect(ledger.length).toBe(expectedLedgerCount);
+    expect(ledger.every(row => row.cancelledAt === null && row.completedAt === null)).toBe(true);
+  }
+  async function waitForLock() {
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const rows = await observer.$queryRaw<any[]>`SELECT pid FROM pg_stat_activity WHERE datname = 'pki_concurrency' AND wait_event_type = 'Lock'`;
+      if (rows.length) return;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error("expected a PostgreSQL Lock wait on the inventory boundary");
+  }
+  // Pause after a real transaction mutation, retaining its actual PostgreSQL locks.
+  function pausedInventoryUpdate(db: PrismaClient, reached: ReturnType<typeof barrier>, resume: ReturnType<typeof barrier>) {
+    return new Proxy(db, { get(target, key) {
+      if (key !== "$transaction") return Reflect.get(target, key);
+      return (callback: any, options: any) => target.$transaction(tx => callback(new Proxy(tx, { get(transaction, field) {
+        if (field !== "gatewayInventory") return Reflect.get(transaction, field);
+        return new Proxy(transaction.gatewayInventory, { get(delegate, method) {
+          if (method !== "update") return Reflect.get(delegate, method);
+          return async (args: any) => { const value = await delegate.update(args); reached.release(); await resume.promise; return value; };
+        } });
+      } })), options);
+    } });
+  }
+  const run = (kind: string, service: ReturnType<typeof services>) => kind === "mqtt"
+    ? service.mqtt.issueMqttCertificate({ csrPem: "fixture-csr", deviceCertificateFingerprint: ACTIVE })
+    : kind === "renew" ? service.lifecycle.renewDeviceCertificate({ csrPem: "fixture-csr", deviceCertificateFingerprint: ACTIVE })
+    : service.lifecycle.activateDeviceCertificate({ deviceCertificateFingerprint: PENDING });
+
+  it.each(["mqtt", "renew", "activate"])("disable-first blocks stale %s at the shared inventory lock", async kind => {
+    if (kind === "renew") await first.gatewayCertificate.deleteMany({ where: { fingerprint: PENDING } });
+    const reached = barrier(); const resume = barrier();
+    const disabling = services(pausedInventoryUpdate(second, reached, resume)).disable.disableInventory(operator as never, inventoryId).catch(error => error);
+    await reached.promise;
+    const issuing = run(kind, services(first)).then(() => "issued", () => "rejected");
+    try { await waitForLock(); } finally { resume.release(); }
+    await disabling;
+    expect(await issuing).toBe("rejected");
+    expect(ca.signCsr).not.toHaveBeenCalled();
+    if (kind === "renew") {
+      expect(await first.certificateRevocationReconciliation.count({ where: { inventoryId } })).toBe(1);
+      expect(await first.gatewayCertificate.count({ where: { status: { in: ["active", "pending"] } } })).toBe(0);
+      expect((await first.gatewayInventory.findUniqueOrThrow({ where: { id: inventoryId } })).certificateFingerprint).toBeNull();
+      expect((await first.gateway.findUniqueOrThrow({ where: { id: gatewayId } })).certificateFingerprint).toBeNull();
+    } else await assertDisabled();
+  });
+
+  it.each(["mqtt", "renew", "activate"])("%s-first makes disable wait and revoke every committed identity", async kind => {
+    if (kind === "renew") await first.gatewayCertificate.deleteMany({ where: { fingerprint: PENDING } });
+    const reached = barrier(); const resume = barrier();
+    ca.signCsr.mockImplementationOnce(async () => { reached.release(); await resume.promise; return signed(); });
+    const issuing = run(kind, services(kind === "activate" ? pausedInventoryUpdate(first, reached, resume) : first));
+    await reached.promise;
+    const disabling = services(second).disable.disableInventory(operator as never, inventoryId).catch(error => error);
+    try { await waitForLock(); } finally { resume.release(); }
+    await issuing;
+    await disabling;
+    await assertDisabled(kind === "mqtt" ? 3 : 2);
+  });
+
+  it("serializes concurrent MQTT issuance and retains cancellation records", async () => {
+    await Promise.all([run("mqtt", services(first)), run("mqtt", services(second))]);
+    expect(await first.gatewayCertificate.count({ where: { purpose: "mqtt", status: "active" } })).toBe(1);
+    expect(await first.gatewayCertificate.count({ where: { purpose: "mqtt", status: "replaced", replacedById: { not: null } } })).toBe(1);
+    expect(await first.certificateRevocationReconciliation.count({ where: { cancelledAt: { not: null } } })).toBe(2);
+  });
+
+  it("normally renews then activates with both pointers and a cancelled orphan ledger", async () => {
+    await first.gatewayCertificate.deleteMany({ where: { fingerprint: PENDING } });
+    await run("renew", services(first));
+    const pending = await first.gatewayCertificate.findFirstOrThrow({ where: { status: "pending" } });
+    await services(second).lifecycle.activateDeviceCertificate({ deviceCertificateFingerprint: pending.fingerprint });
+    expect(await first.gatewayCertificate.count({ where: { purpose: "device", status: "active" } })).toBe(1);
+    expect((await first.gatewayInventory.findUniqueOrThrow({ where: { id: inventoryId } })).certificateFingerprint).toBe("0".repeat(63) + "B");
+    expect((await first.gateway.findUniqueOrThrow({ where: { id: gatewayId } })).certificateFingerprint).toBe("0".repeat(63) + "B");
+    expect(await first.certificateRevocationReconciliation.count({ where: { cancelledAt: { not: null } } })).toBe(1);
+  });
+
+  it.each(["disable-first", "sign-first"])("initial device enrollment participates in %s inventory exclusion", async order => {
+    await first.gatewayCertificate.deleteMany();
+    const inventory = await first.gatewayInventory.update({ where: { id: inventoryId }, data: { certificateFingerprint: null, claimedGatewayId: null } });
+    await first.gateway.update({ where: { id: gatewayId }, data: { certificateFingerprint: null } });
+    const enrollment = await services(first).manufacturing.createEnrollment({ serialNumber: inventory.serialNumber, stationIdentity: "fixture" });
+    const reached = barrier(); const resume = barrier();
+    ca.signCsr.mockImplementationOnce(async () => {
+      if (order === "sign-first") { reached.release(); await resume.promise; }
+      return { ...signed(), caChainPem: [rootCertificates[0]] };
+    });
+    const enroll = () => services(first).manufacturing.enrollDevice({ serialNumber: inventory.serialNumber, token: enrollment.enrollmentToken, csrPem: "fixture-csr" }).then(() => "issued", () => "rejected");
+    let issuing: Promise<string>; let disabling: Promise<unknown>;
+    if (order === "sign-first") {
+      issuing = enroll(); await reached.promise;
+      disabling = services(second).disable.disableInventory(operator as never, inventoryId).catch(error => error);
+    } else {
+      disabling = services(pausedInventoryUpdate(second, reached, resume)).disable.disableInventory(operator as never, inventoryId).catch(error => error);
+      await reached.promise; issuing = enroll();
+    }
+    try { await waitForLock(); } finally { resume.release(); }
+    expect(await issuing).toBe(order === "sign-first" ? "issued" : "rejected");
+    await disabling;
+    expect(await first.gatewayCertificate.count({ where: { status: { in: ["active", "pending"] } } })).toBe(0);
+    expect((await first.gatewayInventory.findUniqueOrThrow({ where: { id: inventoryId } })).certificateFingerprint).toBeNull();
+    expect(await first.certificateRevocationReconciliation.count({ where: { cancelledAt: null, completedAt: null } })).toBe(order === "sign-first" ? 1 : 0);
+  });
+
+  it.each(["mqtt", "renew"])("%s rollback retains a signed orphan and a fresh worker completes its revocation", async kind => {
+    if (kind === "renew") await first.gatewayCertificate.deleteMany({ where: { fingerprint: PENDING } });
+    const broken = new Proxy(first, { get(db, key) {
+      if (key !== "$transaction") return Reflect.get(db, key);
+      return (callback: any, options: any) => db.$transaction(tx => callback(new Proxy(tx, { get(transaction, field) {
+        if (field !== "gatewayCertificate") return Reflect.get(transaction, field);
+        return new Proxy(transaction.gatewayCertificate, { get(delegate, method) {
+          if (method !== "create") return Reflect.get(delegate, method);
+          return async () => { throw new Error("database rejection after CA signing"); };
+        } });
+      } })), options);
+    } });
+    await expect(run(kind, services(broken))).rejects.toThrow();
+    const orphan = await second.certificateRevocationReconciliation.findFirstOrThrow();
+    expect(orphan.cancelledAt).toBeNull();
+    expect(orphan.completedAt).toBeNull();
+    expect(orphan.fingerprint).toBe("0".repeat(63) + "B");
+    expect(await second.gatewayCertificate.count({ where: { fingerprint: orphan.fingerprint } })).toBe(0);
+    await second.certificateRevocationReconciliation.update({ where: { id: orphan.id }, data: { nextAttemptAt: new Date(0) } });
+    ca.revoke.mockResolvedValue(undefined);
+    ca.readCrl.mockResolvedValue(Buffer.from("current-crl"));
+    const restarted = new CertificateRevocationReconciliationService(second as never, ca, { deviceCrlPath: "/fixture/device.crl", mqttCrlPath: "/fixture/mqtt.crl", publishCrl: jest.fn().mockResolvedValue({ changed: true }) });
+    await restarted.processNow(orphan.id);
+    const completed = await second.certificateRevocationReconciliation.findUniqueOrThrow({ where: { id: orphan.id } });
+    expect(completed.cancelledAt).toBeNull();
+    expect(completed.revokedAt).not.toBeNull();
+    expect(completed.completedAt).not.toBeNull();
+  });
+
+  it("site deletion waits for MQTT signing and retains every revocation after Gateway cascade", async () => {
+    const gateway = await first.gateway.findUniqueOrThrow({ where: { id: gatewayId }, include: { site: true } });
+    const admin = await first.user.create({ data: { organizationId: gateway.site.organizationId, loginId: randomUUID(), name: "fixture", passwordHash: "fixture", role: "admin" } });
+    await first.site.update({ where: { id: gateway.siteId }, data: { adminUserId: admin.id } });
+    const reached = barrier(); const resume = barrier();
+    ca.signCsr.mockImplementationOnce(async () => { reached.release(); await resume.promise; return signed(); });
+    const issuance = run("mqtt", services(first));
+    await reached.promise;
+    const deletion = new OperatorSiteAdminsService(second as never, {} as never, { record: async () => undefined } as never,
+      { prepareReportDeletion: async () => null, processNow: async () => undefined } as never, services(second).lifecycle);
+    const deleting = deletion.deleteSiteAdmin(operator as never, admin.id, gateway.site.name).catch(error => error);
+    try { await waitForLock(); } finally { resume.release(); }
+    await issuance;
+    const outcome = await deleting;
+    // Serializable deletion may observe a pre-sign snapshot; retry is safe and
+    // explicitly required by the API's existing conflict contract.
+    if (outcome instanceof Error) await deletion.deleteSiteAdmin(operator as never, admin.id, gateway.site.name);
+    expect(await first.gateway.count({ where: { id: gatewayId } })).toBe(0);
+    expect(await first.gatewayCertificate.count({ where: { inventoryId, status: { in: ["active", "pending"] } } })).toBe(0);
+    expect((await first.gatewayInventory.findUniqueOrThrow({ where: { id: inventoryId } })).certificateFingerprint).toBeNull();
+    expect(await first.certificateRevocationReconciliation.count({ where: { inventoryId, cancelledAt: null } })).toBe(3);
+  });
+});
