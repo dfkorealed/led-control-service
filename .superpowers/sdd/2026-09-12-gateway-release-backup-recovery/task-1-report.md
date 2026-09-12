@@ -2,6 +2,8 @@
 
 기준일: 2026-09-12
 
+후속 독립 리뷰 수정: 최신 보장 범위는 `apps/gateway/RELEASE-BUNDLE.md`와 `task-1-fix-report.md`를 따른다. `appliance.env`의 test-mode는 strict `0|1`로 변경되었고, manifest에 bounded `privateMaterialScan` profile을 추가했다. 아래 최초 50/24/608 검증은 원 기능 커밋의 역사적 증거이며 후속 HEAD의 재실행 결과로 확대하지 않는다.
+
 ## 상태와 범위
 
 - Task 1 구현·focused 검증·자체 리뷰 완료. 후속 activation/rollback, encrypted backup/restore, CI/runbook 통합은 수정하지 않았다.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -51,7 +51,8 @@ function fails(result, reason) {
 function tar(entries) {
   const blocks = [];
   for (const [name, value] of Object.entries(entries)) {
-    const data = Buffer.from(value);
+    const entry = typeof value === "object" && !Buffer.isBuffer(value) ? value : { data: value };
+    const data = Buffer.from(entry.data ?? "");
     const header = Buffer.alloc(512);
     header.write(name, 0, 100);
     header.write("0000644\0", 100);
@@ -60,7 +61,8 @@ function tar(entries) {
     header.write(data.length.toString(8).padStart(11, "0") + "\0", 124);
     header.write("00000000000\0", 136);
     header.fill(32, 148, 156);
-    header.write("0", 156);
+    header.write(entry.type ?? "0", 156);
+    if (entry.linkname) header.write(entry.linkname, 157, 100);
     header.write("ustar\0", 257);
     header.write("00", 263);
     header.write([...header].reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, "0") + "\0 ", 148);
@@ -118,8 +120,10 @@ async function fixture(t, options = {}) {
   const imageInventory = structuredClone(options.inventory ?? inventory);
   imageInventory.os.packages[0] && (imageInventory.os.packages[0].architecture = platform.split("/")[1]);
   const inventoryBytes = canonical(imageInventory);
-  const layer = tar({ "usr/local/share/gateway-release-inventory.json": inventoryBytes, ...options.layerFiles });
-  const config = { architecture: platform.split("/")[1], os: "linux", config: { Labels: labels }, rootfs: { type: "layers", diff_ids: [`sha256:${hash(layer)}`] } };
+  const layerObjects = options.layers?.(inventoryBytes) ?? [{ "usr/local/share/gateway-release-inventory.json": inventoryBytes, ...options.layerFiles }];
+  const layers = layerObjects.map((entries) => tar(entries));
+  const layerNames = layers.map((_, index) => `layer-${index}/layer.tar`);
+  const config = { architecture: platform.split("/")[1], os: "linux", config: { Labels: labels }, rootfs: { type: "layers", diff_ids: layers.map((layer) => `sha256:${hash(layer)}`) } };
   const configBytes = canonical(config);
   const configDigest = `sha256:${hash(configBytes)}`;
   const configName = `${hash(configBytes)}.json`;
@@ -127,7 +131,8 @@ async function fixture(t, options = {}) {
   const image = { Id: configDigest, Architecture: config.architecture, Os: config.os, Config: config.config, RepoTags: [`led-control-gateway:${imageTag}`] };
   options.mutateInspect?.(image);
   const archive = path.join(directory, "image.tar");
-  await writeFile(archive, tar({ "manifest.json": JSON.stringify([{ Config: configName, RepoTags: [`led-control-gateway:${imageTag}`], Layers: ["layer/layer.tar"] }]), [configName]: configBytes, "layer/layer.tar": layer }));
+  await writeFile(archive, tar({ "manifest.json": JSON.stringify([{ Config: configName, RepoTags: [`led-control-gateway:${imageTag}`], Layers: layerNames }]),
+    [configName]: configBytes, ...Object.fromEntries(layerNames.map((name, index) => [name, layers[index]])) }));
   const inspect = path.join(directory, "inspect.json");
   const inventoryFile = path.join(directory, "inventory.json");
   await writeFile(inspect, JSON.stringify([image]));
@@ -171,6 +176,158 @@ async function updateJson(output, file, change) {
   await checksums(output);
 }
 
+// Rebind all non-secret provenance to an adversarial archive so a verify
+// rejection proves content/overlay validation, not an unrelated stale hash.
+async function replaceBundleImage(result, image) {
+  const filename = path.join(result.output, "release-manifest.json");
+  const manifest = JSON.parse(await readFile(filename, "utf8"));
+  const previousId = manifest.releaseId;
+  manifest.image.configDigest = image.configDigest;
+  manifest.releaseId = `${manifest.gatewayVersion}-${manifest.gitCommit}-${image.configDigest.slice(7, 23)}${manifest.testMode ? "-test" : ""}`;
+  await writeFile(path.join(result.output, manifest.image.archive), await readFile(image.archive));
+  await writeFile(filename, canonical(manifest));
+  const envFile = path.join(result.output, "appliance.env");
+  await writeFile(envFile, (await readFile(envFile, "utf8"))
+    .replace(/^GATEWAY_IMAGE_CONFIG_DIGEST=.*$/m, `GATEWAY_IMAGE_CONFIG_DIGEST=${image.configDigest}`)
+    .replace(/^GATEWAY_RELEASE_ID=.*$/m, `GATEWAY_RELEASE_ID=${manifest.releaseId}`));
+  const sbomFile = path.join(result.output, "sbom.spdx.json");
+  const sbom = JSON.parse(await readFile(sbomFile, "utf8"));
+  sbom.name = sbom.name.replace(previousId, manifest.releaseId);
+  sbom.documentNamespace = sbom.documentNamespace.replace(previousId, manifest.releaseId);
+  await writeFile(sbomFile, canonical(sbom));
+  await checksums(result.output);
+}
+
+test("OCI whiteouts require final visible inventory at every root/ancestor and ignore same-layer ordering", async (t) => {
+  const entry = "usr/local/share/gateway-release-inventory.json";
+  const markers = [".wh.usr", "usr/.wh.local", "usr/local/.wh.share", "usr/local/share/.wh.gateway-release-inventory.json",
+    ".wh..wh..opq", "usr/.wh..wh..opq", "usr/local/.wh..wh..opq", "usr/local/share/.wh..wh..opq"];
+  for (const marker of markers) {
+    await t.test(`${marker}: later layer hides inventory`, async (t) => {
+      const hidden = await fixture(t, { layers: (bytes) => [{ [entry]: bytes }, { [marker]: "" }] });
+      fails(run(hidden.createArgs), /inventory/);
+      const result = await created(t);
+      await replaceBundleImage(result, hidden);
+      fails(run(result.verifyArgs), /inventory/);
+    });
+    await t.test(`${marker}: later inventory survives earlier marker`, async (t) => {
+      const result = await created(t, { layers: (bytes) => [{ [marker]: "" }, { [entry]: bytes }] });
+      succeeds(run(result.verifyArgs));
+    });
+    for (const order of ["before", "after"]) await t.test(`${marker}: same-layer marker ${order} replacement`, async (t) => {
+      const result = await created(t, { layers: (bytes) => {
+        const old = JSON.parse(bytes);
+        old.node.packages[0].version = "1.0.0";
+        const entries = order === "before" ? { [marker]: "", [entry]: bytes } : { [entry]: bytes, [marker]: "" };
+        return [{ [entry]: canonical(old) }, entries];
+      } });
+      succeeds(run(result.verifyArgs));
+      const sbom = JSON.parse(await readFile(path.join(result.output, "sbom.spdx.json"), "utf8"));
+      assert.ok(sbom.packages.some((item) => item.name === "mqtt" && item.versionInfo === "5.15.2"));
+    });
+  }
+});
+
+test("OCI inventory validation reads only the final visible regular-file contents", async (t) => {
+  const result = await created(t, { layers: (bytes) => [
+    { "usr/local/share/gateway-release-inventory.json": "not-json-no-longer-visible" },
+    { ".wh.usr": "" }, { "usr/local/share/gateway-release-inventory.json": bytes },
+  ] });
+  succeeds(run(result.verifyArgs));
+});
+
+test("OCI ancestor replacement cannot revive a removed inventory or resolve it through a symlink", async (t) => {
+  const entry = "usr/local/share/gateway-release-inventory.json";
+  for (const ancestor of ["usr", "usr/local", "usr/local/share"]) await t.test(ancestor, async (t) => {
+    for (const replacement of [{ data: "not-a-directory" }, { type: "2", linkname: "/outside" }]) {
+      const hidden = await fixture(t, { layers: (bytes) => [{ [entry]: bytes }, { [ancestor]: replacement }, { [ancestor]: { type: "5" } }] });
+      fails(run(hidden.createArgs), /inventory/);
+    }
+    const result = await created(t, { layers: (bytes) => [
+      { [entry]: bytes }, { [ancestor]: { type: "2", linkname: "/outside" } },
+      { [ancestor]: { type: "5" }, [entry]: bytes },
+    ] });
+    succeeds(run(result.verifyArgs));
+  });
+});
+
+test("private-material content detection rejects ephemeral DER and base64 keys in allowed bundle/layer filenames", async (t) => {
+  // Ephemeral test-only material, never operational keys or checked-in bytes.
+  const ec = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = ec.privateKey.export({ type: "pkcs8", format: "pem" });
+  const der = ec.privateKey.export({ type: "pkcs8", format: "der" });
+  const encryptedDer = ec.privateKey.export({ type: "pkcs8", format: "der", cipher: "aes-256-cbc", passphrase: "ephemeral-test-only" });
+  const fixtures = {
+    "DER PKCS8": der,
+    "DER PKCS1": rsa.privateKey.export({ type: "pkcs1", format: "der" }),
+    "DER SEC1": ec.privateKey.export({ type: "sec1", format: "der" }),
+    "encrypted DER PKCS8": encryptedDer,
+    "base64 encrypted DER": Buffer.from(encryptedDer.toString("base64")),
+    "base64 PEM in text": Buffer.from(`value: ${Buffer.from(pem).toString("base64")}\n`),
+    "wrapped base64 PEM": Buffer.from(Buffer.from(pem).toString("base64").match(/.{1,64}/g).join("\n")),
+    "base64 DER in JSON": Buffer.from(JSON.stringify({ payload: der.toString("base64") })),
+    "wrapped base64 DER short final line": Buffer.from(der.toString("base64").match(/.{1,80}/g).join("\n")),
+    "spaced base64 DER": Buffer.from(der.toString("base64").split("").join(" \n")),
+    "DER across stream boundary": Buffer.concat([Buffer.alloc(65530, 0), der]),
+    "base64 PEM across stream boundary": Buffer.from(" ".repeat(65530) + Buffer.from(pem).toString("base64")),
+  };
+  for (const [name, contents] of Object.entries(fixtures)) {
+    await t.test(`${name}: bundle text`, async (t) => {
+      const result = await created(t);
+      await writeFile(path.join(result.output, "compose.yml"), contents, { mode: 0o600 });
+      await checksums(result.output);
+      const verification = run(result.verifyArgs);
+      fails(verification, /private key material/);
+      assert.ok(!verification.stderr.includes(der.toString("base64")), "no key bytes in errors");
+    });
+    await t.test(`${name}: image layer`, async (t) => {
+      const malicious = await fixture(t, { layerFiles: { "opt/data.dat": contents } });
+      fails(run(malicious.createArgs), /private key material/);
+      const result = await created(t);
+      await replaceBundleImage(result, malicious);
+      fails(run(result.verifyArgs), /private key material/);
+    });
+  }
+  const publicDer = ec.publicKey.export({ type: "spki", format: "der" });
+  const result = await created(t, { layerFiles: { "opt/public.dat": publicDer, "opt/public.txt": publicDer.toString("base64") } });
+  succeeds(run(result.verifyArgs));
+});
+
+test("manifest states the bounded private-material scan profile and refuses a weakened claim", async (t) => {
+  const result = await created(t);
+  const manifest = JSON.parse(await readFile(path.join(result.output, "release-manifest.json"), "utf8"));
+  assert.deepEqual(manifest.privateMaterialScan, {
+    profile: "led-control-private-material/v1",
+    scope: "bundle-files-and-all-uncompressed-image-layer-bytes",
+    pem: "literal-private-key-markers",
+    der: "node-crypto-pkcs1-pkcs8-sec1-and-passphrase-required-pkcs8",
+    base64: "one-standard-base64-layer-with-ascii-whitespace",
+    maxDerBytes: 65536,
+    maxBase64CandidateChars: 131072,
+    oversizedRecognizedCandidates: "reject",
+    notCovered: ["general-secrets", "decryption", "decompression", "other-encodings-or-obfuscation"],
+  });
+  await updateJson(result.output, "release-manifest.json", (value) => { value.privateMaterialScan = { profile: "none" }; });
+  fails(run(result.verifyArgs), /private-material scan profile/);
+});
+
+test("appliance.env serializes and verifies strict numeric test-mode values", async (t) => {
+  for (const [testMode, expected] of [[false, "0"], [true, "1"]]) {
+    const result = await created(t, { testMode });
+    const filename = path.join(result.output, "appliance.env");
+    const original = await readFile(filename, "utf8");
+    assert.match(original, new RegExp(`^GATEWAY_RELEASE_TEST_MODE=${expected}$`, "m"));
+    const verify = [...result.verifyArgs, ...(testMode ? ["--allow-test-mode"] : [])];
+    succeeds(run(verify));
+    for (const bad of ["true", "false", "00", "01", "2", "", testMode ? "0" : "1"]) {
+      await writeFile(filename, original.replace(/^GATEWAY_RELEASE_TEST_MODE=.*$/m, `GATEWAY_RELEASE_TEST_MODE=${bad}`));
+      await checksums(result.output);
+      fails(run(verify), /appliance.env/);
+    }
+  }
+});
+
 test("checked-in policy fixes the exact platform, BlueZ and firmware compatibility", async () => {
   assert.deepEqual(JSON.parse(await readFile(path.join(repository, "apps/gateway/release-policy.json"), "utf8")), policy);
 });
@@ -208,7 +365,7 @@ test("create binds a closed checksum set, shell metadata and SPDX OS/Node invent
   assert.ok(sbom.relationships.filter((item) => item.relationshipType === "CONTAINS").every((item) => ids.has(item.relatedSpdxElement)));
   const env = await readFile(path.join(result.output, "appliance.env"), "utf8");
   assert.match(env, new RegExp(`^GATEWAY_GIT_COMMIT=${result.commit}$`, "m"));
-  assert.match(env, /^GATEWAY_RELEASE_TEST_MODE=false$/m);
+  assert.match(env, /^GATEWAY_RELEASE_TEST_MODE=0$/m);
   assert.match(env, /^GATEWAY_IMAGE_CONFIG_DIGEST=sha256:[a-f0-9]{64}$/m);
   succeeds(run([...result.verifyArgs, "--expected-commit", result.commit]));
   fails(run([...result.verifyArgs, "--expected-commit", "b".repeat(40)]), /expected source commit mismatch/);

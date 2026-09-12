@@ -2,7 +2,7 @@
 // Build/CI tooling only. The Pi release manager consumes checksum-protected,
 // allowlisted appliance.env; it must not assume Node is installed on the host.
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createPrivateKey } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -14,6 +14,18 @@ const checksumFile = "checksums.sha256";
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const commitPattern = /^[a-f0-9]{40}$/;
 const versionPattern = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$/;
+const privateMaterialScan = {
+  profile: "led-control-private-material/v1",
+  scope: "bundle-files-and-all-uncompressed-image-layer-bytes",
+  pem: "literal-private-key-markers",
+  der: "node-crypto-pkcs1-pkcs8-sec1-and-passphrase-required-pkcs8",
+  base64: "one-standard-base64-layer-with-ascii-whitespace",
+  maxDerBytes: 65536,
+  maxBase64CandidateChars: 131072,
+  oversizedRecognizedCandidates: "reject",
+  notCovered: ["general-secrets", "decryption", "decompression", "other-encodings-or-obfuscation"],
+};
+const privatePemMarker = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/;
 const fail = (message) => { throw new Error(message); };
 const requireValue = (condition, message) => { if (!condition) fail(message); };
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -98,16 +110,91 @@ async function readJson(filename, canonical = false) {
   return value;
 }
 
+function derSequence(bytes, offset) {
+  if (bytes[offset] !== 0x30 || offset + 2 > bytes.length) return undefined;
+  const first = bytes[offset + 1];
+  const count = first & 0x7f;
+  if (first < 0x80) return { body: offset + 2, end: offset + 2 + first };
+  if (count === 0 || count > 4 || offset + 2 + count > bytes.length || bytes[offset + 2] === 0) return undefined;
+  const length = bytes.readUIntBE(offset + 2, count);
+  if (length < 128) return undefined;
+  return { body: offset + 2 + count, end: offset + 2 + count + length };
+}
+
+function privateDerType(bytes, sequence) {
+  const { body, end } = sequence;
+  if (bytes[body] === 0x02 && bytes[body + 1] === 1 && [0, 1].includes(bytes[body + 2])) {
+    return { 0x30: "pkcs8", 0x02: "pkcs1", 0x04: "sec1" }[bytes[body + 3]];
+  }
+  // EncryptedPrivateKeyInfo has AlgorithmIdentifier followed by OCTET STRING.
+  // Only Node crypto's explicit missing-passphrase outcome identifies a key;
+  // arbitrary ASN.1 sequences and public SPKI/certificates are not rejected.
+  const algorithm = derSequence(bytes, body);
+  if (algorithm && algorithm.end < end && bytes[algorithm.body] === 0x06 && bytes[algorithm.end] === 0x04) return "pkcs8";
+  return undefined;
+}
+
+function rejectPrivateDer(bytes) {
+  for (let offset = bytes.indexOf(0x30); offset !== -1; offset = bytes.indexOf(0x30, offset + 1)) {
+    const sequence = derSequence(bytes, offset);
+    const type = sequence && privateDerType(bytes, sequence);
+    if (!type) continue;
+    requireValue(sequence.end - offset <= privateMaterialScan.maxDerBytes, "private key material candidate exceeds DER scan bound");
+    if (sequence.end > bytes.length) continue; // The bounded carry completes split DER objects.
+    let detected = false;
+    try {
+      detected = createPrivateKey({ key: bytes.subarray(offset, sequence.end), format: "der", type }).type === "private";
+    } catch (error) {
+      detected = type === "pkcs8" && error.code === "ERR_MISSING_PASSPHRASE";
+    }
+    requireValue(!detected, "private key material is forbidden (DER)");
+  }
+}
+
+function rejectPrivateContent(bytes) {
+  const text = bytes.toString("latin1");
+  requireValue(!privatePemMarker.test(text), "private key material is forbidden (PEM)");
+  rejectPrivateDer(bytes);
+}
+
+function rejectPrivateBase64(text) {
+  // One standard base64 layer, either a token in text/JSON or whitespace-
+  // wrapped lines. This is intentionally not a general secret detector or a
+  // recursive decoder. The exact profile and limits are part of the manifest.
+  for (const token of text.matchAll(/[A-Za-z0-9+/=]{32,}/g)) {
+    // A DER SEQUENCE starts with base64 M[A-P]; a PEM header starts with LS0t.
+    // Locating that start also handles surrounding prose after whitespace is
+    // normalized, without assuming an encoding starts at the stream boundary.
+    for (const start of token[0].matchAll(/LS0tLS1CRUdJTi|M[A-P][A-Za-z0-9+/]{2}/g)) {
+      const candidate = token[0].slice(start.index, start.index + privateMaterialScan.maxBase64CandidateChars);
+      const prefix = Buffer.from(candidate.slice(0, 512), "base64");
+      requireValue(!privatePemMarker.test(prefix.toString("latin1")), "private key material is forbidden (base64 PEM)");
+      const sequence = derSequence(prefix, 0);
+      if (!sequence) continue;
+      const algorithm = derSequence(prefix, sequence.body);
+      if (!privateDerType(prefix, sequence) && !(algorithm && prefix[algorithm.body] === 0x06)) continue;
+      requireValue(sequence.end <= privateMaterialScan.maxDerBytes, "private key material candidate exceeds DER scan bound");
+      rejectPrivateDer(Buffer.from(candidate.slice(0, Math.ceil(sequence.end / 3) * 4), "base64"));
+    }
+  }
+}
+
 async function digestRange(filename, start = 0, size, scanSecrets = true) {
   const hash = createHash("sha256");
-  let tail = "";
+  let tail = Buffer.alloc(0);
+  let base64Tail = "";
   if (size === 0) return hash.digest("hex");
   for await (const chunk of createReadStream(filename, { start, ...(size === undefined ? {} : { end: start + size - 1 }) })) {
     hash.update(chunk);
     if (scanSecrets) {
-      const text = tail + chunk.toString("latin1");
-      requireValue(!/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/.test(text), "private key material is forbidden");
-      tail = text.slice(-128); // Detect a PEM marker spanning stream chunks.
+      const bytes = Buffer.concat([tail, chunk]);
+      rejectPrivateContent(bytes);
+      tail = bytes.subarray(-privateMaterialScan.maxDerBytes);
+      // Keep a separate normalized carry so arbitrary ASCII whitespace and
+      // short final base64 lines cannot consume or split the candidate window.
+      const base64Text = base64Tail + chunk.toString("latin1").replace(/[\t\r\n ]/g, "");
+      rejectPrivateBase64(base64Text);
+      base64Tail = base64Text.slice(-privateMaterialScan.maxBase64CandidateChars);
     }
   }
   return hash.digest("hex");
@@ -268,7 +355,8 @@ async function inspectArchive(filename) {
   const config = await tarJson(filename, byName.get(record.Config));
   const diffIds = config.value.rootfs?.diff_ids;
   requireValue(Array.isArray(diffIds) && diffIds.length === record.Layers.length, "image layer digest count mismatch");
-  let imageInventory;
+  let visibleInventory;
+  const blockedInventoryAncestors = new Set();
   const seenLayers = new Set();
   for (const [index, name] of record.Layers.entries()) {
     safePath(name, "image layer path");
@@ -278,18 +366,40 @@ async function inspectArchive(filename) {
     requireValue(layer?.type === "0", "missing image layer");
     requireValue(`sha256:${await digestRange(filename, layer.offset, layer.size)}` === diffIds[index], "image layer digest mismatch");
     const members = await tarEntries(filename, layer.offset, layer.size);
+    // OCI whiteouts remove only lower-layer entries, regardless of their tar
+    // ordering relative to same-layer additions. First mask the old inventory
+    // for every deleted/opaque ancestor (including the image root), then apply
+    // this layer's entries. Keep offsets and parse only the final visible file.
+    for (const member of members) {
+      const basename = path.posix.basename(member.name);
+      const directory = path.posix.dirname(member.name);
+      if (!basename.startsWith(".wh.")) continue;
+      requireValue(member.type === "0" && member.size === 0, "invalid OCI whiteout marker");
+      const target = basename === ".wh..wh..opq" ? directory : path.posix.join(directory, basename.slice(4));
+      if (target === "." || target === inventoryPath || inventoryPath.startsWith(`${target}/`)) visibleInventory = undefined;
+      for (const ancestor of blockedInventoryAncestors) {
+        if (target === "." || ancestor.startsWith(`${target}/`) || (basename !== ".wh..wh..opq" && ancestor === target)) blockedInventoryAncestors.delete(ancestor);
+      }
+    }
     for (const member of members) {
       rejectSecretName(member.name);
       if (member.name === inventoryPath) {
-        imageInventory = await tarJson(filename, member);
+        visibleInventory = member;
+      } else if (inventoryPath.startsWith(`${member.name}/`)) {
+        if (member.type === "5") blockedInventoryAncestors.delete(member.name);
+        else {
+          blockedInventoryAncestors.add(member.name);
+          visibleInventory = undefined;
+        }
       }
-      // The embedded inventory is written in the final filesystem layer. A
-      // later whiteout cannot silently leave a stale inventory as evidence.
-      if (member.name === "usr/local/share/.wh.gateway-release-inventory.json"
-        || ["usr/.wh.local", "usr/local/.wh.share", "usr/local/share/.wh..wh..opq"].includes(member.name)) imageInventory = undefined;
     }
+    // A symlink/non-directory ancestor cannot make these literal archive
+    // coordinates visible. Recreating the directory later does not resurrect
+    // its old contents; a fresh inventory entry is required as well.
+    if (blockedInventoryAncestors.size > 0) visibleInventory = undefined;
   }
-  requireValue(imageInventory, "image has no embedded package inventory");
+  requireValue(visibleInventory?.type === "0", "image has no final visible regular-file package inventory");
+  const imageInventory = await tarJson(filename, visibleInventory);
   validateInventory(imageInventory.value);
   return {
     configDigest: `sha256:${config.hash}`,
@@ -313,7 +423,7 @@ export function applianceEnv(manifest) {
     GATEWAY_GIT_COMMIT: manifest.gitCommit,
     GATEWAY_GIT_COMMIT_TIMESTAMP: manifest.gitCommitTimestamp,
     GATEWAY_RELEASE_PLATFORM: manifest.platform,
-    GATEWAY_RELEASE_TEST_MODE: String(manifest.testMode),
+    GATEWAY_RELEASE_TEST_MODE: manifest.testMode ? "1" : "0",
     GATEWAY_RELEASE_POLICY_SHA256: manifest.policySha256,
     GATEWAY_LOCK_SHA256: manifest.lockSha256,
     GATEWAY_IMAGE_REPOSITORY: manifest.image.repository,
@@ -386,8 +496,9 @@ async function verifyBundle(options) {
   }
   requireValue(equal(checksumPaths, files.filter((name) => name !== checksumFile)), "checksum closure mismatch (extra/missing/unsorted file)");
   const manifest = await readJson(path.join(directory, "release-manifest.json"), true);
-  keys(manifest, "schema releaseId gatewayVersion gitCommit gitCommitTimestamp lockSha256 source platform testMode policySha256 bluez firmwareCompatibility image inventorySha256", "manifest");
+  keys(manifest, "schema releaseId gatewayVersion gitCommit gitCommitTimestamp lockSha256 source platform testMode policySha256 bluez firmwareCompatibility image inventorySha256 privateMaterialScan", "manifest");
   keys(manifest.image, "repository tag configDigest archive", "manifest image");
+  requireValue(equal(manifest.privateMaterialScan, privateMaterialScan), "private-material scan profile mismatch");
   requireValue(manifest.schema === policy.schema && manifest.source === policy.source && manifest.policySha256 === sha256(canonicalJson(policy))
     && equal(manifest.bluez, policy.bluez) && equal(manifest.firmwareCompatibility, policy.firmwareCompatibility), "release policy/schema mismatch");
   requireValue(commitPattern.test(manifest.gitCommit) && versionPattern.test(manifest.gatewayVersion)
@@ -448,6 +559,7 @@ async function createBundle(options) {
     bluez: policy.bluez, firmwareCompatibility: policy.firmwareCompatibility,
     image: { repository: image.repository, tag: image.tag, configDigest: image.configDigest, archive: archiveName(platform) },
     inventorySha256: image.inventorySha256,
+    privateMaterialScan,
   };
   manifest.releaseId = releaseId(manifest);
   for (const [label, expected] of Object.entries(imageLabels(manifest, policy))) requireValue(image.labels[label] === expected, `image label mismatch: ${label}`);

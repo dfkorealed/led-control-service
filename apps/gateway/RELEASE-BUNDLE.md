@@ -1,0 +1,48 @@
+# Gateway release bundle 검증 계약
+
+기준일: 2026-09-12
+
+이 문서는 Task 1의 build/CI 검증 범위다. Pi activation/rollback, backup/restore와 운영 승인 절차를 대신하지 않는다. Node CLI는 build/CI용이며 Pi host에 Node가 있다고 가정하지 않는다.
+
+## Artifact와 provenance
+
+`scripts/gateway-release-bundle.mjs create`는 clean Git checkout, 실제 `docker save` tar/config, Docker inspect와 image 내부 inventory를 입력으로 immutable bundle directory를 생성한다. `verify --bundle DIR --policy TRUSTED_POLICY --expected-commit FULL_SHA`는 config/layer digest, full commit, package version, lock/BlueZ/firmware policy, SPDX inventory와 전체 regular-file checksum closure를 비교한다. 기존 directory는 덮어쓰지 않는다.
+
+기본 platform은 `linux/arm64`다. `--test-mode --platform linux/amd64`는 명시적인 CI artifact이며 기본 verify에서 거부한다. `--allow-test-mode`는 disposable CI 검증 전용이다.
+
+## Image inventory의 최종 가시성
+
+Inventory 경로는 `usr/local/share/gateway-release-inventory.json`이다. 지원하는 압축하지 않은 layer를 순서대로 적용하되, 각 layer의 whiteout을 **이전 layer의 상태에 먼저** 적용하고 같은 layer의 새 파일은 그 뒤 반영한다. Tar 안 marker 순서는 결과를 바꾸지 않는다. 이는 [OCI layer whiteout 규칙](https://github.com/opencontainers/image-spec/blob/v1.1.1/layer.md#whiteouts)을 따른다.
+
+- `.wh.<name>`은 해당 경로와 하위 inventory를 제거한다. Root의 `.wh.usr`도 포함한다.
+- `.wh..wh..opq`는 해당 directory의 이전 layer 하위 내용을 가린다. Root와 `usr`, `usr/local`, `usr/local/share` 각각을 처리한다.
+- 상위 경로가 symlink나 일반 파일로 교체되면 inventory를 무효화한다. Directory를 다시 생성한 것만으로 이전 inventory를 복구하지 않는다.
+- 모든 layer 적용 뒤 보이는 최종 **일반 파일** 하나만 JSON/inventory로 읽는다. 지워지거나 가려진 옛 JSON은 최종 inventory가 아니다.
+
+## Private-material 검사의 정확한 범위
+
+Manifest의 `privateMaterialScan`에는 고정 profile `led-control-private-material/v1`과 아래 보장·한계가 들어간다. Verify는 profile을 생략하거나 약화한 manifest를 거부한다. 이 검사는 “어떤 형태의 secret도 없다”는 증명이 아니다.
+
+| 검사 | 보장 범위 |
+| --- | --- |
+| 파일 이름/형식 | Site `.env.appliance`, 개인키 이름/확장자, bundle symlink/hardlink/special file와 예상 밖 경로를 거부한다. 공개 CA `.pem`과 image 내부 정상 OS symlink 자체는 개인키로 보지 않는다. |
+| PEM | Literal private-key PEM header marker를 거부한다. 암호화 PEM marker도 포함한다. |
+| DER | ASN.1 definite-length SEQUENCE 후보 중 [Node `createPrivateKey`](https://nodejs.org/docs/latest-v22.x/api/crypto.html#cryptocreateprivatekeykey)가 인식하는 PKCS#1/PKCS#8/SEC1 private key를 거부한다. PKCS#8에서 명시적인 `ERR_MISSING_PASSPHRASE`가 발생하는 encrypted container도 거부한다. |
+| Base64 | 위 PEM/DER를 **표준 base64 한 겹**으로 감싼 내용도 검사한다. Space/tab/CR/LF, 짧은 마지막 줄, chunk 경계를 정규화한다. JSON/text 안의 인식 가능한 base64 시작 지점도 검사한다. |
+| 범위/예산 | Bundle regular-file bytes와 **삭제된 layer까지 포함한** 모든 지원 image layer bytes를 검사한다. DER object는 최대 65,536 bytes, base64 carry/candidate는 공백 제거 후 최대 131,072 characters다. 인식 가능한 과대 DER/key 후보는 fail-closed한다. 일반 파일 전체를 메모리에 올리지 않는다. |
+
+공개 SPKI/CA certificate를 개인키로 판정하지 않는 회귀도 유지한다. 오류에는 검사 종류만 남기며 key bytes, base64 원문, JSON excerpt나 passphrase를 출력하지 않는다. 테스트 개인키는 Node crypto로 매 실행 생성하는 disposable fixture뿐이다.
+
+검사하지 않는 범위: 일반 password/token/raw symmetric key, 임의의 obfuscation, 표준 base64 외 encoding, 재귀 encoding, 암호문 복호화, nested compressed payload 해제, 미지원 key/container 형식. 지원 image 형식도 압축하지 않은 `docker save` tar/layer에 한정된다. 인식 불가능한 암호문이나 arbitrary secret을 전부 탐지한다고 해석하면 안 된다.
+
+## Shell metadata 전달
+
+`appliance.env`는 checksum 보호를 받는 exact allowlist이며 shell 식이나 site 설정을 넣지 않는다. **`GATEWAY_RELEASE_TEST_MODE=0|1`만 허용**한다. `0`은 production, `1`은 test-only다. `true`, `false`, 빈 값, `00`, `01`, 그 밖의 숫자나 manifest와 다른 값은 거부한다. JSON manifest의 `testMode`와 OCI label의 boolean text는 이 shell wire와 구분한다.
+
+13개 키: `GATEWAY_GIT_COMMIT`, `GATEWAY_GIT_COMMIT_TIMESTAMP`, `GATEWAY_IMAGE_ARCHIVE`, `GATEWAY_IMAGE_CONFIG_DIGEST`, `GATEWAY_IMAGE_REPOSITORY`, `GATEWAY_IMAGE_TAG`, `GATEWAY_LOCK_SHA256`, `GATEWAY_RELEASE_ID`, `GATEWAY_RELEASE_PLATFORM`, `GATEWAY_RELEASE_POLICY_SHA256`, `GATEWAY_RELEASE_SCHEMA`, `GATEWAY_RELEASE_TEST_MODE`, `GATEWAY_VERSION`.
+
+Task 2 consumer도 exact key allowlist/중복/누락/개별 값 범위를 검증해야 한다. Checksum과 provenance는 서명이 아니므로 trusted policy, expected commit과 승인된 배포 경로가 필요하다.
+
+## 검증 한계
+
+Task 1 fixtures는 실제 CLI/Git/tar/Bash를 실행하되 Docker 경계만 fixture로 대체한다. 실제 Docker image build/export/runtime inventory smoke는 Task 4 범위이며 Raspberry Pi, BlueZ/HCI/RF, 운영 키·identity·배포·HIL은 별도 승인·증거가 필요하다.
