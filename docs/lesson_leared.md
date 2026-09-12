@@ -539,3 +539,17 @@
 - **원인**: CI command의 존재와 순서 검증을 production DB trigger, post-commit lifecycle, 전역 제약, 실제 browser route, package-local 실행 환경의 최신 계약 검증과 동일하게 간주했다.
 - **해결 및 예방책**: 독립 job마다 frozen install과 Prisma Client 생성을 수행하고, task-owned PostgreSQL/Redis에 전체 migration을 적용한 in-band suite, 실제 host prerequisite를 쓰는 one-worker Chromium core, Gateway package와 동일한 cwd·`pnpm exec` context의 fail-closed HIL preflight를 각각 실행한다.
 - **반복 방지 체크**: CI 묶음을 추가하거나 production 계약을 바꾸면 정적 workflow test만으로 완료 처리하지 않는다. 사용자 자원과 분리된 disposable service/lab에서 fixture isolation, DB trigger, transaction 이후 처리, 실제 route와 cwd/PATH를 검증하고 모든 process/container/data cleanup까지 증거로 남긴다.
+
+## 2026-09-12 / watcher 생성과 이벤트 감시 시작은 같은 시점이 아닐 수 있다
+
+- **발생했던 문제/실수**: Signal path를 먼저 확인한 뒤 `fs.watch`를 만들거나, `fs/promises.watch()` iterator를 만든 직후 다시 확인하면 watcher가 이미 활성화됐다고 가정했다. Async generator는 첫 `next()`에서 실제 감시를 시작하므로 그 사이 단 한 번 생성된 signal을 놓쳐 테스트가 무기한 대기할 수 있었고, barrier wait가 cleanup 밖에 있어 writer와 process-group drain도 남을 수 있었다.
+- **원인**: API 객체 생성과 underlying watcher registration을 같은 lifecycle 경계로 취급하고, signal 소비자 실패와 producer/child 종료를 경쟁시키지 않았다.
+- **해결 및 예방책**: Pending `next()`에 resolve/reject handler를 즉시 붙여 watcher를 prime한 뒤 상태를 재확인한다. 이벤트를 받으면 다음 `next()`를 먼저 prime한 뒤 다시 읽어 감시 공백을 만들지 않는다. Observation, producer success/failure, abort, iterator end 모든 승자는 watcher를 닫고, barrier wait/read와 writer·child release/reap은 같은 `try/finally`에 둔다.
+- **반복 방지 체크**: Lazy iterator의 initial miss→prime→recheck와 event→re-prime→recheck 순서를 controlled signal로 고정한 회귀를 둔다. 임의 sleep·재시도에 기대지 않고 producer 조기 종료, pending `next()` rejection, abort, iterator end 각각에서 watcher·listener·writer·child 잔여가 없는지 확인한다.
+
+## 2026-09-12 / empty lock 관찰 뒤 경로가 유지된다고 가정하지 않는다
+
+- **발생했던 문제/실수**: Successor가 old owner의 marker 제거 뒤 빈 lock directory를 확인했지만 cleanup 재검사 전에 old owner가 directory까지 제거했다. 두 번째 `lstat`의 `ENOENT`가 정상 handoff가 아니라 치명 오류로 전파돼 successor root gate가 exit 1이 됐다.
+- **원인**: Empty 상태 snapshot과 이후 cleanup 대상 경로의 존재를 하나의 원자적 사실로 취급했다.
+- **해결 및 예방책**: Empty cleanup의 두 번째 검사에서만 `ENOENT`를 이미 완료된 경쟁 cleanup으로 보고 false/retry한다. Symlink, non-directory, invalid contents와 다른 filesystem 오류는 그대로 실패시킨다.
+- **반복 방지 체크**: 기존 owner marker 때문에 contender publish가 먼저 충돌하고, owner가 marker를 해제한 뒤 contender의 첫 empty read와 두 번째 inspect 사이에 `rmdir`가 실행되는 순서를 filesystem seam으로 고정한다. Root successor handoff를 반복해 nonzero 종료가 0인지 함께 확인한다.

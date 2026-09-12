@@ -60,7 +60,7 @@
 - [x] Root `lint`, `typecheck`, `test`, `build`를 fresh 실행하고 concurrent root gate를 반복 검증한다. Fresh 명령은 모두 0이고, 세 concurrent pair도 모두 0/0, 두 owner 순차 교대, 11,479 polls 중 export absence 0이었다.
 - [x] Disposable PostgreSQL/Redis integration과 deterministic real-backend Chromium 핵심 journey를 실행한다. Fixture 수정 `18ba2e9` 뒤 integration 13/13 suites·123/123 tests, journey 수정 `2b208e2` 뒤 one-worker core 2/2 tests가 통과했다.
 - [x] API/Web/Gateway/Mobile/Shared/automation scoped 결과, Prisma validate와 `git diff --check`를 확인한다. Validate는 non-connecting loopback placeholder로 schema를 검사했고 branch diff check는 통과했다.
-- [x] Task별 review와 현재 HEAD의 scoped branch review에서 Critical/Important를 모두 해소한다. Task 3 최종 review와 fix A/B review가 모두 PASS다.
-- [x] 테스트용 container/process를 정리하고 clean worktree, 최종 SHA, 남은 예외/운영 설정을 보고한다. Main에는 merge하지 않는다. 모든 Task 4 container/lab process/data는 정리했으며 최종 문서 커밋과 status를 보고한다.
+- [x] Task별 review와 현재 HEAD의 scoped branch review에서 Critical/Important를 모두 해소한다. `f1661c1` review 뒤 final docs verification이 empty lock reinspection race를 발견했지만 production fix `df90563`으로 해소했고, 최종 reviewer가 race ADDRESSED, Critical/Important/Minor 0, branch spec·merge quality PASS를 승인했다.
+- [x] 테스트용 container/process를 정리하고 clean worktree, 최종 SHA, 남은 예외/운영 설정을 보고한다. Main에는 merge하지 않는다. Task 4 container/lab process/data와 watcher/writer/child diagnostic fixture·로그는 모두 정리했고 final code SHA `df90563`과 최종 문서 commit/status를 보고한다.
 
-Status: Task 4 software 검증·문서화는 **complete**지만 branch release는 **BLOCKED**다. Integration과 real-backend core 및 scoped review는 green이며, 변경하지 않은 Web raw/gzip budget을 충족하고 뒤의 Web container·in-band dependency policy까지 전체 production audit로 재검증해야 release할 수 있다. HIL과 GitHub 운영 설정은 별도 승인/설정 관문이다.
+Status: Task 4 software 검증·문서화와 final whole-branch review는 **complete**, branch spec·merge quality는 **PASS**지만 production release는 **BLOCKED**다. Integration과 real-backend core 및 scoped review는 green이며, 변경하지 않은 Web raw/gzip budget을 충족하고 뒤의 Web container·in-band dependency policy까지 전체 production audit로 재검증해야 release할 수 있다. HIL과 GitHub 운영 설정은 별도 승인/설정 관문이다.
