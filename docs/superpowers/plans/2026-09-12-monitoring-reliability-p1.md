@@ -80,10 +80,10 @@
 - Modify: `apps/web/src/features/monitoring/MonitoringView.tsx`
 - Modify: `apps/web/src/styles.css`
 
-- [ ] incident query/mutation path와 cache invalidation RED 작성
-- [ ] read-only/manage tab, filter/history/ack/assign/resolve RED 작성
-- [ ] threshold dialog validation/conflict/focus RED 작성
-- [ ] 공통 SidePanel 내부 구현과 320px overflow 회귀 통과
+- [x] incident query/mutation path와 cache invalidation RED 작성
+- [x] read-only/manage tab, filter/history/ack/assign/resolve RED 작성
+- [x] threshold dialog validation/conflict/focus RED 작성
+- [x] 공통 SidePanel 내부 구현과 320px overflow 회귀 통과
 
 ### Task 5: Browser integration, docs, final convergence
 
