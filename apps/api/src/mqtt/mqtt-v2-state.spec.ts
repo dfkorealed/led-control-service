@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { Prisma } from "@prisma/client";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
+import { fixtureStateV2Schema } from "@led-control/shared";
 
 const mqttHandlePublish = require(
   join(dirname(require.resolve("mqtt")), "lib/handlers/publish.js")
@@ -15,6 +16,113 @@ const scope = {
 };
 
 describe("MqttService v2 ordered state", () => {
+  it("reconciles a legacy heartbeat only after the owning gateway lock without refreshing the gateway", async () => {
+    const { service, gateway, tx, ledger } = heartbeatHarness();
+    const event = heartbeatEvent();
+    const legacy = legacyHeartbeatEvent(event);
+    ledger.set(event.eventId, legacy);
+    gateway.lastHeartbeatSequence = 10n;
+    const before = { ...gateway };
+    const lock = deferred<void>();
+    tx.$queryRaw.mockImplementationOnce(async () => { await lock.promise; return [{ ...gateway }]; });
+    const replay = receiveHeartbeat(service, event);
+    await flushPromises();
+    expect(legacy.payloadHash).toBeNull();
+    expect(tx.processedGatewayEvent.updateMany).not.toHaveBeenCalled();
+    lock.resolve();
+    await expect(replay).resolves.toBeUndefined();
+    expect(legacy.payloadHash).toBe(canonicalPayloadHash(event));
+    expect(tx.processedGatewayEvent.updateMany).toHaveBeenCalledWith({
+      where: { eventId: event.eventId, payloadHash: null }, data: { payloadHash: legacy.payloadHash }
+    });
+    expect(gateway).toEqual(before);
+    expect(ledger.size).toBe(1);
+    await expect(receiveHeartbeat(service, { ...event, firmwareVersion: "mutated" })).rejects.toThrow("conflict");
+    expect(gateway).toEqual(before);
+  });
+
+  it.each([false, true])("requires the winning legacy heartbeat CAS hash after a race (different=%s)", async (different) => {
+    const { service, gateway, tx, ledger } = heartbeatHarness();
+    const event = heartbeatEvent();
+    const legacy = legacyHeartbeatEvent(event);
+    ledger.set(event.eventId, legacy);
+    const before = { ...gateway };
+    const winnerHash = canonicalPayloadHash({ ...event, firmwareVersion: different ? "other" : "v2" });
+    tx.processedGatewayEvent.updateMany.mockImplementationOnce(async () => {
+      legacy.payloadHash = winnerHash;
+      return { count: 0 };
+    });
+    const replay = receiveHeartbeat(service, event);
+    if (different) await expect(replay).rejects.toThrow("conflict");
+    else await expect(replay).resolves.toBeUndefined();
+    expect(tx.processedGatewayEvent.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.processedGatewayEvent.findUnique).toHaveBeenCalledTimes(2);
+    expect(legacy.payloadHash).toBe(winnerHash);
+    expect(gateway).toEqual(before);
+  });
+
+  it.each([
+    { gatewayId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    { fixtureId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    { sequence: 8n }, { eventType: "fixture_state" },
+    { occurredAt: new Date("2026-09-11T23:59:59.000Z") }
+  ])("rejects a legacy heartbeat identity mismatch without binding its null hash: %o", async (mismatch) => {
+    const { service, gateway, tx, ledger } = heartbeatHarness();
+    const event = heartbeatEvent();
+    ledger.set(event.eventId, { ...legacyHeartbeatEvent(event), ...mismatch });
+    const before = { ...gateway };
+    await expect(receiveHeartbeat(service, event)).rejects.toThrow("conflict");
+    expect(tx.processedGatewayEvent.updateMany).not.toHaveBeenCalled();
+    expect(ledger.get(event.eventId).payloadHash).toBeNull();
+    expect(gateway).toEqual(before);
+  });
+
+  it.each(["topic", "serial", "site"])("rejects legacy heartbeat %s scope before binding its hash", async (kind) => {
+    const { service, ledger, tx } = heartbeatHarness();
+    const original = heartbeatEvent();
+    ledger.set(original.eventId, legacyHeartbeatEvent(original));
+    const event = { ...original, ...(kind === "serial" ? { gatewaySerial: "forged" } : {}),
+      ...(kind === "site" ? { siteId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } : {}) };
+    await expect(receiveHeartbeat(service, event, kind === "topic" ? `${heartbeatTopic}/state/heartbeat` : heartbeatTopic))
+      .rejects.toThrow("scope");
+    expect(tx.processedGatewayEvent.updateMany).not.toHaveBeenCalled();
+    expect(ledger.get(original.eventId).payloadHash).toBeNull();
+  });
+
+  it("PUBACKs and emits duplicate after real API legacy reconciliation so the next queued state proceeds", async () => {
+    const event = fixtureStateV2Schema.parse(fixtureEvent(9));
+    const legacy = { eventId: event.eventId, gatewayId: event.gatewayId, fixtureId: event.fixtureId,
+      sequence: 9n, eventType: "fixture_state", occurredAt: new Date(event.occurredAt),
+      payloadHash: null as string | null, ingestionStatus: "accepted" };
+    const prisma = fixtureReceiptPrisma(new Date("2026-07-11T00:00:00.000Z"), event.fixtureId);
+    prisma.processedGatewayEvent.findUnique.mockImplementation(async ({ where }) => where.eventId === event.eventId ? legacy : null);
+    prisma.processedGatewayEvent.updateMany.mockImplementation(async ({ where, data }) => {
+      if (where.eventId !== legacy.eventId || legacy.payloadHash !== where.payloadHash) return { count: 0 };
+      Object.assign(legacy, data);
+      return { count: 1 };
+    });
+    const service = new MqttService(prisma as never, {} as never, new FixtureStateIngestionService(prisma as never));
+    const client = mqttClientHarness(service);
+    jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+    const publish = jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const replayDone = jest.fn();
+    const nextDone = jest.fn();
+    const handle = mqttInternals(service).createCustomHandleAcks();
+    handle(fixtureTopic, Buffer.from(JSON.stringify(event)), { qos: 1, messageId: 96 }, replayDone);
+    handle(fixtureTopic, Buffer.from(JSON.stringify({ ...event,
+      eventId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", sequence: 10 })), { qos: 1, messageId: 97 }, nextDone);
+    await service.stopInboundAndDrain();
+    expect(replayDone).toHaveBeenCalledWith(0);
+    expect(nextDone).toHaveBeenCalledWith(0);
+    expect(publish.mock.calls.map(([, ack]) => ack)).toEqual([
+      expect.objectContaining({ eventId: event.eventId, sequence: 9, status: "duplicate" }),
+      expect.objectContaining({ sequence: 10, status: "ingested" })
+    ]);
+    expect(legacy.payloadHash).toBe(canonicalPayloadHash(event));
+    expect(prisma.fixture.update).toHaveBeenCalledTimes(1);
+    expect(client.stream.destroy).not.toHaveBeenCalled();
+  });
+
   it("persists a future heartbeat rejection without changing gateway freshness, sequence, or firmware", async () => {
     const { service, gateway, ledger } = heartbeatHarness();
     const before = { ...gateway };
@@ -90,7 +198,7 @@ describe("MqttService v2 ordered state", () => {
     const before = { ...gateway };
     const event = heartbeatEvent({ occurredAt: "9999-01-01T00:00:00.000Z" });
     tx.processedGatewayEvent.create.mockImplementationOnce(async ({ data }) => {
-      ledger.set(event.eventId, { ...data, payloadHash: mutated ? "sha256:conflicting" : canonicalPayloadHash(event) });
+      ledger.set(event.eventId, { fixtureId: null, ...data, payloadHash: mutated ? "sha256:conflicting" : canonicalPayloadHash(event) });
       throw { code: "P2002" };
     });
     if (mutated) await expect(receiveHeartbeat(service, event)).rejects.toThrow("conflict");
@@ -749,7 +857,13 @@ function heartbeatHarness() {
     },
     processedGatewayEvent: {
       findUnique: jest.fn(async ({ where }) => ledger.get(where.eventId) ?? null),
-      create: jest.fn(async ({ data }) => { ledger.set(data.eventId, data); return data; })
+      updateMany: jest.fn(async ({ where, data }) => {
+        const existing = ledger.get(where.eventId);
+        if (!existing || existing.payloadHash !== where.payloadHash) return { count: 0 };
+        Object.assign(existing, data);
+        return { count: 1 };
+      }),
+      create: jest.fn(async ({ data }) => { const row = { fixtureId: null, ...data }; ledger.set(data.eventId, row); return row; })
     }
   };
   const prisma = { ...tx, $transaction: jest.fn(async (operation) => operation(tx)) };
@@ -769,6 +883,7 @@ function fixtureReceiptPrisma(trackingStartedAt: Date, fixtureId: string) {
     }]),
     processedGatewayEvent: {
       findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       create: jest.fn().mockResolvedValue(undefined)
     },
     fixtureEnergyStateCursor: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue(undefined) },
@@ -777,6 +892,12 @@ function fixtureReceiptPrisma(trackingStartedAt: Date, fixtureId: string) {
     fixture: { update: jest.fn().mockResolvedValue(undefined) }
   };
   return { ...tx, $transaction: jest.fn(async (operation) => operation(tx)) };
+}
+
+function legacyHeartbeatEvent(event: ReturnType<typeof heartbeatEvent>) {
+  return { eventId: event.eventId, gatewayId: event.gatewayId, fixtureId: null,
+    sequence: BigInt(event.sequence), eventType: "gateway_heartbeat", occurredAt: new Date(event.occurredAt),
+    payloadHash: null as string | null, ingestionStatus: "accepted" };
 }
 
 function mqttClientHarness(service: MqttService) {

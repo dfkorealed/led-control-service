@@ -1220,6 +1220,10 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 
 `20260912090000_gateway_event_received_time` additive migration은 enum `GatewayEventIngestionStatus`, `receivedAt`, `ingestionStatus`를 추가한다. 기존 원장 행의 `receivedAt`은 기존 `createdAt`으로 backfill하고 `ingestionStatus`는 `accepted`로 기본값을 둔다. migration 파일만 저장소에 추가했으며 이 작업은 사용자 로컬 DB에 적용하지 않는다. disposable 검증 DB에만 migration을 적용한다.
 
+Final Fix에서 기존 fixture-state/heartbeat의 `payloadHash=null` 행은 topic/DB scope 검증과 소유 Fixture/Gateway 행 잠금 뒤에만 보완한다. eventId로 조회한 기존 행의 gateway, fixture(heartbeat는 null), sequence, eventType, occurredAt이 모두 같으면 첫 인증 replay의 canonical hash를 `UPDATE ... WHERE eventId = ... AND payloadHash IS NULL`로 같은 transaction에서 확정한다. 조건부 갱신이 0행이면 재조회한 identity/hash가 정확히 같은 경우만 기존 terminal 결과를 반환하며 다른 replay는 fail-closed 한다. migration-default `accepted` fixture event는 `duplicate` ACK로 종료하고 상태·집계를 다시 반영하지 않는다.
+
+null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과거 원장의 hash를 확정한다는 신뢰 한계가 있다. 새 future rejection은 최초 기록부터 hash를 보유한다. 보완은 hash만 변경하므로 ledger의 `receivedAt`/`ingestionStatus`, fixture/gateway snapshot, energy aggregate/cursor/checkpoint를 보존한다. 기존 `Fixture.lastSeenAt`/`Gateway.lastHeartbeatAt`은 migration도 재작성하지 않으며, 서버 수신 시각 freshness 보장은 새 정상 event가 수락된 값에 적용한다. 과거 장비 시각으로 오염된 값의 소급 정정은 포함하지 않는다. 스키마/migration 파일 자체는 Final Fix에서 변경하지 않는다.
+
 ### Invitation
 
 초대 기반 회원가입을 위한 토큰 정보다.

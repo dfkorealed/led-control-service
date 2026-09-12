@@ -9,6 +9,7 @@ import {
 } from "@led-control/shared";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mqtt/gateway-event-time";
+import { reconcileLegacyGatewayEventReplay } from "../mqtt/legacy-gateway-event-replay";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   aggregateFixtureStateTransition,
@@ -75,7 +76,8 @@ export class FixtureStateIngestionService {
     payloadHash: string
   ) {
     const existing = await tx.processedGatewayEvent.findUnique({ where: { eventId: state.eventId } });
-    if (existing) {
+    // A null legacy hash must be reconciled only after current ownership and its row lock.
+    if (existing && existing.payloadHash !== null) {
       if (!sameProcessedEvent(existing, gatewayId, state, payloadHash)) throw new Error("fixture state event identity conflict");
       return resultFrom(state, existing.ingestionStatus === "rejected_future_timestamp" ? "rejected_future_timestamp" : "duplicate");
     }
@@ -113,12 +115,15 @@ export class FixtureStateIngestionService {
     // Re-read after the lock is acquired so the first transaction's committed terminal result wins.
     const committedDuringFixtureLock = await tx.processedGatewayEvent.findUnique({ where: { eventId: state.eventId } });
     if (committedDuringFixtureLock) {
-      if (!sameProcessedEvent(committedDuringFixtureLock, gatewayId, state, payloadHash)) {
+      const replay = await reconcileLegacyGatewayEventReplay(
+        tx, committedDuringFixtureLock, payloadHash, (event) => sameProcessedEventIdentity(event, gatewayId, state)
+      );
+      if (!replay) {
         throw new Error("fixture state event identity conflict");
       }
       return resultFrom(
         state,
-        committedDuringFixtureLock.ingestionStatus === "rejected_future_timestamp"
+        replay.ingestionStatus === "rejected_future_timestamp"
           ? "rejected_future_timestamp"
           : "duplicate"
       );
@@ -398,9 +403,16 @@ function sameProcessedEvent(
   state: FixtureStateV2,
   payloadHash: string
 ) {
+  return sameProcessedEventIdentity(event, gatewayId, state) && event.payloadHash === payloadHash;
+}
+
+function sameProcessedEventIdentity(
+  event: { gatewayId: string; fixtureId: string | null; sequence: bigint; eventType: string; occurredAt: Date },
+  gatewayId: string,
+  state: FixtureStateV2
+) {
   return event.gatewayId === gatewayId && event.fixtureId === state.fixtureId && event.sequence === BigInt(state.sequence) &&
-    event.eventType === "fixture_state" && event.occurredAt.getTime() === new Date(state.occurredAt).getTime() &&
-    event.payloadHash === payloadHash;
+    event.eventType === "fixture_state" && event.occurredAt.getTime() === new Date(state.occurredAt).getTime();
 }
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {

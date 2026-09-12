@@ -22,8 +22,8 @@
    - `Gateway.lastHeartbeatAt`: API `receivedAt`
 4. fixture-state는 scope/소유권을 잠금으로 검증한 뒤 미래 시각을 판정한다. 거부 이벤트는 payload hash와 terminal 상태만 원장에 커밋하고 에너지 cursor/aggregate/fixture snapshot에는 접근하지 않는다. MQTT는 이 결과를 application ACK의 `rejected_future_timestamp`로 발행하고 PUBACK하여 outbox head를 제거할 수 있게 한다.
 5. heartbeat도 scope를 검증한 뒤 같은 원장 상태를 커밋한다. 미래 heartbeat는 Gateway freshness/sequence를 갱신하지 않지만 handler는 성공 종료해 broker PUBACK을 보낸다.
-6. 동일 event 재전송은 canonical payload hash까지 일치해야만 기존 terminal 결과로 응답한다. 같은 identity에 다른 payload가 오면 conflict로 fail closed 한다.
-7. freshness sweep은 fixture의 `lastSeenAt`, gateway의 `lastHeartbeatAt`만 사용한다. 두 값은 모두 서버 수신 시각이므로 장비 시계가 미래여도 stale/offline 판정을 미룰 수 없다.
+6. hash가 있는 동일 event 재전송은 canonical payload hash까지 일치해야만 기존 terminal 결과로 응답한다. 같은 identity에 다른 payload가 오면 conflict로 fail closed 한다. 기존 `payloadHash=null` 행은 아래 Final Fix의 소유권·잠금·조건부 hash 확정 절차로만 처리한다.
+7. freshness sweep은 fixture의 `lastSeenAt`, gateway의 `lastHeartbeatAt`만 사용한다. 새로 수락한 event는 서버 수신 시각을 저장하므로 장비 시계가 미래여도 stale/offline 판정을 미루지 못한다. migration은 기존 freshness 값을 재작성하지 않으며, 과거 값의 신뢰성은 새 정상 event를 수락하기 전까지 보장하지 않는다.
 
 ## 스키마 및 호환성
 
@@ -49,6 +49,15 @@ P0 커밋과 검증이 끝난 뒤 별도 설계 checkpoint에서 자동 polling 
 ## P0 구현 결과 (2026-09-12)
 
 P0는 수신 시각 기준 fixture/gateway freshness, 5분 future gate, terminal rejection 원장과 Gateway exact ACK consumer까지 구현했다. disposable PostgreSQL에 전체 migration을 적용해 future poison fixture event 뒤 정상 event가 aggregate/checkpoint/freshness를 오염시키지 않고 진행하는 것을 확인했다. 이 결과는 software 자동 검증 범위이며 사용자 DB migration, 실제 MQTT broker 연결, Raspberry Pi/BlueZ/ESP32-H2 HIL은 수행하지 않았다. P1 production 코드는 별도 설계 checkpoint 전까지 시작하지 않는다.
+
+## Final Fix: 업그레이드 이전 원장의 ACK 유실 재전송
+
+- 이전 fixture-state/heartbeat writer는 `payloadHash`를 저장하지 않았다. DB commit 뒤 application ACK가 유실된 상태에서 업그레이드하면 재전송이 hash conflict로 끝나 PUBACK과 Gateway outbox head 해제가 계속 막혔다.
+- topic scope와 현재 DB 소유권을 확인하고 소유 Fixture/Gateway 행을 잠근 뒤, 저장된 `gatewayId`, fixture-state의 `fixtureId`(heartbeat는 null), `sequence`, `eventType`, `occurredAt`이 모두 같은 기존 event만 reconciliation 대상으로 삼는다.
+- 첫 인증 재전송의 canonical payload hash를 동일 transaction의 `updateMany`에서 `eventId AND payloadHash IS NULL` 조건으로 한 번 확정한다. CAS에서 지면 원장을 재조회해 identity와 hash가 모두 일치할 때만 terminal 결과를 재사용한다. 다른 payload는 fail closed 하며 기존 hash를 덮어쓰지 않는다.
+- 이 경로는 원장의 hash만 변경한다. fixture/gateway snapshot, aggregate, cursor/checkpoint, `receivedAt`, `ingestionStatus`와 freshness는 그대로 보존한다. migration-default `accepted`는 fixture ACK `duplicate`로 반환하고, heartbeat는 성공 종료해 PUBACK을 허용한다. 일반 heartbeat의 stale/equal no-op 의미와 hash가 있는 future rejection 재전송 의미도 유지한다.
+- **신뢰 한계:** null은 원래 payload와 같다는 증거가 아니다. 원본 hash가 없는 과거 event는 최초 인증 replay가 hash를 확정하며 원래 payload와의 동등성은 소급 증명할 수 없다. 이후 재전송부터 exact hash로 검증한다. 새 future rejection은 생성 시부터 hash가 있으므로 이 예외를 사용하지 않는다.
+- 기존 `Fixture.lastSeenAt`/`Gateway.lastHeartbeatAt`은 migration과 reconciliation 모두 재작성하지 않는다. 과거 장비 시각으로 오염된 freshness·energy 이력의 소급 정정은 별도 범위다.
 
 ## 별도 발견 사항
 

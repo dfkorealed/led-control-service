@@ -95,3 +95,14 @@
 - [x] Prisma validate/generate, typecheck, build, `git diff --check` 실행 — `DATABASE_URL` 없이 실행한 첫 Prisma validate는 P1012 환경변수 누락으로 종료했으며, disposable URL을 명시한 재실행은 validate/generate 성공. API/Gateway typecheck/build와 최종 `git diff --check`를 통과.
 - [x] 검증 수치·skip·남은 위험을 기록하고 P0를 별도 커밋 — API 전체 1,095 passed/274 environment-dependent skipped (112 passed/27 skipped suites), Gateway 전체 609/609 (64 suites) 통과. 첫 병렬 Gateway 전체 run의 schedule-runtime 1건 실패는 단독 full run에서 재현되지 않아 software concurrency warning으로 기록한다.
 - [x] P1 별도 설계 checkpoint 작성 전에는 P1 production 코드에 착수하지 않음 — P1 production 변경 없음.
+
+### Final Fix: legacy null hash 재전송 진행성
+
+**상태:** 완료(소프트웨어). 총괄의 최종 보완 지시에 따라 API/DB 회귀를 먼저 검증했고 Gateway 경계 회귀와 문서를 같은 새 커밋에 포함한다.
+
+- [x] fixture-state/heartbeat의 null hash replay와 CAS 경합·scope·잠금 회귀를 작성하고 RED 확인 — production 변경 전 8 failed/58 passed, identity conflict·CAS 미호출·PUBACK 누락으로 실패.
+- [x] 사전 변경 형태의 null hash 원장에서 시작하는 disposable PostgreSQL 회귀 RED 확인 — production 변경 전 legacy fixture·경합·heartbeat 3 failed/기존 3 passed.
+- [x] scope/소유 행 잠금 뒤 exact legacy identity의 첫 인증 replay hash를 `eventId AND payloadHash IS NULL` 조건부 갱신하고, 경합 시 재조회한 exact hash만 허용 — 공통 helper는 hash만 변경하며 기존 terminal 결과를 반환한다.
+- [x] MQTT 실제 수집 서비스의 duplicate/PUBACK와 Gateway 실제 publisher 후속 event 진행 회귀 검증 — API focused 80/80, Gateway outbox 10/10. Gateway 소비 로직은 기존 구현 그대로이며 새 검증은 pending head 재시작·duplicate ACK·후속 발행을 확인한다.
+- [x] historical freshness 비소급 및 최초 인증 replay 신뢰 한계를 spec/schema/monitoring/status에 반영 — 원본 payload 동등성을 소급 증명하지 않으며 과거 energy 정정은 별도 범위다.
+- [x] focused·격리 migration/integration·필수 API/Gateway 검사 후 DB 컨테이너 폐기, self-review와 보고서 작성, 단일 새 커밋 — 57 migrations와 integration/upgrade 7/7; API 전체 1,116 passed/278 환경 의존 skip, Gateway 전체 610/610, API/Gateway typecheck·API build·`git diff --check` 통과. `led-p0p1-finalfix-postgres`와 전용 anonymous volume 제거 및 rehearsal schema rollback을 확인했다. 상세 증거는 보존된 `.superpowers/sdd/2026-09-12-monitoring-ingestion-time-trust/final-fix-report.md`에 기록한다.

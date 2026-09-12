@@ -22,6 +22,39 @@ afterEach(async () => {
 });
 
 describe("StateEventOutbox", () => {
+  it("advances the actual publisher after a legacy committed head receives a reconciled duplicate ACK", async () => {
+    const path = await outboxPath();
+    const original = new StateEventOutbox(path, scope);
+    await original.initialize();
+    const committed = fixtureState(7);
+    const next = fixtureState(8);
+    await original.enqueue(committed);
+    await original.enqueue(next);
+    // API committed before the upgrade, but its application ACK was lost. Both records survive restart.
+    const restored = new StateEventOutbox(path, scope);
+    await restored.initialize();
+    const publisher = new StateEventOutboxPublisher(restored);
+    const published: FixtureStateV2[] = [];
+    const duplicate = { eventId: committed.eventId, sequence: committed.sequence, fixtureId: committed.fixtureId,
+      status: "duplicate", ingestedAt: "2026-09-12T00:00:02.000Z" };
+    try {
+      await publisher.connect(async (_topic, event) => { published.push(event); });
+      expect(published).toEqual([committed]);
+      expect((await restored.pending()).map((record) => record.payload)).toEqual([committed, next]);
+      await expect(publisher.acknowledge({ ...duplicate, sequence: next.sequence })).resolves.toBe(false);
+      expect(published).toEqual([committed]);
+      await expect(publisher.acknowledge(duplicate)).resolves.toBe(true);
+      expect(published).toEqual([committed, next]);
+      expect((await new StateEventOutbox(path, scope).pending()).map((record) => record.payload)).toEqual([next]);
+      await expect(publisher.acknowledge({ ...duplicate, eventId: next.eventId, sequence: next.sequence,
+        status: "ingested" })).resolves.toBe(true);
+      expect(await new StateEventOutbox(path, scope).pending()).toEqual([]);
+      expect(published).toEqual([committed, next]);
+    } finally {
+      publisher.disconnect();
+    }
+  });
+
   it("removes only the exact future-rejected head and publishes the next persisted event", async () => {
     const path = await outboxPath();
     const outbox = new StateEventOutbox(path, scope);

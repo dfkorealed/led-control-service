@@ -526,3 +526,10 @@
 - **원인**: ingestion이 사용하는 fixture row lock을 cleanup 검사 전에 공유하지 않았고, query-count 테스트가 energy service를 double로 치환해 내부 쿼리를 누락했다.
 - **해결 및 예방책**: 기존 Site 인가 잠금 뒤 검증된 fixture ID를 정렬 잠금하고 모든 의존성 조회를 실행한다. bulk history는 singleton과 같은 advisory key를 정렬 잠금하고 identity/version 조회·쓰기까지 일괄 처리한다. 현재 회귀는 실제 energy service를 사용해 신규 5회·반복 3회와 이력 개수·변경 timestamp를 검증한다.
 - **반복 방지 체크**: 잠금 대기 중 의존성 조회가 시작되지 않는지, 대기 중 생성된 analytics 때문에 삭제 전체가 409인지 검사한다. DB URL이 없을 때의 transaction ordering double은 실제 PostgreSQL interleaving이나 처리시간 증거로 확대하지 않는다.
+
+## 2026-09-12 / nullable hash 원장의 업그레이드는 ACK 유실 재전송도 검증한다
+
+- **발생했던 문제/실수**: 기존 fixture-state/heartbeat의 `payloadHash=null` 원장에 새 exact hash 검사를 적용하면 이미 commit된 event의 재전송도 conflict가 되어 PUBACK과 Gateway outbox 후속 발행이 막힌다.
+- **원인**: 빈 DB와 새 writer의 hash가 있는 원장만 검증해 이전 writer의 commit 뒤 application ACK 유실 상태를 누락했다.
+- **해결 및 예방책**: topic/DB 소유권과 소유 행 잠금 뒤 exact legacy identity에 첫 인증 replay의 hash를 null 조건부 갱신으로 확정한다. CAS 경합 시 원장을 다시 읽어 같은 hash만 허용하며 snapshot·energy·freshness는 다시 반영하지 않는다. null 자체는 원본 payload와 같다는 증거가 아니라는 신뢰 한계를 기록한다.
+- **반복 방지 체크**: 이전 형태의 원장으로 시작하는 격리 PostgreSQL replay·경합, migration의 과거 freshness 비소급, API duplicate/PUBACK 및 Gateway 실제 publisher의 다음 event 발행을 함께 검사한다.

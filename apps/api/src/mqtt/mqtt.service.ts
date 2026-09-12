@@ -38,6 +38,7 @@ import { readFileSync } from "node:fs";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { AutomationMqttConsumerService } from "../automation/automation-mqtt-consumer.service";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
+import { reconcileLegacyGatewayEventReplay } from "./legacy-gateway-event-replay";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -1036,7 +1037,10 @@ export class MqttService implements OnModuleInit {
         if (!gateway) throw new Error("gateway heartbeat scope rejected");
         const existing = await tx.processedGatewayEvent.findUnique({ where: { eventId: heartbeat.eventId } });
         if (existing) {
-          if (!sameHeartbeatEvent(existing, heartbeat, payloadHash)) throw new Error("gateway heartbeat event identity conflict");
+          const replay = await reconcileLegacyGatewayEventReplay(
+            tx, existing, payloadHash, (event) => sameHeartbeatEventIdentity(event, heartbeat)
+          );
+          if (!replay) throw new Error("gateway heartbeat event identity conflict");
           return;
         }
         const ingestionStatus = gatewayEventIsTooFarInFuture(occurredAt, receivedAt, maxFutureSkewMs)
@@ -1574,12 +1578,20 @@ export class MqttService implements OnModuleInit {
 }
 
 function sameHeartbeatEvent(
-  existing: { gatewayId: string; sequence: bigint; eventType: string; payloadHash: string | null },
+  existing: { gatewayId: string; fixtureId: string | null; sequence: bigint; eventType: string; occurredAt: Date; payloadHash: string | null },
   heartbeat: ReturnType<typeof gatewayHeartbeatV2Schema.parse>,
   payloadHash: string
 ) {
+  return sameHeartbeatEventIdentity(existing, heartbeat) && existing.payloadHash === payloadHash;
+}
+
+function sameHeartbeatEventIdentity(
+  existing: { gatewayId: string; fixtureId: string | null; sequence: bigint; eventType: string; occurredAt: Date },
+  heartbeat: ReturnType<typeof gatewayHeartbeatV2Schema.parse>
+) {
   return existing.gatewayId === heartbeat.gatewayId && existing.sequence === BigInt(heartbeat.sequence) &&
-    existing.eventType === "gateway_heartbeat" && existing.payloadHash === payloadHash;
+    existing.fixtureId === null && existing.eventType === "gateway_heartbeat" &&
+    existing.occurredAt.getTime() === new Date(heartbeat.occurredAt).getTime();
 }
 
 function meshSubscriptionOperationKey(operation: {

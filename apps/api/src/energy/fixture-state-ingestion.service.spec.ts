@@ -140,6 +140,72 @@ describe("FixtureStateIngestionService", () => {
     expect(prisma.fixture.update).not.toHaveBeenCalled();
   });
 
+  it("binds an exact legacy replay under the fixture lock without applying state or energy again", async () => {
+    const legacy = legacyFixtureEvent();
+    const prisma = fixturePrisma({ processedEvent: legacy });
+    const locked = deferred();
+    prisma.$queryRaw.mockImplementationOnce(async () => { await locked.promise; return [prisma.__row]; });
+    const replay = new FixtureStateIngestionService(prisma as never).ingest(scope.gatewayId, fixtureEvent(9));
+    // Attach before releasing the lock so the RED rejection is observed without an unhandled promise.
+    const result = expect(replay).resolves.toMatchObject({ status: "duplicate" });
+    await Promise.resolve();
+    expect(legacy.payloadHash).toBeNull();
+    expect(prisma.processedGatewayEvent.updateMany).not.toHaveBeenCalled();
+    locked.resolve();
+    await result;
+    expect(legacy.payloadHash).toBe(fixturePayloadHash(fixtureEvent(9)));
+    expect(prisma.processedGatewayEvent.updateMany).toHaveBeenCalledWith({
+      where: { eventId: legacy.eventId, payloadHash: null }, data: { payloadHash: legacy.payloadHash }
+    });
+    expect(prisma.fixtureEnergyStateCursor.findUnique).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyDailyAggregate.upsert).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyHourlyAggregate.upsert).not.toHaveBeenCalled();
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+    await expect(new FixtureStateIngestionService(prisma as never).ingest(scope.gatewayId,
+      { ...fixtureEvent(9), brightness: 20 })).rejects.toThrow("conflict");
+  });
+
+  it.each([false, true])("reloads a competing legacy CAS winner and fails closed for a different payload (different=%s)", async (different) => {
+    const legacy = legacyFixtureEvent();
+    const prisma = fixturePrisma({ processedEvent: legacy });
+    const winnerHash = fixturePayloadHash({ ...fixtureEvent(9), brightness: different ? 20 : 70 });
+    prisma.processedGatewayEvent.updateMany.mockImplementationOnce(async () => {
+      legacy.payloadHash = winnerHash;
+      return { count: 0 };
+    });
+    const replay = new FixtureStateIngestionService(prisma as never).ingest(scope.gatewayId, fixtureEvent(9));
+    if (different) await expect(replay).rejects.toThrow("conflict");
+    else await expect(replay).resolves.toMatchObject({ status: "duplicate" });
+    expect(prisma.processedGatewayEvent.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.processedGatewayEvent.findUnique).toHaveBeenCalledTimes(3);
+    expect(legacy.payloadHash).toBe(winnerHash);
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyStateCursor.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy reconciliation before changing the hash when fixture ownership no longer matches", async () => {
+    const legacy = legacyFixtureEvent();
+    const prisma = fixturePrisma({ processedEvent: legacy, lockedRows: [] });
+    await expect(new FixtureStateIngestionService(prisma as never).ingest(scope.gatewayId, fixtureEvent(9)))
+      .rejects.toThrow("fixture state scope rejected");
+    expect(legacy.payloadHash).toBeNull();
+    expect(prisma.processedGatewayEvent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { gatewayId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    { fixtureId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    { sequence: 8n }, { eventType: "gateway_heartbeat" },
+    { occurredAt: new Date("2026-08-26T00:00:08.000Z") }
+  ])("never treats a null hash as evidence of a matching legacy identity: %o", async (mismatch) => {
+    const legacy = { ...legacyFixtureEvent(), ...mismatch };
+    const prisma = fixturePrisma({ processedEvent: legacy });
+    await expect(new FixtureStateIngestionService(prisma as never).ingest(scope.gatewayId, fixtureEvent(9)))
+      .rejects.toThrow("conflict");
+    expect(legacy.payloadHash).toBeNull();
+    expect(prisma.processedGatewayEvent.updateMany).not.toHaveBeenCalled();
+  });
+
   it("returns a previous future rejection only for the exact canonical payload", async () => {
     const event = fixtureEvent(9);
     const prisma = fixturePrisma({
@@ -300,6 +366,12 @@ function fixturePrisma(options: {
     processedGatewayEvent: {
       findUnique: jest.fn().mockResolvedValue(options.processedEvent ?? null),
       findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn(async ({ where, data }) => {
+        const event = options.processedEvent as ReturnType<typeof legacyFixtureEvent> | undefined;
+        if (!event || event.eventId !== where.eventId || event.payloadHash !== where.payloadHash) return { count: 0 };
+        Object.assign(event, data);
+        return { count: 1 };
+      }),
       create: jest.fn().mockResolvedValue(undefined)
     },
     fixtureEnergyStateCursor: {
@@ -332,4 +404,17 @@ function fixtureEvent(sequence: number) {
 
 function fixturePayloadHash(event: ReturnType<typeof fixtureEvent>) {
   return canonicalPayloadHash(fixtureStateV2Schema.parse(event));
+}
+
+function legacyFixtureEvent() {
+  const event = fixtureEvent(9);
+  return { eventId: event.eventId, gatewayId: scope.gatewayId, fixtureId: scope.fixtureId,
+    sequence: 9n, eventType: "fixture_state", occurredAt: new Date(event.occurredAt),
+    payloadHash: null as string | null, ingestionStatus: "accepted" };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((release) => { resolve = release; });
+  return { promise, resolve };
 }
