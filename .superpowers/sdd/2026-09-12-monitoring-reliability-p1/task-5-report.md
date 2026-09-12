@@ -4,9 +4,9 @@
 
 ## 결과
 
-Task 5의 browser integration과 문서 최종 수렴을 완료했다. monitoring Chromium은 cached dashboard/fixture/map 부분 실패, 서버 snapshot 60초+1ms stale, 공통 상태 원인/조치, 관리자 incident 확인·자기 지정·메모 해결, 정책 변경, 1440/1024/390/320 page/map/panel overflow와 selection 보존을 실제 화면 조작으로 검증해 `18/18`을 통과했다.
+Task 5의 browser integration과 문서 최종 수렴을 완료했다. monitoring Chromium은 cached dashboard/fixture/map 부분 실패, 서버 snapshot exact 60,000ms fresh/60,001ms stale, 네 장애 원인의 공통 presenter, production-valid 관리자 incident 확인·자기 지정·메모 해결, 정책 변경, 1440/1024/390/320 page/map/panel overflow와 selection·zoom 보존을 실제 화면 조작으로 검증해 review fix 후 `19/19`을 통과했다.
 
-빈 disposable PostgreSQL에는 전체 `59` migrations를 적용하고 monitoring policy/incident lifecycle `69/69`를 통과했다. schema 변경은 없으며 사용자 DB와 기존 Docker 리소스는 건드리지 않았다.
+빈 disposable PostgreSQL에는 전체 `59` migrations를 적용하고 monitoring policy/incident lifecycle `69/69`(`37` PostgreSQL integration + `32` unit)을 통과했다. schema 변경은 없으며 사용자 DB와 기존 Docker 리소스는 건드리지 않았다.
 
 ## 구현
 
@@ -51,7 +51,7 @@ pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitori
 
 RED에서 `인시던트 1` tab은 visible이지만 click이 30초 후 timeout 됐다. timeout을 늘리지 않았다. browser geometry는 `.monitoring-detail-tabs` 자체 높이는 45px인데 grid track이 `1px 1077px`이고 tab panel이 y=276부터 시작해 tab center를 가로채는 것을 보였다. 최소 production 수정으로 tab의 45px hit 영역과 panel 위 stacking을 보장했다.
 
-### GREEN
+### 최초 Task 5 GREEN (review 전)
 
 최종 명령:
 
@@ -106,7 +106,7 @@ DATABASE_URL=postgresql://p1task5:p1task5@127.0.0.1:60492/p1task5 pnpm --filter 
 MONITORING_INCIDENTS_TEST_DATABASE_URL=postgresql://p1task5:p1task5@127.0.0.1:60492/p1task5 pnpm --filter @led-control/api exec jest --runInBand src/monitoring-incidents
 ```
 
-`7 suites passed`, `69 tests passed`, `0 snapshots`, `4.113s`, exit 0. PostgreSQL log의 FK/CHECK 오류는 schema negative-path 테스트가 의도적으로 거부한 쿼리이며 Jest 결과는 전부 통과했다.
+`7 suites passed`, `69 tests passed`(`37` PostgreSQL integration + `32` unit), `0 snapshots`, `4.113s`, exit 0. PostgreSQL log의 FK/CHECK 오류는 schema negative-path 테스트가 의도적으로 거부한 쿼리이며 Jest 결과는 전부 통과했다.
 
 cleanup:
 
@@ -125,6 +125,7 @@ docker volume rm led-p1-task5-db-20260912-0645-data
 | `pnpm --filter @led-control/api test` | 115 suites passed, 31 environment-dependent suites skipped; `1,153` passed, `315` skipped, 1,468 total, exit 0 |
 | `pnpm --filter @led-control/web test` | 64 files, `727/727` passed, exit 0 |
 | `pnpm --filter @led-control/gateway test` | 62 files, `612/612` passed, exit 0 |
+| `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitoring.spec.ts --project=chromium --workers=1` | review fix 최종 `19/19` passed, 10.9s, exit 0 |
 | `pnpm --filter @led-control/shared typecheck` | exit 0 |
 | `pnpm --filter @led-control/api typecheck` | exit 0 |
 | `pnpm --filter @led-control/web typecheck` | exit 0; browser fixture 보완 뒤 fresh 재실행 포함 |
@@ -162,3 +163,58 @@ docker volume rm led-p1-task5-db-20260912-0645-data
 - Raspberry Pi/BlueZ/ESP32-H2 HIL과 실제 LED/RF는 실행하지 않았다.
 - production notification 전송은 구현·검증 범위에서 제외했다.
 - 사람의 in-app Browser 수동 시각 QA나 사용자 DB migration/배포는 수행하지 않았다.
+
+## Review fix round 증거
+
+중요 review 4건과 DB count 표기 1건을 같은 worktree에서 보완했다. production runtime은 추가로 변경하지 않았고 Chromium test/fixture와 문서/보고서만 수정했다.
+
+### Incident production fidelity RED/GREEN
+
+먼저 assign option을 production DTO가 허용하는 UUID `88888888-8888-4888-8888-888888888888`로 기대하도록 회귀를 변경했다.
+
+```sh
+pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitoring.spec.ts --project=chromium --workers=1 --grep '관리자는 인시던트를 확인·담당·해결'
+```
+
+RED: 기존 fixture가 `admin-user-1`만 제공해 유효 UUID option을 찾지 못하고 기존 30초 test timeout으로 실패했다. timeout은 늘리지 않았다.
+
+최소 fixture 수정:
+
+- incident id와 현재 admin/assignee id를 RFC 4122 UUID 형태로 변경했다.
+- 초기 incident revision을 `00:01:00`, acknowledge/assign/resolve revision을 각각 `00:01:01`/`00:01:02`/`00:01:03`으로 모델링했다.
+- 각 PATCH의 `expectedUpdatedAt`이 현재 revision과 정확히 일치하지 않으면 `409 INCIDENT_CONFLICT`를 반환한다.
+- `recoverIncidentTarget()` 호출 전 resolve는 `409 INCIDENT_STILL_ACTIVE`를 반환하며, test는 담당 지정 뒤 target recovery를 명시적으로 전환하고 해결한다.
+- 최종 `resolvedAt=00:01:03`이 `lastObservedAt=00:01:00` 뒤인지 검증한다.
+
+GREEN: 같은 focused 명령 `1 passed (4.1s)`, exit 0.
+
+### Boundary/presenter/viewport coverage
+
+첫 focused 실행은 의도한 계약과 무관한 test-authoring 문제 두 건을 드러냈다. page load 중 fake clock이 266ms 진행되어 fixed origin assertion이 실패했고, desktop에서 의도적으로 hidden인 mobile fixture selector를 1440/1024에서도 role로 찾았다. 이는 production failure로 계산하지 않았다.
+
+Playwright clock 권장 흐름대로 page를 먼저 정상 로드하고 snapshot+10초에서 `pauseAt`으로 정지했다. 이후 50,000ms를 진행해 exact age 60,000ms에서 stale banner가 없음을 확인하고, 1ms 뒤 banner와 설명이 나타나는지 확인했다.
+
+네 장애 계약은 다음 literal을 독립적으로 검증한다.
+
+- `gateway_offline`: 게이트웨이 오프라인 / 게이트웨이 연결 확인
+- `fixture_stale`: 상태 수신 지연 / 조명 통신 상태 확인
+- `fixture_fault`: production과 같이 `status=fault`와 Health fault로 표현 / Health fault 확인
+- `command_failed`: 명령 처리 실패 / 명령 이력 및 조명 연결 확인
+
+각 case는 mobile selector option, marker `aria-label`, badge, 상세 원인과 권장 조치가 같은 presenter 결과인지 검사했다. 네 viewport는 공통으로 visible map marker를 선택하고 120%로 확대한 뒤 incident tab과 policy dialog를 열며, 각 단계에서 floor/fixture selection과 zoom, page/detail/incident/dialog overflow를 함께 검사했다.
+
+Focused GREEN:
+
+- exact stale boundary: `1/1` passed
+- 네 상태 presenter: `1/1` passed
+- 1440/1024/390/320 preservation/overflow: `4/4` passed
+
+최종 Chromium:
+
+```sh
+pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitoring.spec.ts --project=chromium --workers=1
+```
+
+`19 passed (10.9s)`, exit 0. timeout 변경 없음. 기존 `NO_COLOR`/`FORCE_COLOR` 경고만 남았다.
+
+DB 문서는 lifecycle 전체 `69`개를 실제 PostgreSQL을 사용하는 integration `37`개와 unit `32`개로 분리해 표기했다.

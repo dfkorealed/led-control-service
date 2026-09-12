@@ -94,8 +94,8 @@
 - Modify: `docs/project-status.md`
 - Modify: `docs/superpowers/plans/2026-09-12-monitoring-reliability-p1.md`
 
-- [x] cached partial failure/60초 stale/reason/incident workflow Chromium RED/GREEN (`18/18`)
-- [x] 네 viewport layout/overflow와 map selection 보존 검증 (1440/1024/390/320)
-- [x] 빈 disposable PostgreSQL 전체 `59` migrations 및 API lifecycle `69/69` 실행
+- [x] cached partial failure/exact 60,000ms fresh·60,001ms stale/네 장애 reason/production-valid incident workflow Chromium RED/GREEN (`19/19`)
+- [x] 네 viewport incident/policy 전후 layout/overflow와 map selection·120% zoom 보존 검증 (1440/1024/390/320)
+- [x] 빈 disposable PostgreSQL 전체 `59` migrations 및 API lifecycle `69/69`(`37` integration + `32` unit) 실행
 - [x] Shared `197`, API `1,153`, Web `727`, Gateway `612` tests와 typecheck/build/diff check 실행
 - [x] 실제 검증 수치와 실제 MQTT broker/Raspberry Pi/BlueZ/ESP32-H2 HIL/production notification 제외 범위를 문서화

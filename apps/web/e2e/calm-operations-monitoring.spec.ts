@@ -7,7 +7,9 @@ import type { IncidentAction, MonitoringIncident, MonitoringPolicy } from "../sr
 const ids = {
   site: "22222222-2222-4222-8222-222222222222",
   floor: "44444444-4444-4444-8444-444444444444",
-  gateway: "77777777-7777-4777-8777-777777777771"
+  gateway: "77777777-7777-4777-8777-777777777771",
+  admin: "88888888-8888-4888-8888-888888888888",
+  incident: "99999999-9999-4999-8999-999999999999"
 } as const;
 
 const fixtures: SettingsFixture[] = [
@@ -47,11 +49,41 @@ const reliabilityFixtures = fixtures.map((item) => item.id === staleFixtureId ? 
   statusReason: "fixture_stale" as const,
   lastSeenAt: "2026-09-11T23:55:00.000Z"
 } : item);
+const statusPresentationCases = [
+  {
+    kind: "gateway_offline",
+    fixture: fixture("P1-Gateway-Offline", "offline", "gateway_offline", 100, 180, 65),
+    label: "게이트웨이 오프라인",
+    description: "연결된 게이트웨이가 현장 기준 시간 안에 응답하지 않았습니다.",
+    recommendedAction: "게이트웨이 연결 확인"
+  },
+  {
+    kind: "fixture_stale",
+    fixture: fixture("P1-Fixture-Stale", "offline", "fixture_stale", 300, 260, 55),
+    label: "상태 수신 지연",
+    description: "조명의 마지막 상태 보고가 현장 freshness 기준을 지났습니다.",
+    recommendedAction: "조명 통신 상태 확인"
+  },
+  {
+    kind: "fixture_fault",
+    fixture: fixture("P1-Fixture-Fault", "fault", "reported", 500, 340, 42),
+    label: "장애",
+    description: "조명 또는 Health Current가 장애를 보고했습니다.",
+    recommendedAction: "Health fault 확인"
+  },
+  {
+    kind: "command_failed",
+    fixture: fixture("P1-Command-Failed", "offline", "command_failed", 700, 420, 35),
+    label: "명령 처리 실패",
+    description: "마지막 조명 명령이 정상적으로 처리되지 않았습니다.",
+    recommendedAction: "명령 이력 및 조명 연결 확인"
+  }
+] as const;
 
 function fixture(
   name: string,
   status: SettingsFixture["status"],
-  statusReason: "reported" | "provisioning_waiting_state",
+  statusReason: NonNullable<SettingsFixture["statusReason"]>,
   x: number,
   y: number,
   brightness = status === "fault" ? 42 : 70
@@ -494,15 +526,45 @@ test("dashboard/map과 fixture의 부분 갱신 실패에도 cached 화면과 �
 });
 
 test("서버 snapshot 시각이 60초를 초과하면 stale 경고를 표시한다", async ({ page }) => {
-  await page.clock.install({ time: new Date("2026-09-12T00:00:00.000Z") });
+  const snapshotTime = Date.parse(monitoringSnapshotAt);
+  const deterministicTestStart = snapshotTime + 10_000;
+  await page.clock.install({ time: new Date(snapshotTime) });
   await installMonitoringFixture(page, { snapshotGeneratedAt: monitoringSnapshotAt });
   await page.goto(`/monitoring?siteId=${ids.site}`);
-
   await expect(page.getByText("마지막 갱신: 2026-09-12T00:00:00.000Z")).toBeVisible();
+  await page.clock.pauseAt(deterministicTestStart);
+
+  expect(await page.evaluate(() => Date.now())).toBe(deterministicTestStart);
   await expect(page.getByText("서버 snapshot 시각을 확인할 수 없습니다.")).toHaveCount(0);
-  await page.clock.fastForward(60_001);
+  await page.clock.fastForward(50_000);
+  expect(await page.evaluate(() => Date.now())).toBe(snapshotTime + 60_000);
+  await expect(page.getByText("현황 갱신이 지연되고 있습니다.")).toHaveCount(0);
+  await expect(page.getByText(/가장 오래된 선택 층 snapshot이 60초를 초과했습니다/)).toHaveCount(0);
+  await page.clock.fastForward(1);
   await expect(page.getByText("현황 갱신이 지연되고 있습니다.")).toBeVisible();
   await expect(page.getByText(/가장 오래된 선택 층 snapshot이 60초를 초과했습니다/)).toBeVisible();
+});
+
+test("네 monitoring 장애 원인은 selector·marker·badge·상세 설명에서 같은 presenter를 사용한다", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installMonitoringFixture(page, { fixtureRows: statusPresentationCases.map(({ fixture: row }) => row) });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  const selector = page.getByRole("combobox", { name: "상세 조명 선택" });
+  const detail = page.getByRole("complementary", { name: "선택 조명 상세" });
+  for (const statusCase of statusPresentationCases) {
+    await test.step(statusCase.kind, async () => {
+      const markerName = `${statusCase.fixture.name} ${statusCase.label} ${statusCase.fixture.brightness}%`;
+      await expect(selector.locator(`option[value="${statusCase.fixture.id}"]`)).toHaveText(`${statusCase.fixture.name} · ${statusCase.label}`);
+      await selector.selectOption(statusCase.fixture.id);
+      const marker = page.getByRole("button", { name: markerName, exact: true });
+      await expect(marker).toHaveAttribute("aria-label", markerName);
+      await expect(marker).toHaveAttribute("aria-current", "true");
+      await expect(detail.locator(".ui-status-badge")).toContainText(statusCase.label);
+      await expect(detail.getByText(statusCase.description, { exact: true })).toBeVisible();
+      await expect(detail.getByText(statusCase.recommendedAction, { exact: true })).toBeVisible();
+    });
+  }
 });
 
 test("관리자는 인시던트를 확인·담당·해결하고 현장 판정 기준을 저장한다", async ({ page }) => {
@@ -522,10 +584,11 @@ test("관리자는 인시던트를 확인·담당·해결하고 현장 판정 �
 
   const assignee = page.getByRole("combobox", { name: "담당자" });
   await expect(assignee).toBeEnabled();
-  await assignee.selectOption("admin-user-1");
+  await assignee.selectOption(ids.admin);
   await page.getByRole("button", { name: "담당 저장" }).click();
   await expect(incidentList.getByRole("definition").filter({ hasText: "고객 관리자 (admin_user)" })).toBeVisible();
 
+  reliability.recoverIncidentTarget();
   await page.getByRole("textbox", { name: "해결 메모" }).fill("현장 통신 복구 확인");
   await page.getByRole("button", { name: "해결", exact: true }).click();
   await expect(incidentList.getByText("해결됨", { exact: true })).toBeVisible();
@@ -541,9 +604,13 @@ test("관리자는 인시던트를 확인·담당·해결하고 현장 판정 �
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText("판정 기준을 저장했습니다.")).toBeVisible();
 
-  expect(reliability.incidentActions.map((action) => action.action)).toEqual(["acknowledge", "assign", "resolve"]);
-  expect(reliability.incidentActions[1]).toMatchObject({ action: "assign", userId: "admin-user-1" });
-  expect(reliability.incidentActions[2]).toMatchObject({ action: "resolve", note: "현장 통신 복구 확인" });
+  expect(reliability.incidentActions).toEqual([
+    { action: "acknowledge", expectedUpdatedAt: "2026-09-12T00:01:00.000Z" },
+    { action: "assign", userId: ids.admin, expectedUpdatedAt: "2026-09-12T00:01:01.000Z" },
+    { action: "resolve", note: "현장 통신 복구 확인", expectedUpdatedAt: "2026-09-12T00:01:02.000Z" }
+  ]);
+  const resolvedIncident = reliability.currentIncident();
+  expect(Date.parse(resolvedIncident.resolvedAt ?? "")).toBeGreaterThan(Date.parse(resolvedIncident.lastObservedAt));
   expect(reliability.policyUpdates).toEqual([{
     gatewayOfflineAfterSeconds: 120,
     fixtureStaleAfterSeconds: 300,
@@ -558,16 +625,19 @@ for (const viewport of viewports) {
     await installMonitoringReliabilityRoutes(page);
     await page.goto(`/monitoring?siteId=${ids.site}`);
 
+    await selectReliabilityFixtureAt120Percent(page);
     const incidentTab = page.getByRole("tab", { name: "인시던트 1" });
     await expect(incidentTab).toBeVisible();
     await incidentTab.click();
     await expect(page.getByRole("heading", { name: "인시던트 이력" })).toBeVisible();
+    await expectReliabilitySelectionAndZoom(page);
     await expectNoHorizontalOverflow(page);
     await expectElementFitsViewportAndOwnWidth(page, ".detail-panel");
     await expectElementFitsViewportAndOwnWidth(page, ".monitoring-incidents");
 
     await page.getByRole("button", { name: "판정 기준" }).click();
     await expect(page.getByRole("dialog", { name: "판정 기준" })).toBeVisible();
+    await expectReliabilitySelectionAndZoom(page);
     await expectNoHorizontalOverflow(page);
     await expectElementFitsViewportAndOwnWidth(page, ".monitoring-policy-dialog");
   });
@@ -614,12 +684,15 @@ async function installMonitoringRefreshFailures(page: Page) {
 }
 
 async function installMonitoringReliabilityRoutes(page: Page) {
-  const currentAdmin = { id: "admin-user-1", name: "고객 관리자", loginId: "admin_user" };
+  const currentAdmin = { id: ids.admin, name: "고객 관리자", loginId: "admin_user" };
   const incidentActions: Array<IncidentAction & { expectedUpdatedAt: string }> = [];
   const policyUpdates: Array<Omit<MonitoringPolicy, "id" | "updatedAt"> & { expectedUpdatedAt: string }> = [];
+  // Production re-reads the target under lock and rejects manual resolution while
+  // the condition is active; the browser fixture exposes that recovery edge explicitly.
+  let targetRecovered = false;
   let revision = 0;
   let incident: MonitoringIncident = {
-    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    id: ids.incident,
     siteId: ids.site,
     type: "fixture_stale",
     status: "open",
@@ -629,7 +702,7 @@ async function installMonitoringReliabilityRoutes(page: Page) {
     acknowledgedAt: null,
     resolvedAt: null,
     createdAt: "2026-09-12T00:00:00.000Z",
-    updatedAt: "2026-09-12T00:00:00.000Z",
+    updatedAt: "2026-09-12T00:01:00.000Z",
     acknowledgedBy: null,
     assignedTo: null,
     resolvedBy: null,
@@ -643,13 +716,36 @@ async function installMonitoringReliabilityRoutes(page: Page) {
     updatedAt: "2026-09-12T00:00:00.000Z"
   };
 
+  await page.route("**/api/auth/me", (route) => route.fulfill({
+    json: {
+      user: {
+        ...currentAdmin,
+        organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        organizationType: "customer",
+        role: "admin",
+        status: "active"
+      }
+    }
+  }));
   await page.route(`**/api/sites/${ids.site}/monitoring-incidents**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === "PATCH") {
       const action = request.postDataJSON() as IncidentAction & { expectedUpdatedAt: string };
+      if (!url.pathname.endsWith(`/monitoring-incidents/${ids.incident}`)) {
+        return route.fulfill({ status: 404, json: { message: "incident not found" } });
+      }
+      if (action.expectedUpdatedAt !== incident.updatedAt) {
+        return route.fulfill({ status: 409, json: { code: "INCIDENT_CONFLICT", message: "incident revision conflict" } });
+      }
+      if (action.action === "assign" && action.userId !== null && action.userId !== ids.admin) {
+        return route.fulfill({ status: 400, json: { message: "userId must be a UUID for this site" } });
+      }
+      if (action.action === "resolve" && !targetRecovered) {
+        return route.fulfill({ status: 409, json: { code: "INCIDENT_STILL_ACTIVE", message: "incident condition is still active" } });
+      }
       incidentActions.push(action);
-      const updatedAt = `2026-09-12T00:00:0${++revision}.000Z`;
+      const updatedAt = `2026-09-12T00:01:0${++revision}.000Z`;
       if (action.action === "acknowledge") {
         incident = { ...incident, status: "acknowledged", acknowledgedAt: updatedAt, acknowledgedBy: currentAdmin, updatedAt };
       } else if (action.action === "assign") {
@@ -696,7 +792,26 @@ async function installMonitoringReliabilityRoutes(page: Page) {
     json: { users: [], count: 0, limit: 100 }
   }));
 
-  return { incidentActions, policyUpdates };
+  return {
+    incidentActions,
+    policyUpdates,
+    recoverIncidentTarget() { targetRecovered = true; },
+    currentIncident: () => incident
+  };
+}
+
+async function selectReliabilityFixtureAt120Percent(page: Page) {
+  await page.getByRole("button", { name: "B2-L003 상태 수신 지연 70%" }).click();
+  await page.getByRole("button", { name: "지도 확대" }).click();
+  await page.getByRole("button", { name: "지도 확대" }).click();
+  await expectReliabilitySelectionAndZoom(page);
+}
+
+async function expectReliabilitySelectionAndZoom(page: Page) {
+  await expect(page.getByRole("combobox", { name: "맵 선택" })).toHaveValue(ids.floor);
+  await expect(page.locator(".monitoring-fixture-selector select")).toHaveValue(staleFixtureId);
+  await expect(page.getByRole("button", { name: "B2-L003 상태 수신 지연 70%" })).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: "지도 배율 120%" })).toBeVisible();
 }
 
 async function expectMonitoringSelectionToRemain(page: Page) {

@@ -370,7 +370,7 @@ SQL CHECK는 대상/유형/키의 일치, 활성/해결 상태별 key·시각·r
 
 `GET/PATCH /sites/:siteId/monitoring-policy`와 인시던트 목록/변경 API는 read/manage capability를 구분한다. 변경은 Site → incident 순서 잠금과 재인가, optimistic concurrency, 같은 transaction의 `AuditLog`를 사용한다. 수동 해결은 실제 대상 상태가 정상으로 복구된 경우에만 허용하며 아직 장애면 `409 INCIDENT_STILL_ACTIVE`다. 30초 freshness worker가 고정 운영 상태를 갱신한 뒤 같은 transaction에서 Site 정책과 마지막 reported 상태에 따른 활성 조건 생성·관측·자동 해결을 수행한다. Web은 SidePanel 인시던트 workflow와 정책 dialog에 연결됐다.
 
-Task 5는 schema를 변경하지 않았다. 빈 disposable PostgreSQL에 전체 `59` migrations를 적용하고 monitoring incident/policy lifecycle 통합 `69/69`를 통과한 뒤 전용 컨테이너와 volume만 삭제했다. 사용자 DB에는 migration을 적용하지 않았고 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification 전송은 이 검증에 포함하지 않았다.
+Task 5는 schema를 변경하지 않았다. 빈 disposable PostgreSQL에 전체 `59` migrations를 적용하고 monitoring incident/policy lifecycle `69/69`(`37`개 PostgreSQL integration + `32`개 unit)을 통과한 뒤 전용 컨테이너와 volume만 삭제했다. 사용자 DB에는 migration을 적용하지 않았고 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification 전송은 이 검증에 포함하지 않았다.
 
 수동 해결은 Site가 Incident보다 먼저 잠기는 규칙에 대상 의존성을 추가해 `Site → Gateway → Fixture → Incident` 순서를 사용한다. Gateway의 `FOR NO KEY UPDATE`는 heartbeat writer를 직렬화하면서 Fixture 수집이 이후 받는 Gateway FK의 `KEY SHARE`를 허용해 역대기를 방지한다. Fixture row 잠금 후 소유 Gateway ID를 재검증하며 발견 시점과 다르면 `409 INCIDENT_TARGET_CHANGED`로 중단한다. 잠금 순서를 뒤집어 새 Gateway를 추가로 잠그지 않는다. 조건 판정은 모든 의존성 잠금 뒤 실제 snapshot을 다시 조회한다.
 
