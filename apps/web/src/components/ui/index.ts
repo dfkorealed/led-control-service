@@ -13,6 +13,7 @@ export type { ModalDialogProps } from "./ModalDialog";
 export { PageHeader } from "./PageHeader";
 export { ProgressSteps } from "./ProgressSteps";
 export type { ProgressStep, ProgressStepState } from "./ProgressSteps";
+export { RouteLoadingState } from "./RouteLoadingState";
 export { SidePanel } from "./SidePanel";
 export { StatusBadge } from "./StatusBadge";
 export type { StatusTone } from "./StatusBadge";

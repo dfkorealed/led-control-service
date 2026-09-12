@@ -11,6 +11,7 @@ import {
   ModalDialog,
   PageHeader,
   ProgressSteps,
+  RouteLoadingState,
   SidePanel,
   StatusBadge,
   UnderlineNavigation,
@@ -36,6 +37,13 @@ describe("Calm Operations UI primitives", () => {
 
     expect(screen.getByRole("button", { name: "저장 중" })).toBeDisabled();
     expect(screen.getByRole("button")).toHaveClass("ui-button", "ui-button-primary");
+  });
+
+  it("announces a route transition with a polite, understandable Korean loading state", () => {
+    render(<RouteLoadingState />);
+
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("status")).toHaveTextContent("화면을 불러오는 중입니다.");
   });
 
   it("forwards a button ref to the native control", () => {

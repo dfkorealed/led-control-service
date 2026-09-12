@@ -1,13 +1,19 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useLayoutEffect, useState } from "react";
+import { lazy, Suspense, useLayoutEffect, useState } from "react";
 import { BrowserRouter, useNavigate } from "react-router-dom";
 import { useCurrentUser } from "./api/auth";
 import { clearTenantCache, replacePrincipalCache } from "./api/principal-cache";
 import { AuthView } from "./features/auth/AuthView";
 import { RequiredPasswordChangeView } from "./features/auth/RequiredPasswordChangeView";
-import { OperatorShell } from "./features/operator/OperatorShell";
-import { CustomerShell } from "./features/shells/CustomerShell";
+import { RouteLoadingState } from "./components/ui";
 import "./styles.css";
+
+const CustomerShell = lazy(async () => ({
+  default: (await import("./features/shells/CustomerShell")).CustomerShell
+}));
+const OperatorShell = lazy(async () => ({
+  default: (await import("./features/operator/OperatorShell")).OperatorShell
+}));
 
 export function App() {
   const queryClient = useQueryClient();
@@ -67,7 +73,11 @@ function AppContent({ onAuthenticated }: { onAuthenticated: Parameters<typeof Au
     return <main className="auth-shell"><section className="auth-panel">인증 계정을 전환하는 중</section></main>;
   }
 
-  return auth.user.role === "operator"
-    ? <OperatorShell user={auth.user} />
-    : <CustomerShell user={auth.user} />;
+  return (
+    <Suspense fallback={<RouteLoadingState variant="page" />}>
+      {auth.user.role === "operator"
+        ? <OperatorShell user={auth.user} />
+        : <CustomerShell user={auth.user} />}
+    </Suspense>
+  );
 }
