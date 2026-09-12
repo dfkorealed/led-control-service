@@ -532,3 +532,10 @@
 - **원인**: ingestion이 사용하는 fixture row lock을 cleanup 검사 전에 공유하지 않았고, query-count 테스트가 energy service를 double로 치환해 내부 쿼리를 누락했다.
 - **해결 및 예방책**: 기존 Site 인가 잠금 뒤 검증된 fixture ID를 정렬 잠금하고 모든 의존성 조회를 실행한다. bulk history는 singleton과 같은 advisory key를 정렬 잠금하고 identity/version 조회·쓰기까지 일괄 처리한다. 현재 회귀는 실제 energy service를 사용해 신규 5회·반복 3회와 이력 개수·변경 timestamp를 검증한다.
 - **반복 방지 체크**: 잠금 대기 중 의존성 조회가 시작되지 않는지, 대기 중 생성된 analytics 때문에 삭제 전체가 409인지 검사한다. DB URL이 없을 때의 transaction ordering double은 실제 PostgreSQL interleaving이나 처리시간 증거로 확대하지 않는다.
+
+## 2026-09-12 / 새 CI 묶음은 실제 disposable 경계에서 계약 진화를 다시 검증한다
+
+- **발생했던 문제/실수**: Workflow 정적 계약과 root unit gate는 통과했지만 첫 disposable integration에서 오래된 DB payload·service double·전역 role fixture가 실패했고, real-backend journey도 현재 Settings route와 다른 전환을 가정했다. HIL preflight도 처음에는 실제 Gateway harness와 다른 cwd/PATH에서 실행됐다.
+- **원인**: CI command의 존재와 순서 검증을 production DB trigger, post-commit lifecycle, 전역 제약, 실제 browser route, package-local 실행 환경의 최신 계약 검증과 동일하게 간주했다.
+- **해결 및 예방책**: 독립 job마다 frozen install과 Prisma Client 생성을 수행하고, task-owned PostgreSQL/Redis에 전체 migration을 적용한 in-band suite, 실제 host prerequisite를 쓰는 one-worker Chromium core, Gateway package와 동일한 cwd·`pnpm exec` context의 fail-closed HIL preflight를 각각 실행한다.
+- **반복 방지 체크**: CI 묶음을 추가하거나 production 계약을 바꾸면 정적 workflow test만으로 완료 처리하지 않는다. 사용자 자원과 분리된 disposable service/lab에서 fixture isolation, DB trigger, transaction 이후 처리, 실제 route와 cwd/PATH를 검증하고 모든 process/container/data cleanup까지 증거로 남긴다.

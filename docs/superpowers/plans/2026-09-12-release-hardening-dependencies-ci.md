@@ -58,9 +58,9 @@
 
 - [x] Fresh production audit 전후 수치와 advisory별 최종 상태를 문서에 동기화한다. Raw audit는 820 dependencies, Critical 0/High 2/Moderate 1/Low 0이며 policy는 exact 예외 3건을 출력하고 통과했다. Aggregate audit는 기존 Web budget에서 실패했다.
 - [x] Root `lint`, `typecheck`, `test`, `build`를 fresh 실행하고 concurrent root gate를 반복 검증한다. Fresh 명령은 모두 0이고, 세 concurrent pair도 모두 0/0, 두 owner 순차 교대, 11,479 polls 중 export absence 0이었다.
-- [x] Disposable PostgreSQL/Redis integration과 deterministic real-backend Chromium 핵심 journey를 실행한다. 실행은 완료했으나 integration 3 suites/8 tests와 real-backend 첫 journey가 실패했으므로 Task 4 completion evidence가 아니다.
+- [x] Disposable PostgreSQL/Redis integration과 deterministic real-backend Chromium 핵심 journey를 실행한다. Fixture 수정 `18ba2e9` 뒤 integration 13/13 suites·123/123 tests, journey 수정 `2b208e2` 뒤 one-worker core 2/2 tests가 통과했다.
 - [x] API/Web/Gateway/Mobile/Shared/automation scoped 결과, Prisma validate와 `git diff --check`를 확인한다. Validate는 non-connecting loopback placeholder로 schema를 검사했고 branch diff check는 통과했다.
-- [ ] Task별 review와 전체 branch review의 Critical/Important를 모두 해소한다.
+- [x] Task별 review와 현재 HEAD의 scoped branch review에서 Critical/Important를 모두 해소한다. Task 3 최종 review와 fix A/B review가 모두 PASS다.
 - [x] 테스트용 container/process를 정리하고 clean worktree, 최종 SHA, 남은 예외/운영 설정을 보고한다. Main에는 merge하지 않는다. 모든 Task 4 container/lab process/data는 정리했으며 최종 문서 커밋과 status를 보고한다.
 
-Status: **blocked, not complete**. Integration fixture/service-contract failures, real-backend setup-to-registration transition mismatch, unchanged Web bundle budgets and subsequent whole-branch review must be resolved before the remaining review checkbox or Task 4 can be completed.
+Status: Task 4 software 검증·문서화는 **complete**지만 branch release는 **BLOCKED**다. Integration과 real-backend core 및 scoped review는 green이며, 변경하지 않은 Web raw/gzip budget을 충족하고 뒤의 Web container·in-band dependency policy까지 전체 production audit로 재검증해야 release할 수 있다. HIL과 GitHub 운영 설정은 별도 승인/설정 관문이다.
