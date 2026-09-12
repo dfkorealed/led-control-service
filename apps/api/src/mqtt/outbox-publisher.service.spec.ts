@@ -1,6 +1,8 @@
 import { Logger } from "@nestjs/common";
 import { OutboxPublisherService } from "./outbox-publisher.service";
 import { CommandTimeoutService } from "../commands/command-timeout.service";
+import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
+import { AutomationClock } from "../automation/automation-clock";
 
 const dimmingPayload = {
   commandId: "11111111-1111-4111-8111-111111111111",
@@ -749,6 +751,7 @@ describe("OutboxPublisherService", () => {
     const releasePublish = deferred<void>();
     let activeLeaseExpiresAt: Date | null = null;
     const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       meshControlGroup: { findUnique: jest.fn() },
       mqttOutbox: {
         updateMany: jest.fn().mockImplementation(({ where, data }) => {
@@ -792,7 +795,7 @@ describe("OutboxPublisherService", () => {
 
     const publishing = publisher.publishClaimed(record as never);
     await publishStarted.promise;
-    await expect(new CommandTimeoutService(prisma).closeExpired(
+    await expect(new CommandTimeoutService(prisma, new AutomationSnapshotService(new AutomationClock())).closeExpired(
       timeoutNow
     )).resolves.toEqual({ timedOut: 0 });
 

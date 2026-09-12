@@ -3,6 +3,9 @@ import { createHash } from "node:crypto";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CommandDispatchService } from "./command-dispatch.service";
 import { CommandsService } from "./commands.service";
+import { CommandTimeoutService } from "./command-timeout.service";
+import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
+import { AutomationClock } from "../automation/automation-clock";
 
 const ids = {
   command: "11111111-1111-4111-8111-111111111111",
@@ -132,6 +135,78 @@ function createHarness(options: {
 }
 
 describe("CommandsService", () => {
+  it("keeps a timeout outcome transition outside the protected overlap-check/create transaction", async () => {
+    const { service, tx, prisma, automationSnapshot } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    const realSnapshot = new AutomationSnapshotService(new AutomationClock());
+    const overlapRead = deferred<void>();
+    const allowCreate = deferred<void>();
+    const controlCommitted = deferred<void>();
+    const timeoutWaiting = deferred<"waiting">();
+    const timeoutMutated = deferred<"mutated">();
+    const events: string[] = [];
+    let outcome = "pending";
+    let controlOwnsLock = false;
+    automationSnapshot.lockMutation.mockImplementation((client: any) => realSnapshot.lockMutation(client));
+    tx.$executeRaw = jest.fn(async () => { controlOwnsLock = true; return 1; });
+    tx.command.findMany.mockImplementation(async () => {
+      const snapshot = outcome === "unknown" ? [{ id: "older", targetFixtureIds: [ids.fixture1] }] : [];
+      overlapRead.resolve();
+      await allowCreate.promise;
+      return snapshot;
+    });
+    const create = tx.command.create.getMockImplementation()!;
+    tx.command.create.mockImplementation(async (args: any) => {
+      events.push(`dimming-created:${outcome}`);
+      return create(args);
+    });
+    prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => {
+      try { return await callback(tx); }
+      finally { controlOwnsLock = false; controlCommitted.resolve(); }
+    });
+    const timeoutTx: any = {
+      $executeRaw: jest.fn(async () => {
+        if (controlOwnsLock) {
+          timeoutWaiting.resolve("waiting");
+          await controlCommitted.promise;
+        }
+        return 1;
+      }),
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      command: { updateMany: jest.fn(async ({ data }: any) => {
+        outcome = data.outcome;
+        events.push(`timeout:${outcome}`);
+        timeoutMutated.resolve("mutated");
+        return { count: 1 };
+      }) }
+    };
+    const timeoutPrisma: any = {
+      commandDispatch: { findMany: jest.fn().mockResolvedValue([
+        { id: "older-dispatch", commandId: "older", status: "published", kind: "dimming", command: { outcome: "pending" } }
+      ]) },
+      $transaction: jest.fn(async (callback) => callback(timeoutTx))
+    };
+    const timeoutService = new CommandTimeoutService(timeoutPrisma, realSnapshot);
+    const creating = service.createDimmingCommand(operator, {
+      siteId: ids.site, clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 75
+    });
+    await overlapRead.promise;
+    const timingOut = timeoutService.closeExpired();
+    try {
+      // With no shared lock the timeout mutates the original outcome while the overlap
+      // query has already read its snapshot but the overlapping Set has not been written.
+      await expect(Promise.race([timeoutWaiting.promise, timeoutMutated.promise])).resolves.toBe("waiting");
+      expect(timeoutTx.commandDispatch.updateMany).not.toHaveBeenCalled();
+      expect(outcome).toBe("pending");
+    } finally {
+      allowCreate.resolve();
+      await Promise.allSettled([creating, timingOut]);
+    }
+    await expect(creating).resolves.toMatchObject({ id: ids.command });
+    await expect(timingOut).resolves.toEqual({ timedOut: 1 });
+    expect(events).toEqual(["dimming-created:pending", "timeout:unknown"]);
+  });
   it("recovers the same dimming request before checking unknown overlaps and counts only dimming dispatches", async () => {
     const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
     const request = { siteId: ids.site, clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -653,6 +728,12 @@ describe("CommandsService", () => {
     expect(siteAccess.assertManageInTransaction).not.toHaveBeenCalled();
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((callback) => { resolve = callback; });
+  return { promise, resolve };
+}
 
 function fingerprint(
   target:

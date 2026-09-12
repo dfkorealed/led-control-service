@@ -1,6 +1,8 @@
 import { CommandTimeoutService } from "./command-timeout.service";
 import { OutboxPublisherService } from "../mqtt/outbox-publisher.service";
 import { Logger } from "@nestjs/common";
+import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
+import { AutomationClock } from "../automation/automation-clock";
 
 describe("CommandTimeoutService", () => {
   const now = new Date("2026-07-11T00:16:00.000Z");
@@ -12,6 +14,14 @@ describe("CommandTimeoutService", () => {
     OR: [{ lockedBy: null }, { leaseExpiresAt: { lte: now } }]
   };
 
+  it("takes the shared mutation lock before claiming outbox and dispatch rows", async () => {
+    const prisma = createPrisma({ dispatches: [pendingDispatch], outboxClaimCount: 1, dispatchUpdateCount: 1 });
+    await expect(createTimeoutService(prisma).closeExpired(now)).resolves.toEqual({ timedOut: 1 });
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(prisma.mqttOutbox.updateMany.mock.invocationCallOrder[0]);
+    expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(prisma.commandDispatch.updateMany.mock.invocationCallOrder[0]);
+  });
+
   it.each([
     ["pending", "not_applied", "DELIVERY_TIMEOUT"],
     ["published", "unknown", "ACCEPTANCE_TIMEOUT"],
@@ -21,7 +31,7 @@ describe("CommandTimeoutService", () => {
       dispatches: [{ id: "dispatch", commandId: "command", status, kind: "dimming", command: { outcome: "pending" } }],
       outboxClaimCount: 1, dispatchUpdateCount: 1
     });
-    await expect(new CommandTimeoutService(prisma).closeExpired(now)).resolves.toEqual({ timedOut: 1 });
+    await expect(createTimeoutService(prisma).closeExpired(now)).resolves.toEqual({ timedOut: 1 });
     expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ errorCode }) }));
     expect(prisma.command.updateMany).toHaveBeenCalledWith({
       where: { id: "command", status: "pending", outcome: "pending" },
@@ -34,7 +44,7 @@ describe("CommandTimeoutService", () => {
       dispatches: [{ id: "check", commandId: "command", status, kind: "status_check", command: { outcome: "unknown" } }],
       outboxClaimCount: 1, dispatchUpdateCount: 1
     });
-    await expect(new CommandTimeoutService(prisma).closeExpired(now)).resolves.toEqual({ timedOut: 1 });
+    await expect(createTimeoutService(prisma).closeExpired(now)).resolves.toEqual({ timedOut: 1 });
     expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { dispatchId: "check", status: "pending" } }));
     expect(prisma.command.updateMany).not.toHaveBeenCalled();
   });
@@ -44,7 +54,7 @@ describe("CommandTimeoutService", () => {
       dispatches: [{ ...pendingDispatch, kind: "dimming", command: { outcome: null } }],
       outboxClaimCount: 1, dispatchUpdateCount: 1
     });
-    await new CommandTimeoutService(prisma).closeExpired(now);
+    await createTimeoutService(prisma).closeExpired(now);
     expect(prisma.command.updateMany).toHaveBeenCalledWith({
       where: { id: "command-1", status: "pending", outcome: null },
       data: { status: "failed", errorMessage: "one or more gateway dispatches timed out" }
@@ -53,7 +63,7 @@ describe("CommandTimeoutService", () => {
 
   it("fails closed when a pending dispatch has no available outbox row", async () => {
     const prisma = createPrisma({ dispatches: [pendingDispatch], outboxClaimCount: 0 });
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
 
     await expect(service.closeExpired(now)).resolves.toEqual({ timedOut: 0 });
 
@@ -68,7 +78,7 @@ describe("CommandTimeoutService", () => {
 
   it("does not close a pending dispatch claimed by a publisher after the initial query", async () => {
     const prisma = createPrisma({ dispatches: [pendingDispatch], outboxClaimCount: 0 });
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
 
     await expect(service.closeExpired(now)).resolves.toEqual({ timedOut: 0 });
 
@@ -80,7 +90,7 @@ describe("CommandTimeoutService", () => {
 
   it("claims an expired publisher lease before timing out a pending dispatch", async () => {
     const prisma = createPrisma({ dispatches: [pendingDispatch], outboxClaimCount: 1, dispatchUpdateCount: 1 });
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
 
     await expect(service.closeExpired(now)).resolves.toEqual({ timedOut: 1 });
 
@@ -109,7 +119,7 @@ describe("CommandTimeoutService", () => {
       }
       return { count: 0 };
     });
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
 
     await expect(service.closeExpired(now)).resolves.toEqual({ timedOut: 1 });
 
@@ -140,7 +150,7 @@ describe("CommandTimeoutService", () => {
         return false;
       }
     });
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
 
     await expect(service.closeExpired(now)).resolves.toEqual({ timedOut: 0 });
 
@@ -155,7 +165,7 @@ describe("CommandTimeoutService", () => {
       { id: "accepted-1", commandId: "command-2", status: "accepted" }
     ];
     const prisma = createPrisma({ dispatches, dispatchUpdateCount: 1 });
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
     const terminalNow = new Date("2026-07-11T00:01:00.000Z");
 
     await expect(service.closeExpired(terminalNow)).resolves.toEqual({ timedOut: 2 });
@@ -172,7 +182,7 @@ describe("CommandTimeoutService", () => {
     prisma.commandDispatch.findMany
       .mockReturnValueOnce(pendingFind.promise)
       .mockResolvedValue([]);
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
 
     try {
       service.onModuleInit();
@@ -197,7 +207,7 @@ describe("CommandTimeoutService", () => {
     process.on("unhandledRejection", unhandledRejection);
     const prisma = createPrisma({ dispatches: [] });
     prisma.commandDispatch.findMany.mockRejectedValueOnce({ code: "P1001", detail: "database-secret" });
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
 
     try {
       service.onModuleInit();
@@ -219,7 +229,7 @@ describe("CommandTimeoutService", () => {
     const pendingFind = deferred<Array<typeof pendingDispatch>>();
     const prisma = createPrisma({ dispatches: [] });
     prisma.commandDispatch.findMany.mockReturnValueOnce(pendingFind.promise);
-    const service = new CommandTimeoutService(prisma as never);
+    const service = createTimeoutService(prisma);
     let stopped = false;
 
     try {
@@ -247,6 +257,7 @@ function createPrisma(options: {
   dispatchUpdateCount?: number;
 }) {
   const prisma: any = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
     commandDispatch: {
       findMany: jest.fn().mockResolvedValue(options.dispatches.map((dispatch) => ({ kind: "dimming", command: { outcome: null }, ...dispatch }))),
       updateMany: jest.fn().mockResolvedValue({ count: options.dispatchUpdateCount ?? 0 })
@@ -257,6 +268,10 @@ function createPrisma(options: {
   };
   prisma.$transaction = jest.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
   return prisma;
+}
+
+function createTimeoutService(prisma: any) {
+  return new CommandTimeoutService(prisma, new AutomationSnapshotService(new AutomationClock()));
 }
 
 function timeoutOutboxData(now: Date) {

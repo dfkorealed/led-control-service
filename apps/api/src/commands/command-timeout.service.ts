@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS } from "@led-control/shared";
 import { PrismaService } from "../prisma/prisma.service";
+import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 
 const DEVICE_STATUS_TIMEOUT_MS = 30_000;
 const DELIVERY_TIMEOUT_MS = 15 * 60_000;
@@ -13,7 +14,10 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
   private stopPromise: Promise<void> | null = null;
   private stopped = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly automationSnapshot: AutomationSnapshotService
+  ) {}
 
   onModuleInit() {
     this.stopped = false;
@@ -76,6 +80,9 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
       let closed = false;
       try {
         closed = await this.prisma.$transaction(async (tx) => {
+          // Unknown-outcome transitions must serialize with dimming's overlap scan and
+          // creation. Take the shared lock before any outbox/dispatch/command row lock.
+          await this.automationSnapshot.lockMutation(tx);
           if (dispatch.status === "pending") {
             const claimed = await tx.mqttOutbox.updateMany({
               where: {

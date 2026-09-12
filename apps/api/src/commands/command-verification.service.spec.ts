@@ -57,6 +57,9 @@ describe("CommandVerificationService", () => {
     expect(automation.lockMutation).toHaveBeenCalledWith(tx);
     expect(automation.lockMutation.mock.invocationCallOrder[0]).toBeLessThan(access.assertControlInTransaction.mock.invocationCallOrder[0]);
     expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(tx.$queryRaw.mock.calls[0][0].text).toMatch(/FROM "CommandDispatch"[\s\S]*FOR UPDATE/);
+    expect(tx.$queryRaw.mock.calls[1][0].text).toMatch(/FROM "Command"[\s\S]*FOR UPDATE/);
+    expect(access.assertControlInTransaction.mock.invocationCallOrder[0]).toBeLessThan(tx.$queryRaw.mock.invocationCallOrder[0]);
     expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(tx.command.findUnique.mock.invocationCallOrder[0]);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.gateway.update).toHaveBeenCalledWith({
