@@ -9,6 +9,8 @@ vi.mock("../../api/setup", () => ({ createInitialSiteSetup: vi.fn() }));
 const createInitialSiteSetupMock = vi.mocked(createInitialSiteSetup);
 
 const dashboard: Dashboard = {
+  generatedAt: "2026-09-12T00:00:00.000Z",
+  monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
   site: {
     id: "site-1",
     name: "A 주차장",

@@ -161,6 +161,43 @@ describe("FloorMap", () => {
     expect(screen.getByRole("button", { name: "B2-L02 상태 확인 대기 0%" })).toBeInTheDocument();
   });
 
+  it("uses the shared gateway-offline presentation for the marker accessibility name", () => {
+    render(
+      <FloorMap
+        snapshot={{ ...mapSnapshot, floorPlan: null, objects: [] }}
+        selectedFixtureId={null}
+        onSelectFixture={vi.fn()}
+        floor={{
+          id: "floor-1",
+          name: "B2",
+          level: -2,
+          floorPlan: null,
+          meshControlGroups: [],
+          fixtures: [{
+            id: "fixture-gateway-offline",
+            name: "B2-L03",
+            x: 200,
+            y: 240,
+            ratedWatt: 40,
+            brightness: 0,
+            status: "offline",
+            statusReason: "gateway_offline",
+            health: null,
+            rssi: null,
+            hopCount: null,
+            commandSuccessRate: null,
+            lastSeenAt: null,
+            gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "offline" },
+            controllable: false,
+            controlBlockReason: "gateway_offline"
+          }]
+        }}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "B2-L03 게이트웨이 오프라인 0%" })).toBeInTheDocument();
+  });
+
   it("shows an icon and text legend with semantic marker variants", () => {
     const sharedFixture = {
       x: 200,

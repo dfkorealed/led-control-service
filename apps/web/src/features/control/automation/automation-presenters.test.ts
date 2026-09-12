@@ -11,6 +11,8 @@ import {
 } from "./automation-presenters";
 
 const dashboard: Dashboard = {
+  generatedAt: "2026-09-12T00:00:00.000Z",
+  monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
   site: {
     id: "site-1",
     name: "테스트 현장",

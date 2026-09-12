@@ -239,6 +239,64 @@ describe("MonitoringView refresh", () => {
     expect(screen.getAllByText("B1-L001")).not.toHaveLength(0);
   });
 
+  it("keeps cached dashboard, map, and selected fixture visible when a dashboard refetch fails", () => {
+    queryMocks.useDashboard.mockReturnValue({
+      data: dashboard,
+      isLoading: false,
+      error: new Error("dashboard unavailable"),
+      dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
+      refetch: refetchDashboard
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B1-L001");
+    expect(screen.getByRole("alert")).toHaveTextContent("저장된 현황을 유지하고 있습니다.");
+  });
+
+  it("shows a persistent stale warning after the oldest fixture page snapshot exceeds 60 seconds", () => {
+    const snapshotAt = new Date(Date.now() - 60_001).toISOString();
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: snapshotAt }] },
+      dataUpdatedAt: Date.now(),
+      error: null,
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent(snapshotAt);
+  });
+
+  it("keeps a future server snapshot explicit instead of presenting it as a normal relative update", () => {
+    const snapshotAt = "2099-01-01T00:00:00.000Z";
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: snapshotAt }] },
+      dataUpdatedAt: Date.now(),
+      error: null,
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+      refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByText(/마지막 갱신:/)).toHaveTextContent(`시간 차이 확인 (${snapshotAt})`);
+    expect(screen.getByRole("alert")).toHaveTextContent(`시간 차이 확인: ${snapshotAt}`);
+  });
+
   it("shows the latest Health Current fault snapshot", () => {
     render(<MonitoringView siteId="site-1" />);
 

@@ -23,6 +23,8 @@ const siteId = "00000000-0000-4000-8000-000000000001";
 const sensorFixtureId = "00000000-0000-4000-8000-000000000003";
 const targetFixtureId = "00000000-0000-4000-8000-000000000004";
 const dashboard: Dashboard = {
+  generatedAt: "2026-09-12T00:00:00.000Z",
+  monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
   site: { id: siteId, name: "테스트 현장", customerName: "테스트 고객", installationStatus: "installed", address: null, tariffKwhRate: 160, timeZone: "Asia/Seoul" },
   summary: { totalFixtures: 3, onlineFixtures: 3, faultFixtures: 0, averageBrightness: 60 },
   floors: [{

@@ -23,6 +23,8 @@ const siteId = "00000000-0000-4000-8000-000000000001";
 const fixtureId = "00000000-0000-4000-8000-000000000003";
 const secondFixtureId = "00000000-0000-4000-8000-000000000005";
 const dashboard: Dashboard = {
+  generatedAt: "2026-09-12T00:00:00.000Z",
+  monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
   site: {
     id: siteId,
     name: "테스트 현장",

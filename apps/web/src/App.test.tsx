@@ -754,6 +754,8 @@ describe("App", () => {
   it("shows a retryable installation-status error before mounting an admin child route", async () => {
     apiState.dashboardResponses = [
       () => Promise.reject(new Error("dashboard unavailable")),
+      () => Promise.reject(new Error("dashboard unavailable")),
+      () => Promise.reject(new Error("dashboard unavailable")),
       () => Promise.resolve({ ...mockDashboard, site: { ...mockDashboard.site, id: "site-2" } })
     ];
     window.history.pushState({}, "", "/control?siteId=site-2");
@@ -763,7 +765,7 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("설치 상태를 확인하지 못했습니다.");
     expect(vi.mocked(apiGet).mock.calls.filter(([path]) => path.includes("dashboard?includeFixtures=true"))).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
-    await waitFor(() => expect(vi.mocked(apiGet).mock.calls.filter(([path]) => path === "/sites/site-2/dashboard")).toHaveLength(2));
+    await waitFor(() => expect(vi.mocked(apiGet).mock.calls.filter(([path]) => path === "/sites/site-2/dashboard")).toHaveLength(4));
   });
 
   it("keeps an installed default dashboard after setup even when the invalidated refetch fails", async () => {

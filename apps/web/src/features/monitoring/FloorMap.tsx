@@ -3,6 +3,7 @@ import { CircleCheck, CircleX, Clock3, Hand, Maximize, Minus, Plus, TriangleAler
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Dashboard } from "../../api/queries";
 import { FloorScene } from "../floor-map/FloorScene";
+import { presentFixtureStatus } from "./fixture-status-presentation";
 
 interface FloorMapProps {
   floor: Dashboard["floors"][number];
@@ -37,6 +38,10 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
         height: `${Math.max(viewportSize.height, renderedHeight + padding * 2)}px`
       }
     : undefined;
+  const sceneFixtures = floor.fixtures.map((fixture) => ({
+    ...fixture,
+    statusPresentation: presentFixtureStatus(fixture)
+  }));
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -136,7 +141,7 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
           <div className="floor-map monitoring-map-card" style={mapStyle}>
             <FloorScene
               snapshot={snapshot}
-              fixtures={floor.fixtures}
+              fixtures={sceneFixtures}
               interactive={false}
               floorName={floor.name}
               selectedFixtureId={selectedFixtureId}

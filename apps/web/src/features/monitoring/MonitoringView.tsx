@@ -5,26 +5,23 @@ import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } f
 import { Button, FeedbackState, MetricCard, SidePanel, StatusBadge } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
+import { presentFixtureStatus } from "./fixture-status-presentation";
 
-const statusLabels = {
-  online: "정상",
-  offline: "오프라인",
-  fault: "장애"
-} as const;
+const STALE_SNAPSHOT_AFTER_MS = 60_000;
 
 export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading, error } = dashboardQuery;
 
-  if (isLoading) return <div className="panel">불러오는 중</div>;
-  if (error || !data) return <div className="panel danger">현황 데이터를 불러오지 못했습니다.</div>;
+  if (isLoading && !data) return <div className="panel">불러오는 중</div>;
+  if (!data) return <div className="panel danger">현황 데이터를 불러오지 못했습니다.</div>;
 
   return (
     <MonitoringDashboard
       data={data}
       userRole={userRole}
       siteId={siteId}
-      dashboardUpdatedAt={dashboardQuery.dataUpdatedAt}
+      dashboardError={error}
       refreshDashboard={() => dashboardQuery.refetch({ throwOnError: true })}
     />
   );
@@ -34,17 +31,17 @@ interface MonitoringDashboardProps {
   data: Dashboard;
   userRole: "operator" | "admin" | "viewer";
   siteId?: string;
-  dashboardUpdatedAt: number;
+  dashboardError: unknown;
   refreshDashboard: () => Promise<unknown>;
 }
 
-function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refreshDashboard }: MonitoringDashboardProps) {
+function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDashboard }: MonitoringDashboardProps) {
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [mapRefreshFailedFloorId, setMapRefreshFailedFloorId] = useState<string | null>(null);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState(dashboardUpdatedAt);
+  const [now, setNow] = useState(() => Date.now());
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
@@ -53,6 +50,17 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   const mapSnapshot = mapQuery.data;
   const mapRefreshFailed = mapRefreshFailedFloorId === floor?.id;
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
+  const selectedFixturePresentation = selectedFixture ? presentFixtureStatus(selectedFixture) : null;
+  const snapshotFreshness = useMemo(
+    () => getSnapshotFreshness(fixtureQuery.data?.pages.map((page) => page.generatedAt), now),
+    [fixtureQuery.data?.pages, now]
+  );
+  const staleSources = [
+    dashboardError ? "현황" : null,
+    fixtureQuery.error ? "조명 상태" : null,
+    mapQuery.error || mapRefreshFailed ? "지도" : null
+  ].filter((source): source is string => Boolean(source));
+  const isStale = staleSources.length > 0 || snapshotFreshness.state !== "fresh";
   const floorSummary = useMemo(
     () => ({
       totalFixtures: fixtures.length,
@@ -67,9 +75,9 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
   }, [fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
 
   useEffect(() => {
-    const latestQueryUpdate = Math.max(dashboardUpdatedAt, fixtureQuery.dataUpdatedAt ?? 0, mapQuery.dataUpdatedAt ?? 0);
-    if (latestQueryUpdate > 0) setLastRefreshedAt(latestQueryUpdate);
-  }, [dashboardUpdatedAt, fixtureQuery.dataUpdatedAt, mapQuery.dataUpdatedAt]);
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!floor) return;
@@ -134,7 +142,6 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
     setMapRefreshFailedFloorId((current) => results[2]?.status === "rejected"
       ? refreshedFloorId
       : current === refreshedFloorId ? null : current);
-    if (failureCount < results.length) setLastRefreshedAt(Date.now());
     if (failureCount === results.length) {
       setRefreshError("현황 데이터를 새로고침하지 못했습니다.");
     } else if (failureCount > 0) {
@@ -168,7 +175,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
           </select>
         </label>
         <div className="monitoring-refresh-actions">
-          <small>{lastRefreshedAt > 0 ? `마지막 갱신: ${formatUpdatedAt(lastRefreshedAt)}` : "갱신 시각 확인 중"}</small>
+          <small>{formatSnapshotUpdatedAt(snapshotFreshness)}</small>
           {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
           <Button
             variant="secondary"
@@ -186,9 +193,30 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
         floorName={floor?.name}
         hasData={hasFixtureData}
         error={fixtureQuery.error}
-        isFetching={fixtureQuery.isFetching}
-        onRetry={() => void fixtureQuery.refetch()}
       />
+
+      {isStale ? (
+        <FeedbackState
+          tone="danger"
+          icon={TriangleAlert}
+          title={snapshotFreshness.state === "invalid"
+            ? "서버 snapshot 시각을 확인할 수 없습니다."
+            : fixtureQuery.error && !hasFixtureData
+              ? "조명 상태를 불러오지 못했습니다."
+              : fixtureQuery.error
+                ? "저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다."
+            : dashboardError && staleSources.length === 1 && snapshotFreshness.state === "unknown"
+              ? "저장된 현황을 유지하고 있습니다. 현황 갱신에 실패했습니다."
+              : "현황 갱신이 지연되고 있습니다."}
+          description={[
+            staleSources.length > 0 ? `${staleSources.join(", ")} 갱신 실패` : null,
+            snapshotFreshness.state === "future" ? `시간 차이 확인: ${snapshotFreshness.rawGeneratedAt}` : null,
+            snapshotFreshness.state === "stale" ? "가장 오래된 선택 층 snapshot이 60초를 초과했습니다." : null,
+            snapshotFreshness.state === "invalid" ? "서버가 유효한 generatedAt ISO 시각을 반환하지 않았습니다." : null
+          ].filter(Boolean).join(" · ")}
+          action={<Button variant="secondary" isLoading={isManualRefreshing} onClick={() => void handleRefresh()}>{fixtureQuery.error ? "조명 상태 다시 시도" : "다시 시도"}</Button>}
+        />
+      ) : null}
 
       {hasFixtureData ? (
         <>
@@ -208,7 +236,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
             >
               {fixtures.map((fixture) => (
                 <option key={fixture.id} value={fixture.id}>
-                  {fixture.name} · {fixture.statusReason === "provisioning_waiting_state" ? "상태 확인 대기" : statusLabels[fixture.status]}
+                  {fixture.name} · {presentFixtureStatus(fixture).label}
                 </option>
               ))}
             </select>
@@ -262,6 +290,14 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
                   </div>
                   <dl className="info-list">
                     <div>
+                      <dt>상태 원인</dt>
+                      <dd>{selectedFixturePresentation?.description}</dd>
+                    </div>
+                    <div>
+                      <dt>권장 조치</dt>
+                      <dd>{selectedFixturePresentation?.recommendedAction}</dd>
+                    </div>
+                    <div>
                       <dt>정격 전력</dt>
                       <dd>{selectedFixture.ratedWatt} W</dd>
                     </div>
@@ -314,35 +350,14 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardUpdatedAt, refre
 function FixtureQueryFeedback({
   floorName,
   hasData,
-  error,
-  isFetching,
-  onRetry
+  error
 }: {
   floorName: string | undefined;
   hasData: boolean;
   error: unknown;
-  isFetching: boolean;
-  onRetry: () => void;
 }) {
-  if (!error && hasData) return null;
-  if (!error) {
-    return <FeedbackState icon={Clock3} title={`${floorName ? `${floorName} ` : ""}조명 상태를 불러오는 중`} />;
-  }
-
-  return (
-    <FeedbackState
-      tone="danger"
-      icon={TriangleAlert}
-      title={hasData
-        ? "저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다."
-        : "조명 상태를 불러오지 못했습니다."}
-      action={(
-        <Button variant="secondary" disabled={isFetching} onClick={onRetry}>
-          {isFetching ? "조명 상태 다시 시도 중" : "조명 상태 다시 시도"}
-        </Button>
-      )}
-    />
-  );
+  if (error || hasData) return null;
+  return <FeedbackState icon={Clock3} title={`${floorName ? `${floorName} ` : ""}조명 상태를 불러오는 중`} />;
 }
 
 function formatRssi(value: number | null) {
@@ -351,12 +366,12 @@ function formatRssi(value: number | null) {
 
 function FixtureStatusBadge({ fixture }: { fixture: Dashboard["floors"][number]["fixtures"][number] | undefined }) {
   if (!fixture) return <StatusBadge tone="neutral" icon={Clock3}>대기</StatusBadge>;
-  if (fixture.statusReason === "provisioning_waiting_state") {
-    return <StatusBadge tone="warning" icon={Clock3}>상태 확인 대기</StatusBadge>;
-  }
-  if (fixture.status === "online") return <StatusBadge tone="success" icon={CircleCheck}>{statusLabels.online}</StatusBadge>;
-  if (fixture.status === "fault") return <StatusBadge tone="danger" icon={TriangleAlert}>{statusLabels.fault}</StatusBadge>;
-  return <StatusBadge tone="neutral" icon={CircleX}>{statusLabels.offline}</StatusBadge>;
+  const presentation = presentFixtureStatus(fixture);
+  const icon = presentation.tone === "success" ? CircleCheck
+    : presentation.tone === "warning" ? Clock3
+      : presentation.tone === "danger" ? TriangleAlert
+        : CircleX;
+  return <StatusBadge tone={presentation.tone} icon={icon}>{presentation.label}</StatusBadge>;
 }
 
 function formatSuccessRate(value: number | null) {
@@ -379,14 +394,25 @@ function formatHealthStatus(health: Dashboard["floors"][number]["fixtures"][numb
   return `장애 (${codes.join(", ")})`;
 }
 
-function formatUpdatedAt(value: number) {
-  return new Intl.DateTimeFormat("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).format(new Date(value));
+function getSnapshotFreshness(generatedAts: Array<string | undefined> | undefined, now: number): {
+  state: "fresh" | "stale" | "future" | "invalid" | "unknown";
+  rawGeneratedAt?: string;
+} {
+  const availableGeneratedAts = generatedAts?.filter((generatedAt): generatedAt is string => typeof generatedAt === "string") ?? [];
+  if (!availableGeneratedAts.length) return { state: "unknown" };
+  const parsed = availableGeneratedAts.map((generatedAt) => ({
+    rawGeneratedAt: generatedAt,
+    value: typeof generatedAt === "string" ? new Date(generatedAt).getTime() : Number.NaN
+  }));
+  if (parsed.some((entry) => !Number.isFinite(entry.value))) return { state: "invalid" };
+  const oldest = parsed.reduce((current, entry) => entry.value < current.value ? entry : current);
+  if (oldest.value > now) return { state: "future", rawGeneratedAt: oldest.rawGeneratedAt };
+  return { state: now - oldest.value > STALE_SNAPSHOT_AFTER_MS ? "stale" : "fresh", rawGeneratedAt: oldest.rawGeneratedAt };
+}
+
+function formatSnapshotUpdatedAt(snapshot: ReturnType<typeof getSnapshotFreshness>) {
+  if (snapshot.state === "invalid") return "마지막 갱신: 서버 snapshot 시각 확인 필요";
+  if (snapshot.state === "unknown") return "마지막 갱신: 서버 snapshot 시각 확인 중";
+  if (snapshot.state === "future") return `마지막 갱신: 시간 차이 확인 (${snapshot.rawGeneratedAt})`;
+  return `마지막 갱신: ${snapshot.rawGeneratedAt}`;
 }

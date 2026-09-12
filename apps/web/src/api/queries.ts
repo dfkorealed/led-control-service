@@ -2,12 +2,14 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { FixtureGroupMetadata, FloorMapSnapshot } from "@led-control/shared";
 import { apiGet } from "./client";
 
-export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+export const MONITORING_REFRESH_INTERVAL_MS = 30 * 1000;
 
 export const monitoringQueryPolicy = {
   staleTime: MONITORING_REFRESH_INTERVAL_MS,
   refetchInterval: MONITORING_REFRESH_INTERVAL_MS,
-  refetchOnWindowFocus: false
+  refetchOnWindowFocus: true,
+  retry: 2,
+  retryDelay: 0
 } as const;
 
 export interface SiteCapabilities {
@@ -18,6 +20,11 @@ export interface SiteCapabilities {
 }
 
 export interface Dashboard {
+  generatedAt: string;
+  monitoringPolicy: {
+    gatewayOfflineAfterSeconds: number;
+    fixtureStaleAfterSeconds: number;
+  };
   capabilities?: SiteCapabilities;
   site: {
     id: string;
@@ -120,6 +127,12 @@ export function useControlDashboard(siteId?: string) {
 
 export type FixtureSnapshot = Dashboard["floors"][number]["fixtures"][number];
 
+export interface FloorFixturePage {
+  items: FixtureSnapshot[];
+  nextCursor: string | null;
+  generatedAt: string;
+}
+
 export function useFloorFixtures(floorId: string | undefined, siteId?: string) {
   return useInfiniteQuery({
     queryKey: ["floor-fixtures", siteId ?? "default", floorId],
@@ -127,7 +140,7 @@ export function useFloorFixtures(floorId: string | undefined, siteId?: string) {
       if (!floorId || !siteId) throw new Error("siteId and floorId are required to load fixtures");
       const search = new URLSearchParams({ limit: "200" });
       if (pageParam) search.set("cursor", pageParam);
-      return apiGet<{ items: FixtureSnapshot[]; nextCursor: string | null }>(
+      return apiGet<FloorFixturePage>(
         `/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/fixtures?${search.toString()}`
       );
     },

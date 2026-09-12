@@ -18,6 +18,7 @@ export interface SceneFixture {
   status: "online" | "offline" | "fault";
   statusReason?: string | null;
   placementStatus?: "unplaced" | "placed";
+  statusPresentation?: { label: string; state: string };
 }
 
 export interface SceneMapObject {
@@ -77,8 +78,10 @@ export function FloorScene({
         ))}
       </div>
       {fixtures.filter((fixture) => fixture.placementStatus !== "unplaced").map((fixture) => {
-        const awaitingState = fixture.statusReason === "provisioning_waiting_state";
-        const statusLabel = awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status];
+        // FloorMap injects the monitoring presenter result. Editor callers omit it and retain
+        // their compact legacy status label without owning monitoring cause precedence.
+        const awaitingState = fixture.statusPresentation?.state === "provisioning_waiting_state" || fixture.statusReason === "provisioning_waiting_state";
+        const statusLabel = fixture.statusPresentation?.label ?? (awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status]);
         const brightnessLevel = fixtureBrightnessLevel(fixture.brightness);
         const markerStyle = {
           "--fixture-left": `${(fixture.x / snapshot.width) * 100}%`,

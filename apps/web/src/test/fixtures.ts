@@ -11,6 +11,8 @@ export const mockUser = {
 };
 
 export const mockDashboard: Dashboard = {
+  generatedAt: "2026-09-12T00:00:00.000Z",
+  monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
   site: {
     id: "00000000-0000-4000-8000-000000000003",
     name: "Demo Underground Parking",

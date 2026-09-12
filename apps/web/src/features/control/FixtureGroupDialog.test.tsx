@@ -281,6 +281,8 @@ function createDashboard(): Dashboard {
     controlBlockReason: null
   });
   return {
+    generatedAt: "2026-09-12T00:00:00.000Z",
+    monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
     site: {
       id: ids.site,
       name: "테스트 현장",

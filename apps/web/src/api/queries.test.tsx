@@ -30,20 +30,21 @@ describe("useFloorFixtures", () => {
     });
   });
 
-  it("refreshes monitoring fixture snapshots every ten minutes without focus refetch", async () => {
-    apiGet.mockResolvedValue({ items: [], nextCursor: null });
+  it("refreshes monitoring fixture snapshots every 30 seconds with bounded retries and focus refetch", async () => {
+    apiGet.mockResolvedValue({ items: [], nextCursor: null, generatedAt: "2026-09-12T00:00:00.000Z" });
     const client = createQueryClient();
 
     renderHook(() => useFloorFixtures("floor-1", "site-2"), { wrapper: wrapperFor(client) });
 
     await waitFor(() => expect(client.getQueryCache().find({ queryKey: ["floor-fixtures", "site-2", "floor-1"] })).toBeDefined());
     const options = client.getQueryCache().find({ queryKey: ["floor-fixtures", "site-2", "floor-1"] })?.options as
-      | { refetchInterval?: unknown; staleTime?: unknown; refetchOnWindowFocus?: unknown }
+      | { refetchInterval?: unknown; staleTime?: unknown; refetchOnWindowFocus?: unknown; retry?: unknown }
       | undefined;
 
-    expect(options?.refetchInterval).toBe(600_000);
-    expect(options?.staleTime).toBe(600_000);
-    expect(options?.refetchOnWindowFocus).toBe(false);
+    expect(options?.refetchInterval).toBe(30_000);
+    expect(options?.staleTime).toBe(30_000);
+    expect(options?.refetchOnWindowFocus).toBe(true);
+    expect(options?.retry).toBe(2);
   });
 });
 
@@ -65,24 +66,29 @@ describe("useFloorMapSnapshot", () => {
     const options = client.getQueryCache().find({ queryKey: ["floor-map", "site-2", "floor-1"] })?.options as
       | { refetchInterval?: unknown; staleTime?: unknown; refetchOnWindowFocus?: unknown }
       | undefined;
-    expect(options).toMatchObject({ refetchInterval: 600_000, staleTime: 600_000, refetchOnWindowFocus: false });
+    expect(options).toMatchObject({ refetchInterval: 30_000, staleTime: 30_000, refetchOnWindowFocus: true, retry: 2 });
   });
 });
 
 describe("useDashboard", () => {
-  it("refreshes monitoring metadata every ten minutes without focus refetch", async () => {
-    apiGet.mockResolvedValue({ site: { id: "site-2", name: "현장" }, summary: {}, floors: [], groups: [], gateways: [] });
+  it("refreshes monitoring metadata every 30 seconds with bounded retries and focus refetch", async () => {
+    apiGet.mockResolvedValue({
+      generatedAt: "2026-09-12T00:00:00.000Z",
+      monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
+      site: { id: "site-2", name: "현장" }, summary: {}, floors: [], groups: [], gateways: []
+    });
     const client = createQueryClient();
 
     renderHook(() => useDashboard("site-2"), { wrapper: wrapperFor(client) });
 
     await waitFor(() => expect(client.getQueryCache().find({ queryKey: ["dashboard", "site-2"] })).toBeDefined());
     const options = client.getQueryCache().find({ queryKey: ["dashboard", "site-2"] })?.options as
-      | { refetchInterval?: unknown; staleTime?: unknown; refetchOnWindowFocus?: unknown }
+      | { refetchInterval?: unknown; staleTime?: unknown; refetchOnWindowFocus?: unknown; retry?: unknown }
       | undefined;
 
-    expect(options?.refetchInterval).toBe(600_000);
-    expect(options?.staleTime).toBe(600_000);
-    expect(options?.refetchOnWindowFocus).toBe(false);
+    expect(options?.refetchInterval).toBe(30_000);
+    expect(options?.staleTime).toBe(30_000);
+    expect(options?.refetchOnWindowFocus).toBe(true);
+    expect(options?.retry).toBe(2);
   });
 });
