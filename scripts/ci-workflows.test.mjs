@@ -205,6 +205,18 @@ test("HIL is manual, protected, serialized, exact-confirmation, and fail-closed 
   assert.match(missingHardwareConfiguration.stderr, /HIL_GATEWAY_SERIAL is required/);
 });
 
+test("both HIL harnesses use the shared Gateway execution directory contract", async () => {
+  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  assert.equal(packageJson.scripts["gateway:pki:hil"], "node scripts/run-gateway-hil.mjs pki");
+  assert.equal(packageJson.scripts["gateway:hil:2node"], "node scripts/run-gateway-hil.mjs two-node");
+
+  const launcher = await import("./run-gateway-hil.mjs");
+  for (const mode of ["pki", "two-node"]) {
+    const invocation = launcher.createGatewayHilInvocation(mode, []);
+    assert.equal(invocation.cwd, path.join(root, "apps/gateway"));
+  }
+});
+
 async function parseWorkflow(name) {
   const source = await readFile(path.join(root, ".github/workflows", name), "utf8");
   const parsed = yaml.load(source);

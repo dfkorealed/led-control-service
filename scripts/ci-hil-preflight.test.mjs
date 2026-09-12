@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
+const gatewayRoot = path.join(root, "apps/gateway");
 const preflight = path.join(root, "scripts/ci-hil-preflight.mjs");
 const commandVariables = [
   "HIL_CLAIM_COMMAND_JSON",
@@ -74,14 +75,42 @@ test("HIL preflight resolves executable argv without executing it", (t) => {
   assert.equal(existsSync(fixture.markerPath), false);
 });
 
-function createFixture(t) {
-  const directory = mkdtempSync(path.join(tmpdir(), "led-hil-preflight-"));
+test("HIL preflight rejects a relative command that exists only from the repository root", (t) => {
+  const fixture = createFixture(t, root);
+  const rootRelativeCommand = path.relative(root, fixture.commandPath);
+  for (const name of commandVariables) fixture.env[name] = JSON.stringify([rootRelativeCommand]);
+
+  const result = runPreflight(fixture.env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /HIL_CLAIM_COMMAND_JSON argv\[0\] must resolve to an executable file/);
+  assert.equal(existsSync(fixture.markerPath), false);
+});
+
+test("HIL preflight accepts Gateway-cwd relative command, credential, and device paths without execution", (t) => {
+  const fixture = createFixture(t, gatewayRoot);
+  const devicePath = path.join(fixture.directory, "serial-device");
+  symlinkSync("/dev/null", devicePath);
+  fixture.env.HIL_CA_PATH = path.relative(gatewayRoot, fixture.caPath);
+  fixture.env.HIL_GATEWAY_CERT_PATH = path.relative(gatewayRoot, fixture.certPath);
+  fixture.env.HIL_GATEWAY_KEY_PATH = path.relative(gatewayRoot, fixture.keyPath);
+  fixture.env.HIL_NODE1_PORT = path.relative(gatewayRoot, devicePath);
+  fixture.env.HIL_NODE2_PORT = path.relative(gatewayRoot, devicePath);
+  const gatewayRelativeCommand = path.relative(gatewayRoot, fixture.commandPath);
+  for (const name of commandVariables) fixture.env[name] = JSON.stringify([gatewayRelativeCommand]);
+
+  const result = runPreflight(fixture.env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(fixture.markerPath), false);
+});
+
+function createFixture(t, parent = tmpdir()) {
+  const directory = mkdtempSync(path.join(parent, ".led-hil-preflight-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const caPath = writeRegularFile(directory, "ca.pem", "ca");
   const certPath = writeRegularFile(directory, "gateway.pem", "cert");
   const keyPath = writeRegularFile(directory, "gateway.key", "key");
   const markerPath = path.join(directory, "command-ran");
-  const commandPath = writeRegularFile(directory, "hil-command", `#!/bin/sh\ntouch "${markerPath}"\n`);
+  const commandPath = writeRegularFile(directory, "hil-command", `#!/bin/sh\n: > "${markerPath}"\n`);
   chmodSync(commandPath, 0o700);
 
   const env = {
@@ -96,7 +125,7 @@ function createFixture(t) {
     HIL_MUTATION_MARKER: markerPath
   };
   for (const name of commandVariables) env[name] = JSON.stringify([path.basename(commandPath)]);
-  return { certPath, commandPath, env, markerPath };
+  return { caPath, certPath, commandPath, directory, env, keyPath, markerPath };
 }
 
 function writeRegularFile(directory, name, contents) {
