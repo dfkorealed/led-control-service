@@ -63,10 +63,10 @@
 - Modify: `apps/web/src/features/monitoring/MonitoringView.test.tsx`
 - Modify: `apps/web/src/features/monitoring/FloorMap.tsx`
 
-- [ ] 30초 polling/2회 retry/focus와 API metadata 타입 RED 작성
-- [ ] cached dashboard error에서도 화면·선택 유지와 60초 stale banner RED 작성
-- [ ] statusReason별 label/설명/action presenter RED 작성
-- [ ] polling/fallback/banner/presenter 최소 구현 및 Web focused 통과
+- [x] 30초 polling/2회 retry/focus와 API metadata 타입 RED 작성
+- [x] cached dashboard error에서도 화면·선택 유지와 60초 stale banner RED 작성
+- [x] statusReason별 label/설명/action presenter RED 작성
+- [x] polling/fallback/banner/presenter 최소 구현 및 Web focused 통과
 
 ### Task 4: Incident와 정책 Web UI
 
