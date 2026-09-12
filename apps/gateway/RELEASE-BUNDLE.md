@@ -25,19 +25,19 @@ Inventory 경로는 `usr/local/share/gateway-release-inventory.json`이다. 지�
 
 ## Private-material 검사의 정확한 범위
 
-Manifest의 `privateMaterialScan`에는 고정 profile `led-control-private-material/v1`과 아래 보장·한계가 들어간다. Verify는 profile을 생략하거나 약화한 manifest를 거부한다. 이 검사는 “어떤 형태의 secret도 없다”는 증명이 아니다.
+Manifest의 `privateMaterialScan`에는 고정 profile `led-control-private-material/v2`와 아래 보장·한계가 들어간다. Verify는 profile을 생략하거나 다른 profile로 바꾼 manifest를 거부한다. v1 artifact를 v2 증거라고 재인증하지 않는다. 이 검사는 “어떤 형태의 secret도 없다”는 증명이 아니다.
 
 | 검사 | 보장 범위 |
 | --- | --- |
 | 파일 이름/형식 | Site `.env.appliance`, 개인키 이름/확장자, bundle symlink/hardlink/special file와 예상 밖 경로를 거부한다. 공개 CA `.pem`과 image 내부 정상 OS symlink 자체는 개인키로 보지 않는다. |
-| PEM | Literal private-key PEM header marker를 거부한다. 암호화 PEM marker도 포함한다. |
-| DER | ASN.1 definite-length SEQUENCE 후보 중 [Node `createPrivateKey`](https://nodejs.org/docs/latest-v22.x/api/crypto.html#cryptocreateprivatekeykey)가 인식하는 PKCS#1/PKCS#8/SEC1 private key를 거부한다. PKCS#8에서 명시적인 `ERR_MISSING_PASSPHRASE`가 발생하는 encrypted container도 거부한다. |
-| Base64 | 위 PEM/DER를 **표준 base64 한 겹**으로 감싼 내용도 검사한다. ASCII whitespace 전체(Space/HT/LF/VT/FF/CR), 짧은 마지막 줄, chunk 경계를 정규화한다. JSON/text 안의 인식 가능한 base64 시작 지점도 검사한다. |
-| 범위/예산 | Bundle regular-file bytes와 **삭제된 layer까지 포함한** 모든 지원 image layer bytes를 검사한다. DER object는 최대 65,536 bytes, base64 carry/candidate는 공백 제거 후 최대 131,072 characters다. 인식 가능한 과대 DER/key 후보는 fail-closed한다. 일반 파일 전체를 메모리에 올리지 않는다. |
+| PEM | UTF-8 text 안의 complete `BEGIN … PRIVATE KEY`→동일한 `END` block을 [Node `createPrivateKey`](https://nodejs.org/docs/latest-v22.x/api/crypto.html#cryptocreateprivatekeykey)가 실제 private key로 parse할 때 거부한다. Header 문자열이나 파싱 불가능한 설명 예시는 key로 판정하지 않는다. |
+| DER | 파일 전체가 PKCS#1/PKCS#8/SEC1 private key이고 Node crypto parse가 성공할 때 거부한다. 앞뒤 ASCII whitespace는 허용해 검사한다. Binary의 임의 offset을 sliding scan하지 않는다. |
+| Base64 | **파일 전체**가 표준 base64 한 겹으로 감싼 standalone PEM/DER key일 때 같은 검사를 한다. ASCII whitespace 전체(Space/HT/LF/VT/FF/CR), 짧은 마지막 줄, chunk 경계를 정규화한다. JSON/text 안 일부 base64 token은 이 계약에 포함하지 않는다. |
+| 범위/예산 | Bundle의 일반 파일과 **삭제된 layer까지 포함한** 각 image layer의 일반 파일 **내용 단위**로 검사한다. Tar header/padding나 다른 파일의 bytes를 합쳐 key로 해석하지 않는다. DER는 최대 65,536 bytes, complete PEM block과 공백 제거한 base64 candidate는 각각 최대 131,072 characters다. 후보만 bounded buffering하며 전체 image/file을 메모리에 올리지 않는다. |
 
-공개 SPKI/CA certificate를 개인키로 판정하지 않는 회귀도 유지한다. 오류에는 검사 종류만 남기며 key bytes, base64 원문, JSON excerpt나 passphrase를 출력하지 않는다. 테스트 개인키는 Node crypto로 매 실행 생성하는 disposable fixture뿐이다.
+공개 SPKI/CA certificate, 정상 library binary와 marker-only 문서를 개인키로 판정하지 않는 회귀도 유지한다. 오류에는 검사 종류만 남기며 key bytes, base64 원문, JSON excerpt나 passphrase를 출력하지 않는다. 테스트 개인키는 Node crypto로 매 실행 생성하는 disposable fixture뿐이다.
 
-검사하지 않는 범위: 일반 password/token/raw symmetric key, 임의의 obfuscation, 표준 base64 외 encoding, 재귀 encoding, 암호문 복호화, layer 내부 파일의 nested compressed payload 해제, 미지원 key/container 형식. 지원 image layer transport(raw tar 또는 단일 gzip)는 해제 후 검사하지만, 임의의 내부 archive를 재귀 해제하지 않는다. 인식 불가능한 암호문이나 arbitrary secret을 전부 탐지한다고 해석하면 안 된다.
+검사하지 않는 범위: 일반 password/token/raw symmetric key, passphrase 없이는 parse할 수 없는 encrypted key, binary 내부 DER·PEM, text 일부의 base64 token, 위 예산보다 큰 후보, 임의의 obfuscation/다른 encoding/재귀 encoding, layer 내부 파일의 nested compressed payload, Node가 지원하지 않는 key/container 형식(예: OpenSSH private container). 지원 image layer transport(raw tar 또는 단일 gzip)는 해제 후 파일별 검사하지만, 임의의 내부 archive를 재귀 해제하지 않는다. Site env/key filename denylist와 `.dockerignore`는 유지되며, 이 content profile의 한계를 운영 key custody나 artifact 승인으로 대체해 해석하면 안 된다.
 
 ## Shell metadata 전달
 

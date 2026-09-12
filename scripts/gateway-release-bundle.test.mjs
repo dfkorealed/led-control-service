@@ -341,25 +341,42 @@ test("OCI ancestor replacement cannot revive a removed inventory or resolve it t
   });
 });
 
-test("private-material content detection rejects ephemeral DER and base64 keys in allowed bundle/layer filenames", async (t) => {
+test("private-material v2 permits library binaries and marker-only docs, not inferred key offsets", async (t) => {
+  const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey;
+  const der = key.export({ type: "pkcs8", format: "der" }), pem = key.export({ type: "pkcs8", format: "pem" });
+  const files = {
+    "usr/lib/synthetic-library.so": Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0]), der, Buffer.from(pem), Buffer.from([0])]),
+    "usr/share/config.md": "An example header is -----BEGIN PRIVATE KEY-----.\n-----BEGIN PRIVATE KEY-----\nnot-an-encoded-key\n-----END PRIVATE KEY-----\n",
+    "usr/share/config.js": 'const label = "-----BEGIN ENCRYPTED PRIVATE KEY-----";\n',
+    // These exclusions are explicit v2 boundaries, not successful secret scans.
+    "usr/share/encoded.json": JSON.stringify({ payload: der.toString("base64") }),
+    "usr/share/encrypted.bin": key.export({ type: "pkcs8", format: "der", cipher: "aes-256-cbc", passphrase: "ephemeral-test-only" }),
+    "usr/share/encoded-library.txt": Buffer.concat([Buffer.from([0]), der, Buffer.from(pem), Buffer.from([0])]).toString("base64"),
+  };
+  const h = await created(t, { oci: true, layerFiles: files }); succeeds(run(h.verifyArgs));
+  await writeFile(path.join(h.output, "compose.yml"), files["usr/share/config.md"]);
+  await checksums(h.output); succeeds(run(h.verifyArgs));
+});
+
+test("private-material content detection rejects ephemeral standalone keys and complete text PEM blocks", async (t) => {
   // Ephemeral test-only material, never operational keys or checked-in bytes.
   const ec = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const pem = ec.privateKey.export({ type: "pkcs8", format: "pem" });
   const der = ec.privateKey.export({ type: "pkcs8", format: "der" });
-  const encryptedDer = ec.privateKey.export({ type: "pkcs8", format: "der", cipher: "aes-256-cbc", passphrase: "ephemeral-test-only" });
   const fixtures = {
     "DER PKCS8": der,
     "DER PKCS1": rsa.privateKey.export({ type: "pkcs1", format: "der" }),
     "DER SEC1": ec.privateKey.export({ type: "sec1", format: "der" }),
-    "encrypted DER PKCS8": encryptedDer,
-    "base64 encrypted DER": Buffer.from(encryptedDer.toString("base64")),
-    "base64 PEM in text": Buffer.from(`value: ${Buffer.from(pem).toString("base64")}\n`),
+    "standalone DER with ASCII whitespace": Buffer.concat([Buffer.from(" \t\r\n\f\v"), der, Buffer.from(" \t\r\n\f\v")]),
+    "complete PEM inside text": Buffer.from(`configuration example:\n${pem}\nend of document\n`),
+    "complete PEM across text stream boundary": Buffer.from("documentation ".repeat(5041) + pem + "end of document\n"),
+    "standalone base64 PEM": Buffer.from(Buffer.from(pem).toString("base64")),
     "wrapped base64 PEM": Buffer.from(Buffer.from(pem).toString("base64").match(/.{1,64}/g).join("\n")),
-    "base64 DER in JSON": Buffer.from(JSON.stringify({ payload: der.toString("base64") })),
+    "standalone base64 DER": Buffer.from(der.toString("base64")),
     "wrapped base64 DER short final line": Buffer.from(der.toString("base64").match(/.{1,80}/g).join("\n")),
     "spaced base64 DER": Buffer.from(der.toString("base64").split("").join(" \n")),
-    "DER across stream boundary": Buffer.concat([Buffer.alloc(65530, 0), der]),
+    "DER across whitespace stream boundary": Buffer.concat([Buffer.alloc(65530, 32), der]),
     "base64 PEM across stream boundary": Buffer.from(" ".repeat(65530) + Buffer.from(pem).toString("base64")),
   };
   for (const [name, contents] of Object.entries(fixtures)) {
@@ -416,15 +433,15 @@ test("manifest states the bounded private-material scan profile and refuses a we
   const result = await created(t);
   const manifest = JSON.parse(await readFile(path.join(result.output, "release-manifest.json"), "utf8"));
   assert.deepEqual(manifest.privateMaterialScan, {
-    profile: "led-control-private-material/v1",
-    scope: "bundle-files-and-all-uncompressed-image-layer-bytes",
-    pem: "literal-private-key-markers",
-    der: "node-crypto-pkcs1-pkcs8-sec1-and-passphrase-required-pkcs8",
-    base64: "one-standard-base64-layer-with-ascii-whitespace",
+    profile: "led-control-private-material/v2",
+    scope: "bundle-regular-files-and-each-image-layer-regular-file-including-deleted",
+    pem: "complete-node-crypto-private-key-blocks-in-utf8-text",
+    der: "standalone-node-crypto-pkcs1-pkcs8-sec1-with-ascii-whitespace",
+    base64: "entire-file-one-standard-base64-layer-with-ascii-whitespace",
     maxDerBytes: 65536,
+    maxPemBlockChars: 131072,
     maxBase64CandidateChars: 131072,
-    oversizedRecognizedCandidates: "reject",
-    notCovered: ["general-secrets", "decryption", "decompression", "other-encodings-or-obfuscation"],
+    notCovered: ["general-secrets", "encrypted-keys-without-passphrase", "embedded-binary-der", "embedded-base64-tokens", "oversized-candidates", "nested-decompression", "other-encodings-or-obfuscation"],
   });
   await updateJson(result.output, "release-manifest.json", (value) => { value.privateMaterialScan = { profile: "none" }; });
   fails(run(result.verifyArgs), /private-material scan profile/);
@@ -563,9 +580,11 @@ test("actual verify rejects secret filenames and PEM content even with recompute
     await checksums(result.output);
     fails(run(result.verifyArgs), /secret filename/);
   });
-  for (const kind of ["PRIVATE KEY", "ENCRYPTED PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY", "OPENSSH PRIVATE KEY"]) await t.test(kind, async (t) => {
+  const ec = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey;
+  const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+  for (const [kind, key, type] of [["PRIVATE KEY", ec, "pkcs8"], ["RSA PRIVATE KEY", rsa, "pkcs1"], ["EC PRIVATE KEY", ec, "sec1"]]) await t.test(kind, async (t) => {
     const result = await created(t);
-    await writeFile(path.join(result.output, "compose.yml"), `-----BEGIN ${kind}-----\nsynthetic-not-a-key\n-----END ${kind}-----\n`);
+    await writeFile(path.join(result.output, "compose.yml"), key.export({ type, format: "pem" }));
     await checksums(result.output);
     fails(run(result.verifyArgs), /private key material/);
   });
@@ -597,8 +616,9 @@ test("actual verify rejects forged policy/source/SBOM/env even after checksum re
 });
 
 test("archive layers cannot hide secret filenames or PEM data and inventory cannot be fabricated", async (t) => {
+  const pem = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ type: "pkcs8", format: "pem" });
   for (const layerFiles of [{ "etc/device.key": "synthetic-not-a-key" }, { "opt/.env.appliance": "GATEWAY_ID=example" },
-    { "opt/value.txt": "-----BEGIN ENCRYPTED PRIVATE KEY-----\nsynthetic-not-a-key" }]) {
+    { "opt/value.txt": pem }]) {
     const result = await fixture(t, { layerFiles });
     fails(run(result.createArgs), /secret filename|private key material/);
   }

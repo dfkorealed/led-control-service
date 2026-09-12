@@ -24,7 +24,7 @@ pnpm gateway:release:ci
 pnpm gateway:appliance:build
 ```
 
-CI 명령은 clean checkout에서 실제 `linux/amd64` **test-only** image/bundle을 만들고, trusted policy·full HEAD로 검증하며 기본 production verify의 거부도 확인한다. Network 없는 read-only container에서 실제 Node 22와 최종 inventory를 확인한 뒤, 명시적 ephemeral RSA CMS backup→verify→drill→disposable restore 테스트를 실행하고 자기 image/container/artifact/key/plaintext를 정리한다. Fixture의 Docker/Compose·macOS compatibility shim은 실제 Pi/ARM64·power-loss/HIL 증거가 아니다. Production audit가 이 gate를 Web/dependency 전에 정확히 한 번 실행한다. Test image와 산출물은 배포하지 않는다.
+CI 명령은 clean checkout에서 실제 `linux/amd64` **test-only** image/bundle을 만들고, trusted policy·full HEAD로 검증하며 기본 production verify의 거부도 확인한다. 검증한 archive의 실제 load→inspect→read-only/network-none run 경계에서 activation과 같은 shell identity 판단으로 daemon ID/OCI labels와 container `.Image`를 결속하고 Node 22·최종 inventory를 확인한다. 이어 명시적 ephemeral RSA CMS backup→verify→drill→disposable restore 테스트를 실행하고 자기 image/container/artifact/key/plaintext를 정리한다. 전체 Compose activation/state의 fixture와 macOS compatibility shim은 실제 Pi/ARM64·power-loss/HIL 증거가 아니다. Production audit가 이 gate를 Web/dependency 전에 정확히 한 번 실행한다. Test image와 산출물은 배포하지 않는다.
 
 기본 production build는 `dist/gateway-appliance/<version>-<full-commit>-<config-prefix>/`에 다음 7개 파일을 생성한다. Dirty build 예외는 없다.
 
@@ -50,6 +50,8 @@ scripts/gateway-appliance-deploy.sh user@raspberry-pi "$BUNDLE"
 ```
 
 Deploy 입력은 loose tar가 아니라 **bundle directory**다. `appliance.env`와 state metadata는 데이터이며 source/eval하지 않는다. Site `.env.appliance`, identity/private key는 전송 bundle에 포함하지 않는다. Checksum/provenance는 서명이 아니므로 trusted policy/full commit·승인된 artifact 전달과 운영 signing/recipient custody는 별도 관문이다. 정확한 검사 범위는 [RELEASE-BUNDLE.md](RELEASE-BUNDLE.md)를 따른다.
+
+Docker 29의 gzip blob SHA, uncompressed layer diff ID, config SHA와 daemon descriptor SHA는 서로 다른 좌표다. 새 14-key env의 descriptor와 config를 구분하며 verifier/activation/state helper를 새 producer보다 먼저 갱신한다. 기존 13-key shell rollback은 기존 config-ID 조건을 유지한다. Content scan v2는 파일 단위 standalone DER/PEM, 전체 base64 key, text 안 complete parseable PEM만 보장한다. Binary 내부 key offset, marker-only 설명, encrypted key/passphrase·임의 secret 탐지를 보장하지 않으며 이전 v1 profile을 조용히 v2로 재인증하지 않는다.
 
 Pi의 승인된 trusted helper directory에서 다음 인터페이스를 사용한다. `activate`는 자체 preflight 후 image/env/health를 확인하고 마지막에만 `current`/`previous`를 바꾼다. 기존 service에 검증된 `current` baseline이 없으면 자동 legacy migration을 하지 않고 거부한다. `rollback`은 임의 tag가 아닌 검증된 `previous`만 선택한다.
 

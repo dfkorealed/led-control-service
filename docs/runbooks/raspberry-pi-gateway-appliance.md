@@ -176,7 +176,9 @@ scripts/gateway-appliance-deploy.sh \
   "$BUNDLE"
 ```
 
-Pi에 bundle이 이미 있으면 동일한 승인 후 `sudo /usr/local/lib/led-control/gateway-appliance-release.sh activate /absolute/bundle --policy-sha256 "$POLICY_SHA"`를 사용한다. Image archive load/config digest, site image 좌표 원자 갱신, bounded matching-image health 뒤에만 `previous`→`current` pointer를 바꾼다. Candidate 실패는 검증된 old release/env/pointer를 복원하고 health를 확인한다. Remote upload staging은 자동 삭제되지 않으므로 운영자가 해당 호출에서 반환된 exact staging 경로만 확인해 정리한다.
+Pi에 bundle이 이미 있으면 동일한 승인 후 `sudo /usr/local/lib/led-control/gateway-appliance-release.sh activate /absolute/bundle --policy-sha256 "$POLICY_SHA"`를 사용한다. Checksum-verified archive load 뒤 exact tag의 daemon ID와 OCI labels를 config/descriptor에 결속하고, site image 좌표 원자 갱신과 captured-ID matching health 뒤에만 `previous`→`current` pointer를 바꾼다. Candidate 실패는 검증된 old release/env/pointer를 복원하고 health를 확인한다. Remote upload staging은 자동 삭제되지 않으므로 운영자가 해당 호출에서 반환된 exact staging 경로만 확인해 정리한다.
+
+새 producer의 env는 config와 `GATEWAY_IMAGE_DESCRIPTOR_DIGEST`를 구분하는 exact 14-key다. Docker 29 `.Id`는 config가 아니라 OCI descriptor일 수 있으므로 이름만 보고 혼용하지 않는다. 새 verifier와 release/common/state helper를 먼저 준비하며, 기존 13-key shell rollback은 config-ID 조건으로 유지한다. Node content profile v2는 각 regular file의 standalone DER/PEM·전체 base64 key·UTF-8 text의 complete parseable PEM만 검사한다. v1 profile 재인증, binary 내부 offset, marker-only 설명, passphrase 없는 encrypted key, arbitrary token/secret 탐지는 범위 밖이다. 세부 bounds와 gzip/OCI 검증은 `apps/gateway/RELEASE-BUNDLE.md`를 따른다.
 
 ### Command requester PII migration 유지보수
 
@@ -214,7 +216,7 @@ docker logs --tail=200 led-control-gateway
 
 상태 파일은 컨테이너의 `/var/run/led-control/health.json`에 있다.
 
-`current`는 승인한 `releases/<releaseId>`, `previous`는 직전 verified release여야 한다(최초 설치 previous 부재는 정상). 실제 `.Image`가 승인한 config digest와 같고 `healthy`인지 확인한다. Rollback은 데이터나 identity를 되돌리지 않으며 검증된 previous가 있을 때만 다음 명령을 쓴다.
+`current`는 승인한 `releases/<releaseId>`, `previous`는 직전 verified release여야 한다(최초 설치 previous 부재는 정상). 실제 `.Image`가 승인된 archive/tag에서 load 후 검증·캡처한 daemon ID(config 또는 결속된 descriptor)와 같고 `healthy`인지 확인한다. Rollback은 데이터나 identity를 되돌리지 않으며 검증된 previous가 있을 때만 다음 명령을 쓴다.
 
 ```bash
 sudo /usr/local/lib/led-control/gateway-appliance-release.sh rollback --policy-sha256 "$POLICY_SHA"

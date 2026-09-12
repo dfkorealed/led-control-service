@@ -21,17 +21,16 @@ const versionPattern = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$
 const maxLayerBytes = 512 * 1024 * 1024;
 const maxImageBytes = 2 * 1024 * 1024 * 1024;
 const privateMaterialScan = {
-  profile: "led-control-private-material/v1",
-  scope: "bundle-files-and-all-uncompressed-image-layer-bytes",
-  pem: "literal-private-key-markers",
-  der: "node-crypto-pkcs1-pkcs8-sec1-and-passphrase-required-pkcs8",
-  base64: "one-standard-base64-layer-with-ascii-whitespace",
+  profile: "led-control-private-material/v2",
+  scope: "bundle-regular-files-and-each-image-layer-regular-file-including-deleted",
+  pem: "complete-node-crypto-private-key-blocks-in-utf8-text",
+  der: "standalone-node-crypto-pkcs1-pkcs8-sec1-with-ascii-whitespace",
+  base64: "entire-file-one-standard-base64-layer-with-ascii-whitespace",
   maxDerBytes: 65536,
+  maxPemBlockChars: 131072,
   maxBase64CandidateChars: 131072,
-  oversizedRecognizedCandidates: "reject",
-  notCovered: ["general-secrets", "decryption", "decompression", "other-encodings-or-obfuscation"],
+  notCovered: ["general-secrets", "encrypted-keys-without-passphrase", "embedded-binary-der", "embedded-base64-tokens", "oversized-candidates", "nested-decompression", "other-encodings-or-obfuscation"],
 };
-const privatePemMarker = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/;
 const fail = (message) => { throw new Error(message); };
 const requireValue = (condition, message) => { if (!condition) fail(message); };
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -127,82 +126,83 @@ function derSequence(bytes, offset) {
   return { body: offset + 2 + count, end: offset + 2 + count + length };
 }
 
-function privateDerType(bytes, sequence) {
-  const { body, end } = sequence;
-  if (bytes[body] === 0x02 && bytes[body + 1] === 1 && [0, 1].includes(bytes[body + 2])) {
-    return { 0x30: "pkcs8", 0x02: "pkcs1", 0x04: "sec1" }[bytes[body + 3]];
-  }
-  // EncryptedPrivateKeyInfo has AlgorithmIdentifier followed by OCTET STRING.
-  // Only Node crypto's explicit missing-passphrase outcome identifies a key;
-  // arbitrary ASN.1 sequences and public SPKI/certificates are not rejected.
-  const algorithm = derSequence(bytes, body);
-  if (algorithm && algorithm.end < end && bytes[algorithm.body] === 0x06 && bytes[algorithm.end] === 0x04) return "pkcs8";
-  return undefined;
+const asciiWhitespace = byte => byte === 32 || (byte >= 9 && byte <= 13);
+function parsesPrivateKey(options) {
+  try { return createPrivateKey(options).type === "private"; } catch { return false; }
 }
-
-function rejectPrivateDer(bytes) {
-  for (let offset = bytes.indexOf(0x30); offset !== -1; offset = bytes.indexOf(0x30, offset + 1)) {
-    const sequence = derSequence(bytes, offset);
-    const type = sequence && privateDerType(bytes, sequence);
-    if (!type) continue;
-    requireValue(sequence.end - offset <= privateMaterialScan.maxDerBytes, "private key material candidate exceeds DER scan bound");
-    if (sequence.end > bytes.length) continue; // The bounded carry completes split DER objects.
-    let detected = false;
-    try {
-      detected = createPrivateKey({ key: bytes.subarray(offset, sequence.end), format: "der", type }).type === "private";
-    } catch (error) {
-      detected = type === "pkcs8" && error.code === "ERR_MISSING_PASSPHRASE";
-    }
-    requireValue(!detected, "private key material is forbidden (DER)");
-  }
+function standalonePrivateDer(bytes) {
+  let start = 0;
+  while (start < bytes.length && asciiWhitespace(bytes[start])) start++;
+  const sequence = derSequence(bytes, start);
+  if (!sequence || sequence.end - start > privateMaterialScan.maxDerBytes || sequence.end > bytes.length
+    || !bytes.subarray(sequence.end).every(asciiWhitespace)) return false;
+  return ["pkcs1", "pkcs8", "sec1"].some(type => parsesPrivateKey({ key: bytes.subarray(start, sequence.end), format: "der", type }));
 }
-
-function rejectPrivateContent(bytes) {
-  const text = bytes.toString("latin1");
-  requireValue(!privatePemMarker.test(text), "private key material is forbidden (PEM)");
-  rejectPrivateDer(bytes);
-}
-
-function rejectPrivateBase64(text) {
-  // One standard base64 layer, either a token in text/JSON or whitespace-
-  // wrapped lines. This is intentionally not a general secret detector or a
-  // recursive decoder. The exact profile and limits are part of the manifest.
-  for (const token of text.matchAll(/[A-Za-z0-9+/=]{32,}/g)) {
-    // A DER SEQUENCE starts with base64 M[A-P]; a PEM header starts with LS0t.
-    // Locating that start also handles surrounding prose after whitespace is
-    // normalized, without assuming an encoding starts at the stream boundary.
-    for (const start of token[0].matchAll(/LS0tLS1CRUdJTi|M[A-P][A-Za-z0-9+/]{2}/g)) {
-      const candidate = token[0].slice(start.index, start.index + privateMaterialScan.maxBase64CandidateChars);
-      const prefix = Buffer.from(candidate.slice(0, 512), "base64");
-      requireValue(!privatePemMarker.test(prefix.toString("latin1")), "private key material is forbidden (base64 PEM)");
-      const sequence = derSequence(prefix, 0);
-      if (!sequence) continue;
-      const algorithm = derSequence(prefix, sequence.body);
-      if (!privateDerType(prefix, sequence) && !(algorithm && prefix[algorithm.body] === 0x06)) continue;
-      requireValue(sequence.end <= privateMaterialScan.maxDerBytes, "private key material candidate exceeds DER scan bound");
-      rejectPrivateDer(Buffer.from(candidate.slice(0, Math.ceil(sequence.end / 3) * 4), "base64"));
-    }
+function completePrivatePem(text, standalone = false) {
+  for (const match of text.matchAll(/-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[\s\S]*?-----END \1-----/g)) {
+    if (standalone && /[^\x09-\x0d ]/.test(text.slice(0, match.index) + text.slice(match.index + match[0].length))) continue;
+    if (match[0].length <= privateMaterialScan.maxPemBlockChars && parsesPrivateKey(match[0])) return true;
   }
+  return false;
+}
+function privateFileScanner() {
+  // A key artifact is a regular file, not arbitrary offsets in ELF libraries
+  // or tar headers/padding. Bounded candidates span chunks but never files.
+  // Defer PEM rejection until EOF confirms the entire file is UTF-8 text.
+  let der = Buffer.alloc(0), derStarted = false, derRestWhitespace = true;
+  let encoded = "", base64 = true, text = true, pem = "", foundPem = false;
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  return {
+    update(chunk) {
+      if (derRestWhitespace) {
+        let start = 0;
+        if (!derStarted) while (start < chunk.length && asciiWhitespace(chunk[start])) start++;
+        if (start < chunk.length) {
+          derStarted = true;
+          const take = Math.min(privateMaterialScan.maxDerBytes - der.length, chunk.length - start);
+          der = Buffer.concat([der, chunk.subarray(start, start + take)]);
+          derRestWhitespace = chunk.subarray(start + take).every(asciiWhitespace);
+        }
+      }
+      if (base64) {
+        const part = chunk.toString("latin1").replace(/[\x09-\x0d ]/g, "");
+        base64 = /^[A-Za-z0-9+/=]*$/.test(part) && encoded.length + part.length <= privateMaterialScan.maxBase64CandidateChars;
+        if (base64) encoded += part;
+      }
+      if (text) {
+        text = !/[\x00-\x08\x0e-\x1f\x7f]/.test(chunk.toString("latin1"));
+        try {
+          const decoded = decoder.decode(chunk, { stream: true });
+          if (text && !foundPem) {
+            const combined = pem + decoded;
+            foundPem = completePrivatePem(combined);
+            pem = combined.slice(-privateMaterialScan.maxPemBlockChars);
+          }
+        } catch { text = false; }
+      }
+    },
+    finish() {
+      requireValue(!derRestWhitespace || !standalonePrivateDer(der), "private key material is forbidden (standalone DER)");
+      if (text) { try { decoder.decode(); } catch { text = false; } }
+      requireValue(!text || !foundPem, "private key material is forbidden (complete PEM)");
+      if (base64 && encoded.length > 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+        const decoded = Buffer.from(encoded, "base64");
+        if (decoded.toString("base64").replace(/=+$/, "") !== encoded.replace(/=+$/, "")) return;
+        requireValue(!standalonePrivateDer(decoded) && !completePrivatePem(decoded.toString("utf8"), true), "private key material is forbidden (standalone base64)");
+      }
+    },
+  };
 }
 
 async function digestRange(filename, start = 0, size, scanSecrets = true) {
   const hash = createHash("sha256");
-  let tail = Buffer.alloc(0);
-  let base64Tail = "";
+  const scanner = scanSecrets ? privateFileScanner() : undefined;
   if (size === 0) return hash.digest("hex");
   for await (const chunk of createReadStream(filename, { start, ...(size === undefined ? {} : { end: start + size - 1 }) })) {
     hash.update(chunk);
-    if (scanSecrets) {
-      const bytes = Buffer.concat([tail, chunk]);
-      rejectPrivateContent(bytes);
-      tail = bytes.subarray(-privateMaterialScan.maxDerBytes);
-      // Keep a separate normalized carry so arbitrary ASCII whitespace and
-      // short final base64 lines cannot consume or split the candidate window.
-      const base64Text = base64Tail + chunk.toString("latin1").replace(/[\x09-\x0d ]/g, "");
-      rejectPrivateBase64(base64Text);
-      base64Tail = base64Text.slice(-privateMaterialScan.maxBase64CandidateChars);
-    }
+    scanner?.update(chunk);
   }
+  scanner?.finish();
   return hash.digest("hex");
 }
 
@@ -260,7 +260,7 @@ function validateInventory(value) {
   return value;
 }
 
-// docker save contains uncompressed tar layers. Index bytes in-place: never
+// Layers are raw tar after bounded transport decoding. Index bytes in-place: never
 // extract an untrusted archive to disk or follow its paths/symlinks. OS layer
 // symlinks are normal; release-directory symlinks are separately forbidden.
 async function tarEntries(filename, start = 0, size) {
@@ -489,6 +489,7 @@ async function inspectArchiveLayers(filename, staging) {
   requireValue(Array.isArray(record.RepoTags) && record.RepoTags.length === 1 && Array.isArray(record.Layers) && record.Layers.length > 0, "image archive must have one tag and nonempty layers");
   const reference = record.RepoTags[0];
   requireValue(typeof reference === "string" && /^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(reference), "unsafe image repository/tag");
+  for (const entry of entries) if (entry.type === "0" && !record.Layers.includes(entry.name)) await digestRange(filename, entry.offset, entry.size);
   const config = await tarJson(filename, byName.get(record.Config));
   const diffIds = config.value.rootfs?.diff_ids;
   requireValue(Array.isArray(diffIds) && diffIds.length === record.Layers.length && diffIds.length <= 128
@@ -506,8 +507,9 @@ async function inspectArchiveLayers(filename, staging) {
     requireValue(layer?.type === "0", "missing image layer");
     const decoded = await decodeImageLayer(filename, layer, path.join(staging, `${index}.tar`), maxImageBytes - decodedBytes, kinds.get(name));
     decodedBytes += decoded.size;
-    requireValue(`sha256:${await digestRange(decoded.filename, decoded.offset, decoded.size)}` === diffIds[index], "image layer digest mismatch");
+    requireValue(`sha256:${await digestRange(decoded.filename, decoded.offset, decoded.size, false)}` === diffIds[index], "image layer digest mismatch");
     const members = await tarEntries(decoded.filename, decoded.offset, decoded.size);
+    for (const member of members) if (member.type === "0") await digestRange(decoded.filename, member.offset, member.size);
     // OCI whiteouts remove only lower-layer entries, regardless of their tar
     // ordering relative to same-layer additions. First mask the old inventory
     // for every deleted/opaque ancestor (including the image root), then apply
@@ -635,7 +637,7 @@ async function verifyBundle(options) {
     requireValue(name !== checksumFile && !checksumPaths.includes(name), "duplicate/self checksum path");
     checksumPaths.push(name);
     requireValue(files.includes(name), "missing checksum target");
-    requireValue(await digestRange(path.join(directory, name)) === match[1], `checksum mismatch: ${name}`);
+    requireValue(await digestRange(path.join(directory, name), 0, undefined, !/^gateway-image-linux-(?:arm64|amd64)\.tar$/.test(name)) === match[1], `checksum mismatch: ${name}`);
   }
   requireValue(equal(checksumPaths, files.filter((name) => name !== checksumFile)), "checksum closure mismatch (extra/missing/unsorted file)");
   const manifest = await readJson(path.join(directory, "release-manifest.json"), true);
@@ -726,7 +728,7 @@ async function createBundle(options) {
     await writeFile(path.join(output, "sbom.spdx.json"), canonicalJson(makeSbom(manifest, suppliedInventory, policy)), { flag: "wx" });
     await writeFile(path.join(output, "appliance.env"), applianceEnv(manifest), { flag: "wx" });
     const lines = [];
-    for (const file of await bundleFiles(output)) lines.push(`${await digestRange(path.join(output, file))}  ${file}\n`);
+    for (const file of await bundleFiles(output)) lines.push(`${await digestRange(path.join(output, file), 0, undefined, file !== manifest.image.archive)}  ${file}\n`);
     await writeFile(path.join(output, checksumFile), lines.join(""), { flag: "wx" });
     await verifyBundle({ bundle: output, policy: policyFile, "allow-test-mode": testMode, "expected-commit": metadata.gitCommit });
     // Catch source changes while Docker metadata/files were being assembled.
