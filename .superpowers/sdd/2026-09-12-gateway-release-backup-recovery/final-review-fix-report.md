@@ -2,7 +2,7 @@
 
 Date: 2026-09-13 (Asia/Seoul). Worktree `/Users/kim-jh/Documents/led-control-service/.worktrees/p0p1-platform-gateway-release`, branch `codex/p0p1-platform-gateway-release`. Review base: `344bd6b9e1ff78d7ded791513ab0442c5e4e7edc`.
 
-Status: implementation and serial host verification complete: full state **98/98**, combined current behavior **358/358**, Gateway contracts **30/30**, Bash/Node syntax and diff PASS. Functional commit, clean canonical Docker gate and production audit follow this report checkpoint. This report does not reuse the previous Task 4's 343/343, state 85/85 or Docker results as fresh evidence. No subagents, merge or push. Only ephemeral recipients and disposable fixtures are used; no key/passphrase/payload contents or plaintext tar files are logged/committed.
+Status: **The scoped Important is implemented and software-verified.** Full state **98/98**, combined current behavior **358/358**, Gateway contracts **30/30**, Bash/Node syntax and diff PASS. Functional commit **`0f12135fe2503d71156b006d3e1d658fca490634`** passed both the committed-clean canonical Docker gate and full production audit serially. This final evidence-only commit is identified by `docs(gateway): record bounded state gate evidence`; no production code changes follow those gates. Prior Task 4 counts are not reused as fresh evidence. No subagents, merge or push. Only ephemeral recipients and disposable fixtures are used; no key/passphrase/payload contents or plaintext tar files are logged/committed.
 
 ## Finding and operating budget
 
@@ -46,7 +46,29 @@ No schema rename, database migration, image identity/policy change or runtime de
 
 `pnpm --filter @led-control/gateway test:contracts`: **30/30**, fail/cancel/skip/todo 0, **371.336709 ms**. The existing host pnpm-field warning was emitted, not a test failure. `bash -n` on state/common/release/deploy; `node --check` on state test/CI runner/CI test/appliance fixture; `git diff --check`: exit 0, serial after combined.
 
-Pending: functional commit; clean `pnpm gateway:release:ci`; full `pnpm ci:production-audit`; final evidence-only commit. They will run strictly serially, with no documentation writes during the two clean gates.
+Both commands below ran at clean functional commit `0f12135fe2503d71156b006d3e1d658fca490634`. `git status --porcelain -uall` was empty before, between and after them; no document/code edits occurred while either command ran.
+
+| Exact command | Fresh result |
+| --- | --- |
+| `time pnpm gateway:release:ci` | Exit **0**, wall **16m21.113s**. Artifact/activation **223/223** (321067.054292 ms), full state **98/98** (641489.651375 ms), fail/cancel/skip/todo 0, named actual CMS happy flow exactly 1. Real test-only image/v3 scan/default production rejection/load-inspect-run identity/Node inventory and owned cleanup PASS. |
+| `time pnpm ci:production-audit` | Exit **0**, wall **16m41.939s**. Docker/Compose preflight and workspace preparation; MQTT configuration **2/2**; Gateway contracts **30/30**; actual MQTT persistence/ACL **2/2**; in-band canonical **223/223** (321590.973417 ms) + full state **98/98** (642983.220208 ms), named CMS 1/no skip; actual image and owned cleanup; Web main **314.83 kB**/gzip **97.58 kB** and container **5/5**; dependency **820**, Critical **0**/High **2**/Moderate **1**/Low **0**, existing approved exceptions **3**, unexpected **0**. |
+
+The dependency exceptions remain `image-size@1.2.1` GHSA-5p2g-fcmc-qvqq/GHSA-w3rx-r6r6-pgpr (existing fail-closed repository patch) and ExcelJS `uuid@8.3.2` GHSA-w5hq-g745-h8pq (existing scoped v4 consumer evidence). No exception or dependency policy was added/relaxed here. Existing host pnpm-field and amd64-on-arm64 emulation warnings were non-failing and are not hidden.
+
+## Exact artifact and cleanup evidence
+
+Both actual image runs bound Git `0f12135fe2503d71156b006d3e1d658fca490634`, `linux/amd64`, test mode true, version `0.1.0`, policy SHA `18d07a51124e5ee4d62a161606fb16b11460d29c0af10b54319ed833c146dd9e`, lock SHA `bb948af508ce537f33ea65180914a717031e23e42e5140133d4e967cf810c828`, inventory SHA `dab4d3d146b2a2c3c856426df50186cfa3ab66641c91c2cd59f50d5f841dd8cb`, and private-material profile v3. Actual smoke observed Node **22.23.2**, OS **120**/Node **263** packages. The BlueZ 5.82 source hash and exact firmware compatibility stayed unchanged.
+
+Both runs shared config digest `sha256:bacc25d55b2926446b26d08376a956b39a7c097f693fa809cf89a88472a0ed06` and selected runtime leaf `sha256:3df08d0d0fc5782e252028ea7810a3ede44093fe296d39c5ba0e1186a7229e99`. Each separately verified its new attestation/index and bound Docker 29's descriptor-valued daemon ID to container `.Image`:
+
+| Run | Image tag (`led-control-gateway-ci:`) | Descriptor = daemon ID = container `.Image` |
+| --- | --- | --- |
+| Standalone canonical | `cee84ac716344920afd34f635739c488-test` | `sha256:e50ee87ab6c1001e94be68524e51794aba791ba52bfd67c6c5760bd90e326a77` |
+| Full-audit in-band | `f4526b36abc6448b8a542395f833ca50-test` | `sha256:6a9e63642f933287da52da04f39b5194a506723978200b5ee3fad03a88ee87be` |
+
+Exact release closure in each run: `appliance.env`, `checksums.sha256`, `compose.yml`, `docker/seccomp-bluez-mesh.json`, `gateway-image-linux-amd64.tar`, `release-manifest.json`, `sbom.spdx.json`. Release ID: `0.1.0-0f12135fe2503d71156b006d3e1d658fca490634-bacc25d55b292644-test`. This seven-file release bundle is distinct from the three-file encrypted state artifact described above.
+
+Both gates reported successful removal of owned images, containers, artifacts, ephemeral keys and plaintext. Post-audit read-only checks, with a working Docker daemon, independently confirmed both exact CI roots (`/private/tmp/gateway-release-ci-jGqxm2`, `/private/tmp/gateway-release-ci-mPMz49`) absent as file/directory/symlink, both Gateway image tags and `led-control-web:test` absent, and all four exact nonce-bound smoke/inventory container names absent. No global prune or unrelated-resource deletion occurred. Builds used warm cache and amd64 emulation: shared config/leaf hashes do not establish uncached byte-identical reproducibility or production ARM64/Pi readiness.
 
 ## Remaining boundaries
 
