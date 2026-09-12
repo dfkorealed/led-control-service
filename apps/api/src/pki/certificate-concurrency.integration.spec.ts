@@ -157,8 +157,15 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
     }
     await Promise.all([firstIssuance, secondIssuance]);
     expect(ca.signCsr).toHaveBeenCalledTimes(2);
-    expect(await first.gatewayCertificate.count({ where: { purpose: "mqtt", status: "active" } })).toBe(1);
-    expect(await first.gatewayCertificate.count({ where: { purpose: "mqtt", status: "replaced", replacedById: { not: null } } })).toBe(1);
+    const [oldMqtt, newMqtt] = await first.gatewayCertificate.findMany({
+      where: { fingerprint: { in: ["0".repeat(63) + "B", "0".repeat(63) + "C"] } },
+      orderBy: { fingerprint: "asc" },
+      select: { id: true, fingerprint: true, purpose: true, status: true, replacedById: true }
+    });
+    expect(oldMqtt).toMatchObject({ fingerprint: "0".repeat(63) + "B", purpose: "mqtt", status: "replaced" });
+    expect(newMqtt).toMatchObject({ fingerprint: "0".repeat(63) + "C", purpose: "mqtt", status: "active", replacedById: null });
+    expect(oldMqtt.replacedById).toBe(newMqtt.id);
+    expect(oldMqtt.replacedById).not.toBe(oldMqtt.id);
     expect(await first.certificateRevocationReconciliation.count({ where: { cancelledAt: { not: null } } })).toBe(2);
   });
 
