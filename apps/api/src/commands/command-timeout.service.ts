@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS } from "@led-control/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -7,17 +7,56 @@ const DELIVERY_TIMEOUT_MS = 15 * 60_000;
 
 @Injectable()
 export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(CommandTimeoutService.name);
   private timer: NodeJS.Timeout | null = null;
+  private activeBatch: Promise<void> | null = null;
+  private stopPromise: Promise<void> | null = null;
+  private stopped = false;
 
   constructor(private readonly prisma: PrismaService) {}
 
   onModuleInit() {
-    void this.closeExpired();
-    this.timer = setInterval(() => void this.closeExpired(), 1000);
+    this.stopped = false;
+    void this.runScheduledBatch();
+    this.timer = setInterval(() => void this.runScheduledBatch(), 1000);
   }
 
   onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+    return this.stopAndDrain();
+  }
+
+  stopAndDrain() {
+    if (!this.stopPromise) {
+      this.stopped = true;
+      if (this.timer) clearInterval(this.timer);
+      this.timer = null;
+      this.stopPromise = this.activeBatch ?? Promise.resolve();
+    }
+    return this.stopPromise;
+  }
+
+  private runScheduledBatch() {
+    // setInterval does not await asynchronous callbacks, so one stalled DB query must retain the worker slot.
+    if (this.stopped || this.activeBatch) return this.activeBatch ?? Promise.resolve();
+
+    const batch = this.closeExpired()
+      .then(() => undefined)
+      .catch((error) => {
+        this.logger.error(`command timeout batch failed (error=${this.errorKind(error)})`);
+      })
+      .finally(() => {
+        this.activeBatch = null;
+      });
+    this.activeBatch = batch;
+    return batch;
+  }
+
+  private errorKind(error: unknown) {
+    if (
+      typeof error === "object" && error !== null && "code" in error
+      && typeof error.code === "string" && /^P\d{4}$/.test(error.code)
+    ) return error.code;
+    return "UNEXPECTED_ERROR";
   }
 
   async closeExpired(now = new Date()) {

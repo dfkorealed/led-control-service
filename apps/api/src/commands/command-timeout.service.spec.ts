@@ -1,5 +1,6 @@
 import { CommandTimeoutService } from "./command-timeout.service";
 import { OutboxPublisherService } from "../mqtt/outbox-publisher.service";
+import { Logger } from "@nestjs/common";
 
 describe("CommandTimeoutService", () => {
   const now = new Date("2026-07-11T00:16:00.000Z");
@@ -124,6 +125,81 @@ describe("CommandTimeoutService", () => {
     expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
     expect(prisma.command.updateMany).toHaveBeenCalledTimes(2);
   });
+
+  it("does not overlap a slow scheduled timeout batch", async () => {
+    jest.useFakeTimers();
+    const pendingFind = deferred<Array<typeof pendingDispatch>>();
+    const prisma = createPrisma({ dispatches: [] });
+    prisma.commandDispatch.findMany
+      .mockReturnValueOnce(pendingFind.promise)
+      .mockResolvedValue([]);
+    const service = new CommandTimeoutService(prisma as never);
+
+    try {
+      service.onModuleInit();
+      await jest.advanceTimersByTimeAsync(3_000);
+      expect(prisma.commandDispatch.findMany).toHaveBeenCalledTimes(1);
+
+      pendingFind.resolve([]);
+      await Promise.resolve();
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(prisma.commandDispatch.findMany).toHaveBeenCalledTimes(2);
+    } finally {
+      pendingFind.resolve([]);
+      await service.stopAndDrain();
+      jest.useRealTimers();
+    }
+  });
+
+  it("contains scheduled Prisma failures and logs only their recognized error kind", async () => {
+    jest.useFakeTimers();
+    const unhandledRejection = jest.fn();
+    const loggerError = jest.spyOn(Logger.prototype, "error").mockImplementation();
+    process.on("unhandledRejection", unhandledRejection);
+    const prisma = createPrisma({ dispatches: [] });
+    prisma.commandDispatch.findMany.mockRejectedValueOnce({ code: "P1001", detail: "database-secret" });
+    const service = new CommandTimeoutService(prisma as never);
+
+    try {
+      service.onModuleInit();
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(unhandledRejection).not.toHaveBeenCalled();
+      expect(loggerError).toHaveBeenCalledWith("command timeout batch failed (error=P1001)");
+      expect(loggerError.mock.calls.flat().join(" ")).not.toContain("database-secret");
+    } finally {
+      await service.stopAndDrain();
+      process.off("unhandledRejection", unhandledRejection);
+      loggerError.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it("drains the active timeout batch before shutdown resolves", async () => {
+    jest.useFakeTimers();
+    const pendingFind = deferred<Array<typeof pendingDispatch>>();
+    const prisma = createPrisma({ dispatches: [] });
+    prisma.commandDispatch.findMany.mockReturnValueOnce(pendingFind.promise);
+    const service = new CommandTimeoutService(prisma as never);
+    let stopped = false;
+
+    try {
+      service.onModuleInit();
+      await jest.advanceTimersByTimeAsync(0);
+      const stopping = service.onModuleDestroy().then(() => { stopped = true; });
+      await Promise.resolve();
+      expect(stopped).toBe(false);
+
+      pendingFind.resolve([]);
+      await stopping;
+      await jest.advanceTimersByTimeAsync(2_000);
+      expect(prisma.commandDispatch.findMany).toHaveBeenCalledTimes(1);
+    } finally {
+      pendingFind.resolve([]);
+      await service.stopAndDrain();
+      jest.useRealTimers();
+    }
+  });
 });
 
 function createPrisma(options: {
@@ -161,4 +237,10 @@ function timeoutDispatchData(now: Date) {
     errorCode: "COMMAND_TIMEOUT",
     errorMessage: "gateway command deadline exceeded"
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((value) => { resolve = value; });
+  return { promise, resolve };
 }
