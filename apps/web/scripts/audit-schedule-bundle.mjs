@@ -9,6 +9,22 @@ const BROWSER_CONTRACT_SUFFIX = "/packages/shared/dist/esm/automation-action-res
 const SCHEDULE_PANEL_SUFFIX = "/apps/web/src/features/control/automation/ScheduleControlPanel.tsx";
 const CUSTOMER_SHELL_SUFFIX = "/apps/web/src/features/shells/CustomerShell.tsx";
 const OPERATOR_SHELL_SUFFIX = "/apps/web/src/features/operator/OperatorShell.tsx";
+const ROUTE_MODULE_SUFFIXES = [
+  "/monitoring/MonitoringView.tsx",
+  "/control/ControlView.tsx",
+  "/statistics/StatisticsShell.tsx",
+  "/statistics/StatisticsOverviewPage.tsx",
+  "/statistics/analysis/StatisticsAnalysisPage.tsx",
+  "/statistics/reports/StatisticsReportsPage.tsx",
+  "/settings/SettingsShell.tsx",
+  "/settings/SettingsView.tsx",
+  "/settings/users/SiteUsersView.tsx",
+  "/settings/registration/RegistrationSettingsView.tsx",
+  "/settings/floor-plans/FloorPlanSettingsView.tsx",
+  "/settings/floor-plans/FloorEditorRoute.tsx",
+  "/settings/security/PasswordSettingsView.tsx",
+  "/operator/site-admins/SiteAdminManagementView.tsx"
+].map((suffix) => `/apps/web/src/features${suffix}`);
 const UNRELATED_GATEWAY_MESSAGE =
   "destinationAddress must be a BLE Mesh group address from 0xc000 to 0xfeff";
 
@@ -46,6 +62,16 @@ const operatorShellChunk = chunks.find((chunk) =>
   chunk !== mainChunk
   && Object.keys(chunk.modules).map(normalizePath).some((moduleId) => moduleId.endsWith(OPERATOR_SHELL_SUFFIX))
 );
+// A dynamic entry can still be imported eagerly elsewhere. Follow only static
+// edges from the entry and both shells so that such a regression cannot pass.
+const chunksByFileName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
+const eagerChunkFiles = new Set([mainChunk, customerShellChunk, operatorShellChunk]
+  .filter(Boolean).map((chunk) => chunk.fileName));
+for (const fileName of eagerChunkFiles) {
+  for (const importedFile of chunksByFileName.get(fileName)?.imports ?? []) {
+    if (chunksByFileName.has(importedFile)) eagerChunkFiles.add(importedFile);
+  }
+}
 // Vite 5 reports minified JS size from code.length, including this repository's Korean literals.
 const rawBytes = mainChunk.code.length;
 const gzipBytes = gzipSync(mainChunk.code).byteLength;
@@ -59,6 +85,16 @@ if (!customerShellChunk) {
 }
 if (!operatorShellChunk) {
   failures.push("OperatorShell is not isolated in a production chunk outside the main entry");
+}
+for (const routeSuffix of ROUTE_MODULE_SUFFIXES) {
+  const routeChunk = chunks.find((chunk) =>
+    chunk.isDynamicEntry
+    && !eagerChunkFiles.has(chunk.fileName)
+    && Object.keys(chunk.modules).map(normalizePath).some((moduleId) => moduleId.endsWith(routeSuffix))
+  );
+  if (!routeChunk) {
+    failures.push(`${routeSuffix.split("/").at(-1)} is not isolated in a dynamic route chunk outside the role shells`);
+  }
 }
 if (mainModuleIds.some((moduleId) => moduleId.includes("/node_modules/konva/") || moduleId.includes("/node_modules/react-konva/"))) {
   failures.push("the main entry contains Konva modules");

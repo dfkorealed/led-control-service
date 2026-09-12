@@ -328,6 +328,26 @@ describe("App", () => {
     cleanup();
   });
 
+  // Exercise cold role imports before login tests populate React.lazy's module cache.
+  it.each([
+    ["admin", "/monitoring", "모니터링"],
+    ["operator", "/operator/site-admins", "현장 관리자 계정"]
+  ] as const)("keeps the %s role shell behind the shared route loading boundary", async (role, path, completedContent) => {
+    window.history.replaceState({}, "", path);
+    authState.user = {
+      ...authState.user!,
+      organizationType: role === "operator" ? "service_provider" : "customer",
+      role,
+      mustChangePassword: false
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["auth", "me"], { user: authState.user });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(screen.getByRole("status")).toHaveTextContent("화면을 불러오는 중입니다.");
+    expect(await screen.findByRole(role === "operator" ? "heading" : "link", { name: completedContent })).toBeInTheDocument();
+  });
+
   it("로그인은 운영 요약 없이 Calm Operations 브랜드와 실제 폼만 표시한다", async () => {
     authState.user = null;
     const queryClient = new QueryClient();
@@ -416,25 +436,6 @@ describe("App", () => {
       expect(vi.mocked(apiGet).mock.calls.map(([path]) => path)).toEqual(["/auth/me"]);
     }
   );
-
-  it.each([
-    ["admin", "/monitoring", "모니터링"],
-    ["operator", "/operator/site-admins", "현장 관리자 계정"]
-  ] as const)("keeps the %s role shell behind the shared route loading boundary", async (role, path, completedContent) => {
-    window.history.replaceState({}, "", path);
-    authState.user = {
-      ...authState.user!,
-      organizationType: role === "operator" ? "service_provider" : "customer",
-      role,
-      mustChangePassword: false
-    };
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(["auth", "me"], { user: authState.user });
-    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
-
-    expect(screen.getByRole("status")).toHaveTextContent("화면을 불러오는 중입니다.");
-    expect(await screen.findByRole(role === "operator" ? "heading" : "link", { name: completedContent })).toBeInTheDocument();
-  });
 
   it("enters monitoring only after the required password response replaces the principal", async () => {
     window.history.replaceState({}, "", "/settings/users?siteId=site-2");

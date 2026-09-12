@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { CircleAlert, LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
-import { SiteAdminManagementView } from "./site-admins/SiteAdminManagementView";
+import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { IconTooltipButton } from "../../components/ui/IconTooltipButton";
+
+const SiteAdminManagementView = lazy(() => import("./site-admins/SiteAdminManagementView").then((module) => ({ default: module.SiteAdminManagementView })));
 
 export function OperatorShell({ user }: { user: AuthUser }) {
   const queryClient = useQueryClient();
@@ -51,10 +53,12 @@ export function OperatorShell({ user }: { user: AuthUser }) {
       </header>
       <main className="operator-content">
         {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
-        <Routes>
-          <Route path="/operator/site-admins" element={<SiteAdminManagementView />} />
-          <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />
-        </Routes>
+        <Suspense fallback={<RouteLoadingState />}>
+          <Routes>
+            <Route path="/operator/site-admins" element={<SiteAdminManagementView />} />
+            <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   );
